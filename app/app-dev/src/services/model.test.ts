@@ -30,6 +30,9 @@ import {
   joinRequests,
   ledgerParts,
   canSelectBuilding,
+  kstDayStart,
+  kstMonthDay,
+  kstHourMinute,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -269,6 +272,24 @@ test('친구 수락·거절 후 재신청·보낸 요청 취소·친구 삭제·
   r = act(r, 'FRIEND_REJECT', { id: 'haneul' });
   r = act(r, 'FRIEND_REQUEST', { id: 'haneul' });
   assert.equal(r.friends?.find((f) => f.id === 'haneul')?.status, 'sent');
+});
+test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', () => {
+  let s = initialState(true);
+  s.friends!.find((f) => f.id === 'saebom')!.messages.push({
+    id: 'unread',
+    memberId: 'saebom',
+    name: '새봄',
+    color: 'white',
+    text: '아직 안 읽은 편지',
+    at: 1,
+    status: 'sent',
+  });
+  s = act(s, 'FRIEND_MESSAGE', { id: 'saebom', text: '보낸 편지' });
+  assert.equal(s.friends?.find((f) => f.id === 'saebom')?.messages.length, 2);
+  s = act(s, 'FRIEND_DELETE', { id: 'saebom' });
+  const saebom = s.friends?.find((f) => f.id === 'saebom');
+  assert.equal(saebom?.status, 'none');
+  assert.deepEqual(saebom?.messages, []);
 });
 test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정보를 제거한다', () => {
   let s = initialState(true);
@@ -537,7 +558,7 @@ test('정원: 생성 기본 15·1~15 범위·주민 수 미만 불가·가득 �
   assert.equal(capacityOf(strawberry), 15);
 });
 
-test('섬 평균 집중: 이번 주(월요일 시작) 그 섬 집중 합계 ÷ 주민 수', () => {
+test('섬 평균 집중: 이번 주(일요일 시작) 그 섬 집중 합계 ÷ 주민 수', () => {
   const s = initialState(true);
   const now = new Date(2026, 8, 16, 12).getTime();
   for (const island of s.islands)
@@ -554,7 +575,7 @@ test('섬 평균 집중: 이번 주(월요일 시작) 그 섬 집중 합계 ÷ �
   });
   s.records = [
     record('mon', 'soda', 1800, new Date(2026, 8, 14, 9).getTime()),
-    record('last-sun', 'soda', 3600, new Date(2026, 8, 13, 23).getTime()),
+    record('last-sat', 'soda', 3600, new Date(2026, 8, 12, 23).getTime()),
     record('other', 'strawberry', 900, now - 1000),
   ];
   // 소다 섬: 나 1800 + 민지 1320 + 두부 960 + 수아 600 = 4680 ÷ 4명
@@ -563,6 +584,7 @@ test('섬 평균 집중: 이번 주(월요일 시작) 그 섬 집중 합계 ÷ �
   assert.equal(islandWeeklyAverage(s, s.islands[1], now), 1260);
   assert.equal(hoursMinutes(1170), '19분');
   assert.equal(hoursMinutes(15600), '4시간 20분');
+  assert.equal(hoursMinutes(18000), '5시간');
 });
 
 test('카운트업 집중·첫 집중 후 회관 안내는 한 번만·예전 저장본은 표시 안 함', () => {
@@ -625,10 +647,10 @@ test('시간대 일일 퀘스트는 휴식이 낀 실제 집중 구간만 계산
   s = act(s, 'FINISH', { now: at + 9000000 });
   assert.ok(!s.rewards?.some((r) => r.kind === 'personal'));
 });
-test('월요일 00시 이전 주민 기록도 새 주간 랭킹에 남기지 않는다', () => {
+test('일요일 00시 이전 주민 기록도 새 주간 랭킹에 남기지 않는다', () => {
   const s = initialState(true);
-  const before = new Date(2026, 8, 20, 23, 59).getTime(),
-    after = new Date(2026, 8, 21, 0, 0).getTime();
+  const before = new Date(2026, 8, 19, 23, 59).getTime(),
+    after = new Date(2026, 8, 20, 0, 0).getTime();
   currentIsland(s).members.forEach((m) => {
     m.records = [
       {
@@ -646,11 +668,11 @@ test('월요일 00시 이전 주민 기록도 새 주간 랭킹에 남기지 않
   assert.equal(islandWeeklyAverage(s, currentIsland(s), after), 0);
 });
 
-test('주 경계를 넘은 집중은 월요일 00시 이후 구간만 새 주 평균에 포함', () => {
+test('주 경계를 넘은 집중은 일요일 00시 이후 구간만 새 주 평균에 포함', () => {
   const s = initialState(true),
-    sunday = new Date(2026, 8, 20, 23, 0).getTime(),
-    monday = new Date(2026, 8, 21, 1, 0).getTime(),
-    now = new Date(2026, 8, 21, 2, 0).getTime();
+    saturday = new Date(2026, 8, 19, 23, 0).getTime(),
+    sunday = new Date(2026, 8, 20, 1, 0).getTime(),
+    now = new Date(2026, 8, 20, 2, 0).getTime();
   currentIsland(s).members = [];
   s.records = [
     {
@@ -658,14 +680,14 @@ test('주 경계를 넘은 집중은 월요일 00시 이후 구간만 새 주 �
       islandId: s.islandId,
       subject: '주말 집중',
       seconds: 7200,
-      at: monday,
+      at: sunday,
       fish: 120,
       contributed: true,
-      intervals: [{ start: sunday, end: monday }],
+      intervals: [{ start: saturday, end: sunday }],
     },
   ];
   assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 3600);
-  assert.equal(recordSecondsBetween(s.records[0], monday - 1800000, monday + 1800000), 1800);
+  assert.equal(recordSecondsBetween(s.records[0], sunday - 1800000, sunday + 1800000), 1800);
 });
 
 test('오늘 퀘스트를 수정하면 미수령 달성과 보상을 새 기준으로 다시 판정한다', () => {
@@ -739,10 +761,30 @@ test('강퇴한 주민을 목록에서는 제거해도 완료 기록과 기여�
   assert.equal(islandWeeklyAverage(s, currentIsland(s), now), 200);
 });
 
+test('구매 내역 날짜·시각은 기기 시간대가 달라도 Asia/Seoul로 표시한다', () => {
+  // 기기 시간대 대신 UTC 게터로 계산하므로 러너 시간대와 무관하다.
+  // 로스앤젤레스 기기라면 9/15 08:30으로 보이는 순간이 한국 날짜·시각으로 나와야 한다
+  const at = Date.parse('2026-09-15T15:30:00.000Z');
+  const la = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Los_Angeles',
+    month: 'numeric',
+    day: 'numeric',
+  }).format(at);
+  assert.equal(la, '9/15');
+  assert.equal(kstMonthDay(at), '9/16');
+  assert.equal(kstHourMinute(at), '00:30');
+  assert.equal(kstDayStart(dayKey(at)), Date.parse('2026-09-15T15:00:00.000Z'));
+  // 한국 23:59와 다음 날 00:00 경계
+  assert.equal(kstMonthDay(Date.parse('2026-12-31T14:59:00.000Z')), '12/31');
+  assert.equal(kstHourMinute(Date.parse('2026-12-31T14:59:00.000Z')), '23:59');
+  assert.equal(kstMonthDay(Date.parse('2026-12-31T15:00:00.000Z')), '1/1');
+});
+
 test('퀘스트 날짜와 일·주·월 경계는 기기 타임존과 무관하게 Asia/Seoul을 따른다', () => {
   const kst0030 = Date.parse('2026-09-15T15:30:00.000Z');
   assert.equal(dayKey(kst0030), '2026-09-16');
-  assert.equal(weekStart(kst0030), Date.parse('2026-09-13T15:00:00.000Z'));
+  // 랭킹 주는 일요일 00시, 도서관 기록의 주(periodBounds)는 월요일 00시부터
+  assert.equal(weekStart(kst0030), Date.parse('2026-09-12T15:00:00.000Z'));
   assert.deepEqual(periodBounds('일', 0, kst0030), {
     from: Date.parse('2026-09-15T15:00:00.000Z'),
     until: Date.parse('2026-09-16T15:00:00.000Z'),

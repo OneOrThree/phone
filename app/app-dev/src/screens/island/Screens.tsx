@@ -35,6 +35,11 @@ import {
   CAPACITY_MAX,
   inviteCodeOf,
   findIslandByInviteCode,
+  balance,
+  dayKey,
+  kstDayStart,
+  kstMonthDay,
+  kstHourMinute,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
@@ -70,6 +75,19 @@ import {
   WoodBoard,
   QuestNote,
   NoticePaper,
+  st,
+  sheetInput,
+  SheetRow,
+  SheetGroup,
+  RowIcon,
+  Avatar,
+  Preview,
+  IslandThumb,
+  HatArt,
+  HatOn,
+  RaftCatArt,
+  Cta,
+  SearchField,
 } from '@/screens/island/IslandSheet';
 const names: Record<string, string> = {
   waves: '잔잔한 파도',
@@ -89,15 +107,9 @@ const buildingArt: Record<string, string> = {
 const pad = (n: number) => String(n).padStart(2, '0');
 const hhmmss = (n: number) =>
   `${pad(Math.floor(n / 3600))}:${pad(Math.floor(n / 60) % 60)}:${pad(Math.floor(n) % 60)}`;
-// 날짜 "M/D"와 시각 "HH:MM"
-const md = (at: number) => {
-  const d = new Date(at);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-};
-const hm = (at: number) => {
-  const d = new Date(at);
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
+// 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
+const md = kstMonthDay;
+const hm = kstHourMinute;
 function Thumb({ h = 220, warm = false }: any) {
   return (
     <View style={[k.preview, { height: h }]}>
@@ -600,6 +612,22 @@ export function RedesignScreens({ e }: any) {
         reset('focusResult');
       },
     );
+  // 섬 구경 시트의 가입 신청 알림(시트 위 토스트 한 줄)
+  const [sheetToast, setSheetToast] = useState('');
+  useEffect(() => {
+    if (!sheetToast) return;
+    const t = setTimeout(() => setSheetToast(''), 2400);
+    return () => clearTimeout(t);
+  }, [sheetToast]);
+  useEffect(() => setSheetToast(''), [route]);
+  // 나만 미리듣기가 곡 끝까지 재생되면 버튼을 다시 재생 모양으로
+  useEffect(() => {
+    if (!previewAudio) return;
+    const sub = player.addListener?.('playbackStatusUpdate', (status: any) => {
+      if (status?.didJustFinish) setPreviewAudio(false);
+    });
+    return () => sub?.remove();
+  }, [previewAudio]);
   const hallSwitch = (x: string) => {
     go(x === '기록' ? 'stats' : 'construction');
   };
@@ -1349,7 +1377,8 @@ export function RedesignScreens({ e }: any) {
     // 17(집중 중) = 바다 위 시트, 66(섬에서) = 축음기로 다가간 섬 위 시트 + 축음기 간판. 가로 폰은 오른쪽 540 패널
     const scene = !!state.session,
       panel = layout.compact;
-    const startOfToday = new Date(now).setHours(0, 0, 0, 0);
+    // 오늘 = Asia/Seoul 기준 00시부터
+    const startOfToday = kstDayStart(dayKey(now));
     const today = state.records
       .filter((r) => r.at >= startOfToday)
       .reduce((a, r) => a + r.seconds, 0);
@@ -1368,6 +1397,7 @@ export function RedesignScreens({ e }: any) {
           paddingLeft: 22,
           paddingRight: 22 + ins.right,
           paddingBottom: Math.max(22, ins.bottom),
+          gap: 8,
         }
       : layout.tablet
         ? {
@@ -1377,6 +1407,7 @@ export function RedesignScreens({ e }: any) {
             borderRadius: 26,
             boxShadow: '0px 6px 0px ' + C.brown,
             padding: 20,
+            gap: 12,
           }
         : {
             position: 'absolute',
@@ -1390,7 +1421,11 @@ export function RedesignScreens({ e }: any) {
             paddingTop: 10,
             paddingHorizontal: 20,
             paddingBottom: ins.bottom + 12,
+            gap: 12,
           };
+    const gap = panel ? 8 : 12;
+    // 판매 음원: 주민 누구나 섬 물고기로 산다. 누르면 미리듣기·구매 화면
+    const sale = products.filter((p) => p.kind === 'audio');
     return (
       <View style={{ flex: 1 }}>
         <View
@@ -1414,18 +1449,24 @@ export function RedesignScreens({ e }: any) {
                     minWidth: 210,
                     flexDirection: 'row',
                     alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: 18,
-                    paddingHorizontal: 14,
+                    gap: 10,
+                    paddingLeft: 14,
+                    paddingRight: 16,
                     paddingVertical: 6,
                     borderRadius: 999,
-                    backgroundColor: '#FFFDFA99',
+                    backgroundColor: '#FFFDFAB3',
                   }}
                 >
-                  <Txt style={{ fontSize: 12, color: C.muted }}>오늘 집중</Txt>
+                  <Txt
+                    style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600', color: C.muted }}
+                  >
+                    오늘 집중
+                  </Txt>
                   <Txt
                     style={{
+                      marginLeft: 'auto',
                       fontSize: 22,
+                      lineHeight: 31.9,
                       fontWeight: '700',
                       fontVariant: ['tabular-nums'],
                     }}
@@ -1482,92 +1523,154 @@ export function RedesignScreens({ e }: any) {
                   overflow: 'hidden',
                 }}
               >
-                <Pic id="gram" w={panel ? 58 : 72} />
+                <Pic id="bld/gramophone" w={panel ? 58 : 72} />
               </View>
             )}
+            <View
+              style={[
+                k.row,
+                {
+                  justifyContent: 'space-between',
+                  minHeight: panel ? 40 : 44,
+                  paddingLeft: panel ? 8 : scene ? 0 : 100,
+                },
+              ]}
+            >
+              <Txt style={st.h17}>축음기</Txt>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={island.playing ? '일시정지' : '재생'}
+                onPress={() => act('PLAY', { value: !island.playing })}
+                style={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 22,
+                  borderWidth: 2,
+                  borderColor: C.brown,
+                  backgroundColor: C.pink,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0px 3px 0px ' + C.brown,
+                }}
+              >
+                <PlayIcon pause={island.playing} />
+              </Pressable>
+            </View>
             <ScrollView
               style={{ flexGrow: 0, flexShrink: 1 }}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ gap: panel ? 8 : 12 }}
+              // 가로 패널: 왼쪽 열 보유 음원 · 오른쪽 열 음원 사기
+              contentContainerStyle={panel ? { flexDirection: 'row', gap: 16 } : { gap }}
             >
-              <View
-                style={[
-                  k.row,
-                  {
-                    justifyContent: 'space-between',
-                    minHeight: 44,
-                    paddingLeft: panel ? 8 : scene ? 0 : 100,
-                  },
-                ]}
-              >
-                <Txt kind="h17">우리 섬의 소리</Txt>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel={island.playing ? '일시정지' : '재생'}
-                  onPress={() => act('PLAY', { value: !island.playing })}
-                  style={{
-                    width: 44,
-                    height: 44,
-                    borderRadius: 22,
-                    borderWidth: 2,
-                    borderColor: C.brown,
-                    backgroundColor: C.pink,
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    boxShadow: '0px 3px 0px ' + C.brown,
-                  }}
-                >
-                  <PlayIcon pause={island.playing} />
-                </Pressable>
-              </View>
-              <Txt kind="meta">그룹원 누구나 바꿀 수 있어요 · 같은 섬이 함께 들어요</Txt>
-              {island.buildings.includes('gram') ? (
-                <>
-                  <Group flat>
-                    {island.sharedOwned
-                      .filter((x) => names[x])
-                      .map((id) => (
-                        <Row
-                          key={id}
-                          title={names[id]}
-                          lead={<MiniRadio on={island.track === id} />}
-                          selected={island.track === id}
-                          right={
-                            island.track === id && island.playing ? (
-                              <View style={[k.row, { gap: 6 }]}>
-                                <Eq />
-                                <Txt style={{ fontSize: 15, color: C.muted }}>재생 중</Txt>
-                              </View>
-                            ) : undefined
-                          }
-                          onPress={() => setTrack(id)}
-                        />
-                      ))}
-                  </Group>
-                  <Txt kind="section">내 기기 음량</Txt>
-                  <Volume
-                    value={(state.settings as any).volume ?? 0.55}
-                    onChange={(value: number) => act('SETTING', { key: 'volume', value })}
-                  />
-                  <Row
-                    title="나만 음소거"
-                    sub="섬 재생은 그대로, 내 기기만 꺼요"
-                    style={{ paddingHorizontal: 0 }}
-                    tail={
+              <View style={{ flex: panel ? 1 : undefined, minWidth: 0, gap }}>
+                {/* 두 문장은 각각 한 줄로 두고, 좁으면 문장 단위로 줄을 바꾼다(웹 Text는 끝 공백을 남긴다) */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+                  <Txt kind="meta" style={st.meta}>
+                    {'주민 누구나 바꿀 수 있어요 · '}
+                  </Txt>
+                  <Txt kind="meta" style={st.meta}>
+                    같은 섬이 함께 들어요
+                  </Txt>
+                </View>
+                {island.buildings.includes('gram') ? (
+                  <>
+                    <SheetGroup flat>
+                      {island.sharedOwned
+                        .filter((x) => names[x])
+                        .map((id) => (
+                          <SheetRow
+                            key={id}
+                            dense={panel}
+                            title={names[id]}
+                            lead={<MiniRadio on={island.track === id} />}
+                            tone={island.track === id ? 'on' : undefined}
+                            right={
+                              island.track === id && island.playing ? (
+                                <View style={[k.row, { gap: 6 }]}>
+                                  <Eq />
+                                  <Txt style={{ fontSize: 15, lineHeight: 21.75, color: C.muted }}>
+                                    재생 중
+                                  </Txt>
+                                </View>
+                              ) : undefined
+                            }
+                            onPress={() => setTrack(id)}
+                          />
+                        ))}
+                    </SheetGroup>
+                    <Txt kind="section" style={st.sec}>
+                      내 기기 음량
+                    </Txt>
+                    <Volume
+                      dense={panel}
+                      value={(state.settings as any).volume ?? 0.55}
+                      onChange={(value: number) => act('SETTING', { key: 'volume', value })}
+                    />
+                    <View style={[k.row, { minHeight: 44, paddingVertical: 6 }]}>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Txt style={{ fontSize: 16, lineHeight: 20.8, fontWeight: '600' }}>
+                          나만 음소거
+                        </Txt>
+                        <Txt kind="meta" style={{ lineHeight: 17.55 }}>
+                          섬 재생은 그대로, 내 기기만 꺼요
+                        </Txt>
+                      </View>
                       <Toggle
                         label="나만 음소거"
                         value={!state.settings.sound}
                         onChange={(v: boolean) => act('SETTING', { key: 'sound', value: !v })}
                       />
-                    }
-                  />
-                </>
-              ) : (
-                <>
-                  <Txt>축음기를 먼저 지어 주세요.</Txt>
-                  <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
-                </>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Txt>축음기를 먼저 지어 주세요.</Txt>
+                    <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
+                  </>
+                )}
+              </View>
+              {!scene && island.buildings.includes('gram') && (
+                <View style={{ flex: panel ? 1 : undefined, minWidth: 0, gap }}>
+                  <View style={[k.row, { justifyContent: 'space-between' }]}>
+                    <Txt kind="section" style={[st.sec, { marginTop: 0 }]}>
+                      음원 사기
+                    </Txt>
+                    <Txt kind="meta" style={st.meta}>
+                      주민 누구나 섬 물고기로
+                    </Txt>
+                  </View>
+                  <SheetGroup flat>
+                    {sale.map((p) => (
+                      <SheetRow
+                        key={p.id}
+                        dense={panel}
+                        title={p.title}
+                        sub={island.sharedOwned.includes(p.id) ? '보유 중' : `${p.price}마리`}
+                        lead={
+                          <View
+                            style={{
+                              width: 36,
+                              height: 36,
+                              // 시안 .icobtn.sec에 .sec 여백이 겹쳐 들어가 행이 6px 높다
+                              marginTop: 6,
+                              borderRadius: 18,
+                              borderWidth: 2,
+                              borderColor: C.brown,
+                              backgroundColor: C.paper,
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                            }}
+                          >
+                            <PlayIcon />
+                          </View>
+                        }
+                        chevron
+                        onPress={() => go('product', p.id)}
+                      />
+                    ))}
+                  </SheetGroup>
+                </View>
               )}
             </ScrollView>
           </View>
@@ -2817,104 +2920,64 @@ export function RedesignScreens({ e }: any) {
       </IslandSheet>
     );
   if (route === 'tower') {
-    const ranking = [
-      {
-        id: 'me',
-        name: state.name + ' · 나',
-        color: state.color,
-        seconds: state.records
-          .filter((r) => r.islandId === island.id)
-          .reduce((s, r) => s + r.seconds, 0),
-      },
-      ...island.members,
-    ].sort((a, b) => b.seconds - a.seconds);
-    const between = tab === '섬 간 랭킹';
-    // 섬 간 랭킹은 주민 평균 집중(이번 주) 순서
+    // 섬 간 랭킹만 보여 준다(우리 섬 주민 순위 없음). 주민 평균 집중(이번 주) 순서, 매주 일요일 00시 초기화
     const islands = state.islands
-      .filter((i) => !i.closed && i.visibility !== 'private')
+      // 주민 2명 이상인 섬만 순위에 올린다(혼자 섬은 평균이 의미 없어서)
+      .filter((i) => !i.closed && (i.joined || i.visibility !== 'private') && residentCount(i) >= 2)
       .map((i) => ({ i, avg: islandWeeklyAverage(state, i, now) }))
       .sort((a, b) => b.avg - a.avg);
-    const avatar = {
-      borderRadius: 14,
-      backgroundColor: C.sky,
-      borderWidth: 1.5,
-      borderColor: C.brown,
-    };
-    const rankNo = (n: number) => (
-      <Txt
-        style={{
-          width: 26,
-          fontWeight: '800',
-          fontSize: 18,
-          textAlign: 'center',
-        }}
-      >
-        {n + 1}
-      </Txt>
-    );
     return (
       <IslandSheet
         bg="tower"
         sign="bld/observatory"
         title="전망대"
+        tight
         action="섬 찾기"
         actionPress={() => go('explore')}
         onClose={home}
       >
-        <FTabs
-          items={[
-            ['우리 섬 주민', 'group'],
-            ['섬 간 랭킹', 'medal'],
-          ]}
-          value={between ? '섬 간 랭킹' : '우리 섬 주민'}
-          onChange={setTab}
-        />
-        <Txt kind="meta">
-          {between ? '주민 평균 집중 시간 기준' : '이번 주 집중 시간 · 월요일에 새로 시작해요'}
+        <Txt kind="meta" style={st.meta}>
+          주민 평균 집중 시간 · 매주 일요일 00시에 새로 시작해요
         </Txt>
-        <Group>
-          {between
-            ? islands.map(({ i, avg }, n) => (
-                <Row
-                  key={i.id}
-                  title={i.name}
-                  sub={`평균 ${hoursMinutes(avg)} · 주민 ${residentCount(i)}`}
-                  lead={rankNo(n)}
-                  tail={
-                    <View style={{ width: 64 }}>
-                      <Thumb h={44} warm={i.id === 'strawberry'} />
-                    </View>
-                  }
-                  style={n === 0 ? { backgroundColor: '#FFF3CF' } : undefined}
-                  chevron={i.id !== island.id}
-                  onPress={
-                    i.id === island.id
-                      ? undefined
-                      : () => {
-                          setVisited(i.id);
-                          go('visit', i.id);
-                        }
-                  }
-                />
-              ))
-            : ranking.map((m, n) => (
-                <Row
-                  key={m.id}
-                  title={m.name}
-                  // 1위는 아바타 52px
-                  icon={n === 0 ? undefined : 'avatar/' + m.color}
-                  lead={
-                    <>
-                      {rankNo(n)}
-                      {n === 0 && <Pic id={'avatar/' + m.color} w={52} style={avatar} />}
-                    </>
-                  }
-                  right={clock(m.seconds)}
-                  sub={n === 0 ? '이번 주 집중' : undefined}
-                  style={n === 0 ? { backgroundColor: '#FFF3CF' } : undefined}
-                />
-              ))}
-        </Group>
+        {!islands.length && (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            아직 순위에 오른 섬이 없어요
+          </Txt>
+        )}
+        <SheetGroup>
+          {islands.map(({ i, avg }, n) => (
+            <SheetRow
+              key={i.id}
+              title={i.name}
+              sub={`평균 ${hoursMinutes(avg)} · 주민 ${residentCount(i)}`}
+              label={`${n + 1}위 ${i.name}, 평균 ${hoursMinutes(avg)}, 주민 ${residentCount(i)}명`}
+              tone={n === 0 ? 'butter' : undefined}
+              lead={
+                <Txt
+                  style={{
+                    width: 26,
+                    fontSize: 18,
+                    lineHeight: 26.1,
+                    fontWeight: '800',
+                    textAlign: 'center',
+                  }}
+                >
+                  {n + 1}
+                </Txt>
+              }
+              tail={<IslandThumb warm={i.id === 'strawberry'} />}
+              chevron={i.id !== island.id}
+              onPress={
+                i.id === island.id
+                  ? undefined
+                  : () => {
+                      setVisited(i.id);
+                      go('visit', i.id);
+                    }
+              }
+            />
+          ))}
+        </SheetGroup>
       </IslandSheet>
     );
   }
@@ -2939,57 +3002,35 @@ export function RedesignScreens({ e }: any) {
         onBack={back}
         onClose={home}
       >
-        <View>
-          <Field
-            placeholder="섬 이름이나 초대 코드"
-            value={search}
-            onChange={setSearch}
-            inputStyle={{ paddingLeft: 42 }}
-          />
-          <View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: 14,
-              top: 0,
-              bottom: 0,
-              justifyContent: 'center',
-            }}
-          >
-            <Txt style={{ fontSize: 16 }}>🔍</Txt>
-          </View>
-        </View>
-        <Txt kind="meta">
+        <SearchField value={search} onChange={setSearch} placeholder="섬 이름이나 초대 코드" />
+        <Txt kind="meta" style={st.meta}>
           섬 이름이나 초대 코드를 입력해요. 이미 참가한 섬은 소속됨으로 표시돼요.
         </Txt>
-        <Group>
-          {results.map((i) => (
-            <Row
-              key={i.id}
-              title={i.name}
-              sub={`${i.intro} · 주민 ${residentCount(i)}`}
-              chevron={!i.joined}
-              tail={
-                <>
-                  {i.joined && (
-                    <View>
-                      <Badge soft>소속됨</Badge>
-                    </View>
-                  )}
-                  <View style={{ width: 64 }}>
-                    <Thumb h={44} warm={i.id === 'strawberry'} />
-                  </View>
-                </>
-              }
-              onPress={() => {
-                setVisited(i.id);
-                i.id === island.id ? home() : go('visit', i.id);
-              }}
-            />
-          ))}
-        </Group>
-        {!results.length && (
-          <Txt kind="meta">찾는 섬이 없어요. 이름이나 초대 코드를 확인해 주세요.</Txt>
+        {results.length ? (
+          <SheetGroup>
+            {results.map((i) => (
+              <SheetRow
+                key={i.id}
+                title={i.name}
+                sub={`${i.intro} · 주민 ${residentCount(i)}`}
+                chevron={!i.joined}
+                tail={
+                  <>
+                    {i.joined && <Badge soft>소속됨</Badge>}
+                    <IslandThumb warm={i.id === 'strawberry'} />
+                  </>
+                }
+                onPress={() => {
+                  setVisited(i.id);
+                  i.id === island.id ? home() : go('visit', i.id);
+                }}
+              />
+            ))}
+          </SheetGroup>
+        ) : (
+          <Txt kind="meta" style={st.meta}>
+            찾는 섬이 없어요. 이름이나 초대 코드를 확인해 주세요.
+          </Txt>
         )}
       </IslandSheet>
     );
@@ -2999,6 +3040,24 @@ export function RedesignScreens({ e }: any) {
         state.islands.find((i) => i.id === (detail || visited || state.pendingIsland)) ||
         state.islands[1],
       pending = (state.pendingIslands ?? []).includes(i.id) || state.pendingIsland === i.id;
+    const sail = () => {
+      if (state.session) return notify('집중을 마친 뒤 이동해 주세요.');
+      act('TRAVEL_FROM', { name: island.name });
+      setVisited(i.id);
+      go('travel', i.id);
+    };
+    // 승인 필요 섬은 신청만 하고 같은 시트에 토스트 한 줄(승인 대기 화면 없음). 방장이 확인하면 알림
+    const apply = () => {
+      if (state.session) return notify('집중을 마친 뒤 가입해 주세요.');
+      if (isFull(i)) return notify('정원이 가득 찬 섬이에요');
+      act('JOIN', { id: i.id });
+      if (i.approval) setSheetToast('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+      else {
+        act('TRAVEL_FROM', { name: island.name });
+        setVisited(i.id);
+        go(state.onboarded ? 'travel' : 'arrival', i.id);
+      }
+    };
     return (
       <IslandSheet
         bg="tower"
@@ -3006,30 +3065,47 @@ export function RedesignScreens({ e }: any) {
         title="바다 건너 섬"
         tall
         onBack={back}
-        onClose={home}
-        footer={footer(
-          '배 타고 이동',
-          () => {
-            setVisited(i.id);
-            go('travel', i.id);
-          },
-          i.joined ? '소속된 섬' : pending ? '참여 신청됨 · 취소' : '이 섬에 가입',
-          () =>
-            i.joined
-              ? notify('이미 소속된 섬이에요.')
-              : pending
-                ? act('CANCEL_JOIN', { id: i.id })
-                : join(i),
-        )}
+        onClose={state.onboarded ? home : () => replace('chooseIsland')}
+        toast={sheetToast}
+        footer={
+          <Cta
+            title="배 타고 이동"
+            onPress={sail}
+            ghost={
+              i.joined
+                ? '소속된 섬'
+                : pending
+                  ? '참여 신청됨 · 취소'
+                  : i.approval
+                    ? '가입 신청'
+                    : '이 섬에 가입'
+            }
+            onGhost={
+              i.joined
+                ? () => notify('이미 소속된 섬이에요.')
+                : pending
+                  ? () => act('CANCEL_JOIN', { id: i.id })
+                  : apply
+            }
+          />
+        }
       >
-        <Thumb warm h={layout.compact ? 150 : 220} />
-        <Txt kind="h">{i.name}</Txt>
-        <Txt style={{ color: C.muted }}>{i.intro}</Txt>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-          <AvStack list={i.members.slice(0, 3).map((m) => m.color)} />
-          <Txt kind="meta" style={{ flex: 1 }}>
-            {`주민 ${residentCount(i)}명 · 평균 ${hoursMinutes(islandWeeklyAverage(state, i, now))}`}
-          </Txt>
+        {/* 가로 패널: 그림과 정보를 나란히 */}
+        <View style={layout.compact ? { flexDirection: 'row', gap: 14 } : { gap: 14 }}>
+          <Preview h={220} w={layout.compact ? 220 : undefined}>
+            <Pic id="island/whole" w="100%" h="100%" cover />
+          </Preview>
+          <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 14 }}>
+            <Txt style={st.h22}>{i.name}</Txt>
+            <Txt style={st.body}>{i.intro}</Txt>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <AvStack list={i.members.slice(0, 3).map((m) => m.color)} />
+              <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
+                {`주민 ${residentCount(i)}명 · 평균 ${hoursMinutes(islandWeeklyAverage(state, i, now))}`}
+              </Txt>
+            </View>
+            <Badge soft>{i.approval ? '승인 필요' : '바로 참여'}</Badge>
+          </View>
         </View>
       </IslandSheet>
     );
@@ -3098,33 +3174,253 @@ export function RedesignScreens({ e }: any) {
         </View>
       </IslandSheet>
     );
-  const productArt = (p: any) =>
-    p.kind === 'audio'
-      ? 'gram'
-      : p.kind === 'island'
-        ? 'island/whole'
-        : p.kind === 'building'
-          ? 'bld/' + buildingArt[p.building || 'hall']
-          : p.kind === 'clothes'
-            ? 'scarf-cat'
-            : '';
-  const productPreview = (p: any, h: number) =>
-    p.kind === 'island' ? (
-      <Thumb h={h} />
-    ) : p.kind === 'building' || p.kind === 'audio' ? (
-      <View
-        style={[k.preview, { height: h, backgroundColor: p.kind === 'audio' ? C.soft : C.sky }]}
+  // 뗏목 위 고양이 그림. 합성 그림은 검정 고양이만 있어서 다른 털색은 뗏목 + 고양이를 겹쳐 그린다
+  const worn = state.equipped.clothes;
+  // 스카프는 합성 그림, 밀짚모자는 그림 위에 도형을 겹친다(모자 쓴 고양이 그림이 없어서)
+  const raftCat = (h: number, scarf = worn === 'scarf', hat = worn === 'straw-hat') =>
+    state.color === 'black' ? (
+      <Preview h={h}>
+        <Pic id={scarf ? 'boat/raft/cat-scarf' : 'boat/raft/cat'} w="92%" h="86%" />
+        {hat && <HatOn image="raft" style={{ width: '92%', height: '86%' }} />}
+      </Preview>
+    ) : (
+      <View>
+        <Boat state={state} h={layout.compact ? 150 : h} scarf={scarf} />
+        {hat && (
+          // Boat 안 고양이 자리(left 0.36h · top 0.12h · 폭 0.42h) + 테두리 2
+          <HatOn
+            image="cat"
+            style={{
+              left: 2 + (layout.compact ? 150 : h) * 0.36,
+              top: 2 + (layout.compact ? 150 : h) * 0.12,
+              width: (layout.compact ? 150 : h) * 0.42,
+              height: (layout.compact ? 150 : h) * 0.42,
+            }}
+          />
+        )}
+      </View>
+    );
+  const owned = (p: any) =>
+    (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
+  const fishStrip = (
+    <Strip label={island.name + ' 물고기'} value={balance(island).toLocaleString() + '마리'} />
+  );
+  if (route === 'shop') {
+    // 탭 2개: 내 꾸미기(옷·장신구) · 우리 섬 꾸미기(섬·건물 테마). 음원은 축음기에서 산다
+    const mine = tab !== '우리 섬 꾸미기',
+      cols = layout.compact ? 4 : 2,
+      items = products.filter((p) =>
+        mine ? p.kind === 'clothes' : p.kind === 'island' || p.kind === 'building',
+      );
+    const card = (p: (typeof products)[number]) => (
+      <Pressable
+        key={p.id}
+        accessibilityRole="button"
+        accessibilityLabel={`${p.title}, ${p.price}마리${owned(p) ? ', 보유 중' : ''}`}
+        onPress={() => go('product', p.id)}
+        style={{
+          flex: 1,
+          padding: 10,
+          gap: 6,
+          borderWidth: 1.5,
+          borderColor: C.brown,
+          borderRadius: 18,
+          backgroundColor: C.paper,
+        }}
       >
-        <Pic id={productArt(p)} w={Math.min(180, h * 0.8)} />
-        {p.kind === 'audio' && (
-          <>
+        <View
+          style={{
+            height: layout.compact ? 84 : 112,
+            borderRadius: 12,
+            backgroundColor: mine ? '#FFF0F3' : '#E3F4FC',
+            alignItems: 'center',
+            justifyContent: 'center',
+            overflow: 'hidden',
+          }}
+        >
+          {p.id === 'straw-hat' ? (
+            <HatArt />
+          ) : p.kind === 'island' ? (
+            <Pic id="island/whole" w="100%" h="100%" cover />
+          ) : (
+            <Pic
+              id={p.kind === 'building' ? 'bld/' + buildingArt[p.building || 'hall'] : 'scarf-cat'}
+              w="92%"
+              h="92%"
+            />
+          )}
+        </View>
+        {owned(p) && (
+          <View
+            style={{
+              position: 'absolute',
+              left: 16,
+              top: 16,
+              paddingHorizontal: 8,
+              paddingVertical: 2,
+              borderWidth: 1.5,
+              borderColor: C.brown,
+              borderRadius: 999,
+              backgroundColor: C.butter,
+            }}
+          >
+            <Txt style={{ fontSize: 11, lineHeight: 15.95, fontWeight: '700' }}>보유 중</Txt>
+          </View>
+        )}
+        <Txt
+          style={{
+            fontSize: layout.compact ? 13 : 14,
+            lineHeight: layout.compact ? 18.85 : 20.3,
+            fontWeight: '700',
+          }}
+        >
+          {p.title}
+        </Txt>
+        <Txt kind="meta" style={{ lineHeight: 18.85 }}>
+          {p.price}마리
+        </Txt>
+      </Pressable>
+    );
+    return (
+      <IslandSheet
+        bg="shop"
+        sign="dog"
+        signKind="npc"
+        title="강아지 상점"
+        tall
+        action="구매 내역"
+        actionPress={() => go('orders')}
+        onClose={home}
+      >
+        {fishStrip}
+        <Chips
+          items={['내 꾸미기', '우리 섬 꾸미기']}
+          value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
+          onChange={setTab}
+        />
+        {mine ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Pic id="dog" w={56} />
+            <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
+              어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
+            </Txt>
+          </View>
+        ) : (
+          <Txt kind="meta" style={st.meta}>
+            섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
+          </Txt>
+        )}
+        {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
+        <View style={{ gap: layout.compact ? 10 : 12 }}>
+          {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
+            <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
+              {Array.from({ length: cols }, (_, c) => {
+                const p = items[r * cols + c];
+                // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
+                return (
+                  <View key={c} style={{ flex: 1, minWidth: 0 }}>
+                    {p && card(p)}
+                  </View>
+                );
+              })}
+            </View>
+          ))}
+        </View>
+      </IslandSheet>
+    );
+  }
+  if (route === 'product') {
+    const p = products.find((p) => p.id === detail) || products[0],
+      audio = p.kind === 'audio',
+      clothes = p.kind === 'clothes',
+      has = owned(p),
+      // 살 수 없는 이유(잔액 부족·건물 미완공 등). 있으면 버튼을 막고 보조 문구로 보여 준다
+      error = has ? null : canBuy(state, p),
+      remaining = Math.max(0, balance(island) - p.price),
+      applied =
+        p.kind === 'island'
+          ? island.theme === p.id
+          : p.kind === 'building'
+            ? island.buildingThemes?.[p.building || 'hall'] === p.id
+            : false;
+    const apply = (value: string) =>
+      act('THEME', { kind: p.kind, building: p.building || 'hall', value });
+    const buy = () =>
+      confirm(
+        p.title + '를 살까요?',
+        `섬 물고기 ${p.price}마리 사용 · 구매 후 ${remaining.toLocaleString()}마리` +
+          (clothes ? '\n산 사람의 보유품이라 섬을 떠나도 남아요.' : ''),
+        () => {
+          act('BUY', { id: p.id });
+          setSheetToast('구매했어요.');
+        },
+        { ok: '구매' },
+      );
+    const cta = !has ? (
+      <Cta
+        note={
+          error ??
+          (audio
+            ? `구매 후 ${remaining.toLocaleString()}마리`
+            : `섬 물고기 ${p.price}마리 사용 · 구매 후 ${remaining.toLocaleString()}마리`)
+        }
+        title={audio ? `섬 물고기 ${p.price}마리로 구매` : `${p.price}마리로 구매`}
+        onPress={buy}
+        disabled={!!error}
+      />
+    ) : clothes ? (
+      <Cta title="내 뗏목에서 갈아입기" onPress={() => walkTo('wardrobe')} />
+    ) : audio ? (
+      <Cta title="축음기에서 듣기" onPress={() => go('sound')} />
+    ) : (
+      <Cta
+        title={applied ? '우리 섬에 적용됨' : '우리 섬에 적용'}
+        // 적용됨은 시안 모양 그대로 두고 누름만 막는다(Btn이 비활성으로 읽음)
+        onPress={
+          applied
+            ? undefined
+            : () => {
+                apply(p.id);
+                setSheetToast('우리 섬에 적용했어요.');
+              }
+        }
+        ghost="기본 외양으로 해제"
+        onGhost={() => {
+          const current =
+            p.kind === 'island' ? island.theme : island.buildingThemes?.[p.building || 'hall'];
+          if (!current || current === 'default') {
+            setSheetToast('이미 기본 외양이에요');
+            return;
+          }
+          apply('default');
+          setSheetToast('기본 외양으로 되돌렸어요.');
+        }}
+      />
+    );
+    return (
+      <IslandSheet
+        bg={audio ? 'gram' : 'shop'}
+        sign={audio ? 'bld/gramophone' : 'dog'}
+        signKind={audio ? '' : 'npc'}
+        title={audio ? '음원 사기' : '상품 상세'}
+        tall
+        onBack={back}
+        onClose={home}
+        footer={cta}
+        toast={sheetToast}
+      >
+        {clothes ? (
+          raftCat(260, p.id === 'scarf', p.id === 'straw-hat')
+        ) : audio ? (
+          <Preview h={220} bg={C.soft}>
+            <Pic id="bld/gramophone" w={170} />
             <View style={{ position: 'absolute', left: 16, bottom: 22 }}>
               <Badge soft>나만 미리듣기</Badge>
             </View>
-            {/* 그림 위 52px 원형 재생 버튼 */}
+            {/* 미리듣기는 내 기기에서만. 섬 재생에는 영향 없음 */}
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={previewAudio ? '미리듣기 멈춤' : '미리듣기'}
+              accessibilityLabel={previewAudio ? '미리듣기 멈춤' : '나만 미리듣기'}
               onPress={() => {
                 try {
                   if (previewAudio) {
@@ -3132,6 +3428,8 @@ export function RedesignScreens({ e }: any) {
                     setPreviewAudio(false);
                   } else {
                     player.replace(assets['audio/' + p.id + '.wav']);
+                    // 미리듣기는 한 번만(끝나면 재생 종료 이벤트로 버튼을 되돌린다)
+                    player.loop = false;
                     player.play();
                     setPreviewAudio(true);
                   }
@@ -3154,270 +3452,51 @@ export function RedesignScreens({ e }: any) {
                 boxShadow: '0px 3px 0px ' + C.brown,
               }}
             >
-              <PlayIcon pause={previewAudio} size={20} />
+              <PlayIcon pause={previewAudio} />
             </Pressable>
-          </>
+          </Preview>
+        ) : p.kind === 'island' ? (
+          <Preview h={220}>
+            <Pic id="island/whole" w="100%" h="100%" cover />
+          </Preview>
+        ) : (
+          <Preview h={220}>
+            <Pic id={'bld/' + buildingArt[p.building || 'hall']} w={180} />
+          </Preview>
         )}
-      </View>
-    ) : (
-      <Boat
-        state={state}
-        h={h}
-
-        scarf={p.id === 'scarf' || state.equipped.clothes === 'scarf'}
-      />
-    );
-  const owned = (p: any) =>
-    (p.currency === 'fish' ? state.owned : island.sharedOwned).includes(p.id);
-  if (route === 'shop') {
-    const group = tab || '내 꾸미기',
-      items = products.filter((p) =>
-        group === '내 꾸미기'
-          ? p.currency === 'fish'
-          : group === '우리 섬의 소리'
-            ? p.kind === 'audio'
-            : p.kind === 'island' || p.kind === 'building',
-      );
-    return (
-      <IslandSheet
-        bg="shop"
-        sign="dog"
-        signKind="npc"
-        title="강아지 상점"
-        tall
-        action="구매 내역"
-        actionPress={() => go('orders')}
-        onClose={home}
-      >
-        <View
-          style={[
-            k.row,
-            {
-              paddingVertical: 10,
-              paddingHorizontal: 14,
-              backgroundColor: '#FFF3CF',
-              borderWidth: 1.5,
-              borderColor: '#E7CF9A',
-              borderRadius: 14,
-            },
-          ]}
-        >
-          <View style={{ flex: 1, gap: 2 }}>
-            <Txt kind="meta">내 물고기</Txt>
-            <Txt style={{ fontSize: 18, fontWeight: '800' }}>
-              {state.fish.toLocaleString()} 마리
-            </Txt>
-          </View>
-          <View style={{ flex: 1, gap: 2 }}>
-            <Txt kind="meta">{island.name} 섬 물고기</Txt>
-            <Txt style={{ fontSize: 18, fontWeight: '800' }}>{island.points.toLocaleString()}P</Txt>
-          </View>
-        </View>
-        <Chips
-          items={['내 꾸미기', '우리 섬 꾸미기', '우리 섬의 소리']}
-          value={group}
-          onChange={setTab}
-        />
-        {group === '내 꾸미기' ? (
-          <View style={[k.row, { gap: 10 }]}>
-            <Pic id="dog" w={56} />
-            <Txt kind="meta" style={{ flex: 1 }}>
-              어서 와, 기다렸어! 물고기로 사는 건 내 배에서 입어.
-            </Txt>
-          </View>
-        ) : group === '우리 섬 꾸미기' ? (
-          <Txt kind="meta">섬 물고기로 사고 여기서 바로 적용해요. 섬 전체가 같이 바뀌어요.</Txt>
-        ) : null}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
-          {items.map((p) => (
-            <Pressable
-              key={p.id}
-              accessibilityRole="button"
-              accessibilityLabel={p.title}
-              onPress={() => go('product', p.id)}
-              style={{
-                // 시트 안: 세로 2열, 가로 폰 4열
-                width: layout.compact ? '22.5%' : '47.5%',
-                borderWidth: 1.5,
-                borderColor: C.brown,
-                borderRadius: 18,
-                backgroundColor: C.paper,
-                overflow: 'hidden',
-                padding: 10,
-                gap: 6,
-              }}
-            >
-              <View
-                style={{
-                  height: layout.compact ? 84 : 112,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  borderRadius: 12,
-                  backgroundColor: ['island', 'building'].includes(p.kind) ? '#E3F4FC' : '#FFF0F3',
-                  overflow: 'hidden',
-                }}
-              >
-                {
-                  <Pic
-                    id={productArt(p)}
-                    w={p.kind === 'island' ? '100%' : '92%'}
-                    h={p.kind === 'island' ? '100%' : '92%'}
-                    cover={p.kind === 'island'}
-                  />
-                }
-              </View>
-              {owned(p) && (
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 16,
-                    top: 16,
-                    borderWidth: 1.5,
-                    borderColor: C.brown,
-                    borderRadius: 999,
-                    backgroundColor: C.butter,
-                    paddingHorizontal: 8,
-                    paddingVertical: 2,
-                  }}
-                >
-                  <Txt style={{ fontSize: 11, fontWeight: '700' }}>보유 중</Txt>
-                </View>
-              )}
-              <Txt style={{ fontSize: 14, fontWeight: '700' }}>{p.title}</Txt>
-              <Txt kind="meta">
-                {p.price} {p.currency === 'fish' ? '물고기' : '섬 물고기'}
-              </Txt>
-            </Pressable>
-          ))}
-        </View>
-        {group === '우리 섬의 소리' && (
-          <>
-            <Txt kind="section">
-              보유 음원 {island.sharedOwned.filter((id) => names[id]).length}
-            </Txt>
-            <Group>
-              {island.sharedOwned
-                .filter((id) => names[id])
-                .map((id) => (
-                  <Row
-                    key={id}
-                    title={names[id]}
-                    sub={id === 'rain' ? '구매 음원' : '기본 음원'}
-                    lead={
-                      <View
-                        style={{
-                          width: 36,
-                          height: 36,
-                          borderRadius: 18,
-                          borderWidth: 2,
-                          borderColor: C.brown,
-                          backgroundColor: C.paper,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <PlayIcon size={16} />
-                      </View>
-                    }
-                    onPress={() => {
-                      try {
-                        player.replace(assets['audio/' + id + '.wav']);
-                        player.play();
-                        setPreviewAudio(true);
-                        notify(names[id] + ' 미리듣기');
-                      } catch {}
-                    }}
-                  />
-                ))}
-            </Group>
-          </>
-        )}
-      </IslandSheet>
-    );
-  }
-  if (route === 'product') {
-    const p = products.find((p) => p.id === detail) || products[0],
-      has = owned(p),
-      currency = p.currency === 'fish' ? '물고기' : '섬 물고기',
-      remaining = (p.currency === 'fish' ? state.fish : island.points) - p.price,
-      applied =
-        p.kind === 'island'
-          ? island.theme === p.id
-          : p.kind === 'building'
-            ? island.buildingThemes?.[p.building || 'hall'] === p.id
-            : false;
-    const apply = (value: string) =>
-      act('THEME', { kind: p.kind, building: p.building || 'hall', value });
-    const buy = () => {
-      const err = canBuy(state, p);
-      if (err) {
-        notify(err);
-        return;
-      }
-      confirm(
-        p.title + '를 살까요?',
-        `${p.price} ${currency} 사용 · 구매 후 ${remaining.toLocaleString()}${p.currency === 'fish' ? '마리' : 'P'}`,
-        () => {
-          act('BUY', { id: p.id });
-          notify('구매했어요.');
-        },
-      );
-    };
-    return (
-      <IslandSheet
-        bg="shop"
-        sign="dog"
-        signKind="npc"
-        title="상품 상세"
-        tall
-        onBack={back}
-        onClose={home}
-        footer={footer(
-          !has
-            ? `${p.price} ${currency}로 구매`
-            : p.currency === 'fish'
-              ? '내 뗏목에서 갈아입기'
-              : p.kind === 'audio'
-                ? '축음기에서 듣기'
-                : applied
-                  ? '우리 섬에 적용됨'
-                  : '우리 섬에 적용',
-          !has
-            ? buy
-            : p.currency === 'fish'
-              ? () => walkTo('wardrobe')
-              : p.kind === 'audio'
-                ? () => go('sound')
-                : () => {
-                    apply(p.id);
-                    notify('우리 섬에 적용했어요.');
-                  },
-          has && ['island', 'building'].includes(p.kind) ? '기본 외양으로 해제' : undefined,
-          () => apply('default'),
-          !has
-            ? `구매 후 ${currency} ${Math.max(0, remaining).toLocaleString()}${p.currency === 'fish' ? '마리' : 'P'}`
-            : undefined,
-          applied,
-        )}
-      >
-        {productPreview(p, layout.compact ? 150 : p.kind === 'clothes' ? 260 : 220)}
-        <Txt kind="h">{p.title}</Txt>
-        {has && <Badge>보유 중{applied ? ' · 적용됨' : ''}</Badge>}
-        <Txt style={{ color: C.muted }}>
+        <Txt style={st.h22}>{p.title}</Txt>
+        {has && !audio && <Badge>보유 중{applied ? ' · 적용됨' : ''}</Badge>}
+        <Txt style={st.body}>
           {p.description}
           {p.kind === 'island' && applied ? ' 지금 우리 섬에 적용돼 있어요.' : ''}
         </Txt>
+        {clothes && (
+          <Txt kind="meta" style={st.meta}>
+            산 사람의 보유품이라 섬을 떠나도 남아요.
+          </Txt>
+        )}
+        {audio && (
+          <Txt kind="meta" style={st.meta}>
+            주민 누구나 살 수 있어요. 사면 섬 전체가 함께 들어요.
+          </Txt>
+        )}
       </IslandSheet>
     );
   }
   if (route === 'orders') {
+    // 내 구매 = 옷·장신구(날짜·시각), 섬 공동 구매 = 이 섬 테마·음원(날짜·구매자, 방장이면 "방장")
     const shared = tab === '섬 공동 구매';
+    const list = state.orders.filter((o) => {
+      const kind = products.find((p) => p.id === o.product)?.kind;
+      return shared ? kind !== 'clothes' && o.islandId === island.id : kind === 'clothes';
+    });
     return (
       <IslandSheet
         bg="shop"
         sign="dog"
         signKind="npc"
         title="구매 내역"
+        tight
         onBack={back}
         onClose={home}
       >
@@ -3429,16 +3508,12 @@ export function RedesignScreens({ e }: any) {
           value={shared ? '섬 공동 구매' : '내 구매'}
           onChange={setTab}
         />
-        <Group>
-          {state.orders
-            .filter((o) =>
-              shared ? o.currency === 'points' && o.islandId === island.id : o.currency === 'fish',
-            )
-            .map((o) => (
-              <Row
+        {list.length ? (
+          <SheetGroup>
+            {list.map((o) => (
+              <SheetRow
                 key={o.id}
                 title={products.find((p) => p.id === o.product)?.title || o.product}
-                // 내 구매 = 날짜·시각, 공동 구매 = 날짜·구매자(방장이면 "방장")
                 sub={
                   shared
                     ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '방장' : o.buyer)]
@@ -3446,97 +3521,128 @@ export function RedesignScreens({ e }: any) {
                         .join(' · ')
                     : `${md(o.at)} · ${hm(o.at)}`
                 }
-                right={o.price + (o.currency === 'fish' ? ' 물고기' : 'P')}
+                right={`${o.price}마리`}
                 chevron
                 onPress={() => go('product', o.product)}
               />
             ))}
-        </Group>
+          </SheetGroup>
+        ) : (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            아직 구매한 물건이 없어요.
+          </Txt>
+        )}
       </IslandSheet>
     );
   }
-  if (route === 'boat')
+  const friends = state.friends ?? [];
+  if (route === 'boat') {
+    const received = friends.filter((f) => f.status === 'received').length;
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title="내 배" onClose={home}>
-        <View style={[k.row, { gap: 14 }]}>
-          <View style={[k.preview, { width: 120, height: 104, borderRadius: 18 }]}>
-            <Pic id="boat/raft" w={96} />
-          </View>
+      <IslandSheet bg="dock" sign="boat/raft" title="내 뗏목" tight onClose={home}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+          <Preview h={64} w={84} radius={16}>
+            {state.color === 'black' ? (
+              <>
+                <Pic
+                  id={worn === 'scarf' ? 'boat/raft/cat-scarf' : 'boat/raft/cat'}
+                  w={76}
+                  h={56}
+                />
+                {worn === 'straw-hat' && <HatOn image="raft" style={{ width: 76, height: 56 }} />}
+              </>
+            ) : (
+              <RaftCatArt
+                color={state.color}
+                scarf={worn === 'scarf'}
+                hat={worn === 'straw-hat'}
+                width={76}
+                height={56}
+              />
+            )}
+          </Preview>
           <View style={{ flex: 1, gap: 4 }}>
-            <Txt kind="h">{state.name}의 작은 배</Txt>
-            <Txt kind="meta">
-              {['뗏목', state.equipped.clothes === 'scarf' ? '바다 스카프' : '']
-                .filter(Boolean)
-                .join(' · ')}
+            <Txt style={st.h22}>{state.name}의 뗏목</Txt>
+            <Txt kind="meta" style={st.meta}>
+              {products.find((p) => p.id === worn)?.title ?? '기본'}
             </Txt>
           </View>
         </View>
-        <Group>
-          {/* v2의 "배 소품 · 선체"·돛단배 아이콘은 정책(기본 뗏목 고정)상 넣지 않는다 */}
-          <Row
+        <SheetGroup>
+          <SheetRow
             title="보유품 꾸미기"
-            sub="옷 갈아입기"
-            icon="boat/raft"
+            sub="옷 · 장신구"
+            lead={<Pic id="scarf-cat" w={28} />}
             chevron
             onPress={() => go('wardrobe')}
           />
-          <Row
+          <SheetRow
+            title="친구 관리"
+            sub="친구 찾기 · 요청 · 친구 목록"
+            lead={<RowIcon name="group" />}
+            right={
+              received ? (
+                <Txt
+                  style={{
+                    fontSize: 15,
+                    lineHeight: 21.75,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  요청 {received}
+                </Txt>
+              ) : undefined
+            }
+            chevron
+            onPress={() => go('friends')}
+          />
+          <SheetRow
             title="내 정보"
             sub="닉네임 · 털색 · 계정"
-            icon={'avatar/' + state.color}
+            lead={<Pic id={'avatar/' + state.color} w={28} />}
             chevron
             onPress={() => go('profile')}
           />
-          <Row
+          <SheetRow
             title="앱 설정"
-            sub="알림 · 소리 · 측정 권한"
-            icon="gram"
+            sub="알림 · 소리 · 측정 권한 · 튜토리얼 다시보기"
+            lead={<RowIcon name="gear" />}
             chevron
             onPress={() => go('settings')}
           />
-        </Group>
+        </SheetGroup>
       </IslandSheet>
     );
+  }
   if (route === 'wardrobe') {
-    const thumb = (key: string, value: string, label: string, picture: string, locked = false) => {
-      const selected = (state.equipped as any)[key] === value;
+    // 가진 옷·장신구만 보여 주고, 누르면 바로 입는다(선택 = 적용)
+    const thumb = (value: string, label: string, picture: React.ReactNode) => {
+      const on = worn === value || (value === 'default' && ['default', 'none'].includes(worn));
       return (
         <Pressable
           key={value}
           accessibilityRole="button"
           accessibilityLabel={label}
-          accessibilityState={{ selected, disabled: locked }}
-          onPress={() =>
-            locked
-              ? island.buildings.includes('shop')
-                ? walkTo('shop')
-                : notify('상점을 지으면 구매할 수 있어요.')
-              : act('EQUIP', { key, value })
-          }
-          style={{ width: 76, gap: 6, opacity: locked ? 0.42 : 1 }}
+          accessibilityState={{ selected: on }}
+          onPress={() => act('EQUIP', { key: 'clothes', value })}
+          style={{ width: 76, gap: 5, alignItems: 'center' }}
         >
           <View
             style={{
+              width: 76,
               height: 76,
               borderWidth: 2,
-              borderColor: selected ? C.brown : '#D9C6B8',
+              borderColor: on ? C.brown : '#D9C6B8',
               borderRadius: 16,
-              backgroundColor: selected ? C.soft : C.paper,
-              boxShadow: selected ? '0px 3px 0px ' + C.brown : 'none',
+              backgroundColor: on ? C.soft : C.paper,
+              boxShadow: on ? '0px 3px 0px ' + C.brown : 'none',
               alignItems: 'center',
               justifyContent: 'center',
             }}
           >
-            {picture === 'FLAG' ? (
-              <View style={{ transform: [{ scale: 0.7 }] }}>
-                <PlainFlag />
-              </View>
-            ) : picture ? (
-              <Pic id={picture} w={64} />
-            ) : (
-              <Txt kind="meta">없음</Txt>
-            )}
-            {selected && (
+            {picture}
+            {on && (
               <View style={{ position: 'absolute', top: -6, right: -6 }}>
                 <CheckDot />
               </View>
@@ -3545,9 +3651,9 @@ export function RedesignScreens({ e }: any) {
           <Txt
             style={{
               fontSize: 12,
-              fontWeight: selected ? '700' : '600',
-              color: selected ? C.ink : C.muted,
-              textAlign: 'center',
+              lineHeight: 17.4,
+              fontWeight: on ? '700' : '600',
+              color: on ? C.ink : C.muted,
             }}
           >
             {label}
@@ -3556,17 +3662,200 @@ export function RedesignScreens({ e }: any) {
       );
     };
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title="내 꾸미기" tall onBack={back} onClose={home}>
-        <Boat
-          state={state}
-          h={layout.compact ? 150 : 200}
-          scarf={state.equipped.clothes === 'scarf'}
-        />
-        <Txt kind="section">옷·장신구</Txt>
-        <View style={k.row}>
-          {thumb('clothes', 'none', '기본', 'cat/black')}
-          {state.owned.includes('scarf') && thumb('clothes', 'scarf', '바다 스카프', 'scarf-cat')}
+      <IslandSheet
+        bg="dock"
+        sign="boat/raft"
+        title="내 꾸미기"
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        {raftCat(260)}
+        <Txt kind="section" style={st.sec}>
+          옷·장신구
+        </Txt>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+          {thumb('default', '기본', <Pic id={'cat/' + state.color} w={60.5} />)}
+          {products
+            .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
+            .map((p) =>
+              thumb(
+                p.id,
+                p.title,
+                p.id === 'straw-hat' ? (
+                  <HatArt w={72} scale={0.7} />
+                ) : (
+                  <Pic id="scarf-cat" w={60.5} />
+                ),
+              ),
+            )}
         </View>
+      </IslandSheet>
+    );
+  }
+  if (route === 'friends') {
+    // 받은 요청 수락·거절 · 보낸 요청 취소 · 친구 ··· → 친구 삭제. 친구 찾기는 헤더
+    const section = (status: string, name: string) => {
+      const list = friends.filter((f) => f.status === status);
+      return (
+        <React.Fragment key={status}>
+          <Txt kind="section" style={st.sec}>
+            {name} {list.length}
+          </Txt>
+          {list.length ? (
+            <SheetGroup>
+              {list.map((f) => (
+                <SheetRow
+                  key={f.id}
+                  title={f.name}
+                  sub={f.island + (status === 'sent' ? ' · 수락 기다리는 중' : '')}
+                  tone={status === 'received' ? 'butter' : undefined}
+                  lead={<Avatar color={f.color} />}
+                  tail={
+                    status === 'received' ? (
+                      <>
+                        <Btn
+                          small
+                          title="수락"
+                          onPress={() => act('FRIEND_ACCEPT', { id: f.id })}
+                        />
+                        <Btn
+                          small
+                          kind="sec"
+                          title="거절"
+                          style={SEC_BTN}
+                          onPress={() => act('FRIEND_REJECT', { id: f.id })}
+                        />
+                      </>
+                    ) : status === 'sent' ? (
+                      <Btn
+                        small
+                        kind="sec"
+                        title="요청 취소"
+                        style={SEC_BTN}
+                        onPress={() => act('FRIEND_CANCEL', { id: f.id })}
+                      />
+                    ) : (
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${f.name} 친구 삭제`}
+                        // 32px 버튼 + 사방 6 = 누르는 영역 44
+                        hitSlop={6}
+                        onPress={() =>
+                          confirm(
+                            '친구를 삭제할까요?',
+                            `${f.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                            () => act('FRIEND_DELETE', { id: f.id }),
+                            { ok: '삭제', destructive: true },
+                          )
+                        }
+                        style={{
+                          width: 32,
+                          height: 32,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Txt
+                          style={{
+                            fontSize: 20,
+                            lineHeight: 29,
+                            fontWeight: '800',
+                            letterSpacing: 1,
+                            color: C.brown,
+                          }}
+                        >
+                          ···
+                        </Txt>
+                      </Pressable>
+                    )
+                  }
+                />
+              ))}
+            </SheetGroup>
+          ) : (
+            <Txt kind="meta" style={st.meta}>
+              아직 없어요.
+            </Txt>
+          )}
+        </React.Fragment>
+      );
+    };
+    return (
+      <IslandSheet
+        bg="dock"
+        sign="boat/raft"
+        title="친구 관리"
+        tall
+        tight
+        action="친구 찾기"
+        actionPress={() => go('friendSearch')}
+        onBack={back}
+        onClose={home}
+      >
+        {section('received', '받은 요청')}
+        {section('sent', '보낸 요청')}
+        {section('friend', '친구')}
+      </IslandSheet>
+    );
+  }
+  if (route === 'friendSearch') {
+    // 닉네임은 대소문자 구분 없이 정확히 일치할 때만 찾는다(정책). 섬이 달라도 친구가 될 수 있다
+    const q = search.trim().toLowerCase();
+    const found = q ? friendDirectory.filter((f) => f.name.toLowerCase() === q) : [];
+    return (
+      <IslandSheet bg="dock" sign="boat/raft" title="친구 찾기" tall onBack={back} onClose={home}>
+        <SearchField label="이름으로 찾기" value={search} onChange={setSearch} />
+        <Txt kind="meta" style={st.meta}>
+          상대가 수락하면 친구가 돼요. 섬이 달라도 괜찮아요.
+        </Txt>
+        {found.length ? (
+          <SheetGroup>
+            {found.map((f) => {
+              const status = friends.find((x) => x.id === f.id)?.status ?? 'none';
+              return (
+                <SheetRow
+                  key={f.id}
+                  title={f.name}
+                  sub={f.island}
+                  lead={<Avatar color={f.color} />}
+                  tail={
+                    status === 'none' ? (
+                      <Btn
+                        small
+                        title="친구 요청"
+                        onPress={() => act('FRIEND_REQUEST', { id: f.id, friend: f })}
+                      />
+                    ) : (
+                      <Btn
+                        small
+                        kind="sec"
+                        style={SEC_BTN}
+                        disabled={status !== 'received'}
+                        title={
+                          status === 'sent'
+                            ? '요청 보냄'
+                            : status === 'friend'
+                              ? '친구'
+                              : '받은 요청'
+                        }
+                        // 친구 찾기는 친구 관리에서 들어오므로 뒤로 가면 받은 요청이 보인다
+                        onPress={back}
+                      />
+                    )
+                  }
+                />
+              );
+            })}
+          </SheetGroup>
+        ) : (
+          !!q && (
+            <Txt kind="meta" style={st.meta}>
+              같은 닉네임을 찾지 못했어요. 닉네임을 정확히 입력해 주세요.
+            </Txt>
+          )
+        )}
       </IslandSheet>
     );
   }
@@ -3594,44 +3883,45 @@ export function RedesignScreens({ e }: any) {
           back();
         }}
       >
-        <Pic
-          id={'avatar/' + profileColor}
-          w={96}
-          style={{
-            alignSelf: 'center',
-            borderRadius: 24,
-            backgroundColor: C.sky,
-          }}
-        />
+        <View style={{ alignItems: 'center' }}>
+          <Avatar color={profileColor} size={96} />
+        </View>
         <AvatarGrid mini value={profileColor} onChange={setProfileColor} />
-        <Field label="닉네임" value={profileName} onChange={setProfileName} />
-        <Group>
-          <Row title="연동 계정" sub={profileName + '님의 GROMO 계정 · Apple'} />
-          <Row
+        <Field
+          label="닉네임"
+          value={profileName}
+          onChange={setProfileName}
+          inputStyle={sheetInput}
+        />
+        <SheetGroup>
+          <SheetRow title="연동 계정" sub={state.name + '님의 GROMO 계정 · Apple'} />
+          <SheetRow
             title="로그아웃"
             chevron
             onPress={() =>
               confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', () => {
                 act('LOGOUT');
-                go('login');
+                reset('login');
               })
             }
           />
-        </Group>
+        </SheetGroup>
         <Btn
-          title={mustTransferHost ? '방장을 위임한 뒤 회원 탈퇴할 수 있어요' : '회원 탈퇴'}
+          title="회원 탈퇴"
           kind="danger"
-          disabled={mustTransferHost}
           style={{ alignSelf: 'center' }}
           onPress={() =>
-            confirm(
-              '회원 탈퇴할까요?',
-              '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요. 모은 물고기는 섬에 남아요.',
-              () => {
-                act('DELETE_ACCOUNT');
-                go('login');
-              },
-            )
+            mustTransferHost
+              ? notify('방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.')
+              : confirm(
+                  '회원 탈퇴할까요?',
+                  '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
+                  () => {
+                    act('DELETE_ACCOUNT');
+                    reset('login');
+                  },
+                  { ok: '탈퇴', destructive: true },
+                )
           }
         />
       </IslandSheet>
@@ -3639,7 +3929,7 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'settings') {
     const toggle = (label: string, key: string, sub?: string) => (
-      <Row
+      <SheetRow
         title={label}
         sub={sub}
         tail={
@@ -3651,42 +3941,62 @@ export function RedesignScreens({ e }: any) {
         }
       />
     );
+    const sec = (name: string) => (
+      <Txt kind="section" style={st.sec}>
+        {name}
+      </Txt>
+    );
+    // 기록 공개 토글은 없다(도서관 기록은 전체 공개 고정)
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title="앱 설정" tall onBack={back} onClose={home}>
-        <Txt kind="section">알림·소리</Txt>
-        <Group flat>
+      <IslandSheet
+        bg="dock"
+        sign="boat/raft"
+        title="앱 설정"
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        {sec('알림·소리')}
+        <SheetGroup flat>
           {toggle('알림', 'notifications')}
           {toggle('소리', 'sound')}
           {toggle('가벼운 진동', 'haptics')}
-        </Group>
-        <Txt kind="section">화면</Txt>
-        <Group flat>{toggle('동작 줄이기', 'reduceMotion', '이동·전환 애니메이션을 줄여요')}</Group>
-        <Txt kind="section">측정</Txt>
-        <Group flat>
+        </SheetGroup>
+        {sec('화면')}
+        <SheetGroup flat>
+          {toggle('동작 줄이기', 'reduceMotion', '이동·전환 애니메이션을 줄여요')}
+        </SheetGroup>
+        {sec('측정')}
+        <SheetGroup flat>
           {toggle('스크린타임 연결', 'permission', '폰 사용 퀘스트와 기록에 써요')}
-          <Row
+          <SheetRow
             title="측정 권한"
             sub="iOS 설정 › 스크린타임에서 바꿔요"
             chevron
             onPress={() => go('permission')}
           />
-        </Group>
-        <Txt kind="meta">
+        </SheetGroup>
+        <Txt kind="meta" style={st.meta}>
           권한을 끄면 폰 사용 퀘스트 달성률은 "확인 필요"로 표시돼요. 기록이 0분으로 표시되지는
           않아요.
         </Txt>
-        <Txt kind="section">앱 정보</Txt>
-        <Group flat>
-          <Row
-            title="튜토리얼 다시 보기"
+        {sec('도움말')}
+        <SheetGroup flat>
+          <SheetRow
+            title="튜토리얼 다시보기"
+            sub="앵무새 안내를 처음부터 다시 봐요"
             chevron
             onPress={() => {
               setGuideStep(0);
               go('guide');
             }}
           />
-          <Row title="버전" sub="R61 · v2" />
-          <Row
+        </SheetGroup>
+        {sec('앱 정보')}
+        <SheetGroup flat>
+          <SheetRow title="버전" sub="R61 · v2" />
+          <SheetRow
             title="이용약관 · 개인정보"
             chevron
             onPress={() =>
@@ -3697,7 +4007,7 @@ export function RedesignScreens({ e }: any) {
               )
             }
           />
-        </Group>
+        </SheetGroup>
       </IslandSheet>
     );
   }
@@ -3799,7 +4109,7 @@ function ChatBubble({ name, text, color, own = false, at = '', large = false, av
     </View>
   );
 }
-function Volume({ value, onChange }: any) {
+function Volume({ value, onChange, dense = false }: any) {
   const [width, setWidth] = useState(1),
     ref = useRef({ value, onChange, width });
   ref.current = { value, onChange, width };
@@ -3813,6 +4123,7 @@ function Volume({ value, onChange }: any) {
         ref.current.onChange(Math.max(0, Math.min(1, e.nativeEvent.locationX / ref.current.width))),
     }),
   ).current;
+  // 시안 .slider: 좌우 4px 안쪽의 6px 막대 + 24px 손잡이. 잡기 쉽게 손잡이 높이만큼 칸을 두고, 늘어난 높이는 위아래 여백으로 되돌린다
   return (
     <View
       accessibilityRole="adjustable"
@@ -3826,7 +4137,13 @@ function Volume({ value, onChange }: any) {
       }
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       {...pan.panHandlers}
-      style={{ height: 22, justifyContent: 'center' }}
+      style={{
+        height: 24,
+        marginHorizontal: 4,
+        marginTop: dense ? -3 : 1,
+        marginBottom: dense ? -7 : -3,
+        justifyContent: 'center',
+      }}
     >
       <View style={{ height: 6, borderRadius: 3, backgroundColor: '#EADFD2' }}>
         <View
@@ -3842,10 +4159,11 @@ function Volume({ value, onChange }: any) {
         pointerEvents="none"
         style={{
           position: 'absolute',
-          left: Math.max(0, (width - 22) * value),
-          width: 22,
-          height: 22,
-          borderRadius: 11,
+          left: width * value - 12,
+          top: 0,
+          width: 24,
+          height: 24,
+          borderRadius: 12,
           borderWidth: 2,
           borderColor: C.brown,
           backgroundColor: C.paper,
@@ -3855,36 +4173,13 @@ function Volume({ value, onChange }: any) {
   );
 }
 
-function PlainFlag() {
-  return (
-    <View style={{ width: 72, height: 84 }}>
-      <View
-        style={{
-          position: 'absolute',
-          left: 14,
-          top: 4,
-          width: 4,
-          height: 78,
-          borderRadius: 2,
-          backgroundColor: C.brown,
-        }}
-      />
-      <View
-        style={{
-          position: 'absolute',
-          left: 18,
-          top: 8,
-          width: 46,
-          height: 30,
-          backgroundColor: C.pink,
-          borderWidth: 1.5,
-          borderColor: C.brown,
-          borderTopLeftRadius: 2,
-          borderTopRightRadius: 10,
-          borderBottomRightRadius: 10,
-          borderBottomLeftRadius: 2,
-        }}
-      />
-    </View>
-  );
-}
+// 시안 .btn.sm.sec: 같은 이름의 .sec(섹션 라벨) 여백 6px이 겹쳐 버튼이 아래로 내려가 있다
+const SEC_BTN = { marginTop: 6 };
+// 친구 찾기 목업 사용자. 닉네임이 같은 사람이 여럿일 수 있다(시안 보리 2명)
+const friendDirectory = [
+  { id: 'saebom', name: '새봄', color: 'white', island: '딸기 섬' },
+  { id: 'minji', name: '민지', color: 'ginger', island: '소다 섬' },
+  { id: 'haneul', name: '하늘', color: 'calico', island: '구름 섬' },
+  { id: 'bori-strawberry', name: '보리', color: 'gray', island: '딸기 섬' },
+  { id: 'bori', name: '보리', color: 'cream', island: '구름 섬' },
+];

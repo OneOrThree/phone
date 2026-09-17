@@ -42,6 +42,7 @@ export const referenceArt: Record<string, ImageSourcePropType> = {
   'fish/few': require('@/assets/reference-v2/fish-few.png'),
   'scarf-cat': require('@/assets/reference-v2/scarf-cat.png'),
   'boat/raft/cat-scarf': require('@/assets/reference-v2/boat-raft-cat-scarf.png'),
+  'boat/raft/cat': require('@/assets/reference-v2/boat-raft-cat.png'),
   'lib/room': require('@/assets/reference-v2/lib-room.jpg'),
   'lib/room-blur': require('@/assets/reference-v2/lib-room-blur.jpg'),
   'L/lib/room': require('@/assets/reference-v2/L-lib-room.jpg'),
