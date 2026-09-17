@@ -154,6 +154,27 @@ class InternalMailboxControllerTest {
     }
 
     @Test
+    @DisplayName("같은 키 + NFD(자모 분리) 본문 재전송은 재생이다 — 저장·비교 모두 NFC 라 409 가 아니다")
+    void replaysWhenRetryArrivesInDifferentUnicodeForm() throws Exception {
+        UUID key = UUID.randomUUID();
+        String nfc = "안녕하세요";
+        String nfd = java.text.Normalizer.normalize(nfc, java.text.Normalizer.Form.NFD);
+        assertThat(nfd).isNotEqualTo(nfc);
+
+        // NFD 로 처음 저장돼도 저장 형태는 NFC 다.
+        String first = mockMvc.perform(store(key, nfd)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.message.content").value(nfc))
+                .andReturn().getResponse().getContentAsString();
+        // 같은 키의 «진짜 재시도»가 다른 정규화 형태로 와도 원 메시지를 재생한다 — 두 방향 모두.
+        mockMvc.perform(store(key, nfc)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.freshlyInserted").value(false))
+                .andExpect(jsonPath("$.message.messageId").value(messageIdOf(first)));
+        mockMvc.perform(store(key, nfd)).andExpect(status().isCreated())
+                .andExpect(jsonPath("$.freshlyInserted").value(false))
+                .andExpect(jsonPath("$.message.messageId").value(messageIdOf(first)));
+    }
+
+    @Test
     @DisplayName("같은 키·다른 본문은 409 IDEMPOTENCY_KEY_REUSED — legacy 와 달리 원문을 되돌리지 않는다(M05)")
     void rejectsSameKeyDifferentText() throws Exception {
         UUID key = UUID.randomUUID();

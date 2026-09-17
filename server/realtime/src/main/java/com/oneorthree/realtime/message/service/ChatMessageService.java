@@ -15,6 +15,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
+import java.text.Normalizer;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
@@ -225,7 +226,12 @@ public class ChatMessageService {
     }
 
     /**
-     * 본문 다듬기 — 양끝 공백을 떼고 규칙을 건다.
+     * 본문 다듬기 — 유니코드 NFC 로 정규화하고 양끝 공백을 뗀 뒤 규칙을 건다.
+     *
+     * <p><b>NFC 가 먼저다.</b> macOS 계열 입력기·일부 IME 는 한글을 NFD(자모 분리)로 내보내 같은 글자가 다른
+     * 바이트열로 온다. 저장 «전에» 한 번 정규화해 두면 저장 형태와 비교 형태가 같아져, 같은 키의 «진짜
+     * 재시도»가 다른 정규화 형태로 와도 우체통의 같은 본문 판정({@link #storeFromMailbox})이 어긋나지
+     * 않는다. 비교만 정규화하고 원문을 저장하면 다음 재시도에서 또 어긋난다 — 그래서 여기 한 곳이다.
      *
      * <p>공백을 떼고 «나서» 비었는지 본다. 순서가 반대면 공백만 있는 말이 통과해 방에 빈 말풍선이
      * 남는다. 길이 검사도 뗀 뒤의 길이로 한다.
@@ -234,7 +240,7 @@ public class ChatMessageService {
         if (raw == null) {
             throw new ChatException(ChatErrorCode.BLANK_CONTENT);
         }
-        String content = raw.strip();
+        String content = Normalizer.normalize(raw, Normalizer.Form.NFC).strip();
         if (content.isEmpty()) {
             throw new ChatException(ChatErrorCode.BLANK_CONTENT);
         }

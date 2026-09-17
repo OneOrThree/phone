@@ -112,6 +112,7 @@ public class InternalIslandMailboxService {
      * 성공으로 끝내고 이 사건은 <b>유실</b>된다. 지금 그 유실이 무해한 이유는 REALTIME 전달 자체가 꺼져
      * 있어서다 — relay 에 REALTIME transport 가 등록돼 있지 않고({@code OutboxRelayService}), realtime 의
      * {@code DisabledRealtimeDelivery} 는 항상 예외를 던진다. 봉투는 내구 보류될 뿐 아무 데도 가지 않는다.
+     * ponytail: 저장/적재 원자성 없음 — 전달을 켜기 전에 적재를 저장 쪽으로 옮기거나 보상 재시도. 지금은 전달이 꺼져 있어 무해.
      * 전달을 켜기 전 게이트: 이 적재를 저장과 같은 쪽으로 옮기거나 보상 재시도를 붙인다(1764 가 같은 자리를
      * 「전달이 꺼져 있어 페이로드 검증 불가」로 게이트에 올린 것과 같은 정직함이다).
      *
