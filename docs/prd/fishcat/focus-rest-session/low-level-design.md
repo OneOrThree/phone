@@ -13,7 +13,7 @@
 | DTO | 공개 필드 |
 | --- | --- |
 | `FocusSessionView` | id:Id, islandId:Id, subject:string, targetMinutes:integer, status:active\|paused, activeSeconds:Seconds, serverNow:Instant, startedAt:Instant, restStartedAt:Instant?, version:Version |
-| `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, allocation:{personalFishAdded:integer,constructionFishAdded:integer}, completedAt:Instant, questProgress:[{id:Id,myRate:number}] |
+| `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, ~~allocation:{personalFishAdded:integer,constructionFishAdded:integer}~~(폐기된 FR-D02 모델의 형태 — 2026-09-18 D6. earnedFish 의 개인 지갑/섬 통장 귀속은 [정책](policy.md) FR-D01 보류 칸이 정해진 뒤 이 필드를 개정한다), completedAt:Instant, questProgress:[{id:Id,myRate:number}] |
 | `FocusMember` | userId:Id, name:string, catColor:catalogKey, appearance:{clothes:catalogKey?,decor:catalogKey?,hull:catalogKey,position:front\|back}, sessionId:Id, subject:string, activeSeconds:Seconds, status:active\|paused |
 | `RestMember` | userId:Id, name:string, catColor:catalogKey, restSeat:integer, restStartedAt:Instant |
 | `FocusSummary` | date:KST date, completedSeconds:Seconds, currentSessionSecondsToday:Seconds, totalSeconds:Seconds, serverNow:Instant |
@@ -61,7 +61,7 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 ### finish — POST /focus-sessions/{sessionId}/finish, 200
 
 입력 `{expectedVersion}`와 키 필수. active/paused에서 가능하다. 새 종료만 version을 검사하고 열린 구간을
-닫은 뒤 정산한다. endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·allocation·
+닫은 뒤 정산한다. endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·~~allocation~~(폐기된 FR-D02 모델의 형태 — D6. 귀속은 FR-D01 보류 칸 결정 뒤 개정)·
 원래 questProgress와 내부 events를 세션별 정산에 고정한다.
 
 같은 키/같은 본문은 공통 receipt를 재생한다. **이미 완료된 같은 세션을 새 키로 finish해도**, 계정 활성·본인·

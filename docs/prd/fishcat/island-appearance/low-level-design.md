@@ -112,7 +112,7 @@ null 맵/null value는 422이며 전체 삭제로 해석하지 않는다. 빈 �
 |personal appearance|userId유일/FK,clothes nullable/decor nullable/hull/position/version.같은user전체외양단위|
 |island appearance|groupId유일/FK,islandThemeId,buildingThemes또는정규화child rows,version.전체결과단위|
 |owned product + inventory aggregate|상점정본재사용.새로운보유판정캐시/중복테이블을외양담당이만들지않음|
-|catalog asset definition|productId별 불변 kind/ownerType/targetBuilding/선체계보/착용호환. 판매 활성 revision과 분리, 퇴역해도 보유품 해석 유지. 문자열prefix로 종류판정 금지|
+|catalog asset definition|productId별 불변 kind/ownerType/targetBuilding~~/선체계보/착용호환~~(선체계보·착용호환은 배 종류 폐지로 대상 소멸 — 2026-09-16 B23·B25, GROMO-1851; 아래 4단계 문단과 같은 뜻). 판매 활성 revision과 분리, 퇴역해도 보유품 해석 유지. 문자열prefix로 종류판정 금지|
 |receipt/outbox|공통내구명령/사건정본.개인또는섬외양변경과같은TX|
 
 정규화한building child rows를개별수정하더라도부모appearance.version을같은TX에서단조증가시켜전체스냅샷의
