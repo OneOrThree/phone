@@ -1371,15 +1371,19 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'NOTICE_SAVE': {
+      // 제목·본문은 공백만 있으면 저장하지 않는다
+      if (!a.title?.trim() || !a.body?.trim()) return state;
+      const title = a.title.trim(),
+        body = a.body.trim();
       const n = i.notices.find((x) => x.id === a.id);
       if (n) {
-        n.title = a.title;
-        n.body = a.body;
+        n.title = title;
+        n.body = body;
       } else
         i.notices.unshift({
           id: uuid(),
-          title: a.title,
-          body: a.body,
+          title,
+          body,
           author: s.name,
           authorId: 'me',
           at: now,

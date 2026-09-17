@@ -406,6 +406,29 @@ test('공지·댓글·그룹 편지 실패와 재시도', () => {
   s = act(s, 'RETRY_MESSAGE', { id: m.id });
   assert.equal(currentIsland(s).messages.at(-1)!.status, 'sent');
 });
+test('공지는 방장만 쓰고 지우며, 공백만 있는 제목·본문은 저장하지 않는다', () => {
+  let s = initialState(true);
+  assert.deepEqual(act(s, 'NOTICE_SAVE', { title: '   ', body: '내용' }), s);
+  assert.deepEqual(act(s, 'NOTICE_SAVE', { title: '제목', body: ' \n ' }), s);
+  s = act(s, 'NOTICE_SAVE', { title: '  공지  ', body: '  본문  ' });
+  const saved = currentIsland(s).notices[0];
+  assert.deepEqual([saved.title, saved.body], ['공지', '본문']);
+  // 주민은 쓰기·수정·삭제를 할 수 없다
+  const resident = act(s, 'TRANSFER', { id: 'minji' });
+  assert.deepEqual(act(resident, 'NOTICE_SAVE', { title: '새 공지', body: '내용' }), resident);
+  assert.deepEqual(
+    act(resident, 'NOTICE_SAVE', { id: saved.id, title: '고침', body: '내용' }),
+    resident,
+  );
+  assert.deepEqual(act(resident, 'NOTICE_DELETE', { id: saved.id }), resident);
+  // 방장은 수정할 때도 공백을 다듬는다
+  s = act(s, 'NOTICE_SAVE', { id: saved.id, title: ' 고친 공지 ', body: ' 고친 본문 ' });
+  assert.deepEqual(
+    [currentIsland(s).notices[0].title, currentIsland(s).notices[0].body],
+    ['고친 공지', '고친 본문'],
+  );
+});
+
 test('승인 요청 1회 처리·방장 위임 이후 관리 제한', () => {
   let s = initialState(true);
   s = act(s, 'ADD_MEMBER');

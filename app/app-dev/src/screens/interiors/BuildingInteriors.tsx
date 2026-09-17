@@ -5057,6 +5057,15 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                 </View>
               ))}
             </View>
+            <Text
+              style={[
+                boardFont(12, 1.45, '400', '#e8faff'),
+                { marginTop: 10, textAlign: 'center' },
+              ]}
+              lineBreakStrategyIOS="hangul-word"
+            >
+              주민 전원이 요구량을 채워야 건설할 수 있어요.
+            </Text>
           </View>
         )}
       </>
