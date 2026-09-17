@@ -70,4 +70,23 @@ class LoginAttemptReplayTest {
         String refresh = jwtProvider.generateRefreshToken(USER, false);
         assertThat(jwtProvider.generateRefreshToken(USER, false)).isNotEqualTo(refresh);
     }
+    /**
+     * 서명키가 바뀌면 재료로는 원본이 «나오지 않는다» — 결정성은 <b>같은 키</b> 에서만 성립한다.
+     *
+     * <p>이 사실이 {@code LoginAttemptService.replayOf} 의 fail-closed 대조(재서명 RT 해시 ↔
+     * {@code auth_sessions.refresh_token_hash})가 존재하는 이유다. 키 링이 없는 지금은 회전 창의
+     * 재생을 포기하는 것이 정답이고, 이 단언이 그 전제를 고정한다.
+     */
+    @Test
+    void replayWithARotatedSecretDoesNotReproduceTheOriginalRefreshToken() {
+        String refresh = jwtProvider.generateRefreshToken(USER, false);
+        LoginTokenMaterials materials = jwtProvider.freezeMaterials(
+                jwtProvider.generateAccessToken(USER, false, 3, SESSION), refresh);
+        JwtProvider rotated = new JwtProvider(SECRET + "-rotated", 3600, 2_592_000, 7_776_000);
+
+        String replayed = rotated.replayRefreshToken(USER, materials);
+
+        assertThat(replayed).isNotEqualTo(refresh);
+        assertThat(TokenHasher.sha256Hex(replayed)).isNotEqualTo(TokenHasher.sha256Hex(refresh));
+    }
 }

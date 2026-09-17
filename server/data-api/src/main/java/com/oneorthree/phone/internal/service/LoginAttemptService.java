@@ -11,6 +11,7 @@ import com.oneorthree.phone.auth.repository.domain.LoginTokenMaterials;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.auth.support.TokenHasher;
 import com.oneorthree.phone.internal.dto.LoginAttemptExecuteRequest;
 import com.oneorthree.phone.internal.dto.LoginAttemptLookupRequest;
 import com.oneorthree.phone.internal.dto.LoginAttemptLookupResponse;
@@ -282,10 +283,25 @@ public class LoginAttemptService {
     }
 
     /**
-     * 고정 재료로 원 토큰을 다시 만들어 결과를 복원한다.
+     * 고정 재료로 원 토큰을 다시 만들어 결과를 복원한다 — <b>원장의 RT 해시와 맞을 때만</b>.
      *
      * <p>새로 발급하지 «않는다». 새로 발급하면 문자열이 달라져 저장된 RT 해시와 어긋나고, 앱이 받은
      * RT 로는 refresh 가 되지 않는다 — 「같은 결과 재생」이 아니라 조용한 세션 파손이다.
+     *
+     * <h2>천장 — 서명키 회전 창에서는 재생이 «불가»하다</h2>
+     * {@code JwtProvider} 는 키가 <b>하나</b>다(키 링·{@code kid} 없음). 재서명은 «지금» 키로 하므로
+     * 복구 창 5분 안에 {@code jwt.secret} 이 배포로 바뀌면 재생 RT 는 최초 발급 바이트와 달라진다.
+     * 그 RT 를 그대로 내보내면 {@code auth_sessions.refresh_token_hash} 와 어긋나, 앱은 refresh 가
+     * 안 되는 토큰을 «성공» 으로 받는다. 그래서 재서명한 RT 의 SHA-256 을 결과 세션 행의 해시와
+     * 대조해 다르면 attempt 를 {@code INVALIDATED} 로 닫고 새 로그인을 요구한다 — 401
+     * ({@code LOGIN_ATTEMPT_UNUSABLE} → Business 가 공개 {@code UNAUTHORIZED} 로 매핑). 같은 대조가
+     * 「결과 세션이 폐기됐다」와 「앱이 그 사이 refresh 로 RT 를 회전시켰다」도 함께 잡는다 — 셋 다
+     * 원 RT 는 이미 죽은 토큰이라 답이 같다.
+     *
+     * <p>ponytail: 회전 창의 재생은 포기한다(fail-closed, 천장 = 키 배포 직후 5분 동안의 응답 유실
+     * 재시도가 재로그인이 된다). 승급 경로는 {@code JwtProvider} 에 키 링을 두고 발급 시 {@code kid}
+     * 를 {@link LoginTokenMaterials} 에 고정해 «그 키» 로 재서명하는 것 — LLD §3 「JWT 에 key ID 를
+     * 싣고 … 이전 키는 검증 전용으로 유지」. 이 티켓 범위 밖이다.
      */
     private LoginSessionResponse replayOf(LoginAttempt attempt) {
         LoginTokenMaterials materials = new LoginTokenMaterials(
@@ -294,9 +310,21 @@ public class LoginAttemptService {
                 attempt.getAccessIssuedAt(), attempt.getAccessExpiresAt(),
                 attempt.getRefreshIssuedAt(), attempt.getRefreshExpiresAt(),
                 attempt.getRefreshJti());
+        String refreshToken = jwtProvider.replayRefreshToken(attempt.getUserId(), materials);
+
+        boolean reproduced = authSessionService.verifySession(attempt.getUserId(), attempt.getSessionId())
+                .filter(AuthSession::isActive)
+                .map(AuthSession::getRefreshTokenHash)
+                .filter(TokenHasher.sha256Hex(refreshToken)::equals)
+                .isPresent();
+        if (!reproduced) {
+            // 닫힌 상태를 원장에 «남긴다» — 다음 재시도가 같은 대조를 반복하며 세션 행 잠금을 잡지 않게.
+            attempt.invalidate();
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
         return new LoginSessionResponse(
                 jwtProvider.replayAccessToken(attempt.getUserId(), attempt.getSessionId(), materials),
-                jwtProvider.replayRefreshToken(attempt.getUserId(), materials),
+                refreshToken,
                 attempt.getUserId(),
                 Boolean.TRUE.equals(attempt.getOnboardingComplete()));
     }
