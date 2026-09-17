@@ -58,5 +58,8 @@ docs/*
 !docs/db/
 # docs/db 안에서도 로컬 운영 스크립트·백업·OS 파일은 계속 제외 (schema.dbml / ChartDB 익스포트만 추적)
 docs/db/*.sh
+# 예외: 스키마 대조 검증 도구는 «팀 공유»다 — 위 규칙이 걸러내려는 로컬 운영 스크립트
+# (run-migration-v*.sh)와 성격이 반대라 추적한다 (GROMO-1912).
+!docs/db/verify-schema-dbml.sh
 docs/db/*_backup.json
 docs/db/.DS_Store

@@ -2,8 +2,31 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V30 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V57 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
+//
+// ── 규약 (GROMO-1912 — V1~V57 을 빈 postgres 에 적용한 실제 스키마와 전수 대조) ──
+// 1. «실제 스키마가 정본이다.» 이 파일은 마이그레이션이 만든 스키마를 옮긴 사본일 뿐이다.
+//    둘이 어긋나면 틀린 쪽은 언제나 이 파일이다 — 대조는 문서끼리가 아니라 실제 DB 와 한다.
+// 2. «미착수 재설계를 미리 그리지 않는다.» character_equipment 가 user_item_id FK 로 그려져 있었으나
+//    실제 컬럼은 item_id 다. GROMO-707 에서 바꿀 «예정»을 정본에 미리 적은 것이고, 그 탓에 외양 도메인
+//    자산 승계 검토가 오도됐다. 계획을 남겨야 하면 컬럼이 아니라 «`미착수` 라고 표시한 주석»으로 남긴다.
+// 3. «`Ref:` 가 곧 DB FK 제약은 아니다.» 실제 제약 없이 논리 관계만 있는 Ref 가 10건 있고, 각각
+//    `// 논리 관계 — DB FK 제약 없음` 주석을 달아 뒀다. 새 Ref 를 적을 때도 이 구분을 유지한다.
+// 4. «미감사 축» — 컬럼의 `default:` 표기는 이번 대조 대상이 아니었다. 39건이 DB 기본값이 아니라
+//    JPA/엔티티 기본값이다(실제 컬럼에는 DEFAULT 가 없다). 이 표기는 그대로 믿지 말 것.
+//    같은 뿌리로 `@CreationTimestamp` 가 붙은 created_at 10개는 DB 에 NOT NULL 이 «없다»
+//    (`nullable = false` 를 안 걸어 생긴 계통 오차) — 해당 줄에 그 사실을 적어 뒀다.
+// 5. `@Enumerated(STRING)` 컬럼을 Enum 이름(slot_type·challenge_category 등)으로 적는 것과
+//    `time` ↔ `time without time zone` 은 드리프트가 아니라 «논리 타입 표기»다 — 실제는 varchar(255) 등.
+// 6. «한 컬럼에는 Ref 를 하나만 적는다.» compare-schema-dbml.py 가 `Ref:` 줄을 컬럼별로 세어
+//    둘 이상이면 「규약 6 위반」으로 낸다(실제 FK 유무와 무관하게 무조건). 현재 위반 0건.
+//    한 컬럼이 두 관계를 가져야 하면 규약과 도구를 «같이» 고친다 — 한쪽만 고치면 조용히 어긋난다.
+// 7. «관계는 항상 단독 `Ref:` 줄로 적는다 — 컬럼 인라인 `[ref: > a.b]` 금지.» 대조 도구는
+//    `^Ref:` 줄만 관계로 읽으므로, 인라인으로 적으면 그 관계는 대조 대상에서 빠진다.
+//    컬럼 속성에서 `ref:` 를 발견하면 「규약 7 위반」으로 낸다.
+//    `ON DELETE` 는 `[delete: cascade]` 로 적고, 표기가 없으면 NO ACTION 으로 대조된다.
+//    6·7 은 주석이 아니라 «검사되는 규약»이다 — 둘 다 위반이 드리프트로 집계된다.
 
 // ────────────────────────────────────────────
 // Enums (도메인별 — 테이블 섹션과 동일 순서)
@@ -191,7 +214,7 @@ Enum bet_type {               // 내기 방식 (미사용 — 사용 컬럼 없�
 // ────────────────────────────────────────────
 
 Table occupations [note: 'occupation 마스터(하이브리드, GROMO-626). Enum occupation 은 유지하고 표시명·정렬을 얹은 마스터. code=Enum occupation name. users.occupation·occupation_default_tags.occupation 이 code 를 FK 참조. migration v27'] {
-  code         varchar(64)  [pk, note: 'Enum occupation name (MIDDLE_SCHOOL 등)']
+  code         varchar(255) [pk, note: 'Enum occupation name (MIDDLE_SCHOOL 등)']
   display_name varchar(255) [not null, note: '표시명 (앱 하드코딩 → 서버 소스오브트루스)']
 
   created_at   timestamptz  [not null, default: `now()`, note: '생성 시각']
@@ -214,7 +237,7 @@ Table occupation_default_tags [note: 'occupation ⇄ default_tags 교차(N:N) �
 
   sort_order      integer     [not null, note: '노출 정렬 순서(추천 목록 오름차순)']
 
-  created_at      timestamptz [not null, default: `now()`, note: '생성 시각']
+  created_at      timestamptz [default: `now()`, note: '생성 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
 
   indexes {
     (occupation, default_tag_id) [unique, note: '중복 시드 방지']
@@ -230,14 +253,14 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
   is_guest                       boolean     [not null, default: false, note: '게스트 계정 여부']
 
   nickname                       varchar(255) [note: '표시 닉네임']
-  country_code                   varchar(2)  [note: 'ISO 3166-1 alpha-2 (예: KR, US)']
+  country_code                   varchar(255) [note: 'ISO 3166-1 alpha-2 (예: KR, US) — 값은 2자지만 컬럼은 varchar(255)']
   language                       varchar(8)  [note: '앱이 적용 중인 표시 언어(BCP-47: ko·en·ja·zh-Hant). 푸시 렌더 언어의 정본. NULL=미보고. 국가와 다른 축. GROMO-1659 D11 · 1692 계약, V50']
 
   occupation                     occupation  [note: '유저 직업/신분 (온보딩에서 수집, 가입 시 null)']
 
   stat_visibility                stat_visibility [not null, note: '유저의 개인통계 공개 여부']
 
-  refresh_token_hash             varchar(512) [note: 'JWT 리프레시 토큰의 SHA-256 해시 (인증) — 평문 저장 금지 GROMO-713']
+  refresh_token_hash             varchar(255) [note: 'JWT 리프레시 토큰의 SHA-256 해시 (인증) — 평문 저장 금지 GROMO-713']
 
   device_token                   varchar(512) [note: 'FCM registration token (서버 푸시 공용 — 리그·미접속 등). GROMO-528']
 
@@ -247,7 +270,7 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
 
   character_trial_anchor_at      timestamptz [note: '누끼 생성 trial(7일 무제한) 기준 시각 — 유저가 쿼터를 처음 조회할 때 1회 박힘. 배포일 상수 대신 유저별 첫 접촉을 쓰는 이유는 앱 업데이트 시점이 유저마다 달라도 trial 7일을 온전히 주기 위함. NULL = 아직 기능 미접촉. migration v26']
 
-  created_at                     timestamptz [not null, default: `now()`, note: '가입 시각']
+  created_at                     timestamptz [default: `now()`, note: '가입 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
   updated_at                     timestamptz
   is_deleted                     boolean [not null, default: false, note: '회원탈퇴 삭제 대기 플래그 — 동의 보관기간 경과 후 배치 하드 삭제(retention→purge)']
 
@@ -285,6 +308,7 @@ Table user_screen_time_settings [note: '유저별 스크린타임 권한·목표
   previous_goal_minutes          integer     [note: '직전 목표(분) — 오늘 첫 변경 직전 값 = 어제 유효했던 목표 (GROMO-1049)']
   goal_effective_from            date        [note: '현재 목표 발효일(유저 로컬). 이 날짜 이전 날은 previous 를 쓴다']
 
+  created_at                     timestamptz [note: '생성 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
   updated_at                     timestamptz
   deleted_at                     timestamptz [note: '탈퇴 시각 (소프트 딜리트 감사 로그용)']
 }
@@ -308,6 +332,7 @@ Table user_notification_settings [note: '유저별 알림 설정 (users 1:1)'] {
 Table user_wallets [note: '유저 재화 잔액 (users 1:1). GROMO-561 로 user_wallet → user_wallets 리네임'] {
   user_id    uuid    [pk, note: 'FK → users.id (1:1)']
   balance    integer [not null, default: 0, note: '재화 잔액']
+  version    bigint  [note: 'JPA @Version 낙관락 — 엔티티가 채운다(DB NOT NULL·기본값 없음). 기존 행은 NULL 가능']
   updated_at timestamptz
   deleted_at timestamptz [note: '탈퇴 시각 (소프트 딜리트) — 재화 이력 보존, 하드 삭제 금지']
 }
@@ -329,7 +354,7 @@ Table social_accounts [note: '소셜 로그인 연동 정보 (provider + provide
   provider    provider    [not null, note: 'APPLE / GOOGLE / KAKAO / LINE / INSTAGRAM / FACEBOOK']
   provider_id varchar(255) [not null, note: '소셜 제공자 측 사용자 식별자']
 
-  created_at  timestamptz [not null, default: `now()`, note: '연동 시각 — 어떤 소셜로 처음 가입했는지 추적(최초 provider 식별)']
+  created_at  timestamptz [default: `now()`, note: '연동 시각 — 어떤 소셜로 처음 가입했는지 추적(최초 provider 식별). DB 는 NOT NULL 아님 — @CreationTimestamp']
   deleted_at  timestamptz [note: '연동 해제 시각 (소프트 딜리트)']
 
   indexes {
@@ -345,7 +370,7 @@ Table friendships [note: '유저 간 친구 관계 (요청 → 수락/거절). f
 
   status       friendship_status [not null, default: 'PENDING', note: 'PENDING / ACCEPTED / REJECTED']
 
-  created_at   timestamptz       [not null, default: `now()`, note: '신청 시각']
+  created_at   timestamptz       [default: `now()`, note: '신청 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
   updated_at   timestamptz       [note: '상태 변경(수락/거절) 시각']
   deleted_at   timestamptz       [note: '친구 삭제 시각 (소프트 딜리트)']
 
@@ -375,7 +400,7 @@ Table pinned_users [note: '친구 핀 (방향성: user_id가 friend_user_id를 �
   user_id        uuid        [not null, note: '핀한 유저 (FK → users.id)']
   pinned_user_id uuid        [not null, note: '핀된 친구 (FK → users.id)']
 
-  created_at     timestamptz [not null, default: `now()`, note: '핀 시각']
+  created_at     timestamptz [default: `now()`, note: '핀 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
 
   indexes {
     (user_id, pinned_user_id) [unique, note: '같은 친구 중복 핀 차단 (멱등)']
@@ -579,9 +604,10 @@ Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 
   focus_tag_id              uuid        [note: 'nullable — 태그 없는 세션 허용. 참조 태그는 소프트 딜리트(하드 삭제 시 참조 무결성 파손)']
   daily_focus_stat_id       uuid        [note: 'nullable — 소속 일일 집계 (FK → daily_focus_stats.id)']
 
-  focus_type                focus_type  [note: 'INFINITE / RANGE / POMODORO']
+  focus_type                focus_type  [not null, default: 'INFINITE', note: 'INFINITE / RANGE / POMODORO']
 
   started_at                timestamptz [not null, note: '세션 시작 시각']
+  client_started_at         timestamptz [note: 'nullable — 클라가 보고한 시작 시각 원본. started_at 은 서버 보정 후 값이라 둘을 분리 보관']
   ended_at                  timestamptz [note: '세션 종료 시각 — 진행중(라이브) 세션이면 null (GROMO-610)']
   stat_end_at               timestamptz [note: 'nullable — 통계 귀속용 유효 종료 = min(ended_at, 완료 시점 now). ended_at 은 재업로드 중복 검사 때문에 클라 값 그대로 저장하므로, 미래 endedAt 위조가 조회 시점마다 더 세지 않도록 완료 순간 클램프를 고정 보관 (GROMO-1252). 레거시 row 는 null → 조회측이 ended_at 폴백']
   focus_seconds_by_date     jsonb       [note: 'nullable — 완료 시점에 확정한 날짜별 집중 초 (유저 존 로컬 날짜 "YYYY-MM-DD" → 초). daily_focus_stats 에 가산한 값과 동일 (GROMO-1252). 조회 집계(by-category)·앱 복원이 구간을 다시 벽시계로 자르지 않고 이 분포를 쓴다. 레거시 row 는 null → 조회측이 벽시계 클리핑 폴백']
@@ -590,7 +616,7 @@ Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 
 
   total_distraction_seconds integer     [not null, default: 0, note: '집중 중 이탈 누적 시간(초)']
 
-  created_at         timestamptz        [not null, default: `now()`]
+  created_at         timestamptz        [default: `now()`, note: 'DB 는 NOT NULL 아님 — @CreationTimestamp']
 
   // (종전 note 가 광고하던 idx_focus_sessions_live 는 어느 마이그레이션에도 존재한 적이 없어
   // GROMO-1287 에서 삭제했다 — 없는 것을 문서가 있다고 말하고 있었다. 아래는 실제로 만든 것이다.)
@@ -709,9 +735,11 @@ Table groups [note: '스터디/챌린지 그룹'] {
 
   approval_required boolean               [not null, default: false, note: '가입에 방장 승인이 필요한지 — GROMO-1907, island-membership LLD §3.1. 기존 행은 전부 false(즉시가입)']
 
-  created_at                     timestamptz [not null, default: `now()`]
-  updated_at                     timestamptz
+  version          bigint                [note: 'JPA @Version 낙관락 — 엔티티가 채운다(DB NOT NULL·기본값 없음). 기존 행은 NULL 가능']
+
+  created_at                     timestamptz [default: `now()`, note: 'DB 는 NOT NULL 아님 — @CreationTimestamp']
   deleted_at                     timestamptz [note: '삭제 시각 (소프트 딜리트 감사 로그용)']
+  // updated_at 은 «없다» — 이 파일이 지어냈던 컬럼이라 GROMO-1912 에서 제거했다. 필요하면 마이그레이션부터.
 
   indexes {
     // 공개 그룹 이름 fuzzy 검색용 GIN 트라이그램 인덱스 (V18, 닉네임 검색과 동형)
@@ -759,7 +787,7 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   snapshot_version     bigint            [not null, default: 0, note: '표시정보(그룹명·발급자 닉네임) 스냅샷 버전 (V52, A22 ㋡) — 현행 resolveLanding 이 열 때마다 현재 이름을 조회하므로, 분리 후 갱신 경로가 없으면 공유된 slug 가 만료까지 옛 이름을 노출한다. 늦게 온 갱신이 최신 이름을 덮지 않게 대조에 쓴다']
   left_reason          varchar(10)       [null, note: 'A-0(V25) 이탈 사유: null(활성)·LEFT(자진, 재가입 허용)·KICKED(강퇴, 재가입 차단). CHECK IN (LEFT,KICKED)']
 
-  created_at           timestamptz       [not null, default: `now()`, note: '가입 시각']
+  created_at           timestamptz       [default: `now()`, note: '가입 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
   updated_at           timestamptz
   indexes {
     // (user,group) 전체 unique — 멤버십은 1행. 재가입은 신규 삽입이 아니라 기존 행 rejoin(is_left=false로 복원).
@@ -777,7 +805,21 @@ Table group_announcements [note: '그룹 공지'] {
   content    text         [not null, note: '공지 본문']
 
   created_at timestamptz  [not null, default: `now()`]
+  updated_at timestamptz
   deleted_at timestamptz  [note: '삭제 시각 (소프트 딜리트). 콘텐츠 수정 불가 → 수정은 삭제 후 새 row, 옛 내용 보존']
+}
+
+Table group_invites [note: '유저 대 유저 그룹 초대 (V1 baseline). **미사용** — 직접 초대 기능을 접었고 참여는 초대 링크(group_invite_links)·참가 코드(group_join_codes)가 담당한다(2026-07-31). 엔티티 GroupInvite 는 남아 있으나 서비스·컨트롤러 참조 0건이고 테이블도 비어 있다. 잔존 비용 < 삭제 비용이라 두고 있다. 이 파일에 통째로 빠져 있던 것을 GROMO-1912 에서 복원'] {
+  id           uuid         [pk]
+
+  group_id     uuid         [not null, note: 'FK → groups.id — 초대 대상 그룹']
+  inviter_id   uuid         [not null, note: 'FK → users.id — 초대한 유저']
+  invitee_id   uuid         [not null, note: 'FK → users.id — 초대받은 유저']
+
+  status       varchar(255) [not null, note: "PENDING(응답 대기, 발급 시 기본값) / ACCEPTED(수락 — 멤버 행 생성 시점) / DECLINED(거절 — 재초대는 막지 않았다). CHECK group_invites_status_check 3값. Enum 선언을 두지 않은 이유는 폐기 기능이라서다"]
+
+  invited_at   timestamptz  [note: '초대 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
+  responded_at timestamptz  [note: '수락/거절 시각 — PENDING 이면 null']
 }
 
 // ────────────────────────────────────────────
@@ -790,7 +832,7 @@ Table items [note: '상점 아이템 (장착형 EQUIPPABLE / 장식형 DECORATIV
   description     text        [note: '아이템 설명']
   item_type       item_type   [not null, note: 'EQUIPPABLE / DECORATIVE']
   slot_type       slot_type   [note: 'EQUIPPABLE 전용, DECORATIVE면 null']
-  grade           varchar(20) [not null, note: '아이템 등급 (구 rarity, 추후 Enum 확정)']
+  grade           varchar(255) [not null, note: '아이템 등급 (구 rarity, 추후 Enum 확정)']
 
   asset_url       varchar(255) [note: '에셋 URL']
 
@@ -811,7 +853,7 @@ Table user_items [note: '유저 보유 아이템 (인벤토리)'] {
   item_id     uuid        [not null, note: 'FK → items.id']
   is_used     boolean     [not null, default: false, note: '현재 장착/사용 중 여부']
 
-  created_at  timestamptz [not null, default: `now()`, note: '획득 시각']
+  created_at  timestamptz [default: `now()`, note: '획득 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
 
   indexes {
     (user_id, item_id) [unique]
@@ -822,10 +864,13 @@ Table character_equipment [note: '유저 캐릭터 장착 상태 (슬롯별 1개
   id            uuid      [pk]
 
   user_id       uuid      [not null, note: 'FK → users.id']
-  user_item_id  uuid      [not null, note: '장착한 보유 아이템 (FK → user_items.id)']
+  item_id       uuid      [not null, note: '장착한 아이템 (FK → items.id). 보유 행(user_items)이 아니라 아이템 마스터를 직접 가리킨다']
+  // 미착수: user_item_id (FK → user_items.id) 로 바꿔 «보유 행»을 가리키게 하는 재설계 — GROMO-707.
+  //   실제 컬럼은 item_id 이고, 이 파일은 그 전환을 컬럼으로 미리 그려 두었다가 외양 도메인 자산 승계
+  //   검토를 오도했다(GROMO-1912). 착수 전까지는 주석으로만 남긴다.
   slot_type     slot_type [not null, note: '장착 슬롯']
 
-  created_at    timestamptz [not null, default: `now()`, note: '장착 시각']
+  created_at    timestamptz [default: `now()`, note: '장착 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
 
   indexes {
     (user_id, slot_type) [unique]
@@ -860,11 +905,12 @@ Table character_generation [note: '누끼(캐릭터) 생성 이력 (append-only)
 
 Table league_tier_configs [note: '리그 티어별 승강 규칙 설정. 승강은 아레나 내 순위가 아니라 티어별 주간 집중시간 임계값 기준(promotion_time/relegation_time). 리더보드는 전역 단일(전 티어 혼합), 직군은 필터 태그일 뿐(인원 제한/아레나 분할 없음). V13(GROMO-815) promotion_time/relegation_time 추가 → V14(GROMO-817) arena_size+promote/relegate/relegate_warning_count 드롭. 이제 시간 임계값 단일 기준.'] {
   tier_level            integer     [pk, note: '리그 티어 레벨 1~5 (표시명은 앱에서 매핑, 클수록 상위). 하루 구간 ×7 = 주간 임계값: 뽀시래기0~14h/예열14~28h/초집중28~42h/갓생러42~56h/집중정복자56~70h']
-  badge_id              varchar     [not null, note: '티어별 배지 식별자 (앱이 에셋 매핑; slug 값은 Infra 에셋 식별 규칙). GROMO-451']
+  badge_id              varchar(255) [not null, note: '티어별 배지 식별자 (앱이 에셋 매핑; slug 값은 Infra 에셋 식별 규칙). GROMO-451']
 
   promotion_time        integer     [not null, note: '승급 임계값(주 단위 초) — 지난주 누적이 이 값 이상이면 다음 티어로 승급. = 현재 티어 상한(다음 티어 하한)']
   relegation_time       integer     [not null, note: '강등 임계값(주 단위 초) — 지난주 누적이 이 값 미만이면 이전 티어로 강등. = 현재 티어 하한. (경계 부등호·T1 하한 0·무활동 처리는 league-prd.md §7 미결)']
 
+  created_at            timestamptz [note: '생성 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
   updated_at            timestamptz
   deleted_at            timestamptz [note: '소프트 딜리트']
 }
@@ -986,6 +1032,7 @@ Table daily_screen_time_stats [note: '유저별 일일 스크린타임 집계 (�
   is_screen_time_goal_achieved boolean [not null, default: false, note: '스크린타임 목표 달성 여부 (클라 계산값)']
   is_screen_time_finalized     boolean [not null, default: false, note: '오늘 row 확정 여부 — interim(false)이면 현재 목표로 재계산, final(true)이면 클라 스냅샷 사용. GROMO-805, V10']
 
+  created_at                   timestamptz [note: '생성 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
   updated_at                   timestamptz
 
   indexes {
@@ -1002,14 +1049,14 @@ Table notification_sent_logs [note: '발송 이력 로그 (GROMO-579) + 사건 �
 
   user_id        uuid        [not null, note: 'FK → users.id (수신자)']
 
-  type           varchar     [not null, note: "발송 종류 (RANK_OVERTAKE · BET_RESULT · CHALLENGE_* · FRIEND_* · BET_VOID_REFUND · BET_SILENT_FLUSH)"]
+  type           varchar(255) [not null, note: "발송 종류 (RANK_OVERTAKE · BET_RESULT · CHALLENGE_* · FRIEND_* · BET_VOID_REFUND · BET_SILENT_FLUSH)"]
   target_user_id uuid        [note: '대상 유저(라이벌) — 추월=대표 라이벌, 없으면 null (nullable, FK → users.id)']
 
   sent_at        timestamptz [note: '실발송 시각 — PENDING/DEFERRED 클레임 행은 발송 전이라 null (V45 에서 NOT NULL 해제)']
 
-  kind           varchar     [not null, note: '사건 dedup 축의 종류 (V45) — 기존 행은 type 백필. 유니크 (user_id, kind, subject_id) 의 축']
+  kind           varchar(255) [not null, note: '사건 dedup 축의 종류 (V45) — 기존 행은 type 백필. 유니크 (user_id, kind, subject_id) 의 축']
   subject_id     uuid        [note: '사건 대상 id (V45) — 내기 계열은 회차 id. 레거시 행은 null (유니크에서 서로 충돌하지 않음)']
-  status         varchar     [not null, default: "'SENT'", note: "클레임 상태 (V45): 'PENDING'(선점, 리스 10분) | 'DEFERRED'(조용한 시간 이월 — N44) | 'SENT'"]
+  status         varchar(20) [not null, default: "'SENT'", note: "클레임 상태 (V45): 'PENDING'(선점, 리스 10분) | 'DEFERRED'(조용한 시간 이월 — N44) | 'SENT'"]
   claimed_at     timestamptz [note: '선점 시각 (V45) — PENDING 리스 만료(10분) 판정 기준']
   group_id       uuid        [note: '묶음 메타 (V45) — (유저 × 그룹 × 슬롯) 묶음 축, dedup 키 아님 (N20 · N41)']
   slot_at        timestamptz [note: '묶음 메타 (V45) — 사건이 속한 15분 시간슬롯 (이월돼도 원래 슬롯 유지 — N44)']
@@ -1214,21 +1261,28 @@ Table command_idempotency [note: '명령 멱등 기록 (V51, A21 · A22 ㊼) —
 // ────────────────────────────────────────────
 // Refs
 // ────────────────────────────────────────────
+// `Ref:` 는 «논리 관계»를 그린다 — 실제 DB FK 제약과 1:1 이 아니다. 제약이 없는 Ref 에는
+// `// 논리 관계 — DB FK 제약 없음` 을 달아 뒀다(GROMO-1912 대조 기준 10건).
+// 제약이 있는 Ref 의 삭제 정책은 명시하지 않은 한 전부 NO ACTION 이다.
 
 // 유저 / 인증
 Ref: social_accounts.user_id > users.id
-Ref: user_screen_time_settings.user_id - users.id
-Ref: user_wallets.user_id - users.id
+Ref: user_screen_time_settings.user_id - users.id  // 논리 관계 — DB FK 제약 없음
+Ref: user_wallets.user_id - users.id               // 논리 관계 — DB FK 제약 없음
 Ref: bot_profiles.user_id - users.id
 Ref: friendships.from_user_id > users.id
 Ref: friendships.to_user_id > users.id
-Ref: user_notification_settings.user_id - users.id
+Ref: user_notification_settings.user_id - users.id // 논리 관계 — DB FK 제약 없음
 Ref: user_blocks.blocker_id > users.id
 Ref: user_blocks.blocked_id > users.id
 
 // 챌린지
 Ref: group_challenges.group_id > groups.id
+// group_challenge_durations 는 FK 가 «둘»이다 — 단일 challenge_id → group_challenges.id 와,
+// V36 이 얹은 복합 (challenge_id, category) → group_challenges (id, category). 아래 두 줄이
+// 그 복합 FK 의 열 짝이고, 부모 category 와의 값 일치를 DB 가 보증한다.
 Ref: group_challenge_durations.challenge_id - group_challenges.id
+Ref: group_challenge_durations.category > group_challenges.category
 Ref: group_challenge_windows.challenge_id - group_challenges.id
 Ref: group_challenge_members.group_challenge_id > group_challenges.id
 Ref: group_challenge_members.user_id > users.id
@@ -1248,7 +1302,7 @@ Ref: user_focus_tags.default_tag_id > default_tags.id
 Ref: user_focus_tags.source_occupation_default_tag_id > occupation_default_tags.id
 Ref: focus_sessions.user_id > users.id
 Ref: focus_sessions.focus_tag_id > user_focus_tags.id
-Ref: focus_sessions.daily_focus_stat_id > daily_focus_stats.id
+Ref: focus_sessions.daily_focus_stat_id > daily_focus_stats.id  // 논리 관계 — DB FK 제약 없음
 Ref: focus_session_pomodoros.focus_session_id - focus_sessions.id
 Ref: focus_session_pomodoros.pomodoro_setting_id > focus_sessions_pomodoro_setting.id
 
@@ -1258,6 +1312,9 @@ Ref: group_members.user_id > users.id
 Ref: group_members.group_id > groups.id
 Ref: group_announcements.group_id > groups.id
 Ref: group_announcements.user_id > users.id
+Ref: group_invites.group_id > groups.id
+Ref: group_invites.inviter_id > users.id
+Ref: group_invites.invitee_id > users.id
 
 // 현재 섬 컨텍스트 (GROMO-1907, V57)
 Ref: user_island_contexts.user_id - users.id [delete: cascade]
@@ -1273,12 +1330,15 @@ Ref: invite_link_clicks.claimed_user_id > users.id
 Ref: user_items.user_id > users.id
 Ref: user_items.item_id > items.id
 Ref: character_equipment.user_id > users.id
-Ref: character_equipment.user_item_id > user_items.id
+Ref: character_equipment.item_id > items.id
+// 미착수: character_equipment.user_item_id > user_items.id — GROMO-707 에서 장착 축을
+//   아이템 마스터에서 «보유 행»으로 옮기려던 계획. 이 파일이 그것을 실재하는 FK 처럼 적어 두는
+//   바람에 외양 도메인 자산 승계 검토가 오도됐다(GROMO-1912). 마이그레이션 전까지 주석으로 둔다.
 Ref: character_generation.user_id > users.id
 
 // 리그
 // league_arenas: tier_level FK 제거(V14) — 독립 앵커 테이블. league_arena_users: DROP(V14).
-Ref: league_rank_snapshots.user_id > users.id
+Ref: league_rank_snapshots.user_id > users.id  // 논리 관계 — DB FK 제약 없음
 Ref: league_weekly_results.user_id > users.id
 Ref: pinned_users.user_id > users.id
 Ref: pinned_users.pinned_user_id > users.id
@@ -1288,18 +1348,18 @@ Ref: user_streaks.user_id - users.id
 Ref: currency_transactions.user_id > users.id
 
 // LLM / 집계
-Ref: user_focus_time_settings.user_id - users.id
+Ref: user_focus_time_settings.user_id - users.id  // 논리 관계 — DB FK 제약 없음
 Ref: daily_focus_stats.user_id > users.id
 Ref: daily_screen_time_stats.user_id > users.id
 
 // 알림
-Ref: notification_sent_logs.user_id > users.id
-Ref: notification_sent_logs.target_user_id > users.id
+Ref: notification_sent_logs.user_id > users.id         // 논리 관계 — DB FK 제약 없음
+Ref: notification_sent_logs.target_user_id > users.id  // 논리 관계 — DB FK 제약 없음
 
 // 내구 이벤트 · 명령 (V51)
 // event_outbox.user_id 에는 FK 가 없다 — 탈퇴 익명화 뒤에도 봉투가 남아야 relay 가 위성 정리 명령을
 // 끝까지 전달한다(A22 ⓐ). 아래 하나만 FK 다.
-Ref: event_outbox_deliveries.outbox_id > event_outbox.id
+Ref: event_outbox_deliveries.outbox_id > event_outbox.id [delete: cascade]  // V51 — 본체가 지워지면 배달 이력도 같이 지워진다
 
 // 위성 계약 (V52)
 // auth_sessions.user_id · invite_claim_* · invite_*_frozen_rows 에도 FK 를 두지 않았다 —
@@ -1307,8 +1367,8 @@ Ref: event_outbox_deliveries.outbox_id > event_outbox.id
 // (A22 ⓐ). event_outbox.user_id 에 FK 가 없는 것과 같은 이유다.
 
 // occupation 마스터 (GROMO-626, 하이브리드 — Enum 유지 + FK 물려놓기)
-Ref: users.occupation > occupations.code
-Ref: occupation_default_tags.occupation > occupations.code
+Ref: users.occupation > occupations.code                    // 논리 관계 — DB FK 제약 없음
+Ref: occupation_default_tags.occupation > occupations.code  // 논리 관계 — DB FK 제약 없음
 Ref: occupation_default_tags.default_tag_id > default_tags.id
 
 

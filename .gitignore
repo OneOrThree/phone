@@ -13,6 +13,9 @@
 .claude/worktrees/
 __pycache__/
 
+# 파이썬 바이트코드 — 레포 어디서 스크립트를 돌리든 생긴다(실제로 두 번 커밋했다)
+__pycache__/
+
 # 개인 기획 스크래치(/doc)·작업 일지(/logs) — 팀 공유 문서 /docs 는 추적
 /doc/
 /logs/
