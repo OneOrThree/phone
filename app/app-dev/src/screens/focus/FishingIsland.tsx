@@ -94,8 +94,28 @@ export const PEER_SPOTS: Spot[] = (() => {
   cast[1] = { x: 60.2, y: 44.1, face: -1, bx: 59.1, by: 44.9 };
   return [...cast.slice(0, 5), cast[7], ...cast.slice(5, 7), ...cast.slice(8)];
 })();
-// 다른 주민 자리와 가까운지(지도 폭 5% 안)
-export const occupied = (p: Point, spots: Point[]) => spots.some((q) => apart(p, q) < 5);
+// 다른 주민과 고양이가 겹치는 자리인지. 고양이 폭이 지도 폭 7.7%라 여유를 더해 8.5% 안이면 앉을 수 없다.
+export const SEAT_GAP = 8.5;
+export const occupied = (p: Point, spots: Point[]) => spots.some((q) => apart(p, q) < SEAT_GAP);
+// 뗏목(지도 폭 12%)과 내리는 자리 위에는 앉을 수 없다. 앉은 고양이(폭 7.7%·발 기준) 상자가 겹치는지로 본다.
+// 세로 %는 지도 비율(1024/1536)로 맞춰 가로 % 단위로 잰다.
+const toW = (y: number) => (y * 1024) / 1536;
+const catRect = (p: Point) => ({
+  l: p.x - 3.85,
+  r: p.x + 3.85,
+  t: toW(p.y) - 7.7,
+  b: toW(p.y),
+});
+const raftRect = {
+  l: RAFT.x - 6,
+  r: RAFT.x + 6,
+  t: toW(RAFT.y) - (6 * 669) / 928,
+  b: toW(RAFT.y) + (6 * 669) / 928,
+};
+const hit = (a: { l: number; t: number; r: number; b: number }, b: typeof raftRect) =>
+  a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+export const nearRaft = (p: Point) =>
+  hit(catRect(p), raftRect) || hit(catRect(p), catRect(LANDING));
 // 뒤 화면을 스크린리더에서 숨긴다(모달·준비 카드가 떠 있을 때)
 export const a11yHidden = (hidden: boolean) =>
   hidden
@@ -126,8 +146,9 @@ export function fishingCamera(w: number, h: number, zoom: number, focus: Point, 
     );
   return { size, sizeY, offTop, sx, sy, left: -sx, top: offTop - sy };
 }
-// 집중 준비 카드 위치: 내 고양이(x, y 발 기준, 고양이 크기 a) 위 → 아래 → 오른쪽 → 왼쪽 중 화면(W×H, 위 여백 T) 안에 들어가는 첫 자리.
-// 어디에도 안 들어가면(가로 화면에 키보드가 떠 H가 작을 때) 버튼이 보이게 카드 아래를 화면 안에 맞추고 위로 올린다.
+// 집중 준비 카드 위치: 내 고양이(x, y 발 기준, 고양이 크기 a) 위 → 아래 → 오른쪽 → 왼쪽 중 화면(W×H) 안에 들어가는 첫 자리.
+// 좌우·위아래 여백은 안전 영역(노치·홈 인디케이터)을 지킨다. 어디에도 안 들어가면(가로 화면에 키보드가 떠 H가 작을 때)
+// 버튼이 보이게 카드 아래를 화면 안에 맞추고 위로 올린다.
 export function anchorCard(
   x: number,
   y: number,
@@ -136,16 +157,20 @@ export function anchorCard(
   dh: number,
   W: number,
   H: number,
+  safe = { top: 0, bottom: 0, left: 0, right: 0 },
 ) {
-  const T = W > H ? 12 : 60,
-    hx = Math.max(8, Math.min(W - dw - 8, x - dw / 2)),
-    vy = Math.min(H - dh - 8, Math.max(T, y - a / 2 - dh / 2));
+  const T = Math.max(W > H ? 12 : 60, safe.top + 4),
+    L = safe.left + 8,
+    R = W - safe.right - 8,
+    B = H - safe.bottom - 8,
+    hx = Math.max(L, Math.min(R - dw, x - dw / 2)),
+    vy = Math.min(B - dh, Math.max(T, y - a / 2 - dh / 2));
   const [top, left] = [
     [y - a - 10 - dh, hx],
     [y + 26, hx],
     [vy, x + a / 2 + 12],
     [vy, x - a / 2 - 12 - dw],
-  ].find(([t, l]) => t >= T && t + dh <= H - 8 && l >= 8 && l + dw <= W - 8) ?? [vy, hx];
+  ].find(([t, l]) => t >= T && t + dh <= B && l >= L && l + dw <= R) ?? [vy, hx];
   return { top, left };
 }
 const raftBox = { x: 48, y: 307, w: 928, h: 669 }; // boats/raft/day.png 의 그림 영역

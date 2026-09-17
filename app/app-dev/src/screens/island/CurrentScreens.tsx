@@ -49,6 +49,7 @@ import {
   anchorCard,
   labelBox,
   nearGram,
+  nearRaft,
   occupied,
   LANDING,
   OUTLINE,
@@ -594,6 +595,10 @@ function FocusFlow({ e }: any) {
       e.notify('여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.');
       return;
     }
+    if (nearRaft(p)) {
+      e.notify('여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.');
+      return;
+    }
     const walked = walkTo(p, () => {
       if (latest.current.r !== 'fishingArrival') return;
       e.dispatch({ type: 'FOCUS_SPOT', spot: p });
@@ -741,6 +746,7 @@ function FocusFlow({ e }: any) {
         setupHeight,
         L.width,
         boxHeight || L.height,
+        safe,
       );
     return (
       <View style={[StyleSheet.absoluteFill, { zIndex: 10 }]}>

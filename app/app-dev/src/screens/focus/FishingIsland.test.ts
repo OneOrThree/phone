@@ -8,8 +8,10 @@ import {
   anchorCard,
   castSpot,
   fishingCamera,
+  SEAT_GAP,
   fishingGrid,
   nearGram,
+  nearRaft,
   occupied,
 } from '@/screens/focus/FishingIsland';
 
@@ -56,8 +58,9 @@ test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치
   for (const [n, p] of PEER_SPOTS.entries()) {
     assert.ok(onLand(fishingGrid, p), `${n}`);
     for (const q of PEER_SPOTS.slice(n + 1))
-      // 낚시 고양이 폭(지도 폭 7.7%)보다 멀리
-      assert.ok(Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536) > 7.7, `${n}`);
+      // 낚시 고양이 폭(지도 폭 7.7%)에 여유를 더한 거리보다 멀리
+      assert.ok(!occupied(p, [q]), `${n}`);
+    assert.ok(!nearRaft(p), `${n} 뗏목`);
   }
 });
 
@@ -68,9 +71,19 @@ test('축음기 그림 위·바로 앞은 앉을 수 없다', () => {
   assert.ok(!PEER_SPOTS.some(nearGram));
 });
 
-test('다른 주민 자리 가까이는 앉을 수 없다', () => {
+test('다른 주민 자리 가까이·고양이가 겹치는 거리는 앉을 수 없다', () => {
   assert.ok(occupied({ x: PEER_SPOTS[0].x + 2, y: PEER_SPOTS[0].y }, PEER_SPOTS));
-  assert.ok(!occupied({ x: 34.1, y: 55.9 }, PEER_SPOTS.slice(0, 2)));
+  // 고양이 폭(7.7%)만큼 떨어져도 겹친다
+  assert.ok(occupied({ x: 12.5, y: 39.5 }, PEER_SPOTS));
+  assert.ok(SEAT_GAP >= 7.7);
+  assert.ok(!occupied(DEFAULT_SPOT, PEER_SPOTS));
+});
+
+test('뗏목·내리는 자리 위에는 앉을 수 없다', () => {
+  assert.ok(nearRaft({ x: 30, y: 86 }));
+  assert.ok(nearRaft({ x: 37.8, y: 91.8 }));
+  assert.ok(nearRaft(LANDING));
+  assert.ok(!nearRaft(DEFAULT_SPOT));
 });
 
 test('집중 준비 카드: 가로 402 높이에 키보드(약 240)가 떠도 버튼이 보이게 위로 올린다', () => {
@@ -80,6 +93,20 @@ test('집중 준비 카드: 가로 402 높이에 키보드(약 240)가 떠도 �
   // 여유가 있으면 고양이 위에 붙는다
   const roomy = anchorCard(201, 600, 49, 330, 170, 402, 874);
   assert.equal(roomy.top, 600 - 49 - 10 - 170);
+});
+
+test('집중 준비 카드는 노치(안전 영역) 안으로 들어가지 않는다', () => {
+  const safe = { top: 0, bottom: 21, left: 59, right: 59 };
+  // 가로 화면 왼쪽 끝 자리
+  const card = anchorCard(40, 300, 67, 330, 170, 874, 402, safe);
+  assert.ok(card.left >= safe.left + 8);
+  assert.ok(card.left + 330 <= 874 - safe.right - 8);
+  assert.ok(card.top + 170 <= 402 - safe.bottom - 8);
+  // 안전 영역이 없으면(웹 검토 모드) 시안 그대로
+  assert.deepEqual(anchorCard(40, 300, 67, 330, 170, 874, 402), {
+    top: 300 - 67 - 10 - 170,
+    left: 8,
+  });
 });
 
 test('지도 창: 세로는 폭 640 지도를 가운데 높이에, 가로는 화면 폭 지도를 세로로 스크롤', () => {
