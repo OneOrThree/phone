@@ -126,7 +126,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 148개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 149개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -151,8 +151,10 @@ class ErrorContractTest {
         // SESSION_IN_PROGRESS), 전이 2(EXPECTED_VERSION_REQUIRED · SESSION_STATE_CONFLICT),
         // 그리고 게이트 2(REWARD_POLICY_UNAVAILABLE · SESSION_START_UNAVAILABLE) — 같은 503 이지만
         // 막는 사유가 달라 하나만 먼저 여는 날 구분이 필요하다.
-        assertThat(tests).as("실측 기준 도메인 상수 133개 + 공통 15개 — 집중 세션 수명주기 12종 포함")
-                .hasSize(148);
+        // GROMO-1894 가 친구 요청 취소의 권한 코드 1개(NOT_REQUEST_SENDER)를 더했다 — 발신자 축 거부를
+        // 수신자 축(NOT_REQUEST_RECEIVER)과 한 코드로 접으면 앱이 「내가 보낸 요청이 아니다」를 구분하지 못한다.
+        assertThat(tests).as("실측 기준 도메인 상수 134개 + 공통 15개 — 집중 세션 수명주기 12종·친구 취소 1종 포함")
+                .hasSize(149);
         return tests;
     }
 

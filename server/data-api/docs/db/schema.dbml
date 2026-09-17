@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V57 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V60 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
 //
 // ── 규약 (GROMO-1912 — V1~V57 을 빈 postgres 에 적용한 실제 스키마와 전수 대조) ──
@@ -69,10 +69,11 @@ Enum provider {              // 소셜 로그인 제공자
   FACEBOOK
 }
 
-Enum friendship_status {     // 친구 관계 상태 (요청 → 수락/거절)
+Enum friendship_status {     // 친구 관계 상태 (요청 → 수락/거절/취소). 실제 컬럼은 varchar + CHECK(friendships_status_check)
   PENDING
   ACCEPTED
   REJECTED
+  CANCELED                   // 발신자가 요청 취소 (V60, GROMO-1894). 수신자가 수락으로 되살릴 수 없다
 }
 
 // 2. 챌린지
@@ -368,7 +369,7 @@ Table friendships [note: '유저 간 친구 관계 (요청 → 수락/거절). f
   from_user_id uuid              [not null, note: '친구 신청한 유저 (FK → users.id)']
   to_user_id   uuid              [not null, note: '신청 받은 유저 (FK → users.id)']
 
-  status       friendship_status [not null, default: 'PENDING', note: 'PENDING / ACCEPTED / REJECTED']
+  status       friendship_status [not null, default: 'PENDING', note: 'PENDING / ACCEPTED / REJECTED / CANCELED(V60, GROMO-1894 발신자 취소). CHECK 제약 friendships_status_check 가 이 넷으로 제한']
 
   created_at   timestamptz       [default: `now()`, note: '신청 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
   updated_at   timestamptz       [note: '상태 변경(수락/거절) 시각']
