@@ -34,6 +34,10 @@ env:
   CICD_SECRET_ID: gromo/prod/cicd
 
 jobs:
+  # GROMO-1910: GitHub-hosted 로 못 옮긴다 — AWS 인증은 OIDC 라 러너 무관하지만, 아래
+  # "GAR 인증 (buildx 캐시 저장소)" 스텝이 GCE 러너의 SA 메타데이터 토큰에 의존한다.
+  # GitHub-hosted 에는 그 메타데이터가 없어 캐시 저장소 로그인이 실패한다(dev-ci의 build 와
+  # 같은 기술 제약, 공개 전환과 무관).
   build-push:
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 20 # self-hosted 기본 360분 — spot 러너 장기 점유 방지

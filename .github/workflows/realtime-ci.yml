@@ -55,6 +55,10 @@ jobs:
     uses: ./.github/workflows/be-gradle.yml
     with:
       service: realtime
+      # GROMO-1910: GAR·GCE 메타데이터 의존이 없는 순수 Gradle 검사라 dev-ci의 test 와 같은
+      # 이유로 GitHub-hosted 로 옮긴다(레포 공개 전환으로 분 한도가 없어졌고, self-hosted 는
+      # 포크 PR 실행 위험도 있다).
+      runs-on: '["ubuntu-latest"]'
       tasks: build
       publish-jar: true
       artifact-name: realtime-test-results
@@ -70,6 +74,10 @@ jobs:
     # 검증이 끝난 뒤에만 올린다. 이게 없으면 두 잡이 나란히 돌아, 테스트·checkstyle·spotbugs 가
     # 깨진 리비전도 이미지 빌드(bootJar 는 -x test 다)만 성공해 :latest 로 올라간다 — 그리고
     # compose 의 기본값이 바로 그 태그다.
+    #
+    # GROMO-1910: 이 잡은 self-hosted 에 남긴다 — dev-ci의 build 와 같은 이유로 GAR 인증이
+    # GCE 메타데이터 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없다(기술 제약, 공개
+    # 전환과 무관).
     needs: [build]
     runs-on: [self-hosted, ci, spot]
     timeout-minutes: 25
