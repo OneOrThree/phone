@@ -68,7 +68,13 @@ jobs:
           # (base.sha=df475a23 에 고정, 통합 브랜치는 a23a2921 로 이동, 그 사이가 V38 되돌림).
           # 그래서 base 를 실행 시점에 직접 구한다.
           git fetch --no-tags origin "$BASE_REF"
-          BASE_SHA=$(git merge-base FETCH_HEAD HEAD)
+          BASE_SHA=$(git merge-base FETCH_HEAD HEAD || true)
+          # base 계산이 깨졌을 때 «조용히 통과»하지 않게 명시적으로 막는다. set -e 가 대개
+          # 잡아 주지만, 이 검사의 최악은 실패가 아니라 «늘 초록»이라 한 번 더 확인한다.
+          if [ -z "$BASE_SHA" ]; then
+            echo "::error::base($BASE_REF) 와의 merge-base 를 구하지 못했습니다 — 검사를 신뢰할 수 없어 실패시킵니다."
+            exit 1
+          fi
           echo "base=$BASE_SHA ($BASE_REF)"
           # M 수정 · D 삭제 · R 개명 · T 타입변경. 추가(A)는 정상이라 뺀다.
           # 개명도 막는다 — Flyway 는 파일명에서 version 과 description 을 읽는다.
