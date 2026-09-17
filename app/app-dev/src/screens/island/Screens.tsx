@@ -12,6 +12,7 @@ import {
   Platform,
   Animated,
   Easing,
+  Keyboard,
 } from 'react-native';
 import Svg, { Path, Line } from 'react-native-svg';
 import {
@@ -659,6 +660,8 @@ export function RedesignScreens({ e }: any) {
     [inviteError, setInviteError] = useState(''),
     // 초대 모달이 놓인 칸의 높이(키보드가 뜨면 줄어든다)
     [inviteArea, setInviteArea] = useState(layout.height),
+    // iOS는 absoluteFill 칸이 키보드만큼 줄지 않아 키보드 높이를 따로 빼야 한다
+    [keyboardHeight, setKeyboardHeight] = useState(0),
     [memberMenu, setMemberMenu] = useState<string | null>(null),
     [questHours, setQuestHours] = useState('0시간'),
     [questMins, setQuestMins] = useState('30분'),
@@ -689,6 +692,18 @@ export function RedesignScreens({ e }: any) {
     setHallGuideOpen(false);
     setDiscoveryPick(null);
   }, [route]);
+  useEffect(() => {
+    if (!invite) return;
+    const show = Keyboard.addListener('keyboardDidShow', (ev) =>
+      setKeyboardHeight(ev.endCoordinates.height),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+      setKeyboardHeight(0);
+    };
+  }, [invite]);
   useEffect(() => {
     if (route !== 'profile') return;
     setProfileName(state.name);
@@ -1077,6 +1092,7 @@ export function RedesignScreens({ e }: any) {
         >
           <Onboard
             title="첫 섬 선택"
+            back={back}
             left={
               <View style={{ alignItems: 'center', gap: 4 }}>
                 <Pic id="boat/raft" w={210} />
@@ -1158,7 +1174,14 @@ export function RedesignScreens({ e }: any) {
                 accessibilityViewIsModal
                 style={{
                   width: layout.compact || layout.tablet ? layout.modalWidth : layout.width - 48,
-                  maxHeight: Math.max(120, inviteArea - ins.top - ins.bottom - 24),
+                  maxHeight: Math.max(
+                    120,
+                    // 칸이 이미 줄었으면(안드로이드·웹) 그대로, 아니면 화면 높이에서 키보드를 뺀다
+                    Math.min(inviteArea, layout.height - keyboardHeight) -
+                      ins.top -
+                      ins.bottom -
+                      24,
+                  ),
                   backgroundColor: C.paper,
                   borderWidth: 2,
                   borderColor: C.brown,
