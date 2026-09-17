@@ -244,6 +244,8 @@ export type State = {
   travelOrigin?: string;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
+  // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
+  lettersReadAt?: number;
 };
 export const colors: Color[] = ['black', 'ginger', 'cream', 'gray', 'white', 'calico'];
 export const colorNames = ['검정', '치즈', '크림', '회색', '흰색', '삼색'];
@@ -527,6 +529,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
     track: 'waves',
     playing: false,
     ledger: [],
+    chatReadAt: 0,
   };
 }
 export function initialState(full = false): State {
@@ -609,6 +612,7 @@ export function initialState(full = false): State {
     lastResult: null,
     pendingIsland: null,
     pendingIslands: [],
+    lettersReadAt: 0,
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
@@ -631,11 +635,14 @@ export const unreadLetters = (s: State) =>
     .filter((f) => f.status === 'friend')
     .flatMap((f) =>
       f.messages
-        .filter((m) => m.memberId !== 'me' && !m.readAt)
+        .filter((m) => m.memberId !== 'me' && !m.readAt && m.at > (s.lettersReadAt ?? 0))
         .map((m) => ({ friend: f, letter: m })),
     )
     .sort((a, b) => b.letter.at - a.letter.at);
 // 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
+// 내 댓글인지: memberId가 없던 예전 저장본은 작성자 이름을 내 이름(바꾼 이름 포함)과 비교한다
+export const isOwnComment = (s: State, c: { memberId?: string; name: string }) =>
+  c.memberId != null ? c.memberId === 'me' : [s.name, ...(s.profileNames ?? [])].includes(c.name);
 export const newChatCount = (i: Island) =>
   i.messages.filter((m) => m.memberId !== 'me' && m.at > (i.chatReadAt ?? 0)).length;
 export const CAPACITY_MIN = 1,
@@ -952,8 +959,11 @@ export function reducer(state: State, a: Action): State {
   if (a.type === 'LOAD') {
     const loaded = JSON.parse(JSON.stringify(a.state)) as State;
     const retired = ['flag', 'sailboat', 'cabinboat'];
+    const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
       i.formerMembers ??= [];
+      // 채팅 읽음 기준이 없던 저장본은 지금까지의 글을 모두 읽은 것으로 본다
+      i.chatReadAt ??= Math.max(loadedAt, ...i.messages.map((m) => m.at));
       i.fish ??= i.points + i.contribution + (i.id === loaded.islandId ? loaded.fish : 0);
       i.earned ??= Object.fromEntries(
         targetIds(i).map((id) => [
@@ -974,6 +984,10 @@ export function reducer(state: State, a: Action): State {
       rewards: loaded.rewards ?? [],
       screenDays: loaded.screenDays ?? {},
       profileNames: loaded.profileNames ?? [loaded.name],
+      // 받은 편지 읽음 기준이 없던 저장본은 이미 받은 편지를 모두 읽은 것으로 본다
+      lettersReadAt:
+        loaded.lettersReadAt ??
+        Math.max(loadedAt, ...(loaded.friends ?? []).flatMap((f) => f.messages.map((m) => m.at))),
       pendingIslands,
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
       settings: { ...loaded.settings, publicRecords: true },
@@ -1334,7 +1348,7 @@ export function reducer(state: State, a: Action): State {
       const n = i.notices.find((x) => x.id === a.id),
         c = n?.comments.find((x) => x.id === a.commentId);
       // 방장은 모든 댓글을, 주민은 자기 댓글만 지운다
-      if (!n || !c || (!isHost(i) && c.memberId !== 'me')) return state;
+      if (!n || !c || (!isHost(i) && !isOwnComment(s, c))) return state;
       n.comments = n.comments.filter((x) => x !== c);
       break;
     }

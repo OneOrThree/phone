@@ -31,6 +31,7 @@ import {
   newChatCount,
   clockMinutes,
   canSendLetter,
+  isOwnComment,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -781,6 +782,55 @@ test('공사가 끝나면 완공 안내를 남기고, 다음 건물을 고르면
   });
   s = act(s, 'SELECT_BUILDING', { building: 'mail' });
   assert.equal(currentIsland(s).completed, undefined);
+});
+
+test('읽음 기준이 없던 예전 저장본을 불러오면 받은 편지 0통·새 글 0개, 이후 받은 것만 새로 센다', () => {
+  const old = initialState(true);
+  old.friends![0].messages = [
+    {
+      id: 'l1',
+      memberId: 'saebom',
+      name: '새봄',
+      color: 'white',
+      text: '예전 편지',
+      at: 500,
+      status: 'sent',
+    },
+  ];
+  delete old.lettersReadAt;
+  old.islands.forEach((i) => delete i.chatReadAt);
+  let s = reducer(old, { type: 'LOAD', state: old, now: 1000 });
+  assert.equal(unreadLetters(s).length, 0);
+  assert.equal(newChatCount(currentIsland(s)), 0);
+  s.friends![0].messages.push({ ...s.friends![0].messages[0], id: 'l2', at: 2000 });
+  // 예전 섬 글이 지금보다 늦게 찍혀 있으면 그 시각이 기준이 된다
+  const chatReadAt = currentIsland(s).chatReadAt!;
+  assert.ok(chatReadAt >= Math.max(...currentIsland(s).messages.map((m) => m.at)));
+  currentIsland(s).messages.push({ ...currentIsland(s).messages[0], id: 'm9', at: chatReadAt + 1 });
+  assert.deepEqual(
+    unreadLetters(s).map((x) => x.letter.id),
+    ['l2'],
+  );
+  assert.equal(newChatCount(currentIsland(s)), 1);
+  // 읽음 기준이 있는 저장본은 그대로 둔다
+  const fresh = initialState(true);
+  fresh.friends![0].messages = old.friends![0].messages;
+  assert.equal(unreadLetters(reducer(fresh, { type: 'LOAD', state: fresh, now: 1000 })).length, 1);
+});
+
+test('memberId가 없던 예전 댓글은 작성자 이름이 내 이름(바꾼 이름 포함)이면 내 댓글이다', () => {
+  let s = initialState(true);
+  s.profileNames = ['예전이름', s.name];
+  currentIsland(s).notices[0].comments.push(
+    { id: 'old-mine', name: '예전이름', text: '예전 내 댓글' },
+    { id: 'old-other', name: '두부', text: '남의 댓글' },
+  );
+  assert.ok(isOwnComment(s, { name: '예전이름' }));
+  assert.ok(!isOwnComment(s, { name: '예전이름', memberId: 'minji' }));
+  s = act(s, 'TRANSFER', { id: 'minji' });
+  assert.deepEqual(act(s, 'COMMENT_DELETE', { id: 'welcome', commentId: 'old-other' }), s);
+  s = act(s, 'COMMENT_DELETE', { id: 'welcome', commentId: 'old-mine' });
+  assert.ok(!currentIsland(s).notices[0].comments.some((c) => c.id === 'old-mine'));
 });
 
 test('회관·게시판처럼 다음 건물로 고르는 건물이 아니면 완공 안내를 남기지 않는다', () => {

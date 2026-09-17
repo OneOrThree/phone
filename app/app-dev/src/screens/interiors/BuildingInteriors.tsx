@@ -33,6 +33,7 @@ import {
   currentIsland,
   dayKey,
   isHost,
+  isOwnComment,
   kstDayStart,
   newChatCount,
   questMemberRate,
@@ -3678,7 +3679,7 @@ function boardFromApp(e: any) {
       id: c.id,
       name: c.name,
       text: c.text,
-      mine: c.memberId === 'me',
+      mine: isOwnComment(state, c),
     })),
   }));
   const quests: QuestView[] = i.quests.map((q) => ({
@@ -3690,14 +3691,19 @@ function boardFromApp(e: any) {
     target: q.target,
     rate: questMemberRate(state, q, 'me', i.id, now),
   }));
+  // 오늘 회차가 있으면 보상 판정과 같은 대상 스냅숏으로, 회차 전이면 지금 주민으로 보여 준다
   const ratesOf = (quest: QuestView): ResidentRate[] => {
     const q = i.quests.find((x) => x.id === quest.id);
-    return targetIds(i).map((id) => ({
-      id,
-      name: id === 'me' ? `${state.name} · 나` : (member(id)?.name ?? '탈퇴한 주민'),
-      color: id === 'me' ? state.color : (member(id)?.color ?? 'gray'),
-      rate: q ? questMemberRate(state, q, id, i.id, now) : null,
-    }));
+    const targets = q?.rounds?.[dayKey(now)]?.targets ?? targetIds(i);
+    return targets.map((id) => {
+      const who = member(id) ?? i.formerMembers?.find((m) => m.id === id);
+      return {
+        id,
+        name: id === 'me' ? `${state.name} · 나` : (who?.name ?? '떠난 주민'),
+        color: id === 'me' ? state.color : (who?.color ?? 'gray'),
+        rate: q ? questMemberRate(state, q, id, i.id, now) : null,
+      };
+    });
   };
   const goal = i.buildingQuest,
     work = i.construction,
@@ -4608,13 +4614,57 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                     →
                   </Text>
                   <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
-                    <QuestTimeInput
-                      testID="board-quest-end"
-                      label="종료 시간"
-                      value={form.endTime}
-                      onChange={(endTime) => setForm({ endTime })}
-                    />
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
+                      {/* 웹 시간 입력은 24:00을 받지 못해 자정까지는 따로 고른다. 라벨 줄 높이 안에 둔다 */}
+                      <Pressable
+                        testID="board-quest-midnight"
+                        accessibilityRole="checkbox"
+                        accessibilityLabel="자정(24:00)까지"
+                        aria-checked={form.endTime === '24:00'}
+                        hitSlop={14}
+                        onPress={() =>
+                          setForm({ endTime: form.endTime === '24:00' ? '' : '24:00' })
+                        }
+                      >
+                        <Text
+                          style={[
+                            boardFont(
+                              11,
+                              1.4,
+                              form.endTime === '24:00' ? '700' : '400',
+                              form.endTime === '24:00' ? INK : '#786151',
+                              GOWUN,
+                            ),
+                            { textDecorationLine: 'underline' },
+                          ]}
+                        >
+                          {form.endTime === '24:00' ? '자정까지 ✓' : '자정까지'}
+                        </Text>
+                      </Pressable>
+                    </View>
+                    {form.endTime === '24:00' ? (
+                      <View
+                        testID="board-quest-end"
+                        accessibilityLabel="종료 시간 24:00"
+                        style={[inputStyle(), { justifyContent: 'center' }]}
+                      >
+                        <Text style={boardFont(14, 1.5, '400', INK, GOWUN)}>24:00</Text>
+                      </View>
+                    ) : (
+                      <QuestTimeInput
+                        testID="board-quest-end"
+                        label="종료 시간"
+                        value={form.endTime}
+                        onChange={(endTime) => setForm({ endTime })}
+                      />
+                    )}
                   </View>
                 </View>
               </BoardField>
