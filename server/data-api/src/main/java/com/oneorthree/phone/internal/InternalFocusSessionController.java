@@ -1,4 +1,4 @@
-package com.oneorthree.phone.focus.internal;
+package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.focus.dto.session.CurrentFocusSessionResponse;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
@@ -6,7 +6,7 @@ import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusSummaryView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
-import com.oneorthree.phone.focus.service.FocusSessionLifecycleService;
+import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;

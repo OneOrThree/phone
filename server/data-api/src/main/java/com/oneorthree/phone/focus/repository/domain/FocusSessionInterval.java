@@ -25,7 +25,7 @@ import java.util.UUID;
  * pause/resume가 원자적으로 "하나를 닫고 다음을 연다".
  *
  * <p>이 엔티티는 순수 저장 행이다 — 여는/닫는 판단과 잠금은
- * {@link com.oneorthree.phone.focus.service.FocusSessionLifecycleService}가 진다.
+ * {@link com.oneorthree.phone.internal.service.FocusSessionLifecycleService}가 진다.
  */
 @Entity
 @Table(name = "focus_session_intervals")
