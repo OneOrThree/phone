@@ -16,11 +16,22 @@ import {
   Platform,
   AccessibilityInfo,
 } from 'react-native';
-import Svg, { Path, Circle, Ellipse, Rect, Defs, ClipPath, G } from 'react-native-svg';
+import Svg, {
+  Path,
+  Circle,
+  Ellipse,
+  Rect,
+  Defs,
+  ClipPath,
+  G,
+  Polygon,
+  Image as SvgImage,
+} from 'react-native-svg';
 import { useFonts } from 'expo-font';
 import { C, art, k, Txt, Pic, Btn, Gear } from '@/design-system/patterns';
 import { TextInput } from '@/design-system/typography';
 import { componentTokens } from '@/design-system/tokens';
+import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
 
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다
@@ -1192,6 +1203,61 @@ function HatShapes({ w }: { w: number }) {
       />
       <Path d={crown(0.75)} fill="none" stroke={C.brown} strokeWidth={1.5} />
     </>
+  );
+}
+
+// 뗏목 위 고양이 합성(시안 prep-redesign-assets.py raft_cat과 같은 좌표: 뒤 판자 → 고양이 400px (279,368) → 앞 판자).
+// 검정 고양이는 미리 합성한 그림이 있고, 다른 털색은 여기서 겹친다. 크기는 상자에 맞춰 비율 유지(contain)
+export function RaftCatArt({
+  color,
+  scarf = false,
+  hat = false,
+  width,
+  height,
+}: {
+  color: string;
+  scarf?: boolean;
+  hat?: boolean;
+  width: number | `${number}%`;
+  height: number | `${number}%`;
+}) {
+  return (
+    <Svg width={width} height={height} viewBox="48 307 928 669">
+      <SvgImage href={assets['boats/raft/layers/back-day.png']} width={1024} height={1024} />
+      <G transform="translate(279 368) scale(0.78125)">
+        <SvgImage href={assets[`characters/cat/${color}/idle.png`]} width={512} height={512} />
+        {scarf && (
+          // 바다 스카프: 512px 고양이의 턱 아래 목 + 가슴 오른쪽 끝자락
+          <>
+            <Rect
+              x={179.5}
+              y={299.5}
+              width={218}
+              height={36}
+              rx={17.5}
+              fill={C.pink}
+              stroke={C.brown}
+              strokeWidth={7}
+            />
+            <Polygon
+              points="338,322 376,326 388,392 350,386"
+              fill={C.pink}
+              stroke={C.brown}
+              strokeWidth={7}
+              strokeLinejoin="round"
+            />
+          </>
+        )}
+      </G>
+      <SvgImage href={assets['boats/raft/layers/front-day.png']} width={1024} height={1024} />
+      {hat && (
+        <G
+          transform={`translate(${279 + 175 * 0.78125} ${368 + 23 * 0.78125}) scale(${(230 * 0.78125) / 88})`}
+        >
+          <HatShapes w={88} />
+        </G>
+      )}
+    </Svg>
   );
 }
 

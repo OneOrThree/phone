@@ -81,6 +81,7 @@ import {
   IslandThumb,
   HatArt,
   HatOn,
+  RaftCatArt,
   Cta,
   SearchField,
 } from '@/screens/island/IslandSheet';
@@ -3542,19 +3543,23 @@ export function RedesignScreens({ e }: any) {
       <IslandSheet bg="dock" sign="boat/raft" title="내 뗏목" tight onClose={home}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
           <Preview h={64} w={84} radius={16}>
-            <Pic
-              id={
-                state.color !== 'black'
-                  ? 'boat/raft'
-                  : worn === 'scarf'
-                    ? 'boat/raft/cat-scarf'
-                    : 'boat/raft/cat'
-              }
-              w={76}
-              h={56}
-            />
-            {state.color === 'black' && worn === 'straw-hat' && (
-              <HatOn image="raft" style={{ width: 76, height: 56 }} />
+            {state.color === 'black' ? (
+              <>
+                <Pic
+                  id={worn === 'scarf' ? 'boat/raft/cat-scarf' : 'boat/raft/cat'}
+                  w={76}
+                  h={56}
+                />
+                {worn === 'straw-hat' && <HatOn image="raft" style={{ width: 76, height: 56 }} />}
+              </>
+            ) : (
+              <RaftCatArt
+                color={state.color}
+                scarf={worn === 'scarf'}
+                hat={worn === 'straw-hat'}
+                width={76}
+                height={56}
+              />
             )}
           </Preview>
           <View style={{ flex: 1, gap: 4 }}>
