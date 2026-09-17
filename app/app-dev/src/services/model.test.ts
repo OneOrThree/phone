@@ -910,6 +910,7 @@ test('목표로 정하기는 게시판 완공 후·공사 중이 아닐 때만 �
 test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고 개인 기록은 남긴다', () => {
   let s = initialState(true);
   const island = currentIsland(s);
+  island.formerMembers = [{ ...island.members[0], id: 'gone' }];
   island.members = [];
   island.ledger = [{ id: 'l1', text: '집중 +10마리', at: 1 }];
   s.records = [
@@ -929,7 +930,37 @@ test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고
   assert.deepEqual(closed.ledger, []);
   assert.deepEqual(closed.buildings, []);
   assert.equal(closed.buildingQuest, undefined);
+  assert.deepEqual(closed.formerMembers, []);
   assert.equal(s.records.length, 1);
+});
+
+test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 지우고, 다시 LOAD해도 같다', () => {
+  const saved = initialState(true);
+  const old = saved.islands.find((j) => j.id === 'cloud')!;
+  Object.assign(old, { closed: true, visibility: 'private', members: [], fish: 900 });
+  old.formerMembers = [{ ...saved.islands[1].members[0], id: 'gone' }];
+  old.ledger = [{ id: 'l', text: '집중 +10마리', at: 1 }];
+  saved.rewards = [
+    {
+      id: 'rw',
+      islandId: old.id,
+      questId: 'q-focus',
+      day: '2026-09-17',
+      amount: 10,
+      kind: 'personal',
+      acknowledged: false,
+    },
+  ];
+  const once = act(initialState(), 'LOAD', { state: saved });
+  const cleaned = once.islands.find((j) => j.id === old.id)!;
+  assert.equal(balance(cleaned), 0);
+  assert.deepEqual(cleaned.ledger, []);
+  assert.deepEqual(cleaned.messages, []);
+  assert.deepEqual(cleaned.formerMembers, []);
+  assert.equal(once.rewards?.length, 0);
+  // 열린 섬은 그대로
+  assert.equal(balance(currentIsland(once)), balance(currentIsland(saved)));
+  assert.deepEqual(act(initialState(), 'LOAD', { state: once }), once);
 });
 
 test('섬을 떠나면 그 섬의 받지 않은 보상을 지우고, 닫힌 섬 보상은 CLAIM해도 적립 없이 닫힌다', () => {

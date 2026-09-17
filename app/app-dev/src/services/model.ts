@@ -735,6 +735,8 @@ function closeIsland(s: State, i: Island) {
     fish: 0,
     earned: {},
     ledger: [],
+    // 강퇴·탈퇴 주민의 이름·색·기록도 섬 공동 데이터라 같이 지운다
+    formerMembers: [],
     buildings: [],
     quests: [],
     notices: [],
@@ -993,7 +995,7 @@ export function reducer(state: State, a: Action): State {
     });
     const pendingIslands =
       loaded.pendingIslands ?? (loaded.pendingIsland ? [loaded.pendingIsland] : []);
-    return {
+    const next: State = {
       ...loaded,
       schema: 2,
       fish: 0,
@@ -1013,6 +1015,9 @@ export function reducer(state: State, a: Action): State {
       owned: loaded.owned.filter((id) => !retired.includes(id)),
       orders: loaded.orders.filter((o) => !retired.includes(o.product)),
     };
+    // 예전 버전에서 닫힌 섬에 남아 있던 공동 데이터도 지금 규칙대로 정리한다(여러 번 해도 같다)
+    next.islands.forEach((i) => i.closed && closeIsland(next, i));
+    return next;
   }
   const hostOnly = [
     'MANAGE',

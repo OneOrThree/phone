@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, Share, TextInput, View } from 'react-native';
+import { BackHandler, Image, Pressable, ScrollView, Share, TextInput, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { art, Wheel } from '@/design-system/patterns';
 import { useAppLayout } from '@/utils/layout';
@@ -160,6 +160,18 @@ export function Hall({ e }: any) {
   }, [i.ledger, month, thisMonth]);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
+  // 안드로이드 뒤로 가기: 확인창 → 청사진 → 수정·위임 창 순으로 하나만 닫고 회관에 머문다.
+  // 열린 창이 있을 때만 등록해 App 전역 리스너보다 나중에 등록되므로 먼저 불린다
+  useEffect(() => {
+    if (!dialog && !plan && !panel) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (dialog) setDialog(null);
+      else if (plan) setPlan(null);
+      else setPanel(panel === 'transfer' ? 'edit' : '');
+      return true;
+    });
+    return () => sub.remove();
+  }, [dialog, plan, panel]);
   const notify = (text: string) => {
     setToast(text);
     if (timer.current) clearTimeout(timer.current);
