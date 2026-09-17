@@ -1,6 +1,8 @@
 package com.oneorthree.phone.withdrawal.service;
 
 import com.oneorthree.phone.auth.service.AuthSessionService;
+import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.friend.service.FriendService;
@@ -57,6 +59,8 @@ public class AccountWithdrawalService {
     private final UserQueryService userQueryService;
     private final GroupMemberService groupMemberService;
     private final FocusService focusService;
+    private final FocusSessionDetailRepository focusSessionDetailRepository;
+    private final FocusSessionIntervalRepository focusSessionIntervalRepository;
     private final StatsService statsService;
     private final ScreenTimeService screenTimeService;
     private final UserService userService;
@@ -117,6 +121,14 @@ public class AccountWithdrawalService {
 
         // 이력 익명화 — 행을 남기고 user_id 만 끊는다(다른 사람의 판정·랭킹 근거이므로).
         focusService.anonymizeWithdrawnUser(userId);
+        // v0.3 집중 세션(GROMO-1764)은 레거시와 달리 «상세·구간»이라는 자기 행을 따로 갖는다 —
+        // user_id 뿐 아니라 자유 입력 subject 까지 남고, 진행 중이면 열린 구간도 남는다. 시작 게이트가
+        // 닫혀 있어 지금은 행이 생기지 않지만, 게이트 뒤에 알려진 구멍을 남겨 두면 여는 날 그대로 샌다.
+        // 순서 고정: 구간 닫기 → 상세 종결 → user_id 끊기. 마지막이 앞서면 뒤의 둘이 대상을 못 찾는다.
+        Instant anonymizedAt = Instant.now();
+        focusSessionIntervalRepository.closeOpenIntervalsOfUser(userId, anonymizedAt);
+        focusSessionDetailRepository.abandonProgressingOfUser(userId, anonymizedAt);
+        focusSessionDetailRepository.anonymizeWithdrawnUser(userId);
         statsService.anonymizeWithdrawnUser(userId);
         screenTimeService.anonymizeWithdrawnUser(userId);
 

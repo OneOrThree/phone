@@ -3,8 +3,12 @@ package com.oneorthree.phone.focus.repository;
 import com.oneorthree.phone.common.support.RepositoryTestBase;
 import com.oneorthree.phone.focus.repository.domain.DefaultTag;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
@@ -45,6 +49,12 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
 
     @Autowired
     private UserFocusTagRepository userFocusTagRepository;
+
+    @Autowired
+    private FocusSessionDetailRepository focusSessionDetailRepository;
+
+    @Autowired
+    private GroupRepository groupRepository;
 
     // markAutoClosedIfOpen 은 @Modifying 벌크 UPDATE(clearAutomatically 미사용 — endSessionIfActive 스타일 일치).
     // 같은 트랜잭션에서 findById 재조회 시 영속성 컨텍스트 1차 캐시의 낡은 엔티티가 반환되므로, DB 실제 반영을
@@ -869,5 +879,41 @@ class FocusSessionRepositoryTest extends RepositoryTestBase {
 
         assertThat(focusSessionRepository.findById(saved.getId()).orElseThrow().getFocusSecondsByDate())
                 .isNull();
+    }
+
+    // ── orphan 스윕 후보에서 v0.3 상세 세션 제외 (GROMO-1764, LLD §5) ────────
+
+    @Test
+    @DisplayName("findLegacyOrphanCandidates — v0.3 상세가 달린 미종료 세션은 12h 가 지나도 후보가 아니다")
+    void legacyOrphanCandidatesExcludeLifecycleSessions() {
+        Instant threshold = Instant.parse("2026-07-03T12:00:00Z");
+        Instant startedAt = Instant.parse("2026-07-03T00:00:00Z");
+        FocusSession legacy = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(startedAt)
+                .build());
+        // 새 수명주기 세션 — 13시간 쉰 PAUSED 도 레거시 마커는 endedAt=null 그대로라 조건만으로는 걸린다.
+        FocusSession lifecycleSession = focusSessionRepository.save(FocusSession.builder()
+                .user(user)
+                .startedAt(startedAt)
+                .build());
+        Group island = groupRepository.save(Group.builder().name("집중 섬").build());
+        focusSessionDetailRepository.save(FocusSessionDetail.builder()
+                .sessionId(lifecycleSession.getId())
+                .userId(user.getId())
+                .islandId(island.getId())
+                .membershipEpochAtStart(0L)
+                .subject("알고리즘")
+                .targetMinutes(60)
+                .lifecycle(FocusSessionLifecycle.PAUSED)
+                .version(2L)
+                .lastTransitionAt(startedAt)
+                .build());
+        focusSessionRepository.flush();
+        entityManager.clear();
+
+        assertThat(focusSessionRepository.findLegacyOrphanCandidates(threshold))
+                .extracting(FocusSession::getId)
+                .containsExactly(legacy.getId());
     }
 }

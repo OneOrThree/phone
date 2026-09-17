@@ -126,7 +126,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 136개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 148개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -145,8 +145,14 @@ class ErrorContractTest {
         // GROMO-1660 이 초대 자격·이관 판정 코드를 2개 더 늘렸다(CLAIM_INTENT_NOT_FOUND ·
         // CLAIM_INTENT_LEASE_STALE) — 재개 실행자의 「없는 항목」과 「낡은 리스」를 한 코드로 접으면
         // 정상 경합과 배선 사고가 구분되지 않는다.
-        assertThat(tests).as("실측 기준 도메인 상수 121개 + 공통 15개 — ACK·설정 세션 및 방장 위임 거절 포함")
-                .hasSize(136);
+        // GROMO-1764 가 집중 세션 수명주기 상수 12개를 더했다 — 입력 검증 5(INVALID_SUBJECT ·
+        // INVALID_TARGET_MINUTES · INVALID_SUMMARY_DATE · SUMMARY_DATE_OUT_OF_RANGE ·
+        // INVALID_SUMMARY_TIMEZONE), 전제 판정 3(ISLAND_NOT_CURRENT · ISLAND_MEMBERSHIP_REQUIRED ·
+        // SESSION_IN_PROGRESS), 전이 2(EXPECTED_VERSION_REQUIRED · SESSION_STATE_CONFLICT),
+        // 그리고 게이트 2(REWARD_POLICY_UNAVAILABLE · SESSION_START_UNAVAILABLE) — 같은 503 이지만
+        // 막는 사유가 달라 하나만 먼저 여는 날 구분이 필요하다.
+        assertThat(tests).as("실측 기준 도메인 상수 133개 + 공통 15개 — 집중 세션 수명주기 12종 포함")
+                .hasSize(148);
         return tests;
     }
 

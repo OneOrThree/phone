@@ -1097,12 +1097,12 @@ public class FocusService {
      * <p>GROMO-292: 마감시킨 세션의 <b>집중 프레즌스 리스도 함께 해제</b>한다. 안 그러면 리스는
      * TTL(13h)로만 풀리는데, 그동안 그 사람은 이미 끝난 집중 때문에 채팅에 못 들어간다.
      *
-     * @return 자동 종료한 세션 수(경합으로 이미 완료된 세션 제외)
+     * @return 자동 종료한 세션 수(경합으로 이미 완료된 세션 제외, v0.3 상세가 달린 세션은 후보에서 제외)
      */
     @Transactional
     public int sweepOrphanSessions(Instant now) {
         Instant threshold = now.minus(ORPHAN_TIMEOUT);
-        List<FocusSession> orphans = focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(threshold);
+        List<FocusSession> orphans = focusSessionRepository.findLegacyOrphanCandidates(threshold);
         int closed = 0;
         for (FocusSession session : orphans) {
             Instant cappedEnd = session.getStartedAt().plus(ORPHAN_TIMEOUT);
