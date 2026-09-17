@@ -939,6 +939,11 @@ test('받은 편지는 읽고 닫으면 사라지고, 채팅방 새 글은 마�
   assert.equal(newChatCount(currentIsland(s)), 0);
   s = act(s, 'MESSAGE', { text: '내 글', now: Date.now() + 2000 });
   assert.equal(newChatCount(currentIsland(s)), 0);
+  // 더 이른 시각으로 다시 열어도 읽음 기준은 뒤로 가지 않는다 (LOAD가 올려 둔 미래 시각 유지)
+  const kept = currentIsland(s).chatReadAt!;
+  s = act(s, 'CHAT_READ', { now: kept - 5000 });
+  assert.equal(currentIsland(s).chatReadAt, kept);
+  assert.equal(newChatCount(currentIsland(s)), 0);
 });
 
 test('공사가 끝나면 완공 안내를 남기고, 다음 건물을 고르면 지운다', () => {

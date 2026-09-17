@@ -1484,7 +1484,8 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'CHAT_READ':
-      i.chatReadAt = now;
+      // 읽음 기준은 뒤로 가지 않는다 — LOAD가 미래 시각 메시지까지 읽은 것으로 올려 둔 값을 지키기 위해
+      i.chatReadAt = Math.max(i.chatReadAt ?? 0, now);
       break;
     case 'MESSAGE':
       if (a.text.trim())
