@@ -430,20 +430,36 @@ public class FocusSessionLifecycleService {
      * @return {@code max(clock.instant(), detail.lastTransitionAt)}
      */
     private Instant transitionAnchor(FocusSessionDetail detail) {
-        Instant now = clock.instant();
-        Instant last = detail.getLastTransitionAt();
-        return last != null && last.isAfter(now) ? last : now;
+        return clampToLastTransition(detail, clock.instant());
     }
 
+    /** {@code max(candidate, detail.lastTransitionAt)} — 시각을 «되돌아가지 않게» 눌러 둔다. */
+    private Instant clampToLastTransition(FocusSessionDetail detail, Instant candidate) {
+        Instant last = detail.getLastTransitionAt();
+        return last != null && last.isAfter(candidate) ? last : candidate;
+    }
+
+    /**
+     * 상세를 공개 응답으로 옮긴다.
+     *
+     * <p><b>{@code serverNow}와 {@code activeSeconds}는 «같은» 시각을 기준으로 해야 한다.</b>
+     * 응답의 계약이 「{@code serverNow} 시점의 누적 집중 초」이기 때문이다. 앞서 넘어온 {@code now}를
+     * 그대로 돌려주면서 길이는 {@code clock.instant()}를 다시 읽어 계산하면, 초 경계나 지연이 끼는
+     * 순간 두 값이 어긋난다 — 물러난 벽시계에서는 확실히 어긋난다.
+     *
+     * <p>그래서 시계를 다시 읽지 않고 <b>넘어온 {@code now}를 clamp</b>해 하나의 anchor를 만들고,
+     * 그 anchor로 길이를 재고 그 anchor를 {@code serverNow}로 돌려준다. clamp는 그대로 필요하다 —
+     * 열린 구간의 시작보다 이른 시각으로 재면 음수가 나간다.
+     */
     private FocusSessionView toView(FocusSessionDetail detail, Instant now) {
         List<FocusSessionInterval> intervals = focusSessionIntervalRepository
                 .findBySessionIdOrderByOrdinalAsc(detail.getSessionId());
-        // 조회에도 같은 anchor를 쓴다 — 물러난 벽시계로 열린 구간을 닫으면 activeSeconds가 음수로 나간다.
-        long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, transitionAnchor(detail));
+        Instant anchor = clampToLastTransition(detail, now);
+        long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, anchor);
         boolean paused = detail.getLifecycle() == FocusSessionLifecycle.PAUSED;
         return new FocusSessionView(detail.getSessionId(), detail.getIslandId(), detail.getSubject(),
                 detail.getTargetMinutes(), paused ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE,
-                activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals),
+                activeSeconds, anchor, FocusIntervalMath.sessionStartedAt(intervals),
                 paused ? FocusIntervalMath.openRestStartedAt(intervals) : null, detail.getVersion());
     }
 

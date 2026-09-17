@@ -29,6 +29,18 @@ package com.oneorthree.phone.focus.support;
  *   <li><b>집중 프레즌스 리스 기록</b>. {@code FocusPresencePort.focusStarted} 를 부르지 않아
  *       {@code ChatAccessGuard} 의 집중 중 채팅 차단을 그대로 우회한다</li>
  *   <li><b>보상 정책 FR-D01~06</b> — {@link FocusRewardPolicyGate} 가 같이 열려야 finish 가 산다</li>
+ *   <li><b>멤버십을 «잠근 뒤» 전이한다.</b> 지금 {@code authorizeSession} 의 섬 멤버십 검사는 잠금 없는
+ *       조회다. 그 조회를 통과한 직후 {@code GroupMemberService.kickMember} 나 탈퇴가 멤버십 행을 잠그고
+ *       커밋하면, 이 요청은 그대로 상세·구간을 바꾸고 outbox 까지 적재한다 — 강퇴가 «먼저» 끝났는데도
+ *       그 사용자의 전이가 남는다. 멤버십 writer 와 같은 잠금 아래에서 다시 확인해야 한다.
+ *       지금 락을 더하지 않은 것은 의도다: LLD §4 의 전역 잠금 순서와 맞추는 작업이라 게이트를 여는
+ *       변경과 같이 가야 하고, 도달하지 않는 경로에 락부터 심으면 순서를 검증할 방법이 없다</li>
+ *   <li><b>start 가 rest 투영 삭제 이벤트도 적재한다.</b> pause 된 세션이 레거시 마커 종료로
+ *       {@code ABANDONED} 로 정리되면 그 세션의 {@code rest.member.updated} 삭제가 나가지 않는다.
+ *       그 뒤 새 세션을 시작해도 이 경로는 {@code focus.member.updated} 만 적재하므로, Realtime 이 켜진
+ *       뒤에는 클라이언트의 rest 투영에 옛 {@code sessionId}·{@code restSeat} 가 남아 새 focus 상태와
+ *       «함께» 보인다. 지금은 {@code REALTIME} transport 자체가 등록돼 있지 않아 어떤 이벤트도 전달되지
+ *       않으므로 전달 배선과 같이 정한다</li>
  * </ol>
  *
  * <p>{@link FocusRewardPolicyGate} 와 같은 모양(순수 상수 판정, 주입 없음)이지만 <b>별개 상수</b>다 —
