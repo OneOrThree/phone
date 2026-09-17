@@ -42,6 +42,7 @@ import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -86,8 +87,15 @@ import java.util.UUID;
  * {@link FocusErrorCode#REWARD_POLICY_UNAVAILABLE}로 막는다 — policy.md가 "정책 없을 때 성공 정산
  * receipt를 만들지 않는다"고 정했다. 게이트가 열리기 전까지 세션은 active/paused만 관측되고
  * completed에 닿지 않는다.
+ *
+ * <h2>기본 마커 외부 종료 방어</h2>
+ * 진행 중 상세를 집는 세 지점({@link #start}·{@link #current}·{@link #authorizeSession})은
+ * {@link #abandonIfMarkerClosed}로 「상세가 진행 중이면 기본 {@code focus_sessions.ended_at}이 null」
+ * 이라는 불변식을 되본다 — 레거시 start가 그 사용자의 열린 마커를 전부 닫기 때문이다. 그래서
+ * {@link FocusSessionLifecycle#ABANDONED}는 지급 게이트와 무관하게 관측될 수 있다.
  */
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class FocusSessionLifecycleService {
@@ -97,6 +105,9 @@ public class FocusSessionLifecycleService {
     private static final String REST_MEMBER_AGGREGATE_TYPE = "REST_MEMBER";
     private static final String FOCUS_MEMBER_EVENT_TYPE = "focus.member.updated";
     private static final String REST_MEMBER_EVENT_TYPE = "rest.member.updated";
+    /** 「진행 중」으로 보는 lifecycle — 사용자당 최대 1건(V58 부분 UNIQUE)이 걸리는 집합 그대로다. */
+    private static final List<FocusSessionLifecycle> PROGRESSING =
+            List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
 
     private final UserQueryService userQueryService;
     private final GroupQueryService groupQueryService;
@@ -128,6 +139,14 @@ public class FocusSessionLifecycleService {
                     if (focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user)
                             .isPresent()) {
                         throw new FocusException(FocusErrorCode.SESSION_IN_PROGRESS);
+                    }
+                    // 기본 행은 닫혔는데 상세만 진행 중인 경우를 여기서 정리한다. 두면 아래 상세
+                    // INSERT가 부분 UNIQUE(V58)를 위반해 이 사용자는 영영 start에서 500을 받는다.
+                    if (focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(userId, PROGRESSING)
+                            .map(this::abandonIfMarkerClosed).orElse(false)) {
+                        // UPDATE가 INSERT보다 먼저 DB에 닿아야 한다 — Hibernate는 한 flush 안에서
+                        // insert를 update보다 먼저 실행하므로, 그냥 두면 부분 UNIQUE에 걸린다.
+                        focusSessionDetailRepository.flush();
                     }
                     UserIslandContext context = userIslandContextLockService.lock(user);
                     if (context.getCurrentIslandId() == null || !context.getCurrentIslandId().equals(islandId)) {
@@ -169,13 +188,20 @@ public class FocusSessionLifecycleService {
         return decode(data, FocusSessionView.class);
     }
 
-    /** {@code GET /focus-sessions/current} — LLD §2 session. 본인만, 명령이 아니라 단일 snapshot 조회. */
+    /**
+     * {@code GET /focus-sessions/current} — LLD §2 session. 본인만, 명령이 아니라 단일 snapshot 조회.
+     *
+     * <p>조회인데도 {@code readOnly}가 아닌 것은 의도다 — {@link #abandonIfMarkerClosed}가 어긋난 행을
+     * 그 자리에서 종결하고, 그 쓰기가 실제로 커밋돼야 다음 start가 풀린다(readOnly면 flush 자체가 없다).
+     */
+    @Transactional
     public FocusSessionView current(UUID userId) {
         userQueryService.getCaller(userId);
         Instant now = clock.instant();
         return focusSessionDetailRepository
-                .findFirstByUserIdAndLifecycleIn(userId,
-                        List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED))
+                .findFirstByUserIdAndLifecycleIn(userId, PROGRESSING)
+                // 어긋난 행은 정리하고 「진행 중 세션 없음」으로 답한다 — 그게 사용자에게 참이다.
+                .filter(detail -> !abandonIfMarkerClosed(detail))
                 .map(detail -> toView(detail, now))
                 .orElse(null);
     }
@@ -335,8 +361,7 @@ public class FocusSessionLifecycleService {
                 .orElse(0);
 
         long currentSeconds = focusSessionDetailRepository
-                .findFirstByUserIdAndLifecycleIn(userId,
-                        List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED))
+                .findFirstByUserIdAndLifecycleIn(userId, PROGRESSING)
                 .map(detail -> FocusIntervalMath.activeSecondsOverlapping(
                         focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(detail.getSessionId()),
                         now, dayStart, dayEnd))
@@ -370,7 +395,47 @@ public class FocusSessionLifecycleService {
         if (!detail.getUserId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
+        if (abandonIfMarkerClosed(detail)) {
+            throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
+        }
         return detail;
+    }
+
+    /**
+     * 불변식 검사·정리 — 「상세 lifecycle이 ACTIVE/PAUSED면 그 세션의 {@code focus_sessions.ended_at}은
+     * null이어야 한다」. 진행 중 상세를 집는 세 지점(current·{@link #authorizeSession}·{@link #start})이
+     * 전부 이걸 통과해야 한다.
+     *
+     * <p>깨지는 이유는 하나다 — 레거시 {@code FocusService.startFocusSession}이
+     * {@code autoCloseOpenMarkersOf}로 그 사용자의 열린 마커를 조건 없이 전부 닫는다(v0.3 세션의
+     * 기본 행 포함). 레거시는 고치지 않는다(1.x 앱 동작·「열린 마커 1개」 관례가 바뀐다) — 방어는
+     * 새 경로인 여기서 한다.
+     *
+     * <p>{@code log.warn}으로 남기는 것은 필수다. 조용히 고치면 레거시·신규 경로가 한 사용자에게
+     * 섞여 쓰이는 빈도를 아무도 알 수 없다.
+     *
+     * <p><b>한계</b>: {@link #authorizeSession} 경로에서는 곧바로 409를 던져 트랜잭션이 롤백되므로
+     * 여기서 건 전이는 남지 않는다(경고 로그만 남는다). 실제로 커밋되는 정리는 {@code current}와
+     * {@code start}가 한다 — 영구 500을 푸는 자리는 {@code start}고, 앱은 current를 늘 먼저 부른다.
+     *
+     * @param detail 진행 중일 수 있는 상세(호출측이 잠갔거나 잠그지 않았을 수 있다)
+     * @return 어긋나 있어 {@code ABANDONED}로 내렸으면 {@code true}
+     */
+    private boolean abandonIfMarkerClosed(FocusSessionDetail detail) {
+        if (!PROGRESSING.contains(detail.getLifecycle())) {
+            return false;
+        }
+        Instant markerEndedAt = focusSessionRepository.findById(detail.getSessionId())
+                .map(FocusSession::getEndedAt)
+                .orElse(null);
+        if (markerEndedAt == null) {
+            return false;
+        }
+        log.warn("집중 세션 기본 마커가 바깥에서 닫혔습니다 — ABANDONED로 정리합니다. "
+                        + "session={}, user={}, lifecycle={}, markerEndedAt={}",
+                detail.getSessionId(), detail.getUserId(), detail.getLifecycle(), markerEndedAt);
+        detail.applyAbandon(clock.instant());
+        return true;
     }
 
     private static void requireLifecycle(FocusSessionDetail detail, FocusSessionLifecycle expected) {

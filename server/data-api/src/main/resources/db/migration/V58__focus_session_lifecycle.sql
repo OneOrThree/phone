@@ -9,7 +9,10 @@ CREATE TABLE focus_session_details (
     membership_epoch_at_start   bigint NOT NULL,
     subject                     varchar(200) NOT NULL,
     target_minutes              integer NOT NULL,
-    lifecycle                   varchar(10) NOT NULL CHECK (lifecycle IN ('ACTIVE', 'PAUSED', 'COMPLETED')),
+    -- ABANDONED = 기본 focus_sessions 마커가 바깥에서(레거시 start의 autoCloseOpenMarkersOf) 닫혀
+    -- 더 진행할 수 없게 된 세션. 정상 완료가 아닌 종결이라 COMPLETED와 구분한다.
+    lifecycle                   varchar(10) NOT NULL
+        CHECK (lifecycle IN ('ACTIVE', 'PAUSED', 'COMPLETED', 'ABANDONED')),
     version                     bigint NOT NULL DEFAULT 1,
     last_transition_at          timestamptz NOT NULL,
     policy_revision             integer,
@@ -17,7 +20,8 @@ CREATE TABLE focus_session_details (
     created_at                  timestamptz NOT NULL DEFAULT now()
 );
 
--- 사용자당 진행 세션(active/paused) 하나 — FR-P02. 완료 행은 이 제약 밖이라 여러 건 쌓여도 된다.
+-- 사용자당 진행 세션(active/paused) 하나 — FR-P02. 완료/포기 행은 이 제약 밖이라 여러 건 쌓여도 된다.
+-- ABANDONED가 여기 들어가면 안 된다 — 어긋난 행을 정리하고도 다음 start가 막혀 목적이 사라진다.
 CREATE UNIQUE INDEX focus_session_details_user_progressing_uk
     ON focus_session_details (user_id)
     WHERE lifecycle IN ('ACTIVE', 'PAUSED');

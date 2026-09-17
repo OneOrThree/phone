@@ -105,4 +105,16 @@ public class FocusSessionDetail {
         this.version = this.version + 1;
         this.lastTransitionAt = t;
     }
+
+    /**
+     * 포기 전이 — 기본 {@code focus_sessions} 마커가 바깥에서 닫혀 더 진행할 수 없게 된 세션을
+     * {@link FocusSessionLifecycle#ABANDONED}로 종결한다(정상 완료 아님, 정산 없음).
+     * 휴식 자리는 반납한다(resume과 같은 결) — paused인 채로 어긋났을 수 있다.
+     */
+    public void applyAbandon(Instant t) {
+        this.lifecycle = FocusSessionLifecycle.ABANDONED;
+        this.restSeat = null;
+        this.version = this.version + 1;
+        this.lastTransitionAt = t;
+    }
 }

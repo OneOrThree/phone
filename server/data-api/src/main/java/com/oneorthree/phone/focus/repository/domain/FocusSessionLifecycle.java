@@ -14,5 +14,21 @@ public enum FocusSessionLifecycle {
     /** 일시정지(모닥불 휴식) — 열린 REST 구간이 있다. */
     PAUSED,
     /** 정상 완료 — finish 정산까지 끝났다. 지급 게이트가 닫혀 있는 동안은 도달하지 않는다. */
-    COMPLETED
+    COMPLETED,
+    /**
+     * 기본 마커가 바깥에서 닫혀 더 진행할 수 없게 된 세션 — <b>정상 완료가 아닌 종결</b>이다.
+     *
+     * <p>이렇게 만드는 주체는 레거시 {@code FocusService.startFocusSession}이다. 그쪽은
+     * {@code FocusSessionRepository.autoCloseOpenMarkersOf}로 <b>그 사용자의 열린
+     * {@code focus_sessions} 행을 조건 없이 전부</b> {@code AUTO_CLOSED}로 닫는데, v0.3 세션의
+     * 기본 행도 구분 없이 같이 닫힌다(1.x 앱이 아직 그 경로를 쓴다). 그러면
+     * 「lifecycle이 ACTIVE/PAUSED면 그 세션의 {@code focus_sessions.ended_at IS NULL}」이라는
+     * 불변식이 깨지고, 상세만 진행 중으로 남아 V58의 부분 UNIQUE
+     * ({@code focus_session_details_user_progressing_uk})가 그 사용자의 다음 start를 영영 막는다.
+     *
+     * <p>{@link com.oneorthree.phone.internal.service.FocusSessionLifecycleService}가 진행 중 상세를
+     * 집을 때마다 그 불변식을 되보고, 깨져 있으면 이 값으로 내린 뒤 정직하게 답한다. 레거시 쪽은
+     * 고치지 않는다 — 거기 손대면 「사용자당 열린 마커 1개」 관례나 1.x 앱 동작이 바뀐다.
+     */
+    ABANDONED
 }
