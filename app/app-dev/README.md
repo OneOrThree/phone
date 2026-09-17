@@ -58,4 +58,15 @@ npm run review:v2-journeys
 
 화면 전환, 로컬 저장, 집중 구간 계산, 공동 재화, 건설 타이머와 음원 재생은 앱 안에서 동작합니다. 인증, 다른 기기의 주민·편지·가입 승인, 서버 랭킹, OS 스크린타임 수집, 푸시와 원격 음악 동기화는 아직 로컬 목업 범위입니다.
 
-앱 버전은 `2.0.0`, iOS·Android 식별자는 `com.oneorthree.focuscat`입니다. 서버 API와 인증 연결, 스토어 배포 설정은 후속 작업에서 구성합니다.
+앱 버전은 `2.0.0`, iOS·Android 식별자는 `com.oneorthree.focuscat`입니다. 서버 API와 인증 연결은 후속 작업에서 구성합니다.
+
+## TestFlight
+
+기존 Gromo의 로컬 App Store Connect API 키 설정을 재사용해 Fishcat 테스트 빌드를 올립니다.
+
+```sh
+cd ios
+./testflight.sh
+```
+
+스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Fishcat 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.

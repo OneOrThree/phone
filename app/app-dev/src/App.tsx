@@ -68,6 +68,7 @@ import {
   buildMinutes,
   buildingCost,
   buildingNames,
+  buildingOrder,
   colors,
   colorNames,
   State,
@@ -84,6 +85,8 @@ const DEMO =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
   new URLSearchParams(window.location.search).has('demo');
+// GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
+const TESTFLIGHT_ALL_BUILDINGS = true;
 const STORAGE = 'gromo-r61-user-v2';
 const titles: Record<Route, string> = {
   login: 'GROMO',
@@ -225,6 +228,14 @@ function Gromo() {
     // 화면이 뒤로가기를 먼저 처리하면(true) 아래 기본 동작을 건너뛴다(낚시섬 걷기·항해·모달·결과 흐름)
     backOverride = useRef<(() => boolean) | null>(null);
   const island = currentIsland(state),
+    qaBuildingsReady =
+      !TESTFLIGHT_ALL_BUILDINGS ||
+      !state.onboarded ||
+      (buildingOrder.every((building) => island.buildings.includes(building)) &&
+        !island.buildingQuest &&
+        !island.construction &&
+        !island.nextBuilding &&
+        !island.completed),
     record = state.lastResult;
   const player = useSoundPlayer((message) => notify(message));
   const notify = (s: string) => {
@@ -326,11 +337,15 @@ function Gromo() {
       .finally(() => setLoaded(true));
   }, []);
   useEffect(() => {
-    if (loaded && !REVIEW && !DEMO)
+    if (loaded && state.onboarded && !qaBuildingsReady)
+      dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
+  }, [loaded, state.onboarded, state.islandId, qaBuildingsReady]);
+  useEffect(() => {
+    if (loaded && qaBuildingsReady && !REVIEW && !DEMO)
       AsyncStorage.setItem(STORAGE, JSON.stringify(state)).catch(() =>
         notify('기기 저장 공간을 확인해 주세요.'),
       );
-  }, [state, loaded]);
+  }, [state, loaded, qaBuildingsReady]);
   useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();

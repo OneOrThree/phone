@@ -1,10 +1,20 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Svg, { Defs, Pattern, Rect, Image as SvgImage } from 'react-native-svg';
-import { Animated, Image, PanResponder, Platform, Pressable, StyleSheet, View } from 'react-native';
+import {
+  Animated,
+  Easing,
+  Image,
+  PanResponder,
+  Platform,
+  Pressable,
+  StyleSheet,
+  View,
+} from 'react-native';
 import {
   State,
   Route,
   Building,
+  Color,
   currentIsland,
   buildingNames,
   balance,
@@ -42,6 +52,94 @@ const doors: Record<string, { x: number; y: number; r: Route }> = {
   raft: { x: 274, y: 740, r: 'boat' },
 };
 const homePositions: Record<string, Point> = {};
+// 섬을 돌아다니는 주민 고양이 두 마리의 출발 자리(모닥불 근처 땅)
+const WANDER_STARTS: Point[] = [
+  { x: 470, y: 560 },
+  { x: 720, y: 520 },
+];
+// 주민 고양이: 내 고양이와 다른 색으로, 근처 땅을 골라 걸어갔다 잠시 쉬기를 되풀이한다 (연출 전용, 상태 없음)
+function Wanderer({
+  color,
+  start,
+  s,
+  reduce,
+  delay,
+}: {
+  color: Color;
+  start: Point;
+  s: number;
+  reduce: boolean;
+  delay: number;
+}) {
+  const xy = useRef(new Animated.ValueXY(start)).current,
+    at = useRef(start);
+  const [walking, setWalking] = useState(false),
+    [left, setLeft] = useState(false);
+  useEffect(() => {
+    let alive = true,
+      timer: ReturnType<typeof setTimeout>;
+    const roam = () => {
+      if (!alive) return;
+      // 지금 자리에서 ±200·±150px 안의 땅 한 곳으로, 최대 14칸까지만 걷는다
+      const target = nearestLand(grids.home, {
+        x: at.current.x + Math.random() * 400 - 200,
+        y: at.current.y + Math.random() * 300 - 150,
+      });
+      const path = landPath(grids.home, at.current, target).slice(1, 15);
+      if (!path.length) {
+        timer = setTimeout(roam, 1500);
+        return;
+      }
+      setLeft(path[path.length - 1].x < at.current.x);
+      setWalking(true);
+      let idx = 0;
+      const step = () => {
+        if (!alive) return;
+        if (idx >= path.length) {
+          setWalking(false);
+          timer = setTimeout(roam, 2000 + Math.random() * 4000);
+          return;
+        }
+        const next = path[idx++];
+        Animated.timing(xy, {
+          toValue: next,
+          duration: reduce ? 0 : 130,
+          easing: Easing.linear,
+          useNativeDriver: false,
+        }).start(({ finished }) => {
+          if (!finished) return;
+          at.current = next;
+          step();
+        });
+      };
+      step();
+    };
+    timer = setTimeout(roam, delay);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+      xy.stopAnimation();
+    };
+  }, []);
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: Animated.multiply(xy.x, s),
+        top: Animated.multiply(xy.y, s),
+      }}
+    >
+      <CatSprite
+        color={color}
+        size={70 * s}
+        motion={walking ? 'walking' : 'blink'}
+        left={left}
+        reduce={reduce}
+      />
+    </Animated.View>
+  );
+}
 export function WorldMap({
   state,
   fishing = false,
@@ -384,6 +482,13 @@ export function FinalIsland({
     }
   }, [request]);
 
+  const wanderColors = useMemo(() => {
+    const others = i.members.filter((m) => m.id !== 'me').map((m) => m.color as Color);
+    const spare = (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
+      (c) => c !== state.color && !others.includes(c),
+    );
+    return [...others, ...spare].slice(0, 2);
+  }, [i.members, state.color]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number) => {
     return (
@@ -407,6 +512,17 @@ export function FinalIsland({
               }}
             />
           ))}
+        {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
+        {wanderColors.map((color, n) => (
+          <Wanderer
+            key={color + n}
+            color={color}
+            start={nearestLand(grids.home, WANDER_STARTS[n])}
+            s={s}
+            reduce={state.settings.reduceMotion}
+            delay={1200 + n * 2500}
+          />
+        ))}
         <Animated.View
           pointerEvents="none"
           style={{
