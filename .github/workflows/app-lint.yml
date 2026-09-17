@@ -24,8 +24,11 @@ concurrency:
 
 jobs:
   lint:
-    # GROMO-1918: ESLint·Prettier·tsc·jest 뿐이라 GAR·GCE 의존이 없다.
-    runs-on: ubuntu-latest
+    # 앱 검사는 «우리 러너»에서 돈다 (GROMO-1918 결정). 기술적으로는 GitHub-hosted 로도
+    # 돌지만, 앱 쪽은 node_modules·Android SDK 를 러너에 두고 재사용하는 편이 실측으로 빠르다.
+    # 같은 이유로 app-android-build.yml 도 self-hosted 다 — 둘을 갈라 두면 한쪽만 캐시를
+    # 못 쓰게 되어 의미가 없다.
+    runs-on: [self-hosted, ci, spot]
 
     # 러너(gromo-dev-build)는 e2-medium(2 vCPU / 4 GB)이다. NODE_OPTIONS 를 안 주면 Node 가
     # 힙 상한을 자동 산정하는데, 그 값이 tsc 가 필요로 하는 양보다 낮게 잡혀 Typecheck 가

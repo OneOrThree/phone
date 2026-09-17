@@ -72,13 +72,15 @@ concurrency:
 
 jobs:
   checks:
-    # GROMO-1918: GAR·GCE 의존이 없다.
+    # 앱 검사는 «우리 러너»에서 돈다 (GROMO-1918 결정).
     #
-    # ⚠️ 동작이 «강해진다». 이 워크플로는 러너에 Android SDK 가 없으면 Gradle 단을
-    #    건너뛰고 XML 단만 돌도록 짜여 있는데(위 주석 참조), GitHub-hosted 러너에는
-    #    SDK 가 깔려 있어 Gradle 단이 실제로 돌기 시작한다. 검사가 세지는 대신 그동안
-    #    가려져 있던 실패가 드러날 수 있다 — 드러나면 그게 고칠 대상이다.
-    runs-on: ubuntu-latest
+    # GitHub-hosted 로 잠깐 옮겨 봤다가 되돌렸다. 거기엔 Android SDK 가 깔려 있어 Gradle 단이
+    # 켜지는데, 프로젝트가 요구하는 NDK(27.0.12077973)가 없어 구성 단계에서 실패한다:
+    #     > Failed to apply plugin 'com.facebook.react.rootproject'.
+    #        > NDK not configured. Preferred NDK version is '27.0.12077973'.
+    # 매 실행마다 NDK 4.8 GB 를 받는 것은 「빠른 CI」와 정반대다. 위 주석대로 NDK 는 러너에
+    # 한 번 깔아 두고 재사용하는 자원이다(GROMO-1611).
+    runs-on: [self-hosted, ci, spot]
     timeout-minutes: 30
 
     env:
