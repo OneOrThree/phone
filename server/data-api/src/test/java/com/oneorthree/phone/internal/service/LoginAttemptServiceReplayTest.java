@@ -1,5 +1,8 @@
 package com.oneorthree.phone.internal.service;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.repository.LoginAttemptRepository;
@@ -13,12 +16,14 @@ import com.oneorthree.phone.auth.support.TokenHasher;
 import com.oneorthree.phone.internal.dto.LoginAttemptLookupRequest;
 import com.oneorthree.phone.internal.dto.LoginAttemptLookupResponse;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -58,6 +63,8 @@ class LoginAttemptServiceReplayTest {
     private AuthSessionService authSessionService;
 
     private final JwtProvider issuer = new JwtProvider(SECRET, 3600, 2_592_000, 7_776_000);
+    /** 거절 사유는 «로그에서만» 갈린다 — 온콜이 보는 그 줄을 그대로 단언한다 ({@code GuestLoginRateLimiterTest} 와 같은 캡처). */
+    private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
 
     private String originalRefresh;
     private LoginAttempt attempt;
@@ -76,6 +83,21 @@ class LoginAttemptServiceReplayTest {
                 .build();
         attempt.complete(USER, SESSION, false, issuer.freezeMaterials(access, originalRefresh), now);
         given(loginAttemptRepository.findById(ATTEMPT)).willReturn(Optional.of(attempt));
+        logs.start();
+        ((Logger) LoggerFactory.getLogger(LoginAttemptService.class)).addAppender(logs);
+    }
+
+    @AfterEach
+    void detachLogs() {
+        ((Logger) LoggerFactory.getLogger(LoginAttemptService.class)).detachAppender(logs);
+    }
+
+    /** 거절은 정확히 한 줄의 WARN 으로 남고, 그 줄에 토큰 원문은 없다. */
+    private String rejectionLine() {
+        assertThat(logs.list).hasSize(1);
+        String line = logs.list.get(0).getFormattedMessage();
+        assertThat(line).doesNotContain(originalRefresh).contains("attemptId=" + ATTEMPT);
+        return line;
     }
 
     private LoginAttemptService serviceSignedBy(JwtProvider provider) {
@@ -100,10 +122,11 @@ class LoginAttemptServiceReplayTest {
         assertThat(response.replayable()).isTrue();
         assertThat(response.session().refreshToken()).isEqualTo(originalRefresh);
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.COMPLETED);
+        assertThat(logs.list).isEmpty();
     }
 
     @Test
-    @DisplayName("발급 뒤 secret 이 바뀌면 잘못된 RT 를 내보내지 않는다 — attempt 를 닫고 재로그인")
+    @DisplayName("발급 뒤 secret 이 바뀌면 잘못된 RT 를 내보내지 않는다 — attempt 를 닫고 재로그인, 사유는 REFRESH_HASH_MISMATCH")
     void 회전된키재생() {
         given(authSessionService.verifySession(USER, SESSION))
                 .willReturn(Optional.of(sessionHolding(originalRefresh)));
@@ -113,10 +136,11 @@ class LoginAttemptServiceReplayTest {
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);
+        assertThat(rejectionLine()).contains("reason=REFRESH_HASH_MISMATCH");
     }
 
     @Test
-    @DisplayName("결과 세션이 폐기됐으면 재생하지 않는다 — 죽은 토큰을 «성공» 으로 주지 않는다")
+    @DisplayName("결과 세션이 폐기됐으면 재생하지 않는다 — 죽은 토큰을 «성공» 으로 주지 않는다, 사유는 SESSION_REVOKED")
     void 폐기된세션재생() {
         AuthSession revoked = AuthSession.builder().id(SESSION).userId(USER)
                 .refreshTokenHash(TokenHasher.sha256Hex(originalRefresh)).revokedAt(Instant.now()).build();
@@ -127,5 +151,6 @@ class LoginAttemptServiceReplayTest {
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);
+        assertThat(rejectionLine()).contains("reason=SESSION_REVOKED");
     }
 }

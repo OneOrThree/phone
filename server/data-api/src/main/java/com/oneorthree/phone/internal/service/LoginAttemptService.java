@@ -21,12 +21,14 @@ import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.support.OnboardingCompletion;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -50,6 +52,7 @@ import java.util.UUID;
  * 「선점(TX) → 제공자 호출(TX 밖) → 확정(TX)」 세 조각이고, 조각마다 프록시를 타도록
  * {@code self} 를 거친다({@code AuthService} 의 같은 패턴).
  */
+@Slf4j
 @Service
 public class LoginAttemptService {
 
@@ -296,7 +299,9 @@ public class LoginAttemptService {
      * 대조해 다르면 attempt 를 {@code INVALIDATED} 로 닫고 새 로그인을 요구한다 — 401
      * ({@code LOGIN_ATTEMPT_UNUSABLE} → Business 가 공개 {@code UNAUTHORIZED} 로 매핑). 같은 대조가
      * 「결과 세션이 폐기됐다」와 「앱이 그 사이 refresh 로 RT 를 회전시켰다」도 함께 잡는다 — 셋 다
-     * 원 RT 는 이미 죽은 토큰이라 답이 같다.
+     * 원 RT 는 이미 죽은 토큰이라 답이 같다. 답은 같지만 <b>로그의 사유는 가른다</b>
+     * ({@link ReplayRejection}) — 서명키 회전은 배포 시각에 붙은 버스트라 시계열 모양이 다른데, 하나의
+     * 401 로 접혀 있으면 온콜이 평소 잡음과 회전 창 문제를 로그로 구분하지 못한다.
      *
      * <p>ponytail: 회전 창의 재생은 포기한다(fail-closed, 천장 = 키 배포 직후 5분 동안의 응답 유실
      * 재시도가 재로그인이 된다). 승급 경로는 {@code JwtProvider} 에 키 링을 두고 발급 시 {@code kid}
@@ -312,12 +317,19 @@ public class LoginAttemptService {
                 attempt.getRefreshJti());
         String refreshToken = jwtProvider.replayRefreshToken(attempt.getUserId(), materials);
 
-        boolean reproduced = authSessionService.verifySession(attempt.getUserId(), attempt.getSessionId())
-                .filter(AuthSession::isActive)
-                .map(AuthSession::getRefreshTokenHash)
-                .filter(TokenHasher.sha256Hex(refreshToken)::equals)
-                .isPresent();
-        if (!reproduced) {
+        Optional<AuthSession> session = authSessionService
+                .verifySession(attempt.getUserId(), attempt.getSessionId())
+                .filter(AuthSession::isActive);
+        ReplayRejection rejection = null;
+        if (session.isEmpty()) {
+            rejection = ReplayRejection.SESSION_REVOKED;
+        } else if (!TokenHasher.sha256Hex(refreshToken).equals(session.get().getRefreshTokenHash())) {
+            rejection = ReplayRejection.REFRESH_HASH_MISMATCH;
+        }
+        if (rejection != null) {
+            // 사유는 «로그에서만» 갈린다. 공개 응답·코드·상태는 둘 다 같다. 토큰·해시는 싣지 않는다.
+            log.warn("로그인 시도 재생 거절 attemptId={} sessionId={} reason={}",
+                    attempt.getAttemptId(), attempt.getSessionId(), rejection);
             // 닫힌 상태를 원장에 «남긴다» — 다음 재시도가 같은 대조를 반복하며 세션 행 잠금을 잡지 않게.
             attempt.invalidate();
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
@@ -327,5 +339,21 @@ public class LoginAttemptService {
                 refreshToken,
                 attempt.getUserId(),
                 Boolean.TRUE.equals(attempt.getOnboardingComplete()));
+    }
+
+    /**
+     * 재생 거절 사유 — <b>로그 전용</b>. 공개 응답·에러 코드·attempt 상태는 두 사유가 같다
+     * ({@code INVALIDATED} + 401).
+     *
+     * <p>가르는 이유는 온콜의 판독이다. {@code REFRESH_HASH_MISMATCH} 가 배포 시각에 붙은 버스트로
+     * 보이면 서명키 회전 창의 영향이고, 드문드문이면 앱이 그 사이 refresh 로 RT 를 회전시킨 정상
+     * 경합이다. {@code SESSION_REVOKED} 는 로그아웃·탈퇴·타인 sid 로, 회전과 무관한 평소 잡음이다.
+     * 하나의 401 로 접혀 있으면 이 셋이 한 선으로 보여 불필요한 롤백이나 영향 과소평가로 이어진다.
+     */
+    private enum ReplayRejection {
+        /** 결과 세션 행이 없거나 폐기됐다. */
+        SESSION_REVOKED,
+        /** 세션은 활성인데 재서명 RT 의 해시가 원장과 다르다 — 서명키 회전 또는 중간 refresh 회전. */
+        REFRESH_HASH_MISMATCH
     }
 }
