@@ -11,7 +11,9 @@ jobs:
     if: |
       github.event.issue.pull_request != null &&
       contains(github.event.comment.body, '@claude')
-    runs-on: [self-hosted, ci, spot]
+    # GROMO-1918: 리뷰 액션만 돌아 GAR·GCE 의존이 없다. self-hosted 에 두면 러너가
+    # 죽었을 때 «리뷰 자체»가 막혀 머지 판정이 서지 않는다 — 실제로 그런 적이 있다.
+    runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
       contents: read

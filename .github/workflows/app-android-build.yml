@@ -72,7 +72,13 @@ concurrency:
 
 jobs:
   checks:
-    runs-on: [self-hosted, ci, spot]
+    # GROMO-1918: GAR·GCE 의존이 없다.
+    #
+    # ⚠️ 동작이 «강해진다». 이 워크플로는 러너에 Android SDK 가 없으면 Gradle 단을
+    #    건너뛰고 XML 단만 돌도록 짜여 있는데(위 주석 참조), GitHub-hosted 러너에는
+    #    SDK 가 깔려 있어 Gradle 단이 실제로 돌기 시작한다. 검사가 세지는 대신 그동안
+    #    가려져 있던 실패가 드러날 수 있다 — 드러나면 그게 고칠 대상이다.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
 
     env:

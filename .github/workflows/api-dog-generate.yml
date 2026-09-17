@@ -50,7 +50,11 @@ permissions:
 
 jobs:
   generate-docs:
-    runs-on: [self-hosted, ci, spot]
+    # GROMO-1918: GitHub-hosted 로 옮긴다. 이 잡은 GAR·GCE 메타데이터에 묶인 곳이 없다 —
+    # postgres 서비스 컨테이너로 앱을 띄워 OpenAPI 문서를 만들고 gh-pages 에 push 할 뿐이다.
+    # 아래 「호스트 포트 고정 금지」 주석이 말하는 «러너 3개가 VM 한 대를 공유한다»는 제약도
+    # self-hosted 라서 있던 것이라 여기서는 사라진다(동적 포트는 그대로 두면 계속 안전하다).
+    runs-on: ubuntu-latest
 
     services:
       postgres:

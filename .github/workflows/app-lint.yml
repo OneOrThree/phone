@@ -24,7 +24,8 @@ concurrency:
 
 jobs:
   lint:
-    runs-on: [self-hosted, ci, spot]
+    # GROMO-1918: ESLint·Prettier·tsc·jest 뿐이라 GAR·GCE 의존이 없다.
+    runs-on: ubuntu-latest
 
     # 러너(gromo-dev-build)는 e2-medium(2 vCPU / 4 GB)이다. NODE_OPTIONS 를 안 주면 Node 가
     # 힙 상한을 자동 산정하는데, 그 값이 tsc 가 필요로 하는 양보다 낮게 잡혀 Typecheck 가

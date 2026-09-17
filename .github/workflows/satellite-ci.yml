@@ -119,7 +119,12 @@ jobs:
   build:
     name: ${{ matrix.service }} 검증
     needs: changes
-    runs-on: ${{ fromJSON(needs.changes.outputs.services)[matrix.service] && fromJSON('["self-hosted", "ci", "spot"]') || fromJSON('["ubuntu-latest"]') }}
+    # GROMO-1918: GitHub-hosted 로 옮긴다. 이 잡은 GAR·GCE 메타데이터를 쓰지 않는다 —
+    # 도커로 test 스테이지 이미지를 만들어 그 안에서 gradle 을 돌릴 뿐이고 도커는 양쪽 다 있다.
+    # 변경이 없을 때는 원래도 ubuntu-latest 로 돌고 있었다(아래 조건부 스텝들이 건너뛰는 경로).
+    # 잃는 것은 호스트 도커 레이어 캐시뿐이고, 얻는 것은 self-hosted 러너가 죽어도 PR 검증이
+    # 돈다는 것이다 — 실제로 러너 3대가 동시에 offline 이 되어 PR CI 가 통째로 막힌 적이 있다.
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -199,7 +204,10 @@ jobs:
   images:
     name: ${{ matrix.service }} 이미지
     needs: [changes, runtime-contracts, public-command-contracts, build]
-    runs-on: ${{ fromJSON(needs.changes.outputs.services)[matrix.service] && fromJSON('["self-hosted", "ci", "spot"]') || fromJSON('["ubuntu-latest"]') }}
+    # GROMO-1918: 이미지를 «발행»하는 push 에서만 self-hosted 다. GAR 인증이 GCE 메타데이터
+    # 토큰을 쓰기 때문이고, 그건 GitHub-hosted 에 없다. PR 은 push 하지 않으므로 그 인증이
+    # 필요 없다 — 레지스트리 캐시만 GAR 를 쓰고 있었는데 PR 경로는 type=gha 로 바꿨다.
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "ci", "spot"]') || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -223,8 +231,10 @@ jobs:
           operation: verify
       - uses: docker/setup-buildx-action@v3
         if: fromJSON(needs.changes.outputs.services)[matrix.service]
+      # push 에서만 돈다 — PR 은 GAR 캐시 대신 type=gha 를 쓰므로 이 토큰이 필요 없고,
+      # metadata.google.internal 은 GitHub-hosted 에서 응답하지 않는다 (GROMO-1918).
       - name: 이미지 캐시용 GAR 인증
-        if: fromJSON(needs.changes.outputs.services)[matrix.service]
+        if: fromJSON(needs.changes.outputs.services)[matrix.service] && github.event_name == 'push'
         run: |
           set -euo pipefail
           curl --fail --silent --show-error -H 'Metadata-Flavor: Google' \
@@ -265,8 +275,13 @@ jobs:
         with:
           context: server/${{ matrix.service }}
           build-args: JAR_SOURCE=prebuilt
-          cache-from: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/${{ matrix.service }}:cache-${{ (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64' }}
-          cache-to: type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/${{ matrix.service }}:cache-${{ (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64' }},mode=max
+          # push 는 GAR 레지스트리 캐시(교차 실행 공유), PR 은 GitHub Actions 캐시.
+          cache-from: ${{ github.event_name == 'push'
+            && format('type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/{0}:cache-{1}', matrix.service, (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64')
+            || format('type=gha,scope=satellite-{0}-{1}', matrix.service, (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64') }}
+          cache-to: ${{ github.event_name == 'push'
+            && format('type=registry,ref=asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/{0}:cache-{1},mode=max', matrix.service, (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64')
+            || format('type=gha,scope=satellite-{0}-{1},mode=max', matrix.service, (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'arm64' || 'amd64') }}
           platforms: ${{ (github.ref == 'refs/heads/release' || github.base_ref == 'release') && 'linux/arm64' || 'linux/amd64' }}
           push: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release') }}
           provenance: false
