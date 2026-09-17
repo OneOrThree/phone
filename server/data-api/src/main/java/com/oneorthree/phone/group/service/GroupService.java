@@ -83,6 +83,7 @@ public class GroupService {
 
     private final GroupRepository groupRepository;
     private final GroupMembershipMutationLocks membershipLocks;
+    private final UserIslandContextLockService userIslandContextLockService;
     private final IslandMembershipEvents membershipEvents;
     private final GroupQueryService groupQueryService;
     private final GroupJoinCodeRepository groupJoinCodeRepository;
@@ -136,17 +137,21 @@ public class GroupService {
      * 계속하고 읽는 경로가 없으며(초대 링크 전환으로 폐기), 대표 챌린지는 만들지 않는다 —
      * 챌린지는 그룹방에서 따로 세운다.
      *
-     * @param userId 요청자 — 탈퇴가 확정된 계정이 방장인 그룹이 남지 않도록 공유 락으로 검증한다
+     * @param userId 요청자 — 현재 섬 컨텍스트를 함께 갱신하므로 배타 락으로 검증한다
      * @param request 그룹명·소개·정원·공개 여부와 선택적 비밀번호. 정원을 안 주면 10 이다
      * @return 새 그룹 id. 함께 실리는 코드는 앱이 읽지 않는 잔존 필드다
      */
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
-        // 1) 활성 검증 + 공유 락 (GROMO-1226) — 락 없는 findById 면 계정 탈퇴(유저 행 배타 락)의
-        //    정리 스캔(멤버십 0 확인) 이후·커밋 이전에 낀 생성이 정리를 빠져나가, 탈퇴자가 OWNER 인
-        //    is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 모두 불가 = 복구 불능). 유저 부재를
+        // 1) 활성 검증 + 배타 락 (GROMO-1226 · GROMO-1907) — 락 없는 findById 면 계정 탈퇴(유저 행
+        //    배타 락)의 정리 스캔(멤버십 0 확인) 이후·커밋 이전에 낀 생성이 정리를 빠져나가, 탈퇴자가
+        //    OWNER 인 is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 모두 불가 = 복구 불능). 유저 부재를
         //    GUEST_FORBIDDEN(403)으로 오분류하던 것도 형제 경로(joinGroup)와 같은 404 로 정정(D9).
-        User user = requireActiveUser(userId);
+        //    공유 락(requireActiveUser)이 아니라 배타 락인 이유: 이 메서드가 아래에서 현재 섬 컨텍스트
+        //    (user_island_contexts, users 1:1)까지 함께 바꾼다 — island-membership LLD §4 의
+        //    users/context 축 직렬화 경계라 같은 유저의 동시 create/join/context 변경이 여기서부터
+        //    직렬화돼야 한다(UserIslandContextLockService 참조).
+        User user = userQueryService.getCallerForUpdate(userId);
 
         // 1-1) 소속 그룹 수 상한 — 생성도 곧 가입이므로 참가와 같은 기준으로 막는다
         ensureJoinedGroupLimit(user);
@@ -187,6 +192,11 @@ public class GroupService {
                 .group(group)
                 .role(GroupMemberRole.OWNER)
                 .build());
+
+        // GROMO-1907: 원본대로 생성자의 현재 섬을 새 섬으로 옮긴다(island-membership LLD §3.1).
+        // 진행 중인 집중 세션·출발 시설 가드는 이 티켓 범위가 아니다(1759) — 컨텍스트 저장소·잠금
+        // 경계만 신설한다.
+        userIslandContextLockService.lock(user).moveTo(group.getId());
 
         membershipEvents.changed(group.getId(), userId, "MEMBER_ADDED");
 

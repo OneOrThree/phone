@@ -66,6 +66,15 @@ public class Group {
     private boolean isPrivate = false;
 
     /**
+     * 가입에 방장 승인이 필요한지 (GROMO-1907, island-membership LLD §3.1). 섬 API(1759)의 create
+     * 계약이 쓸 입력이며, 이 티켓은 저장 칸만 만든다 — 승인 대기/거절 흐름의 배선은 여기 없다.
+     * 기존 그룹은 전부 즉시가입이었으므로 기본값 false 로 과거 행의 의미를 보존한다.
+     */
+    @Column(name = "approval_required", nullable = false)
+    @Builder.Default
+    private boolean approvalRequired = false;
+
+    /**
      * GROMO-671: dbml 은 version 을 누락했으나 낙관락(동시성)이 필요해 유지(UserWallet 과 동일 판단).
      */
     @Version
