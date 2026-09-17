@@ -40,7 +40,8 @@ jobs:
        startsWith(github.event.ref, 'bfix/') ||
        startsWith(github.event.ref, 'brefactor/') ||
        startsWith(github.event.ref, 'feat/'))
-    runs-on: [self-hosted, ci, spot]
+    # GROMO-1918: 브랜치 삭제 시 gh-pages 문서를 치우는 잡이라 GAR·GCE 의존이 없다.
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout gh-pages
