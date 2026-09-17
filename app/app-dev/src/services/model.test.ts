@@ -913,6 +913,20 @@ test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고
   island.formerMembers = [{ ...island.members[0], id: 'gone' }];
   island.members = [];
   island.ledger = [{ id: 'l1', text: '집중 +10마리', at: 1 }];
+  const order = (id: string, product: string, islandId: string) => ({
+    id,
+    product,
+    islandId,
+    currency: 'fish',
+    price: 100,
+    at: 1,
+  });
+  s.orders = [
+    order('mine', 'scarf', island.id),
+    order('theme', 'soda-theme', island.id),
+    order('song', 'rain', island.id),
+    order('other', 'rain', 'strawberry'),
+  ];
   s.records = [
     {
       id: 'r1',
@@ -931,6 +945,11 @@ test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고
   assert.deepEqual(closed.buildings, []);
   assert.equal(closed.buildingQuest, undefined);
   assert.deepEqual(closed.formerMembers, []);
+  // 개인 주문(스카프)과 다른 섬 주문은 남고, 닫힌 섬의 공동 구매만 지운다
+  assert.deepEqual(
+    s.orders.map((o) => o.id),
+    ['mine', 'other'],
+  );
   assert.equal(s.records.length, 1);
 });
 
@@ -940,6 +959,11 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   Object.assign(old, { closed: true, visibility: 'private', members: [], fish: 900 });
   old.formerMembers = [{ ...saved.islands[1].members[0], id: 'gone' }];
   old.ledger = [{ id: 'l', text: '집중 +10마리', at: 1 }];
+  saved.orders = [
+    { id: 'mine', product: 'scarf', islandId: old.id, currency: 'fish', price: 100, at: 1 },
+    { id: 'theme', product: 'soda-theme', islandId: old.id, currency: 'fish', price: 1000, at: 1 },
+    { id: 'open', product: 'rain', islandId: 'soda', currency: 'fish', price: 150, at: 1 },
+  ];
   saved.rewards = [
     {
       id: 'rw',
@@ -958,6 +982,10 @@ test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 �
   assert.deepEqual(cleaned.messages, []);
   assert.deepEqual(cleaned.formerMembers, []);
   assert.equal(once.rewards?.length, 0);
+  assert.deepEqual(
+    once.orders.map((o) => o.id),
+    ['mine', 'open'],
+  );
   // 열린 섬은 그대로
   assert.equal(balance(currentIsland(once)), balance(currentIsland(saved)));
   assert.deepEqual(act(initialState(), 'LOAD', { state: once }), once);

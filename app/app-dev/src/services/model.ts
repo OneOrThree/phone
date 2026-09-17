@@ -752,6 +752,14 @@ function closeIsland(s: State, i: Island) {
   delete i.construction;
   delete i.nextBuilding;
   s.rewards = (s.rewards ?? []).filter((r) => r.islandId !== i.id);
+  // 그 섬의 공동 구매(섬·건물 테마·음원) 내역도 지운다. 옷·장신구는 개인 보유품이라 남긴다
+  s.orders = s.orders.filter(
+    (o) =>
+      o.islandId !== i.id ||
+      !['island', 'building', 'audio'].includes(
+        products.find((p) => p.id === o.product)?.kind ?? '',
+      ),
+  );
   s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== i.id);
   if (s.pendingIsland === i.id) s.pendingIsland = s.pendingIslands.at(-1) ?? null;
 }
