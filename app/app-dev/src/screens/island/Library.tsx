@@ -777,7 +777,12 @@ function Diary({ e, font }: any) {
             {!right && filter}
             <View style={pprStyle(right)}>
               {!right && head}
-              {(!land || right) && body}
+              {/* 월간 스크린타임 31줄·주민 15명 물고기 목록도 책 안에서 스크롤한다 */}
+              {(!land || right) && (
+                <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+                  {body}
+                </ScrollView>
+              )}
             </View>
           </View>
         ))}

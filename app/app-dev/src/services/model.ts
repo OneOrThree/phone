@@ -1266,9 +1266,8 @@ export function reducer(state: State, a: Action): State {
       );
       if (!reward || reward.acknowledged) return state;
       const owner = s.islands.find((x) => x.id === reward.islandId)!;
-      // 닫힌(삭제된) 섬의 보상은 잔액·원장에 다시 쓰지 않는다
-      if (owner.closed) return state;
-      if (reward.kind === 'personal') {
+      // 닫힌(삭제된) 섬의 보상은 잔액·원장에 쓰지 않고 받은 것으로만 처리해 보상 창을 닫는다
+      if (reward.kind === 'personal' && !owner.closed) {
         owner.fish = balance(owner) + reward.amount;
         owner.earned ??= {};
         owner.earned.me = earnedBy(owner, 'me') + reward.amount;

@@ -609,7 +609,8 @@ export function Hall({ e }: any) {
             </View>
           ))}
         </View>
-        {rows.length ? (
+        {/* 고른 책갈피에 보일 내역이 없으면 빈 안내(잔액 0·내역 없음과 구분) */}
+        {shown.length ? (
           land ? (
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
               {list}
@@ -631,7 +632,7 @@ export function Hall({ e }: any) {
             }}
           >
             <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
-              아직 쌓인 내역이 없어요
+              {tab === '잔액' ? '아직 쌓인 내역이 없어요' : `이 달 ${tab} 내역이 없어요`}
             </T>
             <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
               주민이 함께 모으고 쓰면 여기 쌓여요

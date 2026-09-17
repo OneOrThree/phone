@@ -932,7 +932,7 @@ test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고
   assert.equal(s.records.length, 1);
 });
 
-test('섬을 떠나면 그 섬의 받지 않은 보상을 지우고, 닫힌 섬 보상은 CLAIM해도 쓰지 않는다', () => {
+test('섬을 떠나면 그 섬의 받지 않은 보상을 지우고, 닫힌 섬 보상은 CLAIM해도 적립 없이 닫힌다', () => {
   let s = initialState(true);
   const island = currentIsland(s);
   island.members = [];
@@ -948,9 +948,15 @@ test('섬을 떠나면 그 섬의 받지 않은 보상을 지우고, 닫힌 섬 
   s.rewards = [reward];
   s = act(s, 'LEAVE');
   assert.equal(s.rewards?.length, 0);
-  // 예전 저장본처럼 보상이 남아 있어도 닫힌 섬에는 적립하지 않는다
+  // 예전 저장본처럼 보상이 남아 있어도 닫힌 섬에는 적립하지 않고, 보상 창은 닫힌다
   s.rewards = [reward];
-  assert.deepEqual(act(s, 'CLAIM', { id: 'rw' }), s);
+  const closed = s.islands.find((j) => j.id === island.id)!;
+  const claimed = act(s, 'CLAIM', { id: 'rw' });
+  const after = claimed.islands.find((j) => j.id === island.id)!;
+  assert.equal(claimed.rewards?.filter((r) => !r.acknowledged).length, 0);
+  assert.equal(balance(after), balance(closed));
+  assert.deepEqual(after.ledger, closed.ledger);
+  assert.deepEqual(after.earned, closed.earned);
 });
 
 test('계정 삭제로 마지막 주민이 떠난 섬도 탈퇴와 같이 공동 데이터를 지운다', () => {
