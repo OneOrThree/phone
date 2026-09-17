@@ -32,6 +32,9 @@ import {
   clockMinutes,
   canSendLetter,
   isOwnComment,
+  memberOf,
+  clockText,
+  questMemberRate,
   kstDayStart,
   kstMonthDay,
   kstHourMinute,
@@ -790,6 +793,52 @@ test('오늘 퀘스트를 수정하면 대상 스냅숏은 두고, 미수령 달
   round = currentIsland(s).quests[0].rounds?.[day]!;
   assert.ok(round.achieved.includes('me'));
   assert.deepEqual(round.targets, ['me']);
+});
+
+test('떠난 주민도 보존된 기록으로 달성률을 계산한다', () => {
+  let s = initialState(true);
+  const now = Date.UTC(2026, 8, 16, 3); // 12:00 KST
+  const island = currentIsland(s),
+    member = island.members[0];
+  island.quests[0].windowStart = '09:00';
+  island.quests[0].windowEnd = '18:00';
+  member.records = [
+    {
+      id: 'kept',
+      islandId: island.id,
+      subject: '집중',
+      seconds: 900,
+      at: Date.UTC(2026, 8, 16, 2),
+      fish: 0,
+      contributed: true,
+    },
+  ];
+  member.screenDays = { [dayKey(now)]: 60 };
+  const before = questMemberRate(s, island.quests[0], member.id, island.id, now);
+  assert.equal(before, 50);
+  s = act(s, 'KICK', { id: member.id });
+  assert.ok(!currentIsland(s).members.some((m) => m.id === member.id));
+  assert.equal(memberOf(currentIsland(s), member.id)?.id, member.id);
+  const island2 = currentIsland(s);
+  assert.equal(questMemberRate(s, island2.quests[0], member.id, island2.id, now), 50);
+  // 스크린타임도 보존된 기록을 쓴다 (측정 전이 아니다)
+  assert.equal(questMemberRate(s, island2.quests[1], member.id, island2.id, now), 100);
+});
+
+test('시간대는 HH:MM으로 저장한다', () => {
+  let s = initialState(true);
+  s = act(s, 'QUEST_SAVE', {
+    title: '아침 집중',
+    kind: 'focus',
+    windowStart: '9:00',
+    windowEnd: '9:30',
+    target: 20,
+  });
+  const q = currentIsland(s).quests.at(-1)!;
+  assert.equal(q.windowStart, '09:00');
+  assert.equal(q.windowEnd, '09:30');
+  assert.equal(clockText('9:5'), '9:5');
+  assert.equal(clockText('24:00'), '24:00');
 });
 
 test('퀘스트 목표 분은 정수만, 시간은 한 자리 시와 종료 24:00을 받는다', () => {

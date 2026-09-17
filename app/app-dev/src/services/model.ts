@@ -658,6 +658,16 @@ export const unreadLetters = (s: State) =>
     .sort((a, b) => b.letter.at - a.letter.at);
 // 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
 // 내 댓글인지: memberId가 없던 예전 저장본은 작성자 이름을 내 이름(바꾼 이름 포함)과 비교한다
+// 주민 찾기: 지금 주민이 아니면 떠난 주민(기록 보존)에서 찾는다. 달성률·보상 판정이 같은 기록을 본다
+export const memberOf = (i: Island, id: string) =>
+  i.members.find((m) => m.id === id) ?? i.formerMembers?.find((m) => m.id === id);
+// "9:00" 같은 입력을 "09:00"으로 맞춘다 (형식이 틀리면 입력 그대로)
+export const clockText = (value: string) => {
+  const m = clockMinutes(value);
+  return m == null
+    ? value
+    : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+};
 export const isOwnComment = (s: State, c: { memberId?: string; name: string }) =>
   c.memberId != null ? c.memberId === 'me' : [s.name, ...(s.profileNames ?? [])].includes(c.name);
 export const newChatCount = (i: Island) =>
@@ -817,7 +827,7 @@ export function questMemberRate(
   now = Date.now(),
 ): number | null {
   const i = s.islands.find((i) => i.id === islandId)!;
-  const member = i.members.find((m) => m.id === id);
+  const member = memberOf(i, id);
   if (q.type === 'screen') {
     const v =
       id === 'me'
@@ -882,7 +892,7 @@ function evaluateQuests(s: State, now: number) {
       for (const [day, round] of Object.entries(q.rounds)) {
         if (day > today) continue;
         for (const id of round.targets) {
-          const member = i.members.find((m) => m.id === id);
+          const member = memberOf(i, id);
           let achieved = round.achieved.includes(id);
           if (!achieved) {
             const live =
@@ -1318,8 +1328,9 @@ export function reducer(state: State, a: Action): State {
         if (start == null || end == null || end <= start || a.target > end - start) return state;
       }
       const title = a.title.trim(),
-        windowStart = a.kind === 'focus' ? a.windowStart : undefined,
-        windowEnd = a.kind === 'focus' ? a.windowEnd : undefined;
+        // 시간대는 언제나 HH:MM으로 저장한다 (웹 time 입력이 "9:00"을 못 읽는다)
+        windowStart = a.kind === 'focus' ? clockText(a.windowStart) : undefined,
+        windowEnd = a.kind === 'focus' ? clockText(a.windowEnd) : undefined;
       const q = a.id ? i.quests.find((x) => x.id === a.id) : undefined;
       if (a.id && !q) return state;
       if (q) {

@@ -29,6 +29,7 @@ import {
   buildingShare,
   canSendLetter,
   clockMinutes,
+  clockText,
   collectedBy,
   currentIsland,
   dayKey,
@@ -3405,14 +3406,6 @@ function BoardField({ label, children }: { label: string; children: React.ReactN
 }
 
 // 입력칸: font 14px/1.5 Gowun (textarea 줄바꿈은 브라우저 기본값을 둔다)
-// '9:00' → '09:00' (24:00은 그대로). 형식이 틀리면 입력 그대로 둔다
-const hhmm = (value: string) => {
-  const m = clockMinutes(value);
-  return m == null
-    ? value
-    : `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-};
-
 const inputStyle = (): any => ({
   width: '100%',
   minWidth: 0,
@@ -3445,7 +3438,8 @@ function QuestTimeInput({
         data-testid={testID}
         aria-label={label}
         type="time"
-        value={value}
+        // 웹 time 입력은 HH:MM만 읽는다. "9:00"으로 저장된 예전 값도 보이게 맞춰서 넘긴다
+        value={clockText(value)}
         onChange={(event) => onChange(event.target.value)}
         style={{
           boxSizing: 'border-box',
@@ -3468,7 +3462,7 @@ function QuestTimeInput({
       accessibilityLabel={label}
       value={value}
       onChangeText={onChange}
-      onEndEditing={() => onChange(hhmm(value))}
+      onEndEditing={() => onChange(clockText(value))}
       placeholder="00:00"
       placeholderTextColor="#757575"
       keyboardType="numbers-and-punctuation"
@@ -4139,8 +4133,8 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
           title,
           kind: form.type === 'phone' ? 'screen' : 'focus',
           target,
-          windowStart: hhmm(form.startTime),
-          windowEnd: hhmm(form.endTime),
+          windowStart: clockText(form.startTime),
+          windowEnd: clockText(form.endTime),
         });
         return e.back();
       }
