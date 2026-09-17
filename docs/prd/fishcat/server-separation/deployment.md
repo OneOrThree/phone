@@ -34,13 +34,13 @@ nginx·인증서는 Infra 소유다. `nginx-satellites.include.conf.example`과 
 
 - 준비된 Business 경로만 라우팅하고 나머지 기존 Data 경로를 유지한다.
 - Notification은 시스템 §2.1대로 `/internal/admin/`만 공개하며 서비스가 콘솔 전용 Bearer와 actor를 검증한다. 나머지 `/internal/`과 management 9091은 공개하지 않는다.
-- Cloudflare CIDR·방화벽·realip 설정으로 검증한 방문자 IP를 전용 `X-Link-Client-IP`로 보낸다. 프록시 시크릿은 nginx·Business·Link에서 일치해야 한다.
-- §7.2 3~4단계에는 랜딩을 닫고 Business 호환 match를 사용한다. `IMPORT_CLOSED`·import drain 후 예시의 final 블록으로 랜딩과 match를 같은 reload에서 Link로 넘긴다. claim 목적지 전환·큐 처리도 같은 정지 창에서 확인한다.
-- 라우팅 교체 후 호환 인플라이트를 drain하고 `COMPAT_MATCH_HANDLER_ENABLED`를 끈다. 구 앱의 `/l/match` URL은 제거하지 않는다. DNS 이전은 두 경로가 Neon을 본 뒤에 한다.
+- ~~Cloudflare CIDR·방화벽·realip 설정으로 검증한 방문자 IP를 전용 `X-Link-Client-IP`로 보낸다. 프록시 시크릿은 nginx·Business·Link에서 일치해야 한다.~~ → A23(2026-09-13): 링크 서버가 없다 — 검증한 방문자 IP 는 현행대로 `X-Real-IP` 로 넘기고 프록시 시크릿은 없다([링크 정본](../link-attribution/high-level-design.md) §2·§5).
+- (A23(2026-09-13)으로 폐기 — 링크 컷오버·정지 창이 없다, 링크 정본 HLD §7 4단계: nginx 설정 한 번) §7.2 3~4단계에는 랜딩을 닫고 Business 호환 match를 사용한다. `IMPORT_CLOSED`·import drain 후 예시의 final 블록으로 랜딩과 match를 같은 reload에서 Link로 넘긴다. claim 목적지 전환·큐 처리도 같은 정지 창에서 확인한다.
+- ~~라우팅 교체 후 호환 인플라이트를 drain하고 `COMPAT_MATCH_HANDLER_ENABLED`를 끈다. 구 앱의 `/l/match` URL은 제거하지 않는다. DNS 이전은 두 경로가 Neon을 본 뒤에 한다.~~ → A23: 호환 핸들러·Neon·DNS 이전이 없다. `business.compat.*` 는 #745 잔재로 기본 false 를 유지하고 링크 구현 PR 이 걷어낸다(링크 LLD §9.1).
 
 ## 실패 복구
 
-준비 단계의 실패는 기존 서비스를 변경하지 않는다. 신규 쓰기 전 기동 실패는 해당 서비스의 직전 검증 digest로 복구한다. Link §7.2 3단계 이후에는 Neon을 정본으로 유지하며 실패한 import·검증·라우팅 단계를 재개한다. Notification의 최초 gate 개방 이후에는 close/drain → 새 경로 수정·검증 → 재개 순서다. 이 단계 이후 구 Data FCM이나 구 클릭 원장으로 자동 복귀하지 않는다. DB·이관 원장·서비스별 env를 보존한다.
+준비 단계의 실패는 기존 서비스를 변경하지 않는다. 신규 쓰기 전 기동 실패는 해당 서비스의 직전 검증 digest로 복구한다. ~~Link §7.2 3단계 이후에는 Neon을 정본으로 유지하며 실패한 import·검증·라우팅 단계를 재개한다.~~ → A23: 링크 이관 단계가 없다(정본은 계속 RDS `gromo`). Notification의 최초 gate 개방 이후에는 close/drain → 새 경로 수정·검증 → 재개 순서다. 이 단계 이후 구 Data FCM이나 구 클릭 원장으로 자동 복귀하지 않는다. DB·이관 원장·서비스별 env를 보존한다.
 
 `--phase final`은 구 빈 제거·트래픽 전환·롤백 창 종료가 확인된 뒤에만 사용한다. 현재 최소 Business 어댑터는 전체 인증 이전을 완료하지 않았으므로 이 배치만으로 final 자격 회수를 실행하지 않는다.
 
@@ -56,4 +56,4 @@ Redis는 Business 전용 내부 네트워크에서 `cache:business:*`만 읽고 
 
 단독 로컬 실행도 `write-compose-env.py --service business-api --redis-acl-output <경로>`가 생성한 env와 ACL을 사용한다. `BUSINESS_API_ENV_FILE`·`BUSINESS_REDIS_ACL_FILE`을 지정해 `server/business-api/compose.yml`을 실행하면 호스트 `127.0.0.1:8082`가 컨테이너 8080으로 연결된다. 시크릿이 포함된 파일은 커밋하지 않는다.
 
-Link/MMP는 `OneOrThree/mmp-custom`의 별도 배포다. 여기서 Vercel·Neon 연결이나 DNS 전환을 수행하지 않는다.
+~~Link/MMP는 `OneOrThree/mmp-custom`의 별도 배포다. 여기서 Vercel·Neon 연결이나 DNS 전환을 수행하지 않는다.~~ → A23(2026-09-13): Link/MMP 는 별도 배포가 아니다 — business-api·data-api 이미지에 포함되며 공개 경로 전환은 nginx 설정 한 번이다([링크 정본](../link-attribution/high-level-design.md) §7).
