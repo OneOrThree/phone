@@ -74,6 +74,56 @@ jobs:
   #
   # ⚠️ 아래 build·deploy 는 지금도 «기술적으로» 못 옮긴다 — GAR 인증이 GCE 메타데이터 토큰을
   #    쓰는데 GitHub-hosted 에는 그 메타데이터가 없다. 공개 전환은 이 제약과 무관하다.
+  # ── 적용된 마이그레이션은 «바이트가» 계약이다 (GROMO-1911) ────────────────────
+  # Flyway 는 적용한 파일의 체크섬을 DB 에 저장해 두고, 다음 부팅의 validate 에서 파일과
+  # 대조한다. 주석 한 글자만 달라져도 「checksum mismatch」로 부팅 자체가 막힌다.
+  #
+  # 2026-09-16 문서 경로 일괄 치환(PR #773)이 이미 적용된 V38 의 주석 한 줄
+  # (`docs/prd/challenge/…` → `docs/prd/gromo/challenge/…`)을 바꿨고, 그 뒤 main 의 Dev CD 가
+  # 전부 실패했다 — run 35168718059: `Migration checksum mismatch for migration version 38`.
+  #
+  # 테스트로는 못 잡는다. CI 는 create-drop + Flyway off 라 마이그레이션을 아예 돌리지 않아
+  # (GROMO-1515 계열 주석 참조) 이 부류의 결함은 dev·prod «부팅»에서만 드러난다. 그래서
+  # 코드가 아니라 «파일이 변경되었는지»를 본다.
+  #
+  # 막혔을 때 올바른 대응은 이 검사를 끄는 게 아니라 ① 원문으로 되돌리고 새 V 파일을 더하거나
+  # ② 정말 과거 파일을 바꿔야 한다면 dev DB 를 리셋하는 것이다(둘 다 의도적 행위여야 한다).
+  #
+  # ②를 위한 탈출구는 «커밋 메시지»에 둔다 — 라벨은 PR 규약상 유형 라벨 하나만 허용되고,
+  # 워크플로 자체를 고치는 건 곧 검사를 끄는 길이기 때문이다. 커밋 본문에
+  # `Flyway-Override: <이유>` 한 줄이 있으면 통과시키되 무엇을 봐줬는지 로그에 남긴다.
+  # 되돌리기(복구)도 main 기준으로는 «수정»이라 이 탈출구를 탄다.
+  migration-immutable:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: 이미 main 에 있는 마이그레이션이 수정·삭제·개명되지 않았는지 확인
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # M 수정 · D 삭제 · R 개명 · T 타입변경. 추가(A)는 정상이라 뺀다.
+          # 개명도 막는다 — Flyway 는 파일명에서 version 과 description 을 읽는다.
+          changed=$(git diff --diff-filter=MDRT --name-only "$BASE_SHA...HEAD" \
+            -- server/data-api/src/main/resources/db/migration/)
+          if [ -z "$changed" ]; then
+            echo "적용된 마이그레이션 변경 없음 (추가만 있거나 손대지 않음)."
+            exit 0
+          fi
+          reason=$(git log --format=%B "$BASE_SHA..HEAD" \
+            | sed -n 's/^Flyway-Override:[[:space:]]*//p' | head -1)
+          if [ -n "$reason" ]; then
+            echo "::warning::의도적 우회 — $reason"
+            echo "$changed"
+            exit 0
+          fi
+          echo "::error::이미 main 에 있는 마이그레이션을 고치면 Flyway 체크섬이 달라져 dev·prod 가 부팅하지 못합니다. 원문으로 되돌리고 새 V 파일을 추가하세요. 정말 의도한 변경이면 커밋 메시지에 'Flyway-Override: <이유>' 줄을 넣으세요."
+          echo "$changed"
+          exit 1
+
   checkstyle:
     uses: ./.github/workflows/be-gradle.yml
     with:
