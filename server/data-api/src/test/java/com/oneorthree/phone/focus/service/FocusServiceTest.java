@@ -2687,7 +2687,7 @@ class FocusServiceTest {
                 .user(user)
                 .startedAt(NOW.minus(Duration.ofHours(20)))
                 .build();
-        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any())).willReturn(List.of(orphan));
+        given(focusSessionRepository.findLegacyOrphanCandidates(any())).willReturn(List.of(orphan));
         given(focusSessionRepository.markAutoClosedIfOpen(eq(SESSION_ID), any())).willReturn(1);
 
         // when
@@ -2708,7 +2708,7 @@ class FocusServiceTest {
                 .user(user)
                 .startedAt(NOW.minus(Duration.ofHours(20)))
                 .build();
-        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any())).willReturn(List.of(orphan));
+        given(focusSessionRepository.findLegacyOrphanCandidates(any())).willReturn(List.of(orphan));
         given(focusSessionRepository.markAutoClosedIfOpen(eq(SESSION_ID), any())).willReturn(0);
 
         // when
@@ -3549,7 +3549,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession orphan = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(staleStart).build();
-        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any()))
+        given(focusSessionRepository.findLegacyOrphanCandidates(any()))
                 .willReturn(List.of(orphan));
         // GROMO-804(P2): 더티 라이트가 아니라 조건부 원자 UPDATE 로 마감 — 영향 row=1(마감 성사).
         given(focusSessionRepository.markAutoClosedIfOpen(eq(SESSION_ID), any(Instant.class)))
@@ -3577,7 +3577,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession racedOrphan = FocusSession.builder()
                 .id(SESSION_ID).user(user).startedAt(staleStart).build();
-        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any()))
+        given(focusSessionRepository.findLegacyOrphanCandidates(any()))
                 .willReturn(List.of(racedOrphan));
         given(focusSessionRepository.markAutoClosedIfOpen(eq(SESSION_ID), any(Instant.class)))
                 .willReturn(0);
@@ -3595,7 +3595,7 @@ class FocusServiceTest {
     @DisplayName("orphan 없음 → 0 반환, 종료 처리 없음")
     void sweepOrphanSessionsNoop() {
         // given
-        given(focusSessionRepository.findByEndedAtIsNullAndStartedAtBefore(any()))
+        given(focusSessionRepository.findLegacyOrphanCandidates(any()))
                 .willReturn(List.of());
 
         // when

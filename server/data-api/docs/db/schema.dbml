@@ -636,6 +636,55 @@ Table focus_sessions_pomodoro_setting [note: '뽀모도로 기본 집중/휴식 
   deleted_at    timestamptz  [note: '소프트 딜리트(시드 교체 여지)']
 }
 
+Table focus_session_details [note: 'GROMO-1764: v0.3 집중 세션 상세(섬 귀속·subject·목표·lifecycle·낙관 버전). focus_sessions 1:1, 이 행의 존재가 v0.3 프로토콜 판별자(migration V58)'] {
+  session_id                uuid    [pk, note: 'FK → focus_sessions.id ON DELETE CASCADE — 별도 발급 없이 레거시 세션 PK를 공유']
+  user_id                   uuid    [not null, note: 'FK → users.id ON DELETE RESTRICT — 계정 탈퇴 시 상세 익명화 배선은 후속(LLD §5)']
+  island_id                 uuid    [not null, note: 'FK → groups.id ON DELETE RESTRICT. 시작 후 불변(FR-P03)']
+  membership_epoch_at_start bigint  [not null, note: '시작 시점 GroupMember.membershipEpoch 스냅샷 — 강퇴/재가입 감지 앵커(FR-D03 미결이라 기록만)']
+  subject                   varchar(200) [not null]
+  target_minutes            integer [not null, note: '허용 범위는 FR-D06 미결 — 0 이하만 거절']
+  lifecycle                 varchar(10) [not null, note: 'ACTIVE / PAUSED / COMPLETED — 레거시 focus_session_status와 별개 축']
+  version                   bigint  [not null, default: 1, note: '낙관 버전 — pause/resume/finish마다 +1(expectedVersion 검사 대상)']
+  last_transition_at        timestamptz [not null]
+  policy_revision           integer [note: '시작 시 고정한 보상 정책 revision — FR-D01 미확정인 동안 항상 null']
+  rest_seat                 integer [note: 'paused 동안만 값 존재. 섬 안 1..N 중 빈 최소 번호(예약 API 아님)']
+  created_at                timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id) [unique, name: 'focus_session_details_user_progressing_uk', note: 'WHERE lifecycle IN (ACTIVE,PAUSED) — 사용자당 진행 세션 1개(FR-P02)']
+    (island_id, rest_seat) [unique, name: 'focus_session_details_rest_seat_uk', note: 'WHERE lifecycle = PAUSED — 같은 섬 휴식 자리 중복 배정 방지']
+  }
+}
+
+Table focus_session_intervals [note: 'GROMO-1764: v0.3 세션의 ACTIVE/REST 실제 서버 시간 구간. [started_at, ended_at) 반열림'] {
+  id          bigserial [pk]
+  session_id  uuid    [not null, note: 'FK → focus_session_details.session_id ON DELETE CASCADE']
+  ordinal     integer [not null, note: '세션 안에서 1부터 증가 — (session_id, ordinal) UNIQUE']
+  kind        varchar(10) [not null, note: 'ACTIVE / REST']
+  started_at  timestamptz [not null]
+  ended_at    timestamptz [note: 'null이면 진행 중(열린 구간). 세션당 열린 구간 최대 1개(부분 UNIQUE)']
+
+  indexes {
+    (session_id, ordinal) [unique]
+    (session_id) [unique, name: 'focus_session_intervals_open_uk', note: 'WHERE ended_at IS NULL — 열린 구간 세션당 최대 1개']
+  }
+}
+
+Table focus_settlements [note: 'GROMO-1764: v0.3 세션당 정산 결과(다른 idempotency-key 완료 재생·중복 지급 방어). 보상 정책(FR-D01~06) 미확정이라 2026-09 기준 쓰는 코드가 없다 — 스키마만 선반영'] {
+  session_id                uuid    [pk, note: 'FK → focus_session_details.session_id ON DELETE RESTRICT — 정산 원장 행은 상세가 사라져도 임의로 함께 지우지 않는다']
+  contract_version          integer [not null, default: 1]
+  policy_revision           integer
+  active_seconds            bigint  [not null]
+  goal_achieved             boolean [not null]
+  earned_fish               integer [not null, default: 0, note: 'E = personal_fish_added + construction_fish_added 보존식']
+  personal_fish_added       integer [not null, default: 0]
+  construction_fish_added   integer [not null, default: 0]
+  quest_progress            jsonb
+  events                    jsonb   [note: '내부 결과 — 공개 finish 응답에 그대로 노출하지 않는다']
+  completed_at              timestamptz [not null]
+  created_at                timestamptz [not null, default: `now()`]
+}
+
 // ────────────────────────────────────────────
 // 4. 그룹
 // ────────────────────────────────────────────
