@@ -15,6 +15,8 @@ import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.IdempotentOutcome;
@@ -24,6 +26,7 @@ import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +35,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -62,6 +67,9 @@ import static org.mockito.Mockito.when;
  *       INSERT 를 먼저 내보내 {@code focus_session_intervals_open_uk} 를 위반한다</li>
  *   <li><b>전이 시각 역행</b> — NTP 보정으로 벽시계가 뒤로 가면 {@code ended_at >= started_at} CHECK 가
  *       깨져 정상 pause 가 500 이 된다</li>
+ *   <li><b>섬 소속 상실</b> — 탈퇴·강퇴된 사용자가 pause/resume 으로 섬 화면에 계속 뜨는 것을 막는다</li>
+ *   <li><b>조회 스냅샷</b> — {@code current}·{@code summary} 가 상세와 구간을 서로 다른 스냅샷에서 읽으면
+ *       「active 인데 열린 REST 구간」 같은 불가능한 응답이 나간다</li>
  * </ol>
  */
 @ExtendWith(MockitoExtension.class)
@@ -84,6 +92,9 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private DailyFocusStatRepository dailyFocusStatRepository;
     @Mock private PublicCommandService publicCommands;
     @Mock private OutboxCommandPort outboxCommandPort;
+    @Mock private User caller;
+    @Mock private Group island;
+    @Mock private GroupMember membership;
 
     private FocusSessionLifecycleService service(Instant wallClock) {
         return new FocusSessionLifecycleService(userQueryService, groupQueryService,
@@ -201,12 +212,85 @@ class FocusSessionLifecycleGuardsTest {
         verify(focusSessionIntervalRepository, never()).findBySessionIdOrderByOrdinalAsc(any());
     }
 
+    // ── 5. 섬 소속 상실 ───────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("섬을 떠난 사용자의 pause 는 403 ISLAND_MEMBERSHIP_REQUIRED 다 — start 와 같은 코드다")
+    void pauseIsRefusedWhenTheIslandMembershipIsGone() {
+        FocusSessionDetail detail = givenTransition(FocusSessionLifecycle.ACTIVE, FocusIntervalKind.ACTIVE);
+        when(groupQueryService.findMembership(caller, island)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service(NOW).pause(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
+
+        // 거절만 한다 — 진행 중 세션을 자동 종결하지 않는다(FR-D03 미결).
+        assertThat(detail.getLifecycle()).isEqualTo(FocusSessionLifecycle.ACTIVE);
+        assertThat(detail.getVersion()).isEqualTo(1L);
+        verify(focusSessionIntervalRepository, never()).save(any());
+        verify(outboxCommandPort, never()).append(any());
+    }
+
+    @Test
+    @DisplayName("강퇴된 사용자의 resume 도 같은 코드로 막힌다 — 비소속자가 섬 화면에 다시 뜨지 않는다")
+    void resumeIsRefusedWhenTheIslandMembershipIsGone() {
+        FocusSessionDetail detail = givenTransition(FocusSessionLifecycle.PAUSED, FocusIntervalKind.REST);
+        when(groupQueryService.findMembership(caller, island)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service(NOW).resume(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
+
+        assertThat(detail.getLifecycle()).isEqualTo(FocusSessionLifecycle.PAUSED);
+        verify(outboxCommandPort, never()).append(any());
+    }
+
+    @Test
+    @DisplayName("멤버십이 살아 있으면 pause 는 평소대로 지나간다 — 검사가 정상 전이를 막지 않는다")
+    void pauseStillPassesWhileTheMembershipIsAlive() {
+        givenTransition(FocusSessionLifecycle.ACTIVE, FocusIntervalKind.ACTIVE);
+
+        assertThat(service(NOW).pause(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY).status())
+                .isEqualTo(FocusSessionView.STATUS_PAUSED);
+    }
+
+    // ── 6. 조회 스냅샷 ────────────────────────────────────────────────────────
+
+    @Test
+    @DisplayName("current 는 REPEATABLE READ 다 — 상세와 구간을 한 스냅샷에서 읽는다(LLD §2)")
+    void currentReadsInOneSnapshot() throws NoSuchMethodException {
+        assertSingleSnapshot(FocusSessionLifecycleService.class.getMethod("current", UUID.class)
+                .getAnnotation(Transactional.class), "current");
+    }
+
+    @Test
+    @DisplayName("summary 도 REPEATABLE READ 다 — 완료 집계와 진행 구간을 한 스냅샷에서 읽는다(LLD §2)")
+    void summaryReadsInOneSnapshot() throws NoSuchMethodException {
+        assertSingleSnapshot(FocusSessionLifecycleService.class
+                .getMethod("summary", UUID.class, String.class, String.class)
+                .getAnnotation(Transactional.class), "summary");
+    }
+
+    private static void assertSingleSnapshot(Transactional tx, String method) {
+        assertThat(tx).as("%s 에 @Transactional 이 있어야 한다", method).isNotNull();
+        assertThat(tx.isolation())
+                .as("%s 는 여러 SELECT 를 읽는다 — READ COMMITTED 면 문장마다 스냅샷이 갈린다", method)
+                .isEqualTo(Isolation.REPEATABLE_READ);
+        // readOnly 면 abandonIfMarkerClosed 의 정리 쓰기가 커밋되지 않는다(이미 겪었다).
+        assertThat(tx.readOnly()).as("%s 는 정리 쓰기를 커밋해야 한다", method).isFalse();
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
 
     /** pause/resume 이 실제로 명령 본문까지 들어가도록 잠금·멱등·이벤트 배선을 세운다. */
     private FocusSessionDetail givenTransition(FocusSessionLifecycle lifecycle, FocusIntervalKind openKind) {
         FocusSessionDetail detail = detail(lifecycle);
         when(focusSessionDetailRepository.findBySessionIdForUpdate(SESSION)).thenReturn(Optional.of(detail));
+        when(userQueryService.getCallerForShare(USER)).thenReturn(caller);
+        when(groupQueryService.getGroup(ISLAND)).thenReturn(island);
+        when(groupQueryService.findMembership(caller, island)).thenReturn(Optional.of(membership));
         when(focusSessionRepository.findById(SESSION)).thenReturn(Optional.of(marker(null)));
         when(focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(SESSION))
                 .thenReturn(List.of(FocusSessionInterval.builder()

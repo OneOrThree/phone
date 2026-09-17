@@ -45,6 +45,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -205,10 +206,21 @@ public class FocusSessionLifecycleService {
     /**
      * {@code GET /focus-sessions/current} — LLD §2 session. 본인만, 명령이 아니라 단일 snapshot 조회.
      *
+     * <p><b>REPEATABLE READ인 이유</b>: 상세와 구간을 두 SELECT로 읽는다. PostgreSQL 기본 READ COMMITTED
+     * 에서는 <b>문장마다 새 스냅샷</b>이라, 두 읽기 사이에 다른 기기의 pause가 커밋되면 「{@code status=active}
+     * 인데 열린 REST 구간」 같은 <b>불가능한 응답</b>이 나간다. LLD §2가 "단일 DB snapshot의 현재 세션과
+     * 상세·구간을 읽는다"고 정했으므로 트랜잭션 스냅샷을 하나로 고정한다.
+     *
      * <p>조회인데도 {@code readOnly}가 아닌 것은 의도다 — {@link #abandonIfMarkerClosed}가 어긋난 행을
      * 그 자리에서 종결하고, 그 쓰기가 실제로 커밋돼야 다음 start가 풀린다(readOnly면 flush 자체가 없다).
+     * 그 쓰기가 동시 수정과 겹치면 PostgreSQL이 {@code 40001}(could not serialize access)로 트랜잭션을
+     * 통째로 되돌린다. 재시도를 달지 않는다 — Hibernate {@code LockAcquisitionException} → Spring
+     * {@code CannotAcquireLockException}으로 번역돼
+     * {@link com.oneorthree.phone.common.exception.GlobalExceptionHandler#handlePessimisticLock}가
+     * 409 {@code CONCURRENT_UPDATE}("잠시 후 다시 시도해주세요")로 내보내는, <b>이미 사용자에게 보여 줄 만한</b>
+     * 답이기 때문이다(500이 아니다). 게다가 이 쓰기는 마커 desync 정리 경로에서만 일어난다.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public FocusSessionView current(UUID userId) {
         userQueryService.getCaller(userId);
         Instant now = clock.instant();
@@ -364,14 +376,18 @@ public class FocusSessionLifecycleService {
 
     /**
      * {@code GET /me/focus-summary} — LLD §2 home-summary. completedSeconds(기존 DailyFocusStat)와
-     * currentSessionSecondsToday(진행 세션 구간)를 같은 트랜잭션의 두 조회로 읽는다 — 종료 TX와 겹친 GET의
-     * 이중 계산 회피는 REPEATABLE READ가 아니라 두 조회 사이 창이 매우 좁다는 완화다(ponytail, 아래 참고).
+     * currentSessionSecondsToday(진행 세션 구간)를 읽는다.
+     *
+     * <p><b>REPEATABLE READ인 이유</b>: LLD §2가 "완료 집계·진행 상태·구간을 같은 읽기 snapshot(단일 SELECT
+     * 또는 read-only REPEATABLE READ)에서 읽는다"고 못박았다. READ COMMITTED에서는 종료 TX와 겹친 GET이
+     * 「완료 집계 갱신 후 + 아직 진행 중」을 각각 다른 스냅샷에서 읽어 같은 시간을 <b>두 번</b> 셀 수 있다.
      *
      * <p>{@code current}와 같은 이유로 {@code readOnly}가 아니다 — {@link #abandonIfMarkerClosed}가 어긋난
      * 행을 여기서도 걸러야 한다. 거르지 않으면 기본 마커가 닫힌 뒤에도 열린 ACTIVE 구간을 {@code now}까지
-     * 계산해 {@code currentSessionSecondsToday}·{@code totalSeconds}를 계속 부풀린다.
+     * 계산해 {@code currentSessionSecondsToday}·{@code totalSeconds}를 계속 부풀린다. 그 쓰기의 직렬화
+     * 실패({@code 40001}) 처리는 {@code current}와 같다 — 409 {@code CONCURRENT_UPDATE}다.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.REPEATABLE_READ)
     public FocusSummaryView summary(UUID userId, String rawDate, String rawTimezone) {
         User user = userQueryService.getCaller(userId);
         validateTimezone(rawTimezone);
@@ -432,12 +448,21 @@ public class FocusSessionLifecycleService {
     }
 
     /**
-     * 활성 검증(공유 락) + 세션 상세 배타 락 + 소유 검사 — pause/resume/finish의 공통 잠금 지점.
-     * activeAuthorization·replayAuthorization·명령 본문에서 반복 호출해도 같은 트랜잭션 안 재잠금은
-     * 안전하다(1차 캐시가 같은 관리 엔티티를 돌려준다).
+     * 활성 검증(공유 락) + 세션 상세 배타 락 + 소유 검사 + <b>섬 활성 멤버십</b> — pause/resume/finish의
+     * 공통 잠금 지점. activeAuthorization·replayAuthorization·명령 본문에서 반복 호출해도 같은 트랜잭션 안
+     * 재잠금은 안전하다(1차 캐시가 같은 관리 엔티티를 돌려준다).
+     *
+     * <p>멤버십은 LLD §2가 pause·resume에 "본인·<b>소속</b>·상태·version"으로 적어 둔 전제다. 없으면
+     * 섬을 탈퇴·강퇴당한 사용자가 그 섬의 세션을 계속 전이시키고, 그 전이가 {@code focus.member.updated}·
+     * {@code rest.member.updated}로 방송돼 <b>비소속자가 섬 화면에 계속 뜬다</b>. {@link #start}와 같은
+     * 조회·같은 코드({@link FocusErrorCode#ISLAND_MEMBERSHIP_REQUIRED})로 거절한다.
+     *
+     * <p><b>거절만 한다.</b> 소속을 잃은 진행 세션을 여기서 자동 종결하지 않는다 — 진행 중 기록을 어떻게
+     * 처리할지는 FR-D03(소속 상실 복구)의 미결 제품 결정이고, LLD §2가 "FR-D03이 미결인 소속 상실 중간
+     * 상태를 정상으로 만들지 않는다"고 적어 두었다. 세션은 그대로 두고 전이만 막는다.
      */
     private FocusSessionDetail authorizeSession(UUID userId, UUID sessionId) {
-        requireActiveUser(userId);
+        User user = requireActiveUser(userId);
         FocusSessionDetail detail = focusSessionDetailRepository.findBySessionIdForUpdate(sessionId)
                 .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
         // userId 를 왼쪽에 둔다 — 탈퇴 익명화로 detail.userId 가 null 인 행에 NPE 로 500 을 내지 않는다.
@@ -446,6 +471,10 @@ public class FocusSessionLifecycleService {
         }
         if (abandonIfMarkerClosed(detail)) {
             throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
+        }
+        Group island = groupQueryService.getGroup(detail.getIslandId());
+        if (groupQueryService.findMembership(user, island).isEmpty()) {
+            throw new FocusException(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
         }
         return detail;
     }

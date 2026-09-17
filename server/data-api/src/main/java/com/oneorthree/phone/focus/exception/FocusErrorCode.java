@@ -40,8 +40,8 @@ public enum FocusErrorCode implements ErrorCode {
     INVALID_SUMMARY_TIMEZONE(HttpStatus.BAD_REQUEST, "지원하지 않는 timezone입니다."),
     /** 요청 islandId가 사용자의 현재 소속 섬이 아니다(FR-P03) — 시작은 현재 섬에서만 가능하다. */
     ISLAND_NOT_CURRENT(HttpStatus.FORBIDDEN, "현재 소속된 섬이 아닙니다."),
-    /** 현재 섬의 활성 멤버가 아니다. */
-    ISLAND_MEMBERSHIP_REQUIRED(HttpStatus.FORBIDDEN, "섬 멤버만 집중을 시작할 수 있습니다."),
+    /** 현재 섬의 활성 멤버가 아니다 — start 뿐 아니라 pause/resume/finish 전이도 이 코드로 막는다(LLD §2). */
+    ISLAND_MEMBERSHIP_REQUIRED(HttpStatus.FORBIDDEN, "섬 멤버만 집중할 수 있습니다."),
     /** 이미 진행(active/paused) 중인 세션이 있다 — 새/구 프로토콜을 가리지 않고 막는다(LLD §5). */
     SESSION_IN_PROGRESS(HttpStatus.CONFLICT, "이미 진행 중인 집중 세션이 있습니다."),
     /** pause/resume/finish 요청 본문에 expectedVersion이 없다(FR-P07 필수). */
