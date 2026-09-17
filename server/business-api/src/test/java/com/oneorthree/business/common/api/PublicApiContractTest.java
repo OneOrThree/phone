@@ -221,12 +221,18 @@ class PublicApiContractTest extends UpstreamTestBase {
 
     @Test
     void mvcFrameworkErrorsAreUniformAndKeepAllowHeader() throws Exception {
-        // GROMO-1759 이 GET /islands/{islandId} 를 실제 라우트로 만들었다 — 한 세그먼트짜리
-        // 경로는 더 이상 «매핑이 없는 경로» 가 아니다(이제 인증 먼저라 401 이 난다). 프레임워크
-        // 404 를 보려면 여전히 아무 매핑도 없는 깊이를 써야 한다.
-        mockMvc.perform(auth(get("/islands/not-a-real-route/deeper")))
+        // 404 표본의 규약: «PublicApiRoutes.ROOTS 안이면서 컨트롤러가 하나도 없는 뿌리» 여야 한다.
+        // ROOTS 밖은 (아래 두 번째 요청처럼) legacy {code,message} 모양이라 이 균일 봉투 단언을 못 하고,
+        // 컨트롤러가 있는 뿌리는 하위 자원이 붙는 순간 진짜 라우트가 된다(/islands 는 GROMO-1759 가
+        // {islandId} 를 라우트로 만들었고 island-construction 이 더 붙일 뿌리다). /statistics 에
+        // 컨트롤러가 생기면 다른 컨트롤러 없는 뿌리로 옮긴다.
+        mockMvc.perform(auth(get("/statistics/not-a-real-route")))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+        mockMvc.perform(auth(get("/not-a-real-route")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ENDPOINT_NOT_FOUND"))
+                .andExpect(jsonPath("$.error").doesNotExist());
         mockMvc.perform(auth(put(ROOT + "/object"))).andExpect(status().isMethodNotAllowed())
                 .andExpect(header().exists("Allow")).andExpect(jsonPath("$.error.code").value("METHOD_NOT_ALLOWED"));
         mockMvc.perform(auth(post(ROOT + "/body")).contentType(MediaType.TEXT_PLAIN).content("wrong"))

@@ -45,6 +45,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -68,6 +69,7 @@ class IslandMembershipIntegrationTest {
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/islands/*");
+        registry.add("internal.api.callers.business.allow[1]", () -> "POST /internal/users/*/islands");
     }
 
     @Autowired
@@ -368,6 +370,49 @@ class IslandMembershipIntegrationTest {
                 + " and type='island.members.updated'", created.id().toString())).isEqualTo(1);
         assertThat(jdbc.queryForObject("select approval_required from groups where id=?",
                 Boolean.class, created.id())).isTrue();
+    }
+
+    // ---------------------------------------------------------------- 리뷰 후속 (PR #793)
+
+    @Test
+    @DisplayName("양방향 제어문자·개행이 든 이름은 레거시 그룹과 같은 규칙으로 400 이다")
+    void controlCharacterNamesAreRejectedByTheLegacyNameRule() throws Exception {
+        UUID user = newUser();
+        String[] bodies = {
+            "{\"name\":\"\\u202E몰래섬\",\"approvalRequired\":false}",
+            "{\"name\":\"몰래\\n섬\",\"approvalRequired\":false}",
+            "{\"name\":\"\\u2066섬\",\"approvalRequired\":false}",
+        };
+        for (String body : bodies) {
+            mvc.perform(post("/internal/users/" + user + "/islands")
+                            .header("Authorization", "Bearer " + TOKEN)
+                            .header("X-User-Id", user.toString())
+                            .header("Idempotency-Key", UUID.randomUUID().toString())
+                            .contentType("application/json").content(body))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
+        }
+        assertThat(count("select count(*) from group_members where user_id=?", user))
+                .as("거절된 이름으로 섬이 만들어지지 않는다").isZero();
+    }
+
+    @Test
+    @DisplayName("강퇴돼 «죽은» 현재 섬만 남은 사용자는 검색도, 같은 섬 확인도 할 수 없다")
+    void deadCurrentIslandOpensNeitherSearchNorSameIslandConfirmation() {
+        UUID user = newUser();
+        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("강퇴전섬", null, false),
+                UUID.randomUUID());
+        jdbc.update("update group_members set is_left=true, left_reason='KICKED' "
+                + "where group_id=? and user_id=?", home.id(), user);
+
+        assertThatThrownBy(() -> islands.search(user, null, null, 20))
+                .as("저장된 현재 섬이 있어도 활성 소속이 아니면 검색 가드에 걸린다")
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.OBSERVATORY_LOCKED);
+        assertThatThrownBy(() -> islands.switchCurrentIsland(user, home.id(), UUID.randomUUID()))
+                .as("같은 섬 PUT 도 멤버십을 다시 본다")
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.MEMBER_ONLY);
+        assertThat(islands.myIslands(user).currentIslandId()).isNull();
+        assertThat(currentIsland(user)).as("저장값은 그대로 — 비우는 쓰기는 IM-D06 몫").isEqualTo(home.id());
     }
 
     // ---------------------------------------------------------------- 도구

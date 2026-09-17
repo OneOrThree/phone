@@ -42,6 +42,9 @@ public class IslandMembershipUseCase {
     private static final Map<String, PublicFailure> DOMAIN_FAILURES = Map.ofEntries(
             Map.entry("GROUP_NOT_FOUND", new PublicFailure(ApiErrorCode.GROUP_NOT_FOUND, "islandId")),
             Map.entry("USER_NOT_FOUND", new PublicFailure(ApiErrorCode.USER_NOT_FOUND, null)),
+            // Data 의 bean 검증 거절 — 섬 이름 안전 문자 규칙은 Data 에만 있다(정의가 하나). 코드·상태가
+            // 같아 그대로 옮긴다. 필드는 알 수 없어 비운다(Data 응답에 필드가 없다).
+            Map.entry("INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)),
             // 비공개 섬의 무자격 직접 조회, 그리고 «내 소속이 아닌 섬으로 이동» 둘 다 403 이다.
             Map.entry("MEMBER_ONLY", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
             // 전망대 미해금 — 공개 표면에는 이미 시설 전용 코드가 있다.

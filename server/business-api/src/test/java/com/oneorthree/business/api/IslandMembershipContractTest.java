@@ -242,6 +242,7 @@ class IslandMembershipContractTest extends UpstreamTestBase {
             "403,MEMBER_ONLY,403,FORBIDDEN,islandId",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
+            "400,INVALID_REQUEST,400,INVALID_REQUEST,",
             "409,SESSION_IN_PROGRESS,409,STATE_CONFLICT,",
             "409,GROUP_LIMIT_EXCEEDED,409,STATE_CONFLICT,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",

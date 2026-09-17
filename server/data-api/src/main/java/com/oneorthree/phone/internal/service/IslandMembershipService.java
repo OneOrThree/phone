@@ -158,6 +158,11 @@ public class IslandMembershipService {
      * <p><b>같은 섬 PUT 은 상태확인</b> 이다 — 세션 가드보다 먼저 빠져나가고 이벤트도 membership 도
      * 만들지 않는다. 실질 이동이 없는 요청을 «진행 중 세션» 으로 막으면 집중 중에 현재 섬을 다시
      * 확인하는 것만으로 409 가 나서 앱이 자기 상태를 읽지 못한다.
+     *
+     * <p>상태확인이라도 <b>멤버십은 다시 본다</b> — 강퇴된 뒤 같은 섬으로 PUT 하면 200 이 아니라 403 이다
+     * (저장된 현재 섬은 강퇴로 비워지지 않는다, {@link #liveCurrentIsland}). 그래서 «같은 섬» 판정을 그룹
+     * 잠금과 활성 membership 확인 <b>뒤</b> 에 둔다 — 잠금 순서(users/context → groups → memberships)도
+     * 그 자리라야 지켜진다.
      */
     @Transactional
     public CurrentIslandView switchCurrentIsland(UUID userId, UUID islandId, UUID idempotencyKey) {
@@ -169,18 +174,18 @@ public class IslandMembershipService {
                 () -> {
                     User user = userQueryService.getCallerForUpdate(userId);
                     UserIslandContext context = userIslandContextLockService.lock(user);
-                    if (islandId.equals(context.getCurrentIslandId())) {
-                        return new PublicCommandResult(200,
-                                tree(new CurrentIslandView(islandId)), tree(List.of()));
-                    }
-                    requireNoLiveFocusSession(user);
-                    requireDepartureUnlocked(context);
-
                     membershipLocks.lockGroup(islandId);
                     Group island = groupQueryService.getGroup(islandId);
                     requireAlive(island);
                     groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId)
                             .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
+                    if (islandId.equals(context.getCurrentIslandId())) {
+                        // 상태확인 — 위의 생존·멤버십 검사는 통과했고, 이동이 없으니 세션 가드는 걸지 않는다.
+                        return new PublicCommandResult(200,
+                                tree(new CurrentIslandView(islandId)), tree(List.of()));
+                    }
+                    requireNoLiveFocusSession(user);
+                    requireDepartureUnlocked(context);
 
                     context.moveTo(islandId);
                     // 개인 선택 변경은 가입/이탈이 아니다 — island.members.updated 로 방송하지 않는다(§3.6).
@@ -236,7 +241,7 @@ public class IslandMembershipService {
         List<IslandSummaryView> items = islands.stream()
                 .map(island -> summaryOf(island, counts.getOrDefault(island.getId(), 0), STATUS_ACTIVE))
                 .toList();
-        return new MyIslandsView(items, currentIslandOf(userId, islands));
+        return new MyIslandsView(items, liveCurrentIsland(userId));
     }
 
     // ---------------------------------------------------------------- §3.2 islands
@@ -271,6 +276,10 @@ public class IslandMembershipService {
      * <p>후보 조건은 공개·{@code approvalRequired=false}·미소속·미종료·미삭제·실제 가입 가능 정원이며
      * 강퇴 이력이 있는 섬은 제외한다. 「즉시 가입 가능」이라고 보여 준 뒤 가입에서 막히지 않게
      * 하려는 것이라 정원과 강퇴를 SQL 에서 함께 건다.
+     *
+     * <p>탐색 세션이 시작된 <b>뒤에 생긴</b> 섬도 뒷 페이지에 노출된다 — 매 페이지 후보를 다시 조회하고
+     * 순서가 {@code md5(seed || id)} 라 그 값이 경계보다 크면 실린다. 의도적이다: 후보 집합을 세션 시작
+     * 시점에 동결하려면 서버 세션 테이블이 필요하고, PRD 는 동결 여부를 명시하지 않았다(제품 결정 대기).
      */
     public IslandDiscoverPageView discover(UUID userId, String seed, String afterHandle, int limit) {
         userQueryService.getCaller(userId);
@@ -352,9 +361,14 @@ public class IslandMembershipService {
         requireObservatoryUnlocked(departure);
     }
 
-    /** 검색 진입 가드 — 현재 섬과 그 섬의 전망대가 필요하다(LLD §3.2). */
+    /**
+     * 검색 진입 가드 — 현재 섬과 그 섬의 전망대가 필요하다(LLD §3.2).
+     *
+     * <p>저장값이 아니라 {@link #liveCurrentIsland} 를 본다. 강퇴·탈퇴는 컨텍스트를 비우지 않으므로
+     * 저장값만 믿으면 «죽은 현재 섬» 으로 활성 소속이 하나도 없는 사용자가 전역 검색을 연다.
+     */
     private void requireObservatory(User user) {
-        UUID current = storedCurrentIsland(user.getId());
+        UUID current = liveCurrentIsland(user.getId());
         if (current == null) {
             throw new GroupException(GroupErrorCode.OBSERVATORY_LOCKED);
         }
@@ -402,18 +416,23 @@ public class IslandMembershipService {
     }
 
     /**
-     * 저장된 현재 섬을 «지금도 활성 소속인 섬이거나 null» 로 좁힌다 (LLD §3.5).
+     * 저장된 현재 섬이 «지금도 활성·생존 소속» 일 때만 그 id 를 준다 (LLD §3.5) — 아니면 «현재 섬 없음» 이다.
      *
-     * <p>저장값을 null 로 «쓰지» 않는 것이 핵심이다 — 그 쓰기가 곧 IM-D06 이 관장하는 «현재 섬 상실»
-     * 을 만드는 일이고 그 정책은 미승인이다. 권한 없는 대상을 현재 섬으로 «보여주지» 않는 것만
-     * 여기서 한다.
+     * <p>강퇴·탈퇴는 membership 만 비활성화하고 컨텍스트를 비우지 않는다 — 비우는 쓰기가 곧 IM-D06 이
+     * 관장하는 «현재 섬 상실» 이라 이 티켓이 일부러 넣지 않았다. 그래서 저장값을 그대로 믿으면 죽은
+     * 현재 섬이 검색 가드를 통과시키고 목록에 현재 섬으로 보인다. 읽기 경로(검색 가드·내 섬 목록)는
+     * 전부 이 술어를 쓰고, 쓰기 경로({@link #switchCurrentIsland})는 같은 두 조건(활성 membership +
+     * 생존)을 잠금 아래에서 직접 확인한다. 저장값을 null 로 «쓰지는» 않는다.
      */
-    private UUID currentIslandOf(UUID userId, List<Group> activeIslands) {
+    private UUID liveCurrentIsland(UUID userId) {
         UUID stored = storedCurrentIsland(userId);
         if (stored == null) {
             return null;
         }
-        return activeIslands.stream().anyMatch(island -> island.getId().equals(stored)) ? stored : null;
+        boolean live = groupMemberRepository.findActiveMembershipsByUserId(userId).stream()
+                .map(GroupMember::getGroup)
+                .anyMatch(island -> island.getId().equals(stored) && isAlive(island));
+        return live ? stored : null;
     }
 
     private List<IslandSummaryView> summariesOf(UUID userId, List<UUID> orderedIds) {
