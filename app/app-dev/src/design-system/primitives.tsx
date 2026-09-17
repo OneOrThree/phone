@@ -344,7 +344,8 @@ export function useScreenInsets() {
     ? Math.min(width, height) >= 600
       ? { top: 24, bottom: 20, left: 0, right: 0 }
       : width > height
-        ? { top: 0, bottom: 21, left: 52, right: 52 }
+        ? // 시안 기기 목업: 다이내믹 아일랜드가 왼쪽, 오른쪽 인셋 없음
+          { top: 0, bottom: 21, left: 52, right: 0 }
         : { top: 52, bottom: 32, left: 0, right: 0 }
     : native;
 }
