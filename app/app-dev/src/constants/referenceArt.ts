@@ -29,6 +29,7 @@ export const referenceArt: Record<string, ImageSourcePropType> = {
   'bld/notice-board': require('@/assets/reference-v2/bld-notice-board.png'),
   'bld/library': require('@/assets/reference-v2/bld-library.png'),
   'bld/gramophone': require('@/assets/reference-v2/bld-gramophone.png'),
+  'bld/shop': require('@/assets/reference-v2/bld-shop.png'),
   'boat/raft': require('@/assets/reference-v2/boat-raft.png'),
   parrot: require('@/assets/reference-v2/parrot.png'),
   dog: require('@/assets/reference-v2/dog.png'),
@@ -85,6 +86,10 @@ export const referenceArt: Record<string, ImageSourcePropType> = {
   '--bg27': require('@/assets/reference-v2/--bg27.jpg'),
   '--bg28': require('@/assets/reference-v2/--bg28.jpg'),
   'hall/room': require('@/assets/reference-v2/hall-room.png'),
+  // 회관 v2 시안: 카드 뒤 흐린 방, 가로판 방(원화 560px부터 자른 띠)
+  'hall/room-blur': require('@/assets/reference-v2/hall-room-blur.jpg'),
+  'L/hall/room': require('@/assets/reference-v2/L-hall-room.jpg'),
+  'L/hall/room-blur': require('@/assets/reference-v2/L-hall-room-blur.jpg'),
   'hall/library': require('@/assets/reference-v2/hall-library.png'),
   'hall/observatory': require('@/assets/reference-v2/hall-observatory.png'),
   'hall/mailbox': require('@/assets/reference-v2/hall-mailbox.png'),

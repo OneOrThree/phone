@@ -35,6 +35,9 @@ import {
   memberOf,
   clockText,
   questMemberRate,
+  joinRequests,
+  ledgerParts,
+  canSelectBuilding,
   kstDayStart,
   kstMonthDay,
   kstHourMinute,
@@ -157,7 +160,7 @@ test('각자 몫은 총액을 대상 인원으로 올림 나눈 값이다', () =
   s = act(s, 'SELECT_BUILDING', { building: 'gram' });
   assert.equal(buildingShare(currentIsland(s), 'gram'), 454);
 });
-test('상점은 전망대와 우체통만 선행하며, 축음기 음원은 상점 없이 구매한다', () => {
+test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 음원은 상점 없이 구매한다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board', 'gram'];
   assert.deepEqual(act(s, 'SELECT_BUILDING', { building: 'shop' }), s);
@@ -174,7 +177,9 @@ test('상점은 전망대와 우체통만 선행하며, 축음기 음원은 상�
   s = act(s, 'TRACK', { value: 'rain' });
   s = act(s, 'SETTING', { key: 'sound', value: false });
   assert.equal(currentIsland(s).playing, true);
-  currentIsland(s).buildings = ['hall', 'board', 'mail', 'tower'];
+  currentIsland(s).buildings = ['hall', 'board', 'mail', 'tower', 'gram'];
+  assert.deepEqual(act(s, 'SELECT_BUILDING', { building: 'shop' }), s);
+  currentIsland(s).buildings.push('library');
   s = act(s, 'SELECT_BUILDING', { building: 'shop' });
   assert.equal(currentIsland(s).buildingQuest?.building, 'shop');
 });
@@ -189,7 +194,8 @@ test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 
   currentIsland(s).members = [];
   s = act(s, 'LEAVE');
   assert.ok(s.owned.includes('scarf'));
-  assert.equal(s.islands[0].fish, 1100);
+  // 방장 혼자인 섬을 떠나면 섬을 삭제하므로 공동 잔액도 지운다 (정책-결정-2026-09-14, GROMO-1843)
+  assert.equal(s.islands[0].fish, 0);
   assert.deepEqual(act(s, 'BUY', { id: 'sailboat' }), s);
 });
 test('일일 퀘스트 개인 보상은 모달에서 10마리 1회, 전원 보너스는 즉시 1회', () => {
@@ -1186,4 +1192,240 @@ test('섬을 탈퇴해도 그 섬에서 완료한 이번 주 집중 기여는 �
   ];
   s = act(s, 'LEAVE');
   assert.equal(islandWeeklyAverage(s, s.islands[0], now), 200);
+});
+
+test('가입 신청은 한 명씩 승인·거절하고, 정원이 차면 승인만 막는다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.requests = [
+    { id: 'mocha', name: '모카', color: 'cream' },
+    { id: 'cheese', name: '치즈', color: 'ginger' },
+  ];
+  s = act(s, 'REJECT_MEMBER', { id: 'cheese' });
+  assert.deepEqual(
+    joinRequests(currentIsland(s)).map((r) => r.id),
+    ['mocha'],
+  );
+  currentIsland(s).capacity = 4;
+  assert.deepEqual(act(s, 'ADD_MEMBER', { id: 'mocha' }), s);
+  currentIsland(s).capacity = 5;
+  s = act(s, 'ADD_MEMBER', { id: 'mocha' });
+  assert.equal(currentIsland(s).members.at(-1)!.name, '모카');
+  assert.equal(joinRequests(currentIsland(s)).length, 0);
+});
+
+test('예전 저장본은 LOAD에서 가입 신청을 빈 목록으로, 규칙에 안 맞는 상점 목표는 해제한다', () => {
+  const saved = initialState(true);
+  for (const island of saved.islands) delete island.requests;
+  const soda = currentIsland(saved);
+  soda.buildings = ['hall', 'board', 'mail', 'tower'];
+  soda.buildingQuest = { building: 'shop', targets: ['me'], selectedAt: 1 };
+  soda.nextBuilding = 'shop';
+  const s = act(initialState(), 'LOAD', { state: saved });
+  assert.ok(s.islands.every((island) => joinRequests(island).length === 0));
+  assert.equal(currentIsland(s).buildingQuest, undefined);
+  assert.equal(currentIsland(s).nextBuilding, undefined);
+});
+
+test('강퇴한 주민은 건설 퀘스트 대상에서 빠진다', () => {
+  let s = initialState(true);
+  currentIsland(s).buildings = ['hall', 'board'];
+  s = act(s, 'SELECT_BUILDING', { building: 'library' });
+  assert.ok(currentIsland(s).buildingQuest!.targets.includes('dubu'));
+  s = act(s, 'KICK', { id: 'dubu' });
+  assert.ok(!currentIsland(s).buildingQuest!.targets.includes('dubu'));
+});
+
+test('목표로 정하기는 게시판 완공 후·공사 중이 아닐 때만 되고, 화면과 reducer가 같은 규칙을 쓴다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.buildings = ['hall'];
+  assert.match(canSelectBuilding(island, 'library')!, /게시판/);
+  assert.deepEqual(act(s, 'SELECT_BUILDING', { building: 'library' }), s);
+  island.buildings = ['hall', 'board'];
+  island.construction = { building: 'gram', startedAt: 0, endsAt: 1, cost: 1360 };
+  assert.match(canSelectBuilding(island, 'library')!, /공사/);
+  assert.deepEqual(act(s, 'SELECT_BUILDING', { building: 'library' }), s);
+  delete island.construction;
+  assert.equal(canSelectBuilding(island, 'library'), null);
+  s = act(s, 'SELECT_BUILDING', { building: 'library' });
+  assert.equal(currentIsland(s).buildingQuest?.building, 'library');
+});
+
+test('혼자 남은 방장이 섬을 떠나면 섬 공동 데이터를 지우고 개인 기록은 남긴다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.formerMembers = [{ ...island.members[0], id: 'gone' }];
+  island.members = [];
+  island.track = 'rain';
+  island.ledger = [{ id: 'l1', text: '집중 +10마리', at: 1 }];
+  const order = (id: string, product: string, islandId: string) => ({
+    id,
+    product,
+    islandId,
+    currency: 'fish',
+    price: 100,
+    at: 1,
+  });
+  s.orders = [
+    order('mine', 'scarf', island.id),
+    order('theme', 'soda-theme', island.id),
+    order('song', 'rain', island.id),
+    order('other', 'rain', 'strawberry'),
+  ];
+  s.records = [
+    {
+      id: 'r1',
+      islandId: island.id,
+      subject: '집중',
+      seconds: 600,
+      at: 1,
+      fish: 10,
+      contributed: true,
+    },
+  ];
+  s = act(s, 'LEAVE');
+  const closed = s.islands.find((j) => j.id === island.id)!;
+  assert.equal(balance(closed), 0);
+  assert.deepEqual(closed.ledger, []);
+  assert.deepEqual(closed.buildings, []);
+  assert.equal(closed.buildingQuest, undefined);
+  assert.deepEqual(closed.formerMembers, []);
+  assert.equal(closed.intro, '');
+  // 구매한 공동 음원 선택도 기본 음원으로 돌아간다
+  assert.equal(closed.track, 'waves');
+  // 개인 주문(스카프)과 다른 섬 주문은 남고, 닫힌 섬의 공동 구매만 지운다
+  assert.deepEqual(
+    s.orders.map((o) => o.id),
+    ['mine', 'other'],
+  );
+  assert.equal(s.records.length, 1);
+});
+
+test('예전 버전에서 이미 닫힌 섬도 LOAD에서 공동 데이터를 지우고, 다시 LOAD해도 같다', () => {
+  const saved = initialState(true);
+  const old = saved.islands.find((j) => j.id === 'cloud')!;
+  Object.assign(old, {
+    closed: true,
+    visibility: 'private',
+    members: [],
+    fish: 900,
+    track: 'rain',
+  });
+  old.formerMembers = [{ ...saved.islands[1].members[0], id: 'gone' }];
+  old.ledger = [{ id: 'l', text: '집중 +10마리', at: 1 }];
+  saved.orders = [
+    { id: 'mine', product: 'scarf', islandId: old.id, currency: 'fish', price: 100, at: 1 },
+    { id: 'theme', product: 'soda-theme', islandId: old.id, currency: 'fish', price: 1000, at: 1 },
+    { id: 'open', product: 'rain', islandId: 'soda', currency: 'fish', price: 150, at: 1 },
+  ];
+  saved.rewards = [
+    {
+      id: 'rw',
+      islandId: old.id,
+      questId: 'q-focus',
+      day: '2026-09-17',
+      amount: 10,
+      kind: 'personal',
+      acknowledged: false,
+    },
+  ];
+  const once = act(initialState(), 'LOAD', { state: saved });
+  const cleaned = once.islands.find((j) => j.id === old.id)!;
+  assert.equal(balance(cleaned), 0);
+  assert.deepEqual(cleaned.ledger, []);
+  assert.deepEqual(cleaned.messages, []);
+  assert.deepEqual(cleaned.formerMembers, []);
+  assert.equal(cleaned.intro, '');
+  assert.equal(cleaned.track, 'waves');
+  assert.equal(once.rewards?.length, 0);
+  assert.deepEqual(
+    once.orders.map((o) => o.id),
+    ['mine', 'open'],
+  );
+  // 열린 섬은 그대로
+  assert.equal(balance(currentIsland(once)), balance(currentIsland(saved)));
+  assert.deepEqual(act(initialState(), 'LOAD', { state: once }), once);
+});
+
+test('섬을 떠나면 그 섬의 받지 않은 보상을 지우고, 닫힌 섬 보상은 CLAIM해도 적립 없이 닫힌다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  const reward = {
+    id: 'rw',
+    islandId: island.id,
+    questId: 'q-focus',
+    day: '2026-09-17',
+    amount: 10,
+    kind: 'personal' as const,
+    acknowledged: false,
+  };
+  s.rewards = [reward];
+  s = act(s, 'LEAVE');
+  assert.equal(s.rewards?.length, 0);
+  // 예전 저장본처럼 보상이 남아 있어도 닫힌 섬에는 적립하지 않고, 보상 창은 닫힌다
+  s.rewards = [reward];
+  const closed = s.islands.find((j) => j.id === island.id)!;
+  const claimed = act(s, 'CLAIM', { id: 'rw' });
+  const after = claimed.islands.find((j) => j.id === island.id)!;
+  assert.equal(claimed.rewards?.filter((r) => !r.acknowledged).length, 0);
+  assert.equal(balance(after), balance(closed));
+  assert.deepEqual(after.ledger, closed.ledger);
+  assert.deepEqual(after.earned, closed.earned);
+});
+
+test('계정 삭제로 마지막 주민이 떠난 섬도 탈퇴와 같이 공동 데이터를 지운다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  island.ledger = [{ id: 'shared', text: '마을회관 완공', at: 1 }];
+  const id = island.id;
+  s = act(s, 'DELETE_ACCOUNT');
+  const closed = s.islands.find((candidate) => candidate.id === id)!;
+  assert.equal(closed.closed, true);
+  assert.equal(balance(closed), 0);
+  assert.deepEqual(closed.ledger, []);
+  assert.deepEqual(closed.buildings, []);
+  // 주민이 남은 다른 섬은 닫지 않는다
+  assert.ok(!s.islands.find((candidate) => candidate.id === 'strawberry')!.closed);
+});
+
+test('원장 한 줄은 내용과 끝의 +N마리·−N마리 금액으로 나눈다', () => {
+  assert.deepEqual(ledgerParts({ text: '수빈 · 집중 +12마리' }), {
+    title: '수빈 · 집중',
+    amount: 12,
+  });
+  assert.deepEqual(ledgerParts({ text: '도서관 공사 시작 −2,720마리' }), {
+    title: '도서관 공사 시작',
+    amount: -2720,
+  });
+  assert.deepEqual(ledgerParts({ text: '도서관 완공' }), { title: '도서관 완공', amount: 0 });
+});
+
+test('강퇴된 주민이 다시 가입하면 예전 기록을 이어받고, 다시 강퇴해도 그 기록이 남는다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members.find((m) => m.id === 'dubu')!.records = [
+    {
+      id: 'dubu-old',
+      islandId: island.id,
+      subject: '국어 독해',
+      seconds: 960,
+      at: 1,
+      fish: 16,
+      contributed: true,
+    },
+  ];
+  s = act(s, 'KICK', { id: 'dubu' });
+  currentIsland(s).requests = [{ id: 'dubu', name: '두부', color: 'cream' }];
+  s = act(s, 'ADD_MEMBER', { id: 'dubu' });
+  const rejoined = currentIsland(s).members.find((m) => m.id === 'dubu')!;
+  assert.equal(rejoined.records?.[0].id, 'dubu-old');
+  assert.equal(rejoined.role, 'member');
+  assert.deepEqual(currentIsland(s).formerMembers, []);
+  s = act(s, 'KICK', { id: 'dubu' });
+  const former = currentIsland(s).formerMembers!;
+  assert.equal(former.length, 1);
+  assert.equal(former[0].records?.[0].seconds, 960);
 });

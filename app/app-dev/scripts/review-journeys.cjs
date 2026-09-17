@@ -278,35 +278,33 @@ async function check(name, fn) {
     assert.ok((await p.locator('body').innerText()).includes('꽃나팔 방송기를 먼저 지어 주세요'));
     assert.ok(!(await state(p)).state.islands[0].sharedOwned.includes('rain'));
   });
-  await check('회관 기록 기간 변경·주민 기록·권한 없는 상태', async () => {
+  await check('도서관 일기장 기간 변경·이웃 기록·권한 없는 상태', async () => {
     await setup(p, 'stats');
-    await click('월');
-    assert.ok((await p.locator('body').innerText()).includes('30일 합계'));
-    await click('주민 4명의 기록 보기');
-    assert.ok((await p.locator('body').innerText()).includes('민지'));
-    await setup(p, 'stats', { permission: false });
-    assert.ok((await p.locator('body').innerText()).includes('스크린타임 연결이 꺼져 있어요'));
+    await click('월 단위');
+    assert.ok((await p.locator('body').innerText()).includes('이번 달 합계'));
+    await setup(p, 'diary', { detail: 'residents' });
+    assert.ok((await p.locator('body').innerText()).includes('민지의 하루'));
+    await setup(p, 'stats', { permission: false, tab: 'screen' });
+    assert.ok((await p.locator('body').innerText()).includes('아직 연결되지 않은 기록이에요'));
   });
-  await check('섬 관리 편집·정원·주민 승인·위임 후 관리 잠금', async () => {
+  await check('섬 정보 수정·정원·주민 승인·주민 칸 위임 후 관리 잠금', async () => {
     await setup(p, 'manage');
-    await click('섬 이름·소개 수정');
+    await click('섬 정보 수정');
     await p.getByRole('textbox', { name: '섬 이름', exact: true }).fill('새 이름');
-    await click('완료');
-    assert.equal((await state(p)).state.islands[0].name, '새 이름');
-    await click('정원');
-    await click('정원 8명');
-    await click('정원 저장');
-    assert.equal((await state(p)).state.islands[0].capacity, 8);
-    await click('승인');
+    await click('주민 정원');
+    await click('주민 정원 8명');
+    await click('정하기');
+    await click('저장하기');
+    let x = await state(p);
+    assert.equal(x.state.islands[0].name, '새 이름');
+    assert.equal(x.state.islands[0].capacity, 8);
+    await click('새봄 가입 승인');
     assert.ok((await state(p)).state.islands[0].members.some((m) => m.name === '새봄'));
-    await click('민지 메뉴');
+    await click('민지 관리');
     await click('방장 위임');
-    await click('확인');
-    assert.equal(await p.getByRole('button', { name: '민지 메뉴', exact: true }).count(), 0);
-    assert.equal(
-      await p.getByRole('button', { name: '섬 이름·소개 수정', exact: true }).count(),
-      0,
-    );
+    await click('위임하기');
+    assert.equal(await p.getByRole('button', { name: '민지 관리', exact: true }).count(), 0);
+    assert.equal(await p.getByRole('button', { name: '섬 정보 수정', exact: true }).count(), 0);
   });
   await check('닉네임 저장·음소거·동작 줄이기·측정 연결', async () => {
     await setup(p, 'profile');
@@ -325,15 +323,17 @@ async function check(name, fn) {
     await setup(p, 'explore');
     await p.getByRole('textbox', { name: '섬 이름이나 초대 코드' }).fill('없는이름');
     assert.ok((await p.locator('body').innerText()).includes('찾는 섬이 없어요'));
-    await setup(p, 'joinIsland');
-    await click('초대 코드로 참여');
+    // 초대 코드는 첫 섬 선택의 '이미 초대받은 섬이 있어요!' 모달에서 넣는다
+    await setup(p, 'chooseIsland');
+    await click('이미 초대받은 섬이 있어요!');
     await p.getByRole('textbox', { name: '초대 코드' }).fill('NO');
-    await click('초대 확인');
+    await click('확인');
     assert.ok((await p.locator('body').innerText()).includes('다시 확인'));
-    await setup(p, 'joinIsland', { fullStrawberry: true });
-    await click('초대 코드로 참여');
-    await p.getByRole('textbox', { name: '초대 코드' }).fill('SODA');
-    await click('초대 확인');
+    // 정원이 가득 찬 딸기 섬의 초대 코드(이미 주민인 소다 섬 코드로는 차단을 확인할 수 없다)
+    await setup(p, 'chooseIsland', { fullStrawberry: true });
+    await click('이미 초대받은 섬이 있어요!');
+    await p.getByRole('textbox', { name: '초대 코드' }).fill('STRAWBERRY');
+    await click('확인');
     assert.ok((await p.locator('body').innerText()).includes('정원이 가득 찬 섬이에요'));
     assert.equal((await state(p)).state.islands[1].joined, false);
     await setup(p, 'tower');

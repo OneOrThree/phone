@@ -15,7 +15,7 @@ add('01 · 처음 만나는 GROMO', 'createIsland', '새 섬 만들기', {
   body: '각자의 속도로 함께 집중해요.',
 });
 add('01 · 처음 만나는 GROMO', 'joinIsland', '함께할 섬 찾기');
-add('01 · 처음 만나는 GROMO', 'approval', '가입 승인 대기');
+add('01 · 처음 만나는 GROMO', 'approval', '가입 승인 대기', { pending: 'cloud' });
 add('01 · 처음 만나는 GROMO', 'arrival', '처음 떠나는 항해', { delay: 3100 });
 add('01 · 처음 만나는 GROMO', 'guide', '앵무새의 첫 안내');
 add('02 · 섬에서의 하루', 'home', '건물 없는 첫 섬', { fresh: true });
@@ -137,6 +137,11 @@ configs.splice(3, 0, {
         is.contribution = c.stage === 'hall-ready' ? 20 : c.stage === 'board-ready' ? 40 : 0;
       }
       if (c.noPermission) s.settings.permission = false;
+      // 가입 신청 대기: 승인 필요 섬(구름 섬)에 신청한 상태
+      if (c.pending) {
+        s.pendingIslands = [c.pending];
+        s.pendingIsland = c.pending;
+      }
       if (!c.fresh) {
         s.records = Array.from({ length: 7 }, (_, i) => ({
           id: 'r' + i,
