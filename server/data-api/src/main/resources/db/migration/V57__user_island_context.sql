@@ -11,7 +11,11 @@
 -- 무관한 도메인이 공유하는 발행 순서용이라, 컨텍스트 전이 여부와 섞으면 "무슨 일로 올랐는지 알 수
 -- 없는" 값이 된다. 컨텍스트 전이는 outbox 사건도 아니다(island.members.updated 로 방송하지 않음, §3.6).
 CREATE TABLE user_island_contexts (
-    user_id           uuid PRIMARY KEY REFERENCES users (id),
+    -- ON DELETE CASCADE: 이 행은 유저에 종속된 1:1 컨텍스트라 유저가 사라지면 남을 이유가 없다.
+    -- 기본(NO ACTION)으로 두면 users 행을 실제로 지우는 경로가 이 참조 때문에 막힌다 — 운영 탈퇴는
+    -- 소프트 삭제라 닿지 않지만 통합 테스트의 정리 단계가 유저를 하드 삭제한다.
+    -- (current_island_id 는 SET NULL 이다 — 섬만 사라지면 «현재 섬 없음»이 맞는 의미라 축이 다르다.)
+    user_id           uuid PRIMARY KEY REFERENCES users (id) ON DELETE CASCADE,
     -- 아직 어떤 섬에도 속한 적 없으면 NULL. 상실 사유별 복구(IM-D06)는 미승인이라 이 컬럼 하나로
     -- "없음"과 "복구 대상"을 구분하지 않는다 — 승인되면 그때 lossReason 등을 더한다.
     --
