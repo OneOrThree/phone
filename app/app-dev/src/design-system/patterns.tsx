@@ -25,8 +25,8 @@ export const k = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   stack: { gap: 14 },
   grow: { flex: 1 },
-  meta: { fontSize: 13, lineHeight: 18, color: C.muted },
-  body: { fontSize: 15, lineHeight: 22.5, color: C.ink },
+  meta: { fontSize: 13, lineHeight: 18, color: C.muted, letterSpacing: -0.15 },
+  body: { fontSize: 15, lineHeight: 22.5, color: C.ink, letterSpacing: -0.15 },
   h: {
     fontSize: 22,
     lineHeight: 29,
@@ -34,7 +34,7 @@ export const k = StyleSheet.create({
     letterSpacing: -0.44,
     color: C.ink,
   },
-  h17: { fontSize: 17, lineHeight: 23, fontWeight: '700', color: C.ink },
+  h17: { fontSize: 17, lineHeight: 23, fontWeight: '700', letterSpacing: -0.15, color: C.ink },
   group: {
     backgroundColor: C.paper,
     borderWidth: 2,
@@ -52,7 +52,7 @@ export const k = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  section: { fontSize: 13, fontWeight: '700', color: C.muted, marginTop: 6 },
+  section: { fontSize: 13, fontWeight: '700', letterSpacing: 0.26, color: C.muted, marginTop: 6 },
   field: {
     minHeight: 50,
     borderWidth: 2,
@@ -124,6 +124,8 @@ export function Btn({
   kind = '',
   small = false,
   round = false,
+  // 확인창 버튼(.dlg .acts .btn): 높이 46 · 글자 15
+  dialog = false,
   disabled = false,
   style,
   id,
@@ -136,8 +138,9 @@ export function Btn({
         testID={id}
         accessibilityRole="button"
         accessibilityLabel={title}
-        disabled={disabled}
-        accessibilityState={{ disabled }}
+        // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)
+        disabled={disabled || !onPress}
+        accessibilityState={{ disabled: disabled || !onPress }}
         onPress={onPress}
         onPressIn={() => {
           if (!reduce)
@@ -157,7 +160,15 @@ export function Btn({
             }).start();
         }}
         style={{
-          height: round ? 88 : small ? 38 : kind === 'ghost' || kind === 'danger' ? 44 : 52,
+          height: round
+            ? 88
+            : small
+              ? 38
+              : dialog
+                ? 46
+                : kind === 'ghost' || kind === 'danger'
+                  ? 44
+                  : 52,
           ...(round ? { width: 88 } : {}),
           borderRadius: 999,
           paddingHorizontal: round ? 0 : small ? 14 : kind === 'glass' ? 22 : 20,
@@ -180,9 +191,10 @@ export function Btn({
       >
         <Txt
           style={{
-            fontSize: round ? 15 : small ? 14 : 16,
+            fontSize: round || dialog ? 15 : small ? 14 : 16,
             ...(round ? { lineHeight: 18 } : {}),
-            fontWeight: kind ? '700' : '800',
+            // v2 홈 집중하기(원형)는 보통 굵기
+            fontWeight: round ? '400' : kind ? '700' : '800',
             color:
               kind === 'danger'
                 ? componentTokens.button.destructiveBorder
@@ -410,7 +422,8 @@ export function Field({
   return (
     <View style={{ gap: 6 }}>
       {label && (
-        <Txt kind="meta" style={{ fontWeight: '600' }}>
+        // v2 .field label: 13px · 줄 높이 1.45
+        <Txt kind="meta" style={{ fontWeight: '600', lineHeight: 18.85 }}>
           {label}
         </Txt>
       )}
@@ -433,11 +446,12 @@ export function Field({
   );
 }
 export function Toggle({ value, onChange, label }: any) {
-  const x = useRef(new Animated.Value(value ? 20 : 0)).current;
+  // v2 .tog: 폭 46 · 켜지면 손잡이 18px 이동
+  const x = useRef(new Animated.Value(value ? 18 : 0)).current;
   const reduce = React.useContext(MotionContext);
   useEffect(() => {
     Animated.timing(x, {
-      toValue: value ? 20 : 0,
+      toValue: value ? 18 : 0,
       duration: reduce ? 0 : 140,
       useNativeDriver: true,
     }).start();
@@ -450,7 +464,7 @@ export function Toggle({ value, onChange, label }: any) {
       onPress={() => onChange(!value)}
       hitSlop={8}
       style={{
-        width: 48,
+        width: 46,
         height: 28,
         borderRadius: 999,
         backgroundColor: value ? primitiveTokens.color.success : primitiveTokens.color.controlIdle,
@@ -508,7 +522,17 @@ export function Badge({ children, soft = false }: any) {
         justifyContent: 'center',
       }}
     >
-      <Txt style={{ fontSize: 13, fontWeight: '700' }}>{children}</Txt>
+      {/* v2 .badge.soft: 보통 굵기 · 옅은 글자 */}
+      <Txt
+        style={{
+          fontSize: 13,
+          lineHeight: 18.85,
+          fontWeight: soft ? '600' : '700',
+          color: soft ? C.muted : C.ink,
+        }}
+      >
+        {children}
+      </Txt>
     </View>
   );
 }
@@ -521,15 +545,22 @@ export function Strip({ label, value }: any) {
           justifyContent: 'space-between',
           paddingVertical: 10,
           paddingHorizontal: 14,
-          backgroundColor: primitiveTokens.color.letter,
+          // v2 .strip 바탕(#FFF3CF)
+          backgroundColor: '#FFF3CF',
           borderWidth: 1.5,
           borderColor: primitiveTokens.color.letterBorder,
           borderRadius: 14,
         },
       ]}
     >
-      <Txt kind="meta">{label}</Txt>
-      <Txt style={{ fontSize: 18, fontWeight: '800' }}>{value}</Txt>
+      <Txt kind="meta" style={{ lineHeight: 18.85 }}>
+        {label}
+      </Txt>
+      <Txt
+        style={{ fontSize: 18, lineHeight: 26.1, fontWeight: '800', fontVariant: ['tabular-nums'] }}
+      >
+        {value}
+      </Txt>
     </View>
   );
 }
