@@ -1293,23 +1293,54 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'QUEST_SAVE': {
-      // 퀘스트는 저장하는 순간 시작하고, 시작한 뒤에는 수정할 수 없다
-      if (a.id || !Number.isInteger(a.target) || a.target < 1 || !a.title?.trim()) return state;
+      // 일일 퀘스트: 방장이 만들고 수정한다(주민은 hostOnly에서 막힌다). 매일 새 회차로 평가한다
+      if (!Number.isInteger(a.target) || a.target < 1 || !a.title?.trim()) return state;
       if (a.kind === 'focus') {
         const start = clockMinutes(a.windowStart),
           end = clockMinutes(a.windowEnd);
         // 시간대 집중은 시작 < 종료이고 목표 분이 그 시간 안이어야 한다
         if (start == null || end == null || end <= start || a.target > end - start) return state;
       }
-      i.quests.push({
-        id: uuid(),
-        title: a.title.trim(),
-        type: a.kind,
-        target: a.target,
-        windowStart: a.kind === 'focus' ? a.windowStart : undefined,
-        windowEnd: a.kind === 'focus' ? a.windowEnd : undefined,
-        claimed: false,
-      });
+      const title = a.title.trim(),
+        windowStart = a.kind === 'focus' ? a.windowStart : undefined,
+        windowEnd = a.kind === 'focus' ? a.windowEnd : undefined;
+      const q = a.id ? i.quests.find((x) => x.id === a.id) : undefined;
+      if (a.id && !q) return state;
+      if (q) {
+        q.title = title;
+        q.type = a.kind;
+        q.target = a.target;
+        q.windowStart = windowStart;
+        q.windowEnd = windowEnd;
+        // 오늘 회차는 대상(targets) 스냅숏을 그대로 두고 기준만 바꿔 바로 다시 평가한다
+        const round = q.rounds?.[dayKey(now)];
+        if (round) {
+          round.kind = a.kind;
+          round.target = a.target;
+          round.windowStart = windowStart;
+          round.windowEnd = windowEnd;
+          // 이미 지급된 보상은 보존하되, 미수령 달성은 새 기준으로 다시 판정한다.
+          const claimed = new Set(round.claimed);
+          round.achieved = round.achieved.filter((id) => claimed.has(id));
+          s.rewards = (s.rewards ?? []).filter(
+            (reward) =>
+              reward.acknowledged ||
+              reward.kind !== 'personal' ||
+              reward.islandId !== i.id ||
+              reward.questId !== q.id ||
+              reward.day !== dayKey(now),
+          );
+        }
+      } else
+        i.quests.push({
+          id: uuid(),
+          title,
+          type: a.kind,
+          target: a.target,
+          windowStart,
+          windowEnd,
+          claimed: false,
+        });
       break;
     }
     case 'NOTICE_SAVE': {

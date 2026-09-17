@@ -667,31 +667,107 @@ test('주 경계를 넘은 집중은 월요일 00시 이후 구간만 새 주 �
   assert.equal(recordSecondsBetween(s.records[0], monday - 1800000, monday + 1800000), 1800);
 });
 
-test('퀘스트는 만들 때 시작하고 수정할 수 없다; 시간대 집중은 목표 분이 진행 시간 안이어야 한다', () => {
+test('일일 퀘스트는 방장만 만들고 수정한다; 시간대 집중은 목표 분이 진행 시간 안이어야 한다', () => {
   let s = initialState(true);
   const quest = currentIsland(s).quests[0];
-  // 이미 있는 퀘스트를 고치는 저장은 무시한다
-  assert.deepEqual(
-    act(s, 'QUEST_SAVE', { id: quest.id, title: '오후 집중', kind: 'screen', target: 60 }),
-    s,
-  );
   const focus = { title: '저녁 집중', kind: 'focus', windowStart: '19:00', windowEnd: '22:00' };
   assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, target: 181 }), s);
   assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, windowEnd: '19:00', target: 10 }), s);
   assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, windowStart: '', target: 10 }), s);
+  // 수정에도 같은 검증을 적용하고, 없는 퀘스트 id는 새로 만들지 않는다
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, id: quest.id, target: 181 }), s);
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, id: 'missing', target: 30 }), s);
   s = act(s, 'QUEST_SAVE', { ...focus, target: 180 });
-  assert.deepEqual(
-    (({ title, type, target, windowStart, windowEnd }) => ({
-      title,
-      type,
-      target,
-      windowStart,
-      windowEnd,
-    }))(currentIsland(s).quests.at(-1)!),
-    { title: '저녁 집중', type: 'focus', target: 180, windowStart: '19:00', windowEnd: '22:00' },
-  );
+  const pick = ({ title, type, target, windowStart, windowEnd }: any) => ({
+    title,
+    type,
+    target,
+    windowStart,
+    windowEnd,
+  });
+  assert.deepEqual(pick(currentIsland(s).quests.at(-1)!), {
+    title: '저녁 집중',
+    type: 'focus',
+    target: 180,
+    windowStart: '19:00',
+    windowEnd: '22:00',
+  });
   s = act(s, 'QUEST_SAVE', { title: '폰 90분', kind: 'screen', target: 90, windowStart: '19:00' });
   assert.equal(currentIsland(s).quests.at(-1)!.windowStart, undefined);
+  // 방장은 기존 퀘스트를 수정한다 (스크린타임으로 바꾸면 시간대는 지운다)
+  const count = currentIsland(s).quests.length;
+  s = act(s, 'QUEST_SAVE', { ...focus, id: quest.id, title: ' 아침 집중 ', target: 45 });
+  assert.equal(currentIsland(s).quests.length, count);
+  assert.deepEqual(pick(currentIsland(s).quests[0]), {
+    title: '아침 집중',
+    type: 'focus',
+    target: 45,
+    windowStart: '19:00',
+    windowEnd: '22:00',
+  });
+  s = act(s, 'QUEST_SAVE', { title: '폰 두 시간', kind: 'screen', target: 120, id: quest.id });
+  assert.equal(currentIsland(s).quests[0].windowStart, undefined);
+  // 주민은 수정할 수 없다
+  const resident = act(s, 'TRANSFER', { id: 'minji' });
+  assert.deepEqual(
+    act(resident, 'QUEST_SAVE', { title: '바꿈', kind: 'screen', target: 60, id: quest.id }),
+    resident,
+  );
+});
+
+test('오늘 퀘스트를 수정하면 대상 스냅숏은 두고, 미수령 달성·보상을 새 목표·시간대로 바로 다시 판정한다', () => {
+  let s = initialState(true);
+  // 2026-09-15 12:00 KST
+  const now = Date.UTC(2026, 8, 15, 3),
+    quest = currentIsland(s).quests[0];
+  currentIsland(s).members = [];
+  s = act(s, 'START', { subject: '집중', now: now - 30 * 60 * 1000 });
+  s = act(s, 'FINISH', { now });
+  const day = dayKey(now);
+  assert.ok(currentIsland(s).quests[0].rounds?.[day]?.achieved.includes('me'));
+  assert.ok(
+    s.rewards?.some(
+      (reward) => reward.questId === quest.id && reward.kind === 'personal' && !reward.acknowledged,
+    ),
+  );
+  // 회차가 만들어진 뒤 들어온 주민은 오늘 대상이 아니다
+  currentIsland(s).members = [{ ...initialState(true).islands[0].members[0], records: [] }];
+  s = act(s, 'QUEST_SAVE', {
+    id: quest.id,
+    title: '오후 집중',
+    kind: 'focus',
+    target: 60,
+    windowStart: '13:00',
+    windowEnd: '18:00',
+    now,
+  });
+  let round = currentIsland(s).quests[0].rounds?.[day]!;
+  assert.deepEqual(round.targets, ['me']);
+  assert.equal(round.target, 60);
+  assert.equal(round.kind, 'focus');
+  assert.equal(round.windowStart, '13:00');
+  assert.equal(round.windowEnd, '18:00');
+  assert.ok(!round.achieved.includes('me'));
+  assert.ok(
+    !s.rewards?.some(
+      (reward) => reward.questId === quest.id && reward.kind === 'personal' && !reward.acknowledged,
+    ),
+  );
+  // 새 시간대(13~18시) 안에서 60분을 채우면 다음 평가에서 바로 달성한다
+  const at = Date.UTC(2026, 8, 15, 5); // 14:00 KST
+  s.records.push({
+    id: 'r-afternoon',
+    islandId: s.islandId,
+    subject: '집중',
+    seconds: 3600,
+    at,
+    fish: 0,
+    contributed: true,
+  });
+  s = act(s, 'TICK', { now: at });
+  round = currentIsland(s).quests[0].rounds?.[day]!;
+  assert.ok(round.achieved.includes('me'));
+  assert.deepEqual(round.targets, ['me']);
 });
 
 test('퀘스트 목표 분은 정수만, 시간은 한 자리 시와 종료 24:00을 받는다', () => {

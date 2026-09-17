@@ -3782,7 +3782,19 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
   );
   const routeKey = e ? `${e.route}/${e.detail}/${e.tab}` : '';
   useEffect(() => {
-    if (e) setUi((prev) => ({ ...prev, comment: false, confirm: null, error: '' }));
+    if (!e) return;
+    // 퀘스트 수정으로 들어오면 목표 분을 기존 값으로 채운다 (나머지 값은 App의 text·body·시간대)
+    const editing =
+      e.route === 'questEdit' && e.detail
+        ? currentIsland(e.state).quests.find((q) => q.id === e.detail)
+        : undefined;
+    setUi((prev) => ({
+      ...prev,
+      comment: false,
+      confirm: null,
+      error: '',
+      target: editing ? String(editing.target) : prev.target,
+    }));
   }, [routeKey]);
 
   const owner = app ? app.owner : local.role === 'owner';
@@ -3833,11 +3845,13 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
     !!e &&
     (((e.route === 'notice' || (e.route === 'noticeEdit' && e.detail)) &&
       !notices.some((n) => n.id === e.detail)) ||
-      (e.route === 'quest' && e.detail !== 'building' && !quests.some((q) => q.id === e.detail)));
+      (((e.route === 'quest' && e.detail !== 'building') ||
+        (e.route === 'questEdit' && e.detail)) &&
+        !quests.some((q) => q.id === e.detail)));
   useEffect(() => {
     if (!missing) return;
     e.replace('board');
-    e.setTab(e.route === 'quest' ? boardTabs.quest : boardTabs.notice);
+    e.setTab(e.route === 'quest' || e.route === 'questEdit' ? boardTabs.quest : boardTabs.notice);
   }, [missing]);
   // 앱 라우트 → 게시판 상태. 공지·퀘스트·청사진 종이와 상세·작성 화면은 route/detail/tab으로 정해진다
   const s: BoardState = (() => {
@@ -3889,7 +3903,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       draft: r === 'noticeEdit' ? { title: e.text, body: e.body } : null,
       commentDraft: e.text,
       error: ui.error,
-      editing: r === 'noticeEdit' && !!detail,
+      editing: (r === 'noticeEdit' || r === 'questEdit') && !!detail,
       deleteTarget: ui.confirm?.target ?? 'notice',
       commentIndex: ui.confirm?.index ?? 0,
       questForm:
@@ -4064,15 +4078,35 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       e
         ? e.go('quest', quests[index].id)
         : render({ questIndex: index, view: 'detail', screenUnknown: false }),
-    backToQuests: () => (e ? e.back() : render({ view: 'list', questForm: null })),
+    backToQuests: () =>
+      e
+        ? e.back()
+        : render({ view: s.editing ? 'detail' : 'list', questForm: null, editing: false }),
     newQuest: () => {
       if (!owner) return;
-      if (!e) return render({ view: 'write', questForm: null, error: '' });
+      if (!e) return render({ view: 'write', questForm: null, editing: false, error: '' });
       e.go('questEdit');
       e.setBody('focus');
       e.setWindowStart('');
       e.setWindowEnd('');
       setUi((prev) => ({ ...prev, target: '' }));
+    },
+    // 방장만: 기존 값을 채운 만들기 종이를 연다. 저장하면 상세로 돌아온다
+    editQuest: (quest: QuestView) => {
+      if (!owner) return;
+      const form: QuestForm = {
+        type: quest.type,
+        title: quest.title,
+        startTime: quest.startTime ?? '',
+        endTime: quest.endTime ?? '',
+        target: String(quest.target),
+      };
+      if (!e) return render({ view: 'write', editing: true, questForm: form, error: '' });
+      e.go('questEdit', quest.id);
+      e.setText(form.title);
+      e.setBody(quest.type === 'phone' ? 'screen' : 'focus');
+      e.setWindowStart(form.startTime);
+      e.setWindowEnd(form.endTime);
     },
     setQuestForm: (form: QuestForm, patch: Partial<QuestForm>) => {
       if (!e)
@@ -4101,6 +4135,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       if (e) {
         e.dispatch({
           type: 'QUEST_SAVE',
+          id: s.editing ? e.detail : undefined,
           title,
           kind: form.type === 'phone' ? 'screen' : 'focus',
           target,
@@ -4109,8 +4144,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
         });
         return e.back();
       }
-      setQuests([
-        ...mockQuests,
+      const next: Quest =
         form.type === 'phone'
           ? { title, type: 'phone', target, rate: 0 }
           : {
@@ -4120,8 +4154,12 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
               endTime: form.endTime,
               target,
               rate: 0,
-            },
-      ]);
+            };
+      if (s.editing && mockQuests[s.questIndex]) {
+        setQuests(mockQuests.map((q, i) => (i === s.questIndex ? { ...next, rate: q.rate } : q)));
+        return render({ view: 'detail', questForm: null, editing: false, error: '' });
+      }
+      setQuests([...mockQuests, next]);
       render({ view: 'list', questForm: null, error: '' });
     },
     build: () => {
@@ -4504,7 +4542,11 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
   };
 
   const questBack = (
-    <Back testID="board-quest-back" label="‹ 퀘스트 목록" onPress={nav.backToQuests} />
+    <Back
+      testID="board-quest-back"
+      label={s.editing ? '‹ 퀘스트' : '‹ 퀘스트 목록'}
+      onPress={nav.backToQuests}
+    />
   );
 
   const questContent = (listOnly = false) => {
@@ -4526,6 +4568,15 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                 ? `${quest.startTime}부터 ${quest.endTime}까지 · 목표 ${quest.target}분 집중`
                 : `목표 ${quest.target}분 집중`}
           </Text>
+          {owner && (
+            <View style={{ flexDirection: 'row', marginTop: -6, marginBottom: 4 }}>
+              <PaperAction
+                testID="board-quest-edit"
+                label="수정"
+                onPress={() => nav.editQuest(quest)}
+              />
+            </View>
+          )}
           <Text style={[boardFont(13, 1.65, '400', '#786151'), { marginBottom: 4 }]}>
             주민별 달성률
           </Text>
@@ -4579,7 +4630,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
         <>
           {questBack}
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 12 }]}>
-            퀘스트 만들기
+            {s.editing ? '퀘스트 수정' : '퀘스트 만들기'}
           </Text>
           <View style={{ gap: 12 }}>
             <BoardField label="퀘스트 종류">
@@ -4684,14 +4735,20 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
               />
             </BoardField>
             {formError}
-            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
+            <Text
+              style={[
+                muted({ marginTop: 4, marginBottom: 14 }),
+                webOnly({ wordBreak: 'keep-all' }),
+              ]}
+              lineBreakStrategyIOS="hangul-word"
+            >
               {form.type === 'focus'
-                ? '설정한 시간 안에서 목표 집중 시간을 채워요. 시작한 뒤에는 수정할 수 없어요.'
-                : '하루 동안 폰 사용 시간이 상한 이하이면 달성해요. 시작한 뒤에는 수정할 수 없어요.'}
+                ? '설정한 시간 안에서 목표 집중 시간을 채워요. 매일 00시에 새 회차로 시작해요.'
+                : '하루 동안 폰 사용 시간이 상한 이하이면 달성해요. 매일 00시에 새 회차로 시작해요.'}
             </Text>
             <BoardPill
               testID="board-quest-save"
-              label="퀘스트 시작"
+              label={s.editing ? '수정 저장' : '퀘스트 시작'}
               primary
               onPress={() => nav.submitQuest(form)}
             />
@@ -4703,7 +4760,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       <>
         <View style={{ marginBottom: 4 }}>
           <Text style={[boardFont(14, 1.2, '400', '#98713d', 'BoardHand'), { marginBottom: 1 }]}>
-            한 번의 도전
+            매일 새 도전
           </Text>
           <View
             style={{
@@ -4744,7 +4801,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                 진행 중인 퀘스트가 없어요
               </Text>
               <Text style={muted({ textAlign: 'center' })}>
-                새로운 한 번의 도전이 시작되면 여기에 붙어요.
+                방장이 일일 퀘스트를 만들면 여기에 붙어요.
               </Text>
             </View>
           )}
