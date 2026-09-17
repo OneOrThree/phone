@@ -66,6 +66,21 @@ public class Group {
     private boolean isPrivate = false;
 
     /**
+     * 가입에 방장 승인이 필요한지 (GROMO-1907, island-membership LLD §3.1). 섬 API(1759)의 create
+     * 계약이 쓸 입력이며, 이 티켓은 저장 칸만 만든다 — 승인 대기/거절 흐름의 배선은 여기 없다.
+     * 기존 그룹은 전부 즉시가입이었으므로 기본값 false 로 과거 행의 의미를 보존한다.
+     *
+     * <p>{@code columnDefinition} 에 DB 기본값을 함께 선언하는 이유: local 프로필은 Flyway 를 끄고
+     * {@code ddl-auto: update} 로 스키마를 만든다(GROMO-670). {@code @Builder.Default} 는 새 자바
+     * 객체에만 적용돼 DDL 기본값을 만들지 않으므로, 그것만 두면 기존 행이 있는 로컬에서 기본값 없는
+     * NOT NULL 컬럼 추가가 되어 부팅이 깨진다. UserNotificationSettings·GroupMember 와 같은 처리다.
+     */
+    @Column(name = "approval_required", nullable = false,
+            columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean approvalRequired = false;
+
+    /**
      * GROMO-671: dbml 은 version 을 누락했으나 낙관락(동시성)이 필요해 유지(UserWallet 과 동일 판단).
      */
     @Version
