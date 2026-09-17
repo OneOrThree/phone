@@ -1,6 +1,6 @@
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, Image } from 'react-native';
+import { View, Image, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import {
@@ -9,6 +9,7 @@ import {
   INK,
   ME,
   OUTLINE,
+  a11yHidden,
   clip,
   fiTitle,
   hms,
@@ -202,98 +203,105 @@ export function RestGroup({
   });
   return (
     <View testID="rest-group" style={{ flex: 1, overflow: clip }}>
-      <Image
-        source={require('@/assets/backgrounds/campfire/day.jpg')}
-        style={{
-          position: 'absolute',
-          left: -x0 * s,
-          top: -y0 * s,
-          width: 1024 * s,
-          height: 1024 * s,
-        }}
-      />
-      {placed.map((a) => (
+      {/* 확인창·결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
+      <View
+        pointerEvents="box-none"
+        style={StyleSheet.absoluteFill}
+        {...a11yHidden(confirming || result)}
+      >
         <Image
-          key={a.seat}
-          testID={`loaf-${a.seat}`}
-          source={loaf[a.color]}
+          source={require('@/assets/backgrounds/campfire/day.jpg')}
           style={{
             position: 'absolute',
-            left: a.x - a.n / 2,
-            top: a.top,
-            width: a.n,
-            height: a.n,
-            // 오른쪽 자리는 불을 보게 좌우 반전
-            transform: [{ scaleX: a.dx > 0 ? -1 : 1 }],
+            left: -x0 * s,
+            top: -y0 * s,
+            width: 1024 * s,
+            height: 1024 * s,
           }}
         />
-      ))}
-      {placed.map((a) => (
-        <React.Fragment key={a.seat}>
-          {/* 휴식 시간은 머리 위(반투명 배경), 이름은 발 아래(그림자 글자) */}
-          <View
-            pointerEvents="none"
-            style={{ position: 'absolute', left: a.x - 100, top: a.head - 3 - 21.6, width: 200 }}
-          >
-            <Text
-              style={{
-                alignSelf: 'center',
-                backgroundColor: '#FFFDFAB8',
-                borderRadius: 10,
-                overflow: 'hidden',
-                paddingVertical: 2,
-                paddingHorizontal: 9,
-                fontSize: 11,
-                lineHeight: 17.6,
-                fontWeight: '800',
-                fontVariant: ['tabular-nums'],
-                color: INK,
-              }}
+        {placed.map((a) => (
+          <Image
+            key={a.seat}
+            testID={`loaf-${a.seat}`}
+            source={loaf[a.color]}
+            style={{
+              position: 'absolute',
+              left: a.x - a.n / 2,
+              top: a.top,
+              width: a.n,
+              height: a.n,
+              // 오른쪽 자리는 불을 보게 좌우 반전
+              transform: [{ scaleX: a.dx > 0 ? -1 : 1 }],
+            }}
+          />
+        ))}
+        {placed.map((a) => (
+          <React.Fragment key={a.seat}>
+            {/* 휴식 시간은 머리 위(반투명 배경), 이름은 발 아래(그림자 글자) */}
+            <View
+              pointerEvents="none"
+              style={{ position: 'absolute', left: a.x - 100, top: a.head - 3 - 21.6, width: 200 }}
             >
-              {hms(Math.max(0, (now - (a.restStartedAt || started)) / 1000))}
-            </Text>
-          </View>
-          <View
-            pointerEvents="none"
-            style={{ position: 'absolute', left: a.x - 100, top: a.foot + 2, width: 200 }}
-          >
-            <Text
-              style={{
-                textAlign: 'center',
-                fontSize: 12,
-                lineHeight: 19.2,
-                fontWeight: '900',
-                color: a.me ? ME : INK,
-                textShadowColor: '#FFFDFA',
-                textShadowOffset: { width: 0, height: 0 },
-                textShadowRadius: 5,
-              }}
+              <Text
+                style={{
+                  alignSelf: 'center',
+                  backgroundColor: '#FFFDFAB8',
+                  borderRadius: 10,
+                  overflow: 'hidden',
+                  paddingVertical: 2,
+                  paddingHorizontal: 9,
+                  fontSize: 11,
+                  lineHeight: 17.6,
+                  fontWeight: '800',
+                  fontVariant: ['tabular-nums'],
+                  color: INK,
+                }}
+              >
+                {hms(Math.max(0, (now - (a.restStartedAt || started)) / 1000))}
+              </Text>
+            </View>
+            <View
+              pointerEvents="none"
+              style={{ position: 'absolute', left: a.x - 100, top: a.foot + 2, width: 200 }}
             >
-              {a.name}
-            </Text>
-          </View>
-        </React.Fragment>
-      ))}
-      <View
-        pointerEvents="none"
-        style={{
-          position: 'absolute',
-          top: wide ? Math.max(18, safe.top + 18) : Math.max(56, safe.top + 4),
-          left: Math.max(wide ? 30 : 18, safe.left + 12),
-          backgroundColor: C.sky,
-          borderWidth: 2,
-          borderColor: OUTLINE,
-          borderRadius: 18,
-          boxShadow: `0px 3px 0px ${OUTLINE}`,
-          paddingVertical: wide ? 7 : 10,
-          paddingHorizontal: wide ? 12 : 14,
-        }}
-      >
-        <Text style={[fiTitle(wide ? 17 : 19), { lineHeight: (wide ? 17 : 19) * 1.3 }]}>
-          휴식 중...
-        </Text>
+              <Text
+                style={{
+                  textAlign: 'center',
+                  fontSize: 12,
+                  lineHeight: 19.2,
+                  fontWeight: '900',
+                  color: a.me ? ME : INK,
+                  textShadowColor: '#FFFDFA',
+                  textShadowOffset: { width: 0, height: 0 },
+                  textShadowRadius: 5,
+                }}
+              >
+                {a.name}
+              </Text>
+            </View>
+          </React.Fragment>
+        ))}
+        <View
+          pointerEvents="none"
+          style={{
+            position: 'absolute',
+            top: wide ? Math.max(18, safe.top + 18) : Math.max(56, safe.top + 4),
+            left: Math.max(wide ? 30 : 18, safe.left + 12),
+            backgroundColor: C.sky,
+            borderWidth: 2,
+            borderColor: OUTLINE,
+            borderRadius: 18,
+            boxShadow: `0px 3px 0px ${OUTLINE}`,
+            paddingVertical: wide ? 7 : 10,
+            paddingHorizontal: wide ? 12 : 14,
+          }}
+        >
+          <Text style={[fiTitle(wide ? 17 : 19), { lineHeight: (wide ? 17 : 19) * 1.3 }]}>
+            휴식 중...
+          </Text>
+        </View>
+        {/* 확인창이 떠 있는 동안에는 아래 버튼을 숨긴다 */}
       </View>
-      {/* 확인창이 떠 있는 동안에는 아래 버튼을 숨긴다 */}
       {!result && !confirming && (
         <View
           style={{

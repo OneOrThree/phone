@@ -580,31 +580,28 @@ function FocusFlow({ e }: any) {
           </Text>
         </View>
       </View>
-      {/* 달성한 퀘스트가 여럿이면 이 부분만 줄여 스크롤해 아래 버튼이 늘 보이게 한다.
-          한 줄일 때는 시안(모달 전체 overflow)처럼 줄이지 않는다 */}
-      <ScrollView style={{ flexShrink: achieved.length > 1 ? 1 : 0 }} bounces={false}>
-        <View
-          style={{
-            backgroundColor: C.paper,
-            borderWidth: 2,
-            borderColor: OUTLINE,
-            borderRadius: 13,
-            paddingVertical: 9,
-            paddingHorizontal: 12,
-          }}
-        >
-          <Text style={{ fontSize: 11, lineHeight: 17.6, fontWeight: '700', color: '#7C6857' }}>
-            달성한 일일 퀘스트
-          </Text>
-          <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
-            {achieved.length
-              ? achieved.map((q) => '✓ ' + q.title).join('\n')
-              : focusQuests[0]
-                ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
-                : '아직 없어요'}
-          </Text>
-        </View>
-      </ScrollView>
+      {/* 퀘스트가 여럿이거나 화면이 낮으면 카드(FiModal) 안에서 통째로 스크롤한다 */}
+      <View
+        style={{
+          backgroundColor: C.paper,
+          borderWidth: 2,
+          borderColor: OUTLINE,
+          borderRadius: 13,
+          paddingVertical: 9,
+          paddingHorizontal: 12,
+        }}
+      >
+        <Text style={{ fontSize: 11, lineHeight: 17.6, fontWeight: '700', color: '#7C6857' }}>
+          달성한 일일 퀘스트
+        </Text>
+        <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
+          {achieved.length
+            ? achieved.map((q) => '✓ ' + q.title).join('\n')
+            : focusQuests[0]
+              ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
+              : '아직 없어요'}
+        </Text>
+      </View>
       <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
         <FiButton
           primary

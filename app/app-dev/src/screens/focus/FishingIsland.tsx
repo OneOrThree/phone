@@ -1,5 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, PanResponder, Platform, Pressable, StyleSheet, View } from 'react-native';
+import {
+  Image,
+  PanResponder,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, Ellipse, Image as SvgImage, Path, Pattern, Rect } from 'react-native-svg';
 import { Text } from '@/design-system/typography';
@@ -709,6 +717,7 @@ export function FiModal({ children }: { children: React.ReactNode }) {
       accessibilityViewIsModal
     >
       <View style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3940' }]} />
+      {/* 낮은 화면(가로 폰)에서 내용이 카드보다 길면 카드 안에서 스크롤한다 — 아래 버튼까지 닿는다 */}
       <View
         style={[
           fiCard,
@@ -717,13 +726,18 @@ export function FiModal({ children }: { children: React.ReactNode }) {
                 alignSelf: 'flex-end',
                 marginRight: Math.max(24, safe.right),
                 width: 330,
-                padding: 20,
                 maxHeight: '94%',
               }
-            : { marginHorizontal: 20, padding: 24, maxHeight: '85%' },
+            : { marginHorizontal: 20, maxHeight: '85%' },
         ]}
       >
-        {children}
+        <ScrollView
+          style={{ flexGrow: 0, flexShrink: 1 }}
+          contentContainerStyle={{ padding: wide ? 20 : 24 }}
+          bounces={false}
+        >
+          {children}
+        </ScrollView>
       </View>
     </View>
   );
