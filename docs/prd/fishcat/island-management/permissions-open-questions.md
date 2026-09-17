@@ -101,7 +101,7 @@ GROMO-1909 가 A01 을 방장만으로 고른 근거가 정확히 이것이다(�
 ### 결정이 늦어도 코드는 멈추지 않는다 — 하드 게이트 선례
 
 정책 미정인 경로를 상수 하나로 막아 두는 모양이 이미 있다 —
-`focus/support/FocusRewardPolicyGate.java:29~31` `public static boolean isOpen() { return false; }`.
+`focus/support/FocusRewardPolicyGate.java:27~29` `public static boolean isOpen() { return false; }`.
 `V58__focus_session_lifecycle.sql:62~64` 가 *"보상 정책(FR-D01~06)이 미확정이라 지급 경로가 비활성이고,
 이 표는 아직 쓰는 코드가 없다"* 고 남겼다. 이 표의 TBD 행도 같은 방식으로 저장·동시성까지 만들어 두고
 실행만 닫아 둘 수 있다.
