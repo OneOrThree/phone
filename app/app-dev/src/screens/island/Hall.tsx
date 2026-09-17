@@ -884,7 +884,8 @@ export function Hall({ e }: any) {
       gridW = land ? W - side - 16 - 4 - 32 : W - 36.2 - 4 - 33.6,
       // 가로는 카드가 140 이상일 때만 3열
       cols = land && gridW >= 450 ? 3 : 2,
-      cardW = (gridW - gap * (cols - 1)) / cols;
+      // 내림: 소수 폭이면 iOS 가 둘째 카드를 다음 줄로 넘긴다
+      cardW = Math.floor((gridW - gap * (cols - 1)) / cols);
     const pick = (
       <View
         style={{
@@ -1942,10 +1943,11 @@ export function Hall({ e }: any) {
       {close(e.back, land ? { position: 'absolute', right: 8, top: 7 } : undefined)}
     </View>
   );
-  // 주민 칸 폭: 카드 안쪽 폭(세로 W−80, 가로 W−side−16−4−240−28)을 열 수로 나눈다. 좁으면 2열
+  // 주민 칸 폭: 카드 안쪽 폭(세로 W−80, 가로 W−side−16−4−240−28)을 열 수로 나눈다.
+  // 세로는 한 줄에 한 명(2열은 빈 칸이 생겨 어색 — 오스카 결정), 가로는 넓으면 4열, 좁으면 2열
   const inner = land ? W - side - 288 : W - 80,
-    cols = land && inner >= 280 ? 4 : 2,
-    cell = (inner - (cols - 1) * 7) / cols;
+    cols = land ? (inner >= 280 ? 4 : 2) : 1,
+    cell = Math.floor((inner - (cols - 1) * 7) / cols);
   const body = (
     <ScrollView
       style={{ flex: 1, minHeight: 0 }}

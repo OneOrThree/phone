@@ -62,12 +62,13 @@ export function WorldMap({
     y: fishing ? 770 : 430,
     z: 1,
   });
-  // 홈 카메라는 v2 시안 배경(prep-redesign-assets.py HOME_ZOOM_P 1.8 · HOME_ZOOM_L 1.3)과 같은 배율
+  // 홈 카메라: v2 시안 배경(prep-redesign-assets.py HOME_ZOOM_P 1.8 · HOME_ZOOM_L 1.3)보다 조금 더
+  // 당겨 본다 — 세로는 섬이 화면 높이의 2/3쯤 차게 2.8, 가로 1.5 (오스카 결정)
   const base = fishing
     ? Math.min(L.width / 680, L.height / 1140)
     : L.landscape
-      ? (L.height / 1140) * 1.3
-      : (((L.height / 874) * 402) / 1536) * 1.8;
+      ? (L.height / 1140) * 1.5
+      : (((L.height / 874) * 402) / 1536) * 2.8;
   const scale = base * camera.z,
     left = L.width / 2 - camera.x * scale,
     top = L.height / 2 - camera.y * scale;
@@ -414,10 +415,10 @@ export function FinalIsland({
             top: Animated.multiply(xy.y, s),
           }}
         >
-          {/* v2 홈 시안: 고양이 100px(섬 원본 좌표) · 이름표 없음 */}
+          {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 이름표 없음 */}
           <CatSprite
             color={state.color}
-            size={100 * s}
+            size={70 * s}
             motion={walking ? 'walking' : 'blink'}
             reduce={state.settings.reduceMotion}
           />

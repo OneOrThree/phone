@@ -348,10 +348,12 @@ function Gromo() {
     if (!loaded) return;
     transition.stopAnimation();
     transition.setValue(state.settings.reduceMotion ? 1 : 0);
+    // JS 드라이버: 네이티브 드라이버는 iOS 에서 전환 중 화면(도서관 JPEG 배경 등)이 다시 커밋되면
+    // 중간 opacity 가 남아 화면이 뿌옇게 굳는다
     Animated.timing(transition, {
       toValue: 1,
       duration: state.settings.reduceMotion ? 0 : 160,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   }, [route, loaded, reviewEpoch]);
   useEffect(() => {
