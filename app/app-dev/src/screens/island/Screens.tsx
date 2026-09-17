@@ -1157,7 +1157,13 @@ export function RedesignScreens({ e }: any) {
         </View>
         {invite && (
           <View
-            style={StyleSheet.absoluteFill}
+            // 칸이 키보드만큼 줄지 않은 환경(iOS)에서만 남는 겹침을 아래 여백으로 빼 카드를 키보드 위에 둔다
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                paddingBottom: Math.max(0, keyboardHeight - (layout.height - inviteArea)),
+              },
+            ]}
             onLayout={(ev) => setInviteArea(ev.nativeEvent.layout.height)}
           >
             <Pressable
@@ -1176,8 +1182,9 @@ export function RedesignScreens({ e }: any) {
                   width: layout.compact || layout.tablet ? layout.modalWidth : layout.width - 48,
                   maxHeight: Math.max(
                     120,
-                    // 칸이 이미 줄었으면(안드로이드·웹) 그대로, 아니면 화면 높이에서 키보드를 뺀다
-                    Math.min(inviteArea, layout.height - keyboardHeight) -
+                    // 칸이 이미 줄었으면(안드로이드·웹) 그대로, 아니면 화면 높이에서 키보드를 뺀 높이
+                    inviteArea -
+                      Math.max(0, keyboardHeight - (layout.height - inviteArea)) -
                       ins.top -
                       ins.bottom -
                       24,
