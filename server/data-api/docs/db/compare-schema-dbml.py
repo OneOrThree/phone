@@ -12,9 +12,10 @@
   맞다는 뜻은 아니다. 축을 늘릴 때는 dbml 쪽 표기 규약부터 정해야 한다 — 읽기만 하고
   비교하지 않는 값을 남기면 검사한다는 «착각»만 남는다(ON DELETE 가 실제로 그랬다).
 
-이 도구가 «전제»하는 dbml 규약 — schema.dbml 머리의 6·7번과 짝이다
+이 도구가 «검사»하는 dbml 규약 — schema.dbml 머리의 6·7번과 짝이다
   한 컬럼에는 Ref 를 하나만 적는다 · 관계는 항상 단독 `Ref:` 줄로 적는다.
-  전제가 깨지면 오탐(실제 FK 가 있는 컬럼의 두 번째 논리 Ref)이나 미탐(인라인 `[ref:]`)이 난다.
+  둘 다 위반을 드리프트로 낸다. 전제를 주석으로만 두면 「적어 뒀으니 지키겠지」가 되는데,
+  이 도구가 쌓은 신뢰는 «본다고 말한 건 실제로 본다»는 것 하나뿐이라 그 예외를 두지 않는다.
 
 환경변수
   SCRATCH   : real_columns.txt · real_fks.txt 가 있는 디렉터리
@@ -69,6 +70,7 @@ def attr_tokens(attrs):
 # `Table x [note: '...'] {` 처럼 이름과 `{` 사이에 note 가 낀다 — 그걸 건너뛰어야 한다.
 # 이 부분을 `^Table\s+(\w+)\s*\{` 로 쓰면 58개 중 3개만 잡힌다(실제로 그랬다).
 dbml_cols = collections.defaultdict(dict)
+inline_refs = []
 for m in re.finditer(r'^Table\s+(\w+)[^\n{]*\{(.*?)^\}', text, re.S | re.M):
     table, body = m.group(1), m.group(2)
     for raw in body.splitlines():
@@ -79,14 +81,21 @@ for m in re.finditer(r'^Table\s+(\w+)[^\n{]*\{(.*?)^\}', text, re.S | re.M):
         if not mm:
             continue
         col, ty, attrs = mm.group(1), mm.group(2).strip(), (mm.group(3) or "")
-        dbml_cols[table][col] = (ty, not (attr_tokens(attrs) & NOT_NULL_ATTRS))
+        tokens = attr_tokens(attrs)
+        dbml_cols[table][col] = (ty, not (tokens & NOT_NULL_ATTRS))
+        # 규약 7 — 인라인 `[ref: > a.b]` 로 적힌 관계는 아래 `^Ref:` 스캔이 «아예 안 읽는다».
+        # 오탐이 아니라 미탐이라 「드리프트 0건」이 그대로 나온다. 도구가 직접 잡는다.
+        inline_refs += [f"{table}.{col}" for tok in tokens if tok.startswith("ref:")]
 
 # `[delete: cascade]` 를 «읽기만 하고 비교하지 않으면» 읽을 이유가 없다. 표기가 없는 Ref 는
 # 읽는 사람이 기본 동작으로 이해하므로 NO ACTION 으로 놓고 실제 delete_rule 과 맞춰 본다.
 dbml_fks = collections.defaultdict(dict)
+ref_line_counts = collections.Counter()
 # 컬럼 줄은 `//` 를 먼저 잘라내고 `[...]` 를 통째로 잡는데, Ref 줄만 «첫 `]` 에서 멈추는» 정규식을
 # 쓰고 있었다. 같은 파일을 읽는 두 경로가 다른 규칙을 쓰면 한쪽에서만 조용히 새므로 맞춘다.
-ref_text = re.sub(r'//[^\n]*', '', text)
+# 따옴표를 «먼저» 매치해 note 안의 `//`(URL 등)를 주석으로 오인하지 않는다.
+ref_text = re.sub(r"'[^'\n]*'|//[^\n]*",
+                  lambda m: m.group(0) if m.group(0).startswith("'") else "", text)
 for m in re.finditer(
         r'^Ref:\s*(\w+)\.(\w+)\s*[<>-]\s*(\w+)\.(\w+)\s*(\[.*\])?', ref_text, re.M):
     child, ccol, parent, pcol, attrs = m.groups()
@@ -95,6 +104,7 @@ for m in re.finditer(
         if tok.startswith("delete:"):
             rule = tok.split(":", 1)[1].strip().upper()
     dbml_fks[(child, ccol)][(parent, pcol)] = rule
+    ref_line_counts[(child, ccol)] += 1
 
 dbml_tables = set(dbml_cols)
 # dbml 이 선언한 Enum — 컬럼 타입이 이 이름이면 «논리 타입 표기»이지 드리프트가 아니다.
@@ -112,6 +122,14 @@ def say(msg):
 
 
 print(f"실제 테이블 {len(real_tables)} · dbml 테이블 {len(dbml_tables)}\n")
+
+# 규약 위반은 「dbml 이 실제와 다르다」가 아니라 「이 도구의 전제가 깨졌다」는 신호다.
+# 전제가 깨지면 위 대조 결과 자체를 믿을 수 없으므로 같은 드리프트 카운터로 낸다.
+for (child, ccol), n in sorted(ref_line_counts.items()):
+    if n > 1:
+        say(f"❌ 규약 6 위반: {child}.{ccol} 에 Ref 줄이 {n}개 — 한 컬럼에는 하나만 적는다")
+for where in sorted(set(inline_refs)):
+    say(f"❌ 규약 7 위반: {where} 가 인라인 ref 를 쓴다 — 관계는 단독 `Ref:` 줄로 적는다")
 
 for t in sorted(real_tables - dbml_tables):
     say(f"❌ 테이블이 dbml 에 없다: {t}")
