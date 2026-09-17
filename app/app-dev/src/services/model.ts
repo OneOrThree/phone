@@ -128,6 +128,8 @@ export type Island = {
   // 정원(1~15명). 예전 저장본에는 없어서 capacityOf로 읽는다
   capacity?: number;
   requestResolved?: boolean;
+  // 승인 대기 중인 가입 신청. 예전 저장본은 LOAD에서 빈 목록으로 채운다
+  requests?: { id: string; name: string; color: Color }[];
   joined: boolean;
   buildings: Building[];
   /** Legacy aliases kept only for importing old fixtures. UI uses fish. */
@@ -441,6 +443,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
       screenDays: m.id === 'dubu' ? undefined : { [dayKey()]: 84 },
     })),
     formerMembers: [],
+    requests: full && !solo ? [{ id: 'saebom', name: '새봄', color: 'white' }] : [],
     quests: [
       {
         id: 'q-focus',
@@ -711,12 +714,75 @@ export function canBuild(s: State, b: Building): string | null {
     )
       return '대상 주민 모두가 물고기 목표를 달성해야 해요.';
     if (b === 'shop' && !shopPrerequisitesMet(i))
-      return '상점은 전망대와 우체통 완공 후 지을 수 있어요.';
+      return '상점은 다른 모든 건물을 완공한 뒤 지을 수 있어요.';
   }
   return balance(i) < buildingCost(i, b) ? '섬 물고기 잔액이 부족해요.' : null;
 }
+// 상점은 도서관·전망대·우체통·축음기를 모두 완공한 뒤 고른다 (정책-결정-2026-09-14)
 export const shopPrerequisitesMet = (i: Island) =>
-  (['tower', 'mail'] as Building[]).every((building) => i.buildings.includes(building));
+  (['library', 'tower', 'mail', 'gram'] as Building[]).every((building) =>
+    i.buildings.includes(building),
+  );
+export const joinRequests = (i: Island) => i.requests ?? [];
+// 원장 한 줄 = 내용 + 금액(+적립, −사용). 금액은 문구 끝 "+N마리"/"−N마리"에만 있다
+export const ledgerParts = (entry: { text: string }) => {
+  const m = entry.text.match(/^(.*?)\s*([+−-])([\d,]+)마리\s*$/);
+  return m
+    ? { title: m[1], amount: (m[2] === '+' ? 1 : -1) * Number(m[3].replace(/,/g, '')) }
+    : { title: entry.text, amount: 0 };
+};
+// 다음 건물 목표로 고를 수 없는 이유. 없으면 null (방장 여부는 reducer의 hostOnly가 따로 막는다)
+export function canSelectBuilding(i: Island, b: Building): string | null {
+  if (!['gram', 'library', 'mail', 'tower', 'shop'].includes(b)) return '고를 수 없는 건물이에요.';
+  if (i.buildings.includes(b)) return '이미 완공한 건물이에요.';
+  if (!i.buildings.includes('board')) return '게시판을 완공한 뒤 목표를 정할 수 있어요.';
+  if (i.construction) return '공사가 끝난 뒤 다음 목표를 정할 수 있어요.';
+  if (b === 'shop' && !shopPrerequisitesMet(i))
+    return '상점은 다른 네 건물을 모두 완공한 뒤 목표로 정할 수 있어요.';
+  if (i.buildingQuest?.building === b) return '이미 목표로 정한 건물이에요.';
+  return null;
+}
+// 마지막 주민이 떠난 섬을 닫는다: 탐색·재가입에서 빼고 섬 공동 데이터와 그 섬 보상을 지운다.
+// 개인 기록·보유품은 State 쪽에 남는다 (정책 GROMO-1843)
+function closeIsland(s: State, i: Island) {
+  Object.assign(i, {
+    closed: true,
+    visibility: 'private',
+    // 이름·id는 기록 참조용으로 남기고 소개 글은 공동 데이터라 지운다
+    intro: '',
+    fish: 0,
+    earned: {},
+    ledger: [],
+    // 강퇴·탈퇴 주민의 이름·색·기록도 섬 공동 데이터라 같이 지운다
+    formerMembers: [],
+    buildings: [],
+    quests: [],
+    notices: [],
+    messages: [],
+    sharedOwned: [],
+    requests: [],
+    theme: 'default',
+    buildingTheme: 'default',
+    buildingThemes: {},
+    playing: false,
+    // 구매한 공동 음원 선택도 공동 데이터라 기본 음원으로 되돌린다
+    track: 'waves',
+  });
+  delete i.buildingQuest;
+  delete i.construction;
+  delete i.nextBuilding;
+  s.rewards = (s.rewards ?? []).filter((r) => r.islandId !== i.id);
+  // 그 섬의 공동 구매(섬·건물 테마·음원) 내역도 지운다. 옷·장신구는 개인 보유품이라 남긴다
+  s.orders = s.orders.filter(
+    (o) =>
+      o.islandId !== i.id ||
+      !['island', 'building', 'audio'].includes(
+        products.find((p) => p.id === o.product)?.kind ?? '',
+      ),
+  );
+  s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== i.id);
+  if (s.pendingIsland === i.id) s.pendingIsland = s.pendingIslands.at(-1) ?? null;
+}
 export function canBuy(s: State, p: Product): string | null {
   const i = currentIsland(s);
   if (!i.joined) return '이 섬 주민만 구매할 수 있어요.';
@@ -938,6 +1004,13 @@ export function reducer(state: State, a: Action): State {
     const retired = ['flag', 'sailboat', 'cabinboat'];
     loaded.islands.forEach((i) => {
       i.formerMembers ??= [];
+      // 예전 저장본: 가입 신청 목록이 없으면 빈 목록(가짜 새봄 신청을 띄우지 않는다)
+      i.requests ??= [];
+      // 예전 규칙(전망대·우체통만 선행)으로 고른 상점 목표는 지금 규칙에 안 맞으면 해제한다
+      if (i.buildingQuest?.building === 'shop' && !i.construction && !shopPrerequisitesMet(i)) {
+        delete i.buildingQuest;
+        delete i.nextBuilding;
+      }
       i.fish ??= i.points + i.contribution + (i.id === loaded.islandId ? loaded.fish : 0);
       i.earned ??= Object.fromEntries(
         targetIds(i).map((id) => [
@@ -950,7 +1023,7 @@ export function reducer(state: State, a: Action): State {
     });
     const pendingIslands =
       loaded.pendingIslands ?? (loaded.pendingIsland ? [loaded.pendingIsland] : []);
-    return {
+    const next: State = {
       ...loaded,
       schema: 2,
       fish: 0,
@@ -970,6 +1043,9 @@ export function reducer(state: State, a: Action): State {
       owned: loaded.owned.filter((id) => !retired.includes(id)),
       orders: loaded.orders.filter((o) => !retired.includes(o.product)),
     };
+    // 예전 버전에서 닫힌 섬에 남아 있던 공동 데이터도 지금 규칙대로 정리한다(여러 번 해도 같다)
+    next.islands.forEach((i) => i.closed && closeIsland(next, i));
+    return next;
   }
   const hostOnly = [
     'MANAGE',
@@ -1147,15 +1223,7 @@ export function reducer(state: State, a: Action): State {
     }
     case 'SELECT_BUILDING': {
       const b = a.building as Building;
-      if (
-        i.construction ||
-        !i.buildings.includes('board') ||
-        i.buildings.includes(b) ||
-        !['gram', 'library', 'mail', 'tower', 'shop'].includes(b)
-      )
-        return state;
-      if (b === 'shop' && !shopPrerequisitesMet(i)) return state;
-      if (i.buildingQuest?.building === b) return state;
+      if (canSelectBuilding(i, b)) return state;
       const targets = targetIds(i);
       const prevQuest = i.buildingQuest;
       const base: Record<string, number> = {};
@@ -1231,7 +1299,8 @@ export function reducer(state: State, a: Action): State {
       );
       if (!reward || reward.acknowledged) return state;
       const owner = s.islands.find((x) => x.id === reward.islandId)!;
-      if (reward.kind === 'personal') {
+      // 닫힌(삭제된) 섬의 보상은 잔액·원장에 쓰지 않고 받은 것으로만 처리해 보상 창을 닫는다
+      if (reward.kind === 'personal' && !owner.closed) {
         owner.fish = balance(owner) + reward.amount;
         owner.earned ??= {};
         owner.earned.me = earnedBy(owner, 'me') + reward.amount;
@@ -1415,7 +1484,9 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'REJECT_MEMBER':
-      i.requestResolved = true;
+      // id가 없으면(예전 화면) 남은 신청을 모두 거절한다
+      i.requests = a.id ? joinRequests(i).filter((r) => r.id !== a.id) : [];
+      i.requestResolved = !i.requests.length;
       break;
     case 'CAPACITY': {
       const v = Math.round(a.value);
@@ -1426,19 +1497,28 @@ export function reducer(state: State, a: Action): State {
     case 'HALL_GUIDE_DONE':
       s.hallGuide = 'done';
       break;
-    case 'ADD_MEMBER':
-      if (i.requestResolved || isFull(i)) return state;
-      i.requestResolved = true;
+    case 'ADD_MEMBER': {
+      const request = joinRequests(i).find((r) => !a.id || r.id === a.id);
+      if (!request || isFull(i)) return state;
+      i.requests = joinRequests(i).filter((r) => r.id !== request.id);
+      i.requestResolved = !i.requests.length;
+      // 강퇴·탈퇴로 떠났던 주민이 다시 들어오면 그때 기록을 이어받고 떠난 주민 목록에서 뺀다
+      i.formerMembers ??= [];
+      const former = i.formerMembers.find((m) => m.id === request.id);
+      i.formerMembers = i.formerMembers.filter((m) => m.id !== request.id);
       i.members.push({
-        id: uuid(),
-        name: '새봄',
-        color: 'white',
-        subject: '독서 과제',
-        seconds: 0,
+        ...(former ?? {}),
+        id: i.members.some((m) => m.id === request.id) ? uuid() : request.id,
+        name: request.name,
+        color: request.color,
+        subject: former?.subject ?? '독서 과제',
+        seconds: former?.seconds ?? 0,
         focusing: false,
+        restStartedAt: undefined,
         role: 'member',
       });
       break;
+    }
     case 'TRANSFER':
       if (!i.members.some((m) => m.id === a.id)) return state;
       i.members.forEach((m) => (m.role = m.id === a.id ? 'host' : 'member'));
@@ -1446,12 +1526,9 @@ export function reducer(state: State, a: Action): State {
     case 'LEAVE':
       if (s.session || (isHost(i) && i.members.length > 0)) return state;
       i.joined = false;
-      if (i.members.length === 0) {
-        i.closed = true;
-        i.visibility = 'private';
-        s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== i.id);
-        if (s.pendingIsland === i.id) s.pendingIsland = s.pendingIslands.at(-1) ?? null;
-      }
+      // 떠난 섬에서 아직 받지 않은 보상 창은 띄우지 않는다
+      s.rewards = (s.rewards ?? []).filter((r) => r.islandId !== i.id);
+      if (i.members.length === 0) closeIsland(s, i);
       if (i.buildingQuest)
         i.buildingQuest.targets = i.buildingQuest.targets.filter((id) => id !== 'me');
       const nextIsland = s.islands.find((j) => j.joined && j.id !== i.id);
@@ -1522,8 +1599,6 @@ export function reducer(state: State, a: Action): State {
       clean.islands = s.islands.map((i) => ({
         ...i,
         joined: false,
-        closed: i.closed || (i.joined && i.members.length === 0),
-        visibility: i.closed || (i.joined && i.members.length === 0) ? 'private' : i.visibility,
         earned: Object.fromEntries(Object.entries(i.earned ?? {}).filter(([id]) => id !== 'me')),
         ledger: i.ledger.filter(
           (entry) =>
@@ -1572,6 +1647,10 @@ export function reducer(state: State, a: Action): State {
             }
           : undefined,
       }));
+      // 내가 마지막 주민이던 섬은 탈퇴(LEAVE)와 똑같이 닫는다
+      s.islands.forEach((i, n) => {
+        if (i.joined && i.members.length === 0) closeIsland(clean, clean.islands[n]);
+      });
       return clean;
     }
     case 'DEMO_CREDIT':
