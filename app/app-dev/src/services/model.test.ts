@@ -944,6 +944,12 @@ test('받은 편지는 읽고 닫으면 사라지고, 채팅방 새 글은 마�
   s = act(s, 'CHAT_READ', { now: kept - 5000 });
   assert.equal(currentIsland(s).chatReadAt, kept);
   assert.equal(newChatCount(currentIsland(s)), 0);
+  // 방을 연 채 도착한 미래 시각(시계 오차) 메시지도 CHAT_READ가 읽음 처리한다
+  currentIsland(s).messages.push({ ...currentIsland(s).messages[0], id: 'm8', at: kept + 60_000 });
+  assert.equal(newChatCount(currentIsland(s)), 1);
+  s = act(s, 'CHAT_READ', { now: kept + 1000 });
+  assert.equal(currentIsland(s).chatReadAt, kept + 60_000);
+  assert.equal(newChatCount(currentIsland(s)), 0);
 });
 
 test('공사가 끝나면 완공 안내를 남기고, 다음 건물을 고르면 지운다', () => {
