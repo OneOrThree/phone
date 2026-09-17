@@ -46,6 +46,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -213,6 +214,13 @@ public class FocusSessionLifecycleService {
      *
      * <p>조회인데도 {@code readOnly}가 아닌 것은 의도다 — {@link #abandonIfMarkerClosed}가 어긋난 행을
      * 그 자리에서 종결하고, 그 쓰기가 실제로 커밋돼야 다음 start가 풀린다(readOnly면 flush 자체가 없다).
+     *
+     * <p><b>{@code REQUIRES_NEW}인 이유.</b> 격리 수준은 «새 트랜잭션을 열 때만» 적용된다. 기본
+     * {@code REQUIRED}로 두면, 나중에 누가 이 메서드를 이미 열린 트랜잭션 안에서 부르는 순간 Spring이
+     * 예외 없이 <b>조용히 기존 격리(보통 READ COMMITTED)로 참여</b>하고 {@code REPEATABLE_READ}는
+     * 무시된다. 그러면 위 단일 스냅샷 보장이 사라지는데, 애노테이션만 보는 테스트는 그대로 통과한다 —
+     * 거짓 안심이다. 지금은 호출부가 내부 컨트롤러 하나뿐이라 «우연히» 맞지만, 우연을 코드로 바꾼다.
+     * 선례: {@code InternalRealtimeMembershipAuthorizationService}.
      * 그 쓰기가 동시 수정과 겹치면 PostgreSQL이 {@code 40001}(could not serialize access)로 트랜잭션을
      * 통째로 되돌린다. 재시도를 달지 않는다 — Hibernate {@code LockAcquisitionException} → Spring
      * {@code CannotAcquireLockException}으로 번역돼
@@ -220,7 +228,7 @@ public class FocusSessionLifecycleService {
      * 409 {@code CONCURRENT_UPDATE}("잠시 후 다시 시도해주세요")로 내보내는, <b>이미 사용자에게 보여 줄 만한</b>
      * 답이기 때문이다(500이 아니다). 게다가 이 쓰기는 마커 desync 정리 경로에서만 일어난다.
      */
-    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.REPEATABLE_READ)
     public FocusSessionView current(UUID userId) {
         userQueryService.getCaller(userId);
         Instant now = clock.instant();
@@ -387,7 +395,7 @@ public class FocusSessionLifecycleService {
      * 계산해 {@code currentSessionSecondsToday}·{@code totalSeconds}를 계속 부풀린다. 그 쓰기의 직렬화
      * 실패({@code 40001}) 처리는 {@code current}와 같다 — 409 {@code CONCURRENT_UPDATE}다.
      */
-    @Transactional(isolation = Isolation.REPEATABLE_READ)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.REPEATABLE_READ)
     public FocusSummaryView summary(UUID userId, String rawDate, String rawTimezone) {
         User user = userQueryService.getCaller(userId);
         validateTimezone(rawTimezone);
@@ -464,7 +472,8 @@ public class FocusSessionLifecycleService {
     }
 
     /**
-     * 활성 검증(공유 락) + 세션 상세 배타 락 + 소유 검사 + <b>섬 활성 멤버십</b> — pause/resume/finish의
+     * 활성 검증(공유 락) + 세션 상세 배타 락 + 소유 검사 + <b>섬 활성 멤버십(락 없는 조회)</b> —
+     * pause/resume/finish의
      * 공통 잠금 지점. activeAuthorization·replayAuthorization·명령 본문에서 반복 호출해도 같은 트랜잭션 안
      * 재잠금은 안전하다(1차 캐시가 같은 관리 엔티티를 돌려준다).
      *

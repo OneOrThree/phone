@@ -29,6 +29,13 @@ package com.oneorthree.phone.focus.support;
  *   <li><b>집중 프레즌스 리스 기록</b>. {@code FocusPresencePort.focusStarted} 를 부르지 않아
  *       {@code ChatAccessGuard} 의 집중 중 채팅 차단을 그대로 우회한다</li>
  *   <li><b>보상 정책 FR-D01~06</b> — {@link FocusRewardPolicyGate} 가 같이 열려야 finish 가 산다</li>
+ *   <li><b>멤버십을 잃은 진행 세션의 «탈출 경로»를 만든다.</b> 이 티켓이 전이에 멤버십을 요구하면서
+ *       생긴 사각지대다 — 강퇴·탈퇴된 사용자의 PAUSED 세션은 {@code resume}·{@code finish}가 멤버십으로
+ *       거절되고, {@code abandonIfMarkerClosed}의 정리는 «레거시 기본 마커가 밖에서 닫혔을 때만» 도는데
+ *       {@code GroupMemberService}의 강퇴·탈퇴는 {@code focus_sessions}를 건드리지 않는다. 그래서
+ *       {@code start}의 {@code SESSION_IN_PROGRESS}에 영원히 걸려 <b>새 세션도 못 연다</b>.
+ *       가드를 넣으면서 탈출구를 같이 막은 것이라, 여는 날 «소속 상실 시 세션을 종결하는 경로»를
+ *       함께 정해야 한다(자동 종결이 맞는지는 제품 결정이라 이 티켓에서 고르지 않았다).</li>
  *   <li><b>멤버십을 «잠근 뒤» 전이한다.</b> 지금 {@code authorizeSession} 의 섬 멤버십 검사는 잠금 없는
  *       조회다. 그 조회를 통과한 직후 {@code GroupMemberService.kickMember} 나 탈퇴가 멤버십 행을 잠그고
  *       커밋하면, 이 요청은 그대로 상세·구간을 바꾸고 outbox 까지 적재한다 — 강퇴가 «먼저» 끝났는데도

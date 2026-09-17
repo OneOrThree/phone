@@ -36,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -280,6 +281,12 @@ class FocusSessionLifecycleGuardsTest {
                 .isEqualTo(Isolation.REPEATABLE_READ);
         // readOnly 면 abandonIfMarkerClosed 의 정리 쓰기가 커밋되지 않는다(이미 겪었다).
         assertThat(tx.readOnly()).as("%s 는 정리 쓰기를 커밋해야 한다", method).isFalse();
+        // 격리 수준은 «새 트랜잭션을 열 때만» 적용된다. REQUIRED 로 두면 이미 열린 트랜잭션 안에서
+        // 불릴 때 조용히 기존 격리로 참여하고 위 isolation 이 무시된다 — 그래도 이 테스트는
+        // 통과해 버리므로, 전파까지 함께 고정해야 검사가 거짓 안심이 되지 않는다.
+        assertThat(tx.propagation())
+                .as("%s 는 자기 트랜잭션을 열어야 격리 수준이 실제로 적용된다", method)
+                .isEqualTo(Propagation.REQUIRES_NEW);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
