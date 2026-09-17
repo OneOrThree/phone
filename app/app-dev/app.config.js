@@ -7,10 +7,10 @@ module.exports = {
     userInterfaceStyle: 'light',
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.oneorthree.fishcat',
+      bundleIdentifier: 'com.oneorthree.focuscat',
     },
     android: {
-      package: 'com.oneorthree.fishcat',
+      package: 'com.oneorthree.focuscat',
     },
     web: {
       bundler: 'metro',

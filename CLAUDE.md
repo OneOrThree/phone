@@ -11,7 +11,7 @@ repo-wide concerns.
 **gromo** — a focus-time management + character-customization mobile app.
 Users run focus sessions, track screen time, and customize a 2D character with
 shop items. Company `oneorthree`. The frozen 1.x app uses iOS bundle id
-`com.oneorthree.gromo`; the active 2.0 app uses `com.oneorthree.fishcat` on iOS and Android.
+`com.oneorthree.gromo`; the active 2.0 app uses `com.oneorthree.focuscat` on iOS and Android.
 
 ## Monorepo layout
 

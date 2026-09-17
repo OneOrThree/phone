@@ -27,7 +27,7 @@
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.oneorthree.fishcat</string>
+				<string>com.oneorthree.focuscat</string>
 			</array>
 		</dict>
 	</array>
