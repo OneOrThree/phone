@@ -41,6 +41,23 @@ test('물가 칸 경계 바로 안쪽 땅을 눌러도 앉는 자리는 땅이�
   assert.ok(checked > 10);
 });
 
+test('도착 지점과 이어지지 않은 땅(연못 가운데 섬)은 걸어갈 경로가 없다', () => {
+  const pondIsland = { x: 29, y: 45 };
+  assert.ok(onLand(fishingGrid, pondIsland));
+  assert.deepEqual(landPath(fishingGrid, LANDING, pondIsland), []);
+});
+
+test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {
+  assert.equal(PEER_SPOTS.length, 14);
+  assert.deepEqual(PEER_SPOTS[0], { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 });
+  for (const [n, p] of PEER_SPOTS.entries()) {
+    assert.ok(onLand(fishingGrid, p), `${n}`);
+    for (const q of PEER_SPOTS.slice(n + 1))
+      // 낚시 고양이 폭(지도 폭 7.7%)보다 멀리
+      assert.ok(Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536) > 7.7, `${n}`);
+  }
+});
+
 test('다른 주민 자리 가까이는 앉을 수 없다', () => {
   assert.ok(occupied({ x: PEER_SPOTS[0].x + 2, y: PEER_SPOTS[0].y }, PEER_SPOTS));
   assert.ok(!occupied({ x: 34.1, y: 55.9 }, PEER_SPOTS.slice(0, 2)));

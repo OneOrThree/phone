@@ -1,5 +1,5 @@
 import { Text } from '@/design-system/typography';
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Image } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
@@ -50,6 +50,83 @@ const loafTop: Record<Color, number> = {
 };
 const seatScale = (dy: number) => BASE * (1 + 0.14 * dy); // 앞자리는 조금 크게
 const seatTop = (dy: number) => FIRE.y + dy * RY - (seatScale(dy) * 464) / 512;
+type Rect = { l: number; t: number; r: number; b: number };
+const overlaps = (a: Rect, b: Rect) => a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+// 한 자리가 차지하는 화면 상자: 식빵 그림(512 중 가로 48~464) + 머리 위 시간표(약 25px) + 발 아래 이름(약 22px), 글자 폭은 최소 76px
+export const seatBox = (x: number, top: number, n: number): Rect => {
+  const half = Math.max((n * 0.82) / 2, 38);
+  return { l: x - half, r: x + half, t: top + (n * 126) / 512 - 27, b: top + (n * 464) / 512 + 25 };
+};
+export type Seat = { x: number; top: number; n: number; dx: number };
+// 모닥불 자리 배치(화면 W×H, 안전 여백 inset). 배경은 화면을 덮도록(cover) 자른다: 세로는 모닥불을, 가로는 고양이 무리(시간표~이름표)를 가운데에.
+// 6자리는 시안 그대로. 7명부터(정원 15명까지)는 바깥 줄: 화면 안·"휴식 중" 배지·아래 버튼·모닥불·안쪽 6자리와 겹치지 않는 곳을
+// 모닥불에서 가까운 순서로 채운다. 다 못 들어가면 바깥 줄 고양이를 조금씩 작게(뒤로 물러앉은 느낌) 해서 다시 채운다.
+export function restSeats(
+  count: number,
+  W: number,
+  H: number,
+  inset: { top: number; bottom: number; left: number; right: number },
+) {
+  const wideScreen = (1024 * H) / W <= 1024,
+    cw = wideScreen ? 1024 : (1024 * W) / H,
+    ch = wideScreen ? (1024 * H) / W : 1024,
+    spans = SEATS.flatMap(([, dy]) => [
+      seatTop(dy) + (seatScale(dy) * 126) / 512 - 28,
+      seatTop(dy) + (seatScale(dy) * 464) / 512 + 28,
+    ]),
+    x0 = wideScreen ? 0 : Math.max(0, Math.min(1024 - cw, FIRE.x - cw / 2)),
+    y0 = wideScreen
+      ? Math.max(0, Math.min(1024 - ch, (Math.min(...spans) + Math.max(...spans) - ch) / 2))
+      : 0,
+    s = W / cw;
+  const seats: Seat[] = SEATS.map(([dx, dy]) => ({
+    dx,
+    n: seatScale(dy) * s,
+    top: (seatTop(dy) - y0) * s,
+    x: (FIRE.x + dx * RX - x0) * s,
+  }));
+  const need = count - seats.length;
+  if (need <= 0) return { x0, y0, s, seats };
+  const wide = W >= 600,
+    fx = (FIRE.x - x0) * s,
+    fy = (FIRE.y - y0) * s,
+    blocked: Rect[] = [
+      ...seats.map((a) => seatBox(a.x, a.top, a.n)),
+      // 모닥불 돌 테두리와 불꽃
+      { l: (352 - x0) * s, t: (420 - y0) * s, r: (612 - x0) * s, b: (700 - y0) * s },
+      // "휴식 중..." 배지와 아래 버튼 줄
+      wide ? { l: 0, t: 0, r: 150, b: 64 } : { l: 0, t: 0, r: 150, b: 106 },
+      wide ? { l: W - 370, t: H - 80, r: W, b: H } : { l: 0, t: H - 96, r: W, b: H },
+    ],
+    bounds = { l: inset.left + 4, t: inset.top + 4, r: W - inset.right - 4, b: H - inset.bottom };
+  let extra: Seat[] = [];
+  for (const k of [0.85, 0.7, 0.55, 0.45]) {
+    const n = BASE * s * k,
+      probe = seatBox(0, 0, n),
+      bw = probe.r - probe.l,
+      bh = probe.b - probe.t,
+      candidates: Seat[] = [];
+    // 8px 간격으로 상자 왼쪽 위를 훑는다
+    for (let l = bounds.l; l + bw <= bounds.r; l += 8)
+      for (let tb = bounds.t; tb + bh <= bounds.b; tb += 8) {
+        const x = l + bw / 2;
+        candidates.push({ x, top: tb - probe.t, n, dx: x > fx ? 1 : -1 });
+      }
+    const d = (a: Seat) => Math.hypot((a.x - fx) / RX, (a.top + (n * 300) / 512 - fy) / RY);
+    candidates.sort((a, b) => d(a) - d(b));
+    extra = [];
+    const taken = [...blocked];
+    for (const c of candidates) {
+      if (extra.length === need) break;
+      const box = seatBox(c.x, c.top, c.n);
+      if (taken.some((b) => overlaps(b, box))) continue;
+      taken.push(box);
+      extra.push(c);
+    }
+    if (extra.length === need) break;
+  }
+  return { x0, y0, s, seats: [...seats, ...extra] };
+}
 export function RestGroup({
   state,
   resume,
@@ -86,36 +163,26 @@ export function RestGroup({
     return () => clearInterval(id);
   }, [result]);
   const others = currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
-  // ponytail: 모닥불 자리는 6곳뿐이라 나 + 쉬는 주민 5명까지만 보인다. 더 늘면 자리 넘김이 필요하다.
+  // 자리 자동 배정: 나는 뒤 가운데(1번), 주민은 0·2·3·4·5번, 7명부터는 바깥 줄(6번~)
   const actors = [
     { seat: 1, me: true, name: '나', color: state.color, restStartedAt: started },
-    ...others.slice(0, 5).map((m, n) => ({ ...m, me: false, seat: [0, 2, 3, 4, 5][n] })),
+    ...others.map((m, n) => ({ ...m, me: false, seat: n < 5 ? [0, 2, 3, 4, 5][n] : n + 1 })),
   ].sort((a, b) => a.seat - b.seat);
-  // 배경은 화면을 덮도록(cover) 자른다. 세로는 모닥불을, 가로는 고양이 무리(시간표~이름표)를 가운데에
-  const W = layout.width,
-    H = layout.height,
-    wideScreen = (1024 * H) / W <= 1024,
-    cw = wideScreen ? 1024 : (1024 * W) / H,
-    ch = wideScreen ? (1024 * H) / W : 1024,
-    spans = SEATS.flatMap(([, dy]) => [
-      seatTop(dy) + (seatScale(dy) * 126) / 512 - 28,
-      seatTop(dy) + (seatScale(dy) * 464) / 512 + 28,
-    ]),
-    x0 = wideScreen ? 0 : Math.max(0, Math.min(1024 - cw, FIRE.x - cw / 2)),
-    y0 = wideScreen
-      ? Math.max(0, Math.min(1024 - ch, (Math.min(...spans) + Math.max(...spans) - ch) / 2))
-      : 0,
-    s = W / cw;
+  const { width: W, height: H } = layout,
+    { top: it, bottom: ib, left: il, right: ir } = layout.insets;
+  // 자리 계산은 인원·화면 크기가 바뀔 때만(1초마다 도는 휴식 시간 갱신과 무관)
+  const { x0, y0, s, seats } = useMemo(
+    () => restSeats(actors.length, W, H, { top: it, bottom: ib, left: il, right: ir }),
+    [actors.length, W, H, it, ib, il, ir],
+  );
   const placed = actors.map((a) => {
-    const [dx, dy] = SEATS[a.seat],
-      n = seatScale(dy) * s,
-      top = (seatTop(dy) - y0) * s;
+    const { dx, n, top, x } = seats[a.seat];
     return {
       ...a,
       dx,
       n,
       top,
-      x: (FIRE.x + dx * RX - x0) * s,
+      x,
       // 축소한 그림은 가장자리가 1~3px 번져 보이므로 시안(PIL 합성 bbox)과 같게 머리는 2px 위, 발은 3px 아래로
       head: top + (n * loafTop[a.color]) / 512 - 2,
       foot: top + (n * 464) / 512 + 3,

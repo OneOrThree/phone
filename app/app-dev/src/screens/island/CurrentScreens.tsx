@@ -585,9 +585,9 @@ function FocusFlow({ e }: any) {
       if (!more) leave();
     };
   const resume = () => setVoyage('toSpot');
-  // 뒤로가기: 걷기·항해 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
+  // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
-    if (leg || voyage) return true;
+    if (leg || voyage || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
       const open = (s.rewards ?? []).filter((x) => !x.acknowledged);
       if (open[0]) e.dispatch({ type: 'CLAIM', id: open[0].id });
@@ -666,11 +666,13 @@ function FocusFlow({ e }: any) {
       e.notify('여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.');
       return;
     }
-    walkTo(p, () => {
+    const walked = walkTo(p, () => {
       if (latest.current.r !== 'fishingArrival') return;
       e.dispatch({ type: 'FOCUS_SPOT', spot: p });
       e.go('focusSetup');
     });
+    // 연못 가운데 섬처럼 뗏목 쪽 땅과 이어지지 않은 곳
+    if (!walked) e.notify('이곳까지 이어지는 땅을 골라 주세요.');
   };
   // 뗏목: 자리 고르기에서는 뗏목까지 걸어가 본인만 우리 섬으로, 집중 중에는 집중 종료 확인.
   const raft = () => {
@@ -748,27 +750,31 @@ function FocusFlow({ e }: any) {
           </Text>
         </View>
       </View>
-      <View
-        style={{
-          backgroundColor: C.paper,
-          borderWidth: 2,
-          borderColor: OUTLINE,
-          borderRadius: 13,
-          paddingVertical: 9,
-          paddingHorizontal: 12,
-        }}
-      >
-        <Text style={{ fontSize: 11, lineHeight: 17.6, fontWeight: '700', color: '#7C6857' }}>
-          달성한 일일 퀘스트
-        </Text>
-        <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
-          {achieved.length
-            ? achieved.map((q) => '✓ ' + q.title).join('\n')
-            : focusQuests[0]
-              ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questRate(s, focusQuests[0]) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
-              : '아직 없어요'}
-        </Text>
-      </View>
+      {/* 달성한 퀘스트가 여럿이면 이 부분만 줄여 스크롤해 아래 버튼이 늘 보이게 한다.
+          한 줄일 때는 시안(모달 전체 overflow)처럼 줄이지 않는다 */}
+      <ScrollView style={{ flexShrink: achieved.length > 1 ? 1 : 0 }} bounces={false}>
+        <View
+          style={{
+            backgroundColor: C.paper,
+            borderWidth: 2,
+            borderColor: OUTLINE,
+            borderRadius: 13,
+            paddingVertical: 9,
+            paddingHorizontal: 12,
+          }}
+        >
+          <Text style={{ fontSize: 11, lineHeight: 17.6, fontWeight: '700', color: '#7C6857' }}>
+            달성한 일일 퀘스트
+          </Text>
+          <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
+            {achieved.length
+              ? achieved.map((q) => '✓ ' + q.title).join('\n')
+              : focusQuests[0]
+                ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questRate(s, focusQuests[0]) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
+                : '아직 없어요'}
+          </Text>
+        </View>
+      </ScrollView>
       <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
         <FiButton
           primary

@@ -42,25 +42,54 @@ export function castSpot({ x, y }: Point): Spot {
   }
   return best ? { x, y, face: best.x < x ? -1 : 1, bx: best.x, by: best.y } : { x, y, face: 1 };
 }
-// 낚시 중인 주민 자리: 앞 두 자리는 시안 예시 좌표, 나머지는 땅 위 예시 자리.
-// ponytail: 주민 자리 서버 좌표가 없어 고정 목록을 순서대로 쓴다. 8명을 넘으면 앞자리부터 겹친다.
-export const PEER_SPOTS: Spot[] = [
-  { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 },
-  { x: 60.2, y: 44.1, face: -1, bx: 59.1, by: 44.9 },
-  ...[
-    { x: 45, y: 25 },
-    { x: 70, y: 30 },
-    { x: 80, y: 62 },
-    { x: 50, y: 75 },
-    { x: 75, y: 45 },
-    { x: 40, y: 70 },
-  ].map(castSpot),
-];
-// 다른 주민 자리와 가까운지(지도 폭 5% 안). 세로 %는 지도 비율(1024/1536)로 맞춰 잰다.
-export const occupied = (p: Point, spots: Point[]) =>
-  spots.some((q) => Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536) < 5);
+// 지도 % 좌표 사이 거리(세로 %는 지도 비율 1024/1536으로 맞춰 지도 폭 % 단위로 잰다)
+const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536);
 // 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
 export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
+// 낚시 중인 주민 자리(정원 15명 = 나 + 주민 14명). 앞 두 자리는 시안 예시 좌표, 다음 다섯은 땅 위 예시 자리.
+// 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
+// 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
+export const PEER_SPOTS: Spot[] = (() => {
+  const spots: Point[] = [
+      { x: 18.5, y: 39.5 },
+      { x: 60.2, y: 44.1 },
+      { x: 45, y: 25 },
+      { x: 70, y: 30 },
+      { x: 80, y: 62 },
+      { x: 75, y: 45 },
+      { x: 40, y: 70 },
+    ],
+    avoid = [GRAM, LANDING, DEFAULT_SPOT],
+    { cols, cells } = fishingGrid,
+    land = (c: number) => cells[c] === '1',
+    candidates: Point[] = [];
+  for (let c = 0; c < cells.length; c++) {
+    const col = c % cols,
+      row = Math.floor(c / cols);
+    // 네 이웃도 땅인 칸(물가 끝에 걸치지 않게)
+    if (
+      col &&
+      row &&
+      col < cols - 1 &&
+      row < cols - 1 &&
+      [c, c - 1, c + 1, c - cols, c + cols].every(land)
+    )
+      candidates.push({ x: (col + 0.5) * 2, y: (row + 0.5) * 2 });
+  }
+  candidates.sort((a, b) => apart(a, { x: 50, y: 50 }) - apart(b, { x: 50, y: 50 }));
+  for (const p of candidates) {
+    if (spots.length >= 14) break;
+    if ([...spots, ...avoid].every((q) => apart(p, q) >= 11) && castSpot(p).bx != null)
+      spots.push(p);
+  }
+  // 시안 예시 두 자리는 낚싯줄 끝도 시안 좌표 그대로. 여섯째 자리(축음기 앞)는 새로 뽑은 첫 자리로 채운다
+  const cast = spots.map(castSpot);
+  cast[0] = { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 };
+  cast[1] = { x: 60.2, y: 44.1, face: -1, bx: 59.1, by: 44.9 };
+  return [...cast.slice(0, 5), cast[7], ...cast.slice(5, 7), ...cast.slice(8)];
+})();
+// 다른 주민 자리와 가까운지(지도 폭 5% 안)
+export const occupied = (p: Point, spots: Point[]) => spots.some((q) => apart(p, q) < 5);
 // 뒤 화면을 스크린리더에서 숨긴다(모달·준비 카드가 떠 있을 때)
 export const a11yHidden = (hidden: boolean) =>
   hidden
