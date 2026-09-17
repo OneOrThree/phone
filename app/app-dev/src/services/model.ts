@@ -179,6 +179,7 @@ export type Session = {
   restStartedAt?: number;
   seconds: number;
   status: 'active' | 'paused';
+  // 예전 저장 세션에서 집중 중 이미 섬에 적립한 물고기 수(지금은 종료 때 한 번에 적립)
   creditedFish?: number;
   intervals?: { start: number; end: number }[];
 };
@@ -1216,7 +1217,6 @@ export function reducer(state: State, a: Action): State {
         seconds: 0,
         status: 'active',
         intervals: [],
-        creditedFish: 0,
       };
       break;
     case 'PAUSE':
@@ -1269,12 +1269,14 @@ export function reducer(state: State, a: Action): State {
       island.fish = balance(island) + uncredited;
       island.earned ??= {};
       island.earned.me = earnedBy(island, 'me') + uncredited;
-      island.ledger.unshift({
-        id: uuid(),
-        text: `${s.name} · 집중 +${uncredited}마리`,
-        at: now,
-        memberId: 'me',
-      });
+      // 1분 미만 집중(적립 0마리)은 가계부에 남기지 않는다
+      if (uncredited > 0)
+        island.ledger.unshift({
+          id: uuid(),
+          text: `${s.name} · 집중 +${uncredited}마리`,
+          at: now,
+          memberId: 'me',
+        });
       s.resultFromRest = s.session.status === 'paused';
       s.session = null;
       break;
@@ -1312,23 +1314,7 @@ export function reducer(state: State, a: Action): State {
       break;
     }
     case 'TICK': {
-      if (s.session) {
-        const total = Math.floor(sessionSeconds(s.session, now) / SECONDS_PER_FISH),
-          diff = total - (s.session.creditedFish ?? 0);
-        if (diff > 0) {
-          const owner = s.islands.find((i) => i.id === s.session!.islandId)!;
-          owner.fish = balance(owner) + diff;
-          owner.earned ??= {};
-          owner.earned.me = earnedBy(owner, 'me') + diff;
-          s.session.creditedFish = total;
-          owner.ledger.unshift({
-            id: uuid(),
-            text: `${s.name} · 집중 +${diff}마리`,
-            at: now,
-            memberId: 'me',
-          });
-        }
-      }
+      // 섬 잔액은 집중이 끝날 때(FINISH) 한 번에 오른다 — 낚시하는 동안에는 오르지 않는다(FOCUS-ISLAND.md 2026-09-17)
       for (const island of s.islands)
         if (island.construction && now >= island.construction.endsAt) {
           const b = island.construction.building;

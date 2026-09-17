@@ -645,17 +645,39 @@ test('카운트업 집중·첫 집중 후 회관 안내는 한 번만·예전 �
   assert.equal(legacy.hallGuide, undefined);
 });
 
-test('집중 1분마다 확정 적립, 종료·중복 TICK 시 같은 물고기를 다시 주지 않는다', () => {
+test('집중 중에는 섬 잔액이 오르지 않고, 종료할 때 한 번에 적립한다', () => {
   let s = initialState(true);
   const now = new Date(2026, 8, 15, 12).getTime();
+  const earned = earnedBy(currentIsland(s), 'me'),
+    ledger = currentIsland(s).ledger.length;
   s = act(s, 'START', { subject: '공부', now });
   s = act(s, 'TICK', { now: now + 60000 });
-  assert.equal(balance(currentIsland(s)), 1201);
-  s = act(s, 'TICK', { now: now + 60000 });
-  assert.equal(balance(currentIsland(s)), 1201);
+  s = act(s, 'TICK', { now: now + 90000 });
+  assert.equal(balance(currentIsland(s)), 1200);
+  assert.equal(currentIsland(s).ledger.length, ledger);
   s = act(s, 'FINISH', { now: now + 120000 });
   assert.equal(balance(currentIsland(s)), 1202);
   assert.equal(s.lastResult?.fish, 2);
+  assert.equal(earnedBy(currentIsland(s), 'me'), earned + 2);
+  assert.equal(currentIsland(s).ledger.length, ledger + 1);
+  assert.equal(currentIsland(s).ledger[0].text, `${s.name} · 집중 +2마리`);
+  assert.equal(currentIsland(s).ledger[0].memberId, 'me');
+  assert.equal(act(s, 'FINISH', { now: now + 180000 }), s);
+  // 예전 방식으로 일부를 이미 적립한 저장 세션은 나머지만 준다
+  let legacy = act(initialState(true), 'START', { subject: '예전', now });
+  legacy = { ...legacy, session: { ...legacy.session!, creditedFish: 1 } };
+  legacy = act(legacy, 'FINISH', { now: now + 120000 });
+  assert.equal(balance(currentIsland(legacy)), 1201);
+});
+test('1분 미만 집중은 물고기 0마리라 가계부에 남기지 않는다', () => {
+  let s = initialState(true);
+  const now = new Date(2026, 8, 15, 12).getTime(),
+    ledger = currentIsland(s).ledger.length;
+  s = act(s, 'START', { subject: '잠깐', now });
+  s = act(s, 'FINISH', { now: now + 59000 });
+  assert.equal(s.lastResult?.fish, 0);
+  assert.equal(balance(currentIsland(s)), 1200);
+  assert.equal(currentIsland(s).ledger.length, ledger);
 });
 test('시간대 일일 퀘스트는 휴식이 낀 실제 집중 구간만 계산', () => {
   let s = initialState(true);

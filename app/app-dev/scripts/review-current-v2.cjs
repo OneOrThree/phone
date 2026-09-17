@@ -69,7 +69,7 @@ const path = require('path');
               status: route === 'rest' ? 'paused' : 'active',
               restStartedAt: Date.now() - 130000,
             };
-          s.focusSpot = { x: 350, y: 830 };
+          s.focusSpot = { x: 34.1, y: 55.9 };
           window.__gromoReview.open(route, {
             state: s,
             detail,
