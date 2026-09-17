@@ -48,6 +48,9 @@ business:
   # 배포 «전에» 실패한다. 즉 이 파일이 바인딩되는 시점엔 값이 반드시 있다.
   # 키는 JWT 와 «독립»인 256비트 이상 base64. 회전은 keys 에 v2 를 더하고 active-key 를 옮기는
   # 순서다 — 이전 키는 커서 만료창(≤15분) 동안 검증용으로 남는다.
+  # ⚠️ 회전 트랩: keys 블록에는 v1 «하나»만 있다. env 의 BUSINESS_CURSOR_ACTIVE_KEY 만 v2 로 바꾸면
+  # keys 에 v2 가 없어 부팅이 떨어진다. 회전은 «keys.v2 를 더하는 코드 PR 이 먼저», 그 다음 env 의
+  # active-key 를 옮기는 순서다 — env 값만으로는 회전할 수 없다. (prod 도 같다.)
   cursor:
     enabled: ${BUSINESS_CURSOR_ENABLED}
     active-key: ${BUSINESS_CURSOR_ACTIVE_KEY:v1}
