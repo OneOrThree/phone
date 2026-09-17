@@ -67,6 +67,9 @@ jobs:
           # 이 PR 의 변경으로 잡혀 오탐이 난다 — PR #780 이 자기가 건드리지도 않은 V38 로 막혔다
           # (base.sha=df475a23 에 고정, 통합 브랜치는 a23a2921 로 이동, 그 사이가 V38 되돌림).
           # 그래서 base 를 실행 시점에 직접 구한다.
+          # 남은 이론상 구멍 하나: base 가 force-push 되면 merge-base 가 옮겨가 그 구간의 변경이
+          # 검사 밖으로 빠진다. 규약이 통합 브랜치 force-push 를 금지하므로 실무 위험은 낮지만,
+          # 금지가 풀리면 이 검사도 같이 흔들린다는 뜻이다(PR #781 리뷰 지적).
           git fetch --no-tags origin "$BASE_REF"
           BASE_SHA=$(git merge-base FETCH_HEAD HEAD || true)
           # base 계산이 깨졌을 때 «조용히 통과»하지 않게 명시적으로 막는다. set -e 가 대개
