@@ -8,6 +8,29 @@ import subprocess
 SERVICES = ('business-api', 'notification')
 
 
+# 위성 «빌드 방식» 자체를 바꾸는 입력 — 이것만 두 서비스 전체 검사를 켠다.
+# 나머지 .github 변경(다른 워크플로·다른 스크립트)은 계약 검사만 돌리면 충분하다.
+# 안 가르면 워크플로 한 줄만 고쳐도 business-api·notification 전체 빌드가 켜져
+# 러너 슬롯을 오래 물고, 관계없는 PR 까지 줄줄이 대기한다 (GROMO-1918).
+BUILD_AFFECTING = (
+    '.github/workflows/satellite-ci.yml',
+    '.github/scripts/satellite-ci-plan.py',
+    '.github/scripts/check-migration-checksum.py',
+    # JAR 재사용 팩·검증 로직 — build 와 images 가 이 스크립트로 아티팩트를 주고받는다.
+    # 처음에 `.github/actions/ci-jar/` 만 넣고 이걸 빠뜨렸다가 test_ci_build_reuse 에 잡혔다.
+    '.github/scripts/ci-jar.py',
+)
+BUILD_AFFECTING_PREFIXES = (
+    '.github/actions/ci-jar/',
+)
+# 계약 검사(runtime-contracts·public-command-contracts)만 돌리면 되는 입력.
+# 이 잡들은 어차피 ubuntu-latest 에서 몇 분이면 끝나고 서비스 빌드와 무관하다.
+CONTRACT_ONLY_PREFIXES = (
+    'docs/', 'app/', 'server/realtime/', '.github/',
+)
+CONTRACT_ONLY_FILES = ('README.md', 'AGENTS.md', 'CLAUDE.md')
+
+
 def plan(paths):
     selected = {service: False for service in SERVICES}
     if not paths:
@@ -19,10 +42,13 @@ def plan(paths):
         own = next((s for s in SERVICES if path.startswith(f'server/{s}/')), None)
         if own:
             selected[own] = True
-        elif path.startswith(('docs/', 'app/', 'server/realtime/')) or path in ('README.md', 'AGENTS.md', 'CLAUDE.md'):
+        elif path in BUILD_AFFECTING or path.startswith(BUILD_AFFECTING_PREFIXES):
+            # 빌드 방식이 바뀌었으니 그 빌드가 실제로 도는지 증명해야 한다.
+            return {service: True for service in SERVICES}
+        elif path.startswith(CONTRACT_ONLY_PREFIXES) or path in CONTRACT_ONLY_FILES:
             continue
         else:
-            # 공통 CI·배포 설정과 아직 분류하지 않은 입력은 두 서비스 모두 검사한다.
+            # 아직 분류하지 않은 입력은 안전한 쪽으로 — 두 서비스 모두 검사한다.
             return {service: True for service in SERVICES}
     return selected
 

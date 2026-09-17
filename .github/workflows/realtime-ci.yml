@@ -75,11 +75,12 @@ jobs:
     # 깨진 리비전도 이미지 빌드(bootJar 는 -x test 다)만 성공해 :latest 로 올라간다 — 그리고
     # compose 의 기본값이 바로 그 태그다.
     #
-    # GROMO-1910: 이 잡은 self-hosted 에 남긴다 — dev-ci의 build 와 같은 이유로 GAR 인증이
-    # GCE 메타데이터 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없다(기술 제약, 공개
-    # 전환과 무관).
+    # GROMO-1910 에서는 「GAR 인증이 GCE 메타데이터를 쓰니 못 옮긴다」고 판단해 남겼는데,
+    # 다시 보니 그 인증이 PR 에서 필요한 이유는 «레지스트리 캐시» 하나뿐이었다. 이미지를
+    # 올리는 것은 main push 뿐이다(아래 `push:`). 그래서 GROMO-1918 에서 PR 경로의 캐시를
+    # type=gha 로 바꾸고 PR 은 GitHub-hosted 로 옮긴다 — push 만 self-hosted 에 남는다.
     needs: [build]
-    runs-on: [self-hosted, ci, spot]
+    runs-on: ${{ github.event_name == 'push' && fromJSON('["self-hosted", "ci", "spot"]') || fromJSON('["ubuntu-latest"]') }}
     timeout-minutes: 25
     permissions:
       contents: read
@@ -91,8 +92,10 @@ jobs:
           operation: verify
 
       # GCE 러너의 SA 메타데이터 토큰으로 로그인 — gcloud 도 키 파일도 필요 없다(dev-ci 와 같은 방식).
-      # PR 에서도 로그인한다: cache-to 가 레지스트리를 쓰기 때문이다.
+      # push 에서만 돈다: PR 은 캐시를 type=gha 로 쓰므로 레지스트리 로그인이 필요 없고,
+      # metadata.google.internal 은 GitHub-hosted 에서 응답하지 않는다 (GROMO-1918).
       - name: GAR 인증
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
@@ -119,5 +122,6 @@ jobs:
           labels: |
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=registry,ref=${{ env.REALTIME_IMAGE_REPOSITORY }}:cache-amd64
-          cache-to: type=registry,ref=${{ env.REALTIME_IMAGE_REPOSITORY }}:cache-amd64,mode=max
+          # push 는 GAR 레지스트리 캐시(교차 실행 공유), PR 은 GitHub Actions 캐시.
+          cache-from: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache-amd64', env.REALTIME_IMAGE_REPOSITORY) || 'type=gha,scope=realtime-amd64' }}
+          cache-to: ${{ github.event_name == 'push' && format('type=registry,ref={0}:cache-amd64,mode=max', env.REALTIME_IMAGE_REPOSITORY) || 'type=gha,scope=realtime-amd64,mode=max' }}
