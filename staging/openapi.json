@@ -571,6 +571,233 @@
         }
       }
     },
+    "/internal/users/{userId}/focus-sessions": {
+      "post": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "start",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusSessionStartCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/focus-sessions/{sessionId}/resume": {
+      "post": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "resume",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusVersionedCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/focus-sessions/{sessionId}/pause": {
+      "post": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "pause",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusVersionedCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSessionView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/focus-sessions/{sessionId}/finish": {
+      "post": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "finish",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FocusVersionedCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusFinishView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/device-token-deletions": {
       "post": {
         "tags": [
@@ -4610,6 +4837,84 @@
         }
       }
     },
+    "/internal/users/{userId}/focus-summary": {
+      "get": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "summary",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusSummaryView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/focus-sessions/current": {
+      "get": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "current",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentFocusSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/activation": {
       "get": {
         "tags": [
@@ -7308,6 +7613,144 @@
           }
         }
       },
+      "FocusSessionStartCommandRequest": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "FocusSessionView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "status": {
+            "type": "string"
+          },
+          "activeSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "restStartedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "FocusVersionedCommandRequest": {
+        "type": "object",
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "Allocation": {
+        "type": "object",
+        "properties": {
+          "personalFishAdded": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "constructionFishAdded": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "FocusFinishView": {
+        "type": "object",
+        "properties": {
+          "recordId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "activeSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "goalAchieved": {
+            "type": "boolean"
+          },
+          "earnedFish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "allocation": {
+            "$ref": "#/components/schemas/Allocation"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "questProgress": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuestProgress"
+            }
+          }
+        }
+      },
+      "QuestProgress": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "myRate": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
       "DeviceTokenDeletionRequest": {
         "type": "object",
         "properties": {
@@ -8779,6 +9222,39 @@
           "acknowledgedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "FocusSummaryView": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "completedSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currentSessionSecondsToday": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "totalSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CurrentFocusSessionResponse": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "$ref": "#/components/schemas/FocusSessionView"
           }
         }
       },
