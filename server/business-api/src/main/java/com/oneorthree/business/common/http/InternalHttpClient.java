@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
@@ -49,6 +50,25 @@ public class InternalHttpClient implements AutoCloseable {
 
     private static final int MAX_RESPONSE_BYTES = 1024 * 1024;
     private static final Duration MAX_RETRY_WAIT = Duration.ofSeconds(1);
+
+    /**
+     * {@code endUserAuthErrors} 계약에서 <b>사용자</b> 오류로 인정하는 상류 401 code.
+     *
+     * <p>목록으로 두는 이유는 fail-closed 를 유지하기 위해서다 — 「코드가 있으면 통과」로 넓히면
+     * 상류가 새 401 을 내는 순간 그것이 사용자 오류로 둔갑한다. 여기 없는 401 은 서비스 자격
+     * 거부로 남아 502 {@code UPSTREAM_AUTH_FAILED} 가 된다.
+     *
+     * <p>제공자 6종은 계정 LLD §2.1 · 정책 A18 이 보존을 요구하는 기존 코드다. 빼면 잘못된 소셜
+     * 토큰 하나가 502 로 나가 서버 장애처럼 보인다.
+     */
+    private static final Set<String> END_USER_AUTH_CODES = Set.of(
+            "REFRESH_TOKEN", "UNAUTHORIZED",
+            "KAKAO_TOKEN", "APPLE_TOKEN", "GOOGLE_TOKEN",
+            "LINE_TOKEN", "INSTAGRAM_TOKEN", "FACEBOOK_TOKEN",
+            // 로그인 시도가 더 못 쓰게 됐다(복구 창 종료·폐기·digest 키 교체). 사용자에게는
+            // 「다시 로그인」이고, 서비스 자격 문제가 아니다 — 502 로 올리면 앱이 재인증 대신
+            // 재시도를 하고 대시보드에는 5xx 가 쌓인다.
+            "LOGIN_ATTEMPT_UNUSABLE");
 
     private final UpstreamTarget target;
     private final UpstreamProperties properties;
@@ -315,10 +335,12 @@ public class InternalHttpClient implements AutoCloseable {
         } catch (JacksonException e) {
             parsed = null;
         }
-        // 코드 없는 내부 필터 거절은 언제나 서비스 인증 오류다. RT 증명 계약만 사용자 401을 구분한다.
+        // 코드 없는 내부 필터 거절은 언제나 서비스 인증 오류다. 자격 계약만 사용자 401을 구분한다.
         if (status == 401) {
-            if (endUserAuthErrors && parsed != null
-                    && ("REFRESH_TOKEN".equals(parsed.code()) || "UNAUTHORIZED".equals(parsed.code()))) {
+            // ⚠️ parsed.code() 의 null 검사를 빼면 안 된다 — Set.of 는 contains(null) 에서 NPE 다.
+            //    그 NPE 는 여기서 새어 나가 「코드 없는 401」을 502 가 아니라 500 으로 만든다.
+            if (endUserAuthErrors && parsed != null && parsed.code() != null
+                    && END_USER_AUTH_CODES.contains(parsed.code())) {
                 return new UpstreamDomainException(status, parsed.code(), parsed.message(), null);
             }
             return new UpstreamCredentialRejectedException(target + " 서비스 자격 거부 status=401");

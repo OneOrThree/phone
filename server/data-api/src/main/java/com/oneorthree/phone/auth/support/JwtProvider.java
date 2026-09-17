@@ -1,5 +1,6 @@
 package com.oneorthree.phone.auth.support;
 
+import com.oneorthree.phone.auth.repository.domain.LoginTokenMaterials;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
@@ -329,6 +330,81 @@ public class JwtProvider {
 
     /** 검증된 식별 자료만 보관하며 토큰 원문은 포함하지 않는다. */
     public record LogoutToken(UUID userId, UUID sessionId, Long generation, Instant expiresAt) {
+    }
+
+    /**
+     * 방금 발급한 AT/RT 에서 <b>다시 만들기 위한 재료</b>를 뽑는다 (GROMO-1908, 계정 LLD §3).
+     *
+     * <p>로그인 시도 원장은 토큰 «원문»을 저장할 수 없다(LLD §3 「원문 자격/원문 JWT 저장 금지」).
+     * 대신 이 재료를 저장하고 재생 때 {@link #replayAccessToken}·{@link #replayRefreshToken} 으로
+     * 다시 서명한다 — HS256 은 결정적이라 같은 claims 에서 같은 문자열이 나온다.
+     *
+     * <p>「지금 값으로 채우기」를 하지 않는다 — {@code gen}·{@code sid} 가 없는 토큰이면 없는 채로
+     * 담는다. 채우면 재생 토큰이 원본과 달라져 저장된 RT 해시와 어긋난다.
+     *
+     * @param accessToken  방금 발급한 access 토큰
+     * @param refreshToken 방금 발급한 refresh 토큰
+     * @return 두 토큰을 그대로 되살릴 수 있는 재료
+     */
+    public LoginTokenMaterials freezeMaterials(String accessToken, String refreshToken) {
+        Claims access = parse(accessToken);
+        Claims refresh = parse(refreshToken);
+        Number generation = access.get(CLAIM_GENERATION, Number.class);
+        return new LoginTokenMaterials(
+                Boolean.TRUE.equals(access.get(CLAIM_GUEST, Boolean.class)),
+                generation == null ? null : generation.longValue(),
+                access.getIssuedAt().toInstant(),
+                access.getExpiration().toInstant(),
+                refresh.getIssuedAt().toInstant(),
+                refresh.getExpiration().toInstant(),
+                UUID.fromString(refresh.getId()));
+    }
+
+    /**
+     * 고정 재료로 원 access 토큰을 다시 만든다.
+     *
+     * <p>⚠️ claim 을 싣는 <b>순서</b>가 {@link #buildToken} 과 같아야 한다 — JJWT 는 삽입 순서대로
+     * 직렬화하므로 순서가 달라지면 값이 같아도 다른 문자열이 나온다. 두 메서드를 같은 클래스에 둔
+     * 이유가 이것이고, 어긋남은 {@code LoginAttemptReplayTest} 가 바이트 동일성으로 잡는다.
+     *
+     * @param sessionId 원 토큰의 {@code sid}. 없던 토큰이면 {@code null}
+     */
+    public String replayAccessToken(UUID userId, UUID sessionId, LoginTokenMaterials materials) {
+        return replay(userId, TYPE_ACCESS, materials.guest(), null, materials.authGeneration(),
+                sessionId, materials.accessIssuedAt(), materials.accessExpiresAt());
+    }
+
+    /** 고정 재료로 원 refresh 토큰을 다시 만든다. {@code jti} 까지 같아야 저장된 해시와 맞는다. */
+    public String replayRefreshToken(UUID userId, LoginTokenMaterials materials) {
+        return replay(userId, TYPE_REFRESH, materials.guest(), materials.refreshJti(), null, null,
+                materials.refreshIssuedAt(), materials.refreshExpiresAt());
+    }
+
+    private Claims parse(String token) {
+        return Jwts.parser().verifyWith(secretKey).build().parseSignedClaims(token).getPayload();
+    }
+
+    private String replay(UUID userId, String type, boolean isGuest, UUID jti, Long authGeneration,
+            UUID sessionId, Instant issuedAt, Instant expiresAt) {
+        // 순서는 buildToken 과 «글자 그대로» 같다: sub · type · guest · jti · gen · sid · iat · exp.
+        var builder = Jwts.builder()
+                .subject(userId.toString())
+                .claim(CLAIM_TYPE, type)
+                .claim(CLAIM_GUEST, isGuest);
+        if (jti != null) {
+            builder = builder.id(jti.toString());
+        }
+        if (authGeneration != null) {
+            builder = builder.claim(CLAIM_GENERATION, authGeneration);
+        }
+        if (sessionId != null) {
+            builder = builder.claim(CLAIM_SESSION_ID, sessionId.toString());
+        }
+        return builder
+                .issuedAt(Date.from(issuedAt))
+                .expiration(Date.from(expiresAt))
+                .signWith(secretKey)
+                .compact();
     }
 
     private String buildToken(UUID userId, long expirationSeconds, String type, boolean isGuest,

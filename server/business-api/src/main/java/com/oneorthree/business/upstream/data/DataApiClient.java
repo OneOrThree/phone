@@ -16,6 +16,8 @@ import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
 import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
 import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
+import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
+import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
@@ -42,6 +44,8 @@ public class DataApiClient {
     private static final String PATH_ACTIVATION = "/internal/users/{userId}/activation";
     private static final String PATH_DEVICE_SESSION_VERIFY = "/internal/auth/device-sessions/verify";
     private static final String PATH_SESSION_VERIFY = "/internal/auth/sessions/verify";
+    private static final String PATH_LOGIN_ATTEMPTS = "/internal/auth/login-attempts";
+    private static final String PATH_LOGIN_ATTEMPT_LOOKUP = "/internal/auth/login-attempts/lookup";
     private static final String PATH_DEVICE_TOKEN_DELETIONS = "/internal/users/{userId}/device-token-deletions";
     private static final String PATH_NOTIFICATION_SETTINGS_COMMANDS =
             "/internal/users/{userId}/notification-settings-commands";
@@ -87,6 +91,68 @@ public class DataApiClient {
                                 "targetUserId", targetUserId))
                         .idempotentCommand()
                         .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
+    }
+
+    /**
+     * 제공자 교환 <b>전</b> 내구 시도 조회 (계정 LLD §3-1 · §3-2).
+     *
+     * <p>{@code onBehalfOf} 가 없다 — 로그인 전에는 검증된 주체가 없다. 그게 이 요청으로 알아내려는
+     * 값이다. 자격은 {@code digest} 가 증명한다.
+     *
+     * <p>{@code idempotentCommand()} 를 켜는 이유: 이 호출은 상태를 바꾸지 않아 재시도가 안전한데,
+     * 기본 재시도 대상은 GET 뿐이라 켜 주지 않으면 일시 오류 한 번에 로그인이 실패한다.
+     */
+    public LoginAttemptLookup lookupLoginAttempt(UUID attemptId, String digestKeyId, String digest,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, PATH_LOGIN_ATTEMPT_LOOKUP)
+                        .body(new LoginAttemptLookupCommand(attemptId, digestKeyId, digest))
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LoginAttemptLookup>() { });
+    }
+
+    /**
+     * 실행권을 잡고 제공자 교환까지 수행한다 (계정 LLD §3-3).
+     *
+     * <p><b>{@code attemptId} 가 멱등 키다.</b> 원장이 그 키로 실행권을 선점하므로, 재시도가 같은
+     * 값을 들고 오면 두 번째 교환이 일어나지 않는다. 별도 {@code Idempotency-Key} 헤더를 붙이지
+     * 않는 이유는 로그인이 범용 receipt 계약 밖이기 때문이다(정책 A16 「로그인/로그아웃은 별도
+     * 인증 계약이다」).
+     */
+    public LoginSession executeLoginAttempt(LoginAttemptCommand command, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, PATH_LOGIN_ATTEMPTS)
+                        .body(command)
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LoginSession>() { });
+    }
+
+    /** 조회 요청 본문. 원 자격이 아니라 digest 만 나간다. */
+    private record LoginAttemptLookupCommand(UUID attemptId, String digestKeyId, String credentialDigest) {
+    }
+
+    /**
+     * 교환 요청 본문.
+     *
+     * <p>{@code credential}·{@code callerAccessToken} 은 자격 원문이다 — 이 DTO 는 HTTP 본문으로
+     * 한 번 나갈 뿐 어디에도 보관되지 않으며, {@code toString} 은 값을 가린다(직렬화는 Jackson 이
+     * 필드 접근자로 하므로 가려도 전송에는 영향이 없다).
+     */
+    public record LoginAttemptCommand(
+            UUID attemptId, String digestKeyId, String credentialDigest, String provider,
+            String credentialKind, String credential, String termsVersion, String callerAccessToken) {
+
+        @Override
+        public String toString() {
+            return "LoginAttemptCommand[attemptId=" + attemptId + ", provider=" + provider
+                    + ", credentialKind=" + credentialKind + ", credential=redacted]";
+        }
     }
 
     /** 원 RT의 폐기 증명으로 재시도 가능한 로그아웃. 주체는 Data가 자격에서 직접 검증한다. */

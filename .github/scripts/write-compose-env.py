@@ -39,6 +39,9 @@ SERVICE_REQUIRED_KEYS = {
         "JWT_SECRET", "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_BIZ_TO_NOTI", "SVC_TOKEN_BIZ_TO_LINK",
         "LINK_IP_SALT", "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
         "BUSINESS_REDIS_PASSWORD",
+        # GROMO-1908 로그인 시도 자격 digest 비밀. JWT_SECRET 과 «다른 값»(계정 LLD §3).
+        # 없으면 Business 가 부팅에서 fail-fast 한다(CredentialDigest).
+        "LOGIN_ATTEMPT_DIGEST_SECRET",
     ),
     "notification": (
         "NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",

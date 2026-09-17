@@ -76,7 +76,12 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "INSUFFICIENT_FUNDS", "IDEMPOTENCY_KEY_REUSED", "REQUEST_IN_PROGRESS", "CURSOR_EXPIRED",
                 "INVITATION_EXPIRED", "REQUEST_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "OUT_OF_RANGE",
                 "RATE_LIMITED", "INTERNAL_ERROR", "UPSTREAM_CONTRACT_ERROR", "UPSTREAM_AUTH_FAILED",
-                "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT");
+                "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT",
+                // GROMO-1908: 제공자 자격 실패 6종(계정 LLD §2.1 · 정책 A18). Data 의
+                // InvalidTokenErrorCode 와 «이름이 같아야» 상류 매핑이 붙고, 없으면 잘못된 소셜
+                // 토큰 하나가 401 이 아니라 502 로 나가 서버 장애처럼 보인다.
+                "KAKAO_TOKEN", "APPLE_TOKEN", "GOOGLE_TOKEN", "LINE_TOKEN", "INSTAGRAM_TOKEN",
+                "FACEBOOK_TOKEN");
     }
 
     @Test

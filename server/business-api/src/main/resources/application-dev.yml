@@ -8,6 +8,17 @@ jwt:
   # legacy issuer(Data API)와 «같은 값»이어야 한다. 전환 기간에 이 서비스는 검증만 한다.
   secret: ${JWT_SECRET}
 
+auth:
+  # 로그인 시도의 자격 digest 전용 비밀 (GROMO-1908 · 계정 LLD §3).
+  # ⚠️ jwt.secret 과 «다른 값»이어야 한다 — 한 키가 여러 용도를 겸하면 한쪽의 수명 정책
+  #    (로그인 복구 창 5분)이 다른 쪽(발급 토큰의 최대 만료)을 끌어내려 멀쩡한 세션이 끊긴다.
+  # ⚠️ 비거나 치환되지 않으면 «부팅이 실패»한다(CredentialDigest 의 RequiredConfig fail-fast).
+  #    비밀 없는 digest 는 「원 자격을 들고 있다」는 증거이기를 그만두는데, 로그인은 «정상 동작하는
+  #    것처럼» 보여서 그 상태가 사고 뒤에야 드러난다. 부팅 실패가 배포 게이트다.
+  # ⚠️ 이 키도 write-compose-env.py 허용목록에 넣어야 컨테이너까지 전달된다(파일 머리 참조).
+  login-attempt:
+    digest-secret: ${LOGIN_ATTEMPT_DIGEST_SECRET}
+
 link:
   # ⚠️ 기존 운영 값을 그대로 넘긴다. 새로 만들면 진행 중이던 매치 후보가 전부 무효가 된다(A22 ⓕ).
   ip-salt: ${LINK_IP_SALT}
