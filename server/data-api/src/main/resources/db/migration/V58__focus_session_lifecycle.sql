@@ -4,7 +4,9 @@
 
 CREATE TABLE focus_session_details (
     session_id                  uuid PRIMARY KEY REFERENCES focus_sessions(id) ON DELETE CASCADE,
-    user_id                     uuid NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    -- 탈퇴 시 null 로 끊는다(레거시 focus_sessions.user_id 와 같은 익명화) — 행 자체는 섬 건설 기여·
+    -- 정산 원장의 근거라 남긴다. RESTRICT 가 아닌 SET NULL 이라 뒷날 계정 하드 삭제도 막지 않는다.
+    user_id                     uuid REFERENCES users(id) ON DELETE SET NULL,
     island_id                   uuid NOT NULL REFERENCES groups(id) ON DELETE RESTRICT,
     membership_epoch_at_start   bigint NOT NULL,
     subject                     varchar(200) NOT NULL,

@@ -638,10 +638,10 @@ Table focus_sessions_pomodoro_setting [note: '뽀모도로 기본 집중/휴식 
 
 Table focus_session_details [note: 'GROMO-1764: v0.3 집중 세션 상세(섬 귀속·subject·목표·lifecycle·낙관 버전). focus_sessions 1:1, 이 행의 존재가 v0.3 프로토콜 판별자(migration V58)'] {
   session_id                uuid    [pk, note: 'FK → focus_sessions.id ON DELETE CASCADE — 별도 발급 없이 레거시 세션 PK를 공유']
-  user_id                   uuid    [not null, note: 'FK → users.id ON DELETE RESTRICT — 계정 탈퇴 시 상세 익명화 배선은 후속(LLD §5)']
+  user_id                   uuid    [note: 'nullable — 탈퇴 시 null (FK → users.id ON DELETE SET NULL). 레거시 focus_sessions 와 같은 익명화: 행은 남기고 user_id 절단 + 자유 입력 subject 파기(AccountWithdrawalService)']
   island_id                 uuid    [not null, note: 'FK → groups.id ON DELETE RESTRICT. 시작 후 불변(FR-P03)']
   membership_epoch_at_start bigint  [not null, note: '시작 시점 GroupMember.membershipEpoch 스냅샷 — 강퇴/재가입 감지 앵커(FR-D03 미결이라 기록만)']
-  subject                   varchar(200) [not null]
+  subject                   varchar(200) [not null, note: '자유 입력 — 탈퇴 익명화가 빈 문자열로 파기한다(NOT NULL 불변식이라 null 대신 빈 값)']
   target_minutes            integer [not null, note: '허용 범위는 FR-D06 미결 — 0 이하만 거절']
   lifecycle                 varchar(10) [not null, note: 'ACTIVE / PAUSED / COMPLETED / ABANDONED — 레거시 focus_session_status와 별개 축. ABANDONED = 기본 focus_sessions 마커가 레거시 start(autoCloseOpenMarkersOf)에 닫혀 진행 불가가 된 세션(정상 완료 아님)']
   version                   bigint  [not null, default: 1, note: '낙관 버전 — pause/resume/finish마다 +1(expectedVersion 검사 대상)']

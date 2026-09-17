@@ -52,7 +52,16 @@ public enum FocusErrorCode implements ErrorCode {
      * 보상 정책(FR-D01~06) 미확정 — {@link com.oneorthree.phone.focus.support.FocusRewardPolicyGate}가
      * 닫혀 있는 동안 finish는 이 코드로 막힌다. "0원 지급 성공"으로 위장하지 않는다(policy.md).
      */
-    REWARD_POLICY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "보상 정책이 아직 준비되지 않았습니다.");
+    REWARD_POLICY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "보상 정책이 아직 준비되지 않았습니다."),
+    /**
+     * v0.3 시작 경로 비활성 — {@link com.oneorthree.phone.focus.support.FocusSessionStartGate}가 닫혀
+     * 있는 동안 start는 이 코드로 막힌다. finish가 항상 503인 채로 세션을 만들면 사용자가 끝낼 수 없는
+     * 세션에 갇히기 때문이다.
+     *
+     * <p>{@link #REWARD_POLICY_UNAVAILABLE}과 같은 503이지만 코드를 나눈다 — 막는 사유가 다르고,
+     * 두 게이트 중 하나만 먼저 여는 날 앱·운영이 어느 쪽이 남았는지 구분할 수 있어야 한다.
+     */
+    SESSION_START_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "집중 세션 시작이 아직 준비되지 않았습니다.");
 
     private final HttpStatus status;
     private final String message;

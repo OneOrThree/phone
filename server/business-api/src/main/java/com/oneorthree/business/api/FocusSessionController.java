@@ -20,7 +20,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
@@ -103,11 +102,34 @@ public class FocusSessionController {
         return focusSessions.finish(claims, uuid(sessionId, "sessionId"), expectedVersion(body), key, deadline());
     }
 
-    /** {@code date}·{@code timezone} 의 판정은 Data 가 한다 — KST 규약을 두 곳에서 해석하지 않는다. */
+    /**
+     * {@code date}·{@code timezone} 의 <b>값</b> 판정은 Data 가 한다 — KST 규약을 두 곳에서 해석하지 않는다.
+     * 여기서 보는 것은 값이 아니라 <b>개수</b>다({@link #single}).
+     */
     @GetMapping("/me/focus-summary")
-    public FocusSummary summary(@RequestParam(required = false) String date,
-            @RequestParam(required = false) String timezone, HttpServletRequest request) {
-        return focusSessions.summary(sessions.requireSession(request), date, timezone, deadline());
+    public FocusSummary summary(HttpServletRequest request) {
+        return focusSessions.summary(sessions.requireSession(request), single(request, "date"),
+                single(request, "timezone"), deadline());
+    }
+
+    /**
+     * 쿼리 파라미터 하나 — 같은 키가 여러 번 오면 400 이다.
+     *
+     * <p>{@code @RequestParam String} 으로 받으면 다중 값이 첫 값(또는 콤마 결합)으로 조용히 축소돼
+     * {@code ?timezone=Asia/Seoul&timezone=UTC} 가 200 으로 통과한다 — 프록시·캐시·앱이 서로 다른 값을
+     * 읽고도 서버는 한 값만 판정한 셈이 된다. 모호한 요청은 고르지 말고 거절한다.
+     *
+     * @return 값이 없으면 {@code null}(둘 다 선택 파라미터다)
+     */
+    private static String single(HttpServletRequest request, String name) {
+        String[] values = request.getParameterValues(name);
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        if (values.length > 1) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, name);
+        }
+        return values[0];
     }
 
     /** pause/resume/finish 공용 본문 — expectedVersion 하나만 받는다(FR-P07). */

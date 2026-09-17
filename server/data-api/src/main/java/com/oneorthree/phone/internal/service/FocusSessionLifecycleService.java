@@ -23,6 +23,7 @@ import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.repository.domain.FocusType;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
 import com.oneorthree.phone.focus.support.FocusRewardPolicyGate;
+import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -82,11 +83,15 @@ import java.util.UUID;
  * 사용자 정렬 규칙과 회차/시설/지갑 단계는 해당하지 않는다(그 경로는 강퇴·정산 같은 교차 기능이며
  * 이 티켓 범위 밖이다).
  *
- * <h2>지급 비활성 게이트</h2>
+ * <h2>비활성 게이트 둘</h2>
  * {@link #finish}는 유효성 검사를 전부 통과해도 {@link FocusRewardPolicyGate#isOpen()}이 닫혀 있으면
  * {@link FocusErrorCode#REWARD_POLICY_UNAVAILABLE}로 막는다 — policy.md가 "정책 없을 때 성공 정산
- * receipt를 만들지 않는다"고 정했다. 게이트가 열리기 전까지 세션은 active/paused만 관측되고
- * completed에 닿지 않는다.
+ * receipt를 만들지 않는다"고 정했다.
+ *
+ * <p>그래서 {@link #start}도 {@link FocusSessionStartGate#isOpen()}로 먼저 막는다. finish가 항상 503인데
+ * start만 열려 있으면 사용자는 <b>끝낼 수 없는 세션</b>에 갇힌다 — v0.3 상세가 달린 세션은 12시간
+ * orphan 스윕에서도 제외되고(LLD §5), 다음 start는 열린 기본 마커 때문에 409다. 두 게이트를 여는 날의
+ * 선행 조건 목록은 {@link FocusSessionStartGate}의 javadoc에 있다.
  *
  * <h2>기본 마커 외부 종료 방어</h2>
  * 진행 중 상세를 집는 세 지점({@link #start}·{@link #current}·{@link #authorizeSession})은
@@ -120,9 +125,18 @@ public class FocusSessionLifecycleService {
     private final OutboxCommandPort outboxCommandPort;
     private final Clock clock;
 
-    /** {@code POST /focus-sessions} — LLD §2 start. */
+    /**
+     * {@code POST /focus-sessions} — LLD §2 start.
+     *
+     * <p><b>가장 앞에서</b> {@link FocusSessionStartGate}를 본다 — 입력 검증보다도 먼저다. finish가
+     * 항상 503인 동안 세션을 만들면 끝낼 수도, 스윕으로 풀릴 수도, 다시 시작할 수도 없는 상태에
+     * 갇히기 때문이다. 게이트가 막는 한 진행 행 자체가 생기지 않는다.
+     */
     @Transactional
     public FocusSessionView start(UUID userId, FocusSessionStartCommandRequest body, UUID idempotencyKey) {
+        if (!FocusSessionStartGate.isOpen()) {
+            throw new FocusException(FocusErrorCode.SESSION_START_UNAVAILABLE);
+        }
         String subject = validateSubject(body == null ? null : body.subject());
         int targetMinutes = validateTargetMinutes(body == null ? null : body.targetMinutes());
         UUID islandId = requireIslandId(body == null ? null : body.islandId());
@@ -222,13 +236,17 @@ public class FocusSessionLifecycleService {
                     requireLifecycle(detail, FocusSessionLifecycle.ACTIVE);
                     requireVersion(detail, expectedVersion);
 
-                    Instant now = clock.instant();
+                    Instant now = transitionAnchor(detail);
                     List<FocusSessionInterval> intervals = focusSessionIntervalRepository
                             .findBySessionIdOrderByOrdinalAsc(sessionId);
                     FocusSessionInterval open = FocusIntervalMath.openInterval(intervals)
                             .orElseThrow(() -> new IllegalStateException(
                                     "active 세션에 열린 ACTIVE 구간이 없습니다 — session=" + sessionId));
                     open.close(now);
+                    // 닫는 UPDATE가 새 구간 INSERT보다 «먼저» DB에 닿아야 한다 — Hibernate는 한 flush
+                    // 안에서 insert를 update보다 먼저 내보내므로, 그냥 두면 열린 구간이 둘이 되어
+                    // focus_session_intervals_open_uk 위반으로 첫 pause가 500이 된다(start와 같은 함정).
+                    focusSessionIntervalRepository.flush();
 
                     // 섬 잠금 아래 빈 최소 자리를 배정한다 — 동시 pause 두 건이 같은 자리를 받지 않게(LLD §2).
                     groupQueryService.getGroupForUpdate(detail.getIslandId());
@@ -272,13 +290,15 @@ public class FocusSessionLifecycleService {
                     requireLifecycle(detail, FocusSessionLifecycle.PAUSED);
                     requireVersion(detail, expectedVersion);
 
-                    Instant now = clock.instant();
+                    Instant now = transitionAnchor(detail);
                     List<FocusSessionInterval> intervals = focusSessionIntervalRepository
                             .findBySessionIdOrderByOrdinalAsc(sessionId);
                     FocusSessionInterval open = FocusIntervalMath.openInterval(intervals)
                             .orElseThrow(() -> new IllegalStateException(
                                     "paused 세션에 열린 REST 구간이 없습니다 — session=" + sessionId));
                     open.close(now);
+                    // pause와 같은 이유 — 닫는 UPDATE를 먼저 내보내지 않으면 열린 구간이 둘이 된다.
+                    focusSessionIntervalRepository.flush();
 
                     focusSessionIntervalRepository.save(FocusSessionInterval.builder()
                             .sessionId(sessionId)
@@ -346,7 +366,12 @@ public class FocusSessionLifecycleService {
      * {@code GET /me/focus-summary} — LLD §2 home-summary. completedSeconds(기존 DailyFocusStat)와
      * currentSessionSecondsToday(진행 세션 구간)를 같은 트랜잭션의 두 조회로 읽는다 — 종료 TX와 겹친 GET의
      * 이중 계산 회피는 REPEATABLE READ가 아니라 두 조회 사이 창이 매우 좁다는 완화다(ponytail, 아래 참고).
+     *
+     * <p>{@code current}와 같은 이유로 {@code readOnly}가 아니다 — {@link #abandonIfMarkerClosed}가 어긋난
+     * 행을 여기서도 걸러야 한다. 거르지 않으면 기본 마커가 닫힌 뒤에도 열린 ACTIVE 구간을 {@code now}까지
+     * 계산해 {@code currentSessionSecondsToday}·{@code totalSeconds}를 계속 부풀린다.
      */
+    @Transactional
     public FocusSummaryView summary(UUID userId, String rawDate, String rawTimezone) {
         User user = userQueryService.getCaller(userId);
         validateTimezone(rawTimezone);
@@ -362,6 +387,7 @@ public class FocusSessionLifecycleService {
 
         long currentSeconds = focusSessionDetailRepository
                 .findFirstByUserIdAndLifecycleIn(userId, PROGRESSING)
+                .filter(detail -> !abandonIfMarkerClosed(detail))
                 .map(detail -> FocusIntervalMath.activeSecondsOverlapping(
                         focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(detail.getSessionId()),
                         now, dayStart, dayEnd))
@@ -372,10 +398,32 @@ public class FocusSessionLifecycleService {
 
     // ─────────────────────────────────────────────────────────────────────────
 
+    /**
+     * 전이 anchor — 서버 벽시계가 NTP 보정으로 <b>뒤로 간</b> 경우에도 직전 전이보다 이르지 않은 시각.
+     *
+     * <p>진행 중인 구간의 {@code startedAt}은 언제나 그 세션의 {@code lastTransitionAt}과 같은 값이다
+     * (start·pause·resume이 둘을 같은 시각으로 전진시킨다). 그래서 {@code clock.instant()}가 그보다
+     * 이르면 구간을 닫는 순간 V58의 {@code focus_session_intervals_order_ck}
+     * ({@code ended_at >= started_at})를 위반해 정상 pause가 500이 된다 — 물러난 벽시계는 사용자 잘못이
+     * 아니므로 여기서 앞으로 눌러 둔다(시간이 «흐르지 않은» 것으로 보이지, 음수로 흐르지는 않는다).
+     *
+     * <p>finish는 게이트가 열려 정산 전이를 쓰게 되는 날 같은 anchor를 쓴다 — 지금은 게이트 앞에서
+     * 막혀 전이 자체가 없다.
+     *
+     * @param detail 이미 잠근 상세 행
+     * @return {@code max(clock.instant(), detail.lastTransitionAt)}
+     */
+    private Instant transitionAnchor(FocusSessionDetail detail) {
+        Instant now = clock.instant();
+        Instant last = detail.getLastTransitionAt();
+        return last != null && last.isAfter(now) ? last : now;
+    }
+
     private FocusSessionView toView(FocusSessionDetail detail, Instant now) {
         List<FocusSessionInterval> intervals = focusSessionIntervalRepository
                 .findBySessionIdOrderByOrdinalAsc(detail.getSessionId());
-        long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, now);
+        // 조회에도 같은 anchor를 쓴다 — 물러난 벽시계로 열린 구간을 닫으면 activeSeconds가 음수로 나간다.
+        long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, transitionAnchor(detail));
         boolean paused = detail.getLifecycle() == FocusSessionLifecycle.PAUSED;
         return new FocusSessionView(detail.getSessionId(), detail.getIslandId(), detail.getSubject(),
                 detail.getTargetMinutes(), paused ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE,
@@ -392,7 +440,8 @@ public class FocusSessionLifecycleService {
         requireActiveUser(userId);
         FocusSessionDetail detail = focusSessionDetailRepository.findBySessionIdForUpdate(sessionId)
                 .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
-        if (!detail.getUserId().equals(userId)) {
+        // userId 를 왼쪽에 둔다 — 탈퇴 익명화로 detail.userId 가 null 인 행에 NPE 로 500 을 내지 않는다.
+        if (!userId.equals(detail.getUserId())) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
         if (abandonIfMarkerClosed(detail)) {

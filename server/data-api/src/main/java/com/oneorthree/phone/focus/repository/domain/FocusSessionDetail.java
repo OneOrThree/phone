@@ -40,7 +40,13 @@ public class FocusSessionDetail {
     @Column(name = "session_id")
     private UUID sessionId;
 
-    @Column(name = "user_id", nullable = false)
+    /**
+     * 세션 주인. <b>탈퇴하면 null</b>이 된다 — 레거시 {@code focus_sessions.user_id}와 같은 익명화
+     * 방식이다({@code FocusSessionDetailRepository#anonymizeWithdrawnUser}). 행을 지우지 않는 것은
+     * 이 상세가 섬 건설 기여·정산 원장의 근거이기 때문이고, {@code user_id} 조건이 붙은 모든 조회는
+     * 끊긴 행을 자연히 걸러 낸다.
+     */
+    @Column(name = "user_id")
     private UUID userId;
 
     /** 시작 시 고정, 진행 중 불변(FR-P03) — 소속 변경은 진행 세션에 반영되지 않는다. */

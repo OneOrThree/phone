@@ -77,6 +77,44 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
+    /**
+     * 키가 «없는» 것과 값이 null 인 것은 다르다 — 전자는 배포가 어긋난 계약 불일치(502)다.
+     * 접어서 {@code data:null} 로 내리면 진행 중이던 세션이 사라진 것처럼 보인다.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "null", "{\"other\":1}"})
+    void currentRejectsBodyWithoutTheSessionKey(String body) throws Exception {
+        DATA.on(DATA_CURRENT, request -> ok(body));
+        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    /** 시작 게이트가 닫혀 있는 동안 start 는 재시도 가능한 503 이다 — 502 로 접히지 않는다. */
+    @Test
+    void startRelaysClosedStartGateAsRetryableUnavailable() throws Exception {
+        DATA.on(DATA_START, request -> error(503, "SESSION_START_UNAVAILABLE"));
+        mockMvc.perform(write(post("/focus-sessions"), START_BODY))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.error.retryable").value(true))
+                .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    /**
+     * 같은 키가 둘이면 400 이다 — {@code @RequestParam String} 은 다중 값을 하나로 축소해
+     * {@code ?timezone=Asia/Seoul&timezone=UTC} 를 200 으로 통과시킨다. 모호한 요청은 고르지 않는다.
+     */
+    @ParameterizedTest
+    @CsvSource({"timezone,Asia/Seoul,UTC", "date,2026-09-17,2026-09-18"})
+    void summaryRejectsRepeatedQueryParameter(String name, String first, String second) throws Exception {
+        mockMvc.perform(auth(get("/me/focus-summary")).queryParam(name, first).queryParam(name, second))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.error.field").value(name));
+        assertThat(DATA.received()).isEmpty();
+    }
+
     @Test
     void summaryPassesQueryThroughAndKeepsJudgementUpstream() throws Exception {
         DATA.on(DATA_SUMMARY, request -> ok("{\"date\":\"2026-09-17\",\"completedSeconds\":60,"

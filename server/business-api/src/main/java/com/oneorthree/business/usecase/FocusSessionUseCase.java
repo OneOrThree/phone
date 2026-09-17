@@ -3,9 +3,11 @@ package com.oneorthree.business.usecase;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
+import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
@@ -48,6 +50,9 @@ public class FocusSessionUseCase {
             Map.entry("FORBIDDEN", new PublicFailure(ApiErrorCode.FORBIDDEN, null)),
             Map.entry("SESSION_STATE_CONFLICT", new PublicFailure(ApiErrorCode.STATE_CONFLICT, null)),
             Map.entry("REWARD_POLICY_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)),
+            // 시작 게이트도 같은 공개 503 이다 — 재시도 가능하다는 것이 앱에 참이고, 어느 게이트가
+            // 막았는지는 Data 의 코드로만 갈린다(운영 로그·대시보드가 그 코드를 본다).
+            Map.entry("SESSION_START_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)),
             Map.entry("INVALID_SUMMARY_DATE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "date")),
             Map.entry("SUMMARY_DATE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "date")),
             Map.entry("INVALID_SUMMARY_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")));
@@ -59,9 +64,18 @@ public class FocusSessionUseCase {
         return relay(() -> data.startFocusSession(claims.userId(), islandId, subject, targetMinutes, key, deadline));
     }
 
-    /** 진행 세션이 없으면 {@code null} 이고, 그 null 은 정상값이다 — 공개 응답의 {@code data:null} 이 된다. */
+    /**
+     * 진행 세션이 없으면 {@code null} 이고, 그 null 은 정상값이다 — 공개 응답의 {@code data:null} 이 된다.
+     *
+     * <p>봉투 자체가 없는 것({@code null} 본문, 예: 상류가 {@code "null"} 을 준 경우)은 정상값이 아니라
+     * 계약 불일치다 — 그냥 {@code .session()} 하면 NPE 로 500 이 되어 배선 사고가 서버 버그처럼 보인다.
+     */
     public FocusSessionState current(AccessTokenClaims claims, Deadline deadline) {
-        return relay(() -> data.fetchCurrentFocusSession(claims.userId(), deadline)).session();
+        CurrentFocusSession envelope = relay(() -> data.fetchCurrentFocusSession(claims.userId(), deadline));
+        if (envelope == null) {
+            throw new UpstreamContractMismatchException("현재 집중 세션 응답 봉투가 없습니다");
+        }
+        return envelope.session();
     }
 
     public FocusSessionState pause(AccessTokenClaims claims, UUID sessionId, long expectedVersion, UUID key,

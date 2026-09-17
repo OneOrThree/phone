@@ -5,9 +5,11 @@ import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -47,4 +49,40 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     @Query("SELECT d.restSeat FROM FocusSessionDetail d WHERE d.islandId = :islandId AND d.lifecycle = "
             + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED")
     List<Integer> findUsedRestSeatsByIslandId(@Param("islandId") UUID islandId);
+
+    /**
+     * 탈퇴 정리 1/2 — 탈퇴자의 진행(active/paused) 상세를 {@code ABANDONED}로 종결하고 휴식 자리를
+     * 반납한다. 종결하지 않으면 사용자당 진행 1건 부분 UNIQUE를 영영 점유한 유령 행이 남는다.
+     *
+     * @param userId 탈퇴 중인 유저
+     * @param now    종결 시각
+     * @return 종결된 행 수(보통 0 — 시작 게이트가 닫혀 있는 동안은 행 자체가 생기지 않는다)
+     */
+    @Modifying
+    @Query("UPDATE FocusSessionDetail d SET "
+            + "d.lifecycle = com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.ABANDONED, "
+            + "d.restSeat = null, d.version = d.version + 1, d.lastTransitionAt = :now "
+            + "WHERE d.userId = :userId AND d.lifecycle IN ("
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.ACTIVE, "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED)")
+    int abandonProgressingOfUser(@Param("userId") UUID userId, @Param("now") Instant now);
+
+    /**
+     * 탈퇴 정리 2/2 — 레거시 {@code focus_sessions}와 <b>같은 방식</b>으로 행은 남기고 개인정보만
+     * 끊는다({@code FocusSessionRepository#nullifyUser}). 상세 행은 섬 건설 기여·정산 원장의 근거라
+     * 지우면 남은 사람들의 이력이 함께 무너진다.
+     *
+     * <p>자유 입력 {@code subject}도 파기한다 — {@code UserService.erasePersonalData}가 닉네임 같은
+     * 자유 입력을 null로 지우는 것과 같은 결이고, 이 컬럼은 진행 세션의 NOT NULL 불변식이라 같은
+     * 「값 없음」을 빈 문자열로 표현한다.
+     *
+     * <p>반드시 {@link #abandonProgressingOfUser}보다 <b>뒤</b>다 — 여기서 {@code user_id}가 끊기면
+     * 그 뒤의 어떤 조건도 이 사용자의 행을 찾지 못한다.
+     *
+     * @param userId 탈퇴 중인 유저
+     * @return 익명화된 행 수
+     */
+    @Modifying
+    @Query("UPDATE FocusSessionDetail d SET d.userId = null, d.subject = '' WHERE d.userId = :userId")
+    int anonymizeWithdrawnUser(@Param("userId") UUID userId);
 }
