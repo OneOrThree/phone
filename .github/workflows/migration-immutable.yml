@@ -1,0 +1,110 @@
+name: 적용된 마이그레이션 불변
+
+# 이미 통합 브랜치에 있는 Flyway 마이그레이션이 «수정·삭제·개명» 되지 않았는지 본다 (GROMO-1911).
+#
+# ── 왜 필요한가 ────────────────────────────────────────────────────────────────
+# Flyway 는 적용한 파일의 체크섬을 DB 에 저장해 두고 다음 부팅의 validate 에서 대조한다.
+# SQL 이 아니라 «주석 한 글자»가 달라져도 checksum mismatch 로 부팅 자체가 막힌다.
+#
+# 2026-09-16 문서 경로 일괄 치환(PR #773)이 이미 적용된 V38 의 주석 한 줄을 바꿨고, 그 뒤
+# 통합 브랜치의 Dev CD 가 전부 실패했다 — run 35168718059:
+# `Migration checksum mismatch for migration version 38`. 아무도 알아채지 못한 채 하루가 지났다.
+#
+# 테스트로는 못 잡는다. CI 는 create-drop + Flyway off 라 마이그레이션을 아예 돌리지 않아
+# 이 부류는 dev·prod «부팅»에서만 드러난다. 그래서 코드가 아니라 «파일이 변경되었는지»를 본다.
+#
+# ── 왜 dev-ci.yml 안이 아니라 독립 워크플로인가 ─────────────────────────────────
+# 마이그레이션을 가진 서비스가 셋이다 — data-api · realtime · notification. 각자 자기 DB 와
+# 자기 워크플로를 갖는다. dev-ci.yml 안에 두면 `server/data-api/**` 경로 필터에 묶여
+# 나머지 둘은 검사를 «전혀» 타지 않는다(PR #779 리뷰 지적). 서비스마다 같은 잡을 복사하는
+# 대신, 한 곳에서 전 서비스를 본다. 새 서비스가 마이그레이션을 들여도 글롭에 자동으로 걸린다.
+#
+# ── 왜 paths 필터가 없는가 ────────────────────────────────────────────────────
+# 이 잡을 main 브랜치 보호의 required check 로 걸 수 있게 하기 위해서다. paths 로 걸러 두면
+# 조건에 안 맞는 PR 에서 잡이 «아예 생성되지 않아» required check 가 영원히 pending 으로 남고
+# 머지가 막힌다. 실행이 십여 초라 전 PR 에서 도는 비용이 그 위험보다 싸다.
+
+on:
+  pull_request:
+    branches-ignore: [release]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: migration-immutable-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # merge-base 를 정확히 계산하려면 전체 히스토리가 필요하다.
+          fetch-depth: 0
+      - name: 검사 패턴이 실제 마이그레이션을 가리키는지 자가 확인
+        run: |
+          set -euo pipefail
+          # 패턴이 오타·매직 누락으로 «아무것도» 매칭하지 않으면 이 잡은 영원히 초록이 되어
+          # 없는 것만 못하다. 그래서 대상이 하나도 없으면 여기서 먼저 실패한다.
+          tracked=$(git ls-files ':(glob)server/*/src/main/resources/db/migration/**' | wc -l | tr -d ' ')
+          echo "추적 중인 마이그레이션 파일 $tracked 개"
+          if [ "$tracked" -eq 0 ]; then
+            echo "::error::검사 패턴이 어떤 마이그레이션도 가리키지 않습니다 — 패턴이 깨졌습니다."
+            exit 1
+          fi
+          git ls-files ':(glob)server/*/src/main/resources/db/migration/**' \
+            | sed 's|/src/.*||' | sort -u | sed 's/^/  덮는 서비스: /'
+      - name: 이미 통합 브랜치에 있는 마이그레이션이 수정·삭제·개명되지 않았는지 확인
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          # ⚠️ github.event.pull_request.base.sha 를 쓰면 안 된다 — 그 값은 «PR 이 열린 시점»의
+          # base tip 에 고정되어 통합 브랜치가 앞서 나가도 갱신되지 않는다. 반면 actions/checkout
+          # 이 받는 것은 최신 base 를 품은 머지 ref 다. 둘을 비교하면 «통합 브랜치 자신의 변경»이
+          # 이 PR 의 변경으로 잡혀 오탐이 난다 — PR #780 이 자기가 건드리지도 않은 V38 로 막혔다
+          # (base.sha=df475a23 에 고정, 통합 브랜치는 a23a2921 로 이동, 그 사이가 V38 되돌림).
+          # 그래서 base 를 실행 시점에 직접 구한다.
+          # 남은 이론상 구멍 하나: base 가 force-push 되면 merge-base 가 옮겨가 그 구간의 변경이
+          # 검사 밖으로 빠진다. 규약이 통합 브랜치 force-push 를 금지하므로 실무 위험은 낮지만,
+          # 금지가 풀리면 이 검사도 같이 흔들린다는 뜻이다(PR #781 리뷰 지적).
+          git fetch --no-tags origin "$BASE_REF"
+          BASE_SHA=$(git merge-base FETCH_HEAD HEAD || true)
+          # base 계산이 깨졌을 때 «조용히 통과»하지 않게 명시적으로 막는다. set -e 가 대개
+          # 잡아 주지만, 이 검사의 최악은 실패가 아니라 «늘 초록»이라 한 번 더 확인한다.
+          if [ -z "$BASE_SHA" ]; then
+            echo "::error::base($BASE_REF) 와의 merge-base 를 구하지 못했습니다 — 검사를 신뢰할 수 없어 실패시킵니다."
+            exit 1
+          fi
+          echo "base=$BASE_SHA ($BASE_REF)"
+          # M 수정 · D 삭제 · R 개명 · T 타입변경. 추가(A)는 정상이라 뺀다.
+          # 개명도 막는다 — Flyway 는 파일명에서 version 과 description 을 읽는다.
+          # 삼점(...)은 merge-base 기준 비교다.
+          # pathspec 의 ':(glob)' 매직이 필요하다. 이게 없으면 git 의 기본 와일드카드가
+          # 경로 구분자를 넘어 버려 이 패턴이 «아무것도» 매칭하지 않는다(실측). 검사가 늘
+          # 초록이 되어 없는 것만 못해지므로, 패턴을 고칠 때는 아래 자가 검사를 꼭 다시 돌린다.
+          changed=$(git diff --diff-filter=MDRT --name-only "$BASE_SHA...HEAD" \
+            -- ':(glob)server/*/src/main/resources/db/migration/**')
+          if [ -z "$changed" ]; then
+            echo "적용된 마이그레이션 변경 없음 (추가만 있거나 손대지 않음)."
+            exit 0
+          fi
+          # 탈출구는 «커밋 메시지»에 둔다 — 라벨은 PR 규약상 유형 라벨 하나만 허용되고,
+          # 워크플로 자체를 고치는 건 곧 검사를 끄는 길이다. 되돌리기(복구)도 base 기준으로는
+          # «수정»이라 이 길을 탄다.
+          #
+          # ⚠️ squash merge 는 PR 제목을 통합 브랜치의 커밋 메시지로 쓰므로 이 트레일러는
+          #    보통 통합 브랜치 히스토리에 남지 않는다. 「무엇을 왜 봐줬는지」의 감사 기록은
+          #    이 잡의 실행 로그(아래 ::warning::)와 PR 타임라인에 있다.
+          reason=$(git log --format=%B "$BASE_SHA..HEAD" \
+            | sed -n 's/^Flyway-Override:[[:space:]]*//p' | head -1)
+          if [ -n "$reason" ]; then
+            echo "::warning::의도적 우회 — $reason"
+            echo "$changed"
+            exit 0
+          fi
+          echo "::error::이미 통합 브랜치에 있는 마이그레이션을 고치면 Flyway 체크섬이 달라져 dev·prod 가 부팅하지 못합니다. 원문으로 되돌리고 새 V 파일을 추가하세요. 정말 의도한 변경이면 커밋 메시지에 'Flyway-Override: <이유>' 줄을 넣으세요."
+          echo "$changed"
+          exit 1
