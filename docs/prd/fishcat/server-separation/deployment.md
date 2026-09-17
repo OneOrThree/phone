@@ -36,7 +36,7 @@ nginx·인증서는 Infra 소유다. `nginx-satellites.include.conf.example`과 
 - Notification은 시스템 §2.1대로 `/internal/admin/`만 공개하며 서비스가 콘솔 전용 Bearer와 actor를 검증한다. 나머지 `/internal/`과 management 9091은 공개하지 않는다.
 - ~~Cloudflare CIDR·방화벽·realip 설정으로 검증한 방문자 IP를 전용 `X-Link-Client-IP`로 보낸다. 프록시 시크릿은 nginx·Business·Link에서 일치해야 한다.~~ → A23(2026-09-13): 링크 서버가 없다 — 검증한 방문자 IP 는 현행대로 `X-Real-IP` 로 넘기고 프록시 시크릿은 없다([링크 정본](../link-attribution/high-level-design.md) §2·§5).
 - (A23(2026-09-13)으로 폐기 — 링크 컷오버·정지 창이 없다, 링크 정본 HLD §7 4단계: nginx 설정 한 번) §7.2 3~4단계에는 랜딩을 닫고 Business 호환 match를 사용한다. `IMPORT_CLOSED`·import drain 후 예시의 final 블록으로 랜딩과 match를 같은 reload에서 Link로 넘긴다. claim 목적지 전환·큐 처리도 같은 정지 창에서 확인한다.
-- ~~라우팅 교체 후 호환 인플라이트를 drain하고 `COMPAT_MATCH_HANDLER_ENABLED`를 끈다. 구 앱의 `/l/match` URL은 제거하지 않는다. DNS 이전은 두 경로가 Neon을 본 뒤에 한다.~~ → A23: 호환 핸들러·Neon·DNS 이전이 없다. `business.compat.*` 는 #745 잔재로 기본 false 를 유지하고 링크 구현 PR 이 걷어낸다(링크 LLD §9.1).
+- ~~라우팅 교체 후 호환 인플라이트를 drain하고 `COMPAT_MATCH_HANDLER_ENABLED`를 끈다. 구 앱의 `/l/match` URL은 제거하지 않는다. DNS 이전은 두 경로가 Neon을 본 뒤에 한다.~~ → A23: 호환 핸들러·Neon·DNS 이전이 없다. `business.compat.*` 는 #745 잔재로 기본 false 를 유지하고(링크 LLD §9.1) 링크 구현 PR 이 걷어낸다(링크 LLD §9.2).
 
 ## 실패 복구
 
