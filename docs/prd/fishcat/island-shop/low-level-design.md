@@ -165,8 +165,10 @@ catalog/product의 `title`과 `requiredProduct.title`은 모두 `catalog asset d
 이 설계는 **소유 행을 가변 판매 revision에 고정하는 대신 productId의 자산 의미를 불변으로 제한**한다.
 kind·ownerType·targetBuilding·선체 계보·착용 호환 조건을 바꾸려면 새 productId를 발행한다.
 기존 상품 ID를 재사용하여 옷을 음원으로, 개인 소유를 섬 소유로, hall 테마를 board 테마로 바꾸지 않는다.
-미결 A02/A03 정책은 최초 상품 활성화 전에 확정하고 그 productId의 의미에 고정한다. 기존 보유 의미를
-개정/승격하는 기능은 현재 계약에 없으며 향후 필요하면 별도 명시 이관 계약으로 다룬다.
+A03(선체별 소품 호환)은 GROMO-1909 가 **모든 선체 공통**으로 확정했다 — 착용 호환 조건을 productId 의
+의미에 넣지 않는다. **미결 A02(하위 재착용)만** 최초 상품 활성화 전에 확정하고 그 productId 의 의미에
+고정한다. 기존 보유 의미를 개정/승격하는 기능은 현재 계약에 없으며 향후 필요하면 별도 명시 이관 계약으로
+다룬다.
 
 가격·판매 선행 조건·판매 가능 여부는 새 판매 revision/publication에서 바뀔 수 있다. `requiredProduct`는
 새 구매 시 검사하는 선행 조건이며 이미 보유한 상품의 사용권을 소급해서 바꾸지 않는다. 외양은 제출한 상품과
