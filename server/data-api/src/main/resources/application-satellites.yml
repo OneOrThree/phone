@@ -47,6 +47,15 @@ internal:
           - 'POST /internal/users/*/focus-sessions/*/resume'
           - 'POST /internal/users/*/focus-sessions/*/finish'
           - 'GET /internal/users/*/focus-summary'
+          # GROMO-1759 섬 소속·탐색 6종. AntPathMatcher 의 `*` 는 «세그먼트 하나» 다.
+          # POST 와 GET 의 `/internal/users/*/islands` 는 «메서드로만» 갈리므로 한 줄로
+          # 합치지 않는다 — 합치면 목록 조회 권한이 생성 권한까지 열어 준다.
+          - 'POST /internal/users/*/islands'
+          - 'GET /internal/users/*/islands'
+          - 'GET /internal/users/*/island-search'
+          - 'GET /internal/users/*/island-discovery'
+          - 'PUT /internal/users/*/current-island'
+          - 'GET /internal/islands/*'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

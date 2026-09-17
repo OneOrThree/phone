@@ -221,7 +221,11 @@ class PublicApiContractTest extends UpstreamTestBase {
 
     @Test
     void mvcFrameworkErrorsAreUniformAndKeepAllowHeader() throws Exception {
-        mockMvc.perform(auth(get("/islands/not-a-real-route"))).andExpect(status().isNotFound())
+        // GROMO-1759 이 GET /islands/{islandId} 를 실제 라우트로 만들었다 — 한 세그먼트짜리
+        // 경로는 더 이상 «매핑이 없는 경로» 가 아니다(이제 인증 먼저라 401 이 난다). 프레임워크
+        // 404 를 보려면 여전히 아무 매핑도 없는 깊이를 써야 한다.
+        mockMvc.perform(auth(get("/islands/not-a-real-route/deeper")))
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
         mockMvc.perform(auth(put(ROOT + "/object"))).andExpect(status().isMethodNotAllowed())
                 .andExpect(header().exists("Allow")).andExpect(jsonPath("$.error.code").value("METHOD_NOT_ALLOWED"));
