@@ -311,6 +311,15 @@ export const dayKey = (at = Date.now()) => {
   const d = kstDate(at);
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 };
+// 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul, 기기 시간대와 무관)
+export const kstMonthDay = (at: number) => {
+  const d = kstDate(at);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`;
+};
+export const kstHourMinute = (at: number) => {
+  const d = kstDate(at);
+  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+};
 export const kstDayStart = (day: string) => {
   const [year, month, date] = day.split('-').map(Number);
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
@@ -323,6 +332,15 @@ export const products: Product[] = [
     price: 100,
     currency: 'fish',
     description: '고양이의 목에 두르는 가벼운 스카프',
+  },
+  // v2 시안 상점(내 꾸미기)의 두 번째 장신구. 가격은 스카프와 같은 5배 환산(시안 15마리)
+  {
+    id: 'straw-hat',
+    title: '밀짚모자',
+    kind: 'clothes',
+    price: 75,
+    currency: 'fish',
+    description: '햇볕을 가려 주는 챙 넓은 밀짚모자',
   },
   {
     id: 'soda-theme',
@@ -347,8 +365,7 @@ export const products: Product[] = [
     kind: 'audio',
     price: 150,
     currency: 'fish',
-    description:
-      '창가에 톡톡 떨어지는 빗방울을 함께 들어요. 축음기에서 섬 전체가 같이 들을 수 있어요.',
+    description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
   },
 ];
 for (const building of ['board', 'tower', 'mail', 'shop'] as Building[])
@@ -621,12 +638,11 @@ export const recordSecondsBetween = (record: RecordItem, from: number, until: nu
       seconds + Math.max(0, Math.min(interval.end, until) - Math.max(interval.start, from)) / 1000,
     0,
   );
-// 이번 주 시작 = Asia/Seoul 기준 일요일 00:00
+// 이번 주 시작 = Asia/Seoul 기준 일요일 00:00 (정책: 주간 랭킹은 매주 일요일 00시에 초기화)
 export function weekStart(now = Date.now()) {
   const d = kstDate(now);
-  const daysSinceMonday = (d.getUTCDay() + 6) % 7;
   return (
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - daysSinceMonday) - KST_OFFSET_MS
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - d.getUTCDay()) - KST_OFFSET_MS
   );
 }
 // 섬 평균 집중(초) = 이번 주 그 섬에서 집중한 시간 합계 ÷ 그 섬 주민 수
@@ -651,10 +667,10 @@ export function islandWeeklyAverage(s: State, i: Island, now = Date.now()) {
     residents
   );
 }
-// "N시간 M분", 1시간 미만은 "M분"
+// "N시간 M분", 1시간 미만은 "M분", 딱 떨어지는 시간은 "N시간"
 export function hoursMinutes(seconds: number) {
   const m = Math.floor(seconds / 60);
-  return m >= 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m}분`;
+  return m < 60 ? `${m}분` : m % 60 ? `${Math.floor(m / 60)}시간 ${m % 60}분` : `${m / 60}시간`;
 }
 export const sessionSeconds = (session: Session | null, now = Date.now()) =>
   !session
@@ -1468,9 +1484,11 @@ export function reducer(state: State, a: Action): State {
         (a.type === 'FRIEND_REJECT' && f.status === 'received') ||
         (a.type === 'FRIEND_CANCEL' && f.status === 'sent') ||
         (a.type === 'FRIEND_DELETE' && f.status === 'friend')
-      )
+      ) {
         f.status = 'none';
-      else return state;
+        // 친구를 삭제하면 아직 확인하지 않은 편지도 지운다(정책)
+        if (a.type === 'FRIEND_DELETE') f.messages = [];
+      } else return state;
       break;
     }
     case 'FRIEND_MESSAGE': {
