@@ -67,6 +67,17 @@ def attr_tokens(attrs):
     return {tok.strip().lower() for tok in QUOTED.sub("", body[1:-1]).split(",")}
 
 
+def strip_comments(s):
+    """`//` 주석만 지운다 — 따옴표(홑·겹) «안»의 `//`(URL 등)는 값이라 건드리지 않는다.
+
+    전에는 컬럼 줄이 `raw.split("//")[0]`(보호 없음), Ref 줄이 홑따옴표만 보호,
+    attr_tokens 만 홑·겹 둘 다 보호해서 «한 파일 안에 보호 수준이 셋»이었다.
+    같은 일을 하는 자리가 서로 다른 규칙을 쓰면 약한 쪽에서만 조용히 샌다.
+    """
+    return re.sub(QUOTED.pattern + r"|//[^\n]*",
+                  lambda m: m.group(0) if m.group(0)[:1] in "'\"" else "", s)
+
+
 # `Table x [note: '...'] {` 처럼 이름과 `{` 사이에 note 가 낀다 — 그걸 건너뛰어야 한다.
 # 이 부분을 `^Table\s+(\w+)\s*\{` 로 쓰면 58개 중 3개만 잡힌다(실제로 그랬다).
 dbml_cols = collections.defaultdict(dict)
@@ -74,7 +85,7 @@ inline_refs = []
 for m in re.finditer(r'^Table\s+(\w+)[^\n{]*\{(.*?)^\}', text, re.S | re.M):
     table, body = m.group(1), m.group(2)
     for raw in body.splitlines():
-        line = raw.split("//")[0].rstrip()
+        line = strip_comments(raw).rstrip()
         if not line.strip() or line.strip().startswith(("Note", "indexes", "}", "{", "(")):
             continue
         mm = re.match(r'\s+(\w+)\s+([A-Za-z][\w()\[\], ]*?)\s*(\[.*\])?\s*$', line)
@@ -93,9 +104,7 @@ dbml_fks = collections.defaultdict(dict)
 ref_line_counts = collections.Counter()
 # 컬럼 줄은 `//` 를 먼저 잘라내고 `[...]` 를 통째로 잡는데, Ref 줄만 «첫 `]` 에서 멈추는» 정규식을
 # 쓰고 있었다. 같은 파일을 읽는 두 경로가 다른 규칙을 쓰면 한쪽에서만 조용히 새므로 맞춘다.
-# 따옴표를 «먼저» 매치해 note 안의 `//`(URL 등)를 주석으로 오인하지 않는다.
-ref_text = re.sub(r"'[^'\n]*'|//[^\n]*",
-                  lambda m: m.group(0) if m.group(0).startswith("'") else "", text)
+ref_text = strip_comments(text)
 for m in re.finditer(
         r'^Ref:\s*(\w+)\.(\w+)\s*[<>-]\s*(\w+)\.(\w+)\s*(\[.*\])?', ref_text, re.M):
     child, ccol, parent, pcol, attrs = m.groups()
@@ -113,6 +122,7 @@ enums = set(re.findall(r'^Enum\s+(\w+)\s*\{', text, re.M))
 # ── 대조 ─────────────────────────────────────────────────────────────────────
 drift = 0
 notation = 0
+convention = 0
 
 
 def say(msg):
@@ -121,15 +131,27 @@ def say(msg):
     print(msg)
 
 
+def flag(msg):
+    """규약 위반 — 「dbml 이 실제와 다르다」가 아니라 「이 도구의 전제가 깨졌다」는 신호다.
+
+    전제가 깨지면 위 대조 결과 자체를 믿을 수 없으므로 exit code 는 드리프트와 합치되,
+    사람이 읽는 집계에서는 나눈다. 안 나누면 「드리프트 N건」이 «실제 스키마 오차 N건»으로
+    읽혀서, 진짜 오차를 찾는 사람을 규약 위반이 가린다.
+    """
+    global convention
+    convention += 1
+    say(msg)
+
+
 print(f"실제 테이블 {len(real_tables)} · dbml 테이블 {len(dbml_tables)}\n")
 
 # 규약 위반은 「dbml 이 실제와 다르다」가 아니라 「이 도구의 전제가 깨졌다」는 신호다.
 # 전제가 깨지면 위 대조 결과 자체를 믿을 수 없으므로 같은 드리프트 카운터로 낸다.
 for (child, ccol), n in sorted(ref_line_counts.items()):
     if n > 1:
-        say(f"❌ 규약 6 위반: {child}.{ccol} 에 Ref 줄이 {n}개 — 한 컬럼에는 하나만 적는다")
+        flag(f"❌ 규약 6 위반: {child}.{ccol} 에 Ref 줄이 {n}개 — 한 컬럼에는 하나만 적는다")
 for where in sorted(set(inline_refs)):
-    say(f"❌ 규약 7 위반: {where} 가 인라인 ref 를 쓴다 — 관계는 단독 `Ref:` 줄로 적는다")
+    flag(f"❌ 규약 7 위반: {where} 가 인라인 ref 를 쓴다 — 관계는 단독 `Ref:` 줄로 적는다")
 
 for t in sorted(real_tables - dbml_tables):
     say(f"❌ 테이블이 dbml 에 없다: {t}")
@@ -171,6 +193,7 @@ for k in sorted(set(real_fks) | set(dbml_fks)):
             say(f"❌ ON DELETE: {t}.{c} → {tgt[0]}.{tgt[1]} "
                 f"실제={real[tgt]} dbml={dbml[tgt]}")
 
-print(f"\n드리프트 {drift}건")
+extra = f"(그중 규약 위반 {convention}건)" if convention else ""
+print(f"\n드리프트 {drift}건{extra}")
 print(f"(참고) Enum·표기 차이 {notation}건 · DB 제약 없는 논리 Ref {logical}건 — 둘 다 드리프트가 아니다")
 sys.exit(1 if drift else 0)

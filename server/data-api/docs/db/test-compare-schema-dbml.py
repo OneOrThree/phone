@@ -37,6 +37,20 @@ Table b {
 }
 """
 
+# note 안의 `//`(URL) 가 주석으로 잘리면 `not null` 을 못 읽어 NULL 드리프트가 난다.
+# 홑따옴표·겹따옴표 양쪽을 다 본다 — 전에는 한쪽만 보호돼서 다른 쪽에서만 샜다.
+DBML_URL_NOTE = """Table a {
+  id uuid [pk]
+  b_id uuid [not null, note: 'https://example.com/docs 참고']
+}
+
+Table b {
+  id uuid [pk, note: "https://example.com/b 참고"]
+}
+
+Ref: a.b_id > b.id
+"""
+
 REAL_COLS = "a|id|uuid|NO|\na|b_id|uuid|NO|\nb|id|uuid|NO|\n"
 REAL_FKS = "a|b_id|b|id|NO ACTION\n"
 
@@ -62,4 +76,11 @@ assert "규약 7 위반: a.b_id" in inline, f"규약 7 검사가 발화하지 �
 # 인라인 ref 는 `^Ref:` 스캔이 못 읽으므로 실제 FK 가 «누락»으로도 잡혀야 한다.
 assert "실제 FK 인데 dbml 에 Ref 가 없다: a.b_id" in inline, f"미탐이 그대로다:\n{inline}"
 
-print("✅ 깨끗한 입력 통과 · 규약 6 발화 · 규약 7 발화(+미탐 동시 검출)")
+# 규약 위반은 드리프트로 세되 «내역은 따로» 보여야 한다 — 안 나누면 진짜 스키마 오차를 가린다.
+assert "(그중 규약 위반 1건)" in dup, f"규약 위반 내역이 따로 안 보인다:\n{dup}"
+assert "(그중 규약 위반" not in clean, f"위반이 없는데 내역 줄이 붙었다:\n{clean}"
+
+url = run(DBML_URL_NOTE)
+assert "드리프트 0건" in url, f"note 안의 URL 이 주석으로 잘렸다:\n{url}"
+
+print("✅ 깨끗한 입력 통과 · 규약 6·7 발화(+미탐 동시 검출) · 위반 내역 분리 · note 속 URL 보호")
