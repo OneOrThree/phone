@@ -53,22 +53,27 @@ jobs:
   # 아래 pr-comment 잡이 그 이름으로 내려받아 .github/scripts/generate-pr-comment.py 에 넘기므로
   # 바꾸면 PR 코멘트가 빈 값으로 나온다.
   #
-  # ── 러너 배치 (GROMO-1793) ───────────────────────────────────────────────────
+  # ── 러너 배치 (GROMO-1793 → GROMO-1910 현행화, 2026-09-17) ───────────────────
   # CI 가 느린 건 «실행»이 아니라 «대기»다. `ci` 라벨 self-hosted 슬롯이 gromo-dev-build-1/2/3
   # 셋뿐인데 워크플로가 전부 그 라벨을 잡아서, 실행 6분짜리 잡이 대기 30분을 먹는다(실측:
   # notification 검증 대기 36.1분 / 실행 6.5분, business-api 검증 대기 27.1분 / 실행 6.3분).
   # 같은 시점에 GitHub-hosted 에서 돈 잡들은 대기 0.1분이었다.
   #
-  # 그래서 «전부» 옮기지 않고 checkstyle · spotbugs 둘만 옮긴다. 조직 플랜이 free + private 라
-  # GitHub Actions 무료 한도가 월 2,000분인데, self-hosted 가 하루 120분을 쓰고 있어서 전면
-  # 이전은 16일이면 한도를 태운다. 둘은 각 실행 3.0분이라 PR 한 번에 약 6분 — 한도 안에서
-  # 감당되면서 대기 시간이 제일 크게 줄어드는 조합이다.
+  # GROMO-1793 땐 checkstyle · spotbugs 둘만 옮겼다. 그땐 조직 플랜이 free + private 라
+  # GitHub Actions 무료 한도가 월 2,000분이었고, self-hosted 가 하루 120분을 쓰고 있어서 전면
+  # 이전은 16일이면 한도를 태웠다. test 는 실행만 23.7분이라 분 소비가 checkstyle·spotbugs 를
+  # 합친 것의 네 배라 그때는 옮기지 못했다 — **막던 건 월 2,000분 한도지 기술 제약이 아니었다**
+  # (`needs-db` 를 GROMO-1793 에서 이미 들어내 도커 의존이 없었으므로 `runs-on` 한 줄이면 됐다).
   #
-  # ⚠️ test 는 옮기지 마라. 실행만 23.7분이라 분 소비가 checkstyle·spotbugs 를 합친 것의 네 배고,
-  #    호스트 Gradle 캐시 효과도 여기서 제일 크다. (기술적으로는 옮길 수 있다 — GROMO-1793 에서
-  #    `needs-db` 를 들어내 도커 의존이 사라졌으므로 `runs-on` 한 줄이면 된다. 막는 건 월 2,000분
-  #    한도지 기술 제약이 아니다.) 아래 build·deploy 는 «기술적으로도» 옮기면 안 된다 —
-  #    GAR 인증이 GCE 메타데이터 토큰을 쓰는데 GitHub-hosted 에는 그 메타데이터가 없다.
+  # GROMO-1910: 레포가 공개로 전환되며 그 분 한도 자체가 없어졌다(공개 레포는 GitHub-hosted
+  # 표준 러너가 무제한). 동시에 공개 레포에서 self-hosted 러너를 계속 쓰는 건 포크 PR 이 그
+  # 러너에서 코드를 실행할 수 있다는 보안 문제도 생긴다. 그래서 test 도 옮긴다 — 사라진 건
+  # 한도라는 «이유»였지 기술적 가능 여부가 아니었으므로 바뀔 건 `runs-on` 한 줄뿐이다. 대신
+  # 호스트 Gradle 캐시 효과가 사라지는 손실은 있다 — be-gradle.yml 의 `actions/cache` 가 그걸
+  # 메운다(러너 종류별로 키를 분리해 self-hosted 캐시를 오염시키지 않는다).
+  #
+  # ⚠️ 아래 build·deploy 는 지금도 «기술적으로» 못 옮긴다 — GAR 인증이 GCE 메타데이터 토큰을
+  #    쓰는데 GitHub-hosted 에는 그 메타데이터가 없다. 공개 전환은 이 제약과 무관하다.
   checkstyle:
     uses: ./.github/workflows/be-gradle.yml
     with:
@@ -92,6 +97,9 @@ jobs:
     uses: ./.github/workflows/be-gradle.yml
     with:
       service: data-api
+      # GROMO-1910: 공개 전환으로 GitHub-hosted 무료 분 한도가 없어져 self-hosted 대기시간을
+      # 감수할 이유가 사라졌다. DB·GAR 인증 의존이 없으므로(GROMO-1793) 기술적으로도 그대로 옮긴다.
+      runs-on: '["ubuntu-latest"]'
       tasks: test bootJar
       publish-jar: true
       artifact-name: test-results
