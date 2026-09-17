@@ -1,10 +1,6 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.support.IntegrationTestBase;
-import com.oneorthree.phone.group.dto.CreateGroupRequest;
-import com.oneorthree.phone.group.dto.CreateGroupResponse;
-import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
-import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.UserIslandContextRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -18,6 +14,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.Set;
 import java.util.UUID;
@@ -30,95 +28,90 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 같은 사용자의 동시 섬 생성 두 건이 현재 섬 컨텍스트(user_island_contexts) 위에서 직렬화됨을 실 DB 로
- * 고정한다 (GROMO-1907).
+ * 같은 사용자에 대한 {@link UserIslandContextLockService} 동시 호출 두 건이 현재 섬 컨텍스트
+ * (user_island_contexts) 위에서 직렬화됨을 실 DB 로 고정한다 (GROMO-1907).
  *
- * <p>{@link GroupService#createGroup} 은 users 행 배타 락({@code getCallerForUpdate}) 아래에서
- * {@link UserIslandContextLockService} 를 거쳐 컨텍스트 행을 잠그고 옮긴다. 두 트랜잭션이 실제로
- * 직렬화됐다면(동시가 아니라 «차례로») 컨텍스트 행의 낙관락 버전은 <b>정확히 2</b> 증가해야 한다 —
- * 직렬화가 깨지면 한쪽 갱신이 유실되어 버전이 1에 머물거나(락 없는 갱신), 반대로 컨텍스트 첫 생성
- * 경합에서 PK 중복으로 트랜잭션이 죽는다(users 행을 먼저 잠그지 않은 경우).
+ * <p>이 서비스는 아직 <b>호출부가 없다</b>({@code UserIslandContextLockService} 클래스 주석 참조) —
+ * 현재 섬 이동 배선(가드·정리 포함)은 GROMO-1759 몫이다. 그래서 이 테스트는 {@code createGroup} 같은
+ * 상위 경로를 거치지 않고 잠금 서비스 자체를 직접 두 트랜잭션에서 동시에 부른다.
+ * {@code Propagation.MANDATORY}(바깥 트랜잭션 필수) 서비스라 {@link TransactionTemplate} 으로 각
+ * 스레드마다 별도 트랜잭션 경계를 열어야 한다 — {@code PublicCommandService} 를 부르는 다른 통합
+ * 테스트(예: {@code UserAggregateLockOrderIntegrationTest})와 같은 패턴이다.
  *
- * <p>{@code @Transactional} 을 붙이지 않는 이유는 {@link GroupCreateWithdrawRaceIntegrationTest} 와
- * 같다 — 레이스는 별도 스레드의 별도 트랜잭션 커밋을 전제한다. 데이터는 {@code @AfterEach} 에서 직접
- * 지운다.
+ * <p>두 호출이 서로 다른 섬 id 로 이동하고, 두 트랜잭션이 실제로 직렬화됐다면(동시가 아니라
+ * «차례로») 컨텍스트 행의 낙관락 버전은 <b>정확히 2</b> 증가해야 한다 — 직렬화가 깨지면 한쪽 갱신이
+ * 유실되어 버전이 1에 머문다.
+ *
+ * <p>{@code @Transactional} 을 클래스에 붙이지 않는 이유는 {@code GroupCreateWithdrawRaceIntegrationTest}
+ * 와 같다 — 레이스는 별도 스레드의 별도 트랜잭션 커밋을 전제한다. 데이터는 {@code @AfterEach} 에서
+ * 직접 지운다.
  */
 class UserIslandContextRaceIntegrationTest extends IntegrationTestBase {
 
     @Autowired
-    GroupService groupService;
-    @Autowired
-    GroupRepository groupRepository;
-    @Autowired
-    GroupMemberRepository groupMemberRepository;
-    @Autowired
-    GroupJoinCodeRepository groupJoinCodeRepository;
+    UserIslandContextLockService userIslandContextLockService;
     @Autowired
     UserIslandContextRepository userIslandContextRepository;
+    @Autowired
+    GroupRepository groupRepository;
     @Autowired
     UserRepository userRepository;
     @Autowired
     UserWalletRepository userWalletRepository;
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     private User user;
+    private UUID islandA;
+    private UUID islandB;
     /** 레이스 전 컨텍스트 버전 — 두 전이가 모두 남았는지를 이 값 대비 +2 로 판정한다. */
     private long baselineContextVersion;
+
+    private TransactionTemplate tx() {
+        return new TransactionTemplate(transactionManager);
+    }
 
     @BeforeEach
     void setUp() {
         user = userRepository.save(User.builder().nickname("컨텍스트경합자").isGuest(false).build());
         userWalletRepository.save(UserWallet.builder().userId(user.getId()).balance(100).build());
+        // 이동 대상 섬 두 개는 createGroup 을 거치지 않고 직접 만든다 — 이 테스트가 보는 것은
+        // 잠금 서비스의 직렬화이지 그룹 생성 흐름이 아니다.
+        islandA = groupRepository.save(Group.builder().name("경합섬A").maxMembers(5).build()).getId();
+        islandB = groupRepository.save(Group.builder().name("경합섬B").maxMembers(5).build()).getId();
         // 컨텍스트 행을 미리 만들어 둔다. 없으면 첫 호출이 INSERT(@Version=0)라 두 전이의 증가분이
         // 1 이 되어, 「하나가 유실됐는지」를 버전으로 구분할 수 없다. 미리 있으면 둘 다 UPDATE 다.
         baselineContextVersion = userIslandContextRepository
                 .save(UserIslandContext.newFor(user.getId())).getContextVersion();
     }
 
-    /**
-     * 생성된 그룹은 id 를 이 테스트 메서드 안에서만 알 수 있어(레이스 결과) 본문 마지막에 직접 지운다 —
-     * 여기서는 유저 축(컨텍스트·지갑·유저)만 정리한다.
-     */
     @AfterEach
     void tearDown() {
         userIslandContextRepository.findById(user.getId()).ifPresent(userIslandContextRepository::delete);
+        groupRepository.findById(islandA).ifPresent(groupRepository::delete);
+        groupRepository.findById(islandB).ifPresent(groupRepository::delete);
         userWalletRepository.findById(user.getId()).ifPresent(userWalletRepository::delete);
         userRepository.delete(user);
     }
 
     @Test
-    @DisplayName("같은 유저의 동시 섬 생성 2건 — 컨텍스트 버전이 정확히 2 증가하고 currentIslandId 는 둘 중 하나다")
-    void concurrentCreateGroupSerializesOnUserIslandContext() throws Exception {
+    @DisplayName("같은 유저의 동시 lock().moveTo() 2건 — 컨텍스트 버전이 정확히 2 증가하고 currentIslandId 는 둘 중 하나다")
+    void concurrentLockAndMoveToSerializesOnUserIslandContext() throws Exception {
         CyclicBarrier startTogether = new CyclicBarrier(2);
         ExecutorService pool = Executors.newFixedThreadPool(2);
-        UUID[] createdGroupIds = new UUID[2];
         try {
             Future<?> firstCall = pool.submit(() -> {
                 await(startTogether);
-                CreateGroupResponse response = groupService.createGroup(user.getId(),
-                        CreateGroupRequest.builder().name("경합섬A").maxMembers(5).build());
-                createdGroupIds[0] = response.groupId();
+                tx().executeWithoutResult(status -> userIslandContextLockService.lock(user).moveTo(islandA));
             });
             Future<?> secondCall = pool.submit(() -> {
                 await(startTogether);
-                CreateGroupResponse response = groupService.createGroup(user.getId(),
-                        CreateGroupRequest.builder().name("경합섬B").maxMembers(5).build());
-                createdGroupIds[1] = response.groupId();
+                tx().executeWithoutResult(status -> userIslandContextLockService.lock(user).moveTo(islandB));
             });
             firstCall.get(30, TimeUnit.SECONDS);
             secondCall.get(30, TimeUnit.SECONDS);
         } finally {
             pool.shutdownNow();
-        }
-
-        // 둘 다 예외 없이 커밋됐다 — 배타 락이 컨텍스트 첫 생성 경합(PK 중복)까지 막았다는 뜻이다.
-        assertThat(createdGroupIds[0]).isNotNull();
-        assertThat(createdGroupIds[1]).isNotNull();
-        Set<UUID> groupIds = Set.of(createdGroupIds[0], createdGroupIds[1]);
-
-        // 두 그룹 모두 방장 멤버십과 함께 정상 생성됐다 — 기존 원자 생성 동작은 그대로다.
-        for (UUID groupId : groupIds) {
-            Group group = groupRepository.findById(groupId).orElseThrow();
-            assertThat(groupMemberRepository.findAnyByUserAndGroup(user, group)).isPresent();
         }
 
         // 컨텍스트는 정확히 두 번 전이했다 — 유실 없이 차례로 커밋됐다는 증거다.
@@ -127,17 +120,7 @@ class UserIslandContextRaceIntegrationTest extends IntegrationTestBase {
         // 미리 만들어 두면 두 호출이 모두 UPDATE 라 정확히 +2 여야 하고, 하나가 유실되면 +1 로 드러난다.
         UserIslandContext context = userIslandContextRepository.findById(user.getId()).orElseThrow();
         assertThat(context.getContextVersion()).isEqualTo(baselineContextVersion + 2);
-        assertThat(context.getCurrentIslandId()).isIn(groupIds);
-
-        // tearDown 이 실제 생성된 그룹까지 지우도록 저장해 둔다.
-        for (UUID groupId : groupIds) {
-            groupJoinCodeRepository.findById(groupId).ifPresent(groupJoinCodeRepository::delete);
-            groupRepository.findById(groupId).ifPresent(group -> {
-                groupMemberRepository.findAnyByUserAndGroup(user, group)
-                        .ifPresent(groupMemberRepository::delete);
-                groupRepository.delete(group);
-            });
-        }
+        assertThat(context.getCurrentIslandId()).isIn(Set.of(islandA, islandB));
     }
 
     private void await(CyclicBarrier barrier) {

@@ -18,6 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>users 행 배타 락이 이미 「컨텍스트 첫 생성」 경합까지 막아 주므로(같은 유저의 두 트랜잭션은
  * users 행에서부터 직렬화된다), 이 서비스는 {@code AggregateVersionAllocator} 류의
  * insert-then-relock 이 필요 없다 — 단순 조회 후 없으면 생성이면 충분하다.
+ *
+ * <p><b>현재 호출부가 없다.</b> GROMO-1907 은 저장소·잠금 경계만 만드는 티켓이라 {@code createGroup}
+ * 의 현재 섬 이동 배선은 되돌렸다 — 가드(진행 중 세션 409, LLD §3.1)와 정리(마지막 이탈 시 컨텍스트
+ * 해제, LLD §3.6)가 없는 채로 이동만 먼저 들어가면 방치 시 사고가 난다. 이동은 그 가드·정리와 함께
+ * GROMO-1759 에서 배선한다.
  */
 @Service
 @RequiredArgsConstructor

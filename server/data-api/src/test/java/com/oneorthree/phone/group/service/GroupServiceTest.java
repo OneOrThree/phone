@@ -12,7 +12,6 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.MissionType;
-import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -53,7 +52,6 @@ import com.oneorthree.phone.group.dto.GroupSummaryResponse;
 import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -87,7 +85,6 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -108,14 +105,6 @@ class GroupServiceTest {
 
     @Mock
     private com.oneorthree.phone.group.service.LinkMembershipEventService linkMembershipEventService;
-
-    /**
-     * GROMO-1907 — createGroup 이 배타 락 아래에서 현재 섬 컨텍스트를 옮긴다. 대다수 테스트는 이
-     * 상호작용에 관심이 없으므로 {@code lenient()} 로 기본 스텁만 깔아 둔다(그 컨텍스트 전이 자체를
-     * 검증하는 테스트가 이 스킬톤 티켓엔 없다 — 실물 DB 위의 레이스 통합 테스트가 그 몫이다).
-     */
-    @Mock
-    private UserIslandContextLockService userIslandContextLockService;
 
     @InjectMocks
     private GroupService groupService;
@@ -194,16 +183,6 @@ class GroupServiceTest {
     private static final UUID GROUP_SAVE_ID = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID ANNOUNCEMENT_ID = UUID.fromString("00000000-0000-0000-0000-000000000010");
     private static final UUID CHALLENGE_ID = UUID.fromString("00000000-0000-0000-0000-000000000020");
-
-    /**
-     * GROMO-1907: createGroup 성공 경로가 항상 거치는 컨텍스트 잠금의 기본 스텁 — 실제 이동 검증은
-     * {@code UserIslandContextRaceIntegrationTest}(실물 DB) 몫이라 여기서는 NPE 방지 이상을 하지 않는다.
-     */
-    @BeforeEach
-    void stubIslandContextLock() {
-        lenient().when(userIslandContextLockService.lock(any(User.class)))
-                .thenAnswer(invocation -> UserIslandContext.newFor(invocation.<User>getArgument(0).getId()));
-    }
 
     // ── 헬퍼 ──────────────────────────────────────────────────────────────
 
@@ -300,7 +279,7 @@ class GroupServiceTest {
     void createGroupSuccess() {
         // given
         CreateGroupRequest request = durationRequest("1234", null, 60);
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         given(passwordEncoder.encode("1234")).willReturn("hashed-pw");
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
@@ -339,7 +318,7 @@ class GroupServiceTest {
     @DisplayName("isPrivate=true 생성 → 비공개 그룹으로 저장")
     void createGroupPrivate() {
         // given
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
@@ -356,7 +335,7 @@ class GroupServiceTest {
     @DisplayName("isPrivate 미전송(기본값) → 공개 그룹으로 저장")
     void createGroupDefaultsToPublic() {
         // given
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
@@ -374,7 +353,7 @@ class GroupServiceTest {
     void createGroupDefaultsMaxMembers() {
         // given
         CreateGroupRequest request = durationRequest(null, null, 60);
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_ID);
 
@@ -392,7 +371,7 @@ class GroupServiceTest {
     void createGroupWithoutPassword() {
         // given
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_ID);
 
@@ -413,7 +392,7 @@ class GroupServiceTest {
     void createGroupAllowsGuest() {
         // given: 유일한 차이는 is_guest=true 뿐
         User guest = User.builder().isGuest(true).build();
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(guest);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
@@ -432,7 +411,7 @@ class GroupServiceTest {
     @DisplayName("유저 없음·탈퇴 선커밋 → UserException(USER_NOT_FOUND), 그룹 저장 안 함 (D9 — 종전 GUEST_FORBIDDEN 오분류 정정)")
     void createGroupUserNotFound() {
         // given: 없는 유저와 탈퇴가 먼저 커밋된 유저는 공유 락 조회에서 똑같이 빈 결과다
-        given(userQueryService.getCallerForUpdate(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+        given(userQueryService.getCallerForShare(USER_ID)).willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
 
         // when & then: joinGroup 등 형제 경로와 같은 404 — 부작용(그룹 저장) 없음
         // GROMO-1247: 그룹 부재(GroupErrorCode.NOT_FOUND)와 구분되는 요청자 전용 코드다.
@@ -444,20 +423,17 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("createGroup 은 요청자를 배타 락으로 로드한다 (GROMO-1226 · GROMO-1907)")
-    void createGroupLoadsUserWithExclusiveLock() {
+    @DisplayName("createGroup 은 요청자를 공유 락으로 로드한다 — 계정 탈퇴 배타 락과 직렬화 (GROMO-1226)")
+    void createGroupLoadsUserWithSharedLock() {
         // 락 없는 findById 면 탈퇴의 정리 스캔(멤버십 0 확인) 이후·커밋 이전에 낀 생성이 정리를
-        // 빠져나가, 탈퇴자가 OWNER 인 is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 불가). 공유 락이
-        // 아니라 배타 락인 이유: 같은 트랜잭션이 현재 섬 컨텍스트(user_island_contexts)까지 바꾼다
-        // (GROMO-1907) — users/context 축은 같은 유저의 동시 create/join/context 변경을 직렬화해야 한다.
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        // 빠져나가, 탈퇴자가 OWNER 인 is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 불가).
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         groupService.createGroup(USER_ID, durationRequest(null, 5, 60));
 
-        verify(userQueryService).getCallerForUpdate(USER_ID);
-        verify(userQueryService, never()).getCallerForShare(USER_ID);
+        verify(userQueryService).getCallerForShare(USER_ID);
         verify(userQueryService, never()).getCaller(USER_ID);
     }
 
@@ -471,7 +447,7 @@ class GroupServiceTest {
     void createGroupRetriesOnCodeCollision() {
         // given: 첫 코드는 충돌(이미 존재), 두 번째는 사용 가능
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
         given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.empty());
         givenSaveReturnsGroupWithId(GROUP_ID);
@@ -489,7 +465,7 @@ class GroupServiceTest {
     void createGroupFailsAfterMaxRetries() {
         // given: 항상 충돌
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true);
         given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.empty());
 
@@ -505,7 +481,7 @@ class GroupServiceTest {
     void createGroupExpiresStaleCollidingCode() {
         // given: 첫 코드 충돌 + 그 코드는 이미 만료 → expire() 대상, 두 번째 코드는 사용 가능
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
         GroupJoinCode expiredCollision = joinCodeFor(Group.builder().id(GROUP_ID).build(), "OLDCODE1",
                 Instant.now().minus(1, ChronoUnit.HOURS));
@@ -525,7 +501,7 @@ class GroupServiceTest {
     void createGroupKeepsActiveCollidingCode() {
         // given: 첫 코드 충돌 + 그 코드는 아직 유효(미래 만료) → 상태 유지, 두 번째 코드는 사용 가능
         CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(normalUser());
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
         given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
         GroupJoinCode activeCollision = joinCodeFor(Group.builder().id(GROUP_ID).build(), "LIVECODE",
                 Instant.now().plus(1, ChronoUnit.HOURS));
@@ -1826,7 +1802,7 @@ class GroupServiceTest {
     void createGroupRejectedAtLimit() {
         // given
         User user = normalUser();
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupMemberRepository.countByUser(user)).willReturn(10L);
 
         // when & then
