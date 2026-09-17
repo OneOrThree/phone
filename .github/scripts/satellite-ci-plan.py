@@ -28,7 +28,13 @@ BUILD_AFFECTING_PREFIXES = (
 CONTRACT_ONLY_PREFIXES = (
     'docs/', 'app/', 'server/realtime/', '.github/',
 )
-CONTRACT_ONLY_FILES = ('README.md', 'AGENTS.md', 'CLAUDE.md')
+# 루트 파일은 이름이 정확히 같을 때만 걸린다 — server/business-api/.gitignore 같은 건
+# 위의 `own` 판정에서 이미 그 서비스로 간다. 이걸 안 넣으면 .gitignore 한 줄이
+# 「분류 안 된 경로」로 떨어져 두 서비스 전체 빌드를 켠다 (PR #790 이 실제로 그랬다).
+CONTRACT_ONLY_FILES = (
+    'README.md', 'AGENTS.md', 'CLAUDE.md',
+    '.gitignore', '.gitattributes', '.editorconfig',
+)
 
 
 def plan(paths):
