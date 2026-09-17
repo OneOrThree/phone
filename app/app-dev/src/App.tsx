@@ -206,6 +206,9 @@ function Gromo() {
       title: string;
       text: string;
       action: () => void;
+      // 확인 버튼 글자(기본 '확인') · 파괴적 확인이면 빨간 버튼
+      ok?: string;
+      destructive?: boolean;
     } | null>(null),
     [visited, setVisited] = useState('strawberry'),
     [guideStep, setGuideStep] = useState(0),
@@ -222,8 +225,7 @@ function Gromo() {
     // 화면이 뒤로가기를 먼저 처리하면(true) 아래 기본 동작을 건너뛴다(낚시섬 걷기·항해·모달·결과 흐름)
     backOverride = useRef<(() => boolean) | null>(null);
   const island = currentIsland(state),
-    record = state.lastResult,
-    shouldPlayFocusAudio = island.playing && state.session?.status === 'active';
+    record = state.lastResult;
   const player = useSoundPlayer((message) => notify(message));
   const notify = (s: string) => {
     setToast(s);
@@ -293,8 +295,12 @@ function Gromo() {
     setHistory([]);
     setRoute('home');
   };
-  const confirm = (title: string, txt: string, action: () => void) =>
-    setModal({ title, text: txt, action });
+  const confirm = (
+    title: string,
+    txt: string,
+    action: () => void,
+    opts: { ok?: string; destructive?: boolean } = {},
+  ) => setModal({ title, text: txt, action, ...opts });
   useEffect(() => {
     (REVIEW || DEMO ? Promise.resolve(null) : AsyncStorage.getItem(STORAGE))
       .then((raw) => {
@@ -356,24 +362,26 @@ function Gromo() {
     });
     return () => subscription.remove();
   }, [history, route, modal]);
+  // 섬 음악은 집중 중이거나 축음기 시트를 보고 있을 때 들린다. 시트를 떠나면 집중 중이 아닐 때 멈춘다
+  const islandAudioOn = island.playing && (state.session?.status === 'active' || route === 'sound');
   useEffect(() => {
     if (previewAudio) return;
     try {
       player.replace(assets[`audio/${island.track}.wav`] as number);
       player.loop = true;
-      if (shouldPlayFocusAudio) player.play();
+      if (islandAudioOn) player.play();
       else player.pause();
     } catch {}
-  }, [island.track, island.id, previewAudio, shouldPlayFocusAudio]);
+  }, [island.track, island.id, previewAudio, islandAudioOn]);
   useEffect(() => {
     if (route !== 'product') setPreviewAudio(false);
   }, [route]);
   useEffect(() => {
     try {
       player.volume = state.settings.sound ? ((state.settings as any).volume ?? 0.55) : 0;
-      shouldPlayFocusAudio ? player.play() : player.pause();
+      islandAudioOn ? player.play() : player.pause();
     } catch {}
-  }, [shouldPlayFocusAudio, state.settings.sound, (state.settings as any).volume]);
+  }, [islandAudioOn, state.settings.sound, (state.settings as any).volume]);
   useEffect(() => {
     if (route === 'travel' || route === 'arrival') {
       boatTravel.setValue(-180);
@@ -569,7 +577,7 @@ function Gromo() {
               onPress={() => setModal(null)}
               style={{
                 flex: 1,
-                backgroundColor: '#493B3955',
+                backgroundColor: '#493B3966',
                 justifyContent: 'center',
                 alignItems: 'center',
                 padding: 24,
@@ -582,29 +590,41 @@ function Gromo() {
                   S.card,
                   {
                     gap: 10,
-                    // v2 가로 확인창은 폭 400
-                    width: layout.compact ? 400 : layout.modalWidth,
+                    // v2 확인창(.dlg): 세로 좌우 24 여백, 가로 폭 400
+                    width: layout.compact
+                      ? 400
+                      : layout.tablet
+                        ? layout.modalWidth
+                        : layout.width - 48,
                     maxHeight: layout.height - layout.insets.top - layout.insets.bottom - 40,
                     borderWidth: 2,
+                    borderRadius: 22,
                     paddingTop: 22,
+                    paddingHorizontal: 20,
                     paddingBottom: 18,
                     boxShadow: '0px 6px 0px ' + C.brown,
                   },
                 ]}
               >
-                <NativeText kind="h17">{modal?.title}</NativeText>
-                <NativeText style={{ color: C.muted }}>{modal?.text}</NativeText>
-                <View style={[S.row, { justifyContent: 'flex-end' }]}>
-                  <NativeButton title="취소" kind="ghost" onPress={() => setModal(null)} />
+                <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
+                  {modal?.title}
+                </NativeText>
+                {/* 한국어 문장은 단어 단위로 줄바꿈(시안 .dlg .body word-break:keep-all) */}
+                <NativeText
+                  lineBreakStrategyIOS="hangul-word"
+                  style={[
+                    { color: C.muted },
+                    Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
+                  ]}
+                >
+                  {modal?.text}
+                </NativeText>
+                <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
+                  <NativeButton dialog title="취소" kind="glass" onPress={() => setModal(null)} />
                   <NativeButton
-                    title={
-                      modal.title.includes('를 살까요')
-                        ? '구매'
-                        : modal.title === '회원 탈퇴할까요?'
-                          ? '탈퇴'
-                          : '확인'
-                    }
-                    kind={modal.title === '회원 탈퇴할까요?' ? 'destructive' : ''}
+                    dialog
+                    title={modal.ok ?? '확인'}
+                    kind={modal.destructive ? 'destructive' : ''}
                     onPress={() => {
                       const action = modal?.action;
                       setModal(null);
