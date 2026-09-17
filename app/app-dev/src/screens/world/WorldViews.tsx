@@ -72,6 +72,32 @@ function SeaDrift({
     </Animated.View>
   );
 }
+// 움직임 줄이기: 구름·물결을 시안(v2 항해 화면, sailing.html 3.03초 프레임)과 같은 자리에 멈춘다
+const FROZEN_MS = 3030;
+function FrozenDrift({
+  children,
+  width,
+  duration,
+  phase = 0,
+  style,
+}: {
+  children: React.ReactNode;
+  width: number;
+  duration: number;
+  phase?: number;
+  style?: any;
+}) {
+  return (
+    <View
+      style={[
+        style,
+        { transform: [{ translateX: -width * ((phase + FROZEN_MS / duration) % 1) }] },
+      ]}
+    >
+      {children}
+    </View>
+  );
+}
 export function Sailing({
   state,
   destination,
@@ -97,12 +123,16 @@ export function Sailing({
   const [width, setWidth] = useState(390),
     callback = useRef(onArrive);
   callback.current = onArrive;
-  const reduced = state.settings.reduceMotion;
+  const reduced = state.settings.reduceMotion,
+    land = layout.compact;
+  // 멈춘 배 위치: 세로는 시안 프레임(0.441). 가로는 아래에서 가운데로 둔다
+  const park = 0.441;
   useEffect(() => {
-    x.setValue(reduced ? 0.47 : 0);
+    x.setValue(reduced ? park : 0);
+    // 움직임 줄이기: 배는 가운데 멈춘 채 같은 시간 동안 "이동 중..."을 보여준 뒤 도착한다
     const animation = Animated.timing(x, {
-      toValue: reduced ? 0.47 : 1,
-      duration: reduced ? 250 : duration,
+      toValue: reduced ? park : 1,
+      duration,
       easing: Easing.linear,
       useNativeDriver: true,
     });
@@ -111,7 +141,10 @@ export function Sailing({
     });
     return () => animation.stop();
   }, [duration, reduced]);
-  const size = Math.min(width * 0.8, layout.height * 0.68, 600),
+  // 가로 폰은 v2 L/sail 합성과 같이 배 300px · 수평선(49%)에 걸침
+  const size = land
+      ? Math.min(300, layout.height * 0.75)
+      : Math.min(width * 0.8, layout.height * 0.68, 600),
     sc = size / 1024,
     cs = 310 * sc;
   const spec = (
@@ -120,7 +153,8 @@ export function Sailing({
     } as Record<string, { seat: number[]; lantern: number[] }>
   )[snap.hull];
   const font = fontsLoaded ? 'GromoSailing' : undefined;
-  const Drift = reduced ? View : SeaDrift;
+  const Drift = reduced ? FrozenDrift : SeaDrift,
+    stillLand = reduced && land;
   return (
     <View
       style={{ flex: 1, backgroundColor: '#f0f2df', overflow: 'hidden' }}
@@ -136,28 +170,34 @@ export function Sailing({
           height: '51%',
         }}
       >
-        {[
-          {
-            top: '19%',
-            left: '88%',
-            w: 96,
-            ms: 26000,
-            phase: 0,
-            opacity: 0.85,
-          },
-          {
-            top: '69%',
-            left: '115%',
-            w: 80,
-            ms: 32000,
-            phase: 13 / 32,
-            opacity: 0.55,
-          },
-        ].map((c, i) => (
+        {(stillLand
+          ? [
+              { top: '23.5%', left: '78%', w: 96, ms: 0, phase: 0, opacity: 1 },
+              { top: '58.8%', left: '16%', w: 80, ms: 0, phase: 0, opacity: 1 },
+            ]
+          : [
+              {
+                top: '19%',
+                left: '88%',
+                w: 96,
+                ms: 26000,
+                phase: 0,
+                opacity: 0.85,
+              },
+              {
+                top: '69%',
+                left: '115%',
+                w: 80,
+                ms: 32000,
+                phase: 13 / 32,
+                opacity: 0.55,
+              },
+            ]
+        ).map((c, i) => (
           <Drift
             key={i}
-            width={660}
-            duration={c.ms}
+            width={stillLand ? 0 : 660}
+            duration={c.ms || 1}
             phase={c.phase}
             style={
               {
@@ -217,12 +257,15 @@ export function Sailing({
           overflow: 'hidden',
         }}
       >
-        {[
-          { w: 80, top: '25%', ms: 4800, phase: 0 },
-          { w: 125, top: '48%', ms: 5500, phase: 1500 / 5500 },
-          { w: 48, top: '73%', ms: 4000, phase: 0.75 },
-          { w: 72, top: '10%', ms: 6000, phase: 1 / 3 },
-        ].map((l, i) => (
+        {(stillLand
+          ? []
+          : [
+              { w: 80, top: '25%', ms: 4800, phase: 0 },
+              { w: 125, top: '48%', ms: 5500, phase: 1500 / 5500 },
+              { w: 48, top: '73%', ms: 4000, phase: 0.75 },
+              { w: 72, top: '10%', ms: 6000, phase: 1 / 3 },
+            ]
+        ).map((l, i) => (
           <Drift
             key={i}
             width={620}
@@ -251,49 +294,58 @@ export function Sailing({
       <View
         pointerEvents="none"
         style={{
+          // v2 .fi-transit-copy: 세로 20.4%+5px · 가로 30px
           position: 'absolute',
-          top: '21%',
+          top: land ? 30 : layout.height * 0.204 + 5,
           left: '7%',
           right: '7%',
           alignItems: 'center',
-          gap: 10,
         }}
       >
         <Text
           style={{
             fontFamily: font,
-            fontSize: 17,
-            lineHeight: 25.5,
+            fontSize: 16,
+            lineHeight: 25.6,
+            letterSpacing: -0.15,
             color: '#354737',
             textAlign: 'center',
           }}
         >
-          {from} → {destination}
+          {/* 화살표는 시안처럼 기본 글꼴(고운돋움 화살표보다 좁다) */}
+          {from} <Text style={{ fontFamily: 'System' }}>→</Text> {destination}
         </Text>
         <Text
           style={{
             fontFamily: font,
-            fontSize: 25,
-            lineHeight: 35,
+            fontSize: 24,
+            lineHeight: 38.4,
+            letterSpacing: -0.15,
+            marginTop: land ? 2 : 5,
             color: '#354737',
           }}
         >
-          이동중...
+          이동 중...
         </Text>
       </View>
       <Animated.View
         pointerEvents="none"
         style={{
           position: 'absolute',
-          top: '32%',
+          top: land ? layout.height * 0.49 - size * 0.52 : '32%',
           width: size,
           height: size,
           transform: [
             {
-              translateX: x.interpolate({
-                inputRange: [0, 1],
-                outputRange: [-1.1 * size, 1.5 * size],
-              }),
+              // 가로 정지 장면은 화면 가운데(시안 L/sail)
+              translateX: stillLand
+                ? (width - size) / 2
+                : x.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: land
+                      ? [-1.1 * size, width + 0.2 * size]
+                      : [-1.1 * size, 1.5 * size],
+                  }),
             },
           ],
         }}
@@ -333,7 +385,11 @@ export function Sailing({
           style={{ position: 'absolute', overflow: 'visible', opacity: 0.8 }}
         >
           <Path
-            d="M-130 897H80M-240 921H38M-70 946H165M930 881Q978 868 998 887"
+            d={
+              stillLand
+                ? 'M-130 897H80M-240 921H38M-70 946H165'
+                : 'M-130 897H80M-240 921H38M-70 946H165M930 881Q978 868 998 887'
+            }
             fill="none"
             stroke="#eaf5e6"
             strokeWidth={6}
