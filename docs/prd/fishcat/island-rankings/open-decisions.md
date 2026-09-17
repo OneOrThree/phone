@@ -23,7 +23,7 @@
 | 게이트 | 티켓 | 상태(2026-09-18) |
 | --- | --- | --- |
 | ①② 시작 게이트 → `focus_session_details` 에 행이 생김 | **GROMO-1924** 「집중 세션 시작 게이트를 여는 선행 조건 9건을 해소하고 게이트를 연다」 | 해야 할 일 |
-| ④ 섬 컨텍스트 배선 → `current_island_id` 가 채워지고 비잠금 조회가 생김 | **GROMO-1759** 「섬 생성·조회·탐색·현재 섬 이동 API 구현 — 6종」 | 진행 중(리뷰 대기) | (정밀도: `JpaRepository` 상속 `findById(UUID)` 는 비잠금이다 — «커스텀» 비잠금 조회가 없다는 뜻. 진짜 막는 것은 `current_island_id` 가 전부 NULL 이라는 점)
+| ④ 섬 컨텍스트 배선 → `current_island_id` 가 채워지고 비잠금 조회가 생김 | **GROMO-1759** 「섬 생성·조회·탐색·현재 섬 이동 API 구현 — 6종」 | 진행 중(리뷰 대기)<br>(정밀도: `JpaRepository` 상속 `findById(UUID)` 는 비잠금이다 — «커스텀» 비잠금 조회가 없다는 뜻. 진짜 막는 것은 `current_island_id` 가 전부 NULL 이라는 점) |
 
 ③ 은 티켓이 아니라 **RK-D05 의 결과**다 — 섬 귀속을 고르면 `focus_session_details`(①②) 를 쓰고,
 개인 전체를 고르면 `daily_focus_stats` 를 쓴다. §2.4 를 보라.
