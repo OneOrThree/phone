@@ -3065,15 +3065,29 @@ function Picture({
 // 투명 여백과 접힌 모서리까지 보존하기 위해 contain이 아니라 프레임에 맞춰 늘린다.
 function BoardPaper({ source, style }: { source: ImageSourcePropType; style?: any }) {
   const frame = [{ position: 'absolute', left: -34, right: -34, top: -38, bottom: -30 }, style];
+  // iOS는 left/right/top/bottom 만 준 Image 의 그림을 상자 크기로 늘리지 않는다(원본 크기로 그림).
+  // 바깥 View 가 프레임을 맡고, 잰 크기를 숫자 폭·높이로 Image 에 준다
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
   if (Platform.OS !== 'web') {
     return (
-      <Image
-        source={source}
-        accessibilityElementsHidden
-        importantForAccessibility="no-hide-descendants"
-        resizeMode="stretch"
+      <View
+        pointerEvents="none"
         style={frame}
-      />
+        onLayout={(event) => {
+          const { width, height } = event.nativeEvent.layout;
+          if (width !== size?.width || height !== size?.height) setSize({ width, height });
+        }}
+      >
+        {size && (
+          <Image
+            source={source}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            resizeMode="stretch"
+            style={size}
+          />
+        )}
+      </View>
     );
   }
   return (

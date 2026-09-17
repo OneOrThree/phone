@@ -20,6 +20,7 @@ import {
   earnedBy,
   costs,
   buildMinutes,
+  buildingOrder,
   dayKey,
   findIslandByInviteCode,
   inviteCodeOf,
@@ -75,6 +76,39 @@ test('회관→게시판은 섬 인원과 무관한 총량 고정; 차감 후 �
   assert.equal(balance(currentIsland(s)), 300 - costs.hall - costs.board);
   s = act(s, 'TICK', { now: 62000 + buildMinutes.board * 60000 });
   assert.ok(currentIsland(s).buildings.includes('board'));
+});
+test('QA 완공은 온보딩을 유지하고 완료 후 현재 섬의 공사 중간 상태만 정리한다', () => {
+  const fresh = initialState();
+  assert.equal(fresh.onboarded, false);
+  assert.deepEqual(act(fresh, 'QA_COMPLETE_ALL_BUILDINGS'), fresh);
+
+  const saved = initialState(true),
+    island = currentIsland(saved),
+    otherBuildings = [...saved.islands[1].buildings];
+  island.buildings = ['hall'];
+  island.buildingQuest = {
+    building: 'board',
+    targets: ['me'],
+    selectedAt: 1000,
+  };
+  island.construction = {
+    building: 'board',
+    startedAt: 1000,
+    endsAt: 2000,
+    cost: costs.board,
+  };
+  island.nextBuilding = 'board';
+  island.completed = { building: 'hall', at: 900 };
+
+  const loaded = act(saved, 'QA_COMPLETE_ALL_BUILDINGS');
+  const completed = currentIsland(loaded);
+
+  assert.deepEqual(completed.buildings, buildingOrder);
+  assert.equal(completed.buildingQuest, undefined);
+  assert.equal(completed.construction, undefined);
+  assert.equal(completed.nextBuilding, undefined);
+  assert.equal(completed.completed, undefined);
+  assert.deepEqual(loaded.islands[1].buildings, otherBuildings);
 });
 test('도서관을 자유 선택: 목표를 고른 뒤 각자 몫을 모아야 하고 공동 잔액도 필요, 차감은 건설 버튼에서만', () => {
   let s = initialState(true);

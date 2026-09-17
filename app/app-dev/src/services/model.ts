@@ -291,6 +291,13 @@ export const buildingOrder: Building[] = [
   'tower',
   'shop',
 ];
+function completeAllBuildings(i: Island) {
+  i.buildings = [...buildingOrder];
+  delete i.buildingQuest;
+  delete i.construction;
+  delete i.nextBuilding;
+  delete i.completed;
+}
 export const balance = (i: Island) => i.fish ?? i.contribution + i.points;
 export const isHost = (i: Island) => i.joined && !i.members.some((m) => m.role === 'host');
 export const targetIds = (i: Island) => [
@@ -1741,6 +1748,10 @@ export function reducer(state: State, a: Action): State {
       });
       return clean;
     }
+    case 'QA_COMPLETE_ALL_BUILDINGS':
+      if (!s.onboarded) return state;
+      completeAllBuildings(i);
+      break;
     case 'DEMO_CREDIT':
       i.fish = balance(i) + (a.fish || 0) + (a.points || 0) + (a.contribution || 0);
       i.earned ??= {};

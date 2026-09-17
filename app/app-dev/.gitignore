@@ -12,6 +12,8 @@ build/
 web-build/
 web-preview.log
 coverage/
+*.ipa
+*.dSYM.zip
 npm-debug.*
 *.log
 *.tsbuildinfo
@@ -67,6 +69,7 @@ ios/.xcode.env.local
 ios/*.jsbundle
 ios/*.dSYM.zip
 ios/fastlane/report.xml
+ios/fastlane/README.md
 ios/fastlane/Preview.html
 ios/fastlane/screenshots
 ios/fastlane/test_output
