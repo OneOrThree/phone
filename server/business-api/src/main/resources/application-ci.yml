@@ -28,11 +28,23 @@ business:
       service-token: ci-token-noti
       read-timeout: 300ms
       connect-timeout: 200ms
+    realtime:
+      base-url: http://localhost:1
+      service-token: ci-token-realtime
+      read-timeout: 300ms
+      connect-timeout: 200ms
     link:
       base-url: http://localhost:1
       service-token: ci-token-link
       read-timeout: 300ms
       connect-timeout: 200ms
+  cursor:
+    # 목록 커서 서명키 — 운영 키가 아니다. JWT 키와 «독립» 이어야 한다는 규칙을 테스트에서도 지킨다.
+    # dev/prod 는 이 블록을 환경변수로 주입해야 /islands·/islands/discover 의 페이징이 산다.
+    enabled: true
+    active-key: ci
+    keys:
+      ci: Y2ktY3Vyc29yLXNpZ25pbmcta2V5LTAxMjM0NTY3ODlhYg==
   compat:
     match-handler-enabled: true
     import-contract-ready: false

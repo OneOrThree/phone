@@ -21,19 +21,31 @@ public class UpstreamConfigProperties {
     private Target data = new Target();
     private Target notification = new Target();
     private Target link = new Target();
+    /**
+     * 실시간 서버(GROMO-1775 우체통). 기본 2 — 합계 상한을 16 에서 18 로 올리며 기존 셋(4·4·4)과 조합(4)의
+     * 몫은 건드리지 않았다. 우체통은 사용자 액션당 GET/POST 한 번이라 2 로 시작한다.
+     */
+    private Target realtime = withMaxConnections(2);
     private Composition composition = new Composition();
 
-    /** 대상 셋과 조합 worker의 합계. Tomcat·JVM·Redis·미리보기/PDF PID 여유는 별도로 남긴다. */
+    /** 대상 넷과 조합 worker의 합계. Tomcat·JVM·Redis·미리보기/PDF PID 여유는 별도로 남긴다. */
     public void validateWorkerBudget() {
         if (data.getMaxConnections() < 1 || notification.getMaxConnections() < 1
-                || link.getMaxConnections() < 1 || composition.getPoolSize() < 1) {
+                || link.getMaxConnections() < 1 || realtime.getMaxConnections() < 1
+                || composition.getPoolSize() < 1) {
             throw new IllegalArgumentException("상류 HTTP 및 화면 조합 worker는 각각 1 이상이어야 합니다.");
         }
         long total = (long) data.getMaxConnections() + notification.getMaxConnections()
-                + link.getMaxConnections() + composition.getPoolSize();
-        if (total > 16) {
-            throw new IllegalArgumentException("상류 HTTP 및 화면 조합 worker 합계는 16 이하여야 합니다.");
+                + link.getMaxConnections() + realtime.getMaxConnections() + composition.getPoolSize();
+        if (total > 18) {
+            throw new IllegalArgumentException("상류 HTTP 및 화면 조합 worker 합계는 18 이하여야 합니다.");
         }
+    }
+
+    private static Target withMaxConnections(int maxConnections) {
+        Target target = new Target();
+        target.setMaxConnections(maxConnections);
+        return target;
     }
 
     /** 초기 JVM 안전 상한이며 운영 처리량/SLO를 보장하는 수치가 아니다. */

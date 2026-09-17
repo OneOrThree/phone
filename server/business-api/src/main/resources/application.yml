@@ -70,11 +70,30 @@ business:
       read-timeout: 1500ms
       failure-threshold: 5
       open-duration: 10s
+    # 실시간 서버 — 우체통 편지방의 저장소 어댑터(GROMO-1775). 주소·토큰은 프로파일별 파일이 채운다.
+    realtime:
+      connect-timeout: 500ms
+      read-timeout: 1500ms
+      failure-threshold: 5
+      open-duration: 10s
     link:
       connect-timeout: 500ms
       read-timeout: 1500ms
       failure-threshold: 5
       open-duration: 10s
+  # 목록 커서 서명 (GROMO-1759). GET /islands 와 GET /islands/discover «두 목록만» 이 키를 쓴다.
+  #
+  # ⚠️ «테스트는 통과하는데 배포하면 죽는» 모양을 조심한다. 이 블록에 값이 있는 것은 ci
+  #    프로파일뿐이라 계약 테스트는 전부 통과한다. dev/prod 에 주입하지 않으면:
+  #      · 부팅은 «정상»이다 — CursorConfig 가 @ConditionalOnProperty 라 빈이 아예 안 생긴다.
+  #        부팅 로그도 헬스체크도 조용하다(RequiredConfig 의 fail-fast 대상이 아니다).
+  #      · 대신 위 두 목록의 «첫 요청»이 503 SERVICE_UNAVAILABLE 로 죽는다.
+  #      · 나머지 4종(섬 생성·섬 상세·내 섬 목록·현재 섬 이동)은 정상 동작한다.
+  #    커서를 «없는 셈» 치고 첫 페이지를 돌려주지 않는 것은 의도다 — 그건 위조 커서를 조용히
+  #    허용하는 것과 같다(IslandMembershipUseCase#codec).
+  #    켜려면 enabled=true 와 «JWT 와 독립인» 256비트 이상 키가 필요하다.
+  cursor:
+    enabled: ${BUSINESS_CURSOR_ENABLED:false}
   compat:
     # 한시 /l/match 핸들러. 컷오버 후 제거가 계약이므로 기본값은 꺼짐이다(A22 ㊫).
     match-handler-enabled: false

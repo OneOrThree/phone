@@ -4,6 +4,7 @@ import com.oneorthree.business.common.http.ScreenComposer;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
+import com.oneorthree.business.upstream.realtime.RealtimeApiClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -25,7 +26,9 @@ class UpstreamWorkerBudgetTest {
                     "business.upstream.notification.base-url=http://127.0.0.1:2",
                     "business.upstream.notification.service-token=test-notification-token",
                     "business.upstream.link.base-url=http://127.0.0.1:3",
-                    "business.upstream.link.service-token=test-link-token");
+                    "business.upstream.link.service-token=test-link-token",
+                    "business.upstream.realtime.base-url=http://127.0.0.1:4",
+                    "business.upstream.realtime.service-token=test-realtime-token");
 
     @Test
     void defaultBudgetStartsAllThreeRealClientsAndComposer() {
@@ -36,6 +39,7 @@ class UpstreamWorkerBudgetTest {
                 .hasSingleBean(DataApiClient.class)
                 .hasSingleBean(NotificationApiClient.class)
                 .hasSingleBean(LinkApiClient.class)
+                .hasSingleBean(RealtimeApiClient.class)
                 .hasSingleBean(ScreenComposer.class));
     }
 
@@ -46,7 +50,7 @@ class UpstreamWorkerBudgetTest {
         configured(data, notification, link, composition).run(context -> {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class)
-                    .hasStackTraceContaining("worker 합계").hasStackTraceContaining("16");
+                    .hasStackTraceContaining("worker 합계").hasStackTraceContaining("18");
         });
     }
 

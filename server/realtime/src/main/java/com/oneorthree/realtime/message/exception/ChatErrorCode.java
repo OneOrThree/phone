@@ -67,7 +67,16 @@ public enum ChatErrorCode implements ErrorCode {
      *       스스로 풀리지도 않는다</li>
      * </ul>
      */
-    INVALID_CURSOR(HttpStatus.BAD_REQUEST, "잘못된 커서입니다.");
+    INVALID_CURSOR(HttpStatus.BAD_REQUEST, "잘못된 커서입니다."),
+
+    /**
+     * 우체통(내부 어댑터) 전용 — 같은 {@code clientMessageId} 로 <b>다른 본문</b>이 왔다
+     * (island-mailbox policy M05). 409 인 이유는 «키가 이미 다른 말에 쓰였다»는 상태 충돌이라서다.
+     *
+     * <p>legacy STOMP 발신은 이 코드를 <b>내지 않는다</b> — 그쪽은 같은 키면 본문이 달라도 원문을
+     * 되돌리는 동작을 보존한다({@code ChatMessageService#send}). 두 입구의 정책이 «일부러» 다르다.
+     */
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 메시지에 사용한 키입니다.");
 
     private final HttpStatus status;
     private final String message;

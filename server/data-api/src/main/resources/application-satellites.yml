@@ -47,6 +47,10 @@ internal:
           - 'POST /internal/users/*/focus-sessions/*/resume'
           - 'POST /internal/users/*/focus-sessions/*/finish'
           - 'GET /internal/users/*/focus-summary'
+          # GROMO-1775 우체통 편지방 — 주민 인가·작성자 표시·message.created 적재. 메시지 정본은 realtime.
+          - 'GET /internal/islands/*/mailbox-access'
+          - 'POST /internal/islands/*/message-authors'
+          - 'POST /internal/islands/*/message-events'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

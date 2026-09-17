@@ -17,7 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
  * 이게 있어야 {@code FilterRegistrationBean} 으로 등록한 {@code AccessTokenFilter} 까지 포함한
  * 필터 체인으로 조립된다. 컨트롤러만 단독으로 띄우면 이 서비스의 보안 경계가 테스트에서 통째로 빠진다.
  *
- * <p>상류 셋을 <b>각각 다른 포트</b>로 띄운다 — 한 서버로 합치면 「caller 별 토큰이 명시된 대상에만
+ * <p>상류 넷을 <b>각각 다른 포트</b>로 띄운다 — 한 서버로 합치면 「caller 별 토큰이 명시된 대상에만
  * 가는가」(A22 ㊀)를 확인할 수 없다.
  */
 @SpringBootTest
@@ -28,6 +28,7 @@ public abstract class UpstreamTestBase {
     protected static final MockUpstream DATA = MockUpstream.start();
     protected static final MockUpstream NOTI = MockUpstream.start();
     protected static final MockUpstream LINK = MockUpstream.start();
+    protected static final MockUpstream REALTIME = MockUpstream.start();
 
     @Autowired
     protected MockMvc mockMvc;
@@ -37,6 +38,7 @@ public abstract class UpstreamTestBase {
         registry.add("business.upstream.data.base-url", DATA::baseUrl);
         registry.add("business.upstream.notification.base-url", NOTI::baseUrl);
         registry.add("business.upstream.link.base-url", LINK::baseUrl);
+        registry.add("business.upstream.realtime.base-url", REALTIME::baseUrl);
     }
 
     @BeforeEach
@@ -44,6 +46,7 @@ public abstract class UpstreamTestBase {
         DATA.reset();
         NOTI.reset();
         LINK.reset();
+        REALTIME.reset();
     }
 
     // ⚠️ @AfterAll 로 서버를 닫지 «않는다». 이 클래스를 상속한 모든 테스트 클래스가 그 훅을 각자

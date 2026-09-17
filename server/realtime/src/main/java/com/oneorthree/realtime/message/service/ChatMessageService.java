@@ -3,6 +3,7 @@ package com.oneorthree.realtime.message.service;
 import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.message.dto.ChatHistoryResponse;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
+import com.oneorthree.realtime.message.dto.MailboxStoreResult;
 import com.oneorthree.realtime.message.dto.SendMessageRequest;
 import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
@@ -151,7 +152,56 @@ public class ChatMessageService {
      */
     public ChatHistoryResponse history(UUID groupId, UUID userId, UUID cursor, Integer size, String bearerToken) {
         accessGuard.requireCanChat(groupId, userId, bearerToken);
+        return page(groupId, cursor, size);
+    }
 
+    /**
+     * 우체통 편지방의 저장 (GROMO-1775, island-mailbox LLD §3·§4) — legacy STOMP 와 <b>같은 저장소·같은
+     * 유니크 제약</b>({@code ux_chat_messages_dedup})을 쓰되 정책 둘이 다르다.
+     *
+     * <ol>
+     *   <li>{@link ChatAccessGuard} 를 타지 않는다. 주민·시설 인가는 Business 가 Data 로 끝낸 뒤 호출하고,
+     *       집중 중 차단은 <b>서버가 하지 않는다</b> — 정책 M12(MQ02 결정, 재영님 2026-09-18): 우체통은
+     *       집중·휴식 상태로 막지 않고 앱이 화면에서 막는다. legacy 의 집중 차단(M08)은 {@link #send} 에
+     *       그대로 남아 있다.</li>
+     *   <li>같은 키·다른 본문은 원문을 되돌리지 않고 {@code IDEMPOTENCY_KEY_REUSED} 로 거절한다(M05).
+     *       legacy 는 되돌린다 — 두 정책을 한 저장 함수 위의 «어댑터 입력»으로 가른다(LLD §4-4).</li>
+     * </ol>
+     *
+     * <p>중복 제거는 <b>DB 유니크 제약</b>이 최종 판정한다({@link #insertOrFindExisting}) — 애플리케이션
+     * «있나 보고 넣기»에는 창이 있고 제약에는 없다. 동시 재전송 둘이 오면 하나만 INSERT 에 성공하고
+     * 다른 하나는 위반을 잡아 «그 행»을 읽어 돌려준다.
+     *
+     * <p>처음 저장이면 legacy 토픽({@code /topic/groups/{groupId}})으로 브로드캐스트한다 — 기존 STOMP
+     * 구독자가 새 입구의 말도 봐야 한다(LLD §4-6). 재전송은 방송하지 않는다. {@code message.created} 의
+     * outbox 적재는 <b>이 서비스가 하지 않는다</b> — outbox 는 Data 에 있고 Business 가 이 호출의
+     * {@code freshlyInserted} 를 보고 적재한다. 저장 커밋과 그 적재 사이에 원자성은 없다(그 사실과
+     * 실패 시 동작은 Business 의 {@code IslandMailboxUseCase} 에 적혀 있다).
+     *
+     * @return 저장된(또는 이미 있던) 메시지와 «이번에 처음 저장됐는가»
+     * @throws ChatException 빈 본문·길이 초과·NUL · 같은 키 다른 본문({@code IDEMPOTENCY_KEY_REUSED})
+     */
+    public MailboxStoreResult storeFromMailbox(UUID groupId, UUID senderId, SendMessageRequest request) {
+        String content = normalizeContent(request.content());
+        Stored stored = insertOrFindExisting(groupId, senderId, request.clientMessageId(), content);
+        if (stored.freshlyInserted()) {
+            chatFanout.broadcast(stored.message());
+        } else if (!content.equals(stored.message().content())) {
+            throw new ChatException(ChatErrorCode.IDEMPOTENCY_KEY_REUSED);
+        }
+        return new MailboxStoreResult(stored.message(), stored.freshlyInserted());
+    }
+
+    /**
+     * 우체통 히스토리 — {@link #history} 와 같은 페이징, 관문만 없다(인가는 Business 가 Data 로 끝냈다,
+     * 집중 차단은 M12 로 없다). 반환 순서·커서 의미는 legacy 와 동일하다: 최신 → 과거, nextCursor =
+     * 이 페이지의 가장 오래된 id.
+     */
+    public ChatHistoryResponse historyForMailbox(UUID groupId, UUID cursor, Integer size) {
+        return page(groupId, cursor, size);
+    }
+
+    private ChatHistoryResponse page(UUID groupId, UUID cursor, Integer size) {
         int limit = clampSize(size);
 
         // 한 건 더 받아 «더 있는가»를 판정한다. count 쿼리를 따로 치는 것보다 싸고, 두 쿼리 사이에

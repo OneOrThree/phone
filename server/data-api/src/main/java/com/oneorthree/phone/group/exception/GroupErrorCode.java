@@ -19,6 +19,10 @@ public enum GroupErrorCode implements ErrorCode {
     GUEST_FORBIDDEN(HttpStatus.FORBIDDEN, "게스트는 이 작업을 수행할 권한이 없습니다."),
     NOT_OWNER(HttpStatus.FORBIDDEN, "그룹장만 수행할 수 있습니다."),
     MEMBER_ONLY(HttpStatus.FORBIDDEN, "그룹원만 조회할 수 있습니다."),
+    // 우체통 미완공(GROMO-1775) — Business 가 공개 FACILITY_LOCKED 로 옮긴다. 1759 의 OBSERVATORY_LOCKED 와 같은 결.
+    // 지금은 발급 경로가 «닫혀» 있다: 건설 도메인 미구현이라 InternalIslandMailboxService.requireMailboxUnlocked 가
+    // 통과시킨다. 시설 테이블이 생기면 그 한 곳에서 던진다.
+    MAILBOX_LOCKED(HttpStatus.FORBIDDEN, "우체통을 지으면 편지를 주고받을 수 있어요"),
 
     // 잘못된 입력 및 요청
     INVALID_MISSION_PARAMS(HttpStatus.BAD_REQUEST, "미션 파라미터가 유효하지 않습니다."),
