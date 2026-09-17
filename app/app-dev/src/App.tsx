@@ -410,6 +410,7 @@ function Gromo() {
         setBody(opts.body || '');
         setRestTravel(!!opts.travel);
         setGuideStep(opts.guideStep || 0);
+        setFailNext(!!opts.failNext);
         setWalkRequest(null);
       },
       fixture: initialState,
@@ -504,6 +505,8 @@ function Gromo() {
           setWindowStart,
           windowEnd,
           setWindowEnd,
+          failNext,
+          setFailNext,
         }}
       />
     );

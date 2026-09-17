@@ -27,6 +27,14 @@ import {
   recordSecondsBetween,
   weekStart,
   periodBounds,
+  unreadLetters,
+  newChatCount,
+  clockMinutes,
+  canSendLetter,
+  isOwnComment,
+  memberOf,
+  clockText,
+  questMemberRate,
   joinRequests,
   ledgerParts,
   canSelectBuilding,
@@ -404,6 +412,29 @@ test('공지·댓글·그룹 편지 실패와 재시도', () => {
   s = act(s, 'RETRY_MESSAGE', { id: m.id });
   assert.equal(currentIsland(s).messages.at(-1)!.status, 'sent');
 });
+test('공지는 방장만 쓰고 지우며, 공백만 있는 제목·본문은 저장하지 않는다', () => {
+  let s = initialState(true);
+  assert.deepEqual(act(s, 'NOTICE_SAVE', { title: '   ', body: '내용' }), s);
+  assert.deepEqual(act(s, 'NOTICE_SAVE', { title: '제목', body: ' \n ' }), s);
+  s = act(s, 'NOTICE_SAVE', { title: '  공지  ', body: '  본문  ' });
+  const saved = currentIsland(s).notices[0];
+  assert.deepEqual([saved.title, saved.body], ['공지', '본문']);
+  // 주민은 쓰기·수정·삭제를 할 수 없다
+  const resident = act(s, 'TRANSFER', { id: 'minji' });
+  assert.deepEqual(act(resident, 'NOTICE_SAVE', { title: '새 공지', body: '내용' }), resident);
+  assert.deepEqual(
+    act(resident, 'NOTICE_SAVE', { id: saved.id, title: '고침', body: '내용' }),
+    resident,
+  );
+  assert.deepEqual(act(resident, 'NOTICE_DELETE', { id: saved.id }), resident);
+  // 방장은 수정할 때도 공백을 다듬는다
+  s = act(s, 'NOTICE_SAVE', { id: saved.id, title: ' 고친 공지 ', body: ' 고친 본문 ' });
+  assert.deepEqual(
+    [currentIsland(s).notices[0].title, currentIsland(s).notices[0].body],
+    ['고친 공지', '고친 본문'],
+  );
+});
+
 test('승인 요청 1회 처리·방장 위임 이후 관리 제한', () => {
   let s = initialState(true);
   s = act(s, 'ADD_MEMBER');
@@ -690,19 +721,71 @@ test('주 경계를 넘은 집중은 일요일 00시 이후 구간만 새 주 �
   assert.equal(recordSecondsBetween(s.records[0], sunday - 1800000, sunday + 1800000), 1800);
 });
 
-test('오늘 퀘스트를 수정하면 미수령 달성과 보상을 새 기준으로 다시 판정한다', () => {
+test('일일 퀘스트는 방장만 만들고 수정한다; 시간대 집중은 목표 분이 진행 시간 안이어야 한다', () => {
   let s = initialState(true);
-  const now = new Date(2026, 8, 15, 12).getTime(),
+  const quest = currentIsland(s).quests[0];
+  const focus = { title: '저녁 집중', kind: 'focus', windowStart: '19:00', windowEnd: '22:00' };
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, target: 181 }), s);
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, windowEnd: '19:00', target: 10 }), s);
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, windowStart: '', target: 10 }), s);
+  // 수정에도 같은 검증을 적용하고, 없는 퀘스트 id는 새로 만들지 않는다
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, id: quest.id, target: 181 }), s);
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...focus, id: 'missing', target: 30 }), s);
+  s = act(s, 'QUEST_SAVE', { ...focus, target: 180 });
+  const pick = ({ title, type, target, windowStart, windowEnd }: any) => ({
+    title,
+    type,
+    target,
+    windowStart,
+    windowEnd,
+  });
+  assert.deepEqual(pick(currentIsland(s).quests.at(-1)!), {
+    title: '저녁 집중',
+    type: 'focus',
+    target: 180,
+    windowStart: '19:00',
+    windowEnd: '22:00',
+  });
+  s = act(s, 'QUEST_SAVE', { title: '폰 90분', kind: 'screen', target: 90, windowStart: '19:00' });
+  assert.equal(currentIsland(s).quests.at(-1)!.windowStart, undefined);
+  // 방장은 기존 퀘스트를 수정한다 (스크린타임으로 바꾸면 시간대는 지운다)
+  const count = currentIsland(s).quests.length;
+  s = act(s, 'QUEST_SAVE', { ...focus, id: quest.id, title: ' 아침 집중 ', target: 45 });
+  assert.equal(currentIsland(s).quests.length, count);
+  assert.deepEqual(pick(currentIsland(s).quests[0]), {
+    title: '아침 집중',
+    type: 'focus',
+    target: 45,
+    windowStart: '19:00',
+    windowEnd: '22:00',
+  });
+  s = act(s, 'QUEST_SAVE', { title: '폰 두 시간', kind: 'screen', target: 120, id: quest.id });
+  assert.equal(currentIsland(s).quests[0].windowStart, undefined);
+  // 주민은 수정할 수 없다
+  const resident = act(s, 'TRANSFER', { id: 'minji' });
+  assert.deepEqual(
+    act(resident, 'QUEST_SAVE', { title: '바꿈', kind: 'screen', target: 60, id: quest.id }),
+    resident,
+  );
+});
+
+test('오늘 퀘스트를 수정하면 대상 스냅숏은 두고, 미수령 달성·보상을 새 목표·시간대로 바로 다시 판정한다', () => {
+  let s = initialState(true);
+  // 2026-09-15 12:00 KST
+  const now = Date.UTC(2026, 8, 15, 3),
     quest = currentIsland(s).quests[0];
   currentIsland(s).members = [];
   s = act(s, 'START', { subject: '집중', now: now - 30 * 60 * 1000 });
   s = act(s, 'FINISH', { now });
-  assert.ok(currentIsland(s).quests[0].rounds?.[dayKey(now)]?.achieved.includes('me'));
+  const day = dayKey(now);
+  assert.ok(currentIsland(s).quests[0].rounds?.[day]?.achieved.includes('me'));
   assert.ok(
     s.rewards?.some(
       (reward) => reward.questId === quest.id && reward.kind === 'personal' && !reward.acknowledged,
     ),
   );
+  // 회차가 만들어진 뒤 들어온 주민은 오늘 대상이 아니다
+  currentIsland(s).members = [{ ...initialState(true).islands[0].members[0], records: [] }];
   s = act(s, 'QUEST_SAVE', {
     id: quest.id,
     title: '오후 집중',
@@ -712,7 +795,8 @@ test('오늘 퀘스트를 수정하면 미수령 달성과 보상을 새 기준�
     windowEnd: '18:00',
     now,
   });
-  const round = currentIsland(s).quests[0].rounds?.[dayKey(now)]!;
+  let round = currentIsland(s).quests[0].rounds?.[day]!;
+  assert.deepEqual(round.targets, ['me']);
   assert.equal(round.target, 60);
   assert.equal(round.kind, 'focus');
   assert.equal(round.windowStart, '13:00');
@@ -723,6 +807,236 @@ test('오늘 퀘스트를 수정하면 미수령 달성과 보상을 새 기준�
       (reward) => reward.questId === quest.id && reward.kind === 'personal' && !reward.acknowledged,
     ),
   );
+  // 새 시간대(13~18시) 안에서 60분을 채우면 다음 평가에서 바로 달성한다
+  const at = Date.UTC(2026, 8, 15, 5); // 14:00 KST
+  s.records.push({
+    id: 'r-afternoon',
+    islandId: s.islandId,
+    subject: '집중',
+    seconds: 3600,
+    at,
+    fish: 0,
+    contributed: true,
+  });
+  s = act(s, 'TICK', { now: at });
+  round = currentIsland(s).quests[0].rounds?.[day]!;
+  assert.ok(round.achieved.includes('me'));
+  assert.deepEqual(round.targets, ['me']);
+});
+
+test('떠난 주민도 보존된 기록으로 달성률을 계산한다', () => {
+  let s = initialState(true);
+  const now = Date.UTC(2026, 8, 16, 3); // 12:00 KST
+  const island = currentIsland(s),
+    member = island.members[0];
+  island.quests[0].windowStart = '09:00';
+  island.quests[0].windowEnd = '18:00';
+  member.records = [
+    {
+      id: 'kept',
+      islandId: island.id,
+      subject: '집중',
+      seconds: 900,
+      at: Date.UTC(2026, 8, 16, 2),
+      fish: 0,
+      contributed: true,
+    },
+  ];
+  member.screenDays = { [dayKey(now)]: 60 };
+  const before = questMemberRate(s, island.quests[0], member.id, island.id, now);
+  assert.equal(before, 50);
+  s = act(s, 'KICK', { id: member.id });
+  assert.ok(!currentIsland(s).members.some((m) => m.id === member.id));
+  assert.equal(memberOf(currentIsland(s), member.id)?.id, member.id);
+  const island2 = currentIsland(s);
+  assert.equal(questMemberRate(s, island2.quests[0], member.id, island2.id, now), 50);
+  // 스크린타임도 보존된 기록을 쓴다 (측정 전이 아니다)
+  assert.equal(questMemberRate(s, island2.quests[1], member.id, island2.id, now), 100);
+});
+
+test('시간대는 HH:MM으로 저장한다', () => {
+  let s = initialState(true);
+  s = act(s, 'QUEST_SAVE', {
+    title: '아침 집중',
+    kind: 'focus',
+    windowStart: '9:00',
+    windowEnd: '9:30',
+    target: 20,
+  });
+  const q = currentIsland(s).quests.at(-1)!;
+  assert.equal(q.windowStart, '09:00');
+  assert.equal(q.windowEnd, '09:30');
+  assert.equal(clockText('9:5'), '9:5');
+  assert.equal(clockText('24:00'), '24:00');
+});
+
+test('퀘스트 목표 분은 정수만, 시간은 한 자리 시와 종료 24:00을 받는다', () => {
+  let s = initialState(true);
+  const late = { title: '밤 집중', kind: 'focus', windowStart: '9:00', windowEnd: '24:00' };
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...late, target: 30.5 }), s);
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...late, windowStart: '24:00', target: 30 }), s);
+  assert.deepEqual(act(s, 'QUEST_SAVE', { ...late, windowEnd: '24:30', target: 30 }), s);
+  assert.equal(clockMinutes('9:05'), 545);
+  assert.equal(clockMinutes('24:00'), 1440);
+  assert.equal(clockMinutes('25:00'), null);
+  s = act(s, 'QUEST_SAVE', { ...late, target: 900 });
+  assert.equal(currentIsland(s).quests.at(-1)!.target, 900);
+});
+
+test('댓글 삭제: 방장은 모든 댓글, 주민은 자기 댓글만', () => {
+  let s = initialState(true);
+  s = act(s, 'COMMENT', { id: 'welcome', text: '내 댓글' });
+  const mine = currentIsland(s).notices[0].comments.at(-1)!.id;
+  // 방장(나)은 다른 주민 댓글도 지운다
+  let host = act(s, 'COMMENT_DELETE', { id: 'welcome', commentId: 'c1' });
+  assert.ok(!currentIsland(host).notices[0].comments.some((c) => c.id === 'c1'));
+  s = act(s, 'TRANSFER', { id: 'minji' });
+  assert.deepEqual(act(s, 'COMMENT_DELETE', { id: 'welcome', commentId: 'c1' }), s);
+  s = act(s, 'COMMENT_DELETE', { id: 'welcome', commentId: mine });
+  assert.ok(!currentIsland(s).notices[0].comments.some((c) => c.id === mine));
+});
+
+test('받은 편지는 읽고 닫으면 사라지고, 채팅방 새 글은 마지막으로 연 뒤의 다른 주민 글만 센다', () => {
+  let s = initialState(true);
+  const friend = s.friends![0];
+  friend.messages = [
+    {
+      id: 'l1',
+      memberId: friend.id,
+      name: friend.name,
+      color: friend.color,
+      text: '안녕',
+      at: 1,
+      status: 'sent',
+    },
+    {
+      id: 'l2',
+      memberId: friend.id,
+      name: friend.name,
+      color: friend.color,
+      text: '또 안녕',
+      at: 2,
+      status: 'sent',
+    },
+    { id: 'l3', memberId: 'me', name: s.name, color: s.color, text: '답장', at: 3, status: 'sent' },
+  ];
+  assert.deepEqual(
+    unreadLetters(s).map((x) => x.letter.id),
+    ['l2', 'l1'],
+  );
+  s = act(s, 'LETTER_READ', { friend: friend.id, id: 'l2', now: 10 });
+  assert.deepEqual(
+    unreadLetters(s).map((x) => x.letter.id),
+    ['l1'],
+  );
+  // 이미 읽은 편지를 다시 읽어도 바뀌지 않고, 상세에서 볼 수 있게 편지 자체는 남는다
+  assert.deepEqual(act(s, 'LETTER_READ', { friend: friend.id, id: 'l2', now: 20 }), s);
+  assert.equal(s.friends![0].messages.find((m) => m.id === 'l2')!.readAt, 10);
+  // 내가 보낸 편지는 받은 편지가 아니다
+  assert.deepEqual(act(s, 'LETTER_READ', { friend: friend.id, id: 'l3' }), s);
+  assert.equal(newChatCount(currentIsland(s)), 2);
+  s = act(s, 'CHAT_READ', { now: Date.now() + 1000 });
+  assert.equal(newChatCount(currentIsland(s)), 0);
+  s = act(s, 'MESSAGE', { text: '내 글', now: Date.now() + 2000 });
+  assert.equal(newChatCount(currentIsland(s)), 0);
+  // 더 이른 시각으로 다시 열어도 읽음 기준은 뒤로 가지 않는다 (LOAD가 올려 둔 미래 시각 유지)
+  const kept = currentIsland(s).chatReadAt!;
+  s = act(s, 'CHAT_READ', { now: kept - 5000 });
+  assert.equal(currentIsland(s).chatReadAt, kept);
+  assert.equal(newChatCount(currentIsland(s)), 0);
+  // 방을 연 채 도착한 미래 시각(시계 오차) 메시지도 CHAT_READ가 읽음 처리한다
+  currentIsland(s).messages.push({ ...currentIsland(s).messages[0], id: 'm8', at: kept + 60_000 });
+  assert.equal(newChatCount(currentIsland(s)), 1);
+  s = act(s, 'CHAT_READ', { now: kept + 1000 });
+  assert.equal(currentIsland(s).chatReadAt, kept + 60_000);
+  assert.equal(newChatCount(currentIsland(s)), 0);
+});
+
+test('공사가 끝나면 완공 안내를 남기고, 다음 건물을 고르면 지운다', () => {
+  let s = initialState(true);
+  currentIsland(s).buildings = ['hall', 'board', 'gram'];
+  currentIsland(s).fish = 3000;
+  s = act(s, 'SELECT_BUILDING', { building: 'library' });
+  const i = currentIsland(s);
+  for (const id of i.buildingQuest!.targets)
+    i.earned![id] = (i.earned![id] ?? 0) + buildingShare(i, 'library');
+  s = act(s, 'BUILD', { building: 'library', now: 1000 });
+  assert.equal(currentIsland(s).completed, undefined);
+  s = act(s, 'TICK', { now: 1000 + buildMinutes.library * 60000 });
+  assert.deepEqual(currentIsland(s).completed, {
+    building: 'library',
+    at: 1000 + buildMinutes.library * 60000,
+  });
+  s = act(s, 'SELECT_BUILDING', { building: 'mail' });
+  assert.equal(currentIsland(s).completed, undefined);
+});
+
+test('읽음 기준이 없던 예전 저장본을 불러오면 받은 편지 0통·새 글 0개, 이후 받은 것만 새로 센다', () => {
+  const old = initialState(true);
+  old.friends![0].messages = [
+    {
+      id: 'l1',
+      memberId: 'saebom',
+      name: '새봄',
+      color: 'white',
+      text: '예전 편지',
+      at: 500,
+      status: 'sent',
+    },
+  ];
+  delete old.lettersReadAt;
+  old.islands.forEach((i) => delete i.chatReadAt);
+  let s = reducer(old, { type: 'LOAD', state: old, now: 1000 });
+  assert.equal(unreadLetters(s).length, 0);
+  assert.equal(newChatCount(currentIsland(s)), 0);
+  s.friends![0].messages.push({ ...s.friends![0].messages[0], id: 'l2', at: 2000 });
+  // 예전 섬 글이 지금보다 늦게 찍혀 있으면 그 시각이 기준이 된다
+  const chatReadAt = currentIsland(s).chatReadAt!;
+  assert.ok(chatReadAt >= Math.max(...currentIsland(s).messages.map((m) => m.at)));
+  currentIsland(s).messages.push({ ...currentIsland(s).messages[0], id: 'm9', at: chatReadAt + 1 });
+  assert.deepEqual(
+    unreadLetters(s).map((x) => x.letter.id),
+    ['l2'],
+  );
+  assert.equal(newChatCount(currentIsland(s)), 1);
+  // 읽음 기준이 있는 저장본은 그대로 둔다
+  const fresh = initialState(true);
+  fresh.friends![0].messages = old.friends![0].messages;
+  assert.equal(unreadLetters(reducer(fresh, { type: 'LOAD', state: fresh, now: 1000 })).length, 1);
+});
+
+test('memberId가 없던 예전 댓글은 작성자 이름이 내 이름(바꾼 이름 포함)이면 내 댓글이다', () => {
+  let s = initialState(true);
+  s.profileNames = ['예전이름', s.name];
+  currentIsland(s).notices[0].comments.push(
+    { id: 'old-mine', name: '예전이름', text: '예전 내 댓글' },
+    { id: 'old-other', name: '두부', text: '남의 댓글' },
+  );
+  assert.ok(isOwnComment(s, { name: '예전이름' }));
+  assert.ok(!isOwnComment(s, { name: '예전이름', memberId: 'minji' }));
+  s = act(s, 'TRANSFER', { id: 'minji' });
+  assert.deepEqual(act(s, 'COMMENT_DELETE', { id: 'welcome', commentId: 'old-other' }), s);
+  s = act(s, 'COMMENT_DELETE', { id: 'welcome', commentId: 'old-mine' });
+  assert.ok(!currentIsland(s).notices[0].comments.some((c) => c.id === 'old-mine'));
+});
+
+test('회관·게시판처럼 다음 건물로 고르는 건물이 아니면 완공 안내를 남기지 않는다', () => {
+  let s = initialState(true);
+  currentIsland(s).buildings = ['hall'];
+  currentIsland(s).fish = 3000;
+  s = act(s, 'BUILD', { building: 'board', now: 1000 });
+  s = act(s, 'TICK', { now: 1000 + buildMinutes.board * 60000 });
+  assert.ok(currentIsland(s).buildings.includes('board'));
+  assert.equal(currentIsland(s).completed, undefined);
+});
+
+test('친구 편지는 친구이고 내 섬에 우체통이 있을 때만 보낸다', () => {
+  let s = initialState(true);
+  assert.ok(canSendLetter(s, 'saebom'));
+  assert.ok(!canSendLetter(s, 'haneul'));
+  currentIsland(s).buildings = ['hall', 'board'];
+  assert.ok(!canSendLetter(s, 'saebom'));
+  assert.deepEqual(act(s, 'FRIEND_MESSAGE', { id: 'saebom', text: '안녕' }), s);
 });
 
 test('탈퇴한 섬에서는 주민 전용 기록을 추가하거나 재화를 쓸 수 없다', () => {

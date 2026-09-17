@@ -10,13 +10,15 @@ import {
   costs,
   buildMinutes,
   balance,
-  buildingCost,
-  buildingReady,
   buildingShare,
+  earnedBy,
   collectedBy,
   isHost,
   sessionSeconds,
   dayKey,
+  periodBounds,
+  islandWeeklyAverage,
+  hoursMinutes,
   questMemberRate,
   SECONDS_PER_FISH,
 } from '@/services/model';
@@ -40,12 +42,12 @@ import {
   Row,
   Seg,
   Field,
-  Bar,
   Strip,
   Toggle,
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
+import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 const buildingArt: Record<Building, string> = {
@@ -214,10 +216,17 @@ export function CurrentScreens({ e }: any) {
   if (['library', 'diary', 'stats'].includes(r)) return <Library e={e} />;
   if (['hall', 'manage', 'members', 'ledger', 'construction'].includes(r))
     return <Hall key={r} e={e} />;
-  if (['board', 'quest'].includes(r)) return <Board e={e} />;
+  // 게시판·우체통은 건물 안 장면(BuildingInteriors)으로 그린다
+  if (['board', 'notice', 'noticeEdit', 'quest', 'questEdit'].includes(r))
+    return (
+      <>
+        <InteriorRoute e={e} />
+        <RewardModal e={e} />
+      </>
+    );
+  if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
-  if (['boat', 'friends', 'friendSearch', 'mail', 'chat', 'friendMail'].includes(r))
-    return <Social e={e} />;
+  if (['boat', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
   if (r === 'permission')
     return (
@@ -810,270 +819,14 @@ function RewardModal({ e }: any) {
     </Overlay>
   );
 }
-function Board({ e }: any) {
-  const s: State = e.state,
-    i = currentIsland(s),
-    host = isHost(i),
-    L = useAppLayout(),
-    q = i.quests.find((q) => q.id === e.detail),
-    tab = e.tab || '퀘스트',
-    round = q?.rounds?.[dayKey(e.now)];
-  const construction = i.construction,
-    goal = i.buildingQuest;
-  const targets = goal?.targets ?? [],
-    names = (id: string) =>
-      id === 'me' ? s.name : (i.members.find((m) => m.id === id)?.name ?? '탈퇴한 주민');
-  const buildingCard = goal && (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={`${buildingNames[goal.building]} 건설 퀘스트`}
-      onPress={() => e.go('quest', 'building')}
-      style={{
-        padding: 18,
-        gap: 10,
-        backgroundColor: '#bcdccd',
-        borderRadius: 3,
-        transform: [{ rotate: '-1deg' }],
-        boxShadow: '2px 4px 3px #694b3445',
-      }}
-    >
-      <Txt kind="h17">{buildingNames[goal.building]} 건설 퀘스트</Txt>
-      <Txt>
-        주민 {targets.filter((id) => collectedBy(i, id) >= buildingShare(i, goal.building)).length}/
-        {targets.length}명 · 각자 {buildingShare(i, goal.building)}마리
-      </Txt>
-      <Txt kind="meta">
-        섬 잔액 {balance(i)}/{buildingCost(i, goal.building)}마리
-      </Txt>
-      {buildingReady(i) && <Txt style={{ color: '#2f7a57', fontWeight: '800' }}>완료 ✓</Txt>}
-    </Pressable>
-  );
-  if (e.route === 'board')
-    return (
-      <Sheet
-        e={e}
-        bg="board"
-        sign="bld/notice-board"
-        title="게시판"
-        action={host ? (tab === '퀘스트' ? '＋ 만들기' : '＋ 작성') : undefined}
-        actionPress={
-          host ? () => (tab === '퀘스트' ? e.newQuest() : e.go('noticeEdit')) : undefined
-        }
-      >
-        <Seg items={['퀘스트', '공지']} value={tab} onChange={e.setTab} />
-        {tab === '공지' ? (
-          i.notices.map((n) => (
-            <Pressable
-              key={n.id}
-              accessibilityRole="button"
-              accessibilityLabel={n.title}
-              onPress={() => e.go('notice', n.id)}
-              style={{
-                padding: 18,
-                backgroundColor: C.paper,
-                transform: [{ rotate: '-1deg' }],
-                gap: 7,
-              }}
-            >
-              <Txt kind="h17">{n.title}</Txt>
-              <Txt kind="meta">댓글 {n.comments.length}</Txt>
-            </Pressable>
-          ))
-        ) : (
-          <>
-            {construction ? (
-              <View style={{ padding: 18, gap: 8, backgroundColor: '#bcdccd' }}>
-                <Txt kind="h17">{buildingNames[construction.building]} 공사 중</Txt>
-                <Txt>
-                  {buildMinutes[construction.building]}분 중{' '}
-                  {Math.max(0, Math.ceil((construction.endsAt - e.now) / 60000))}분 남음
-                </Txt>
-                <Bar
-                  value={Math.min(
-                    100,
-                    ((e.now - construction.startedAt) /
-                      (construction.endsAt - construction.startedAt)) *
-                      100,
-                  )}
-                />
-                <Txt kind="meta">공사가 끝나면 다음 목표를 고를 수 있어요.</Txt>
-              </View>
-            ) : (
-              buildingCard
-            )}
-            {i.quests.map((q, n) => (
-              <Pressable
-                key={q.id}
-                accessibilityRole="button"
-                accessibilityLabel={q.title}
-                onPress={() => e.go('quest', q.id)}
-                style={{
-                  padding: 18,
-                  gap: 10,
-                  backgroundColor: n % 2 ? '#edbcc5' : '#f5df91',
-                  transform: [{ rotate: n % 2 ? '-1deg' : '1deg' }],
-                  boxShadow: '2px 4px 3px #694b3445',
-                }}
-              >
-                <Txt kind="meta">일일 · {q.type === 'focus' ? '집중' : '스크린타임'}</Txt>
-                <Txt kind="h17">{q.title}</Txt>
-                <Txt>{q.type === 'focus' ? `${q.target}분 집중` : `하루 ${q.target}분 이내`}</Txt>
-                <Txt kind="meta">각자 달성 +10마리 · 모두 달성 보너스</Txt>
-              </Pressable>
-            ))}
-          </>
-        )}
-        <RewardModal e={e} />
-      </Sheet>
-    );
-  if (e.detail === 'building')
-    return (
-      <Sheet
-        e={e}
-        bg="board"
-        sign="bld/notice-board"
-        title="건설 퀘스트"
-        footer={
-          goal && !construction ? (
-            <Btn
-              title={isHost(i) ? '건설하기' : '방장이 건설할 수 있어요'}
-              disabled={!isHost(i) || !buildingReady(i)}
-              onPress={() => e.build(goal.building)}
-            />
-          ) : undefined
-        }
-      >
-        {construction ? (
-          <>
-            <Txt kind="h17">{buildingNames[construction.building]} 공사 중</Txt>
-            <Txt>{Math.max(0, Math.ceil((construction.endsAt - e.now) / 60000))}분 남음</Txt>
-          </>
-        ) : goal ? (
-          <>
-            <Txt kind="h">{buildingNames[goal.building]}을 함께 지어요</Txt>
-            <Txt>
-              총 {costs[goal.building]}마리 · 대상 주민 모두 각자 {buildingShare(i, goal.building)}
-              마리
-            </Txt>
-            <Group flat>
-              {targets.map((id) => (
-                <Row
-                  key={id}
-                  title={names(id)}
-                  tail={
-                    <Txt>
-                      {collectedBy(i, id)}/{buildingShare(i, goal.building)}
-                      마리 {collectedBy(i, id) >= buildingShare(i, goal.building) ? '✓' : ''}
-                    </Txt>
-                  }
-                />
-              ))}
-            </Group>
-            <Strip
-              label="섬 물고기 잔액"
-              value={`${balance(i)}/${buildingCost(i, goal.building)}마리`}
-            />
-            <Txt kind="meta">
-              건설하기를 누르면 {buildingCost(i, goal.building)}마리 차감 ·{' '}
-              {buildMinutes[goal.building]}분 공사
-            </Txt>
-            {buildingReady(i) ? (
-              <Txt kind="h17" style={{ color: '#2f7a57' }}>
-                완료 ✓
-              </Txt>
-            ) : (
-              <Txt kind="meta">
-                {targets.every((id) => collectedBy(i, id) >= buildingShare(i, goal.building))
-                  ? '잔액이 부족해요. 부족한 만큼 다시 채워요.'
-                  : '대상 주민 모두가 목표를 채우면 완료돼요.'}
-              </Txt>
-            )}
-          </>
-        ) : (
-          <Empty>회관에서 다음 건물을 골라 주세요.</Empty>
-        )}
-      </Sheet>
-    );
-  if (!q)
-    return (
-      <Sheet e={e} bg="board" title="퀘스트">
-        <Empty>퀘스트를 찾을 수 없어요.</Empty>
-      </Sheet>
-    );
-  return (
-    <Sheet
-      e={e}
-      bg="board"
-      sign="bld/notice-board"
-      title="일일 퀘스트"
-      action={host ? '수정' : undefined}
-      actionPress={
-        host
-          ? () => {
-              e.go('questEdit', q.id);
-              e.setText(q.title);
-              e.setBody(q.type);
-              e.setWindowStart(q.windowStart ?? '00:00');
-              e.setWindowEnd(q.windowEnd ?? '24:00');
-            }
-          : undefined
-      }
-    >
-      <Txt kind="h">{q.title}</Txt>
-      <Txt>{q.type === 'focus' ? `${q.target}분 집중하기` : `스크린타임 ${q.target}분 이내`}</Txt>
-      {q.windowStart && (
-        <Txt kind="meta">
-          {q.windowStart} — {q.windowEnd}
-        </Txt>
-      )}
-      <Group flat>
-        {(round?.targets ?? ['me', ...i.members.map((m) => m.id)]).map((id) => (
-          <Row
-            key={id}
-            title={names(id)}
-            sub={
-              q.type === 'screen'
-                ? '다음 날 정산'
-                : round?.achieved.includes(id)
-                  ? '달성'
-                  : '진행 중'
-            }
-            tail={
-              <Txt>
-                {round?.achieved.includes(id)
-                  ? '✓'
-                  : questMemberRate(s, q, id, i.id, e.now) == null
-                    ? '확인 필요'
-                    : `${questMemberRate(s, q, id, i.id, e.now)}%`}
-              </Txt>
-            }
-          />
-        ))}
-      </Group>
-      <Txt kind="meta">
-        각자 달성할 때 물고기 10마리 · 모두 달성하면 대상 인원의 5배만큼 보너스. 매일 새 회차로
-        진행해요.
-      </Txt>
-      <RewardModal e={e} />
-    </Sheet>
-  );
-}
 function Tower({ e }: any) {
   return <RedesignScreens e={e} />;
 }
 function Social({ e }: any) {
   const s: State = e.state,
-    i = currentIsland(s),
     r = e.route,
     [query, setQuery] = useState(''),
-    chatRef = useRef<ScrollView>(null),
     friends = s.friends ?? [];
-  const friend = friends.find((f) => f.id === e.detail),
-    msgs = r === 'friendMail' ? (friend?.messages ?? []) : i.messages;
-  useEffect(() => {
-    if (r === 'chat' || r === 'friendMail')
-      chatRef.current?.scrollToEnd({ animated: !s.settings.reduceMotion });
-  }, [msgs.length, r]);
   if (r === 'boat')
     return (
       // 내 뗏목·친구 관리·친구 찾기는 v2 시트 구현(Screens.tsx)이 그린다
@@ -1084,131 +837,7 @@ function Social({ e }: any) {
       // 친구 요청 수락·거절·취소, 친구 ··· 삭제, 닉네임 정확히 일치 검색
       <RedesignScreens e={e} />
     );
-  if (r === 'mail')
-    return (
-      <Sheet e={e} title="우체통" bg="mail" sign="bld/mailbox" tall={false}>
-        <Group flat>
-          <Row
-            title="우리 섬 편지방"
-            sub="이 섬 주민 모두에게"
-            chevron
-            onPress={() => e.go('chat')}
-          />
-          <Row
-            title="친구 편지"
-            sub="다른 섬에 있는 친구와도 이야기해요"
-            chevron
-            onPress={() => e.go('friendMail', 'list')}
-          />
-        </Group>
-      </Sheet>
-    );
-  if (r === 'friendMail' && e.detail === 'list')
-    return (
-      <Sheet e={e} title="친구 편지" bg="mail" sign="bld/mailbox">
-        <Group flat>
-          {friends
-            .filter((f) => f.status === 'friend')
-            .map((f) => (
-              <Row
-                key={f.id}
-                title={f.name}
-                icon={`avatar/${f.color}`}
-                sub={`${f.island} · ${f.messages.at(-1)?.text ?? '첫 편지를 보내 보세요'}`}
-                chevron
-                onPress={() => e.go('friendMail', f.id)}
-              />
-            ))}
-        </Group>
-        {!friends.some((f) => f.status === 'friend') && (
-          <Empty>내 뗏목에서 친구를 추가해 주세요.</Empty>
-        )}
-      </Sheet>
-    );
-  if (r === 'friendMail' && friend?.status !== 'friend')
-    return (
-      <Sheet e={e} title="친구 편지" bg="mail" sign="bld/mailbox">
-        <Empty>현재 친구 관계에서만 편지를 보낼 수 있어요.</Empty>
-      </Sheet>
-    );
-  return (
-    <IslandSheet
-      bg="mail"
-      sign={r === 'friendMail' ? `avatar/${friend?.color}` : 'bld/mailbox'}
-      signKind={r === 'friendMail' ? 'av' : ''}
-      title={r === 'friendMail' ? friend!.name : '우리 섬 편지방'}
-      tall
-      onBack={e.back}
-      onClose={e.home}
-      scrollRef={chatRef}
-      footer={
-        <View style={k.row}>
-          <View style={{ flex: 1 }}>
-            <Field value={e.text} onChange={e.setText} placeholder="편지 보내기" />
-          </View>
-          <Btn
-            title="보내기"
-            small
-            disabled={!e.text.trim()}
-            onPress={() => {
-              e.dispatch({
-                type: r === 'friendMail' ? 'FRIEND_MESSAGE' : 'MESSAGE',
-                id: friend?.id,
-                text: e.text,
-              });
-              e.setText('');
-            }}
-          />
-        </View>
-      }
-    >
-      <Txt kind="meta">
-        {r === 'friendMail'
-          ? `${friend?.island} · 둘만의 편지`
-          : `${i.name}의 모든 주민이 볼 수 있어요`}
-      </Txt>
-      {msgs.map((m) => (
-        <View
-          key={m.id}
-          style={{
-            alignItems: m.memberId === 'me' ? 'flex-end' : 'flex-start',
-            gap: 5,
-          }}
-        >
-          <Txt kind="meta">
-            {m.name} · {date(m.at)}
-          </Txt>
-          <View
-            style={{
-              backgroundColor: m.memberId === 'me' ? C.soft : C.paper,
-              padding: 14,
-              borderWidth: 1.5,
-              borderColor: C.brown,
-              borderRadius: 18,
-              maxWidth: '88%',
-            }}
-          >
-            <Txt>{m.text}</Txt>
-          </View>
-          {m.status === 'failed' && (
-            <Btn
-              small
-              kind="danger"
-              title="다시 보내기"
-              onPress={() =>
-                e.dispatch({
-                  type: r === 'friendMail' ? 'FRIEND_RETRY' : 'RETRY_MESSAGE',
-                  id: m.id,
-                  friend: friend?.id,
-                })
-              }
-            />
-          )}
-        </View>
-      ))}
-      {!msgs.length && <Empty>첫 편지를 남겨 보세요.</Empty>}
-    </IslandSheet>
-  );
+  return null;
 }
 function ShopMusic({ e }: any) {
   return <RedesignScreens e={e} />;
