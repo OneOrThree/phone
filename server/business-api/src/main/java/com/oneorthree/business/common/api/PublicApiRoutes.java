@@ -13,7 +13,9 @@ public final class PublicApiRoutes {
 
     private static final List<PathPattern> ROOTS = List.of(
             "/auth/sessions/**", "/me/**", "/islands/**", "/focus-sessions/**", "/invitations/**",
-            "/rankings/**", "/statistics/**", "/screens/**", "/link-previews/**")
+            "/rankings/**", "/statistics/**", "/screens/**", "/link-previews/**",
+            // GROMO-1894 친구·편지 — nginx 위성 include 의 Business 분기 목록과 같이 늘린다.
+            "/friends/**", "/letters/**")
             .stream().map(PathPatternParser.defaultInstance::parse).toList();
 
     private PublicApiRoutes() {

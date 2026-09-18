@@ -415,6 +415,104 @@ class FriendServiceTest {
                 .extracting("errorCode").isEqualTo(FriendErrorCode.REQUEST_ALREADY_EXISTS);
     }
 
+    @Test
+    @DisplayName("친구 요청 생성 — 내가 취소했던 CANCELED 행은 PENDING 으로 재전환(insert 없음), 되살린 행 id 반환 (GROMO-1894)")
+    void createRequest_myCanceled_reopens() {
+        // unique(from,to) 사정이 REJECTED 와 같다 — 재전환하지 않으면 insert 가 제약과 충돌해 영구 요청 불가가 된다.
+        given(userQueryService.getCallerForShare(meId)).willReturn(me);
+        given(userQueryService.getTargetForShare(targetId)).willReturn(target);
+        Friendship canceled = Friendship.builder().id(UUID.randomUUID())
+                .fromUser(me).toUser(target).status(FriendshipStatus.CANCELED).build();
+        given(friendshipRepository.findPair(me, target)).willReturn(List.of(canceled));
+
+        UUID returned = friendService.createRequest(meId, targetId);
+
+        assertThat(canceled.getStatus()).isEqualTo(FriendshipStatus.PENDING);
+        assertThat(returned).isEqualTo(canceled.getId());
+        verify(friendshipRepository, never()).save(any());
+    }
+
+    // ── cancel (GROMO-1894) ────────────────────────────────
+
+    @Test
+    @DisplayName("요청 취소 — 발신자면 PENDING → CANCELED, 알림 없음")
+    void cancelRequest_sender_cancels() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(me, target, FriendshipStatus.PENDING);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        friendService.cancelRequest(meId, requestId);
+
+        assertThat(request.getStatus()).isEqualTo(FriendshipStatus.CANCELED);
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    @DisplayName("요청 취소 — 수신자가 시도하면 NOT_REQUEST_SENDER, 상태 유지")
+    void cancelRequest_receiver_throws() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.PENDING);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> friendService.cancelRequest(meId, requestId))
+                .isInstanceOf(FriendException.class)
+                .extracting("errorCode").isEqualTo(FriendErrorCode.NOT_REQUEST_SENDER);
+        assertThat(request.getStatus()).isEqualTo(FriendshipStatus.PENDING);
+    }
+
+    @Test
+    @DisplayName("요청 취소 — PENDING 이 아니면 INVALID_REQUEST_STATUS (성립된 관계를 취소로 끊지 못한다)")
+    void cancelRequest_notPending_throws() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(me, target, FriendshipStatus.ACCEPTED);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> friendService.cancelRequest(meId, requestId))
+                .isInstanceOf(FriendException.class)
+                .extracting("errorCode").isEqualTo(FriendErrorCode.INVALID_REQUEST_STATUS);
+        assertThat(request.getStatus()).isEqualTo(FriendshipStatus.ACCEPTED);
+    }
+
+    @Test
+    @DisplayName("요청 취소 — 없거나 탈퇴 정리된 요청이면 REQUEST_NOT_FOUND")
+    void cancelRequest_notFound_throws() {
+        UUID requestId = UUID.randomUUID();
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> friendService.cancelRequest(meId, requestId))
+                .isInstanceOf(FriendException.class)
+                .extracting("errorCode").isEqualTo(FriendErrorCode.REQUEST_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("요청 수락 — 발신자가 취소한 요청은 INVALID_REQUEST_STATUS, 되살아나지 않고 로그·알림도 없다 (GROMO-1894)")
+    void acceptRequest_canceled_throws() {
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.CANCELED);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        assertThatThrownBy(() -> friendService.acceptRequest(meId, requestId))
+                .isInstanceOf(FriendException.class)
+                .extracting("errorCode").isEqualTo(FriendErrorCode.INVALID_REQUEST_STATUS);
+        assertThat(request.getStatus()).isEqualTo(FriendshipStatus.CANCELED);
+        verify(userActivityEventLogger, never()).log(any(UserActivityEvent.class), any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
+    @Test
+    @DisplayName("요청 수락 — REJECTED 관용은 그대로다: 거절했다 뒤늦게 수락하면 ACCEPTED 로 전이하고 알린다 (GROMO-719)")
+    void acceptRequest_rejected_stillAccepts() {
+        // CANCELED 가드가 status != PENDING 으로 넓어지면 이 계약이 깨진다 — 여기서 잡는다.
+        UUID requestId = UUID.randomUUID();
+        Friendship request = friendship(target, me, FriendshipStatus.REJECTED);
+        given(friendshipRepository.findByIdAndDeletedAtIsNull(requestId)).willReturn(Optional.of(request));
+
+        friendService.acceptRequest(meId, requestId);
+
+        assertThat(request.getStatus()).isEqualTo(FriendshipStatus.ACCEPTED);
+        verify(eventPublisher).publishEvent(new FriendRequestAcceptedEvent(targetId, meId));
+    }
+
     // ── accept / reject ────────────────────────────────────
 
     @Test

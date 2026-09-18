@@ -62,6 +62,15 @@ internal:
           - 'GET /internal/users/*/island-discovery'
           - 'PUT /internal/users/*/current-island'
           - 'GET /internal/islands/*'
+          # GROMO-1894 친구 7종 (friend-letter LLD §1.15 조회 2 + 명령 5). 조회와 생성은 메서드로만 갈리므로
+          # 줄을 합치지 않는다. 편지(letters)는 LLD §4 미결 3건이 확정된 뒤 별도 PR 에서 연다.
+          - 'GET /internal/users/*/friends'
+          - 'GET /internal/users/*/friend-requests'
+          - 'POST /internal/users/*/friend-requests'
+          - 'POST /internal/users/*/friend-requests/*/accept'
+          - 'POST /internal/users/*/friend-requests/*/reject'
+          - 'POST /internal/users/*/friend-requests/*/cancel'
+          - 'DELETE /internal/users/*/friends/*'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

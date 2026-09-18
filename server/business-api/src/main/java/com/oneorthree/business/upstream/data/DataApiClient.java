@@ -25,6 +25,10 @@ import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
 import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
+import com.oneorthree.business.upstream.data.dto.FriendItem;
+import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
+import com.oneorthree.business.upstream.data.dto.FriendRequestState;
+import com.oneorthree.business.upstream.data.dto.FriendshipDeleted;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
@@ -86,6 +90,16 @@ public class DataApiClient {
     private static final String PATH_ISLAND_DISCOVERY = "/internal/users/{userId}/island-discovery";
     private static final String PATH_CURRENT_ISLAND = "/internal/users/{userId}/current-island";
     private static final String PATH_ISLAND = "/internal/islands/{islandId}";
+    // GROMO-1894 친구 7종 — 이름은 friend-letter LLD §1.15(조회 2종)와 그 아래 명령 5종.
+    private static final String PATH_FRIENDS = "/internal/users/{userId}/friends";
+    private static final String PATH_FRIEND = "/internal/users/{userId}/friends/{friendUserId}";
+    private static final String PATH_FRIEND_REQUESTS = "/internal/users/{userId}/friend-requests";
+    private static final String PATH_FRIEND_REQUEST_ACCEPT =
+            "/internal/users/{userId}/friend-requests/{requestId}/accept";
+    private static final String PATH_FRIEND_REQUEST_REJECT =
+            "/internal/users/{userId}/friend-requests/{requestId}/reject";
+    private static final String PATH_FRIEND_REQUEST_CANCEL =
+            "/internal/users/{userId}/friend-requests/{requestId}/cancel";
 
     private final InternalHttpClient http;
 
@@ -603,6 +617,82 @@ public class DataApiClient {
                 new ParameterizedTypeReference<FocusSummary>() { });
     }
 
+    // ── 친구 7종 (GROMO-1894, friend-letter LLD §1.1~1.6 · §1.11) ─────────────────────────────
+
+    /** 친구 목록. {@code date} 의 값 판정(KST 규약)은 Data 가 한다 — 여기서 두 번 해석하지 않는다. */
+    public List<FriendItem> fetchFriends(UUID userId, String date, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_FRIENDS, userId))
+                        .onBehalfOf(userId)
+                        .query("date", date)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<List<FriendItem>>() { });
+    }
+
+    /** 받은·보낸 PENDING 요청 목록. 봉투 없는 배열이다 — raft 조각이 배열 길이를 센다(friend-letter HLD §3). */
+    public List<FriendRequestItem> fetchFriendRequests(UUID userId, String type, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_FRIEND_REQUESTS, userId))
+                        .onBehalfOf(userId)
+                        .query("type", type)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<List<FriendRequestItem>>() { });
+    }
+
+    /**
+     * 친구 요청 생성. <b>재시도하지 않는다</b> — 멱등키 적용표(api-platform LLD §2)에 없는 명령이라 앱 키가
+     * 없고, 응답 유실 뒤의 재시도는 첫 요청이 남긴 PENDING 행에 409 로 부딪힌다. 그 409 를 앱이 보는 편이
+     * 재시도가 만들 두 번째 푸시보다 낫다.
+     */
+    public FriendRequestState createFriendRequest(UUID userId, UUID targetUserId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_FRIEND_REQUESTS, userId))
+                        .onBehalfOf(userId)
+                        .body(new FriendRequestCommand(targetUserId))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<FriendRequestState>() { });
+    }
+
+    /** 요청 수락. ACCEPTED → ACCEPTED 가 멱등(무알림)이라 재시도해도 안전하다 — FriendService.acceptRequest 계약. */
+    public FriendRequestState acceptFriendRequest(UUID userId, UUID requestId, Deadline deadline) {
+        return friendRequestAction(PATH_FRIEND_REQUEST_ACCEPT, userId, requestId, true, deadline);
+    }
+
+    /** 요청 거절 — PENDING 한정이라 두 번째 시도는 409 다. 재시도하지 않는다. */
+    public FriendRequestState rejectFriendRequest(UUID userId, UUID requestId, Deadline deadline) {
+        return friendRequestAction(PATH_FRIEND_REQUEST_REJECT, userId, requestId, false, deadline);
+    }
+
+    /** 요청 취소 — 거절과 같은 이유로 재시도하지 않는다. */
+    public FriendRequestState cancelFriendRequest(UUID userId, UUID requestId, Deadline deadline) {
+        return friendRequestAction(PATH_FRIEND_REQUEST_CANCEL, userId, requestId, false, deadline);
+    }
+
+    /** 친구 삭제. 두 번째 시도는 NOT_FRIEND(404)라 재시도하지 않는다. */
+    public FriendshipDeleted deleteFriend(UUID userId, UUID friendUserId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE,
+                                userPath(PATH_FRIEND, userId).replace("{friendUserId}", friendUserId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<FriendshipDeleted>() { });
+    }
+
+    private FriendRequestState friendRequestAction(String template, UUID userId, UUID requestId,
+            boolean idempotent, Deadline deadline) {
+        InternalCall.Builder call = InternalCall.to(HttpMethod.POST,
+                        userPath(template, userId).replace("{requestId}", requestId.toString()))
+                .onBehalfOf(userId);
+        if (idempotent) {
+            call.idempotentCommand();
+        }
+        return http.exchange(call.build(), deadline, new ParameterizedTypeReference<FriendRequestState>() { });
+    }
+
     private <T> T transitionFocusSession(String template, UUID userId, UUID sessionId, long expectedVersion,
             UUID key, Deadline deadline, ParameterizedTypeReference<T> responseType) {
         return http.exchange(
@@ -724,6 +814,10 @@ public class DataApiClient {
 
     /** pause/resume/finish 공용 요청 본문 — expectedVersion 필수(FR-P07). */
     record FocusVersionedCommand(long expectedVersion) {
+    }
+
+    /** 친구 요청 생성 본문 (GROMO-1894). 보내는 쪽은 X-User-Id 로 가므로 받는 쪽만 담는다. */
+    record FriendRequestCommand(UUID targetUserId) {
     }
 
     /** 섬 생성 요청 본문 (GROMO-1759). maxMembers·password 는 client 가 넣지 못한다. */
