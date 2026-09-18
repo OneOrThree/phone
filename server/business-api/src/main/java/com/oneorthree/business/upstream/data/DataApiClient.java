@@ -32,6 +32,8 @@ import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestState;
 import com.oneorthree.business.upstream.data.dto.FriendshipDeleted;
+import com.oneorthree.business.upstream.data.dto.LetterSlice;
+import com.oneorthree.business.upstream.data.dto.LetterView;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
@@ -106,6 +108,9 @@ public class DataApiClient {
             "/internal/users/{userId}/friend-requests/{requestId}/reject";
     private static final String PATH_FRIEND_REQUEST_CANCEL =
             "/internal/users/{userId}/friend-requests/{requestId}/cancel";
+    // GROMO-1933 편지 3종 — friend-letter LLD §1.12~1.15.
+    private static final String PATH_LETTERS = "/internal/users/{userId}/letters";
+    private static final String PATH_LETTER = "/internal/users/{userId}/letters/{letterId}";
 
     private final InternalHttpClient http;
 
@@ -739,6 +744,53 @@ public class DataApiClient {
                 new ParameterizedTypeReference<FriendshipDeleted>() { });
     }
 
+    // ── 편지 3종 (GROMO-1933, friend-letter LLD §1.12~1.15) ─────────────────────────────
+
+    /**
+     * 편지 발송. <b>재시도하지 않는다</b> — 멱등키 적용표(api-platform LLD §2)에 없는 명령이라 앱 키가
+     * 없고, 응답 유실 뒤의 재시도는 같은 편지를 두 통 만든다((sender, receiver) unique 가 없다 — 같은
+     * 상대에게 여러 통이 정상이다). 한 통을 확신하지 못한 채 두 통을 만드는 것보다 실패를 보이는 편이 낫다.
+     */
+    public LetterView sendLetter(UUID userId, UUID receiverId, String content, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_LETTERS, userId))
+                        .onBehalfOf(userId)
+                        .body(new LetterSendCommand(receiverId, content))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LetterView>() { });
+    }
+
+    /**
+     * 편지함 목록. {@code type}·{@code size}·{@code cursor} 의 값 판정(기본값·범위·알 수 없는 type 의
+     * 400)은 Data 가 한다 — 여기서 두 번 해석하지 않는다. 생략된 파라미터는 아예 실지 않는다.
+     */
+    public LetterSlice fetchLetters(UUID userId, String type, String cursor, String size, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_LETTERS, userId))
+                        .onBehalfOf(userId)
+                        .query("type", type)
+                        .query("cursor", cursor)
+                        .query("size", size)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LetterSlice>() { });
+    }
+
+    /**
+     * 편지 상세. 수신자의 첫 조회는 {@code readAt} 을 박는 부수효과가 있지만 재조회는 같은 상태를
+     * 돌려준다(조건부 UPDATE 가 최초 1회만 이긴다) — GET 이라 재시도돼도 안전하다.
+     */
+    public LetterView fetchLetter(UUID userId, UUID letterId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_LETTER, userId).replace("{letterId}", letterId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LetterView>() { });
+    }
+
     private FriendRequestState friendRequestAction(String template, UUID userId, UUID requestId,
             boolean idempotent, Deadline deadline) {
         InternalCall.Builder call = InternalCall.to(HttpMethod.POST,
@@ -875,6 +927,10 @@ public class DataApiClient {
 
     /** 친구 요청 생성 본문 (GROMO-1894). 보내는 쪽은 X-User-Id 로 가므로 받는 쪽만 담는다. */
     record FriendRequestCommand(UUID targetUserId) {
+    }
+
+    /** 편지 발송 본문 (GROMO-1933). 보내는 쪽은 X-User-Id 로 가므로 받는 쪽과 본문만 담는다. */
+    record LetterSendCommand(UUID receiverId, String content) {
     }
 
     /** 섬 생성 요청 본문 (GROMO-1759). maxMembers·password 는 client 가 넣지 못한다. */

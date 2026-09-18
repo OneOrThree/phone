@@ -67,7 +67,7 @@ internal:
           - 'PUT /internal/users/*/current-island'
           - 'GET /internal/islands/*'
           # GROMO-1894 친구 7종 (friend-letter LLD §1.15 조회 2 + 명령 5). 조회와 생성은 메서드로만 갈리므로
-          # 줄을 합치지 않는다. 편지(letters)는 LLD §4 미결 3건이 확정된 뒤 별도 PR 에서 연다.
+          # 줄을 합치지 않는다.
           - 'GET /internal/users/*/friends'
           - 'GET /internal/users/*/friend-requests'
           - 'POST /internal/users/*/friend-requests'
@@ -75,6 +75,11 @@ internal:
           - 'POST /internal/users/*/friend-requests/*/reject'
           - 'POST /internal/users/*/friend-requests/*/cancel'
           - 'DELETE /internal/users/*/friends/*'
+          # GROMO-1933 편지 3종 (friend-letter LLD §1.12~1.15). 목록과 상세는 세그먼트 수가 다르고
+          # 목록과 발송은 메서드로만 갈리므로 세 줄을 합치지 않는다 — `*` 는 세그먼트 하나다.
+          - 'POST /internal/users/*/letters'
+          - 'GET /internal/users/*/letters'
+          - 'GET /internal/users/*/letters/*'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

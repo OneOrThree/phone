@@ -242,7 +242,7 @@ Controller  →  Service  →  Repository  →  Entity
 | L-1 | `outbox` | 내구 이벤트·명령 기반(GROMO-1659·1660, A21). **아무것도 참조하지 않는다** — 탈퇴·로그아웃처럼 L0 의 트랜잭션도 봉투를 적어야 해서 `user` 보다 아래다. 봉투는 도메인 타입을 하나도 모른다(`userId` 는 UUID, 나머지는 `params` JSON) |
 | L0 | `user` | 계정. 다른 무엇도 전제하지 않는다 — **아무도 참조하지 않는다** |
 | L1 | `currency` · `item` | 유저에게 달린 원장·보유 |
-| L2 | `focus` · `screentime` | 유저가 만든 기록 |
+| L2 | `focus` · `screentime` · `letter` | 유저가 만든 기록 — `letter` 는 `users.id` 두 개(sender·receiver)만 참조하는 1:1 편지(GROMO-1933). 친구 삭제 후 편지 정리가 «삭제»로 결정되면 `friend`(L3)가 이것을 참조해야 하므로 `friend` 보다 아래다 |
 | L3 | `friend` | 유저 사이의 관계 |
 | L4 | `stats` · `league` | 기록·관계를 집계한 파생 |
 | L5 | `group` | 모임·챌린지·내기 — 위 전부를 소비한다 |
