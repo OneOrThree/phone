@@ -75,6 +75,19 @@ business:
       read-timeout: 1500ms
       failure-threshold: 5
       open-duration: 10s
+  # 목록 커서 서명 (GROMO-1759). GET /islands 와 GET /islands/discover «두 목록만» 이 키를 쓴다.
+  #
+  # ⚠️ «테스트는 통과하는데 배포하면 죽는» 모양을 조심한다. 이 블록에 값이 있는 것은 ci
+  #    프로파일뿐이라 계약 테스트는 전부 통과한다. dev/prod 에 주입하지 않으면:
+  #      · 부팅은 «정상»이다 — CursorConfig 가 @ConditionalOnProperty 라 빈이 아예 안 생긴다.
+  #        부팅 로그도 헬스체크도 조용하다(RequiredConfig 의 fail-fast 대상이 아니다).
+  #      · 대신 위 두 목록의 «첫 요청»이 503 SERVICE_UNAVAILABLE 로 죽는다.
+  #      · 나머지 4종(섬 생성·섬 상세·내 섬 목록·현재 섬 이동)은 정상 동작한다.
+  #    커서를 «없는 셈» 치고 첫 페이지를 돌려주지 않는 것은 의도다 — 그건 위조 커서를 조용히
+  #    허용하는 것과 같다(IslandMembershipUseCase#codec).
+  #    켜려면 enabled=true 와 «JWT 와 독립인» 256비트 이상 키가 필요하다.
+  cursor:
+    enabled: ${BUSINESS_CURSOR_ENABLED:false}
   compat:
     # 한시 /l/match 핸들러. 컷오버 후 제거가 계약이므로 기본값은 꺼짐이다(A22 ㊫).
     match-handler-enabled: false
@@ -96,6 +109,16 @@ business:
 # 프로파일별 파일(dev/prod/ci)이 각자 덮어쓰므로, 여기 값은 프로파일 없이 띄우는 로컬 compose 용이다.
 jwt:
   secret: ${JWT_SECRET}
+
+auth:
+  # 로그인 시도의 자격 digest 전용 비밀 (GROMO-1908 · 계정 LLD §3).
+  # ⚠️ jwt.secret 과 «다른 값»이어야 한다 — 한 키가 여러 용도를 겸하면 한쪽의 수명 정책
+  #    (로그인 복구 창 5분)이 다른 쪽(발급 토큰의 최대 만료)을 끌어내려 멀쩡한 세션이 끊긴다.
+  # ⚠️ 비거나 치환되지 않으면 «부팅이 실패»한다(CredentialDigest 의 RequiredConfig fail-fast).
+  #    비밀 없는 digest 는 「원 자격을 들고 있다」는 증거이기를 그만두는데, 로그인은 «정상 동작하는
+  #    것처럼» 보여서 그 상태가 사고 뒤에야 드러난다. 부팅 실패가 배포 게이트다.
+  login-attempt:
+    digest-secret: ${LOGIN_ATTEMPT_DIGEST_SECRET}
 
 logging:
   level:

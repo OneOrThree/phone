@@ -129,7 +129,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 161개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -154,14 +154,22 @@ class ErrorContractTest {
         // SESSION_IN_PROGRESS), 전이 2(EXPECTED_VERSION_REQUIRED · SESSION_STATE_CONFLICT),
         // 그리고 게이트 2(REWARD_POLICY_UNAVAILABLE · SESSION_START_UNAVAILABLE) — 같은 503 이지만
         // 막는 사유가 달라 하나만 먼저 여는 날 구분이 필요하다.
+        // GROMO-1908 이 로그인 시도 원장 상수 2개를 더했다(AuthErrorCode) —
+        // LOGIN_ATTEMPT_IN_PROGRESS(409: 같은 자격인데 다른 실행자가 진행 중) 와
+        // LOGIN_ATTEMPT_UNUSABLE(401: 복구 창 종료·폐기·digest 키 교체). 앞의 것을
+        // IDEMPOTENCY_KEY_CONFLICT(같은 키에 «다른» 자격)와 합치면 앱이 「키를 잘못 썼다」로 읽고
+        // 새 시도를 만들어, 막으려던 동시 code 교환이 그대로 생긴다. 뒤의 것을 그 409 로 판정하는
+        // 것은 계정 LLD §3 이 명시적으로 금지한다 — 정상 사용자가 배포 한 번에 막히기 때문이다.
+        // GROMO-1759 가 섬 검색 진입 가드 1개를 더했다(GroupErrorCode.OBSERVATORY_LOCKED) —
+        // 전망대 없이 이름 검색을 여는 403 은 첫 소속 탐색(가드 없는 discover)과 갈라야 한다.
         // GROMO-1894 가 친구 요청 취소의 권한 코드 1개(NOT_REQUEST_SENDER)를 더했다 — 발신자 축 거부를
         // 수신자 축(NOT_REQUEST_RECEIVER)과 한 코드로 접으면 앱이 「내가 보낸 요청이 아니다」를 구분하지 못한다.
         // GROMO-1933 이 편지 코드 9개를 더했다 — 입력 4(SELF_LETTER · LETTER_CONTENT_BLANK ·
         // INVALID_PAGE_REQUEST · INVALID_MAILBOX_TYPE), 권한 2(LETTER_MAILBOX_LOCKED ·
         // NOT_LETTER_PARTICIPANT), 대상 없음 2(LETTER_NOT_FOUND · LETTER_RECIPIENT_NOT_FRIEND),
         // 본문 상한 1(LETTER_CONTENT_OUT_OF_RANGE).
-        assertThat(tests).as("실측 기준 도메인 상수 143개 + 공통 15개 — 집중 세션 수명주기 12종·친구 취소 1종·편지 9종 포함")
-                .hasSize(158);
+        assertThat(tests).as("실측 기준 도메인 상수 146개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·편지 9종 포함")
+                .hasSize(161);
         return tests;
     }
 

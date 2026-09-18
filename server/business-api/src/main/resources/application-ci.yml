@@ -9,6 +9,16 @@ jwt:
   # 길이가 HMAC-SHA256 최소치(32바이트)를 넘어야 한다 — 짧으면 부팅 자체가 실패한다.
   secret: ci-test-secret-key-that-is-at-least-256-bits-long-padded-for-hmac-sha256
 
+auth:
+  login-attempt:
+    # ⚠️ jwt.secret 과 «다른» 값이다. 로그인 시도의 자격 digest 키는 JWT 서명키·bootstrap HMAC 키와
+    #    분리한다(계정 LLD §3) — 한 키가 여러 용도를 겸하면 한쪽 수명 정책이 다른 쪽을 끌어내린다.
+    #    값이 없으면 부팅이 실패한다(CredentialDigest 생성자 fail-fast).
+    digest-secret: ci-test-login-attempt-digest-secret
+  terms:
+    # 비어 있음 = 카탈로그 미확정(정책 Q05). 형식만 보고 원문을 원장에 기록한다.
+    accepted-versions: ""
+
 link:
   # ⚠️ 운영 salt 가 아니다. 운영 값을 바꾸면 매치가 전멸하므로(A22 ⓕ) 테스트는 자기 값을 쓴다.
   ip-salt: ci-test-ip-salt
@@ -33,6 +43,13 @@ business:
       service-token: ci-token-link
       read-timeout: 300ms
       connect-timeout: 200ms
+  cursor:
+    # 목록 커서 서명키 — 운영 키가 아니다. JWT 키와 «독립» 이어야 한다는 규칙을 테스트에서도 지킨다.
+    # dev/prod 는 이 블록을 환경변수로 주입해야 /islands·/islands/discover 의 페이징이 산다.
+    enabled: true
+    active-key: ci
+    keys:
+      ci: Y2ktY3Vyc29yLXNpZ25pbmcta2V5LTAxMjM0NTY3ODlhYg==
   compat:
     match-handler-enabled: true
     import-contract-ready: false

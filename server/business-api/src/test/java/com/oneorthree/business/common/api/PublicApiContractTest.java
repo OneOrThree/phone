@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -33,6 +34,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import java.io.IOException;
@@ -76,7 +78,12 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "INSUFFICIENT_FUNDS", "IDEMPOTENCY_KEY_REUSED", "REQUEST_IN_PROGRESS", "CURSOR_EXPIRED",
                 "INVITATION_EXPIRED", "REQUEST_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "OUT_OF_RANGE",
                 "RATE_LIMITED", "INTERNAL_ERROR", "UPSTREAM_CONTRACT_ERROR", "UPSTREAM_AUTH_FAILED",
-                "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT");
+                "SERVICE_UNAVAILABLE", "UPSTREAM_TIMEOUT",
+                // GROMO-1908: 제공자 자격 실패 6종(계정 LLD §2.1 · 정책 A18). Data 의
+                // InvalidTokenErrorCode 와 «이름이 같아야» 상류 매핑이 붙고, 없으면 잘못된 소셜
+                // 토큰 하나가 401 이 아니라 502 로 나가 서버 장애처럼 보인다.
+                "KAKAO_TOKEN", "APPLE_TOKEN", "GOOGLE_TOKEN", "LINE_TOKEN", "INSTAGRAM_TOKEN",
+                "FACEBOOK_TOKEN");
     }
 
     @Test
@@ -220,9 +227,28 @@ class PublicApiContractTest extends UpstreamTestBase {
     }
 
     @Test
-    void mvcFrameworkErrorsAreUniformAndKeepAllowHeader() throws Exception {
-        mockMvc.perform(auth(get("/islands/not-a-real-route"))).andExpect(status().isNotFound())
+    void mvcFrameworkErrorsAreUniformAndKeepAllowHeader(@Autowired RequestMappingHandlerMapping mapping)
+            throws Exception {
+        // 404 표본의 규약: «PublicApiRoutes.ROOTS 안이면서 컨트롤러가 하나도 없는 뿌리» 여야 한다.
+        // ROOTS 밖은 (아래 두 번째 요청처럼) legacy {code,message} 모양이라 이 균일 봉투 단언을 못 하고,
+        // 컨트롤러가 있는 뿌리는 하위 자원이 붙는 순간 진짜 라우트가 된다(/islands 는 GROMO-1759 가
+        // {islandId} 를 라우트로 만들었고 island-construction 이 더 붙일 뿌리다).
+        // 규약을 사람이 기억하게 두지 않는다 — /statistics 에 컨트롤러가 생기는 순간 여기서 깨져서
+        // «센티넬을 옮기라»고 말한다. 안 그러면 진짜 라우트를 상대로 404 를 «우연히» 검증하게 된다.
+        List<String> statisticsRoutes = mapping.getHandlerMethods().keySet().stream()
+                .flatMap(info -> info.getPatternValues().stream())
+                .filter(pattern -> pattern.startsWith("/statistics"))
+                .toList();
+        org.assertj.core.api.Assertions.assertThat(statisticsRoutes)
+                .as("404 센티넬 뿌리 /statistics 에 컨트롤러가 생겼다 — 컨트롤러 없는 다른 ROOTS 뿌리로 옮길 것")
+                .isEmpty();
+        mockMvc.perform(auth(get("/statistics/not-a-real-route")))
+                .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("RESOURCE_NOT_FOUND"));
+        mockMvc.perform(auth(get("/not-a-real-route")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("ENDPOINT_NOT_FOUND"))
+                .andExpect(jsonPath("$.error").doesNotExist());
         mockMvc.perform(auth(put(ROOT + "/object"))).andExpect(status().isMethodNotAllowed())
                 .andExpect(header().exists("Allow")).andExpect(jsonPath("$.error.code").value("METHOD_NOT_ALLOWED"));
         mockMvc.perform(auth(post(ROOT + "/body")).contentType(MediaType.TEXT_PLAIN).content("wrong"))

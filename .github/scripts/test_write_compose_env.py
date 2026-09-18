@@ -111,6 +111,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             NOTIFICATION_GENERATION_REQUIRED="true", NOTIFICATION_LEGACY_DEVICE_REGISTRATION="false",
             SVC_TOKEN_BIZ_TO_DATA="biz-data", SVC_TOKEN_BIZ_TO_NOTI="biz-noti",
             BUSINESS_REDIS_PASSWORD="redis-only-password", GOOGLE_DRIVE_API_KEY="drive-only",
+            BUSINESS_CURSOR_ENABLED="true", BUSINESS_CURSOR_KEY_V1="cursor-only",
             SVC_TOKEN_BIZ_TO_LINK="biz-link", SVC_TOKEN_DATA_TO_NOTI="data-noti",
             SVC_TOKEN_DATA_TO_LINK="data-link", SVC_TOKEN_NOTI_TO_DATA="noti-data",
             SVC_TOKEN_CONSOLE_TO_NOTI="member-1:console-noti", LINK_CAPABILITY_KEY="capability",
@@ -118,6 +119,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             DATA_API_BASE_URL="http://app:8080", NOTIFICATION_BASE_URL="http://notification:8082",
             LINK_BASE_URL="https://link.example.test", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
             FCM_SERVICE_ACCOUNT_JSON={"project_id": "test", "private_key": "fake$'\\\nkey"},
+            LOGIN_ATTEMPT_DIGEST_SECRET="digest-only-secret",
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -151,6 +153,8 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(biz["JWT_SECRET"], combined["JWT_SECRET"])
             self.assertEqual(biz["BUSINESS_REDIS_PASSWORD"], "redis-only-password")
             self.assertEqual(biz["GOOGLE_DRIVE_API_KEY"], "drive-only")
+            self.assertEqual(biz["LOGIN_ATTEMPT_DIGEST_SECRET"], "digest-only-secret")
+            self.assertEqual(biz["BUSINESS_CURSOR_KEY_V1"], "cursor-only")
             self.assertEqual(biz["BUSINESS_REDIS_USERNAME"], "business")
             self.assertEqual(set(services["business-redis"]["networks"]), {"business-cache"})
             self.assertNotIn("environment", services["business-redis"])
@@ -164,7 +168,8 @@ class WriteComposeEnvTest(unittest.TestCase):
             for key in ("FCM_SERVICE_ACCOUNT_JSON", "NOTI_DB_PASSWORD", "API_DB_PASSWORD",
                         "SVC_TOKEN_CONSOLE_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK"):
                 self.assertNotIn(key, biz)
-            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD", "GOOGLE_DRIVE_API_KEY"):
+            for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD", "GOOGLE_DRIVE_API_KEY",
+                        "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1"):
                 self.assertNotIn(key, noti)
             for environment in (biz, noti):
                 self.assertNotIn("DD_API_KEY", environment)
@@ -212,6 +217,23 @@ class WriteComposeEnvTest(unittest.TestCase):
                 with self.subTest(key=key, value=value):
                     with self.assertRaisesRegex(ValueError, key):
                         MODULE.render({**baseline, key: value}, "example/biz:1", "business-api")
+
+    def test_Business_커서_서명키_누락은_배포_전에_실패한다(self) -> None:
+        # GROMO-1759: 이 키가 없으면 컨테이너는 «정상 부팅» 하고 GET /islands·/islands/discover 만 첫
+        # 요청에서 503 이 된다 — 부팅 로그도 헬스체크도 조용하다. 그래서 env 생성 단계가 막아야 한다.
+        baseline = {key: "synthetic-value" for key in MODULE.SERVICE_REQUIRED_KEYS["business-api"]}
+        for key in ("BUSINESS_CURSOR_ENABLED", "BUSINESS_CURSOR_KEY_V1"):
+            for value in (None, "", "  "):
+                with self.subTest(key=key, value=value):
+                    with self.assertRaisesRegex(ValueError, key):
+                        MODULE.render({**baseline, key: value}, "example/biz:1", "business-api")
+        rendered = MODULE.render({**baseline, "BUSINESS_CURSOR_ACTIVE_KEY": "v2"},
+                                 "example/biz:1", "business-api")
+        self.assertIn("BUSINESS_CURSOR_ENABLED='synthetic-value'", rendered)
+        self.assertIn("BUSINESS_CURSOR_KEY_V1='synthetic-value'", rendered)
+        self.assertIn("BUSINESS_CURSOR_ACTIVE_KEY='v2'", rendered)
+        # 회전 키는 선택값 — 없으면 출력하지 않고 yml 기본값(v1)에 맡긴다.
+        self.assertNotIn("BUSINESS_CURSOR_ACTIVE_KEY=", MODULE.render(baseline, "example/biz:1", "business-api"))
 
     def test_알림_콘솔_형식과_중복은_실제_소비자_규칙으로_거부한다(self) -> None:
         baseline = {key: f"value-{key}" for key in MODULE.SERVICE_REQUIRED_KEYS["notification"]}
