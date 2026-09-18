@@ -305,7 +305,8 @@ class MultiSessionRefreshIntegrationTest {
      * 같은 {@code providerId} 로 두 번째로 부르면 <b>같은 유저</b>에 붙으면서 유저 단일 해시를 덮는다.
      */
     private SocialLoginResponse login(String providerId, SocialLoginResponse previous) {
-        SocialLoginResponse response = authService.loginOrRegister(Provider.KAKAO, providerId, null, null);
+        SocialLoginResponse response = authService.loginOrRegister(
+                Provider.KAKAO, providerId, null, null, null, null);
         assertThat(response.refreshToken()).isNotBlank();
         assertThat(response.sessionId()).isNotNull();
         if (previous != null) {

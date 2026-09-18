@@ -18,6 +18,9 @@ public enum InvalidTokenErrorCode implements ErrorCode {
 
     KAKAO_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Kakao Token"),
     REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Refresh Token"),
+    // 우리가 발급한 access 토큰의 거절 (GROMO-1929) — /auth/* 의 선택 AT 가 Bearer 형식·서명·만료·
+    // 타입 검증에 걸렸을 때. REFRESH_TOKEN 과 같은 「우리 토큰」 축이고 원인은 담지 않는다.
+    ACCESS_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Access Token"),
     APPLE_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Apple Token"),
     GOOGLE_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Google Token"),
     LINE_TOKEN(HttpStatus.UNAUTHORIZED, "Invalid Line Token"),

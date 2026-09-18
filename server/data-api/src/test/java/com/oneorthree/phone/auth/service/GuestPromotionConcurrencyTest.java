@@ -3,6 +3,8 @@ package com.oneorthree.phone.auth.service;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
+import com.oneorthree.phone.auth.repository.AuthSessionRepository;
+import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -63,17 +65,27 @@ class GuestPromotionConcurrencyTest extends IntegrationTestBase {
     UserFocusTimeSettingsRepository userFocusTimeSettingsRepository;
     @Autowired
     UserNotificationSettingsRepository userNotificationSettingsRepository;
+    @Autowired
+    AuthSessionRepository authSessionRepository;
 
     private static final Map<Provider, String> PROVIDER_IDS = Map.of(
             Provider.KAKAO, "kakao-race-1229",
             Provider.LINE, "line-race-1229");
 
     private UUID guestId;
+    private UUID sessionId;
 
     @BeforeEach
     void setUp() {
-        // 승격 경로는 부속 테이블을 건드리지 않으므로 게스트 행만 만든다 (side rows 불필요)
+        // 승격 경로는 부속 테이블을 건드리지 않으므로 게스트 행만 만든다 (side rows 불필요).
+        // 선택 AT 의 세션 관문이 loginOrRegister 트랜잭션 안으로 들어가 (GROMO-1929) 게스트 AT 에
+        // 대응하는 활성 세션 행이 필요하다 — 없으면 승격 시도 전에 401 로 끊긴다.
         guestId = userRepository.save(User.builder().isGuest(true).build()).getId();
+        sessionId = authSessionRepository.save(AuthSession.builder()
+                .userId(guestId)
+                .refreshTokenHash("race-1229")
+                .sessionEpoch(1L)
+                .build()).getId();
     }
 
     @AfterEach
@@ -87,6 +99,8 @@ class GuestPromotionConcurrencyTest extends IntegrationTestBase {
                         deleteUserWithSideRows(ownerId);
                     }
                 }));
+        // 시드 세션 + 승자가 발급한 새 세션까지 전부 정리 (findActiveByUserId — 폐기된 행도 없음)
+        authSessionRepository.findActiveByUserId(guestId).forEach(authSessionRepository::delete);
         userRepository.deleteById(guestId);
     }
 
@@ -104,8 +118,9 @@ class GuestPromotionConcurrencyTest extends IntegrationTestBase {
             PROVIDER_IDS.forEach((provider, providerId) -> calls.add(pool.submit(() -> {
                 await(startTogether);
                 try {
-                    // 게스트 AT 로 온 요청 재현 — guest 클레임 true (게스트 발급 경로)
-                    successes.add(authService.loginOrRegister(provider, providerId, guestId, true));
+                    // 게스트 AT 로 온 요청 재현 — guest 클레임 true + sid/gen 클레임 (게스트 발급 경로)
+                    successes.add(authService.loginOrRegister(
+                            provider, providerId, guestId, true, sessionId, 0L));
                 } catch (AuthException e) {
                     conflicts.add(e);
                 }

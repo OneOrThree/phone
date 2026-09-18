@@ -5,6 +5,8 @@ import com.oneorthree.phone.auth.AuthController;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
+import com.oneorthree.phone.auth.exception.AuthErrorCode;
+import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.auth.service.AuthService;
@@ -128,6 +130,21 @@ class AuthControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of("token", "bad-token"))))
                 .andExpect(status().isUnauthorized())
+                .andDo(print());
+    }
+
+    @Test
+    @DisplayName("폐기 세션의 선택 AT → 401 LEGACY_SESSION_NOT_ACTIVE (GROMO-1929) — legacy 경로는 Business 매핑 없이 enum 상태가 곧 공개 상태다")
+    void socialLoginRevokedCallerSessionReturns401() throws Exception {
+        given(authService.socialLogin(eq(Provider.KAKAO), eq("valid-kakao-token"), eq("Bearer stale-at")))
+                .willThrow(new AuthException(AuthErrorCode.LEGACY_SESSION_NOT_ACTIVE));
+
+        mockMvc.perform(post("/api/v1/auth/kakao")
+                        .header("Authorization", "Bearer stale-at")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-kakao-token"))))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.code").value("LEGACY_SESSION_NOT_ACTIVE"))
                 .andDo(print());
     }
 

@@ -157,11 +157,12 @@ public class AuthService {
      * 게스트→소셜 업그레이드(GROMO-585): /auth/* 는 JwtFilter 화이트리스트라 userId 가 request attribute 로
      * 세팅되지 않는다. 게스트는 자신의 게스트 JWT 를 Authorization 헤더로 보내므로, 여기서 유효 토큰이 있으면
      * (기존 인증 흐름을 건드리지 않고) 선택적으로 파싱해 loginOrRegister 에 currentUserId 로 넘긴다.
-     * 토큰이 없거나 무효면 empty → 기존 신규 가입 흐름.
+     * 헤더가 없을 때만 신규 가입 흐름이고, 무효한 AT 는 401 로 거절한다 (GROMO-1929).
      *
      * @param provider            소셜 제공자 — 지원하지 않으면 {@link IllegalArgumentException}
      * @param token               제공자가 발급한 토큰. 여기서 providerId 를 얻는다
-     * @param authorizationHeader 게스트 업그레이드 판정용 자체 AT. 없거나 무효면 신규 가입으로 흐른다
+     * @param authorizationHeader 게스트 업그레이드 판정용 자체 AT. 헤더가 없을 때만 신규 가입으로
+     *                            흐르고, 무효·폐기 세션의 AT 면 401 로 거절한다 (GROMO-1929)
      * @return 발급된 AT·RT 와 게스트 여부
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -174,11 +175,13 @@ public class AuthService {
         CallerToken caller = resolveCaller(authorizationHeader);
 
         try {
-            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim());
+            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim(),
+                    caller.sessionId(), caller.authGeneration());
         } catch (DataIntegrityViolationException e) {
             // 소셜 계정 경쟁에서 진 요청 — 승자가 만든 계정으로 새 트랜잭션에서 1회 재시도(present 분기로 정상 로그인).
             // 가입 시 nickname 을 세팅하지 않으므로 여기서 잡히는 DIVE 는 (provider, provider_id) 위반뿐이다.
-            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim());
+            return self.loginOrRegister(provider, providerId, caller.userId(), caller.guestClaim(),
+                    caller.sessionId(), caller.authGeneration());
         }
     }
 
@@ -186,35 +189,61 @@ public class AuthService {
      * Authorization 헤더에서 추출한 현재 호출자 정보 (GROMO-1229).
      * guestClaim 은 요청 AT 의 guest 클레임(발급 시점 게스트 여부) — 클레임 없는 구 토큰은 null 이고,
      * 호출부는 null 을 비게스트로 간주한다(현행 폴백 유지, 점진 적용).
+     * sessionId·authGeneration 은 세션 폐기 관문({@link #checkCallerSessionActive})의 입력이다 (GROMO-1929).
      */
-    private record CallerToken(UUID userId, Boolean guestClaim) {
-        private static final CallerToken ANONYMOUS = new CallerToken(null, null);
+    private record CallerToken(UUID userId, Boolean guestClaim, UUID sessionId, Long authGeneration) {
+        private static final CallerToken ANONYMOUS = new CallerToken(null, null, null, null);
     }
 
     /**
-     * Authorization 헤더에서 현재 로그인(게스트) 사용자 id·guest 클레임을 선택적으로 추출한다.
-     * 헤더가 없거나 Bearer 형식이 아니거나 토큰이 무효면 ANONYMOUS(=신규 가입 흐름). JwtFilter 를 바꾸지 않기
-     * 위해 여기서만 optional 파싱한다 — 유효할 때만 파싱하므로 무효 토큰이 로그인 자체를 막지는 않는다.
+     * Authorization 헤더에서 현재 로그인(게스트) 사용자 id·guest 클레임·세션 식별을 추출한다.
+     * <b>헤더가 없을 때만</b> ANONYMOUS(=신규 가입 흐름)다 — 헤더가 있는데 Bearer 형식이 아니거나
+     * 서명·만료·타입 검증에 걸리면 401 로 거절한다 (GROMO-1929). 종전엔 그 경우들도 조용히
+     * ANONYMOUS 로 강등돼, 만료·위조 AT 를 든 요청이 신규 가입 분기로 흘러 빈 계정을 만들었다.
+     * 세션 폐기·세대 검사는 {@link #checkCallerSessionActive} 의 몫이고, 여기선 토큰 자체의 유효성만 본다.
      */
     // access 타입만 인정한다 (GROMO-714) — /auth/* 는 JwtFilter 화이트리스트라 필터의 타입 가드를 타지 않는다.
     // 여기가 무제한이면 서명만 유효한 refresh 토큰(또는 type 없는 구 토큰)으로도 게스트를 소셜 계정으로 승격시켜
     // 새 토큰을 받아갈 수 있어, refresh 토큰에 non-refresh 용도가 생기고 fail-closed 컷오버가 뚫린다.
     // 게스트는 원래 자신의 access 토큰을 헤더로 보내므로 access 를 요구해도 정상 흐름은 그대로다.
     private CallerToken resolveCaller(String authorizationHeader) {
-        if (authorizationHeader == null || !authorizationHeader.startsWith("Bearer ")) {
+        if (authorizationHeader == null) {
             return CallerToken.ANONYMOUS;
+        }
+        if (!authorizationHeader.startsWith("Bearer ")) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.ACCESS_TOKEN);
         }
         String token = authorizationHeader.substring(7);
-        if (!jwtProvider.isTokenValid(token)) {
-            return CallerToken.ANONYMOUS;
-        }
-        if (!JwtProvider.TYPE_ACCESS.equals(jwtProvider.extractType(token))) {
-            return CallerToken.ANONYMOUS;
+        if (!jwtProvider.isTokenValid(token)
+                || !JwtProvider.TYPE_ACCESS.equals(jwtProvider.extractType(token))) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.ACCESS_TOKEN);
         }
         // guest 클레임은 토큰을 파싱하는 여기서 함께 뽑아 loginOrRegister 로 넘긴다 (GROMO-1229) —
         // 신규 가입 폴백에서 정식 "계정 전환"(비게스트 AT)과 "이미 승격된 게스트의 패자 요청"을
         // 구분하는 유일한 신호다 (DB 상태만으로는 두 경우가 동일하게 보인다).
-        return new CallerToken(jwtProvider.extractUserId(token), jwtProvider.extractIsGuest(token));
+        return new CallerToken(jwtProvider.extractUserId(token), jwtProvider.extractIsGuest(token),
+                jwtProvider.extractSessionId(token), jwtProvider.extractAuthGeneration(token));
+    }
+
+    /**
+     * 선택 AT 의 세션 폐기 판정 — <b>호출 트랜잭션 안에서만</b> 부른다 (GROMO-1929).
+     *
+     * <p>{@code LoginAttemptService#gateOptionalSession} (GROMO-1908, 계정 LLD §2.1) 과 <b>같은
+     * 술어</b>다 — auth 는 internal 을 참조할 수 없어(도메인 높이) 여기에 둔다. 주체 활성
+     * (비활성 404)은 호출부가 caller 를 resolve 할 때 이미 거른 뒤고, 여기선 sid·세대(없거나
+     * 어긋나면 거절) → 세션 행 활성 순으로 판정한다. 서명·만료·타입은 {@code resolveCaller} 의 몫.
+     *
+     * @throws AuthException 401 {@code LEGACY_SESSION_NOT_ACTIVE} — legacy 경로는 Business 매핑
+     *                       없이 앱에 직접 닿으므로 공개 401 을 enum 에 새겼다 (내부 경로의 403
+     *                       {@code SESSION_NOT_ACTIVE} 와 같은 판정·다른 공개 상태)
+     */
+    private void checkCallerSessionActive(User caller, UUID sessionId, Long authGeneration) {
+        if (sessionId == null || authGeneration == null
+                || authGeneration.longValue() != caller.getAuthGeneration()
+                || authSessionService.verifySession(caller.getId(), sessionId)
+                        .filter(AuthSession::isActive).isEmpty()) {
+            throw new AuthException(AuthErrorCode.LEGACY_SESSION_NOT_ACTIVE);
+        }
     }
 
     /**
@@ -235,18 +264,16 @@ public class AuthService {
      * @param currentUserId    요청 AT 에서 뽑은 현재 사용자. {@code null} 이면 업그레이드 분기를 타지 않는다
      * @param callerGuestClaim 요청 AT 의 guest 클레임(발급 시점 게스트 여부). {@code null}(구 토큰)은
      *                         비게스트로 간주한다
+     * @param callerSessionId      요청 AT 의 {@code sid} 클레임 — 세션 폐기 관문 입력 (GROMO-1929)
+     * @param callerAuthGeneration 요청 AT 의 {@code gen} 클레임 — 세대 일치 관문 입력 (GROMO-1929)
      * @return 발급된 AT·RT 와 게스트 여부
      */
     @Transactional
     public SocialLoginResponse loginOrRegister(Provider provider, String providerId, UUID currentUserId,
-                                               Boolean callerGuestClaim) {
+                                               Boolean callerGuestClaim, UUID callerSessionId,
+                                               Long callerAuthGeneration) {
         Optional<SocialAccount> socialAccount =
                 socialAccountRepository.findByProviderAndProviderId(provider, providerId);
-
-        // 소프트딜리트된 연동 → deletedAt = null 로 복원(재활성화). unique 제약 충돌 방지.
-        if (socialAccount.isPresent() && socialAccount.get().getDeletedAt() != null) {
-            socialAccount.get().setDeletedAt(null);
-        }
 
         // 현재 호출자가 게스트인 경우에만 업그레이드 분기 대상 (비게스트/미존재는 null → 기존 흐름).
         // 처음부터 **배타 락**으로 로드한다 (GROMO-801, codex 리뷰 2·3차).
@@ -264,6 +291,13 @@ public class AuthService {
         //    (승격 = 본인 행, 전환 = 대상 행) — 논증은 findActiveGuestByIdForUpdate 주석 참고.
         User guestUser = currentUserId == null ? null
                 : userRepository.findActiveGuestByIdForUpdate(currentUserId).orElse(null);
+
+        // 선택 AT 세션 관문 ① (GROMO-1929) — 게스트 호출자는 본인 users 배타 락을 방금 쥐었으므로
+        // canonical users → session 순서로, 도메인 분기(ALREADY_LINKED)·mutation 보다 먼저 연다.
+        // 폐기·세대 불일치 세션은 어떤 분기보다 먼저 401 이다 (승인 정책).
+        if (guestUser != null) {
+            checkCallerSessionActive(guestUser, callerSessionId, callerAuthGeneration);
+        }
 
         boolean isNewUser;
         User user;
@@ -293,6 +327,14 @@ public class AuthService {
             user = guestUser;
             isNewUser = false;
         } else {
+            // 선택 AT 세션 관문 ② (GROMO-1929) — 비게스트 호출자의 신규 가입 폴백. 대상 계정이
+            // 아직 없어(새 행이라 선점 락이 없다) 호출자 users 행을 잠궈도 users 2행 잠금이 되지
+            // 않는 유일한 경로라, canonical users → session 순서로 패자 판별·save 보다 먼저 연다.
+            // getCallerForUpdate 가 탈퇴·부재 주체를 404 로 걸러 폐기 판정보다 계정 부재가 먼저다.
+            if (currentUserId != null) {
+                checkCallerSessionActive(userQueryService.getCallerForUpdate(currentUserId),
+                        callerSessionId, callerAuthGeneration);
+            }
             // 동시 다른-소셜 승격 경쟁의 패자 차단 (GROMO-1229, D3) — 이대로 신규 가입 폴백을 타면
             // 닉네임 null 의 빈 유령 계정이 조용히 생긴다. 판별 논증은 isConcurrentlyPromotedGuest 참고.
             if (isConcurrentlyPromotedGuest(currentUserId, callerGuestClaim)) {
@@ -341,6 +383,23 @@ public class AuthService {
         // 기다리며 교착한다. 게스트 승격·신규 가입 분기는 위에서 이미 배타 락을 쥐었거나 이
         // 트랜잭션이 방금 만든 행이라, 같은 행 재조회일 뿐 동작이 달라지지 않는다.
         user = userQueryService.getCallerForUpdate(user.getId());
+
+        // 선택 AT 세션 관문 ③ (GROMO-1929) — 비게스트 호출자의 기존 계정 전환(present 분기)은
+        // 대상 users 락 뒤에 연다. 호출자 행을 추가로 잠그면 (호출자+대상) users 2행 잠금이 되어
+        // 역방향 전환 교착이라 잠그지 않는다 — session 잠금은 단말이라 users(대상) → session(호출자)
+        // 순도 사이클이 없고, 폐기 직렬화는 verifySession 의 세션 행 배타 락(커밋까지 유지)이 담당한다.
+        // 호출자가 대상 본인이면 방금 잠근 그 행이다. (① 게스트·② 신규 폴백 호출자는 이미 관문 통과)
+        if (currentUserId != null && guestUser == null && socialAccount.isPresent()) {
+            User callerRow = user.getId().equals(currentUserId) ? user
+                    : userQueryService.getCaller(currentUserId);
+            checkCallerSessionActive(callerRow, callerSessionId, callerAuthGeneration);
+        }
+
+        // 소프트딜리트된 연동 → deletedAt = null 로 복원(재활성화). unique 제약 충돌 방지.
+        // 관문 뒤에 둔다 — 거절 경로에 어떤 상태 변경도 남기지 않기 위해 (GROMO-1929).
+        if (socialAccount.isPresent() && socialAccount.get().getDeletedAt() != null) {
+            socialAccount.get().setDeletedAt(null);
+        }
 
         String refreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
         // RT 원본은 응답으로만 내려가고 DB 에는 해시만 남긴다 — DB 유출 시 재사용 차단 (GROMO-713)
