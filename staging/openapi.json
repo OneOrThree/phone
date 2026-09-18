@@ -700,6 +700,207 @@
         }
       }
     },
+    "/internal/users/{userId}/friend-requests": {
+      "get": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "friendRequests",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FriendRequestResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "createRequest",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FriendRequestCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestStateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/friend-requests/{requestId}/reject": {
+      "post": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "reject",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestStateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/friend-requests/{requestId}/cancel": {
+      "post": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestStateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/friend-requests/{requestId}/accept": {
+      "post": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "accept",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendRequestStateView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/focus-sessions": {
       "post": {
         "tags": [
@@ -5139,6 +5340,49 @@
         }
       }
     },
+    "/internal/users/{userId}/friends": {
+      "get": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "friends",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FriendResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/focus-summary": {
       "get": {
         "tags": [
@@ -7369,6 +7613,46 @@
         }
       }
     },
+    "/internal/users/{userId}/friends/{friendUserId}": {
+      "delete": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "deleteFriend",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "friendUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FriendshipDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me/social-links/{provider}": {
       "delete": {
         "tags": [
@@ -7705,7 +7989,7 @@
         ],
         "summary": "친구 삭제",
         "description": "ACCEPTED 관계를 양측 누구나 soft delete. 성공 시 204 반환.",
-        "operationId": "deleteFriend",
+        "operationId": "deleteFriend_1",
         "parameters": [
           {
             "name": "friendUserId",
@@ -8015,6 +8299,36 @@
           "currentIslandId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "FriendRequestCreateRequest": {
+        "type": "object",
+        "properties": {
+          "targetUserId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "targetUserId"
+        ]
+      },
+      "FriendRequestStateView": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "ACCEPTED",
+              "REJECTED",
+              "CANCELED"
+            ]
           }
         }
       },
@@ -9020,18 +9334,6 @@
           }
         }
       },
-      "FriendRequestCreateRequest": {
-        "type": "object",
-        "properties": {
-          "targetUserId": {
-            "type": "string",
-            "format": "uuid"
-          }
-        },
-        "required": [
-          "targetUserId"
-        ]
-      },
       "FocusSessionRequest": {
         "type": "object",
         "properties": {
@@ -9814,6 +10116,72 @@
           },
           "nextHandle": {
             "type": "string"
+          }
+        }
+      },
+      "FriendResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "tierLevel": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "occupation": {
+            "type": "string"
+          },
+          "focusTimeMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "focusStartedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "focusTagName": {
+            "type": "string"
+          },
+          "focusing": {
+            "type": "boolean"
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "isPinned": {
+            "type": "boolean"
+          },
+          "isFocusing": {
+            "type": "boolean"
+          }
+        }
+      },
+      "FriendRequestResponse": {
+        "type": "object",
+        "properties": {
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "tierLevel": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
@@ -11757,48 +12125,6 @@
           }
         }
       },
-      "FriendResponse": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "occupation": {
-            "type": "string"
-          },
-          "focusTimeMinutes": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "focusStartedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "focusTagName": {
-            "type": "string"
-          },
-          "focusing": {
-            "type": "boolean"
-          },
-          "pinned": {
-            "type": "boolean"
-          },
-          "isPinned": {
-            "type": "boolean"
-          },
-          "isFocusing": {
-            "type": "boolean"
-          }
-        }
-      },
       "FriendSearchResultResponse": {
         "type": "object",
         "properties": {
@@ -11823,30 +12149,6 @@
               "PENDING",
               "FRIEND"
             ]
-          }
-        }
-      },
-      "FriendRequestResponse": {
-        "type": "object",
-        "properties": {
-          "requestId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -11924,6 +12226,15 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "FriendshipDeletedView": {
+        "type": "object",
+        "properties": {
+          "friendshipId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       }
