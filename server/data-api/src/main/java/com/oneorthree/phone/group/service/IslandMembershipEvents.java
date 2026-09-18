@@ -31,9 +31,15 @@ public class IslandMembershipEvents {
                 "hostUserId", hostUserId.toString()));
     }
 
-    /** 기존 가입/이탈도 같은 목록 버전을 전진시키며 링크 자격 세대와 혼용하지 않는다. */
-    public void changed(UUID islandId, UUID actorId, String changeKind) {
-        append(islandId, actorId, Map.of("changeKind", changeKind));
+    /**
+     * 기존 가입/이탈도 같은 목록 버전을 전진시키며 링크 자격 세대와 혼용하지 않는다.
+     *
+     * <p>발행한 envelope 를 돌려준다(GROMO-1759). 멱등 명령은 확정한 사건을 receipt 에 함께
+     * 저장해야 재생이 같은 결과를 재현하는데, 버전은 {@code append} 가 잠금 아래에서 한 번만
+     * 발급하므로 호출부가 그 값을 알 방법이 이 반환값뿐이다. 기존 호출부는 반환을 무시한다.
+     */
+    public EventEnvelope changed(UUID islandId, UUID actorId, String changeKind) {
+        return append(islandId, actorId, Map.of("changeKind", changeKind));
     }
 
     private EventEnvelope append(UUID islandId, UUID actorId, Map<String, Object> details) {

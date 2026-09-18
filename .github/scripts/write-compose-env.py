@@ -39,6 +39,10 @@ SERVICE_REQUIRED_KEYS = {
         "JWT_SECRET", "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_BIZ_TO_NOTI", "SVC_TOKEN_BIZ_TO_LINK",
         "LINK_IP_SALT", "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
         "BUSINESS_REDIS_PASSWORD",
+        # GROMO-1759 목록 커서 서명. «필수» 인 이유: 없으면 컨테이너는 정상 부팅하고 GET /islands ·
+        # /islands/discover 만 첫 요청에서 503 이 된다 — 부팅 로그·헬스체크가 조용해 배포 뒤에야 드러난다.
+        # 여기서 막으면 배포 «전에» 실패한다(application-{dev,prod}.yml 의 자리표시자는 그래서 기본값이 없다).
+        "BUSINESS_CURSOR_ENABLED", "BUSINESS_CURSOR_KEY_V1",
     ),
     "notification": (
         "NOTI_DB_URL", "NOTI_DB_USERNAME", "NOTI_DB_PASSWORD",
@@ -71,6 +75,8 @@ SERVICE_OPTIONAL_KEYS = {
         "LINK_TRUSTED_IP_HEADERS", "COMPAT_MATCH_HANDLER_ENABLED", "COMPAT_IMPORT_CONTRACT_READY",
         "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED",
         "GOOGLE_DRIVE_API_KEY",
+        # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
+        "BUSINESS_CURSOR_ACTIVE_KEY",
     ),
     "notification": (
         "NOTIFICATION_SCHEDULING_ENABLED", "NOTIFICATION_KAFKA_ENABLED", "NOTIFICATION_GENERATION_REQUIRED",
