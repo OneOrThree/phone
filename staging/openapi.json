@@ -1563,6 +1563,66 @@
         }
       }
     },
+    "/internal/auth/login-attempts": {
+      "post": {
+        "tags": [
+          "internal-login-attempt-controller"
+        ],
+        "operationId": "execute",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginAttemptExecuteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginSessionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/auth/login-attempts/lookup": {
+      "post": {
+        "tags": [
+          "internal-login-attempt-controller"
+        ],
+        "operationId": "lookup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginAttemptLookupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginAttemptLookupResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/auth/device-sessions/verify": {
       "post": {
         "tags": [
@@ -8377,6 +8437,115 @@
         "properties": {
           "revoked": {
             "type": "boolean"
+          }
+        }
+      },
+      "LoginAttemptExecuteRequest": {
+        "type": "object",
+        "properties": {
+          "attemptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "digestKeyId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          },
+          "credentialDigest": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "APPLE",
+              "GOOGLE",
+              "KAKAO",
+              "LINE",
+              "INSTAGRAM",
+              "FACEBOOK"
+            ]
+          },
+          "credentialKind": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 0
+          },
+          "credential": {
+            "type": "string",
+            "minLength": 1
+          },
+          "termsVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          },
+          "callerAccessToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attemptId",
+          "credential",
+          "credentialDigest",
+          "credentialKind",
+          "digestKeyId",
+          "provider",
+          "termsVersion"
+        ]
+      },
+      "LoginSessionResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "onboardingComplete": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LoginAttemptLookupRequest": {
+        "type": "object",
+        "properties": {
+          "attemptId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "digestKeyId": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          },
+          "credentialDigest": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          }
+        },
+        "required": [
+          "attemptId",
+          "credentialDigest",
+          "digestKeyId"
+        ]
+      },
+      "LoginAttemptLookupResponse": {
+        "type": "object",
+        "properties": {
+          "replayable": {
+            "type": "boolean"
+          },
+          "session": {
+            "$ref": "#/components/schemas/LoginSessionResponse"
           }
         }
       },
