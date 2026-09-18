@@ -23,6 +23,12 @@ internal:
           - 'POST /internal/auth/device-sessions/verify'
           - 'POST /internal/auth/sessions/verify'
           - 'POST /internal/auth/sessions/logout'
+          # GROMO-1908 소셜 로그인 세션. 주체 축(`/internal/users/*/…`)이 «아니다» — 로그인 전에는
+          # 검증된 userId 가 없어 InternalAuthFilter 의 X-User-Id ↔ 경로 일치 검사를 탈 수 없다.
+          # 와일드카드가 없는 정확한 두 경로이고, AntPathMatcher 의 `*` 는 세그먼트 하나라
+          # `/login-attempts` 와 `/login-attempts/lookup` 은 서로를 덮지 않는다.
+          - 'POST /internal/auth/login-attempts'
+          - 'POST /internal/auth/login-attempts/lookup'
           - 'POST /internal/islands/*/host-transfer'
           - 'POST /internal/users/*/device-token-deletions'
           - 'PUT /internal/users/*/notification-settings-commands'

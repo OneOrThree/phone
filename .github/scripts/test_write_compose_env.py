@@ -119,6 +119,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             DATA_API_BASE_URL="http://app:8080", NOTIFICATION_BASE_URL="http://notification:8082",
             LINK_BASE_URL="https://link.example.test", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
             FCM_SERVICE_ACCOUNT_JSON={"project_id": "test", "private_key": "fake$'\\\nkey"},
+            LOGIN_ATTEMPT_DIGEST_SECRET="digest-only-secret",
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -152,6 +153,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(biz["JWT_SECRET"], combined["JWT_SECRET"])
             self.assertEqual(biz["BUSINESS_REDIS_PASSWORD"], "redis-only-password")
             self.assertEqual(biz["GOOGLE_DRIVE_API_KEY"], "drive-only")
+            self.assertEqual(biz["LOGIN_ATTEMPT_DIGEST_SECRET"], "digest-only-secret")
             self.assertEqual(biz["BUSINESS_CURSOR_KEY_V1"], "cursor-only")
             self.assertEqual(biz["BUSINESS_REDIS_USERNAME"], "business")
             self.assertEqual(set(services["business-redis"]["networks"]), {"business-cache"})
@@ -167,7 +169,7 @@ class WriteComposeEnvTest(unittest.TestCase):
                         "SVC_TOKEN_CONSOLE_TO_NOTI", "SVC_TOKEN_DATA_TO_LINK"):
                 self.assertNotIn(key, biz)
             for key in ("JWT_SECRET", "API_DB_PASSWORD", "SVC_TOKEN_BIZ_TO_LINK", "LINK_CAPABILITY_KEY", "BUSINESS_REDIS_PASSWORD", "GOOGLE_DRIVE_API_KEY",
-                        "BUSINESS_CURSOR_KEY_V1"):
+                        "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1"):
                 self.assertNotIn(key, noti)
             for environment in (biz, noti):
                 self.assertNotIn("DD_API_KEY", environment)

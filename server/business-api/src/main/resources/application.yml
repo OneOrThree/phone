@@ -110,6 +110,16 @@ business:
 jwt:
   secret: ${JWT_SECRET}
 
+auth:
+  # 로그인 시도의 자격 digest 전용 비밀 (GROMO-1908 · 계정 LLD §3).
+  # ⚠️ jwt.secret 과 «다른 값»이어야 한다 — 한 키가 여러 용도를 겸하면 한쪽의 수명 정책
+  #    (로그인 복구 창 5분)이 다른 쪽(발급 토큰의 최대 만료)을 끌어내려 멀쩡한 세션이 끊긴다.
+  # ⚠️ 비거나 치환되지 않으면 «부팅이 실패»한다(CredentialDigest 의 RequiredConfig fail-fast).
+  #    비밀 없는 digest 는 「원 자격을 들고 있다」는 증거이기를 그만두는데, 로그인은 «정상 동작하는
+  #    것처럼» 보여서 그 상태가 사고 뒤에야 드러난다. 부팅 실패가 배포 게이트다.
+  login-attempt:
+    digest-secret: ${LOGIN_ATTEMPT_DIGEST_SECRET}
+
 logging:
   level:
     com.oneorthree.business: INFO
