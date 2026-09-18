@@ -3,6 +3,7 @@ package com.oneorthree.phone.invitelink.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
@@ -71,18 +72,25 @@ public class InviteLinkService {
         if (findActiveGroup(groupId).isEmpty()) {
             throw new InviteLinkException(InviteLinkErrorCode.GROUP_NOT_FOUND);
         }
-        if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, userId)) {
-            throw new InviteLinkException(InviteLinkErrorCode.NOT_MEMBER);
-        }
+        GroupMember issuer = groupMemberRepository.findActiveByUserIdAndGroupId(userId, groupId)
+                .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.NOT_MEMBER));
 
         Optional<GroupInviteLink> existing = inviteLinkRepository.findByGroupIdAndInviterId(groupId, userId);
         if (existing.isPresent()) {
-            return toResponse(existing.get());
+            GroupInviteLink link = existing.get();
+            if (link.getIssuanceEpoch() != issuer.getMembershipEpoch()) {
+                // 발급 뒤 발급자가 이탈·강퇴·재가입했다면 옛 슬러그는 폐기 — 새 버전으로 교체한다(GROMO-1760).
+                // 이 클래스는 @Transactional 이 없으므로 조회된 엔티티는 detached — 명시 저장이 필요하다.
+                link.reissue(generateUniqueSlug(), issuer.getMembershipEpoch());
+                inviteLinkRepository.save(link);
+            }
+            return toResponse(link);
         }
 
         GroupInviteLink link;
         try {
-            link = inviteLinkRepository.save(new GroupInviteLink(generateUniqueSlug(), groupId, userId));
+            link = inviteLinkRepository.save(new GroupInviteLink(
+                    generateUniqueSlug(), groupId, userId, issuer.getMembershipEpoch()));
         } catch (DataIntegrityViolationException e) {
             // 동시 발급 레이스 — 상대가 먼저 넣었으면 그 링크가 정답이다(멱등).
             return inviteLinkRepository.findByGroupIdAndInviterId(groupId, userId)

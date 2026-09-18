@@ -563,6 +563,7 @@ Table group_invite_links [note: '그룹 초대 링크 원장: slug → (그룹, 
   group_id   uuid        [not null, note: 'FK → groups.id — 링크가 가리키는 그룹']
   inviter_id uuid        [not null, note: 'FK → users.id — 누가 데려왔나(어트리뷰션 앵커)']
 
+  issuance_epoch bigint  [not null, default: 0, note: '발급 시점 발급자의 group_members.membership_epoch — 이탈/강퇴/재가입으로 세대가 바뀌면 이 코드는 폐기(410). migration V63']
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 
@@ -593,6 +594,27 @@ Table invite_link_clicks [note: '초대 링크 클릭 + 매치(설치 기기 연
     (ip_hash, os, clicked_at) [note: '매치 검색 전용 부분 인덱스 (WHERE matched = false) — 소진된 클릭은 인덱스에서도 제외']
     (link_id) [note: '링크별 클릭/매치 집계']
     (matched_device_id, matched_at) [note: '매치 재시도 멱등(기기별 기존 매치 조회) 전용 부분 인덱스 (WHERE matched = true)']
+  }
+}
+
+Table island_join_requests [note: '섬 가입 요청 — 논리 모델 JoinRequest(island-membership LLD §4). PENDING 이 유일한 열린 상태이고 APPROVED·REJECTED·CANCELLED 는 전부 terminal. 전이는 요청 행 배타 잠금 아래서만. migration V63'] {
+  id             uuid        [pk]
+
+  island_id      uuid        [not null, note: 'FK → groups.id — 신청 대상 섬 (ON DELETE RESTRICT)']
+  applicant_id   uuid        [not null, note: 'FK → users.id — 신청자. 소유 판정은 이 컬럼으로만 (ON DELETE RESTRICT)']
+
+  status         varchar(20) [not null, default: 'PENDING', note: "CHECK: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED'"]
+  terminal_reason varchar(30) [note: "CHECK: 'APPLICANT_CANCELLED' | 'HOST_APPROVED' | 'HOST_REJECTED' | 'ISLAND_CLOSED' — 닫은 내부 사유, 응답에 나가지 않는다"]
+
+  invite_link_id uuid        [note: 'FK → group_invite_links.id — 초대 근거(식별자만). 없으면 일반 신청 (ON DELETE RESTRICT)']
+
+  version        bigint      [not null, default: 0, note: '낙관 버전 — 전이마다 +1, 이벤트의 requestVersion 과 같은 축']
+  created_at     timestamptz [not null, default: `now()`]
+  resolved_at    timestamptz
+
+  indexes {
+    (island_id, applicant_id) [name: 'uq_island_join_requests_pending', unique, note: "(섬, 신청자)당 PENDING 은 하나 — 부분 유니크(WHERE status = 'PENDING')가 최후 방어선"]
+    (applicant_id, island_id, created_at) [name: 'ix_island_join_requests_applicant_island', note: '본인 요청 조회(/me/join-requests/{id})와 요약의 «본인 최신 신청» 해석']
   }
 }
 
@@ -1454,6 +1476,9 @@ Ref: user_island_contexts.current_island_id > groups.id [delete: set null]
 Ref: group_invite_links.group_id > groups.id
 Ref: group_invite_links.inviter_id > users.id
 Ref: invite_link_clicks.link_id > group_invite_links.id
+Ref: island_join_requests.island_id > groups.id
+Ref: island_join_requests.applicant_id > users.id
+Ref: island_join_requests.invite_link_id > group_invite_links.id
 Ref: invite_link_clicks.claimed_user_id > users.id
 
 // 아이템 / 캐릭터

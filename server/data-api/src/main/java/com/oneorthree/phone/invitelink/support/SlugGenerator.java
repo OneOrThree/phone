@@ -3,6 +3,7 @@ package com.oneorthree.phone.invitelink.support;
 import org.springframework.stereotype.Component;
 
 import java.security.SecureRandom;
+import java.util.regex.Pattern;
 
 /**
  * 초대 링크 slug 생성기.
@@ -18,6 +19,12 @@ public class SlugGenerator {
 
     private static final String ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
     private static final int LENGTH = 8;
+
+    /**
+     * 발급되는 코드·토큰의 공개 형식 — 생성 알파벳·길이 그 자체다. 해석(resolve)의 code 와
+     * 가입 명령의 invitationToken 이 이 상수 하나로 검증된다 — 형식 오류는 두 경로 모두 422 다.
+     */
+    public static final Pattern FORMAT = Pattern.compile("^[" + ALPHABET + "]{" + LENGTH + "}$");
 
     private final SecureRandom random = new SecureRandom();
 

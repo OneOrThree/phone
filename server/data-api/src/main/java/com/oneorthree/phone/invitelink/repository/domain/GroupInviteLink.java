@@ -51,6 +51,16 @@ public class GroupInviteLink {
     @Column(name = "inviter_id", nullable = false)
     private UUID inviterId;
 
+    /**
+     * 발급 시점 발급자의 {@code group_members.membership_epoch} (GROMO-1760).
+     *
+     * <p>발급자가 이탈·강퇴·재가입해 세대가 바뀌면 이 코드는 더 이상 같은 초대가 아니다 — «폐기»는
+     * 행 삭제가 아니라 세대 불일치로 410 을 내는 것이다. 재가입 뒤 발급은 {@link #reissue} 가
+     * 새 슬러그와 새 세대를 기록해 새 버전을 만든다.
+     */
+    @Column(name = "issuance_epoch", nullable = false)
+    private long issuanceEpoch;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -72,5 +82,19 @@ public class GroupInviteLink {
         this.slug = slug;
         this.groupId = groupId;
         this.inviterId = inviterId;
+    }
+
+    public GroupInviteLink(String slug, UUID groupId, UUID inviterId, long issuanceEpoch) {
+        this(slug, groupId, inviterId);
+        this.issuanceEpoch = issuanceEpoch;
+    }
+
+    /**
+     * 세대가 어긋난 옛 코드를 새 버전으로 교체한다 — 같은 (그룹, 발급자) 행은 유지하되
+     * 슬러그·세대를 새로 쓴다. 옛 슬러그는 이후 조회에서 「없음」이 되어 자연히 폐기된다.
+     */
+    public void reissue(String slug, long issuanceEpoch) {
+        this.slug = slug;
+        this.issuanceEpoch = issuanceEpoch;
     }
 }
