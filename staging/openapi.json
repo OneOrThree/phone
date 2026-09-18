@@ -273,6 +273,65 @@
         }
       }
     },
+    "/internal/islands/{islandId}/construction-target": {
+      "put": {
+        "tags": [
+          "internal-island-construction-controller"
+        ],
+        "operationId": "setTarget",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConstructionTargetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionTargetView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me/notification-settings": {
       "get": {
         "tags": [
@@ -1631,6 +1690,65 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/HostTransferResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/constructions": {
+      "post": {
+        "tags": [
+          "internal-island-construction-controller"
+        ],
+        "operationId": "start_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConstructionStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionStartedView"
                 }
               }
             }
@@ -6021,6 +6139,46 @@
         }
       }
     },
+    "/internal/islands/{islandId}/construction-options": {
+      "get": {
+        "tags": [
+          "internal-island-construction-controller"
+        ],
+        "operationId": "options",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConstructionOptionsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/groups/{groupId}/invite-issue-context": {
       "get": {
         "tags": [
@@ -8392,6 +8550,42 @@
           }
         }
       },
+      "ConstructionTargetRequest": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "buildingId",
+          "expectedVersion"
+        ]
+      },
+      "ConstructionTargetView": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "spent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "DeviceTokenRegisterRequest": {
         "type": "object",
         "properties": {
@@ -8996,6 +9190,74 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "ConstructionStartRequest": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expectedCostPolicyVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "buildingId",
+          "expectedCostPolicyVersion",
+          "expectedVersion"
+        ]
+      },
+      "ConstructionStartedView": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "spent": {
+            "$ref": "#/components/schemas/Spent"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "villagePoints": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "walletVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completesAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Spent": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -10838,6 +11100,63 @@
           },
           "member": {
             "$ref": "#/components/schemas/IslandDetailView"
+          }
+        }
+      },
+      "ConstructionOptionItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "cost": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "selectable": {
+            "type": "boolean"
+          },
+          "buildable": {
+            "type": "boolean"
+          },
+          "blockedReason": {
+            "type": "string"
+          }
+        }
+      },
+      "ConstructionOptionsView": {
+        "type": "object",
+        "properties": {
+          "islandVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "costPolicyVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "selectedBuildingId": {
+            "type": "string"
+          },
+          "villagePoints": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "walletVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConstructionOptionItem"
+            }
           }
         }
       },
