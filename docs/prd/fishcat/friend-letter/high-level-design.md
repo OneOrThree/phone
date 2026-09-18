@@ -53,7 +53,7 @@
 | `id` | uuid PK | `@GeneratedUuidV7`(`common/id/GeneratedUuidV7.java`) — 목록 커서가 생성 시간순 정렬에 기댄다 |
 | `sender_id` | uuid NOT NULL, FK→users.id | 보낸 유저 |
 | `receiver_id` | uuid NOT NULL, FK→users.id | 받는 유저 |
-| `content` | varchar(1000) NOT NULL | 편지 본문. 길이 상한 1000은 이 설계의 기본값 제안이지 확정 제품 수치가 아니다 — island-mailbox 메시지(2000 UTF-16, LLD §2)와 다른 상한을 굳이 맞출 이유가 없어 별도로 잡았다. 실제 값은 구현 착수 전 기획 확인 |
+| `content` | varchar(500) NOT NULL | 편지 본문. **길이 상한 500 확정 — 2026-09-18 재영님 결정 FL-본문**(종전 제안 ~~1000~~). 앱의 입력 제한도 같은 값을 쓴다 |
 | `read_at` | timestamptz NULL | 수신자가 처음 상세 조회한 시각. NULL = 안 읽음. 별도 status enum을 두지 않는다 — "읽음"은 편지의 유일한 상태 전이라 컬럼 하나로 충분하다(ponytail) |
 | `created_at` | timestamptz NOT NULL DEFAULT now() | 발송 시각. 커서 정렬 축은 이 컬럼이 아니라 `id`다(FocusSession 선례와 동일 이유 — UUID v7이 이미 시간순이라 별도 인덱스 컬럼이 필요 없다) |
 | `deleted_at` | timestamptz NULL | 소프트 삭제. **이 설계는 사용자가 부르는 편지 삭제 API를 만들지 않는다**(티켓 범위 밖) — 이 컬럼은 §결정-3(친구 삭제 후 편지 보존 정책)이 "삭제"로 결론 나면 그 실행에 쓸 시스템 필드다. 탈퇴 처리에는 쓰지 않는다(§4·LLD §3 탈퇴 절 참고 — 탈퇴는 익명화로 충분해 편지 행을 건드리지 않는다) |
