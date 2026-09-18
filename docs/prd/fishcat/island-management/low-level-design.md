@@ -86,7 +86,7 @@ membershipEpoch는 이탈/재가입 자격 축이므로 단순 위임 때 올리
 
 상태 전이·현재 context 무효화·membershipEpoch·초대 폐기 제어·outbox를 같은 TX에 묶는다. 마지막 주민 판정은 동시 가입/승인과 직렬화한다. 이미 나간 상태에서 다른 키로 호출하면 현재 미소속403이며, 앱은 본인 소속 조회로 사후조건을 확인해 안전하게 복귀할 수 있다. 불명확한404를 모두 성공으로 접지 않는다. 같은 성공 키의 제한된 명령 증거 재생은 §4에서 다룬다.
 
-마지막 주민 이탈로 ENDED가 되는 경우에는 같은 TX에 `island.members.updated` 외에 `island.updated`와 링크 대상 `group.closed` outbox를 반드시 기록한다. 발급자별 `link.revoked`가 group.closed를 대신하지 않는다(장부 ㋢). 공개 projection의 종료 상태와 링크 landing/match 폐기가 모두 같은 중앙 종료에 수렴하도록 기존 버전/relay 규칙을 사용한다.
+마지막 주민 이탈로 ENDED가 되는 경우에는 같은 TX에 `island.members.updated` 외에 `island.updated`와 링크 대상 `group.closed` outbox를 반드시 기록한다. 발급자별 `link.revoked`가 group.closed를 대신하지 않는다(장부 ㋢). 공개 projection의 종료 상태와 링크 landing/match 폐기가 모두 같은 중앙 종료에 수렴하도록 기존 버전/relay 규칙을 사용한다. (A23(2026-09-13): 장부 ㋢ 는 폐기됐다 — 링크 원장이 같은 DB 라 랜딩·매치가 그룹 상태를 직접 판정하므로 링크용 `group.closed` 전달이 없다, [링크 정본](../link-attribution/high-level-design.md) §2·§3.1. 이 문단의 «링크 대상» outbox 는 그 기준으로 정리가 필요하다.)
 
 같은 그룹 잠금 아래 남아 있는 모든 pending JoinRequest를 기존 terminal 상태 `cancelled`로 전이하고 내부 `terminalReason=island_closed`, resolvedAt과 요청별 version을 기록한다. 신규 상태 enum을 만들지 않는다. 신청 생성/approve/cancel도 같은 그룹 생존/잠금 경계를 사용하므로 종료 스캔 뒤 pending이 새로 남지 않는다. 각 신청자에게 비민감 `{requestId,applicantId,status:"cancelled",version}`의 join.request.updated 개인 전달 outbox를 같은 TX에 저장한다. 종료 후에는 현재 host 수신자가 없으므로 옛 host/주민 토픽에 요청 상세를 보내지 않는다. 신청자는 그룹 조회가404여도 본인 join-status에서 cancelled를 확인하여 대기를 끝낼 수 있다. 실패하면 ENDED/멤버십/요청 terminal/모든 outbox를 함께 rollback한다. 계정 탈퇴나 legacy 마지막 이탈로 닫히는 경우에도 동일 종료 primitive를 재사용한다.
 
@@ -124,13 +124,15 @@ membershipEpoch는 이탈/재가입 자격 축이므로 단순 위임 때 올리
 | 강퇴 + 기존 내기 판돈 | 기존 kick은 판돈 유지 | 기존 정산/환불 엔진에 맡김. 새 퀘스트로 변환 금지 |
 | 계정 탈퇴 | 별도 AccountWithdrawalService | 지갑 삭제·통계 익명화 전 내기/멤버십 정리 순서 유지 |
 
-링크 발급자 이탈/강퇴 폐기는 기존 설계에 채택된 목표이고 기준 main의 resolveLanding/match/claim/join이 모두 발급자의 현재 멤버십을 검사하는 상태는 아니다. 1659 선행 통합 후에도 1762는 모든 발급/상환/실제 가입 경로의 membershipEpoch와 현재 활성 멤버십 검사를 대조하고, 이탈 TX의 link.revoked outbox 및 지연 발급 차단을 실행 검증해야 한다. 기존 구현을 보존하는 것만으로 이 요구가 완료되지 않는다.
+링크 발급자 이탈/강퇴 폐기는 기존 설계에 채택된 목표이고 기준 main의 resolveLanding/match/claim/join이 모두 발급자의 현재 멤버십을 검사하는 상태는 아니다. 1659 선행 통합 후에도 1762는 모든 발급/상환/실제 가입 경로의 membershipEpoch와 현재 활성 멤버십 검사를 대조하고, 이탈 TX의 ~~link.revoked outbox~~(→ A23: 이탈 TX 에서 링크 행을 직접 폐기 — 전달 대상 없음, 링크 정본 HLD §2) 및 지연 발급 차단을 실행 검증해야 한다. 기존 구현을 보존하는 것만으로 이 요구가 완료되지 않는다.
 
 정책 대기 분기는 TBD 역할 행렬과 함께 출시 조건으로 남긴다. 보상 정책이 없다는 이유로 인가 철회 자체를 무시할 수 없다. 구현은 기능 비활성 또는 아직 지원하지 않는 분기를 명시하고, 활성화 전 집중 종료 TX·현재 context·outbox를 원자적으로 결합해야 한다.
 
+위 두 「정책 대기」 행(강퇴 + active/paused · 미수령 퀘스트 공동 보상)의 선택지와 코드 근거는 [소속 결정표](../island-membership/open-decisions.md)에 모았다.
+
 ## 6. 공개 결과·이벤트·로그
 
-manage는 island.updated를 기록하고 실제 name 변경에는 같은 TX의 링크 대상 group.renamed를 추가한다. intro/approvalRequired만 바뀌거나 이름이 같으면 group.renamed는 만들지 않는다. 승인/위임/강퇴/탈퇴는 island.members.updated, 요청 생성/처리는 join.request.updated를 발행한다. 마지막 주민 이탈/그룹 종료에는 island.updated와 링크 대상 group.closed를 추가하고 pending의 cancelled 전이마다 신청자 개인 join.request.updated를 함께 기록한다. 초대 근거의 즉시 가입/승인은 link.joined, 실제 pending claim의 확정은 link.claimConfirmed를 같은 membership TX에 기록한다. 거절은 주민 수가 바뀌지 않으므로 불필요한 members 사건을 만들지 않는다. GET은 이벤트를 생산하지 않는다. 공개 Realtime 사건의 payload.version은 해당 envelope.aggregateVersion과 일치해야 한다. 링크 대상 내부 outbox는 기존1659 봉투/version·transition 계약을 그대로 따르며 공개 Realtime 봉투로 바꾸지 않는다.
+manage는 island.updated를 기록하고 실제 name 변경에는 같은 TX의 링크 대상 group.renamed를 추가한다. intro/approvalRequired만 바뀌거나 이름이 같으면 group.renamed는 만들지 않는다. 승인/위임/강퇴/탈퇴는 island.members.updated, 요청 생성/처리는 join.request.updated를 발행한다. 마지막 주민 이탈/그룹 종료에는 island.updated와 링크 대상 group.closed를 추가하고 pending의 cancelled 전이마다 신청자 개인 join.request.updated를 함께 기록한다. 초대 근거의 즉시 가입/승인은 link.joined, 실제 pending claim의 확정은 link.claimConfirmed를 같은 membership TX에 기록한다. 거절은 주민 수가 바뀌지 않으므로 불필요한 members 사건을 만들지 않는다. GET은 이벤트를 생산하지 않는다. 공개 Realtime 사건의 payload.version은 해당 envelope.aggregateVersion과 일치해야 한다. 링크 대상 내부 outbox는 기존1659 봉투/version·transition 계약을 그대로 따르며 공개 Realtime 봉투로 바꾸지 않는다. (A23(2026-09-13): 위 «링크 대상» outbox — group.renamed · group.closed · link.joined · link.claimConfirmed — 는 전달할 링크 서버가 없다. 링크 원장이 같은 DB 라 표시명은 랜딩 때 조회, 폐기·귀속은 같은 트랜잭션에서 직접 기록한다([링크 정본](../link-attribution/high-level-design.md) §2·§3.1) — 이 문단은 그 기준으로 정리가 필요하다.)
 
 공개 members 사건은 `{islandId,version}`, join.request 사건은 `{requestId,applicantId,status,version}`이다. 요청 이벤트 수신자는 본인과 현재 host만이며 이를 일반 섬 events 토픽으로 보내지 않는다. 초대 폐기/세션 철회/개인 current context 제어는 신뢰된 내부 자료로 분리한다.
 

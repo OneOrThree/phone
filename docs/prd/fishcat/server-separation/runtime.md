@@ -1,4 +1,6 @@
-# 링크·알림 분리의 실행 환경
+# ~~링크·~~알림 분리의 실행 환경
+
+> A23(2026-09-13): 링크 분리는 폐기됐다 — 링크·MMP 는 business-api(공개 표면·콘솔)·data-api(원장) 안이다([링크 정본](../link-attribution/README.md)). 이 문서의 링크 관련 값·절차는 PR #745 가 남긴 코드의 운용 설명이며 링크 구현 PR 이 걷어낼 때까지만 유효하다(링크 LLD §9).
 
 서비스별 env·이미지 digest와 nginx 적용 준비는 [deployment.md](deployment.md)를 따른다.
 정본은 `docs/architecture/decisions.md` A1~A22와 서비스 아키텍처 §7이다. 이 문서는 그 절차를 실행하는 도구의 입력을 설명한다. DB·시크릿·라우팅·발송 gate 전환은 서로 다른 단계다.
@@ -22,7 +24,7 @@ aws secretsmanager get-secret-value --secret-id gromo/dev/env --query SecretStri
 | business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_LINK 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, LINK_BASE_URL, LINK_IP_SALT |
 | notification | NOTI_DB 3종, FCM 2종, BIZ_TO_NOTI·DATA_TO_NOTI·CONSOLE_TO_NOTI·NOTI_TO_DATA 서비스 토큰, DATA_API_BASE_URL, KAFKA_BOOTSTRAP_SERVERS |
 
-표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
+표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. 표의 링크 관련 값(`DATA_TO_LINK`·`BIZ_TO_LINK` 토큰 · `LINK_CAPABILITY_KEY` · `LINK_BASE_URL` · business-api 의 `LINK_IP_SALT`)은 A23 으로 폐기된 #745 잔재다 — 생성기가 요구하는 동안만 채우고, `LINK_IP_SALT` 는 최종적으로 data-api 만 갖는다(링크 정책 L03). `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
 
 Data 파일은 기본 `--phase transition`에서 JWT·Google/Apple client ID·FCM 2종도 요구한다. 구 코드가 기동·발송해야 하는 기간의 자격이다. 구 빈 제거·트래픽 전환·롤백 창 종료 확인 후에만 `--phase final`을 사용한다. writer의 final 선택 자체가 구 빈 제거를 수행하지는 않는다.
 
@@ -67,7 +69,7 @@ dev(GCP `gromo-dev-app`, e2-medium 4 GB)에서 Kafka와 Data 위성 모드를 �
 | 0 | `dev-cd.yml` 조건부 오버레이 + `dev-kafka.yml` 머지. `phone-kafka` 미실행이고 `../.gromo-runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
 | 1 | 서버에서 `free -m` 확인 → Actions **Dev Kafka** `up`. 여유 1024 MiB 미만이면 워크플로가 거부한다. 브로커만 뜨고 토픽은 없다(자동 생성 꺼짐). 이후 CD는 `phone-kafka`가 돌면 `docker-compose.kafka.yml`을 함께 물린다 | **Dev Kafka** `down` (`kafka-data` 볼륨 보존) |
 | 2 | 러너 checkout 옆 `../.gromo-runtime/data-api.env`(0600)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `INTERNAL_API_ENABLED=false`, `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`. 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
-| 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 `LINK_BASE_URL`·`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다. `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
+| 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
 | 4 | Notification·Business 위성 기동 — [신규 서비스 compose](#신규-서비스-compose)와 [deployment.md](deployment.md) | 해당 서비스만 제거 |
 | 5 | `NOTIFICATION_DISPATCH_MODE=OUTBOX` — [OUTBOX 선행 조건](#outbox-후보-배치-활성화-선행-조건)(GROMO-893) 해소 후에만. **단방향** | 되돌리지 않는다. OUTBOX→LEGACY는 알림을 재발송한다 |
 
@@ -112,7 +114,9 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 relay를 켤 때 모두 명시한다. warning attempts는 폐기 횟수가 아니다. 미전달 행은 보존한다.
 Kafka4 기본 DLT 이름에 의존하지 않고 수신기가 `notification-events.DLT`를 명시한다.
 
-### Link 정지 스냅샷 이관
+### ~~Link 정지 스냅샷 이관~~ → A23: 링크 이관 없음
+
+> A23(2026-09-13): 이관 절차 자체가 폐기됐다(링크 정본 HLD §7 — 같은 DB 를 두 경로가 읽으므로 데이터 이관 창이 없다). 아래는 #745 가 남긴 `migrate-link.py`·`link-migration` 프로필의 운용 설명이며 링크 구현 PR 이 걷어낸다(링크 LLD §9.2). 실행하지 않는다.
 
 Data 실행 profile에 `link-migration`을 **한시적으로** 추가한다(예: `dev,satellites,link-migration`).
 기존 `BATCH_ADMIN_KEY`로 운영 caller를 인증하며 freeze·manifest·두 export·close 다섯 경로만 연다.

@@ -10,6 +10,12 @@ import com.oneorthree.business.upstream.data.dto.ClaimIntentPage;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentAck;
 import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
+import com.oneorthree.business.upstream.data.dto.CurrentIsland;
+import com.oneorthree.business.upstream.data.dto.IslandCreated;
+import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
+import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
+import com.oneorthree.business.upstream.data.dto.IslandView;
+import com.oneorthree.business.upstream.data.dto.MyIslands;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
@@ -73,6 +79,13 @@ public class DataApiClient {
     private static final String PATH_FOCUS_SESSION_FINISH =
             "/internal/users/{userId}/focus-sessions/{sessionId}/finish";
     private static final String PATH_FOCUS_SUMMARY = "/internal/users/{userId}/focus-summary";
+    // GROMO-1759 섬 소속·탐색 6종. 검색·발견이 공개 경로와 이름이 다른 이유는 사용자 축에서
+    // `/islands` 를 이미 «내 섬 목록» 이 쓰기 때문이다(내부 컨트롤러 javadoc 참고).
+    private static final String PATH_ISLANDS = "/internal/users/{userId}/islands";
+    private static final String PATH_ISLAND_SEARCH = "/internal/users/{userId}/island-search";
+    private static final String PATH_ISLAND_DISCOVERY = "/internal/users/{userId}/island-discovery";
+    private static final String PATH_CURRENT_ISLAND = "/internal/users/{userId}/current-island";
+    private static final String PATH_ISLAND = "/internal/islands/{islandId}";
 
     private final InternalHttpClient http;
 
@@ -604,6 +617,91 @@ public class DataApiClient {
                 responseType);
     }
 
+    /** 섬 생성 (GROMO-1759, LLD §3.1). 생성자가 방장이 되고 현재 섬이 새 섬으로 옮겨진다. */
+    public IslandCreated createIsland(UUID userId, String name, String intro, boolean approvalRequired,
+            UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_ISLANDS, userId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new CreateIslandCommand(name, intro, approvalRequired))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandCreated>() { });
+    }
+
+    /** 내 섬 목록 (GROMO-1759, LLD §3.5). */
+    public MyIslands fetchMyIslands(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_ISLANDS, userId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MyIslands>() { });
+    }
+
+    /**
+     * 섬 이름 검색 한 페이지 (GROMO-1759, LLD §3.2).
+     *
+     * <p>{@code cursorIslandId} 는 <b>서명을 이미 검증한</b> keyset 경계다 — 앱이 준 토큰이 아니라
+     * {@code SignedCursorCodec} 이 열어 준 값만 여기까지 온다.
+     */
+    public IslandSearchPage searchIslands(UUID userId, String q, UUID cursorIslandId, int limit,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_ISLAND_SEARCH, userId))
+                        .onBehalfOf(userId)
+                        .query("q", q)
+                        .query("cursorIslandId", cursorIslandId == null ? null : cursorIslandId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandSearchPage>() { });
+    }
+
+    /** 첫 소속 탐색 한 페이지 (GROMO-1759, LLD §3.3). seed 가 한 탐색 세션의 순서를 고정한다. */
+    public IslandDiscoverPage discoverIslands(UUID userId, String seed, String afterHandle, int limit,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_ISLAND_DISCOVERY, userId))
+                        .onBehalfOf(userId)
+                        .query("seed", seed)
+                        .query("afterHandle", afterHandle)
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandDiscoverPage>() { });
+    }
+
+    /** 현재 섬 이동 (GROMO-1759, LLD §3.6). 같은 섬이면 상류가 상태확인으로 처리한다. */
+    public CurrentIsland switchCurrentIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT, userPath(PATH_CURRENT_ISLAND, userId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new SwitchCurrentIslandCommand(islandId))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<CurrentIsland>() { });
+    }
+
+    /**
+     * 섬 하나 (GROMO-1759, LLD §3.4).
+     *
+     * <p>주체는 {@code onBehalfOf} 로만 전달한다 — 범위(주민/방문자) 판정은 전적으로 상류의 DB
+     * 상태이고 이 호출에는 역할·소속을 암시하는 파라미터가 없다.
+     */
+    public IslandView fetchIsland(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, PATH_ISLAND.replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandView>() { });
+    }
+
     private static String userPath(String template, UUID userId) {
         return template.replace("{userId}", userId.toString());
     }
@@ -626,5 +724,13 @@ public class DataApiClient {
 
     /** pause/resume/finish 공용 요청 본문 — expectedVersion 필수(FR-P07). */
     record FocusVersionedCommand(long expectedVersion) {
+    }
+
+    /** 섬 생성 요청 본문 (GROMO-1759). maxMembers·password 는 client 가 넣지 못한다. */
+    record CreateIslandCommand(String name, String intro, boolean approvalRequired) {
+    }
+
+    /** 현재 섬 이동 요청 본문 (GROMO-1759). */
+    record SwitchCurrentIslandCommand(UUID islandId) {
     }
 }

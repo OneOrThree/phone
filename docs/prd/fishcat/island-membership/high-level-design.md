@@ -10,22 +10,20 @@ flowchart LR
     B -->|검증한 사용자·원자 명령| D[Data]
     D --> DB[(groups·memberships·requests·current context)]
     D --> O[(같은 TX outbox·receipt)]
-    B -->|초대 발급·해석| L[링크 서버]
-    L -->|서명 자격| B
-    B -->|자격 동봉| D
+    B -->|"초대 발급·해석·claim — Data /internal/* (A23)"| D
     O --> Relay[Relay]
     Relay --> R[Realtime 권한/화면 갱신]
-    Relay -->|HTTP 내구 재전달| L
+    %% A23(2026-09-13): 링크 서버 노드·서명 자격·HTTP 내구 재전달 제거 — 링크 원장은 Data 의 같은 DB
 ```
 
-Business는 DB를 직접 읽지 않는다. Data는 링크 DB를 읽지 않고 링크 서버는 코어를 역호출하지 않는다. [서비스 아키텍처](../../../architecture/service-architecture.md)의 기존 링크 서명 자격·membershipEpoch·claim-intent 계약에 맞춰 합류한다. 이 그림은 별도 새 링크 서비스나 신설 공개 이벤트 endpoint를 요구하지 않는다.
+Business는 DB를 직접 읽지 않는다. ~~Data는 링크 DB를 읽지 않고 링크 서버는 코어를 역호출하지 않는다.~~ → A23(2026-09-13): 링크 원장은 Data 의 같은 DB 다 — 별도 링크 서버·서명 자격·claim-intent relay 는 폐기됐고([링크 정본](../link-attribution/high-level-design.md) §2), 초대 발급·해석·claim 은 Business → Data `/internal/*` 다. ~~[서비스 아키텍처](../../../architecture/service-architecture.md)의 기존 링크 서명 자격·membershipEpoch·claim-intent 계약에 맞춰 합류한다.~~ 이 그림은 별도 새 링크 서비스나 신설 공개 이벤트 endpoint를 요구하지 않는다.
 
 | 소유 | 책임 |
 |---|---|
 | 섬 소속 Data | 그룹/활성 membership/가입 요청/현재 섬/정원·상한 불변식 |
 | 관리 Data | 방장 권한/승인/위임/강퇴·이탈, 링크 폐기와 세션·보상 연계 |
 | 건설·외양 Data | 시설·성장·theme 정본, 섬 상세용 projection |
-| 링크 서버 | 초대 slug/새 코드 별칭이 채택되면 그 매핑, 링크 수명·서명 자격·클릭/귀속 |
+| ~~링크 서버~~ → 링크 Data(A23) | 초대 slug/새 코드 별칭이 채택되면 그 매핑, 링크 수명~~·서명 자격~~·클릭/귀속 — 같은 DB 트랜잭션 |
 | Business | request/response DTO, 인증·위임, 검색과 코드 해석 조합, 13화면의 고정 context |
 | Realtime | 커밋된 사건을 허용된 주민/신청자/방장에게 전달, 이탈자 구독 철회 |
 

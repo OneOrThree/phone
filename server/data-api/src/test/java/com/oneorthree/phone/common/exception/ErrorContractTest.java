@@ -157,8 +157,10 @@ class ErrorContractTest {
         // IDEMPOTENCY_KEY_CONFLICT(같은 키에 «다른» 자격)와 합치면 앱이 「키를 잘못 썼다」로 읽고
         // 새 시도를 만들어, 막으려던 동시 code 교환이 그대로 생긴다. 뒤의 것을 그 409 로 판정하는
         // 것은 계정 LLD §3 이 명시적으로 금지한다 — 정상 사용자가 배포 한 번에 막히기 때문이다.
-        assertThat(tests).as("실측 기준 도메인 상수 135개 + 공통 15개 — 로그인 시도 원장 2종 포함")
-                .hasSize(150);
+        // GROMO-1759 가 섬 검색 진입 가드 1개를 더했다(GroupErrorCode.OBSERVATORY_LOCKED) —
+        // 전망대 없이 이름 검색을 여는 403 은 첫 소속 탐색(가드 없는 discover)과 갈라야 한다.
+        assertThat(tests).as("실측 기준 도메인 상수 136개 + 공통 15개 — 로그인 시도 원장 2종·전망대 가드 포함")
+                .hasSize(151);
         return tests;
     }
 

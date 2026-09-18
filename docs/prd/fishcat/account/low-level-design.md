@@ -610,8 +610,9 @@ TX 종료까지 유지하여 탈퇴와 직렬화한다. claim은 **발급자 잠
 지연 귀속이 생긴다. 후속 claim은 링크의 현재 inviter_id를 읽어 claimant와 발급자의 활성 users를 UUID 순서로 공유 잠그고,
 링크 행을 공유 잠금으로 **다시 읽어** inviter_id가 그대로이고 null이 아닌지 확인한 뒤에만 클릭을 잠근다.
 발급자가 비활성·null·변경이면 기존 만료/no-op으로 끝내며 옛 값으로 귀속하지 않는다. 순서는 users→링크→클릭이고
-클릭을 먼저 잡고 사용자 잠금을 역으로 얻지 않는다. 이 users 잠금 순서는 Data가 클릭을 소유하는 동안의 경로다. **링크 이관 뒤**에는 `link_clicks`가 Link 서버 DB에 있어
-Link가 Data의 claimant·발급자 users를 같은 TX에서 잠글 수 없으므로 로컬 활성 재검사로 대체하지 않는다.
+클릭을 먼저 잡고 사용자 잠금을 역으로 얻지 않는다. 이 users 잠금 순서는 Data가 클릭을 소유하는 동안의 경로다. ~~**링크 이관 뒤**에는 `link_clicks`가 Link 서버 DB에 있어~~
+~~Link가 Data의 claimant·발급자 users를 같은 TX에서 잠글 수 없으므로 로컬 활성 재검사로 대체하지 않는다.~~
+→ A23(2026-09-13): 링크 이관은 없고 `link_clicks` 는 계속 Data 의 같은 DB 다 — claim 은 같은 트랜잭션에서 관련 user(요청자·발급자)를 UUID 오름차순으로 잠근 뒤 조건부 UPDATE 로 선점하고, 탈퇴는 `claimed_user_id` 를 NULL 로 만든다([링크 정본](../link-attribution/policy.md) L17 · LLD §2.5). 아래 Link 위성·잠정 claim·confirm relay·선행 1660 커밋 서술은 폐기됐다(원문 보존):
 [아키텍처 장부](../../../architecture/decisions.md)의 ㋟·㋥과 [서비스 아키텍처 §3](../../../architecture/service-architecture.md)대로
 Link는 claim을 **잠정(pending)으로만 기록**하고, Data가 claimant·발급자 users와 발급자 멤버십을 잠근 상태에서
 두 사용자 활성·미폐기를 확인한 뒤 `link.claimConfirmed`를 같은 TX의 outbox에 남긴다. relay가 이를 전달해야

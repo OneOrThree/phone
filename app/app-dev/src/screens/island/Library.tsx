@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Image, Pressable, ScrollView, View } from 'react-native';
+import { Image, Platform, Pressable, ScrollView, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Polygon } from 'react-native-svg';
 import { art } from '@/design-system/patterns';
 import { useAppLayout } from '@/utils/layout';
@@ -50,11 +50,12 @@ function Cover({ nb, x, y, w, h, land, font, onPress }: any) {
           top: y,
           width: w,
           height: h,
-          transform: [
-            { perspective: 650 },
-            { rotateX: '28deg' },
-            { rotateZ: nb ? '9deg' : '-10deg' },
-          ],
+          // iOS는 perspective·rotateX 를 준 형제가 있으면 배경 Image 가 위로 올라와 닫기 버튼·책 제목을
+          // 가린다(3D 합성). 네이티브는 원근 없이 같은 비율(cos 28° ≈ 0.88)로 납작하게만 줄인다
+          transform:
+            Platform.OS === 'web'
+              ? [{ perspective: 650 }, { rotateX: '28deg' }, { rotateZ: nb ? '9deg' : '-10deg' }]
+              : [{ scaleY: 0.88 }, { rotateZ: nb ? '9deg' : '-10deg' }],
         },
         web({ filter: 'drop-shadow(rgba(96, 67, 44, 0.44) 3px 9px 3px)' }),
       ]}

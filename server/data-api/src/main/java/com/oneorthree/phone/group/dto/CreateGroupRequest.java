@@ -26,12 +26,21 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class CreateGroupRequest {
 
+    /**
+     * 이름 안전 문자 규칙 — 보이는 글자가 하나는 있어야 하고, 개행({@code Zl/Zp})·제어문자({@code Cc})·
+     * 양방향 제어문자({@code U+061C, U+200E/F, U+202A-E, U+2066-9})를 거절한다.
+     *
+     * <p>섬 생성({@code internal.dto.CreateIslandCommandRequest}, GROMO-1759)이 <b>같은 정의</b>를 참조한다.
+     * 「섬」은 저장 계층의 {@code groups} 라 두 입구가 같은 컬럼에 쓰며, 규칙이 둘로 갈리면 한쪽으로 들어온
+     * 이름이 다른 쪽의 검증을 우회한다. 복사하지 말고 이 상수를 참조할 것.
+     */
+    public static final String NAME_PATTERN =
+            "^(?=.*[^\\p{javaWhitespace}\\p{Z}\\p{C}\\p{M}\\u115F\\u1160\\u2800\\u3164\\uFFA0])"
+                    + "[^\\p{Cc}\\p{Zl}\\p{Zp}\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*$";
+
     @NotBlank
     @Size(max = 50)
-    @Pattern(
-            regexp = "^(?=.*[^\\p{javaWhitespace}\\p{Z}\\p{C}\\p{M}\\u115F\\u1160\\u2800\\u3164\\uFFA0])"
-                    + "[^\\p{Cc}\\p{Zl}\\p{Zp}\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*$",
-            message = "그룹명은 공백일 수 없으며 개행이나 양방향 제어문자를 사용할 수 없습니다")
+    @Pattern(regexp = NAME_PATTERN, message = "그룹명은 공백일 수 없으며 개행이나 양방향 제어문자를 사용할 수 없습니다")
     private String name;
 
     private String password;
