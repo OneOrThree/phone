@@ -751,6 +751,8 @@ Table groups [note: '스터디/챌린지 그룹'] {
 
   invite_permission group_permission_scope [not null, default: 'OWNER_ONLY', note: '초대 권한 범위 (그룹 단위)']
 
+  shared_purchase_permission group_permission_scope [not null, default: 'OWNER_ONLY', note: '공동 재화 사용 권한 범위 — 섬 건설 목표 선택·시작(GROMO-1767, 정책 C13). ALL_MEMBERS 면 활성 멤버도 가능. 토글 API 는 범위 밖이라 기본 OWNER_ONLY 로만 쓴다']
+
   approval_required boolean               [not null, default: false, note: '가입에 방장 승인이 필요한지 — GROMO-1907, island-membership LLD §3.1. 기존 행은 전부 false(즉시가입)']
 
   version          bigint                [note: 'JPA @Version 낙관락 — 엔티티가 채운다(DB NOT NULL·기본값 없음). 기존 행은 NULL 가능']
@@ -810,6 +812,82 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   indexes {
     // (user,group) 전체 unique — 멤버십은 1행. 재가입은 신규 삽입이 아니라 기존 행 rejoin(is_left=false로 복원).
     (user_id, group_id) [unique, note: '멤버십 1행 보장. 자진 탈퇴자 재가입=행 되살리기, 강퇴자=거절']
+  }
+}
+
+Table island_wallets [note: '섬 공동 지갑 (village_points) — GROMO-1767, island-construction 정책 C05/D1. 개인 user_wallets 와 다른 축. 잔액 변경은 행 배타락 아래에서만. V62 백필로 기존 섬 전부 0원 지갑 생성'] {
+  island_id  uuid    [pk, note: 'FK → groups.id ON DELETE RESTRICT — 「섬」은 groups 다(별도 섬 테이블 없음)']
+  balance    integer [not null, default: 0, note: 'CHECK balance >= 0 — 음수 잔액 불가']
+  version    bigint  [not null, default: 0, note: 'JPA @Version 낙관락 (user_wallets 와 같은 방식)']
+  updated_at timestamptz
+}
+
+Table island_wallet_transactions [note: '섬 공동 원장 — user 지갑의 currency_transactions 에 대응하는 섬 축 원장 (GROMO-1767). amount 는 항상 양수, 방향은 type 이 표현. idempotency_key 는 중복 기입의 최후 방어선'] {
+  id              uuid        [pk]
+  island_id       uuid        [not null, note: 'FK → island_wallets.island_id ON DELETE RESTRICT']
+  amount          integer     [not null, note: 'CHECK amount > 0 — 항상 양수, 부호는 type']
+  type            varchar(40) [not null, note: 'CONSTRUCTION_DEBIT / CONTRIBUTION_CREDIT 등 (IslandWalletTransactionType)']
+  idempotency_key varchar(200) [note: '중복 기입 방어 — 명령 멱등키를 그대로 심는다']
+  created_at      timestamptz [not null, default: `now()`]
+
+  indexes {
+    (island_id, type, idempotency_key) [unique, note: 'uq_island_wallet_tx_idem — 멱등 scope (섬, operation=type, 키)']
+  }
+}
+
+Table construction_cost_policies [note: '불변 건설 비용 revision (GROMO-1767, 정책 C10) — revision 은 한 번 쓰면 바꾸지 않는다. 「건설 가격·공사 시간」표(D4, 1829 코멘트 #11077)가 revision 1: hall 60마리·1분 / board 240·15분 / gram 1360·30분 / library 2720·1시간 / mail 4080·1시간30분 / tower 5440·2시간30분 / shop 6800·4시간'] {
+  revision      integer     [not null, note: '(revision, building_id) 복합 PK — 같은 revision 안에서 건물별 1행']
+  building_id   varchar(30) [not null, note: 'hall/board/gram/library/mail/tower/shop — ConstructionBuilding.id()']
+  cost          integer     [not null, note: 'CHECK cost >= 0']
+  build_seconds integer     [not null, note: 'CHECK build_seconds >= 0 — 공사 시간(초)']
+  created_at    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (revision, building_id) [pk]
+  }
+}
+
+Table construction_cost_policy_publication [note: '현재 비용 정책 포인터 (GROMO-1767, 정책 C10) — singleton 1행. POST 가 이 행을 잠그고 expectedCostPolicyVersion 을 비교해 검증 직후 가격만 교체되는 경합을 막는다(LLD §2)'] {
+  singleton    boolean   [pk, default: true, note: 'CHECK singleton — 항상 true 인 1행 테이블']
+  revision     integer   [not null, note: '현재 publication 중인 construction_cost_policies.revision']
+  published_at timestamptz [not null, default: `now()`]
+}
+
+Table island_construction_states [note: '섬 건설 상태/목표 (GROMO-1767, 정책 C03) — target 선택은 0원이라 지갑과 다른 테이블. target_epoch 는 목표가 바뀔 때마다 +1 — 「각자 몫 n빵」은 목표를 고른 뒤부터 모은 물고기로 판단(P-D04)하므로 기여 집계 범위를 자르는 축'] {
+  island_id          uuid        [pk, note: 'FK → groups.id ON DELETE RESTRICT. V62 백필로 기존 섬 전부 생성']
+  target_building_id varchar(30) [note: '선택된 목표 — null 이면 미선택. 건설 시작 시 null 로 돌아간다']
+  target_epoch       bigint      [not null, default: 0, note: '목표가 바뀔 때마다 +1 — island_construction_contributions 집계의 epoch 축']
+  created_at         timestamptz [not null, default: `now()`]
+  updated_at         timestamptz
+}
+
+Table island_construction_contributions [note: '목표 epoch 주민별 기여 (GROMO-1767, P-D04) — 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」. 같은 epoch 안에서는 사용자당 1행에 amount 누적'] {
+  island_id  uuid    [not null, note: 'FK → island_construction_states.island_id ON DELETE RESTRICT']
+  epoch      bigint  [not null, note: 'island_construction_states.target_epoch 스냅샷 — 목표가 바뀌면 새 epoch 행부터 다시']
+  user_id    uuid    [not null, note: 'FK → users.id ON DELETE RESTRICT']
+  amount     integer [not null, default: 0, note: 'CHECK amount >= 0 — 해당 epoch 에 기여한 누적 물고기']
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (island_id, epoch, user_id) [pk]
+  }
+}
+
+Table island_facilities [note: '섬 시설 (섬+buildingId 유일, LLD §4) — GROMO-1767. status 는 BUILDING→COMPLETED 단방향, 완료한 시설 재건설은 유일성이 막는다(C06). 스케줄러가 completes_at<=now() 인 BUILDING 행을 쓸어 COMPLETED 전이 + island.updated 발행'] {
+  island_id     uuid        [not null, note: 'FK → groups.id ON DELETE RESTRICT']
+  building_id   varchar(30) [not null, note: 'hall/board/gram/library/mail/tower/shop']
+  status        varchar(20) [not null, note: 'BUILDING / COMPLETED — CHECK. 단방향 전이']
+  cost          integer     [not null, note: 'CHECK cost >= 0 — 시작 시점에 고정된 비용 스냅샷']
+  cost_revision integer     [not null, note: '건설 시점의 비용 정책 revision — 감사용']
+  started_by    uuid        [note: '건설을 확정한 주민 — 스케줄러 완공 island.updated 봉투의 주체 참조']
+  started_at    timestamptz [note: '건설 시작 시각']
+  completes_at  timestamptz [note: 'started_at + build_seconds — 스케줄러 스윕 기준 시각']
+  completed_at  timestamptz [note: 'COMPLETED 전이 시각 — BUILDING 이면 null']
+  created_at    timestamptz [not null, default: `now()`]
+
+  indexes {
+    (island_id, building_id) [pk]
+    completes_at [name: 'idx_island_facilities_due', note: '부분 인덱스 WHERE status=BUILDING — 완공 스윕은 이것만 훑는다']
   }
 }
 

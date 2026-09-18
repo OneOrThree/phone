@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -69,6 +70,7 @@ public class InternalIslandMailboxService {
     private final GroupMemberRepository members;
     private final OutboxCommandPort outbox;
     private final EventOutboxRepository events;
+    private final IslandFacilityQueryService islandFacilityQueryService;
 
     /** 주민 인가 + 요청자 본인의 표시 projection(POST 응답의 {@code name} 이 된다). */
     @Transactional(readOnly = true)
@@ -168,22 +170,12 @@ public class InternalIslandMailboxService {
     }
 
     /**
-     * 섬의 우체통이 완공됐는지 — <b>아직 검사할 상태가 없다</b>.
-     *
-     * <p>우체통은 건설 도메인의 시설이고 그 정본({@code docs/prd/fishcat/island-construction})은 설계만 있을 뿐
-     * data-api 에 <b>구현이 없다</b>(2026-09-18 실측: 시설·건물·해금 엔티티·테이블·컬럼 0건). 조회할 행이
-     * 없으므로 「해금됐다/아니다」를 정직하게 판정할 수 없다.
-     *
-     * <p>그래서 «검사할 수 있는 절반만» 건다 — 활성 사용자·살아 있는 섬·활성 주민은 {@link #requireResident}
-     * 가 실제로 강제하고, 시설 해금 자체는 여기서 통과시킨다. 「항상 잠김」을 택하면 우체통이 영구 403 이라
-     * 계약 자체가 죽는다. GROMO-1759 의 전망대({@code requireObservatoryUnlocked})와 같은 모양이다.
-     *
-     * <p><b>island-construction 이 합류하면 이 메서드 한 곳만 고치면 된다.</b> 호출부는 {@link #requireResident}
-     * 하나이고 공개 오류는 {@code GroupErrorCode.MAILBOX_LOCKED}(403) → Business 의 {@code FACILITY_LOCKED} 로
-     * 이미 배선돼 있다.
+     * 섬의 우체통이 완공됐는지 — 건설 도메인(GROMO-1767)의 {@code island_facilities} 행으로 판정한다.
+     * 우체통이 COMPLETED 가 아니면 403 {@code MAILBOX_LOCKED} → Business 의 {@code FACILITY_LOCKED} 다.
      */
     private void requireMailboxUnlocked(UUID islandId) {
-        // ponytail: 건설 도메인 미구현 — 판정할 행이 없다. 시설 테이블이 생기면 여기서 조회한다.
-        log.debug("우체통 해금 검사 생략 — 건설 도메인 미구현 islandId={}", islandId);
+        if (!islandFacilityQueryService.hasMailbox(islandId)) {
+            throw new GroupException(GroupErrorCode.MAILBOX_LOCKED);
+        }
     }
 }

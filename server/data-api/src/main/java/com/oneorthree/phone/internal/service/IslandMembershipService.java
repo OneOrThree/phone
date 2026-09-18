@@ -2,6 +2,11 @@ package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
+import com.oneorthree.phone.construction.repository.IslandWalletRepository;
+import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
+import com.oneorthree.phone.construction.repository.domain.IslandWallet;
+import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -104,6 +109,9 @@ public class IslandMembershipService {
     private final IslandMembershipEvents membershipEvents;
     private final IslandStateEvents islandStateEvents;
     private final PublicCommandService publicCommands;
+    private final IslandWalletRepository islandWalletRepository;
+    private final IslandConstructionStateRepository islandConstructionStateRepository;
+    private final IslandFacilityQueryService islandFacilityQueryService;
 
     // ---------------------------------------------------------------- §3.1 create
 
@@ -139,6 +147,10 @@ public class IslandMembershipService {
                             .build());
                     groupMemberRepository.save(GroupMember.builder()
                             .user(user).group(island).role(GroupMemberRole.OWNER).build());
+                    // 섬 생성과 함께 0원 공동 지갑·빈 건설 상태를 만든다(GROMO-1767) — 지갑 부재로
+                    // 건설 조회가 깨지는 섬이 생기지 않게 한다.
+                    islandWalletRepository.save(IslandWallet.empty(island.getId()));
+                    islandConstructionStateRepository.save(IslandConstructionState.empty(island.getId()));
                     context.moveTo(island.getId());
 
                     EventEnvelope created = islandStateEvents.created(island.getId(), userId);
@@ -376,25 +388,14 @@ public class IslandMembershipService {
     }
 
     /**
-     * 섬의 전망대가 열렸는지 — <b>아직 검사할 상태가 없다</b>.
-     *
-     * <p>전망대는 건설 도메인의 시설이고 그 정본은 {@code docs/prd/fishcat/island-construction} 이
-     * 설계만 해 둔 채 data-api 에 <b>구현이 없다</b>(2026-09-17 실측: 시설·건물·해금 관련 엔티티·
-     * 테이블·컬럼 0건). 조회할 행이 없으므로 "해금됐다/아니다"를 정직하게 판정할 수 없다.
-     *
-     * <p>그래서 «검사할 수 있는 절반만» 건다 — 현재 섬이 있어야 한다는 조건은
-     * {@link #requireObservatory} 가 실제로 강제하고, 시설 해금 자체는 여기서 통과시킨다. 근거는
-     * island-management HLD 가 경고한 우회가 «{@code current=null} 을 첫 소속으로 취급하는 것» 이라는
-     * 점이다 — 그 구멍은 {@link #requireDepartureUnlocked} 에서 막혀 있다. 반대로 여기서 «항상 잠김»
-     * 을 택하면 검색이 영구히 403 이라 계약 자체가 죽는다.
-     *
-     * <p><b>island-construction 이 합류하면 이 메서드 한 곳만 고치면 된다.</b> 호출부는 두 곳
-     * ({@link #requireDepartureUnlocked}·{@link #requireObservatory})이고 둘 다 이미 403
-     * {@link GroupErrorCode#OBSERVATORY_LOCKED} 를 던질 준비가 돼 있다.
+     * 섬의 전망대가 열렸는지 — 건설 도메인(GROMO-1767)의 {@code island_facilities} 행으로 판정한다.
+     * 전망대가 COMPLETED 가 아니면 403 {@link GroupErrorCode#OBSERVATORY_LOCKED} 다.
+     * 호출부는 두 곳({@link #requireDepartureUnlocked}·{@link #requireObservatory})이다.
      */
     private void requireObservatoryUnlocked(UUID islandId) {
-        // ponytail: 건설 도메인 미구현 — 판정할 행이 없다. 시설 테이블이 생기면 여기서 조회한다.
-        log.debug("전망대 해금 검사 생략 — 건설 도메인 미구현 islandId={}", islandId);
+        if (!islandFacilityQueryService.hasObservatory(islandId)) {
+            throw new GroupException(GroupErrorCode.OBSERVATORY_LOCKED);
+        }
     }
 
     private static void requireAlive(Group island) {

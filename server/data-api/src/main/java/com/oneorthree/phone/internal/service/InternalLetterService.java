@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -63,6 +64,7 @@ public class InternalLetterService {
     private final UserQueryService users;
     private final FriendshipRepository friendships;
     private final GroupMemberRepository islandMemberships;
+    private final IslandFacilityQueryService islandFacilityQueryService;
 
     /**
      * 편지 보내기 (LLD §1.12). 검증 순서는 {@code FriendService.createRequest} 를 그대로 따른다 —
@@ -190,30 +192,19 @@ public class InternalLetterService {
     }
 
     /**
-     * 호출자가 편지를 <b>열람</b>할 수 있는가 — 「검사할 수 있는 절반만」 건다.
-     *
-     * <p>우체통은 건설 도메인의 시설이고 그 정본({@code docs/prd/fishcat/island-construction})은 설계만
-     * 있을 뿐 data-api 에 <b>구현이 없다</b>(2026-09-18 실측: 시설·건물·해금 엔티티·테이블·컬럼 0건).
-     * 「이 섬의 우체통이 완공됐는가」를 조회할 행이 없으므로 정직하게 판정할 수 없다.
-     *
-     * <p>그래서 실제로 검사하는 것은 <b>살아 있는 섬에 소속돼 있는가</b> 하나다. 섬이 하나도 없으면
-     * 우체통이 완공된 섬도 당연히 없으므로 이 조건은 목표 판정의 참인 부분집합이다 — 「항상 잠김」을
-     * 택하면 계약이 죽고, 「항상 통과」를 택하면 게이트가 아예 없는 것과 같다.
-     *
-     * <p><b>island-construction 이 합류하면 이 메서드 한 곳만 고치면 된다.</b> 호출부는
-     * {@link #list}·{@link #detail} 둘이고, 공개 오류는 {@code LETTER_MAILBOX_LOCKED}(403) → Business 의
-     * {@code FACILITY_LOCKED} 로 이미 배선돼 있다. GROMO-1759 의 전망대·1775 의 우체통과 같은 모양이다.
+     * 호출자가 편지를 <b>열람</b>할 수 있는가 — 살아 있는 섬에 소속돼 있고, 그 소속 섬 중
+     * 우체통이 완공된 섬이 하나라도 있어야 한다(GROMO-1767 의 {@code island_facilities} 로 판정).
+     * 공개 오류는 {@code LETTER_MAILBOX_LOCKED}(403) → Business 의 {@code FACILITY_LOCKED} 다.
      */
     private void requireMailboxUnlocked(User caller) {
-        boolean hasLiveIsland = islandMemberships.findByUser(caller).stream()
+        List<UUID> liveIslandIds = islandMemberships.findByUser(caller).stream()
                 .map(GroupMember::getGroup)
-                .anyMatch(InternalLetterService::isAlive);
-        if (!hasLiveIsland) {
+                .filter(InternalLetterService::isAlive)
+                .map(Group::getId)
+                .toList();
+        if (!islandFacilityQueryService.hasMailboxOnAnyOf(liveIslandIds)) {
             throw new LetterException(LetterErrorCode.LETTER_MAILBOX_LOCKED);
         }
-        // ponytail: 시설 해금 자체는 판정하지 않는다 — 건설 도메인 미구현이라 조회할 행이 없다.
-        // 시설 테이블이 생기면 여기서 「소속 섬 중 우체통 완공 섬이 있는가」로 좁힌다.
-        log.debug("우체통 완공 검사 생략 — 건설 도메인 미구현 userId={}", caller.getId());
     }
 
     private static boolean isAlive(Group island) {

@@ -140,6 +140,19 @@ public class Group {
     private GroupPermissionScope invitePermission = GroupPermissionScope.OWNER_ONLY;
 
     /**
+     * 섬 물고기 지출 권한 (GROMO-1767, island-construction 정책 C13 — 판정 이름 SHARED_PURCHASE).
+     * 건설 실행·공동 구매를 방장만 할지 주민에게 열지를 정하는 섬 설정이다.
+     * 기본값은 보존적인 {@code OWNER_ONLY} — 토글 변경 API 는 1767 범위 밖이다.
+     * {@code columnDefinition} 에 DB 기본값을 두는 이유는 {@link #approvalRequired} 와 같다
+     * (ddl-auto: update 로컬에서 기본값 없는 NOT NULL 추가가 부팅을 깨뜨리지 않게).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "shared_purchase_permission", nullable = false, length = 20,
+            columnDefinition = "varchar(20) not null default 'OWNER_ONLY'")
+    @Builder.Default
+    private GroupPermissionScope sharedPurchasePermission = GroupPermissionScope.OWNER_ONLY;
+
+    /**
      * 방 소개 교체.
      *
      * @param description 새 소개(200자 이내). 컬럼이 nullable 이라 null 을 넣으면 소개가 지워진다 —

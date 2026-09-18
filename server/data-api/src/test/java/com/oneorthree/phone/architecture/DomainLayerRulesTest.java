@@ -69,6 +69,10 @@ class DomainLayerRulesTest {
         LAYERS.put("league", 4);
         LAYERS.put("group", 5);             // 모임·챌린지·내기
         LAYERS.put("invitelink", 6);        // 그룹을 가리키는 초대
+        // construction 은 섬(group)에 딸린 시설·공동 지갑(GROMO-1767) — group 바로 위다.
+        // 내부 표면 구현은 internal(10)이 이것을 참조하고, 이 도메인이 internal.dto 를 참조하면
+        // 역행이라 계약 view 타입은 자기 dto/ 에 둔다.
+        LAYERS.put("construction", 6);
         LAYERS.put("notification", 7);      // 전 도메인 구독
         LAYERS.put("auth", 8);              // 진입·부가
         LAYERS.put("character", 8);

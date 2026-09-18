@@ -34,6 +34,9 @@ location = /actuator { return 404; }
 # 우체통 편지방(GROMO-1775)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/messages · POST /islands/{islandId}/messages. 저장은 Business 가
 # realtime 내부 어댑터(/internal/…)로 넘기므로 nginx 는 realtime 을 공개로 열지 않는다.
+# 섬 건설(GROMO-1767)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/construction-options · PUT /islands/{islandId}/construction-target ·
+# POST /islands/{islandId}/constructions.
 # 친구(GROMO-1894)도 아래 friends 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. friends 분기:
 # GET /friends · GET /friends/requests · POST /friends/requests · POST /friends/requests/{requestId}/accept ·
 # .../reject · .../cancel · DELETE /friends/{friendUserId}. 편지(GROMO-1933)도 같은 분기가 전달한다 —
