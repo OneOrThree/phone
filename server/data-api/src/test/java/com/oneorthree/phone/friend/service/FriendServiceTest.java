@@ -2,6 +2,7 @@ package com.oneorthree.phone.friend.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.dto.FriendRelation;
@@ -40,6 +41,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -111,7 +113,9 @@ class FriendServiceTest {
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
                 userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
                 new FriendRelationLookup(friendshipRepository), eventPublisher,
-                List.of(nicknameStrategy));
+                List.of(nicknameStrategy),
+                // 한도 자체는 PerUserHourlyLimiterTest·FriendRequestRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
+                new PerUserHourlyLimiter("test", 1_000_000, Clock.systemUTC()));
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();

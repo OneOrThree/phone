@@ -24,8 +24,8 @@
 필터 쪽은 종전 모양 `{"error": "…"}` 의 `error` 필드를 **별칭으로 남긴 채** `code`·`message` 를 더한다 —
 읽는 소비자는 확인된 바 없지만 빼면 계약 변경이다.
 
-재시도 힌트가 필요한 실패 하나만 필드를 **더한다** — `RetryAfterErrorResponse.retryAfterMs`
-(`RESULT_CLAIM_HELD`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
+재시도 힌트가 필요한 실패만 필드를 **더한다** — `RetryAfterErrorResponse.retryAfterMs`
+(`RESULT_CLAIM_HELD` · `RATE_LIMITED`). 값은 **상대 지연(ms)**이지 절대 시각이 아니다. 봉투를 바꾸지 않고 상속으로
 늘리는 것이 규칙이다 — 앱이 `code` 로 분기하고 있어 모양을 갈아 끼우면 기존 경로가 통째로 흔들린다.
 
 **`code` 문자열은 계약이다.** 앱이 분기하는 코드가 2026-09-09 실측으로 27종이다(`NOT_FOUND`·
@@ -115,6 +115,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 | 잡히지 않은 `IllegalArgumentException` | 400 | `ILLEGAL_ARGUMENT` — 종전 409, GROMO-1725 에서 전환. 앱까지 닿던 raw 발급 3곳은 도메인 코드로 치환됐다 |
 | DB 제약 위반 | 409 | `DATA_INTEGRITY_VIOLATION` |
 | 낙관락·비관락 충돌 | 409 | `CONCURRENT_UPDATE` — 재시도하면 풀린다 |
+| 계정당 시간 한도 초과 (게스트 친구 요청·편지 발송) | 429 | `RATE_LIMITED` — `retryAfterMs` + `Retry-After` 헤더 동반(GROMO-1934) |
 | `@LoginUser` 배선 오류 | 500 | `LOGIN_USER_RESOLUTION_FAILED` |
 | 그 외 전부 (catch-all) | 500 | `INTERNAL_ERROR` — 고정 문구, 원인은 로그로만 |
 
