@@ -450,4 +450,16 @@ public interface GroupChallengeBetParticipantRepository
             @Param("statuses") Collection<GroupBetStatus> statuses,
             @Param("since") Instant since,
             Pageable pageable);
+
+    /**
+     * 탈퇴자의 결과 열람·표시 선점 세 열만 비운다 (GROMO-1801 · 계정 LLD §4 · V49).
+     * achieved·progress·payout 과 정산 멱등 근거는 보존한다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE GroupChallengeBetParticipant p SET p.acknowledgedAt = null, p.displayClaimedAt = null,"
+            + " p.displayClaimToken = null WHERE p.user.id = :userId")
+    int eraseResultViewsOf(@Param("userId") UUID userId);
 }

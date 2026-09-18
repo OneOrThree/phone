@@ -4,6 +4,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.focus.repository.domain.UserStreak;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -51,4 +52,14 @@ public interface UserStreakRepository extends JpaRepository<UserStreak, UUID> {
                                                  @Param("minLastSessionDate") LocalDate minLastSessionDate,
                                                  @Param("cursor") UUID cursor,
                                                  Pageable pageable);
+
+    /**
+     * 탈퇴자의 스트릭 행을 지운다 (GROMO-1801 · 계정 LLD §4 user_streaks). user_id 가 PK 라 nullify 가 불가능하다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수(0 또는 1)
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM UserStreak s WHERE s.userId = :userId")
+    int deleteOfUser(@Param("userId") UUID userId);
 }

@@ -54,10 +54,11 @@ public class LoginAttempt {
     @Column(name = "status", nullable = false, length = 24)
     private LoginAttemptStatus status;
 
-    @Column(name = "digest_key_id", nullable = false, length = 64)
+    // 탈퇴로 INVALIDATED 된 시도는 digest 둘을 지운다(V65, GROMO-1801 · 계정 LLD §4).
+    @Column(name = "digest_key_id", length = 64)
     private String digestKeyId;
 
-    @Column(name = "credential_digest", nullable = false, length = 64)
+    @Column(name = "credential_digest", length = 64)
     private String credentialDigest;
 
     @Column(name = "provider", nullable = false, length = 32)

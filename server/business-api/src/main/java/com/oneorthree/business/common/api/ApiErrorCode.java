@@ -10,6 +10,10 @@ public enum ApiErrorCode implements ErrorCode {
     INVALID_IDEMPOTENCY_KEY(HttpStatus.BAD_REQUEST, "명령 키가 올바르지 않습니다.", false),
     INVALID_CURSOR(HttpStatus.BAD_REQUEST, "목록 커서가 올바르지 않습니다.", false),
     UNSUPPORTED_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인 제공자입니다.", false),
+    // 계정 LLD §5 (GROMO-1801). Data 의 UserErrorCode·GroupErrorCode 와 «이름·상태가 같아야»
+    // registeredUpstream 이 붙는다 — 없으면 정상적인 닉네임 거절·방장 탈퇴 거절이 502 로 나간다.
+    NICKNAME_INVALID(HttpStatus.BAD_REQUEST, "닉네임은 앞뒤 공백 제외 2~10자여야 합니다.", false),
+    HOST_WITHDRAW(HttpStatus.BAD_REQUEST, "섬 방장을 위임한 뒤 탈퇴할 수 있습니다.", false),
     REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인 자격이 유효하지 않습니다.", false),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다. 다시 로그인해 주세요.", false),
     // 제공자 «자격» 검증 실패 6종 (계정 LLD §2.1 · 정책 A18). Data 의 InvalidTokenErrorCode 와
@@ -37,6 +41,7 @@ public enum ApiErrorCode implements ErrorCode {
     VERSION_CONFLICT(HttpStatus.CONFLICT, "상태가 변경되었습니다. 최신 내용을 확인해 주세요.", false),
     STATE_CONFLICT(HttpStatus.CONFLICT, "현재 상태에서는 이 작업을 수행할 수 없습니다.", false),
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
+    NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),
     REQUEST_IN_PROGRESS(HttpStatus.CONFLICT, "요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.", true),
     CURSOR_EXPIRED(HttpStatus.CONFLICT, "목록 커서가 만료되었습니다. 처음부터 조회해 주세요.", false),

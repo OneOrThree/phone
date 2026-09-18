@@ -136,4 +136,14 @@ public class EquipmentService {
     private User requireActiveUser(UUID userId) {
         return userQueryService.getCallerForShare(userId);
     }
+
+    /**
+     * 탈퇴자의 현재 장착 설정을 파기한다 (GROMO-1801 · 계정 LLD §4). 보유(user_items)·거래 원장은 증거라 남는다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void eraseWithdrawnUser(UUID userId) {
+        characterEquipmentRepository.deleteAllOfUser(userId);
+    }
 }

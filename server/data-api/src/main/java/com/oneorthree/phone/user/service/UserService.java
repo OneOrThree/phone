@@ -18,6 +18,7 @@ import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.OccupationInfoRepository;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
+import com.oneorthree.phone.user.repository.UserBlockRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -39,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
@@ -72,6 +74,7 @@ public class UserService {
     private final SocialAccountRepository socialAccountRepository;
     private final OccupationInfoRepository occupationInfoRepository;
     private final UserActivityEventLogger userActivityEventLogger;
+    private final UserBlockRepository userBlockRepository;
     /**
      * 닉네임 변경 사실을 위로 올리는 통로 (A22 ㋡). {@code user} 는 모든 도메인의 바닥이라 갱신
      * 대상인 {@code group} 을 직접 참조할 수 없다 — 소비자는 동기 리스너라 같은 트랜잭션에서 돈다.
@@ -284,15 +287,58 @@ public class UserService {
      */
     @Transactional
     public void erasePersonalData(User user) {
+        // 차단은 양방향 벌크 DELETE 다. 엔티티 변경보다 먼저 두어 아래 소셜 벌크의 clear 와 순서가 섞이지 않게 한다.
+        userBlockRepository.deleteAllInvolving(user.getId());
+
         user.setNickname(null);
         user.setDeviceToken(null);
         user.setRefreshTokenHash(null);
         user.setCountryCode(null);
         // 표시 언어도 프로필 개인정보다 — 국가처럼 탈퇴 시 파기 (codex 리뷰, GROMO-1659)
         user.setLanguage(null);
+        // 계정 LLD §4 (GROMO-1801): 직군은 직접 프로필 필드, 두 시각은 개인 활동·체험 기록이다.
+        user.setOccupation(null);
+        user.setLastActiveAt(null);
+        user.setCharacterTrialAnchorAt(null);
+        // 공개 범위는 null 이 불가능한 설정이라 기본값으로 되돌린다. 이것은 비공개 권한이 아니다 —
+        // 탈퇴자 통계 조회는 활성 사용자 조건이 막는다.
+        user.setStatVisibility(StatVisibility.FRIENDS);
         user.setDeleted(true);
 
         socialAccountRepository.deleteByUserId(user.getId());
+    }
+
+    /**
+     * 공개 {@code PATCH /me} 의 이름 변경 (GROMO-1801 · 계정 LLD §2.3).
+     *
+     * <p>기존 닉네임 writer({@link #changeNickname})에 그대로 위임한다 — 정규화·중복 정책을 새로 만들지 않는다.
+     * 정규화한 값이 지금 이름과 같으면 writer 를 돌리지 않는다: 돌리면 표시정보 변경 사건이 한 번 더 나간다.
+     *
+     * @param userId  본인. 호출부가 같은 TX 에서 이미 배타 락을 잡았다(재진입이라 대기하지 않는다)
+     * @param rawName 요청 원문. {@code null} 이면 이름을 건드리지 않는다
+     * @return 변경 뒤 사용자
+     * @throws UserException 400 {@code NICKNAME_INVALID} · 409 {@code NICKNAME_DUPLICATE}
+     */
+    @Transactional
+    public User renameForPublicProfile(UUID userId, String rawName) {
+        User user = userQueryService.getCallerForUpdate(userId);
+        if (rawName != null && !rawName.trim().equals(user.getNickname())) {
+            changeNickname(user, rawName);
+        }
+        return user;
+    }
+
+    /**
+     * 활성 소셜 연동의 provider 이름 — 소문자·중복 제거·오름차순 (계정 LLD §2.2 linkedProviders).
+     * 소프트 해제된 연동은 빠지고, 게스트면 빈 목록이다.
+     *
+     * @param user 활성 사용자
+     * @return 예: {@code ["apple", "kakao"]}
+     */
+    public List<String> linkedProviderNames(User user) {
+        return socialAccountRepository.findAllByUserAndDeletedAtIsNull(user).stream()
+                .map(account -> account.getProvider().name().toLowerCase(Locale.ROOT))
+                .distinct().sorted().toList();
     }
 
     /**

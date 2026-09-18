@@ -111,7 +111,8 @@ public class InviteLinkService {
      */
     public LandingView resolveLanding(String slug) {
         Optional<GroupInviteLink> link = inviteLinkRepository.findBySlug(slug);
-        if (link.isEmpty()) {
+        // 발급자가 탈퇴해 연결이 끊긴 링크(GROMO-1801)도 만료와 같다 — 재발급·재연결하지 않는다.
+        if (link.isEmpty() || link.get().getInviterId() == null) {
             return LandingView.expired();
         }
 

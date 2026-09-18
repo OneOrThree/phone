@@ -14,6 +14,7 @@ import com.oneorthree.phone.league.dto.LeagueScheduleResponse;
 import com.oneorthree.phone.league.dto.LeagueTierResponse;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.league.exception.LeagueException;
+import com.oneorthree.phone.league.repository.LeagueRankSnapshotRepository;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.league.repository.LeagueWeeklyResultRepository;
 import com.oneorthree.phone.league.repository.LeagueQueryService;
@@ -56,6 +57,7 @@ public class LeagueService {
     private final LeagueRankingQueryRepository leagueRankingQueryRepository;
     private final LeagueQueryService leagueQueryService;
     private final LeagueWeeklyResultRepository leagueWeeklyResultRepository;
+    private final LeagueRankSnapshotRepository leagueRankSnapshotRepository;
     private final CurrencyTransactionRepository currencyTransactionRepository;
     private final UserQueryService userQueryService;
     private final PinnedUserRepository pinnedUserRepository;
@@ -270,5 +272,17 @@ public class LeagueService {
         return leagueQueryService.findTierConfig(tierLevel)
                 .map(LeagueTierConfig::getBadgeId)
                 .orElse(null);
+    }
+
+    /**
+     * 탈퇴자의 리그 개인 이력을 파기한다 (GROMO-1801 · 계정 LLD §4 「리그 이력·랭킹 투영 파기」).
+     * 일간 스냅샷은 지우고 주간 결과는 정산 완료 마커로만 남긴다. Redis 랭킹 투영은 이 TX 밖이다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void eraseWithdrawnUser(UUID userId) {
+        leagueRankSnapshotRepository.deleteAllOfUser(userId);
+        leagueWeeklyResultRepository.reduceToSettlementMarkers(userId);
     }
 }

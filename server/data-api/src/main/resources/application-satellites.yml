@@ -84,6 +84,12 @@ internal:
           - 'POST /internal/users/*/letters'
           - 'GET /internal/users/*/letters'
           - 'GET /internal/users/*/letters/*'
+          # GROMO-1801 계정 3종 (계정 LLD §2.2·§2.3·§2.5, B26 사용자 축). `*` 는 세그먼트 하나라
+          # `/internal/users/{id}` 만 받고 하위 경로를 열지 않는다. 같은 패턴이 매칭하는
+          # `GET /internal/users/notification-snapshot` 은 InternalAuthFilter 가 caller 이름으로 막는다(GROMO-1906).
+          - 'GET /internal/users/*'
+          - 'PATCH /internal/users/*'
+          - 'DELETE /internal/users/*'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

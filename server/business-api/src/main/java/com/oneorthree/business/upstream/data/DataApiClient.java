@@ -5,6 +5,8 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
+import com.oneorthree.business.upstream.data.dto.AccountMe;
+import com.oneorthree.business.upstream.data.dto.AccountProfile;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentLease;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentPage;
 import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
@@ -118,6 +120,10 @@ public class DataApiClient {
     private static final String PATH_CONSTRUCTION_OPTIONS = "/internal/islands/{islandId}/construction-options";
     private static final String PATH_CONSTRUCTION_TARGET = "/internal/islands/{islandId}/construction-target";
     private static final String PATH_CONSTRUCTIONS = "/internal/islands/{islandId}/constructions";
+    // GROMO-1801 계정 3종 — B26 사용자 축. 세션 증명(sid·gen)은 서명된 AT 에서 꺼낸 값을 헤더로 싣는다.
+    private static final String PATH_ACCOUNT = "/internal/users/{userId}";
+    private static final String HEADER_SESSION = "X-Session-Id";
+    private static final String HEADER_GENERATION = "X-Auth-Generation";
 
     private final InternalHttpClient http;
 
@@ -1002,5 +1008,40 @@ public class DataApiClient {
 
     /** 건설 시작 요청 본문 (GROMO-1767). 두 버전 필드가 모두 필수다(LLD §2). */
     record ConstructionStartCommand(String buildingId, long expectedVersion, long expectedCostPolicyVersion) {
+    }
+
+    /** 계정 projection (GROMO-1801 · 계정 LLD §2.2). 멱등 GET 이라 재시도한다. */
+    public AccountMe fetchAccount(UUID userId, UUID sessionId, long generation, Deadline deadline) {
+        return http.exchange(account(HttpMethod.GET, userId, sessionId, generation).build(), deadline,
+                new ParameterizedTypeReference<AccountMe>() { });
+    }
+
+    /** 이름 변경 (GROMO-1801 · 계정 LLD §2.3). 앱 키를 그대로 Data 의 공개 명령 receipt 에 전달한다. */
+    public AccountProfile patchAccount(UUID userId, UUID sessionId, long generation, String name, UUID key,
+            Deadline deadline) {
+        return http.exchange(account(HttpMethod.PATCH, userId, sessionId, generation)
+                        .idempotencyKey(key.toString())
+                        .body(Map.of("name", name))
+                        .idempotentCommand()
+                        .build(), deadline,
+                new ParameterizedTypeReference<AccountProfile>() { });
+    }
+
+    /**
+     * 탈퇴 (GROMO-1801 · 계정 LLD §2.5). 응답 유실 뒤 재시도는 이미 비활성이라 404 {@code USER_NOT_FOUND} 이고,
+     * 앱은 그것을 탈퇴 확정으로 읽는다 — 그래서 재시도해도 안전하다.
+     */
+    public JsonNode deleteAccount(UUID userId, UUID sessionId, long generation, Deadline deadline) {
+        return http.exchange(account(HttpMethod.DELETE, userId, sessionId, generation)
+                        .idempotentCommand()
+                        .build(), deadline,
+                new ParameterizedTypeReference<JsonNode>() { });
+    }
+
+    private static InternalCall.Builder account(HttpMethod method, UUID userId, UUID sessionId, long generation) {
+        return InternalCall.to(method, PATH_ACCOUNT.replace("{userId}", userId.toString()))
+                .onBehalfOf(userId)
+                .header(HEADER_SESSION, sessionId.toString())
+                .header(HEADER_GENERATION, Long.toString(generation));
     }
 }

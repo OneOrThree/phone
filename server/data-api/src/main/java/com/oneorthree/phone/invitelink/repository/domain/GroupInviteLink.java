@@ -48,7 +48,8 @@ public class GroupInviteLink {
     @Column(name = "group_id", nullable = false)
     private UUID groupId;
 
-    @Column(name = "inviter_id", nullable = false)
+    /** 발급자. 탈퇴하면 null 이 되고(V65, GROMO-1801) 그 링크는 폐기로 취급한다. */
+    @Column(name = "inviter_id")
     private UUID inviterId;
 
     @CreationTimestamp

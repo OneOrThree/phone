@@ -4,6 +4,7 @@ import com.oneorthree.phone.focus.repository.domain.DefaultTag;
 import com.oneorthree.phone.focus.repository.domain.UserFocusTag;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -63,4 +64,16 @@ public interface UserFocusTagRepository extends JpaRepository<UserFocusTag, UUID
      * @return 이미 채택 중이면 그 행(재사용 대상). 소프트삭제된 과거 채택은 잡히지 않아 새로 채택된다
      */
     Optional<UserFocusTag> findByUserAndDefaultTagAndDeletedAtIsNull(User user, DefaultTag defaultTag);
+
+    /**
+     * 탈퇴자의 채택 태그를 soft delete 여부와 무관하게 전부 지운다 (GROMO-1801 · 계정 LLD §4).
+     * 세션의 태그 연결({@code FocusSessionRepository#detachTagsOfUser})을 먼저 끊어야 FK 가 막지 않는다.
+     * 공유 default_tags 는 건드리지 않는다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM UserFocusTag t WHERE t.user.id = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
 }

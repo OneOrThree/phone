@@ -19,6 +19,7 @@ import java.util.Map;
 import java.util.NavigableSet;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.UUID;
 
 /**
  * 세션 완료 시 집중 스트릭(연속 일수) 갱신.
@@ -212,5 +213,15 @@ public class UserStreakService {
         }
         streak.setLongestStreakCount(Math.max(streak.getLongestStreakCount(), streak.getStreakCount()));
         return change;
+    }
+
+    /**
+     * 탈퇴자의 스트릭을 파기한다 (GROMO-1801 · 계정 LLD §4). 집중 정산 증거 동결 뒤 중앙 탈퇴 TX 에서 부른다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void deleteWithdrawnUser(UUID userId) {
+        userStreakRepository.deleteOfUser(userId);
     }
 }

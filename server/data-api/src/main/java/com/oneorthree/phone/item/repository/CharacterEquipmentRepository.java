@@ -4,6 +4,9 @@ import com.oneorthree.phone.item.repository.domain.CharacterEquipment;
 import com.oneorthree.phone.item.repository.domain.SlotType;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -42,4 +45,15 @@ public interface CharacterEquipmentRepository extends JpaRepository<CharacterEqu
      *         "썼다가 벗어 둔 상태"라 둘을 구분해야 한다
      */
     Optional<CharacterEquipment> findByUserAndSlotType(User user, SlotType slotType);
+
+    /**
+     * 탈퇴자의 장착 행을 전부 지운다 (GROMO-1801 · 계정 LLD §4 character_equipment).
+     * user_items 보유·원장은 연쇄 삭제하지 않는다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM CharacterEquipment e WHERE e.user.id = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
 }

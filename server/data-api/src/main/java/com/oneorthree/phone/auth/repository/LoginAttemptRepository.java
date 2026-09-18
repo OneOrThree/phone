@@ -59,4 +59,21 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID
             @Param("attemptId") UUID attemptId,
             @Param("expectedClaimedAt") Instant expectedClaimedAt,
             @Param("now") Instant now);
+
+    /**
+     * 탈퇴자의 로그인 시도를 INVALIDATED 로 닫고 자격 digest·고정 서명 재료를 지운다
+     * (GROMO-1801 · 계정 LLD §3 INVALIDATED · §4 · V65). user_id·session_id·시각만 폐기 표지로 남는다 —
+     * 같은 시도의 재생은 digest 대조 «전에» 탈퇴 계정으로 판정돼 404 다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @param now    갱신 시각
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "UPDATE login_attempts SET status = 'INVALIDATED', digest_key_id = NULL,"
+            + " credential_digest = NULL, onboarding_complete = NULL, token_guest = NULL, auth_generation = NULL,"
+            + " access_issued_at = NULL, access_expires_at = NULL, refresh_issued_at = NULL,"
+            + " refresh_expires_at = NULL, refresh_jti = NULL, updated_at = :now WHERE user_id = :userId",
+            nativeQuery = true)
+    int invalidateAndEraseOfUser(@Param("userId") UUID userId, @Param("now") Instant now);
 }

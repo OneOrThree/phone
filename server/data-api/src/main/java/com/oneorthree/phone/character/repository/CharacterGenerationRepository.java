@@ -4,7 +4,9 @@ import com.oneorthree.phone.character.repository.domain.CharacterGeneration;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
@@ -50,4 +52,15 @@ public interface CharacterGenerationRepository extends JpaRepository<CharacterGe
      * @return 이미 기록된 키면 true — 호출측은 insert 를 건너뛰어 슬롯 중복 소비를 막는다
      */
     boolean existsByUserAndClientGenerationId(User user, UUID clientGenerationId);
+
+    /**
+     * 탈퇴자의 생성 이력을 client_generation_id 유무와 무관하게 전부 지운다
+     * (GROMO-1801 · 계정 LLD §4 「캐릭터 생성 이력 파기」). 타인의 이력은 남는다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM CharacterGeneration g WHERE g.user.id = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
 }

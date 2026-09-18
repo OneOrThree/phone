@@ -108,4 +108,18 @@ public interface AuthSessionRepository extends JpaRepository<AuthSession, UUID> 
      */
     @Query("SELECT s FROM AuthSession s WHERE s.userId = :userId AND s.revokedAt IS NULL")
     List<AuthSession> findActiveByUserId(@Param("userId") UUID userId);
+
+    /**
+     * 탈퇴자 세션 행에서 사용자 연계 자격을 지운다 (GROMO-1801 · 계정 LLD §4 「신규 auth session RT/bootstrap
+     * hash」 · V65). 폐기 tombstone 으로 id·session_epoch·폐기 시각·사유만 남는다. 전 세션 폐기 «뒤»에 부른다.
+     *
+     * <p>네이티브인 이유: {@code legacy_device_token} 은 엔티티에서 {@code updatable = false} 라 JPQL 로는 쓰지 않는다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "UPDATE auth_sessions SET refresh_token_hash = NULL, bootstrap_nonce_hash = NULL,"
+            + " legacy_device_token = NULL WHERE user_id = :userId", nativeQuery = true)
+    int eraseCredentialsOfUser(@Param("userId") UUID userId);
 }
