@@ -62,7 +62,7 @@ public enum CommonErrorCode implements ErrorCode {
     /** 낙관락·비관락 충돌 — 트랜잭션은 롤백됐고 그대로 재시도하면 풀린다. */
     CONCURRENT_UPDATE(HttpStatus.CONFLICT, "잠시 후 다시 시도해주세요"),
     /**
-     * 계정당 시간 한도 초과 (GROMO-1934 — 게스트 친구 요청·편지 발송). 응답에 {@code retryAfterMs} 가 붙는다.
+     * 계정당 시간 한도 초과 (GROMO-1934 — 게스트 친구 요청 · 전 계정 편지 발송). 응답에 {@code retryAfterMs} 가 붙는다.
      * Business 공개 표의 {@code RATE_LIMITED}(429)와 이름·상태가 같아야 이름 매핑이 붙는다.
      */
     RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "요청이 많습니다. 잠시 후 다시 시도해 주세요."),

@@ -115,7 +115,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 | 잡히지 않은 `IllegalArgumentException` | 400 | `ILLEGAL_ARGUMENT` — 종전 409, GROMO-1725 에서 전환. 앱까지 닿던 raw 발급 3곳은 도메인 코드로 치환됐다 |
 | DB 제약 위반 | 409 | `DATA_INTEGRITY_VIOLATION` |
 | 낙관락·비관락 충돌 | 409 | `CONCURRENT_UPDATE` — 재시도하면 풀린다 |
-| 계정당 시간 한도 초과 (게스트 친구 요청·편지 발송) | 429 | `RATE_LIMITED` — `retryAfterMs` + `Retry-After` 헤더 동반(GROMO-1934) |
+| 계정당 시간 한도 초과 (게스트 친구 요청 · 전 계정 편지 발송) | 429 | `RATE_LIMITED` — `retryAfterMs` + `Retry-After` 헤더 동반(GROMO-1934) |
 | `@LoginUser` 배선 오류 | 500 | `LOGIN_USER_RESOLUTION_FAILED` |
 | 그 외 전부 (catch-all) | 500 | `INTERNAL_ERROR` — 고정 문구, 원인은 로그로만 |
 

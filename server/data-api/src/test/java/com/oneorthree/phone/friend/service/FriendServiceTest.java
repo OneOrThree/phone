@@ -114,7 +114,7 @@ class FriendServiceTest {
                 userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
                 new FriendRelationLookup(friendshipRepository), eventPublisher,
                 List.of(nicknameStrategy),
-                // 한도 자체는 PerUserHourlyLimiterTest·FriendRequestRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
+                // 한도 자체는 PerUserHourlyLimiterTest·PerUserRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
                 new PerUserHourlyLimiter("test", 1_000_000, Clock.systemUTC()));
 
         meId = UUID.randomUUID();
