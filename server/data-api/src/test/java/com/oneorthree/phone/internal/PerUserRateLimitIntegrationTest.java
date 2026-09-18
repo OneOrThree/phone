@@ -101,6 +101,23 @@ class PerUserRateLimitIntegrationTest {
         expectRateLimited(legacyFriendRequest(accessToken, newUser()));
     }
 
+    @Test
+    @DisplayName("값싼 거절(자기 자신·중복 요청)은 카운트를 먹지 않는다 — 거절 cap+1 번 뒤에도 정상 요청 cap 번이 통과한다")
+    void rejectedFriendRequestsDoNotConsumeTheCap() throws Exception {
+        UUID guest = newUser();
+        UUID first = newUser();
+        internalFriendRequest(guest, first).andExpect(status().isCreated());
+
+        for (int i = 0; i < CAP + 1; i++) {
+            internalFriendRequest(guest, guest).andExpect(status().isBadRequest());
+            internalFriendRequest(guest, first).andExpect(status().isConflict());
+        }
+        for (int i = 1; i < CAP; i++) {
+            internalFriendRequest(guest, newUser()).andExpect(status().isCreated());
+        }
+        expectRateLimited(internalFriendRequest(guest, newUser()));
+    }
+
     // ---------------------------------------------------------------- 편지 (전 계정)
 
     @Test
@@ -118,6 +135,23 @@ class PerUserRateLimitIntegrationTest {
         expectRateLimited(sendLetter(sender, receiver));
         assertThat(jdbc.queryForObject("select count(*) from letters where sender_id = ?", Integer.class, sender))
                 .as("막힌 요청은 쓰지 않는다").isEqualTo(CAP);
+    }
+
+    @Test
+    @DisplayName("친구 아닌 수신자에게 보낸 거절(404)은 편지 한도를 먹지 않는다")
+    void rejectedLettersDoNotConsumeTheCap() throws Exception {
+        UUID sender = newUser();
+        UUID stranger = newUser();
+        UUID receiver = newUser();
+        friendService.acceptRequest(sender, friendService.createRequest(receiver, sender));
+
+        for (int i = 0; i < CAP + 1; i++) {
+            sendLetter(sender, stranger).andExpect(status().isNotFound());
+        }
+        for (int i = 0; i < CAP; i++) {
+            sendLetter(sender, receiver).andExpect(status().isCreated());
+        }
+        expectRateLimited(sendLetter(sender, receiver));
     }
 
     // ---------------------------------------------------------------- 도구

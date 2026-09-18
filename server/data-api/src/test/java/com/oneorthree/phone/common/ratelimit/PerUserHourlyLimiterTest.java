@@ -9,7 +9,15 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -97,6 +105,40 @@ class PerUserHourlyLimiterTest {
         for (int i = 0; i < CAP; i++) {
             assertThatCode(() -> limiter.acquire(other)).doesNotThrowAnyException();
         }
+    }
+
+    @Test
+    @DisplayName("같은 계정의 동시 요청도 정확히 한도만큼만 통과한다 — 판정·증가가 한 번의 compute 안에서 일어난다")
+    void concurrentAcquiresPassExactlyCap() throws Exception {
+        int threads = 16;
+        int perThread = 50;
+        AtomicInteger passed = new AtomicInteger();
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService pool = Executors.newFixedThreadPool(threads);
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    for (int i = 0; i < perThread; i++) {
+                        try {
+                            limiter.acquire(user);
+                            passed.incrementAndGet();
+                        } catch (RateLimitedException ignored) {
+                            // 한도 초과 — 세지 않는다
+                        }
+                    }
+                    return null;
+                }));
+            }
+            start.countDown();
+            for (Future<?> f : futures) {
+                f.get(10, TimeUnit.SECONDS);
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+        assertThat(passed).hasValue(CAP);
     }
 
     @Test
