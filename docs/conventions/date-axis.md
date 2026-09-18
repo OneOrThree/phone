@@ -532,9 +532,32 @@ DAY 는 자정 경계 9h 어긋남, WEEK 은 UTC 일요일 15:00~24:00 구간에
 | 2 (컷오버 T) | 서버 일괄 — `ZonePolicy` UTC 화 + 자체 리터럴 21클래스 + 크론 25개 `zone` 정리 + `application-prod.yml:16` `time_zone` UTC(dev·staging 정렬 포함) + §7.3 리그 절차 + §7.4 멱등 가드 + profile `timeZone` → `"UTC"` | KST→UTC |
 | 3 (정리) | 전환 가드(이중키 조회·양쪽 허용값) 제거 — 롤아웃 완료·레거시 종료 후 | UTC |
 
+**Phase 2 는 한 이미지로 묶는다** — 「같은 날」로는 부족하다. `main` push 마다 dev 가 자동 배포되고
+(`dev-ci.yml` → `dev-cd.yml`), prod 는 `release` push 단위로 나가므로, Phase 2 항목을 PR 여러 개로 쪼개
+순차 병합하면 그 사이마다 「`ZonePolicy` 는 UTC · `LeagueScheduler` zone 은 KST」 같은 반쪽 상태가
+실제로 배포된다(§1 명제 2). **Phase 2 의 서버 변경은 PR 하나 · `release` 배포 하나**로 낸다.
+
 **스키마 마이그레이션이 없다** — 컬럼 타입은 그대로고 라벨의 의미만 바뀌므로 롤백은
 `prod-rollback.yml` 이미지 롤백으로 완결된다. 단 롤백하면 전환 후 UTC 로 쓰인 행이 KST 로
 재해석되므로 **롤백은 전환 직후일수록 안전하다** — 시간이 갈수록 혼재 행이 쌓인다.
+
+**롤백 시 리그 — 재실행 가드가 UTC anchor 를 못 알아본다.** 롤백된 KST 빌드의 `LeagueWeek`
+(`LeagueWeek.java:30-32,46-48`)는 KST 자정 instant 만 만들므로, UTC 빌드가 남긴 anchor(UTC 월요일 00:00
+= KST 09:00)와 `existsByStartedAt`(`LeagueAnchorRotator.java:38`)이 영영 일치하지 않는다. 완료 마커도
+`week_start_at` 정확 일치(`LeagueBatchService.java:189-190`)라, 이미 UTC 키로 정산된 라벨 집합을 KST
+키로 다시 돌리면 전원이 미정산으로 보여 **이중 지급**된다. 그래도 **스케줄 경로만으로는 이중 정산이
+나지 않는다** — 같은 7개 라벨 집합에 대해 KST 크론은 UTC 크론보다 9h 먼저 돌므로, 롤백 뒤 첫 KST
+크론이 정산하는 주는 UTC 빌드가 아직 정산하지 않은 주다. 사고는 두 경로다:
+
+1. **누락** — 롤백 배포가 `[KST 월 00:00, UTC 월 00:00)` 9h 창에 걸리면 그 주는 KST 크론(이미 지남)도
+   UTC 크론(아직 안 옴)도 못 돌아 정산이 빠진다. 복구는 수동 run 1회 — 아래 확인 후에만.
+2. **이중 지급** — UTC 정산이 끝난 주에 롤백 빌드로 **수동 `runWeeklyBatch`**(`POST /league/batch/run`, `LeagueBatchController.java:57-59`)를 돌리면
+   가드를 통과해 직전 주 라벨 집합을 KST 키로 재정산한다. resume 은 KST 빌드에서 UTC instant 를
+   `INVALID_WEEK_START` 로 거부하므로 이 경로가 아니다.
+
+**롤백 후 수동 run 전 확인**: 직전 주 라벨 집합의 UTC 월요일 instant 로 `league_weekly_results` 행이
+있으면 이미 정산된 주다 — **run 금지**. 행이 없을 때(= 위 1번 누락)만 run 한다. 롤백 뒤 다시 UTC 로
+재전환할 때는 §7.3 절차를 처음부터 다시 밟는다(KST anchor 가 다시 생겼으므로).
 
 **검증 체크**(컷오버 당일, KST 00:00–09:00 = 두 축이 갈리는 유일한 창에서 관측):
 
