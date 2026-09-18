@@ -58,6 +58,21 @@ class InviteLinkIssueTest extends InviteLinkTestSupport {
     }
 
     @Test
+    @DisplayName("세대 교체 재발급은 한 번으로 수렴한다 — 늦게 온 쪽은 0행이고 먼저 쓴 슬러그가 남는다 (GROMO-1760)")
+    void reissueConvergesToTheFirstWriter() throws Exception {
+        String original = JsonPath.read(issue(group.getId(), inviter), "$.slug");
+        UUID linkId = inviteLinkRepository.findBySlug(original).orElseThrow().getId();
+        long nextEpoch = inviteLinkRepository.findById(linkId).orElseThrow().getIssuanceEpoch() + 1;
+
+        int first = inviteLinkRepository.reissueIfStale(linkId, "aaaaaaaa", nextEpoch);
+        int second = inviteLinkRepository.reissueIfStale(linkId, "bbbbbbbb", nextEpoch);
+
+        assertThat(first).isEqualTo(1);
+        assertThat(second).as("같은 세대로 이미 교체됐으면 덮어쓰지 않는다").isZero();
+        assertThat(inviteLinkRepository.findSlugById(linkId)).isEqualTo("aaaaaaaa");
+    }
+
+    @Test
     @DisplayName("비멤버의 발급은 403 NOT_MEMBER")
     void nonMemberIsForbidden() throws Exception {
         User outsider = newUser("외부인");

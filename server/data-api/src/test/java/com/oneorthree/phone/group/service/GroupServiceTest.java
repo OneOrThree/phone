@@ -1504,6 +1504,35 @@ class GroupServiceTest {
     }
 
     @Test
+    @DisplayName("레거시 직접 가입이 성공하면 같은 신청자의 열린 가입 요청을 신청자 취소로 닫고 사건을 남긴다 (GROMO-1760)")
+    void joinGroupClosesApplicantsPendingJoinRequest() {
+        // given
+        User user = normalUser();
+        Group group = openGroup();
+        com.oneorthree.phone.group.repository.domain.IslandJoinRequest pending =
+                com.oneorthree.phone.group.repository.domain.IslandJoinRequest.pending(group, user, null);
+
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+        given(joinRequestRepository.findByIslandIdAndApplicantIdAndStatusForUpdate(GROUP_ID, USER_ID,
+                com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus.PENDING))
+                .willReturn(Optional.of(pending));
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
+
+        // then
+        assertThat(pending.getStatus()).isEqualTo(
+                com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus.CANCELLED);
+        assertThat(pending.getTerminalReason()).isEqualTo(
+                com.oneorthree.phone.group.repository.domain.IslandJoinRequestTerminalReason.APPLICANT_CANCELLED);
+        // 방장이 없는 구간이면 방장 수신자는 null — 신청자에게만 사건이 간다.
+        verify(joinRequestEvents).changed(pending, null);
+    }
+
+    @Test
     @DisplayName("joinGroup 은 유저를 공유 락으로 로드한다 — 계정 탈퇴 배타 락과 직렬화 (GROMO-801 codex 리뷰)")
     void joinGroupLoadsUserWithSharedLock() {
         // 락 없는 findById 로 로드하면 탈퇴(유저 행 배타 락)의 정리 스캔 이후·커밋 이전에 낀 가입이

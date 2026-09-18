@@ -2,8 +2,10 @@ package com.oneorthree.phone.invitelink.repository;
 
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +43,30 @@ public interface GroupInviteLinkRepository extends JpaRepository<GroupInviteLink
      *         최종 방어는 이 검사가 아니라 DB 유니크 제약이다
      */
     boolean existsBySlug(String slug);
+
+    /**
+     * 세대가 어긋난 링크를 새 슬러그·세대로 <b>조건부</b> 교체한다 (GROMO-1760).
+     *
+     * <p>{@code issuance_epoch <> :epoch} 조건이 동시 재발급을 한 번으로 수렴시킨다 — 늦게 온 쪽은
+     * 앞선 커밋의 행 잠금을 기다린 뒤 조건이 거짓이 되어 0행을 갱신하고, 이긴 쪽 슬러그를
+     * {@link #findSlugById} 로 읽어 돌려준다. 무조건 UPDATE 면 마지막 쓰기가 조용히 이겨, 진 쪽이
+     * 응답한 슬러그가 DB 에 없는 값이 된다.
+     *
+     * <p>이 저장소에서 {@code @Transactional} 이 붙은 유일한 메서드다 — 레거시
+     * {@code InviteLinkService} 는 의도적으로 트랜잭션이 없고(클래스 주석 참고), 섬 초대 발급은 이미
+     * 트랜잭션 안에서 불러 그대로 합류한다.
+     *
+     * @return 1 = 이 호출이 교체했다, 0 = 이미 같은 세대로 교체돼 있다
+     */
+    @Transactional
+    @Modifying
+    @Query("UPDATE GroupInviteLink l SET l.slug = :slug, l.issuanceEpoch = :epoch "
+            + "WHERE l.id = :id AND l.issuanceEpoch <> :epoch")
+    int reissueIfStale(@Param("id") UUID id, @Param("slug") String slug, @Param("epoch") long epoch);
+
+    /** 현재 슬러그를 DB 에서 직접 읽는다 — 영속성 컨텍스트의 낡은 엔티티를 거치지 않는다. */
+    @Query("SELECT l.slug FROM GroupInviteLink l WHERE l.id = :id")
+    String findSlugById(@Param("id") UUID id);
 
     /**
      * 링크 정지 스냅샷의 원재료를 <b>한 쿼리로</b> 읽는다 (A22 ㊏ · 서비스 §7.2).

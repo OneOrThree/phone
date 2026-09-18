@@ -80,9 +80,9 @@ public class InviteLinkService {
             GroupInviteLink link = existing.get();
             if (link.getIssuanceEpoch() != issuer.getMembershipEpoch()) {
                 // 발급 뒤 발급자가 이탈·강퇴·재가입했다면 옛 슬러그는 폐기 — 새 버전으로 교체한다(GROMO-1760).
-                // 이 클래스는 @Transactional 이 없으므로 조회된 엔티티는 detached — 명시 저장이 필요하다.
-                link.reissue(generateUniqueSlug(), issuer.getMembershipEpoch());
-                inviteLinkRepository.save(link);
+                // 조건부 UPDATE 로 동시 재발급을 한 번으로 수렴시키고, 이긴 쪽 슬러그를 DB 에서 읽어 응답한다.
+                inviteLinkRepository.reissueIfStale(link.getId(), generateUniqueSlug(), issuer.getMembershipEpoch());
+                link.reissue(inviteLinkRepository.findSlugById(link.getId()), issuer.getMembershipEpoch());
             }
             return toResponse(link);
         }

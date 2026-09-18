@@ -125,7 +125,12 @@ public class IslandInvitationService {
                                 uniqueSlug(), islandId, userId, issuer.getMembershipEpoch()));
                     } else if (link.getIssuanceEpoch() != issuer.getMembershipEpoch()) {
                         // 발급자의 세대가 바뀐 뒤라 옛 슬러그는 폐기 — 같은 행을 새 버전으로 교체한다.
-                        link.reissue(uniqueSlug(), issuer.getMembershipEpoch());
+                        // 그룹 락 밖의 레거시 발급(InviteLinkService)과도 겹칠 수 있어 조건부 UPDATE 로
+                        // 수렴시키고, 이긴 쪽 슬러그로 관리 엔티티를 맞춘다(같은 값이라 flush 는 무해하다).
+                        inviteLinkRepository.reissueIfStale(
+                                link.getId(), uniqueSlug(), issuer.getMembershipEpoch());
+                        link.reissue(inviteLinkRepository.findSlugById(link.getId()),
+                                issuer.getMembershipEpoch());
                     }
                     return new PublicCommandResult(200, InternalJson.tree(
                             new IslandInvitationIssuedView(
