@@ -21,6 +21,14 @@ public interface IslandAppearanceRepository extends JpaRepository<IslandAppearan
     @Query("SELECT a FROM IslandAppearance a WHERE a.islandId = :islandId")
     Optional<IslandAppearance> findByIdForUpdate(@Param("islandId") UUID islandId);
 
+    /**
+     * 잠금 없는 버전 조회 — 낡은 expectedVersion 을 값·상품 검증보다 먼저 409 로 돌려보내는
+     * 사전 판정용이다. 엔티티가 아니라 스칼라라 영속성 컨텍스트에 남지 않아 뒤따르는
+     * {@link #findByIdForUpdate} 가 최신 행을 읽는다. 확정 판정은 잠긴 행이 한다.
+     */
+    @Query("SELECT a.version FROM IslandAppearance a WHERE a.islandId = :islandId")
+    Optional<Long> findVersion(@Param("islandId") UUID islandId);
+
     /** 첫 writer 접근 때 행을 만든다 — 동시 첫 접근의 UNIQUE 오염 방지. */
     @Modifying
     @Query(value = "INSERT INTO island_appearances (island_id) VALUES (:islandId) "

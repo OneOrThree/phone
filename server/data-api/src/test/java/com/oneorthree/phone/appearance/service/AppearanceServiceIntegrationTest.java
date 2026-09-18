@@ -468,6 +468,43 @@ class AppearanceServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("공동 PATCH 재생은 재생 시점 권한을 다시 본다 — 방장에서 내려오면 같은 키도 403")
+    void islandReplayRechecksPermission() {
+        Fixture f = islandWithOwner();
+        seedProduct("pine", "island_theme", "island", null);
+        grant("pine", null, f.islandId);
+        UUID key = UUID.randomUUID();
+        service.patchIsland(f.islandId, f.ownerId, key,
+                List.of("islandThemeId"), Map.of("islandThemeId", "pine"), 0L);
+
+        jdbc.update("UPDATE group_members SET role = 'MEMBER' WHERE group_id = ? AND user_id = ?",
+                f.islandId, f.ownerId);
+
+        assertThatThrownBy(() -> service.patchIsland(f.islandId, f.ownerId, key,
+                List.of("islandThemeId"), Map.of("islandThemeId", "pine"), 0L))
+                .isInstanceOfSatisfying(GroupException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.NOT_OWNER));
+    }
+
+    @Test
+    @DisplayName("낡은 expectedVersion 은 상품·값 검증보다 먼저 409 다")
+    void staleVersionWinsOverProductErrors() {
+        Fixture f = islandWithOwner();
+        seedProduct("pine", "island_theme", "island", null);   // 미보유
+
+        assertThatThrownBy(() -> service.patchIsland(f.islandId, f.ownerId, UUID.randomUUID(),
+                List.of("islandThemeId"), Map.of("islandThemeId", "pine"), 3L))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode())
+                                .isEqualTo(AppearanceErrorCode.VERSION_CONFLICT));
+        assertThatThrownBy(() -> service.patchIsland(f.islandId, f.ownerId, UUID.randomUUID(),
+                List.of("islandThemeId"), Map.of("islandThemeId", "nope"), 3L))
+                .isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode())
+                                .isEqualTo(AppearanceErrorCode.VERSION_CONFLICT));
+    }
+
+    @Test
     @DisplayName("시설 완공은 같은 TX 에 공동 외양 키를 시드하고 island.appearance.updated 를 낸다")
     void completionSeedsAppearance() {
         Fixture f = islandWithOwner();

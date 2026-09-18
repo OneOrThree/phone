@@ -280,6 +280,11 @@ public class AppearanceService implements IslandAppearancePort {
         userQueryService.getCallerForUpdate(userId);
         aliveIslandForUpdate(islandId);
         requireSharedAppearance(userId, islandId);
+        // 낡은 expectedVersion 은 값·상품 검증보다 먼저 409 다 — 앱은 409 로 최신 상태를 다시 받는다.
+        // 보유 행을 외양 행보다 먼저 잠가야 해서 확정 비교는 아래 잠긴 행이 한 번 더 한다.
+        if (expectedVersion != islandAppearances.findVersion(islandId).orElse(0L)) {
+            throw new AppearanceException(AppearanceErrorCode.VERSION_CONFLICT);
+        }
 
         boolean hasTheme = values.containsKey("islandThemeId");
         String themeIn = hasTheme ? islandThemeValue(values.get("islandThemeId")) : null;
