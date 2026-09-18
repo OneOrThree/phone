@@ -328,9 +328,16 @@ class HttpExecutionIntegrationTest {
     void optionalCannotHideWholeDeadlineAndQueuedWorkNeverMakesHttpRequest() throws Exception {
         try (Fixture server = new Fixture(); InternalHttpClient client = client(server, 1, 1);
                 ScreenComposer composer = new ScreenComposer(1, 2, Duration.ofMillis(200))) {
-            assertThatThrownBy(() -> composer.compose(context(200), List.of(
-                    fragment("optional", false, client, "/blocked"), fragment("queued", false, client, "/ok"))))
-                    .isInstanceOf(UpstreamTimeoutException.class);
+            UpstreamRequestContext screen = new UpstreamRequestContext(UUID.randomUUID().toString(), USER,
+                    Deadline.unbounded());
+            CompletableFuture<Map<String, Object>> composing = CompletableFuture.supplyAsync(() ->
+                    composer.compose(screen, List.of(fragment("optional", false, client, "/blocked"),
+                            fragment("queued", false, client, "/ok"))));
+            // worker 1개가 /blocked 를 점유한 것을 래치로 확인한 뒤 취소한다 — 200ms 벽시계 가정 제거.
+            assertThat(server.blocked.await(1, TimeUnit.SECONDS)).isTrue();
+            screen.cancel();
+            assertThatThrownBy(() -> composing.get(1, TimeUnit.SECONDS))
+                    .hasCauseInstanceOf(UpstreamTimeoutException.class);
             assertThat(server.closed.await(1, TimeUnit.SECONDS)).isTrue();
             assertThat(server.count("/ok")).isZero();
             // 취소한 queued wrapper가 자리를 계속 차지하면 이 작은 풀의 다음 화면이 실패한다.
