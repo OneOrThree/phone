@@ -7,6 +7,9 @@ import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentLease;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentPage;
+import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
+import com.oneorthree.business.upstream.data.dto.ConstructionResult;
+import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentAck;
 import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
@@ -111,6 +114,10 @@ public class DataApiClient {
     // GROMO-1933 편지 3종 — friend-letter LLD §1.12~1.15.
     private static final String PATH_LETTERS = "/internal/users/{userId}/letters";
     private static final String PATH_LETTER = "/internal/users/{userId}/letters/{letterId}";
+    // GROMO-1767 섬 건설 3종 — 공개 경로와 이름이 같다. 내부 계약 전체가 이 seam 에만 있다.
+    private static final String PATH_CONSTRUCTION_OPTIONS = "/internal/islands/{islandId}/construction-options";
+    private static final String PATH_CONSTRUCTION_TARGET = "/internal/islands/{islandId}/construction-target";
+    private static final String PATH_CONSTRUCTIONS = "/internal/islands/{islandId}/constructions";
 
     private final InternalHttpClient http;
 
@@ -901,6 +908,54 @@ public class DataApiClient {
                 new ParameterizedTypeReference<IslandView>() { });
     }
 
+    /**
+     * 건설 옵션 스냅샷 (GROMO-1767). 멱등 GET 이라 재시도한다. selectable/buildable 판정과
+     * 권한 거절은 전부 상류 몫이다 — 주체는 {@code onBehalfOf} 로만 전달한다.
+     */
+    public ConstructionOptions fetchConstructionOptions(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_CONSTRUCTION_OPTIONS, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<ConstructionOptions>() { });
+    }
+
+    /**
+     * 건설 목표 선택 (GROMO-1767). 차감이 없는 선택 명령이라 costPolicyVersion·잔액을 요구하지
+     * 않는다(C03). 전체 교체 PUT 이라 멱등이고 앱 키를 그대로 전달한다.
+     */
+    public ConstructionTarget selectConstructionTarget(UUID userId, UUID islandId, String buildingId,
+            long expectedVersion, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT, islandPath(PATH_CONSTRUCTION_TARGET, islandId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new ConstructionTargetCommand(buildingId, expectedVersion))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<ConstructionTarget>() { });
+    }
+
+    /**
+     * 건설 시작 (GROMO-1767). {@code expectedCostPolicyVersion} 은 «사용자가 본 가격»의 동의
+     * 증거다 — 가격만 바뀌어도 상류가 409 로 거절한다(C10). 응답 유실 복구는 같은 키 재생이다.
+     */
+    public ConstructionResult startConstruction(UUID userId, UUID islandId, String buildingId,
+            long expectedVersion, long expectedCostPolicyVersion, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, islandPath(PATH_CONSTRUCTIONS, islandId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new ConstructionStartCommand(buildingId, expectedVersion,
+                                expectedCostPolicyVersion))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<ConstructionResult>() { });
+    }
+
     private static String userPath(String template, UUID userId) {
         return template.replace("{userId}", userId.toString());
     }
@@ -939,5 +994,13 @@ public class DataApiClient {
 
     /** 현재 섬 이동 요청 본문 (GROMO-1759). */
     record SwitchCurrentIslandCommand(UUID islandId) {
+    }
+
+    /** 건설 목표 선택 요청 본문 (GROMO-1767). 잔액·가격 동의를 요구하지 않는다(C03). */
+    record ConstructionTargetCommand(String buildingId, long expectedVersion) {
+    }
+
+    /** 건설 시작 요청 본문 (GROMO-1767). 두 버전 필드가 모두 필수다(LLD §2). */
+    record ConstructionStartCommand(String buildingId, long expectedVersion, long expectedCostPolicyVersion) {
     }
 }

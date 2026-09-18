@@ -66,6 +66,10 @@ internal:
           - 'GET /internal/users/*/island-discovery'
           - 'PUT /internal/users/*/current-island'
           - 'GET /internal/islands/*'
+          # GROMO-1767 섬 건설 3종 — `/internal/islands/*` 는 세그먼트 하나라 세 계약을 덮지 않는다.
+          - 'GET /internal/islands/*/construction-options'
+          - 'PUT /internal/islands/*/construction-target'
+          - 'POST /internal/islands/*/constructions'
           # GROMO-1894 친구 7종 (friend-letter LLD §1.15 조회 2 + 명령 5). 조회와 생성은 메서드로만 갈리므로
           # 줄을 합치지 않는다.
           - 'GET /internal/users/*/friends'

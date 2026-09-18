@@ -41,6 +41,15 @@ public class IslandStateEvents {
         return append(islandId, actorId, "CREATED");
     }
 
+    /**
+     * 생성 이후의 섬 상태 변경 — 건설 목표 변경·시설 착공/완공도 같은 사건 이름을 쓰고
+     * {@code changeKind} 로 가른다(GROMO-1767). 발행한 envelope 를 돌려주는 이유는
+     * {@code IslandMembershipEvents#changed} 와 같다 — 멱등 명령이 receipt 에 같은 사건을 저장한다.
+     */
+    public EventEnvelope changed(UUID islandId, UUID actorId, String changeKind) {
+        return append(islandId, actorId, changeKind);
+    }
+
     private EventEnvelope append(UUID islandId, UUID actorId, String changeKind) {
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("changeKind", changeKind);
