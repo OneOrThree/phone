@@ -109,8 +109,10 @@ class IslandConstructionIntegrationTest {
         IslandFacility facility = facilities
                 .findById(new IslandFacilityId(f.islandId, "hall")).orElseThrow();
         assertThat(facility.getStatus()).isEqualTo(FacilityStatus.BUILDING);
-        assertThat(facility.getStartedAt()).isEqualTo(first.startedAt());
-        assertThat(facility.getCompletesAt()).isEqualTo(first.completesAt());
+        // PostgreSQL timestamp 는 마이크로초 정밀도로 반올림해 저장한다 — 응답의 나노초 시각은
+        // 왕복 후 반올림되므로 기대쪽을 같은 변환으로 맞춰 비교한다(허용오차가 아니라 정밀도 정규화).
+        assertThat(facility.getStartedAt()).isEqualTo(toDbMicros(first.startedAt()));
+        assertThat(facility.getCompletesAt()).isEqualTo(toDbMicros(first.completesAt()));
         assertThat(facility.getCompletedAt()).isNull();
         assertThat(states.findById(f.islandId).orElseThrow().getTargetBuildingId()).isNull();
         assertThat(balance(f.islandId)).isEqualTo(40);
@@ -518,6 +520,11 @@ class IslandConstructionIntegrationTest {
         Long n = jdbc.queryForObject(
                 "SELECT COUNT(*) FROM " + table + " WHERE island_id = ?", Long.class, islandId);
         return n == null ? 0 : n;
+    }
+
+    /** PostgreSQL timestamp 의 마이크로초 반올림과 같은 변환 — +500ns 후 잘라낸다. */
+    private static Instant toDbMicros(Instant instant) {
+        return instant.plusNanos(500).truncatedTo(ChronoUnit.MICROS);
     }
 
     private TransactionTemplate tx() {
