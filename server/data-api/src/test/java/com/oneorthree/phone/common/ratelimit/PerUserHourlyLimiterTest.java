@@ -108,6 +108,19 @@ class PerUserHourlyLimiterTest {
     }
 
     @Test
+    @DisplayName("시계가 뒤로 가도 retryAfterMs 는 윈도 길이(1시간)를 넘지 않는다")
+    void retryAfterNeverExceedsWindowWhenClockStepsBack() {
+        clock.advance(Duration.ofMinutes(5));
+        for (int i = 0; i < CAP; i++) {
+            limiter.acquire(user);
+        }
+        clock.advance(Duration.ofMinutes(-5));   // 윈도 시작보다 5분 앞 — 보정 전이면 1시간 5분이 나간다
+        assertThatThrownBy(() -> limiter.acquire(user))
+                .isInstanceOfSatisfying(RateLimitedException.class, e ->
+                        assertThat(e.getRetryAfterMs()).isEqualTo(Duration.ofHours(1).toMillis()));
+    }
+
+    @Test
     @DisplayName("같은 계정의 동시 요청도 정확히 한도만큼만 통과한다 — 판정·증가가 한 번의 compute 안에서 일어난다")
     void concurrentAcquiresPassExactlyCap() throws Exception {
         int threads = 16;

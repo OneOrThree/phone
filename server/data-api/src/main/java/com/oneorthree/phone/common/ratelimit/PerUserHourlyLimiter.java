@@ -82,7 +82,8 @@ public class PerUserHourlyLimiter {
             }
             long remainingMs = Duration.between(now, current.startedAt().plus(WINDOW)).toMillis();
             // 윈도 끝까지 1ms 미만이 남으면 0 이 되는데, 0 은 「지금 바로」라 재시도가 또 막힌다.
-            throw new RateLimitedException(Math.max(1, remainingMs));
+            // 시계가 뒤로 가면(NTP 보정 등 now < startedAt) 잔여가 1시간을 넘으니 윈도 길이로 자른다.
+            throw new RateLimitedException(Math.max(1, Math.min(remainingMs, WINDOW.toMillis())));
         }
     }
 
