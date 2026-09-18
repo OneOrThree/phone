@@ -41,6 +41,7 @@ docs/
     ├── gromo/                         # 동결된 GROMO 1.x 기능과 호환 근거
     │   └── <기능-이름>/
     └── fishcat/                       # 활성 Fishcat 2.0 기능과 전환 계약
+        ├── decision-log.md            # 제품 결정 로그 — 결정은 여기 먼저, 도메인 policy.md 로 전파 (어긋나면 이 로그가 맞다)
         └── <기능-이름>/
             ├── prd.md                 # PRD — 문제 정의·목표·요구사항
             ├── policy.md              # 정책 정본 — 결정 로그·근거 (prd와 어긋나면 policy가 맞다)
@@ -65,6 +66,7 @@ Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `
 | --- | --- |
 | `prd.md` | 왜 만드는가? 무엇을 만드는가? (to-be 요구사항) |
 | `policy.md` | 정책의 근거와 결정 로그 — 정책 충돌 시 **이 문서가 정본** |
+| `fishcat/decision-log.md` | 제품 결정을 언제·누가·어떤 근거로 했나 — 결정은 여기 먼저 적고 도메인 `policy.md` 로 전파한다. 둘이 어긋나면 **이 로그가 맞다** |
 | `information-architecture.md` | 사용자가 어디서 어떻게 진입·이동하는가? 화면·정보 구조는? |
 | `high-level-design.md` | 어떤 컴포넌트(앱·서버·DB·외부)가 어떻게 협력하는가? |
 | `low-level-design.md` | 정확히 어떤 테이블·API·로직으로 구현하는가? |

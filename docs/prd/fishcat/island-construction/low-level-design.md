@@ -132,7 +132,7 @@
 | PUT target | buildingId, expectedVersion 필수 | buildingId, selected=true, spent=0, version |
 | POST constructions | buildingId, expectedVersion, **expectedCostPolicyVersion** 필수 | buildingId, status=completed, spent:{currency,amount}, version, villagePoints, **walletVersion** |
 
-items의 id/name/cost/currency/selectable/buildable/blockedReason은 모두 필수이며 blockedReason만 nullable이다. 완료 시설은 options에서 제외한다. GET의 목록은 게시판 이후 후보 tower/mail/gram/shop이고 초기 hall/board 진행량은 이 목록에 가짜 상품으로 추가하지 않는다. 초기 단계의 선택 불가 상태에서 목록·가격의 반환 방식은 정책 P-D02 결정 시 함께 고정하며 그 전에 해당 조회 화면을 활성화하지 않는다. `buildingId`는 서버 시설 식별자이고 없는 ID는422 OUT_OF_RANGE(field=buildingId), 문자열 아닌 값/누락은400 INVALID_REQUEST다.
+items의 id/name/cost/currency/selectable/buildable/blockedReason은 모두 필수이며 blockedReason만 nullable이다. 완료 시설은 options에서 제외한다. ~~GET의 목록은 게시판 이후 후보 tower/mail/gram/shop이고 초기 hall/board 진행량은 이 목록에 가짜 상품으로 추가하지 않는다.~~ 건물은 7개 선형(정책 C01, 2026-09-18 D4)이라 목록의 후보는 아직 완공하지 않은 다음 건물이며 도서관(BuildingId 미배정)이 추가된다 — 위 원본 JSON 의 tower/mail/gram/shop 후보 집합과 `cost` 값은 D4 반영 전 형태다. 회관·게시판도 별도 진행량이 아니라 섬 통장 잔액으로 짓는다(D1·D6). 초기 단계의 목록·가격 반환 방식과 「각자 몫 n빵」 표현은 정책 P-D02 잔여·P-D04 결정 시 함께 고정하며 그 전에 해당 조회 화면을 활성화하지 않는다. `buildingId`는 서버 시설 식별자이고 없는 ID는422 OUT_OF_RANGE(field=buildingId), 문자열 아닌 값/누락은400 INVALID_REQUEST다.
 
 GET options는 활성 주민의 조회다. 변경 권한이 없는 주민도 GET에서는 항목별 selectable=false/blockedReason=FORBIDDEN을 받으며 변경 권한만으로 GET 전체를403으로 거절하지 않는다. PUT/POST는 승인된 실행 권한을 요구한다. selectable은 현재 사용자 실행 권한과 시설 선행 조건을 만족하는지 나타내며 잔액은 보지 않는다. buildable은 selectable에 건설 가능 상태와 현재 잔액을 더해 평가한다. blockedReason은 HTTP 오류 code가 아닌 UI 사유다. 우선순위는 FORBIDDEN → FACILITY_LOCKED → REQUIRES_TOWER_AND_MAIL → INSUFFICIENT_FUNDS이며 통과하면 null이다. 상점은 tower/mail가 하나라도 없으면 REQUIRES_TOWER_AND_MAIL이다. 서버 실행도 같은 evaluator를 쓰되 TX 안에서 재검사한다. 승인되지 않은 권한/가격 정책을 evaluator 기본값으로 통과시키지 않는다.
 
@@ -181,11 +181,11 @@ Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차�
 1. 검증 사용자·session/generation·활성 소속·섬 활성 및 승인된 실행 권한을 TX에서 검사한다. 동일 키 결과가 있으면 현재 권한을 확인하고 재생한다.
 2. 새 명령은 expectedVersion과 가격 expectedCostPolicyVersion을 현재 publication과 비교한다. 시설 완료 유일성·선행 조건을 검사한다.
 3. 게시판 이후 건설은 island/village_points의 충분한 잔액을 잠근 뒤 원장 debit와 잔액 갱신을 수행한다. 개인 fish를 대신 차감하거나 다른 서비스 TX로 보내지 않는다.
-4. 동일 완공 primitive로 시설, 승인된 목표 후처리, island version, 새 기본 테마를 포함한 전체 외양 및 appearance version을 저장한다. 초기 집중 완료도 이 primitive를 쓰되 개인/기여 분배는 FR-D02 승인 전 구현 활성화 금지다.
+4. 동일 완공 primitive로 시설, 승인된 목표 후처리, island version, 새 기본 테마를 포함한 전체 외양 및 appearance version을 저장한다. 초기 건설도 이 primitive를 쓴다. ~~개인/기여 분배는 FR-D02 승인 전 구현 활성화 금지다.~~ FR-D02 는 D6 로 폐기됐다 — 분배 축이 없고, 완공 트리거(P-D02 잔여)·n빵 정산(P-D04) 확정 전 활성화 금지다.
 5. 해당 지갑 version, 원 성공 data, 공개 events 전부, 내구 outbox를 같은 TX에 저장한다. 하나라도 실패하면 시설·차감·외양·receipt·사건 모두 rollback한다.
 6. 커밋 후 Business는 data만 공개 봉투로 반환하고 기존 relay가 events를 재전달한다. 릴레이 실패가 이미 커밋한 차감을 다시 실행하지 않는다.
 
-초기 earnedFish=E, personal=P, contribution=C이면 E=P+C 보존식 및 cap/초과분 결정이 필요하다. 초기 진행량을 공동 fish 잔액처럼 결제하거나 공개 POST의 spent.currency를 임의 확정하지 않는다. 초기 hall/board 수동 POST 허용 여부·spent 의미·자동 완공 응답은 P-D02 결정 후 계약을 보완해야 하므로 해당 명령은 출시 차단이다. 원본 세 계약의 예시는 게시판 이후 gram이며 이 부분은 village_points로 확정할 수 있다.
+~~초기 earnedFish=E, personal=P, contribution=C이면 E=P+C 보존식 및 cap/초과분 결정이 필요하다.~~ 이 보존식은 **2026-09-18 재영님 결정 D6(「쌓이면 건설한다」)로 폐기**됐다 — 초기 건설 기여 C 라는 축이 없고 회관·게시판도 섬 통장(D1) 잔액에서 짓는다. 초기 hall/board 의 완공 트리거(자동/POST 명령)·spent 의미·자동 완공 응답은 P-D02 잔여 결정 후 계약을 보완해야 하므로 해당 명령은 출시 차단이다. 원본 세 계약의 예시는 게시판 이후 gram 이며 통화는 섬 통장(서버 식별자 `village_points`, 개명 미결)이다.
 
 시설 완공은 island.updated, 실제 공동 차감은 wallet.updated, 외양 변경은 island.appearance.updated를 각각 만든다. 각 사건은 해당 projection 버전과 고유 eventId를 갖는다. 기본 테마 값은 PR742 자산 정본에서 찾고 임의 문자열로 seed하지 않는다. Data 내부 명령 결과는 `{data:공개DTO,events:완성된RealtimeEventEnvelope[]}`다. 7필드 schemaVersion/eventId/type/islandId/aggregateVersion/occurredAt/payload를 모두 저장해 응답 유실에도 그대로 재생한다. Data outbox의 기존10필드 저장 EventEnvelope와 이 공개7필드 배열은 다른 표현이며 같은 작성 TX가 둘 다 보관한다. Business에서 outbox를 다시 읽어 사건을 재구성하지 않는다.
 
@@ -200,7 +200,7 @@ Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차�
 - [CurrencyLedgerService:73/83/165](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/currency/service/CurrencyLedgerService.java#L73)는 User 지갑용이다. WalletOwner.CALLER/TARGET을 user/island로 오독하지 않는다. 원장·잠금 패턴은 재사용하고 공동 지갑 모델은 PR742 구현과 합류해야 한다.
 - [FocusService:487](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/focus/service/FocusService.java#L487)의 기존 서버 보상은 신규 초기 건설 분배를 구현한 근거가 아니다.
 
-구현 순서: 미결 권한/목표/비용 승인 → 공통/섬/경제/외양 기반 통합 → 불변 비용 publication·조회 → 목표 PUT → 게시판 이후 건설 원자 명령 → FR-D02 승인 후 초기 기여 연결 → Realtime producer 검증. 기존 `/api/v1` writer가 새 시설·지갑·섬 버전을 건드리는 부분을 전수 조사하고 같은 잠금/버전/사건 경계로 합류시킨 뒤 노출한다.
+구현 순서: 잔여 결정(P-D01 잔여·P-D02 잔여·P-D04) 승인 → 공통/섬/경제/외양 기반 통합 → 불변 비용 publication·조회(1829 표를 첫 revision 으로 등록) → 목표 PUT → 건설 원자 명령(섬 통장 합산 / 각자 몫 n빵) → Realtime producer 검증. ~~FR-D02 승인 후 초기 기여 연결~~ 은 D6 로 사라졌다. 기존 `/api/v1` writer가 새 시설·지갑·섬 버전을 건드리는 부분을 전수 조사하고 같은 잠금/버전/사건 경계로 합류시킨 뒤 노출한다.
 
 실제 PostgreSQL·HTTP·relay 회귀는1767에서 실행한다:
 
@@ -208,7 +208,7 @@ Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차�
 - 같은 키 동시 두 요청에서 차감1·시설1·각 사건1·같은 결과; 다른 키의 동시 동일 시설은 성공1과409, 음수 잔액0.
 - 조회 후 가격만 교체하면 expectedCostPolicyVersion409; 가격 publication과 실행 경합에서도 검증한 가격으로만 확정.
 - 외양/receipt/outbox 저장 실패 주입 시 원장까지 rollback; 응답 유실 후 같은 키 재생에서 버전/사건 추가0.
-- 집중 cap에 동시 도달할 때 승인된 보존식·완공1·기존 테마 보존 및 전체 외양 version 일치.
+- 섬 통장 총액(또는 각자 몫 전원 충족)에 동시 도달할 때 완공1·기존 테마 보존 및 전체 외양 version 일치(보존식은 D6 로 폐기).
 - 강퇴/탈퇴/섬 종료와 건설 경합, 전달 직전 소속 상실, 서비스 토큰 실패502와 사용자401 분리.
 - 실제 HTTP 공개 오류 registry와 current 필드, 각 이벤트7필드·자기 axis 버전, 지갑 정보 audience 검사.
 

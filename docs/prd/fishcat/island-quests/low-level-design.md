@@ -196,9 +196,9 @@ Business→Data 내부 어댑터는 공개5경로 앞에 `/internal`을 붙인 e
 | quest | path questId UUID, query occurrenceId UUID필수/cursor optional. 해당 occurrence의 같은 헤더와 members(userId UUID,name/catColor string,rate number/null,measurementStatus authorized/denied/unavailable/pending),nextCursor string/null. path섬/quest/회차의소속 일치 검증 |
 | quest-create | title/type/targetMinutes 필수,focus는windowStart/windowEnd HH:mm 필수,screen에는창필드 금지. timezone 누락=Asia/Seoul/다른값400 INVALID_PARAMETER.201 id/title |
 | quest-edit | 원본의 title/targetMinutes 중 하나 이상. 생략 유지,null거절,새 type/창/반복키 unknown400.200 id/title/targetMinutes는 정의의수정결과. 실제적용회차 QQ02 결정 전 비활성 |
-| claim | occurrenceId UUID,expectedVersion 엄격 양의정수필수.200 claimId UUID,occurrenceId UUID,villagePointsAdded 비음수정수,claimed=true. 실제승인된양수/무보상정책은 QQ05에의존 |
+| claim | occurrenceId UUID,expectedVersion 엄격 양의정수필수.200 claimId UUID,occurrenceId UUID,villagePointsAdded 비음수정수,claimed=true. 지급량은 1830 확정(개인 +10, 전원 보너스 대상 주민 수 × 5 — 정책 Q05)이며 설정 revision 등록은 QQ05 잔여. 필드명 villagePointsAdded 는 섬 물고기(D1) 적립량이고 개명은 미결 |
 
-focus 창/target 수학적 범위와 screen0분 허용·title길이는 승인한 도메인 설정으로 검증하고 목업30/40/10을 상수로 채택하지 않는다. 시간 HH:mm 파싱,실재하는날짜,안전정수 등의 기술 검증은 독립 구현한다. 자정 넘는 창을 지원하거나 거절하는 제품 범위는 QQ02 확정 뒤 설정/테스트로 고정한다. 명시필수 필드 누락/null은400,해석가능한 범위위반422 OUT_OF_RANGE(field=해당공개필드)다.
+focus 창/target 수학적 범위와 screen0분 허용·title길이는 승인한 도메인 설정으로 검증하고 목업30/40을 상수로 채택하지 않는다(10 은 1830 확정값이지만 역시 설정 revision 으로 등록한다). 시간 HH:mm 파싱,실재하는날짜,안전정수 등의 기술 검증은 독립 구현한다. 자정 넘는 창을 지원하거나 거절하는 제품 범위는 QQ02 확정 뒤 설정/테스트로 고정한다. 명시필수 필드 누락/null은400,해석가능한 범위위반422 OUT_OF_RANGE(field=해당공개필드)다.
 
 원본focus항목의 windowStart/windowEnd는 focus에서필수,screen응답에서는null이라는 **타입별 nullable명시 확장**을 채택한다. claimBlockedReason은 claimable=true 또는 claimed=true일때null이고 미달성MEMBERS_INCOMPLETE는원본값이다. 측정대기 등 추가 reason값과 settlementStatus 확장은 QQ01~03 결정 후정본enum으로등록한다. 현재 원본에서 확인한 in_progress/claimed 외 상태를 완성된운영 enum이라고제시하지않는다. ready여부는claimable이며 상태문자열을추측하지않는다.
 
@@ -216,7 +216,7 @@ focus 창/target 수학적 범위와 screen0분 허용·title길이는 승인한
 | Occurrence | UUID,questId,islandId,KST귀속일/고정창UTC경계,정의snapshot/rewardrevision,판정 정책revision,version,정산상태. 같은정의회차중복개설방지 유일키 |
 | Cohort/evidence | 승인된시점의대상집합,참여/이탈처리근거,sourceID/version,진행값·측정상태·확정결과. 파기정책과최소증거분리 |
 | Claim | claimId,islandId,occurrenceId,지급량·통화/정책revision,원장참조. 도메인 UNIQUE(islandId,occurrenceId,settlement-kind) |
-| 공용지갑/원장 | ownerType=island,ownerId=islandId,currency=village_points. 기존경제정본재사용;임의별도balance컬럼금지 |
+| 공용지갑/원장 | ownerType=island,ownerId=islandId,currency=village_points(섬 통장·섬 물고기 — 2026-09-18 D1, 식별자 개명 미결). 기존경제정본재사용;임의별도balance컬럼금지 |
 | receipt/outbox | actor+operation/key/fingerprint,contractVersion,원 결과·사건ID. 선언적UIclaim과별개 |
 
 현재main에는위공동퀘스트회차/claim지갑연결이없다. 기존 챌린지ID를새questID로사용하거나두기능을동시에생성하는자동이관은범위 밖이다. 원래내기장부를수정/삭제하지않는다.
