@@ -128,6 +128,8 @@ membershipEpoch는 이탈/재가입 자격 축이므로 단순 위임 때 올리
 
 정책 대기 분기는 TBD 역할 행렬과 함께 출시 조건으로 남긴다. 보상 정책이 없다는 이유로 인가 철회 자체를 무시할 수 없다. 구현은 기능 비활성 또는 아직 지원하지 않는 분기를 명시하고, 활성화 전 집중 종료 TX·현재 context·outbox를 원자적으로 결합해야 한다.
 
+위 두 「정책 대기」 행(강퇴 + active/paused · 미수령 퀘스트 공동 보상)의 선택지와 코드 근거는 [소속 결정표](../island-membership/open-decisions.md)에 모았다.
+
 ## 6. 공개 결과·이벤트·로그
 
 manage는 island.updated를 기록하고 실제 name 변경에는 같은 TX의 링크 대상 group.renamed를 추가한다. intro/approvalRequired만 바뀌거나 이름이 같으면 group.renamed는 만들지 않는다. 승인/위임/강퇴/탈퇴는 island.members.updated, 요청 생성/처리는 join.request.updated를 발행한다. 마지막 주민 이탈/그룹 종료에는 island.updated와 링크 대상 group.closed를 추가하고 pending의 cancelled 전이마다 신청자 개인 join.request.updated를 함께 기록한다. 초대 근거의 즉시 가입/승인은 link.joined, 실제 pending claim의 확정은 link.claimConfirmed를 같은 membership TX에 기록한다. 거절은 주민 수가 바뀌지 않으므로 불필요한 members 사건을 만들지 않는다. GET은 이벤트를 생산하지 않는다. 공개 Realtime 사건의 payload.version은 해당 envelope.aggregateVersion과 일치해야 한다. 링크 대상 내부 outbox는 기존1659 봉투/version·transition 계약을 그대로 따르며 공개 Realtime 봉투로 바꾸지 않는다.
