@@ -170,8 +170,12 @@ class ErrorContractTest {
         // INVALID_PAGE_REQUEST · INVALID_MAILBOX_TYPE), 권한 2(LETTER_MAILBOX_LOCKED ·
         // NOT_LETTER_PARTICIPANT), 대상 없음 2(LETTER_NOT_FOUND · LETTER_RECIPIENT_NOT_FRIEND),
         // 본문 상한 1(LETTER_CONTENT_OUT_OF_RANGE).
-        assertThat(tests).as("실측 기준 도메인 상수 147개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종 포함")
-                .hasSize(162);
+        // GROMO-1929 가 legacy 선택 AT 관문 상수 2개를 더했다 — ACCESS_TOKEN(401: Bearer 형식·
+        // 서명·만료·타입 거절, InvalidTokenErrorCode)과 LEGACY_SESSION_NOT_ACTIVE(401: 폐기·
+        // 세대 불일치·sid 없음, AuthErrorCode). 후자는 내부 경로의 SESSION_NOT_ACTIVE(403)와 같은
+        // 판정이지만 legacy 경로는 Business 매핑 없이 앱에 직접 닿아 공개 401 이어야 한다.
+        assertThat(tests).as("실측 기준 도메인 상수 149개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·legacy AT 관문 2종 포함")
+                .hasSize(164);
         return tests;
     }
 

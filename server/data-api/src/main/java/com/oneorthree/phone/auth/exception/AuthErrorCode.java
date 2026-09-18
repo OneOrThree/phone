@@ -34,6 +34,10 @@ public enum AuthErrorCode implements ErrorCode {
     /** 내부 사용자 세션 거절. 서비스 자격 401과 구분하며 신규 Business 경로가 공개 401로 매핑한다. */
     SESSION_NOT_ACTIVE(HttpStatus.FORBIDDEN, "유효한 로그인 세션이 아닙니다."),
 
+    // 레거시 /api/v1/auth/* 의 선택 AT 세션 관문 거절 (GROMO-1929) — SESSION_NOT_ACTIVE 와 같은
+    // 판정이지만 이 경로는 Business 매핑 없이 앱에 직접 닿으므로 공개 상태(401)를 enum 에 새긴다.
+    LEGACY_SESSION_NOT_ACTIVE(HttpStatus.UNAUTHORIZED, "유효한 로그인 세션이 아닙니다."),
+
     // 같은 X-Login-Attempt-Id 를 다른 실행자가 이미 잡고 제공자 교환 중이다 (GROMO-1908, LLD §3).
     // 「같은 자격이지만 아직 결과가 없다」는 뜻이라 IDEMPOTENCY_KEY_CONFLICT(다른 자격)와 갈린다 —
     // 합치면 앱이 「키를 잘못 썼다」로 읽고 새 시도를 만들어, 막으려던 동시 code 교환이 그대로 생긴다.

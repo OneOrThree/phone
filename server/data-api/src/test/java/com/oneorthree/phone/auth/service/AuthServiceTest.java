@@ -6,6 +6,7 @@ import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
+import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
@@ -114,6 +115,13 @@ class AuthServiceTest {
                 .thenReturn(new AuthSessionService.IssuedSession(SESSION_ID, 2L, "promoted-bootstrap"));
         lenient().when(authSessionService.findByRefreshToken(anyString()))
                 .thenReturn(java.util.Optional.empty());
+        // 선택 AT 세션 관문(GROMO-1929) 통과 기본값 — AT 를 싣는 기존 테스트가 관문에 막히지 않게
+        // 세대 일치(gen=0)·활성 세션을 기본으로 둔다. 관문 자체를 검증하는 테스트는 개별로 덮어쓴다.
+        lenient().when(jwtProvider.extractSessionId(anyString())).thenReturn(SESSION_ID);
+        lenient().when(jwtProvider.extractAuthGeneration(anyString())).thenReturn(0L);
+        lenient().when(userQueryService.getCaller(any())).thenReturn(User.builder().build());
+        lenient().when(authSessionService.verifySession(any(), any()))
+                .thenReturn(Optional.of(AuthSession.builder().id(SESSION_ID).build()));
         authService = new AuthService(
                 userRepository, userQueryService, userWalletRepository, userScreenTimeSettingsRepository,
                 userFocusTimeSettingsRepository, userNotificationSettingsRepository,
@@ -153,6 +161,8 @@ class AuthServiceTest {
         verify(userRepository).save(any(User.class));
         verify(socialAccountRepository).save(any(SocialAccount.class));
         verify(appleClient, never()).getProviderId(anyString());              // 라우팅: kakao만 호출
+        // 헤더 없음 = 유일한 익명 경로 — 선택 AT 관문을 타지 않는다 (GROMO-1929)
+        verify(authSessionService, never()).verifySession(any(), any());
         verify(userActivityEventLogger).log(USER_ID.toString(), UserActivityEvent.LOGIN_SUCCEEDED,
                 Map.of("is_new_user", true, "method", "kakao"));
     }
@@ -362,6 +372,8 @@ class AuthServiceTest {
         assertThat(guestUser.getRefreshTokenHash()).isEqualTo(TokenHasher.sha256Hex("refresh-token"));
         verify(userRepository, never()).save(any(User.class));            // 새 User 생성 금지(재활용)
         verify(socialAccountRepository).save(any(SocialAccount.class));    // 소셜 연동만 새로 부착
+        // 선택 AT 관문이 실제로 탔다 — sid·세대 일치·활성 세션이라 통과 (GROMO-1929)
+        verify(authSessionService).verifySession(GUEST_ID, SESSION_ID);
         // createUserSideRows 미호출 — 부속 row 는 게스트 생성 시 이미 존재(중복 방지)
         verify(userWalletRepository, never()).save(any());
         verify(userScreenTimeSettingsRepository, never()).save(any());
@@ -399,34 +411,6 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("탈퇴 게스트의 유효한 토큰은 소셜 업그레이드에 사용되지 않고 새 가입으로 처리된다")
-    void softDeletedGuestTokenDoesNotUpgradeDeletedUser() {
-        User savedUser = User.builder().id(USER_ID).build();
-        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
-        given(jwtProvider.isTokenValid("deleted-guest-jwt")).willReturn(true);
-        given(jwtProvider.extractType("deleted-guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
-        given(jwtProvider.extractUserId("deleted-guest-jwt")).willReturn(GUEST_ID);
-        // 탈퇴 유저는 활성 게스트 조회(배타 락)에서 제외돼 게스트 업그레이드 대상이 아니다.
-        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
-        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
-                .willReturn(Optional.empty());
-        given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
-        given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
-
-        SocialLoginResponse response =
-                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer deleted-guest-jwt");
-
-        assertThat(response.isNewUser()).isTrue();
-        // 게스트 로드는 게스트 한정 배타 락 조회여야 한다 — 락 없는 활성 조회·raw findById 는 쓰지 않는다 (GROMO-801)
-        verify(userRepository).findActiveGuestByIdForUpdate(GUEST_ID);
-        verify(userRepository, never()).findByIdAndIsDeletedFalse(GUEST_ID);
-        verify(userRepository, never()).findById(GUEST_ID);
-    }
-
-    @Test
     @DisplayName("게스트 승격 락은 변경보다 먼저다 — 승격 분기에서 락 조회 후에야 연동 저장이 실행된다 (GROMO-801 codex 2차·claude 권고)")
     void guestUpgradeLockPrecedesMutation() {
         // 락이 뒤(토큰 발급 전 재검증)에만 있으면 setGuest(false)·소셜 연동 저장이 먼저 실행되고,
@@ -460,52 +444,236 @@ class AuthServiceTest {
     }
 
     @Test
-    @DisplayName("refresh 토큰으로는 게스트 업그레이드를 할 수 없다 — 새 가입으로 처리 (GROMO-714)")
-    void refreshTokenCannotUpgradeGuest() {
-        // given — /auth/* 는 JwtFilter 화이트리스트라 필터 타입 가드를 타지 않는다.
+    @DisplayName("refresh 토큰을 선택 AT 로 보내면 401 ACCESS_TOKEN — 타입 가드가 익명 강등하지 않는다 (GROMO-714 · 1929)")
+    void refreshTokenAsCallerIsRejected() {
+        // /auth/* 는 JwtFilter 화이트리스트라 필터 타입 가드를 타지 않는다.
         // 서명이 유효한 refresh 토큰을 Authorization 헤더로 보내 게스트를 승격시키려는 시도.
-        User savedUser = User.builder().id(USER_ID).build();
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(jwtProvider.isTokenValid("stolen-rt")).willReturn(true);
         given(jwtProvider.extractType("stolen-rt")).willReturn(JwtProvider.TYPE_REFRESH);
-        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
-                .willReturn(Optional.empty());
-        given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
-        given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
 
-        // when
-        SocialLoginResponse response =
-                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer stolen-rt");
-
-        // then — 타입 가드에서 걸러져 currentUserId 가 null → 업그레이드가 아닌 신규 가입 흐름
-        assertThat(response.isNewUser()).isTrue();
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer stolen-rt"))
+                .isInstanceOf(InvalidTokenException.class)
+                .hasFieldOrPropertyWithValue("errorCode", InvalidTokenErrorCode.ACCESS_TOKEN);
+        // 타입 가드에서 걸려 userId 추출도, 신규 가입 폴백도 일어나지 않는다
         verify(jwtProvider, never()).extractUserId("stolen-rt");
-        verify(userRepository, never()).findByIdAndIsDeletedFalse(any(UUID.class));
+        verify(userRepository, never()).save(any(User.class));
     }
 
     @Test
-    @DisplayName("type 클레임 없는 구 토큰으로는 게스트 업그레이드를 할 수 없다 (fail-closed)")
-    void legacyTokenWithoutTypeCannotUpgradeGuest() {
-        User savedUser = User.builder().id(USER_ID).build();
+    @DisplayName("type 클레임 없는 구 토큰은 401 ACCESS_TOKEN — fail-closed (GROMO-1929)")
+    void legacyTokenWithoutTypeIsRejected() {
         given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(jwtProvider.isTokenValid("legacy-jwt")).willReturn(true);
         given(jwtProvider.extractType("legacy-jwt")).willReturn(null);
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer legacy-jwt"))
+                .isInstanceOf(InvalidTokenException.class)
+                .hasFieldOrPropertyWithValue("errorCode", InvalidTokenErrorCode.ACCESS_TOKEN);
+        verify(jwtProvider, never()).extractUserId("legacy-jwt");
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    // ── 선택 AT 세션 폐기 관문 (GROMO-1929) ─────────────────────────────────
+
+    @Test
+    @DisplayName("Bearer 아닌 Authorization 헤더 → 401 ACCESS_TOKEN — 헤더 없음만 익명이다")
+    void malformedAuthorizationHeaderIsRejected() {
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Basic abc"))
+                .isInstanceOf(InvalidTokenException.class)
+                .hasFieldOrPropertyWithValue("errorCode", InvalidTokenErrorCode.ACCESS_TOKEN);
+        verify(jwtProvider, never()).isTokenValid(anyString());
+        verify(userRepository, never()).save(any(User.class));
+    }
+
+    @Test
+    @DisplayName("만료·위조 AT → 401 ACCESS_TOKEN + 신규 계정 미생성 — 익명 강등 폐지 (GROMO-1929)")
+    void invalidCallerTokenIsRejected() {
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("expired-jwt")).willReturn(false);
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer expired-jwt"))
+                .isInstanceOf(InvalidTokenException.class)
+                .hasFieldOrPropertyWithValue("errorCode", InvalidTokenErrorCode.ACCESS_TOKEN);
+        // 신규 가입 분기로 떨어지지 않는다 — 유령 계정·토큰 발급 없음
+        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountRepository, never()).save(any(SocialAccount.class));
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
+    }
+
+    /**
+     * 관문 거절 테스트 공통 스텁 — 관문 ②(신규 폴백)는 호출자 users 락으로 연다 (GROMO-1929).
+     * 활성 호출자(gen=0, lenient 기본값과 일치)를 돌려줘 관문 판정부까지 도달하게 만든다.
+     */
+    private void stubCallerLock() {
+        given(userQueryService.getCallerForUpdate(GUEST_ID))
+                .willReturn(User.builder().id(GUEST_ID).build());
+    }
+
+    @Test
+    @DisplayName("폐기된 세션의 AT → 401 LEGACY_SESSION_NOT_ACTIVE — 서명이 멀쩡해도 승격 자격이 아니다")
+    void revokedSessionCallerIsRejected() {
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        stubCallerLock();
+        given(authSessionService.verifySession(GUEST_ID, SESSION_ID))
+                .willReturn(Optional.of(AuthSession.builder().id(SESSION_ID).userId(GUEST_ID)
+                        .revokedAt(Instant.now()).build()));
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LEGACY_SESSION_NOT_ACTIVE);
+        // 관문은 save·발급보다 먼저다 — 거절 경로에 어떤 쓰기도 없다
+        verify(userRepository, never()).save(any(User.class));
+        verify(socialAccountRepository, never()).save(any(SocialAccount.class));
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
+        verify(jwtProvider, never()).generateRefreshToken(any(UUID.class), anyBoolean());
+    }
+
+    @Test
+    @DisplayName("세션 행이 없거나 남의 것이면 401 LEGACY_SESSION_NOT_ACTIVE — verifySession 이 비어 온다")
+    void missingSessionCallerIsRejected() {
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        stubCallerLock();
+        given(authSessionService.verifySession(GUEST_ID, SESSION_ID)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LEGACY_SESSION_NOT_ACTIVE);
+        verify(userRepository, never()).save(any(User.class));
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("authGeneration 불일치는 401 LEGACY_SESSION_NOT_ACTIVE — 세션 조회 전에 끊는다")
+    void generationMismatchCallerIsRejected() {
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(jwtProvider.extractAuthGeneration("guest-jwt")).willReturn(9L);   // DB 세대는 0
+        stubCallerLock();
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LEGACY_SESSION_NOT_ACTIVE);
+        verify(authSessionService, never()).verifySession(any(), any());
+        verify(userRepository, never()).save(any(User.class));
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("sid 없는 구 AT 는 401 LEGACY_SESSION_NOT_ACTIVE — 어느 세션인지 증명할 수 없어 폐기 fence 를 못 건다")
+    void sidlessCallerTokenIsRejected() {
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("old-jwt")).willReturn(true);
+        given(jwtProvider.extractType("old-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("old-jwt")).willReturn(GUEST_ID);
+        given(jwtProvider.extractSessionId("old-jwt")).willReturn(null);
+        stubCallerLock();
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer old-jwt"))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LEGACY_SESSION_NOT_ACTIVE);
+        verify(authSessionService, never()).verifySession(any(), any());
+        verify(userRepository, never()).save(any(User.class));
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("탈퇴·부재 주체의 AT 는 관문에서 USER_NOT_FOUND — 폐기 판정보다 계정 부재가 «먼저» (GROMO-1929 · LLD §1)")
+    void withdrawnCallerIsRejectedAtGate() {
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(jwtProvider.isTokenValid("deleted-guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("deleted-guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("deleted-guest-jwt")).willReturn(GUEST_ID);
+        // 관문 ② 의 호출자 락이 탈퇴를 관측해 404 — 폐기 판정·신규 가입 폴백까지 내려가지 않는다
+        given(userQueryService.getCallerForUpdate(GUEST_ID))
+                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer deleted-guest-jwt"))
+                .isInstanceOf(UserException.class)
+                .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.USER_NOT_FOUND);
+        verify(authSessionService, never()).verifySession(any(), any());
+        verify(userRepository, never()).save(any(User.class));
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("폐기 세션의 게스트 + 이미 연동된 소셜 → 409 가 아니라 401 — 세션 관문이 도메인 분기보다 먼저다 (GROMO-1929)")
+    void revokedSessionGuestWithLinkedSocialGets401Not409() {
+        // 게스트가 이미 다른 계정에 연동된 소셜로 승격 시도 — 세션이 살아 있으면 409(ALREADY_LINKED)
+        // 지만, 폐기 세션이면 세션 관문이 먼저 401 로 끊어야 한다 (승인 정책: 거절 우선순위).
+        User guestUser = User.builder().id(GUEST_ID).isGuest(true).build();
+        User otherUser = User.builder().id(USER_ID).build();
+        SocialAccount linkedAccount = SocialAccount.builder()
+                .user(otherUser).provider(Provider.KAKAO).providerId("12345").build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
+        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
+                .willReturn(Optional.of(linkedAccount));
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
+        given(authSessionService.verifySession(GUEST_ID, SESSION_ID))
+                .willReturn(Optional.of(AuthSession.builder().id(SESSION_ID).userId(GUEST_ID)
+                        .revokedAt(Instant.now()).build()));
+
+        assertThatThrownBy(() ->
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt"))
+                .isInstanceOf(AuthException.class)
+                .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LEGACY_SESSION_NOT_ACTIVE);
+        verify(socialAccountRepository, never()).save(any(SocialAccount.class));
+        verify(jwtProvider, never()).generateAccessToken(any(UUID.class), anyBoolean(), anyLong(), any());
+    }
+
+    @Test
+    @DisplayName("세션 관문은 발급 트랜잭션 안에서 연다 — users 락 뒤·mutation·토큰 발급 전 순서 고정, TX 밖 선검사의 TOCTOU 제거 (GROMO-1929 codex P1)")
+    void sessionCheckRunsInsideIssuanceTransaction() {
+        // 별도 TX 의 사전 관문은 검사·발급 사이에 로그아웃이 끼는 TOCTOU 를 남겼다 — 관문이
+        // loginOrRegister(발급 TX) 안에서 users 락 뒤·mutation·발급 전에 타는지 호출 순서로 고정한다.
+        User guestUser = User.builder().id(GUEST_ID).isGuest(true).build();
+        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
-        given(userRepository.save(any(User.class))).willReturn(savedUser);
-        // 토큰 발급 전 탈퇴 직렬화 재검증(배타 락) 스텁 (GROMO-801)
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
-        given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
+        given(jwtProvider.isTokenValid("guest-jwt")).willReturn(true);
+        given(jwtProvider.extractType("guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
+        given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
+        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.of(guestUser));
+        given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(guestUser);
+        given(jwtProvider.generateAccessToken(eq(GUEST_ID), eq(false), anyLong(), any())).willReturn("access-token");
+        given(jwtProvider.generateRefreshToken(GUEST_ID, false)).willReturn("refresh-token");
 
         SocialLoginResponse response =
-                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer legacy-jwt");
+                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer guest-jwt");
 
-        assertThat(response.isNewUser()).isTrue();
-        verify(jwtProvider, never()).extractUserId("legacy-jwt");
+        assertThat(response.isNewUser()).isFalse();
+        // 락·판정 순서: users(게스트 승격 락) → auth_sessions(verifySession 배타 락, 관문 ①)
+        // → 소셜 연동 저장(mutation) → users(탈퇴 직렬화 락) → 토큰 발급 — 관문이 발급과 같은
+        // TX 안에서 mutation 보다 먼저 탐을 순서로 고정한다
+        InOrder order = inOrder(userRepository, socialAccountRepository, userQueryService,
+                authSessionService, jwtProvider);
+        order.verify(userRepository).findActiveGuestByIdForUpdate(GUEST_ID);
+        order.verify(authSessionService).verifySession(GUEST_ID, SESSION_ID);
+        order.verify(socialAccountRepository).save(any(SocialAccount.class));
+        order.verify(userQueryService).getCallerForUpdate(GUEST_ID);
+        order.verify(jwtProvider).generateAccessToken(eq(GUEST_ID), eq(false), anyLong(), any());
     }
 
     // ── 동시 다른-소셜 승격 경쟁 판별 (GROMO-1229) ───────────────────────────
@@ -526,6 +694,8 @@ class AuthServiceTest {
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
+        // 관문 ② 의 호출자 락 — 승격된 본인 행이 살아 있어 관문은 통과한다 (GROMO-1929)
+        given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(promotedUser);
         // 판별 조회는 무락 findByIdAndIsDeletedFalse — 락을 잡으면 users 2행 잠금이 되어 교착 논증이 깨진다
         given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.of(promotedUser));
 
@@ -590,6 +760,7 @@ class AuthServiceTest {
         given(jwtProvider.extractUserId("guest-jwt")).willReturn(GUEST_ID);
         given(jwtProvider.extractIsGuest("guest-jwt")).willReturn(true);
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
+        given(userQueryService.getCallerForUpdate(GUEST_ID)).willReturn(promotedUser);
         given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.of(promotedUser));
 
         assertThatThrownBy(() ->
@@ -644,6 +815,9 @@ class AuthServiceTest {
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
+        // 관문 ② 의 호출자 락 — 활성 호출자(gen=0)라 통과 (GROMO-1929)
+        given(userQueryService.getCallerForUpdate(GUEST_ID))
+                .willReturn(User.builder().id(GUEST_ID).build());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
@@ -670,6 +844,9 @@ class AuthServiceTest {
         given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
         given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
                 .willReturn(Optional.empty());
+        // 관문 ② 의 호출자 락 — 활성 호출자라 통과 (GROMO-1929)
+        given(userQueryService.getCallerForUpdate(GUEST_ID))
+                .willReturn(User.builder().id(GUEST_ID).build());
         given(userRepository.save(any(User.class))).willReturn(savedUser);
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
         given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
@@ -681,32 +858,6 @@ class AuthServiceTest {
         // 정식 계정 전환(비게스트 AT 로 새 소셜 로그인)은 기존 동작 그대로 새 User 생성
         assertThat(response.isNewUser()).isTrue();
         verify(userRepository, never()).findByIdAndIsDeletedFalse(any(UUID.class));
-    }
-
-    @Test
-    @DisplayName("guest 클레임 true 여도 유저가 탈퇴·부재면 기존 폴백(신규 가입) 유지 — 탈퇴 게스트 계약 보존 (GROMO-1229)")
-    void guestClaimWithWithdrawnUserKeepsFallback() {
-        User savedUser = User.builder().id(USER_ID).build();
-        given(kakaoClient.getProviderId("kakao-token")).willReturn("12345");
-        given(jwtProvider.isTokenValid("deleted-guest-jwt")).willReturn(true);
-        given(jwtProvider.extractType("deleted-guest-jwt")).willReturn(JwtProvider.TYPE_ACCESS);
-        given(jwtProvider.extractUserId("deleted-guest-jwt")).willReturn(GUEST_ID);
-        given(jwtProvider.extractIsGuest("deleted-guest-jwt")).willReturn(true);
-        given(userRepository.findActiveGuestByIdForUpdate(GUEST_ID)).willReturn(Optional.empty());
-        // 판별 조회가 탈퇴(소프트딜리트)를 관측 — 승격 경쟁 패자가 아니라 탈퇴 게스트의 재가입이다
-        given(userQueryService.findActive(GUEST_ID)).willReturn(Optional.empty());
-        given(socialAccountRepository.findByProviderAndProviderId(Provider.KAKAO, "12345"))
-                .willReturn(Optional.empty());
-        given(userRepository.save(any(User.class))).willReturn(savedUser);
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(savedUser);
-        given(jwtProvider.generateAccessToken(eq(USER_ID), eq(false), anyLong(), any())).willReturn("access-token");
-        given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("refresh-token");
-
-        SocialLoginResponse response =
-                authService.socialLogin(Provider.KAKAO, "kakao-token", "Bearer deleted-guest-jwt");
-
-        // 탈퇴 게스트의 유효 토큰 → 신규 가입은 의도된 동작 (기존 계약 유지)
-        assertThat(response.isNewUser()).isTrue();
     }
 
     // ── guestLogin ────────────────────────────────────────────────────────
