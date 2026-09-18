@@ -27,6 +27,9 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,6 +37,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -68,6 +73,8 @@ class AppearanceServiceIntegrationTest {
     UserRepository users;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    PlatformTransactionManager transactionManager;
 
     // ---------------------------------------------------------------- GET /me/inventory
 
@@ -116,6 +123,31 @@ class AppearanceServiceIntegrationTest {
         assertThat(kept.data().clothes()).isEqualTo("scarf");
         assertThat(kept.data().position()).isEqualTo("back");
         assertThat(kept.data().version()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("회수가 보유 행을 먼저 잡으면 장착은 회수 커밋을 기다렸다 403 — stale-equip 창이 없다")
+    void equipWaitsForConcurrentRevoke() {
+        UUID userId = newUser();
+        seedProduct("scarf", "clothes", "user", null);
+        grant("scarf", userId, null);
+
+        CompletableFuture<?>[] patch = new CompletableFuture<?>[1];
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            // 미래 회수 writer 의 첫 단계 — 보유 행 배타 잠금(삭제). 커밋 전이다.
+            jdbc.update("DELETE FROM owned_products WHERE user_id = ? AND product_id = 'scarf'", userId);
+            patch[0] = CompletableFuture.runAsync(() -> service.patchMine(userId, UUID.randomUUID(),
+                    List.of("clothes"), Map.of("clothes", "scarf")));
+            // 보유 행 공유 잠금에서 줄을 서야 한다 — 잠금 없는 확인이면 여기서 이미 끝나 장착된다.
+            assertThatThrownBy(() -> patch[0].get(500, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+        });
+
+        assertThatThrownBy(patch[0]::join)
+                .isInstanceOf(CompletionException.class)
+                .cause().isInstanceOfSatisfying(AppearanceException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(AppearanceErrorCode.FORBIDDEN));
+        assertThat(personalAppearances.findById(userId).map(a -> a.getClothes())).isEmpty();
     }
 
     @Test

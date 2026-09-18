@@ -61,10 +61,13 @@ import org.springframework.transaction.annotation.Transactional;
  * 외양 도메인 — 개인 인벤토리/외양과 공동 인벤토리/외양의 네 계약을 한 서비스가 처리한다
  * (island-appearance LLD). 개인 축과 섬 축은 별개 행·별개 버전이다.
  *
- * <p>잠금 순서는 건설 도메인과 같다 — caller → receipt(command_outbox) → 도메인 행.
- * 개인 PATCH 는 personal_appearances 행을, 섬 PATCH 는 groups → membership(ForShare) →
- * island_appearances 행을 배타로 잠는다. 변경과 사건은 같은 TX 에 쓰고, 버전은 잠긴 행이
- * 직접 올린다 — 행 잠금이 곧 버전 발급 직렬화다.
+ * <p>잠금 순서 — caller → receipt(command_outbox) → (섬: groups → membership(ForShare)) →
+ * 카탈로그 정의(불변, 잠금 없는 읽기) → 제출 상품의 보유 행(ForShare) → 외양 행(ForUpdate).
+ * 보유 행을 외양 행보다 먼저 공유로 잡아 두므로, 보유 행을 지우고 외양을 해제하는 회수 writer 와
+ * 같은 순서로 줄을 서며(교착 없음) 회수가 방금 장착한 상품을 놓치는 stale-equip 창이 닫힌다.
+ * 권한(멤버십 공유 잠금)은 커밋까지 유지되어 검사 후 방장 이양이 끼어드는 TOCTOU 도 없다.
+ * 외양 행 잠금 뒤의 보유 확인(미제출 기존 값 재검증)은 잠금 없는 읽기다 — 역순 잠금을 만들지 않는다.
+ * 변경과 사건은 같은 TX 에 쓰고, 버전은 잠긴 행이 직접 올린다 — 행 잠금이 곧 버전 발급 직렬화다.
  *
  * <p>PATCH 의 fields/values 캐리어는 tri-state(미제출·null·값)를 잃지 않고 내부 계약을
  * 통과시키는 장치다. 필드명 대소문자·공백 차이는 다른 의미 객체로 새 명령이 되므로 400 이다.
@@ -225,34 +228,43 @@ public class AppearanceService implements IslandAppearancePort {
     // ---------------------------------------------------------------- 개인 명령 본체
 
     /**
-     * 병합 상태를 만들고 전체를 다시 검증한다 — 미제출 필드의 기존 값도 새 상태의 일부이므로
-     * 보유·종류 검증에서 빼면 이미 장착한 상품을 근거로 한 우회가 생긴다(문서의 merged-state 규칙).
+     * 제출 값 해석 → 제출 상품의 카탈로그 정의·보유(공유 잠금) → 외양 행 잠금 → 병합 순서다.
+     * 병합 상태 전체를 검증한다 — 미제출 필드의 기존 값도 새 상태의 일부이므로 보유·종류 검증에서
+     * 빼면 이미 장착한 상품을 근거로 한 우회가 생긴다(문서의 merged-state 규칙). 기존 값은 외양 행
+     * 잠금 뒤에야 알 수 있으므로 잠금 없는 읽기로 재검증한다 — 회수 writer 는 외양 행을 늦게 잡아
+     * 기존 장착을 스스로 해제하므로 이 읽기에 잠금이 필요 없다.
      */
     private PublicCommandResult applyPersonal(UUID userId, Map<String, Object> values) {
         userQueryService.getCallerForUpdate(userId);
+
+        boolean hasClothes = values.containsKey("clothes");
+        boolean hasDecor = values.containsKey("decor");
+        String clothesIn = hasClothes ? nullableSlot(values.get("clothes")) : null;
+        String decorIn = hasDecor ? nullableSlot(values.get("decor")) : null;
+        String hullIn = values.containsKey("hull") ? hullValue(values.get("hull")) : null;
+        String positionIn = values.containsKey("position") ? positionValue(values.get("position")) : null;
+
+        if (hasClothes) {
+            requirePersonalProduct(userId, clothesIn, CatalogAsset.KIND_CLOTHES, true);
+        }
+        if (hasDecor) {
+            requirePersonalProduct(userId, decorIn, CatalogAsset.KIND_DECOR, true);
+        }
+
         personalAppearances.insertIfAbsent(userId);
         PersonalAppearance appearance = personalAppearances.findByIdForUpdate(userId)
                 .orElseThrow(() -> new IllegalStateException("개인 외양을 만들 직후에 찾지 못했습니다."));
 
-        String clothes = appearance.getClothes();
-        String decor = appearance.getDecor();
-        String hull = appearance.getHull();
-        String position = appearance.getPosition();
-        if (values.containsKey("clothes")) {
-            clothes = nullableSlot(values.get("clothes"));
+        String clothes = hasClothes ? clothesIn : appearance.getClothes();
+        String decor = hasDecor ? decorIn : appearance.getDecor();
+        String hull = hullIn != null ? hullIn : appearance.getHull();
+        String position = positionIn != null ? positionIn : appearance.getPosition();
+        if (!hasClothes) {
+            requirePersonalProduct(userId, clothes, CatalogAsset.KIND_CLOTHES, false);
         }
-        if (values.containsKey("decor")) {
-            decor = nullableSlot(values.get("decor"));
+        if (!hasDecor) {
+            requirePersonalProduct(userId, decor, CatalogAsset.KIND_DECOR, false);
         }
-        if (values.containsKey("hull")) {
-            hull = hullValue(values.get("hull"));
-        }
-        if (values.containsKey("position")) {
-            position = positionValue(values.get("position"));
-        }
-
-        requirePersonalProduct(userId, clothes, CatalogAsset.KIND_CLOTHES);
-        requirePersonalProduct(userId, decor, CatalogAsset.KIND_DECOR);
 
         boolean changed = appearance.apply(clothes, decor, hull, position, clock.instant());
         List<Map<String, Object>> envelopes = changed
@@ -269,6 +281,18 @@ public class AppearanceService implements IslandAppearancePort {
         aliveIslandForUpdate(islandId);
         requireSharedAppearance(userId, islandId);
 
+        boolean hasTheme = values.containsKey("islandThemeId");
+        String themeIn = hasTheme ? islandThemeValue(values.get("islandThemeId")) : null;
+        Map<String, String> buildingIn = values.containsKey("buildingThemes")
+                ? buildingThemesValue(values.get("buildingThemes")) : Map.of();
+
+        if (hasTheme) {
+            requireIslandTheme(islandId, themeIn, true);
+        }
+        for (Map.Entry<String, String> entry : buildingIn.entrySet()) {
+            requireBuildingTheme(islandId, entry.getKey(), entry.getValue(), true);
+        }
+
         islandAppearances.insertIfAbsent(islandId);
         IslandAppearance appearance = islandAppearances.findByIdForUpdate(islandId)
                 .orElseThrow(() -> new IllegalStateException("섬 외양을 만들 직후에 찾지 못했습니다."));
@@ -276,18 +300,24 @@ public class AppearanceService implements IslandAppearancePort {
             throw new AppearanceException(AppearanceErrorCode.VERSION_CONFLICT);
         }
 
-        String themeId = appearance.getIslandThemeId();
+        // 부분 병합 — 미등록 건물 키(현재 맵에 없는 키 = 미완공·미시드)는 422. PATCH 는 사전 시드된
+        // 대상 행만 갱신한다. 키 집합은 잠긴 행에서만 알 수 있으므로 이 검사는 외양 잠금 뒤다.
+        String themeId = hasTheme ? themeIn : appearance.getIslandThemeId();
         Map<String, String> buildingThemes = new LinkedHashMap<>(appearance.getBuildingThemes());
-        if (values.containsKey("islandThemeId")) {
-            themeId = islandThemeValue(values.get("islandThemeId"));
-        }
-        if (values.containsKey("buildingThemes")) {
-            mergeBuildingThemes(buildingThemes, values.get("buildingThemes"));
+        for (Map.Entry<String, String> entry : buildingIn.entrySet()) {
+            if (!buildingThemes.containsKey(entry.getKey())) {
+                throw new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE);
+            }
+            buildingThemes.put(entry.getKey(), entry.getValue());
         }
 
-        requireIslandTheme(islandId, themeId);
+        if (!hasTheme) {
+            requireIslandTheme(islandId, themeId, false);
+        }
         for (Map.Entry<String, String> entry : buildingThemes.entrySet()) {
-            requireBuildingTheme(islandId, entry.getKey(), entry.getValue());
+            if (!buildingIn.containsKey(entry.getKey())) {
+                requireBuildingTheme(islandId, entry.getKey(), entry.getValue(), false);
+            }
         }
 
         boolean changed = appearance.apply(themeId, buildingThemes, clock.instant());
@@ -365,29 +395,33 @@ public class AppearanceService implements IslandAppearancePort {
     }
 
     /**
-     * buildingThemes — 부분 병합이다. 미등록 건물 키(현재 맵에 없는 키 = 미완공·미시드)와
-     * null 값은 422 — PATCH 는 사전 시드된 대상 행만 갱신하며 null 값은 허용하지 않는다.
+     * buildingThemes 제출 값 — null 맵·null 값은 422(null 은 허용하지 않는다), 맵이 아니거나
+     * 문자열이 아닌 값은 400. 미등록 건물 키 판정은 외양 행 잠금 뒤 병합에서 한다.
      */
-    private static void mergeBuildingThemes(Map<String, String> themes, Object value) {
+    private static Map<String, String> buildingThemesValue(Object value) {
         if (value == null) {
             throw new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE);
         }
         if (!(value instanceof Map<?, ?> map)) {
             throw new AppearanceException(AppearanceErrorCode.INVALID_REQUEST);
         }
+        Map<String, String> themes = new LinkedHashMap<>();
         for (Map.Entry<?, ?> entry : map.entrySet()) {
-            String buildingId = entry.getKey().toString();
-            if (!themes.containsKey(buildingId) || entry.getValue() == null) {
+            if (entry.getValue() == null) {
                 throw new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE);
             }
-            themes.put(buildingId, textual(entry.getValue()));
+            themes.put(entry.getKey().toString(), textual(entry.getValue()));
         }
+        return themes;
     }
 
     // ---------------------------------------------------------------- 검증
 
-    /** 개인 슬롯 상품 — 없으면 404, 종류/소유자가 다르면 422, 미보유는 403. */
-    private void requirePersonalProduct(UUID userId, String productId, String kind) {
+    /**
+     * 개인 슬롯 상품 — 없으면 404, 종류/소유자가 다르면 422, 미보유는 403.
+     * {@code lock} 이면 보유 행을 공유로 잠근다 — 외양 행 잠금 전(제출 값)에만 true 로 부른다.
+     */
+    private void requirePersonalProduct(UUID userId, String productId, String kind, boolean lock) {
         if (productId == null) {
             return;
         }
@@ -396,39 +430,48 @@ public class AppearanceService implements IslandAppearancePort {
         if (!kind.equals(asset.getKind()) || !CatalogAsset.OWNER_USER.equals(asset.getOwnerType())) {
             throw new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE);
         }
-        if (!ownedProducts.existsByUserIdAndProductId(userId, productId)) {
+        boolean owned = lock
+                ? ownedProducts.findUserProductForShare(userId, productId).isPresent()
+                : ownedProducts.existsByUserIdAndProductId(userId, productId);
+        if (!owned) {
             throw new AppearanceException(AppearanceErrorCode.FORBIDDEN);
         }
     }
 
     /** 섬 전체 테마 — "default" 는 항상 통과, 그 외는 island_theme + 공동 소유여야 한다. */
-    private void requireIslandTheme(UUID islandId, String productId) {
+    private void requireIslandTheme(UUID islandId, String productId, boolean lock) {
         if (IslandAppearance.THEME_DEFAULT.equals(productId)) {
             return;
         }
-        requireIslandProduct(islandId, productId, CatalogAsset.KIND_ISLAND_THEME);
+        requireIslandProduct(islandId, productId, CatalogAsset.KIND_ISLAND_THEME, lock);
     }
 
     /** 건물 테마 — "default" 통과, building_theme 이면서 targetBuilding 이 해당 건물이어야 한다. */
-    private void requireBuildingTheme(UUID islandId, String buildingId, String productId) {
+    private void requireBuildingTheme(UUID islandId, String buildingId, String productId,
+                                      boolean lock) {
         if (IslandAppearance.THEME_DEFAULT.equals(productId)) {
             return;
         }
         CatalogAsset asset = requireIslandProduct(islandId, productId,
-                CatalogAsset.KIND_BUILDING_THEME);
+                CatalogAsset.KIND_BUILDING_THEME, lock);
         if (!buildingId.equals(asset.getTargetBuilding())) {
             throw new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE);
         }
     }
 
-    private CatalogAsset requireIslandProduct(UUID islandId, String productId, String kind) {
+    /** 공동 상품 — {@code lock} 규칙은 {@link #requirePersonalProduct} 와 같다. */
+    private CatalogAsset requireIslandProduct(UUID islandId, String productId, String kind,
+                                              boolean lock) {
         CatalogAsset asset = catalogAssets.findById(productId)
                 .orElseThrow(() -> new AppearanceException(AppearanceErrorCode.PRODUCT_NOT_FOUND));
         if (!kind.equals(asset.getKind())
                 || !CatalogAsset.OWNER_ISLAND.equals(asset.getOwnerType())) {
             throw new AppearanceException(AppearanceErrorCode.OUT_OF_RANGE);
         }
-        if (!ownedProducts.existsByIslandIdAndProductId(islandId, productId)) {
+        boolean owned = lock
+                ? ownedProducts.findIslandProductForShare(islandId, productId).isPresent()
+                : ownedProducts.existsByIslandIdAndProductId(islandId, productId);
+        if (!owned) {
             throw new AppearanceException(AppearanceErrorCode.FORBIDDEN);
         }
         return asset;
