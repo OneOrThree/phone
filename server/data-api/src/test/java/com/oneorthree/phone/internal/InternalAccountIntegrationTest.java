@@ -7,6 +7,7 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.internal.dto.LoginAttemptLookupRequest;
+import com.oneorthree.phone.internal.service.InternalAccountService;
 import com.oneorthree.phone.internal.service.LoginAttemptService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -28,6 +29,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -63,6 +65,8 @@ class InternalAccountIntegrationTest {
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/users/*");
         registry.add("internal.api.callers.business.allow[1]", () -> "PATCH /internal/users/*");
         registry.add("internal.api.callers.business.allow[2]", () -> "DELETE /internal/users/*");
+        // 운영 기본은 닫힘(계정 LLD §2.3) — 계약 검증을 위해 열고, 닫힌 동작은 따로 뒤집어 본다.
+        registry.add("account.profile-update-enabled", () -> true);
     }
 
     @Autowired
@@ -77,6 +81,8 @@ class InternalAccountIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     PlatformTransactionManager transactions;
+    @Autowired
+    InternalAccountService accountService;
     @PersistenceContext
     EntityManager em;
 
@@ -139,6 +145,24 @@ class InternalAccountIntegrationTest {
         rename(other, UUID.randomUUID(), "{\"name\":\" a \"}").andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value("NICKNAME_INVALID"));
         assertThat(nickname(other)).isNull();
+    }
+
+    @Test
+    @DisplayName("PATCH 스위치가 닫히면 receipt·이름 변경 전에 503 PROFILE_UPDATE_UNAVAILABLE — GET 은 그대로")
+    void patchIsClosedBySwitch() throws Exception {
+        Actor actor = actor();
+        ReflectionTestUtils.setField(accountService, "profileUpdateEnabled", false);
+        try {
+            rename(actor, UUID.randomUUID(), "{\"name\":\"" + uniqueName() + "\"}")
+                    .andExpect(status().isServiceUnavailable())
+                    .andExpect(jsonPath("$.code").value("PROFILE_UPDATE_UNAVAILABLE"));
+            me(actor).andExpect(status().isOk());
+        } finally {
+            ReflectionTestUtils.setField(accountService, "profileUpdateEnabled", true);
+        }
+        assertThat(nickname(actor)).isNull();
+        assertThat(jdbc.queryForObject("select count(*) from command_idempotency where user_id=?", Long.class,
+                actor.userId())).isZero();
     }
 
     @ParameterizedTest

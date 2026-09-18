@@ -20,8 +20,9 @@ import java.util.function.Supplier;
  * 공개 계정 3종 {@code GET|PATCH|DELETE /me} (GROMO-1801 · 계정 LLD §2.2·§2.3·§2.5).
  *
  * <p>사용자 활성·세션·세대·닉네임·방장 판정은 전부 Data TX 가 한다. 여기서 옮기는 것은 Data 의 세션 폐기
- * 403 {@code SESSION_NOT_ACTIVE} → 공개 401 하나뿐이고, 나머지({@code USER_NOT_FOUND}·{@code NICKNAME_*}·
- * {@code HOST_WITHDRAW}·키 충돌)는 이름이 같은 공개 코드로 {@code registeredUpstream} 이 옮긴다.
+ * 403 {@code SESSION_NOT_ACTIVE} → 공개 401 과 PATCH 스위치 503 {@code PROFILE_UPDATE_UNAVAILABLE} → 공개 503
+ * 둘이고, 나머지({@code USER_NOT_FOUND}·{@code NICKNAME_*}·{@code HOST_WITHDRAW}·키 충돌)는 이름이 같은
+ * 공개 코드로 {@code registeredUpstream} 이 옮긴다.
  *
  * <p>ponytail: 탈퇴 전 Business 링크 미리보기 캐시 차단 표지·삭제(LLD §4)는 하지 않는다 — 별도 후속이다.
  */
@@ -65,6 +66,10 @@ public class AccountUseCase {
         } catch (UpstreamDomainException e) {
             if (e.getStatus() == 403 && "SESSION_NOT_ACTIVE".equals(e.getCode())) {
                 throw new PublicApiException(ApiErrorCode.UNAUTHORIZED, null);
+            }
+            // PATCH 스위치가 닫힘(계정 LLD §2.3 — 온보딩 전이 사건 연결 전). 사유는 내부 코드로만 남긴다.
+            if (e.getStatus() == 503 && "PROFILE_UPDATE_UNAVAILABLE".equals(e.getCode())) {
+                throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
             }
             throw e;
         }

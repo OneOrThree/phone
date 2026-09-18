@@ -15,12 +15,15 @@ import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.service.UserService;
 import com.oneorthree.phone.user.support.OnboardingCompletion;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -50,6 +53,13 @@ public class InternalAccountService {
     private final PublicCommandService publicCommands;
     private final AccountWithdrawalService withdrawal;
 
+    /**
+     * PATCH 스위치 — 기본 닫힘(계정 LLD §2.3). 온보딩 판정(Q04)과 {@code user.onboarded} producer 가 없어서,
+     * 이름 최초 설정이 만드는 완료 false→true 전이를 사건 없이 흘리지 않으려고 연결 전까지 열지 않는다.
+     */
+    @Value("${account.profile-update-enabled:false}")
+    private boolean profileUpdateEnabled;
+
     /** 활성 계정 projection 한 번. users 를 읽기만 하므로 공유 락이다. */
     @Transactional
     public AccountMeView me(UUID userId, UUID sessionId, long authGeneration) {
@@ -62,12 +72,15 @@ public class InternalAccountService {
      * 이름 변경. 같은 키·같은 본문은 최초 결과를 재생하고 다른 본문은 409 다({@link PublicCommandService}).
      * 재생도 현재 세션을 다시 검사한다 — 로그아웃·탈퇴 뒤에는 receipt 가 있어도 개인 응답을 돌려주지 않는다.
      *
-     * <p>ponytail: {@code user.onboarded} 전이 사건은 내지 않는다. Q04 판정이 미결이고 소비자 계약도 없다 —
-     * 판정 확정 때 변경 전·후 {@code OnboardingCompletion} 비교를 이 command 안에 넣는다.
+     * <p>스위치가 닫혀 있으면 잠금·receipt 선점·이름 변경보다 앞서 503 {@code PROFILE_UPDATE_UNAVAILABLE} 이다.
+     * 여는 날 변경 전·후 {@code OnboardingCompletion} 비교와 {@code user.onboarded} outbox 를 이 command 안에 넣는다.
      */
     @Transactional
     public AccountProfileView patch(UUID userId, AccountPatchRequest request, UUID sessionId, long authGeneration,
                                     UUID idempotencyKey) {
+        if (!profileUpdateEnabled) {
+            throw new UserException(UserErrorCode.PROFILE_UPDATE_UNAVAILABLE);
+        }
         var command = new PublicCommandRequest(userId, OPERATION_PATCH + userId, idempotencyKey,
                 tree(Map.of("name", request.name())));
         var receipt = publicCommands.run(command,

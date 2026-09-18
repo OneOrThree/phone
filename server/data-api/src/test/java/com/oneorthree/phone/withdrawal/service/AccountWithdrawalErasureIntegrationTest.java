@@ -75,6 +75,8 @@ class AccountWithdrawalErasureIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
+        // 공개 PATCH receipt 파기를 보려면 receipt 가 있어야 한다 — 운영 기본(닫힘)을 이 테스트에서만 연다.
+        registry.add("account.profile-update-enabled", () -> true);
     }
 
     @Autowired AccountWithdrawalService withdrawal;

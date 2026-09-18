@@ -12,6 +12,10 @@ notification:
 island-management:
   host-transfer-enabled: false
 
+# 신규 PATCH /me (GROMO-1801). 계정 LLD §2.3 — 온보딩 판정·user.onboarded producer 연결 전에는 열지 않는다.
+account:
+  profile-update-enabled: false
+
 internal:
   api:
     enabled: ${INTERNAL_API_ENABLED:false}

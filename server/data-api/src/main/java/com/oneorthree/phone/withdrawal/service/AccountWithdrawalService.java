@@ -123,6 +123,8 @@ public class AccountWithdrawalService {
         authSessionService.eraseWithdrawnCredentials(userId);
         // 이미 박힌 초대 귀속을 끊는다(ⓐ) — tombstone 은 이후 쓰기만 막고, claim 은 최초 1회만
         // 기록되므로 여기서 끊지 않으면 되돌릴 길이 없다. 본인 발급 링크의 발급자 연결도 같이 끊는다(LLD §4).
+        // LLD §4 순서표는 이 단계를 지갑 삭제 뒤에 두지만, 기존 ⓐ 자리를 지킨다 — 아래 단계 어느 것도
+        // 초대 링크·클릭 행을 읽거나 쓰지 않아(링크 폐기 사건은 멤버십의 user 로 축을 잡는다) 결과가 같다.
         inviteLinkMatchService.eraseWithdrawnUser(userId);
         // 위성이 자기 원장을 정리할 수 있게 탈퇴 사건을 적는다 — 알림은 Kafka, 링크는 HTTP.
         withdrawalSatelliteCommandService.recordWithdrawn(userId, authGeneration);
