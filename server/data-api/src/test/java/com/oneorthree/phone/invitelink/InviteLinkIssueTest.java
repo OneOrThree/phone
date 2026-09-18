@@ -7,6 +7,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -29,6 +30,9 @@ class InviteLinkIssueTest extends InviteLinkTestSupport {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     private Group group;
     private User inviter;
@@ -78,6 +82,26 @@ class InviteLinkIssueTest extends InviteLinkTestSupport {
         assertThat(first).isEqualTo(1);
         assertThat(second).as("같은 세대로 이미 교체됐으면 덮어쓰지 않는다").isZero();
         assertThat(inviteLinkRepository.findSlugById(linkId)).isEqualTo("aaaaaaaa");
+    }
+
+    @Test
+    @DisplayName("발급자 세대가 바뀐 뒤 재호출하면 실제 API 가 새 슬러그로 재발급하고 DB 값과 같다 (GROMO-1760)")
+    void reissueThroughTheApiAfterEpochChange() throws Exception {
+        String original = JsonPath.read(issue(group.getId(), inviter), "$.slug");
+        UUID linkId = inviteLinkRepository.findBySlug(original).orElseThrow().getId();
+
+        // 이탈·재가입과 같은 효과 — 발급자의 멤버십 세대만 올린다.
+        jdbc.update("update group_members set membership_epoch = membership_epoch + 1 "
+                + "where group_id = ? and user_id = ?", group.getId(), inviter.getId());
+
+        String reissued = JsonPath.read(issue(group.getId(), inviter), "$.slug");
+
+        assertThat(reissued).isNotEqualTo(original);
+        assertThat(inviteLinkRepository.findSlugById(linkId))
+                .as("응답 슬러그는 실제 커밋된 값이다 — 무트랜잭션 서비스의 TransactionTemplate 배선 확인")
+                .isEqualTo(reissued);
+        assertThat(inviteLinkRepository.findBySlug(original)).as("옛 슬러그는 폐기된다").isEmpty();
+        assertThat(inviteLinkRepository.findAll()).hasSize(1);
     }
 
     @Test
