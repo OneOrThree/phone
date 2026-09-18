@@ -18,6 +18,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.transaction.PlatformTransactionManager;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -52,6 +53,8 @@ class InviteLinkServiceTest {
     private InviteLinkGa4Events ga4Events;
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
+    @Mock
+    private PlatformTransactionManager transactionManager;
 
     private InviteLinkService inviteLinkService;
 
@@ -62,7 +65,7 @@ class InviteLinkServiceTest {
     void setUp() {
         inviteLinkService = new InviteLinkService(inviteLinkRepository, groupQueryService,
                 groupMemberRepository, userQueryService, slugGenerator, inviteLinkUrls,
-                ga4Events, userActivityEventLogger);
+                ga4Events, userActivityEventLogger, transactionManager);
     }
 
     @Test

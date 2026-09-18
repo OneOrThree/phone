@@ -30,6 +30,7 @@ import com.oneorthree.phone.internal.dto.AccountPatchRequest;
 import com.oneorthree.phone.internal.service.InternalAccountService;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
 import com.oneorthree.phone.invitelink.repository.domain.InviteLinkClick;
+import com.oneorthree.phone.invitelink.service.InviteLinkService;
 import com.oneorthree.phone.item.repository.domain.CharacterEquipment;
 import com.oneorthree.phone.item.repository.domain.Item;
 import com.oneorthree.phone.item.repository.domain.ItemType;
@@ -40,6 +41,7 @@ import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResult;
 import com.oneorthree.phone.league.repository.domain.LeagueWeeklyResultType;
 import com.oneorthree.phone.notification.repository.domain.NotificationSentLog;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.domain.Occupation;
 import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -54,6 +56,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
@@ -63,6 +66,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 계정 LLD §4 탈퇴 파기 전수 (GROMO-1801) — 모든 Data 대상 테이블에 탈퇴자(W)·상대(C)·제3자(T)의 행을 심고,
@@ -81,6 +85,7 @@ class AccountWithdrawalErasureIntegrationTest {
 
     @Autowired AccountWithdrawalService withdrawal;
     @Autowired InternalAccountService account;
+    @Autowired InviteLinkService inviteLinks;
     @Autowired AuthService auth;
     @Autowired JwtProvider jwt;
     @Autowired JdbcTemplate jdbc;
@@ -228,6 +233,51 @@ class AccountWithdrawalErasureIntegrationTest {
         // social_accounts (기존 파기) — W 삭제, C 유지
         assertThat(count("select count(*) from social_accounts where user_id=?", w.id())).isZero();
         assertThat(count("select count(*) from social_accounts where user_id=?", c.id())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("탈퇴가 공지 작성자를 끊은 뒤 커밋되는 옛 스냅샷 공지 수정은 작성자를 되살리지 않는다")
+    void staleAnnouncementEditDoesNotRestoreErasedAuthor() {
+        Actor w = actor();
+        UUID noticeId = new TransactionTemplate(transactions).execute(status -> {
+            Group group = Group.builder().name("공지" + suffix()).maxMembers(10).build();
+            em.persist(group);
+            // W 는 이 그룹을 이미 나갔다 — 탈퇴는 활성 멤버 그룹만 잠그므로 이 공지 수정과 직렬화되지 않는다
+            GroupAnnouncement notice = GroupAnnouncement.builder().group(group).user(em.find(User.class, w.id()))
+                    .title("W공지").content("본문").build();
+            em.persist(notice);
+            return notice.getId();
+        });
+
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            GroupAnnouncement stale = em.find(GroupAnnouncement.class, noticeId);
+            TransactionTemplate other = new TransactionTemplate(transactions);
+            other.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            other.executeWithoutResult(inner -> withdrawal.withdraw(w.id()));
+            stale.updateContent("수정", null);
+        });
+
+        assertThat(row("select user_id, title from group_announcements where id=?", noticeId))
+                .containsEntry("user_id", null).containsEntry("title", "수정");
+    }
+
+    @Test
+    @DisplayName("비활성 발급자의 초대 링크 발급은 INSERT 전에 404 — 탈퇴 스윕을 지나친 발급자 연결이 남지 않는다")
+    void inviteIssueChecksInviterInTheInsertTransaction() {
+        Actor w = actor();
+        UUID groupId = new TransactionTemplate(transactions).execute(status -> {
+            Group group = Group.builder().name("발급" + suffix()).maxMembers(10).build();
+            em.persist(group);
+            em.persist(GroupMember.builder().group(group).user(em.find(User.class, w.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            return group.getId();
+        });
+        // 탈퇴 커밋 직전에 멤버십 검사를 통과한 발급 — 멤버십은 살아 있고 사용자만 비활성인 순간을 고정한다
+        jdbc.update("update users set is_deleted = true where id = ?", w.id());
+
+        assertThatThrownBy(() -> inviteLinks.issue(groupId, w.id())).isInstanceOf(UserException.class);
+        assertThat(count("select count(*) from group_invite_links where inviter_id=?", w.id())).isZero();
     }
 
     // ---------------------------------------------------------------- 픽스처
