@@ -5,7 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -52,13 +51,12 @@ public interface GroupInviteLinkRepository extends JpaRepository<GroupInviteLink
      * {@link #findSlugById} 로 읽어 돌려준다. 무조건 UPDATE 면 마지막 쓰기가 조용히 이겨, 진 쪽이
      * 응답한 슬러그가 DB 에 없는 값이 된다.
      *
-     * <p>이 저장소에서 {@code @Transactional} 이 붙은 유일한 메서드다 — 레거시
-     * {@code InviteLinkService} 는 의도적으로 트랜잭션이 없고(클래스 주석 참고), 섬 초대 발급은 이미
-     * 트랜잭션 안에서 불러 그대로 합류한다.
+     * <p>{@code @Modifying} 이라 트랜잭션을 열지 않는다(규약 §4) — 무트랜잭션인 레거시
+     * {@code InviteLinkService} 는 이 호출만 {@code TransactionTemplate} 으로 감싸고, 섬 초대 발급은
+     * 이미 트랜잭션 안에서 부른다.
      *
      * @return 1 = 이 호출이 교체했다, 0 = 이미 같은 세대로 교체돼 있다
      */
-    @Transactional
     @Modifying
     @Query("UPDATE GroupInviteLink l SET l.slug = :slug, l.issuanceEpoch = :epoch "
             + "WHERE l.id = :id AND l.issuanceEpoch <> :epoch")

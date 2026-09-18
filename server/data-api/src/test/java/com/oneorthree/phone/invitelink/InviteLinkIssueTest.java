@@ -6,7 +6,10 @@ import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
 
@@ -23,6 +26,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 그리고 <b>URL 형식</b>(앱·랜딩·AASA 가 전부 이 형식을 전제로 동작한다).
  */
 class InviteLinkIssueTest extends InviteLinkTestSupport {
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     private Group group;
     private User inviter;
@@ -64,8 +70,10 @@ class InviteLinkIssueTest extends InviteLinkTestSupport {
         UUID linkId = inviteLinkRepository.findBySlug(original).orElseThrow().getId();
         long nextEpoch = inviteLinkRepository.findById(linkId).orElseThrow().getIssuanceEpoch() + 1;
 
-        int first = inviteLinkRepository.reissueIfStale(linkId, "aaaaaaaa", nextEpoch);
-        int second = inviteLinkRepository.reissueIfStale(linkId, "bbbbbbbb", nextEpoch);
+        // @Modifying 은 트랜잭션을 열지 않는다(규약 §4) — 서비스처럼 호출마다 짧은 트랜잭션으로 감싼다.
+        TransactionTemplate tx = new TransactionTemplate(transactionManager);
+        int first = tx.execute(status -> inviteLinkRepository.reissueIfStale(linkId, "aaaaaaaa", nextEpoch));
+        int second = tx.execute(status -> inviteLinkRepository.reissueIfStale(linkId, "bbbbbbbb", nextEpoch));
 
         assertThat(first).isEqualTo(1);
         assertThat(second).as("같은 세대로 이미 교체됐으면 덮어쓰지 않는다").isZero();
