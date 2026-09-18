@@ -231,9 +231,9 @@ GROMO-1254 의 스크린타임 연속 달성일 수정 초안이 실제로 여�
 | `focus/blockToday.ts:64,100` | `localDateStr` / `todayStr()` | 표시 축(로컬 누적) — 같은 파일의 `server` 맵과 **의도적으로 두 축** |
 | `focus/sessionSaveVerdict.ts:30,71` | `todayStr()` | 판정 발행 시점 날짜(로컬) — 소비처 `FocusResultScreen:272` 도 로컬 |
 | `focus/FocusResultScreen.tsx:~215` `todayLocal` | `todayStr()` | verdict 유효성 비교 — **강제 이전 금지**(같은 축끼리 비교) |
-| `services/screentimeSync.ts:237,337-338` | `todayStr()` / `yesterdayStr()` | 측정 시작일 앵커·마감 대상일 — 익스텐션이 로컬 하루로 버킷을 자른다 |
+| `services/screentimeSync.ts:143,337-338` | `todayStr()` / `yesterdayStr()` | 측정 시작일 앵커·마감 대상일 — 익스텐션이 로컬 하루로 버킷을 자른다 |
 | `services/screentimeSync.ts:162` `localNoonInstant` | 로컬 정오 | 로컬 측정일을 KST 저장 축으로 잇는 보고 instant. 자정 경계 오귀속을 막지만 **`UTC−3` 이하는 하루 밀린다**(§6 G2) |
-| `services/screentimeSync.ts:257,263,637,776` | `localDateStr` | 네이티브 dayKey 축 — **`todayStr`/`yesterdayStr` 금지**(주입점을 `localDateStr` 하나로) |
+| `services/screentimeSync.ts:637,776` | `localDateStr` | 네이티브 dayKey 축 — **`todayStr`/`yesterdayStr` 금지**(주입점을 `localDateStr` 하나로) |
 | `services/screentimeSync.ts` 축하 하루 1회 가드(`today`) | `todayStr()` | 달성 **판정 자체가 로컬**(네이티브 버킷 분값 ≤ 로컬 목표) + 트리거도 로컬 자정 넘김 |
 | `HomeScreen.tsx:~397` 스크린타임 축하 비교 | `todayStr()` | 위 체인의 소비 측 |
 | `HomeScreen.tsx:~542` `screentimeLastRewardedDate` | 예약의 `date` | 위 체인의 완료 기록 |
@@ -334,7 +334,7 @@ jest.mock('@/utils/localDate', () => ({
 > 실제 컷오버(§7.7 Phase 2) 전까지 **현재 KST 가 authoritative** 하고 §2 규약이 현행이다.
 > 이 절의 수치는 2026-09-18 에 재측정했다 — 티켓 인용치(호출자 7 · 자체 리터럴 24 · 크론 24 · 앱 리터럴 3곳)와
 > 실측이 다르다. 호출부는 실제 코드 호출 기준 티켓과 같은 7파일이며, `ZonePolicy.KST` 를 javadoc 에서만
-> 언급하는 2파일까지 합한 언급 파일이 9개다(7→9 로 늘어난 게 아니라 집계 기준 차이 — §7.1). 그 외 실측은
+> 언급하는 3파일까지 합한 언급 파일이 10개다(7→10 으로 늘어난 게 아니라 집계 기준 차이 — §7.1). 그 외 실측은
 > 자체 리터럴 21클래스+정본 · 크론 25 · 앱 `+09:00` 4곳+자체 KST 상수 6곳+`'Asia/Seoul'` 인라인 잔여+앱 2.0
 > `kstClock` 자체 오프셋 1곳(§7.1 표)다.
 
@@ -349,7 +349,7 @@ jest.mock('@/utils/localDate', () => ({
 | --- | --- | --- |
 | 정본 상수 | `common/util/ZonePolicy.java:20` — `ZonePolicy.KST` | 1 |
 | `ZonePolicy.KST` 코드 호출부 | `bot/service/BotSimulator` · `focus/service/FocusService` · `internal/service/FocusSessionLifecycleService` · `league/repository/LeagueRankingQueryRepository` · `screentime/service/ScreenTimeService` · `stats/service/StatsService` · `user/service/UserService` | 7 파일 |
-| `ZonePolicy.KST` javadoc 언급(코드 호출 없음) | `config/ClockConfig.java:15` · `user/dto/UserProfileResponse.java:9` | 2 파일 |
+| `ZonePolicy.KST` javadoc 언급(코드 호출 없음) | `config/ClockConfig.java:15` · `screentime/ScreenTimeController.java:21` · `user/dto/UserProfileResponse.java:9` | 3 파일 |
 | 자체 `ZoneId.of("Asia/Seoul")` 리터럴 | `group/` 8 — GroupBetScheduler:47 · GroupBetSessionFactory:42 · GroupBetFreezeMonitor:34 · WindowFocusAggregator:47 · GroupBetWindowUsageService:89 · GroupChallengeService:93 · GroupBetService:121 · GroupBetSettlementService:41<br>`notification/` 12 — SlotGranularity:49 · Expiry:15 · EndPushDispatcher:62 · SessionOpen:96 · WindowEnd:57 · LeagueReengagement:53 · RankOvertake:48 · DurationEnd:55 · Push:36 · InactiveReturn:56 · ExportService:734 · internal/RetentionEligibility:26<br>`league/` 1 — LeagueWeek:24 | 21 클래스 |
 | `@Scheduled(zone="Asia/Seoul")` 크론 | NotificationScheduler 17개 · GroupBetScheduler 3개 · LeagueScheduler:25 · FocusPresenceReconciler:199 · FocusSessionOrphanScheduler:34 · IslandConstructionScheduler:36 · BotScheduler:35 | 25 개 / 7 파일 |
 | Hibernate 존 | `application-prod.yml:16` — `hibernate.jdbc.time_zone: Asia/Seoul` (dev·staging 은 미설정 — 컷오버 때 프로파일 정렬 필요) | 1 |
@@ -420,7 +420,7 @@ Phase 2 컷오버는 라벨의 의미만 바꾸고 기존 행은 건드리지 �
 `LeagueAnchorRotator.rotate` 가 ACTIVE 아레나를 `started_at < newWeekStart` 로 전부 마감하고 신규 anchor 생성 →
 `settleAll(previousWeekStart)` — 집계는 **instant 가 아니라 `daily_focus_stats.date` 라벨 BETWEEN(양끝 포함)**
 (`LeagueRankingQueryRepository.java:56,135`) → 결과는 `league_weekly_results.(user_id, week_start_at)` 유니크
-(schema.dbml:1064) + 보상 멱등키 `league:{weekStartAt}:{userId}` (`LeagueUserSettler.java:164`).
+(schema.dbml:1064) + 보상 멱등키 `league:{weekStartAt}:{userId}` (`LeagueUserSettler.java:169`).
 
 **위험의 정확한 형태** — 집계 대상이 instant 구간이 아니라 **날짜 라벨 집합**이라, KST 주차의 {월~일
 7개 라벨}과 UTC 주차의 {Mon..Sun 7개 라벨}이 **같은 라벨 집합**이다. 첫 UTC 배치가 `previousWeekStart`
@@ -470,7 +470,7 @@ anchor 선삽입과 무관하게 동작한다. UTC 빌드의 `[A_k, M_utc)` 창�
 | `focusGoal:{userId}:{statDate}` | `FocusService.java:1349` — statDate 는 KST 버킷 | 지급 창 [어제,오늘](:1338) 이라 노출은 전환일 ±1일 |
 | `stGoal:{userId}:{date}` | `ScreenTimeService.java:206-207` — date = `resolveLocalDate`(KST) | 〃 (:195 창) |
 | `streak:{userId}:{yyyy-mm-dd}` | **리터럴 키는 없다** — `user_streaks.last_session_date` 비교가 멱등 역할 (`UserStreakService.java:66`: `sessionDate == lastSessionDate` → 무변화) | 키 충돌은 없지만, 경계일 같은 실적이 다른 라벨로 들어오면 스트릭이 하루 중복 연장될 수 있다 — **수용**(아래) |
-| `league:{weekStartAt}:{userId}` | `LeagueUserSettler.java:164` | §7.3 의 이중 정산과 같은 그림 — 주차 축 변형 |
+| `league:{weekStartAt}:{userId}` | `LeagueUserSettler.java:169` | §7.3 의 이중 정산과 같은 그림 — 주차 축 변형 |
 
 **방지책(권장)**: `currency_transactions.idempotency_key` 유니크는 문자열 일치라 축 변환을 모른다.
 컷오버 빌드에 **전환 후 48시간 한정 임시 가드**를 둔다 — `alreadyApplied`(`CurrencyLedgerService.java:147`)
