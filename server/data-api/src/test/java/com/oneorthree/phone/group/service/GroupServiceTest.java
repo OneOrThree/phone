@@ -106,6 +106,14 @@ class GroupServiceTest {
     @Mock
     private com.oneorthree.phone.group.service.LinkMembershipEventService linkMembershipEventService;
 
+    // 직접 가입 성공 시 같은 신청자의 열린 가입 요청을 닫는다(GROMO-1760). 스텁이 없으면
+    // Optional.empty(Mockito 기본값) = 열린 요청 없음 → 기존 joinGroup 단언에 영향이 없다.
+    @Mock
+    private com.oneorthree.phone.group.repository.IslandJoinRequestRepository joinRequestRepository;
+
+    @Mock
+    private IslandJoinRequestEvents joinRequestEvents;
+
     @InjectMocks
     private GroupService groupService;
 

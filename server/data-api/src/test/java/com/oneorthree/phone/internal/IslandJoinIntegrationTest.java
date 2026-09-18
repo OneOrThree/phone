@@ -153,7 +153,7 @@ class IslandJoinIntegrationTest {
     @DisplayName("같은 키·같은 본문은 원 응답을 재생하고 멤버십·사건을 두 번 만들지 않는다")
     void sameKeyAndBodyReplaysTheOriginalJoin() {
         UUID applicant = newUser();
-        UUID islandId = publicIsland("멱등섬");
+        UUID islandId = publicIsland("가입멱등섬");
         UUID key = UUID.randomUUID();
 
         JoinIslandResultView first = joins.join(applicant, islandId, null, key);
