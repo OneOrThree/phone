@@ -37,6 +37,8 @@ location = /actuator { return 404; }
 # 섬 건설(GROMO-1767)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/construction-options · PUT /islands/{islandId}/construction-target ·
 # POST /islands/{islandId}/constructions.
+# 같이 낚시 초기 스냅샷(GROMO-1765)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/focus-members · GET /islands/{islandId}/rest-members.
 # 친구(GROMO-1894)도 아래 friends 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. friends 분기:
 # GET /friends · GET /friends/requests · POST /friends/requests · POST /friends/requests/{requestId}/accept ·
 # .../reject · .../cancel · DELETE /friends/{friendUserId}. 편지(GROMO-1933)도 같은 분기가 전달한다 —

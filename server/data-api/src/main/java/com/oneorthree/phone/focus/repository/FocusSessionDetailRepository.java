@@ -39,7 +39,18 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
             UUID userId, Collection<FocusSessionLifecycle> lifecycles);
 
     /**
-     * 휴식 자리 배정용 — 같은 섬에서 현재 paused인 사용자들이 쥔 자리 번호.
+     * 섬 주민 스냅샷용(GROMO-1765) — 그 섬에 귀속된 진행 세션 중 지정한 사용자들의 것.
+     *
+     * @param islandId   세션이 귀속된 섬(시작 시 고정)
+     * @param lifecycles focus 목록은 ACTIVE·PAUSED, rest 목록은 PAUSED
+     * @param userIds    현재 활성 주민 — 섬을 떠난 사용자의 진행 세션은 여기서 걸러진다
+     * @return 해당 상세(사용자당 최대 1건 — V58 부분 UNIQUE)
+     */
+    List<FocusSessionDetail> findByIslandIdAndLifecycleInAndUserIdIn(
+            UUID islandId, Collection<FocusSessionLifecycle> lifecycles, Collection<UUID> userIds);
+
+    /**
+     * 휴식 자리 배정용 —같은 섬에서 현재 paused인 사용자들이 쥔 자리 번호.
      * 호출측이 {@code GroupQueryService.getGroupForUpdate}로 섬 행을 먼저 잠근 뒤 불러야
      * 동시 pause 두 건이 같은 최소 빈 번호를 고르지 않는다.
      *
