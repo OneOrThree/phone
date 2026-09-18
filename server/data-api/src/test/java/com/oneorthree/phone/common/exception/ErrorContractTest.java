@@ -18,6 +18,8 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
+import com.oneorthree.phone.letter.exception.LetterErrorCode;
+import com.oneorthree.phone.letter.exception.LetterException;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.league.exception.LeagueException;
@@ -81,6 +83,7 @@ class ErrorContractTest {
             Map.entry(CurrencyErrorCode.class, c -> new CurrencyException((CurrencyErrorCode) c)),
             Map.entry(FocusErrorCode.class, c -> new FocusException((FocusErrorCode) c)),
             Map.entry(FriendErrorCode.class, c -> new FriendException((FriendErrorCode) c)),
+            Map.entry(LetterErrorCode.class, c -> new LetterException((LetterErrorCode) c)),
             Map.entry(GroupErrorCode.class, c -> new GroupException((GroupErrorCode) c)),
             Map.entry(InviteLinkErrorCode.class, c -> new InviteLinkException((InviteLinkErrorCode) c)),
             Map.entry(LeagueErrorCode.class, c -> new LeagueException((LeagueErrorCode) c)),
@@ -121,12 +124,12 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 12개 + CommonErrorCode — outbox 가 GROMO-1659·1660 공통 기반에서 늘었다")
-                .hasSize(13);
+        assertThat(found).as("실측 기준 도메인 enum 13개 + CommonErrorCode — letter(GROMO-1933)가 늘었다")
+                .hasSize(14);
     }
 
     @TestFactory
-    @DisplayName("상수 149개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -153,8 +156,12 @@ class ErrorContractTest {
         // 막는 사유가 달라 하나만 먼저 여는 날 구분이 필요하다.
         // GROMO-1894 가 친구 요청 취소의 권한 코드 1개(NOT_REQUEST_SENDER)를 더했다 — 발신자 축 거부를
         // 수신자 축(NOT_REQUEST_RECEIVER)과 한 코드로 접으면 앱이 「내가 보낸 요청이 아니다」를 구분하지 못한다.
-        assertThat(tests).as("실측 기준 도메인 상수 134개 + 공통 15개 — 집중 세션 수명주기 12종·친구 취소 1종 포함")
-                .hasSize(149);
+        // GROMO-1933 이 편지 코드 9개를 더했다 — 입력 4(SELF_LETTER · LETTER_CONTENT_BLANK ·
+        // INVALID_PAGE_REQUEST · INVALID_MAILBOX_TYPE), 권한 2(LETTER_MAILBOX_LOCKED ·
+        // NOT_LETTER_PARTICIPANT), 대상 없음 2(LETTER_NOT_FOUND · LETTER_RECIPIENT_NOT_FRIEND),
+        // 본문 상한 1(LETTER_CONTENT_OUT_OF_RANGE).
+        assertThat(tests).as("실측 기준 도메인 상수 143개 + 공통 15개 — 집중 세션 수명주기 12종·친구 취소 1종·편지 9종 포함")
+                .hasSize(158);
         return tests;
     }
 

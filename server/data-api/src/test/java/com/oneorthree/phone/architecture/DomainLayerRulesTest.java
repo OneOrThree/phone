@@ -59,6 +59,11 @@ class DomainLayerRulesTest {
         LAYERS.put("item", 1);
         LAYERS.put("focus", 2);             // 유저가 만든 기록
         LAYERS.put("screentime", 2);
+        // letter 는 users.id 두 개(sender·receiver)만 참조하는 «유저가 만든 기록»이라 여기 둔다.
+        // friend(3) 보다 «아래»인 것이 중요하다 — 친구 삭제 후 편지 정리(friend-letter LLD §4 결정 3)
+        // 가 B 안으로 결정되면 friend 가 letter 를 참조해야 하는데, 같은 층이면 그 참조가 금지된다.
+        // 친구 관계 검증 자체는 letter 가 아니라 internal(10)이 조합한다.
+        LAYERS.put("letter", 2);
         LAYERS.put("friend", 3);            // 유저 사이의 관계
         LAYERS.put("stats", 4);             // 기록·관계의 집계
         LAYERS.put("league", 4);

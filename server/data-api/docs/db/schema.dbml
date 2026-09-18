@@ -408,6 +408,23 @@ Table pinned_users [note: '친구 핀 (방향성: user_id가 friend_user_id를 �
   }
 }
 
+Table letters [note: '친구 사이 1:1 편지 (GROMO-1933, friend-letter LLD §1.12~1.14 · §2, V61). 섬 공개 우체통 메시지(island-mailbox, Realtime gromo_chat)와 다른 도메인 — 화면에 나란히 떠도 저장소·권한이 갈린다'] {
+  id          uuid        [pk]
+
+  sender_id   uuid        [not null, note: '보낸 유저 (FK → users.id, ON DELETE RESTRICT — «주고받은 사실»의 기록이라 유저 삭제에 따라가지 않는다. 운영 탈퇴는 소프트 삭제라 닿지 않음)']
+  receiver_id uuid        [not null, note: '받는 유저 (FK → users.id, ON DELETE RESTRICT — sender 와 동일)']
+
+  content     varchar(500) [not null, note: '본문 상한 500 — 재영님 확정(2026-09-18). LLD·HLD 의 1000 은 폐기된 제안']
+  read_at     timestamptz [note: '수신자가 처음 상세 조회한 시각. NULL = 안 읽음. status enum 없이 이 컬럼 하나가 유일한 전이']
+  created_at  timestamptz [not null, default: `now()`, note: '발송 시각. 커서 정렬 축은 이 컬럼이 아니라 id(UUID v7, 시간순)']
+  deleted_at  timestamptz [note: '시스템 소프트 삭제 필드 — 지금 쓰는 경로 없음. 친구 삭제 후 편지 처리(LLD §4 결정 3)가 «삭제»로 결정되면 그 실행에 쓸 자리. 읽기는 전부 deleted_at IS NULL']
+
+  indexes {
+    (receiver_id, id) [note: '받은 편지함 커서 — 실제는 (receiver_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_receiver_cursor)']
+    (sender_id, id)   [note: '보낸 편지함 커서 — 실제는 (sender_id, id DESC) WHERE deleted_at IS NULL 부분 인덱스(idx_letters_sender_cursor)']
+  }
+}
+
 // ────────────────────────────────────────────
 // 2. 챌린지
 // ────────────────────────────────────────────
@@ -1273,6 +1290,9 @@ Ref: user_wallets.user_id - users.id               // 논리 관계 — DB FK �
 Ref: bot_profiles.user_id - users.id
 Ref: friendships.from_user_id > users.id
 Ref: friendships.to_user_id > users.id
+// letters 의 FK 는 ON DELETE RESTRICT — «주고받은 사실»의 기록이라 유저 삭제에 따라가지 않는다(V61).
+Ref: letters.sender_id > users.id
+Ref: letters.receiver_id > users.id
 Ref: user_notification_settings.user_id - users.id // 논리 관계 — DB FK 제약 없음
 Ref: user_blocks.blocker_id > users.id
 Ref: user_blocks.blocked_id > users.id
