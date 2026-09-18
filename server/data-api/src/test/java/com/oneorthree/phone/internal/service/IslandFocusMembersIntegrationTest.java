@@ -163,6 +163,44 @@ class IslandFocusMembersIntegrationTest {
     }
 
     @Test
+    @DisplayName("없는 섬 · 종료된 섬 · 떠난 주민은 모두 같은 403 MEMBER_ONLY 다 — 섬 존재가 새지 않는다")
+    void missingEndedOrDepartedIsMemberOnly() {
+        Island ended = island();
+        ended.group.close();
+        groups.save(ended.group);
+        Island a = island();
+        User departed = resident(a.group);
+        leave(departed, a.group);
+
+        for (UUID[] call : new UUID[][] {
+                {UUID.randomUUID(), a.owner.getId()},
+                {ended.id, ended.owner.getId()},
+                {a.id, departed.getId()}}) {
+            assertThatThrownBy(() -> service.focusMembers(call[0], call[1]))
+                    .isInstanceOfSatisfying(GroupException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
+            assertThatThrownBy(() -> service.restMembers(call[0], call[1]))
+                    .isInstanceOfSatisfying(GroupException.class,
+                            e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
+        }
+    }
+
+    @Test
+    @DisplayName("떠난 주민의 진행 세션은 목록에 섞이지 않는다")
+    void departedResidentSessionIsExcluded() {
+        Island a = island();
+        User stayed = resident(a.group);
+        User departed = resident(a.group);
+        activeSession(stayed, a.id, now.minus(5, ChronoUnit.MINUTES));
+        pausedSession(departed, a.id);
+        leave(departed, a.group);
+
+        assertThat(service.focusMembers(a.id, a.owner.getId()).items())
+                .extracting(IslandFocusMembersView.Item::userId).containsExactly(stayed.getId());
+        assertThat(service.restMembers(a.id, a.owner.getId()).items()).isEmpty();
+    }
+
+    @Test
     @DisplayName("진행 중인 주민이 없으면 빈 목록과 serverNow 만 준다")
     void emptyIslandHasServerNow() {
         Island a = island();
@@ -203,6 +241,12 @@ class IslandFocusMembersIntegrationTest {
 
     private void join(User user, Group group) {
         members.save(GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build());
+    }
+
+    private void leave(User user, Group group) {
+        GroupMember membership = members.findByUserAndGroup(user, group).orElseThrow();
+        membership.leave();
+        members.save(membership);
     }
 
     private UUID activeSession(User user, UUID islandId, Instant startedAt) {
