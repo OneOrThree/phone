@@ -8,7 +8,7 @@ flowchart LR
   Business --> Data[Data 건설 명령 서비스]
   Data --> TX[(하나의 DB TX: 시설·공동 지갑·외양·receipt·outbox)]
   Policy[서버 불변 비용 정책 revision] --> Data
-  Focus[집중 종료 정산] --> Completion[공통 시설 완공 연산]
+  Focus[집중 종료 정산 — 물고기를 지갑에 적립] --> Completion[공통 시설 완공 연산 — 쌓이면 건설]
   Data --> Completion
   Completion --> TX
   TX --> Relay[기존 outbox relay]
@@ -17,17 +17,16 @@ flowchart LR
 ```
 
 ```mermaid
-flowchart TD
-  Hall[회관: 초기 집중 기여] --> Board[게시판: 초기 집중 기여]
-  Board --> Tower[전망대]
-  Board --> Mail[우체통]
-  Board --> Gram[방송기 100P]
-  Tower --> Both{전망대 AND 우체통}
-  Mail --> Both
-  Both --> Shop[상점]
+flowchart LR
+  Hall[회관 60마리<br/>섬 통장 합산] --> Board[게시판 240마리<br/>섬 통장 합산]
+  Board --> Gram[축음기 = 방송기 gram<br/>1,360마리 · 각자 몫 n빵]
+  Gram --> Library[도서관 2,720마리<br/>각자 몫 n빵 · 기능 1822 미확정]
+  Library --> Mail[우체통 4,080마리<br/>각자 몫 n빵]
+  Mail --> Tower[전망대 5,440마리<br/>각자 몫 n빵]
+  Tower --> Shop[상점 6,800마리<br/>각자 몫 n빵]
 ```
 
-화살표는 선행 조건이며 자동 구매 명령이 아니다. 초기 기여 계산은 집중 설계 FR-D02 승인 후 같은 Data TX에 연결한다. 목표 선택과 결제는 다른 버튼/명령이며 목표 선택이 결제 예약·잔액 차감을 만들지 않는다.
+**2026-09-18 재영님 결정 D4**(기획 GROMO-1829 표) — 7개 선형이며 종전 v0.3 의 선택 분기·「전망대 AND 우체통 → 상점」 조건은 폐지됐다. 값·공사 시간·「섬 통장 합산 / 각자 몫 n빵」의 정의는 [정책](policy.md)의 「건설 가격·공사 시간」 표가 정본이다. 화살표는 선행 조건이며 자동 구매 명령이 아니다. ~~초기 기여 계산은 집중 설계 FR-D02 승인 후 같은 Data TX에 연결한다~~ FR-D02 는 D6(「쌓이면 건설한다」)로 폐기됐다 — 집중 정산은 물고기를 지갑에 적립할 뿐이고, 건설은 쌓인 물고기로 실행한다. 완공 트리거(자동/명령)는 P-D02 잔여다. 목표 선택과 결제는 다른 버튼/명령이며 목표 선택이 결제 예약·잔액 차감을 만들지 않는다.
 
 ```mermaid
 sequenceDiagram

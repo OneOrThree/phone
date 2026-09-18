@@ -86,6 +86,14 @@ public class Friendship {
     }
 
     /**
+     * 발신자가 요청 취소 (PENDING → CANCELED, GROMO-1894). 거절과 달리 수신자가 이 행을 수락으로 되살릴 수
+     * 없다 — {@code FriendService.acceptRequest} 가 막는다. 재요청은 {@link #reopen()} 으로 되살린다.
+     */
+    public void cancel() {
+        this.status = FriendshipStatus.CANCELED;
+    }
+
+    /**
      * REJECTED 상태의 기존 요청을 재요청으로 되살림 (REJECTED → PENDING).
      * ⚠ createdAt 은 여기서 갱신하지 않는다(못 한다) — @CreationTimestamp 는 insert 생성 프로퍼티라
      * Hibernate 6 가 UPDATE SQL 에서 컬럼을 제외하므로, 수동 대입은 더티체킹에 잡혀도 조용히 버려진다.

@@ -1,0 +1,198 @@
+package com.oneorthree.business.api;
+
+import com.oneorthree.business.api.dto.IslandPage;
+import com.oneorthree.business.api.dto.MyIslandsResponse;
+import com.oneorthree.business.auth.AccessTokenClaims;
+import com.oneorthree.business.common.api.ApiErrorCode;
+import com.oneorthree.business.common.api.PublicApiException;
+import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.request.CommandKeys;
+import com.oneorthree.business.config.UpstreamConfigProperties;
+import com.oneorthree.business.upstream.data.dto.CurrentIsland;
+import com.oneorthree.business.upstream.data.dto.IslandCreated;
+import com.oneorthree.business.usecase.IslandMembershipUseCase;
+import com.oneorthree.business.usecase.SettingsSessionGuard;
+import jakarta.servlet.http.HttpServletRequest;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RestController;
+import tools.jackson.databind.JsonNode;
+
+import java.util.UUID;
+
+/**
+ * 섬 생성·조회·탐색·현재 섬 이동 6종의 공개 표면 (GROMO-1759).
+ *
+ * <p>경로에 {@code /v1}·{@code /api} 를 붙이지 않는다 — 접두어 없는 신규 경로가 Business 몫이라는
+ * api-platform 규칙이고, nginx 가 {@code /islands}·{@code /me} 를 이 upstream 으로 보낸다.
+ * {@code PublicApiRoutes.ROOTS} 에 두 뿌리가 이미 있어 봉투는 자동으로 씌워진다.
+ *
+ * <p>주체는 <b>언제나 서명된 세션</b> 에서 온다. 앱이 보낸 {@code X-User-Id} 같은 헤더는 읽지 않고
+ * 상류로도 전달되지 않는다 — {@code InternalCall} 이 그 헤더를 직접 넣는 것을 금지하고
+ * {@code InternalHttpClient} 가 검증된 주체로 덮어쓴다. LLD §3.4 의 "헤더/쿼리로 범위를 고를 수
+ * 없다"가 여기서 구조적으로 보장된다.
+ */
+@RestController
+@RequiredArgsConstructor
+public class IslandMembershipController {
+
+    private static final int NAME_MAX = 50;
+    private static final int INTRO_MAX = 200;
+    private static final int SEARCH_LIMIT_DEFAULT = 20;
+    private static final int DISCOVER_LIMIT_DEFAULT = 1;
+
+    private final IslandMembershipUseCase islands;
+    private final SettingsSessionGuard sessions;
+    private final UpstreamConfigProperties properties;
+
+    /** 섬 생성 (LLD §3.1). */
+    @PostMapping(value = "/islands", consumes = "application/json")
+    public ResponseEntity<IslandCreated> create(@RequestBody JsonNode body, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        // intro 는 선택이라 본문 크기가 2 또는 3 이다. 그 밖의 키가 섞이면 거절한다 —
+        // maxMembers·password 를 client 가 주입하지 못하게 하는 것이 계약이다(LLD §1).
+        boolean hasIntro = body != null && body.isObject() && body.has("intro");
+        if (body == null || !body.isObject() || body.size() != (hasIntro ? 3 : 2)) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        String name = requiredText(body, "name", NAME_MAX);
+        String intro = hasIntro ? optionalText(body, "intro", INTRO_MAX) : null;
+        JsonNode approvalRequired = body.get("approvalRequired");
+        if (approvalRequired == null || !approvalRequired.isBoolean()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "approvalRequired");
+        }
+        IslandCreated created = islands.create(claims, name, intro, approvalRequired.booleanValue(),
+                key, deadline());
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /** 이름 검색 (LLD §3.2). 현재 섬 전망대가 필요하다. */
+    @GetMapping("/islands")
+    public IslandPage islands(HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return islands.search(claims, single(request, "q"), single(request, "cursor"),
+                limit(request, SEARCH_LIMIT_DEFAULT), deadline());
+    }
+
+    /**
+     * 첫 소속 탐색 (LLD §3.3). 전망대 가드가 <b>없다</b>.
+     *
+     * <p>{@code /islands/discover} 는 {@code /islands/{islandId}} 보다 구체적인 경로라 Spring 이 먼저
+     * 고른다 — 리터럴 세그먼트가 경로 변수를 이긴다.
+     */
+    @GetMapping("/islands/discover")
+    public IslandPage discover(HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return islands.discover(claims, single(request, "cursor"),
+                limit(request, DISCOVER_LIMIT_DEFAULT), deadline());
+    }
+
+    /** 섬 하나 (LLD §3.4). 주민이면 상세, 비소속이면 공개 요약이다. */
+    @GetMapping("/islands/{islandId}")
+    public Object island(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return islands.island(claims, uuid(islandId, "islandId"), deadline());
+    }
+
+    /** 내 섬 목록 (LLD §3.5). */
+    @GetMapping("/me/islands")
+    public MyIslandsResponse myIslands(HttpServletRequest request) {
+        return islands.myIslands(sessions.requireSession(request), deadline());
+    }
+
+    /** 현재 섬 이동 (LLD §3.6). */
+    @PutMapping(value = "/me/current-island", consumes = "application/json")
+    public CurrentIsland switchCurrentIsland(@RequestBody JsonNode body, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        if (body == null || !body.isObject() || body.size() != 1) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        JsonNode islandId = body.get("islandId");
+        if (islandId == null || !islandId.isString()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "islandId");
+        }
+        return islands.switchCurrentIsland(claims, uuid(islandId.stringValue(), "islandId"), key,
+                deadline());
+    }
+
+    // ---------------------------------------------------------------- 입력 해석
+
+    /** 필수 문자열 — 없거나 타입이 다르면 400, 비었거나 길이를 넘기면 422 다(LLD §2). */
+    private static String requiredText(JsonNode body, String field, int max) {
+        JsonNode node = body.get(field);
+        if (node == null || !node.isString()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, field);
+        }
+        String value = node.stringValue();
+        if (value.isBlank() || value.length() > max) {
+            // 저장 전 임의로 잘라 성공시키지 않는다(LLD §2).
+            throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, field);
+        }
+        return value;
+    }
+
+    /** 선택 문자열 — 명시된 null 은 400 이다(키가 아예 없는 것과 구분한다). */
+    private static String optionalText(JsonNode body, String field, int max) {
+        JsonNode node = body.get(field);
+        if (node == null) {
+            return null;
+        }
+        if (!node.isString()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, field);
+        }
+        String value = node.stringValue();
+        if (value.length() > max) {
+            throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, field);
+        }
+        return value;
+    }
+
+    private static UUID uuid(String value, String field) {
+        try {
+            UUID parsed = UUID.fromString(value);
+            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
+                throw new IllegalArgumentException("UUID 형식");
+            }
+            return parsed;
+        } catch (IllegalArgumentException e) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
+        }
+    }
+
+    /** 쿼리 파라미터 하나 — 같은 키가 여러 번 오면 400 이다. */
+    private static String single(HttpServletRequest request, String name) {
+        String[] values = request.getParameterValues(name);
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        if (values.length > 1) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, name);
+        }
+        return values[0];
+    }
+
+    /** {@code limit} — 1~100 경계는 {@code CursorScope} 가 422 로 강제한다. */
+    private static int limit(HttpServletRequest request, int fallback) {
+        String raw = single(request, "limit");
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(raw);
+        } catch (NumberFormatException e) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "limit");
+        }
+    }
+
+    private Deadline deadline() {
+        return Deadline.startingNow(properties.getComposition().getDeadline());
+    }
+}

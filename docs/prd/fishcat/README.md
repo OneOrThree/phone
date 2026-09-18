@@ -12,3 +12,5 @@
 | 플랫폼·전환 | [`link-attribution/`](link-attribution/) · [`realtime-events/`](realtime-events/) · [`server-separation/`](server-separation/) |
 
 `account`, `link-attribution`, `server-separation`처럼 기존 API와 데이터 승계를 함께 다루는 문서도 Fishcat 출시를 위한 계약이므로 이 폴더에서 관리한다.
+
+제품 결정은 [`decision-log.md`](decision-log.md) 에 **먼저** 적고 해당 도메인 `policy.md` 로 전파한다 — 도메인 문서가 로그와 어긋나면 로그가 맞다.

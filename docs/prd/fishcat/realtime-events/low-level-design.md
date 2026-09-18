@@ -55,7 +55,7 @@
 | 4 | `playback.updated` / `PLAYBACK_UPDATED` | `trackId:TrackId?`, `playing:boolean`, `positionSeconds:Seconds`, `effectiveAt:Instant`, `changedBy:Id`, `version:Version`, `serverNow:Instant` | `(playback,islandId)`의 전체 재생 상태 | `playback` |
 | 5 | `message.created` / `MESSAGE_CREATED` | `messageId:Id`, `islandId:Id`, `senderId:Id`, `sentAt:Instant`, `clientMessageId:Id` — **본문 `text` 없음**(M02: 메시지 정본은 `gromo_chat`, Data 복제 금지. 앱은 `messageId`로 히스토리에서 읽는다) | 불변 사건. `(MESSAGE,messageId)`의 최초 버전 1. 다른 payload.messageId와 버전 비교 금지. 생산 지점은 Data outbox — Business가 realtime 저장 «처음 성공» 뒤 `POST /internal/islands/{islandId}/message-events`로 적재하고 REALTIME transport 등록 전까지 내구 보류 *(2026-09-18 GROMO-1775, M02)* | `messages` |
 | 6 | `quest.progress.updated` / `QUEST_PROGRESS_UPDATED` | `questId:Id`, `occurrenceId:Id`, `version:Version` | `(quest.progress,islandId,questId,occurrenceId)`의 무효화 신호 | `events` |
-| 7 | `wallet.updated` / `WALLET_UPDATED` | `ownerType:user\|island`, `ownerId:Id`, `currency:fish\|village_points`, `version:Version` | `(wallet,ownerType,ownerId,currency)`의 지갑 무효화. 개인=user/fish, 공동=island/village_points만 허용 | 개인은 개인큐, 공동은 `events` |
+| 7 | `wallet.updated` / `WALLET_UPDATED` | `ownerType:user\|island`, `ownerId:Id`, `currency:fish\|village_points`, `version:Version` | `(wallet,ownerType,ownerId,currency)`의 지갑 무효화. 개인=user/fish(개인 지갑), 공동=island/village_points(섬 통장·섬 물고기 — 2026-09-18 재영님 결정 D1, 식별자 개명 미결)만 허용 | 개인은 개인큐, 공동은 `events` |
 | 8 | `inventory.updated` / `INVENTORY_UPDATED` | `ownerType:user\|island`, `ownerId:Id`, `productId:ProductId`, `version:Version` | `(inventory,ownerType,ownerId)` 보유 목록 무효화. productId는 변경 원인이지 전체목록 버전의 key 아님 | 개인은 개인큐, 공동은 `events` |
 | 9 | `member.appearance.updated` / `MEMBER_APPEARANCE_UPDATED` | `userId:Id`, `appearance:Appearance`, `version:Version` | `(member.appearance,userId)`의 개인 외양 **전체 상태**. 다른 섬에서 온 동일 외양도 같은 버전 축 | `events` |
 | 10 | `island.appearance.updated` / `ISLAND_APPEARANCE_UPDATED` | `islandThemeId:ThemeId`, `buildingThemes:object<BuildingId,ThemeId>`, `version:Version` | `(island.appearance,islandId)`의 공동 외양 전체 상태. 변경 PATCH와 달리 전체결과를 발행 | `events` |
@@ -64,7 +64,7 @@
 | 13 | `join.request.updated` / `JOIN_REQUEST_UPDATED` | `requestId:Id`, `applicantId:Id`, `status:pending\|approved\|rejected\|cancelled`, `version:Version` | `(join.request,islandId,requestId)` 신청 무효화. 다른 신청은 별개 | 개인큐 |
 | 14 | `notice.updated` / `NOTICE_UPDATED` | `noticeId:Id`, `version:Version` | `(notice,islandId,noticeId)` 공지/댓글 무효화. 삭제 뒤에도 삭제 사건 버전을 보존 | `events` |
 
-`Appearance`는 `{clothes:ProductId?, decor:ProductId?, hull:ProductId, position:front|back}` 전체 상태다. 기본 `raft`, null 해제와 배치 규칙은 원본대로 외양 도메인에서 검증한다. 선체 업그레이드/하위 재착용 정책을 이 이벤트가 결정하지 않는다. 기존 캐릭터 HAIR/TOP/BOTTOM/SHOES 모델을 이 DTO와 같은 것으로 취급하지 않는다.
+`Appearance`는 `{clothes:ProductId?, decor:ProductId?, hull:ProductId, position:front|back}` 전체 상태다. 기본 `raft`, null 해제와 배치 규칙은 원본대로 외양 도메인에서 검증한다. 선체 업그레이드/하위 재착용은 배 종류 폐지(2026-09-16 B23·B25, GROMO-1851)로 대상이 소멸했고 `hull` 은 `raft` 하나다 — 필드 존치는 외양 도메인이 정한다. 기존 캐릭터 HAIR/TOP/BOTTOM/SHOES 모델을 이 DTO와 같은 것으로 취급하지 않는다.
 
 ### 2.1 상태 및 범위 불변식
 

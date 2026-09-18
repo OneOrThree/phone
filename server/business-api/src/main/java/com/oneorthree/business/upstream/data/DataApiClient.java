@@ -10,6 +10,12 @@ import com.oneorthree.business.upstream.data.dto.ClaimIntentPage;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentAck;
 import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
+import com.oneorthree.business.upstream.data.dto.CurrentIsland;
+import com.oneorthree.business.upstream.data.dto.IslandCreated;
+import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
+import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
+import com.oneorthree.business.upstream.data.dto.IslandView;
+import com.oneorthree.business.upstream.data.dto.MyIslands;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
@@ -19,7 +25,13 @@ import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
 import com.oneorthree.business.upstream.data.dto.MailboxViewer;
 import com.oneorthree.business.upstream.data.dto.MessageAuthors;
 import com.oneorthree.business.upstream.data.dto.MessageCreatedAck;
+import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
+import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
+import com.oneorthree.business.upstream.data.dto.FriendItem;
+import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
+import com.oneorthree.business.upstream.data.dto.FriendRequestState;
+import com.oneorthree.business.upstream.data.dto.FriendshipDeleted;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
@@ -45,6 +57,8 @@ public class DataApiClient {
     private static final String PATH_ACTIVATION = "/internal/users/{userId}/activation";
     private static final String PATH_DEVICE_SESSION_VERIFY = "/internal/auth/device-sessions/verify";
     private static final String PATH_SESSION_VERIFY = "/internal/auth/sessions/verify";
+    private static final String PATH_LOGIN_ATTEMPTS = "/internal/auth/login-attempts";
+    private static final String PATH_LOGIN_ATTEMPT_LOOKUP = "/internal/auth/login-attempts/lookup";
     private static final String PATH_DEVICE_TOKEN_DELETIONS = "/internal/users/{userId}/device-token-deletions";
     private static final String PATH_NOTIFICATION_SETTINGS_COMMANDS =
             "/internal/users/{userId}/notification-settings-commands";
@@ -75,6 +89,23 @@ public class DataApiClient {
     private static final String PATH_MAILBOX_ACCESS = "/internal/islands/{islandId}/mailbox-access";
     private static final String PATH_MESSAGE_AUTHORS = "/internal/islands/{islandId}/message-authors";
     private static final String PATH_MESSAGE_EVENTS = "/internal/islands/{islandId}/message-events";
+    // GROMO-1759 섬 소속·탐색 6종. 검색·발견이 공개 경로와 이름이 다른 이유는 사용자 축에서
+    // `/islands` 를 이미 «내 섬 목록» 이 쓰기 때문이다(내부 컨트롤러 javadoc 참고).
+    private static final String PATH_ISLANDS = "/internal/users/{userId}/islands";
+    private static final String PATH_ISLAND_SEARCH = "/internal/users/{userId}/island-search";
+    private static final String PATH_ISLAND_DISCOVERY = "/internal/users/{userId}/island-discovery";
+    private static final String PATH_CURRENT_ISLAND = "/internal/users/{userId}/current-island";
+    private static final String PATH_ISLAND = "/internal/islands/{islandId}";
+    // GROMO-1894 친구 7종 — 이름은 friend-letter LLD §1.15(조회 2종)와 그 아래 명령 5종.
+    private static final String PATH_FRIENDS = "/internal/users/{userId}/friends";
+    private static final String PATH_FRIEND = "/internal/users/{userId}/friends/{friendUserId}";
+    private static final String PATH_FRIEND_REQUESTS = "/internal/users/{userId}/friend-requests";
+    private static final String PATH_FRIEND_REQUEST_ACCEPT =
+            "/internal/users/{userId}/friend-requests/{requestId}/accept";
+    private static final String PATH_FRIEND_REQUEST_REJECT =
+            "/internal/users/{userId}/friend-requests/{requestId}/reject";
+    private static final String PATH_FRIEND_REQUEST_CANCEL =
+            "/internal/users/{userId}/friend-requests/{requestId}/cancel";
 
     private final InternalHttpClient http;
 
@@ -144,6 +175,68 @@ public class DataApiClient {
                                 "targetUserId", targetUserId))
                         .idempotentCommand()
                         .build(), deadline, new ParameterizedTypeReference<JsonNode>() { });
+    }
+
+    /**
+     * 제공자 교환 <b>전</b> 내구 시도 조회 (계정 LLD §3-1 · §3-2).
+     *
+     * <p>{@code onBehalfOf} 가 없다 — 로그인 전에는 검증된 주체가 없다. 그게 이 요청으로 알아내려는
+     * 값이다. 자격은 {@code digest} 가 증명한다.
+     *
+     * <p>{@code idempotentCommand()} 를 켜는 이유: 이 호출은 상태를 바꾸지 않아 재시도가 안전한데,
+     * 기본 재시도 대상은 GET 뿐이라 켜 주지 않으면 일시 오류 한 번에 로그인이 실패한다.
+     */
+    public LoginAttemptLookup lookupLoginAttempt(UUID attemptId, String digestKeyId, String digest,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, PATH_LOGIN_ATTEMPT_LOOKUP)
+                        .body(new LoginAttemptLookupCommand(attemptId, digestKeyId, digest))
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LoginAttemptLookup>() { });
+    }
+
+    /**
+     * 실행권을 잡고 제공자 교환까지 수행한다 (계정 LLD §3-3).
+     *
+     * <p><b>{@code attemptId} 가 멱등 키다.</b> 원장이 그 키로 실행권을 선점하므로, 재시도가 같은
+     * 값을 들고 오면 두 번째 교환이 일어나지 않는다. 별도 {@code Idempotency-Key} 헤더를 붙이지
+     * 않는 이유는 로그인이 범용 receipt 계약 밖이기 때문이다(정책 A16 「로그인/로그아웃은 별도
+     * 인증 계약이다」).
+     */
+    public LoginSession executeLoginAttempt(LoginAttemptCommand command, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, PATH_LOGIN_ATTEMPTS)
+                        .body(command)
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LoginSession>() { });
+    }
+
+    /** 조회 요청 본문. 원 자격이 아니라 digest 만 나간다. */
+    private record LoginAttemptLookupCommand(UUID attemptId, String digestKeyId, String credentialDigest) {
+    }
+
+    /**
+     * 교환 요청 본문.
+     *
+     * <p>{@code credential}·{@code callerAccessToken} 은 자격 원문이다 — 이 DTO 는 HTTP 본문으로
+     * 한 번 나갈 뿐 어디에도 보관되지 않으며, {@code toString} 은 값을 가린다(직렬화는 Jackson 이
+     * 필드 접근자로 하므로 가려도 전송에는 영향이 없다).
+     */
+    public record LoginAttemptCommand(
+            UUID attemptId, String digestKeyId, String credentialDigest, String provider,
+            String credentialKind, String credential, String termsVersion, String callerAccessToken) {
+
+        @Override
+        public String toString() {
+            return "LoginAttemptCommand[attemptId=" + attemptId + ", provider=" + provider
+                    + ", credentialKind=" + credentialKind + ", credential=redacted]";
+        }
     }
 
     /** 원 RT의 폐기 증명으로 재시도 가능한 로그아웃. 주체는 Data가 자격에서 직접 검증한다. */
@@ -581,6 +674,82 @@ public class DataApiClient {
                 new ParameterizedTypeReference<FocusSummary>() { });
     }
 
+    // ── 친구 7종 (GROMO-1894, friend-letter LLD §1.1~1.6 · §1.11) ─────────────────────────────
+
+    /** 친구 목록. {@code date} 의 값 판정(KST 규약)은 Data 가 한다 — 여기서 두 번 해석하지 않는다. */
+    public List<FriendItem> fetchFriends(UUID userId, String date, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_FRIENDS, userId))
+                        .onBehalfOf(userId)
+                        .query("date", date)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<List<FriendItem>>() { });
+    }
+
+    /** 받은·보낸 PENDING 요청 목록. 봉투 없는 배열이다 — raft 조각이 배열 길이를 센다(friend-letter HLD §3). */
+    public List<FriendRequestItem> fetchFriendRequests(UUID userId, String type, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_FRIEND_REQUESTS, userId))
+                        .onBehalfOf(userId)
+                        .query("type", type)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<List<FriendRequestItem>>() { });
+    }
+
+    /**
+     * 친구 요청 생성. <b>재시도하지 않는다</b> — 멱등키 적용표(api-platform LLD §2)에 없는 명령이라 앱 키가
+     * 없고, 응답 유실 뒤의 재시도는 첫 요청이 남긴 PENDING 행에 409 로 부딪힌다. 그 409 를 앱이 보는 편이
+     * 재시도가 만들 두 번째 푸시보다 낫다.
+     */
+    public FriendRequestState createFriendRequest(UUID userId, UUID targetUserId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_FRIEND_REQUESTS, userId))
+                        .onBehalfOf(userId)
+                        .body(new FriendRequestCommand(targetUserId))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<FriendRequestState>() { });
+    }
+
+    /** 요청 수락. ACCEPTED → ACCEPTED 가 멱등(무알림)이라 재시도해도 안전하다 — FriendService.acceptRequest 계약. */
+    public FriendRequestState acceptFriendRequest(UUID userId, UUID requestId, Deadline deadline) {
+        return friendRequestAction(PATH_FRIEND_REQUEST_ACCEPT, userId, requestId, true, deadline);
+    }
+
+    /** 요청 거절 — PENDING 한정이라 두 번째 시도는 409 다. 재시도하지 않는다. */
+    public FriendRequestState rejectFriendRequest(UUID userId, UUID requestId, Deadline deadline) {
+        return friendRequestAction(PATH_FRIEND_REQUEST_REJECT, userId, requestId, false, deadline);
+    }
+
+    /** 요청 취소 — 거절과 같은 이유로 재시도하지 않는다. */
+    public FriendRequestState cancelFriendRequest(UUID userId, UUID requestId, Deadline deadline) {
+        return friendRequestAction(PATH_FRIEND_REQUEST_CANCEL, userId, requestId, false, deadline);
+    }
+
+    /** 친구 삭제. 두 번째 시도는 NOT_FRIEND(404)라 재시도하지 않는다. */
+    public FriendshipDeleted deleteFriend(UUID userId, UUID friendUserId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE,
+                                userPath(PATH_FRIEND, userId).replace("{friendUserId}", friendUserId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<FriendshipDeleted>() { });
+    }
+
+    private FriendRequestState friendRequestAction(String template, UUID userId, UUID requestId,
+            boolean idempotent, Deadline deadline) {
+        InternalCall.Builder call = InternalCall.to(HttpMethod.POST,
+                        userPath(template, userId).replace("{requestId}", requestId.toString()))
+                .onBehalfOf(userId);
+        if (idempotent) {
+            call.idempotentCommand();
+        }
+        return http.exchange(call.build(), deadline, new ParameterizedTypeReference<FriendRequestState>() { });
+    }
+
     private <T> T transitionFocusSession(String template, UUID userId, UUID sessionId, long expectedVersion,
             UUID key, Deadline deadline, ParameterizedTypeReference<T> responseType) {
         return http.exchange(
@@ -593,6 +762,91 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 responseType);
+    }
+
+    /** 섬 생성 (GROMO-1759, LLD §3.1). 생성자가 방장이 되고 현재 섬이 새 섬으로 옮겨진다. */
+    public IslandCreated createIsland(UUID userId, String name, String intro, boolean approvalRequired,
+            UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_ISLANDS, userId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new CreateIslandCommand(name, intro, approvalRequired))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandCreated>() { });
+    }
+
+    /** 내 섬 목록 (GROMO-1759, LLD §3.5). */
+    public MyIslands fetchMyIslands(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_ISLANDS, userId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MyIslands>() { });
+    }
+
+    /**
+     * 섬 이름 검색 한 페이지 (GROMO-1759, LLD §3.2).
+     *
+     * <p>{@code cursorIslandId} 는 <b>서명을 이미 검증한</b> keyset 경계다 — 앱이 준 토큰이 아니라
+     * {@code SignedCursorCodec} 이 열어 준 값만 여기까지 온다.
+     */
+    public IslandSearchPage searchIslands(UUID userId, String q, UUID cursorIslandId, int limit,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_ISLAND_SEARCH, userId))
+                        .onBehalfOf(userId)
+                        .query("q", q)
+                        .query("cursorIslandId", cursorIslandId == null ? null : cursorIslandId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandSearchPage>() { });
+    }
+
+    /** 첫 소속 탐색 한 페이지 (GROMO-1759, LLD §3.3). seed 가 한 탐색 세션의 순서를 고정한다. */
+    public IslandDiscoverPage discoverIslands(UUID userId, String seed, String afterHandle, int limit,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_ISLAND_DISCOVERY, userId))
+                        .onBehalfOf(userId)
+                        .query("seed", seed)
+                        .query("afterHandle", afterHandle)
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandDiscoverPage>() { });
+    }
+
+    /** 현재 섬 이동 (GROMO-1759, LLD §3.6). 같은 섬이면 상류가 상태확인으로 처리한다. */
+    public CurrentIsland switchCurrentIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT, userPath(PATH_CURRENT_ISLAND, userId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new SwitchCurrentIslandCommand(islandId))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<CurrentIsland>() { });
+    }
+
+    /**
+     * 섬 하나 (GROMO-1759, LLD §3.4).
+     *
+     * <p>주체는 {@code onBehalfOf} 로만 전달한다 — 범위(주민/방문자) 판정은 전적으로 상류의 DB
+     * 상태이고 이 호출에는 역할·소속을 암시하는 파라미터가 없다.
+     */
+    public IslandView fetchIsland(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, PATH_ISLAND.replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandView>() { });
     }
 
     private static String userPath(String template, UUID userId) {
@@ -617,5 +871,17 @@ public class DataApiClient {
 
     /** pause/resume/finish 공용 요청 본문 — expectedVersion 필수(FR-P07). */
     record FocusVersionedCommand(long expectedVersion) {
+    }
+
+    /** 친구 요청 생성 본문 (GROMO-1894). 보내는 쪽은 X-User-Id 로 가므로 받는 쪽만 담는다. */
+    record FriendRequestCommand(UUID targetUserId) {
+    }
+
+    /** 섬 생성 요청 본문 (GROMO-1759). maxMembers·password 는 client 가 넣지 못한다. */
+    record CreateIslandCommand(String name, String intro, boolean approvalRequired) {
+    }
+
+    /** 현재 섬 이동 요청 본문 (GROMO-1759). */
+    record SwitchCurrentIslandCommand(UUID islandId) {
     }
 }

@@ -30,7 +30,7 @@ UUID는 데이터 ID, ProductId는 카탈로그 문자열, 시각은 UTC instant
 {"data":{"fish":500,"villagePoints":1500,"fishVersion":4,"villagePointsVersion":7}}
 ```
 
-금액은 원본 형태 예시다. fishVersion은 `(user,subject,fish)`, villagePointsVersion은 `(island,islandId,village_points)`
+금액은 원본 형태 예시다. `fish` 는 개인 지갑(개인 물고기), `villagePoints` 는 섬 통장(섬 물고기) — **2026-09-18 재영님 결정 D1**(두 지갑 축 유지, 섬 쪽 재화 이름만 섬 물고기). 필드명·통화 식별자 `village_points` 의 개명은 결정에 없어 wire 는 그대로 둔다. fishVersion은 `(user,subject,fish)`, villagePointsVersion은 `(island,islandId,village_points)`
 지갑의 실제 버전이다. 둘의 최댓값을 공용version으로 만들지 않는다. 본인 fish를 섬 전체 응답 캐시에 넣지 않는다.
 회원 생성/경제 활성화에 필요한 wallet이 없으면0원으로 위장하지 않고503 SERVICE_UNAVAILABLE 및 운영 로그로 처리한다.
 
@@ -69,8 +69,10 @@ previewUrl/blockedReason/requiredBuilding은 nullable.
 {"requiredProduct":{"id":"sailboat","title":"돛단배"}}
 ```
 
+위 예시의 선체 계보(돛단배 → 선실 배)는 **배 종류 폐지(2026-09-16 B23·B25, GROMO-1851)로 대상이 소멸**했다 — 형태 예시로만 남기며, 이 필드는 다른 선행 상품이 생길 때 그대로 쓴다.
+
 `blockedReason`은 실패 사유 코드이므로 선행 상품 ID를 대신하지 않는다. 앱은 reason 문구를 파싱하거나
-선실 배의 선행 ID를 하드코딩하지 않고 requiredProduct.id로 상세 조회를 연결한다. 이 필드는 선행 상품이
+선행 상품 ID를 하드코딩하지 않고 requiredProduct.id로 상세 조회를 연결한다. 이 필드는 선행 상품이
 현재 판매 중이라는 보증은 아니다. 선행을 아직 소유하지 않았는데 퇴역하여 구매할 수 없다면 대상 상품도
 available=false로 안내하고, 상세 이동의404는 판매 종료 상태로 처리한다. 이미 소유한 선행 상품은 판매 퇴역과
 관계없이 보유 조건을 충족한다. 구매 TX는 안내를 신뢰하지 않고 실제 소유와 현재 판매 조건을 다시 검사한다.
@@ -146,7 +148,7 @@ Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 |catalog publication|catalogPublicationVersion 유일, publishedAt/retiredAt/invalidatedAt. 컬렉션 전체의 불변 발행본|
 |catalog publication entry|publicationVersion+productId 유일, productRevision FK, category/displayOrder. 해당 발행본의 상품 집합/정렬을 복원|
 |catalog active pointer|현재 publicationVersion 한 개를 참조. 상품별 현재 정의도 이 publication의 entry로 결정하며 별도 가변 상품 포인터와 이중 정본을 두지 않음|
-|economy wallet|ownerType+ownerId+currency 유일, balance>=0, version. user/fish 또는 island/village_points 조합만 허용|
+|economy wallet|ownerType+ownerId+currency 유일, balance>=0, version. user/fish(개인 지갑) 또는 island/village_points(섬 통장·섬 물고기 — D1) 조합만 허용|
 |economy ledger|entryId, wallet FK, signedDelta, balanceAfter, 원인 order/settlement, 원인별 유일성, immutable|
 |owned product|ownerType+ownerId+productId 유일, 불변 asset definition FK, grantedOrderId/명시 지급 근거, grantedAt. 판매 활성 포인터와 무관하게 의미 복원, user/island 실제FK무결성 확보|
 |inventory aggregate|ownerType+ownerId 유일, 목록의 단조version; 개인과 섬 독립|
@@ -165,9 +167,9 @@ catalog/product의 `title`과 `requiredProduct.title`은 모두 `catalog asset d
 이 설계는 **소유 행을 가변 판매 revision에 고정하는 대신 productId의 자산 의미를 불변으로 제한**한다.
 kind·ownerType·targetBuilding·선체 계보·착용 호환 조건을 바꾸려면 새 productId를 발행한다.
 기존 상품 ID를 재사용하여 옷을 음원으로, 개인 소유를 섬 소유로, hall 테마를 board 테마로 바꾸지 않는다.
-A03(선체별 소품 호환)은 GROMO-1909 가 **모든 선체 공통**으로 확정했다 — 착용 호환 조건을 productId 의
-의미에 넣지 않는다. **미결 A02(하위 재착용)만** 최초 상품 활성화 전에 확정하고 그 productId 의 의미에
-고정한다. 기존 보유 의미를 개정/승격하는 기능은 현재 계약에 없으며 향후 필요하면 별도 명시 이관 계약으로
+A03(선체별 소품 호환)은 GROMO-1909 가 **모든 선체 공통**으로 확정했고, 이어 **배 종류 폐지(2026-09-16 B23·B25,
+GROMO-1851)로 A02(하위 재착용)·A03 모두 대상이 소멸**했다 — 선체는 `raft` 하나라 착용 호환·재착용 조건을
+productId 의 의미에 넣을 일이 없다. 기존 보유 의미를 개정/승격하는 기능은 현재 계약에 없으며 향후 필요하면 별도 명시 이관 계약으로
 다룬다.
 
 가격·판매 선행 조건·판매 가능 여부는 새 판매 revision/publication에서 바뀔 수 있다. `requiredProduct`는

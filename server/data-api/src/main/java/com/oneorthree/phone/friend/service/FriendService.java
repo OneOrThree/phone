@@ -128,9 +128,11 @@ public class FriendService {
      *
      * @param me           요청을 보내는 유저
      * @param targetUserId 요청을 받을 유저. 자기 자신이면 SELF_REQUEST, 탈퇴자면 유저 없음으로 떨어진다
+     * @return 이번 요청 사이클의 요청 행 id — 복원·재전환이면 되살린 행, 아니면 새 행 (GROMO-1894 내부 표면이
+     *         결과 상태를 돌려주는 데 쓴다. 레거시 컨트롤러는 무시한다)
      */
     @Transactional
-    public void createRequest(UUID me, UUID targetUserId) {
+    public UUID createRequest(UUID me, UUID targetUserId) {
         if (me.equals(targetUserId)) {
             throw new FriendException(FriendErrorCode.SELF_REQUEST);
         }
@@ -159,20 +161,22 @@ public class FriendService {
         if (myDeleted != null) {
             myDeleted.restore();
             onRequestCreated(myDeleted.getId(), me, targetUserId, true);
-            return;
+            return myDeleted.getId();
         }
 
-        // unique(from,to) 충돌 회피 2: 내가 보냈던 (me→target) REJECTED row가 있으면 재전환.
+        // unique(from,to) 충돌 회피 2: 내가 보냈던 (me→target) REJECTED·CANCELED row가 있으면 재전환.
         // 위 복원 분기가 삭제 행을 먼저 걷어가므로 여기 도달하는 내 방향 행은 항상 deletedAt == null 이다.
-        Friendship myRejected = pair.stream()
+        // CANCELED 도 사정이 같다(GROMO-1894) — 취소한 요청을 다시 보낼 때 새 행을 넣을 수 없다.
+        Friendship myClosed = pair.stream()
                 .filter(f -> f.getFromUser().getId().equals(me)
-                        && f.getStatus() == FriendshipStatus.REJECTED)
+                        && (f.getStatus() == FriendshipStatus.REJECTED
+                                || f.getStatus() == FriendshipStatus.CANCELED))
                 .findFirst()
                 .orElse(null);
-        if (myRejected != null) {
-            myRejected.reopen();
-            onRequestCreated(myRejected.getId(), me, targetUserId, true);
-            return;
+        if (myClosed != null) {
+            myClosed.reopen();
+            onRequestCreated(myClosed.getId(), me, targetUserId, true);
+            return myClosed.getId();
         }
 
         Friendship request = Friendship.builder()
@@ -183,6 +187,7 @@ public class FriendService {
         // persist 가 이 인스턴스에 id 를 채우므로(@GeneratedUuidV7) 저장 후 그대로 읽어 이벤트에 싣는다.
         friendshipRepository.save(request);
         onRequestCreated(request.getId(), me, targetUserId, false);
+        return request.getId();
     }
 
     /**
@@ -204,6 +209,9 @@ public class FriendService {
      * 알린다("거절했던 요청을 뒤늦게 수락하면 알린다" 계약). ACCEPTED → ACCEPTED 는 멱등(무알림).
      * - 거절은 PENDING 한정(rejectRequest) — ACCEPTED 에 거절이 통하면 친구 관계가 deleteFriend 를
      * 우회해 조용히 증발하기 때문. 수락은 관계를 늘리는 방향이라 관용해도 그런 파괴 경로가 없다.
+     * - 관용의 유일한 예외는 CANCELED (GROMO-1894, friend-letter LLD §1.11) — 발신자가 거둬들인 요청을
+     * 수신자가 옛 requestId 로 되살릴 근거가 없다. {@code status != PENDING} 으로 통째로 막지 않는 이유는
+     * 위 두 계약(REJECTED 관용·ACCEPTED 멱등)이 함께 깨지기 때문이다.
      *
      * @param me        수락하는 유저 — 요청의 수신자여야 한다
      * @param requestId 수락할 요청 행 id. 상대 유저 id 가 아니다
@@ -211,6 +219,10 @@ public class FriendService {
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
         Friendship friendship = getReceivedRequest(me, requestId);
+        if (friendship.getStatus() == FriendshipStatus.CANCELED) {
+            // 취소된 요청은 되살리지 않는다 — 배타 락 아래라 발신자의 취소와 수신자의 수락이 경합해도 한쪽만 이긴다.
+            throw new FriendException(FriendErrorCode.INVALID_REQUEST_STATUS);
+        }
         // 이 호출이 실제로 상태를 바꾼 것인지 먼저 본다 — 아래 알림 발행 조건 (GROMO-1090).
         boolean alreadyAccepted = friendship.getStatus() == FriendshipStatus.ACCEPTED;
         friendship.accept();
@@ -219,7 +231,7 @@ public class FriendService {
                 Map.of("request_id", requestId.toString(),
                         "from_user_id", requesterId.toString()));
         // 수락 사실은 보낸 쪽만 모른다 — 그쪽에만 알린다 (GROMO-1090). 발송은 커밋 이후.
-        // 이미 ACCEPTED 인 요청에 수락이 또 들어와도(이 API 는 상태를 검사하지 않는다) 알리지 않는다 —
+        // 이미 ACCEPTED 인 요청에 수락이 또 들어와도(이 API 는 CANCELED 말고는 상태를 검사하지 않는다) 알리지 않는다 —
         // 늦게 도착한 재시도까지 발송 측 dedup 창에 기대면 창이 짧을수록 중복이 새 나간다(@codex 리뷰).
         if (!alreadyAccepted) {
             eventPublisher.publishEvent(new FriendRequestAcceptedEvent(requesterId, me));
@@ -245,18 +257,38 @@ public class FriendService {
     }
 
     /**
+     * 요청 취소 — 발신자(fromUser)만 가능. PENDING → CANCELED 만 허용 (GROMO-1894, friend-letter LLD §1.11).
+     * 거절({@link #rejectRequest})과 대칭이지만 검증 축이 반대다 — 수신자의 거절만 있고 발신자가 되돌릴 길이
+     * 없으면 상대 검색 결과에 「요청중」이 영영 남는다. 취소는 알리지 않는다 — 거절 무알림과 같은 결이다.
+     * 같은 배타 락({@code findByIdAndDeletedAtIsNull})을 잡으므로 수신자의 동시 수락과는 한쪽만 이긴다.
+     *
+     * @param me        취소하는 유저 — 요청의 발신자여야 한다
+     * @param requestId 취소할 요청 행 id. PENDING 이 아니면 INVALID_REQUEST_STATUS
+     */
+    @Transactional
+    public void cancelRequest(UUID me, UUID requestId) {
+        Friendship friendship = getSentRequest(me, requestId);
+        if (friendship.getStatus() != FriendshipStatus.PENDING) {
+            throw new FriendException(FriendErrorCode.INVALID_REQUEST_STATUS);
+        }
+        friendship.cancel();
+    }
+
+    /**
      * 친구 삭제 — ACCEPTED 관계를 양측 누구나 soft delete.
      *
      * @param me           끊는 쪽
      * @param friendUserId 끊을 상대. 이미 탈퇴한 유저여도 허용한다 — 아니면 잔존 관계를 영영 못 끊는다
+     * @return 끊은 관계 행 id (GROMO-1894 내부 표면이 결과를 돌려주는 데 쓴다. 레거시 컨트롤러는 무시한다)
      */
     @Transactional
-    public void deleteFriend(UUID me, UUID friendUserId) {
+    public UUID deleteFriend(UUID me, UUID friendUserId) {
         User meUser = getUser(me);
         User friendUser = getAnyUser(friendUserId);   // 탈퇴자와의 잔존 관계도 끊을 수 있어야 한다 (GROMO-801)
         Friendship friendship = friendshipRepository.findAcceptedBetween(meUser, friendUser)
                 .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
         friendship.softDelete(Instant.now());
+        return friendship.getId();
     }
 
     /**
@@ -497,6 +529,19 @@ public class FriendService {
                 .orElseThrow(() -> new FriendException(FriendErrorCode.REQUEST_NOT_FOUND));
         if (!friendship.getToUser().getId().equals(me)) {
             throw new FriendException(FriendErrorCode.NOT_REQUEST_RECEIVER);
+        }
+        return friendship;
+    }
+
+    /**
+     * requestId 로 요청 조회 후 발신자(fromUser) 본인인지 검증 — {@link #getReceivedRequest} 의 대칭 (GROMO-1894).
+     * 같은 배타 락 조회를 쓴다: 취소가 수락·탈퇴 정리와 서로의 UPDATE 를 덮어쓰지 않아야 한다.
+     */
+    private Friendship getSentRequest(UUID me, UUID requestId) {
+        Friendship friendship = friendshipRepository.findByIdAndDeletedAtIsNull(requestId)
+                .orElseThrow(() -> new FriendException(FriendErrorCode.REQUEST_NOT_FOUND));
+        if (!friendship.getFromUser().getId().equals(me)) {
+            throw new FriendException(FriendErrorCode.NOT_REQUEST_SENDER);
         }
         return friendship;
     }

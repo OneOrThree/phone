@@ -1,6 +1,7 @@
 package com.oneorthree.business.config;
 
 import com.oneorthree.business.auth.AccessTokenVerifier;
+import com.oneorthree.business.auth.CredentialDigest;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.common.http.IpHasher;
 import com.oneorthree.business.common.http.UpstreamProperties;
@@ -84,5 +85,21 @@ class SecretFailFastTest {
         assertThatThrownBy(() -> new IpHasher("${LINK_IP_SALT}"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("LINK_IP_SALT");
+    }
+
+    @Test
+    @DisplayName("자격 digest 비밀이 비면 거절한다 — 비밀 없는 digest 는 재개의 «증거»이기를 그만둔다")
+    void digest비밀없음() {
+        assertThatThrownBy(() -> new CredentialDigest("  "))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("digest-secret");
+    }
+
+    @Test
+    @DisplayName("digest 비밀이 플레이스홀더면 거절한다 — 리터럴도 HMAC 키로 «성립»해 조용히 뜬다")
+    void digest비밀플레이스홀더() {
+        assertThatThrownBy(() -> new CredentialDigest("${LOGIN_ATTEMPT_DIGEST_SECRET}"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("LOGIN_ATTEMPT_DIGEST_SECRET");
     }
 }
