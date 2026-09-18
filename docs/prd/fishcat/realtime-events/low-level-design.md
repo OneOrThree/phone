@@ -53,7 +53,7 @@
 | 2 | `rest.member.updated` / `REST_MEMBER_UPDATED` | `userId:Id`, `sessionId:Id`, `status:active\|paused\|completed`, `restStartedAt:Instant?`, `restSeat:integer?`, `serverNow:Instant`, `sessionVersion:Version` | `(rest.member,islandId,userId)`의 휴식 투영. 세션 교체로 초기화하지 않음 | `rest` |
 | 3 | `focus.emote` / `FOCUS_EMOTE` | `userId:Id`, `sessionId:Id`, `type:hello\|cheer\|sleepy\|laugh\|hearts`, `expiresAt:Instant` | 버전 없음(null). eventId dedup + 만료만 사용 | `emotes` |
 | 4 | `playback.updated` / `PLAYBACK_UPDATED` | `trackId:TrackId?`, `playing:boolean`, `positionSeconds:Seconds`, `effectiveAt:Instant`, `changedBy:Id`, `version:Version`, `serverNow:Instant` | `(playback,islandId)`의 전체 재생 상태 | `playback` |
-| 5 | `message.created` / `MESSAGE_CREATED` | `id:Id`, `clientMessageId:Id`, `userId:Id`, `text:string`, `createdAt:Instant` | 불변 사건. `(message,id)`의 최초 버전 1. 다른 payload.id와 버전 비교 금지 | `messages` |
+| 5 | `message.created` / `MESSAGE_CREATED` | `messageId:Id`, `islandId:Id`, `senderId:Id`, `sentAt:Instant`, `clientMessageId:Id` — **본문 `text` 없음**(M02: 메시지 정본은 `gromo_chat`, Data 복제 금지. 앱은 `messageId`로 히스토리에서 읽는다) | 불변 사건. `(MESSAGE,messageId)`의 최초 버전 1. 다른 payload.messageId와 버전 비교 금지. 생산 지점은 Data outbox — Business가 realtime 저장 «처음 성공» 뒤 `POST /internal/islands/{islandId}/message-events`로 적재하고 REALTIME transport 등록 전까지 내구 보류 *(2026-09-18 GROMO-1775, M02)* | `messages` |
 | 6 | `quest.progress.updated` / `QUEST_PROGRESS_UPDATED` | `questId:Id`, `occurrenceId:Id`, `version:Version` | `(quest.progress,islandId,questId,occurrenceId)`의 무효화 신호 | `events` |
 | 7 | `wallet.updated` / `WALLET_UPDATED` | `ownerType:user\|island`, `ownerId:Id`, `currency:fish\|village_points`, `version:Version` | `(wallet,ownerType,ownerId,currency)`의 지갑 무효화. 개인=user/fish(개인 지갑), 공동=island/village_points(섬 통장·섬 물고기 — 2026-09-18 재영님 결정 D1, 식별자 개명 미결)만 허용 | 개인은 개인큐, 공동은 `events` |
 | 8 | `inventory.updated` / `INVENTORY_UPDATED` | `ownerType:user\|island`, `ownerId:Id`, `productId:ProductId`, `version:Version` | `(inventory,ownerType,ownerId)` 보유 목록 무효화. productId는 변경 원인이지 전체목록 버전의 key 아님 | 개인은 개인큐, 공동은 `events` |
@@ -73,7 +73,7 @@
 - rest `paused`일 때 restStartedAt과 restSeat가 필수이고 restSeat는 도메인이 정한 유효 자리 번호다. 그 외에는 둘 다 null이며 해당 휴식 행을 제거한다. 자리 정원/배정 정책은 참고 티켓 1763/1765 소유다.
 - 세션별 버전만 쓰면 예전 세션의 큰 버전이 새 세션의 작은 버전을 덮거나, 지연된 예전 입장으로 종료자가 살아난다. 그래서 focus/rest는 **사용자×섬 투영의 지속 버전**을 별도로 저장/조회한다. 이 요구는 현재 Data 모델에 없는 선행 변경이다.
 - `playback`의 null trackId는 음원 미선택 상태의 wire 표현이며 playing=false/positionSeconds=0이어야 한다. 초기 무료곡을 자동 지급한다는 뜻이 아니다. 재생 중 위치는 effectiveAt anchor와 서버 시간 차이로 계산한다. anchor 위치만 현재로 바꾸고 effectiveAt을 그대로 두는 이중 가산을 금지한다.
-- `message.created`는 순서를 가진 상태 덮어쓰기가 아니다. 서로 다른 `payload.id`를 모두 처리하고 정렬은 히스토리 계약의 서버 키를 사용한다. `clientMessageId`는 발신자 userId와 함께 낙관적 UI를 병합한다. 서로 다른 사용자의 같은 clientMessageId를 하나로 접지 않는다. 신규 이벤트의 wire 필드명은 `payload.id`, 신규 REST 메시지 DTO의 필드명은 `id`다. 기존 `ChatMessageResponse.messageId`와 저장 PK는 우체통 어댑터에서 이 `id`로 명시 매핑한다. 레거시 REST/STOMP의 `messageId` 필드는 그대로 보존하고, 신규 클라이언트가 `payload.messageId`를 읽도록 구현하지 않는다.
+- `message.created`는 순서를 가진 상태 덮어쓰기가 아니다. 서로 다른 `payload.messageId`를 모두 처리하고 정렬은 히스토리 계약의 서버 키를 사용한다. `clientMessageId`는 `payload.senderId`와 함께 낙관적 UI를 병합한다. 서로 다른 사용자의 같은 clientMessageId를 하나로 접지 않는다. 이벤트 wire 필드명은 `payload.messageId`·`payload.senderId`·`payload.sentAt`(저장 PK·컬럼과 같은 이름 — outbox params 를 그대로 싣는다), 신규 REST 메시지 DTO의 필드명은 `id`·`userId`·`createdAt`이다(우체통 어댑터가 명시 매핑, island-mailbox LLD §2). 본문 `text`는 이벤트에 없고 REST(히스토리/POST 응답)에만 있다 — 앱은 `payload.messageId`로 히스토리에서 본문을 채운다. 레거시 REST/STOMP의 `messageId` 필드는 그대로 보존한다. *(2026-09-18 GROMO-1775, M02 — 종전 `payload.id/userId/text/createdAt` 정의를 이 PR 의 구현으로 대체)*
 - ownerType=island이면 ownerId=envelope.islandId. ownerType=user이면 islandId=null이고 UserAudience는 해당 ownerId 하나다. wallet/inventory에 balance/잔액 전체나 타인의 보유 목록을 포함하지 않는다.
 - island.updated/island.members.updated의 payload islandId는 envelope와 같아야 한다. join.request의 개인 수신자는 요청자 본인과 현재 방장의 합집합이며 같은 사용자면 한 번으로 접는다. 생산 시점의 방장 목록은 영구 권한이 아니다. 라우팅 시 신뢰된 membership resolver가 현재 방장으로 audience를 다시 확정하고, 이전 방장은 전달 직전 검사에서도 차단한다.
 - inventory/quest/notice 등 무효화 이벤트는 해당 목록/자원을 다시 읽는 신호다. 높은 버전의 product B가 먼저 왔다고 product A의 개별 소유를 수동으로 삭제하지 않는다. 목록 스냅샷은 A/B를 모두 포함해야 한다.
@@ -86,7 +86,7 @@
 | focus.member.updated, rest.member.updated | Data의 시작/휴식/재개/종료 TX, 세션 및 주민 투영 버전+outbox. 동일 명령 재시도는 같은 사건들 | 참고 티켓 1764/1765 |
 | focus.emote | Realtime의 인증된 SEND 검증 후 즉시 생성. DB/outbox/replay 없음 | 참고 티켓 1765 |
 | playback.updated | Data 재생 상태 변경 TX+outbox. GET에는 생산 없음 | 참고 티켓 1779 |
-| message.created | 기존 `gromo_chat` 메시지 커밋 후 fanout의 신규 wire adapter. 히스토리가 복구 정본 | 참고 티켓 1775 |
+| message.created | Business가 realtime 저장(`gromo_chat` 커밋) «처음 성공» 뒤 Data outbox에 적재(`POST /internal/islands/{islandId}/message-events`). 저장/적재 사이 원자성 없음 — 적재 실패는 201 성공 + 사건 유실(REALTIME transport 미등록이라 전달 자체가 꺼져 있어 지금은 무해). 히스토리가 복구 정본 | GROMO-1775 구현(2026-09-18), M02 |
 | quest.progress.updated | Data 집중/측정/퀘스트 판정·정산 TX+outbox | 참고 티켓 1769/1773 및 집중 종료 생산자 |
 | wallet.updated | Data 집중보상/퀘스트/건설/구매 TX+해당 지갑버전+outbox | 참고 티켓 1764/1767/1773/1781 |
 | inventory.updated | Data 주문/소유권 부여 TX+목록버전+outbox | 참고 티켓 1781/1783 |
@@ -211,7 +211,7 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 5. 전체상태형 이벤트는 **같은 projection/key**에서 `version > watermark`일 때만 적용한다. focus와 rest는 서로 다른 투영이며 지갑/재고/다른주민/다른회차의 버전을 비교하지 않는다. completed/비휴식 행 삭제 후에도 해당 key의 마지막 version은 연결 세대 동안 보존한다.
 6. 스냅샷에 key가 없는 이벤트는 누락된 새 주민인지 오래전에 종료된 주민인지 알 수 없다. **이를 새 행으로 바로 추가하지 않고 정본을 재조회한다.** 조회 결과에도 없으면 행을 만들지 않는다. 새로운 정상 입장도 이 경우 조회 후 표시한다. 없는 행의 무한 과거 tombstone을 모두 내려보낸다고 가정하지 않는다.
 7. 무효화형 이벤트는 resource를 dirty로 표시하고 debounce된 재조회로 복구한다. 조회 중 더 높은 version을 받으면 응답 version이 이를 덮을 때까지 dirty를 유지한다. 구독 버전만 먼저 올리고 오래된 GET 응답을 확정하지 않는다. 실패한 재조회를 eventId dedup 때문에 영구 생략하지 않는다.
-8. `message.created`는 버전 최대값으로 버리지 않는다. `payload.id`와 `(payload.userId,payload.clientMessageId)`로 병합하고, 연결복구 때 서버 히스토리 cursor 조회로 빠진 메시지를 읽는다.
+8. `message.created`는 버전 최대값으로 버리지 않는다. `payload.messageId`와 `(payload.senderId,payload.clientMessageId)`로 병합하고, 연결복구 때 서버 히스토리 cursor 조회로 빠진 메시지를 읽는다 *(필드명: 2026-09-18 GROMO-1775)*.
 9. `focus.emote`는 스냅샷/replay 버퍼에서 재생하지 않는다. 초기화 완료 후 실시간으로 받은 것 중 `expiresAt > serverNow 추정값`인 사건만 표시한다. 연결전의 남은 말풍선을 복구하지 않는다.
 10. buffer/프레임 크기/연결대기 시간은 유한 상한을 둔다. overflow·서버 Redis 재연결·권한변경·프로토콜 오류가 생기면 해당 세대를 버리고 재조회한다. 구현 상한은 1765의 설정/부하 검증 항목이며 무한 저장을 허용하지 않는다.
 

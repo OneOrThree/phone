@@ -38,3 +38,8 @@ chat:
 logging:
   level:
     com.oneorthree.realtime: DEBUG
+
+realtime:
+  internal:
+    # 우체통 내부 어댑터 테스트용 서비스 토큰. 운영 값이 아니다.
+    service-token: ci-token-biz-to-realtime

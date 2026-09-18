@@ -118,6 +118,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             LINK_IP_SALT="existing-salt", DD_API_KEY="agent-only", CONSOLE_SUDO_PASSWORD_HASH="console-only",
             DATA_API_BASE_URL="http://app:8080", NOTIFICATION_BASE_URL="http://notification:8082",
             LINK_BASE_URL="https://link.example.test", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            REALTIME_BASE_URL="http://realtime:8081", SVC_TOKEN_BIZ_TO_REALTIME="biz-realtime",
             FCM_SERVICE_ACCOUNT_JSON={"project_id": "test", "private_key": "fake$'\\\nkey"},
             LOGIN_ATTEMPT_DIGEST_SECRET="digest-only-secret",
         )
@@ -156,6 +157,9 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(biz["LOGIN_ATTEMPT_DIGEST_SECRET"], "digest-only-secret")
             self.assertEqual(biz["BUSINESS_CURSOR_KEY_V1"], "cursor-only")
             self.assertEqual(biz["BUSINESS_REDIS_USERNAME"], "business")
+            self.assertEqual(biz["SVC_TOKEN_BIZ_TO_REALTIME"], "biz-realtime")
+            self.assertEqual(biz["REALTIME_BASE_URL"], "http://realtime:8081")
+            self.assertNotIn("SVC_TOKEN_BIZ_TO_REALTIME", noti)
             self.assertEqual(set(services["business-redis"]["networks"]), {"business-cache"})
             self.assertNotIn("environment", services["business-redis"])
             self.assertEqual(noti["NOTI_DB_PASSWORD"], "noti-only")

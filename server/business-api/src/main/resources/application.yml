@@ -70,6 +70,12 @@ business:
       read-timeout: 1500ms
       failure-threshold: 5
       open-duration: 10s
+    # 실시간 서버 — 우체통 편지방의 저장소 어댑터(GROMO-1775). 주소·토큰은 프로파일별 파일이 채운다.
+    realtime:
+      connect-timeout: 500ms
+      read-timeout: 1500ms
+      failure-threshold: 5
+      open-duration: 10s
     link:
       connect-timeout: 500ms
       read-timeout: 1500ms

@@ -76,6 +76,12 @@ realtime:
     request-timeout: ${REALTIME_AUTHORIZATION_REQUEST_TIMEOUT:1500ms}
     max-in-flight: ${REALTIME_AUTHORIZATION_MAX_IN_FLIGHT:16}
 
+  # 우체통 내부 어댑터(/internal/islands/{islandId}/messages)의 서비스 자격 — 호출자는 Business 하나다.
+  # Business 가 Data·알림·링크에 쓰는 토큰과 «분리»된 값이어야 한다(A22 ㊀). 비어 있으면 그 표면만
+  # 전량 거절(fail-closed)하고 부팅은 막지 않는다 — 아직 어느 배포에도 배선되지 않은 표면이다.
+  internal:
+    service-token: ${SVC_TOKEN_BIZ_TO_REALTIME:}
+
 logging:
   level:
     com.oneorthree.realtime: INFO

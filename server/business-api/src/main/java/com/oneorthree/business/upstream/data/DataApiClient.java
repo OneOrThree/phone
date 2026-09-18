@@ -22,6 +22,9 @@ import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
 import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
 import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
+import com.oneorthree.business.upstream.data.dto.MailboxViewer;
+import com.oneorthree.business.upstream.data.dto.MessageAuthors;
+import com.oneorthree.business.upstream.data.dto.MessageCreatedAck;
 import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
@@ -83,6 +86,9 @@ public class DataApiClient {
     private static final String PATH_FOCUS_SESSION_FINISH =
             "/internal/users/{userId}/focus-sessions/{sessionId}/finish";
     private static final String PATH_FOCUS_SUMMARY = "/internal/users/{userId}/focus-summary";
+    private static final String PATH_MAILBOX_ACCESS = "/internal/islands/{islandId}/mailbox-access";
+    private static final String PATH_MESSAGE_AUTHORS = "/internal/islands/{islandId}/message-authors";
+    private static final String PATH_MESSAGE_EVENTS = "/internal/islands/{islandId}/message-events";
     // GROMO-1759 섬 소속·탐색 6종. 검색·발견이 공개 경로와 이름이 다른 이유는 사용자 축에서
     // `/islands` 를 이미 «내 섬 목록» 이 쓰기 때문이다(내부 컨트롤러 javadoc 참고).
     private static final String PATH_ISLANDS = "/internal/users/{userId}/islands";
@@ -105,6 +111,57 @@ public class DataApiClient {
 
     public DataApiClient(InternalHttpClient http) {
         this.http = http;
+    }
+
+    /**
+     * 우체통 주민·시설 인가 + 요청자 표시 projection (GROMO-1775). 멱등 GET 이라 재시도한다. 거절은 Data 의
+     * 도메인 코드(MEMBER_ONLY·MAILBOX_LOCKED·USER_NOT_FOUND)로 오고 유스케이스가 공개 코드로 옮긴다.
+     */
+    public MailboxViewer mailboxAccess(UUID islandId, UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_MAILBOX_ACCESS, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MailboxViewer>() { });
+    }
+
+    /**
+     * 한 페이지 작성자들의 표시 projection — «방금 읽은 페이지의 sender 집합»만 넘긴다(LLD §5). POST 지만
+     * 상태를 바꾸지 않는 조회라 재시도해도 안전하다. id 를 쿼리에 싣지 않는 것은 100개까지 늘어나서다.
+     */
+    public MessageAuthors messageAuthors(UUID islandId, UUID userId, List<UUID> authorIds, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, islandPath(PATH_MESSAGE_AUTHORS, islandId))
+                        .onBehalfOf(userId)
+                        .body(Map.of("userIds", authorIds))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MessageAuthors>() { });
+    }
+
+    /**
+     * {@code message.created} 를 Data outbox 에 적는다 — 실시간 저장이 «처음» 성공한 뒤에만 부른다. eventId 가
+     * messageId 로 결정되므로 재시도는 같은 봉투를 재생한다 → 멱등 명령이다. 두 서비스 사이의 원자성과 실패 시
+     * 동작은 {@code IslandMailboxUseCase#send} 에 적혀 있다.
+     */
+    public MessageCreatedAck recordMessageCreated(UUID islandId, UUID authorId, UUID messageId,
+            UUID clientMessageId, Instant sentAt, Deadline deadline) {
+        // 본문은 싣지 않는다 — M02(메시지 정본은 gromo_chat). 소비자는 messageId 로 자기 DB 에서 읽는다.
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, islandPath(PATH_MESSAGE_EVENTS, islandId))
+                        .onBehalfOf(authorId)
+                        .body(Map.of("messageId", messageId.toString(), "clientMessageId", clientMessageId.toString(),
+                                "sentAt", sentAt.toString()))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MessageCreatedAck>() { });
+    }
+
+    private static String islandPath(String template, UUID islandId) {
+        return template.replace("{islandId}", islandId.toString());
     }
 
     /** 같은 앱 UUID 키로 원 Data receipt를 재생한다. 사용자/세션은 서명된 AT에서만 가져온다. */

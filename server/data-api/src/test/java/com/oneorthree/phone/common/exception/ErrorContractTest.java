@@ -126,7 +126,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 152개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 153개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -161,8 +161,10 @@ class ErrorContractTest {
         // 전망대 없이 이름 검색을 여는 403 은 첫 소속 탐색(가드 없는 discover)과 갈라야 한다.
         // GROMO-1894 가 친구 요청 취소의 권한 코드 1개(NOT_REQUEST_SENDER)를 더했다 — 발신자 축 거부를
         // 수신자 축(NOT_REQUEST_RECEIVER)과 한 코드로 접으면 앱이 「내가 보낸 요청이 아니다」를 구분하지 못한다.
-        assertThat(tests).as("실측 기준 도메인 상수 137개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소 포함")
-                .hasSize(152);
+        // GROMO-1775 가 우체통 시설 잠금 코드 1개를 더했다(GroupErrorCode.MAILBOX_LOCKED) —
+        // 전망대 가드와 같은 결이지만 잠기는 시설이 달라 한 코드로 접지 않는다.
+        assertThat(tests).as("실측 기준 도메인 상수 138개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금 포함")
+                .hasSize(153);
         return tests;
     }
 
