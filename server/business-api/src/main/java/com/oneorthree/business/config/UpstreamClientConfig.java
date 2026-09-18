@@ -8,6 +8,7 @@ import com.oneorthree.business.common.http.UpstreamTarget;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
+import com.oneorthree.business.upstream.realtime.RealtimeApiClient;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,7 +19,7 @@ import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
- * 상류 클라이언트 셋을 만든다 — <b>대상별로 별개의 인스턴스, 별개의 토큰</b>.
+ * 상류 클라이언트 넷을 만든다 — <b>대상별로 별개의 인스턴스, 별개의 토큰</b>.
  *
  * <p>공통 팩토리를 두는 이유(§4): 타임아웃·재시도·서킷을 «처음부터» 한 자리에 두면 새 상류가 늘 때도
  * 그 규율이 자동으로 따라온다. 클라이언트마다 RestClient 를 직접 만들면 그중 하나가 타임아웃 없이
@@ -88,6 +89,13 @@ public class UpstreamClientConfig {
     public LinkApiClient linkApiClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
         return new LinkApiClient(
                 client(UpstreamTarget.LINK, convert(properties.getLink()), objectMapper));
+    }
+
+    /** 우체통 저장소 어댑터(GROMO-1775). 넷째 대상, 넷째 토큰 — 셋과 같은 규율로 만든다. */
+    @Bean
+    public RealtimeApiClient realtimeApiClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new RealtimeApiClient(
+                client(UpstreamTarget.REALTIME, convert(properties.getRealtime()), objectMapper));
     }
 
     private UpstreamProperties convert(UpstreamConfigProperties.Target target) {

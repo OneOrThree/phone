@@ -19,6 +19,10 @@ public enum GroupErrorCode implements ErrorCode {
     GUEST_FORBIDDEN(HttpStatus.FORBIDDEN, "게스트는 이 작업을 수행할 권한이 없습니다."),
     NOT_OWNER(HttpStatus.FORBIDDEN, "그룹장만 수행할 수 있습니다."),
     MEMBER_ONLY(HttpStatus.FORBIDDEN, "그룹원만 조회할 수 있습니다."),
+    // 우체통 미완공(GROMO-1775) — Business 가 공개 FACILITY_LOCKED 로 옮긴다. 1759 의 OBSERVATORY_LOCKED 와 같은 결.
+    // 지금은 발급 경로가 «닫혀» 있다: 건설 도메인 미구현이라 InternalIslandMailboxService.requireMailboxUnlocked 가
+    // 통과시킨다. 시설 테이블이 생기면 그 한 곳에서 던진다.
+    MAILBOX_LOCKED(HttpStatus.FORBIDDEN, "우체통을 지으면 편지를 주고받을 수 있어요"),
     // 섬 검색 진입 가드(GROMO-1759 · 섬 소속 LLD §3.2) — 현재 섬의 전망대가 열려야 이름 검색을
     // 쓸 수 있다. 첫 소속 탐색은 가드가 없는 discover 를 쓰므로 이 코드로 접히지 않는다.
     OBSERVATORY_LOCKED(HttpStatus.FORBIDDEN, "전망대를 지으면 다른 섬을 찾아볼 수 있어요"),

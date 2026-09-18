@@ -4,9 +4,11 @@ import com.oneorthree.business.common.http.ScreenComposer;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
+import com.oneorthree.business.upstream.realtime.RealtimeApiClient;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -25,7 +27,9 @@ class UpstreamWorkerBudgetTest {
                     "business.upstream.notification.base-url=http://127.0.0.1:2",
                     "business.upstream.notification.service-token=test-notification-token",
                     "business.upstream.link.base-url=http://127.0.0.1:3",
-                    "business.upstream.link.service-token=test-link-token");
+                    "business.upstream.link.service-token=test-link-token",
+                    "business.upstream.realtime.base-url=http://127.0.0.1:4",
+                    "business.upstream.realtime.service-token=test-realtime-token");
 
     @Test
     void defaultBudgetStartsAllThreeRealClientsAndComposer() {
@@ -36,6 +40,7 @@ class UpstreamWorkerBudgetTest {
                 .hasSingleBean(DataApiClient.class)
                 .hasSingleBean(NotificationApiClient.class)
                 .hasSingleBean(LinkApiClient.class)
+                .hasSingleBean(RealtimeApiClient.class)
                 .hasSingleBean(ScreenComposer.class));
     }
 
@@ -46,7 +51,7 @@ class UpstreamWorkerBudgetTest {
         configured(data, notification, link, composition).run(context -> {
             assertThat(context).hasFailed();
             assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class)
-                    .hasStackTraceContaining("worker 합계").hasStackTraceContaining("16");
+                    .hasStackTraceContaining("worker 합계").hasStackTraceContaining("18");
         });
     }
 
@@ -74,6 +79,26 @@ class UpstreamWorkerBudgetTest {
             assertThat(properties.getNotification().getMaxConnections()).isEqualTo(3);
             assertThat(properties.getLink().getMaxConnections()).isEqualTo(3);
             assertThat(properties.getComposition().getPoolSize()).isEqualTo(3);
+        });
+    }
+
+    /** realtime 도 양수 불변식의 대상이다 — 넷째 풀만 0·음수를 허용하면 «합계 18 이하»가 그 풀로 우회된다. */
+    @ParameterizedTest
+    @ValueSource(ints = {0, -8})
+    void zeroOrNegativeRealtimePoolCannotStart(int realtime) {
+        runner.withPropertyValues("business.upstream.realtime.max-connections=" + realtime).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class);
+        });
+    }
+
+    /** realtime 은 합계에 «포함»된다 — 기존 셋(4·4·4)+조합(4)=16 에 realtime 4 를 더하면 20 > 18 이다. */
+    @Test
+    void realtimePoolCountsTowardTheBudget() {
+        runner.withPropertyValues("business.upstream.realtime.max-connections=4").run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasRootCauseInstanceOf(IllegalArgumentException.class)
+                    .hasStackTraceContaining("worker 합계").hasStackTraceContaining("18");
         });
     }
 

@@ -39,6 +39,9 @@ SERVICE_REQUIRED_KEYS = {
         "JWT_SECRET", "SVC_TOKEN_BIZ_TO_DATA", "SVC_TOKEN_BIZ_TO_NOTI", "SVC_TOKEN_BIZ_TO_LINK",
         "LINK_IP_SALT", "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
         "BUSINESS_REDIS_PASSWORD",
+        # GROMO-1775 우체통 — 실시간 서버 주소·전용 토큰(A22 ㊀: Data·알림·링크 토큰과 분리). 빠지면
+        # InternalHttpClient 가 부팅에서 fail-fast 하므로 env 생성 단계가 먼저 막는다.
+        "REALTIME_BASE_URL", "SVC_TOKEN_BIZ_TO_REALTIME",
         # GROMO-1908 로그인 시도 자격 digest 비밀. JWT_SECRET 과 «다른 값»(계정 LLD §3).
         # 없으면 Business 가 부팅에서 fail-fast 한다(CredentialDigest).
         "LOGIN_ATTEMPT_DIGEST_SECRET",

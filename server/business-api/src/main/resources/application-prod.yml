@@ -30,6 +30,11 @@ business:
     notification:
       base-url: ${NOTIFICATION_BASE_URL}
       service-token: ${SVC_TOKEN_BIZ_TO_NOTI}
+    # GROMO-1775 우체통 — 실시간 서버. 두 값 모두 write-compose-env.py 의 business-api 필수 목록에 있어
+    # 시크릿에 없으면 env 생성이 배포 «전에» 실패한다(위 ⚠️ 와 같은 절차).
+    realtime:
+      base-url: ${REALTIME_BASE_URL}
+      service-token: ${SVC_TOKEN_BIZ_TO_REALTIME}
     link:
       base-url: ${LINK_BASE_URL}
       service-token: ${SVC_TOKEN_BIZ_TO_LINK}

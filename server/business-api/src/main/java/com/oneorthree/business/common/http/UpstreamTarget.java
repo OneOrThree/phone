@@ -5,7 +5,8 @@ package com.oneorthree.business.common.http;
  *
  * <p>토큰을 하나로 공유하면 수신 측이 호출자를 구분하지 못해 허용목록이 합쳐지고, 한쪽 유출이 다른
  * 쪽 명령을 연다. 그래서 {@code SVC_TOKEN_BIZ_TO_DATA} · {@code SVC_TOKEN_BIZ_TO_NOTI} ·
- * {@code SVC_TOKEN_BIZ_TO_LINK} 를 각각 <b>명시된 대상에만</b> 보낸다 — 이 enum 이 그 「대상」이다.
+ * {@code SVC_TOKEN_BIZ_TO_LINK} · {@code SVC_TOKEN_BIZ_TO_REALTIME} 를 각각 <b>명시된 대상에만</b> 보낸다 —
+ * 이 enum 이 그 「대상」이다.
  */
 public enum UpstreamTarget {
 
@@ -14,5 +15,7 @@ public enum UpstreamTarget {
     /** 알림 서버 — {@code gromo_notification} 소유. 설정 정본·기기 토큰·발송 이력. */
     NOTIFICATION,
     /** 링크 서버 — Neon 소유. 발급·claim·클릭 소진. 코어를 부르지 않는다. */
-    LINK
+    LINK,
+    /** 실시간 서버 — {@code gromo_chat} 소유. 우체통 편지방의 저장소 어댑터(GROMO-1775). 인가는 하지 않는다. */
+    REALTIME
 }

@@ -38,6 +38,11 @@ business:
       service-token: ci-token-noti
       read-timeout: 300ms
       connect-timeout: 200ms
+    realtime:
+      base-url: http://localhost:1
+      service-token: ci-token-realtime
+      read-timeout: 300ms
+      connect-timeout: 200ms
     link:
       base-url: http://localhost:1
       service-token: ci-token-link

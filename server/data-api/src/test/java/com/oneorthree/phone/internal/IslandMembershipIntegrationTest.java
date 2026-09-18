@@ -420,7 +420,8 @@ class IslandMembershipIntegrationTest {
     private List<UUID> pageThroughSearch(UUID userId, String q, int limit) {
         List<UUID> seen = new ArrayList<>();
         UUID cursor = null;
-        for (int guard = 0; guard < 50; guard++) {
+        // 공유 DB 의 섬 총수는 스위트가 커질수록 는다 — 한계는 무한 커서 감지용이지 데이터 수 상한이 아니다.
+        for (int guard = 0; guard < 500; guard++) {
             IslandSearchPageView page = islands.search(userId, q, cursor, limit);
             page.items().stream().map(IslandSummaryView::id).forEach(seen::add);
             cursor = page.nextIslandId();
@@ -434,7 +435,7 @@ class IslandMembershipIntegrationTest {
     private List<UUID> pageThroughDiscover(UUID userId, int limit) {
         List<UUID> seen = new ArrayList<>();
         String handle = null;
-        for (int guard = 0; guard < 50; guard++) {
+        for (int guard = 0; guard < 500; guard++) {
             IslandDiscoverPageView page = islands.discover(userId, SEED, handle, limit);
             page.items().stream().map(IslandSummaryView::id).forEach(seen::add);
             handle = page.nextHandle();

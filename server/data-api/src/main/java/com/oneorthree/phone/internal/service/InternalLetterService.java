@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -172,7 +173,8 @@ public class InternalLetterService {
      * 다시 읽어 온다 — 내 {@code now()} 를 응답에 실으면 화면과 DB 가 갈린다.
      */
     private Instant markRead(UUID letterId) {
-        Instant now = Instant.now();
+        // timestamptz 는 마이크로초 정밀도다 — 자른 채로 써야 첫 응답과 재조회 값이 같다.
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         if (letters.markReadIfUnread(letterId, now) == 1) {
             return now;
         }
