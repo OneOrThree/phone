@@ -45,13 +45,34 @@ public record InternalCall(
     private static final String HEADER_AUTHORIZATION = "authorization";
     private static final String HEADER_USER_ID = "x-user-id";
 
+    /**
+     * 상류 401 을 «사용자» 오류로 읽어도 되는 경로 — 사용자 자격이 인증 정본인 계약들이다.
+     *
+     * <ul>
+     *   <li>로그아웃: RT 가 정본이다. RT 가 틀리면 그건 사용자 오류다.</li>
+     *   <li>로그인: 제공자 자격이 정본이다. 애플 토큰이 만료됐다면 401 {@code APPLE_TOKEN} 이고,
+     *       이것을 서비스 자격 거부로 접으면 <b>정상적인 로그인 실패가 502 로 나간다</b>(계정 LLD
+     *       §2.1 이 제공자별 {@code *_TOKEN} 401 보존을 요구한다).</li>
+     * </ul>
+     */
+    private static final java.util.Set<String> END_USER_AUTH_PATHS = java.util.Set.of(
+            "/internal/auth/sessions/logout",
+            "/internal/auth/login-attempts",
+            "/internal/auth/login-attempts/lookup");
+
     public InternalCall {
         if (method == null || path == null || path.isBlank()) {
             throw new IllegalArgumentException("method·path 는 필수다");
         }
-        if (endUserAuthErrors && (!HttpMethod.POST.equals(method)
-                || !"/internal/auth/sessions/logout".equals(path))) {
-            throw new IllegalArgumentException("사용자 인증 오류 구분은 세션 로그아웃 계약에만 허용한다");
+        // 사용자 «자격» 이 인증 정본인 경로만 상류 401 을 도메인 오류로 읽는다. 그 밖의 401 은
+        // 코드가 있든 없든 서비스 자격 거부이고, 그것을 사용자 오류로 바꾸면 시크릿 미주입이
+        // 「전원 재로그인」으로 보인다. 목록을 «여기» 두는 이유는 유스케이스가 임의 경로에
+        // 켤 수 없게 하기 위해서다.
+        if (endUserAuthErrors && !END_USER_AUTH_PATHS.contains(path)) {
+            throw new IllegalArgumentException("사용자 인증 오류 구분은 등록된 자격 계약에만 허용한다: " + path);
+        }
+        if (endUserAuthErrors && !HttpMethod.POST.equals(method)) {
+            throw new IllegalArgumentException("사용자 인증 오류 구분은 POST 계약에만 허용한다");
         }
         query = query == null ? Map.of() : Map.copyOf(query);
         declaredHeaders = declaredHeaders == null ? Map.of() : Map.copyOf(declaredHeaders);

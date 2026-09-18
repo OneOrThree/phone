@@ -32,7 +32,20 @@ public enum AuthErrorCode implements ErrorCode {
     UNSUPPORTED_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인 제공자입니다."),
 
     /** 내부 사용자 세션 거절. 서비스 자격 401과 구분하며 신규 Business 경로가 공개 401로 매핑한다. */
-    SESSION_NOT_ACTIVE(HttpStatus.FORBIDDEN, "유효한 로그인 세션이 아닙니다.");
+    SESSION_NOT_ACTIVE(HttpStatus.FORBIDDEN, "유효한 로그인 세션이 아닙니다."),
+
+    // 같은 X-Login-Attempt-Id 를 다른 실행자가 이미 잡고 제공자 교환 중이다 (GROMO-1908, LLD §3).
+    // 「같은 자격이지만 아직 결과가 없다」는 뜻이라 IDEMPOTENCY_KEY_CONFLICT(다른 자격)와 갈린다 —
+    // 합치면 앱이 「키를 잘못 썼다」로 읽고 새 시도를 만들어, 막으려던 동시 code 교환이 그대로 생긴다.
+    // Business 가 공개 409 REQUEST_IN_PROGRESS(Retry-After: 1)로 매핑한다.
+    LOGIN_ATTEMPT_IN_PROGRESS(HttpStatus.CONFLICT, "로그인을 처리 중입니다. 잠시 후 다시 시도해 주세요."),
+
+    // 그 로그인 시도로는 더 진행할 수 없다 — 복구 창이 끝났거나(LLD §3 고정 복구 마감), 주체가
+    // 폐기됐거나(INVALIDATED), Business 의 digest 비밀이 교체돼 원 자격을 재현할 수 없다.
+    // ⚠️ 키 교체를 IDEMPOTENCY_KEY_REUSED 로 판정하지 «않는다»(LLD §3 명시) — 자격을 바르게 들고 온
+    // 정상 사용자가 배포 한 번에 409 로 막히고, 앱은 그걸 「키 오용」으로 읽어 복구를 포기한다.
+    // 답은 언제나 같다: 새 제공자 인증. 그래서 401 하나로 모은다.
+    LOGIN_ATTEMPT_UNUSABLE(HttpStatus.UNAUTHORIZED, "로그인을 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String message;

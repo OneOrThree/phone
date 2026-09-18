@@ -171,7 +171,7 @@ CREATE TABLE letters (
     id          uuid PRIMARY KEY,
     sender_id   uuid NOT NULL REFERENCES users(id),
     receiver_id uuid NOT NULL REFERENCES users(id),
-    content     varchar(1000) NOT NULL,
+    content     varchar(500) NOT NULL,   -- 2026-09-18 재영님 결정 FL-본문 (종전 제안 1000)
     read_at     timestamptz,
     created_at  timestamptz NOT NULL DEFAULT now(),
     deleted_at  timestamptz
@@ -238,7 +238,7 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 | B. 게스트는 받기만(보내기 금지) | `POST /letters`가 `getCallerParticipant`에서 `isGuest`를 추가로 확인해야 한다(§1.12 검증 순서에 분기 추가). 게스트 온보딩 중 "편지 써보기" 같은 유도 UX는 불가 |
 | C. 게스트는 친구 자체가 불가(전제가 되는 친구 요청 단계에서 이미 막힘) | 이 문서가 다루는 편지 계약 자체가 게스트에게 도달하지 않는다 — 다만 이 경우 막는 지점은 `friend` 도메인(`FriendService.createRequest`)이지 `letter` 도메인이 아니므로, 이 결정은 friend-letter 티켓보다 상위(BG10 밖) 결정일 수 있다 |
 
-**재영님 확인 필요**: (값 비움)
+**확정 — A(게스트도 완전히 동일).** 2026-09-18 재영님 결정 FL-결정-1: 게스트도 편지를 보낼 수 있다. 편지 도메인에 게스트 분기를 두지 않는다. ⚠️ **A 가 스스로 지적한 악용 경로는 남는다** — 게스트 계정을 대량 생성해 편지를 뿌리는 스팸은 편지 도메인이 아니라 게스트 생성·친구 요청 쪽에서 막아야 하며, 그 방어는 이 티켓 범위 밖이다(별도 티켓 필요).
 
 ### 결정 2 — 받는 쪽 섬의 우체통 시설이 완공돼야 편지를 받을 수 있는가
 
@@ -253,7 +253,7 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 | B. 수신자 섬에 우체통이 없으면 발송 자체를 막는다 | `POST /letters`가 island-construction 조회를 새로 의존해야 한다(§1.12 검증에 시설 확인 단계 추가) — 편지 도메인이 섬 도메인에 결합된다. 에러코드 신설 필요(예: `RECEIVER_MAILBOX_LOCKED`) |
 | C. 발송은 항상 가능하지만 우체통 완공 전까지는 "쌓이기만 하고 안 보임"(화면 게이트만, A와 결과는 같지만 의도적으로 "수신 보류"라고 명시) | A와 API 동작은 동일 — 문서화 차이뿐이라 사실상 A의 하위집합 |
 
-**재영님 확인 필요**: (값 비움)
+**확정 — C(발송은 항상 가능, 우체통 완공 전까지는 쌓이기만 하고 안 보임).** 2026-09-18 재영님 결정 FL-결정-2, 출처는 GROMO-1867 #11088(기획, 2026-09-16) 「받는 친구 섬에 우체통이 없어도 발송 가능. 받은 편지는 속한 섬 중 우체통이 완공되면 확인 가능」. 즉 `POST /letters` 는 수신자의 시설 상태를 조회하지 않고, 열람 경로(`GET /letters`·`GET /letters/{id}`)가 **호출자 소속 섬 중 우체통 완공 섬이 하나라도 있는지**를 본다 — 없으면 403 `FACILITY_LOCKED`. 시설 모델이 아직 없으므로 1759·1775 와 같은 모양으로 **술어 하나**에 모으고 그 자리에 `ponytail:` 으로 천장을 남긴다.
 
 ### 결정 3 — 친구를 삭제한 뒤 주고받은 편지를 보존하는가
 
@@ -266,4 +266,4 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 | B. 삭제 — 친구를 끊으면 그 사이 주고받은 편지도 양쪽에서 사라진다 | `deleteFriend`가 두 유저 사이의 `letters` 행을 전부 `deletedAt`으로 소프트 삭제해야 한다(§2.1의 `deleted_at` 컬럼이 이 용도로 처음 쓰인다) — `FriendService.deleteFriend`(`FriendService.java:253-260`)에 편지 정리 호출 추가, `Friendship.softDelete` 패턴과 동일한 도메인 메서드(`Letter.softDelete(Instant)`) 신설 |
 | C. 받은 사람만 유지, 보낸 사람 쪽에서만 정리(또는 반대) | §2.1에서 명시적으로 배제한 "발신자/수신자별 개별 삭제" 2컬럼 모델이 필요해진다 — 이 선택지를 고르면 §2.1 데이터 모델부터 다시 설계해야 한다 |
 
-**재영님 확인 필요**: (값 비움)
+**대기 — 충돌 때문에 아직 정할 수 없다.** GROMO-1867 #11088 은 「친구 삭제: 서로 편지 못 보냄, **확인 안 한 편지도 삭제**」(=B)인데, 2026-09-18 재영님 결정 **FL-형태 「일반 우편함 — 삭제하지 않는다」**와 정면으로 어긋난다. 둘 중 하나를 정해야 한다 — 편지 전반이 삭제 없는 우편함이면 친구 삭제만 예외로 지우는 것이 일관되지 않고, 1867 을 따르면 FL-형태를 다시 좁혀야 한다. [결정 로그](../decision-log.md) FL-결정-3 행 참조.

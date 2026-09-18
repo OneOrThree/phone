@@ -114,13 +114,15 @@ public/privacy/password/approvalRequired는 독립 축이다. 유효 초대가 �
 
 ### 초대 기반 pending과 실제 가입 커밋
 
+> A23(2026-09-13): 아래의 서명 capability · membershipEpoch · linkVersion/transition · claim 확정 relay 는 별도 링크 서버 전제라 폐기됐다 — 비공개 가입 검증은 가입 트랜잭션 안에서 링크 행 잠금·재검증이고 claim·가입은 같은 DB 다([링크 정본](../link-attribution/high-level-design.md) §2). 아래 증거 구조는 그 기준으로 정리가 필요하다.
+
 IM-D03의 승인 유지 추천안이 채택될 경우, JoinRequest에는 `admissionSource=invitation`과 신청자/섬에 결합한 불변 `invitationEvidenceRef`를 보존한다. 참조 대상은 기존 서명 capability와 검증한 `slug, groupId, inviterId, membershipEpoch, expiresAt`, 기존 계약에 있는 linkVersion/transition 식별 자료 및 pending claim이 실제 존재할 때의 claimId를 보유한다. 이것은 서버 전용 가입 증거다. 외부 DTO·요청 이벤트·로그·분석 payload에 원문 token/capability/slug/발급자 정보를 복사하지 않고 다른 신청자의 증거로 갈아 끼울 수 없게 한다. 기존 서명 체계를 재사용하고 임의로 만료를 늘리거나 서명 없는 필드 복사본을 자격으로 인정하지 않는다.
 
 즉시 가입 및 방장 승인 모두 Data의 동일 그룹/발급자 멤버십 직렬화 경계에서 서명·groupId/신청자 결합·미종료 그룹·발급자 계정과 현재 활성 membership·현재 membershipEpoch·원 만료를 커밋 직전에 재검사한다. linkVersion/폐기 transition도 기존 내부 링크 계약의 Data 측 근거와 대조한다. Business의 사전 resolve 성공과 신청 당시 유효성만으로 승인하지 않는다. 발급자 이탈/강퇴/재가입, 링크 폐기, 만료 또는 그룹 종료가 앞서 확정됐으면 membership을 만들지 않는다. 폐기 사실을 Data TX에서 검증할 기존 근거가 없다면 그 경로는 미구현 차단 조건이며, TX 안에서 링크 HTTP 조회로 대체하지 않는다. 만료/폐기 승인은 410 `INVITATION_EXPIRED`이며 승인 전이를 커밋하지 않는다. host의 reject와 신청자 cancel은 만료된 자격을 요구하지 않는다. 승인 우회 여부 자체는 여전히 IM-D03 미답이다.
 
 초대 가입 커밋에는 membership 생성/재활성화, 승인 요청 terminal(해당할 때), 자원 version/공개 사건과 함께 기존 `link.joined` outbox를 저장한다. 실제 pending claim이 연결된 경우 그 claim의 Data 확정 레코드와 `link.claimConfirmed` outbox도 같은 TX에 넣는다. claim이 없는 단순 초대를 위해 가짜 claimId/확정을 만들지 않는다. 같은 키 재생은 원 사건 식별자를 재사용하고 outbox를 중복 발행하지 않는다. Data TX 종료 후 relay가 joined/confirm을 전달하며, Business의 응답 이후 fire-and-forget 호출에 의존하지 않는다. 기존 `(groupId,inviterId)` transition sequence/tombstone 규칙으로 revoke 이후 지연 confirm이 귀속을 부활시키지 못하게 한다. 가입 응답 유실·Business 종료·relay 역순과 재시도도 이 내구 기록으로 복구한다.
 
-정본은 [서비스 아키텍처 §3](../../../architecture/service-architecture.md)와 [결정 장부 ㋟](../../../architecture/decisions.md)다. 선행1659의 `group/service/LinkMembershipEventService.recordJoinAttribution` 및 `internal/service/InternalInviteLinkService.confirmClaim`은 재사용 근거이며 기준 main에 이미 모두 구현됐다는 주장이 아니다.
+정본은 ~~[서비스 아키텍처 §3](../../../architecture/service-architecture.md)와 [결정 장부 ㋟](../../../architecture/decisions.md)~~ → [A23](../../../architecture/decisions.md)(2026-09-13)과 [링크 정본](../link-attribution/README.md)이다(㋟ 는 A23 이 폐기). ~~선행1659의 `group/service/LinkMembershipEventService.recordJoinAttribution` 및 `internal/service/InternalInviteLinkService.confirmClaim`은 재사용 근거이며~~ → 두 클래스는 링크 구현 PR 이 걷어낼 목록에 있다(링크 LLD §9.2) — 기준 main에 이미 모두 구현됐다는 주장이 아니다.
 
 ### 3.8 join-status — GET /me/join-requests/{requestId}
 

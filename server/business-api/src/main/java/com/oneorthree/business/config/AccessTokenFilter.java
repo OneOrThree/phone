@@ -3,6 +3,7 @@ package com.oneorthree.business.config;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.auth.AccessTokenVerifier;
 import com.oneorthree.business.auth.AuthAttributes;
+import com.oneorthree.business.auth.LoginAttemptCredentials;
 import com.oneorthree.business.auth.LogoutCredentials;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.ApiResponses;
@@ -97,8 +98,19 @@ public class AccessTokenFilter extends OncePerRequestFilter {
             log.warn("외부 X-User-Id 헤더를 폐기했다 — path={}", request.getRequestURI());
         }
 
-        // RT가 인증 정본인 이 raw method/path만 AT 생략을 허용한다. 제공한 AT는 계속 검증한다.
-        if (LogoutCredentials.matches(request) && request.getHeader(HEADER_AUTHORIZATION) == null) {
+        // 사용자 자격이 «우리 AT 가 아닌» 두 raw method/path 만 AT 생략을 허용한다.
+        //   · DELETE /auth/sessions/current — RT 가 인증 정본이다(Data 가 검증한다)
+        //   · POST   /auth/sessions        — 제공자 자격이 인증 정본이다. 최초 로그인에는 AT 가
+        //                                     아예 없으므로, 열지 않으면 «로그인 자체가 401» 이다
+        //
+        // ⚠️ 여는 조건은 「AT 가 없을 때」뿐이다. AT 를 실었다면 아래로 내려가 평소처럼 검증되고,
+        //    실패하면 401 이다 — 계정 LLD §2.1 의 「잘못된 AT 를 익명 로그인으로 조용히 강등하지
+        //    않는다」. 여기서 무조건 통과시키면 폐기된 게스트의 AT 를 든 요청이 「AT 없는 신규
+        //    로그인」으로 지나가 게스트 승격 관문이 통째로 무의미해진다.
+        //
+        // ⚠️ PUBLIC_PATHS 에 넣지 «않는» 이유도 같다. 그쪽은 shouldNotFilter 라 AT 검증이 아예
+        //    돌지 않아, 잘못된 AT 가 검증 없이 통과한다.
+        if (allowsMissingAccessToken(request) && request.getHeader(HEADER_AUTHORIZATION) == null) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -115,8 +127,19 @@ public class AccessTokenFilter extends OncePerRequestFilter {
         filterChain.doFilter(request, response);
     }
 
+    /**
+     * AT 없이 지나갈 수 있는 정확한 두 method/path.
+     *
+     * <p>둘 다 자기 {@code Credentials} 타입이 판정을 소유한다 — 필터와 컨트롤러가 <b>같은</b>
+     * 비교를 쓰게 하기 위해서다. 필터가 자기 문자열로 비교하면, 한쪽만 정규화된 경로를 보는 순간
+     * 「필터는 열었는데 라우팅은 다른 곳」 또는 그 반대가 된다.
+     */
+    private static boolean allowsMissingAccessToken(HttpServletRequest request) {
+        return LogoutCredentials.matches(request) || LoginAttemptCredentials.matches(request);
+    }
+
     private String extractToken(HttpServletRequest request) {
-        if (LogoutCredentials.matches(request)) {
+        if (allowsMissingAccessToken(request)) {
             var headers = request.getHeaders(HEADER_AUTHORIZATION);
             if (headers == null || !headers.hasMoreElements()) {
                 return null;

@@ -8,6 +8,17 @@ jwt:
   # legacy issuer(Data API)와 «같은 값»이어야 한다. 전환 기간에 이 서비스는 검증만 한다.
   secret: ${JWT_SECRET}
 
+auth:
+  # 로그인 시도의 자격 digest 전용 비밀 (GROMO-1908 · 계정 LLD §3).
+  # ⚠️ jwt.secret 과 «다른 값»이어야 한다 — 한 키가 여러 용도를 겸하면 한쪽의 수명 정책
+  #    (로그인 복구 창 5분)이 다른 쪽(발급 토큰의 최대 만료)을 끌어내려 멀쩡한 세션이 끊긴다.
+  # ⚠️ 비거나 치환되지 않으면 «부팅이 실패»한다(CredentialDigest 의 RequiredConfig fail-fast).
+  #    비밀 없는 digest 는 「원 자격을 들고 있다」는 증거이기를 그만두는데, 로그인은 «정상 동작하는
+  #    것처럼» 보여서 그 상태가 사고 뒤에야 드러난다. 부팅 실패가 배포 게이트다.
+  # ⚠️ 이 키도 write-compose-env.py 허용목록에 넣어야 컨테이너까지 전달된다(파일 머리 참조).
+  login-attempt:
+    digest-secret: ${LOGIN_ATTEMPT_DIGEST_SECRET}
+
 link:
   # ⚠️ 기존 운영 값을 그대로 넘긴다. 새로 만들면 진행 중이던 매치 후보가 전부 무효가 된다(A22 ⓕ).
   ip-salt: ${LINK_IP_SALT}
@@ -41,6 +52,21 @@ business:
   # 때만 켠다. 스케줄이 코드가 아니라 런북에 있으므로 서빙 프로세스에는 크론이 없다(§6).
   claim-replay:
     enabled: ${BUSINESS_CLAIM_REPLAY_ENABLED:false}
+
+  # 목록 커서 서명(GROMO-1759) — GET /islands·/islands/discover 두 목록만 쓴다.
+  # 자리표시자에 «기본값이 없어도» 리터럴 바인딩 함정(RequiredConfig 참고)에 걸리지 않는다:
+  # 세 변수는 write-compose-env.py 의 business-api 필수 목록에 있어, 시크릿에 없으면 env 생성이
+  # 배포 «전에» 실패한다. 즉 이 파일이 바인딩되는 시점엔 값이 반드시 있다.
+  # 키는 JWT 와 «독립»인 256비트 이상 base64. 회전은 keys 에 v2 를 더하고 active-key 를 옮기는
+  # 순서다 — 이전 키는 커서 만료창(≤15분) 동안 검증용으로 남는다.
+  # ⚠️ 회전 트랩: keys 블록에는 v1 «하나»만 있다. env 의 BUSINESS_CURSOR_ACTIVE_KEY 만 v2 로 바꾸면
+  # keys 에 v2 가 없어 부팅이 떨어진다. 회전은 «keys.v2 를 더하는 코드 PR 이 먼저», 그 다음 env 의
+  # active-key 를 옮기는 순서다 — env 값만으로는 회전할 수 없다. (prod 도 같다.)
+  cursor:
+    enabled: ${BUSINESS_CURSOR_ENABLED}
+    active-key: ${BUSINESS_CURSOR_ACTIVE_KEY:v1}
+    keys:
+      v1: ${BUSINESS_CURSOR_KEY_V1}
 
 logging:
   level:
