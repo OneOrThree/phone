@@ -76,8 +76,8 @@ public class IslandFocusMembersService {
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.REPEATABLE_READ, readOnly = true)
     public IslandFocusMembersView focusMembers(UUID islandId, UUID userId) {
         List<UUID> residents = requireResident(islandId, userId);
-        Instant now = clock.instant();
         List<FocusSessionDetail> rows = progressing(islandId, PROGRESSING, residents);
+        Instant now = anchor(rows);
         if (rows.isEmpty()) {
             return new IslandFocusMembersView(List.of(), now, List.of());
         }
@@ -90,9 +90,7 @@ public class IslandFocusMembersService {
                 .sorted(Comparator.comparing(FocusSessionDetail::getCreatedAt))
                 .map(row -> new IslandFocusMembersView.Item(row.getUserId(), names.get(row.getUserId()),
                         row.getSessionId(), row.getSubject(),
-                        // 물러난 벽시계로 열린 구간이 음수가 되지 않게 anchor 를 직전 전이 이후로 누른다.
-                        FocusIntervalMath.activeSecondsAsOf(bySession.getOrDefault(row.getSessionId(), List.of()),
-                                row.getLastTransitionAt().isAfter(now) ? row.getLastTransitionAt() : now),
+                        FocusIntervalMath.activeSecondsAsOf(bySession.getOrDefault(row.getSessionId(), List.of()), now),
                         row.getLifecycle() == FocusSessionLifecycle.PAUSED
                                 ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE))
                 .toList();
@@ -104,8 +102,8 @@ public class IslandFocusMembersService {
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.REPEATABLE_READ, readOnly = true)
     public IslandRestMembersView restMembers(UUID islandId, UUID userId) {
         List<UUID> residents = requireResident(islandId, userId);
-        Instant now = clock.instant();
         List<FocusSessionDetail> rows = progressing(islandId, List.of(FocusSessionLifecycle.PAUSED), residents);
+        Instant now = anchor(rows);
         if (rows.isEmpty()) {
             return new IslandRestMembersView(List.of(), now, List.of());
         }
@@ -119,6 +117,21 @@ public class IslandFocusMembersService {
                 .toList();
         return new IslandRestMembersView(items, now, watermarks(MemberWatermark.REST_MEMBER,
                 FocusSessionLifecycleService.REST_MEMBER_AGGREGATE_TYPE, islandId, rows));
+    }
+
+    /**
+     * 목록 전체가 쓰는 anchor 하나 — {@code max(벽시계, 모든 행의 lastTransitionAt)}. 물러난 벽시계로 열린 구간이
+     * 음수가 되지 않게 누르되, 항목마다 따로 누르지 않고 이 값 하나로 activeSeconds 를 재고 serverNow 로 돌려준다
+     * ({@code FocusSessionLifecycleService#toView} 와 같은 규칙, LLD §2 「같은 serverNow anchor」).
+     */
+    private Instant anchor(List<FocusSessionDetail> rows) {
+        Instant now = clock.instant();
+        for (FocusSessionDetail row : rows) {
+            if (row.getLastTransitionAt().isAfter(now)) {
+                now = row.getLastTransitionAt();
+            }
+        }
+        return now;
     }
 
     /**

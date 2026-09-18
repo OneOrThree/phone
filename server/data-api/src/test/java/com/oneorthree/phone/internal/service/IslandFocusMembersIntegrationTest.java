@@ -201,6 +201,25 @@ class IslandFocusMembersIntegrationTest {
     }
 
     @Test
+    @DisplayName("벽시계가 물러나 전이가 미래에 있으면 serverNow 를 그 전이로 누르고 모든 항목을 같은 anchor 로 잰다")
+    void clockSkewSharesOneAnchor() {
+        Island a = island();
+        User ahead = resident(a.group);
+        User running = resident(a.group);
+        Instant future = now.plus(1, ChronoUnit.HOURS);
+        activeSession(ahead, a.id, future);
+        activeSession(running, a.id, now.minus(10, ChronoUnit.MINUTES));
+
+        IslandFocusMembersView view = service.focusMembers(a.id, a.owner.getId());
+
+        assertThat(view.serverNow()).isEqualTo(future);
+        assertThat(item(view, ahead).activeSeconds()).isZero();
+        // 같은 anchor(=future) 로 재므로 10분 + 1시간이다.
+        assertThat(item(view, running).activeSeconds()).isEqualTo(4200L);
+        assertThat(service.restMembers(a.id, a.owner.getId()).serverNow()).isBefore(future);
+    }
+
+    @Test
     @DisplayName("진행 중인 주민이 없으면 빈 목록과 serverNow 만 준다")
     void emptyIslandHasServerNow() {
         Island a = island();
