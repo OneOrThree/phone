@@ -223,6 +223,56 @@
         }
       }
     },
+    "/internal/users/{userId}/current-island": {
+      "put": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "switchCurrentIsland",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwitchCurrentIslandCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/CurrentIslandView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/users/me/notification-settings": {
       "get": {
         "tags": [
@@ -564,6 +614,85 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/NotificationSettingsSnapshotResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/islands": {
+      "get": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "myIslands",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyIslandsView"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "create",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIslandCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandCreatedView"
                 }
               }
             }
@@ -4837,6 +4966,119 @@
         }
       }
     },
+    "/internal/users/{userId}/island-search": {
+      "get": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "search",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursorIslandId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandSearchPageView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/island-discovery": {
+      "get": {
+        "tags": [
+          "internal-island-membership-controller"
+        ],
+        "operationId": "discover",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "seed",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "afterHandle",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandDiscoverPageView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/focus-summary": {
       "get": {
         "tags": [
@@ -5152,6 +5394,46 @@
                   "items": {
                     "$ref": "#/components/schemas/FrozenClickCandidateResponse"
                   }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}": {
+      "get": {
+        "tags": [
+          "internal-island-controller"
+        ],
+        "operationId": "view",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandViewResponse"
                 }
               }
             }
@@ -7469,6 +7751,27 @@
           }
         }
       },
+      "SwitchCurrentIslandCommandRequest": {
+        "type": "object",
+        "properties": {
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "islandId"
+        ]
+      },
+      "CurrentIslandView": {
+        "type": "object",
+        "properties": {
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "DeviceTokenRegisterRequest": {
         "type": "object",
         "properties": {
@@ -7610,6 +7913,48 @@
           },
           "settings": {
             "$ref": "#/components/schemas/NotificationSettingsResponse"
+          }
+        }
+      },
+      "CreateIslandCommandRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 0,
+            "pattern": "^(?\u003d.*[^\\p{javaWhitespace}\\p{Z}\\p{C}\\p{M}\\u115F\\u1160\\u2800\\u3164\\uFFA0])[^\\p{Cc}\\p{Zl}\\p{Zp}\\u061C\\u200E\\u200F\\u202A-\\u202E\\u2066-\\u2069]*$"
+          },
+          "intro": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 0
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "approvalRequired",
+          "name"
+        ]
+      },
+      "IslandCreatedView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -9225,6 +9570,84 @@
           }
         }
       },
+      "IslandSummaryView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "growthStage": {
+            "type": "string"
+          },
+          "themeId": {
+            "type": "string"
+          }
+        }
+      },
+      "MyIslandsView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandSummaryView"
+            }
+          },
+          "currentIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "IslandSearchPageView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandSummaryView"
+            }
+          },
+          "nextIslandId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "IslandDiscoverPageView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandSummaryView"
+            }
+          },
+          "nextHandle": {
+            "type": "string"
+          }
+        }
+      },
       "FocusSummaryView": {
         "type": "object",
         "properties": {
@@ -9379,6 +9802,61 @@
           },
           "importClosed": {
             "type": "boolean"
+          }
+        }
+      },
+      "IslandDetailView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "membershipStatus": {
+            "type": "string"
+          },
+          "growthStage": {
+            "type": "string"
+          },
+          "themeId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "IslandViewResponse": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string"
+          },
+          "visitor": {
+            "$ref": "#/components/schemas/IslandSummaryView"
+          },
+          "member": {
+            "$ref": "#/components/schemas/IslandDetailView"
           }
         }
       },
