@@ -73,6 +73,9 @@ class DomainLayerRulesTest {
         // 내부 표면 구현은 internal(10)이 이것을 참조하고, 이 도메인이 internal.dto 를 참조하면
         // 역행이라 계약 view 타입은 자기 dto/ 에 둔다.
         LAYERS.put("construction", 6);
+        // appearance 는 섬(group)에 딸린 공동 외양 + 유저에 딸린 개인 외양(GROMO-1783) —
+        // 완공 훅은 construction 이 common.port 를 부르므로 도메인 참조는 아래로만 간다.
+        LAYERS.put("appearance", 7);
         LAYERS.put("notification", 7);      // 전 도메인 구독
         LAYERS.put("auth", 8);              // 진입·부가
         LAYERS.put("character", 8);
