@@ -88,7 +88,7 @@ public static final ZoneId KST = ZoneId.of("Asia/Seoul");
 | 서버가 내려준 존 | `serverTodayStr()` · `serverZoneAlignedWithLocal()` (`utils/serverZone.ts`) | ⚠️ **잔재** — 아래 참고 |
 
 `GET /users/me → timeZone` 은 **GROMO-1259 부터 항상 `ZonePolicy.KST.getId()`**, 즉 상수
-`"Asia/Seoul"` 을 돌려준다(`UserProfileResponse` javadoc · `UserService:311` 확인). 그러니
+`"Asia/Seoul"` 을 돌려준다(`UserProfileResponse` javadoc · `UserService:326` 확인). 그러니
 `serverZone` 은 *살아 있는 서버에 대해서는* 틀리지 않는다 — 상수를 한 바퀴 돌려받을 뿐이다.
 
 **문제는 그게 캐시라는 점이다.** `getServerZone()` 이 `Asia/Seoul` 이 아닌 값을 돌려주는
@@ -398,7 +398,7 @@ javadoc 예시 문자열 1건뿐이고, 테스트 `FocusSessionContractTest.java
 | `daily_focus_stats.date` | ✅ `focus_sessions.started_at`·`ended_at`(+ jsonb 분포) | 가능 | UTC 재버킷 — 행 UPDATE 가 아니라 세션 원본에서 통째 재생성 권장. 전환일 행은 양축 혼재 가능 |
 | `focus_sessions.focus_seconds_by_date` (jsonb 키) | ✅ `started_at`·`ended_at` | 가능 | UTC 재분배. 조회측 벽시계 클리핑 폴백(schema.dbml:631)이 있어 미재계산 행도 읽기는 유지 |
 | `user_streaks.last_session_date` | ✅ 세션 원본 경유 | 가능 | 날짜만 바꾸면 연속 판정이 어긋난다 — 재계산 후 `UserStreakService` 로직으로 streakCount·longest 재산정 |
-| `daily_screen_time_stats.date` | ❌ 원본 instant 없음 (`V38__screen_time_nullable_kst.sql:13-16` — 일 집계만 남아 재버킷 불가) | 불가 | **전환일 이전 행은 KST 버킷으로 그대로 둔다** — forward-only |
+| `daily_screen_time_stats.date` | ❌ 원본 instant 없음 (`V38__screen_time_nullable_kst.sql:12-15` — 일 집계만 남아 재버킷 불가) | 불가 | **전환일 이전 행은 KST 버킷으로 그대로 둔다** — forward-only |
 | `group_challenge_members.usage_date` | ❌ (date 라벨만, KST) | 불가 | **전환일 이전 행은 KST 버킷으로 그대로 둔다** |
 | `league_rank_snapshots.created_at` | ❌ (date 타입 — 「스냅샷 KST 날짜」 라벨) | 불가 | **전환일 이전 행은 KST 버킷으로 그대로 둔다** — 어제↔오늘 비교 키라 전환 직후 1회 비교 어긋남 수용 |
 | `user_focus_time_settings.goal_effective_from` | ❌ | 불가 | **전환일 이전 행은 KST 버킷으로 그대로 둔다** — previous 유효창이 발효일±1일이라 경계 하루 오판정 가능 |
