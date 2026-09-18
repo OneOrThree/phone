@@ -550,14 +550,34 @@ DAY 는 자정 경계 9h 어긋남, WEEK 은 UTC 일요일 15:00~24:00 구간에
 크론이 정산하는 주는 UTC 빌드가 아직 정산하지 않은 주다. 사고는 두 경로다:
 
 1. **누락** — 롤백 배포가 `[KST 월 00:00, UTC 월 00:00)` 9h 창에 걸리면 그 주는 KST 크론(이미 지남)도
-   UTC 크론(아직 안 옴)도 못 돌아 정산이 빠진다. 복구는 수동 run 1회 — 아래 확인 후에만.
-2. **이중 지급** — UTC 정산이 끝난 주에 롤백 빌드로 **수동 `runWeeklyBatch`**(`POST /league/batch/run`, `LeagueBatchController.java:57-59`)를 돌리면
-   가드를 통과해 직전 주 라벨 집합을 KST 키로 재정산한다. resume 은 KST 빌드에서 UTC instant 를
-   `INVALID_WEEK_START` 로 거부하므로 이 경로가 아니다.
+   UTC 크론(아직 안 옴)도 못 돌아 정산이 빠진다. 복구는 수동 정산 1회 — 아래 확인 후에만, 아래 시한 안에.
+2. **이중 지급** — UTC 정산이 끝난 주에 롤백 빌드로 **수동 run** 을 돌리면 가드를 통과해 직전 주 라벨
+   집합을 KST 키로 재정산한다. resume 은 KST 빌드에서 UTC instant 를 `INVALID_WEEK_START` 로
+   거부하므로(`LeagueBatchService.java:126-127`) 이 경로가 아니다.
 
-**롤백 후 수동 run 전 확인**: 직전 주 라벨 집합의 UTC 월요일 instant 로 `league_weekly_results` 행이
-있으면 이미 정산된 주다 — **run 금지**. 행이 없을 때(= 위 1번 누락)만 run 한다. 롤백 뒤 다시 UTC 로
+**prod 에는 수동 트리거 엔드포인트가 없다.** `POST /league/batch/run`·`/resume` 을 여는
+`LeagueBatchController` 는 `@Profile({"local", "dev", "staging"})`(`LeagueBatchController.java:34`, javadoc
+`:25` 「prod 미노출」)라 prod 에서는 빈이 등록되지 않는다. 그래서 prod 에서 수동 run 이 일어나는 것은
+엔드포인트가 아니라 **out-of-band 개입** — 프로파일 임시 변경으로 컨트롤러 띄우기, 서비스 빈 직접 호출,
+§7.3 같은 SQL anchor 조작 — 이다. 스케줄 경로(`LeagueScheduler.java:29` → 인자 없는 `runWeeklyBatch()`)는
+위에서 본 대로 이중 정산을 내지 않는다. 아래 확인은 prod 의 이런 수동 복구 전부와, 엔드포인트가 살아 있는
+dev·staging 실행에 똑같이 적용한다.
+
+**수동 정산 전 확인**: 직전 주 라벨 집합의 UTC 월요일 instant 로 `league_weekly_results` 행이
+있으면 이미 정산된 주다 — **정산 금지**. 행이 없을 때(= 위 1번 누락)만 돌린다. 롤백 뒤 다시 UTC 로
 재전환할 때는 §7.3 절차를 처음부터 다시 밟는다(KST anchor 가 다시 생겼으므로).
+
+**누락 복구의 시한 — 다음 자연 KST 크론 전.** 빠진 주가 끝나는 KST 월 00:00 을 `K` 라 하자. run 은
+주차 인자를 받지 않는다 — 인자 없는 `runWeeklyBatch()` 는 항상 `Instant.now()` 로 들어가고
+(`LeagueBatchService.java:72-73`), 정산 대상은 `previousWeekStart(now)` 다(`:92`). 그래서 `[K, K+7d)` 안에
+돌린 run 1회만 빠진 주를 가리킨다(이때는 anchor `K` 가 없어 가드도 통과한다). `K+7d` 의 자연 KST 크론이
+돌면 anchor 가 다음 주차로 넘어가 run 으로는 더 이상 복구되지 않는다. 그 뒤에는 resume 에 빠진 주의 KST
+월요일 instant 를 주는 길뿐인데, resume 은 대상 주차의 가드 anchor(`started_at = K`)가 없으면
+`BATCH_NOT_RUN` 으로 거부하므로(`:132-134`) §7.3 처럼 **SQL 로 `started_at = K` anchor 를 먼저 넣어야**
+한다(현재 ACTIVE anchor 를 건드리지 않게 `ENDED`·`ended_at` 을 채워서). 오버로드
+`runWeeklyBatch(Instant now)`(`:85`)에 과거 `now` 를 주는 것은 복구가 아니다 — `rotate` 가 과거 주차
+anchor 를 ACTIVE 로 새로 만들고, 그보다 나중인 현재 ACTIVE anchor 는 `started_at < newWeekStart` 조건
+(`LeagueAnchorRotator.java:41-42`)에 걸리지 않아 ACTIVE 가 둘 남는다.
 
 **검증 체크**(컷오버 당일, KST 00:00–09:00 = 두 축이 갈리는 유일한 창에서 관측):
 
