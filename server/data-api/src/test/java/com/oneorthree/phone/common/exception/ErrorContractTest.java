@@ -218,8 +218,11 @@ class ErrorContractTest {
         // GROMO-1781 이 섬 상점 코드 8개를 더했다(ShopErrorCode) — 권한·시설 2(SHOP_FORBIDDEN · FACILITY_LOCKED),
         // 대상 없음 1(PRODUCT_NOT_FOUND), 입력 1(OUT_OF_RANGE), 충돌 4(VERSION_CONFLICT · STATE_CONFLICT ·
         // INSUFFICIENT_FUNDS · CURSOR_EXPIRED) — 구매·카탈로그 커서의 실패 축이다.
-        assertThat(tests).as("실측 기준 도메인 상수 198개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종 포함")
-                .hasSize(214);
+        // GROMO-1769 가 회관 기록 코드 6개를 더했다(StatsErrorCode) — 기록 스냅샷 만료(409), 측정 기기 ≠ 세션(403),
+        // 같은 시각 다른 측정(409), 보고 창 밖 측정(422), 모르는 scope(422), 허용되지 않은 측정 상태·분(422).
+        // 공개 표에서 CURSOR_EXPIRED·FORBIDDEN·STATE_CONFLICT·OUT_OF_RANGE 로 옮겨지고 field 가 다르다.
+        assertThat(tests).as("실측 기준 도메인 상수 204개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종 포함")
+                .hasSize(220);
         return tests;
     }
 

@@ -300,6 +300,27 @@ class AccountWithdrawalErasureIntegrationTest {
         assertThat(uuid("select created_by from island_quests where id=?", questId)).isEqualTo(c.id());
     }
 
+    @Test
+    @DisplayName("회관 기록(GROMO-1769) — 기기별 스크린타임 관측과 본인 집중 기록 스냅샷은 지우고 상대의 행은 남는다")
+    void erasesIslandRecordRowsOfTheWithdrawnUserOnly() {
+        Actor w = actor();
+        Actor c = actor();
+        for (Actor actor : new Actor[] {w, c}) {
+            jdbc.update("insert into screen_time_observations (user_id, device_id, measured_date, measured_at, minutes,"
+                    + " measurement_status) values (?, ?, ?, ?, 90, 'authorized')",
+                    actor.id(), actor.session(), LocalDate.of(2031, 3, 10), ts(Instant.parse("2031-03-10T09:00:00Z")));
+            jdbc.update("insert into focus_statistics_snapshots (id, user_id, payload, expires_at) values (?, ?, '{}', ?)",
+                    UUID.randomUUID(), actor.id(), ts(Instant.now().plusSeconds(900)));
+        }
+
+        withdrawal.withdraw(w.id());
+
+        for (String table : new String[] {"screen_time_observations", "focus_statistics_snapshots"}) {
+            assertThat(count("select count(*) from " + table + " where user_id=?", w.id())).as(table).isZero();
+            assertThat(count("select count(*) from " + table + " where user_id=?", c.id())).as(table).isEqualTo(1L);
+        }
+    }
+
     /** 회차 하나 + cohort + 그 회차의 정산 행 — 정산 행 id 를 돌려준다. */
     private UUID seedSettledOccurrence(UUID questId, UUID islandId, int daysAgo, UUID claimer, UUID... cohort) {
         UUID occurrenceId = UUID.randomUUID();

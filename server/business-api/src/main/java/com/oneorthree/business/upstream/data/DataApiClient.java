@@ -14,6 +14,7 @@ import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 import com.oneorthree.business.upstream.data.dto.IslandAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.IslandQuestViews;
+import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import com.oneorthree.business.upstream.data.dto.PersonalAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.PersonalInventory;
 import com.oneorthree.business.upstream.data.dto.PlaybackPatchResult;
@@ -64,6 +65,7 @@ import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -180,6 +182,9 @@ public class DataApiClient {
     // GROMO-1773 섬 퀘스트 5종 — 공개 경로 앞에 /internal 을 붙인 이름이다(island-quests LLD §2).
     private static final String PATH_QUESTS = "/internal/islands/{islandId}/quests";
     private static final String PATH_QUESTS_CURRENT = "/internal/islands/{islandId}/quests/current";
+    // GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
+    private static final String PATH_FOCUS_STATISTICS = "/internal/islands/{islandId}/statistics/focus";
+    private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
 
     private final InternalHttpClient http;
 
@@ -1658,5 +1663,57 @@ public class DataApiClient {
      */
     record AppearancePatchCommand(List<String> fields, Map<String, Object> values,
                                   Long expectedVersion) {
+    }
+
+    /**
+     * 집중 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. 다음 페이지 경계(스냅샷 id·offset)는 Business 가 서명 커서에서
+     * 꺼낸 평문이다.
+     */
+    public IslandRecordViews.FocusStatistics fetchFocusStatistics(UUID userId, UUID islandId, LocalDate from,
+            LocalDate to, String scope, UUID snapshotId, Integer offset, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_FOCUS_STATISTICS, islandId))
+                        .onBehalfOf(userId)
+                        .query("from", from.toString())
+                        .query("to", to.toString())
+                        .query("scope", scope)
+                        .query("snapshotId", snapshotId == null ? null : snapshotId.toString())
+                        .query("offset", offset == null ? null : offset.toString())
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRecordViews.FocusStatistics>() { });
+    }
+
+    /** 스크린타임 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. */
+    public IslandRecordViews.ScreenTimeStatistics fetchScreenTimeStatistics(UUID userId, UUID islandId,
+            LocalDate from, LocalDate to, String scope, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_SCREEN_TIME_STATISTICS, islandId))
+                        .onBehalfOf(userId)
+                        .query("from", from.toString())
+                        .query("to", to.toString())
+                        .query("scope", scope)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRecordViews.ScreenTimeStatistics>() { });
+    }
+
+    /**
+     * 기기 측정 PUT (GROMO-1769). 앱 키를 그대로 Data 의 공개 명령 receipt 에 전달하고, 세션·세대는 서명된 AT 에서만
+     * 가져온다 — 측정 기기 = 이 세션인지는 Data 가 판정한다.
+     */
+    public IslandRecordViews.ScreenTimeDay putScreenTime(UUID userId, UUID sessionId, long generation,
+            LocalDate date, Map<String, Object> body, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT, "/internal/users/" + userId + "/screen-time/" + date)
+                        .onBehalfOf(userId)
+                        .header(HEADER_SESSION, sessionId.toString())
+                        .header(HEADER_GENERATION, Long.toString(generation))
+                        .idempotencyKey(key.toString())
+                        .body(body)
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRecordViews.ScreenTimeDay>() { });
     }
 }

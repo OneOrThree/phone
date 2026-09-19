@@ -21,6 +21,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -57,7 +60,6 @@ public class ScreenReadUseCase {
     private static final String HOST_ONLY = "host_only";
     private static final String ROLE_HOST = "host";
     private static final String ROLE_MEMBER = "member";
-    private static final String MISSING_FRAGMENTS = "missingFragments";
     private static final String FACILITY_LOCKED = "facility_locked";
     /** 시설 id — 건설 도메인 {@code ConstructionBuilding} 의 계약 문자열(정책 C14). */
     private static final String GRAM = "gram";
@@ -84,6 +86,7 @@ public class ScreenReadUseCase {
     private final IslandMailboxUseCase mailbox;
     private final LetterUseCase letters;
     private final ShopUseCase shop;
+    private final IslandRecordsUseCase records;
 
     /** {@code launch} — 계정·소속·진행 세션. 세션 없음은 {@code session:null} 정상값이다. */
     public Map<String, Object> launch(AccessTokenClaims claims, String requestId) {
@@ -176,9 +179,9 @@ public class ScreenReadUseCase {
 
     // ------------------------------------------------ 섬 장소 화면 (GROMO-1897)
     //
-    // 아직 도메인 GET 이 없는 조각은 호출하지 않고 명시 null 로 두며 missingFragments 에 이름을 싣는다.
-    // 검증된 비적용(N)이 아니므로 …Availability 로 위장하지 않는다 — 그 값도 null 이다. 제공자가
-    // 머지되면 해당 조각을 병렬 목록으로 옮기고 이름을 뺀다.
+    // 아직 도메인 GET 이 없는 조각은 호출하지 않고 명시 null 로 두며 missingFragments 에 이름을 싣는다(B27).
+    // GROMO-1781·1769 머지로 지금은 빠진 조각이 없다 — 모든 화면에 키가 없고 도우미도 지웠다. 다시 생기면
+    // 조각 null + missingFragments 이름 배열을 되살린다(availability 로 위장하지 않는다).
 
     /**
      * {@code home} — 섬 문맥 뒤 오늘 집중 요약·현재 세션·휴식 주민·방송기 완공 판정을 병렬로 읽고, 방송기가
@@ -281,8 +284,9 @@ public class ScreenReadUseCase {
 
     /**
      * {@code library} — 섬 문맥 뒤 도서관 완공을 판정한다. 미완공이면 기록 조각을 부르지 않고 둘 다 null +
-     * {@code statisticsAvailability:facility_locked}(B03 N, 화면은 200)다. 완공이어도 기록 GET(티켓 1769)이
-     * 아직 없어 두 조각은 missingFragments 이고, 검증된 비적용이 아니므로 availability 도 null 이다.
+     * {@code statisticsAvailability:facility_locked}(B03 N, 화면은 200)다. 완공이면 집중·스크린타임 통계(GROMO-1769)를
+     * 병렬로 읽는다 — 화면에는 query 가 없으므로 <b>이번 UTC 주(월~일)·scope=me</b> 첫 페이지다. 집중 기록 커서는
+     * 도메인 GET 과 같은 서명 커서라 다음 페이지는 {@code GET /islands/{islandId}/statistics/focus} 가 이어받는다(B10).
      */
     public Map<String, Object> library(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -295,8 +299,16 @@ public class ScreenReadUseCase {
             screen.put("statisticsAvailability", FACILITY_LOCKED);
             return screen;
         }
-        screen.put("statisticsAvailability", null);
-        return missing(screen, "focusStatistics", "screenTimeStatistics");
+        UUID islandId = island.id();
+        LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+        LocalDate sunday = monday.plusDays(6);
+        screen.putAll(composer.compose(context, List.of(
+                fragment("focusStatistics", deadline -> records.focus(claims, islandId, monday, sunday,
+                        IslandRecordsUseCase.SCOPE_ME, null, deadline)),
+                fragment("screenTimeStatistics", deadline -> records.screenTime(claims, islandId, monday, sunday,
+                        IslandRecordsUseCase.SCOPE_ME, deadline)))));
+        screen.put("statisticsAvailability", AVAILABLE);
+        return screen;
     }
 
     /**
@@ -446,14 +458,6 @@ public class ScreenReadUseCase {
         screen.putAll(composer.compose(context, List.of(
                 fragment("playback", deadline -> playback.get(claims, islandId, deadline)))));
         screen.put("playbackAvailability", AVAILABLE);
-    }
-
-    private static Map<String, Object> missing(Map<String, Object> screen, String... names) {
-        for (String name : names) {
-            screen.put(name, null);
-        }
-        screen.put(MISSING_FRAGMENTS, List.of(names));
-        return screen;
     }
 
     // ---------------------------------------------------------------- 조각

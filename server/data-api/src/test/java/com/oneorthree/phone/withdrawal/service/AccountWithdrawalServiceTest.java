@@ -73,6 +73,10 @@ class AccountWithdrawalServiceTest {
     @Mock
     private com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository focusSessionIntervalRepository;
     @Mock
+    private com.oneorthree.phone.focus.repository.FocusStatisticsSnapshotRepository focusStatisticsSnapshotRepository;
+    @Mock
+    private com.oneorthree.phone.screentime.repository.ScreenTimeObservationRepository screenTimeObservationRepository;
+    @Mock
     private StatsService statsService;
     @Mock
     private ScreenTimeService screenTimeService;

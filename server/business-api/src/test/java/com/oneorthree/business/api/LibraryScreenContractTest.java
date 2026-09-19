@@ -5,6 +5,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -13,14 +17,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * {@code GET /screens/library} 계약 (GROMO-1898) — 섬 문맥 뒤 도서관 완공 판정(건설 옵션). 미완공은 기록 조각만
- * N({@code statisticsAvailability:facility_locked})이고 화면은 200 이다. 기록 GET(티켓 1769)이 아직 없어 완공이면
- * 두 기록 조각이 missingFragments 다.
+ * {@code GET /screens/library} 계약 (GROMO-1898·1769) — 섬 문맥 뒤 도서관 완공 판정(건설 옵션). 미완공은 기록 조각만
+ * N({@code statisticsAvailability:facility_locked})이고 화면은 200 이다. 완공이면 이번 UTC 주·scope=me 의 집중·스크린타임
+ * 통계 조각을 싣는다.
  */
 class LibraryScreenContractTest extends ScreenContractTestBase {
 
     private static final String DATA_ISLAND = "GET /internal/islands/" + ISLAND;
     private static final String DATA_OPTIONS = DATA_ISLAND + "/construction-options";
+    private static final String DATA_FOCUS = DATA_ISLAND + "/statistics/focus";
+    private static final String DATA_SCREEN = DATA_ISLAND + "/statistics/screen-time";
+    private static final LocalDate MONDAY = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
 
     @BeforeEach
     void island() {
@@ -30,22 +37,42 @@ class LibraryScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    @DisplayName("도서관 완공: 기록 조각은 null + missingFragments, availability 는 위장하지 않고 null")
-    void libraryBuiltButStatisticsMissing() throws Exception {
+    @DisplayName("도서관 완공: 이번 UTC 주·scope=me 집중·스크린타임 통계를 병렬로 싣고 availability 는 available")
+    void libraryBuiltCarriesStatistics() throws Exception {
         DATA.on(DATA_OPTIONS, request -> ok(FacilityFixtures.options("mail")));
+        DATA.on(DATA_FOCUS, request -> ok("{\"scope\":\"me\",\"totalSeconds\":1500,\"series\":[{\"date\":\""
+                + MONDAY + "\",\"seconds\":1500}],\"records\":[],\"members\":null,"
+                + "\"asOf\":\"2026-09-19T09:10:00Z\",\"nextSnapshotId\":null,\"nextOffset\":null}"));
+        DATA.on(DATA_SCREEN, request -> ok("{\"scope\":\"me\",\"measurementStatus\":\"unavailable\","
+                + "\"totalMinutes\":null,\"series\":[],\"updatedAt\":null,\"members\":null}"));
 
         MvcResult result = mockMvc.perform(auth(get("/screens/library")))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
-                .andExpect(jsonPath("$.data.statisticsAvailability").value(nullValue()))
-                .andExpect(jsonPath("$.data.focusStatistics").value(nullValue()))
-                .andExpect(jsonPath("$.data.missingFragments[0]").value("focusStatistics"))
-                .andExpect(jsonPath("$.data.missingFragments[1]").value("screenTimeStatistics"))
+                .andExpect(jsonPath("$.data.statisticsAvailability").value("available"))
+                .andExpect(jsonPath("$.data.focusStatistics.totalSeconds").value(1500))
+                .andExpect(jsonPath("$.data.focusStatistics.nextCursor").value(nullValue()))
+                .andExpect(jsonPath("$.data.screenTimeStatistics.measurementStatus").value("unavailable"))
+                .andExpect(jsonPath("$.data.screenTimeStatistics.totalMinutes").value(nullValue()))
                 .andReturn();
 
-        assertKeys(result, "island", "focusStatistics", "screenTimeStatistics", "statisticsAvailability",
-                "missingFragments");
+        assertKeys(result, "island", "focusStatistics", "screenTimeStatistics", "statisticsAvailability");
+        String[] week = {"from=" + MONDAY, "to=" + MONDAY.plusDays(6), "scope=me"};
+        assertThat(DATA.receivedFor(DATA_FOCUS).get(0).query().split("&")).containsExactlyInAnyOrder(week);
+        assertThat(DATA.receivedFor(DATA_SCREEN).get(0).query().split("&")).containsExactlyInAnyOrder(week);
+    }
+
+    @Test
+    @DisplayName("통계 조각의 도메인 403(LIBRARY_LOCKED) 은 화면 전체 실패다 — N 으로 접지 않는다")
+    void statisticsFailureFailsWholeScreen() throws Exception {
+        DATA.on(DATA_OPTIONS, request -> ok(FacilityFixtures.options("mail")));
+        DATA.on(DATA_FOCUS, request -> domainError(403, "LIBRARY_LOCKED"));
+        DATA.on(DATA_SCREEN, request -> domainError(403, "LIBRARY_LOCKED"));
+
+        mockMvc.perform(auth(get("/screens/library")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FACILITY_LOCKED"));
     }
 
     @Test
