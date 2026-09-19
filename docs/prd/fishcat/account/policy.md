@@ -25,7 +25,7 @@ GROMO-1756 · 2026-09-12 · [색인](README.md) · [상세 계약](low-level-des
 | A17 | 본문 없는 로그아웃의 RT는 `X-Refresh-Token` 전용 헤더로 전달한다. AT가 같이 있으면 같은 사용자·세션이어야 한다. AT 만료가 유효 RT 폐기를 막지 않도록 RT가 인증 정본이다. | 기술 결정. 기존 RT 증명 의도 유지, 요청/추적/프록시 로그에서 헤더 삭제 |
 | A18 | 기존 제공자의 token 검증 경로는 명시적 `credential` 확장으로 유지한다. `authorizationCode`는 실제 교환 어댑터가 처리하며 JWT 검증 함수에 대신 넣지 않는다. 미지원 provider는 기존 400 UNSUPPORTED_PROVIDER를 보존하고, 알려진 provider의 지원하지 않는 credential 종류와 구분한다. 제공자 자격 실패는 KAKAO_TOKEN·APPLE_TOKEN·GOOGLE_TOKEN·LINE_TOKEN·INSTAGRAM_TOKEN·FACEBOOK_TOKEN 각각 401, refresh와 logout의 RT 자격 실패는 REFRESH_TOKEN401을 보존한다. | 기술 결정. 원본 code-only 대비 변경은 LLD에 명시 |
 | A19 | 앱 명령/로그인 시도 ID는 하이픈 포함 36자 UUID이며 v4/v7은 생성 권고다. 다른 버전 비트라는 이유로 거부하지 않는다. | 선행 공통 UUID 규약과 일치 |
-| A20 | 신규 PATCH와 legacy POST/PATCH /api/v1/users/me 및 완료 입력을 바꾸는 모든 writer가 users 배타 잠금 아래 같은 전이/outbox 경계를 공유한다. 승인된 완료 판정의 false→true는 user.onboarded, 실제 이름 변경은 기존 동기 writer의 user.displayNameChanged를 프로필·receipt와 같은 Data TX에 내구화한다. 완료 재생·무변경은 새 사건을 만들지 않는다. 랭킹은 기존 사용자 점수/상태 version과 주차별 절대 점수, Link는 멤버십 snapshotVersion과 폐기 상태를 대조하며 두 축은 별개다. 생산자/소비자 구현·회귀 전 활성화하지 않는다. | 기존 아키텍처 ㊣/㋡. 이름 writer는 선행 재사용; Q03/Q04 판정·제품 정책은 미결 유지 |
+| A20 | 신규 PATCH와 legacy POST/PATCH /api/v1/users/me 및 완료 입력을 바꾸는 모든 writer가 users 배타 잠금 아래 같은 전이/outbox 경계를 공유한다(GROMO-1945 구현 — `user.onboarded` 는 `SCORE` 대상에 내구 보류, 랭킹 소비자는 후속). 승인된 완료 판정의 false→true는 user.onboarded, 실제 이름 변경은 기존 동기 writer의 user.displayNameChanged를 프로필·receipt와 같은 Data TX에 내구화한다. 완료 재생·무변경은 새 사건을 만들지 않는다. 랭킹은 기존 사용자 점수/상태 version과 주차별 절대 점수, Link는 멤버십 snapshotVersion과 폐기 상태를 대조하며 두 축은 별개다. 생산자/소비자 구현·회귀 전 활성화하지 않는다. | 기존 아키텍처 ㊣/㋡. 이름 writer는 선행 재사용; Q03/Q04 는 2026-09-19 확정 |
 | A21 | 기존 chat_read_cursors의 탈퇴 사용자 행을 모든 방에서 hard delete한다. 중앙 탈퇴와 같은 TX에 chat/realtime 대상 user.withdrawn 전달을 내구화하고, 소비자는 로컬 사용자 잠금 아래 tombstone/version·커서 삭제·중복 수신 완료를 같은 TX에 확정한다. markRead와 복원/import 등 모든 cursor writer도 같은 잠금·폐기 재검사를 거쳐 늦은 UPSERT의 부활을 막는다. 멤버십 캐시 삭제는 이 DB fencing을 대체하지 않는다. 메시지 본문/sender_id 보존과 우체통 읽음 표시 정책은 별개다. 같은 tombstone과 개별 로그아웃의 auth.session.revoked 세션 fence를 REST·STOMP 인가, 기존 구독 전달, 메시지 저장 writer에 적용하고, 소비자 커밋 뒤 멤버십 캐시 삭제·전 인스턴스 활성 소켓 종료를 완료 조건에 포함한다. 캐시·소켓 정리 실패가 fence 재검사를 대체하지 않는다. 보존 메시지의 공개 응답(히스토리·방 목록 최신 메시지·재전송 응답)은 탈퇴 발신자의 senderId를 null로 치환하며 사용자별 대체 식별자를 만들지 않는다. | 기존 개인 cursor의 파기 누락 보완. 소비자/쓰기 fencing은 후속 구현·검증 조건이며 현재 완료 아님 |
 | A22 | 탈퇴자의 로그·분석 자료(user-activity user_id, APP MDC user_id, 로컬 활성·회전·호스트 파일, S3 적재본, 로그·trace sink, GA4/Firebase의 User-ID·app_instance_id·설치 device_id 연결)는 **행 단위 삭제가 아니라 보존 기간 만료로 파기**한다. 탈퇴 시점에 개별 레코드를 찾아 지우거나 비식별화하지 않으며, 아래 [로그·분석 보존 기간](#로그분석-보존-기간) 표의 기간이 지나면 저장소 자체의 만료로 사라진다. 기간 값의 정본은 이 표이고 logback `maxHistory`(로컬)와 S3 수명 주기 규칙(적재본)은 각각 자기 행의 값을 구현한다(설정이 표와 다르면 이 표에 맞춘다). 표에 기간이 없거나 설정 미확인인 저장소는 파기 완료를 주장하지 않는다. 앱은 탈퇴 성공 뒤 GA4 User-ID를 해제한 다음에만 이벤트를 보낸다. | 재영님 결정 2026-09-19(GROMO-1942). 이전 판의 행 단위 파기·sink fence·GA4 삭제 요청·앱 인스턴스 등록부 설계를 대체 |
 
@@ -85,8 +85,8 @@ GET 후 5개 필드 PUT을 조립하면 다른 기기의 변경을 덮어쓴다.
 
 | ID | 남은 제품 입력 | 권고·영향 |
 | --- | --- | --- |
-| Q03 | `catColor` 6종의 정확한 자산 ID와 기존 사용자 초기값 | 원본 샘플 black/calico/ginger만으로 6개 enum을 만들어내지 않는다. 기존 사용자에게 재선택을 요구할지, 승인한 기본색을 줄지 확인 필요 |
-| Q04 | Q03에 따른 기존 사용자 온보딩 승계 | 신규 사용자는 유효 name과 catColor를 모두 저장하면 완료로 계산하는 안을 권고한다. 기존 isNewUser는 완료 여부가 아니므로 그대로 매핑하지 않는다. legacy 사용자의 재진입 여부는 Q03과 함께 확정 |
+| Q03 | ~~`catColor` 6종의 정확한 자산 ID와 기존 사용자 초기값~~ → **확정(2026-09-19 조재영 결정 계정-Q03, 권장안 승인)**: 앱 2.0 카탈로그 `black`·`ginger`·`cream`·`gray`·`white`·`calico`. 기존 사용자 초기값은 null(백필 없음, 온보딩에서 재선택) | 출처는 앱 `services/model.ts` `colors` — 원본 샘플 3종으로 지어낸 값이 아니다. 카탈로그 밖 값은 공개 422 `OUT_OF_RANGE`(`field: catColor`), DB 는 `users.cat_color` CHECK(V80). 구현 GROMO-1945 |
+| Q04 | ~~Q03에 따른 기존 사용자 온보딩 승계~~ → **확정(2026-09-19 조재영 결정 계정-Q04, 권장안 승인)**: 유효 name 과 catColor 를 모두 저장하면 완료. `isNewUser` 는 매핑하지 않고, 색이 없는 기존 행은 미완료로 온보딩에 재진입한다(A24 — 1.x 미이관이라 승계는 최소) | 판정 함수 `OnboardingCompletion` 하나를 로그인·GET·모든 프로필 writer 가 공유하고, false→true 전이만 `user.onboarded`(같은 TX outbox) — A20. 구현 GROMO-1945 |
 | Q05 | 실제 수락 가능한 약관 문서 버전 | `2026-09`는 예시다. 버전 카탈로그를 배포 설정으로 주입하고 실제 약관 문서와 연결해야 한다. 별도 보존 기간을 이 설계에서 임의로 정하지 않는다 |
 | Q06 | legacy 게스트 승격 결과의 복구 창과 창 밖 장기 실패 처리 | 원 RT 증명·같은 활성 세션·고정 만료 이내의 동일 결과 재생을 구현한다. 복구 창 수치는 임의 확정하지 않는다. 제공자 없는 게스트의 창 밖 대체 복구는 미승인이며 자동 신규 계정 생성/자산 이전으로 대신하지 않는다. 해당 결정과 응답 유실·앱 종료 검증 전 강제 승격 출시 보류 |
 
@@ -99,8 +99,8 @@ R61 PDF 17쪽을 시각 확인했으나 계정/프로필/색상 선택 화면이
 | `/v1/...` | 접두어 없는 동일 7개 경로 | 사용자 확정 |
 | Apple code-only 예시 | code 교환 + 기존 제공자별 검증 자격 확장 | 기존 지원 유지의 기술 결정 |
 | logout 본문 없음·RT 위치 미명시 | 본문 없음, 필수 RT 헤더, 제공된 AT는 같은 세션 대조 | 기술 결정 |
-| name/색상 예시 | nickname 정책 유지, 색상 목록은 Q03 | 기존 정책 + 미답 제품 입력 |
-| onboardingComplete 예시 | 신규/legacy 판정 분리 | Q04 |
+| name/색상 예시 | nickname 정책 유지, 색상 목록은 Q03 6종 | 기존 정책 + Q03 확정(2026-09-19) |
+| onboardingComplete 예시 | name AND catColor, legacy 도 같은 함수 | Q04 확정(2026-09-19) |
 | notifications 1개 | 알림 서버 원자 부분 변경 | 기존 소유 경계 유지 |
 
 원본 예시는 [추출본](source-contracts.json)에 수정 없이 보존한다. 추가 재인증이 없는 현재 AT 인증 탈퇴를 더 강한 재인증으로 바꿨다고 주장하지 않는다. 단순 `confirmation: "DELETE"`는 사용자 의도 확인이며 별도 자격 증명이 아니다.

@@ -61,13 +61,14 @@ class VisitScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    void membersCarryOnlyNameAppearanceAndRole() throws Exception {
+    void membersCarryOnlyNameCatColorAppearanceAndRole() throws Exception {
         DATA.on(DATA_ISLAND, request -> ok(visitor(null)));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
         MvcResult result = mockMvc.perform(auth(get(PATH))).andExpect(status().isOk()).andReturn();
         Map<String, Object> member = JsonPath.read(result.getResponse().getContentAsString(),
                 "$.data.members.items[0]");
-        assertThat(member.keySet()).containsExactlyInAnyOrder("id", "name", "role", "appearance");
+        // catColor 는 외형 필드다(계정 Q03, GROMO-1945) — 주민 목록과 같은 모양으로 방문자에게도 싣는다.
+        assertThat(member.keySet()).containsExactlyInAnyOrder("id", "name", "catColor", "role", "appearance");
     }
 
     @Test

@@ -48,9 +48,10 @@ public class AccountUseCase {
         return me;
     }
 
-    public AccountProfile rename(AccessTokenClaims claims, String name, UUID key, Deadline deadline) {
+    public AccountProfile updateProfile(AccessTokenClaims claims, String name, String catColor, UUID key,
+                                        Deadline deadline) {
         AccountProfile profile = relay(() -> data.patchAccount(claims.userId(), claims.sessionId(),
-                claims.authGeneration(), name, key, deadline));
+                claims.authGeneration(), name, catColor, key, deadline));
         if (profile == null || !claims.userId().equals(profile.id())) {
             throw invalid();
         }
@@ -81,7 +82,7 @@ public class AccountUseCase {
             if (e.getStatus() == 403 && "SESSION_NOT_ACTIVE".equals(e.getCode())) {
                 throw new PublicApiException(ApiErrorCode.UNAUTHORIZED, null);
             }
-            // PATCH 스위치가 닫힘(계정 LLD §2.3 — 온보딩 전이 사건 연결 전). 사유는 내부 코드로만 남긴다.
+            // PATCH 비상 스위치가 닫힘(계정 LLD §2.3). 사유는 내부 코드로만 남긴다.
             if (e.getStatus() == 503 && "PROFILE_UPDATE_UNAVAILABLE".equals(e.getCode())) {
                 throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
             }

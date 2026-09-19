@@ -3,6 +3,7 @@ package com.oneorthree.phone.user.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.util.ZonePolicy;
+import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
 import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
 import com.oneorthree.phone.user.repository.domain.Occupation;
@@ -31,6 +32,7 @@ import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
 import com.oneorthree.phone.user.dto.SocialLinkResponse;
 import com.oneorthree.phone.user.dto.UpdateScreenTimePermissionRequest;
 import com.oneorthree.phone.user.dto.UserProfileResponse;
+import com.oneorthree.phone.user.support.OnboardingCompletion;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -80,6 +82,8 @@ public class UserService {
      * 대상인 {@code group} 을 직접 참조할 수 없다 — 소비자는 동기 리스너라 같은 트랜잭션에서 돈다.
      */
     private final ApplicationEventPublisher eventPublisher;
+    /** 온보딩 완료 전이 사건 — 모든 프로필 writer 가 {@link #recordOnboardingTransition} 로만 부른다. */
+    private final UserOnboardingEvents onboardingEvents;
 
     /**
      * 닉네임 규칙 단일점 (GROMO-1215) — trim 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
@@ -106,6 +110,7 @@ public class UserService {
         // users 행(닉네임·직군·국가)을 변경하는 트랜잭션 — 처음부터 배타 락 (GROMO-801 락 선택 원칙,
         // GROMO-1237). 공유 락으로 읽고 나중에 UPDATE 하면 락 승급 교착 대상이 된다.
         User user = userQueryService.getCallerForUpdate(userId);
+        boolean wasComplete = OnboardingCompletion.isComplete(user);
 
         changeNickname(user, body.getNickname());
         if (body.getOccupation() != null) {
@@ -122,6 +127,7 @@ public class UserService {
 
         UserFocusTimeSettings focusSettings = userQueryService.getFocusTimeSettings(userId);
         focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
+        recordOnboardingTransition(user, wasComplete);
     }
 
     /**
@@ -139,6 +145,7 @@ public class UserService {
     public void updateProfile(UUID userId, UserProfileUpdateRequest body) {
         // users 행(닉네임·국가)을 변경할 수 있는 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
         User user = userQueryService.getCallerForUpdate(userId);
+        boolean wasComplete = OnboardingCompletion.isComplete(user);
 
         // PATCH 의미론 유지 — null 은 "변경 안 함". 빈문자열·공백-only 는 changeNickname 의
         // 형식 검증(2~10자)이 400 으로 차단한다 (GROMO-1215 — 이전엔 "" 가 그대로 저장되는 구멍).
@@ -168,6 +175,7 @@ public class UserService {
             UserFocusTimeSettings focusSettings = userQueryService.getFocusTimeSettings(userId);
             focusSettings.changeGoal(body.getDailyFocusTimeGoalMinutes(), today);
         }
+        recordOnboardingTransition(user, wasComplete);
     }
 
     /**
@@ -296,6 +304,8 @@ public class UserService {
         user.setCountryCode(null);
         // 표시 언어도 프로필 개인정보다 — 국가처럼 탈퇴 시 파기 (codex 리뷰, GROMO-1659)
         user.setLanguage(null);
+        // 고양이 색도 직접 프로필 필드다(GROMO-1945) — 추가한 PR 에서 함께 파기한다.
+        user.setCatColor(null);
         // 계정 LLD §4 (GROMO-1801): 직군은 직접 프로필 필드, 두 시각은 개인 활동·체험 기록이다.
         user.setOccupation(null);
         user.setLastActiveAt(null);
@@ -309,23 +319,49 @@ public class UserService {
     }
 
     /**
-     * 공개 {@code PATCH /me} 의 이름 변경 (GROMO-1801 · 계정 LLD §2.3).
+     * 공개 {@code PATCH /me} 의 프로필 변경 (GROMO-1801·1945 · 계정 LLD §2.3).
      *
-     * <p>기존 닉네임 writer({@link #changeNickname})에 그대로 위임한다 — 정규화·중복 정책을 새로 만들지 않는다.
+     * <p>이름은 기존 닉네임 writer({@link #changeNickname})에 그대로 위임한다 — 정규화·중복 정책을 새로 만들지 않는다.
      * 정규화한 값이 지금 이름과 같으면 writer 를 돌리지 않는다: 돌리면 표시정보 변경 사건이 한 번 더 나간다.
+     * 이름을 먼저 바꾸는 이유는 {@link #changeNickname} 이 TX 의 첫 변경이어야 해서다. 두 입력을 모두 적용한 뒤에
+     * 완료 전이를 판정한다.
      *
-     * @param userId  본인. 호출부가 같은 TX 에서 이미 배타 락을 잡았다(재진입이라 대기하지 않는다)
-     * @param rawName 요청 원문. {@code null} 이면 이름을 건드리지 않는다
-     * @return 변경 뒤 사용자
+     * @param userId   본인. 호출부가 같은 TX 에서 이미 배타 락을 잡았다(재진입이라 대기하지 않는다)
+     * @param rawName  요청 원문. {@code null} 이면 이름을 건드리지 않는다
+     * @param catColor 카탈로그({@code CatColors})에서 검증된 색. {@code null} 이면 건드리지 않는다
+     * @return 변경 뒤 사용자와 이번 변경이 적은 사건(없으면 빈 목록)
      * @throws UserException 400 {@code NICKNAME_INVALID} · 409 {@code NICKNAME_DUPLICATE}
      */
     @Transactional
-    public User renameForPublicProfile(UUID userId, String rawName) {
+    public PublicProfileChange updatePublicProfile(UUID userId, String rawName, String catColor) {
         User user = userQueryService.getCallerForUpdate(userId);
+        boolean wasComplete = OnboardingCompletion.isComplete(user);
         if (rawName != null && !rawName.trim().equals(user.getNickname())) {
             changeNickname(user, rawName);
         }
-        return user;
+        if (catColor != null) {
+            user.setCatColor(catColor);
+        }
+        return new PublicProfileChange(user, recordOnboardingTransition(user, wasComplete));
+    }
+
+    /**
+     * 완료 전이의 공통 경계 (계정 LLD §2.3 「모든 프로필 writer 의 공통 책임」). 요청의 완료 입력을 <b>모두</b> 적용한
+     * 뒤에 부른다 — 변경 전 판정이 false 이고 지금이 true 일 때만 같은 TX 에 {@code user.onboarded} 를 적는다.
+     * true→true·무변경·receipt 재생(본문이 돌지 않는다)은 사건을 만들지 않는다.
+     */
+    private List<EventEnvelope> recordOnboardingTransition(User user, boolean wasComplete) {
+        if (wasComplete || !OnboardingCompletion.isComplete(user)) {
+            return List.of();
+        }
+        return List.of(onboardingEvents.recordOnboarded(user.getId()));
+    }
+
+    /**
+     * @param user   변경 뒤 사용자
+     * @param events 이번 변경이 적은 봉투 — 공개 receipt 의 {@code events}
+     */
+    public record PublicProfileChange(User user, List<EventEnvelope> events) {
     }
 
     /**

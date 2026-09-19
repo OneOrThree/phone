@@ -28,7 +28,7 @@ PR 740 검토 반영: 공지 작성자 FK 파기와 생성 경합, RT-only 로�
 
 로그인 재개 순서 보완: 내구 시도와 고정 digest key ID를 먼저 조회하고, 그 키로 실제 원 code/credential의 서버 digest를 계산해 검증된 요청 scope와 대조한다. 준비/확정 결과가 있으면 활성·세대·고정 만료/폐기를 확인하고 일회성 code를 다시 교환하지 않는다. IdP 성공 뒤 내구 저장 전 장애는 이 재생 보장 밖이며, 제공자 복구 보장이 없으면 새 자격으로 재인증해야 한다. Q06·약관 등 미결 정책과 원본7계약은 변경하지 않았다.
 
-프로필 사건 보완: 승인된 완료 판정 false→true의 user.onboarded와 실제 이름 변경의 user.displayNameChanged를 프로필/receipt와 같은 TX에 기록한다. 이름은 선행의 동기 이벤트·LinkMembershipEventService writer를 공유해 중복 구현하지 않는다. 랭킹 절대 점수 재적재·링크 snapshotVersion/폐기 대조와 생산자/소비자 회귀는 활성화 조건이며 기존 내부 사건을 공개66/섬실시간14의 추가 항목으로 세지 않는다. Q03/Q04 제품 판정은 미결 그대로다.
+프로필 사건 보완: 승인된 완료 판정 false→true의 user.onboarded와 실제 이름 변경의 user.displayNameChanged를 프로필/receipt와 같은 TX에 기록한다. 이름은 선행의 동기 이벤트·LinkMembershipEventService writer를 공유해 중복 구현하지 않는다. 랭킹 절대 점수 재적재·링크 snapshotVersion/폐기 대조와 생산자/소비자 회귀는 활성화 조건이며 기존 내부 사건을 공개66/섬실시간14의 추가 항목으로 세지 않는다. Q03/Q04 는 2026-09-19 확정(결정 로그 계정-Q03·Q04)이고 생산자는 GROMO-1945 가 연결했다(랭킹 소비자는 후속).
 
 선택 AT·생성 이력 보완: 개별 logout 후에도 users가 활성이라는 이유로 게스트 승격을 허용하지 않는다. 원 선택 세션 활성/세대·sidless legacy 결합과 폐기 fence를 prepare/complete/성공 재생에서 재검사한다. 신규 로그인은 users 우선 및 다중 사용자 UUID 정렬로 logout/withdraw와 직렬화한다. character_generation 본인 전체 이력은 같은 중앙 탈퇴 TX에서 hard delete하고 기존 recordGeneration의 users 배타 잠금과 fixture·양방향 경합·rollback을 완료 조건에 넣었다. 실제 배선·검증은 후속 구현이며 Q06과 원본7계약은 유지한다.
 

@@ -15,6 +15,9 @@ import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.SocialAccount;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
+import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
+import com.oneorthree.phone.user.service.UserService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.DisplayName;
@@ -48,7 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 계정 내부 표면 3종 (GROMO-1801) — 실제 Flyway(V1~V65)·{@code ddl-auto=validate} PostgreSQL, 등록된
+ * 계정 내부 표면 3종 (GROMO-1801·1945) — 실제 Flyway·{@code ddl-auto=validate} PostgreSQL, 등록된
  * {@code InternalAuthFilter}, 생산 서비스로 검증한다. 목 seam 은 없다.
  */
 @SpringBootTest
@@ -65,8 +68,6 @@ class InternalAccountIntegrationTest {
         registry.add("internal.api.callers.business.allow[0]", () -> "GET /internal/users/*");
         registry.add("internal.api.callers.business.allow[1]", () -> "PATCH /internal/users/*");
         registry.add("internal.api.callers.business.allow[2]", () -> "DELETE /internal/users/*");
-        // 운영 기본은 닫힘(계정 LLD §2.3) — 계약 검증을 위해 열고, 닫힌 동작은 따로 뒤집어 본다.
-        registry.add("account.profile-update-enabled", () -> true);
     }
 
     @Autowired
@@ -83,11 +84,13 @@ class InternalAccountIntegrationTest {
     PlatformTransactionManager transactions;
     @Autowired
     InternalAccountService accountService;
+    @Autowired
+    UserService userService;
     @PersistenceContext
     EntityManager em;
 
     @Test
-    @DisplayName("GET — 연동 provider 는 활성만 소문자·중복 제거·정렬, catColor 는 null, 온보딩은 이름으로 판정")
+    @DisplayName("GET — 연동 provider 는 활성만 소문자·중복 제거·정렬, 온보딩은 이름과 고양이 색을 모두 가져야 완료")
     void meShape() throws Exception {
         Actor guest = actor();
         me(guest).andExpect(status().isOk())
@@ -111,7 +114,12 @@ class InternalAccountIntegrationTest {
             unlinked.setDeletedAt(Instant.now());
         });
         rename(linked, UUID.randomUUID(), "{\"name\":\"" + uniqueName() + "\"}").andExpect(status().isOk());
+        // 이름만으로는 완료가 아니다(Q04)
+        me(linked).andExpect(jsonPath("$.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.onboardingComplete").value(false));
+        rename(linked, UUID.randomUUID(), "{\"catColor\":\"calico\"}").andExpect(status().isOk());
         me(linked).andExpect(status().isOk())
+                .andExpect(jsonPath("$.catColor").value("calico"))
                 .andExpect(jsonPath("$.linkedProviders.length()").value(2))
                 .andExpect(jsonPath("$.linkedProviders[0]").value("apple"))
                 .andExpect(jsonPath("$.linkedProviders[1]").value("kakao"))
@@ -167,14 +175,86 @@ class InternalAccountIntegrationTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"name\":null}", "{\"name\":1}", "{\"name\":\"수빈\",\"extra\":1}",
-            "{\"catColor\":\"black\"}", "null"})
+            "{\"catColor\":null}", "{\"catColor\":1}", "{\"catColor\":\"purple\"}", "{\"catColor\":\"Black\"}",
+            "null"})
     @DisplayName("PATCH — 빈 객체·명시 null·타입 오류·미지 필드는 저장 전에 400")
     void patchRejectsMalformedBody(String body) throws Exception {
         Actor actor = actor();
         rename(actor, UUID.randomUUID(), body).andExpect(status().isBadRequest());
         assertThat(nickname(actor)).isNull();
+        assertThat(catColor(actor)).isNull();
         assertThat(jdbc.queryForObject("select count(*) from command_idempotency where user_id=?", Long.class,
                 actor.userId())).isZero();
+    }
+
+    @Test
+    @DisplayName("PATCH — 이름·색이 모두 갖춰지는 순간 같은 TX 에 user.onboarded 가 정확히 한 번, 재생·true→true 는 새 사건 없음")
+    void onboardingTransitionRecordsOneEvent() throws Exception {
+        Actor actor = actor();
+        rename(actor, UUID.randomUUID(), "{\"catColor\":\"gray\"}").andExpect(status().isOk())
+                .andExpect(jsonPath("$.catColor").value("gray"));
+        assertThat(onboardedEvents(actor)).isZero();
+
+        UUID key = UUID.randomUUID();
+        String body = "{\"name\":\"" + uniqueName() + "\"}";
+        rename(actor, key, body).andExpect(status().isOk());
+        assertThat(onboardedEvents(actor)).isEqualTo(1L);
+        assertThat(jdbc.queryForList("select d.target from event_outbox_deliveries d join event_outbox o"
+                + " on o.id = d.outbox_id where o.event_id = ?", String.class, "user.onboarded:" + actor.userId()))
+                .containsExactly("SCORE");
+        // receipt events 에 같은 봉투가 실린다
+        assertThat(jdbc.queryForObject("select count(*) from command_idempotency where user_id=?"
+                + " and response_body::text like '%user.onboarded%'", Long.class, actor.userId())).isEqualTo(1L);
+
+        rename(actor, key, body).andExpect(status().isOk());
+        rename(actor, UUID.randomUUID(), "{\"catColor\":\"white\",\"name\":\"" + uniqueName() + "\"}")
+                .andExpect(status().isOk());
+        assertThat(onboardedEvents(actor)).isEqualTo(1L);
+        me(actor).andExpect(jsonPath("$.onboardingComplete").value(true))
+                .andExpect(jsonPath("$.catColor").value("white"));
+    }
+
+    @Test
+    @DisplayName("완료 전이 뒤 TX 가 롤백되면 프로필·사건 모두 남지 않는다 · 이름 거절이면 함께 온 색도 저장되지 않는다")
+    void rollbackLeavesNoEvent() throws Exception {
+        Actor actor = actor();
+        tx().executeWithoutResult(status -> {
+            var change = userService.updatePublicProfile(actor.userId(), uniqueName(), "cream");
+            assertThat(change.events()).hasSize(1);
+            status.setRollbackOnly();
+        });
+        assertThat(nickname(actor)).isNull();
+        assertThat(catColor(actor)).isNull();
+        assertThat(onboardedEvents(actor)).isZero();
+
+        Actor other = actor();
+        String taken = uniqueName();
+        rename(other, UUID.randomUUID(), "{\"name\":\"" + taken + "\"}").andExpect(status().isOk());
+        rename(actor, UUID.randomUUID(), "{\"name\":\"" + taken + "\",\"catColor\":\"cream\"}")
+                .andExpect(status().isConflict()).andExpect(jsonPath("$.code").value("NICKNAME_DUPLICATE"));
+        assertThat(catColor(actor)).isNull();
+        assertThat(onboardedEvents(actor)).isZero();
+    }
+
+    @Test
+    @DisplayName("legacy POST/PATCH /api/v1/users/me writer 도 같은 전이 경계로 user.onboarded 를 한 번 낸다")
+    void legacyWritersShareTheTransition() throws Exception {
+        Actor setup = actor();
+        rename(setup, UUID.randomUUID(), "{\"catColor\":\"black\"}").andExpect(status().isOk());
+        userService.setupProfile(setup.userId(), new UserProfileSetupRequest(uniqueName(), null, 0, 0, null));
+        assertThat(onboardedEvents(setup)).isEqualTo(1L);
+        userService.setupProfile(setup.userId(), new UserProfileSetupRequest(uniqueName(), null, 0, 0, null));
+        assertThat(onboardedEvents(setup)).isEqualTo(1L);
+
+        Actor update = actor();
+        userService.updateProfile(update.userId(),
+                new UserProfileUpdateRequest(uniqueName(), null, null, null, null));
+        assertThat(onboardedEvents(update)).as("색이 없으면 legacy 이름 저장만으로는 완료가 아니다").isZero();
+        rename(update, UUID.randomUUID(), "{\"catColor\":\"ginger\"}").andExpect(status().isOk());
+        assertThat(onboardedEvents(update)).isEqualTo(1L);
+        userService.updateProfile(update.userId(),
+                new UserProfileUpdateRequest(uniqueName(), null, null, null, null));
+        assertThat(onboardedEvents(update)).isEqualTo(1L);
     }
 
     @Test
@@ -299,6 +379,15 @@ class InternalAccountIntegrationTest {
 
     private String nickname(Actor actor) {
         return jdbc.queryForObject("select nickname from users where id=?", String.class, actor.userId());
+    }
+
+    private String catColor(Actor actor) {
+        return jdbc.queryForObject("select cat_color from users where id=?", String.class, actor.userId());
+    }
+
+    private long onboardedEvents(Actor actor) {
+        return jdbc.queryForObject("select count(*) from event_outbox where type = 'user.onboarded' and user_id = ?",
+                Long.class, actor.userId());
     }
 
     private boolean deleted(Actor actor) {

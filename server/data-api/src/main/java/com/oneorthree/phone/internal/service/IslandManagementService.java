@@ -172,7 +172,7 @@ public class IslandManagementService {
                 page.stream().map(member -> member.getUser().getId()).toList());
         return new IslandMembersPageView(page.stream()
                 .map(member -> new IslandMembersPageView.Item(member.getUser().getId(),
-                        member.getUser().getNickname(),
+                        member.getUser().getNickname(), member.getUser().getCatColor(),
                         member.getRole() == GroupMemberRole.OWNER ? "host" : "member",
                         looks.get(member.getUser().getId())))
                 .toList(),

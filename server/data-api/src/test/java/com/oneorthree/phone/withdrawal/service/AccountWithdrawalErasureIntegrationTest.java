@@ -80,8 +80,6 @@ class AccountWithdrawalErasureIntegrationTest {
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
-        // 공개 PATCH receipt 파기를 보려면 receipt 가 있어야 한다 — 운영 기본(닫힘)을 이 테스트에서만 연다.
-        registry.add("account.profile-update-enabled", () -> true);
     }
 
     @Autowired AccountWithdrawalService withdrawal;
@@ -100,8 +98,8 @@ class AccountWithdrawalErasureIntegrationTest {
         Actor c = actor();
         Actor t = actor();
         // 공개 PATCH receipt(이름이 든 개인 응답) — W·C 각각
-        account.patch(w.id(), new AccountPatchRequest(name()), w.session(), 0L, UUID.randomUUID());
-        account.patch(c.id(), new AccountPatchRequest(name()), c.session(), 0L, UUID.randomUUID());
+        account.patch(w.id(), new AccountPatchRequest(name(), "calico"), w.session(), 0L, UUID.randomUUID());
+        account.patch(c.id(), new AccountPatchRequest(name(), "black"), c.session(), 0L, UUID.randomUUID());
         Seed s = seed(w.id(), c.id(), t.id());
 
         withdrawal.withdraw(w.id());
@@ -109,12 +107,14 @@ class AccountWithdrawalErasureIntegrationTest {
         // users 직접 PII — W 는 파기, C 는 그대로
         Map<String, Object> wu = row("select * from users where id=?", w.id());
         assertThat(wu).containsEntry("is_deleted", true).containsEntry("nickname", null)
+                .containsEntry("cat_color", null)
                 .containsEntry("occupation", null).containsEntry("last_active_at", null)
                 .containsEntry("character_trial_anchor_at", null).containsEntry("stat_visibility", "FRIENDS");
         Map<String, Object> cu = row("select * from users where id=?", c.id());
         assertThat(cu.get("nickname")).isNotNull();
         assertThat(cu.get("last_active_at")).isNotNull();
-        assertThat(cu).containsEntry("occupation", "TAX_ACCOUNTANT").containsEntry("stat_visibility", "PUBLIC");
+        assertThat(cu).containsEntry("cat_color", "black").containsEntry("occupation", "TAX_ACCOUNTANT")
+                .containsEntry("stat_visibility", "PUBLIC");
 
         // group_announcements — 작성자 연결만 끊고 행·내용은 남긴다
         assertThat(row("select user_id, title from group_announcements where id=?", s.wAnnouncement()))

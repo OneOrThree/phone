@@ -24,10 +24,11 @@ public record OutboxDeliveryRequest(OutboxTarget target, Map<String, Object> pay
         if (target == null) {
             throw new IllegalArgumentException("전달 대상은 필수입니다.");
         }
-        if (target == OutboxTarget.KAFKA && endpointKey != null) {
+        boolean topic = target == OutboxTarget.KAFKA || target == OutboxTarget.SCORE;
+        if (topic && endpointKey != null) {
             throw new IllegalArgumentException("Kafka 대상에는 엔드포인트 키가 없습니다 — 토픽은 설정이 정한다.");
         }
-        if (target != OutboxTarget.KAFKA && (endpointKey == null || endpointKey.isBlank())) {
+        if (!topic && (endpointKey == null || endpointKey.isBlank())) {
             throw new IllegalArgumentException("HTTP 대상에는 논리 엔드포인트 키가 필요합니다 — URL 은 설정에만 있다.");
         }
     }
@@ -37,6 +38,13 @@ public record OutboxDeliveryRequest(OutboxTarget target, Map<String, Object> pay
      */
     public static OutboxDeliveryRequest toKafka() {
         return new OutboxDeliveryRequest(OutboxTarget.KAFKA, null, null);
+    }
+
+    /**
+     * @return 정본 봉투를 그대로 보내는 {@code score-events} 전달 요구 — transport 등록 전까지 내구 보류
+     */
+    public static OutboxDeliveryRequest toScore() {
+        return new OutboxDeliveryRequest(OutboxTarget.SCORE, null, null);
     }
 
     /**
