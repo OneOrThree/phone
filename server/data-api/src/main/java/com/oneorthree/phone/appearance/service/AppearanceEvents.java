@@ -34,11 +34,13 @@ public class AppearanceEvents {
 
     public static final String EVENT_MEMBER_APPEARANCE = "member.appearance.updated";
     public static final String EVENT_ISLAND_APPEARANCE = "island.appearance.updated";
+    public static final String EVENT_PLAYBACK = "playback.updated";
 
     static final String AGGREGATE_USER_APPEARANCE = "USER_APPEARANCE";
     static final String AGGREGATE_ISLAND_APPEARANCE = "ISLAND_APPEARANCE";
     static final String AGGREGATE_USER_INVENTORY = "USER_INVENTORY";
     static final String AGGREGATE_ISLAND_INVENTORY = "ISLAND_INVENTORY";
+    static final String AGGREGATE_ISLAND_PLAYBACK = "ISLAND_PLAYBACK";
 
     private static final int SCHEMA_VERSION = 1;
 
@@ -79,6 +81,17 @@ public class AppearanceEvents {
         return append(EVENT_ISLAND_APPEARANCE, actorId, islandId.toString(),
                 AGGREGATE_ISLAND_APPEARANCE, islandId.toString(),
                 appearance.getVersion(), payload);
+    }
+
+    /**
+     * 공용 음악 변경 (GROMO-1779) — 축 (playback, islandId), aggregateVersion == payload.version.
+     * payload 는 PATCH 응답 data 와 같은 공개 8필드다. 생산 여부는 호출측 게이트가 정한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Map<String, Object> playbackChanged(UUID islandId, UUID actorId, long version,
+                                               Map<String, Object> payload) {
+        return append(EVENT_PLAYBACK, actorId, islandId.toString(), AGGREGATE_ISLAND_PLAYBACK,
+                islandId.toString(), version, payload);
     }
 
     // ---------------------------------------------------------------- 공통

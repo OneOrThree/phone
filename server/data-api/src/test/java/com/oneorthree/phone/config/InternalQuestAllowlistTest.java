@@ -1,7 +1,6 @@
 package com.oneorthree.phone.config;
 
-import com.oneorthree.phone.internal.InternalAppearanceController;
-import com.oneorthree.phone.internal.InternalPlaybackController;
+import com.oneorthree.phone.internal.InternalIslandQuestController;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.env.YamlPropertySourceLoader;
@@ -10,6 +9,7 @@ import org.springframework.core.io.ClassPathResource;
 import org.springframework.util.AntPathMatcher;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 import java.io.IOException;
@@ -20,41 +20,33 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 외양 내부 경로 4종·공용 음악 2종(GROMO-1779)이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을
- * 통과하는지 검증한다 (GROMO-1783).
+ * 섬 퀘스트 내부 경로 5종이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을
+ * 통과하는지 검증한다 (GROMO-1773, {@code InternalAppearanceAllowlistTest} 와 같은 방식).
  *
  * <p>기대 경로는 컨트롤러 애노테이션에서 읽고 허용목록은 배포되는 yml 에서 읽는다 — 둘 중
  * 하나만 바뀌면 이 테스트가 깨진다. {@link AntPathMatcher} 의 {@code *} 는 세그먼트 하나라
  * {@code /internal/users/*} 는 그 아래 경로를 덮지 않는다.
  */
-class InternalAppearanceAllowlistTest {
+class InternalQuestAllowlistTest {
 
     private static final String ID = "3f4a6c1e-0000-7000-8000-00000000abcd";
     private final AntPathMatcher matcher = new AntPathMatcher();
 
     @Test
-    @DisplayName("외양 내부 컨트롤러의 모든 매핑이 배포되는 허용목록을 통과한다")
-    void everyAppearanceInternalRouteIsAllowedByTheShippedFile() throws IOException {
+    @DisplayName("퀘스트 내부 컨트롤러의 모든 매핑이 배포되는 허용목록을 통과한다")
+    void everyQuestInternalRouteIsAllowedByTheShippedFile() throws IOException {
         List<String> allow = shippedBusinessAllowlist();
-        List<String> routes = routesOf(InternalAppearanceController.class);
+        List<String> routes = routesOf(InternalIslandQuestController.class);
 
-        assertThat(routes).as("4종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
-                .hasSize(4);
+        assertThat(routes).as("5종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다")
+                .containsExactlyInAnyOrder(
+                        "GET /internal/islands/" + ID + "/quests/current",
+                        "GET /internal/islands/" + ID + "/quests/" + ID + "/progress",
+                        "POST /internal/islands/" + ID + "/quests",
+                        "PATCH /internal/islands/" + ID + "/quests/" + ID,
+                        "POST /internal/islands/" + ID + "/quests/" + ID + "/claims");
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
-    }
-
-    @Test
-    @DisplayName("공용 음악 내부 컨트롤러의 GET·PATCH 가 배포되는 허용목록을 통과한다 (GROMO-1779)")
-    void everyPlaybackInternalRouteIsAllowedByTheShippedFile() throws IOException {
-        List<String> allow = shippedBusinessAllowlist();
-        List<String> routes = routesOf(InternalPlaybackController.class);
-
-        assertThat(routes).hasSize(2);
-        assertThat(routes).allSatisfy(route ->
-                assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
-        assertThat(allows(allow, "PUT /internal/islands/" + ID + "/playback")).isFalse();
-        assertThat(allows(allow, "PATCH /internal/islands/" + ID + "/playback/" + ID)).isFalse();
     }
 
     @Test
@@ -62,9 +54,10 @@ class InternalAppearanceAllowlistTest {
     void allowlistDoesNotLeakIntoDeeperSegments() throws IOException {
         List<String> allow = shippedBusinessAllowlist();
 
-        assertThat(allows(allow, "GET /internal/users/" + ID + "/inventory/" + ID)).isFalse();
-        assertThat(allows(allow, "PATCH /internal/islands/" + ID + "/appearance/" + ID)).isFalse();
-        assertThat(allows(allow, "DELETE /internal/users/" + ID + "/appearance")).isFalse();
+        assertThat(allows(allow, "GET /internal/islands/" + ID + "/quests/" + ID + "/progress/" + ID)).isFalse();
+        assertThat(allows(allow, "POST /internal/islands/" + ID + "/quests/" + ID + "/claims/" + ID)).isFalse();
+        assertThat(allows(allow, "DELETE /internal/islands/" + ID + "/quests/" + ID)).isFalse();
+        assertThat(allows(allow, "POST /internal/islands/" + ID + "/quests/" + ID)).isFalse();
     }
 
     // ---------------------------------------------------------------- 도구
@@ -95,8 +88,11 @@ class InternalAppearanceAllowlistTest {
         for (Method method : controller.getDeclaredMethods()) {
             GetMapping get = method.getAnnotation(GetMapping.class);
             PatchMapping patch = method.getAnnotation(PatchMapping.class);
+            PostMapping post = method.getAnnotation(PostMapping.class);
             if (get != null) {
                 routes.add("GET " + fill(prefix + first(get.value())));
+            } else if (post != null) {
+                routes.add("POST " + fill(prefix + first(post.value())));
             } else if (patch != null) {
                 routes.add("PATCH " + fill(prefix + first(patch.value())));
             }

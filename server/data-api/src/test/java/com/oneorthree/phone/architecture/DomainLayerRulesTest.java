@@ -76,6 +76,9 @@ class DomainLayerRulesTest {
         // appearance 는 섬(group)에 딸린 공동 외양 + 유저에 딸린 개인 외양(GROMO-1783) —
         // 완공 훅은 construction 이 common.port 를 부르므로 도메인 참조는 아래로만 간다.
         LAYERS.put("appearance", 7);
+        // quest 는 섬 퀘스트(GROMO-1773) — 집중 구간(focus 2)·스크린타임(screentime 2)으로 판정하고
+        // 섬 통장(construction 6)에 정산하므로 construction 보다 위다. 내부 표면은 internal(10)이 참조한다.
+        LAYERS.put("quest", 7);
         LAYERS.put("notification", 7);      // 전 도메인 구독
         // shop 은 섬 통장(construction)을 차감하고 보유품(appearance)을 지급한다(GROMO-1781) — 둘 위.
         LAYERS.put("shop", 8);

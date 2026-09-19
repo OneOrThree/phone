@@ -100,6 +100,41 @@ public class IslandWalletService {
     }
 
     /**
+     * 퀘스트 정산 적립(GROMO-1773) — 잔액과 원장만 쓰고 건설 「각자 몫」 기여는 <b>쌓지 않는다</b>.
+     * 퀘스트 보상은 주민 누구의 획득도 아니라 섬 전체의 몫이라, {@link #contribute} 처럼 목표 epoch
+     * 기여로 세면 건설 문턱을 보상으로 우회하게 된다.
+     *
+     * <p>잠금은 지갑 행 하나다 — 호출측(퀘스트 claim)이 섬·회차를 먼저 잡고 들어온다(LLD §5 순서의 끝).
+     * 같은 키 재실행은 지갑 잠금 아래에서 원장을 보고 조용히 건너뛴다. 유니크 제약
+     * {@code uq_island_wallet_tx_idem} 이 최후 방어선이다.
+     *
+     * @return 적립 후 잔액
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int creditQuestSettlement(UUID islandId, int amount, String idempotencyKey) {
+        if (amount <= 0) {
+            throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+        }
+        wallets.insertIfAbsent(islandId);
+        IslandWallet wallet = wallets.findByIdForUpdate(islandId)
+                .orElseThrow(() -> new IllegalStateException("섬 지갑을 만들 직후에 찾지 못했습니다."));
+        if (ledger.existsByIslandIdAndTypeAndIdempotencyKey(
+                islandId, IslandWalletTransactionType.QUEST_SETTLEMENT, idempotencyKey)) {
+            return wallet.getBalance();
+        }
+        if (amount > Integer.MAX_VALUE - wallet.getBalance()) {
+            throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+        }
+        wallet.earn(amount);
+        ledger.save(IslandWalletTransaction.builder()
+                .islandId(islandId).amount(amount)
+                .type(IslandWalletTransactionType.QUEST_SETTLEMENT)
+                .idempotencyKey(idempotencyKey)
+                .build());
+        return wallet.getBalance();
+    }
+
+    /**
      * 건설 확정 차감 — 잠긴 지갑에서 총액을 빼고 원장에 기입한다. 잔액 부족이면
      * {@code INSUFFICIENT_FUNDS}(409) — 「모자라다」를 어떤 실패로 보고할지는 이 도메인이 정한다.
      *

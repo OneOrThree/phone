@@ -2,14 +2,16 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V74 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 · V74 (src/main/resources/db/migration — V68~V70·V72 는 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
+//        island_quest_cohort_members · island_quest_claims. island_wallet_transactions.type 에 QUEST_SETTLEMENT 추가(스키마 무변경).
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·
 //        invite_link_clicks.ip_hash · league_weekly_results 결과 4열 · login_attempts digest 2열 · auth_sessions.refresh_token_hash.
 // V66 — 섬 게시판 공지 댓글 group_announcement_comments + 목록 keyset 인덱스 + 공지 version 백필 (GROMO-1771 · island-board LLD §3·§4).
 // V67 — 집중 세션 시작 게이트 선행 조건: focus_session_details.lifecycle MEMBERSHIP_LOST(varchar 20) · focus_reward_policies · user_fish_wallets · focus_settlements.completed_at 인덱스 (GROMO-1924).
+// V73 — 섬 공용 음악(방송기) 재생 audio_tracks · island_playbacks (GROMO-1779).
 // V74 — 섬 상점 테이블 선구축 shop_product_revisions · shop_catalog_publications · shop_catalog_publication_entries ·
 //        shop_catalog_active_publication · shop_orders (GROMO-1781 · island-shop LLD §3). 행 없음 — 가격은 S03·S04 확정 뒤.
-//        V68~V73 은 열린 PR(#820 V71 · #825 V73)이 가져간 번호다.
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
 //
 // ── 규약 (GROMO-1912 — V1~V57 을 빈 postgres 에 적용한 실제 스키마와 전수 대조) ──
@@ -873,7 +875,7 @@ Table island_wallet_transactions [note: '섬 공동 원장 — user 지갑의 cu
   id              uuid        [pk]
   island_id       uuid        [not null, note: 'FK → island_wallets.island_id ON DELETE RESTRICT']
   amount          integer     [not null, note: 'CHECK amount > 0 — 항상 양수, 부호는 type']
-  type            varchar(40) [not null, note: 'CONSTRUCTION_DEBIT / CONTRIBUTION_CREDIT 등 (IslandWalletTransactionType)']
+  type            varchar(40) [not null, note: 'CONTRIBUTION / CONSTRUCTION_DEBIT / QUEST_SETTLEMENT(V71 코드 추가 — 퀘스트 정산 적립, 건설 기여를 쌓지 않는다) (IslandWalletTransactionType, DB CHECK 없음)']
   idempotency_key varchar(200) [note: '중복 기입 방어 — 명령 멱등키를 그대로 심는다']
   created_at      timestamptz [not null, default: `now()`]
 
@@ -1042,6 +1044,86 @@ Table shop_orders [note: '상점 주문 (GROMO-1781, V74) — 섬 하나에 귀�
   indexes {
     (island_id, created_at, id) [name: 'idx_shop_orders_island', note: 'shared 내역 keyset (created_at DESC, id DESC)']
     (island_id, requester_id, created_at, id) [name: 'idx_shop_orders_island_requester', note: 'personal 내역 keyset — 섬 안의 본인']
+
+Table audio_tracks [note: '음원 불변 미디어 메타데이터 (GROMO-1779, V73) — kind=audio 카탈로그 자산마다 곡 길이 한 행. 같은 trackId 의 오디오·길이를 바꾸지 않으므로 갱신 경로가 없다. 행이 없는 음원은 재생 PATCH 가 422'] {
+  product_id      varchar(80) [pk, note: 'FK → catalog_assets.product_id ON DELETE RESTRICT']
+  duration_millis integer     [not null, note: 'CHECK > 0. 밀리초 정수 — NaN·무한 불가, 소수초 보존. 공개 durationSeconds = /1000']
+  created_at      timestamptz [not null, default: `now()`]
+}
+
+Table island_playbacks [note: '섬 공용 음악(방송기) 재생 상태 (GROMO-1779, V73) — 섬당 1행. 행이 없으면 초기 상태(곡 없음·정지·0초·version 0, anchor = 섬 생성 시각)이며 최초 PATCH 가 만든다. writer 는 재생 PATCH 하나. CHECK: track_id IS NOT NULL OR NOT playing'] {
+  island_id        uuid        [pk, note: 'FK → groups.id ON DELETE RESTRICT']
+  track_id         varchar(80) [note: 'FK → audio_tracks.product_id. 초기 미선택 null']
+  playing          boolean     [not null, default: false]
+  position_seconds bigint      [not null, default: 0, note: 'effective_at 시점 위치(초, 내림). 재생 중이면 서버 경과를 더해 곡 길이로 반복 — 곡 끝마다 갱신하지 않는다']
+  effective_at     timestamptz [not null, note: '위치 anchor 시각 — t = max(now, 이전 anchor)']
+  changed_by       uuid        [note: 'FK → users.id. 마지막 실제 변경 사용자, 초기 null']
+  version          bigint      [not null, default: 0, note: '행 배타락 아래에서만 +1 — PATCH expectedVersion 비교 대상이자 playback.updated 의 aggregateVersion']
+  updated_at       timestamptz [not null, default: `now()`]
+}
+
+Table island_quests [note: '섬 퀘스트 정의 (GROMO-1773, island-quests LLD §3, V71) — 방장만 만들고 고친다(D3). PATCH 는 revision 을 올리고 다음 회차부터 적용된다(2026-09-19 결정 Q-4). 창은 UTC 벽시계(결정 Q-6)이고 자정을 넘지 않는다'] {
+  id             uuid        [pk]
+  island_id      uuid        [not null, note: 'FK → groups.id ON DELETE RESTRICT']
+  type           varchar(10) [not null, note: "CHECK IN ('FOCUS','SCREEN')"]
+  title          varchar(40) [not null]
+  target_minutes integer     [not null, note: 'CHECK 1~1440 — focus 는 창 길이 이하(서비스 검증)']
+  window_start   time        [note: 'focus 만 NOT NULL, screen 은 NULL — CHECK island_quests_window_check(window_start < window_end)']
+  window_end     time
+  revision       integer     [not null, default: 1, note: '정의 수정마다 +1 — 회차가 어느 정의에서 나왔는지']
+  created_by     uuid        [not null, note: '만든 방장 — FK 없음. 스케줄러가 여는 회차 사건의 주체']
+  created_at     timestamptz [not null, default: `now()`]
+  updated_at     timestamptz [not null, default: `now()`]
+
+  indexes {
+    island_id [name: 'idx_island_quests_island']
+  }
+}
+
+Table island_quest_occurrences [note: '퀘스트 회차 (GROMO-1773, V71) — (퀘스트, UTC 날짜) 유일. 여는 순간 정의·보상 설정을 스냅샷으로 복사한다. version 은 quest.progress 축 마지막 발급값(여는 사건 1, 정산 사건 2)'] {
+  id                      uuid        [pk]
+  quest_id                uuid        [not null, note: 'FK → island_quests.id ON DELETE RESTRICT']
+  island_id               uuid        [not null, note: 'FK → groups.id ON DELETE RESTRICT']
+  occurrence_date         date        [not null, note: 'UTC 날짜']
+  definition_revision     integer     [not null]
+  type                    varchar(10) [not null, note: "CHECK IN ('FOCUS','SCREEN')"]
+  title                   varchar(40) [not null]
+  target_minutes          integer     [not null]
+  window_start            time
+  window_end              time
+  reward_per_achiever     integer     [not null, note: 'D5 개인 달성 +10 — 전액 섬 통장(결정 Q-1). CHECK >= 0']
+  reward_bonus_per_member integer     [not null, note: 'D5 전원 달성 보너스 1인당 5. CHECK >= 0']
+  version                 bigint      [not null]
+  claimed_at              timestamptz [note: '정산 확정 시각 — null 이면 미정산']
+  created_at              timestamptz [not null, default: `now()`]
+
+  indexes {
+    (quest_id, occurrence_date) [unique, name: 'uq_island_quest_occurrence']
+    (island_id, occurrence_date) [name: 'idx_island_quest_occurrences_island_date']
+  }
+}
+
+Table island_quest_cohort_members [note: '회차 시작 cohort (GROMO-1773, V71, 결정 Q-3) — 여는 순간 활성 주민 전원. 이후 가입자는 없고 탈퇴·강퇴·계정 탈퇴자는 판정 때 현재 활성 멤버와의 교집합에서 빠진다. 엔티티 없이 네이티브 쿼리로만 쓴다'] {
+  occurrence_id uuid [not null, note: 'FK → island_quest_occurrences.id ON DELETE RESTRICT']
+  user_id       uuid [not null, note: 'FK 없음 — 탈퇴 뒤에도 정산 근거 행 수가 바뀌지 않게']
+
+  indexes {
+    (occurrence_id, user_id) [pk]
+  }
+}
+
+Table island_quest_claims [note: '회차 정산 (GROMO-1773, V71) — 도메인 유일 (섬, 회차, kind). 다른 키의 동시 수령도 지급 1회(Q06). 원장은 island_wallet_transactions QUEST_SETTLEMENT'] {
+  id                     uuid         [pk]
+  island_id              uuid         [not null, note: 'FK → groups.id ON DELETE RESTRICT']
+  occurrence_id          uuid         [not null, note: 'FK → island_quest_occurrences.id ON DELETE RESTRICT']
+  kind                   varchar(20)  [not null, note: "CHECK IN ('SETTLEMENT') — 개인 지급 kind 없음(결정 Q-1)"]
+  amount                 integer      [not null, note: 'CHECK > 0 — 섬 통장 적립량']
+  claimed_by             uuid         [not null, note: '수령을 누른 주민 — FK 없음']
+  wallet_idempotency_key varchar(200) [not null, note: "'quest:' || occurrence_id — 원장 기입 키"]
+  created_at             timestamptz  [not null, default: `now()`]
+
+  indexes {
+    (island_id, occurrence_id, kind) [unique, name: 'uq_island_quest_claim']
   }
 }
 
@@ -1629,6 +1711,18 @@ Ref: personal_appearances.user_id - users.id
 Ref: personal_appearances.clothes > catalog_assets.product_id
 Ref: personal_appearances.decor > catalog_assets.product_id
 Ref: island_appearances.island_id - groups.id
+Ref: audio_tracks.product_id - catalog_assets.product_id
+Ref: island_playbacks.island_id - groups.id
+Ref: island_playbacks.track_id > audio_tracks.product_id
+Ref: island_playbacks.changed_by > users.id
+
+// 섬 퀘스트 (GROMO-1773, V71) — 전부 ON DELETE RESTRICT
+Ref: island_quests.island_id > groups.id
+Ref: island_quest_occurrences.quest_id > island_quests.id
+Ref: island_quest_occurrences.island_id > groups.id
+Ref: island_quest_cohort_members.occurrence_id > island_quest_occurrences.id
+Ref: island_quest_claims.island_id > groups.id
+Ref: island_quest_claims.occurrence_id > island_quest_occurrences.id
 
 // 섬 상점 (GROMO-1781, V74) — 전부 ON DELETE RESTRICT
 Ref: shop_product_revisions.product_id > catalog_assets.product_id

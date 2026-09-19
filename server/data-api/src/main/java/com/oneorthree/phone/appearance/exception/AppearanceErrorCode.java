@@ -27,7 +27,16 @@ public enum AppearanceErrorCode implements ErrorCode {
     OUT_OF_RANGE(HttpStatus.UNPROCESSABLE_ENTITY, "지원하지 않는 값입니다."),
 
     /** expectedVersion 이 현재 공동 외양 버전과 다르다. */
-    VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 변경이 먼저 반영됐습니다.");
+    VERSION_CONFLICT(HttpStatus.CONFLICT, "다른 변경이 먼저 반영됐습니다."),
+
+    /** 공용 음악(GROMO-1779) — 선택된 곡 없이 재생을 요청했다. 서버가 임의 곡을 고르지 않는다. */
+    STATE_CONFLICT(HttpStatus.CONFLICT, "재생할 곡을 먼저 골라 주세요."),
+
+    /**
+     * 공용 음악(GROMO-1779) — 방송기(gram) 미완공. GET·PATCH 모두. Business 가 공개 FACILITY_LOCKED 로
+     * 옮긴다(BOARD_LOCKED·MAILBOX_LOCKED 와 같은 결). enforce 가 꺼져 있으면(기본) 나가지 않는다.
+     */
+    GRAM_LOCKED(HttpStatus.FORBIDDEN, "방송기를 지으면 음악을 함께 들을 수 있어요");
 
     private final HttpStatus status;
     private final String message;

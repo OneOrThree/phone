@@ -59,6 +59,11 @@ public class IslandFacilityQueryService {
         return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.BOARD.id());
     }
 
+    /** 이 섬의 방송기가 완공됐는가 — 공용 음악 조회·변경 게이트({@code GRAM_LOCKED}, GROMO-1779). */
+    public boolean hasGram(UUID islandId) {
+        return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.GRAM.id());
+    }
+
     /** 이 섬의 도서관이 완공됐는가 — 도서관 물고기 장 게이트({@code LIBRARY_LOCKED}, GROMO-1895). */
     public boolean hasLibrary(UUID islandId) {
         return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.LIBRARY.id());
