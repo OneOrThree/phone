@@ -8,15 +8,16 @@ import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionOwnership;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
-import com.oneorthree.phone.group.repository.GroupQueryService;
-import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.IdempotentOutcome;
@@ -85,7 +86,8 @@ class FocusSessionLifecycleGuardsTest {
     private static final UUID KEY = UUID.fromString("dddddddd-0000-0000-0000-000000000001");
 
     @Mock private UserQueryService userQueryService;
-    @Mock private GroupQueryService groupQueryService;
+    @Mock private GroupMembershipMutationLocks membershipLocks;
+    @Mock private GroupMemberRepository groupMemberRepository;
     @Mock private UserIslandContextLockService userIslandContextLockService;
     @Mock private FocusSessionRepository focusSessionRepository;
     @Mock private FocusSessionDetailRepository focusSessionDetailRepository;
@@ -94,11 +96,10 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private PublicCommandService publicCommands;
     @Mock private OutboxCommandPort outboxCommandPort;
     @Mock private User caller;
-    @Mock private Group island;
     @Mock private GroupMember membership;
 
     private FocusSessionLifecycleService service(Instant wallClock) {
-        return new FocusSessionLifecycleService(userQueryService, groupQueryService,
+        return new FocusSessionLifecycleService(userQueryService, membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
                 Clock.fixed(wallClock, ZoneOffset.UTC));
@@ -219,7 +220,7 @@ class FocusSessionLifecycleGuardsTest {
     @DisplayName("섬을 떠난 사용자의 pause 는 403 ISLAND_MEMBERSHIP_REQUIRED 다 — start 와 같은 코드다")
     void pauseIsRefusedWhenTheIslandMembershipIsGone() {
         FocusSessionDetail detail = givenTransition(FocusSessionLifecycle.ACTIVE, FocusIntervalKind.ACTIVE);
-        when(groupQueryService.findMembership(caller, island)).thenReturn(Optional.empty());
+        when(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER, ISLAND)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service(NOW).pause(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY))
                 .isInstanceOf(FocusException.class)
@@ -237,7 +238,7 @@ class FocusSessionLifecycleGuardsTest {
     @DisplayName("강퇴된 사용자의 resume 도 같은 코드로 막힌다 — 비소속자가 섬 화면에 다시 뜨지 않는다")
     void resumeIsRefusedWhenTheIslandMembershipIsGone() {
         FocusSessionDetail detail = givenTransition(FocusSessionLifecycle.PAUSED, FocusIntervalKind.REST);
-        when(groupQueryService.findMembership(caller, island)).thenReturn(Optional.empty());
+        when(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER, ISLAND)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service(NOW).resume(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY))
                 .isInstanceOf(FocusException.class)
@@ -255,6 +256,37 @@ class FocusSessionLifecycleGuardsTest {
 
         assertThat(service(NOW).pause(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY).status())
                 .isEqualTo(FocusSessionView.STATUS_PAUSED);
+    }
+
+    // ── 5-1. 잠금 순서(선행 조건 #8) ──────────────────────────────────────────────
+
+    @Test
+    @DisplayName("전이는 섬 행 → 멤버십(공유) → 상세 순으로 잠근다 — 강퇴와 섬 행에서 줄을 선다")
+    void transitionLocksIslandThenMembershipBeforeTheDetail() {
+        givenTransition(FocusSessionLifecycle.ACTIVE, FocusIntervalKind.ACTIVE);
+
+        service(NOW).pause(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY);
+
+        InOrder order = inOrder(membershipLocks, groupMemberRepository, focusSessionDetailRepository);
+        order.verify(focusSessionDetailRepository).findOwnershipBySessionId(SESSION);
+        order.verify(membershipLocks).lockGroup(ISLAND);
+        order.verify(groupMemberRepository).findActiveByUserIdAndGroupIdForShare(USER, ISLAND);
+        order.verify(focusSessionDetailRepository).findBySessionIdForUpdate(SESSION);
+    }
+
+    @Test
+    @DisplayName("주인이 아니면 섬도 멤버십도 잠그지 않고 403 이다 — 남의 섬 행을 잠가 줄 세우지 않는다")
+    void foreignSessionIsRefusedBeforeAnyIslandLock() {
+        givenTransition(FocusSessionLifecycle.ACTIVE, FocusIntervalKind.ACTIVE);
+        when(focusSessionDetailRepository.findOwnershipBySessionId(SESSION))
+                .thenReturn(Optional.of(new FocusSessionOwnership(UUID.randomUUID(), ISLAND)));
+
+        assertThatThrownBy(() -> service(NOW).pause(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.FORBIDDEN);
+        verify(membershipLocks, never()).lockGroup(any());
+        verify(focusSessionDetailRepository, never()).findBySessionIdForUpdate(any());
     }
 
     // ── 6. 조회 스냅샷 ────────────────────────────────────────────────────────
@@ -296,8 +328,10 @@ class FocusSessionLifecycleGuardsTest {
         FocusSessionDetail detail = detail(lifecycle);
         when(focusSessionDetailRepository.findBySessionIdForUpdate(SESSION)).thenReturn(Optional.of(detail));
         when(userQueryService.getCallerForShare(USER)).thenReturn(caller);
-        when(groupQueryService.getGroup(ISLAND)).thenReturn(island);
-        when(groupQueryService.findMembership(caller, island)).thenReturn(Optional.of(membership));
+        when(focusSessionDetailRepository.findOwnershipBySessionId(SESSION))
+                .thenReturn(Optional.of(new FocusSessionOwnership(USER, ISLAND)));
+        when(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER, ISLAND))
+                .thenReturn(Optional.of(membership));
         when(focusSessionRepository.findById(SESSION)).thenReturn(Optional.of(marker(null)));
         when(focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(SESSION))
                 .thenReturn(List.of(FocusSessionInterval.builder()

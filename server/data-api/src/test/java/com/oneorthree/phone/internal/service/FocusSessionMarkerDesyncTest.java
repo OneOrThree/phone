@@ -10,7 +10,8 @@ import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
-import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
@@ -51,7 +52,8 @@ class FocusSessionMarkerDesyncTest {
     private static final Instant STARTED_AT = Instant.parse("2026-09-17T02:00:00Z");
 
     @Mock private UserQueryService userQueryService;
-    @Mock private GroupQueryService groupQueryService;
+    @Mock private GroupMembershipMutationLocks membershipLocks;
+    @Mock private GroupMemberRepository groupMemberRepository;
     @Mock private UserIslandContextLockService userIslandContextLockService;
     @Mock private FocusSessionRepository focusSessionRepository;
     @Mock private FocusSessionDetailRepository focusSessionDetailRepository;
@@ -61,7 +63,7 @@ class FocusSessionMarkerDesyncTest {
     @Mock private OutboxCommandPort outboxCommandPort;
 
     private FocusSessionLifecycleService service() {
-        return new FocusSessionLifecycleService(userQueryService, groupQueryService,
+        return new FocusSessionLifecycleService(userQueryService, membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
                 Clock.fixed(NOW, ZoneOffset.UTC));

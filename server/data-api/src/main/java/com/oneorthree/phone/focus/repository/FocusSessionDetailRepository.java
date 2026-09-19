@@ -29,6 +29,16 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     Optional<FocusSessionDetail> findBySessionIdForUpdate(@Param("sessionId") UUID sessionId);
 
     /**
+     * 잠금 전 주인·섬 확인 — 엔티티를 올리지 않는 프로젝션이다({@link FocusSessionOwnership} 참조).
+     *
+     * @param sessionId 전이 대상 세션
+     * @return 주인·섬. 세션이 없으면 빈 값
+     */
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusSessionOwnership(d.userId, d.islandId) "
+            + "FROM FocusSessionDetail d WHERE d.sessionId = :sessionId")
+    Optional<FocusSessionOwnership> findOwnershipBySessionId(@Param("sessionId") UUID sessionId);
+
+    /**
      * 본인의 진행(active/paused) 세션 — user당 최대 1건(V58 부분 UNIQUE)이라 단건으로 받는다.
      *
      * @param userId      조회 주체

@@ -13,6 +13,7 @@ import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionOwnership;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
@@ -24,10 +25,10 @@ import com.oneorthree.phone.focus.repository.domain.FocusType;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
 import com.oneorthree.phone.focus.support.FocusRewardPolicyGate;
 import com.oneorthree.phone.focus.support.FocusSessionStartGate;
-import com.oneorthree.phone.group.repository.GroupQueryService;
-import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
+import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
@@ -79,11 +80,16 @@ import java.util.UUID;
  * "동시 start 둘 다 마커 없음을 보고 둘 다 INSERT"를 막는다(레거시 {@code startFocusSession}과 같은
  * 이유). pause/resume/finish는 이미 존재하는 상세 행 자체가 잠금 지점이라 <b>공유</b> 사용자 락
  * ({@link #requireActiveUser})만 잡고, {@link FocusSessionDetailRepository#findBySessionIdForUpdate}로
- * 그 행을 배타 잠근다(레거시 {@code endFocusSession}과 같은 결). 이어서 섬/현재 membership·context
- * ({@link UserIslandContextLockService}·{@link GroupQueryService#getGroupForUpdate}) → 상세/구간
- * 순으로 잠근다. 이 6종은 전부 단일 사용자·단일 세션 스코프라, LLD의 "영향 사용자 UUID 정렬" 다중
- * 사용자 정렬 규칙과 회차/시설/지갑 단계는 해당하지 않는다(그 경로는 강퇴·정산 같은 교차 기능이며
- * 이 티켓 범위 밖이다).
+ * 그 행을 배타 잠근다(레거시 {@code endFocusSession}과 같은 결).
+ *
+ * <p><b>섬·멤버십을 상세보다 «먼저» 잠근다</b>(GROMO-1924, 선행 조건 #8). 순서는 LLD §3 그대로
+ * 사용자 → (receipt) → 섬 행 배타 → 그 섬의 활성 멤버십 공유 → 상세 배타 → 구간이다. 강퇴
+ * ({@code GroupMemberService.kickMember})가 사용자 공유 → 섬 행 배타 → 멤버십 배타 순으로 잡으므로,
+ * 전이와 강퇴는 섬 행에서 줄을 서고 둘 중 먼저 온 쪽이 끝난 뒤에 나머지가 판정한다 — 강퇴가 이기면
+ * 전이는 멤버십 없음(403)을 보고, 전이가 이기면 강퇴는 그 전이가 남긴 상태를 보고 종결한다. 멤버십을
+ * 잠그지 않던 종전 순서에서는 강퇴가 «먼저» 커밋돼도 이미 검사를 통과한 전이가 outbox 까지 남겼다.
+ * 상세를 먼저 잠그면 반대로 {@code pause} 의 섬 잠금과 강퇴가 서로를 기다린다 — 그래서 어느 섬을
+ * 잠글지는 잠그지 않는 프로젝션({@link FocusSessionOwnership})으로 먼저 알아낸다.
  *
  * <h2>비활성 게이트 둘</h2>
  * {@link #finish}는 유효성 검사를 전부 통과해도 {@link FocusRewardPolicyGate#isOpen()}이 닫혀 있으면
@@ -117,7 +123,8 @@ public class FocusSessionLifecycleService {
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
 
     private final UserQueryService userQueryService;
-    private final GroupQueryService groupQueryService;
+    private final GroupMembershipMutationLocks membershipLocks;
+    private final GroupMemberRepository groupMemberRepository;
     private final UserIslandContextLockService userIslandContextLockService;
     private final FocusSessionRepository focusSessionRepository;
     private final FocusSessionDetailRepository focusSessionDetailRepository;
@@ -168,9 +175,8 @@ public class FocusSessionLifecycleService {
                     if (context.getCurrentIslandId() == null || !context.getCurrentIslandId().equals(islandId)) {
                         throw new FocusException(FocusErrorCode.ISLAND_NOT_CURRENT);
                     }
-                    Group island = groupQueryService.getGroup(islandId);
-                    GroupMember membership = groupQueryService.findMembership(user, island)
-                            .orElseThrow(() -> new FocusException(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED));
+                    // context → 섬 → 멤버십 — 섬 소속 경로(IslandMembershipService)와 같은 방향이다.
+                    GroupMember membership = requireLockedMembership(userId, islandId);
 
                     Instant now = clock.instant();
                     FocusSession session = focusSessionRepository.save(FocusSession.builder()
@@ -269,7 +275,7 @@ public class FocusSessionLifecycleService {
                     focusSessionIntervalRepository.flush();
 
                     // 섬 잠금 아래 빈 최소 자리를 배정한다 — 동시 pause 두 건이 같은 자리를 받지 않게(LLD §2).
-                    groupQueryService.getGroupForUpdate(detail.getIslandId());
+                    // 그 섬 행은 authorizeSession 이 상세보다 먼저 이미 배타로 잡았다(선행 조건 #8).
                     int restSeat = smallestFreeSeat(
                             focusSessionDetailRepository.findUsedRestSeatsByIslandId(detail.getIslandId()));
 
@@ -472,36 +478,50 @@ public class FocusSessionLifecycleService {
     }
 
     /**
-     * 활성 검증(공유 락) + 세션 상세 배타 락 + 소유 검사 + <b>섬 활성 멤버십(락 없는 조회)</b> —
-     * pause/resume/finish의
-     * 공통 잠금 지점. activeAuthorization·replayAuthorization·명령 본문에서 반복 호출해도 같은 트랜잭션 안
-     * 재잠금은 안전하다(1차 캐시가 같은 관리 엔티티를 돌려준다).
+     * pause/resume/finish 의 공통 잠금 지점 — 활성 검증(사용자 공유 락) → 주인 확인 → 섬 행 배타 →
+     * 활성 멤버십 공유 → 세션 상세 배타. activeAuthorization·replayAuthorization·명령 본문에서 반복
+     * 호출해도 같은 트랜잭션 안 재잠금은 안전하다(1차 캐시가 같은 관리 엔티티를 돌려주고, 그 행은 이미
+     * 이 트랜잭션이 쥐고 있어 그 사이 바뀔 수 없다).
      *
      * <p>멤버십은 LLD §2가 pause·resume에 "본인·<b>소속</b>·상태·version"으로 적어 둔 전제다. 없으면
      * 섬을 탈퇴·강퇴당한 사용자가 그 섬의 세션을 계속 전이시키고, 그 전이가 {@code focus.member.updated}·
      * {@code rest.member.updated}로 방송돼 <b>비소속자가 섬 화면에 계속 뜬다</b>. {@link #start}와 같은
-     * 조회·같은 코드({@link FocusErrorCode#ISLAND_MEMBERSHIP_REQUIRED})로 거절한다.
+     * 코드({@link FocusErrorCode#ISLAND_MEMBERSHIP_REQUIRED})로 거절한다.
      *
-     * <p><b>거절만 한다.</b> 소속을 잃은 진행 세션을 여기서 자동 종결하지 않는다 — 진행 중 기록을 어떻게
-     * 처리할지는 FR-D03(소속 상실 복구)의 미결 제품 결정이고, LLD §2가 "FR-D03이 미결인 소속 상실 중간
-     * 상태를 정상으로 만들지 않는다"고 적어 두었다. 세션은 그대로 두고 전이만 막는다.
+     * <p><b>잠금 순서</b>는 클래스 주석의 「섬·멤버십을 상세보다 먼저」다. 주인·섬은 잠그지 않는
+     * 프로젝션으로 먼저 읽는다 — 상세 엔티티를 잠금 전에 올리면 뒤이은 {@code FOR UPDATE} 가 그 낡은
+     * 인스턴스를 돌려줘, 기다리는 동안 커밋된 다른 전이를 못 본다.
      */
     private FocusSessionDetail authorizeSession(UUID userId, UUID sessionId) {
-        User user = requireActiveUser(userId);
-        FocusSessionDetail detail = focusSessionDetailRepository.findBySessionIdForUpdate(sessionId)
+        requireActiveUser(userId);
+        FocusSessionOwnership ownership = focusSessionDetailRepository.findOwnershipBySessionId(sessionId)
                 .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
         // userId 를 왼쪽에 둔다 — 탈퇴 익명화로 detail.userId 가 null 인 행에 NPE 로 500 을 내지 않는다.
-        if (!userId.equals(detail.getUserId())) {
+        if (!userId.equals(ownership.userId())) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
+        requireLockedMembership(userId, ownership.islandId());
+        FocusSessionDetail detail = focusSessionDetailRepository.findBySessionIdForUpdate(sessionId)
+                .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_NOT_FOUND));
         if (abandonIfMarkerClosed(detail)) {
             throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
         }
-        Group island = groupQueryService.getGroup(detail.getIslandId());
-        if (groupQueryService.findMembership(user, island).isEmpty()) {
-            throw new FocusException(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
-        }
         return detail;
+    }
+
+    /**
+     * 섬 행 배타 → 그 섬의 활성 멤버십 공유 — 선행 조건 #8 의 잠금이다(클래스 주석 「잠금 순서」).
+     *
+     * <p>공유 락인 이유: 같은 섬 주민의 전이끼리는 이미 섬 행에서 줄을 서므로 멤버십 행을 배타로 잡을
+     * 필요가 없고, 멤버십을 바꾸는 쪽(강퇴·탈퇴)은 이 행을 배타로 잡는다 — 내기 참여
+     * ({@code GroupMemberRepository#findActiveByUserIdAndGroupIdForShare})와 같은 짝이다.
+     *
+     * @return 잠긴 활성 멤버십. 없으면 {@link FocusErrorCode#ISLAND_MEMBERSHIP_REQUIRED}
+     */
+    private GroupMember requireLockedMembership(UUID userId, UUID islandId) {
+        membershipLocks.lockGroup(islandId);
+        return groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId)
+                .orElseThrow(() -> new FocusException(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED));
     }
 
     /**
