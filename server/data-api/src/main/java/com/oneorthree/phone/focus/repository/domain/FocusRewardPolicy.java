@@ -16,8 +16,9 @@ import java.time.Instant;
  * 집중 보상 정책 revision (GROMO-1924, 선행 조건 #6) — FR-D01 의 「산식은 revision 있는 서버 정책 설정으로
  * 관리(60·480·10·5 를 코드 상수로 박지 않음)」다.
  *
- * <p>값의 출처: 2026-09-18 결정 D5(유효 집중 60초당 1마리 · 주민·섬별 하루 480마리 상한)와 D5-귀속
- * (개인 지갑 50% + 섬 통장 50%, 비율은 운영값). 첫 revision 은 V67 이 넣는다. 운영이 값을 바꾸려면 새
+ * <p>값의 출처: 2026-09-18 결정 D5(유효 집중 60초당 1마리 · 주민·섬별 하루 480마리 상한)와 2026-09-19
+ * D5-귀속-개정(섬 통장 100% · 개인 0%, 비율은 운영값 — 종전 D5-귀속 50/50 대체). 첫 revision 은 V67 이
+ * 넣는다. 운영이 값을 바꾸려면 새
  * revision 행을 넣는다 — 가장 큰 revision 이 현재 정책이고, 세션은 <b>시작할 때</b> 그 revision 을
  * {@code focus_session_details.policy_revision} 에 고정한다(LLD §3 「운영 설정 변경이 진행 세션의
  * 지급률을 바꾸지 않게」). 그래서 행을 고치거나 지우지 않는다.
@@ -43,7 +44,7 @@ public class FocusRewardPolicy {
     @Column(name = "daily_cap_fish", nullable = false)
     private int dailyCapFish;
 
-    /** 개인 지갑 몫(%) — D5-귀속의 50. 나머지가 섬 통장 몫이다. */
+    /** 개인 지갑 몫(%) — D5-귀속-개정의 0. 나머지가 섬 통장 몫이다. */
     @Column(name = "personal_share_percent", nullable = false)
     private int personalSharePercent;
 

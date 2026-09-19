@@ -6,7 +6,7 @@ import java.util.UUID;
 
 /**
  * finish 성공 응답 (GROMO-1764, LLD §1·§2). GROMO-1924 부터 finish 가 세션을 정산하고 이 값을 만든다 —
- * 산식·귀속은 2026-09-18 결정 D5·D5-귀속, 값의 정본은 {@code focus_settlements} 행이다.
+ * 산식·귀속은 2026-09-18 결정 D5 · 2026-09-19 D5-귀속-개정(섬 통장 100%), 값의 정본은 {@code focus_settlements} 행이다.
  *
  * @param recordId       완료 기록 id(={@code sessionId})
  * @param islandId       소속 섬
@@ -15,7 +15,7 @@ import java.util.UUID;
  * @param activeSeconds  세션 전체의 순수 집중 초 합
  * @param goalAchieved   activeSeconds가 목표 시간(초) 이상인가
  * @param earnedFish     총 지급량 — E=P+C(personalFishAdded+constructionFishAdded) 보존식
- * @param allocation     개인 지갑/섬 통장 분배(D5-귀속)
+ * @param allocation     개인 지갑/섬 통장 분배(D5-귀속-개정 — 현재 개인 0 · 섬 통장 전부)
  * @param completedAt    정산을 확정한 서버 시각
  * @param questProgress  이 세션이 기여한 퀘스트 진행률(1772/1773 계약). 퀘스트 계약이 아직 없어 늘 빈 목록이다
  */

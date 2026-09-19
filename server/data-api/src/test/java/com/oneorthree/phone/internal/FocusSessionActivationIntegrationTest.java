@@ -347,7 +347,7 @@ class FocusSessionActivationIntegrationTest {
     // ---------------------------------------------------------------- #6 보상 정산
 
     @Test
-    @DisplayName("finish 는 D5·D5-귀속대로 정산한다 — 60초당 1마리, 개인 floor(E/2)·섬 통장 나머지, 일 집계는 순수 초")
+    @DisplayName("finish 는 D5·D5-귀속-개정대로 정산한다 — 60초당 1마리 전부 섬 통장, 개인 지갑 불변, 일 집계는 순수 초")
     void finishSettlesByTheDecidedFormula() {
         UUID user = newUser();
         UUID island = islands.create(user, new CreateIslandCommandRequest("정산섬", null, false),
@@ -359,12 +359,13 @@ class FocusSessionActivationIntegrationTest {
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
 
         assertThat(finished.earnedFish()).isEqualTo(125);
-        assertThat(finished.allocation().personalFishAdded()).isEqualTo(62);
-        assertThat(finished.allocation().constructionFishAdded()).as("E=P+C — 나머지는 섬 통장").isEqualTo(63);
+        assertThat(finished.allocation().personalFishAdded()).as("2026-09-19 D5-귀속-개정 — 개인 몫 0").isZero();
+        assertThat(finished.allocation().constructionFishAdded()).as("E=P+C — 홀수여도 전부 섬 통장").isEqualTo(125);
         assertThat(finished.goalAchieved()).as("목표 25분 이상").isTrue();
         assertThat(finished.questProgress()).isEmpty();
-        assertThat(count("select balance from user_fish_wallets where user_id=?", user)).isEqualTo(62);
-        assertThat(count("select balance from island_wallets where island_id=?", island)).isEqualTo(63);
+        assertThat(count("select coalesce(sum(balance),0) from user_fish_wallets where user_id=?", user))
+                .as("개인 지갑은 적립하지 않는다").isZero();
+        assertThat(count("select balance from island_wallets where island_id=?", island)).isEqualTo(125);
         assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?",
                 user)).isEqualTo(finished.activeSeconds());
         assertThat(detailRow(started.id()).get("lifecycle")).isEqualTo("COMPLETED");
@@ -410,8 +411,9 @@ class FocusSessionActivationIntegrationTest {
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
 
         assertThat(again).isEqualTo(first);
-        assertThat(count("select balance from user_fish_wallets where user_id=?", user))
-                .isEqualTo(first.allocation().personalFishAdded());
+        assertThat(count("select balance from island_wallets where island_id=?", island))
+                .as("재생은 섬 통장에 두 번 넣지 않는다").isEqualTo(first.allocation().constructionFishAdded());
+        assertThat(count("select coalesce(sum(balance),0) from user_fish_wallets where user_id=?", user)).isZero();
         assertThat(count("select count(*) from focus_settlements where session_id=?", started.id())).isEqualTo(1);
     }
 

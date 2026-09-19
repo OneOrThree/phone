@@ -149,10 +149,10 @@ public class FocusSessionLifecycleService {
     private final OutboxCommandPort outboxCommandPort;
     private final FocusRewardPolicyRepository focusRewardPolicyRepository;
     private final FocusSettlementRepository focusSettlementRepository;
-    /** 섬 통장 몫(D5-귀속) — 「각자 몫」 기여 기록도 이 진입점이 함께 쓴다. */
+    /** 섬 통장 몫(D5-귀속-개정 — 현재 전부) — 「각자 몫」 기여 기록도 이 진입점이 함께 쓴다. */
     private final IslandWalletService islandWalletService;
     private final IslandWalletEvents islandWalletEvents;
-    /** 개인 지갑 몫(D5-귀속, 통화 fish). */
+    /** 개인 지갑 몫(D5-귀속-개정 — 현재 0이라 적립 안 함, 통화 fish). */
     private final FishWalletService fishWalletService;
     /**
      * 집중 프레즌스 리스(선행 조건 #5) — 채팅 서버가 「집중 중엔 채팅 불가」를 판정하는 근거다.
@@ -393,12 +393,13 @@ public class FocusSessionLifecycleService {
      * {@code POST /focus-sessions/{sessionId}/finish} — LLD §2 finish. 선행 조건 #6.
      *
      * <p>한 TX 에서 열린 구간을 닫고, 시작 때 고정한 정책 revision 으로 정산해 지갑 둘·일 집계·기본 마커·
-     * 정산 행·사건을 함께 남긴다(FR-P09). 산식은 2026-09-18 결정 D5·D5-귀속이다:
+     * 정산 행·사건을 함께 남긴다(FR-P09). 산식은 2026-09-18 결정 D5 와 2026-09-19 D5-귀속-개정이다:
      * <ul>
      *   <li>{@code raw = floor(activeSeconds / secondsPerFish)} — 휴식은 activeSeconds 에 없다</li>
      *   <li>하루 상한: 이 사용자가 이 섬에서 <b>완료 시각의 UTC 날짜</b>(D8)에 이미 받은 물고기를 뺀 만큼만
      *       준다. 상한에 닿아도 집중 기록(일 집계·activeSeconds)은 그대로 쌓인다(1830)</li>
-     *   <li>{@code P = floor(E × personalSharePercent / 100)}, {@code C = E − P} — E=P+C 보존식(LLD §3)</li>
+     *   <li>{@code P = floor(E × personalSharePercent / 100)}, {@code C = E − P} — E=P+C 보존식(LLD §3).
+     *       현재 revision 은 personalSharePercent=0 이라 P=0, 전부 섬 통장이다(개인 지갑은 건드리지 않는다)</li>
      * </ul>
      *
      * <p><b>잠금 순서</b>(LLD §3): 사용자 공유 → 섬 행 → 멤버십 공유 → 상세 → 기본 마커 → 섬 건설 상태 →

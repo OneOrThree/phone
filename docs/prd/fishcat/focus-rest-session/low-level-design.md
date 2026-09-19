@@ -13,7 +13,7 @@
 | DTO | 공개 필드 |
 | --- | --- |
 | `FocusSessionView` | id:Id, islandId:Id, subject:string, targetMinutes:integer, status:active\|paused, activeSeconds:Seconds, serverNow:Instant, startedAt:Instant, restStartedAt:Instant?, version:Version |
-| `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, allocation:{personalFishAdded:integer,constructionFishAdded:integer}(2026-09-18 D5-귀속으로 «되살아난» 필드 — 개인 지갑 50% + 섬 통장 50%, 비율은 운영값. `constructionFishAdded` 는 섬 통장 몫인데 이름이 건설로 좁다(섬 통장은 공동 구매에도 쓰인다) — 이름 재검토는 LLD 개정 몫), completedAt:Instant, questProgress:[{id:Id,myRate:number}] |
+| `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, allocation:{personalFishAdded:integer,constructionFishAdded:integer}(2026-09-18 D5-귀속으로 «되살아난» 필드 — 2026-09-19 D5-귀속-개정으로 현재 개인 0 · 섬 통장 100%, 비율은 운영값. `constructionFishAdded` 는 섬 통장 몫인데 이름이 건설로 좁다(섬 통장은 공동 구매에도 쓰인다) — 이름 재검토는 LLD 개정 몫), completedAt:Instant, questProgress:[{id:Id,myRate:number}] |
 | `FocusMember` | userId:Id, name:string, catColor:catalogKey, appearance:{clothes:catalogKey?,decor:catalogKey?,hull:catalogKey,position:front\|back}, sessionId:Id, subject:string, activeSeconds:Seconds, status:active\|paused |
 | `RestMember` | userId:Id, name:string, catColor:catalogKey, restSeat:integer, restStartedAt:Instant |
 | `FocusSummary` | date:KST date, completedSeconds:Seconds, currentSessionSecondsToday:Seconds, totalSeconds:Seconds, serverNow:Instant |
@@ -63,7 +63,7 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 ### finish — POST /focus-sessions/{sessionId}/finish, 200
 
 입력 `{expectedVersion}`와 키 필수. active/paused에서 가능하다. 새 종료만 version을 검사하고 열린 구간을
-닫은 뒤 정산한다. endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·allocation(2026-09-18 D5-귀속 — 개인 50% + 섬 통장 50%, 비율은 운영값)·
+닫은 뒤 정산한다. endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·allocation(2026-09-19 D5-귀속-개정 — 섬 통장 100%·개인 0%, 비율은 운영값. ~~D5-귀속 50/50~~ 대체)·
 원래 questProgress와 내부 events를 세션별 정산에 고정한다.
 
 같은 키/같은 본문은 공통 receipt를 재생한다. **이미 완료된 같은 세션을 새 키로 finish해도**, 계정 활성·본인·
@@ -143,7 +143,7 @@ group를 잡은 뒤 상대 user를 역순으로 잡지 않는다. 늦게 영향 
 
 정산 정책은 시작 시 revision을 고정해 운영 설정 변경이 진행 세션의 지급률을 바꾸지 않게 하는 기술 선택이다.
 ~~시설 완료 instant/상태는 FR-D02 선택에 따라 해석하지만~~ FR-D02 는 **2026-09-18 재영님 결정 D6(「쌓이면 건설한다」)로 폐기**됐다 — 정산은 물고기를 지갑에 적립할 뿐이고 시설 완공 시점과 교차하지 않는다. 같은 TX에서 잠금·정책 revision을 확인하는 규율은 유지한다.
-산식 결과 earnedFish=E, 개인 지갑 반영=P, 섬 통장 반영=C라면 **E=P+C**가 기본 보존식이다 — 2026-09-18 D5-귀속으로 **P:C = 50:50**(비율은 운영값)이 확정됐다. C 는 「초기 건설 기여」가 아니라 **섬 통장 몫**이다(D1: 섬 통장은 건설·공동 구매에 함께 쓰인다) — D6 가 폐기한 것은 «세션 도중 완공 시 시간 분할·초과 환류»이지 개인/섬 배분 축이 아니었다. 산식은 1830 확정값(60초당 1마리·휴식 제외·주민·섬별 하루 480 상한, [정책](policy.md) FR-D01)이며 아래 응답 예시의 `allocation{personalFishAdded,constructionFishAdded}` 가 그 배분을 싣는다.
+산식 결과 earnedFish=E, 개인 지갑 반영=P, 섬 통장 반영=C라면 **E=P+C**가 기본 보존식이다 — 2026-09-19 D5-귀속-개정으로 **P:C = 0:100**(비율은 운영값)이다(~~2026-09-18 D5-귀속의 50:50~~ 대체 — 개인 지갑은 테이블만 두고 적립하지 않는다). C 는 「초기 건설 기여」가 아니라 **섬 통장 몫**이다(D1: 섬 통장은 건설·공동 구매에 함께 쓰인다) — D6 가 폐기한 것은 «세션 도중 완공 시 시간 분할·초과 환류»이지 개인/섬 배분 축이 아니었다. 산식은 1830 확정값(60초당 1마리·휴식 제외·주민·섬별 하루 480 상한, [정책](policy.md) FR-D01)이며 아래 응답 예시의 `allocation{personalFishAdded,constructionFishAdded}` 가 그 배분을 싣는다.
 숨어 있는 버림값을 두거나 `min(cap,E)` 뒤 초과분을 기록 없이 없애지 않는다(상한에 닿아도 집중 기록은 쌓인다 — 1830).
 ~~초기 기여는 건설 진행량이며 `ownerType=island,currency=fish`라는 지갑을 만들지 않는다.~~ → D1: 섬 통장(섬 물고기)이 존재한다. 통화 식별자는 [상점 정책](../island-shop/policy.md)을 따른다.
 동시 종료가 같은 마지막 건설량을 사용하면 cap과 완성 사건은 시설 행 잠금/유일성으로 한 번만 반영한다.

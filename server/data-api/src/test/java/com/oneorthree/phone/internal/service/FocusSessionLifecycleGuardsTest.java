@@ -178,7 +178,7 @@ class FocusSessionLifecycleGuardsTest {
                 .thenReturn(Optional.of(membership));
         when(focusRewardPolicyRepository.findFirstByOrderByRevisionDesc()).thenReturn(Optional.of(
                 FocusRewardPolicy.builder().revision(1).secondsPerFish(60).dailyCapFish(480)
-                        .personalSharePercent(50).build()));
+                        .personalSharePercent(0).build()));
         when(focusSessionRepository.save(any(FocusSession.class)))
                 .thenReturn(FocusSession.builder().id(sessionId).startedAt(NOW).build());
         when(focusSessionDetailRepository.save(any(FocusSessionDetail.class)))

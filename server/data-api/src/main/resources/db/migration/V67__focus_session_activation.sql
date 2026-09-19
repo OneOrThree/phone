@@ -11,7 +11,8 @@ ALTER TABLE focus_session_details ADD CONSTRAINT focus_session_details_lifecycle
     CHECK (lifecycle IN ('ACTIVE', 'PAUSED', 'COMPLETED', 'ABANDONED', 'MEMBERSHIP_LOST'));
 
 -- 2) 집중 보상 정책 revision (선행 조건 #6). FR-D01 「산식은 revision 있는 서버 정책 설정으로 관리」.
---    값: 2026-09-18 결정 D5(60초당 1마리 · 주민·섬별 하루 480마리) + D5-귀속(개인 50% · 섬 통장 50%).
+--    값: 2026-09-18 결정 D5(60초당 1마리 · 주민·섬별 하루 480마리) + 2026-09-19 D5-귀속-개정(섬 통장 100%,
+--    개인 0% — 종전 D5-귀속 50/50 대체). 비율은 코드가 아니라 이 행(personal_share_percent)이 정한다.
 --    가장 큰 revision 이 현재 정책이고, 세션은 시작할 때 그 revision 을 focus_session_details.policy_revision
 --    에 고정한다. 값을 바꿀 때는 행을 고치지 말고 새 revision 을 넣는다 — 진행 중 세션의 지급률이 바뀐다.
 --    정책 행이 하나도 없으면 start 가 열리지 않는다(정책 없는 세션을 만들지 않는다, LLD §2 start).
@@ -24,12 +25,13 @@ CREATE TABLE focus_reward_policies (
 );
 
 INSERT INTO focus_reward_policies (revision, seconds_per_fish, daily_cap_fish, personal_share_percent)
-VALUES (1, 60, 480, 50);
+VALUES (1, 60, 480, 0);
 
 COMMENT ON TABLE focus_reward_policies IS
-    'GROMO-1924: 집중 보상 산식 revision(FR-D01 · D5 · D5-귀속). 추가만 한다 — 세션은 시작 시 revision 을 고정.';
+    'GROMO-1924: 집중 보상 산식 revision(FR-D01 · D5 · D5-귀속-개정). 추가만 한다 — 세션은 시작 시 revision 을 고정.';
 
--- 3) 개인 지갑(개인 물고기, 통화 fish) — 2026-09-18 결정 D1. 집중 보상의 개인 몫을 받는다.
+-- 3) 개인 지갑(개인 물고기, 통화 fish) — 2026-09-18 결정 D1. 2026-09-19 D5-귀속-개정으로 집중 보상은 여기에
+--    적립하지 않는다(개인 몫 0%) — 테이블만 두고 개인 돈벌기 방향이 정해지면 쓴다.
 --    코인 지갑(user_wallets)과 다른 행이다 — 결정 D11(기존 코인 잔액 이관 안 함)이라 0 에서 시작한다.
 --    원장은 아직 두지 않는다 — 적립 경로가 집중 정산 하나뿐이라 세션당 1행인 focus_settlements 가 근거다.
 CREATE TABLE user_fish_wallets (

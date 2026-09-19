@@ -32,7 +32,7 @@ import org.springframework.stereotype.Component;
  *       되고, 그때 LLD §6 의 사용자별 controlVersion CAS 가 필요해진다 — 지금은 같은 sessionId 의
  *       active→paused→active 역순 문제가 생기지 않는다.</li>
  *   <li><b>보상 정책</b> — <b>해소</b>. finish 가 2026-09-18 결정 D5(60초당 1마리 · 주민·섬별 하루 480마리)와
- *       D5-귀속(개인 50% · 섬 통장 50%)으로 정산한다. 값은 {@code focus_reward_policies} revision 이고 세션이
+ *       2026-09-19 D5-귀속-개정(섬 통장 100% · 개인 0%)으로 정산한다. 값은 {@code focus_reward_policies} revision 이고 세션이
  *       시작 때 고정한다. {@code FocusRewardPolicyGate} 는 없앴다. <b>남은 것</b>: 퀘스트 진행률(1772/1773
  *       계약 없음 — 빈 목록), 레거시 일일 목표 코인·스트릭·내기 연계의 새 세션 적용(LLD §4 출시 의존),
  *       개인 지갑 {@code wallet.updated} 사건(소비자·순서 축 미정).</li>
