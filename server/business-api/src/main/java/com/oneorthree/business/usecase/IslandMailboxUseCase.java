@@ -86,15 +86,46 @@ public class IslandMailboxUseCase {
      */
     public MailboxPageResponse list(AccessTokenClaims claims, UUID islandId, String cursorToken, int limit,
             Deadline deadline) {
-        CursorScope scope = new CursorScope(claims.userId(), CURSOR_RESOURCE,
-                Map.of("islandId", islandId.toString()), CURSOR_SORT, limit);
+        CursorScope scope = scope(claims, islandId, limit);
         UUID anchor = anchorOf(codec().decode(cursorToken, scope));
-        access(islandId, claims, deadline);
+        return present(claims, islandId, scope, history(claims, islandId, anchor, limit, deadline), deadline);
+    }
 
+    /**
+     * 화면 {@code /screens/mailbox} 의 {@code messages} 조각 전반부 — 인가 + 첫 페이지(GET 두 번). 화면 병렬 조합은
+     * GET 만 허용하므로 작성자 표시(POST batch)는 여기서 하지 않고 {@link #presentFirstPage} 가 조합 뒤에 붙인다
+     * (bff-screens {@code cross-service-mailbox} 그림의 「작성자 표시」 단계). 인가·오류 표는 도메인 GET 과 같다.
+     */
+    public RealtimeHistory firstPage(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        return history(claims, islandId, null, DEFAULT_LIMIT, deadline);
+    }
+
+    /**
+     * {@link #firstPage} 결과에 작성자 이름을 붙이고 도메인 GET 과 같은 scope·limit 의 서명 커서를 발행한다 —
+     * 다음 페이지는 {@code GET /islands/{islandId}/messages?cursor=} 가 그대로 이어받는다(B10).
+     */
+    public MailboxPageResponse presentFirstPage(AccessTokenClaims claims, UUID islandId, RealtimeHistory page,
+            Deadline deadline) {
+        return present(claims, islandId, scope(claims, islandId, DEFAULT_LIMIT), page, deadline);
+    }
+
+    private static CursorScope scope(AccessTokenClaims claims, UUID islandId, int limit) {
+        return new CursorScope(claims.userId(), CURSOR_RESOURCE,
+                Map.of("islandId", islandId.toString()), CURSOR_SORT, limit);
+    }
+
+    private RealtimeHistory history(AccessTokenClaims claims, UUID islandId, UUID anchor, int limit,
+            Deadline deadline) {
+        access(islandId, claims, deadline);
         RealtimeHistory page = relay(() -> realtime.history(islandId, claims.userId(), anchor, limit, deadline));
         if (page == null || page.messages() == null) {
             throw new UpstreamContractMismatchException("실시간 히스토리 응답 봉투가 없습니다");
         }
+        return page;
+    }
+
+    private MailboxPageResponse present(AccessTokenClaims claims, UUID islandId, CursorScope scope,
+            RealtimeHistory page, Deadline deadline) {
         Map<UUID, String> names = authorNames(islandId, claims, page.messages(), deadline);
 
         List<MailboxMessageResponse> items = new ArrayList<>(page.messages().size());
