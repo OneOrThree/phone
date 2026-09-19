@@ -1689,6 +1689,133 @@
         }
       }
     },
+    "/internal/islands/{islandId}/quests": {
+      "post": {
+        "tags": [
+          "internal-island-quest-controller"
+        ],
+        "operationId": "create_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Created"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/quests/{questId}/claims": {
+      "post": {
+        "tags": [
+          "internal-island-quest-controller"
+        ],
+        "operationId": "claim",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestClaimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Claimed"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/notices": {
       "get": {
         "tags": [
@@ -1759,7 +1886,7 @@
         "tags": [
           "internal-island-notice-controller"
         ],
-        "operationId": "create_1",
+        "operationId": "create_2",
         "parameters": [
           {
             "name": "islandId",
@@ -3094,7 +3221,7 @@
         ],
         "summary": "초대 claim",
         "description": "가입/로그인 직후 1회. 이미 claim 됐거나 셀프 초대면 no-op 200",
-        "operationId": "claim",
+        "operationId": "claim_1",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5668,6 +5795,74 @@
         }
       }
     },
+    "/internal/islands/{islandId}/quests/{questId}": {
+      "patch": {
+        "tags": [
+          "internal-island-quest-controller"
+        ],
+        "operationId": "update",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuestUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Updated"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/notices/{noticeId}": {
       "get": {
         "tags": [
@@ -5803,7 +5998,7 @@
         "tags": [
           "internal-island-notice-controller"
         ],
-        "operationId": "update",
+        "operationId": "update_1",
         "parameters": [
           {
             "name": "islandId",
@@ -7368,6 +7563,104 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandLedgerPageView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/quests/{questId}/progress": {
+      "get": {
+        "tags": [
+          "internal-island-quest-controller"
+        ],
+        "operationId": "progress",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "questId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "occurrenceId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Progress"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/quests/current": {
+      "get": {
+        "tags": [
+          "internal-island-quest-controller"
+        ],
+        "operationId": "current_1",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Current"
                 }
               }
             }
@@ -10792,6 +11085,79 @@
           }
         }
       },
+      "QuestCreateRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          }
+        }
+      },
+      "Created": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "QuestClaimRequest": {
+        "type": "object",
+        "properties": {
+          "occurrenceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "expectedVersion",
+          "occurrenceId"
+        ]
+      },
+      "Claimed": {
+        "type": "object",
+        "properties": {
+          "claimId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurrenceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "villagePointsAdded": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "claimed": {
+            "type": "boolean"
+          }
+        }
+      },
       "NoticeCreateRequest": {
         "type": "object",
         "properties": {
@@ -12301,6 +12667,34 @@
           }
         }
       },
+      "QuestUpdateRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "Updated": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "NoticePatchRequest": {
         "type": "object",
         "properties": {
@@ -13265,6 +13659,96 @@
           "nextEntryId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "Progress": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurrenceId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "myRate": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reward": {
+            "$ref": "#/components/schemas/Reward"
+          },
+          "settlementStatus": {
+            "type": "string"
+          },
+          "claimable": {
+            "type": "boolean"
+          },
+          "claimBlockedReason": {
+            "type": "string"
+          },
+          "claimed": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "Reward": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "amount": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "Current": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
           }
         }
       },
