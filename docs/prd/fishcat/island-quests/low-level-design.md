@@ -8,7 +8,7 @@
 
 Data는 path islandId가 실제 groupId임을 해석하고 현재 사용자 활성·해당 소속·시설 해금·작업별 역할을 확인한다. 다른 섬의 자원 ID는 path로 다시 좁혀 찾는다. 요청 시작 때 확정한 path/context를 사용하며 도중에 current-island가 바뀌어도 다른 섬으로 재해석하지 않는다. 같은 사용자의 다른 섬 자원/방문자 projection을 주민 전용 응답에 섞지 않는다. 원 결과 재생도 현재 인가가 필요하며 이 문서에는 leave/host-transfer 같은 권한 상실 후 최소 성공 증거 예외가 없다.
 
-- UUID는 하이픈 포함36자, v4/v7 생성 권고이며 다른 version 비트를 이유로 거절하지 않는다. 메시지 키 포함 공통 UUID 정규화가 정본이다. 날짜는 YYYY-MM-DD KST, 시각은 서버 UTC ISO-8601 instant. 샘플 문자열 ID는 실제 ID 검증을 대체하지 않는다.
+- UUID는 하이픈 포함36자, v4/v7 생성 권고이며 다른 version 비트를 이유로 거절하지 않는다. 메시지 키 포함 공통 UUID 정규화가 정본이다. 날짜는 YYYY-MM-DD **UTC**(2026-09-19 결정 Q-6 — 이 도메인은 D8 전환을 기다리지 않는다), 시각은 서버 UTC ISO-8601 instant. 샘플 문자열 ID는 실제 ID 검증을 대체하지 않는다.
 - JSON object만 수락하고 unknown/duplicate field, 잘못된 타입·명시 null을 거절한다(아래 nullable 출력과 별개). 정수는 JsonNode 정수 토큰으로 검사하여 1.5·문자열을 Long으로 절삭/강제 변환하지 않는다. version은1~9007199254740991이다. legacy ObjectMapper를 전역 변경하지 않는다.
 - 성공은 한 번만 `{data}`로 감싸며 새 작성201, 나머지200이다. 오류는 `{error:{code,message,field,retryable},requestId}`이고 X-Request-Id가 동일하다. 저장 원 결과를 재생해도 현재 requestId를 사용한다. 409의 current는 `{version,resource}`이고 현재 인가된 공개 DTO와 해당 version을 같은 snapshot으로 읽는다. 안전한 공개 상태가 없으면 current를 생략한다.
 - 입력400 INVALID_REQUEST/INVALID_PARAMETER, 키400 INVALID_IDEMPOTENCY_KEY, AT401 UNAUTHORIZED, 비활성 본인404 USER_NOT_FOUND, 비주민/시설/역할403 FORBIDDEN, 해당 경로에 없는 자원404 NOT_FOUND, 승인 범위 위반422 OUT_OF_RANGE가 기본이다. 기존 legacy 상태/코드는 보존하며 신규 어댑터에서 실제 등록한 조합만 변환한다.
@@ -192,15 +192,15 @@ Business→Data 내부 어댑터는 공개5경로 앞에 `/internal`을 붙인 e
 
 | 계약 | 구체 타입과 의미 |
 | --- | --- |
-| quests | query 없음, 서버 KST 현재 회차 items. 각 항목 id/occurrenceId UUID,title string,type focus/screen,date YYYY-MM-DD,timezone Asia/Seoul,targetMinutes 정수,myRate number/null,reward(currency=village_points,amount정수),settlementStatus string,claimable boolean,claimBlockedReason string/null,claimed boolean,version 양의정수 |
+| quests | query 없음, 서버 **UTC** 현재 회차 items(어제·오늘 회차 중 수령 마감 전 — focus 다음 날 12:00Z, screen 다음 날 24:00Z). 각 항목 id/occurrenceId UUID,title string,type focus/screen,date YYYY-MM-DD(UTC),timezone `UTC`,targetMinutes 정수,myRate number/null,reward(currency=village_points,amount정수),settlementStatus string,claimable boolean,claimBlockedReason string/null,claimed boolean,version 양의정수 |
 | quest | path questId UUID, query occurrenceId UUID필수/cursor optional. 해당 occurrence의 같은 헤더와 members(userId UUID,name/catColor string,rate number/null,measurementStatus authorized/denied/unavailable/pending),nextCursor string/null. path섬/quest/회차의소속 일치 검증 |
-| quest-create | title/type/targetMinutes 필수,focus는windowStart/windowEnd HH:mm 필수,screen에는창필드 금지. timezone 누락=Asia/Seoul/다른값400 INVALID_PARAMETER.201 id/title |
-| quest-edit | 원본의 title/targetMinutes 중 하나 이상. 생략 유지,null거절,새 type/창/반복키 unknown400.200 id/title/targetMinutes는 정의의수정결과. 실제적용회차 QQ02 결정 전 비활성 |
-| claim | occurrenceId UUID,expectedVersion 엄격 양의정수필수.200 claimId UUID,occurrenceId UUID,villagePointsAdded 비음수정수,claimed=true. 지급량은 1830 확정(개인 +10, 전원 보너스 대상 주민 수 × 5 — 정책 Q05)이며 설정 revision 등록은 QQ05 잔여. 필드명 villagePointsAdded 는 섬 물고기(D1) 적립량이고 개명은 미결 |
+| quest-create | title/type/targetMinutes 필수,focus는windowStart/windowEnd HH:mm 필수,screen에는창필드 금지. timezone 누락=UTC/`"UTC"` 외 400 INVALID_PARAMETER(결정 Q-6).201 id/title |
+| quest-edit | 원본의 title/targetMinutes 중 하나 이상. 생략 유지,null거절,새 type/창/반복키 unknown400.200 id/title/targetMinutes는 정의의수정결과. 실제 적용은 **다음 회차부터**(결정 Q-4) — 열린 회차는 여는 순간의 정의 스냅샷을 쓴다 |
+| claim | occurrenceId UUID,expectedVersion 엄격 양의정수필수.200 claimId UUID,occurrenceId UUID,villagePointsAdded 비음수정수,claimed=true. 지급량은 1830 확정(개인 +10, 전원 보너스 대상 주민 수 × 5 — 정책 Q05)이고 **전액 섬 통장**(결정 Q-1·Q-2) — 전원 달성 때만 수령되므로 대상 주민 수 × 15. 설정 revision 등록은 QQ05 잔여. 필드명 villagePointsAdded 는 섬 물고기(D1) 적립량이고 개명은 미결 |
 
 focus 창/target 수학적 범위와 screen0분 허용·title길이는 승인한 도메인 설정으로 검증하고 목업30/40을 상수로 채택하지 않는다(10 은 1830 확정값이지만 역시 설정 revision 으로 등록한다). 시간 HH:mm 파싱,실재하는날짜,안전정수 등의 기술 검증은 독립 구현한다. 자정 넘는 창을 지원하거나 거절하는 제품 범위는 QQ02 확정 뒤 설정/테스트로 고정한다. 명시필수 필드 누락/null은400,해석가능한 범위위반422 OUT_OF_RANGE(field=해당공개필드)다.
 
-원본focus항목의 windowStart/windowEnd는 focus에서필수,screen응답에서는null이라는 **타입별 nullable명시 확장**을 채택한다. claimBlockedReason은 claimable=true 또는 claimed=true일때null이고 미달성MEMBERS_INCOMPLETE는원본값이다. 측정대기 등 추가 reason값과 settlementStatus 확장은 QQ01~03 결정 후정본enum으로등록한다. 현재 원본에서 확인한 in_progress/claimed 외 상태를 완성된운영 enum이라고제시하지않는다. ready여부는claimable이며 상태문자열을추측하지않는다.
+원본focus항목의 windowStart/windowEnd는 focus에서필수,screen응답에서는null이라는 **타입별 nullable명시 확장**을 채택한다. claimBlockedReason은 claimable=true 또는 claimed=true일때null이고 미달성MEMBERS_INCOMPLETE는원본값이다. 측정대기 등 추가 reason값과 settlementStatus 확장은 QQ01~03 결정 후정본enum으로등록한다 → **2026-09-19 등록**: `MEASUREMENT_PENDING`(screen 유예 중 미보고 주민이 있고 확정 미달자는 없음). members 의 `catColor` 는 제공자가 main 에 없어 싣지 않는다(GROMO-1765 와 같은 결정). 현재 원본에서 확인한 in_progress/claimed 외 상태를 완성된운영 enum이라고제시하지않는다. ready여부는claimable이며 상태문자열을추측하지않는다.
 
 **PII 출력 확장:** 회차cohort에 탈퇴자가 남는 정책이승인되면 members의 userId/name/catColor는파기후null가능하고 rate/measurementStatus표현도승인한최소판정결과만사용한다. fake UUID나원래프로필보존으로필수필드를채우지않는다. QQ01과계정 파기계약확정전그경로를활성화하지않는다. 최종공개nullable개정은원본 JSON에덮어쓰지않는다.
 
@@ -223,7 +223,7 @@ focus 창/target 수학적 범위와 screen0분 허용·title길이는 승인한
 
 ## 4. 계산과 version
 
-focus의기술입력은고정island귀속의서버ACTIVE구간이다. 각구간을회차의KST→UTC경계에clip하고중복없이초합산한다. REST구간은 0초기여하며원본now-start나앱진행률을신뢰하지않는다. 분내림은각구간마다하지않고최종정확초와목표분*60을비교한다. 화면rate의반올림/관용치 QQ03은판정식과분리한다.
+focus의기술입력은고정island귀속의서버ACTIVE구간이다. 각구간을회차의UTC창경계에clip하고중복없이초합산한다(결정 Q-5·Q-6). REST구간은 0초기여하며원본now-start나앱진행률을신뢰하지않는다. 분내림은각구간마다하지않고최종정확초와목표분*60을비교한다. 화면rate의반올림/관용치 QQ03은판정식과분리한다.
 
 screen은승인된하루정본의device/측정시각/권한상태를사용한다. `group_challenge_members`창형값을하루값으로읽지않는다. 기존일통계의미보고null을0으로채우지않고,현재사용상한이하를최종성공으로간주하지않는다. 마감/grace/새측정의정정허용과현재/이전권한의처리는 QQ03결정후고정한다.
 
@@ -249,7 +249,7 @@ scope=(검증actor,method,route,islandId,questId,key),fingerprint는occurrenceId
 
 ## 6. 조회·커서·이벤트
 
-current는서버KST현재회차를동일Data snapshot으로읽고샘플값을합성하지않는다. 회차없음은빈items지만정책/측정기반미구현을빈목록정상으로숨기지않는다. progress의헤더/version/해당page/cohort집계는동일snapshot이다. cursor는actor,island,quest,occurrence,cohortRevision,projectionVersion,정렬(userId고정순),pageSize30/상한100,기한/keyId를HMAC결박한다. projection/cohort변경으로페이지가다른판정과섞이면409 CURSOR_EXPIRED로처음부터조회한다. 위조/다른scope는400 INVALID_CURSOR다. APIquery에는새limit를추가하지않는다.
+current는서버UTC현재회차를동일Data snapshot으로읽고샘플값을합성하지않는다. 회차없음은빈items지만정책/측정기반미구현을빈목록정상으로숨기지않는다. progress의헤더/version/해당page/cohort집계는동일snapshot이다. cursor는actor,island,quest,occurrence,cohortRevision,projectionVersion,정렬(userId고정순),pageSize30/상한100,기한/keyId를HMAC결박한다. projection/cohort변경으로페이지가다른판정과섞이면409 CURSOR_EXPIRED로처음부터조회한다. 위조/다른scope는400 INVALID_CURSOR다. APIquery에는새limit를추가하지않는다.
 
 claimable계산은전체 cohort에대한서버집계이며화면 pagination과무관하다. creator/updater와탈퇴자가정의/회차를깨지않도록참조/최소증거를분리한다. 현재회차만요청가능하며과거history기능은추가하지않는다(어느날까지current인지 QQ02필요).
 
