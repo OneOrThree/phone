@@ -37,6 +37,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
@@ -299,6 +300,18 @@ public class IslandQuestService {
                             tree(List.of(progress, walletUpdated)));
                 }).value().data();
         return decode(data, QuestViews.Claimed.class);
+    }
+
+    // ---------------------------------------------------------------- 계정 탈퇴
+
+    /**
+     * 계정 탈퇴 파기 (GROMO-1950, 계정 LLD §4) — 탈퇴자의 cohort 행은 지우고, 정산 행은 남긴 채 수령자
+     * 연결만 끊는다. 호출측(AccountWithdrawalService)이 users 와 가입 섬 행을 이미 잠근 한 트랜잭션이다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void eraseWithdrawnUser(UUID userId) {
+        occurrences.deleteCohortOfUser(userId);
+        claims.detachClaimer(userId);
     }
 
     // ---------------------------------------------------------------- 회차 개설

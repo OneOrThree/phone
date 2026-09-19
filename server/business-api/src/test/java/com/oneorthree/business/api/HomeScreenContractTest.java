@@ -17,7 +17,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * {@code GET /screens/home} 계약 (GROMO-1897) — 섬 문맥(현재 섬 → 주민 상세) 뒤 집중 요약·현재 세션·휴식 주민 병렬.
+ * {@code GET /screens/home} 계약 (GROMO-1897) — 섬 문맥(현재 섬 → 주민 상세) 뒤 집중 요약·현재 세션·휴식 주민·
+ * 방송기 완공 판정 병렬, 완공이면 방송기.
  */
 class HomeScreenContractTest extends ScreenContractTestBase {
 
@@ -25,6 +26,8 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_SUMMARY = "GET " + USERS + "/focus-summary";
     private static final String DATA_CURRENT = "GET " + USERS + "/focus-sessions/current";
     private static final String DATA_REST = DATA_ISLAND + "/rest-members";
+    private static final String DATA_OPTIONS = DATA_ISLAND + "/construction-options";
+    private static final String DATA_PLAYBACK = DATA_ISLAND + "/playback";
 
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,"
@@ -38,6 +41,10 @@ class HomeScreenContractTest extends ScreenContractTestBase {
             + "\"watermarks\":[{\"projection\":\"rest.member\",\"islandId\":\"" + ISLAND + "\","
             + "\"aggregateId\":\"" + USER + "\",\"version\":2}]}";
 
+    private static final String PLAYBACK = "{\"trackId\":\"campfire\",\"playing\":true,\"positionSeconds\":12,"
+            + "\"effectiveAt\":\"2026-09-17T00:00:00Z\",\"changedBy\":\"" + USER + "\",\"version\":3,"
+            + "\"serverNow\":\"2026-09-17T00:00:00Z\",\"durationSeconds\":120.5}";
+
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @BeforeEach
@@ -47,10 +54,12 @@ class HomeScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_SUMMARY, request -> ok(SUMMARY));
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
         DATA.on(DATA_REST, request -> ok(REST));
+        DATA.on(DATA_OPTIONS, request -> ok(options(false)));
+        DATA.on(DATA_PLAYBACK, request -> ok(PLAYBACK));
     }
 
     @Test
-    @DisplayName("정상: 조각 이름이 응답 키이고 도메인 DTO 를 그대로 싣는다 — 빠진 조각은 null + missingFragments")
+    @DisplayName("정상: 조각 이름이 응답 키이고 도메인 DTO 를 그대로 싣는다 — 방송기 완공이면 playback, 빠진 조각은 null + missingFragments")
     void composesFragmentsUnderTheirNames() throws Exception {
         MvcResult result = mockMvc.perform(auth(get("/screens/home")).queryParam("date", "2026-09-17")
                         .queryParam("timezone", "Asia/Seoul").header("X-User-Id", UUID.randomUUID()))
@@ -63,21 +72,62 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.focusSummary.serverNow").value("2026-09-17T00:00:00Z"))
                 .andExpect(jsonPath("$.data.restMembers.items[0].restSeat").value(1))
                 .andExpect(jsonPath("$.data.restMembers.watermarks[0].projection").value("rest.member"))
-                .andExpect(jsonPath("$.data.missingFragments.length()").value(2))
+                .andExpect(jsonPath("$.data.playbackAvailability").value("available"))
+                .andExpect(jsonPath("$.data.playback.trackId").value("campfire"))
+                .andExpect(jsonPath("$.data.playback.version").value(3))
+                .andExpect(jsonPath("$.data.missingFragments.length()").value(1))
                 .andExpect(jsonPath("$.data.missingFragments[0]").value("wallets"))
-                .andExpect(jsonPath("$.data.missingFragments[1]").value("playback"))
                 .andReturn();
 
         assertKeys(result, "island", "focusSummary", "session", "restMembers", "wallets", "playback",
                 "playbackAvailability", "missingFragments");
         JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
-        for (String key : new String[] {"session", "wallets", "playback", "playbackAvailability"}) {
+        for (String key : new String[] {"session", "wallets"}) {
             assertThat(data.get(key).isNull()).as(key + " 는 명시 null").isTrue();
         }
         assertThat(DATA.hits(DATA_REST)).as("BG11 결정 — 현재 섬의 휴식 주민을 싣는다").isOne();
         assertThat(DATA.receivedFor(DATA_SUMMARY).get(0).query()).contains("date=2026-09-17", "timezone=Asia/Seoul");
         assertThat(DATA.received()).allSatisfy(forwarded ->
                 assertThat(forwarded.header("x-user-id")).as("주체는 서명 세션에서만").isEqualTo(USER.toString()));
+    }
+
+    @Test
+    @DisplayName("방송기 미완공이면 playback 을 부르지 않고 조각만 facility_locked — 화면은 200")
+    void gramNotBuiltLocksOnlyThePlaybackFragment() throws Exception {
+        DATA.on(DATA_OPTIONS, request -> ok(options(true)));
+
+        MvcResult result = mockMvc.perform(auth(get("/screens/home")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.playbackAvailability").value("facility_locked"))
+                .andExpect(jsonPath("$.data.focusSummary.totalSeconds").value(90))
+                .andReturn();
+
+        assertKeys(result, "island", "focusSummary", "session", "restMembers", "wallets", "playback",
+                "playbackAvailability", "missingFragments");
+        assertThat(JSON.readTree(result.getResponse().getContentAsString()).get("data").get("playback").isNull())
+                .isTrue();
+        assertThat(DATA.hits(DATA_PLAYBACK)).as("N 은 호출 자체를 생략한다(B03)").isZero();
+    }
+
+    @Test
+    @DisplayName("완공 판정 뒤 방송기 도메인 403 은 facility_locked 로 접지 않고 화면 전체 403 이다(B03)")
+    void playbackForbiddenAfterCheckFailsWholeScreen() throws Exception {
+        DATA.on(DATA_PLAYBACK, request -> domainError(403, "GRAM_LOCKED"));
+
+        mockMvc.perform(auth(get("/screens/home")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FACILITY_LOCKED"));
+    }
+
+    @Test
+    @DisplayName("방송기 완공 판정(건설 옵션)의 도메인 403 은 화면 전체 403 이다")
+    void gramCheckForbiddenFailsWholeScreen() throws Exception {
+        DATA.on(DATA_OPTIONS, request -> domainError(403, "MEMBER_ONLY"));
+
+        mockMvc.perform(auth(get("/screens/home")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
+        assertThat(DATA.hits(DATA_PLAYBACK)).isZero();
     }
 
     @Test
@@ -90,7 +140,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.error.code").value("STATE_CONFLICT"))
                 .andExpect(jsonPath("$.error.field").value("currentIslandId"));
         assertThat(DATA.hits(DATA_ISLAND) + DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT)
-                + DATA.hits(DATA_REST)).isZero();
+                + DATA.hits(DATA_REST) + DATA.hits(DATA_OPTIONS) + DATA.hits(DATA_PLAYBACK)).isZero();
     }
 
     @Test
@@ -103,7 +153,8 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"))
                 .andReturn().getResponse().getContentAsString();
         assertThat(body).doesNotContain("internal detail");
-        assertThat(DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT) + DATA.hits(DATA_REST)).isZero();
+        assertThat(DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT) + DATA.hits(DATA_REST)
+                + DATA.hits(DATA_OPTIONS) + DATA.hits(DATA_PLAYBACK)).isZero();
     }
 
     @Test
@@ -159,5 +210,15 @@ class HomeScreenContractTest extends ScreenContractTestBase {
         mockMvc.perform(get("/screens/home"))
                 .andExpect(status().isUnauthorized());
         assertThat(DATA.received()).isEmpty();
+    }
+
+    /** 건설 옵션 — items 는 미완공 건물만 담는다. gram 이 있으면 방송기 미완공이다. */
+    private static String options(boolean gramPending) {
+        String item = "{\"id\":\"%s\",\"name\":\"시설\",\"cost\":1360,\"currency\":\"village_points\","
+                + "\"selectable\":true,\"buildable\":false,\"blockedReason\":null}";
+        String items = gramPending ? String.format(item, "gram") + "," + String.format(item, "library")
+                : String.format(item, "library");
+        return "{\"islandVersion\":4,\"costPolicyVersion\":1,\"selectedBuildingId\":null,\"villagePoints\":0,"
+                + "\"walletVersion\":7,\"items\":[" + items + "]}";
     }
 }

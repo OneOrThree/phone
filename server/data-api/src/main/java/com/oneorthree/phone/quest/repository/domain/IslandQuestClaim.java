@@ -51,8 +51,8 @@ public class IslandQuestClaim {
     @Column(nullable = false)
     private int amount;
 
-    /** 수령을 누른 주민 — 누가 눌렀든 적립처는 섬 통장이다. */
-    @Column(name = "claimed_by", nullable = false)
+    /** 수령을 누른 주민 — 누가 눌렀든 적립처는 섬 통장이다. 그 주민이 계정을 탈퇴하면 null(GROMO-1950). */
+    @Column(name = "claimed_by")
     private UUID claimedBy;
 
     @Column(name = "wallet_idempotency_key", nullable = false, length = 200)

@@ -4,6 +4,7 @@ import com.oneorthree.phone.appearance.repository.domain.OwnedProduct;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -11,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** 보유 여부·목록 조회 — 지급 writer 는 상점(1781)이며 이 도메인은 읽기만 한다. */
+/** 보유 여부·목록 조회 — 지급 writer 는 상점(1781)이며 이 도메인은 계정 탈퇴 파기 외엔 읽기만 한다. */
 public interface OwnedProductRepository extends JpaRepository<OwnedProduct, UUID> {
 
     @Query("SELECT o FROM OwnedProduct o WHERE o.ownerType = 'user' AND o.userId = :userId "
@@ -49,4 +50,12 @@ public interface OwnedProductRepository extends JpaRepository<OwnedProduct, UUID
             + "WHERE o.ownerType = 'island' AND o.groupId = :islandId AND o.productId = :productId")
     Optional<OwnedProduct> findIslandProductForShare(@Param("islandId") UUID islandId,
             @Param("productId") String productId);
+
+    /**
+     * 계정 탈퇴 파기 (GROMO-1950) — 개인 소유 행만 지운다. 섬 소유 행은 user_id 가 비어 있어(CHECK) 애초에
+     * 걸리지 않지만 ownerType 을 명시해 의도를 드러낸다. 호출측이 users 배타 잠금을 쥔 탈퇴 TX 에서만 부른다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM OwnedProduct o WHERE o.ownerType = 'user' AND o.userId = :userId")
+    int deleteUserOwnedOf(@Param("userId") UUID userId);
 }

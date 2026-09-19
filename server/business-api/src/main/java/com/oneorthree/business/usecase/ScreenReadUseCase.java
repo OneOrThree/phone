@@ -60,8 +60,11 @@ public class ScreenReadUseCase {
     private static final String MISSING_FRAGMENTS = "missingFragments";
     private static final String FACILITY_LOCKED = "facility_locked";
     /** 시설 id — 건설 도메인 {@code ConstructionBuilding} 의 계약 문자열(정책 C14). */
+    private static final String GRAM = "gram";
     private static final String LIBRARY = "library";
     private static final String SHOP = "shop";
+    /** 시설 완공 판정 재료(건설 옵션) — 화면 응답에는 싣지 않는 내부 조각이다. */
+    private static final String FACILITIES = "facilities";
 
     private final ScreenComposer composer;
     private final AccountUseCase account;
@@ -175,28 +178,27 @@ public class ScreenReadUseCase {
     // 머지되면 해당 조각을 병렬 목록으로 옮기고 이름을 뺀다.
 
     /**
-     * {@code home} — 섬 문맥 뒤 오늘 집중 요약·현재 세션·휴식 주민을 병렬로 읽는다. 휴식 주민은 BG11
-     * 결정(2026-09-19)으로 싣는다 — 도메인 403 이면 다른 조각처럼 화면 전체가 실패한다.
-     *
-     * <p>빠진 조각: {@code wallets}(섬 상점 지갑 GET 없음), {@code playback}(방송기 GET 과 시설 완공 재료가
-     * 둘 다 없어 {@code facility_locked} 도 검증할 수 없다).
+     * {@code home} — 섬 문맥 뒤 오늘 집중 요약·현재 세션·휴식 주민·방송기 완공 판정을 병렬로 읽고, 방송기가
+     * 완공이면 {@code playback} 을 읽는다. 휴식 주민은 BG11 결정(2026-09-19)으로 싣는다 — 도메인 403 이면
+     * 다른 조각처럼 화면 전체가 실패한다. 빠진 조각: {@code wallets}(섬 상점 지갑 GET 없음).
      */
     public Map<String, Object> home(AccessTokenClaims claims, String date, String timezone, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         IslandDetail island = currentIsland(context, claims);
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
-        screen.putAll(composer.compose(context, List.of(
+        Map<String, Object> parallel = composer.compose(context, List.of(
                 fragment("focusSummary", deadline -> focus.summary(claims, date, timezone, deadline)),
                 fragment("session", deadline -> focus.current(claims, deadline)),
-                fragment("restMembers", deadline -> focusMembers.restMembers(claims, island.id(), deadline)))));
-        screen.put("playbackAvailability", null);
-        return missing(screen, "wallets", "playback");
+                fragment("restMembers", deadline -> focusMembers.restMembers(claims, island.id(), deadline)),
+                facilities(claims, island.id())));
+        putPlayback(screen, parallel, context, claims, island.id());
+        return missing(screen, "wallets");
     }
 
     /**
      * {@code focus} — 세션이 있으면 <b>세션이 고정한 섬</b>, 없으면 현재 섬을 연다. 세션이 있어도 섬 상세를
-     * 반드시 읽는다(구현 §4 각주). 빠진 조각: {@code playback} — home 과 같은 이유다.
+     * 반드시 읽는다(구현 §4 각주). 그 섬의 방송기가 완공이면 {@code playback} 을 읽는다.
      */
     public Map<String, Object> focus(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -208,10 +210,11 @@ public class ScreenReadUseCase {
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
         screen.putAll(first);
-        screen.putAll(composer.compose(context, List.of(fragment("focusMembers",
-                deadline -> focusMembers.focusMembers(claims, island.id(), deadline)))));
-        screen.put("playbackAvailability", null);
-        return missing(screen, "playback");
+        Map<String, Object> parallel = composer.compose(context, List.of(
+                fragment("focusMembers", deadline -> focusMembers.focusMembers(claims, island.id(), deadline)),
+                facilities(claims, island.id())));
+        putPlayback(screen, parallel, context, claims, island.id());
+        return screen;
     }
 
     /**
@@ -392,15 +395,46 @@ public class ScreenReadUseCase {
     }
 
     /**
-     * 시설 완공 판정 — 섬 상세에는 시설 필드가 아직 없어({@link IslandDetail} 주석) 건설 옵션을 재료로 쓴다.
-     * 옵션 {@code items} 는 완공(COMPLETED)하지 않은 건물만 담으므로 목록에 없으면 완공이다.
+     * 시설 완공 판정 재료 — 섬 상세에는 시설 필드가 아직 없어({@link IslandDetail} 주석) 건설 옵션을 쓴다.
+     * 병렬 단계에 끼워 넣을 수 있게 조각으로 둔다.
      */
+    private ReadFragment<?> facilities(AccessTokenClaims claims, UUID islandId) {
+        return fragment(FACILITIES, deadline -> construction.options(claims, islandId, deadline));
+    }
+
+    /** 옵션 {@code items} 는 완공(COMPLETED)하지 않은 건물만 담으므로 목록에 없으면 완공이다. */
+    private static boolean built(ConstructionOptions options, String building) {
+        return options.items().stream().noneMatch(item -> building.equals(item.id()));
+    }
+
+    /** 시설 완공 판정을 단독 순차 단계로 — 판정 결과가 다음 조각의 호출 여부를 정할 때 쓴다. */
     private boolean completed(UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId,
             String building) {
-        ConstructionOptions options = (ConstructionOptions) composer.compose(context, List.of(
-                fragment("facilities", deadline -> construction.options(claims, islandId, deadline))))
-                .get("facilities");
-        return options.items().stream().noneMatch(item -> building.equals(item.id()));
+        return built((ConstructionOptions) composer.compose(context, List.of(facilities(claims, islandId)))
+                .get(FACILITIES), building);
+    }
+
+    /**
+     * 병렬 단계 결과를 화면에 옮기고(판정 재료는 빼고) {@code playback} 조각을 채운다. 미완공이면 호출을
+     * 생략하고 {@code facility_locked} 다(B03 N). 완공 판정 뒤 받은 도메인 403({@code GRAM_LOCKED} 등)은
+     * N 으로 접지 않고 화면 전체 실패다 — 완공은 되돌아가지 않으므로(BUILDING→COMPLETED 단방향) 판정과
+     * 조회 사이 경합으로는 생기지 않는다.
+     */
+    private void putPlayback(Map<String, Object> screen, Map<String, Object> parallel,
+            UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId) {
+        parallel.forEach((name, value) -> {
+            if (!FACILITIES.equals(name)) {
+                screen.put(name, value);
+            }
+        });
+        if (!built((ConstructionOptions) parallel.get(FACILITIES), GRAM)) {
+            screen.put("playback", null);
+            screen.put("playbackAvailability", FACILITY_LOCKED);
+            return;
+        }
+        screen.putAll(composer.compose(context, List.of(
+                fragment("playback", deadline -> playback.get(claims, islandId, deadline)))));
+        screen.put("playbackAvailability", AVAILABLE);
     }
 
     private static Map<String, Object> missing(Map<String, Object> screen, String... names) {

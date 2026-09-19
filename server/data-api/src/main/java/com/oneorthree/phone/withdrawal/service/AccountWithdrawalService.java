@@ -1,5 +1,6 @@
 package com.oneorthree.phone.withdrawal.service;
 
+import com.oneorthree.phone.appearance.service.AppearanceService;
 import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.character.service.CharacterGenerationService;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
@@ -13,6 +14,7 @@ import com.oneorthree.phone.item.service.EquipmentService;
 import com.oneorthree.phone.league.service.LeagueService;
 import com.oneorthree.phone.notification.service.RankOvertakeNotificationService;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
+import com.oneorthree.phone.quest.service.IslandQuestService;
 import com.oneorthree.phone.screentime.service.ScreenTimeService;
 import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.exception.UserException;
@@ -79,6 +81,8 @@ public class AccountWithdrawalService {
     private final CharacterGenerationService characterGenerationService;
     private final EquipmentService equipmentService;
     private final PublicCommandService publicCommandService;
+    private final AppearanceService appearanceService;
+    private final IslandQuestService islandQuestService;
 
     /**
      * 회원 탈퇴 — 행을 지우지 않고 PII 를 파기한 뒤 비활성 표시를 한다.
@@ -157,6 +161,10 @@ public class AccountWithdrawalService {
         leagueService.eraseWithdrawnUser(userId);
         characterGenerationService.eraseWithdrawnUser(userId);
         equipmentService.eraseWithdrawnUser(userId);
+        // 섬 개인 외양·개인 보유품 삭제, 퀘스트 cohort 삭제·정산 수령자 연결 해제(GROMO-1950).
+        // 섬 소유 보유품·정산 행은 섬 자산·원장 근거라 남는다. 섬 잠금은 위 그룹 선점에서 이미 쥐었다.
+        appearanceService.eraseWithdrawnUser(userId);
+        islandQuestService.eraseWithdrawnUser(userId);
 
         // 제약 ①의 오른쪽 — 위 내기 해제 환불이 이미 입금된 뒤여야 한다.
         userService.deleteWalletAndSettings(userId);

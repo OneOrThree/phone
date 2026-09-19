@@ -949,7 +949,7 @@ Table catalog_assets [note: '카탈로그 불변 자산 정의 (GROMO-1783, isla
   created_at      timestamptz  [not null, default: `now()`]
 }
 
-Table owned_products [note: '보유 상품 (GROMO-1783, V64) — (주인, 상품) 유일. 주인은 user 또는 island(groups) 정확히 하나. 지급·회수 writer 는 상점(1781). 외양 적용은 제출 상품의 보유 행을 FOR SHARE 로 잡은 뒤 외양 행을 잠근다(잠금 순서 카탈로그 → 보유 → 외양). raft 는 예약 표현이라 행을 만들지 않는다'] {
+Table owned_products [note: '보유 상품 (GROMO-1783, V64) — (주인, 상품) 유일. 주인은 user 또는 island(groups) 정확히 하나. 지급·회수 writer 는 상점(1781). 외양 적용은 제출 상품의 보유 행을 FOR SHARE 로 잡은 뒤 외양 행을 잠근다(잠금 순서 카탈로그 → 보유 → 외양). raft 는 예약 표현이라 행을 만들지 않는다. 계정 탈퇴 시 owner_type=user 본인 행 삭제, island 행은 보존(GROMO-1950)'] {
   id          uuid         [pk]
   owner_type  varchar(10)  [not null, note: "user / island — CHECK owned_products_owner_type_check. CHECK owned_products_owner_check: user 면 user_id 만, island 면 group_id 만 NOT NULL"]
   user_id     uuid         [note: 'FK → users.id ON DELETE RESTRICT — owner_type=user 일 때만']
@@ -966,7 +966,7 @@ Table owned_products [note: '보유 상품 (GROMO-1783, V64) — (주인, 상품
   }
 }
 
-Table personal_appearances [note: '개인 외양 (GROMO-1783, V64) — 유저당 1행의 전체 상태. 첫 writer 접근 때 INSERT ON CONFLICT DO NOTHING 으로 생긴다(행 없음 = 기본 외양, version 0). version 은 행 배타락 아래에서만 +1 — member.appearance.updated 의 aggregateVersion'] {
+Table personal_appearances [note: '개인 외양 (GROMO-1783, V64) — 유저당 1행의 전체 상태. 첫 writer 접근 때 INSERT ON CONFLICT DO NOTHING 으로 생긴다(행 없음 = 기본 외양, version 0). version 은 행 배타락 아래에서만 +1 — member.appearance.updated 의 aggregateVersion. 계정 탈퇴 시 본인 행 삭제(GROMO-1950)'] {
   user_id    uuid        [pk, note: 'FK → users.id ON DELETE RESTRICT']
   clothes    varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착']
   decor      varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착']
@@ -1103,9 +1103,9 @@ Table island_quest_occurrences [note: '퀘스트 회차 (GROMO-1773, V71) — (�
   }
 }
 
-Table island_quest_cohort_members [note: '회차 시작 cohort (GROMO-1773, V71, 결정 Q-3) — 여는 순간 활성 주민 전원. 이후 가입자는 없고 탈퇴·강퇴·계정 탈퇴자는 판정 때 현재 활성 멤버와의 교집합에서 빠진다. 엔티티 없이 네이티브 쿼리로만 쓴다'] {
+Table island_quest_cohort_members [note: '회차 시작 cohort (GROMO-1773, V71, 결정 Q-3) — 여는 순간 활성 주민 전원. 이후 가입자는 없고 탈퇴·강퇴·계정 탈퇴자는 판정 때 현재 활성 멤버와의 교집합에서 빠진다. 쓰기·읽기는 네이티브 쿼리(엔티티 IslandQuestCohortMember 는 CI create-drop 스키마 선언용, GROMO-1950)'] {
   occurrence_id uuid [not null, note: 'FK → island_quest_occurrences.id ON DELETE RESTRICT']
-  user_id       uuid [not null, note: 'FK 없음 — 탈퇴 뒤에도 정산 근거 행 수가 바뀌지 않게']
+  user_id       uuid [not null, note: 'FK 없음. 계정 탈퇴 시 본인 행 삭제(GROMO-1950, V71 주석의 「행 수 불변」 의도를 대체) — 판정은 활성 교집합이라 결과가 같다']
 
   indexes {
     (occurrence_id, user_id) [pk]
@@ -1118,7 +1118,7 @@ Table island_quest_claims [note: '회차 정산 (GROMO-1773, V71) — 도메인 
   occurrence_id          uuid         [not null, note: 'FK → island_quest_occurrences.id ON DELETE RESTRICT']
   kind                   varchar(20)  [not null, note: "CHECK IN ('SETTLEMENT') — 개인 지급 kind 없음(결정 Q-1)"]
   amount                 integer      [not null, note: 'CHECK > 0 — 섬 통장 적립량']
-  claimed_by             uuid         [not null, note: '수령을 누른 주민 — FK 없음']
+  claimed_by             uuid         [note: '수령을 누른 주민 — FK 없음. 계정 탈퇴 시 null(GROMO-1950, V75). 정산 행은 원장 근거라 남는다']
   wallet_idempotency_key varchar(200) [not null, note: "'quest:' || occurrence_id — 원장 기입 키"]
   created_at             timestamptz  [not null, default: `now()`]
 
