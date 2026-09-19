@@ -27,9 +27,30 @@ GROMO-1756 · 2026-09-12 · [색인](README.md) · [상세 계약](low-level-des
 | A19 | 앱 명령/로그인 시도 ID는 하이픈 포함 36자 UUID이며 v4/v7은 생성 권고다. 다른 버전 비트라는 이유로 거부하지 않는다. | 선행 공통 UUID 규약과 일치 |
 | A20 | 신규 PATCH와 legacy POST/PATCH /api/v1/users/me 및 완료 입력을 바꾸는 모든 writer가 users 배타 잠금 아래 같은 전이/outbox 경계를 공유한다. 승인된 완료 판정의 false→true는 user.onboarded, 실제 이름 변경은 기존 동기 writer의 user.displayNameChanged를 프로필·receipt와 같은 Data TX에 내구화한다. 완료 재생·무변경은 새 사건을 만들지 않는다. 랭킹은 기존 사용자 점수/상태 version과 주차별 절대 점수, Link는 멤버십 snapshotVersion과 폐기 상태를 대조하며 두 축은 별개다. 생산자/소비자 구현·회귀 전 활성화하지 않는다. | 기존 아키텍처 ㊣/㋡. 이름 writer는 선행 재사용; Q03/Q04 판정·제품 정책은 미결 유지 |
 | A21 | 기존 chat_read_cursors의 탈퇴 사용자 행을 모든 방에서 hard delete한다. 중앙 탈퇴와 같은 TX에 chat/realtime 대상 user.withdrawn 전달을 내구화하고, 소비자는 로컬 사용자 잠금 아래 tombstone/version·커서 삭제·중복 수신 완료를 같은 TX에 확정한다. markRead와 복원/import 등 모든 cursor writer도 같은 잠금·폐기 재검사를 거쳐 늦은 UPSERT의 부활을 막는다. 멤버십 캐시 삭제는 이 DB fencing을 대체하지 않는다. 메시지 본문/sender_id 보존과 우체통 읽음 표시 정책은 별개다. 같은 tombstone과 개별 로그아웃의 auth.session.revoked 세션 fence를 REST·STOMP 인가, 기존 구독 전달, 메시지 저장 writer에 적용하고, 소비자 커밋 뒤 멤버십 캐시 삭제·전 인스턴스 활성 소켓 종료를 완료 조건에 포함한다. 캐시·소켓 정리 실패가 fence 재검사를 대체하지 않는다. 보존 메시지의 공개 응답(히스토리·방 목록 최신 메시지·재전송 응답)은 탈퇴 발신자의 senderId를 null로 치환하며 사용자별 대체 식별자를 만들지 않는다. | 기존 개인 cursor의 파기 누락 보완. 소비자/쓰기 fencing은 후속 구현·검증 조건이며 현재 완료 아님 |
-| A22 | 정상 사용자 활동 로그의 user_id/MDC/payload 연결과 실제 로컬·회전·호스트·외부 복사본도 삭제/비식별화한다. 중앙 내구 파기 작업, sink별 폐기 fence·지연 queue/upload 차단·완료 증거를 요구한다. 실제 외부 구성/보존 근거 미확인은 gate로 남기며 maxHistory를 제품/법적 보존 기간으로 정하지 않는다. GA4 User-ID·app_instance_id·설치 device_id 연결도 파기 대상이다. 중앙 TX에 삭제 작업을 내구 기록하고, 앱은 탈퇴 성공 뒤 식별자 해제·재설정 전에는 사용자 연결 이벤트를 보내지 않으며, 지연 전송을 고려한 재요청·완료 증거를 요구한다. 서버 MP는 user_id 없이 app_instance_id만 보내므로 서버가 사용자 맥락으로 받은 app_instance_id를 삭제 키 전용 등록부에 도메인 TX로 기록하고, 탈퇴 때 GA4 삭제 작업 입력으로 옮긴 뒤 등록부 행을 삭제한다. app_instance_id는 설치 단위라 계정 전환마다 분석 자료를 재설정하고, 두 사용자 이상에게 기록된 공유 값과 재설정 세대 표지 없이 기록된 legacy 값은 삭제 입력에서 제외해 타 계정 자료를 지우지 않는다. | main logger/logback/운영 compose의 실제 사용자 UUID 경로. 구현·운영 연결은 미완료이며 LLD 로그 파기 경계 적용 |
+| A22 | 탈퇴자의 로그·분석 자료(user-activity user_id, APP MDC user_id, 로컬 활성·회전·호스트 파일, S3 적재본, 로그·trace sink, GA4/Firebase의 User-ID·app_instance_id·설치 device_id 연결)는 **행 단위 삭제가 아니라 보존 기간 만료로 파기**한다. 탈퇴 시점에 개별 레코드를 찾아 지우거나 비식별화하지 않으며, 아래 [로그·분석 보존 기간](#로그분석-보존-기간) 표의 기간이 지나면 저장소 자체의 만료로 사라진다. 기간 값의 정본은 이 표이고 logback `maxHistory`와 S3 수명 주기 규칙은 이 값을 구현한다(서로 다르면 이 표에 맞춘다). 표에 기간이 없거나 설정 미확인인 저장소는 파기 완료를 주장하지 않는다. 앱은 탈퇴 성공 뒤 GA4 User-ID를 해제한 다음에만 이벤트를 보낸다. | 재영님 결정 2026-09-19(GROMO-1942). 이전 판의 행 단위 파기·sink fence·GA4 삭제 요청·앱 인스턴스 등록부 설계를 대체 |
 
-A06/A08/A09 및 A11/A21/A22의 추가 파기·검증은 목표 계약이다. 기존 기기 DELETE의 키 생략 호환은 유지하되 새 앱 삭제 흐름에는 고정 키가 필수다. main은 Data에서 JWT를 발급하고 `users.refreshTokenHash` 하나를 보관한다. 미통합 1659에는 세션 확인·bootstrap·outbox 기반이 있으나 세션별 RT 정본 전환이나 전체 Business 로그인 이관이 끝난 것은 아니다.
+A06/A08/A09 및 A11/A21의 추가 파기·검증은 목표 계약이다. 기존 기기 DELETE의 키 생략 호환은 유지하되 새 앱 삭제 흐름에는 고정 키가 필수다. main은 Data에서 JWT를 발급하고 `users.refreshTokenHash` 하나를 보관한다. 미통합 1659에는 세션 확인·bootstrap·outbox 기반이 있으나 세션별 RT 정본 전환이나 전체 Business 로그인 이관이 끝난 것은 아니다.
+
+## 로그·분석 보존 기간
+
+A22의 보존 기간 정본이다. 탈퇴자 자료는 이 기간이 지나면 저장소 만료로 파기된다. 값을 바꾸면 구현 위치의 설정을 같은 변경에서 맞춘다.
+
+| ID | 저장소 | 보존 기간 | 구현 위치 | 상태 |
+| --- | --- | --- | --- | --- |
+| L01 | APP 시스템 로그 파일(`logs/app.log`·일별 회전본, 운영 호스트 `/var/log/springboot`) | **7일** | `logback-spring.xml` `APP_FILE_RAW` `maxHistory=7` | 적용 |
+| L02 | user-activity 로그 파일(`logs/user-activity.log`·일별 회전본, 같은 호스트 경로) | **30일** | `logback-spring.xml` `UA_FILE_RAW` `maxHistory=30` | 적용 |
+| L03 | S3 적재본 `app/` 접두(전날 `app.YYYY-MM-DD.log`) | **7일** | `server/scripts/s3-log-archive-lifecycle.json` 규칙 `app-log-expire` | 규칙 정의, 버킷 적용 대기 |
+| L04 | S3 적재본 `user-activity/` 접두(전날 `user-activity.YYYY-MM-DD.log`) | **30일** | 같은 파일 규칙 `user-activity-log-expire` | 규칙 정의, 버킷 적용 대기 |
+| L05 | GA4 속성 이벤트 데이터(Firebase Analytics 앱스트림·서버 MP 포함) | **2개월**(권장값) | GA4 관리 > 데이터 설정 > 데이터 보존 | **GA4 관리 화면에서 재영님이 설정 — 설정값 확인 필요** |
+| L06 | dev Loki(컨테이너 stdout) | 7일(168h) | `server/observability/loki/loki-config.yml` `retention_period` + compactor | 적용(dev 전용) |
+| L07 | Datadog Logs(dev·prod 컨테이너 stdout, APP MDC user_id 포함) | 미정 | Datadog 로그 인덱스 보존(저장소 밖) | 미확인 |
+| L08 | Datadog APM trace | 미정 | Datadog 보존 필터(저장소 밖) | 미확인 |
+| L09 | Docker 컨테이너 로그(json-file, APP stdout) | 미정 — 크기·기간 제한 없음, 컨테이너 재생성 때만 삭제 | compose `logging` 옵션 없음 | 미설정 |
+
+- S3 만료는 객체 생성(업로드) 시각 기준이고 하루 단위로 처리된다. 전날 파일을 다음 날 올리므로 실제 삭제는 로그 날짜 기준 기간보다 최대 2일 늦을 수 있다. 버전 관리 버킷이면 만료가 삭제 표식만 남기므로 규칙의 비현행 버전 1일 만료가 원본을 지운다.
+- S3 적재 파이프라인(운영 compose 주석의 590·790)과 버킷은 이 저장소에 없다. 업로더는 위 두 접두 아래에만 쓴다. 다른 접두로 올리면 만료 규칙이 닿지 않는다.
+- GA4 이벤트 데이터 보존은 2개월과 14개월만 고를 수 있어 최솟값 2개월을 권장한다. 같은 화면의 「새 활동 시 사용자 데이터 재설정」은 꺼서 새 이벤트가 만료를 늦추지 않게 한다. BigQuery 내보내기가 연결돼 있으면 내보낸 자료에는 이 보존 기간이 적용되지 않으므로 연결 여부도 함께 확인한다.
+- L07~L09가 정해지기 전에는 해당 저장소의 탈퇴 파기 완료를 주장하지 않는다.
 
 ## RT 장부 대조
 
