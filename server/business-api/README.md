@@ -961,3 +961,16 @@ sequenceDiagram
 후속 활성화 조건은 원본 주민 목록 snapshot, 구독 완료 후 재조회/버퍼 병합, 최종 outbound의 현재
 멤버십 검사, 재시작/재전달/다중 노드 검증이다. 아직 열리지 않은 가입신청 개인큐나 다른 13개 사건을
 이 위임 때문에 함께 열지 않는다. 기존 위임·가입·이탈·계정 탈퇴의 잠금과 legacy 응답 호환도 회귀 대상이다.
+
+
+## 섬 관리·주민 6종: 방장 일은 방장만, 떠나는 일은 본인만
+
+GROMO-1802 가 [섬 관리 LLD](../../docs/prd/fishcat/island-management/low-level-design.md) §3 의 잔여 6종을 연다.
+`PATCH /islands/{islandId}`(이름·소개·가입 방식) · `GET /islands/{islandId}/members` · `GET /islands/{islandId}/join-requests`
+· `PATCH /islands/{islandId}/join-requests/{requestId}`(`{decision: approve|reject}`) · `DELETE /islands/{islandId}/members/{userId}`
+· `DELETE /islands/{islandId}/memberships/me`. Business 는 모양 검증·목록 서명 커서·상류 코드 변환만 하고, 현재 역할·
+정원·잠금·원자 변경은 Data 가 판정한다. 명령 4종은 UUID `Idempotency-Key` 필수이고 같은 키는 Data receipt 가 재생한다.
+
+**명령 4종도 기본 비활성이다.** Data 의 `island-management.commands-enabled` 기본값이 false 라 수정·승인/거절·
+강퇴·나가기는 503 `SERVICE_UNAVAILABLE` 로 끝나며 아무것도 쓰지 않는다. 두 목록 조회는 게이트가 없다.
+legacy 400 코드 `CANNOT_KICK_SELF`·`HOST_WITHDRAW` 는 공개 409 `STATE_CONFLICT` 로 옮긴다(상태가 거절 이유다).
