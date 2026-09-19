@@ -162,6 +162,13 @@ internal:
           # GROMO-1779 공용 음악(방송기) 2종 — 조회와 변경은 메서드로만 갈리므로 합치지 않는다.
           - 'GET /internal/islands/*/playback'
           - 'PATCH /internal/islands/*/playback'
+          # GROMO-1781 섬 상점 5종 — 목록과 상세는 세그먼트 수가 다르고, 내역 조회와 구매는 메서드로만 갈리므로
+          # 줄을 합치지 않는다.
+          - 'GET /internal/islands/*/shop/wallets'
+          - 'GET /internal/islands/*/shop/products'
+          - 'GET /internal/islands/*/shop/products/*'
+          - 'POST /internal/islands/*/shop/orders'
+          - 'GET /internal/islands/*/shop/orders'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:
@@ -302,6 +309,11 @@ outbox:
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
       "[playback.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[inventory.updated]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST

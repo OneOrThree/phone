@@ -108,7 +108,7 @@
 | `KAFKA` | `notification-events` 토픽(key=userId) | 없음(`toKafka()`) | relay 가 켜지면 항상 |
 | `NOTI` | 알림 서버 HTTP | `noti.*` 4개 | `application-satellites.yml` 에 `target: NOTI` 키가 있을 때 |
 | `LINK` | 링크 HTTP(A23 로 서버 분리는 폐기됐고 걷어내기는 링크 구현 PR 몫) | `link.*` 7개 | `target: LINK` 키가 있을 때 |
-| `REALTIME` | realtime — **HTTP 기본 · Kafka 선택**(2026-09-19 R-1). HTTP 는 `POST /internal/events`(Data 전용 토큰 `SVC_TOKEN_DATA_TO_REALTIME`), Kafka 는 `realtime-events` 토픽(key=userId, `.DLT` 포함). realtime 은 두 입구를 한 처리기(`InboundEventService`)로 받아 `eventId` 로 한 번만 적용한다 | 사건 `type` 과 같은 값 — 13개 전부 `application-satellites.yml` 에 등록(`RealtimeOutboxEndpointsTest`) | 기본: `target: REALTIME` 키가 있을 때 HTTP. `outbox.relay.realtime-kafka-enabled=true` 면 HTTP 대신 Kafka(한 대상에 경로 하나). 앱 사건 14종은 realtime 이 받아 중복만 거르고 **앱으로는 아직 내보내지 않는다**(섬 구독 인가 미구현 — `StompAuthChannelInterceptor`) |
+| `REALTIME` | realtime — **HTTP 기본 · Kafka 선택**(2026-09-19 R-1). HTTP 는 `POST /internal/events`(Data 전용 토큰 `SVC_TOKEN_DATA_TO_REALTIME`), Kafka 는 `realtime-events` 토픽(key=userId, `.DLT` 포함). realtime 은 두 입구를 한 처리기(`InboundEventService`)로 받아 `eventId` 로 한 번만 적용한다 | 사건 `type` 과 같은 값 — 14개 전부 `application-satellites.yml` 에 등록(`RealtimeOutboxEndpointsTest`) | 기본: `target: REALTIME` 키가 있을 때 HTTP. `outbox.relay.realtime-kafka-enabled=true` 면 HTTP 대신 Kafka(한 대상에 경로 하나). 앱 사건 14종은 realtime 이 받아 중복만 거르고 **앱으로는 아직 내보내지 않는다**(섬 구독 인가 미구현 — `StompAuthChannelInterceptor`) |
 
 - 대상 하나당 전달 요구 하나. **대상별 전달 상태를 합치지 않는다** — 합치면 한쪽만 실패했을 때 성공한 쪽이 재전달되거나(중복)
   실패한 쪽이 영영 안 간다(유실).
@@ -217,6 +217,7 @@ GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId →
 | `internal/service/InternalIslandMailboxService.java:145` | `message.created` | REALTIME | `MESSAGE` | `<type>:<messageId>` |
 | `focus/service/FocusMemberEvents.java:77`(호출: `FocusSessionLifecycleService`·`FocusMembershipLossService`) | `focus.member.updated` · `rest.member.updated` | REALTIME | `FOCUS_MEMBER` · `REST_MEMBER` | UUID |
 | `appearance/service/AppearanceEvents.java:103` | `member.appearance.updated` · `island.appearance.updated` · `playback.updated` | REALTIME | `USER_APPEARANCE` · `ISLAND_APPEARANCE` · `ISLAND_PLAYBACK` | UUID — `append(command, domainVersion)`, version 은 외양·재생 행이 발급(§2.3) |
+| `appearance/service/AppearanceEvents#inventoryChanged`(호출: 상점 구매 `ShopService`, GROMO-1781) | `inventory.updated` | REALTIME | `USER_INVENTORY` · `ISLAND_INVENTORY` | UUID — version 은 `append` 가 발급. 개인 소유면 `subjectId=null`(§2.9) |
 
 포트를 부르지만 봉투를 적지 않는 곳: `allocateVersion` — `AuthSessionService`(세션 epoch)·`InternalInviteLinkService:185`(claim 의도);
 `currentVersion` — `InternalNotificationSettingsService:92`(설정 스냅샷 경계); `eraseWithdrawnParam` — `LinkMembershipEventService:335`

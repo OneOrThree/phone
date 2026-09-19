@@ -1,5 +1,6 @@
 package com.oneorthree.phone.appearance.service;
 
+import com.oneorthree.phone.appearance.repository.domain.CatalogAsset;
 import com.oneorthree.phone.appearance.repository.domain.IslandAppearance;
 import com.oneorthree.phone.appearance.repository.domain.PersonalAppearance;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
@@ -41,6 +42,7 @@ public class AppearanceEvents {
     public static final String EVENT_MEMBER_APPEARANCE = "member.appearance.updated";
     public static final String EVENT_ISLAND_APPEARANCE = "island.appearance.updated";
     public static final String EVENT_PLAYBACK = "playback.updated";
+    public static final String EVENT_INVENTORY = "inventory.updated";
 
     static final String AGGREGATE_USER_APPEARANCE = "USER_APPEARANCE";
     static final String AGGREGATE_ISLAND_APPEARANCE = "ISLAND_APPEARANCE";
@@ -93,6 +95,28 @@ public class AppearanceEvents {
     public EventEnvelope playbackChanged(UUID islandId, UUID actorId, long version, Map<String, Object> params) {
         return append(EVENT_PLAYBACK, actorId, islandId,
                 new AggregateRef(AGGREGATE_ISLAND_PLAYBACK, islandId.toString()), version, params);
+    }
+
+    /**
+     * 보유품 변경 (GROMO-1781 상점 구매 지급) — 축은 주인별 인벤토리 목록(USER_INVENTORY·ISLAND_INVENTORY)이다.
+     * 외양·재생과 달리 도메인 행이 version 을 매기지 않으므로 {@code aggregate_versions} 가 발급하고
+     * ({@link com.oneorthree.phone.appearance.dto.SharedInventoryView#inventoryVersion} 이 같은 축을 읽는다),
+     * params 에는 version 을 싣지 않는다(규약 §2.3).
+     *
+     * <p>개인 소유면 섬 범위가 없어 {@code subjectId=null}(규약 §2.9), 섬 소유면 그 섬이다. 잔액·주문 상세는
+     * 싣지 않는다(상점 LLD §5).
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public EventEnvelope inventoryChanged(String ownerType, UUID ownerId, UUID actorId, String productId) {
+        boolean island = CatalogAsset.OWNER_ISLAND.equals(ownerType);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("ownerType", ownerType);
+        params.put("ownerId", ownerId.toString());
+        params.put("productId", productId);
+        return outbox.append(new OutboxAppendCommand(UUID.randomUUID().toString(), SCHEMA_VERSION, EVENT_INVENTORY,
+                actorId, null, island ? ownerId.toString() : null,
+                new AggregateRef(island ? AGGREGATE_ISLAND_INVENTORY : AGGREGATE_USER_INVENTORY, ownerId.toString()),
+                null, params, List.of(OutboxDeliveryRequest.toRealtime(EVENT_INVENTORY, null))));
     }
 
     // ---------------------------------------------------------------- 공통

@@ -63,6 +63,8 @@ public class ScreenReadUseCase {
     private static final String GRAM = "gram";
     private static final String LIBRARY = "library";
     private static final String SHOP = "shop";
+    /** 판매 음원 카테고리(B20) — 상점 도메인의 category 계약 문자열. */
+    private static final String SOUND = "sound";
     /** 시설 완공 판정 재료(건설 옵션) — 화면 응답에는 싣지 않는 내부 조각이다. */
     private static final String FACILITIES = "facilities";
 
@@ -81,6 +83,7 @@ public class ScreenReadUseCase {
     private final PlaybackUseCase playback;
     private final IslandMailboxUseCase mailbox;
     private final LetterUseCase letters;
+    private final ShopUseCase shop;
 
     /** {@code launch} — 계정·소속·진행 세션. 세션 없음은 {@code session:null} 정상값이다. */
     public Map<String, Object> launch(AccessTokenClaims claims, String requestId) {
@@ -180,7 +183,7 @@ public class ScreenReadUseCase {
     /**
      * {@code home} — 섬 문맥 뒤 오늘 집중 요약·현재 세션·휴식 주민·방송기 완공 판정을 병렬로 읽고, 방송기가
      * 완공이면 {@code playback} 을 읽는다. 휴식 주민은 BG11 결정(2026-09-19)으로 싣는다 — 도메인 403 이면
-     * 다른 조각처럼 화면 전체가 실패한다. 빠진 조각: {@code wallets}(섬 상점 지갑 GET 없음).
+     * 다른 조각처럼 화면 전체가 실패한다. 지갑({@code wallets})도 같은 병렬 단계다(GROMO-1781).
      */
     public Map<String, Object> home(AccessTokenClaims claims, String date, String timezone, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -191,9 +194,10 @@ public class ScreenReadUseCase {
                 fragment("focusSummary", deadline -> focus.summary(claims, date, timezone, deadline)),
                 fragment("session", deadline -> focus.current(claims, deadline)),
                 fragment("restMembers", deadline -> focusMembers.restMembers(claims, island.id(), deadline)),
+                wallets(claims, island.id()),
                 facilities(claims, island.id())));
         putPlayback(screen, parallel, context, claims, island.id());
-        return missing(screen, "wallets");
+        return screen;
     }
 
     /**
@@ -221,7 +225,7 @@ public class ScreenReadUseCase {
      * {@code town-hall} — 역할 확인 뒤 방장이면 신청자 목록을 같은 병렬 단계에 더한다. 일반 주민은 신청자
      * 목록을 <b>부르지 않고</b> {@code host_only} 다. 역할 확인 뒤 위임돼 Data 가 403 을 주면 그 403 이 화면
      * 전체 오류다 — 옛 역할로 빈 목록을 지어내지 않는다(B03). 두 목록은 도메인 GET 과 같은 서명 커서를
-     * 발행하므로 다음 페이지는 도메인 GET 이 이어받는다(B10). 빠진 조각: {@code wallets}.
+     * 발행하므로 다음 페이지는 도메인 GET 이 이어받는다(B10). 지갑({@code wallets})은 같은 병렬 단계다(GROMO-1781).
      */
     public Map<String, Object> townHall(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -235,7 +239,8 @@ public class ScreenReadUseCase {
         List<ReadFragment<?>> fragments = new ArrayList<>(List.of(
                 fragment("members", deadline -> management.members(claims, islandId, null,
                         IslandManagementUseCase.DEFAULT_LIMIT, deadline)),
-                fragment("constructionOptions", deadline -> construction.options(claims, islandId, deadline))));
+                fragment("constructionOptions", deadline -> construction.options(claims, islandId, deadline)),
+                wallets(claims, islandId)));
         if (host) {
             fragments.add(fragment("joinRequests", deadline -> management.joinRequests(claims, islandId, null,
                     IslandManagementUseCase.DEFAULT_LIMIT, deadline)));
@@ -247,7 +252,7 @@ public class ScreenReadUseCase {
             screen.put("joinRequests", null);
         }
         screen.put("joinRequestsAvailability", host ? AVAILABLE : HOST_ONLY);
-        return missing(screen, "wallets");
+        return screen;
     }
 
     // ------------------------------------------------ 시설 화면 (GROMO-1898)
@@ -259,7 +264,7 @@ public class ScreenReadUseCase {
      * {@code board} — 섬 문맥 뒤 현재 퀘스트·공지 첫 페이지를 병렬로 읽는다. 게시판 미완공은 두 도메인 GET 의
      * 게이트({@code QUEST_BOARD_LOCKED}·{@code BOARD_LOCKED})가 403 {@code FACILITY_LOCKED} 로 내고 그대로 화면
      * 전체 403 이다. 공지 커서는 도메인 GET 과 같은 서명 커서라 다음 페이지를 이어받는다(B10).
-     * 빠진 조각: {@code wallets}(섬 상점 지갑 GET 없음).
+     * 지갑({@code wallets})도 같은 병렬 단계다(GROMO-1781).
      */
     public Map<String, Object> board(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -269,8 +274,9 @@ public class ScreenReadUseCase {
         screen.put("island", island);
         screen.putAll(composer.compose(context, List.of(
                 fragment("quests", deadline -> quests.current(claims, islandId, deadline)),
-                fragment("notices", deadline -> notices.list(claims, islandId, null, deadline)))));
-        return missing(screen, "wallets");
+                fragment("notices", deadline -> notices.list(claims, islandId, null, deadline)),
+                wallets(claims, islandId))));
+        return screen;
     }
 
     /**
@@ -295,10 +301,11 @@ public class ScreenReadUseCase {
 
     /**
      * {@code shop} — 섬 문맥 뒤 상점 완공을 판정하고(미완공이면 화면 전체 403 {@code FACILITY_LOCKED}, 조각
-     * 호출 없음) 공동 보유품을 읽는다. 빠진 조각: {@code wallets}·{@code products}(상점 GET 없음, 티켓 1781 은
-     * 테이블만 있다).
+     * 호출 없음) 공동 보유품·지갑·상품 첫 페이지({@code category=personal|island}, 기본 personal)를 병렬로 읽는다
+     * (GROMO-1781). 상품 커서는 도메인 GET 과 같은 서명 커서라 다음 페이지를 이어받는다(B10). 활성 카탈로그가
+     * 없으면 상품은 빈 목록이다(N25).
      */
-    public Map<String, Object> shop(AccessTokenClaims claims, String requestId) {
+    public Map<String, Object> shop(AccessTokenClaims claims, String category, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         IslandDetail island = currentIsland(context, claims);
         UUID islandId = island.id();
@@ -308,14 +315,16 @@ public class ScreenReadUseCase {
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
         screen.putAll(composer.compose(context, List.of(
-                fragment("sharedInventory", deadline -> appearance.islandInventory(claims, islandId, deadline)))));
-        return missing(screen, "wallets", "products");
+                fragment("sharedInventory", deadline -> appearance.islandInventory(claims, islandId, deadline)),
+                wallets(claims, islandId),
+                products(claims, islandId, category))));
+        return screen;
     }
 
     /**
      * {@code playback} — 섬 문맥 뒤 공동 보유품·재생 상태를 병렬로 읽는다. 방송기 미완공은 재생 GET 의 게이트
-     * ({@code GRAM_LOCKED})가 403 {@code FACILITY_LOCKED} 로 내고 그대로 화면 전체 403 이다. 빠진 조각:
-     * {@code products}(판매 음원 {@code category=sound}, B20)·{@code wallets} — 상점 GET 이 없다.
+     * ({@code GRAM_LOCKED})가 403 {@code FACILITY_LOCKED} 로 내고 그대로 화면 전체 403 이다. 판매 음원
+     * ({@code products}, {@code category=sound}, B20)과 지갑도 같은 병렬 단계다(GROMO-1781).
      */
     public Map<String, Object> playback(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -325,8 +334,10 @@ public class ScreenReadUseCase {
         screen.put("island", island);
         screen.putAll(composer.compose(context, List.of(
                 fragment("sharedInventory", deadline -> appearance.islandInventory(claims, islandId, deadline)),
-                fragment("playback", deadline -> playback.get(claims, islandId, deadline)))));
-        return missing(screen, "products", "wallets");
+                fragment("playback", deadline -> playback.get(claims, islandId, deadline)),
+                products(claims, islandId, SOUND),
+                wallets(claims, islandId))));
+        return screen;
     }
 
     // ------------------------------------------------ 우체통·친구 화면 (GROMO-1899)
@@ -446,6 +457,16 @@ public class ScreenReadUseCase {
     }
 
     // ---------------------------------------------------------------- 조각
+
+    private ReadFragment<?> wallets(AccessTokenClaims claims, UUID islandId) {
+        return fragment("wallets", deadline -> shop.wallets(claims, islandId, deadline));
+    }
+
+    /** 상품 첫 페이지 — 도메인 GET 기본 limit 과 같아야 화면의 nextCursor 를 도메인 GET 이 이어받는다(B10). */
+    private ReadFragment<?> products(AccessTokenClaims claims, UUID islandId, String category) {
+        return fragment("products", deadline -> shop.products(claims, islandId, category, null,
+                ShopUseCase.DEFAULT_LIMIT, deadline));
+    }
 
     private ReadFragment<?> me(AccessTokenClaims claims) {
         return fragment("me", deadline -> account.me(claims, deadline));

@@ -30,4 +30,13 @@ public class AudioTrack {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /** 음원 길이 한 행 — 카탈로그 등록 시 자산 정의와 함께 넣는다. 갱신 경로는 없다. */
+    public static AudioTrack of(String productId, int durationMillis, Instant createdAt) {
+        AudioTrack track = new AudioTrack();
+        track.productId = productId;
+        track.durationMillis = durationMillis;
+        track.createdAt = createdAt;
+        return track;
+    }
 }
