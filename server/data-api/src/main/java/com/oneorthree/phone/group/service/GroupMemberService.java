@@ -333,6 +333,8 @@ public class GroupMemberService {
         groupChallengeMemberRepository.deleteAllOfUser(userId);
         groupAnnouncementRepository.detachAuthor(userId);
         groupInviteRepository.deleteAllInvolving(userId);
+        // 링크 서버로 나간·나갈 닉네임 변경 봉투 속 이름 사본(GROMO-1946)
+        linkMembershipEventService.eraseWithdrawnDisplayName(userId);
     }
 
     /**

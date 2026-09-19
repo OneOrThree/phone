@@ -64,6 +64,10 @@ class ChatMessageServiceTest {
     @Mock
     private ChatFanout chatFanout;
 
+    /** 목의 기본 응답(빈 집합) = 탈퇴 발신자 없음. 치환 자체는 {@code ChatControllerTest} 가 실물 DB 로 본다. */
+    @Mock
+    private WithdrawnSenders withdrawnSenders;
+
     private ChatMessageService chatMessageService;
 
     private UUID groupId;
@@ -74,7 +78,7 @@ class ChatMessageServiceTest {
         groupId = UUID.randomUUID();
         senderId = UUID.randomUUID();
         chatMessageService = new ChatMessageService(chatMessageRepository, accessGuard, chatFanout,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC), withdrawnSenders);
     }
 
     @Test

@@ -6,6 +6,8 @@ import com.oneorthree.realtime.common.id.UuidV7;
 import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.repository.ChatMessageRepository;
 import com.oneorthree.realtime.message.repository.domain.ChatMessage;
+import com.oneorthree.realtime.tombstone.UserTombstone;
+import com.oneorthree.realtime.tombstone.UserTombstoneRepository;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +33,8 @@ import java.util.Date;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -60,6 +64,9 @@ class ChatControllerTest {
 
     @Autowired
     private ChatMessageRepository chatMessageRepository;
+
+    @Autowired
+    private UserTombstoneRepository tombstones;
 
     @Value("${jwt.secret}")
     private String jwtSecret;
@@ -240,6 +247,30 @@ class ChatControllerTest {
     void actuatorIsNotOnTheMainPort() throws Exception {
         mockMvc.perform(get("/actuator/health"))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    @DisplayName("탈퇴 발신자의 senderId 는 히스토리·방 목록 최신 메시지에서 null 이다 — 행 구분은 messageId (GROMO-1946)")
+    void hidesWithdrawnSenderIdInPublicResponses() throws Exception {
+        ChatMessage fromActive = messageIn(island);
+        ChatMessage fromWithdrawn = messageIn(island);
+        tombstones.saveAndFlush(UserTombstone.builder().userId(fromWithdrawn.getSenderId()).authGeneration(1L)
+                .withdrawnAt(Instant.now()).build());
+
+        mockMvc.perform(get("/api/v1/chat/rooms/" + island + "/messages")
+                        .header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.messages[0].messageId").value(fromWithdrawn.getId().toString()))
+                .andExpect(jsonPath("$.messages[0].senderId").value(nullValue()))
+                .andExpect(jsonPath("$.messages[0].content").value("안녕"))
+                .andExpect(jsonPath("$.messages[1].senderId").value(fromActive.getSenderId().toString()));
+        mockMvc.perform(get("/api/v1/chat/rooms").header(HttpHeaders.AUTHORIZATION, bearer))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].lastMessage.messageId").value(fromWithdrawn.getId().toString()))
+                .andExpect(jsonPath("$[0].lastMessage.senderId").value(nullValue()));
+        // 저장된 sender_id 는 보존한다 — 공개 응답에서만 끊는다
+        assertThat(chatMessageRepository.findById(fromWithdrawn.getId()).orElseThrow()
+                .getSenderId()).isEqualTo(fromWithdrawn.getSenderId());
     }
 
     /** 그 섬에 메시지 한 건을 심는다. 읽음 커서 검증이 «실제 행»을 요구하므로 필요하다. */

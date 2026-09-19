@@ -21,6 +21,7 @@ import com.oneorthree.phone.group.dto.ChallengeMemberProgressResponse;
 import com.oneorthree.phone.group.dto.CreateBetRequest;
 import com.oneorthree.phone.group.dto.CreateBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetConfigResponse;
+import com.oneorthree.phone.group.dto.GroupBetParticipantResponse;
 import com.oneorthree.phone.group.dto.GroupBetResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultParticipantResponse;
 import com.oneorthree.phone.group.dto.GroupBetResultResponse;
@@ -66,6 +67,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -1255,9 +1257,13 @@ class GroupBetServiceTest {
         // 계약 §1 — 행 제거·pot 재계산 금지: pot = stake(30) × 원본 인원(2) 그대로다.
         assertThat(response.getPot()).isEqualTo(60);
         assertThat(response.getResults()).hasSize(2);
+        // 탈퇴자 행의 공개 userId 는 null, 목록 key 는 참가 행 id 로 남는다 (GROMO-1946 · 계정 LLD §4)
         assertThat(response.getResults())
                 .extracting(GroupBetResultParticipantResponse::getUserId)
-                .containsExactly(USER_ID, OTHER_USER_ID);
+                .containsExactly(USER_ID, null);
+        assertThat(response.getResults())
+                .extracting(GroupBetResultParticipantResponse::getParticipantId)
+                .containsExactly(PARTICIPANT_ID, OTHER_PARTICIPANT_ID);
         assertThat(response.getResults().get(1).getNickname())
                 .isEqualTo(GroupBetService.WITHDRAWN_USER_NICKNAME);
         assertThat(response.getResults().get(0).getNickname())
@@ -1297,6 +1303,42 @@ class GroupBetServiceTest {
         assertThat(response.getParticipants()).hasSize(2);
         assertThat(response.getParticipants().get(1).getNickname())
                 .isEqualTo(GroupBetService.WITHDRAWN_USER_NICKNAME);
+        // 탈퇴자 행의 공개 userId 는 null, 목록 key 는 참가 행 id (GROMO-1946 · 계정 LLD §4)
+        assertThat(response.getParticipants())
+                .extracting(GroupBetParticipantResponse::getUserId)
+                .containsExactly(USER_ID, null);
+        assertThat(response.getParticipants())
+                .extracting(GroupBetParticipantResponse::getParticipantId)
+                .containsExactly(PARTICIPANT_ID, OTHER_PARTICIPANT_ID);
+        // 시작된 회차의 신앱 명단(bet.session)도 같다 — 탈퇴자는 정산 대상이라 명단에 남는다
+        assertThat(response.getSession().getParticipants())
+                .extracting(GroupBetSessionParticipantResponse::getUserId,
+                        GroupBetSessionParticipantResponse::getParticipantId)
+                .containsExactly(tuple(USER_ID, PARTICIPANT_ID), tuple(null, OTHER_PARTICIPANT_ID));
+    }
+
+    @Test
+    @DisplayName("최초 참가자가 탈퇴자면 creatorUserId 는 null 이다 — 탈퇴자 UUID 를 공개하지 않는다 (GROMO-1946)")
+    void loadCurrentBetsHidesWithdrawnCreatorUserId() {
+        GroupChallengeBetSession open = session(GroupBetStatus.OPEN, today());
+        GroupChallengeBetParticipant withdrawnFirst = GroupChallengeBetParticipant.builder()
+                .id(OTHER_PARTICIPANT_ID)
+                .session(open)
+                .user(User.builder().id(OTHER_USER_ID).isGuest(false).isDeleted(true).build())
+                .createdAt(Instant.now().minusSeconds(60))
+                .build();
+        given(groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatusNot(
+                List.of(CHALLENGE_ID), today(), GroupBetStatus.UNUSED))
+                .willReturn(List.of(open));
+        given(groupChallengeBetParticipantRepository.findBySessionIdIn(List.of(SESSION_ID)))
+                .willReturn(List.of(participantOf(open, USER_ID), withdrawnFirst));
+
+        GroupBetResponse response = groupBetService.loadCurrentBets(
+                List.of(CHALLENGE_ID), today(), USER_ID, Map.of()).get(CHALLENGE_ID);
+
+        assertThat(response.getCreatorUserId()).isNull();
+        // 본인 판정은 실제 user_id 로 한다 — 공개 치환이 내부 판정을 바꾸지 않는다
+        assertThat(response.getMyJoined()).isTrue();
     }
 
     // ── 신앱 additive 필드 (GROMO-1418 — bet.session·enabled·다음 회차 축) ─────
@@ -1695,10 +1737,12 @@ class GroupBetServiceTest {
                 .userId(USER_ID).nickname("재영").progressMinutes(minutes).achieved(false).build()));
     }
 
+    /** 참가 행 id 로 찾는다 — 탈퇴자 행은 공개 userId 가 null 이다(GROMO-1946). 픽스처가 사용자별 행 id 를 고정한다. */
     private GroupBetSessionParticipantResponse sessionRowOf(
             Map<UUID, GroupBetResponse> bets, UUID targetUserId) {
+        UUID participantId = USER_ID.equals(targetUserId) ? PARTICIPANT_ID : OTHER_PARTICIPANT_ID;
         return bets.get(CHALLENGE_ID).getSession().getParticipants().stream()
-                .filter(p -> p.getUserId().equals(targetUserId))
+                .filter(p -> p.getParticipantId().equals(participantId))
                 .findFirst()
                 .orElseThrow();
     }
@@ -1731,6 +1775,7 @@ class GroupBetServiceTest {
                 durationTarget(MissionCategory.FOCUS), Map.of());
 
         GroupBetSessionParticipantResponse erased = sessionRowOf(bets, OTHER_USER_ID);
+        assertThat(erased.getUserId()).isNull();
         assertThat(erased.getProgressMinutes()).isEqualTo(GOAL_MINUTES + 40);
         assertThat(erased.getAchieved()).isTrue();
     }

@@ -163,7 +163,7 @@ public class AccountWithdrawalService {
 
         // friendships 행 잠금 구간. 관계와 무관한 정리를 끝낸 뒤에 잡는다.
         friendService.detachWithdrawnUser(userId);
-        // 공개 명령 receipt 속 개인 응답(이름 등)을 지운다 — 탈퇴 뒤 재생은 활성 검사가 먼저 거절한다.
+        // 멱등 기록을 전부 지운다 — 공개 receipt 속 개인 응답(이름 등)과 legacy 행 속 기기 토큰(GROMO-1946).
         publicCommandService.forgetReceiptsOf(userId);
 
         // 제약 ③ — 반드시 맨 끝. 소셜 벌크 DELETE 가 컨텍스트를 비우므로 뒤에 아무것도 올 수 없다.

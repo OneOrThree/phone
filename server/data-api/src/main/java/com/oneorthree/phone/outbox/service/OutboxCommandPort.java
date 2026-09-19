@@ -91,4 +91,20 @@ public interface OutboxCommandPort {
      * @return 값과 「재생인가」
      */
     <T> IdempotentOutcome<T> runIdempotent(IdempotencyRequest request, Class<T> responseType, Supplier<T> command);
+
+    /**
+     * 탈퇴자 봉투 속 개인정보 한 필드를 null 로 대체한다 — 봉투 불변의 <b>유일한 예외</b>이며 탈퇴 트랜잭션 전용이다
+     * (GROMO-1946 · 계정 LLD §4 「outbox 속 name」).
+     *
+     * <p>다시 나가지 않는 행(전달 완료)과 아직 한 번도 나가지 않은 행만 고친다. 시도했지만 미완료인 행은 같은
+     * 본문으로 재전달돼야 하므로 그대로 둔다 — 본문이 바뀐 재전달은 소비자의 {@code eventId} 대조에서 영구 실패가
+     * 되고, 고갈 처리가 없는 relay(A18)에서 그 축 전체를 막는다. 판정은
+     * {@code EventOutboxDeliveryRepository#eraseParamOfResendSafe} 에 있다.
+     *
+     * @param userId   봉투 주체 — {@code event_outbox.user_id} 가 이 값인 행만 대상이다
+     * @param type     사건 종류
+     * @param paramKey 대체할 {@code params} 키
+     * @return 고친 봉투 수
+     */
+    int eraseWithdrawnParam(UUID userId, String type, String paramKey);
 }

@@ -19,6 +19,7 @@ import java.text.Normalizer;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -56,6 +57,7 @@ public class ChatMessageService {
     private final ChatAccessGuard accessGuard;
     private final ChatFanout chatFanout;
     private final Clock clock;
+    private final WithdrawnSenders withdrawnSenders;
 
     /**
      * 섬에 말 한 마디를 남기고 그 방 사람들에게 민다.
@@ -140,7 +142,9 @@ public class ChatMessageService {
         } catch (DataIntegrityViolationException e) {
             return chatMessageRepository
                     .findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId)
-                    .map(existing -> new Stored(ChatMessageResponse.from(existing), false))
+                    // 재전송 응답은 보존 메시지다 — 그 사이 탈퇴한 발신자면 senderId 를 가린다(GROMO-1946)
+                    .map(existing -> new Stored(
+                            ChatMessageResponse.from(existing, withdrawnSenders.among(List.of(existing))), false))
                     .orElseThrow(() -> e);
         }
     }
@@ -215,9 +219,11 @@ public class ChatMessageService {
         boolean hasMore = rows.size() > limit;
         List<ChatMessage> pageRows = hasMore ? rows.subList(0, limit) : rows;
 
+        // 탈퇴 발신자는 한 번에 대조해 senderId 를 가린다(GROMO-1946 · 계정 LLD §4)
+        Set<UUID> withdrawn = withdrawnSenders.among(pageRows);
         List<ChatMessageResponse> messages = new ArrayList<>(pageRows.size());
         for (ChatMessage row : pageRows) {
-            messages.add(ChatMessageResponse.from(row));
+            messages.add(ChatMessageResponse.from(row, withdrawn));
         }
 
         // 다음 커서는 이 페이지의 «가장 오래된» 것 = 내림차순 목록의 마지막.
