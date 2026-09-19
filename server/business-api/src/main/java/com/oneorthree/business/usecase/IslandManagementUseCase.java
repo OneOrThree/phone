@@ -61,7 +61,9 @@ public class IslandManagementUseCase {
 
     /** 정보 수정 — 이름 안전 문자 규칙은 Data 에만 있다(정의가 하나). */
     private static final Map<String, PublicFailure> MANAGE = with(
-            Map.entry("INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null)));
+            Map.entry("INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null)),
+            // 빈 이름 — 공개 경계가 먼저 거르지만 닿으면 같은 422 다(api-platform policy OUT_OF_RANGE).
+            Map.entry("ISLAND_NAME_BLANK", new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "name")));
 
     private static final Map<String, PublicFailure> ANSWER = with(
             Map.entry("JOIN_REQUEST_NOT_FOUND", new PublicFailure(404, ApiErrorCode.NOT_FOUND, "requestId")),

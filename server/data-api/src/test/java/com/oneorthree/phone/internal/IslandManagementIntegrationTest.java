@@ -206,6 +206,14 @@ class IslandManagementIntegrationTest {
                             .contentType("application/json").content(body))
                     .andExpect(status().isBadRequest());
         }
+        // 빈 이름은 형식 오류가 아니라 값 범위 위반 — LLD §2 의 422 다.
+        for (String body : List.of("{\"name\":\"\"}", "{\"name\":\"   \"}")) {
+            mvc.perform(patch("/internal/islands/" + f.islandId()).header("Authorization", "Bearer " + TOKEN)
+                            .header("X-User-Id", f.host()).header("Idempotency-Key", UUID.randomUUID())
+                            .contentType("application/json").content(body))
+                    .andExpect(status().isUnprocessableEntity())
+                    .andExpect(jsonPath("$.code").value("ISLAND_NAME_BLANK"));
+        }
         assertThat(groups.findById(f.islandId()).orElseThrow().getName()).isEqualTo("관리섬");
     }
 

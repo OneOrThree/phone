@@ -76,6 +76,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
         "{\"password\":\"1234\"}|400|INVALID_REQUEST",
         "{\"approvalRequired\":\"true\"}|400|INVALID_REQUEST",
         "{\"name\":\"   \"}|422|OUT_OF_RANGE",
+        "{\"name\":\"\"}|422|OUT_OF_RANGE",
         "{\"intro\":null}|400|INVALID_REQUEST"})
     @DisplayName("정보 수정 본문 — 명시 null·계약 밖 키·타입 오류는 400, 빈 이름은 422 이고 상류에 닿지 않는다")
     void manageRejectsBadBodiesBeforeTheNetwork(String body, int expected, String code) throws Exception {
@@ -232,6 +233,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
         "PATCH_ANSWER,410,INVITATION_EXPIRED,410,INVITATION_EXPIRED",
         "PATCH_MANAGE,400,INVALID_REQUEST,400,INVALID_REQUEST",
         "PATCH_MANAGE,403,NOT_OWNER,403,FORBIDDEN",
+        "PATCH_MANAGE,422,ISLAND_NAME_BLANK,422,OUT_OF_RANGE",
         // 상태가 어긋난 같은 이름은 옮기지 않는다 — 조용한 오역 대신 502.
         "DELETE_KICK,409,CANNOT_KICK_SELF,502,UPSTREAM_CONTRACT_ERROR"})
     @DisplayName("상류 판정은 (상태, 코드) 쌍이 맞을 때만 공개 코드로 옮긴다 — legacy 400 두 건은 409 가 된다")

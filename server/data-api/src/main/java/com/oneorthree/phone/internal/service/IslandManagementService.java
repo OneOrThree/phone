@@ -94,6 +94,9 @@ public class IslandManagementService {
     @Transactional
     public IslandManageView manage(UUID userId, UUID islandId, IslandManageCommandRequest body, UUID key) {
         requireEnabled();
+        if (body.name() != null && body.name().isBlank()) {
+            throw new GroupException(GroupErrorCode.ISLAND_NAME_BLANK);
+        }
         Map<String, Object> fingerprint = new LinkedHashMap<>();
         if (body.name() != null) {
             fingerprint.put("name", body.name());

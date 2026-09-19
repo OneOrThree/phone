@@ -14,7 +14,9 @@ import java.util.Set;
  * isPrivate 등)는 옛 잠금·정원을 이 경로로 바꾸지 못하게 거절한다.
  *
  * <p>이름 안전 문자 규칙은 {@link CreateGroupRequest#NAME_PATTERN} 하나가 정의다 — 섬 생성
- * ({@link CreateIslandCommandRequest})과 같은 경계를 쓴다. 거절은 전부 400 {@code INVALID_REQUEST} 다.
+ * ({@link CreateIslandCommandRequest})과 같은 경계를 쓴다. 여기서의 거절은 전부 400 {@code INVALID_REQUEST} 다.
+ * <b>빈 이름만은 여기서 거르지 않는다</b> — LLD §2 가 422 로 정했는데 본문 파서 안의 예외는 읽기 실패 400 으로
+ * 접힌다. 빈 이름은 서비스가 {@code ISLAND_NAME_BLANK}(422)로 거절한다.
  *
  * @param name             새 이름 — null 이면 미변경
  * @param intro            새 소개 — null 이면 미변경
@@ -32,7 +34,7 @@ public record IslandManageCommandRequest(String name, String intro, Boolean appr
             throw new IllegalArgumentException("섬 정보 수정 요청의 필드가 올바르지 않습니다.");
         }
         String name = text(fields, "name");
-        if (name != null && (name.isBlank() || name.length() > NAME_MAX
+        if (name != null && !name.isBlank() && (name.length() > NAME_MAX
                 || !name.matches(CreateGroupRequest.NAME_PATTERN))) {
             throw new IllegalArgumentException("섬 이름이 올바르지 않습니다.");
         }
