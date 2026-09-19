@@ -10,8 +10,17 @@
 #   - 따라서 SM 키 이름은 스프링이 읽는 env 이름(application-prod.yml의 ${...})과 정확히 일치해야
 #     한다: API_DB_URL·API_DB_USERNAME·API_DB_PASSWORD·JWT_SECRET·GOOGLE_CLIENT_ID·APPLE_CLIENT_ID·DD_API_KEY 등.
 
+# 컨테이너 로그 보존(계정 정책 L09) — Docker json-file 은 «크기»로만 회전한다. 값의 근거는 README §로그 보존.
+x-app-logging: &app-logging
+  driver: json-file
+  options: {max-size: "50m", max-file: "4"}
+x-infra-logging: &infra-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   app:
+    logging: *app-logging
     image: ${ECR_REPO}:${IMAGE_TAG}
     container_name: gromo-app
     restart: unless-stopped
@@ -47,6 +56,7 @@ services:
     networks: [app-network]
 
   nginx:
+    logging: *app-logging
     # 마이너 버전 고정 (stable 브랜치) — 앱 이미지처럼 배포 재현성 보장
     image: nginx:1.28-alpine
     container_name: gromo-nginx
@@ -74,6 +84,7 @@ services:
   # ⚠️ 792 당시 "APM 미사용" 결정을 적어뒀으나 실제로는 app 이 -javaagent 로 APM 을 쓰고 있다(위 24행).
   #    주석이 구현과 어긋나 있어 정정한다 — APM 은 20% 샘플로 사용 중이다 (GROMO-1489).
   datadog-agent:
+    logging: *infra-logging
     image: gcr.io/datadoghq/agent:7
     container_name: gromo-datadog-agent
     restart: unless-stopped

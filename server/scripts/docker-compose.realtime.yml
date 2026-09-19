@@ -18,6 +18,14 @@
 
 name: phone
 
+# 컨테이너 로그 보존(계정 정책 L09) — Docker json-file 은 «크기»로만 회전한다. 값의 근거는 README §로그 보존.
+x-app-logging: &app-logging
+  driver: json-file
+  options: {max-size: "50m", max-file: "4"}
+x-infra-logging: &infra-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   # 채팅 데이터베이스를 «있으면 두고 없으면 만든다». 한 번 돌고 끝나는 잡이다.
   #
@@ -31,6 +39,7 @@ services:
   # CREATE DATABASE 는 IF NOT EXISTS 가 없다 — 그래서 존재 여부를 먼저 보고 없을 때만 만든다.
   # 여러 번 돌려도 안전하다(이미 있으면 아무 일도 하지 않는다).
   realtime-db-init:
+    logging: *infra-logging
     image: postgres:16-alpine
     container_name: phone-realtime-db-init
     environment:
@@ -52,6 +61,7 @@ services:
     restart: "no"
 
   realtime:
+    logging: *app-logging
     # 이 이미지는 main push 때 realtime-ci.yml 의 docker-build 잡이 올린다(:<sha> 와 :latest 둘 다).
     # 경로가 그쪽 REALTIME_IMAGE_REPOSITORY 와 «같아야» 한다 — 어긋나면 「올렸는데 안 뜬다」가 된다.
     #
@@ -80,6 +90,9 @@ services:
       # Data relay 의 사건 수신 자격(POST /internal/events, GROMO-1954). 비면 그 경로만 401 이라 Data 의 REALTIME
       # 전달이 멈춘다 — Data 의 SVC_TOKEN_DATA_TO_REALTIME 과 «같은 값», Business 토큰과는 «다른 값»(A22 ㊀).
       SVC_TOKEN_DATA_TO_REALTIME: ${SVC_TOKEN_DATA_TO_REALTIME:-}
+      # Business 우체통 내부 어댑터(/internal/*, GROMO-1775) 자격. 비면 그 경로만 401 — Business 의
+      # SVC_TOKEN_BIZ_TO_REALTIME 과 «같은 값», Data 토큰과는 «다른 값»(A22 ㊀).
+      SVC_TOKEN_BIZ_TO_REALTIME: ${SVC_TOKEN_BIZ_TO_REALTIME:-}
       # realtime-events Kafka 입구(2026-09-19 R-1). 기본 꺼짐 — 켜려면 Kafka 오버레이가 떠 있어야 한다.
       REALTIME_EVENTS_KAFKA_ENABLED: ${REALTIME_EVENTS_KAFKA_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}

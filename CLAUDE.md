@@ -25,7 +25,7 @@ shop items. Company `oneorthree`. The frozen 1.x app uses iOS bundle id
 | `server/realtime/`          | Spring Boot 4 realtime service — WebSocket/STOMP + Redis, its own `gromo_chat` DB. A **separate** Gradle project sharing no code with `data-api`. See `server/realtime/CLAUDE.md`. |
 | `server/business-api/` | 공개 파일 링크 미리보기 Spring Boot 서비스. 독립 Gradle·전용 Redis. 실행·API 계약은 `server/business-api/README.md`. |
 | `server/observability/` | Prometheus / Grafana / Loki / Datadog configs for the dev observability overlay. See `server/observability/README.md`. |
-| `server/scripts/`       | The `docker-compose.*.yml` files (`dev` / `local` / `prod` / `datadog` / `observability` / `realtime`). |
+| `server/scripts/`       | The `docker-compose.*.yml` files (`dev` / `local` / `prod` base + `realtime` / `kafka` / `satellites` / `satellites.data` / `business` / `datadog` / `observability` overlays) and satellite deploy prep. The one-line compose combo per environment, the "empty secret → behaviour" table and log-rotation values live in `server/scripts/README.md` §3–§6. |
 | `loadtest/`             | k6 load-testing harness (scenarios, GCP runner terraform, trigger dashboard). See `loadtest/README.md`. |
 | `docs/`                 | **Team-shared** docs, tracked in git: `docs/prd/<product>/<feature>/` with PRD, policy, IA, high-level/low-level design, diagrams; repo-wide conventions in `docs/conventions/`. See `docs/README.md`. |
 | `.github/workflows/`    | CI/CD pipelines (see below). |

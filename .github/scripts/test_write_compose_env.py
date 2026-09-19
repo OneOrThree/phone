@@ -286,6 +286,40 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(env_file.read_text(), "previous")
             self.assertNotIn(payload["SVC_TOKEN_CONSOLE_TO_NOTI"], result.stdout + result.stderr)
 
+    def test_legacy_dev_env의_선택값이_실제_dev_realtime_compose로_전달된다(self) -> None:
+        # GROMO-1957 — 전에는 legacy 가 9개 키만 써서 realtime 오버레이의 SVC_TOKEN_DATA_TO_REALTIME 이 dev 에서
+        # 늘 비었다(Data relay 의 REALTIME 전달이 401). 값이 있으면 옮기고, 없으면 compose 기본값이 남는다.
+        scripts = Path(__file__).resolve().parents[2] / "server" / "scripts"
+        for present in (True, False):
+            with self.subTest(present=present), tempfile.TemporaryDirectory() as directory:
+                env_file = Path(directory) / "dev.env"
+                values = secret()
+                if present:
+                    values.update(SVC_TOKEN_DATA_TO_REALTIME="data-rt", SVC_TOKEN_BIZ_TO_REALTIME="biz-rt",
+                                  FOCUS_SESSION_START_ENABLED=True)
+                subprocess.run([sys.executable, str(SCRIPT), "--output", str(env_file), "--app-image",
+                                "example/app@sha256:abc"], input=json.dumps(values), text=True, check=True)
+                configured = subprocess.run(
+                    ["docker", "compose", "--env-file", str(env_file),
+                     "-f", str(scripts / "docker-compose.dev.yml"), "-f", str(scripts / "docker-compose.realtime.yml"),
+                     "config", "--format", "json"], text=True, check=True, capture_output=True)
+                services = json.loads(configured.stdout)["services"]
+                realtime, app = services["realtime"]["environment"], services["app"]["environment"]
+                self.assertEqual(realtime["SVC_TOKEN_DATA_TO_REALTIME"], "data-rt" if present else "")
+                self.assertEqual(realtime["SVC_TOKEN_BIZ_TO_REALTIME"], "biz-rt" if present else "")
+                self.assertEqual(app["FOCUS_SESSION_START_ENABLED"], "True" if present else "false")
+                self.assertNotIn("SVC_TOKEN_DATA_TO_REALTIME", app, "legacy Data 는 satellites 프로파일이 없어 읽지 않는다")
+                for service in services.values():
+                    self.assertEqual(service["logging"]["driver"], "json-file")
+
+
+    def test_Realtime_caller_토큰이_같으면_모든_모드에서_출력_전에_실패한다(self) -> None:
+        same = secret(SVC_TOKEN_DATA_TO_REALTIME="same-token", SVC_TOKEN_BIZ_TO_REALTIME="same-token")
+        for service in ("legacy", "business-api"):
+            with self.subTest(service=service), self.assertRaisesRegex(ValueError, "서로 달라야") as raised:
+                MODULE.render(same, "example/app@sha256:abc", service)
+            self.assertNotIn("same-token", str(raised.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

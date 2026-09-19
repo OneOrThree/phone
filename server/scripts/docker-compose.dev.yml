@@ -10,8 +10,17 @@
 # (phone_* 프리픽스, dev 서버의 DB 데이터 포함)에 그대로 붙게 한다.
 name: phone
 
+# 컨테이너 로그 보존(계정 정책 L09) — Docker json-file 은 «크기»로만 회전한다. 값의 근거는 README §로그 보존.
+x-app-logging: &app-logging
+  driver: json-file
+  options: {max-size: "50m", max-file: "4"}
+x-infra-logging: &infra-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   app:
+    logging: *app-logging
     image: ${APP_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest}
     container_name: phone-app
     ports:
@@ -34,6 +43,8 @@ services:
       # 기본 false: Redis·채팅이 실제로 뜬 뒤에 .env 에서 켠다. 안 뜬 상태에서 켜면 집중 시작·종료마다
       # 연결 타임아웃을 문다. 쓰기는 best-effort 라 켜도 Redis 장애가 집중을 막지는 않는다.
       FOCUS_PRESENCE_ENABLED: ${FOCUS_PRESENCE_ENABLED:-false}
+      # v0.3 집중 세션 시작 게이트 (GROMO-1924). 끄면 새 start 만 503 — 켜기 전 조건은 FocusSessionStartGate javadoc.
+      FOCUS_SESSION_START_ENABLED: ${FOCUS_SESSION_START_ENABLED:-false}
       REDIS_HOST: redis
     depends_on:
       db:
@@ -48,6 +59,7 @@ services:
     restart: unless-stopped
 
   db:
+    logging: *infra-logging
     image: postgres:16-alpine
     container_name: phone-db
     # 통합 서비스 태그 (GROMO-1489). Datadog 오버레이가 아니라 **여기**에 둔다 —
@@ -79,6 +91,7 @@ services:
   # 목표 아키텍처 A19: 서비스별 유저 + 키 패턴 ACL 로 네임스페이스를 강제한다. 지금은 단일 노드에
   # ACL 없이 뜨고, ACL 적용은 채팅 dev 배포와 함께 온다(그때까지 이 Redis 는 프레즌스 전용이다).
   redis:
+    logging: *infra-logging
     image: redis:7-alpine
     container_name: phone-redis
     labels:

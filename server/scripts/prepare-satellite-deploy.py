@@ -211,18 +211,23 @@ def build_plan(args: argparse.Namespace, compose_env: Path, with_data: bool) -> 
         "1. !override 지원과 서비스별 env 교체를 실제 Compose로 확인한다.",
         f"   {base} config --quiet",
         "   config 전체 출력은 비밀값을 포함하므로 로그에 남기지 않는다.",
-        "2. 위성만 기동한다. Data(app)는 아직 재생성하지 않는다.",
+        "2. Business Redis 를 재생성해 ACL 파일을 다시 읽힌다. Redis 는 aclfile 을 기동 때만 읽고, ACL LOAD 를",
+        "   부를 수 있는 사용자가 없다(default off). 파일은 원자 교체(새 inode)라 기존 컨테이너의 단일 파일 바인드는",
+        "   옛 내용을 볼 수 있다 — restart 가 아니라 재생성한다.",
+        "   캐시 전용(저장 없음)이라 비워져도 다시 채워진다.",
+        f"   {base} up -d --force-recreate business-redis",
+        "3. 위성만 기동한다. Data(app)는 아직 재생성하지 않는다.",
         f"   {base} up -d business-api notification",
-        "3. 같은 구성으로 상태를 확인하고 서비스 인증·DB 권한을 검증한다.",
+        "4. 같은 구성으로 상태를 확인하고 서비스 인증·DB 권한을 검증한다.",
         f"   {base} ps business-api notification",
     ]
     if with_data:
-        lines += ["4. 제공자 준비 뒤 Data를 전용 env와 지정 digest로 재생성한다.",
+        lines += ["5. 제공자 준비 뒤 Data를 전용 env와 지정 digest로 재생성한다.",
                   f"   {base} up -d app"]
     else:
-        lines += ["4. --data-image 미지정: Data 전환은 이 산출물에 포함되지 않았다."]
+        lines += ["5. --data-image 미지정: Data 전환은 이 산출물에 포함되지 않았다."]
     lines += [
-        "5. runtime.md 및 정본 서비스 §7의 drain·최종 검증을 마친 단계만 라우팅한다.",
+        "6. runtime.md 및 정본 서비스 §7의 drain·최종 검증을 마친 단계만 라우팅한다.",
         f"   인프라 인도물: {NGINX_EXAMPLE}",
         "   /internal/admin/만 Notification에 공개하며 콘솔 전용 Bearer 인증을 유지한다.",
         "# 실패 복구 순서",
