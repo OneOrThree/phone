@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 · V74 (src/main/resources/db/migration — V68~V70·V72 는 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 · V80 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
 //        island_quest_cohort_members · island_quest_claims. island_wallet_transactions.type 에 QUEST_SETTLEMENT 추가(스키마 무변경).
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·

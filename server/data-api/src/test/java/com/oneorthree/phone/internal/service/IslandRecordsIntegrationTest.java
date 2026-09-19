@@ -181,6 +181,7 @@ class IslandRecordsIntegrationTest {
         assertThat(day.totalSeconds()).isEqualTo(300 + 600 + 60);
         assertThat(day.records()).extracting(FocusRecord::activeSeconds).containsExactly(600L, 300L);
 
+        jdbc.update("update users set cat_color = 'calico' where id = ?", a.getId());
         FocusStatistics island = service.focus(b.getId(), x.id, before, D, "island", null, 0);
         assertThat(island.records()).isNull();
         assertThat(island.members()).extracting(FocusMember::userId)
@@ -189,6 +190,9 @@ class IslandRecordsIntegrationTest {
         assertThat(member(island, a).series())
                 .containsExactly(new DaySeconds(before, 300), new DaySeconds(D, 360));
         assertThat(member(island, b).totalSeconds()).isEqualTo(300);
+        // 고양이 색은 users.cat_color 그대로, 미선택은 null (GROMO-1945)
+        assertThat(member(island, a).catColor()).isEqualTo("calico");
+        assertThat(member(island, b).catColor()).isNull();
         assertThat(member(island, x.owner).totalSeconds()).isZero();
         assertThat(member(island, x.owner).series()).isEmpty();
     }
@@ -322,11 +326,14 @@ class IslandRecordsIntegrationTest {
         observe(revoked, UUID.randomUUID(), before, "20:00:00", 70, "authorized");
         observe(revoked, UUID.randomUUID(), D, "09:00:00", null, "denied");
 
+        jdbc.update("update users set cat_color = 'gray' where id = ?", measured.getId());
         ScreenTimeStatistics week = service.screenTime(measured.getId(), x.id, before, D.plusDays(5), "island");
         assertThat(week.members()).extracting(ScreenMember::userId)
                 .containsExactlyElementsOf(sortedIds(x.owner, measured, pending, multi, revoked));
 
+        assertThat(screenMember(week, measured).catColor()).isEqualTo("gray");
         ScreenMember none = screenMember(week, x.owner);
+        assertThat(none.catColor()).isNull();
         assertThat(none.measurementStatus()).isEqualTo("unavailable");
         assertThat(none.minutes()).isNull();
         assertThat(none.series()).isEmpty();

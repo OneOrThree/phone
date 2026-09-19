@@ -190,7 +190,7 @@ public class IslandRecordsService {
         }
         List<FocusMember> result = residents.stream().map(user -> {
             TreeMap<LocalDate, Long> series = byUser.getOrDefault(user.getId(), new TreeMap<>());
-            return new FocusMember(user.getId(), user.getNickname(), null, sum(series), days(series));
+            return new FocusMember(user.getId(), user.getNickname(), user.getCatColor(), sum(series), days(series));
         }).toList();
         return new FocusStatistics(SCOPE_ISLAND, null, null, null, result, asOf, null, null);
     }
@@ -256,8 +256,8 @@ public class IslandRecordsService {
                     .collect(Collectors.groupingBy(ScreenTimeObservation::getUserId));
             return new ScreenTimeStatistics(SCOPE_ISLAND, null, null, null, null, residents.stream().map(user -> {
                 Summary summary = summarize(byUser.getOrDefault(user.getId(), List.of()), from, to, today);
-                return new ScreenMember(user.getId(), user.getNickname(), null, summary.total(), summary.status(),
-                        summary.series(), summary.updatedAt());
+                return new ScreenMember(user.getId(), user.getNickname(), user.getCatColor(), summary.total(),
+                        summary.status(), summary.series(), summary.updatedAt());
             }).toList());
         }
         requireMe(scope);
