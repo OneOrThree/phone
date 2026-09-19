@@ -3529,26 +3529,36 @@ export function RedesignScreens({ e }: any) {
         onClose={state.onboarded ? home : () => replace('chooseIsland')}
         toast={sheetToast}
         footer={
-          <Cta
-            title="배 타고 이동"
-            onPress={sail}
-            ghost={
-              i.joined
-                ? '소속된 섬'
-                : pending
-                  ? '참여 신청됨 · 취소'
-                  : i.approval
-                    ? '가입 신청'
-                    : '이 섬에 가입'
-            }
-            onGhost={
-              i.joined
-                ? () => notify('이미 소속된 섬이에요.')
-                : pending
-                  ? () => act('CANCEL_JOIN', { id: i.id })
-                  : apply
-            }
-          />
+          state.onboarded ? (
+            // 섬에 자리 잡은 뒤(전망대): 가입·신청 취소는 그 섬 마을회관에서 하므로 이동 버튼 하나만 둔다
+            <Cta
+              note={pending ? '참여 신청을 보냈어요. 방장이 확인하면 알려드릴게요.' : undefined}
+              title={i.joined ? '이 섬으로 가기' : '섬 구경하기'}
+              onPress={sail}
+            />
+          ) : (
+            // 첫 섬 고르기: 아직 내 섬이 없어 구경할 수 없으므로 여기서 가입한다
+            <Cta
+              title="배 타고 이동"
+              onPress={sail}
+              ghost={
+                i.joined
+                  ? '소속된 섬'
+                  : pending
+                    ? '참여 신청됨 · 취소'
+                    : i.approval
+                      ? '가입 신청'
+                      : '이 섬에 가입'
+              }
+              onGhost={
+                i.joined
+                  ? () => notify('이미 소속된 섬이에요.')
+                  : pending
+                    ? () => act('CANCEL_JOIN', { id: i.id })
+                    : apply
+              }
+            />
+          )
         }
       >
         {/* 가로 패널: 그림과 정보를 나란히 */}
