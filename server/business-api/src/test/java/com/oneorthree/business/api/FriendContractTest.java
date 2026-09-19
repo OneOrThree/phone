@@ -17,6 +17,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -213,6 +214,23 @@ class FriendContractTest extends UpstreamTestBase {
                 .andExpect(status().is(publicStatus))
                 .andExpect(jsonPath("$.error.code").value(publicCode))
                 .andExpect(jsonPath("$.error.field").value("requestId"));
+    }
+
+    /**
+     * 계정당 시간 한도(GROMO-1934) — Data 의 429 RATE_LIMITED 는 도메인 표에 없어 이름 매핑으로 공개
+     * RATE_LIMITED 가 되고, 본문의 retryAfterMs 는 초 단위 올림 Retry-After 가 된다(policy: 양의 초).
+     * 잡는 회귀: 도메인 표가 이 코드를 다른 것으로 삼키거나, 헤더 없이 나가거나, 내림으로 0초가 되는 것.
+     */
+    @Test
+    void createPassesUpstreamRateLimitThroughAsPublic429WithRetryAfter() throws Exception {
+        DATA.on(DATA_CREATE, request -> new MockUpstream.Response(429,
+                "{\"code\":\"RATE_LIMITED\",\"message\":\"private detail\",\"retryAfterMs\":1500}"));
+        var result = mockMvc.perform(write(post("/friends/requests"), CREATE_BODY))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.error.code").value("RATE_LIMITED"))
+                .andExpect(header().string("Retry-After", "2")).andReturn();
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("private detail");
+        assertThat(DATA.hits(DATA_CREATE)).as("429 는 재시도하지 않는다").isEqualTo(1);
     }
 
     @Test
