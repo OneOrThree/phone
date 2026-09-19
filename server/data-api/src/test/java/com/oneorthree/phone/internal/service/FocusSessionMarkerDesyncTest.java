@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
@@ -62,12 +63,14 @@ class FocusSessionMarkerDesyncTest {
     @Mock private DailyFocusStatRepository dailyFocusStatRepository;
     @Mock private PublicCommandService publicCommands;
     @Mock private OutboxCommandPort outboxCommandPort;
+    @Mock private FocusPresencePort focusPresencePort;
 
     private FocusSessionLifecycleService service() {
         return new FocusSessionLifecycleService(new FocusSessionStartGate(false), userQueryService,
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
+                focusPresencePort,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

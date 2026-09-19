@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
@@ -20,7 +21,9 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
+import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
+import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
 import com.oneorthree.phone.outbox.dto.IdempotentOutcome;
 import com.oneorthree.phone.outbox.dto.PublicCommandReceipt;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
@@ -56,6 +59,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -96,6 +100,7 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private DailyFocusStatRepository dailyFocusStatRepository;
     @Mock private PublicCommandService publicCommands;
     @Mock private OutboxCommandPort outboxCommandPort;
+    @Mock private FocusPresencePort focusPresencePort;
     @Mock private User caller;
     @Mock private GroupMember membership;
 
@@ -108,6 +113,7 @@ class FocusSessionLifecycleGuardsTest {
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
+                focusPresencePort,
                 Clock.fixed(wallClock, ZoneOffset.UTC));
     }
 
@@ -142,6 +148,47 @@ class FocusSessionLifecycleGuardsTest {
                 .isInstanceOf(FocusException.class)
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.INVALID_SUBJECT);
+    }
+
+    @Test
+    @DisplayName("열린 start 는 rest 투영 제거 사건과 프레즌스 리스를 함께 남긴다(선행 조건 #5·#9)")
+    void startClearsTheRestProjectionAndLeasesPresence() {
+        UUID sessionId = UUID.fromString("bbbbbbbb-0000-0000-0000-000000000009");
+        when(userQueryService.getCallerForUpdate(USER)).thenReturn(caller);
+        when(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(caller))
+                .thenReturn(Optional.empty());
+        when(focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(eq(USER), any()))
+                .thenReturn(Optional.empty());
+        UserIslandContext context = UserIslandContext.newFor(USER);
+        context.moveTo(ISLAND);
+        when(userIslandContextLockService.lock(caller)).thenReturn(context);
+        when(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER, ISLAND))
+                .thenReturn(Optional.of(membership));
+        when(focusSessionRepository.save(any(FocusSession.class)))
+                .thenReturn(FocusSession.builder().id(sessionId).startedAt(NOW).build());
+        when(focusSessionDetailRepository.save(any(FocusSessionDetail.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(outboxCommandPort.append(any())).thenAnswer(invocation -> envelope());
+        when(publicCommands.run(any(), any(), any(), any())).thenAnswer(invocation -> {
+            PublicCommandRequest request = invocation.getArgument(0);
+            Supplier<PublicCommandResult> command = invocation.getArgument(3);
+            return new IdempotentOutcome<>(PublicCommandReceipt.completed(request, command.get()), false);
+        });
+
+        service(NOW, true).start(USER, new FocusSessionStartCommandRequest(ISLAND, "알고리즘", 25), KEY);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(OutboxAppendCommand.class);
+        verify(outboxCommandPort, times(2)).append(captor.capture());
+        OutboxAppendCommand rest = captor.getAllValues().get(1);
+        assertThat(rest.type()).isEqualTo("rest.member.updated");
+        assertThat(rest.params()).containsEntry("status", "active").containsEntry("restSeat", null)
+                .containsEntry("sessionId", sessionId.toString());
+        verify(focusPresencePort).focusStarted(USER, sessionId, NOW);
+        // 섬 → 멤버십 순으로 잠근다(선행 조건 #8) — context 잠금 뒤다.
+        InOrder order = inOrder(userIslandContextLockService, membershipLocks, groupMemberRepository);
+        order.verify(userIslandContextLockService).lock(caller);
+        order.verify(membershipLocks).lockGroup(ISLAND);
+        order.verify(groupMemberRepository).findActiveByUserIdAndGroupIdForShare(USER, ISLAND);
     }
 
     // ── 2. 구간 전환 순서(flush) ──────────────────────────────────────────────
@@ -223,7 +270,10 @@ class FocusSessionLifecycleGuardsTest {
         assertThat(summary.currentSessionSecondsToday()).isZero();
         assertThat(summary.totalSeconds()).isZero();
         assertThat(detail.getLifecycle()).isEqualTo(FocusSessionLifecycle.ABANDONED);
-        verify(focusSessionIntervalRepository, never()).findBySessionIdOrderByOrdinalAsc(any());
+        // 구간은 «정리 사건»의 activeSeconds 를 위해 한 번만 읽는다 — 합계에는 들어가지 않는다(위 0).
+        verify(focusSessionIntervalRepository, times(1)).findBySessionIdOrderByOrdinalAsc(SESSION);
+        // 끝난 세션이라 리스를 지운다(선행 조건 #5).
+        verify(focusPresencePort).focusEnded(USER, SESSION);
     }
 
     // ── 5. 섬 소속 상실 ───────────────────────────────────────────────────────

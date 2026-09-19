@@ -159,6 +159,23 @@ class FocusSessionActivationIntegrationTest {
                 island, member)).as("거절은 멤버십을 바꾸지 않는다").isEqualTo(1);
     }
 
+    // ---------------------------------------------------------------- #9 rest 투영
+
+    @Test
+    @DisplayName("start 는 focus 사건과 함께 rest 투영 제거(active·자리 null) 사건을 같은 TX 에 남긴다")
+    void startAlsoDurablyClearsTheRestProjection() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("모닥불섬", null, false),
+                UUID.randomUUID()).id();
+
+        FocusSessionView started = start(user, island);
+
+        assertThat(count("select count(*) from event_outbox where type='rest.member.updated' "
+                + "and params->>'sessionId'=? and params->>'status'='active' "
+                + "and params->'restSeat'='null'::jsonb and params->'restStartedAt'='null'::jsonb",
+                started.id().toString())).isEqualTo(1);
+    }
+
     // ---------------------------------------------------------------- 도구
 
     FocusSessionView start(UUID userId, UUID islandId) {
