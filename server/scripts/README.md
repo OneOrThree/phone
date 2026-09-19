@@ -115,15 +115,25 @@ python3 server/scripts/migrate-link.py --help
 
 ## 6. 로그 S3 적재본 수명 주기
 
-[`s3-log-archive-lifecycle.json`](s3-log-archive-lifecycle.json)은 로그 적재 버킷의 만료 규칙입니다. `app/` 접두 7일·`user-activity/` 접두 30일로, logback `maxHistory`와 같은 값입니다. 기간 정본은 [계정 정책 로그·분석 보존 기간](../../docs/prd/fishcat/account/policy.md#로그분석-보존-기간)이며 값을 바꾸면 logback과 이 파일을 함께 고칩니다. 업로더는 두 접두 아래에만 씁니다.
+[`s3-log-archive-lifecycle.json`](s3-log-archive-lifecycle.json)은 운영 로그 적재 버킷 `gromo-prod-logs-808715036056`(AWS 프로필 `gromo`)의 만료 규칙입니다. 접두 세 개 모두 **90일**입니다.
+
+| 접두 | 내용 | 적재 경로 |
+| --- | --- | --- |
+| `system_log/app-N/` | `app.log` | 호스트 systemd 타이머가 매시간 업로드(티켓 590) |
+| `user_log/app-N/` | `user-activity.log` | 같은 타이머(티켓 590) |
+| `user-activity/dt=YYYY-MM-DD/` | user-activity 로그 | Fluent Bit 전환 예정 접두(티켓 790, 미완) |
+
+로컬 logback 보존(APP 7일·user-activity 30일)과 S3 보존은 **다른 값**입니다. 기간 정본은 [계정 정책 로그·분석 보존 기간](../../docs/prd/fishcat/account/policy.md#로그분석-보존-기간)이며 S3 값을 바꾸면 이 파일과 정책 표를 함께 고칩니다.
+
+**적용 완료 2026-09-19** — 이 파일은 버킷에 적용된 규칙의 기록입니다. 버킷의 Terraform 원본(`docs/terraform/aws-prod-server/s3.tf`, 티켓 590)은 이 레포 밖에 있어 **동기화가 필요**합니다. 동기화 전에 Terraform을 적용하면 이 규칙이 덮어써질 수 있습니다.
 
 `put-bucket-lifecycle-configuration`은 버킷의 기존 규칙 전체를 **교체**합니다. 먼저 현재 규칙을 조회해 다른 규칙이 있으면 이 파일에 합친 뒤 적용합니다.
 
 ```bash
-aws s3api get-bucket-lifecycle-configuration --bucket <LOG_ARCHIVE_BUCKET>
-aws s3api put-bucket-lifecycle-configuration --bucket <LOG_ARCHIVE_BUCKET> \
+aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-808715036056
+aws --profile gromo s3api put-bucket-lifecycle-configuration --bucket gromo-prod-logs-808715036056 \
   --lifecycle-configuration file://server/scripts/s3-log-archive-lifecycle.json
-aws s3api get-bucket-lifecycle-configuration --bucket <LOG_ARCHIVE_BUCKET>
+aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod-logs-808715036056
 ```
 
 ## 7. 실행 전후 확인

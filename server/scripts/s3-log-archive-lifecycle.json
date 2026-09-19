@@ -1,19 +1,24 @@
 {
   "Rules": [
     {
-      "ID": "app-log-expire",
-      "Filter": { "Prefix": "app/" },
+      "ID": "expire-system-logs",
+      "Filter": { "Prefix": "system_log/" },
       "Status": "Enabled",
-      "Expiration": { "Days": 7 },
-      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 },
+      "Expiration": { "Days": 90 },
       "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
     },
     {
-      "ID": "user-activity-log-expire",
+      "ID": "expire-user-logs",
+      "Filter": { "Prefix": "user_log/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 90 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "expire-user-activity",
       "Filter": { "Prefix": "user-activity/" },
       "Status": "Enabled",
-      "Expiration": { "Days": 30 },
-      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 },
+      "Expiration": { "Days": 90 },
       "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
     }
   ]
