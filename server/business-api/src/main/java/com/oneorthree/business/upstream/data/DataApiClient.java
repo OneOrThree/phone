@@ -15,6 +15,8 @@ import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 import com.oneorthree.business.upstream.data.dto.IslandAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.PersonalAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.PersonalInventory;
+import com.oneorthree.business.upstream.data.dto.PlaybackPatchResult;
+import com.oneorthree.business.upstream.data.dto.PlaybackState;
 import com.oneorthree.business.upstream.data.dto.SharedInventory;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentAck;
@@ -162,6 +164,7 @@ public class DataApiClient {
     private static final String PATH_MY_APPEARANCE = "/internal/users/{userId}/appearance";
     private static final String PATH_ISLAND_INVENTORY = "/internal/islands/{islandId}/inventory";
     private static final String PATH_ISLAND_APPEARANCE = "/internal/islands/{islandId}/appearance";
+    private static final String PATH_ISLAND_PLAYBACK = "/internal/islands/{islandId}/playback";
     // GROMO-1802 섬 관리·주민 6종 — 섬 자원은 `/internal` + 공개 경로, 본인 나가기만 사용자 축(B26).
     private static final String PATH_ISLAND_MEMBERS = "/internal/islands/{islandId}/members";
     private static final String PATH_ISLAND_MEMBER = "/internal/islands/{islandId}/members/{targetUserId}";
@@ -1353,6 +1356,33 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandAppearancePatchResult>() { });
+    }
+
+    /** 공용 음악 재생 상태 (GROMO-1779). 활성 주민 + 방송기 완공 — 멱등 GET 이라 재시도한다. */
+    public PlaybackState fetchIslandPlayback(UUID islandId, UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_ISLAND_PLAYBACK, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<PlaybackState>() { });
+    }
+
+    /**
+     * 공용 음악 재생 변경 (GROMO-1779). 외양과 같은 tri-state 캐리어 — 제출된 필드만 싣는다. 앱 키를
+     * 그대로 전달해 같은 키의 재시도는 Data 의 receipt 재생이다.
+     */
+    public PlaybackPatchResult patchIslandPlayback(UUID islandId, UUID userId, List<String> fields,
+            Map<String, Object> values, long expectedVersion, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PATCH, islandPath(PATH_ISLAND_PLAYBACK, islandId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new AppearancePatchCommand(fields, values, expectedVersion))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<PlaybackPatchResult>() { });
     }
 
     private static String userPath(String template, UUID userId) {

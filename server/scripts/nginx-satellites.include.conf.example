@@ -49,6 +49,8 @@ location = /actuator { return 404; }
 # 꾸미기(GROMO-1783)도 me·islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /me/inventory · PATCH /me/appearance · GET /islands/{islandId}/inventory ·
 # PATCH /islands/{islandId}/appearance.
+# 공용 음악(GROMO-1779)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/playback · PATCH /islands/{islandId}/playback.
 # 섬 가입 신청·초대(GROMO-1760)도 기존 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # islands 분기: POST /islands/{islandId}/memberships · POST /islands/{islandId}/invitations.
 # me 분기: GET·DELETE /me/join-requests/{requestId}. invitations 분기: POST /invitations/resolve.

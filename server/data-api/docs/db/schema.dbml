@@ -960,6 +960,23 @@ Table island_appearances [note: '섬 공동 외양 (GROMO-1783, V64) — 섬당 
   updated_at      timestamptz [not null, default: `now()`]
 }
 
+Table audio_tracks [note: '음원 불변 미디어 메타데이터 (GROMO-1779, V73) — kind=audio 카탈로그 자산마다 곡 길이 한 행. 같은 trackId 의 오디오·길이를 바꾸지 않으므로 갱신 경로가 없다. 행이 없는 음원은 재생 PATCH 가 422'] {
+  product_id      varchar(80) [pk, note: 'FK → catalog_assets.product_id ON DELETE RESTRICT']
+  duration_millis integer     [not null, note: 'CHECK > 0. 밀리초 정수 — NaN·무한 불가, 소수초 보존. 공개 durationSeconds = /1000']
+  created_at      timestamptz [not null, default: `now()`]
+}
+
+Table island_playbacks [note: '섬 공용 음악(방송기) 재생 상태 (GROMO-1779, V73) — 섬당 1행. 행이 없으면 초기 상태(곡 없음·정지·0초·version 0, anchor = 섬 생성 시각)이며 최초 PATCH 가 만든다. writer 는 재생 PATCH 하나. CHECK: track_id IS NOT NULL OR NOT playing'] {
+  island_id        uuid        [pk, note: 'FK → groups.id ON DELETE RESTRICT']
+  track_id         varchar(80) [note: 'FK → audio_tracks.product_id. 초기 미선택 null']
+  playing          boolean     [not null, default: false]
+  position_seconds bigint      [not null, default: 0, note: 'effective_at 시점 위치(초, 내림). 재생 중이면 서버 경과를 더해 곡 길이로 반복 — 곡 끝마다 갱신하지 않는다']
+  effective_at     timestamptz [not null, note: '위치 anchor 시각 — t = max(now, 이전 anchor)']
+  changed_by       uuid        [note: 'FK → users.id. 마지막 실제 변경 사용자, 초기 null']
+  version          bigint      [not null, default: 0, note: '행 배타락 아래에서만 +1 — PATCH expectedVersion 비교 대상이자 playback.updated 의 aggregateVersion']
+  updated_at       timestamptz [not null, default: `now()`]
+}
+
 Table group_announcements [note: '그룹 공지 — 섬 게시판 공지(GROMO-1771)의 저장소이기도 하다. 공지 version 은 컬럼이 아니라 aggregate_versions(NOTICE, id) — V66 이 기존 공지를 1 로 백필'] {
   id         uuid         [pk]
 
@@ -1544,6 +1561,10 @@ Ref: personal_appearances.user_id - users.id
 Ref: personal_appearances.clothes > catalog_assets.product_id
 Ref: personal_appearances.decor > catalog_assets.product_id
 Ref: island_appearances.island_id - groups.id
+Ref: audio_tracks.product_id - catalog_assets.product_id
+Ref: island_playbacks.island_id - groups.id
+Ref: island_playbacks.track_id > audio_tracks.product_id
+Ref: island_playbacks.changed_by > users.id
 
 // 현재 섬 컨텍스트 (GROMO-1907, V57)
 Ref: user_island_contexts.user_id - users.id [delete: cascade]

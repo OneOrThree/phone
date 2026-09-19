@@ -59,6 +59,11 @@ public class IslandFacilityQueryService {
         return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.BOARD.id());
     }
 
+    /** 이 섬의 방송기가 완공됐는가 — 공용 음악 조회·변경 게이트({@code FACILITY_LOCKED}, GROMO-1779). */
+    public boolean hasGram(UUID islandId) {
+        return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.GRAM.id());
+    }
+
     /**
      * 주어진 섬들 중 우체통 완공 섬이 있는가 — 편지 게이트({@code LETTER_MAILBOX_LOCKED}).
      * 호출측이 「살아 있는 소속 섬」 목록을 걸러 넘겨야 종료된 섬의 완공 시설이 열리지 않는다.
