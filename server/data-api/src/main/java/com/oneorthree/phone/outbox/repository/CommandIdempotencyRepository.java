@@ -43,14 +43,17 @@ public interface CommandIdempotencyRepository extends JpaRepository<CommandIdemp
             @Param("now") Instant now);
 
     /**
-     * 사용자의 공개 명령 receipt 를 지운다 (GROMO-1801 · 계정 LLD §4 「신규 일반 receipt 속 name/catColor」).
-     * 공개 명령 receipt 는 {@code command_type} 이 {@code public:v1:} 로 시작한다
-     * ({@code PublicCommandRequest#storageRequest}). legacy 내부 명령의 멱등 행은 건드리지 않는다.
+     * 사용자의 멱등 기록을 <b>전부</b> 지운다 (GROMO-1801 공개 receipt · GROMO-1946 legacy 내부 명령, 계정 LLD §4).
+     *
+     * <p>공개 명령 receipt({@code public:v1:*})에는 개인 응답(이름 등)이, legacy 내부 명령 행에는 저장된 응답
+     * 봉투 속 기기 토큰 같은 자격이 들어 있다. 탈퇴 뒤에는 둘 다 재생 근거로 쓰이지 않는다 — 공개 명령은 재생
+     * 전에 활성 검사가 거절하고, 탈퇴 자체의 기기 토큰 삭제 명령({@code withdraw:<userId>})은 탈퇴가 다시 불리지
+     * 않으며(404) 실제 삭제는 이미 적힌 outbox 봉투가 나른다.
      *
      * @param userId 탈퇴하는 유저
      * @return 지운 행 수
      */
     @Modifying(flushAutomatically = true)
-    @Query("DELETE FROM CommandIdempotency c WHERE c.userId = :userId AND c.commandType LIKE 'public:v1:%'")
-    int deletePublicReceiptsOf(@Param("userId") UUID userId);
+    @Query("DELETE FROM CommandIdempotency c WHERE c.userId = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
 }

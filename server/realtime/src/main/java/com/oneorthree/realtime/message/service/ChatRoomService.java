@@ -33,6 +33,7 @@ public class ChatRoomService {
     private final MembershipService membershipService;
     private final ChatAccessGuard accessGuard;
     private final ChatUserFence chatUserFence;
+    private final WithdrawnSenders withdrawnSenders;
 
     /**
      * 내가 속한 섬 전부와, 각 섬에 쌓인 안 읽은 개수.
@@ -67,12 +68,14 @@ public class ChatRoomService {
             unreadByGroup.put(row.getGroupId(), row.getUnreadCount());
         }
 
+        // 최신 메시지의 탈퇴 발신자는 한 번에 대조해 senderId 를 가린다(GROMO-1946 · 계정 LLD §4)
+        Set<UUID> withdrawn = withdrawnSenders.among(latestByGroup.values());
         List<ChatRoomResponse> rooms = new ArrayList<>(groupIds.size());
         for (UUID groupId : groupIds) {
             ChatMessage latest = latestByGroup.get(groupId);
             rooms.add(new ChatRoomResponse(
                     groupId,
-                    latest == null ? null : ChatMessageResponse.from(latest),
+                    latest == null ? null : ChatMessageResponse.from(latest, withdrawn),
                     // 안 읽음이 0 인 방은 집계 쿼리에 행이 없다 — 없으면 0 이다.
                     unreadByGroup.getOrDefault(groupId, 0L)));
         }

@@ -3,6 +3,7 @@ package com.oneorthree.realtime.message.dto;
 import com.oneorthree.realtime.message.repository.domain.ChatMessage;
 
 import java.time.Instant;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -15,7 +16,9 @@ import java.util.UUID;
  * @param messageId 서버가 부여한 id. 정렬·커서·읽음 커서가 전부 이 값을 쓴다
  * @param groupId 어느 섬의 말인지 — 앱이 방 여러 개를 한 소켓으로 받으므로 분류에 필요하다
  * @param senderId 보낸 사람. 표시 이름·프로필은 여기 싣지 않는다(개명이 반영 안 되고, 이 서비스는
- *                 프로필을 소유하지 않는다) — 앱이 이미 들고 있는 섬 멤버 목록에서 붙인다
+ *                 프로필을 소유하지 않는다) — 앱이 이미 들고 있는 섬 멤버 목록에서 붙인다.
+ *                 <b>탈퇴한 발신자면 null</b>이다(GROMO-1946 · 계정 LLD §4) — 저장된 {@code sender_id} 는
+ *                 그대로 두고 공개 응답에서만 끊는다. 행 구분은 {@code messageId} 로 한다
  * @param content 본문
  * @param sentAt 서버 수신 시각
  * @param clientMessageId 보낸 쪽이 만든 멱등 키. <b>발신자 본인의 낙관적 렌더링을 실제 메시지로
@@ -31,8 +34,19 @@ public record ChatMessageResponse(
         UUID clientMessageId
 ) {
 
+    /** 방금 저장한 메시지처럼 발신자가 활성임이 확실할 때. */
     public static ChatMessageResponse from(ChatMessage m) {
-        return new ChatMessageResponse(m.getId(), m.getGroupId(), m.getSenderId(),
+        return from(m, Set.of());
+    }
+
+    /**
+     * 보존 메시지의 공개 변환 — 탈퇴 발신자의 {@code senderId} 를 null 로 치환한다.
+     *
+     * @param withdrawnSenders 이 목록의 발신자 중 tombstone 이 있는 사용자({@code WithdrawnSenders#among})
+     */
+    public static ChatMessageResponse from(ChatMessage m, Set<UUID> withdrawnSenders) {
+        UUID senderId = withdrawnSenders.contains(m.getSenderId()) ? null : m.getSenderId();
+        return new ChatMessageResponse(m.getId(), m.getGroupId(), senderId,
                 m.getContent(), m.getSentAt(), m.getClientMessageId());
     }
 }
