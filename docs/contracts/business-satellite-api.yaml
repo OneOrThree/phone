@@ -69,6 +69,8 @@ tags:
     description: ⛔ A23 으로 폐기 — 별도 링크 서버 없음(deprecated)
   - name: link-매치
     description: ⛔ A23 으로 폐기 — 별도 링크 서버 없음(deprecated)
+  - name: data-섬가입
+    description: GROMO-1760 섬 가입·가입 요청·초대 코드 — island-membership LLD §3.7~§3.11
 
 paths:
 
@@ -300,6 +302,212 @@ paths:
           description: CANNOT_TRANSFER_SELF 또는 동일 키 다른 본문의 멱등 충돌
         '503':
           description: REALTIME_NOT_READY — 역할 및 명령 상태 변경 없음
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/islands/{islandId}/memberships:
+    post:
+      tags: [data-섬가입]
+      operationId: joinIsland
+      summary: 섬 즉시 가입 또는 승인 대기 요청 생성 (GROMO-1760 · LLD §3.7)
+      description: |
+        공개 `POST /islands/{islandId}/memberships` 의 상류. approvalRequired=false 면 즉시 가입
+        (`status:"active"`·현재 섬 이동), true 면 pending 요청만 만든다(`status:"pending"`).
+        같은 (섬, 신청자)의 열린 요청은 이미 있으면 새로 만들지 않고 같은 자원을 돌려준다.
+        `invitationToken` 은 선택이다 — 형식 오류는 422, 형식이 맞지만 무효·폐기·타 섬의 코드는 410.
+        Data 가 가입 커밋 안에서 발급자 멤버십·발급 세대를 다시 대조하므로 Business 의 사전 resolve
+        성공만으로는 승인되지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: path
+          name: islandId
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                invitationToken:
+                  type: string
+                  description: resolve 가 돌려준 불투명 토큰(공유 8자 코드). 없으면 일반 가입·신청
+      responses:
+        '200':
+          description: 즉시 가입(active) 또는 승인 대기(pending) — status 로 구분되는 두 형태
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, islandId, version]
+                properties:
+                  status: { type: string, enum: [active, pending] }
+                  requestId: { type: [string, 'null'], format: uuid }
+                  islandId: { type: string, format: uuid }
+                  currentIslandId: { type: [string, 'null'], format: uuid }
+                  version: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        '403':
+          description: INVITATION_REQUIRED·MEMBER_ONLY·ISLAND_JOIN_UNAVAILABLE·KICKED_CANNOT_REJOIN
+        '404':
+          description: GROUP_NOT_FOUND·USER_NOT_FOUND
+        '409':
+          description: ALREADY_MEMBER·ROOM_FULL·GROUP_LIMIT_EXCEEDED·SESSION_IN_PROGRESS 또는 멱등 충돌
+        '410':
+          description: INVITATION_EXPIRED — 무효·폐기·세대 불일치 토큰
+        '422':
+          description: INVITATION_CODE_INVALID — 토큰 형식 오류
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/join-requests/{requestId}:
+    get:
+      tags: [data-섬가입]
+      operationId: getJoinRequest
+      summary: 본인 가입 요청 하나의 상태 (GROMO-1760 · LLD §3.8)
+      description: |
+        공개 `GET /me/join-requests/{requestId}` 의 상류. `id+applicantId` 소유 판정이라
+        타인의 requestId 도 「없음」이다 — 존재 여부를 응답으로 구분하지 않는다.
+        terminal_reason 같은 내부 사유는 나가지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 요청 상태
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, islandId, status, version]
+                properties:
+                  id: { type: string, format: uuid }
+                  islandId: { type: string, format: uuid }
+                  status: { type: string, enum: [pending, approved, rejected, cancelled] }
+                  version: { type: integer, minimum: 0, maximum: 9007199254740991 }
+        '404':
+          description: JOIN_REQUEST_NOT_FOUND — 남의 요청도 같은 코드다
+    delete:
+      tags: [data-섬가입]
+      operationId: cancelJoinRequest
+      summary: 본인 가입 요청 철회 (GROMO-1760 · LLD §3.9)
+      description: |
+        공개 `DELETE /me/join-requests/{requestId}` 의 상류. 요청 행 배타 잠금 아래 PENDING 만
+        CANCELLED 로 전이한다 — 승인·섬 종결과 경합해도 한쪽만 성공한다. 같은 키 재시도는
+        원 receipt 를 재생하고 사건을 다시 만들지 않는다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 철회 완료 — status 는 항상 "cancelled"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: { type: string, format: uuid }
+                  status: { type: string, enum: [cancelled] }
+        '404':
+          description: JOIN_REQUEST_NOT_FOUND
+        '409':
+          description: JOIN_REQUEST_TERMINAL — 이미 닫힌 요청, 또는 멱등 충돌
+      x-idempotent: true
+      x-retryable: true
+
+  /internal/users/{userId}/invitations/resolve:
+    post:
+      tags: [data-섬가입]
+      operationId: resolveInvitation
+      summary: 초대 코드 해석 — 섬 공개 요약 + 가입용 토큰 (GROMO-1760 · LLD §3.10)
+      description: |
+        공개 `POST /invitations/resolve` 의 상류. 코드가 가리키는 섬의 공개 요약(본인 기준
+        membershipStatus·joinRequestId 포함)과 가입 명령에 실을 불투명 토큰을 돌려준다.
+        조회 성격이라 멱등 키를 받지 않고, 해석 결과를 가입 승인 근거로 쓰지 않는다 —
+        실제 검증은 가입 커밋이 다시 한다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  description: 사용자가 입력한 8자 초대 코드(공유 형식)
+      responses:
+        '200':
+          description: 해석 결과
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [island, invitationToken]
+                properties:
+                  island:
+                    type: object
+                    description: PublicIslandSummary — 본인 기준 membershipStatus·joinRequestId 포함
+                  invitationToken: { type: string }
+        '404':
+          description: SLUG_NOT_FOUND — 형식은 맞지만 없는 코드
+        '410':
+          description: INVITATION_EXPIRED — 발급자 이탈·강퇴·재가입 또는 섬 종결로 폐기
+        '422':
+          description: INVITATION_CODE_INVALID — 코드 형식 오류
+
+  /internal/users/{userId}/islands/{islandId}/invitations:
+    post:
+      tags: [data-섬가입]
+      operationId: issueIslandInvitation
+      summary: 섬 초대 코드 발급·재사용 (GROMO-1760 · LLD §3.11)
+      description: |
+        공개 `POST /islands/{islandId}/invitations` 의 상류. 발급자당 활성 코드는 하나다 —
+        이미 유효한 코드가 있으면 같은 값을 돌려주고, 발급자의 멤버십 세대가 발급 이후 바뀌었다면
+        같은 행을 새 슬러그·새 세대로 교체한다. TTL 은 없다 — 폐기는 세대 불일치로만 일어난다.
+      parameters:
+        - $ref: '#/components/parameters/UserIdPath'
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - in: path
+          name: islandId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 활성 초대 코드
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, url]
+                properties:
+                  code: { type: string }
+                  url: { type: string }
+                  expiresAt: { type: [string, 'null'], format: date-time }
+        '403':
+          description: MEMBER_ONLY — 활성 주민만 발급한다
+        '404':
+          description: GROUP_NOT_FOUND·USER_NOT_FOUND
+        '409':
+          description: 멱등 충돌
       x-idempotent: true
       x-retryable: true
 

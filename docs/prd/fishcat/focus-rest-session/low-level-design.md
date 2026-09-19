@@ -20,6 +20,8 @@
 
 카탈로그 값은 외양 설계의 정본을 참조하고 여기서 새 항목을 지급하거나 임의 enum을 확정하지 않는다.
 
+**구현 유예(GROMO-1765):** `FocusMember`·`RestMember` 의 `catColor`·`appearance`(와 BFF B14 의 `appearanceVersion`)는 출처(계정 Q03 · 개인 외양 정본 티켓 1783)가 main 에 들어오기 전까지 싣지 않는다. `null` 로 채우지 않고 제공자가 생기면 필드를 추가한다([BFF policy B14](../bff-screens/policy.md)).
+
 nullable 필드는 키를 유지한다. 현재 세션이 없으면 data=null, 목록은 items=[]다.
 FocusFinishView의 myRate 범위·퀘스트 포함 기준은 1772/1773의 승인 계약을 사용한다. 원본83을 고정값으로
 반환하거나 계산 불가를 무조건0으로 바꾸지 않는다. subject 원문/이름/외양 이외의 계정정보·토큰·타인 지갑은

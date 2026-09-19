@@ -13,10 +13,15 @@ import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
+import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
+import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
+import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
+import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
+import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -52,7 +57,18 @@ public class IslandMembershipUseCase {
             // 진행 중 집중 세션이 있어 이동/생성을 거절했다(LLD §3.1·§3.6).
             Map.entry("SESSION_IN_PROGRESS", new PublicFailure(ApiErrorCode.STATE_CONFLICT, null)),
             Map.entry("GROUP_LIMIT_EXCEEDED", new PublicFailure(ApiErrorCode.STATE_CONFLICT, null)),
-            Map.entry("CONCURRENT_UPDATE", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, null)));
+            Map.entry("CONCURRENT_UPDATE", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, null)),
+            // ── GROMO-1760 섬 가입·초대. 422/410 의 원본 의미를 유지한다 — 형식 오류는 범위
+            // 초과, 폐기·만료는 전용 코드(ApiErrorCode 의 동명 상수가 registeredUpstream 으로 붙는다).
+            Map.entry("INVITATION_CODE_INVALID", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, null)),
+            Map.entry("INVITATION_REQUIRED", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
+            Map.entry("ISLAND_JOIN_UNAVAILABLE", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
+            Map.entry("ALREADY_MEMBER", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
+            Map.entry("KICKED_CANNOT_REJOIN", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
+            Map.entry("ROOM_FULL", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "islandId")),
+            // 남의 요청은 범위 밖 — 「없다」와 같은 404 로 접어 소유 정보를 새지 않는다(LLD §3.8).
+            Map.entry("JOIN_REQUEST_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "requestId")),
+            Map.entry("JOIN_REQUEST_TERMINAL", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "requestId")));
 
     private static final String RESOURCE_SEARCH = "islands";
     private static final String RESOURCE_DISCOVER = "island-discover";
@@ -154,6 +170,92 @@ public class IslandMembershipUseCase {
             return view.visitor();
         }
         throw new UpstreamContractMismatchException("섬 상세 범위를 판별할 수 없습니다");
+    }
+
+    /**
+     * 섬 가입 (GROMO-1760, LLD §3.7). 즉시 가입이면 {@code active}+새 current, 승인제면
+     * {@code pending} — 어느 쪽인지는 상류 판정이고 응답 형태로만 구분한다.
+     */
+    public JoinIslandResult join(AccessTokenClaims claims, UUID islandId, String invitationToken,
+            UUID key, Deadline deadline) {
+        JoinIslandResult result = relay(() ->
+                data.joinIsland(claims.userId(), islandId, invitationToken, key, deadline));
+        if (result == null || result.islandId() == null || result.status() == null) {
+            throw new UpstreamContractMismatchException("가입 응답이 완전하지 않습니다");
+        }
+        if (!islandId.equals(result.islandId())) {
+            throw new UpstreamContractMismatchException("가입 응답의 섬이 요청과 다릅니다");
+        }
+        // 형태 불변식 — pending 에는 requestId 가, active 에는 currentIslandId 가 있어야 한다.
+        if (("pending".equals(result.status()) && result.requestId() == null)
+                || ("active".equals(result.status()) && result.currentIslandId() == null)) {
+            throw new UpstreamContractMismatchException("가입 응답의 상태와 필드가 어긋납니다");
+        }
+        return result;
+    }
+
+    /**
+     * 가입 요청 상태 (GROMO-1760, LLD §3.8). 읽기가 현재 섬을 바꾸지 않는다 — 이 경로에는
+     * current 를 쓰는 호출이 없다.
+     */
+    public JoinRequestStatus joinRequest(AccessTokenClaims claims, UUID requestId,
+            Deadline deadline) {
+        JoinRequestStatus status = relay(() ->
+                data.fetchJoinRequest(claims.userId(), requestId, deadline));
+        if (status == null || status.id() == null || status.status() == null) {
+            throw new UpstreamContractMismatchException("가입 요청 응답이 완전하지 않습니다");
+        }
+        if (!requestId.equals(status.id())) {
+            throw new UpstreamContractMismatchException("가입 요청 응답의 id 가 요청과 다릅니다");
+        }
+        return status;
+    }
+
+    /**
+     * 가입 요청 취소 (GROMO-1760, LLD §3.9). 성공은 항상 {@code cancelled} — 같은 키의 재생도
+     * 같은 값이고, 이미 승인된 요청은 상류가 409 로 막는다.
+     */
+    public JoinRequestCancel cancelJoinRequest(AccessTokenClaims claims, UUID requestId, UUID key,
+            Deadline deadline) {
+        JoinRequestCancel result = relay(() ->
+                data.cancelJoinRequest(claims.userId(), requestId, key, deadline));
+        if (result == null || result.id() == null || result.status() == null) {
+            throw new UpstreamContractMismatchException("취소 응답이 완전하지 않습니다");
+        }
+        if (!requestId.equals(result.id())) {
+            throw new UpstreamContractMismatchException("취소 응답의 id 가 요청과 다릅니다");
+        }
+        return result;
+    }
+
+    /**
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키가 없다.
+     * {@code invitationToken} 은 여기서 검증·해석하지 않고 가입 명령에 그대로 전달한다.
+     */
+    public InvitationResolved resolveInvitation(AccessTokenClaims claims, String code,
+            Deadline deadline) {
+        InvitationResolved resolved = relay(() ->
+                data.resolveInvitation(claims.userId(), code, deadline));
+        if (resolved == null || resolved.island() == null
+                || resolved.invitationToken() == null || resolved.invitationToken().isBlank()) {
+            throw new UpstreamContractMismatchException("초대 해석 응답이 완전하지 않습니다");
+        }
+        return resolved;
+    }
+
+    /**
+     * 섬 초대 발급 (GROMO-1760, LLD §3.11). 활성 주민 판정·코드 재사용·세대 재발급은 상류
+     * 수명주기다 — 여기서는 응답 완전성만 확인한다.
+     */
+    public IslandInvitationIssued issueInvitation(AccessTokenClaims claims, UUID islandId,
+            UUID key, Deadline deadline) {
+        IslandInvitationIssued issued = relay(() ->
+                data.issueIslandInvitation(claims.userId(), islandId, key, deadline));
+        if (issued == null || issued.code() == null || issued.code().isBlank()
+                || issued.url() == null || issued.url().isBlank()) {
+            throw new UpstreamContractMismatchException("초대 발급 응답이 완전하지 않습니다");
+        }
+        return issued;
     }
 
     // ---------------------------------------------------------------- 내부

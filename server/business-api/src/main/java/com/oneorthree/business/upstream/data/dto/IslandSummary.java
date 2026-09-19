@@ -15,6 +15,9 @@ import java.util.UUID;
  * <p>{@code growthStage}·{@code themeId} 에 {@code required} 를 걸지 <b>않았다</b>. 두 값의 정본을
  * 소유하는 건설·외양 도메인이 아직 없어 Data 가 null 로 내려보내기 때문이다. 건설 도메인이 합류하면
  * 그때 다른 필드와 같이 필수로 올린다 — 지금 필수로 걸면 정상 응답이 502 로 뒤집힌다.
+ *
+ * <p>{@code joinRequestId} 는 <b>본인의 최신 가입 요청</b>이다 (GROMO-1760). 본인에게만 의미가 있는
+ * 값이고 없으면 null 이다 — 이 요약이 남에게 노출될 때 채워지는 일은 없다.
  */
 public record IslandSummary(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -24,6 +27,7 @@ public record IslandSummary(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean approvalRequired,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int memberCount,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String membershipStatus,
+        @JsonProperty(required = true) UUID joinRequestId,
         String growthStage,
         String themeId) {
 }

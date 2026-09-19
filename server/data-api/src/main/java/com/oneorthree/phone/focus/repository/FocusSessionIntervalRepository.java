@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,6 +19,9 @@ import java.util.UUID;
 public interface FocusSessionIntervalRepository extends JpaRepository<FocusSessionInterval, Long> {
 
     List<FocusSessionInterval> findBySessionIdOrderByOrdinalAsc(UUID sessionId);
+
+    /** 여러 세션의 구간을 한 번에 — 섬 주민 스냅샷의 N+1 방지(GROMO-1765). */
+    List<FocusSessionInterval> findBySessionIdInOrderByOrdinalAsc(Collection<UUID> sessionIds);
 
     /**
      * 탈퇴 정리 — 탈퇴자 세션의 열린 구간을 닫는다. 상세를 {@code ABANDONED}로 종결하면서 구간을
