@@ -176,12 +176,12 @@ public class IslandNoticeService {
     @Transactional
     public IslandNoticeViews.Notice create(UUID islandId, UUID userId, String title, String body, UUID key) {
         requireWritesEnabled();
-        requireBodyLength(body);
         Map<String, Object> semantic = new LinkedHashMap<>();
         semantic.put("title", title);
         semantic.put("body", body);
         return run(userId, islandId, new PublicCommandRequest(userId, "POST:/islands/" + islandId + "/notices",
                 key, InternalJson.tree(semantic)), true, () -> {
+                    requireBodyLength(body);
                     User author = users.getCallerForShare(userId);
                     GroupAnnouncement notice = GroupAnnouncement.builder()
                             .group(groups.getGroup(islandId)).user(author).title(title).content(body).build();
@@ -201,9 +201,6 @@ public class IslandNoticeService {
     public IslandNoticeViews.Notice update(UUID islandId, UUID noticeId, UUID userId, String title, String body,
             UUID key) {
         requireWritesEnabled();
-        if (body != null) {
-            requireBodyLength(body);
-        }
         Map<String, Object> semantic = new LinkedHashMap<>();
         if (title != null) {
             semantic.put("title", title);
@@ -214,6 +211,9 @@ public class IslandNoticeService {
         return run(userId, islandId, new PublicCommandRequest(userId,
                 "PATCH:/islands/" + islandId + "/notices/" + noticeId, key, InternalJson.tree(semantic)), true,
                 () -> {
+                    if (body != null) {
+                        requireBodyLength(body);
+                    }
                     GroupAnnouncement notice = requireNotice(islandId, noticeId);
                     notice.updateContent(title, body);
                     EventEnvelope event = noticeEvents.changed(islandId, noticeId, userId);
@@ -245,13 +245,13 @@ public class IslandNoticeService {
     public IslandNoticeViews.CommentCreated comment(UUID islandId, UUID noticeId, UUID userId, String text,
             UUID key) {
         requireWritesEnabled();
-        if (text.length() > commentMaxLength) {
-            throw new GroupException(GroupErrorCode.NOTICE_COMMENT_TOO_LONG);
-        }
         return run(userId, islandId, new PublicCommandRequest(userId,
                 "POST:/islands/" + islandId + "/notices/" + noticeId + "/comments", key,
                 InternalJson.tree(Map.of("text", text))), false,
                 () -> {
+                    if (text.length() > commentMaxLength) {
+                        throw new GroupException(GroupErrorCode.NOTICE_COMMENT_TOO_LONG);
+                    }
                     requireNotice(islandId, noticeId);
                     GroupAnnouncementComment comment = new GroupAnnouncementComment(noticeId, userId, text);
                     comments.save(comment);
@@ -267,6 +267,9 @@ public class IslandNoticeService {
      * 쓰기 공통 골격 — users 공유 → 섬 배타를 잡고 {@link PublicCommandService#run} 에 들어간다. 재생 권한은
      * 활성 인가와 같다: 원 결과 재생도 «지금» 주민·완공·작성 권한이 있어야 한다(B10). 공통 층이 활성 인가를
      * 재생 경로에서도 다시 부르므로 재생 검사가 따로 할 일은 없다.
+     *
+     * <p>본문·댓글 길이 상한(422)은 각 {@code body} 첫 줄에서 판정한다 — 인가(403)가 먼저다(api-platform LLD
+     * §1 4단계, GROMO-1949). 422 는 TX 전체를 rollback 해 receipt 가 남지 않으므로 같은 키 재전송도 다시 422 다.
      */
     private <T> T run(UUID userId, UUID islandId, PublicCommandRequest command, boolean noticeWriter,
             Supplier<PublicCommandResult> body, Class<T> type) {

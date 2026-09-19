@@ -271,6 +271,40 @@ class IslandNoticeIntegrationTest {
         assertThat(notices.comment(is.id, noticeId, is.owner, "가".repeat(10), key()).text()).hasSize(10);
     }
 
+    @Test
+    @DisplayName("상한 초과여도 권한 없는 요청은 403 코드가 먼저다 — 길이는 인가 뒤에 본다 (GROMO-1949)")
+    void authorizationPrecedesLengthLimits() {
+        Island is = boardIsland();
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID visitor = user("방문자");
+        UUID plain = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        String longBody = "가".repeat(21);
+        String longText = "가".repeat(11);
+
+        assertThatThrownBy(() -> notices.create(is.id, visitor, "공지", longBody, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+        assertThatThrownBy(() -> notices.update(is.id, noticeId, visitor, null, longBody, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+        assertThatThrownBy(() -> notices.comment(is.id, noticeId, visitor, longText, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+        assertThatThrownBy(() -> notices.create(is.id, plain, "공지", longBody, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
+        assertThatThrownBy(() -> notices.update(is.id, noticeId, plain, null, longBody, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
+        // 댓글은 일반 주민에게도 허용된 쓰기라 인가를 통과하고 길이에서 422 다.
+        assertThatThrownBy(() -> notices.comment(is.id, noticeId, plain, longText, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_COMMENT_TOO_LONG);
+
+        // 422 는 rollback 되어 receipt 가 남지 않는다 — 같은 키 재전송도 다시 422 이고 행도 없다.
+        UUID sameKey = key();
+        for (int i = 0; i < 2; i++) {
+            assertThatThrownBy(() -> notices.create(is.id, is.owner, "공지", longBody, sameKey))
+                    .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_BODY_TOO_LONG);
+        }
+        assertThat(jdbc.queryForObject("select count(*) from group_announcements where group_id=?", Long.class,
+                is.id)).isEqualTo(1L);
+    }
+
     // ---------------------------------------------------------------- 커서 (B09)
 
     @Test
