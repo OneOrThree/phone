@@ -1,16 +1,23 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.construction.service.IslandWalletEvents;
+import com.oneorthree.phone.construction.service.IslandWalletService;
+import com.oneorthree.phone.currency.service.FishWalletService;
+import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
+import com.oneorthree.phone.focus.repository.FocusSettlementRepository;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
-import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
-import com.oneorthree.phone.group.repository.GroupQueryService;
+import com.oneorthree.phone.focus.support.FocusSessionStartGate;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
@@ -51,7 +58,8 @@ class FocusSessionMarkerDesyncTest {
     private static final Instant STARTED_AT = Instant.parse("2026-09-17T02:00:00Z");
 
     @Mock private UserQueryService userQueryService;
-    @Mock private GroupQueryService groupQueryService;
+    @Mock private GroupMembershipMutationLocks membershipLocks;
+    @Mock private GroupMemberRepository groupMemberRepository;
     @Mock private UserIslandContextLockService userIslandContextLockService;
     @Mock private FocusSessionRepository focusSessionRepository;
     @Mock private FocusSessionDetailRepository focusSessionDetailRepository;
@@ -59,11 +67,20 @@ class FocusSessionMarkerDesyncTest {
     @Mock private DailyFocusStatRepository dailyFocusStatRepository;
     @Mock private PublicCommandService publicCommands;
     @Mock private OutboxCommandPort outboxCommandPort;
+    @Mock private FocusPresencePort focusPresencePort;
+    @Mock private FocusRewardPolicyRepository focusRewardPolicyRepository;
+    @Mock private FocusSettlementRepository focusSettlementRepository;
+    @Mock private IslandWalletService islandWalletService;
+    @Mock private IslandWalletEvents islandWalletEvents;
+    @Mock private FishWalletService fishWalletService;
 
     private FocusSessionLifecycleService service() {
-        return new FocusSessionLifecycleService(userQueryService, groupQueryService,
+        return new FocusSessionLifecycleService(new FocusSessionStartGate(false), userQueryService,
+                membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
+                focusRewardPolicyRepository, focusSettlementRepository, islandWalletService, islandWalletEvents,
+                fishWalletService, focusPresencePort,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
@@ -75,8 +92,8 @@ class FocusSessionMarkerDesyncTest {
         when(focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(eq(userId), any()))
                 .thenReturn(Optional.of(detail));
         // 레거시 start가 닫아 둔 마커 — endedAt이 차 있다.
-        when(focusSessionRepository.findById(sessionId))
-                .thenReturn(Optional.of(marker(Instant.parse("2026-09-17T02:30:00Z"))));
+        when(focusSessionRepository.findEndedAtById(sessionId))
+                .thenReturn(Optional.ofNullable(Instant.parse("2026-09-17T02:30:00Z")));
 
         assertThat(service().current(userId)).isNull();
         assertThat(detail.getLifecycle()).isEqualTo(FocusSessionLifecycle.ABANDONED);
@@ -92,7 +109,7 @@ class FocusSessionMarkerDesyncTest {
         FocusSessionDetail detail = detail(sessionId, userId, FocusSessionLifecycle.ACTIVE);
         when(focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(eq(userId), any()))
                 .thenReturn(Optional.of(detail));
-        when(focusSessionRepository.findById(sessionId)).thenReturn(Optional.of(marker(null)));
+        when(focusSessionRepository.findEndedAtById(sessionId)).thenReturn(Optional.ofNullable(null));
         when(focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(sessionId))
                 .thenReturn(List.of(FocusSessionInterval.builder()
                         .sessionId(sessionId)
@@ -124,10 +141,4 @@ class FocusSessionMarkerDesyncTest {
                 .build();
     }
 
-    private static FocusSession marker(Instant endedAt) {
-        return FocusSession.builder()
-                .startedAt(STARTED_AT)
-                .endedAt(endedAt)
-                .build();
-    }
 }

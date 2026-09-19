@@ -50,8 +50,7 @@ public class IslandWalletService {
      * <p>단, 주민별 기여는 목표가 골라져 있을 때만 쓴다 — 「각자 몫은 목표를 고른 뒤부터
      * 모은 물고기로 판단한다」(정책 P-D04)라 무목표 적립은 지갑·원장만 남긴다.
      *
-     * <p>집중 보상의 실제 적립 연동은 이 티켓 범위 밖(1767 1단계 제외)이라 호출부는 아직
-     * 없다 — 판정 경로 검증용으로 열어 둔 서버 전용 진입점이다.
+     * <p>호출부는 집중 finish 정산이다(GROMO-1924 — 섬 통장 몫 C, 키 {@code focus:<sessionId>}).
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void contribute(UUID islandId, UUID userId, int amount, String idempotencyKey) {

@@ -87,14 +87,44 @@ public class LeagueRankingQueryRepository {
      * (FocusLiveInfoLookup)에서 태그를 다시 읽으면, 두 조회 사이에 세션이 바뀐 유저가 A 세션의
      * 경과 + B 세션의 태그라는 불가능한 조합으로 응답된다. 소프트 딜리트된 태그도 조인한다
      * (FocusLiveInfoLookup 의 fetch join 과 동일 — deleted_at 무시).
+     *
+     * <p><b>v0.3 상세가 달린 세션(GROMO-1924, 선행 조건 #4 · LLD §5.1)</b> — 기본 마커는 휴식 중에도
+     * {@code ended_at IS NULL} 이라, 최초 시작부터 지금까지를 세면 휴식이 순위에 들어간다. 그래서
+     * <ul>
+     *   <li><b>active</b> 이면 이번 주 창 {@code [weekStartAt, now]} 와 겹친 ACTIVE 구간의 합 A 를 구하고,
+     *       앵커를 {@code now − A} 로 «합성»한다. 아래 LIVE_SECONDS 는 {@code now − 앵커} 이므로 정렬은
+     *       정확히 A 이고, 응답의 {@code liveStartedAt} 도 이 앵커라 앱의 {@code 확정값 + (now − 앵커)} 표시가
+     *       같은 값을 그린다 — 앱을 바꾸지 않고 순위와 표시가 휴식을 빼고 일치한다. A ≤ now − weekStartAt 이라
+     *       앵커는 주 시작보다 이르지 않다(LIVE_ANCHOR 의 클램프가 값을 바꾸지 않는다)</li>
+     *   <li><b>paused</b> 이면 이 목록에서 뺀다. 앱은 앵커가 있으면 매초 더하므로, 휴식 중 «고정된» 진행분을
+     *       현행 응답 계약으로는 표시할 수 없다 — 순위에만 넣으면 「시간은 아래인데 순위는 위」가 된다.
+     *       빼면 휴식 동안 진행분이 순위·표시 양쪽에서 함께 빠졌다가 resume 뒤 다시 들어가고, 완료분은
+     *       finish 가 일 집계에 한 번 넣는다. 휴식 중에도 진행분을 고정 표시하려면 응답·앱 계약 개정이
+     *       필요하다(LLD §5.1 앱 쪽 — 이 서버 변경의 범위 밖)</li>
+     * </ul>
+     * 상세가 «없는» 레거시 세션은 종전 계약 그대로다.
      */
     private static final String LIVE_SESSIONS = """
-            SELECT DISTINCT ON (s.user_id) s.user_id, s.started_at, dt.name AS tag_name
+            SELECT DISTINCT ON (s.user_id) s.user_id,
+                   CASE WHEN fd.session_id IS NULL THEN s.started_at
+                        ELSE CAST(:now AS timestamptz) - make_interval(secs => (
+                            SELECT COALESCE(SUM(EXTRACT(EPOCH FROM
+                                       LEAST(COALESCE(i.ended_at, :now), :now)
+                                       - GREATEST(i.started_at, :weekStartAt))), 0)
+                              FROM focus_session_intervals i
+                             WHERE i.session_id = s.id
+                               AND i.kind = 'ACTIVE'
+                               AND COALESCE(i.ended_at, :now) > :weekStartAt
+                               AND i.started_at < :now))
+                   END AS started_at,
+                   dt.name AS tag_name
               FROM focus_sessions s
+              LEFT JOIN focus_session_details fd ON fd.session_id = s.id
               LEFT JOIN user_focus_tags uft ON uft.id = s.focus_tag_id
               LEFT JOIN default_tags dt ON dt.id = uft.default_tag_id
              WHERE s.ended_at IS NULL
                AND s.started_at >= :liveSince
+               AND (fd.session_id IS NULL OR fd.lifecycle = 'ACTIVE')
              ORDER BY s.user_id, s.started_at DESC
             """;
 
