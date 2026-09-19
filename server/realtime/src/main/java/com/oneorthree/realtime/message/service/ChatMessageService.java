@@ -54,6 +54,7 @@ public class ChatMessageService {
     public static final int MAX_PAGE_SIZE = 100;
 
     private final ChatMessageRepository chatMessageRepository;
+    private final ChatMessageAppender chatMessageAppender;
     private final ChatAccessGuard accessGuard;
     private final ChatFanout chatFanout;
     private final Clock clock;
@@ -131,7 +132,8 @@ public class ChatMessageService {
     private Stored insertOrFindExisting(UUID groupId, UUID senderId, UUID clientMessageId,
             String content) {
         try {
-            ChatMessage saved = chatMessageRepository.save(ChatMessage.builder()
+            // 방 순서(= 커밋 순서)로 id 를 정하는 입구 — JPA save 로 바꾸면 GROMO-1741 §② 가 되살아난다.
+            ChatMessage saved = chatMessageAppender.append(ChatMessage.builder()
                     .groupId(groupId)
                     .senderId(senderId)
                     .content(content)

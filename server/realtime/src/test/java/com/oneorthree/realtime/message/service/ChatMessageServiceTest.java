@@ -59,6 +59,9 @@ class ChatMessageServiceTest {
     private ChatMessageRepository chatMessageRepository;
 
     @Mock
+    private ChatMessageAppender chatMessageAppender;
+
+    @Mock
     private ChatAccessGuard accessGuard;
 
     @Mock
@@ -77,7 +80,7 @@ class ChatMessageServiceTest {
     void setUp() {
         groupId = UUID.randomUUID();
         senderId = UUID.randomUUID();
-        chatMessageService = new ChatMessageService(chatMessageRepository, accessGuard, chatFanout,
+        chatMessageService = new ChatMessageService(chatMessageRepository, chatMessageAppender, accessGuard, chatFanout,
                 Clock.fixed(NOW, ZoneOffset.UTC), withdrawnSenders);
     }
 
@@ -90,7 +93,7 @@ class ChatMessageServiceTest {
         assertThatThrownBy(() -> chatMessageService.send(groupId, senderId, request("안녕"), BEARER, SESSION_ID))
                 .isInstanceOf(ChatException.class);
 
-        verify(chatMessageRepository, never()).save(any());
+        verify(chatMessageAppender, never()).append(any());
         verify(chatFanout, never()).broadcast(any());
     }
 
@@ -123,7 +126,7 @@ class ChatMessageServiceTest {
                 .extracting(e -> ((ChatException) e).getErrorCode())
                 .isEqualTo(ChatErrorCode.CONTENT_TOO_LONG);
 
-        verify(chatMessageRepository, never()).save(any());
+        verify(chatMessageAppender, never()).append(any());
     }
 
     @Test
@@ -136,7 +139,7 @@ class ChatMessageServiceTest {
                 .isEqualTo(ChatErrorCode.INVALID_CONTENT);
 
         // DB 까지 가면 재전송 예외와 «같은 타입»으로 터져 400 이 아니라 ERROR 프레임 + 연결 종료가 된다.
-        verify(chatMessageRepository, never()).save(any());
+        verify(chatMessageAppender, never()).append(any());
         verify(chatFanout, never()).broadcast(any());
     }
 
@@ -156,7 +159,7 @@ class ChatMessageServiceTest {
         UUID clientMessageId = uuid();
         ChatMessage original = persisted(groupId, senderId, "안녕", clientMessageId);
 
-        willThrow(new DataIntegrityViolationException("unique")).given(chatMessageRepository).save(any());
+        willThrow(new DataIntegrityViolationException("unique")).given(chatMessageAppender).append(any());
         given(chatMessageRepository.findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId))
                 .willReturn(Optional.of(original));
 
@@ -172,7 +175,7 @@ class ChatMessageServiceTest {
         UUID clientMessageId = uuid();
         ChatMessage original = persisted(groupId, senderId, "안녕", clientMessageId);
 
-        willThrow(new DataIntegrityViolationException("unique")).given(chatMessageRepository).save(any());
+        willThrow(new DataIntegrityViolationException("unique")).given(chatMessageAppender).append(any());
         given(chatMessageRepository.findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId))
                 .willReturn(Optional.of(original));
 
@@ -187,7 +190,7 @@ class ChatMessageServiceTest {
         UUID clientMessageId = uuid();
         ChatMessage original = persisted(groupId, senderId, "안녕", clientMessageId);
 
-        willThrow(new DataIntegrityViolationException("unique")).given(chatMessageRepository).save(any());
+        willThrow(new DataIntegrityViolationException("unique")).given(chatMessageAppender).append(any());
         given(chatMessageRepository.findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId))
                 .willReturn(Optional.of(original));
 
@@ -214,7 +217,7 @@ class ChatMessageServiceTest {
     void unrelatedIntegrityViolationIsNotSwallowed() {
         UUID clientMessageId = uuid();
         willThrow(new DataIntegrityViolationException("not a dedup violation"))
-                .given(chatMessageRepository).save(any());
+                .given(chatMessageAppender).append(any());
         given(chatMessageRepository.findByGroupIdAndSenderIdAndClientMessageId(groupId, senderId, clientMessageId))
                 .willReturn(Optional.empty());
 
@@ -286,7 +289,7 @@ class ChatMessageServiceTest {
 
     /** 저장이 입력을 그대로 돌려주게 한다(id 를 채워서) — 서비스의 판단만 보기 위한 최소 스텁. */
     private void givenSaveEchoes() {
-        given(chatMessageRepository.save(any())).willAnswer(invocation -> {
+        given(chatMessageAppender.append(any())).willAnswer(invocation -> {
             ChatMessage m = invocation.getArgument(0);
             ReflectionTestUtils.setField(m, "id", uuid());
             return m;

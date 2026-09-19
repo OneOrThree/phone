@@ -75,11 +75,15 @@ Entity PKs are UUID v7 via `@GeneratedUuidV7`. Error responses use one envelope
   on a single instance — `ChatWebSocketIntegrationTest` covers that regression.
 - **현재 인가 옵션 OFF의 멤버십은 TTL 캐시** (`chat.membership.cache-ttl-seconds`)다. ON이면 지정된
   `requireCanChat` 경계가 PR753 Data 현재 인가를 매번 조회한다. 방 목록·duplicates·개인큐는 새 조회 범위가 아니다.
-- **`id` is assigned at INSERT, not at COMMIT.** A smaller id can commit later, so a client
-  scrolling upward with a kept cursor can miss that one message, and the unread badge can
-  under-count it. The message itself is not lost — it is committed and shows up on the newest
-  page. The window is INSERT→COMMIT of a single-row insert (microseconds). Closing it properly
-  needs a commit-ordered sequence; tracked as a follow-up.
+- **Messages are stored only through `ChatMessageAppender`, never `ChatMessageRepository.save`.**
+  It takes a per-room advisory lock, reads the room's last id and inserts a strictly larger one,
+  so within a room id order equals commit order (GROMO-1741). A plain `save` reopens the window
+  where a smaller id commits later — a client scrolling up with a kept cursor skips it and the
+  unread badge under-counts it — and lets a clock-skewed instance sort a new message before older ones.
+- **`setPreserveReceiveOrder(true)` needs `WebSocketConfig.RejectAsErrorFrame`.** With receive order
+  preserved, Spring's ordered decorator swallows `preSend` exceptions, so the gate's rejections
+  (no token, other island, focusing) would never reach the client. The wrapper turns them into the
+  ERROR frame itself. Remove the flag and one session's burst of SENDs is stored out of order.
 - **만료된 access token은 `UNAUTHORIZED`로 거절한다.** CONNECT·SEND·SUBSCRIBE에서 검증하고,
   아웃바운드 채팅에서도 CONNECT 주체의 토큰을 다시 검증한다. 다른 기기가 멤버십 캐시를 갱신해도
   만료된 소켓은 채팅을 송수신할 수 없다. 전달 시 만료를 감지하면 실제 소켓을
