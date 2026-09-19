@@ -1,6 +1,8 @@
 package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
+import com.oneorthree.phone.appearance.service.AppearanceService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -78,6 +80,7 @@ public class IslandManagementService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandMovementGuards movementGuards;
     private final PublicCommandService publicCommands;
+    private final AppearanceService appearances;
 
     @Value("${island-management.commands-enabled:false}")
     private boolean enabled;
@@ -144,7 +147,8 @@ public class IslandManagementService {
     // ---------------------------------------------------------------- §3.2 members
 
     /**
-     * 주민 목록 — 활성 주민만 읽을 수 있고(방문자·pending·이탈자 403), 탈퇴 계정은 목록에서 뺀다.
+     * 주민 목록 — 살아 있는 섬이면 활성 계정 누구나 읽는다: 방문자(가입 대기자·이탈자 포함)도 된다(2026-09-19 결정
+     * V-읽기, GROMO-1904). 항목은 닉네임·고양이 외형(착용 외양)·방장 여부뿐이고, 탈퇴 계정은 목록에서 뺀다.
      *
      * <p>{@code REPEATABLE_READ} 인 이유: 목록 {@code version} 은 응답 행들과 <b>같은 스냅샷</b>에서 읽어야 한다
      * (LLD §3.2). 기본 READ COMMITTED 는 문장마다 스냅샷이 달라, 행을 읽은 뒤 커밋된 가입이 version 에만
@@ -154,10 +158,9 @@ public class IslandManagementService {
     public IslandMembersPageView members(UUID userId, UUID islandId, Instant afterJoinedAt, UUID afterMembershipId,
                                          int limit) {
         requirePage(afterJoinedAt, afterMembershipId, limit);
-        User caller = userQueryService.getCaller(userId);
+        userQueryService.getCaller(userId);
         Group island = groupQueryService.getGroup(islandId);
         IslandMovementGuards.requireAlive(island);
-        groupQueryService.getMembership(caller, island);
         List<GroupMember> rows = groupMemberRepository.findActivePageByGroupId(islandId,
                 afterJoinedAt == null ? FIRST_AT : afterJoinedAt,
                 afterMembershipId == null ? FIRST_ID : afterMembershipId,
@@ -165,10 +168,13 @@ public class IslandManagementService {
         boolean more = rows.size() > limit;
         List<GroupMember> page = more ? rows.subList(0, limit) : rows;
         GroupMember last = more ? page.get(page.size() - 1) : null;
+        Map<UUID, PersonalAppearanceView> looks = appearances.equippedOf(
+                page.stream().map(member -> member.getUser().getId()).toList());
         return new IslandMembersPageView(page.stream()
                 .map(member -> new IslandMembersPageView.Item(member.getUser().getId(),
                         member.getUser().getNickname(),
-                        member.getRole() == GroupMemberRole.OWNER ? "host" : "member"))
+                        member.getRole() == GroupMemberRole.OWNER ? "host" : "member",
+                        looks.get(member.getUser().getId())))
                 .toList(),
                 last == null ? null : last.getCreatedAt(), last == null ? null : last.getId(),
                 aggregateVersion(IslandMembershipEvents.AGGREGATE_TYPE, islandId));

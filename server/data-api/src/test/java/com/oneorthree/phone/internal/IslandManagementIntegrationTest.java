@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal;
 
+import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
@@ -220,7 +221,7 @@ class IslandManagementIntegrationTest {
     // ---------------------------------------------------------------- §3.2 members
 
     @Test
-    @DisplayName("주민 목록 — 주민만 읽고, 가입순 keyset 페이지와 같은 스냅샷의 목록 version 을 준다")
+    @DisplayName("주민 목록 — 가입순 keyset 페이지와 같은 스냅샷의 목록 version 을 준다")
     void membersPagesInJoinOrderWithListVersion() throws Exception {
         Fixture f = fixture(false);
         long version = management.members(f.host(), f.islandId(), null, null, 30).version();
@@ -243,22 +244,45 @@ class IslandManagementIntegrationTest {
     }
 
     @Test
-    @DisplayName("주민 목록 — 방문자·pending 신청자·다른 섬 방장은 403, 삭제 계정은 목록에서 빠지고 본인 호출은 404")
-    void membersRejectsOutsidersAndHidesDeletedAccounts() {
+    @DisplayName("주민 목록 — 방문자·pending 신청자·다른 섬 방장도 읽는다(V-읽기), 삭제 계정은 빠지고 종료 섬은 404")
+    void membersAreReadableByVisitorsAndHideDeletedAccounts() throws Exception {
         Fixture f = fixture(true);
         UUID applicant = newUser();
         joins.join(applicant, f.islandId(), null, UUID.randomUUID());
         UUID otherHost = newUser();
         joinAs(otherHost, publicIsland("다른섬"), GroupMemberRole.OWNER);
         for (UUID caller : List.of(newUser(), applicant, otherHost)) {
-            assertThatThrownBy(() -> management.members(caller, f.islandId(), null, null, 30))
-                    .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.MEMBER_ONLY);
+            assertThat(management.members(caller, f.islandId(), null, null, 30).items())
+                    .extracting(IslandMembersPageView.Item::id).containsExactly(f.host(), f.member());
         }
+        mvc.perform(get("/internal/islands/" + f.islandId() + "/members").param("limit", "30")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", applicant))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].role").value("host"))
+                .andExpect(jsonPath("$.items[0].appearance.hull").value("raft"))
+                .andExpect(jsonPath("$.items[0].appearance.version").value(0));
         withdrawal.withdraw(f.member());
         assertThat(management.members(f.host(), f.islandId(), null, null, 30).items())
                 .extracting(IslandMembersPageView.Item::id).containsExactly(f.host());
         assertThatThrownBy(() -> management.members(f.member(), f.islandId(), null, null, 30))
                 .hasFieldOrPropertyWithValue("errorCode", UserErrorCode.USER_NOT_FOUND);
+        management.leave(f.host(), f.islandId(), UUID.randomUUID());
+        assertThatThrownBy(() -> management.members(applicant, f.islandId(), null, null, 30))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.GROUP_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("주민 목록 — 항목마다 착용 외양(고양이 외형)을 싣는다. 외양 행이 없으면 기본값이다")
+    void membersCarryEquippedAppearance() {
+        Fixture f = fixture(false);
+        jdbc.update("INSERT INTO personal_appearances (user_id, clothes, decor, hull, position, version, updated_at)"
+                + " VALUES (?, 'scarf', NULL, 'raft', 'back', 3, now())", f.member());
+
+        List<IslandMembersPageView.Item> items = management.members(newUser(), f.islandId(), null, null, 30).items();
+        assertThat(items.get(0).appearance())
+                .isEqualTo(new PersonalAppearanceView(null, null, "raft", "front", 0));
+        assertThat(items.get(1).appearance())
+                .isEqualTo(new PersonalAppearanceView("scarf", null, "raft", "back", 3));
     }
 
     // ---------------------------------------------------------------- §3.3 requests

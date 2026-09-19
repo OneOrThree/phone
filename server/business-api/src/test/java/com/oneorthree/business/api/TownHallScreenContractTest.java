@@ -29,7 +29,9 @@ class TownHallScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_OPTIONS = DATA_ISLAND + "/construction-options";
     private static final String DATA_REQUESTS = DATA_ISLAND + "/join-requests";
 
-    private static final String MEMBERS = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\",\"role\":\"host\"}],"
+    private static final String MEMBERS = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\",\"role\":\"host\","
+            + "\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,"
+            + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
             + "\"nextJoinedAt\":\"2026-09-19T01:02:03.123456Z\",\"nextMembershipId\":\"" + APPLICANT
             + "\",\"version\":9}";
     private static final String OPTIONS = "{\"islandVersion\":4,\"costPolicyVersion\":1,"

@@ -15,9 +15,11 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
@@ -30,6 +32,7 @@ import com.oneorthree.phone.quest.repository.domain.QuestType;
 import com.oneorthree.phone.quest.scheduler.IslandQuestScheduler;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
+import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -46,6 +49,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -91,6 +95,8 @@ class IslandQuestIntegrationTest {
     @Autowired
     GroupMemberRepository members;
     @Autowired
+    IslandJoinRequestRepository joinRequests;
+    @Autowired
     IslandFacilityRepository facilities;
     @Autowired
     FocusSessionRepository sessions;
@@ -113,26 +119,60 @@ class IslandQuestIntegrationTest {
     // ---------------------------------------------------------------- 권한
 
     @Test
-    @DisplayName("생성·수정은 방장만 — 주민은 403 QUEST_FORBIDDEN, 비주민 조회는 403 MEMBER_ONLY, 게시판 없으면 403")
+    @DisplayName("생성·수정은 방장만 — 주민은 403 QUEST_FORBIDDEN, 게시판 없으면 조회도 403")
     void createAndUpdateAreOwnerOnly() {
         Island a = island(true);
         User resident = resident(a.group);
-        User outsider = users.save(User.builder().nickname("밖-" + UUID.randomUUID()).build());
 
         assertQuestError(() -> createFocus(a, resident, "18:00", "23:00", 30), QuestErrorCode.QUEST_FORBIDDEN);
 
         UUID questId = createFocus(a, a.owner, "18:00", "23:00", 30).id();
         assertQuestError(() -> service.update(a.id, resident.getId(), questId, "바꿈", null, UUID.randomUUID()),
                 QuestErrorCode.QUEST_FORBIDDEN);
-        assertThatThrownBy(() -> service.current(a.id, outsider.getId()))
-                .isInstanceOfSatisfying(GroupException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
         // 주민 조회는 된다.
         assertThat(service.current(a.id, resident.getId()).items()).hasSize(1);
 
         Island noBoard = island(false);
         assertQuestError(() -> service.current(noBoard.id, noBoard.owner.getId()),
                 QuestErrorCode.QUEST_BOARD_LOCKED);
+    }
+
+    @Test
+    @DisplayName("방문자·가입 대기자는 퀘스트와 주민별 달성률을 읽고(myRate null), 생성·수정·정산은 MEMBER_ONLY 다")
+    void visitorsReadQuestsButCannotWrite() {
+        Island a = island(true);
+        User resident = resident(a.group);
+        QuestViews.Created created = createFocus(a, a.owner, "10:00", "12:00", 30);
+        UUID occurrenceId = occurrenceOf(created);
+        User visitor = users.save(User.builder().nickname("밖-" + UUID.randomUUID()).build());
+        User applicant = users.save(User.builder().nickname("신청-" + UUID.randomUUID()).build());
+        joinRequests.save(IslandJoinRequest.pending(a.group, applicant, null));
+
+        for (User reader : List.of(visitor, applicant)) {
+            QuestViews.Item item = service.current(a.id, reader.getId()).items().get(0);
+            assertThat(item.occurrenceId()).isEqualTo(occurrenceId);
+            assertThat(item.myRate()).as("방문자는 cohort 밖").isNull();
+            QuestViews.Progress progress = service.progress(a.id, reader.getId(), created.id(), occurrenceId);
+            assertThat(progress.members()).extracting(QuestViews.Member::userId)
+                    .containsExactlyInAnyOrder(a.owner.getId(), resident.getId());
+
+            UUID id = reader.getId();
+            for (ThrowingCallable write : List.<ThrowingCallable>of(
+                    () -> service.create(a.id, id, "몰래", "focus", 30, "18:00", "23:00", null, UUID.randomUUID()),
+                    () -> service.update(a.id, id, created.id(), "몰래", null, UUID.randomUUID()),
+                    () -> service.claim(a.id, id, created.id(), occurrenceId, 1, UUID.randomUUID()))) {
+                assertThatThrownBy(write).isInstanceOfSatisfying(GroupException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
+            }
+        }
+
+        // 방문자도 미완공 게시판은 403, 종료된 섬은 404 다.
+        Island noBoard = island(false);
+        assertQuestError(() -> service.current(noBoard.id, visitor.getId()), QuestErrorCode.QUEST_BOARD_LOCKED);
+        jdbc.update("UPDATE groups SET status = 'ENDED' WHERE id = ?", a.id);
+        assertThatThrownBy(() -> service.current(a.id, visitor.getId()))
+                .isInstanceOfSatisfying(GroupException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.GROUP_NOT_FOUND));
     }
 
     @Test
