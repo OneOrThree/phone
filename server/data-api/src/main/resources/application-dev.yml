@@ -120,6 +120,11 @@ link:
 focus:
   presence:
     enabled: ${FOCUS_PRESENCE_ENABLED:false}
+  # v0.3 집중 세션 시작 게이트 (GROMO-1924, FocusSessionStartGate). LLD §5.2 의 「새 세션 생성의
+  # 활성화 flag」다 — 켜기 전 조건(미결 제품 결정·호환 앱·롤백 baseline)은 그 클래스 javadoc 에 있다.
+  # 끄면 새 start 만 503 이고, 이미 진행 중인 세션의 pause/resume/finish 는 그대로 열려 있다.
+  session:
+    start-enabled: ${FOCUS_SESSION_START_ENABLED:false}
 
 spring.data.redis:
   host: ${REDIS_HOST:localhost}

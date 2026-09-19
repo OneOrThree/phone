@@ -2,8 +2,14 @@ package com.oneorthree.phone.focus.service;
 
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
+import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
+import com.oneorthree.phone.focus.support.FocusIntervalMath;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -11,7 +17,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -36,6 +44,8 @@ public class FocusLiveInfoLookup {
 
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final FocusSessionRepository focusSessionRepository;
+    private final FocusSessionDetailRepository focusSessionDetailRepository;
+    private final FocusSessionIntervalRepository focusSessionIntervalRepository;
 
     /**
      * 주어진 유저들의 집중 라이브 정보를 userId→FocusLiveInfo 맵으로 배치 도출한다.
@@ -54,10 +64,14 @@ public class FocusLiveInfoLookup {
                 .collect(Collectors.toMap(s -> s.getUser().getId(), s -> s.getTotalFocusSeconds() / 60));
         // 지금 집중 중(라이브) 세션 — 쿼리가 startedAt DESC 정렬이므로 중복 시작 세션이 있어도 toMap 이 먼저(=최신) 것을 유지.
         // liveSince(now-12h) 하한으로 스윕 전 orphan(버려진 미종료) 세션은 제외한다.
-        Instant liveSince = Instant.now().minus(LIVE_SESSION_MAX_AGE);
+        Instant now = Instant.now();
+        Instant liveSince = now.minus(LIVE_SESSION_MAX_AGE);
         Map<UUID, FocusSession> liveByUserId = focusSessionRepository.findLiveSessionsByUserIdIn(userIds, liveSince)
                 .stream()
                 .collect(Collectors.toMap(s -> s.getUser().getId(), Function.identity(), (existing, dup) -> existing));
+        Map<UUID, Instant> liveAnchors = v03Anchors(liveByUserId.values(), now);
+        liveByUserId.values().removeIf(live -> liveAnchors.containsKey(live.getId())
+                && liveAnchors.get(live.getId()) == null);
 
         // 집계·라이브 어느 한쪽이라도 있는 유저만 맵에 담는다(둘 다 없으면 호출측 기본값 처리).
         Set<UUID> ids = new HashSet<>(focusMinutes.keySet());
@@ -67,9 +81,42 @@ public class FocusLiveInfoLookup {
             return new FocusLiveInfo(
                     focusMinutes.getOrDefault(id, 0),
                     live != null,
-                    live != null ? live.getStartedAt() : null,
+                    live != null ? liveAnchors.getOrDefault(live.getId(), live.getStartedAt()) : null,
                     live != null ? tagName(live) : null);
         }));
+    }
+
+    /**
+     * v0.3 상세가 달린 라이브 세션의 표시 앵커 (GROMO-1924, 선행 조건 #4 · LLD §5.1) — 리그 라이브 순위
+     * ({@code LeagueRankingQueryRepository.LIVE_SESSIONS})와 같은 규칙이다. 기본 마커는 휴식 중에도 열려 있어
+     * {@code startedAt} 을 그대로 내보내면 앱이 휴식까지 «집중 중» 경과로 더한다.
+     * <ul>
+     *   <li>active — {@code now − 세션의 순수 ACTIVE 초}로 합성한다. 앱의 {@code now − 앵커}가 순수 집중이 된다</li>
+     *   <li>paused — {@code null}(라이브 아님). 현행 응답으로는 고정된 진행분을 표시할 수 없다</li>
+     * </ul>
+     *
+     * @return 상세가 있는 세션만 담은 sessionId → 앵커(휴식이면 null). 레거시 세션은 없다
+     */
+    private Map<UUID, Instant> v03Anchors(Collection<FocusSession> liveSessions, Instant now) {
+        List<UUID> sessionIds = liveSessions.stream().map(FocusSession::getId).toList();
+        Map<UUID, Instant> anchors = new HashMap<>();
+        if (sessionIds.isEmpty()) {
+            return anchors;
+        }
+        List<FocusSessionDetail> details = focusSessionDetailRepository.findAllById(sessionIds);
+        if (details.isEmpty()) {
+            return anchors;
+        }
+        List<UUID> detailIds = details.stream().map(FocusSessionDetail::getSessionId).toList();
+        Map<UUID, List<FocusSessionInterval>> intervals = focusSessionIntervalRepository
+                .findBySessionIdInOrderByOrdinalAsc(detailIds).stream()
+                .collect(Collectors.groupingBy(FocusSessionInterval::getSessionId));
+        for (FocusSessionDetail detail : details) {
+            anchors.put(detail.getSessionId(), detail.getLifecycle() != FocusSessionLifecycle.ACTIVE ? null
+                    : now.minusSeconds(FocusIntervalMath.activeSecondsAsOf(
+                            intervals.getOrDefault(detail.getSessionId(), List.of()), now)));
+        }
+        return anchors;
     }
 
     /**

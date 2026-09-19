@@ -49,17 +49,17 @@ public enum FocusErrorCode implements ErrorCode {
     /** pause/resume/finish의 lifecycle 불일치 또는 expectedVersion 불일치(FR-P07). */
     SESSION_STATE_CONFLICT(HttpStatus.CONFLICT, "지금 상태에서는 처리할 수 없습니다."),
     /**
-     * 보상 정책(FR-D01~06) 미확정 — {@link com.oneorthree.phone.focus.support.FocusRewardPolicyGate}가
-     * 닫혀 있는 동안 finish는 이 코드로 막힌다. "0원 지급 성공"으로 위장하지 않는다(policy.md).
+     * 이 세션에 고정된 보상 정책 revision 이 없다 — finish 는 이 코드로 막힌다. 값을 지어내 "0원 지급 성공"으로
+     * 위장하지 않는다(policy.md). GROMO-1924 이후 start 는 정책 revision 없이 세션을 만들지 않으므로
+     * 그 이전에 생긴 행에서만 나온다(시작 게이트가 닫혀 있어 실제로는 없다).
      */
     REWARD_POLICY_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "보상 정책이 아직 준비되지 않았습니다."),
     /**
-     * v0.3 시작 경로 비활성 — {@link com.oneorthree.phone.focus.support.FocusSessionStartGate}가 닫혀
-     * 있는 동안 start는 이 코드로 막힌다. finish가 항상 503인 채로 세션을 만들면 사용자가 끝낼 수 없는
-     * 세션에 갇히기 때문이다.
+     * v0.3 시작 경로 비활성 — {@link com.oneorthree.phone.focus.support.FocusSessionStartGate}(배포 설정)가
+     * 닫혀 있거나 현재 보상 정책 revision 이 없으면 start 는 이 코드로 막힌다(GROMO-1924).
      *
-     * <p>{@link #REWARD_POLICY_UNAVAILABLE}과 같은 503이지만 코드를 나눈다 — 막는 사유가 다르고,
-     * 두 게이트 중 하나만 먼저 여는 날 앱·운영이 어느 쪽이 남았는지 구분할 수 있어야 한다.
+     * <p>{@link #REWARD_POLICY_UNAVAILABLE}과 같은 503이지만 코드를 나눈다 — 한쪽은 «새 세션을 열지 않는다»,
+     * 다른 쪽은 «이 세션을 정산할 근거가 없다»라 앱·운영이 대응이 다르다.
      */
     SESSION_START_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "집중 세션 시작이 아직 준비되지 않았습니다.");
 

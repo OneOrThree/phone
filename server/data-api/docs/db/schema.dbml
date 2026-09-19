@@ -2,12 +2,13 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V66 · V71 (src/main/resources/db/migration — V67~V70 은 먼저 열린 PR 몫으로 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 (src/main/resources/db/migration — V68~V70 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
 //        island_quest_cohort_members · island_quest_claims. island_wallet_transactions.type 에 QUEST_SETTLEMENT 추가(스키마 무변경).
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·
 //        invite_link_clicks.ip_hash · league_weekly_results 결과 4열 · login_attempts digest 2열 · auth_sessions.refresh_token_hash.
 // V66 — 섬 게시판 공지 댓글 group_announcement_comments + 목록 keyset 인덱스 + 공지 version 백필 (GROMO-1771 · island-board LLD §3·§4).
+// V67 — 집중 세션 시작 게이트 선행 조건: focus_session_details.lifecycle MEMBERSHIP_LOST(varchar 20) · focus_reward_policies · user_fish_wallets · focus_settlements.completed_at 인덱스 (GROMO-1924).
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
 //
 // ── 규약 (GROMO-1912 — V1~V57 을 빈 postgres 에 적용한 실제 스키마와 전수 대조) ──
@@ -711,18 +712,18 @@ Table focus_session_details [note: 'GROMO-1764: v0.3 집중 세션 상세(섬 �
   session_id                uuid    [pk, note: 'FK → focus_sessions.id ON DELETE CASCADE — 별도 발급 없이 레거시 세션 PK를 공유']
   user_id                   uuid    [note: 'nullable — 탈퇴 시 null (FK → users.id ON DELETE SET NULL). 레거시 focus_sessions 와 같은 익명화: 행은 남기고 user_id 절단 + 자유 입력 subject 파기(AccountWithdrawalService)']
   island_id                 uuid    [not null, note: 'FK → groups.id ON DELETE RESTRICT. 시작 후 불변(FR-P03)']
-  membership_epoch_at_start bigint  [not null, note: '시작 시점 GroupMember.membershipEpoch 스냅샷 — 강퇴/재가입 감지 앵커(FR-D03 미결이라 기록만)']
+  membership_epoch_at_start bigint  [not null, note: '시작 시점 GroupMember.membershipEpoch 스냅샷 — 기록만. 소속 상실은 강퇴 TX 가 직접 종결한다(FR-D03, GROMO-1924)']
   subject                   varchar(200) [not null, note: '자유 입력 — 탈퇴 익명화가 빈 문자열로 파기한다(NOT NULL 불변식이라 null 대신 빈 값)']
   target_minutes            integer [not null, note: '허용 범위는 FR-D06 미결 — 0 이하만 거절']
-  lifecycle                 varchar(10) [not null, note: 'ACTIVE / PAUSED / COMPLETED / ABANDONED — 레거시 focus_session_status와 별개 축. ABANDONED = 기본 focus_sessions 마커가 레거시 start(autoCloseOpenMarkersOf)에 닫혀 진행 불가가 된 세션(정상 완료 아님)']
+  lifecycle                 varchar(20) [not null, note: 'ACTIVE / PAUSED / COMPLETED / ABANDONED / MEMBERSHIP_LOST — 레거시 focus_session_status와 별개 축. ABANDONED = 기본 focus_sessions 마커가 레거시 start(autoCloseOpenMarkersOf)에 닫혀 진행 불가가 된 세션(정상 완료 아님). MEMBERSHIP_LOST = 강퇴 TX 가 서버 시각으로 종결한 세션(FR-D03 B1 강제 종료·미정산, GROMO-1924). 열 폭 10→20 은 V67']
   version                   bigint  [not null, default: 1, note: '낙관 버전 — pause/resume/finish마다 +1(expectedVersion 검사 대상)']
   last_transition_at        timestamptz [not null]
-  policy_revision           integer [note: '시작 시 고정한 보상 정책 revision — FR-D01 미확정인 동안 항상 null']
+  policy_revision           integer [note: '시작 시 고정한 보상 정책 revision(focus_reward_policies.revision, GROMO-1924). 운영이 새 revision 을 내도 진행 세션의 지급률은 그대로']
   rest_seat                 integer [note: 'paused 동안만 값 존재. 섬 안 1..N 중 빈 최소 번호(예약 API 아님)']
   created_at                timestamptz [not null, default: `now()`]
 
   indexes {
-    (user_id) [unique, name: 'focus_session_details_user_progressing_uk', note: 'WHERE lifecycle IN (ACTIVE,PAUSED) — 사용자당 진행 세션 1개(FR-P02). COMPLETED/ABANDONED는 제약 밖']
+    (user_id) [unique, name: 'focus_session_details_user_progressing_uk', note: 'WHERE lifecycle IN (ACTIVE,PAUSED) — 사용자당 진행 세션 1개(FR-P02). COMPLETED/ABANDONED/MEMBERSHIP_LOST는 제약 밖']
     (island_id, rest_seat) [unique, name: 'focus_session_details_rest_seat_uk', note: 'WHERE lifecycle = PAUSED — 같은 섬 휴식 자리 중복 배정 방지']
   }
 }
@@ -741,19 +742,37 @@ Table focus_session_intervals [note: 'GROMO-1764: v0.3 세션의 ACTIVE/REST 실
   }
 }
 
-Table focus_settlements [note: 'GROMO-1764: v0.3 세션당 정산 결과(다른 idempotency-key 완료 재생·중복 지급 방어). 보상 정책(FR-D01~06) 미확정이라 2026-09 기준 쓰는 코드가 없다 — 스키마만 선반영'] {
+Table focus_settlements [note: 'GROMO-1764: v0.3 세션당 정산 결과(다른 idempotency-key 완료 재생·중복 지급 방어). GROMO-1924 의 finish 가 쓴다 — 산식 D5·귀속 D5-귀속(focus_reward_policies)'] {
   session_id                uuid    [pk, note: 'FK → focus_session_details.session_id ON DELETE RESTRICT — 정산 원장 행은 상세가 사라져도 임의로 함께 지우지 않는다']
   contract_version          integer [not null, default: 1]
   policy_revision           integer
   active_seconds            bigint  [not null]
   goal_achieved             boolean [not null]
   earned_fish               integer [not null, default: 0, note: 'E = personal_fish_added + construction_fish_added 보존식']
-  personal_fish_added       integer [not null, default: 0]
-  construction_fish_added   integer [not null, default: 0]
+  personal_fish_added       integer [not null, default: 0, note: '개인 지갑(user_fish_wallets) 적립분']
+  construction_fish_added   integer [not null, default: 0, note: '섬 통장(island_wallets, village_points) 적립분 — 열 이름은 V58 그대로']
   quest_progress            jsonb
   events                    jsonb   [note: '내부 결과 — 공개 finish 응답에 그대로 노출하지 않는다']
-  completed_at              timestamptz [not null]
+  completed_at              timestamptz [not null, note: '하루 상한(주민·섬별 UTC 하루, D8) 합산 축']
   created_at                timestamptz [not null, default: `now()`]
+
+  indexes {
+    (completed_at) [name: 'focus_settlements_completed_at_idx', note: 'V67']
+  }
+}
+
+Table focus_reward_policies [note: 'GROMO-1924: 집중 보상 산식 revision(FR-D01 · 2026-09-18 결정 D5 · D5-귀속, migration V67). 추가만 한다 — 가장 큰 revision 이 현재 정책, 세션은 시작 시 revision 고정'] {
+  revision                integer [pk]
+  seconds_per_fish        integer [not null, note: 'CHECK > 0 — 이 초만큼의 순수 집중마다 1마리(D5: 60)']
+  daily_cap_fish          integer [not null, note: 'CHECK >= 0 — 주민·섬별 하루 상한(D5: 480)']
+  personal_share_percent  integer [not null, note: 'CHECK 0..100 — 개인 지갑 몫, 나머지가 섬 통장(D5-귀속: 50)']
+  published_at            timestamptz [not null, default: `now()`]
+}
+
+Table user_fish_wallets [note: 'GROMO-1924: 개인 물고기 지갑(통화 fish, 2026-09-18 결정 D1, migration V67). 코인(user_wallets)과 별개 — D11 로 코인 잔액을 옮기지 않는다'] {
+  user_id     uuid    [pk, note: 'FK → users.id ON DELETE CASCADE']
+  balance     integer [not null, default: 0, note: 'CHECK >= 0']
+  updated_at  timestamptz [not null, default: `now()`]
 }
 
 // ────────────────────────────────────────────
