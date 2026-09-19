@@ -495,6 +495,33 @@ class IslandManagementIntegrationTest {
                 + " and params->>'changeKind'='CLOSED'", islandId.toString())).isEqualTo(1);
     }
 
+    // ---------------------------------------------------------------- 재생 인가
+
+    @Test
+    @DisplayName("방장 명령 3종의 같은 키 재생도 지금 방장이어야 한다 — 강등된 이전 방장은 403 NOT_OWNER")
+    void hostCommandReplaysRecheckCurrentHost() {
+        Fixture f = fixture(true);
+        UUID second = newUser();
+        joinAs(second, f.islandId(), GroupMemberRole.MEMBER);
+        UUID request = pendingRequest(f.islandId());
+        UUID manageKey = UUID.randomUUID();
+        UUID answerKey = UUID.randomUUID();
+        UUID kickKey = UUID.randomUUID();
+        IslandManageCommandRequest rename = new IslandManageCommandRequest("재생섬", null, null);
+        management.manage(f.host(), f.islandId(), rename, manageKey);
+        joins.answer(f.host(), f.islandId(), request, false, answerKey);
+        management.kick(f.host(), f.islandId(), second, kickKey);
+
+        jdbc.update("update group_members set role='MEMBER' where group_id=? and user_id=?", f.islandId(), f.host());
+
+        assertThatThrownBy(() -> management.manage(f.host(), f.islandId(), rename, manageKey))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.NOT_OWNER);
+        assertThatThrownBy(() -> joins.answer(f.host(), f.islandId(), request, false, answerKey))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.NOT_OWNER);
+        assertThatThrownBy(() -> management.kick(f.host(), f.islandId(), second, kickKey))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.NOT_OWNER);
+    }
+
     // ---------------------------------------------------------------- 도구
 
     private record Fixture(UUID islandId, UUID host, UUID member) {

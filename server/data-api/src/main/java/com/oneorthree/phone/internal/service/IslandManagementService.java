@@ -108,7 +108,7 @@ public class IslandManagementService {
                 InternalJson.tree(fingerprint));
         JsonNode data = publicCommands.run(command,
                 () -> userQueryService.getCallerForShare(userId),
-                ignored -> userQueryService.getCallerForShare(userId),
+                ignored -> requireHostNow(userId, islandId),
                 () -> {
                     Group island = lockIslandAsHost(userQueryService.getCallerForShare(userId), islandId);
                     boolean renamed = body.name() != null && !body.name().equals(island.getName());
@@ -212,7 +212,7 @@ public class IslandManagementService {
                 "DELETE:/islands/" + islandId + "/members/" + targetUserId, key, InternalJson.tree(Map.of()));
         JsonNode data = publicCommands.run(command,
                 () -> userQueryService.getCallerForShare(userId),
-                ignored -> userQueryService.getCallerForShare(userId),
+                ignored -> requireHostNow(userId, islandId),
                 () -> {
                     EventEnvelope event = membershipCommands.kickMemberAndRecord(islandId, targetUserId, userId);
                     return new PublicCommandResult(200, InternalJson.tree(new IslandMemberRemovedView(true)),
@@ -264,6 +264,14 @@ public class IslandManagementService {
         IslandMovementGuards.requireAlive(island);
         requireHost(caller, island);
         return island;
+    }
+
+    /**
+     * 재생 인가 — 방장 전용 명령의 같은 키 재생도 <b>지금</b> 방장이어야 결과를 돌려준다(#808 외양 재생과 같은 규칙).
+     * 위임·강등 뒤의 이전 방장은 새 요청과 같은 403 이다. 나가기만 LLD §4 의 제한 재생 특례라 여기 오지 않는다.
+     */
+    private void requireHostNow(UUID userId, UUID islandId) {
+        requireHost(userQueryService.getCallerForShare(userId), groupQueryService.getGroup(islandId));
     }
 
     private void requireHost(User caller, Group island) {

@@ -258,7 +258,11 @@ public class IslandJoinService {
                 : null;
         JsonNode data = publicCommands.run(command,
                 () -> lockAnswerUsers(userId, applicantId),
-                ignored -> userQueryService.getCallerForShare(userId),
+                // 재생도 지금 방장이어야 한다 — 위임·강등 뒤의 이전 방장에게 처리 결과를 다시 주지 않는다(#808 선례).
+                ignored -> groupQueryService.findMembership(userQueryService.getCallerForShare(userId),
+                                groupQueryService.getGroup(islandId))
+                        .filter(member -> member.getRole() == GroupMemberRole.OWNER)
+                        .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER)),
                 () -> {
                     User caller = lockAnswerUsers(userId, applicantId);
                     membershipLocks.lockGroup(islandId);
