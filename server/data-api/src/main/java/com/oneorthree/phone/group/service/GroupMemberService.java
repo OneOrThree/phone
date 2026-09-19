@@ -7,6 +7,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupAnnouncementCommentRepository;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
@@ -60,6 +61,7 @@ public class GroupMemberService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final GroupInviteRepository groupInviteRepository;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
+    private final GroupAnnouncementCommentRepository groupAnnouncementCommentRepository;
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
     private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final IslandJoinRequestRepository joinRequestRepository;
@@ -359,6 +361,7 @@ public class GroupMemberService {
         betParticipantRepository.eraseResultViewsOf(userId);
         groupChallengeMemberRepository.deleteAllOfUser(userId);
         groupAnnouncementRepository.detachAuthor(userId);
+        groupAnnouncementCommentRepository.detachAuthor(userId);
         groupInviteRepository.deleteAllInvolving(userId);
     }
 

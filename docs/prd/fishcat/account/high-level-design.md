@@ -171,7 +171,7 @@ sequenceDiagram
     A->>B: DELETE /me, confirmation, Idempotency-Key
     B->>D: 검증한 주체로 withdraw 명령
     D->>DB: BEGIN + 활성 users 배타 잠금
-    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령·랭킹 및 chat/realtime user.withdrawn·GA4 사용자 삭제 작업 내구 기록
+    D->>DB: 멱등/권한 검사 + 세션 폐기·위성 명령·랭킹 및 chat/realtime user.withdrawn 내구 기록
     D->>DB: 방장 조건·내기 해제/환불·증거 동결
     Note over D,DB: 필요한 판정 근거가 불명확하면 전체 롤백
     D->>DB: group_challenge_members 사용자 측정 원본 hard delete
@@ -186,7 +186,6 @@ sequenceDiagram
     B-->>A: 200 data(deleted true)
     R->>DB: 커밋된 outbox 읽기
     R->>S: 사용자 폐기·개인자료 정리 재전달
-    Note over R: GA4 사용자 삭제 요청(user_id·app_instance_id)도 outbox로 재시도하고 지연 수용 기간 뒤 재요청
     Note over S: chat/realtime 로컬 TX: 사용자 잠금 → tombstone/version + 읽음 커서 DELETE + 수신 완료<br/>커밋 뒤 멤버십 캐시 삭제·전 인스턴스 소켓 종료, 인가·전달·발신은 fence 재검사
     S-->>R: 로컬 커밋 뒤 대상별 적용 확인
     Note over R,S: 랭킹은 tombstone/version + 모든 주차 ZSET·presence 원자 제거
@@ -208,21 +207,17 @@ sequenceDiagram
 
 소비된 초대 클릭의 claimed_user_id를 익명화해도 claimed_at 소진 표지를 유지한다. Data 후보 조회와 claim은 두 값이 모두 null인 미소비 클릭만 허용하고 이관/복원도 같은 표지를 보존하여 재귀속·보상 중복을 막는다.
 
-claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent도 같은 탈퇴 TX에서 파기한다. 두 식별자는 설치 device_id·GA4 기기 식별자와 같아 남기면 익명화한 클릭이 분석 자료로 다시 연결된다. app_instance_id는 지우기 전에 GA4 삭제 작업 입력으로 기록하고 소진 표지·퍼널 근거는 보존한다. 보존하는 group_members 행도 관계 증거만 남기고 그룹 알림·공지 권한·상태·역할을 비개인 기본값으로 초기화한다.
+claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent도 같은 탈퇴 TX에서 파기한다. 두 식별자는 설치 device_id·GA4 기기 식별자와 같아 남기면 익명화한 클릭이 분석 자료로 다시 연결된다. 소진 표지·퍼널 근거는 보존한다. 보존하는 group_members 행도 관계 증거만 남기고 그룹 알림·공지 권한·상태·역할을 비개인 기본값으로 초기화한다.
 
 본인 발급 링크의 inviter_id도 같은 중앙 TX에서 nullify한다(nullable 스키마 확장 필요). 링크/종속 클릭은 타인 퍼널의 FK 앵커로 보존하고, 발급자 없는 링크는 랜딩·매치·claim·이관에서 폐기로 취급한다. 활성 users 공유 잠금 아래의 모든 발급 writer를 탈퇴 배타 잠금과 직렬화하며 현재 미구현인 조회/이관 호환까지 검증한 뒤 활성화한다.
 
 방장 위임 조건 실패나 환불·outbox 기록 실패는 중앙 TX 전체를 롤백한다. 지갑을 먼저 삭제해서 내기 환불 경로를 끊지 않는다. 위성 전송 실패는 이미 확정된 중앙 탈퇴를 되돌리지 않고 대상별 미전달 상태로 남긴다. 그러므로 200은 중앙 계정 폐기 완료이며, 모든 위성의 물리 파기가 같은 순간 끝났다는 뜻은 아니다. 지연 요청은 각 위성의 generation/epoch tombstone으로 차단한다.
 
-사용자 활동 로그도 정상적으로 UUID를 기록하므로 별도 파기 대상이다. 중앙 TX는 내구 작업만 남기고 후속 처리자가 실제 파일/회전본/호스트/외부 sink의 연결 제거와 완료를 확인한다. sink 직전 폐기 fence와 기존 큐·지연 업로드의 완료 장벽으로 재부착을 막는다. 운영 주석만으로 S3 구성·보존 기간·파기 완료를 확정하지 않으며 구현·운영 연결을 활성 조건으로 둔다.
+사용자 활동 로그도 정상적으로 UUID를 기록한다. 이 로그와 회전본·S3 적재본·외부 sink 복사본은 행 단위로 지우지 않고 **보존 기간 만료로 파기**한다(재영님 결정 2026-09-19). 기간 정본은 policy.md 로그·분석 보존 기간 표이며 logback maxHistory와 S3 수명 주기 규칙이 같은 값을 구현한다. 기간이 없거나 설정 미확인인 sink는 파기 완료를 주장하지 않는다.
 
 Business Redis의 링크 미리보기 캐시와 Data 공유 Redis의 집중 프레즌스도 사용자 UUID 키를 만든다. 미리보기는 Data→Business 전달이 금지이므로 Business가 탈퇴 명령 전에 차단 표지를 두고 비동기 완료·조회가 이를 원자 대조하며, 탈퇴 확정 뒤 prefix를 지운다. 프레즌스는 시작 커밋 콜백과 재구축 Lua가 같은 Redis의 tombstone을 한 스크립트에서 대조해 제거 뒤 재생성을 막는다.
 
-GA4도 User-ID·app_instance_id·설치 device_id로 같은 사용자를 잇는다. 중앙 TX는 GA4 사용자 삭제 작업을 내구 기록하고, TX 밖에서 삭제 요청·지연 이벤트 뒤 재요청·완료 증거를 관리한다. 앱은 탈퇴 성공 뒤 식별자를 해제·재설정하기 전에는 사용자 연결 이벤트를 보내지 않는다.
-
-서버 MP 이벤트는 user_id 없이 app_instance_id만 보내므로, 가입 등에서 서버가 받은 app_instance_id를 삭제 키 전용 등록부에 도메인 TX로 기록하고 탈퇴 때 GA4 삭제 작업 입력으로 옮긴 뒤 행을 지운다. `DELETE /me` 계약은 바꾸지 않는다.
-
-app_instance_id는 설치 단위라 계정 전환 때 분석 자료를 재설정해 계정별로 배타적으로 만든다. 여러 사용자에게 기록된 공유 값은 삭제하면 다른 계정 자료까지 지우므로 삭제 입력에서 뺀다. 재설정 세대 표지 없이 기록된 값과 등록부 도입 전부터 쓰였을 수 있는 legacy 값도 과거 공유를 배제할 수 없어 삭제하지 않고 잔존을 드러낸다.
+GA4도 User-ID·app_instance_id·설치 device_id로 같은 사용자를 잇는다. 이 연결도 GA4 속성의 데이터 보존 기간(policy.md, 권장 2개월) 만료로 파기하며 사용자 삭제 요청 작업을 두지 않는다. 앱은 탈퇴 성공 뒤 User-ID를 해제한 다음에만 이벤트를 보낸다.
 
 공통 인증 검사는 AT 서명·타입·만료(401) → 사용자 활성(404 `USER_NOT_FOUND`) → 세션·authGeneration(401) 순서다. 탈퇴 뒤 옛 AT는 세션 폐기와 비활성이 함께 참이라 404가 우선하며, 앱은 최초 200이나 같은 `DELETE /me` 재시도의 404를 탈퇴 확정으로 본다. 그때만 일반 로그아웃과 별도로 그 userId의 기기 로컬 버킷·마커·누끼 파일을 writer drain 뒤 지운다. 일반 로그아웃과 계정 전환의 보존 정책은 그대로다.
 

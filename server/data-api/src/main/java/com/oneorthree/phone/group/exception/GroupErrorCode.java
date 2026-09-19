@@ -32,6 +32,17 @@ public enum GroupErrorCode implements ErrorCode {
     // 섬 검색 진입 가드(GROMO-1759 · 섬 소속 LLD §3.2) — 현재 섬의 전망대가 열려야 이름 검색을
     // 쓸 수 있다. 첫 소속 탐색은 가드가 없는 discover 를 쓰므로 이 코드로 접히지 않는다.
     OBSERVATORY_LOCKED(HttpStatus.FORBIDDEN, "전망대를 지으면 다른 섬을 찾아볼 수 있어요"),
+    // 게시판 미완공(GROMO-1771) — 섬 공지·댓글 게이트. Business 가 공개 FACILITY_LOCKED 로 옮긴다.
+    // construction.facility-gates.enforce 가 꺼져 있으면(기본) 나가지 않는다.
+    BOARD_LOCKED(HttpStatus.FORBIDDEN, "게시판을 지으면 공지를 볼 수 있어요"),
+    // 섬 게시판 쓰기 4종 게이트(GROMO-1771) — 댓글 삭제·탈퇴 처리(BQ02)와 본문·댓글 상한(BQ03)이 결정되기 전
+    // 쓰기를 열지 않는다(island-board 정책 「writer 출시 금지」). 기본 OFF, island-board.writes-enabled 로 켠다.
+    // REALTIME_NOT_READY 와 같은 503 이지만 막는 사유가 달라 한 코드로 접지 않는다.
+    NOTICE_WRITE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "공지·댓글 작성은 아직 사용할 수 없습니다."),
+    // BQ03 결정 전 임시 상한(island-board.notice-body-max-length / comment-max-length)을 넘었다.
+    // 필드가 달라 앱이 가리킬 입력이 다르므로 두 코드로 나눈다.
+    NOTICE_BODY_TOO_LONG(HttpStatus.UNPROCESSABLE_ENTITY, "공지 본문이 너무 길어요"),
+    NOTICE_COMMENT_TOO_LONG(HttpStatus.UNPROCESSABLE_ENTITY, "댓글이 너무 길어요"),
 
     // 잘못된 입력 및 요청
     INVALID_MISSION_PARAMS(HttpStatus.BAD_REQUEST, "미션 파라미터가 유효하지 않습니다."),
