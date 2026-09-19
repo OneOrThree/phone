@@ -61,6 +61,17 @@ public enum GroupErrorCode implements ErrorCode {
     GROUP_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "참여할 수 있는 그룹 수를 초과했어요"),
     NOTICE_FORBIDDEN(HttpStatus.FORBIDDEN, "공지 작성/수정/삭제 권한이 없습니다."),
 
+    // 섬 가입 요청 (GROMO-1760 · 섬 소속 LLD §3.7~§3.9) — 앱이 응답의 code 문자열로 분기한다.
+    // 본인 것이 아닌 요청도 이 코드다 — 타인 요청의 존재를 응답으로 구분해 주지 않는다(§3.8).
+    JOIN_REQUEST_NOT_FOUND(HttpStatus.NOT_FOUND, "가입 요청을 찾을 수 없어요"),
+    // 승인/거절/취소/섬 종결 중 하나가 먼저 닫은 요청 — 열린 것만 전이할 수 있다.
+    JOIN_REQUEST_TERMINAL(HttpStatus.CONFLICT, "이미 처리된 가입 요청이에요"),
+    // 비공개 섬 — 유효한 초대 코드 없이는 가입·신청 둘 다 안 된다(§3.7).
+    INVITATION_REQUIRED(HttpStatus.FORBIDDEN, "초대가 필요한 섬이에요"),
+    // IM-D04 미결 — 비밀번호가 걸린 기존 그룹은 새 가입 경로로 열지 않는다. password 입력이 없는
+    // 이 API 로 잠긴 방에 들이면 «기존 잠금을 무시»가 되므로, 그 분기를 활성화하지 않고 거절한다.
+    ISLAND_JOIN_UNAVAILABLE(HttpStatus.FORBIDDEN, "이 섬은 아직 이 방법으로 가입할 수 없어요"),
+
     // 챌린지 내기 — 앱이 응답의 code 문자열(BET_*)로 분기한다. 이름 변경 금지.
     // deprecated — 내기 대상이 전 조합(FOCUS·SCREEN_TIME × DURATION·TIME_WINDOW)으로 확대돼 더는 발급하지
     // 않는다. 구앱이 이 코드 문자열로 분기하고 있어 값만 잔존시킨다(이름 변경 금지 규칙).

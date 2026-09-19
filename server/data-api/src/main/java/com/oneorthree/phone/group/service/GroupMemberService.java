@@ -10,6 +10,9 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
+import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
+import com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -51,6 +54,8 @@ public class GroupMemberService {
      * 커밋 후 발행이면 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
      */
     private final LinkMembershipEventService linkMembershipEventService;
+    private final IslandJoinRequestRepository joinRequestRepository;
+    private final IslandJoinRequestEvents joinRequestEvents;
 
     /**
      * 방장을 넘긴다 — 대상이 OWNER 로 오르고 요청자는 같은 트랜잭션에서 MEMBER 로 내려온다.
@@ -179,6 +184,7 @@ public class GroupMemberService {
             // 대상은 leave() «전»에 뜬 groupMembers 다. 여기서 다시 조회하면 방금 이탈한 마지막 1인이
             // 빠져 목록이 비고, group.closed 봉투가 한 건도 만들어지지 않는다.
             linkMembershipEventService.recordGroupClosed(group, groupMembers);
+            closeJoinRequests(group);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave();
             linkMembershipEventService.recordMembershipRevoked(groupMember);
@@ -270,6 +276,7 @@ public class GroupMemberService {
                 ownerMembership.getGroup().close();
                 // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
                 linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
+                closeJoinRequests(ownerMembership.getGroup());
             }
         }
 
@@ -290,6 +297,15 @@ public class GroupMemberService {
                         membershipEvents.changed(locked.getGroup().getId(), userId, "MEMBER_REMOVED");
                     });
         }
+
+        // 탈퇴자가 신청자로 연 둔 가입 요청도 닫는다 — 계정이 사라진 뒤에도 PENDING 으로 남으면
+        // 그 섬 방장은 영원히 오지 않을 신청을 들고 있는다. 신청은 멤버십이 아니라 위의 그룹 선점에
+        // 잡히지 않으므로 요청 행 잠금으로 신청자 취소와 직렬화한다. 신청자 측 종결이라 cancel() 이다.
+        for (IslandJoinRequest request : joinRequestRepository.findByApplicantIdAndStatusForUpdate(
+                userId, IslandJoinRequestStatus.PENDING)) {
+            request.cancel();
+            joinRequestEvents.changed(request, currentHostId(request.getIsland().getId()));
+        }
     }
 
     /**
@@ -308,5 +324,27 @@ public class GroupMemberService {
      */
     private User requireActiveUser(UUID userId) {
         return userQueryService.getCallerForShare(userId);
+    }
+
+    /**
+     * 섬 종결에 딸린 가입 요청 정리 (GROMO-1760) — 열려 있던 신청은 섬이 닫히면 무효가 되므로
+     * 영구히 {@code PENDING} 으로 남기지 않고 전부 종결한다. 호출 지점은 이미 그룹 행을 잠근 뒤다 —
+     * 신청 생성(같은 그룹 잠금)·신청자 취소(요청 행 잠금)와 이 전이는 한쪽만 성공한다.
+     * 방장 공백의 종결이라 사건은 신청자에게만 간다.
+     */
+    private void closeJoinRequests(Group island) {
+        for (IslandJoinRequest request : joinRequestRepository.findByIslandIdAndStatusForUpdate(
+                island.getId(), IslandJoinRequestStatus.PENDING)) {
+            request.closeByIsland();
+            joinRequestEvents.changed(request, null);
+        }
+    }
+
+    /** 그 섬의 현재 방장 — 방장 공백 구간이면 null 이고 사건은 신청자에게만 간다. */
+    private UUID currentHostId(UUID islandId) {
+        return groupMemberRepository.findActiveOwnersByGroupId(islandId).stream()
+                .map(member -> member.getUser().getId())
+                .findFirst()
+                .orElse(null);
     }
 }
