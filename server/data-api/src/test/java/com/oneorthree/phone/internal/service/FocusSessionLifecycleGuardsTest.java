@@ -34,6 +34,7 @@ import com.oneorthree.phone.outbox.dto.IdempotentOutcome;
 import com.oneorthree.phone.outbox.dto.PublicCommandReceipt;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
+import com.oneorthree.phone.focus.service.FocusMemberEvents;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -123,7 +124,7 @@ class FocusSessionLifecycleGuardsTest {
         return new FocusSessionLifecycleService(new FocusSessionStartGate(startEnabled), userQueryService,
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
-                focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
+                focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, new FocusMemberEvents(outboxCommandPort),
                 focusRewardPolicyRepository, focusSettlementRepository, islandWalletService, islandWalletEvents,
                 fishWalletService, focusPresencePort,
                 Clock.fixed(wallClock, ZoneOffset.UTC));

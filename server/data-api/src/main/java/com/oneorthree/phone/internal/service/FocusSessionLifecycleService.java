@@ -30,6 +30,7 @@ import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.repository.domain.FocusSettlement;
 import com.oneorthree.phone.focus.repository.domain.FocusType;
+import com.oneorthree.phone.focus.service.FocusMemberEvents;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
 import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -37,15 +38,11 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.UserIslandContext;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
-import com.oneorthree.phone.outbox.dto.AggregateRef;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
-import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
-import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
-import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -126,12 +123,8 @@ public class FocusSessionLifecycleService {
     private static final int MAX_SUBJECT_LENGTH = 200;
     /** 하루 상한의 창 — 완료 시각의 UTC 날짜 [00:00, +24h) (D8: 모든 시간 UTC · 하루 리셋 UTC 00:00). */
     private static final long SECONDS_PER_DAY = 86_400L;
-    static final String FOCUS_MEMBER_AGGREGATE_TYPE = "FOCUS_MEMBER";
-    static final String REST_MEMBER_AGGREGATE_TYPE = "REST_MEMBER";
-    private static final String FOCUS_MEMBER_EVENT_TYPE = "focus.member.updated";
-    private static final String REST_MEMBER_EVENT_TYPE = "rest.member.updated";
     /** 세션이 끝나 focus/rest 목록에서 지운다는 상태값 — LLD §6 의 {@code completed}(행 제거)다. */
-    private static final String STATUS_ENDED = "completed";
+    private static final String STATUS_ENDED = FocusMemberEvents.STATUS_COMPLETED;
     /** 「진행 중」으로 보는 lifecycle — 사용자당 최대 1건(V58 부분 UNIQUE)이 걸리는 집합 그대로다. */
     private static final List<FocusSessionLifecycle> PROGRESSING =
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
@@ -146,7 +139,7 @@ public class FocusSessionLifecycleService {
     private final FocusSessionIntervalRepository focusSessionIntervalRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final PublicCommandService publicCommands;
-    private final OutboxCommandPort outboxCommandPort;
+    private final FocusMemberEvents focusMemberEvents;
     private final FocusRewardPolicyRepository focusRewardPolicyRepository;
     private final FocusSettlementRepository focusSettlementRepository;
     /** 섬 통장 몫(D5-귀속-개정 — 현재 전부) — 「각자 몫」 기여 기록도 이 진입점이 함께 쓴다. */
@@ -777,37 +770,15 @@ public class FocusSessionLifecycleService {
     private EventEnvelope appendFocusMemberEvent(UUID userId, UUID islandId, UUID sessionId, String status,
                                                  String subject, long activeSeconds, Instant serverNow,
                                                  long sessionVersion) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("userId", userId.toString());
-        params.put("sessionId", sessionId.toString());
-        params.put("status", status);
-        params.put("subject", subject);
-        params.put("activeSeconds", activeSeconds);
-        params.put("serverNow", serverNow.toString());
-        params.put("sessionVersion", sessionVersion);
-        return outboxCommandPort.append(new OutboxAppendCommand(UUID.randomUUID().toString(), 1,
-                FOCUS_MEMBER_EVENT_TYPE, userId, null, userId.toString(),
-                new AggregateRef(FOCUS_MEMBER_AGGREGATE_TYPE, islandId + ":" + userId), null, params,
-                List.of(OutboxDeliveryRequest.toRealtime(FOCUS_MEMBER_EVENT_TYPE, null))));
+        return focusMemberEvents.focusUpdated(userId, islandId, sessionId, status, subject, activeSeconds,
+                serverNow, sessionVersion);
     }
 
     private EventEnvelope appendRestMemberEvent(UUID userId, UUID islandId, UUID sessionId, String status,
                                                 Instant restStartedAt, Integer restSeat, Instant serverNow,
                                                 long sessionVersion) {
-        // nullable 필드는 키를 유지한다(LLD §6) — active/completed 전이는 restStartedAt/restSeat=null로
-        // "이 사용자를 rest 목록에서 지운다"를 나타낸다.
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("userId", userId.toString());
-        params.put("sessionId", sessionId.toString());
-        params.put("status", status);
-        params.put("restStartedAt", restStartedAt == null ? null : restStartedAt.toString());
-        params.put("restSeat", restSeat);
-        params.put("serverNow", serverNow.toString());
-        params.put("sessionVersion", sessionVersion);
-        return outboxCommandPort.append(new OutboxAppendCommand(UUID.randomUUID().toString(), 1,
-                REST_MEMBER_EVENT_TYPE, userId, null, userId.toString(),
-                new AggregateRef(REST_MEMBER_AGGREGATE_TYPE, islandId + ":" + userId), null, params,
-                List.of(OutboxDeliveryRequest.toRealtime(REST_MEMBER_EVENT_TYPE, null))));
+        return focusMemberEvents.restUpdated(userId, islandId, sessionId, status, restStartedAt, restSeat,
+                serverNow, sessionVersion);
     }
 
     private static String validateSubject(String subject) {

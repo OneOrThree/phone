@@ -8,6 +8,7 @@ import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
+import com.oneorthree.phone.focus.service.FocusMemberEvents;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -95,7 +96,7 @@ public class IslandFocusMembersService {
                                 ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE))
                 .toList();
         return new IslandFocusMembersView(items, now, watermarks(MemberWatermark.FOCUS_MEMBER,
-                FocusSessionLifecycleService.FOCUS_MEMBER_AGGREGATE_TYPE, islandId, rows));
+                FocusMemberEvents.FOCUS_AGGREGATE_TYPE, islandId, rows));
     }
 
     /** rest 목록 — paused 주민만, 자리 번호 순. */
@@ -116,7 +117,7 @@ public class IslandFocusMembersService {
                         row.getRestSeat(), row.getLastTransitionAt()))
                 .toList();
         return new IslandRestMembersView(items, now, watermarks(MemberWatermark.REST_MEMBER,
-                FocusSessionLifecycleService.REST_MEMBER_AGGREGATE_TYPE, islandId, rows));
+                FocusMemberEvents.REST_AGGREGATE_TYPE, islandId, rows));
     }
 
     /**

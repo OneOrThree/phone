@@ -19,6 +19,7 @@ import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
+import com.oneorthree.phone.focus.service.FocusMemberEvents;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -78,7 +79,7 @@ class FocusSessionMarkerDesyncTest {
         return new FocusSessionLifecycleService(new FocusSessionStartGate(false), userQueryService,
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
-                focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
+                focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, new FocusMemberEvents(outboxCommandPort),
                 focusRewardPolicyRepository, focusSettlementRepository, islandWalletService, islandWalletEvents,
                 fishWalletService, focusPresencePort,
                 Clock.fixed(NOW, ZoneOffset.UTC));

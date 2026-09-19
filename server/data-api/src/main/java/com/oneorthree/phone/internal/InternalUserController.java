@@ -94,7 +94,7 @@ public class InternalUserController {
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
 
         return ResponseEntity.ok(ack(
-                userSatelliteCommandService.recordNotificationSettings(userId, request, idempotencyKey)));
+                notificationSettingsService.replace(userId, request, idempotencyKey)));
     }
 
     /** 공개 부분 명령은 서명된 sid/gen과 기존 영속 receipt를 통해 처리한다. */

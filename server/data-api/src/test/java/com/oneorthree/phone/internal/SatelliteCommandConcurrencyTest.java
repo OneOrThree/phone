@@ -622,9 +622,9 @@ class SatelliteCommandConcurrencyTest {
                 String key = "concurrent-" + i;
                 futures.add(pool.submit(() -> {
                     start.await(10, TimeUnit.SECONDS);
-                    return userSatelliteCommandService
+                    return tx().execute(status -> userSatelliteCommandService
                             .recordNotificationSettings(userId, settings(enabled), key)
-                            .version();
+                            .version());
                 }));
             }
             start.countDown();
@@ -653,7 +653,8 @@ class SatelliteCommandConcurrencyTest {
         tx().executeWithoutResult(status -> userNotificationSettingsRepository.deleteById(userId));
 
         assertThatThrownBy(() ->
-                userSatelliteCommandService.recordNotificationSettings(userId, settings(true), "rollback-key"))
+                tx().execute(status -> userSatelliteCommandService
+                        .recordNotificationSettings(userId, settings(true), "rollback-key")))
                 .isInstanceOf(UserException.class);
 
         assertThat(eventOutboxRepository.findAll().stream()

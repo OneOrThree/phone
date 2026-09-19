@@ -51,7 +51,7 @@ public class IslandNoticeEvents {
         params.put("islandId", islandId.toString());
         params.put("noticeId", noticeId.toString());
         return outbox.append(new OutboxAppendCommand(UUID.randomUUID().toString(), 1, EVENT_TYPE,
-                actorId, null, noticeId.toString(), new AggregateRef(AGGREGATE_TYPE, noticeId.toString()),
+                actorId, null, islandId.toString(), new AggregateRef(AGGREGATE_TYPE, noticeId.toString()),
                 null, params, List.of(OutboxDeliveryRequest.toRealtime(EVENT_TYPE, null))));
     }
 }

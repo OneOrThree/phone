@@ -143,7 +143,7 @@ public class InternalIslandMailboxService {
         params.put("clientMessageId", request.clientMessageId().toString());
         // userId 는 인증된 명령 주체(작성자) 참조다 — 수신자 권한이나 fan-out 근거가 아니다(IslandMembershipEvents 와 같다).
         EventEnvelope envelope = outbox.append(new OutboxAppendCommand(eventId, 1, EVENT_TYPE, authorId, null,
-                request.messageId().toString(), new AggregateRef(AGGREGATE_TYPE, request.messageId().toString()),
+                islandId.toString(), new AggregateRef(AGGREGATE_TYPE, request.messageId().toString()),
                 null, params, List.of(OutboxDeliveryRequest.toRealtime(EVENT_TYPE, null))));
         return new MessageCreatedResponse(envelope.eventId(), envelope.version());
     }

@@ -75,7 +75,7 @@ public class IslandJoinRequestEvents {
             String eventId = EVENT_TYPE + ":" + request.getId() + ":" + recipient + ":"
                     + request.getStatus().wireName() + ":" + requestVersion;
             envelopes.add(outbox.append(new OutboxAppendCommand(eventId, SCHEMA_VERSION, EVENT_TYPE,
-                    recipient, null, request.getId().toString(),
+                    recipient, null, request.getIsland().getId().toString(),
                     new AggregateRef(AGGREGATE_TYPE, request.getId().toString()),
                     null, params, List.of(OutboxDeliveryRequest.toRealtime(EVENT_TYPE, null)))));
         }

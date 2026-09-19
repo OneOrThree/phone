@@ -10,10 +10,6 @@ import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
-import com.oneorthree.phone.outbox.dto.AggregateRef;
-import com.oneorthree.phone.outbox.dto.OutboxAppendCommand;
-import com.oneorthree.phone.outbox.dto.OutboxDeliveryRequest;
-import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,9 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -59,25 +53,14 @@ import java.util.UUID;
 @Transactional(propagation = Propagation.MANDATORY)
 public class FocusMembershipLossService {
 
-    /*
-     * 사건 이름·순서 축은 FocusSessionLifecycleService 의 것과 «같은 값»이어야 한다 — 소비측은 같은
-     * (projection, islandId, userId) 축으로 합친다. 그쪽 상수를 옮기면 열려 있는 다른 PR 과 겹쳐 이 PR 은
-     * 값만 맞춘다.
-     */
-    static final String FOCUS_MEMBER_AGGREGATE_TYPE = "FOCUS_MEMBER";
-    static final String REST_MEMBER_AGGREGATE_TYPE = "REST_MEMBER";
-    static final String FOCUS_MEMBER_EVENT_TYPE = "focus.member.updated";
-    static final String REST_MEMBER_EVENT_TYPE = "rest.member.updated";
-    /** 목록에서 지우는 상태값 — 완료와 같다(LLD §6: completed 는 행 제거). 새 상태값을 만들지 않는다. */
-    static final String STATUS_REMOVED = "completed";
-
     private static final List<FocusSessionLifecycle> PROGRESSING =
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
 
     private final FocusSessionDetailRepository focusSessionDetailRepository;
     private final FocusSessionIntervalRepository focusSessionIntervalRepository;
     private final FocusSessionRepository focusSessionRepository;
-    private final OutboxCommandPort outboxCommandPort;
+    /** 사건 이름·순서 축·params 는 수명주기 전이와 같은 어댑터가 정한다 — 소비측이 같은 축으로 합친다. */
+    private final FocusMemberEvents focusMemberEvents;
     private final FocusPresencePort focusPresencePort;
     private final Clock clock;
 
@@ -112,9 +95,11 @@ public class FocusMembershipLossService {
         detail.applyMembershipLost(t);
         focusSessionRepository.markAutoClosedIfOpen(sessionId, t);
 
-        appendRemoval(FOCUS_MEMBER_EVENT_TYPE, FOCUS_MEMBER_AGGREGATE_TYPE, detail, focusParams(detail,
-                activeSeconds, t));
-        appendRemoval(REST_MEMBER_EVENT_TYPE, REST_MEMBER_AGGREGATE_TYPE, detail, restParams(detail, t));
+        // 목록에서 지우는 상태값은 완료와 같다(LLD §6: completed 는 행 제거). 새 상태값을 만들지 않는다.
+        focusMemberEvents.focusUpdated(userId, islandId, sessionId, FocusMemberEvents.STATUS_COMPLETED,
+                detail.getSubject(), activeSeconds, t, detail.getVersion());
+        focusMemberEvents.restUpdated(userId, islandId, sessionId, FocusMemberEvents.STATUS_COMPLETED,
+                null, null, t, detail.getVersion());
         focusPresencePort.focusEnded(userId, focusSessionRepository.findPresenceOrderById(sessionId).orElse(null));
         log.info("소속 상실로 진행 집중 세션을 종결했습니다(FR-D03, 미정산). session={}, user={}, island={}",
                 sessionId, userId, islandId);
@@ -130,38 +115,5 @@ public class FocusMembershipLossService {
         if (focusSessionDetailRepository.existsByUserIdAndIslandIdAndLifecycleIn(userId, islandId, PROGRESSING)) {
             throw new FocusException(FocusErrorCode.SESSION_IN_PROGRESS);
         }
-    }
-
-    private static Map<String, Object> focusParams(FocusSessionDetail detail, long activeSeconds, Instant t) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("userId", detail.getUserId().toString());
-        params.put("sessionId", detail.getSessionId().toString());
-        params.put("status", STATUS_REMOVED);
-        params.put("subject", detail.getSubject());
-        params.put("activeSeconds", activeSeconds);
-        params.put("serverNow", t.toString());
-        params.put("sessionVersion", detail.getVersion());
-        return params;
-    }
-
-    /** nullable 필드는 키를 유지한다(LLD §6) — restStartedAt/restSeat=null 이 「rest 목록에서 지운다」다. */
-    private static Map<String, Object> restParams(FocusSessionDetail detail, Instant t) {
-        Map<String, Object> params = new LinkedHashMap<>();
-        params.put("userId", detail.getUserId().toString());
-        params.put("sessionId", detail.getSessionId().toString());
-        params.put("status", STATUS_REMOVED);
-        params.put("restStartedAt", null);
-        params.put("restSeat", null);
-        params.put("serverNow", t.toString());
-        params.put("sessionVersion", detail.getVersion());
-        return params;
-    }
-
-    private void appendRemoval(String eventType, String aggregateType, FocusSessionDetail detail,
-                               Map<String, Object> params) {
-        UUID userId = detail.getUserId();
-        outboxCommandPort.append(new OutboxAppendCommand(UUID.randomUUID().toString(), 1, eventType, userId,
-                null, userId.toString(), new AggregateRef(aggregateType, detail.getIslandId() + ":" + userId),
-                null, params, List.of(OutboxDeliveryRequest.toRealtime(eventType, null))));
     }
 }
