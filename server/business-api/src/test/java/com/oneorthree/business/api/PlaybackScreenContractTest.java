@@ -21,6 +21,8 @@ class PlaybackScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_ISLAND = "GET /internal/islands/" + ISLAND;
     private static final String DATA_INVENTORY = DATA_ISLAND + "/inventory";
     private static final String DATA_PLAYBACK = DATA_ISLAND + "/playback";
+    private static final String DATA_PRODUCTS = DATA_ISLAND + "/shop/products";
+    private static final String DATA_WALLETS = DATA_ISLAND + "/shop/wallets";
 
     private static final String PLAYBACK = "{\"trackId\":\"waves\",\"playing\":true,\"positionSeconds\":12,"
             + "\"effectiveAt\":\"2026-09-11T09:10:00Z\",\"changedBy\":\"" + USER + "\",\"version\":2,"
@@ -33,10 +35,12 @@ class PlaybackScreenContractTest extends ScreenContractTestBase {
                 + "}"));
         DATA.on(DATA_INVENTORY, request -> ok(FacilityFixtures.SHARED_INVENTORY));
         DATA.on(DATA_PLAYBACK, request -> ok(PLAYBACK));
+        DATA.on(DATA_PRODUCTS, request -> ok(FacilityFixtures.PRODUCTS));
+        DATA.on(DATA_WALLETS, request -> ok(FacilityFixtures.WALLETS));
     }
 
     @Test
-    @DisplayName("정상: 공동 보유품·재생 상태 — products·wallets 는 null + missingFragments")
+    @DisplayName("정상: 공동 보유품·재생 상태·판매 음원(category=sound, B20)·지갑")
     void composesInventoryAndPlayback() throws Exception {
         MvcResult result = mockMvc.perform(auth(get("/screens/playback")))
                 .andExpect(status().isOk())
@@ -46,12 +50,15 @@ class PlaybackScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.playback.trackId").value("waves"))
                 .andExpect(jsonPath("$.data.playback.version").value(2))
                 .andExpect(jsonPath("$.data.playback.durationSeconds").value(120.5))
-                .andExpect(jsonPath("$.data.products").value(nullValue()))
-                .andExpect(jsonPath("$.data.missingFragments[0]").value("products"))
-                .andExpect(jsonPath("$.data.missingFragments[1]").value("wallets"))
+                .andExpect(jsonPath("$.data.products.items[0].id").value("rain"))
+                .andExpect(jsonPath("$.data.products.items[0].productVersion").value(5))
+                .andExpect(jsonPath("$.data.products.nextCursor").value(nullValue()))
+                .andExpect(jsonPath("$.data.wallets.villagePoints").value(1500))
                 .andReturn();
 
-        assertKeys(result, "island", "sharedInventory", "playback", "products", "wallets", "missingFragments");
+        assertKeys(result, "island", "sharedInventory", "playback", "products", "wallets");
+        assertThat(DATA.receivedFor(DATA_PRODUCTS).get(0).query().split("&"))
+                .containsExactlyInAnyOrder("category=sound", "limit=30");
         assertThat(DATA.receivedFor(DATA_PLAYBACK).get(0).header("x-user-id")).isEqualTo(USER.toString());
     }
 

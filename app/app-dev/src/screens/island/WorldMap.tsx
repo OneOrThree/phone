@@ -16,6 +16,7 @@ import {
   Building,
   Color,
   currentIsland,
+  viewIsland,
   buildingNames,
   balance,
   isHost,
@@ -342,7 +343,7 @@ export function WorldMap({
       </Pressable>
       {!fishing && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {currentIsland(state).buildings.map((b) => (
+          {viewIsland(state).buildings.map((b) => (
             <Image
               key={b}
               source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
@@ -358,7 +359,7 @@ export function WorldMap({
           ))}
         </View>
       )}
-      {!fishing && currentIsland(state).theme !== 'default' && (
+      {!fishing && viewIsland(state).theme !== 'default' && (
         <View
           pointerEvents="none"
           style={{
@@ -374,11 +375,11 @@ export function WorldMap({
       )}
       {!fishing && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {currentIsland(state)
+          {viewIsland(state)
             .buildings.filter(
               (b) =>
-                currentIsland(state).buildingThemes?.[b] &&
-                currentIsland(state).buildingThemes?.[b] !== 'default',
+                viewIsland(state).buildingThemes?.[b] &&
+                viewIsland(state).buildingThemes?.[b] !== 'default',
             )
             .map((b) => (
               <Image
@@ -420,15 +421,21 @@ export function FinalIsland({
   showHud = true,
   showActions = true,
   request,
+  notify,
+  dispatch,
 }: {
   state: State;
-  go: (r: Route) => void;
+  go: (r: Route, id?: string) => void;
   build: (b: Building) => void;
   showHud?: boolean;
   showActions?: boolean;
   request?: Route | null;
+  notify?: (s: string) => void;
+  dispatch?: (a: { type: string; [key: string]: any }) => void;
 }) {
-  const i = currentIsland(state),
+  // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다
+  const i = viewIsland(state),
+    visiting = !!state.visitingIslandId,
     L = useAppLayout();
   const [pos, setPos] = useState(homePositions[i.id] ?? { x: 585, y: 470 }),
     [walking, setWalking] = useState(false);
@@ -476,7 +483,7 @@ export function FinalIsland({
     };
   }, [i.id]);
   useEffect(() => {
-    if (request) {
+    if (request && !visiting) {
       const d = Object.values(doors).find((d) => d.r === request);
       if (d) walk(d, () => go(request));
     }
@@ -494,13 +501,24 @@ export function FinalIsland({
     return (
       <>
         {Object.entries(doors)
-          .filter(([b]) => b === 'raft' || i.buildings.includes(b as Building))
+          // 구경 중에는 뗏목이 반응하지 않으므로 누를 자리도 두지 않는다
+          .filter(([b]) => (b === 'raft' ? !visiting : i.buildings.includes(b as Building)))
           .map(([b, d]) => (
             <Pressable
               key={b}
               accessibilityRole="button"
               accessibilityLabel={b === 'raft' ? '내 뗏목' : buildingNames[b as Building]}
-              onPress={() => walk(d, () => go(d.r))}
+              // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
+              accessibilityHint={
+                visiting && b !== 'hall' && b !== 'board' ? '주민만 이용할 수 있어요' : undefined
+              }
+              onPress={() => {
+                if (!visiting) return walk(d, () => go(d.r));
+                // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
+                if (b === 'hall') go('manage');
+                else if (b === 'board') go('board');
+                else notify?.('주민만 이용할 수 있어요');
+              }}
               style={{
                 position: 'absolute',
                 left: (d.x - 60) * s,
@@ -523,22 +541,25 @@ export function FinalIsland({
             delay={1200 + n * 2500}
           />
         ))}
-        <Animated.View
-          pointerEvents="none"
-          style={{
-            position: 'absolute',
-            left: Animated.multiply(xy.x, s),
-            top: Animated.multiply(xy.y, s),
-          }}
-        >
-          {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 이름표 없음 */}
-          <CatSprite
-            color={state.color}
-            size={70 * s}
-            motion={walking ? 'walking' : 'blink'}
-            reduce={state.settings.reduceMotion}
-          />
-        </Animated.View>
+        {/* 구경 중에는 내 고양이가 이 섬에 없다 */}
+        {!visiting && (
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              left: Animated.multiply(xy.x, s),
+              top: Animated.multiply(xy.y, s),
+            }}
+          >
+            {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 이름표 없음 */}
+            <CatSprite
+              color={state.color}
+              size={70 * s}
+              motion={walking ? 'walking' : 'blink'}
+              reduce={state.settings.reduceMotion}
+            />
+          </Animated.View>
+        )}
       </>
     );
   };
@@ -557,7 +578,11 @@ export function FinalIsland({
       );
   return (
     <View style={{ flex: 1 }}>
-      <WorldMap state={state} onSpot={(p) => walk(p)} children={actors as any} />
+      <WorldMap
+        state={state}
+        onSpot={visiting ? undefined : (p) => walk(p)}
+        children={actors as any}
+      />
       {showHud && (
         <View
           pointerEvents="none"
@@ -573,30 +598,39 @@ export function FinalIsland({
             flexDirection: 'row',
             alignItems: 'center',
             gap: 10,
-            minWidth: 210,
+            minWidth: visiting ? undefined : 210,
           }}
         >
-          <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
-            오늘 집중
-          </Txt>
-          <Txt
-            style={{
-              fontSize: 22,
-              lineHeight: 31.9,
-              fontWeight: '700',
-              fontVariant: ['tabular-nums'],
-              marginLeft: 'auto',
-            }}
-          >
-            {[Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
-              .map((v) => String(v).padStart(2, '0'))
-              .join(':')}
-          </Txt>
+          {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
+          {visiting ? (
+            <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+              {`${i.name} 구경 중`}
+            </Txt>
+          ) : (
+            <>
+              <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
+                오늘 집중
+              </Txt>
+              <Txt
+                style={{
+                  fontSize: 22,
+                  lineHeight: 31.9,
+                  fontWeight: '700',
+                  fontVariant: ['tabular-nums'],
+                  marginLeft: 'auto',
+                }}
+              >
+                {[Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
+                  .map((v) => String(v).padStart(2, '0'))
+                  .join(':')}
+              </Txt>
+            </>
+          )}
         </View>
       )}
       {showActions && (
         <>
-          {(i.construction || next) && (
+          {!visiting && (i.construction || next) && (
             <View
               style={{
                 position: 'absolute',
@@ -660,20 +694,37 @@ export function FinalIsland({
             </View>
           )}
           <View
+            pointerEvents="box-none"
             style={{
               position: 'absolute',
-              right: L.landscape ? Math.max(56, L.insets.right + 4) : 20,
+              ...(visiting
+                ? { left: 0, right: 0, alignItems: 'center' }
+                : { right: L.landscape ? Math.max(56, L.insets.right + 4) : 20 }),
               bottom: L.landscape
                 ? Math.max(22, L.insets.bottom)
                 : Math.max(44, L.insets.bottom + 10),
             }}
           >
-            <Btn
-              round
-              title="집중하기"
-              id="depart-focus"
-              onPress={() => walk(doors.raft, () => go('focusTravel'))}
-            />
+            {visiting ? (
+              <Btn
+                kind="butter"
+                title="원래 섬으로"
+                id="visit-return"
+                onPress={() => {
+                  // 구경을 끝내고 내 섬으로 배를 타고 돌아간다. Travel 도착 시 SWITCH_ISLAND 후 홈
+                  dispatch?.({ type: 'TRAVEL_FROM', name: i.name });
+                  dispatch?.({ type: 'END_VISIT' });
+                  go('travel', currentIsland(state).id);
+                }}
+              />
+            ) : (
+              <Btn
+                round
+                title="집중하기"
+                id="depart-focus"
+                onPress={() => walk(doors.raft, () => go('focusTravel'))}
+              />
+            )}
           </View>
         </>
       )}

@@ -28,6 +28,8 @@ import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.quest.exception.QuestErrorCode;
 import com.oneorthree.phone.quest.exception.QuestException;
+import com.oneorthree.phone.shop.exception.ShopErrorCode;
+import com.oneorthree.phone.shop.exception.ShopException;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
@@ -97,6 +99,7 @@ class ErrorContractTest {
             Map.entry(LeagueErrorCode.class, c -> new LeagueException((LeagueErrorCode) c)),
             Map.entry(OutboxErrorCode.class, c -> new OutboxException((OutboxErrorCode) c)),
             Map.entry(QuestErrorCode.class, c -> new QuestException((QuestErrorCode) c)),
+            Map.entry(ShopErrorCode.class, c -> new ShopException((ShopErrorCode) c)),
             Map.entry(StatsErrorCode.class, c -> new StatsException((StatsErrorCode) c)),
             Map.entry(UserErrorCode.class, c -> new UserException((UserErrorCode) c)),
             // 공통 코드는 프레임워크 예외 핸들러가 직접 봉투에 싣는다 — 도메인 예외로 던져지진 않지만
@@ -133,8 +136,8 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 16개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)가 늘었다")
-                .hasSize(17);
+        assertThat(found).as("실측 기준 도메인 enum 17개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)·shop(GROMO-1781)이 늘었다")
+                .hasSize(18);
     }
 
     @TestFactory
@@ -212,8 +215,14 @@ class ErrorContractTest {
         // GROMO-1779 가 공용 음악 코드 2개를 더했다(AppearanceErrorCode) — 곡 없이 재생 요청(STATE_CONFLICT 409)과
         // 방송기 미완공(GRAM_LOCKED 403). 후자는 건설 도메인의 FACILITY_LOCKED 를 빌리지 않고(error-contract §3)
         // Business 가 공개 FACILITY_LOCKED 로 옮긴다 — BOARD_LOCKED·MAILBOX_LOCKED 와 같은 결.
-        assertThat(tests).as("실측 기준 도메인 상수 190개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종 포함")
-                .hasSize(206);
+        // GROMO-1781 이 섬 상점 코드 8개를 더했다(ShopErrorCode) — 권한·시설 2(SHOP_FORBIDDEN · FACILITY_LOCKED),
+        // 대상 없음 1(PRODUCT_NOT_FOUND), 입력 1(OUT_OF_RANGE), 충돌 4(VERSION_CONFLICT · STATE_CONFLICT ·
+        // INSUFFICIENT_FUNDS · CURSOR_EXPIRED) — 구매·카탈로그 커서의 실패 축이다.
+        // GROMO-1769 가 회관 기록 코드 6개를 더했다(StatsErrorCode) — 기록 스냅샷 만료(409), 측정 기기 ≠ 세션(403),
+        // 같은 시각 다른 측정(409), 보고 창 밖 측정(422), 모르는 scope(422), 허용되지 않은 측정 상태·분(422).
+        // 공개 표에서 CURSOR_EXPIRED·FORBIDDEN·STATE_CONFLICT·OUT_OF_RANGE 로 옮겨지고 field 가 다르다.
+        assertThat(tests).as("실측 기준 도메인 상수 204개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종 포함")
+                .hasSize(220);
         return tests;
     }
 

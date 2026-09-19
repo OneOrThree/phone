@@ -52,4 +52,20 @@ public class CatalogAsset {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /**
+     * 불변 자산 정의 한 행 — 카탈로그 등록(운영 데이터 투입)의 유일한 생성 경로다. 조합 규칙(kind↔ownerType,
+     * building_theme↔targetBuilding)은 DB CHECK 가 상주 감시한다.
+     */
+    public static CatalogAsset define(String productId, String title, String kind, String ownerType,
+                                      String targetBuilding, Instant createdAt) {
+        CatalogAsset asset = new CatalogAsset();
+        asset.productId = productId;
+        asset.title = title;
+        asset.kind = kind;
+        asset.ownerType = ownerType;
+        asset.targetBuilding = targetBuilding;
+        asset.createdAt = createdAt;
+        return asset;
+    }
 }

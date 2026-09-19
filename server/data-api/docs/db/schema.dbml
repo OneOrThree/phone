@@ -1376,6 +1376,34 @@ Table daily_focus_stats [note: '유저별 일일 집중 집계 (LLM·리포트�
   }
 }
 
+Table screen_time_observations [note: 'GROMO-1769 (V79): 기기별 스크린타임 관측 — (user, device, UTC 날짜, measured_at) 불변 행. 기기·날짜의 최신 선택 = measured_at 최댓값(포인터 행 없음). 병합 projection 은 저장하지 않는다(RC-D02 보류). legacy daily_screen_time_stats 와 별개(KST 라벨 미사용). 탈퇴 시 삭제'] {
+  id                 bigint      [pk, increment]
+  user_id            uuid        [not null, note: 'FK → users.id ON DELETE RESTRICT']
+  device_id          uuid        [not null, note: '서명된 로그인 세션 id(AT sid) — 2026-09-19 결정 RC-D02-기기']
+  measured_date      date        [not null, note: 'UTC 날짜 버킷(2026-09-19 결정 RC-축)']
+  measured_at        timestamptz [not null]
+  minutes            integer     [note: 'authorized 일 때만 0~1440, 나머지 상태는 NULL(CHECK)']
+  measurement_status varchar(12) [not null, note: 'authorized / denied / unavailable / pending (CHECK)']
+  created_at         timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, device_id, measured_date, measured_at) [unique, name: 'uq_screen_time_observation']
+    (user_id, measured_date) [name: 'idx_screen_time_observations_user_date']
+  }
+}
+
+Table focus_statistics_snapshots [note: 'GROMO-1769 (V79): 회관 집중 기록 scope=me 조회 스냅샷 — 첫 페이지의 합계·일별·기록 전체를 15분 고정. 요청자 본인 기록만 담는다. 탈퇴 시 삭제'] {
+  id         uuid        [pk, note: '무작위 UUID — 커서(Business HMAC)에 실린다. 조회는 늘 user_id 와 함께']
+  user_id    uuid        [not null, note: 'FK → users.id ON DELETE RESTRICT']
+  payload    text        [not null, note: '고정한 결과 JSON']
+  expires_at timestamptz [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id) [name: 'idx_focus_statistics_snapshots_user']
+  }
+}
+
 Table daily_screen_time_stats [note: '유저별 일일 스크린타임 집계 (앱이 매일 23:59 전송, GROMO-551 로 daily_focus_stats 에서 분리)'] {
   id                           uuid    [pk]
   user_id                      uuid    [note: 'nullable — 탈퇴 유저 익명 보존 (FK → users.id)']
@@ -1652,6 +1680,8 @@ Table command_idempotency [note: '명령 멱등 기록 (V51, A21 · A22 ㊼) —
 
 // 유저 / 인증
 Ref: social_accounts.user_id > users.id
+Ref: screen_time_observations.user_id > users.id
+Ref: focus_statistics_snapshots.user_id > users.id
 Ref: user_screen_time_settings.user_id - users.id  // 논리 관계 — DB FK 제약 없음
 Ref: user_wallets.user_id - users.id               // 논리 관계 — DB FK 제약 없음
 Ref: bot_profiles.user_id - users.id

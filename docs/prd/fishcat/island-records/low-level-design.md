@@ -2,6 +2,16 @@
 
 이 문서는 strict 입력·내구 측정·원자 집계 기술을 정한다. [정책](policy.md)의 미결 범위와 병합/마감 결정은 기본값으로 대체하지 않는다.
 
+> **구현 반영(GROMO-1769, 2026-09-19 결정 N26 — [결정 로그](../decision-log.md) RC-* 행)** — 아래 본문과 다른 점만 적는다.
+>
+> - **날짜 축 UTC**(RC-축): 본문의 KST 날짜·`Asia/Seoul` 은 전부 UTC·`"UTC"` 로 읽는다. 기간 `[from 00:00Z, to+1 00:00Z)`.
+> - **측정 기기 = 서명된 로그인 세션**(RC-D02-기기): `deviceId` 는 AT `sid` 와 같아야 한다(아니면 403 field=deviceId). 같은 날 기기가 둘 이상이면 그날 값은 `null`·`unavailable`.
+> - **저장**(§4): 관측 `screen_time_observations`(V79, 사용자·기기·UTC 날짜·measuredAt 유일, 불변). 「최신 포인터」는 measuredAt 최댓값이라 행을 따로 두지 않고, 병합 projection 도 저장하지 않고 조회 때 계산한다. 같은 사용자의 PUT 은 users 행 배타 락으로 직렬화한다. 동일 시각 다른 내용은 409 `STATE_CONFLICT` field=measuredAt. 퀘스트 진행·사건·보상 없음(스크린 퀘스트는 UTC 전환 전 생성 불가 — Q-6).
+> - **측정 창**(RC-D04): `measuredAt ∈ [날짜 00:00Z, 서버+1분]`, 보고 마감 다음 날 12:00Z. 설정 `island-records.screen-time.{future-tolerance,report-grace}`.
+> - **기간 resolver**(§2, RC-D03): 합계는 지난 날짜가 전부 authorized 일 때만, 기간 상태 = 가장 최근 날짜 상태, 최근이 denied 면 과거 authorized 날짜를 series 에서 뺀다.
+> - **스냅샷·커서**(§3, RC-P12-적용): scope=island 는 커서를 발급하지 않고(정원 15 < 페이지 30, 들어온 커서 400), scope=me 만 본인 기록 스냅샷(`focus_statistics_snapshots`, 15분)에서 30건씩 잇는다. 커서는 Business HMAC(스냅샷 id·offset + 사용자·섬·기간 지문). 타인 PII 사본이 없으므로 공통 lifecycle 잠금·전 사용자 역색인은 두지 않았다. 스냅샷은 탈퇴 TX 에서 지운다. `limit` query 는 받지 않는다.
+> - **집계 세션**(RC-D05·범위): ACTIVE·PAUSED·COMPLETED 인 v0.3 세션만. 진행 중 열린 구간은 asOf 로 임시로 닫는다. 주민 목록은 현재 활성 주민만.
+
 ## 1. 원본 요청·응답 보존
 
 원본 v0.3-proposed 예시다. 실제 GET은 query이며 아래 JSON을 GET body로 보내지 않는다. cursor:null은 최초 요청에서 query를 생략한다는 예시이고 문자열 null을 보내는 규칙이 아니다. 모든 성공은 원본대로200이다.

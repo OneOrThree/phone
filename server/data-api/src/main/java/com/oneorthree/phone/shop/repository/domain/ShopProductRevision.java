@@ -24,6 +24,9 @@ import java.time.Instant;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ShopProductRevision {
 
+    /** 섬 통장(섬 물고기)의 서버 통화 식별자 — 개명 미결로 원본 계약 값 그대로(정책 D1). */
+    public static final String CURRENCY_VILLAGE_POINTS = "village_points";
+
     @Id
     @Column(name = "product_id", nullable = false, length = 80)
     private String productId;
@@ -52,4 +55,22 @@ public class ShopProductRevision {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /**
+     * 판매 revision 한 행 — 카탈로그 발행(운영 데이터 투입)의 생성 경로. 가격 미승인은 {@code price=null} 로만
+     * 넣는다(0원 금지 — DB CHECK). 통화는 섬 통장 {@code village_points} 하나다.
+     */
+    public static ShopProductRevision of(String productId, int revision, Integer price, String requiredBuilding,
+                                         String requiredProductId, String previewMediaKey, Instant createdAt) {
+        ShopProductRevision r = new ShopProductRevision();
+        r.productId = productId;
+        r.revision = revision;
+        r.currency = CURRENCY_VILLAGE_POINTS;
+        r.price = price;
+        r.requiredBuilding = requiredBuilding;
+        r.requiredProductId = requiredProductId;
+        r.previewMediaKey = previewMediaKey;
+        r.createdAt = createdAt;
+        return r;
+    }
 }

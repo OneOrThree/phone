@@ -84,14 +84,25 @@ public final class FocusIntervalMath {
      */
     public static NavigableMap<LocalDate, Integer> activeSecondsByDate(List<FocusSessionInterval> intervals,
                                                                         ZoneId zone) {
+        return activeSecondsByDate(intervals, zone, null);
+    }
+
+    /**
+     * {@link #activeSecondsByDate(List, ZoneId)} 와 같은 배분이되, 열린 ACTIVE 구간을 {@code now} 로 임시로 닫는다 —
+     * 진행 중 세션의 날짜 기여를 조회할 때 쓴다(회관 기록 LLD §3, GROMO-1769). 값을 DB 에 다시 쓰지 않는다.
+     *
+     * @param now 열린 구간을 닫을 anchor. {@code null} 이면 열린 구간을 건너뛴다
+     */
+    public static NavigableMap<LocalDate, Integer> activeSecondsByDate(List<FocusSessionInterval> intervals,
+                                                                        ZoneId zone, Instant now) {
         TreeMap<LocalDate, Long> microsByDate = new TreeMap<>();
         long totalMicros = 0;
         for (FocusSessionInterval interval : intervals) {
-            if (interval.getKind() != FocusIntervalKind.ACTIVE || interval.getEndedAt() == null) {
+            Instant end = interval.getEndedAt() != null ? interval.getEndedAt() : now;
+            if (interval.getKind() != FocusIntervalKind.ACTIVE || end == null) {
                 continue;
             }
             Instant cursor = interval.getStartedAt();
-            Instant end = interval.getEndedAt();
             while (cursor.isBefore(end)) {
                 ZonedDateTime local = cursor.atZone(zone);
                 Instant nextMidnight = local.toLocalDate().plusDays(1).atStartOfDay(zone).toInstant();

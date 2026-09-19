@@ -14,11 +14,13 @@ import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 import com.oneorthree.business.upstream.data.dto.IslandAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.IslandQuestViews;
+import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import com.oneorthree.business.upstream.data.dto.PersonalAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.PersonalInventory;
 import com.oneorthree.business.upstream.data.dto.PlaybackPatchResult;
 import com.oneorthree.business.upstream.data.dto.PlaybackState;
 import com.oneorthree.business.upstream.data.dto.SharedInventory;
+import com.oneorthree.business.upstream.data.dto.ShopViews;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentAck;
 import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
@@ -63,6 +65,7 @@ import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -166,6 +169,10 @@ public class DataApiClient {
     private static final String PATH_ISLAND_INVENTORY = "/internal/islands/{islandId}/inventory";
     private static final String PATH_ISLAND_APPEARANCE = "/internal/islands/{islandId}/appearance";
     private static final String PATH_ISLAND_PLAYBACK = "/internal/islands/{islandId}/playback";
+    // GROMO-1781 섬 상점 5종 — 섬 축 공개 경로 그대로 `/internal` 아래다.
+    private static final String PATH_SHOP_WALLETS = "/internal/islands/{islandId}/shop/wallets";
+    private static final String PATH_SHOP_PRODUCTS = "/internal/islands/{islandId}/shop/products";
+    private static final String PATH_SHOP_ORDERS = "/internal/islands/{islandId}/shop/orders";
     // GROMO-1802 섬 관리·주민 6종 — 섬 자원은 `/internal` + 공개 경로, 본인 나가기만 사용자 축(B26).
     private static final String PATH_ISLAND_MEMBERS = "/internal/islands/{islandId}/members";
     private static final String PATH_ISLAND_MEMBER = "/internal/islands/{islandId}/members/{targetUserId}";
@@ -175,6 +182,9 @@ public class DataApiClient {
     // GROMO-1773 섬 퀘스트 5종 — 공개 경로 앞에 /internal 을 붙인 이름이다(island-quests LLD §2).
     private static final String PATH_QUESTS = "/internal/islands/{islandId}/quests";
     private static final String PATH_QUESTS_CURRENT = "/internal/islands/{islandId}/quests/current";
+    // GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
+    private static final String PATH_FOCUS_STATISTICS = "/internal/islands/{islandId}/statistics/focus";
+    private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
 
     private final InternalHttpClient http;
 
@@ -1389,6 +1399,77 @@ public class DataApiClient {
                 new ParameterizedTypeReference<PlaybackPatchResult>() { });
     }
 
+    /** 상점 지갑 두 개 (GROMO-1781) — 활성 주민 전용. 멱등 GET 이라 재시도한다. */
+    public ShopViews.Wallets fetchShopWallets(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_SHOP_WALLETS, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<ShopViews.Wallets>() { });
+    }
+
+    /**
+     * 상점 카탈로그 한 쪽 (GROMO-1781). 경계 세 값은 서명 커서를 푼 이전 쪽의 발행본·마지막 정렬키다 — 첫 쪽은
+     * 싣지 않는다. owned/available 판정은 전부 상류 몫이다.
+     */
+    public ShopViews.ProductPage fetchShopProducts(UUID userId, UUID islandId, String category,
+            Long publicationVersion, Integer afterDisplayOrder, String afterProductId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_SHOP_PRODUCTS, islandId))
+                        .onBehalfOf(userId)
+                        .query("category", category)
+                        .query("publicationVersion", publicationVersion == null ? null : publicationVersion.toString())
+                        .query("afterDisplayOrder", afterDisplayOrder == null ? null : afterDisplayOrder.toString())
+                        .query("afterProductId", afterProductId)
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<ShopViews.ProductPage>() { });
+    }
+
+    /** 상품 상세 (GROMO-1781). productId 는 공개 경계가 안전 문자로 거른 카탈로그 문자열이다. */
+    public ShopViews.Product fetchShopProduct(UUID userId, UUID islandId, String productId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_SHOP_PRODUCTS, islandId) + "/" + productId)
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<ShopViews.Product>() { });
+    }
+
+    /**
+     * 구매 (GROMO-1781). 두 version 은 «사용자가 본 가격·잔액»의 동의 증거다. 앱 키를 그대로 전달해 응답 유실
+     * 복구는 Data 의 receipt 재생이다 — 가격·통화·주인은 보내지 않는다(서버가 판매 revision 에서 정한다).
+     */
+    public ShopViews.Order purchaseShopProduct(UUID userId, UUID islandId, String productId,
+            long expectedWalletVersion, long expectedProductVersion, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, islandPath(PATH_SHOP_ORDERS, islandId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new ShopOrderCommand(productId, expectedWalletVersion, expectedProductVersion))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<ShopViews.Order>() { });
+    }
+
+    /** 섬 귀속 구매 내역 (GROMO-1781, BG18). anchor 두 값은 서명 커서를 푼 이전 쪽의 마지막 행이다. */
+    public ShopViews.OrderPage fetchShopOrders(UUID userId, UUID islandId, String scope, Instant afterCreatedAt,
+            UUID afterId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_SHOP_ORDERS, islandId))
+                        .onBehalfOf(userId)
+                        .query("scope", scope)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterId", afterId == null ? null : afterId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<ShopViews.OrderPage>() { });
+    }
+
     /** 현재 퀘스트 회차 (GROMO-1773). 멱등 GET 이라 재시도한다 — 판정은 전부 상류 몫이다. */
     public IslandQuestViews.Current fetchCurrentQuests(UUID userId, UUID islandId, Deadline deadline) {
         return http.exchange(
@@ -1510,6 +1591,9 @@ public class DataApiClient {
     }
 
     /** 건설 시작 요청 본문 (GROMO-1767). 두 버전 필드가 모두 필수다(LLD §2). */
+    record ShopOrderCommand(String productId, long expectedWalletVersion, long expectedProductVersion) {
+    }
+
     record ConstructionStartCommand(String buildingId, long expectedVersion, long expectedCostPolicyVersion) {
     }
 
@@ -1589,5 +1673,57 @@ public class DataApiClient {
      */
     record AppearancePatchCommand(List<String> fields, Map<String, Object> values,
                                   Long expectedVersion) {
+    }
+
+    /**
+     * 집중 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. 다음 페이지 경계(스냅샷 id·offset)는 Business 가 서명 커서에서
+     * 꺼낸 평문이다.
+     */
+    public IslandRecordViews.FocusStatistics fetchFocusStatistics(UUID userId, UUID islandId, LocalDate from,
+            LocalDate to, String scope, UUID snapshotId, Integer offset, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_FOCUS_STATISTICS, islandId))
+                        .onBehalfOf(userId)
+                        .query("from", from.toString())
+                        .query("to", to.toString())
+                        .query("scope", scope)
+                        .query("snapshotId", snapshotId == null ? null : snapshotId.toString())
+                        .query("offset", offset == null ? null : offset.toString())
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRecordViews.FocusStatistics>() { });
+    }
+
+    /** 스크린타임 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. */
+    public IslandRecordViews.ScreenTimeStatistics fetchScreenTimeStatistics(UUID userId, UUID islandId,
+            LocalDate from, LocalDate to, String scope, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_SCREEN_TIME_STATISTICS, islandId))
+                        .onBehalfOf(userId)
+                        .query("from", from.toString())
+                        .query("to", to.toString())
+                        .query("scope", scope)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRecordViews.ScreenTimeStatistics>() { });
+    }
+
+    /**
+     * 기기 측정 PUT (GROMO-1769). 앱 키를 그대로 Data 의 공개 명령 receipt 에 전달하고, 세션·세대는 서명된 AT 에서만
+     * 가져온다 — 측정 기기 = 이 세션인지는 Data 가 판정한다.
+     */
+    public IslandRecordViews.ScreenTimeDay putScreenTime(UUID userId, UUID sessionId, long generation,
+            LocalDate date, Map<String, Object> body, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PUT, "/internal/users/" + userId + "/screen-time/" + date)
+                        .onBehalfOf(userId)
+                        .header(HEADER_SESSION, sessionId.toString())
+                        .header(HEADER_GENERATION, Long.toString(generation))
+                        .idempotencyKey(key.toString())
+                        .body(body)
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRecordViews.ScreenTimeDay>() { });
     }
 }

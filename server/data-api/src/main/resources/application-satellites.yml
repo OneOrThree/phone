@@ -117,6 +117,10 @@ internal:
           # GROMO-1895 섬 공동 경제 읽기 2종 — 공동 가계부·주민별 누적 획득. 둘 다 세그먼트 수를 정확히 적는다.
           - 'GET /internal/islands/*/resources/ledger'
           - 'GET /internal/islands/*/statistics/fish-earnings'
+          # GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
+          - 'GET /internal/islands/*/statistics/focus'
+          - 'GET /internal/islands/*/statistics/screen-time'
+          - 'PUT /internal/users/*/screen-time/*'
           # GROMO-1771 섬 게시판 6종. `*` 는 세그먼트 하나다 — 목록과 작성, 상세·수정·삭제는 메서드로만
           # 갈리므로 줄을 합치지 않는다(합치면 조회 권한이 쓰기까지 연다).
           - 'GET /internal/islands/*/notices'
@@ -163,6 +167,13 @@ internal:
           # GROMO-1779 공용 음악(방송기) 2종 — 조회와 변경은 메서드로만 갈리므로 합치지 않는다.
           - 'GET /internal/islands/*/playback'
           - 'PATCH /internal/islands/*/playback'
+          # GROMO-1781 섬 상점 5종 — 목록과 상세는 세그먼트 수가 다르고, 내역 조회와 구매는 메서드로만 갈리므로
+          # 줄을 합치지 않는다.
+          - 'GET /internal/islands/*/shop/wallets'
+          - 'GET /internal/islands/*/shop/products'
+          - 'GET /internal/islands/*/shop/products/*'
+          - 'POST /internal/islands/*/shop/orders'
+          - 'GET /internal/islands/*/shop/orders'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:
@@ -303,6 +314,11 @@ outbox:
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
       "[playback.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[inventory.updated]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST

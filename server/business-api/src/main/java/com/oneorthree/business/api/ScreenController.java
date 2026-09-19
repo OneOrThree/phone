@@ -27,6 +27,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ScreenController {
 
+    private static final Set<String> SHOP_CATEGORIES = Set.of("personal", "island");
+
     private final ScreenReadUseCase screens;
     private final SettingsSessionGuard sessions;
 
@@ -106,10 +108,20 @@ public class ScreenController {
         return screens.library(claims, requestId(request));
     }
 
+    /**
+     * {@code shop} — 상품 탭 {@code category=personal|island}(기본 personal)만 받는다(GROMO-1781). 판매 음원(sound)은
+     * playback 화면 몫이라 여기서는 422 {@code OUT_OF_RANGE} 다.
+     */
     @GetMapping("/screens/shop")
     public Map<String, Object> shop(HttpServletRequest request) {
-        AccessTokenClaims claims = begin(request, Set.of());
-        return screens.shop(claims, requestId(request));
+        AccessTokenClaims claims = begin(request, Set.of("category"));
+        String category = request.getParameter("category");
+        if (category == null) {
+            category = "personal";
+        } else if (!SHOP_CATEGORIES.contains(category)) {
+            throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "category");
+        }
+        return screens.shop(claims, category, requestId(request));
     }
 
     @GetMapping("/screens/playback")

@@ -79,7 +79,7 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
 
 `playback` 은 잠김(검증된 N — 앱은 잠긴 방송기를 그린다), `wallets` 는 준비 중(서버 미구현 — 잔액 0 으로 그리지 않는다)이다. 둘 다 `null` 이라 값만으로는 구분할 수 없고 availability 와 `missingFragments` 로 구분한다.
 
-`GET /screens/library` — 도서관 완공이지만 기록 GET(1769)이 없음:
+~~`GET /screens/library` — 도서관 완공이지만 기록 GET(1769)이 없음~~ (이력 — GROMO-1769 머지 뒤에는 완공이면 두 조각이 실리고 `missingFragments` 키가 없다):
 
 ```json
 {

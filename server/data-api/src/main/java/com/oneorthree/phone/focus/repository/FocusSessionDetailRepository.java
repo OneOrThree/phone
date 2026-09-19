@@ -129,4 +129,32 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     @Modifying
     @Query("UPDATE FocusSessionDetail d SET d.userId = null, d.subject = '' WHERE d.userId = :userId")
     int anonymizeWithdrawnUser(@Param("userId") UUID userId);
+
+    /**
+     * 회관 기록 scope=me (GROMO-1769, LLD §3) — 이 사용자들의 세션 중 ACTIVE 구간이 {@code [from, to)} 와 겹치는 것.
+     * 섬을 가리지 않는다(개인 전체 — 2026-09-19 결정 RC-D01).
+     *
+     * @param lifecycles 집계에 넣는 lifecycle(ACTIVE·PAUSED·COMPLETED). 정산 없이 끝난 세션은 빠진다
+     */
+    @Query("SELECT d FROM FocusSessionDetail d WHERE d.userId IN :userIds AND d.lifecycle IN :lifecycles "
+            + "AND EXISTS (SELECT 1 FROM FocusSessionInterval i WHERE i.sessionId = d.sessionId "
+            + "AND i.kind = com.oneorthree.phone.focus.repository.domain.FocusIntervalKind.ACTIVE "
+            + "AND i.startedAt < :to AND (i.endedAt IS NULL OR i.endedAt > :from))")
+    List<FocusSessionDetail> findOverlapping(@Param("userIds") Collection<UUID> userIds,
+                                             @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles,
+                                             @Param("from") Instant from, @Param("to") Instant to);
+
+    /**
+     * 회관 기록 scope=island — {@link #findOverlapping} 에 시작 때 고정한 섬({@code islandId}) 조건을 더한다.
+     * 다른 섬에서 한 집중은 이 섬 기여가 아니다(2026-09-19 결정 RC-D01).
+     */
+    @Query("SELECT d FROM FocusSessionDetail d WHERE d.islandId = :islandId AND d.userId IN :userIds "
+            + "AND d.lifecycle IN :lifecycles "
+            + "AND EXISTS (SELECT 1 FROM FocusSessionInterval i WHERE i.sessionId = d.sessionId "
+            + "AND i.kind = com.oneorthree.phone.focus.repository.domain.FocusIntervalKind.ACTIVE "
+            + "AND i.startedAt < :to AND (i.endedAt IS NULL OR i.endedAt > :from))")
+    List<FocusSessionDetail> findOverlappingOnIsland(@Param("islandId") UUID islandId,
+                                                     @Param("userIds") Collection<UUID> userIds,
+                                                     @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles,
+                                                     @Param("from") Instant from, @Param("to") Instant to);
 }

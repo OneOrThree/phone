@@ -9,7 +9,6 @@ import org.springframework.test.web.servlet.MvcResult;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -28,6 +27,7 @@ class BoardScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_ISLAND = "GET /internal/islands/" + ISLAND;
     private static final String DATA_QUESTS = DATA_ISLAND + "/quests/current";
     private static final String DATA_NOTICES = DATA_ISLAND + "/notices";
+    private static final String DATA_WALLETS = DATA_ISLAND + "/shop/wallets";
 
     private static final String QUESTS = "{\"items\":[{\"id\":\"" + QUEST + "\",\"occurrenceId\":\"" + OCCURRENCE
             + "\",\"title\":\"저녁 30분 집중\",\"type\":\"focus\",\"windowStart\":\"18:00\",\"windowEnd\":\"23:00\","
@@ -44,10 +44,11 @@ class BoardScreenContractTest extends ScreenContractTestBase {
                 + "}"));
         DATA.on(DATA_QUESTS, request -> ok(QUESTS));
         DATA.on(DATA_NOTICES, request -> ok(NOTICES));
+        DATA.on(DATA_WALLETS, request -> ok(FacilityFixtures.WALLETS));
     }
 
     @Test
-    @DisplayName("정상: 퀘스트·공지 첫 페이지(도메인과 같은 서명 커서) — wallets 는 null + missingFragments")
+    @DisplayName("정상: 퀘스트·공지 첫 페이지(도메인과 같은 서명 커서) · 지갑")
     void composesQuestsAndNotices() throws Exception {
         MvcResult result = mockMvc.perform(auth(get("/screens/board")))
                 .andExpect(status().isOk())
@@ -58,12 +59,10 @@ class BoardScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.notices.items[0].id").value(NOTICE.toString()))
                 .andExpect(jsonPath("$.data.notices.items[0].createdAt").doesNotExist())
                 .andExpect(jsonPath("$.data.notices.nextCursor").isString())
-                .andExpect(jsonPath("$.data.wallets").value(nullValue()))
-                .andExpect(jsonPath("$.data.missingFragments.length()").value(1))
-                .andExpect(jsonPath("$.data.missingFragments[0]").value("wallets"))
+                .andExpect(jsonPath("$.data.wallets.villagePointsVersion").value(7))
                 .andReturn();
 
-        assertKeys(result, "island", "quests", "notices", "wallets", "missingFragments");
+        assertKeys(result, "island", "quests", "notices", "wallets");
         assertThat(DATA.receivedFor(DATA_NOTICES).get(0).query()).contains("limit=30");
         assertThat(DATA.received()).allSatisfy(forwarded ->
                 assertThat(forwarded.header("x-user-id")).as("주체는 서명 세션에서만").isEqualTo(USER.toString()));

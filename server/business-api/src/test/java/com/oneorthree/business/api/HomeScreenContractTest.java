@@ -28,6 +28,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_REST = DATA_ISLAND + "/rest-members";
     private static final String DATA_OPTIONS = DATA_ISLAND + "/construction-options";
     private static final String DATA_PLAYBACK = DATA_ISLAND + "/playback";
+    private static final String DATA_WALLETS = DATA_ISLAND + "/shop/wallets";
 
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,"
@@ -56,10 +57,11 @@ class HomeScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_REST, request -> ok(REST));
         DATA.on(DATA_OPTIONS, request -> ok(options(false)));
         DATA.on(DATA_PLAYBACK, request -> ok(PLAYBACK));
+        DATA.on(DATA_WALLETS, request -> ok(FacilityFixtures.WALLETS));
     }
 
     @Test
-    @DisplayName("정상: 조각 이름이 응답 키이고 도메인 DTO 를 그대로 싣는다 — 방송기 완공이면 playback, 빠진 조각은 null + missingFragments")
+    @DisplayName("정상: 조각 이름이 응답 키이고 도메인 DTO 를 그대로 싣는다 — 방송기 완공이면 playback, 지갑은 상점 GET 그대로")
     void composesFragmentsUnderTheirNames() throws Exception {
         MvcResult result = mockMvc.perform(auth(get("/screens/home")).queryParam("date", "2026-09-17")
                         .queryParam("timezone", "Asia/Seoul").header("X-User-Id", UUID.randomUUID()))
@@ -75,16 +77,15 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.playbackAvailability").value("available"))
                 .andExpect(jsonPath("$.data.playback.trackId").value("campfire"))
                 .andExpect(jsonPath("$.data.playback.version").value(3))
-                .andExpect(jsonPath("$.data.missingFragments.length()").value(1))
-                .andExpect(jsonPath("$.data.missingFragments[0]").value("wallets"))
+                .andExpect(jsonPath("$.data.wallets.villagePoints").value(1500))
+                .andExpect(jsonPath("$.data.wallets.villagePointsVersion").value(7))
                 .andReturn();
 
         assertKeys(result, "island", "focusSummary", "session", "restMembers", "wallets", "playback",
-                "playbackAvailability", "missingFragments");
+                "playbackAvailability");
         JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
-        for (String key : new String[] {"session", "wallets"}) {
-            assertThat(data.get(key).isNull()).as(key + " 는 명시 null").isTrue();
-        }
+        assertThat(data.get("session").isNull()).as("session 은 명시 null").isTrue();
+        assertThat(data.get("wallets").get("fishVersion").isNull()).as("개인 지갑 version 은 지어내지 않는다").isTrue();
         assertThat(DATA.hits(DATA_REST)).as("BG11 결정 — 현재 섬의 휴식 주민을 싣는다").isOne();
         assertThat(DATA.receivedFor(DATA_SUMMARY).get(0).query()).contains("date=2026-09-17", "timezone=Asia/Seoul");
         assertThat(DATA.received()).allSatisfy(forwarded ->
@@ -103,7 +104,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andReturn();
 
         assertKeys(result, "island", "focusSummary", "session", "restMembers", "wallets", "playback",
-                "playbackAvailability", "missingFragments");
+                "playbackAvailability");
         assertThat(JSON.readTree(result.getResponse().getContentAsString()).get("data").get("playback").isNull())
                 .isTrue();
         assertThat(DATA.hits(DATA_PLAYBACK)).as("N 은 호출 자체를 생략한다(B03)").isZero();
