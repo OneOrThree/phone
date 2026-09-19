@@ -85,6 +85,8 @@ internal:
           # GET 과 DELETE 의 `/internal/users/*/join-requests/*` 는 메서드로만 갈린다.
           - 'POST /internal/users/*/islands/*/memberships'
           - 'GET /internal/users/*/join-requests/*'
+          # GROMO-1895 본인 대기 요청 목록 — 단건(`…/join-requests/*`)과 세그먼트 수가 달라 서로를 덮지 않는다.
+          - 'GET /internal/users/*/join-requests'
           - 'DELETE /internal/users/*/join-requests/*'
           - 'POST /internal/users/*/invitations/resolve'
           - 'POST /internal/users/*/islands/*/invitations'
@@ -101,6 +103,9 @@ internal:
           - 'GET /internal/islands/*/construction-options'
           - 'PUT /internal/islands/*/construction-target'
           - 'POST /internal/islands/*/constructions'
+          # GROMO-1895 섬 공동 경제 읽기 2종 — 공동 가계부·주민별 누적 획득. 둘 다 세그먼트 수를 정확히 적는다.
+          - 'GET /internal/islands/*/resources/ledger'
+          - 'GET /internal/islands/*/statistics/fish-earnings'
           # GROMO-1771 섬 게시판 6종. `*` 는 세그먼트 하나다 — 목록과 작성, 상세·수정·삭제는 메서드로만
           # 갈리므로 줄을 합치지 않는다(합치면 조회 권한이 쓰기까지 연다).
           - 'GET /internal/islands/*/notices'

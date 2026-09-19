@@ -271,3 +271,14 @@ main529a 근거(기존 동작과 신규 요구를 구분):
 검증 사례는 KST 자정/월경계/초 잔여, 진행→완료 중복0, 전체합의 페이지 독립, 같은날 A/B 기기와 시간 역순/동일시각 충돌/미래시각, 실제0/권한없음/결측·부분 기간, DST 두 날짜 접힘, 탈퇴와 저장 양방향 경합, legacy/new 동시 보고, receipt/outbox rollback·재전달 부수효과0, cursor 위조/타인/기간변조/만료/권한상실이다. snapshot 생성/페이지 반환과 포함된 타인의 탈퇴를 각 방향으로 경합시켜, 탈퇴 선커밋 후 이전 payload 반환0·조회 선확정 시 탈퇴 대기·역색인/파기 rollback 원자성·현재 페이지 밖 기여자 파기도 전체 snapshot 무효화를 확인한다. 서버 fixture만으로 OS 정확성 검증 완료라 하지 않으며 실제 지원 OS·선택 범위의 측정 근거를 남긴다.
 
 관측 로그는 서버 requestId/commandId/eventId, operation/phase/outcome/durationMs·정책 revision만 연결한다. 역순/동일시각 충돌·측정 결측·snapshot 만료·relay 지연을 유한 label로 계측한다. 이 문서 작업에서는 빌드·실서비스 테스트를 실행하지 않는다.
+
+## 7. 주민별 누적 획득 — GET `/islands/{islandId}/statistics/fish-earnings`
+
+GROMO-1895 추가(library 화면 `fishEarnings` 조각 = 도서관 물고기 장, 기획 `GET /v1/islands/{islandId}/library/fish-earnings`). 경로는 이 도메인의 다른 통계와 같은 `statistics/` 아래 둔다.
+
+- query 없음. 성공200 `{data:{members:[{userId,name,earnedFish}]}}`. **현재 활성 주민 전원**을 한 번에 싣는다 — 섬 정원 상한 안이라 페이지가 없다(§2 스크린타임 island scope 와 같은 규칙). 정산 기록이 없는 주민은 `earnedFish=0`. 정렬은 `earnedFish` 내림차순, 같으면 `userId` 오름차순.
+- **획득의 정본은 세션 정산 `focus_settlements.earned_fish`**(E=P+C, GROMO-1924 가 쓰기 시작)이고 섬 귀속은 `focus_session_details.island_id` 다 — 하루 상한 합산과 같은 조인이다. 섬 통장 잔액이나 목표 epoch 기여(`island_construction_contributions`)는 지출·목표 변경으로 줄거나 잘리므로 「누적 획득」이 아니다(섬 건설 정책 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」). 떠났다 돌아온 주민은 이전 소속 기간의 이 섬 획득도 합친다. 다른 섬에서 얻은 물고기는 넣지 않는다.
+- 도서관 게이트: 도서관(`library`)이 COMPLETED 인 섬만 연다 — 아니면 403 `LIBRARY_LOCKED`(Business 는 공개 `FACILITY_LOCKED` 로 옮긴다). 다른 시설 게이트와 같은 `construction.facility-gates.enforce` 스위치를 따른다(기본 OFF 면 통과). 도서관 **기능 범위**(GROMO-1822)는 미확정이지만 이 조회는 그 결정과 무관한 읽기다.
+- 권한: 살아 있는 섬의 활성 주민(방장·일반 동일). 구경꾼·떠난 주민은 403 `MEMBER_ONLY` — 권한 판정이 게이트보다 먼저다. 종료·삭제 섬은 404 `GROUP_NOT_FOUND`.
+- 내부 경로(B26): `GET /internal/islands/{islandId}/statistics/fish-earnings` + 허용목록 `'GET /internal/islands/*/statistics/fish-earnings'`.
+

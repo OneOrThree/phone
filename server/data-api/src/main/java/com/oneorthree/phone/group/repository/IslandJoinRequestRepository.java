@@ -93,6 +93,18 @@ public interface IslandJoinRequestRepository extends JpaRepository<IslandJoinReq
             @Param("afterId") UUID afterId, Pageable pageable);
 
     /**
+     * 본인의 가입 요청 목록 한 페이지 (GROMO-1895, 섬 소속 LLD §3.12) — {@code (createdAt, id)} keyset 이다.
+     * 신청자로 묶어 찾으므로 타인의 요청은 애초에 후보가 아니다. 섬 이름을 함께 싣기 위해 섬을 같이 읽는다.
+     */
+    @EntityGraph(attributePaths = "island")
+    @Query("SELECT r FROM IslandJoinRequest r WHERE r.applicant.id = :applicantId AND r.status = :status"
+            + " AND (r.createdAt > :afterCreatedAt OR (r.createdAt = :afterCreatedAt AND r.id > :afterId))"
+            + " ORDER BY r.createdAt, r.id")
+    List<IslandJoinRequest> findPageByApplicantIdAndStatus(@Param("applicantId") UUID applicantId,
+            @Param("status") IslandJoinRequestStatus status, @Param("afterCreatedAt") Instant afterCreatedAt,
+            @Param("afterId") UUID afterId, Pageable pageable);
+
+    /**
      * 섬 종결 처리용 — 그 섬의 열린 요청 전부를 배타 잠금으로 집는다. 호출측은 이미 그룹 행을
      * 잠근 상태여야 하고, 신청 생성(같은 그룹 잠금)·신청자 취소(요청 행 잠금)와 모두 직렬화된다.
      */

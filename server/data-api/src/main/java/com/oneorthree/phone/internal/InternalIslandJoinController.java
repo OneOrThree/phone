@@ -7,10 +7,12 @@ import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.JoinIslandResultView;
 import com.oneorthree.phone.internal.dto.JoinRequestCancelView;
 import com.oneorthree.phone.internal.dto.JoinRequestStatusView;
+import com.oneorthree.phone.internal.dto.MyJoinRequestsPageView;
 import com.oneorthree.phone.internal.service.IslandInvitationService;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -18,8 +20,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.UUID;
 
 /**
@@ -46,6 +50,17 @@ public class InternalIslandJoinController {
                                      @Valid @RequestBody(required = false) JoinIslandCommandRequest body,
                                      @RequestHeader("Idempotency-Key") UUID idempotencyKey) {
         return islandJoinService.join(userId, islandId, body, idempotencyKey);
+    }
+
+    /** 본인 대기 가입 요청 목록 (LLD §3.12, GROMO-1895) — §3.8 단건 조회와 세그먼트 수가 달라 경로가 겹치지 않는다. */
+    @GetMapping("/join-requests")
+    public MyJoinRequestsPageView myRequests(@PathVariable UUID userId,
+                                             @RequestParam(required = false)
+                                             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME)
+                                             Instant afterCreatedAt,
+                                             @RequestParam(required = false) UUID afterRequestId,
+                                             @RequestParam int limit) {
+        return islandJoinService.myRequests(userId, afterCreatedAt, afterRequestId, limit);
     }
 
     /** 본인 가입 요청 상태 (LLD §3.8). */
