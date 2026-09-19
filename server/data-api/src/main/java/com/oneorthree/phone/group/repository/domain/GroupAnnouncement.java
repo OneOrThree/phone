@@ -28,10 +28,10 @@ import java.util.UUID;
  * <p>{@code deletedAt} 컬럼이 있지만 삭제는 하드 딜리트로 돌고 있어 채워지지 않는다 — 조회도 이 컬럼을
  * 보지 않는다. 소프트 삭제로 바꾸려면 조회 쪽 필터를 함께 넣어야 한다.
  *
- * <p>{@code @DynamicUpdate} 인 이유 (GROMO-1801): 탈퇴 TX 가 벌크 UPDATE 로 작성자({@code user_id})를 끊는데,
- * 작성자가 이미 나간 그룹이면 탈퇴가 그 그룹을 잠그지 않는다. 그 사이 다른 멤버의 공지 수정이 전 컬럼 UPDATE 를
- * 내면 읽어 둔 옛 작성자를 다시 써 파기를 되돌린다. 바뀐 제목·본문만 싣게 해 그 덮어쓰기를 막는다
- * ({@code GroupMember} 와 같은 이유).
+ * <p>{@code @DynamicUpdate} 인 이유 (GROMO-1801 · GROMO-1771 island-board LLD §5): 탈퇴 TX 가 벌크 UPDATE 로
+ * 작성자({@code user_id})를 끊는데, 작성자가 이미 나간 그룹이면 탈퇴가 그 그룹을 잠그지 않는다. 그 사이 다른 멤버의
+ * 공지 수정(제목·본문)이 전 컬럼 UPDATE 를 내면 읽어 둔 옛 작성자를 다시 써 파기를 되돌린다. 바뀐 컬럼만 싣게 해
+ * 그 덮어쓰기를 막는다({@code GroupMember} 와 같은 이유).
  */
 @Entity
 @DynamicUpdate

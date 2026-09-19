@@ -1,0 +1,20 @@
+{
+  "Rules": [
+    {
+      "ID": "app-log-expire",
+      "Filter": { "Prefix": "app/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 7 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    },
+    {
+      "ID": "user-activity-log-expire",
+      "Filter": { "Prefix": "user-activity/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 30 },
+      "NoncurrentVersionExpiration": { "NoncurrentDays": 1 },
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 1 }
+    }
+  ]
+}
