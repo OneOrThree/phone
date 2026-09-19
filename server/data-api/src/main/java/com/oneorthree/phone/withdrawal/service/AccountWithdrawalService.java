@@ -5,6 +5,7 @@ import com.oneorthree.phone.auth.service.AuthSessionService;
 import com.oneorthree.phone.character.service.CharacterGenerationService;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
+import com.oneorthree.phone.focus.repository.FocusStatisticsSnapshotRepository;
 import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.friend.service.FriendService;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -15,6 +16,7 @@ import com.oneorthree.phone.league.service.LeagueService;
 import com.oneorthree.phone.notification.service.RankOvertakeNotificationService;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.quest.service.IslandQuestService;
+import com.oneorthree.phone.screentime.repository.ScreenTimeObservationRepository;
 import com.oneorthree.phone.screentime.service.ScreenTimeService;
 import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.exception.UserException;
@@ -68,6 +70,8 @@ public class AccountWithdrawalService {
     private final FocusService focusService;
     private final FocusSessionDetailRepository focusSessionDetailRepository;
     private final FocusSessionIntervalRepository focusSessionIntervalRepository;
+    private final FocusStatisticsSnapshotRepository focusStatisticsSnapshotRepository;
+    private final ScreenTimeObservationRepository screenTimeObservationRepository;
     private final StatsService statsService;
     private final ScreenTimeService screenTimeService;
     private final UserService userService;
@@ -155,6 +159,10 @@ public class AccountWithdrawalService {
         focusSessionDetailRepository.anonymizeWithdrawnUser(userId);
         statsService.anonymizeWithdrawnUser(userId);
         screenTimeService.anonymizeWithdrawnUser(userId);
+        // 회관 기록(GROMO-1769) — 기기별 측정 원본(기기 식별자 포함)과 본인 집중 기록 조회 스냅샷은 다른 사람의
+        // 판정 근거가 아니라 익명화하지 않고 지운다. 스냅샷은 본인 기록만 담으므로(타인 사본 없음) 이것으로 끝난다.
+        screenTimeObservationRepository.deleteAllOfUser(userId);
+        focusStatisticsSnapshotRepository.deleteAllOfUser(userId);
 
         // 파생 개인 이력 파기(LLD §4 중앙 TX 순서) — 알림 발송 이력 → 리그 → 캐릭터 생성·장착.
         rankOvertakeNotificationService.eraseWithdrawnUserLogs(userId);

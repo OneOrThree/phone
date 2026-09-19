@@ -21,6 +21,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -81,6 +84,7 @@ public class ScreenReadUseCase {
     private final PlaybackUseCase playback;
     private final IslandMailboxUseCase mailbox;
     private final LetterUseCase letters;
+    private final IslandRecordsUseCase records;
 
     /** {@code launch} — 계정·소속·진행 세션. 세션 없음은 {@code session:null} 정상값이다. */
     public Map<String, Object> launch(AccessTokenClaims claims, String requestId) {
@@ -275,8 +279,9 @@ public class ScreenReadUseCase {
 
     /**
      * {@code library} — 섬 문맥 뒤 도서관 완공을 판정한다. 미완공이면 기록 조각을 부르지 않고 둘 다 null +
-     * {@code statisticsAvailability:facility_locked}(B03 N, 화면은 200)다. 완공이어도 기록 GET(티켓 1769)이
-     * 아직 없어 두 조각은 missingFragments 이고, 검증된 비적용이 아니므로 availability 도 null 이다.
+     * {@code statisticsAvailability:facility_locked}(B03 N, 화면은 200)다. 완공이면 집중·스크린타임 통계(GROMO-1769)를
+     * 병렬로 읽는다 — 화면에는 query 가 없으므로 <b>이번 UTC 주(월~일)·scope=me</b> 첫 페이지다. 집중 기록 커서는
+     * 도메인 GET 과 같은 서명 커서라 다음 페이지는 {@code GET /islands/{islandId}/statistics/focus} 가 이어받는다(B10).
      */
     public Map<String, Object> library(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -289,8 +294,16 @@ public class ScreenReadUseCase {
             screen.put("statisticsAvailability", FACILITY_LOCKED);
             return screen;
         }
-        screen.put("statisticsAvailability", null);
-        return missing(screen, "focusStatistics", "screenTimeStatistics");
+        UUID islandId = island.id();
+        LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
+        LocalDate sunday = monday.plusDays(6);
+        screen.putAll(composer.compose(context, List.of(
+                fragment("focusStatistics", deadline -> records.focus(claims, islandId, monday, sunday,
+                        IslandRecordsUseCase.SCOPE_ME, null, deadline)),
+                fragment("screenTimeStatistics", deadline -> records.screenTime(claims, islandId, monday, sunday,
+                        IslandRecordsUseCase.SCOPE_ME, deadline)))));
+        screen.put("statisticsAvailability", AVAILABLE);
+        return screen;
     }
 
     /**
