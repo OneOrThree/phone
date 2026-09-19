@@ -67,16 +67,18 @@ public class PublicCommandService {
     }
 
     /**
-     * 탈퇴자의 공개 명령 receipt 를 모두 지운다 (GROMO-1801 · 계정 LLD §4).
+     * 탈퇴자의 멱등 기록을 모두 지운다 — 공개 명령 receipt(GROMO-1801)와 legacy 내부 명령 행(GROMO-1946) 둘 다
+     * (계정 LLD §4).
      *
-     * <p>receipt 에는 개인 응답(예: {@code PATCH /me} 의 이름)이 들어 있다. 탈퇴 뒤에는 {@link #run} 이 재생 전에
-     * 활성 주체 검사로 거절하므로 재생 근거로도 쓰이지 않는다 — 남길 이유가 없다.
+     * <p>공개 receipt 에는 개인 응답(예: {@code PATCH /me} 의 이름)이, legacy 행에는 응답 봉투 속 기기 토큰이
+     * 들어 있다. 탈퇴 뒤에는 {@link #run} 이 재생 전에 활성 주체 검사로 거절하므로 재생 근거로도 쓰이지 않는다 —
+     * 남길 이유가 없다. 근거는 {@code CommandIdempotencyRepository#deleteAllOfUser}.
      *
      * @param userId 탈퇴 중인 유저
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void forgetReceiptsOf(UUID userId) {
-        receipts.deletePublicReceiptsOf(userId);
+        receipts.deleteAllOfUser(userId);
     }
 
     private static JsonNode encode(PublicCommandReceipt receipt) {

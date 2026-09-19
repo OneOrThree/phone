@@ -61,12 +61,12 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/fishcat/
 | 화면 | 기획 프레임 | 먼저 (순차) | 그다음 (병렬 조각) | N 상태·실패 |
 | --- | --- | --- | --- | --- |
 | `launch` | 02 · 09–13 | — | `GET /me` · `GET /me/islands` · `GET /focus-sessions/current` | 세션 없음은 `session:null` 정상 |
-| `explore` | 03–07 · 59 | `GET /me/islands` | 소속 0개: `GET /islands/discover` / 그 외: `GET /islands?q=` | 검색의 전망대 미해금 403은 화면 403. 대기 신청 목록은 BG10 |
+| `explore` | 03–07 · 59 | `GET /me/islands` | 소속 0개: `GET /islands/discover` / 그 외: `GET /islands?q=` | 검색의 전망대 미해금 403은 화면 403. 대기 신청 목록은 `GET /me/join-requests`(GROMO-1895 — BG10 해소, 조합 배선은 화면 티켓 몫) |
 | `visit/{islandId}` | 60 · 61 | `GET /islands/{islandId}` (공개 요약·`joinRequestId`) | `joinRequestId`가 있으면 `GET /me/join-requests/{requestId}` | 없으면 `joinRequestAvailability:none` |
 | `home` | 14–18 · 26 · 31 | 섬 문맥 | `GET /me/focus-summary` · `GET /focus-sessions/current` · `GET /islands/{islandId}/rest-members` · `GET /islands/{islandId}/shop/wallets` · 방송기 있으면 `GET /islands/{islandId}/playback` | 방송기 없음: `playbackAvailability:facility_locked`. rest 흡수는 BG11 |
 | `focus` | 19–25 · 28 | `GET /focus-sessions/current` → 세션 있으면 그 `islandId`로 `GET /islands/{islandId}`(시설·역할), 없으면 섬 문맥 | `GET /islands/{islandId}/focus-members` · 방송기 완공이면 `GET /islands/{islandId}/playback` | 세션 없음 정상. 방송기 미완공은 `playback` 조각만 N(`playbackAvailability:facility_locked`) — 화면 전체는 그대로 200(B03·아래 각주) |
-| `town-hall` | 39–44 · 41A | 섬 문맥 (`role`) | `GET /islands/{islandId}/members` · `…/shop/wallets` · `…/construction-options` · 방장이면 `…/join-requests` | 일반 주민: `joinRequestsAvailability:host_only`. 조회 뒤 위임돼 403이면 화면 403. 가계부는 BG10 |
-| `library` | 32–38 | 섬 문맥 (도서관 완공) | `GET /islands/{islandId}/statistics/focus` · `…/statistics/screen-time` | 미완공: 기록 조각 null + `facility_locked`. 물고기 장은 BG10, 타 섬 경로는 BG11 |
+| `town-hall` | 39–44 · 41A | 섬 문맥 (`role`) | `GET /islands/{islandId}/members` · `…/shop/wallets` · `…/construction-options` · 방장이면 `…/join-requests` | 일반 주민: `joinRequestsAvailability:host_only`. 조회 뒤 위임돼 403이면 화면 403. 가계부는 `GET /islands/{islandId}/resources/ledger`(GROMO-1895, 조합 배선은 화면 티켓 몫) |
+| `library` | 32–38 | 섬 문맥 (도서관 완공) | `GET /islands/{islandId}/statistics/focus` · `…/statistics/screen-time` | 미완공: 기록 조각 null + `facility_locked`. 물고기 장은 `GET /islands/{islandId}/statistics/fish-earnings`(GROMO-1895, 도서관 게이트 `LIBRARY_LOCKED`), 타 섬 경로는 BG11 |
 | `board` | 45–55 | 섬 문맥 (게시판 완공·건설 목표) | `GET /islands/{islandId}/quests/current` · `…/notices` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
 | `mailbox` | 63–66 | 섬 문맥 (우체통 완공) | Realtime `…/messages` 첫 페이지 · Data 편지함·친구([friend-letter](../friend-letter/) 설계 완료 — BG10 해소) → 작성자 표시 정보 batch | Realtime 권한 거부는 화면 403. 표시 정보 장애를 탈퇴자로 바꾸지 않는다 |
 | `shop` | 68–73 | 섬 문맥 (상점 완공) | `GET /islands/{islandId}/shop/wallets` · `…/shop/products?category=` · `…/inventory` | 미완공은 화면 403 |

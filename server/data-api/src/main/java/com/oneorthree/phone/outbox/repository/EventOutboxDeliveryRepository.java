@@ -153,6 +153,40 @@ public interface EventOutboxDeliveryRepository extends JpaRepository<EventOutbox
             @Param("error") String error);
 
     /**
+     * 탈퇴자 봉투의 전달 본문에서 개인정보 한 필드를 JSON null 로 대체한다 (GROMO-1946 · 계정 LLD §4).
+     *
+     * <p><b>「다시 나가지 않는다」가 확실한 행만 고친다.</b> 소비자는 {@code eventId} 로 dedup 하고 일부는 본문
+     * 해시까지 대조한다(알림 {@code EVENT_ID_CONFLICT}). 이미 한 번 보낸 본문을 바꿔 재전달하면 4xx 영구 실패가 되고,
+     * relay 는 고갈 처리가 없어(A18) 그 축의 뒤 사건 — 탈퇴의 링크 폐기까지 — 가 영원히 막힌다. 그래서:
+     * <ul>
+     *   <li>전달 완료 행 — 다시 보내지 않는다. 기록일 뿐이라 고쳐도 아무 데도 안 나간다.</li>
+     *   <li>한 번도 선점되지 않은 행({@code attempt_count=0} · 리스 없음) — 첫 전송이 고친 본문으로 나간다.
+     *       단 NOTI 는 relay 밖 직접 전달 경로(㊿)가 있어 시도 수로 「안 나갔다」를 판정할 수 없으므로 뺀다.</li>
+     *   <li>그 밖(시도했지만 미완료) — 같은 본문으로 다시 나가야 하므로 그대로 둔다.</li>
+     * </ul>
+     * 동시 선점과는 행 잠금으로 직렬화된다 — 이 UPDATE 가 먼저 잡으면 relay 는 {@code SKIP LOCKED} 로 건너뛰고
+     * 커밋 뒤 고친 본문을 읽는다. relay 가 먼저 잡았으면 커밋 뒤 조건을 다시 평가해 {@code attempt_count>0} 로 빠진다.
+     *
+     * @param userId   봉투 주체(탈퇴자)
+     * @param type     사건 종류
+     * @param paramKey 대체할 {@code params} 키
+     * @return 고친 전달 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "UPDATE event_outbox_deliveries d "
+            + "SET payload = jsonb_set(d.payload, ARRAY['params', CAST(:paramKey AS text)], CAST('null' AS jsonb)) "
+            + "FROM event_outbox o "
+            + "WHERE d.outbox_id = o.id AND o.user_id = :userId AND o.type = :type "
+            + "  AND jsonb_exists(d.payload -> 'params', :paramKey) "
+            + "  AND (d.delivered_at IS NOT NULL "
+            + "       OR (d.attempt_count = 0 AND d.lease_token IS NULL AND d.target <> 'NOTI'))",
+            nativeQuery = true)
+    int eraseParamOfResendSafe(
+            @Param("userId") UUID userId,
+            @Param("type") String type,
+            @Param("paramKey") String paramKey);
+
+    /**
      * <b>빠른 완료표시</b> — 직접 전달에 성공한 호출자가 알림 대상 행 하나를 닫는다 (㊿).
      *
      * <h2>왜 「소유 검증 + 대상 고정」이 SQL 안에 있는가</h2>
