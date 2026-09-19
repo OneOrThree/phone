@@ -6,10 +6,12 @@ import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionRequest;
 import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
+import com.oneorthree.phone.focus.dto.session.FocusFinishView;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
+import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -86,6 +88,8 @@ class FocusSessionActivationIntegrationTest {
     FocusService legacyFocus;
     @Autowired
     LeagueRankingQueryRepository league;
+    @Autowired
+    FocusLiveInfoLookup liveInfo;
     @Autowired
     GroupMemberService groupMembers;
     @Autowired
@@ -271,6 +275,96 @@ class FocusSessionActivationIntegrationTest {
                 .as("휴식 중이면 라이브 앵커가 없다 — 앱이 매초 더하지 않는다").isNull();
     }
 
+    @Test
+    @DisplayName("친구 라이브 표시도 같다 — 휴식 중이면 «집중 중»이 아니고, 집중 중이면 앵커가 휴식을 뺀다")
+    void friendLiveInfoFollowsTheSameRule() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("친구섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+        backdate(started.id(), 3600);
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+
+        Instant anchor = liveInfo.liveInfoByUserId(List.of(user), today).get(user).focusStartedAt();
+        assertThat(anchor).as("열린 ACTIVE 한 구간뿐이라 앵커는 그 시작과 같다(±몇 초)")
+                .isBetween(Instant.now().minusSeconds(3610), Instant.now().minusSeconds(3590));
+
+        focus.pause(user, started.id(), new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+        assertThat(liveInfo.liveInfoByUserId(List.of(user), today).get(user))
+                .as("휴식 중이면 라이브가 아니다 — 당일 집계도 없어 맵에서 빠진다").isNull();
+    }
+
+    // ---------------------------------------------------------------- #6 보상 정산
+
+    @Test
+    @DisplayName("finish 는 D5·D5-귀속대로 정산한다 — 60초당 1마리, 개인 floor(E/2)·섬 통장 나머지, 일 집계는 순수 초")
+    void finishSettlesByTheDecidedFormula() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("정산섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+        backdate(started.id(), 125 * 60 + 30);   // 순수 집중 125분 30초 → 125마리
+
+        FocusFinishView finished = focus.finish(user, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+
+        assertThat(finished.earnedFish()).isEqualTo(125);
+        assertThat(finished.allocation().personalFishAdded()).isEqualTo(62);
+        assertThat(finished.allocation().constructionFishAdded()).as("E=P+C — 나머지는 섬 통장").isEqualTo(63);
+        assertThat(finished.goalAchieved()).as("목표 25분 이상").isTrue();
+        assertThat(finished.questProgress()).isEmpty();
+        assertThat(count("select balance from user_fish_wallets where user_id=?", user)).isEqualTo(62);
+        assertThat(count("select balance from island_wallets where island_id=?", island)).isEqualTo(63);
+        assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?",
+                user)).isEqualTo(finished.activeSeconds());
+        assertThat(detailRow(started.id()).get("lifecycle")).isEqualTo("COMPLETED");
+        assertThat(jdbc.queryForObject("select status from focus_sessions where id=?", String.class,
+                started.id())).isEqualTo("COMPLETED");
+        assertThat(focus.current(user)).as("완료한 세션은 current 가 아니다").isNull();
+    }
+
+    @Test
+    @DisplayName("하루 상한(480)에 닿으면 물고기만 멈추고 집중 기록은 계속 쌓인다")
+    void dailyCapStopsFishButNotTheRecord() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("상한섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView first = start(user, island);
+        backdate(first.id(), 500 * 60);
+        FocusFinishView capped = focus.finish(user, first.id(),
+                new FocusVersionedCommandRequest(first.version()), UUID.randomUUID());
+        FocusSessionView second = start(user, island);
+        backdate(second.id(), 10 * 60);
+        FocusFinishView overCap = focus.finish(user, second.id(),
+                new FocusVersionedCommandRequest(second.version()), UUID.randomUUID());
+
+        assertThat(capped.earnedFish()).isEqualTo(480);
+        assertThat(overCap.earnedFish()).isZero();
+        assertThat(overCap.activeSeconds()).isGreaterThanOrEqualTo(600);
+        assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?",
+                user)).isEqualTo(capped.activeSeconds() + overCap.activeSeconds());
+    }
+
+    @Test
+    @DisplayName("완료한 세션을 새 키로 다시 finish 하면 원 정산을 그대로 돌려주고 두 번 지급하지 않는다")
+    void finishingACompletedSessionAgainReplaysTheSettlement() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("재생섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+        backdate(started.id(), 30 * 60);
+        FocusFinishView first = focus.finish(user, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+
+        FocusFinishView again = focus.finish(user, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+
+        assertThat(again).isEqualTo(first);
+        assertThat(count("select balance from user_fish_wallets where user_id=?", user))
+                .isEqualTo(first.allocation().personalFishAdded());
+        assertThat(count("select count(*) from focus_settlements where session_id=?", started.id())).isEqualTo(1);
+    }
+
     // ---------------------------------------------------------------- 도구
 
     FocusSessionView start(UUID userId, UUID islandId) {
@@ -287,6 +381,15 @@ class FocusSessionActivationIntegrationTest {
         Group island = groups.findById(islandId).orElseThrow();
         members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.MEMBER).build());
         islands.switchCurrentIsland(userId, islandId, UUID.randomUUID());
+    }
+
+    /** 방금 시작한 세션을 {@code seconds} 전에 시작한 것으로 옮긴다 — 실제 시계를 기다리지 않고 정산 값을 본다. */
+    void backdate(UUID sessionId, long seconds) {
+        Timestamp at = ts(Instant.now().minusSeconds(seconds));
+        jdbc.update("update focus_sessions set started_at=? where id=?", at, sessionId);
+        jdbc.update("update focus_session_details set last_transition_at=? where session_id=?", at, sessionId);
+        jdbc.update("update focus_session_intervals set started_at=? where session_id=? and ordinal=1", at,
+                sessionId);
     }
 
     static Timestamp ts(Instant instant) {

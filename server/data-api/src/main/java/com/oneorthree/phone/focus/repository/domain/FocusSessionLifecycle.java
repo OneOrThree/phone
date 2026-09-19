@@ -13,7 +13,7 @@ public enum FocusSessionLifecycle {
     ACTIVE,
     /** 일시정지(모닥불 휴식) — 열린 REST 구간이 있다. */
     PAUSED,
-    /** 정상 완료 — finish 정산까지 끝났다. 지급 게이트가 닫혀 있는 동안은 도달하지 않는다. */
+    /** 정상 완료 — finish 정산까지 끝났다({@code focus_settlements} 에 그 세션의 행이 꼭 있다). */
     COMPLETED,
     /**
      * 기본 마커가 바깥에서 닫혀 더 진행할 수 없게 된 세션 — <b>정상 완료가 아닌 종결</b>이다.

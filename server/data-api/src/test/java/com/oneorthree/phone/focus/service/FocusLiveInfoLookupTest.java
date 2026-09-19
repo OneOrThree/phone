@@ -37,6 +37,13 @@ class FocusLiveInfoLookupTest {
     @InjectMocks
     private FocusLiveInfoLookup focusLiveInfoLookup;
 
+    // GROMO-1924: v0.3 상세 — 기본 목(빈 목록)이면 전부 레거시 세션이라 아래 단언은 그대로다.
+    @Mock
+    private com.oneorthree.phone.focus.repository.FocusSessionDetailRepository focusSessionDetailRepository;
+
+    @Mock
+    private com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository focusSessionIntervalRepository;
+
     @Mock
     private DailyFocusStatRepository dailyFocusStatRepository;
 

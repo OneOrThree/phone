@@ -86,6 +86,34 @@ class FocusIntervalMathTest {
         assertThat(FocusIntervalMath.openRestStartedAt(paused)).isEqualTo(restStart);
     }
 
+    @Test
+    void activeSecondsByDate_LLD4_분포표를_그대로_따른다() {
+        // ACTIVE 09-11 23:50~23:55, REST 23:55~09-12 00:05, ACTIVE 00:05~00:10 (KST) → 300 / 300
+        List<FocusSessionInterval> acrossMidnight = List.of(
+                interval(1, FocusIntervalKind.ACTIVE, kst("2026-09-11T23:50:00"), kst("2026-09-11T23:55:00")),
+                interval(2, FocusIntervalKind.REST, kst("2026-09-11T23:55:00"), kst("2026-09-12T00:05:00")),
+                interval(3, FocusIntervalKind.ACTIVE, kst("2026-09-12T00:05:00"), kst("2026-09-12T00:10:00")));
+        assertThat(FocusIntervalMath.activeSecondsByDate(acrossMidnight, KST))
+                .containsExactly(java.util.Map.entry(java.time.LocalDate.of(2026, 9, 11), 300),
+                        java.util.Map.entry(java.time.LocalDate.of(2026, 9, 12), 300));
+
+        // 자정에 정확히 끝나면 다음 날 가산 0 — 빈 날짜를 만들지 않는다
+        List<FocusSessionInterval> endsAtMidnight = List.of(
+                interval(1, FocusIntervalKind.ACTIVE, kst("2026-09-11T23:59:00"), kst("2026-09-12T00:00:00")));
+        assertThat(FocusIntervalMath.activeSecondsByDate(endsAtMidnight, KST))
+                .containsExactly(java.util.Map.entry(java.time.LocalDate.of(2026, 9, 11), 60));
+
+        // 23:59:59.800~00:00:00.800 → 총 1초, 경계 올림으로 전일 1 / 당일 0
+        List<FocusSessionInterval> fractional = List.of(interval(1, FocusIntervalKind.ACTIVE,
+                kst("2026-09-11T23:59:59.800"), kst("2026-09-12T00:00:00.800")));
+        assertThat(FocusIntervalMath.activeSecondsByDate(fractional, KST))
+                .containsExactly(java.util.Map.entry(java.time.LocalDate.of(2026, 9, 11), 1));
+    }
+
+    private static Instant kst(String local) {
+        return java.time.LocalDateTime.parse(local).atZone(KST).toInstant();
+    }
+
     private static FocusSessionInterval interval(int ordinal, FocusIntervalKind kind, Instant start, Instant end) {
         return FocusSessionInterval.builder()
                 .ordinal(ordinal)

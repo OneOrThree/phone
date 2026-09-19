@@ -87,9 +87,10 @@ public class FocusSessionDetail {
     private Instant lastTransitionAt;
 
     /**
-     * 시작 시 고정한 보상 정책 revision — FR-D01 미확정인 동안은 항상 {@code null}(미설정 sentinel).
-     * finish의 지급 게이트가 이 값이 아니라 {@link com.oneorthree.phone.focus.support.FocusRewardPolicyGate}의
-     * 전역 설정 여부로 판단한다 — 세션별로 다른 값을 지어내지 않는다.
+     * 시작 시 고정한 보상 정책 revision({@link FocusRewardPolicy}) — 운영이 새 revision 을 내도 진행 중
+     * 세션의 지급률은 바뀌지 않는다(LLD §3). GROMO-1924 이전에 생긴 행(시작 게이트가 닫혀 있어 실제로는
+     * 없다)은 {@code null} 이고, finish 는 그 세션을 {@code REWARD_POLICY_UNAVAILABLE} 로 막는다 —
+     * 정책 없이 값을 지어내 지급하지 않는다.
      */
     @Column(name = "policy_revision")
     private Integer policyRevision;
@@ -129,6 +130,17 @@ public class FocusSessionDetail {
      */
     public void applyAbandon(Instant t) {
         this.lifecycle = FocusSessionLifecycle.ABANDONED;
+        this.restSeat = null;
+        this.version = this.version + 1;
+        this.lastTransitionAt = t;
+    }
+
+    /**
+     * 완료 전이 — finish 가 정산과 같은 TX 에서 {@link FocusSessionLifecycle#COMPLETED} 로 끝낸다.
+     * 휴식 중 finish 도 가능하므로 휴식 자리를 반납한다.
+     */
+    public void applyComplete(Instant t) {
+        this.lifecycle = FocusSessionLifecycle.COMPLETED;
         this.restSeat = null;
         this.version = this.version + 1;
         this.lastTransitionAt = t;

@@ -21,6 +21,9 @@ public interface FocusSessionIntervalRepository extends JpaRepository<FocusSessi
 
     List<FocusSessionInterval> findBySessionIdOrderByOrdinalAsc(UUID sessionId);
 
+    /** 여러 세션의 구간을 한 번에 — 친구 라이브 표시의 N+1 을 피한다(GROMO-1924). */
+    List<FocusSessionInterval> findBySessionIdIn(Collection<UUID> sessionIds);
+
     /**
      * 레거시 완료 업로드의 중복 적립 검사(GROMO-1924, 선행 조건 #3) — {@code [start, end)} 블록이 이 사용자의
      * v0.3 세션 ACTIVE 구간과 겹치는가. 열린 구간은 끝이 없는 것으로 본다(진행 중이라 끝을 모른다).

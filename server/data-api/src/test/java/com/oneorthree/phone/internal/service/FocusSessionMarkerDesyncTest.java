@@ -1,6 +1,11 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.construction.service.IslandWalletEvents;
+import com.oneorthree.phone.construction.service.IslandWalletService;
+import com.oneorthree.phone.currency.service.FishWalletService;
+import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
+import com.oneorthree.phone.focus.repository.FocusSettlementRepository;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
@@ -64,13 +69,19 @@ class FocusSessionMarkerDesyncTest {
     @Mock private PublicCommandService publicCommands;
     @Mock private OutboxCommandPort outboxCommandPort;
     @Mock private FocusPresencePort focusPresencePort;
+    @Mock private FocusRewardPolicyRepository focusRewardPolicyRepository;
+    @Mock private FocusSettlementRepository focusSettlementRepository;
+    @Mock private IslandWalletService islandWalletService;
+    @Mock private IslandWalletEvents islandWalletEvents;
+    @Mock private FishWalletService fishWalletService;
 
     private FocusSessionLifecycleService service() {
         return new FocusSessionLifecycleService(new FocusSessionStartGate(false), userQueryService,
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
-                focusPresencePort,
+                focusRewardPolicyRepository, focusSettlementRepository, islandWalletService, islandWalletEvents,
+                fishWalletService, focusPresencePort,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

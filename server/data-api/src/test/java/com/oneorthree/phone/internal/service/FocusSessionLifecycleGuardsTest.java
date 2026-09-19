@@ -1,6 +1,11 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.construction.service.IslandWalletEvents;
+import com.oneorthree.phone.construction.service.IslandWalletService;
+import com.oneorthree.phone.currency.service.FishWalletService;
+import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
+import com.oneorthree.phone.focus.repository.FocusSettlementRepository;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
@@ -12,6 +17,7 @@ import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionOwnership;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
+import com.oneorthree.phone.focus.repository.domain.FocusRewardPolicy;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
@@ -101,6 +107,11 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private PublicCommandService publicCommands;
     @Mock private OutboxCommandPort outboxCommandPort;
     @Mock private FocusPresencePort focusPresencePort;
+    @Mock private FocusRewardPolicyRepository focusRewardPolicyRepository;
+    @Mock private FocusSettlementRepository focusSettlementRepository;
+    @Mock private IslandWalletService islandWalletService;
+    @Mock private IslandWalletEvents islandWalletEvents;
+    @Mock private FishWalletService fishWalletService;
     @Mock private User caller;
     @Mock private GroupMember membership;
 
@@ -113,7 +124,8 @@ class FocusSessionLifecycleGuardsTest {
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
-                focusPresencePort,
+                focusRewardPolicyRepository, focusSettlementRepository, islandWalletService, islandWalletEvents,
+                fishWalletService, focusPresencePort,
                 Clock.fixed(wallClock, ZoneOffset.UTC));
     }
 
@@ -164,6 +176,9 @@ class FocusSessionLifecycleGuardsTest {
         when(userIslandContextLockService.lock(caller)).thenReturn(context);
         when(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER, ISLAND))
                 .thenReturn(Optional.of(membership));
+        when(focusRewardPolicyRepository.findFirstByOrderByRevisionDesc()).thenReturn(Optional.of(
+                FocusRewardPolicy.builder().revision(1).secondsPerFish(60).dailyCapFish(480)
+                        .personalSharePercent(50).build()));
         when(focusSessionRepository.save(any(FocusSession.class)))
                 .thenReturn(FocusSession.builder().id(sessionId).startedAt(NOW).build());
         when(focusSessionDetailRepository.save(any(FocusSessionDetail.class)))

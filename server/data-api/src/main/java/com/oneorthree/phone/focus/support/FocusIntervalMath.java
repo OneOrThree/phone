@@ -5,8 +5,14 @@ import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Optional;
+import java.util.TreeMap;
 
 /**
  * v0.3 세션 구간의 순수 시간 계산 (GROMO-1764, LLD §4). 주입이 없는 순수 계산기라 {@code support/}다.
@@ -62,6 +68,54 @@ public final class FocusIntervalMath {
             }
         }
         return totalMicros / 1_000_000L;
+    }
+
+    /**
+     * 닫힌 ACTIVE 구간의 날짜별 순수 집중 초 — LLD §4 의 일별 분포 규칙 그대로다(finish 가 일 집계에 쓴다).
+     *
+     * <p>ACTIVE 구간을 {@code zone} 자정으로 자른 뒤 날짜별 마이크로초를 모으고, 총 초
+     * {@code T = floor(총 micros / 1e6)} 와 날짜 d 까지의 누적 micros {@code C(d)} 로 누적 배정
+     * {@code min(ceil(C(d)/1e6), T)} 의 전일 대비 차를 그날 몫으로 준다. 그래서 날짜 합은 언제나 T 이고,
+     * 소수초 경계는 최대 1초의 결정적 배분이다(예: 23:59:59.8~00:00:00.8 → 전일 1 · 당일 0).
+     *
+     * @param intervals 세션의 전체 구간 — 열린 구간이 없어야 한다(닫은 뒤 부른다). 열린 구간은 건너뛴다
+     * @param zone      날짜 축(KST, date-axis 규약)
+     * @return 날짜 오름차순 몫. 0초인 날짜는 담지 않는다
+     */
+    public static NavigableMap<LocalDate, Integer> activeSecondsByDate(List<FocusSessionInterval> intervals,
+                                                                        ZoneId zone) {
+        TreeMap<LocalDate, Long> microsByDate = new TreeMap<>();
+        long totalMicros = 0;
+        for (FocusSessionInterval interval : intervals) {
+            if (interval.getKind() != FocusIntervalKind.ACTIVE || interval.getEndedAt() == null) {
+                continue;
+            }
+            Instant cursor = interval.getStartedAt();
+            Instant end = interval.getEndedAt();
+            while (cursor.isBefore(end)) {
+                ZonedDateTime local = cursor.atZone(zone);
+                Instant nextMidnight = local.toLocalDate().plusDays(1).atStartOfDay(zone).toInstant();
+                Instant pieceEnd = minInstant(end, nextMidnight);
+                long micros = microsBetween(cursor, pieceEnd);
+                microsByDate.merge(local.toLocalDate(), micros, Long::sum);
+                totalMicros += micros;
+                cursor = pieceEnd;
+            }
+        }
+        long totalSeconds = totalMicros / 1_000_000L;
+        NavigableMap<LocalDate, Integer> result = new TreeMap<>();
+        long cumulativeMicros = 0;
+        long assigned = 0;
+        for (Map.Entry<LocalDate, Long> day : microsByDate.entrySet()) {
+            cumulativeMicros += day.getValue();
+            long upTo = Math.min((cumulativeMicros + 999_999L) / 1_000_000L, totalSeconds);
+            long share = upTo - assigned;
+            assigned = upTo;
+            if (share > 0) {
+                result.put(day.getKey(), Math.toIntExact(share));
+            }
+        }
+        return result;
     }
 
     /** @return 열린(진행 중) 구간 — 세션당 최대 1개(DB 부분 UNIQUE). 없으면 빈 값 */

@@ -3,6 +3,9 @@ package com.oneorthree.phone.internal.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.construction.service.IslandWalletEvents;
+import com.oneorthree.phone.construction.service.IslandWalletService;
+import com.oneorthree.phone.currency.service.FishWalletService;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
@@ -15,16 +18,19 @@ import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionOwnership;
+import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
+import com.oneorthree.phone.focus.repository.FocusSettlementRepository;
 import com.oneorthree.phone.focus.repository.domain.DailyFocusStat;
 import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
+import com.oneorthree.phone.focus.repository.domain.FocusRewardPolicy;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
+import com.oneorthree.phone.focus.repository.domain.FocusSettlement;
 import com.oneorthree.phone.focus.repository.domain.FocusType;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
-import com.oneorthree.phone.focus.support.FocusRewardPolicyGate;
 import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -55,11 +61,15 @@ import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.NavigableMap;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 
 /**
@@ -92,15 +102,13 @@ import java.util.UUID;
  * 상세를 먼저 잠그면 반대로 {@code pause} 의 섬 잠금과 강퇴가 서로를 기다린다 — 그래서 어느 섬을
  * 잠글지는 잠그지 않는 프로젝션({@link FocusSessionOwnership})으로 먼저 알아낸다.
  *
- * <h2>비활성 게이트 둘</h2>
- * {@link #finish}는 유효성 검사를 전부 통과해도 {@link FocusRewardPolicyGate#isOpen()}이 닫혀 있으면
- * {@link FocusErrorCode#REWARD_POLICY_UNAVAILABLE}로 막는다 — policy.md가 "정책 없을 때 성공 정산
- * receipt를 만들지 않는다"고 정했다.
- *
- * <p>그래서 {@link #start}도 {@link FocusSessionStartGate}로 먼저 막는다. finish가 항상 503인데
- * start만 열려 있으면 사용자는 <b>끝낼 수 없는 세션</b>에 갇힌다 — v0.3 상세가 달린 세션은 12시간
- * orphan 스윕에서도 제외되고(LLD §5), 다음 start는 열린 기본 마커 때문에 409다. 두 게이트를 여는 날의
- * 선행 조건 목록은 {@link FocusSessionStartGate}의 javadoc에 있다.
+ * <h2>게이트와 보상 정책</h2>
+ * {@link #start}는 {@link FocusSessionStartGate}(배포 설정)를 가장 앞에서 보고, 현재 보상 정책
+ * revision({@link FocusRewardPolicy})이 없으면 열지 않는다 — 정책 없는 세션을 시작시켰다가 finish 에서
+ * 영구히 막는 일을 만들지 않는다(LLD §2 start). 세션은 시작한 revision 을 고정하고, {@link #finish}는 그
+ * revision 으로 정산한다. revision 이 없는 세션(이 티켓 이전 행)의 finish 는
+ * {@link FocusErrorCode#REWARD_POLICY_UNAVAILABLE} 이다 — 값을 지어내 「성공 정산」을 만들지 않는다.
+ * 선행 조건 목록과 해소 근거는 {@link FocusSessionStartGate}의 javadoc에 있다.
  *
  * <h2>기본 마커 외부 종료 방어</h2>
  * 진행 중 상세를 집는 세 지점({@link #start}·{@link #current}·{@link #authorizeSession})은
@@ -115,6 +123,8 @@ import java.util.UUID;
 public class FocusSessionLifecycleService {
 
     private static final int MAX_SUBJECT_LENGTH = 200;
+    /** 하루 상한의 창 — 완료 시각의 UTC 날짜 [00:00, +24h) (D8: 모든 시간 UTC · 하루 리셋 UTC 00:00). */
+    private static final long SECONDS_PER_DAY = 86_400L;
     private static final String FOCUS_MEMBER_AGGREGATE_TYPE = "FOCUS_MEMBER";
     private static final String REST_MEMBER_AGGREGATE_TYPE = "REST_MEMBER";
     private static final String FOCUS_MEMBER_EVENT_TYPE = "focus.member.updated";
@@ -136,6 +146,13 @@ public class FocusSessionLifecycleService {
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final PublicCommandService publicCommands;
     private final OutboxCommandPort outboxCommandPort;
+    private final FocusRewardPolicyRepository focusRewardPolicyRepository;
+    private final FocusSettlementRepository focusSettlementRepository;
+    /** 섬 통장 몫(D5-귀속) — 「각자 몫」 기여 기록도 이 진입점이 함께 쓴다. */
+    private final IslandWalletService islandWalletService;
+    private final IslandWalletEvents islandWalletEvents;
+    /** 개인 지갑 몫(D5-귀속, 통화 fish). */
+    private final FishWalletService fishWalletService;
     /**
      * 집중 프레즌스 리스(선행 조건 #5) — 채팅 서버가 「집중 중엔 채팅 불가」를 판정하는 근거다.
      * 레거시와 <b>같은 포트·같은 키</b>를 쓴다(LLD §6 「하나의 Data projection 포트」). 리스는 세션 단위라
@@ -149,9 +166,8 @@ public class FocusSessionLifecycleService {
     /**
      * {@code POST /focus-sessions} — LLD §2 start.
      *
-     * <p><b>가장 앞에서</b> {@link FocusSessionStartGate}를 본다 — 입력 검증보다도 먼저다. finish가
-     * 항상 503인 동안 세션을 만들면 끝낼 수도, 스윕으로 풀릴 수도, 다시 시작할 수도 없는 상태에
-     * 갇히기 때문이다. 게이트가 막는 한 진행 행 자체가 생기지 않는다.
+     * <p><b>가장 앞에서</b> {@link FocusSessionStartGate}를 본다 — 입력 검증보다도 먼저다. 게이트가 막는 한
+     * 진행 행 자체가 생기지 않는다. 보상 정책 revision 이 없어도 같은 503 이다(클래스 주석).
      */
     @Transactional
     public FocusSessionView start(UUID userId, FocusSessionStartCommandRequest body, UUID idempotencyKey) {
@@ -189,6 +205,9 @@ public class FocusSessionLifecycleService {
                     }
                     // context → 섬 → 멤버십 — 섬 소속 경로(IslandMembershipService)와 같은 방향이다.
                     GroupMember membership = requireLockedMembership(userId, islandId);
+                    // 시작 시 정책 revision 을 고정한다(LLD §3) — 없으면 끝낼 때 정산할 근거가 없다.
+                    FocusRewardPolicy policy = focusRewardPolicyRepository.findFirstByOrderByRevisionDesc()
+                            .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_START_UNAVAILABLE));
 
                     Instant now = clock.instant();
                     FocusSession session = focusSessionRepository.save(FocusSession.builder()
@@ -206,6 +225,7 @@ public class FocusSessionLifecycleService {
                             .lifecycle(FocusSessionLifecycle.ACTIVE)
                             .version(1L)
                             .lastTransitionAt(now)
+                            .policyRevision(policy.getRevision())
                             .build());
                     focusSessionIntervalRepository.save(FocusSessionInterval.builder()
                             .sessionId(session.getId())
@@ -369,12 +389,23 @@ public class FocusSessionLifecycleService {
     }
 
     /**
-     * {@code POST /focus-sessions/{sessionId}/finish} — LLD §2 finish.
+     * {@code POST /focus-sessions/{sessionId}/finish} — LLD §2 finish. 선행 조건 #6.
      *
-     * <p>유효성 검사(본인·소속 세션·lifecycle·expectedVersion)를 전부 통과해도
-     * {@link FocusRewardPolicyGate#isOpen()}이 닫혀 있으면 {@link FocusErrorCode#REWARD_POLICY_UNAVAILABLE}
-     * 로 막는다 — FR-D01~06이 확정되기 전까지는 항상 이 경로다. 게이트가 열리면 여기서 구간을 닫고
-     * 정산·outbox·지급을 붙인다(지금은 도달하지 않는 코드라 미리 만들지 않는다 — 값을 지어내지 않는다).
+     * <p>한 TX 에서 열린 구간을 닫고, 시작 때 고정한 정책 revision 으로 정산해 지갑 둘·일 집계·기본 마커·
+     * 정산 행·사건을 함께 남긴다(FR-P09). 산식은 2026-09-18 결정 D5·D5-귀속이다:
+     * <ul>
+     *   <li>{@code raw = floor(activeSeconds / secondsPerFish)} — 휴식은 activeSeconds 에 없다</li>
+     *   <li>하루 상한: 이 사용자가 이 섬에서 <b>완료 시각의 UTC 날짜</b>(D8)에 이미 받은 물고기를 뺀 만큼만
+     *       준다. 상한에 닿아도 집중 기록(일 집계·activeSeconds)은 그대로 쌓인다(1830)</li>
+     *   <li>{@code P = floor(E × personalSharePercent / 100)}, {@code C = E − P} — E=P+C 보존식(LLD §3)</li>
+     * </ul>
+     *
+     * <p><b>잠금 순서</b>(LLD §3): 사용자 공유 → 섬 행 → 멤버십 공유 → 상세 → 기본 마커 → 섬 건설 상태 →
+     * 섬 통장 → 개인 지갑 → 일 집계. 마커를 지갑보다 먼저 잡는 것은 레거시 종료(마커 → 지갑 → 일 집계)와
+     * 같은 방향이라서다. 마커는 더티 체킹 flush 가 아니라 행 잠금 조회로 «이 자리에서» 잡는다.
+     *
+     * <p><b>이미 완료된 세션을 새 키로 finish</b> 하면 정산 행의 원 결과를 그대로 돌려준다(LLD §2 도메인
+     * 복구) — 새 원장·통계·사건을 만들지 않는다. 멤버십을 잃은 뒤에는 {@link #authorizeSession}이 먼저 403 이다.
      */
     @Transactional
     public FocusFinishView finish(UUID userId, UUID sessionId, FocusVersionedCommandRequest body,
@@ -389,22 +420,124 @@ public class FocusSessionLifecycleService {
                 () -> {
                     FocusSessionDetail detail = authorizeSession(userId, sessionId);
                     if (detail.getLifecycle() == FocusSessionLifecycle.COMPLETED) {
-                        // LLD §2: 완료된 세션을 새 키로 finish하면 원 정산 결과를 재생해야 한다. 게이트가
-                        // 닫혀 있는 한 이 상태 자체에 도달할 수 없어 아직 구현하지 않는다(값을 지어내지 않는다).
-                        throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
+                        FocusSettlement settled = focusSettlementRepository.findById(sessionId)
+                                .orElseThrow(() -> new IllegalStateException(
+                                        "정산 없는 COMPLETED 세션입니다 — 자동 재지급하지 않고 운영 복구한다"
+                                                + "(LLD §2). session=" + sessionId));
+                        return new PublicCommandResult(200, tree(finishView(detail, settled)), tree(List.of()));
                     }
-                    if (detail.getLifecycle() != FocusSessionLifecycle.ACTIVE
-                            && detail.getLifecycle() != FocusSessionLifecycle.PAUSED) {
-                        throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
-                    }
+                    requireProgressing(detail);
                     requireVersion(detail, expectedVersion);
-                    if (!FocusRewardPolicyGate.isOpen()) {
+                    FocusRewardPolicy policy = detail.getPolicyRevision() == null ? null
+                            : focusRewardPolicyRepository.findById(detail.getPolicyRevision()).orElse(null);
+                    if (policy == null) {
                         throw new FocusException(FocusErrorCode.REWARD_POLICY_UNAVAILABLE);
                     }
-                    throw new IllegalStateException(
-                            "FocusRewardPolicyGate가 열렸는데 정산 구현이 없습니다 — GROMO-1764 범위 밖");
+                    return settle(userId, detail, policy);
                 }).value().data();
         return decode(data, FocusFinishView.class);
+    }
+
+    /** finish 의 신규 정산 — 호출측이 사용자·섬·멤버십·상세를 잠갔다. */
+    private PublicCommandResult settle(UUID userId, FocusSessionDetail detail, FocusRewardPolicy policy) {
+        UUID sessionId = detail.getSessionId();
+        UUID islandId = detail.getIslandId();
+        User user = requireActiveUser(userId);
+        Instant t = transitionAnchor(detail);
+        List<FocusSessionInterval> intervals = focusSessionIntervalRepository
+                .findBySessionIdOrderByOrdinalAsc(sessionId);
+        FocusIntervalMath.openInterval(intervals).ifPresent(open -> open.close(t));
+        long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, t);
+        FocusSession marker = focusSessionRepository.findByIdAndUserForUpdate(sessionId, user)
+                .orElseThrow(() -> new IllegalStateException("상세는 있는데 기본 마커가 없습니다 — session=" + sessionId));
+
+        Instant dayStart = t.atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant();
+        long alreadyToday = focusSettlementRepository.sumEarnedFish(userId, islandId, dayStart,
+                dayStart.plusSeconds(SECONDS_PER_DAY));
+        long raw = activeSeconds / policy.getSecondsPerFish();
+        int earned = (int) Math.max(0, Math.min(raw, policy.getDailyCapFish() - alreadyToday));
+        int personal = earned * policy.getPersonalSharePercent() / 100;
+        int island = earned - personal;
+        if (island > 0) {
+            // 섬 건설 상태 → 섬 통장(IslandWalletService 가 잠근다). 키가 세션 id 라 섬 원장도 세션당 한 번이다.
+            islandWalletService.contribute(islandId, userId, island, "focus:" + sessionId);
+        }
+        if (personal > 0) {
+            fishWalletService.credit(userId, personal);
+        }
+
+        // 일 집계는 KST 날짜 축(date-axis 규약)의 순수 초 — 목표 코인·스트릭 같은 레거시 부수효과는 붙이지
+        // 않는다(LLD §4 「recordCompletion 을 그대로 호출해 코인 보너스를 중복 지급하지 않는다」).
+        NavigableMap<LocalDate, Integer> secondsByDate =
+                FocusIntervalMath.activeSecondsByDate(intervals, ZonePolicy.KST);
+        recordDailyStats(user, secondsByDate, FocusIntervalMath.sessionStartedAt(intervals));
+        Map<String, Integer> storedByDate = new LinkedHashMap<>();
+        secondsByDate.forEach((date, seconds) -> storedByDate.put(date.toString(), seconds));
+        marker.end(t, 0, t, storedByDate);
+        detail.applyComplete(t);
+
+        FocusSettlement settlement = focusSettlementRepository.save(FocusSettlement.builder()
+                .sessionId(sessionId)
+                .policyRevision(policy.getRevision())
+                .activeSeconds(activeSeconds)
+                .goalAchieved(activeSeconds >= detail.getTargetMinutes() * 60L)
+                .earnedFish(earned)
+                .personalFishAdded(personal)
+                .constructionFishAdded(island)
+                .completedAt(t)
+                .build());
+        // 사건(projection 버전)은 잠금 순서의 맨 끝이다(LLD §3).
+        List<EventEnvelope> events = new ArrayList<>();
+        events.add(appendFocusMemberEvent(userId, islandId, sessionId, STATUS_ENDED, detail.getSubject(),
+                activeSeconds, t, detail.getVersion()));
+        events.add(appendRestMemberEvent(userId, islandId, sessionId, STATUS_ENDED, null, null, t,
+                detail.getVersion()));
+        if (island > 0) {
+            events.add(islandWalletEvents.changed(islandId, userId, "FOCUS_REWARD"));
+        }
+        focusPresencePort.focusEnded(userId, sessionId);
+        return new PublicCommandResult(200, tree(finishView(detail, settlement)), tree(events));
+    }
+
+    /**
+     * 날짜별 순수 초를 일 집계에 더한다 — 세션 1건은 시작일에만 센다(레거시 recordCompletion 과 같은 관례).
+     * 0초인 세션은 행을 만들지 않는다.
+     */
+    private void recordDailyStats(User user, NavigableMap<LocalDate, Integer> secondsByDate, Instant startedAt) {
+        if (secondsByDate.isEmpty()) {
+            return;
+        }
+        LocalDate startDate = startedAt.atZone(ZonePolicy.KST).toLocalDate();
+        TreeSet<LocalDate> dates = new TreeSet<>(secondsByDate.keySet());
+        dates.add(startDate);
+        for (LocalDate date : dates) {
+            int seconds = secondsByDate.getOrDefault(date, 0);
+            int sessions = date.equals(startDate) ? 1 : 0;
+            DailyFocusStat stat = dailyFocusStatRepository.findByUserAndDateForUpdate(user, date).orElse(null);
+            if (stat == null) {
+                dailyFocusStatRepository.save(DailyFocusStat.builder()
+                        .user(user).date(date).totalFocusSeconds(seconds).sessionCount(sessions).build());
+            } else {
+                stat.setTotalFocusSeconds(Math.addExact(stat.getTotalFocusSeconds(), seconds));
+                stat.setSessionCount(stat.getSessionCount() + sessions);
+            }
+        }
+    }
+
+    private static FocusFinishView finishView(FocusSessionDetail detail, FocusSettlement settlement) {
+        // 퀘스트 진행률은 1772/1773 계약이 아직 없어 이 세션이 기여한 퀘스트가 없다 — 빈 목록이 사실이다.
+        return new FocusFinishView(detail.getSessionId(), detail.getIslandId(), detail.getSubject(),
+                detail.getTargetMinutes(), settlement.getActiveSeconds(), settlement.isGoalAchieved(),
+                settlement.getEarnedFish(),
+                new FocusFinishView.Allocation(settlement.getPersonalFishAdded(),
+                        settlement.getConstructionFishAdded()),
+                settlement.getCompletedAt(), List.of());
+    }
+
+    private static void requireProgressing(FocusSessionDetail detail) {
+        if (!PROGRESSING.contains(detail.getLifecycle())) {
+            throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
+        }
     }
 
     /**
@@ -456,8 +589,7 @@ public class FocusSessionLifecycleService {
      * ({@code ended_at >= started_at})를 위반해 정상 pause가 500이 된다 — 물러난 벽시계는 사용자 잘못이
      * 아니므로 여기서 앞으로 눌러 둔다(시간이 «흐르지 않은» 것으로 보이지, 음수로 흐르지는 않는다).
      *
-     * <p>finish는 게이트가 열려 정산 전이를 쓰게 되는 날 같은 anchor를 쓴다 — 지금은 게이트 앞에서
-     * 막혀 전이 자체가 없다.
+     * <p>finish 와 소속 상실 종결도 같은 규칙을 쓴다.
      *
      * @param detail 이미 잠근 상세 행
      * @return {@code max(clock.instant(), detail.lastTransitionAt)}
