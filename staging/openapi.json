@@ -6474,6 +6474,46 @@
         }
       }
     },
+    "/internal/islands/{islandId}/rest-members": {
+      "get": {
+        "tags": [
+          "internal-island-focus-members-controller"
+        ],
+        "operationId": "restMembers",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandRestMembersView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/mailbox-access": {
       "get": {
         "tags": [
@@ -6547,6 +6587,46 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/SharedInventoryView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/focus-members": {
+      "get": {
+        "tags": [
+          "internal-island-focus-members-controller"
+        ],
+        "operationId": "focusMembers",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandFocusMembersView"
                 }
               }
             }
@@ -11733,6 +11813,67 @@
           }
         }
       },
+      "IslandRestMembersView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "watermarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberWatermark"
+            }
+          }
+        }
+      },
+      "Item": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "restSeat": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "restStartedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MemberWatermark": {
+        "type": "object",
+        "properties": {
+          "projection": {
+            "type": "string"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "aggregateId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "BuildingThemeItem": {
         "type": "object",
         "properties": {
@@ -11771,6 +11912,27 @@
           },
           "appearance": {
             "$ref": "#/components/schemas/IslandAppearanceView"
+          }
+        }
+      },
+      "IslandFocusMembersView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "serverNow": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "watermarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberWatermark"
+            }
           }
         }
       },
