@@ -1,10 +1,19 @@
 package com.oneorthree.realtime.config;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.messaging.Message;
+import org.springframework.messaging.MessageChannel;
+import org.springframework.messaging.simp.SimpMessageHeaderAccessor;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
+import org.springframework.messaging.support.ChannelInterceptor;
+import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
@@ -45,6 +54,12 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final ChatOutboundChannelInterceptor chatOutboundChannelInterceptor;
     private final RealtimeSessionRegistry sessions;
 
+    /** 거절 ERROR 프레임을 보낼 통로. 이 설정이 채널을 만드는 쪽이라 순환을 피해 늦게 받는다. */
+    @Lazy
+    @Autowired
+    @Qualifier("clientOutboundChannel")
+    private MessageChannel clientOutboundChannel;
+
     /**
      * 핸드셰이크에서 허용할 Origin.
      *
@@ -60,19 +75,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         registry.addEndpoint("/ws/chat", "/ws/realtime")
                 .setAllowedOriginPatterns(allowedOrigins);
         registry.setErrorHandler(chatStompErrorHandler);
-        // ⚠️ setPreserveReceiveOrder(true) 를 «켜지 마라» — 이 설계에서는 거절 통지가 통째로 사라진다.
-        //
-        // 켜야 할 이유는 있다: 인바운드 채널이 스레드 풀이라 한 세션의 두 SEND 가 동시에 처리될 수
-        // 있고, 그러면 나중에 보낸 말이 먼저 id·sentAt 을 받아 히스토리 순서가 뒤집힌다(GROMO-1741 §①).
-        //
-        // 그런데 켜 보면 «거절이 클라이언트에 도달하지 않는다». 이 서비스의 관문은
-        // StompAuthChannelInterceptor 의 preSend 에서 «예외를 던져» 거절하는데, 순서 보존 데코레이터가
-        // 그 경로에서 세션의 다음 전송을 풀어 주지 않아 ERROR 프레임이 큐에 남는다. 실측: 켠 채로
-        // ChatWebSocketIntegrationTest 의 거절 3종(토큰 없음·남의 섬 구독·집중 중 CONNECT)이 전부
-        // 30초 타임아웃 후 null 로 실패하고, 이 한 줄만 지우면 전부 통과한다.
-        //
-        // 즉 「순서가 가끔 뒤집힌다」를 고치려다 「거절이 영영 안 온다」를 만든다 — 후자가 훨씬 나쁘다.
-        // 순서를 고치려면 관문이 예외 대신 다른 방식으로 거절하도록 먼저 바꿔야 한다(GROMO-1741 §①).
+        // 한 세션이 연달아 보낸 SEND 를 받은 순서대로 처리한다(GROMO-1741 §①). 끄면 인바운드 채널이 스레드
+        // 풀이라 나중에 보낸 말이 먼저 저장돼 히스토리 순서가 뒤집힌다(실측: 40건 몰아 보내기에서 18자리가 뒤바뀜).
+        // 켜는 대가는 관문 거절이 예외로는 클라이언트에 닿지 않는다는 것 — 그래서 RejectAsErrorFrame 이 있다.
+        registry.setPreserveReceiveOrder(true);
     }
 
     /** STOMP 세션 ID와 같은 실제 소켓을 등록하고 모든 연결 종료 경로에서 정리한다. */
@@ -111,7 +117,34 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     /** 인증·구독·발신 목적지를 검사한다. */
     @Override
     public void configureClientInboundChannel(ChannelRegistration registration) {
-        registration.interceptors(stompAuthChannelInterceptor);
+        registration.interceptors(new RejectAsErrorFrame());
+    }
+
+    /**
+     * 관문의 거절을 <b>직접</b> ERROR 프레임으로 돌려보낸다.
+     *
+     * <p>순서 보존({@code setPreserveReceiveOrder})을 켜면 Spring 의 {@code OrderedMessageChannelDecorator} 가
+     * 인바운드 전송의 예외를 삼켜 로그만 남긴다 — 그 예외를 받아 ERROR 프레임을 만들던
+     * {@code StompSubProtocolHandler} 까지 올라가지 않으므로, 거절(토큰 없음·남의 섬·집중 중)이 클라이언트에
+     * 영영 도착하지 않는다. 그래서 여기서 같은 에러 핸들러로 프레임을 만들어 아웃바운드 채널로 보내고,
+     * 프레임은 {@code null} 로 버린다. ERROR 프레임을 보낸 뒤 소켓을 닫는 것은 종전과 같다(Spring 이 한다).
+     */
+    private final class RejectAsErrorFrame implements ChannelInterceptor {
+
+        @Override
+        public Message<?> preSend(Message<?> message, MessageChannel channel) {
+            try {
+                return stompAuthChannelInterceptor.preSend(message, channel);
+            } catch (RuntimeException e) {
+                Message<byte[]> error = chatStompErrorHandler.handleClientMessageProcessingError(null, e);
+                StompHeaderAccessor accessor = MessageHeaderAccessor.getAccessor(error, StompHeaderAccessor.class);
+                if (accessor != null) {
+                    accessor.setSessionId(SimpMessageHeaderAccessor.getSessionId(message.getHeaders()));
+                }
+                clientOutboundChannel.send(error);
+                return null;
+            }
+        }
     }
 
     /** 이미 구독한 소켓도 집중 시작·토큰 만료 뒤에는 채팅 본문을 받지 못한다. */

@@ -9,6 +9,8 @@ import com.oneorthree.realtime.membership.client.GroupClient;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
 import com.oneorthree.realtime.message.dto.SendFailureResponse;
 import com.oneorthree.realtime.message.dto.SendMessageRequest;
+import com.oneorthree.realtime.message.repository.ChatMessageRepository;
+import com.oneorthree.realtime.message.repository.domain.ChatMessage;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.junit.jupiter.api.AfterEach;
@@ -23,6 +25,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.lang.NonNull;
 import org.springframework.messaging.converter.CompositeMessageConverter;
@@ -44,6 +47,8 @@ import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -91,6 +96,9 @@ class ChatWebSocketIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private ChatMessageRepository chatMessageRepository;
 
     private WebSocketStompClient stompClient;
 
@@ -272,6 +280,42 @@ class ChatWebSocketIntegrationTest {
         assertThatThrownBy(() -> connectWith(null, handler)).isInstanceOf(Exception.class);
 
         assertThat(handler.awaitError()).isEqualTo("UNAUTHORIZED");
+    }
+
+    @Test
+    @DisplayName("한 세션이 몰아 보낸 말은 보낸 순서대로 저장된다 — 인바운드 스레드 풀이 순서를 뒤집지 않는다")
+    void burstFromOneSessionKeepsSendOrder() throws Exception {
+        givenMemberOf(resident, island);
+        StompSession session = connect(resident, new RecordingHandler());
+        deliveries = subscribeToIsland(session, island);
+        awaitSubscriptionRegistered(session, island);
+
+        int burst = 40;
+        List<String> sent = new ArrayList<>();
+        for (int i = 0; i < burst; i++) {
+            String content = "순서-" + i;
+            sent.add(content);
+            session.send("/app/groups/" + island + "/send", new SendMessageRequest(content, UUID.randomUUID()));
+        }
+        // 전부 커밋될 때까지 기다린다(방송은 커밋 뒤다). 등록 확인용 말이 늦게 섞여 와도 세지 않는다.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+        int delivered = 0;
+        while (delivered < burst && System.nanoTime() < deadline) {
+            ChatMessageResponse received = deliveries.poll(200, TimeUnit.MILLISECONDS);
+            if (received != null && received.content().startsWith("순서-")) {
+                delivered++;
+            }
+        }
+        assertThat(delivered).isEqualTo(burst);
+
+        // 정본은 히스토리다 — id 오름차순이 곧 페이징·안 읽음이 믿는 순서다.
+        List<String> stored = new ArrayList<>(chatMessageRepository
+                .findByGroupIdOrderByIdDesc(island, PageRequest.of(0, 200)).stream()
+                .map(ChatMessage::getContent)
+                .filter(content -> content.startsWith("순서-"))
+                .toList());
+        Collections.reverse(stored);
+        assertThat(stored).containsExactlyElementsOf(sent);
     }
 
     @Test

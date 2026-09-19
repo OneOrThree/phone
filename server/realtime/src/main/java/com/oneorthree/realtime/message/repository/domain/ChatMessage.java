@@ -73,8 +73,12 @@ public class ChatMessage {
     @Column(name = "sent_at", nullable = false, updatable = false)
     private Instant sentAt;
 
+    /**
+     * @param id 보통 비운다(JPA 저장이면 생성기가 채운다). {@code ChatMessageAppender} 만 방 순서로 정한 id 를 싣는다
+     */
     @Builder
-    private ChatMessage(UUID groupId, UUID senderId, String content, UUID clientMessageId, Instant sentAt) {
+    private ChatMessage(UUID id, UUID groupId, UUID senderId, String content, UUID clientMessageId, Instant sentAt) {
+        this.id = id;
         this.groupId = groupId;
         this.senderId = senderId;
         this.content = content;
