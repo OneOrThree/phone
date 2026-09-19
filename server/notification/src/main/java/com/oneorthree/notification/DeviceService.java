@@ -398,12 +398,28 @@ class DeviceService {
         store.update("UPDATE device_tokens SET active=false WHERE user_id=?"
                 + " AND (? OR auth_generation IS NULL OR auth_generation<?)", user, withdrawn, generation);
         if (withdrawn) {
-            store.update("UPDATE deliveries SET status='SUPPRESSED' WHERE user_id=?"
-                    + " AND status IN ('PENDING','DEFERRED')",
-                    user);
+            eraseDeliveries(user);
             store.update("DELETE FROM projections WHERE user_id=?", user);
             store.update("DELETE FROM settings WHERE user_id=?", user);
         }
+    }
+
+    /**
+     * 탈퇴자의 발송 로그({@code deliveries} · {@code delivery_devices})를 지운다 (GROMO-1943 · 계정 LLD §4).
+     *
+     * <p>억제(SUPPRESSED)로 남기지 않는 이유: 행에는 알림 payload·그룹·시각이 그대로 있어 «보내지 않았다»
+     * 뿐 사본은 남는다. tombstone 이 이후 적재를 막으므로({@code InboundService.enqueue}) 지운 뒤 되살아날
+     * 경로도 없다.
+     *
+     * <p>행을 {@code id} 순서로 먼저 잠근다 — 발송 기록({@code DispatchService.holdsLease})도 같은 순서로
+     * 잠근 뒤에만 {@code delivery_devices} 를 적으므로, 그 기록이 자식 행을 지운 «뒤»에 끼어들어 부모
+     * 삭제가 FK 에 걸리는 일이 없다. 여러 번 불러도 결과가 같다.
+     */
+    private void eraseDeliveries(UUID user) {
+        store.rows("SELECT id FROM deliveries WHERE user_id=? ORDER BY id FOR UPDATE", user);
+        store.update("DELETE FROM delivery_devices WHERE delivery_id IN (SELECT id FROM deliveries WHERE user_id=?)",
+                user);
+        store.update("DELETE FROM deliveries WHERE user_id=?", user);
     }
 
     /**

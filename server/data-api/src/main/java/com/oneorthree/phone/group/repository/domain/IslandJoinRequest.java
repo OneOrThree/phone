@@ -99,6 +99,20 @@ public class IslandJoinRequest {
         this.resolvedAt = Instant.now();
     }
 
+    /** 방장 승인 — 멤버십 생성과 같은 트랜잭션에서만 부른다. PENDING 확인과 잠금은 호출측 책임이다. */
+    public void approve() {
+        this.status = IslandJoinRequestStatus.APPROVED;
+        this.terminalReason = IslandJoinRequestTerminalReason.HOST_APPROVED;
+        this.resolvedAt = Instant.now();
+    }
+
+    /** 방장 거절 — 가입 자격·남은 자리와 무관하게 닫을 수 있다. PENDING 확인과 잠금은 호출측 책임이다. */
+    public void reject() {
+        this.status = IslandJoinRequestStatus.REJECTED;
+        this.terminalReason = IslandJoinRequestTerminalReason.HOST_REJECTED;
+        this.resolvedAt = Instant.now();
+    }
+
     /** 섬 종결에 의한 강제 종료 — 신청이 무효가 된 것이지 신청자가 철회한 것이 아니다. */
     public void closeByIsland() {
         this.status = IslandJoinRequestStatus.CANCELLED;

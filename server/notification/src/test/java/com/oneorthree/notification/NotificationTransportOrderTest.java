@@ -17,6 +17,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -75,13 +76,35 @@ class NotificationTransportOrderTest {
     }
 
     @Test
-    void newerWithdrawalTombstoneSuppressesDelayedKafkaAtReceipt() {
+    void newerWithdrawalTombstoneDropsDelayedKafkaAtReceipt() {
         inbound.accept(NotificationStoreTest.event("withdraw", "user.withdrawn", USER, 2, null,
                 Map.of("authGeneration", 1)));
         receiveDelayedRequest();
-        assertThat(status()).isEqualTo("SUPPRESSED");
-        dispatch.dispatch((UUID) store.one("SELECT id FROM deliveries WHERE event_id='request'").get("id"));
+        // 탈퇴자의 발송 로그는 억제 행으로도 새로 남기지 않는다(GROMO-1943).
+        assertThat(sendLogRows()).isZero();
         verifyNoInteractions(transport);
+    }
+
+    @Test
+    void withdrawalErasesSendLogsAndRedeliveryKeepsThemAtZero() {
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenReturn(PushTransport.Result.SENT);
+        receiveDelayedRequest();
+        dispatch.dispatch((UUID) store.one("SELECT id FROM deliveries WHERE event_id='request'").get("id"));
+        assertThat(status()).isEqualTo("SENT");
+        inbound.accept(NotificationStoreTest.event("pending", "notification.requested", USER, 2, null,
+                Map.of("kind", "TRANSPORT_ORDER")));
+        assertThat(sendLogRows()).isEqualTo(3); // SENT 1 + 그 기기 기록 1 + PENDING 1
+
+        Map<String, Object> withdrawn = NotificationStoreTest.event("withdraw", "user.withdrawn", USER, 3, null,
+                Map.of("authGeneration", 1));
+        inbound.accept(withdrawn);
+        assertThat(sendLogRows()).isZero();
+
+        // 같은 사건의 재전달(같은 eventId)과 리컨실의 재적용(새 eventId) 모두 결과가 같다.
+        inbound.accept(withdrawn);
+        inbound.accept(NotificationStoreTest.event("withdraw-reconcile", "user.withdrawn", USER, 4, null,
+                Map.of("authGeneration", 1)));
+        assertThat(sendLogRows()).isZero();
     }
 
     @Test
@@ -100,6 +123,12 @@ class NotificationTransportOrderTest {
         // Kafka 브로커 ACK 뒤 소비가 지연되어 더 높은 version의 HTTP 상태가 먼저 반영된 순서다.
         inbound.accept(NotificationStoreTest.event("request", "notification.requested", USER, 1, null,
                 Map.of("kind", "TRANSPORT_ORDER")));
+    }
+
+    /** 탈퇴자 발송 로그 = deliveries + 기기별 발송 기록. 매 테스트가 두 표를 비우므로 전부 USER 것이다. */
+    private long sendLogRows() {
+        return ((Number) store.one("SELECT (SELECT count(*) FROM deliveries WHERE user_id=?)"
+                + " + (SELECT count(*) FROM delivery_devices) AS n", USER).get("n")).longValue();
     }
 
     private String status() {

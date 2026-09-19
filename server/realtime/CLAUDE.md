@@ -173,6 +173,11 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 3. 선택 `POST /internal/realtime/membership-authorization` — Data 제공자는 PR753으로 main에 있으나 기본 비활성이다. 켤 때는 Data를 먼저 활성화한다.
    전용 서비스 Bearer + 검증된 subject의 X-User-Id, body `{sessionId,authGeneration,islandId}`를 보내고
    평평한 `{allowed:boolean}`을 받는다. Data는 primary 한 SQL snapshot으로 사용자/세션/섬/소속을 확인한다.
+4. Inbound `POST /internal/events` (GROMO-1943) — Data's canonical `user.withdrawn` envelope, authenticated by
+   the Data-only token `SVC_TOKEN_DATA_TO_REALTIME` (no `X-User-Id`). `message/service/ChatUserFence` writes
+   `user_tombstones` and deletes the user's `chat_read_cursors` under a per-user advisory lock; every cursor
+   write goes through the same fence. Idempotent. **Not wired yet**: Data's relay has no `REALTIME` transport,
+   so the event waits as an undelivered `REALTIME` outbox row.
 
 ### 선택적 현재 멤버십 인가
 

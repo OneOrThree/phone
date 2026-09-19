@@ -54,6 +54,10 @@ location = /actuator { return 404; }
 # me 분기: GET·DELETE /me/join-requests/{requestId}. invitations 분기: POST /invitations/resolve.
 # 계정(GROMO-1801)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. me 분기: GET /me ·
 # PATCH /me · DELETE /me.
+# 섬 관리·주민(GROMO-1802)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# PATCH /islands/{islandId} · GET /islands/{islandId}/members · GET /islands/{islandId}/join-requests ·
+# PATCH /islands/{islandId}/join-requests/{requestId} · DELETE /islands/{islandId}/members/{userId} ·
+# DELETE /islands/{islandId}/memberships/me. 명령 4종은 Data 의 관리 gate 가 기본 503 이다.
 # 섬 퀘스트(GROMO-1773)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/quests/current · GET /islands/{islandId}/quests/{questId}/progress ·
 # POST /islands/{islandId}/quests · PATCH /islands/{islandId}/quests/{questId} ·

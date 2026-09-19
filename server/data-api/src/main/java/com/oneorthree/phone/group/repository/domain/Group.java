@@ -173,6 +173,16 @@ public class Group {
     }
 
     /**
+     * 가입 방식 전환 (GROMO-1802, 섬 관리 LLD §3.1). 이미 열려 있는 가입 요청을 자동 승인·거절하지 않는다 —
+     * 기존 요청은 방장이 명시적으로 처리한다.
+     *
+     * @param approvalRequired true 면 새 가입은 승인 대기 요청이 된다
+     */
+    public void updateApprovalRequired(boolean approvalRequired) {
+        this.approvalRequired = approvalRequired;
+    }
+
+    /**
      * 채팅·초대 설정 부분 변경 — <b>null 은 "안 바꿈"</b>이라 세 값을 따로 보낼 수 있다.
      * 현재 호출부가 없다(채팅·초대 권한 설정 화면이 배선되기 전이다).
      *

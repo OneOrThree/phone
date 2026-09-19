@@ -15,6 +15,12 @@ public enum GroupErrorCode implements ErrorCode {
 
     REALTIME_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "방장 위임을 아직 사용할 수 없습니다."),
     CANNOT_TRANSFER_SELF(HttpStatus.CONFLICT, "자기 자신에게 방장을 위임할 수 없습니다."),
+    // 섬 관리 명령 4종(정보 수정·가입 승인/거절·강퇴·나가기, GROMO-1802)의 기능 게이트 — 위임 게이트
+    // REALTIME_NOT_READY 와 같은 503 이지만 막는 스위치가 달라 하나만 먼저 여는 날 구분해야 한다.
+    ISLAND_MANAGEMENT_NOT_READY(HttpStatus.SERVICE_UNAVAILABLE, "섬 관리 기능을 아직 사용할 수 없습니다."),
+    // 섬 정보 수정의 빈 이름(GROMO-1802, 섬 관리 LLD §2) — 형식 오류(400)가 아니라 값 범위 위반 422 다.
+    // 요청 본문 파서 안에서 던지면 읽기 실패 400 으로 접히므로 서비스가 이 코드로 거절한다.
+    ISLAND_NAME_BLANK(HttpStatus.UNPROCESSABLE_ENTITY, "섬 이름을 입력해 주세요."),
     // 권한
     GUEST_FORBIDDEN(HttpStatus.FORBIDDEN, "게스트는 이 작업을 수행할 권한이 없습니다."),
     NOT_OWNER(HttpStatus.FORBIDDEN, "그룹장만 수행할 수 있습니다."),

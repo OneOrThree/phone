@@ -58,7 +58,8 @@ class InternalIslandAllowlistTest {
 
         assertThat(allows(allow, "POST /internal/users/" + ID + "/islands/" + ID)).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/islands/" + ID)).isFalse();
-        assertThat(allows(allow, "GET /internal/islands/" + ID + "/members")).isFalse();
+        // GROMO-1802 가 `GET /internal/islands/*/members` 를 따로 열었다 — 그 아래 한 칸은 여전히 닫혀 있다.
+        assertThat(allows(allow, "GET /internal/islands/" + ID + "/members/" + ID)).isFalse();
     }
 
     @Test
