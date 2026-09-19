@@ -5698,6 +5698,103 @@
         }
       }
     },
+    "/internal/islands/{islandId}": {
+      "get": {
+        "tags": [
+          "internal-island-controller"
+        ],
+        "operationId": "view",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandViewResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "internal-island-management-controller"
+        ],
+        "operationId": "manage",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IslandManageCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandManageView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/quests/{questId}": {
       "patch": {
         "tags": [
@@ -5957,6 +6054,74 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/Notice"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/join-requests/{requestId}": {
+      "patch": {
+        "tags": [
+          "internal-island-management-controller"
+        ],
+        "operationId": "answer",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "requestId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JoinRequestAnswerCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/JoinRequestAnswerView"
                 }
               }
             }
@@ -7184,46 +7349,6 @@
         }
       }
     },
-    "/internal/islands/{islandId}": {
-      "get": {
-        "tags": [
-          "internal-island-controller"
-        ],
-        "operationId": "view",
-        "parameters": [
-          {
-            "name": "islandId",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          },
-          {
-            "name": "X-User-Id",
-            "in": "header",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "*/*": {
-                "schema": {
-                  "$ref": "#/components/schemas/IslandViewResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/internal/islands/{islandId}/rest-members": {
       "get": {
         "tags": [
@@ -7362,6 +7487,73 @@
         }
       }
     },
+    "/internal/islands/{islandId}/members": {
+      "get": {
+        "tags": [
+          "internal-island-management-controller"
+        ],
+        "operationId": "members",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "afterJoinedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterMembershipId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandMembersPageView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/mailbox-access": {
       "get": {
         "tags": [
@@ -7395,6 +7587,73 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/MailboxViewerResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/join-requests": {
+      "get": {
+        "tags": [
+          "internal-island-management-controller"
+        ],
+        "operationId": "joinRequests",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "afterCreatedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterRequestId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandJoinRequestsPageView"
                 }
               }
             }
@@ -9390,6 +9649,55 @@
         }
       }
     },
+    "/internal/users/{userId}/islands/{islandId}/membership": {
+      "delete": {
+        "tags": [
+          "internal-island-management-controller"
+        ],
+        "operationId": "leave",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandLeftView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/friends/{friendUserId}": {
       "delete": {
         "tags": [
@@ -9423,6 +9731,64 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/FriendshipDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/members/{targetUserId}": {
+      "delete": {
+        "tags": [
+          "internal-island-management-controller"
+        ],
+        "operationId": "kick",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "targetUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandMemberRemovedView"
                 }
               }
             }
@@ -12084,6 +12450,42 @@
           }
         }
       },
+      "IslandManageCommandRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          }
+        }
+      },
+      "IslandManageView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "intro": {
+            "type": "string"
+          },
+          "approvalRequired": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "QuestUpdateRequest": {
         "type": "object",
         "properties": {
@@ -12124,6 +12526,34 @@
           "body": {
             "type": "string",
             "pattern": "(?s).*\\S.*"
+          }
+        }
+      },
+      "JoinRequestAnswerCommandRequest": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "pattern": "approve|reject"
+          }
+        },
+        "required": [
+          "decision"
+        ]
+      },
+      "JoinRequestAnswerView": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "memberId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -13116,6 +13546,48 @@
           },
           "hasMoreComments": {
             "type": "boolean"
+          }
+        }
+      },
+      "IslandMembersPageView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "nextJoinedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextMembershipId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "IslandJoinRequestsPageView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "nextCreatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRequestId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -15082,6 +15554,14 @@
           }
         }
       },
+      "IslandLeftView": {
+        "type": "object",
+        "properties": {
+          "left": {
+            "type": "boolean"
+          }
+        }
+      },
       "FriendshipDeletedView": {
         "type": "object",
         "properties": {
@@ -15095,6 +15575,14 @@
         "type": "object",
         "properties": {
           "deleted": {
+            "type": "boolean"
+          }
+        }
+      },
+      "IslandMemberRemovedView": {
+        "type": "object",
+        "properties": {
+          "removed": {
             "type": "boolean"
           }
         }
