@@ -120,7 +120,7 @@ class PlaybackContractTest extends UpstreamTestBase {
 
     @ParameterizedTest
     @CsvSource({"403,MEMBER_ONLY,403,FORBIDDEN,islandId",
-            "403,FACILITY_LOCKED,403,FACILITY_LOCKED,",
+            "403,GRAM_LOCKED,403,FACILITY_LOCKED,",
             "403,FORBIDDEN,403,FORBIDDEN,trackId",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
@@ -146,7 +146,7 @@ class PlaybackContractTest extends UpstreamTestBase {
     @Test
     @DisplayName("GET 도 같은 매핑이다 — 방송기 미완공 403 FACILITY_LOCKED")
     void getMapsFacilityLocked() throws Exception {
-        DATA.on(DATA_GET, request -> error(403, "FACILITY_LOCKED"));
+        DATA.on(DATA_GET, request -> error(403, "GRAM_LOCKED"));
 
         mockMvc.perform(auth(get("/islands/" + ISLAND + "/playback")))
                 .andExpect(status().isForbidden())

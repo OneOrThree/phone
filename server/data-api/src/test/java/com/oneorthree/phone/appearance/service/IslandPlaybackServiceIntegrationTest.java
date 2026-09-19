@@ -5,7 +5,6 @@ import com.oneorthree.phone.appearance.dto.PlaybackView;
 import com.oneorthree.phone.appearance.exception.AppearanceErrorCode;
 import com.oneorthree.phone.common.exception.DomainException;
 import com.oneorthree.phone.common.exception.ErrorCode;
-import com.oneorthree.phone.construction.exception.ConstructionErrorCode;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -23,6 +22,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -102,15 +107,15 @@ class IslandPlaybackServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("방송기 미완공 섬은 주민의 GET·PATCH 모두 FACILITY_LOCKED (enforce=ON)")
+    @DisplayName("방송기 미완공 섬은 주민의 GET·PATCH 모두 GRAM_LOCKED (enforce=ON)")
     void gramNotBuiltIsLocked() {
         Fixture f = island();
         seedTrack("waves", 120_500);
         grant("waves", f.islandId);
 
-        assertCode(() -> service.get(f.islandId, f.ownerId), ConstructionErrorCode.FACILITY_LOCKED);
+        assertCode(() -> service.get(f.islandId, f.ownerId), AppearanceErrorCode.GRAM_LOCKED);
         assertCode(() -> patch(f.islandId, f.ownerId, UUID.randomUUID(), Map.of("trackId", "waves"), 0L),
-                ConstructionErrorCode.FACILITY_LOCKED);
+                AppearanceErrorCode.GRAM_LOCKED);
     }
 
     // ---------------------------------------------------------------- PATCH 권한·검증
@@ -321,6 +326,51 @@ class IslandPlaybackServiceIntegrationTest {
         assertThat(changed.data().version()).isEqualTo(1);
         assertThat(changed.events()).isEmpty();
         assertThat(playbackEvents(f.islandId)).isZero();
+    }
+
+    // ---------------------------------------------------------------- 동시성 (LLD §6)
+
+    @Test
+    @DisplayName("다른 키·같은 expectedVersion 의 병렬 PATCH 2건 — 변경 1건과 VERSION_CONFLICT 1건")
+    void parallelDifferentKeysSameVersionYieldOneChangeAndOneConflict() throws Exception {
+        Fixture f = gramIsland();
+        UUID resident = join(f.islandId);
+        seedTrack("waves", 120_500);
+        grant("waves", f.islandId);
+
+        List<Object> outcomes = race(
+                () -> patch(f.islandId, f.ownerId, UUID.randomUUID(),
+                        Map.of("trackId", "waves", "playing", true), 0L).data(),
+                () -> patch(f.islandId, resident, UUID.randomUUID(),
+                        Map.of("trackId", "waves", "playing", false), 0L).data());
+
+        assertThat(outcomes).filteredOn(PlaybackView.class::isInstance).hasSize(1);
+        assertThat(outcomes).filteredOn(o -> o instanceof DomainException e
+                && e.getErrorCode() == AppearanceErrorCode.VERSION_CONFLICT).hasSize(1);
+        assertThat(service.get(f.islandId, f.ownerId).version()).isEqualTo(1);
+    }
+
+    /** 두 호출을 배리어로 동시에 출발시켜 결과 또는 던진 예외를 순서대로 돌려준다. */
+    static List<Object> race(Callable<Object> first, Callable<Object> second) throws Exception {
+        CyclicBarrier startTogether = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        try {
+            List<Future<Object>> futures = List.of(
+                    pool.submit(() -> attempt(startTogether, first)),
+                    pool.submit(() -> attempt(startTogether, second)));
+            return List.of(futures.get(0).get(30, TimeUnit.SECONDS), futures.get(1).get(30, TimeUnit.SECONDS));
+        } finally {
+            pool.shutdownNow();
+        }
+    }
+
+    private static Object attempt(CyclicBarrier barrier, Callable<Object> call) throws Exception {
+        barrier.await(30, TimeUnit.SECONDS);
+        try {
+            return call.call();
+        } catch (DomainException e) {
+            return e;
+        }
     }
 
     // ---------------------------------------------------------------- 도구

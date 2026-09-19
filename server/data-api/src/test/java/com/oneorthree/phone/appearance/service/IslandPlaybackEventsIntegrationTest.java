@@ -50,18 +50,46 @@ class IslandPlaybackEventsIntegrationTest {
     JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("실제 변경만 playback.updated 1건 — aggregateVersion == payload.version, 무변경·재생은 사건이 없다")
-    void realChangeWritesExactlyOneEvent() {
-        User owner = users.save(User.builder().nickname("방장-" + UUID.randomUUID()).build());
+    @DisplayName("같은 키의 병렬 PATCH 2건 — 결과가 같고 변경·사건은 1건뿐이다 (LLD §6)")
+    void parallelSameKeyYieldsIdenticalResultAndOneEvent() throws Exception {
+        UUID ownerId = users.save(User.builder().nickname("방장-" + UUID.randomUUID()).build()).getId();
         Group island = groups.save(Group.builder().name("섬").maxMembers(10).build());
-        members.save(GroupMember.builder().user(owner).group(island).role(GroupMemberRole.OWNER).build());
+        members.save(GroupMember.builder().user(users.getReferenceById(ownerId)).group(island)
+                .role(GroupMemberRole.OWNER).build());
         UUID islandId = island.getId();
+        seedOwnedCampfire(islandId);
+        UUID key = UUID.randomUUID();
+        Map<String, Object> values = Map.of("trackId", "campfire", "playing", true);
+
+        List<Object> outcomes = IslandPlaybackServiceIntegrationTest.race(
+                () -> service.patch(islandId, ownerId, key, List.copyOf(values.keySet()), values, 0L),
+                () -> service.patch(islandId, ownerId, key, List.copyOf(values.keySet()), values, 0L));
+
+        assertThat(outcomes).allSatisfy(o -> assertThat(o).isInstanceOf(AppearanceCommandView.class));
+        assertThat(outcomes.get(0)).isEqualTo(outcomes.get(1));
+        assertThat(service.get(islandId, ownerId).version()).isEqualTo(1);
+        Long rows = jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE type = 'playback.updated' "
+                + "AND aggregate_id = ?", Long.class, islandId.toString());
+        assertThat(rows).isEqualTo(1L);
+    }
+
+    private void seedOwnedCampfire(UUID islandId) {
         jdbc.update("INSERT INTO catalog_assets (product_id, title, kind, owner_type, created_at) "
                 + "VALUES ('campfire', 'campfire', 'audio', 'island', now()) ON CONFLICT (product_id) DO NOTHING");
         jdbc.update("INSERT INTO audio_tracks (product_id, duration_millis) VALUES ('campfire', 120500) "
                 + "ON CONFLICT (product_id) DO NOTHING");
         jdbc.update("INSERT INTO owned_products (id, owner_type, group_id, product_id, granted_ref, granted_at) "
                 + "VALUES (gen_random_uuid(), 'island', ?, 'campfire', 'test-grant', now())", islandId);
+    }
+
+    @Test
+    @DisplayName("실제 변경만 playback.updated 1건 — aggregateVersion == payload.version, 무변경·재생은 사건이 없다")
+    void realChangeWritesExactlyOneEvent() {
+        User owner = users.save(User.builder().nickname("방장-" + UUID.randomUUID()).build());
+        Group island = groups.save(Group.builder().name("섬").maxMembers(10).build());
+        members.save(GroupMember.builder().user(owner).group(island).role(GroupMemberRole.OWNER).build());
+        UUID islandId = island.getId();
+        seedOwnedCampfire(islandId);
         UUID key = UUID.randomUUID();
         Map<String, Object> values = Map.of("trackId", "campfire", "playing", true);
 

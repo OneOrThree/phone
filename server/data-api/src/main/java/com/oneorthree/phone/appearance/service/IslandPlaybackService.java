@@ -18,8 +18,6 @@ import com.oneorthree.phone.appearance.repository.OwnedProductRepository;
 import com.oneorthree.phone.appearance.repository.domain.AudioTrack;
 import com.oneorthree.phone.appearance.repository.domain.CatalogAsset;
 import com.oneorthree.phone.appearance.repository.domain.IslandPlayback;
-import com.oneorthree.phone.construction.exception.ConstructionErrorCode;
-import com.oneorthree.phone.construction.exception.ConstructionException;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -245,10 +243,10 @@ public class IslandPlaybackService {
         requireGram(islandId);
     }
 
-    /** 방송기 미완공은 GET·PATCH 모두 403 — {@code construction.facility-gates.enforce} 가 꺼져 있으면 통과. */
+    /** 방송기 미완공은 GET·PATCH 모두 403 GRAM_LOCKED — facility-gates.enforce 가 꺼져 있으면 통과. */
     private void requireGram(UUID islandId) {
         if (!facilities.hasGram(islandId)) {
-            throw new ConstructionException(ConstructionErrorCode.FACILITY_LOCKED);
+            throw new AppearanceException(AppearanceErrorCode.GRAM_LOCKED);
         }
     }
 

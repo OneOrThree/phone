@@ -201,10 +201,11 @@ class ErrorContractTest {
         // 집중 세션 게이트와 같은 503 이지만 여는 조건(온보딩 전이 사건 연결)이 달라 코드를 가른다.
         // GROMO-1895 가 도서관 시설 잠금 1개를 더했다(GroupErrorCode.LIBRARY_LOCKED) — 게시판·우체통 잠금과 같은 결이지만
         // 잠기는 시설이 달라 한 코드로 접지 않는다.
-        // GROMO-1779 가 공용 음악 코드 1개를 더했다(AppearanceErrorCode.STATE_CONFLICT 409) — 곡 없이 재생 요청.
-        // 방송기 미완공은 새 코드 없이 ConstructionErrorCode.FACILITY_LOCKED 를 그대로 쓴다.
-        assertThat(tests).as("실측 기준 도메인 상수 175개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·공용 음악 포함")
-                .hasSize(191);
+        // GROMO-1779 가 공용 음악 코드 2개를 더했다(AppearanceErrorCode) — 곡 없이 재생 요청(STATE_CONFLICT 409)과
+        // 방송기 미완공(GRAM_LOCKED 403). 후자는 건설 도메인의 FACILITY_LOCKED 를 빌리지 않고(error-contract §3)
+        // Business 가 공개 FACILITY_LOCKED 로 옮긴다 — BOARD_LOCKED·MAILBOX_LOCKED 와 같은 결.
+        assertThat(tests).as("실측 기준 도메인 상수 176개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·공용 음악 포함")
+                .hasSize(192);
         return tests;
     }
 

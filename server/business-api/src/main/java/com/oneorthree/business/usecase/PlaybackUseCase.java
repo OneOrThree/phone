@@ -36,7 +36,7 @@ public class PlaybackUseCase {
             // 현재 비주민 — GET·PATCH 공통 소속 게이트.
             Map.entry("MEMBER_ONLY", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
             // 방송기(gram) 미완공 — GET·PATCH 모두.
-            Map.entry("FACILITY_LOCKED", new PublicFailure(ApiErrorCode.FACILITY_LOCKED, null)),
+            Map.entry("GRAM_LOCKED", new PublicFailure(ApiErrorCode.FACILITY_LOCKED, null)),
             // 등록된 음원이지만 섬 미소유.
             Map.entry("FORBIDDEN", new PublicFailure(ApiErrorCode.FORBIDDEN, "trackId")),
             Map.entry("INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)),
