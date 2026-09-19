@@ -1,12 +1,10 @@
 package com.oneorthree.business.api;
 
-import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
-import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -22,15 +20,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code GET /screens/town-hall} 계약 (GROMO-1897) — 섬 문맥(역할) 뒤 주민·건설 옵션, 방장이면 신청자까지.
  * 방장 전용 조각은 역할로 호출 자체를 생략하고, 조회 도중 위임돼 Data 가 403 을 주면 화면 전체 403 이다.
  */
-class TownHallScreenContractTest extends UpstreamTestBase {
+class TownHallScreenContractTest extends ScreenContractTestBase {
 
-    private static final UUID USER = UUID.fromString("aaaaaaaa-1897-0000-0000-000000000004");
-    private static final UUID SESSION = UUID.fromString("bbbbbbbb-1897-0000-0000-000000000004");
-    private static final UUID ISLAND = UUID.fromString("cccccccc-1897-0000-0000-000000000004");
     private static final UUID APPLICANT = UUID.fromString("dddddddd-1897-0000-0000-000000000004");
-    private static final UUID REQUEST = UUID.fromString("eeeeeeee-1897-0000-0000-000000000004");
 
-    private static final String DATA_MINE = "GET /internal/users/" + USER + "/islands";
     private static final String DATA_ISLAND = "GET /internal/islands/" + ISLAND;
     private static final String DATA_MEMBERS = DATA_ISLAND + "/members";
     private static final String DATA_OPTIONS = DATA_ISLAND + "/construction-options";
@@ -60,7 +53,7 @@ class TownHallScreenContractTest extends UpstreamTestBase {
     @Test
     @DisplayName("방장: 신청자 목록을 함께 읽고 available — 목록 커서는 도메인 GET 이 이어받는 서명 커서다")
     void hostReadsJoinRequests() throws Exception {
-        String body = mockMvc.perform(auth(get("/screens/town-hall")))
+        MvcResult result = mockMvc.perform(auth(get("/screens/town-hall")))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.data.island.role").value("host"))
@@ -71,9 +64,11 @@ class TownHallScreenContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.joinRequests.items[0].applicantId").value(APPLICANT.toString()))
                 .andExpect(jsonPath("$.data.joinRequestsAvailability").value("available"))
                 .andExpect(jsonPath("$.data.missingFragments[0]").value("wallets"))
-                .andReturn().getResponse().getContentAsString();
+                .andReturn();
 
-        JsonNode data = JSON.readTree(body).get("data");
+        assertKeys(result, "island", "members", "constructionOptions", "joinRequests", "joinRequestsAvailability",
+                "wallets", "missingFragments");
+        JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
         assertThat(data.get("wallets").isNull()).isTrue();
         assertThat(data.get("joinRequests").get("nextCursor").isNull()).isTrue();
         String cursor = data.get("members").get("nextCursor").asString();
@@ -104,15 +99,14 @@ class TownHallScreenContractTest extends UpstreamTestBase {
     @Test
     @DisplayName("역할 확인 뒤 위임돼 신청자 조회가 403 이면 화면 전체 403 — 빈 목록이나 host_only 로 접지 않는다")
     void delegatedMidReadIsForbidden() throws Exception {
-        DATA.on(DATA_REQUESTS, request -> new MockUpstream.Response(403,
-                "{\"code\":\"NOT_OWNER\",\"message\":\"private detail\"}"));
+        DATA.on(DATA_REQUESTS, request -> domainError(403, "NOT_OWNER"));
 
         String body = mockMvc.perform(auth(get("/screens/town-hall")))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"))
                 .andExpect(jsonPath("$.error.field").value("islandId"))
                 .andReturn().getResponse().getContentAsString();
-        assertThat(body).doesNotContain("private detail", "joinRequests");
+        assertThat(body).doesNotContain("internal detail", "joinRequests");
     }
 
     @Test
@@ -129,8 +123,7 @@ class TownHallScreenContractTest extends UpstreamTestBase {
     @Test
     @DisplayName("관리 게이트가 닫혀 주민 목록이 503 이면 화면 전체 503 이다")
     void membersGateClosedFailsWholeScreen() throws Exception {
-        DATA.on(DATA_MEMBERS, request -> new MockUpstream.Response(503,
-                "{\"code\":\"ISLAND_MANAGEMENT_NOT_READY\",\"message\":\"x\"}"));
+        DATA.on(DATA_MEMBERS, request -> domainError(503, "ISLAND_MANAGEMENT_NOT_READY"));
 
         mockMvc.perform(auth(get("/screens/town-hall")))
                 .andExpect(status().isServiceUnavailable())
@@ -152,13 +145,5 @@ class TownHallScreenContractTest extends UpstreamTestBase {
                 + "\",\"name\":\"모래섬\",\"intro\":\"\",\"visibility\":\"public\",\"approvalRequired\":true,"
                 + "\"memberCount\":2,\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
                 + "\"role\":\"" + role + "\",\"version\":3}}"));
-    }
-
-    private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
-        return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
-    }
-
-    private static MockUpstream.Response ok(String body) {
-        return new MockUpstream.Response(200, body);
     }
 }

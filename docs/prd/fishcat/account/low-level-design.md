@@ -517,7 +517,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | invite_link_clicks.claimedUserId·클릭 연결 | main 직접 파기 없음 | 선행 PR745(9ad4236, 1659 기반)의 [InviteLinkClickRepository.anonymizeClaimedUser](https://github.com/OneOrThree/phone/blob/9ad423605f28577924516a809b2be6e3c0c2ec8c/server/data-api/src/main/java/com/oneorthree/phone/invitelink/repository/InviteLinkClickRepository.java#L128-L140)와 링크 위성 폐기 전달 재사용. claimed_at 소진 표지는 보존하며 Data 후보/domain 모두 claimed_user_id IS NULL AND claimed_at IS NULL만 미소비로 인정. claim 클릭의 matched_device_id·app_instance_id·ip_hash·user_agent도 같은 중앙 TX와 링크 위성 파기에서 제거. matched·claimed_at·os·시각은 소진·퍼널 근거로 보존 |
 | 신규 auth session RT/bootstrap hash·로그인 시도 자격 digest·고정 서명 재료 | main 새 모델 없음 | legacy 승격 전용 복구 receipt/고정 재료도 탈퇴 때 폐기하고 세션 폐기와 원문 재발급을 차단. 남기는 폐기 tombstone은 최소 sessionId/epoch/만료 정보로 제한하고 사용자 연계 자격은 파기 |
 | 신규 일반 receipt·outbox·위성 projection 속 name/catColor/기기 자격 | 신규 자료 | 탈퇴 TX에서 직접 PII가 든 중앙 복사본 제거/대체, 대상별 outbox로 위성 파기. 삭제 receipt는 deleted 결과만 보유하며 개인 응답 재생 금지 |
-| user-activity user_id·APP MDC user_id 및 로컬/회전/호스트·S3 적재·외부 sink 로그/trace 복사본, GA4/Firebase의 user_id·app_instance_id·설치 device_id 연결 | 정상 계측도 사용자 UUID를 남김. logback maxHistory는 APP 7일·user-activity 30일. S3 적재 파이프라인·Datadog·GA4의 보존 설정은 저장소 밖이라 미확인 | **보존 기간 만료로 파기**(재영님 결정 2026-09-19). 탈퇴 시 행 단위 삭제·비식별화를 하지 않는다. 보존 기간의 정본은 [policy.md 로그·분석 보존 기간](policy.md#로그분석-보존-기간) 표이고, logback maxHistory와 S3 수명 주기 규칙이 같은 값을 구현한다. GA4는 속성 데이터 보존 기간(권장 2개월)으로 만료한다. 기간이 없거나 설정 미확인인 sink는 파기 완료를 주장하지 않는다. 아래 로그 파기 절 적용 |
+| user-activity user_id·APP MDC user_id 및 로컬/회전/호스트·S3 적재·외부 sink 로그/trace 복사본, GA4/Firebase의 user_id·app_instance_id·설치 device_id 연결 | 정상 계측도 사용자 UUID를 남김. 로컬 logback maxHistory는 APP 7일·user-activity 30일, S3 적재본은 세 접두 모두 90일(2026-09-19 버킷 적용). Datadog·GA4의 보존 설정은 저장소 밖이라 미확인 | **보존 기간 만료로 파기**(재영님 결정 2026-09-19). 탈퇴 시 행 단위 삭제·비식별화를 하지 않는다. 보존 기간의 정본은 [policy.md 로그·분석 보존 기간](policy.md#로그분석-보존-기간) 표이고, 로컬 logback maxHistory와 S3 수명 주기 규칙이 각각 표의 자기 행(로컬 7·30일, S3 90일)을 구현한다. GA4는 속성 데이터 보존 기간(권장 2개월)으로 만료한다. 기간이 없거나 설정 미확인인 sink는 파기 완료를 주장하지 않는다. 아래 로그 파기 절 적용 |
 | 기기 AsyncStorage의 사용자별 버킷·UUID 마커와 로컬 누끼 파일 | 탈퇴 성공도 일반 triggerLogout을 타며, 일반 로그아웃은 equipmentV2·ownedItemsV2 계정별 맵을 의도적으로 보존. character(customUri·createdAt)·groupCardOrder/Emoji·userId가 든 회차 결과/정산/스크린타임 마커도 남음 | 일반 로그아웃·계정 전환의 보존 정책은 유지하고 탈퇴 확정 때만 그 userId 항목·마커·앱 소유 누끼 파일을 writer drain 뒤 제거. 다른 계정 버킷·기기 전역 값은 보존. 아래 기기 로컬 절 적용 |
 
 main User 주석은 retention→purge를 언급하지만 현재 조회한 `erasePersonalData`는 즉시 물리 삭제가 아니다. 기존 행의 보존 근거/기간 없이 무기한 보존을 새 정책으로 채택하지 않는다. 위 표에서 '추가'로 표시한 파기는 해당 소유 모델과 FK를 실제 검증해야 하며 새 catColor 하나만 null 처리하고 전수 파기 완료로 닫지 않는다.
@@ -781,9 +781,10 @@ Docker 컨테이너 로그·Datadog·dev Loki에 복사된다.
 두지 않는다. 탈퇴자의 UUID는 각 저장소의 보존 기간이 지나면 저장소 자체의 만료로 사라진다. 따라서 저장소별 파기 완료
 시점은 「그 사용자의 마지막 기록 + 그 저장소의 보존 기간」이다.
 
-보존 기간의 정본은 [policy.md 로그·분석 보존 기간](policy.md#로그분석-보존-기간) 표다. logback `maxHistory`(APP 7일·user-activity
-30일)와 S3 적재본 수명 주기 규칙(`server/scripts/s3-log-archive-lifecycle.json`, 접두별 같은 일수)은 **그 표의 값을 구현하는
-설정**이며 스스로 보존 근거가 되지 않는다. 어느 한쪽 값을 바꾸면 policy.md 표와 나머지 설정을 같은 변경에서 맞춘다.
+보존 기간의 정본은 [policy.md 로그·분석 보존 기간](policy.md#로그분석-보존-기간) 표다. 로컬 logback `maxHistory`(APP 7일·user-activity
+30일)와 S3 적재본 수명 주기 규칙(버킷 `gromo-prod-logs-808715036056`의 `system_log/`·`user_log/`·`user-activity/` 접두
+모두 90일, 기록은 `server/scripts/s3-log-archive-lifecycle.json`)은 **값이 서로 다르며 각각 그 표의 자기 행을 구현하는
+설정**이고 스스로 보존 근거가 되지 않는다. 설정 값을 바꾸면 policy.md 표의 해당 행을 같은 변경에서 맞춘다.
 표에 기간이 없거나 설정이 미확인인 저장소(Datadog Logs·APM trace, Docker 컨테이너 로그 등)는 파기 완료를 주장하지 않고
 미확인으로 남긴다. 기존 payload 마스킹(`%mask`)은 유지하며, 계정·정산 증거의 기존 보존 계약은 이 결정과 별개다.
 
@@ -1038,7 +1039,7 @@ NOT NULL로 승격했다. V1 FK는 이 행에서 users/group_challenges로 향�
 | GET 활성 검사 통과 뒤 지연 중 탈퇴·Notification 설정 행 삭제, 누락 행 복구와 탈퇴 소비자 양방향 경합 | 탈퇴 선행이면 설정 행 재생성0·404 USER_NOT_FOUND, GET 선행이면 만든 행도 삭제에 포함, 기본값 응답도 tombstone 검사 |
 | 알림 서버 장애·완료 표시 유실 | outbox만 저장됐는데 200 반환 금지, 같은 commandId로 복구 |
 | 로그 캡처/에러/trace | 자격 헤더·PII·원문 제공자 payload·서명 재료 노출 0 |
-| 로그 보존 기간 정합 | logback APP maxHistory=7·user-activity=30 = S3 수명 주기 `app/` 7일·`user-activity/` 30일 = policy.md L01~L04, 버킷 적용 뒤 `get-bucket-lifecycle-configuration` 출력으로 확인. 미확인 sink의 파기 완료 주장0 |
+| 로그 보존 기간 정합 | 로컬 logback APP maxHistory=7·user-activity=30 = policy.md L01·L02, S3 수명 주기 `system_log/`·`user_log/`·`user-activity/` 각 90일 = policy.md L03·L04·L10(`get-bucket-lifecycle-configuration` 출력으로 확인, 2026-09-19 적용). 미확인 sink의 파기 완료 주장0 |
 | GA4 데이터 보존·탈퇴 뒤 앱 이벤트 | GA4 속성 이벤트 데이터 보존 = policy.md L05(2개월) 설정 확인 전 완료 주장0, 탈퇴 뒤 옛 User-ID로 전송0 |
 | 탈퇴 200·응답 유실 뒤 재시도 404·다른 기기 탈퇴 뒤 404, 마운트된 Provider의 늦은 쓰기·정리 중 앱 종료, 같은 기기의 다른 계정 버킷 | 탈퇴자 userId 항목·마커·누끼 파일0, 늦은 쓰기 부활0·다음 실행 재개, 다른 계정 버킷·기기 전역 값 보존, 일반 로그아웃/계정 전환 보존 정책 불변 |
 | 미리보기 claim 직후·worker 완료 직전·rate 증가 중 탈퇴, 만료 전 AT의 새 요청/조회/썸네일, HOST_WITHDRAW 실패·응답 유실·표지 뒤 crash | 탈퇴 확정 뒤 preview/rate 키0·재생성0, 확정 실패면 표지 해제로 정상 미리보기 복구, 불명확 결과는 표지 유지·재확인, 표지 뒤 crash 잔존은 TTL 상한 안에서만 남고 완료 주장0 |

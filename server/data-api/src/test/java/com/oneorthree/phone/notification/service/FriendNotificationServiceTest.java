@@ -170,6 +170,11 @@ class FriendNotificationServiceTest {
         givenNoPreviousSend(NotificationSentLog.TYPE_FRIEND_REQUEST);
         given(pushNotificationService.sendIfAllowed(any(User.class), any(), any(PushMessage.class), eq(NOW)))
                 .willReturn(true);
+        // 기록 직전 공유 락 재검사 (GROMO-1944) — 둘 다 아직 활성
+        given(userQueryService.findActiveForShare(RECIPIENT_ID))
+                .willReturn(Optional.of(user(RECIPIENT_ID, "받는사람")));
+        given(userQueryService.findActiveForShare(COUNTERPART_ID))
+                .willReturn(Optional.of(user(COUNTERPART_ID, "보낸사람")));
 
         service.notifyFriendRequest(REQUEST_ID, RECIPIENT_ID, COUNTERPART_ID, NOW);
 

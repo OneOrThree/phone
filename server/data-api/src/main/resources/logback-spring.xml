@@ -26,7 +26,7 @@
         <file>logs/app.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>logs/app.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <!-- 보존 7일 = policy.md L01. 탈퇴자 로그는 이 만료로 파기(GROMO-1942). S3 app/ 수명 주기와 같이 바꾼다 -->
+            <!-- 로컬 보존 7일 = policy.md L01. 탈퇴자 로그는 보존 만료로 파기(GROMO-1942). S3 system_log/ 적재본은 별도 90일(L03) -->
             <maxHistory>7</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
         </rollingPolicy>
@@ -47,7 +47,7 @@
         <file>logs/user-activity.log</file>
         <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
             <fileNamePattern>logs/user-activity.%d{yyyy-MM-dd}.log</fileNamePattern>
-            <!-- 보존 30일 = policy.md L02. S3 user-activity/ 수명 주기와 같이 바꾼다 -->
+            <!-- 로컬 보존 30일 = policy.md L02. S3 user_log/·user-activity/ 적재본은 별도 90일(L04·L10) -->
             <maxHistory>30</maxHistory>
             <totalSizeCap>1GB</totalSizeCap>
         </rollingPolicy>
@@ -101,7 +101,8 @@
     <!-- ===================== 후속 (예정, 384 범위 밖) — 레퍼런스 swm-secure-logger-starter 참고 ===================== -->
     <!-- TODO GROMO-385+: USER-ACTIVITY/APP 롤링 파일 → S3 아카이브
          - 자정 롤링된 전날 파일(app.YYYY-MM-DD.log / user-activity.YYYY-MM-DD.log)을 S3에 업로드
-         - 접두는 app/ · user-activity/ 고정 — 만료 규칙 server/scripts/s3-log-archive-lifecycle.json 이 이 접두만 본다
+         - 현행 적재는 호스트 systemd 타이머(티켓 590)가 system_log/ · user_log/ 접두로 매시간 업로드, 790(Fluent Bit)은 user-activity/ 접두
+         - 만료 규칙(세 접두 90일)은 server/scripts/s3-log-archive-lifecycle.json — 다른 접두로 올리면 만료가 닿지 않는다
          - 레퍼런스: S3LogArchiveService + S3LogConfig -->
     <!-- TODO GROMO-385+: cloud 프로파일 — CloudWatch Logs 연동
          - <springProfile name="cloud"> 에 AwsLogsAppender(ca.pjer:logback-awslogs-appender)

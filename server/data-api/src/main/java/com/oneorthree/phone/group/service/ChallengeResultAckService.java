@@ -188,15 +188,18 @@ public class ChallengeResultAckService {
      *     (안 닫으면 이미 본 결과의 푸시가 한참 뒤에 도착한다)
      * @param claimToken 선점 때 받은 토큰. {@code null} 이면 어떤 행도 갱신하지 못한다
      * @throws GroupException {@code RESULT_CLAIM_STALE} — 토큰이 현재 선점과 다르다(만료 후 재선점)
+     * @throws UserException  {@code USER_NOT_FOUND} — 요청자 탈퇴(탈퇴가 비운 확인 시각을 되살리지 않는다)
      */
     @Transactional
     public void acknowledge(UUID userId, UUID sessionId, UUID claimToken) {
+        requireActiveUser(userId);
         acknowledge(userId, sessionId, claimToken, Instant.now());
     }
 
     /** 내부 2단계 ACK. 커넥션·행 잠금 대기가 끝난 뒤 기한을 검사하고 잠금을 커밋까지 유지한다. */
     @Transactional
     public void acknowledgeBefore(UUID userId, UUID sessionId, UUID claimToken, Instant ackDeadlineAt) {
+        requireActiveUser(userId);
         lockParticipantRow(userId, sessionId);
         if (readClaimState(userId, sessionId).map(state -> state.getAcknowledgedAt() != null).orElse(false)) {
             return; // 이미 커밋된 ACK의 재시도는 기한 경과에도 멱등 성공이다.
@@ -288,8 +291,14 @@ public class ChallengeResultAckService {
     public record ResultAckState(boolean acknowledged, Instant acknowledgedAt) {
     }
 
-    /** 조회 축과 같은 락 없는 활성 검증(GROMO-1230) — 잠글 대상은 참가 행이지 유저 행이 아니다. */
+    /**
+     * 활성 검증 + users 공유 락 (GROMO-1944 · 계정 LLD §4) — 참가 행 잠금 <b>앞에</b> 잡는다.
+     *
+     * <p>탈퇴는 users 배타 락을 쥔 채 이 참가 행의 열람 시각·표시 lease 3열을 비운다. 락 없는 활성 검사를
+     * 통과한 선점·확인이 그 뒤에 쓰면 비운 열이 되살아난다. 공유 락이면 탈퇴 커밋을 기다렸다가 404 가 된다.
+     * 순서(users → 참가 행)는 탈퇴와 같아 교착하지 않는다.
+     */
     private void requireActiveUser(UUID userId) {
-        userQueryService.getCaller(userId);
+        userQueryService.getCallerForShare(userId);
     }
 }

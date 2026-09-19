@@ -38,6 +38,10 @@ public interface ChatReadCursorRepository extends JpaRepository<ChatReadCursor, 
      * 붙이면 관문의 Redis·HTTP 호출까지 트랜잭션 안으로 끌려 들어와 DB 커넥션을 쥔 채 네트워크를
      * 기다리게 된다. 문장 하나짜리 트랜잭션은 문장 옆에 두는 편이 좁다.
      *
+     * <p><b>탈퇴자는 쓰지 않는다</b>(GROMO-1943) — 커밋된 tombstone 이 있으면 0행이다. 탈퇴 처리와의 경합까지
+     * 닫으려면 사용자 잠금이 필요하므로 서비스 코드는 이 메서드를 직접 부르지 말고
+     * {@code ChatUserFence#writeReadCursor} 를 거친다.
+     *
      * @param id 새로 만들 때 쓸 PK. 갱신 경로에서는 무시된다 — 그래서 호출부가 매번 새 UUID v7 을
      *           만들어 넘겨도 기존 행의 id 는 바뀌지 않는다
      * @return 실제로 바뀐 행 수(0 또는 1)
@@ -46,7 +50,8 @@ public interface ChatReadCursorRepository extends JpaRepository<ChatReadCursor, 
     @Modifying
     @Query(value = """
             INSERT INTO chat_read_cursors (id, group_id, user_id, last_read_message_id, updated_at)
-            VALUES (:id, :groupId, :userId, :lastReadMessageId, :now)
+            SELECT :id, :groupId, :userId, :lastReadMessageId, :now
+             WHERE NOT EXISTS (SELECT 1 FROM user_tombstones t WHERE t.user_id = :userId)
             ON CONFLICT (group_id, user_id) DO UPDATE
                SET last_read_message_id = EXCLUDED.last_read_message_id,
                    updated_at           = EXCLUDED.updated_at

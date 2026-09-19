@@ -324,7 +324,8 @@ public class FriendNotificationService {
                 null, now, recipient.getLanguage(),
                 Map.of("counterpartUserId", counterpartId.toString(),
                         "counterpartNickname", counterpartNickname));
-        if (notificationDispatcher.dispatch(recipient, settings, request, message, now).recordsLegacyLog()) {
+        if (notificationDispatcher.dispatch(recipient, settings, request, message, now).recordsLegacyLog()
+                && bothStillActive(recipientId, counterpartId)) {
             notificationSentLogRepository.save(NotificationSentLog.builder()
                     .userId(recipientId)
                     .type(type)
@@ -332,6 +333,22 @@ public class FriendNotificationService {
                     .sentAt(now)
                     .build());
         }
+    }
+
+    /**
+     * 발송 기록 직전의 활성 재검사 + users 공유 락 (GROMO-1944 · 계정 LLD §4 notification_sent_logs).
+     *
+     * <p>탈퇴는 users 배타 락을 쥔 채 그 사람이 수신자인 행과 상대인 친구 알림 행을 하드 삭제한다. 위의 락 없는
+     * 활성 검사를 통과한 기록이 그 뒤에 커밋되면 파기한 이력이 되살아난다 — 그래서 수신자·상대 둘 다 잠근다.
+     * 탈퇴가 먼저 커밋됐으면 이미 나간 푸시의 기록만 건너뛴다(비동기 경로라 404 를 돌려줄 호출자가 없다).
+     *
+     * <p>락을 발송 <b>뒤에</b> 잡는 이유: 이 트랜잭션은 FCM 왕복이 끝나야 닫히므로, 앞에서 잡으면 탈퇴가 발송
+     * 시간만큼 기다린다({@link #isStillPending} 이 친구 행을 잠그지 않는 것과 같은 이유). 공유 락끼리는 충돌하지
+     * 않고 탈퇴는 자기 users 행만 배타로 잡으므로 두 행을 잡는 순서가 교착을 만들지 않는다.
+     */
+    private boolean bothStillActive(UUID recipientId, UUID counterpartId) {
+        return userQueryService.findActiveForShare(recipientId).isPresent()
+                && userQueryService.findActiveForShare(counterpartId).isPresent();
     }
 
     /**

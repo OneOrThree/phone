@@ -248,6 +248,9 @@ public class FocusService {
      */
     @Transactional
     public void updateFocusTag(UUID userId, FocusTagUpdateRequest body) {
+        // 활성 검증 + users 공유 락 (GROMO-1944 · 계정 LLD §4 user_focus_tags). 이름 변경은 새 채택 행을 INSERT 하므로,
+        // 락 없이 탈퇴 커밋 직전에 태그를 읽은 요청이 탈퇴의 채택 행 파기 뒤에 행을 되살린다. 탈퇴가 먼저면 404.
+        requireActiveUser(userId);
         UserFocusTag tag = userFocusTagRepository.findByIdAndDeletedAtIsNull(body.tagId())
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
@@ -1399,6 +1402,9 @@ public class FocusService {
      * <p>태그는 「세션 태그 연결 해제 → 채택 행 삭제」다. user_id 만 끊으면 세션 → 태그 → 사용자 경로가
      * 남는다. 세션 행 자체와 공유 default_tags 는 남는다.
      *
+     * <p>공유 Redis 의 {@code presence:focus:{userId}} 리스·종료 표식도 여기서 지우고 탈퇴 tombstone 을
+     * 남긴다(GROMO-1943). 프레즌스의 쓰기 주인이 이 도메인이라 같은 자리에 둔다 — 반영은 커밋 이후다.
+     *
      * @param userId 탈퇴 중인 유저
      */
     @Transactional
@@ -1406,6 +1412,7 @@ public class FocusService {
         focusSessionRepository.detachTagsOfUser(userId);
         userFocusTagRepository.deleteAllOfUser(userId);
         userStreakService.deleteWithdrawnUser(userId);
+        focusPresencePort.userWithdrawn(userId);
     }
 
 }

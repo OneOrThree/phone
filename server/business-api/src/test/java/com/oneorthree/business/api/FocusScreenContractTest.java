@@ -1,12 +1,9 @@
 package com.oneorthree.business.api;
 
-import com.oneorthree.business.support.MockUpstream;
-import com.oneorthree.business.support.Tokens;
-import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.MvcResult;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -22,23 +19,18 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * {@code GET /screens/focus} 계약 (GROMO-1897) — 현재 세션 → (세션 섬 | 현재 섬) 상세 → 집중 주민.
  * 세션이 있으면 현재 섬이 아니라 세션이 고정한 섬을 연다.
  */
-class FocusScreenContractTest extends UpstreamTestBase {
+class FocusScreenContractTest extends ScreenContractTestBase {
 
-    private static final UUID USER = UUID.fromString("aaaaaaaa-1897-0000-0000-000000000002");
-    private static final UUID SESSION = UUID.fromString("bbbbbbbb-1897-0000-0000-000000000002");
     private static final UUID FOCUS = UUID.fromString("dddddddd-1897-0000-0000-000000000002");
-    private static final UUID CURRENT = UUID.fromString("cccccccc-1897-0000-0000-000000000002");
     private static final UUID SESSION_ISLAND = UUID.fromString("cccccccc-1897-0000-0000-000000000003");
-
-    private static final String DATA_CURRENT = "GET /internal/users/" + USER + "/focus-sessions/current";
-    private static final String DATA_MINE = "GET /internal/users/" + USER + "/islands";
+    private static final String DATA_CURRENT = "GET " + USERS + "/focus-sessions/current";
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @BeforeEach
     void islands() {
-        DATA.on(DATA_MINE, request -> ok("{\"items\":[],\"currentIslandId\":\"" + CURRENT + "\"}"));
-        for (UUID island : new UUID[] {CURRENT, SESSION_ISLAND}) {
+        DATA.on(DATA_MINE, request -> ok("{\"items\":[],\"currentIslandId\":\"" + ISLAND + "\"}"));
+        for (UUID island : new UUID[] {ISLAND, SESSION_ISLAND}) {
             DATA.on(island(island), request -> ok("{\"scope\":\"member\",\"visitor\":null,\"member\":"
                     + detail(island) + "}"));
             DATA.on(members(island), request -> ok(focusMembers(island)));
@@ -50,7 +42,7 @@ class FocusScreenContractTest extends UpstreamTestBase {
     void sessionPinsTheIsland() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":" + session(SESSION_ISLAND) + "}"));
 
-        String body = mockMvc.perform(auth(get("/screens/focus")))
+        MvcResult result = mockMvc.perform(auth(get("/screens/focus")))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.data.island.id").value(SESSION_ISLAND.toString()))
@@ -61,14 +53,16 @@ class FocusScreenContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.focusMembers.watermarks[0].islandId").value(SESSION_ISLAND.toString()))
                 .andExpect(jsonPath("$.data.missingFragments.length()").value(1))
                 .andExpect(jsonPath("$.data.missingFragments[0]").value("playback"))
-                .andReturn().getResponse().getContentAsString();
+                .andReturn();
 
-        JsonNode data = JSON.readTree(body).get("data");
+        assertKeys(result, "island", "session", "focusMembers", "playback", "playbackAvailability",
+                "missingFragments");
+        JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
         assertThat(data.get("playback").isNull()).isTrue();
         assertThat(data.get("playbackAvailability").isNull())
                 .as("시설 완공을 검증할 재료가 없다 — facility_locked 로 위장하지 않는다").isTrue();
         assertThat(DATA.hits(DATA_MINE)).isZero();
-        assertThat(DATA.hits(members(CURRENT))).isZero();
+        assertThat(DATA.hits(members(ISLAND))).isZero();
     }
 
     @Test
@@ -78,8 +72,8 @@ class FocusScreenContractTest extends UpstreamTestBase {
 
         String body = mockMvc.perform(auth(get("/screens/focus")))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.data.island.id").value(CURRENT.toString()))
-                .andExpect(jsonPath("$.data.focusMembers.watermarks[0].islandId").value(CURRENT.toString()))
+                .andExpect(jsonPath("$.data.island.id").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.focusMembers.watermarks[0].islandId").value(ISLAND.toString()))
                 .andReturn().getResponse().getContentAsString();
 
         JsonNode data = JSON.readTree(body).get("data");
@@ -91,8 +85,7 @@ class FocusScreenContractTest extends UpstreamTestBase {
     @DisplayName("집중 주민의 도메인 403 은 화면 전체 403 이다")
     void focusMembersForbiddenFailsWholeScreen() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
-        DATA.on(members(CURRENT), request -> new MockUpstream.Response(403,
-                "{\"code\":\"MEMBER_ONLY\",\"message\":\"private detail\"}"));
+        DATA.on(members(ISLAND), request -> domainError(403, "MEMBER_ONLY"));
 
         mockMvc.perform(auth(get("/screens/focus")))
                 .andExpect(status().isForbidden())
@@ -104,11 +97,11 @@ class FocusScreenContractTest extends UpstreamTestBase {
     @DisplayName("필수 조각이 시간 초과면 빈 조각 200 이 아니라 화면 전체 504 다")
     void fragmentTimeoutIs504() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
-        // ci 의 read-timeout 은 300ms 다 — 매 시도를 그보다 길게 붙든다. 3초 화면 예산 자체의 소진은
-        // HttpExecutionIntegrationTest 가 전용 조합기로 본다(여기서 3초를 붙들면 공유 mock 이 막힌다).
-        DATA.on(members(CURRENT), request -> {
+        // ci 의 read-timeout 은 300ms 다 — 매 시도를 그보다 길게 붙든다. 실패 2회는 서킷 임계(5) 아래이고 다음
+        // 성공이 되돌린다. 3초 화면 예산 소진은 ScreenDeadlineContractTest 가 별도 컨텍스트로 본다.
+        DATA.on(members(ISLAND), request -> {
             pause(350);
-            return ok(focusMembers(CURRENT));
+            return ok(focusMembers(ISLAND));
         });
 
         mockMvc.perform(auth(get("/screens/focus")))
@@ -118,21 +111,21 @@ class FocusScreenContractTest extends UpstreamTestBase {
         pause(400);
     }
 
+    @Test
+    @DisplayName("query 는 받지 않는다 — 400, 상류 호출 없음")
+    void rejectsAnyQuery() throws Exception {
+        mockMvc.perform(auth(get("/screens/focus")).queryParam("islandId", ISLAND.toString()))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
     private static void pause(long millis) {
         try {
             Thread.sleep(millis);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    @Test
-    @DisplayName("query 는 받지 않는다 — 400, 상류 호출 없음")
-    void rejectsAnyQuery() throws Exception {
-        mockMvc.perform(auth(get("/screens/focus")).queryParam("islandId", CURRENT.toString()))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"));
-        assertThat(DATA.received()).isEmpty();
     }
 
     private static String island(UUID island) {
@@ -161,13 +154,5 @@ class FocusScreenContractTest extends UpstreamTestBase {
                 + "\"subject\":\"알고리즘\",\"activeSeconds\":0,\"status\":\"active\"}],"
                 + "\"serverNow\":\"2026-09-17T00:00:00Z\",\"watermarks\":[{\"projection\":\"focus.member\","
                 + "\"islandId\":\"" + island + "\",\"aggregateId\":\"" + USER + "\",\"version\":1}]}";
-    }
-
-    private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
-        return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
-    }
-
-    private static MockUpstream.Response ok(String body) {
-        return new MockUpstream.Response(200, body);
     }
 }
