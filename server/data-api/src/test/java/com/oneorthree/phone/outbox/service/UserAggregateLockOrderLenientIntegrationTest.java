@@ -66,7 +66,7 @@ class UserAggregateLockOrderLenientIntegrationTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
         List<Throwable> failures = new ArrayList<>();
         int committed = 0;
-        try (RawUserLock other = RawUserLock.open()) {
+        try (RawUserLock other = RawUserLock.open(jdbc)) {
             other.lock(high);
             Future<?> first = pool.submit(() -> tx().executeWithoutResult(status -> {
                 allocator.allocate(AggregateRef.ofUser(high));

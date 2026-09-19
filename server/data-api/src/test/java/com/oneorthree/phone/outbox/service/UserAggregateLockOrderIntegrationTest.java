@@ -80,7 +80,7 @@ class UserAggregateLockOrderIntegrationTest {
         UUID high = users.get(1);
         PostgresLockWaits.ensureUserRows(jdbc, users);
         ExecutorService pool = Executors.newFixedThreadPool(2);
-        try (RawUserLock other = RawUserLock.open()) {
+        try (RawUserLock other = RawUserLock.open(jdbc)) {
             other.lock(high);
             // 첫 트랜잭션은 [high, low] 순서로 넘긴다 — 정본 순서라면 low 를 먼저 쥐고 high 에서 기다린다.
             Future<?> first = pool.submit(() -> tx().executeWithoutResult(status -> producer.appendAll(List.of(

@@ -1,5 +1,6 @@
 package com.oneorthree.phone.outbox.support;
 
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.sql.Connection;
@@ -30,11 +31,16 @@ public final class RawUserLock implements AutoCloseable {
     }
 
     /**
+     * 컨텍스트 전용 database 에 잠금을 쥔다 — 컨텍스트마다 DB 가 다르니(GROMO-1792) 애플리케이션이 붙은 DB 를 물어 따라간다.
+     *
+     * @param jdbc 잠금 대상 컨텍스트의 JdbcTemplate — DB 이름만 묻고 연결은 풀 밖에서 따로 연다
      * @return 트랜잭션을 연 새 연결
      * @throws SQLException 연결 실패
      */
-    public static RawUserLock open() throws SQLException {
-        return open(OutboxTestPostgres.INSTANCE);
+    public static RawUserLock open(JdbcTemplate jdbc) throws SQLException {
+        String database = jdbc.queryForObject("SELECT current_database()", String.class);
+        return open(OutboxTestPostgres.jdbcUrl(database), OutboxTestPostgres.INSTANCE.getUsername(),
+                OutboxTestPostgres.INSTANCE.getPassword());
     }
 
     /**
@@ -43,8 +49,11 @@ public final class RawUserLock implements AutoCloseable {
      * @throws SQLException 연결 실패
      */
     public static RawUserLock open(PostgreSQLContainer<?> database) throws SQLException {
-        Connection connection = DriverManager.getConnection(database.getJdbcUrl(),
-                database.getUsername(), database.getPassword());
+        return open(database.getJdbcUrl(), database.getUsername(), database.getPassword());
+    }
+
+    private static RawUserLock open(String url, String username, String password) throws SQLException {
+        Connection connection = DriverManager.getConnection(url, username, password);
         connection.setAutoCommit(false);
         int pid;
         try (Statement statement = connection.createStatement()) {
