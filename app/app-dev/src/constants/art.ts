@@ -57,6 +57,7 @@ export const art: Record<string, ImageSourcePropType> = {
   'qb/note/peach': require('@/assets/redesign/qb-note-peach.png'),
   'qb/pin/pink': require('@/assets/redesign/qb-pin-pink.png'),
   'qb/pin/sky': require('@/assets/redesign/qb-pin-sky.png'),
+  'ui/crown': require('@/assets/ui/crown.png'),
 };
 
 Object.assign(art, referenceArt);

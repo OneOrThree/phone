@@ -6,7 +6,9 @@ import { useAppLayout } from '@/utils/layout';
 import {
   State,
   Building,
-  currentIsland,
+  viewIsland,
+  visitorJoinState,
+  visitorJoinLabel,
   buildingNames,
   costs,
   buildMinutes,
@@ -115,13 +117,15 @@ function Avatar({ color, n, size }: any) {
 export function Hall({ e }: any) {
   const font = useGowun();
   const s: State = e.state,
-    i = currentIsland(s),
+    i = viewIsland(s),
     L = useAppLayout(),
     land = L.landscape,
     W = L.width,
     H = L.height,
     r = e.route,
-    host = isHost(i);
+    host = isHost(i),
+    // 다른 섬을 구경 중(주민 아님)이면 섬 정보 카드를 방문자 뷰로 보여 준다
+    visitor = !!s.visitingIslandId;
   const [panel, setPanel] = useState<'' | 'edit' | 'transfer'>(''),
     [plan, setPlan] = useState<Building | null>(null),
     [toast, setToast] = useState(''),
@@ -1394,6 +1398,9 @@ export function Hall({ e }: any) {
   const person = (m: { id: string; name: string; color: string }, n: number, opts: any = {}) => (
     <View
       key={m.id}
+      // 방장 칸은 보조기기가 이름 뒤에 '방장'까지 읽는다
+      accessible={opts.crown || undefined}
+      accessibilityLabel={opts.crown ? `${m.id === 'me' ? '나' : m.name}, 방장` : undefined}
       style={[
         {
           minWidth: 0,
@@ -1411,7 +1418,25 @@ export function Hall({ e }: any) {
         opts.style,
       ]}
     >
-      <Avatar color={m.color} n={n} size={opts.av ?? (land ? 31 : 38)} />
+      <View pointerEvents="none">
+        <Avatar color={m.color} n={n} size={opts.av ?? (land ? 31 : 38)} />
+        {/* 방장 왕관: 아바타 지름의 절반 크기로 테두리 1시 방향에 걸치고 시계 방향으로 18° 기울인다.
+            Avatar는 원 밖을 잘라 내므로(overflow hidden) 바깥 형제로 겹친다 */}
+        {opts.crown && (
+          <Image
+            source={art['ui/crown']}
+            resizeMode="contain"
+            style={{
+              position: 'absolute',
+              top: '-18%',
+              right: 0,
+              width: '50%',
+              height: '50%',
+              transform: [{ rotate: '18deg' }],
+            }}
+          />
+        )}
+      </View>
       <T
         numberOfLines={1}
         style={g(opts.size ?? 15, opts.size ? 25.6 : 24, {
@@ -1476,7 +1501,10 @@ export function Hall({ e }: any) {
       <T style={g(15, 24, { color: '#a3453e', fontWeight: '700' })}>섬 탈퇴</T>
     </Pressable>
   );
-  const residents = [{ id: 'me', name: '나', color: s.color }, ...i.members];
+  // 방문자는 이 섬 주민이 아니므로 '나'를 앞에 붙이지 않는다
+  const residents = [...(visitor ? [] : [{ id: 'me', name: '나', color: s.color }]), ...i.members];
+  // 왕관을 얹을 방장: 내가 방장이면 나, 아니면 role이 host인 주민
+  const hostId = host ? 'me' : i.members.find((m) => m.role === 'host')?.id;
   const transferDialog = (m: { id: string; name: string }) => ({
     title: '방장 위임',
     text: `${m.name}에게 방장을 위임하시겠습니까?`,
@@ -1846,8 +1874,9 @@ export function Hall({ e }: any) {
     );
   }
 
-  // 043 방장 기본 뷰 / 045 주민 뷰
+  // 043 방장 기본 뷰 / 045 주민 뷰 / 45V 방문자 뷰(수정·가입 신청·주민 관리·초대·탈퇴 없이 가입 버튼 하나)
   const requests = host ? joinRequests(i) : [];
+  const join = visitorJoinState(s, i);
   const section = (title: string, children: React.ReactNode, right?: string) => (
     <View
       style={{
@@ -2041,48 +2070,90 @@ export function Hall({ e }: any) {
                 {person(m, n, { style: { width: cell } })}
               </Pressable>
             ) : (
-              person(m, n, { style: { width: cell } })
+              person(m, visitor ? n + 1 : n, { style: { width: cell }, crown: m.id === hostId })
             ),
           )}
         </View>,
         `${residentCount(i)} / ${capacityOf(i)}명`,
       )}
-      <View
-        style={{
-          minHeight: land ? 45 : 58,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-          marginTop: land ? 5 : 14,
-          paddingTop: 6,
-        }}
-      >
-        <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
-        <Pressable
-          testID="hall-invite"
-          accessibilityRole="button"
-          accessibilityLabel="섬에 친구 초대하기"
-          onPress={() =>
-            Share.share({
-              message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
-            }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
-          }
+      {!visitor && (
+        <View
           style={{
-            width: 44,
-            height: 44,
-            borderRadius: 22,
-            borderWidth: 1.5,
-            borderColor: '#a78d6e',
-            backgroundColor: '#fffaf0',
+            minHeight: land ? 45 : 58,
+            flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'center',
+            justifyContent: 'space-between',
+            gap: 12,
+            marginTop: land ? 5 : 14,
+            paddingTop: 6,
           }}
         >
-          <Icon d={SHARE} size={22} />
+          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '700' })}>섬에 친구 초대하기</T>
+          <Pressable
+            testID="hall-invite"
+            accessibilityRole="button"
+            accessibilityLabel="섬에 친구 초대하기"
+            onPress={() =>
+              Share.share({
+                message: `${i.name}에서 같이 집중해요! 초대 코드: ${inviteCodeOf(i)}`,
+              }).catch(() => notify(`초대 코드 ${inviteCodeOf(i)}를 친구에게 알려 주세요.`))
+            }
+            style={{
+              width: 44,
+              height: 44,
+              borderRadius: 22,
+              borderWidth: 1.5,
+              borderColor: '#a78d6e',
+              backgroundColor: '#fffaf0',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Icon d={SHARE} size={22} />
+          </Pressable>
+        </View>
+      )}
+      {visitor ? (
+        // 방문자: 탈퇴 자리에 가입 버튼. 정원이 차면 흐리게만 두고 누를 수 없다
+        <Pressable
+          testID="hall-join"
+          accessibilityRole="button"
+          accessibilityLabel={visitorJoinLabel[join]}
+          accessibilityState={{ disabled: join === 'full' }}
+          disabled={join === 'full'}
+          onPress={() => {
+            if (join === 'cancel') {
+              e.dispatch({ type: 'CANCEL_JOIN', id: i.id });
+              return;
+            }
+            e.dispatch({ type: 'JOIN', id: i.id });
+            if (join === 'apply') notify('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
+            else {
+              // 바로 가입: 이 섬 주민이 되어 구경이 끝나므로 새 섬 홈으로 간다
+              e.notify(`${i.name} 주민이 됐어요`);
+              e.home();
+            }
+          }}
+          style={{
+            minHeight: land ? 43 : 48,
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginTop: 18,
+            borderWidth: 2,
+            borderColor: BROWN,
+            borderRadius: 99,
+            backgroundColor: '#f3d77d',
+            boxShadow: `0px 3px 0px ${BROWN}`,
+            opacity: join === 'full' ? 0.5 : 1,
+          }}
+        >
+          <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '800' })}>
+            {visitorJoinLabel[join]}
+          </T>
         </Pressable>
-      </View>
-      {!host && leaveBtn()}
+      ) : (
+        !host && leaveBtn()
+      )}
     </ScrollView>
   );
   return shell(
