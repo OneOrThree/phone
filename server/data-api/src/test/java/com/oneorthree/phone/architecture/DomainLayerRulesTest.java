@@ -80,6 +80,8 @@ class DomainLayerRulesTest {
         // 섬 통장(construction 6)에 정산하므로 construction 보다 위다. 내부 표면은 internal(10)이 참조한다.
         LAYERS.put("quest", 7);
         LAYERS.put("notification", 7);      // 전 도메인 구독
+        // shop 은 섬 통장(construction)을 차감하고 보유품(appearance)을 지급한다(GROMO-1781) — 둘 위.
+        LAYERS.put("shop", 8);
         LAYERS.put("auth", 8);              // 진입·부가
         LAYERS.put("character", 8);
         LAYERS.put("bot", 8);
