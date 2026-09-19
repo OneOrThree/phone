@@ -6753,6 +6753,64 @@
         }
       }
     },
+    "/internal/users/{userId}/join-requests": {
+      "get": {
+        "tags": [
+          "internal-island-join-controller"
+        ],
+        "operationId": "myRequests",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "afterCreatedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterRequestId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyJoinRequestsPageView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/join-requests/{requestId}": {
       "get": {
         "tags": [
@@ -7349,6 +7407,46 @@
         }
       }
     },
+    "/internal/islands/{islandId}/statistics/fish-earnings": {
+      "get": {
+        "tags": [
+          "internal-island-economy-controller"
+        ],
+        "operationId": "fishEarnings",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandFishEarningsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/rest-members": {
       "get": {
         "tags": [
@@ -7382,6 +7480,89 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandRestMembersView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/resources/ledger": {
+      "get": {
+        "tags": [
+          "internal-island-economy-controller"
+        ],
+        "operationId": "ledger",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "month",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "afterCreatedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterEntryId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandLedgerPageView"
                 }
               }
             }
@@ -12942,6 +13123,52 @@
           }
         }
       },
+      "Item": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "islandName": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MyJoinRequestsPageView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "nextCreatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextRequestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "JoinRequestStatusView": {
         "type": "object",
         "properties": {
@@ -13314,6 +13541,33 @@
           }
         }
       },
+      "IslandFishEarningsView": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Member"
+            }
+          }
+        }
+      },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "earnedFish": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "IslandRestMembersView": {
         "type": "object",
         "properties": {
@@ -13332,26 +13586,6 @@
             "items": {
               "$ref": "#/components/schemas/MemberWatermark"
             }
-          }
-        }
-      },
-      "Item": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "name": {
-            "type": "string"
-          },
-          "restSeat": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "restStartedAt": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -13375,22 +13609,56 @@
           }
         }
       },
-      "Member": {
+      "Entry": {
         "type": "object",
         "properties": {
-          "userId": {
+          "id": {
             "type": "string",
             "format": "uuid"
           },
-          "name": {
+          "direction": {
             "type": "string"
           },
-          "rate": {
+          "reason": {
+            "type": "string"
+          },
+          "amount": {
             "type": "integer",
             "format": "int32"
           },
-          "measurementStatus": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "IslandLedgerPageView": {
+        "type": "object",
+        "properties": {
+          "month": {
             "type": "string"
+          },
+          "earnedTotal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "spentTotal": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Entry"
+            }
+          },
+          "nextCreatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextEntryId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -14284,6 +14552,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "participantId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "nickname": {
             "type": "string"
           },
@@ -14883,6 +15155,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "participantId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "nickname": {
             "type": "string"
           }
@@ -14992,6 +15268,10 @@
         "type": "object",
         "properties": {
           "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "participantId": {
             "type": "string",
             "format": "uuid"
           },
