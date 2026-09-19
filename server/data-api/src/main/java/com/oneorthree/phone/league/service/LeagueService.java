@@ -257,6 +257,9 @@ public class LeagueService {
      */
     @Transactional
     public void acknowledgeLastResult(UUID userId, Instant weekStartAt) {
+        // 활성 검증 + users 공유 락 (GROMO-1944). 탈퇴는 배타 락을 쥔 채 주간 결과를 완료 마커로 줄이며
+        // acknowledged_at 도 비운다 — 락 없이 끼어든 확인이 그 뒤에 커밋되면 비운 확인 시각이 되살아난다.
+        userQueryService.getCallerForShare(userId);
         acknowledgeLastResult(userId, weekStartAt, Instant.now());
     }
 

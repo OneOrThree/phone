@@ -704,7 +704,7 @@ class FriendServiceTest {
     @DisplayName("친구 삭제 — ACCEPTED 관계면 soft delete(deletedAt 기록)")
     void deleteFriend_accepted_softDeletes() {
         Friendship f = friendship(me, target, FriendshipStatus.ACCEPTED);
-        given(userQueryService.getCaller(meId)).willReturn(me);
+        given(userQueryService.getCallerForShare(meId)).willReturn(me);
         given(userQueryService.getAny(targetId)).willReturn(target);
         given(friendshipRepository.findAcceptedBetween(me, target)).willReturn(Optional.of(f));
 
@@ -716,7 +716,7 @@ class FriendServiceTest {
     @Test
     @DisplayName("친구 삭제 — ACCEPTED 관계 없으면 NOT_FRIEND")
     void deleteFriend_notFriend_throws() {
-        given(userQueryService.getCaller(meId)).willReturn(me);
+        given(userQueryService.getCallerForShare(meId)).willReturn(me);
         given(userQueryService.getAny(targetId)).willReturn(target);
         given(friendshipRepository.findAcceptedBetween(me, target)).willReturn(Optional.empty());
 
@@ -732,7 +732,7 @@ class FriendServiceTest {
         // 반대로 막아버리면 이 변경 배포 전에 탈퇴해 정리되지 않은 관계를 영구히 못 지운다(백필을 하지 않으므로).
         User withdrawn = User.builder().id(targetId).build();   // 닉네임 파기된 탈퇴자
         Friendship f = friendship(me, withdrawn, FriendshipStatus.ACCEPTED);
-        given(userQueryService.getCaller(meId)).willReturn(me);
+        given(userQueryService.getCallerForShare(meId)).willReturn(me);
         given(userQueryService.getAny(targetId)).willReturn(withdrawn);
         given(friendshipRepository.findAcceptedBetween(me, withdrawn)).willReturn(Optional.of(f));
 

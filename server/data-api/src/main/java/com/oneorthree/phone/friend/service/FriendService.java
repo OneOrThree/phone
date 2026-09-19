@@ -296,7 +296,9 @@ public class FriendService {
      */
     @Transactional
     public UUID deleteFriend(UUID me, UUID friendUserId) {
-        User meUser = getUser(me);
+        // 요청자 공유 락 (GROMO-1944) — 탈퇴 배타 락과 직렬화한다. 락 없이 활성 검사만 하면 탈퇴 커밋 직전에
+        // 통과한 요청이 탈퇴가 하드 삭제한 관계 행에 뒤늦게 UPDATE 를 내 500 으로 터진다. 탈퇴가 먼저면 404.
+        User meUser = getCallerParticipant(me);
         User friendUser = getAnyUser(friendUserId);   // 탈퇴자와의 잔존 관계도 끊을 수 있어야 한다 (GROMO-801)
         Friendship friendship = friendshipRepository.findAcceptedBetween(meUser, friendUser)
                 .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
