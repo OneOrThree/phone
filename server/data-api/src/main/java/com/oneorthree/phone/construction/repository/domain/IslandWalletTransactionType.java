@@ -13,7 +13,12 @@ public enum IslandWalletTransactionType {
      * 섬 퀘스트 회차 정산 적립(GROMO-1773) — 보상 전액이 섬 통장으로 간다(2026-09-19 결정 Q-1).
      * 「각자 몫」 기여가 아니라서 주민별 누적 기여를 쌓지 않는다({@code CONTRIBUTION} 과 다른 이유).
      */
-    QUEST_SETTLEMENT(true);
+    QUEST_SETTLEMENT(true),
+    /**
+     * 상점 구매 차감(GROMO-1781) — 모든 재화는 섬 귀속이라 개인 상품(옷·소품)도 섬 통장에서 뺀다
+     * (2026-09-19 결정 SH-재화).
+     */
+    SHOP_PURCHASE(false);
 
     private final boolean earning;
 

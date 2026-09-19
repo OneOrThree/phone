@@ -28,6 +28,7 @@ class TownHallScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_MEMBERS = DATA_ISLAND + "/members";
     private static final String DATA_OPTIONS = DATA_ISLAND + "/construction-options";
     private static final String DATA_REQUESTS = DATA_ISLAND + "/join-requests";
+    private static final String DATA_WALLETS = DATA_ISLAND + "/shop/wallets";
 
     private static final String MEMBERS = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\",\"role\":\"host\","
             + "\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,"
@@ -50,6 +51,7 @@ class TownHallScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
         DATA.on(DATA_OPTIONS, request -> ok(OPTIONS));
         DATA.on(DATA_REQUESTS, request -> ok(REQUESTS));
+        DATA.on(DATA_WALLETS, request -> ok(FacilityFixtures.WALLETS));
     }
 
     @Test
@@ -65,13 +67,12 @@ class TownHallScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.constructionOptions.items[0].id").value("gram"))
                 .andExpect(jsonPath("$.data.joinRequests.items[0].applicantId").value(APPLICANT.toString()))
                 .andExpect(jsonPath("$.data.joinRequestsAvailability").value("available"))
-                .andExpect(jsonPath("$.data.missingFragments[0]").value("wallets"))
+                .andExpect(jsonPath("$.data.wallets.villagePoints").value(1500))
                 .andReturn();
 
         assertKeys(result, "island", "members", "constructionOptions", "joinRequests", "joinRequestsAvailability",
-                "wallets", "missingFragments");
+                "wallets");
         JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
-        assertThat(data.get("wallets").isNull()).isTrue();
         assertThat(data.get("joinRequests").get("nextCursor").isNull()).isTrue();
         String cursor = data.get("members").get("nextCursor").asString();
         assertThat(DATA.receivedFor(DATA_MEMBERS).get(0).query()).contains("limit=30");

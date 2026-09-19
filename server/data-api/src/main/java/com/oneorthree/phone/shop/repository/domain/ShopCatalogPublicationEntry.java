@@ -36,4 +36,16 @@ public class ShopCatalogPublicationEntry {
 
     @Column(name = "display_order", nullable = false)
     private int displayOrder;
+
+    /** 발행본 항목 한 행 — category 는 personal / island / sound(DB CHECK). */
+    public static ShopCatalogPublicationEntry of(long publicationVersion, String productId, int productRevision,
+                                                 String category, int displayOrder) {
+        ShopCatalogPublicationEntry e = new ShopCatalogPublicationEntry();
+        e.publicationVersion = publicationVersion;
+        e.productId = productId;
+        e.productRevision = productRevision;
+        e.category = category;
+        e.displayOrder = displayOrder;
+        return e;
+    }
 }

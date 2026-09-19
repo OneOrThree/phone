@@ -22,11 +22,20 @@ public class ShopCatalogActivePublication {
 
     @Id
     @Column(nullable = false)
-    private boolean singleton;
+    private Boolean singleton;
 
     @Column(name = "publication_version", nullable = false)
     private long publicationVersion;
 
     @Column(name = "activated_at", nullable = false)
     private Instant activatedAt;
+
+    /** 활성 포인터(싱글톤) — 발행본 전체를 한 행 교체로 원자 전환한다. */
+    public static ShopCatalogActivePublication pointTo(long publicationVersion, Instant activatedAt) {
+        ShopCatalogActivePublication p = new ShopCatalogActivePublication();
+        p.singleton = true;
+        p.publicationVersion = publicationVersion;
+        p.activatedAt = activatedAt;
+        return p;
+    }
 }

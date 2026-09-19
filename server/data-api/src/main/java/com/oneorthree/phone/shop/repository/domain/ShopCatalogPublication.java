@@ -32,4 +32,12 @@ public class ShopCatalogPublication {
 
     @Column(name = "invalidated_at")
     private Instant invalidatedAt;
+
+    /** 새 발행본 — 활성화는 {@link ShopCatalogActivePublication#pointTo} 가 따로 한다. */
+    public static ShopCatalogPublication published(long version, Instant publishedAt) {
+        ShopCatalogPublication p = new ShopCatalogPublication();
+        p.version = version;
+        p.publishedAt = publishedAt;
+        return p;
+    }
 }

@@ -26,6 +26,8 @@ import java.util.UUID;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ShopOrder {
 
+    public static final String PAYER_ISLAND = "island";
+
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -69,4 +71,27 @@ public class ShopOrder {
 
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+
+    /**
+     * 확정 주문 — 결제 당시 revision·가격·통화와 차감 직후 지갑 version·잔액을 불변 snapshot 으로 남긴다.
+     * 결제자는 섬 통장뿐이라 {@code payerType=island} 고정이다. {@code analyticsDeliveredAt=null} 이 곧
+     * {@code currency_spent} 미전달 의도다(LLD §5 계측 의무 — 주문 id 가 분석 사건 id).
+     */
+    public static ShopOrder placed(UUID islandId, UUID requesterId, String ownerType, String productId,
+                                   int productRevision, int paidPrice, String currency, long walletVersionAfter,
+                                   int balanceAfter, Instant createdAt) {
+        ShopOrder o = new ShopOrder();
+        o.islandId = islandId;
+        o.requesterId = requesterId;
+        o.ownerType = ownerType;
+        o.productId = productId;
+        o.productRevision = productRevision;
+        o.paidPrice = paidPrice;
+        o.currency = currency;
+        o.payerType = PAYER_ISLAND;
+        o.walletVersionAfter = walletVersionAfter;
+        o.balanceAfter = balanceAfter;
+        o.createdAt = createdAt;
+        return o;
+    }
 }
