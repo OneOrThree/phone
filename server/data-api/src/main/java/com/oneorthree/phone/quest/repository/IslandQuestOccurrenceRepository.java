@@ -16,7 +16,8 @@ import java.util.UUID;
 /**
  * 회차와 그 판정 대상(cohort) 창구 (GROMO-1773).
  *
- * <p>cohort 는 (회차, 주민) 두 열뿐인 불변 스냅샷이라 엔티티를 두지 않고 네이티브 쿼리로 다룬다 —
+ * <p>cohort 는 (회차, 주민) 두 열뿐인 불변 스냅샷이라 네이티브 쿼리로 다룬다(엔티티
+ * {@code IslandQuestCohortMember} 는 스키마 선언용) —
  * 여는 순간 한 번 쓰고 이후엔 읽기만 한다. 유일한 예외는 계정 탈퇴 파기다(GROMO-1950).
  */
 public interface IslandQuestOccurrenceRepository extends JpaRepository<IslandQuestOccurrence, UUID> {
