@@ -276,8 +276,8 @@ class FocusSessionLifecycleGuardsTest {
         when(focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(eq(USER), any()))
                 .thenReturn(Optional.of(detail));
         // 레거시 start 가 닫아 둔 마커.
-        when(focusSessionRepository.findById(SESSION))
-                .thenReturn(Optional.of(marker(Instant.parse("2026-09-17T02:30:00Z"))));
+        when(focusSessionRepository.findEndedAtById(SESSION))
+                .thenReturn(Optional.ofNullable(Instant.parse("2026-09-17T02:30:00Z")));
         when(dailyFocusStatRepository.findByUserAndDate(any(), any())).thenReturn(Optional.empty());
 
         var summary = service(NOW).summary(USER, "2026-09-17", "Asia/Seoul");
@@ -409,7 +409,7 @@ class FocusSessionLifecycleGuardsTest {
                 .thenReturn(Optional.of(new FocusSessionOwnership(USER, ISLAND)));
         when(groupMemberRepository.findActiveByUserIdAndGroupIdForShare(USER, ISLAND))
                 .thenReturn(Optional.of(membership));
-        when(focusSessionRepository.findById(SESSION)).thenReturn(Optional.of(marker(null)));
+        when(focusSessionRepository.findEndedAtById(SESSION)).thenReturn(Optional.ofNullable(null));
         when(focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(SESSION))
                 .thenReturn(List.of(FocusSessionInterval.builder()
                         .sessionId(SESSION).ordinal(1).kind(openKind).startedAt(STARTED_AT).build()));
@@ -450,9 +450,6 @@ class FocusSessionLifecycleGuardsTest {
                 .build();
     }
 
-    private static FocusSession marker(Instant endedAt) {
-        return FocusSession.builder().startedAt(STARTED_AT).endedAt(endedAt).build();
-    }
 
     private static EventEnvelope envelope() {
         return new EventEnvelope(UUID.randomUUID().toString(), 1, "focus.member.updated", NOW, null,

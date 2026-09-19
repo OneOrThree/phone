@@ -699,9 +699,8 @@ public class FocusSessionLifecycleService {
         if (!PROGRESSING.contains(detail.getLifecycle())) {
             return false;
         }
-        Instant markerEndedAt = focusSessionRepository.findById(detail.getSessionId())
-                .map(FocusSession::getEndedAt)
-                .orElse(null);
+        // 스칼라로 읽는다 — finish 가 뒤에서 같은 마커를 FOR UPDATE 로 잡을 때 잠금 전 캐시가 남지 않게.
+        Instant markerEndedAt = focusSessionRepository.findEndedAtById(detail.getSessionId()).orElse(null);
         if (markerEndedAt == null) {
             return false;
         }

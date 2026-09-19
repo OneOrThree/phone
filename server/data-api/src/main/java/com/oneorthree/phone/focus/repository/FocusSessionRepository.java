@@ -303,6 +303,18 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     Optional<FocusSessionStatus> findStatusById(@Param("id") UUID id);
 
     /**
+     * 마커의 종료 시각만 — 엔티티를 영속성 컨텍스트에 올리지 않는 스칼라 조회다(GROMO-1924).
+     *
+     * <p>v0.3 finish 는 같은 TX 뒤에서 이 마커를 {@code findByIdAndUserForUpdate} 로 잠근다. 앞에서 엔티티로
+     * 읽어 두면 그 잠금 조회가 잠금 «전»의 캐시 인스턴스를 돌려준다 — 상세의 {@code FocusSessionOwnership} 과
+     * 같은 이유로 스칼라로 읽는다.
+     *
+     * @return 종료 시각. 행이 없거나 아직 열려 있으면 빈 값
+     */
+    @Query("SELECT s.endedAt FROM FocusSession s WHERE s.id = :id")
+    Optional<Instant> findEndedAtById(@Param("id") UUID id);
+
+    /**
      * 원자적 마커 선점(GROMO-1214 코드리뷰 2차) — POST 폴백이 '이 마커에 대해 완료 행을 만든다'를 claim 한다.
      * 위 existsByIdAndUserAndStatus 는 insert 전 **존재 조회**일 뿐이라, PATCH 가 타임아웃돼 앱이 곧바로 POST 로
      * 폴백하면 아직 커밋 전인 PATCH 를 못 보고(ACTIVE) 통과해 두 완료 행이 나란히 커밋됐다(통계·지급 이중 계상).

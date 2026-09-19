@@ -12,7 +12,6 @@ import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
-import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
@@ -93,8 +92,8 @@ class FocusSessionMarkerDesyncTest {
         when(focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(eq(userId), any()))
                 .thenReturn(Optional.of(detail));
         // 레거시 start가 닫아 둔 마커 — endedAt이 차 있다.
-        when(focusSessionRepository.findById(sessionId))
-                .thenReturn(Optional.of(marker(Instant.parse("2026-09-17T02:30:00Z"))));
+        when(focusSessionRepository.findEndedAtById(sessionId))
+                .thenReturn(Optional.ofNullable(Instant.parse("2026-09-17T02:30:00Z")));
 
         assertThat(service().current(userId)).isNull();
         assertThat(detail.getLifecycle()).isEqualTo(FocusSessionLifecycle.ABANDONED);
@@ -110,7 +109,7 @@ class FocusSessionMarkerDesyncTest {
         FocusSessionDetail detail = detail(sessionId, userId, FocusSessionLifecycle.ACTIVE);
         when(focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(eq(userId), any()))
                 .thenReturn(Optional.of(detail));
-        when(focusSessionRepository.findById(sessionId)).thenReturn(Optional.of(marker(null)));
+        when(focusSessionRepository.findEndedAtById(sessionId)).thenReturn(Optional.ofNullable(null));
         when(focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(sessionId))
                 .thenReturn(List.of(FocusSessionInterval.builder()
                         .sessionId(sessionId)
@@ -142,10 +141,4 @@ class FocusSessionMarkerDesyncTest {
                 .build();
     }
 
-    private static FocusSession marker(Instant endedAt) {
-        return FocusSession.builder()
-                .startedAt(STARTED_AT)
-                .endedAt(endedAt)
-                .build();
-    }
 }
