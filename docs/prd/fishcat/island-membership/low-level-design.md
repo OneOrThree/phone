@@ -53,7 +53,7 @@ PublicIslandSummary의 공통 표시 필드에 `role:host|member`, `buildings:Bu
 - 이 11종 중 create/join/switch/invite/join-cancel 변경 명령은 Idempotency-Key 필수. invite-resolve는 조회 성격이며 범용 명령 키 대상이 아니다. GET에도 변경 키를 요구하지 않는다.
 - 원본에 없는 expectedVersion을 일괄 추가하지 않는다. 서버의 조건부 전이·DB 유일성·receipt가 동시성을 담당한다. 공개 version을 반환하는 것과 client expectedVersion을 받는 것은 별개다.
 
-## 3. 계약 11종
+## 3. 계약 12종
 
 ### 3.1 create — POST /islands
 
@@ -145,6 +145,16 @@ IM-D03의 승인 유지 추천안이 채택될 경우, JoinRequest에는 `admiss
 본문 없음, Idempotency-Key 필수. 성공200 `{data:{code:InviteCode,url:string,expiresAt:Instant?}}`. 활성 주민만 발급한다. url은 실제 링크 서비스가 발급한 URL이며 `gromo.example` 예시를 운영에 하드코딩하지 않는다.
 
 반복 발급의 동일 active초대 재사용과 이탈 후 새 버전이라는 기존 링크 수명은 보존한다. 새 코드 alias와 expiresAt=null 허용 정책은 IM-D01/02 확정 전 가정하지 않는다. 발급자 membershipEpoch가 변한 뒤 지연 발급이 active 초대를 되살리지 않도록 내부 링크 최대 epoch/version 계약을 따른다. 발급 그 자체는 island.updated/island.members.updated가 아니다.
+
+### 3.12 my-requests — GET /me/join-requests
+
+GROMO-1895 추가(explore 화면 「신청 중」 조각, [BFF Data 구현](../bff-screens/implementation-data-api.md) §4 BG10). §3.8 단건 조회를 대체하지 않는 **목록**이다.
+
+- query: `limit`(1~100, 기본값은 Business), `cursor`(선택). Business 가 cursor 를 서명·검증한 뒤 Data 에는 평문 keyset 경계 `afterCreatedAt`+`afterRequestId` 를 **둘 다** 넘긴다 — 하나만 오면 400 `INVALID_PAGE_REQUEST`.
+- 성공200 `{data:{items:[{id,islandId,islandName,status:"pending",version,createdAt}],nextCursor}}`. 본인의 **pending 만** 싣는다 — 닫힌 요청의 결과는 §3.8 로 본다. 섬 종료는 같은 TX 에서 pending 을 닫으므로 죽은 섬이 목록에 남지 않는다.
+- 정렬은 `(createdAt, id)` 오름차순 keyset 이다. 같은 시각의 요청은 id 가 가른다 — 페이지 경계에서 빠짐·중복이 없다.
+- 소유는 `applicant_id` 로 묶어 찾는다(§3.8 과 같은 원칙) — 남의 요청은 후보조차 아니다. 새 저장소·인덱스 없이 기존 `ix_island_join_requests_applicant_island` 앞머리를 쓴다.
+- 내부 경로(B26): `GET /internal/users/{userId}/join-requests` — 경로 사용자와 `X-User-Id` 를 `InternalAuthFilter` 가 대조한다. 허용목록 `'GET /internal/users/*/join-requests'` 는 단건(`…/join-requests/*`)과 세그먼트 수가 달라 서로를 덮지 않는다.
 
 ## 4. 저장 모델과 원자 명령
 

@@ -22,6 +22,7 @@ import com.oneorthree.phone.internal.dto.JoinIslandResultView;
 import com.oneorthree.phone.internal.dto.JoinRequestAnswerView;
 import com.oneorthree.phone.internal.dto.JoinRequestCancelView;
 import com.oneorthree.phone.internal.dto.JoinRequestStatusView;
+import com.oneorthree.phone.internal.dto.MyJoinRequestsPageView;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
 import com.oneorthree.phone.invitelink.repository.GroupInviteLinkRepository;
@@ -38,9 +39,11 @@ import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -71,6 +74,9 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class IslandJoinService {
+
+    /** 목록 limit 상한 — 섬 관리 신청자 목록(섬 관리 LLD §3.3)과 같다. 기본값은 Business 몫이다. */
+    private static final int MY_REQUESTS_MAX_LIMIT = 100;
 
     private final UserQueryService userQueryService;
     private final GroupQueryService groupQueryService;
@@ -193,6 +199,36 @@ public class IslandJoinService {
         return new JoinRequestStatusView(request.getId(), request.getIsland().getId(),
                 request.getStatus().wireName(),
                 request.getVersion() == null ? 0L : request.getVersion());
+    }
+
+    // ---------------------------------------------------------------- §3.12 my-requests
+
+    /**
+     * 본인의 대기 중 가입 요청 목록 (GROMO-1895, LLD §3.12) — explore 화면의 「신청 중」 조각이다.
+     *
+     * <p>pending 만 싣는다: 닫힌 요청은 §3.8 단건 조회로 결과를 확인하는 자원이지 대기 목록이 아니다.
+     * 섬이 종결되면 그 섬의 pending 은 같은 TX 에서 닫히므로(ISLAND_CLOSED) 죽은 섬이 목록에 남지 않는다.
+     * 커서는 Business 가 서명·검증한 뒤 평문 keyset 경계({@code after…})만 넘긴다(§3.3 과 같은 규칙).
+     */
+    public MyJoinRequestsPageView myRequests(UUID userId, Instant afterCreatedAt, UUID afterRequestId, int limit) {
+        if ((afterCreatedAt == null) != (afterRequestId == null) || limit < 1 || limit > MY_REQUESTS_MAX_LIMIT) {
+            throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
+        }
+        userQueryService.getCaller(userId);
+        List<IslandJoinRequest> rows = joinRequestRepository.findPageByApplicantIdAndStatus(userId,
+                IslandJoinRequestStatus.PENDING,
+                afterCreatedAt == null ? Instant.EPOCH : afterCreatedAt,
+                afterRequestId == null ? new UUID(0L, 0L) : afterRequestId,
+                PageRequest.of(0, limit + 1));
+        boolean more = rows.size() > limit;
+        List<IslandJoinRequest> page = more ? rows.subList(0, limit) : rows;
+        IslandJoinRequest last = more ? page.get(page.size() - 1) : null;
+        return new MyJoinRequestsPageView(page.stream()
+                .map(request -> new MyJoinRequestsPageView.Item(request.getId(), request.getIsland().getId(),
+                        request.getIsland().getName(), request.getStatus().wireName(),
+                        request.getVersion() == null ? 0L : request.getVersion(), request.getCreatedAt()))
+                .toList(),
+                last == null ? null : last.getCreatedAt(), last == null ? null : last.getId());
     }
 
     // ---------------------------------------------------------------- §3.9 cancel

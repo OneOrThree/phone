@@ -323,8 +323,15 @@ class GroupBetJudgeUnificationIntegrationTest extends IntegrationTestBase {
                         .filter(c -> c.getId().equals(challengeId))
                         .findFirst()
                         .orElseThrow();
+        // 탈퇴자 행은 공개 userId 가 null 이다(GROMO-1946) — 참가 행 id 로 찾는다.
+        UUID participantId = groupChallengeBetParticipantRepository
+                .findBySessionIdIn(List.of(card.getBet().getSession().getSessionId())).stream()
+                .filter(p -> p.getUser().getId().equals(target.getId()))
+                .findFirst()
+                .orElseThrow()
+                .getId();
         return card.getBet().getSession().getParticipants().stream()
-                .filter(row -> row.getUserId().equals(target.getId()))
+                .filter(row -> row.getParticipantId().equals(participantId))
                 .findFirst()
                 .orElseThrow();
     }

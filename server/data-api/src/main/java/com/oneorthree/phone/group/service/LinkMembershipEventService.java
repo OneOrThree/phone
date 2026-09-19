@@ -322,6 +322,19 @@ public class LinkMembershipEventService {
         }
     }
 
+    /**
+     * 탈퇴자의 닉네임 변경 봉투에서 닉네임을 지운다 (GROMO-1946 · 계정 LLD §4 「outbox 속 name」).
+     *
+     * <p>{@code inviterDisplayName} 은 계약상 nullable 이라 아직 안 나간 봉투가 null 로 나가도 링크 서버가 받는다.
+     * 재전달 대기 중인 봉투는 본문을 바꾸면 안 되므로 남는다({@link OutboxCommandPort#eraseWithdrawnParam}).
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void eraseWithdrawnDisplayName(UUID userId) {
+        outboxCommandPort.eraseWithdrawnParam(userId, EVENT_DISPLAY_NAME_CHANGED, "inviterDisplayName");
+    }
+
     private void appendLinkCommand(String type, String eventId, UUID userId, UUID groupId, UUID inviterId,
             Map<String, Object> params, String endpointKey) {
         appendCommand(type, eventId, userId, groupId + ":" + inviterId,

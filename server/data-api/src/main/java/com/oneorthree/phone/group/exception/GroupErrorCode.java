@@ -35,6 +35,9 @@ public enum GroupErrorCode implements ErrorCode {
     // 게시판 미완공(GROMO-1771) — 섬 공지·댓글 게이트. Business 가 공개 FACILITY_LOCKED 로 옮긴다.
     // construction.facility-gates.enforce 가 꺼져 있으면(기본) 나가지 않는다.
     BOARD_LOCKED(HttpStatus.FORBIDDEN, "게시판을 지으면 공지를 볼 수 있어요"),
+    // 도서관 미완공(GROMO-1895) — 도서관 물고기 장(주민별 누적 획득) 게이트. Business 가 공개 FACILITY_LOCKED 로 옮긴다.
+    // construction.facility-gates.enforce 가 꺼져 있으면(기본) 나가지 않는다.
+    LIBRARY_LOCKED(HttpStatus.FORBIDDEN, "도서관을 지으면 물고기 장을 볼 수 있어요"),
     // 섬 게시판 쓰기 4종 게이트(GROMO-1771) — 댓글 삭제·탈퇴 처리(BQ02)와 본문·댓글 상한(BQ03)이 결정되기 전
     // 쓰기를 열지 않는다(island-board 정책 「writer 출시 금지」). 기본 OFF, island-board.writes-enabled 로 켠다.
     // REALTIME_NOT_READY 와 같은 503 이지만 막는 사유가 달라 한 코드로 접지 않는다.

@@ -215,3 +215,30 @@ Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차�
 로그는 서버 requestId, commandId/eventId, operation, phase, outcome, durationMs와 정책 revision을 연결한다. 키 원문·토큰·헤더·전체 payload는 기록하지 않는다. debit/완공/재생·conflict·relay 지연은 유한 label로 계측한다. 이 문서 작업에서 빌드·테스트를 실행했다는 주장은 하지 않는다.
 
 검증 추가: 다른 주민 거래/GET/POST receipt가 역순 도착해도 walletVersion으로 오래된 잔액·buildable 적용을 막고 새 options GET으로 복구한다. 무접두어 공인 ingress/JWT/내부 차단은 HLD 선행 조건을 실제 배포 환경에서 검증한다.
+
+## 6. 공동 가계부 — GET `/islands/{islandId}/resources/ledger`
+
+GROMO-1895 추가(town-hall 화면 `ledger` 조각, 기획 `GET /v1/islands/{islandId}/resources/ledger`). 섬 공동 지갑(`island_wallets`)의 원장 `island_wallet_transactions`(V62)를 그대로 읽는다 — 새 테이블·마이그레이션이 없다. 섬 지갑의 소유가 이 도메인이라 island-shop 이 아니라 여기 둔다(상점 §2.1 의 `wallets` 는 잔액만 준다).
+
+| 입력 | 규칙 |
+| --- | --- |
+| `month` | 필수 `YYYY-MM`. **KST 달력 월** `[1일 00:00 KST, 다음 달 1일 00:00 KST)` — 서버 날짜 축 규약([date-axis](../../../conventions/date-axis.md) §2, UTC 컷오버(GROMO-1930) 전까지). 형식 오류·누락은 400 `INVALID_PARAMETER` |
+| `direction` | 선택 `earn\|spend`. 생략이면 둘 다. 그 밖의 값은 422 `OUT_OF_RANGE` |
+| `limit`·`cursor` | `limit` 1~100. Business 가 cursor 를 서명·검증한 뒤 Data 에는 `afterCreatedAt`+`afterEntryId` 를 둘 다 넘긴다(하나만이면 400 `INVALID_PAGE_REQUEST`) |
+
+성공200:
+
+```json
+{"data":{"month":"2026-09","earnedTotal":60,"spentTotal":15,
+  "items":[{"id":"…","direction":"spend","reason":"construction_debit","amount":15,"createdAt":"2026-09-21T03:00:00Z"}],
+  "nextCursor":null}}
+```
+
+- `earnedTotal`·`spentTotal` 은 **그 달 전체의 합**이다 — `direction` 필터·페이지와 무관하다. 합계와 목록은 한 REPEATABLE READ 스냅샷에서 읽어 서로 다른 순간을 말하지 않는다.
+- `amount` 는 원장처럼 항상 양수이고 방향은 `direction` 이 말한다. `reason` 은 원장 사유의 소문자(`contribution`·`construction_debit`)다. 방향은 사유가 정한다 — 새 사유를 더하면 `IslandWalletTransactionType` 에서 방향도 함께 정한다(GROMO-1924 의 집중 정산 적립은 기존 `contribution` 사유를 쓴다).
+- 정렬은 최신순 `(createdAt DESC, id DESC)` keyset — 같은 시각의 행은 id 가 가른다.
+- 권한: 살아 있는 섬의 **활성 주민 전원**(방장·일반 주민 동일). 구경꾼·떠난 주민은 403 `MEMBER_ONLY`, 종료·삭제 섬은 404 `GROUP_NOT_FOUND`. 지출 권한(C13)은 보지 않는다 — 읽기다.
+- 원장 행에 주체(누가 적립했나)가 없어 항목에 사용자 필드가 없다. 주민별 몫은 [회관 기록 LLD](../island-records/low-level-design.md) §7 의 누적 획득이 답한다.
+- 인덱스: 섬 축 인덱스가 유일키 `(island_id, type, idempotency_key)` 앞머리뿐이라 섬 한 곳의 원장을 훑는다. 섬당 행 수가 커지면 `(island_id, created_at, id)` 인덱스를 마이그레이션으로 더한다.
+- 내부 경로(B26): `GET /internal/islands/{islandId}/resources/ledger` + 허용목록 `'GET /internal/islands/*/resources/ledger'`.
+

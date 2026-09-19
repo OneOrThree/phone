@@ -202,13 +202,15 @@ class ErrorContractTest {
         // GROMO-1802 가 섬 정보 수정의 빈 이름 422 1개를 더했다(GroupErrorCode.ISLAND_NAME_BLANK) — 형식 오류 400 과 가른다.
         // GROMO-1801 이 신규 PATCH /me 게이트 1개를 더했다(UserErrorCode.PROFILE_UPDATE_UNAVAILABLE) —
         // 집중 세션 게이트와 같은 503 이지만 여는 조건(온보딩 전이 사건 연결)이 달라 코드를 가른다.
+        // GROMO-1895 가 도서관 시설 잠금 1개를 더했다(GroupErrorCode.LIBRARY_LOCKED) — 게시판·우체통 잠금과 같은 결이지만
+        // 잠기는 시설이 달라 한 코드로 접지 않는다.
         // GROMO-1773 이 섬 퀘스트 코드 13개를 더했다(QuestErrorCode) — 권한 2(QUEST_FORBIDDEN · QUEST_BOARD_LOCKED),
         // 대상 없음 2(QUEST_NOT_FOUND · QUEST_OCCURRENCE_NOT_FOUND), 입력 5(QUEST_INVALID_REQUEST ·
         // QUEST_INVALID_TIMEZONE · 필드별 범위 3), 충돌 2(QUEST_VERSION_CONFLICT · QUEST_STATE_CONFLICT),
         // 출시 게이트 2(QUEST_CREATION_UNAVAILABLE · QUEST_SETTLEMENT_UNAVAILABLE) — 생성과 정산은 여는 조건이 달라
         // 같은 503 이라도 코드를 가른다.
-        assertThat(tests).as("실측 기준 도메인 상수 186개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·섬 퀘스트 13종 포함")
-                .hasSize(202);
+        assertThat(tests).as("실측 기준 도메인 상수 187개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 13종 포함")
+                .hasSize(203);
         return tests;
     }
 
