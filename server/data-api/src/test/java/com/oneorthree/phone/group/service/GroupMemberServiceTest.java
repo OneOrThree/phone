@@ -65,6 +65,10 @@ class GroupMemberServiceTest {
     @Mock
     private com.oneorthree.phone.group.service.IslandJoinRequestEvents joinRequestEvents;
 
+    /** 소속 상실 ↔ 진행 집중 세션(GROMO-1924) — 실제 종결·거절은 실물 DB 통합 테스트가 본다. */
+    @Mock
+    private com.oneorthree.phone.focus.service.FocusMembershipLossService focusMembershipLossService;
+
     /** 마지막 1인 이탈의 섬 종료 사건(GROMO-1802) — 봉투 기록은 통합 테스트가 본다. */
     @Mock
     private IslandStateEvents islandStateEvents;
