@@ -57,7 +57,14 @@ public record OutboxDeliveryRequest(OutboxTarget target, Map<String, Object> pay
         return new OutboxDeliveryRequest(OutboxTarget.NOTI, payload, endpointKey);
     }
 
-    /** 새 섬 사건의 내구 전달 요구. 등록된 전용 transport가 없으면 relay가 선점하지 않는다. */
+    /**
+     * realtime 으로 가는 내구 전달 요구. {@code endpointKey} 는 관례상 사건 {@code type} 이고
+     * {@code application-satellites.yml} 허용목록에 {@code target: REALTIME} 으로 있어야 HTTP 로 나간다.
+     *
+     * @param endpointKey 논리 엔드포인트 키(= 사건 type)
+     * @param payload     본문. {@code null} 이면 정본 봉투
+     * @return realtime 전달 요구
+     */
     public static OutboxDeliveryRequest toRealtime(String endpointKey, Map<String, Object> payload) {
         return new OutboxDeliveryRequest(OutboxTarget.REALTIME, payload, endpointKey);
     }

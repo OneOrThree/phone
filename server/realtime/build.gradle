@@ -37,6 +37,11 @@ dependencies {
 	// Redis (Lettuce) — 이 서비스의 하드 의존성이다. 팬아웃·멤버십 캐시·집중 프레즌스가 전부 여기 얹힌다.
 	implementation 'org.springframework.boot:spring-boot-starter-data-redis'
 
+	// Kafka 소비 — realtime-events (GROMO-1954, 기본 꺼짐). 알림 서버와 같은 두 모듈이다: Boot 4 는
+	// 오토컨피그(spring-boot-kafka)와 엔진(spring-kafka)이 분리돼 있다.
+	implementation 'org.springframework.boot:spring-boot-kafka'
+	implementation 'org.springframework.kafka:spring-kafka'
+
 	// 요청 본문 검증 (@Valid)
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
 

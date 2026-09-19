@@ -22,6 +22,16 @@ spring:
   flyway:
     enabled: true
 
+  # realtime-events 소비(GROMO-1954). 소비자 자체는 realtime.events.kafka-enabled 로만 뜬다 — 꺼져 있으면
+  # 리스너가 없어 브로커에 붙지 않는다. 기본값이 있어 ci 에서 환경변수 없이도 바인딩이 깨지지 않는다.
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    consumer:
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      ack-mode: record
+
 server:
   port: 8081
 
@@ -83,8 +93,15 @@ realtime:
     service-token: ${SVC_TOKEN_BIZ_TO_REALTIME:}
     # Data 의 내구 사건 수신구(POST /internal/events, GROMO-1943)의 서비스 자격 — 호출자는 Data 하나다.
     # Business 토큰과 «분리»된 값이어야 한다(A22 ㊀). 비어 있으면 그 경로만 전량 거절한다(fail-closed) —
-    # Data relay 에 REALTIME transport 가 아직 없어 어느 배포에도 배선되지 않은 표면이다.
+    # 그러면 Data relay 의 REALTIME HTTP 전달이 401 로 멈춘다(GROMO-1954). 배포 비밀에 먼저 넣는다.
     data-service-token: ${SVC_TOKEN_DATA_TO_REALTIME:}
+
+  # Data outbox 사건의 Kafka 입구(2026-09-19 R-1 — HTTP 기본 · Kafka 선택). HTTP 와 같은 처리기로 들어가
+  # eventId 로 한 번만 적용된다. 켜는 순서: 여기 먼저, 그다음 Data 의 OUTBOX_RELAY_REALTIME_KAFKA_ENABLED.
+  # ⚠️ env 이름은 Data 쪽과 «일부러» 다르다 — 공유 env 한 줄이 두 서비스를 동시에 켜면 순서가 깨진다.
+  events:
+    kafka-enabled: ${REALTIME_EVENTS_KAFKA_ENABLED:false}
+    kafka-topic: realtime-events
 
 logging:
   level:

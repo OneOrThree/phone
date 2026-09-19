@@ -111,9 +111,9 @@ public class InternalIslandMailboxService {
      * 메시지 행은 realtime 의 {@code gromo_chat} 에 이미 커밋돼 있고 이 봉투는 Data 의 {@code gromo} 에
      * 적힌다 — 다른 DB, 다른 트랜잭션이다. 「저장은 됐는데 적재는 실패」가 가능하고 그 반대는 없다(적재는
      * 저장 성공을 본 뒤에만 부른다). 실패 시 동작은 호출자({@code IslandMailboxUseCase})가 정한다: 요청은
-     * 성공으로 끝내고 이 사건은 <b>유실</b>된다. 지금 그 유실이 무해한 이유는 REALTIME 전달 자체가 꺼져
-     * 있어서다 — relay 에 REALTIME transport 가 등록돼 있지 않고({@code OutboxRelayService}), realtime 의
-     * {@code DisabledRealtimeDelivery} 는 항상 예외를 던진다. 봉투는 내구 보류될 뿐 아무 데도 가지 않는다.
+     * 성공으로 끝내고 이 사건은 <b>유실</b>된다. 지금 그 유실이 무해한 이유는 앱으로의 전달이 꺼져
+     * 있어서다 — relay 는 REALTIME 을 realtime 으로 나르지만(GROMO-1954) realtime 은 앱 사건 14종을 받아
+     * 중복만 거르고 STOMP 로 내보내지 않는다({@code DisabledRealtimeDelivery}, 섬 구독 인가 미구현).
      * ponytail: 저장/적재 원자성 없음 — 전달을 켜기 전에 적재를 저장 쪽으로 옮기거나 보상 재시도. 지금은 전달이 꺼져 있어 무해.
      * 전달을 켜기 전 게이트: 이 적재를 저장과 같은 쪽으로 옮기거나 보상 재시도를 붙인다(1764 가 같은 자리를
      * 「전달이 꺼져 있어 페이로드 검증 불가」로 게이트에 올린 것과 같은 정직함이다).

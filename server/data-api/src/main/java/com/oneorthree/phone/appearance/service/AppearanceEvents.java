@@ -26,7 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 도메인 version 을 받는 append 를 쓴다. 호출부는 그 행을 배타 잠근 채 부른다.
  *
  * <p>봉투 모양은 다른 어댑터와 같은 10필드 정본({@code subjectId}·{@code version}·{@code params})이다.
- * realtime 7필드({@code islandId}·{@code aggregateVersion}·{@code payload})로 옮기는 일은 REALTIME transport 몫이다
+ * realtime 7필드({@code islandId}·{@code aggregateVersion}·{@code payload})로 옮기는 일은 realtime 수신 측 몫이다
  * (docs/conventions/outbox-events.md §2.9). {@code params} 는 공개 payload 그대로라 {@code version} 을 담는데,
  * 그 값은 봉투 version 과 같은 도메인 값이다 — 추정 중복이 아니다.
  *

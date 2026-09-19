@@ -188,6 +188,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
             LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
             NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            REALTIME_BASE_URL="http://realtime:8081", SVC_TOKEN_DATA_TO_REALTIME="data-realtime",
         )
         transition = MODULE.render(combined, "example/data:1", "data-api")
         final = MODULE.render(combined, "example/data:2", "data-api", "final", "prod")
@@ -196,6 +197,9 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertIn(f"{key}=", transition)
             self.assertNotIn(f"{key}=", final)
         self.assertIn("SVC_TOKEN_DATA_TO_LINK='dl'", final)
+        # GROMO-1954 — Data relay 의 REALTIME HTTP 목적지·전용 토큰
+        self.assertIn("SVC_TOKEN_DATA_TO_REALTIME='data-realtime'", final)
+        self.assertIn("REALTIME_BASE_URL='http://realtime:8081'", final)
         self.assertIn("SPRING_PROFILES_ACTIVE='prod,satellites'", final)
 
     def test_prod_Business의_프록시_시크릿_누락은_출력_전에_차단한다(self) -> None:

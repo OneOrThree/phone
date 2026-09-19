@@ -13,6 +13,9 @@ import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.support.OutboxTestKafka;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.outbox.support.StubSatelliteServer;
+import com.oneorthree.phone.withdrawal.service.WithdrawalSatelliteCommandService;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.apache.kafka.clients.admin.TopicDescription;
@@ -61,6 +64,8 @@ class OutboxRelayIntegrationTest {
 
     private static final StubSatelliteServer LINK_SERVER = StubSatelliteServer.start("/internal/users/");
     private static final StubSatelliteServer NOTI_SERVER = StubSatelliteServer.start("/internal/events");
+    private static final StubSatelliteServer REALTIME_SERVER = StubSatelliteServer.start("/internal/events");
+    private static final String REALTIME_TOKEN = "data-to-realtime-token";
     private static final String NOTI_ENDPOINT_KEY = "NOTI_EVENT";
     private static final String SERVICE_TOKEN = "link-service-token";
     private static final String LINK_ENDPOINT_KEY = "LINK_USER_WITHDRAW";
@@ -75,6 +80,12 @@ class OutboxRelayIntegrationTest {
         registry.add("outbox.relay.endpoints." + NOTI_ENDPOINT_KEY + ".token", () -> "noti-service-token");
         registry.add("outbox.relay.endpoints." + NOTI_ENDPOINT_KEY + ".url",
                 () -> NOTI_SERVER.baseUrl() + "/internal/events");
+        // 배포 yml 과 같은 모양 — 논리 키 = 사건 type(GROMO-1954).
+        String realtimeKey = "outbox.relay.endpoints[" + WithdrawalSatelliteCommandService.EVENT_USER_WITHDRAWN + "].";
+        registry.add(realtimeKey + "target", () -> "REALTIME");
+        registry.add(realtimeKey + "method", () -> "POST");
+        registry.add(realtimeKey + "token", () -> REALTIME_TOKEN);
+        registry.add(realtimeKey + "url", () -> REALTIME_SERVER.baseUrl() + "/internal/events");
         registry.add("spring.kafka.bootstrap-servers", OutboxTestKafka.INSTANCE::getBootstrapServers);
         registry.add("outbox.relay.enabled", () -> true);
         registry.add("outbox.relay.worker-id", () -> "test-worker");
@@ -99,6 +110,7 @@ class OutboxRelayIntegrationTest {
     static void stopStub() {
         LINK_SERVER.stop();
         NOTI_SERVER.stop();
+        REALTIME_SERVER.stop();
     }
 
     @Autowired
@@ -115,6 +127,8 @@ class OutboxRelayIntegrationTest {
     OutboxRelayProperties relayProperties;
     @Autowired
     PlatformTransactionManager transactionManager;
+    @Autowired
+    WithdrawalSatelliteCommandService withdrawalCommands;
 
     private TransactionTemplate tx() {
         return new TransactionTemplate(transactionManager);
@@ -439,6 +453,41 @@ class OutboxRelayIntegrationTest {
         assertThat(delivery(state, OutboxTarget.NOTI).getDeliveredAt()).isNotNull();
         relayService.relayTarget(OutboxTarget.KAFKA);
         assertThat(delivery(request, OutboxTarget.KAFKA).getDeliveredAt()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("탈퇴 → relay → realtime POST /internal/events 에 10필드 정본 봉투 그대로, Data 전용 토큰으로 간다")
+    void relaysWithdrawalToRealtimeOverHttpAsTheCanonicalEnvelope() throws Exception {
+        UUID userId = UUID.randomUUID();
+        REALTIME_SERVER.clear();
+        REALTIME_SERVER.respondWith(200);
+        // 실제 생산자(탈퇴 어댑터)로 적는다 — 봉투 모양을 테스트가 흉내 내면 검증되는 것이 흉내뿐이다.
+        tx().executeWithoutResult(status -> withdrawalCommands.recordWithdrawn(userId, 3L));
+        UUID outboxId = outboxIdOf("user.withdrawn:" + userId);
+
+        relayService.relayTarget(OutboxTarget.REALTIME);
+
+        assertThat(delivery(outboxId, OutboxTarget.REALTIME).getDeliveredAt()).isNotNull();
+        assertThat(REALTIME_SERVER.received()).hasSize(1);
+        StubSatelliteServer.Received sent = REALTIME_SERVER.received().get(0);
+        assertThat(sent.method()).isEqualTo("POST");
+        assertThat(sent.path()).isEqualTo("/internal/events");
+        assertThat(sent.serviceToken()).isEqualTo("Bearer " + REALTIME_TOKEN);
+
+        // realtime InternalEventControllerTest.body() 가 이 모양을 그대로 받아 커서를 지운다 — 둘이 한 계약이다.
+        JsonNode body = new ObjectMapper().readTree(sent.body());
+        List<String> fields = new ArrayList<>();
+        body.fieldNames().forEachRemaining(fields::add);
+        assertThat(fields).containsExactlyInAnyOrder("eventId", "schemaVersion", "type", "occurredAt",
+                "scheduledAt", "userId", "locale", "subjectId", "version", "params");
+        assertThat(body.get("eventId").asText()).isEqualTo("user.withdrawn:" + userId);
+        assertThat(body.get("schemaVersion").asInt()).isEqualTo(1);
+        assertThat(body.get("type").asText()).isEqualTo("user.withdrawn");
+        assertThat(body.get("userId").asText()).isEqualTo(userId.toString());
+        assertThat(body.get("subjectId").asText()).isEqualTo(userId.toString());
+        assertThat(body.get("version").asLong()).isPositive();
+        assertThat(body.get("params").get("userId").asText()).isEqualTo(userId.toString());
+        assertThat(body.get("params").get("authGeneration").asLong()).isEqualTo(3L);
     }
 
     @Test

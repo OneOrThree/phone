@@ -60,6 +60,16 @@ public class OutboxRelayProperties {
     /** 위성 HTTP 응답 대기 상한. */
     private Duration httpReadTimeout = Duration.ofSeconds(10);
 
+    /**
+     * {@code REALTIME} 대상을 HTTP 대신 {@code realtime-events} 토픽으로 보낸다 (2026-09-19 R-1).
+     *
+     * <p>기본은 HTTP 다(realtime {@code POST /internal/events}). 한 대상에 전달 경로는 하나라 켜면 HTTP 는
+     * 등록하지 않는다 — 두 경로로 동시에 보내면 대상별 전달 상태가 하나뿐이라 한쪽 실패를 표시할 수 없다.
+     * 켜기 전에 realtime 의 소비자({@code REALTIME_EVENTS_KAFKA_ENABLED})를 먼저 켠다. 반대 순서면 토픽에
+     * 쌓일 뿐 유실은 없지만(보존 기간 안) 그동안 전달이 멈춘다.
+     */
+    private boolean realtimeKafkaEnabled = false;
+
     private final Retry retry = new Retry();
 
     private final Kafka kafka = new Kafka();
@@ -100,6 +110,12 @@ public class OutboxRelayProperties {
 
         /** 소비 실패의 종착 토픽. 파티션 수는 정본 토픽과 같다(계약 §3). */
         private String dltTopic = "notification-events.DLT";
+
+        /** {@code REALTIME} 을 Kafka 로 보낼 때의 토픽(R-1). key = 봉투 userId. */
+        private String realtimeTopic = "realtime-events";
+
+        /** realtime 소비 실패의 종착 토픽. 파티션 수는 정본과 같다. */
+        private String realtimeDltTopic = "realtime-events.DLT";
 
         /** 두 토픽 공통 파티션 수 — 계약이 3 이다. */
         private int partitions = 3;
