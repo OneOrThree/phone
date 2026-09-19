@@ -59,10 +59,12 @@ public class ScreenReadUseCase {
     private static final String ROLE_MEMBER = "member";
     private static final String MISSING_FRAGMENTS = "missingFragments";
     private static final String FACILITY_LOCKED = "facility_locked";
-    /** 방송기 시설 id — 건설 도메인의 {@code ConstructionBuilding.GRAM}(정책 C14). */
+    /** 시설 id — 건설 도메인 {@code ConstructionBuilding} 의 계약 문자열(정책 C14). */
     private static final String GRAM = "gram";
-    /** 방송기 완공 판정 재료 — 화면 응답에는 싣지 않는 내부 조각이다. */
-    private static final String GRAM_CHECK = "gramCheck";
+    private static final String LIBRARY = "library";
+    private static final String SHOP = "shop";
+    /** 시설 완공 판정 재료(건설 옵션) — 화면 응답에는 싣지 않는 내부 조각이다. */
+    private static final String FACILITIES = "facilities";
 
     private final ScreenComposer composer;
     private final AccountUseCase account;
@@ -74,6 +76,8 @@ public class ScreenReadUseCase {
     private final IslandFocusMembersUseCase focusMembers;
     private final IslandManagementUseCase management;
     private final IslandConstructionUseCase construction;
+    private final IslandQuestUseCase quests;
+    private final IslandNoticeUseCase notices;
     private final PlaybackUseCase playback;
     private final IslandMailboxUseCase mailbox;
     private final LetterUseCase letters;
@@ -187,7 +191,7 @@ public class ScreenReadUseCase {
                 fragment("focusSummary", deadline -> focus.summary(claims, date, timezone, deadline)),
                 fragment("session", deadline -> focus.current(claims, deadline)),
                 fragment("restMembers", deadline -> focusMembers.restMembers(claims, island.id(), deadline)),
-                gramCheck(claims, island.id())));
+                facilities(claims, island.id())));
         putPlayback(screen, parallel, context, claims, island.id());
         return missing(screen, "wallets");
     }
@@ -208,7 +212,7 @@ public class ScreenReadUseCase {
         screen.putAll(first);
         Map<String, Object> parallel = composer.compose(context, List.of(
                 fragment("focusMembers", deadline -> focusMembers.focusMembers(claims, island.id(), deadline)),
-                gramCheck(claims, island.id())));
+                facilities(claims, island.id())));
         putPlayback(screen, parallel, context, claims, island.id());
         return screen;
     }
@@ -244,6 +248,85 @@ public class ScreenReadUseCase {
         }
         screen.put("joinRequestsAvailability", host ? AVAILABLE : HOST_ONLY);
         return missing(screen, "wallets");
+    }
+
+    // ------------------------------------------------ 시설 화면 (GROMO-1898)
+    //
+    // 시설 게이트가 걸린 도메인 GET 이 있으면(게시판·방송기) 그 GET 의 도메인 403 이 곧 화면 전체 403 이다 —
+    // mailbox 와 같은 규칙이다. 게이트 GET 이 없는 화면(상점·도서관)만 건설 옵션으로 완공을 먼저 판정한다.
+
+    /**
+     * {@code board} — 섬 문맥 뒤 현재 퀘스트·공지 첫 페이지를 병렬로 읽는다. 게시판 미완공은 두 도메인 GET 의
+     * 게이트({@code QUEST_BOARD_LOCKED}·{@code BOARD_LOCKED})가 403 {@code FACILITY_LOCKED} 로 내고 그대로 화면
+     * 전체 403 이다. 공지 커서는 도메인 GET 과 같은 서명 커서라 다음 페이지를 이어받는다(B10).
+     * 빠진 조각: {@code wallets}(섬 상점 지갑 GET 없음).
+     */
+    public Map<String, Object> board(AccessTokenClaims claims, String requestId) {
+        UpstreamRequestContext context = composer.start(requestId, claims.userId());
+        IslandDetail island = currentIsland(context, claims);
+        UUID islandId = island.id();
+        Map<String, Object> screen = new LinkedHashMap<>();
+        screen.put("island", island);
+        screen.putAll(composer.compose(context, List.of(
+                fragment("quests", deadline -> quests.current(claims, islandId, deadline)),
+                fragment("notices", deadline -> notices.list(claims, islandId, null, deadline)))));
+        return missing(screen, "wallets");
+    }
+
+    /**
+     * {@code library} — 섬 문맥 뒤 도서관 완공을 판정한다. 미완공이면 기록 조각을 부르지 않고 둘 다 null +
+     * {@code statisticsAvailability:facility_locked}(B03 N, 화면은 200)다. 완공이어도 기록 GET(티켓 1769)이
+     * 아직 없어 두 조각은 missingFragments 이고, 검증된 비적용이 아니므로 availability 도 null 이다.
+     */
+    public Map<String, Object> library(AccessTokenClaims claims, String requestId) {
+        UpstreamRequestContext context = composer.start(requestId, claims.userId());
+        IslandDetail island = currentIsland(context, claims);
+        Map<String, Object> screen = new LinkedHashMap<>();
+        screen.put("island", island);
+        if (!completed(context, claims, island.id(), LIBRARY)) {
+            screen.put("focusStatistics", null);
+            screen.put("screenTimeStatistics", null);
+            screen.put("statisticsAvailability", FACILITY_LOCKED);
+            return screen;
+        }
+        screen.put("statisticsAvailability", null);
+        return missing(screen, "focusStatistics", "screenTimeStatistics");
+    }
+
+    /**
+     * {@code shop} — 섬 문맥 뒤 상점 완공을 판정하고(미완공이면 화면 전체 403 {@code FACILITY_LOCKED}, 조각
+     * 호출 없음) 공동 보유품을 읽는다. 빠진 조각: {@code wallets}·{@code products}(상점 GET 없음, 티켓 1781 은
+     * 테이블만 있다).
+     */
+    public Map<String, Object> shop(AccessTokenClaims claims, String requestId) {
+        UpstreamRequestContext context = composer.start(requestId, claims.userId());
+        IslandDetail island = currentIsland(context, claims);
+        UUID islandId = island.id();
+        if (!completed(context, claims, islandId, SHOP)) {
+            throw new PublicApiException(ApiErrorCode.FACILITY_LOCKED, null);
+        }
+        Map<String, Object> screen = new LinkedHashMap<>();
+        screen.put("island", island);
+        screen.putAll(composer.compose(context, List.of(
+                fragment("sharedInventory", deadline -> appearance.islandInventory(claims, islandId, deadline)))));
+        return missing(screen, "wallets", "products");
+    }
+
+    /**
+     * {@code playback} — 섬 문맥 뒤 공동 보유품·재생 상태를 병렬로 읽는다. 방송기 미완공은 재생 GET 의 게이트
+     * ({@code GRAM_LOCKED})가 403 {@code FACILITY_LOCKED} 로 내고 그대로 화면 전체 403 이다. 빠진 조각:
+     * {@code products}(판매 음원 {@code category=sound}, B20)·{@code wallets} — 상점 GET 이 없다.
+     */
+    public Map<String, Object> playback(AccessTokenClaims claims, String requestId) {
+        UpstreamRequestContext context = composer.start(requestId, claims.userId());
+        IslandDetail island = currentIsland(context, claims);
+        UUID islandId = island.id();
+        Map<String, Object> screen = new LinkedHashMap<>();
+        screen.put("island", island);
+        screen.putAll(composer.compose(context, List.of(
+                fragment("sharedInventory", deadline -> appearance.islandInventory(claims, islandId, deadline)),
+                fragment("playback", deadline -> playback.get(claims, islandId, deadline)))));
+        return missing(screen, "products", "wallets");
     }
 
     // ------------------------------------------------ 우체통·친구 화면 (GROMO-1899)
@@ -312,11 +395,23 @@ public class ScreenReadUseCase {
     }
 
     /**
-     * 방송기 완공 판정 — 섬 상세에는 시설 필드가 아직 없어({@link IslandDetail} 주석) 건설 옵션을 재료로 쓴다.
-     * 옵션 {@code items} 는 완공(COMPLETED)하지 않은 건물만 담으므로 {@code gram} 이 없으면 완공이다.
+     * 시설 완공 판정 재료 — 섬 상세에는 시설 필드가 아직 없어({@link IslandDetail} 주석) 건설 옵션을 쓴다.
+     * 병렬 단계에 끼워 넣을 수 있게 조각으로 둔다.
      */
-    private ReadFragment<?> gramCheck(AccessTokenClaims claims, UUID islandId) {
-        return fragment(GRAM_CHECK, deadline -> construction.options(claims, islandId, deadline));
+    private ReadFragment<?> facilities(AccessTokenClaims claims, UUID islandId) {
+        return fragment(FACILITIES, deadline -> construction.options(claims, islandId, deadline));
+    }
+
+    /** 옵션 {@code items} 는 완공(COMPLETED)하지 않은 건물만 담으므로 목록에 없으면 완공이다. */
+    private static boolean built(ConstructionOptions options, String building) {
+        return options.items().stream().noneMatch(item -> building.equals(item.id()));
+    }
+
+    /** 시설 완공 판정을 단독 순차 단계로 — 판정 결과가 다음 조각의 호출 여부를 정할 때 쓴다. */
+    private boolean completed(UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId,
+            String building) {
+        return built((ConstructionOptions) composer.compose(context, List.of(facilities(claims, islandId)))
+                .get(FACILITIES), building);
     }
 
     /**
@@ -328,12 +423,11 @@ public class ScreenReadUseCase {
     private void putPlayback(Map<String, Object> screen, Map<String, Object> parallel,
             UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId) {
         parallel.forEach((name, value) -> {
-            if (!GRAM_CHECK.equals(name)) {
+            if (!FACILITIES.equals(name)) {
                 screen.put(name, value);
             }
         });
-        ConstructionOptions options = (ConstructionOptions) parallel.get(GRAM_CHECK);
-        if (options.items().stream().anyMatch(item -> GRAM.equals(item.id()))) {
+        if (!built((ConstructionOptions) parallel.get(FACILITIES), GRAM)) {
             screen.put("playback", null);
             screen.put("playbackAvailability", FACILITY_LOCKED);
             return;

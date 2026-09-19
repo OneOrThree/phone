@@ -17,7 +17,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 화면 조회 {@code GET /screens/*} (GROMO-1896·1897·1899, bff-screens B15·B24~B26). query 검증만 하고 유스케이스에 넘긴다.
+ * 화면 조회 {@code GET /screens/*} (GROMO-1896·1897·1898·1899, bff-screens B15·B24~B26). query 검증만 하고 유스케이스에 넘긴다.
  *
  * <p>{@code /screens/**} 는 {@code PublicApiRoutes} 에 있어 {@code {data}} 봉투가, {@code RequestEnvelopeFilter}
  * 가 {@code Cache-Control: no-store}(B11)를 붙인다. 주체는 서명된 세션에서만 온다. 허용하지 않은 query 와
@@ -92,6 +92,30 @@ public class ScreenController {
     public Map<String, Object> friends(HttpServletRequest request) {
         AccessTokenClaims claims = begin(request, Set.of("date"));
         return screens.friends(claims, request.getParameter("date"), requestId(request));
+    }
+
+    @GetMapping("/screens/board")
+    public Map<String, Object> board(HttpServletRequest request) {
+        AccessTokenClaims claims = begin(request, Set.of());
+        return screens.board(claims, requestId(request));
+    }
+
+    @GetMapping("/screens/library")
+    public Map<String, Object> library(HttpServletRequest request) {
+        AccessTokenClaims claims = begin(request, Set.of());
+        return screens.library(claims, requestId(request));
+    }
+
+    @GetMapping("/screens/shop")
+    public Map<String, Object> shop(HttpServletRequest request) {
+        AccessTokenClaims claims = begin(request, Set.of());
+        return screens.shop(claims, requestId(request));
+    }
+
+    @GetMapping("/screens/playback")
+    public Map<String, Object> playback(HttpServletRequest request) {
+        AccessTokenClaims claims = begin(request, Set.of());
+        return screens.playback(claims, requestId(request));
     }
 
     /** 세션을 먼저 확인한다 — 미인증 요청에 query 오류를 먼저 알려 주지 않는다. */
