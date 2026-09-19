@@ -301,14 +301,15 @@ class AppearanceServiceIntegrationTest {
                 .map(e -> (String) e.get("eventId")).toList();
         assertThat(eventIds).doesNotHaveDuplicates();
         List<String> islandIds = applied.events().stream()
-                .map(e -> (String) e.get("islandId")).sorted().toList();
+                .map(e -> (String) e.get("subjectId")).sorted().toList();
         assertThat(islandIds).isEqualTo(
                 List.of(f.islandId.toString(), other.islandId.toString()).stream()
                         .sorted().toList());
         for (Map<String, Object> envelope : applied.events()) {
             assertThat(envelope.get("type")).isEqualTo("member.appearance.updated");
-            assertThat(envelope.get("aggregateVersion")).isEqualTo(1);
-            assertThat(((Map<?, ?>) envelope.get("payload")).get("version")).isEqualTo(1);
+            assertThat(envelope.get("userId")).isEqualTo(memberId.toString());
+            assertThat(envelope.get("version")).isEqualTo(1);
+            assertThat(((Map<?, ?>) envelope.get("params")).get("version")).isEqualTo(1);
         }
         // outbox·delivery 행이 실제로 적혔는지도 확인한다 — 응답 조립과 저장은 같은 TX 다.
         Long rows = jdbc.queryForObject(
@@ -393,8 +394,8 @@ class AppearanceServiceIntegrationTest {
         assertThat(applied.events()).hasSize(1);
         Map<String, Object> envelope = applied.events().get(0);
         assertThat(envelope.get("type")).isEqualTo("island.appearance.updated");
-        assertThat(envelope.get("islandId")).isEqualTo(f.islandId.toString());
-        assertThat(envelope.get("aggregateVersion")).isEqualTo(1);
+        assertThat(envelope.get("subjectId")).isEqualTo(f.islandId.toString());
+        assertThat(envelope.get("version")).isEqualTo(1);
     }
 
     @Test

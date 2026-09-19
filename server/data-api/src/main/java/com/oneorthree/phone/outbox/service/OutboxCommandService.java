@@ -35,7 +35,7 @@ import java.util.function.Supplier;
 /**
  * {@link OutboxCommandPort} 의 구현 — 내구 이벤트·명령 기반의 본체 (A21).
  *
- * <p>세 메서드 모두 {@code Propagation.MANDATORY} 다. 「커밋과 함께 남는다」가 계약이라, 트랜잭션
+ * <p>모든 메서드가 {@code Propagation.MANDATORY} 다. 「커밋과 함께 남는다」가 계약이라, 트랜잭션
  * 밖에서 불려 조용히 별도 트랜잭션으로 커밋되면 <b>도메인이 롤백돼도 이벤트만 남는</b> 정확히 반대
  * 방향의 유실이 생긴다. 그래서 그런 호출은 예외로 죽인다.
  *
@@ -56,8 +56,26 @@ public class OutboxCommandService implements OutboxCommandPort {
     @Override
     @Transactional(propagation = Propagation.MANDATORY)
     public EventEnvelope append(OutboxAppendCommand command) {
+        return write(command, versionAllocator.allocate(command.aggregate()));
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public EventEnvelope append(OutboxAppendCommand command, long domainVersion) {
+        if (domainVersion < 1) {
+            throw new IllegalArgumentException("도메인 version 은 1 이상이어야 합니다.");
+        }
+        return write(command, domainVersion);
+    }
+
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public long currentVersion(AggregateRef aggregate) {
+        return versionAllocator.current(aggregate);
+    }
+
+    private EventEnvelope write(OutboxAppendCommand command, long version) {
         Instant now = clock.instant();
-        long version = versionAllocator.allocate(command.aggregate());
 
         EventEnvelope envelope = new EventEnvelope(
                 command.eventId(),

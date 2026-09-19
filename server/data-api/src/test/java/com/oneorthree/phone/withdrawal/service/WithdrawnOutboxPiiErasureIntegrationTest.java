@@ -69,10 +69,13 @@ class WithdrawnOutboxPiiErasureIntegrationTest {
                 inFlight);
         String inFlightPayload = deliveryPayload(inFlight);
         // legacy 내부 명령 멱등 기록 — 저장된 응답 봉투에 기기 토큰이 든다
-        satelliteCommands.recordDeviceTokenDeletion(w, new DeviceTokenDeletionRequest("token-w", null, 0L),
-                "legacy-" + UUID.randomUUID());
-        satelliteCommands.recordDeviceTokenDeletion(c, new DeviceTokenDeletionRequest("token-c", null, 0L),
-                "legacy-" + UUID.randomUUID());
+        // 명령은 MANDATORY 다 — 진입 트랜잭션은 호출자가 연다(GROMO-1953).
+        new TransactionTemplate(transactions).executeWithoutResult(status -> {
+            satelliteCommands.recordDeviceTokenDeletion(w, new DeviceTokenDeletionRequest("token-w", null, 0L),
+                    "legacy-" + UUID.randomUUID());
+            satelliteCommands.recordDeviceTokenDeletion(c, new DeviceTokenDeletionRequest("token-c", null, 0L),
+                    "legacy-" + UUID.randomUUID());
+        });
         assertThat(count("select count(*) from command_idempotency where user_id=? and response_body::text"
                 + " like '%token-w%'", w)).isEqualTo(1L);
 

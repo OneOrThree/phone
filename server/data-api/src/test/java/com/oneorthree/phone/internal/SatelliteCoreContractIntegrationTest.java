@@ -203,14 +203,14 @@ class SatelliteCoreContractIntegrationTest {
         GuestLoginResponse login = authService.guestLogin();
         UUID userId = jwtProvider.extractUserId(login.accessToken());
 
-        assertThatThrownBy(() -> userSatelliteCommandService.recordDeviceTokenDeletion(
-                userId, new DeviceTokenDeletionRequest("fcm-logout", "not-a-uuid", null), "bad-owner"))
+        assertThatThrownBy(() -> tx().execute(status -> userSatelliteCommandService.recordDeviceTokenDeletion(
+                userId, new DeviceTokenDeletionRequest("fcm-logout", "not-a-uuid", null), "bad-owner")))
                 .isInstanceOf(UserException.class)
                 .extracting(e -> ((UserException) e).getErrorCode())
                 .isEqualTo(UserErrorCode.DEVICE_OWNERSHIP_INVALID);
         // UUID.fromString 은 축약형도 받는다 — 정규 표기로 다시 쓰면 달라지므로 CAS 대조가 어긋난다.
-        assertThatThrownBy(() -> userSatelliteCommandService.recordDeviceTokenDeletion(
-                userId, new DeviceTokenDeletionRequest("fcm-logout", "1-1-1-1-1", null), "short-owner"))
+        assertThatThrownBy(() -> tx().execute(status -> userSatelliteCommandService.recordDeviceTokenDeletion(
+                userId, new DeviceTokenDeletionRequest("fcm-logout", "1-1-1-1-1", null), "short-owner")))
                 .isInstanceOf(UserException.class);
         assertThat(envelopes(userId, "notification.deviceToken.deleted")).isEmpty();
 
@@ -221,8 +221,8 @@ class SatelliteCoreContractIntegrationTest {
         assertThat(new LogoutRequest(login.refreshToken(), "fcm-logout", null, null).ownershipToken()).isNull();
 
         // 고친 값은 같은 유저·같은 키로 그대로 통과한다(깨진 본문이 멱등 지문으로 굳지 않았다).
-        userSatelliteCommandService.recordDeviceTokenDeletion(
-                userId, new DeviceTokenDeletionRequest("fcm-logout", OWNER, null), "bad-owner");
+        tx().execute(status -> userSatelliteCommandService.recordDeviceTokenDeletion(
+                userId, new DeviceTokenDeletionRequest("fcm-logout", OWNER, null), "bad-owner"));
         assertThat(envelopes(userId, "notification.deviceToken.deleted")).hasSize(1);
     }
 

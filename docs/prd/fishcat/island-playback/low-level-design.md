@@ -135,6 +135,8 @@ Idempotency-Key(UUID36) scope는 사용자+PATCH+islandId+playback operation, fi
 
 Data 내부 결과는 `{data:공개DTO,events:RealtimeEventEnvelope[]}`다. 아래 완성된 공개7필드 사건은 원 응답과 같은 TX에 저장한다. 기존 outbox10필드 저장 EventEnvelope는 별도 표현이며 이 내부 배열을 그 저장 DTO로 대체하지 않는다.
 
+> **GROMO-1953 정정(2026-09-19)** — 구현은 위와 다르게 간다. Data 내부 응답의 `events` 와 outbox REALTIME 전달 행은 다른 사건과 같은 **10필드 정본 `EventEnvelope`**(`subjectId`=섬·`version`=재생 version·`params`=위 payload)다. 앱이 받는 7필드는 realtime 이 `islandId←subjectId`·`aggregateVersion←version`·`payload←params` 로 옮겨 만든다. 정본: [outbox 발신 규약 §2.9](../../../conventions/outbox-events.md).
+
 ```json
 {"schemaVersion":1,"eventId":"019f16a0-0000-7000-8000-000000000004","type":"playback.updated","islandId":"019f16a0-0000-7000-8000-000000000001","aggregateVersion":1,"occurredAt":"2026-09-11T09:10:00Z","payload":{"trackId":"campfire","playing":true,"positionSeconds":0,"effectiveAt":"2026-09-11T09:10:00Z","changedBy":"019f16a0-0000-7000-8000-000000000003","version":1,"serverNow":"2026-09-11T09:10:00Z","durationSeconds":120.5}}
 ```

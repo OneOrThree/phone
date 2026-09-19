@@ -32,6 +32,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.outbox.dto.PublicCommandReceipt;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
+import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
@@ -298,7 +299,7 @@ public class AppearanceService implements IslandAppearancePort {
         }
 
         boolean changed = appearance.apply(clothes, decor, hull, position, clock.instant());
-        List<Map<String, Object>> envelopes = changed
+        List<EventEnvelope> envelopes = changed
                 ? events.memberChanged(userId, displayIslands(userId), appearance)
                 : List.of();
         return new PublicCommandResult(200, tree(personalView(appearance)), tree(envelopes));
@@ -357,7 +358,7 @@ public class AppearanceService implements IslandAppearancePort {
         }
 
         boolean changed = appearance.apply(themeId, buildingThemes, clock.instant());
-        List<Map<String, Object>> envelopes = changed
+        List<EventEnvelope> envelopes = changed
                 ? List.of(events.islandChanged(islandId, userId, appearance))
                 : List.of();
         return new PublicCommandResult(200, tree(islandView(appearance)), tree(envelopes));

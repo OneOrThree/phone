@@ -83,7 +83,7 @@ class IslandPlaybackEventsIntegrationTest {
     }
 
     @Test
-    @DisplayName("실제 변경만 playback.updated 1건 — aggregateVersion == payload.version, 무변경·재생은 사건이 없다")
+    @DisplayName("실제 변경만 playback.updated 1건 — 봉투 version == params.version, 무변경·재생은 사건이 없다")
     void realChangeWritesExactlyOneEvent() {
         User owner = users.save(User.builder().nickname("방장-" + UUID.randomUUID()).build());
         Group island = groups.save(Group.builder().name("섬").maxMembers(10).build());
@@ -103,10 +103,12 @@ class IslandPlaybackEventsIntegrationTest {
         assertThat(changed.events()).hasSize(1);
         Map<String, Object> envelope = changed.events().get(0);
         assertThat(envelope.get("type")).isEqualTo("playback.updated");
-        assertThat(envelope.get("islandId")).isEqualTo(islandId.toString());
-        assertThat(((Number) envelope.get("aggregateVersion")).longValue()).isEqualTo(1L);
+        // 정본 봉투 모양이다(GROMO-1953) — subjectId 는 전달 범위인 섬, version 은 재생 행이 매긴 값.
+        assertThat(envelope.get("subjectId")).isEqualTo(islandId.toString());
+        assertThat(envelope.get("userId")).isEqualTo(owner.getId().toString());
+        assertThat(((Number) envelope.get("version")).longValue()).isEqualTo(1L);
         @SuppressWarnings("unchecked")
-        Map<String, Object> payload = (Map<String, Object>) envelope.get("payload");
+        Map<String, Object> payload = (Map<String, Object>) envelope.get("params");
         assertThat(payload).containsEntry("trackId", "campfire")
                 .containsEntry("playing", true)
                 .containsEntry("changedBy", owner.getId().toString())
@@ -118,5 +120,10 @@ class IslandPlaybackEventsIntegrationTest {
         Long rows = jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE type = 'playback.updated' "
                 + "AND aggregate_id = ?", Long.class, islandId.toString());
         assertThat(rows).isEqualTo(1L);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM aggregate_versions WHERE aggregate_type = 'ISLAND_PLAYBACK'",
+                Long.class)).as("version 은 재생 행이 발급한다 — 발급 축을 따로 만들지 않는다").isZero();
+        assertThat(jdbc.queryForObject("SELECT payload->>'version' FROM event_outbox_deliveries d JOIN event_outbox o"
+                + " ON o.id = d.outbox_id WHERE o.type = 'playback.updated' AND o.aggregate_id = ?", String.class,
+                islandId.toString())).as("전달 행도 정본 봉투를 싣는다").isEqualTo("1");
     }
 }

@@ -19,6 +19,7 @@ import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalTime;
@@ -46,6 +47,12 @@ import java.util.UUID;
  * 두 명령을 부르는 자리가 둘이기 때문이다 — 내부 표면({@code /internal/*})과 <b>로그아웃</b>이다.
  * 로그아웃은 {@code auth} 도메인이고 내부 표면은 그보다 위라, 공통 조상인 {@code user}(모두가 참조할
  * 수 있는 바닥) 말고는 둘 다 닿을 수 있는 자리가 없다.
+ *
+ * <h2>봉투 변환만 한다 — 트랜잭션은 부르는 쪽 것이다</h2>
+ * {@code record*}·{@code patch*} 는 전부 {@code MANDATORY} 다(GROMO-1953). 로그아웃·탈퇴는 자기 트랜잭션 안에서
+ * 기기 토큰 삭제를 함께 커밋해야 하므로, 여기서 트랜잭션을 새로 열 수 있으면 「세션은 롤백됐는데 삭제 명령만
+ * 남는」 길이 생긴다. 내부 표면의 진입 트랜잭션은 {@code InternalDeviceTokenDeletionService}·
+ * {@code InternalNotificationSettingsService} 가 연다.
  *
  * <h2>{@code eventId} 는 순수 UUID 문자열이다</h2>
  * 명령 응답의 {@code commandId} 가 그 UUID 이고, 완료 표시는 그 값으로 온다(㊿). 접두사를 붙이면
@@ -119,14 +126,14 @@ public class UserSatelliteCommandService {
      * @throws UserException 소유권 값이 실렸는데 정규 UUID 표기가 아니면
      *     {@code DEVICE_OWNERSHIP_INVALID}(400)
      */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public EventEnvelope recordDeviceTokenDeletion(
             UUID userId, DeviceTokenDeletionRequest request, String idempotencyKey) {
         return recordDeviceTokenDeletion(userId, request, idempotencyKey, null);
     }
 
     /** 내부 표면에서 소유자를 검증한 세션 범위를 내구화한다. 명시한 토큰·CAS가 있으면 그 범위가 우선이다. */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public EventEnvelope recordDeviceTokenDeletion(
             UUID userId, DeviceTokenDeletionRequest request, String idempotencyKey, String bootstrapNonceHash) {
 
@@ -162,7 +169,7 @@ public class UserSatelliteCommandService {
     }
 
     /** 구 RT에 연결된 이관 기기만 삭제한다. 새 세션·bootstrap으로 다시 등록된 행은 대상이 아니다. */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public EventEnvelope recordLegacyLogoutDeviceTokenDeletion(UUID userId, String deviceToken, String key) {
         if (deviceToken == null || deviceToken.isBlank()) {
             throw new IllegalArgumentException("구 로그아웃의 대상 기기 토큰이 필요합니다.");
@@ -194,7 +201,7 @@ public class UserSatelliteCommandService {
      * @return 완성된 봉투
      * @throws UserException 설정 행이 없거나 이미 파기됐으면 {@code USER_NOT_FOUND}
      */
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
     public EventEnvelope recordNotificationSettings(
             UUID userId, NotificationSettingsRequest request, String idempotencyKey) {
         // 모든 설정 writer가 user → settings → aggregate 순서로 직렬화한다. 재생 전에도 탈퇴를 재검사한다.
@@ -241,7 +248,7 @@ public class UserSatelliteCommandService {
      * 공개 알림 토글만 바꾸고 같은 TX에 필드 mask·patch를 적는다.
      * 호출부는 서명된 세션을 검증하고 PublicCommandService로 결과를 내구 저장해야 한다.
      */
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    @Transactional(propagation = Propagation.MANDATORY)
     public EventEnvelope patchNotificationSettings(UUID userId, boolean enabled) {
         User user = userQueryService.getCallerForUpdate(userId);
         UserNotificationSettings settings = userQueryService.getNotificationSettingsForUpdate(userId);

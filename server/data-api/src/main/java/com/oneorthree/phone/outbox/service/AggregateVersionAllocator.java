@@ -86,6 +86,31 @@ public class AggregateVersionAllocator {
     }
 
     /**
+     * 현재 번호를 행 잠금 아래 읽는다 — 올리지 않고, 행이 없으면 만들지 않고 0 이다.
+     *
+     * <p>USER 축이면 {@link #allocate} 와 같은 잠금 순서 장부를 거친다 — 여기서 잡은 행도 커밋까지 쥐므로
+     * 장부 밖 획득이 되면 교착 감시가 눈이 먼다.
+     *
+     * @param aggregate 순서 축
+     * @return 마지막 발급 값. 발급 전이면 0
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public long current(AggregateRef aggregate) {
+        boolean user = AggregateRef.TYPE_USER.equals(aggregate.type());
+        if (user) {
+            lockOrderGuard.checkBeforeAcquire(lockOrderGuard.notYetHeld(List.of(aggregate.id())));
+        }
+        return aggregateVersionRepository.findForUpdate(aggregate.type(), aggregate.id())
+                .map(row -> {
+                    if (user) {
+                        lockOrderGuard.recordHeld(List.of(aggregate.id()));
+                    }
+                    return row.getLastVersion();
+                })
+                .orElse(0L);
+    }
+
+    /**
      * 여러 USER aggregate 행을 <b>정본 순서로 한 번에</b> 잠근다 — 번호는 발급하지 않는다.
      *
      * <p>fan-out 은 적기 전에 이것으로 수신자 전원을 선점한다. 이후 수신자마다 부르는 {@link #allocate}

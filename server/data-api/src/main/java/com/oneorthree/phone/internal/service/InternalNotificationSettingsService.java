@@ -15,10 +15,10 @@ import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
-import com.oneorthree.phone.outbox.repository.AggregateVersionRepository;
-import com.oneorthree.phone.outbox.repository.domain.AggregateVersion;
+import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
+import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -44,7 +44,16 @@ public class InternalNotificationSettingsService {
     private final AuthSessionService sessions;
     private final UserSatelliteCommandService settingsCommands;
     private final PublicCommandService publicCommands;
-    private final AggregateVersionRepository aggregateVersions;
+    private final OutboxCommandPort outbox;
+
+    /**
+     * 알림 설정 <b>전체 교체</b>의 내부 진입점 — 트랜잭션을 열고 {@code UserSatelliteCommandService} 의
+     * MANDATORY 명령을 부른다(GROMO-1953). 멱등 래핑·잠금 순서는 그쪽에 있다.
+     */
+    @Transactional
+    public EventEnvelope replace(UUID userId, NotificationSettingsRequest request, String idempotencyKey) {
+        return settingsCommands.recordNotificationSettings(userId, request, idempotencyKey);
+    }
 
     /** 동일 키는 최초 patch/baseline/version/result를 재생하며 현재 세션 권한은 항상 다시 검사한다. */
     @Transactional
@@ -80,8 +89,7 @@ public class InternalNotificationSettingsService {
     public NotificationSettingsSnapshotResponse snapshot(UUID userId, NotificationSettingsSnapshotRequest request) {
         User user = authorize(userId, request.sessionId(), request.authGeneration());
         UserNotificationSettings settings = currentSettings(userId);
-        long version = aggregateVersions.findForUpdate(AggregateRef.TYPE_USER, userId.toString())
-                .map(AggregateVersion::getLastVersion).orElse(0L);
+        long version = outbox.currentVersion(AggregateRef.ofUser(userId));
         return new NotificationSettingsSnapshotResponse(version, user.getAuthGeneration(),
                 UserSatelliteCommandService.snapshotOf(settings));
     }

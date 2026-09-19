@@ -185,6 +185,9 @@ class FocusSessionActivationIntegrationTest {
         assertThat(count("select count(*) from event_outbox where type='focus.member.updated' "
                 + "and params->>'sessionId'=? and params->>'status'='completed'", started.id().toString()))
                 .as("섬 목록에서 지우는 사건을 남긴다").isEqualTo(1);
+        assertThat(count("select count(*) from event_outbox where type in ('focus.member.updated','rest.member.updated')"
+                + " and params->>'sessionId'=? and subject_id is distinct from ?", started.id().toString(),
+                island.toString())).as("REALTIME 앱 사건의 subjectId 는 전달 범위인 섬이다(outbox 규약 §2.9)").isZero();
     }
 
     @Test

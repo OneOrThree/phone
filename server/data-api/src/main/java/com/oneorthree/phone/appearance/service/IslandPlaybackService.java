@@ -27,6 +27,7 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.outbox.dto.PublicCommandReceipt;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
+import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -179,7 +180,7 @@ public class IslandPlaybackService {
         }
 
         boolean changed = transition(playback, newTrack, playingIn, userId, t);
-        List<Map<String, Object>> envelopes = changed && eventsEnabled
+        List<EventEnvelope> envelopes = changed && eventsEnabled
                 ? List.of(events.playbackChanged(islandId, userId, playback.getVersion(),
                         payload(view(playback, t))))
                 : List.of();

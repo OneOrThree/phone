@@ -24,7 +24,7 @@ import java.util.function.Supplier;
  * </ol>
  *
  * <h2>호출 규약 — 전부 {@code @Transactional} 안에서</h2>
- * 세 메서드 모두 {@code Propagation.MANDATORY} 다. 트랜잭션 밖에서 부르면 즉시 예외로 죽는다 —
+ * 모든 메서드가 {@code Propagation.MANDATORY} 다. 트랜잭션 밖에서 부르면 즉시 예외로 죽는다 —
  * 「커밋과 함께 남는다」가 계약이라, 밖에서 불려 조용히 별도 트랜잭션으로 커밋되면 <b>도메인이
  * 롤백돼도 이벤트만 남는</b> 정확히 반대 방향의 유실이 생긴다.
  *
@@ -49,6 +49,35 @@ public interface OutboxCommandPort {
      *     실을 수 있다(㉵)
      */
     EventEnvelope append(OutboxAppendCommand command);
+
+    /**
+     * 봉투를 적되 {@code version} 을 <b>도메인 행이 이미 발급한 값</b>으로 쓴다 — {@code aggregate_versions} 를
+     * 건드리지 않는다 (GROMO-1953).
+     *
+     * <p>외양·재생처럼 도메인 행 자체가 잠금 아래 version 을 매기는 축 전용이다. 거기에 발급 축을 하나 더 두면
+     * 시계가 둘이 되어 공개 {@code payload.version} 과 봉투 {@code version} 이 어긋난다. 호출부는 그 도메인 행을
+     * <b>이 트랜잭션에서 배타 잠근 채</b> 불러야 한다 — 그 잠금이 곧 {@link #append(OutboxAppendCommand)} 의
+     * aggregate 잠금 역할이라, 번호 순서가 커밋 순서가 된다.
+     *
+     * <p>한 축에 두 경로를 섞지 않는다. {@code aggregate_versions} 가 발급하는 축(USER·LINK_MEMBERSHIP 등)에 쓰면
+     * 두 번호가 부딪혀 {@code uq_event_outbox_aggregate_version} 에 걸린다.
+     *
+     * @param command       적을 봉투와 나갈 대상들
+     * @param domainVersion 도메인 행이 발급한 단조 증가 값(1부터)
+     * @return 저장된 완성 봉투
+     */
+    EventEnvelope append(OutboxAppendCommand command, long domainVersion);
+
+    /**
+     * 순서 축의 <b>현재</b> version 을 행 잠금 아래 읽는다 — 번호를 올리지 않는다(행이 없으면 0).
+     *
+     * <p>스냅샷 응답이 「이 version 이후 사건만 적용하라」는 경계를 줄 때 쓴다. 잠그는 이유: 잠그지 않고 읽으면
+     * 진행 중인 명령이 커밋하기 전 값을 돌려줘, 그 명령의 사건이 경계 아래로 떨어져 버려진다.
+     *
+     * @param aggregate 순서 축
+     * @return 마지막으로 발급된 값. 아직 발급 전이면 0
+     */
+    long currentVersion(AggregateRef aggregate);
 
     /**
      * 순서용 version 을 발급한다 — <b>aggregate 행을 배타 잠금</b>한 채로.

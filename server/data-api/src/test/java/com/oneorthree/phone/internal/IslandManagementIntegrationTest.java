@@ -324,7 +324,9 @@ class IslandManagementIntegrationTest {
         Fixture f = fixture(true);
         UUID request = pendingRequest(f.islandId());
         UUID applicant = applicantOf(request);
-        long before = count("select count(*) from event_outbox where subject_id=?", request.toString());
+        // 요청 축은 aggregate id 다 — subjectId 는 전달 범위인 섬이다(outbox 규약 §2.9).
+        long before = count("select count(*) from event_outbox where aggregate_type='JOIN_REQUEST'"
+                + " and aggregate_id=?", request.toString());
 
         mvc.perform(patch("/internal/islands/" + f.islandId() + "/join-requests/" + request)
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", f.host())
@@ -337,8 +339,9 @@ class IslandManagementIntegrationTest {
 
         assertThat(requestStatus(request)).isEqualTo("APPROVED");
         assertThat(active(f.islandId(), applicant)).isTrue();
-        assertThat(count("select count(*) from event_outbox where subject_id=?"
-                + " and type='join.request.updated'", request.toString())).isEqualTo(before + 2);
+        assertThat(count("select count(*) from event_outbox where aggregate_type='JOIN_REQUEST'"
+                + " and aggregate_id=? and subject_id=? and type='join.request.updated'", request.toString(),
+                f.islandId().toString())).isEqualTo(before + 2);
         assertThat(count("select count(*) from event_outbox where subject_id=?"
                 + " and params->>'changeKind'='MEMBER_ADDED'", f.islandId().toString())).isEqualTo(1);
         assertThat(count("select count(*) from user_island_contexts where user_id=?"

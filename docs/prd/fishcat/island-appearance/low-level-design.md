@@ -173,6 +173,8 @@ A03은 GROMO-1909에서 **모든 선체 공통**으로 확정됐다 — 선체�
 
 Data의 두 외양 PATCH 내부 응답은 `{data:<공개 전체 외양 DTO>,events:[<완성 RealtimeEventEnvelope>...]}`다. events는 위 7필드 전체를 담으며, 개인 변경은 실제 표시 대상 섬별 `member.appearance.updated`, 공동 변경은 해당 섬의 `island.appearance.updated`다. 대상 섬이 없거나 실제 변경 없는 새 요청은 빈 배열이다. 작성 TX에서 확정한 data와 events를 함께 receipt에 저장하고 같은 키 재생에서 원 목록과 eventId/version을 복원한다. Business는 events로 즉시 전달 경로를 호출하며 앱에는 기존200 `{data}`만 반환한다. 실패한 즉시 전달은 같은 저장 사건의 relay가 복구한다. DB 재조회나 새 eventId로 봉투를 재구성하지 않으며 기존 10필드 저장용 EventEnvelope를 7필드 공개 사건으로 간주하지 않는다.
 
+> **GROMO-1953 정정(2026-09-19)** — 구현은 위와 다르게 간다. Data 내부 응답의 `events` 와 outbox REALTIME 전달 행은 다른 사건과 같은 **10필드 정본 `EventEnvelope`**(`subjectId`=섬·`version`=외양 version·`params`=위 payload)다. 앱이 받는 7필드는 realtime 이 `islandId←subjectId`·`aggregateVersion←version`·`payload←params` 로 옮겨 만든다. 정본: [outbox 발신 규약 §2.9](../../../conventions/outbox-events.md).
+
 개인외양을여러섬으로발행하면대상별eventId/envelope.islandId를갖고같은userappearanceversion을유지한다.
 지연된과거가입이벤트로이미권한이없는섬에전달하지않도록현재membership/수신자권한을최종검사한다.
 가입/탈퇴가동시에일어나놓친표시는도메인snapshot과새로고침으로복구한다.지연된event만으로새주민을만들지않는다.
