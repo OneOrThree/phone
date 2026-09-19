@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V60 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V64 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
 //
 // ── 규약 (GROMO-1912 — V1~V57 을 빈 postgres 에 적용한 실제 스키마와 전수 대조) ──
@@ -913,6 +913,50 @@ Table island_facilities [note: '섬 시설 (섬+buildingId 유일, LLD §4) — 
   }
 }
 
+Table catalog_assets [note: '카탈로그 불변 자산 정의 (GROMO-1783, island-appearance LLD §2, V64) — 상점(1781)의 asset definition 정본. 외양 적용은 판매 publication 이 아니라 이 불변 의미로 해석한다(퇴역해도 보유품 해석 유지). kind·owner_type·target_building 은 productId 수명 동안 불변 — 갱신 경로 없음. 레거시 items/character_equipment 는 이관하지 않는다'] {
+  product_id      varchar(80)  [pk]
+  title           varchar(120) [not null]
+  kind            varchar(20)  [not null, note: "clothes / decor / island_theme / building_theme / audio — CHECK catalog_assets_kind_check"]
+  owner_type      varchar(10)  [not null, note: "user / island — CHECK catalog_assets_owner_type_check. CHECK catalog_assets_kind_owner_check: clothes·decor ↔ user, island_theme·building_theme·audio ↔ island"]
+  target_building varchar(30)  [note: 'building_theme 만 대상 건물을 갖는다 — CHECK catalog_assets_target_building_check: (kind = building_theme) = (target_building IS NOT NULL)']
+  created_at      timestamptz  [not null, default: `now()`]
+}
+
+Table owned_products [note: '보유 상품 (GROMO-1783, V64) — (주인, 상품) 유일. 주인은 user 또는 island(groups) 정확히 하나. 지급·회수 writer 는 상점(1781). 외양 적용은 제출 상품의 보유 행을 FOR SHARE 로 잡은 뒤 외양 행을 잠근다(잠금 순서 카탈로그 → 보유 → 외양). raft 는 예약 표현이라 행을 만들지 않는다'] {
+  id          uuid         [pk]
+  owner_type  varchar(10)  [not null, note: "user / island — CHECK owned_products_owner_type_check. CHECK owned_products_owner_check: user 면 user_id 만, island 면 group_id 만 NOT NULL"]
+  user_id     uuid         [note: 'FK → users.id ON DELETE RESTRICT — owner_type=user 일 때만']
+  group_id    uuid         [note: 'FK → groups.id ON DELETE RESTRICT — owner_type=island 일 때만']
+  product_id  varchar(80)  [not null, note: 'FK → catalog_assets.product_id ON DELETE RESTRICT']
+  granted_ref varchar(120) [note: '주문 ID 또는 명시 지급 근거 — 구매 writer(1781)가 채운다']
+  granted_at  timestamptz  [not null, default: `now()`]
+
+  indexes {
+    (user_id, product_id)  [unique, name: 'uq_owned_products_user', note: '부분 유일 WHERE owner_type = user']
+    (group_id, product_id) [unique, name: 'uq_owned_products_island', note: '부분 유일 WHERE owner_type = island']
+    user_id  [name: 'idx_owned_products_user', note: '부분 인덱스 WHERE owner_type = user']
+    group_id [name: 'idx_owned_products_island', note: '부분 인덱스 WHERE owner_type = island']
+  }
+}
+
+Table personal_appearances [note: '개인 외양 (GROMO-1783, V64) — 유저당 1행의 전체 상태. 첫 writer 접근 때 INSERT ON CONFLICT DO NOTHING 으로 생긴다(행 없음 = 기본 외양, version 0). version 은 행 배타락 아래에서만 +1 — member.appearance.updated 의 aggregateVersion'] {
+  user_id    uuid        [pk, note: 'FK → users.id ON DELETE RESTRICT']
+  clothes    varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착']
+  decor      varchar(80) [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT. null = 미장착']
+  hull       varchar(20) [not null, default: 'raft', note: "CHECK hull = 'raft' — 배 종류 폐지(GROMO-1851). 상품이 아니라 예약 표현"]
+  position   varchar(10) [not null, default: 'front', note: 'front / back — CHECK']
+  version    bigint      [not null, default: 0]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table island_appearances [note: '섬 공동 외양 (GROMO-1783, V64) — 섬당 1행. building_themes 는 「완공 건물 → ThemeId|default」 전체 맵으로, key 집합 = 외양 대상 완공 건물 집합. writer 는 테마 PATCH(방장, expectedVersion)와 시설 완공(키 시드) 둘뿐이고 GET 은 즉석에서 채우지 않는다. V64 가 기존 섬 전부를 백필 — COMPLETED 시설 key 를 default 로 채우고 기존 key 는 보존(ON CONFLICT 재실행 멱등)'] {
+  island_id       uuid        [pk, note: 'FK → groups.id ON DELETE RESTRICT. V64 백필로 기존 섬 전부 생성']
+  island_theme_id varchar(80) [not null, default: 'default', note: "'default' 또는 island_theme 상품 ID — DB FK 없음(default 가 상품이 아니라서), 서비스가 카탈로그·보유를 검증"]
+  building_themes jsonb       [not null, default: `'{}'::jsonb`, note: '{buildingId: productId|default} — 부분 병합 PATCH 는 기존 key 만 갱신(미등록 key 422)']
+  version         bigint      [not null, default: 0, note: '행 배타락 아래에서만 +1 — island.appearance.updated 의 aggregateVersion 이자 PATCH expectedVersion 비교 대상']
+  updated_at      timestamptz [not null, default: `now()`]
+}
+
 Table group_announcements [note: '그룹 공지 — 섬 게시판 공지(GROMO-1771)의 저장소이기도 하다. 공지 version 은 컬럼이 아니라 aggregate_versions(NOTICE, id) — V66 이 기존 공지를 1 로 백필'] {
   id         uuid         [pk]
 
@@ -1487,6 +1531,15 @@ Ref: group_announcement_comments.author_id > users.id [delete: set null]
 Ref: group_invites.group_id > groups.id
 Ref: group_invites.inviter_id > users.id
 Ref: group_invites.invitee_id > users.id
+
+// 보유품·외양 (GROMO-1783, V64) — 전부 ON DELETE RESTRICT
+Ref: owned_products.user_id > users.id
+Ref: owned_products.group_id > groups.id
+Ref: owned_products.product_id > catalog_assets.product_id
+Ref: personal_appearances.user_id - users.id
+Ref: personal_appearances.clothes > catalog_assets.product_id
+Ref: personal_appearances.decor > catalog_assets.product_id
+Ref: island_appearances.island_id - groups.id
 
 // 현재 섬 컨텍스트 (GROMO-1907, V57)
 Ref: user_island_contexts.user_id - users.id [delete: cascade]
