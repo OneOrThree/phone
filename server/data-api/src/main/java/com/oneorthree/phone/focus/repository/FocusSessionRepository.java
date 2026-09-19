@@ -327,6 +327,14 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     Optional<Instant> findEndedAtById(@Param("id") UUID id);
 
     /**
+     * 집중 프레즌스 순번(GROMO-1743) — 엔티티를 들고 있지 않은 종료 경로가 리스 해제에 싣는다.
+     *
+     * @return 순번. 행이 없거나 V77 이전에 끝난 행이면 빈 값 — 프레즌스는 그때 아무것도 하지 않는다
+     */
+    @Query("SELECT s.presenceOrder FROM FocusSession s WHERE s.id = :id")
+    Optional<Long> findPresenceOrderById(@Param("id") UUID id);
+
+    /**
      * 원자적 마커 선점(GROMO-1214 코드리뷰 2차) — POST 폴백이 '이 마커에 대해 완료 행을 만든다'를 claim 한다.
      * 위 existsByIdAndUserAndStatus 는 insert 전 **존재 조회**일 뿐이라, PATCH 가 타임아웃돼 앱이 곧바로 POST 로
      * 폴백하면 아직 커밋 전인 PATCH 를 못 보고(ACTIVE) 통과해 두 완료 행이 나란히 커밋됐다(통계·지급 이중 계상).

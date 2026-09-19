@@ -1,6 +1,5 @@
 package com.oneorthree.phone.withdrawal.service;
 
-import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.port.FocusPresencePort;
@@ -18,6 +17,7 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -55,7 +55,7 @@ class AccountWithdrawalPresenceErasureIntegrationTest {
     void withdrawalErasesPresenceAndFencesLateWrites() {
         UUID w = guest();
         UUID other = guest();
-        UUID ended = sessionId();
+        Long ended = sessionId();
         presence.focusStarted(w, ended, Instant.now());
         presence.focusEnded(w, ended);                        // :closed 표식
         presence.focusStarted(w, sessionId(), Instant.now()); // 진행 중 리스
@@ -98,7 +98,10 @@ class AccountWithdrawalPresenceErasureIntegrationTest {
         return redis.keys("presence:withdrawn:" + userId).size();
     }
 
-    private static UUID sessionId() {
-        return Generators.timeBasedEpochGenerator().generate();
+    /** DB 순번을 흉내 낸다 — 먼저 뽑힌 것이 더 작다. */
+    private static final AtomicLong ORDER = new AtomicLong();
+
+    private static Long sessionId() {
+        return ORDER.incrementAndGet();
     }
 }

@@ -115,7 +115,7 @@ public class FocusMembershipLossService {
         appendRemoval(FOCUS_MEMBER_EVENT_TYPE, FOCUS_MEMBER_AGGREGATE_TYPE, detail, focusParams(detail,
                 activeSeconds, t));
         appendRemoval(REST_MEMBER_EVENT_TYPE, REST_MEMBER_AGGREGATE_TYPE, detail, restParams(detail, t));
-        focusPresencePort.focusEnded(userId, sessionId);
+        focusPresencePort.focusEnded(userId, focusSessionRepository.findPresenceOrderById(sessionId).orElse(null));
         log.info("소속 상실로 진행 집중 세션을 종결했습니다(FR-D03, 미정산). session={}, user={}, island={}",
                 sessionId, userId, islandId);
         return true;

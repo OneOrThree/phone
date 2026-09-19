@@ -18,6 +18,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.Generated;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
@@ -139,6 +140,20 @@ public class FocusSession {
 
     @Builder.Default
     private int totalDistractionSeconds = 0;
+
+    /**
+     * GROMO-1743: 집중 프레즌스 리스의 순서 판정 키 — DB 시퀀스가 INSERT 때 채운다(V77).
+     *
+     * <p>세션 id(UUID v7)의 앞자리는 id 를 만든 인스턴스의 벽시계라, 여러 대로 늘리면 순서가 어긋난다.
+     * 같은 사용자의 시작은 users 행 배타 락 아래서 INSERT 되므로 이 번호의 순서가 곧 커밋 순서다.
+     *
+     * <p>V77 이전에 끝난 행은 {@code null} 이다 — 읽는 쪽이 순서 판정을 건너뛴다. {@code bigserial} 은
+     * ci 의 create-drop 스키마에 시퀀스를 같이 만들게 하려는 선언이고, 운영 스키마(V77)는 널 허용
+     * {@code bigint DEFAULT nextval(...)} 이다(둘 다 BIGINT 라 validate 가 통과한다).
+     */
+    @Generated
+    @Column(name = "presence_order", insertable = false, updatable = false, columnDefinition = "bigserial")
+    private Long presenceOrder;
 
     /**
      * GROMO-671(커밋1): 세션 생성 시각.

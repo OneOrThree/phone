@@ -180,7 +180,7 @@ class FocusSessionLifecycleGuardsTest {
                 FocusRewardPolicy.builder().revision(1).secondsPerFish(60).dailyCapFish(480)
                         .personalSharePercent(0).build()));
         when(focusSessionRepository.save(any(FocusSession.class)))
-                .thenReturn(FocusSession.builder().id(sessionId).startedAt(NOW).build());
+                .thenReturn(FocusSession.builder().id(sessionId).startedAt(NOW).presenceOrder(42L).build());
         when(focusSessionDetailRepository.save(any(FocusSessionDetail.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
         when(outboxCommandPort.append(any())).thenAnswer(invocation -> envelope());
@@ -198,7 +198,7 @@ class FocusSessionLifecycleGuardsTest {
         assertThat(rest.type()).isEqualTo("rest.member.updated");
         assertThat(rest.params()).containsEntry("status", "active").containsEntry("restSeat", null)
                 .containsEntry("sessionId", sessionId.toString());
-        verify(focusPresencePort).focusStarted(USER, sessionId, NOW);
+        verify(focusPresencePort).focusStarted(USER, 42L, NOW);
         // 섬 → 멤버십 순으로 잠근다(선행 조건 #8) — context 잠금 뒤다.
         InOrder order = inOrder(userIslandContextLockService, membershipLocks, groupMemberRepository);
         order.verify(userIslandContextLockService).lock(caller);
@@ -291,6 +291,7 @@ class FocusSessionLifecycleGuardsTest {
         // 레거시 start 가 닫아 둔 마커.
         when(focusSessionRepository.findEndedAtById(SESSION))
                 .thenReturn(Optional.ofNullable(Instant.parse("2026-09-17T02:30:00Z")));
+        when(focusSessionRepository.findPresenceOrderById(SESSION)).thenReturn(Optional.of(7L));
         when(dailyFocusStatRepository.findByUserAndDate(any(), any())).thenReturn(Optional.empty());
 
         var summary = service(NOW).summary(USER, "2026-09-17", "Asia/Seoul");
@@ -301,7 +302,7 @@ class FocusSessionLifecycleGuardsTest {
         // 구간은 «정리 사건»의 activeSeconds 를 위해 한 번만 읽는다 — 합계에는 들어가지 않는다(위 0).
         verify(focusSessionIntervalRepository, times(1)).findBySessionIdOrderByOrdinalAsc(SESSION);
         // 끝난 세션이라 리스를 지운다(선행 조건 #5).
-        verify(focusPresencePort).focusEnded(USER, SESSION);
+        verify(focusPresencePort).focusEnded(USER, 7L);
     }
 
     // ── 5. 섬 소속 상실 ───────────────────────────────────────────────────────

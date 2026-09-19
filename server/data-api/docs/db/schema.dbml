@@ -665,6 +665,8 @@ Table focus_sessions [note: '개별 집중 세션 기록 (시작~종료, 이탈 
 
   total_distraction_seconds integer     [not null, default: 0, note: '집중 중 이탈 누적 시간(초)']
 
+  presence_order            bigint      [default: `nextval('focus_sessions_presence_order_seq')`, note: 'nullable — 집중 프레즌스 리스(presence:focus:{userId})의 순서 판정 키, DB 시퀀스가 INSERT 때 채운다 (GROMO-1743). UUID v7 id 는 인스턴스 시계라 다중화하면 순서가 어긋난다. V77 이전에 끝난 행은 NULL(열린 마커는 V77 이 백필) — 프레즌스가 순서 판정을 건너뛴다. migration V77']
+
   created_at         timestamptz        [default: `now()`, note: 'DB 는 NOT NULL 아님 — @CreationTimestamp']
 
   // (종전 note 가 광고하던 idx_focus_sessions_live 는 어느 마이그레이션에도 존재한 적이 없어

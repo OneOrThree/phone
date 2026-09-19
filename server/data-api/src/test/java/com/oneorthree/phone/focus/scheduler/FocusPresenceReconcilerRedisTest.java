@@ -53,7 +53,7 @@ class FocusPresenceReconcilerRedisTest {
                 UUID userId = UUID.randomUUID();
                 UUID sessionId = UUID.randomUUID();
                 String key = "presence:focus:" + userId;
-                FocusSession session = FocusSession.builder().id(sessionId)
+                FocusSession session = FocusSession.builder().id(sessionId).presenceOrder(1L)
                         .user(User.builder().id(userId).build()).startedAt(now.minusSeconds(60)).build();
                 FocusSessionRepository repository = mock(FocusSessionRepository.class);
                 // 종료 DEL 실패로 표식이 없고, 첫 조회 뒤 DB 종료가 커밋된 경우.
@@ -69,7 +69,7 @@ class FocusPresenceReconcilerRedisTest {
                         Clock.fixed(now, ZoneOffset.UTC));
 
                 reconciler.reconcilePeriodically();
-                assertThat(observer.opsForValue().get(key)).isEqualTo(sessionId.toString());
+                assertThat(observer.opsForValue().get(key)).isEqualTo("1");
                 reconciler.reconcilePeriodically();
                 assertThat(observer.hasKey(key))
                         .as("종료한 세션의 응답 타임아웃 리스도 다음 회차에서 회수되어야 한다")

@@ -25,26 +25,26 @@ import java.util.UUID;
 public class NoOpFocusPresence implements FocusPresencePort {
 
     @Override
-    public void focusStarted(UUID userId, UUID sessionId, Instant startedAt) {
-        log.debug("NoOp 프레즌스 — 집중 시작 무시, userId={} sessionId={}", userId, sessionId);
+    public void focusStarted(UUID userId, Long presenceOrder, Instant startedAt) {
+        log.debug("NoOp 프레즌스 — 집중 시작 무시, userId={} presenceOrder={}", userId, presenceOrder);
     }
 
     @Override
-    public boolean restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt) {
-        log.debug("NoOp 프레즌스 — 재구축 무시, userId={} sessionId={}", userId, sessionId);
+    public boolean restoreLeaseIfMissing(UUID userId, Long presenceOrder, Instant startedAt) {
+        log.debug("NoOp 프레즌스 — 재구축 무시, userId={} presenceOrder={}", userId, presenceOrder);
         return true;
     }
 
     @Override
-    public boolean releaseLeaseNow(UUID userId, UUID sessionId) {
-        log.debug("NoOp 프레즌스 — 재구축 해제 무시, userId={} sessionId={}", userId, sessionId);
+    public boolean releaseLeaseNow(UUID userId, Long presenceOrder) {
+        log.debug("NoOp 프레즌스 — 재구축 해제 무시, userId={} presenceOrder={}", userId, presenceOrder);
         // 다시 시도하게 두면 대기 목록이 영영 안 빈다 — 놓는 것이 없으니 지울 것도 없다.
         return true;
     }
 
     @Override
-    public void focusEnded(UUID userId, UUID sessionId) {
-        log.debug("NoOp 프레즌스 — 집중 종료 무시, userId={} sessionId={}", userId, sessionId);
+    public void focusEnded(UUID userId, Long presenceOrder) {
+        log.debug("NoOp 프레즌스 — 집중 종료 무시, userId={} presenceOrder={}", userId, presenceOrder);
     }
 
     @Override

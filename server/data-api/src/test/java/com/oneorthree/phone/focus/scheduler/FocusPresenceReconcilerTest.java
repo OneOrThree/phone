@@ -29,6 +29,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -99,8 +100,8 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort).restoreLeaseIfMissing(firstUser, first.getId(), first.getStartedAt());
-        verify(focusPresencePort).restoreLeaseIfMissing(secondUser, second.getId(), second.getStartedAt());
+        verify(focusPresencePort).restoreLeaseIfMissing(firstUser, first.getPresenceOrder(), first.getStartedAt());
+        verify(focusPresencePort).restoreLeaseIfMissing(secondUser, second.getPresenceOrder(), second.getStartedAt());
     }
 
     @Test
@@ -117,8 +118,8 @@ class FocusPresenceReconcilerTest {
 
         // 오래된 마커가 리스를 차지하면, 그 마커가 끝날 때 리스가 지워지는데 최신 마커는 아직 살아 있다
         // — 그 사람은 집중 중인데 다음 회차까지 채팅이 열린다.
-        verify(focusPresencePort).restoreLeaseIfMissing(userId, newer.getId(), newer.getStartedAt());
-        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), eq(older.getId()), any());
+        verify(focusPresencePort).restoreLeaseIfMissing(userId, newer.getPresenceOrder(), newer.getStartedAt());
+        verify(focusPresencePort, never()).restoreLeaseIfMissing(any(), eq(older.getPresenceOrder()), any());
     }
 
     @Test
@@ -221,10 +222,10 @@ class FocusPresenceReconcilerTest {
 
         reconciler(INLINE).onApplicationReady();
 
-        verify(focusPresencePort).restoreLeaseIfMissing(stillFocusing, open.getId(), open.getStartedAt());
-        verify(focusPresencePort).restoreLeaseIfMissing(justEnded, ended.getId(), ended.getStartedAt());
+        verify(focusPresencePort).restoreLeaseIfMissing(stillFocusing, open.getPresenceOrder(), open.getStartedAt());
+        verify(focusPresencePort).restoreLeaseIfMissing(justEnded, ended.getPresenceOrder(), ended.getStartedAt());
         // 끝난 쪽만 회수한다 — 진행 중인 쪽을 함께 풀면 규칙이 통째로 사라진다.
-        verify(focusPresencePort).releaseLeaseNow(justEnded, ended.getId());
+        verify(focusPresencePort).releaseLeaseNow(justEnded, ended.getPresenceOrder());
         verify(focusPresencePort, never()).releaseLeaseNow(eq(stillFocusing), any());
     }
 
@@ -263,7 +264,7 @@ class FocusPresenceReconcilerTest {
                 .willReturn(List.of(first, second));
         given(focusSessionRepository.findByIdInAndEndedAtIsNotNull(any()))
                 .willReturn(List.of(first, second));
-        willReturn(false).given(focusPresencePort).releaseLeaseNow(firstUser, first.getId());
+        willReturn(false).given(focusPresencePort).releaseLeaseNow(firstUser, first.getPresenceOrder());
 
         FocusPresenceReconciler reconciler = reconciler(INLINE);
         reconciler.reconcilePeriodically();
@@ -287,18 +288,18 @@ class FocusPresenceReconcilerTest {
         given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of(open));
         given(focusSessionRepository.findByIdInAndEndedAtIsNotNull(any())).willReturn(List.of(open));
         // 조회는 성공했는데 리스 삭제만 타임아웃 — Redis 가 간헐적으로 흔들릴 때의 모습이다.
-        given(focusPresencePort.releaseLeaseNow(userId, open.getId())).willReturn(false);
+        given(focusPresencePort.releaseLeaseNow(userId, open.getPresenceOrder())).willReturn(false);
 
         FocusPresenceReconciler reconciler = reconciler(INLINE);
         reconciler.reconcilePeriodically();
 
         // 다음 회차: 그 세션은 진행 중 조회에 안 잡힌다. 대기 목록이 잡아 주지 않으면 영영 끝이다.
         given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
-        willReturn(true).given(focusPresencePort).releaseLeaseNow(userId, open.getId());
+        willReturn(true).given(focusPresencePort).releaseLeaseNow(userId, open.getPresenceOrder());
 
         reconciler.reconcilePeriodically();
 
-        verify(focusPresencePort, times(2)).releaseLeaseNow(userId, open.getId());
+        verify(focusPresencePort, times(2)).releaseLeaseNow(userId, open.getPresenceOrder());
     }
 
     @Test
@@ -319,6 +320,7 @@ class FocusPresenceReconcilerTest {
         given(focusSessionRepository.findByEndedAtIsNullAndStartedAtAfter(any())).willReturn(List.of());
         FocusSession ended = openMarker(userId);
         ReflectionTestUtils.setField(ended, "id", open.getId());
+        ReflectionTestUtils.setField(ended, "presenceOrder", open.getPresenceOrder());
         // ⚠️ given(mock.call(...)) 형태로 «다시» 스텁하면 그 순간 실제 호출이 일어나 앞의 willThrow 가
         //    터진다. 이미 예외를 스텁해 둔 메서드는 반드시 willReturn(...).given(mock) 순서로 바꾼다.
         willReturn(List.of(ended)).given(focusSessionRepository).findByIdInAndEndedAtIsNotNull(any());
@@ -329,7 +331,7 @@ class FocusPresenceReconcilerTest {
         verify(focusSessionRepository, times(2)).findByIdInAndEndedAtIsNotNull(asked.capture());
         assertThat(asked.getAllValues().get(1)).contains(open.getId());
         // 그리고 실제로 회수된다.
-        verify(focusPresencePort).releaseLeaseNow(userId, open.getId());
+        verify(focusPresencePort).releaseLeaseNow(userId, open.getPresenceOrder());
     }
 
     @Test
@@ -353,7 +355,7 @@ class FocusPresenceReconcilerTest {
         // 기동 리스너와 달리 «제자리에서» 돈다 — 스케줄러 풀이 이미 별도 스레드다.
         reconciler(NEVER_RUNS).reconcilePeriodically();
 
-        verify(focusPresencePort).restoreLeaseIfMissing(userId, open.getId(), open.getStartedAt());
+        verify(focusPresencePort).restoreLeaseIfMissing(userId, open.getPresenceOrder(), open.getStartedAt());
     }
 
     @Test
@@ -367,9 +369,13 @@ class FocusPresenceReconcilerTest {
                 .extracting(SchedulerLock::name).isEqualTo("focus-presence-reconcile");
     }
 
+    /** DB 순번을 흉내 낸다 — 세션마다 다르다. */
+    private static final AtomicLong ORDER = new AtomicLong();
+
     private FocusSession markerStartedAt(UUID userId, java.time.Instant startedAt) {
         return FocusSession.builder()
                 .id(UUID.randomUUID())
+                .presenceOrder(ORDER.incrementAndGet())
                 .user(User.builder().id(userId).build())
                 .startedAt(startedAt)
                 .build();
@@ -378,6 +384,7 @@ class FocusPresenceReconcilerTest {
     private FocusSession openMarker(UUID userId) {
         return FocusSession.builder()
                 .id(UUID.randomUUID())
+                .presenceOrder(ORDER.incrementAndGet())
                 .user(User.builder().id(userId).build())
                 .startedAt(NOW.minusSeconds(600))
                 .build();

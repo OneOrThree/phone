@@ -1,6 +1,7 @@
 package com.oneorthree.phone.common.port;
 
 import com.fasterxml.uuid.Generators;
+import com.fasterxml.uuid.UUIDClock;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -17,7 +18,9 @@ import java.time.Duration;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -83,7 +86,7 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("시작하면 리스가 생기고, 그 세션이 끝나면 사라진다")
         void setAndClear() {
-            UUID session = sessionId();
+            Long session = sessionId();
 
             presence().focusStarted(userId, session, STARTED_AT);
             assertThat(redis.hasKey(key)).isTrue();
@@ -101,7 +104,7 @@ class RedisFocusPresenceTest {
         }
 
         @Test
-        @DisplayName("세션 id 가 없으면 아무것도 하지 않는다 — 어느 리스인지 모르는 채로 건드리지 않는다")
+        @DisplayName("순번이 없으면 아무것도 하지 않는다 — 어느 리스인지 모르는 채로 건드리지 않는다")
         void nullSessionIsNoop() {
             presence().focusStarted(userId, sessionId(), STARTED_AT);
 
@@ -118,18 +121,18 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("리스가 없으면 채운다 — 이게 「Redis 가 비었을 때」의 복구 경로다")
         void fillsWhenMissing() {
-            UUID session = sessionId();
+            Long session = sessionId();
 
             presence().restoreLeaseIfMissing(userId, session, STARTED_AT);
 
-            assertThat(redis.opsForValue().get(key)).isEqualTo(session.toString());
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(session));
             assertThat(redis.getExpire(key)).isNotNull().isPositive();
         }
 
         @Test
         @DisplayName("이미 있는 리스는 «값도 수명도» 건드리지 않는다 — 주기 실행이 TTL 을 밀면 차단 창이 두 배가 된다")
         void neverTouchesAnExistingLease() {
-            UUID live = sessionId();
+            Long live = sessionId();
             presence().focusStarted(userId, live, STARTED_AT);
             // 남은 수명을 눈에 띄게 줄여 둔다 — 「밀지 않았다」를 관측하려면 기준선이 달라야 한다.
             redis.expire(key, Duration.ofMinutes(30));
@@ -137,14 +140,14 @@ class RedisFocusPresenceTest {
 
             presence().restoreLeaseIfMissing(userId, sessionId(), STARTED_AT);
 
-            assertThat(redis.opsForValue().get(key)).isEqualTo(live.toString());
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(live));
             assertThat(redis.getExpire(key)).isNotNull().isLessThanOrEqualTo(before);
         }
 
         @Test
         @DisplayName("조회와 쓰기 사이에 끝난 세션은 되살리지 않는다 — 「끝났다」 표식이 막는다")
         void doesNotResurrectASessionThatEndedMeanwhile() {
-            UUID session = sessionId();
+            Long session = sessionId();
             presence().focusStarted(userId, session, STARTED_AT);
             presence().focusEnded(userId, session);
 
@@ -157,18 +160,18 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("그 뒤 시작된 «더 새로운» 집중은 정상적으로 재구축된다 — 표식이 영구 차단이 되면 안 된다")
         void restoresANewerSessionAfterAnEnd() {
-            UUID ended = sessionId();
+            Long ended = sessionId();
             presence().focusStarted(userId, ended, STARTED_AT);
             presence().focusEnded(userId, ended);
 
-            UUID newer = sessionId();
+            Long newer = sessionId();
             presence().restoreLeaseIfMissing(userId, newer, STARTED_AT);
 
-            assertThat(redis.opsForValue().get(key)).isEqualTo(newer.toString());
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(newer));
         }
 
         @Test
-        @DisplayName("세션 id 가 없으면 아무것도 하지 않는다")
+        @DisplayName("순번이 없으면 아무것도 하지 않는다")
         void nullSessionIsNoop() {
             presence().restoreLeaseIfMissing(userId, null, STARTED_AT);
 
@@ -207,7 +210,7 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("지우고 true 를 돌려준다")
         void deletesAndReportsSuccess() {
-            UUID session = sessionId();
+            Long session = sessionId();
             presence().focusStarted(userId, session, STARTED_AT);
 
             assertThat(presence().releaseLeaseNow(userId, session)).isTrue();
@@ -217,15 +220,15 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("지울 것이 없어도 true 다 — 그 사이 새 집중이 주인이 됐으면 «안 지우는 것»이 옳다")
         void nothingToDeleteIsStillSuccess() {
-            // UUID v7 이라 «먼저 뽑힌 것이 더 오래된» id 다.
-            UUID olderSession = sessionId();
-            UUID newerSession = sessionId();
+            // 순번이라 «먼저 뽑힌 것이 더 오래된» 세션이다.
+            Long olderSession = sessionId();
+            Long newerSession = sessionId();
             // 그 사이 새 집중이 시작해 리스 주인이 «더 새로운» 세션으로 바뀐 상황.
             presence().focusStarted(userId, newerSession, STARTED_AT);
 
             // 옛 세션의 해제는 그 리스를 건드리면 안 된다 — 그래도 재시도할 이유가 없으므로 성공이다.
             assertThat(presence().releaseLeaseNow(userId, olderSession)).isTrue();
-            assertThat(redis.opsForValue().get(key)).isEqualTo(newerSession.toString());
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(newerSession));
         }
 
         @Test
@@ -243,7 +246,7 @@ class RedisFocusPresenceTest {
         }
 
         @Test
-        @DisplayName("세션 id 가 없으면 true 다 — 다시 시도해도 지울 대상을 알 수 없다")
+        @DisplayName("순번이 없으면 true 다 — 다시 시도해도 지울 대상을 알 수 없다")
         void unknownSessionIsNotRetried() {
             assertThat(presence().releaseLeaseNow(userId, null)).isTrue();
         }
@@ -268,7 +271,7 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("시작 경로도 같다 — 이미 열려 있던 «오래된» 마커에 전체 수명을 다시 주지 않는다")
         void startAlsoGivesOnlyTheRemainingLife() {
-            // 순서 역전 방어 경로는 새 마커를 만들지 않고 «열려 있던» 마커의 id 를 싣는다.
+            // 순서 역전 방어 경로는 새 마커를 만들지 않고 «열려 있던» 마커의 순번을 싣는다.
             presence().focusStarted(userId, sessionId(), NOW.minus(Duration.ofHours(10)));
 
             assertThat(redis.getExpire(key)).isNotNull().isBetween(Duration.ofMinutes(175).toSeconds(),
@@ -340,7 +343,7 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("«이미 끝난 세션»의 지연된 시작은 리스를 되살리지 못한다 — 되살면 13시간 차단이다")
         void lateStartCannotResurrect() {
-            UUID session = sessionId();
+            Long session = sessionId();
             presence().focusStarted(userId, session, STARTED_AT);
             presence().focusEnded(userId, session);
 
@@ -353,39 +356,39 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("옛 세션의 지연된 종료는 «새 집중»의 리스를 지우지 못한다")
         void lateEndCannotClearNewerLease() {
-            UUID older = sessionId();
-            UUID newer = sessionId();
+            Long older = sessionId();
+            Long newer = sessionId();
             presence().focusStarted(userId, older, STARTED_AT);
             presence().focusStarted(userId, newer, STARTED_AT);
 
             presence().focusEnded(userId, older);
 
             assertThat(redis.hasKey(key)).isTrue();
-            assertThat(redis.opsForValue().get(key)).isEqualTo(newer.toString());
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(newer));
         }
 
         @Test
         @DisplayName("옛 세션의 지연된 시작은 «새 집중»의 리스를 덮어쓰지 못한다")
         void lateStartCannotOverwriteNewerLease() {
-            UUID older = sessionId();
-            UUID newer = sessionId();
+            Long older = sessionId();
+            Long newer = sessionId();
             presence().focusStarted(userId, newer, STARTED_AT);
 
             presence().focusStarted(userId, older, STARTED_AT);
 
-            assertThat(redis.opsForValue().get(key)).isEqualTo(newer.toString());
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(newer));
         }
 
         @Test
         @DisplayName("회전 중 쓰기가 실패해 남은 «이미 닫힌» 옛 리스를, 새 세션의 종료가 치운다")
         void newerEndClearsStaleOlderLease() {
             // 뽀모도로 회전: 이전 마커를 닫고 새 마커를 여는데, 그 사이 새 세션의 SET 이 실패해
-            // 키에 «이미 닫힌» 이전 세션 id 가 남은 상황을 만든다. 그 마커는 종료됐으니 고아 스윕
+            // 키에 «이미 닫힌» 이전 세션 순번이 남은 상황을 만든다. 그 마커는 종료됐으니 고아 스윕
             // 대상도 아니라, 엄격한 동일 비교로는 아무도 이 키를 못 지운다 — 최대 13시간 차단이다.
-            UUID stale = sessionId();
+            Long stale = sessionId();
             presence().focusStarted(userId, stale, STARTED_AT);
 
-            UUID current = sessionId();
+            Long current = sessionId();
             // (current 의 SET 이 실패했다고 가정 — 일부러 부르지 않는다)
             presence().focusEnded(userId, current);
 
@@ -395,26 +398,89 @@ class RedisFocusPresenceTest {
         @Test
         @DisplayName("종료 → 새 시작 순서는 정상적으로 새 리스를 놓는다 — 표식이 정상 재시작을 막으면 안 된다")
         void restartAfterEndStillWorks() {
-            UUID first = sessionId();
+            Long first = sessionId();
             presence().focusStarted(userId, first, STARTED_AT);
             presence().focusEnded(userId, first);
 
-            UUID second = sessionId();
+            Long second = sessionId();
             presence().focusStarted(userId, second, STARTED_AT);
 
-            assertThat(redis.opsForValue().get(key)).isEqualTo(second.toString());
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(second));
         }
 
         @Test
         @DisplayName("같은 세션의 재시작은 TTL 을 갱신한다 — 순서 역전 방어 경로가 그렇게 부른다")
         void sameSessionRefreshesLease() {
-            UUID session = sessionId();
+            Long session = sessionId();
             presence().focusStarted(userId, session, STARTED_AT);
 
             assertThatCode(() -> presence().focusStarted(userId, session, STARTED_AT)).doesNotThrowAnyException();
 
-            assertThat(redis.opsForValue().get(key)).isEqualTo(session.toString());
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(session));
             assertThat(redis.getExpire(key)).isNotNull().isPositive();
+        }
+    }
+
+    @Nested
+    @DisplayName("순서의 근거는 DB 순번이다 — 인스턴스 시계가 아니다 (GROMO-1743)")
+    class DbOrderNotInstanceClock {
+
+        @Test
+        @DisplayName("시계가 어긋난 두 인스턴스가 쓴 시작·종료도 «DB 순번이 더 큰 쪽»이 이긴다")
+        void newerDbOrderWinsDespiteSkewedClocks() {
+            // 인스턴스 A 의 시계는 1분 앞서고 B 는 정확하다. A 가 «먼저» 세션을 만들고(DB 순번 작음),
+            // B 가 «나중에» 만든다(DB 순번 큼). 세션 id(UUID v7)로 비교했다면 A 의 옛 세션이 더 새로워 보인다.
+            UUID olderIdFromFastClock = uuidV7At(NOW.plus(Duration.ofMinutes(1)));
+            UUID newerIdFromTrueClock = uuidV7At(NOW);
+            assertThat(olderIdFromFastClock.toString()).isGreaterThan(newerIdFromTrueClock.toString());
+            Long olderOrder = sessionId();
+            Long newerOrder = sessionId();
+
+            // B 의 새 시작 → A 의 옛 시작이 늦게 도착 → A 의 옛 종료가 늦게 도착.
+            presence().focusStarted(userId, newerOrder, STARTED_AT);
+            presence().focusStarted(userId, olderOrder, STARTED_AT);
+            presence().focusEnded(userId, olderOrder);
+
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(newerOrder));
+
+            presence().focusEnded(userId, newerOrder);
+            assertThat(redis.hasKey(key)).isFalse();
+        }
+
+        @Test
+        @DisplayName("순번은 «숫자»로 비교한다 — 문자열이면 9 가 10 보다 커 보인다")
+        void comparesNumericallyAcrossDigitBoundary() {
+            presence().focusStarted(userId, 10L, STARTED_AT);
+
+            presence().focusStarted(userId, 9L, STARTED_AT);
+            presence().focusEnded(userId, 9L);
+
+            assertThat(redis.opsForValue().get(key)).isEqualTo("10");
+        }
+
+        @Test
+        @DisplayName("배포 전 값(세션 id 문자열)은 어떤 순번보다 오래된 값이다 — 새 시작은 덮고 새 종료는 지운다")
+        void legacyUuidValueIsOlderThanAnyOrder() {
+            String legacy = uuidV7At(NOW).toString();
+            redis.opsForValue().set(key, legacy, Duration.ofHours(1));
+            redis.opsForValue().set(key + ":closed", legacy, Duration.ofMinutes(5));
+
+            Long order = sessionId();
+            presence().focusStarted(userId, order, STARTED_AT);
+            assertThat(redis.opsForValue().get(key)).isEqualTo(String.valueOf(order));
+
+            redis.opsForValue().set(key, legacy, Duration.ofHours(1));
+            presence().focusEnded(userId, sessionId());
+            assertThat(redis.hasKey(key)).isFalse();
+        }
+
+        private UUID uuidV7At(Instant at) {
+            return Generators.timeBasedEpochGenerator(new Random(), new UUIDClock() {
+                @Override
+                public long currentTimeMillis() {
+                    return at.toEpochMilli();
+                }
+            }).generate();
         }
     }
 
@@ -462,17 +528,10 @@ class RedisFocusPresenceTest {
         return new RedisFocusPresence(redis, CLOCK);
     }
 
-    /**
-     * 세션 id 는 <b>UUID v7 이어야</b> 하고, <b>생성기를 공유해야</b> 한다.
-     *
-     * <p>v4 면 「문자열 사전순 = 시간 순서」가 성립하지 않아 순서 테스트가 무의미해지고,
-     * v7 이라도 <b>호출마다 새 생성기를 만들면 같은 밀리초 안에서 절반이 역전한다</b>(실측: 20,000건 중
-     * 9,993건). 이 클래스의 테스트는 연속 두 호출의 대소를 단언하므로, 그러면 무작위로 깨진다.
-     */
-    private static final com.fasterxml.uuid.impl.TimeBasedEpochGenerator ID_GENERATOR =
-            Generators.timeBasedEpochGenerator();
+    /** DB 시퀀스를 흉내 낸다 — 먼저 뽑힌 것이 더 작다. 9 → 10 자리수 경계도 지나가게 8 에서 시작한다. */
+    private static final AtomicLong ORDER = new AtomicLong(8);
 
-    private static UUID sessionId() {
-        return ID_GENERATOR.generate();
+    private static Long sessionId() {
+        return ORDER.incrementAndGet();
     }
 }

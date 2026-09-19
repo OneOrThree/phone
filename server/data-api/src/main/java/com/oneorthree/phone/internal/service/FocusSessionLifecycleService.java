@@ -244,7 +244,9 @@ public class FocusSessionLifecycleService {
                     EventEnvelope restEvent = appendRestMemberEvent(userId, islandId, session.getId(),
                             FocusSessionView.STATUS_ACTIVE, null, null, now, detail.getVersion());
                     // 반영은 커밋 이후다(RedisFocusPresence) — 롤백된 start 는 리스를 남기지 않는다.
-                    focusPresencePort.focusStarted(userId, session.getId(), now);
+                    // 순번은 INSERT 때 DB 시퀀스가 채운다(GROMO-1743) — 쓰기 지연을 여기서 내보내야 보인다.
+                    focusSessionRepository.flush();
+                    focusPresencePort.focusStarted(userId, session.getPresenceOrder(), now);
                     return new PublicCommandResult(201, tree(view), tree(List.of(event, restEvent)));
                 }).value().data();
         return decode(data, FocusSessionView.class);
@@ -497,7 +499,7 @@ public class FocusSessionLifecycleService {
         if (island > 0) {
             events.add(islandWalletEvents.changed(islandId, userId, "FOCUS_REWARD"));
         }
-        focusPresencePort.focusEnded(userId, sessionId);
+        focusPresencePort.focusEnded(userId, marker.getPresenceOrder());
         return new PublicCommandResult(200, tree(finishView(detail, settlement)), tree(events));
     }
 
@@ -731,7 +733,8 @@ public class FocusSessionLifecycleService {
                 detail.getSubject(), FocusIntervalMath.activeSecondsAsOf(intervals, t), t, detail.getVersion());
         appendRestMemberEvent(detail.getUserId(), detail.getIslandId(), detail.getSessionId(), STATUS_ENDED,
                 null, null, t, detail.getVersion());
-        focusPresencePort.focusEnded(detail.getUserId(), detail.getSessionId());
+        focusPresencePort.focusEnded(detail.getUserId(),
+                focusSessionRepository.findPresenceOrderById(detail.getSessionId()).orElse(null));
         return true;
     }
 
