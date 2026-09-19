@@ -23,7 +23,7 @@ public interface IslandQuestOccurrenceRepository extends JpaRepository<IslandQue
 
     boolean existsByQuestIdAndOccurrenceDate(UUID questId, LocalDate occurrenceDate);
 
-    /** 섬의 날짜 구간 회차 — 현재 목록(어제·오늘)을 고른다. 판정은 호출측이 closesAt 으로 한다. */
+    /** 섬의 날짜 구간 회차 — 현재 목록(어제·오늘)을 고른다. 판정은 호출측이 claimDeadline 으로 한다. */
     List<IslandQuestOccurrence> findByIslandIdAndOccurrenceDateBetweenOrderByOccurrenceDateAscCreatedAtAsc(
             UUID islandId, LocalDate from, LocalDate to);
 

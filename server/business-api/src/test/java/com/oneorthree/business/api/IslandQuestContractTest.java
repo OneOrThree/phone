@@ -199,7 +199,8 @@ class IslandQuestContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @CsvSource({"422,QUEST_TITLE_OUT_OF_RANGE,422,OUT_OF_RANGE,title",
+    @CsvSource({"422,QUEST_TYPE_OUT_OF_RANGE,422,OUT_OF_RANGE,type",
+            "422,QUEST_TITLE_OUT_OF_RANGE,422,OUT_OF_RANGE,title",
             "422,QUEST_TARGET_OUT_OF_RANGE,422,OUT_OF_RANGE,targetMinutes",
             "422,QUEST_WINDOW_OUT_OF_RANGE,422,OUT_OF_RANGE,windowEnd",
             "400,QUEST_INVALID_TIMEZONE,400,INVALID_PARAMETER,timezone",

@@ -110,7 +110,7 @@ public class IslandQuestService {
     // ---------------------------------------------------------------- 조회
 
     /**
-     * 현재 회차 목록 — 어제·오늘 회차 중 아직 닫히지 않은 것({@link IslandQuestOccurrence#closesAt}).
+     * 현재 회차 목록 — 어제·오늘 회차 중 아직 닫히지 않은 것({@link IslandQuestOccurrence#claimDeadline}).
      * 한 스냅샷(REPEATABLE READ)에서 회차·cohort·측정을 읽는다. GET 은 판정만 하고 정산하지 않는다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
@@ -122,7 +122,7 @@ public class IslandQuestService {
         for (IslandQuestOccurrence occurrence : occurrences
                 .findByIslandIdAndOccurrenceDateBetweenOrderByOccurrenceDateAscCreatedAtAsc(
                         islandId, today.minusDays(1), today)) {
-            if (now.isBefore(occurrence.closesAt())) {
+            if (now.isBefore(occurrence.claimDeadline())) {
                 items.add(header(occurrence, judge.judge(occurrence, now), userId));
             }
         }
@@ -137,7 +137,7 @@ public class IslandQuestService {
         Instant now = clock.instant();
         IslandQuestOccurrence occurrence = occurrences.findById(occurrenceId)
                 .filter(o -> o.getQuestId().equals(questId) && o.getIslandId().equals(islandId))
-                .filter(o -> now.isBefore(o.closesAt()))
+                .filter(o -> now.isBefore(o.claimDeadline()))
                 .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_OCCURRENCE_NOT_FOUND));
         IslandQuestJudge.Judgement judgement = judge.judge(occurrence, now);
         List<QuestViews.Member> list = judgement.rows().stream()
@@ -162,6 +162,7 @@ public class IslandQuestService {
         requireTimezone(timezone);
         QuestType type = QuestType.fromWire(rawType)
                 .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_INVALID_REQUEST));
+        requireSupported(type);
         String title = title(rawTitle);
         int target = target(targetMinutes);
         LocalTime windowStart = null;
@@ -228,6 +229,7 @@ public class IslandQuestService {
                     users.getCallerForUpdate(userId);
                     requireOwnerWriter(islandId, userId);
                     IslandQuest quest = requireQuest(islandId, questId);
+                    requireSupported(quest.getType());
                     if (target != null && quest.getType() == QuestType.FOCUS) {
                         requireTargetFits(target, quest.getWindowStart(), quest.getWindowEnd());
                     }
@@ -268,7 +270,7 @@ public class IslandQuestService {
                             .filter(o -> o.getQuestId().equals(questId) && o.getIslandId().equals(islandId))
                             .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_OCCURRENCE_NOT_FOUND));
                     Instant now = clock.instant();
-                    if (occurrence.isClaimed() || !now.isBefore(occurrence.closesAt())) {
+                    if (occurrence.isClaimed() || !now.isBefore(occurrence.claimDeadline())) {
                         throw new QuestException(QuestErrorCode.QUEST_STATE_CONFLICT);
                     }
                     if (expectedVersion != occurrence.getVersion()) {
@@ -414,6 +416,16 @@ public class IslandQuestService {
     private static void requireTimezone(String timezone) {
         if (timezone != null && !QuestViews.TIMEZONE.equals(timezone)) {
             throw new QuestException(QuestErrorCode.QUEST_INVALID_TIMEZONE);
+        }
+    }
+
+    /**
+     * screen 퀘스트는 받지 않는다 — 스크린타임 하루 값의 날짜가 KST 라벨({@code ScreenTimeService} 의 보고 시각 KST
+     * 환산)이라 UTC 회차로 읽으면 측정 창이 9시간 밀린다. 저장 축이 UTC 로 바뀌는 1930 전까지 422(결정 Q-6 보완).
+     */
+    private static void requireSupported(QuestType type) {
+        if (type == QuestType.SCREEN) {
+            throw new QuestException(QuestErrorCode.QUEST_TYPE_OUT_OF_RANGE);
         }
     }
 

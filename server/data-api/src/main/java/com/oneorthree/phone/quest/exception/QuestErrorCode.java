@@ -30,6 +30,12 @@ public enum QuestErrorCode implements ErrorCode {
     /** timezone 은 생략 또는 UTC 만(결정 Q-6). */
     QUEST_INVALID_TIMEZONE(HttpStatus.BAD_REQUEST, "지원하지 않는 시간대입니다."),
 
+    /**
+     * 아직 받지 않는 종류 — screen 퀘스트. 스크린타임 하루 값({@code daily_screen_time_stats.date})이 KST 라벨이라
+     * UTC 회차와 9시간 어긋나므로 날짜 축 UTC 전환(1930) 전까지 생성·수정하지 않는다(결정 Q-6 보완).
+     */
+    QUEST_TYPE_OUT_OF_RANGE(HttpStatus.UNPROCESSABLE_ENTITY, "지금은 만들 수 없는 퀘스트 종류입니다."),
+
     QUEST_TITLE_OUT_OF_RANGE(HttpStatus.UNPROCESSABLE_ENTITY, "퀘스트 이름 길이가 허용 범위를 벗어났습니다."),
 
     QUEST_TARGET_OUT_OF_RANGE(HttpStatus.UNPROCESSABLE_ENTITY, "목표 시간이 허용 범위를 벗어났습니다."),

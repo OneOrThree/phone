@@ -43,8 +43,8 @@ import java.util.UUID;
 @AllArgsConstructor
 public class IslandQuestOccurrence {
 
-    /** 스크린타임 측정 유예 — 다음 날 12:00 UTC 까지 보고를 받는다(결정 Q-5). */
-    private static final LocalTime SCREEN_GRACE = LocalTime.NOON;
+    /** 다음 날 12:00 UTC — 스크린타임 보고 유예 끝(결정 Q-5)이자 focus 수령 마감. */
+    private static final LocalTime NEXT_DAY_NOON = LocalTime.NOON;
 
     @Id
     @GeneratedUuidV7
@@ -114,20 +114,25 @@ public class IslandQuestOccurrence {
 
     /** 스크린타임 보고 유예 끝 — 이 시각 이후 보고 없는 주민은 측정 불가로 분모에서 빠진다. */
     public Instant screenGraceEndsAt() {
-        return occurrenceDate.plusDays(1).atTime(SCREEN_GRACE).toInstant(ZoneOffset.UTC);
+        return nextDayNoon();
     }
 
     /**
-     * 이 회차가 «현재»(조회·수령 가능)인 마지막 순간(제외).
+     * 수령 마감 — 이 회차가 «현재»(조회·수령 가능)인 마지막 순간(제외).
      *
-     * <p>focus 는 다음 날 12:00 UTC 까지 — 달성은 창 안에서 끝나지만 수령에 반나절 여유를 준다.
-     * screen 은 측정 유예(다음 날 12:00)가 끝난 뒤에야 측정 불가자를 확정할 수 있으므로 그다음 자정
-     * (date+2 00:00 UTC)까지다. 이 경계를 지나면 회차는 과거가 되어 조회·수령이 닫힌다(LLD §6 과거 없음).
+     * <p>focus 는 다음 날 12:00 UTC 까지 — 달성은 창 안에서 끝나지만 수령에 반나절 여유를 준다(스크린타임
+     * 유예와 시각만 같을 뿐 다른 규칙이다). screen 은 측정 유예(다음 날 12:00)가 끝난 뒤에야 측정 불가자를
+     * 확정할 수 있으므로 그다음 자정(date+2 00:00 UTC)까지다. 이 경계를 지나면 회차는 과거가 되어
+     * 조회·수령이 닫힌다(LLD §6 과거 없음).
      */
-    public Instant closesAt() {
+    public Instant claimDeadline() {
         return type == QuestType.FOCUS
-                ? screenGraceEndsAt()
+                ? nextDayNoon()
                 : occurrenceDate.plusDays(2).atStartOfDay().toInstant(ZoneOffset.UTC);
+    }
+
+    private Instant nextDayNoon() {
+        return occurrenceDate.plusDays(1).atTime(NEXT_DAY_NOON).toInstant(ZoneOffset.UTC);
     }
 
     /** 정산 확정 — 같은 TX 에서 발급한 quest.progress version 을 싣는다. */

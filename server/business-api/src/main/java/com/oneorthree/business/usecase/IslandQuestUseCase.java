@@ -38,6 +38,8 @@ public class IslandQuestUseCase {
             Map.entry("QUEST_INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)),
             Map.entry("INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)),
             Map.entry("QUEST_INVALID_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")),
+            // screen 퀘스트는 스크린타임 날짜 축 UTC 전환(1930) 전까지 받지 않는다.
+            Map.entry("QUEST_TYPE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "type")),
             Map.entry("QUEST_TITLE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "title")),
             Map.entry("QUEST_TARGET_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "targetMinutes")),
             Map.entry("QUEST_WINDOW_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "windowEnd")),

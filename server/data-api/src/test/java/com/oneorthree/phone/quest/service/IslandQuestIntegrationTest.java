@@ -24,9 +24,10 @@ import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.quest.dto.QuestViews;
 import com.oneorthree.phone.quest.exception.QuestErrorCode;
 import com.oneorthree.phone.quest.exception.QuestException;
+import com.oneorthree.phone.quest.repository.IslandQuestRepository;
+import com.oneorthree.phone.quest.repository.domain.IslandQuest;
+import com.oneorthree.phone.quest.repository.domain.QuestType;
 import com.oneorthree.phone.quest.scheduler.IslandQuestScheduler;
-import com.oneorthree.phone.screentime.repository.DailyScreenTimeStatRepository;
-import com.oneorthree.phone.screentime.repository.domain.DailyScreenTimeStat;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.BeforeEach;
@@ -82,6 +83,8 @@ class IslandQuestIntegrationTest {
     @Autowired
     IslandQuestScheduler scheduler;
     @Autowired
+    IslandQuestRepository quests;
+    @Autowired
     UserRepository users;
     @Autowired
     GroupRepository groups;
@@ -95,8 +98,6 @@ class IslandQuestIntegrationTest {
     FocusSessionDetailRepository details;
     @Autowired
     FocusSessionIntervalRepository intervals;
-    @Autowired
-    DailyScreenTimeStatRepository screenStats;
     @Autowired
     JdbcTemplate jdbc;
     @Autowired
@@ -135,7 +136,7 @@ class IslandQuestIntegrationTest {
     }
 
     @Test
-    @DisplayName("입력 범위 — 자정 넘는 창 422, 창보다 긴 목표 422, screen 의 창 필드 400, UTC 외 시간대 400")
+    @DisplayName("입력 범위 — 자정 넘는 창 422, 창보다 긴 목표 422, UTC 외 시간대 400, 빈 이름 422")
     void rejectsOutOfRangeDefinitions() {
         Island a = island(true);
 
@@ -143,8 +144,6 @@ class IslandQuestIntegrationTest {
                 QuestErrorCode.QUEST_WINDOW_OUT_OF_RANGE);
         assertQuestError(() -> createFocus(a, a.owner, "18:00", "18:20", 30),
                 QuestErrorCode.QUEST_TARGET_OUT_OF_RANGE);
-        assertQuestError(() -> service.create(a.id, a.owner.getId(), "폰 줄이기", "screen", 60, "18:00", null,
-                null, UUID.randomUUID()), QuestErrorCode.QUEST_INVALID_REQUEST);
         assertQuestError(() -> service.create(a.id, a.owner.getId(), "저녁", "focus", 30, "18:00", "23:00",
                 "Asia/Seoul", UUID.randomUUID()), QuestErrorCode.QUEST_INVALID_TIMEZONE);
         assertQuestError(() -> service.create(a.id, a.owner.getId(), " ", "focus", 30, "18:00", "23:00",
@@ -247,51 +246,22 @@ class IslandQuestIntegrationTest {
     }
 
     @Test
-    @DisplayName("스크린타임은 다음 날 12:00 UTC 까지 측정 대기 — 유예 뒤 무보고 주민은 분모에서 빠진다")
-    void screenGraceWindowExcludesUnmeasurableAfterDeadline() {
+    @DisplayName("screen 퀘스트는 1930(스크린타임 날짜 축 UTC 전환) 전까지 생성·수정 모두 422 다")
+    void screenQuestsAreRejectedUntilScreenTimeIsUtc() {
         Island a = island(true);
-        User silent = resident(a.group);
-        QuestViews.Created created = service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null,
-                null, null, UUID.randomUUID());
-        UUID occurrenceId = occurrenceOf(created);
-        screenStats.save(DailyScreenTimeStat.builder().user(a.owner).date(D).totalScreenTimeMinutes(50)
-                .screenTimeFinalized(true).build());
 
-        at(D.plusDays(1), "11:59:59");
-        QuestViews.Progress pending = service.progress(a.id, a.owner.getId(), created.id(), occurrenceId);
-        assertThat(member(pending, silent).measurementStatus()).isEqualTo("pending");
-        assertThat(pending.header().claimBlockedReason()).isEqualTo("MEASUREMENT_PENDING");
-        assertQuestError(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId,
-                pending.header().version(), UUID.randomUUID()), QuestErrorCode.QUEST_STATE_CONFLICT);
+        assertQuestError(() -> service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null, null,
+                UUID.randomUUID()), QuestErrorCode.QUEST_TYPE_OUT_OF_RANGE);
+        assertQuestError(() -> service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, "18:00", null,
+                "UTC", UUID.randomUUID()), QuestErrorCode.QUEST_TYPE_OUT_OF_RANGE);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quests WHERE island_id = ?", Integer.class, a.id))
+                .isZero();
 
-        at(D.plusDays(1), "12:00:00");
-        QuestViews.Progress after = service.progress(a.id, a.owner.getId(), created.id(), occurrenceId);
-        assertThat(member(after, silent).measurementStatus()).isEqualTo("unavailable");
-        assertThat(member(after, silent).rate()).isNull();
-        assertThat(after.header().claimable()).isTrue();
-        assertThat(after.header().reward().amount()).as("측정 가능 1명 × 15").isEqualTo(15);
-        JsonNode json = mapper.valueToTree(after);
-        assertThat(json.get("windowStart").isNull()).as("screen 의 창은 명시 null").isTrue();
-        assertThat(json.get("type").asString()).isEqualTo("screen");
-
-        QuestViews.Claimed claimed = service.claim(a.id, silent.getId(), created.id(), occurrenceId,
-                after.header().version(), UUID.randomUUID());
-        assertThat(claimed.villagePointsAdded()).isEqualTo(15);
-        assertThat(balance(a.id)).isEqualTo(15);
-    }
-
-    @Test
-    @DisplayName("상한을 넘긴 스크린타임은 마감 보고 전이라도 미달성이다")
-    void screenOverCapIsShortEvenBeforeFinal() {
-        Island a = island(true);
-        QuestViews.Created created = service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null,
-                null, "UTC", UUID.randomUUID());
-        screenStats.save(DailyScreenTimeStat.builder().user(a.owner).date(D).totalScreenTimeMinutes(120)
-                .screenTimeFinalized(false).build());
-
-        QuestViews.Progress progress = service.progress(a.id, a.owner.getId(), created.id(), occurrenceOf(created));
-        assertThat(member(progress, a.owner).rate()).isEqualTo(50);
-        assertThat(progress.header().claimBlockedReason()).isEqualTo("MEMBERS_INCOMPLETE");
+        // 스위치 이전 데이터 등으로 screen 정의가 이미 있어도 수정은 받지 않는다.
+        IslandQuest legacy = quests.save(IslandQuest.builder().islandId(a.id).type(QuestType.SCREEN)
+                .title("폰 1시간 이하").targetMinutes(60).createdBy(a.owner.getId()).build());
+        assertQuestError(() -> service.update(a.id, a.owner.getId(), legacy.getId(), null, 30, UUID.randomUUID()),
+                QuestErrorCode.QUEST_TYPE_OUT_OF_RANGE);
     }
 
     // ---------------------------------------------------------------- 정산

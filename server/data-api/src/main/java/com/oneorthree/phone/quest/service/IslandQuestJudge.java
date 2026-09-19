@@ -35,9 +35,9 @@ import java.util.UUID;
  * <p><b>focus</b>(결정 Q-5): 그 섬에 귀속된 세션의 ACTIVE 구간만, 회차 창(UTC)에 잘라, 마이크로초로 더한 뒤
  * 초 단위로 내려 목표분×60 과 정확히 비교한다. 관용치 없음, REST 제외. 진행 중 구간은 지금까지만 센다.
  *
- * <p><b>screen</b>(결정 Q-5): 하루 값({@code daily_screen_time_stats} 의 (주민, 회차 날짜) 한 행 — 복수 기기
- * 병합은 ticket 1806 미결이라 기존 단일 값을 쓴다)이 상한 이하이고 그날 마감 보고가 왔으면 달성, 상한을
- * 넘었으면 미달성(사용량은 줄지 않는다). 그 밖은 다음 날 12:00 UTC 유예까지 측정 대기, 유예 뒤엔 측정 불가다.
+ * <p><b>screen</b>(결정 Q-5 — <b>1930 전까지 비활성</b>, 지금은 {@link #unsupported}): 하루 값
+ * ({@code daily_screen_time_stats} 의 (주민, 회차 날짜) 한 행 — 복수 기기 병합은 ticket 1806 미결이라 기존 단일
+ * 값을 쓴다)이 상한 이하이고 그날 마감 보고가 왔으면 달성, 상한을 넘었으면 미달성(사용량은 줄지 않는다). 그 밖은 다음 날 12:00 UTC 유예까지 측정 대기, 유예 뒤엔 측정 불가다.
  */
 @Component
 @RequiredArgsConstructor
@@ -69,8 +69,19 @@ public class IslandQuestJudge {
 
         List<Row> rows = occurrence.getType() == QuestType.FOCUS
                 ? focus(occurrence, cohort, now)
-                : screen(occurrence, cohort, now);
+                : unsupported(cohort);
         return Judgement.of(occurrence, rows);
+    }
+
+    /**
+     * screen 은 아직 판정하지 않는다 — 스크린타임 하루 값의 {@code date} 가 KST 라벨이라 UTC 회차 날짜로 읽으면 측정
+     * 창이 9시간 밀린다. 생성·수정은 서비스가 422 로 막으므로 이 분기는 방어선이다: 전원 측정 불가(분모 0)라 수령할
+     * 수 없다. 1930 에서 저장 축이 UTC 가 되면 {@link #screen} 으로 되돌린다.
+     */
+    private static List<Row> unsupported(List<User> cohort) {
+        return cohort.stream()
+                .map(user -> new Row(user.getId(), user.getNickname(), null, UNAVAILABLE, false, false, false))
+                .toList();
     }
 
     private List<Row> focus(IslandQuestOccurrence occurrence, List<User> cohort, Instant now) {
@@ -101,7 +112,11 @@ public class IslandQuestJudge {
         return rows;
     }
 
-    private List<Row> screen(IslandQuestOccurrence occurrence, List<User> cohort, Instant now) {
+    /**
+     * 1930(스크린타임 저장 축 UTC 전환) 뒤에 쓸 screen 판정 — 지금은 호출하지 않는다({@link #unsupported}).
+     * 전환 전에는 {@code occurrenceDate} 와 같은 라벨의 KST 하루 값을 읽게 되어 9시간 어긋난다.
+     */
+    List<Row> screen(IslandQuestOccurrence occurrence, List<User> cohort, Instant now) {
         Map<UUID, DailyScreenTimeStat> byUser = new HashMap<>();
         if (!cohort.isEmpty()) {
             for (DailyScreenTimeStat stat : screenStats.findByUserInAndDate(cohort, occurrence.getOccurrenceDate())) {
