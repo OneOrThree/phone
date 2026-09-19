@@ -15,6 +15,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.DynamicUpdate;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
@@ -26,8 +27,12 @@ import java.util.UUID;
  *
  * <p>{@code deletedAt} 컬럼이 있지만 삭제는 하드 딜리트로 돌고 있어 채워지지 않는다 — 조회도 이 컬럼을
  * 보지 않는다. 소프트 삭제로 바꾸려면 조회 쪽 필터를 함께 넣어야 한다.
+ *
+ * <p>{@code @DynamicUpdate} (GROMO-1771, island-board LLD §5): 제목·본문 수정이 전 컬럼 UPDATE 를 내면
+ * 그 사이 탈퇴 정리가 비운 {@code user_id} 를 옛 값으로 되살린다. 바뀐 컬럼만 싣게 한다.
  */
 @Entity
+@DynamicUpdate
 @Table(name = "group_announcements")
 @Getter
 @Builder

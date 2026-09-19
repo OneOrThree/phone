@@ -37,6 +37,9 @@ location = /actuator { return 404; }
 # 섬 건설(GROMO-1767)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/construction-options · PUT /islands/{islandId}/construction-target ·
 # POST /islands/{islandId}/constructions.
+# 섬 게시판(GROMO-1771)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET·POST /islands/{islandId}/notices · GET·PATCH·DELETE /islands/{islandId}/notices/{noticeId} ·
+# POST /islands/{islandId}/notices/{noticeId}/comments. 네 쓰기는 Data 의 게이트가 BQ02·BQ03 전까지 503 이다.
 # 친구(GROMO-1894)도 아래 friends 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. friends 분기:
 # GET /friends · GET /friends/requests · POST /friends/requests · POST /friends/requests/{requestId}/accept ·
 # .../reject · .../cancel · DELETE /friends/{friendUserId}. 편지(GROMO-1933)도 같은 분기가 전달한다 —

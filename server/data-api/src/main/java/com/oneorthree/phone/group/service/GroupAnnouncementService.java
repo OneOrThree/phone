@@ -24,6 +24,9 @@ import java.util.UUID;
  * <p>네 메서드가 같은 관문을 지난다 — 요청자 활성 검증 → 그룹 존재 → 멤버십 → 작성 권한.
  * 권한은 방장이거나 {@code announcement_permission=ALLOW} 인 멤버이고, <b>수정·삭제도 작성자
  * 본인 여부를 보지 않는다</b>: 권한만 있으면 남의 공지도 손댈 수 있다.
+ *
+ * <p>세 변경 경로는 섬 게시판 신규 경로(GROMO-1771)와 <b>같은 공지 version 축</b>을 올린다(정책 B08) —
+ * {@link IslandNoticeEvents#changed} 가 같은 트랜잭션에서 {@code notice.updated} 를 적는다. 응답 형식은 그대로다.
  */
 @Service
 @RequiredArgsConstructor
@@ -34,6 +37,7 @@ public class GroupAnnouncementService {
     private final GroupMembershipMutationLocks membershipLocks;
     private final UserQueryService userQueryService;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
+    private final IslandNoticeEvents noticeEvents;
 
     /**
      * 공지를 새로 남긴다. 작성자는 요청자로 고정이라 대리 작성이 불가능하다.
@@ -59,14 +63,15 @@ public class GroupAnnouncementService {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
         }
 
-        groupAnnouncementRepository.save(
-                GroupAnnouncement.builder()
-                        .group(group)
-                        .user(user)
-                        .title(request.getTitle())
-                        .content(request.getContent())
-                        .build()
-        );
+        GroupAnnouncement announcement = GroupAnnouncement.builder()
+                .group(group)
+                .user(user)
+                .title(request.getTitle())
+                .content(request.getContent())
+                .build();
+        // save 는 새 엔티티를 persist 해 같은 인스턴스에 id 를 채운다 — 반환값 대신 그 인스턴스를 쓴다.
+        groupAnnouncementRepository.save(announcement);
+        noticeEvents.changed(groupId, announcement.getId(), userId);
     }
 
     /**
@@ -119,6 +124,7 @@ public class GroupAnnouncementService {
         GroupAnnouncement announcement = groupAnnouncementRepository.findByIdAndGroup(announcementId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
         announcement.updateContent(request.getTitle(), request.getContent());
+        noticeEvents.changed(groupId, announcementId, userId);
     }
 
     /**
@@ -144,6 +150,8 @@ public class GroupAnnouncementService {
         GroupAnnouncement announcement = groupAnnouncementRepository.findByIdAndGroup(announcementId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
         groupAnnouncementRepository.delete(announcement);
+        // 삭제도 마지막 version+1 을 남긴다 — 구독자가 목록에서 이 공지를 걷어낼 근거다(LLD §3).
+        noticeEvents.changed(groupId, announcementId, userId);
     }
 
     /**

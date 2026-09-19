@@ -913,7 +913,7 @@ Table island_facilities [note: '섬 시설 (섬+buildingId 유일, LLD §4) — 
   }
 }
 
-Table group_announcements [note: '그룹 공지'] {
+Table group_announcements [note: '그룹 공지 — 섬 게시판 공지(GROMO-1771)의 저장소이기도 하다. 공지 version 은 컬럼이 아니라 aggregate_versions(NOTICE, id) — V66 이 기존 공지를 1 로 백필'] {
   id         uuid         [pk]
 
   group_id   uuid         [not null, note: 'FK → groups.id']
@@ -925,6 +925,24 @@ Table group_announcements [note: '그룹 공지'] {
   created_at timestamptz  [not null, default: `now()`]
   updated_at timestamptz
   deleted_at timestamptz  [note: '삭제 시각 (소프트 딜리트). 콘텐츠 수정 불가 → 수정은 삭제 후 새 row, 옛 내용 보존']
+
+  indexes {
+    (group_id, created_at, id) [name: 'ix_group_announcements_group_created', note: '게시판 목록 keyset (createdAt DESC, id DESC). migration V66']
+  }
+}
+
+Table group_announcement_comments [note: '섬 게시판 공지 댓글 — 불변(수정·삭제 API 없음). GROMO-1771, island-board LLD §3. migration V66'] {
+  id         uuid        [pk]
+
+  notice_id  uuid        [note: 'FK → group_announcements.id (ON DELETE SET NULL) — BQ02 결정 전까지 공지가 지워져도 댓글 행 보존']
+  author_id  uuid        [note: 'FK → users.id (ON DELETE SET NULL) — 작성자. BQ02 결정 전까지 행 보존']
+
+  text       text        [not null, note: '댓글 본문. 상한은 BQ03 결정 전 임시값(island-board.comment-max-length)']
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (notice_id, created_at, id) [name: 'ix_group_announcement_comments_notice_created', note: '댓글 페이지 keyset (createdAt ASC, id ASC) + commentCount']
+  }
 }
 
 Table group_invites [note: '유저 대 유저 그룹 초대 (V1 baseline). **미사용** — 직접 초대 기능을 접었고 참여는 초대 링크(group_invite_links)·참가 코드(group_join_codes)가 담당한다(2026-07-31). 엔티티 GroupInvite 는 남아 있으나 서비스·컨트롤러 참조 0건이고 테이블도 비어 있다. 잔존 비용 < 삭제 비용이라 두고 있다. 이 파일에 통째로 빠져 있던 것을 GROMO-1912 에서 복원'] {
@@ -1464,6 +1482,8 @@ Ref: group_members.user_id > users.id
 Ref: group_members.group_id > groups.id
 Ref: group_announcements.group_id > groups.id
 Ref: group_announcements.user_id > users.id
+Ref: group_announcement_comments.notice_id > group_announcements.id [delete: set null]
+Ref: group_announcement_comments.author_id > users.id [delete: set null]
 Ref: group_invites.group_id > groups.id
 Ref: group_invites.inviter_id > users.id
 Ref: group_invites.invitee_id > users.id

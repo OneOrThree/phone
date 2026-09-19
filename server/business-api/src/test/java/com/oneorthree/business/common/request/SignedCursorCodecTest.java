@@ -83,6 +83,29 @@ class SignedCursorCodecTest {
         }
     }
 
+    /** GROMO-1771: 커서를 다른 이름으로 받는 목록은 오류 field 가 그 이름이다 — 위조·만료 모두. */
+    @Test
+    void namedFieldIsCarriedByInvalidAndExpiredErrors() {
+        SignedCursorCodec codec = codec(Map.of("old", OLD_KEY), "old", NOW);
+        String token = codec.encode(scope, boundary);
+        assertEquals(boundary, codec.decode(token, scope, "commentsCursor"));
+        PublicApiException forged = assertThrows(PublicApiException.class,
+                () -> codec.decode(token + "x", scope, "commentsCursor"));
+        assertEquals(ApiErrorCode.INVALID_CURSOR, forged.getErrorCode());
+        assertEquals("commentsCursor", forged.getField());
+        PublicApiException empty = assertThrows(PublicApiException.class,
+                () -> codec.decode("", scope, "commentsCursor"));
+        assertEquals("commentsCursor", empty.getField());
+        PublicApiException expired = assertThrows(PublicApiException.class,
+                () -> codec(Map.of("old", OLD_KEY), "old", NOW.plusSeconds(900)).decode(token, scope, "commentsCursor"));
+        assertEquals(ApiErrorCode.CURSOR_EXPIRED, expired.getErrorCode());
+        assertEquals("commentsCursor", expired.getField());
+        // 기존 두 인자 호출은 종전 그대로 cursor 다.
+        PublicApiException legacy = assertThrows(PublicApiException.class,
+                () -> codec(Map.of("old", OLD_KEY), "old", NOW.plusSeconds(900)).decode(token, scope));
+        assertEquals("cursor", legacy.getField());
+    }
+
     private CursorScope scope(UUID subject, String resource, String sort, int limit) {
         return new CursorScope(subject, resource, Map.of("q", "private-search-text"), sort, limit);
     }

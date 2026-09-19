@@ -2,8 +2,12 @@ package com.oneorthree.phone.group.repository;
 
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -34,4 +38,21 @@ public interface GroupAnnouncementRepository extends JpaRepository<GroupAnnounce
      *     {@code NOT_FOUND} 로 접어 소속 여부가 응답으로 새지 않게 한다
      */
     Optional<GroupAnnouncement> findByIdAndGroup(UUID id, Group group);
+
+    /**
+     * 섬 게시판 공지 조회 (GROMO-1771) — {@link #findByIdAndGroup} 과 같은 이유로 섬(그룹) id 로 좁힌다.
+     * 신규 경로는 그룹 엔티티를 싣지 않고 판정하므로 id 로 받는다.
+     */
+    Optional<GroupAnnouncement> findByIdAndGroupId(UUID id, UUID groupId);
+
+    /** 게시판 목록 첫 페이지 — {@code (createdAt DESC, id DESC)}. 불변 키라 수정이 순서를 바꾸지 않는다. */
+    @Query("SELECT a FROM GroupAnnouncement a WHERE a.group.id = :groupId ORDER BY a.createdAt DESC, a.id DESC")
+    List<GroupAnnouncement> findNoticeFirstPage(@Param("groupId") UUID groupId, Pageable page);
+
+    /** 게시판 목록 다음 페이지 — anchor 값으로 seek 한다. anchor 공지가 지워져도 경계가 유지된다. */
+    @Query("SELECT a FROM GroupAnnouncement a WHERE a.group.id = :groupId"
+            + " AND (a.createdAt < :createdAt OR (a.createdAt = :createdAt AND a.id < :id))"
+            + " ORDER BY a.createdAt DESC, a.id DESC")
+    List<GroupAnnouncement> findNoticePageAfter(@Param("groupId") UUID groupId,
+            @Param("createdAt") Instant createdAt, @Param("id") UUID id, Pageable page);
 }
