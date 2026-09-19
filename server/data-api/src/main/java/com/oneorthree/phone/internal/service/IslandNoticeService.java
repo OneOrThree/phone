@@ -45,11 +45,13 @@ import java.util.stream.Collectors;
  * 섬 게시판 — 공지 목록·상세(댓글 페이지)·작성·수정·삭제·댓글 작성의 Data 측 구현 (GROMO-1771, island-board
  * LLD §1~§4). 저장소는 legacy 공지({@code group_announcements})를 그대로 쓰고 댓글 테이블만 새로 둔다.
  *
- * <h2>인가 — 주민만, 게시판 완공 뒤에만 (정책 B01·B03)</h2>
- * 읽기·댓글은 활성 주민, 공지 쓰기는 방장 또는 {@code announcement_permission=ALLOW} 주민이다
+ * <h2>인가 — 읽기는 누구나, 쓰기는 주민만, 둘 다 게시판 완공 뒤에만 (정책 B01·B03)</h2>
+ * 목록·상세 읽기는 활성 계정이면 방문자(가입 대기자 포함)도 된다(2026-09-19 결정 V-읽기, GROMO-1904) — 판정은
+ * 요청자 활성 → 섬 생존 → 게시판 완공이다. 미완공 게시판은 방문자에게도 {@code BOARD_LOCKED} 다.
+ * 댓글은 활성 주민, 공지 쓰기는 방장 또는 {@code announcement_permission=ALLOW} 주민이다
  * ({@link GroupMember#canWriteAnnouncement} — legacy 와 같은 술어, 수정·삭제도 작성자를 보지 않는다).
- * 판정 순서는 요청자 활성 → 섬 생존 → 주민 → 게시판 완공 → (쓰기면) 작성 권한이다. 방문자(비주민)는 시설
- * 잠금보다 먼저 {@code MEMBER_ONLY} 로 거절된다. 게시판 게이트는 {@code construction.facility-gates.enforce}
+ * 쓰기 판정 순서는 요청자 활성 → 섬 생존 → 주민 → 게시판 완공 → (공지면) 작성 권한이다. 방문자(비주민)의 쓰기는
+ * 시설 잠금보다 먼저 {@code MEMBER_ONLY} 로 거절된다. 게시판 게이트는 {@code construction.facility-gates.enforce}
  * 를 따른다(기본 OFF — 적립 경로 배포 전엔 어느 섬도 지을 수 없다).
  *
  * <h2>쓰기 게이트 — {@code island-board.writes-enabled} (기본 OFF)</h2>
@@ -287,22 +289,35 @@ public class IslandNoticeService {
 
     // ---------------------------------------------------------------- 판정
 
-    /** 읽기 인가 — 무락 일관 읽기. 탈퇴·없는 계정은 {@code USER_NOT_FOUND}(요청자 세션 코드). */
+    /**
+     * 읽기 인가 — 무락 일관 읽기. 요청자 활성 → 섬 생존 → 게시판 완공이고 주민 여부는 보지 않는다(방문자 읽기,
+     * 2026-09-19 결정 V-읽기). 탈퇴·없는 계정은 {@code USER_NOT_FOUND}(요청자 세션 코드).
+     */
     private void requireReader(UUID islandId, UUID userId) {
-        requireResident(islandId, users.getCaller(userId));
+        users.getCaller(userId);
+        requireBoard(requireAliveIsland(islandId));
     }
 
-    /** 섬 생존 → 활성 주민 → 게시판 완공. 방문자는 시설 잠금보다 먼저 {@code MEMBER_ONLY} 다. */
+    /** 섬 생존 → 활성 주민 → 게시판 완공. 쓰기 전용 — 방문자는 시설 잠금보다 먼저 {@code MEMBER_ONLY} 다. */
     private GroupMember requireResident(UUID islandId, User user) {
+        Group island = requireAliveIsland(islandId);
+        GroupMember member = groups.getMembership(user, island);
+        requireBoard(island);
+        return member;
+    }
+
+    private Group requireAliveIsland(UUID islandId) {
         Group island = groups.getGroup(islandId);
         if (island.getDeletedAt() != null || island.getStatus() == GroupStatus.ENDED) {
             throw new GroupException(GroupErrorCode.GROUP_NOT_FOUND);
         }
-        GroupMember member = groups.getMembership(user, island);
-        if (!facilities.hasBoard(islandId)) {
+        return island;
+    }
+
+    private void requireBoard(Group island) {
+        if (!facilities.hasBoard(island.getId())) {
             throw new GroupException(GroupErrorCode.BOARD_LOCKED);
         }
-        return member;
     }
 
     private GroupAnnouncement requireNotice(UUID islandId, UUID noticeId) {

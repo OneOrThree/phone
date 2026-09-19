@@ -40,7 +40,7 @@ Id/Version/Cursor/PublicIslandSummary는 [소속 값 타입](../island-membershi
 
 ### 3.2 members — GET /islands/{islandId}/members
 
-Query `{cursor?,limit?}` 기본30/상한100. 성공200 `{data:{items:[{id,name,catColor,role}],nextCursor,version}}`. id는 사용자 ID, role은 host/member다. active 주민만 조회할 수 있고 나간/강퇴된 membership 및 삭제 계정은 목록에서 제외한다.
+Query `{cursor?,limit?}` 기본30/상한100. 성공200 `{data:{items:[{id,name,catColor,role}],nextCursor,version}}`. id는 사용자 ID, role은 host/member다. 살아 있는 섬이면 활성 계정 누구나 조회한다 — 방문자·pending 신청자 포함(2026-09-19 결정 V-읽기(GROMO-1904·1937)). 나간/강퇴된 membership 및 삭제 계정은 목록에서 제외한다. 고양이 외형은 `appearance`(착용 외양 `{clothes,decor,hull,position,version}`, 외양 행이 없으면 기본값·version 0)로 싣고, `catColor`는 저장 칸이 없어(계정 Q03) 싣지 않는다.
 
 version은 `(island.members,islandId)`의 주민/역할 목록 버전이며 응답 행들과 같은 읽기 snapshot에서 얻는다. 일반 island.version이나 가장 큰 개별 membership version으로 대체하지 않는다. 다음 페이지에서 목록 version이 달라지면 클라이언트는 기존 페이지를 합쳐 완성된 snapshot이라고 간주하지 않고 첫 페이지부터 갱신한다.
 

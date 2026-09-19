@@ -46,7 +46,9 @@ class IslandManagementContractTest extends UpstreamTestBase {
 
     private static final String MANAGED = "{\"id\":\"" + ISLAND + "\",\"name\":\"새섬\",\"intro\":\"\","
             + "\"approvalRequired\":true,\"version\":4}";
-    private static final String MEMBERS = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\",\"role\":\"host\"}],"
+    private static final String MEMBERS = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\",\"role\":\"host\","
+            + "\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,"
+            + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
             + "\"nextJoinedAt\":\"2026-09-19T01:02:03.123456Z\",\"nextMembershipId\":\"" + TARGET + "\",\"version\":9}";
     private static final String REQUESTS = "{\"items\":[{\"id\":\"" + REQUEST + "\",\"applicantId\":\"" + TARGET
             + "\",\"name\":\"신청자\",\"status\":\"pending\",\"version\":0}],\"nextCreatedAt\":null,\"nextRequestId\":null}";
@@ -105,6 +107,8 @@ class IslandManagementContractTest extends UpstreamTestBase {
         MvcResult first = mockMvc.perform(auth(get("/islands/" + ISLAND + "/members")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.items[0].role").value("host"))
+                .andExpect(jsonPath("$.data.items[0].appearance.clothes").value("scarf"))
+                .andExpect(jsonPath("$.data.items[0].appearance.version").value(2))
                 .andExpect(jsonPath("$.data.version").value(9))
                 .andExpect(jsonPath("$.data.nextJoinedAt").doesNotExist())
                 .andExpect(jsonPath("$.data.nextCursor").isNotEmpty()).andReturn();

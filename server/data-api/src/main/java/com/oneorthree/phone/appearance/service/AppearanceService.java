@@ -44,13 +44,17 @@ import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -121,6 +125,20 @@ public class AppearanceService implements IslandAppearancePort {
         return new PersonalInventoryView(clothes, decor, List.of(PersonalAppearance.HULL_RAFT),
                 inventoryVersion(AGGREGATE_USER_INVENTORY, userId),
                 personalView(personalAppearances.findById(userId).orElse(null)));
+    }
+
+    /**
+     * 여러 유저의 착용 외양 — 주민 목록이 고양이 외형을 싣는 데 쓴다(GROMO-1937). 행이 없는 유저는 기본
+     * 외양(미착용·raft·front·version 0)이다. 보유 목록은 싣지 않는다 — 본인 전용이다. 호출자 트랜잭션에 참여한다.
+     */
+    public Map<UUID, PersonalAppearanceView> equippedOf(Collection<UUID> userIds) {
+        Map<UUID, PersonalAppearance> rows = personalAppearances.findAllById(userIds).stream()
+                .collect(Collectors.toMap(PersonalAppearance::getUserId, Function.identity()));
+        Map<UUID, PersonalAppearanceView> views = new HashMap<>();
+        for (UUID userId : userIds) {
+            views.put(userId, personalView(rows.get(userId)));
+        }
+        return views;
     }
 
     // ---------------------------------------------------------------- PATCH /me/appearance

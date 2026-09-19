@@ -6,7 +6,7 @@
 
 신규 공개 ingress는 Business의 아래 exact method/path다. Bearer AT의 서명·access 타입·만료·주체를 검증하고 외부 X-User-Id를 모든 accessor에서 제거한다. Data/Realtime 내부 호출에는 해당 서비스 audience의 서비스 토큰, 검증한 주체, 현재 요청 ID·deadline만 새로 전달한다. 외부 헤더 전체 복사와 임의 내부 URL 입력은 금지한다. 실제 활성 사용자/세션 검증은 선행 인증 계약으로 수행하며 없는 sid/gen을 현재 DB 값으로 합성하지 않는다. 필요한 인증 기반 미통합이면 새 route 활성화가 선행 구현에 의존한다.
 
-Data는 path islandId가 실제 groupId임을 해석하고 현재 사용자 활성·해당 소속·시설 해금·작업별 역할을 확인한다. 다른 섬의 자원 ID는 path로 다시 좁혀 찾는다. 요청 시작 때 확정한 path/context를 사용하며 도중에 current-island가 바뀌어도 다른 섬으로 재해석하지 않는다. 같은 사용자의 다른 섬 자원/방문자 projection을 주민 전용 응답에 섞지 않는다. 원 결과 재생도 현재 인가가 필요하며 이 문서에는 leave/host-transfer 같은 권한 상실 후 최소 성공 증거 예외가 없다.
+Data는 path islandId가 실제 groupId임을 해석하고 현재 사용자 활성·해당 소속·시설 해금·작업별 역할을 확인한다. **조회(current·progress)는 소속을 보지 않는다** — 방문자·가입 대기자도 퀘스트와 주민별 달성률을 읽고 `myRate`는 cohort 밖이라 null 이다(2026-09-19 결정 V-읽기(GROMO-1904·1937)). 생성·수정·정산은 활성 주민(생성·수정은 방장)만이다. 다른 섬의 자원 ID는 path로 다시 좁혀 찾는다. 요청 시작 때 확정한 path/context를 사용하며 도중에 current-island가 바뀌어도 다른 섬으로 재해석하지 않는다. 같은 사용자의 다른 섬 자원/방문자 projection을 주민 전용 응답에 섞지 않는다. 원 결과 재생도 현재 인가가 필요하며 이 문서에는 leave/host-transfer 같은 권한 상실 후 최소 성공 증거 예외가 없다.
 
 - UUID는 하이픈 포함36자, v4/v7 생성 권고이며 다른 version 비트를 이유로 거절하지 않는다. 메시지 키 포함 공통 UUID 정규화가 정본이다. 날짜는 YYYY-MM-DD **UTC**(2026-09-19 결정 Q-6 — 이 도메인은 D8 전환을 기다리지 않는다), 시각은 서버 UTC ISO-8601 instant. 샘플 문자열 ID는 실제 ID 검증을 대체하지 않는다.
 - JSON object만 수락하고 unknown/duplicate field, 잘못된 타입·명시 null을 거절한다(아래 nullable 출력과 별개). 정수는 JsonNode 정수 토큰으로 검사하여 1.5·문자열을 Long으로 절삭/강제 변환하지 않는다. version은1~9007199254740991이다. legacy ObjectMapper를 전역 변경하지 않는다.

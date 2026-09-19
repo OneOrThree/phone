@@ -38,7 +38,7 @@
 
 `joinRequestId:Id?`를 본인 최신 신청 연결용으로 추가하는 **기술 설계 확장**이다. 본인의 최신 요청이 있으면 ID를, 없으면 null을 준다. 승인/거절/취소의 상세 상태는 본인 join-status 계약에서 읽는다. 자신의 archived 요청 존재를 다른 사용자에게 보여주지 않는다. pending 요청자도 role/관리 데이터를 받지 않는다.
 
-방문 외관에 필요한 `assetVersion:string`·`buildingThemes:object<BuildingId,ThemeId>`를 상세 공개 DTO에서 추가할 수 있다. 아래 필드는 방문자 응답에 키 자체가 없어야 한다: `role`, `permissions`, `initialConstruction`, `constructionTarget`, 지갑/원장/보유품, focus/session/통계, 편지/읽음, 주민 개인 목록, 다른 신청자/가입코드. 초기 기여량은 경제 진행 데이터이므로 방문자에게 노출하지 않는다.
+방문 외관에 필요한 `assetVersion:string`·`buildingThemes:object<BuildingId,ThemeId>`를 상세 공개 DTO에서 추가할 수 있다. 아래 필드는 방문자 응답에 키 자체가 없어야 한다: `role`, `permissions`, `initialConstruction`, `constructionTarget`, 지갑/원장/보유품, focus/session/통계, 편지/읽음, 주민 개인 기록, 다른 신청자/가입코드. 주민 목록(닉네임·고양이 외형·방장 여부)은 섬 상세 DTO 가 아니라 별도 `GET /islands/{islandId}/members`로 방문자에게도 열린다(2026-09-19 결정 V-읽기(GROMO-1904·1937)) — 방문 화면이 그것을 조각으로 싣는다. 초기 기여량은 경제 진행 데이터이므로 방문자에게 노출하지 않는다.
 
 ### MemberIslandDetail
 

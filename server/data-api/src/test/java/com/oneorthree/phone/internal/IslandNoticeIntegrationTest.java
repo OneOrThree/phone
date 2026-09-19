@@ -6,11 +6,13 @@ import com.oneorthree.phone.group.dto.CreateAnnouncementRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
 import com.oneorthree.phone.group.service.GroupAnnouncementService;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.internal.service.IslandNoticeService;
@@ -86,6 +88,8 @@ class IslandNoticeIntegrationTest {
     @Autowired
     IslandFacilityRepository facilities;
     @Autowired
+    IslandJoinRequestRepository joinRequests;
+    @Autowired
     JdbcTemplate jdbc;
     @Autowired
     MockMvc mvc;
@@ -157,23 +161,54 @@ class IslandNoticeIntegrationTest {
     }
 
     @Test
-    @DisplayName("방문자(비주민)는 읽기·댓글 모두 MEMBER_ONLY — 시설 잠금보다 먼저 거절된다")
-    void visitorIsRejectedBeforeFacilityCheck() {
+    @DisplayName("방문자·가입 대기자는 공지 목록·상세·댓글을 읽고, 댓글·공지 쓰기는 MEMBER_ONLY 다(V-읽기, GROMO-1937)")
+    void visitorsReadButCannotWrite() throws Exception {
         Island is = boardIsland();
+        UUID resident = resident(is.id, GroupAnnouncementGrant.DISALLOW);
         UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        notices.comment(is.id, noticeId, resident, "좋아요", key());
         UUID visitor = user("방문자");
+        UUID applicant = user("신청자");
+        joinRequests.save(IslandJoinRequest.pending(groups.findById(is.id).orElseThrow(),
+                users.findById(applicant).orElseThrow(), null));
 
-        assertThatThrownBy(() -> notices.list(is.id, visitor, null, null, 30))
-                .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
-        assertThatThrownBy(() -> notices.detail(is.id, noticeId, visitor, null, null, 30))
-                .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
-        assertThatThrownBy(() -> notices.comment(is.id, noticeId, visitor, "안녕", key()))
-                .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+        for (UUID reader : List.of(visitor, applicant)) {
+            assertThat(notices.list(is.id, reader, null, null, 30).items()).singleElement()
+                    .satisfies(item -> assertThat(item.commentCount()).isEqualTo(1));
+            IslandNoticeViews.Detail detail = notices.detail(is.id, noticeId, reader, null, null, 30);
+            assertThat(detail.body()).isEqualTo("본문");
+            assertThat(detail.comments()).singleElement()
+                    .satisfies(c -> assertThat(c.userId()).isEqualTo(resident));
 
-        // 게시판이 없는 섬에서도 방문자는 MEMBER_ONLY 다 — 시설 존재가 새지 않는다.
+            assertThatThrownBy(() -> notices.comment(is.id, noticeId, reader, "안녕", key()))
+                    .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+            assertThatThrownBy(() -> notices.create(is.id, reader, "몰래", "본문", key()))
+                    .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+            assertThatThrownBy(() -> notices.update(is.id, noticeId, reader, "몰래", null, key()))
+                    .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+            assertThatThrownBy(() -> notices.delete(is.id, noticeId, reader, key()))
+                    .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+        }
+        // 내부 표면도 방문자 읽기가 200 이다.
+        mvc.perform(get("/internal/islands/" + is.id + "/notices").param("limit", "30")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", visitor))
+                .andExpect(status().isOk());
+        // 거절된 쓰기는 행·사건을 남기지 않는다.
+        assertThat(events(noticeId)).containsExactly(1L, 2L);
+    }
+
+    @Test
+    @DisplayName("방문자도 미완공 게시판은 BOARD_LOCKED, 삭제·종료된 섬은 GROUP_NOT_FOUND 다")
+    void visitorsStillSeeBoardLockAndDeadIslands() {
+        UUID visitor = user("방문자");
         Island locked = island();
         assertThatThrownBy(() -> notices.list(locked.id, visitor, null, null, 30))
-                .extracting("errorCode").isEqualTo(GroupErrorCode.MEMBER_ONLY);
+                .extracting("errorCode").isEqualTo(GroupErrorCode.BOARD_LOCKED);
+
+        Island ended = boardIsland();
+        jdbc.update("update groups set status='ENDED' where id=?", ended.id);
+        assertThatThrownBy(() -> notices.list(ended.id, visitor, null, null, 30))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
     }
 
     @Test

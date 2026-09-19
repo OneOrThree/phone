@@ -125,28 +125,38 @@ public class ScreenReadUseCase {
     }
 
     /**
-     * {@code visit/{islandId}} — 공개 요약 뒤 본인 최신 가입 요청. 요청이 없으면 조회하지 않고
-     * {@code joinRequestAvailability:none} 이다. 호출자가 주민이어도 공개 요약 projection 만 싣는다(LLD §1 조각 타입).
+     * {@code visit/{islandId}} — 공개 요약 뒤 주민 목록 첫 페이지와 본인 최신 가입 요청을 병렬로 읽는다. 요청이 없으면
+     * 조회하지 않고 {@code joinRequestAvailability:none} 이다. 호출자가 주민이어도 공개 요약 projection 만 싣는다
+     * (LLD §1 조각 타입). 주민 목록은 2026-09-19 결정 V-읽기(GROMO-1904·1937)로 방문자에게 열렸다 — 닉네임·
+     * 고양이 외형·방장 여부뿐이고, 커서는 도메인 {@code GET /islands/{islandId}/members} 가 이어받는다(B10).
+     * 게시판 공지·퀘스트는 싣지 않는다 — 방문자도 게시판 건물을 눌러 도메인 GET 으로 읽는다.
      */
     public Map<String, Object> visit(AccessTokenClaims claims, UUID islandId, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         Map<String, Object> first = composer.compose(context, List.of(
                 fragment("island", deadline -> publicSummary(islands.island(claims, islandId, deadline)))));
         IslandSummary island = (IslandSummary) first.get("island");
+        List<ReadFragment<?>> fragments = new ArrayList<>(List.of(fragment("members",
+                deadline -> management.members(claims, islandId, null, IslandManagementUseCase.DEFAULT_LIMIT,
+                        deadline))));
+        if (island.joinRequestId() != null) {
+            fragments.add(fragment("joinRequest",
+                    deadline -> islands.joinRequest(claims, island.joinRequestId(), deadline)));
+        }
+        Map<String, Object> second = composer.compose(context, fragments);
         Map<String, Object> screen = new LinkedHashMap<>(first);
+        screen.put("members", second.get("members"));
         if (island.joinRequestId() == null) {
             screen.put("joinRequestAvailability", NONE);
             screen.put("joinRequest", null);
             return screen;
         }
-        Map<String, Object> second = composer.compose(context, List.of(fragment("joinRequest",
-                deadline -> islands.joinRequest(claims, island.joinRequestId(), deadline))));
         JoinRequestStatus joinRequest = (JoinRequestStatus) second.get("joinRequest");
         if (!islandId.equals(joinRequest.islandId())) {
             throw new UpstreamContractMismatchException("가입 요청의 섬이 방문 섬과 다릅니다");
         }
         screen.put("joinRequestAvailability", AVAILABLE);
-        screen.putAll(second);
+        screen.put("joinRequest", joinRequest);
         return screen;
     }
 
