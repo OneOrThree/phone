@@ -339,7 +339,7 @@ public class AppearanceService implements IslandAppearancePort {
      * fields 와 values 는 같은 집합을 이뤄야 하며, 내부 계약이므로 Business 가 이미 걸렀더라도
      * 신뢰 경계에서 다시 검사한다.
      */
-    private static void requireCarrier(List<String> fields, Map<String, Object> values,
+    static void requireCarrier(List<String> fields, Map<String, Object> values,
                                        Set<String> allowed) {
         if (fields == null || fields.isEmpty() || values == null) {
             throw new AppearanceException(AppearanceErrorCode.INVALID_REQUEST);
@@ -564,7 +564,7 @@ public class AppearanceService implements IslandAppearancePort {
 
     /** receipt 의 저장 봉투 배열을 내부 응답용 맵 목록으로 되살린다 — 재생 경로도 같은 모양이다. */
     @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> receiptEvents(PublicCommandReceipt receipt) {
+    static List<Map<String, Object>> receiptEvents(PublicCommandReceipt receipt) {
         return decode(receipt.events(), List.class);
     }
 
@@ -572,7 +572,7 @@ public class AppearanceService implements IslandAppearancePort {
      * 명령 의미 객체 — 제출된 필드만 담은 JSON 오브젝트다. 명시 null 은 보존되어 미제출 필드와
      * 구분되고, fingerprint 가 같은 키의 다른 의미 요청을 다른 명령으로 본다.
      */
-    private static ObjectNode semantic(Map<String, Object> values) {
+    static ObjectNode semantic(Map<String, Object> values) {
         try {
             return (ObjectNode) OutboxEnvelopeCodec.fromJson(
                     OutboxEnvelopeCodec.toJson(values), JsonNode.class);
@@ -589,7 +589,7 @@ public class AppearanceService implements IslandAppearancePort {
         return text;
     }
 
-    private static JsonNode tree(Object value) {
+    static JsonNode tree(Object value) {
         try {
             return OutboxEnvelopeCodec.fromJson(OutboxEnvelopeCodec.toJson(value), JsonNode.class);
         } catch (JsonProcessingException e) {
@@ -597,7 +597,7 @@ public class AppearanceService implements IslandAppearancePort {
         }
     }
 
-    private static <T> T decode(JsonNode data, Class<T> type) {
+    static <T> T decode(JsonNode data, Class<T> type) {
         try {
             return OutboxEnvelopeCodec.fromJson(data.toString(), type);
         } catch (JsonProcessingException e) {

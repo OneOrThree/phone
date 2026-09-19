@@ -159,6 +159,9 @@ internal:
           - 'POST /internal/islands/*/quests'
           - 'PATCH /internal/islands/*/quests/*'
           - 'POST /internal/islands/*/quests/*/claims'
+          # GROMO-1779 공용 음악(방송기) 2종 — 조회와 변경은 메서드로만 갈리므로 합치지 않는다.
+          - 'GET /internal/islands/*/playback'
+          - 'PATCH /internal/islands/*/playback'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

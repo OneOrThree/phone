@@ -209,8 +209,11 @@ class ErrorContractTest {
         // QUEST_INVALID_TIMEZONE · 필드별 범위 3 · screen 미지원 QUEST_TYPE_OUT_OF_RANGE), 충돌 2(QUEST_VERSION_CONFLICT · QUEST_STATE_CONFLICT),
         // 출시 게이트 2(QUEST_CREATION_UNAVAILABLE · QUEST_SETTLEMENT_UNAVAILABLE) — 생성과 정산은 여는 조건이 달라
         // 같은 503 이라도 코드를 가른다.
-        assertThat(tests).as("실측 기준 도메인 상수 188개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종 포함")
-                .hasSize(204);
+        // GROMO-1779 가 공용 음악 코드 2개를 더했다(AppearanceErrorCode) — 곡 없이 재생 요청(STATE_CONFLICT 409)과
+        // 방송기 미완공(GRAM_LOCKED 403). 후자는 건설 도메인의 FACILITY_LOCKED 를 빌리지 않고(error-contract §3)
+        // Business 가 공개 FACILITY_LOCKED 로 옮긴다 — BOARD_LOCKED·MAILBOX_LOCKED 와 같은 결.
+        assertThat(tests).as("실측 기준 도메인 상수 190개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종 포함")
+                .hasSize(206);
         return tests;
     }
 

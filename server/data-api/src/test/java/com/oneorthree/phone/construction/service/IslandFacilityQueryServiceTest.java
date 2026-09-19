@@ -36,6 +36,7 @@ class IslandFacilityQueryServiceTest {
         assertThat(gates.hasObservatory(ISLAND)).isTrue();
         assertThat(gates.hasMailbox(ISLAND)).isTrue();
         assertThat(gates.hasBoard(ISLAND)).isTrue();
+        assertThat(gates.hasGram(ISLAND)).isTrue();
         // 편지 게이트는 종전 「살아 있는 소속 섬」판정 — 소속 섬이 있으면 시설 없이도 연다.
         assertThat(gates.hasMailboxOnAnyOf(List.of(ISLAND))).isTrue();
         // 섬이 하나도 없는 호출자는 적립 연동 전부터 잠겨 있었다 — 그 거절은 보존한다.
@@ -44,28 +45,31 @@ class IslandFacilityQueryServiceTest {
     }
 
     @Test
-    @DisplayName("enforce=ON — COMPLETED 가 아닌 시설은 네 게이트가 전부 닫힌다")
+    @DisplayName("enforce=ON — COMPLETED 가 아닌 시설은 다섯 게이트가 전부 닫힌다")
     void onRejectsUncompleted() {
         IslandFacilityQueryService gates = new IslandFacilityQueryService(facilities, true);
 
         assertThat(gates.hasObservatory(ISLAND)).isFalse();
         assertThat(gates.hasMailbox(ISLAND)).isFalse();
         assertThat(gates.hasBoard(ISLAND)).isFalse();
+        assertThat(gates.hasGram(ISLAND)).isFalse();
         assertThat(gates.hasMailboxOnAnyOf(List.of(ISLAND))).isFalse();
     }
 
     @Test
-    @DisplayName("enforce=ON — COMPLETED 시설은 네 게이트가 전부 열린다")
+    @DisplayName("enforce=ON — COMPLETED 시설은 다섯 게이트가 전부 열린다")
     void onAllowsCompleted() {
         when(facilities.existsCompleted(ISLAND, "tower")).thenReturn(true);
         when(facilities.existsCompleted(ISLAND, "mail")).thenReturn(true);
         when(facilities.existsCompleted(ISLAND, "board")).thenReturn(true);
+        when(facilities.existsCompleted(ISLAND, "gram")).thenReturn(true);
         when(facilities.existsCompletedInAny(eq("mail"), anyList())).thenReturn(true);
         IslandFacilityQueryService gates = new IslandFacilityQueryService(facilities, true);
 
         assertThat(gates.hasObservatory(ISLAND)).isTrue();
         assertThat(gates.hasMailbox(ISLAND)).isTrue();
         assertThat(gates.hasBoard(ISLAND)).isTrue();
+        assertThat(gates.hasGram(ISLAND)).isTrue();
         assertThat(gates.hasMailboxOnAnyOf(List.of(ISLAND))).isTrue();
     }
 }
