@@ -7,8 +7,11 @@ import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.currency.support.CurrencyRewardPolicy;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionStatus;
 import com.oneorthree.phone.focus.repository.domain.FocusType;
+import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
+import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.FocusQueryService;
 import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
@@ -128,6 +131,17 @@ public class FocusService {
      */
     private static final int MAX_SPLIT_DAYS = FocusSessionRequest.MAX_SECONDS_BY_DATE_ENTRIES;
 
+    /** v0.3 진행(active/paused) — 사용자당 최대 1건(V58 부분 UNIQUE). */
+    private static final List<FocusSessionLifecycle> V03_PROGRESSING =
+            List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
+
+    /**
+     * 레거시 업로드와 겹치면 안 되는 v0.3 세션 — 이미 적립됐거나(COMPLETED) 적립될(진행) 세션이다.
+     * 정산 없이 끝난 ABANDONED·MEMBERSHIP_LOST 는 적립한 적이 없어 겹쳐도 이중 적립이 아니다.
+     */
+    private static final List<FocusSessionLifecycle> V03_CREDITED =
+            List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED, FocusSessionLifecycle.COMPLETED);
+
     private final UserFocusTagRepository userFocusTagRepository;
     private final DefaultTagRepository defaultTagRepository;
     private final OccupationDefaultTagRepository occupationDefaultTagRepository;
@@ -140,6 +154,12 @@ public class FocusService {
     private final CurrencyLedgerService currencyLedgerService;
     private final EarlyWinConfirmationPort earlyWinConfirmationPort;
     private final FocusPresencePort focusPresencePort;
+    /**
+     * v0.3 상세·구간 (GROMO-1924, 선행 조건 #2·#3) — 레거시 경로가 새 프로토콜 세션을 닫거나 그 시간을
+     * 한 번 더 적립하지 않게 가른다(LLD §5 「새 상세 FK 로 protocol 을 판별한다」).
+     */
+    private final FocusSessionDetailRepository focusSessionDetailRepository;
+    private final FocusSessionIntervalRepository focusSessionIntervalRepository;
     /**
      * 서버 시계 (GROMO-1723) — 클램프 창·귀속 날짜·지급 창이 전부 «지금»에 기대므로 벽시계를 직접 읽지
      * 않고 주입받는다. 운영에선 {@code config/ClockConfig} 의 시스템 시계, 테스트에선 고정 시계다.
@@ -431,7 +451,12 @@ public class FocusService {
         // 보게 된다. 마커가 없거나(구버전·오프라인) 남의 것이면 잠글 대상이 없으므로 종전대로 진행한다.
         // 잠금 순서는 PATCH(endFocusSession)와 동일하다 — users(공유, requireActiveUser) → focus_sessions 마커 행
         // → 지갑 → daily_focus_stats. 두 경로가 같은 순서라 교착이 생기지 않는다(GROMO-801 락 규율).
-        int markerClaimed = body.getSessionId() != null
+        // GROMO-1924 선행 조건 #2: v0.3 세션의 PK 가 실려 오면 그 마커를 선점(=닫기)하지 않는다 — 닫으면
+        // 상세만 진행 중으로 남는다(LLD §5 「legacy body.sessionId 로 새 세션 PK 를 제출하면 우회 금지」).
+        // 그 블록의 적립 여부는 아래 겹침 검사가 정한다.
+        boolean v03Marker = body.getSessionId() != null
+                && focusSessionDetailRepository.existsById(body.getSessionId());
+        int markerClaimed = body.getSessionId() != null && !v03Marker
                 ? focusSessionRepository.claimMarkerIfActive(body.getSessionId(), user, now)
                 : 0;
 
@@ -446,16 +471,26 @@ public class FocusService {
         }
 
         boolean markerAlreadyCompleted = body.getSessionId() != null
+                && !v03Marker
                 && markerClaimed == 0
                 && focusSessionRepository.findByIdAndUserForUpdate(body.getSessionId(), user)
                         .map(marker -> marker.getStatus() == FocusSessionStatus.COMPLETED)
                         .orElse(false);
+        // GROMO-1924 선행 조건 #3: 구 앱의 오프라인 업로드가 v0.3 서버 구간과 겹치면 그 시간은 이미 서버가
+        // 세고 있다(진행) 또는 셌다(완료). 따로 COMPLETED 마커로 적립하면 같은 시간이 두 번 들어간다.
+        // 중복 재업로드와 같이 «저장·통계·지급 없이 성공»으로 답한다 — 오류로 돌려주면 구 앱 대기열이
+        // 같은 블록을 영원히 재전송한다(구 앱은 새 오류를 모른다). 사용자 공유 락 아래라 v0.3 start(배타)와
+        // 직렬화된다.
+        boolean overlapsServerSession = focusSessionIntervalRepository.existsActiveOverlap(
+                userId, V03_CREDITED, body.getStartedAt(), body.getEndedAt());
         boolean duplicated = markerAlreadyCompleted
+                || overlapsServerSession
                 || focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
                         user, body.getStartedAt(), body.getEndedAt(), FocusSessionStatus.COMPLETED);
         if (duplicated) {
-            log.info("완료 세션 재업로드 스킵 — 동일 구간 세션 존재. userId={}, startedAt={}, endedAt={}",
-                    userId, body.getStartedAt(), body.getEndedAt());
+            log.info("완료 세션 재업로드 스킵 — 동일 구간 세션 존재(v0.3 서버 구간 겹침={}). userId={}, "
+                            + "startedAt={}, endedAt={}",
+                    overlapsServerSession, userId, body.getStartedAt(), body.getEndedAt());
             int dayTotal = dailyFocusStatRepository.findByUserAndDate(user, statDate)
                     .map(DailyFocusStat::getTotalFocusSeconds).orElse(0);
             return new FocusSessionSaveResponse(dayTotal, dayTotal >= STREAK_MIN_SECONDS, 0, 0,
@@ -881,6 +916,11 @@ public class FocusService {
     @Transactional
     public FocusSessionStartResponse startFocusSession(UUID userId, FocusSessionStartRequest body) {
         User user = requireActiveUserForUpdate(userId);
+        // GROMO-1924 선행 조건 #2: v0.3 진행 세션이 있으면 409 다(LLD §5 「구 start 가 새 진행 세션을 발견해도
+        // 409」). 아래 마커 회전(autoCloseOpenMarkersOf)은 그 사용자의 열린 마커를 «조건 없이» 닫아 v0.3
+        // 세션의 기본 마커까지 닫는다 — 그러면 상세만 진행 중으로 남는다. 배타 사용자 락 아래라 v0.3 start 와
+        // 직렬화된다.
+        requireNoV03SessionInProgress(userId);
 
         // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
         Instant now = clock.instant();
@@ -974,6 +1014,7 @@ public class FocusService {
         if (session.getUser() == null || !session.getUser().getId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
+        rejectV03Session(body.sessionId());
 
         // GROMO-1214: 클라 시각 클램프 — 창(과거 5분·미래 0분) 밖이면 서버 수신 시각으로 대체한다.
         // 클램프 후에 역전 검사를 한다(과거로 조작된 endedAt 은 now 로 올라가 정상 종료가 된다).
@@ -1062,6 +1103,7 @@ public class FocusService {
         if (session.getUser() == null || !session.getUser().getId().equals(userId)) {
             throw new FocusException(FocusErrorCode.FORBIDDEN);
         }
+        rejectV03Session(body.sessionId());
 
         // 멱등/이중 취소 방지(TOCTOU 차단) — endedAt IS NULL 조건 단일 UPDATE 로 취소를 원자적으로 성사시키고,
         // 영향 row=0(이미 종료/취소됨)이면 409. → 취소를 성사시킨 요청만 관리 엔티티를 CANCELED 로 정합시킨다.
@@ -1120,6 +1162,26 @@ public class FocusService {
             }
         }
         return closed;
+    }
+
+    /**
+     * 레거시 start 가드 (GROMO-1924, 선행 조건 #2) — v0.3 진행 세션이 있으면 {@code SESSION_IN_PROGRESS}.
+     */
+    private void requireNoV03SessionInProgress(UUID userId) {
+        if (focusSessionDetailRepository.findFirstByUserIdAndLifecycleIn(userId, V03_PROGRESSING).isPresent()) {
+            throw new FocusException(FocusErrorCode.SESSION_IN_PROGRESS);
+        }
+    }
+
+    /**
+     * 레거시 종료·취소 가드 (GROMO-1924, 선행 조건 #2) — v0.3 세션의 PK 는 레거시 PATCH·취소로 닫지 않는다
+     * (LLD §5). 닫으면 상세·구간은 진행 중인데 기본 마커만 끝나고, 통계·코인이 레거시 규칙으로 한 번 더
+     * 들어간다. v0.3 세션은 {@code /internal/users/{userId}/focus-sessions/…} 로만 전이한다.
+     */
+    private void rejectV03Session(UUID sessionId) {
+        if (focusSessionDetailRepository.existsById(sessionId)) {
+            throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
+        }
     }
 
     /**

@@ -133,6 +133,14 @@ class FocusServiceTest {
     @Mock
     private FocusPresencePort focusPresencePort;
 
+    // GROMO-1924: v0.3 상세·구간 — 기본 목(Optional.empty·false)이면 «v0.3 세션 없음»이라 레거시 단언은
+    // 그대로다. 겹침·가드의 실제 판정은 실물 DB 통합 테스트(FocusSessionActivationIntegrationTest)가 본다.
+    @Mock
+    private com.oneorthree.phone.focus.repository.FocusSessionDetailRepository focusSessionDetailRepository;
+
+    @Mock
+    private com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository focusSessionIntervalRepository;
+
     // GROMO-1723: 서비스 시계를 고정한다. 종전엔 마커 테스트가 NOW 기준 «지금 - 1시간» 세션을
     // 만들어 KST 00~01시에 자정을 걸쳤고, 날짜 분할(GROMO-1252)이 정상 동작하면서 단언이 깨졌다.
     // 12:00 KST — 어느 방향으로 12시간을 밀어도 같은 KST 날짜에 머문다. 날짜는 이 파일의 고정 시각들

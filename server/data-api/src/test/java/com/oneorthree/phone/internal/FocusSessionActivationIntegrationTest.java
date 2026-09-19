@@ -2,10 +2,15 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionRequest;
+import com.oneorthree.phone.focus.dto.FocusSessionSaveResponse;
+import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
+import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -29,6 +34,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -73,6 +79,8 @@ class FocusSessionActivationIntegrationTest {
     FocusSessionLifecycleService focus;
     @Autowired
     IslandMembershipService islands;
+    @Autowired
+    FocusService legacyFocus;
     @Autowired
     GroupMemberService groupMembers;
     @Autowired
@@ -174,6 +182,48 @@ class FocusSessionActivationIntegrationTest {
                 + "and params->>'sessionId'=? and params->>'status'='active' "
                 + "and params->'restSeat'='null'::jsonb and params->'restStartedAt'='null'::jsonb",
                 started.id().toString())).isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------- #2 · #3 레거시 공존
+
+    @Test
+    @DisplayName("v0.3 세션이 진행 중이면 레거시 start 는 409 이고, 그 세션의 기본 마커를 닫지 않는다")
+    void legacyStartNeitherRotatesNorClosesTheV03Marker() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("공존섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+
+        assertThatThrownBy(() -> legacyFocus.startFocusSession(user, new FocusSessionStartRequest(null, null)))
+                .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_IN_PROGRESS);
+        assertThatThrownBy(() -> legacyFocus.cancelFocusSession(user, new FocusSessionCancelRequest(started.id())))
+                .as("v0.3 세션 PK 로 레거시 취소도 못 한다")
+                .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_STATE_CONFLICT);
+
+        assertThat(jdbc.queryForObject("select ended_at is null from focus_sessions where id=?", Boolean.class,
+                started.id())).isTrue();
+        assertThat(focus.current(user).id()).isEqualTo(started.id());
+    }
+
+    @Test
+    @DisplayName("구 앱 업로드가 v0.3 서버 구간과 겹치면 적립 없이 성공으로 답하고, 안 겹치는 블록은 그대로 적립한다")
+    void legacyUploadOverlappingAServerSessionIsNotCreditedTwice() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("업로드섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+        Instant t0 = started.startedAt();
+
+        FocusSessionSaveResponse overlapping = legacyFocus.saveFocusSession(user,
+                new FocusSessionRequest(null, t0.minusSeconds(600), t0.plusSeconds(1), 0));
+        FocusSessionSaveResponse earlier = legacyFocus.saveFocusSession(user,
+                new FocusSessionRequest(null, t0.minusSeconds(7200), t0.minusSeconds(3600), 0));
+
+        assertThat(overlapping.awardedCoins()).as("겹친 블록은 지급하지 않는다").isZero();
+        assertThat(count("select count(*) from focus_sessions where user_id=? and status='COMPLETED' "
+                + "and started_at=?", user, java.sql.Timestamp.from(t0.minusSeconds(600))))
+                .as("겹친 블록은 완료 마커로 저장하지 않는다").isZero();
+        assertThat(earlier.awardedCoins()).as("겹치지 않는 오프라인 업로드는 유지한다").isPositive();
     }
 
     // ---------------------------------------------------------------- 도구

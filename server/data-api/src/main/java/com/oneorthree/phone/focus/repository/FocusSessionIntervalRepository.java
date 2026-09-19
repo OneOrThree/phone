@@ -1,12 +1,14 @@
 package com.oneorthree.phone.focus.repository;
 
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -18,6 +20,25 @@ import java.util.UUID;
 public interface FocusSessionIntervalRepository extends JpaRepository<FocusSessionInterval, Long> {
 
     List<FocusSessionInterval> findBySessionIdOrderByOrdinalAsc(UUID sessionId);
+
+    /**
+     * 레거시 완료 업로드의 중복 적립 검사(GROMO-1924, 선행 조건 #3) — {@code [start, end)} 블록이 이 사용자의
+     * v0.3 세션 ACTIVE 구간과 겹치는가. 열린 구간은 끝이 없는 것으로 본다(진행 중이라 끝을 모른다).
+     *
+     * @param userId     업로드 주체
+     * @param lifecycles 이미 적립됐거나 적립될 세션의 lifecycle(ACTIVE·PAUSED·COMPLETED). 정산 없이 끝난
+     *                   세션(ABANDONED·MEMBERSHIP_LOST)은 빠진다 — 적립한 적이 없으니 이중 적립이 아니다
+     * @param start      블록 시작(포함)
+     * @param end        블록 끝(제외)
+     * @return 한 순간이라도 겹치면 true
+     */
+    @Query("SELECT COUNT(i) > 0 FROM FocusSessionInterval i, FocusSessionDetail d "
+            + "WHERE d.sessionId = i.sessionId AND d.userId = :userId AND d.lifecycle IN :lifecycles "
+            + "AND i.kind = com.oneorthree.phone.focus.repository.domain.FocusIntervalKind.ACTIVE "
+            + "AND i.startedAt < :end AND (i.endedAt IS NULL OR i.endedAt > :start)")
+    boolean existsActiveOverlap(@Param("userId") UUID userId,
+                                @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles,
+                                @Param("start") Instant start, @Param("end") Instant end);
 
     /**
      * 탈퇴 정리 — 탈퇴자 세션의 열린 구간을 닫는다. 상세를 {@code ABANDONED}로 종결하면서 구간을
