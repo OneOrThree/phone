@@ -17,7 +17,7 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 화면 조회 {@code GET /screens/*} (GROMO-1896·1897, bff-screens B15·B24~B26). query 검증만 하고 유스케이스에 넘긴다.
+ * 화면 조회 {@code GET /screens/*} (GROMO-1896·1897·1899, bff-screens B15·B24~B26). query 검증만 하고 유스케이스에 넘긴다.
  *
  * <p>{@code /screens/**} 는 {@code PublicApiRoutes} 에 있어 {@code {data}} 봉투가, {@code RequestEnvelopeFilter}
  * 가 {@code Cache-Control: no-store}(B11)를 붙인다. 주체는 서명된 세션에서만 온다. 허용하지 않은 query 와
@@ -79,6 +79,19 @@ public class ScreenController {
     public Map<String, Object> townHall(HttpServletRequest request) {
         AccessTokenClaims claims = begin(request, Set.of());
         return screens.townHall(claims, requestId(request));
+    }
+
+    @GetMapping("/screens/mailbox")
+    public Map<String, Object> mailbox(HttpServletRequest request) {
+        AccessTokenClaims claims = begin(request, Set.of());
+        return screens.mailbox(claims, requestId(request));
+    }
+
+    /** {@code friends} — 친구 당일 집중 분의 기준일 {@code date} 만 받아 도메인에 그대로 넘긴다(GROMO-1899). */
+    @GetMapping("/screens/friends")
+    public Map<String, Object> friends(HttpServletRequest request) {
+        AccessTokenClaims claims = begin(request, Set.of("date"));
+        return screens.friends(claims, request.getParameter("date"), requestId(request));
     }
 
     /** 세션을 먼저 확인한다 — 미인증 요청에 query 오류를 먼저 알려 주지 않는다. */
