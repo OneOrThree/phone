@@ -180,8 +180,13 @@ migration — fix with `V<N+1>` (Flyway checksums them).
 4. Inbound `POST /internal/events` (GROMO-1943) — Data's canonical `user.withdrawn` envelope, authenticated by
    the Data-only token `SVC_TOKEN_DATA_TO_REALTIME` (no `X-User-Id`). `message/service/ChatUserFence` writes
    `user_tombstones` and deletes the user's `chat_read_cursors` under a per-user advisory lock; every cursor
-   write goes through the same fence. Idempotent. **Not wired yet**: Data's relay has no `REALTIME` transport,
-   so the event waits as an undelivered `REALTIME` outbox row.
+   write goes through the same fence. Wired by GROMO-1954 (2026-09-19 R-1): Data's relay sends every `REALTIME`
+   row here over HTTP by default, or over the `realtime-events` Kafka topic when both flags are on
+   (`event/KafkaEventInbound`, `REALTIME_EVENTS_KAFKA_ENABLED`, default false). Both entrances call
+   `event/InboundEventService`, which inserts `inbound_events(event_id)` first and applies only on first sight.
+   The 14 app event types are accepted and deduped but **not delivered to STOMP yet** — island destinations are
+   not in the SUBSCRIBE allowlist (`StompAuthChannelInterceptor`) and `DisabledRealtimeDelivery` still throws.
+   Multi-instance fan-out (per-instance consumer group / Redis redistribution) is not implemented.
 
 ### 선택적 현재 멤버십 인가
 

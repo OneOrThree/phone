@@ -58,7 +58,7 @@
 - 적는 길은 `OutboxCommandPort.append` 하나다. `EventOutboxRepository`·`EventOutboxDeliveryRepository`·
   `AggregateVersionRepository` 를 도메인이 직접 저장·잠그지 않는다(예외 없음 — GROMO-1953 이 마지막 두 곳을 포트로 옮겼다).
 - 예외: `InternalIslandMailboxService` 는 메시지 정본이 다른 DB(`gromo_chat`)라 같은 커밋이 불가능하다. 저장 성공 뒤
-  별도로 적재하며, 그 틈의 유실은 REALTIME 전달이 꺼져 있는 동안만 무해하다(클래스 javadoc 의 ponytail 주석).
+  별도로 적재하며, 그 틈의 유실은 realtime 이 앱으로 전달하지 않는 동안만 무해하다(클래스 javadoc 의 ponytail 주석).
 
 ### 2.2 eventId
 
@@ -108,7 +108,7 @@
 | `KAFKA` | `notification-events` 토픽(key=userId) | 없음(`toKafka()`) | relay 가 켜지면 항상 |
 | `NOTI` | 알림 서버 HTTP | `noti.*` 4개 | `application-satellites.yml` 에 `target: NOTI` 키가 있을 때 |
 | `LINK` | 링크 HTTP(A23 로 서버 분리는 폐기됐고 걷어내기는 링크 구현 PR 몫) | `link.*` 7개 | `target: LINK` 키가 있을 때 |
-| `REALTIME` | realtime `POST /internal/events` 예정 | 관례상 사건 `type` 과 같은 값 | **없음.** `OutboxRelayConfig` 는 HTTP transport 를 LINK·NOTI 에만 만든다 — 행은 미전달로 **보존**되고, transport 가 붙는 날 밀린 분이 나간다 |
+| `REALTIME` | realtime — **HTTP 기본 · Kafka 선택**(2026-09-19 R-1). HTTP 는 `POST /internal/events`(Data 전용 토큰 `SVC_TOKEN_DATA_TO_REALTIME`), Kafka 는 `realtime-events` 토픽(key=userId, `.DLT` 포함). realtime 은 두 입구를 한 처리기(`InboundEventService`)로 받아 `eventId` 로 한 번만 적용한다 | 사건 `type` 과 같은 값 — 13개 전부 `application-satellites.yml` 에 등록(`RealtimeOutboxEndpointsTest`) | 기본: `target: REALTIME` 키가 있을 때 HTTP. `outbox.relay.realtime-kafka-enabled=true` 면 HTTP 대신 Kafka(한 대상에 경로 하나). 앱 사건 14종은 realtime 이 받아 중복만 거르고 **앱으로는 아직 내보내지 않는다**(섬 구독 인가 미구현 — `StompAuthChannelInterceptor`) |
 
 - 대상 하나당 전달 요구 하나. **대상별 전달 상태를 합치지 않는다** — 합치면 한쪽만 실패했을 때 성공한 쪽이 재전달되거나(중복)
   실패한 쪽이 영영 안 간다(유실).
@@ -157,7 +157,7 @@
 | 스위치 | 막는 것 | 꺼져 있을 때 |
 | --- | --- | --- |
 | `outbox.relay.enabled` | 전송 | 봉투는 **적힌다.** 켜면 밀린 분이 나간다 |
-| REALTIME transport 미등록 | 전송(REALTIME 만) | 봉투·전달 행은 적히고 미전달로 남는다 |
+| `outbox.relay.realtime-kafka-enabled` | REALTIME 전송 경로 선택(HTTP ↔ Kafka) | HTTP 로 간다. 켜기 전에 realtime `REALTIME_EVENTS_KAFKA_ENABLED` 를 먼저 켠다 |
 | `notification.dispatch.mode`(`LEGACY`\|`OUTBOX`) | 알림 **생산** 경로 선택 | `LEGACY` 면 알림 봉투를 적지 않는다(`NotificationDispatcher`·`ResultBundleCompletionService`·`NotificationRequestOutboxListener`) |
 | `island-playback.events-enabled` | `playback.updated` **생산** | 행을 쓰지 않고 receipt `events` 는 빈 배열 |
 | `island-management.commands-enabled` 등 명령 스위치 | 명령 자체(503) | 명령이 없으니 사건도 없다 — 생산 스위치가 아니다 |
@@ -183,7 +183,9 @@ REALTIME 전달 행은 다른 대상과 같은 **10필드 정본 봉투**를 싣
 
 GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId → islandId), `join.request.updated`(requestId → islandId),
 `message.created`(messageId → islandId), `focus.member.updated`·`rest.member.updated`(userId → islandId), 외양·재생 3종(7필드
-전달 행 → 정본 봉투). REALTIME transport 가 아직 등록돼 있지 않아(§2.4) 이 행들을 읽는 소비자는 없었다. 외양 receipt 의
+전달 행 → 정본 봉투). 그때는 REALTIME transport 가 없어 이 행들을 읽는 소비자가 없었다. GROMO-1954 이전에 적힌
+옛 7필드 외양 행이 미전달로 남아 있을 수 있는데, realtime 은 `eventId`·`type` 만 보고 받으므로 그대로 소비된다(앱 전달 전이라
+모양 차이가 결과를 바꾸지 않는다). 외양 receipt 의
 `events` 도 정본 봉투가 됐다 — Business 는 그 배열을 불투명 `JsonNode` 로 받고 앱에 넘기지 않는다(`AppearanceUseCase`).
 
 예외(정의와 다르지만 두는 것):

@@ -14,7 +14,7 @@ import org.springframework.web.client.RestClientException;
 import java.util.UUID;
 
 /**
- * 위성 서비스(링크·알림)로 가는 내부 명령 전달 (계약 §2 · A21).
+ * 위성 서비스(링크·알림·realtime)로 가는 내부 명령·사건 전달 (계약 §2 · A21).
  *
  * <h2>SSRF 를 구조적으로 막는다</h2>
  * 목적지는 <b>설정의 허용목록에만</b> 있다. 전달 행은 논리 키({@code endpointKey})만 갖고, 그 키가
@@ -38,7 +38,7 @@ public class HttpOutboxTransport implements OutboxTransport {
     private final OutboxRelayProperties properties;
 
     /**
-     * @param target     이 인스턴스가 맡는 대상(LINK 또는 NOTI)
+     * @param target     이 인스턴스가 맡는 대상(LINK·NOTI·REALTIME)
      * @param restClient 공용 HTTP 클라이언트
      * @param properties 허용목록을 가진 설정
      */

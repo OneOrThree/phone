@@ -128,6 +128,10 @@ public class OutboxRelayConfig {
      * <p>HTTP 대상은 <b>허용목록에 그 대상의 엔드포인트가 하나라도 있을 때만</b> 만든다. 목적지가
      * 없는데 경로만 열어 두면 「켰는데 왜 안 가지」가 로그 없이 조용히 성립한다.
      *
+     * <p>{@code REALTIME} 은 두 경로 중 <b>하나</b>다(2026-09-19 R-1): 기본은 HTTP(realtime
+     * {@code POST /internal/events}), {@code outbox.relay.realtime-kafka-enabled=true} 면
+     * {@code realtime-events} 토픽. realtime 은 두 입구를 한 처리기로 받아 {@code eventId} 로 거른다.
+     *
      * @param store            트랜잭션 경계
      * @param outboxRepository 봉투 저장소
      * @param outboxKafkaTemplate Kafka 발행구
@@ -143,11 +147,18 @@ public class OutboxRelayConfig {
             RestClient outboxRestClient,
             Clock clock) {
         List<OutboxTransport> transports = new ArrayList<>();
-        transports.add(new KafkaOutboxTransport(outboxKafkaTemplate, properties));
-        for (OutboxTarget target : List.of(OutboxTarget.LINK, OutboxTarget.NOTI)) {
+        transports.add(new KafkaOutboxTransport(
+                OutboxTarget.KAFKA, properties.getKafka().getTopic(), outboxKafkaTemplate, properties));
+        if (properties.isRealtimeKafkaEnabled()) {
+            // R-1: REALTIME 은 HTTP 가 기본이고 이 플래그일 때만 토픽으로 간다 — 한 대상에 경로는 하나다.
+            transports.add(new KafkaOutboxTransport(
+                    OutboxTarget.REALTIME, properties.getKafka().getRealtimeTopic(), outboxKafkaTemplate, properties));
+        }
+        for (OutboxTarget target : List.of(OutboxTarget.LINK, OutboxTarget.NOTI, OutboxTarget.REALTIME)) {
             boolean configured = properties.getEndpoints().values().stream()
                     .anyMatch(endpoint -> endpoint.getTarget() == target);
-            if (configured) {
+            boolean viaKafka = target == OutboxTarget.REALTIME && properties.isRealtimeKafkaEnabled();
+            if (configured && !viaKafka) {
                 transports.add(new HttpOutboxTransport(target, outboxRestClient, properties));
             }
         }
@@ -171,6 +182,34 @@ public class OutboxRelayConfig {
     @Bean
     public NewTopic notificationEventsTopic() {
         return TopicBuilder.name(properties.getKafka().getTopic())
+                .partitions(properties.getKafka().getPartitions())
+                .replicas(properties.getKafka().getReplicationFactor())
+                .build();
+    }
+
+    /**
+     * {@code REALTIME} 을 Kafka 로 보낼 때만 만든다(R-1) — 꺼져 있으면 브로커에 쓸모없는 토픽을 남기지 않는다.
+     *
+     * @return 토픽 정의
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "outbox.relay", name = "realtime-kafka-enabled", havingValue = "true")
+    public NewTopic realtimeEventsTopic() {
+        return TopicBuilder.name(properties.getKafka().getRealtimeTopic())
+                .partitions(properties.getKafka().getPartitions())
+                .replicas(properties.getKafka().getReplicationFactor())
+                .build();
+    }
+
+    /**
+     * realtime 소비 실패의 종착 토픽 — 파티션 수가 정본과 같아야 하는 이유는 아래 {@code .DLT} 와 같다.
+     *
+     * @return 토픽 정의
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "outbox.relay", name = "realtime-kafka-enabled", havingValue = "true")
+    public NewTopic realtimeEventsDltTopic() {
+        return TopicBuilder.name(properties.getKafka().getRealtimeDltTopic())
                 .partitions(properties.getKafka().getPartitions())
                 .replicas(properties.getKafka().getReplicationFactor())
                 .build();

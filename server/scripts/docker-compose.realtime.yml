@@ -77,6 +77,12 @@ services:
       DATA_API_BASE_URL: http://app:8080
       # 네이티브 앱은 Origin 을 보내지 않으므로 비워 둔다 — 웹 클라이언트가 생기면 그 도메인만 넣는다.
       CHAT_WS_ALLOWED_ORIGINS: ${CHAT_WS_ALLOWED_ORIGINS:-}
+      # Data relay 의 사건 수신 자격(POST /internal/events, GROMO-1954). 비면 그 경로만 401 이라 Data 의 REALTIME
+      # 전달이 멈춘다 — Data 의 SVC_TOKEN_DATA_TO_REALTIME 과 «같은 값», Business 토큰과는 «다른 값»(A22 ㊀).
+      SVC_TOKEN_DATA_TO_REALTIME: ${SVC_TOKEN_DATA_TO_REALTIME:-}
+      # realtime-events Kafka 입구(2026-09-19 R-1). 기본 꺼짐 — 켜려면 Kafka 오버레이가 떠 있어야 한다.
+      REALTIME_EVENTS_KAFKA_ENABLED: ${REALTIME_EVENTS_KAFKA_ENABLED:-false}
+      KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}
     depends_on:
       db:
         condition: service_healthy

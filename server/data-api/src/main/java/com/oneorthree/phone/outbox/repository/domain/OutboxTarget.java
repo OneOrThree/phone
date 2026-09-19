@@ -22,8 +22,9 @@ public enum OutboxTarget {
     NOTI,
 
     /**
-     * 새 섬 이벤트·권한 제어. 수신·인가·snapshot 복구가 준비되기 전에는 transport를 등록하지 않고
-     * 미전달 행을 보존한다. NOTI/Kafka로 우회하거나 저장만으로 전달 완료 처리하지 않는다.
+     * realtime 서비스로 가는 섬 사건·{@code user.withdrawn}. 전달 경로는 HTTP({@code POST /internal/events})가
+     * 기본이고 {@code outbox.relay.realtime-kafka-enabled} 일 때만 {@code realtime-events} 토픽이다
+     * (2026-09-19 R-1). {@code notification-events}(KAFKA)·NOTI 로 우회하거나 저장만으로 전달 완료 처리하지 않는다.
      */
     REALTIME
 }

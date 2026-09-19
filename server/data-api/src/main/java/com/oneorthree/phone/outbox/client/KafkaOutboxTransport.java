@@ -4,7 +4,6 @@ import com.oneorthree.phone.config.OutboxRelayProperties;
 import com.oneorthree.phone.outbox.repository.domain.EventOutboxDelivery;
 import com.oneorthree.phone.outbox.repository.domain.OutboxTarget;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 
@@ -14,7 +13,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * {@code notification-events} 발행 (A12 · A21).
+ * 대상 하나를 Kafka 토픽 하나로 발행한다 — {@code KAFKA} → {@code notification-events}(A12 · A21),
+ * {@code REALTIME} → {@code realtime-events}(2026-09-19 R-1, 플래그로만 켠다).
  *
  * <p><b>키는 {@code userId} 다.</b> 같은 유저의 이벤트가 한 파티션에 모여 브로커 도착 순서가 보존된다 —
  * 다만 그것만으로는 역순 적용을 못 막으므로 소비자는 봉투의 {@code version} 을 함께 본다.
@@ -25,20 +25,34 @@ import java.util.concurrent.TimeoutException;
  * 틀려야 한다.
  */
 @Slf4j
-@RequiredArgsConstructor
 public class KafkaOutboxTransport implements OutboxTransport {
 
+    private final OutboxTarget target;
+    private final String topic;
     private final KafkaTemplate<String, String> kafkaTemplate;
     private final OutboxRelayProperties properties;
 
+    /**
+     * @param target        이 인스턴스가 맡는 대상(KAFKA 또는 REALTIME)
+     * @param topic         발행할 토픽 — 설정에서만 온다
+     * @param kafkaTemplate outbox 전용 발행구
+     * @param properties    발행 대기 상한을 가진 설정
+     */
+    public KafkaOutboxTransport(OutboxTarget target, String topic,
+            KafkaTemplate<String, String> kafkaTemplate, OutboxRelayProperties properties) {
+        this.target = target;
+        this.topic = topic;
+        this.kafkaTemplate = kafkaTemplate;
+        this.properties = properties;
+    }
+
     @Override
     public OutboxTarget target() {
-        return OutboxTarget.KAFKA;
+        return target;
     }
 
     @Override
     public OutboxTransportResult send(EventOutboxDelivery delivery, UUID userId) {
-        String topic = properties.getKafka().getTopic();
         String value = OutboxEnvelopeCodec.toJson(delivery.getPayload());
         try {
             kafkaTemplate.send(topic, userId.toString(), value)

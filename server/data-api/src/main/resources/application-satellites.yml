@@ -178,6 +178,9 @@ outbox:
       initial-backoff: ${OUTBOX_RELAY_INITIAL_BACKOFF:}
       max-backoff: ${OUTBOX_RELAY_MAX_BACKOFF:}
       max-attempts: ${OUTBOX_RELAY_WARNING_ATTEMPTS:}
+    # 2026-09-19 R-1 — REALTIME 은 HTTP 기본 · Kafka 선택. true 면 아래 realtime.* HTTP 키 대신
+    # realtime-events 토픽으로 보낸다(realtime 의 REALTIME_EVENTS_KAFKA_ENABLED 를 먼저 켠다).
+    realtime-kafka-enabled: ${OUTBOX_RELAY_REALTIME_KAFKA_ENABLED:false}
     endpoints:
       "[link.revoked]":
         target: LINK
@@ -234,3 +237,72 @@ outbox:
         url: ${NOTIFICATION_BASE_URL}/internal/events
         method: POST
         token: ${SVC_TOKEN_DATA_TO_NOTI}
+      # GROMO-1954 realtime POST /internal/events — 논리 키는 사건 type 그대로(outbox 규약 §2.4). 전부 같은
+      # 목적지·같은 Data 전용 토큰(SVC_TOKEN_DATA_TO_REALTIME, A22 ㊀)이다. 여기 없는 type 의 REALTIME 행은
+      # relay 가 보내지 않는다(permanent) — 새 REALTIME 사건을 만들면 같은 PR 에서 한 줄 늘린다
+      # (RealtimeOutboxEndpointsTest 가 잡는다).
+      "[user.withdrawn]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[island.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[island.members.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[notice.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[join.request.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[wallet.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[quest.progress.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[message.created]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[focus.member.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[rest.member.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[member.appearance.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[island.appearance.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      "[playback.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
