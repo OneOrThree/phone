@@ -161,8 +161,9 @@ public class AccountWithdrawalService {
         leagueService.eraseWithdrawnUser(userId);
         characterGenerationService.eraseWithdrawnUser(userId);
         equipmentService.eraseWithdrawnUser(userId);
-        // 섬 개인 외양·개인 보유품 삭제, 퀘스트 cohort 삭제·정산 수령자 연결 해제(GROMO-1950).
-        // 섬 소유 보유품·정산 행은 섬 자산·원장 근거라 남는다. 섬 잠금은 위 그룹 선점에서 이미 쥐었다.
+        // 섬 개인 외양·개인 보유품 삭제, 퀘스트 cohort 삭제·정산 수령자·퀘스트 작성자 연결 해제(GROMO-1950·1952).
+        // 섬 소유 보유품·정산 행·퀘스트 정의는 섬 자산·원장 근거라 남는다. 섬 잠금은 위 그룹 선점에서 이미 쥐었다.
+        // 상점 주문(shop_orders)은 payer_user_id 를 CHECK 가 NULL 로 강제해 탈퇴자 연결이 없다 — 파기 단계가 없다.
         appearanceService.eraseWithdrawnUser(userId);
         islandQuestService.eraseWithdrawnUser(userId);
 

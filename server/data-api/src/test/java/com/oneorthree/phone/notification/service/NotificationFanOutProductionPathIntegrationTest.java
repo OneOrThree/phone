@@ -230,7 +230,7 @@ class NotificationFanOutProductionPathIntegrationTest {
         CreateChallengeRequest request = durationRequest();
         ExecutorService pool = Executors.newFixedThreadPool(2);
         ExecutionException lost;
-        try (RawUserLock reverse = RawUserLock.open()) {
+        try (RawUserLock reverse = RawUserLock.open(jdbc)) {
             reverse.lock(f.high().getId());
             Future<?> creating = pool.submit(() -> challenges.createChallenge(f.group().getId(), f.owner().getId(),
                     request));

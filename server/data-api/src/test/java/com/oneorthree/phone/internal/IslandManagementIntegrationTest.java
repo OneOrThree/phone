@@ -275,6 +275,9 @@ class IslandManagementIntegrationTest {
     @DisplayName("주민 목록 — 항목마다 착용 외양(고양이 외형)을 싣는다. 외양 행이 없으면 기본값이다")
     void membersCarryEquippedAppearance() {
         Fixture f = fixture(false);
+        // 카탈로그 행은 직접 심는다 — 예전엔 공유 DB 에 다른 클래스가 남긴 'scarf' 에 기대 통과했다 (GROMO-1792).
+        jdbc.update("INSERT INTO catalog_assets (product_id, title, kind, owner_type, created_at)"
+                + " VALUES ('scarf', 'scarf', 'clothes', 'user', now()) ON CONFLICT (product_id) DO NOTHING");
         jdbc.update("INSERT INTO personal_appearances (user_id, clothes, decor, hull, position, version, updated_at)"
                 + " VALUES (?, 'scarf', NULL, 'raft', 'back', 3, now())", f.member());
 
