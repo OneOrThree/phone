@@ -21,6 +21,7 @@
 | `GET /internal/users/{userId}/focus-summary` | `GET /me/focus-summary` · [focus-rest-session](../focus-rest-session/low-level-design.md) | home |
 | `GET /internal/users/{userId}/focus-sessions/current` | `GET /focus-sessions/current` · focus-rest-session | launch · home · focus |
 | `GET /internal/users/{userId}/join-requests/{requestId}` | `GET /me/join-requests/{requestId}` · island-membership §3.8 | visit |
+| `GET /internal/users/{userId}/join-requests` | `GET /me/join-requests` · island-membership §3.12 (GROMO-1895) | explore |
 | `GET /internal/users/{userId}/inventory` | `GET /me/inventory` · [island-appearance](../island-appearance/low-level-design.md) §1.1 | raft |
 | `GET /internal/islands` | `GET /islands?q=` · island-membership §3.2 | explore |
 | `GET /internal/islands/discover` | `GET /islands/discover` · island-membership §3.3 | explore |
@@ -31,10 +32,12 @@
 | `GET /internal/islands/{islandId}/members` | [island-management](../island-management/low-level-design.md) §3.2 | town-hall |
 | `GET /internal/islands/{islandId}/join-requests` | island-management §3.3 | town-hall (방장만) |
 | `GET /internal/islands/{islandId}/construction-options` | [island-construction](../island-construction/low-level-design.md) | town-hall |
+| `GET /internal/islands/{islandId}/resources/ledger` | island-construction §6 (GROMO-1895) | town-hall |
 | `GET /internal/islands/{islandId}/shop/wallets` | [island-shop](../island-shop/low-level-design.md) §2.1 | home · town-hall · board · shop · playback |
 | `GET /internal/islands/{islandId}/shop/products` | island-shop §2.2 | shop · playback |
 | `GET /internal/islands/{islandId}/inventory` | island-appearance §1.3 | shop · playback |
 | `GET /internal/islands/{islandId}/statistics/focus` · `…/statistics/screen-time` | [island-records](../island-records/low-level-design.md) | library |
+| `GET /internal/islands/{islandId}/statistics/fish-earnings` | island-records §7 (GROMO-1895) | library |
 | `GET /internal/islands/{islandId}/quests/current` | [island-quests](../island-quests/low-level-design.md) | board |
 | `GET /internal/islands/{islandId}/notices` | [island-board](../island-board/low-level-design.md) | board |
 
@@ -50,7 +53,7 @@ Data 밖:
 
 ## 3. 허용목록 (business caller)
 
-각 도메인 구현이 자기 줄을 추가한다. 14종이 모두 열리면 아래가 된다.
+각 도메인 구현이 자기 줄을 추가한다. 14종이 모두 열리면 아래가 된다. GROMO-1895 의 세 줄(내 가입 대기 목록·공동 가계부·주민별 누적 획득)은 이미 `application-satellites.yml` 에 들어갔다.
 
 ```yaml
 internal:
@@ -63,6 +66,7 @@ internal:
           - 'GET /internal/users/*/focus-summary'
           - 'GET /internal/users/*/focus-sessions/current'
           - 'GET /internal/users/*/join-requests/*'
+          - 'GET /internal/users/*/join-requests'
           - 'GET /internal/users/*/inventory'
           - 'GET /internal/islands'
           - 'GET /internal/islands/*'
@@ -72,11 +76,13 @@ internal:
           - 'GET /internal/islands/*/members'
           - 'GET /internal/islands/*/join-requests'
           - 'GET /internal/islands/*/construction-options'
+          - 'GET /internal/islands/*/resources/ledger'
           - 'GET /internal/islands/*/shop/wallets'
           - 'GET /internal/islands/*/shop/products'
           - 'GET /internal/islands/*/inventory'
           - 'GET /internal/islands/*/statistics/focus'
           - 'GET /internal/islands/*/statistics/screen-time'
+          - 'GET /internal/islands/*/statistics/fish-earnings'
           - 'GET /internal/islands/*/quests/current'
           - 'GET /internal/islands/*/notices'
 ```
@@ -93,6 +99,6 @@ internal:
 | ~~친구 목록·받은/보낸 요청~~ **해소** | friends · raft | [friend-letter LLD](../friend-letter/low-level-design.md) §1.15 — `GET /internal/users/{userId}/friends`·`…/friend-requests`. 기존 `FriendController` 구현을 무접두로 재노출하는 것이라 신규 도메인 로직은 없다. **허용목록 3줄 추가가 선행**(같은 §1.15) |
 | ~~편지함·편지~~ **해소** | mailbox | [friend-letter LLD](../friend-letter/low-level-design.md) §1.12~1.15 — `letters` 테이블 신설, `GET /internal/users/{userId}/letters`. 섬 우체통 공개 메시지(island-mailbox)와 다른 도메인이다(HLD §0) |
 | 작성자 표시 정보 batch | mailbox | island-mailbox LLD §5가 요구. 계약 미정 |
-| 내 가입 대기 신청 목록 | explore | island-membership LLD는 단건 조회(§3.8)만 있다 |
-| 공동 가계부 | town-hall | 원장 조회 계약 없음 |
-| 주민별 누적 물고기 | library | island-records에 없음 |
+| ~~내 가입 대기 신청 목록~~ **해소** | explore | [island-membership LLD](../island-membership/low-level-design.md) §3.12 — `GET /internal/users/{userId}/join-requests`(GROMO-1895). pending 만, `(createdAt, id)` keyset |
+| ~~공동 가계부~~ **해소** | town-hall | [island-construction LLD](../island-construction/low-level-design.md) §6 — `GET /internal/islands/{islandId}/resources/ledger`(GROMO-1895). KST 월·`direction` 필터·월 합계, 최신순 keyset. 원장 V62 를 그대로 읽는다 |
+| ~~주민별 누적 물고기~~ **해소** | library | [island-records LLD](../island-records/low-level-design.md) §7 — `GET /internal/islands/{islandId}/statistics/fish-earnings`(GROMO-1895). 정산 `earned_fish` 합, 도서관 완공 게이트(`LIBRARY_LOCKED`) |
