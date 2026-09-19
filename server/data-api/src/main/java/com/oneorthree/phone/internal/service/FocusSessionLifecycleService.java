@@ -125,8 +125,8 @@ public class FocusSessionLifecycleService {
     private static final int MAX_SUBJECT_LENGTH = 200;
     /** 하루 상한의 창 — 완료 시각의 UTC 날짜 [00:00, +24h) (D8: 모든 시간 UTC · 하루 리셋 UTC 00:00). */
     private static final long SECONDS_PER_DAY = 86_400L;
-    private static final String FOCUS_MEMBER_AGGREGATE_TYPE = "FOCUS_MEMBER";
-    private static final String REST_MEMBER_AGGREGATE_TYPE = "REST_MEMBER";
+    static final String FOCUS_MEMBER_AGGREGATE_TYPE = "FOCUS_MEMBER";
+    static final String REST_MEMBER_AGGREGATE_TYPE = "REST_MEMBER";
     private static final String FOCUS_MEMBER_EVENT_TYPE = "focus.member.updated";
     private static final String REST_MEMBER_EVENT_TYPE = "rest.member.updated";
     /** 세션이 끝나 focus/rest 목록에서 지운다는 상태값 — LLD §6 의 {@code completed}(행 제거)다. */

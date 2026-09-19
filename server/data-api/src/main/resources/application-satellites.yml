@@ -77,6 +77,9 @@ internal:
           - 'GET /internal/islands/*/construction-options'
           - 'PUT /internal/islands/*/construction-target'
           - 'POST /internal/islands/*/constructions'
+          # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
+          - 'GET /internal/islands/*/focus-members'
+          - 'GET /internal/islands/*/rest-members'
           # GROMO-1894 친구 7종 (friend-letter LLD §1.15 조회 2 + 명령 5). 조회와 생성은 메서드로만 갈리므로
           # 줄을 합치지 않는다.
           - 'GET /internal/users/*/friends'
@@ -91,6 +94,11 @@ internal:
           - 'POST /internal/users/*/letters'
           - 'GET /internal/users/*/letters'
           - 'GET /internal/users/*/letters/*'
+          # GROMO-1783 보유품·외양 4종 — 조회와 적용은 메서드로만 갈리므로 합치지 않는다.
+          - 'GET /internal/users/*/inventory'
+          - 'PATCH /internal/users/*/appearance'
+          - 'GET /internal/islands/*/inventory'
+          - 'PATCH /internal/islands/*/appearance'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:

@@ -107,8 +107,9 @@ public class FocusLiveInfoLookup {
         if (details.isEmpty()) {
             return anchors;
         }
+        List<UUID> detailIds = details.stream().map(FocusSessionDetail::getSessionId).toList();
         Map<UUID, List<FocusSessionInterval>> intervals = focusSessionIntervalRepository
-                .findBySessionIdIn(details.stream().map(FocusSessionDetail::getSessionId).toList()).stream()
+                .findBySessionIdInOrderByOrdinalAsc(detailIds).stream()
                 .collect(Collectors.groupingBy(FocusSessionInterval::getSessionId));
         for (FocusSessionDetail detail : details) {
             anchors.put(detail.getSessionId(), detail.getLifecycle() != FocusSessionLifecycle.ACTIVE ? null
