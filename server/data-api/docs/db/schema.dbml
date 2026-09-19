@@ -294,7 +294,7 @@ Table user_focus_time_settings [note: '유저별 포커스 타임 목표 설정 
   daily_focus_time_goal_minutes integer     [not null, default: 0, note: '포커스 목표(분 이상)']
 
   previous_goal_minutes          integer     [note: '직전 목표(분) — 오늘 첫 변경 직전 값 = 어제 유효했던 목표 (GROMO-1049)']
-  goal_effective_from            date        [note: '현재 목표 발효일(유저 로컬). 이 날짜 이전 날은 previous 를 쓴다']
+  goal_effective_from            date        [note: '현재 목표 발효일(KST — UserService.todayOf() = LocalDate.now(ZonePolicy.KST)). 이 날짜 이전 날은 previous 를 쓴다']
 
   updated_at                     timestamptz
   deleted_at                     timestamptz [note: '탈퇴 시각 (소프트 딜리트 감사 로그용)']
@@ -307,7 +307,7 @@ Table user_screen_time_settings [note: '유저별 스크린타임 권한·목표
   daily_screen_time_goal_minutes integer     [not null, default: 0, note: '스크린타임 목표(분 이내)']
 
   previous_goal_minutes          integer     [note: '직전 목표(분) — 오늘 첫 변경 직전 값 = 어제 유효했던 목표 (GROMO-1049)']
-  goal_effective_from            date        [note: '현재 목표 발효일(유저 로컬). 이 날짜 이전 날은 previous 를 쓴다']
+  goal_effective_from            date        [note: '현재 목표 발효일(KST — UserService.todayOf() = LocalDate.now(ZonePolicy.KST)). 이 날짜 이전 날은 previous 를 쓴다']
 
   created_at                     timestamptz [note: '생성 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
   updated_at                     timestamptz
@@ -1048,7 +1048,7 @@ Table league_weekly_results [note: '주간 리그 정산 결과 로그 (GROMO-81
   id                  uuid        [pk]
 
   user_id             uuid        [not null, note: 'FK → users.id']
-  week_start_at       timestamptz [not null, note: '정산 대상 주차 시작(UTC)']
+  week_start_at       timestamptz [not null, note: '정산 대상 주차 시작(KST 월요일 00:00 instant — LeagueWeek 가 atStartOfDay(KST) 로 산출)']
 
   previous_tier_level integer     [not null, note: '정산 전 티어 (CHECK BETWEEN 1 AND 5)']
   new_tier_level      integer     [not null, note: '정산 후 티어 (CHECK BETWEEN 1 AND 5)']
@@ -1103,7 +1103,7 @@ Table daily_focus_stats [note: '유저별 일일 집중 집계 (LLM·리포트�
   id                          uuid    [pk]
   user_id                     uuid    [note: 'nullable — 탈퇴 유저 익명 보존 (FK → users.id)']
 
-  date                        date    [not null, note: '일별 집계 버킷 날짜 — 현재 UTC 기준(FocusService.statDate = endedAt 을 UTC 로 환산). ticket 803 에서 country_code 존 기준으로 전환 예정']
+  date                        date    [not null, note: '일별 집계 버킷 날짜 — KST 고정(GROMO-1259 — FocusService.statDate 가 endedAt 을 ZonePolicy.KST 로 환산). 구 country_code 존 전환 예정 문구는 1259 로 폐기. UTC 전환은 ticket 1930 계획']
 
   total_focus_seconds         integer [not null, default: 0, note: '일일 누적 집중 시간(초) — GROMO-642, 분 내림 손실 제거']
   session_count               integer [not null, default: 0, note: '일일 세션 수']
