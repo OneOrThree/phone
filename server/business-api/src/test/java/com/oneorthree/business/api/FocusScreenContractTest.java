@@ -17,13 +17,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /**
  * {@code GET /screens/focus} 계약 (GROMO-1897) — 현재 세션 → (세션 섬 | 현재 섬) 상세 → 집중 주민.
- * 세션이 있으면 현재 섬이 아니라 세션이 고정한 섬을 연다.
+ * 세션이 있으면 현재 섬이 아니라 세션이 고정한 섬을 연다. 그 섬의 방송기가 완공이면 방송기를 싣는다.
  */
 class FocusScreenContractTest extends ScreenContractTestBase {
 
     private static final UUID FOCUS = UUID.fromString("dddddddd-1897-0000-0000-000000000002");
     private static final UUID SESSION_ISLAND = UUID.fromString("cccccccc-1897-0000-0000-000000000003");
     private static final String DATA_CURRENT = "GET " + USERS + "/focus-sessions/current";
+
+    private static final String PLAYBACK = "{\"trackId\":null,\"playing\":false,\"positionSeconds\":0,"
+            + "\"effectiveAt\":\"2026-09-17T00:00:00Z\",\"changedBy\":null,\"version\":0,"
+            + "\"serverNow\":\"2026-09-17T00:00:00Z\",\"durationSeconds\":null}";
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -34,11 +38,13 @@ class FocusScreenContractTest extends ScreenContractTestBase {
             DATA.on(island(island), request -> ok("{\"scope\":\"member\",\"visitor\":null,\"member\":"
                     + detail(island) + "}"));
             DATA.on(members(island), request -> ok(focusMembers(island)));
+            DATA.on(options(island), request -> ok(options(false)));
+            DATA.on(playback(island), request -> ok(PLAYBACK));
         }
     }
 
     @Test
-    @DisplayName("세션이 있으면 세션 섬을 열고 현재 섬 목록은 부르지 않는다 — playback 은 null + missingFragments")
+    @DisplayName("세션이 있으면 세션 섬을 열고 현재 섬 목록은 부르지 않는다 — 방송기도 세션 섬의 것이다")
     void sessionPinsTheIsland() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":" + session(SESSION_ISLAND) + "}"));
 
@@ -51,18 +57,17 @@ class FocusScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.focusMembers.items[0].userId").value(USER.toString()))
                 .andExpect(jsonPath("$.data.focusMembers.watermarks[0].projection").value("focus.member"))
                 .andExpect(jsonPath("$.data.focusMembers.watermarks[0].islandId").value(SESSION_ISLAND.toString()))
-                .andExpect(jsonPath("$.data.missingFragments.length()").value(1))
-                .andExpect(jsonPath("$.data.missingFragments[0]").value("playback"))
+                .andExpect(jsonPath("$.data.playbackAvailability").value("available"))
+                .andExpect(jsonPath("$.data.playback.version").value(0))
                 .andReturn();
 
-        assertKeys(result, "island", "session", "focusMembers", "playback", "playbackAvailability",
-                "missingFragments");
-        JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
-        assertThat(data.get("playback").isNull()).isTrue();
-        assertThat(data.get("playbackAvailability").isNull())
-                .as("시설 완공을 검증할 재료가 없다 — facility_locked 로 위장하지 않는다").isTrue();
+        assertKeys(result, "island", "session", "focusMembers", "playback", "playbackAvailability");
+        JsonNode playback = JSON.readTree(result.getResponse().getContentAsString()).get("data").get("playback");
+        assertThat(playback.get("trackId").isNull()).as("정상 미선택도 available + 객체다(policy §availability)")
+                .isTrue();
         assertThat(DATA.hits(DATA_MINE)).isZero();
-        assertThat(DATA.hits(members(ISLAND))).isZero();
+        assertThat(DATA.hits(members(ISLAND)) + DATA.hits(options(ISLAND)) + DATA.hits(playback(ISLAND))).isZero();
+        assertThat(DATA.hits(playback(SESSION_ISLAND))).isOne();
     }
 
     @Test
@@ -79,6 +84,35 @@ class FocusScreenContractTest extends ScreenContractTestBase {
         JsonNode data = JSON.readTree(body).get("data");
         assertThat(data.has("session") && data.get("session").isNull()).isTrue();
         assertThat(DATA.hits(members(SESSION_ISLAND))).isZero();
+    }
+
+    @Test
+    @DisplayName("방송기 미완공이면 playback 을 부르지 않고 조각만 facility_locked — 화면은 200")
+    void gramNotBuiltLocksOnlyThePlaybackFragment() throws Exception {
+        DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
+        DATA.on(options(ISLAND), request -> ok(options(true)));
+
+        MvcResult result = mockMvc.perform(auth(get("/screens/focus")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.playbackAvailability").value("facility_locked"))
+                .andExpect(jsonPath("$.data.focusMembers.items[0].userId").value(USER.toString()))
+                .andReturn();
+
+        assertKeys(result, "island", "session", "focusMembers", "playback", "playbackAvailability");
+        assertThat(JSON.readTree(result.getResponse().getContentAsString()).get("data").get("playback").isNull())
+                .isTrue();
+        assertThat(DATA.hits(playback(ISLAND))).as("N 은 호출 자체를 생략한다(B03)").isZero();
+    }
+
+    @Test
+    @DisplayName("완공 판정 뒤 방송기 도메인 403 은 facility_locked 로 접지 않고 화면 전체 403 이다(B03)")
+    void playbackForbiddenAfterCheckFailsWholeScreen() throws Exception {
+        DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
+        DATA.on(playback(ISLAND), request -> domainError(403, "GRAM_LOCKED"));
+
+        mockMvc.perform(auth(get("/screens/focus")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FACILITY_LOCKED"));
     }
 
     @Test
@@ -134,6 +168,22 @@ class FocusScreenContractTest extends ScreenContractTestBase {
 
     private static String members(UUID island) {
         return "GET /internal/islands/" + island + "/focus-members";
+    }
+
+    private static String options(UUID island) {
+        return "GET /internal/islands/" + island + "/construction-options";
+    }
+
+    private static String playback(UUID island) {
+        return "GET /internal/islands/" + island + "/playback";
+    }
+
+    /** 건설 옵션 — items 는 미완공 건물만 담는다. gram 이 있으면 방송기 미완공이다. */
+    private static String options(boolean gramPending) {
+        String items = gramPending ? "{\"id\":\"gram\",\"name\":\"방송기\",\"cost\":1360,"
+                + "\"currency\":\"village_points\",\"selectable\":true,\"buildable\":false,\"blockedReason\":null}" : "";
+        return "{\"islandVersion\":4,\"costPolicyVersion\":1,\"selectedBuildingId\":null,\"villagePoints\":0,"
+                + "\"walletVersion\":7,\"items\":[" + items + "]}";
     }
 
     private static String detail(UUID island) {
