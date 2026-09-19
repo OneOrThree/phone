@@ -20,7 +20,7 @@ import java.util.UUID;
  * 세션은 없는데 리스만 남아, 그 사람이 TTL 이 끝날 때까지 채팅에 못 들어간다. 이 규율은 구현이 지킨다
  * ({@code RedisFocusPresence}).
  *
- * <h2>왜 두 메서드 모두 sessionId 를 받는가</h2>
+ * <h2>왜 모든 메서드가 순번(presenceOrder)을 받는가</h2>
  * 커밋 이후 콜백은 <b>트랜잭션마다 다른 스레드에서</b> 돌기 때문에, 서로 다른 요청의 Redis 연산이
  * DB 커밋 순서와 어긋난 순서로 도착할 수 있다. 뽀모도로 회전처럼 「직전 세션 종료 + 새 세션 시작」이
  * 겹치는 순간이 그렇다. 값이 없는 단순 SET/DEL 이면:
@@ -29,8 +29,13 @@ import java.util.UUID;
  *   <li>시작의 SET 이 종료의 DEL <b>뒤에</b> 도착 → <b>이미 끝난 집중의 리스가 되살아나 최대 13시간
  *       채팅이 막힌다</b></li>
  * </ul>
- * 그래서 <b>세션 id 를 값으로 싣고 조건부로만 쓴다</b> — 쓰기는 「더 새로운 세션일 때만」, 해제는
- * 「내가 놓은 그 세션일 때만」. 세션 id 가 UUID v7(시간 정렬)이라 「더 새로움」을 값 비교로 판정할 수 있다.
+ * 그래서 <b>세션의 순번을 값으로 싣고 조건부로만 쓴다</b> — 쓰기는 「더 새로운 세션일 때만」, 해제는
+ * 「내가 놓은 그 세션(이나 더 오래된 것)일 때만」.
+ *
+ * <p>순번은 {@code focus_sessions.presence_order} — <b>DB 시퀀스</b>다(GROMO-1743). 예전엔 세션 id(UUID v7)
+ * 를 비교했는데, 그 앞자리는 id 를 만든 <b>인스턴스의 벽시계</b>라 여러 대로 늘리면 시계가 앞선 대의
+ * 이전 세션이 뒤처진 대의 다음 세션보다 «새로워» 보인다. 공유 저장소가 발급한 번호는 그렇지 않다.
+ * 순번이 {@code null} 인 세션(V77 이전에 끝난 행)은 순서를 정할 근거가 없어 아무것도 하지 않는다.
  *
  * <p>읽는 쪽(채팅)은 여전히 <b>존재 여부만</b> 본다 — 값의 의미는 쓰는 쪽만 안다.
  *
@@ -46,11 +51,11 @@ public interface FocusPresencePort {
      * 집중이 시작됐다 — 리스를 놓는다.
      *
      * @param startedAt 그 마커가 «시작한» 시각. 리스의 만료 기준이다 — 아래 참조
-     * @param sessionId 이 시작이 가리키는 <b>진행 중 마커</b>의 id. 새로 만든 마커이거나(정상 경로),
-     *                  이미 열려 있어 새로 만들지 않은 마커의 id다(순서 역전 방어 경로). 이 값보다
-     *                  <b>오래된</b> 세션의 쓰기는 무시되므로, 늦게 도착한 옛 시작이 새 집중을 덮지 않는다
+     * @param presenceOrder 이 시작이 가리키는 <b>진행 중 마커</b>의 순번. 새로 만든 마커이거나(정상 경로),
+     *                      이미 열려 있어 새로 만들지 않은 마커의 것이다(순서 역전 방어 경로). 이 값보다
+     *                      <b>오래된</b> 세션의 쓰기는 무시되므로, 늦게 도착한 옛 시작이 새 집중을 덮지 않는다
      */
-    void focusStarted(UUID userId, UUID sessionId, Instant startedAt);
+    void focusStarted(UUID userId, Long presenceOrder, Instant startedAt);
 
     /**
      * <b>재구축</b> — 정본에 진행 중인 집중이 있는데 리스가 «없을 때만» 놓는다.
@@ -77,10 +82,10 @@ public interface FocusPresencePort {
      *
      * @param startedAt 그 마커가 시작한 시각. 리스는 «놓는 시점»이 아니라 <b>이 시각</b>을 기준으로
      *                  만료한다 — 그러지 않으면 백스톱이 늘어난다(아래 참조)
-     * @param sessionId 정본에서 읽은 진행 중 마커의 id. 그 사이 세션이 끝났다면 그 종료가 남긴
-     *                  표식에 걸려 쓰기가 거부된다 — 끝난 집중이 되살아나지 않는다
+     * @param presenceOrder 정본에서 읽은 진행 중 마커의 순번. 그 사이 세션이 끝났다면 그 종료가 남긴
+     *                      표식에 걸려 쓰기가 거부된다 — 끝난 집중이 되살아나지 않는다
      */
-    boolean restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt);
+    boolean restoreLeaseIfMissing(UUID userId, Long presenceOrder, Instant startedAt);
 
     /**
      * <b>재구축용 해제</b> — 지금 지우고, <b>지웠는지</b>를 돌려준다.
@@ -99,7 +104,7 @@ public interface FocusPresencePort {
      *
      * @return 저장소 연산이 성사됐으면 true. <b>false 면 다시 시도해야 한다</b>
      */
-    boolean releaseLeaseNow(UUID userId, UUID sessionId);
+    boolean releaseLeaseNow(UUID userId, Long presenceOrder);
 
     /**
      * 집중이 끝났다(정상 종료·취소·POST 폴백 선점·고아 스윕) — 리스를 지운다.
@@ -111,10 +116,10 @@ public interface FocusPresencePort {
      * <p>지우지 못해도 TTL 이 백스톱이다. 다만 그동안 그 사람은 채팅에 못 들어가므로, 이쪽 실패는
      * 시작 쪽 실패보다 사용자에게 아프다.
      *
-     * @param sessionId 끝난 세션의 id. null 이면 아무것도 하지 않는다 — 어느 리스를 지워야 할지
-     *                  알 수 없는데 무조건 지우면 남의(새) 집중을 푸는 셈이 된다
+     * @param presenceOrder 끝난 세션의 순번. null 이면 아무것도 하지 않는다 — 어느 리스를 지워야 할지
+     *                      알 수 없는데 무조건 지우면 남의(새) 집중을 푸는 셈이 된다
      */
-    void focusEnded(UUID userId, UUID sessionId);
+    void focusEnded(UUID userId, Long presenceOrder);
 
     /**
      * 탈퇴했다 — 리스·종료 표식을 지우고 <b>탈퇴 tombstone</b> 을 남긴다 (GROMO-1943 · 계정 LLD §4).

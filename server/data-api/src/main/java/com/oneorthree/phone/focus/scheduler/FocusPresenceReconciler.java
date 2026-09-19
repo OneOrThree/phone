@@ -231,7 +231,7 @@ public class FocusPresenceReconciler {
         // 트랜잭션이 «닫힌 뒤» 쓴다 — 안에서 쓰면 커밋 콜백으로 밀려 한 시점에 전부 몰린다.
         List<UUID> restored = new ArrayList<>();
         for (FocusSession session : newestPerUser(alive)) {
-            if (!focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getId(),
+            if (!focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getPresenceOrder(),
                     session.getStartedAt())) {
                 // 저장소가 흔들린다. 남은 건을 이어 가면 «각각» 타임아웃을 기다려, 부가 기능의 장애가
                 // 스케줄러 슬롯을 인원수배로 점유한다 — 같은 풀의 다른 크론이 그만큼 밀린다.
@@ -304,7 +304,7 @@ public class FocusPresenceReconciler {
             // 「지웠는가」를 확인하고 뺀다. 조회가 성공해도 해제가 실패할 수 있는데(그쪽은 별개의
             // Redis 연산이다), 그걸 성공으로 치고 빼면 그 세션은 진행 중 조회에도 안 잡히고
             // 대기 목록에도 없어 «아무도» 리스를 못 치운다 — 시작 기준 13시간 차단이다.
-            if (focusPresencePort.releaseLeaseNow(session.getUser().getId(), session.getId())) {
+            if (focusPresencePort.releaseLeaseNow(session.getUser().getId(), session.getPresenceOrder())) {
                 pendingRecheck.remove(session.getId());
                 reclaimed++;
             } else {

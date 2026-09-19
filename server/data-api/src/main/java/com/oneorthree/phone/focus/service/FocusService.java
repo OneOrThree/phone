@@ -470,7 +470,8 @@ public class FocusService {
         // 선점 실패(row=0)일 때는 «지우지 않는다» — 그 마커는 다른 경로가 이미 닫았고(그쪽이 지웠다),
         // 그 사이 새로 시작한 집중의 리스를 여기서 날리면 안 된다.
         if (markerClaimed > 0) {
-            focusPresencePort.focusEnded(userId, body.getSessionId());
+            focusPresencePort.focusEnded(userId,
+                    focusSessionRepository.findPresenceOrderById(body.getSessionId()).orElse(null));
         }
 
         boolean markerAlreadyCompleted = body.getSessionId() != null
@@ -948,8 +949,8 @@ public class FocusService {
             // SESSION_ALREADY_ENDED(앱이 POST 폴백을 하지 않는 코드)를 받아 그 블록의 시간·코인이
             // 영구 유실된다. null 이면 앱이 uploadFocusBlock 의 '마커 없음' 경로로 곧바로 POST 한다.
             // 집중 프레즌스 리스 (GROMO-292) — 마커를 «새로 만들지 않았을 뿐» 이 사람은 집중 중이다.
-            // 그 열린 마커의 id 를 싣는다: 값이 세션 id 여야 종료가 「내가 놓은 리스」를 알아본다.
-            focusPresencePort.focusStarted(userId, liveMarker.get().getId(),
+            // 그 열린 마커의 순번을 싣는다: 값이 그 세션 것이어야 종료가 「내가 놓은 리스」를 알아본다.
+            focusPresencePort.focusStarted(userId, liveMarker.get().getPresenceOrder(),
                     liveMarker.get().getStartedAt());
             return new FocusSessionStartResponse(null, startedAt);
         }
@@ -961,10 +962,10 @@ public class FocusService {
         focusSessionRepository.autoCloseOpenMarkersOf(user, now);
 
         // GROMO-292: 회전에서 «방금 닫은» 이전 마커의 종료도 알린다. 아래 focusStarted 가 어차피 새
-        // 세션으로 리스를 덮어쓰지만, 그 쓰기가 한 번 실패하면 키에 이미 닫힌 이전 세션 id 가 남고
+        // 세션으로 리스를 덮어쓰지만, 그 쓰기가 한 번 실패하면 키에 이미 닫힌 이전 세션 순번이 남고
         // 그 마커는 고아 스윕 대상도 아니라 아무도 못 지운다. 해제를 먼저 등록해 두면 그 경우에도
         // 리스가 남지 않는다(같은 트랜잭션의 커밋 콜백은 등록 순서대로 돈다).
-        liveMarker.map(FocusSession::getId).ifPresent(closed -> focusPresencePort.focusEnded(userId, closed));
+        liveMarker.ifPresent(closed -> focusPresencePort.focusEnded(userId, closed.getPresenceOrder()));
 
         // GROMO-733: focus_type 인입 — null 이면 INFINITE 기본(엔티티 @Builder.Default 정합, 하위호환).
         FocusSession saved = focusSessionRepository.save(FocusSession.builder()
@@ -976,9 +977,13 @@ public class FocusService {
                 .clientStartedAt(body.startedAt())
                 .build());
 
+        // 프레즌스 순번(presence_order)은 DB 시퀀스가 INSERT 때 채운다(GROMO-1743). 쓰기 지연으로 INSERT 가
+        // 커밋까지 밀리면 아래 focusStarted 가 null 을 받아 리스를 못 놓으므로 여기서 내보낸다.
+        focusSessionRepository.flush();
+
         // 집중 프레즌스 리스 (GROMO-292) — 채팅이 「집중 중엔 못 들어온다」를 판정하는 근거다.
         // 반영은 커밋 이후이고(RedisFocusPresence), 이 트랜잭션이 롤백되면 콜백 자체가 돌지 않는다.
-        focusPresencePort.focusStarted(userId, saved.getId(), saved.getStartedAt());
+        focusPresencePort.focusStarted(userId, saved.getPresenceOrder(), saved.getStartedAt());
 
         return new FocusSessionStartResponse(saved.getId(), saved.getStartedAt());
     }
@@ -1076,7 +1081,7 @@ public class FocusService {
 
         // 종료가 «성사된» 요청만 여기 온다(위 updated==0 은 예외로 빠졌다) — 리스 해제도 여기서 한 번.
         // 그 사이 새 집중이 시작됐다면 리스 주인이 바뀌었으므로 이 해제는 아무것도 지우지 않는다.
-        focusPresencePort.focusEnded(userId, body.sessionId());
+        focusPresencePort.focusEnded(userId, session.getPresenceOrder());
 
         long durationSeconds = Duration.between(session.getStartedAt(), endedAt).getSeconds();
         // GROMO-806: 그날 누적·스트릭 인정 여부 / GROMO-1214: 지급 코인·잔액을 응답에 추가(additive, POST 응답과 동일 의미).
@@ -1118,7 +1123,7 @@ public class FocusService {
 
         session.cancel(canceledAt);
         // 취소도 집중의 끝이다 — 리스를 남기면 그 사람은 TTL 이 끝날 때까지 채팅에 못 들어간다.
-        focusPresencePort.focusEnded(userId, body.sessionId());
+        focusPresencePort.focusEnded(userId, session.getPresenceOrder());
     }
 
     /**
@@ -1161,7 +1166,7 @@ public class FocusService {
             // 실제로 마감시킨 세션만 지운다 — 경합으로 유저가 먼저 정상 종료했다면 그쪽이 이미 지웠고,
             // 여기서 또 지우면 그 사이 새로 시작한 집중의 리스를 날린다.
             if (updated > 0 && session.getUser() != null) {
-                focusPresencePort.focusEnded(session.getUser().getId(), session.getId());
+                focusPresencePort.focusEnded(session.getUser().getId(), session.getPresenceOrder());
             }
         }
         return closed;

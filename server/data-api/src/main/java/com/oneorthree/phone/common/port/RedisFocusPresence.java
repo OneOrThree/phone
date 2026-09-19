@@ -22,7 +22,7 @@ import java.util.UUID;
  * <p>이 서비스가 <b>유일한 쓰기 주인</b>이다(A19). 채팅 서버는 같은 키를 읽기 전용 ACL 로만 받는다 —
  * 읽는 쪽이 지울 수 있게 되는 순간 「집중 중엔 채팅 불가」는 채팅이 스스로 해제할 수 있는 규칙이 된다.
  *
- * <h2>값은 세션 id 다 — 읽는 쪽은 여전히 «존재»만 본다</h2>
+ * <h2>값은 세션 순번이다 — 읽는 쪽은 여전히 «존재»만 본다</h2>
  * 값을 싣는 이유는 읽는 쪽에 정보를 주려는 게 아니라 <b>쓰기끼리의 순서를 정하기 위해서</b>다.
  * 채팅은 존재 여부만 보기로 약속했고 그 약속은 그대로다 — 값의 의미는 이 클래스만 안다.
  *
@@ -36,24 +36,25 @@ import java.util.UUID;
  *       (수용하는 방향이지만 역시 틀린 상태다)</li>
  * </ul>
  *
- * <p>세션 id 비교만으로는 <b>한 방향이 남는다</b> — 지연된 시작 콜백이 종료 «뒤에» 도착하면 그때 리스
+ * <p>순번 비교만으로는 <b>한 방향이 남는다</b> — 지연된 시작 콜백이 종료 «뒤에» 도착하면 그때 리스
  * 키는 비어 있어서 「더 새로운가」 비교가 무의미해지고 이미 끝난 집중의 리스가 되살아난다. 그래서
  * 종료가 {@link #CLOSED_SUFFIX} 표식을 함께 남기고, 시작은 그 표식보다 새로울 때만 쓴다.
  * 그래서 두 연산 모두 Lua 로 <b>조건부</b>다: 쓰기는 「지금 값보다 새로운 세션일 때만」, 해제는
- * 「지금 값이 바로 그 세션일 때만」. 세션 id 가 UUID v7 이라 <b>문자열 사전순 비교 = 시간 순서</b>이고
- * (앞자리가 epoch 밀리초의 상위 비트), 그래서 「더 새로움」을 Redis 안에서 판정할 수 있다.
+ * 「지금 값이 나보다 새롭지 않을 때만」. 값은 {@code focus_sessions.presence_order}(DB 시퀀스)이고
+ * Lua 가 {@code tonumber} 로 <b>숫자 비교</b>한다 — 문자열 비교면 자리수가 바뀌는 순간 {@code "9" > "10"} 이 된다.
  *
- * <h2>수용한 한계 — 순서의 근거가 «인스턴스 시계»다 (GROMO-1743)</h2>
- * UUID v7 의 앞자리는 <b>그 id 를 만든 인스턴스의 벽시계</b>다. 그래서 data-api 를 여러 대로
- * 다중화하면, 시계가 앞선 대가 만든 «이전» 세션의 id 가 뒤처진 대가 만든 «다음» 세션의 id 보다 클 수
- * 있다 — 그러면 정상적인 새 시작이 「더 오래됐다」로 걸러지거나, 늦게 온 종료가 진행 중인 리스를
- * 지운다. 한 JVM 안에서는 {@code common/id/UuidV7} 이 생성기를 공유해 단조성이 성립하므로 이 문제는
- * <b>다중화하는 순간</b> 열린다. 현재 배포는 단일 컨테이너다({@code docker-compose.prod.yml} 의
- * {@code container_name: gromo-app} — 이 키가 박혀 있으면 compose 는 스케일 자체를 못 한다).
+ * <h2>왜 세션 id(UUID v7)가 아닌가 (GROMO-1743)</h2>
+ * 예전엔 UUID v7 의 문자열 사전순을 시간 순서로 썼다. 그런데 그 앞자리는 <b>id 를 만든 인스턴스의
+ * 벽시계</b>라, data-api 를 여러 대로 늘리면 시계가 앞선 대가 만든 «이전» 세션 id 가 뒤처진 대가 만든
+ * «다음» 세션 id 보다 커진다 — 정상적인 새 시작이 「더 오래됐다」로 걸러지거나, 늦게 온 종료가 진행 중인
+ * 리스를 지운다. 공유 저장소(DB 시퀀스)가 발급한 번호는 어느 인스턴스가 INSERT 했든 같은 축이고,
+ * 같은 사용자의 시작은 users 행 배타 락 아래서 INSERT 되므로 번호 순서가 곧 커밋 순서다.
  *
- * <p>두 방향 모두 <b>fail-open</b>(규칙이 안 걸리는 쪽)이고, 창은 {@link #CLOSED_TTL}(5분)과 주기
- * 재구축(5분, {@code FocusPresenceReconciler})으로 <b>최대 10분쯤</b>에 묶인다 — 이 포트가 명시적으로
- * 수용한 실패 방향과 같은 쪽이다. 근본 해법(DB 순번)은 GROMO-1743.
+ * <p><b>배포 경계</b>: V77 이전에 놓인 값은 세션 id 문자열이라 {@code tonumber} 가 {@code nil} 을 준다.
+ * 스크립트는 그것을 «어떤 순번보다도 오래된 값»으로 본다 — 새 시작은 덮어쓰고, 새 종료는 지운다.
+ * 열린 마커는 V77 이 번호를 채웠으니(유저당 1건) 그 종료가 옛 리스를 치운다. 「유저당 열린 마커 1개」
+ * 불변식 아래서 번호 있는 세션이 끝날 때 그보다 새로운 옛 세션이 열려 있을 수는 없다. 옛 jar 가 UUID 를,
+ * 새 jar 가 순번을 동시에 쓰는 다중 인스턴스 롤링 배포는 다루지 않는다 — 지금 운영은 단일 컨테이너를 재생성한다.
  *
  * <h2>커밋 이후에만 반영한다</h2>
  * 트랜잭션 안에서 리스를 놓으면 롤백됐을 때 <b>세션은 없는데 리스만 남는다</b> — 그 사람은 TTL 이
@@ -96,27 +97,29 @@ public class RedisFocusPresence implements FocusPresencePort {
     /**
      * 표식 수명. 막아야 하는 창은 「커밋 이후 콜백이 다음 종료보다 늦게 도착하는」 정도라 초 단위지만,
      * 넉넉히 잡아도 비용이 키 하나뿐이다. 반대로 너무 길게 잡으면 정상적인 재시작이 막힐 수 있는데,
-     * 새 세션은 항상 더 «새로운» id 라 표식보다 크므로 그 걱정은 없다.
+     * 새 세션은 항상 더 큰 순번이라 표식보다 크므로 그 걱정은 없다.
      */
     private static final Duration CLOSED_TTL = Duration.ofMinutes(5);
 
     /**
      * 「지금 값이 없거나, 내가 더 새로우면 쓴다」.
      *
-     * <p>{@code >=} 인 것은 같은 세션으로 다시 오는 시작(순서 역전 방어 경로에서 열린 마커의 id 를
+     * <p>{@code >=} 인 것은 같은 세션으로 다시 오는 시작(순서 역전 방어 경로에서 열린 마커의 순번을
      * 그대로 싣는 경우)이 TTL 을 갱신할 수 있어야 하기 때문이다.
      */
     private static final RedisScript<Long> SET_IF_NEWER = new DefaultRedisScript<>(
-            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=sessionId, ARGV[2]=리스 TTL(초)
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=순번, ARGV[2]=리스 TTL(초)
+            // tonumber(false|옛 UUID 값) = nil — 없거나 V77 이전 값이면 «더 오래된 것»으로 본다.
             "if redis.call('GET', KEYS[3]) ~= false then\n"
             + "  return 0\n"                                    // 탈퇴자 — 늦게 온 시작이 리스를 되살리지 않는다
             + "end\n"
-            + "local closed = redis.call('GET', KEYS[2])\n"
-            + "if closed ~= false and ARGV[1] <= closed then\n"
+            + "local order = tonumber(ARGV[1])\n"
+            + "local closed = tonumber(redis.call('GET', KEYS[2]))\n"
+            + "if closed ~= nil and order <= closed then\n"
             + "  return 0\n"                                    // 이미 끝난(또는 더 오래된) 세션의 지연 도착
             + "end\n"
-            + "local cur = redis.call('GET', KEYS[1])\n"
-            + "if cur == false or ARGV[1] >= cur then\n"
+            + "local cur = tonumber(redis.call('GET', KEYS[1]))\n"
+            + "if cur == nil or order >= cur then\n"
             + "  redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])\n"
             + "  return 1\n"
             + "end\n"
@@ -133,15 +136,15 @@ public class RedisFocusPresence implements FocusPresencePort {
      * <p>「끝났다」 표식 검사는 그대로다 — 조회와 쓰기 사이에 끝난 세션이 되살아나면 안 된다.
      */
     private static final RedisScript<Long> SET_IF_ABSENT = new DefaultRedisScript<>(
-            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=sessionId, ARGV[2]=리스 TTL(초)
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=순번, ARGV[2]=리스 TTL(초)
             "if redis.call('EXISTS', KEYS[1]) == 1 then\n"
             + "  return 0\n"                                   // 이미 있다 — 남의 것일 수도 있으니 손대지 않는다
             + "end\n"
             + "if redis.call('GET', KEYS[3]) ~= false then\n"
             + "  return 0\n"                                   // 탈퇴자 — 재구축도 리스를 되살리지 않는다
             + "end\n"
-            + "local closed = redis.call('GET', KEYS[2])\n"
-            + "if closed ~= false and ARGV[1] <= closed then\n"
+            + "local closed = tonumber(redis.call('GET', KEYS[2]))\n"
+            + "if closed ~= nil and tonumber(ARGV[1]) <= closed then\n"
             + "  return 0\n"                                   // 조회 뒤에 끝난 세션 — 되살리지 않는다
             + "end\n"
             + "redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])\n"
@@ -152,7 +155,7 @@ public class RedisFocusPresence implements FocusPresencePort {
      *
      * <p>「정확히 같을 때만」이 아닌 이유는 <b>잔존 리스를 스스로 치우기 위해서</b>다. 뽀모도로 회전은
      * 이전 마커를 닫고 새 마커를 여는데, 그 사이 Redis 쓰기가 한 번 실패하면 키에 <b>이미 닫힌</b>
-     * 이전 세션 id 가 남는다. 그 마커는 종료됐으니 고아 스윕 대상도 아니라서, 엄격한 동일 비교로는
+     * 이전 세션 순번이 남는다. 그 마커는 종료됐으니 고아 스윕 대상도 아니라서, 엄격한 동일 비교로는
      * 새 세션을 정상 종료해도 그 키를 못 지운다 — 그 사람은 남은 TTL(최대 13시간) 내내 막힌다.
      *
      * <p>더 오래된 리스를 지우는 것이 안전한 근거는 <b>「유저당 열린 마커는 1개」</b> 불변식이다
@@ -162,19 +165,24 @@ public class RedisFocusPresence implements FocusPresencePort {
      * <p>반대로 <b>나보다 새로운</b> 리스는 건드리지 않는다 — 그 사이 시작된 집중을 푸는 셈이 된다.
      */
     private static final RedisScript<Long> DELETE_IF_NOT_NEWER = new DefaultRedisScript<>(
-            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=sessionId, ARGV[2]=표식 TTL(초)
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=순번, ARGV[2]=표식 TTL(초)
             // 탈퇴자면 표식을 새로 남기지 않는다 — tombstone 이 이미 모든 시작을 막고, 표식도 사용자 키다.
             // 표식을 «먼저» 남긴다 — 리스가 이미 다른 세션 것이어서 지우지 못하더라도, 이 세션의
             // 지연된 시작이 나중에 되살리는 건 막아야 하기 때문이다.
             "if redis.call('GET', KEYS[3]) ~= false then\n"
             + "  return redis.call('DEL', KEYS[1], KEYS[2])\n"
             + "end\n"
-            + "local closed = redis.call('GET', KEYS[2])\n"
-            + "if closed == false or ARGV[1] > closed then\n"
+            + "local order = tonumber(ARGV[1])\n"
+            + "local closed = tonumber(redis.call('GET', KEYS[2]))\n"
+            + "if closed == nil or order > closed then\n"
             + "  redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])\n"
             + "end\n"
-            + "local cur = redis.call('GET', KEYS[1])\n"
-            + "if cur ~= false and cur <= ARGV[1] then\n"
+            + "local raw = redis.call('GET', KEYS[1])\n"
+            + "if raw == false then\n"
+            + "  return 0\n"
+            + "end\n"
+            + "local cur = tonumber(raw)\n"
+            + "if cur == nil or cur <= order then\n"         // nil = V77 이전 값 — 어떤 순번보다 오래됐다
             + "  return redis.call('DEL', KEYS[1])\n"
             + "end\n"
             + "return 0", Long.class);
@@ -211,38 +219,38 @@ public class RedisFocusPresence implements FocusPresencePort {
     private final Clock clock;
 
     @Override
-    public void focusStarted(UUID userId, UUID sessionId, Instant startedAt) {
-        if (sessionId == null) {
-            // 가리킬 세션이 없으면 순서를 정할 근거도 없다. 무조건 쓰면 늦게 도착한 옛 시작이
+    public void focusStarted(UUID userId, Long presenceOrder, Instant startedAt) {
+        if (presenceOrder == null) {
+            // 순번이 없으면 순서를 정할 근거도 없다. 무조건 쓰면 늦게 도착한 옛 시작이
             // 진행 중인 새 집중을 덮어써, 종료가 «자기 것»을 못 알아보고 리스가 남는다.
-            log.debug("세션 id 없는 집중 시작 — 프레즌스 생략, userId={}", userId);
+            log.debug("순번 없는 집중 시작 — 프레즌스 생략, userId={}", userId);
             return;
         }
         long ttlSeconds = remainingLeaseSeconds(startedAt);
         if (ttlSeconds <= 0) {
             // 이 마커는 이미 백스톱을 넘겼다. 지금 놓으면 «지금부터» 다시 살아나는 리스가 된다.
-            log.debug("백스톱을 넘긴 마커 — 프레즌스 생략, userId={} sessionId={}", userId, sessionId);
+            log.debug("백스톱을 넘긴 마커 — 프레즌스 생략, userId={} presenceOrder={}", userId, presenceOrder);
             return;
         }
         afterCommit(() -> redis.execute(SET_IF_NEWER, keys(userId),
-                sessionId.toString(), String.valueOf(ttlSeconds)), "리스 설정", userId);
+                presenceOrder.toString(), String.valueOf(ttlSeconds)), "리스 설정", userId);
     }
 
     @Override
-    public boolean restoreLeaseIfMissing(UUID userId, UUID sessionId, Instant startedAt) {
-        if (sessionId == null) {
-            log.debug("세션 id 없는 재구축 요청 — 생략, userId={}", userId);
+    public boolean restoreLeaseIfMissing(UUID userId, Long presenceOrder, Instant startedAt) {
+        if (presenceOrder == null) {
+            log.debug("순번 없는 재구축 요청 — 생략, userId={}", userId);
             return true;
         }
         long ttlSeconds = remainingLeaseSeconds(startedAt);
         if (ttlSeconds <= 0) {
-            log.debug("백스톱을 넘긴 마커 — 재구축 생략, userId={} sessionId={}", userId, sessionId);
+            log.debug("백스톱을 넘긴 마커 — 재구축 생략, userId={} presenceOrder={}", userId, presenceOrder);
             return true;
         }
         try {
             // 커밋을 기다리지 않는다 — 이미 커밋된 정본을 읽어 미러를 맞추는 작업이라 되돌려질 게 없다.
             redis.execute(SET_IF_ABSENT, keys(userId),
-                    sessionId.toString(), String.valueOf(ttlSeconds));
+                    presenceOrder.toString(), String.valueOf(ttlSeconds));
             return true;
         } catch (RuntimeException e) {
             // 여기서만 false 다 — 부르는 쪽은 이걸 보고 남은 건을 이어 가지 않는다.
@@ -272,16 +280,16 @@ public class RedisFocusPresence implements FocusPresencePort {
     }
 
     @Override
-    public boolean releaseLeaseNow(UUID userId, UUID sessionId) {
-        if (sessionId == null) {
-            log.debug("세션 id 없는 재구축 해제 — 생략, userId={}", userId);
+    public boolean releaseLeaseNow(UUID userId, Long presenceOrder) {
+        if (presenceOrder == null) {
+            log.debug("순번 없는 재구축 해제 — 생략, userId={}", userId);
             return true;
         }
         try {
             // 스크립트가 0 을 돌려주는 경우(그 사이 새 집중이 리스 주인이 됨)도 «성공»이다 —
             // 남의 리스를 지우지 않는 것이 옳은 결과이고, 다시 시도할 이유가 없다.
             redis.execute(DELETE_IF_NOT_NEWER, keys(userId),
-                    sessionId.toString(), String.valueOf(CLOSED_TTL.toSeconds()));
+                    presenceOrder.toString(), String.valueOf(CLOSED_TTL.toSeconds()));
             return true;
         } catch (RuntimeException e) {
             // 여기서만 false 다. 부르는 쪽이 다음 회차에 다시 든다.
@@ -291,15 +299,15 @@ public class RedisFocusPresence implements FocusPresencePort {
     }
 
     @Override
-    public void focusEnded(UUID userId, UUID sessionId) {
-        if (sessionId == null) {
+    public void focusEnded(UUID userId, Long presenceOrder) {
+        if (presenceOrder == null) {
             // 어느 리스를 지워야 할지 모르는 채로 지우면 그 사이 시작된 새 집중을 푸는 셈이 된다.
             // 그 경우의 백스톱은 TTL 과 orphan 스윕이다.
-            log.debug("세션 id 없는 집중 종료 — 프레즌스 생략, userId={}", userId);
+            log.debug("순번 없는 집중 종료 — 프레즌스 생략, userId={}", userId);
             return;
         }
         afterCommit(() -> redis.execute(DELETE_IF_NOT_NEWER, keys(userId),
-                sessionId.toString(), String.valueOf(CLOSED_TTL.toSeconds())), "리스 해제", userId);
+                presenceOrder.toString(), String.valueOf(CLOSED_TTL.toSeconds())), "리스 해제", userId);
     }
 
     @Override

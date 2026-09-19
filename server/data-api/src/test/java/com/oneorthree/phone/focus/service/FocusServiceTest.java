@@ -958,10 +958,12 @@ class FocusServiceTest {
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
                 .willReturn(1);
+        // 엔티티 없이 세션 id 만 있는 경로라 순번을 스칼라로 읽어 싣는다(GROMO-1743) — null 이면 아무것도 안 지운다.
+        given(focusSessionRepository.findPresenceOrderById(SESSION_ID)).willReturn(Optional.of(PRESENCE_ORDER));
 
         focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0, null, SESSION_ID));
 
-        verify(focusPresencePort).focusEnded(eq(USER_ID), any());
+        verify(focusPresencePort).focusEnded(USER_ID, PRESENCE_ORDER);
     }
 
     @Test
@@ -2570,6 +2572,9 @@ class FocusServiceTest {
     //
     // 이 배선이 빠지면 채팅 서버의 「집중 중엔 못 들어온다」가 조용히 사라진다 — 이쪽 테스트는 전부
     // 초록이고, 저쪽 테스트도(리스를 직접 심으니까) 전부 초록이다. 그래서 여기서 못 박는다.
+    // 리스에 싣는 값은 세션 id 가 아니라 DB 순번(presence_order)이다(GROMO-1743).
+
+    private static final Long PRESENCE_ORDER = 7L;
 
     @Test
     @DisplayName("집중 시작 → 프레즌스 리스를 놓는다")
@@ -2594,6 +2599,7 @@ class FocusServiceTest {
         given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
                 .willReturn(Optional.of(FocusSession.builder()
                         .id(SESSION_ID)
+                        .presenceOrder(PRESENCE_ORDER)
                         .user(user)
                         .startedAt(NOW)
                         .clientStartedAt(NOW)
@@ -2606,11 +2612,11 @@ class FocusServiceTest {
         // then: 마커는 안 생겼지만(sessionId null) 리스는 놓였다
         assertThat(response.sessionId()).isNull();
         verify(focusSessionRepository, never()).save(any(FocusSession.class));
-        // 새 마커를 안 만들었으므로 «열려 있던 그 마커»의 id 를 실어야 한다 — 그래야 그 마커의 종료가
+        // 새 마커를 안 만들었으므로 «열려 있던 그 마커»의 순번을 실어야 한다 — 그래야 그 마커의 종료가
         // 「내가 놓은 리스」를 알아보고 지운다.
         // 그리고 «그 마커가 시작한 시각»을 실어야 한다 — 리스는 놓는 시점이 아니라 시작 시점 기준으로
         // 만료한다. 여기서 now 를 실으면 오래 열려 있던 마커의 백스톱이 뒤로 밀린다.
-        verify(focusPresencePort).focusStarted(USER_ID, SESSION_ID, NOW);
+        verify(focusPresencePort).focusStarted(USER_ID, PRESENCE_ORDER, NOW);
     }
 
     @Test
@@ -2623,6 +2629,7 @@ class FocusServiceTest {
         given(focusSessionRepository.findFirstByUserAndEndedAtIsNullOrderByStartedAtDesc(user))
                 .willReturn(Optional.of(FocusSession.builder()
                         .id(SESSION_ID)
+                        .presenceOrder(PRESENCE_ORDER)
                         .user(user)
                         .startedAt(NOW.minus(Duration.ofHours(1)))
                         .clientStartedAt(NOW.minus(Duration.ofHours(1)))
@@ -2631,7 +2638,7 @@ class FocusServiceTest {
         focusService.startFocusSession(USER_ID, new FocusSessionStartRequest(null, null));
 
         // 닫힌 이전 마커의 해제 + 새 마커의 리스, 둘 다.
-        verify(focusPresencePort).focusEnded(USER_ID, SESSION_ID);
+        verify(focusPresencePort).focusEnded(USER_ID, PRESENCE_ORDER);
         verify(focusPresencePort).focusStarted(eq(USER_ID), any(), any());
     }
 
@@ -2655,6 +2662,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(FocusSession.builder()
                 .id(SESSION_ID)
+                .presenceOrder(PRESENCE_ORDER)
                 .user(user)
                 .startedAt(START)
                 .build());
@@ -2664,7 +2672,7 @@ class FocusServiceTest {
         focusService.cancelFocusSession(USER_ID, new FocusSessionCancelRequest(SESSION_ID));
 
         // then
-        verify(focusPresencePort).focusEnded(USER_ID, SESSION_ID);
+        verify(focusPresencePort).focusEnded(USER_ID, PRESENCE_ORDER);
     }
 
     @Test
@@ -2674,6 +2682,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         given(focusQueryService.getFocusSession(SESSION_ID)).willReturn(FocusSession.builder()
                 .id(SESSION_ID)
+                .presenceOrder(PRESENCE_ORDER)
                 .user(user)
                 .startedAt(START)
                 .build());
@@ -2692,6 +2701,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession orphan = FocusSession.builder()
                 .id(SESSION_ID)
+                .presenceOrder(PRESENCE_ORDER)
                 .user(user)
                 .startedAt(NOW.minus(Duration.ofHours(20)))
                 .build();
@@ -2702,7 +2712,7 @@ class FocusServiceTest {
         focusService.sweepOrphanSessions(NOW);
 
         // then
-        verify(focusPresencePort).focusEnded(USER_ID, SESSION_ID);
+        verify(focusPresencePort).focusEnded(USER_ID, PRESENCE_ORDER);
     }
 
     @Test
@@ -2713,6 +2723,7 @@ class FocusServiceTest {
         User user = User.builder().id(USER_ID).build();
         FocusSession orphan = FocusSession.builder()
                 .id(SESSION_ID)
+                .presenceOrder(PRESENCE_ORDER)
                 .user(user)
                 .startedAt(NOW.minus(Duration.ofHours(20)))
                 .build();

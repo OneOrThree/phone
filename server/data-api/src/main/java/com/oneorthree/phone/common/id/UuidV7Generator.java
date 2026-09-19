@@ -13,10 +13,9 @@ import java.util.UUID;
  * <p>여기서 직접 {@code Generators.…().generate()} 를 부르면 <b>같은 밀리초 안의 단조성이 조용히
  * 사라진다</b>(호출마다 카운터가 초기화된다). 실측과 근거는 {@link UuidV7} 의 표에 있다.
  *
- * <p><b>이 성질은 이제 계약이다.</b> 종전에는 PK 순서에 기대는 조회가 없어 무해했지만, 집중 프레즌스
- * 리스가 {@code focus_sessions.id} 의 시간 순서로 「어느 시작·종료가 더 새로운가」를 판정한다
- * (GROMO-292, {@code common/port/RedisFocusPresence}). 단조성이 깨지면 정상적인 새 시작이
- * 「이미 끝난 세션」으로 무시되거나, 옛 리스가 남아 최대 13시간 채팅이 막힌다.
+ * <p>집중 프레즌스 리스는 한때 {@code focus_sessions.id} 의 시간 순서로 순서를 판정했으나, 그 순서는
+ * 인스턴스 시계에 묶여 다중화에서 어긋나므로 DB 순번({@code presence_order})으로 옮겼다(GROMO-1743).
+ * PK 의 단조성은 여전히 지키지만, 이제 인스턴스 사이의 순서를 여기에 기대는 코드는 없다.
  */
 public class UuidV7Generator implements BeforeExecutionGenerator {
 
