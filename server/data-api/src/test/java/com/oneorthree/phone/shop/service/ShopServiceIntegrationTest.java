@@ -215,6 +215,27 @@ class ShopServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("같은 개인 상품을 두 섬에서 동시에 사도 한 번만 차감된다 — 사용자 잠금이 섬을 가로질러 직렬화")
+    void concurrentPersonalPurchaseAcrossIslandsDebitsOnce() throws Exception {
+        Fixture a = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture b = island(GroupPermissionScope.ALL_MEMBERS);
+        members.save(GroupMember.builder().user(users.getReferenceById(a.ownerId))
+                .group(groups.getReferenceById(b.islandId)).role(GroupMemberRole.MEMBER).build());
+        fund(a.islandId, 100);
+        fund(b.islandId, 100);
+        String id = product("clothes", "user", null);
+        publish(entry(id, 1, 30, null, null, "personal", 1));
+
+        List<Object> results = race(() -> buy(a, a.ownerId, id, UUID.randomUUID()),
+                () -> buy(b, a.ownerId, id, UUID.randomUUID()));
+
+        assertThat(results).filteredOn(ShopViews.Order.class::isInstance).hasSize(1);
+        assertThat(results).filteredOn(DomainException.class::isInstance).singleElement()
+                .satisfies(e -> assertThat(((DomainException) e).getErrorCode()).isEqualTo(ShopErrorCode.STATE_CONFLICT));
+        assertThat(islandBalance(a.islandId) + islandBalance(b.islandId)).isEqualTo(170);
+    }
+
+    @Test
     @DisplayName("개인 상품(옷)은 구매자 소유로 지급되지만 돈은 섬 통장에서 나간다 — 개인 지갑은 건드리지 않는다 (SH-재화)")
     void personalProductIsPaidByTheIsland() {
         Fixture f = island(GroupPermissionScope.OWNER_ONLY);
