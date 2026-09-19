@@ -62,6 +62,10 @@ Run all commands below from inside `server/data-api/`.
   `XxxErrorCode implements ErrorCode` + `XxxException extends DomainException` are caught by
   the single `GlobalExceptionHandler.handleDomain` — never add a per-domain handler.
   Rules and the pinned contract test: `docs/conventions/error-contract.md` (GROMO-1657).
+- **Satellite events/commands go through `OutboxCommandPort.append` in the domain's own
+  transaction**, from one `<Axis>Events` adapter per ordering axis. Event id, targets
+  (REALTIME has no transport yet), receipts vs events, PII and producer flags:
+  `docs/conventions/outbox-events.md` (GROMO-1798).
 - Package names must match Checkstyle's `PackageName` rule
   (`^[a-z]+(\.[a-z][a-z0-9]*)*$`) — no underscores, no leading digits.
 
