@@ -56,6 +56,7 @@ public class GroupMemberService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
+    private final IslandStateEvents islandStateEvents;
 
     /**
      * 방장을 넘긴다 — 대상이 OWNER 로 오르고 요청자는 같은 트랜잭션에서 MEMBER 로 내려온다.
@@ -104,6 +105,17 @@ public class GroupMemberService {
      */
     @Transactional
     public void kickMember(UUID groupId, UUID targetUserId, UUID userId) {
+        kickMemberAndRecord(groupId, targetUserId, userId);
+    }
+
+    /**
+     * 강퇴하고 주민 목록 사건을 돌려준다 (GROMO-1802) — 새 공개 명령이 그 봉투를 receipt 에 함께 저장해
+     * 재생이 같은 결과를 재현한다. 판정·잠금·마킹은 {@link #kickMember} 와 한 경로다.
+     *
+     * @return 이 강퇴로 발행한 {@code island.members.updated} 봉투
+     */
+    @Transactional
+    public EventEnvelope kickMemberAndRecord(UUID groupId, UUID targetUserId, UUID userId) {
         // 요청자 공유 락 (GROMO-1227) — 근거는 requireActiveUser Javadoc.
         var locked = GroupMemberUserLocks.lock(userQueryService, userId, targetUserId);
         User user = locked.caller();
@@ -139,8 +151,9 @@ public class GroupMemberService {
         // 그것이 실패했을 때 예전 slug 가 살아 «비공개 그룹 무단 가입»이 된다 — 같은 트랜잭션에서
         // outbox 를 적고 relay 가 재전달한다.
         linkMembershipEventService.recordMembershipRevoked(target);
-        membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
+        EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
+        return event;
     }
 
     /**
@@ -156,6 +169,16 @@ public class GroupMemberService {
      */
     @Transactional
     public void withdrawGroup(UUID groupId, UUID userId) {
+        withdrawGroupAndRecord(groupId, userId);
+    }
+
+    /**
+     * 그룹에서 나가고 주민 목록 사건을 돌려준다 (GROMO-1802) — {@link #kickMemberAndRecord} 와 같은 이유다.
+     *
+     * @return 이 이탈로 발행한 {@code island.members.updated} 봉투
+     */
+    @Transactional
+    public EventEnvelope withdrawGroupAndRecord(UUID groupId, UUID userId) {
         // 요청자 공유 락 (GROMO-1227) — 특히 이 경로는 아래 releaseFromOpenBets(환불·돈 경로)에
         // 이 User 를 그대로 밀어넣는다. 락 없는 stale User 면 내기 참가 정리(#503)가 계정 탈퇴와
         // 직렬화되지 않아, 막아둔 구멍을 옆문으로 다시 여는 셈이다.
@@ -184,13 +207,16 @@ public class GroupMemberService {
             // 대상은 leave() «전»에 뜬 groupMembers 다. 여기서 다시 조회하면 방금 이탈한 마지막 1인이
             // 빠져 목록이 비고, group.closed 봉투가 한 건도 만들어지지 않는다.
             linkMembershipEventService.recordGroupClosed(group, groupMembers);
+            // 공개 섬 상태 축에도 종료를 남긴다(섬 관리 LLD §3.7) — 주민 목록 사건만으로는 섬이 닫힌 것을 모른다.
+            islandStateEvents.changed(groupId, userId, "CLOSED");
             closeJoinRequests(group);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave();
             linkMembershipEventService.recordMembershipRevoked(groupMember);
         }
-        membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
+        EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
+        return event;
     }
 
     /**
@@ -276,6 +302,7 @@ public class GroupMemberService {
                 ownerMembership.getGroup().close();
                 // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
                 linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
+                islandStateEvents.changed(ownerMembership.getGroup().getId(), userId, "CLOSED");
                 closeJoinRequests(ownerMembership.getGroup());
             }
         }

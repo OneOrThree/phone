@@ -19,6 +19,7 @@ import com.oneorthree.phone.group.service.LinkMembershipEventService;
 import com.oneorthree.phone.group.service.UserIslandContextLockService;
 import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.JoinIslandResultView;
+import com.oneorthree.phone.internal.dto.JoinRequestAnswerView;
 import com.oneorthree.phone.internal.dto.JoinRequestCancelView;
 import com.oneorthree.phone.internal.dto.JoinRequestStatusView;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
@@ -30,13 +31,17 @@ import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
+import com.oneorthree.phone.user.exception.UserErrorCode;
+import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -79,6 +84,10 @@ public class IslandJoinService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandMovementGuards movementGuards;
     private final PublicCommandService publicCommands;
+
+    /** 섬 관리 명령 게이트(GROMO-1802) — {@code IslandManagementService} 와 같은 스위치다. 기본은 닫혀 있다. */
+    @Value("${island-management.commands-enabled:false}")
+    private boolean managementEnabled;
 
     // ---------------------------------------------------------------- §3.7 join
 
@@ -155,16 +164,7 @@ public class IslandJoinService {
                     movementGuards.requireJoinedIslandLimit(user);
                     requireCapacity(island);
 
-                    GroupMember membership;
-                    if (prior.isPresent()) {
-                        membership = prior.get();
-                        membership.rejoin();
-                        // 재가입은 새 세대 — 이 사람이 발급한 옛 초대 코드는 이 전이로 폐기된다.
-                        linkMembershipEventService.recordMembershipRejoined(membership);
-                    } else {
-                        membership = groupMemberRepository.save(GroupMember.builder()
-                                .user(user).group(island).role(GroupMemberRole.MEMBER).build());
-                    }
+                    GroupMember membership = admit(user, island, prior);
                     context.moveTo(islandId);
                     EventEnvelope members = membershipEvents.changed(islandId, userId, "MEMBER_ADDED");
                     if (invitation != null) {
@@ -229,7 +229,120 @@ public class IslandJoinService {
         return InternalJson.decode(data, JoinRequestCancelView.class);
     }
 
+    // ---------------------------------------------------------------- 섬 관리 §3.4 request-answer
+
+    /**
+     * 방장이 가입 요청을 승인·거절한다 (GROMO-1802, 섬 관리 LLD §3.4).
+     *
+     * <p><b>잠금 순서는 가입과 같다</b> — {@code users → groups → join_request}. 신청자 users 행은
+     * <b>배타</b>로 잡는다: 신청자의 소속 상한은 신청자 본인의 가입·섬 생성·다른 섬 승인과 경합하는데
+     * 그 경로들이 전부 신청자 행을 배타로 잡기 때문이다(처리자 방장만 잠그면 동시 다른 섬 가입을 못 막는다,
+     * LLD §4). 두 users 행은 UUID 순서로 잡아 서로 다른 섬의 방장이 서로를 승인하는 교차에서 교착하지 않는다.
+     *
+     * <p>승인만 가입 자격(과거 강퇴·기존 멤버십·소속 상한·정원·초대 근거)을 본다. 거절은 자격·자리와
+     * 무관하게 pending 을 닫을 수 있다. 승인은 현재 섬을 바꾸지 않는다 — 이동은 별도 switch 가드를 탄다.
+     * 이미 닫힌 요청은 다른 키면 409 이고, 같은 키는 receipt 가 원 결과를 재생한다.
+     */
+    @Transactional
+    public JoinRequestAnswerView answer(UUID userId, UUID islandId, UUID requestId, boolean approve,
+                                        UUID idempotencyKey) {
+        if (!managementEnabled) {
+            throw new GroupException(GroupErrorCode.ISLAND_MANAGEMENT_NOT_READY);
+        }
+        PublicCommandRequest command = new PublicCommandRequest(userId,
+                "PATCH:/islands/" + islandId + "/join-requests/" + requestId,
+                idempotencyKey, InternalJson.tree(Map.of("decision", approve ? "approve" : "reject")));
+        // 판정 근거가 아니라 잠글 행을 고르기 위한 선조회다 — 전이는 잠금 아래 다시 읽은 행으로 한다.
+        UUID applicantId = approve
+                ? joinRequestRepository.findApplicantIdByIdAndIslandId(requestId, islandId).orElse(null)
+                : null;
+        JsonNode data = publicCommands.run(command,
+                () -> lockAnswerUsers(userId, applicantId),
+                ignored -> userQueryService.getCallerForShare(userId),
+                () -> {
+                    User caller = lockAnswerUsers(userId, applicantId);
+                    membershipLocks.lockGroup(islandId);
+                    Group island = groupQueryService.getGroup(islandId);
+                    IslandMovementGuards.requireAlive(island);
+                    groupQueryService.findMembership(caller, island)
+                            .filter(member -> member.getRole() == GroupMemberRole.OWNER)
+                            .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_OWNER));
+                    IslandJoinRequest request = joinRequestRepository
+                            .findByIdAndIslandIdForUpdate(requestId, islandId)
+                            .orElseThrow(() -> new GroupException(GroupErrorCode.JOIN_REQUEST_NOT_FOUND));
+                    if (!request.isPending()) {
+                        throw new GroupException(GroupErrorCode.JOIN_REQUEST_TERMINAL);
+                    }
+                    // 응답 version 은 전이 «후» 요청 버전이다 — 플러시 전 엔티티 값에 UPDATE 의 +1 을 더한다
+                    // (IslandJoinRequestEvents 와 같은 보정).
+                    long version = (request.getVersion() == null ? 0L : request.getVersion()) + 1;
+                    List<EventEnvelope> events = new ArrayList<>();
+                    UUID memberId = null;
+                    if (approve) {
+                        User applicant = userQueryService.findActiveForUpdate(request.getApplicant().getId())
+                                .orElseThrow(() -> new UserException(UserErrorCode.TARGET_USER_NOT_FOUND));
+                        Optional<GroupMember> prior = groupMemberRepository.findAnyByUserAndGroup(applicant, island);
+                        if (prior.isPresent() && !prior.get().isLeft()) {
+                            throw new GroupException(GroupErrorCode.ALREADY_MEMBER);
+                        }
+                        if (prior.isPresent() && prior.get().isKicked()) {
+                            throw new GroupException(GroupErrorCode.KICKED_CANNOT_REJOIN);
+                        }
+                        GroupInviteLink invitation = request.getInviteLinkId() == null ? null
+                                : requireIssuerCurrent(island, inviteLinkRepository.findById(request.getInviteLinkId())
+                                        .orElseThrow(() -> new InviteLinkException(
+                                                InviteLinkErrorCode.INVITATION_EXPIRED)));
+                        movementGuards.requireJoinedIslandLimit(applicant);
+                        requireCapacity(island);
+                        GroupMember membership = admit(applicant, island, prior);
+                        request.approve();
+                        events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED"));
+                        if (invitation != null) {
+                            linkMembershipEventService.recordJoinAttribution(islandId, applicant.getId(),
+                                    invitation.getSlug(), "invite", membership.getMembershipEpoch());
+                        }
+                        memberId = applicant.getId();
+                    } else {
+                        request.reject();
+                    }
+                    events.addAll(joinRequestEvents.changed(request, userId));
+                    return new PublicCommandResult(200, InternalJson.tree(new JoinRequestAnswerView(
+                            request.getStatus().wireName(), memberId, version)), InternalJson.tree(events));
+                }).value().data();
+        return InternalJson.decode(data, JoinRequestAnswerView.class);
+    }
+
     // ---------------------------------------------------------------- 내부
+
+    /**
+     * 방장(공유)과 신청자(배타)를 UUID 오름차순으로 잠근다. 신청자를 못 찾았거나(선조회 실패) 방장 본인이면
+     * 방장만 잠근다 — 그 경우 뒤의 판정이 404/409 로 끝난다. 탈퇴한 신청자는 잠그지 않고 넘어간다.
+     *
+     * @return 활성 방장 — 잠금은 호출 트랜잭션이 끝날 때까지 유지된다
+     */
+    private User lockAnswerUsers(UUID callerId, UUID applicantId) {
+        if (applicantId != null && applicantId.compareTo(callerId) < 0) {
+            userQueryService.findActiveForUpdate(applicantId);
+        }
+        User caller = userQueryService.getCallerForShare(callerId);
+        if (applicantId != null && applicantId.compareTo(callerId) > 0) {
+            userQueryService.findActiveForUpdate(applicantId);
+        }
+        return caller;
+    }
+
+    /** 새 멤버십을 만들거나 자진 탈퇴 행을 되살린다 — 즉시 가입과 승인이 같은 전이를 쓴다. */
+    private GroupMember admit(User user, Group island, Optional<GroupMember> prior) {
+        if (prior.isPresent()) {
+            GroupMember membership = prior.get();
+            membership.rejoin();
+            // 재가입은 새 세대 — 이 사람이 발급한 옛 초대 코드는 이 전이로 폐기된다.
+            linkMembershipEventService.recordMembershipRejoined(membership);
+            return membership;
+        }
+        return groupMemberRepository.save(GroupMember.builder()
+                .user(user).group(island).role(GroupMemberRole.MEMBER).build());
+    }
 
     /**
      * 초대 참조를 가입 커밋 안에서 다시 검증한다 — 그룹 일치·발급자 활성 멤버십·발급 세대.
@@ -248,9 +361,18 @@ public class IslandJoinService {
         if (!SlugGenerator.FORMAT.matcher(token).matches()) {
             throw new InviteLinkException(InviteLinkErrorCode.INVITATION_CODE_INVALID);
         }
-        GroupInviteLink link = inviteLinkRepository.findBySlug(token)
-                .filter(candidate -> candidate.getGroupId().equals(island.getId()))
-                .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.INVITATION_EXPIRED));
+        return requireIssuerCurrent(island, inviteLinkRepository.findBySlug(token)
+                .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.INVITATION_EXPIRED)));
+    }
+
+    /**
+     * 초대 근거를 커밋 안에서 재검증한다 — 그룹 일치·발급자 활성 멤버십(공유 잠금)·발급 세대. 즉시 가입과
+     * 초대 기반 pending 의 승인(섬 관리 LLD §3.4)이 같은 규칙을 쓴다. 어긋나면 410 이다.
+     */
+    private GroupInviteLink requireIssuerCurrent(Group island, GroupInviteLink link) {
+        if (!link.getGroupId().equals(island.getId())) {
+            throw new InviteLinkException(InviteLinkErrorCode.INVITATION_EXPIRED);
+        }
         GroupMember issuer = groupMemberRepository
                 .findActiveByUserIdAndGroupIdForShare(link.getInviterId(), island.getId())
                 .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.INVITATION_EXPIRED));

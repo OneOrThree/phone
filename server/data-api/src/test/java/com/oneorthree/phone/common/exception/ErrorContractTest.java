@@ -132,7 +132,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 176개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 177개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -185,8 +185,10 @@ class ErrorContractTest {
         // ISLAND_JOIN_UNAVAILABLE 403)와 초대 해석 2(InviteLinkErrorCode: INVITATION_CODE_INVALID
         // 422·INVITATION_EXPIRED 410). 형식 오류·없음·폐기는 앱이 다른 분기를 타야 하므로 한 코드로
         // 접지 않는다.
-        assertThat(tests).as("실측 기준 도메인 상수 161개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·섬 가입 6종 포함")
-                .hasSize(176);
+        // GROMO-1802 가 섬 관리 명령 게이트 1개를 더했다(GroupErrorCode.ISLAND_MANAGEMENT_NOT_READY 503) —
+        // 위임 게이트 REALTIME_NOT_READY 와 같은 503 이지만 스위치가 달라 하나만 먼저 여는 날 구분해야 한다.
+        assertThat(tests).as("실측 기준 도메인 상수 162개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·섬 가입 6종·섬 관리 게이트 포함")
+                .hasSize(177);
         return tests;
     }
 

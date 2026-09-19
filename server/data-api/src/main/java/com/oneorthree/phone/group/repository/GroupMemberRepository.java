@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -11,6 +12,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -93,6 +95,26 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
      */
     @Query("SELECT gm FROM GroupMember gm WHERE gm.user = :user AND gm.group = :group AND gm.isLeft = false")
     Optional<GroupMember> findByUserAndGroup(@Param("user") User user, @Param("group") Group group);
+
+    /**
+     * 섬 주민 목록 한 페이지 (GROMO-1802, 섬 관리 LLD §3.2) — {@code (createdAt, id)} keyset 이다.
+     *
+     * <p>탈퇴 계정은 {@code is_left=false} 로 남아 있어도 주민으로 세지 않는다(LLD §4) — 정원 집계
+     * {@link #countByGroupIdIn} 과 같은 모수다. 첫 페이지는 호출측이 어떤 행보다도 이른 경계를 넘긴다.
+     *
+     * @param groupId        섬
+     * @param afterCreatedAt 직전 페이지 마지막 행의 가입 시각
+     * @param afterId        직전 페이지 마지막 행의 멤버십 PK — 같은 시각의 동률을 끊는다
+     * @param pageable       크기만 쓴다 — 정렬은 쿼리가 고정한다
+     * @return 경계 뒤의 활성·미탈퇴 주민(유저 함께 로드)
+     */
+    @EntityGraph(attributePaths = "user")
+    @Query("SELECT gm FROM GroupMember gm WHERE gm.group.id = :groupId AND gm.isLeft = false"
+            + " AND gm.user.isDeleted = false"
+            + " AND (gm.createdAt > :afterCreatedAt OR (gm.createdAt = :afterCreatedAt AND gm.id > :afterId))"
+            + " ORDER BY gm.createdAt, gm.id")
+    List<GroupMember> findActivePageByGroupId(@Param("groupId") UUID groupId,
+            @Param("afterCreatedAt") Instant afterCreatedAt, @Param("afterId") UUID afterId, Pageable pageable);
 
     /**
      * 초대 링크 발급(invitelink 도메인)의 멤버십 검증용 — 활성 멤버(is_left=false)만 멤버로 본다.
