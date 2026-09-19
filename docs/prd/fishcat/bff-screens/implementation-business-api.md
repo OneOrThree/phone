@@ -1,6 +1,6 @@
 # Business 구현 — 화면 조회 14종
 
-[정책](policy.md) B15~B23 · [Data 구현](implementation-data-api.md) · 흐름 그림 [diagrams/](diagrams/)
+[정책](policy.md) B15~B27 · [Data 구현](implementation-data-api.md) · 흐름 그림 [diagrams/](diagrams/)
 
 > **B24 (2026-09-15 확정):** 화면 조회는 Business가 도메인 내부 GET을 병렬로 조합하는 것이 기본이다. 같은 순간의 값이 필요한 화면만 개별 예외로 Data 단일 스냅샷 read-model을 쓴다. 화면 경로 이름은 B25, 응답 키·availability 이름은 B26으로 확정했다.
 
@@ -75,6 +75,21 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/fishcat/
 | `friends` | 78 · 79 | — | 친구 목록 · 받은·보낸 요청 ([friend-letter](../friend-letter/) §1.15 내부 GET) | 설계 완료(BG10 해소). 구현(GROMO-1899): 받은 요청은 raft 와 같은 `friendRequests`, 보낸 요청은 `sentFriendRequests`. query `date` 만 받아 도메인에 넘긴다 |
 | `account` | 80–83 | — | `GET /me` · `NotificationApiClient.getSettings()`(순수 GET, Notification) | 설정 정본은 Notification. `AccountSettingsUseCase.read()`는 재사용하지 않음. 응답은 공개 계약 모양으로 투영(아래 각주) |
 
+### 4.1 `missingFragments` 현황 (정책 B27)
+
+origin/main `ScreenReadUseCase`(`ddc4a9218`, 2026-09-19) 기준. 목록에 있는 조각은 명시 `null` 이고 해당 상류를 부르지 않는다. 표에 없는 화면(`launch`·`explore`·`visit`·`focus`·`mailbox`·`raft`·`friends`·`account`)은 키가 없다.
+
+| 화면 | `missingFragments` (배열 순서 그대로) | 조건 | 빠진 도메인 GET | 사라지는 시점 |
+| --- | --- | --- | --- | --- |
+| `home` | `["wallets"]` | 항상 | `GET /islands/{islandId}/shop/wallets` | 상점 지갑 GET 연결 PR 머지 때 (진행 중) |
+| `town-hall` | `["wallets"]` | 항상 (방장·일반 주민 모두) | 같음 | 같음 |
+| `board` | `["wallets"]` | 게시판 완공(미완공은 화면 403) | 같음 | 같음 |
+| `shop` | `["wallets","products"]` | 상점 완공(미완공은 화면 403, 키 없음) | `…/shop/wallets` · `…/shop/products?category=` | 상점 지갑·상품 연결 PR 머지 때 (진행 중) |
+| `playback` | `["products","wallets"]` | 방송기 완공(미완공은 화면 403) | `…/shop/products?category=sound` · `…/shop/wallets` | 같음 |
+| `library` | `["focusStatistics","screenTimeStatistics"]` · `statisticsAvailability:null` | 도서관 완공만. 미완공은 키 없이 `statisticsAvailability:facility_locked` | `…/statistics/focus` · `…/statistics/screen-time` (1769) | 도서관 기록 연결 PR 머지 때 (진행 중) |
+
+지갑·상품(상점)과 도서관 기록 조각은 지금 다른 작업이 연결하고 있다. 그 PR 이 머지되면 위 행은 사라지고 표에 남는 화면이 없으면 이 절은 「현재 없음」으로 줄인다. 행을 지우는 것은 그 연결 PR 의 몫이다(B27 ④).
+
 화면 조회가 없는 프레임: 01 약관(`GET` 1개), 08·30·62 항해(B17), 27·29 결과(B18), 56·57 공지 상세, 58 랭킹, 67 편지 상세, 74·75 구매 내역. 모두 앱이 도메인 경로를 한 번 부르거나 앞 응답으로 그린다.
 
 `focus`의 순차 단계는 세션이 있어도 `GET /islands/{islandId}`(섬 시설·역할)를 반드시 부른다. 세션의 `islandId`로 바로 병렬 조각(특히 `playback`)만 부르고 섬 문맥을 건너뛰면, 방송기 완공 여부를 판단할 재료가 없어 필수 조각 취급인 `GET /islands/{islandId}/playback`을 무조건 호출하게 되고 미완공 섬에서는 그 호출이 도메인 403을 반환한다. §5의 "N은 앞 단계 응답으로 판단해 호출 자체를 생략한다"와 policy.md B03("N은 검증된 비적용으로 조회하지 않음. 실제403은 전체 실패")에 따라 이 403은 `playback` 조각만이 아니라 화면 전체 실패로 번진다. 섬 문맥 호출로 시설 완공 여부를 먼저 확인해야 `playback` 호출 자체를 생략하고 그 조각만 N(`facility_locked`)으로 내릴 수 있다. 지금 섬 상세 응답에는 시설 필드(`buildings`)가 아직 없어, `home`·`focus`는 섬 문맥 뒤 병렬 단계에서 `GET /islands/{islandId}/construction-options`를 함께 읽어 판정한다(GROMO-1897) — `items`는 완공하지 않은 건물만 담으므로 `gram`이 없으면 완공이다. 이 판정 재료는 응답에 싣지 않는다. 섬 상세에 시설 필드가 생기면 그쪽으로 옮긴다.
@@ -87,6 +102,7 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/fishcat/
 
 - 조각 이름이 응답 키다(B26 확정): `me`·`memberships`·`islands`·`island`·`joinRequest`·`focusSummary`·`session`·`focusMembers`·`restMembers`·`wallets`·`playback`·`members`·`constructionOptions`·`joinRequests`·`focusStatistics`·`screenTimeStatistics`·`quests`·`notices`·`messages`·`letters`·`friends`·`friendRequests`·`sentFriendRequests`·`products`·`sharedInventory`·`inventory`·`settings`.
 - availability 필드(B26 확정): `joinRequestAvailability`(visit)·`playbackAvailability`(home·focus)·`joinRequestsAvailability`(town-hall)·`statisticsAvailability`(library, 값 `available`·`facility_locked`).
+- 도메인 GET 이 아직 없는 조각은 `missingFragments`(B27) — 명시 `null` + 이름 배열, 없으면 키 생략. availability 로 위장하지 않고, 그 조각의 availability 는 `null` 이다. 현황은 §4.1.
 - 화면 전체 `asOf`는 두지 않는다(B07 개정). 조각마다 온 `serverNow`·`asOf`·`version`을 그대로 둔다.
 - 모든 조각은 `required=true`로 시작한다(B04). 선택 조각을 두려면 B05를 먼저 개정한다.
 - N은 앞 단계 응답으로 판단해 **호출 자체를 생략**한다. 도메인 403을 N 상태로 바꾸지 않는다(B03).

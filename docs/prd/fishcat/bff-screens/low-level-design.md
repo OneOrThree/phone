@@ -56,6 +56,45 @@ travel/focus의 playbackAvailability는 available|facility_locked 두값이다. 
 
 manage의 joinRequestsAvailability는 available|host_only다. available은현재host의실제조회결과(빈items허용), host_only는일반활성주민에게조회 생략+null이다. visit의 joinRequestAvailability는 available|none, available은본인최신요청조회결과, none은본인joinRequestId가없음을확인한null이다. 임의403/404를이상태로접지않는다. availability불일치(null인데available등)는502 UPSTREAM_CONTRACT_ERROR다.
 
+### missingFragments (정책 B27)
+
+도메인 GET 이 아직 없는 조각은 호출하지 않고 명시 `null` 로 두며 이름을 `missingFragments` 에 싣는다. 빠진 조각이 없으면 키가 없다(빈 배열 아님). 검증된 비적용인 availability 와 겹치지 않는다 — missing 조각의 availability 는 `null` 이다. 앱은 missing 조각을 「준비 중」으로 그리고 빈 목록·0·잠김으로 그리지 않는다. 화면별 현황은 [Business 구현](implementation-business-api.md) §4.1. 아래 예시는 조각 본문을 줄였다.
+
+`GET /screens/home` — 지갑 GET 이 없고 방송기는 미완공:
+
+```json
+{
+  "data": {
+    "island": { "id": "019f16a0-0000-7000-8000-000000000010", "name": "소다 섬", "role": "host" },
+    "focusSummary": { "date": "2026-09-19", "totalSeconds": 4200 },
+    "session": null,
+    "restMembers": { "items": [] },
+    "playback": null,
+    "playbackAvailability": "facility_locked",
+    "wallets": null,
+    "missingFragments": ["wallets"]
+  }
+}
+```
+
+`playback` 은 잠김(검증된 N — 앱은 잠긴 방송기를 그린다), `wallets` 는 준비 중(서버 미구현 — 잔액 0 으로 그리지 않는다)이다. 둘 다 `null` 이라 값만으로는 구분할 수 없고 availability 와 `missingFragments` 로 구분한다.
+
+`GET /screens/library` — 도서관 완공이지만 기록 GET(1769)이 없음:
+
+```json
+{
+  "data": {
+    "island": { "id": "019f16a0-0000-7000-8000-000000000010", "name": "소다 섬", "role": "member" },
+    "statisticsAvailability": null,
+    "focusStatistics": null,
+    "screenTimeStatistics": null,
+    "missingFragments": ["focusStatistics", "screenTimeStatistics"]
+  }
+}
+```
+
+도서관 미완공이면 조각을 부를 일이 없으므로 `missingFragments` 키 없이 `"statisticsAvailability": "facility_locked"` 와 두 기록 조각 `null` 이다.
+
 ## 2. 화면 13개 응답 예시
 
 각 예시는 **독립된 설명용 fixture**이며 동일한시각/사용자ID가나와도모든예시가하나의운영DB상태라는뜻은아니다. 가격·보상·색·가입/분모등목업값을운영정책으로승인하지 않는다. 계정/건설/퀘스트/랭킹미답정책이필요한조각은해당gate완료전활성화하지 않는다. 원본22개 GET예시는source-contracts.json에변경없이따로남겼다.
