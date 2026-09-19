@@ -15,6 +15,7 @@ import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
+import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
@@ -99,7 +100,12 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private GroupMember membership;
 
     private FocusSessionLifecycleService service(Instant wallClock) {
-        return new FocusSessionLifecycleService(userQueryService, membershipLocks, groupMemberRepository,
+        return service(wallClock, false);
+    }
+
+    private FocusSessionLifecycleService service(Instant wallClock, boolean startEnabled) {
+        return new FocusSessionLifecycleService(new FocusSessionStartGate(startEnabled), userQueryService,
+                membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, outboxCommandPort,
                 Clock.fixed(wallClock, ZoneOffset.UTC));
@@ -108,7 +114,7 @@ class FocusSessionLifecycleGuardsTest {
     // ── 1. 시작 게이트 ────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("start 는 게이트가 닫혀 있는 한 503 이다 — 끝낼 수 없는 세션을 만들지 않는다")
+    @DisplayName("start 는 활성화 설정(focus.session.start-enabled)이 꺼져 있으면 503 이다 — 행을 만들지 않는다")
     void startIsRefusedWhileTheGateIsClosed() {
         assertThatThrownBy(() -> service(NOW).start(USER,
                 new FocusSessionStartCommandRequest(ISLAND, "알고리즘", 60), KEY))
@@ -124,12 +130,18 @@ class FocusSessionLifecycleGuardsTest {
     }
 
     @Test
-    @DisplayName("입력이 잘못돼 있어도 게이트가 먼저다 — 400 이 아니라 503 을 준다")
+    @DisplayName("게이트 판정은 입력 검증보다 앞이고, 기준은 설정 값 하나다 — 켜면 같은 입력이 400 으로 간다")
     void startGateWinsOverInputValidation() {
         assertThatThrownBy(() -> service(NOW).start(USER, null, KEY))
                 .isInstanceOf(FocusException.class)
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.SESSION_START_UNAVAILABLE);
+
+        // 같은 요청이 설정을 켠 인스턴스에서는 게이트를 지나 입력 검증에 걸린다 — 상수가 아니다.
+        assertThatThrownBy(() -> service(NOW, true).start(USER, null, KEY))
+                .isInstanceOf(FocusException.class)
+                .extracting("errorCode")
+                .isEqualTo(FocusErrorCode.INVALID_SUBJECT);
     }
 
     // ── 2. 구간 전환 순서(flush) ──────────────────────────────────────────────

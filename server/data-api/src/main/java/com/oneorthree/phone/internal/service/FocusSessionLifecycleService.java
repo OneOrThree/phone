@@ -96,7 +96,7 @@ import java.util.UUID;
  * {@link FocusErrorCode#REWARD_POLICY_UNAVAILABLE}로 막는다 — policy.md가 "정책 없을 때 성공 정산
  * receipt를 만들지 않는다"고 정했다.
  *
- * <p>그래서 {@link #start}도 {@link FocusSessionStartGate#isOpen()}로 먼저 막는다. finish가 항상 503인데
+ * <p>그래서 {@link #start}도 {@link FocusSessionStartGate}로 먼저 막는다. finish가 항상 503인데
  * start만 열려 있으면 사용자는 <b>끝낼 수 없는 세션</b>에 갇힌다 — v0.3 상세가 달린 세션은 12시간
  * orphan 스윕에서도 제외되고(LLD §5), 다음 start는 열린 기본 마커 때문에 409다. 두 게이트를 여는 날의
  * 선행 조건 목록은 {@link FocusSessionStartGate}의 javadoc에 있다.
@@ -122,6 +122,7 @@ public class FocusSessionLifecycleService {
     private static final List<FocusSessionLifecycle> PROGRESSING =
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
 
+    private final FocusSessionStartGate startGate;
     private final UserQueryService userQueryService;
     private final GroupMembershipMutationLocks membershipLocks;
     private final GroupMemberRepository groupMemberRepository;
@@ -143,7 +144,7 @@ public class FocusSessionLifecycleService {
      */
     @Transactional
     public FocusSessionView start(UUID userId, FocusSessionStartCommandRequest body, UUID idempotencyKey) {
-        if (!FocusSessionStartGate.isOpen()) {
+        if (!startGate.isOpen()) {
             throw new FocusException(FocusErrorCode.SESSION_START_UNAVAILABLE);
         }
         String subject = validateSubject(body == null ? null : body.subject());

@@ -1,7 +1,12 @@
 package com.oneorthree.phone.focus.support;
 
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+
 /**
- * 집중 세션 <b>시작</b> 게이트 (GROMO-1764) — v0.3 수명주기 경로 전체의 활성화 스위치라 항상 닫혀 있다.
+ * 집중 세션 <b>시작</b> 게이트 (GROMO-1764 · GROMO-1924) — v0.3 수명주기 경로 전체의 활성화 스위치다.
+ * 종전의 상수 {@code false} 가 아니라 배포 설정 {@code focus.session.start-enabled}(기본 {@code false})로
+ * 연다 — LLD §5.2 의 「새 세션 생성의 활성화 flag」다.
  *
  * <p><b>왜 시작을 막는가.</b> {@link FocusRewardPolicyGate} 가 닫혀 있어 {@code finish} 는 항상 503 이다.
  * 그런데 시작만 열어 두면 사용자는 <b>끝낼 수 없는 세션</b>에 갇힌다:
@@ -50,19 +55,23 @@ package com.oneorthree.phone.focus.support;
  *       않으므로 전달 배선과 같이 정한다</li>
  * </ol>
  *
- * <p>{@link FocusRewardPolicyGate} 와 같은 모양(순수 상수 판정, 주입 없음)이지만 <b>별개 상수</b>다 —
- * 막는 사유가 다르고, 둘 중 하나만 먼저 여는 날 구분이 필요하다.
+ * <p>{@link FocusRewardPolicyGate} 와 <b>별개 스위치</b>다 — 막는 사유가 다르고, 둘 중 하나만 먼저 여는 날
+ * 구분이 필요하다. 설정 값 하나만 읽고 저장소를 주입하지 않으므로 {@code support/} 에 둔다
+ * ({@code auth/support/JwtProvider} 와 같은 결).
  */
-public final class FocusSessionStartGate {
+@Component
+public class FocusSessionStartGate {
 
-    private FocusSessionStartGate() {
+    private final boolean enabled;
+
+    public FocusSessionStartGate(@Value("${focus.session.start-enabled:false}") boolean enabled) {
+        this.enabled = enabled;
     }
 
     /**
-     * @return v0.3 집중 세션 시작 경로가 열려 있는가. 위 선행 조건 여섯이 갖춰지기 전까지 항상
-     *         {@code false} 다
+     * @return v0.3 집중 세션 시작 경로가 열려 있는가 — 배포 설정 그대로다
      */
-    public static boolean isOpen() {
-        return false;
+    public boolean isOpen() {
+        return enabled;
     }
 }
