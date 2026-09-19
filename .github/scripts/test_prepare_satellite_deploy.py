@@ -474,6 +474,9 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
             plan = (fixture.output / "deploy-plan.txt").read_text(encoding="utf-8")
             self.assertNotIn(DATA_OVERLAY.name, plan)
             self.assertIn("up -d business-api notification", plan)
+            # GROMO-1957 — ACL 은 기동 때만 읽히므로 위성보다 먼저 business-redis 를 재생성한다.
+            self.assertLess(plan.index("up -d --force-recreate business-redis"),
+                            plan.index("up -d business-api notification"))
 
 
 class SatelliteRoutingExampleTest(unittest.TestCase):

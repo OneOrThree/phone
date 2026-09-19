@@ -20,8 +20,8 @@ aws secretsmanager get-secret-value --secret-id gromo/dev/env --query SecretStri
 
 | 서비스 | 필수 자격 |
 |---|---|
-| data-api | API_DB 3종, OPENAI_API_KEY, BIZ_TO_DATA·NOTI_TO_DATA·DATA_TO_NOTI·DATA_TO_LINK 서비스 토큰, LINK_CAPABILITY_KEY, LINK_IP_SALT, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS |
-| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_LINK 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, LINK_BASE_URL, LINK_IP_SALT |
+| data-api | API_DB 3종, OPENAI_API_KEY, BIZ_TO_DATA·NOTI_TO_DATA·DATA_TO_NOTI·DATA_TO_LINK 서비스 토큰, LINK_CAPABILITY_KEY, LINK_IP_SALT, LINK_BASE_URL, NOTIFICATION_BASE_URL, KAFKA_BOOTSTRAP_SERVERS (relay 를 켜면 REALTIME_BASE_URL·DATA_TO_REALTIME 토큰도 — [relay ON 체크리스트](#relay-on-체크리스트)) |
+| business-api | JWT_SECRET, BIZ_TO_DATA·BIZ_TO_NOTI·BIZ_TO_LINK·BIZ_TO_REALTIME 서비스 토큰, DATA_API_BASE_URL, NOTIFICATION_BASE_URL, LINK_BASE_URL, REALTIME_BASE_URL, LINK_IP_SALT, BUSINESS_REDIS_PASSWORD, LOGIN_ATTEMPT_DIGEST_SECRET, BUSINESS_CURSOR_ENABLED·BUSINESS_CURSOR_KEY_V1 (prod 는 LINK_PROXY_SECRET 추가) |
 | notification | NOTI_DB 3종, FCM 2종, BIZ_TO_NOTI·DATA_TO_NOTI·CONSOLE_TO_NOTI·NOTI_TO_DATA 서비스 토큰, DATA_API_BASE_URL, KAFKA_BOOTSTRAP_SERVERS |
 
 표의 서비스 토큰에는 모두 `SVC_TOKEN_` 접두가 붙는다. 대상이 다른 caller 토큰을 같은 값으로 재사용하지 않는다. 표의 링크 관련 값(`DATA_TO_LINK`·`BIZ_TO_LINK` 토큰 · `LINK_CAPABILITY_KEY` · `LINK_BASE_URL` · business-api 의 `LINK_IP_SALT`)은 A23 으로 폐기된 #745 잔재다 — 생성기가 요구하는 동안만 채우고, `LINK_IP_SALT` 는 최종적으로 data-api 만 갖는다(링크 정책 L03). `DD_API_KEY`와 콘솔 로그인/sudo 비밀번호는 세 서비스 어디에도 전달하지 않는다.
@@ -69,9 +69,19 @@ dev(GCP `gromo-dev-app`, e2-medium 4 GB)에서 Kafka와 Data 위성 모드를 �
 | 0 | `dev-cd.yml` 조건부 오버레이 + `dev-kafka.yml` 머지. `phone-kafka` 미실행이고 `../.gromo-runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
 | 1 | 서버에서 `free -m` 확인 → Actions **Dev Kafka** `up`. 여유 1024 MiB 미만이면 워크플로가 거부한다. 브로커만 뜨고 토픽은 없다(자동 생성 꺼짐). 이후 CD는 `phone-kafka`가 돌면 `docker-compose.kafka.yml`을 함께 물린다 | **Dev Kafka** `down` (`kafka-data` 볼륨 보존) |
 | 2 | 러너 checkout 옆 `../.gromo-runtime/data-api.env`(0600)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `INTERNAL_API_ENABLED=false`, `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`. 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
-| 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
+| 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다. REALTIME 대상도 이때 함께 열리므로 아래 [relay ON 체크리스트](#relay-on-체크리스트)를 먼저 채운다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
 | 4 | Notification·Business 위성 기동 — [신규 서비스 compose](#신규-서비스-compose)와 [deployment.md](deployment.md) | 해당 서비스만 제거 |
 | 5 | `NOTIFICATION_DISPATCH_MODE=OUTBOX` — [OUTBOX 선행 조건](#outbox-후보-배치-활성화-선행-조건)(GROMO-893) 해소 후에만. **단방향** | 되돌리지 않는다. OUTBOX→LEGACY는 알림을 재발송한다 |
+
+### relay ON 체크리스트
+
+3단계에서 `OUTBOX_RELAY_ENABLED=true` 로 바꾸기 **전에** 모두 확인한다. 키별 「비었을 때」 동작은 [server/scripts README §4](../../../../server/scripts/README.md#4-시크릿스위치--비었을-때의-동작)가 정본이다.
+
+- [ ] A18 의 `OUTBOX_RELAY_*` 여섯 값이 `data-api.env` 에 있다.
+- [ ] `REALTIME_BASE_URL`(dev: `http://realtime:8081`)과 `SVC_TOKEN_DATA_TO_REALTIME` 이 SM 에 있고 `data-api.env` 에 들어갔다. 둘 중 하나라도 비면 relay 를 켠 Data 가 기동을 거부한다.
+- [ ] 같은 `SVC_TOKEN_DATA_TO_REALTIME` 값이 Realtime 에도 닿았다(dev: SM `gromo/dev/env` → CD 가 쓰는 `dev.env` → `docker-compose.realtime.yml`). 비어 있으면 Data 는 뜨지만 Realtime 이 `POST /internal/events` 를 401 로 거절해 REALTIME 행이 쌓인다. Business 토큰(`SVC_TOKEN_BIZ_TO_REALTIME`)과 **다른 값**이다(A22 ㊀).
+- [ ] Realtime 을 재생성해 토큰을 읽혔다: `docker compose … -f docker-compose.realtime.yml up -d realtime`. CD 는 Realtime 을 건드리지 않는다.
+- [ ] REALTIME 을 Kafka 로 보낼 때만 — **Realtime 먼저, Data 나중**: ① Kafka 오버레이 기동 ② SM 에 `REALTIME_EVENTS_KAFKA_ENABLED=true` → Realtime 재생성 → `realtime-events` 소비자 기동 확인 ③ 그다음 `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED=true` 로 Data 재생성. 반대 순서면 소비자 없는 토픽에 사건이 쌓인다. 되돌릴 때는 역순(Data 먼저 끄고 Realtime 을 끈다).
 
 막힌 곳:
 
