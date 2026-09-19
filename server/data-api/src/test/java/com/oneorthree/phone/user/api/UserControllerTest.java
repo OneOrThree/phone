@@ -1,17 +1,9 @@
 package com.oneorthree.phone.user.api;
 
-import com.oneorthree.phone.user.dto.UserProfileUpdateRequest;
-import static org.assertj.core.api.Assertions.assertThat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.common.auth.AuthAttributes;
 import com.oneorthree.phone.user.UserController;
 import com.oneorthree.phone.user.repository.domain.Occupation;
-import com.oneorthree.phone.user.repository.domain.Provider;
-import com.oneorthree.phone.user.repository.domain.StatVisibility;
-import com.oneorthree.phone.user.dto.NotificationSettingsResponse;
-import com.oneorthree.phone.user.dto.SocialLinkResponse;
-import com.oneorthree.phone.user.exception.UserErrorCode;
-import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.service.UserService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -22,22 +14,17 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.UUID;
-import java.time.Instant;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -166,40 +153,6 @@ class UserControllerTest {
     }
 
     @Test
-    @DisplayName("알림 설정 저장 성공 → 204")
-    void updateNotificationSettingsReturns204() throws Exception {
-        Map<String, Object> body = new HashMap<>();
-        body.put("notificationEnabled", true);
-        body.put("soundEnabled", false);
-        body.put("nightModeEnabled", true);
-        body.put("nightStartTime", "22:00");
-        body.put("nightEndTime", "07:00");
-
-        mockMvc.perform(put("/api/v1/users/me/notification-settings")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(body))
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isNoContent())
-                .andDo(print());
-
-        verify(userService).updateNotificationSettings(any(), any(), isNull());
-    }
-
-    @Test
-    @DisplayName("알림 설정 - 필수 boolean 필드 누락 → 400")
-    void updateNotificationSettingsMissingFieldReturns400() throws Exception {
-        Map<String, Object> body = new HashMap<>();
-        body.put("notificationEnabled", true);
-        // soundEnabled, nightModeEnabled 누락
-
-        mockMvc.perform(put("/api/v1/users/me/notification-settings")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(body)))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
     @DisplayName("occupation 저장 성공 → 204")
     void updateOccupationReturns204() throws Exception {
         mockMvc.perform(patch("/api/v1/users/me/occupation")
@@ -232,304 +185,11 @@ class UserControllerTest {
                 .andDo(print());
     }
 
-    @Test
-    @DisplayName("스크린타임 목표 수정 성공 → 204")
-    void updateScreenTimeGoalReturns204() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/screen-time-goal")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("dailyScreenTimeGoalMinutes", 120)))
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isNoContent())
-                .andDo(print());
-
-        verify(userService).updateScreenTimeGoal(any(), eq(120));
-    }
-
-    @Test
-    @DisplayName("스크린타임 목표 null → 400")
-    void updateScreenTimeGoalNullReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/screen-time-goal")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dailyScreenTimeGoalMinutes\": null}"))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("스크린타임 목표 음수 → 400")
-    void updateScreenTimeGoalNegativeReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/screen-time-goal")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Collections.singletonMap("dailyScreenTimeGoalMinutes", -1))))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("프로필 수정(PATCH /users/me) - 집중/스크린 목표 음수 → 400")
-    void updateProfileNegativeGoalReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dailyFocusTimeGoalMinutes\": -1}")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-
-        mockMvc.perform(patch("/api/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dailyScreenTimeGoalMinutes\": -5}")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("프로필 등록(POST /users/me) - 집중 목표 음수 → 400")
-    void setupProfileNegativeGoalReturns400() throws Exception {
-        mockMvc.perform(post("/api/v1/users/me")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dailyFocusTimeGoalMinutes\": -1}")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("집중 목표 수정 성공 → 204")
-    void updateFocusTimeGoalReturns204() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/focus-time-goal")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("dailyFocusTimeGoalMinutes", 90)))
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isNoContent())
-                .andDo(print());
-
-        verify(userService).updateFocusTimeGoal(any(), eq(90));
-    }
-
-    @Test
-    @DisplayName("집중 목표 null → 400")
-    void updateFocusTimeGoalNullReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/focus-time-goal")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"dailyFocusTimeGoalMinutes\": null}"))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("집중 목표 음수 → 400")
-    void updateFocusTimeGoalNegativeReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/focus-time-goal")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Collections.singletonMap("dailyFocusTimeGoalMinutes", -1))))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("알림 설정 - night 시각 포맷 오류 → 400")
-    void updateNotificationSettingsInvalidTimeReturns400() throws Exception {
-        Map<String, Object> body = new HashMap<>();
-        body.put("notificationEnabled", true);
-        body.put("soundEnabled", true);
-        body.put("nightModeEnabled", true);
-        body.put("nightStartTime", "abc");
-
-        mockMvc.perform(put("/api/v1/users/me/notification-settings")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(body)))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("알림 설정 - nightStartTime null 허용(@Pattern 은 null 통과) → 204")
-    void updateNotificationSettingsNullNightTimeReturns204() throws Exception {
-        Map<String, Object> body = new HashMap<>();
-        body.put("notificationEnabled", true);
-        body.put("soundEnabled", true);
-        body.put("nightModeEnabled", false);
-        body.put("nightStartTime", null);
-        body.put("nightEndTime", null);
-
-        mockMvc.perform(put("/api/v1/users/me/notification-settings")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(body))
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isNoContent())
-                .andDo(print());
-
-        verify(userService).updateNotificationSettings(any(), any(), isNull());
-    }
-
     // ── GET /users/me/notification-settings ───────────────────────────────
-
-    @Test
-    @DisplayName("알림 설정 조회 → 200 + 5개 필드 노출")
-    void getNotificationSettingsReturns200() throws Exception {
-        given(userService.getNotificationSettings(any())).willReturn(
-                new NotificationSettingsResponse(true, false, true, "22:00", "07:00"));
-
-        mockMvc.perform(get("/api/v1/users/me/notification-settings")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.notificationEnabled").value(true))
-                .andExpect(jsonPath("$.soundEnabled").value(false))
-                .andExpect(jsonPath("$.nightModeEnabled").value(true))
-                .andExpect(jsonPath("$.nightStartTime").value("22:00"))
-                .andExpect(jsonPath("$.nightEndTime").value("07:00"))
-                .andDo(print());
-
-        verify(userService).getNotificationSettings(any());
-    }
-
-    @Test
-    @DisplayName("알림 설정 조회 - 설정 없음 → 404")
-    void getNotificationSettingsNotFoundReturns404() throws Exception {
-        willThrow(new UserException(UserErrorCode.USER_NOT_FOUND))
-                .given(userService).getNotificationSettings(any());
-
-        mockMvc.perform(get("/api/v1/users/me/notification-settings")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isNotFound())
-                .andDo(print());
-    }
 
     // ── PATCH /users/me/stat-visibility ───────────────────────────────────
 
-    @Test
-    @DisplayName("통계 공개 범위 수정 성공 → 204")
-    void updateStatVisibilityReturns204() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/stat-visibility")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("statVisibility", "PUBLIC")))
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isNoContent())
-                .andDo(print());
-
-        verify(userService).updateStatVisibility(any(), eq(StatVisibility.PUBLIC));
-    }
-
-    @Test
-    @DisplayName("statVisibility null → 400")
-    void updateStatVisibilityNullReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/stat-visibility")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"statVisibility\": null}"))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("statVisibility 정의되지 않은 값 → 400")
-    void updateStatVisibilityInvalidValueReturns400() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me/stat-visibility")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"statVisibility\": \"EVERYONE\"}"))
-                .andExpect(status().isBadRequest())
-                .andDo(print());
-    }
-
     // ── GET /users/me/social-links ────────────────────────────────────────
 
-    @Test
-    @DisplayName("게스트/무연동 유저 → GET /users/me/social-links → 200 빈 배열")
-    void getSocialLinksReturnsEmptyArrayForUnlinkedUser() throws Exception {
-        given(userService.getSocialLinks(any())).willReturn(List.of());
-
-        mockMvc.perform(get("/api/v1/users/me/social-links")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$.length()").value(0))
-                .andDo(print());
-
-        verify(userService).getSocialLinks(any());
-    }
-
-    @Test
-    @DisplayName("소셜 연동 목록 조회 → 200 + JSON 배열")
-    void getSocialLinksReturns200() throws Exception {
-        given(userService.getSocialLinks(any())).willReturn(List.of(
-                new SocialLinkResponse("APPLE", Instant.parse("2025-03-01T12:00:00Z")),
-                new SocialLinkResponse("GOOGLE", Instant.parse("2025-04-10T09:30:00Z"))
-        ));
-
-        mockMvc.perform(get("/api/v1/users/me/social-links")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$").isArray())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].provider").value("APPLE"))
-                .andDo(print());
-
-        verify(userService).getSocialLinks(any());
-    }
-
     // ── DELETE /users/me/social-links/{provider} ──────────────────────────
-
-    @Test
-    @DisplayName("소셜 연동 해제 성공 → 204")
-    void unlinkSocialAccountReturns204() throws Exception {
-        mockMvc.perform(delete("/api/v1/users/me/social-links/APPLE")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isNoContent())
-                .andDo(print());
-
-        verify(userService).unlinkSocialAccount(any(), eq(Provider.APPLE));
-    }
-
-    @Test
-    @DisplayName("미연동 provider 해제 시도 → 404")
-    void unlinkSocialAccountNotLinkedReturns404() throws Exception {
-        willThrow(new UserException(UserErrorCode.SOCIAL_ACCOUNT_NOT_FOUND))
-                .given(userService).unlinkSocialAccount(any(), eq(Provider.KAKAO));
-
-        mockMvc.perform(delete("/api/v1/users/me/social-links/KAKAO")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isNotFound())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("마지막 연동 해제 시도 → 409")
-    void unlinkSocialAccountLastOneReturns409() throws Exception {
-        willThrow(new UserException(UserErrorCode.LAST_SOCIAL_ACCOUNT))
-                .given(userService).unlinkSocialAccount(any(), eq(Provider.GOOGLE));
-
-        mockMvc.perform(delete("/api/v1/users/me/social-links/GOOGLE")
-                        .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))
-                .andExpect(status().isConflict())
-                .andDo(print());
-    }
-    // ── language (GROMO-1659 D11 · 1692 계약) ────────────────────────────
-
-    @Test
-    @DisplayName("PATCH /users/me language=zh-Hant → 204, 서비스에 그대로 전달")
-    void patchProfileAcceptsSupportedLanguage() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me")
-                        .requestAttr(com.oneorthree.phone.common.auth.AuthAttributes.USER_ID, LOGIN_USER_ID)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"language\":\"zh-Hant\"}"))
-                .andExpect(status().isNoContent());
-
-        org.mockito.ArgumentCaptor<UserProfileUpdateRequest> captor =
-                org.mockito.ArgumentCaptor.forClass(UserProfileUpdateRequest.class);
-        verify(userService).updateProfile(org.mockito.ArgumentMatchers.eq(LOGIN_USER_ID), captor.capture());
-        assertThat(captor.getValue().getLanguage()).isEqualTo("zh-Hant");
-    }
-
-    @Test
-    @DisplayName("지원하지 않는 language → 400 INVALID_REQUEST 봉투 (앱 SUPPORTED_LOCALES 밖의 값)")
-    void patchProfileRejectsUnsupportedLanguage() throws Exception {
-        mockMvc.perform(patch("/api/v1/users/me")
-                        .requestAttr(com.oneorthree.phone.common.auth.AuthAttributes.USER_ID, LOGIN_USER_ID)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"language\":\"fr\"}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_REQUEST"));
-
-        verify(userService, org.mockito.Mockito.never()).updateProfile(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
-    }
 }

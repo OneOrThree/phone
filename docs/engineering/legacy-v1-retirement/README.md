@@ -97,13 +97,20 @@ GROMO-1889. [A24](../../architecture/decisions.md)(1.x 데이터 이관 없음 �
 
 | 도메인 | 함께 지울 컨트롤러 | 선행(새 계약 티켓) | 딸려 지울 테스트 파일 |
 | --- | --- | --- | --- |
-| 계정·인증(account) | `AuthController`(소셜 로그인 6종만 — guest·refresh 존치), `UserController`(대부분 — device-token 2종 존치), `AccountWithdrawalController` | GROMO-1756(설계)/1757(구현) | **`AuthControllerTest` 는 부분 삭제** — 소셜 로그인·logout 케이스만 지우고 `refreshTokenSuccessReturns200`(`/api/v1/auth/refresh`)·`guestLoginWithinLimitReturns200`·`guestLoginOverLimitReturns429`(`/api/v1/auth/guest`)와 `auth.guest.rate-limit` 설정을 포함한 테스트 픽스처는 남긴다. 이 파일 말고는 두 경로를 검증하는 컨트롤러 테스트가 없어, 통째로 지우면 계속 서빙할 인증 전 엔드포인트의 회귀 방어가 사라진다. `UserControllerTest`, `auth/service/LegacyLogoutDeviceIntegrationTest`. `AccountWithdrawalController`는 컨트롤러 테스트 없음(§6) |
+| 계정·인증(account) — **삭제 완료(GROMO-1947)** | `AuthController`(소셜 로그인 6종 + logout — guest·refresh 존치), `UserController`(대부분 — device-token 2종·§5 미결 2종 존치), `AccountWithdrawalController` | GROMO-1756(설계)/1757(구현) · 삭제 GROMO-1947 | **`AuthControllerTest` 는 부분 삭제** — 소셜 로그인·logout 케이스만 지우고 `refreshTokenSuccessReturns200`(`/api/v1/auth/refresh`)·`guestLoginWithinLimitReturns200`·`guestLoginOverLimitReturns429`(`/api/v1/auth/guest`)와 `auth.guest.rate-limit` 설정을 포함한 테스트 픽스처는 남긴다. 이 파일 말고는 두 경로를 검증하는 컨트롤러 테스트가 없어, 통째로 지우면 계속 서빙할 인증 전 엔드포인트의 회귀 방어가 사라진다. `UserControllerTest`, `auth/service/LegacyLogoutDeviceIntegrationTest`. `AccountWithdrawalController`는 컨트롤러 테스트 없음(§6) |
 | 섬 소속·관리(group→island-membership/management/board) | `GroupController` — **선행 조건 있음, 아래 P1 참조** | GROMO-1758/1759(소속) · 1761/1762(관리) · 1770/1771(공지) | `GroupControllerTest` |
 | 초대 링크(invitelink→link-attribution+island-membership) | `InviteLinkController` | GROMO-1799(link-attribution, PR #757 로 상당 부분 머지됨) · 1759(island-membership invitations) | 컨트롤러 테스트 없음(§6) — `invitelink/InviteLinkIssueTest`,`invitelink/service/InviteLinkServiceTest`,`invitelink/ClaimTest` 재검토 |
 | 보유품·외양(item→island-appearance) | `EquipmentController`,`InventoryController` | GROMO-1782(설계) · GROMO-1909(정책 확정) · **구현 GROMO-1783** — A01·A03·A05 확정, A02(하위 선체 재착용)만 미결이라 hull 재착용 분기만 비활성으로 착수한다 | `EquipmentControllerTest`,`InventoryControllerTest` |
 | 재화·상점(currency→island-shop) | `InGameCurrencyController` | GROMO-1780(설계)/1781(구현) | 컨트롤러 테스트 없음(§6) — `currency/service/InGameCurrencyServiceTest` 등 서비스 테스트 재검토 |
 | 집중 세션(focus→focus-rest-session) | `FocusController`의 세션 5종만 — **태그 5종은 대응 없음, 별도 결정 없이 지우지 말 것**(§5 가 아니라 이 표에서 별도 관리) | GROMO-1763(설계)/1764(구현) | `FocusControllerTest`(부분 재작성 — 태그 케이스 분리 필요) |
 | 기록·스크린타임(stats+screentime→island-records) | `StatsController`,`ScreenTimeController` | GROMO-1768(설계)/1769(구현) | `StatsControllerTest`,`ScreenTimeControllerTest` |
+
+**계정·인증 삭제 결과(GROMO-1947).** 착수 조건은 `app/app-dev` 에서 `/api/v1` 호출 0건(2.0 앱은 아직 네트워크 계층이 없다)으로 확인했다.
+
+- 지운 경로 19개: `POST /auth/{google,line,instagram,facebook,kakao,apple}`·`POST /auth/logout`(7) · `POST/PATCH/GET /users/me`·`PATCH /users/me/{screen-time-permission,screen-time-goal,focus-time-goal,stat-visibility}`·`GET/PUT /users/me/notification-settings`·`GET /users/me/social-links`·`DELETE /users/me/social-links/{provider}`(11) · `DELETE /users/me`(1, `AccountWithdrawalController` 파일째).
+- 남긴 경로 6개: `POST /auth/guest`·`POST /auth/refresh`(위 §2 삭제 금지) · `PUT`/`DELETE /users/me/device-token`(티켓 1947 이 존치로 정했다 — nginx 가 공개 URL 을 business 로 보내므로 data-api 쪽은 모든 환경의 라우팅이 확인되면 따로 지운다) · `GET /users/nickname/check`·`PATCH /users/me/occupation`(§5 결정 대기).
+- 서비스는 지우지 않았다(§3). `AuthService.socialLogin` 은 `LoginAttemptService`(내부 `/auth/sessions` 경로)가 계속 부르고, `UserService`·`AccountWithdrawalService` 는 내부 API 와 2.0 LLD 가 재사용한다. 호출자가 사라진 `AuthService.logout` 등 서비스 메서드 정리는 별도 작업이다.
+- `JwtFilter` 화이트리스트에서 소셜 로그인 6개 경로를 뺐다.
 
 **`GroupController` 삭제의 선행 조건 — Realtime 이 아직 `GET /api/v1/groups` 를 부른다.**
 `server/realtime/src/main/java/com/oneorthree/realtime/membership/client/GroupClient.java:86` 의 `fetchMyGroupIds` 가 이 경로로 요청자의 활성 그룹 id 집합을 받아 `MembershipService` 의 방 목록·멤버십 판정에 쓴다. 이 컨트롤러를 먼저 지우면 그 호출이 404 가 되는데, 같은 파일의 주석이 **404 를 「빈 집합(비멤버)」이 아니라 「판정 불가」로 취급한다**고 명시한다(「400·404 는 상류가 이 유저에 대해 판정을 내린 게 아니라 우리 쪽 또는 배포가 어긋났다는 신호다」) — 즉 조용한 전원 차단은 아니지만 실시간 인가가 판정을 못 내리는 상태가 된다. 새 `POST /internal/realtime/membership-authorization` 은 기본 OFF 인 선택 기능이고 **방 목록 조회를 대체하지 않는다.** 따라서 이 도메인 PR 은 컨트롤러를 지우기 전에 Realtime 의 목록·멤버십 조회를 내부 대체 계약으로 옮기거나, 그 GET 하나를 별도로 존치해야 한다.
