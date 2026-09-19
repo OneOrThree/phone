@@ -6,7 +6,7 @@
 
 | ID | 규칙 | 상태·근거 |
 | --- | --- | --- |
-| B01 | 주민만 읽기/댓글, 게시판 완공 후 접근. 방문자는 거절 | 원본6계약. 시설 정본은 Data |
+| B01 | 읽기(공지 목록·상세·댓글)는 방문자·가입 대기자도 읽기 전용으로 허용, 댓글·공지 쓰기는 주민만. 둘 다 게시판 완공 후 접근(미완공은 방문자에게도 BOARD_LOCKED) | 원본6계약. **2026-09-19 결정 V-읽기(GROMO-1904·1937)**로 방문자 거절에서 바뀜. 시설 정본은 Data |
 | B02 | 기존 공지는 OWNER 또는 announcement_permission=ALLOW가 작성·수정·삭제 가능하고 타인 공지도 대상 | main GroupAnnouncementService/GroupMember. legacy 실제 동작 보존 |
 | B03 | 신규 공지 권한은 B02 그대로 — **2026-09-18 재영님 결정 D9(현행 유지)**: 방장 무조건 + `announcement_permission=ALLOW` 주민, 수정·삭제도 작성자 검사 없음. 권한 부분의 writer 활성화 조건은 해소(BQ02·BQ03 은 남음) | [권한 행렬](../island-management/permissions.md) 「공지 작성/수정/삭제」 행과 같은 값. 새 UI의 방장만 표시를 서버 정책으로 간주하지 않음 |
 | B04 | 공지 작성자 user는 nullable이며 탈퇴 후 공지 보존이라는 기존 의도를 유지 | 실제 nullify/지연 UPDATE 차단은 계정1756/1757과 함께 구현해야 함 |

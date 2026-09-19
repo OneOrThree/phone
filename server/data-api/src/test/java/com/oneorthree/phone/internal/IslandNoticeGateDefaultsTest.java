@@ -99,7 +99,8 @@ class IslandNoticeGateDefaultsTest {
                 .andExpect(jsonPath("$.code").value("NOTICE_WRITE_UNAVAILABLE"));
 
         assertThat(count("select count(*) from group_announcements where group_id=?", islandId)).isEqualTo(1);
-        assertThat(count("select count(*) from group_announcement_comments")).isZero();
+        // 공유 DB 라 다른 테스트 클래스의 댓글이 섞인다 — 이 공지로 좁혀 센다.
+        assertThat(count("select count(*) from group_announcement_comments where notice_id=?", noticeId)).isZero();
         assertThat(count("select count(*) from command_idempotency")).isEqualTo(receipts);
         assertThat(count("select count(*) from event_outbox where type='notice.updated' and aggregate_id=?",
                 noticeId.toString())).isEqualTo(1);

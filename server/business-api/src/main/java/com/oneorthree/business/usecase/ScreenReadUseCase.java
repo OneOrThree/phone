@@ -16,6 +16,7 @@ import com.oneorthree.business.upstream.data.dto.IslandSummary;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.NotificationSettingsView;
+import com.oneorthree.business.upstream.realtime.dto.RealtimeHistory;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
@@ -49,6 +50,8 @@ public class ScreenReadUseCase {
     private static final int SEARCH_LIMIT = 20;
     private static final int DISCOVER_LIMIT = 1;
     private static final String FRIEND_REQUESTS_RECEIVED = "received";
+    private static final String FRIEND_REQUESTS_SENT = "sent";
+    private static final String LETTERS_RECEIVED = "received";
     private static final String AVAILABLE = "available";
     private static final String NONE = "none";
     private static final String HOST_ONLY = "host_only";
@@ -72,6 +75,8 @@ public class ScreenReadUseCase {
     private final IslandManagementUseCase management;
     private final IslandConstructionUseCase construction;
     private final PlaybackUseCase playback;
+    private final IslandMailboxUseCase mailbox;
+    private final LetterUseCase letters;
 
     /** {@code launch} — 계정·소속·진행 세션. 세션 없음은 {@code session:null} 정상값이다. */
     public Map<String, Object> launch(AccessTokenClaims claims, String requestId) {
@@ -127,28 +132,38 @@ public class ScreenReadUseCase {
     }
 
     /**
-     * {@code visit/{islandId}} — 공개 요약 뒤 본인 최신 가입 요청. 요청이 없으면 조회하지 않고
-     * {@code joinRequestAvailability:none} 이다. 호출자가 주민이어도 공개 요약 projection 만 싣는다(LLD §1 조각 타입).
+     * {@code visit/{islandId}} — 공개 요약 뒤 주민 목록 첫 페이지와 본인 최신 가입 요청을 병렬로 읽는다. 요청이 없으면
+     * 조회하지 않고 {@code joinRequestAvailability:none} 이다. 호출자가 주민이어도 공개 요약 projection 만 싣는다
+     * (LLD §1 조각 타입). 주민 목록은 2026-09-19 결정 V-읽기(GROMO-1904·1937)로 방문자에게 열렸다 — 닉네임·
+     * 고양이 외형·방장 여부뿐이고, 커서는 도메인 {@code GET /islands/{islandId}/members} 가 이어받는다(B10).
+     * 게시판 공지·퀘스트는 싣지 않는다 — 방문자도 게시판 건물을 눌러 도메인 GET 으로 읽는다.
      */
     public Map<String, Object> visit(AccessTokenClaims claims, UUID islandId, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         Map<String, Object> first = composer.compose(context, List.of(
                 fragment("island", deadline -> publicSummary(islands.island(claims, islandId, deadline)))));
         IslandSummary island = (IslandSummary) first.get("island");
+        List<ReadFragment<?>> fragments = new ArrayList<>(List.of(fragment("members",
+                deadline -> management.members(claims, islandId, null, IslandManagementUseCase.DEFAULT_LIMIT,
+                        deadline))));
+        if (island.joinRequestId() != null) {
+            fragments.add(fragment("joinRequest",
+                    deadline -> islands.joinRequest(claims, island.joinRequestId(), deadline)));
+        }
+        Map<String, Object> second = composer.compose(context, fragments);
         Map<String, Object> screen = new LinkedHashMap<>(first);
+        screen.put("members", second.get("members"));
         if (island.joinRequestId() == null) {
             screen.put("joinRequestAvailability", NONE);
             screen.put("joinRequest", null);
             return screen;
         }
-        Map<String, Object> second = composer.compose(context, List.of(fragment("joinRequest",
-                deadline -> islands.joinRequest(claims, island.joinRequestId(), deadline))));
         JoinRequestStatus joinRequest = (JoinRequestStatus) second.get("joinRequest");
         if (!islandId.equals(joinRequest.islandId())) {
             throw new UpstreamContractMismatchException("가입 요청의 섬이 방문 섬과 다릅니다");
         }
         screen.put("joinRequestAvailability", AVAILABLE);
-        screen.putAll(second);
+        screen.put("joinRequest", joinRequest);
         return screen;
     }
 
@@ -229,6 +244,51 @@ public class ScreenReadUseCase {
         }
         screen.put("joinRequestsAvailability", host ? AVAILABLE : HOST_ONLY);
         return missing(screen, "wallets");
+    }
+
+    // ------------------------------------------------ 우체통·친구 화면 (GROMO-1899)
+
+    /**
+     * {@code mailbox} — 섬 문맥 뒤 섬 편지방 첫 페이지(Realtime)·받은 편지함 첫 페이지·친구 목록(Data)을 병렬로
+     * 읽고, 편지방 작성자 이름을 이어서 붙인다(cross-service-mailbox 그림).
+     *
+     * <p>우체통 완공·주민 인가는 편지방 조각의 Data 인가({@code mailbox-access})와 편지함의 Data 게이트가 판정한다 —
+     * 미완공·비주민의 도메인 403 은 그대로 화면 전체 403 이다(B03). 섬 상세에는 아직 시설 재료가 없어 여기서
+     * 다시 검사하지 않는다.
+     *
+     * <p>작성자 표시 batch 는 POST 라 GET 전용 병렬 조합 밖에서, <b>같은 deadline</b> 으로 부른다. 그 장애는
+     * 화면 전체 실패다 — 활성 작성자를 탈퇴자({@code name:null})로 바꿔 그리지 않는다(island-mailbox LLD §2).
+     * 편지방·편지함 커서는 각 도메인 GET 이 발행하는 것과 같아 다음 페이지를 그대로 이어받는다(B10).
+     */
+    public Map<String, Object> mailbox(AccessTokenClaims claims, String requestId) {
+        UpstreamRequestContext context = composer.start(requestId, claims.userId());
+        IslandDetail island = currentIsland(context, claims);
+        UUID islandId = island.id();
+        Map<String, Object> parts = composer.compose(context, List.of(
+                fragment("messages", deadline -> mailbox.firstPage(claims, islandId, deadline)),
+                fragment("letters", deadline -> letters.letters(claims, LETTERS_RECEIVED, null, null, deadline)),
+                fragment("friends", deadline -> friends.friends(claims, null, deadline))));
+        Map<String, Object> screen = new LinkedHashMap<>();
+        screen.put("island", island);
+        screen.putAll(parts);
+        screen.put("messages", mailbox.presentFirstPage(claims, islandId,
+                (RealtimeHistory) parts.get("messages"), context.deadline()));
+        return screen;
+    }
+
+    /**
+     * {@code friends} — 친구 목록·받은 요청·보낸 요청 병렬. 현재 섬이 필요 없다. {@code date} 는 친구의 당일 집중
+     * 분 기준일이며 도메인 {@code GET /friends} 에 그대로 넘긴다. 받은 요청 키는 raft 와 같은 {@code friendRequests}
+     * 이고 보낸 요청은 {@code sentFriendRequests} 다.
+     */
+    public Map<String, Object> friends(AccessTokenClaims claims, String date, String requestId) {
+        UpstreamRequestContext context = composer.start(requestId, claims.userId());
+        return composer.compose(context, List.of(
+                fragment("friends", deadline -> friends.friends(claims, date, deadline)),
+                fragment("friendRequests",
+                        deadline -> friends.friendRequests(claims, FRIEND_REQUESTS_RECEIVED, deadline)),
+                fragment("sentFriendRequests",
+                        deadline -> friends.friendRequests(claims, FRIEND_REQUESTS_SENT, deadline))));
     }
 
     /** 섬 문맥 — 현재 섬 → 주민 상세. 현재 섬이 없으면 임의로 고르지 않는다(BG01). */

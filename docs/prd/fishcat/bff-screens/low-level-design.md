@@ -22,7 +22,7 @@ UUID 입력은 하이픈 포함36자 필수, v4/v7 생성 권고다. userId/curr
 | `/screens/board` | 없음 | 현재 섬 + board, BoardLists |
 | `/screens/tower` | week 필수 | 현재 섬 + tower/승인 참가조건, RankingScene |
 | `/screens/explore` | q? | 현재 섬 tower 검색가드 + 본인소속, SearchMemberships |
-| `/screens/visit/{islandId}` | 없음 | 대상 공개 미리보기 + 본인요청, VisitState |
+| `/screens/visit/{islandId}` | 없음 | 대상 공개 미리보기 + 주민 목록 + 본인요청, VisitState |
 | `/screens/shop` | category? | 현재 섬 + shop, ShopScene |
 | `/screens/boat` | 없음 | 본인만, BoatScene. 현재 섬 요구 없음 |
 
@@ -39,7 +39,8 @@ home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상�
 아래 조각은 각 도메인의 승인된 **공개 data DTO**다. 내부 JPA entity나 상류원문 Map을 그대로 직렬화하지 않는다.
 
 - island(home/travel/manage): MemberIslandDetail의 공통 공개요약+role/buildings/assetVersion/initialConstruction/constructionTarget/buildingThemes/version. **island.appearanceVersion은 이번 승인된 필수 응답 확장**이며 원본 또는 기존 부분 응답에 있었다고 가정하지 않는다.1759/1783 제공자가 같은 snapshot에서 실제 island appearance.version을 직접 매핑해야 한다. 값이 준비되지 않았다고island.version을복사하지 않는다.
-- island(visit): PublicIslandSummary whitelist만. id/name/intro/visibility/approvalRequired/memberCount/membershipStatus/growthStage/themeId/joinRequestId. **role/permissions/초기기여/목표/지갑/집중·기록/편지/다른주민·신청자 키 부재**를 검사한다. 호출자가주민이어도visit은이projection만쓴다.
+- island(visit): PublicIslandSummary whitelist만. id/name/intro/visibility/approvalRequired/memberCount/membershipStatus/growthStage/themeId/joinRequestId. **role/permissions/초기기여/목표/지갑/집중·기록/편지/신청자 키 부재**를 검사한다. 호출자가주민이어도visit은이projection만쓴다.
+- members(visit): 2026-09-19 결정 V-읽기(GROMO-1904·1937)로 싣는다. 도메인 `GET /islands/{islandId}/members` 첫 페이지 그대로 — items[{id,name,role,appearance}]/nextCursor/version. 항목 키는 이 넷뿐이고 집중 기록 등 다른 개인 필드는 키 자체가 없다. 공지·퀘스트는 visit 조각이 아니다 — 방문자도 게시판 건물을 눌러 도메인 GET(읽기 전용)으로 읽는다.
 - session: PR743 current-session DTO 또는 명시 정상null. 빈HTTP200/204는 정상null증거가아니다. focus/rest members는 items/serverNow/**watermarks**를보존한다. rest row에원본에 없는sessionId를만들지않는다.
 - focusMembers.items[].appearanceVersion: 같은 snapshot의 실제 user appearance.version을 직접 매핑하는 필수 안전 정수(0~9007199254740991)다. 현재 PR737/743의 표시용 Appearance={clothes,decor,hull,position}에는 version이 없으므로 주민 항목에 붙인다. PR742 equipped.version과 **같은 개인 외양 정본 값**이며 새 버전 카운터를 만들지 않는다. BFF를 위해 본인전용 GET /me/inventory를 다른 주민에게 호출하거나 개인 보유 목록을 노출하지 않는다.1765의 주민 GET과1783의 외양 제공자를 동기화하는 명시 확장이고 원본22개 GET JSON은 보존한다. 1783 병합 전까지는 구현 유예다([policy B14](policy.md)).
 - focusStatistics: PR748 scope=me/island DTO와asOf. screenTimeStatistics는 measurementStatus/nullableminutes/series/updatedAt을보존한다. scope=island에개인records/subject를넣지 않는다.
@@ -589,6 +590,18 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
       "themeId": "default",
       "joinRequestId": "019f16a0-0000-7000-8000-000000000030"
     },
+    "members": {
+      "items": [
+        {
+          "id": "019f16a0-0000-7000-8000-000000000001",
+          "name": "소다",
+          "role": "host",
+          "appearance": {"clothes": "scarf", "decor": null, "hull": "raft", "position": "front", "version": 2}
+        }
+      ],
+      "nextCursor": null,
+      "version": 4
+    },
     "joinRequestAvailability": "available",
     "joinRequest": {
       "id": "019f16a0-0000-7000-8000-000000000030",
@@ -755,7 +768,7 @@ Data는 단일 SELECT 또는 REPEATABLE READ의 일관된 snapshot에서 다음�
 - **travel**: 원래출발섬과목적지경로를구분한다. GET은switch하지 않는다. 목적지비소속은visit와다른권한이며MemberIslandDetail을공개하지 않는다.
 - **focus/rest**: session=null이정상이면명시null을유지한다. focus화면에서임의세션생성,rest조회에서pause,resume/finish를하지 않는다. 집중중채팅가드를playback/CONNECT전체에적용하지 않는다.
 - **manage**: 일반주민은N으로신청조회없음. host라는과거응답/캐시를근거로현재신청자를읽지않는다. Data가403을주면BFF도전체 실패다.
-- **visit**: 사용자가멤버라고upstream의MemberIslandDetail을그대로내리지않는다. publicwhitelist에초기건설기여/목표/role/개인주민/기록/채팅/지갑/다른신청자는키자체가없어야한다. joinRequest는verifiedUser+requestId+targetIsland가모두맞아야한다.
+- **visit**: 사용자가멤버라고upstream의MemberIslandDetail을그대로내리지않는다. publicwhitelist에초기건설기여/목표/role/개인기록/채팅/지갑/다른신청자는키자체가없어야한다. 주민 목록은 섬 요약과 별개 조각 `members`로 싣는다(2026-09-19 결정 V-읽기(GROMO-1904·1937)) — 섬 요약 성공 뒤 joinRequest와 같은 병렬 단계에서 읽고, 그 실패는 화면 전체 실패다. joinRequest는verifiedUser+requestId+targetIsland가모두맞아야한다.
 - **privatevisit**: PR741의private비소속무자격GET403을보존한다. invitationToken을query/log에노출하거나rawheader를자동복사하지 않는다. 초대resolve는별도사용자행동이며공개요약/검증읽기자격연결은BG05후속이다. 이 설계가토큰없는privateBFF예외를만들지않는다.
 - **explore**: 이름검색현재tower가드와첫소속discover를구분한다. q가초대코드처럼생겨도POST resolve를GET조합기에서자동실행하지 않는다. 검색결과별membershipStatus는같은본인소속snapshot에서계산하고실패를none으로바꾸지않는다.
 - **hall/tower**: scope=island는공개주민합계이지개인subject/상세기록공개권한이아니다. 원문친구/공개토글을새집계에끼워넣거나반대로legacy정책을전역으로풀지않는다. 미결랭킹eligibility를임의eligible/0점으로반환하지 않는다.

@@ -62,17 +62,17 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/fishcat/
 | --- | --- | --- | --- | --- |
 | `launch` | 02 · 09–13 | — | `GET /me` · `GET /me/islands` · `GET /focus-sessions/current` | 세션 없음은 `session:null` 정상 |
 | `explore` | 03–07 · 59 | `GET /me/islands` | 소속 0개: `GET /islands/discover` / 그 외: `GET /islands?q=` | 검색의 전망대 미해금 403은 화면 403. 대기 신청 목록은 `GET /me/join-requests`(GROMO-1895 — BG10 해소, 조합 배선은 화면 티켓 몫) |
-| `visit/{islandId}` | 60 · 61 | `GET /islands/{islandId}` (공개 요약·`joinRequestId`) | `joinRequestId`가 있으면 `GET /me/join-requests/{requestId}` | 없으면 `joinRequestAvailability:none` |
+| `visit/{islandId}` | 60 · 61 | `GET /islands/{islandId}` (공개 요약·`joinRequestId`) | `GET /islands/{islandId}/members`(2026-09-19 결정 V-읽기) + `joinRequestId`가 있으면 `GET /me/join-requests/{requestId}` | 요청이 없으면 `joinRequestAvailability:none` |
 | `home` | 14–18 · 26 · 31 | 섬 문맥 | `GET /me/focus-summary` · `GET /focus-sessions/current` · `GET /islands/{islandId}/rest-members` · `GET /islands/{islandId}/shop/wallets` · 방송기 있으면 `GET /islands/{islandId}/playback` | 방송기 없음: `playbackAvailability:facility_locked`. rest 흡수 확정(BG11 home 해소, 2026-09-19) — `restMembers` 는 필수 조각 |
 | `focus` | 19–25 · 28 | `GET /focus-sessions/current` → 세션 있으면 그 `islandId`로 `GET /islands/{islandId}`(시설·역할), 없으면 섬 문맥 | `GET /islands/{islandId}/focus-members` · 방송기 완공이면 `GET /islands/{islandId}/playback` | 세션 없음 정상. 방송기 미완공은 `playback` 조각만 N(`playbackAvailability:facility_locked`) — 화면 전체는 그대로 200(B03·아래 각주) |
 | `town-hall` | 39–44 · 41A | 섬 문맥 (`role`) | `GET /islands/{islandId}/members` · `…/shop/wallets` · `…/construction-options` · 방장이면 `…/join-requests` | 일반 주민: `joinRequestsAvailability:host_only`. 조회 뒤 위임돼 403이면 화면 403. 가계부는 `GET /islands/{islandId}/resources/ledger`(GROMO-1895, 조합 배선은 화면 티켓 몫) |
 | `library` | 32–38 | 섬 문맥 (도서관 완공) | `GET /islands/{islandId}/statistics/focus` · `…/statistics/screen-time` | 미완공: 기록 조각 null + `facility_locked`. 물고기 장은 `GET /islands/{islandId}/statistics/fish-earnings`(GROMO-1895, 도서관 게이트 `LIBRARY_LOCKED`), 타 섬 경로는 BG11 |
 | `board` | 45–55 | 섬 문맥 (게시판 완공·건설 목표) | `GET /islands/{islandId}/quests/current` · `…/notices` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
-| `mailbox` | 63–66 | 섬 문맥 (우체통 완공) | Realtime `…/messages` 첫 페이지 · Data 편지함·친구([friend-letter](../friend-letter/) 설계 완료 — BG10 해소) → 작성자 표시 정보 batch | Realtime 권한 거부는 화면 403. 표시 정보 장애를 탈퇴자로 바꾸지 않는다 |
+| `mailbox` | 63–66 | 섬 문맥 (우체통 완공) | Realtime `…/messages` 첫 페이지 · Data 편지함·친구([friend-letter](../friend-letter/) 설계 완료 — BG10 해소) → 작성자 표시 정보 batch | Realtime 권한 거부는 화면 403. 표시 정보 장애를 탈퇴자로 바꾸지 않는다. 구현(GROMO-1899): 인가는 편지방 조각의 Data `mailbox-access` 가 하고, 작성자 표시 batch 는 POST 라 병렬 조각 밖에서 같은 deadline 으로 잇는다. `letters` 는 받은 편지함 첫 페이지 |
 | `shop` | 68–73 | 섬 문맥 (상점 완공) | `GET /islands/{islandId}/shop/wallets` · `…/shop/products?category=` · `…/inventory` | 미완공은 화면 403 |
 | `playback` | 84 · 85 | 섬 문맥 (방송기 완공) | `GET /islands/{islandId}/inventory` · `…/playback` · `…/shop/products?category=sound` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
 | `raft` | 76 · 77 | — | `GET /me` · `GET /me/inventory` · 받은 친구 요청 수([friend-letter](../friend-letter/) HLD §3 — 요청 배열의 길이, BG10 해소) | 현재 섬 불필요 |
-| `friends` | 78 · 79 | — | 친구 목록 · 받은·보낸 요청 ([friend-letter](../friend-letter/) §1.15 내부 GET) | 설계 완료(BG10 해소). 허용목록 3줄이 들어간 뒤 켠다 |
+| `friends` | 78 · 79 | — | 친구 목록 · 받은·보낸 요청 ([friend-letter](../friend-letter/) §1.15 내부 GET) | 설계 완료(BG10 해소). 구현(GROMO-1899): 받은 요청은 raft 와 같은 `friendRequests`, 보낸 요청은 `sentFriendRequests`. query `date` 만 받아 도메인에 넘긴다 |
 | `account` | 80–83 | — | `GET /me` · `NotificationApiClient.getSettings()`(순수 GET, Notification) | 설정 정본은 Notification. `AccountSettingsUseCase.read()`는 재사용하지 않음. 응답은 공개 계약 모양으로 투영(아래 각주) |
 
 화면 조회가 없는 프레임: 01 약관(`GET` 1개), 08·30·62 항해(B17), 27·29 결과(B18), 56·57 공지 상세, 58 랭킹, 67 편지 상세, 74·75 구매 내역. 모두 앱이 도메인 경로를 한 번 부르거나 앞 응답으로 그린다.
@@ -85,7 +85,7 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/fishcat/
 
 ## 5. 공통 규칙
 
-- 조각 이름이 응답 키다(B26 확정): `me`·`memberships`·`islands`·`island`·`joinRequest`·`focusSummary`·`session`·`focusMembers`·`restMembers`·`wallets`·`playback`·`members`·`constructionOptions`·`joinRequests`·`focusStatistics`·`screenTimeStatistics`·`quests`·`notices`·`messages`·`letters`·`friends`·`friendRequests`·`products`·`sharedInventory`·`inventory`·`settings`.
+- 조각 이름이 응답 키다(B26 확정): `me`·`memberships`·`islands`·`island`·`joinRequest`·`focusSummary`·`session`·`focusMembers`·`restMembers`·`wallets`·`playback`·`members`·`constructionOptions`·`joinRequests`·`focusStatistics`·`screenTimeStatistics`·`quests`·`notices`·`messages`·`letters`·`friends`·`friendRequests`·`sentFriendRequests`·`products`·`sharedInventory`·`inventory`·`settings`.
 - availability 필드(B26 확정): `joinRequestAvailability`(visit)·`playbackAvailability`(home·focus)·`joinRequestsAvailability`(town-hall)·`statisticsAvailability`(library, 값 `available`·`facility_locked`).
 - 화면 전체 `asOf`는 두지 않는다(B07 개정). 조각마다 온 `serverNow`·`asOf`·`version`을 그대로 둔다.
 - 모든 조각은 `required=true`로 시작한다(B04). 선택 조각을 두려면 B05를 먼저 개정한다.

@@ -364,14 +364,16 @@ public class IslandQuestService {
 
     // ---------------------------------------------------------------- 가드
 
-    /** 조회 — 활성 계정 · 살아 있는 섬(404) · 활성 주민(403) · 게시판 완공(403). 잠금 없음. */
+    /**
+     * 조회 — 활성 계정 · 살아 있는 섬(404) · 게시판 완공(403). 잠금 없음. 주민 여부는 보지 않는다 — 방문자(가입
+     * 대기자 포함)도 퀘스트와 주민별 달성률을 읽는다(2026-09-19 결정 V-읽기, GROMO-1904). 방문자의 {@code myRate}
+     * 는 cohort 에 없으므로 null 이다.
+     */
     private void requireReader(UUID islandId, UUID userId) {
         users.getCaller(userId);
-        Group island = groups.findGroup(islandId)
+        groups.findGroup(islandId)
                 .filter(IslandQuestService::isAlive)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
-        members.findActiveByUserIdAndGroupId(userId, island.getId())
-                .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
         requireBoard(islandId);
     }
 
