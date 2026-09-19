@@ -64,6 +64,8 @@ location = /actuator { return 404; }
 # GET /screens/launch · /screens/raft · /screens/account · /screens/explore · /screens/visit/{islandId}.
 # 화면 조회 2차(GROMO-1897)도 screens 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /screens/home · GET /screens/focus · GET /screens/town-hall.
+# 화면 조회 3차(GROMO-1898)도 screens 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /screens/board · GET /screens/library · GET /screens/shop · GET /screens/playback.
 # 화면 조회 4차(GROMO-1899)도 screens 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /screens/mailbox · GET /screens/friends.
 # 섬 퀘스트(GROMO-1773)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
