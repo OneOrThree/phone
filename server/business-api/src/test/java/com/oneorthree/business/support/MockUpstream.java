@@ -8,9 +8,11 @@ import java.io.InputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -29,6 +31,8 @@ public final class MockUpstream implements AutoCloseable {
     private final Map<String, Handler> handlers = new ConcurrentHashMap<>();
     private final List<RecordedRequest> received = new CopyOnWriteArrayList<>();
     private final Map<String, AtomicInteger> hitCounts = new ConcurrentHashMap<>();
+    // ponytail: JVM 수명 동안 커지는 집합 — 테스트 요청 수(수천)만큼이라 비우지 않는다.
+    private final Set<String> retiredRequestIds = new HashSet<>();
 
     private MockUpstream(HttpServer server) {
         this.server = server;
@@ -89,10 +93,36 @@ public final class MockUpstream implements AutoCloseable {
         return counter == null ? 0 : counter.get();
     }
 
-    public void reset() {
+    /**
+     * 이전 테스트의 기록을 비운다. 그때까지 본 {@code X-Request-Id} 는 «끝난 요청»으로 은퇴시킨다.
+     *
+     * <p>화면 조합은 필수 조각 하나가 실패하면 형제 조각을 취소하고 곧장 응답한다. 취소 시점에 형제의
+     * 요청 바이트가 이미 소켓에 실려 있으면, 이 mock 은 그것을 «다음 테스트가 reset 한 뒤»에 받아
+     * 기록한다(GROMO-1951 — LaunchScreenContractTest 의 「상류 호출 없음」 단언이 앞 테스트 502 요청의
+     * 형제 {@code GET .../islands} 로 깨졌다). 같은 요청 ID 의 형제는 실패를 낸 응답을 받기 위해
+     * reset 전에 이미 기록돼 있으므로, 그 ID 로 늦게 도착한 요청은 이전 테스트의 잔여물이다.
+     */
+    public synchronized void reset() {
+        for (RecordedRequest request : received) {
+            String requestId = request.header("X-Request-Id");
+            if (requestId != null) {
+                retiredRequestIds.add(requestId);
+            }
+        }
         received.clear();
         hitCounts.clear();
         handlers.clear();
+    }
+
+    /** 끝난 요청의 잔여물이면 기록하지 않는다. 기록 여부 판정과 reset 이 섞이지 않게 같은 락을 쓴다. */
+    private synchronized boolean record(RecordedRequest request) {
+        String requestId = request.header("X-Request-Id");
+        if (requestId != null && retiredRequestIds.contains(requestId)) {
+            return false;
+        }
+        received.add(request);
+        hitCounts.computeIfAbsent(request.methodAndPath(), k -> new AtomicInteger()).incrementAndGet();
+        return true;
     }
 
     private void dispatch(HttpExchange exchange) throws IOException {
@@ -110,8 +140,11 @@ public final class MockUpstream implements AutoCloseable {
         RecordedRequest request = new RecordedRequest(
                 key, path, exchange.getRequestURI().getQuery(), headers,
                 new String(bodyBytes, StandardCharsets.UTF_8));
-        received.add(request);
-        hitCounts.computeIfAbsent(key, k -> new AtomicInteger()).incrementAndGet();
+        if (!record(request)) {
+            // 호출자는 이미 취소하고 떠났다 — 핸들러(카운터·실패 주입)를 소모하지 않고 끊는다.
+            exchange.close();
+            return;
+        }
 
         Handler handler = handlers.get(key);
         Response response = handler == null
