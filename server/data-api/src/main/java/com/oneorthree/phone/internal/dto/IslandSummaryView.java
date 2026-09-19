@@ -17,8 +17,9 @@ import java.util.UUID;
  * 숫자로 대체하지 않고 해당 기능 준비 상태를 드러낸다"고 못 박았으므로 임의의 기본 단계/테마를
  * 지어내지 않는다. island-construction 이 합류하면 그때 실제 projection 을 채운다.
  *
- * @param membershipStatus {@code none|pending|active} — 본인 기준 값이다. {@code pending} 은 가입 요청
- *     모델을 만드는 GROMO-1760 이 들어오기 전까지 발생하지 않는다
+ * @param membershipStatus {@code none|pending|active} — 본인 기준 값이다. {@code pending} 은
+ *     그 섬에 대한 본인의 열린 가입 요청이 있다는 뜻이다 (GROMO-1760)
+ * @param joinRequestId 본인의 최신 가입 요청 식별자 — 요청을 한 번도 한 적 없으면 null (LLD §2)
  */
 public record IslandSummaryView(
         UUID id,
@@ -29,5 +30,6 @@ public record IslandSummaryView(
         int memberCount,
         String membershipStatus,
         String growthStage,
-        String themeId) {
+        String themeId,
+        UUID joinRequestId) {
 }

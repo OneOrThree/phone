@@ -106,6 +106,14 @@ class GroupServiceTest {
     @Mock
     private com.oneorthree.phone.group.service.LinkMembershipEventService linkMembershipEventService;
 
+    // 직접 가입 성공 시 같은 신청자의 열린 가입 요청을 닫는다(GROMO-1760). 스텁이 없으면
+    // Optional.empty(Mockito 기본값) = 열린 요청 없음 → 기존 joinGroup 단언에 영향이 없다.
+    @Mock
+    private com.oneorthree.phone.group.repository.IslandJoinRequestRepository joinRequestRepository;
+
+    @Mock
+    private IslandJoinRequestEvents joinRequestEvents;
+
     @InjectMocks
     private GroupService groupService;
 
@@ -1493,6 +1501,35 @@ class GroupServiceTest {
         ArgumentCaptor<GroupMember> captor = ArgumentCaptor.forClass(GroupMember.class);
         verify(groupMemberRepository).save(captor.capture());
         assertThat(captor.getValue().getRole()).isEqualTo(GroupMemberRole.MEMBER);
+    }
+
+    @Test
+    @DisplayName("레거시 직접 가입이 성공하면 같은 신청자의 열린 가입 요청을 신청자 취소로 닫고 사건을 남긴다 (GROMO-1760)")
+    void joinGroupClosesApplicantsPendingJoinRequest() {
+        // given
+        User user = normalUser();
+        Group group = openGroup();
+        com.oneorthree.phone.group.repository.domain.IslandJoinRequest pending =
+                com.oneorthree.phone.group.repository.domain.IslandJoinRequest.pending(group, user, null);
+
+        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
+        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
+        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
+        given(groupMemberRepository.findByGroup(group)).willReturn(List.of());
+        given(joinRequestRepository.findByIslandIdAndApplicantIdAndStatusForUpdate(GROUP_ID, USER_ID,
+                com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus.PENDING))
+                .willReturn(Optional.of(pending));
+
+        // when
+        groupService.joinGroup(GROUP_ID, USER_ID, new JoinGroupRequest());
+
+        // then
+        assertThat(pending.getStatus()).isEqualTo(
+                com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus.CANCELLED);
+        assertThat(pending.getTerminalReason()).isEqualTo(
+                com.oneorthree.phone.group.repository.domain.IslandJoinRequestTerminalReason.APPLICANT_CANCELLED);
+        // 방장이 없는 구간이면 방장 수신자는 null — 신청자에게만 사건이 간다.
+        verify(joinRequestEvents).changed(pending, null);
     }
 
     @Test

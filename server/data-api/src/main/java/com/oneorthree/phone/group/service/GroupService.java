@@ -40,6 +40,8 @@ import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
+import com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import lombok.RequiredArgsConstructor;
@@ -100,6 +102,8 @@ public class GroupService {
      * 같은 트랜잭션의 outbox 여야 한다 — 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
      */
     private final LinkMembershipEventService linkMembershipEventService;
+    private final IslandJoinRequestRepository joinRequestRepository;
+    private final IslandJoinRequestEvents joinRequestEvents;
 
     /**
      * 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
@@ -373,6 +377,16 @@ public class GroupService {
 
         membershipEvents.changed(groupId, userId, "MEMBER_ADDED");
 
+        // 6-1. 같은 (그룹, 신청자)의 열린 가입 요청은 직접 가입의 성공과 같은 트랜잭션에서 닫는다 —
+        //      남겨 두면 이미 주민인 사람의 PENDING 이 방장 승인 목록에 유령으로 남는다(GROMO-1760).
+        //      요청 행 잠금으로 신청자 취소와 직렬화하고, 신청자 측 종결이라 cancel() 로 접는다.
+        joinRequestRepository.findByIslandIdAndApplicantIdAndStatusForUpdate(
+                groupId, userId, IslandJoinRequestStatus.PENDING)
+                .ifPresent(pending -> {
+                    pending.cancel();
+                    joinRequestEvents.changed(pending, currentHostId(groupId));
+                });
+
         // 7. 어트리뷰션 — 참여 경로(join_method)와 초대 slug 를 두 트랙에 기록한다.
         //    공유 URL 의 ?g= 는 변조 가능하므로 "링크의 group_id == 참여 그룹" 만이 신뢰 근거다(스펙 §6-3).
         //    불일치·미존재면 slug 만 버리고 참여 자체는 정상 진행한다 — 초대 어트리뷰션은 부가 정보다.
@@ -390,6 +404,14 @@ public class GroupService {
         linkMembershipEventService.recordJoinAttribution(
                 groupId, userId, request.getInviteSlug(),
                 normalizeJoinMethod(request.getJoinMethod()), membership.getMembershipEpoch());
+    }
+
+    /** 그 그룹의 현재 방장 — 가입 요청 사건의 «방장 수신자». 공백 구간이면 null 이다. */
+    private UUID currentHostId(UUID groupId) {
+        return groupMemberRepository.findActiveOwnersByGroupId(groupId).stream()
+                .map(member -> member.getUser().getId())
+                .findFirst()
+                .orElse(null);
     }
 
     /**

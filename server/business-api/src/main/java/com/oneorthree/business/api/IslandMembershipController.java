@@ -9,13 +9,19 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
+import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
+import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
+import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
+import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
+import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.usecase.IslandMembershipUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,6 +52,10 @@ public class IslandMembershipController {
     private static final int INTRO_MAX = 200;
     private static final int SEARCH_LIMIT_DEFAULT = 20;
     private static final int DISCOVER_LIMIT_DEFAULT = 1;
+    // 초대 code·token 크기는 내부 계약(InvitationResolveCommandRequest·JoinIslandCommandRequest)과
+    // 같게 둔다 — 여기서 더 느슨하게 받으면 초과분이 400/422 로 갈리는 경계가 상류와 어긋난다.
+    private static final int CODE_MAX = 32;
+    private static final int TOKEN_MAX = 64;
 
     private final IslandMembershipUseCase islands;
     private final SettingsSessionGuard sessions;
@@ -121,6 +131,67 @@ public class IslandMembershipController {
         }
         return islands.switchCurrentIsland(claims, uuid(islandId.stringValue(), "islandId"), key,
                 deadline());
+    }
+
+    /**
+     * 섬 가입 (GROMO-1760, LLD §3.7).
+     *
+     * <p>본문은 선택이다 — 없음·빈 객체·{@code {invitationToken}} 셋만 받고 그 밖의 키는 거절한다.
+     * 즉시 가입이면 {@code active}+새 current, 승인제면 {@code pending} 이다.
+     */
+    @PostMapping("/islands/{islandId}/memberships")
+    public JoinIslandResult join(@PathVariable String islandId,
+            @RequestBody(required = false) JsonNode body, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        String invitationToken = null;
+        if (body != null && !body.isNull()) {
+            if (!body.isObject() || body.size() > 1
+                    || (body.size() == 1 && !body.has("invitationToken"))) {
+                throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+            }
+            invitationToken = optionalText(body, "invitationToken", TOKEN_MAX);
+        }
+        return islands.join(claims, uuid(islandId, "islandId"), invitationToken, key, deadline());
+    }
+
+    /** 가입 요청 상태 (GROMO-1760, LLD §3.8). 남의 요청은 상류가 404 로 접는다. */
+    @GetMapping("/me/join-requests/{requestId}")
+    public JoinRequestStatus joinRequest(@PathVariable String requestId, HttpServletRequest request) {
+        return islands.joinRequest(sessions.requireSession(request),
+                uuid(requestId, "requestId"), deadline());
+    }
+
+    /** 가입 요청 취소 (GROMO-1760, LLD §3.9). 본인의 pending 만 종결된다. */
+    @DeleteMapping("/me/join-requests/{requestId}")
+    public JoinRequestCancel cancelJoinRequest(@PathVariable String requestId,
+            HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        return islands.cancelJoinRequest(claims, uuid(requestId, "requestId"), key, deadline());
+    }
+
+    /**
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키를 요구하지 않는다.
+     * 형식·폐기 판정(422/410)은 상류 몫이다 — 여기서 미리 걸러 의미를 갉아먹지 않는다.
+     */
+    @PostMapping(value = "/invitations/resolve", consumes = "application/json")
+    public InvitationResolved resolveInvitation(@RequestBody JsonNode body,
+            HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        if (body == null || !body.isObject() || body.size() != 1) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        return islands.resolveInvitation(claims, requiredText(body, "code", CODE_MAX), deadline());
+    }
+
+    /** 섬 초대 발급 (GROMO-1760, LLD §3.11). 본문 없음, 활성 주민만 발급된다. */
+    @PostMapping("/islands/{islandId}/invitations")
+    public IslandInvitationIssued issueInvitation(@PathVariable String islandId,
+            HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        return islands.issueInvitation(claims, uuid(islandId, "islandId"), key, deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석
