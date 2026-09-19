@@ -2,10 +2,13 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V66 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V66 · V74 (src/main/resources/db/migration). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·
 //        invite_link_clicks.ip_hash · league_weekly_results 결과 4열 · login_attempts digest 2열 · auth_sessions.refresh_token_hash.
 // V66 — 섬 게시판 공지 댓글 group_announcement_comments + 목록 keyset 인덱스 + 공지 version 백필 (GROMO-1771 · island-board LLD §3·§4).
+// V74 — 섬 상점 테이블 선구축 shop_product_revisions · shop_catalog_publications · shop_catalog_publication_entries ·
+//        shop_catalog_active_publication · shop_orders (GROMO-1781 · island-shop LLD §3). 행 없음 — 가격은 S03·S04 확정 뒤.
+//        V67~V73 은 열린 PR(#815 V67 · #820 V71 · #825 V73)이 가져간 번호다.
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
 //
 // ── 규약 (GROMO-1912 — V1~V57 을 빈 postgres 에 적용한 실제 스키마와 전수 대조) ──
@@ -960,6 +963,69 @@ Table island_appearances [note: '섬 공동 외양 (GROMO-1783, V64) — 섬당 
   updated_at      timestamptz [not null, default: `now()`]
 }
 
+Table shop_product_revisions [note: '상점 판매 revision (GROMO-1781, V74, island-shop LLD §3) — (product_id, revision) 유일, 발행 후 불변. 제목·kind·owner_type 은 catalog_assets 정본이라 중복하지 않는다. V74 는 행을 심지 않는다 — 가격은 S03·S04 확정 뒤(2026-09-19 결정)'] {
+  product_id          varchar(80)  [not null, note: 'FK → catalog_assets.product_id ON DELETE RESTRICT']
+  revision            integer      [not null, note: 'CHECK revision >= 1']
+  currency            varchar(20)  [not null, default: 'village_points', note: "CHECK shop_product_revisions_currency_check: village_points 만 — 모든 재화는 섬 귀속(2026-09-19 결정)"]
+  price               integer      [note: 'NULL = 승인 가격 없음 → 구매 불가. CHECK shop_product_revisions_price_check: NULL 또는 > 0 — 0원 위장 금지(S03)']
+  required_building   varchar(30)  [note: '구매 허용 시설 조건 (예: 음원은 gram)']
+  required_product_id varchar(80)  [note: 'FK → catalog_assets.product_id ON DELETE RESTRICT — 구매 선행 상품. CHECK 자기 자신 금지']
+  preview_media_key   varchar(200) [note: '서버 등록 미리듣기 media 키 — 음원 상품']
+  created_at          timestamptz  [not null, default: `now()`]
+
+  indexes {
+    (product_id, revision) [pk]
+  }
+}
+
+Table shop_catalog_publications [note: '카탈로그 발행본 (GROMO-1781, V74) — version = catalogPublicationVersion. 컬렉션 전체의 불변 발행본'] {
+  version        bigint      [pk, note: 'CHECK version >= 1']
+  published_at   timestamptz [not null, default: `now()`]
+  retired_at     timestamptz
+  invalidated_at timestamptz [note: '즉시 폐기 — cursor 는 409 CURSOR_EXPIRED']
+}
+
+Table shop_catalog_publication_entries [note: '발행본 항목 (GROMO-1781, V74) — 한 발행본의 상품 집합·정렬 복원'] {
+  publication_version bigint      [not null, note: 'FK → shop_catalog_publications.version ON DELETE RESTRICT']
+  product_id          varchar(80) [not null]
+  product_revision    integer     [not null, note: '(product_id, product_revision) FK → shop_product_revisions ON DELETE RESTRICT']
+  category            varchar(20) [not null, note: 'personal / island / sound — CHECK']
+  display_order       integer     [not null]
+
+  indexes {
+    (publication_version, product_id) [pk]
+    (publication_version, category, display_order, product_id) [name: 'idx_shop_catalog_entries_page', note: 'catalog keyset (displayOrder ASC, productId ASC)']
+  }
+}
+
+Table shop_catalog_active_publication [note: '활성 발행본 포인터 (GROMO-1781, V74) — 싱글톤. 행 없음 = 활성 카탈로그 없음(가격 확정 전 상태)'] {
+  singleton           boolean     [pk, default: true, note: 'CHECK singleton']
+  publication_version bigint      [not null, note: 'FK → shop_catalog_publications.version ON DELETE RESTRICT']
+  activated_at        timestamptz [not null, default: `now()`]
+}
+
+Table shop_orders [note: '상점 주문 (GROMO-1781, V74) — 섬 하나에 귀속(BG18, 2026-09-19 결정). 결제 당시 revision·가격·통화 불변 snapshot. 보유 행은 owned_products.granted_ref = 주문 id. 결제자는 섬 통장(island_wallets)뿐 — 개인 지갑 결제는 CHECK 를 넓혀 payer_type=user + payer_user_id 로 추가'] {
+  id                     uuid        [pk]
+  island_id              uuid        [not null, note: 'FK → groups.id ON DELETE RESTRICT — 주문이 속한 섬']
+  requester_id           uuid        [not null, note: 'FK → users.id ON DELETE RESTRICT']
+  owner_type             varchar(10) [not null, note: 'user / island — CHECK. 상품의 불변 ownerType. user 면 requester 본인, island 면 island_id 가 주인']
+  product_id             varchar(80) [not null]
+  product_revision       integer     [not null, note: '(product_id, product_revision) FK → shop_product_revisions ON DELETE RESTRICT']
+  paid_price             integer     [not null, note: 'CHECK > 0']
+  currency               varchar(20) [not null, note: 'village_points — CHECK']
+  payer_type             varchar(10) [not null, default: 'island', note: "CHECK shop_orders_payer_check: payer_type = island AND payer_user_id IS NULL"]
+  payer_user_id          uuid        [note: 'FK → users.id ON DELETE RESTRICT — 개인 결제 확장용, 지금은 항상 NULL']
+  wallet_version_after   bigint      [not null, note: 'CHECK >= 0 — 차감 후 섬 지갑 version']
+  balance_after          integer     [not null, note: 'CHECK >= 0 — currency_spent 의 balance_after']
+  analytics_delivered_at timestamptz [note: 'currency_spent 내구 전달 의도 — NULL = 미전달. 분석 사건 id = 주문 id']
+  created_at             timestamptz [not null, default: `now()`]
+
+  indexes {
+    (island_id, created_at, id) [name: 'idx_shop_orders_island', note: 'shared 내역 keyset (created_at DESC, id DESC)']
+    (island_id, requester_id, created_at, id) [name: 'idx_shop_orders_island_requester', note: 'personal 내역 keyset — 섬 안의 본인']
+  }
+}
+
 Table group_announcements [note: '그룹 공지 — 섬 게시판 공지(GROMO-1771)의 저장소이기도 하다. 공지 version 은 컬럼이 아니라 aggregate_versions(NOTICE, id) — V66 이 기존 공지를 1 로 백필'] {
   id         uuid         [pk]
 
@@ -1544,6 +1610,17 @@ Ref: personal_appearances.user_id - users.id
 Ref: personal_appearances.clothes > catalog_assets.product_id
 Ref: personal_appearances.decor > catalog_assets.product_id
 Ref: island_appearances.island_id - groups.id
+
+// 섬 상점 (GROMO-1781, V74) — 전부 ON DELETE RESTRICT
+Ref: shop_product_revisions.product_id > catalog_assets.product_id
+Ref: shop_product_revisions.required_product_id > catalog_assets.product_id
+Ref: shop_catalog_publication_entries.publication_version > shop_catalog_publications.version
+Ref: shop_catalog_publication_entries.(product_id, product_revision) > shop_product_revisions.(product_id, revision)
+Ref: shop_catalog_active_publication.publication_version > shop_catalog_publications.version
+Ref: shop_orders.island_id > groups.id
+Ref: shop_orders.requester_id > users.id
+Ref: shop_orders.payer_user_id > users.id
+Ref: shop_orders.(product_id, product_revision) > shop_product_revisions.(product_id, revision)
 
 // 현재 섬 컨텍스트 (GROMO-1907, V57)
 Ref: user_island_contexts.user_id - users.id [delete: cascade]

@@ -77,6 +77,8 @@ class DomainLayerRulesTest {
         // 완공 훅은 construction 이 common.port 를 부르므로 도메인 참조는 아래로만 간다.
         LAYERS.put("appearance", 7);
         LAYERS.put("notification", 7);      // 전 도메인 구독
+        // shop 은 섬 통장(construction)을 차감하고 보유품(appearance)을 지급한다(GROMO-1781) — 둘 위.
+        LAYERS.put("shop", 8);
         LAYERS.put("auth", 8);              // 진입·부가
         LAYERS.put("character", 8);
         LAYERS.put("bot", 8);
