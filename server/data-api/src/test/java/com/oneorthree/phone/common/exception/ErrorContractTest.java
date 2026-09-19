@@ -26,6 +26,8 @@ import com.oneorthree.phone.letter.exception.LetterErrorCode;
 import com.oneorthree.phone.letter.exception.LetterException;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
+import com.oneorthree.phone.quest.exception.QuestErrorCode;
+import com.oneorthree.phone.quest.exception.QuestException;
 import com.oneorthree.phone.league.exception.LeagueException;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
@@ -94,6 +96,7 @@ class ErrorContractTest {
             Map.entry(InviteLinkErrorCode.class, c -> new InviteLinkException((InviteLinkErrorCode) c)),
             Map.entry(LeagueErrorCode.class, c -> new LeagueException((LeagueErrorCode) c)),
             Map.entry(OutboxErrorCode.class, c -> new OutboxException((OutboxErrorCode) c)),
+            Map.entry(QuestErrorCode.class, c -> new QuestException((QuestErrorCode) c)),
             Map.entry(StatsErrorCode.class, c -> new StatsException((StatsErrorCode) c)),
             Map.entry(UserErrorCode.class, c -> new UserException((UserErrorCode) c)),
             // 공통 코드는 프레임워크 예외 핸들러가 직접 봉투에 싣는다 — 도메인 예외로 던져지진 않지만
@@ -130,8 +133,8 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 15개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)가 늘었다")
-                .hasSize(16);
+        assertThat(found).as("실측 기준 도메인 enum 16개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)가 늘었다")
+                .hasSize(17);
     }
 
     @TestFactory
@@ -192,8 +195,13 @@ class ErrorContractTest {
         // 시간 한도. 두 도메인이 같은 코드를 쓰고 Business 공개 표의 같은 이름으로 옮겨지므로 공통이 소유한다.
         // GROMO-1801 이 신규 PATCH /me 게이트 1개를 더했다(UserErrorCode.PROFILE_UPDATE_UNAVAILABLE) —
         // 집중 세션 게이트와 같은 503 이지만 여는 조건(온보딩 전이 사건 연결)이 달라 코드를 가른다.
-        assertThat(tests).as("실측 기준 도메인 상수 167개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·계정 레이트리밋·계정 PATCH 게이트 포함")
-                .hasSize(183);
+        // GROMO-1773 이 섬 퀘스트 코드 13개를 더했다(QuestErrorCode) — 권한 2(QUEST_FORBIDDEN · QUEST_BOARD_LOCKED),
+        // 대상 없음 2(QUEST_NOT_FOUND · QUEST_OCCURRENCE_NOT_FOUND), 입력 5(QUEST_INVALID_REQUEST ·
+        // QUEST_INVALID_TIMEZONE · 필드별 범위 3), 충돌 2(QUEST_VERSION_CONFLICT · QUEST_STATE_CONFLICT),
+        // 출시 게이트 2(QUEST_CREATION_UNAVAILABLE · QUEST_SETTLEMENT_UNAVAILABLE) — 생성과 정산은 여는 조건이 달라
+        // 같은 503 이라도 코드를 가른다.
+        assertThat(tests).as("실측 기준 도메인 상수 180개 + 공통 16개 — 섬 퀘스트 13종 포함 · 이전: 도메인 상수 167개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·계정 레이트리밋·계정 PATCH 게이트 포함")
+                .hasSize(196);
         return tests;
     }
 

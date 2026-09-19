@@ -16,6 +16,16 @@ island-management:
 account:
   profile-update-enabled: false
 
+# 섬 퀘스트(GROMO-1773). island-quests policy.md 출시 조건 — 생성(새 생산 데이터)과 정산(claim)은
+# 남은 게이트(집중 시작 게이트 #815 · 보상 설정 revision 등록 QQ05 잔여 · 복수 기기 1806)가 닫힐 때까지 끈다.
+# 보상 값은 D5(1830) 확정값 — 개인 달성 +10, 전원 달성 보너스 대상 주민 수 × 5, 전액 섬 통장(2026-09-19 결정 Q-1).
+island-quest:
+  creation-enabled: false
+  settlement-enabled: false
+  reward:
+    per-achiever: 10
+    all-achieved-bonus-per-member: 5
+
 internal:
   api:
     enabled: ${INTERNAL_API_ENABLED:false}
@@ -109,6 +119,13 @@ internal:
           - 'PATCH /internal/users/*/appearance'
           - 'GET /internal/islands/*/inventory'
           - 'PATCH /internal/islands/*/appearance'
+          # GROMO-1773 섬 퀘스트 5종 — `*` 는 세그먼트 하나다. `/quests/current` 와 `/quests/*/progress` 는
+          # 세그먼트 수가 달라 서로를 덮지 않고, 목록 생성(POST /quests)과 claim(POST /quests/*/claims)도 그렇다.
+          - 'GET /internal/islands/*/quests/current'
+          - 'GET /internal/islands/*/quests/*/progress'
+          - 'POST /internal/islands/*/quests'
+          - 'PATCH /internal/islands/*/quests/*'
+          - 'POST /internal/islands/*/quests/*/claims'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:
