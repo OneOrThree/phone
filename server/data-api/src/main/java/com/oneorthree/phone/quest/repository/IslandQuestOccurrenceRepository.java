@@ -16,8 +16,8 @@ import java.util.UUID;
 /**
  * 회차와 그 판정 대상(cohort) 창구 (GROMO-1773).
  *
- * <p>cohort 는 (회차, 주민) 두 열뿐인 불변 스냅샷이라 엔티티를 두지 않고 네이티브 쿼리 두 개로 다룬다 —
- * 여는 순간 한 번 쓰고 이후엔 읽기만 한다.
+ * <p>cohort 는 (회차, 주민) 두 열뿐인 불변 스냅샷이라 엔티티를 두지 않고 네이티브 쿼리로 다룬다 —
+ * 여는 순간 한 번 쓰고 이후엔 읽기만 한다. 유일한 예외는 계정 탈퇴 파기다(GROMO-1950).
  */
 public interface IslandQuestOccurrenceRepository extends JpaRepository<IslandQuestOccurrence, UUID> {
 
@@ -46,4 +46,13 @@ public interface IslandQuestOccurrenceRepository extends JpaRepository<IslandQue
     @Query(value = "SELECT user_id FROM island_quest_cohort_members WHERE occurrence_id = :occurrenceId",
             nativeQuery = true)
     List<UUID> findCohort(@Param("occurrenceId") UUID occurrenceId);
+
+    /**
+     * 계정 탈퇴 파기 (GROMO-1950, 계정 LLD §4) — 탈퇴자의 cohort 행을 전 회차에서 지운다. 판정은 이미
+     * 「cohort ∩ 현재 활성 주민 ∩ 활성 계정」이라 탈퇴자가 빠진 결과와 같다. 탈퇴 TX 가 섬 행을 먼저
+     * 잠그므로 회차 개설의 cohort 고정과 직렬화된다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "DELETE FROM island_quest_cohort_members WHERE user_id = :userId", nativeQuery = true)
+    int deleteCohortOfUser(@Param("userId") UUID userId);
 }
