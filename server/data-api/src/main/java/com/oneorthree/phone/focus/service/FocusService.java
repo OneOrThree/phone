@@ -248,6 +248,9 @@ public class FocusService {
      */
     @Transactional
     public void updateFocusTag(UUID userId, FocusTagUpdateRequest body) {
+        // 활성 검증 + users 공유 락 (GROMO-1944 · 계정 LLD §4 user_focus_tags). 이름 변경은 새 채택 행을 INSERT 하므로,
+        // 락 없이 탈퇴 커밋 직전에 태그를 읽은 요청이 탈퇴의 채택 행 파기 뒤에 행을 되살린다. 탈퇴가 먼저면 404.
+        requireActiveUser(userId);
         UserFocusTag tag = userFocusTagRepository.findByIdAndDeletedAtIsNull(body.tagId())
                 .orElseThrow(() -> new FocusException(FocusErrorCode.TAG_NOT_FOUND));
 
