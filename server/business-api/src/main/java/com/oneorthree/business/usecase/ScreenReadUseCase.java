@@ -152,21 +152,23 @@ public class ScreenReadUseCase {
     // 머지되면 해당 조각을 병렬 목록으로 옮기고 이름을 뺀다.
 
     /**
-     * {@code home} — 섬 문맥 뒤 오늘 집중 요약·현재 세션을 병렬로 읽는다.
+     * {@code home} — 섬 문맥 뒤 오늘 집중 요약·현재 세션·휴식 주민을 병렬로 읽는다. 휴식 주민은 BG11
+     * 결정(2026-09-19)으로 싣는다 — 도메인 403 이면 다른 조각처럼 화면 전체가 실패한다.
      *
-     * <p>빠진 조각: {@code restMembers}(BG11 — 모닥불 휴식 주민을 홈에 보일지 미결), {@code wallets}(섬 상점
-     * 지갑 GET 없음), {@code playback}(방송기 GET 과 시설 완공 재료가 둘 다 없어 {@code facility_locked} 도
-     * 검증할 수 없다).
+     * <p>빠진 조각: {@code wallets}(섬 상점 지갑 GET 없음), {@code playback}(방송기 GET 과 시설 완공 재료가
+     * 둘 다 없어 {@code facility_locked} 도 검증할 수 없다).
      */
     public Map<String, Object> home(AccessTokenClaims claims, String date, String timezone, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
+        IslandDetail island = currentIsland(context, claims);
         Map<String, Object> screen = new LinkedHashMap<>();
-        screen.put("island", currentIsland(context, claims));
+        screen.put("island", island);
         screen.putAll(composer.compose(context, List.of(
                 fragment("focusSummary", deadline -> focus.summary(claims, date, timezone, deadline)),
-                fragment("session", deadline -> focus.current(claims, deadline)))));
+                fragment("session", deadline -> focus.current(claims, deadline)),
+                fragment("restMembers", deadline -> focusMembers.restMembers(claims, island.id(), deadline)))));
         screen.put("playbackAvailability", null);
-        return missing(screen, "restMembers", "wallets", "playback");
+        return missing(screen, "wallets", "playback");
     }
 
     /**
