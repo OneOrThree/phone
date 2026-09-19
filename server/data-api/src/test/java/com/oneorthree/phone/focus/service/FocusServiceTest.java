@@ -958,10 +958,12 @@ class FocusServiceTest {
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(focusSessionRepository.claimMarkerIfActive(eq(SESSION_ID), eq(user), any(Instant.class)))
                 .willReturn(1);
+        // 엔티티 없이 세션 id 만 있는 경로라 순번을 스칼라로 읽어 싣는다(GROMO-1743) — null 이면 아무것도 안 지운다.
+        given(focusSessionRepository.findPresenceOrderById(SESSION_ID)).willReturn(Optional.of(PRESENCE_ORDER));
 
         focusService.saveFocusSession(USER_ID, new FocusSessionRequest(null, START, END, 0, null, SESSION_ID));
 
-        verify(focusPresencePort).focusEnded(eq(USER_ID), any());
+        verify(focusPresencePort).focusEnded(USER_ID, PRESENCE_ORDER);
     }
 
     @Test
