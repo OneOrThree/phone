@@ -5164,6 +5164,56 @@
         }
       }
     },
+    "/internal/users/{userId}/appearance": {
+      "patch": {
+        "tags": [
+          "internal-appearance-controller"
+        ],
+        "operationId": "patchMine",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppearancePatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppearanceCommandViewPersonalAppearanceView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}": {
       "get": {
         "tags": [
@@ -5322,6 +5372,65 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/JoinRequestAnswerView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/appearance": {
+      "patch": {
+        "tags": [
+          "internal-appearance-controller"
+        ],
+        "operationId": "patchIsland",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppearancePatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppearanceCommandViewIslandAppearanceView"
                 }
               }
             }
@@ -6094,6 +6203,37 @@
         }
       }
     },
+    "/internal/users/{userId}/inventory": {
+      "get": {
+        "tags": [
+          "internal-appearance-controller"
+        ],
+        "operationId": "myInventory",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalInventoryView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/friends": {
       "get": {
         "tags": [
@@ -6626,6 +6766,46 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandJoinRequestsPageView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/inventory": {
+      "get": {
+        "tags": [
+          "internal-appearance-controller"
+        ],
+        "operationId": "islandInventory",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SharedInventoryView"
                 }
               }
             }
@@ -11131,6 +11311,61 @@
           }
         }
       },
+      "AppearancePatchRequest": {
+        "type": "object",
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "values": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AppearanceCommandViewPersonalAppearanceView": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PersonalAppearanceView"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          }
+        }
+      },
+      "PersonalAppearanceView": {
+        "type": "object",
+        "properties": {
+          "clothes": {
+            "type": "string"
+          },
+          "decor": {
+            "type": "string"
+          },
+          "hull": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "IslandManageCommandRequest": {
         "type": "object",
         "properties": {
@@ -11188,6 +11423,39 @@
           "memberId": {
             "type": "string",
             "format": "uuid"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "AppearanceCommandViewIslandAppearanceView": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/IslandAppearanceView"
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
+          }
+        }
+      },
+      "IslandAppearanceView": {
+        "type": "object",
+        "properties": {
+          "islandThemeId": {
+            "type": "string"
+          },
+          "buildingThemes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
           },
           "version": {
             "type": "integer",
@@ -11587,6 +11855,36 @@
           }
         }
       },
+      "PersonalInventoryView": {
+        "type": "object",
+        "properties": {
+          "clothes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "decor": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hulls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "inventoryVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "equipped": {
+            "$ref": "#/components/schemas/PersonalAppearanceView"
+          }
+        }
+      },
       "FriendResponse": {
         "type": "object",
         "properties": {
@@ -11919,6 +12217,47 @@
           "nextRequestId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "BuildingThemeItem": {
+        "type": "object",
+        "properties": {
+          "buildingId": {
+            "type": "string"
+          },
+          "themeId": {
+            "type": "string"
+          }
+        }
+      },
+      "SharedInventoryView": {
+        "type": "object",
+        "properties": {
+          "audio": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "islandThemes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "buildingThemes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BuildingThemeItem"
+            }
+          },
+          "inventoryVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/IslandAppearanceView"
           }
         }
       },
