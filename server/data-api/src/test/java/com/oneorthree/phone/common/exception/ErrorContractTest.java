@@ -1,6 +1,8 @@
 package com.oneorthree.phone.common.exception;
 
 import com.oneorthree.phone.analytics.exception.AnalyticsErrorCode;
+import com.oneorthree.phone.appearance.exception.AppearanceErrorCode;
+import com.oneorthree.phone.appearance.exception.AppearanceException;
 import com.oneorthree.phone.analytics.exception.AnalyticsException;
 import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
@@ -80,6 +82,7 @@ class ErrorContractTest {
      */
     private static final Map<Class<? extends ErrorCode>, Function<ErrorCode, DomainException>> FACTORIES = Map.ofEntries(
             Map.entry(AnalyticsErrorCode.class, c -> new AnalyticsException((AnalyticsErrorCode) c)),
+            Map.entry(AppearanceErrorCode.class, c -> new AppearanceException((AppearanceErrorCode) c)),
             Map.entry(AuthErrorCode.class, c -> new AuthException((AuthErrorCode) c)),
             Map.entry(InvalidTokenErrorCode.class, c -> new InvalidTokenException((InvalidTokenErrorCode) c)),
             Map.entry(ConstructionErrorCode.class, c -> new ConstructionException((ConstructionErrorCode) c)),
@@ -127,8 +130,8 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 14개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)이 늘었다")
-                .hasSize(15);
+        assertThat(found).as("실측 기준 도메인 enum 15개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)가 늘었다")
+                .hasSize(16);
     }
 
     @TestFactory
@@ -185,8 +188,8 @@ class ErrorContractTest {
         // ISLAND_JOIN_UNAVAILABLE 403)와 초대 해석 2(InviteLinkErrorCode: INVITATION_CODE_INVALID
         // 422·INVITATION_EXPIRED 410). 형식 오류·없음·폐기는 앱이 다른 분기를 타야 하므로 한 코드로
         // 접지 않는다.
-        assertThat(tests).as("실측 기준 도메인 상수 161개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·섬 가입 6종 포함")
-                .hasSize(176);
+        assertThat(tests).as("실측 기준 도메인 상수 166개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종 포함")
+                .hasSize(181);
         return tests;
     }
 

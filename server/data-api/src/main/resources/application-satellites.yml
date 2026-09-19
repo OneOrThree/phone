@@ -91,6 +91,11 @@ internal:
           - 'POST /internal/users/*/letters'
           - 'GET /internal/users/*/letters'
           - 'GET /internal/users/*/letters/*'
+          # GROMO-1783 보유품·외양 4종 — 조회와 적용은 메서드로만 갈리므로 합치지 않는다.
+          - 'GET /internal/users/*/inventory'
+          - 'PATCH /internal/users/*/appearance'
+          - 'GET /internal/islands/*/inventory'
+          - 'PATCH /internal/islands/*/appearance'
       notification:
         token: ${SVC_TOKEN_NOTI_TO_DATA}
         allow:
