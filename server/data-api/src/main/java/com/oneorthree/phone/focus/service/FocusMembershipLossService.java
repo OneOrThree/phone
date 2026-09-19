@@ -22,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -100,7 +101,8 @@ public class FocusMembershipLossService {
         }
         UUID sessionId = detail.getSessionId();
         // 전이 anchor 와 같은 규칙 — 물러난 벽시계가 열린 구간을 역전시키지 않게 직전 전이 뒤로 누른다.
-        Instant now = clock.instant();
+        // timestamptz 정밀도로 자른다 — 사건에 싣는 값과 DB 에 남는 값이 같아야 한다(수명주기 서비스와 같은 규칙).
+        Instant now = clock.instant().truncatedTo(ChronoUnit.MICROS);
         Instant t = detail.getLastTransitionAt() != null && detail.getLastTransitionAt().isAfter(now)
                 ? detail.getLastTransitionAt() : now;
         List<FocusSessionInterval> intervals = focusSessionIntervalRepository

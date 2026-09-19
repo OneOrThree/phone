@@ -267,6 +267,19 @@ class FocusSessionLifecycleGuardsTest {
         assertThat(savedInterval().getStartedAt()).isEqualTo(NOW);
     }
 
+    @Test
+    @DisplayName("전이 시각은 DB 정밀도(마이크로초)로 자른다 — 응답·사건과 저장값이 같아야 재생이 원 결과와 같다")
+    void transitionTimeIsTruncatedToTheStoredPrecision() {
+        givenTransition(FocusSessionLifecycle.ACTIVE, FocusIntervalKind.ACTIVE);
+
+        FocusSessionView view = service(Instant.parse("2026-09-17T03:00:00.123456789Z"))
+                .pause(USER, SESSION, new FocusVersionedCommandRequest(1L), KEY);
+
+        Instant stored = Instant.parse("2026-09-17T03:00:00.123456Z");
+        assertThat(openInterval().getEndedAt()).isEqualTo(stored);
+        assertThat(view.restStartedAt()).isEqualTo(stored);
+    }
+
     // ── 4. summary 의 desync 감지 ─────────────────────────────────────────────
 
     @Test

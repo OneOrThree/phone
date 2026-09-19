@@ -62,6 +62,7 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -209,7 +210,7 @@ public class FocusSessionLifecycleService {
                     FocusRewardPolicy policy = focusRewardPolicyRepository.findFirstByOrderByRevisionDesc()
                             .orElseThrow(() -> new FocusException(FocusErrorCode.SESSION_START_UNAVAILABLE));
 
-                    Instant now = clock.instant();
+                    Instant now = storedNow();
                     FocusSession session = focusSessionRepository.save(FocusSession.builder()
                             .user(user)
                             .focusType(FocusType.INFINITE)
@@ -595,7 +596,19 @@ public class FocusSessionLifecycleService {
      * @return {@code max(clock.instant(), detail.lastTransitionAt)}
      */
     private Instant transitionAnchor(FocusSessionDetail detail) {
-        return clampToLastTransition(detail, clock.instant());
+        return clampToLastTransition(detail, storedNow());
+    }
+
+    /**
+     * 저장할 시각 — {@code timestamptz} 정밀도(마이크로초)로 자른 서버 시각.
+     *
+     * <p>응답·사건에 싣는 시각과 DB 에 남는 시각이 같아야 한다. 리눅스 시계는 나노초를 주므로 자르지 않으면
+     * 첫 finish 응답의 {@code completedAt} 과, 같은 세션을 새 키로 다시 finish 해 정산 행에서 읽은 값이
+     * 어긋난다(LLD §2 「원 결과를 그대로」가 깨진다). pause 응답의 {@code restStartedAt} 과 뒤이은 current 도
+     * 같은 이유다. 직전 전이(DB 에서 읽은 값)는 이미 마이크로초라 자른 값과 비교해도 역전이 생기지 않는다.
+     */
+    private Instant storedNow() {
+        return clock.instant().truncatedTo(ChronoUnit.MICROS);
     }
 
     /** {@code max(candidate, detail.lastTransitionAt)} — 시각을 «되돌아가지 않게» 눌러 둔다. */
