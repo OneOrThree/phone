@@ -263,4 +263,31 @@ public interface NotificationSentLogRepository extends JpaRepository<Notificatio
     @Modifying
     @Query("DELETE FROM NotificationSentLog l WHERE l.id IN :ids")
     int deleteByIds(@Param("ids") Collection<UUID> ids);
+
+    /**
+     * 탈퇴자가 수신자인 행 전부와, 탈퇴자를 상대로 둔 친구 알림 행을 지운다
+     * (GROMO-1801 · 계정 LLD §4 「알림 발송 이력의 파기 경계」). 상태와 무관하다 — 미발송 클레임도 사라진다.
+     *
+     * <p>target_user_id 는 종류별 다형 키라(회차·챌린지 id 도 담긴다) 종류를 지정한 행만 사용자로 본다.
+     *
+     * @param userId        탈퇴하는 유저
+     * @param relationTypes target_user_id 가 사용자 상대를 뜻하는 친구 알림 종류
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM NotificationSentLog l WHERE l.userId = :userId"
+            + " OR (l.targetUserId = :userId AND l.type IN :relationTypes)")
+    int deleteWithdrawnUserLogs(@Param("userId") UUID userId,
+                                @Param("relationTypes") Collection<String> relationTypes);
+
+    /**
+     * 다른 수신자의 행에서 탈퇴자 상대 연결만 끊는다 — 수신자·type·sent_at 은 남겨 주간 상한 근거를 보존한다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @param type   상대 연결만 끊을 종류(추월)
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE NotificationSentLog l SET l.targetUserId = null WHERE l.targetUserId = :userId AND l.type = :type")
+    int detachTarget(@Param("userId") UUID userId, @Param("type") String type);
 }

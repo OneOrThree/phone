@@ -5,6 +5,9 @@ import com.oneorthree.phone.group.repository.domain.GroupInvite;
 import com.oneorthree.phone.group.repository.domain.GroupInviteStatus;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
@@ -34,4 +37,15 @@ public interface GroupInviteRepository extends JpaRepository<GroupInvite, UUID> 
      *     호출측이 상태를 다시 봐야 했다
      */
     Optional<GroupInvite> findByGroupAndInvitee(Group group, User invitee);
+
+    /**
+     * 탈퇴자가 초대했거나 초대받은 행을 상태와 무관하게 지운다 (GROMO-1801 · 계정 LLD §4 group_invites).
+     * 다른 사용자끼리의 초대는 건드리지 않는다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM GroupInvite i WHERE i.inviter.id = :userId OR i.invitee.id = :userId")
+    int deleteAllInvolving(@Param("userId") UUID userId);
 }

@@ -192,4 +192,15 @@ public class CharacterGenerationService {
     private boolean isUnlimited(Instant anchor, Instant now) {
         return now.isBefore(anchor.plus(GRACE_PERIOD_DAYS, ChronoUnit.DAYS));
     }
+
+    /**
+     * 탈퇴자의 생성 이력을 파기한다 (GROMO-1801 · 계정 LLD §4). 중앙 탈퇴 TX 가 users 배타 락을 쥔 채
+     * 부른다 — recordGeneration 도 같은 행을 배타로 잠그므로 삭제 뒤 재생성은 활성 검사에서 막힌다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void eraseWithdrawnUser(UUID userId) {
+        characterGenerationRepository.deleteAllOfUser(userId);
+    }
 }

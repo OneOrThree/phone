@@ -7,6 +7,10 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
+import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
+import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
+import com.oneorthree.phone.group.repository.GroupInviteRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -54,6 +58,10 @@ public class GroupMemberService {
      * 커밋 후 발행이면 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
      */
     private final LinkMembershipEventService linkMembershipEventService;
+    private final GroupInviteRepository groupInviteRepository;
+    private final GroupAnnouncementRepository groupAnnouncementRepository;
+    private final GroupChallengeMemberRepository groupChallengeMemberRepository;
+    private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
 
@@ -306,6 +314,25 @@ public class GroupMemberService {
             request.cancel();
             joinRequestEvents.changed(request, currentHostId(request.getIsland().getId()));
         }
+    }
+
+    /**
+     * 탈퇴자의 그룹 쪽 개인 자료를 파기한다 (GROMO-1801 · 계정 LLD §4).
+     *
+     * <p>{@link #detachWithdrawnUser} <b>뒤</b>에 같은 트랜잭션에서 부른다 — 그쪽이 환불·증거 동결·이탈을
+     * 끝내야 여기서 지우는 원본(창형 보고)과 열람 기록이 정산 근거에서 빠져도 금액이 바뀌지 않는다.
+     * 남는 것은 관계·정산 증거(멤버십 행·참가 행·공지 본문)뿐이다.
+     *
+     * @param user 탈퇴 중인 유저 — 호출부가 배타 락으로 로드했다
+     */
+    @Transactional
+    public void eraseWithdrawnUserRecords(User user) {
+        UUID userId = user.getId();
+        groupMemberRepository.eraseSettingsOfUser(userId);
+        betParticipantRepository.eraseResultViewsOf(userId);
+        groupChallengeMemberRepository.deleteAllOfUser(userId);
+        groupAnnouncementRepository.detachAuthor(userId);
+        groupInviteRepository.deleteAllInvolving(userId);
     }
 
     /**

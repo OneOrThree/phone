@@ -116,7 +116,9 @@ public class InviteLinkMatchService {
             // 그룹이 삭제·종료된 링크 — 클릭은 소진하되(죽은 후보가 계속 1순위로 남지 않게) 매치는 실패다.
             // 발급·랜딩(만료 변형)과 같은 판정을 쓴다: 참여시킬 곳이 없는 초대를 되살리지 않는다.
             click.markMatched(request.deviceId(), request.appInstanceId());
-            if (inviteLinkService.findActiveGroup(found.get().getGroupId()).isEmpty()) {
+            // 발급자가 탈퇴해 연결이 끊긴 링크(GROMO-1801)도 폐기다 — 같은 규칙으로 소진하고 실패시킨다.
+            if (found.get().getInviterId() == null
+                    || inviteLinkService.findActiveGroup(found.get().getGroupId()).isEmpty()) {
                 log.debug("매치 후보의 그룹이 삭제·종료됨 — clickId={} slug={}",
                         click.getId(), found.get().getSlug());
                 return Optional.empty();
@@ -134,6 +136,7 @@ public class InviteLinkMatchService {
     /** 기존 매치를 같은 응답으로 복원한다. 링크의 그룹이 그 사이 삭제·종료됐으면 매치 실패 응답이다. */
     private InviteMatchResponse replayResponse(InviteLinkClick prior) {
         return inviteLinkQueryService.findInviteLink(prior.getLinkId())
+                .filter(link -> link.getInviterId() != null)
                 .filter(link -> inviteLinkService.findActiveGroup(link.getGroupId()).isPresent())
                 .map(link -> InviteMatchResponse.matched(link.getSlug(), link.getGroupId()))
                 .orElseGet(InviteMatchResponse::notMatched);
@@ -162,6 +165,11 @@ public class InviteLinkMatchService {
     public boolean claim(String slug, UUID userId) {
         GroupInviteLink link = inviteLinkRepository.findBySlug(slug)
                 .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.SLUG_NOT_FOUND));
+        if (link.getInviterId() == null) {
+            // 발급자가 탈퇴한 링크(GROMO-1801) — 귀속할 발급자가 없다. 조용한 no-op 규칙을 따른다.
+            log.debug("claim no-op — slug={} (발급자 탈퇴로 폐기된 링크)", slug);
+            return false;
+        }
 
         Optional<InviteLinkClick> click = clickRepository
                 .findFirstByLinkIdAndMatchedTrueAndClaimedUserIdIsNullAndClaimedAtIsNullOrderByMatchedAtDesc(
@@ -177,5 +185,19 @@ public class InviteLinkMatchService {
             return false;
         }
         return true;
+    }
+
+    /**
+     * 탈퇴자의 초대 자료를 파기한다 (GROMO-1801 · A22 ⓐ · 계정 LLD §4).
+     *
+     * <p>본인이 claim 한 클릭의 귀속·기기·IP 해시·UA 를 끊고, 본인이 발급한 링크의 발급자 연결을 끊는다.
+     * 둘 다 행은 남긴다 — 다른 사람의 퍼널 집계 근거다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void eraseWithdrawnUser(UUID userId) {
+        clickRepository.anonymizeClaimedUser(userId);
+        inviteLinkRepository.detachInviter(userId);
     }
 }

@@ -90,8 +90,22 @@ public interface GroupInviteLinkRepository extends JpaRepository<GroupInviteLink
             + "JOIN groups g ON g.id = l.group_id "
             + "LEFT JOIN users u ON u.id = l.inviter_id AND u.is_deleted = false "
             + "LEFT JOIN group_members m ON m.group_id = l.group_id AND m.user_id = l.inviter_id "
-            + "WHERE l.id > CAST(:cursor AS uuid) ORDER BY l.id ASC LIMIT :limit",
+            // 발급자가 탈퇴해 null 이 된 링크(V65)는 폐기된 링크라 정지 원본에 싣지 않는다.
+            + "WHERE l.id > CAST(:cursor AS uuid) AND l.inviter_id IS NOT NULL ORDER BY l.id ASC LIMIT :limit",
             nativeQuery = true)
     List<FrozenLinkProjection> findFrozenSourcePage(
             @Param("cursor") String cursor, @Param("limit") int limit);
+
+    /**
+     * 탈퇴자가 발급한 링크의 발급자 연결을 끊는다 (GROMO-1801 · 계정 LLD §4 · policy A10 · V65).
+     *
+     * <p>링크·종속 클릭은 타인 퍼널의 FK 앵커라 지우지 않는다. 발급자가 없는 링크는 폐기로 취급한다 —
+     * 랜딩은 만료, 매치·claim·참여 귀속은 없음이다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE GroupInviteLink l SET l.inviterId = null WHERE l.inviterId = :userId")
+    int detachInviter(@Param("userId") UUID userId);
 }
