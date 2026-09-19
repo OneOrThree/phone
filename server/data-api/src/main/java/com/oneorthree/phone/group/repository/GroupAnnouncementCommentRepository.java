@@ -3,6 +3,7 @@ package com.oneorthree.phone.group.repository;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncementComment;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -31,6 +32,15 @@ public interface GroupAnnouncementCommentRepository extends JpaRepository<GroupA
     @Query("SELECT c.noticeId AS noticeId, COUNT(c) AS count FROM GroupAnnouncementComment c"
             + " WHERE c.noticeId IN :noticeIds GROUP BY c.noticeId")
     List<NoticeCommentCount> countByNoticeIds(@Param("noticeIds") Collection<UUID> noticeIds);
+
+    /**
+     * 탈퇴자가 쓴 댓글의 작성자 연결만 끊는다 (GROMO-1771 × GROMO-1801 계정 LLD §4). 사용자 행은 소프트 삭제라
+     * V66 의 {@code ON DELETE SET NULL} 이 발동하지 않으므로 {@code group_announcements.user_id} 와 같이 명시적으로 비운다.
+     * 댓글 행·본문은 BQ02 결정 전까지 남는다.
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE GroupAnnouncementComment c SET c.authorId = null WHERE c.authorId = :userId")
+    int detachAuthor(@Param("userId") UUID userId);
 
     /** {@link #countByNoticeIds} 의 한 줄. */
     interface NoticeCommentCount {

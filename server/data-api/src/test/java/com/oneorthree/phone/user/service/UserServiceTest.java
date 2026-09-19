@@ -105,6 +105,9 @@ class UserServiceTest {
     @Mock
     private UserActivityEventLogger userActivityEventLogger;
 
+    @Mock
+    private com.oneorthree.phone.user.repository.UserBlockRepository userBlockRepository;
+
 
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -434,9 +437,19 @@ class UserServiceTest {
     void erasePersonalDataKeepsRowButDestroysPii() {
         User user = User.builder().id(USER_ID)
                 .nickname("조재영").refreshTokenHash("rt-hash").deviceToken("dt").countryCode("KR")
-                .language("ja").build();
+                .language("ja").occupation(Occupation.CIVIL_SERVANT)
+                .statVisibility(com.oneorthree.phone.user.repository.domain.StatVisibility.PUBLIC)
+                .characterTrialAnchorAt(java.time.Instant.parse("2026-09-01T00:00:00Z")).build();
 
         userService.erasePersonalData(user);
+
+        // 계정 LLD §4 (GROMO-1801) — 직군·활동/체험 시각은 null, 공개 범위는 기본값, 차단은 양방향 삭제
+        assertThat(user.getOccupation()).isNull();
+        assertThat(user.getLastActiveAt()).isNull();
+        assertThat(user.getCharacterTrialAnchorAt()).isNull();
+        assertThat(user.getStatVisibility())
+                .isEqualTo(com.oneorthree.phone.user.repository.domain.StatVisibility.FRIENDS);
+        verify(userBlockRepository).deleteAllInvolving(USER_ID);
 
         assertThat(user.isDeleted()).isTrue();
         assertThat(user.getNickname()).isNull();

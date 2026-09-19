@@ -120,4 +120,16 @@ public interface GroupChallengeMemberRepository extends JpaRepository<GroupChall
     int deleteWindowUsage(@Param("challengeId") UUID challengeId,
                           @Param("userId") UUID userId,
                           @Param("usageDate") LocalDate usageDate);
+
+    /**
+     * 탈퇴자의 창형 사용분 원본 보고를 soft delete 여부와 무관하게 전부 지운다
+     * (GROMO-1801 · 계정 LLD §4 group_challenge_members). 내기 증거 동결 «뒤»에 부른다 —
+     * 확정 결과는 참가 행에 남고, 이 원본을 nullify/soft delete 로 남기지 않는다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM GroupChallengeMember m WHERE m.user.id = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
 }

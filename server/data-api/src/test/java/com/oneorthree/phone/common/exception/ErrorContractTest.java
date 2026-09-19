@@ -135,7 +135,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 186개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 187개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -194,8 +194,10 @@ class ErrorContractTest {
         // 쓰기 게이트 1(NOTICE_WRITE_UNAVAILABLE 503: BQ02·BQ03 결정 전 쓰기 비활성 — REALTIME_NOT_READY 와
         // 같은 503 이지만 막는 사유가 달라 따로 둔다), 임시 상한 2(NOTICE_BODY_TOO_LONG · NOTICE_COMMENT_TOO_LONG
         // 422 — 가리키는 입력 필드가 다르다).
-        assertThat(tests).as("실측 기준 도메인 상수 170개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·계정 레이트리밋·게시판 4종 포함")
-                .hasSize(186);
+        // GROMO-1801 이 신규 PATCH /me 게이트 1개를 더했다(UserErrorCode.PROFILE_UPDATE_UNAVAILABLE) —
+        // 집중 세션 게이트와 같은 503 이지만 여는 조건(온보딩 전이 사건 연결)이 달라 코드를 가른다.
+        assertThat(tests).as("실측 기준 도메인 상수 171개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·계정 레이트리밋·게시판 4종·계정 PATCH 게이트 포함")
+                .hasSize(187);
         return tests;
     }
 

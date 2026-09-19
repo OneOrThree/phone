@@ -8,6 +8,7 @@ import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
+import com.oneorthree.phone.outbox.repository.CommandIdempotencyRepository;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,6 +16,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Objects;
+import java.util.UUID;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -34,6 +36,7 @@ import java.util.function.Supplier;
 public class PublicCommandService {
 
     private final OutboxCommandPort outboxCommandPort;
+    private final CommandIdempotencyRepository receipts;
 
     @Transactional(propagation = Propagation.MANDATORY)
     public IdempotentOutcome<PublicCommandReceipt> run(
@@ -61,6 +64,19 @@ public class PublicCommandService {
             replayAuthorization.accept(receipt);
         }
         return new IdempotentOutcome<>(receipt, outcome.replayed());
+    }
+
+    /**
+     * 탈퇴자의 공개 명령 receipt 를 모두 지운다 (GROMO-1801 · 계정 LLD §4).
+     *
+     * <p>receipt 에는 개인 응답(예: {@code PATCH /me} 의 이름)이 들어 있다. 탈퇴 뒤에는 {@link #run} 이 재생 전에
+     * 활성 주체 검사로 거절하므로 재생 근거로도 쓰이지 않는다 — 남길 이유가 없다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void forgetReceiptsOf(UUID userId) {
+        receipts.deletePublicReceiptsOf(userId);
     }
 
     private static JsonNode encode(PublicCommandReceipt receipt) {

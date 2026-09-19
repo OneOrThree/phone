@@ -4,6 +4,7 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -55,4 +56,15 @@ public interface GroupAnnouncementRepository extends JpaRepository<GroupAnnounce
             + " ORDER BY a.createdAt DESC, a.id DESC")
     List<GroupAnnouncement> findNoticePageAfter(@Param("groupId") UUID groupId,
             @Param("createdAt") Instant createdAt, @Param("id") UUID id, Pageable page);
+
+    /**
+     * 탈퇴자가 쓴 공지의 작성자 연결만 끊는다 (GROMO-1801 · 계정 LLD §4 group_announcements).
+     * 공지 행·내용은 기존 보존 규칙대로 남는다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE GroupAnnouncement a SET a.user = null WHERE a.user.id = :userId")
+    int detachAuthor(@Param("userId") UUID userId);
 }

@@ -90,9 +90,20 @@ class AccountWithdrawalServiceTest {
     /** 탈퇴 사건 전달 (A22 ⓐ) — 알림은 Kafka, 링크는 HTTP. */
     @Mock
     private WithdrawalSatelliteCommandService withdrawalSatelliteCommandService;
-    /** 이미 박힌 초대 귀속 익명화 (A22 ⓐ) — claim 은 최초 1회만 기록돼 되돌릴 길이 없다. */
+    /** 이미 박힌 초대 귀속 익명화 (A22 ⓐ) + 발급자 연결 파기 (GROMO-1801). */
     @Mock
-    private com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository inviteLinkClickRepository;
+    private com.oneorthree.phone.invitelink.service.InviteLinkMatchService inviteLinkMatchService;
+    /** 계정 LLD §4 파생 개인 이력 파기 (GROMO-1801). */
+    @Mock
+    private com.oneorthree.phone.notification.service.RankOvertakeNotificationService rankOvertakeNotificationService;
+    @Mock
+    private com.oneorthree.phone.league.service.LeagueService leagueService;
+    @Mock
+    private com.oneorthree.phone.character.service.CharacterGenerationService characterGenerationService;
+    @Mock
+    private com.oneorthree.phone.item.service.EquipmentService equipmentService;
+    @Mock
+    private com.oneorthree.phone.outbox.service.PublicCommandService publicCommandService;
 
     @InjectMocks
     private AccountWithdrawalService accountWithdrawalService;
@@ -112,7 +123,9 @@ class AccountWithdrawalServiceTest {
 
         InOrder order = inOrder(userQueryService, groupMemberService, authSessionService, focusService,
                 focusSessionIntervalRepository, focusSessionDetailRepository, statsService,
-                screenTimeService, userService, friendService);
+                screenTimeService, userService, friendService, inviteLinkMatchService,
+                rankOvertakeNotificationService, leagueService, characterGenerationService, equipmentService,
+                publicCommandService);
         // 배타 락 로드가 맨 앞 — 이후 정리와 새 관계 생성을 직렬화한다
         order.verify(userQueryService).getCallerForUpdate(USER_ID);
         order.verify(groupMemberService).lockGroupsForAccountWithdrawal(user);
@@ -121,17 +134,28 @@ class AccountWithdrawalServiceTest {
         // USER aggregate를 쓰는 세션 폐기·세대 사건도 그룹 선점보다 뒤여야 한다.
         order.verify(authSessionService).revokeAll(USER_ID, "WITHDRAW");
         order.verify(authSessionService).publishGenerationBumped(USER_ID, user.getAuthGeneration(), "WITHDRAW");
+        // 폐기 사건을 적은 뒤에야 자격 해시를 지운다 — 앞서면 전달할 증명이 사라진다
+        order.verify(authSessionService).eraseWithdrawnCredentials(USER_ID);
+        order.verify(inviteLinkMatchService).eraseWithdrawnUser(USER_ID);
         // 그룹(해제 환불·근거 박제)이 지갑 삭제와 익명화보다 앞
         order.verify(groupMemberService).detachWithdrawnUser(user);
+        // 창형 원본·열람 lease 파기는 증거 동결 «뒤»
+        order.verify(groupMemberService).eraseWithdrawnUserRecords(user);
         order.verify(focusService).anonymizeWithdrawnUser(USER_ID);
+        order.verify(focusService).eraseWithdrawnUserRecords(USER_ID);
         // v0.3 상세·구간: 구간 닫기 → 상세 종결 → user_id·subject 파기. 마지막이 앞서면 나머지가 대상을 잃는다.
         order.verify(focusSessionIntervalRepository).closeOpenIntervalsOfUser(eq(USER_ID), any(Instant.class));
         order.verify(focusSessionDetailRepository).abandonProgressingOfUser(eq(USER_ID), any(Instant.class));
         order.verify(focusSessionDetailRepository).anonymizeWithdrawnUser(USER_ID);
         order.verify(statsService).anonymizeWithdrawnUser(USER_ID);
         order.verify(screenTimeService).anonymizeWithdrawnUser(USER_ID);
+        order.verify(rankOvertakeNotificationService).eraseWithdrawnUserLogs(USER_ID);
+        order.verify(leagueService).eraseWithdrawnUser(USER_ID);
+        order.verify(characterGenerationService).eraseWithdrawnUser(USER_ID);
+        order.verify(equipmentService).eraseWithdrawnUser(USER_ID);
         order.verify(userService).deleteWalletAndSettings(USER_ID);
-        order.verify(friendService).detachWithdrawnUser(eq(USER_ID), any(Instant.class));
+        order.verify(friendService).detachWithdrawnUser(USER_ID);
+        order.verify(publicCommandService).forgetReceiptsOf(USER_ID);
         // PII 파기·소셜 삭제는 반드시 맨 끝 — 뒤에 무엇이 오든 커밋되지 않는다
         order.verify(userService).erasePersonalData(user);
     }
@@ -165,7 +189,8 @@ class AccountWithdrawalServiceTest {
         verify(statsService, never()).anonymizeWithdrawnUser(any());
         verify(screenTimeService, never()).anonymizeWithdrawnUser(any());
         verify(userService, never()).deleteWalletAndSettings(any());
-        verify(friendService, never()).detachWithdrawnUser(any(), any());
+        verify(friendService, never()).detachWithdrawnUser(any());
+        verify(groupMemberService, never()).eraseWithdrawnUserRecords(any());
         verify(userService, never()).erasePersonalData(any());
         assertThat(user.isDeleted()).isFalse();
     }

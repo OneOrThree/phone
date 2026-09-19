@@ -83,7 +83,9 @@ class PublicApiContractTest extends UpstreamTestBase {
                 // InvalidTokenErrorCode 와 «이름이 같아야» 상류 매핑이 붙고, 없으면 잘못된 소셜
                 // 토큰 하나가 401 이 아니라 502 로 나가 서버 장애처럼 보인다.
                 "KAKAO_TOKEN", "APPLE_TOKEN", "GOOGLE_TOKEN", "LINE_TOKEN", "INSTAGRAM_TOKEN",
-                "FACEBOOK_TOKEN");
+                "FACEBOOK_TOKEN",
+                // GROMO-1801 계정 LLD §5: Data 닉네임·방장 탈퇴 판정과 이름이 같아야 502 로 접히지 않는다.
+                "NICKNAME_INVALID", "NICKNAME_DUPLICATE", "HOST_WITHDRAW");
     }
 
     @Test

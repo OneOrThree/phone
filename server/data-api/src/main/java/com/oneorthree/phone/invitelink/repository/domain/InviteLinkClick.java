@@ -35,7 +35,8 @@ public class InviteLinkClick {
     private UUID linkId;
 
     /** SHA-256(ip + salt) hex 64자 — 매치의 fingerprint 한 축. 원본 IP 는 어디에도 남기지 않는다. */
-    @Column(name = "ip_hash", nullable = false, length = 64)
+    /** claim 한 유저가 탈퇴하면 null 이 된다(V65, GROMO-1801). */
+    @Column(name = "ip_hash", length = 64)
     private String ipHash;
 
     /** 'ios' | 'android' | 'other'. 매치의 나머지 한 축. */

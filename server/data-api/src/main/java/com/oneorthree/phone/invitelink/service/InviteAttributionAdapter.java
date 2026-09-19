@@ -26,6 +26,8 @@ public class InviteAttributionAdapter implements InviteAttributionPort {
     @Override
     public Optional<InviteAttribution> findBySlug(String slug) {
         return groupInviteLinkRepository.findBySlug(slug)
+                // 발급자가 탈퇴한 링크(GROMO-1801)는 귀속 근거가 아니다.
+                .filter(link -> link.getInviterId() != null)
                 .map(link -> new InviteAttribution(link.getSlug(), link.getGroupId(), link.getInviterId()));
     }
 }

@@ -429,4 +429,21 @@ public class RankOvertakeNotificationService {
             return totalCount - belowCount;
         }
     }
+
+    /**
+     * 탈퇴자의 알림 발송 이력을 파기한다 (GROMO-1801 · 계정 LLD §4 notification_sent_logs).
+     *
+     * <p>수신자 행과 탈퇴자를 상대로 둔 친구 알림 행은 지우고, 다른 활성 수신자의 추월 알림은 상대
+     * 연결만 끊는다 — 지우면 그 수신자의 주 2회 상한이 다시 열린다. {@code weeklySentCount} 는 상대와
+     * 무관하게 세고 라이벌 재발송 판정은 null 상대를 이미 빼므로 기존 계산과 맞는다. 이 판정이 이
+     * 서비스의 것이라 여기 둔다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void eraseWithdrawnUserLogs(UUID userId) {
+        notificationSentLogRepository.deleteWithdrawnUserLogs(userId, List.of(
+                NotificationSentLog.TYPE_FRIEND_REQUEST, NotificationSentLog.TYPE_FRIEND_ACCEPTED));
+        notificationSentLogRepository.detachTarget(userId, NotificationSentLog.TYPE_RANK_OVERTAKE);
+    }
 }
