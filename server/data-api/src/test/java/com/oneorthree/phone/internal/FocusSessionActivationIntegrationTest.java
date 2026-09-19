@@ -20,6 +20,7 @@ import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -34,7 +35,9 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -81,6 +84,8 @@ class FocusSessionActivationIntegrationTest {
     IslandMembershipService islands;
     @Autowired
     FocusService legacyFocus;
+    @Autowired
+    LeagueRankingQueryRepository league;
     @Autowired
     GroupMemberService groupMembers;
     @Autowired
@@ -221,9 +226,49 @@ class FocusSessionActivationIntegrationTest {
 
         assertThat(overlapping.awardedCoins()).as("겹친 블록은 지급하지 않는다").isZero();
         assertThat(count("select count(*) from focus_sessions where user_id=? and status='COMPLETED' "
-                + "and started_at=?", user, java.sql.Timestamp.from(t0.minusSeconds(600))))
+                + "and started_at=?", user, ts(t0.minusSeconds(600))))
                 .as("겹친 블록은 완료 마커로 저장하지 않는다").isZero();
         assertThat(earlier.awardedCoins()).as("겹치지 않는 오프라인 업로드는 유지한다").isPositive();
+    }
+
+    // ---------------------------------------------------------------- #4 리그 라이브 랭킹
+
+    @Test
+    @DisplayName("리그 라이브 순위는 v0.3 세션의 휴식을 빼고 ACTIVE 구간만 센다 — 휴식 중이면 진행분을 빼 표시와 맞춘다")
+    void leagueLiveRankingCountsOnlyActiveIntervals() {
+        // 한 주 한가운데(수 12:00 KST)로 기준 시각을 고정한다 — 주 경계 클램프가 끼지 않는다.
+        Instant now = Instant.parse("2026-09-16T03:00:00Z");
+        LocalDate monday = LocalDate.parse("2026-09-14");
+        LocalDate sunday = LocalDate.parse("2026-09-20");
+        UUID resting = newUser();
+        UUID island = islands.create(resting, new CreateIslandCommandRequest("리그섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView v03 = start(resting, island);
+        // 벽시계 60분 = ACTIVE 10분 → REST 40분 → ACTIVE 10분(진행 중). 순수 집중 20분.
+        jdbc.update("update focus_sessions set started_at=? where id=?", ts(now.minusSeconds(3600)), v03.id());
+        jdbc.update("update focus_session_intervals set started_at=?, ended_at=? where session_id=? and ordinal=1",
+                ts(now.minusSeconds(3600)), ts(now.minusSeconds(3000)), v03.id());
+        jdbc.update("insert into focus_session_intervals(session_id, ordinal, kind, started_at, ended_at) "
+                + "values (?, 2, 'REST', ?, ?), (?, 3, 'ACTIVE', ?, null)", v03.id(),
+                ts(now.minusSeconds(3000)), ts(now.minusSeconds(600)), v03.id(), ts(now.minusSeconds(600)));
+        // 비교 상대: 30분 전에 시작한 레거시 라이브 마커.
+        UUID legacy = newUser();
+        legacyFocus.startFocusSession(legacy, new FocusSessionStartRequest(null, null));
+        jdbc.update("update focus_sessions set started_at=? where user_id=? and ended_at is null",
+                ts(now.minusSeconds(1800)), legacy);
+        // 리그 모수는 닉네임이 있는 사용자다(유니크) — 사용자 id 로 겹치지 않게 짓는다.
+        jdbc.update("update users set nickname=? where id=?", "휴" + resting, resting);
+        jdbc.update("update users set nickname=? where id=?", "구" + legacy, legacy);
+
+        int restingRank = league.findRankOf(resting, monday, sunday, now).orElseThrow().rank();
+        int legacyRank = league.findRankOf(legacy, monday, sunday, now).orElseThrow().rank();
+        assertThat(legacyRank).as("30분 레거시가 순수 20분 v0.3 보다 앞선다 — 벽시계 60분이 아니다")
+                .isLessThan(restingRank);
+
+        jdbc.update("update focus_session_details set lifecycle='PAUSED', rest_seat=1 where session_id=?", v03.id());
+        assertThat(league.findTop(monday, sunday, null, 100000, now).stream()
+                .filter(row -> row.userId().equals(resting)).findFirst().orElseThrow().liveStartedAt())
+                .as("휴식 중이면 라이브 앵커가 없다 — 앱이 매초 더하지 않는다").isNull();
     }
 
     // ---------------------------------------------------------------- 도구
@@ -242,6 +287,10 @@ class FocusSessionActivationIntegrationTest {
         Group island = groups.findById(islandId).orElseThrow();
         members.save(GroupMember.builder().user(user).group(island).role(GroupMemberRole.MEMBER).build());
         islands.switchCurrentIsland(userId, islandId, UUID.randomUUID());
+    }
+
+    static Timestamp ts(Instant instant) {
+        return Timestamp.from(instant);
     }
 
     Map<String, Object> detailRow(UUID sessionId) {
