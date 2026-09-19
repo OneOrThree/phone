@@ -314,10 +314,10 @@ class SatelliteCoreContractIntegrationTest {
 
         List<EventOutbox> withdrawn = envelopes(userId, "user.withdrawn");
         assertThat(withdrawn).hasSize(1);
-        // 알림은 Kafka 로 소비하고 링크는 Kafka 에 붙지 않는다 — 같은 사건이 두 대상으로 나간다(ⓐ).
+        // 알림은 Kafka 로 소비하고 링크는 Kafka 에 붙지 않는다(ⓐ). realtime 커서 파기 대상도 같이 적힌다(GROMO-1943).
         assertThat(eventOutboxDeliveryRepository.findByOutboxId(withdrawn.get(0).getId()))
                 .extracting(delivery -> delivery.getTarget())
-                .containsExactlyInAnyOrder(OutboxTarget.KAFKA, OutboxTarget.LINK);
+                .containsExactlyInAnyOrder(OutboxTarget.KAFKA, OutboxTarget.LINK, OutboxTarget.REALTIME);
     }
 
     @Test

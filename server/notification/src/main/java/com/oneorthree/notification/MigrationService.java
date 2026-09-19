@@ -690,7 +690,9 @@ class MigrationService {
     private Map<String, Object> compareDelivery(Map<String, Object> source, boolean resumed) {
         Map<String, Object> row = store.one("SELECT * FROM deliveries WHERE event_id=?", source.get("eventId"));
         if (row == null) {
-            return fail("TARGET_ROW_MISSING", "delivery", null, null);
+            // 적재 뒤 탈퇴가 발송 로그를 파기했다(GROMO-1943) — 행이 없는 것이 정상이다.
+            return withdrawn(MigrationRecords.uuid(source.get("userId")))
+                    ? null : fail("TARGET_ROW_MISSING", "delivery", null, null);
         }
         Map<String, Object> target = MigrationRecords.fromDelivery(row);
         Map<String, Object> mismatch = diff(source, target, "delivery", "userId", "kind", "subjectId", "groupId",

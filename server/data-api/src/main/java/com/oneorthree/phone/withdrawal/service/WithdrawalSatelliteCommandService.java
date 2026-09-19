@@ -17,10 +17,10 @@ import java.util.UUID;
 /**
  * 탈퇴 사실을 위성으로 나르는 <b>내구 사건</b> (A22 ⓐ).
  *
- * <p>대상이 둘이다 — 알림은 Kafka 로 소비하고({@code user.withdrawn} + 멱등 삭제 + 새벽 리컨실),
+ * <p>대상이 셋이다 — 알림은 Kafka 로 소비하고({@code user.withdrawn} + 멱등 삭제 + 새벽 리컨실),
  * 링크는 <b>Kafka 를 소비하지 않으므로</b>(계약 §2) 같은 사건이 HTTP 로도 나간다. 대상별 전달 상태가
  * 따로인 이유가 정확히 이것이다 — 하나로 합치면 한쪽만 실패했을 때 성공한 쪽까지 재전달되거나
- * 실패한 쪽이 영영 안 간다.
+ * 실패한 쪽이 영영 안 간다. 셋째 대상 realtime(REALTIME)은 커서 파기용이며 transport 가 아직 없다(아래 참조).
  *
  * <p><b>tombstone 은 이후 쓰기만 막는다.</b> 이미 박힌 귀속({@code claimed_user_id})은 탈퇴
  * 트랜잭션이 같은 커밋에서 끊어야 하고, 그 일은 {@code AccountWithdrawalService} 가 한다.
@@ -64,6 +64,10 @@ public class WithdrawalSatelliteCommandService {
                         // 알림 서버는 정본 봉투 그대로 소비한다.
                         OutboxDeliveryRequest.toKafka(),
                         // 링크 서버는 Kafka 에 붙지 않는다 — 같은 사건이 HTTP 로도 나간다.
-                        OutboxDeliveryRequest.toLink(ENDPOINT_USER_WITHDRAWN, null))));
+                        OutboxDeliveryRequest.toLink(ENDPOINT_USER_WITHDRAWN, null),
+                        // realtime 은 chat_read_cursors 를 파기하고 커서 쓰기를 막는다(GROMO-1943, 수신
+                        // POST /internal/events). REALTIME transport 는 아직 relay 에 등록돼 있지 않아 이 행은
+                        // 미전달로 «보존»된다 — transport 가 붙는 날 밀린 탈퇴가 그대로 전달된다.
+                        OutboxDeliveryRequest.toRealtime(EVENT_USER_WITHDRAWN, null))));
     }
 }

@@ -41,3 +41,11 @@ Table chat_read_cursors {
 
   Note: '채팅에 푸시가 없으므로 안 읽은 양은 이 커서로만 드러난다. 커서는 앞으로만 간다(UPSERT 의 WHERE 절)'
 }
+
+Table user_tombstones {
+  user_id uuid [pk, note: 'Data 의 user.withdrawn 으로 확정된 탈퇴자 (V2, GROMO-1943)']
+  auth_generation bigint [not null, note: '탈퇴 세대. 중복·역순 사건이 폐기를 되돌리지 못하게 GREATEST 로만 전진']
+  withdrawn_at "timestamp(6) with time zone" [not null, note: '이 서비스가 폐기를 확정한 시각']
+
+  Note: '탈퇴자 커서 파기 + 이후 커서 쓰기 차단(GROMO-1943) + 보존 메시지 발신자 치환(GROMO-1946)의 근거. 읽음 위치·방 목록 원문은 복사하지 않는다. 보존 기간 정책 전이라 TTL 없음'
+}

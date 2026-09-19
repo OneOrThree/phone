@@ -5,6 +5,7 @@ import com.oneorthree.phone.group.repository.domain.IslandJoinRequestStatus;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.QueryHint;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -60,6 +61,36 @@ public interface IslandJoinRequestRepository extends JpaRepository<IslandJoinReq
     @Query("SELECT r FROM IslandJoinRequest r WHERE r.id = :id AND r.applicant.id = :applicantId")
     Optional<IslandJoinRequest> findByIdAndApplicantIdForUpdate(
             @Param("id") UUID id, @Param("applicantId") UUID applicantId);
+
+    /**
+     * 방장의 승인·거절 대상 잠금 (GROMO-1802, 섬 관리 LLD §3.4) — 섬까지 묶어 찾는다. 다른 섬의
+     * requestId 는 존재 여부와 무관하게 「없음」이다. 신청자 취소와 같은 행 잠금이라 한쪽만 전이한다.
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @QueryHints(@QueryHint(name = "jakarta.persistence.lock.timeout", value = "3000"))
+    @Query("SELECT r FROM IslandJoinRequest r WHERE r.id = :id AND r.island.id = :islandId")
+    Optional<IslandJoinRequest> findByIdAndIslandIdForUpdate(
+            @Param("id") UUID id, @Param("islandId") UUID islandId);
+
+    /**
+     * 승인 전에 신청자 users 행을 먼저 잠그려고 신청자만 미리 읽는다 — 잠금 순서가
+     * {@code users → groups → join_request} 라 요청 행을 잠근 뒤에는 users 를 잡을 수 없다.
+     * 판정 근거가 아니다: 전이는 잠금 아래 다시 읽은 행으로 한다.
+     */
+    @Query("SELECT r.applicant.id FROM IslandJoinRequest r WHERE r.id = :id AND r.island.id = :islandId")
+    Optional<UUID> findApplicantIdByIdAndIslandId(@Param("id") UUID id, @Param("islandId") UUID islandId);
+
+    /**
+     * 방장의 신청자 목록 한 페이지 (GROMO-1802, 섬 관리 LLD §3.3) — {@code (createdAt, id)} keyset 이다.
+     * 첫 페이지는 호출측이 어떤 행보다도 이른 경계를 넘긴다.
+     */
+    @EntityGraph(attributePaths = "applicant")
+    @Query("SELECT r FROM IslandJoinRequest r WHERE r.island.id = :islandId AND r.status = :status"
+            + " AND (r.createdAt > :afterCreatedAt OR (r.createdAt = :afterCreatedAt AND r.id > :afterId))"
+            + " ORDER BY r.createdAt, r.id")
+    List<IslandJoinRequest> findPageByIslandIdAndStatus(@Param("islandId") UUID islandId,
+            @Param("status") IslandJoinRequestStatus status, @Param("afterCreatedAt") Instant afterCreatedAt,
+            @Param("afterId") UUID afterId, Pageable pageable);
 
     /**
      * 섬 종결 처리용 — 그 섬의 열린 요청 전부를 배타 잠금으로 집는다. 호출측은 이미 그룹 행을

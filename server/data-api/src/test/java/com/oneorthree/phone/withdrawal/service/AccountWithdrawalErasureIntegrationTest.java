@@ -13,6 +13,7 @@ import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.domain.PinnedUser;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
+import com.oneorthree.phone.group.repository.domain.GroupAnnouncementComment;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant;
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
@@ -70,7 +71,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 계정 LLD §4 탈퇴 파기 전수 (GROMO-1801) — 모든 Data 대상 테이블에 탈퇴자(W)·상대(C)·제3자(T)의 행을 심고,
- * 실제 Flyway(V1~V65)·{@code ddl-auto=validate} 스키마에서 탈퇴 한 번 뒤 W 의 행은 지워지거나 비워지고
+ * 실제 Flyway(V1~V66)·{@code ddl-auto=validate} 스키마에서 탈퇴 한 번 뒤 W 의 행은 지워지거나 비워지고
  * C·T 의 자기 행은 그대로인지 본다. 테이블은 테스트가 만들지 않는다 — 운영 마이그레이션이 만든다.
  */
 @SpringBootTest
@@ -119,6 +120,11 @@ class AccountWithdrawalErasureIntegrationTest {
         assertThat(row("select user_id, title from group_announcements where id=?", s.wAnnouncement()))
                 .containsEntry("user_id", null).containsEntry("title", "W공지");
         assertThat(uuid("select user_id from group_announcements where id=?", s.cAnnouncement())).isEqualTo(c.id());
+        // group_announcement_comments — users 는 소프트 삭제라 FK SET NULL 이 안 돈다. 작성자만 명시적으로 끊고 본문은 남긴다
+        assertThat(row("select author_id, text from group_announcement_comments where id=?", s.wComment()))
+                .containsEntry("author_id", null).containsEntry("text", "W댓글");
+        assertThat(uuid("select author_id from group_announcement_comments where id=?", s.cComment()))
+                .isEqualTo(c.id());
 
         // notification_sent_logs — W 수신 전부·W 상대 친구 알림은 삭제, 타인 추월은 상대만 null
         assertThat(count("select count(*) from notification_sent_logs where user_id=?", w.id())).isZero();
@@ -286,7 +292,8 @@ class AccountWithdrawalErasureIntegrationTest {
                         UUID otherLog, UUID otherSubject, UUID wParticipant, UUID cParticipant,
                         UUID wMembership, UUID cMembership, UUID otherInvite, UUID otherFriendship,
                         UUID wFocusSession, UUID cFocusSession, UUID cTag, UUID wLink, UUID cLink,
-                        UUID clickOnWLink, UUID wClaimedClick, UUID wAttempt, UUID cAttempt) {
+                        UUID clickOnWLink, UUID wClaimedClick, UUID wAttempt, UUID cAttempt,
+                        UUID wComment, UUID cComment) {
     }
 
     private Seed seed(UUID wId, UUID cId, UUID tId) {
@@ -321,6 +328,10 @@ class AccountWithdrawalErasureIntegrationTest {
                     .content("본문").build();
             em.persist(wNotice);
             em.persist(cNotice);
+            GroupAnnouncementComment wComment = new GroupAnnouncementComment(cNotice.getId(), w.getId(), "W댓글");
+            GroupAnnouncementComment cComment = new GroupAnnouncementComment(wNotice.getId(), c.getId(), "C댓글");
+            em.persist(wComment);
+            em.persist(cComment);
             em.persist(GroupInvite.builder().group(group).inviter(c).invitee(w).build());
             em.persist(GroupInvite.builder().group(group).inviter(w).invitee(c).build());
             GroupInvite otherInvite = GroupInvite.builder().group(group).inviter(c).invitee(t).build();
@@ -443,7 +454,8 @@ class AccountWithdrawalErasureIntegrationTest {
             return new Seed(wNotice.getId(), cNotice.getId(), friendAboutW.getId(), overtakeAboutW.getId(),
                     other.getId(), otherSubject, wPart.getId(), cPart.getId(), wMember.getId(), cMember.getId(),
                     otherInvite.getId(), otherFriendship.getId(), wSession.getId(), cSession.getId(), cTag.getId(),
-                    wLink.getId(), cLink.getId(), clickOnWLink.getId(), wClaimed.getId(), wAttempt, cAttempt);
+                    wLink.getId(), cLink.getId(), clickOnWLink.getId(), wClaimed.getId(), wAttempt, cAttempt,
+                    wComment.getId(), cComment.getId());
         });
     }
 

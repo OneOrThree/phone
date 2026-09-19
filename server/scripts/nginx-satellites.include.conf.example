@@ -37,6 +37,9 @@ location = /actuator { return 404; }
 # 섬 건설(GROMO-1767)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/construction-options · PUT /islands/{islandId}/construction-target ·
 # POST /islands/{islandId}/constructions.
+# 섬 게시판(GROMO-1771)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET·POST /islands/{islandId}/notices · GET·PATCH·DELETE /islands/{islandId}/notices/{noticeId} ·
+# POST /islands/{islandId}/notices/{noticeId}/comments. 네 쓰기는 Data 의 게이트가 BQ02·BQ03 전까지 503 이다.
 # 같이 낚시 초기 스냅샷(GROMO-1765)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/focus-members · GET /islands/{islandId}/rest-members.
 # 친구(GROMO-1894)도 아래 friends 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. friends 분기:
@@ -51,6 +54,10 @@ location = /actuator { return 404; }
 # me 분기: GET·DELETE /me/join-requests/{requestId}. invitations 분기: POST /invitations/resolve.
 # 계정(GROMO-1801)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. me 분기: GET /me ·
 # PATCH /me · DELETE /me.
+# 섬 관리·주민(GROMO-1802)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# PATCH /islands/{islandId} · GET /islands/{islandId}/members · GET /islands/{islandId}/join-requests ·
+# PATCH /islands/{islandId}/join-requests/{requestId} · DELETE /islands/{islandId}/members/{userId} ·
+# DELETE /islands/{islandId}/memberships/me. 명령 4종은 Data 의 관리 gate 가 기본 503 이다.
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;
