@@ -1605,7 +1605,14 @@ export function RedesignScreens({ e }: any) {
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
     return (
       <View style={{ flex: 1 }}>
-        <IslandHome state={state} go={go} build={build} request={e.walkRequest} />
+        <IslandHome
+          state={state}
+          go={go}
+          build={build}
+          request={e.walkRequest}
+          notify={notify}
+          dispatch={dispatch}
+        />
         {hallGuide && (
           <GuideBox
             text={`제일 먼저 섬의 관리를 위한 마을회관부터 지어보자.\n물고기 ${costs.hall}마리만 모아줘!`}

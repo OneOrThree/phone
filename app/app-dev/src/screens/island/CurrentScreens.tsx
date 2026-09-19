@@ -6,6 +6,8 @@ import {
   Building,
   Route,
   currentIsland,
+  viewIsland,
+  canVisit,
   buildingNames,
   costs,
   buildMinutes,
@@ -174,6 +176,21 @@ export function CurrentScreens({ e }: any) {
         <Btn title="첫 섬 선택으로" onPress={() => e.reset('chooseIsland')} />
       </Overlay>
     );
+  // 구경 중에는 구경하는 섬의 홈·회관 정보·게시판 열람과 돌아가는 배만 연다(허용 목록).
+  // 나머지는 내 섬 화면이 섞이거나 섬 상태가 꼬이지 않게 모두 막는다
+  if (
+    state.visitingIslandId &&
+    !['home', 'manage', 'members', 'board', 'notice', 'quest', 'travel'].includes(r)
+  )
+    return (
+      <Overlay
+        close={e.home}
+        background={<FinalIsland state={state} go={e.go} build={e.build} showActions={false} />}
+      >
+        <Txt kind="h17">주민만 이용할 수 있어요</Txt>
+        <Btn title="확인" onPress={e.home} />
+      </Overlay>
+    );
   const locked: Partial<Record<Route, Building>> = {
     library: 'library',
     diary: 'library',
@@ -197,7 +214,7 @@ export function CurrentScreens({ e }: any) {
     sound: 'gram',
   };
   const required = locked[r];
-  if (required && !i.buildings.includes(required))
+  if (required && !viewIsland(state).buildings.includes(required))
     return (
       <Overlay
         close={e.home}
@@ -240,7 +257,8 @@ export function CurrentScreens({ e }: any) {
     return (
       <>
         <InteriorRoute e={e} />
-        <RewardModal e={e} />
+        {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
+        {!state.visitingIslandId && <RewardModal e={e} />}
       </>
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
@@ -293,6 +311,10 @@ function Travel({ e }: any) {
           e.replace('guide');
         } else if (target.joined) {
           e.dispatch({ type: 'SWITCH_ISLAND', id: target.id });
+          e.home();
+        } else if (canVisit(s, target.id)) {
+          // 미가입 섬은 방문자로 내려 그 섬 홈을 구경한다
+          e.dispatch({ type: 'VISIT', id: target.id });
           e.home();
         } else e.replace('visit', target.id);
       }}

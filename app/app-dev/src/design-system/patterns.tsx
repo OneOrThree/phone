@@ -187,6 +187,10 @@ export function Btn({
           ...(kind === 'destructive'
             ? { backgroundColor: componentTokens.button.destructiveBackground }
             : {}),
+          // butter = 노랑 주요 버튼(방문 중 원래 섬으로). 기본 버튼과 같은 그림자를 둔다
+          ...(kind === 'butter'
+            ? { backgroundColor: C.butter, boxShadow: disabled ? 'none' : `0px 4px 0px ${C.brown}` }
+            : {}),
         }}
       >
         <Txt
@@ -194,7 +198,7 @@ export function Btn({
             fontSize: round || dialog ? 15 : small ? 14 : 16,
             ...(round ? { lineHeight: 18 } : {}),
             // v2 홈 집중하기(원형)는 보통 굵기
-            fontWeight: round ? '400' : kind ? '700' : '800',
+            fontWeight: round ? '400' : kind && kind !== 'butter' ? '700' : '800',
             color:
               kind === 'danger'
                 ? componentTokens.button.destructiveBorder
