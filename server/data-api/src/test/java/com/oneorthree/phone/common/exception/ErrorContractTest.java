@@ -135,7 +135,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 182개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 183개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -190,8 +190,10 @@ class ErrorContractTest {
         // 접지 않는다.
         // GROMO-1802 가 섬 관리 명령 게이트 1개를 더했다(GroupErrorCode.ISLAND_MANAGEMENT_NOT_READY 503) —
         // 위임 게이트 REALTIME_NOT_READY 와 같은 503 이지만 스위치가 달라 하나만 먼저 여는 날 구분해야 한다.
-        assertThat(tests).as("실측 기준 도메인 상수 167개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트 포함")
-                .hasSize(182);
+        // GROMO-1934 가 공통 코드 1개(RATE_LIMITED, 429)를 더했다 — 게스트 친구 요청 · 전 계정 편지 발송의 계정당
+        // 시간 한도. 두 도메인이 같은 코드를 쓰고 Business 공개 표의 같은 이름으로 옮겨지므로 공통이 소유한다.
+        assertThat(tests).as("실측 기준 도메인 상수 167개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·계정 레이트리밋 포함")
+                .hasSize(183);
         return tests;
     }
 
@@ -209,6 +211,20 @@ class ErrorContractTest {
     }
 
     @Test
+    @DisplayName("계정 레이트리밋은 429 RATE_LIMITED 에 상대 지연(ms)과 올림한 Retry-After(초)를 싣는다")
+    void rateLimitedCarriesDelayInBodyAndHeader() {
+        ResponseEntity<RetryAfterErrorResponse> response = handler.handleRateLimited(new RateLimitedException(1500L));
+
+        assertThat(response.getStatusCode().value()).isEqualTo(429);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("RATE_LIMITED");
+        assertThat(response.getBody().getMessage()).isEqualTo(CommonErrorCode.RATE_LIMITED.getMessage());
+        assertThat(response.getBody().getRetryAfterMs()).isEqualTo(1500L);
+        // 1.5초 → 2초. 내림하면 1초 뒤 재시도가 아직 닫힌 창에 부딪힌다.
+        assertThat(response.getHeaders().getFirst("Retry-After")).isEqualTo("2");
+    }
+
+    @Test
     @DisplayName("도메인별 핸들러가 다시 생기지 않는다 — DomainException 을 잡는 핸들러는 하나뿐이다")
     void onlyOneHandlerCatchesDomainExceptions() {
         List<String> domainHandlers = new ArrayList<>();
@@ -218,8 +234,9 @@ class ErrorContractTest {
                 continue;
             }
             for (Class<? extends Throwable> t : ann.value()) {
-                // 재시도 하위 타입은 봉투 모양이 달라 전용 핸들러가 정당하다 — 그것 하나만 예외
-                if (DomainException.class.isAssignableFrom(t) && t != ChallengeResultClaimHeldException.class) {
+                // 재시도 하위 타입은 봉투 모양이 달라 전용 핸들러가 정당하다 — 그 둘만 예외
+                if (DomainException.class.isAssignableFrom(t) && t != ChallengeResultClaimHeldException.class
+                        && t != RateLimitedException.class) {
                     domainHandlers.add(m.getName() + "(" + t.getSimpleName() + ")");
                 }
             }

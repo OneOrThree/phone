@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -16,8 +17,8 @@ import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.letter.repository.domain.Letter;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
@@ -45,11 +46,11 @@ import java.util.UUID;
  *
  * <h2>게스트 분기가 없다</h2>
  * 재영님 확정(2026-09-18, LLD §4 결정 1 = A): 게스트도 완전히 동일하다. {@code User.isGuest} 를 읽는 곳이
- * 이 클래스에 <b>한 곳도 없어야</b> 한다 — 스팸 방어는 GROMO-1934 의 몫이고 여기서 미리 막지 않는다.
+ * 이 클래스에 <b>한 곳도 없어야</b> 한다 — 스팸 방어(GROMO-1934)도 게스트를 가리지 않고 전 계정에 같은
+ * 시간 한도를 건다({@link #send}).
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class InternalLetterService {
 
     /** 편지함이 파라미터 없이 불릴 때의 기본 페이지 크기 (LLD §1.13). */
@@ -65,6 +66,25 @@ public class InternalLetterService {
     private final FriendshipRepository friendships;
     private final GroupMemberRepository islandMemberships;
     private final IslandFacilityQueryService islandFacilityQueryService;
+    private final PerUserHourlyLimiter sendLimiter;
+
+    /**
+     * 한도 카운터가 친구 요청 것과 같은 타입이라 이름으로 골라 받는다 — Lombok 생성자는 {@code @Qualifier} 를
+     * 옮기지 않아 손으로 쓴다.
+     *
+     * @param sendLimiter 편지 발송 계정당 시간 한도(GROMO-1934) — 게스트 구분 없이 전 계정
+     */
+    public InternalLetterService(LetterRepository letters, UserQueryService users, FriendshipRepository friendships,
+                                 GroupMemberRepository islandMemberships,
+                                 IslandFacilityQueryService islandFacilityQueryService,
+                                 @Qualifier("letterSendRateLimiter") PerUserHourlyLimiter sendLimiter) {
+        this.letters = letters;
+        this.users = users;
+        this.friendships = friendships;
+        this.islandMemberships = islandMemberships;
+        this.islandFacilityQueryService = islandFacilityQueryService;
+        this.sendLimiter = sendLimiter;
+    }
 
     /**
      * 편지 보내기 (LLD §1.12). 검증 순서는 {@code FriendService.createRequest} 를 그대로 따른다 —
@@ -78,6 +98,7 @@ public class InternalLetterService {
      * @return 방금 만든 편지. {@code readAt} 은 항상 null 이다
      * @throws LetterException {@code SELF_LETTER}(400) · {@code LETTER_CONTENT_BLANK}(400) ·
      *     {@code LETTER_CONTENT_OUT_OF_RANGE}(400) · {@code LETTER_RECIPIENT_NOT_FRIEND}(404)
+     * @throws com.oneorthree.phone.common.exception.RateLimitedException {@code RATE_LIMITED}(429) — 계정당 시간 한도
      */
     @Transactional
     public LetterView send(UUID senderId, LetterSendRequest body) {
@@ -91,6 +112,8 @@ public class InternalLetterService {
         if (friendships.findAcceptedBetween(sender, receiver).isEmpty()) {
             throw new LetterException(LetterErrorCode.LETTER_RECIPIENT_NOT_FRIEND);
         }
+        // 한도는 판정을 다 통과한 «쓰기 직전»에 센다(GROMO-1934) — 거절될 요청까지 세면 오타 몇 번에 막힌다.
+        sendLimiter.acquire(senderId);
 
         Letter saved = letters.save(Letter.builder()
                 .sender(sender)
