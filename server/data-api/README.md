@@ -16,7 +16,7 @@ Data API는 계정, 집중 세션, 스크린타임, 친구·그룹, 캐릭터·�
 | 캐릭터 · 아이템 · 재화 | 소유·장착·구매·보상·원장 |
 | 정산 · 비동기 전달 | 예약 작업, ShedLock 실행 잠금, outbox와 위성 이관 |
 
-신규 공개 API 전체가 전환된 상태는 아닙니다. 예를 들어 새 방장 위임 경로는 명령 기반이 있으나 `island-management.host-transfer-enabled`의 기본값이 false이며, 실시간 전달 준비 전에는 활성화하지 않습니다.
+신규 공개 API 전체가 전환된 상태는 아닙니다. 예를 들어 새 방장 위임 경로는 명령 기반이 있으나 `island-management.host-transfer-enabled`의 기본값이 false이며, 실시간 전달 준비 전에는 활성화하지 않습니다. 섬 관리 명령 4종(정보 수정·가입 승인/거절·강퇴·나가기, GROMO-1802)도 같은 이유로 `island-management.commands-enabled` 기본값이 false입니다.
 
 ## 2. 데이터 처리 구조
 

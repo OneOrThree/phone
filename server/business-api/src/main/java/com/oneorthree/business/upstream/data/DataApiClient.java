@@ -23,6 +23,9 @@ import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
+import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.IslandManaged;
+import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
@@ -37,6 +40,7 @@ import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
 import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
+import com.oneorthree.business.upstream.data.dto.JoinRequestAnswer;
 import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MailboxViewer;
@@ -158,6 +162,12 @@ public class DataApiClient {
     private static final String PATH_MY_APPEARANCE = "/internal/users/{userId}/appearance";
     private static final String PATH_ISLAND_INVENTORY = "/internal/islands/{islandId}/inventory";
     private static final String PATH_ISLAND_APPEARANCE = "/internal/islands/{islandId}/appearance";
+    // GROMO-1802 섬 관리·주민 6종 — 섬 자원은 `/internal` + 공개 경로, 본인 나가기만 사용자 축(B26).
+    private static final String PATH_ISLAND_MEMBERS = "/internal/islands/{islandId}/members";
+    private static final String PATH_ISLAND_MEMBER = "/internal/islands/{islandId}/members/{targetUserId}";
+    private static final String PATH_ISLAND_JOIN_REQUESTS = "/internal/islands/{islandId}/join-requests";
+    private static final String PATH_ISLAND_JOIN_REQUEST = "/internal/islands/{islandId}/join-requests/{requestId}";
+    private static final String PATH_ISLAND_MEMBERSHIP = "/internal/users/{userId}/islands/{islandId}/membership";
 
     private final InternalHttpClient http;
 
@@ -1199,6 +1209,91 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandRestMembers>() { });
+    }
+
+    /**
+     * 섬 정보 수정 (GROMO-1802, 섬 관리 LLD §3.1). 본문은 앱이 보낸 필드만 담는다 — 키 부재가 «미변경» 이라
+     * null 로 채워 보내면 상류가 명시 null 로 읽고 거절한다.
+     */
+    public IslandManaged manageIsland(UUID userId, UUID islandId, Map<String, Object> fields, UUID key,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PATCH, islandPath(PATH_ISLAND, islandId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(fields)
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandManaged>() { });
+    }
+
+    /** 주민 목록 한 페이지 (GROMO-1802, 섬 관리 LLD §3.2). 경계는 Business 가 서명 커서에서 꺼낸 평문이다. */
+    public IslandMembersPage fetchIslandMembers(UUID userId, UUID islandId, Instant afterJoinedAt,
+            UUID afterMembershipId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_ISLAND_MEMBERS, islandId))
+                        .onBehalfOf(userId)
+                        .query("afterJoinedAt", afterJoinedAt == null ? null : afterJoinedAt.toString())
+                        .query("afterMembershipId", afterMembershipId == null ? null : afterMembershipId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandMembersPage>() { });
+    }
+
+    /** 신청자 목록 한 페이지 (GROMO-1802, 섬 관리 LLD §3.3). 방장 판정은 상류가 한다. */
+    public IslandJoinRequestsPage fetchIslandJoinRequests(UUID userId, UUID islandId, Instant afterCreatedAt,
+            UUID afterRequestId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_ISLAND_JOIN_REQUESTS, islandId))
+                        .onBehalfOf(userId)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterRequestId", afterRequestId == null ? null : afterRequestId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandJoinRequestsPage>() { });
+    }
+
+    /** 가입 요청 승인·거절 (GROMO-1802, 섬 관리 LLD §3.4). 같은 키는 상류 receipt 가 재생한다. */
+    public JoinRequestAnswer answerJoinRequest(UUID userId, UUID islandId, UUID requestId, String decision,
+            UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.PATCH, islandPath(PATH_ISLAND_JOIN_REQUEST, islandId)
+                                .replace("{requestId}", requestId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(Map.of("decision", decision))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<JoinRequestAnswer>() { });
+    }
+
+    /** 주민 강퇴 (GROMO-1802, 섬 관리 LLD §3.6). */
+    public JsonNode kickIslandMember(UUID userId, UUID islandId, UUID targetUserId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE, islandPath(PATH_ISLAND_MEMBER, islandId)
+                                .replace("{targetUserId}", targetUserId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<JsonNode>() { });
+    }
+
+    /** 본인 나가기 (GROMO-1802, 섬 관리 LLD §3.7) — 사용자 축 경로다. */
+    public JsonNode leaveIsland(UUID userId, UUID islandId, UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE, islandPath(userPath(PATH_ISLAND_MEMBERSHIP, userId), islandId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<JsonNode>() { });
     }
 
     /**

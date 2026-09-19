@@ -148,6 +148,19 @@ public class UserQueryService {
     }
 
     /**
+     * 활성 유저 조회 — <b>공유 락</b>, 없으면 빈 값. 부재가 정상 흐름(스킵)인 읽기 트랜잭션용이다.
+     *
+     * <p>예: 비동기 알림의 발송 기록은 호출자가 없어 404 를 돌려줄 곳이 없다 — 탈퇴가 먼저 커밋됐으면
+     * 기록만 건너뛴다(GROMO-1944). 던지는 쪽이 필요하면 {@link #getCallerForShare}·{@link #getTargetForShare}.
+     *
+     * @param id 조회 대상
+     * @return 잠긴 활성 유저. 락 대기 중 탈퇴가 커밋되면 술어 재평가로 빈 값이 된다(GROMO-1230)
+     */
+    public Optional<User> findActiveForShare(UUID id) {
+        return userRepository.findActiveByIdForShare(id);
+    }
+
+    /**
      * 요청이 지목한 활성 유저 — <b>공유 락</b>. users 를 읽기만 하는 트랜잭션에서 쓴다.
      *
      * @param id 조회 대상
