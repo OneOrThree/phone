@@ -718,7 +718,7 @@ public class GroupBetService {
                     .creatorUserId(participants.stream()
                             .min(Comparator.comparing(GroupChallengeBetParticipant::getCreatedAt)
                                     .thenComparing(GroupChallengeBetParticipant::getId))
-                            .map(p -> p.getUser().getId())
+                            .map(p -> publicUserId(p.getUser()))
                             .orElse(null))
                     .date(session.getSessionDate())
                     .stake(session.getStake())
@@ -731,7 +731,8 @@ public class GroupBetService {
                     .myAchievedNow(myAchievedNow)
                     .participants(participants.stream()
                             .map(p -> GroupBetParticipantResponse.builder()
-                                    .userId(p.getUser().getId())
+                                    .userId(publicUserId(p.getUser()))
+                                    .participantId(p.getId())
                                     .nickname(displayNickname(p.getUser()))
                                     .build())
                             .toList())
@@ -862,7 +863,8 @@ public class GroupBetService {
                             ChallengeMemberProgressResponse progress =
                                     progressByUser.get(p.getUser().getId());
                             return GroupBetSessionParticipantResponse.builder()
-                                    .userId(p.getUser().getId())
+                                    .userId(publicUserId(p.getUser()))
+                                    .participantId(p.getId())
                                     .nickname(displayNickname(p.getUser()))
                                     .progressMinutes(progress != null ? progress.getProgressMinutes() : null)
                                     .achieved(progress != null ? progress.getAchieved() : null)
@@ -1143,7 +1145,8 @@ public class GroupBetService {
             List<GroupChallengeBetParticipant> participants) {
         return participants.stream()
                 .map(p -> GroupBetResultParticipantResponse.builder()
-                        .userId(p.getUser().getId())
+                        .userId(publicUserId(p.getUser()))
+                        .participantId(p.getId())
                         .nickname(displayNickname(p.getUser()))
                         .achieved(p.getAchieved())
                         .payout(p.getPayout())
@@ -1158,6 +1161,15 @@ public class GroupBetService {
      */
     static String displayNickname(User user) {
         return user.isDeleted() ? WITHDRAWN_USER_NICKNAME : user.getNickname();
+    }
+
+    /**
+     * 명단 공개용 사용자 id — 탈퇴자는 null (GROMO-1946 · 계정 LLD §4 「내기 정산 결과 공개 DTO」).
+     * {@link #displayNickname} 과 같은 출력 층 단일 지점이다. 내부 정산·중복 지급·본인 판정은 참가 행의
+     * 실제 {@code user_id} 를 그대로 쓴다 — 이 값으로 바꾸면 안 된다.
+     */
+    static UUID publicUserId(User user) {
+        return user.isDeleted() ? null : user.getId();
     }
 
     private Map<UUID, List<GroupChallengeBetParticipant>> participantsBySession(

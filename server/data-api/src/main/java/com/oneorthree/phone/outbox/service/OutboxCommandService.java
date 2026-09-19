@@ -157,6 +157,14 @@ public class OutboxCommandService implements OutboxCommandPort {
         return new IdempotentOutcome<>(value, false);
     }
 
+    @Override
+    @Transactional(propagation = Propagation.MANDATORY)
+    public int eraseWithdrawnParam(UUID userId, String type, String paramKey) {
+        // 전달 행이 먼저다 — 고친 행을 잠근 채로 봉투 쪽 「재전달 대기 없음」을 판정해야 둘이 어긋나지 않는다.
+        deliveryRepository.eraseParamOfResendSafe(userId, type, paramKey);
+        return eventOutboxRepository.eraseParamOfResendSafe(userId, type, paramKey);
+    }
+
     /**
      * 저장된 응답을 되살린다 — 본문 지문이 다르면 재생하지 않고 거부한다.
      *

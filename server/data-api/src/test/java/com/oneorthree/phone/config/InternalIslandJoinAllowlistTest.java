@@ -36,7 +36,7 @@ class InternalIslandJoinAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalIslandJoinController.class);
 
-        assertThat(routes).as("5종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(5);
+        assertThat(routes).as("6종이 모두 잡혔는지(GROMO-1895 목록 포함) — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(6);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -47,7 +47,10 @@ class InternalIslandJoinAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
 
         assertThat(allows(allow, "PUT /internal/users/" + ID + "/join-requests/" + ID)).isFalse();
-        assertThat(allows(allow, "GET /internal/users/" + ID + "/join-requests")).isFalse();
+        // GROMO-1895 로 목록 GET 은 열렸다 — 같은 컬렉션의 다른 메서드는 여전히 닫혀 있다.
+        assertThat(allows(allow, "GET /internal/users/" + ID + "/join-requests")).isTrue();
+        assertThat(allows(allow, "POST /internal/users/" + ID + "/join-requests")).isFalse();
+        assertThat(allows(allow, "DELETE /internal/users/" + ID + "/join-requests")).isFalse();
         assertThat(allows(allow, "DELETE /internal/users/" + ID + "/islands/" + ID + "/memberships")).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/invitations/resolve")).isFalse();
     }

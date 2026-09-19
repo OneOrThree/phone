@@ -47,5 +47,5 @@ Table user_tombstones {
   auth_generation bigint [not null, note: '탈퇴 세대. 중복·역순 사건이 폐기를 되돌리지 못하게 GREATEST 로만 전진']
   withdrawn_at "timestamp(6) with time zone" [not null, note: '이 서비스가 폐기를 확정한 시각']
 
-  Note: '탈퇴자 커서 파기 + 이후 커서 쓰기 차단의 근거. 읽음 위치·방 목록 원문은 복사하지 않는다. 보존 기간 정책 전이라 TTL 없음'
+  Note: '탈퇴자 커서 파기 + 이후 커서 쓰기 차단(GROMO-1943) + 보존 메시지 발신자 치환(GROMO-1946)의 근거. 읽음 위치·방 목록 원문은 복사하지 않는다. 보존 기간 정책 전이라 TTL 없음'
 }
