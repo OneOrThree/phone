@@ -162,6 +162,7 @@ export const assets: Record<string, ImageSourcePropType> = {
   'characters/cat/calico/fishing/fishing-frame-2.png': require('@/assets/characters/cat/calico/fishing/fishing-frame-2.png'),
   'characters/cat/calico/fishing/fishing-frame-3.png': require('@/assets/characters/cat/calico/fishing/fishing-frame-3.png'),
   'props/fishing/catch/pile-large.png': require('@/assets/props/fishing/catch/pile-large.png'),
+  'props/fishing/catch/pile-medium.png': require('@/assets/props/fishing/catch/pile-medium.png'),
   'props/fishing/catch/pile-small.png': require('@/assets/props/fishing/catch/pile-small.png'),
   'props/fishing/catch/single.png': require('@/assets/props/fishing/catch/single.png'),
   'characters/cat/calico/fishing/reel-frame-3.png': require('@/assets/characters/cat/calico/fishing/reel-frame-3.png'),

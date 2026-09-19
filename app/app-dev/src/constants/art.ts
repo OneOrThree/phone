@@ -60,3 +60,5 @@ export const art: Record<string, ImageSourcePropType> = {
 };
 
 Object.assign(art, referenceArt);
+art.fish = require('@/assets/redesign/fish.png');
+art['fish/gold'] = require('@/assets/redesign/fish-gold.png');

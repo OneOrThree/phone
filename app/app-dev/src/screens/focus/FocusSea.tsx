@@ -15,6 +15,7 @@ import { assets, cat } from '@/constants/assets';
 import Svg, { Path, Ellipse } from 'react-native-svg';
 import { C, T } from '@/design-system/primitives';
 import { State, sessionSeconds, currentIsland, Color, SECONDS_PER_FISH } from '@/services/model';
+import { catchAssetPath } from '@/screens/focus/catchAssets';
 export const clock = (n: number) =>
   `${Math.floor(n / 60)
     .toString()
@@ -142,33 +143,19 @@ function FishingBoat({
           strokeWidth={0.6}
         />
       </Svg>
-      {caught > 0 &&
-        (caught < 40 ? (
-          Array.from({ length: caught }, (_, i) => (
-            <Image
-              key={i}
-              source={assets['props/fishing/catch/single.png']}
-              style={{
-                position: 'absolute',
-                width: 20,
-                height: 20,
-                bottom: 25 + Math.floor(i / 4) * 9,
-                left: 38 + (i % 4) * 10,
-              }}
-            />
-          ))
-        ) : (
-          <Image
-            source={assets[`props/fishing/catch/${caught < 120 ? 'pile-small' : 'pile-large'}.png`]}
-            style={{
-              position: 'absolute',
-              width: 60,
-              height: 45,
-              bottom: 18,
-              left: 38,
-            }}
-          />
-        ))}
+      {caught > 0 && (
+        <Image
+          source={assets[catchAssetPath(caught)]}
+          resizeMode="contain"
+          style={{
+            position: 'absolute',
+            width: 64,
+            height: 64,
+            bottom: 12,
+            left: 36,
+          }}
+        />
+      )}
       {phase && (
         <Animated.Image
           source={assets['props/fishing/catch/single.png']}

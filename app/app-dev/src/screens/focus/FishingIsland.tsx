@@ -19,6 +19,7 @@ import { Color, SECONDS_PER_FISH } from '@/services/model';
 import { Grid, Point, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
 import land from '@/constants/fishing-island.json';
+import { catchAssetPath } from '@/screens/focus/catchAssets';
 
 // v2 시안 낚시섬(focus-island-flow): 좌표는 지도 가로·세로 % (0~100). 지도는 섬 그림(1536×1024) 비율 그대로.
 // 땅 격자는 시안 land_mask 와 같은 50×50 칸(파란 칸 = 물).
@@ -590,18 +591,14 @@ export function FishingActor({
       </View>
       {count > 0 && (
         <Image
-          source={
-            assets[
-              `props/fishing/catch/${count >= 24 ? 'pile-large' : count >= 8 ? 'pile-small' : 'single'}.png`
-            ]
-          }
+          source={assets[catchAssetPath(count)]}
           resizeMode="contain"
           style={{
             position: 'absolute',
-            left: -a * 0.58,
-            bottom: -a * 0.09,
-            width: a * 0.6,
-            height: a * 0.6,
+            left: -a,
+            bottom: -a * 0.16,
+            width: a * 1.1,
+            height: a * 1.1,
           }}
         />
       )}
