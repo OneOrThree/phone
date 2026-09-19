@@ -123,6 +123,10 @@ class GroupServiceTest {
     @InjectMocks
     private GroupChallengeService groupChallengeService;
 
+    /** 소속 상실 ↔ 진행 집중 세션(GROMO-1924) — 실제 종결·거절은 실물 DB 통합 테스트가 본다. */
+    @Mock
+    private com.oneorthree.phone.focus.service.FocusMembershipLossService focusMembershipLossService;
+
     @InjectMocks
     private GroupMemberService groupMemberService;
 

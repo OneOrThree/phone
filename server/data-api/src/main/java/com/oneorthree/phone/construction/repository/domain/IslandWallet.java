@@ -17,7 +17,7 @@ import java.util.UUID;
 
 /**
  * 섬 공동 지갑 (정책 C05, D1) — 서버 통화 식별자는 {@code village_points} 다.
- * 개인 물고기({@code user_wallets})와 다른 축이며, 개인 fish 를 대신 차감하지 않는다.
+ * 개인 물고기({@code user_fish_wallets}, GROMO-1924)와 다른 축이며, 개인 fish 를 대신 차감하지 않는다.
  *
  * <p>PK 가 곧 섬 id 인 1:1 행이고, 잔액을 바꾸는 경로는 이 행을 배타 락으로 잡고 들어온다
  * ({@code user_wallets} 와 같은 방식). 잔액 표시용 읽기는 락 없이 해도 된다.

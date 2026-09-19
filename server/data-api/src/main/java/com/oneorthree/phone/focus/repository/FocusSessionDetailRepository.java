@@ -29,6 +29,16 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     Optional<FocusSessionDetail> findBySessionIdForUpdate(@Param("sessionId") UUID sessionId);
 
     /**
+     * 잠금 전 주인·섬 확인 — 엔티티를 올리지 않는 프로젝션이다({@link FocusSessionOwnership} 참조).
+     *
+     * @param sessionId 전이 대상 세션
+     * @return 주인·섬. 세션이 없으면 빈 값
+     */
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusSessionOwnership(d.userId, d.islandId) "
+            + "FROM FocusSessionDetail d WHERE d.sessionId = :sessionId")
+    Optional<FocusSessionOwnership> findOwnershipBySessionId(@Param("sessionId") UUID sessionId);
+
+    /**
      * 본인의 진행(active/paused) 세션 — user당 최대 1건(V58 부분 UNIQUE)이라 단건으로 받는다.
      *
      * @param userId      조회 주체
@@ -37,6 +47,29 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      */
     Optional<FocusSessionDetail> findFirstByUserIdAndLifecycleIn(
             UUID userId, Collection<FocusSessionLifecycle> lifecycles);
+
+    /**
+     * 소속 상실 종결용(FR-D03) — 그 섬에 걸린 진행 세션을 배타로 잠근다. 사용자당 진행은 최대 1건이다.
+     *
+     * @param userId     소속을 잃는 사용자
+     * @param islandId   잃는 섬
+     * @param lifecycles 진행 중으로 볼 lifecycle(ACTIVE, PAUSED)
+     * @return 잠긴 진행 세션. 그 섬의 진행 세션이 없으면 빈 값
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT d FROM FocusSessionDetail d WHERE d.userId = :userId AND d.islandId = :islandId "
+            + "AND d.lifecycle IN :lifecycles")
+    Optional<FocusSessionDetail> findProgressingByUserIdAndIslandIdForUpdate(
+            @Param("userId") UUID userId, @Param("islandId") UUID islandId,
+            @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles);
+
+    /**
+     * 자진 탈퇴 가드용 — 그 섬에 걸린 진행 세션이 있는가.
+     *
+     * @return 있으면 true
+     */
+    boolean existsByUserIdAndIslandIdAndLifecycleIn(
+            UUID userId, UUID islandId, Collection<FocusSessionLifecycle> lifecycles);
 
     /**
      * 섬 주민 스냅샷용(GROMO-1765) — 그 섬에 귀속된 진행 세션 중 지정한 사용자들의 것.
@@ -50,8 +83,8 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
             UUID islandId, Collection<FocusSessionLifecycle> lifecycles, Collection<UUID> userIds);
 
     /**
-     * 휴식 자리 배정용 —같은 섬에서 현재 paused인 사용자들이 쥔 자리 번호.
-     * 호출측이 {@code GroupQueryService.getGroupForUpdate}로 섬 행을 먼저 잠근 뒤 불러야
+     * 휴식 자리 배정용 — 같은 섬에서 현재 paused인 사용자들이 쥔 자리 번호.
+     * 호출측이 섬 행을 배타로 먼저 잠근 뒤 불러야
      * 동시 pause 두 건이 같은 최소 빈 번호를 고르지 않는다.
      *
      * @param islandId 자리를 배정할 섬

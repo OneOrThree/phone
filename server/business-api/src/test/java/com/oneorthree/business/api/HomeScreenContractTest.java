@@ -17,7 +17,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * {@code GET /screens/home} 계약 (GROMO-1897) — 섬 문맥(현재 섬 → 주민 상세) 뒤 집중 요약·현재 세션 병렬.
+ * {@code GET /screens/home} 계약 (GROMO-1897) — 섬 문맥(현재 섬 → 주민 상세) 뒤 집중 요약·현재 세션·휴식 주민 병렬.
  */
 class HomeScreenContractTest extends ScreenContractTestBase {
 
@@ -32,6 +32,11 @@ class HomeScreenContractTest extends ScreenContractTestBase {
             + "\"role\":\"host\",\"version\":3}";
     private static final String SUMMARY = "{\"date\":\"2026-09-17\",\"completedSeconds\":60,"
             + "\"currentSessionSecondsToday\":30,\"totalSeconds\":90,\"serverNow\":\"2026-09-17T00:00:00Z\"}";
+    private static final String REST = "{\"items\":[{\"userId\":\"" + USER + "\",\"name\":\"수아\","
+            + "\"restSeat\":1,\"restStartedAt\":\"2026-09-17T00:00:00Z\"}],"
+            + "\"serverNow\":\"2026-09-17T00:00:00Z\","
+            + "\"watermarks\":[{\"projection\":\"rest.member\",\"islandId\":\"" + ISLAND + "\","
+            + "\"aggregateId\":\"" + USER + "\",\"version\":2}]}";
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -41,6 +46,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_ISLAND, request -> ok("{\"scope\":\"member\",\"visitor\":null,\"member\":" + DETAIL + "}"));
         DATA.on(DATA_SUMMARY, request -> ok(SUMMARY));
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
+        DATA.on(DATA_REST, request -> ok(REST));
     }
 
     @Test
@@ -55,18 +61,20 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.island.version").value(3))
                 .andExpect(jsonPath("$.data.focusSummary.totalSeconds").value(90))
                 .andExpect(jsonPath("$.data.focusSummary.serverNow").value("2026-09-17T00:00:00Z"))
-                .andExpect(jsonPath("$.data.missingFragments[0]").value("restMembers"))
-                .andExpect(jsonPath("$.data.missingFragments[1]").value("wallets"))
-                .andExpect(jsonPath("$.data.missingFragments[2]").value("playback"))
+                .andExpect(jsonPath("$.data.restMembers.items[0].restSeat").value(1))
+                .andExpect(jsonPath("$.data.restMembers.watermarks[0].projection").value("rest.member"))
+                .andExpect(jsonPath("$.data.missingFragments.length()").value(2))
+                .andExpect(jsonPath("$.data.missingFragments[0]").value("wallets"))
+                .andExpect(jsonPath("$.data.missingFragments[1]").value("playback"))
                 .andReturn();
 
         assertKeys(result, "island", "focusSummary", "session", "restMembers", "wallets", "playback",
                 "playbackAvailability", "missingFragments");
         JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
-        for (String key : new String[] {"session", "restMembers", "wallets", "playback", "playbackAvailability"}) {
+        for (String key : new String[] {"session", "wallets", "playback", "playbackAvailability"}) {
             assertThat(data.get(key).isNull()).as(key + " 는 명시 null").isTrue();
         }
-        assertThat(DATA.hits(DATA_REST)).as("BG11 미결 — 휴식 주민을 부르지 않는다").isZero();
+        assertThat(DATA.hits(DATA_REST)).as("BG11 결정 — 현재 섬의 휴식 주민을 싣는다").isOne();
         assertThat(DATA.receivedFor(DATA_SUMMARY).get(0).query()).contains("date=2026-09-17", "timezone=Asia/Seoul");
         assertThat(DATA.received()).allSatisfy(forwarded ->
                 assertThat(forwarded.header("x-user-id")).as("주체는 서명 세션에서만").isEqualTo(USER.toString()));
@@ -81,7 +89,8 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error.code").value("STATE_CONFLICT"))
                 .andExpect(jsonPath("$.error.field").value("currentIslandId"));
-        assertThat(DATA.hits(DATA_ISLAND) + DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT)).isZero();
+        assertThat(DATA.hits(DATA_ISLAND) + DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT)
+                + DATA.hits(DATA_REST)).isZero();
     }
 
     @Test
@@ -94,7 +103,18 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"))
                 .andReturn().getResponse().getContentAsString();
         assertThat(body).doesNotContain("internal detail");
-        assertThat(DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT)).isZero();
+        assertThat(DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT) + DATA.hits(DATA_REST)).isZero();
+    }
+
+    @Test
+    @DisplayName("휴식 주민의 도메인 403 은 화면 전체 403 이다 — 빈 목록으로 줄이지 않는다")
+    void restMembersForbiddenFailsWholeScreen() throws Exception {
+        DATA.on(DATA_REST, request -> domainError(403, "MEMBER_ONLY"));
+
+        mockMvc.perform(auth(get("/screens/home")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.error.field").value("islandId"));
     }
 
     @Test
