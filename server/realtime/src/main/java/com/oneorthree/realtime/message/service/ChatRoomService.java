@@ -1,18 +1,14 @@
 package com.oneorthree.realtime.message.service;
 
-import com.oneorthree.realtime.common.id.UuidV7;
 import com.oneorthree.realtime.membership.MembershipService;
 import com.oneorthree.realtime.message.dto.ChatMessageResponse;
 import com.oneorthree.realtime.message.dto.ChatRoomResponse;
 import com.oneorthree.realtime.message.repository.ChatMessageRepository;
-import com.oneorthree.realtime.message.exception.ChatErrorCode;
 import com.oneorthree.realtime.message.exception.ChatException;
-import com.oneorthree.realtime.message.repository.ChatReadCursorRepository;
 import com.oneorthree.realtime.message.repository.domain.ChatMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -34,10 +30,9 @@ import java.util.stream.Collectors;
 public class ChatRoomService {
 
     private final ChatMessageRepository chatMessageRepository;
-    private final ChatReadCursorRepository chatReadCursorRepository;
     private final MembershipService membershipService;
     private final ChatAccessGuard accessGuard;
-    private final Clock clock;
+    private final ChatUserFence chatUserFence;
 
     /**
      * 내가 속한 섬 전부와, 각 섬에 쌓인 안 읽은 개수.
@@ -112,12 +107,7 @@ public class ChatRoomService {
      */
     public void markRead(UUID groupId, UUID userId, UUID lastReadMessageId, String bearerToken) {
         accessGuard.requireCanChat(groupId, userId, bearerToken);
-
-        if (!chatMessageRepository.existsByIdAndGroupId(lastReadMessageId, groupId)) {
-            throw new ChatException(ChatErrorCode.INVALID_CURSOR);
-        }
-
-        chatReadCursorRepository.upsertIfNewer(
-                UuidV7.next(), groupId, userId, lastReadMessageId, clock.instant());
+        // 소속 검사·UPSERT 는 탈퇴 tombstone 과 같은 사용자 잠금 아래에서 한다(GROMO-1943).
+        chatUserFence.writeReadCursor(groupId, userId, lastReadMessageId);
     }
 }
