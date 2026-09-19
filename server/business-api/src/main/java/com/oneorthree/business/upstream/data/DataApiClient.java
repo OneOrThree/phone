@@ -23,6 +23,7 @@ import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
+import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
@@ -55,6 +56,7 @@ import org.springframework.http.HttpMethod;
 import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -140,6 +142,10 @@ public class DataApiClient {
     private static final String PATH_CONSTRUCTION_OPTIONS = "/internal/islands/{islandId}/construction-options";
     private static final String PATH_CONSTRUCTION_TARGET = "/internal/islands/{islandId}/construction-target";
     private static final String PATH_CONSTRUCTIONS = "/internal/islands/{islandId}/constructions";
+    // GROMO-1771 섬 게시판 6종
+    private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
+    private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
+    private static final String PATH_NOTICE_COMMENTS = "/internal/islands/{islandId}/notices/{noticeId}/comments";
     // GROMO-1801 계정 3종 — B26 사용자 축. 세션 증명(sid·gen)은 서명된 AT 에서 꺼낸 값을 헤더로 싣는다.
     private static final String PATH_ACCOUNT = "/internal/users/{userId}";
     private static final String HEADER_SESSION = "X-Session-Id";
@@ -609,7 +615,7 @@ public class DataApiClient {
 
     /** 재개 중 확정된 거절 코드도 원래 요청의 재생을 위해 전달한다. */
     public void completeClaimIntent(UUID commandId, UUID leaseToken, String terminalCode, Deadline deadline) {
-        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        Map<String, Object> body = new LinkedHashMap<>();
         body.put("leaseToken", leaseToken.toString());
         if (terminalCode != null) {
             body.put("terminalCode", terminalCode);
@@ -1074,6 +1080,107 @@ public class DataApiClient {
                 new ParameterizedTypeReference<ConstructionResult>() { });
     }
 
+    /**
+     * 게시판 목록 (GROMO-1771). anchor 두 값은 서명 커서를 푼 이전 페이지의 마지막 행이다 — 첫 페이지는 싣지 않는다.
+     * 주민·게시판 완공 판정은 Data 가 한다. 멱등 GET 이라 재시도한다.
+     */
+    public IslandNotices.Page fetchNotices(UUID userId, UUID islandId, Instant afterCreatedAt, UUID afterId,
+            int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_NOTICES, islandId))
+                        .onBehalfOf(userId)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterId", afterId == null ? null : afterId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.Page>() { });
+    }
+
+    /** 공지 상세 + 댓글 한 페이지 (GROMO-1771). 댓글 anchor 는 {@code commentsCursor} 를 푼 값이다. */
+    public IslandNotices.Detail fetchNotice(UUID userId, UUID islandId, UUID noticeId,
+            Instant commentsAfterCreatedAt, UUID commentsAfterId, int commentsLimit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, noticePath(PATH_NOTICE, islandId, noticeId))
+                        .onBehalfOf(userId)
+                        .query("commentsAfterCreatedAt",
+                                commentsAfterCreatedAt == null ? null : commentsAfterCreatedAt.toString())
+                        .query("commentsAfterId", commentsAfterId == null ? null : commentsAfterId.toString())
+                        .query("commentsLimit", Integer.toString(commentsLimit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.Detail>() { });
+    }
+
+    /** 공지 작성 (GROMO-1771). 응답 유실 복구는 같은 앱 키의 Data receipt 재생이다. */
+    public IslandNotices.Notice createNotice(UUID userId, UUID islandId, String title, String body, UUID key,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, islandPath(PATH_NOTICES, islandId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new NoticeCreateCommand(title, body))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.Notice>() { });
+    }
+
+    /**
+     * 공지 수정 (GROMO-1771). 생략한 필드는 본문에 싣지 않는다 — Data 가 «생략 = 유지»로 읽고, 지문도 보낸
+     * 필드만 담는다(정책 B06). null 값을 싣지 않으려고 Map 으로 보낸다.
+     */
+    public IslandNotices.Notice updateNotice(UUID userId, UUID islandId, UUID noticeId, String title, String body,
+            UUID key, Deadline deadline) {
+        Map<String, String> fields = new LinkedHashMap<>();
+        if (title != null) {
+            fields.put("title", title);
+        }
+        if (body != null) {
+            fields.put("body", body);
+        }
+        return http.exchange(
+                InternalCall.to(HttpMethod.PATCH, noticePath(PATH_NOTICE, islandId, noticeId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(fields)
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.Notice>() { });
+    }
+
+    /** 공지 삭제 (GROMO-1771). 같은 키 재전송은 공지가 이미 없어도 원 결과(deleted=true)다. */
+    public IslandNotices.Deleted deleteNotice(UUID userId, UUID islandId, UUID noticeId, UUID key,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE, noticePath(PATH_NOTICE, islandId, noticeId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.Deleted>() { });
+    }
+
+    /** 댓글 작성 (GROMO-1771). 작성자는 onBehalfOf 주체뿐이다 — 본문에 사용자 id 를 싣지 않는다. */
+    public IslandNotices.CommentCreated createNoticeComment(UUID userId, UUID islandId, UUID noticeId, String text,
+            UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, noticePath(PATH_NOTICE_COMMENTS, islandId, noticeId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new NoticeCommentCommand(text))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.CommentCreated>() { });
+    }
+
+    private static String noticePath(String template, UUID islandId, UUID noticeId) {
+        return islandPath(template, islandId).replace("{noticeId}", noticeId.toString());
+    }
+
     /** 집중 주민 스냅샷 (GROMO-1765). 멱등 GET 이라 재시도한다. 소속 판정은 상류 몫이다. */
     public IslandFocusMembers fetchFocusMembers(UUID userId, UUID islandId, Deadline deadline) {
         return http.exchange(
@@ -1207,6 +1314,14 @@ public class DataApiClient {
 
     /** 건설 시작 요청 본문 (GROMO-1767). 두 버전 필드가 모두 필수다(LLD §2). */
     record ConstructionStartCommand(String buildingId, long expectedVersion, long expectedCostPolicyVersion) {
+    }
+
+    /** 공지 작성 본문 (GROMO-1771). 작성자는 X-User-Id 로 간다. */
+    record NoticeCreateCommand(String title, String body) {
+    }
+
+    /** 댓글 작성 본문 (GROMO-1771). */
+    record NoticeCommentCommand(String text) {
     }
 
     /** 계정 projection (GROMO-1801 · 계정 LLD §2.2). 멱등 GET 이라 재시도한다. */

@@ -12,7 +12,7 @@ import java.util.UUID;
 
 /**
  * 시설 완공 조회 — 전망대(섬 검색·이동 게이트, GROMO-1759)·우체통(우체통 편지방·편지
- * 게이트, GROMO-1775·1933) 게이트의 유일한 판정 근거다.
+ * 게이트, GROMO-1775·1933)·게시판(섬 공지·댓글 게이트, GROMO-1771) 게이트의 유일한 판정 근거다.
  *
  * <p>종전에는 세 곳이 「건설 도메인 미구현」 pass-through stub 이었다 — 이 서비스의
  * 세 predicate 가 그 자리에 들어간다.
@@ -52,6 +52,11 @@ public class IslandFacilityQueryService {
     /** 이 섬의 우체통이 완공됐는가 — 우체통 편지방 게이트({@code MAILBOX_LOCKED}). */
     public boolean hasMailbox(UUID islandId) {
         return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.MAIL.id());
+    }
+
+    /** 이 섬의 게시판이 완공됐는가 — 섬 게시판 공지·댓글 게이트({@code BOARD_LOCKED}, GROMO-1771). */
+    public boolean hasBoard(UUID islandId) {
+        return !enforce || facilities.existsCompleted(islandId, ConstructionBuilding.BOARD.id());
     }
 
     /**

@@ -62,6 +62,9 @@ class GroupAnnouncementServiceTest {
     @Mock
     private GroupAnnouncementRepository groupAnnouncementRepository;
 
+    @Mock
+    private IslandNoticeEvents noticeEvents;
+
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID ANNOUNCEMENT_ID = UUID.fromString("00000000-0000-0000-0000-0000000000b1");
@@ -303,6 +306,8 @@ class GroupAnnouncementServiceTest {
         // then: 도메인 객체에 반영
         assertThat(announcement.getTitle()).isEqualTo("새 제목");
         assertThat(announcement.getContent()).isEqualTo("새 내용");
+        // B08(GROMO-1771): legacy 수정도 공지 version 축을 올린다
+        verify(noticeEvents).changed(GROUP_ID, ANNOUNCEMENT_ID, USER_ID);
     }
 
     @Test
@@ -371,6 +376,7 @@ class GroupAnnouncementServiceTest {
 
         // then
         verify(groupAnnouncementRepository).delete(announcement);
+        verify(noticeEvents).changed(GROUP_ID, ANNOUNCEMENT_ID, USER_ID);
     }
 
     @Test
