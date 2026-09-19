@@ -169,4 +169,5 @@ payload 가 호스트·포트·경로를 고를 수 있는 길이 하나도 없�
 
 기존 알림 리스너 전환, Business 어댑터, 새 알림 서버, 도메인 producer 배선은 별도 모듈이 담당한다.
 이 문서가 다루는 것은 「봉투를 적고 · 순서를 지켜 · 대상별로 내보내는」 기반까지다.
-도메인 쪽 배선은 `OutboxCommandPort` 하나만 보면 된다.
+도메인 쪽 배선은 `OutboxCommandPort` 하나만 보면 된다. 그 호출 규약(어댑터 단위·eventId·대상·PII·스위치)은
+[`docs/conventions/outbox-events.md`](../../../conventions/outbox-events.md) 에 있다.
