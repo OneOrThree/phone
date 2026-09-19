@@ -20,11 +20,12 @@ public record IslandMembersPage(
 
     /**
      * 주민 한 명 — 공개 응답의 항목과 같은 모양이다. 고양이 외형은 {@code appearance}(착용 외양, GROMO-1937)이고
-     * {@code catColor} 는 아직 저장 칸이 없다(계정 Q03).
+     * {@code catColor} 는 고양이 색(계정 Q03, GROMO-1945 — 미선택 null)이다.
      */
     public record Item(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
             String name,
+            String catColor,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String role,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) PersonalAppearanceState appearance) {
     }

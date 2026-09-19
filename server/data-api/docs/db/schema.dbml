@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 · V74 (src/main/resources/db/migration — V68~V70·V72 는 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 · V80 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
 //        island_quest_cohort_members · island_quest_claims. island_wallet_transactions.type 에 QUEST_SETTLEMENT 추가(스키마 무변경).
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·
@@ -265,6 +265,7 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
   nickname                       varchar(255) [note: '표시 닉네임']
   country_code                   varchar(255) [note: 'ISO 3166-1 alpha-2 (예: KR, US) — 값은 2자지만 컬럼은 varchar(255)']
   language                       varchar(8)  [note: '앱이 적용 중인 표시 언어(BCP-47: ko·en·ja·zh-Hant). 푸시 렌더 언어의 정본. NULL=미보고. 국가와 다른 축. GROMO-1659 D11 · 1692 계약, V50']
+  cat_color                      varchar(16) [note: "고양이 색 자산 ID. CHECK 'black'|'ginger'|'cream'|'gray'|'white'|'calico'. NULL=미선택(온보딩 전, 백필 없음). 이름과 함께 있어야 온보딩 완료(Q04). 탈퇴 시 파기. GROMO-1945 Q03, V80"]
 
   occupation                     occupation  [note: '유저 직업/신분 (온보딩에서 수집, 가입 시 null)']
 
@@ -1627,7 +1628,7 @@ Table event_outbox [note: '내구 이벤트 봉투 (V51, A21) — 명령 트랜�
 Table event_outbox_deliveries [note: '대상별 전달 상태 (V51, A21) — 표시가 단일 published_at 이 아닌 이유: 링크 서버는 Kafka 를 소비하지 않아 같은 사건이 브로커로도 HTTP 로도 간다. 합치면 한쪽 실패에 성공한 쪽까지 재전달(중복)되거나 실패한 쪽이 영영 안 간다(유실)'] {
   id                uuid         [pk]
   outbox_id         uuid         [not null, note: 'FK → event_outbox.id (ON DELETE CASCADE)']
-  target            varchar(20)  [not null, note: "CHECK 'KAFKA' | 'LINK' | 'NOTI' | 'REALTIME'; REALTIME 전용 수신·복구 구현 전 내구 보류"]
+  target            varchar(20)  [not null, note: "CHECK 'KAFKA' | 'LINK' | 'NOTI' | 'REALTIME' | 'SCORE'; SCORE(score-events 랭킹 소비자, V80)는 transport 등록 전 내구 보류"]
 
   aggregate_type    varchar(60)  [not null, note: '봉투에서 복제 — 선행 미전달 검사(NOT EXISTS)가 이 테이블 안에서 끝나게 한다. 봉투가 불변이라 복제본이 낡을 수 없다']
   aggregate_id      varchar(200) [not null, note: '봉투에서 복제']

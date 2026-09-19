@@ -1627,12 +1627,22 @@ public class DataApiClient {
                 new ParameterizedTypeReference<AccountMe>() { });
     }
 
-    /** 이름 변경 (GROMO-1801 · 계정 LLD §2.3). 앱 키를 그대로 Data 의 공개 명령 receipt 에 전달한다. */
-    public AccountProfile patchAccount(UUID userId, UUID sessionId, long generation, String name, UUID key,
-            Deadline deadline) {
+    /**
+     * 이름·고양이 색 변경 (GROMO-1801·1945 · 계정 LLD §2.3). 앱 키를 그대로 Data 의 공개 명령 receipt 에 전달한다.
+     * 온 필드만 싣는다 — {@code null} 은 「미변경」이라 본문에서 뺀다.
+     */
+    public AccountProfile patchAccount(UUID userId, UUID sessionId, long generation, String name, String catColor,
+            UUID key, Deadline deadline) {
+        Map<String, String> body = new LinkedHashMap<>();
+        if (name != null) {
+            body.put("name", name);
+        }
+        if (catColor != null) {
+            body.put("catColor", catColor);
+        }
         return http.exchange(account(HttpMethod.PATCH, userId, sessionId, generation)
                         .idempotencyKey(key.toString())
-                        .body(Map.of("name", name))
+                        .body(body)
                         .idempotentCommand()
                         .build(), deadline,
                 new ParameterizedTypeReference<AccountProfile>() { });

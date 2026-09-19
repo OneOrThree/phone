@@ -34,6 +34,11 @@ import java.util.UUID;
 public class AccountController {
 
     private static final Set<String> PATCH_FIELDS = Set.of("name", "catColor");
+    /**
+     * 고양이 색 카탈로그 — 계정 Q03(2026-09-19). Data {@code CatColors}·{@code users.cat_color} CHECK(V80)와 같은 6종이다.
+     * 공개 오류의 {@code field} 를 싣기 위해 여기서 먼저 거른다(상류 오류 중계는 field 를 옮기지 않는다).
+     */
+    private static final Set<String> CAT_COLORS = Set.of("black", "ginger", "cream", "gray", "white", "calico");
     private static final String CONFIRMATION = "DELETE";
 
     private final AccountUseCase account;
@@ -46,8 +51,8 @@ public class AccountController {
     }
 
     /**
-     * 이름 변경. catColor 는 Q03 카탈로그가 없어 어떤 문자열도 허용 ID 가 아니다 — 해석은 되지만 미지원인 값이라
-     * 422 {@code OUT_OF_RANGE} 이고, 이름과 함께 와도 부분 성공 없이 전체를 거절한다.
+     * 이름·고양이 색 변경. 둘 중 하나 이상 필수이고 생략한 필드는 보존한다. 카탈로그 밖 색은 해석은 되지만 미지원인
+     * 값이라 422 {@code OUT_OF_RANGE} 이고, 이름과 함께 와도 부분 성공 없이 전체를 거절한다.
      */
     @PatchMapping(value = "/me", consumes = "application/json")
     public AccountProfile patch(@RequestBody JsonNode body, HttpServletRequest request) {
@@ -57,18 +62,20 @@ public class AccountController {
                 || !PATCH_FIELDS.containsAll(body.propertyNames())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
-        JsonNode catColor = body.get("catColor");
-        if (catColor != null) {
-            throw catColor.isString()
-                    ? new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "catColor")
-                    : new PublicApiException(ApiErrorCode.INVALID_REQUEST, "catColor");
-        }
-        // 여기까지 오면 본문은 name 하나다. 명시 null·문자열 외 타입은 400 이다.
+        // 명시 null·문자열 외 타입은 400 이다.
         JsonNode name = body.get("name");
-        if (name == null || !name.isString()) {
+        if (name != null && !name.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "name");
         }
-        return account.rename(claims, name.stringValue(), key, deadline());
+        JsonNode catColor = body.get("catColor");
+        if (catColor != null && !catColor.isString()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "catColor");
+        }
+        if (catColor != null && !CAT_COLORS.contains(catColor.stringValue())) {
+            throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "catColor");
+        }
+        return account.updateProfile(claims, name == null ? null : name.stringValue(),
+                catColor == null ? null : catColor.stringValue(), key, deadline());
     }
 
     /** 탈퇴. {@code confirmation} 은 재인증이 아니라 오조작 방지이며 대소문자까지 정확히 {@code "DELETE"} 다. */

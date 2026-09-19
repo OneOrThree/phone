@@ -82,6 +82,13 @@ public class User {
     @Column(length = 8)
     private String language;
 
+    /**
+     * 고양이 색 자산 ID({@code CatColors} 6종, V80 CHECK). {@code null} = 아직 고르지 않음(온보딩 전) —
+     * 기본색을 백필하지 않는다(계정 Q03). 탈퇴 시 파기한다.
+     */
+    @Column(name = "cat_color", length = 16)
+    private String catColor;
+
     @Enumerated(EnumType.STRING)
     private Occupation occupation;
 

@@ -8,7 +8,7 @@ import java.util.UUID;
  *
  * @param id                 사용자 UUID
  * @param name               닉네임. 미설정이면 null
- * @param catColor           Q03 미결이라 컬럼이 없다 — 항상 null 이고 임의 기본색을 채우지 않는다
+ * @param catColor           고양이 색(Q03 카탈로그). 미선택이면 null 이고 기본색을 채우지 않는다
  * @param linkedProviders    활성 소셜 연동 provider 소문자·중복 제거·오름차순. 게스트면 빈 배열
  * @param onboardingComplete {@code OnboardingCompletion} 판정 — 로그인 응답과 같은 함수
  */

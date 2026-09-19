@@ -8,7 +8,7 @@ import java.util.UUID;
  *
  * @param id       사용자 UUID
  * @param name     변경 뒤 닉네임
- * @param catColor Q03 미결 — 항상 null
+ * @param catColor 변경 뒤 고양이 색. 미선택이면 null
  */
 public record AccountProfileView(UUID id, String name, String catColor) {
 }

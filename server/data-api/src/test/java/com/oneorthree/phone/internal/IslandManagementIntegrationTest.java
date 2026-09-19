@@ -55,6 +55,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -255,10 +256,13 @@ class IslandManagementIntegrationTest {
             assertThat(management.members(caller, f.islandId(), null, null, 30).items())
                     .extracting(IslandMembersPageView.Item::id).containsExactly(f.host(), f.member());
         }
+        jdbc.update("update users set cat_color = 'white' where id = ?", f.host());
         mvc.perform(get("/internal/islands/" + f.islandId() + "/members").param("limit", "30")
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", applicant))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].role").value("host"))
+                .andExpect(jsonPath("$.items[0].catColor").value("white"))
+                .andExpect(jsonPath("$.items[1].catColor").value(nullValue()))
                 .andExpect(jsonPath("$.items[0].appearance.hull").value("raft"))
                 .andExpect(jsonPath("$.items[0].appearance.version").value(0));
         withdrawal.withdraw(f.member());

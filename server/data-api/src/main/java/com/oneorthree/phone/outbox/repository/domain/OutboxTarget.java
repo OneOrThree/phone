@@ -26,5 +26,12 @@ public enum OutboxTarget {
      * 기본이고 {@code outbox.relay.realtime-kafka-enabled} 일 때만 {@code realtime-events} 토픽이다
      * (2026-09-19 R-1). {@code notification-events}(KAFKA)·NOTI 로 우회하거나 저장만으로 전달 완료 처리하지 않는다.
      */
-    REALTIME
+    REALTIME,
+
+    /**
+     * 랭킹 적격성 사건({@code user.onboarded}, ㊣) — 목표는 {@code score-events} 토픽(key=userId)의 랭킹 소비자다.
+     * 소비자·transport 가 아직 없어 <b>적고 보내지 않는다</b>(relay 는 transport 가 없는 대상을 건너뛴다, V80).
+     * 순서 판정이 대상별이라 이 보류가 다른 대상의 USER 축 사건을 막지 않는다.
+     */
+    SCORE
 }

@@ -61,9 +61,9 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 | --- | --- |
 | id | 사용자 UUID 문자열 |
 | name | 문자열 또는 null. 기존 nickname이 미설정이면 null |
-| catColor | 승인된 자산 ID 문자열 또는 null. Q03 확정 전 임의 기본색을 backfill하지 않음 |
+| catColor | 승인된 자산 ID 문자열(Q03 6종 `black`·`ginger`·`cream`·`gray`·`white`·`calico`) 또는 null(미선택). 기본색을 backfill하지 않음 |
 | linkedProviders | 활성 소셜 연동의 소문자 provider 배열. 중복 제거·문자열 오름차순, 게스트면 빈 배열 |
-| onboardingComplete | boolean. Q04 판정 함수를 하나로 공유하고 로그인 응답에도 사용 |
+| onboardingComplete | boolean. name 과 catColor 를 모두 가지면 true(Q04). 판정 함수 하나를 로그인 응답과 공유 |
 
 name/catColor null 허용은 온보딩 전 상태를 표현하기 위한 원본 예시 대비 명시적 보완이다. Q03/Q04 확정 후 legacy 초기 상태도 이 함수로 검증한다. 소프트 해제된 social account는 linkedProviders에 포함하지 않는다.
 
@@ -98,8 +98,10 @@ name/catColor null 허용은 온보딩 전 상태를 표현하기 위한 원본 
 receipt 재생은 발행하지 않는다. 이름만의 helper 안에서 먼저 판정하지 않고 해당 요청의 완료 입력 변경을
 모두 적용한 뒤 동일 Q03/Q04 판정 함수를 실행한다. 기존 user.displayNameChanged writer와 이중 발행하지 않는다.
 신규 catColor 저장 뒤 legacy nickname 저장, 그 반대 순서, 양쪽 동시 저장과 outbox 실패를 검증해
-전이 누락/중복0·전체 rollback을 보장하기 전 활성화하지 않는다. 색상 6종/기존 사용자 기본값과 완료 판정의
-미결 제품 조건은 유지하며, 이 공통 producer가 기준 main에 이미 있다는 뜻은 아니다.
+전이 누락/중복0·전체 rollback을 보장하기 전 활성화하지 않는다. **구현 상태(GROMO-1945, 2026-09-19 Q03/Q04 확정):** 판정 함수 `OnboardingCompletion`(name AND catColor)을
+신규 PATCH·legacy setup/update 가 변경 전·후로 공유하고, false→true 일 때만 `user.onboarded`
+(eventId `user.onboarded:<userId>`, USER 축)를 같은 TX outbox 에 적는다. 전달 대상은 `SCORE`(score-events)이며 랭킹
+소비자·transport 가 생길 때까지 내구 보류된다. 이에 따라 `account.profile-update-enabled` 는 기본 열림이다.
 
 ### 2.4 DELETE /auth/sessions/current
 

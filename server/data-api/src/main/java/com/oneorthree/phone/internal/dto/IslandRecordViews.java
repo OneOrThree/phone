@@ -33,7 +33,7 @@ public final class IslandRecordViews {
     public record FocusRecord(UUID id, String subject, long activeSeconds, Instant completedAt) {
     }
 
-    /** 섬 주민 한 명의 이 섬 기여 — 개인 기록·과목은 싣지 않는다(RC-P05). catColor 는 미답(Q03)이라 null. */
+    /** 섬 주민 한 명의 이 섬 기여 — 개인 기록·과목은 싣지 않는다(RC-P05). catColor 는 users.cat_color(계정 Q03, GROMO-1945) — 미선택이면 null. */
     public record FocusMember(UUID userId, String name, String catColor, long totalSeconds,
                               List<DaySeconds> series) {
     }

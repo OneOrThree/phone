@@ -110,6 +110,8 @@
 | `LINK` | 링크 HTTP(A23 로 서버 분리는 폐기됐고 걷어내기는 링크 구현 PR 몫) | `link.*` 7개 | `target: LINK` 키가 있을 때 |
 | `REALTIME` | realtime — **HTTP 기본 · Kafka 선택**(2026-09-19 R-1). HTTP 는 `POST /internal/events`(Data 전용 토큰 `SVC_TOKEN_DATA_TO_REALTIME`), Kafka 는 `realtime-events` 토픽(key=userId, `.DLT` 포함). realtime 은 두 입구를 한 처리기(`InboundEventService`)로 받아 `eventId` 로 한 번만 적용한다 | 사건 `type` 과 같은 값 — 14개 전부 `application-satellites.yml` 에 등록(`RealtimeOutboxEndpointsTest`) | 기본: `target: REALTIME` 키가 있을 때 HTTP. `outbox.relay.realtime-kafka-enabled=true` 면 HTTP 대신 Kafka(한 대상에 경로 하나). 앱 사건 14종은 realtime 이 받아 중복만 거르고 **앱으로는 아직 내보내지 않는다**(섬 구독 인가 미구현 — `StompAuthChannelInterceptor`) |
 
+| `SCORE` | `score-events` 토픽(랭킹 소비자, ㊣) — **소비자·transport 미구현** | 없음(`toScore()`) | 등록되지 않는다 — 행은 내구 보류되고 순서 판정이 대상별이라 다른 대상을 막지 않는다(V80, GROMO-1945) |
+
 - 대상 하나당 전달 요구 하나. **대상별 전달 상태를 합치지 않는다** — 합치면 한쪽만 실패했을 때 성공한 쪽이 재전달되거나(중복)
   실패한 쪽이 영영 안 간다(유실).
 - REALTIME 을 NOTI·Kafka 로 우회시키거나, 저장만으로 전달 완료 처리하지 않는다(`OutboxTarget.REALTIME` javadoc).
@@ -203,7 +205,8 @@ GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId →
 | `auth/service/AuthSessionService.java:302` | `auth.generation.bumped` | NOTI | USER | `<type>:<userId>:<generation>` |
 | `auth/service/AuthSessionService.java:369` | `auth.session.revoked` | NOTI | USER | `<type>:<sessionId>` |
 | `user/service/UserSatelliteCommandService.java:282` | `notification.deviceToken.deleted` · `notification.legacyDeviceToken.deleted` · `notification.settings.changed` | NOTI | USER | UUID |
-| `withdrawal/service/WithdrawalSatelliteCommandService.java:53` | `user.withdrawn` | KAFKA·LINK·REALTIME | USER | `<type>:<userId>` |
+| `user/service/UserOnboardingEvents.java:43`(호출: `UserService` 의 setup·update·공개 PATCH 공통 전이 경계) | `user.onboarded` | SCORE | USER | `<type>:<userId>` |
+| `withdrawal/service/WithdrawalSatelliteCommandService.java:54` | `user.withdrawn` | KAFKA·LINK·REALTIME·SCORE | USER | `<type>:<userId>` |
 | `group/service/LinkMembershipEventService.java:346` | `link.revoked` · `link.joined` · `group.closed` · `group.renamed` · `user.displayNameChanged` | LINK | LINK_MEMBERSHIP(`link.joined` 만 USER) | `<type>:<groupId>:<inviterId\|userId>:<seq>` |
 | `internal/service/InternalInviteLinkService.java:403` | `link.claimConfirmed` | LINK | LINK_MEMBERSHIP | `<type>:<claimId>` |
 | `notification/producer/NotificationOutboxProducer.java:166` | `notification.requested` | KAFKA | USER | `noti:<KIND>:<userId>:<subjectId\|none>:<시간축\|none>` |

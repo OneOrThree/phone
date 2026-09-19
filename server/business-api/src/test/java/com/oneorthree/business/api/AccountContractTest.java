@@ -95,9 +95,24 @@ class AccountContractTest extends UpstreamTestBase {
         assertThat(sent.body()).isEqualTo("{\"name\":\" 수빈 \"}");
     }
 
+    @Test
+    void patchesCatColorAloneOrWithName() throws Exception {
+        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":\"calico\"}"));
+
+        mockMvc.perform(write("{\"catColor\":\"calico\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.catColor").value("calico"));
+        mockMvc.perform(write("{\"name\":\"수빈\",\"catColor\":\"calico\"}")).andExpect(status().isOk());
+
+        var sent = DATA.receivedFor(DATA_PATCH);
+        assertThat(sent.get(0).body()).isEqualTo("{\"catColor\":\"calico\"}");
+        assertThat(sent.get(1).body()).isEqualTo("{\"name\":\"수빈\",\"catColor\":\"calico\"}");
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"{}", "null", "[]", "{\"name\":null}", "{\"name\":1}", "{\"catColor\":null}",
-            "{\"catColor\":3}", "{\"name\":\"수빈\",\"extra\":true}", "{\"nickname\":\"수빈\"}"})
+            "{\"catColor\":3}", "{\"name\":\"수빈\",\"extra\":true}", "{\"nickname\":\"수빈\"}",
+            "{\"name\":1,\"catColor\":\"black\"}"})
     void rejectsMalformedPatchBeforeUpstream(String body) throws Exception {
         mockMvc.perform(write(body)).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
@@ -105,8 +120,9 @@ class AccountContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"{\"catColor\":\"black\"}", "{\"name\":\"수빈\",\"catColor\":\"calico\"}"})
-    void catColorHasNoApprovedCatalogYet(String body) throws Exception {
+    @ValueSource(strings = {"{\"catColor\":\"purple\"}", "{\"name\":\"수빈\",\"catColor\":\"Calico\"}",
+            "{\"catColor\":\"\"}"})
+    void catColorOutsideCatalogIsOutOfRange(String body) throws Exception {
         mockMvc.perform(write(body)).andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.error.code").value("OUT_OF_RANGE"))
                 .andExpect(jsonPath("$.error.field").value("catColor"));
