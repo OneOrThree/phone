@@ -37,6 +37,7 @@ import java.util.UUID;
  * "상대가 먼저 만든 링크를 재조회해 돌려준다" 가 정답인데, 하나의 트랜잭션 안에서 제약 위반이 나면
  * 그 트랜잭션은 rollback-only 로 마킹돼 이어지는 재조회가 커밋 시점에 터진다. 검증·조회·저장을
  * 각자의 트랜잭션(리포지토리 기본)으로 두면 실패한 INSERT 만 롤백되고 재조회는 깨끗한 트랜잭션에서 돈다.
+ * 단 INSERT 는 발급자 활성 검사와 <b>한 짧은 트랜잭션</b>으로 묶는다 — 아래 {@link #issue} 참고.
  */
 @Service
 @RequiredArgsConstructor
@@ -95,8 +96,14 @@ public class InviteLinkService {
 
         GroupInviteLink link;
         try {
-            link = inviteLinkRepository.save(new GroupInviteLink(
-                    generateUniqueSlug(), groupId, userId, issuer.getMembershipEpoch()));
+            // 발급자 users 공유 잠금과 INSERT 를 한 TX 로 (GROMO-1801). 탈퇴 TX 는 users 배타 잠금 뒤 발급자 연결을
+            // 끊으므로, 잠금 없이 끼어든 INSERT 는 그 스윕을 지나쳐 탈퇴 뒤에도 inviter_id 를 남긴다. 탈퇴가 먼저면 404.
+            String slug = generateUniqueSlug();
+            link = new TransactionTemplate(transactionManager).execute(status -> {
+                userQueryService.getCallerForShare(userId);
+                return inviteLinkRepository.saveAndFlush(new GroupInviteLink(
+                        slug, groupId, userId, issuer.getMembershipEpoch()));
+            });
         } catch (DataIntegrityViolationException e) {
             // 동시 발급 레이스 — 상대가 먼저 넣었으면 그 링크가 정답이다(멱등).
             return inviteLinkRepository.findByGroupIdAndInviterId(groupId, userId)
@@ -125,7 +132,8 @@ public class InviteLinkService {
      */
     public LandingView resolveLanding(String slug) {
         Optional<GroupInviteLink> link = inviteLinkRepository.findBySlug(slug);
-        if (link.isEmpty()) {
+        // 발급자가 탈퇴해 연결이 끊긴 링크(GROMO-1801)도 만료와 같다 — 재발급·재연결하지 않는다.
+        if (link.isEmpty() || link.get().getInviterId() == null) {
             return LandingView.expired();
         }
 

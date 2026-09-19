@@ -113,7 +113,20 @@ python3 server/scripts/migrate-link.py --help
 
 단계마다 `--data-url`, `--link-url`, `--migration-id`를 지정합니다. 자격은 `BATCH_ADMIN_KEY`, `LINK_MIGRATION_TOKEN` 환경변수로 전달합니다. `freeze`에는 실제 구 경로 정지·요청 소진 후 `--source-drained`를 명시합니다. 실패 시 같은 migration ID로 재개합니다.
 
-## 6. 실행 전후 확인
+## 6. 로그 S3 적재본 수명 주기
+
+[`s3-log-archive-lifecycle.json`](s3-log-archive-lifecycle.json)은 로그 적재 버킷의 만료 규칙입니다. `app/` 접두 7일·`user-activity/` 접두 30일로, logback `maxHistory`와 같은 값입니다. 기간 정본은 [계정 정책 로그·분석 보존 기간](../../docs/prd/fishcat/account/policy.md#로그분석-보존-기간)이며 값을 바꾸면 logback과 이 파일을 함께 고칩니다. 업로더는 두 접두 아래에만 씁니다.
+
+`put-bucket-lifecycle-configuration`은 버킷의 기존 규칙 전체를 **교체**합니다. 먼저 현재 규칙을 조회해 다른 규칙이 있으면 이 파일에 합친 뒤 적용합니다.
+
+```bash
+aws s3api get-bucket-lifecycle-configuration --bucket <LOG_ARCHIVE_BUCKET>
+aws s3api put-bucket-lifecycle-configuration --bucket <LOG_ARCHIVE_BUCKET> \
+  --lifecycle-configuration file://server/scripts/s3-log-archive-lifecycle.json
+aws s3api get-bucket-lifecycle-configuration --bucket <LOG_ARCHIVE_BUCKET>
+```
+
+## 7. 실행 전후 확인
 
 - 병합 검증은 실제 적용과 동일한 `-p`, `--env-file`, `-f` 목록에 `config --quiet`를 사용합니다.
 - Data의 서비스별 env 교체는 `app` 재생성을 수반합니다. 생성 계획의 적용·복구 순서를 따릅니다.

@@ -2,6 +2,7 @@ package com.oneorthree.phone.friend.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.dto.FriendRelation;
@@ -40,6 +41,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -111,7 +113,9 @@ class FriendServiceTest {
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
                 userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
                 new FriendRelationLookup(friendshipRepository), eventPublisher,
-                List.of(nicknameStrategy));
+                List.of(nicknameStrategy),
+                // 한도 자체는 PerUserHourlyLimiterTest·PerUserRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
+                new PerUserHourlyLimiter("test", 1_000_000, Clock.systemUTC()));
 
         meId = UUID.randomUUID();
         targetId = UUID.randomUUID();
@@ -1108,22 +1112,13 @@ class FriendServiceTest {
     // ── detachWithdrawnUser (계정 탈퇴자 관계 정리, GROMO-1656 이전) ────────
 
     @Test
-    @DisplayName("탈퇴자 관계는 ACCEPTED·PENDING 모두 소프트 삭제되고 핀은 하드 삭제된다 (GROMO-801)")
-    void detachWithdrawnUserSoftDeletesBothStatuses() {
+    @DisplayName("탈퇴자 관계는 status·deleted_at 과 무관하게 양방향 하드 삭제, 핀도 하드 삭제 (GROMO-1801)")
+    void detachWithdrawnUserHardDeletesEveryRelation() {
         UUID withdrawerId = UUID.fromString("00000000-0000-0000-0000-0000000000f1");
-        User withdrawer = User.builder().id(withdrawerId).build();
-        User other = User.builder().id(UUID.fromString("00000000-0000-0000-0000-0000000000f2")).build();
-        // PENDING 을 안 끊으면 상대가 나중에 수락해 «탈퇴자와 친구»가 되는 경로가 열린다
-        Friendship accepted = Friendship.builder()
-                .fromUser(withdrawer).toUser(other).status(FriendshipStatus.ACCEPTED).build();
-        Friendship pending = Friendship.builder()
-                .fromUser(other).toUser(withdrawer).status(FriendshipStatus.PENDING).build();
-        given(friendshipRepository.findActiveByUserId(withdrawerId)).willReturn(List.of(accepted, pending));
 
-        friendService.detachWithdrawnUser(withdrawerId, Instant.parse("2026-09-08T00:00:00Z"));
+        friendService.detachWithdrawnUser(withdrawerId);
 
-        assertThat(accepted.getDeletedAt()).isNotNull();
-        assertThat(pending.getDeletedAt()).isNotNull();
+        verify(friendshipRepository).deleteAllInvolving(withdrawerId);
         verify(pinnedUserRepository).deleteAllInvolving(withdrawerId);
     }
 }

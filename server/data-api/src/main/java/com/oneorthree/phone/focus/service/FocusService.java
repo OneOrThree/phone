@@ -1455,4 +1455,19 @@ public class FocusService {
         focusSessionRepository.nullifyUser(userId);
     }
 
+    /**
+     * 탈퇴자의 태그 채택·스트릭을 파기한다 (GROMO-1801 · 계정 LLD §4 user_focus_tags · user_streaks).
+     *
+     * <p>태그는 「세션 태그 연결 해제 → 채택 행 삭제」다. user_id 만 끊으면 세션 → 태그 → 사용자 경로가
+     * 남는다. 세션 행 자체와 공유 default_tags 는 남는다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional
+    public void eraseWithdrawnUserRecords(UUID userId) {
+        focusSessionRepository.detachTagsOfUser(userId);
+        userFocusTagRepository.deleteAllOfUser(userId);
+        userStreakService.deleteWithdrawnUser(userId);
+    }
+
 }

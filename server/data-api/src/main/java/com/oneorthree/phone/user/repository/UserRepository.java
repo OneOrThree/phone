@@ -199,7 +199,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      * 이전엔 존재 확인(왕복 ①) 직후 오늘 이미 갱신된 유저에게도 UPDATE 트랜잭션(왕복 ②)이 매 요청 붙었다.
      * 왕복 ① 이 이미 그 유저 행을 PK 로 찾으므로, last_active_at 을 함께 읽어오면 왕복을 늘리지 않고 스로틀 판정이 끝난다.
      * empty = 없는 유저 or 소프트딜리트 → existsByIdAndIsDeletedFalse 가 false 이던 집합과 동일(=401 신호 불변).
-     * (last_active_at 은 NOT NULL 이라 "행은 있는데 값이 null" 로 empty 가 되는 경우는 없다)
+     * (last_active_at 이 null 인 행은 탈퇴 파기된 행뿐이고(V65) 이미 is_deleted=true 라 결과가 같다)
      *
      * @param id 인증 토큰이 지목한 유저
      * @return 마지막 활동 시각. <b>빈 값이면 곧 401 신호</b>다(없는 유저 = 탈퇴 유저로 묶인다).
@@ -274,11 +274,12 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      * @param now         새로 기록할 활동 시각
      * @param staleBefore 이보다 오래된 값일 때만 갱신한다 — 스로틀 창의 하한
      * @return 갱신된 행 수. 0 은 "이미 최신이라 쓸 필요가 없었다"는 정상 결과다.
-     *         활성 조건이 없어 <b>탈퇴 유저의 행도 갱신될 수 있다</b>(한 컬럼만 건드려 PII 부활 위험은 없다)
+     *         탈퇴 유저의 행은 갱신하지 않는다 — 탈퇴가 파기한 활동 시각(null)을 되살리지 않게 활성 조건을 건다
+     *         (GROMO-1801 · 계정 LLD §4 「active-user 갱신 조건」). null 과의 비교는 참이 아니라 이중 방어다
      */
     @Modifying
     @Query("UPDATE User u SET u.lastActiveAt = :now"
-            + " WHERE u.id = :id AND u.lastActiveAt < :staleBefore")
+            + " WHERE u.id = :id AND u.isDeleted = false AND u.lastActiveAt < :staleBefore")
     int touchLastActiveAt(@Param("id") UUID id,
                           @Param("now") Instant now,
                           @Param("staleBefore") Instant staleBefore);

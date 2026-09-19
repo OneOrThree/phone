@@ -54,7 +54,12 @@ public enum UserErrorCode implements ErrorCode {
      * 맞지 않는다. <b>내구 기록 전에</b> 거절해야 한다 — 봉투에 실리면 그 유저의 순서 축이 통째로
      * 막히고(A18 고갈 처리 없음), {@code null} 로 접으면 CAS 를 잃은 넓은 삭제가 된다.
      */
-    DEVICE_OWNERSHIP_INVALID(HttpStatus.BAD_REQUEST, "기기 소유권 값의 형식이 올바르지 않습니다.");
+    DEVICE_OWNERSHIP_INVALID(HttpStatus.BAD_REQUEST, "기기 소유권 값의 형식이 올바르지 않습니다."),
+    /**
+     * 신규 {@code PATCH /me} 가 아직 닫혀 있다 (GROMO-1801 · 계정 LLD §2.3). 온보딩 완료 전이 사건이 연결되기
+     * 전에는 열지 않는다. 다른 준비 전 503 과 막는 사유가 달라 코드를 가른다 — Business 는 공개 503 으로 옮긴다.
+     */
+    PROFILE_UPDATE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이름 변경을 아직 사용할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

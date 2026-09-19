@@ -110,15 +110,11 @@ class FocusTagSetupWithdrawRaceIntegrationTest extends IntegrationTestBase {
         // 어느 순서로 끝났든 탈퇴 자체는 완료돼 있다.
         assertThat(userRepository.findById(user.getId()).orElseThrow().isDeleted()).isTrue();
 
+        // 어느 순서든 탈퇴자 명의 태그는 없다(GROMO-1801 · 계정 LLD §4 user_focus_tags 파기):
+        //   ① 탈퇴 선커밋 — 채택이 404 로 거절돼 태그가 만들어지지 않았다.
+        //   ② 채택 선커밋 — 활성 시절에 만든 태그를 탈퇴 TX 가 삭제에 포함했다(writer 선행이면 삭제에 포함).
         List<UserFocusTag> tags = userFocusTagRepository.findByUserAndDeletedAtIsNull(user);
-        if (setupCommitted) {
-            // 종착지 ② 채택 선커밋 — 활성 시절에 만든 태그 1개가 남는다(직렬화 순서상 탈퇴 이전 산물).
-            assertThat(tags).hasSize(1);
-            assertThat(tags.get(0).getDefaultTag().getName()).isEqualTo(tagName);
-        } else {
-            // 종착지 ① 탈퇴 선커밋 — 채택이 404 로 거절돼 탈퇴자 명의 태그가 만들어지지 않았다.
-            assertThat(tags).isEmpty();
-        }
+        assertThat(tags).as("setupCommitted=" + setupCommitted + ", tag=" + tagName).isEmpty();
     }
 
     private void await(CyclicBarrier barrier) {

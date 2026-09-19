@@ -104,3 +104,14 @@ auth:
     rate-limit:
       max-per-window: ${AUTH_GUEST_RATE_LIMIT_MAX:1000000}
       max-per-window-global: ${AUTH_GUEST_RATE_LIMIT_MAX_GLOBAL:1000000}
+
+# 계정당 시간 한도(GROMO-1934) — 부하 시나리오는 소수 계정으로 친구 요청·편지를 반복하므로 운영
+# 기본값(게스트 친구 요청 20회·편지 50회/시간)이면 429 만 재는 꼴이 된다. 위 게스트 생성과 같은 이유로 해제한다.
+friend:
+  request:
+    rate-limit:
+      guest-max-per-hour: ${FRIEND_REQUEST_RATE_LIMIT_GUEST_MAX:1000000}
+letter:
+  send:
+    rate-limit:
+      max-per-hour: ${LETTER_SEND_RATE_LIMIT_MAX:1000000}

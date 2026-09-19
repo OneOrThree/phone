@@ -269,6 +269,12 @@ public class LoginAttemptService {
      * 자격을 바르게 들고 온 정상 사용자가 배포 한 번에 409 로 막히고 앱은 그걸 「키 오용」으로 읽는다.
      */
     private void guard(LoginAttempt attempt, String digestKeyId, String digest, Instant now) {
+        // 결과 계정이 탈퇴했으면 digest 대조보다 «먼저» 404 USER_NOT_FOUND 다 (계정 LLD §1 순서 · §3 INVALIDATED).
+        // 탈퇴가 digest 를 파기하므로(GROMO-1801) 대조 자체가 불가능하고, 뒤의 재생 거절은 401 이라 앱이
+        // 탈퇴 확정 대신 refresh 로 흘러간다. 결과 사용자가 없는 PENDING 시도는 여기서 걸리지 않는다.
+        if (attempt.getUserId() != null) {
+            userQueryService.getCaller(attempt.getUserId());
+        }
         if (!attempt.getDigestKeyId().equals(digestKeyId)) {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         }

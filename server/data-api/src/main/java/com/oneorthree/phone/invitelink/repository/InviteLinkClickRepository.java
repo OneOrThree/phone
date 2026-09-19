@@ -121,7 +121,9 @@ public interface InviteLinkClickRepository extends JpaRepository<InviteLinkClick
             + "JOIN groups g ON g.id = l.group_id "
             + "LEFT JOIN users u ON u.id = l.inviter_id AND u.is_deleted = false "
             + "LEFT JOIN group_members m ON m.group_id = l.group_id AND m.user_id = l.inviter_id "
-            + "WHERE c.id > CAST(:cursor AS uuid) ORDER BY c.id ASC LIMIT :limit",
+            // 탈퇴 파기된 행(발급자·IP 해시 null, V65)은 정지 원본에 싣지 않는다 — 폐기된 링크·클릭이다.
+            + "WHERE c.id > CAST(:cursor AS uuid) AND l.inviter_id IS NOT NULL AND c.ip_hash IS NOT NULL "
+            + "ORDER BY c.id ASC LIMIT :limit",
             nativeQuery = true)
     List<FrozenClickProjection> findFrozenSourcePage(
             @Param("cursor") String cursor, @Param("limit") int limit);
@@ -135,10 +137,15 @@ public interface InviteLinkClickRepository extends JpaRepository<InviteLinkClick
      *
      * <p>행을 지우지 않는 이유는 다른 사람의 퍼널 집계 근거이기 때문이다 — 집중·통계 익명화와 같은 규율.
      *
+     * <p>같은 행의 기기·IP 해시·UA 도 함께 지운다(GROMO-1801 · 계정 LLD §4) — {@code claimed_user_id} 만 끊으면
+     * 설치 device_id 로 다시 이어진다. matched·claimed_at·os·시각·링크는 소진·퍼널 근거로 남는다.
+     * {@code app_instance_id} 는 GA4 삭제 작업의 입력이라 그 작업이 내구 기록되기 전까지 남긴다.
+     *
      * @param userId 탈퇴한 유저
      * @return 끊어 낸 행 수
      */
     @Modifying(clearAutomatically = false, flushAutomatically = false)
-    @Query("UPDATE InviteLinkClick c SET c.claimedUserId = null WHERE c.claimedUserId = :userId")
+    @Query("UPDATE InviteLinkClick c SET c.claimedUserId = null, c.matchedDeviceId = null, c.ipHash = null,"
+            + " c.userAgent = null WHERE c.claimedUserId = :userId")
     int anonymizeClaimedUser(@Param("userId") UUID userId);
 }

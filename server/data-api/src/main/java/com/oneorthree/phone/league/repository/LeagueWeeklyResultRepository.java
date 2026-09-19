@@ -123,4 +123,23 @@ public interface LeagueWeeklyResultRepository extends JpaRepository<LeagueWeekly
             @Param("userId") UUID userId,
             @Param("weekStartAt") Instant weekStartAt,
             @Param("now") Instant now);
+
+    /**
+     * 탈퇴자의 주간 결과에서 개인 순위·집중량·티어 변경·확인 시각을 지우고 (user, weekStartAt) 완료
+     * 마커만 남긴다 (GROMO-1801 · 계정 LLD §4 league_weekly_results · V65).
+     *
+     * <p>행을 지우지 않는 이유: 이 행이 곧 재정산을 막는 마커다({@link #findLatestSettledWeekOnOrAfter}).
+     * 지운 뒤 과거 주차를 다시 정산하면 안 된다. 마커 행은 result 가 null 이라 결과 발표 페이지에서 빠진다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("""
+            UPDATE LeagueWeeklyResult r
+            SET r.previousTierLevel = null, r.newTierLevel = null, r.result = null,
+                r.focusSeconds = null, r.acknowledgedAt = null
+            WHERE r.user.id = :userId
+            """)
+    int reduceToSettlementMarkers(@Param("userId") UUID userId);
 }

@@ -242,6 +242,7 @@ public class GlobalExceptionHandler {
             case INVALID_CURSOR, CURSOR_EXPIRED -> "cursor";
             case INVITATION_EXPIRED, SLUG_NOT_FOUND -> "code";
             case UNSUPPORTED_PROVIDER -> "provider";
+            case NICKNAME_INVALID, NICKNAME_DUPLICATE -> "name";
             default -> null;
         };
     }

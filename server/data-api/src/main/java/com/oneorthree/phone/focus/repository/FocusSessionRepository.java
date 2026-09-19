@@ -276,6 +276,18 @@ public interface FocusSessionRepository extends JpaRepository<FocusSession, UUID
     void nullifyUser(@Param("userId") UUID userId);
 
     /**
+     * 탈퇴자가 채택한 태그를 가리키는 세션의 태그 연결을 끊는다 (GROMO-1801 · 계정 LLD §4 user_focus_tags).
+     * 세션의 user_id 를 지워도 태그 → 사용자 경로로 역추적되므로 태그 행을 지우기 «전에» 부른다.
+     *
+     * @param userId 탈퇴하는 유저 — 태그 소유자 축이다(세션의 user_id 는 이미 null 일 수 있다)
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE FocusSession f SET f.focusTag = null"
+            + " WHERE f.focusTag.id IN (SELECT t.id FROM UserFocusTag t WHERE t.user.id = :userId)")
+    int detachTagsOfUser(@Param("userId") UUID userId);
+
+    /**
      * 원자적 조건부 종료(GROMO-610) — 진행 중(endedAt IS NULL)인 경우에만 종료 시각을 채운다.
      * 반환값(영향 row 수)이 1이면 이 요청이 종료를 성사시킨 것이고, 0이면 이미 종료됨(동시/중복 PATCH).
      * DB 단일 UPDATE 로 read-modify-write 를 원자화해 endFocusSession 의 TOCTOU 이중 완료(통계 이중 누적)를 차단한다.

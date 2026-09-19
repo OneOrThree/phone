@@ -2,7 +2,10 @@ package com.oneorthree.phone.league.repository;
 
 import com.oneorthree.phone.league.repository.domain.LeagueRankSnapshot;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
@@ -34,4 +37,14 @@ public interface LeagueRankSnapshotRepository extends JpaRepository<LeagueRankSn
     @Query("SELECT COALESCE(MAX(snapshot.rank), 0) FROM LeagueRankSnapshot snapshot "
             + "WHERE snapshot.createdAt = :createdAt")
     int findMaximumRankByCreatedAt(LocalDate createdAt);
+
+    /**
+     * 탈퇴자의 일간 순위 스냅샷을 지운다 (GROMO-1801 · 계정 LLD §4 league_rank_snapshots).
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 지운 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM LeagueRankSnapshot s WHERE s.userId = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
 }

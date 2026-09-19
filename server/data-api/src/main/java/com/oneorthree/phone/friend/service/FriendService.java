@@ -4,6 +4,7 @@ import com.fasterxml.uuid.Generators;
 import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -28,6 +29,7 @@ import com.oneorthree.phone.friend.service.search.SearchType;
 import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +77,8 @@ public class FriendService {
      */
     private final ApplicationEventPublisher eventPublisher;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
+    /** GROMO-1934: 게스트 계정의 친구 요청 시간 한도 — 정회원은 세지 않는다. */
+    private final PerUserHourlyLimiter guestRequestLimiter;
 
     /**
      * 검색 전략은 AuthService의 Map&lt;Provider, SocialLoginClient>와 동일하게
@@ -93,6 +97,8 @@ public class FriendService {
      * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
      * @param searchStrategies            등록된 검색 전략 전부. {@code type()} 을 키로 Map 이 되며,
      *                                    키가 겹치면 기동 시점에 터진다
+     * @param guestRequestLimiter         게스트 친구 요청 스팸 방어(GROMO-1934) — 레거시·내부 두 표면이 모두
+     *                                    {@link #createRequest} 로 모이므로 여기 한 곳에서 센다
      */
     public FriendService(FriendshipRepository friendshipRepository,
                          UserQueryService userQueryService,
@@ -105,7 +111,8 @@ public class FriendService {
                          FocusLiveInfoLookup focusLiveInfoLookup,
                          FriendRelationLookup friendRelationLookup,
                          ApplicationEventPublisher eventPublisher,
-                         List<FriendSearchStrategy> searchStrategies) {
+                         List<FriendSearchStrategy> searchStrategies,
+                         @Qualifier("friendRequestRateLimiter") PerUserHourlyLimiter guestRequestLimiter) {
         this.friendshipRepository = friendshipRepository;
         this.userQueryService = userQueryService;
         this.pinnedUserRepository = pinnedUserRepository;
@@ -119,6 +126,7 @@ public class FriendService {
         this.eventPublisher = eventPublisher;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
+        this.guestRequestLimiter = guestRequestLimiter;
     }
 
     /**
@@ -147,6 +155,11 @@ public class FriendService {
             if (f.getStatus() == FriendshipStatus.PENDING) {
                 throw new FriendException(FriendErrorCode.REQUEST_ALREADY_EXISTS);
             }
+        }
+        // 한도는 판정을 다 통과한 «쓰기 직전»에 센다(GROMO-1934) — 이미 친구·중복 요청 같은 거절까지 세면
+        // 앱 재시도 몇 번에 정상 게스트가 한 시간 막힌다. 게스트만 센다(오너 확정).
+        if (fromUser.isGuest()) {
+            guestRequestLimiter.acquire(me);
         }
 
         // unique(from,to) 충돌 회피 1: 내가 보냈던 (me→target) soft delete 행이 있으면 복원해 재사용 (GROMO-719).
@@ -557,29 +570,19 @@ public class FriendService {
 
 
     /**
-     * 탈퇴자의 친구 관계와 핀을 정리한다 (GROMO-801 · 이동 GROMO-1656).
+     * 탈퇴자의 친구 관계와 핀을 파기한다 (GROMO-801 · 이동 GROMO-1656 · 하드 삭제 GROMO-1801).
      *
-     * <p><b>친구는 소프트딜리트, 핀은 하드 삭제</b>다. 탈퇴 자체는 이 정리가 없어도 성공하지만
-     * (user 행이 남아 FK 가 유지된다), 정리하지 않으면 상대방 화면에 닉네임이 파기된 <b>유령 친구</b>가
-     * 남고 탈퇴자의 PENDING 요청을 수락하면 유령과 친구가 된다.
+     * <p><b>둘 다 하드 삭제</b>다(계정 LLD §4). 활성 조회 필터나 soft delete 는 파기가 아니다 — 요청·수락·거절
+     * 상태와 시각이 탈퇴자 UUID 에 계속 묶인다. 두 활성 사용자끼리의 관계·핀은 건드리지 않는다.
      *
-     * <p><b>조회 시점 필터가 아니라 여기서 끊는 이유</b>: {@code friendships} 를 읽는 경로가
-     * 목록·카운트·요청·검색으로 흩어져 있어 새 조회가 생길 때마다 필터를 빠뜨릴 위험이 크다.
-     * 한 번 끊으면 {@code deletedAt IS NULL} 이 이미 걸러 준다.
-     *
-     * <p><b>호출 순서 제약</b>: {@code findActiveByUserId} 가 {@code friendships} N 행에 배타 락을
-     * 건다. 그 유저가 낀 관계의 동시 수락·거절이 이 락을 기다리므로, 관계와 무관한 정리(익명화·설정
-     * 삭제)를 <b>먼저</b> 끝내 락 보유 구간을 줄인다 — 호출부가 이 메서드를 늦게 부르는 이유다.
-     * 앞의 벌크 쿼리들과는 대상 테이블이 겹치지 않아(auto-flush 미발생) 결과 자체는 순서와 무관하다.
+     * <p><b>호출 순서</b>: 벌크 DELETE 가 {@code friendships} 행을 잠그므로 관계와 무관한 정리를 먼저 끝내
+     * 락 보유 구간을 줄인다 — 호출부가 이 메서드를 늦게 부르는 이유다.
      *
      * @param userId 탈퇴 중인 유저
-     * @param now    소프트딜리트 시각
      */
     @Transactional
-    public void detachWithdrawnUser(UUID userId, Instant now) {
-        for (Friendship friendship : friendshipRepository.findActiveByUserId(userId)) {
-            friendship.softDelete(now);
-        }
+    public void detachWithdrawnUser(UUID userId) {
+        friendshipRepository.deleteAllInvolving(userId);
         pinnedUserRepository.deleteAllInvolving(userId);
     }
 

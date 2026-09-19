@@ -12,6 +12,18 @@ notification:
 island-management:
   host-transfer-enabled: false
 
+# GROMO-1771 섬 게시판. 공지 작성·수정·삭제·댓글 네 쓰기는 BQ02(댓글 삭제·탈퇴 처리)와
+# BQ03(본문·댓글 상한)이 결정되기 전 출시 금지라 꺼 둔다(island-board policy). 조회는 열려 있다.
+island-board:
+  writes-enabled: false
+  # BQ03 결정 전 임시값 — 결정이 나면 이 두 값과 island-board 정책 문서를 함께 바꾼다(UTF-16 단위).
+  notice-body-max-length: 5000
+  comment-max-length: 500
+
+# 신규 PATCH /me (GROMO-1801). 계정 LLD §2.3 — 온보딩 판정·user.onboarded producer 연결 전에는 열지 않는다.
+account:
+  profile-update-enabled: false
+
 internal:
   api:
     enabled: ${INTERNAL_API_ENABLED:false}
@@ -77,6 +89,14 @@ internal:
           - 'GET /internal/islands/*/construction-options'
           - 'PUT /internal/islands/*/construction-target'
           - 'POST /internal/islands/*/constructions'
+          # GROMO-1771 섬 게시판 6종. `*` 는 세그먼트 하나다 — 목록과 작성, 상세·수정·삭제는 메서드로만
+          # 갈리므로 줄을 합치지 않는다(합치면 조회 권한이 쓰기까지 연다).
+          - 'GET /internal/islands/*/notices'
+          - 'POST /internal/islands/*/notices'
+          - 'GET /internal/islands/*/notices/*'
+          - 'PATCH /internal/islands/*/notices/*'
+          - 'DELETE /internal/islands/*/notices/*'
+          - 'POST /internal/islands/*/notices/*/comments'
           # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
           - 'GET /internal/islands/*/focus-members'
           - 'GET /internal/islands/*/rest-members'
@@ -94,6 +114,12 @@ internal:
           - 'POST /internal/users/*/letters'
           - 'GET /internal/users/*/letters'
           - 'GET /internal/users/*/letters/*'
+          # GROMO-1801 계정 3종 (계정 LLD §2.2·§2.3·§2.5, B26 사용자 축). `*` 는 세그먼트 하나라
+          # `/internal/users/{id}` 만 받고 하위 경로를 열지 않는다. 같은 패턴이 매칭하는
+          # `GET /internal/users/notification-snapshot` 은 InternalAuthFilter 가 caller 이름으로 막는다(GROMO-1906).
+          - 'GET /internal/users/*'
+          - 'PATCH /internal/users/*'
+          - 'DELETE /internal/users/*'
           # GROMO-1783 보유품·외양 4종 — 조회와 적용은 메서드로만 갈리므로 합치지 않는다.
           - 'GET /internal/users/*/inventory'
           - 'PATCH /internal/users/*/appearance'

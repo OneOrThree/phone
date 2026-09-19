@@ -1,13 +1,18 @@
 package com.oneorthree.phone.withdrawal.service;
 
 import com.oneorthree.phone.auth.service.AuthSessionService;
+import com.oneorthree.phone.character.service.CharacterGenerationService;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.service.FocusService;
-import com.oneorthree.phone.invitelink.repository.InviteLinkClickRepository;
 import com.oneorthree.phone.friend.service.FriendService;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.service.GroupMemberService;
+import com.oneorthree.phone.invitelink.service.InviteLinkMatchService;
+import com.oneorthree.phone.item.service.EquipmentService;
+import com.oneorthree.phone.league.service.LeagueService;
+import com.oneorthree.phone.notification.service.RankOvertakeNotificationService;
+import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.screentime.service.ScreenTimeService;
 import com.oneorthree.phone.stats.service.StatsService;
 import com.oneorthree.phone.user.exception.UserException;
@@ -24,7 +29,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 회원 탈퇴 오케스트레이션 — 여섯 도메인의 정리를 <b>정해진 순서로</b> 부른다 (GROMO-1656).
+ * 회원 탈퇴 오케스트레이션 — 도메인별 정리·파기를 <b>정해진 순서로</b> 부른다 (GROMO-1656 · 파기 확장 GROMO-1801).
  *
  * <p><b>이 클래스가 존재하는 이유.</b> 탈퇴는 계정·그룹·집중·통계·스크린타임·친구를 모두 정리하는
  * 일인데, 종전엔 그 전부가 {@code UserService.withdraw} 한 메서드(90줄) 안에 펼쳐져 있었다.
@@ -68,7 +73,12 @@ public class AccountWithdrawalService {
     private final AuthSessionService authSessionService;
     private final UserSatelliteCommandService userSatelliteCommandService;
     private final WithdrawalSatelliteCommandService withdrawalSatelliteCommandService;
-    private final InviteLinkClickRepository inviteLinkClickRepository;
+    private final InviteLinkMatchService inviteLinkMatchService;
+    private final RankOvertakeNotificationService rankOvertakeNotificationService;
+    private final LeagueService leagueService;
+    private final CharacterGenerationService characterGenerationService;
+    private final EquipmentService equipmentService;
+    private final PublicCommandService publicCommandService;
 
     /**
      * 회원 탈퇴 — 행을 지우지 않고 PII 를 파기한 뒤 비활성 표시를 한다.
@@ -109,18 +119,28 @@ public class AccountWithdrawalService {
                 userId,
                 new DeviceTokenDeletionRequest(user.getDeviceToken(), null, authGeneration),
                 "withdraw:" + userId);
+        // 폐기 사건을 적은 «뒤»에 세션 RT·bootstrap 해시와 로그인 시도 digest·서명 재료를 지운다(LLD §4).
+        authSessionService.eraseWithdrawnCredentials(userId);
         // 이미 박힌 초대 귀속을 끊는다(ⓐ) — tombstone 은 이후 쓰기만 막고, claim 은 최초 1회만
-        // 기록되므로 여기서 끊지 않으면 되돌릴 길이 없다.
-        inviteLinkClickRepository.anonymizeClaimedUser(userId);
+        // 기록되므로 여기서 끊지 않으면 되돌릴 길이 없다. 본인 발급 링크의 발급자 연결도 같이 끊는다(LLD §4).
+        // LLD §4 순서표는 이 단계를 지갑 삭제 뒤에 두지만, 기존 ⓐ 자리를 지킨다 — 아래 단계 어느 것도
+        // 초대 링크·클릭 행을 읽거나 쓰지 않아(링크 폐기 사건은 멤버십의 user 로 축을 잡는다) 결과가 같다.
+        inviteLinkMatchService.eraseWithdrawnUser(userId);
         // 위성이 자기 원장을 정리할 수 있게 탈퇴 사건을 적는다 — 알림은 Kafka, 링크는 HTTP.
         withdrawalSatelliteCommandService.recordWithdrawn(userId, authGeneration);
 
         // 그룹: 소유 그룹 정리 → HOST_WITHDRAW 판정 → OPEN 내기 해제(환불) → 판정 근거 박제 → 멤버십 이탈.
         // 제약 ①②의 왼쪽이 여기다 — 환불은 지갑 삭제보다, 박제는 익명화보다 앞서야 한다.
         groupMemberService.detachWithdrawnUser(user);
+        // 환불·증거 동결·이탈이 끝난 뒤에 멤버십 개인 설정·열람 lease·창형 원본·공지·댓글 작성자·직접 초대를 파기한다.
+        // 직접 초대(group_invites)는 LLD §4 순서표에서 친구·차단과 같은 뒤쪽 묶음이지만 그룹 도메인 행이라 여기서
+        // 같이 지운다 — 아래 단계 어느 것도 group_invites 를 읽거나 쓰지 않아 결과가 같다.
+        groupMemberService.eraseWithdrawnUserRecords(user);
 
         // 이력 익명화 — 행을 남기고 user_id 만 끊는다(다른 사람의 판정·랭킹 근거이므로).
         focusService.anonymizeWithdrawnUser(userId);
+        // 세션 → 태그 → 사용자 역추적 경로와 스트릭을 파기한다(LLD §4). 증거 동결은 위 그룹 단계에서 끝났다.
+        focusService.eraseWithdrawnUserRecords(userId);
         // v0.3 집중 세션(GROMO-1764)은 레거시와 달리 «상세·구간»이라는 자기 행을 따로 갖는다 —
         // user_id 뿐 아니라 자유 입력 subject 까지 남고, 진행 중이면 열린 구간도 남는다. 시작 게이트가
         // 닫혀 있어 지금은 행이 생기지 않지만, 게이트 뒤에 알려진 구멍을 남겨 두면 여는 날 그대로 샌다.
@@ -132,11 +152,19 @@ public class AccountWithdrawalService {
         statsService.anonymizeWithdrawnUser(userId);
         screenTimeService.anonymizeWithdrawnUser(userId);
 
+        // 파생 개인 이력 파기(LLD §4 중앙 TX 순서) — 알림 발송 이력 → 리그 → 캐릭터 생성·장착.
+        rankOvertakeNotificationService.eraseWithdrawnUserLogs(userId);
+        leagueService.eraseWithdrawnUser(userId);
+        characterGenerationService.eraseWithdrawnUser(userId);
+        equipmentService.eraseWithdrawnUser(userId);
+
         // 제약 ①의 오른쪽 — 위 내기 해제 환불이 이미 입금된 뒤여야 한다.
         userService.deleteWalletAndSettings(userId);
 
-        // friendships 배타 락 구간. 관계와 무관한 정리를 끝낸 뒤에 잡는다.
-        friendService.detachWithdrawnUser(userId, Instant.now());
+        // friendships 행 잠금 구간. 관계와 무관한 정리를 끝낸 뒤에 잡는다.
+        friendService.detachWithdrawnUser(userId);
+        // 공개 명령 receipt 속 개인 응답(이름 등)을 지운다 — 탈퇴 뒤 재생은 활성 검사가 먼저 거절한다.
+        publicCommandService.forgetReceiptsOf(userId);
 
         // 제약 ③ — 반드시 맨 끝. 소셜 벌크 DELETE 가 컨텍스트를 비우므로 뒤에 아무것도 올 수 없다.
         userService.erasePersonalData(user);
