@@ -1,6 +1,5 @@
 package com.oneorthree.phone.auth.service;
 
-import com.oneorthree.phone.auth.AuthController;
 import com.oneorthree.phone.auth.dto.req.LogoutRequest;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
@@ -16,7 +15,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -24,10 +22,13 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** AT 없이 보내는 구 앱 RT 로그아웃도 이관된 기기의 삭제를 같은 DB 커밋에 남긴다. */
+/**
+ * AT 없이 보내는 구 앱 RT 로그아웃도 이관된 기기의 삭제를 같은 DB 커밋에 남긴다.
+ *
+ * <p>{@code POST /api/v1/auth/logout} HTTP 경로는 GROMO-1947 에서 지웠다. {@link AuthService#logout} 은
+ * 남아 있어 서비스 단위 검증만 유지한다.
+ */
 @SpringBootTest
 class LegacyLogoutDeviceIntegrationTest {
     @DynamicPropertySource
@@ -36,30 +37,11 @@ class LegacyLogoutDeviceIntegrationTest {
     }
 
     @Autowired AuthService auth;
-    @Autowired AuthController controller;
     @Autowired JwtProvider jwt;
     @Autowired AuthSessionRepository sessions;
     @Autowired UserRepository users;
     @Autowired EventOutboxRepository outbox;
     @Autowired PlatformTransactionManager manager;
-
-    @Test
-    void theUnmodifiedRefreshTokenOnlyHttpRequestDurablyDeletesTheLegacyDevice() throws Exception {
-        GuestLoginResponse login = legacyLogin();
-        UUID user = jwt.extractUserId(login.accessToken());
-        var http = MockMvcBuilders.standaloneSetup(controller).build();
-        String body = "{\"refreshToken\":\"" + login.refreshToken() + "\"}";
-        // 기존 앱의 logout()처럼 AT와 기기 토큰을 보내지 않는다. 만료 AT DELETE 성공에 의존하지 않는다.
-        http.perform(post("/api/v1/auth/logout").contentType("application/json").content(body))
-                .andExpect(status().isNoContent());
-        http.perform(post("/api/v1/auth/logout").contentType("application/json").content(body))
-                .andExpect(status().isNoContent());
-        assertThat(deletions(user)).singleElement().satisfies(event -> assertThat(event.getParams())
-                .containsEntry("deviceToken", "legacy-device"));
-        assertThat(users.findById(user).orElseThrow().getDeviceToken()).isNull();
-        assertThat(sessions.findByRefreshTokenHash(TokenHasher.sha256Hex(login.refreshToken()))
-                .orElseThrow().isActive()).isFalse();
-    }
 
     @Test
     void promotionPreservesTheOriginalDeviceWhenAnotherSessionChangesTheUserScalar() {

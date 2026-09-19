@@ -52,13 +52,7 @@ public class JwtFilter extends OncePerRequestFilter {
     private final UserRepository userRepository;
 
     private static final List<String> WHITELIST = List.of(
-            "/api/v1/auth/kakao",
             "/api/v1/auth/guest",
-            "/api/v1/auth/apple",
-            "/api/v1/auth/google",
-            "/api/v1/auth/line",
-            "/api/v1/auth/instagram",
-            "/api/v1/auth/facebook",
             "/api/v1/auth/refresh",
             // 테스트 푸시 발송 (GROMO-528) — 컨트롤러가 @Profile(local/dev/staging) 이라 prod 에선 404
             "/api/v1/notifications/test"

@@ -37,13 +37,8 @@ class JwtFilterTest {
     private final JwtFilter jwtFilter = new JwtFilter(jwtProvider, userActivityService, userRepository);
 
     @ParameterizedTest
-    @DisplayName("화이트리스트 소셜 로그인 경로는 토큰 없이도 컨트롤러까지 도달한다")
+    @DisplayName("화이트리스트 인증 경로(guest·refresh)는 토큰 없이도 컨트롤러까지 도달한다")
     @ValueSource(strings = {
-            "/api/v1/auth/google",
-            "/api/v1/auth/line",
-            "/api/v1/auth/instagram",
-            "/api/v1/auth/kakao",
-            "/api/v1/auth/apple",
             "/api/v1/auth/guest",
             "/api/v1/auth/refresh"
     })

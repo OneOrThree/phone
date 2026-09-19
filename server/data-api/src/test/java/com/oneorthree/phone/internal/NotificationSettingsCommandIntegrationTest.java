@@ -22,8 +22,6 @@ import com.oneorthree.phone.user.service.UserService;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -47,7 +45,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -247,113 +244,6 @@ class NotificationSettingsCommandIntegrationTest {
     }
 
     @Test
-    @DisplayName("legacy PUT 응답 유실 뒤 같은 앱 키 재시도는 새 PATCH를 되돌리거나 새 outbox를 만들지 않는다")
-    void legacyHttpRetryPreservesOriginalCommandAfterNewerPartialChange() throws Exception {
-        var actor = actor();
-        String key = UUID.randomUUID().toString();
-        String original = legacyBody(false);
-        mvc.perform(put("/api/v1/users/me/notification-settings")
-                        .header("Authorization", "Bearer " + actor.login().accessToken())
-                        .header("Idempotency-Key", key).contentType("application/json").content(original))
-                .andExpect(status().isNoContent());
-        var first = settingsEvents(actor).get(0);
-        var newer = service.patch(actor.userId(), request(actor, true), UUID.randomUUID());
-        long receiptsBeforeRetry = receiptCount(actor);
-        assertThat(newer.version()).isGreaterThan(first.getVersion());
-
-        // 최초 204를 앱이 받지 못하고 큐에서 보존한 같은 command.id로 다시 보낸다.
-        mvc.perform(put("/api/v1/users/me/notification-settings")
-                        .header("Authorization", "Bearer " + actor.login().accessToken())
-                        .header("Idempotency-Key", key).contentType("application/json").content(original))
-                .andExpect(status().isNoContent());
-        var snapshot = service.snapshot(actor.userId(), proof(actor));
-        assertThat(snapshot.settings().notificationEnabled()).isTrue();
-        assertThat(snapshot.version()).isEqualTo(newer.version());
-        assertThat(settingsEvents(actor)).hasSize(2);
-        assertThat(settingsEvents(actor)).extracting(EventOutbox::getEventId)
-                .contains(first.getEventId(), newer.eventId());
-        assertThat(receiptCount(actor)).isEqualTo(receiptsBeforeRetry);
-
-        mvc.perform(put("/api/v1/users/me/notification-settings")
-                        .header("Authorization", "Bearer " + actor.login().accessToken())
-                        .header("Idempotency-Key", key).contentType("application/json").content(legacyBody(true)))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_CONFLICT"));
-        assertThat(settingsEvents(actor)).hasSize(2);
-        assertThat(service.snapshot(actor.userId(), proof(actor)).version()).isEqualTo(newer.version());
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    @DisplayName("Business 내부 단계 키와 Data 직접 공개 키의 양방향 재시도가 동일 내구 명령을 재생한다")
-    void routeSwitchRetryKeepsOriginalReceiptAndNeverRevertsNewerSettings(boolean internalFirst) throws Exception {
-        var actor = actor();
-        // raw가 접미로 끝나는 경우도 Business는 덧붙인다. internal은 이미 파생된 키를 다시 가공하지 않는다.
-        String raw = UUID.randomUUID() + ":settings-outbox";
-        String durable = raw + ":settings-outbox";
-        legacyRouteWrite(actor, internalFirst, raw, durable);
-        var original = settingsEvents(actor).get(0);
-        var newer = service.patch(actor.userId(), request(actor, true), UUID.randomUUID());
-        long originalReceipts = receiptCount(actor);
-        assertThat(newer.version()).isGreaterThan(original.getVersion());
-
-        legacyRouteWrite(actor, !internalFirst, raw, durable);
-        var snapshot = service.snapshot(actor.userId(), proof(actor));
-        assertThat(snapshot.settings().notificationEnabled()).isTrue();
-        assertThat(snapshot.version()).isEqualTo(newer.version());
-        assertThat(settingsEvents(actor)).hasSize(2);
-        assertThat(settingsEvents(actor)).extracting(EventOutbox::getEventId)
-                .containsExactlyInAnyOrder(original.getEventId(), newer.eventId());
-        assertThat(receiptCount(actor)).isEqualTo(originalReceipts);
-    }
-
-    @Test
-    @DisplayName("Data 직접 공개 키도 Business와 같은 150자 상한을 넘으면 저장 전에 400으로 거부한다")
-    void publicLegacyKeyLimitRejectsBeforeAnyReceiptOrOutbox() throws Exception {
-        var actor = actor();
-        long before = receiptCount(actor);
-        mvc.perform(put("/api/v1/users/me/notification-settings")
-                        .header("Authorization", "Bearer " + actor.login().accessToken())
-                        .header("Idempotency-Key", "x".repeat(151))
-                        .contentType("application/json").content(legacyBody(false)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
-        assertThat(settingsEvents(actor)).isEmpty();
-        assertThat(receiptCount(actor)).isEqualTo(before);
-    }
-
-    private void legacyRouteWrite(Actor actor, boolean internal, String raw, String durable) throws Exception {
-        if (internal) {
-            // 실제 Business DataApiClient가 보내는 PUT 경로/서비스 토큰/단계 키 모양 그대로 사용한다.
-            mvc.perform(put(path(actor) + "-commands")
-                            .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", actor.userId())
-                            .header("Idempotency-Key", durable).contentType("application/json")
-                            .content(legacyBody(false)))
-                    .andExpect(status().isOk()).andExpect(jsonPath("$.commandId").isString());
-        } else {
-            mvc.perform(put("/api/v1/users/me/notification-settings")
-                            .header("Authorization", "Bearer " + actor.login().accessToken())
-                            .header("Idempotency-Key", " " + raw + " ").contentType("application/json")
-                            .content(legacyBody(false)))
-                    .andExpect(status().isNoContent());
-        }
-    }
-
-    @Test
-    @DisplayName("legacy PUT의 Idempotency-Key 없는 기존 요청은 계속 204로 새 명령을 저장한다")
-    void legacyHttpWithoutOptionalKeyRemainsCompatible() throws Exception {
-        var actor = actor();
-        for (boolean enabled : List.of(false, true)) {
-            mvc.perform(put("/api/v1/users/me/notification-settings")
-                            .header("Authorization", "Bearer " + actor.login().accessToken())
-                            .contentType("application/json").content(legacyBody(enabled)))
-                    .andExpect(status().isNoContent());
-        }
-        assertThat(settingsEvents(actor)).hasSize(2);
-        assertThat(service.snapshot(actor.userId(), proof(actor)).settings().notificationEnabled()).isTrue();
-    }
-
-    @Test
     @DisplayName("snapshot은 미커밋 writer를 기다린 뒤 새 값과 그 버전을 함께 읽는다")
     void snapshotWaitsForSettingsCommit() throws Exception {
         var actor = actor();
@@ -417,11 +307,6 @@ class NotificationSettingsCommandIntegrationTest {
                 fullSettings(true, true, false, null, null))).isInstanceOf(UserException.class);
         assertThat(jdbc.queryForObject("select count(*) from user_notification_settings where user_id=?",
                 Long.class, actor.userId())).isZero();
-    }
-
-    private static String legacyBody(boolean enabled) {
-        return "{\"notificationEnabled\":" + enabled + ",\"soundEnabled\":true,\"nightModeEnabled\":false,"
-                + "\"nightStartTime\":null,\"nightEndTime\":null}";
     }
 
     private Actor actor() {
