@@ -43,7 +43,8 @@ class RealtimeOutboxEndpointsTest {
             FocusMemberEvents.REST_EVENT_TYPE,
             AppearanceEvents.EVENT_MEMBER_APPEARANCE,
             AppearanceEvents.EVENT_ISLAND_APPEARANCE,
-            AppearanceEvents.EVENT_PLAYBACK);
+            AppearanceEvents.EVENT_PLAYBACK,
+            AppearanceEvents.EVENT_INVENTORY);
 
     @Test
     @DisplayName("REALTIME 사건 type 전부가 realtime POST /internal/events 로 Data 전용 토큰과 함께 등록돼 있다")

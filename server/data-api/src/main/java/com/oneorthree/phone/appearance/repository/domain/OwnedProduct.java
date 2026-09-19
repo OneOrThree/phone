@@ -45,4 +45,23 @@ public class OwnedProduct {
 
     @Column(name = "granted_at", nullable = false)
     private Instant grantedAt;
+
+    /**
+     * 지급 한 건 — 주인 축은 {@code ownerType} 이 정한다(user 면 userId, island 면 groupId 만 채운다 — CHECK).
+     * 상점 구매(1781)는 {@code grantedRef} 에 주문 ID 를 싣는다.
+     */
+    public static OwnedProduct granted(String ownerType, UUID ownerId, String productId, String grantedRef,
+                                       Instant grantedAt) {
+        OwnedProduct owned = new OwnedProduct();
+        owned.ownerType = ownerType;
+        if (CatalogAsset.OWNER_USER.equals(ownerType)) {
+            owned.userId = ownerId;
+        } else {
+            owned.groupId = ownerId;
+        }
+        owned.productId = productId;
+        owned.grantedRef = grantedRef;
+        owned.grantedAt = grantedAt;
+        return owned;
+    }
 }

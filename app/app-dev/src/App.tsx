@@ -59,6 +59,7 @@ import {
   initialState,
   reducer,
   currentIsland,
+  viewIsland,
   sessionSeconds,
   questRate,
   canBuild,
@@ -373,12 +374,19 @@ function Gromo() {
   }, [route, loaded, reviewEpoch]);
   useEffect(() => {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
+      if (route === 'home' && state.visitingIslandId) {
+        dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
+        dispatch({ type: 'END_VISIT' });
+        go('travel', island.id);
+        return true;
+      }
       if (route === 'home' || route === 'login') return false;
       back();
       return true;
     });
     return () => subscription.remove();
-  }, [history, route, modal]);
+  }, [history, route, modal, state.visitingIslandId, island.id]);
   // 섬 음악은 집중 중이거나 축음기 시트를 보고 있을 때 들린다. 시트를 떠나면 집중 중이 아닐 때 멈춘다
   const islandAudioOn = island.playing && (state.session?.status === 'active' || route === 'sound');
   useEffect(() => {

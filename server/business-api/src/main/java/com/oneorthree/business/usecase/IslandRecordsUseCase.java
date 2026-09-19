@@ -52,7 +52,10 @@ public class IslandRecordsUseCase {
             Map.entry("SCREEN_TIME_DEVICE_FORBIDDEN", new PublicFailure(403, ApiErrorCode.FORBIDDEN, "deviceId")),
             Map.entry("SCREEN_TIME_MEASUREMENT_CONFLICT",
                     new PublicFailure(409, ApiErrorCode.STATE_CONFLICT, "measuredAt")),
-            Map.entry("SCREEN_TIME_OUT_OF_WINDOW", new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "measuredAt")));
+            Map.entry("SCREEN_TIME_OUT_OF_WINDOW", new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "measuredAt")),
+            Map.entry("STATISTICS_SCOPE_OUT_OF_RANGE", new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "scope")),
+            Map.entry("SCREEN_TIME_INVALID_MEASUREMENT",
+                    new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "measurementStatus")));
 
     private final DataApiClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;

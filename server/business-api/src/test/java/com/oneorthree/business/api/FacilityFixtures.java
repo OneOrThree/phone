@@ -14,6 +14,16 @@ final class FacilityFixtures {
             + "\"appearance\":{\"islandThemeId\":\"pine\",\"buildingThemes\":{\"hall\":\"default\"},"
             + "\"version\":5}}";
 
+    /** 상점 지갑 두 개 (GROMO-1781) — 개인 지갑엔 version 축이 없어 fishVersion 은 null 이다. */
+    static final String WALLETS = "{\"fish\":500,\"villagePoints\":1500,\"fishVersion\":null,"
+            + "\"villagePointsVersion\":7}";
+
+    /** 상점 목록 한 쪽 (GROMO-1781) — 다음 쪽이 없다. */
+    static final String PRODUCTS = "{\"items\":[{\"id\":\"rain\",\"title\":\"오두막의 빗소리\",\"kind\":\"audio\","
+            + "\"price\":30,\"currency\":\"village_points\",\"ownerType\":\"island\",\"owned\":false,"
+            + "\"available\":true,\"reason\":null,\"productVersion\":5}],\"publicationVersion\":1,"
+            + "\"hasMore\":false,\"lastDisplayOrder\":null,\"lastProductId\":null}";
+
     private FacilityFixtures() {
     }
 

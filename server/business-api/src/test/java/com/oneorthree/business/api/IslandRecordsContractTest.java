@@ -257,6 +257,7 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             "403,SCREEN_TIME_DEVICE_FORBIDDEN,403,FORBIDDEN,deviceId",
             "409,SCREEN_TIME_MEASUREMENT_CONFLICT,409,STATE_CONFLICT,measuredAt",
             "422,SCREEN_TIME_OUT_OF_WINDOW,422,OUT_OF_RANGE,measuredAt",
+            "422,SCREEN_TIME_INVALID_MEASUREMENT,422,OUT_OF_RANGE,measurementStatus",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
             "400,UNKNOWN,502,UPSTREAM_CONTRACT_ERROR,"})
     @DisplayName("PUT — 도메인 실패의 공개 오류 표")

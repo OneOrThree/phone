@@ -69,7 +69,7 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/fishcat/
 | `library` | 32–38 | 섬 문맥 (도서관 완공) | `GET /islands/{islandId}/statistics/focus` · `…/statistics/screen-time` | 미완공: 기록 조각 null + `facility_locked`. 물고기 장은 `GET /islands/{islandId}/statistics/fish-earnings`(GROMO-1895, 도서관 게이트 `LIBRARY_LOCKED`), 타 섬 경로는 BG11. 구현(GROMO-1898): 섬 상세에 시설 필드가 없어 완공은 `…/construction-options` 의 `items`(미완공 건물만)로 판정한다. ~~기록 GET(1769) 전까지 완공이면 두 기록 조각은 `missingFragments`·`statisticsAvailability:null`~~ → GROMO-1769: 완공이면 두 조각을 병렬로 싣고 `statisticsAvailability:available`. 화면은 query 가 없어 **이번 UTC 주(월~일)·scope=me** 다(결정 로그 2026-09-19 RC-화면) |
 | `board` | 45–55 | 섬 문맥 (게시판 완공·건설 목표) | `GET /islands/{islandId}/quests/current` · `…/notices` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
 | `mailbox` | 63–66 | 섬 문맥 (우체통 완공) | Realtime `…/messages` 첫 페이지 · Data 편지함·친구([friend-letter](../friend-letter/) 설계 완료 — BG10 해소) → 작성자 표시 정보 batch | Realtime 권한 거부는 화면 403. 표시 정보 장애를 탈퇴자로 바꾸지 않는다. 구현(GROMO-1899): 인가는 편지방 조각의 Data `mailbox-access` 가 하고, 작성자 표시 batch 는 POST 라 병렬 조각 밖에서 같은 deadline 으로 잇는다. `letters` 는 받은 편지함 첫 페이지 |
-| `shop` | 68–73 | 섬 문맥 (상점 완공) | `GET /islands/{islandId}/shop/wallets` · `…/shop/products?category=` · `…/inventory` | 미완공은 화면 403. 구현(GROMO-1898): 상점을 가리는 도메인 GET 이 없어 `…/construction-options` 로 완공을 먼저 판정한다. 지갑·상품 GET(1781) 전까지 `wallets`·`products` 는 `missingFragments`, `category` query 는 상품 GET 과 함께 연다 |
+| `shop` | 68–73 | 섬 문맥 (상점 완공) | `GET /islands/{islandId}/shop/wallets` · `…/shop/products?category=` · `…/inventory` | 미완공은 화면 403. 구현(GROMO-1898): 상점을 가리는 도메인 GET 이 없어 `…/construction-options` 로 완공을 먼저 판정한다. 지갑·상품 GET 은 GROMO-1781 에서 연결됐다 — `category=personal|island`(기본 personal, 그 밖은 422), 상품 커서는 도메인 GET 과 같은 서명 커서 |
 | `playback` | 84 · 85 | 섬 문맥 (방송기 완공) | `GET /islands/{islandId}/inventory` · `…/playback` · `…/shop/products?category=sound` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
 | `raft` | 76 · 77 | — | `GET /me` · `GET /me/inventory` · 받은 친구 요청 수([friend-letter](../friend-letter/) HLD §3 — 요청 배열의 길이, BG10 해소) | 현재 섬 불필요 |
 | `friends` | 78 · 79 | — | 친구 목록 · 받은·보낸 요청 ([friend-letter](../friend-letter/) §1.15 내부 GET) | 설계 완료(BG10 해소). 구현(GROMO-1899): 받은 요청은 raft 와 같은 `friendRequests`, 보낸 요청은 `sentFriendRequests`. query `date` 만 받아 도메인에 넘긴다 |
@@ -77,17 +77,7 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/fishcat/
 
 ### 4.1 `missingFragments` 현황 (정책 B27)
 
-origin/main `ScreenReadUseCase`(`ddc4a9218`, 2026-09-19) 기준. 목록에 있는 조각은 명시 `null` 이고 해당 상류를 부르지 않는다. 표에 없는 화면(`launch`·`explore`·`visit`·`focus`·`mailbox`·`raft`·`friends`·`account`)은 키가 없다.
-
-| 화면 | `missingFragments` (배열 순서 그대로) | 조건 | 빠진 도메인 GET | 사라지는 시점 |
-| --- | --- | --- | --- | --- |
-| `home` | `["wallets"]` | 항상 | `GET /islands/{islandId}/shop/wallets` | 상점 지갑 GET 연결 PR 머지 때 (진행 중) |
-| `town-hall` | `["wallets"]` | 항상 (방장·일반 주민 모두) | 같음 | 같음 |
-| `board` | `["wallets"]` | 게시판 완공(미완공은 화면 403) | 같음 | 같음 |
-| `shop` | `["wallets","products"]` | 상점 완공(미완공은 화면 403, 키 없음) | `…/shop/wallets` · `…/shop/products?category=` | 상점 지갑·상품 연결 PR 머지 때 (진행 중) |
-| `playback` | `["products","wallets"]` | 방송기 완공(미완공은 화면 403) | `…/shop/products?category=sound` · `…/shop/wallets` | 같음 |
-
-지갑·상품(상점)은 지금 다른 작업이 연결하고 있다. 도서관 기록 조각은 GROMO-1769 가 연결해 `library` 행을 지웠다(B27 ④ — 완공이면 키 생략·`statisticsAvailability:available`). 그 PR 이 머지되면 위 행은 사라지고 표에 남는 화면이 없으면 이 절은 「현재 없음」으로 줄인다. 행을 지우는 것은 그 연결 PR 의 몫이다(B27 ④).
+**현재 없음.** GROMO-1781(상점 지갑·상품, #846)과 GROMO-1769(도서관 기록)가 마지막 빠진 조각을 연결해 14개 화면 어디에도 `missingFragments` 키가 없다. `library` 는 도서관 완공이면 두 기록 조각 + `statisticsAvailability:available`, 미완공이면 두 조각 `null` + `facility_locked` 다. 새로 빠진 조각이 생기면 B27 ①~④ 대로 이 절에 표를 되살린다(이전 표는 git 이력).
 
 화면 조회가 없는 프레임: 01 약관(`GET` 1개), 08·30·62 항해(B17), 27·29 결과(B18), 56·57 공지 상세, 58 랭킹, 67 편지 상세, 74·75 구매 내역. 모두 앱이 도메인 경로를 한 번 부르거나 앞 응답으로 그린다.
 

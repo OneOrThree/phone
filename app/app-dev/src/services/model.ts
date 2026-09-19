@@ -245,6 +245,8 @@ export type State = {
   pendingIsland: string | null;
   pendingIslands?: string[];
   travelOrigin?: string;
+  // 다른 섬을 방문자로 구경 중이면 그 섬 ID(GROMO-1904). 내 현재 섬(islandId)은 그대로 둔다
+  visitingIslandId?: string | null;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
   // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
@@ -644,6 +646,22 @@ export function initialState(full = false): State {
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
+// 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
+export const viewIsland = (s: State) =>
+  (s.visitingIslandId && s.islands.find((i) => i.id === s.visitingIslandId)) || currentIsland(s);
+// 방문자로 내릴 수 있는지: 섬에 자리 잡은 뒤, 지금 섬 전망대에서, 집중 중이 아닐 때 미가입 섬만
+export const canVisit = (s: State, id: string) => {
+  const target = s.islands.find((i) => i.id === id);
+  return (
+    s.onboarded &&
+    !s.session &&
+    currentIsland(s).joined &&
+    currentIsland(s).buildings.includes('tower') &&
+    !!target &&
+    !target.joined &&
+    !target.closed
+  );
+};
 // "HH:MM" → 자정부터 분. 형식이 틀리면 null
 // 시간대 종료는 24:00까지 쓸 수 있고, 네이티브 입력의 '9:00' 같은 한 자리 시도 받는다
 export const clockMinutes = (v?: string) => {
@@ -689,6 +707,22 @@ export const CAPACITY_MIN = 1,
 export const residentCount = (i: Island) => i.members.length + (i.joined ? 1 : 0);
 export const capacityOf = (i: Island) => i.capacity ?? CAPACITY_MAX;
 export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
+// 방문자 등록증의 가입 버튼 상태. 집중 중에는 배 이동부터 막혀 방문 화면에 올 수 없으므로 집중 상태는 없다
+export type VisitorJoin = 'join' | 'apply' | 'cancel' | 'full';
+export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
+  (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+    ? 'cancel'
+    : isFull(i)
+      ? 'full'
+      : i.approval
+        ? 'apply'
+        : 'join';
+export const visitorJoinLabel: Record<VisitorJoin, string> = {
+  join: '이 섬에 가입',
+  apply: '가입 신청',
+  cancel: '신청 취소',
+  full: '정원이 가득 찼어요',
+};
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
   islands.find((i) => !i.closed && inviteCodeOf(i) === code.trim().toUpperCase());
@@ -1058,6 +1092,8 @@ export function reducer(state: State, a: Action): State {
   if (a.type === 'RESET') return initialState(!!a.full);
   if (a.type === 'LOAD') {
     const loaded = JSON.parse(JSON.stringify(a.state)) as State;
+    // 앱을 다시 켜면 구경을 끝내고 내 섬에서 시작한다
+    delete loaded.visitingIslandId;
     const retired = ['flag', 'sailboat', 'cabinboat'];
     const loadedAt = a.now ?? Date.now();
     loaded.islands.forEach((i) => {
@@ -1139,6 +1175,9 @@ export function reducer(state: State, a: Action): State {
     'CHAT_READ',
   ];
   if (joinedOnly.includes(a.type) && !currentIsland(state).joined) return state;
+  // 구경 중에는 쓰기를 모두 막는다. 이 동작들은 내 현재 섬을 대상으로 하므로 구경하는 섬 화면에서 섞이면 안 된다
+  if (state.visitingIslandId && (hostOnly.includes(a.type) || joinedOnly.includes(a.type)))
+    return state;
   if (
     a.type === 'DELETE_ACCOUNT' &&
     state.islands.some((island) => isHost(island) && island.members.length > 0)
@@ -1170,6 +1209,7 @@ export function reducer(state: State, a: Action): State {
       );
       s.islands.push(n);
       s.islandId = n.id;
+      s.visitingIslandId = null;
       s.onboarded = true;
       break;
     }
@@ -1191,6 +1231,8 @@ export function reducer(state: State, a: Action): State {
       s.travelOrigin = s.onboarded ? i.name : '나의 뗏목';
       island.joined = true;
       s.islandId = island.id;
+      // 구경하던 섬에 바로 가입하면 그 섬 주민이 되어 구경이 끝난다
+      s.visitingIslandId = null;
       s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== island.id);
       s.pendingIsland = s.pendingIslands.at(-1) ?? null;
       s.onboarded = true;
@@ -1200,7 +1242,11 @@ export function reducer(state: State, a: Action): State {
       s.travelOrigin = a.name;
       break;
     case 'VISIT':
-      if (!i.buildings.includes('tower') || s.session) return state;
+      if (!canVisit(state, a.id)) return state;
+      s.visitingIslandId = a.id;
+      break;
+    case 'END_VISIT':
+      s.visitingIslandId = null;
       break;
     case 'SWITCH_ISLAND': {
       if (s.session) return state;
@@ -1208,6 +1254,7 @@ export function reducer(state: State, a: Action): State {
       if (!target?.joined || (!i.buildings.includes('tower') && s.onboarded && target.id !== i.id))
         return state;
       s.islandId = target.id;
+      s.visitingIslandId = null;
       break;
     }
     case 'FOCUS_SPOT':
@@ -1621,6 +1668,7 @@ export function reducer(state: State, a: Action): State {
       const nextIsland = s.islands.find((j) => j.joined && j.id !== i.id);
       s.onboarded = !!nextIsland;
       if (nextIsland) s.islandId = nextIsland.id;
+      s.visitingIslandId = null;
       break;
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);

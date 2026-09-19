@@ -3,6 +3,10 @@ import {
   initialState,
   reducer,
   currentIsland,
+  viewIsland,
+  canVisit,
+  visitorJoinState,
+  visitorJoinLabel,
   canBuild,
   canBuy,
   products,
@@ -526,6 +530,73 @@ test('다른 섬 승인·집중 중 이동 차단·직렬화 후 재개', () => 
   const restored = JSON.parse(JSON.stringify(s));
   assert.deepEqual(restored, s);
   assert.equal(restored.session?.subject, '영어');
+});
+
+test('방문자는 다른 섬을 구경만 하고 쓰기는 막히며, 가입하면 구경이 끝난다', () => {
+  let s = initialState(true);
+  const cloud = () => s.islands.find((island) => island.id === 'cloud')!;
+  // 가입한 섬·집중 중·내 섬에 전망대가 없을 때는 방문자로 내릴 수 없다
+  const noTower = JSON.parse(JSON.stringify(s));
+  currentIsland(noTower).buildings = currentIsland(noTower).buildings.filter(
+    (b: string) => b !== 'tower',
+  );
+  assert.equal(canVisit(noTower, 'cloud'), false);
+  assert.equal(canVisit(s, 'soda'), false);
+  assert.deepEqual(act(s, 'VISIT', { id: 'soda' }), s);
+  const focusing = act(s, 'START', { subject: '수학', now: 1000 });
+  assert.deepEqual(act(focusing, 'VISIT', { id: 'cloud' }), focusing);
+
+  s = act(s, 'VISIT', { id: 'cloud' });
+  assert.equal(s.visitingIslandId, 'cloud');
+  assert.equal(viewIsland(s).id, 'cloud');
+  assert.equal(currentIsland(s).id, 'soda');
+  // 구경 중에는 내 섬 대상 쓰기(집중·댓글·방장 관리)가 모두 막힌다
+  assert.deepEqual(act(s, 'START', { subject: '영어' }), s);
+  assert.deepEqual(act(s, 'MANAGE', { name: '이름 탈취' }), s);
+  // 섬마다 공지 ID가 같아도 구경 중 댓글이 내 섬 공지에 달리지 않는다
+  const notice = cloud().notices[0];
+  assert.deepEqual(act(s, 'COMMENT', { id: notice.id, text: '안녕하세요' }), s);
+  assert.deepEqual(act(s, 'COMMENT_DELETE', { id: notice.id, commentId: 'x' }), s);
+  // 내 섬으로 전환하거나 새 섬을 만들면 구경이 끝난다
+  assert.equal(act(s, 'SWITCH_ISLAND', { id: 'soda' }).visitingIslandId, null);
+  assert.equal(act(s, 'CREATE_ISLAND', { name: '새 섬', capacity: 5 }).visitingIslandId, null);
+
+  // 승인 필요 섬: 가입 신청 → 신청 취소 → 다시 가입 신청
+  assert.equal(visitorJoinState(s, cloud()), 'apply');
+  s = act(s, 'JOIN', { id: 'cloud' });
+  assert.equal(visitorJoinState(s, cloud()), 'cancel');
+  assert.equal(s.visitingIslandId, 'cloud');
+  s = act(s, 'CANCEL_JOIN', { id: 'cloud' });
+  assert.equal(visitorJoinState(s, cloud()), 'apply');
+  // 정원이 차면 신청할 수 없다
+  cloud().capacity = cloud().members.length;
+  assert.equal(visitorJoinState(s, cloud()), 'full');
+  assert.deepEqual(act(s, 'JOIN', { id: 'cloud' }), s);
+  cloud().capacity = undefined;
+
+  // 앱을 다시 켜면 구경이 끝난다
+  assert.equal(act(s, 'LOAD', { state: s }).visitingIslandId, undefined);
+  s = act(s, 'END_VISIT');
+  assert.equal(s.visitingIslandId, null);
+  assert.equal(viewIsland(s).id, 'soda');
+
+  // 승인 불필요 섬: 이 섬에 가입 → 바로 주민이 되어 그 섬이 현재 섬이 된다
+  s = act(s, 'VISIT', { id: 'strawberry' });
+  const strawberry = s.islands.find((island) => island.id === 'strawberry')!;
+  assert.equal(visitorJoinState(s, strawberry), 'join');
+  s = act(s, 'JOIN', { id: 'strawberry' });
+  assert.equal(s.visitingIslandId, null);
+  assert.equal(s.islandId, 'strawberry');
+  assert.equal(viewIsland(s).id, 'strawberry');
+});
+
+test('방문자 가입 버튼 라벨은 네 가지다', () => {
+  assert.deepEqual(visitorJoinLabel, {
+    join: '이 섬에 가입',
+    apply: '가입 신청',
+    cancel: '신청 취소',
+    full: '정원이 가득 찼어요',
+  });
 });
 
 test('승인 대기 신청은 섬별로 보존하고 선택한 신청만 취소한다', () => {

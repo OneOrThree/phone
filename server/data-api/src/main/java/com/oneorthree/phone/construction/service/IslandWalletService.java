@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.OptionalInt;
 import java.util.UUID;
 
 /**
@@ -154,5 +155,32 @@ public class IslandWalletService {
                 .idempotencyKey(idempotencyKey)
                 .build());
         return wallet.getBalance();
+    }
+
+    /**
+     * 상점 구매 차감(GROMO-1781) — {@link #debitForConstruction} 과 같은 규율로 잠긴 지갑에서 가격을 빼고 원장에
+     * 적는다. 잔액이 모자라면 아무것도 바꾸지 않고 {@code false} 다 — 「모자라다」를 어떤 공개 실패로 낼지는
+     * 상점 도메인이 정한다(건설과 달리 상점 오류 코드로 나가야 해서 여기서 예외를 고르지 않는다).
+     *
+     * <p>잠금은 지갑 행 하나다 — 호출측(구매)이 사용자·섬·멤버십·카탈로그 포인터를 먼저 잡고 들어온다
+     * (상점 LLD §4 공통 잠금 계열의 wallet 자리). {@code uq_island_wallet_tx_idem} 이 같은 키의 이중 기입을
+     * 막는 최후 방어선이다.
+     *
+     * @return 차감 후 잔액, 모자라면 빈 값
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public OptionalInt debitForShop(UUID islandId, int amount, String idempotencyKey) {
+        wallets.insertIfAbsent(islandId);
+        IslandWallet wallet = wallets.findByIdForUpdate(islandId)
+                .orElseThrow(() -> new IllegalStateException("섬 지갑을 만들 직후에 찾지 못했습니다."));
+        if (!wallet.trySpend(amount)) {
+            return OptionalInt.empty();
+        }
+        ledger.save(IslandWalletTransaction.builder()
+                .islandId(islandId).amount(amount)
+                .type(IslandWalletTransactionType.SHOP_PURCHASE)
+                .idempotencyKey(idempotencyKey)
+                .build());
+        return OptionalInt.of(wallet.getBalance());
     }
 }

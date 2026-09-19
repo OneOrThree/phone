@@ -41,6 +41,7 @@ import {
   residentCount,
   targetIds,
   unreadLetters,
+  viewIsland,
 } from '@/services/model';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
@@ -2975,6 +2976,8 @@ function makeState(concept: Concept): BoardState {
   if (requestedView.startsWith('write-focus') || requestedView.startsWith('write-phone'))
     view = 'write';
   if (requestedView === 'empty') view = 'list';
+  // 방문자 시안은 댓글 자리 안내가 보이도록 공지 상세로 연다
+  if (requestedView === 'visitor') view = 'detail';
   const state: BoardState = {
     role: concept.boardRole || 'owner',
     panel: concept.boardPanel || '',
@@ -3544,11 +3547,13 @@ function QuestCard({
   index,
   reduceMotion,
   onDetail,
+  visitor,
 }: {
   quest: QuestView;
   index: number;
   reduceMotion: boolean;
   onDetail: () => void;
+  visitor?: boolean;
 }) {
   const t = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -3605,19 +3610,29 @@ function QuestCard({
             ? `${quest.startTime}–${quest.endTime} · ${quest.target}분 집중`
             : `${quest.target}분 집중`}
       </Text>
-      <View
-        style={{ flexDirection: 'row', justifyContent: 'space-between', gap: 8, marginVertical: 7 }}
-      >
-        <Text style={boardFont(13, 1.6, '400', '#786147')}>내 달성률</Text>
-        <Text style={boardFont(13, 1.6, '700')}>
-          {quest.rate == null ? '측정 전' : `${quest.rate}%`}
-        </Text>
-      </View>
-      <Track
-        rate={quest.rate ?? 0}
-        color={complete ? '#7eaa71' : '#c9943f'}
-        style={{ height: 5, backgroundColor: '#b99e5b33' }}
-      />
+      {/* 방문자는 이 섬 퀘스트에 참여하지 않으므로 내 달성률이 없다 */}
+      {!visitor && (
+        <>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              gap: 8,
+              marginVertical: 7,
+            }}
+          >
+            <Text style={boardFont(13, 1.6, '400', '#786147')}>내 달성률</Text>
+            <Text style={boardFont(13, 1.6, '700')}>
+              {quest.rate == null ? '측정 전' : `${quest.rate}%`}
+            </Text>
+          </View>
+          <Track
+            rate={quest.rate ?? 0}
+            color={complete ? '#7eaa71' : '#c9943f'}
+            style={{ height: 5, backgroundColor: '#b99e5b33' }}
+          />
+        </>
+      )}
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 }}>
         <Link testID={`board-quest-detail-${index}`} label="자세히 보기 ›" onPress={onDetail} />
       </View>
@@ -3674,8 +3689,9 @@ const questError = (form: QuestForm) => {
 
 // 앱 상태(e)를 게시판이 그리는 모양으로 바꾼다
 function boardFromApp(e: any) {
+  // 다른 섬을 구경 중이면 그 섬 게시판을 읽기 전용으로 보여 준다
   const state: State = e.state,
-    i = currentIsland(state),
+    i = viewIsland(state),
     now: number = e.now;
   const member = (id: string) => i.members.find((m) => m.id === id);
   const notices: NoticeView[] = i.notices.map((n) => ({
@@ -3757,7 +3773,8 @@ function boardFromApp(e: any) {
   };
   return {
     island: i,
-    owner: isHost(i),
+    owner: !state.visitingIslandId && isHost(i),
+    visitor: !!state.visitingIslandId,
     notices,
     quests,
     ratesOf,
@@ -3783,7 +3800,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
   });
   // 매초 오는 now로 다시 계산하지 않게, 상태가 바뀌거나 날짜가 넘어갈 때만 계산한다
   // (집중·공사 중에는 달성률·공사 진행률이 시간에 따라 변하므로 매번 계산)
-  const live = !!e && (!!e.state.session || !!currentIsland(e.state).construction);
+  const live = !!e && (!!e.state.session || !!viewIsland(e.state).construction);
   const app = useMemo(
     () => (e ? boardFromApp(e) : null),
     [e?.state, e ? dayKey(e.now) : '', live ? e.now : 0],
@@ -3806,6 +3823,8 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
   }, [routeKey]);
 
   const owner = app ? app.owner : local.role === 'owner';
+  // 다른 섬 방문자: 공지·댓글·퀘스트는 읽기만 하고 청사진은 보지 않는다
+  const visitor = app ? app.visitor : concept.boardView === 'visitor';
   const user = owner ? OWNER : '두부';
   const notices: NoticeView[] =
     app?.notices ??
@@ -3866,7 +3885,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
     if (!e) return local;
     const r = e.route,
       detail: string = e.detail;
-    const panel: BoardState['panel'] =
+    const routePanel: BoardState['panel'] =
       r === 'notice' || r === 'noticeEdit'
         ? 'notice'
         : r === 'questEdit' || (r === 'quest' && detail !== 'building')
@@ -3876,6 +3895,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
             : ((Object.keys(boardTabs) as (keyof typeof boardTabs)[]).find(
                 (k) => boardTabs[k] === e.tab,
               ) ?? '');
+    const panel = visitor && routePanel === 'blueprint' ? '' : routePanel;
     const view = missing
       ? 'list'
       : ui.confirm
@@ -3934,6 +3954,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
   // 화면 동작. 목업은 로컬 상태를, 앱은 라우트 이동과 reducer 액션을 쓴다
   const nav = {
     open: (panel: BoardState['panel']) => {
+      if (visitor && panel === 'blueprint') return;
       if (!e) {
         if (s.panel === panel) return render({ panel: '', view: 'list', error: '' });
         return render({
@@ -4019,6 +4040,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       });
     },
     askDelete: (target: 'notice' | 'comment', index = 0) => {
+      if (visitor) return;
       if (target === 'notice' ? !owner : !owner && !notices[s.noticeIndex].comments[index].mine)
         return;
       if (e) return setUi((prev) => ({ ...prev, confirm: { target, index } }));
@@ -4057,8 +4079,11 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       );
       render({ view: 'detail' });
     },
-    openComment: () =>
-      e ? setUi((prev) => ({ ...prev, comment: true })) : render({ view: 'comment', error: '' }),
+    openComment: () => {
+      if (visitor) return;
+      if (e) return setUi((prev) => ({ ...prev, comment: true }));
+      render({ view: 'comment', error: '' });
+    },
     cancelComment: () => {
       if (!e) return render({ view: 'detail', commentDraft: '', error: '' });
       e.setText('');
@@ -4069,7 +4094,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
     submitComment: () => {
       const text = s.commentDraft.trim(),
         notice = notices[s.noticeIndex];
-      if (!text || !notice) return;
+      if (visitor || !text || !notice) return;
       if (e) {
         e.dispatch({ type: 'COMMENT', id: notice.id, text });
         e.setText('');
@@ -4343,12 +4368,35 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
             주민 댓글{' '}
             <Text style={{ marginLeft: 4, color: '#99644f' }}>{notice.comments.length}</Text>
           </Text>
-          {s.view === 'comment' ? (
-            <PaperAction testID="board-comment-cancel" label="취소" onPress={nav.cancelComment} />
-          ) : (
-            <PaperAction testID="board-comment-new" label="+ 댓글 쓰기" onPress={nav.openComment} />
-          )}
+          {!visitor &&
+            (s.view === 'comment' ? (
+              <PaperAction testID="board-comment-cancel" label="취소" onPress={nav.cancelComment} />
+            ) : (
+              <PaperAction
+                testID="board-comment-new"
+                label="+ 댓글 쓰기"
+                onPress={nav.openComment}
+              />
+            ))}
         </View>
+        {/* 방문자는 댓글 입력칸 자리에 주민 안내만 둔다 */}
+        {visitor && (
+          <View
+            testID="board-comment-visitor"
+            style={{
+              marginBottom: 14,
+              paddingVertical: 12,
+              paddingHorizontal: 14,
+              borderWidth: 1,
+              borderColor: '#b49472',
+              borderStyle: 'dashed',
+              borderRadius: 8,
+              backgroundColor: '#fffaf0',
+            }}
+          >
+            <Text style={muted({ textAlign: 'center' })}>주민이 되면 댓글을 남길 수 있어요</Text>
+          </View>
+        )}
         {s.view === 'comment' && (
           <View
             style={{
@@ -4414,7 +4462,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                   >
                     {text}
                   </Text>
-                  {(owner || mine) && (
+                  {!visitor && (owner || mine) && (
                     <View style={{ flexDirection: 'row', marginTop: 5 }}>
                       <Link
                         testID={`board-comment-delete-${commentIndex}`}
@@ -4429,7 +4477,9 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
               </View>
             ))
           ) : (
-            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>첫 댓글을 남겨보세요.</Text>
+            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
+              {visitor ? '아직 댓글이 없어요.' : '첫 댓글을 남겨보세요.'}
+            </Text>
           )}
         </View>
       </View>
@@ -4489,29 +4539,6 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
   };
 
   const noticeContent = () => {
-    if (s.view === 'visitor') {
-      return (
-        <View
-          style={{
-            marginVertical: 34,
-            paddingVertical: 24,
-            paddingHorizontal: 18,
-            borderWidth: 1.5,
-            borderColor: '#b49472',
-            borderStyle: 'dashed',
-            borderRadius: 10,
-            alignItems: 'center',
-          }}
-        >
-          <Text style={[h4, { marginBottom: 7, textAlign: 'center' }]}>
-            우리 섬 주민만 볼 수 있어요
-          </Text>
-          <Text style={muted({ textAlign: 'center' })}>
-            이 게시판의 공지와 퀘스트는 소다 섬 주민에게만 열려요.
-          </Text>
-        </View>
-      );
-    }
     switch (s.view) {
       case 'detail':
         return noticeDetail();
@@ -4801,6 +4828,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                 index={i}
                 reduceMotion={reduceMotion}
                 onDetail={() => nav.openQuest(i)}
+                visitor={visitor}
               />
             ))
           ) : (
@@ -5201,37 +5229,40 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
             <Text style={boardFont(22, 1.1, '400', '#82652c', 'BoardHand-Bold')}>퀘스트</Text>
             <Handwriting short />
           </Pressable>
-          <Pressable
-            testID="board-blueprint-area"
-            accessibilityRole="button"
-            accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
-            onPress={() => nav.open('blueprint')}
-            style={[
-              {
-                position: 'absolute',
-                zIndex: 2,
-                ...(land
-                  ? LAND.blueprintArea
-                  : { left: '61%', top: '34.2%', width: '19%', height: '12.8%' }),
-              },
-              pressedFilter('blueprint'),
-            ]}
-          >
-            {blueprintView.state !== 'none' && (
-              <Picture
-                source={blueprintView.image}
-                label={blueprintView.name}
-                shadow="0 2px 2px #173e5140"
-                style={{
+          {/* 목각 건물·청사진은 방문자에게 보이지 않는다 */}
+          {!visitor && (
+            <Pressable
+              testID="board-blueprint-area"
+              accessibilityRole="button"
+              accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
+              onPress={() => nav.open('blueprint')}
+              style={[
+                {
                   position: 'absolute',
-                  left: 5 + lu((blueprintInner - libraryWidth) / 2),
-                  top: 5 + lu((libraryRow - libraryHeight) / 2),
-                  width: libraryWidth,
-                  height: libraryHeight,
-                }}
-              />
-            )}
-          </Pressable>
+                  zIndex: 2,
+                  ...(land
+                    ? LAND.blueprintArea
+                    : { left: '61%', top: '34.2%', width: '19%', height: '12.8%' }),
+                },
+                pressedFilter('blueprint'),
+              ]}
+            >
+              {blueprintView.state !== 'none' && (
+                <Picture
+                  source={blueprintView.image}
+                  label={blueprintView.name}
+                  shadow="0 2px 2px #173e5140"
+                  style={{
+                    position: 'absolute',
+                    left: 5 + lu((blueprintInner - libraryWidth) / 2),
+                    top: 5 + lu((libraryRow - libraryHeight) / 2),
+                    width: libraryWidth,
+                    height: libraryHeight,
+                  }}
+                />
+              )}
+            </Pressable>
+          )}
         </View>
       </View>
       <View

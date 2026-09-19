@@ -275,6 +275,16 @@ class IslandRecordsIntegrationTest {
         assertStatsError(() -> service.putScreenTime(device.userId, device.sessionId, 0L, D, foreign,
                 UUID.randomUUID()), StatsErrorCode.SCREEN_TIME_DEVICE_FORBIDDEN);
 
+        // 허용되지 않은 상태·상태와 맞지 않는 분은 DB CHECK 전에 422 다
+        assertStatsError(() -> put(device, D, null, "blocked", t(D, "09:00:00"), UUID.randomUUID()),
+                StatsErrorCode.SCREEN_TIME_INVALID_MEASUREMENT);
+        assertStatsError(() -> put(device, D, 30, "denied", t(D, "09:00:00"), UUID.randomUUID()),
+                StatsErrorCode.SCREEN_TIME_INVALID_MEASUREMENT);
+        assertStatsError(() -> put(device, D, 1441, "authorized", t(D, "09:00:00"), UUID.randomUUID()),
+                StatsErrorCode.SCREEN_TIME_INVALID_MEASUREMENT);
+        assertStatsError(() -> service.screenTime(device.userId, device.island.id, D, D, "all"),
+                StatsErrorCode.STATISTICS_SCOPE_OUT_OF_RANGE);
+
         // 날짜 D+1 의 관측이 D 23:59Z 에 찍혔다 — 그 날짜가 시작되기 전이다(자정 경계)
         at(D.plusDays(1), "00:30:00");
         assertStatsError(() -> put(device, D.plusDays(1), 10, "authorized", t(D, "23:59:59"), UUID.randomUUID()),

@@ -25,7 +25,16 @@ public enum StatsErrorCode implements ErrorCode {
     SCREEN_TIME_MEASUREMENT_CONFLICT(HttpStatus.CONFLICT, "같은 시각의 다른 측정이 이미 있습니다."),
 
     /** 관측 시각이 그 날짜보다 이르거나 미래이거나, 그 날짜의 보고 마감이 지났다(RC-D04). */
-    SCREEN_TIME_OUT_OF_WINDOW(HttpStatus.UNPROCESSABLE_ENTITY, "보고할 수 있는 측정 시각이 아닙니다.");
+    SCREEN_TIME_OUT_OF_WINDOW(HttpStatus.UNPROCESSABLE_ENTITY, "보고할 수 있는 측정 시각이 아닙니다."),
+
+    /** 통계 scope 가 {@code me|island} 가 아니다 — Business 가 먼저 거르지만 Data 도 값 범위로 판정한다. */
+    STATISTICS_SCOPE_OUT_OF_RANGE(HttpStatus.UNPROCESSABLE_ENTITY, "지원하지 않는 조회 범위입니다."),
+
+    /**
+     * 측정 상태가 허용값이 아니거나 분 값이 상태와 맞지 않는다(authorized 만 0~1440, 나머지는 null) — DB CHECK 위반이
+     * 500 으로 새지 않게 저장 전에 판정한다.
+     */
+    SCREEN_TIME_INVALID_MEASUREMENT(HttpStatus.UNPROCESSABLE_ENTITY, "측정 상태나 사용 시간이 올바르지 않습니다.");
 
     private final HttpStatus status;
     private final String message;

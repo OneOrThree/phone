@@ -95,6 +95,9 @@ public class IslandRecordsService {
     private static final String AUTHORIZED = "authorized";
     private static final String DENIED = "denied";
     private static final String UNAVAILABLE = "unavailable";
+    private static final List<String> STATUSES = List.of(AUTHORIZED, DENIED, UNAVAILABLE, "pending");
+    /** 하루 분 상한 — DB CHECK 와 같다. */
+    private static final int MAX_MINUTES = 1440;
     /** PostgreSQL uuid 순서(부호 없는 바이트)와 같다 — 소문자 16진 문자열 비교. */
     private static final Comparator<UUID> UUID_ORDER = Comparator.comparing(UUID::toString);
 
@@ -333,6 +336,7 @@ public class IslandRecordsService {
     @Transactional
     public ScreenTimeDay putScreenTime(UUID userId, UUID sessionId, long authGeneration, LocalDate date,
                                        ScreenTimeUpload upload, UUID key) {
+        requireMeasurement(upload);
         Map<String, Object> semantic = new LinkedHashMap<>();
         semantic.put("minutes", upload.minutes());
         semantic.put("measurementStatus", upload.measurementStatus());
@@ -425,7 +429,19 @@ public class IslandRecordsService {
 
     private static void requireMe(String scope) {
         if (!SCOPE_ME.equals(scope)) {
-            throw new StatsException(StatsErrorCode.INVALID_DATE_RANGE);
+            throw new StatsException(StatsErrorCode.STATISTICS_SCOPE_OUT_OF_RANGE);
+        }
+    }
+
+    /** 저장 전 측정 값 판정 — DB CHECK(상태 집합·분 범위·상태↔분 일치)와 같은 규칙이다. */
+    private static void requireMeasurement(ScreenTimeUpload upload) {
+        String status = upload.measurementStatus();
+        Integer minutes = upload.minutes();
+        boolean valid = AUTHORIZED.equals(status)
+                ? minutes != null && minutes >= 0 && minutes <= MAX_MINUTES
+                : STATUSES.contains(status) && minutes == null;
+        if (!valid) {
+            throw new StatsException(StatsErrorCode.SCREEN_TIME_INVALID_MEASUREMENT);
         }
     }
 
