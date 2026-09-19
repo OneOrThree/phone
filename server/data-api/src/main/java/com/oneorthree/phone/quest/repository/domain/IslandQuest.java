@@ -64,8 +64,12 @@ public class IslandQuest {
     @Builder.Default
     private int revision = 1;
 
-    /** 만든 방장 — 스케줄러가 여는 회차 사건의 주체로 쓴다(시스템 주체가 따로 없다). */
-    @Column(name = "created_by", nullable = false)
+    /**
+     * 만든 방장 — 스케줄러가 여는 회차 사건의 주체로 쓴다. 방장이 계정을 탈퇴하면 null 이 되고(GROMO-1952,
+     * V76) 그 뒤 회차는 시스템 주체로 연다. 생성 경로는 항상 non-null 을 쓴다. {@code updatable = false} —
+     * 정의 PATCH 의 전체 열 UPDATE 가 탈퇴 파기 전에 읽은 값을 되살리지 않게 한다(파기는 네이티브 UPDATE).
+     */
+    @Column(name = "created_by", updatable = false)
     private UUID createdBy;
 
     @CreationTimestamp

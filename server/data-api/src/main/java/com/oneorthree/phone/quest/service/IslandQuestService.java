@@ -52,6 +52,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -72,6 +73,12 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class IslandQuestService {
+
+    /**
+     * 작성자가 계정을 탈퇴해 {@code created_by} 가 끊긴 퀘스트의 회차 사건 주체(GROMO-1952). 봉투의 userId 는
+     * 필수이고 FK 가 없으며, 이 사건은 섬 전체 방송이라 특정 사용자에게 가지 않는다.
+     */
+    static final UUID SYSTEM_ACTOR = new UUID(0L, 0L);
 
     private static final int TITLE_MAX = 40;
     private static final int TARGET_MAX_MINUTES = 1440;
@@ -305,13 +312,15 @@ public class IslandQuestService {
     // ---------------------------------------------------------------- 계정 탈퇴
 
     /**
-     * 계정 탈퇴 파기 (GROMO-1950, 계정 LLD §4) — 탈퇴자의 cohort 행은 지우고, 정산 행은 남긴 채 수령자
-     * 연결만 끊는다. 호출측(AccountWithdrawalService)이 users 와 가입 섬 행을 이미 잠근 한 트랜잭션이다.
+     * 계정 탈퇴 파기 (GROMO-1950·1952, 계정 LLD §4) — 탈퇴자의 cohort 행은 지우고, 정산 행과 퀘스트 정의는
+     * 남긴 채 수령자·작성자 연결만 끊는다. 호출측(AccountWithdrawalService)이 users 와 가입 섬 행을 이미 잠근
+     * 한 트랜잭션이다.
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public void eraseWithdrawnUser(UUID userId) {
         occurrences.deleteCohortOfUser(userId);
         claims.detachClaimer(userId);
+        quests.detachCreator(userId);
     }
 
     // ---------------------------------------------------------------- 회차 개설
@@ -334,7 +343,7 @@ public class IslandQuestService {
         if (!isAlive(island) || occurrences.existsByQuestIdAndOccurrenceDate(questId, today)) {
             return false;
         }
-        open(quest, today, quest.getCreatedBy());
+        open(quest, today, Objects.requireNonNullElse(quest.getCreatedBy(), SYSTEM_ACTOR));
         return true;
     }
 
