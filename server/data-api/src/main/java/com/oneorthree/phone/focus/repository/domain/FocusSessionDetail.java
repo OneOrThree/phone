@@ -55,7 +55,8 @@ public class FocusSessionDetail {
 
     /**
      * 시작 시점의 {@code GroupMember.membershipEpoch} 스냅샷 — 강퇴·재가입 감지용 앵커.
-     * FR-D03(소속 상실 시 처리)이 미결이라 지금은 기록만 하고 비교 로직은 없다.
+     * 소속 상실은 강퇴 TX 가 진행 세션을 직접 종결해 다룬다(FR-D03, GROMO-1924) — 그래서 이 값을 비교해
+     * 뒤늦게 감지할 필요가 없고, 지금은 기록만 한다.
      */
     @Column(name = "membership_epoch_at_start", nullable = false)
     private long membershipEpochAtStart;
@@ -66,8 +67,9 @@ public class FocusSessionDetail {
     @Column(name = "target_minutes", nullable = false)
     private int targetMinutes;
 
+    /** 열 폭 20 — {@link FocusSessionLifecycle#MEMBERSHIP_LOST}(15자)가 V58 의 10 을 넘어 V67 이 넓혔다. */
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 10)
+    @Column(nullable = false, length = 20)
     private FocusSessionLifecycle lifecycle;
 
     /**
@@ -127,6 +129,17 @@ public class FocusSessionDetail {
      */
     public void applyAbandon(Instant t) {
         this.lifecycle = FocusSessionLifecycle.ABANDONED;
+        this.restSeat = null;
+        this.version = this.version + 1;
+        this.lastTransitionAt = t;
+    }
+
+    /**
+     * 소속 상실 종결 — 강퇴 TX 가 진행 세션을 {@link FocusSessionLifecycle#MEMBERSHIP_LOST} 로 끝낸다
+     * (FR-D03, 정산 없음). 휴식 자리는 반납한다.
+     */
+    public void applyMembershipLost(Instant t) {
+        this.lifecycle = FocusSessionLifecycle.MEMBERSHIP_LOST;
         this.restSeat = null;
         this.version = this.version + 1;
         this.lastTransitionAt = t;

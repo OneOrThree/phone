@@ -706,10 +706,10 @@ Table focus_session_details [note: 'GROMO-1764: v0.3 집중 세션 상세(섬 �
   session_id                uuid    [pk, note: 'FK → focus_sessions.id ON DELETE CASCADE — 별도 발급 없이 레거시 세션 PK를 공유']
   user_id                   uuid    [note: 'nullable — 탈퇴 시 null (FK → users.id ON DELETE SET NULL). 레거시 focus_sessions 와 같은 익명화: 행은 남기고 user_id 절단 + 자유 입력 subject 파기(AccountWithdrawalService)']
   island_id                 uuid    [not null, note: 'FK → groups.id ON DELETE RESTRICT. 시작 후 불변(FR-P03)']
-  membership_epoch_at_start bigint  [not null, note: '시작 시점 GroupMember.membershipEpoch 스냅샷 — 강퇴/재가입 감지 앵커(FR-D03 미결이라 기록만)']
+  membership_epoch_at_start bigint  [not null, note: '시작 시점 GroupMember.membershipEpoch 스냅샷 — 기록만. 소속 상실은 강퇴 TX 가 직접 종결한다(FR-D03, GROMO-1924)']
   subject                   varchar(200) [not null, note: '자유 입력 — 탈퇴 익명화가 빈 문자열로 파기한다(NOT NULL 불변식이라 null 대신 빈 값)']
   target_minutes            integer [not null, note: '허용 범위는 FR-D06 미결 — 0 이하만 거절']
-  lifecycle                 varchar(10) [not null, note: 'ACTIVE / PAUSED / COMPLETED / ABANDONED — 레거시 focus_session_status와 별개 축. ABANDONED = 기본 focus_sessions 마커가 레거시 start(autoCloseOpenMarkersOf)에 닫혀 진행 불가가 된 세션(정상 완료 아님)']
+  lifecycle                 varchar(20) [not null, note: 'ACTIVE / PAUSED / COMPLETED / ABANDONED / MEMBERSHIP_LOST — 레거시 focus_session_status와 별개 축. ABANDONED = 기본 focus_sessions 마커가 레거시 start(autoCloseOpenMarkersOf)에 닫혀 진행 불가가 된 세션(정상 완료 아님). MEMBERSHIP_LOST = 강퇴 TX 가 서버 시각으로 종결한 세션(FR-D03 B1 강제 종료·미정산, GROMO-1924). 열 폭 10→20 은 V67']
   version                   bigint  [not null, default: 1, note: '낙관 버전 — pause/resume/finish마다 +1(expectedVersion 검사 대상)']
   last_transition_at        timestamptz [not null]
   policy_revision           integer [note: '시작 시 고정한 보상 정책 revision — FR-D01 미확정인 동안 항상 null']
@@ -717,7 +717,7 @@ Table focus_session_details [note: 'GROMO-1764: v0.3 집중 세션 상세(섬 �
   created_at                timestamptz [not null, default: `now()`]
 
   indexes {
-    (user_id) [unique, name: 'focus_session_details_user_progressing_uk', note: 'WHERE lifecycle IN (ACTIVE,PAUSED) — 사용자당 진행 세션 1개(FR-P02). COMPLETED/ABANDONED는 제약 밖']
+    (user_id) [unique, name: 'focus_session_details_user_progressing_uk', note: 'WHERE lifecycle IN (ACTIVE,PAUSED) — 사용자당 진행 세션 1개(FR-P02). COMPLETED/ABANDONED/MEMBERSHIP_LOST는 제약 밖']
     (island_id, rest_seat) [unique, name: 'focus_session_details_rest_seat_uk', note: 'WHERE lifecycle = PAUSED — 같은 섬 휴식 자리 중복 배정 방지']
   }
 }

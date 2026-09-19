@@ -239,7 +239,7 @@ class FocusSessionLifecycleGuardsTest {
                 .extracting("errorCode")
                 .isEqualTo(FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
 
-        // 거절만 한다 — 진행 중 세션을 자동 종결하지 않는다(FR-D03 미결).
+        // 전이는 거절만 한다 — 종결은 강퇴 TX 의 몫이다(FR-D03, FocusMembershipLossService).
         assertThat(detail.getLifecycle()).isEqualTo(FocusSessionLifecycle.ACTIVE);
         assertThat(detail.getVersion()).isEqualTo(1L);
         verify(focusSessionIntervalRepository, never()).save(any());

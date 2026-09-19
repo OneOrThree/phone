@@ -2,6 +2,7 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.focus.service.FocusMembershipLossService;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
@@ -56,6 +57,11 @@ public class GroupMemberService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
+    /**
+     * 소속 상실과 진행 집중 세션의 연결 (GROMO-1924, FR-D03) — 강퇴는 종결, 자진 탈퇴는 거절.
+     * 멤버십을 바꾸는 이 클래스의 잠금 아래에서 부른다.
+     */
+    private final FocusMembershipLossService focusMembershipLossService;
 
     /**
      * 방장을 넘긴다 — 대상이 OWNER 로 오르고 요청자는 같은 트랜잭션에서 MEMBER 로 내려온다.
@@ -98,6 +104,10 @@ public class GroupMemberService {
     /**
      * 멤버 강퇴 (A-3) — OWNER 전용. 소프트삭제 + KICKED 마커로 재참여를 막는다. 본인은 강퇴 불가.
      *
+     * <p>대상이 이 섬에서 집중·휴식 중이면 <b>같은 트랜잭션·같은 잠금 아래</b> 그 세션을 서버 시각으로
+     * 종결한다 — 2026-09-18 결정 FR-D03(B1 「강제 종료, 미정산」, GROMO-1924). 섬 강퇴 표면이 늘어나도
+     * 이 메서드를 거치면 같은 종결을 얻는다.
+     *
      * @param groupId 강퇴가 일어날 그룹
      * @param targetUserId 내보낼 멤버 — 자기 자신을 지목하면 {@code CANNOT_KICK_SELF}
      * @param userId 요청자 — 현재 방장이 아니면 {@code NOT_OWNER}
@@ -135,6 +145,9 @@ public class GroupMemberService {
 
         // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
         target.kick();
+        // FR-D03 — 멤버십 배타 잠금을 쥔 채 종결한다. 전이(pause/resume/finish)도 같은 섬 행을 먼저
+        // 잡으므로, 여기서 끝낸 세션에 뒤늦은 전이가 끼어들지 않는다.
+        focusMembershipLossService.endOnMembershipLoss(targetUser.getId(), groupId);
         // 멤버십 전이 = 그 (그룹, 발급자) 링크의 폐기다(A22 ⓑ). Business 의 revoke 만 있으면
         // 그것이 실패했을 때 예전 slug 가 살아 «비공개 그룹 무단 가입»이 된다 — 같은 트랜잭션에서
         // outbox 를 적고 relay 가 재전달한다.
@@ -150,6 +163,10 @@ public class GroupMemberService {
      * 환불한다. 별도 트랜잭션으로 미루면 「탈퇴는 됐는데 판돈은 묶인」 반쪽 상태가 남는다.
      * 멤버가 둘 이상인데 요청자가 방장이면 {@code HOST_WITHDRAW} 로 막고(위임이 먼저),
      * 마지막 1인이 나가면 그룹까지 닫는다.
+     *
+     * <p>이 섬에서 집중·휴식 중이면 {@code SESSION_IN_PROGRESS}(409)로 막는다 — FR-D03 의 「자진 탈퇴는
+     * 먼저 끝내고 나가라」(관리 LLD §5, GROMO-1924). 막지 않으면 탈퇴 뒤 그 세션은 멤버십이 없어 어떤
+     * 전이로도 끝낼 수 없다.
      *
      * @param groupId 나갈 그룹
      * @param userId 요청자 — 그룹원이 아니면 {@code MEMBER_ONLY}
@@ -170,6 +187,8 @@ public class GroupMemberService {
         if (groupMembers.size() > 1 && groupMember.getRole() == GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.HOST_WITHDRAW);
         }
+        // 돈이 움직이기 전에 판정한다 — 아래 내기 환불보다 앞이어야 거절이 깨끗하게 롤백된다.
+        focusMembershipLossService.requireNoProgressingSession(userId, groupId);
 
         // 탈퇴가 확정된 뒤, 같은 트랜잭션에서 OPEN 내기부터 정리한다(참가 해제·환불·자동 취소).
         // 별도 트랜잭션이면 "탈퇴는 됐는데 판돈은 묶인" 반쪽 상태가 생길 수 있다.
