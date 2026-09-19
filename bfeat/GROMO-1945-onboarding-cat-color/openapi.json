@@ -126,6 +126,83 @@
     }
   ],
   "paths": {
+    "/internal/users/{userId}/screen-time/{date}": {
+      "put": {
+        "tags": [
+          "internal-island-records-controller"
+        ],
+        "operationId": "putScreenTime",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "date",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "X-Session-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-Auth-Generation",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ScreenTimeUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenTimeDay"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/notification-settings-commands": {
       "put": {
         "tags": [
@@ -1685,6 +1762,138 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/shop/orders": {
+      "get": {
+        "tags": [
+          "internal-shop-controller"
+        ],
+        "operationId": "orders",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "afterCreatedAt",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "afterId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "internal-shop-controller"
+        ],
+        "operationId": "purchase",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShopOrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Order"
+                }
+              }
+            }
           }
         }
       }
@@ -7504,6 +7713,156 @@
         }
       }
     },
+    "/internal/islands/{islandId}/statistics/screen-time": {
+      "get": {
+        "tags": [
+          "internal-island-records-controller"
+        ],
+        "operationId": "screenTime",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScreenTimeStatistics"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/statistics/focus": {
+      "get": {
+        "tags": [
+          "internal-island-records-controller"
+        ],
+        "operationId": "focus",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "scope",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "snapshotId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusStatistics"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/statistics/fish-earnings": {
       "get": {
         "tags": [
@@ -7537,6 +7896,177 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandFishEarningsView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/shop/wallets": {
+      "get": {
+        "tags": [
+          "internal-shop-controller"
+        ],
+        "operationId": "wallets",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Wallets"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/shop/products": {
+      "get": {
+        "tags": [
+          "internal-shop-controller"
+        ],
+        "operationId": "products",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "publicationVersion",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "afterDisplayOrder",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          },
+          {
+            "name": "afterProductId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/islands/{islandId}/shop/products/{productId}": {
+      "get": {
+        "tags": [
+          "internal-shop-controller"
+        ],
+        "operationId": "product",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "productId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-User-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/Product"
                 }
               }
             }
@@ -10469,6 +10999,45 @@
   },
   "components": {
     "schemas": {
+      "ScreenTimeUpload": {
+        "type": "object",
+        "properties": {
+          "minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "measurementStatus": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "measuredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "deviceId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "ScreenTimeDay": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "measurementStatus": {
+            "type": "string"
+          }
+        }
+      },
       "NotificationSettingsRequest": {
         "type": "object",
         "properties": {
@@ -11179,6 +11748,58 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "ShopOrderRequest": {
+        "type": "object",
+        "properties": {
+          "productId": {
+            "type": "string",
+            "maxLength": 80,
+            "minLength": 0
+          },
+          "expectedWalletVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "expectedProductVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "expectedProductVersion",
+          "expectedWalletVersion",
+          "productId"
+        ]
+      },
+      "Order": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "spent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          },
+          "walletVersion": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -13688,6 +14309,189 @@
           }
         }
       },
+      "ScreenDay": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "measurementStatus": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ScreenMember": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "minutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "measurementStatus": {
+            "type": "string"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScreenDay"
+            }
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ScreenTimeStatistics": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string"
+          },
+          "measurementStatus": {
+            "type": "string"
+          },
+          "totalMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScreenDay"
+            }
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScreenMember"
+            }
+          }
+        }
+      },
+      "DaySeconds": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "seconds": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "FocusMember": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "totalSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DaySeconds"
+            }
+          }
+        }
+      },
+      "FocusRecord": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "activeSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FocusStatistics": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string"
+          },
+          "totalSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DaySeconds"
+            }
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FocusRecord"
+            }
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FocusMember"
+            }
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "nextSnapshotId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nextOffset": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
       "IslandFishEarningsView": {
         "type": "object",
         "properties": {
@@ -13712,6 +14516,149 @@
           "earnedFish": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "Wallets": {
+        "type": "object",
+        "properties": {
+          "fish": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "villagePoints": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fishVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "villagePointsVersion": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "ProductPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Item"
+            }
+          },
+          "publicationVersion": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "lastDisplayOrder": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "lastProductId": {
+            "type": "string"
+          }
+        }
+      },
+      "Product": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "productVersion": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "previewUrl": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "blockedReason": {
+            "type": "string"
+          },
+          "requiredBuilding": {
+            "type": "string"
+          },
+          "requiredProduct": {
+            "$ref": "#/components/schemas/RequiredProduct"
+          },
+          "targetBuilding": {
+            "type": "string"
+          }
+        }
+      },
+      "RequiredProduct": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
+      "OrderItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "productId": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "OrderPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OrderItem"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
           }
         }
       },
