@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal;
 
+import com.jayway.jsonpath.JsonPath;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.focus.dto.FocusSessionCancelRequest;
@@ -36,6 +37,8 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.sql.Timestamp;
 import java.time.Instant;
@@ -46,6 +49,10 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
  * 집중 세션 시작 게이트를 연 뒤의 경로 (GROMO-1924) — <b>실제 Flyway PostgreSQL</b> 위에서 본다.
@@ -106,6 +113,49 @@ class FocusSessionActivationIntegrationTest {
     JdbcTemplate jdbc;
     @Autowired
     MockMvc mvc;
+
+    // ---------------------------------------------------------------- 게이트를 연 뒤의 전체 흐름
+
+    @Test
+    @DisplayName("게이트를 열면 내부 표면으로 start 201 → current 200 → pause 200 → resume 200 → finish 200 → summary 200")
+    void openedGateRunsTheWholeLifecycleOverTheInternalSurface() throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("전체흐름섬", null, false),
+                UUID.randomUUID()).id();
+        String base = "/internal/users/" + user;
+
+        String started = call(post(base + "/focus-sessions"), user,
+                "{\"islandId\":\"" + island + "\",\"subject\":\"알고리즘\",\"targetMinutes\":25}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.status").value("active"))
+                .andReturn().getResponse().getContentAsString();
+        String sessionId = JsonPath.read(started, "$.id");
+
+        call(get(base + "/focus-sessions/current"), user, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session.id").value(sessionId));
+        call(post(base + "/focus-sessions/" + sessionId + "/pause"), user, "{\"expectedVersion\":1}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("paused"))
+                .andExpect(jsonPath("$.version").value(2));
+        call(post(base + "/focus-sessions/" + sessionId + "/resume"), user, "{\"expectedVersion\":2}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("active"))
+                .andExpect(jsonPath("$.version").value(3));
+        call(post(base + "/focus-sessions/" + sessionId + "/finish"), user, "{\"expectedVersion\":3}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.recordId").value(sessionId))
+                .andExpect(jsonPath("$.islandId").value(island.toString()))
+                .andExpect(jsonPath("$.earnedFish").isNumber())
+                .andExpect(jsonPath("$.questProgress").isEmpty());
+        call(get(base + "/focus-summary"), user, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.currentSessionSecondsToday").value(0));
+
+        assertThat(detailRow(UUID.fromString(sessionId)).get("lifecycle")).isEqualTo("COMPLETED");
+        assertThat(count("select count(*) from focus_settlements where session_id=?", UUID.fromString(sessionId)))
+                .isEqualTo(1);
+    }
 
     // ---------------------------------------------------------------- #7 소속 상실의 출구
 
@@ -369,6 +419,17 @@ class FocusSessionActivationIntegrationTest {
 
     FocusSessionView start(UUID userId, UUID islandId) {
         return focus.start(userId, new FocusSessionStartCommandRequest(islandId, "알고리즘", 25), UUID.randomUUID());
+    }
+
+    /** 내부 표면 호출 — Business 가 싣는 인증·주체·멱등 헤더를 그대로 붙인다. */
+    ResultActions call(MockHttpServletRequestBuilder request, UUID user, String body) throws Exception {
+        request.header("Authorization", "Bearer " + TOKEN)
+                .header("X-User-Id", user.toString())
+                .header("Idempotency-Key", UUID.randomUUID().toString());
+        if (body != null) {
+            request.contentType("application/json").content(body);
+        }
+        return mvc.perform(request);
     }
 
     UUID newUser() {

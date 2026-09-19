@@ -74,8 +74,8 @@ import static org.mockito.Mockito.when;
  * 드러나는 결함이라 Testcontainers 없이 mock 으로 「순서」와 「anchor」를 직접 본다.
  *
  * <ol>
- *   <li><b>시작 게이트</b> — finish 가 항상 503 인 동안 start 가 세션을 만들면 사용자가 끝낼 수 없는
- *       세션에 갇힌다(v0.3 상세는 12h orphan 스윕에서도 빠진다)</li>
+ *   <li><b>시작 게이트</b> — 배포 설정({@code focus.session.start-enabled})이 꺼져 있으면 어떤 행도 만들지
+ *       않는다(GROMO-1924 에서 상수 false → 설정)</li>
  *   <li><b>구간 전환 순서</b> — 닫는 UPDATE 를 flush 하지 않고 새 구간을 save 하면 Hibernate 가
  *       INSERT 를 먼저 내보내 {@code focus_session_intervals_open_uk} 를 위반한다</li>
  *   <li><b>전이 시각 역행</b> — NTP 보정으로 벽시계가 뒤로 가면 {@code ended_at >= started_at} CHECK 가
