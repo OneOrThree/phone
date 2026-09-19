@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.dao.PessimisticLockingFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -94,6 +95,24 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(e.getErrorCode().getStatus())
                 .body(new RetryAfterErrorResponse(
                         e.getErrorCode().name(), e.getMessage(), e.getRetryAfterMs()));
+    }
+
+    /**
+     * 계정당 시간 한도 초과(GROMO-1934) → 429 {@code RATE_LIMITED} + 상대 지연.
+     *
+     * <p>이 핸들러가 없어도 {@link #handleDomain} 이 같은 상태·코드를 돌려준다(지연만 빠진다). Business 는
+     * 본문의 {@code retryAfterMs} 로 공개 {@code Retry-After} 를 만들고, 앱이 직접 부르는 legacy 경로를
+     * 위해 여기서도 초 단위(올림) {@code Retry-After} 헤더를 같이 싣는다.
+     *
+     * @param e 한도 초과 예외 — 윈도가 끝날 때까지 남은 밀리초를 들고 있다
+     * @return 429 {@link RetryAfterErrorResponse}
+     */
+    @ExceptionHandler(RateLimitedException.class)
+    public ResponseEntity<RetryAfterErrorResponse> handleRateLimited(RateLimitedException e) {
+        long seconds = (e.getRetryAfterMs() + 999) / 1000;
+        return ResponseEntity.status(e.getErrorCode().getStatus())
+                .header(HttpHeaders.RETRY_AFTER, Long.toString(seconds))
+                .body(new RetryAfterErrorResponse(e.getErrorCode().name(), e.getMessage(), e.getRetryAfterMs()));
     }
 
     /**

@@ -4,6 +4,7 @@ import com.fasterxml.uuid.Generators;
 import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
@@ -28,6 +29,7 @@ import com.oneorthree.phone.friend.service.search.SearchType;
 import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +77,8 @@ public class FriendService {
      */
     private final ApplicationEventPublisher eventPublisher;
     private final Map<SearchType, FriendSearchStrategy> searchStrategies;
+    /** GROMO-1934: 게스트 계정의 친구 요청 시간 한도 — 정회원은 세지 않는다. */
+    private final PerUserHourlyLimiter guestRequestLimiter;
 
     /**
      * 검색 전략은 AuthService의 Map&lt;Provider, SocialLoginClient>와 동일하게
@@ -93,6 +97,8 @@ public class FriendService {
      * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
      * @param searchStrategies            등록된 검색 전략 전부. {@code type()} 을 키로 Map 이 되며,
      *                                    키가 겹치면 기동 시점에 터진다
+     * @param guestRequestLimiter         게스트 친구 요청 스팸 방어(GROMO-1934) — 레거시·내부 두 표면이 모두
+     *                                    {@link #createRequest} 로 모이므로 여기 한 곳에서 센다
      */
     public FriendService(FriendshipRepository friendshipRepository,
                          UserQueryService userQueryService,
@@ -105,7 +111,8 @@ public class FriendService {
                          FocusLiveInfoLookup focusLiveInfoLookup,
                          FriendRelationLookup friendRelationLookup,
                          ApplicationEventPublisher eventPublisher,
-                         List<FriendSearchStrategy> searchStrategies) {
+                         List<FriendSearchStrategy> searchStrategies,
+                         @Qualifier("friendRequestRateLimiter") PerUserHourlyLimiter guestRequestLimiter) {
         this.friendshipRepository = friendshipRepository;
         this.userQueryService = userQueryService;
         this.pinnedUserRepository = pinnedUserRepository;
@@ -119,6 +126,7 @@ public class FriendService {
         this.eventPublisher = eventPublisher;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
+        this.guestRequestLimiter = guestRequestLimiter;
     }
 
     /**
@@ -147,6 +155,11 @@ public class FriendService {
             if (f.getStatus() == FriendshipStatus.PENDING) {
                 throw new FriendException(FriendErrorCode.REQUEST_ALREADY_EXISTS);
             }
+        }
+        // 한도는 판정을 다 통과한 «쓰기 직전»에 센다(GROMO-1934) — 이미 친구·중복 요청 같은 거절까지 세면
+        // 앱 재시도 몇 번에 정상 게스트가 한 시간 막힌다. 게스트만 센다(오너 확정).
+        if (fromUser.isGuest()) {
+            guestRequestLimiter.acquire(me);
         }
 
         // unique(from,to) 충돌 회피 1: 내가 보냈던 (me→target) soft delete 행이 있으면 복원해 재사용 (GROMO-719).

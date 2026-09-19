@@ -130,6 +130,32 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
             @Param("groupId") UUID groupId);
 
     /**
+     * 섬 초대 코드의 «발급 세대» 대조용(GROMO-1760) — 위 공유 잠금 조회와 같은 필터의 잠금 없는 판이다.
+     * 초대 해석(resolve)은 조회 성격이라 행을 잠그지 않는다 — 잠금 아래의 재검증은 가입 커밋이 다시 한다.
+     * 발급(issue)도 이 잠금 없는 조회로 충분하다: 발급자 본인의 users 행은 이미 배타 잠금돼 있고,
+     * 발급자의 멤버십을 바꾸는 유일한 타인 경로(방장 강퇴)는 그룹 행 배타 잠금과 직렬화된다.
+     *
+     * @param userId 발급자·신청자의 멤버십을 볼 유저
+     * @param groupId 대상 그룹
+     * @return 활성 멤버십 — empty 면 «멤버가 아니다» 또는 «이미 나갔다»
+     */
+    @Query("SELECT gm FROM GroupMember gm WHERE gm.user.id = :userId AND gm.group.id = :groupId "
+            + "AND gm.isLeft = false")
+    Optional<GroupMember> findActiveByUserIdAndGroupId(
+            @Param("userId") UUID userId,
+            @Param("groupId") UUID groupId);
+
+    /**
+     * 그룹의 현재 방장(활성 OWNER) — 가입 요청 사건의 «방장 수신자» 를 고를 때 쓴다(GROMO-1760).
+     * 활성 방장은 통상 1명이지만, 방장이 떠난 뒤 위임이 없는 결손 구간도 있을 수 있으므로
+     * 목록으로 돌려주고 호출측이 첫 행을 취한다.
+     */
+    @Query("SELECT gm FROM GroupMember gm WHERE gm.group.id = :groupId "
+            + "AND gm.role = com.oneorthree.phone.group.repository.domain.GroupMemberRole.OWNER "
+            + "AND gm.isLeft = false ORDER BY gm.id")
+    List<GroupMember> findActiveOwnersByGroupId(@Param("groupId") UUID groupId);
+
+    /**
      * 내기 탈퇴 연동 전용(GROMO-1262) — 탈퇴 쪽에서 멤버십 행을 배타 잠금으로 선점해 위 공유 잠금과
      * 짝을 이룬다. withdrawGroup 은 회차 정리 후에야 is_left 를 마킹하므로, 이 선점이 없으면 정리
      * 스캔과 leave() 사이에 새 참가가 끼어들 수 있다.

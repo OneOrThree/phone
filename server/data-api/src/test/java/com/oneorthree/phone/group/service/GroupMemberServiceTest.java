@@ -59,6 +59,12 @@ class GroupMemberServiceTest {
     @Mock
     private com.oneorthree.phone.group.service.LinkMembershipEventService linkMembershipEventService;
 
+    @Mock
+    private com.oneorthree.phone.group.repository.IslandJoinRequestRepository joinRequestRepository;
+
+    @Mock
+    private com.oneorthree.phone.group.service.IslandJoinRequestEvents joinRequestEvents;
+
     @InjectMocks
     private GroupMemberService groupMemberService;
 

@@ -3,6 +3,7 @@ package com.oneorthree.phone.invitelink.service;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
@@ -75,13 +76,22 @@ public class InviteLinkService {
         if (findActiveGroup(groupId).isEmpty()) {
             throw new InviteLinkException(InviteLinkErrorCode.GROUP_NOT_FOUND);
         }
-        if (!groupMemberRepository.existsByGroupIdAndUserId(groupId, userId)) {
-            throw new InviteLinkException(InviteLinkErrorCode.NOT_MEMBER);
-        }
+        GroupMember issuer = groupMemberRepository.findActiveByUserIdAndGroupId(userId, groupId)
+                .orElseThrow(() -> new InviteLinkException(InviteLinkErrorCode.NOT_MEMBER));
 
         Optional<GroupInviteLink> existing = inviteLinkRepository.findByGroupIdAndInviterId(groupId, userId);
         if (existing.isPresent()) {
-            return toResponse(existing.get());
+            GroupInviteLink link = existing.get();
+            if (link.getIssuanceEpoch() != issuer.getMembershipEpoch()) {
+                // 발급 뒤 발급자가 이탈·강퇴·재가입했다면 옛 슬러그는 폐기 — 새 버전으로 교체한다(GROMO-1760).
+                // 조건부 UPDATE 로 동시 재발급을 한 번으로 수렴시키고, 이긴 쪽 슬러그를 DB 에서 읽어 응답한다.
+                // 이 클래스는 무트랜잭션이라(@Modifying 은 트랜잭션을 열지 않는다) 이 UPDATE 만 짧게 감싼다.
+                String candidate = generateUniqueSlug();
+                new TransactionTemplate(transactionManager).executeWithoutResult(status ->
+                        inviteLinkRepository.reissueIfStale(link.getId(), candidate, issuer.getMembershipEpoch()));
+                link.reissue(inviteLinkRepository.findSlugById(link.getId()), issuer.getMembershipEpoch());
+            }
+            return toResponse(link);
         }
 
         GroupInviteLink link;
@@ -91,7 +101,8 @@ public class InviteLinkService {
             String slug = generateUniqueSlug();
             link = new TransactionTemplate(transactionManager).execute(status -> {
                 userQueryService.getCallerForShare(userId);
-                return inviteLinkRepository.saveAndFlush(new GroupInviteLink(slug, groupId, userId));
+                return inviteLinkRepository.saveAndFlush(new GroupInviteLink(
+                        slug, groupId, userId, issuer.getMembershipEpoch()));
             });
         } catch (DataIntegrityViolationException e) {
             // 동시 발급 레이스 — 상대가 먼저 넣었으면 그 링크가 정답이다(멱등).

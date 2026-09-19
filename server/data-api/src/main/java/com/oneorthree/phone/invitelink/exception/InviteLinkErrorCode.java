@@ -53,7 +53,18 @@ public enum InviteLinkErrorCode implements ErrorCode {
      *
      * <p>늦은 백필·import 재시도를 거부한다. 여기서 허용하면 이미 소진된 Neon 상태를 구 스냅샷이 덮는다.
      */
-    IMPORT_CLOSED(HttpStatus.CONFLICT, "이관 가져오기가 종료됐습니다.");
+    IMPORT_CLOSED(HttpStatus.CONFLICT, "이관 가져오기가 종료됐습니다."),
+
+    // 섬 초대 코드 (GROMO-1760 · 섬 소속 LLD §3.10~§3.11)
+
+    /** 코드 형식이 맞지 않는다 — 8자·혼동 문자 제외 알파벳({@code SlugGenerator}) 외의 입력이다. */
+    INVITATION_CODE_INVALID(HttpStatus.UNPROCESSABLE_ENTITY, "초대 코드 형식이 올바르지 않습니다."),
+
+    /**
+     * 코드는 존재하지만 «그 초대를 만든 세대» 가 사라졌다 — 발급자 이탈·강퇴·재가입으로 발급 세대가
+     * 바뀌었거나 섬이 종결됐다 (§3.10). TTL 이 아니라 멤버십 세대 기준의 영구 폐기다.
+     */
+    INVITATION_EXPIRED(HttpStatus.GONE, "초대가 만료됐거나 폐기됐어요");
 
     private final HttpStatus status;
     private final String message;

@@ -108,8 +108,8 @@ import java.util.UUID;
 public class FocusSessionLifecycleService {
 
     private static final int MAX_SUBJECT_LENGTH = 200;
-    private static final String FOCUS_MEMBER_AGGREGATE_TYPE = "FOCUS_MEMBER";
-    private static final String REST_MEMBER_AGGREGATE_TYPE = "REST_MEMBER";
+    static final String FOCUS_MEMBER_AGGREGATE_TYPE = "FOCUS_MEMBER";
+    static final String REST_MEMBER_AGGREGATE_TYPE = "REST_MEMBER";
     private static final String FOCUS_MEMBER_EVENT_TYPE = "focus.member.updated";
     private static final String REST_MEMBER_EVENT_TYPE = "rest.member.updated";
     /** 「진행 중」으로 보는 lifecycle — 사용자당 최대 1건(V58 부분 UNIQUE)이 걸리는 집합 그대로다. */
