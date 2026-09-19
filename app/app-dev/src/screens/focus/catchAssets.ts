@@ -1,6 +1,6 @@
 export const catchAssetPath = (caught: number) =>
   `props/fishing/catch/${
-    caught >= 180
+    caught >= 240
       ? 'pile-large'
       : caught >= 120
         ? 'pile-medium'

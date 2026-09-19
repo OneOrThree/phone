@@ -7,7 +7,8 @@ test.each([
   [119, 'pile-small'],
   [120, 'pile-medium'],
   [179, 'pile-medium'],
-  [180, 'pile-large'],
+  [180, 'pile-medium'],
+  [239, 'pile-medium'],
   [240, 'pile-large'],
 ])('%i분 집중의 물고기 더미는 %s 단계다', (caught, name) => {
   expect(catchAssetPath(caught)).toBe(`props/fishing/catch/${name}.png`);
