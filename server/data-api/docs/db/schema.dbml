@@ -1035,7 +1035,7 @@ Table shop_orders [note: '상점 주문 (GROMO-1781, V74) — 섬 하나에 귀�
   paid_price             integer     [not null, note: 'CHECK > 0']
   currency               varchar(20) [not null, note: 'village_points — CHECK']
   payer_type             varchar(10) [not null, default: 'island', note: "CHECK shop_orders_payer_check: payer_type = island AND payer_user_id IS NULL"]
-  payer_user_id          uuid        [note: 'FK → users.id ON DELETE RESTRICT — 개인 결제 확장용, 지금은 항상 NULL']
+  payer_user_id          uuid        [note: 'FK → users.id ON DELETE RESTRICT — 개인 결제 확장용, 지금은 항상 NULL(CHECK 가 강제 — 그래서 계정 탈퇴 파기 대상이 아니다, GROMO-1952)']
   wallet_version_after   bigint      [not null, note: 'CHECK >= 0 — 차감 후 섬 지갑 version']
   balance_after          integer     [not null, note: 'CHECK >= 0 — currency_spent 의 balance_after']
   analytics_delivered_at timestamptz [note: 'currency_spent 내구 전달 의도 — NULL = 미전달. 분석 사건 id = 주문 id']
@@ -1071,7 +1071,7 @@ Table island_quests [note: '섬 퀘스트 정의 (GROMO-1773, island-quests LLD 
   window_start   time        [note: 'focus 만 NOT NULL, screen 은 NULL — CHECK island_quests_window_check(window_start < window_end)']
   window_end     time
   revision       integer     [not null, default: 1, note: '정의 수정마다 +1 — 회차가 어느 정의에서 나왔는지']
-  created_by     uuid        [not null, note: '만든 방장 — FK 없음. 스케줄러가 여는 회차 사건의 주체']
+  created_by     uuid        [note: '만든 방장 — FK 없음. 스케줄러가 여는 회차 사건의 주체. 계정 탈퇴 시 null(GROMO-1952, V76) — 그 뒤 회차는 시스템 주체로 연다']
   created_at     timestamptz [not null, default: `now()`]
   updated_at     timestamptz [not null, default: `now()`]
 

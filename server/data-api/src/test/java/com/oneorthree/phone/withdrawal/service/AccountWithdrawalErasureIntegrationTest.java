@@ -242,7 +242,7 @@ class AccountWithdrawalErasureIntegrationTest {
     }
 
     @Test
-    @DisplayName("섬 개인 외양·개인 보유품·퀘스트 cohort 는 지우고 정산 행은 수령자만 끊는다 — 타인·섬 소유 행은 남는다")
+    @DisplayName("섬 개인 외양·개인 보유품·퀘스트 cohort 는 지우고 정산 행·퀘스트 정의는 수령자·작성자만 끊는다 — 타인·섬 소유 행은 남는다")
     void erasesIslandAppearanceAndQuestLinksOfTheWithdrawnUserOnly() {
         Actor w = actor();
         Actor c = actor();
@@ -271,6 +271,10 @@ class AccountWithdrawalErasureIntegrationTest {
         UUID questId = UUID.randomUUID();
         jdbc.update("insert into island_quests (id, island_id, type, title, target_minutes, window_start, window_end,"
                 + " created_by) values (?, ?, 'FOCUS', '집중', 30, '09:00', '10:00', ?)", questId, islandId, c.id());
+        // W 가 방장이던 때 만들고 위임한 퀘스트 — 정의는 섬 자산이라 남고 작성자만 끊긴다(GROMO-1952)
+        UUID wQuestId = UUID.randomUUID();
+        jdbc.update("insert into island_quests (id, island_id, type, title, target_minutes, created_by)"
+                + " values (?, ?, 'SCREEN', '화면', 60, ?)", wQuestId, islandId, w.id());
         // 회차 둘 — 정산은 (섬, 회차, kind) 유일이라 W·C 가 각각 한 회차를 수령한다
         UUID wClaim = seedSettledOccurrence(questId, islandId, 1, w.id(), w.id(), c.id());
         UUID cClaim = seedSettledOccurrence(questId, islandId, 2, c.id(), w.id(), c.id());
@@ -290,6 +294,10 @@ class AccountWithdrawalErasureIntegrationTest {
         assertThat(row("select claimed_by, amount from island_quest_claims where id=?", wClaim))
                 .containsEntry("claimed_by", null).containsEntry("amount", 20);
         assertThat(uuid("select claimed_by from island_quest_claims where id=?", cClaim)).isEqualTo(c.id());
+        assertThat(count("select count(*) from island_quests where island_id=?", islandId)).isEqualTo(2L);
+        assertThat(row("select created_by, title from island_quests where id=?", wQuestId))
+                .containsEntry("created_by", null).containsEntry("title", "화면");
+        assertThat(uuid("select created_by from island_quests where id=?", questId)).isEqualTo(c.id());
     }
 
     /** 회차 하나 + cohort + 그 회차의 정산 행 — 정산 행 id 를 돌려준다. */

@@ -225,6 +225,25 @@ class IslandQuestIntegrationTest {
     }
 
     @Test
+    @DisplayName("작성자가 계정 탈퇴로 끊긴 퀘스트(created_by null)도 다음 UTC 회차가 시스템 주체로 열린다")
+    void occurrenceOpensWhenCreatorWasErased() {
+        Island a = island(true);
+        UUID questId = createFocus(a, a.owner, "18:00", "23:00", 30).id();
+        // 탈퇴 파기(IslandQuestRepository#detachCreator)와 같은 결과
+        jdbc.update("UPDATE island_quests SET created_by = NULL WHERE id = ?", questId);
+
+        at(D.plusDays(1), "00:00:30");
+        scheduler.openDueOccurrences();
+
+        QuestViews.Item next = service.current(a.id, a.owner.getId()).items().get(1);
+        assertThat(next.id()).isEqualTo(questId);
+        assertThat(next.date()).isEqualTo(D.plusDays(1).toString());
+        assertThat(jdbc.queryForObject("SELECT user_id FROM event_outbox WHERE aggregate_type = ? AND aggregate_id = ?",
+                UUID.class, IslandQuestEvents.AGGREGATE_TYPE, next.occurrenceId().toString()))
+                .isEqualTo(IslandQuestService.SYSTEM_ACTOR);
+    }
+
+    @Test
     @DisplayName("cohort 는 회차 시작 때 고정 — 뒤늦은 가입자는 빠지고, 떠난 주민은 분모에서 제거된다")
     void cohortIsFixedAtOccurrenceStart() {
         Island a = island(true);
