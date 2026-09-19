@@ -46,4 +46,9 @@ public class NoOpFocusPresence implements FocusPresencePort {
     public void focusEnded(UUID userId, UUID sessionId) {
         log.debug("NoOp 프레즌스 — 집중 종료 무시, userId={} sessionId={}", userId, sessionId);
     }
+
+    @Override
+    public void userWithdrawn(UUID userId) {
+        log.debug("NoOp 프레즌스 — 탈퇴 무시, userId={}", userId);
+    }
 }

@@ -6,10 +6,12 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.linkpreview.repository.PreviewCache;
 import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.data.dto.AccountMe;
 import com.oneorthree.business.upstream.data.dto.AccountProfile;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
@@ -24,13 +26,18 @@ import java.util.function.Supplier;
  * 둘이고, 나머지({@code USER_NOT_FOUND}·{@code NICKNAME_*}·{@code HOST_WITHDRAW}·키 충돌)는 이름이 같은
  * 공개 코드로 {@code registeredUpstream} 이 옮긴다.
  *
- * <p>ponytail: 탈퇴 전 Business 링크 미리보기 캐시 차단 표지·삭제(LLD §4)는 하지 않는다 — 별도 후속이다.
+ * <p>탈퇴가 확정되면 Business 링크 미리보기 캐시의 차단 표지·삭제(LLD §4)를 여기서 한다(GROMO-1943) —
+ * Data→Business 전달이 없으므로 탈퇴 요청이 지나가는 이 자리가 Business 쪽 {@code user.withdrawn} 소비자다.
+ * ponytail: 표지를 «Data 호출 뒤»에 놓는다. 호출 전에 놓으면 확정 실패(HOST_WITHDRAW 등) 때 해제가 필요하고,
+ * 그 해제가 재시도(이미 탈퇴 → 404)와 구분되지 않는다. 커밋~표지 사이 수 ms 에 생긴 키도 표지 뒤 SCAN 이 지운다.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AccountUseCase {
 
     private final DataApiClient data;
+    private final PreviewCache previewCache;
 
     public AccountMe me(AccessTokenClaims claims, Deadline deadline) {
         AccountMe me = relay(() -> data.fetchAccount(claims.userId(), claims.sessionId(),
@@ -56,6 +63,13 @@ public class AccountUseCase {
         JsonNode deleted = response == null ? null : response.get("deleted");
         if (deleted == null || !deleted.isBoolean() || !deleted.booleanValue()) {
             throw invalid();
+        }
+        try {
+            previewCache.eraseUser(claims.userId().toString());
+        } catch (RuntimeException e) {
+            // 탈퇴는 이미 Data 에 커밋됐다 — 사본 정리 실패로 탈퇴를 실패처럼 보이게 하지 않는다.
+            // 남은 키는 TTL(최대 300초)로 사라진다. 표지가 없으니 남은 AT 수명 동안은 새 사본이 생길 수 있다.
+            log.warn("탈퇴 미리보기 캐시 정리 실패 — userId={}", claims.userId(), e);
         }
         return new Deleted(true);
     }

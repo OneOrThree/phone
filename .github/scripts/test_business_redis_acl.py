@@ -49,6 +49,14 @@ class BusinessRedisAclTest(unittest.TestCase):
         self.assertEqual(self.command("EVALSHA", digest, "1", "cache:business:rate:user", "2"), "2")
         self.assertEqual(self.command("EVAL", script, "1", "cache:business:rate:user", "3"), "5")
 
+    def test_탈퇴자_사본_파기는_SCAN과_DEL로_자기_키만_지운다(self):
+        # GROMO-1943: PreviewCache.eraseUser 가 표지 SET → SCAN MATCH → DEL 을 쓴다.
+        prefix = "cache:business:preview:withdrawn-user:"
+        self.assertEqual(self.command("SET", prefix + "a", "x"), "OK")
+        self.assertIn(prefix + "a", self.command("SCAN", "0", "MATCH", prefix + "*", "COUNT", "500"))
+        self.assertEqual(self.command("DEL", prefix + "a", "cache:business:rate:withdrawn-user"), "1")
+        self.assertIn("NOPERM", self.command("DEL", "auth:rt:user"))
+
     def test_다른_키와_관리_명령은_스크립트에서도_거부된다(self):
         for args in [("GET", "noti:secret"), ("SET", "auth:rt:user", "value"),
                      ("CONFIG", "GET", "*"), ("ACL", "LIST"), ("FLUSHALL",)]:

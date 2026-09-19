@@ -40,4 +40,21 @@ public class FilterConfig {
         registration.setOrder(1);
         return registration;
     }
+
+    /**
+     * Data 사건 수신구({@code POST /internal/events}, GROMO-1943)의 자격 관문. 토큰은
+     * {@code SVC_TOKEN_DATA_TO_REALTIME} — Business 토큰과 분리돼 있어야 한다(A22 ㊀). 위의 Business 필터는
+     * 이 경로를 건너뛰므로 한 요청이 두 토큰을 요구받지 않는다.
+     */
+    @Bean
+    public FilterRegistrationBean<InternalServiceTokenFilter> dataEventTokenFilterRegistration(
+            @Value("${realtime.internal.data-service-token:}") String serviceToken) {
+        FilterRegistrationBean<InternalServiceTokenFilter> registration =
+                new FilterRegistrationBean<>(new InternalServiceTokenFilter(serviceToken, false));
+        // 같은 필터 클래스의 두 번째 등록이다 — 이름을 따로 주지 않으면 컨테이너가 «이미 등록됨»으로 건너뛴다.
+        registration.setName("dataEventTokenFilter");
+        registration.addUrlPatterns(InternalServiceTokenFilter.DATA_EVENTS_PATH);
+        registration.setOrder(1);
+        return registration;
+    }
 }

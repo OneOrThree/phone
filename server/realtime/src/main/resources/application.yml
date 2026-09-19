@@ -81,6 +81,10 @@ realtime:
   # 전량 거절(fail-closed)하고 부팅은 막지 않는다 — 아직 어느 배포에도 배선되지 않은 표면이다.
   internal:
     service-token: ${SVC_TOKEN_BIZ_TO_REALTIME:}
+    # Data 의 내구 사건 수신구(POST /internal/events, GROMO-1943)의 서비스 자격 — 호출자는 Data 하나다.
+    # Business 토큰과 «분리»된 값이어야 한다(A22 ㊀). 비어 있으면 그 경로만 전량 거절한다(fail-closed) —
+    # Data relay 에 REALTIME transport 가 아직 없어 어느 배포에도 배선되지 않은 표면이다.
+    data-service-token: ${SVC_TOKEN_DATA_TO_REALTIME:}
 
 logging:
   level:

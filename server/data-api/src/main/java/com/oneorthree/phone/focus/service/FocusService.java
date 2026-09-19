@@ -1399,6 +1399,9 @@ public class FocusService {
      * <p>태그는 「세션 태그 연결 해제 → 채택 행 삭제」다. user_id 만 끊으면 세션 → 태그 → 사용자 경로가
      * 남는다. 세션 행 자체와 공유 default_tags 는 남는다.
      *
+     * <p>공유 Redis 의 {@code presence:focus:{userId}} 리스·종료 표식도 여기서 지우고 탈퇴 tombstone 을
+     * 남긴다(GROMO-1943). 프레즌스의 쓰기 주인이 이 도메인이라 같은 자리에 둔다 — 반영은 커밋 이후다.
+     *
      * @param userId 탈퇴 중인 유저
      */
     @Transactional
@@ -1406,6 +1409,7 @@ public class FocusService {
         focusSessionRepository.detachTagsOfUser(userId);
         userFocusTagRepository.deleteAllOfUser(userId);
         userStreakService.deleteWithdrawnUser(userId);
+        focusPresencePort.userWithdrawn(userId);
     }
 
 }
