@@ -28,6 +28,8 @@ import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
+import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
+import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
 import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
@@ -136,6 +138,9 @@ public class DataApiClient {
     private static final String PATH_CONSTRUCTION_OPTIONS = "/internal/islands/{islandId}/construction-options";
     private static final String PATH_CONSTRUCTION_TARGET = "/internal/islands/{islandId}/construction-target";
     private static final String PATH_CONSTRUCTIONS = "/internal/islands/{islandId}/constructions";
+    // GROMO-1765 같이 낚시 초기 스냅샷 2종 — 공개 경로와 이름이 같다.
+    private static final String PATH_FOCUS_MEMBERS = "/internal/islands/{islandId}/focus-members";
+    private static final String PATH_REST_MEMBERS = "/internal/islands/{islandId}/rest-members";
     // GROMO-1783 보유품·외양 4종 — 개인 축은 /internal/users/{userId}, 섬 축은 /internal/islands/{islandId}.
     private static final String PATH_MY_INVENTORY = "/internal/users/{userId}/inventory";
     private static final String PATH_MY_APPEARANCE = "/internal/users/{userId}/appearance";
@@ -1061,6 +1066,26 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<ConstructionResult>() { });
+    }
+
+    /** 집중 주민 스냅샷 (GROMO-1765). 멱등 GET 이라 재시도한다. 소속 판정은 상류 몫이다. */
+    public IslandFocusMembers fetchFocusMembers(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_FOCUS_MEMBERS, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandFocusMembers>() { });
+    }
+
+    /** 휴식 주민 스냅샷 (GROMO-1765). 멱등 GET 이라 재시도한다. */
+    public IslandRestMembers fetchRestMembers(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_REST_MEMBERS, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRestMembers>() { });
     }
 
     /**

@@ -10,14 +10,19 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 /**
  * 순서용 version 발급구 (㊸).
  *
- * <p><b>락 등급이 이 저장소의 계약이다</b>(규약 §3 ①). 무락 조회를 두지 않는 것은 의도다 — 이
- * 테이블을 읽는 이유는 오직 「다음 번호를 발급한다」뿐이고, 잠그지 않고 읽으면 두 트랜잭션이 같은
- * 번호를 만들어 {@code uq_event_outbox_aggregate_version} 이 둘 중 하나를 죽인다.
+ * <p><b>락 등급이 이 저장소의 계약이다</b>(규약 §3 ①). 발급은 반드시 {@link #findForUpdate} 로 잠근 채
+ * 한다 — 잠그지 않고 읽은 값으로 번호를 만들면 두 트랜잭션이 같은 번호를 만들어
+ * {@code uq_event_outbox_aggregate_version} 이 둘 중 하나를 죽인다.
+ *
+ * <p>무락 조회는 {@link #findByAggregateTypeAndAggregateIdIn} 하나뿐이고 <b>발급에 쓰지 않는다</b> — 스냅샷
+ * GET 이 목록과 같은 DB 스냅샷의 watermark 를 읽는 용도다(GROMO-1765, realtime-events LLD §5.1).
  */
 public interface AggregateVersionRepository extends JpaRepository<AggregateVersion, AggregateVersionId> {
 
@@ -57,4 +62,13 @@ public interface AggregateVersionRepository extends JpaRepository<AggregateVersi
             @Param("aggregateType") String aggregateType,
             @Param("aggregateId") String aggregateId,
             @Param("now") Instant now);
+
+    /**
+     * watermark 읽기 전용 무락 조회 — <b>번호 발급에 쓰지 말 것</b>(발급은 {@link #findForUpdate}).
+     *
+     * @param aggregateType 순서 축의 종류
+     * @param aggregateIds  순서 축의 식별자들
+     * @return 있는 행만. 한 번도 발급되지 않은 축은 빠진다(호출측이 0 으로 본다)
+     */
+    List<AggregateVersion> findByAggregateTypeAndAggregateIdIn(String aggregateType, Collection<String> aggregateIds);
 }
