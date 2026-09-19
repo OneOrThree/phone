@@ -58,6 +58,8 @@ location = /actuator { return 404; }
 # PATCH /islands/{islandId} · GET /islands/{islandId}/members · GET /islands/{islandId}/join-requests ·
 # PATCH /islands/{islandId}/join-requests/{requestId} · DELETE /islands/{islandId}/members/{userId} ·
 # DELETE /islands/{islandId}/memberships/me. 명령 4종은 Data 의 관리 gate 가 기본 503 이다.
+# 화면 조회 1차(GROMO-1896)도 screens 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /screens/launch · /screens/raft · /screens/account · /screens/explore · /screens/visit/{islandId}.
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;
