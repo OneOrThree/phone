@@ -44,6 +44,9 @@ location = /actuator { return 404; }
 # 꾸미기(GROMO-1783)도 me·islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /me/inventory · PATCH /me/appearance · GET /islands/{islandId}/inventory ·
 # PATCH /islands/{islandId}/appearance.
+# 섬 가입 신청·초대(GROMO-1760)도 기존 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# islands 분기: POST /islands/{islandId}/memberships · POST /islands/{islandId}/invitations.
+# me 분기: GET·DELETE /me/join-requests/{requestId}. invitations 분기: POST /invitations/resolve.
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;

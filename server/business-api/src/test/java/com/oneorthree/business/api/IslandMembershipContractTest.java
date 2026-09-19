@@ -49,7 +49,8 @@ class IslandMembershipContractTest extends UpstreamTestBase {
             + "\"role\":\"host\",\"currentIslandId\":\"" + ISLAND + "\"}";
     private static final String SUMMARY = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,"
-            + "\"membershipStatus\":\"none\",\"growthStage\":null,\"themeId\":null}";
+            + "\"membershipStatus\":\"none\",\"joinRequestId\":null,"
+            + "\"growthStage\":null,\"themeId\":null}";
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
             + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,"
             + "\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"

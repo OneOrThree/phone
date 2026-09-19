@@ -135,7 +135,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 170개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 176개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -183,8 +183,13 @@ class ErrorContractTest {
         // 서명·만료·타입 거절, InvalidTokenErrorCode)과 LEGACY_SESSION_NOT_ACTIVE(401: 폐기·
         // 세대 불일치·sid 없음, AuthErrorCode). 후자는 내부 경로의 SESSION_NOT_ACTIVE(403)와 같은
         // 판정이지만 legacy 경로는 Business 매핑 없이 앱에 직접 닿아 공개 401 이어야 한다.
-        assertThat(tests).as("실측 기준 도메인 상수 160개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종 포함")
-                .hasSize(175);
+        // GROMO-1760 이 섬 가입·초대 코드 상수 6개를 더했다 — 가입 요청 4(GroupErrorCode:
+        // JOIN_REQUEST_NOT_FOUND 404·JOIN_REQUEST_TERMINAL 409·INVITATION_REQUIRED 403·
+        // ISLAND_JOIN_UNAVAILABLE 403)와 초대 해석 2(InviteLinkErrorCode: INVITATION_CODE_INVALID
+        // 422·INVITATION_EXPIRED 410). 형식 오류·없음·폐기는 앱이 다른 분기를 타야 하므로 한 코드로
+        // 접지 않는다.
+        assertThat(tests).as("실측 기준 도메인 상수 166개 + 공통 15개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종 포함")
+                .hasSize(181);
         return tests;
     }
 

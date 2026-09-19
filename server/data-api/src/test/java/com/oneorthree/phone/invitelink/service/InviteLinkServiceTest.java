@@ -62,7 +62,8 @@ class InviteLinkServiceTest {
     void setUp() {
         inviteLinkService = new InviteLinkService(inviteLinkRepository, groupQueryService,
                 groupMemberRepository, userQueryService, slugGenerator, inviteLinkUrls,
-                ga4Events, userActivityEventLogger);
+                ga4Events, userActivityEventLogger,
+                org.mockito.Mockito.mock(org.springframework.transaction.PlatformTransactionManager.class));
     }
 
     @Test

@@ -20,6 +20,7 @@ import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
+import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
@@ -29,6 +30,10 @@ import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
 import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
 import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
+import com.oneorthree.business.upstream.data.dto.InvitationResolved;
+import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
+import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
+import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MailboxViewer;
 import com.oneorthree.business.upstream.data.dto.MessageAuthors;
 import com.oneorthree.business.upstream.data.dto.MessageCreatedAck;
@@ -105,6 +110,15 @@ public class DataApiClient {
     private static final String PATH_ISLAND_DISCOVERY = "/internal/users/{userId}/island-discovery";
     private static final String PATH_CURRENT_ISLAND = "/internal/users/{userId}/current-island";
     private static final String PATH_ISLAND = "/internal/islands/{islandId}";
+    // GROMO-1760 섬 가입·초대 5종 — 요청 소유는 사용자 축이라 모두 /internal/users/{userId} 아래다.
+    private static final String PATH_ISLAND_MEMBERSHIPS =
+            "/internal/users/{userId}/islands/{islandId}/memberships";
+    private static final String PATH_JOIN_REQUEST =
+            "/internal/users/{userId}/join-requests/{requestId}";
+    private static final String PATH_INVITATION_RESOLVE =
+            "/internal/users/{userId}/invitations/resolve";
+    private static final String PATH_ISLAND_INVITATIONS =
+            "/internal/users/{userId}/islands/{islandId}/invitations";
     // GROMO-1894 친구 7종 — 이름은 friend-letter LLD §1.15(조회 2종)와 그 아래 명령 5종.
     private static final String PATH_FRIENDS = "/internal/users/{userId}/friends";
     private static final String PATH_FRIEND = "/internal/users/{userId}/friends/{friendUserId}";
@@ -918,6 +932,90 @@ public class DataApiClient {
     }
 
     /**
+     * 섬 가입 (GROMO-1760, LLD §3.7). 즉시 가입이면 {@code active}+새 current, 승인제면
+     * {@code pending} 요청을 만든다 — 판정은 전부 상류 몫이고 결과는 receipt 로 재생된다.
+     */
+    public JoinIslandResult joinIsland(UUID userId, UUID islandId, String invitationToken,
+            UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_ISLAND_MEMBERSHIPS, userId)
+                                        .replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .body(new JoinIslandCommand(invitationToken))
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<JoinIslandResult>() { });
+    }
+
+    /**
+     * 가입 요청 상태 (GROMO-1760, LLD §3.8). 멱등 GET 이라 재시도한다. 본인 소유 판정은
+     * 상류의 {@code id+applicantId} 조회가 하고, 남의 요청은 404 로 접힌다.
+     */
+    public JoinRequestStatus fetchJoinRequest(UUID userId, UUID requestId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET,
+                                userPath(PATH_JOIN_REQUEST, userId)
+                                        .replace("{requestId}", requestId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<JoinRequestStatus>() { });
+    }
+
+    /**
+     * 가입 요청 취소 (GROMO-1760, LLD §3.9). 본인의 {@code pending} 만 종결되고 terminal 요청은
+     * 상류가 409 로 거절한다 — 재시도하지 않는다.
+     */
+    public JoinRequestCancel cancelJoinRequest(UUID userId, UUID requestId, UUID key,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE,
+                                userPath(PATH_JOIN_REQUEST, userId)
+                                        .replace("{requestId}", requestId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<JoinRequestCancel>() { });
+    }
+
+    /**
+     * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키를 싣지 않고 재시도한다.
+     * code 의 형식/폐기 판정(422/410)은 상류가 한다 — 여기서 미리 걸러 4xx 의미를 갉아먹지 않는다.
+     */
+    public InvitationResolved resolveInvitation(UUID userId, String code, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_INVITATION_RESOLVE, userId))
+                        .onBehalfOf(userId)
+                        .body(new InvitationResolveCommand(code))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<InvitationResolved>() { });
+    }
+
+    /**
+     * 섬 초대 발급 (GROMO-1760, LLD §3.11). inviter 당 활성 코드 재사용·세대 변경 시 재발급은
+     * 상류 수명주기이고 같은 키 재생은 저장 결과를 돌려준다.
+     */
+    public IslandInvitationIssued issueIslandInvitation(UUID userId, UUID islandId, UUID key,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST,
+                                userPath(PATH_ISLAND_INVITATIONS, userId)
+                                        .replace("{islandId}", islandId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandInvitationIssued>() { });
+    }
+
+    /**
      * 건설 옵션 스냅샷 (GROMO-1767). 멱등 GET 이라 재시도한다. selectable/buildable 판정과
      * 권한 거절은 전부 상류 몫이다 — 주체는 {@code onBehalfOf} 로만 전달한다.
      */
@@ -1062,6 +1160,14 @@ public class DataApiClient {
 
     /** 현재 섬 이동 요청 본문 (GROMO-1759). */
     record SwitchCurrentIslandCommand(UUID islandId) {
+    }
+
+    /** 섬 가입 요청 본문 (GROMO-1760). {@code invitationToken} 은 없으면 null 그대로다. */
+    record JoinIslandCommand(String invitationToken) {
+    }
+
+    /** 초대 코드 해석 요청 본문 (GROMO-1760). */
+    record InvitationResolveCommand(String code) {
     }
 
     /** 건설 목표 선택 요청 본문 (GROMO-1767). 잔액·가격 동의를 요구하지 않는다(C03). */
