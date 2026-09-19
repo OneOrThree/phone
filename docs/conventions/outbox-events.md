@@ -206,7 +206,7 @@ GROMO-1953 에서 이 정의에 맞춰 바꾼 곳: `notice.updated`(noticeId →
 | `auth/service/AuthSessionService.java:369` | `auth.session.revoked` | NOTI | USER | `<type>:<sessionId>` |
 | `user/service/UserSatelliteCommandService.java:282` | `notification.deviceToken.deleted` · `notification.legacyDeviceToken.deleted` · `notification.settings.changed` | NOTI | USER | UUID |
 | `user/service/UserOnboardingEvents.java:43`(호출: `UserService` 의 setup·update·공개 PATCH 공통 전이 경계) | `user.onboarded` | SCORE | USER | `<type>:<userId>` |
-| `withdrawal/service/WithdrawalSatelliteCommandService.java:53` | `user.withdrawn` | KAFKA·LINK·REALTIME | USER | `<type>:<userId>` |
+| `withdrawal/service/WithdrawalSatelliteCommandService.java:54` | `user.withdrawn` | KAFKA·LINK·REALTIME·SCORE | USER | `<type>:<userId>` |
 | `group/service/LinkMembershipEventService.java:346` | `link.revoked` · `link.joined` · `group.closed` · `group.renamed` · `user.displayNameChanged` | LINK | LINK_MEMBERSHIP(`link.joined` 만 USER) | `<type>:<groupId>:<inviterId\|userId>:<seq>` |
 | `internal/service/InternalInviteLinkService.java:403` | `link.claimConfirmed` | LINK | LINK_MEMBERSHIP | `<type>:<claimId>` |
 | `notification/producer/NotificationOutboxProducer.java:166` | `notification.requested` | KAFKA | USER | `noti:<KIND>:<userId>:<subjectId\|none>:<시간축\|none>` |

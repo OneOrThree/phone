@@ -284,6 +284,10 @@ class InternalAccountIntegrationTest {
         withdraw(actor).andExpect(status().isOk()).andExpect(jsonPath("$.deleted").value(true));
 
         assertThat(deleted(actor)).isTrue();
+        // 랭킹 제외 사건도 SCORE 로 적힌다 — 보류된 user.onboarded 가 나중에 나가도 뒤따라 제외된다
+        assertThat(jdbc.queryForList("select d.target from event_outbox_deliveries d join event_outbox o"
+                + " on o.id = d.outbox_id where o.event_id = ?", String.class, "user.withdrawn:" + actor.userId()))
+                .contains("SCORE");
         me(actor).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
         withdraw(actor).andExpect(status().isNotFound()).andExpect(jsonPath("$.code").value("USER_NOT_FOUND"));
         rename(actor, patchKey, "{\"name\":\"" + name + "\"}").andExpect(status().isNotFound())

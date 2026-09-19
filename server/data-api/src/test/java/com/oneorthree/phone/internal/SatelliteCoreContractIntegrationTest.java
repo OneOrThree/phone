@@ -315,9 +315,11 @@ class SatelliteCoreContractIntegrationTest {
         List<EventOutbox> withdrawn = envelopes(userId, "user.withdrawn");
         assertThat(withdrawn).hasSize(1);
         // 알림은 Kafka 로 소비하고 링크는 Kafka 에 붙지 않는다(ⓐ). realtime 커서 파기 대상도 같이 적힌다(GROMO-1943).
+        // 랭킹 제외(SCORE)는 user.onboarded 와 같은 대상에 적혀야 편입 뒤 제외가 따라 나간다(GROMO-1945).
         assertThat(eventOutboxDeliveryRepository.findByOutboxId(withdrawn.get(0).getId()))
                 .extracting(delivery -> delivery.getTarget())
-                .containsExactlyInAnyOrder(OutboxTarget.KAFKA, OutboxTarget.LINK, OutboxTarget.REALTIME);
+                .containsExactlyInAnyOrder(OutboxTarget.KAFKA, OutboxTarget.LINK, OutboxTarget.REALTIME,
+                        OutboxTarget.SCORE);
     }
 
     @Test
