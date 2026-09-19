@@ -243,6 +243,19 @@ public class AppearanceService implements IslandAppearancePort {
         }
     }
 
+    // ---------------------------------------------------------------- 계정 탈퇴
+
+    /**
+     * 계정 탈퇴 파기 (GROMO-1950, 계정 LLD §4) — 개인 외양 행과 개인 소유(ownerType=user) 보유 행을 지운다.
+     * 섬 소유 보유품·섬 외양은 섬의 자산이라 남긴다. 개인 외양 writer 는 users 배타 잠금부터 잡으므로
+     * 같은 잠금을 쥔 탈퇴 TX 와 직렬화되고, 탈퇴 뒤엔 404 로 막혀 행을 다시 만들지 못한다.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void eraseWithdrawnUser(UUID userId) {
+        personalAppearances.deleteByUserId(userId);
+        ownedProducts.deleteUserOwnedOf(userId);
+    }
+
     // ---------------------------------------------------------------- 개인 명령 본체
 
     /**

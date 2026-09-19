@@ -29,4 +29,9 @@ public interface PersonalAppearanceRepository extends JpaRepository<PersonalAppe
     @Query(value = "INSERT INTO personal_appearances (user_id) VALUES (:userId) "
             + "ON CONFLICT (user_id) DO NOTHING", nativeQuery = true)
     int insertIfAbsent(@Param("userId") UUID userId);
+
+    /** 계정 탈퇴 파기 (GROMO-1950) — 호출측이 users 배타 잠금을 쥔 탈퇴 TX 에서만 부른다. */
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM PersonalAppearance a WHERE a.userId = :userId")
+    int deleteByUserId(@Param("userId") UUID userId);
 }

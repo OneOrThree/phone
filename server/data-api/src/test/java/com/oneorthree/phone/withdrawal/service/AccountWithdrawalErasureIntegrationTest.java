@@ -71,7 +71,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 계정 LLD §4 탈퇴 파기 전수 (GROMO-1801) — 모든 Data 대상 테이블에 탈퇴자(W)·상대(C)·제3자(T)의 행을 심고,
- * 실제 Flyway(V1~V66)·{@code ddl-auto=validate} 스키마에서 탈퇴 한 번 뒤 W 의 행은 지워지거나 비워지고
+ * 실제 Flyway(V1~V75)·{@code ddl-auto=validate} 스키마에서 탈퇴 한 번 뒤 W 의 행은 지워지거나 비워지고
  * C·T 의 자기 행은 그대로인지 본다. 테이블은 테스트가 만들지 않는다 — 운영 마이그레이션이 만든다.
  */
 @SpringBootTest
@@ -239,6 +239,76 @@ class AccountWithdrawalErasureIntegrationTest {
         // social_accounts (기존 파기) — W 삭제, C 유지
         assertThat(count("select count(*) from social_accounts where user_id=?", w.id())).isZero();
         assertThat(count("select count(*) from social_accounts where user_id=?", c.id())).isEqualTo(1L);
+    }
+
+    @Test
+    @DisplayName("섬 개인 외양·개인 보유품·퀘스트 cohort 는 지우고 정산 행은 수령자만 끊는다 — 타인·섬 소유 행은 남는다")
+    void erasesIslandAppearanceAndQuestLinksOfTheWithdrawnUserOnly() {
+        Actor w = actor();
+        Actor c = actor();
+        String clothes = "clothes-" + suffix();
+        String theme = "theme-" + suffix();
+        UUID islandId = new TransactionTemplate(transactions).execute(status -> {
+            Group island = Group.builder().name("퀘스트" + suffix()).maxMembers(10).build();
+            em.persist(island);
+            em.persist(GroupMember.builder().group(island).user(em.find(User.class, c.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            em.persist(GroupMember.builder().group(island).user(em.find(User.class, w.id()))
+                    .role(GroupMemberRole.MEMBER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            return island.getId();
+        });
+        jdbc.update("insert into catalog_assets (product_id, title, kind, owner_type) values"
+                + " (?, '옷', 'clothes', 'user'), (?, '테마', 'island_theme', 'island')", clothes, theme);
+        for (UUID user : new UUID[] {w.id(), c.id()}) {
+            jdbc.update("insert into personal_appearances (user_id, clothes) values (?, ?)", user, clothes);
+            jdbc.update("insert into owned_products (id, owner_type, user_id, product_id) values (?, 'user', ?, ?)",
+                    UUID.randomUUID(), user, clothes);
+        }
+        jdbc.update("insert into owned_products (id, owner_type, group_id, product_id) values (?, 'island', ?, ?)",
+                UUID.randomUUID(), islandId, theme);
+        UUID questId = UUID.randomUUID();
+        jdbc.update("insert into island_quests (id, island_id, type, title, target_minutes, window_start, window_end,"
+                + " created_by) values (?, ?, 'FOCUS', '집중', 30, '09:00', '10:00', ?)", questId, islandId, c.id());
+        // 회차 둘 — 정산은 (섬, 회차, kind) 유일이라 W·C 가 각각 한 회차를 수령한다
+        UUID wClaim = seedSettledOccurrence(questId, islandId, 1, w.id(), w.id(), c.id());
+        UUID cClaim = seedSettledOccurrence(questId, islandId, 2, c.id(), w.id(), c.id());
+        long claims = count("select count(*) from island_quest_claims where island_id=?", islandId);
+        assertThat(count("select count(*) from island_quest_cohort_members where user_id=?", w.id())).isEqualTo(2L);
+
+        withdrawal.withdraw(w.id());
+
+        assertThat(count("select count(*) from personal_appearances where user_id=?", w.id())).isZero();
+        assertThat(count("select count(*) from personal_appearances where user_id=?", c.id())).isEqualTo(1L);
+        assertThat(count("select count(*) from owned_products where user_id=?", w.id())).isZero();
+        assertThat(count("select count(*) from owned_products where user_id=?", c.id())).isEqualTo(1L);
+        assertThat(count("select count(*) from owned_products where group_id=?", islandId)).isEqualTo(1L);
+        assertThat(count("select count(*) from island_quest_cohort_members where user_id=?", w.id())).isZero();
+        assertThat(count("select count(*) from island_quest_cohort_members where user_id=?", c.id())).isEqualTo(2L);
+        assertThat(count("select count(*) from island_quest_claims where island_id=?", islandId)).isEqualTo(claims);
+        assertThat(row("select claimed_by, amount from island_quest_claims where id=?", wClaim))
+                .containsEntry("claimed_by", null).containsEntry("amount", 20);
+        assertThat(uuid("select claimed_by from island_quest_claims where id=?", cClaim)).isEqualTo(c.id());
+    }
+
+    /** 회차 하나 + cohort + 그 회차의 정산 행 — 정산 행 id 를 돌려준다. */
+    private UUID seedSettledOccurrence(UUID questId, UUID islandId, int daysAgo, UUID claimer, UUID... cohort) {
+        UUID occurrenceId = UUID.randomUUID();
+        jdbc.update("insert into island_quest_occurrences (id, quest_id, island_id, occurrence_date,"
+                        + " definition_revision, type, title, target_minutes, window_start, window_end,"
+                        + " reward_per_achiever, reward_bonus_per_member, version, claimed_at) values"
+                        + " (?, ?, ?, ?, 1, 'FOCUS', '집중', 30, '09:00', '10:00', 10, 5, 1, now())",
+                occurrenceId, questId, islandId, LocalDate.now(ZoneOffset.UTC).minusDays(daysAgo));
+        for (UUID member : cohort) {
+            jdbc.update("insert into island_quest_cohort_members (occurrence_id, user_id) values (?, ?)",
+                    occurrenceId, member);
+        }
+        UUID claimId = UUID.randomUUID();
+        jdbc.update("insert into island_quest_claims (id, island_id, occurrence_id, kind, amount, claimed_by,"
+                + " wallet_idempotency_key) values (?, ?, ?, 'SETTLEMENT', 20, ?, ?)",
+                claimId, islandId, occurrenceId, claimer, "quest:" + occurrenceId);
+        return claimId;
     }
 
     @Test
