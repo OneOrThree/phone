@@ -210,7 +210,7 @@ def business_redis_acl(secret: dict[str, Any]) -> str:
     return ("user default off\n"
             "user health on nopass +ping\n"
             f"user business on #{digest} ~cache:business:* "
-            "+get +set +incrby +expire +eval +evalsha +script|load "
+            "+get +set +incrby +expire +eval +evalsha +script|load +scan +del "
             "+ping +hello +info +select +client|setinfo +client|setname\n")
 
 

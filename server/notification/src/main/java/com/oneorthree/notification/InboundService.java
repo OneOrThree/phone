@@ -103,7 +103,10 @@ class InboundService {
             throw new NotificationFailure(422, "UNKNOWN_NOTIFICATION_KIND");
         }
         Map<String, Object> fence = store.one("SELECT withdrawn FROM user_fences WHERE user_id=?", event.userId());
-        boolean withdrawn = fence != null && Boolean.TRUE.equals(fence.get("withdrawn"));
+        if (fence != null && Boolean.TRUE.equals(fence.get("withdrawn"))) {
+            // 탈퇴자의 발송 로그는 파기 대상이다 — 억제 행으로라도 새로 남기지 않는다(GROMO-1943).
+            return;
+        }
         String group = Json.nullableText(event.params(), "groupId");
         String slot = Json.nullableText(event.params(), "slotAt");
         store.update("INSERT INTO deliveries(id,event_id,user_id,kind,subject_id,group_id,slot_at,payload,locale,"
@@ -111,7 +114,7 @@ class InboundService {
                 UUID.randomUUID(), event.eventId(), event.userId(), kind, event.subjectId(),
                 group == null ? null : UUID.fromString(group),
                 slot == null ? null : Timestamp.from(java.time.Instant.parse(slot)), Json.write(event.params()),
-                event.locale(), withdrawn ? "SUPPRESSED" : "PENDING",
+                event.locale(), "PENDING",
                 event.scheduledAt() == null ? null : Timestamp.from(event.scheduledAt()));
     }
 

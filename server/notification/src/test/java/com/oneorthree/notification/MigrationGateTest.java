@@ -161,6 +161,19 @@ class MigrationGateTest {
     }
 
     @Test
+    void importedDeliveryErasedByWithdrawalIsNotReportedMissing() throws Exception {
+        List<Map<String, Object>> original = List.of(deliveryRecord("PENDING", 0));
+        load("before-withdraw", original);
+        assertThat(store.rows("SELECT * FROM deliveries")).hasSize(1);
+        inbound.accept(Map.of("eventId", "withdraw", "schemaVersion", 1, "type", "user.withdrawn",
+                "userId", USER.toString(), "version", 6, "occurredAt", DAY.toString(),
+                "params", Map.of("authGeneration", 1)));
+        // 탈퇴가 적재된 발송 로그를 파기해도(GROMO-1943) verify 가 TARGET_ROW_MISSING 으로 막히지 않는다.
+        assertThat(store.rows("SELECT * FROM deliveries")).isEmpty();
+        assertThat(body(verify(original, 1, 0))).containsEntry("verified", true);
+    }
+
+    @Test
     void arbitraryImportRecordOrderWaitsBeforeLockingSettingsOrDeliveriesDuringWithdrawal() throws Exception {
         for (boolean settingsFirst : List.of(true, false)) {
             resetState();
@@ -1070,8 +1083,8 @@ class MigrationGateTest {
                     .containsEntry("withdrawn", true);
             assertThat(store.one("SELECT active FROM device_tokens WHERE device_token='tok-1'"))
                     .containsEntry("active", false);
-            assertThat(store.one("SELECT status FROM deliveries WHERE event_id='ev-1'"))
-                    .containsEntry("status", "SUPPRESSED");
+            // 탈퇴는 발송 로그를 억제가 아니라 파기한다(GROMO-1943).
+            assertThat(store.one("SELECT status FROM deliveries WHERE event_id='ev-1'")).isNull();
         } finally {
             release.countDown();
             executor.shutdownNow();

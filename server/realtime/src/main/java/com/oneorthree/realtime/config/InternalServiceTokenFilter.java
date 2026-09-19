@@ -29,17 +29,38 @@ import java.util.UUID;
  *
  * <p>거절 봉투는 {@code JwtFilter} 와 같은 {@code {code, message}} 다. Business 의 상류 클라이언트는
  * 코드 없는 401 을 «서비스 자격 거부»(502)로, 400 을 계약 오류로 접는다.
+ *
+ * <p><b>Data 사건 수신구({@value #DATA_EVENTS_PATH})는 호출자가 다르다</b>(GROMO-1943). Data 가 보내는 정본
+ * 봉투는 주체를 본문에 싣고 {@code X-User-Id} 를 보내지 않으며, 토큰도 Business 것과 분리된
+ * {@code SVC_TOKEN_DATA_TO_REALTIME} 이다(A22 ㊀). 그래서 이 필터를 두 인스턴스로 건다 — Business 용은 그
+ * 경로를 건너뛰고, Data 용({@code delegatedSubject=false})은 그 경로에만 걸려 토큰만 본다.
  */
 public class InternalServiceTokenFilter extends OncePerRequestFilter {
 
     private static final String HEADER_USER_ID = "X-User-Id";
 
+    /** Data 의 내구 사건 수신 경로. */
+    public static final String DATA_EVENTS_PATH = "/internal/events";
+
     /** 설정된 토큰의 바이트. 비어 있으면 {@code null} — 모든 호출을 거절한다. */
     private final byte[] expectedToken;
 
+    /** true 면 Business 위임 주체({@code X-User-Id})를 요구하고 Data 사건 경로는 건너뛴다. */
+    private final boolean delegatedSubject;
+
     public InternalServiceTokenFilter(String serviceToken) {
+        this(serviceToken, true);
+    }
+
+    public InternalServiceTokenFilter(String serviceToken, boolean delegatedSubject) {
         this.expectedToken = serviceToken == null || serviceToken.isBlank()
                 ? null : serviceToken.getBytes(StandardCharsets.UTF_8);
+        this.delegatedSubject = delegatedSubject;
+    }
+
+    @Override
+    protected boolean shouldNotFilter(HttpServletRequest request) {
+        return delegatedSubject && DATA_EVENTS_PATH.equals(request.getRequestURI());
     }
 
     @Override
@@ -47,6 +68,10 @@ public class InternalServiceTokenFilter extends OncePerRequestFilter {
             FilterChain filterChain) throws ServletException, IOException {
         if (!tokenMatches(request.getHeader("Authorization"))) {
             reject(response, CommonErrorCode.UNAUTHORIZED);
+            return;
+        }
+        if (!delegatedSubject) {
+            filterChain.doFilter(request, response);
             return;
         }
         UUID userId = parseUserId(request.getHeader(HEADER_USER_ID));

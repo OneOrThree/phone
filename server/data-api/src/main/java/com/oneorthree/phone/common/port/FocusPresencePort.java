@@ -115,4 +115,14 @@ public interface FocusPresencePort {
      *                  알 수 없는데 무조건 지우면 남의(새) 집중을 푸는 셈이 된다
      */
     void focusEnded(UUID userId, UUID sessionId);
+
+    /**
+     * 탈퇴했다 — 리스·종료 표식을 지우고 <b>탈퇴 tombstone</b> 을 남긴다 (GROMO-1943 · 계정 LLD §4).
+     *
+     * <p>tombstone 이 있는 동안 {@link #focusStarted}·{@link #restoreLeaseIfMissing} 은 리스를 놓지
+     * 않는다 — 탈퇴 커밋 전에 걸어 둔 시작 콜백이 늦게 도착해도 탈퇴자의 리스가 되살아나지 않는다.
+     *
+     * <p>커밋 이후에만 반영하고 실패는 삼킨다(다른 쓰기와 같은 규율). 여러 번 불러도 결과가 같다.
+     */
+    void userWithdrawn(UUID userId);
 }

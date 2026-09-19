@@ -107,8 +107,11 @@ public class RedisFocusPresence implements FocusPresencePort {
      * 그대로 싣는 경우)이 TTL 을 갱신할 수 있어야 하기 때문이다.
      */
     private static final RedisScript<Long> SET_IF_NEWER = new DefaultRedisScript<>(
-            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식 / ARGV[1]=sessionId, ARGV[2]=리스 TTL(초)
-            "local closed = redis.call('GET', KEYS[2])\n"
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=sessionId, ARGV[2]=리스 TTL(초)
+            "if redis.call('GET', KEYS[3]) ~= false then\n"
+            + "  return 0\n"                                    // 탈퇴자 — 늦게 온 시작이 리스를 되살리지 않는다
+            + "end\n"
+            + "local closed = redis.call('GET', KEYS[2])\n"
             + "if closed ~= false and ARGV[1] <= closed then\n"
             + "  return 0\n"                                    // 이미 끝난(또는 더 오래된) 세션의 지연 도착
             + "end\n"
@@ -130,9 +133,12 @@ public class RedisFocusPresence implements FocusPresencePort {
      * <p>「끝났다」 표식 검사는 그대로다 — 조회와 쓰기 사이에 끝난 세션이 되살아나면 안 된다.
      */
     private static final RedisScript<Long> SET_IF_ABSENT = new DefaultRedisScript<>(
-            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식 / ARGV[1]=sessionId, ARGV[2]=리스 TTL(초)
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=sessionId, ARGV[2]=리스 TTL(초)
             "if redis.call('EXISTS', KEYS[1]) == 1 then\n"
             + "  return 0\n"                                   // 이미 있다 — 남의 것일 수도 있으니 손대지 않는다
+            + "end\n"
+            + "if redis.call('GET', KEYS[3]) ~= false then\n"
+            + "  return 0\n"                                   // 탈퇴자 — 재구축도 리스를 되살리지 않는다
             + "end\n"
             + "local closed = redis.call('GET', KEYS[2])\n"
             + "if closed ~= false and ARGV[1] <= closed then\n"
@@ -156,10 +162,14 @@ public class RedisFocusPresence implements FocusPresencePort {
      * <p>반대로 <b>나보다 새로운</b> 리스는 건드리지 않는다 — 그 사이 시작된 집중을 푸는 셈이 된다.
      */
     private static final RedisScript<Long> DELETE_IF_NOT_NEWER = new DefaultRedisScript<>(
-            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식 / ARGV[1]=sessionId, ARGV[2]=표식 TTL(초)
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=sessionId, ARGV[2]=표식 TTL(초)
+            // 탈퇴자면 표식을 새로 남기지 않는다 — tombstone 이 이미 모든 시작을 막고, 표식도 사용자 키다.
             // 표식을 «먼저» 남긴다 — 리스가 이미 다른 세션 것이어서 지우지 못하더라도, 이 세션의
             // 지연된 시작이 나중에 되살리는 건 막아야 하기 때문이다.
-            "local closed = redis.call('GET', KEYS[2])\n"
+            "if redis.call('GET', KEYS[3]) ~= false then\n"
+            + "  return redis.call('DEL', KEYS[1], KEYS[2])\n"
+            + "end\n"
+            + "local closed = redis.call('GET', KEYS[2])\n"
             + "if closed == false or ARGV[1] > closed then\n"
             + "  redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[2])\n"
             + "end\n"
@@ -168,6 +178,32 @@ public class RedisFocusPresence implements FocusPresencePort {
             + "  return redis.call('DEL', KEYS[1])\n"
             + "end\n"
             + "return 0", Long.class);
+
+    /**
+     * 탈퇴 tombstone 접두사 — {@code presence:withdrawn:{userId}} (GROMO-1943).
+     *
+     * <p>{@code presence:focus:*} 밖에 두는 이유: 그 패턴은 «이 사람 것이 남았는가»를 세는 파기 검사의
+     * 대상이고, tombstone 은 파기 뒤에도 남아야 하는 «막는 표식»이다. 같은 패턴에 두면 둘이 섞인다.
+     */
+    private static final String WITHDRAWN_PREFIX = "presence:withdrawn:";
+
+    /**
+     * tombstone 수명 = {@link #LEASE_TTL}.
+     *
+     * <p>막아야 하는 쓰기는 «탈퇴 전에 시작한 집중»의 리스뿐이다 — 탈퇴 뒤에는 새 집중을 시작할 수 없고,
+     * 두 쓰기 경로 모두 리스를 {@code startedAt + LEASE_TTL} 까지만 놓는다. 그러니 탈퇴 시점부터
+     * {@code LEASE_TTL} 이 지나면 되살릴 수 있는 리스가 남아 있지 않다. 무기한 보존할 근거가 없다.
+     */
+    private static final Duration WITHDRAWN_TTL = LEASE_TTL;
+
+    /**
+     * 「tombstone 을 놓고 리스·종료 표식을 지운다」 — 한 스크립트라 사이에 끼는 쓰기가 없다.
+     * 반복 실행해도 결과가 같다(SET 은 덮어쓰기, DEL 은 없으면 0).
+     */
+    private static final RedisScript<Long> WITHDRAW = new DefaultRedisScript<>(
+            // KEYS[1]=리스, KEYS[2]=끝난 세션 표식, KEYS[3]=탈퇴 tombstone / ARGV[1]=tombstone TTL(초)
+            "redis.call('SET', KEYS[3], '1', 'EX', ARGV[1])\n"
+            + "return redis.call('DEL', KEYS[1], KEYS[2])", Long.class);
 
     private final StringRedisTemplate redis;
 
@@ -188,7 +224,7 @@ public class RedisFocusPresence implements FocusPresencePort {
             log.debug("백스톱을 넘긴 마커 — 프레즌스 생략, userId={} sessionId={}", userId, sessionId);
             return;
         }
-        afterCommit(() -> redis.execute(SET_IF_NEWER, List.of(key(userId), closedKey(userId)),
+        afterCommit(() -> redis.execute(SET_IF_NEWER, keys(userId),
                 sessionId.toString(), String.valueOf(ttlSeconds)), "리스 설정", userId);
     }
 
@@ -205,7 +241,7 @@ public class RedisFocusPresence implements FocusPresencePort {
         }
         try {
             // 커밋을 기다리지 않는다 — 이미 커밋된 정본을 읽어 미러를 맞추는 작업이라 되돌려질 게 없다.
-            redis.execute(SET_IF_ABSENT, List.of(key(userId), closedKey(userId)),
+            redis.execute(SET_IF_ABSENT, keys(userId),
                     sessionId.toString(), String.valueOf(ttlSeconds));
             return true;
         } catch (RuntimeException e) {
@@ -244,7 +280,7 @@ public class RedisFocusPresence implements FocusPresencePort {
         try {
             // 스크립트가 0 을 돌려주는 경우(그 사이 새 집중이 리스 주인이 됨)도 «성공»이다 —
             // 남의 리스를 지우지 않는 것이 옳은 결과이고, 다시 시도할 이유가 없다.
-            redis.execute(DELETE_IF_NOT_NEWER, List.of(key(userId), closedKey(userId)),
+            redis.execute(DELETE_IF_NOT_NEWER, keys(userId),
                     sessionId.toString(), String.valueOf(CLOSED_TTL.toSeconds()));
             return true;
         } catch (RuntimeException e) {
@@ -262,8 +298,19 @@ public class RedisFocusPresence implements FocusPresencePort {
             log.debug("세션 id 없는 집중 종료 — 프레즌스 생략, userId={}", userId);
             return;
         }
-        afterCommit(() -> redis.execute(DELETE_IF_NOT_NEWER, List.of(key(userId), closedKey(userId)),
+        afterCommit(() -> redis.execute(DELETE_IF_NOT_NEWER, keys(userId),
                 sessionId.toString(), String.valueOf(CLOSED_TTL.toSeconds())), "리스 해제", userId);
+    }
+
+    @Override
+    public void userWithdrawn(UUID userId) {
+        afterCommit(() -> redis.execute(WITHDRAW, keys(userId),
+                String.valueOf(WITHDRAWN_TTL.toSeconds())), "탈퇴 파기", userId);
+    }
+
+    /** 모든 스크립트의 KEYS — 리스 · 끝난 세션 표식 · 탈퇴 tombstone 순서가 계약이다. */
+    private static List<String> keys(UUID userId) {
+        return List.of(key(userId), closedKey(userId), withdrawnKey(userId));
     }
 
     private static String key(UUID userId) {
@@ -273,6 +320,11 @@ public class RedisFocusPresence implements FocusPresencePort {
     /** 「이 세션은 끝났다」 표식 키. 읽는 쪽은 이 키를 모른다 — 리스 키와 이름이 다르다. */
     private static String closedKey(UUID userId) {
         return KEY_PREFIX + userId + CLOSED_SUFFIX;
+    }
+
+    /** 탈퇴 tombstone 키. 읽는 쪽(채팅)은 모른다 — 리스가 없으면 «집중 중 아님»으로 본다. */
+    private static String withdrawnKey(UUID userId) {
+        return WITHDRAWN_PREFIX + userId;
     }
 
     /**
