@@ -135,7 +135,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 183개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 184개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -192,8 +192,10 @@ class ErrorContractTest {
         // 위임 게이트 REALTIME_NOT_READY 와 같은 503 이지만 스위치가 달라 하나만 먼저 여는 날 구분해야 한다.
         // GROMO-1934 가 공통 코드 1개(RATE_LIMITED, 429)를 더했다 — 게스트 친구 요청 · 전 계정 편지 발송의 계정당
         // 시간 한도. 두 도메인이 같은 코드를 쓰고 Business 공개 표의 같은 이름으로 옮겨지므로 공통이 소유한다.
-        assertThat(tests).as("실측 기준 도메인 상수 167개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·계정 레이트리밋 포함")
-                .hasSize(183);
+        // GROMO-1801 이 신규 PATCH /me 게이트 1개를 더했다(UserErrorCode.PROFILE_UPDATE_UNAVAILABLE) —
+        // 집중 세션 게이트와 같은 503 이지만 여는 조건(온보딩 전이 사건 연결)이 달라 코드를 가른다.
+        assertThat(tests).as("실측 기준 도메인 상수 168개 + 공통 16개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·계정 레이트리밋·계정 PATCH 게이트 포함")
+                .hasSize(184);
         return tests;
     }
 

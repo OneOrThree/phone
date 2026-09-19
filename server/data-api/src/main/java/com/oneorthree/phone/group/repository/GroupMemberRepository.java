@@ -320,4 +320,23 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
          */
         long getMemberCount();
     }
+
+    /**
+     * 탈퇴자의 <b>모든</b> 멤버십(이미 떠난 행 포함)에서 개인 설정을 비개인 기본값으로 되돌린다
+     * (GROMO-1801 · 계정 LLD §4 「보존 멤버십 행의 개인 설정 초기화」). 네 열 모두 NOT NULL 이라 null 이
+     * 아니라 기본값이다. user·group·is_left·left_reason·created_at 의 관계 증거는 그대로 남는다.
+     *
+     * <p>벌크인 이유: 활성 멤버십 조회({@link #findByUser})는 is_left=false 만 보므로 이탈 직후의 행을 못 찾는다.
+     *
+     * @param userId 탈퇴하는 유저
+     * @return 바뀐 행 수
+     */
+    @Modifying(flushAutomatically = true)
+    @Query("UPDATE GroupMember gm SET gm.notificationEnabled = false,"
+            + " gm.announcementPermission ="
+            + " com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant.DISALLOW,"
+            + " gm.status = com.oneorthree.phone.group.repository.domain.GroupMemberStatus.INACTIVE,"
+            + " gm.role = com.oneorthree.phone.group.repository.domain.GroupMemberRole.MEMBER"
+            + " WHERE gm.user.id = :userId")
+    int eraseSettingsOfUser(@Param("userId") UUID userId);
 }

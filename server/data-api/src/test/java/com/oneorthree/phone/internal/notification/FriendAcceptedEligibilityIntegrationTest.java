@@ -89,7 +89,7 @@ class FriendAcceptedEligibilityIntegrationTest {
     @Test
     void endingTheFriendshipDoesNotInvalidateTheAcceptedFact() throws Exception {
         Map<String, Object> event = acceptedEvent();
-        friends.detachWithdrawnUser(counterpart.getId(), Instant.now());
+        friends.detachWithdrawnUser(counterpart.getId());
         flushAndClear();
         // 관계 정리만으로는 수락 사실이 거짓이 되지 않는다. 상대 계정은 여전히 활성이다.
         evaluate(event).andExpect(jsonPath("$.eligible").value(true));
@@ -153,7 +153,7 @@ class FriendAcceptedEligibilityIntegrationTest {
     }
 
     private void withdraw(UUID userId) {
-        friends.detachWithdrawnUser(userId, Instant.now());
+        friends.detachWithdrawnUser(userId);
         User user = users.findById(userId).orElseThrow();
         user.setDeleted(true);
         user.setNickname(null);

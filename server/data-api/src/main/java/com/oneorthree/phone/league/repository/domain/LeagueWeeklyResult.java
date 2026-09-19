@@ -47,18 +47,20 @@ public class LeagueWeeklyResult {
     @Column(name = "week_start_at", nullable = false)
     private Instant weekStartAt;
 
-    @Column(name = "previous_tier_level", nullable = false)
-    private int previousTierLevel;
+    // 아래 넷은 탈퇴 파기로 null 이 된다(V65, GROMO-1801 · 계정 LLD §4). 그 행은 (user, weekStartAt)
+    // 완료 마커로만 남아 재정산을 막는다 — 결과 발표·모달 조회는 활성 유저·result 조건으로 이미 빠진다.
+    @Column(name = "previous_tier_level")
+    private Integer previousTierLevel;
 
-    @Column(name = "new_tier_level", nullable = false)
-    private int newTierLevel;
+    @Column(name = "new_tier_level")
+    private Integer newTierLevel;
 
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
+    @Column(length = 16)
     private LeagueWeeklyResultType result;
 
-    @Column(name = "focus_seconds", nullable = false)
-    private int focusSeconds;
+    @Column(name = "focus_seconds")
+    private Integer focusSeconds;
 
     @Column(name = "acknowledged_at")
     private Instant acknowledgedAt;

@@ -49,6 +49,8 @@ location = /actuator { return 404; }
 # 섬 가입 신청·초대(GROMO-1760)도 기존 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # islands 분기: POST /islands/{islandId}/memberships · POST /islands/{islandId}/invitations.
 # me 분기: GET·DELETE /me/join-requests/{requestId}. invitations 분기: POST /invitations/resolve.
+# 계정(GROMO-1801)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. me 분기: GET /me ·
+# PATCH /me · DELETE /me.
 # 섬 관리·주민(GROMO-1802)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # PATCH /islands/{islandId} · GET /islands/{islandId}/members · GET /islands/{islandId}/join-requests ·
 # PATCH /islands/{islandId}/join-requests/{requestId} · DELETE /islands/{islandId}/members/{userId} ·

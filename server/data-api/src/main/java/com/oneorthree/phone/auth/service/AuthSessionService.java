@@ -1,6 +1,7 @@
 package com.oneorthree.phone.auth.service;
 
 import com.oneorthree.phone.auth.repository.AuthSessionRepository;
+import com.oneorthree.phone.auth.repository.LoginAttemptRepository;
 import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.auth.support.TokenHasher;
 import com.oneorthree.phone.outbox.dto.AggregateRef;
@@ -68,6 +69,7 @@ public class AuthSessionService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final AuthSessionRepository authSessionRepository;
+    private final LoginAttemptRepository loginAttemptRepository;
     private final OutboxCommandPort outboxCommandPort;
     private final Clock clock;
 
@@ -266,6 +268,19 @@ public class AuthSessionService {
             }
         });
         return active;
+    }
+
+    /**
+     * 탈퇴자의 로그인 자격을 파기한다 (GROMO-1801 · 계정 LLD §4). {@link #revokeAll} 로 모든 세션을 폐기한
+     * «뒤»에 부른다 — 폐기 사건이 봉투를 적은 다음이라야 RT·bootstrap 해시를 지워도 전달할 증명이 남는다.
+     * 로그인 시도 원장도 INVALIDATED 로 닫아 복구 창 안의 재생을 막는다.
+     *
+     * @param userId 탈퇴 중인 유저
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void eraseWithdrawnCredentials(UUID userId) {
+        authSessionRepository.eraseCredentialsOfUser(userId);
+        loginAttemptRepository.invalidateAndEraseOfUser(userId, clock.instant());
     }
 
     /**

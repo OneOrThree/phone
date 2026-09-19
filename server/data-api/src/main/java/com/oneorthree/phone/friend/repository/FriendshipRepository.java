@@ -6,6 +6,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -168,32 +169,19 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     long countAcceptedByUser(@Param("me") User me);
 
     /**
-     * 회원 탈퇴 정리 대상 — 내가 낀 미삭제 관계 전부, status 무관 (GROMO-801).
-     * ACCEPTED(친구)뿐 아니라 PENDING(대기 중 요청)까지 걷어야 탈퇴자 요청이 상대 목록에 남지 않는다.
-     * 벌크 UPDATE 대신 엔티티를 로드해 Friendship.softDelete() 를 태운다 — deletedAt 을 쓰는 통로를
-     * 도메인 메서드 하나로 유지하기 위해서다. (현재 withdraw() 안에서는 벌크를 써도 깨지지 않는다:
-     * 이 트랜잭션이 Friendship 을 다시 읽지 않아 1차 캐시 stale 이 실현되지 않는다. 다만 나중에
-     * 같은 트랜잭션에서 Friendship 을 읽는 코드가 붙으면 그때 조용히 깨지므로 선제적으로 막아둔다.)
-     * 탈퇴 1회당 많아야 수백 건이라 건별 처리 비용은 무의미하다.
-     * 인덱스 주의: from_user_id 브랜치는 UNIQUE(from_user_id, to_user_id) 복합의 선두 컬럼으로 타지만,
-     * to_user_id 단독 인덱스가 없어 아래 OR 의 그쪽 브랜치는 순차 스캔으로 빠진다
-     * (PostgreSQL 은 FK 컬럼에 인덱스를 자동 생성하지 않는다).
-     * findAcceptedByUser·countAcceptedByUser 등 기존 OR 조회가 이미 갖고 있던 특성이고, 탈퇴 경로가
-     * 추가되며 노출 빈도만 늘었다. 인덱스 추가는 별도 티켓 — CREATE INDEX CONCURRENTLY 가 Flyway 의
-     * 열린 트랜잭션을 기다리다 부팅을 멈추게 해서, 마이그레이션이 아닌 운영 절차로 다뤄야 한다.
-     * 배타 락 — 위 findByIdAndDeletedAtIsNull 과 대칭. 정리 대상 행을 잠가야 수락·거절 트랜잭션과
-     * 서로의 UPDATE 를 덮어쓰지 않는다(둘 다 전체 컬럼 UPDATE 라 나중 커밋이 이긴다).
-     * 전제: 격리수준 READ COMMITTED. Postgres 가 잠금 획득 후 조건을 재평가(EvalPlanQual)하므로
-     * 먼저 커밋한 쪽이 이기고 대기하던 쪽은 조용히 빈 결과가 된다. REPEATABLE READ 로 올리면
-     * 재평가 대신 직렬화 실패 예외가 나므로 이 경로들에 재시도가 필요해진다(현재는 없음).
+     * 탈퇴자가 낀 친구 관계를 status·deleted_at 과 무관하게 전부 지운다 (GROMO-1801 · 계정 LLD §4 friendships).
+     *
+     * <p>종전 탈퇴는 활성 행만 soft delete 해 요청·수락·거절 이력과 이미 soft delete 된 행이 탈퇴자 UUID 에
+     * 계속 묶여 있었다. 두 FK 가 NOT NULL 이라 nullify 로 비식별화할 수도 없어 행을 지운다.
+     *
+     * <p>벌크 DELETE 도 행 잠금을 얻는다 — 수락·거절이 먼저 행을 잠갔으면 그 커밋을 기다렸다가 결과까지
+     * 지운다. flushAutomatically 로 앞선 엔티티 변경을 먼저 내보내, 지연 flush 가 지운 행을 되살리거나
+     * 0행 UPDATE 를 내지 않게 한다.
      *
      * @param userId 탈퇴하는 유저
-     * @return 이 유저가 낀 살아 있는 관계 전부(상태 무관). 반환 행은 트랜잭션이 끝날 때까지 잠기며,
-     *         호출측이 건별로 softDelete() 를 태운다
+     * @return 지운 행 수
      */
-    @Lock(LockModeType.PESSIMISTIC_WRITE)
-    @Query("SELECT f FROM Friendship f"
-            + " WHERE f.deletedAt IS NULL"
-            + " AND (f.fromUser.id = :userId OR f.toUser.id = :userId)")
-    List<Friendship> findActiveByUserId(@Param("userId") UUID userId);
+    @Modifying(flushAutomatically = true)
+    @Query("DELETE FROM Friendship f WHERE f.fromUser.id = :userId OR f.toUser.id = :userId")
+    int deleteAllInvolving(@Param("userId") UUID userId);
 }

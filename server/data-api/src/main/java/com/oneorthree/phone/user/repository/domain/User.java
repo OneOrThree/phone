@@ -141,8 +141,8 @@ public class User {
      * 환경에서 migration v25 선적용 없이 배포돼도 기존 row ALTER 실패 방지. 신규 유저는 @Builder.Default 로 채움
      * (AuthService 미수정 — 585 충돌 회피).
      */
-    @Column(name = "last_active_at", nullable = false,
-            columnDefinition = "timestamptz not null default now()")
+    // 탈퇴 파기로 null 이 된다(V65, GROMO-1801). 활성 유저는 계속 non-null 이다.
+    @Column(name = "last_active_at", columnDefinition = "timestamptz default now()")
     @Builder.Default
     private Instant lastActiveAt = Instant.now();
 

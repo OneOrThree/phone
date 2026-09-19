@@ -61,7 +61,8 @@ public class AuthSession {
     private UUID userId;
 
     /** 이 세션이 현재 인정하는 RT 의 SHA-256 hex. 회전 때 갈아끼운다. */
-    @Column(name = "refresh_token_hash", nullable = false, length = 64)
+    // 탈퇴가 폐기 tombstone 에서 지운다(V65, GROMO-1801). 활성 세션은 항상 non-null 이다.
+    @Column(name = "refresh_token_hash", length = 64)
     private String refreshTokenHash;
 
     /**
