@@ -313,5 +313,13 @@ class WriteComposeEnvTest(unittest.TestCase):
                     self.assertEqual(service["logging"]["driver"], "json-file")
 
 
+    def test_Realtime_caller_토큰이_같으면_모든_모드에서_출력_전에_실패한다(self) -> None:
+        same = secret(SVC_TOKEN_DATA_TO_REALTIME="same-token", SVC_TOKEN_BIZ_TO_REALTIME="same-token")
+        for service in ("legacy", "business-api"):
+            with self.subTest(service=service), self.assertRaisesRegex(ValueError, "서로 달라야") as raised:
+                MODULE.render(same, "example/app@sha256:abc", service)
+            self.assertNotIn("same-token", str(raised.exception))
+
+
 if __name__ == "__main__":
     unittest.main()

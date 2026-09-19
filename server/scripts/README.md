@@ -48,10 +48,10 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 docker compose -f server/scripts/docker-compose.local.yml up -d db redis
 
 # dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(+전용 Redis)·Notification. nginx 없음
-docker compose -p phone --env-file ../.gromo-runtime/dev.env --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml -f server/scripts/docker-compose.satellites.data.yml up -d
+docker compose -p phone --env-file ../.gromo-runtime/dev.env --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
 
 # prod (AWS gromo-prod) — nginx·Data·datadog-agent·Kafka·Business(+전용 Redis)·Notification. DB 는 RDS, Realtime 없음
-docker compose -p "$PROD_PROJECT" --env-file .env.prod --env-file <out>/compose.env -f docker-compose.prod.yml -f docker-compose.kafka.yml -f docker-compose.satellites.yml -f docker-compose.satellites.data.yml up -d
+docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리> --env-file <prod 배포 디렉터리>/.env.prod --env-file <out>/compose.env -f server/scripts/docker-compose.prod.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
 ```
 
 | 환경 | 파일 조합 | 지금 자동으로 도는 부분 | 사람이 붙이는 부분 |
@@ -60,7 +60,8 @@ docker compose -p "$PROD_PROJECT" --env-file .env.prod --env-file <out>/compose.
 | dev | dev (+datadog) (+kafka) (+satellites.data) → + realtime · satellites | `dev-cd.yml`: `dev.yml` + 이미 떠 있는 datadog·kafka·Data 전용 env 를 유지하며 `up -d app`만 | Realtime(`up -d realtime`) · 위성(준비 도구의 계획) · Kafka 기동(Actions **Dev Kafka**) |
 | prod | prod (+kafka) (+satellites (+satellites.data)) | `prod-cd.yml` → SSM 문서가 `docker-compose.prod.yml` 단독 `up -d` | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
 
-- `satellites.data.yml`은 **마지막 `-f`** 여야 하고 Data 전용 env 가 있을 때만 붙입니다. 없으면 빼면 Data 는 legacy env 로 뜹니다.
+- Data 를 전용 env 로 바꿀 때만(준비 도구를 `--data-image`로 실행해 `compose.env`에 `DATA_API_ENV_FILE`·`DATA_API_PROFILES`가 있을 때) 위 줄 끝에 `-f server/scripts/docker-compose.satellites.data.yml`을 **마지막 `-f`** 로 더합니다. 그 값이 없으면 이 파일의 필수 보간이 실패하므로 붙이지 않고, Data 는 legacy env 로 뜹니다.
+- prod 호스트에는 레포가 없고 `prod-cd.yml`이 `docker-compose.prod.yml`만 S3 로 올립니다. prod 줄의 `server/scripts/…`는 같은 커밋의 파일을 호스트에 옮겨 둔 경로로 바꾸고, `.env.prod`·`./deploy/nginx.conf`·`./certs`는 `--project-directory`(현행 배포 디렉터리) 기준으로 풉니다.
 - prod 파일에는 `name:`이 없어 프로젝트명이 호스트 디렉터리에서 정해집니다. `satellites.yml`의 `name: phone`이 이를 바꾸지 않도록 `-p`에 `docker compose ls`로 확인한 현재 이름을 넣습니다.
 - `docker-compose.business.yml`은 Notification 없이 Business 만 띄우는 옛 진입점입니다. `satellites.yml`과 **함께 쓰지 않습니다**(같은 서비스를 정의).
 - dev 관측은 위 줄에 `-f server/scripts/docker-compose.datadog.yml` 또는 `-f server/scripts/docker-compose.observability.yml`을 더합니다.
@@ -73,7 +74,7 @@ dev 의 `../.gromo-runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다** Secr
 | --- | --- | --- |
 | `SVC_TOKEN_DATA_TO_REALTIME` | Realtime(dev.env → `realtime.yml`) · Data(satellites 프로파일, `data-api.env` 선택) | Realtime `POST /internal/events` 가 401 → Data relay 의 REALTIME 행이 전달되지 않고 재시도로 남는다. Data 는 relay OFF 면 무영향, relay ON 이면 기동 거부 |
 | `REALTIME_BASE_URL` | Business(`business-api.env` **필수**) · Data(satellites, 선택) | Business: writer 가 env 생성 단계에서 거부(수동 누락 시 부팅 fail-fast). Data: relay ON 이면 기동 거부 |
-| `SVC_TOKEN_BIZ_TO_REALTIME` | Business(**필수**) · Realtime(dev.env → `realtime.yml`) | Realtime 쪽이 비면 우체통 내부 어댑터 `/internal/*` 401 → 섬 편지 저장 실패 |
+| `SVC_TOKEN_BIZ_TO_REALTIME` | Business(**필수**) · Realtime(dev.env → `realtime.yml`) | Realtime 쪽이 비면 우체통 내부 어댑터 `/internal/*` 401 → 섬 편지 저장 실패. `SVC_TOKEN_DATA_TO_REALTIME`과 같은 값이면 writer 가 모든 모드에서 거부한다(Data 자격으로 우체통을 부를 수 있게 되므로) |
 | `BUSINESS_CURSOR_ENABLED` · `BUSINESS_CURSOR_KEY_V1` | Business(**필수**) | writer 가 거부. 손으로 비우면 부팅·헬스는 정상인데 `GET /islands`·`/islands/discover` 만 503 |
 | `BUSINESS_CURSOR_ACTIVE_KEY` | Business(선택) | `v1` |
 | `LOGIN_ATTEMPT_DIGEST_SECRET` | Business(**필수**) | writer 가 거부(부팅 fail-fast) |

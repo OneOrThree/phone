@@ -93,7 +93,7 @@ SERVICE_OPTIONAL_KEYS = {
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
         "GOOGLE_CLIENT_ID", "APPLE_CLIENT_ID", "LINK_IP_SALT", "LINK_PROXY_SECRET",
         "LINK_TRUSTED_IP_HEADERS", "COMPAT_MATCH_HANDLER_ENABLED", "COMPAT_IMPORT_CONTRACT_READY",
-        "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED", "BUSINESS_CLAIM_REPLAY_ENABLED",
+        "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED",
         "GOOGLE_DRIVE_API_KEY",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
         "BUSINESS_CURSOR_ACTIVE_KEY",
@@ -139,6 +139,14 @@ def validate_notification_tokens(secret: dict[str, Any]) -> None:
         raise ValueError("알림 caller 토큰은 서로 달라야 합니다: " + ", ".join((console_key, business_key, data_key)))
 
 
+def validate_realtime_tokens(secret: dict[str, Any]) -> None:
+    """Realtime 의 두 caller 토큰은 달라야 한다. 같으면 Data 자격으로 Business 전용 /internal/*(우체통)을
+    X-User-Id 와 함께 부를 수 있다(A22 ㊀). 둘 다 있을 때만 비교하고 값은 출력하지 않는다."""
+    data, business = secret.get("SVC_TOKEN_DATA_TO_REALTIME"), secret.get("SVC_TOKEN_BIZ_TO_REALTIME")
+    if data and business and data == business:
+        raise ValueError("Realtime caller 토큰은 서로 달라야 합니다: SVC_TOKEN_DATA_TO_REALTIME, SVC_TOKEN_BIZ_TO_REALTIME")
+
+
 def require(secret: dict[str, Any], keys: tuple[str, ...]) -> None:
     """누락·null·빈 문자열을 값 노출 없이 실패시킨다."""
     missing = [key for key in keys if secret.get(key) is None or secret.get(key) == ""
@@ -165,6 +173,7 @@ def dotenv_quote(value: Any) -> str:
 
 def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
            phase: str = "transition", environment: str = "dev", *, data_profiles: str | None = None) -> str:
+    validate_realtime_tokens(secret)
     if service != "legacy":
         return render_service(secret, app_image, service, phase, environment, data_profiles=data_profiles)
     if data_profiles is not None:
