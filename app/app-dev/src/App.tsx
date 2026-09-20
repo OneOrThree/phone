@@ -319,17 +319,20 @@ function Gromo() {
         if (raw) {
           const saved = JSON.parse(raw);
           if (saved.version === 1) {
-            dispatch({ type: 'LOAD', state: saved });
-            const hasJoinedIsland = saved.islands?.some(
-              (island: { joined?: boolean; closed?: boolean }) => island.joined && !island.closed,
-            );
+            const loadedAt = Date.now();
+            const restored = reducer(initialState(DEMO), {
+              type: 'LOAD',
+              state: saved,
+              now: loadedAt,
+            });
+            dispatch({ type: 'LOAD', state: saved, now: loadedAt });
             setRoute(
-              !saved.loggedIn
+              !restored.loggedIn
                 ? 'login'
-                : !hasJoinedIsland
+                : !restored.onboarded
                   ? 'chooseIsland'
-                  : saved.session
-                    ? saved.session.status === 'paused'
+                  : restored.session
+                    ? restored.session.status === 'paused'
                       ? 'rest'
                       : 'focus'
                     : 'home',
@@ -341,7 +344,13 @@ function Gromo() {
       .finally(() => setLoaded(true));
   }, []);
   useEffect(() => {
-    if (!loaded || !state.loggedIn || state.onboarded) return;
+    if (!loaded || !state.loggedIn) return;
+    if (state.membershipRecovery) {
+      reset(state.onboarded ? 'home' : 'chooseIsland');
+      dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
+      return;
+    }
+    if (state.onboarded) return;
     if (
       ['login', 'character', 'chooseIsland', 'createIsland', 'joinIsland', 'approval'].includes(
         route,
@@ -350,7 +359,7 @@ function Gromo() {
       return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
     reset('chooseIsland');
-  }, [loaded, state.loggedIn, state.onboarded, route]);
+  }, [loaded, state.loggedIn, state.onboarded, state.membershipRecovery, route]);
   useEffect(() => {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });

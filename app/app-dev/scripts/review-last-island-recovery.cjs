@@ -20,6 +20,28 @@ const assert = require('node:assert/strict');
     await page.goto('http://127.0.0.1:18762/?review=1');
     await page.waitForFunction(() => window.__gromoReview);
     const fixture = await page.evaluate(() => window.__gromoReview.fixture(true));
+    const remaining = structuredClone(fixture);
+    const nextIsland = remaining.islands.find((island) => island.id !== remaining.islandId);
+    nextIsland.joined = true;
+    remaining.session = {
+      id: 'kicked-session',
+      islandId: remaining.islandId,
+      subject: '수학',
+      startedAt: Date.now(),
+      seconds: 0,
+      status: 'active',
+    };
+    await page.evaluate((state) => window.__gromoReview.open('focus', { state }), remaining);
+    await page.evaluate(
+      (id) => window.__gromoReview.dispatch({ type: 'KICKED_FROM_ISLAND', id }),
+      remaining.islandId,
+    );
+    await page.waitForFunction(() => window.__gromoReview.route === 'home');
+    await page.evaluate(() => window.__gromoReview.back());
+    assert.equal(await page.evaluate(() => window.__gromoReview.route), 'home');
+    assert.equal(await page.evaluate(() => window.__gromoReview.state.islandId), nextIsland.id);
+    assert.equal(await page.evaluate(() => window.__gromoReview.state.session), null);
+
     fixture.islands.forEach((island) => (island.joined = island.id === fixture.islandId));
     await page.evaluate((state) => window.__gromoReview.open('home', { state }), fixture);
     await page.evaluate(
