@@ -179,7 +179,7 @@ public class GroupService {
                 .name(request.getName())
                 .password(hashedPassword)
                 .description(request.getDescription())
-                .maxMembers(request.getMaxMembers() != null ? request.getMaxMembers() : 10)
+                .maxMembers(request.getMaxMembers() != null ? request.getMaxMembers() : Group.DEFAULT_MAX_MEMBERS)
                 .isPrivate(request.isPrivate())
                 .build());
 
@@ -872,10 +872,17 @@ public class GroupService {
      * 유저가 이미 {@link #MAX_JOINED_GROUPS} 개 그룹에 소속돼 있으면 409({@code GROUP_LIMIT_EXCEEDED}).
      * 모수는 getMyGroups 와 같은 group_members 행 수다(탈퇴는 행 삭제라 자연 제외).
      *
-     * <p>동시성: count → insert 사이에 락이 없어 동시 요청이 상한을 1~2 개 넘길 수 있다(TOCTOU).
-     * 바로 아래 ROOM_FULL 검사도 같은 count-then-insert 패턴이고, 이 상한은 보안 경계가 아니라
-     * 응답 크기를 묶는 소프트 캡이라 의도적으로 수용한다 — 버그가 아니라 결정이다. 엄격히 막으려면
-     * 유저 행 잠금이나 DB 제약이 필요한데, 그 비용(유저 행 경합)이 초과 1~2 개보다 크다고 봤다.
+     * <p>동시성: count → insert 사이에 <b>이 상한만</b> 락이 없어 동시 요청이 1~2 개 넘길 수 있다
+     * (TOCTOU). 이 상한은 보안 경계가 아니라 응답 크기를 묶는 소프트 캡이라 의도적으로 수용한다 —
+     * 버그가 아니라 결정이다. 엄격히 막으려면 유저 행 잠금이나 DB 제약이 필요한데, 그 비용(유저 행
+     * 경합)이 초과 1~2 개보다 크다고 봤다.
+     *
+     * <p><b>바로 아래 ROOM_FULL 은 여기에 해당하지 않는다</b>(GROMO-1993 정정). 이 메서드보다 앞서
+     * {@code membershipLocks.lockGroup} 이 groups 행을 {@code FOR UPDATE} 로 잡고, 그 섬에 멤버십을
+     * 넣는 모든 경로(여기 · {@code IslandJoinService.join} · 같은 클래스의 승인)가 같은 잠금을 먼저
+     * 지난다 — 정원 판정과 insert 는 섬 단위로 직렬화된다. 정책 「마지막 한 자리에 동시에 가입하면
+     * 한 명만 성공한다」가 이 잠금으로 성립한다. 종전 주석이 둘을 한데 묶어 «정원도 샌다»고 적어
+     * 뒀는데 사실이 아니었다.
      */
     private void ensureJoinedGroupLimit(User user) {
         if (groupMemberRepository.countByUser(user) >= MAX_JOINED_GROUPS) {

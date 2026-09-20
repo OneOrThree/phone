@@ -34,10 +34,11 @@ import java.util.function.Supplier;
  * 쌍이 맞는</b> 상류 실패의 공개 코드 변환뿐이다 — 등록되지 않은 판정은 그대로 올려 502 가 되게 둔다
  * ({@code IslandMembershipUseCase} 와 같은 규칙).
  *
- * <p>상류가 400 으로 내는 legacy 코드 둘({@code CANNOT_KICK_SELF}·{@code HOST_WITHDRAW})은 공개 계약에서
- * 409 다(LLD §3.6·§3.7) — 요청 모양이 아니라 현재 상태가 거절 이유이기 때문이다. 상류 상태를 바꾸면 legacy
- * 앱 분기가 깨지므로 여기서 옮긴다. 강퇴 이력이 있는 신청자의 승인 거절({@code KICKED_CANNOT_REJOIN} 403)도
- * 방장에게는 권한 문제가 아니라 상태 충돌이라 409 로 옮긴다.
+ * <p>상류가 400 으로 내는 코드 셋({@code CANNOT_KICK_SELF}·{@code HOST_WITHDRAW}·
+ * {@code MAX_MEMBERS_TOO_SMALL})은 공개 계약에서 409 다(LLD §3.1·§3.6·§3.7) — 요청 모양이 아니라 현재
+ * 상태가 거절 이유이기 때문이다. 상류 상태를 바꾸면 legacy 앱 분기가 깨지므로 여기서 옮긴다. 강퇴 이력이
+ * 있는 신청자의 승인 거절({@code KICKED_CANNOT_REJOIN} 403)도 방장에게는 권한 문제가 아니라 상태
+ * 충돌이라 409 로 옮긴다.
  */
 @Service
 @RequiredArgsConstructor
@@ -63,7 +64,11 @@ public class IslandManagementUseCase {
     private static final Map<String, PublicFailure> MANAGE = with(
             Map.entry("INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null)),
             // 빈 이름 — 공개 경계가 먼저 거르지만 닿으면 같은 422 다(api-platform policy OUT_OF_RANGE).
-            Map.entry("ISLAND_NAME_BLANK", new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "name")));
+            Map.entry("ISLAND_NAME_BLANK", new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "name")),
+            // 현원보다 작은 정원 (GROMO-1993). 보낸 값 자체는 1~15 안이라 «모양» 은 정상이고, 거절 이유는
+            // 지금 그 섬에 몇 명이 있느냐는 «상태» 다 — CANNOT_KICK_SELF·HOST_WITHDRAW 와 같은 이유로
+            // legacy 400 을 공개 409 로 옮긴다. 등록하지 않으면 이 정상 거절이 502 로 나간다.
+            Map.entry("MAX_MEMBERS_TOO_SMALL", new PublicFailure(400, ApiErrorCode.STATE_CONFLICT, "maxMembers")));
 
     private static final Map<String, PublicFailure> ANSWER = with(
             Map.entry("JOIN_REQUEST_NOT_FOUND", new PublicFailure(404, ApiErrorCode.NOT_FOUND, "requestId")),

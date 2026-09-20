@@ -2,6 +2,7 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.port.IslandPurgePort;
 import com.oneorthree.phone.focus.service.FocusMembershipLossService;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -73,6 +74,11 @@ public class GroupMemberService {
      */
     private final FocusMembershipLossService focusMembershipLossService;
     private final IslandStateEvents islandStateEvents;
+    /**
+     * 섬이 닫히면 공동 데이터도 함께 지운다 (GROMO-1995, 정책 「섬 삭제 시 … 함께 삭제한다」).
+     * 지울 대상이 construction·appearance·quest·shop 소유라 호출을 포트로 뒤집는다 — 구현은 L10 이다.
+     */
+    private final IslandPurgePort islandPurge;
 
     /**
      * 방장을 넘긴다 — 대상이 OWNER 로 오르고 요청자는 같은 트랜잭션에서 MEMBER 로 내려온다.
@@ -239,6 +245,9 @@ public class GroupMemberService {
             // 공개 섬 상태 축에도 종료를 남긴다(섬 관리 LLD §3.7) — 주민 목록 사건만으로는 섬이 닫힌 것을 모른다.
             islandStateEvents.changed(groupId, userId, "CLOSED");
             closeJoinRequests(group);
+            // 공동 데이터 삭제는 이 블록의 «마지막»이다 — 위의 봉투·신청 전이를 전부 적은 뒤라야
+            // 삭제가 그 쓰기를 앞질러 죽은 섬을 참조하는 반쪽 상태를 만들지 않는다.
+            islandPurge.purgeIsland(groupId);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
             groupMember.leave();
             linkMembershipEventService.recordMembershipRevoked(groupMember);
@@ -333,6 +342,9 @@ public class GroupMemberService {
                 linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
                 islandStateEvents.changed(ownerMembership.getGroup().getId(), userId, "CLOSED");
                 closeJoinRequests(ownerMembership.getGroup());
+                // 계정 탈퇴로 닫히는 1인 섬도 같은 삭제를 받는다 (GROMO-1995) — 닫히는 경로마다
+                // 다른 결과가 나오면 「닫혔는데 공동 잔액은 남은」 섬이 이쪽으로만 생긴다.
+                islandPurge.purgeIsland(ownerMembership.getGroup().getId());
             }
         }
 

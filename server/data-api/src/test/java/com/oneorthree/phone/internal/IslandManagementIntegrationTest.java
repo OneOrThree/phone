@@ -25,6 +25,8 @@ import com.oneorthree.phone.internal.dto.JoinRequestAnswerView;
 import com.oneorthree.phone.internal.service.IslandInvitationService;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
+import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.exception.UserErrorCode;
@@ -45,6 +47,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -94,6 +97,8 @@ class IslandManagementIntegrationTest {
     @Autowired
     IslandManagementService management;
     @Autowired
+    IslandMembershipService islands;
+    @Autowired
     IslandJoinService joins;
     @Autowired
     IslandInvitationService invitations;
@@ -132,7 +137,7 @@ class IslandManagementIntegrationTest {
         try {
             List<Runnable> commands = List.of(
                 () -> management.manage(f.host(), f.islandId(),
-                        new IslandManageCommandRequest("새이름", null, null), UUID.randomUUID()),
+                        new IslandManageCommandRequest("새이름", null, null, null), UUID.randomUUID()),
                 () -> joins.answer(f.host(), f.islandId(), request, true, UUID.randomUUID()),
                 () -> management.kick(f.host(), f.islandId(), f.member(), UUID.randomUUID()),
                 () -> management.leave(f.member(), f.islandId(), UUID.randomUUID()));
@@ -174,15 +179,15 @@ class IslandManagementIntegrationTest {
 
         // 같은 값·빈 PATCH 는 no-op — 사건도 버전도 늘지 않는다.
         IslandManageView same = management.manage(f.host(), f.islandId(),
-                new IslandManageCommandRequest("바뀐섬", null, true), UUID.randomUUID());
+                new IslandManageCommandRequest("바뀐섬", null, true, null), UUID.randomUUID());
         IslandManageView empty = management.manage(f.host(), f.islandId(),
-                new IslandManageCommandRequest(null, null, null), UUID.randomUUID());
+                new IslandManageCommandRequest(null, null, null, null), UUID.randomUUID());
         assertThat(same.version()).isEqualTo(1);
         assertThat(empty.version()).isEqualTo(1);
         // 소개만 바꾸면 island.updated 는 늘지만 링크 이름 사건은 늘지 않는다.
         IslandManageView intro = management.manage(f.host(), f.islandId(),
-                new IslandManageCommandRequest(null, "소개", null), UUID.randomUUID());
-        assertThat(intro).isEqualTo(new IslandManageView(f.islandId(), "바뀐섬", "소개", true, 2));
+                new IslandManageCommandRequest(null, "소개", null, null), UUID.randomUUID());
+        assertThat(intro).isEqualTo(new IslandManageView(f.islandId(), "바뀐섬", "소개", true, 10, 2));
         assertThat(count("select count(*) from event_outbox where subject_id=? and type='island.updated'",
                 f.islandId().toString())).isEqualTo(2);
         assertThat(count("select count(*) from event_outbox where params->>'groupId'=? and type='group.renamed'",
@@ -198,7 +203,7 @@ class IslandManagementIntegrationTest {
         joinAs(otherHost, publicIsland("다른섬"), GroupMemberRole.OWNER);
         for (UUID caller : List.of(f.member(), visitor, otherHost)) {
             assertThatThrownBy(() -> management.manage(caller, f.islandId(),
-                    new IslandManageCommandRequest("탈취", null, null), UUID.randomUUID()))
+                    new IslandManageCommandRequest("탈취", null, null, null), UUID.randomUUID()))
                     .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.NOT_OWNER);
         }
         for (String body : List.of("{\"name\":null}", "{\"password\":\"1234\"}", "{\"approvalRequired\":\"yes\"}",
@@ -356,10 +361,13 @@ class IslandManagementIntegrationTest {
     @DisplayName("거절·정원 — 만원에서도 거절은 되고 승인은 409, 거절은 멤버십·주민 사건을 만들지 않는다")
     void rejectWorksWhenFullAndApproveChecksCapacityUnderLock() {
         UUID host = newUser();
-        UUID islandId = island("만원섬", false, 1, true);
+        UUID islandId = island("만원섬", false, 2, true);
         joinAs(host, islandId, GroupMemberRole.OWNER);
         UUID first = pendingRequest(islandId);
         UUID second = pendingRequest(islandId);
+        // 신청이 열린 «뒤» 정원이 찬다 — 정책상 만원에서는 새 신청 자체가 막히므로(GROMO-1993)
+        // 「대기 중에 가득 찬」 이 순서라야 승인 차단을 볼 수 있다.
+        joinAs(newUser(), islandId, GroupMemberRole.MEMBER);
 
         assertThatThrownBy(() -> joins.answer(host, islandId, first, true, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ROOM_FULL);
@@ -368,7 +376,7 @@ class IslandManagementIntegrationTest {
         assertThat(rejected).isEqualTo(new JoinRequestAnswerView("rejected", null, 1));
         assertThat(requestStatus(first)).isEqualTo("PENDING");
         assertThat(count("select count(*) from group_members where group_id=? and is_left=false", islandId))
-                .isEqualTo(1);
+                .isEqualTo(2);
         assertThat(count("select count(*) from event_outbox where subject_id=? and type='island.members.updated'",
                 islandId.toString())).isZero();
     }
@@ -537,6 +545,143 @@ class IslandManagementIntegrationTest {
                 + " and params->>'changeKind'='CLOSED'", islandId.toString())).isEqualTo(1);
     }
 
+    // ---------------------------------------------------------------- 정원 (GROMO-1993)
+
+    @Test
+    @DisplayName("정원 수정 — 1~15 범위 밖은 본문에서, 현원보다 작은 값은 서비스에서 거절한다")
+    void capacityUpdateRespectsRangeAndCurrentHeadcount() {
+        Fixture f = fixture(false);
+
+        IslandManageView widened = management.manage(f.host(), f.islandId(),
+                new IslandManageCommandRequest(null, null, null, 15), UUID.randomUUID());
+        assertThat(widened.maxMembers()).isEqualTo(15);
+
+        // 현원(방장+주민 2명)보다 작게는 못 줄인다 — 정책 「현재 주민 수보다 작게 줄일 수는 없다」.
+        assertThatThrownBy(() -> management.manage(f.host(), f.islandId(),
+                new IslandManageCommandRequest(null, null, null, 1), UUID.randomUUID()))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.MAX_MEMBERS_TOO_SMALL);
+
+        assertThat(management.manage(f.host(), f.islandId(),
+                new IslandManageCommandRequest(null, null, null, 2), UUID.randomUUID()).maxMembers())
+                .as("현원과 같은 값은 축소가 아니다").isEqualTo(2);
+
+        assertThatThrownBy(() -> IslandManageCommandRequest.fromJson(Map.of("maxMembers", 16)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> IslandManageCommandRequest.fromJson(Map.of("maxMembers", 0)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("승인제 섬이 가득 차면 새 신청은 ROOM_FULL, 이미 열린 신청은 유지되고 승인만 막힌다")
+    void fullApprovalIslandBlocksNewRequestsAndApprovalsButKeepsPending() {
+        UUID host = newUser();
+        UUID islandId = island("정원섬", false, 2, true);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        UUID pending = pendingRequest(islandId);
+        // 신청이 열린 «뒤» 정원이 찬다 — 신청은 자리 예약이 아니다.
+        joinAs(newUser(), islandId, GroupMemberRole.MEMBER);
+
+        assertThatThrownBy(() -> joins.join(newUser(), islandId, null, UUID.randomUUID()))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ROOM_FULL);
+        assertThat(requestStatus(pending)).as("대기 신청은 그대로 유지된다").isEqualTo("PENDING");
+        assertThatThrownBy(() -> joins.answer(host, islandId, pending, true, UUID.randomUUID()))
+                .hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ROOM_FULL);
+        assertThat(requestStatus(pending)).isEqualTo("PENDING");
+    }
+
+    @Test
+    @DisplayName("마지막 한 자리에 동시에 가입하면 한 명만 성공한다 — groups 행 잠금이 정원 판정을 직렬화한다")
+    void concurrentJoinsForTheLastSeatAdmitExactlyOne() throws Exception {
+        UUID islandId = island("한자리섬", false, 2, false);
+        joinAs(newUser(), islandId, GroupMemberRole.OWNER);
+        UUID first = newUser();
+        UUID second = newUser();
+
+        List<Throwable> failures = race(
+                () -> joins.join(first, islandId, null, UUID.randomUUID()),
+                () -> joins.join(second, islandId, null, UUID.randomUUID()));
+
+        assertThat(failures).hasSize(1);
+        assertThat(failures.get(0)).hasFieldOrPropertyWithValue("errorCode", GroupErrorCode.ROOM_FULL);
+        assertThat(count("select count(*) from group_members where group_id=? and is_left=false", islandId))
+                .isEqualTo(2);
+    }
+
+    // ---------------------------------------------------------------- 마지막 섬 이탈 (GROMO-1995)
+
+    @Test
+    @DisplayName("마지막 섬 탈퇴 — 섬이 삭제되고 공동 데이터가 함께 사라지며 컨텍스트는 사유와 함께 비워진다")
+    void leavingTheLastIslandDeletesSharedDataAndReleasesContext() {
+        UUID host = newUser();
+        UUID islandId = islands.create(host, new CreateIslandCommandRequest("혼자섬", null, false, null),
+                UUID.randomUUID()).id();
+        assertThat(count("select count(*) from island_wallets where island_id=?", islandId)).isEqualTo(1);
+        // 게시판·참여 코드는 create 가 만들지 않으므로 직접 심는다 — 「공동 기록을 함께 삭제」의 대상이
+        // 지갑·건설만이 아니라는 것을 고정한다(댓글 FK 는 ON DELETE SET NULL 이라 저절로 사라지지 않는다).
+        UUID noticeId = UUID.randomUUID();
+        jdbc.update("insert into group_announcements (id, group_id, user_id, title, content, created_at)"
+                + " values (?, ?, ?, '제목', '공지', now())", noticeId, islandId, host);
+        jdbc.update("insert into group_announcement_comments (id, notice_id, author_id, text, created_at)"
+                + " values (?, ?, ?, '댓글', now())", UUID.randomUUID(), noticeId, host);
+        jdbc.update("insert into group_join_codes (group_id, code, status, created_at, updated_at)"
+                + " values (?, 'ABC123', 'ACTIVE', now(), now())", islandId);
+
+        management.leave(host, islandId, UUID.randomUUID());
+
+        assertThat(groups.findById(islandId).orElseThrow().getStatus()).isEqualTo(GroupStatus.ENDED);
+        assertThat(count("select count(*) from groups where id=? and deleted_at is not null", islandId))
+                .as("삭제 묘비").isEqualTo(1);
+        assertThat(count("select count(*) from island_wallets where island_id=?", islandId))
+                .as("공동 잔액").isZero();
+        assertThat(count("select count(*) from island_construction_states where island_id=?", islandId))
+                .as("건설 상태").isZero();
+        assertThat(count("select count(*) from group_announcements where group_id=?", islandId))
+                .as("게시판 공지").isZero();
+        assertThat(count("select count(*) from group_announcement_comments where notice_id=?", noticeId))
+                .as("공지 댓글 — SET NULL 로 남지 않는다").isZero();
+        assertThat(count("select count(*) from group_join_codes where group_id=?", islandId))
+                .as("참여 코드").isZero();
+        assertThat(currentIsland(host)).as("마지막 섬을 잃으면 현재 섬이 없다").isNull();
+        assertThat(lossReason(host)).isEqualTo("LEFT");
+        assertThat(count("select count(*) from users where id=? and is_deleted=false", host))
+                .as("계정은 유지된다").isEqualTo(1);
+        assertThat(count("select count(*) from group_members where group_id=? and user_id=?", islandId, host))
+                .as("정산 증거인 멤버십 행은 남는다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("마지막 섬에서 강퇴돼도 컨텍스트가 비워지고 사유는 KICKED 로 남는다")
+    void kickFromTheLastIslandReleasesContextWithKickedReason() {
+        UUID host = newUser();
+        UUID islandId = island("강퇴섬", false, 10, false);
+        joinAs(host, islandId, GroupMemberRole.OWNER);
+        UUID target = newUser();
+        joins.join(target, islandId, null, UUID.randomUUID());
+        assertThat(currentIsland(target)).isEqualTo(islandId);
+
+        management.kick(host, islandId, target, UUID.randomUUID());
+
+        assertThat(currentIsland(target)).isNull();
+        assertThat(lossReason(target)).isEqualTo("KICKED");
+    }
+
+    @Test
+    @DisplayName("현재 섬에서 나가도 남은 소속이 있으면 남은 메인 섬으로 옮겨진다")
+    void leavingTheCurrentIslandMovesToTheRemainingMainIsland() {
+        UUID user = newUser();
+        UUID home = islands.create(user, new CreateIslandCommandRequest("본섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID second = island("두번째섬", false, 10, false);
+        joinAs(newUser(), second, GroupMemberRole.OWNER);
+        joins.join(user, second, null, UUID.randomUUID());
+        assertThat(currentIsland(user)).isEqualTo(second);
+
+        management.leave(user, second, UUID.randomUUID());
+
+        assertThat(currentIsland(user)).as("남은 메인 섬으로 이동").isEqualTo(home);
+        assertThat(lossReason(user)).isNull();
+    }
+
     // ---------------------------------------------------------------- 재생 인가
 
     @Test
@@ -549,7 +694,7 @@ class IslandManagementIntegrationTest {
         UUID manageKey = UUID.randomUUID();
         UUID answerKey = UUID.randomUUID();
         UUID kickKey = UUID.randomUUID();
-        IslandManageCommandRequest rename = new IslandManageCommandRequest("재생섬", null, null);
+        IslandManageCommandRequest rename = new IslandManageCommandRequest("재생섬", null, null, null);
         management.manage(f.host(), f.islandId(), rename, manageKey);
         joins.answer(f.host(), f.islandId(), request, false, answerKey);
         management.kick(f.host(), f.islandId(), second, kickKey);
@@ -641,6 +786,20 @@ class IslandManagementIntegrationTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    /** 컨텍스트 행 자체가 없을 수 있다 — 그 «없음» 도 null 로 읽는다. */
+    private UUID currentIsland(UUID userId) {
+        List<UUID> rows = jdbc.queryForList(
+                "select current_island_id from user_island_contexts where user_id=?", UUID.class, userId);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    /** 현재 섬을 잃은 사유 — 한 번도 소속된 적 없으면 null 이다 (GROMO-1995, V84). */
+    private String lossReason(UUID userId) {
+        List<String> rows = jdbc.queryForList(
+                "select loss_reason from user_island_contexts where user_id=?", String.class, userId);
+        return rows.isEmpty() ? null : rows.get(0);
     }
 
     private long count(String sql, Object... args) {
