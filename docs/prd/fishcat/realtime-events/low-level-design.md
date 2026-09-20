@@ -118,6 +118,8 @@ GET의 API 설명에 '후속 이벤트'가 표시돼 있어도 조회가 변경 
 | 호환 SUBSCRIBE/SEND | `/topic/groups/{groupId}`, `/app/groups/{groupId}/send` | 기존 ChatAccessGuard 및 와이어 유지 |
 | 호환 개인큐 | `/user/queue/errors`, `/user/queue/duplicates` | 발신한 세션에만 실패/중복 결과 회신 |
 
+구독은 목적지 허용목록과 별개로 **세션당 누적 개수와 중복을 제한한다**. 브로커가 구독을 연결이 끊길 때까지 보관하므로 STOMP `id`만 바꾼 반복 구독이 레지스트리 메모리를 불리고, 같은 목적지 중복 구독은 사건 하나를 구독 수만큼 복제해 전송 비용을 증폭시킨다(빈도 창은 상류 조회 수만 막는다). 상한은 계정당 소속 상한 10 × 섬당 목적지 4 + 개인 큐 2 = 42에 여유를 둔 **64**이고, UNSUBSCRIBE가 자리를 돌려준다. 존재하지 않는 섬을 거절하려고 구독마다 Data를 조회하지는 않는다 — 그러면 관전 구독마다 상류 호출이 붙어 §4.2가 막으려는 고갈 경로가 다시 열린다.
+
 `/topic/**`, `/queue/**`, `/user/**`로 클라이언트 직접 SEND는 전부 거절한다. 개인큐에 userId를 경로로 받지 않으며 `convertAndSendToUser`의 주체는 서버가 검증한 principal이다. 새 개인 이벤트는 본인 여러 기기에 전달하지만 기존 errors/duplicates는 특정 발신 세션에만 전달한다.
 
 HTTP 집중 쓰기는 `POST /focus-sessions`, `POST /focus-sessions/{sessionId}/pause|resume|finish`. 상태 조회는 `GET /focus-sessions/current`, `GET /islands/{islandId}/focus-members|rest-members`. 이 경로는 담당 도메인에서 제공한다. `/app/.../start|pause|resume|finish` 또는 emote REST 우회 경로를 추가하지 않는다.

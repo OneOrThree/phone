@@ -150,6 +150,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         switch (accessor.getCommand()) {
             case CONNECT -> authenticate(accessor);
             case SUBSCRIBE -> authorizeSubscription(accessor);
+            case UNSUBSCRIBE -> sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
             case SEND -> authorizeSend(accessor);
             default -> {
                 // 나머지 프레임(SEND·DISCONNECT·ACK…)은 그대로 흘린다. SEND 의 규칙 검사는 서비스가 한다.
@@ -198,7 +199,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         String destination = String.valueOf(accessor.getDestination());
 
         if (PERSONAL_ERROR_QUEUE.equals(destination) || PERSONAL_DUPLICATE_QUEUE.equals(destination)) {
-            ChatPrincipal principal = requireAuthenticated(accessor);
+            ChatPrincipal principal = requireSubscribable(accessor, destination);
             if (PERSONAL_DUPLICATE_QUEUE.equals(destination)) {
                 accessGuard.requireNotFocusing(principal.userId());
             }
@@ -207,7 +208,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
         Matcher island = ISLAND_TOPIC.matcher(destination);
         if (island.matches()) {
-            ChatPrincipal principal = requireAuthenticated(accessor);
+            ChatPrincipal principal = requireSubscribable(accessor, destination);
             UUID islandId = uuidOrReject(island.group(1));
             if (EMOTES_CHANNEL.equals(island.group(2))) {
                 // 상류 조회 «전에» 센다 — 거절될 연타도 비용을 치러야 상한이 성립한다(발신 쪽과 같은 규율).
@@ -227,10 +228,30 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
 
-        ChatPrincipal principal = requireAuthenticated(accessor);
+        ChatPrincipal principal = requireSubscribable(accessor, destination);
         UUID groupId = uuidOrReject(matcher.group(1));
 
         accessGuard.requireCanChat(groupId, principal.userId(), principal.bearer());
+    }
+
+    /**
+     * 인증 + <b>이 세션이 구독 하나를 더 들 수 있는가</b>.
+     *
+     * <p>목적지가 허용 목록에 있다는 것만으로는 부족하다 — {@code SimpleBroker} 는 구독을 연결이 끊길
+     * 때까지 들고 있으므로, STOMP {@code id} 만 바꿔 반복하면 소켓 하나로 레지스트리를 계속 불릴 수 있다.
+     * 관전 채널({@code focus}·{@code rest})은 공개라 상류 조회조차 타지 않아 <b>가장 싸게 쌓인다</b>.
+     * 빈도 창은 «조회 수»를 막지 «누적 수»를 막지 않는다(창마다 하나씩 꾸준히 쌓으면 걸리지 않는다).
+     *
+     * <p>상류 조회보다 <b>앞</b>에서 센다 — 메모리만이 아니라 그 조회까지 함께 눌러야 하기 때문이다.
+     * 판정과 근거는 {@link RealtimeSessionRegistry#subscribe} 에 있다.
+     */
+    private ChatPrincipal requireSubscribable(StompHeaderAccessor accessor, String destination) {
+        ChatPrincipal principal = requireAuthenticated(accessor);
+        if (!sessions.subscribe(accessor.getSessionId(), accessor.getSubscriptionId(), destination)) {
+            log.debug("구독 거절 — 세션의 중복 구독이거나 누적 상한을 넘었다");
+            throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
+        }
+        return principal;
     }
 
     /**

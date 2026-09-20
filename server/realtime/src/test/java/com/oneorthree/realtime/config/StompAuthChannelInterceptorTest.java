@@ -26,6 +26,7 @@ import java.util.Optional;
 import java.util.Locale;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -48,6 +49,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 class StompAuthChannelInterceptorTest {
 
     private static final String BEARER = "Bearer test-token";
+    private static final String SESSION = "socket-1";
 
     @Mock
     private JwtValidator jwtValidator;
@@ -65,14 +67,15 @@ class StompAuthChannelInterceptorTest {
     private org.springframework.data.redis.core.ValueOperations<String, String> valueOps;
 
     private StompAuthChannelInterceptor interceptor;
+    private RealtimeSessionRegistry registry;
 
     private UUID userId;
     private UUID groupId;
 
     @BeforeEach
     void setUp() {
-        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, new RealtimeSessionRegistry(),
-                focusSessions, redis);
+        registry = new RealtimeSessionRegistry();
+        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, registry, focusSessions, redis);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
         given(redis.opsForValue()).willReturn(valueOps);
@@ -382,6 +385,93 @@ class StompAuthChannelInterceptorTest {
         frame.setDestination("/topic/islands/" + groupId.toString().toUpperCase(Locale.ROOT) + "/focus");
 
         assertThatThrownBy(() -> interceptor.preSend(message(frame), null)).isInstanceOf(DomainException.class);
+    }
+
+    @Test
+    @DisplayName("한 세션의 누적 구독은 상한에서 멈춘다 — 섬 UUID 를 바꿔 가며 쌓아도 막힌다")
+    void subscriptionsPerSessionAreCapped() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+
+        for (int i = 0; i < RealtimeSessionRegistry.MAX_SUBSCRIPTIONS_PER_SESSION; i++) {
+            Message<byte[]> frame = message(islandSubscribe("s" + i, UUID.randomUUID()));
+            assertThatCode(() -> interceptor.preSend(frame, null)).doesNotThrowAnyException();
+        }
+        assertThat(registry.subscriptionCount(SESSION))
+                .isEqualTo(RealtimeSessionRegistry.MAX_SUBSCRIPTIONS_PER_SESSION);
+
+        // 빈도 창은 «조회 수»만 막는다 — 창마다 하나씩 꾸준히 쌓는 이 경로는 누적 상한만이 막는다.
+        assertThatThrownBy(() -> interceptor.preSend(message(islandSubscribe("over", UUID.randomUUID())), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.INVALID_REQUEST);
+    }
+
+    @Test
+    @DisplayName("같은 목적지를 다른 id 로 다시 구독하면 거절한다 — 사건 하나가 구독 수만큼 복제된다")
+    void duplicateDestinationIsRejected() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        UUID island = UUID.randomUUID();
+
+        assertThatCode(() -> interceptor.preSend(message(islandSubscribe("first", island)), null))
+                .doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> interceptor.preSend(message(islandSubscribe("second", island)), null))
+                .isInstanceOf(DomainException.class);
+        // 같은 id 로 같은 목적지가 다시 오는 것은 «재전송»이라 통과한다 — 늦게 온 프레임이 세션을 죽이면 안 된다.
+        assertThatCode(() -> interceptor.preSend(message(islandSubscribe("first", island)), null))
+                .doesNotThrowAnyException();
+        assertThat(registry.subscriptionCount(SESSION)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("UNSUBSCRIBE 가 자리를 돌려준다 — 섬을 다시 찾아온 정상 클라이언트가 막히지 않는다")
+    void unsubscribeFreesTheSlot() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        UUID island = UUID.randomUUID();
+        interceptor.preSend(message(islandSubscribe("sub-1", island)), null);
+
+        StompHeaderAccessor leave = accessor(StompCommand.UNSUBSCRIBE);
+        leave.setSessionId(SESSION);
+        leave.setSubscriptionId("sub-1");
+        interceptor.preSend(message(leave), null);
+
+        assertThat(registry.subscriptionCount(SESSION)).isZero();
+        assertThatCode(() -> interceptor.preSend(message(islandSubscribe("sub-2", island)), null))
+                .doesNotThrowAnyException();
+    }
+
+    @Test
+    @DisplayName("정상 흐름(한 섬의 focus·rest·emotes + 개인 큐)은 상한에 걸리지 않는다")
+    void normalSubscriptionSetIsWellUnderTheCap() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        UUID island = UUID.randomUUID();
+
+        for (String channel : new String[] {"focus", "rest", "emotes"}) {
+            StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+            frame.setUser(new ChatPrincipal(userId, BEARER));
+            frame.setSessionId(SESSION);
+            frame.setSubscriptionId(channel);
+            frame.setDestination("/topic/islands/" + island + "/" + channel);
+            assertThatCode(() -> interceptor.preSend(message(frame), null)).doesNotThrowAnyException();
+        }
+        StompHeaderAccessor errors = accessor(StompCommand.SUBSCRIBE);
+        errors.setUser(new ChatPrincipal(userId, BEARER));
+        errors.setSessionId(SESSION);
+        errors.setSubscriptionId("errors");
+        errors.setDestination("/user/queue/errors");
+        assertThatCode(() -> interceptor.preSend(message(errors), null)).doesNotThrowAnyException();
+
+        assertThat(registry.subscriptionCount(SESSION))
+                .isLessThan(RealtimeSessionRegistry.MAX_SUBSCRIPTIONS_PER_SESSION);
+    }
+
+    private StompHeaderAccessor islandSubscribe(String subscriptionId, UUID island) {
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setSessionId(SESSION);
+        frame.setSubscriptionId(subscriptionId);
+        frame.setDestination("/topic/islands/" + island + "/focus");
+        return frame;
     }
 
     private static StompHeaderAccessor accessor(StompCommand command) {
