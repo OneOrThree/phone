@@ -12302,6 +12302,10 @@
           },
           "catColor": {
             "type": "string"
+          },
+          "mainIslandId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -12317,6 +12321,10 @@
           },
           "catColor": {
             "type": "string"
+          },
+          "mainIslandId": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       },
@@ -12832,6 +12840,10 @@
           "catColor": {
             "type": "string"
           },
+          "mainIslandId": {
+            "type": "string",
+            "format": "uuid"
+          },
           "linkedProviders": {
             "type": "array",
             "items": {
@@ -13069,6 +13081,9 @@
             "format": "date-time"
           },
           "focusTagName": {
+            "type": "string"
+          },
+          "mainIslandName": {
             "type": "string"
           },
           "focusing": {
