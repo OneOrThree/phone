@@ -450,9 +450,9 @@ class FocusSessionActivationIntegrationTest {
         assertThat(islandBalance(island)).as("같은 틱을 세 번 돌려도 2마리").isEqualTo(2);
         assertThat(count("select count(*) from island_wallet_transactions where island_id=? "
                 + "and idempotency_key like ?", island, "focus:" + started.id() + ":%"))
-                .as("원장도 한 줄이다").isEqualTo(1);
-        assertThat(count("select count(*) from focus_reward_accruals where session_id=?", started.id()))
-                .as("(세션, 적립일) 한 행에 누적한다").isEqualTo(1);
+                .as("원장은 «분마다» 한 줄 — 재시도가 줄을 늘리지 않는다").isEqualTo(2);
+        assertThat(count("select coalesce(sum(earned_fish),0) from focus_reward_accruals where session_id=?",
+                started.id())).as("적립 원장은 (세션, 적립일) 행에 누적한다").isEqualTo(2);
 
         FocusFinishView finished = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
@@ -463,61 +463,91 @@ class FocusSessionActivationIntegrationTest {
     }
 
     @Test
-    @DisplayName("하루 상한(480)에 닿으면 물고기만 멈추고 집중 기록은 계속 쌓인다")
+    @DisplayName("하루 상한(480)에 닿으면 물고기만 멈추고 집중 기록은 계속 쌓인다 — 같은 날의 다음 세션도 0마리다")
     void dailyCapStopsFishButNotTheRecord() {
         UUID user = newUser();
         UUID island = islands.create(user, new CreateIslandCommandRequest("상한섬", null, false),
                 UUID.randomUUID()).id();
-        FocusSessionView first = start(user, island);
-        backdate(first.id(), 500 * 60);
+        // 두 세션을 «같은 UTC 날짜» 안에 고정한다 — backdate 로 8시간을 밀면 실행 시각에 따라 자정을 넘어
+        // 이틀로 갈리고, 그러면 상한 두 개를 쓰게 돼 낮에만 빨개지는 테스트가 된다.
+        FocusSessionView first = focusedSince(user, island, pastUtcMidnight().plusSeconds(3600), 500 * 60);
         tick();
         FocusFinishView capped = focus.finish(user, first.id(),
                 new FocusVersionedCommandRequest(first.version()), UUID.randomUUID());
-        FocusSessionView second = start(user, island);
-        backdate(second.id(), 10 * 60);
+        FocusSessionView second = focusedSince(user, island, pastUtcMidnight().plusSeconds(11 * 3600), 10 * 60);
         tick();
         FocusFinishView overCap = focus.finish(user, second.id(),
                 new FocusVersionedCommandRequest(second.version()), UUID.randomUUID());
 
         assertThat(capped.earnedFish()).isEqualTo(480);
-        assertThat(overCap.earnedFish()).as("상한을 채운 뒤 시작한 세션은 0마리다").isZero();
+        assertThat(overCap.earnedFish()).as("같은 날 상한을 채운 뒤의 세션은 0마리다").isZero();
         assertThat(overCap.activeSeconds()).isGreaterThanOrEqualTo(600);
         assertThat(islandBalance(island)).isEqualTo(480);
         assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?",
                 user)).isEqualTo(capped.activeSeconds() + overCap.activeSeconds());
+        assertThat(count("select rewarded_seconds from focus_session_details where session_id=?", first.id()))
+                .as("상한으로 깎인 20분도 «판정 완료» 다 — 다음 날로 이월하지 않는다").isEqualTo(500 * 60L);
     }
 
     @Test
-    @DisplayName("상한의 창은 «UTC 날짜» 다(결정 D8) — 어제로 넘어간 적립은 오늘 상한을 먹지 않는다")
-    void theDailyCapWindowIsAUtcDay() {
+    @DisplayName("적립일은 그 분이 «찬» 시각의 UTC 날짜다 — 틱이 돈 날이 아니다(자정을 걸친 세션)")
+    void theMinuteIsAccruedOnTheDayItCompletedNotTheDayTheTickRan() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("날짜경계섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("자정섬", null, false),
                 UUID.randomUUID()).id();
-        FocusSessionView started = start(user, island);
-        backdate(started.id(), 480 * 60);
+        // 자정 90초 전에 시작해 2분 — 1분째는 자정 30초 «전» 에 차고, 2분째는 자정 30초 뒤에 찬다.
+        Instant midnight = pastUtcMidnight();
+        FocusSessionView session = focusedSince(user, island, midnight.minusSeconds(90), 120);
+
         tick();
 
-        assertThat(islandBalance(island)).isEqualTo(480);
-        assertThat(jdbc.queryForObject("select accrued_on from focus_reward_accruals where session_id=?",
-                java.sql.Date.class, started.id()).toLocalDate())
-                .as("적립일은 KST 가 아니라 UTC 날짜다").isEqualTo(LocalDate.now(ZoneOffset.UTC));
+        LocalDate before = LocalDate.ofInstant(midnight, ZoneOffset.UTC).minusDays(1);
+        LocalDate after = LocalDate.ofInstant(midnight, ZoneOffset.UTC);
+        assertThat(accruedFish(session.id(), before))
+                .as("자정 30초 전에 찬 분은 «그 전날» 몫이다 — 틱은 한참 뒤에 돌았다").isEqualTo(1);
+        assertThat(accruedFish(session.id(), after)).as("자정 뒤에 찬 분만 새 날짜다").isEqualTo(1);
+        assertThat(ledgerKeys(island, session.id())).containsExactly(
+                "focus:" + session.id() + ":1", "focus:" + session.id() + ":2");
+    }
 
-        backdate(started.id(), 500 * 60);
+    @Test
+    @DisplayName("앞선 날의 상한이 가득이어도 새 날의 첫 분부터는 나간다 — 밀린 분이 하루 상한 하나로 소실되지 않는다")
+    void aFullCapOnTheEarlierDayDoesNotEatTheNextDay() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("경계상한섬", null, false),
+                UUID.randomUUID()).id();
+        Instant midnight = pastUtcMidnight();
+        LocalDate before = LocalDate.ofInstant(midnight, ZoneOffset.UTC).minusDays(1);
+        LocalDate after = LocalDate.ofInstant(midnight, ZoneOffset.UTC);
+        fillDailyCap(user, island, before);
+
+        FocusSessionView session = focusedSince(user, island, midnight.minusSeconds(90), 120);
+        long balanceBefore = islandBalance(island);
         tick();
-        assertThat(islandBalance(island)).as("같은 날은 상한에서 멈춘다").isEqualTo(480);
 
-        // 적립일을 하루 뒤로 민다 — 「자정을 넘겼다」와 같은 상태다(어느 순간에 돌려도 오늘보다 이르다).
-        jdbc.update("update focus_reward_accruals set accrued_on = accrued_on - 1 where session_id=?",
-                started.id());
-        backdate(started.id(), 520 * 60);
+        assertThat(accruedFish(session.id(), before)).as("전날 상한이 가득이라 그 분은 버린다").isZero();
+        assertThat(accruedFish(session.id(), after)).as("새 날의 첫 분은 그 날 상한으로 판정한다").isEqualTo(1);
+        assertThat(islandBalance(island) - balanceBefore).isEqualTo(1);
+        assertThat(ledgerKeys(island, session.id())).containsExactly("focus:" + session.id() + ":2");
+    }
+
+    @Test
+    @DisplayName("틱이 밀려 한 번에 여러 분을 처리해도 원장은 «분마다» 한 줄이다 — 감사 추적이 남는다")
+    void aDelayedTickStillLeavesOneLedgerRowPerMinute() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("지연섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(7200), 300);
+
         tick();
 
-        assertThat(islandBalance(island)).as("창이 바뀌면 상한이 다시 열린다 — 어제 깎인 몫은 소급하지 않는다")
-                .isEqualTo(500);
-        assertThat(count("select coalesce(sum(earned_fish),0) from focus_reward_accruals "
-                + "where session_id=? and accrued_on=?", started.id(), java.sql.Date.valueOf(
-                        LocalDate.now(ZoneOffset.UTC))))
-                .as("새 창의 적립은 오늘 행에 쌓인다").isEqualTo(20);
+        assertThat(islandBalance(island)).isEqualTo(5);
+        assertThat(ledgerKeys(island, session.id())).containsExactly(
+                "focus:" + session.id() + ":1", "focus:" + session.id() + ":2",
+                "focus:" + session.id() + ":3", "focus:" + session.id() + ":4",
+                "focus:" + session.id() + ":5");
+        assertThat(count("select count(*) from island_wallet_transactions where island_id=? and amount<>1",
+                island)).as("한 줄은 언제나 1마리 — 금액 N 짜리로 접지 않는다").isZero();
     }
 
     @Test
@@ -586,7 +616,54 @@ class FocusSessionActivationIntegrationTest {
 
     // ---------------------------------------------------------------- 도구
 
+    /**
+     * 시계에 기대지 않는 「이미 오래 집중한」 세션 — 첫 ACTIVE 구간을 고정 시각 쌍 {@code [from, from+seconds)}
+     * 으로 옮기고, 진행 중 구간은 방금 열린 것만 남긴다(기여 ~0초).
+     *
+     * <p>{@link #backdate}와 달리 <b>각 분이 «찬» 시각이 고정</b>이라, 자정 경계·하루 상한처럼 날짜로 갈리는
+     * 판정을 언제 돌려도 같은 결과가 나온다 — backdate 로 몇 시간을 밀면 실행 시각에 따라 UTC 자정을 넘어
+     * 이틀로 갈려서 특정 시간대에만 빨개진다.
+     *
+     * @return resume 직후의 상태(다음 finish 에 쓸 version 이 들어 있다)
+     */
+    FocusSessionView focusedSince(UUID userId, UUID islandId, Instant from, long seconds) {
+        FocusSessionView started = start(userId, islandId);
+        FocusSessionView paused = focus.pause(userId, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+        FocusSessionView resumed = focus.resume(userId, paused.id(),
+                new FocusVersionedCommandRequest(paused.version()), UUID.randomUUID());
+        jdbc.update("update focus_session_intervals set started_at=?, ended_at=? "
+                        + "where session_id=? and ordinal=1",
+                ts(from), ts(from.plusSeconds(seconds)), started.id());
+        return resumed;
+    }
+
+    /** 지난 UTC 자정 — 어제 00:00Z 다. 언제 돌려도 과거라 경계 픽스처가 미래로 새지 않는다. */
+    static Instant pastUtcMidnight() {
+        return LocalDate.now(ZoneOffset.UTC).minusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
+    }
+
+    /** 그 날짜의 상한을 이미 채워 둔다 — 끝난 세션의 적립 원장 행으로 심는다(합산 축이 상세의 주인·섬이다). */
+    void fillDailyCap(UUID userId, UUID islandId, LocalDate day) {
+        FocusSessionView spent = start(userId, islandId);
+        focus.finish(userId, spent.id(), new FocusVersionedCommandRequest(spent.version()), UUID.randomUUID());
+        jdbc.update("insert into focus_reward_accruals (id, session_id, accrued_on, earned_fish) "
+                + "values (?, ?, ?, 480)", UUID.randomUUID(), spent.id(), java.sql.Date.valueOf(day));
+    }
+
+    long accruedFish(UUID sessionId, LocalDate day) {
+        return count("select coalesce(sum(earned_fish),0) from focus_reward_accruals "
+                + "where session_id=? and accrued_on=?", sessionId, java.sql.Date.valueOf(day));
+    }
+
+    List<String> ledgerKeys(UUID islandId, UUID sessionId) {
+        return jdbc.queryForList("select idempotency_key from island_wallet_transactions "
+                        + "where island_id=? and idempotency_key like ? order by created_at, id",
+                String.class, islandId, "focus:" + sessionId + ":%");
+    }
+
     /** 운영 크론과 «같은» 진입점으로 적립 틱을 한 번 돌린다 — 스캔·잠금·멱등을 전부 통과시킨다. */
+
     void tick() {
         rewardTicks.accrueDueSessions();
     }

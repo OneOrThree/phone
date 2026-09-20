@@ -8,6 +8,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -127,6 +128,38 @@ public final class FocusIntervalMath {
             }
         }
         return result;
+    }
+
+    /**
+     * 누적 ACTIVE 초가 {@code seconds} 에 «닿는» 시각 — {@link #activeSecondsAsOf} 의 역함수다(GROMO-1990).
+     *
+     * <p>적립 틱이 「이 분이 «찬» 시각」으로 적립 날짜를 가르는 데 쓴다. 틱이 «돈» 시각으로 가르면 자정
+     * 직전에 찬 분이 다음 날 상한을 먹고(23:58:30 시작 → 23:59:30 에 찬 분을 00:00 틱이 집는다), 크론이
+     * 밀렸을 때는 여러 날에 걸친 분이 하루 상한 하나로 판정돼 나머지가 통째로 소실된다.
+     *
+     * @param intervals 세션의 전체 구간 — <b>ordinal 오름차순</b>이어야 한다(시간 순서로 누적한다)
+     * @param now       열린 구간을 임시로 닫을 anchor
+     * @param seconds   찾을 누적 ACTIVE 초(양수)
+     * @return 그 시각. 전체 ACTIVE 합이 그에 못 미치면 {@code null}
+     */
+    public static Instant instantAtActiveSeconds(List<FocusSessionInterval> intervals, Instant now, long seconds) {
+        long targetMicros = seconds * 1_000_000L;
+        long accumulated = 0;
+        for (FocusSessionInterval interval : intervals) {
+            if (interval.getKind() != FocusIntervalKind.ACTIVE) {
+                continue;
+            }
+            Instant end = interval.getEndedAt() != null ? interval.getEndedAt() : now;
+            long micros = microsBetween(interval.getStartedAt(), end);
+            if (micros <= 0) {
+                continue;
+            }
+            if (accumulated + micros >= targetMicros) {
+                return interval.getStartedAt().plus(targetMicros - accumulated, ChronoUnit.MICROS);
+            }
+            accumulated += micros;
+        }
+        return null;
     }
 
     /** @return 열린(진행 중) 구간 — 세션당 최대 1개(DB 부분 UNIQUE). 없으면 빈 값 */
