@@ -6,6 +6,7 @@ import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusSummaryView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
+import com.oneorthree.phone.focus.dto.session.PendingFocusResultResponse;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -54,6 +55,28 @@ public class InternalFocusSessionController {
     @GetMapping("/focus-sessions/current")
     public CurrentFocusSessionResponse current(@PathVariable UUID userId) {
         return new CurrentFocusSessionResponse(focusSessionLifecycleService.current(userId));
+    }
+
+    /**
+     * 휴식 1시간 초과로 서버가 끝낸 집중의 <b>미확인 결과</b>(GROMO-1998). 없으면
+     * {@code {"result": null}} 이고 404 가 아니다 — {@code current} 와 같은 이유다.
+     *
+     * <p>리터럴 {@code pending-result} 는 {@code /focus-sessions/{sessionId}/…} 와 세그먼트 수가 달라
+     * 겹치지 않는다({@code current} 와 같은 자리).
+     */
+    @GetMapping("/focus-sessions/pending-result")
+    public PendingFocusResultResponse pendingResult(@PathVariable UUID userId) {
+        return new PendingFocusResultResponse(focusSessionLifecycleService.pendingResult(userId));
+    }
+
+    /**
+     * 자동 종료 결과창을 보여 줬다고 표시한다(GROMO-1998). {@code Idempotency-Key} 를 받지 않는다 —
+     * {@code acknowledged_at IS NULL} 조건부 UPDATE 자체가 최초 1회만 성공해 재시도가 무해하다.
+     */
+    @PostMapping("/focus-sessions/{sessionId}/acknowledge")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void acknowledge(@PathVariable UUID userId, @PathVariable UUID sessionId) {
+        focusSessionLifecycleService.acknowledgeResult(userId, sessionId);
     }
 
     @PostMapping("/focus-sessions/{sessionId}/pause")

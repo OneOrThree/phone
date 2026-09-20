@@ -39,6 +39,7 @@ import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
+import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
 import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
 import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
@@ -115,6 +116,10 @@ public class DataApiClient {
             "/internal/users/{userId}/focus-sessions/{sessionId}/resume";
     private static final String PATH_FOCUS_SESSION_FINISH =
             "/internal/users/{userId}/focus-sessions/{sessionId}/finish";
+    private static final String PATH_FOCUS_PENDING_RESULT =
+            "/internal/users/{userId}/focus-sessions/pending-result";
+    private static final String PATH_FOCUS_SESSION_ACKNOWLEDGE =
+            "/internal/users/{userId}/focus-sessions/{sessionId}/acknowledge";
     private static final String PATH_FOCUS_SUMMARY = "/internal/users/{userId}/focus-summary";
     private static final String PATH_MAILBOX_ACCESS = "/internal/islands/{islandId}/mailbox-access";
     private static final String PATH_MESSAGE_AUTHORS = "/internal/islands/{islandId}/message-authors";
@@ -739,6 +744,33 @@ public class DataApiClient {
             Deadline deadline) {
         return transitionFocusSession(PATH_FOCUS_SESSION_FINISH, userId, sessionId, expectedVersion, key, deadline,
                 new ParameterizedTypeReference<FocusFinish>() { });
+    }
+
+    /**
+     * 휴식 1시간 초과로 서버가 끝낸 집중의 미확인 결과 (GROMO-1998). 보여 줄 것이 없어도
+     * {@code {"result": null}} 이 오고, <b>빈 본문은 계약 위반</b>이다 — {@code current} 와 같은 이유다.
+     */
+    public PendingFocusResult fetchPendingFocusResult(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_FOCUS_PENDING_RESULT, userId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<PendingFocusResult>() { });
+    }
+
+    /**
+     * 자동 종료 결과창을 보여 줬다고 표시한다 (GROMO-1998). 멱등 키를 싣지 않는다 — Data 의
+     * {@code acknowledged_at IS NULL} 조건부 UPDATE 자체가 최초 1회만 성공해 재시도가 무해하다.
+     */
+    public void acknowledgeFocusResult(UUID userId, UUID sessionId, Deadline deadline) {
+        http.execute(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_FOCUS_SESSION_ACKNOWLEDGE, userId)
+                                .replace("{sessionId}", sessionId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotentCommand()
+                        .build(),
+                deadline);
     }
 
     /** 홈 요약. 날짜·timezone 판정은 Data 가 한다 — 여기서 KST 규약을 두 번 해석하지 않는다. */
