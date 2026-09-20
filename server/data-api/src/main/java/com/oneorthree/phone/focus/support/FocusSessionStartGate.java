@@ -55,6 +55,10 @@ import org.springframework.stereotype.Component;
  *   <li>LLD §5.1.1 완료 목록 호환 — 레거시 {@code GET /api/v1/focus-session} 은 v0.3 완료 마커의 시작~끝을
  *       그대로 내려 구 앱 시간표·최장 세션이 휴식을 포함한다(호환 앱 또는 검증된 projection 필요)</li>
  *   <li>LLD §5.2 호환 baseline 배포와 비호환 구 이미지 롤백 차단</li>
+ *   <li><b>GROMO-1990 의 nullable {@code target_minutes}</b> — 목표 없는 세션이 생기면 옛 data-api
+ *       엔티티({@code int})와 옛 business DTO({@code 필수 int})가 그 세션을 못 읽는다(500/502).
+ *       <b>두 서비스에 새 버전을 전량 배포한 뒤</b> 이 스위치를 켠다. 이미 켜져 있다면 롤링 배포 동안
+ *       먼저 끈다 — 꺼져 있으면 v0.3 세션 행 자체가 안 생겨 null 을 쓸 경로가 없다</li>
  * </ul>
  */
 @Component

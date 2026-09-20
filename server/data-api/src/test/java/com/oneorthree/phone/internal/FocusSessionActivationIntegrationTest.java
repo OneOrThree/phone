@@ -103,6 +103,8 @@ class FocusSessionActivationIntegrationTest {
     @Autowired
     IslandEconomyReadService economy;
     @Autowired
+    org.springframework.context.ApplicationContext context;
+    @Autowired
     IslandMembershipService islands;
     @Autowired
     FocusService legacyFocus;
@@ -732,16 +734,73 @@ class FocusSessionActivationIntegrationTest {
     }
 
     @Test
-    @DisplayName("적립은 «매분» 도는 운영 크론이 굴린다 — 배선이 없으면 아무도 적립하지 않는다")
-    void theAccrualCronRunsEveryMinuteOnTheSettlementPool() throws Exception {
+    @DisplayName("적립은 «매분» 도는 운영 크론이 자기 전용 풀에서 굴린다 — 내기 정산과 서로를 기다리지 않는다")
+    void theAccrualCronRunsEveryMinuteOnItsOwnPool() throws Exception {
         Scheduled cron = FocusRewardScheduler.class.getDeclaredMethod("accrueDueSessions")
                 .getAnnotation(Scheduled.class);
 
         assertThat(cron).as("@Scheduled 가 없으면 이 테스트가 부르는 진입점은 운영에서 영영 안 돈다").isNotNull();
         assertThat(cron.cron()).as("「60초마다 1마리」의 그 60초").isEqualTo("0 * * * * *");
         assertThat(cron.zone()).isEqualTo("UTC");
-        assertThat(cron.scheduler()).as("돈 처리는 알림 팬아웃에 밀리면 안 된다")
-                .isEqualTo(SchedulingConfig.SETTLEMENT_SCHEDULER);
+        assertThat(cron.scheduler()).as("정산 풀(3스레드·5분 크론 셋)에 얹으면 돈 처리 하나가 늘 대기한다")
+                .isEqualTo(SchedulingConfig.FOCUS_REWARD_SCHEDULER);
+        assertThat(context.getBean(SchedulingConfig.FOCUS_REWARD_SCHEDULER))
+                .as("두 풀이 같은 빈이면 이름만 다른 공용 풀이라 격리가 성립하지 않는다")
+                .isNotSameAs(context.getBean(SchedulingConfig.SETTLEMENT_SCHEDULER));
+    }
+
+    @Test
+    @DisplayName("V82 는 롤링 배포 중 «옛» finish 가 만드는 정산도 적립 원장으로 옮긴다 — 상한·누적이 비지 않는다")
+    void anOldImageSettlementWrittenAfterTheMigrationIsMirrored() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("혼합배포섬", null, false),
+                UUID.randomUUID()).id();
+        // 옛 이미지의 finish 를 흉내 낸다 — 정산 행만 쓰고 적립 원장은 모른다.
+        FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(3600), 300);
+        Instant completedAt = pastUtcMidnight().plusSeconds(4000);
+        jdbc.update("insert into focus_settlements (session_id, contract_version, policy_revision, "
+                + "active_seconds, goal_achieved, earned_fish, personal_fish_added, construction_fish_added, "
+                + "completed_at) values (?, 1, 1, 300, true, 480, 0, 480, ?)", session.id(), ts(completedAt));
+
+        LocalDate day = LocalDate.ofInstant(completedAt, ZoneOffset.UTC);
+        assertThat(accruedFish(session.id(), day))
+                .as("트리거가 완료 시각의 UTC 날짜로 옮긴다 — 백필은 일회성이라 이 행을 못 잡는다").isEqualTo(480);
+        assertThat(economy.fishEarnings(user, island).members())
+                .anySatisfy(member -> assertThat(member.earnedFish()).isEqualTo(480L));
+        // 그 날 상한이 이미 찼으니 같은 날 적립은 한 마리도 안 나간다.
+        tick();
+        assertThat(accruedFish(session.id(), day)).isEqualTo(480);
+        assertThat(islandBalance(island)).as("옛 지급은 섬 원장이 이미 가지고 있다 — 새로 넣지 않는다").isZero();
+    }
+
+    @Test
+    @DisplayName("새 코드의 finish 는 트리거를 깨우지 않는다 — 이미 적립한 세션에 유령 행이 생기지 않는다")
+    void aNewImageFinishDoesNotFireTheMirrorTrigger() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("유령방지섬", null, false),
+                UUID.randomUUID()).id();
+        Instant from = pastUtcMidnight().plusSeconds(3600);
+        FocusSessionView session = focusedSince(user, island, from, 180);
+        tick();
+
+        focus.finish(user, session.id(), new FocusVersionedCommandRequest(session.version()), UUID.randomUUID());
+
+        assertThat(count("select count(*) from focus_reward_accruals where session_id=?", session.id()))
+                .as("적립일 한 행뿐 — 완료일에 480 짜리 유령 행이 붙지 않는다").isEqualTo(1);
+        assertThat(count("select coalesce(sum(earned_fish),0) from focus_reward_accruals where session_id=?",
+                session.id())).isEqualTo(3);
+        assertThat(islandBalance(island)).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("하루 상한 조회의 조인 경로 인덱스가 스키마에 있다 — 없으면 매분 세션마다 전수 스캔이다")
+    void theCapQueryHasItsJoinPathIndex() {
+        assertThat(jdbc.queryForObject("select count(*) from pg_indexes where tablename='focus_session_details'"
+                + " and indexname='focus_session_details_user_island_idx'", Long.class))
+                .as("상세의 기존 사용자 인덱스는 «진행 중» 만 담는 부분 UNIQUE 라 이 조회에 못 쓴다").isEqualTo(1L);
+        assertThat(jdbc.queryForObject("select count(*) from pg_trigger"
+                + " where tgname='focus_settlements_mirror_accrual_trg'", Long.class))
+                .as("혼합 배포 구멍을 막는 트리거도 같은 마이그레이션이 깐다").isEqualTo(1L);
     }
 
     // ---------------------------------------------------------------- 도구

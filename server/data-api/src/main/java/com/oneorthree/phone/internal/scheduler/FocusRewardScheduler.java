@@ -45,7 +45,7 @@ public class FocusRewardScheduler {
      * {@code rewarded_seconds} 와 마지막 전이 시각으로 「아직 1마리가 안 찬」 세션을 SQL 에서 미리
      * 걸러 내거나, 섬 단위로 샤딩하는 것이 다음 단계다.
      */
-    @Scheduled(cron = "0 * * * * *", zone = "UTC", scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
+    @Scheduled(cron = "0 * * * * *", zone = "UTC", scheduler = SchedulingConfig.FOCUS_REWARD_SCHEDULER)
     @SchedulerLock(name = "focus-reward-accrual")
     public void accrueDueSessions() {
         if (!gate.isOpen()) {

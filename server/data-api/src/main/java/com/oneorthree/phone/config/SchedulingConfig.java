@@ -25,6 +25,12 @@ public class SchedulingConfig {
     public static final String SETTLEMENT_SCHEDULER = "settlementTaskScheduler";
 
     /**
+     * 집중 보상 분당 적립 전용 스케줄러 빈 이름 (GROMO-1990) — {@code FocusRewardScheduler} 가
+     * {@code @Scheduled(scheduler = …)} 로 지정한다. 정산 풀과 나눠 둔 이유는 그 빈 주석에 있다.
+     */
+    public static final String FOCUS_REWARD_SCHEDULER = "focusRewardTaskScheduler";
+
+    /**
      * 공용 크론 풀 — 알림 팬아웃과 그 밖의 잡([리그 주간 배치·orphan 정리])이 쓴다.
      * Spring 이 {@code TaskScheduler} 빈을 못 찾으면 모든 {@code @Scheduled} 가 스레드 <b>하나</b>를
      * 공유하므로, 이 빈이 없으면 알림 하나가 늦어질 때 나머지 전부가 멈춘다.
@@ -59,6 +65,27 @@ public class SchedulingConfig {
     @Bean(SETTLEMENT_SCHEDULER)
     public ThreadPoolTaskScheduler settlementTaskScheduler() {
         return scheduler(3, "settle-sched-");
+    }
+
+    /**
+     * 집중 보상 분당 적립 전용 풀 (GROMO-1990) — {@code FocusRewardScheduler} 의 크론 하나가 쓴다.
+     *
+     * <p><b>왜 정산 풀에 얹지 않았나.</b> 정산 풀은 {@code GroupBetScheduler} 의 5분 크론 «셋이 같은 시각에»
+     * 뜨는 것에 맞춘 정확히 3스레드다({@link #settlementTaskScheduler}). 거기에 매분 도는 전수 스캔을 더하면
+     * 5분 경계마다 넷이 셋을 다퉈 <b>돈 처리 하나가 늘 대기</b>한다 — 정산 지연이 24h 자동 환불 시한을
+     * 갉아먹는다는 그 풀의 존재 이유가 무너진다. 반대로 내기 정산이 길어지면 적립이 밀려 사용자가 낚은
+     * 물고기가 늦게 들어온다. 풀을 키우는 대신 격리하는 이유는 위 풀 주석과 같다 — 크론이 늘 때마다 같은
+     * 경합이 재발하므로 크기 조정은 미봉이다.
+     *
+     * <p><b>1인 근거.</b> 이 크론은 진행 세션을 한 줄로 훑는 <b>단일 직렬 스캔</b>이고 겹쳐 돌 이유가 없다
+     * (ShedLock 이 인스턴스 간 중복도 막는다). 한 틱이 1분을 넘기기 시작하면 그때는 스레드가 아니라 스캔
+     * 자체를 쪼갤 때다(세션 프리필터·섬 샤딩 — 그 스케줄러의 ponytail 주석).
+     *
+     * @return {@code @Scheduled(scheduler = FOCUS_REWARD_SCHEDULER)} 로만 잡히는 1스레드 전용 풀
+     */
+    @Bean(FOCUS_REWARD_SCHEDULER)
+    public ThreadPoolTaskScheduler focusRewardTaskScheduler() {
+        return scheduler(1, "focus-reward-sched-");
     }
 
     /**

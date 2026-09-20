@@ -68,6 +68,13 @@ public class FocusSessionDetail {
      * 목표 시간(분) — <b>선택</b>이다(GROMO-1990, V82 에서 NOT NULL 해제). 보상이 목표가 아니라 순수
      * 집중 시간에만 걸리므로 목표 없이도 시작할 수 있고, 그때 {@code goalAchieved} 는 늘 false 다.
      * 값이 있으면 0 이하는 여전히 거절한다.
+     *
+     * <p><b>배포 순서 제약.</b> {@code null} 을 읽지 못하는 옛 독자가 둘 있다 — 이 엔티티의 종전
+     * {@code int}(primitive) 매핑과 business-api 의 필수 {@code int targetMinutes} DTO. 그래서
+     * <b>이 버전을 data-api·business-api 양쪽에 전량 배포한 뒤에</b> 새 세션 생성을 연다
+     * ({@code focus.session.start-enabled}). 이미 켜져 있다면 롤링 배포 동안 <b>먼저 끄고</b> 돌린다 —
+     * 게이트가 꺼져 있으면 v0.3 세션 행 자체가 생기지 않아 {@code null} 을 쓸 경로가 없다.
+     * LLD §5.2 의 「호환본 전량 배포 → 그 다음 활성화」와 같은 규율이다.
      */
     @Column(name = "target_minutes")
     private Integer targetMinutes;
