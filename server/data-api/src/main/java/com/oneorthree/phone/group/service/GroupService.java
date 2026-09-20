@@ -3,6 +3,7 @@ package com.oneorthree.phone.group.service;
 import com.oneorthree.phone.common.analytics.Ga4MeasurementClient;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.common.port.InviteAttribution;
 import com.oneorthree.phone.common.port.InviteAttributionPort;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
@@ -104,6 +105,12 @@ public class GroupService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
+    /**
+     * 금칙어 판정 (GROMO-1986) — 이 레거시 경로와 2.0 {@code IslandMembershipService}·
+     * {@code IslandManagementService} 가 <b>같은 {@code groups} 행</b>을 만들고 고친다. 한쪽에만
+     * 검사를 두면 다른 쪽이 그대로 우회로가 된다({@code CreateGroupRequest} 주석이 경고하는 그것).
+     */
+    private final BannedWords bannedWords;
 
     /**
      * 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
@@ -154,6 +161,9 @@ public class GroupService {
 
         // 1-1) 소속 그룹 수 상한 — 생성도 곧 가입이므로 참가와 같은 기준으로 막는다
         ensureJoinedGroupLimit(user);
+
+        // 1-2) 금칙어 (GROMO-1986) — 2.0 IslandMembershipService.create 와 같은 판정이다.
+        bannedWords.requireClean(request.getName(), request.getDescription());
 
         // 3) 유니크 코드 생성 (충돌 시 만료 여부 확인 후 재사용 or 재시도)
         String uniqueCode = generateUniqueCode();
@@ -712,6 +722,9 @@ public class GroupService {
         if (groupMember.getRole() != GroupMemberRole.OWNER) {
             throw new GroupException(GroupErrorCode.NOT_OWNER);
         }
+
+        // 금칙어 (GROMO-1986) — 2.0 IslandManagementService.manage 와 같은 판정. 생략(null)은 건너뛴다.
+        bannedWords.requireClean(request.getName(), request.getDescription());
 
         if (request.getName() != null) {
             group.updateName(request.getName());
