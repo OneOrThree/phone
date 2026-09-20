@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 · V80 · V82 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V83 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
 //        island_quest_cohort_members · island_quest_claims. island_wallet_transactions.type 에 QUEST_SETTLEMENT 추가(스키마 무변경).
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·
@@ -15,6 +15,10 @@
 //        finish 는 새로 계산하지 않고 마지막 틱 이후에 «찬» 분만 확정한 뒤 합을 옮겨 적는다.
 // V67 — 집중 세션 시작 게이트 선행 조건: focus_session_details.lifecycle MEMBERSHIP_LOST(varchar 20) · focus_reward_policies · user_fish_wallets · focus_settlements.completed_at 인덱스 (GROMO-1924).
 // V73 — 섬 공용 음악(방송기) 재생 audio_tracks · island_playbacks (GROMO-1779).
+// V83 — 일일 퀘스트 개인 수령/전원 보너스 분리 (GROMO-1991): island_quest_occurrences.claimed_at → bonus_settled_at,
+//        island_quest_claims.kind 를 ACHIEVER·ALL_ACHIEVED_BONUS 로 교체하고 유일키에 claimed_by 추가.
+//        + 매분 보너스 finalizer 조회용 부분 인덱스 idx_island_quest_occurrences_bonus_pending
+//        (occurrence_date) WHERE bonus_settled_at IS NULL.
 // V74 — 섬 상점 테이블 선구축 shop_product_revisions · shop_catalog_publications · shop_catalog_publication_entries ·
 //        shop_catalog_active_publication · shop_orders (GROMO-1781 · island-shop LLD §3). 행 없음 — 가격은 S03·S04 확정 뒤.
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
@@ -1113,7 +1117,7 @@ Table island_quests [note: '섬 퀘스트 정의 (GROMO-1773, island-quests LLD 
   }
 }
 
-Table island_quest_occurrences [note: '퀘스트 회차 (GROMO-1773, V71) — (퀘스트, UTC 날짜) 유일. 여는 순간 정의·보상 설정을 스냅샷으로 복사한다. version 은 quest.progress 축 마지막 발급값(여는 사건 1, 정산 사건 2)'] {
+Table island_quest_occurrences [note: '퀘스트 회차 (GROMO-1773, V71) — (퀘스트, UTC 날짜) 유일. 여는 순간 정의·보상 설정을 스냅샷으로 복사한다. version 은 quest.progress 축 마지막 발급값(여는 사건 1, 이후 개인 수령마다 +1 — GROMO-1991)'] {
   id                      uuid        [pk]
   quest_id                uuid        [not null, note: 'FK → island_quests.id ON DELETE RESTRICT']
   island_id               uuid        [not null, note: 'FK → groups.id ON DELETE RESTRICT']
@@ -1127,12 +1131,13 @@ Table island_quest_occurrences [note: '퀘스트 회차 (GROMO-1773, V71) — (�
   reward_per_achiever     integer     [not null, note: 'D5 개인 달성 +10 — 전액 섬 통장(결정 Q-1). CHECK >= 0']
   reward_bonus_per_member integer     [not null, note: 'D5 전원 달성 보너스 1인당 5. CHECK >= 0']
   version                 bigint      [not null]
-  claimed_at              timestamptz [note: '정산 확정 시각 — null 이면 미정산']
+  bonus_settled_at        timestamptz [note: '전원 달성 보너스 적립 시각 — null 이면 아직(V83, GROMO-1991). 개인 수령 시각은 주민마다 달라 island_quest_claims 행에 있다']
   created_at              timestamptz [not null, default: `now()`]
 
   indexes {
     (quest_id, occurrence_date) [unique, name: 'uq_island_quest_occurrence']
     (island_id, occurrence_date) [name: 'idx_island_quest_occurrences_island_date']
+    occurrence_date [name: 'idx_island_quest_occurrences_bonus_pending'] // V83. 부분 인덱스 WHERE bonus_settled_at IS NULL — 매분 보너스 finalizer 조회(섬·퀘스트 조건이 없어 앞 두 인덱스를 못 쓴다). DBML 은 부분 조건을 표기하지 못한다
   }
 }
 
@@ -1145,18 +1150,18 @@ Table island_quest_cohort_members [note: '회차 시작 cohort (GROMO-1773, V71,
   }
 }
 
-Table island_quest_claims [note: '회차 정산 (GROMO-1773, V71) — 도메인 유일 (섬, 회차, kind). 다른 키의 동시 수령도 지급 1회(Q06). 원장은 island_wallet_transactions QUEST_SETTLEMENT'] {
+Table island_quest_claims [note: '회차 정산 (GROMO-1773, V71 · V83) — 도메인 유일 (섬, 회차, kind, 수령자). 개인 달성분은 주민마다 1행, 전원 달성 보너스는 회차당 1행(GROMO-1991). 같은 주민이 다른 키로 두 번 눌러도 지급 1회(Q06). 원장은 island_wallet_transactions QUEST_SETTLEMENT'] {
   id                     uuid         [pk]
   island_id              uuid         [not null, note: 'FK → groups.id ON DELETE RESTRICT']
   occurrence_id          uuid         [not null, note: 'FK → island_quest_occurrences.id ON DELETE RESTRICT']
-  kind                   varchar(20)  [not null, note: "CHECK IN ('SETTLEMENT') — 개인 지급 kind 없음(결정 Q-1)"]
+  kind                   varchar(20)  [not null, note: "CHECK IN ('ACHIEVER','ALL_ACHIEVED_BONUS') — V83. 개인 달성분 / 전원 달성 보너스"]
   amount                 integer      [not null, note: 'CHECK > 0 — 섬 통장 적립량']
-  claimed_by             uuid         [note: '수령을 누른 주민 — FK 없음. 계정 탈퇴 시 null(GROMO-1950, V75). 정산 행은 원장 근거라 남는다']
-  wallet_idempotency_key varchar(200) [not null, note: "'quest:' || occurrence_id — 원장 기입 키"]
+  claimed_by             uuid         [note: '수령을 누른 주민 — FK 없음. 보너스 행은 수령 행위가 없어 처음부터 null(V83). 계정 탈퇴 시에도 null(GROMO-1950, V75) — 정산 행은 원장 근거라 남는다']
+  wallet_idempotency_key varchar(200) [not null, note: "개인 'quest:' || occurrence_id || ':' || claimed_by, 보너스 'quest-bonus:' || occurrence_id — 원장 기입 키"]
   created_at             timestamptz  [not null, default: `now()`]
 
   indexes {
-    (island_id, occurrence_id, kind) [unique, name: 'uq_island_quest_claim']
+    (island_id, occurrence_id, kind, claimed_by) [unique, name: 'uq_island_quest_claim'] // V83. 보너스 행(claimed_by null)의 1회는 회차 잠금 + bonus_settled_at + 지갑 원장 유일키가 보장한다
   }
 }
 

@@ -256,7 +256,8 @@ class IslandQuestIntegrationTest {
         QuestViews.Progress progress = service.progress(a.id, a.owner.getId(), created.id(), occurrenceOf(created));
         assertThat(progress.members()).extracting(QuestViews.Member::userId)
                 .containsExactlyInAnyOrder(a.owner.getId(), stays.getId());
-        assertThat(progress.header().reward().amount()).as("분모 2명 × (10 + 5)").isEqualTo(30);
+        assertThat(progress.header().reward().amount()).as("내 개인 몫").isEqualTo(10);
+        assertThat(progress.header().bonusAmount()).as("전원 달성 보너스 = 분모 2명 × 5").isEqualTo(10);
 
         // 공개 계약은 헤더 필드가 평평하게 펼쳐진 모양이다(원본 quest 예시).
         JsonNode json = mapper.valueToTree(progress);
@@ -299,8 +300,10 @@ class IslandQuestIntegrationTest {
         assertThat(member(progress, exact).rate()).isEqualTo(100);
         assertThat(member(progress, a.owner).rate()).isZero();
         assertThat(member(progress, exact).measurementStatus()).isEqualTo("authorized");
-        assertThat(progress.header().claimable()).isFalse();
-        assertThat(progress.header().claimBlockedReason()).isEqualTo("MEMBERS_INCOMPLETE");
+        assertThat(progress.header().claimable()).as("방장은 0초라 미달성").isFalse();
+        assertThat(progress.header().claimBlockedReason()).isEqualTo("NOT_ACHIEVED");
+        assertThat(member(progress, exact).achieved()).as("달성은 rate 100 과 별개 필드다").isTrue();
+        assertThat(member(progress, shortBySecond).achieved()).isFalse();
         assertThat(progress.nextCursor()).isNull();
     }
 
@@ -326,8 +329,8 @@ class IslandQuestIntegrationTest {
     // ---------------------------------------------------------------- 정산
 
     @Test
-    @DisplayName("전원 달성 전 claim 은 409 — 달성 뒤 섬 통장에 분모×15 를 한 번만 적립하고, 같은 키는 재생·다른 키는 409")
-    void claimCreditsIslandWalletExactlyOnce() {
+    @DisplayName("달성한 주민만 자기 몫 10 을 받는다 — 미달성자는 409, 같은 사람의 재수령도 409, 같은 키는 재생")
+    void achieverClaimsOwnShareOnly() {
         Island a = island(true);
         User resident = resident(a.group);
         QuestViews.Created created = createFocus(a, a.owner, "10:00", "12:00", 30);
@@ -336,41 +339,42 @@ class IslandQuestIntegrationTest {
         interval(ownerSession, 1, FocusIntervalKind.ACTIVE, at(D, "10:00:00"), at(D, "10:30:00"));
 
         at(D, "10:40:00");
-        assertQuestError(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId, 1,
+        // 남이 달성했든 말든 미달성자는 받을 수 없다 — 대리 수령 경로가 없다.
+        assertQuestError(() -> service.claim(a.id, resident.getId(), created.id(), occurrenceId, 1,
                 UUID.randomUUID()), QuestErrorCode.QUEST_STATE_CONFLICT);
         assertThat(balance(a.id)).isZero();
+        assertThat(service.current(a.id, resident.getId()).items().get(0).claimBlockedReason())
+                .isEqualTo("NOT_ACHIEVED");
 
-        // 진행 중(열린) ACTIVE 구간도 지금까지 센다 — 10:40 → 11:10 이면 30분.
-        UUID residentSession = session(resident, a.id, FocusSessionLifecycle.ACTIVE);
-        interval(residentSession, 1, FocusIntervalKind.ACTIVE, at(D, "10:40:00"), null);
-        at(D, "11:10:00");
-        QuestViews.Item ready = service.current(a.id, resident.getId()).items().get(0);
-        assertThat(ready.claimable()).isTrue();
-        assertThat(ready.claimBlockedReason()).isNull();
+        QuestViews.Item mine = service.current(a.id, a.owner.getId()).items().get(0);
+        assertThat(mine.claimable()).isTrue();
+        assertThat(mine.claimBlockedReason()).isNull();
+        assertThat(mine.reward().amount()).as("개인 몫").isEqualTo(10);
+        assertThat(mine.bonusGranted()).isFalse();
 
-        assertQuestError(() -> service.claim(a.id, resident.getId(), created.id(), occurrenceId,
-                ready.version() + 1, UUID.randomUUID()), QuestErrorCode.QUEST_VERSION_CONFLICT);
+        assertQuestError(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId,
+                mine.version() + 1, UUID.randomUUID()), QuestErrorCode.QUEST_VERSION_CONFLICT);
 
         UUID key = UUID.randomUUID();
-        QuestViews.Claimed first = service.claim(a.id, resident.getId(), created.id(), occurrenceId,
-                ready.version(), key);
+        QuestViews.Claimed first = service.claim(a.id, a.owner.getId(), created.id(), occurrenceId,
+                mine.version(), key);
         assertThat(first.claimed()).isTrue();
         assertThat(first.occurrenceId()).isEqualTo(occurrenceId);
-        assertThat(first.villagePointsAdded()).as("분모 2명 × (개인 10 + 보너스 5)").isEqualTo(30);
-        assertThat(balance(a.id)).isEqualTo(30);
+        assertThat(first.villagePointsAdded()).isEqualTo(10);
+        assertThat(first.bonusAdded()).as("전원 달성이 아니라 보너스는 없다").isZero();
+        assertThat(balance(a.id)).isEqualTo(10);
 
-        QuestViews.Claimed replay = service.claim(a.id, resident.getId(), created.id(), occurrenceId,
-                ready.version(), key);
-        assertThat(replay).isEqualTo(first);
+        assertThat(service.claim(a.id, a.owner.getId(), created.id(), occurrenceId, mine.version(), key))
+                .as("같은 키는 원 결과 재생").isEqualTo(first);
         assertQuestError(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId,
-                ready.version() + 1, UUID.randomUUID()), QuestErrorCode.QUEST_STATE_CONFLICT);
-        assertThatThrownBy(() -> service.claim(a.id, resident.getId(), created.id(), occurrenceId,
-                ready.version() + 1, key))
+                mine.version() + 1, UUID.randomUUID()), QuestErrorCode.QUEST_STATE_CONFLICT);
+        assertThatThrownBy(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId,
+                mine.version() + 1, key))
                 .as("같은 키 다른 본문은 재사용 거절")
                 .isInstanceOfSatisfying(OutboxException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT));
 
-        assertThat(balance(a.id)).isEqualTo(30);
+        assertThat(balance(a.id)).as("두 번 눌러도 한 번만 적립").isEqualTo(10);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_wallet_transactions WHERE island_id = ? "
                 + "AND type = 'QUEST_SETTLEMENT'", Integer.class, a.id)).isEqualTo(1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_construction_contributions WHERE island_id = ?",
@@ -378,13 +382,159 @@ class IslandQuestIntegrationTest {
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_claims WHERE occurrence_id = ?",
                 Integer.class, occurrenceId)).isEqualTo(1);
 
+        QuestViews.Progress after = service.progress(a.id, resident.getId(), created.id(), occurrenceId);
+        assertThat(member(after, a.owner).claimed()).isTrue();
+        assertThat(member(after, resident).claimed()).isFalse();
+        assertThat(after.header().claimed()).as("헤더의 수령 축은 조회한 주민이다").isFalse();
+        assertThat(after.header().bonusGranted()).isFalse();
         QuestViews.Item settled = service.current(a.id, a.owner.getId()).items().get(0);
         assertThat(settled.claimed()).isTrue();
         assertThat(settled.settlementStatus()).isEqualTo("claimed");
-        assertThat(settled.reward().amount()).isEqualTo(30);
-        assertThat(settled.version()).as("정산이 quest.progress version 을 올린다").isEqualTo(ready.version() + 1);
+        assertThat(settled.claimable()).isFalse();
+        assertThat(settled.version()).as("수령이 quest.progress version 을 올린다").isEqualTo(mine.version() + 1);
         assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM event_outbox WHERE type = 'quest.progress.updated' "
                 + "AND aggregate_id = ?", Integer.class, occurrenceId.toString())).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("전원 달성이면 보너스 «분모 × 5» 가 수령 없이 한 번 적립된다 — 나머지 주민은 자기 몫만 더 받는다")
+    void allAchievedGrantsBonusOnce() {
+        Island a = island(true);
+        User resident = resident(a.group);
+        QuestViews.Created created = createFocus(a, a.owner, "10:00", "12:00", 30);
+        UUID occurrenceId = occurrenceOf(created);
+        for (User achiever : List.of(a.owner, resident)) {
+            UUID focus = session(achiever, a.id, FocusSessionLifecycle.COMPLETED);
+            interval(focus, 1, FocusIntervalKind.ACTIVE, at(D, "10:00:00"), at(D, "10:30:00"));
+        }
+
+        at(D, "10:40:00");
+        QuestViews.Item before = service.current(a.id, a.owner.getId()).items().get(0);
+        assertThat(before.bonusAmount()).as("분모 2명 × 5").isEqualTo(10);
+        assertThat(before.bonusGranted()).isFalse();
+
+        QuestViews.Claimed first = service.claim(a.id, a.owner.getId(), created.id(), occurrenceId,
+                before.version(), UUID.randomUUID());
+        assertThat(first.villagePointsAdded()).isEqualTo(10);
+        assertThat(first.bonusAdded()).as("전원 달성 보너스는 수령 TX 에서 자동 적립").isEqualTo(10);
+        assertThat(balance(a.id)).isEqualTo(20);
+
+        QuestViews.Item mid = service.current(a.id, resident.getId()).items().get(0);
+        assertThat(mid.bonusGranted()).isTrue();
+        assertThat(mid.claimable()).as("보너스가 나갔어도 내 몫은 아직이다").isTrue();
+
+        QuestViews.Claimed second = service.claim(a.id, resident.getId(), created.id(), occurrenceId,
+                mid.version(), UUID.randomUUID());
+        assertThat(second.villagePointsAdded()).isEqualTo(10);
+        assertThat(second.bonusAdded()).as("보너스는 회차당 한 번뿐").isZero();
+
+        assertThat(balance(a.id)).as("개인 10 × 2 + 보너스 2 × 5").isEqualTo(30);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_claims WHERE occurrence_id = ? "
+                + "AND kind = 'ALL_ACHIEVED_BONUS'", Integer.class, occurrenceId)).isEqualTo(1);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_claims WHERE occurrence_id = ?",
+                Integer.class, occurrenceId)).as("개인 2 + 보너스 1").isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_wallet_transactions WHERE island_id = ? "
+                + "AND type = 'QUEST_SETTLEMENT'", Integer.class, a.id)).isEqualTo(3);
+        assertThat(jdbc.queryForObject("SELECT bonus_settled_at IS NOT NULL FROM island_quest_occurrences "
+                + "WHERE id = ?", Boolean.class, occurrenceId)).isTrue();
+
+        QuestViews.Item done = service.current(a.id, resident.getId()).items().get(0);
+        assertThat(done.claimed()).isTrue();
+        assertThat(done.claimable()).isFalse();
+        assertThat(done.bonusAmount()).as("적립 뒤엔 실제 적립량").isEqualTo(10);
+        assertThat(done.version()).isEqualTo(before.version() + 2);
+    }
+
+    @Test
+    @DisplayName("아무도 받기를 누르지 않아도 전원 달성 보너스는 finalizer 틱이 한 번 적립한다 (GROMO-1991)")
+    void bonusSettlesWithoutAnyClaim() {
+        Island a = island(true);
+        User resident = resident(a.group);
+        QuestViews.Created created = createFocus(a, a.owner, "10:00", "12:00", 30);
+        UUID occurrenceId = occurrenceOf(created);
+        UUID ownerFocus = session(a.owner, a.id, FocusSessionLifecycle.COMPLETED);
+        interval(ownerFocus, 1, FocusIntervalKind.ACTIVE, at(D, "10:00:00"), at(D, "10:30:00"));
+
+        // 한 명만 달성 — 틱이 돌아도 보너스는 없다(부분 달성 적립 0).
+        at(D, "10:35:00");
+        scheduler.settleDueBonuses();
+        assertThat(balance(a.id)).as("부분 달성은 보너스 없음").isZero();
+        assertThat(service.current(a.id, a.owner.getId()).items().get(0).bonusGranted()).isFalse();
+
+        UUID residentFocus = session(resident, a.id, FocusSessionLifecycle.COMPLETED);
+        interval(residentFocus, 1, FocusIntervalKind.ACTIVE, at(D, "10:00:00"), at(D, "10:30:00"));
+
+        at(D, "10:40:00");
+        scheduler.settleDueBonuses();
+
+        QuestViews.Item item = service.current(a.id, a.owner.getId()).items().get(0);
+        assertThat(item.bonusGranted()).as("수령이 없어도 적립된다 — 보너스는 claim 과 독립이다").isTrue();
+        assertThat(item.bonusAmount()).as("분모 2명 × 5").isEqualTo(10);
+        assertThat(item.claimed()).as("개인 몫은 아직 아무도 안 받았다").isFalse();
+        assertThat(item.claimable()).isTrue();
+        assertThat(balance(a.id)).as("보너스만 나갔다").isEqualTo(10);
+
+        scheduler.settleDueBonuses();
+        assertThat(balance(a.id)).as("틱을 다시 돌려도 회차당 한 번뿐").isEqualTo(10);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_claims WHERE occurrence_id = ? "
+                + "AND kind = 'ALL_ACHIEVED_BONUS'", Integer.class, occurrenceId)).isEqualTo(1);
+
+        QuestViews.Claimed claimed = service.claim(a.id, a.owner.getId(), created.id(), occurrenceId,
+                item.version(), UUID.randomUUID());
+        assertThat(claimed.villagePointsAdded()).as("보너스가 나간 뒤에도 개인 몫은 각자 받는다").isEqualTo(10);
+        assertThat(claimed.bonusAdded()).as("이미 적립된 보너스를 두 번 주지 않는다").isZero();
+        assertThat(balance(a.id)).isEqualTo(20);
+    }
+
+    @Test
+    @DisplayName("마지막 틱 뒤·마감 전에 분모가 줄어 성립한 전원 달성은 마감 다음 틱이 적립한다 (codex 2R)")
+    void bonusSettlesOnTheTickAfterDeadlineWhenDenominatorShrankBeforeIt() {
+        Island a = island(true);
+        User resident = resident(a.group);
+        QuestViews.Created created = createFocus(a, a.owner, "10:00", "12:00", 30);
+        UUID occurrenceId = occurrenceOf(created);
+        UUID ownerFocus = session(a.owner, a.id, FocusSessionLifecycle.COMPLETED);
+        interval(ownerFocus, 1, FocusIntervalKind.ACTIVE, at(D, "10:00:00"), at(D, "10:30:00"));
+
+        // 수령 마감(다음 날 12:00Z) 직전의 «마지막» 틱 — 주민이 미달성이라 보너스는 없다.
+        at(D.plusDays(1), "11:59:30");
+        scheduler.settleDueBonuses();
+        assertThat(balance(a.id)).as("부분 달성은 보너스 없음").isZero();
+
+        // 그 틱과 마감 사이(15초)에 미달성 주민이 분모에서 빠져 전원 달성이 «마감 전에» 성립한다.
+        // 이 판정을 볼 틱은 마감 뒤 첫 틱뿐이다 — 예전에는 거기서 0 을 돌려주고 보너스가 영구 누락됐다.
+        at(D.plusDays(1), "11:59:45");
+        leave(resident, a.group);
+
+        at(D.plusDays(1), "12:00:30");
+        scheduler.settleDueBonuses();
+
+        assertThat(balance(a.id)).as("마감 전에 성립한 달성은 늦게 발견돼도 지급된다 — 분모 1명 × 5").isEqualTo(5);
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_claims WHERE occurrence_id = ? "
+                + "AND kind = 'ALL_ACHIEVED_BONUS'", Integer.class, occurrenceId)).isEqualTo(1);
+
+        scheduler.settleDueBonuses();
+        assertThat(balance(a.id)).as("마감 뒤 틱을 또 돌려도 회차당 한 번뿐").isEqualTo(5);
+    }
+
+    @Test
+    @DisplayName("정산 마감(수령 마감 + 한 틱)을 넘겨 «새로» 성립한 전원 달성엔 보너스가 없다 (codex 2R)")
+    void bonusIsNotGrantedWhenAllAchievedOnlyAfterTheSettleDeadline() {
+        Island a = island(true);
+        User resident = resident(a.group);
+        QuestViews.Created created = createFocus(a, a.owner, "10:00", "12:00", 30);
+        UUID occurrenceId = occurrenceOf(created);
+        UUID ownerFocus = session(a.owner, a.id, FocusSessionLifecycle.COMPLETED);
+        interval(ownerFocus, 1, FocusIntervalKind.ACTIVE, at(D, "10:00:00"), at(D, "10:30:00"));
+
+        // 수령 마감(12:00Z)도 정산 마감(12:01Z)도 지난 뒤에 미달성 주민이 빠진다.
+        at(D.plusDays(1), "12:05:00");
+        leave(resident, a.group);
+        scheduler.settleDueBonuses();
+
+        assertThat(balance(a.id)).as("마감 뒤에 새로 생긴 달성으로 보너스가 생기지 않는다").isZero();
+        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quest_claims WHERE occurrence_id = ?",
+                Integer.class, occurrenceId)).isZero();
     }
 
     @Test

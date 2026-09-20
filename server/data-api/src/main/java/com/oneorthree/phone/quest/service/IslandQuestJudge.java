@@ -3,7 +3,6 @@ package com.oneorthree.phone.quest.service;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
-import com.oneorthree.phone.quest.dto.QuestViews;
 import com.oneorthree.phone.quest.repository.IslandQuestOccurrenceRepository;
 import com.oneorthree.phone.quest.repository.domain.IslandQuestOccurrence;
 import com.oneorthree.phone.quest.repository.domain.QuestType;
@@ -22,6 +21,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -59,7 +59,7 @@ public class IslandQuestJudge {
     /**
      * @param occurrence 판정할 회차
      * @param now        판정 시각
-     * @return 주민별 결과(userId 오름차순)와 회차 수령 가능 여부
+     * @return 주민별 결과(userId 오름차순)와 전원 달성·보너스 총액
      */
     public Judgement judge(IslandQuestOccurrence occurrence, Instant now) {
         Set<UUID> active = new HashSet<>(members.findActiveMemberUserIdsByGroupId(occurrence.getIslandId()));
@@ -155,34 +155,25 @@ public class IslandQuestJudge {
     }
 
     /**
-     * 회차 판정 결과.
+     * 회차 판정 결과 — 수령 가능 여부는 주민마다 다르므로(GROMO-1991) 여기서 정하지 않는다.
+     * 「내가 받을 수 있나」는 {@link #rowOf} 와 이미 받은 주민 목록을 합쳐 서비스가 판단한다.
      *
-     * @param potentialReward 전원 달성 시 섬 통장 적립량 — 분모 × (개인 달성 + 보너스)
-     * @param claimable       미정산이고 분모 전원이 달성했다
-     * @param blockedReason   수령 불가 사유(수령 가능·정산 완료면 null)
+     * @param allAchieved 분모가 비어 있지 않고 전원이 달성했다 — 보너스 조건(0명 전원 성공 금지)
+     * @param bonusReward 전원 달성 보너스 총액 — 분모 × 1인당 보너스(기획 정본 「대상 주민 수 × 5마리」)
      */
-    public record Judgement(List<Row> rows, int potentialReward, boolean claimable, String blockedReason) {
+    public record Judgement(List<Row> rows, boolean allAchieved, int bonusReward) {
 
         static Judgement of(IslandQuestOccurrence occurrence, List<Row> rows) {
             List<Row> counted = rows.stream().filter(Row::counted).toList();
             long achievers = counted.stream().filter(Row::achieved).count();
             boolean allAchieved = !counted.isEmpty() && achievers == counted.size();
-            // 결정 Q-1: 개인 달성 +10 × 달성자 + 전원 달성 보너스 분모 × 5. 수령은 전원 달성일 때만이라
-            // 달성자 = 분모이고, 결국 분모 × (10 + 5) 다.
-            int potential = Math.multiplyExact(counted.size(),
-                    occurrence.getRewardPerAchiever() + occurrence.getRewardBonusPerMember());
-            if (occurrence.isClaimed()) {
-                return new Judgement(rows, potential, false, null);
-            }
-            if (allAchieved) {
-                return new Judgement(rows, potential, true, null);
-            }
-            boolean definitelyShort = counted.stream().anyMatch(r -> !r.achieved() && !r.pending());
-            boolean pending = counted.stream().anyMatch(Row::pending);
-            String reason = !definitelyShort && pending
-                    ? QuestViews.BLOCKED_MEASUREMENT_PENDING
-                    : QuestViews.BLOCKED_MEMBERS_INCOMPLETE;
-            return new Judgement(rows, potential, false, reason);
+            return new Judgement(rows, allAchieved,
+                    Math.multiplyExact(counted.size(), occurrence.getRewardBonusPerMember()));
+        }
+
+        /** 주민 한 명의 판정 — cohort 밖(방문자·뒤늦은 가입자)이면 비어 있다. */
+        public Optional<Row> rowOf(UUID userId) {
+            return rows.stream().filter(r -> r.userId().equals(userId)).findFirst();
         }
     }
 }

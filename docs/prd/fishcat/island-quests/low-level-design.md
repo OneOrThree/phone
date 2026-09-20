@@ -181,6 +181,7 @@ Data는 path islandId가 실제 groupId임을 해석하고 현재 사용자 활�
     "claimId": "claim-1",
     "occurrenceId": "q-focus-20260911",
     "villagePointsAdded": 10,
+    "bonusAdded": 0,
     "claimed": true
   }
 }
@@ -192,15 +193,15 @@ Business→Data 내부 어댑터는 공개5경로 앞에 `/internal`을 붙인 e
 
 | 계약 | 구체 타입과 의미 |
 | --- | --- |
-| quests | query 없음, 서버 **UTC** 현재 회차 items(어제·오늘 회차 중 수령 마감 전 — focus 다음 날 12:00Z, screen 다음 날 24:00Z). 각 항목 id/occurrenceId UUID,title string,type focus/screen,date YYYY-MM-DD(UTC),timezone `UTC`,targetMinutes 정수,myRate number/null,reward(currency=village_points,amount정수),settlementStatus string,claimable boolean,claimBlockedReason string/null,claimed boolean,version 양의정수 |
-| quest | path questId UUID, query occurrenceId UUID필수/cursor optional. 해당 occurrence의 같은 헤더와 members(userId UUID,name/catColor string,rate number/null,measurementStatus authorized/denied/unavailable/pending),nextCursor string/null. path섬/quest/회차의소속 일치 검증 |
+| quests | query 없음, 서버 **UTC** 현재 회차 items(어제·오늘 회차 중 수령 마감 전 — focus 다음 날 12:00Z, screen 다음 날 24:00Z). 각 항목 id/occurrenceId UUID,title string,type focus/screen,date YYYY-MM-DD(UTC),timezone `UTC`,targetMinutes 정수,myRate number/null,reward(currency=village_points,amount정수),settlementStatus string,claimable boolean,claimBlockedReason string/null,claimed boolean,bonusAmount 정수,bonusGranted boolean,version 양의정수. **수령 축은 요청한 주민이다**(GROMO-1991) — reward.amount 는 내 개인 몫, claimable/claimed/settlementStatus 는 내 상태, bonusAmount/bonusGranted 는 회차의 전원 보너스다 |
+| quest | path questId UUID, query occurrenceId UUID필수/cursor optional. 해당 occurrence의 같은 헤더와 members(userId UUID,name/catColor string,rate number/null,measurementStatus authorized/denied/unavailable/pending,achieved boolean,claimed boolean),nextCursor string/null. achieved·claimed 는 GROMO-1991 로 추가 — rate 100 으로 달성을 추정하지 않는다. path섬/quest/회차의소속 일치 검증 |
 | quest-create | title/type/targetMinutes 필수,focus는windowStart/windowEnd HH:mm 필수,screen에는창필드 금지. timezone 누락=UTC/`"UTC"` 외 400 INVALID_PARAMETER(결정 Q-6).201 id/title |
 | quest-edit | 원본의 title/targetMinutes 중 하나 이상. 생략 유지,null거절,새 type/창/반복키 unknown400.200 id/title/targetMinutes는 정의의수정결과. 실제 적용은 **다음 회차부터**(결정 Q-4) — 열린 회차는 여는 순간의 정의 스냅샷을 쓴다 |
-| claim | occurrenceId UUID,expectedVersion 엄격 양의정수필수.200 claimId UUID,occurrenceId UUID,villagePointsAdded 비음수정수,claimed=true. 지급량은 1830 확정(개인 +10, 전원 보너스 대상 주민 수 × 5 — 정책 Q05)이고 **전액 섬 통장**(결정 Q-1·Q-2) — 전원 달성 때만 수령되므로 대상 주민 수 × 15. 설정 revision 등록은 QQ05 잔여. 필드명 villagePointsAdded 는 섬 물고기(D1) 적립량이고 개명은 미결 |
+| claim | occurrenceId UUID,expectedVersion 엄격 양의정수필수.200 claimId UUID,occurrenceId UUID,villagePointsAdded 비음수정수,bonusAdded 비음수정수,claimed=true. **GROMO-1991**: 수령은 **요청한 주민 자기 몫**(villagePointsAdded = 개인 +10)이고, 그 TX 에서 전원 달성이 처음 확인되면 보너스(대상 주민 수 × 5)가 **수령 없이 함께** 적립되어 bonusAdded 로 실린다(아니면 0). 대리 수령 경로는 없다. 지급량은 1830 확정(정책 Q05)이고 **전액 섬 통장**(결정 Q-1·Q-2). 설정 revision 등록은 QQ05 잔여. 필드명 villagePointsAdded 는 섬 물고기(D1) 적립량이고 개명은 미결 |
 
 focus 창/target 수학적 범위와 screen0분 허용·title길이는 승인한 도메인 설정으로 검증하고 목업30/40을 상수로 채택하지 않는다(10 은 1830 확정값이지만 역시 설정 revision 으로 등록한다). 시간 HH:mm 파싱,실재하는날짜,안전정수 등의 기술 검증은 독립 구현한다. 자정 넘는 창을 지원하거나 거절하는 제품 범위는 QQ02 확정 뒤 설정/테스트로 고정한다. 명시필수 필드 누락/null은400,해석가능한 범위위반422 OUT_OF_RANGE(field=해당공개필드)다.
 
-원본focus항목의 windowStart/windowEnd는 focus에서필수,screen응답에서는null이라는 **타입별 nullable명시 확장**을 채택한다. claimBlockedReason은 claimable=true 또는 claimed=true일때null이고 미달성MEMBERS_INCOMPLETE는원본값이다. 측정대기 등 추가 reason값과 settlementStatus 확장은 QQ01~03 결정 후정본enum으로등록한다 → **2026-09-19 등록**: `MEASUREMENT_PENDING`(screen 유예 중 미보고 주민이 있고 확정 미달자는 없음). members 의 `catColor` 는 제공자가 main 에 없어 싣지 않는다(GROMO-1765 와 같은 결정). 현재 원본에서 확인한 in_progress/claimed 외 상태를 완성된운영 enum이라고제시하지않는다. ready여부는claimable이며 상태문자열을추측하지않는다.
+원본focus항목의 windowStart/windowEnd는 focus에서필수,screen응답에서는null이라는 **타입별 nullable명시 확장**을 채택한다. claimBlockedReason은 claimable=true 또는 claimed=true일때null이고, **GROMO-1991 로 판정 축이 「나」가 되면서 원본값 `MEMBERS_INCOMPLETE`(전원 미달성)는 `NOT_ACHIEVED`(내가 미달성이거나 판정 대상이 아님)로 교체됐다** — 남이 못 채운 것이 내 수령을 막지 않기 때문이다. 측정대기 등 추가 reason값과 settlementStatus 확장은 QQ01~03 결정 후정본enum으로등록한다 → **2026-09-19 등록**: `MEASUREMENT_PENDING`(screen 유예 중 미보고 주민이 있고 확정 미달자는 없음). members 의 `catColor` 는 제공자가 main 에 없어 싣지 않는다(GROMO-1765 와 같은 결정). 현재 원본에서 확인한 in_progress/claimed 외 상태를 완성된운영 enum이라고제시하지않는다. ready여부는claimable이며 상태문자열을추측하지않는다.
 
 **PII 출력 확장:** 회차cohort에 탈퇴자가 남는 정책이승인되면 members의 userId/name/catColor는파기후null가능하고 rate/measurementStatus표현도승인한최소판정결과만사용한다. fake UUID나원래프로필보존으로필수필드를채우지않는다. QQ01과계정 파기계약확정전그경로를활성화하지않는다. 최종공개nullable개정은원본 JSON에덮어쓰지않는다.
 
@@ -242,10 +243,14 @@ scope=(검증actor,method,route,islandId,questId,key),fingerprint는occurrenceId
 1. path quest와occurrence가같은섬·회차인지확인,해당회차/전체 cohort의안정된정본잠금.
 2. 현재정산상태·제출version검사. 다른 키로이미정산한회차는409 STATE_CONFLICT,지급없음. 첫요청응답 유실은반드시원키로재시도한다.
 3. 승인된 대상전체의성공/측정확정/마감/claim권한검증. 미달성/정산대기는409 STATE_CONFLICT이며원본예상409를보존한다. current는권한이있을때공개회차DTO와version만허용한다.
-4. 승인된rewardrevision의금액을그회차섬wallet에QUEST_SETTLEMENT등분리된원장원인으로 1회credit. 실제원장원인명은경제정본과함께등록하며개인BET_PAYOUT/coin명령을대용하지않는다.
+4. 승인된rewardrevision의금액(개인 몫)을그회차섬wallet에QUEST_SETTLEMENT원장원인으로 1회credit. **같은 TX 에서 전원 달성이면 보너스(대상 주민 수 × 5)를 별도 키로 1회 더 credit**한다(GROMO-1991 — 수령 행위 없는 자동 적립). 실제원장원인명은경제정본과함께등록하며개인BET_PAYOUT/coin명령을대용하지않는다.
+   - **보너스의 책임자는 claim 이 아니라 매분 finalizer** 다(GROMO-1991 · `IslandQuestScheduler#settleDueBonuses` → `IslandQuestService#settleBonusIfAllAchieved`). 아무도 「받기」를 누르지 않아도 전원 달성이 성립하면 적립된다 — claim 안의 credit 은 마지막 달성자가 곧바로 누른 경우의 지연을 없애는 지름길일 뿐이다. 둘 다 같은 회차 잠금 아래 같은 코드를 부른다.
+   - **왜 writer 훅이 아니라 틱인가**: 달성은 저장되지 않고 판정이 매번 계산하는 파생값이고, 그 입력 중 「열린 ACTIVE 집중 구간」은 **writer 없이 시계만으로** 목표를 넘긴다. 그래서 「전원 달성의 그 순간」의 해상도는 틱 간격(1분)이다 — 집중 보상 적립(GROMO-1990)의 「60초마다」와 같은 해상도.
+   - **정산 마감은 수령 마감보다 한 틱 늦다**(`IslandQuestOccurrence#bonusSettleDeadline()` = `claimDeadline()` + 1분). 마지막 틱과 수령 마감 사이(최대 한 틱)에 미달성 주민이 빠져 전원 달성이 **마감 전에** 성립하면 그 판정을 볼 틱이 없어 보너스가 영구 누락됐다. 마감을 넘긴 **첫 틱 하나**까지 열어 두고, 그 틱은 판정 시각을 `now` 가 아니라 **수령 마감 시각**으로 잘라 본다 — 「마감 뒤에 흐른 시계로 새로 생긴 달성」과 「마감 전에 이미 성립한 달성」을 가르는 것이 이 판정 시각이다. 분모(현재 활성 주민)만은 「지금」이라 마감 직후 한 틱 안의 탈퇴는 섞일 수 있는데, 그 창이 곧 틱 간격이라 이 기능이 선언한 해상도(정책 Q05 「즉시의 해상도는 1분」)를 넘지 않는다. 수령(claim)은 **수령 마감에 그대로 닫힌다**(409) — 늦게 여는 것은 자동 적립뿐이다.
+   - **보너스의 cohort 기준 시점 = 적립하는 그 순간의 분모**(회차 시작 시점이 아니다). 결정 Q-3 이 탈퇴·강퇴·측정 불가를 분모에서 빼므로, 화면이 보여 주던 `bonusAmount`(같은 판정의 분모)와 실제 적립량이 어긋나지 않는 유일한 선택이다. 적립 뒤 분모가 바뀌어도 재계산·환수는 없다(회차당 1회).
 5. Claim유일성·회차claimed/version증가·지갑version·원200receipt·quest.progress.updated/wallet.updated outbox를같은 TX로확정. 어느단계실패도전체 rollback.
 
-두주민이서로다른 키로동시claim해도도메인 유일성과회차 잠금이 1회지급을보장한다. 중복원장/claim발생시이를추가보상으로접지않는다. 금융정책의수치없음은0P성공이아니라출시미준비다. 후속측정정정이이미지급된회차를자동추가지급/환수하는정책도없으며 QQ03에서필요한정정을먼저확정한다.
+같은주민이서로다른 키로동시claim해도도메인 유일성(island,occurrence,kind,claimed_by)과회차 잠금이 1회지급을보장하고,전원보너스는회차 잠금 + `bonus_settled_at` + 지갑원장유일키가 1회로묶는다. 중복원장/claim발생시이를추가보상으로접지않는다. 금융정책의수치없음은0P성공이아니라출시미준비다. 후속측정정정이이미지급된회차를자동추가지급/환수하는정책도없으며 QQ03에서필요한정정을먼저확정한다.
 
 ## 6. 조회·커서·이벤트
 

@@ -53,6 +53,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -62,6 +63,10 @@ import java.util.regex.Pattern;
  * <p><b>잠금 순서</b>(LLD §5): 사용자(users 배타) → receipt 선점({@link PublicCommandService}) → 섬(groups
  * 배타) → 회차 → 섬 통장 → outbox version. 건설 명령(… 섬 → 건설 상태 → 지갑)과 집중 finish(… 섬 → 상세 →
  * 건설 상태 → 지갑)도 «섬 먼저, 지갑 마지막»이라 서로를 거꾸로 기다리지 않는다. 회차 행은 이 서비스만 잠근다.
+ *
+ * <p><b>수령</b>(GROMO-1991): 개인 달성분은 주민이 «받기»를 눌러 각자 받고({@link #claim}), 전원 달성
+ * 보너스는 <b>수령과 독립으로</b> 매분 finalizer 가 한 번 적립한다({@link #settleBonusIfAllAchieved}) —
+ * 기획 정본 {@code policy-2026-09-14.md} 「일일 퀘스트와 보상」의 «전원 달성 시 … 즉시 지급한다».
  *
  * <p><b>출시 스위치</b>(policy.md 출시 조건): 새 생산 데이터를 만드는 생성과 정산(claim)은 각각
  * {@code island-quest.creation-enabled}·{@code island-quest.settlement-enabled} 로 닫혀 있다(기본 false).
@@ -75,7 +80,8 @@ import java.util.regex.Pattern;
 public class IslandQuestService {
 
     /**
-     * 작성자가 계정을 탈퇴해 {@code created_by} 가 끊긴 퀘스트의 회차 사건 주체(GROMO-1952). 봉투의 userId 는
+     * 사람이 부르지 않은 사건의 주체 — 작성자가 계정을 탈퇴해 {@code created_by} 가 끊긴 퀘스트의 회차 개설
+     * (GROMO-1952)과, 수령과 독립으로 도는 전원 달성 보너스 정산(GROMO-1991)이 이것을 쓴다. 봉투의 userId 는
      * 필수이고 FK 가 없으며, 이 사건은 섬 전체 방송이라 특정 사용자에게 가지 않는다.
      */
     static final UUID SYSTEM_ACTOR = new UUID(0L, 0L);
@@ -107,11 +113,11 @@ public class IslandQuestService {
     @Value("${island-quest.settlement-enabled:false}")
     private boolean settlementEnabled;
 
-    /** D5 개인 달성 +10 — 설정 값이다(QQ05 의 revision 등록 방식은 미결). */
+    /** D5 개인 달성 +10 — 달성한 주민이 «받기»를 누르면 받는 몫이다(설정 값, QQ05 revision 등록은 미결). */
     @Value("${island-quest.reward.per-achiever:10}")
     private int rewardPerAchiever;
 
-    /** D5 전원 달성 보너스 1인당 5. */
+    /** D5 전원 달성 보너스 1인당 5 — 전원 달성 순간 «대상 주민 수 × 5» 가 수령 없이 적립된다. */
     @Value("${island-quest.reward.all-achieved-bonus-per-member:5}")
     private int rewardBonusPerMember;
 
@@ -131,7 +137,7 @@ public class IslandQuestService {
                 .findByIslandIdAndOccurrenceDateBetweenOrderByOccurrenceDateAscCreatedAtAsc(
                         islandId, today.minusDays(1), today)) {
             if (now.isBefore(occurrence.claimDeadline())) {
-                items.add(header(occurrence, judge.judge(occurrence, now), userId));
+                items.add(header(occurrence, judge.judge(occurrence, now), userId, claimers(occurrence)));
             }
         }
         return new QuestViews.Current(items);
@@ -148,10 +154,12 @@ public class IslandQuestService {
                 .filter(o -> now.isBefore(o.claimDeadline()))
                 .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_OCCURRENCE_NOT_FOUND));
         IslandQuestJudge.Judgement judgement = judge.judge(occurrence, now);
+        List<UUID> claimers = claimers(occurrence);
         List<QuestViews.Member> list = judgement.rows().stream()
-                .map(r -> new QuestViews.Member(r.userId(), r.name(), r.rate(), r.measurementStatus()))
+                .map(r -> new QuestViews.Member(r.userId(), r.name(), r.rate(), r.measurementStatus(),
+                        r.achieved(), claimers.contains(r.userId())))
                 .toList();
-        return new QuestViews.Progress(header(occurrence, judgement, userId), list, null);
+        return new QuestViews.Progress(header(occurrence, judgement, userId, claimers), list, null);
     }
 
     // ---------------------------------------------------------------- 생성·수정
@@ -251,12 +259,20 @@ public class IslandQuestService {
     // ---------------------------------------------------------------- 정산
 
     /**
-     * 회차 정산 — 주민 누구나 요청하고 서버가 판정한다(QQ04). 보상 전액이 섬 통장으로 간다(결정 Q-1).
+     * 개인 수령 — 달성한 주민이 «받기»를 눌러 자기 몫을 받는다(GROMO-1991). 기획 정본 「일일 퀘스트와 보상」:
+     * «주민 한 명 달성 시 보상받기 모달을 띄우고, 본인이 받기를 누르면 섬에 물고기 10마리를 지급한다»,
+     * «전원 달성 시 대상 주민 수 × 5마리를 즉시 지급한다». 대신 받아 주는 길은 없다 — 주체는 서명된 세션이고
+     * 판정도 그 주체의 행으로만 한다. 적립처는 둘 다 섬 통장이다(결정 Q-1).
      *
      * <p>순서(LLD §5): 같은 키 완료 receipt 는 멱등 계층이 먼저 원 결과를 재생한다 → 섬 잠금 → 회차 잠금 →
-     * 이미 정산(다른 키)·수령 기한 지남이면 409 STATE_CONFLICT → expectedVersion 불일치 409 VERSION_CONFLICT →
-     * 전체 cohort 판정, 미달성·측정 대기면 409 STATE_CONFLICT → claim 행(도메인 유일) → 섬 통장 적립 →
-     * quest.progress.updated·wallet.updated. 어느 단계 실패도 전부 롤백한다.
+     * 수령 기한 지남이면 409 STATE_CONFLICT → 이미 받았으면 409 → expectedVersion 불일치 409
+     * VERSION_CONFLICT → 내 판정이 미달성·측정 대기·분모 밖이면 409 → 내 claim 행(도메인 유일) → 섬 통장 적립 →
+     * (전원 달성이고 아직이면) 보너스 행·적립 → quest.progress.updated·wallet.updated. 어느 단계 실패도 전부
+     * 롤백한다.
+     *
+     * <p>보너스는 <b>수령과 독립</b>이다({@link #settleBonusIfAllAchieved}) — 여기서 함께 적립하는 것은
+     * 「마지막 달성자가 곧바로 받기를 눌렀을 때」의 지연을 없애는 지름길일 뿐, 보너스의 책임자는 매분
+     * finalizer 다. 둘 다 같은 {@link #settleBonusIfDue} 를 회차 잠금 아래서 부르므로 1회가 유지된다.
      */
     @Transactional
     public QuestViews.Claimed claim(UUID islandId, UUID userId, UUID questId, UUID occurrenceId,
@@ -278,35 +294,148 @@ public class IslandQuestService {
                             .filter(o -> o.getQuestId().equals(questId) && o.getIslandId().equals(islandId))
                             .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_OCCURRENCE_NOT_FOUND));
                     Instant now = clock.instant();
-                    if (occurrence.isClaimed() || !now.isBefore(occurrence.claimDeadline())) {
+                    if (!now.isBefore(occurrence.claimDeadline())) {
+                        throw new QuestException(QuestErrorCode.QUEST_STATE_CONFLICT);
+                    }
+                    if (claimers(occurrence).contains(userId)) {
+                        // 「각 주민의 달성 보상은 한 번만」(기획 정본) — 다른 멱등키로 두 번 눌러도 여기서 멈춘다.
+                        // 버전보다 먼저 본다: 두 번 누른 사람에게 「이미 받았다」가 「버전이 낡았다」보다 맞다.
                         throw new QuestException(QuestErrorCode.QUEST_STATE_CONFLICT);
                     }
                     if (expectedVersion != occurrence.getVersion()) {
                         throw new QuestException(QuestErrorCode.QUEST_VERSION_CONFLICT);
                     }
                     IslandQuestJudge.Judgement judgement = judge.judge(occurrence, now);
-                    if (!judgement.claimable()) {
+                    if (judgement.rowOf(userId).filter(r -> r.counted() && r.achieved()).isEmpty()) {
                         throw new QuestException(QuestErrorCode.QUEST_STATE_CONFLICT);
                     }
-                    int amount = judgement.potentialReward();
-                    if (amount <= 0) {
+                    if (occurrence.getRewardPerAchiever() <= 0 || occurrence.getRewardBonusPerMember() <= 0) {
                         // 0마리 성공으로 미설정을 숨기지 않는다(QQ05) — 배포 구성 오류다.
                         throw new IllegalStateException("퀘스트 보상 설정이 0 입니다.");
                     }
-                    String walletKey = "quest:" + occurrence.getId();
-                    IslandQuestClaim claim = claims.saveAndFlush(IslandQuestClaim.builder()
-                            .islandId(islandId).occurrenceId(occurrence.getId())
-                            .kind(IslandQuestClaim.KIND_SETTLEMENT).amount(amount).claimedBy(userId)
-                            .walletIdempotencyKey(walletKey).build());
-                    wallet.creditQuestSettlement(islandId, amount, walletKey);
+                    int amount = occurrence.getRewardPerAchiever();
+                    UUID claimId = credit(occurrence, IslandQuestClaim.KIND_ACHIEVER, amount, userId,
+                            "quest:" + occurrence.getId() + ":" + userId);
+                    // 내 수령으로 마지막 미달성자가 사라진 것은 아니지만(달성은 수령보다 먼저다), 마지막
+                    // 달성자가 곧바로 누른 경우 여기서 이미 전원 달성이라 finalizer 를 기다릴 필요가 없다.
+                    int bonus = settleBonusIfDue(occurrence, judgement, now);
                     EventEnvelope progress = questEvents.progressUpdated(occurrence, userId);
-                    occurrence.markClaimed(now, progress.version());
+                    occurrence.progressed(progress.version());
                     EventEnvelope walletUpdated = walletEvents.changed(islandId, userId, "QUEST_SETTLEMENT");
                     return new PublicCommandResult(200,
-                            tree(new QuestViews.Claimed(claim.getId(), occurrence.getId(), amount, true)),
+                            tree(new QuestViews.Claimed(claimId, occurrence.getId(), amount, bonus, true)),
                             tree(List.of(progress, walletUpdated)));
                 }).value().data();
         return decode(data, QuestViews.Claimed.class);
+    }
+
+    /**
+     * 전원 달성 보너스 finalizer (GROMO-1991) — <b>수령과 독립</b>으로 「대상 주민 수 × 5」를 1회 적립한다.
+     * 스케줄러가 회차마다 자기 트랜잭션으로 부른다({@link com.oneorthree.phone.quest.scheduler.IslandQuestScheduler}).
+     *
+     * <p><b>왜 writer 가 아니라 틱인가</b> — 달성 여부는 저장되지 않고 {@link IslandQuestJudge} 가 매번
+     * 계산하는 파생값이다. 그 입력 다섯 중 <b>하나는 writer 가 아예 없다</b>: 열린 ACTIVE 구간을 가진 주민은
+     * 아무도 아무것도 쓰지 않는 동안 <b>시계가 흐르는 것만으로</b> 목표를 넘는다. 나머지 넷(활성 멤버십 ·
+     * cohort 행 · 활성 계정 · 집중 구간)에 훅을 다 걸어도 그 한 경로가 남으므로, 경로마다 훅을 거는 길은
+     * 완결되지 않는다. 그래서 「전원 달성이 성립하는 순간」의 해상도는 <b>틱 간격(1분)</b>으로 정한다 —
+     * 집중 보상 적립(GROMO-1990)이 「60초마다」로 잡은 해상도와 같다.
+     *
+     * <p><b>cohort 기준 시점은 「적립하는 그 순간」의 분모</b>다 — 회차 시작 시점이 아니다. 결정 Q-3 이
+     * 「탈퇴·강퇴·계정 탈퇴·측정 불가 주민은 분모에서 뺀다」고 정했고 {@link IslandQuestJudge} 가 매 판정마다
+     * 그 교집합을 다시 잡으므로, 화면이 보여 주던 {@code bonusAmount}(같은 판정의 분모)와 실제 적립량이
+     * 어긋나지 않는 유일한 선택이다. 적립 뒤 분모가 늘거나 줄어도 다시 계산하지 않는다(회차당 1회).
+     *
+     * <p>멱등은 기존 세 겹 그대로다 — 회차 행 배타 잠금 · {@code bonus_settled_at} · 지갑 원장 유일키
+     * {@code uq_island_wallet_tx_idem}(키 {@code quest-bonus:<회차>}). 새 장치는 없다.
+     *
+     * <p>잠금 순서는 수령과 같다(LLD §5 의 꼬리): 섬 → 회차 → 섬 통장. 사용자·receipt 를 잡지 않을 뿐이라
+     * 수령·강퇴와 거꾸로 기다리지 않는다.
+     *
+     * <p><b>마감 경계</b>(codex 2R): 정산은 수령 마감보다 한 틱 늦게 닫히고
+     * ({@link IslandQuestOccurrence#bonusSettleDeadline()}), 마감을 넘긴 그 틱은 {@code now} 가 아니라
+     * <b>마감 시각</b>으로 판정한다. 마지막 틱과 마감 사이에 미달성 주민이 빠져 성립한 전원 달성을
+     * 놓치지 않으면서, 마감 뒤로 흐른 시계가 새 달성을 만들지는 못하게 하는 경계다.
+     *
+     * @return 이번에 적립한 보너스(조건 미달·이미 적립·정산 마감 지남이면 0)
+     */
+    @Transactional
+    public int settleBonusIfAllAchieved(UUID occurrenceId) {
+        if (!settlementEnabled) {
+            return 0;
+        }
+        // 엔티티가 아니라 섬 id 만 읽는다 — findById 로 먼저 읽으면 그 인스턴스가 영속성 컨텍스트에 남아
+        // 아래 findByIdForUpdate 가 «잠금 전» 스냅샷을 돌려주고, 그 사이 수령 TX 가 적립한 보너스를
+        // 못 본 채 두 번째 행을 쓰게 된다.
+        UUID islandId = occurrences.findIslandIdById(occurrenceId).orElse(null);
+        if (islandId == null) {
+            return 0;
+        }
+        membershipLocks.lockGroup(islandId);
+        if (!isAlive(groups.getGroup(islandId))) {
+            return 0;
+        }
+        IslandQuestOccurrence occurrence = occurrences.findByIdForUpdate(occurrenceId).orElse(null);
+        if (occurrence == null || occurrence.isBonusSettled()) {
+            return 0;
+        }
+        Instant now = clock.instant();
+        Instant deadline = occurrence.claimDeadline();
+        if (now.isAfter(occurrence.bonusSettleDeadline())) {
+            // 조회·수령은 마감에 닫히지만(LLD §6 과거 없음) 정산은 한 틱 더 연다 — 마지막 틱과 마감 사이에
+            // 성립한 전원 달성을 볼 틱이 그것뿐이기 때문이다(근거는 bonusSettleDeadline javadoc).
+            return 0;
+        }
+        // 판정 시각은 마감을 넘지 않는다: 마감 뒤 틱은 「마감 직전 상태를 뒤늦게 보는 것」이지
+        // 마감 뒤로 흐른 시계로 새 달성을 만드는 것이 아니다(열린 집중 구간이 마감 뒤까지 자라지 않는다).
+        // 적립 시각(bonus_settled_at)은 실제로 적립한 now 다 — 판정 시각과 다른 축이다.
+        Instant judgedAt = now.isBefore(deadline) ? now : deadline;
+        int bonus = settleBonusIfDue(occurrence, judge.judge(occurrence, judgedAt), now);
+        if (bonus == 0) {
+            return 0;
+        }
+        EventEnvelope progress = questEvents.progressUpdated(occurrence, SYSTEM_ACTOR);
+        occurrence.progressed(progress.version());
+        walletEvents.changed(islandId, SYSTEM_ACTOR, "QUEST_SETTLEMENT");
+        return bonus;
+    }
+
+    /**
+     * 전원 달성 보너스 적립 — 회차당 1회다. 호출측이 <b>회차 행을 배타 잠근</b> 상태여야 하고, 판정은
+     * 호출측이 같은 잠금 아래서 만든 것을 받는다(보너스 총액이 화면의 {@code bonusAmount} 와 같아야 한다).
+     *
+     * @return 이번에 적립한 보너스(전원 달성이 아니거나 이미 적립됐으면 0)
+     */
+    private int settleBonusIfDue(IslandQuestOccurrence occurrence, IslandQuestJudge.Judgement judgement,
+                                 Instant now) {
+        if (occurrence.isBonusSettled() || !judgement.allAchieved()) {
+            return 0;
+        }
+        if (occurrence.getRewardBonusPerMember() <= 0) {
+            // 0마리 성공으로 미설정을 숨기지 않는다(QQ05) — 배포 구성 오류다.
+            throw new IllegalStateException("퀘스트 보상 설정이 0 입니다.");
+        }
+        int bonus = judgement.bonusReward();
+        credit(occurrence, IslandQuestClaim.KIND_ALL_ACHIEVED_BONUS, bonus, null,
+                "quest-bonus:" + occurrence.getId());
+        occurrence.settleBonus(now);
+        return bonus;
+    }
+
+    /** 정산 한 건 — claim 행(도메인 유일)과 섬 통장 적립(원장 멱등키)을 같은 키로 묶는다. */
+    private UUID credit(IslandQuestOccurrence occurrence, String kind, int amount, UUID claimedBy,
+                        String walletKey) {
+        IslandQuestClaim claim = claims.saveAndFlush(IslandQuestClaim.builder()
+                .islandId(occurrence.getIslandId()).occurrenceId(occurrence.getId())
+                .kind(kind).amount(amount).claimedBy(claimedBy)
+                .walletIdempotencyKey(walletKey).build());
+        wallet.creditQuestSettlement(occurrence.getIslandId(), amount, walletKey);
+        return claim.getId();
+    }
+
+    /** 이 회차에서 개인 몫을 이미 받은 주민들 — 섬 id 를 함께 넘겨 유일 인덱스 선두 컬럼을 채운다. */
+    private List<UUID> claimers(IslandQuestOccurrence occurrence) {
+        return claims.findClaimerIds(occurrence.getIslandId(), occurrence.getId(),
+                IslandQuestClaim.KIND_ACHIEVER);
     }
 
     // ---------------------------------------------------------------- 계정 탈퇴
@@ -358,26 +487,36 @@ public class IslandQuestService {
                 .version(0).build());
         occurrences.snapshotCohort(occurrence.getId(), quest.getIslandId());
         EventEnvelope opened = questEvents.progressUpdated(occurrence, actorId);
-        occurrence.opened(opened.version());
+        occurrence.progressed(opened.version());
         return opened;
     }
 
     // ---------------------------------------------------------------- 표현
 
+    /**
+     * 회차 헤더 — 수령 축은 요청한 주민 기준이다(GROMO-1991). cohort 밖(방문자·뒤늦은 가입자)이면
+     * {@code myRate} 가 null 이고 수령도 못 한다.
+     */
     private QuestViews.Item header(IslandQuestOccurrence occurrence, IslandQuestJudge.Judgement judgement,
-                                   UUID viewerId) {
-        Integer myRate = judgement.rows().stream().filter(r -> r.userId().equals(viewerId))
-                .map(IslandQuestJudge.Row::rate).findFirst().orElse(null);
-        int amount = occurrence.isClaimed()
+                                   UUID viewerId, List<UUID> claimers) {
+        Optional<IslandQuestJudge.Row> mine = judgement.rowOf(viewerId);
+        boolean claimed = claimers.contains(viewerId);
+        boolean claimable = !claimed && mine.filter(r -> r.counted() && r.achieved()).isPresent();
+        String blocked = claimed || claimable ? null
+                : mine.filter(IslandQuestJudge.Row::pending).isPresent()
+                        ? QuestViews.BLOCKED_MEASUREMENT_PENDING
+                        : QuestViews.BLOCKED_NOT_ACHIEVED;
+        int bonus = occurrence.isBonusSettled()
                 ? claims.findByIslandIdAndOccurrenceIdAndKind(occurrence.getIslandId(), occurrence.getId(),
-                        IslandQuestClaim.KIND_SETTLEMENT).map(IslandQuestClaim::getAmount).orElse(0)
-                : judgement.potentialReward();
+                        IslandQuestClaim.KIND_ALL_ACHIEVED_BONUS).map(IslandQuestClaim::getAmount).orElse(0)
+                : judgement.bonusReward();
         return new QuestViews.Item(occurrence.getQuestId(), occurrence.getId(), occurrence.getTitle(),
                 occurrence.getType().wire(), hhmm(occurrence.getWindowStart()), hhmm(occurrence.getWindowEnd()),
                 QuestViews.TIMEZONE, occurrence.getOccurrenceDate().toString(), occurrence.getTargetMinutes(),
-                myRate, new QuestViews.Reward(QuestViews.CURRENCY, amount),
-                occurrence.isClaimed() ? QuestViews.STATUS_CLAIMED : QuestViews.STATUS_IN_PROGRESS,
-                judgement.claimable(), judgement.blockedReason(), occurrence.isClaimed(), occurrence.getVersion());
+                mine.map(IslandQuestJudge.Row::rate).orElse(null),
+                new QuestViews.Reward(QuestViews.CURRENCY, occurrence.getRewardPerAchiever()),
+                claimed ? QuestViews.STATUS_CLAIMED : QuestViews.STATUS_IN_PROGRESS,
+                claimable, blocked, claimed, bonus, occurrence.isBonusSettled(), occurrence.getVersion());
     }
 
     private static String hhmm(LocalTime time) {
