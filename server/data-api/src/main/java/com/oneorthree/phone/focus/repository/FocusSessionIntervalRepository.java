@@ -28,15 +28,28 @@ public interface FocusSessionIntervalRepository extends JpaRepository<FocusSessi
      * 레거시 완료 업로드의 중복 적립 검사(GROMO-1924, 선행 조건 #3) — {@code [start, end)} 블록이 이 사용자의
      * v0.3 세션 ACTIVE 구간과 겹치는가. 열린 구간은 끝이 없는 것으로 본다(진행 중이라 끝을 모른다).
      *
+     * <p>겹침을 막는 근거는 <b>둘</b>이다(GROMO-1990):
+     * <ul>
+     *   <li>{@code lifecycles} — 상태만으로 적립이 확실한 것들(진행 중이거나 이미 완료 정산했다)</li>
+     *   <li><b>실제로 받은 적이 있는가</b>({@code focus_reward_accruals} 행 존재) — 분당 적립 전환으로
+     *       <b>끝난 상태와 적립 여부가 더 이상 같은 말이 아니다</b>. 진행 중에 이미 물고기를 받은 세션이
+     *       나중에 {@code MEMBERSHIP_LOST}·{@code ABANDONED} 로 끝날 수 있고, 그 구간을 구 앱이 다시
+     *       올리면 같은 시간이 코인·일 집계로 한 번 더 들어간다</li>
+     * </ul>
+     * 상태 집합을 넓히지 않고 이 조건을 더하는 것은 의도다 — <b>받은 적 없는</b> 세션의 겹치는 업로드는
+     * 종전대로 통과해야 한다(그 시간은 아직 아무 데서도 적립되지 않았다). 앞으로 종료 상태가 늘어도
+     * 「받았으면 막는다」는 그대로 성립한다.
+     *
      * @param userId     업로드 주체
-     * @param lifecycles 이미 적립됐거나 적립될 세션의 lifecycle(ACTIVE·PAUSED·COMPLETED). 정산 없이 끝난
-     *                   세션(ABANDONED·MEMBERSHIP_LOST)은 빠진다 — 적립한 적이 없으니 이중 적립이 아니다
+     * @param lifecycles 상태만으로 적립이 확실한 lifecycle(ACTIVE·PAUSED·COMPLETED)
      * @param start      블록 시작(포함)
      * @param end        블록 끝(제외)
      * @return 한 순간이라도 겹치면 true
      */
     @Query("SELECT COUNT(i) > 0 FROM FocusSessionInterval i, FocusSessionDetail d "
-            + "WHERE d.sessionId = i.sessionId AND d.userId = :userId AND d.lifecycle IN :lifecycles "
+            + "WHERE d.sessionId = i.sessionId AND d.userId = :userId "
+            + "AND (d.lifecycle IN :lifecycles OR EXISTS ("
+            + "SELECT 1 FROM FocusRewardAccrual a WHERE a.sessionId = d.sessionId)) "
             + "AND i.kind = com.oneorthree.phone.focus.repository.domain.FocusIntervalKind.ACTIVE "
             + "AND i.startedAt < :end AND (i.endedAt IS NULL OR i.endedAt > :start)")
     boolean existsActiveOverlap(@Param("userId") UUID userId,

@@ -31,6 +31,8 @@ import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -292,6 +294,56 @@ class FocusSessionActivationIntegrationTest {
                 + "and started_at=?", user, ts(t0.minusSeconds(600))))
                 .as("겹친 블록은 완료 마커로 저장하지 않는다").isZero();
         assertThat(earlier.awardedCoins()).as("겹치지 않는 오프라인 업로드는 유지한다").isPositive();
+    }
+
+    @ParameterizedTest(name = "{0} 로 끝난 세션")
+    @ValueSource(strings = {"MEMBERSHIP_LOST", "ABANDONED"})
+    @DisplayName("이미 적립받은 뒤 강퇴·포기로 끝난 세션의 구간도 구 앱 업로드로 다시 적립되지 않는다")
+    void alreadyPaidSessionsBlockTheLegacyUploadEvenAfterAForcedEnd(String ending) {
+        UUID host = newUser();
+        UUID island = islands.create(host, new CreateIslandCommandRequest("기지급섬", null, false),
+                UUID.randomUUID()).id();
+        UUID user = newUser();
+        joinAndMoveTo(user, island);
+        FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(7200), 300);
+        tick();
+        assertThat(islandBalance(island)).as("강제 종료 «전» 에 이미 5마리를 받았다").isEqualTo(5);
+        endAs(ending, host, user, island, session.id());
+
+        Instant block = pastUtcMidnight().plusSeconds(7200);
+        FocusSessionSaveResponse uploaded = legacyFocus.saveFocusSession(user,
+                new FocusSessionRequest(null, block, block.plusSeconds(300), 0));
+
+        assertThat(uploaded.awardedCoins()).as("같은 시간이 코인으로 한 번 더 들어가면 안 된다").isZero();
+        assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?",
+                user)).as("일별 통계도 다시 늘지 않는다").isZero();
+        assertThat(count("select count(*) from focus_sessions where user_id=? and status='COMPLETED' "
+                + "and started_at=?", user, ts(block))).as("완료 마커도 만들지 않는다").isZero();
+    }
+
+    @ParameterizedTest(name = "{0} 로 끝난 세션")
+    @ValueSource(strings = {"MEMBERSHIP_LOST", "ABANDONED"})
+    @DisplayName("한 마리도 못 받고 끝난 세션은 종전대로 — 겹치는 구 앱 업로드가 그대로 적립된다(막은 게 아니라 좁혔다)")
+    void sessionsThatWereNeverPaidStillLetTheLegacyUploadThrough(String ending) {
+        UUID host = newUser();
+        UUID island = islands.create(host, new CreateIslandCommandRequest("무적립섬", null, false),
+                UUID.randomUUID()).id();
+        UUID user = newUser();
+        joinAndMoveTo(user, island);
+        // 59초 — 1마리가 안 차서 틱이 아무것도 주지 않는다.
+        FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(7200), 59);
+        tick();
+        assertThat(islandBalance(island)).as("받은 적이 없다").isZero();
+        endAs(ending, host, user, island, session.id());
+
+        Instant block = pastUtcMidnight().plusSeconds(7200);
+        FocusSessionSaveResponse uploaded = legacyFocus.saveFocusSession(user,
+                new FocusSessionRequest(null, block, block.plusSeconds(1800), 0));
+
+        assertThat(uploaded.awardedCoins())
+                .as("그 시간은 아직 아무 데서도 적립되지 않았다 — 종전 동작 그대로 적립한다").isPositive();
+        assertThat(count("select count(*) from focus_sessions where user_id=? and status='COMPLETED' "
+                + "and started_at=?", user, ts(block))).isEqualTo(1);
     }
 
     // ---------------------------------------------------------------- #4 리그 라이브 랭킹
@@ -636,6 +688,21 @@ class FocusSessionActivationIntegrationTest {
                         + "where session_id=? and ordinal=1",
                 ts(from), ts(from.plusSeconds(seconds)), started.id());
         return resumed;
+    }
+
+    /**
+     * 정산 없이 끝나는 두 경로 — 강퇴(FR-D03)와 기본 마커 외부 종료(레거시 start 가 닫은 뒤의 정리).
+     * 둘 다 {@code finish} 를 거치지 않아 정산 행이 없다.
+     */
+    void endAs(String ending, UUID host, UUID user, UUID islandId, UUID sessionId) {
+        if ("MEMBERSHIP_LOST".equals(ending)) {
+            groupMembers.kickMember(islandId, user, host);
+        } else {
+            // 레거시 start 가 하는 일 그대로 — 기본 마커를 바깥에서 닫으면 다음 current 가 ABANDONED 로 내린다.
+            jdbc.update("update focus_sessions set ended_at=? where id=?", ts(Instant.now()), sessionId);
+            focus.current(user);
+        }
+        assertThat(detailRow(sessionId).get("lifecycle")).isEqualTo(ending);
     }
 
     /** 지난 UTC 자정 — 어제 00:00Z 다. 언제 돌려도 과거라 경계 픽스처가 미래로 새지 않는다. */

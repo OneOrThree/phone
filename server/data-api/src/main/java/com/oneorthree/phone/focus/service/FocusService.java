@@ -136,10 +136,16 @@ public class FocusService {
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
 
     /**
-     * 레거시 업로드와 겹치면 안 되는 v0.3 세션 — 이미 적립됐거나(COMPLETED) 적립될(진행) 세션이다.
-     * 정산 없이 끝난 ABANDONED·MEMBERSHIP_LOST 는 적립한 적이 없어 겹쳐도 이중 적립이 아니다.
+     * <b>상태만으로</b> 적립이 확실한 v0.3 세션 — 이미 정산했거나(COMPLETED) 적립 중인(진행) 세션이다.
+     *
+     * <p>종전 이름({@code V03_CREDITED})은 「적립된 세션 = 이 상태들」을 전제했고, 정산 없이 끝난
+     * ABANDONED·MEMBERSHIP_LOST 는 받은 적이 없어 빠져 있었다. <b>분당 적립(GROMO-1990)이 그 전제를
+     * 깼다</b> — 진행 중에 이미 받은 세션이 그 두 상태로 끝날 수 있다. 그래서 「받았는가」는 상태가 아니라
+     * 적립 원장으로 판정하고({@link FocusSessionIntervalRepository#existsActiveOverlap} 의 두 번째 근거),
+     * 이 집합은 「상태만 보고도 확실한 쪽」으로 이름과 뜻을 좁혔다. 받은 적 없는 세션의 겹치는 업로드는
+     * 종전대로 통과한다.
      */
-    private static final List<FocusSessionLifecycle> V03_CREDITED =
+    private static final List<FocusSessionLifecycle> V03_ALWAYS_CREDITED =
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED, FocusSessionLifecycle.COMPLETED);
 
     private final UserFocusTagRepository userFocusTagRepository;
@@ -481,12 +487,13 @@ public class FocusService {
                         .map(marker -> marker.getStatus() == FocusSessionStatus.COMPLETED)
                         .orElse(false);
         // GROMO-1924 선행 조건 #3: 구 앱의 오프라인 업로드가 v0.3 서버 구간과 겹치면 그 시간은 이미 서버가
-        // 세고 있다(진행) 또는 셌다(완료). 따로 COMPLETED 마커로 적립하면 같은 시간이 두 번 들어간다.
+        // 세고 있다(진행) 또는 셌다(완료·또는 분당 적립으로 이미 받은 뒤 강퇴·포기로 끝난 세션). 따로 COMPLETED 마커로 적립하면 같은 시간이 두 번 들어간다.
         // 중복 재업로드와 같이 «저장·통계·지급 없이 성공»으로 답한다 — 오류로 돌려주면 구 앱 대기열이
         // 같은 블록을 영원히 재전송한다(구 앱은 새 오류를 모른다). 사용자 공유 락 아래라 v0.3 start(배타)와
         // 직렬화된다.
+        // 상태로 확실한 세션 + «실제로 받은 적 있는» 세션(GROMO-1990 — 적립 원장) 둘 다를 본다.
         boolean overlapsServerSession = focusSessionIntervalRepository.existsActiveOverlap(
-                userId, V03_CREDITED, body.getStartedAt(), body.getEndedAt());
+                userId, V03_ALWAYS_CREDITED, body.getStartedAt(), body.getEndedAt());
         boolean duplicated = markerAlreadyCompleted
                 || overlapsServerSession
                 || focusSessionRepository.existsByUserAndStartedAtAndEndedAtAndStatus(
