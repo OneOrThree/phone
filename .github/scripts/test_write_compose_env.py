@@ -296,7 +296,7 @@ class WriteComposeEnvTest(unittest.TestCase):
                 values = secret()
                 if present:
                     values.update(SVC_TOKEN_DATA_TO_REALTIME="data-rt", SVC_TOKEN_BIZ_TO_REALTIME="biz-rt",
-                                  FOCUS_SESSION_START_ENABLED=True)
+                                  FOCUS_SESSION_START_ENABLED=True, FOCUS_REWARD_ACCRUAL_ENABLED=True)
                 subprocess.run([sys.executable, str(SCRIPT), "--output", str(env_file), "--app-image",
                                 "example/app@sha256:abc"], input=json.dumps(values), text=True, check=True)
                 configured = subprocess.run(
@@ -308,6 +308,8 @@ class WriteComposeEnvTest(unittest.TestCase):
                 self.assertEqual(realtime["SVC_TOKEN_DATA_TO_REALTIME"], "data-rt" if present else "")
                 self.assertEqual(realtime["SVC_TOKEN_BIZ_TO_REALTIME"], "biz-rt" if present else "")
                 self.assertEqual(app["FOCUS_SESSION_START_ENABLED"], "True" if present else "false")
+                # 스위치를 만들었는데 컨테이너까지 못 오면 만들지 않은 것과 같다 (GROMO-1990).
+                self.assertEqual(app["FOCUS_REWARD_ACCRUAL_ENABLED"], "True" if present else "false")
                 self.assertNotIn("SVC_TOKEN_DATA_TO_REALTIME", app, "legacy Data 는 satellites 프로파일이 없어 읽지 않는다")
                 for service in services.values():
                     self.assertEqual(service["logging"]["driver"], "json-file")

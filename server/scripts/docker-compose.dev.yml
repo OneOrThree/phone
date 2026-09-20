@@ -45,6 +45,10 @@ services:
       FOCUS_PRESENCE_ENABLED: ${FOCUS_PRESENCE_ENABLED:-false}
       # v0.3 집중 세션 시작 게이트 (GROMO-1924). 끄면 새 start 만 503 — 켜기 전 조건은 FocusSessionStartGate javadoc.
       FOCUS_SESSION_START_ENABLED: ${FOCUS_SESSION_START_ENABLED:-false}
+      # 집중 보상 분당 적립 크론 (GROMO-1990). 끄면 적립을 finish 가 한 번에 확정한다 — 정상 종료는 제값을
+      # 받지만 «finish 를 안 거치는» 강퇴·포기 세션은 그 시점까지의 몫을 못 받는다(그 경로는 크론만 메운다).
+      # 배포가 한 버전으로 수렴한 뒤 켠다 — 혼합 버전 창의 이중 지급은 FocusRewardAccrualGate javadoc.
+      FOCUS_REWARD_ACCRUAL_ENABLED: ${FOCUS_REWARD_ACCRUAL_ENABLED:-false}
       REDIS_HOST: redis
     depends_on:
       db:
