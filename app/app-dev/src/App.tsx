@@ -24,6 +24,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
+import { screenTime } from '@/services/screenTime';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -361,6 +362,14 @@ function Gromo() {
       if (v) dispatch({ type: 'SETTING', key: 'reduceMotion', value: true });
     });
   }, []);
+  useEffect(() => {
+    if (!loaded || Platform.OS !== 'ios') return;
+    if (state.session?.status === 'active') {
+      screenTime.startFocusShield(state.session.subject).catch(() => {});
+    } else {
+      screenTime.stopFocusShield().catch(() => {});
+    }
+  }, [loaded, state.session?.id, state.session?.status, state.session?.subject]);
   useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();
