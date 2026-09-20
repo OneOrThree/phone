@@ -14,16 +14,20 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 
 /**
- * NicknameSearchStrategy 단위 테스트 (GROMO-710).
- * 닉네임 검색 결과의 티어를 UserTierLookup 으로 배치 도출한다.
+ * NicknameSearchStrategy 단위 테스트.
+ *
+ * <p>여기가 보는 것은 두 가지다: ① 전략이 «전체 일치» 조회 하나만 부른다(GROMO-1996)
+ * ② 결과의 티어를 {@code UserTierLookup} 으로 도출한다(GROMO-710). 조회 자체의 대소문자·탈퇴자
+ * 판정은 실제 DB 가 필요해 {@code FriendshipRepositoryTest} 가 맡는다.
  */
 @ExtendWith(MockitoExtension.class)
 class NicknameSearchStrategyTest {
@@ -45,18 +49,35 @@ class NicknameSearchStrategyTest {
     @DisplayName("검색 결과 — 아레나 소속과 무관하게 User 티어를 채움 (GROMO-814)")
     void search_restoresTierLevel_fromLeagueLookup() {
         UUID meId = UUID.randomUUID();
-        UUID hasTierId = UUID.randomUUID();
-        UUID noTierId = UUID.randomUUID();
-        given(userRepository.searchByNicknameTrgm(eq("f"), anyInt()))
-                .willReturn(List.of(user(hasTierId, "foo"), user(noTierId, "far")));
-        given(userTierLookup.tierLevelsByUserId(List.of(hasTierId, noTierId)))
-                .willReturn(Map.of(hasTierId, 5, noTierId, 1));
+        UUID foundId = UUID.randomUUID();
+        given(userRepository.findActiveByNicknameIgnoreCase("foo"))
+                .willReturn(Optional.of(user(foundId, "foo")));
+        given(userTierLookup.tierLevelsByUserId(List.of(foundId))).willReturn(Map.of(foundId, 5));
 
-        List<FriendSearchResult> results = strategy.search(meId, "f");
+        List<FriendSearchResult> results = strategy.search(meId, "foo");
 
-        assertThat(results).filteredOn(r -> r.getUserId().equals(hasTierId))
-                .extracting(FriendSearchResult::getTierLevel).containsExactly(5);
-        assertThat(results).filteredOn(r -> r.getUserId().equals(noTierId))
-                .extracting(FriendSearchResult::getTierLevel).containsExactly(1);
+        assertThat(results).singleElement()
+                .extracting(FriendSearchResult::getUserId, FriendSearchResult::getTierLevel)
+                .containsExactly(foundId, 5);
+    }
+
+    @Test
+    @DisplayName("검색어의 앞뒤 공백은 떼고 찾는다 — 저장이 trim 이라 공백은 의미가 없다")
+    void search_stripsQueryBeforeLookup() {
+        UUID foundId = UUID.randomUUID();
+        given(userRepository.findActiveByNicknameIgnoreCase("foo"))
+                .willReturn(Optional.of(user(foundId, "foo")));
+        given(userTierLookup.tierLevelsByUserId(List.of(foundId))).willReturn(Map.of());
+
+        assertThat(strategy.search(UUID.randomUUID(), "  foo  ")).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("일치하는 유저가 없으면 빈 목록 — 티어 조회도 나가지 않는다")
+    void search_noMatch_returnsEmptyWithoutTierLookup() {
+        given(userRepository.findActiveByNicknameIgnoreCase("없는닉")).willReturn(Optional.empty());
+
+        assertThat(strategy.search(UUID.randomUUID(), "없는닉")).isEmpty();
+        verify(userTierLookup, never()).tierLevelsByUserId(org.mockito.ArgumentMatchers.anyList());
     }
 }

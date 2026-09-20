@@ -186,7 +186,7 @@ public class UserService {
      * 형식 위반(trim 후 2~10자 밖·빈문자열·null)은 예외 없이 false 로 답한다 — 앱이 로컬 형식검사를
      * 선행해 문구를 구분하고, 서버 판정은 중복 여부의 최종 답이라는 계약(항상 200).
      * 본인 제외(AndIdNot) 조회라 자기 자신의 현재 닉네임은 true — 프로필 편집에서 그대로 저장이
-     * "사용 불가"로 뜨지 않는다. 탈퇴자는 nickname=null 로 즉시 해방되므로(withdraw 의 PII 파기)
+     * "사용 불가"로 뜨지 않고, 자기 닉네임의 «대소문자만» 바꾸는 변경도 막히지 않는다 (GROMO-1996). 탈퇴자는 nickname=null 로 즉시 해방되므로(withdraw 의 PII 파기)
      * 별도 제외 조건이 필요 없고, nickname = ? 동등 비교는 null 행과 매치되지 않아 안전하다.
      *
      * @param userId      판정 기준 유저(본인) ID
@@ -203,7 +203,9 @@ public class UserService {
         if (bannedWords.contains(nickname)) {
             return false;
         }
-        return !userRepository.existsByNicknameAndIdNot(nickname, userId);
+        // 저장 경로와 «같은» 중복 판정기여야 한다 (GROMO-1996) — 여기만 정확 일치로 두면 alice 가 있는데
+        // Alice 를 「사용 가능」이라고 답한 뒤 저장에서 409 가 난다. 이 메서드의 존재 이유가 그 불일치의 제거다.
+        return !userRepository.existsByNicknameIgnoreCaseAndIdNot(nickname, userId);
     }
 
     private static boolean hasValidNicknameLength(String trimmedNickname) {
@@ -215,8 +217,8 @@ public class UserService {
      * 닉네임 변경의 단일 저장 경로 (GROMO-1215) — setup(POST)·update(PATCH)가 함께 쓴다.
      * ① 형식(trim 후 2~10자) 위반 → 400 NICKNAME_INVALID
      * ② 금칙어 → 400 BANNED_WORD (GROMO-1986). 중복 검사보다 앞이라 판정 순서가 형식 → 금칙어 → 중복이다
-     * ③ 본인 제외 사전 중복 검사 → 409 NICKNAME_DUPLICATE (GROMO-584)
-     * ④ 사전 검사와 동시 저장이 겹친 TOCTOU 레이스 — uq_users_nickname 유니크 제약 위반을
+     * ③ 본인 제외 사전 중복 검사 («대소문자 무시», GROMO-1996) → 409 NICKNAME_DUPLICATE (GROMO-584)
+     * ④ 사전 검사와 동시 저장이 겹친 TOCTOU 레이스 — uq_users_nickname·uq_users_nickname_lower 유니크 제약 위반을
      * flush 시점에 잡아 같은 409 NICKNAME_DUPLICATE 로 강하한다(GroupChallengeService 의
      * saveAndFlush catch 선례). 커밋 시점까지 미루면 전역 폴백(DATA_INTEGRITY_VIOLATION)으로
      * 새어 클라이언트가 원인을 구분할 수 없다.
@@ -239,7 +241,11 @@ public class UserService {
         // 금칙어는 중복 검사보다 «앞» 이다 — 뒤에 두면 이미 쓰이는 금칙어 닉네임에 409 가 먼저 나가
         // 앱이 「다른 이름을 쓰세요」로 안내하고, 같은 욕설의 다른 변형을 계속 시도하게 된다.
         bannedWords.requireClean(nickname);
-        if (userRepository.existsByNicknameAndIdNot(nickname, user.getId())) {
+        // 대소문자를 «구분하지 않고» 센다 (GROMO-1996, policy-2026-09-14). 정확 일치만 보면 Alice 와
+        // alice 가 둘 다 가입되고, 그 둘이 대소문자 무시 친구 검색 한 질의에 함께 잡혀 정책의
+        // 「정확히 일치할 때만」이 깨진다. 최종 방어선은 uq_users_nickname_lower(V86) 다 — 아래 flush 가
+        // 잡는 유니크 위반이 이제 그 인덱스에서도 난다.
+        if (userRepository.existsByNicknameIgnoreCaseAndIdNot(nickname, user.getId())) {
             throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
         }
         user.setNickname(nickname);

@@ -8,6 +8,9 @@ import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.internal.dto.LetterSendRequest;
+import com.oneorthree.phone.internal.service.InternalLetterService;
+import com.oneorthree.phone.letter.exception.LetterErrorCode;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -26,22 +29,34 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 편지 내부 표면 3종 (GROMO-1933)을 <b>실제 Flyway PostgreSQL + InternalAuthFilter</b> 위에서 검증한다.
+ * 편지 내부 표면 4종 (GROMO-1933 발송·목록·상세 + GROMO-2002 닫기)을 <b>실제 Flyway PostgreSQL +
+ * InternalAuthFilter</b> 위에서 검증한다.
  *
  * <p>여기서만 확인되는 것: ① V61 의 {@code letters} 스키마(varchar(500)·FK·부분 인덱스)가 실제로
  * 서는가 ② 허용목록·{@code X-User-Id} 대조가 실제 배선으로 도는가 ③ 우체통 게이트가 「받은함·상세만」
- * 걸리는가(보낸함·발송은 열림) ④ 수신자 첫 열람의 원자적 읽음 표시와 열람 비삭제 ⑤ 친구 삭제 뒤에도
- * 편지가 남는가(결정 3 대기 = 보존 상태 그대로).
+ * 걸리는가(보낸함·발송은 열림) ④ 수신자 첫 열람의 원자적 읽음 표시와 «열람만으로는» 삭제되지 않음
+ * ⑤ 닫기가 «양쪽»에서 편지를 지우는가 ⑥ 친구 삭제가 아직 확인하지 않은 편지를 지우는가
+ * (policy-2026-09-14, GROMO-2002).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -59,12 +74,15 @@ class InternalLetterIntegrationTest {
         registry.add("internal.api.callers.business.allow[0]", () -> "POST /internal/users/*/letters");
         registry.add("internal.api.callers.business.allow[1]", () -> "GET /internal/users/*/letters");
         registry.add("internal.api.callers.business.allow[2]", () -> "GET /internal/users/*/letters/*");
+        registry.add("internal.api.callers.business.allow[3]", () -> "DELETE /internal/users/*/letters/*");
     }
 
     @Autowired
     MockMvc mvc;
     @Autowired
     FriendService friendService;
+    @Autowired
+    InternalLetterService letterService;
     @Autowired
     AuthService auth;
     @Autowired
@@ -292,25 +310,139 @@ class InternalLetterIntegrationTest {
     // ---------------------------------------------------------------- 4. 친구 삭제와의 관계
 
     @Test
-    @DisplayName("친구를 삭제해도 편지는 지워지지 않는다 — 결정 3 이 «대기»인 상태 그대로다")
-    void friendDeletionLeavesLettersUntouched() throws Exception {
+    @DisplayName("친구를 삭제하면 아직 «확인하지 않은» 편지가 지워진다 (GROMO-2002, policy-2026-09-14)")
+    void friendDeletionRemovesUnreadLetters() throws Exception {
         UUID a = newUser();
         UUID b = newUser();
         befriend(a, b);
         joinIsland(a);
-        String letterId = send(b, a, "남겨줘");
+        joinIsland(b);
+        String unread = send(b, a, "아직 안 읽음");
+        String readAlready = send(b, a, "이미 읽음");
+        as(a, get(path(a, "/letters/" + readAlready))).andExpect(status().isOk());   // readAt 이 박힌다
 
         friendService.deleteFriend(a, b);
-        assertThat(countLetters()).isEqualTo(1);
 
+        // 행은 남고 deleted_at 만 찍힌다 — 편지는 「주고받은 사실」이라 하드 삭제하지 않는다(V61 FK 논증).
+        assertThat(countLetters()).isEqualTo(2);
+        assertThat(jdbc.queryForObject("select count(*) from letters where deleted_at is not null",
+                Integer.class)).isEqualTo(1);
+
+        // 미확인 편지는 양쪽에서 사라지고, 이미 읽은 편지는 남는다 — 「아직 확인하지 않은」이 정책의 범위다.
+        as(a, get(path(a, "/letters/" + unread)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LETTER_NOT_FOUND"));
+        as(b, get(path(b, "/letters/" + unread)))
+                .andExpect(status().isNotFound());
+        as(a, get(path(a, "/letters/" + readAlready)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("이미 읽음"));
         as(a, get(path(a, "/letters")).param("type", "received"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content[0].id").value(letterId));
-        as(a, get(path(a, "/letters/" + letterId)))
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(readAlready));
+    }
+
+    @Test
+    @DisplayName("경합 — 친구 삭제와 편지 발송이 동시에 와도 끊긴 관계 위에 미확인 편지가 남지 않는다 (codex 리뷰 P1)")
+    void concurrentDeleteAndSendNeverLeaveAnUnreadLetterOnADeletedFriendship() throws Exception {
+        // 경합은 확률적이라 한 번으로는 못 잡는다. 관계 행 락이 없으면 이 루프 안에서 「관계는 끊겼는데
+        // 살아 있는 미확인 편지가 남은」 상태가 나온다 — 발송이 락 없는 관계 확인을 통과한 뒤 삭제가
+        // 정리까지 커밋하고, 그 «다음에» letters 행이 들어가기 때문이다.
+        for (int attempt = 0; attempt < 20; attempt++) {
+            jdbc.update("delete from letters");
+            UUID a = newUser();
+            UUID b = newUser();
+            befriend(a, b);
+
+            List<Throwable> failures = race(
+                    () -> friendService.deleteFriend(a, b),
+                    () -> letterService.send(b, new LetterSendRequest(a, "경합")));
+
+            // 삭제는 지지 않는다 — 발송이 먼저 커밋돼도 관계는 끊긴다.
+            assertThat(failures).as("삭제까지 실패하면 안 된다").hasSizeLessThan(2);
+            assertThat(jdbc.queryForObject(
+                    "select deleted_at is not null from friendships where from_user_id = ?", Boolean.class, a))
+                    .as("attempt %d — 관계가 끊기지 않았다", attempt).isTrue();
+
+            // 계약(LLD §결정 3 B): 끊긴 관계 위에 «살아 있는 미확인» 편지는 없다. 허용되는 결말은 둘뿐이다.
+            assertThat(countAliveUnreadLetters())
+                    .as("attempt %d — 관계가 끊긴 뒤 미확인 편지가 살아 남았다", attempt).isZero();
+            if (failures.isEmpty()) {
+                // ① 발송이 먼저 커밋됐다 — 편지는 꽂혔지만 뒤따른 정리가 소프트 삭제했다.
+                assertThat(countLetters()).as("attempt %d", attempt).isEqualTo(1);
+            } else {
+                // ② 삭제가 먼저 커밋됐다 — 술어 재평가로 발송이 404 에 떨어져 행 자체가 없다.
+                assertThat(failures.get(0)).hasFieldOrPropertyWithValue(
+                        "errorCode", LetterErrorCode.LETTER_RECIPIENT_NOT_FRIEND);
+                assertThat(countLetters()).as("attempt %d", attempt).isZero();
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------- 5. 닫기 (GROMO-2002)
+
+    @Test
+    @DisplayName("수신자가 닫으면 «양쪽» 목록·상세에서 사라지고, 다시 닫으면 404 다")
+    void closeRemovesLetterFromBothSidesAndIsNotIdempotent() throws Exception {
+        UUID sender = newUser();
+        UUID receiver = newUser();
+        befriend(sender, receiver);
+        joinIsland(sender);
+        joinIsland(receiver);
+        String letterId = send(sender, receiver, "열었다 닫는다");
+        as(receiver, get(path(receiver, "/letters/" + letterId))).andExpect(status().isOk());   // 연다
+
+        as(receiver, delete(path(receiver, "/letters/" + letterId)))
+                .andExpect(status().isNoContent());
+
+        // 받는 쪽: 목록·상세 모두 사라진다.
+        as(receiver, get(path(receiver, "/letters")).param("type", "received"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content").value("남겨줘"));
+                .andExpect(jsonPath("$.content.length()").value(0));
+        as(receiver, get(path(receiver, "/letters/" + letterId)))
+                .andExpect(status().isNotFound());
+        // 보내는 쪽에서도 사라진다 — 「보낸 사람 목록에서도 사라진다」(policy-2026-09-14).
+        // ⚠ 이 사라짐이 발신자에게 「상대가 읽었다」를 알려 준다. 2026-09-21 재영님이 알고 수용한
+        //    누출이다(Letter 엔티티 주석) — 버그로 보고 2컬럼 삭제 모델로 갈아엎기 전에 결정부터 뒤집을 것.
+        as(sender, get(path(sender, "/letters")).param("type", "sent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(0));
+        as(sender, get(path(sender, "/letters/" + letterId)))
+                .andExpect(status().isNotFound());
+
+        // 재닫기는 안전하다 — 이미 없는 편지라 404 다(멱등 200 이 아니다, FriendService.deleteFriend 선례).
+        as(receiver, delete(path(receiver, "/letters/" + letterId)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LETTER_NOT_FOUND"));
+        // 행은 남고 deleted_at 만 찍힌다.
+        assertThat(countLetters()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("닫기는 수신자만 — 발신자는 403, 남의 편지는 403, 열지 않아도 닫을 수 있다")
+    void onlyReceiverMayClose() throws Exception {
+        UUID sender = newUser();
+        UUID receiver = newUser();
+        UUID stranger = newUser();
+        befriend(sender, receiver);
+        joinIsland(sender);
+        joinIsland(receiver);
+        joinIsland(stranger);
+        String letterId = send(sender, receiver, "내 편지");
+
+        as(sender, delete(path(sender, "/letters/" + letterId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_LETTER_RECEIVER"));
+        as(stranger, delete(path(stranger, "/letters/" + letterId)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("NOT_LETTER_PARTICIPANT"));
         assertThat(jdbc.queryForObject("select count(*) from letters where deleted_at is not null",
                 Integer.class)).isZero();
+
+        // 안 읽은 편지도 닫을 수 있다 — 여는 것과 닫는 것은 다른 사건이라 순서를 강제하지 않는다.
+        as(receiver, delete(path(receiver, "/letters/" + letterId)))
+                .andExpect(status().isNoContent());
     }
 
     // ---------------------------------------------------------------- 도구
@@ -342,6 +474,39 @@ class InternalLetterIntegrationTest {
 
     private Integer countLetters() {
         return jdbc.queryForObject("select count(*) from letters", Integer.class);
+    }
+
+    /** 「아직 확인하지 않은」 채로 살아 있는 편지 — 친구 삭제 계약이 0 으로 만들어야 하는 수다. */
+    private Integer countAliveUnreadLetters() {
+        return jdbc.queryForObject(
+                "select count(*) from letters where deleted_at is null and read_at is null", Integer.class);
+    }
+
+    /** 두 명령을 동시에 출발시키고 실패만 모은다 ({@code IslandManagementIntegrationTest} 와 같은 판). */
+    private List<Throwable> race(Callable<?> left, Callable<?> right) throws Exception {
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (Callable<?> task : List.of(left, right)) {
+                futures.add(pool.submit(() -> {
+                    start.await();
+                    return task.call();
+                }));
+            }
+            start.countDown();
+            List<Throwable> failures = new ArrayList<>();
+            for (Future<?> future : futures) {
+                try {
+                    future.get(30, TimeUnit.SECONDS);
+                } catch (ExecutionException e) {
+                    failures.add(e.getCause());
+                }
+            }
+            return failures;
+        } finally {
+            pool.shutdownNow();
+        }
     }
 
     private static String path(UUID userId, String rest) {
