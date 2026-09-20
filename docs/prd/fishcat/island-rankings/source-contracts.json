@@ -25,10 +25,11 @@
         "nextCursor": null
       }
     },
-    "implementation_status": "not_started",
-    "implementation_ticket": "GROMO-1777",
+    "implementation_status": "dropped",
+    "implementation_ticket": null,
     "code": [],
-    "tests": []
+    "tests": [],
+    "dropped_reason": "2026-09-16 결정 B23·B15 — 기획 v1 98계약에 없고 화면 자체가 폐지됐다. 엔드포인트 자체의 폐기이며 기획 정본도 「전망대는 우리 섬 내부 주민 랭킹은 제공하지 않는다」라고 적는다."
   },
   {
     "id": "rank-islands",
@@ -37,25 +38,39 @@
     "method": "GET",
     "path": "/rankings/islands",
     "request_example": {
-      "week": "2026-W37",
-      "cursor": null
+      "week": "2026-09-06"
     },
     "response_example": {
       "data": {
         "items": [
           {
             "rank": 1,
-            "islandId": "soda",
+            "islandId": "019f16a0-0000-7000-8000-000000000010",
             "name": "소다 섬",
             "averageFocusSeconds": 18000
           }
         ],
-        "nextCursor": null
+        "myRank": 4,
+        "nextCursor": null,
+        "asOf": "2026-09-11T09:10:00Z"
       }
     },
-    "implementation_status": "not_started",
-    "implementation_ticket": "GROMO-1777",
-    "code": [],
-    "tests": []
+    "implementation_status": "implemented",
+    "implementation_ticket": "GROMO-1997",
+    "code": [
+      "server/business-api/src/main/java/com/oneorthree/business/api/IslandRankingsController.java",
+      "server/business-api/src/main/java/com/oneorthree/business/usecase/IslandRankingsUseCase.java",
+      "server/data-api/src/main/java/com/oneorthree/phone/internal/InternalIslandRankingsController.java",
+      "server/data-api/src/main/java/com/oneorthree/phone/internal/service/IslandRankingsService.java",
+      "server/data-api/src/main/java/com/oneorthree/phone/ranking/support/RankingWeek.java",
+      "server/data-api/src/main/resources/db/migration/V85__island_weekly_member_counts.sql"
+    ],
+    "tests": [
+      "server/data-api/src/test/java/com/oneorthree/phone/internal/service/IslandRankingsIntegrationTest.java",
+      "server/data-api/src/test/java/com/oneorthree/phone/ranking/support/RankingWeekTest.java",
+      "server/data-api/src/test/java/com/oneorthree/phone/config/InternalRankingsAllowlistTest.java",
+      "server/business-api/src/test/java/com/oneorthree/business/api/IslandRankingsContractTest.java"
+    ],
+    "notes": "week 는 ISO YYYY-Www 가 아니라 주 시작일 YYYY-MM-DD(UTC 일요일)다 — policy RK-P01-키. asOf·myRank 가 원본 대비 추가이고 nextCursor 는 언제나 null 이다(RK-D07)."
   }
 ]

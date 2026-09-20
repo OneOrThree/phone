@@ -14,6 +14,7 @@ import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 import com.oneorthree.business.upstream.data.dto.IslandAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.IslandQuestViews;
+import com.oneorthree.business.upstream.data.dto.IslandRankingViews;
 import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import com.oneorthree.business.upstream.data.dto.PersonalAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.PersonalInventory;
@@ -185,6 +186,8 @@ public class DataApiClient {
     // GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
     private static final String PATH_FOCUS_STATISTICS = "/internal/islands/{islandId}/statistics/focus";
     private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
+    // GROMO-1997 주간 섬 랭킹 — 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26).
+    private static final String PATH_ISLAND_RANKINGS = "/internal/users/{userId}/island-rankings";
 
     private final InternalHttpClient http;
 
@@ -1709,6 +1712,22 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandRecordViews.ScreenTimeStatistics>() { });
+    }
+
+    /**
+     * 주간 섬 랭킹 (GROMO-1997). 멱등 GET 이라 재시도한다. {@code week} 는 주 시작일(UTC 일요일)이고, 전망대·주민
+     * 판정과 달력 의미(일요일인가·아직 오지 않은 주인가)는 Data 가 한다.
+     */
+    public IslandRankingViews.IslandRankingPage fetchIslandRankings(UUID userId, LocalDate week, Integer limit,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, PATH_ISLAND_RANKINGS.replace("{userId}", userId.toString()))
+                        .onBehalfOf(userId)
+                        .query("week", week.toString())
+                        .query("limit", limit == null ? null : limit.toString())
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRankingViews.IslandRankingPage>() { });
     }
 
     /**

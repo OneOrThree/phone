@@ -167,4 +167,48 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
                                                      @Param("userIds") Collection<UUID> userIds,
                                                      @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles,
                                                      @Param("from") Instant from, @Param("to") Instant to);
+
+    /**
+     * 주간 섬 랭킹의 <b>분자</b> (GROMO-1997) — 창 {@code [windowStart, windowEnd)} 안의 순수 집중 초를
+     * <b>섬마다</b> 합친다. 회관 기록이 한 섬을 엔티티로 올려 Java 에서 더하는 것과 달리, 여기는 «모든 섬»을
+     * 가로지르는 집계라 세션을 메모리로 올리지 않고 DB 가 한 번에 접는다.
+     *
+     * <p>세 가지가 정책이다:
+     * <ul>
+     *   <li>{@code lifecycle = 'COMPLETED'} — <b>끝난 집중만</b> 반영한다(2026-09-21 결정). 진행 중 세션은
+     *       정렬·표시 어디에도 넣지 않는다.</li>
+     *   <li>{@code kind = 'ACTIVE'} — 휴식은 집중 점수에 더하지 않는다(RK-P04). 그래서 {@code now - startedAt}
+     *       식을 쓰지 않는다 — 그 식은 휴식을 가산한다.</li>
+     *   <li>{@code island_id} 는 <b>세션이 시작할 때 고정한 섬</b>이다(2026-09-19 결정 RC-D01). 다른 섬에서
+     *       집중한 시간은 이 섬 분자가 아니다(기획 정본 「다른 섬에서 집중한 시간은 제외한다」).</li>
+     * </ul>
+     *
+     * <p>정밀도는 {@link com.oneorthree.phone.focus.support.FocusIntervalMath} 와 <b>같은 규율</b>이다 — 구간마다
+     * 초로 내리지 않고 창과의 교집합을 그대로 합친 뒤 <b>마지막에 한 번만</b> 내린다. 구간마다 잘랐다면
+     * 휴식이 잦은 세션에서 초가 조금씩 사라진다.
+     *
+     * @param windowStart 창 하한(포함)
+     * @param windowEnd   창 상한(제외)
+     * @return 그 창에 집중이 있었던 섬만 1행씩. 집중이 0인 섬은 행이 없으므로 호출측이 0으로 채운다
+     */
+    @Query(value = "SELECT d.island_id AS \"islandId\", CAST(FLOOR(SUM(EXTRACT(EPOCH FROM ("
+            + "LEAST(i.ended_at, CAST(:windowEnd AS timestamptz)) "
+            + "- GREATEST(i.started_at, CAST(:windowStart AS timestamptz)))))) AS bigint) AS \"seconds\" "
+            + "FROM focus_session_details d JOIN focus_session_intervals i ON i.session_id = d.session_id "
+            + "WHERE d.lifecycle = 'COMPLETED' AND i.kind = 'ACTIVE' AND i.ended_at IS NOT NULL "
+            + "AND i.started_at < CAST(:windowEnd AS timestamptz) "
+            + "AND i.ended_at > CAST(:windowStart AS timestamptz) "
+            + "GROUP BY d.island_id", nativeQuery = true)
+    List<IslandFocusSeconds> sumIslandActiveSeconds(@Param("windowStart") Instant windowStart,
+                                                    @Param("windowEnd") Instant windowEnd);
+
+    /** {@link #sumIslandActiveSeconds} 결과 한 행 — 섬과 그 섬의 창 안 순수 집중 초. */
+    interface IslandFocusSeconds {
+
+        /** @return 세션이 시작할 때 고정했던 섬 id */
+        UUID getIslandId();
+
+        /** @return 창과의 교집합 순수 ACTIVE 초 합(floor). 행이 있으면 0 보다 크다 */
+        long getSeconds();
+    }
 }
