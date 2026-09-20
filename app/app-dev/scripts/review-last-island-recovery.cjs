@@ -1,5 +1,6 @@
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
+const reviewUrl = process.env.GROMO_REVIEW_URL ?? 'http://127.0.0.1:18762/?review=1';
 
 (async () => {
   const browser = await chromium.launch({ channel: 'chrome', headless: true });
@@ -17,7 +18,7 @@ const assert = require('node:assert/strict');
         errors.push(`${response.url()}: ${response.status()}`);
     });
 
-    await page.goto('http://127.0.0.1:18762/?review=1');
+    await page.goto(reviewUrl);
     await page.waitForFunction(() => window.__gromoReview);
     const fixture = await page.evaluate(() => window.__gromoReview.fixture(true));
     const remaining = structuredClone(fixture);
@@ -32,6 +33,11 @@ const assert = require('node:assert/strict');
       status: 'active',
     };
     await page.evaluate((state) => window.__gromoReview.open('focus', { state }), remaining);
+    await page.waitForFunction(
+      (id) =>
+        window.__gromoReview.route === 'focus' && window.__gromoReview.state.session?.id === id,
+      remaining.session.id,
+    );
     await page.evaluate(
       (id) => window.__gromoReview.dispatch({ type: 'KICKED_FROM_ISLAND', id }),
       remaining.islandId,
@@ -43,7 +49,11 @@ const assert = require('node:assert/strict');
     assert.equal(await page.evaluate(() => window.__gromoReview.state.session), null);
 
     fixture.islands.forEach((island) => (island.joined = island.id === fixture.islandId));
-    await page.evaluate((state) => window.__gromoReview.open('home', { state }), fixture);
+    fixture.islands.find((island) => island.id === fixture.islandId).members[0].role = 'host';
+    await page.evaluate((state) => window.__gromoReview.open('manage', { state }), fixture);
+    await page.waitForFunction(() => window.__gromoReview.route === 'manage');
+    await page.getByTestId('hall-leave').click();
+    assert.ok(await page.getByRole('button', { name: '탈퇴하기', exact: true }).count());
     await page.evaluate(
       (id) => window.__gromoReview.dispatch({ type: 'KICKED_FROM_ISLAND', id }),
       fixture.islandId,
@@ -53,6 +63,7 @@ const assert = require('node:assert/strict');
     await page.evaluate(() => window.__gromoReview.back());
     assert.equal(await page.evaluate(() => window.__gromoReview.route), 'chooseIsland');
     assert.equal(await page.evaluate(() => window.__gromoReview.state.onboarded), false);
+    assert.equal(await page.getByRole('button', { name: '탈퇴하기', exact: true }).count(), 0);
     assert.ok(
       await page.getByRole('button', { name: '혼자 시작할 섬 만들기', exact: true }).count(),
     );

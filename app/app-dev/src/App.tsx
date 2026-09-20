@@ -346,6 +346,7 @@ function Gromo() {
   useEffect(() => {
     if (!loaded || !state.loggedIn) return;
     if (state.membershipRecovery) {
+      setModal(null);
       reset(state.onboarded ? 'home' : 'chooseIsland');
       dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;

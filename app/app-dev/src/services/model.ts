@@ -1780,6 +1780,7 @@ export function reducer(state: State, a: Action): State {
         );
       clean.islands = s.islands.map((i) => ({
         ...i,
+        kicked: undefined,
         joined: false,
         earned: Object.fromEntries(Object.entries(i.earned ?? {}).filter(([id]) => id !== 'me')),
         ledger: i.ledger.filter(

@@ -397,6 +397,7 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
     text: '예전 이름 댓글',
   });
   currentIsland(s).members[0].role = 'host';
+  s.islands[1].kicked = true;
   s = act(s, 'DELETE_ACCOUNT');
   const scrubbed = s.islands[0];
   assert.equal(scrubbed.fish, 1200);
@@ -418,6 +419,7 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
   assert.deepEqual(scrubbed.quests[0].rounds?.today.claimed, []);
   assert.deepEqual(scrubbed.buildingQuest?.targets, ['minji']);
   assert.deepEqual(scrubbed.buildingQuest?.base, { minji: 20 });
+  assert.ok(s.islands.every((entry) => entry.kicked === undefined));
   assert.equal(s.loggedIn, false);
   assert.deepEqual(s.records, []);
 });
