@@ -50,6 +50,7 @@ const path = require('path');
       ['profile'],
       ['settings'],
       ['permission'],
+      ['focusVisit'],
       ['fishingArrival'],
       ['focusSetup'],
       ['focus'],

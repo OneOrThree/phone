@@ -134,6 +134,7 @@ const titles: Record<Route, string> = {
   friendMail: '친구 편지',
   chat: '우리 섬 편지방',
   fishingArrival: '낚시섬 도착',
+  focusVisit: '낚시섬 구경',
   focusTravel: '낚시섬으로',
   returnTravel: '우리 섬으로',
   permission: '측정 권한',
@@ -542,7 +543,15 @@ function Gromo() {
       />
     );
   }
-  const immersive = ['home', 'focusSetup', 'focus', 'rest', 'arrival', 'travel'].includes(route);
+  const immersive = [
+    'home',
+    'focusSetup',
+    'focus',
+    'focusVisit',
+    'rest',
+    'arrival',
+    'travel',
+  ].includes(route);
   if (!loaded)
     return (
       <SafeAreaView style={[S.page, { alignItems: 'center', justifyContent: 'center' }]}>

@@ -50,6 +50,34 @@ fs.mkdirSync(outputDir, { recursive: true });
       pass: true,
     });
     await open('home', { state: fixture });
+    await p.getByRole('button', { name: '낚시섬 구경하기', exact: true }).click();
+    await p.waitForFunction(() => window.__gromoReview.route === 'focusVisit');
+    assert.equal((await state()).session, null);
+    await p.getByText('민지', { exact: true }).waitFor();
+    await p.getByText('두부', { exact: true }).waitFor();
+    assert.equal(await p.getByText('수아', { exact: true }).count(), 0);
+    assert.equal(await p.getByRole('button', { name: '휴식하기', exact: true }).count(), 0);
+    assert.equal(await p.getByRole('button', { name: '집중 종료', exact: true }).count(), 0);
+    await p.getByRole('button', { name: '닫기', exact: true }).click();
+    assert.equal(await route(), 'home');
+    assert.equal((await state()).session, null);
+    const emptyFocus = structuredClone(fixture);
+    emptyFocus.islands
+      .find((island) => island.id === emptyFocus.islandId)
+      .members.forEach((member) => {
+        member.focusing = false;
+      });
+    await open('focusVisit', { state: emptyFocus });
+    await p.getByText('지금 낚시 중인 주민이 없어요', { exact: true }).waitFor();
+    await p.getByRole('button', { name: '뗏목 · 우리 섬으로 돌아가기', exact: true }).click();
+    assert.equal(await route(), 'home');
+    assert.equal((await state()).session, null);
+    report.push({
+      orientation,
+      flow: 'home fishing island → watch focused members → empty state → home',
+      pass: true,
+    });
+    await open('home', { state: fixture });
     await p.getByRole('button', { name: '집중하기', exact: true }).click();
     await p.waitForFunction(() => window.__gromoReview.route === 'focusTravel');
     assert.equal((await state()).session, null);

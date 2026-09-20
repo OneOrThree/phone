@@ -42,15 +42,38 @@ const layer: Record<Building, string> = {
   tower: 'observatory',
   shop: 'shop',
 };
-const doors: Record<string, { x: number; y: number; r: Route }> = {
-  hall: { x: 1030, y: 268, r: 'hall' },
-  board: { x: 891, y: 250, r: 'board' },
-  gram: { x: 380, y: 485, r: 'sound' },
-  library: { x: 1190, y: 612, r: 'library' },
-  mail: { x: 320, y: 596, r: 'mail' },
-  tower: { x: 272, y: 200, r: 'tower' },
-  shop: { x: 577, y: 783, r: 'shop' },
-  raft: { x: 274, y: 740, r: 'boat' },
+type Door = Point & {
+  r: Route;
+  label: string;
+  building?: Building;
+  memberOnly?: boolean;
+  direct?: boolean;
+  hitbox?: { x: number; y: number; w: number; h: number };
+};
+const doors: Record<string, Door> = {
+  hall: { x: 1030, y: 268, r: 'hall', label: buildingNames.hall, building: 'hall' },
+  board: { x: 891, y: 250, r: 'board', label: buildingNames.board, building: 'board' },
+  gram: { x: 380, y: 485, r: 'sound', label: buildingNames.gram, building: 'gram' },
+  library: {
+    x: 1190,
+    y: 612,
+    r: 'library',
+    label: buildingNames.library,
+    building: 'library',
+  },
+  mail: { x: 320, y: 596, r: 'mail', label: buildingNames.mail, building: 'mail' },
+  tower: { x: 272, y: 200, r: 'tower', label: buildingNames.tower, building: 'tower' },
+  shop: { x: 577, y: 783, r: 'shop', label: buildingNames.shop, building: 'shop' },
+  raft: { x: 274, y: 740, r: 'boat', label: '내 뗏목', memberOnly: true },
+  fishingIsland: {
+    x: 1345,
+    y: 882,
+    r: 'focusVisit',
+    label: '낚시섬 구경하기',
+    memberOnly: true,
+    direct: true,
+    hitbox: { x: 1230, y: 810, w: 230, h: 145 },
+  },
 };
 const homePositions: Record<string, Point> = {};
 // 섬을 돌아다니는 주민 고양이 두 마리의 출발 자리(모닥불 근처 땅)
@@ -485,7 +508,10 @@ export function FinalIsland({
   useEffect(() => {
     if (request && !visiting) {
       const d = Object.values(doors).find((d) => d.r === request);
-      if (d) walk(d, () => go(request));
+      if (d) {
+        if (d.direct) go(request);
+        else walk(d, () => go(request));
+      }
     }
   }, [request]);
 
@@ -501,35 +527,42 @@ export function FinalIsland({
     return (
       <>
         {Object.entries(doors)
-          // 구경 중에는 뗏목이 반응하지 않으므로 누를 자리도 두지 않는다
-          .filter(([b]) => (b === 'raft' ? !visiting : i.buildings.includes(b as Building)))
-          .map(([b, d]) => (
-            <Pressable
-              key={b}
-              accessibilityRole="button"
-              accessibilityLabel={b === 'raft' ? '내 뗏목' : buildingNames[b as Building]}
-              // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
-              accessibilityHint={
-                visiting && b !== 'hall' && b !== 'board' ? '주민만 이용할 수 있어요' : undefined
-              }
-              onPress={() => {
-                if (!visiting) return walk(d, () => go(d.r));
-                // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
-                if (b === 'hall') go('manage');
-                else if (b === 'board') go('board');
-                else notify?.('주민만 이용할 수 있어요');
-              }}
-              style={{
-                position: 'absolute',
-                left: (d.x - 60) * s,
-                top: (d.y - 95) * s,
-                width: 120 * s,
-                height: 125 * s,
-                minWidth: 44,
-                minHeight: 44,
-              }}
-            />
-          ))}
+          // 뗏목·낚시섬은 우리 섬 주민 화면에서만 연다. 다른 섬 관전은 GROMO-1940에서 이어 붙인다.
+          .filter(([, d]) =>
+            d.memberOnly ? !visiting : !!d.building && i.buildings.includes(d.building),
+          )
+          .map(([id, d]) => {
+            const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
+            return (
+              <Pressable
+                key={id}
+                accessibilityRole="button"
+                accessibilityLabel={d.label}
+                // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
+                accessibilityHint={
+                  visiting && d.building && !['hall', 'board'].includes(d.building)
+                    ? '주민만 이용할 수 있어요'
+                    : undefined
+                }
+                onPress={() => {
+                  if (!visiting) return d.direct ? go(d.r) : walk(d, () => go(d.r));
+                  // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
+                  if (d.building === 'hall') go('manage');
+                  else if (d.building === 'board') go('board');
+                  else notify?.('주민만 이용할 수 있어요');
+                }}
+                style={{
+                  position: 'absolute',
+                  left: hitbox.x * s,
+                  top: hitbox.y * s,
+                  width: hitbox.w * s,
+                  height: hitbox.h * s,
+                  minWidth: 44,
+                  minHeight: 44,
+                }}
+              />
+            );
+          })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
         {wanderColors.map((color, n) => (
           <Wanderer
