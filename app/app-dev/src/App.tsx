@@ -320,10 +320,13 @@ function Gromo() {
           const saved = JSON.parse(raw);
           if (saved.version === 1) {
             dispatch({ type: 'LOAD', state: saved });
+            const hasJoinedIsland = saved.islands?.some(
+              (island: { joined?: boolean; closed?: boolean }) => island.joined && !island.closed,
+            );
             setRoute(
               !saved.loggedIn
                 ? 'login'
-                : !saved.onboarded
+                : !hasJoinedIsland
                   ? 'chooseIsland'
                   : saved.session
                     ? saved.session.status === 'paused'
@@ -337,6 +340,17 @@ function Gromo() {
       .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
       .finally(() => setLoaded(true));
   }, []);
+  useEffect(() => {
+    if (!loaded || !state.loggedIn || state.onboarded) return;
+    if (
+      ['login', 'character', 'chooseIsland', 'createIsland', 'joinIsland', 'approval'].includes(
+        route,
+      )
+    )
+      return;
+    // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
+    reset('chooseIsland');
+  }, [loaded, state.loggedIn, state.onboarded, route]);
   useEffect(() => {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });

@@ -874,6 +874,23 @@ function closeIsland(s: State, i: Island) {
   s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== i.id);
   if (s.pendingIsland === i.id) s.pendingIsland = s.pendingIslands.at(-1) ?? null;
 }
+
+// 내 소속이 사라졌을 때의 공통 정리. 자진 탈퇴는 마지막 주민이면 섬도 닫지만,
+// 강퇴는 방장이 남아 있으므로 내 소속과 개인 화면 컨텍스트만 정리한다.
+function removeOwnMembership(s: State, island: Island, closeWhenEmpty: boolean) {
+  island.joined = false;
+  s.rewards = (s.rewards ?? []).filter((reward) => reward.islandId !== island.id);
+  if (island.buildingQuest)
+    island.buildingQuest.targets = island.buildingQuest.targets.filter((id) => id !== 'me');
+  if (closeWhenEmpty && island.members.length === 0) closeIsland(s, island);
+
+  const nextIsland = s.islands.find((candidate) => candidate.joined && !candidate.closed);
+  s.onboarded = !!nextIsland;
+  if (s.islandId === island.id && nextIsland) s.islandId = nextIsland.id;
+  if (s.visitingIslandId === island.id || !nextIsland) s.visitingIslandId = null;
+  // 소속을 잃은 섬의 진행 중 집중은 서버에서도 강제 종료된다. 로컬 상태에 좀비 세션을 남기지 않는다.
+  if (s.session?.islandId === island.id) s.session = null;
+}
 export function canBuy(s: State, p: Product): string | null {
   const i = currentIsland(s);
   if (!i.joined) return '이 섬 주민만 구매할 수 있어요.';
@@ -1145,6 +1162,14 @@ export function reducer(state: State, a: Action): State {
     };
     // 예전 버전에서 닫힌 섬에 남아 있던 공동 데이터도 지금 규칙대로 정리한다(여러 번 해도 같다)
     next.islands.forEach((i) => i.closed && closeIsland(next, i));
+    // 저장본·서버 동기화 결과가 onboarded 플래그보다 우선한다.
+    const joined = next.islands.filter((island) => island.joined && !island.closed);
+    next.onboarded = joined.length > 0;
+    if (!joined.some((island) => island.id === next.islandId) && joined[0])
+      next.islandId = joined[0].id;
+    if (next.session && !joined.some((island) => island.id === next.session!.islandId))
+      next.session = null;
+    if (!next.onboarded) next.visitingIslandId = null;
     return next;
   }
   const hostOnly = [
@@ -1659,17 +1684,14 @@ export function reducer(state: State, a: Action): State {
       break;
     case 'LEAVE':
       if (s.session || (isHost(i) && i.members.length > 0)) return state;
-      i.joined = false;
-      // 떠난 섬에서 아직 받지 않은 보상 창은 띄우지 않는다
-      s.rewards = (s.rewards ?? []).filter((r) => r.islandId !== i.id);
-      if (i.members.length === 0) closeIsland(s, i);
-      if (i.buildingQuest)
-        i.buildingQuest.targets = i.buildingQuest.targets.filter((id) => id !== 'me');
-      const nextIsland = s.islands.find((j) => j.joined && j.id !== i.id);
-      s.onboarded = !!nextIsland;
-      if (nextIsland) s.islandId = nextIsland.id;
-      s.visitingIslandId = null;
+      removeOwnMembership(s, i, true);
       break;
+    case 'KICKED_FROM_ISLAND': {
+      const kickedIsland = s.islands.find((island) => island.id === a.id);
+      if (!kickedIsland?.joined) return state;
+      removeOwnMembership(s, kickedIsland, false);
+      break;
+    }
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);
       break;

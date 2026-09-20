@@ -1285,6 +1285,56 @@ test('한 섬을 탈퇴해도 다른 소속 섬과 이전 섬의 공동 물고�
   assert.equal(balance(s.islands.find((j) => j.id === previous.id)!), fish);
 });
 
+test('마지막 소속 섬에서 강퇴되면 개인 데이터는 유지하고 첫 소속 선택 상태가 된다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members[0].role = 'host';
+  s.session = {
+    id: 'kicked-session',
+    islandId: island.id,
+    subject: '수학',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'active',
+  };
+  const personal = {
+    name: s.name,
+    color: s.color,
+    friends: structuredClone(s.friends),
+    owned: [...s.owned],
+    records: structuredClone(s.records),
+  };
+
+  s = act(s, 'KICKED_FROM_ISLAND', { id: island.id });
+
+  assert.equal(currentIsland(s).joined, false);
+  assert.equal(currentIsland(s).closed, undefined);
+  assert.equal(s.onboarded, false);
+  assert.equal(s.session, null);
+  assert.deepEqual(
+    {
+      name: s.name,
+      color: s.color,
+      friends: s.friends,
+      owned: s.owned,
+      records: s.records,
+    },
+    personal,
+  );
+});
+
+test('현재 섬에서 강퇴돼도 다른 소속이 있으면 그 섬을 현재 섬으로 복구한다', () => {
+  let s = initialState(true);
+  const kicked = currentIsland(s);
+  const remaining = s.islands.find((island) => island.id !== kicked.id)!;
+  remaining.joined = true;
+
+  s = act(s, 'KICKED_FROM_ISLAND', { id: kicked.id });
+
+  assert.equal(s.onboarded, true);
+  assert.equal(s.islandId, remaining.id);
+});
+
 test('마지막 주민이 탈퇴하면 섬을 종료해 탐색·초대 코드·재가입에서 제외한다', () => {
   let s = initialState(true);
   const island = currentIsland(s);
