@@ -32,7 +32,7 @@ flowchart LR
 | Business 진입 | 인증·바디 제한·requestId·헤더 정리·공개 오류 | 앱 Authorization/X-User-Id를 내부 요청으로 그대로 복사 |
 | Business 유스케이스 | 사용자/현재 섬 context 확정, 외부 DTO 매핑, 단일 명령 호출·화면 조합 | 직접 DB쓰기, 여러 HTTP mutation으로 차감과 지급 분할 |
 | Data 내부 | 활성/소유/상태 재검증, 잠금/CAS, 명령 receipt·원장·outbox를 같은 TX에서 확정 | 인증 없는 userId 신뢰, 배치 명령을 일반 사용자 패스스루로 노출 |
-| Realtime | 인증된 구독·이벤트 수신자, 메시지 저장, 휘발 emote | 개인 재화·재고를 섬 전체 토픽에 흘린 후 앱 필터에 기대기 |
+| Realtime | 인증된 구독·이벤트 수신자, 메시지 저장, 휘발 emote | 개인 보유품을 섬 전체 토픽에 흘린 후 앱 필터에 기대기 |
 | Redis/이벤트 | 캐시·projection·fanout·재전달 | 명령 성공의 유일한 증거, 돈 장부의 유일한 정본 |
 
 ## 기존 코드와 통합 선행 조건
