@@ -668,6 +668,10 @@ public class NotificationExportService {
                     LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE,
                     INACTIVE_RETURN, STREAK_AT_RISK, FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED ->
                     new Enrichment(Map.of(), null, null, true);
+            // 구 경로에 대응물이 없는 kind 다(GROMO-1971) — 구 sent_log 에 이 종류의 행이 존재할 수 없어
+            // 여기 닿는 것 자체가 이관 입력이 오염됐다는 뜻이다. 조용히 통과시키지 않고 실패로 남긴다.
+            case MAIN_ISLAND_TRANSFERRED -> Enrichment.fail(FAIL_UNKNOWN_KIND,
+                    "구 경로에 없던 kind 입니다: " + kind.name());
         };
     }
 

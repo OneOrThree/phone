@@ -7,7 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Data 가 <b>판정</b>하는 알림 종류 — 18종. 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
+ * Data 가 <b>판정</b>하는 알림 종류 — 19종. 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
  *
  * <p>이 enum 이 하는 일은 셋이다: ① 결정적 사건 키의 시간 축을 고정하고
  * ({@link NotificationSlotGranularity}), ② 조용한 시간 정책을 실어 보내고
@@ -89,7 +89,17 @@ public enum NotificationKind {
     FRIEND_REQUEST(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER),
 
     /** 보낸 요청이 수락됨. 대상 = 수락한 유저. */
-    FRIEND_ACCEPTED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER);
+    FRIEND_ACCEPTED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER),
+
+    // ── 섬 (MainIslandService) ─────────────────────────────────────────
+    /**
+     * 메인 섬을 잃어 자동으로 옮겨졌다(GROMO-1971). params: {@code islandId}·{@code islandName}.
+     *
+     * <p>대상이 섬인데 {@link SubjectKind#NONE} 인 이유는 알림 서버의 상태 재검증 목록에 섬 축이 없기
+     * 때문이다 — 없는 축을 여기서 늘리면 서버가 모르는 {@code subjectId} 를 받는다. 그래서 섬은 렌더 입력
+     * ({@code params}) 으로만 가고, 시간축을 분으로 둔다 — 같은 분에 두 번 옮겨지면 뒤에 것이 접힌다.
+     */
+    MAIN_ISLAND_TRANSFERRED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.NONE);
 
     /** {@code subjectId} 가 가리키는 것 — 알림 서버의 상태 재검증이 무엇을 조회할지 가른다. */
     public enum SubjectKind {

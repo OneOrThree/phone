@@ -5,6 +5,7 @@ import com.oneorthree.phone.friend.event.FriendRequestSentEvent;
 import com.oneorthree.phone.group.event.GroupBetSessionClosedEvent;
 import com.oneorthree.phone.group.event.GroupBetWonEvent;
 import com.oneorthree.phone.group.event.GroupChallengeCreatedEvent;
+import com.oneorthree.phone.group.event.MainIslandTransferredEvent;
 import com.oneorthree.phone.notification.producer.NotificationDispatchOutcome;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
@@ -12,6 +13,7 @@ import com.oneorthree.phone.notification.service.BetEventNotificationService;
 import com.oneorthree.phone.notification.service.BetWonNotificationService;
 import com.oneorthree.phone.notification.service.ChallengeCreatedNotificationService;
 import com.oneorthree.phone.notification.service.FriendNotificationService;
+import com.oneorthree.phone.notification.service.MainIslandNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.Ordered;
@@ -73,6 +75,7 @@ public class NotificationRequestOutboxListener {
     private final BetWonNotificationService betWonNotificationService;
     private final ChallengeCreatedNotificationService challengeCreatedNotificationService;
     private final FriendNotificationService friendNotificationService;
+    private final MainIslandNotificationService mainIslandNotificationService;
 
     /** @param event 종료된 회차 — 대기열에 담는다 */
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
@@ -106,6 +109,13 @@ public class NotificationRequestOutboxListener {
     @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public void collectFriendRequestAccepted(FriendRequestAcceptedEvent event) {
+        collect(event);
+    }
+
+    /** @param event 메인 섬을 잃어 옮겨진 사람 — 대기열에 담는다 */
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void collectMainIslandTransferred(MainIslandTransferredEvent event) {
         collect(event);
     }
 
@@ -169,6 +179,19 @@ public class NotificationRequestOutboxListener {
         flush();
     }
 
+    /**
+     * 메인 섬 자동 이전 — 옮겨진 본인 1명. 같은 트랜잭션이 여러 번 옮길 수 있어
+     * ({@code detachWithdrawnUser} 의 멤버십 루프) 판정은 커밋될 최종 상태와 대조한다.
+     *
+     * @param event 이전 사건
+     */
+    @TransactionalEventListener(phase = TransactionPhase.BEFORE_COMMIT)
+    @Order(Ordered.LOWEST_PRECEDENCE)
+    @Transactional(propagation = Propagation.MANDATORY)
+    public void onMainIslandTransferred(MainIslandTransferredEvent event) {
+        flush();
+    }
+
     private void collect(Object event) {
         if (!notificationDispatcher.isOutboxMode()) {
             return;
@@ -221,6 +244,9 @@ public class NotificationRequestOutboxListener {
         if (event instanceof FriendRequestAcceptedEvent accepted) {
             return friendNotificationService.friendAcceptedRequest(accepted.requesterUserId(),
                     accepted.accepterUserId()).stream().toList();
+        }
+        if (event instanceof MainIslandTransferredEvent transferred) {
+            return mainIslandNotificationService.transferredRequest(transferred).stream().toList();
         }
         throw new IllegalStateException("모르는 요청형 알림 사건입니다: " + event.getClass().getName());
     }

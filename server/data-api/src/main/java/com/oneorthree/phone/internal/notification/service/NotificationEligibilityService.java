@@ -130,7 +130,9 @@ public class NotificationEligibilityService {
             case LEAGUE_DEADLINE_D1, LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING ->
                     leagueEligibility.evaluate(kind, request, clock.instant());
             // 추가 도메인 조회가 없는 종류. 시간 제한이 있는 리그·리텐션은 위에서 만료를 확인했다.
-            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE ->
+            // MAIN_ISLAND_TRANSFERRED(GROMO-1971)는 «이미 커밋된 이전»을 알리는 것이라 되물을 상태가 없다 —
+            // 그 뒤 또 옮겨졌어도 그 이전이 자기 알림을 따로 내므로 여기서 최신 여부를 판정하지 않는다.
+            case LEAGUE_WEEKLY_RESULT, LEAGUE_DEADLINE, LEAGUE_FINAL_DEADLINE, MAIN_ISLAND_TRANSFERRED ->
                     NotificationEligibilityResponse.allow();
         };
     }

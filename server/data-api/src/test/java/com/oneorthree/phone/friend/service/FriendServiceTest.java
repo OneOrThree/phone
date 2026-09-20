@@ -2,6 +2,7 @@ package com.oneorthree.phone.friend.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.port.MainIslandNamePort;
 import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
@@ -95,6 +96,13 @@ class FriendServiceTest {
     @Mock
     private ApplicationEventPublisher eventPublisher;
 
+    /**
+     * 메인 섬 이름 배치 조회 포트(GROMO-1971) — 이 스위트는 친구 목록의 «다른» 필드를 본다.
+     * 실제 도출·이전 규칙은 {@code MainIslandIntegrationTest} 가 실제 DB 로 증명한다.
+     */
+    @Mock
+    private MainIslandNamePort mainIslandNamePort;
+
     private FriendService friendService;
 
     private static final LocalDate DATE = LocalDate.of(2026, 7, 3);
@@ -112,7 +120,7 @@ class FriendServiceTest {
         friendService = new FriendService(friendshipRepository, userQueryService, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
                 userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
-                new FriendRelationLookup(friendshipRepository), eventPublisher,
+                new FriendRelationLookup(friendshipRepository), mainIslandNamePort, eventPublisher,
                 List.of(nicknameStrategy),
                 // 한도 자체는 PerUserHourlyLimiterTest·PerUserRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
                 new PerUserHourlyLimiter("test", 1_000_000, Clock.systemUTC()));
