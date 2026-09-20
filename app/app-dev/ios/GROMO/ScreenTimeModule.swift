@@ -117,6 +117,8 @@ final class ScreenTimeModule: NSObject {
                 title: "측정할 앱 선택",
                 initialSelection: initial,
                 maxApplications: nil,
+                maxWebDomains: nil,
+                allowsEmpty: false,
                 onDone: { selection in
                     guard !Self.isEmpty(selection) else { return }
                     if let data = try? JSONEncoder().encode(selection) {
@@ -377,8 +379,11 @@ private struct GromoActivityPicker: View {
     @State private var selection: FamilyActivitySelection
     @State private var showEmptyAlert = false
     @State private var showLimitAlert = false
+    @State private var showWebLimitAlert = false
     private let title: String
     private let maxApplications: Int?
+    private let maxWebDomains: Int?
+    private let allowsEmpty: Bool
     private let onDone: (FamilyActivitySelection) -> Void
     private let onCancel: () -> Void
 
@@ -386,12 +391,16 @@ private struct GromoActivityPicker: View {
         title: String,
         initialSelection: FamilyActivitySelection,
         maxApplications: Int?,
+        maxWebDomains: Int?,
+        allowsEmpty: Bool,
         onDone: @escaping (FamilyActivitySelection) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.title = title
         _selection = State(initialValue: initialSelection)
         self.maxApplications = maxApplications
+        self.maxWebDomains = maxWebDomains
+        self.allowsEmpty = allowsEmpty
         self.onDone = onDone
         self.onCancel = onCancel
     }
@@ -410,10 +419,13 @@ private struct GromoActivityPicker: View {
                             let empty = selection.applicationTokens.isEmpty
                                 && selection.categoryTokens.isEmpty
                                 && selection.webDomainTokens.isEmpty
-                            if empty { showEmptyAlert = true }
+                            if empty && !allowsEmpty { showEmptyAlert = true }
                             else if let maxApplications,
                                     selection.applicationTokens.count > maxApplications {
                                 showLimitAlert = true
+                            } else if let maxWebDomains,
+                                      selection.webDomainTokens.count > maxWebDomains {
+                                showWebLimitAlert = true
                             } else { onDone(selection) }
                         }
                     }
@@ -425,6 +437,11 @@ private struct GromoActivityPicker: View {
                     Button("확인", role: .cancel) {}
                 } message: {
                     Text("카테고리를 고르면 그 안의 앱도 개수에 포함돼요.")
+                }
+                .alert("웹사이트는 \(maxWebDomains ?? 50)개까지만 고를 수 있어요", isPresented: $showWebLimitAlert) {
+                    Button("확인", role: .cancel) {}
+                } message: {
+                    Text("일부 웹사이트를 해제한 뒤 다시 완료해 주세요.")
                 }
         }
     }
@@ -474,6 +491,8 @@ private struct GromoAllowedAppManager: View {
                     title: "허용 앱 추가·삭제",
                     initialSelection: selection,
                     maxApplications: 40,
+                    maxWebDomains: 50,
+                    allowsEmpty: true,
                     onDone: { picked in
                         var normalized = FamilyActivitySelection(includeEntireCategory: true)
                         normalized.applicationTokens = picked.applicationTokens
