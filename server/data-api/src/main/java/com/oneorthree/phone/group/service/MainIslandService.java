@@ -157,23 +157,6 @@ public class MainIslandService implements MainIslandNamePort {
         events.publishEvent(new MainIslandTransferredEvent(userId, moved.islandId(), moved.name(), Instant.now()));
     }
 
-    /**
-     * 커밋될 최종 상태가 이 이전과 같은가 — 알림을 내보내기 <b>직전</b>에 묻는다.
-     *
-     * <p>계정 탈퇴는 한 트랜잭션에서 멤버십을 <b>여러 번</b> 끝낸다. 메인 섬을 먼저 잃으면 남은 섬으로 한 번
-     * 옮겨지고 그 다음 이탈에서 행이 지워지는데, 중간 이전의 알림을 그대로 내보내면 탈퇴한 사람에게
-     * 「메인 섬이 바뀌었습니다」가 간다. 최종 상태와 대조하면 그 중간 상태는 스스로 사라진다.
-     *
-     * @param userId   이전 대상
-     * @param islandId 이전한 섬
-     * @return 지금도 그 섬이 고른 메인 섬이면 true
-     */
-    public boolean isChosen(UUID userId, UUID islandId) {
-        return mainIslands.findById(userId)
-                .filter(row -> row.getIsland().getId().equals(islandId))
-                .isPresent();
-    }
-
     private Optional<UserIslandNameProjection> effective(UUID userId) {
         List<UserIslandNameProjection> chosen = mainIslands.findChosenByUserIdIn(List.of(userId));
         if (!chosen.isEmpty()) {

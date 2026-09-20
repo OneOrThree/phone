@@ -31,6 +31,7 @@ class CatalogIntegrationTest {
     }
     @Autowired Renderer renderer;
     @Autowired Store store;
+    @Autowired InboundService inbound;
     @MockitoBean PushTransport transport;
 
     @Test
@@ -79,8 +80,8 @@ class CatalogIntegrationTest {
     void actualFourLocaleCatalogRendersEveryKindIncludingSilentAndBundles() {
         Map<String, Object> params = inputs();
         List<Map<String, Object>> kinds = store.rows("SELECT id,silent FROM kinds");
-        assertThat(kinds).hasSize(23);
-        assertThat(store.rows("SELECT id FROM templates")).hasSize(92);
+        assertThat(kinds).hasSize(24);
+        assertThat(store.rows("SELECT id FROM templates")).hasSize(96);
         for (Map<String, Object> kind : kinds) {
             for (String locale : List.of("ko", "en", "ja", "zh-Hant")) {
                 RenderedPush push = renderer.render(kind.get("id").toString(), locale, params);
@@ -94,6 +95,45 @@ class CatalogIntegrationTest {
                 }
             }
         }
+    }
+
+    /**
+     * 메인 섬 자동 이전(GROMO-1971)을 <b>실제 카탈로그로</b> 받아 본다.
+     *
+     * <p>producer 가 kind 를 늘렸는데 이 카탈로그가 비어 있으면 {@code enqueue} 가 422
+     * {@code UNKNOWN_NOTIFICATION_KIND} 를 던지고 사건이 재시도 끝에 DLT 로 간다 — 「CI 는 초록인데
+     * OUTBOX 로 켜는 순간 전부 유실」이 되는 자리라 <b>수신까지</b> 고정한다. 여기서 kind 행을 손으로
+     * 넣지 않는 것이 요점이다: 스텁을 깔면 카탈로그 누락을 영영 못 잡는다.
+     */
+    @Test
+    void mainIslandTransferIsAcceptedByTheRealCatalogAndRendersItsIslandName() {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("eventId", "noti:MAIN_ISLAND_TRANSFERRED:catalog-check");
+        event.put("schemaVersion", 1);
+        event.put("type", "notification.requested");
+        event.put("userId", "44444444-4444-4444-8444-444444444444");
+        event.put("version", 1L);
+        event.put("locale", "ko");
+        event.put("subjectId", "33333333-3333-4333-8333-333333333333");
+        event.put("occurredAt", "2026-09-20T12:00:00Z");
+        event.put("params", Map.of("kind", "MAIN_ISLAND_TRANSFERRED",
+                "islandId", "33333333-3333-4333-8333-333333333333", "islandName", "모래섬"));
+
+        inbound.accept(event);
+
+        Map<String, Object> delivery = store.one(
+                "SELECT kind,subject_id FROM deliveries WHERE event_id=?", event.get("eventId"));
+        assertThat(delivery).isNotNull();
+        assertThat(delivery.get("kind")).isEqualTo("MAIN_ISLAND_TRANSFERRED");
+        // 결정적 키의 대상 축이 그대로 실려야 연속 이전이 한 건으로 접히지 않는다.
+        assertThat(delivery.get("subject_id").toString()).isEqualTo("33333333-3333-4333-8333-333333333333");
+
+        RenderedPush push = renderer.render("MAIN_ISLAND_TRANSFERRED", "ko", inputs());
+        assertThat(push.title()).isEqualTo("메인 섬이 바뀌었어요");
+        assertThat(push.body()).isEqualTo("떠난 섬 대신 새 메인 섬이 정해졌어요 — 모래섬");
+        // 딥링크는 구 경로가 쓰는 gromo://group?g=<islandId> 와 같아야 한다 — 컷오버에서 라우팅이 바뀌면 안 된다.
+        assertThat(push.data()).containsEntry("link", "gromo://group?g=33333333-3333-4333-8333-333333333333")
+                .containsEntry("type", "MAIN_ISLAND_TRANSFERRED");
     }
 
     @Test
@@ -150,6 +190,8 @@ class CatalogIntegrationTest {
         params.put("groupName", "그룹");
         params.put("missionLabel", "20분 집중");
         params.put("counterpartNickname", "친구");
+        params.put("islandId", "33333333-3333-4333-8333-333333333333");
+        params.put("islandName", "모래섬");
         params.put("count", 3);
         params.put("resultCount", 2);
         params.put("refundCount", 1);

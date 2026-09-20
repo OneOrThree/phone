@@ -290,6 +290,34 @@ class MainIslandIntegrationTest {
         assertThat(transferSubjects(user)).containsExactly(latest.toString(), middle.toString());
     }
 
+    @Test
+    @DisplayName("배포 전 형식(3필드) 영수증을 재생해도 mainIslandId 가 null 로 나오지 않는다")
+    void replayingAPreDeployReceiptFillsTheMissingMainIslandId() {
+        Actor user = actor();
+        UUID island = island(user, "영수증섬");
+        UUID key = UUID.randomUUID();
+        var body = new AccountPatchRequest("영수증이름", null, null);
+
+        var first = account.patch(user.id(), body, user.session(), 0L, key);
+        assertThat(first.mainIslandId()).isEqualTo(island);
+
+        // 배포 «전»에 저장된 영수증은 3필드다 — 그 모양을 그대로 만들어 재생시킨다.
+        // 섬 생성도 공개 명령이라 이 사용자의 영수증은 둘이다 — PATCH 쪽(최신)만 옛 형식으로 되돌린다.
+        String stored = latestReceiptKey(user);
+        assertThat(receipt(stored)).contains("mainIslandId");
+        jdbc.update("update command_idempotency set response_body = jsonb_set("
+                + "response_body, '{data}', (response_body->'data') - 'mainIslandId') where idempotency_key=?",
+                stored);
+        // 경로 가정이 틀리면 jsonb_set 이 조용히 원본을 돌려주므로, 지워졌는지를 반드시 확인한다.
+        assertThat(receipt(stored)).doesNotContain("mainIslandId");
+
+        var replayed = account.patch(user.id(), body, user.session(), 0L, key);
+
+        // 필드가 «없는» 것과 «null 인» 것은 다르다 — 없으면 현재 값으로 채운다.
+        assertThat(replayed.mainIslandId()).isEqualTo(island);
+        assertThat(replayed.name()).isEqualTo("영수증이름");
+    }
+
     // ---------------------------------------------------------------- 친구 목록 (요구 6)
 
     @Test
@@ -371,6 +399,18 @@ class MainIslandIntegrationTest {
     private long chosenRows(Actor user) {
         return jdbc.queryForObject("select count(*) from user_main_islands where user_id=?",
                 Long.class, user.id());
+    }
+
+    /** 저장 키는 {@code public:v1:<해시>} 라 앱 키로 찾을 수 없다 — 가장 최근 영수증이 방금 그 PATCH 다. */
+    private String latestReceiptKey(Actor user) {
+        return jdbc.queryForObject("select idempotency_key from command_idempotency"
+                + " where user_id=? order by created_at desc limit 1", String.class, user.id());
+    }
+
+    /** 저장된 멱등 영수증 원문 — 「배포 전 형식」을 실제로 만들었는지 확인하는 데 쓴다. */
+    private String receipt(String storedKey) {
+        return jdbc.queryForObject("select response_body::text from command_idempotency"
+                + " where idempotency_key=?", String.class, storedKey);
     }
 
     private boolean activeMembership(Actor user, UUID islandId) {

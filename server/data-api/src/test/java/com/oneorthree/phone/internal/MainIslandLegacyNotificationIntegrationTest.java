@@ -2,14 +2,17 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
+import com.oneorthree.phone.group.event.MainIslandTransferredEvent;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.internal.service.InternalAccountService;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
+import com.oneorthree.phone.notification.service.MainIslandNotificationService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.dto.NotificationSettingsRequest;
 import com.oneorthree.phone.user.service.UserService;
+import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +24,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,6 +68,8 @@ class MainIslandLegacyNotificationIntegrationTest {
     @Autowired IslandManagementService management;
     @Autowired InternalAccountService account;
     @Autowired UserService users;
+    @Autowired MainIslandNotificationService notifications;
+    @Autowired AccountWithdrawalService withdrawal;
     @Autowired AuthService auth;
     @Autowired JwtProvider jwt;
     @Autowired JdbcTemplate jdbc;
@@ -107,6 +113,87 @@ class MainIslandLegacyNotificationIntegrationTest {
         assertThat(outboxNotices(user)).isZero();
     }
 
+    @Test
+    @DisplayName("1분 안에 연속으로 두 번 옮겨지면 구 경로도 «두 건» 보낸다 — 모드에 따라 알림 수가 달라지면 안 된다")
+    void backToBackTransfersSendTwiceInLegacyModeToo() {
+        Actor actor = reachableUser(true);
+        UUID user = actor.id();
+        UUID first = island(user, "구경로첫섬");
+        UUID middle = joined(user, island(reachableUser(true).id(), "구경로중간섬"));
+        UUID latest = joined(user, island(reachableUser(true).id(), "구경로나중섬"));
+
+        management.leave(user, first, UUID.randomUUID());
+        management.leave(user, latest, UUID.randomUUID());
+        assertThat(mainIslandOf(actor)).isEqualTo(middle);
+
+        // 신 경로(OUTBOX)는 커밋 직전에 둘 다 적는다. 구 경로가 「최종 상태와 다르다」로 첫 건을 버리면
+        // 같은 사건이 모드에 따라 1건·2건이 된다 — 그 불일치를 여기서 고정한다.
+        await().atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(sentLogs(user)).isEqualTo(2));
+        assertThat(sentTargets(user)).containsExactly(latest.toString(), middle.toString());
+    }
+
+    @Test
+    @DisplayName("이미 지나간 이전도 그대로 알린다 — 「지금의 메인 섬이 아니다」로 버리면 모드마다 알림 수가 갈린다")
+    void aTransferThatIsNoLongerCurrentStillNotifies() {
+        Actor actor = reachableUser(true);
+        UUID user = actor.id();
+        UUID first = joined(user, island(reachableUser(true).id(), "지난첫섬"));
+        UUID middle = joined(user, island(reachableUser(true).id(), "지난중간섬"));
+        UUID latest = joined(user, island(reachableUser(true).id(), "지난나중섬"));
+        management.leave(user, first, UUID.randomUUID());
+        management.leave(user, latest, UUID.randomUUID());
+        assertThat(mainIslandOf(actor)).isEqualTo(middle);
+        await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(sentLogs(user)).isEqualTo(2));
+
+        // 첫 이전(→ 나중섬)의 사건을 «최종 상태가 중간섬으로 굳은 뒤» 그대로 처리한다. 구 경로는
+        // AFTER_COMMIT + @Async 라 실제로 이 순서가 난다 — 비동기 스케줄링에 기대지 않고 그 순서를 직접 만든다.
+        // 여기서 버리면 같은 사건이 신 경로(BEFORE_COMMIT, 2건)와 구 경로(1건)로 갈린다.
+        notifications.notifyTransferred(new MainIslandTransferredEvent(user, latest, "지난나중섬", Instant.now()));
+
+        assertThat(sentLogs(user)).isEqualTo(3);
+        assertThat(sentTargets(user))
+                .containsExactly(latest.toString(), middle.toString(), latest.toString());
+    }
+
+    @Test
+    @DisplayName("같은 섬으로 두 번 옮겨져도 발송 기록이 실패하지 않는다 — 섬은 유니크 축(subject_id)이 아니다")
+    void movingBackToTheSameIslandRecordsBothSends() {
+        Actor actor = reachableUser(true);
+        UUID user = actor.id();
+        // 둘 다 «남의 섬»이어야 한다 — 방장으로 만들면 마지막 1인 이탈이 섬을 닫아 재가입할 곳이 없다.
+        UUID first = joined(user, island(reachableUser(true).id(), "왕복첫섬"));
+        UUID other = joined(user, island(reachableUser(true).id(), "왕복상대섬"));
+
+        management.leave(user, first, UUID.randomUUID());      // → other (1회차)
+        joined(user, first);                                    // 재가입
+        management.leave(user, other, UUID.randomUUID());       // → first
+        joined(user, other);                                    // 재가입
+        management.leave(user, first, UUID.randomUUID());       // → other (2회차, 같은 섬)
+
+        await().atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(sentLogs(user)).isEqualTo(3));
+        // 섬을 subject_id 에 넣으면 (user, kind, subject) 유니크가 2회차를 막아 «기록»이 실패하고
+        // 비동기 예외가 삼켜져 알림이 조용히 사라진다. 같은 섬 2건이 남는 것이 그 회귀의 증인이다.
+        assertThat(sentTargets(user)).containsExactly(other.toString(), first.toString(), other.toString());
+    }
+
+    @Test
+    @DisplayName("계정 탈퇴 도중의 중간 이전은 탈퇴자에게 가지 않는다 — 활성 검사 하나로 막는다")
+    void withdrawalNeverNotifiesTheWithdrawnUser() {
+        Actor actor = reachableUser(true);
+        UUID user = actor.id();
+        joined(user, island(reachableUser(true).id(), "탈퇴첫섬"));
+        joined(user, island(reachableUser(true).id(), "탈퇴나중섬"));
+
+        withdrawal.withdraw(user);
+
+        // 탈퇴는 멤버십을 여러 번 끝내므로 중간 이전 사건이 생길 수 있다 — 그래도 수신자가 이미 파기돼
+        // 발송도 기록도 없어야 한다. 「아직 안 온 것」과 「오지 않을 것」을 구분해 일정 시간 0 을 본다.
+        await().during(Duration.ofSeconds(2)).atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(sentLogs(user)).isZero());
+    }
+
     // ---------------------------------------------------------------- 도구
 
     /**
@@ -144,6 +231,12 @@ class MainIslandLegacyNotificationIntegrationTest {
 
     private UUID mainIslandOf(Actor actor) {
         return account.me(actor.id(), actor.session(), 0L).mainIslandId();
+    }
+
+    /** 발송 기록에 남은 «옮겨 간 섬» 들 — 이관이 복원할 대상 축이 target_user_id 에 실렸는지도 함께 본다. */
+    private java.util.List<String> sentTargets(UUID userId) {
+        return jdbc.queryForList("select target_user_id from notification_sent_logs"
+                + " where user_id=? and type=? order by sent_at, id", String.class, userId, KIND);
     }
 
     private long sentLogs(UUID userId) {

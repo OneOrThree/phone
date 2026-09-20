@@ -124,7 +124,16 @@ public class InternalAccountService {
                     return new PublicCommandResult(200, tree(view), tree(change.events()));
                 }).value();
         try {
-            return OutboxEnvelopeCodec.fromJson(receipt.data().toString(), AccountProfileView.class);
+            AccountProfileView view =
+                    OutboxEnvelopeCodec.fromJson(receipt.data().toString(), AccountProfileView.class);
+            // 배포 «전»에 저장된 receipt 는 3필드라 mainIslandId 자체가 없다. 그걸 그대로 복원하면 실제로는
+            // 메인 섬이 있는 사람에게 «명시적 null» 을 돌려준다 — 없는 것과 비어 있는 것은 다르다.
+            // «필드가 없을 때만» 현재 값으로 채운다: 저장된 null 은 그 시점의 사실이므로 재생을 왜곡하지 않는다.
+            if (!receipt.data().has("mainIslandId")) {
+                return new AccountProfileView(view.id(), view.name(), view.catColor(),
+                        mainIslands.mainIslandId(userId));
+            }
+            return view;
         } catch (JsonProcessingException e) {
             throw new OutboxException(OutboxErrorCode.IDEMPOTENT_REPLAY_FAILED);
         }

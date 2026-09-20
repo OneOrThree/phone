@@ -1,4 +1,4 @@
--- 현행 19종 사건 + 렌더 전용 묶음 4종. 생성 후 변경은 Console 등록부가 소유한다.
+-- 현행 20종 사건 + 렌더 전용 묶음 4종. 생성 후 변경은 Console 등록부가 소유한다.
 -- 발송 게이트와 잡은 별도 활성화하므로 이 마이그레이션 자체는 FCM 을 열지 않는다.
 INSERT INTO kinds(id,silent,quiet_policy,eligibility_required) VALUES('LEAGUE_WEEKLY_RESULT',false,'DROP',false);
 INSERT INTO templates(id,kind,locale,title,body) VALUES('LEAGUE_WEEKLY_RESULT.ko','LEAGUE_WEEKLY_RESULT','ko','{result, select, PROMOTED {🎉 우리 승격했어 !} RELEGATED {저번 주 리그가 종료되었어요!} other {새 리그 시작!}}','{result, select, PROMOTED {이번 주 몰입으로 {previousTierLevel, select, 1 {뽀시래기} 2 {예열 모드} 3 {초집중 모드} 4 {갓생러} 5 {집중 정복자} other {뽀시래기}} 리그에서 {newTierLevel, select, 1 {뽀시래기} 2 {예열 모드} 3 {초집중 모드} 4 {갓생러} 5 {집중 정복자} other {뽀시래기}} 리그에 올라갔어. 새 순위 보러 올래?} RELEGATED {저번 주 {previousTierLevel, select, 1 {뽀시래기} 2 {예열 모드} 3 {초집중 모드} 4 {갓생러} 5 {집중 정복자} other {뽀시래기}} 리그에서 이번 주 {newTierLevel, select, 1 {뽀시래기} 2 {예열 모드} 3 {초집중 모드} 4 {갓생러} 5 {집중 정복자} other {뽀시래기}} 리그로 이동했어요. 조금 더 힘내봐요!} other {이번 주 리그가 새로 시작됐어. 오늘 목표는? 지금 바로 몰입 시작하자!}}');
@@ -114,6 +114,13 @@ INSERT INTO templates(id,kind,locale,title,body) VALUES('FRIEND_ACCEPTED.en','FR
 INSERT INTO templates(id,kind,locale,title,body) VALUES('FRIEND_ACCEPTED.ja','FRIEND_ACCEPTED','ja','フレンドになりました！','{counterpartNickname}さんがフレンド申請を承認しました');
 INSERT INTO templates(id,kind,locale,title,body) VALUES('FRIEND_ACCEPTED.zh-Hant','FRIEND_ACCEPTED','zh-Hant','成為好友了！','{counterpartNickname}接受了你的好友邀請');
 INSERT INTO deeplinks(id,url_template,data_template) VALUES('FRIEND_ACCEPTED','gromo://friends','{"type":"FRIEND_ACCEPTED"}'::jsonb);
+-- 메인 섬 자동 이전(GROMO-1971). 이미 일어난 이전의 «통보»라 되물을 상태가 없어 eligibility 는 끈다(FRIEND_ACCEPTED 와 같은 이유).
+INSERT INTO kinds(id,silent,quiet_policy,eligibility_required) VALUES('MAIN_ISLAND_TRANSFERRED',false,'DROP',false);
+INSERT INTO templates(id,kind,locale,title,body) VALUES('MAIN_ISLAND_TRANSFERRED.ko','MAIN_ISLAND_TRANSFERRED','ko','메인 섬이 바뀌었어요','떠난 섬 대신 새 메인 섬이 정해졌어요 — {islandName}');
+INSERT INTO templates(id,kind,locale,title,body) VALUES('MAIN_ISLAND_TRANSFERRED.en','MAIN_ISLAND_TRANSFERRED','en','Your main island changed','You left your main island, so {islandName} is your new one.');
+INSERT INTO templates(id,kind,locale,title,body) VALUES('MAIN_ISLAND_TRANSFERRED.ja','MAIN_ISLAND_TRANSFERRED','ja','メイン島が変わりました','前のメイン島を離れたので、{islandName}が新しいメイン島になりました。');
+INSERT INTO templates(id,kind,locale,title,body) VALUES('MAIN_ISLAND_TRANSFERRED.zh-Hant','MAIN_ISLAND_TRANSFERRED','zh-Hant','主要島嶼已變更','你已離開原本的主要島嶼，{islandName}成為新的主要島嶼。');
+INSERT INTO deeplinks(id,url_template,data_template) VALUES('MAIN_ISLAND_TRANSFERRED','gromo://group?g={islandId}','{"type":"MAIN_ISLAND_TRANSFERRED"}'::jsonb);
 INSERT INTO kinds(id,silent,quiet_policy,eligibility_required) VALUES('BET_RESULT_BUNDLE',false,'DEFER',false);
 INSERT INTO templates(id,kind,locale,title,body) VALUES('BET_RESULT_BUNDLE.ko','BET_RESULT_BUNDLE','ko','내기 결과가 나왔어요','내기 결과 {resultCount}건이 나왔어요 — 그룹에서 확인하세요');
 INSERT INTO templates(id,kind,locale,title,body) VALUES('BET_RESULT_BUNDLE.en','BET_RESULT_BUNDLE','en','Your bet results are here','{resultCount} bet results are ready. Check your group!');

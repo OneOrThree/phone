@@ -2,7 +2,6 @@ package com.oneorthree.phone.notification.service;
 
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.event.MainIslandTransferredEvent;
-import com.oneorthree.phone.group.service.MainIslandService;
 import com.oneorthree.phone.notification.producer.NotificationDispatcher;
 import com.oneorthree.phone.notification.producer.NotificationKind;
 import com.oneorthree.phone.notification.producer.NotificationRequest;
@@ -46,10 +45,12 @@ import java.util.Optional;
  * 모드 판정 자체는 {@link NotificationDispatcher} 한 곳에 있고, 두 리스너가 서로의 모드에서 빠진다 —
  * 겹쳐 돌면 같은 알림이 FCM 으로도 가고 Kafka 로도 간다.
  *
- * <h2>문구</h2>
- * 구 경로에는 다국어 템플릿이 <b>없다</b> — 리그·친구·복귀 알림이 전부 서비스 안의 한국어 상수다
- * (2026-09-20 실측). 그 방식을 그대로 따르고, 수신자 언어는 신 경로의 {@code locale} 로만 실어 보낸다
- * (렌더는 알림 서버 몫 — {@link NotificationRequest} 주석). 여기서 새 문구 체계를 만들지 않는다.
+ * <h2>문구 — 경로마다 주인이 다르다</h2>
+ * <b>구 경로에는 다국어 템플릿이 없다</b>(리그·친구·복귀가 전부 서비스 안의 한국어 상수다) — 그래서 여기서는
+ * 한국어 상수 하나를 쓴다. <b>신 경로는 알림 서버가 ko·en·ja·zh-Hant 4종으로 렌더한다</b> — 그 템플릿이
+ * {@code V2__notification_catalog.sql} 의 {@code MAIN_ISLAND_TRANSFERRED.*} 이고, 수신자 언어는
+ * {@code NotificationRequest.locale} 로 실어 보낸다. 두 경로의 <b>한국어 문장은 같아야 한다</b> —
+ * 컷오버에서 같은 알림의 문구가 조용히 바뀌면 그건 기능 변경이다.
  */
 @Slf4j
 @Service
@@ -57,12 +58,16 @@ import java.util.Optional;
 public class MainIslandNotificationService {
 
     static final String TITLE = "메인 섬이 바뀌었어요";
-    static final String BODY_SUFFIX = "(으)로 메인 섬을 옮겼어요";
+    /**
+     * 섬 이름이 <b>뒤</b>에 붙는다 — 신 경로 템플릿({@code MAIN_ISLAND_TRANSFERRED.ko}, V2 카탈로그)과
+     * 글자 그대로 같은 문장이어야 컷오버에서 문구가 바뀌지 않는다. 한국어 조사를 피해 이름을 끝에 둔 것도
+     * 그쪽과 같은 이유다({@code (으)로}·{@code 이(가)} 는 받침에 따라 갈린다).
+     */
+    static final String BODY_PREFIX = "떠난 섬 대신 새 메인 섬이 정해졌어요 — ";
 
     /** 섬 딥링크 — 기존 그룹 라우팅을 그대로 쓴다(앱에 새 경로를 추가하지 않는다). */
     static final String ISLAND_DEEP_LINK_PREFIX = "gromo://group?g=";
 
-    private final MainIslandService mainIslandService;
     private final UserQueryService userQueryService;
     private final NotificationDispatcher notificationDispatcher;
     private final NotificationSentLogRepository notificationSentLogRepository;
@@ -97,25 +102,30 @@ public class MainIslandNotificationService {
     void notifyTransferred(MainIslandTransferredEvent event, Instant now) {
         Ready ready = requestOf(event).orElse(null);
         if (ready == null) {
-            log.debug("메인 섬 이전 알림 생략 — 최종 상태와 어긋남, userId={}", event.userId());
+            log.debug("메인 섬 이전 알림 생략 — 탈퇴한 수신자, userId={}", event.userId());
             return;
         }
         PushMessage message = new PushMessage(
                 TITLE,
-                event.islandName() + BODY_SUFFIX,
+                BODY_PREFIX + event.islandName(),
                 ISLAND_DEEP_LINK_PREFIX + event.islandId(),
                 ready.settings() == null || ready.settings().isSoundEnabled(),
                 Map.of("type", NotificationSentLog.TYPE_MAIN_ISLAND_TRANSFERRED));
 
         if (notificationDispatcher.dispatch(ready.recipient(), ready.settings(), ready.request(), message, now)
                 .recordsLegacyLog()) {
-            // sent_log 의 subject_id 는 비운다 — 그 컬럼은 «발송 전 선점» 파이프라인의 유니크 축
-            // (user_id, kind, subject_id)이고, 여기 섬을 넣으면 같은 섬으로 두 번 옮겨질 때
-            // (재가입 후 재이탈) 유니크 위반으로 «기록»이 실패해 알림이 조용히 사라진다.
-            // 이 경로는 종전 서비스와 같은 «실발송 후 기록» 이라 그 축을 쓰지 않는다(엔티티 주석).
+            // 섬은 target_user_id 에 싣고 subject_id 는 비운다 — 두 요구를 동시에 지켜야 한다.
+            // ① subject_id 는 «발송 전 선점» 파이프라인의 유니크 축(user_id, kind, subject_id)이라,
+            //    여기에 섬을 넣으면 재가입 후 같은 섬에서 다시 이탈할 때 유니크 위반으로 «기록»이 실패하고
+            //    리스너 try/catch 가 삼켜 알림이 조용히 사라진다.
+            // ② 그렇다고 대상을 아예 버리면 이 kind 가 SubjectKind.ISLAND 라서 이관 export 가
+            //    FAIL_NO_SUBJECT 로 «중단»된다 — 성공 이력 한 건이 OUTBOX 컷오버를 막는다.
+            // target_user_id 는 유니크 축이 아니고 「유저 외 식별자」를 싣는 것이 이미 규약이라
+            //    (챌린지 id 선례, 엔티티 주석) 둘을 동시에 만족한다. 복원은 exporter 의 폴백 표가 한다.
             notificationSentLogRepository.save(NotificationSentLog.builder()
                     .userId(event.userId())
                     .type(NotificationSentLog.TYPE_MAIN_ISLAND_TRANSFERRED)
+                    .targetUserId(event.islandId())
                     .sentAt(now)
                     .build());
         }
@@ -125,14 +135,22 @@ public class MainIslandNotificationService {
      * 두 경로가 <b>같은</b> 요청을 만들도록 조립을 한 곳에 둔다 — 한쪽만 고치면 모드에 따라 다른 알림이
      * 나가는데, 컷오버 중에는 그 차이가 드러나지 않는다.
      *
-     * <p>두 가지를 다시 본다. ① 지금도 그 섬이 고른 메인 섬인가 — 계정 탈퇴는 한 트랜잭션에서 멤버십을
-     * 여러 번 끝내므로 중간에 한 번 옮겨졌다가 마지막에 행이 지워질 수 있다. ② 수신자가 아직 활성인가.
-     * 신 경로는 커밋 직전이라 자동 플러시가, 구 경로는 커밋 뒤라 커밋된 상태가 각각 그 답을 준다.
+     * <h2>거르는 것은 «탈퇴자» 하나뿐이다</h2>
+     * 종전에는 「지금도 그 섬이 고른 메인 섬인가」도 함께 봤는데, 그 조건이 <b>모드에 따라 알림 수를
+     * 갈랐다</b>. 신 경로는 커밋 «직전»에 두 이전을 모두 적으므로 A→C·C→B 가 둘 다 나가지만, 구 경로는
+     * 커밋 «뒤» 비동기라 첫 작업이 돌기 전에 C→B 가 커밋되면 A→C 가 「최종 상태와 다르다」로 버려져
+     * B 하나만 나갔다. 같은 사건에 1건과 2건이 되는 것은 계약 위반이다.
+     *
+     * <p><b>둘 다 보내는 쪽으로 맞춘다.</b> 연속으로 옮겨진 것은 사실이고 두 알림이 서로 다른 섬을
+     * 가리키므로 사용자에게 거짓이 아니다. 「최종만」으로 맞추려면 신 경로도 좁혀야 하는데, 그쪽은
+     * {@code BEFORE_COMMIT} 이라 「나중에 또 옮길지」를 알 수 없다.
+     *
+     * <p>원래 막으려던 것 — <b>계정 탈퇴 도중의 중간 이전이 탈퇴자에게 가는 것</b> — 은 활성 검사 하나로
+     * 그대로 막힌다. 탈퇴는 멤버십 정리({@code detachWithdrawnUser})보다 <b>뒤</b>에 PII 를 파기하므로
+     * ({@code AccountWithdrawalService}), 신 경로는 커밋 직전 자동 플러시가, 구 경로는 커밋된 상태가
+     * 각각 {@code is_deleted} 를 보여 준다.
      */
     private Optional<Ready> requestOf(MainIslandTransferredEvent event) {
-        if (!mainIslandService.isChosen(event.userId(), event.islandId())) {
-            return Optional.empty();
-        }
         User recipient = userQueryService.findActive(event.userId()).orElse(null);
         if (recipient == null) {
             return Optional.empty();

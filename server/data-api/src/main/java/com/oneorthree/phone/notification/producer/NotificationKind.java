@@ -7,7 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Data 가 <b>판정</b>하는 알림 종류 — 19종. 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
+ * Data 가 <b>판정</b>하는 알림 종류 — 20종(실측). 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
  *
  * <p>이 enum 이 하는 일은 셋이다: ① 결정적 사건 키의 시간 축을 고정하고
  * ({@link NotificationSlotGranularity}), ② 조용한 시간 정책을 실어 보내고
