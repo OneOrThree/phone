@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -38,6 +39,8 @@ public class GroupAnnouncementService {
     private final UserQueryService userQueryService;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
     private final IslandNoticeEvents noticeEvents;
+    /** 금칙어 판정 (GROMO-1986) — 2.0 {@code IslandNoticeService} 와 같은 {@code group_announcements} 행이다. */
+    private final BannedWords bannedWords;
 
     /**
      * 공지를 새로 남긴다. 작성자는 요청자로 고정이라 대리 작성이 불가능하다.
@@ -62,6 +65,8 @@ public class GroupAnnouncementService {
         if (!groupMember.canWriteAnnouncement()) {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
         }
+
+        bannedWords.requireClean(request.getTitle(), request.getContent());
 
         GroupAnnouncement announcement = GroupAnnouncement.builder()
                 .group(group)
@@ -120,6 +125,8 @@ public class GroupAnnouncementService {
         if (!member.canWriteAnnouncement()) {
             throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
         }
+
+        bannedWords.requireClean(request.getTitle(), request.getContent());
 
         GroupAnnouncement announcement = groupAnnouncementRepository.findByIdAndGroup(announcementId, group)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));

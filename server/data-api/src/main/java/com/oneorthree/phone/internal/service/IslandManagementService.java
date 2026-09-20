@@ -3,6 +3,7 @@ package com.oneorthree.phone.internal.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.appearance.dto.PersonalAppearanceView;
 import com.oneorthree.phone.appearance.service.AppearanceService;
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -81,6 +82,7 @@ public class IslandManagementService {
     private final IslandMovementGuards movementGuards;
     private final PublicCommandService publicCommands;
     private final AppearanceService appearances;
+    private final BannedWords bannedWords;
 
     @Value("${island-management.commands-enabled:false}")
     private boolean enabled;
@@ -116,6 +118,11 @@ public class IslandManagementService {
                 () -> userQueryService.getCallerForShare(userId),
                 ignored -> requireHostNow(userId, islandId),
                 () -> {
+                    // 금칙어는 «신규 명령 안» 이다 (GROMO-1986). 앞에 두면 두 가지가 깨진다: ① 이미 성공한
+                    // 키를 다른 본문으로 재사용한 요청이 409 멱등 키 충돌 대신 400 으로 나가고 ② 배포 사이에
+                    // 목록이 늘면 «같은 본문의 성공 재시도» 가 원 결과 대신 400 이 된다 — 섬 관리 LLD §2 의
+                    // 「같은 키 재생은 같은 결과」를 깬다. 생략(null)은 「안 보냄」이라 건너뛴다.
+                    bannedWords.requireClean(body.name(), body.intro());
                     Group island = lockIslandAsHost(userQueryService.getCallerForShare(userId), islandId);
                     boolean renamed = body.name() != null && !body.name().equals(island.getName());
                     boolean introChanged = body.intro() != null && !body.intro().equals(intro(island));

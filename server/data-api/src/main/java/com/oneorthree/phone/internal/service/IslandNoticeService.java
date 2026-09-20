@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
@@ -86,6 +87,7 @@ public class IslandNoticeService {
     private final IslandNoticeEvents noticeEvents;
     private final AggregateVersionRepository aggregateVersions;
     private final PublicCommandService publicCommands;
+    private final BannedWords bannedWords;
     private final boolean writesEnabled;
     private final int bodyMaxLength;
     private final int commentMaxLength;
@@ -94,7 +96,7 @@ public class IslandNoticeService {
             GroupMembershipMutationLocks membershipLocks, GroupAnnouncementRepository notices,
             GroupAnnouncementCommentRepository comments, IslandFacilityQueryService facilities,
             IslandNoticeEvents noticeEvents, AggregateVersionRepository aggregateVersions,
-            PublicCommandService publicCommands,
+            PublicCommandService publicCommands, BannedWords bannedWords,
             @Value("${island-board.writes-enabled:false}") boolean writesEnabled,
             @Value("${island-board.notice-body-max-length:5000}") int bodyMaxLength,
             @Value("${island-board.comment-max-length:500}") int commentMaxLength) {
@@ -108,6 +110,7 @@ public class IslandNoticeService {
         this.noticeEvents = noticeEvents;
         this.aggregateVersions = aggregateVersions;
         this.publicCommands = publicCommands;
+        this.bannedWords = bannedWords;
         this.writesEnabled = writesEnabled;
         this.bodyMaxLength = bodyMaxLength;
         this.commentMaxLength = commentMaxLength;
@@ -184,6 +187,7 @@ public class IslandNoticeService {
         return run(userId, islandId, new PublicCommandRequest(userId, "POST:/islands/" + islandId + "/notices",
                 key, InternalJson.tree(semantic)), true, () -> {
                     requireBodyLength(body);
+                    bannedWords.requireClean(title, body);
                     User author = users.getCallerForShare(userId);
                     GroupAnnouncement notice = GroupAnnouncement.builder()
                             .group(groups.getGroup(islandId)).user(author).title(title).content(body).build();
@@ -216,6 +220,7 @@ public class IslandNoticeService {
                     if (body != null) {
                         requireBodyLength(body);
                     }
+                    bannedWords.requireClean(title, body);
                     GroupAnnouncement notice = requireNotice(islandId, noticeId);
                     notice.updateContent(title, body);
                     EventEnvelope event = noticeEvents.changed(islandId, noticeId, userId);
@@ -254,6 +259,7 @@ public class IslandNoticeService {
                     if (text.length() > commentMaxLength) {
                         throw new GroupException(GroupErrorCode.NOTICE_COMMENT_TOO_LONG);
                     }
+                    bannedWords.requireClean(text);
                     requireNotice(islandId, noticeId);
                     GroupAnnouncementComment comment = new GroupAnnouncementComment(noticeId, userId, text);
                     comments.save(comment);
