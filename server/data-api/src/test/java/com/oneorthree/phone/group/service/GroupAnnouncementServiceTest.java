@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.service;
 
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncementGrant;
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
@@ -64,6 +66,14 @@ class GroupAnnouncementServiceTest {
 
     @Mock
     private IslandNoticeEvents noticeEvents;
+
+    /**
+     * 목이 아니라 «진짜» 판정기다 (GROMO-1986) — 목으로 덮으면 이 단위 테스트들이 통과하는 근거가
+     * 「아무것도 안 막는 목」이 되어, 금칙어 판정이 실제로 어디에 꽂혀 있는지 증명하지 못한다.
+     * 목록은 {@code src/main/resources/moderation/banned-words.txt} 를 그대로 읽는다.
+     */
+    @Spy
+    private BannedWords bannedWords = new BannedWords();
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");

@@ -116,6 +116,7 @@ common/exception/CommonErrorCode    ← 도메인에 속하지 않는 실패(검
 | DB 제약 위반 | 409 | `DATA_INTEGRITY_VIOLATION` |
 | 낙관락·비관락 충돌 | 409 | `CONCURRENT_UPDATE` — 재시도하면 풀린다 |
 | 계정당 시간 한도 초과 (게스트 친구 요청 · 전 계정 편지 발송) | 429 | `RATE_LIMITED` — `retryAfterMs` + `Retry-After` 헤더 동반(GROMO-1934) |
+| 사용자 입력에 금칙어 (공지·댓글·편지·닉네임·섬 이름·섬 소개) | 400 | `BANNED_WORD` — 판정은 `common/support/BannedWords`, 목록은 `moderation/banned-words.txt`(GROMO-1986). 여섯 입구가 `group`·`letter`·`user`·`internal` 네 도메인에 걸쳐 있어 §3 의 「빌려 쓰기 금지」상 공통이 소유한다. 길이 초과(422)와 상태를 가른다 |
 | `@LoginUser` 배선 오류 | 500 | `LOGIN_USER_RESOLUTION_FAILED` |
 | 그 외 전부 (catch-all) | 500 | `INTERNAL_ERROR` — 고정 문구, 원인은 로그로만 |
 

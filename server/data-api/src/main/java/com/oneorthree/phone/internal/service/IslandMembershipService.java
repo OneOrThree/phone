@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletRepository;
 import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
@@ -100,6 +101,7 @@ public class IslandMembershipService {
     private final IslandWalletRepository islandWalletRepository;
     private final IslandConstructionStateRepository islandConstructionStateRepository;
     private final IslandMovementGuards movementGuards;
+    private final BannedWords bannedWords;
 
     // ---------------------------------------------------------------- §3.1 create
 
@@ -125,6 +127,9 @@ public class IslandMembershipService {
                     movementGuards.requireNoLiveFocusSession(user);
                     movementGuards.requireDepartureUnlocked(context);
                     movementGuards.requireJoinedIslandLimit(user);
+                    // 섬 이름·소개는 섬에 들어온 모든 사람이 본다 (GROMO-1986). 레거시 POST /api/v1/groups
+                    // 도 같은 groups 행을 만들므로 GroupService.createGroup 에 같은 판정이 있다.
+                    bannedWords.requireClean(request.name(), intro);
 
                     Group island = groupRepository.save(Group.builder()
                             .name(request.name())
