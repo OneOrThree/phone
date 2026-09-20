@@ -4,8 +4,8 @@
   "player_selectable": false,
   "status": "concept-approved",
   "idle": "npc/idle.png",
-  "canvas": [1254, 1254],
-  "background": "warm-ivory",
+  "canvas": [512, 512],
+  "background": "transparent",
   "source_ticket": "GROMO-1833",
   "note": "기존 강아지 NPC의 선·색·음영 규칙에 맞춘 건설·안내 NPC 확정 시안"
 }
