@@ -5,6 +5,9 @@ import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
 import com.oneorthree.realtime.fanout.ChatFanout;
+import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.message.exception.ChatErrorCode;
+import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -52,6 +55,15 @@ class StompAuthChannelInterceptorTest {
     @Mock
     private ChatAccessGuard accessGuard;
 
+    @Mock
+    private IslandFocusSessions focusSessions;
+
+    @Mock
+    private org.springframework.data.redis.core.StringRedisTemplate redis;
+
+    @Mock
+    private org.springframework.data.redis.core.ValueOperations<String, String> valueOps;
+
     private StompAuthChannelInterceptor interceptor;
 
     private UUID userId;
@@ -59,9 +71,14 @@ class StompAuthChannelInterceptorTest {
 
     @BeforeEach
     void setUp() {
-        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, new RealtimeSessionRegistry());
+        interceptor = new StompAuthChannelInterceptor(jwtValidator, accessGuard, new RealtimeSessionRegistry(),
+                focusSessions, redis);
         userId = UUID.randomUUID();
         groupId = UUID.randomUUID();
+        given(redis.opsForValue()).willReturn(valueOps);
+        // 구독 상한은 기본 「창을 잡았다」 — 상한 자체의 회귀는 실 Redis 를 쓰는 통합 테스트가 본다.
+        given(valueOps.setIfAbsent(any(String.class), any(String.class), any(java.time.Duration.class)))
+                .willReturn(true);
     }
 
     @Test
@@ -283,22 +300,88 @@ class StompAuthChannelInterceptorTest {
     }
 
     @Test
-    @DisplayName("신규 섬 구독·개인 이벤트·emote SEND는 후속 인가 구현 전까지 거절한다")
-    void newDestinationsRemainClosed() {
+    @DisplayName("관전 둘(focus·rest)은 인증만으로 구독된다 — 비소속 관전 개방")
+    void watchChannelsOpenToAnyAuthenticatedUser() {
         given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
-        for (String channel : new String[] {"events", "focus", "rest", "emotes", "playback", "messages"}) {
+        for (String channel : new String[] {"focus", "rest"}) {
             StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
             frame.setUser(new ChatPrincipal(userId, BEARER));
             frame.setDestination("/topic/islands/" + groupId + "/" + channel);
-            assertThatThrownBy(() -> interceptor.preSend(message(frame), null)).isInstanceOf(DomainException.class);
+            assertThatCode(() -> interceptor.preSend(message(frame), null)).doesNotThrowAnyException();
         }
-        for (StompCommand command : new StompCommand[] {StompCommand.SUBSCRIBE, StompCommand.SEND}) {
-            StompHeaderAccessor frame = accessor(command);
+        // 관전은 채팅 규칙(멤버십·집중)과 무관하다 — 그쪽 가드를 부르면 집중 중인 사람이 관전을 못 한다.
+        verifyNoInteractions(accessGuard);
+        verifyNoInteractions(focusSessions);
+    }
+
+    @Test
+    @DisplayName("emote 구독은 그 섬의 본인 진행 세션(active·paused)을 Data 정본에 묻는다 — 없으면 거절")
+    void emoteSubscriptionAsksTheAuthority() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId + "/emotes");
+
+        assertThatCode(() -> interceptor.preSend(message(frame), null)).doesNotThrowAnyException();
+        // sessionId 는 null 이다 — 구독은 「진행 세션이 있기만 하면」이고 어느 세션인지는 발신이 본다.
+        verify(focusSessions).requireActiveSession(groupId, userId, null);
+
+        org.mockito.BDDMockito.willThrow(new ChatException(ChatErrorCode.NOT_FOCUSING))
+                .given(focusSessions).requireActiveSession(groupId, userId, null);
+        assertThatThrownBy(() -> interceptor.preSend(message(frame), null))
+                .isInstanceOf(DomainException.class)
+                .extracting(e -> ((DomainException) e).getErrorCode())
+                .isEqualTo(ChatErrorCode.NOT_FOCUSING);
+    }
+
+    @Test
+    @DisplayName("emote SEND 는 인증만 본다 — 도메인 규칙은 서비스 한 곳이다")
+    void emoteSendChecksAuthenticationOnly() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        StompHeaderAccessor frame = accessor(StompCommand.SEND);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/app/islands/" + groupId + "/focus/emotes");
+
+        assertThatCode(() -> interceptor.preSend(message(frame), null)).doesNotThrowAnyException();
+        verifyNoInteractions(accessGuard, focusSessions);
+    }
+
+    @Test
+    @DisplayName("아직 열지 않은 섬 채널·개인 이벤트 큐·직접 브로커 SEND 는 계속 거절한다")
+    void notYetOpenedDestinationsRemainClosed() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        for (String destination : new String[] {
+                "/topic/islands/" + groupId + "/events",
+                "/topic/islands/" + groupId + "/playback",
+                "/topic/islands/" + groupId + "/messages",
+                "/topic/islands/" + groupId + "/focus/",
+                "/topic/islands/" + groupId + "/*",
+                "/user/queue/events"}) {
+            StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
             frame.setUser(new ChatPrincipal(userId, BEARER));
-            frame.setDestination(command == StompCommand.SUBSCRIBE ? "/user/queue/events"
-                    : "/app/islands/" + groupId + "/focus/emotes");
+            frame.setDestination(destination);
             assertThatThrownBy(() -> interceptor.preSend(message(frame), null)).isInstanceOf(DomainException.class);
         }
+        for (String destination : new String[] {
+                "/topic/islands/" + groupId + "/emotes",
+                "/app/islands/" + groupId + "/focus/emotes/extra",
+                "/user/queue/events"}) {
+            StompHeaderAccessor frame = accessor(StompCommand.SEND);
+            frame.setUser(new ChatPrincipal(userId, BEARER));
+            frame.setDestination(destination);
+            assertThatThrownBy(() -> interceptor.preSend(message(frame), null)).isInstanceOf(DomainException.class);
+        }
+    }
+
+    @Test
+    @DisplayName("대문자 UUID 로 연 섬 구독은 거절한다 — 통과시키면 구독은 되고 아무것도 못 받는다")
+    void islandTopicRejectsUppercaseUuid() {
+        given(jwtValidator.extractUserId("test-token")).willReturn(Optional.of(userId));
+        StompHeaderAccessor frame = accessor(StompCommand.SUBSCRIBE);
+        frame.setUser(new ChatPrincipal(userId, BEARER));
+        frame.setDestination("/topic/islands/" + groupId.toString().toUpperCase(Locale.ROOT) + "/focus");
+
+        assertThatThrownBy(() -> interceptor.preSend(message(frame), null)).isInstanceOf(DomainException.class);
     }
 
     private static StompHeaderAccessor accessor(StompCommand command) {

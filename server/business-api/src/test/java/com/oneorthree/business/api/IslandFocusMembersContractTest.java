@@ -19,6 +19,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 /**
  * 같이 낚시 초기 스냅샷 2종의 계약 (GROMO-1765) — 실제 필터·컨트롤러·TCP 클라이언트로 검증한다.
  * 목록·watermark 의 정합은 data-api 통합 테스트가 본다. 여기서는 경계를 본다: 주체, 봉투, 오류 표.
+ *
+ * <p><b>아래 403 {@code MEMBER_ONLY} 행은 「비소속 금지」가 아니다.</b> 비소속 관전은 2026-09-19 에
+ * 열렸고(data-api {@code IslandFocusMembersService}), 지금 Data 가 이 코드를 내는 경우는 <b>없는 섬·
+ * 종료된 섬·탈퇴 계정</b>뿐이다. 여기서 고정하는 것은 그 상황이 아니라 <b>상태·코드 쌍의 «옮김»</b>
+ * 이다 — 정확히 같은 쌍만 공개 오류가 되고 나머지는 502 라는 규칙.
  */
 class IslandFocusMembersContractTest extends UpstreamTestBase {
 

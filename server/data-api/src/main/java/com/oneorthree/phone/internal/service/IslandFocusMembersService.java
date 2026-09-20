@@ -49,6 +49,18 @@ import java.util.stream.Collectors;
  * 읽으라고 정했으므로 REPEATABLE READ 로 트랜잭션 스냅샷을 하나로 고정한다. {@code REQUIRES_NEW} 인 이유는
  * {@link FocusSessionLifecycleService#current} 와 같다(기존 트랜잭션에 참여하면 격리 수준이 조용히 무시된다).
  *
+ * <h2>비소속 방문자도 본다 (2026-09-19 확정)</h2>
+ * 종전에는 비주민을 {@code MEMBER_ONLY} 로 막았다. 「같이 낚시」는 <b>섬에 들러 남들이 집중하는 모습을
+ * 보는 것</b>이 기능의 절반이라, 그 문을 닫으면 방문자 화면이 텅 빈다. 방문자에게 내리는 내용은
+ * 주민과 <b>같다</b> — 근거는 셋이다: ① 이 목록은 섬 광장에 앉아 있는 사람들의 모습 그 자체이고 앱이
+ * 방문자에게도 같은 장면을 그린다, ② 같은 정보를 둘로 가르면 앱이 두 모양을 다뤄야 하고 언젠가
+ * 한쪽만 바뀐다, ③ 이 목록의 필드(이름·과목·경과 시간·상태)는 주민이면 누구나 보는 값이라, 가입이
+ * 열린 섬에서는 가려 봐야 「가입하면 보인다」로 끝난다.
+ *
+ * <p><b>섬의 존재·수명은 여전히 가린다.</b> 없는 섬·종료된 섬·탈퇴 계정은 그대로
+ * {@code MEMBER_ONLY} 다 — 임의 {@code islandId} 를 넣어 보는 것만으로 섬의 존재가 새면 안 된다.
+ * 섬에 «비공개» 속성이 생기면 그 판정이 들어갈 자리는 {@link #requireVisitableIsland} 한 곳이다.
+ *
  * <h2>무엇을 싣지 않는가</h2>
  * catColor·appearance·appearanceVersion — 제공자가 main 에 없다({@link IslandFocusMembersView} 참조).
  *
@@ -76,7 +88,7 @@ public class IslandFocusMembersService {
     /** focus 목록 — 진행 중(active/paused) 주민. completed·abandoned 는 없다. */
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.REPEATABLE_READ, readOnly = true)
     public IslandFocusMembersView focusMembers(UUID islandId, UUID userId) {
-        List<UUID> residents = requireResident(islandId, userId);
+        List<UUID> residents = requireVisitableIsland(islandId, userId);
         List<FocusSessionDetail> rows = progressing(islandId, PROGRESSING, residents);
         Instant now = anchor(rows);
         if (rows.isEmpty()) {
@@ -102,7 +114,7 @@ public class IslandFocusMembersService {
     /** rest 목록 — paused 주민만, 자리 번호 순. */
     @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.REPEATABLE_READ, readOnly = true)
     public IslandRestMembersView restMembers(UUID islandId, UUID userId) {
-        List<UUID> residents = requireResident(islandId, userId);
+        List<UUID> residents = requireVisitableIsland(islandId, userId);
         List<FocusSessionDetail> rows = progressing(islandId, List.of(FocusSessionLifecycle.PAUSED), residents);
         Instant now = anchor(rows);
         if (rows.isEmpty()) {
@@ -136,21 +148,21 @@ public class IslandFocusMembersService {
     }
 
     /**
-     * 활성 계정 · 살아 있는 섬 · 활성 주민 — 우체통({@code InternalIslandMailboxService#requireResident})과 같은
-     * 술어다. 섬 부재·종료와 비주민을 한 코드({@code MEMBER_ONLY})로 합쳐 임의 islandId 로 섬 존재가 새지 않게 한다.
+     * 활성 계정 · 살아 있는 섬 — 우체통({@code InternalIslandMailboxService#requireResident})에서
+     * <b>주민 검사만 뺀</b> 술어다(클래스 주석의 비소속 관전 개방). 섬 부재·종료·탈퇴 계정은 그대로
+     * 한 코드({@code MEMBER_ONLY})로 합쳐 임의 islandId 로 섬 존재가 새지 않게 한다.
+     *
+     * <p>반환값은 여전히 <b>활성 주민</b>이다 — 방문자에게도 「그 섬 주민의 목록」을 보여 주는 것이지
+     * 「아무나의 세션」을 보여 주는 것이 아니다. 강퇴·탈퇴한 사람은 방문자 화면에서도 사라진다.
      *
      * @return 섬의 활성 주민 id — 목록 필터에 그대로 쓴다
      */
-    private List<UUID> requireResident(UUID islandId, UUID userId) {
+    private List<UUID> requireVisitableIsland(UUID islandId, UUID userId) {
         users.getCaller(userId);
         groups.findGroup(islandId)
                 .filter(group -> group.getDeletedAt() == null && group.getStatus() != GroupStatus.ENDED)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
-        List<UUID> residents = members.findActiveMemberUserIdsByGroupId(islandId);
-        if (!residents.contains(userId)) {
-            throw new GroupException(GroupErrorCode.MEMBER_ONLY);
-        }
-        return residents;
+        return members.findActiveMemberUserIdsByGroupId(islandId);
     }
 
     /** 진행 상세 중 기본 마커가 아직 열린 것만 — 닫힌 것은 이미 끝난 세션이다(클래스 주석). */

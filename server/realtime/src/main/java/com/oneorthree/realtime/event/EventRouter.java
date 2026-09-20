@@ -21,6 +21,11 @@ public class EventRouter {
                     || event.type() == RealtimeEventType.JOIN_REQUEST_UPDATED) {
                 throw new IllegalArgumentException("이벤트와 섬 수신 대상이 일치하지 않습니다.");
             }
+            // 응원의 수신 자격은 구독 인가보다 좁다(그 섬에서 «지금» 진행 중인 주민). 그 집합을 싣지 않고
+            // 보내면 전달 직전 판정이 근거를 잃고 전원 공개가 된다 — 빈 집합을 «제한 없음»으로 읽기 때문이다.
+            if (event.type() == RealtimeEventType.FOCUS_EMOTE && island.recipients().isEmpty()) {
+                throw new IllegalArgumentException("응원은 수신 대상을 명시해야 합니다.");
+            }
             destination = "/topic/islands/" + island.islandId() + "/" + event.type().channel();
         } else if (audience instanceof RealtimeAudience.UserAudience users) {
             boolean personalWallet = event.islandId() == null

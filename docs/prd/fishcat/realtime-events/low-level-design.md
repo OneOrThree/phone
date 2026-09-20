@@ -108,13 +108,13 @@ GET의 API 설명에 '후속 이벤트'가 표시돼 있어도 조회가 변경 
 | WebSocket handshake | `/ws/realtime` | Origin 정책 유지, 실제 인증은 STOMP CONNECT |
 | 호환 handshake | `/ws/chat` | 같은 인증 모델. 기능에 따른 목적지 인가 |
 | SUBSCRIBE | `/topic/islands/{islandId}/events` | 현재 소속 주민. 메시지/음악/응원·개인 경제/가입요청은 이 채널에 실리지 않음 |
-| SUBSCRIBE | `/topic/islands/{islandId}/focus` | 같은 섬 주민. 집중 중 여부로 주민 관람 전체를 차단하지 않음 |
-| SUBSCRIBE | `/topic/islands/{islandId}/rest` | 같은 섬 주민. 로컬 모닥불 관람 때문에 새 세션을 만들지 않음 |
-| SUBSCRIBE | `/topic/islands/{islandId}/emotes` | 현재 같은 섬에서 active 집중 세션을 가진 사용자 |
+| SUBSCRIBE | `/topic/islands/{islandId}/focus` | **인증된 사용자**(비소속 관전 개방 2026-09-19 — 같은 목록을 내리는 GET과 같은 문턱). 집중 중 여부로 관람을 차단하지 않음 |
+| SUBSCRIBE | `/topic/islands/{islandId}/rest` | **인증된 사용자**(위와 같음). 로컬 모닥불 관람 때문에 새 세션을 만들지 않음 |
+| SUBSCRIBE | `/topic/islands/{islandId}/emotes` | 현재 같은 섬에서 **진행 중(active·paused) 집중 세션**을 가진 사용자(구독 시 Data 정본 조회). 집중을 시작한 뒤 구독해야 한다 |
 | SUBSCRIBE | `/topic/islands/{islandId}/playback` | 같은 섬 주민 + 방송기 접근 가능 |
 | SUBSCRIBE | `/topic/islands/{islandId}/messages` | 같은 섬 주민 + 우체통 접근 가능 + 기존 채팅 집중 제한 |
 | SUBSCRIBE | `/user/queue/events` | 인증된 본인 큐. event별 owner/신청관계/방장권한은 전달 직전 추가 검사 |
-| 신규 SEND | `/app/islands/{islandId}/focus/emotes` | 본인 active sessionId + 현재 같은 섬 + 5종 + 만료/속도 제한. 참고 티켓 1765 전 비활성 |
+| 신규 SEND | `/app/islands/{islandId}/focus/emotes` | 본인 **진행 세션(active·paused)** sessionId + 현재 같은 섬 + 5종 + 만료/속도 제한. **1765에서 활성화됨**(휴식 허용은 2026-09-20 결정) |
 | 호환 SUBSCRIBE/SEND | `/topic/groups/{groupId}`, `/app/groups/{groupId}/send` | 기존 ChatAccessGuard 및 와이어 유지 |
 | 호환 개인큐 | `/user/queue/errors`, `/user/queue/duplicates` | 발신한 세션에만 실패/중복 결과 회신 |
 
@@ -138,7 +138,7 @@ record RealtimeEventEnvelope(
 ) {}
 
 sealed interface RealtimeAudience permits IslandAudience, UserAudience {}
-record IslandAudience(UUID islandId) implements RealtimeAudience {}
+record IslandAudience(UUID islandId, Set<UUID> recipients) implements RealtimeAudience {} // recipients 비면 제한 없음
 record UserAudience(Set<UUID> userIds) implements RealtimeAudience {}
 
 // EventRouter 구체 클래스가 제공하는 메서드의 개념 시그니처:
@@ -153,7 +153,12 @@ record UserAudience(Set<UUID> userIds) implements RealtimeAudience {}
 
 신규 권한 제공자가 없는 channel의 allowlist 등록은 곧 허용을 뜻하지 않는다. 1755의 신규 전달 adapter는 비활성 상태를 명시적으로 거절하고, 신규 SUBSCRIBE/SEND 및 outbound를 닫는다. handler·시설·멤버십·snapshot·세부 payload validator가 준비된 기능만 후속 단계에서 활성화한다.
 
-추가 다중노드 fanout의 후속 계약은 `chat:events:v1`에 `{originInstanceId,event,audience}` 내부 봉투를 사용하는 것이다. 기존 `chat:fanout`과 payload를 보존한다. 이 추가 채널이 현재 배포돼 있다는 뜻은 아니며, 실제 구현 작업에서 ACL·serializer·배포 호환 검증을 붙인다. 클라이언트는 이 내부 봉투를 받지 않고 7필드 event만 받는다.
+추가 다중노드 fanout은 `chat:events:v1`에 `{originInstanceId,destination,event,recipients}` 내부 봉투를 쓴다(1765 구현). `recipients`는 수신 자격이 구독 인가보다 좁은 채널(응원)의 수신 집합이고 비어 있으면 제한 없음이다 — 내부 봉투라 클라이언트에 가지 않는다.
+`audience` 대신 **목적지 문자열**을 싣는다 — 수신 대상 판정은 발행한 인스턴스의 `EventRouter`가 이미
+끝냈고 그 결과가 곧 그 문자열이며, sealed interface를 다형 직렬화하지 않아도 된다. 기존 `chat:fanout`과
+payload를 보존하고 채널을 섞지 않는다. 클라이언트는 이 내부 봉투를 받지 않고 7필드 event만 받는다.
+HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸런서 / 단일 소비 그룹 `realtime-v1`)
+인스턴스별 소비 그룹 대신 이 재분배를 쓴다 — 그래야 HTTP 입구도 함께 덮인다.
 
 ## 4. 인가·철회·집중 제한
 
@@ -251,7 +256,7 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 - 기존 CONNECT의 `requireNotFocusing`은 목적지와 분리한다. 기존 subscribe/send의 채팅 guard는 보존한다.
 - 기존 `DUPLICATE_QUEUE`는 `/queue/duplicates`이고 구독 문자열은 `/user/queue/duplicates`다. 새 개인 이벤트 큐와 바꾸지 않는다.
 - 기존 `ChatFanoutEvent(originInstanceId,message)` 및 `chat:fanout` payload는 호환 대상. 신규 도메인 사건을 같은 wire로 섞지 않는다.
-- `presence:focus:{userId}`의 존재만 읽는 현재 reader는 새 active/paused/섬/세션 정보를 제공하지 않는다. 1765가 권위 있는 session projection을 연결하기 전 emote를 허용하지 않는다.
+- `presence:focus:{userId}`의 존재만 읽는 reader는 섬/세션 정보를 제공하지 않고 **쓰기 자체가 best-effort라 양방향으로 틀릴 수 있다**. 그래서 1765는 emote의 SUBSCRIBE·SEND·**최종 outbound 셋 다** 이 사본을 인가 증거로 쓰지 않는다(focus-rest-session LLD §6). 앞의 둘은 Data 정본(`GET /internal/islands/*/focus-members`)을 직접 조회하고, 최종 outbound는 그 조회가 돌려준 **수신 집합을 사건(eventId)에 묶어** 대조한다 — 구독자 수 × HTTP를 치르지 않는 배치 권한조회(§4.2)다. 집합은 서버 안에만 있고 프레임으로 나가지 않으며, 기록이 없으면 fail-closed다. 이 reader는 기존 채팅 집중 차단에서만 계속 쓴다.
 - 기존 subscription은 멤버십 상실 뒤에도 남는다고 코드가 명시한다. 1755에서 이름만 바꾼 상태와 §4의 최종 전달 차단 완료를 구분해 보고한다.
 - `setPreserveReceiveOrder(true)`는 기존 거절 ERROR 프레임이 정체된다는 코드 경고가 있다. 개명과 함께 이 옵션을 임의로 켜지 않는다. 변경하려면 실제 ERROR/연결 종료 테스트로 별도 검증한다.
 - 아직 없는 Data 투영 버전/시설 정책/outbox producer를 Realtime DB/Redis의 임시 가짜 상태로 대신하지 않는다. Flyway/공통 오류/내부 allowlist는 해당 소유자에게 합류한다.
@@ -270,7 +275,7 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 | 스냅샷 | 등록 전후/응답 전후 경합, out-of-order/duplicate, unknown key 부활금지, 세션교체·회차분리, overflow 재조회 | 1765/BFF |
 | 내구성 | TXrollback 사건0, 커밋후응답유실 같은사건 재생, relay lease 장애·재전달, 버전과 상태 동일snapshot | 내부명령 및 각 producer |
 | 멀티노드 | 두 Realtime 노드의 섬/본인여러기기 전달, origin 반향제거, Redis reconnect 후 리컨실, 모든노드 철회 | fanout/1765 |
-| 응원 | 5종, 본인active 세션검증, 다른섬/휴식/종료거절, 속도제한, TTL, 재연결replay0 | 1765 |
+| 응원 | 5종, 본인 **진행 세션(active·paused)** 검증, **휴식 발신 허용**, 다른섬/완료·포기/남의세션 거절, 속도제한, TTL, 재연결replay0 | 1765 |
 | 경제 | 개인·공동 owner/currency 불일치거절, wallet/inventory 별개 version, 공유토픽에 개인payload0 | 1781/1783 |
 | 관측 | payload/본문/토큰 비노출, command→event→relay→router 추적, 실패메트릭 | 각 단계 |
 
