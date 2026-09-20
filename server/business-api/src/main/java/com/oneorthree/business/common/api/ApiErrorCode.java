@@ -13,6 +13,10 @@ public enum ApiErrorCode implements ErrorCode {
     // 계정 LLD §5 (GROMO-1801). Data 의 UserErrorCode·GroupErrorCode 와 «이름·상태가 같아야»
     // registeredUpstream 이 붙는다 — 없으면 정상적인 닉네임 거절·방장 탈퇴 거절이 502 로 나간다.
     NICKNAME_INVALID(HttpStatus.BAD_REQUEST, "닉네임은 앞뒤 공백 제외 2~10자여야 합니다.", false),
+    // GROMO-1986. Data 의 CommonErrorCode.BANNED_WORD 와 이름·상태가 같아야 registeredUpstream 이 붙는다 —
+    // 없으면 「욕설을 걸렀다」는 정상 400 이 502 UPSTREAM_CONTRACT_ERROR 로 나가 서버 장애처럼 보이고,
+    // 앱은 사용자에게 왜 막혔는지 안내할 수 없다(NICKNAME_INVALID 와 같은 이유로 여기 둔다).
+    BANNED_WORD(HttpStatus.BAD_REQUEST, "사용할 수 없는 표현이 포함돼 있어요.", false),
     HOST_WITHDRAW(HttpStatus.BAD_REQUEST, "섬 방장을 위임한 뒤 탈퇴할 수 있습니다.", false),
     REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인 자격이 유효하지 않습니다.", false),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "인증이 필요합니다. 다시 로그인해 주세요.", false),

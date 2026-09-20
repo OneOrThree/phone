@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.service;
 
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.user.repository.domain.Occupation;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
@@ -107,6 +109,14 @@ class UserServiceTest {
 
     @Mock
     private com.oneorthree.phone.user.repository.UserBlockRepository userBlockRepository;
+
+    /**
+     * 목이 아니라 «진짜» 판정기다 (GROMO-1986) — 목으로 덮으면 이 단위 테스트들이 통과하는 근거가
+     * 「아무것도 안 막는 목」이 되어, 금칙어 판정이 실제로 어디에 꽂혀 있는지 증명하지 못한다.
+     * 목록은 {@code src/main/resources/moderation/banned-words.txt} 를 그대로 읽는다.
+     */
+    @Spy
+    private BannedWords bannedWords = new BannedWords();
 
 
 
