@@ -211,6 +211,8 @@ class IslandRealtimeIntegrationTest {
         sender.send(emoteDestination(), new FocusEmoteRequest(sessionId, "cheer"));
         assertThat(emotes.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).isNotNull();
 
+        // 시도 창(600ms)만 비운다 — 성공 창(3초)은 그대로 둬야 «이 테스트가 보려는 것»이 걸린다.
+        redis.delete(RedisKeys.emoteAttempt(focusing));
         sender.send(emoteDestination(), new FocusEmoteRequest(sessionId, "hearts"));
         SendFailureResponse failure = errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS);
         assertThat(failure).isNotNull();
@@ -260,12 +262,17 @@ class IslandRealtimeIntegrationTest {
             sender.send("/app/islands/" + UUID.randomUUID() + "/focus/emotes",
                     new FocusEmoteRequest(UUID.randomUUID(), "cheer"));
         }
-        // 마지막 프레임까지 «처리가 끝났음»을 관측한 뒤에 센다 — 안 그러면 「아직 안 왔다」를
-        // 「상류를 안 불렀다」로 읽어 테스트가 거짓 초록이 된다.
-        for (int i = 0; i < frames; i++) {
-            assertThat(errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS))
-                    .as("%d 번째 프레임도 개인 큐로 답을 받아야 한다", i).isNotNull();
+
+        // 첫 프레임은 창을 잡고 인가까지 가서 개인 큐로 거절을 받는다.
+        assertThat(errors.poll(TIMEOUT_SECONDS, TimeUnit.SECONDS)).as("첫 프레임은 처리된다").isNotNull();
+        // 나머지는 «관문»이 창에서 막는다 — 다른 관문 위반과 같이 ERROR 프레임 + 연결 종료다.
+        // 연결이 닫혔다는 것이 곧 「모든 프레임의 처리가 끝났다」는 관측 가능한 신호다.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TIMEOUT_SECONDS);
+        while (sender.isConnected() && System.nanoTime() < deadline) {
+            Thread.sleep(100);
         }
+        assertThat(sender.isConnected()).as("프레임 상한 초과는 관문 거절이다").isFalse();
+
         // 시도 창이 «사용자» 축이라 섬 UUID 를 12번 바꿔도 상류에는 창 하나 분량만 나간다.
         // 12번 중 몇 번이 창 경계를 넘는지는 실행 속도에 달렸으므로 상한으로 단언한다.
         verify(focusSessions, org.mockito.Mockito.atMost(3))
@@ -319,6 +326,24 @@ class IslandRealtimeIntegrationTest {
 
         // 그리고 그 뒤 정상 사건은 여전히 흐른다 — 검증이 축을 막아 버리지 않았다.
         assertThat(awaitFocusEvent(focus, "paused", 14)).isNotNull();
+    }
+
+    @Test
+    @DisplayName("본문이 깨진 응원도 시도 창을 소모한다 — 변환 전에 잡지 않으면 가장 싼 거절만 공짜가 된다")
+    void malformedSendStillConsumesTheAttemptWindow() throws Exception {
+        UUID sessionId = UUID.randomUUID();
+        StompSession sender = connect(focusing);
+        BlockingQueue<Map<String, Object>> emotes = subscribe(sender, "emotes");
+        awaitEmoteSubscription(sender, sessionId, emotes);
+        clearWindows(focusing);
+
+        // sessionId 가 없어 @Valid 가 «메서드 진입 전»에 죽이는 프레임이다.
+        sender.send(emoteDestination(), new FocusEmoteRequest(null, "cheer"));
+
+        // 그 프레임이 창을 먹었다면, 곧바로 이어지는 «정상» 응원이 창에 막혀 나가지 못한다.
+        sender.send(emoteDestination(), new FocusEmoteRequest(sessionId, "cheer"));
+        assertThat(emotes.poll(2, TimeUnit.SECONDS))
+                .as("변환 단계에서 죽는 프레임도 시도 창을 소모해야 한다").isNull();
     }
 
     @Test

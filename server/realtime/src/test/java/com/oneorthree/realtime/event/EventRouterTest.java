@@ -144,7 +144,8 @@ class EventRouterTest {
         // 없어 계속 닫혀 있다. 조용히 성공한 척하지 않는다.
         EventRouter router = new EventRouter(new RealtimeEventDelivery(
                 mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
-                mock(org.springframework.data.redis.core.StringRedisTemplate.class), mapper));
+                mock(org.springframework.data.redis.core.StringRedisTemplate.class), mapper,
+                java.time.Clock.systemUTC()));
         assertThatThrownBy(() -> router.route(event(RealtimeEventType.JOIN_REQUEST_UPDATED, island),
                 new RealtimeAudience.UserAudience(Set.of(user)))).isInstanceOf(IllegalStateException.class);
     }

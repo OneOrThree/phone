@@ -40,10 +40,12 @@ import java.util.UUID;
  *
  * <h2>빈도 제한이 둘인 이유 — 「거절도 비용을 치른다」</h2>
  * <ul>
- *   <li><b>시도 창</b> {@code lock:chat:emote:try:{userId}} — <b>사용자당</b> {@value #ATTEMPT_WINDOW_MILLIS}ms
- *       에 1회. <b>맨 앞</b>에서 재고, 거절될 요청도 여기를 소모한다.</li>
+ *   <li><b>시도 창</b> {@code lock:chat:emote:try:{userId}} — <b>사용자당</b> 600ms 에 1회.
+ *       <b>{@code StompAuthChannelInterceptor} 가</b> 본문 변환보다 먼저 잡는다(이 클래스가 아니다).
+ *       그래야 {@code sessionId} 가 빠진 프레임처럼 <b>변환 단계에서 죽는 요청</b>도 창을 소모한다 —
+ *       이 메서드까지 오지 못하는 거절이 유일하게 공짜였던 구멍을 그렇게 막았다.</li>
  *   <li><b>성공 창</b> {@code lock:chat:emote:{islandId}:{userId}} — 섬마다 TTL 과 같은 3초에 1건.
- *       <b>인가를 통과한 뒤에만</b> 잡는다.</li>
+ *       <b>인가를 통과한 뒤에만</b> 잡는다. 사용자에게 보이는 「너무 자주」는 이쪽이다.</li>
  * </ul>
  *
  * <p>하나로 합치면 둘 중 하나가 깨진다. 성공 창 하나만 두고 인가를 먼저 하면 <b>임의의 다른 섬 UUID</b>
@@ -52,30 +54,19 @@ import java.util.UUID;
  * (섬이 키에 있으면 UUID 만 바꿔 제한을 비켜 간다 — 그래서 시도 창은 <b>사용자 축</b>이다). 반대로
  * 시도 창 하나만 두고 성공까지 거기서 재면 잘못된 type 한 번이 정상 응원의 창을 먹는다.
  *
- * <p>그래서 <b>상류 호출의 상한은 시도 창</b>이다 — 사용자당 {@value #ATTEMPT_WINDOW_MILLIS}ms 에
- * {@code requireActiveSession} 한 번. 성공 창(3초)이 아니라 이쪽이 그 상한을 정의한다.
+ * <p>그래서 <b>상류 호출의 상한은 시도 창</b>이다 — 사용자당 600ms 에 {@code requireActiveSession}
+ * 한 번. 성공 창(3초)이 아니라 이쪽이 그 상한을 정의한다.
  *
  * <p>두 창 모두 세지 않고 {@code SET key value NX PX} <b>한 명령</b>으로 «있으면 거절»한다. INCR 로 세면
  * 수명을 거는 EXPIRE 가 별도 명령이라 그 사이에 끊기면 수명 없는 카운터가 남아 <b>그 사람이 영영 응원을
  * 못 보낸다</b> — {@code MembershipService} 가 SET 대신 문자열 하나를 쓰는 것과 같은 이유다.
  *
- * <p>순서: <b>시도 창 → 형식 → 인가 → 성공 창</b>.
+ * <p>순서: <b>시도 창(관문) → 형식 → 인가 → 성공 창</b>.
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FocusEmoteService {
-
-    /**
-     * 시도 창 길이 — 성공 창(3초)의 1/5 이라 <b>성공 1건당 최대 5회</b> 시도할 수 있다.
-     *
-     * <p>성공 창보다 훨씬 짧게 잡은 이유는 이 창이 «벌»이 아니라 «상한»이기 때문이다. 거절당한
-     * 사용자(세션이 방금 끝나 다시 시작한 경우 등)가 3초를 기다려야 하면 정상 사용에 걸리는데,
-     * 0.6초는 체감되지 않으면서도 상류 호출을 사용자당 초당 2회 아래로 누른다.
-     */
-    private static final long ATTEMPT_WINDOW_MILLIS = 600;
-
-    private static final Duration ATTEMPT_WINDOW = Duration.ofMillis(ATTEMPT_WINDOW_MILLIS);
 
     private final IslandFocusSessions focusSessions;
     private final EventRouter eventRouter;
@@ -87,10 +78,8 @@ public class FocusEmoteService {
     private Duration emoteTtl;
 
     public void publish(UUID islandId, UUID userId, FocusEmoteRequest request) {
-        // 맨 앞이다 — 거절될 요청도 여기를 소모해야 상류 조회가 무제한으로 늘어나지 않는다.
-        if (!acquire(RedisKeys.emoteAttempt(userId), ATTEMPT_WINDOW)) {
-            throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
-        }
+        // 시도 창은 이 메서드에 «들어오기 전»에 이미 소모됐다({@code StompAuthChannelInterceptor}).
+        // 여기서 또 재면 한 프레임이 창을 두 번 먹어, 두 번째 정상 응원이 자기 자신 때문에 막힌다.
         FocusEmoteType type = FocusEmoteType.of(request.type())
                 .orElseThrow(() -> new ChatException(ChatErrorCode.INVALID_EMOTE_TYPE));
         // 같은 조회가 발신 인가와 «수신 자격»을 함께 준다 — 전달 직전 판정이 구독자마다 다시 묻지

@@ -61,9 +61,10 @@ import java.util.regex.Pattern;
  *   <li>{@code /topic/islands/{id}/emotes} — <b>그 섬의 본인 active 집중 세션</b>. 응원은 관전자가
  *       아니라 같이 집중하는 사람들 사이의 신호다(realtime-events LLD §3.1). 판정은 TTL 캐시가 아니라
  *       Data 정본({@link IslandFocusSessions})이다.</li>
- *   <li>{@code /app/islands/{id}/focus/emotes}(SEND) — 인증만 본다. 「본인 active 세션인가」는
- *       {@code FocusEmoteService} 한 곳이고, 두 곳에서 검사하면 언젠가 한쪽만 바뀐다 —
- *       채팅 SEND 가 도메인 규칙을 서비스에 맡기는 것과 같은 규율이다.</li>
+ *   <li>{@code /app/islands/{id}/focus/emotes}(SEND) — 인증과 <b>시도 창</b>만 본다. 창을 여기서
+ *       잡는 이유는 <b>본문 변환보다 앞</b>이어야 하기 때문이다({@code authorizeSend} 참고).
+ *       「본인 진행 세션인가」는 {@code FocusEmoteService} 한 곳이고, 두 곳에서 검사하면 언젠가
+ *       한쪽만 바뀐다 — 채팅 SEND 가 도메인 규칙을 서비스에 맡기는 것과 같은 규율이다.</li>
  * </ul>
  * 나머지 섬 채널({@code events}·{@code playback}·{@code messages})과 {@code /user/queue/events} 는
  * 각 도메인의 인가·복구 계약이 구현될 때까지 계속 닫아 둔다.
@@ -124,12 +125,14 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private static final String EMOTES_CHANNEL = "emotes";
 
     /**
-     * 응원 구독의 상류 조회 상한 — 발신 쪽 시도 창과 같은 길이다({@code FocusEmoteService}).
+     * 응원 구독·발신의 프레임 상한. 두 창은 <b>키가 다르고 길이가 같다</b>.
      *
-     * <p>정상 클라이언트는 섬에 들어갈 때 한 번 구독한다. 이 창에 걸린다는 것은 {@code subscription id}
-     * 만 바꿔 같은 목적지를 연타하고 있다는 뜻이고, 그 프레임 하나하나가 동기 HTTP 한 번이다.
+     * <p>정상 클라이언트는 섬에 들어갈 때 한 번 구독하고, 응원은 자기 성공 창(3초) 때문에 어차피
+     * 3초에 한 번만 보낸다. 그러니 이 창에 걸린다는 것은 <b>정상 클라이언트가 만들 수 없는 속도</b>
+     * 라는 뜻이다 — 그래서 거절은 다른 관문 위반과 같이 ERROR 프레임 + 연결 종료다. 사용자에게
+     * 보여 줄 「너무 자주 보냈어요」는 성공 창이 개인 큐로 따로 보낸다({@code FocusEmoteService}).
      */
-    private static final Duration SUBSCRIBE_WINDOW = Duration.ofMillis(600);
+    private static final Duration FRAME_WINDOW = Duration.ofMillis(600);
 
     private final JwtValidator jwtValidator;
     private final ChatAccessGuard accessGuard;
@@ -208,7 +211,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             UUID islandId = uuidOrReject(island.group(1));
             if (EMOTES_CHANNEL.equals(island.group(2))) {
                 // 상류 조회 «전에» 센다 — 거절될 연타도 비용을 치러야 상한이 성립한다(발신 쪽과 같은 규율).
-                if (!acquireSubscribeWindow(principal.userId())) {
+                if (!acquireWindow(RedisKeys.emoteSubscribeAttempt(principal.userId()))) {
                     throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
                 }
                 // 관전(focus·rest)과 달리 응원 수신은 「그 섬에서 지금 진행 중인 사람」의 것이다.
@@ -269,19 +272,26 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         // 오타 하나가 세션을 죽인다. SUBSCRIBE 와 같은 자리에서 같은 방식으로 막는다.
         uuidOrReject(matcher.matches() ? matcher.group(1) : emote.group(1));
 
-        requireAuthenticated(accessor);
+        ChatPrincipal principal = requireAuthenticated(accessor);
+
+        // 응원 시도 창을 «여기서» 잡는다 — 본문 변환·@Valid 보다 앞이다.
+        // 컨트롤러 안에서 재면 sessionId 가 빠지거나 UUID 가 아닌 프레임은 변환 단계에서 죽어
+        // 메서드에 닿지도 못하므로, «가장 싼 거절»만 창을 소모하지 않는 구멍이 남는다 —
+        // 그 프레임을 무제한으로 반복해 변환·오류 응답 경로를 고갈시킬 수 있다.
+        if (!matcher.matches() && !acquireWindow(RedisKeys.emoteAttempt(principal.userId()))) {
+            throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
+        }
     }
 
     /**
-     * 구독 상류 조회의 상한. Redis 가 답하지 않으면 통과시킨다 — 상한은 «보호»가 아니라 «절약»이고,
-     * 인가 자체는 바로 뒤의 Data 정본 조회가 fail-closed 로 지킨다.
+     * 프레임 창 하나를 선점한다. Redis 가 답하지 않으면 통과시킨다 — 상한은 «보호»가 아니라 «절약»이고,
+     * 인가 자체는 뒤따르는 Data 정본 조회가 fail-closed 로 지킨다.
      */
-    private boolean acquireSubscribeWindow(UUID userId) {
+    private boolean acquireWindow(String key) {
         try {
-            return Boolean.TRUE.equals(redis.opsForValue()
-                    .setIfAbsent(RedisKeys.emoteSubscribeAttempt(userId), "1", SUBSCRIBE_WINDOW));
+            return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(key, "1", FRAME_WINDOW));
         } catch (RuntimeException e) {
-            log.warn("응원 구독 상한 조회 실패 — 이번 건은 통과시킨다", e);
+            log.warn("응원 프레임 상한 조회 실패 — 이번 건은 통과시킨다", e);
             return true;
         }
     }

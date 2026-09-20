@@ -7,12 +7,15 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * 섬 사건을 <b>구독자 전원</b>에게 민다 — 이 인스턴스에 붙은 사람과, 다른 인스턴스에 붙은 사람
@@ -49,9 +52,15 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
     private final SimpMessagingTemplate messagingTemplate;
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
 
     /**
-     * 수신 집합을 들고 있는 시간 — 브로커 팬아웃이 끝나기만 하면 되므로 짧다.
+     * 수신 집합을 들고 있는 시간.
+     *
+     * <p><b>필요한 길이는 밀리초</b>다 — 브로커가 그 사건의 프레임을 전부 펼치고 아웃바운드 채널이
+     * 밀어낼 때까지면 충분하다. 그런데도 응원 TTL(3초)의 10배를 잡은 이유는 <b>비대칭</b> 때문이다:
+     * 일찍 지우면 정상 응원이 <b>조용히 막히고</b>(fail-closed), 늦게 지우면 손해가 메모리뿐이다.
+     * 줄이려면 아웃바운드 채널의 실제 적체 시간을 재고 그보다 크게 잡아라.
      *
      * <p>메시지 «헤더»로 실어 보내는 방법을 먼저 썼다가 되돌렸다: {@code SimpleBrokerMessageHandler} 가
      * 구독자별 메시지를 다시 만드는 과정에서 커스텀 헤더가 살아남지 않아 <b>전원이 fail-closed 로
@@ -65,17 +74,29 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
 
     /**
      * {@code eventId → (수신 집합, 만료)}. 수신 자격이 구독 인가보다 좁은 사건만 들어간다.
-     *
-     * <p>넣을 때마다 만료된 것을 걷어내므로 크기는 「최근 {@value #RECIPIENTS_RETENTION} 동안의 응원 수」로
-     * 묶인다. 클라이언트에는 절대 나가지 않는다.
+     * 클라이언트에는 절대 나가지 않는다.
      */
     private final Map<UUID, Recipients> recipientsByEvent = new ConcurrentHashMap<>();
 
+    /**
+     * 만료 순서대로 늘어선 같은 사건들 — <b>정리는 머리만 뗀다</b>.
+     *
+     * <p>보관 기간이 상수라 <b>삽입 순서 = 만료 순서</b>다. 그래서 앞에서부터 만료된 것만 떼면 되고,
+     * 아직 살아 있는 머리를 만나는 순간 멈출 수 있다. 종전에는 넣을 때마다 맵 <b>전체</b>를
+     * {@code removeIf} 로 훑었는데, 초당 R건이면 맵에 약 30R건이 남으므로 정리 비용이 O(R²)가 되어
+     * <b>정상 부하에서도</b> 전달 경로가 만료 정리에 CPU를 쓴다. 지금은 삽입당 상각 O(1)이다.
+     *
+     * <p>유휴 상태에서는 다음 응원이 올 때까지 만료 항목이 남는다 — 크기가 마지막 버스트로 묶이므로
+     * 별도 주기 청소를 두지 않는다(그걸 두면 스케줄러 하나를 더 운영해야 한다).
+     */
+    private final Queue<Expiry> expiries = new ConcurrentLinkedQueue<>();
+
     public RealtimeEventDelivery(SimpMessagingTemplate messagingTemplate, StringRedisTemplate redis,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper, Clock clock) {
         this.messagingTemplate = messagingTemplate;
         this.redis = redis;
         this.objectMapper = objectMapper;
+        this.clock = clock;
     }
 
     /** 다른 인스턴스가 보낸 것인지 판정하기 위해 구독자가 읽는다. */
@@ -129,16 +150,40 @@ public class RealtimeEventDelivery implements RealtimeDelivery {
      */
     public boolean mayReceive(UUID eventId, UUID userId) {
         Recipients recipients = recipientsByEvent.get(eventId);
-        return recipients != null && recipients.expiresAt().isAfter(Instant.now())
+        return recipients != null && recipients.expiresAt().isAfter(clock.instant())
                 && recipients.users().contains(userId);
     }
 
     private void remember(UUID eventId, Set<UUID> recipients) {
-        Instant now = Instant.now();
-        recipientsByEvent.values().removeIf(value -> !value.expiresAt().isAfter(now));
+        Instant now = clock.instant();
         recipientsByEvent.put(eventId, new Recipients(recipients, now.plus(RECIPIENTS_RETENTION)));
+        expiries.add(new Expiry(eventId, now.plus(RECIPIENTS_RETENTION)));
+        evictExpired(now);
+    }
+
+    /** 머리에서부터 만료된 것만 뗀다 — 살아 있는 머리를 만나면 즉시 멈춘다. */
+    private void evictExpired(Instant now) {
+        for (Expiry head = expiries.peek(); head != null && !head.expiresAt().isAfter(now);
+                head = expiries.peek()) {
+            if (!expiries.remove(head)) {
+                // 다른 스레드가 먼저 뗐다 — 그 스레드가 맵도 정리한다.
+                continue;
+            }
+            // 같은 eventId 가 다시 들어왔을 가능성은 없지만(랜덤 UUID), 값을 확인하고 지워
+            // 「남의 최신 항목을 지우는」 경로를 아예 만들지 않는다.
+            recipientsByEvent.computeIfPresent(head.eventId(),
+                    (key, value) -> value.expiresAt().isAfter(now) ? value : null);
+        }
+    }
+
+    /** 보관 중인 사건 수 — 만료 정리가 실제로 도는지 보는 회귀 전용이다. */
+    int retainedEvents() {
+        return recipientsByEvent.size();
     }
 
     private record Recipients(Set<UUID> users, Instant expiresAt) {
+    }
+
+    private record Expiry(UUID eventId, Instant expiresAt) {
     }
 }
