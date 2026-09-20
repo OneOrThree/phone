@@ -34,6 +34,13 @@ public enum CommonErrorCode implements ErrorCode {
     INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 형식이 올바르지 않습니다."),
     /** 쿼리·경로 파라미터가 없거나 타입이 맞지 않는다. 문구에는 파라미터 이름이 붙는다. */
     INVALID_PARAMETER(HttpStatus.BAD_REQUEST, "요청 파라미터 형식이 올바르지 않습니다."),
+    /**
+     * 사용자 입력에 금칙어가 들어 있다 (GROMO-1986, 앱스토어 심사 지침 1.2).
+     * 막는 입력 6종이 {@code group}·{@code letter}·{@code user}·{@code internal} 네 도메인에 걸쳐 있어
+     * 공통이 코드를 소유한다 — {@link #RATE_LIMITED} 와 같은 이유다. 길이 초과(422)와 상태가 다르다:
+     * 앱이 「줄여 주세요」와 「다른 말로 써 주세요」를 다른 안내로 띄워야 한다.
+     */
+    BANNED_WORD(HttpStatus.BAD_REQUEST, "사용할 수 없는 표현이 포함돼 있어요."),
     /** 클라이언트가 보낸 타임존 id 를 해석하지 못했다. 문구는 그 id 를 되돌려 준다. */
     INVALID_TIMEZONE(HttpStatus.BAD_REQUEST, "알 수 없는 타임존입니다."),
     /** 요청 {@code Content-Type} 을 받을 수 없다 (예: {@code @RequestBody} 에 {@code text/plain}). */

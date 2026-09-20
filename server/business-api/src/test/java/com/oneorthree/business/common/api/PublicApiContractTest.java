@@ -85,7 +85,10 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "KAKAO_TOKEN", "APPLE_TOKEN", "GOOGLE_TOKEN", "LINE_TOKEN", "INSTAGRAM_TOKEN",
                 "FACEBOOK_TOKEN",
                 // GROMO-1801 계정 LLD §5: Data 닉네임·방장 탈퇴 판정과 이름이 같아야 502 로 접히지 않는다.
-                "NICKNAME_INVALID", "NICKNAME_DUPLICATE", "HOST_WITHDRAW");
+                "NICKNAME_INVALID", "NICKNAME_DUPLICATE", "HOST_WITHDRAW",
+                // GROMO-1986 금칙어(앱스토어 심사 1.2): Data 의 CommonErrorCode 와 이름·상태가 같아야
+                // 정상적인 400 거절이 502 로 접히지 않는다.
+                "BANNED_WORD");
     }
 
     @Test

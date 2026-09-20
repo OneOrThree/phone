@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.friend.repository.FriendshipRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -67,6 +68,7 @@ public class InternalLetterService {
     private final GroupMemberRepository islandMemberships;
     private final IslandFacilityQueryService islandFacilityQueryService;
     private final PerUserHourlyLimiter sendLimiter;
+    private final BannedWords bannedWords;
 
     /**
      * 한도 카운터가 친구 요청 것과 같은 타입이라 이름으로 골라 받는다 — Lombok 생성자는 {@code @Qualifier} 를
@@ -77,13 +79,15 @@ public class InternalLetterService {
     public InternalLetterService(LetterRepository letters, UserQueryService users, FriendshipRepository friendships,
                                  GroupMemberRepository islandMemberships,
                                  IslandFacilityQueryService islandFacilityQueryService,
-                                 @Qualifier("letterSendRateLimiter") PerUserHourlyLimiter sendLimiter) {
+                                 @Qualifier("letterSendRateLimiter") PerUserHourlyLimiter sendLimiter,
+                                 BannedWords bannedWords) {
         this.letters = letters;
         this.users = users;
         this.friendships = friendships;
         this.islandMemberships = islandMemberships;
         this.islandFacilityQueryService = islandFacilityQueryService;
         this.sendLimiter = sendLimiter;
+        this.bannedWords = bannedWords;
     }
 
     /**
@@ -98,6 +102,7 @@ public class InternalLetterService {
      * @return 방금 만든 편지. {@code readAt} 은 항상 null 이다
      * @throws LetterException {@code SELF_LETTER}(400) · {@code LETTER_CONTENT_BLANK}(400) ·
      *     {@code LETTER_CONTENT_OUT_OF_RANGE}(400) · {@code LETTER_RECIPIENT_NOT_FRIEND}(404)
+     * @throws com.oneorthree.phone.common.exception.BannedWordException {@code BANNED_WORD}(400) — 금칙어
      * @throws com.oneorthree.phone.common.exception.RateLimitedException {@code RATE_LIMITED}(429) — 계정당 시간 한도
      */
     @Transactional
@@ -250,8 +255,11 @@ public class InternalLetterService {
         throw new LetterException(LetterErrorCode.INVALID_MAILBOX_TYPE);
     }
 
-    /** strip 후 빈 본문(400)과 상한 초과(400)는 사유가 달라야 해서 코드를 나눈다 (LLD §1.12). */
-    private static String validContent(String raw) {
+    /**
+     * strip 후 빈 본문(400)과 상한 초과(400)는 사유가 달라야 해서 코드를 나눈다 (LLD §1.12).
+     * 금칙어도 400 이지만 코드가 또 다르다 — 앱이 「줄여라」와 「다른 말로 써라」를 구분해 안내해야 한다.
+     */
+    private String validContent(String raw) {
         String content = raw == null ? "" : raw.strip();
         if (content.isEmpty()) {
             throw new LetterException(LetterErrorCode.LETTER_CONTENT_BLANK);
@@ -259,6 +267,7 @@ public class InternalLetterService {
         if (content.length() > Letter.MAX_CONTENT_LENGTH) {
             throw new LetterException(LetterErrorCode.LETTER_CONTENT_OUT_OF_RANGE);
         }
+        bannedWords.requireClean(content);
         return content;
     }
 

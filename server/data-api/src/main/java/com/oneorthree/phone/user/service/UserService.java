@@ -2,6 +2,7 @@ package com.oneorthree.phone.user.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
 import com.oneorthree.phone.user.dto.UserProfileSetupRequest;
@@ -84,6 +85,8 @@ public class UserService {
     private final ApplicationEventPublisher eventPublisher;
     /** 온보딩 완료 전이 사건 — 모든 프로필 writer 가 {@link #recordOnboardingTransition} 로만 부른다. */
     private final UserOnboardingEvents onboardingEvents;
+    /** 닉네임 금칙어 판정 (GROMO-1986) — 온보딩 최초 입력과 수정이 {@link #changeNickname} 하나를 지난다. */
+    private final BannedWords bannedWords;
 
     /**
      * 닉네임 규칙 단일점 (GROMO-1215) — trim 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
@@ -195,6 +198,11 @@ public class UserService {
         if (!hasValidNicknameLength(nickname)) {
             return false;
         }
+        // 저장 경로가 거절할 값을 «사용 가능» 으로 답하지 않는다 (GROMO-1986) — 이 메서드의 존재 이유가
+        // "체크는 통과했는데 저장은 거절" 을 없애는 것이다. 금칙어도 같은 판정기를 쓴다.
+        if (bannedWords.contains(nickname)) {
+            return false;
+        }
         return !userRepository.existsByNicknameAndIdNot(nickname, userId);
     }
 
@@ -206,8 +214,9 @@ public class UserService {
     /**
      * 닉네임 변경의 단일 저장 경로 (GROMO-1215) — setup(POST)·update(PATCH)가 함께 쓴다.
      * ① 형식(trim 후 2~10자) 위반 → 400 NICKNAME_INVALID
-     * ② 본인 제외 사전 중복 검사 → 409 NICKNAME_DUPLICATE (GROMO-584)
-     * ③ 사전 검사와 동시 저장이 겹친 TOCTOU 레이스 — uq_users_nickname 유니크 제약 위반을
+     * ② 금칙어 → 400 BANNED_WORD (GROMO-1986). 중복 검사보다 앞이라 판정 순서가 형식 → 금칙어 → 중복이다
+     * ③ 본인 제외 사전 중복 검사 → 409 NICKNAME_DUPLICATE (GROMO-584)
+     * ④ 사전 검사와 동시 저장이 겹친 TOCTOU 레이스 — uq_users_nickname 유니크 제약 위반을
      * flush 시점에 잡아 같은 409 NICKNAME_DUPLICATE 로 강하한다(GroupChallengeService 의
      * saveAndFlush catch 선례). 커밋 시점까지 미루면 전역 폴백(DATA_INTEGRITY_VIOLATION)으로
      * 새어 클라이언트가 원인을 구분할 수 없다.
@@ -227,6 +236,9 @@ public class UserService {
         if (!hasValidNicknameLength(nickname)) {
             throw new UserException(UserErrorCode.NICKNAME_INVALID);
         }
+        // 금칙어는 중복 검사보다 «앞» 이다 — 뒤에 두면 이미 쓰이는 금칙어 닉네임에 409 가 먼저 나가
+        // 앱이 「다른 이름을 쓰세요」로 안내하고, 같은 욕설의 다른 변형을 계속 시도하게 된다.
+        bannedWords.requireClean(nickname);
         if (userRepository.existsByNicknameAndIdNot(nickname, user.getId())) {
             throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);
         }
