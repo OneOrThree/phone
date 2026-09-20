@@ -1,7 +1,16 @@
 # 기존 Business 단독 배포 진입점. 위성 배포와 같은 env/ACL 계약을 사용한다.
 name: phone
+# 컨테이너 로그 보존(계정 정책 L09) — Docker json-file 은 «크기»로만 회전한다. 값의 근거는 README §로그 보존.
+x-app-logging: &app-logging
+  driver: json-file
+  options: {max-size: "50m", max-file: "4"}
+x-infra-logging: &infra-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   business-redis:
+    logging: *infra-logging
     image: redis:7-alpine
     command:
     - redis-server
@@ -35,6 +44,7 @@ services:
       timeout: 2s
       retries: 10
   business-api:
+    logging: *app-logging
     image: ${BUSINESS_API_IMAGE:?Business 이미지 digest 필요}
     env_file:
     - ${BUSINESS_API_ENV_FILE:?Business 전용 env 파일 필요}

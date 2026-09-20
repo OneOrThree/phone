@@ -46,13 +46,13 @@ A22의 보존 기간 정본이다. 탈퇴자 자료는 이 기간이 지나면 �
 | L06 | dev Loki(컨테이너 stdout) | 7일(168h) | `server/observability/loki/loki-config.yml` `retention_period` + compactor | 적용(dev 전용) |
 | L07 | Datadog Logs(dev·prod 컨테이너 stdout, APP MDC user_id 포함) | 미정 | Datadog 로그 인덱스 보존(저장소 밖) | 미확인 |
 | L08 | Datadog APM trace | 미정 | Datadog 보존 필터(저장소 밖) | 미확인 |
-| L09 | Docker 컨테이너 로그(json-file, APP stdout) | 미정 — 크기·기간 제한 없음, 컨테이너 재생성 때만 삭제 | compose `logging` 옵션 없음 | 미설정 |
+| L09 | Docker 컨테이너 로그(json-file, APP stdout) | **7일 목표**(L01과 같은 stdout). Docker 는 크기로만 지워 기간을 보장하지 못한다 — 앱 로그 컨테이너 `max-size 50m`×`max-file 4`(200 MB), 인프라 컨테이너 `10m`×`3` | `server/scripts/docker-compose.*.yml` 의 `x-app-logging`·`x-infra-logging` 앵커(근거: `server/scripts/README.md` §5) | 설정(GROMO-1957) — 일 로그량 실측 후 크기 보정 전까지 7일 파기 완료를 주장하지 않는다 |
 
 - 로컬 파일(L01·L02)과 S3 적재본(L03·L04·L10)은 **보존 기간이 다르다**. 로컬은 APP 7일·user-activity 30일, S3는 세 접두 모두 90일이다. 탈퇴자 로그의 최종 파기 시점은 더 긴 S3 기간이 정한다.
 - S3 만료는 객체 생성(업로드) 시각 기준이고 하루 단위로 처리되므로 실제 삭제는 기록 시각 기준 기간보다 하루 남짓 늦을 수 있다. 버킷은 버전 관리를 쓰지 않아 비현행 버전 규칙이 없다.
 - S3 적재 파이프라인(운영 compose 주석의 590·790)과 버킷의 Terraform 원본(`docs/terraform/aws-prod-server/s3.tf`, 티켓 590)은 이 저장소에 없다. 수명 주기 규칙은 2026-09-19 CLI로 버킷에 직접 적용했으며 Terraform 동기화는 후속 작업이다. 업로더는 위 세 접두 아래에만 쓴다. 다른 접두로 올리면 만료 규칙이 닿지 않는다.
 - GA4 이벤트 데이터 보존은 2개월과 14개월만 고를 수 있어 최솟값 2개월을 권장한다. 같은 화면의 「새 활동 시 사용자 데이터 재설정」은 꺼서 새 이벤트가 만료를 늦추지 않게 한다. BigQuery 내보내기가 연결돼 있으면 내보낸 자료에는 이 보존 기간이 적용되지 않으므로 연결 여부도 함께 확인한다.
-- L07~L09가 정해지기 전에는 해당 저장소의 탈퇴 파기 완료를 주장하지 않는다.
+- L07·L08이 정해지기 전, L09는 크기 보정이 끝나기 전에는 해당 저장소의 탈퇴 파기 완료를 주장하지 않는다.
 
 ## RT 장부 대조
 

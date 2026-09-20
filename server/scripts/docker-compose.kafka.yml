@@ -15,8 +15,14 @@
 
 name: phone
 
+# 컨테이너 로그 보존(계정 정책 L09) — Docker json-file 은 «크기»로만 회전한다. 값의 근거는 README §로그 보존.
+x-infra-logging: &infra-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   kafka:
+    logging: *infra-logging
     # KRaft 모드(ZooKeeper 없음). apache/kafka 공식 이미지는 3.7 부터 KRaft 단독 기동을 지원한다.
     # 태그를 못 박는다 — «움직이는 태그»면 재시작 한 번에 브로커 버전이 바뀌고, 로그 포맷·기본값
     # 변경이 그대로 운영 사고가 된다.

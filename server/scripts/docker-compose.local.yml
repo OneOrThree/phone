@@ -2,8 +2,14 @@
 # (phone_postgres_local_data)에 그대로 붙게 한다.
 name: phone
 
+# 컨테이너 로그 보존(계정 정책 L09) — Docker json-file 은 «크기»로만 회전한다. 값의 근거는 README §로그 보존.
+x-infra-logging: &infra-logging
+  driver: json-file
+  options: {max-size: "10m", max-file: "3"}
+
 services:
   db:
+    logging: *infra-logging
     image: postgres:16-alpine
     container_name: phone-db-local
     ports:
@@ -24,6 +30,7 @@ services:
   # 채팅 서비스용 (GROMO-292). data-api 는 Redis 없이도 도므로 로컬에서 이 컨테이너를 안 띄워도
   # 기존 백엔드 개발에는 지장이 없다 — 채팅을 돌릴 때만 필요하다.
   redis:
+    logging: *infra-logging
     image: redis:7-alpine
     container_name: phone-redis-local
     ports:

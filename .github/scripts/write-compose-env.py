@@ -26,6 +26,16 @@ REQUIRED_KEYS = (
     "OPENAI_API_KEY",
 )
 
+# legacy(dev-cd 가 쓰는 공유 dev.env)가 «있으면 옮기는» 값. 이 파일은 컨테이너 env_file 이 아니라 compose 보간
+# 입력이라 compose 가 ${...} 로 참조하는 키만 컨테이너에 닿는다(dev.yml·realtime.yml). 비어 있을 때의 동작은
+# server/scripts/README.md 「시크릿·스위치」 표. 필수로 올리지 않는 이유: 넣기 전 배포가 막히면 안 된다.
+LEGACY_OPTIONAL_KEYS = (
+    "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED",
+    # docker-compose.realtime.yml — GROMO-1954 Data 사건 수신 · GROMO-1775 우체통 · R-1 Kafka 입구
+    "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME", "CHAT_WS_ALLOWED_ORIGINS",
+    "REALTIME_EVENTS_KAFKA_ENABLED", "KAFKA_BOOTSTRAP_SERVERS", "CHAT_POSTGRES_DB",
+)
+
 # legacy는 현재 dev-cd 호출과 호환된다. 신규 서비스는 공유 SecretString을 받아도
 # 자기 허용목록만 내보낸다. prod의 전체 env_file 주입을 새 서비스에 복제하지 않는다.
 SERVICE_REQUIRED_KEYS = {
@@ -69,7 +79,8 @@ OBSERVABILITY_KEYS = (
 )
 SERVICE_OPTIONAL_KEYS = {
     "data-api": ANALYTICS_KEYS + (
-        "BATCH_ADMIN_KEY", "LINK_IP_SALT", "FOCUS_PRESENCE_ENABLED", "REDIS_HOST", "REDIS_PORT",
+        "BATCH_ADMIN_KEY", "LINK_IP_SALT", "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED",
+        "REDIS_HOST", "REDIS_PORT",
         "NOTIFICATION_BASE_URL", "LINK_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",
         "INTERNAL_API_ENABLED", "OUTBOX_RELAY_ENABLED", "OUTBOX_RELAY_BATCH_SIZE",
         "OUTBOX_RELAY_LEASE_DURATION", "OUTBOX_RELAY_POLL_INTERVAL", "OUTBOX_RELAY_INITIAL_BACKOFF",
@@ -128,6 +139,14 @@ def validate_notification_tokens(secret: dict[str, Any]) -> None:
         raise ValueError("알림 caller 토큰은 서로 달라야 합니다: " + ", ".join((console_key, business_key, data_key)))
 
 
+def validate_realtime_tokens(secret: dict[str, Any]) -> None:
+    """Realtime 의 두 caller 토큰은 달라야 한다. 같으면 Data 자격으로 Business 전용 /internal/*(우체통)을
+    X-User-Id 와 함께 부를 수 있다(A22 ㊀). 둘 다 있을 때만 비교하고 값은 출력하지 않는다."""
+    data, business = secret.get("SVC_TOKEN_DATA_TO_REALTIME"), secret.get("SVC_TOKEN_BIZ_TO_REALTIME")
+    if data and business and data == business:
+        raise ValueError("Realtime caller 토큰은 서로 달라야 합니다: SVC_TOKEN_DATA_TO_REALTIME, SVC_TOKEN_BIZ_TO_REALTIME")
+
+
 def require(secret: dict[str, Any], keys: tuple[str, ...]) -> None:
     """누락·null·빈 문자열을 값 노출 없이 실패시킨다."""
     missing = [key for key in keys if secret.get(key) is None or secret.get(key) == ""
@@ -154,6 +173,7 @@ def dotenv_quote(value: Any) -> str:
 
 def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
            phase: str = "transition", environment: str = "dev", *, data_profiles: str | None = None) -> str:
+    validate_realtime_tokens(secret)
     if service != "legacy":
         return render_service(secret, app_image, service, phase, environment, data_profiles=data_profiles)
     if data_profiles is not None:
@@ -168,6 +188,7 @@ def render(secret: dict[str, Any], app_image: str, service: str = "legacy",
             ("GRAFANA_ADMIN_PASSWORD", secret.get("GRAFANA_ADMIN_PASSWORD", "admin")),
         )
     )
+    values.extend((key, secret[key]) for key in LEGACY_OPTIONAL_KEYS if secret.get(key) is not None)
     return "".join(f"{key}={dotenv_quote(value)}\n" for key, value in values)
 
 
