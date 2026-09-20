@@ -224,8 +224,11 @@ class ErrorContractTest {
         // GROMO-1986 이 공통 코드 1개(BANNED_WORD, 400)를 더했다 — 공지·댓글·편지·닉네임·섬 이름·섬 소개 여섯 입력이
         // group·letter·user·internal 네 도메인에 걸쳐 있어 어느 도메인 enum 에도 둘 수 없다(error-contract §3:
         // 도메인 간 code 이름 재사용·차용 금지). RATE_LIMITED 와 같은 이유로 공통이 소유한다.
-        assertThat(tests).as("실측 기준 도메인 상수 204개 + 공통 17개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어 포함")
-                .hasSize(221);
+        // GROMO-1997 이 주간 섬 랭킹 코드 1개를 더했다(StatsErrorCode) — week 가 UTC 일요일이 아니거나 아직
+        // 오지 않은 주(422 RANKING_WEEK_OUT_OF_RANGE). 형식(날짜 모양)은 Business 가 400 으로 먼저 거르고
+        // 달력 의미만 Data 가 판정하므로, 공개 표에서 OUT_OF_RANGE(field=week)로 옮겨진다.
+        assertThat(tests).as("실측 기준 도메인 상수 205개 + 공통 17개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹 포함")
+                .hasSize(222);
         return tests;
     }
 
