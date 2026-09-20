@@ -138,6 +138,7 @@ export function CurrentScreens({ e }: any) {
   const memberRoutes: Route[] = [
     'home',
     'guide',
+    'focusVisit',
     'focusTravel',
     'fishingArrival',
     'focusSetup',
@@ -237,6 +238,7 @@ export function CurrentScreens({ e }: any) {
     );
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
+  if (r === 'focusVisit') return <FocusVisit e={e} />;
   if (
     [
       'focusTravel',
@@ -319,6 +321,103 @@ function Travel({ e }: any) {
         } else e.replace('visit', target.id);
       }}
     />
+  );
+}
+function FocusVisit({ e }: any) {
+  const s: State = e.state,
+    i = currentIsland(s),
+    L = useAppLayout(),
+    safe = useSafeAreaInsets(),
+    peers = i.members.filter((member) => member.focusing),
+    spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]),
+    reduce = s.settings.reduceMotion;
+  return (
+    <View style={{ flex: 1 }}>
+      <FishingIsland
+        focus={{ x: 50, y: 50 }}
+        spots={spots}
+        onRaft={e.home}
+        gram={i.buildings.includes('gram')}
+      >
+        {(size, sizeY, zoom) => {
+          const shown = new Set<string>(),
+            kept: ReturnType<typeof labelBox>[] = [];
+          if (zoom >= 1)
+            peers
+              .map((member, index) => ({
+                id: member.id,
+                spot: spots[index],
+                subject: member.subject,
+              }))
+              .sort((a, b) => b.spot.y - a.spot.y)
+              .forEach((label) => {
+                const box = labelBox(label.spot, label.subject, size, sizeY);
+                if (
+                  kept.some(
+                    (other) =>
+                      !(
+                        other.right <= box.left ||
+                        box.right <= other.left ||
+                        other.bottom <= box.top ||
+                        box.bottom <= other.top
+                      ),
+                  )
+                )
+                  return;
+                kept.push(box);
+                shown.add(label.id);
+              });
+          return peers.map((member, index) => (
+            <FishingActor
+              key={member.id}
+              spot={spots[index]}
+              size={size}
+              sizeY={sizeY}
+              color={member.color}
+              name={member.name}
+              subject={shown.has(member.id) ? member.subject : null}
+              seconds={member.seconds}
+              reduce={reduce}
+            />
+          ));
+        }}
+      </FishingIsland>
+      <View
+        style={{
+          position: 'absolute',
+          zIndex: 30,
+          top: L.landscape ? Math.max(14, safe.top + 8) : Math.max(64, safe.top + 12),
+          left: Math.max(18, safe.left + 8),
+        }}
+      >
+        <FiButton small title="닫기" id="close-focus-visit" onPress={e.home} />
+      </View>
+      {!peers.length && (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
+          ]}
+        >
+          <View
+            style={{
+              marginHorizontal: 24,
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 18,
+              backgroundColor: '#FFFDFAD9',
+              paddingVertical: 12,
+              paddingHorizontal: 18,
+            }}
+          >
+            <Text style={{ fontSize: 14, lineHeight: 22.4, fontWeight: '800', color: INK }}>
+              지금 낚시 중인 주민이 없어요
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 function FocusFlow({ e }: any) {

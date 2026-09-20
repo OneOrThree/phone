@@ -45,6 +45,7 @@ export type Route =
   | 'friendMail'
   | 'chat'
   | 'fishingArrival'
+  | 'focusVisit'
   | 'focusTravel'
   | 'returnTravel'
   | 'permission'
