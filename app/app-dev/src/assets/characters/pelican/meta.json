@@ -1,0 +1,12 @@
+{
+  "id": "pelican",
+  "role": "mail-carrier-npc",
+  "player_selectable": false,
+  "status": "concept-approved",
+  "idle": "npc/idle.png",
+  "mailbox_pose": "npc/on-mailbox.png",
+  "canvas": [512, 512],
+  "background": "transparent",
+  "source_ticket": "GROMO-1833",
+  "note": "우편 모자와 크로스백을 착용한 편지 배달 NPC 확정 시안"
+}
