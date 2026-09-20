@@ -22,10 +22,6 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
 
-        defaults?.set(pendingData, forKey: "gromo:goal:selection")
-        defaults?.removeObject(forKey: "gromo:goal:selectionPending")
-        defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
-
         let schedule = DeviceActivitySchedule(
             intervalStart: DateComponents(hour: 0, minute: 0),
             intervalEnd: DateComponents(hour: 23, minute: 59),
@@ -46,11 +42,19 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
         let center = DeviceActivityCenter()
         center.stopMonitoring([DeviceActivityName("gromo.usage.buckets")])
-        try? center.startMonitoring(
-            DeviceActivityName("gromo.usage.buckets"),
-            during: schedule,
-            events: events
-        )
+        do {
+            try center.startMonitoring(
+                DeviceActivityName("gromo.usage.buckets"),
+                during: schedule,
+                events: events
+            )
+            defaults?.set(pendingData, forKey: "gromo:goal:selection")
+            defaults?.removeObject(forKey: "gromo:goal:selectionPending")
+            defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
+            defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
+        } catch {
+            defaults?.removeObject(forKey: "gromo:goal:selectionPromotedOkDate")
+        }
     }
 
     override func intervalDidStart(for activity: DeviceActivityName) {

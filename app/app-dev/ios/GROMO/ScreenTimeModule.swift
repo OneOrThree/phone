@@ -39,7 +39,7 @@ final class ScreenTimeModule: NSObject {
         Task {
             do {
                 try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
-                resolve(AuthorizationCenter.shared.authorizationStatus == .approved)
+                resolve(Self.isAuthorized)
             } catch FamilyControlsError.authorizationCanceled {
                 resolve(false)
             } catch {
@@ -230,7 +230,6 @@ final class ScreenTimeModule: NSObject {
             if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
                let saved = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
                 initial.applicationTokens = saved.applicationTokens
-                initial.categoryTokens = saved.categoryTokens
                 initial.webDomainTokens = saved.webDomainTokens
             }
             let manager = GromoAllowedAppManager(initialSelection: initial) { selection in
@@ -289,7 +288,7 @@ final class ScreenTimeModule: NSObject {
         rejecter _: @escaping RCTPromiseRejectBlock
     ) {
         guard #available(iOS 16.0, *),
-              AuthorizationCenter.shared.authorizationStatus == .approved else {
+              Self.isAuthorized else {
             resolve(false)
             return
         }
@@ -331,6 +330,14 @@ final class ScreenTimeModule: NSObject {
         selection.applicationTokens.isEmpty
             && selection.categoryTokens.isEmpty
             && selection.webDomainTokens.isEmpty
+    }
+
+    private static var isAuthorized: Bool {
+        switch AuthorizationCenter.shared.authorizationStatus {
+        case .approved, .approvedWithDataAccess: true
+        case .denied, .notDetermined: false
+        @unknown default: false
+        }
     }
 
     private static func dayString(_ date: Date) -> String {
@@ -454,7 +461,13 @@ private struct GromoAllowedAppManager: View {
                     title: "허용 앱 추가·삭제",
                     initialSelection: selection,
                     maxApplications: 40,
-                    onDone: { selection = $0; showPicker = false },
+                    onDone: { picked in
+                        var normalized = FamilyActivitySelection(includeEntireCategory: true)
+                        normalized.applicationTokens = picked.applicationTokens
+                        normalized.webDomainTokens = picked.webDomainTokens
+                        selection = normalized
+                        showPicker = false
+                    },
                     onCancel: { showPicker = false }
                 )
             }
