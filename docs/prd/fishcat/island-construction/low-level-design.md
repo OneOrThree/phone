@@ -230,15 +230,20 @@ GROMO-1895 추가(town-hall 화면 `ledger` 조각, 기획 `GET /v1/islands/{isl
 
 ```json
 {"data":{"month":"2026-09","earnedTotal":60,"spentTotal":15,
-  "items":[{"id":"…","direction":"spend","reason":"construction_debit","amount":15,"createdAt":"2026-09-21T03:00:00Z"}],
+  "items":[{"id":"…","direction":"spend","reason":"construction_debit","amount":15,
+            "createdAt":"2026-09-21T03:00:00Z","groupedUntil":"2026-09-21T03:00:00Z","entryCount":1},
+           {"id":"…","direction":"earn","reason":"contribution","amount":480,
+            "createdAt":"2026-09-20T00:12:00Z","groupedUntil":"2026-09-20T09:51:00Z","entryCount":480}],
   "nextCursor":null}}
 ```
 
 - `earnedTotal`·`spentTotal` 은 **그 달 전체의 합**이다 — `direction` 필터·페이지와 무관하다. 합계와 목록은 한 REPEATABLE READ 스냅샷에서 읽어 서로 다른 순간을 말하지 않는다.
-- `amount` 는 원장처럼 항상 양수이고 방향은 `direction` 이 말한다. `reason` 은 원장 사유의 소문자(`contribution`·`construction_debit`)다. 방향은 사유가 정한다 — 새 사유를 더하면 `IslandWalletTransactionType` 에서 방향도 함께 정한다(GROMO-1924 의 집중 정산 적립은 기존 `contribution` 사유를 쓴다).
-- 정렬은 최신순 `(createdAt DESC, id DESC)` keyset — 같은 시각의 행은 id 가 가른다.
+- `amount` 는 원장처럼 항상 양수이고 방향은 `direction` 이 말한다. `reason` 은 원장 사유의 소문자(`contribution`·`construction_debit`)다. 방향은 사유가 정한다 — 새 사유를 더하면 `IslandWalletTransactionType` 에서 방향도 함께 정한다(GROMO-1924 의 집중 정산 적립과 GROMO-1990 의 분당 적립은 둘 다 기존 `contribution` 사유를 쓴다).
+- **집중 적립(`contribution`)은 KST 하루로 접힌 줄이다**(2026-09-20 결정 가계부-묶음). 집중 보상이 «유효 집중 60초마다 적립»로 바뀌면서(D5-적립) 이 사유만 주민 1명당 하루 최대 480행이 되어, 건별로 내보내면 한 달이 수천 줄이 된다. **원장은 건별 그대로 두고 조회에서만 접는다** — 감사 추적(어느 분에 얼마가 들어왔는가)은 행에 남는다. 접는 축이 KST 인 것은 이 조회의 창(`month`)이 이미 KST 달력 월이라서다(집중 «상한»의 UTC 축과는 다른 체인이다). 반려한 대안: 원장 자체를 묶기(추적 소실·이미 보여 준 금액이 변함) · 묶음을 별도 배열로 분리(앱이 두 목록을 섞어야 함).
+- `entryCount` 는 그 줄이 접고 있는 원장 행 수, `groupedUntil` 은 그 하루의 마지막 기입 시각이다. **접히지 않은 줄도 널이 아니다** — `entryCount=1`, `groupedUntil=createdAt` 이라 앱은 널 분기 없이 `entryCount>1` 로만 묶음을 가른다. 접히는 사유는 `contribution` 하나뿐이고 퀘스트 정산·건설 차감·상점 구매는 건별로 남는다(빈도가 낮고 건별 의미가 있다).
+- 정렬은 최신순 `(createdAt DESC, id DESC)` keyset — 같은 시각의 행은 id 가 가른다. 묶음 줄의 `id`·`createdAt` 은 그 하루의 **첫** 기입 것이라 커서가 그대로 이어진다(묶음 뒤에는 그 시각보다 오래된 줄만 온다). id 비교는 PostgreSQL 과 같은 **무부호** 순서다 — `UUID.compareTo` 는 부호 있는 long 비교라 경계에서 갈린다.
 - 권한: 살아 있는 섬의 **활성 주민 전원**(방장·일반 주민 동일). 구경꾼·떠난 주민은 403 `MEMBER_ONLY`, 종료·삭제 섬은 404 `GROUP_NOT_FOUND`. 지출 권한(C13)은 보지 않는다 — 읽기다.
 - 원장 행에 주체(누가 적립했나)가 없어 항목에 사용자 필드가 없다. 주민별 몫은 [회관 기록 LLD](../island-records/low-level-design.md) §7 의 누적 획득이 답한다.
-- 인덱스: 섬 축 인덱스가 유일키 `(island_id, type, idempotency_key)` 앞머리뿐이라 섬 한 곳의 원장을 훑는다. 섬당 행 수가 커지면 `(island_id, created_at, id)` 인덱스를 마이그레이션으로 더한다.
+- 인덱스: 섬 축 인덱스가 유일키 `(island_id, type, idempotency_key)` 앞머리뿐이라 섬 한 곳의 원장을 훑는다. **분당 적립(D5-적립)으로 섬당 행 수가 빠르게 는다 — `(island_id, created_at, id)` 인덱스를 더할 시점이 가까워졌다**(하루 묶음 집계도 같은 스캔을 탄다).
 - 내부 경로(B26): `GET /internal/islands/{islandId}/resources/ledger` + 허용목록 `'GET /internal/islands/*/resources/ledger'`.
 

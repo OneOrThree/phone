@@ -59,7 +59,7 @@ public class FocusSessionUseCase {
 
     private final DataApiClient data;
 
-    public FocusSessionState start(AccessTokenClaims claims, UUID islandId, String subject, int targetMinutes,
+    public FocusSessionState start(AccessTokenClaims claims, UUID islandId, String subject, Integer targetMinutes,
             UUID key, Deadline deadline) {
         return relay(() -> data.startFocusSession(claims.userId(), islandId, subject, targetMinutes, key, deadline));
     }

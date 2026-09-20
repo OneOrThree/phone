@@ -63,8 +63,10 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 ### finish — POST /focus-sessions/{sessionId}/finish, 200
 
 입력 `{expectedVersion}`와 키 필수. active/paused에서 가능하다. 새 종료만 version을 검사하고 열린 구간을
-닫은 뒤 정산한다. endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·allocation(2026-09-19 D5-귀속-개정 — 섬 통장 100%·개인 0%, 비율은 운영값. ~~D5-귀속 50/50~~ 대체)·
-원래 questProgress와 내부 events를 세션별 정산에 고정한다.
+닫은 뒤 **정산 «기록»을 확정한다 — 지급은 하지 않는다**(2026-09-20 결정 D5-적립: 물고기는 진행 중에 매분 적립 틱이 이미 섬 통장에 넣었고,
+마지막 틱 이후의 자투리는 버린다). endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·allocation(2026-09-19 D5-귀속-개정 — 섬 통장 100%·개인 0%, 비율은 운영값. ~~D5-귀속 50/50~~ 대체)·
+원래 questProgress와 내부 events를 세션별 정산에 고정한다. `earnedFish` 는 그 세션이 적립 원장에 쌓은 합이고 `allocation` 은 `{0, earnedFish}` 다.
+`targetMinutes` 는 선택이라 없을 수 있고, 없으면 `goalAchieved` 는 false 다.
 
 같은 키/같은 본문은 공통 receipt를 재생한다. **이미 완료된 같은 세션을 새 키로 finish해도**, 계정 활성·본인·
 현재 결과 열람 권한을 검사한 후 세션별 정산의 같은 결과를 반환하는 도메인 복구 계약을 채택한다.
@@ -120,9 +122,10 @@ emote는 영속 Idempotency-Key/receipt 대상이 아니고 DB/outbox에 저장�
 | 논리 저장 | 데이터/제약 | 역할 |
 | --- | --- | --- |
 | 기존 focus_sessions | PK·user·startedAt·endedAt·COMPLETED·focus_seconds_by_date | legacy와 통계 식별자 공유. 상세가 있는 행은 v0.3 프로토콜 |
-| 신규 focus_session_details | PK/FK session_id, user_id, island_id, membership_epoch_at_start, subject, target_minutes, lifecycle, version, last_transition_at, policy_revision | 소속 귀속 불변. user당 active/paused 부분 UNIQUE, 휴식 자리의 활성 범위 UNIQUE |
+| 신규 focus_session_details | PK/FK session_id, user_id, island_id, membership_epoch_at_start, subject, target_minutes(**nullable — 목표는 선택, D5-적립**), lifecycle, version, last_transition_at, policy_revision, **rewarded_seconds(적립 워터마크)** | 소속 귀속 불변. user당 active/paused 부분 UNIQUE, 휴식 자리의 활성 범위 UNIQUE. 워터마크는 전이가 아니라 적립 틱이 민다 — version 을 올리지 않는다 |
 | 신규 focus_session_intervals | session_id, ordinal, kind ACTIVE/REST, started_at, ended_at nullable | ordinal 유일, 열린 구간 최대1, 역전/겹침 금지. 명령 idempotency와 같은 TX |
-| 신규 focus_settlements | session_id UNIQUE, contract_version, policy_revision, HTTP 결과·원 events·총시간·원장 근거 | 다른 key의 완료 복구·중복 지급 방어. 개인정보 파기 정책 적용 |
+| 신규 focus_settlements | session_id UNIQUE, contract_version, policy_revision, HTTP 결과·원 events·총시간 | 다른 key의 완료 복구 방어. **D5-적립 이후 이 행은 «지급의 근거»가 아니라 «확정 기록»이다** — 지급은 적립 원장이 한다. 개인정보 파기 정책 적용 |
+| 신규 focus_reward_accruals | (session_id, accrued_on) UNIQUE, earned_fish | **적립의 정본**(D5-적립). 매분 틱이 (세션, UTC 날짜)로 누적한다. 하루 상한 합산과 회관 기록의 주민 누적 획득이 둘 다 여기를 읽는다 — 정산 행만 세면 진행 중·강퇴 세션의 적립분이 빠진다 |
 | 신규 주민 projection | (projection,island_id,user_id) UNIQUE, version, 현재 session_id/상태 | 세션 교체·재가입에도 version 초기화 금지, focus/rest 별도 축 |
 | 기존 command_idempotency | PublicCommandService의 사용자/operation/key scope, fingerprint, contractVersion 있는 결과 | TTL 자동 삭제 없음. 미지원 버전409 STATE_CONFLICT, 재실행 금지 |
 | 기존 일별 net + 경제/시설/퀘스트 정본 | 세션별 반영 유일성, 지갑 owner/currency 잠금, 건설 cap 조건부 갱신 | 정산과 함께 커밋. 수동 구매 권한과 자동 집중 기여 정책 분리 |
@@ -136,6 +139,10 @@ emote는 영속 Idempotency-Key/receipt 대상이 아니고 DB/outbox에 저장�
 계정 탈퇴·가입/현재 섬 변경·host 강퇴가 여러 사용자를 다루면 처음부터 정렬한 사용자를 잠그고
 group를 잡은 뒤 상대 user를 역순으로 잡지 않는다. 늦게 영향 사용자가 발견되면 TX를 다시 시작한다.
 
+적립 틱(D5-적립)은 이 순서의 **꼬리 부분만** 잡는다 — 상세 배타 → 섬 건설 상태 → 섬 통장. 전이 순서의 접두사가 아니라 접미사라
+교착 쌍이 생기지 않으므로 섬 행·멤버십을 따로 잡지 않는다. 전이·강퇴와는 상세 행에서 줄을 서고, 강퇴가 이기면 세션이
+`MEMBERSHIP_LOST` 가 되어 그 뒤의 틱은 아무것도 하지 않는다.
+
 이 순서는 새로운 외부 서비스 락이 아니다. 하나의 Data TX에서 유지하며 Business는 DB 락을 잡지 않는다.
 강퇴의 승인 정책은 미결이어도 강퇴↔finish, start↔switch, pause↔finish가 같은 사용자·세션 경계에 참여해야 한다.
 강퇴가 먼저 승리한 경우와 finish가 먼저 승리한 경우의 지급/기여는 FR-D03 결정표로 검증한다.
@@ -144,7 +151,8 @@ group를 잡은 뒤 상대 user를 역순으로 잡지 않는다. 늦게 영향 
 정산 정책은 시작 시 revision을 고정해 운영 설정 변경이 진행 세션의 지급률을 바꾸지 않게 하는 기술 선택이다.
 ~~시설 완료 instant/상태는 FR-D02 선택에 따라 해석하지만~~ FR-D02 는 **2026-09-18 재영님 결정 D6(「쌓이면 건설한다」)로 폐기**됐다 — 정산은 물고기를 지갑에 적립할 뿐이고 시설 완공 시점과 교차하지 않는다. 같은 TX에서 잠금·정책 revision을 확인하는 규율은 유지한다.
 산식 결과 earnedFish=E, 개인 지갑 반영=P, 섬 통장 반영=C라면 **E=P+C**가 기본 보존식이다 — 2026-09-19 D5-귀속-개정으로 **P:C = 0:100**(비율은 운영값)이다(~~2026-09-18 D5-귀속의 50:50~~ 대체 — 개인 지갑은 테이블만 두고 적립하지 않는다). C 는 「초기 건설 기여」가 아니라 **섬 통장 몫**이다(D1: 섬 통장은 건설·공동 구매에 함께 쓰인다) — D6 가 폐기한 것은 «세션 도중 완공 시 시간 분할·초과 환류»이지 개인/섬 배분 축이 아니었다. 산식은 1830 확정값(60초당 1마리·휴식 제외·주민·섬별 하루 480 상한, [정책](policy.md) FR-D01)이며 아래 응답 예시의 `allocation{personalFishAdded,constructionFishAdded}` 가 그 배분을 싣는다.
-숨어 있는 버림값을 두거나 `min(cap,E)` 뒤 초과분을 기록 없이 없애지 않는다(상한에 닿아도 집중 기록은 쌓인다 — 1830).
+**지급 시점은 2026-09-20 결정 D5-적립으로 종료가 아니라 «진행 중 매분»이다.** 매분 크론이 진행(ACTIVE) 세션마다 상세 행을 배타 잠그고 「지금까지의 순수 집중 초로 나올 수 있는 총 마리 수 − 이미 판정한 몫(`rewarded_seconds`)」만 새로 준다. 상한에 걸려 못 받은 몫도 **판정 완료로 워터마크를 민다** — 그러지 않으면 자정에 상한이 풀리는 순간 어제 깎인 몫이 한꺼번에 터진다(반려한 대안: 이월). 하루 상한의 창은 **UTC 날짜**이고 일 집계(`daily_focus_stats`)의 KST 축과 일부러 다르다 — 그쪽은 1930 전환 대기 중인 레거시 축이고 이 축은 신규라 처음부터 UTC 다(Q-6·RC-축과 같다). 자정에 걸친 60초는 초 단위 워터마크라 끊기지 않으며, 그 분은 「찬 시각」의 날짜에 적립된다(반려한 대안: 날짜별 분할 배분 — 상한 두 개에 반 마리씩 걸린다). 섬 원장의 멱등 키는 `focus:<sessionId>:<누적 마리 수>` 라 같은 틱을 다시 돌려도 같은 키가 나온다. 휴식은 `activeSeconds` 에 없으므로 휴식 중에는 워터마크가 자연히 멈춘다 — 별도 분기를 두지 않는다.
+숨어 있는 버림값을 두거나 `min(cap,E)` 뒤 초과분을 기록 없이 없애지 않는다(상한에 닿아도 집중 기록은 쌓인다 — 1830). 상한으로 깎인 몫은 **다음 날로 이월하지 않는다**(D5-적립).
 ~~초기 기여는 건설 진행량이며 `ownerType=island,currency=fish`라는 지갑을 만들지 않는다.~~ → D1: 섬 통장(섬 물고기)이 존재한다. 통화 식별자는 [상점 정책](../island-shop/policy.md)을 따른다.
 동시 종료가 같은 마지막 건설량을 사용하면 cap과 완성 사건은 시설 행 잠금/유일성으로 한 번만 반영한다.
 

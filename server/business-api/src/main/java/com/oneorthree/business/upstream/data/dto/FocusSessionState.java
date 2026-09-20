@@ -17,7 +17,7 @@ import java.util.UUID;
  * @param id            세션 id
  * @param islandId      소속 섬
  * @param subject       집중 주제
- * @param targetMinutes 목표 시간(분)
+ * @param targetMinutes 목표 시간(분) — 선택이라 없을 수 있다(GROMO-1990)
  * @param status        {@code "active"} 또는 {@code "paused"}
  * @param activeSeconds serverNow 까지의 순수 집중 초(휴식 제외)
  * @param serverNow     응답을 만든 서버 시각 — activeSeconds 의 anchor
@@ -29,7 +29,7 @@ public record FocusSessionState(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID islandId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String subject,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int targetMinutes,
+        Integer targetMinutes,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String status,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long activeSeconds,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String serverNow,

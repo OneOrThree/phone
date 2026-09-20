@@ -83,6 +83,16 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
             UUID islandId, Collection<FocusSessionLifecycle> lifecycles, Collection<UUID> userIds);
 
     /**
+     * 보상 적립 틱용(GROMO-1990) — 지금 그 lifecycle 인 세션 id 목록. 엔티티를 올리지 않는다: 틱은
+     * 세션마다 자기 트랜잭션에서 행을 다시 배타 잠그므로, 스캔이 들고 있는 낡은 인스턴스가 있으면 안 된다.
+     *
+     * @param lifecycle 보통 {@link FocusSessionLifecycle#ACTIVE} — 휴식(PAUSED)은 적립하지 않는다
+     * @return 세션 id(시작 순서 무관)
+     */
+    @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.lifecycle = :lifecycle")
+    List<UUID> findSessionIdsByLifecycle(@Param("lifecycle") FocusSessionLifecycle lifecycle);
+
+    /**
      * 휴식 자리 배정용 — 같은 섬에서 현재 paused인 사용자들이 쥔 자리 번호.
      * 호출측이 섬 행을 배타로 먼저 잠근 뒤 불러야
      * 동시 pause 두 건이 같은 최소 빈 번호를 고르지 않는다.

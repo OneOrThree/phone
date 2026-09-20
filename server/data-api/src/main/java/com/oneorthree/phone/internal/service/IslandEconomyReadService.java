@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.YearMonth;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -51,6 +52,17 @@ public class IslandEconomyReadService {
     private static final int MAX_LIMIT = 100;
     /** 최신순 첫 페이지 경계 — 어떤 실제 UUID 보다 크거나 같다(PostgreSQL uuid 는 부호 없는 바이트 비교). */
     private static final UUID LAST_ID = new UUID(-1L, -1L);
+
+    /**
+     * 최신순 keyset 축 — {@code (createdAt, id)} 내림차순. id 는 <b>부호 없이</b> 비교한다:
+     * PostgreSQL 은 uuid 를 바이트 무부호로 정렬하는데 {@link UUID#compareTo} 는 부호 있는 long 두 개로
+     * 비교해서, 커서 경계 행에서 두 순서가 갈리면 페이지가 빠지거나 겹친다(경계값 {@link #LAST_ID} 가 바로
+     * 그런 값이다 — 무부호로는 최대, 부호로는 −1).
+     */
+    private static final Comparator<IslandLedgerPageView.Entry> LEDGER_ORDER =
+            Comparator.comparing(IslandLedgerPageView.Entry::createdAt)
+                    .thenComparing(IslandLedgerPageView.Entry::id, IslandEconomyReadService::compareUnsigned)
+                    .reversed();
 
     private final UserQueryService userQueryService;
     private final GroupQueryService groupQueryService;
@@ -87,19 +99,55 @@ public class IslandEconomyReadService {
                 spent += total.getTotal();
             }
         }
-        List<IslandWalletTransaction> rows = ledger.findLedgerPage(islandId, types, from, to,
-                afterCreatedAt == null ? to : afterCreatedAt,
-                afterEntryId == null ? LAST_ID : afterEntryId,
-                PageRequest.of(0, limit + 1));
-        boolean more = rows.size() > limit;
-        List<IslandWalletTransaction> page = more ? rows.subList(0, limit) : rows;
-        IslandWalletTransaction last = more ? page.get(page.size() - 1) : null;
-        return new IslandLedgerPageView(month.toString(), earned, spent, page.stream()
-                .map(row -> new IslandLedgerPageView.Entry(row.getId(),
+        Instant cursorAt = afterCreatedAt == null ? to : afterCreatedAt;
+        UUID cursorId = afterEntryId == null ? LAST_ID : afterEntryId;
+
+        // 집중 적립만 하루로 접는다(GROMO-1990) — 그 사유만 분당 1행이라 건별로 내보내면 한 달이 수천 줄이다.
+        List<IslandWalletTransactionType> perRowTypes = types.stream()
+                .filter(type -> type != IslandWalletTransactionType.CONTRIBUTION)
+                .toList();
+        List<IslandLedgerPageView.Entry> merged = new ArrayList<>();
+        if (!perRowTypes.isEmpty()) {
+            for (IslandWalletTransaction row : ledger.findLedgerPage(islandId, perRowTypes, from, to,
+                    cursorAt, cursorId, PageRequest.of(0, limit + 1))) {
+                merged.add(new IslandLedgerPageView.Entry(row.getId(),
                         row.getType().isEarning() ? "earn" : "spend",
-                        row.getType().name().toLowerCase(Locale.ROOT), row.getAmount(), row.getCreatedAt()))
-                .toList(),
-                last == null ? null : last.getCreatedAt(), last == null ? null : last.getId());
+                        row.getType().name().toLowerCase(Locale.ROOT), row.getAmount(), row.getCreatedAt(),
+                        row.getCreatedAt(), 1));
+            }
+        }
+        if (types.contains(IslandWalletTransactionType.CONTRIBUTION)) {
+            // 묶음은 한 달에 최대 31행이라 커서와 무관하게 전부 읽고 메모리에서 자른다.
+            for (IslandWalletTransactionRepository.DailyContribution day
+                    : ledger.sumContributionsByDay(islandId, from, to, ZonePolicy.KST.getId())) {
+                if (isOlderThanCursor(day.getStartedAt(), day.getId(), cursorAt, cursorId)) {
+                    merged.add(new IslandLedgerPageView.Entry(day.getId(), "earn",
+                            IslandWalletTransactionType.CONTRIBUTION.name().toLowerCase(Locale.ROOT),
+                            Math.toIntExact(day.getAmount()), day.getStartedAt(), day.getEndedAt(),
+                            Math.toIntExact(day.getEntryCount())));
+                }
+            }
+        }
+        // 두 갈래를 SQL 과 «같은» 최신순 keyset 축으로 다시 세운다.
+        merged.sort(LEDGER_ORDER);
+        boolean more = merged.size() > limit;
+        List<IslandLedgerPageView.Entry> page = more ? merged.subList(0, limit) : merged;
+        IslandLedgerPageView.Entry last = more ? page.get(page.size() - 1) : null;
+        return new IslandLedgerPageView(month.toString(), earned, spent, page,
+                last == null ? null : last.createdAt(), last == null ? null : last.id());
+    }
+
+    /** SQL 의 {@code (createdAt, id) < (커서)} 와 같은 판정 — 묶음 행을 메모리에서 거를 때 쓴다. */
+    private static boolean isOlderThanCursor(Instant createdAt, UUID id, Instant cursorAt, UUID cursorId) {
+        int byTime = createdAt.compareTo(cursorAt);
+        return byTime < 0 || (byTime == 0 && compareUnsigned(id, cursorId) < 0);
+    }
+
+    /** PostgreSQL 의 uuid 정렬(바이트 무부호)과 같은 비교. */
+    private static int compareUnsigned(UUID left, UUID right) {
+        int high = Long.compareUnsigned(left.getMostSignificantBits(), right.getMostSignificantBits());
+        return high != 0 ? high
+                : Long.compareUnsigned(left.getLeastSignificantBits(), right.getLeastSignificantBits());
     }
 
     /**

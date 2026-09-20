@@ -10,14 +10,15 @@ import java.util.UUID;
 /**
  * finish 정산 결과 (GROMO-1764, focus-rest-session LLD §1 {@code FocusFinishView}).
  *
- * <p>보상 정책(FR-D01~06)이 미확정인 동안 Data 의 지급 게이트가 finish 를 항상
- * {@code REWARD_POLICY_UNAVAILABLE}(503) 로 막으므로 <b>이 타입이 실제로 만들어지는 경로는 아직
- * 없다</b>. 계약 타입만 고정해 둔다 — 값을 지어내지 않는다.
+ * <p>GROMO-1990 부터 finish 는 <b>지급하지 않는다</b> — 물고기는 진행 중에 매분 적립 틱이 섬 통장에
+ * 넣고, 이 응답의 {@code earnedFish}·{@code allocation} 은 그 세션이 지금까지 적립한 합의 «확정 기록»이다
+ * (개인 몫은 언제나 0 — D5-귀속-개정). 종전 주석의 「지급 게이트가 finish 를 항상 503 으로 막는다」는
+ * GROMO-1924 이전 상태라 사실이 아니다.
  *
  * @param recordId      완료 기록 id(= sessionId)
  * @param islandId      소속 섬
  * @param subject       집중 주제
- * @param targetMinutes 목표 시간(분)
+ * @param targetMinutes 목표 시간(분) — 선택이라 없을 수 있다(GROMO-1990)
  * @param activeSeconds 세션 전체의 순수 집중 초 합
  * @param goalAchieved  목표 달성 여부
  * @param earnedFish    총 지급량 — E=P+C 보존식
@@ -29,7 +30,7 @@ public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID recordId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID islandId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String subject,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int targetMinutes,
+        Integer targetMinutes,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long activeSeconds,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean goalAchieved,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int earnedFish,

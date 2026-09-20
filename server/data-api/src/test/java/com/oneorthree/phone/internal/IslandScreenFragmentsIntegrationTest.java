@@ -12,6 +12,7 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionDetail;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
+import com.oneorthree.phone.focus.repository.domain.FocusRewardAccrual;
 import com.oneorthree.phone.focus.repository.domain.FocusSettlement;
 import com.oneorthree.phone.focus.repository.domain.FocusType;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -45,13 +46,16 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.YearMonth;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -205,6 +209,11 @@ class IslandScreenFragmentsIntegrationTest {
         assertThat(september.items().get(0).direction()).isEqualTo("spend");
         assertThat(september.items().get(0).reason()).isEqualTo("construction_debit");
         assertThat(september.items().get(1).reason()).isEqualTo("contribution");
+        assertThat(september.items()).as("KST 날짜가 모두 달라 하루 묶음이 한 건씩이다(GROMO-1990)")
+                .extracting(IslandLedgerPageView.Entry::entryCount).containsExactly(1, 1, 1, 1);
+        assertThat(september.items().get(0).groupedUntil())
+                .as("묶이지 않은 줄의 groupedUntil 은 createdAt 과 같다")
+                .isEqualTo(september.items().get(0).createdAt());
 
         IslandLedgerPageView earnOnly = economy.ledger(r.host(), r.islandId(), YearMonth.of(2026, 9), "earn",
                 null, null, 1);
@@ -225,16 +234,18 @@ class IslandScreenFragmentsIntegrationTest {
     void ledgerKeysetTieBreakNeverSkipsOrRepeats() {
         Resident r = residentIsland();
         Instant tie = Instant.parse("2026-09-10T03:00:00Z");
+        // 묶이지 않는 사유(건설 차감)로 본다 — 집중 적립은 하루로 접혀 동률 자체가 생기지 않는다(GROMO-1990).
+        contribute(r.islandId(), r.member(), 1000, Instant.parse("2026-09-01T03:00:00Z"));
         for (int amount = 1; amount <= 5; amount++) {
-            contribute(r.islandId(), r.member(), amount, tie);
+            debit(r.islandId(), amount, tie);
         }
-        contribute(r.islandId(), r.member(), 100, tie.plusSeconds(1));
+        debit(r.islandId(), 100, tie.plusSeconds(1));
 
         List<Integer> seen = new ArrayList<>();
         Instant afterAt = null;
         UUID afterId = null;
         do {
-            IslandLedgerPageView page = economy.ledger(r.member(), r.islandId(), YearMonth.of(2026, 9), null,
+            IslandLedgerPageView page = economy.ledger(r.member(), r.islandId(), YearMonth.of(2026, 9), "spend",
                     afterAt, afterId, 2);
             page.items().forEach(entry -> seen.add(entry.amount()));
             afterAt = page.nextCreatedAt();
@@ -248,6 +259,51 @@ class IslandScreenFragmentsIntegrationTest {
         List<Integer> tiedAmounts = tiedIds.stream().map(id -> jdbc.queryForObject(
                 "select amount from island_wallet_transactions where id=?", Integer.class, id)).toList();
         assertThat(seen.subList(1, 6)).as("동률 구간은 id 내림차순").isEqualTo(tiedAmounts);
+    }
+
+    @Test
+    @DisplayName("가계부 — 집중 적립은 KST 하루로 접혀 한 줄이고, 그 줄이 묶음 커서라 페이지가 빠짐·중복 없이 이어진다")
+    void ledgerFoldsFocusContributionsIntoOneRowPerDay() {
+        Resident r = residentIsland();
+        // 분당 적립을 흉내 낸다 — 같은 KST 날짜의 60건(9/10 12:00~12:59 KST)과 이튿날 2건.
+        for (int minute = 0; minute < 60; minute++) {
+            contribute(r.islandId(), r.member(), 1, Instant.parse("2026-09-10T03:00:00Z").plusSeconds(minute * 60L));
+        }
+        contribute(r.islandId(), r.host(), 5, Instant.parse("2026-09-11T03:00:00Z"));
+        contribute(r.islandId(), r.host(), 7, Instant.parse("2026-09-11T04:00:00Z"));
+        debit(r.islandId(), 12, Instant.parse("2026-09-11T05:00:00Z"));
+
+        IslandLedgerPageView page = economy.ledger(r.member(), r.islandId(), YearMonth.of(2026, 9), null,
+                null, null, 50);
+
+        assertThat(page.items()).as("원장 63행이 3줄로 접힌다 — 9/11 차감 · 9/11 적립 묶음 · 9/10 적립 묶음")
+                .hasSize(3);
+        assertThat(page.items()).extracting(IslandLedgerPageView.Entry::reason, IslandLedgerPageView.Entry::amount,
+                        IslandLedgerPageView.Entry::entryCount)
+                .containsExactly(tuple("construction_debit", 12, 1), tuple("contribution", 12, 2),
+                        tuple("contribution", 60, 60));
+        assertThat(page.items().get(2).createdAt()).as("묶음의 createdAt 은 그 날 «첫» 기입")
+                .isEqualTo(Instant.parse("2026-09-10T03:00:00Z"));
+        assertThat(page.items().get(2).groupedUntil()).as("groupedUntil 은 그 날 «마지막» 기입")
+                .isEqualTo(Instant.parse("2026-09-10T03:59:00Z"));
+        assertThat(page.earnedTotal()).as("합계는 접기와 무관하게 원장 전체 합이다").isEqualTo(72);
+        assertThat(page.spentTotal()).isEqualTo(12);
+        assertThat(jdbc.queryForObject("select count(*) from island_wallet_transactions where island_id=?",
+                Long.class, r.islandId()))
+                .as("원장은 건별 그대로 남는다 — 접는 것은 조회뿐이다").isEqualTo(63L);
+
+        // 묶음을 커서로 이어 받아도 빠짐·중복이 없다.
+        List<Integer> seen = new ArrayList<>();
+        Instant afterAt = null;
+        UUID afterId = null;
+        do {
+            IslandLedgerPageView one = economy.ledger(r.member(), r.islandId(), YearMonth.of(2026, 9), null,
+                    afterAt, afterId, 1);
+            one.items().forEach(entry -> seen.add(entry.amount()));
+            afterAt = one.nextCreatedAt();
+            afterId = one.nextEntryId();
+        } while (afterId != null && seen.size() < 10);
+        assertThat(seen).containsExactly(12, 12, 60);
     }
 
     @Test
@@ -359,7 +415,10 @@ class IslandScreenFragmentsIntegrationTest {
                 Timestamp.from(at), islandId, key);
     }
 
-    /** 정산 한 건 — 지급 경로가 쓰는 행 셋(기본 마커 · 완료 상세 · 정산)을 운영 엔티티로 심는다. */
+    /**
+     * 정산 한 건 — 지급 경로가 쓰는 행 넷(기본 마커 · 완료 상세 · 적립 원장 · 정산)을 운영 엔티티로 심는다.
+     * 누적 획득의 정본은 GROMO-1990 부터 적립 원장({@code focus_reward_accruals})이다.
+     */
     private void settle(UUID userId, UUID islandId, int earnedFish) {
         User user = users.getCaller(userId);
         Instant ended = Instant.now().minusSeconds(60);
@@ -368,10 +427,15 @@ class IslandScreenFragmentsIntegrationTest {
         details.save(FocusSessionDetail.builder().sessionId(sessionId).userId(userId).islandId(islandId)
                 .membershipEpochAtStart(1L).subject("수학").targetMinutes(25)
                 .lifecycle(FocusSessionLifecycle.COMPLETED).lastTransitionAt(ended).build());
-        new TransactionTemplate(transactionManager).executeWithoutResult(status ->
-                em.persist(FocusSettlement.builder().sessionId(sessionId).activeSeconds(earnedFish * 60L)
-                        .goalAchieved(true).earnedFish(earnedFish).personalFishAdded(earnedFish)
-                        .constructionFishAdded(0).completedAt(ended).build()));
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            if (earnedFish > 0) {
+                em.persist(FocusRewardAccrual.builder().sessionId(sessionId)
+                        .accruedOn(LocalDate.ofInstant(ended, ZoneOffset.UTC)).earnedFish(earnedFish).build());
+            }
+            em.persist(FocusSettlement.builder().sessionId(sessionId).activeSeconds(earnedFish * 60L)
+                    .goalAchieved(true).earnedFish(earnedFish).personalFishAdded(0)
+                    .constructionFishAdded(earnedFish).completedAt(ended).build());
+        });
     }
 
     private void setRequestCreatedAt(UUID requestId, Instant at) {

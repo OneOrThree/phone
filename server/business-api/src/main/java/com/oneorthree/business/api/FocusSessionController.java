@@ -51,7 +51,9 @@ public class FocusSessionController {
     public ResponseEntity<FocusSessionState> start(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        if (body == null || !body.isObject() || body.size() != 3) {
+        // targetMinutes 는 선택이다(GROMO-1990) — 그래서 필드 «개수»는 2 또는 3 이다. 개수 검사를 놓으면
+        // 알 수 없는 필드가 조용히 통과하므로, 3 인데 targetMinutes 가 없으면 그 3번째가 곧 오타다.
+        if (body == null || !body.isObject() || body.size() < 2 || body.size() > 3) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
         JsonNode islandId = body.get("islandId");
@@ -63,12 +65,16 @@ public class FocusSessionController {
         if (subject == null || !subject.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "subject");
         }
+        if (body.size() == 3 && targetMinutes == null) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+        }
+        boolean absent = targetMinutes == null || targetMinutes.isNull();
         // 정수 타입을 «변환 전에» 확인한다(LLD §1) — 1.5 를 1 로 절삭하는 기본 강제변환을 쓰지 않는다.
-        if (targetMinutes == null || !targetMinutes.isIntegralNumber() || !targetMinutes.canConvertToInt()) {
+        if (!absent && (!targetMinutes.isIntegralNumber() || !targetMinutes.canConvertToInt())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "targetMinutes");
         }
         FocusSessionState started = focusSessions.start(claims, uuid(islandId.stringValue(), "islandId"),
-                subject.stringValue(), targetMinutes.intValue(), key, deadline());
+                subject.stringValue(), absent ? null : targetMinutes.intValue(), key, deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(started);
     }
 

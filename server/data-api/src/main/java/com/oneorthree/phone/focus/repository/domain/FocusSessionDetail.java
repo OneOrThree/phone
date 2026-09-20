@@ -64,8 +64,13 @@ public class FocusSessionDetail {
     @Column(nullable = false, length = 200)
     private String subject;
 
-    @Column(name = "target_minutes", nullable = false)
-    private int targetMinutes;
+    /**
+     * 목표 시간(분) — <b>선택</b>이다(GROMO-1990, V82 에서 NOT NULL 해제). 보상이 목표가 아니라 순수
+     * 집중 시간에만 걸리므로 목표 없이도 시작할 수 있고, 그때 {@code goalAchieved} 는 늘 false 다.
+     * 값이 있으면 0 이하는 여전히 거절한다.
+     */
+    @Column(name = "target_minutes")
+    private Integer targetMinutes;
 
     /** 열 폭 20 — {@link FocusSessionLifecycle#MEMBERSHIP_LOST}(15자)가 V58 의 10 을 넘어 V67 이 넓혔다. */
     @Enumerated(EnumType.STRING)
@@ -102,10 +107,30 @@ public class FocusSessionDetail {
     @Column(name = "rest_seat")
     private Integer restSeat;
 
+    /**
+     * 적립 틱이 <b>판정을 마친</b> 순수 집중 초 (V82, GROMO-1990). 언제나
+     * {@code secondsPerFish} 의 배수이고, 하루 상한에 걸려 실제로는 못 받은 몫도 여기에 포함된다 —
+     * 그래야 자정에 상한이 풀릴 때 어제 깎인 몫이 한꺼번에 터지지 않는다.
+     *
+     * <p>{@code version}·{@code lastTransitionAt} 은 건드리지 않는다: 적립은 사용자가 일으킨 전이가
+     * 아니라서 앱이 쥔 {@code expectedVersion} 을 낡게 만들면 안 된다.
+     */
+    @Column(name = "rewarded_seconds", nullable = false, columnDefinition = "bigint not null default 0")
+    @Builder.Default
+    private long rewardedSeconds = 0L;
+
     /** 값은 {@link CreationTimestamp}가 채우지만, DB 기본값도 V58 과 같게 선언해 둔다(위 version 주석 참조). */
     @CreationTimestamp
     @Column(columnDefinition = "timestamptz not null default now()")
     private Instant createdAt;
+
+    /**
+     * 적립 워터마크를 민다 (GROMO-1990) — 판정을 마친 순수 집중 초까지. 전이가 아니므로 version 은
+     * 그대로다.
+     */
+    public void markRewarded(long seconds) {
+        this.rewardedSeconds = seconds;
+    }
 
     /** pause 전이 — REST 구간을 연 t로 lifecycle·restSeat·version·lastTransitionAt을 한 번에 전진시킨다. */
     public void applyPause(Instant t, int restSeat) {

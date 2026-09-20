@@ -9,7 +9,7 @@ import java.util.UUID;
  * @param id            세션 id(={@code focus_sessions.id}={@code focus_session_details.session_id})
  * @param islandId      소속 섬
  * @param subject       집중 주제
- * @param targetMinutes 목표 시간(분)
+ * @param targetMinutes 목표 시간(분). 선택이라 없을 수 있다(GROMO-1990)
  * @param status        {@code "active"} 또는 {@code "paused"}
  * @param activeSeconds serverNow 시점까지의 순수 집중 초(휴식 제외)
  * @param serverNow     이 응답을 만든 서버 시각 — activeSeconds의 anchor
@@ -21,7 +21,7 @@ public record FocusSessionView(
         UUID id,
         UUID islandId,
         String subject,
-        int targetMinutes,
+        Integer targetMinutes,
         String status,
         long activeSeconds,
         Instant serverNow,

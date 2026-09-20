@@ -21,6 +21,8 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
+import com.oneorthree.phone.config.SchedulingConfig;
+import com.oneorthree.phone.internal.scheduler.FocusRewardScheduler;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
@@ -33,6 +35,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -43,6 +46,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -89,6 +93,8 @@ class FocusSessionActivationIntegrationTest {
 
     @Autowired
     FocusSessionLifecycleService focus;
+    @Autowired
+    FocusRewardScheduler rewardTicks;
     @Autowired
     IslandMembershipService islands;
     @Autowired
@@ -347,34 +353,113 @@ class FocusSessionActivationIntegrationTest {
                 .as("휴식 중이면 라이브가 아니다 — 당일 집계도 없어 맵에서 빠진다").isNull();
     }
 
-    // ---------------------------------------------------------------- #6 보상 정산
+    // ---------------------------------------------------------------- #6 보상 적립(분당) · 종료 정산
 
     @Test
-    @DisplayName("finish 는 D5·D5-귀속-개정대로 정산한다 — 60초당 1마리 전부 섬 통장, 개인 지갑 불변, 일 집계는 순수 초")
-    void finishSettlesByTheDecidedFormula() {
+    @DisplayName("적립 틱이 60초당 1마리를 섬 통장에 넣고, finish 는 추가 지급 없이 그 합을 확정한다")
+    void ticksAccrueEveryMinuteAndFinishAddsNothing() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("정산섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("적립섬", null, false),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
-        backdate(started.id(), 125 * 60 + 30);   // 순수 집중 125분 30초 → 125마리
+        backdate(started.id(), 125 * 60 + 30);   // 순수 집중 125분 30초 → 125마리(자투리 30초는 안 준다)
+
+        tick();
+
+        assertThat(islandBalance(island)).as("적립은 finish 가 아니라 틱이 한다").isEqualTo(125);
+        assertThat(count("select coalesce(sum(earned_fish),0) from focus_reward_accruals where session_id=?",
+                started.id())).isEqualTo(125);
+        assertThat(count("select coalesce(sum(balance),0) from user_fish_wallets where user_id=?", user))
+                .as("개인 지갑 적립은 없다 — 재화는 섬 하나다(D5-귀속-개정)").isZero();
 
         FocusFinishView finished = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
 
-        assertThat(finished.earnedFish()).isEqualTo(125);
-        assertThat(finished.allocation().personalFishAdded()).as("2026-09-19 D5-귀속-개정 — 개인 몫 0").isZero();
-        assertThat(finished.allocation().constructionFishAdded()).as("E=P+C — 홀수여도 전부 섬 통장").isEqualTo(125);
+        assertThat(finished.earnedFish()).as("적립 합을 그대로 옮겨 적는다").isEqualTo(125);
+        assertThat(finished.allocation().personalFishAdded()).isZero();
+        assertThat(finished.allocation().constructionFishAdded()).as("E=P+C — 전부 섬 통장").isEqualTo(125);
+        assertThat(islandBalance(island)).as("종료 시 추가 지급 없음").isEqualTo(125);
         assertThat(finished.goalAchieved()).as("목표 25분 이상").isTrue();
         assertThat(finished.questProgress()).isEmpty();
-        assertThat(count("select coalesce(sum(balance),0) from user_fish_wallets where user_id=?", user))
-                .as("개인 지갑은 적립하지 않는다").isZero();
-        assertThat(count("select balance from island_wallets where island_id=?", island)).isEqualTo(125);
         assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?",
                 user)).isEqualTo(finished.activeSeconds());
         assertThat(detailRow(started.id()).get("lifecycle")).isEqualTo("COMPLETED");
         assertThat(jdbc.queryForObject("select status from focus_sessions where id=?", String.class,
                 started.id())).isEqualTo("COMPLETED");
         assertThat(focus.current(user)).as("완료한 세션은 current 가 아니다").isNull();
+    }
+
+    @Test
+    @DisplayName("59초는 0 · 60초는 1 · 120초는 2 — 틱은 «찬» 60초만 적립한다")
+    void accruesOnlyWholeMinutes() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("분단위섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+
+        backdate(started.id(), 59);
+        tick();
+        assertThat(islandBalance(island)).as("1마리가 아직 안 찼다").isZero();
+
+        backdate(started.id(), 60);
+        tick();
+        assertThat(islandBalance(island)).isEqualTo(1);
+
+        backdate(started.id(), 120);
+        tick();
+        assertThat(islandBalance(island)).as("워터마크 덕에 두 번째 분만 새로 준다").isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("휴식 동안에는 적립이 멈춘다 — 휴식 구간은 순수 집중 초에 들어가지 않는다")
+    void restDoesNotAccrue() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("휴식섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+        backdate(started.id(), 120);
+        tick();
+        assertThat(islandBalance(island)).isEqualTo(2);
+
+        FocusSessionView paused = focus.pause(user, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+        tick();
+        tick();
+        assertThat(islandBalance(island)).as("휴식 중 틱은 아무것도 주지 않는다").isEqualTo(2);
+
+        FocusSessionView resumed = focus.resume(user, paused.id(),
+                new FocusVersionedCommandRequest(paused.version()), UUID.randomUUID());
+        tick();
+        assertThat(islandBalance(island)).as("휴식한 시간은 되돌아와도 적립되지 않는다").isEqualTo(2);
+        assertThat(resumed.activeSeconds()).as("휴식은 activeSeconds 에 없다").isBetween(120L, 129L);
+    }
+
+    @Test
+    @DisplayName("틱을 다시 돌리거나 종료와 겹쳐도 총량은 그대로다 — 멱등 키가 (세션, 누적 마리 수)다")
+    void retriedTicksAndFinishNeverDoublePay() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("멱등섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+        backdate(started.id(), 120);
+
+        tick();
+        tick();
+        tick();
+
+        assertThat(islandBalance(island)).as("같은 틱을 세 번 돌려도 2마리").isEqualTo(2);
+        assertThat(count("select count(*) from island_wallet_transactions where island_id=? "
+                + "and idempotency_key like ?", island, "focus:" + started.id() + ":%"))
+                .as("원장도 한 줄이다").isEqualTo(1);
+        assertThat(count("select count(*) from focus_reward_accruals where session_id=?", started.id()))
+                .as("(세션, 적립일) 한 행에 누적한다").isEqualTo(1);
+
+        FocusFinishView finished = focus.finish(user, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+        tick();
+
+        assertThat(finished.earnedFish()).isEqualTo(2);
+        assertThat(islandBalance(island)).as("종료 뒤 틱은 완료 세션을 건너뛴다").isEqualTo(2);
     }
 
     @Test
@@ -385,18 +470,54 @@ class FocusSessionActivationIntegrationTest {
                 UUID.randomUUID()).id();
         FocusSessionView first = start(user, island);
         backdate(first.id(), 500 * 60);
+        tick();
         FocusFinishView capped = focus.finish(user, first.id(),
                 new FocusVersionedCommandRequest(first.version()), UUID.randomUUID());
         FocusSessionView second = start(user, island);
         backdate(second.id(), 10 * 60);
+        tick();
         FocusFinishView overCap = focus.finish(user, second.id(),
                 new FocusVersionedCommandRequest(second.version()), UUID.randomUUID());
 
         assertThat(capped.earnedFish()).isEqualTo(480);
-        assertThat(overCap.earnedFish()).isZero();
+        assertThat(overCap.earnedFish()).as("상한을 채운 뒤 시작한 세션은 0마리다").isZero();
         assertThat(overCap.activeSeconds()).isGreaterThanOrEqualTo(600);
+        assertThat(islandBalance(island)).isEqualTo(480);
         assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?",
                 user)).isEqualTo(capped.activeSeconds() + overCap.activeSeconds());
+    }
+
+    @Test
+    @DisplayName("상한의 창은 «UTC 날짜» 다(결정 D8) — 어제로 넘어간 적립은 오늘 상한을 먹지 않는다")
+    void theDailyCapWindowIsAUtcDay() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("날짜경계섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+        backdate(started.id(), 480 * 60);
+        tick();
+
+        assertThat(islandBalance(island)).isEqualTo(480);
+        assertThat(jdbc.queryForObject("select accrued_on from focus_reward_accruals where session_id=?",
+                java.sql.Date.class, started.id()).toLocalDate())
+                .as("적립일은 KST 가 아니라 UTC 날짜다").isEqualTo(LocalDate.now(ZoneOffset.UTC));
+
+        backdate(started.id(), 500 * 60);
+        tick();
+        assertThat(islandBalance(island)).as("같은 날은 상한에서 멈춘다").isEqualTo(480);
+
+        // 적립일을 하루 뒤로 민다 — 「자정을 넘겼다」와 같은 상태다(어느 순간에 돌려도 오늘보다 이르다).
+        jdbc.update("update focus_reward_accruals set accrued_on = accrued_on - 1 where session_id=?",
+                started.id());
+        backdate(started.id(), 520 * 60);
+        tick();
+
+        assertThat(islandBalance(island)).as("창이 바뀌면 상한이 다시 열린다 — 어제 깎인 몫은 소급하지 않는다")
+                .isEqualTo(500);
+        assertThat(count("select coalesce(sum(earned_fish),0) from focus_reward_accruals "
+                + "where session_id=? and accrued_on=?", started.id(), java.sql.Date.valueOf(
+                        LocalDate.now(ZoneOffset.UTC))))
+                .as("새 창의 적립은 오늘 행에 쌓인다").isEqualTo(20);
     }
 
     @Test
@@ -407,6 +528,7 @@ class FocusSessionActivationIntegrationTest {
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
         backdate(started.id(), 30 * 60);
+        tick();
         FocusFinishView first = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
 
@@ -414,13 +536,64 @@ class FocusSessionActivationIntegrationTest {
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
 
         assertThat(again).isEqualTo(first);
-        assertThat(count("select balance from island_wallets where island_id=?", island))
+        assertThat(islandBalance(island))
                 .as("재생은 섬 통장에 두 번 넣지 않는다").isEqualTo(first.allocation().constructionFishAdded());
         assertThat(count("select coalesce(sum(balance),0) from user_fish_wallets where user_id=?", user)).isZero();
         assertThat(count("select count(*) from focus_settlements where session_id=?", started.id())).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("목표 시간이 없어도 시작된다 — 보상은 목표가 아니라 순수 집중 시간에 걸린다")
+    void startsWithoutATargetTime() throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("무목표섬", null, false),
+                UUID.randomUUID()).id();
+
+        FocusSessionView started = focus.start(user,
+                new FocusSessionStartCommandRequest(island, "알고리즘", null), UUID.randomUUID());
+        assertThat(started.targetMinutes()).isNull();
+        assertThat(detailRow(started.id()).get("target_minutes")).isNull();
+
+        backdate(started.id(), 60);
+        tick();
+        FocusFinishView finished = focus.finish(user, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+        assertThat(finished.earnedFish()).as("목표가 없어도 시간만큼 적립된다").isEqualTo(1);
+        assertThat(finished.goalAchieved()).as("목표가 없으면 달성도 없다").isFalse();
+        assertThat(finished.targetMinutes()).isNull();
+
+        // 내부 표면(Business 가 부르는 그 경로)도 목표 없는 본문을 받는다.
+        UUID other = newUser();
+        joinAndMoveTo(other, island);
+        call(post("/internal/users/" + other + "/focus-sessions"), other,
+                "{\"islandId\":\"" + island + "\",\"subject\":\"알고리즘\"}")
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.targetMinutes").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("적립은 «매분» 도는 운영 크론이 굴린다 — 배선이 없으면 아무도 적립하지 않는다")
+    void theAccrualCronRunsEveryMinuteOnTheSettlementPool() throws Exception {
+        Scheduled cron = FocusRewardScheduler.class.getDeclaredMethod("accrueDueSessions")
+                .getAnnotation(Scheduled.class);
+
+        assertThat(cron).as("@Scheduled 가 없으면 이 테스트가 부르는 진입점은 운영에서 영영 안 돈다").isNotNull();
+        assertThat(cron.cron()).as("「60초마다 1마리」의 그 60초").isEqualTo("0 * * * * *");
+        assertThat(cron.zone()).isEqualTo("UTC");
+        assertThat(cron.scheduler()).as("돈 처리는 알림 팬아웃에 밀리면 안 된다")
+                .isEqualTo(SchedulingConfig.SETTLEMENT_SCHEDULER);
+    }
+
     // ---------------------------------------------------------------- 도구
+
+    /** 운영 크론과 «같은» 진입점으로 적립 틱을 한 번 돌린다 — 스캔·잠금·멱등을 전부 통과시킨다. */
+    void tick() {
+        rewardTicks.accrueDueSessions();
+    }
+
+    long islandBalance(UUID islandId) {
+        return count("select coalesce(sum(balance),0) from island_wallets where island_id=?", islandId);
+    }
 
     FocusSessionView start(UUID userId, UUID islandId) {
         return focus.start(userId, new FocusSessionStartCommandRequest(islandId, "알고리즘", 25), UUID.randomUUID());
