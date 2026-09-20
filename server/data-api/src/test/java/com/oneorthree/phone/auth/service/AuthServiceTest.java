@@ -85,6 +85,9 @@ class AuthServiceTest {
     /** 로그아웃의 기기 토큰 삭제 명령(A22 ㋗) — 같은 이유로 목이다. */
     @Mock
     private UserSatelliteCommandService userSatelliteCommandService;
+    /** 2.0 게스트 기기 점유 원장(GROMO-2036) — 이 클래스가 검증하는 경로는 건드리지 않는다. */
+    @Mock
+    private com.oneorthree.phone.auth.repository.GuestDeviceClaimRepository guestDeviceClaimRepository;
 
     // provider별 검증 클라이언트 (모킹) — provider()로 Map이 구성된다
     @Mock
@@ -127,7 +130,10 @@ class AuthServiceTest {
                 userFocusTimeSettingsRepository, userNotificationSettingsRepository,
                 socialAccountRepository, jwtProvider, userActivityEventLogger,
                 authSessionService, userSatelliteCommandService,
-                List.of(kakaoClient, appleClient), null);
+                // 기기 점유 원장·시계는 2.0 게스트 발급(GROMO-2036) 전용 축이라 이 클래스의 검증
+                // 대상이 아니다 — 여기 테스트들은 기존 guestLogin·socialLogin·refreshToken 만 탄다.
+                List.of(kakaoClient, appleClient), guestDeviceClaimRepository,
+                java.time.Clock.systemUTC(), null);
         // 런타임엔 @Lazy 프록시가 주입되는 self — 단위 테스트에선 자기 자신으로 대체(재시도 경로가 실제 로직을 타도록)
         ReflectionTestUtils.setField(authService, "self", authService);
     }

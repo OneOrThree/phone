@@ -53,6 +53,7 @@ import com.oneorthree.business.upstream.data.dto.MessageAuthors;
 import com.oneorthree.business.upstream.data.dto.MessageCreatedAck;
 import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
+import com.oneorthree.business.upstream.data.dto.SessionRefresh;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
 import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
@@ -316,6 +317,58 @@ public class DataApiClient {
             return "LoginAttemptCommand[attemptId=" + attemptId + ", provider=" + provider
                     + ", credentialKind=" + credentialKind + ", credential=redacted]";
         }
+    }
+
+    /**
+     * AT 재발급 (GROMO-2035). 주체는 Data 가 RT 서명에서 직접 확인한다 — {@code onBehalfOf} 가 없는
+     * 이유도 그것이다(여기 닿는 요청은 유효한 AT 를 갖고 있지 않다).
+     *
+     * <p>{@code idempotentCommand()} 를 켠다: 이 경로는 회전하지 않아 상태를 바꾸지 않으므로 재시도가
+     * 안전하고, 켜 주지 않으면 일시 오류 한 번에 앱이 재로그인으로 떨어진다(기본 재시도 대상은 GET 뿐).
+     */
+    public SessionRefresh refreshSession(String refreshToken, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, "/internal/auth/sessions/refresh")
+                        .body(new SessionRefreshCommand(refreshToken))
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<SessionRefresh>() { });
+    }
+
+    /**
+     * 게스트 세션 발급 (GROMO-2036).
+     *
+     * <p><b>{@code deviceDigest} 가 멱등 키다.</b> Data 의 점유 원장이 그 값으로 복구 창을 잡으므로,
+     * 유실된 201 을 재시도해도 계정이 하나 더 생기지 않는다 — {@code executeLoginAttempt} 의
+     * {@code attemptId} 와 같은 자리다. 그래서 여기서도 {@code idempotentCommand()} 를 켠다.
+     *
+     * @param clientIp Business 가 판정한 호출자 주소. Data 의 게스트 레이트리밋 축이라 <b>반드시</b>
+     *                 넘긴다 — 내부 호출의 소스 IP 를 쓰면 모든 게스트가 한 주소로 뭉쳐 한도가
+     *                 「전원 차단」으로 동작한다
+     */
+    public LoginSession issueGuestSession(String deviceDigest, String clientIp, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, "/internal/auth/guest-sessions")
+                        .body(new GuestSessionCommand(deviceDigest, clientIp))
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LoginSession>() { });
+    }
+
+    /** 갱신 요청 본문. RT 원문이라 {@code toString} 이 값을 가린다. */
+    private record SessionRefreshCommand(String refreshToken) {
+        @Override
+        public String toString() {
+            return "SessionRefreshCommand[refreshToken=redacted]";
+        }
+    }
+
+    /** 게스트 발급 요청 본문. 기기 식별자 «원문» 은 나가지 않는다 — digest 만 나간다. */
+    private record GuestSessionCommand(String deviceDigest, String clientIp) {
     }
 
     /** 원 RT의 폐기 증명으로 재시도 가능한 로그아웃. 주체는 Data가 자격에서 직접 검증한다. */
