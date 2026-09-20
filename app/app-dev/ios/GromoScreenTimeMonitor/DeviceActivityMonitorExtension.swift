@@ -24,7 +24,11 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
         let previousSelection = defaults?.data(forKey: "gromo:goal:selection")
             .flatMap { try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0) }
+        let previousRegisteredAt = defaults?.object(
+            forKey: "gromo:screentime:bucketRegisteredAt"
+        ) as? NSNumber
         let center = DeviceActivityCenter()
+        defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
         center.stopMonitoring([DeviceActivityName("gromo.usage.buckets")])
         do {
             try center.startMonitoring(
@@ -32,7 +36,6 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 during: Self.schedule,
                 events: Self.events(for: selection)
             )
-            defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
             defaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
             defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
             defaults?.set(pendingData, forKey: "gromo:goal:selection")
@@ -40,12 +43,30 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
             defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
         } catch {
+            var restored = false
             if let previousSelection, !Self.isEmpty(previousSelection) {
-                try? center.startMonitoring(
-                    DeviceActivityName("gromo.usage.buckets"),
-                    during: Self.schedule,
-                    events: Self.events(for: previousSelection)
+                defaults?.set(
+                    Date().timeIntervalSince1970,
+                    forKey: "gromo:screentime:bucketRegisteredAt"
                 )
+                do {
+                    try center.startMonitoring(
+                        DeviceActivityName("gromo.usage.buckets"),
+                        during: Self.schedule,
+                        events: Self.events(for: previousSelection)
+                    )
+                    restored = true
+                } catch {}
+            }
+            if !restored {
+                if let previousRegisteredAt {
+                    defaults?.set(
+                        previousRegisteredAt.doubleValue,
+                        forKey: "gromo:screentime:bucketRegisteredAt"
+                    )
+                } else {
+                    defaults?.removeObject(forKey: "gromo:screentime:bucketRegisteredAt")
+                }
             }
             defaults?.removeObject(forKey: "gromo:goal:selectionPromotedOkDate")
         }
