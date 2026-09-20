@@ -13750,6 +13750,14 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "groupedUntil": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "entryCount": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
