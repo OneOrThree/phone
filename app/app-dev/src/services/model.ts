@@ -1188,7 +1188,10 @@ export function reducer(state: State, a: Action): State {
     now = a.now ?? Date.now();
   const log = (text: string, memberId = 'me') =>
     i.ledger.unshift({ id: uuid(), text, at: now, memberId });
+  // 도메인별 구분선(GROMO-2004). 이 리듀서 하나에 여러 티켓이 동시에 붙는다 — 자기 도메인 구간
+  // 안에만 case 를 더하면 서로의 머지 충돌이 줄어든다. 구간 순서는 바꾸지 않는다.
   switch (a.type) {
+    // ── 인증·계정 ──
     case 'LOGIN':
       s.loggedIn = true;
       break;
@@ -1198,6 +1201,7 @@ export function reducer(state: State, a: Action): State {
       s.name = a.name?.trim() || s.name;
       s.color = a.color || s.color;
       break;
+    // ── 섬 — 만들기·가입·이동 ──
     case 'CREATE_ISLAND': {
       const n = makeIsland(uuid(), a.name.trim() || '나의 섬', false, true);
       n.joined = true;
@@ -1257,6 +1261,7 @@ export function reducer(state: State, a: Action): State {
       s.visitingIslandId = null;
       break;
     }
+    // ── 집중 세션 ──
     case 'FOCUS_SPOT':
       if (s.session) return state;
       s.focusSpot = a.spot;
@@ -1335,6 +1340,7 @@ export function reducer(state: State, a: Action): State {
       s.session = null;
       break;
     }
+    // ── 건물 공사·퀘스트 ──
     case 'SELECT_BUILDING': {
       const b = a.building as Building;
       if (canSelectBuilding(i, b)) return state;
@@ -1479,6 +1485,7 @@ export function reducer(state: State, a: Action): State {
         });
       break;
     }
+    // ── 게시판·공지·댓글 ──
     case 'NOTICE_SAVE': {
       // 제목·본문은 공백만 있으면 저장하지 않는다
       if (!a.title?.trim() || !a.body?.trim()) return state;
@@ -1523,6 +1530,7 @@ export function reducer(state: State, a: Action): State {
       n.comments = n.comments.filter((x) => x !== c);
       break;
     }
+    // ── 채팅 ──
     case 'CHAT_READ':
       // 읽음 기준은 뒤로 가지 않는다 — LOAD가 미래 시각 메시지까지 읽은 것으로 올려 둔 값을 지키기 위해.
       // 방을 연 채 도착한 시계 오차(미래 시각) 메시지도 이미 본 것이므로 기준에 넣는다
@@ -1549,6 +1557,7 @@ export function reducer(state: State, a: Action): State {
       if (m) m.status = 'sent';
       break;
     }
+    // ── 상점·꾸미기 ──
     case 'BUY': {
       const p = products.find((x) => x.id === a.id);
       if (!p || canBuy(s, p)) return state;
@@ -1587,6 +1596,7 @@ export function reducer(state: State, a: Action): State {
         } else i.theme = a.value;
       }
       break;
+    // ── 설정·화면시간 ──
     case 'TRACK':
       if (i.buildings.includes('gram') && i.sharedOwned.includes(a.value)) {
         i.track = a.value;
@@ -1599,6 +1609,7 @@ export function reducer(state: State, a: Action): State {
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;
       break;
+    // ── 섬 관리 (방장) ──
     case 'MANAGE':
       i.name = a.name?.trim() || i.name;
       i.intro = a.intro ?? i.intro;
@@ -1673,9 +1684,11 @@ export function reducer(state: State, a: Action): State {
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);
       break;
+    // ── 인증 — 로그아웃 ──
     case 'LOGOUT':
       s.loggedIn = false;
       break;
+    // ── 친구·편지 ──
     case 'FRIEND_REQUEST': {
       s.friends ??= [];
       const f = s.friends.find((f) => f.id === a.id);
@@ -1732,6 +1745,7 @@ export function reducer(state: State, a: Action): State {
       m.status = 'sent';
       break;
     }
+    // ── 계정 — 탈퇴 ──
     case 'DELETE_ACCOUNT': {
       const clean = initialState();
       const profileNames = new Set([s.name, ...(s.profileNames ?? [])]);
@@ -1796,6 +1810,7 @@ export function reducer(state: State, a: Action): State {
       });
       return clean;
     }
+    // ── QA·데모 전용 ──
     case 'QA_COMPLETE_ALL_BUILDINGS':
       if (!s.onboarded) return state;
       completeAllBuildings(i);

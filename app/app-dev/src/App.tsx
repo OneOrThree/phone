@@ -78,6 +78,9 @@ import {
   Quest,
   Member,
 } from '@/services/model';
+import { checkSession, logout } from '@/services/api/auth';
+import { restoreSession, setSessionLostHandler } from '@/services/api/session';
+import { restoredRoute } from '@/services/restore';
 const REVIEW =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
@@ -313,26 +316,46 @@ function Gromo() {
     action: () => void,
     opts: { ok?: string; destructive?: boolean } = {},
   ) => setModal({ title, text: txt, action, ...opts });
+  // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
-    (REVIEW || DEMO ? Promise.resolve(null) : AsyncStorage.getItem(STORAGE))
-      .then((raw) => {
-        if (raw) {
-          const saved = JSON.parse(raw);
-          if (saved.version === 1) {
-            dispatch({ type: 'LOAD', state: saved });
-            setRoute(
-              !saved.loggedIn
-                ? 'login'
-                : !saved.onboarded
-                  ? 'chooseIsland'
-                  : saved.session
-                    ? saved.session.status === 'paused'
-                      ? 'rest'
-                      : 'focus'
-                    : 'home',
-            );
-          }
+    setSessionLostHandler(() => {
+      dispatch({ type: 'LOGOUT' });
+      reset('login');
+    });
+    return () => setSessionLostHandler(null);
+  }, []);
+  useEffect(() => {
+    const mock = REVIEW || DEMO;
+    Promise.all([
+      mock ? Promise.resolve(null) : AsyncStorage.getItem(STORAGE),
+      // 보안 저장소의 인증 세션. 있으면 /me 로 «아직 유효한가»까지 확인한다 — 폐기된 세션으로
+      // 홈에 들어가면 다음 요청에서야 401 이 나고, 그때는 원인이 로그인이라는 것이 안 보인다.
+      mock ? Promise.resolve(null) : restoreSession(),
+    ])
+      .then(async ([raw, session]) => {
+        // 「거절(재로그인)」·「확인 실패(오프라인)」·「정상」 셋을 가른다 — checkSession 참조.
+        const check = session ? await checkSession() : null;
+        const account = check?.status === 'active' ? check.account : null;
+        const rejected = check?.status === 'rejected';
+        const saved = raw ? JSON.parse(raw) : null;
+        const loadable = saved?.version === 1 ? saved : null;
+        if (loadable) {
+          dispatch({ type: 'LOAD', state: loadable });
+          // ⚠️ LOAD 가 저장본의 loggedIn:true 를 되살린다 — 거절된 세션이면 여기서 다시 내린다.
+          // 안 내리면 화면만 로그인이고 저장 effect 가 true 를 다시 써서, 다음 실행에
+          // 보안 저장소가 비었는데도 로컬 경로로 홈에 들어간다.
+          if (rejected) dispatch({ type: 'LOGOUT' });
         }
+        // ⚠️ 서버가 계정을 확인해 줬으면 **로컬 로그인 상태도 맞춘다.** 저장본이 없거나(iOS 재설치)
+        // loggedIn:false 인 저장본이면 경로만 바뀌고 state.loggedIn 은 false 로 남는데, 그 값이 곧
+        // 저장 effect 로 다시 쓰인다. 그러면 다음 «오프라인» 실행에서 checkSession 이 확인 실패로
+        // 끝나 account 가 null 이 되고, restoredRoute 가 `!saved.loggedIn` 을 보고 멀쩡한 세션을
+        // 두고 로그인 화면을 고른다.
+        if (account) dispatch({ type: 'LOGIN' });
+        // 세션만 있고 로컬 저장본이 없는 경우(iOS 재설치 — 키체인은 남고 AsyncStorage 만 사라진다)도
+        // 같은 판정을 쓴다. 이때 앱 상태는 초기값이라 가입한 섬이 없다 — 서버 온보딩이 끝났다고
+        // 홈으로 보내면 홈이 막히므로 섬 선택부터다(restoredRoute 의 `!saved.onboarded` 가지).
+        if (loadable || account) setRoute(restoredRoute(loadable ?? {}, account, rejected));
       })
       .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
       .finally(() => setLoaded(true));
@@ -480,6 +503,11 @@ function Gromo() {
     setWindowStart('00:00');
     setWindowEnd('24:00');
   };
+  // 정책: 「로그아웃은 서버 데이터를 유지하고 현재 기기 세션만 종료한다」. 서버 호출이 실패해도
+  // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.
+  const signOut = () => {
+    logout().catch(() => {});
+  };
   const send = () => {
     if (!text.trim()) return;
     dispatch({ type: 'MESSAGE', text, fail: failNext });
@@ -509,6 +537,7 @@ function Gromo() {
           notify,
           confirm,
           build,
+          signOut,
           text,
           setText,
           body,

@@ -4371,6 +4371,7 @@ export function RedesignScreens({ e }: any) {
             chevron
             onPress={() =>
               confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', () => {
+                e.signOut();
                 act('LOGOUT');
                 reset('login');
               })

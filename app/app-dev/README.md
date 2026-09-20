@@ -58,7 +58,26 @@ npm run review:v2-journeys
 
 화면 전환, 로컬 저장, 집중 구간 계산, 공동 재화, 건설 타이머와 음원 재생은 앱 안에서 동작합니다. 인증, 다른 기기의 주민·편지·가입 승인, 서버 랭킹, OS 스크린타임 수집, 푸시와 원격 음악 동기화는 아직 로컬 목업 범위입니다.
 
-앱 버전은 `2.0.0`, iOS·Android 식별자는 `com.oneorthree.focuscat`입니다. 서버 API와 인증 연결은 후속 작업에서 구성합니다.
+앱 버전은 `2.0.0`, iOS·Android 식별자는 `com.oneorthree.focuscat`입니다.
+
+### 서버 API 기반 (`src/services/api/`, GROMO-2004)
+
+정본 계약은 [`docs/prd/fishcat/account/low-level-design.md`](../../docs/prd/fishcat/account/low-level-design.md)입니다.
+
+| 파일                    | 역할                                                                                                                                             |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `client.ts`             | 베이스 URL 해석 · `Authorization: Bearer` 주입 · 15초 타임아웃(본문 읽기 포함) · `{data}` 봉투 해제 · 오류 봉투 → `ApiError` · 멱등 키(`uuid()`) |
+| `session.ts`            | 토큰 보관(expo-secure-store, 웹은 AsyncStorage) · **커밋 마커로 원자 저장** · 세션 세대 · 401 세션 상실 알림                                     |
+| `auth.ts`               | 인증 도메인 — `login` · `logout` · `me` · `checkSession`                                                                                         |
+| `restore.ts` (한 층 위) | 재시작 복구 화면 판정. 서버 세션이 있으면 온보딩 여부는 서버가 정본                                                                              |
+
+**오류 봉투는 `{ "error": { code, message, field, retryable }, "requestId": "..." }` 입니다**(LLD §1·§5). `docs/conventions/error-contract.md` 의 최상위 `{code,message}` 는 data-api·legacy 형태이며 무접두 공개 경로에는 쓰이지 않습니다 — `client.ts` 가 둘 다 읽되 신규 형태를 먼저 봅니다. `code` 문자열이 계약이므로 화면은 `ApiError.code` 로 분기합니다.
+
+**새 도메인은 `src/services/api/<도메인>.ts` 를 새로 만듭니다.** `auth.ts` 에 얹지 않습니다 — 한 파일에 몰면 병렬 티켓이 서로의 머지 충돌이 됩니다. 요청은 전부 `client.ts` 의 `request()` 를 지나고, 명령성 요청(PATCH `/me` · DELETE `/me` · PATCH `/me/settings`)은 `uuid()` 로 만든 `idempotencyKey` 를 넘기며 **재시도는 같은 값으로** 보냅니다.
+
+**계정 전환**(A→B, 같은 사용자 s1→s2 재로그인 포함)은 `login()` 이 LLD §2.4 의 「준비 → commit → commit 뒤 전달」 순서로 **이전 세션 RT 폐기까지만** 합니다. FCM 토큰 재발급·B 세션 bootstrap 재등록·`deliveryTag` 대조와 commit 직후의 결과 세션 채택 확인 요청은 기기·푸시 등록 티켓 몫입니다.
+
+아직 서버에 없는 것: 2.0 공개 표면(business-api)에 **토큰 갱신 엔드포인트(GROMO-2035)와 게스트 세션 발급(GROMO-2036)이 없습니다.** 그래서 401 의 답은 재로그인뿐이고, 로그인 화면의 소셜 제공자 연결(Apple·Google·Kakao SDK)도 아직 붙어 있지 않습니다. LLD §2.1 의 `X-Device-Bootstrap` 응답 헤더도 서버 미구현이라 `login()` 이 받지 못합니다 — 푸시 기기 등록 티켓이 이 값을 쓰려면 `request()` 가 응답 헤더를 넘겨주도록 한 줄 늘려야 합니다.
 
 ## TestFlight
 
