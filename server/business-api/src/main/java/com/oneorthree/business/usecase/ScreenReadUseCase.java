@@ -23,6 +23,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -69,6 +71,8 @@ public class ScreenReadUseCase {
     private static final String SOUND = "sound";
     /** 시설 완공 판정 재료(건설 옵션) — 화면 응답에는 싣지 않는 내부 조각이다. */
     private static final String FACILITIES = "facilities";
+    /** 가계부의 달 경계 — Data 의 {@code ZonePolicy.KST} 와 같아야 화면과 도메인 GET 이 같은 달을 말한다. */
+    private static final ZoneId LEDGER_ZONE = ZoneId.of("Asia/Seoul");
 
     private final ScreenComposer composer;
     private final AccountUseCase account;
@@ -229,6 +233,12 @@ public class ScreenReadUseCase {
      * 목록을 <b>부르지 않고</b> {@code host_only} 다. 역할 확인 뒤 위임돼 Data 가 403 을 주면 그 403 이 화면
      * 전체 오류다 — 옛 역할로 빈 목록을 지어내지 않는다(B03). 두 목록은 도메인 GET 과 같은 서명 커서를
      * 발행하므로 다음 페이지는 도메인 GET 이 이어받는다(B10). 지갑({@code wallets})은 같은 병렬 단계다(GROMO-1781).
+     *
+     * <p>공동 가계부({@code ledger})도 같은 병렬 단계다(GROMO-1786) — 회관을 열면 바로 보이는 재료라 별도
+     * 지연 조회로 미루지 않는다. 화면에는 query 가 없으므로 <b>이번 KST 달, 방향 필터 없음</b>의 첫 쪽이고,
+     * 커서는 도메인 GET 과 같은 서명 커서라 다음 쪽은 {@code GET /islands/{islandId}/resources/ledger} 가
+     * 이어받는다(B10). 다른 조각과 같은 필수 조각이다 — 상류가 실패하면 빈 장부를 지어내지 않고 화면 전체가
+     * 실패한다(B04).
      */
     public Map<String, Object> townHall(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -243,6 +253,8 @@ public class ScreenReadUseCase {
                 fragment("members", deadline -> management.members(claims, islandId, null,
                         IslandManagementUseCase.DEFAULT_LIMIT, deadline)),
                 fragment("constructionOptions", deadline -> construction.options(claims, islandId, deadline)),
+                fragment("ledger", deadline -> records.ledger(claims, islandId,
+                        YearMonth.now(LEDGER_ZONE).toString(), null, null, deadline)),
                 wallets(claims, islandId)));
         if (host) {
             fragments.add(fragment("joinRequests", deadline -> management.joinRequests(claims, islandId, null,

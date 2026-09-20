@@ -29,6 +29,7 @@ import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.IslandLedger;
 import com.oneorthree.business.upstream.data.dto.IslandManaged;
 import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
@@ -185,6 +186,8 @@ public class DataApiClient {
     // GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
     private static final String PATH_FOCUS_STATISTICS = "/internal/islands/{islandId}/statistics/focus";
     private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
+    // GROMO-1895 섬 공동 가계부 — 회관 화면과 도메인 GET 이 같이 쓰는 섬 축 조회다(B26).
+    private static final String PATH_ISLAND_LEDGER = "/internal/islands/{islandId}/resources/ledger";
 
     private final InternalHttpClient http;
 
@@ -1695,6 +1698,25 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandRecordViews.FocusStatistics>() { });
+    }
+
+    /**
+     * 섬 공동 가계부 한 쪽 (GROMO-1895). 멱등 GET 이라 재시도한다. {@code month} 는 KST 달력 월
+     * ({@code YYYY-MM}), 경계는 평문 keyset({@code afterCreatedAt}+{@code afterEntryId} 둘 다 또는 둘 다 없음)이다.
+     */
+    public IslandLedger fetchIslandLedger(UUID userId, UUID islandId, String month, String direction,
+            Instant afterCreatedAt, UUID afterEntryId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_ISLAND_LEDGER, islandId))
+                        .onBehalfOf(userId)
+                        .query("month", month)
+                        .query("direction", direction)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterEntryId", afterEntryId == null ? null : afterEntryId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandLedger>() { });
     }
 
     /** 스크린타임 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. */

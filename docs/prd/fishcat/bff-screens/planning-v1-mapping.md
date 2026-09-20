@@ -83,7 +83,7 @@
 | 기획 계약 이름 | 기획 경로 | 우리 경로 | 정본 문서 | 상태 |
 | --- | --- | --- | --- | --- |
 | wallet | GET `/v1/islands/{islandId}/wallet` | `wallets` 조각(GET `/islands/{islandId}/shop/wallets`) | [island-shop LLD](../island-shop/low-level-design.md) §2.1 | 화면 조회로 흡수 → `wallets`(home·town-hall·board·shop·playback) |
-| ledger | GET `/v1/islands/{islandId}/resources/ledger` | GET `/islands/{islandId}/resources/ledger` | [island-construction LLD](../island-construction/low-level-design.md) §6 (GROMO-1895) | 그대로 — ~~레포에 없음~~ BG10 해소 |
+| ledger | GET `/v1/islands/{islandId}/resources/ledger` | GET `/islands/{islandId}/resources/ledger` + `ledger` 조각(town-hall) | [island-construction LLD](../island-construction/low-level-design.md) §6 (GROMO-1895), [implementation-business-api.md](implementation-business-api.md) §4.2 (GROMO-1786) | 그대로 — ~~레포에 없음~~ BG10 해소. **배선 완료(GROMO-1786)**: Data 내부 GET(1895) 위에 공개 경로와 `town-hall` 의 `ledger` 조각(이번 KST 달 첫 쪽)이 붙었다 |
 
 ### 건설 (4개 계약)
 
@@ -121,7 +121,7 @@
 | library-status | GET `/v1/islands/{islandId}/library/summary` | `island` 조각(도서관 완공 여부는 섬 문맥의 시설 목록에 포함) | [island-membership LLD](../island-membership/low-level-design.md) §3.4, [implementation-business-api.md](implementation-business-api.md) §4 `library` 행("섬 문맥(도서관 완공)") | 화면 조회로 흡수 → `island`(library, 섬 문맥) — 별도 summary 엔드포인트 없음 |
 | focus-stats | GET `/v1/islands/{islandId}/library/statistics/focus` | `focusStatistics` 조각(GET `/islands/{islandId}/statistics/focus`) | [island-records LLD](../island-records/low-level-design.md) "GET `/islands/{islandId}/statistics/focus`" | 화면 조회로 흡수 → `focusStatistics`(library) |
 | screen-stats | GET `/v1/islands/{islandId}/library/statistics/screen-time` | `screenTimeStatistics` 조각(GET `/islands/{islandId}/statistics/screen-time`) | [island-records LLD](../island-records/low-level-design.md) "GET `/islands/{islandId}/statistics/screen-time`" | 화면 조회로 흡수 → `screenTimeStatistics`(library) |
-| fish-earnings | GET `/v1/islands/{islandId}/library/fish-earnings` | GET `/islands/{islandId}/statistics/fish-earnings` | [island-records LLD](../island-records/low-level-design.md) §7 (GROMO-1895) | 경로만 다름(다른 도서관 통계와 같은 `statistics/` 아래) — ~~레포에 없음~~ BG10 해소 |
+| fish-earnings | GET `/v1/islands/{islandId}/library/fish-earnings` | GET `/islands/{islandId}/statistics/fish-earnings` | [island-records LLD](../island-records/low-level-design.md) §7 (GROMO-1895) | 경로만 다름(다른 도서관 통계와 같은 `statistics/` 아래) — ~~레포에 없음~~ BG10 해소(설계·Data). **공개 배선은 아직이다**(GROMO-1786 확인): Data 내부 `GET /internal/islands/{islandId}/statistics/fish-earnings` 는 있으나 business-api 에 공개 경로·조각이 없다 — 가계부(위 행)와 달리 화면 티켓이 남아 있다 |
 | screen-upload | PUT `/v1/me/screen-time/{date}` | PUT `/me/screen-time/{date}` | [island-records LLD](../island-records/low-level-design.md) "PUT `/me/screen-time/{date}`" | 그대로 |
 
 ### 친구·편지 (14개 계약)
@@ -183,7 +183,9 @@
 
 이 6종은 이 문서 작성 중 새로 드러난 gap이라 policy.md의 BG 표에 반영돼 있지 않다 — **policy.md는 읽기·쓰기 소유가 이 워크스트림에 있으므로 반영 여부는 재영님 확인 후 별도로 추가한다(이 산출물 자체에는 추가하지 않았다).**
 
-BG10과 일치하는 나머지(친구·편지·목록형 가입신청·가계부·물고기)는 §2 각 행에 "§3 BG10과 동일 항목"으로 표시했다. 그중 목록형 가입신청·가계부·물고기는 GROMO-1895 가 해소했다(§2 각 행 갱신).
+BG10과 일치하는 나머지(친구·편지·목록형 가입신청·가계부·물고기)는 §2 각 행에 "§3 BG10과 동일 항목"으로 표시했다. 그중 목록형 가입신청·가계부·물고기는 GROMO-1895 가 **설계와 Data 내부 GET 까지** 해소했다(§2 각 행 갱신).
+
+⚠️ **「BG10 해소」는 Data 까지라는 뜻이고 공개 배선과 같은 말이 아니다.** GROMO-1786 이 §2 를 다시 대조한 결과, 가계부만 공개 경로·화면 조각까지 붙었고 나머지 둘은 business-api 표면이 없다: 주민별 누적 물고기(`statistics/fish-earnings`)와 **목록형** `GET /me/join-requests`(단건 GET·DELETE 만 있다 — `IslandMembershipController`). 남은 두 항목의 공개 배선은 별도 화면 티켓 몫이다.
 
 ## 4. 화면 14종 진입 조회 요약
 
