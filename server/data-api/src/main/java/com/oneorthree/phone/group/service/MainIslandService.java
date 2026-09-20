@@ -41,6 +41,12 @@ import java.util.UUID;
  * 동시에 성립하고, 레거시 {@code /api/v1/groups/{id}/join} 으로 들어온 사람과 이 기능 이전의 주민까지 같은
  * 규칙을 받는다(마이그레이션 백필도 필요 없다).
  *
+ * <h2>이전은 사용자 단위로 직렬화된다</h2>
+ * 회수 경로가 {@code users} 를 <b>공유</b> 잠금으로만 잡아, 같은 사람이 서로 다른 두 섬에서 동시에
+ * 회수되면 두 트랜잭션이 나란히 돈다. 그대로 두면 판정과 후보 선택이 서로의 미커밋 상태 위에서 갈려
+ * <b>이미 떠난 섬</b>이 메인으로 박힌다. 그래서 {@link #onMembershipRevoked} 는 어떤 읽기보다 먼저
+ * 사용자 축 advisory 잠금을 잡는다 — 근거와 잠금 순서는 {@link UserMainIslandRepository#lockUserAxis}.
+ *
  * <h2>도출과 이전의 규칙이 다르다 — 일부러다</h2>
  * 도출은 «가장 먼저», 이전은 «가장 최근»이다. 도출은 「처음 정착한 섬이 내 대표」라는 기본값이고, 이전은
  * 대표를 잃었을 때 «지금 가장 활발할 법한 곳»으로 보내는 복구다. 그래서 도출값을 잃는 순간 그 값을 행으로
@@ -49,6 +55,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class MainIslandService implements MainIslandNamePort {
+
+    /** 사용자별 이전 직렬화 축 — {@link UserMainIslandRepository#lockUserAxis} 의 키 접두어. */
+    private static final String LOCK_AXIS_PREFIX = "main-island:";
 
     private final UserMainIslandRepository mainIslands;
     private final GroupMemberRepository groupMembers;
@@ -124,6 +133,10 @@ public class MainIslandService implements MainIslandNamePort {
     public void onMembershipRevoked(GroupMember member) {
         UUID userId = member.getUser().getId();
         UUID revokedIslandId = member.getGroup().getId();
+        // ⚠️ 어떤 «읽기»보다 먼저다. 회수 경로는 users 를 공유로만 잡아 같은 사람의 두 섬 회수가 나란히
+        // 도는데, 아래 판정·후보 선택이 그 사이에 끼면 이미 떠난 섬이 메인으로 박힌다. READ COMMITTED 는
+        // 문장마다 새 스냅샷을 뜨므로, 잠금을 먼저 잡아야 이어지는 조회가 앞선 회수의 «커밋된» 결과를 본다.
+        mainIslands.lockUserAxis(LOCK_AXIS_PREFIX + userId);
         Optional<UserMainIsland> chosen = mainIslands.findById(userId);
         if (!wasMainIsland(member, chosen, userId, revokedIslandId)) {
             return;

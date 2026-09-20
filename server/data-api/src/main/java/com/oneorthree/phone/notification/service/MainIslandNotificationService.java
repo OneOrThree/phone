@@ -109,6 +109,10 @@ public class MainIslandNotificationService {
 
         if (notificationDispatcher.dispatch(ready.recipient(), ready.settings(), ready.request(), message, now)
                 .recordsLegacyLog()) {
+            // sent_log 의 subject_id 는 비운다 — 그 컬럼은 «발송 전 선점» 파이프라인의 유니크 축
+            // (user_id, kind, subject_id)이고, 여기 섬을 넣으면 같은 섬으로 두 번 옮겨질 때
+            // (재가입 후 재이탈) 유니크 위반으로 «기록»이 실패해 알림이 조용히 사라진다.
+            // 이 경로는 종전 서비스와 같은 «실발송 후 기록» 이라 그 축을 쓰지 않는다(엔티티 주석).
             notificationSentLogRepository.save(NotificationSentLog.builder()
                     .userId(event.userId())
                     .type(NotificationSentLog.TYPE_MAIN_ISLAND_TRANSFERRED)
@@ -136,8 +140,10 @@ public class MainIslandNotificationService {
         UserNotificationSettings settings = userQueryService
                 .findNotificationSettings(event.userId())
                 .orElse(null);
+        // subjectId = 옮겨 간 섬. 결정적 키의 대상 축이라, 1분 안의 연속 이전(A→C, C→B)이 한 건으로
+        // 접히지 않는다. params 에도 남기는 이유는 렌더 입력이기 때문이다 — 축과 입력은 다른 용도다.
         return Optional.of(new Ready(recipient, settings, new NotificationRequest(
-                NotificationKind.MAIN_ISLAND_TRANSFERRED, event.userId(), null, null, null,
+                NotificationKind.MAIN_ISLAND_TRANSFERRED, event.userId(), event.islandId(), null, null,
                 event.occurredAt(), recipient.getLanguage(),
                 Map.of("islandId", event.islandId().toString(), "islandName", event.islandName()))));
     }

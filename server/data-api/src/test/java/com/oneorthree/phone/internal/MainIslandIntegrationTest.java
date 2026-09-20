@@ -22,10 +22,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -64,6 +72,7 @@ class MainIslandIntegrationTest {
     @Autowired AuthService auth;
     @Autowired JwtProvider jwt;
     @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactions;
 
     // ---------------------------------------------------------------- 도출 (요구 4)
 
@@ -215,6 +224,72 @@ class MainIslandIntegrationTest {
         assertThat(transferNotices(user)).isEmpty();
     }
 
+    @Test
+    @DisplayName("같은 사람이 두 섬에서 «동시에» 회수돼도 메인 섬은 활성 섬을 가리킨다 — 이전은 사용자 단위로 직렬화된다")
+    void concurrentRevocationsNeverPinALeftIsland() throws Exception {
+        Actor user = actor();
+        UUID first = joined(user, island(actor(), "동시첫섬"));
+        UUID middle = joined(user, island(actor(), "동시중간섬"));
+        UUID latest = joined(user, island(actor(), "동시나중섬"));
+        assertThat(mainIslandOf(user)).isEqualTo(first);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch hooked = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            // ① «가장 최근 섬»에서의 회수를 트랜잭션을 연 채로 붙잡아 둔다. 훅은 이미 돌았고 커밋은 아직이다.
+            Future<?> holder = pool.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                members.withdrawGroupAndRecord(latest, user.id());
+                hooked.countDown();
+                await(release);
+                return null;
+            }));
+            assertThat(hooked.await(30, TimeUnit.SECONDS)).isTrue();
+
+            // ② 그 사이 «메인 섬»에서도 회수된다. 직렬화가 없으면 이쪽은 아직 살아 보이는 나중섬을
+            //    후보로 골라 박제한다 — 커밋 순서상 그 섬은 이미 떠난 섬이 된다.
+            Future<?> mainLeave = pool.submit(() -> {
+                members.withdrawGroup(first, user.id());
+                return null;
+            });
+
+            // 직렬화의 «관측 가능한» 결과다 — ①이 잠금을 쥔 채 멈춰 있으므로 ②는 끝날 수 없다.
+            // 시간이 아니라 잠금이 이것을 보장한다(①의 커밋은 아래 release 전까지 일어나지 않는다).
+            assertThatThrownBy(() -> mainLeave.get(3, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
+
+            release.countDown();
+            holder.get(30, TimeUnit.SECONDS);
+            mainLeave.get(30, TimeUnit.SECONDS);
+        } finally {
+            release.countDown();
+            pool.shutdownNow();
+        }
+
+        // 남은 활성 섬은 중간섬 하나뿐이다 — 떠난 섬이 박제되면 여기서 깨진다.
+        assertThat(mainIslandOf(user)).isEqualTo(middle);
+        assertThat(activeMembership(user, mainIslandOf(user))).isTrue();
+    }
+
+    @Test
+    @DisplayName("1분 안에 연속으로 두 번 옮겨져도 알림 봉투가 두 건 남고 마지막이 최종 상태를 가리킨다")
+    void backToBackTransfersEachGetTheirOwnNotice() {
+        Actor user = actor();
+        UUID first = island(user, "연속첫섬");
+        UUID middle = joined(user, island(actor(), "연속중간섬"));
+        UUID latest = joined(user, island(actor(), "연속나중섬"));
+
+        management.leave(user.id(), first, UUID.randomUUID());
+        assertThat(mainIslandOf(user)).isEqualTo(latest);
+        management.leave(user.id(), latest, UUID.randomUUID());
+        assertThat(mainIslandOf(user)).isEqualTo(middle);
+
+        // 대상 축(섬)이 키에 없으면 같은 분의 둘째 사건이 «중복»으로 버려져, 사용자는 이미 떠난 섬으로
+        // 옮겼다는 알림만 받는다. 봉투의 subject_id 로 축이 실제로 실렸는지까지 본다 — 분 경계에 걸려
+        // 우연히 두 건이 남는 경우와 구분하기 위해서다.
+        assertThat(transferNotices(user)).containsExactly(latest.toString(), middle.toString());
+        assertThat(transferSubjects(user)).containsExactly(latest.toString(), middle.toString());
+    }
+
     // ---------------------------------------------------------------- 친구 목록 (요구 6)
 
     @Test
@@ -296,6 +371,29 @@ class MainIslandIntegrationTest {
     private long chosenRows(Actor user) {
         return jdbc.queryForObject("select count(*) from user_main_islands where user_id=?",
                 Long.class, user.id());
+    }
+
+    private boolean activeMembership(Actor user, UUID islandId) {
+        return jdbc.queryForObject("select count(*) from group_members"
+                + " where user_id=? and group_id=? and is_left=false", Long.class, user.id(), islandId) == 1;
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("잠금 해제 신호가 오지 않았다");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** 봉투의 «대상 축» — 결정적 사건 키에 섬이 실렸는지 본다. */
+    private List<String> transferSubjects(Actor user) {
+        return jdbc.queryForList("select subject_id from event_outbox"
+                        + " where user_id=? and type='notification.requested' and params->>'kind'=?"
+                        + " order by id", String.class, user.id(), KIND);
     }
 
     /** 이 사람 앞으로 적힌 메인 섬 이전 알림 봉투의 대상 섬들 — 없으면 빈 목록이다. */

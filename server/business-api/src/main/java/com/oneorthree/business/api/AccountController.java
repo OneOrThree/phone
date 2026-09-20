@@ -99,10 +99,21 @@ public class AccountController {
         return account.withdraw(claims, deadline());
     }
 
-    /** UUID 가 아닌 문자열은 해석 자체가 안 되므로 400 이다 — 「없는 섬」(Data 의 403)과 층이 다르다. */
+    /**
+     * UUID 가 아닌 문자열은 해석 자체가 안 되므로 400 이다 — 「없는 섬」(Data 의 403)과 층이 다르다.
+     *
+     * <p><b>{@code UUID.fromString} 만으로는 모자라다</b> — {@code "1-2-3-4-5"} 같은 축약 문자열을 받아
+     * <b>패딩된 다른 UUID</b> 로 만들어 준다. 그대로 상류로 넘기면 형식 오류가 400 이 아니라 「그 섬의
+     * 주민이 아니다」 403 으로 둔갑해, 앱은 고칠 수 없는 입력을 권한 문제로 읽는다. 그래서 다른 공개
+     * UUID 파서와 같은 규칙으로 36자 길이와 {@code toString()} 왕복 일치까지 본다.
+     */
     private static UUID islandId(String raw) {
         try {
-            return UUID.fromString(raw);
+            UUID parsed = UUID.fromString(raw);
+            if (raw.length() != 36 || !parsed.toString().equalsIgnoreCase(raw)) {
+                throw new IllegalArgumentException("UUID 형식");
+            }
+            return parsed;
         } catch (IllegalArgumentException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "mainIslandId");
         }

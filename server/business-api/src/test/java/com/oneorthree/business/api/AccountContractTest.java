@@ -143,7 +143,12 @@ class AccountContractTest extends UpstreamTestBase {
 
     @ParameterizedTest
     @ValueSource(strings = {"{\"mainIslandId\":null}", "{\"mainIslandId\":3}", "{\"mainIslandId\":\"\"}",
-            "{\"mainIslandId\":\"not-a-uuid\"}"})
+            "{\"mainIslandId\":\"not-a-uuid\"}",
+            // UUID.fromString 이 «받아 주는» 축약 형식들. 걸러내지 않으면 패딩된 남의 섬 id 로 상류에 가서
+            // 입력 형식 오류가 403 FORBIDDEN 으로 둔갑한다(GROMO-1765 에서 같은 결함이 잡혔다).
+            "{\"mainIslandId\":\"1-2-3-4-5\"}",
+            "{\"mainIslandId\":\"0-0-0-0-0\"}",
+            "{\"mainIslandId\":\"aaaaaaa-1899-0000-0000-000000000013\"}"})
     void rejectsMalformedMainIslandBeforeUpstream(String body) throws Exception {
         mockMvc.perform(write(body)).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
