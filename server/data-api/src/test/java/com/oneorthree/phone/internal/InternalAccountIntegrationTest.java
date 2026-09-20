@@ -297,7 +297,7 @@ class InternalAccountIntegrationTest {
                 + " and command_type like 'public:v1:%'", Long.class, actor.userId())).isZero();
 
         // 옛 자격은 legacy 경로에서도 통하지 않는다
-        mvc.perform(get("/api/v1/users/me").header("Authorization", "Bearer " + actor.login().accessToken()))
+        mvc.perform(get("/api/v1/users/nickname/check").header("Authorization", "Bearer " + actor.login().accessToken()))
                 .andExpect(status().isUnauthorized());
         mvc.perform(post("/api/v1/auth/refresh").contentType("application/json")
                         .content("{\"refreshToken\":\"" + actor.login().refreshToken() + "\"}"))

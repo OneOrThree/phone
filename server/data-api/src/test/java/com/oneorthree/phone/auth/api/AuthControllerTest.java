@@ -3,16 +3,12 @@ package com.oneorthree.phone.auth.api;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.auth.AuthController;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
-import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
 import com.oneorthree.phone.auth.dto.res.TokenRefreshResponse;
-import com.oneorthree.phone.auth.exception.AuthErrorCode;
-import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.GuestLoginRateLimiter;
 import com.oneorthree.phone.common.util.ClientIpResolver;
-import com.oneorthree.phone.user.repository.domain.Provider;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -25,8 +21,6 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Map;
 
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
@@ -46,107 +40,6 @@ class AuthControllerTest {
 
     @MockitoBean
     private AuthService authService;
-
-    @Test
-    @DisplayName("카카오 로그인 성공 - 신규 유저")
-    void kakaoLoginNewUserReturns200() throws Exception {
-        given(authService.socialLogin(eq(Provider.KAKAO), eq("valid-kakao-token"), isNull()))
-                .willReturn(new SocialLoginResponse("at", "rt", true));
-
-        mockMvc.perform(post("/api/v1/auth/kakao")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-kakao-token"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isNewUser").value(true))
-                .andExpect(jsonPath("$.accessToken").value("at"))
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("카카오 로그인 성공 - 기존 유저")
-    void kakaoLoginExistingUserReturns200() throws Exception {
-        given(authService.socialLogin(eq(Provider.KAKAO), eq("valid-kakao-token"), isNull()))
-                .willReturn(new SocialLoginResponse("at", "rt", false));
-
-        mockMvc.perform(post("/api/v1/auth/kakao")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-kakao-token"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isNewUser").value(false))
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("구글 로그인 성공 - SocialLoginRequest(token) 라우팅")
-    void googleLoginReturns200() throws Exception {
-        given(authService.socialLogin(eq(Provider.GOOGLE), eq("valid-google-token"), isNull()))
-                .willReturn(new SocialLoginResponse("at", "rt", true));
-
-        mockMvc.perform(post("/api/v1/auth/google")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-google-token"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isNewUser").value(true))
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("페이스북 로그인 성공 - SocialLoginRequest(token) 라우팅")
-    void facebookLoginReturns200() throws Exception {
-        given(authService.socialLogin(eq(Provider.FACEBOOK), eq("valid-facebook-token"), isNull()))
-                .willReturn(new SocialLoginResponse("at", "rt", true));
-
-        mockMvc.perform(post("/api/v1/auth/facebook")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-facebook-token"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isNewUser").value(true))
-                .andExpect(jsonPath("$.accessToken").value("at"))
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("애플 로그인 성공 - identityToken 검증 (fullName 은 서버 미사용, 온보딩에서 닉네임 입력)")
-    void appleLoginReturns200() throws Exception {
-        given(authService.socialLogin(eq(Provider.APPLE), eq("valid-apple-token"), isNull()))
-                .willReturn(new SocialLoginResponse("at", "rt", true));
-
-        mockMvc.perform(post("/api/v1/auth/apple")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(
-                                Map.of("identityToken", "valid-apple-token", "fullName", "홍길동"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isNewUser").value(true))
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("유효하지 않은 소셜 토큰 → 401")
-    void socialLoginInvalidTokenReturns401() throws Exception {
-        given(authService.socialLogin(eq(Provider.KAKAO), eq("bad-token"), isNull()))
-                .willThrow(new InvalidTokenException(InvalidTokenErrorCode.KAKAO_TOKEN));
-
-        mockMvc.perform(post("/api/v1/auth/kakao")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("token", "bad-token"))))
-                .andExpect(status().isUnauthorized())
-                .andDo(print());
-    }
-
-    @Test
-    @DisplayName("폐기 세션의 선택 AT → 401 LEGACY_SESSION_NOT_ACTIVE (GROMO-1929) — legacy 경로는 Business 매핑 없이 enum 상태가 곧 공개 상태다")
-    void socialLoginRevokedCallerSessionReturns401() throws Exception {
-        given(authService.socialLogin(eq(Provider.KAKAO), eq("valid-kakao-token"), eq("Bearer stale-at")))
-                .willThrow(new AuthException(AuthErrorCode.LEGACY_SESSION_NOT_ACTIVE));
-
-        mockMvc.perform(post("/api/v1/auth/kakao")
-                        .header("Authorization", "Bearer stale-at")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of("token", "valid-kakao-token"))))
-                .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.code").value("LEGACY_SESSION_NOT_ACTIVE"))
-                .andDo(print());
-    }
 
     @Test
     @DisplayName("토큰 갱신 성공 → 새 AT 반환")
