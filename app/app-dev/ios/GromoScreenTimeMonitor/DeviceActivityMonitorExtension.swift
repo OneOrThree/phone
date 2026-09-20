@@ -22,8 +22,15 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
 
-        let previousSelection = defaults?.data(forKey: "gromo:goal:selection")
+        let registeredSelectionKey = "gromo:screentime:registeredSelection"
+        let registeredMaxMinutesKey = "gromo:screentime:registeredMaxMinutes"
+        let previousSelectionData = defaults?.data(forKey: registeredSelectionKey)
+            ?? defaults?.data(forKey: "gromo:goal:selection")
+        let previousSelection = previousSelectionData
             .flatMap { try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0) }
+        let previousMaxMinutes = (
+            defaults?.object(forKey: registeredMaxMinutesKey) as? NSNumber
+        )?.intValue ?? 900
         let previousRegisteredAt = defaults?.object(
             forKey: "gromo:screentime:bucketRegisteredAt"
         ) as? NSNumber
@@ -39,6 +46,8 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             defaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
             defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
             defaults?.set(pendingData, forKey: "gromo:goal:selection")
+            defaults?.set(pendingData, forKey: registeredSelectionKey)
+            defaults?.set(900, forKey: registeredMaxMinutesKey)
             defaults?.removeObject(forKey: "gromo:goal:selectionPending")
             defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
             defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
@@ -53,7 +62,10 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                     try center.startMonitoring(
                         DeviceActivityName("gromo.usage.buckets"),
                         during: Self.schedule,
-                        events: Self.events(for: previousSelection)
+                        events: Self.events(
+                            for: previousSelection,
+                            maxMinutes: previousMaxMinutes
+                        )
                     )
                     restored = true
                 } catch {}
@@ -163,11 +175,12 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     )
 
     private static func events(
-        for selection: FamilyActivitySelection
+        for selection: FamilyActivitySelection,
+        maxMinutes: Int = 900
     ) -> [DeviceActivityEvent.Name: DeviceActivityEvent] {
         let webDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
-        for minute in stride(from: 15, through: 900, by: 15) {
+        for minute in stride(from: 15, through: min(max(maxMinutes, 15), 900), by: 15) {
             events[DeviceActivityEvent.Name("gromo.usage.bucket.\(minute)")] = DeviceActivityEvent(
                 applications: selection.applicationTokens,
                 categories: selection.categoryTokens,

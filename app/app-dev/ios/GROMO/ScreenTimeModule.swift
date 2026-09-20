@@ -188,8 +188,7 @@ final class ScreenTimeModule: NSObject {
             try registerUsageBucketMonitoring(
                 selection,
                 maxMinutes: Int(maxMinutesValue),
-                defaults: defaults,
-                fallbackSelection: selection
+                defaults: defaults
             )
             resolve(true)
         } catch {
@@ -200,8 +199,7 @@ final class ScreenTimeModule: NSObject {
     private func registerUsageBucketMonitoring(
         _ selection: FamilyActivitySelection,
         maxMinutes: Int,
-        defaults: UserDefaults?,
-        fallbackSelection: FamilyActivitySelection?
+        defaults: UserDefaults?
     ) throws {
         let center = DeviceActivityCenter()
         let activity = DeviceActivityName("gromo.usage.buckets")
@@ -217,9 +215,20 @@ final class ScreenTimeModule: NSObject {
         let registeredAtKey = "gromo:screentime:bucketRegisteredAt"
         let baseMinutesKey = "gromo:screentime:bucketBaseMinutes"
         let baseDateKey = "gromo:screentime:bucketBaseDate"
+        let registeredSelectionKey = "gromo:screentime:registeredSelection"
+        let registeredMaxMinutesKey = "gromo:screentime:registeredMaxMinutes"
+        let boundedMaxMinutes = min(max(maxMinutes, 15), 900)
         let previousRegisteredAt = defaults?.object(forKey: registeredAtKey)
         let previousBaseMinutes = defaults?.object(forKey: baseMinutesKey)
         let previousBaseDate = defaults?.object(forKey: baseDateKey)
+        let previousSelectionData = defaults?.data(forKey: registeredSelectionKey)
+            ?? defaults?.data(forKey: "gromo:goal:selection")
+        let previousSelection = previousSelectionData.flatMap {
+            try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0)
+        }
+        let previousMaxMinutes = (
+            defaults?.object(forKey: registeredMaxMinutesKey) as? NSNumber
+        )?.intValue ?? boundedMaxMinutes
         let prepareRegistration = {
             defaults?.set(Date().timeIntervalSince1970, forKey: registeredAtKey)
             defaults?.set(base, forKey: baseMinutesKey)
@@ -232,17 +241,24 @@ final class ScreenTimeModule: NSObject {
             try center.startMonitoring(
                 activity,
                 during: schedule,
-                events: usageBucketEvents(selection, maxMinutes: maxMinutes)
+                events: usageBucketEvents(selection, maxMinutes: boundedMaxMinutes)
             )
+            if let data = try? JSONEncoder().encode(selection) {
+                defaults?.set(data, forKey: registeredSelectionKey)
+            }
+            defaults?.set(boundedMaxMinutes, forKey: registeredMaxMinutesKey)
         } catch let registrationError {
             var restored = false
-            if let fallbackSelection, !Self.isEmpty(fallbackSelection) {
+            if let previousSelection, !Self.isEmpty(previousSelection) {
                 prepareRegistration()
                 do {
                     try center.startMonitoring(
                         activity,
                         during: schedule,
-                        events: usageBucketEvents(fallbackSelection, maxMinutes: maxMinutes)
+                        events: usageBucketEvents(
+                            previousSelection,
+                            maxMinutes: previousMaxMinutes
+                        )
                     )
                     restored = true
                 } catch {}
