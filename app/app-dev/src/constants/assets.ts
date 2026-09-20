@@ -94,7 +94,6 @@ export const assets: Record<string, ImageSourcePropType> = {
   'ui/quest-board/wood-board.png': require('@/assets/ui/quest-board/wood-board.png'),
   'ui/quest-board/butter-note.png': require('@/assets/ui/quest-board/butter-note.png'),
   'characters/parrot/npc/idle.png': require('@/assets/characters/parrot/npc/idle.png'),
-  'characters/parrot/npc/avatar.png': require('@/assets/characters/parrot/npc/avatar.png'),
   'characters/dog/npc/idle.png': require('@/assets/characters/dog/npc/idle.png'),
   'characters/mongdol/npc/idle.png': require('@/assets/characters/mongdol/npc/idle.png'),
   'characters/pelican/npc/idle.png': require('@/assets/characters/pelican/npc/idle.png'),
