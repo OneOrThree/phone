@@ -304,6 +304,28 @@ class NotificationExportServiceIntegrationTest {
         assertThat(document.report().finalEligible()).isTrue();
     }
 
+    /**
+     * 메인 섬 이전(GROMO-1971)의 구 이력도 <b>대상 섬을 잃지 않는다</b>.
+     *
+     * <p>이 kind 는 {@code SubjectKind.ISLAND} 라 대상이 비면 strict export 가 {@code FAIL_NO_SUBJECT} 로
+     * <b>중단</b>된다 — 성공 이력 한 건이 OUTBOX 컷오버를 통째로 막는 자리다. 그런데 producer 는 섬을
+     * {@code subject_id} 에 넣을 수 없다(선점 유니크 축이라 같은 섬 재이탈의 기록이 실패한다). 그래서
+     * {@code target_user_id} 에 싣고 여기 폴백 표가 복원한다 — 그 배선이 실제로 도는지 본다.
+     */
+    @Test
+    void legacyMainIslandTransferRowsRecoverTheIslandFromTargetColumn() {
+        UUID island = UUID.randomUUID();
+        insertLegacyLog(NotificationKind.MAIN_ISLAND_TRANSFERRED.name(), "SENT", SLOT, island);
+
+        NotificationExportDocument document = exportService.export(MIGRATION_ID, SLOT.toEpochMilli(), true, true);
+
+        assertThat(deliveriesOf(document))
+                .as("대상을 복원하지 못하면 strict export 가 이 행에서 멈춘다")
+                .anySatisfy(record -> assertThat(record.data())
+                        .containsEntry("kind", NotificationKind.MAIN_ISLAND_TRANSFERRED.name())
+                        .containsEntry("subjectId", island.toString()));
+    }
+
     @ParameterizedTest
     @EnumSource(value = NotificationKind.class, names = {"FRIEND_REQUEST", "FRIEND_ACCEPTED", "CHALLENGE_CREATED",
             "CHALLENGE_WINDOW_END", "CHALLENGE_ENDED"})

@@ -39,7 +39,8 @@ class FriendContractTest extends UpstreamTestBase {
     private static final String CREATE_BODY = "{\"targetUserId\":\"" + TARGET + "\"}";
     private static final String FRIEND = "{\"userId\":\"" + TARGET + "\",\"nickname\":\"짝꿍\",\"tierLevel\":3,"
             + "\"occupation\":\"CODING\",\"isPinned\":true,\"isFocusing\":true,\"focusTimeMinutes\":42,"
-            + "\"focusStartedAt\":\"2026-09-18T01:00:00Z\",\"focusTagName\":\"전공\"}";
+            + "\"focusStartedAt\":\"2026-09-18T01:00:00Z\",\"focusTagName\":\"전공\","
+            + "\"mainIslandName\":\"모래섬\"}";
 
     @Test
     void createForwardsSignedActorWithoutCommandKeyAndReturnsCreatedEnvelope() throws Exception {
@@ -139,7 +140,9 @@ class FriendContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data[0].isPinned").value(true))
                 .andExpect(jsonPath("$.data[0].isFocusing").value(true))
                 .andExpect(jsonPath("$.data[0].focusTimeMinutes").value(42))
-                .andExpect(jsonPath("$.data[0].focusStartedAt").value("2026-09-18T01:00:00Z"));
+                .andExpect(jsonPath("$.data[0].focusStartedAt").value("2026-09-18T01:00:00Z"))
+                // 메인 섬 이름은 Data 가 준 값을 그대로 내보낸다(GROMO-1971) — 친구 목록에만 실린다.
+                .andExpect(jsonPath("$.data[0].mainIslandName").value("모래섬"));
         assertThat(DATA.received().get(0).query()).contains("date=2026-09-18");
         DATA.on(DATA_FRIENDS, request -> ok("[]"));
         mockMvc.perform(auth(get("/friends")).queryParam("date", "2026-09-18"))

@@ -6,6 +6,7 @@ import com.oneorthree.phone.auth.exception.AuthErrorCode;
 import com.oneorthree.phone.auth.exception.AuthException;
 import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.auth.service.AuthSessionService;
+import com.oneorthree.phone.group.service.MainIslandService;
 import com.oneorthree.phone.internal.dto.AccountMeView;
 import com.oneorthree.phone.internal.dto.AccountPatchRequest;
 import com.oneorthree.phone.internal.dto.AccountProfileView;
@@ -39,6 +40,10 @@ import java.util.UUID;
  * 서명·타입·만료는 Business 가 이미 검증했고 sid/gen 은 그 서명된 AT 에서만 온다.
  *
  * <p>catColor 는 Q03 카탈로그(GROMO-1945) 값 또는 미선택 null 이다 — 기본색을 백필하지 않는다.
+ *
+ * <p>메인 섬(GROMO-1971)은 {@code group} 이 아는 사실이라 이 조립 층이 합친다. «지금 접속한 섬»
+ * ({@code user_island_contexts.current_island_id})과는 다른 축이다 — 합치면 섬을 구경하러 잠긐 옮긴 것만으로
+ * 대표 섬이 바뀜다.
  */
 @Service
 @RequiredArgsConstructor
@@ -52,6 +57,7 @@ public class InternalAccountService {
     private final AuthSessionService sessions;
     private final PublicCommandService publicCommands;
     private final AccountWithdrawalService withdrawal;
+    private final MainIslandService mainIslands;
 
     /**
      * PATCH 스위치(계정 LLD §2.3). GROMO-1945 에서 온보딩 판정(Q03/Q04)과 {@code user.onboarded} producer 를 모든
@@ -60,11 +66,17 @@ public class InternalAccountService {
     @Value("${account.profile-update-enabled:true}")
     private boolean profileUpdateEnabled;
 
-    /** 활성 계정 projection 한 번. users 를 읽기만 하므로 공유 락이다. */
+    /**
+     * 활성 계정 projection 한 번. users 를 읽기만 하므로 공유 락이다.
+     *
+     * <p>메인 섬은 {@code user} 가 아니라 {@code group} 이 아는 사실이라 여기서 합친다(GROMO-1971) —
+     * {@code user}(L0)가 {@code group}(L5)을 참조하면 레이어 역행이다. 조립은 이 층(L10)의 일이다.
+     */
     @Transactional
     public AccountMeView me(UUID userId, UUID sessionId, long authGeneration) {
         User user = requireSession(users.getCallerForShare(userId), sessionId, authGeneration);
         return new AccountMeView(user.getId(), user.getNickname(), user.getCatColor(),
+                mainIslands.mainIslandId(userId),
                 userService.linkedProviderNames(user), OnboardingCompletion.isComplete(user));
     }
 
@@ -91,6 +103,9 @@ public class InternalAccountService {
         if (request.catColor() != null) {
             fingerprint.put("catColor", request.catColor());
         }
+        if (request.mainIslandId() != null) {
+            fingerprint.put("mainIslandId", request.mainIslandId().toString());
+        }
         var command = new PublicCommandRequest(userId, OPERATION_PATCH + userId, idempotencyKey, tree(fingerprint));
         var receipt = publicCommands.run(command,
                 () -> requireSession(users.getCallerForUpdate(userId), sessionId, authGeneration),
@@ -99,11 +114,26 @@ public class InternalAccountService {
                 () -> {
                     var change = userService.updatePublicProfile(userId, request.name(), request.catColor());
                     User user = change.user();
-                    var view = new AccountProfileView(user.getId(), user.getNickname(), user.getCatColor());
+                    // 메인 섬만 group 쪽 쓰기다 — 주민 검증이 필요해 user 도메인에 넣을 수 없다(레이어 역행).
+                    // 보내지 않았으면 현재 값을 그대로 싣는다: 응답은 «변경 뒤 상태»이지 «이번에 바꾼 것»이 아니다.
+                    UUID mainIslandId = request.mainIslandId() == null
+                            ? mainIslands.mainIslandId(userId)
+                            : mainIslands.choose(userId, request.mainIslandId());
+                    var view = new AccountProfileView(user.getId(), user.getNickname(), user.getCatColor(),
+                            mainIslandId);
                     return new PublicCommandResult(200, tree(view), tree(change.events()));
                 }).value();
         try {
-            return OutboxEnvelopeCodec.fromJson(receipt.data().toString(), AccountProfileView.class);
+            AccountProfileView view =
+                    OutboxEnvelopeCodec.fromJson(receipt.data().toString(), AccountProfileView.class);
+            // 배포 «전»에 저장된 receipt 는 3필드라 mainIslandId 자체가 없다. 그걸 그대로 복원하면 실제로는
+            // 메인 섬이 있는 사람에게 «명시적 null» 을 돌려준다 — 없는 것과 비어 있는 것은 다르다.
+            // «필드가 없을 때만» 현재 값으로 채운다: 저장된 null 은 그 시점의 사실이므로 재생을 왜곡하지 않는다.
+            if (!receipt.data().has("mainIslandId")) {
+                return new AccountProfileView(view.id(), view.name(), view.catColor(),
+                        mainIslands.mainIslandId(userId));
+            }
+            return view;
         } catch (JsonProcessingException e) {
             throw new OutboxException(OutboxErrorCode.IDEMPOTENT_REPLAY_FAILED);
         }

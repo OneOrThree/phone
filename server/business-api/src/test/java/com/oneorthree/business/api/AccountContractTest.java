@@ -60,7 +60,7 @@ class AccountContractTest extends UpstreamTestBase {
 
     @Test
     void readsAccountWithSignedSessionProofAndDataEnvelope() throws Exception {
-        DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,"
+        DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,\"mainIslandId\":null,"
                 + "\"linkedProviders\":[\"apple\",\"kakao\"],\"onboardingComplete\":true}"));
 
         mockMvc.perform(auth(get("/me")).header("X-User-Id", UUID.randomUUID()))
@@ -79,8 +79,8 @@ class AccountContractTest extends UpstreamTestBase {
     }
 
     @Test
-    void renamesWithAppKeyAndReturnsThreeFields() throws Exception {
-        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null}"));
+    void renamesWithAppKeyAndReturnsFourFields() throws Exception {
+        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,\"mainIslandId\":null}"));
 
         mockMvc.perform(write("{\"name\":\" 수빈 \"}"))
                 .andExpect(status().isOk())
@@ -97,7 +97,7 @@ class AccountContractTest extends UpstreamTestBase {
 
     @Test
     void patchesCatColorAloneOrWithName() throws Exception {
-        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":\"calico\"}"));
+        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":\"calico\",\"mainIslandId\":null}"));
 
         mockMvc.perform(write("{\"catColor\":\"calico\"}"))
                 .andExpect(status().isOk())
@@ -116,6 +116,43 @@ class AccountContractTest extends UpstreamTestBase {
     void rejectsMalformedPatchBeforeUpstream(String body) throws Exception {
         mockMvc.perform(write(body)).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    void patchesMainIslandAndRelaysNonMemberAsForbidden() throws Exception {
+        UUID island = UUID.randomUUID();
+        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,"
+                + "\"mainIslandId\":\"" + island + "\"}"));
+
+        mockMvc.perform(write("{\"mainIslandId\":\"" + island + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.mainIslandId").value(island.toString()));
+        // 본문은 «온 필드만» 그대로 상류로 간다 — 옛 요청의 지문과 어긋나지 않게 한다.
+        assertThat(DATA.receivedFor(DATA_PATCH).get(0).body())
+                .isEqualTo("{\"mainIslandId\":\"" + island + "\"}");
+
+        // 주민이 아닌 섬은 Data 가 403 MEMBER_ONLY 로 거절한다. 공개 코드로 옮기지 않으면 502 로 나간다.
+        DATA.on(DATA_PATCH, request -> new MockUpstream.Response(403,
+                "{\"code\":\"MEMBER_ONLY\",\"message\":\"그룹원만 조회할 수 있습니다.\"}"));
+        mockMvc.perform(write("{\"mainIslandId\":\"" + UUID.randomUUID() + "\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.error.field").value("mainIslandId"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"mainIslandId\":null}", "{\"mainIslandId\":3}", "{\"mainIslandId\":\"\"}",
+            "{\"mainIslandId\":\"not-a-uuid\"}",
+            // UUID.fromString 이 «받아 주는» 축약 형식들. 걸러내지 않으면 패딩된 남의 섬 id 로 상류에 가서
+            // 입력 형식 오류가 403 FORBIDDEN 으로 둔갑한다(GROMO-1765 에서 같은 결함이 잡혔다).
+            "{\"mainIslandId\":\"1-2-3-4-5\"}",
+            "{\"mainIslandId\":\"0-0-0-0-0\"}",
+            "{\"mainIslandId\":\"aaaaaaa-1899-0000-0000-000000000013\"}"})
+    void rejectsMalformedMainIslandBeforeUpstream(String body) throws Exception {
+        mockMvc.perform(write(body)).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"))
+                .andExpect(jsonPath("$.error.field").value("mainIslandId"));
         assertThat(DATA.received()).isEmpty();
     }
 
@@ -216,7 +253,7 @@ class AccountContractTest extends UpstreamTestBase {
 
     @Test
     void foreignSubjectOrMissingFieldsAreContractErrors() throws Exception {
-        DATA.on(DATA_GET, request -> ok("{\"id\":\"" + UUID.randomUUID() + "\",\"name\":null,\"catColor\":null,"
+        DATA.on(DATA_GET, request -> ok("{\"id\":\"" + UUID.randomUUID() + "\",\"name\":null,\"catColor\":null,\"mainIslandId\":null,"
                 + "\"linkedProviders\":[],\"onboardingComplete\":false}"));
         mockMvc.perform(auth(get("/me"))).andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));

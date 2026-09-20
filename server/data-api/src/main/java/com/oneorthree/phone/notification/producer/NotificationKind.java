@@ -7,7 +7,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
- * Data 가 <b>판정</b>하는 알림 종류 — 18종. 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
+ * Data 가 <b>판정</b>하는 알림 종류 — 20종(실측). 렌더·발송은 알림 서버가 한다 (A22 · 계약 §5).
  *
  * <p>이 enum 이 하는 일은 셋이다: ① 결정적 사건 키의 시간 축을 고정하고
  * ({@link NotificationSlotGranularity}), ② 조용한 시간 정책을 실어 보내고
@@ -89,7 +89,21 @@ public enum NotificationKind {
     FRIEND_REQUEST(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER),
 
     /** 보낸 요청이 수락됨. 대상 = 수락한 유저. */
-    FRIEND_ACCEPTED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER);
+    FRIEND_ACCEPTED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.COUNTERPART_USER),
+
+    // ── 섬 (MainIslandService) ─────────────────────────────────────────
+    /**
+     * 메인 섬을 잃어 자동으로 옮겨졌다(GROMO-1971). 대상 = <b>옮겨 간 섬</b>. params: {@code islandId}·
+     * {@code islandName}.
+     *
+     * <p><b>대상 축이 없으면 연속 이전이 사라진다.</b> 한 사람이 1분 안에 A→C, C→B 로 두 번 옮겨지는 일은
+     * 서로 다른 섬에서 연달아 회수되면 실제로 일어나는데, {@code subjectId} 가 비면 결정적 키가
+     * 「유저 × kind × 분」으로 뭉쳐 <b>나중에 만들어진 B 알림이 중복으로 버려지고</b> 먼저 만들어진 C 만
+     * 남는다 — 사용자는 자기가 있지도 않은 섬으로 옮겼다는 알림을 받는다. 그래서 섬을 키의 대상 축에 둔다.
+     *
+     * <p>시간축이 분인 것은 <b>같은 섬으로의</b> 재전송만 접기 위해서다(재훑기·재시도).
+     */
+    MAIN_ISLAND_TRANSFERRED(NotificationSlotGranularity.MINUTE, NotificationQuietPolicy.DROP, SubjectKind.ISLAND);
 
     /** {@code subjectId} 가 가리키는 것 — 알림 서버의 상태 재검증이 무엇을 조회할지 가른다. */
     public enum SubjectKind {
@@ -100,7 +114,13 @@ public enum NotificationKind {
         /** 그룹 챌린지 id. */
         CHALLENGE,
         /** 상대 유저 id. */
-        COUNTERPART_USER
+        COUNTERPART_USER,
+        /**
+         * 섬(그룹) id (GROMO-1971). 알림 서버는 이 축으로 상태를 <b>재검증하지 않는다</b> —
+         * 「이미 일어난 이전」의 통보라 되물을 상태가 없다({@code NotificationEligibilityService}).
+         * 키의 <b>대상 축</b>으로만 쓰여 서로 다른 이전이 한 건으로 접히지 않게 한다.
+         */
+        ISLAND
     }
 
     private static final Map<String, NotificationKind> BY_NAME = Arrays.stream(values())

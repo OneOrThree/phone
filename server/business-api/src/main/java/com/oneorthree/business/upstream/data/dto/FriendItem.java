@@ -22,6 +22,7 @@ import java.util.UUID;
  * @param focusTimeMinutes {@code date} 당일 집중 분
  * @param focusStartedAt   진행 중 세션 시작 시각. 미집중이면 null
  * @param focusTagName     진행 중 세션 태그명. 없으면 null
+ * @param mainIslandName   상대의 메인 섬 이름(GROMO-1971). 소속이 하나도 없으면 null — nickname 처럼 필수가 아니다
  */
 public record FriendItem(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID userId,
@@ -32,5 +33,6 @@ public record FriendItem(
         @JsonProperty(value = "isFocusing", required = true) @JsonSetter(nulls = Nulls.FAIL) boolean isFocusing,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int focusTimeMinutes,
         String focusStartedAt,
-        String focusTagName) {
+        String focusTagName,
+        String mainIslandName) {
 }

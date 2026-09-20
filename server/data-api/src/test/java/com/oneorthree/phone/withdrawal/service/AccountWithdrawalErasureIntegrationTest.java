@@ -98,8 +98,8 @@ class AccountWithdrawalErasureIntegrationTest {
         Actor c = actor();
         Actor t = actor();
         // 공개 PATCH receipt(이름이 든 개인 응답) — W·C 각각
-        account.patch(w.id(), new AccountPatchRequest(name(), "calico"), w.session(), 0L, UUID.randomUUID());
-        account.patch(c.id(), new AccountPatchRequest(name(), "black"), c.session(), 0L, UUID.randomUUID());
+        account.patch(w.id(), new AccountPatchRequest(name(), "calico", null), w.session(), 0L, UUID.randomUUID());
+        account.patch(c.id(), new AccountPatchRequest(name(), "black", null), c.session(), 0L, UUID.randomUUID());
         Seed s = seed(w.id(), c.id(), t.id());
 
         withdrawal.withdraw(w.id());

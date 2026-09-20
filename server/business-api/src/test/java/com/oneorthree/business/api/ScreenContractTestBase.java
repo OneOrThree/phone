@@ -28,7 +28,7 @@ abstract class ScreenContractTestBase extends UpstreamTestBase {
     static final String DATA_MINE = "GET " + USERS + "/islands";
 
     static final String ME = "{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,"
-            + "\"linkedProviders\":[\"apple\"],\"onboardingComplete\":true}";
+            + "\"mainIslandId\":null,\"linkedProviders\":[\"apple\"],\"onboardingComplete\":true}";
 
     static String summary(String membershipStatus, UUID joinRequestId) {
         return "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\",\"visibility\":\"public\","

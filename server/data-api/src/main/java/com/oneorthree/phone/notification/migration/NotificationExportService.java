@@ -537,9 +537,11 @@ public class NotificationExportService {
         if (subjectId == null) {
             // V45는 이 5종의 target_user_id를 의도적으로 subject_id에 백필하지 않았다.
             // 다른 종류에서는 target_user_id가 같은 대상을 뜻한다고 가정하지 않는다.
+            // MAIN_ISLAND_TRANSFERRED(GROMO-1971)는 백필이 아니라 «처음부터» 섬을 target_user_id 에 싣는다 —
+            // subject_id 에 두면 선점 유니크 축에 걸려 재가입 후 재이탈의 기록이 실패하기 때문이다.
             subjectId = switch (kind) {
-                case FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED, CHALLENGE_WINDOW_END, CHALLENGE_ENDED ->
-                        toUuid(row[5]);
+                case FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED, CHALLENGE_WINDOW_END, CHALLENGE_ENDED,
+                        MAIN_ISLAND_TRANSFERRED -> toUuid(row[5]);
                 default -> null;
             };
         }
@@ -668,6 +670,10 @@ public class NotificationExportService {
                     LEAGUE_RELEGATION_WARNING, LEAGUE_RELEGATION_WARNING_EVENING, LEAGUE_FINAL_DEADLINE,
                     INACTIVE_RETURN, STREAK_AT_RISK, FRIEND_REQUEST, FRIEND_ACCEPTED, CHALLENGE_CREATED ->
                     new Enrichment(Map.of(), null, null, true);
+            // 구 경로에 대응물이 없는 kind 다(GROMO-1971) — 구 sent_log 에 이 종류의 행이 존재할 수 없어
+            // 여기 닿는 것 자체가 이관 입력이 오염됐다는 뜻이다. 조용히 통과시키지 않고 실패로 남긴다.
+            case MAIN_ISLAND_TRANSFERRED -> Enrichment.fail(FAIL_UNKNOWN_KIND,
+                    "구 경로에 없던 kind 입니다: " + kind.name());
         };
     }
 
