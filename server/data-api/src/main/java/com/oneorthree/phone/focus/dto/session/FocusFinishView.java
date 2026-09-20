@@ -11,9 +11,9 @@ import java.util.UUID;
  * @param recordId       완료 기록 id(={@code sessionId})
  * @param islandId       소속 섬
  * @param subject        집중 주제
- * @param targetMinutes  목표 시간(분)
+ * @param targetMinutes  목표 시간(분). 선택이라 없을 수 있다(GROMO-1990)
  * @param activeSeconds  세션 전체의 순수 집중 초 합
- * @param goalAchieved   activeSeconds가 목표 시간(초) 이상인가
+ * @param goalAchieved   activeSeconds가 목표 시간(초) 이상인가 — 목표가 없으면 늘 false
  * @param earnedFish     총 지급량 — E=P+C(personalFishAdded+constructionFishAdded) 보존식
  * @param allocation     개인 지갑/섬 통장 분배(D5-귀속-개정 — 현재 개인 0 · 섬 통장 전부)
  * @param completedAt    정산을 확정한 서버 시각
@@ -23,7 +23,7 @@ public record FocusFinishView(
         UUID recordId,
         UUID islandId,
         String subject,
-        int targetMinutes,
+        Integer targetMinutes,
         long activeSeconds,
         boolean goalAchieved,
         int earnedFish,

@@ -63,8 +63,10 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 ### finish — POST /focus-sessions/{sessionId}/finish, 200
 
 입력 `{expectedVersion}`와 키 필수. active/paused에서 가능하다. 새 종료만 version을 검사하고 열린 구간을
-닫은 뒤 정산한다. endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·allocation(2026-09-19 D5-귀속-개정 — 섬 통장 100%·개인 0%, 비율은 운영값. ~~D5-귀속 50/50~~ 대체)·
-원래 questProgress와 내부 events를 세션별 정산에 고정한다.
+닫은 뒤 **정산 «기록»을 확정한다 — 지급은 하지 않는다**(2026-09-20 결정 D5-적립: 물고기는 진행 중에 매분 적립 틱이 이미 섬 통장에 넣었고,
+마지막 틱 이후의 자투리는 버린다). endedAt/completedAt, 순수초·날짜분포·goalAchieved·정산 정책 revision·allocation(2026-09-19 D5-귀속-개정 — 섬 통장 100%·개인 0%, 비율은 운영값. ~~D5-귀속 50/50~~ 대체)·
+원래 questProgress와 내부 events를 세션별 정산에 고정한다. `earnedFish` 는 그 세션이 적립 원장에 쌓은 합이고 `allocation` 은 `{0, earnedFish}` 다.
+`targetMinutes` 는 선택이라 없을 수 있고, 없으면 `goalAchieved` 는 false 다.
 
 같은 키/같은 본문은 공통 receipt를 재생한다. **이미 완료된 같은 세션을 새 키로 finish해도**, 계정 활성·본인·
 현재 결과 열람 권한을 검사한 후 세션별 정산의 같은 결과를 반환하는 도메인 복구 계약을 채택한다.
@@ -162,9 +164,10 @@ EXPIRE가 별도 명령이라 그 사이에 끊기면 수명 없는 카운터가
 | 논리 저장 | 데이터/제약 | 역할 |
 | --- | --- | --- |
 | 기존 focus_sessions | PK·user·startedAt·endedAt·COMPLETED·focus_seconds_by_date | legacy와 통계 식별자 공유. 상세가 있는 행은 v0.3 프로토콜 |
-| 신규 focus_session_details | PK/FK session_id, user_id, island_id, membership_epoch_at_start, subject, target_minutes, lifecycle, version, last_transition_at, policy_revision | 소속 귀속 불변. user당 active/paused 부분 UNIQUE, 휴식 자리의 활성 범위 UNIQUE |
+| 신규 focus_session_details | PK/FK session_id, user_id, island_id, membership_epoch_at_start, subject, target_minutes(**nullable — 목표는 선택, D5-적립**), lifecycle, version, last_transition_at, policy_revision, **rewarded_seconds(적립 워터마크)** | 소속 귀속 불변. user당 active/paused 부분 UNIQUE, 휴식 자리의 활성 범위 UNIQUE. 워터마크는 전이가 아니라 적립 틱이 민다 — version 을 올리지 않는다 |
 | 신규 focus_session_intervals | session_id, ordinal, kind ACTIVE/REST, started_at, ended_at nullable | ordinal 유일, 열린 구간 최대1, 역전/겹침 금지. 명령 idempotency와 같은 TX |
-| 신규 focus_settlements | session_id UNIQUE, contract_version, policy_revision, HTTP 결과·원 events·총시간·원장 근거 | 다른 key의 완료 복구·중복 지급 방어. 개인정보 파기 정책 적용 |
+| 신규 focus_settlements | session_id UNIQUE, contract_version, policy_revision, HTTP 결과·원 events·총시간 | 다른 key의 완료 복구 방어. **D5-적립 이후 이 행은 «지급의 근거»가 아니라 «확정 기록»이다** — 지급은 적립 원장이 한다. 개인정보 파기 정책 적용 |
+| 신규 focus_reward_accruals | (session_id, accrued_on) UNIQUE, earned_fish | **적립의 정본**(D5-적립). 매분 틱이 (세션, UTC 날짜)로 누적한다. 하루 상한 합산과 회관 기록의 주민 누적 획득이 둘 다 여기를 읽는다 — 정산 행만 세면 진행 중·강퇴 세션의 적립분이 빠진다 |
 | 신규 주민 projection | (projection,island_id,user_id) UNIQUE, version, 현재 session_id/상태 | 세션 교체·재가입에도 version 초기화 금지, focus/rest 별도 축 |
 | 기존 command_idempotency | PublicCommandService의 사용자/operation/key scope, fingerprint, contractVersion 있는 결과 | TTL 자동 삭제 없음. 미지원 버전409 STATE_CONFLICT, 재실행 금지 |
 | 기존 일별 net + 경제/시설/퀘스트 정본 | 세션별 반영 유일성, 지갑 owner/currency 잠금, 건설 cap 조건부 갱신 | 정산과 함께 커밋. 수동 구매 권한과 자동 집중 기여 정책 분리 |
@@ -178,6 +181,10 @@ EXPIRE가 별도 명령이라 그 사이에 끊기면 수명 없는 카운터가
 계정 탈퇴·가입/현재 섬 변경·host 강퇴가 여러 사용자를 다루면 처음부터 정렬한 사용자를 잠그고
 group를 잡은 뒤 상대 user를 역순으로 잡지 않는다. 늦게 영향 사용자가 발견되면 TX를 다시 시작한다.
 
+적립 틱(D5-적립)은 이 순서의 **꼬리 부분만** 잡는다 — 상세 배타 → 섬 건설 상태 → 섬 통장. 전이 순서의 접두사가 아니라 접미사라
+교착 쌍이 생기지 않으므로 섬 행·멤버십을 따로 잡지 않는다. 전이·강퇴와는 상세 행에서 줄을 서고, 강퇴가 이기면 세션이
+`MEMBERSHIP_LOST` 가 되어 그 뒤의 틱은 아무것도 하지 않는다.
+
 이 순서는 새로운 외부 서비스 락이 아니다. 하나의 Data TX에서 유지하며 Business는 DB 락을 잡지 않는다.
 강퇴의 승인 정책은 미결이어도 강퇴↔finish, start↔switch, pause↔finish가 같은 사용자·세션 경계에 참여해야 한다.
 강퇴가 먼저 승리한 경우와 finish가 먼저 승리한 경우의 지급/기여는 FR-D03 결정표로 검증한다.
@@ -186,7 +193,11 @@ group를 잡은 뒤 상대 user를 역순으로 잡지 않는다. 늦게 영향 
 정산 정책은 시작 시 revision을 고정해 운영 설정 변경이 진행 세션의 지급률을 바꾸지 않게 하는 기술 선택이다.
 ~~시설 완료 instant/상태는 FR-D02 선택에 따라 해석하지만~~ FR-D02 는 **2026-09-18 재영님 결정 D6(「쌓이면 건설한다」)로 폐기**됐다 — 정산은 물고기를 지갑에 적립할 뿐이고 시설 완공 시점과 교차하지 않는다. 같은 TX에서 잠금·정책 revision을 확인하는 규율은 유지한다.
 산식 결과 earnedFish=E, 개인 지갑 반영=P, 섬 통장 반영=C라면 **E=P+C**가 기본 보존식이다 — 2026-09-19 D5-귀속-개정으로 **P:C = 0:100**(비율은 운영값)이다(~~2026-09-18 D5-귀속의 50:50~~ 대체 — 개인 지갑은 테이블만 두고 적립하지 않는다). C 는 「초기 건설 기여」가 아니라 **섬 통장 몫**이다(D1: 섬 통장은 건설·공동 구매에 함께 쓰인다) — D6 가 폐기한 것은 «세션 도중 완공 시 시간 분할·초과 환류»이지 개인/섬 배분 축이 아니었다. 산식은 1830 확정값(60초당 1마리·휴식 제외·주민·섬별 하루 480 상한, [정책](policy.md) FR-D01)이며 아래 응답 예시의 `allocation{personalFishAdded,constructionFishAdded}` 가 그 배분을 싣는다.
-숨어 있는 버림값을 두거나 `min(cap,E)` 뒤 초과분을 기록 없이 없애지 않는다(상한에 닿아도 집중 기록은 쌓인다 — 1830).
+**지급 시점은 2026-09-20 결정 D5-적립으로 종료가 아니라 «진행 중 매분»이다.** 매분 크론이 진행(ACTIVE) 세션마다 상세 행을 배타 잠그고 「지금까지의 순수 집중 초로 나올 수 있는 총 마리 수 − 이미 판정한 몫(`rewarded_seconds`)」만 새로 준다. 상한에 걸려 못 받은 몫도 **판정 완료로 워터마크를 민다** — 그러지 않으면 자정에 상한이 풀리는 순간 어제 깎인 몫이 한꺼번에 터진다(반려한 대안: 이월). **새로 주는 분은 한 건으로 접지 않고 하나씩 판정한다**: 분마다 「그 분이 찬 시각」(`FocusIntervalMath.instantAtActiveSeconds` — `activeSecondsAsOf` 의 역함수)을 구해 **그 시각의 UTC 날짜**로 상한을 보고, 섬 원장에도 **분마다 금액 1짜리 한 줄**을 남긴다. 접으면 둘이 깨진다 — ① 적립일이 「틱이 돈 날」이 되어 자정 직전에 찬 분이 다음 날 상한을 먹고, 밀린 분이 여러 날에 걸치면 전부 하루 상한 하나로 판정돼 나머지가 워터마크에 밀려 소실된다 ② 분 단위 감사 추적이 사라져 「원장은 건별, 접는 것은 가계부 조회뿐」(결정 가계부-묶음)이라는 전제가 무너진다. 하루 상한의 창은 **UTC 날짜**이고 일 집계(`daily_focus_stats`)의 KST 축과 일부러 다르다 — 그쪽은 1930 전환 대기 중인 레거시 축이고 이 축은 신규라 처음부터 UTC 다(Q-6·RC-축과 같다). 자정에 걸친 60초는 초 단위 워터마크라 끊기지 않으며, 그 분은 「찬 시각」의 날짜에 적립된다(반려한 대안: 날짜별 분할 배분 — 상한 두 개에 반 마리씩 걸린다). 섬 원장의 멱등 키는 `focus:<sessionId>:<누적 마리 수>` 라 같은 틱을 다시 돌려도 같은 키가 나온다. 휴식은 `activeSeconds` 에 없으므로 휴식 중에는 워터마크가 자연히 멈춘다 — 별도 분기를 두지 않는다.
+**종료 직전에도 같은 적립을 한 번 돌린다**(구간을 닫은 뒤, 정산 행을 쓰기 전). 마지막 틱 이후에 «찬» 분이 그러지 않으면 영영 사라지기 때문이다 — 12:00:01 에 시작해 12:01:02 에 끝낸 세션은 12:01:00 틱에 59초뿐이라 못 받고, 그 뒤 ACTIVE 스캔에서도 빠진다. 「종료 시 추가 지급 없음」은 **1분이 안 찬 자투리**를 주지 않는다는 뜻이지 이미 찬 분을 버린다는 뜻이 아니다. 휴식 중 finish 도 같은 경로라 휴식 직전에 찬 분이 새지 않는다(크론은 PAUSED 를 훑지 않는다 — 휴식 중에는 새로 줄 것이 없다).
+**혼합 버전 창의 구멍은 트리거가 막는다.** 크론 게이트는 «크론» 만 막고 옛 인스턴스의 `finish` 는 일부러 열어 두므로(막으면 그 창에서 끝낸 사용자가 한 마리도 못 받는다), V82 뒤에 옛 이미지가 쓴 정산은 적립 원장에 안 남아 상한·누적에서 사라진다. 그래서 `focus_settlements` 의 AFTER INSERT 트리거가 **「earned_fish > 0 이면서 그 세션의 적립 행이 하나도 없을 때만」** 완료 시각의 UTC 날짜로 한 행을 옮긴다 — 새 코드의 finish 는 정산 행을 쓰기 전에 이미 적립했으므로 트리거가 비켜난다. 앱 코드로는 «다른 버전의 앱» 을 잡을 수 없어 DB 가 유일한 자리다. 배포가 수렴하면 조건에 걸리는 행이 더는 생기지 않는다.
+**V82 는 기존 정산분을 이 원장으로 이관한다** — 하루 상한과 주민 누적 획득이 이제 적립 원장만 읽으므로, 옮기지 않으면 과거 누적 획득이 0 으로 보이고 배포 당일의 기존 지급분이 상한에서 빠진다. 기준선은 **정산 행의 `completed_at` 의 UTC 날짜**다 — 종전 상한도 같은 축으로 합산했으므로 이관 전후로 판정이 같다.
+숨어 있는 버림값을 두거나 `min(cap,E)` 뒤 초과분을 기록 없이 없애지 않는다(상한에 닿아도 집중 기록은 쌓인다 — 1830). 상한으로 깎인 몫은 **다음 날로 이월하지 않는다**(D5-적립).
 ~~초기 기여는 건설 진행량이며 `ownerType=island,currency=fish`라는 지갑을 만들지 않는다.~~ → D1: 섬 통장(섬 물고기)이 존재한다. 통화 식별자는 [상점 정책](../island-shop/policy.md)을 따른다.
 동시 종료가 같은 마지막 건설량을 사용하면 cap과 완성 사건은 시설 행 잠금/유일성으로 한 번만 반영한다.
 
@@ -322,6 +333,8 @@ ECR 이미지 존재 여부뿐이다. `:62~69`는 해당 이미지를 SSM 배포
 | 1. 호환본 선행 배포 | 새 API·새 상세 생성은 비활성. 스키마 expand 후 모든 legacy start/save/end/cancel·orphan·presence writer와 §5.1의 live·완료 reader가 상세를 인식하는 호환 이미지를 전량 배포. §5.1.1의 호환 앱 배포/접근 경계 또는 검증된 조회 projection을 준비 | 구/신 인스턴스 혼재가 끝날 때까지 새 세션 생성 금지. 기존 legacy 요청 회귀 유지 |
 | 1. 롤백 baseline 이동 | 호환 이미지의 정확한 digest/프로토콜 지원을 릴리스 증거에 기록하고 rollback workflow·실제 SSM 배포 등 이미지 교체 진입점에서 그보다 비호환인 이미지의 실행을 거절하도록 구현 | 이미지 존재 확인만으로 통과 금지. 임의 구 SHA/tag를 지정해도 배포 호출 전에 거절되는 실제 검증 필요 |
 | 2. 새 API 활성화 | live·완료 reader/writer 및 앱 회귀, §5.1.1의 최소 호환 앱/조회 projection 접근 증거, 정책 FR-D01~06의 해당 결정, 최소 호환 baseline의 전량 적용 및 구 이미지 차단 검증을 모두 확인 | 그 다음에만 신규 start/pause/resume/finish와 해당 구독 기능을 단계적으로 개방 |
+| 2.5 목표 없는 세션 (GROMO-1990) | `target_minutes` 가 nullable 이 된다 — **null 을 못 읽는 옛 독자가 둘**(옛 data-api 엔티티의 primitive `int`, 옛 business DTO 의 필수 `int`). **data-api·business-api 양쪽에 새 버전을 전량 배포한 뒤** `focus.session.start-enabled` 를 켠다 | 이미 켜져 있다면 롤링 배포 동안 **먼저 끈다** — 꺼져 있으면 v0.3 세션 행 자체가 안 생겨 null 을 쓸 경로가 없다. 레포가 정하는 기본값은 네 곳 모두 `false` 이고(dev·prod yml · `docker-compose.dev.yml` · `server/scripts/README.md`), 실제 값은 배포 시크릿에 있다 |
+| 3. 분당 적립 크론 활성화 (GROMO-1990) | 위 2단계가 끝나고 **배포가 한 버전으로 수렴한 뒤** `focus.reward.accrual-enabled`(기본 **false**, `FocusRewardAccrualGate`)를 켠다. 혼합 버전 창에서는 새 이미지의 크론이 `focus:<세션>:<분>` 으로, **옛 이미지의 finish 가 세션 전체를 `focus:<세션>` 으로** 지급해 같은 시간이 두 번 나간다 — 두 키는 접두사가 달라 `uq_island_wallet_tx_idem` 에도 안 걸린다 | 끄고 있는 동안에도 사용자는 손해 보지 않는다(finish 가 그 자리에서 적립을 확정한다). **켠 뒤 롤백하려면 flag 를 «먼저» 끄고 그때 진행 중이던 세션이 전부 끝난 뒤에 이미지를 내린다** — 켜진 채로 옛 이미지로 되돌리면 이미 분 단위로 지급된 세션을 옛 finish 가 통째로 재지급한다 |
 | 활성화 후 장애 | 새 세션 생성의 활성화 flag를 닫고 상세를 이해하는 호환 이미지로만 rollback/roll-forward | 이미 존재하는 active/paused 상세·구간·정산을 보존하고 승인된 재개/종료 경로 유지. 비호환 구 이미지로 복귀 금지 |
 
 최소 호환 baseline은 단순 tag 문자열의 사전순 비교가 아니라 검증된 이미지/프로토콜 호환 증거로 판단한다.

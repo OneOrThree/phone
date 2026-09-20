@@ -3,9 +3,6 @@ package com.oneorthree.phone.internal.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.common.port.FocusPresencePort;
-import com.oneorthree.phone.construction.service.IslandWalletEvents;
-import com.oneorthree.phone.construction.service.IslandWalletService;
-import com.oneorthree.phone.currency.service.FishWalletService;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
@@ -18,6 +15,7 @@ import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionIntervalRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionOwnership;
+import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
 import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.FocusSettlementRepository;
@@ -58,7 +56,6 @@ import java.time.Clock;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -121,8 +118,6 @@ import java.util.UUID;
 public class FocusSessionLifecycleService {
 
     private static final int MAX_SUBJECT_LENGTH = 200;
-    /** 하루 상한의 창 — 완료 시각의 UTC 날짜 [00:00, +24h) (D8: 모든 시간 UTC · 하루 리셋 UTC 00:00). */
-    private static final long SECONDS_PER_DAY = 86_400L;
     /** 세션이 끝나 focus/rest 목록에서 지운다는 상태값 — LLD §6 의 {@code completed}(행 제거)다. */
     private static final String STATUS_ENDED = FocusMemberEvents.STATUS_COMPLETED;
     /** 「진행 중」으로 보는 lifecycle — 사용자당 최대 1건(V58 부분 UNIQUE)이 걸리는 집합 그대로다. */
@@ -142,11 +137,13 @@ public class FocusSessionLifecycleService {
     private final FocusMemberEvents focusMemberEvents;
     private final FocusRewardPolicyRepository focusRewardPolicyRepository;
     private final FocusSettlementRepository focusSettlementRepository;
-    /** 섬 통장 몫(D5-귀속-개정 — 현재 전부) — 「각자 몫」 기여 기록도 이 진입점이 함께 쓴다. */
-    private final IslandWalletService islandWalletService;
-    private final IslandWalletEvents islandWalletEvents;
-    /** 개인 지갑 몫(D5-귀속-개정 — 현재 0이라 적립 안 함, 통화 fish). */
-    private final FishWalletService fishWalletService;
+    /** 적립 원장 — finish 는 여기서 합계를 <b>읽기만</b> 한다(GROMO-1990). 지갑은 아예 모른다. */
+    private final FocusRewardAccrualRepository focusRewardAccrualRepository;
+    /**
+     * 종료 직전 적립 — 마지막 틱 이후에 «찬» 분을 확정한다(그 클래스 javadoc). 지급 계산은 전부 저쪽에
+     * 있고 이 서비스는 결과 합만 정산 행에 옮긴다.
+     */
+    private final FocusRewardAccrualService rewardAccruals;
     /**
      * 집중 프레즌스 리스(선행 조건 #5) — 채팅 서버가 「집중 중엔 채팅 불가」를 판정하는 근거다.
      * 레거시와 <b>같은 포트·같은 키</b>를 쓴다(LLD §6 「하나의 Data projection 포트」). 리스는 세션 단위라
@@ -169,12 +166,16 @@ public class FocusSessionLifecycleService {
             throw new FocusException(FocusErrorCode.SESSION_START_UNAVAILABLE);
         }
         String subject = validateSubject(body == null ? null : body.subject());
-        int targetMinutes = validateTargetMinutes(body == null ? null : body.targetMinutes());
+        Integer targetMinutes = validateTargetMinutes(body == null ? null : body.targetMinutes());
         UUID islandId = requireIslandId(body == null ? null : body.islandId());
 
+        // targetMinutes 는 선택이라 null 일 수 있다 — Map.of 는 null 값을 못 담는다.
+        Map<String, Object> fingerprint = new LinkedHashMap<>();
+        fingerprint.put("islandId", islandId.toString());
+        fingerprint.put("subject", subject);
+        fingerprint.put("targetMinutes", targetMinutes);
         PublicCommandRequest command = new PublicCommandRequest(userId, "POST:/focus-sessions:" + userId,
-                idempotencyKey, tree(Map.of("islandId", islandId.toString(), "subject", subject,
-                        "targetMinutes", targetMinutes)));
+                idempotencyKey, tree(fingerprint));
         JsonNode data = publicCommands.run(command,
                 () -> requireActiveUserForUpdate(userId),
                 ignored -> requireActiveUserForUpdate(userId),
@@ -387,19 +388,21 @@ public class FocusSessionLifecycleService {
     /**
      * {@code POST /focus-sessions/{sessionId}/finish} — LLD §2 finish. 선행 조건 #6.
      *
-     * <p>한 TX 에서 열린 구간을 닫고, 시작 때 고정한 정책 revision 으로 정산해 지갑 둘·일 집계·기본 마커·
-     * 정산 행·사건을 함께 남긴다(FR-P09). 산식은 2026-09-18 결정 D5 와 2026-09-19 D5-귀속-개정이다:
-     * <ul>
-     *   <li>{@code raw = floor(activeSeconds / secondsPerFish)} — 휴식은 activeSeconds 에 없다</li>
-     *   <li>하루 상한: 이 사용자가 이 섬에서 <b>완료 시각의 UTC 날짜</b>(D8)에 이미 받은 물고기를 뺀 만큼만
-     *       준다. 상한에 닿아도 집중 기록(일 집계·activeSeconds)은 그대로 쌓인다(1830)</li>
-     *   <li>{@code P = floor(E × personalSharePercent / 100)}, {@code C = E − P} — E=P+C 보존식(LLD §3).
-     *       현재 revision 은 personalSharePercent=0 이라 P=0, 전부 섬 통장이다(개인 지갑은 건드리지 않는다)</li>
-     * </ul>
+     * <p><b>finish 는 새로 «계산»하지 않는다</b>(GROMO-1990). 물고기는 진행 중에 매분 적립 틱
+     * ({@link FocusRewardAccrualService})이 유효 집중 60초마다 섬 통장에 넣어 두었고, 여기서는 <b>마지막 틱
+     * 이후에 찬 분만</b> 같은 적립 경로로 확정한 뒤 그 합을 정산 행에 옮겨 적는다. 1분이 안 찬 자투리는
+     * 주지 않는다 — 그것이 「종료 시 추가 지급 없음」이다. 이미 찬 분을 버리는 뜻이 아니다.
+     * 개인 지갑 적립 경로는 없다(D5-귀속-개정 — 섬 통장 100%, 재화는 섬 단일). 그래서 정산 행은
+     * {@code P=0, C=E} 로 E=P+C 보존식만 유지한다.
      *
-     * <p><b>잠금 순서</b>(LLD §3): 사용자 공유 → 섬 행 → 멤버십 공유 → 상세 → 기본 마커 → 섬 건설 상태 →
-     * 섬 통장 → 개인 지갑 → 일 집계. 마커를 지갑보다 먼저 잡는 것은 레거시 종료(마커 → 지갑 → 일 집계)와
-     * 같은 방향이라서다. 마커는 더티 체킹 flush 가 아니라 행 잠금 조회로 «이 자리에서» 잡는다.
+     * <p>한 TX 에서 열린 구간을 닫고 일 집계·기본 마커·정산 행·사건을 남긴다(FR-P09). 하루 상한(480)은
+     * 적립 틱이 {@code focus_reward_accruals} 의 <b>UTC 날짜</b>(D8) 합으로 판정하며, 상한에 닿아도 집중
+     * 기록(일 집계·activeSeconds)은 그대로 쌓인다(1830).
+     *
+     * <p><b>잠금 순서</b>(LLD §3): 사용자 공유 → 섬 행 → 멤버십 공유 → 상세 → 기본 마커 → 일 집계.
+     * 지갑을 더 이상 여기서 건드리지 않으므로 종전의 「섬 건설 상태 → 섬 통장 → 개인 지갑」 구간이 빠졌다
+     * (적립 틱이 상세 잠금 아래에서 같은 순서로 잡는다). 마커는 더티 체킹 flush 가 아니라 행 잠금
+     * 조회로 «이 자리에서» 잡는다.
      *
      * <p><b>이미 완료된 세션을 새 키로 finish</b> 하면 정산 행의 원 결과를 그대로 돌려준다(LLD §2 도메인
      * 복구) — 새 원장·통계·사건을 만들지 않는다. 멤버십을 잃은 뒤에는 {@link #authorizeSession}이 먼저 403 이다.
@@ -448,20 +451,12 @@ public class FocusSessionLifecycleService {
         FocusSession marker = focusSessionRepository.findByIdAndUserForUpdate(sessionId, user)
                 .orElseThrow(() -> new IllegalStateException("상세는 있는데 기본 마커가 없습니다 — session=" + sessionId));
 
-        Instant dayStart = t.atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant();
-        long alreadyToday = focusSettlementRepository.sumEarnedFish(userId, islandId, dayStart,
-                dayStart.plusSeconds(SECONDS_PER_DAY));
-        long raw = activeSeconds / policy.getSecondsPerFish();
-        int earned = (int) Math.max(0, Math.min(raw, policy.getDailyCapFish() - alreadyToday));
-        int personal = earned * policy.getPersonalSharePercent() / 100;
-        int island = earned - personal;
-        if (island > 0) {
-            // 섬 건설 상태 → 섬 통장(IslandWalletService 가 잠근다). 키가 세션 id 라 섬 원장도 세션당 한 번이다.
-            islandWalletService.contribute(islandId, userId, island, "focus:" + sessionId);
-        }
-        if (personal > 0) {
-            fishWalletService.credit(userId, personal);
-        }
+        // 마지막 틱 이후에 «찬» 분을 여기서 확정한다 — 구간을 닫은 뒤라 activeSeconds 와 같은 값을 본다.
+        // 「종료 시 추가 지급 없음」은 자투리(1분이 안 찬 초)를 주지 않는다는 뜻이지, 이미 찬 분을 버린다는
+        // 뜻이 아니다. 크론 게이트가 닫혀 있는 동안에는 이 호출이 그 세션의 «유일한» 지급 경로다.
+        rewardAccruals.accrue(sessionId);
+        // 그렇게 확정된 적립 합을 그대로 옮겨 적는다(GROMO-1990 — 여기서 새로 계산하지 않는다).
+        int earned = Math.toIntExact(focusRewardAccrualRepository.sumEarnedFishOfSession(sessionId));
 
         // 일 집계는 KST 날짜 축(date-axis 규약)의 순수 초 — 목표 코인·스트릭 같은 레거시 부수효과는 붙이지
         // 않는다(LLD §4 「recordCompletion 을 그대로 호출해 코인 보너스를 중복 지급하지 않는다」).
@@ -477,21 +472,20 @@ public class FocusSessionLifecycleService {
                 .sessionId(sessionId)
                 .policyRevision(policy.getRevision())
                 .activeSeconds(activeSeconds)
-                .goalAchieved(activeSeconds >= detail.getTargetMinutes() * 60L)
+                .goalAchieved(goalAchieved(detail, activeSeconds))
                 .earnedFish(earned)
-                .personalFishAdded(personal)
-                .constructionFishAdded(island)
+                // 개인 몫은 언제나 0 이다(D5-귀속-개정 — 섬 통장 100%). E=P+C 보존식만 유지한다.
+                .personalFishAdded(0)
+                .constructionFishAdded(earned)
                 .completedAt(t)
                 .build());
-        // 사건(projection 버전)은 잠금 순서의 맨 끝이다(LLD §3).
+        // 사건(projection 버전)은 잠금 순서의 맨 끝이다(LLD §3). 지갑 사건은 적립 틱이 그때그때 냈으므로
+        // 여기서는 내지 않는다 — finish 는 잔액을 바꾸지 않는다.
         List<EventEnvelope> events = new ArrayList<>();
         events.add(appendFocusMemberEvent(userId, islandId, sessionId, STATUS_ENDED, detail.getSubject(),
                 activeSeconds, t, detail.getVersion()));
         events.add(appendRestMemberEvent(userId, islandId, sessionId, STATUS_ENDED, null, null, t,
                 detail.getVersion()));
-        if (island > 0) {
-            events.add(islandWalletEvents.changed(islandId, userId, "FOCUS_REWARD"));
-        }
         focusPresencePort.focusEnded(userId, marker.getPresenceOrder());
         return new PublicCommandResult(200, tree(finishView(detail, settlement)), tree(events));
     }
@@ -519,6 +513,11 @@ public class FocusSessionLifecycleService {
                 stat.setSessionCount(stat.getSessionCount() + sessions);
             }
         }
+    }
+
+    /** 목표가 없으면 달성도 없다(GROMO-1990 — 목표는 선택). */
+    private static boolean goalAchieved(FocusSessionDetail detail, long activeSeconds) {
+        return detail.getTargetMinutes() != null && activeSeconds >= detail.getTargetMinutes() * 60L;
     }
 
     private static FocusFinishView finishView(FocusSessionDetail detail, FocusSettlement settlement) {
@@ -792,9 +791,15 @@ public class FocusSessionLifecycleService {
         return trimmed;
     }
 
-    /** 0 이하만 거절한다 — 상한/카탈로그(FR-D06)는 아직 결정되지 않아 여기서 지어내지 않는다. */
-    private static int validateTargetMinutes(Integer targetMinutes) {
-        if (targetMinutes == null || targetMinutes <= 0) {
+    /**
+     * 목표는 <b>선택</b>이다(GROMO-1990) — 보상이 목표가 아니라 순수 집중 시간에만 걸리므로 목표 없이도
+     * 시작할 수 있다. 값이 «있는데» 0 이하인 것만 거절한다 — 상한/카탈로그(FR-D06)는 아직 결정되지
+     * 않아 여기서 지어내지 않는다.
+     *
+     * @return 목표 분. 요청에 없으면 {@code null}
+     */
+    private static Integer validateTargetMinutes(Integer targetMinutes) {
+        if (targetMinutes != null && targetMinutes <= 0) {
             throw new FocusException(FocusErrorCode.INVALID_TARGET_MINUTES);
         }
         return targetMinutes;

@@ -57,6 +57,36 @@ class FocusSessionContractTest extends UpstreamTestBase {
         assertThat(sent.body()).contains(ISLAND.toString(), "알고리즘", "60");
     }
 
+    /**
+     * 목표 시간은 선택이다(GROMO-1990) — 2필드 본문이 그대로 나가고, {@code targetMinutes} 가 빠진 Data
+     * 응답도 그대로 내려간다. 필드 개수 검사는 유지한다: 3인데 targetMinutes 가 아니면 오타다.
+     */
+    @Test
+    void startAcceptsABodyWithoutATargetTime() throws Exception {
+        DATA.on(DATA_START, request -> ok(STATE.replace(",\"targetMinutes\":60", "")));
+        mockMvc.perform(write(post("/focus-sessions"),
+                        "{\"islandId\":\"" + ISLAND + "\",\"subject\":\"알고리즘\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.id").value(FOCUS.toString()))
+                .andExpect(jsonPath("$.data.targetMinutes").doesNotExist());
+        assertThat(DATA.hits(DATA_START)).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "null", "[]",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\"}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\",\"oops\":1}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"targetMinutes\":1.5}",
+            "{\"islandId\":\"cccccccc-0000-0000-0000-000000000011\",\"subject\":\"알고리즘\","
+                    + "\"targetMinutes\":\"60\"}"})
+    void startRejectsBodyShapeBeforeNetwork(String body) throws Exception {
+        mockMvc.perform(write(post("/focus-sessions"), body))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_REQUEST"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
     /** 세션 없음은 정상값이다 — Data 의 명시 null 키를 벗겨 {@code data:null} 로 내린다. */
     @Test
     void currentReturnsExplicitNullWhenNoSession() throws Exception {

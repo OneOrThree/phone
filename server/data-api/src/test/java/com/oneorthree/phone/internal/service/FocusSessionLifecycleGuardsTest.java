@@ -1,10 +1,8 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.port.FocusPresencePort;
-import com.oneorthree.phone.construction.service.IslandWalletEvents;
-import com.oneorthree.phone.construction.service.IslandWalletService;
-import com.oneorthree.phone.currency.service.FishWalletService;
 import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
+import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
 import com.oneorthree.phone.focus.repository.FocusSettlementRepository;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
@@ -110,9 +108,8 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private FocusPresencePort focusPresencePort;
     @Mock private FocusRewardPolicyRepository focusRewardPolicyRepository;
     @Mock private FocusSettlementRepository focusSettlementRepository;
-    @Mock private IslandWalletService islandWalletService;
-    @Mock private IslandWalletEvents islandWalletEvents;
-    @Mock private FishWalletService fishWalletService;
+    @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
+    @Mock private FocusRewardAccrualService rewardAccruals;
     @Mock private User caller;
     @Mock private GroupMember membership;
 
@@ -125,8 +122,8 @@ class FocusSessionLifecycleGuardsTest {
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, new FocusMemberEvents(outboxCommandPort),
-                focusRewardPolicyRepository, focusSettlementRepository, islandWalletService, islandWalletEvents,
-                fishWalletService, focusPresencePort,
+                focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
+                focusPresencePort,
                 Clock.fixed(wallClock, ZoneOffset.UTC));
     }
 

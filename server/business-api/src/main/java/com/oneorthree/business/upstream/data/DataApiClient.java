@@ -691,7 +691,7 @@ public class DataApiClient {
      * 집중 세션 시작 (GROMO-1764). 앱이 준 UUID 키를 그대로 실어 Data 의 공개 명령 receipt 를 재생한다 —
      * 응답 유실 뒤 재시도가 <b>두 번째 세션</b>이 되지 않게 하는 유일한 장치다.
      */
-    public FocusSessionState startFocusSession(UUID userId, UUID islandId, String subject, int targetMinutes,
+    public FocusSessionState startFocusSession(UUID userId, UUID islandId, String subject, Integer targetMinutes,
             UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, userPath(PATH_FOCUS_SESSIONS, userId))
@@ -1555,7 +1555,7 @@ public class DataApiClient {
     }
 
     /** 집중 세션 시작 요청 본문 (GROMO-1764). */
-    record FocusSessionStartCommand(UUID islandId, String subject, int targetMinutes) {
+    record FocusSessionStartCommand(UUID islandId, String subject, Integer targetMinutes) {
     }
 
     /** pause/resume/finish 공용 요청 본문 — expectedVersion 필수(FR-P07). */
