@@ -88,6 +88,7 @@ public class LinkMembershipEventService {
 
     private final OutboxCommandPort outboxCommandPort;
     private final GroupMemberRepository groupMemberRepository;
+    private final MainIslandService mainIslandService;
 
     /**
      * 멤버십 전이(탈퇴·강퇴)를 기록하고 폐기 명령을 적는다.
@@ -95,11 +96,18 @@ public class LinkMembershipEventService {
      * <p><b>{@code leave()}·{@code kick()} 호출과 같은 트랜잭션에서</b> 불러야 한다. 세대를 올리는 것과
      * 이탈 마킹이 갈라지면, 그 사이에 발급된 링크가 새 세대를 못 받아 살아남는다.
      *
+     * <h2>메인 섬 이전도 여기서 건다 (GROMO-1971)</h2>
+     * 이 메서드는 이탈·강퇴·계정탈퇴의 마킹 다섯 지점이 <b>전부</b> 바로 뒤에 부르는 유일한 공통 지점이다.
+     * 마킹 지점마다 훅을 달면 레거시 {@code DELETE /api/v1/groups/{id}/members/me}·강퇴·계정탈퇴 중 하나가
+     * 조용히 새고, 그러면 떠난 섬이 대표로 남아 친구 목록에까지 나간다. 링크 폐기와 관심사가 다르지만
+     * <b>「멤버십이 끝났다」는 같은 사실</b>에 붙는 두 반응이라 자리를 나누지 않는다.
+     *
      * @param member 이탈 마킹이 «이미 끝난» 멤버십 행
      * @return 전이 후 세대
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public long recordMembershipRevoked(GroupMember member) {
+        mainIslandService.onMembershipRevoked(member);
         UUID groupId = member.getGroup().getId();
         UUID inviterId = member.getUser().getId();
         long transitionSeq = outboxCommandPort.allocateVersion(AggregateRef.ofLinkMembership(groupId, inviterId));

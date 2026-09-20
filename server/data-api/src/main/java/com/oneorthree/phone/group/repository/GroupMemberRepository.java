@@ -339,4 +339,43 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
             + " gm.role = com.oneorthree.phone.group.repository.domain.GroupMemberRole.MEMBER"
             + " WHERE gm.user.id = :userId")
     int eraseSettingsOfUser(@Param("userId") UUID userId);
+
+    /**
+     * 메인 섬 도출·이전용 — 활성 멤버십을 <b>가입 순</b>으로, 섬 이름까지 (GROMO-1971).
+     *
+     * <p>한 조회가 두 질문에 답한다: 명시 선택이 없을 때의 메인 섬은 <b>첫 행</b>(가장 먼저 가입한 섬)이고,
+     * 메인 섬을 잃었을 때 옮겨 갈 곳은 <b>마지막 행</b>(가장 최근 가입한 섬)이다. 친구 목록이 여러 사람분을
+     * 한 번에 묻기 때문에 사용자 단위 루프가 아니라 {@code IN} 배치다.
+     *
+     * <p>정렬 축이 {@code created_at} 인 것은 그것이 멤버십 행이 <b>생긴</b> 시각이기 때문이다. 자진 탈퇴 후
+     * 재가입은 행을 되살리므로({@code rejoin()}) 이 값이 «되살린 시각»으로 갱신되지 않는다 — 재가입한 섬은
+     * 최초 가입 순서를 그대로 유지한다. 재가입 시각이 계약이 되면 그때 별도 컬럼이 필요하다.
+     *
+     * @param userIds 조회 대상. 비어 있으면 빈 목록
+     * @return 활성 멤버십분만, {@code (createdAt, id)} 오름차순. 소속이 없는 사용자는 행이 아예 빠진다
+     */
+    @Query("SELECT new com.oneorthree.phone.group.repository.UserIslandNameProjection("
+            + "gm.user.id, gm.group.id, gm.group.name) FROM GroupMember gm"
+            + " WHERE gm.user.id IN :userIds AND gm.isLeft = false"
+            + " ORDER BY gm.createdAt ASC, gm.id ASC")
+    List<UserIslandNameProjection> findActiveIslandsJoinedAsc(@Param("userIds") Collection<UUID> userIds);
+
+    /**
+     * 방금 이탈 마킹된 멤버십보다 <b>먼저 생긴</b> 활성 멤버십 수 (GROMO-1971).
+     *
+     * <p>메인 섬을 명시적으로 고른 적 없는 사람의 메인 섬은 «가장 먼저 가입한 활성 섬»이다. 그래서 이탈·강퇴가
+     * 메인 섬을 건드렸는지는 <b>0 인가</b>로 판정한다 — 0 이면 방금 잃은 것이 그 도출값이었다.
+     *
+     * <p>이탈 마킹은 이 조회의 자동 플러시로 이미 반영돼 있으므로 방금 떠난 행은 세지 않는다.
+     * 정렬 축이 {@link #findActiveIslandsJoinedAsc} 와 같아야 판정과 도출이 갈리지 않는다.
+     *
+     * @param userId       이탈한 사람
+     * @param joinedAt     이탈한 멤버십 행의 {@code createdAt}
+     * @param membershipId 이탈한 멤버십 행의 id — {@code createdAt} 동률의 타이브레이크
+     * @return 더 먼저 생긴 활성 멤버십 수. 0 이면 잃은 섬이 도출된 메인 섬이었다
+     */
+    @Query("SELECT COUNT(gm) FROM GroupMember gm WHERE gm.user.id = :userId AND gm.isLeft = false"
+            + " AND (gm.createdAt < :joinedAt OR (gm.createdAt = :joinedAt AND gm.id < :membershipId))")
+    long countActiveJoinedBefore(@Param("userId") UUID userId, @Param("joinedAt") Instant joinedAt,
+                                 @Param("membershipId") UUID membershipId);
 }

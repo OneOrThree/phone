@@ -134,6 +134,20 @@ public class NotificationSentLog {
      */
     public static final String TYPE_BET_SILENT_FLUSH = "BET_SILENT_FLUSH";
 
+    /**
+     * 발송 종류 — 메인 섬을 잃어 자동으로 옮겨졌다(GROMO-1971). {@code user_id} 는 옮겨진 본인이고
+     * {@code target_user_id} 에 <b>옮겨 간 섬 id</b> 를 담는다(챌린지 id 를 담는 것과 같은 용법).
+     *
+     * <p><b>{@code subject_id} 는 비운다.</b> 그 컬럼은 선점 유니크 축 {@code (user_id, kind, subject_id)}
+     * 이라 섬을 넣으면 재가입 후 같은 섬에서 다시 이탈할 때 기록이 유니크 위반으로 실패한다 — 비동기
+     * 경로라 그 예외는 삼켜지고 알림만 사라진다. Postgres 가 NULL 을 서로 다르게 보므로 여러 번 옮겨져도
+     * 행이 쌓인다.
+     *
+     * <p>그래도 대상을 잃지는 않는다 — 이관 export 가 {@code target_user_id} 에서 섬을 복원한다
+     * ({@code NotificationExportService} 의 폴백 표). 신 경로의 중복 방지는 결정적 사건 키가 따로 한다.
+     */
+    public static final String TYPE_MAIN_ISLAND_TRANSFERRED = "MAIN_ISLAND_TRANSFERRED";
+
     @Id
     @GeneratedUuidV7
     private UUID id;

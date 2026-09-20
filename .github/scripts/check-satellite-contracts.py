@@ -34,7 +34,13 @@ for path in noti.rglob('*.java'):
 
 kinds = source('server/data-api/src/main/java/com/oneorthree/phone/notification/producer/NotificationKind.java')
 producer = set(re.findall(r'^\s+([A-Z][A-Z0-9_]+)\(NotificationSlotGranularity\.', kinds, re.M))
-seed = source('server/notification/src/main/resources/db/migration/V2__notification_catalog.sql')
+# 카탈로그는 «마이그레이션 전체»다. V2 하나만 읽으면 그 뒤에 새 파일로 더해진 kind·템플릿이 안 보여,
+# 실제로는 등록된 종류를 「수신 누락」으로 잡는다. 이미 통합 브랜치에 있는 마이그레이션은 바이트가 계약이라
+# (워크플로 「적용된 마이그레이션 불변」) 신규 kind 는 앞으로도 새 V 파일로만 들어온다 — 그래서 디렉터리를
+# 통째로 합쳐 본다. 아래 템플릿 4로케일 검사도 같은 합본을 쓴다.
+seed = '\n'.join(path.read_text() for path in sorted(
+        (ROOT / 'server/notification/src/main/resources/db/migration').glob('V*.sql'),
+        key=lambda path: int(path.name.split('__', 1)[0][1:])))
 consumers = set(re.findall(r"INSERT INTO kinds\([^\n]+VALUES\('([^']+)'", seed))
 bundles = {'BET_RESULT_BUNDLE', 'BET_VOID_REFUND_BUNDLE', 'BET_MIXED_BUNDLE', 'CHALLENGE_SESSION_OPEN_BUNDLE'}
 require(bool(producer) and consumers == producer | bundles,

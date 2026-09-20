@@ -89,7 +89,12 @@ currentSessionSecondsToday는 진행 세션 ACTIVE 구간과 요청 날짜의 �
 
 ### focus-group / rest-members — GET /islands/{islandId}/focus-members, /rest-members, 200
 
-활성 주민만 조회하며 비소속은403이다. 방문자 공개 DTO에 이 목록을 넣지 않는다. focus 목록은 진행 세션
+**비소속 방문자도 조회한다(2026-09-19 확정, 1765 구현).** 방문자에게 내리는 항목은 주민과 같다 —
+이 목록은 섬 광장에 앉아 있는 사람들의 모습 그 자체이고, 둘로 가르면 앱이 두 모양을 다뤄야 하며,
+가입이 열린 섬에서는 가려 봐야 「가입하면 보인다」로 끝난다. **없는 섬·종료된 섬·탈퇴 계정은 여전히
+403 MEMBER_ONLY** 로 합쳐 임의 islandId로 섬 존재가 새지 않게 한다. 섬에 비공개 속성이 생기면 그
+판정은 이 한 곳(`requireVisitableIsland`)에 들어간다. 목록에 실리는 사람은 언제나 **그 섬의 활성
+주민**이라 강퇴·탈퇴자는 방문자 화면에서도 사라진다. focus 목록은 진행 세션
 active/paused를 포함하고 completed는 제거한다. rest 목록은 paused만 포함한다. 과목·이름·외양을 batch로
 읽어 N+1을 피한다. activeSeconds는 snapshot의 같은 serverNow anchor로 계산한다.
 
@@ -103,8 +108,16 @@ watermark `{projection:"focus.member"|"rest.member",islandId,aggregateId:userId,
 ### emote — STOMP SEND /app/islands/{islandId}/focus/emotes
 
 SEND body는 원본 `{sessionId,type}`다. type은 hello/cheer/sleepy/laugh/hearts만 허용한다.
-서버가 principal의 활성·소속·해당 섬 **본인 active sessionId**를 검증한다. userId·expiresAt·destination은
-클라이언트가 지정할 수 없다. paused/완료/다른 사용자 세션/다른 섬이면 전송하지 않는다.
+서버가 principal의 활성·소속·해당 섬 **본인 진행 세션(active 또는 paused)의 sessionId**를 검증한다.
+**휴식 중에도 보낼 수 있다(2026-09-20 결정)** — 휴식은 같이 낚시에서 빠진 상태가 아니라 모닥불에 앉은
+상태이고, 쉬는 사람이 집중하는 사람을 응원하지 못하면 이 기능의 절반이 사라진다. 판정 정본은
+`GET /internal/islands/{islandId}/focus-members`다 — 그 목록의 필터가 `[ACTIVE, PAUSED]`라 휴식자도
+`status:"paused"`로 실려 온다. 거기에 내가 같은 sessionId로 있으면 활성 계정·살아 있는 섬·현재 활성
+주민·본인 진행 세션이 한 번의 조회로 전부 증명된다(그래서 이 결정에 새 표면이 필요 없었다).
+서버는 목록에 있다는 것만으로 통과시키지 않고 status가 그 둘 중 하나인지 확인한다 — Data가 나중에
+다른 상태를 같은 목록에 실어도 조용히 허용되지 않게 한다.
+TTL 캐시를 최종 권한 증거로 쓰지 않는다(§4.2). userId·expiresAt·destination은
+클라이언트가 지정할 수 없다. **완료·포기/다른 사용자 세션/다른 섬이면 전송하지 않는다.**
 
 Realtime가 서버 eventId·occurredAt·expiresAt을 만들고 `/topic/islands/{islandId}/emotes`로 방송한다.
 HTTP 응답이 아니므로 원본의 `{data:{eventId,...}}`200을 별도 REST 성공으로 구현하지 않는다.
@@ -115,7 +128,36 @@ STOMP RECEIPT는 프로토콜 수신 확인이며 모든 사용자에게 표시�
 
 emote는 영속 Idempotency-Key/receipt 대상이 아니고 DB/outbox에 저장하지 않는다. eventId는 내부 fanout 중복에
 대해서만 dedup한다. 앱이 SEND를 두 번 보내면 별도 사건일 수 있으므로 자동 재전송하지 않는다.
-표시 TTL/빈도는 FR-D05가 결정되기 전 비활성이고 목업3초를 기본값으로 넣지 않는다.
+**표시 TTL은 3초다(1765 확정).** 서버가 `expiresAt = occurredAt + 3s`를 만든다. 3초를 고른 근거는
+그것이 존재하는 유일한 실측(앱 목업 `setTimeout(…, 3000)`)이고, 앱이 이미 그 길이로 사라지게 그리고
+있어 서버가 다른 수를 주면 짧은 쪽이 이겨 서버 TTL이 무의미해지기 때문이다. FR-D05가 다른 값을 정하면
+`realtime.focus.emote-ttl` 한 곳만 바꾼다.
+
+**빈도 제한은 둘이고 축이 다르다.**
+
+| 창 | 키 | 축 | 길이 | 언제 잡나 |
+| --- | --- | --- | --- | --- |
+| 시도 | `lock:chat:emote:try:{userId}` | **사용자** | 600ms | **STOMP 관문에서, 본문 변환보다 앞** — 거절될 요청도 소모한다 |
+| 성공 | `lock:chat:emote:{islandId}:{userId}` | 사용자×섬 | 3초(TTL과 같음) | 인가를 통과한 뒤에만 |
+
+검사 순서는 **시도 창 → 형식 → 인가 → 성공 창**이고, 시도 창은 **컨트롤러가 아니라 STOMP 관문**에서
+잡는다. 컨트롤러 안에서 재면 `sessionId`가 빠지거나 UUID가 아닌 프레임은 `@Payload` 변환·`@Valid`가
+메서드 진입 전에 실패시켜 **창을 아예 안 거치므로**, 가장 싼 거절만 공짜가 되어 그 프레임을 무제한
+반복해 변환·오류 응답 경로를 고갈시킬 수 있다. 창을 관문으로 올린 대신 컨트롤러·서비스에서는 재지
+않는다 — 한 프레임이 창을 두 번 먹으면 두 번째 정상 응원이 자기 자신 때문에 막힌다.
+
+시도 창 초과의 응답은 **ERROR 프레임 + 연결 종료**다(다른 관문 위반과 같다). 정상 클라이언트는 자기
+성공 창(3초) 때문에 이 속도를 만들 수 없기 때문이고, 사용자에게 보여 줄 「너무 자주 보냈어요」는
+성공 창이 개인 큐로 따로 보낸다. 하나로 합치면 둘 중 하나가 깨진다. 성공 창 하나만
+두고 인가를 먼저 하면 **임의의 다른 섬 UUID로 보내는 거절 요청이 제한 키를 만들지도 않은 채 매번 Data
+정본 조회를 부른다** — 인증된 사용자 하나가 여러 연결에서 SEND를 반복하면 동기 HTTP로 STOMP 채널
+스레드와 Data API를 고갈시킬 수 있다(섬이 키에 있으면 UUID만 바꿔 제한을 비켜 가므로 시도 창은 사용자
+축이다). 반대로 시도 창 하나만 두고 성공까지 거기서 재면 잘못된 type 한 번이 정상 응원의 창을 먹는다.
+그래서 **상류 호출의 상한을 정의하는 것은 시도 창**이다 — 사용자당 600ms에 인가 조회 1회. 600ms는
+성공 창의 1/5이라 성공 1건당 최대 5회 시도할 수 있고, 거절당한 사용자가 3초를 기다리지 않아도 된다.
+
+두 창 모두 세지 않고 `SET key value NX PX` **한 명령**으로 「있으면 거절」한다. INCR로 세면 수명을 거는
+EXPIRE가 별도 명령이라 그 사이에 끊기면 수명 없는 카운터가 남아 그 사람이 영영 응원을 못 보낸다.
 
 ## 3. 저장·잠금·정산
 
@@ -314,7 +356,7 @@ schemaVersion=1이다. 버전 없는 emote만 aggregateVersion=null. 나머지�
 | --- | --- | --- |
 | focus.member.updated | userId,sessionId,status(active/paused/completed),subject,activeSeconds,serverNow,sessionVersion | (focus.member,islandId,userId) / 해당 섬 주민 focus 토픽 |
 | rest.member.updated | userId,sessionId,status,restStartedAt,restSeat,serverNow,sessionVersion | (rest.member,islandId,userId) / 해당 섬 주민 rest 토픽 |
-| focus.emote | userId,sessionId,type,expiresAt | version 없음, eventId+만료 / 같은 섬 active 세션 주민 emotes 토픽 |
+| focus.emote | userId,sessionId,type,expiresAt | version 없음, eventId+만료 / 같은 섬 진행 세션(active·paused) 주민 emotes 토픽 |
 | wallet.updated | ownerType,ownerId,currency,version | 개인(user,id,fish)은 islandId=null / 본인 user queue. 공동 포인트가 실제 바뀐 경우만 island scope |
 | quest.progress.updated | questId,occurrenceId,version | (quest.progress,islandId,questId,occurrenceId) / 섬 events 토픽, 관련 진행이 실제 바뀔 때 |
 | island.updated | islandId,version | (island,islandId) / 초기 건설 진행·완성이 실제 바뀔 때 |
@@ -361,8 +403,19 @@ Redis Pub/Sub 단일 유실은 지속 version 숫자 차이만으로 모두 알 
 1765의 설정/부하 검증 항목이며 주민별 고빈도 폴링을 다시 만드는 방식은 피한다.
 
 membership 상실 시 구독을 실제 해지하며 broker 해지가 검증되지 않으면 해당 소켓을 닫는다.
-SUBSCRIBE와 최종 outbound에서 현재 계정/소속을 재검사하고 emote는 수신자의 현재 active까지 검사한다.
-권한 원천 장애는 fail-closed다. paused 채팅 정책은 FR-D04 미결이며, active 채팅 차단을 focus/rest/emote의
+SUBSCRIBE와 최종 outbound에서 현재 계정/소속을 재검사하고 emote는 수신자가 **아직 진행 중인지**까지
+검사한다. **최종 outbound의 판정 근거는 `presence:focus:{userId}`가 아니다** — 그 사본은 Data의
+best-effort 쓰기라 양쪽으로 어긋난다(쓰기 실패 → 정상 참가자의 응원이 전부 버려짐, 삭제 유실 → 종료한
+사용자가 TTL 내내 수신). §6이 「이 사본을 신규 emote의 최종 인가 증거로 단독 사용하지 않는다」고 정한
+그대로다. 대신 **사건마다 정본에서 나온 수신 집합**을 봉투에 동반해 대조한다: 발신이 이미 치른
+`GET /internal/islands/{id}/focus-members` 한 번이 「그 섬에서 지금 진행 중인 주민 전원」을 주므로
+**추가 조회 없이** 판정이 정본에 붙는다(realtime-events LLD §4.2의 「배치 권한조회」). 그 집합은 서버
+프로세스 안에 `eventId`로 보관하고 다른 인스턴스에는 내부 팬아웃 봉투로 넘긴다 — 클라이언트에는 가지
+않는다. 기록이 없거나 만료됐으면 fail-closed다.
+남는 창은 발신과 전달 사이(밀리초)에 종료한 사람이 그 한 건을 받는 것뿐이며, 이미 브로커로 넘어간
+프레임을 회수하지 않는다는 §4.2의 경계와 같은 자리다.
+권한 원천 장애는 fail-closed다. paused 채팅 정책은 FR-D04 미결이며(응원과 별개 축이다 — 응원은
+2026-09-20에 paused 허용으로 확정됐다), active 채팅 차단을 focus/rest/emote의
 CONNECT 자체에 적용하지 않는다. JWT 만료는 기존 PR739의 명시 세션 종료/재인증 흐름을 따른다.
 
 `presence:focus:*`는 A19대로 **Data만 쓴다**. Realtime/Business에 별도 writer나 쓰기 ACL을 추가하지 않는다.

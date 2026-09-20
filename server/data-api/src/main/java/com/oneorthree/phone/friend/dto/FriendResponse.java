@@ -50,4 +50,12 @@ public class FriendResponse {
      * 진행 중 세션 태그명. 태그 미지정이거나 미집중이면 null.
      */
     private String focusTagName;
+
+    /**
+     * 상대의 <b>메인 섬 이름</b> (GROMO-1971) — MainIslandNamePort 가 상대 userId 로 배치 도출.
+     * 소속이 하나도 없으면 null. «지금 접속한 섬»이 아니라 그 사람이 고른(또는 첫 가입한) 대표 섬이다.
+     *
+     * <p><b>친구 목록에만 실린다</b> — 친구 검색·비친구 조회는 이 필드를 만들지 않는다.
+     */
+    private String mainIslandName;
 }

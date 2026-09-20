@@ -103,6 +103,18 @@ realtime:
     kafka-enabled: ${REALTIME_EVENTS_KAFKA_ENABLED:false}
     kafka-topic: realtime-events
 
+  # 응원(GROMO-1765). 인가 정본은 Data 의 GET /internal/islands/{id}/focus-members 이고, 호출자는
+  # data-api 의 `realtime` caller(application-realtime-authorization.yml)다 — 그 프로필과 토큰이
+  # 배선되지 않은 배포에서는 응원만 전량 거절된다(채팅·주민 관전은 영향 없음).
+  # ⚠️ base-url·token 은 현재 멤버십 client 와 «같은 값»을 기본으로 가리킨다. 대상도 자격도 같은
+  #    Data 내부 표면이라 두 벌로 관리하면 한쪽만 바뀌어 조용히 어긋난다.
+  focus:
+    data-base-url: ${REALTIME_AUTHORIZATION_DATA_URL:}
+    data-service-token: ${SVC_TOKEN_REALTIME_TO_DATA:}
+    data-timeout-ms: ${REALTIME_FOCUS_DATA_TIMEOUT_MS:1500}
+    # 표시 TTL. 앱 목업과 같은 3초이며 빈도 제한 창도 이 값이다(FocusEmoteService 에 근거).
+    emote-ttl: ${REALTIME_FOCUS_EMOTE_TTL:3s}
+
 logging:
   level:
     com.oneorthree.realtime: INFO

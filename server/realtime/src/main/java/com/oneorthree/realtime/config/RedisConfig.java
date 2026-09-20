@@ -1,6 +1,7 @@
 package com.oneorthree.realtime.config;
 
 import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.event.RealtimeEventFanoutSubscriber;
 import com.oneorthree.realtime.fanout.ChatFanoutSubscriber;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -22,18 +23,22 @@ import org.springframework.data.redis.listener.RedisMessageListenerContainer;
 public class RedisConfig {
 
     /**
-     * {@code chat:fanout} 구독을 연다.
+     * {@code chat:fanout}(채팅)과 {@code chat:events:v1}(섬 사건) 구독을 연다.
      *
-     * <p>이 빈이 없으면 다른 인스턴스가 보낸 말이 <b>아무 오류 없이</b> 이 인스턴스에 도착하지 않는다.
-     * 인스턴스 한 대짜리 환경에서는 정상으로 보이므로, 이 배선이 빠졌다는 사실은 스케일아웃한 뒤
-     * 운영에서야 드러난다({@code ChatFanoutIntegrationTest} 가 그 회귀를 잡는다).
+     * <p>이 빈이 없으면 다른 인스턴스가 보낸 말·사건이 <b>아무 오류 없이</b> 이 인스턴스에 도착하지
+     * 않는다. 인스턴스 한 대짜리 환경에서는 정상으로 보이므로, 이 배선이 빠졌다는 사실은 스케일아웃한
+     * 뒤 운영에서야 드러난다({@code TwoInstanceFanoutTest} 가 그 회귀를 잡는다).
+     *
+     * <p>컨테이너는 하나만 둔다 — 채널마다 컨테이너를 만들면 채널 수만큼 Redis 연결과 스레드 풀이
+     * 늘어나는데, 두 채널의 수명과 실패 방식이 같아서 나눌 이유가 없다.
      */
     @Bean
     public RedisMessageListenerContainer chatFanoutListenerContainer(RedisConnectionFactory connectionFactory,
-            ChatFanoutSubscriber subscriber) {
+            ChatFanoutSubscriber subscriber, RealtimeEventFanoutSubscriber eventSubscriber) {
         RedisMessageListenerContainer container = new RedisMessageListenerContainer();
         container.setConnectionFactory(connectionFactory);
         container.addMessageListener(subscriber, new ChannelTopic(RedisKeys.FANOUT_CHANNEL));
+        container.addMessageListener(eventSubscriber, new ChannelTopic(RedisKeys.EVENT_FANOUT_CHANNEL));
         return container;
     }
 }

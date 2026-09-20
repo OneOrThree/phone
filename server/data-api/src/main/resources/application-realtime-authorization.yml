@@ -10,3 +10,7 @@ internal:
         token: ${SVC_TOKEN_REALTIME_TO_DATA}
         allow:
           - 'POST /internal/realtime/membership-authorization'
+          # GROMO-1765 응원 인가 — Realtime 이 「이 사람이 이 섬에서 active 집중 중인가」를 물을 때
+          # 읽는 정본이다. Business 와 «같은 경로»지만 caller 가 달라 허용목록도 각자 적는다(㉱).
+          # `*` 는 세그먼트 하나이고, rest-members 는 이 판정에 필요 없어 열지 않는다.
+          - 'GET /internal/islands/*/focus-members'

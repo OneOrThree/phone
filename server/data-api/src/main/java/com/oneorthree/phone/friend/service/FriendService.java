@@ -4,6 +4,7 @@ import com.fasterxml.uuid.Generators;
 import com.fasterxml.uuid.NoArgGenerator;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.port.MainIslandNamePort;
 import com.oneorthree.phone.common.ratelimit.PerUserHourlyLimiter;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.dto.FocusLiveInfo;
@@ -71,6 +72,7 @@ public class FriendService {
     private final UserTierLookup userTierLookup;
     private final FocusLiveInfoLookup focusLiveInfoLookup;
     private final FriendRelationLookup friendRelationLookup;
+    private final MainIslandNamePort mainIslandNamePort;
     /**
      * GROMO-1090: 푸시는 여기서 직접 보내지 않고 이벤트만 발행한다 — 발송은 커밋 이후에 일어나야 한다
      * (요청/수락이 롤백되는데 알림만 나가면 안 된다). 소비는 notification 도메인의 AFTER_COMMIT 리스너.
@@ -94,6 +96,8 @@ public class FriendService {
      * @param userTierLookup              상대들의 티어를 한 번에 뽑는 배치 조회기
      * @param focusLiveInfoLookup         상대들의 집중 라이브 정보를 한 번에 뽑는 배치 조회기
      * @param friendRelationLookup        검색 결과의 관계 배지 판정 — 프로필 도메인과 공유한다
+     * @param mainIslandNamePort          상대들의 메인 섬 이름을 한 번에 뽑는 포트(GROMO-1971) — 섬은
+     *                                    group(L5) 데이터라 friend(L3)가 직접 부르면 레이어 역행이다
      * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
      * @param searchStrategies            등록된 검색 전략 전부. {@code type()} 을 키로 Map 이 되며,
      *                                    키가 겹치면 기동 시점에 터진다
@@ -110,6 +114,7 @@ public class FriendService {
                          UserTierLookup userTierLookup,
                          FocusLiveInfoLookup focusLiveInfoLookup,
                          FriendRelationLookup friendRelationLookup,
+                         MainIslandNamePort mainIslandNamePort,
                          ApplicationEventPublisher eventPublisher,
                          List<FriendSearchStrategy> searchStrategies,
                          @Qualifier("friendRequestRateLimiter") PerUserHourlyLimiter guestRequestLimiter) {
@@ -123,6 +128,7 @@ public class FriendService {
         this.userTierLookup = userTierLookup;
         this.focusLiveInfoLookup = focusLiveInfoLookup;
         this.friendRelationLookup = friendRelationLookup;
+        this.mainIslandNamePort = mainIslandNamePort;
         this.eventPublisher = eventPublisher;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
@@ -327,6 +333,9 @@ public class FriendService {
         // GROMO-822: 상대 userId 들의 집중 라이브 정보(당일 집중분·진행중 여부·시작시각·태그명)를 1회 배치 조회(N+1 방지).
         // date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(/pins 와 동일). 미조회 유저는 맵에 없어 아래에서 기본값(0/false/null) 처리.
         Map<UUID, FocusLiveInfo> liveInfo = focusLiveInfoLookup.liveInfoByUserId(otherIds, date);
+        // GROMO-1971: 메인 섬 «이름»도 한 번에 모은다(N+1 방지) — 섬은 group(L5) 데이터라 포트로 묻는다.
+        // 소속이 없는 친구는 맵에 키가 없어 아래에서 null 이 된다.
+        Map<UUID, String> mainIslandNames = mainIslandNamePort.mainIslandNamesByUserId(otherIds);
         return others.stream()
                 .map(other -> {
                     FocusLiveInfo info = liveInfo.get(other.getId());
@@ -340,6 +349,7 @@ public class FriendService {
                             .focusTimeMinutes(info != null ? info.focusTimeMinutes() : 0)
                             .focusStartedAt(info != null ? info.focusStartedAt() : null)
                             .focusTagName(info != null ? info.focusTagName() : null)
+                            .mainIslandName(mainIslandNames.get(other.getId()))
                             .build();
                 })
                 .toList();

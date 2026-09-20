@@ -9,11 +9,13 @@ import java.util.UUID;
  * @param id                 사용자 UUID
  * @param name               닉네임. 미설정이면 null
  * @param catColor           고양이 색(Q03 카탈로그). 미선택이면 null 이고 기본색을 채우지 않는다
+ * @param mainIslandId       메인 섬(GROMO-1971). 소속이 하나도 없으면 null — 유효하지 않은 섬을 대신 내주지 않는다.
+ *                           «지금 접속한 섬»({@code user_island_contexts.current_island_id})과 다른 축이다
  * @param linkedProviders    활성 소셜 연동 provider 소문자·중복 제거·오름차순. 게스트면 빈 배열
  * @param onboardingComplete {@code OnboardingCompletion} 판정 — 로그인 응답과 같은 함수
  */
-public record AccountMeView(UUID id, String name, String catColor, List<String> linkedProviders,
-                            boolean onboardingComplete) {
+public record AccountMeView(UUID id, String name, String catColor, UUID mainIslandId,
+                            List<String> linkedProviders, boolean onboardingComplete) {
     public AccountMeView {
         linkedProviders = List.copyOf(linkedProviders);
     }
