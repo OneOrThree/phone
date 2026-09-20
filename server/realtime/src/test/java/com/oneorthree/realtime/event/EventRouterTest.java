@@ -27,9 +27,12 @@ class EventRouterTest {
         assertThat(RealtimeEventType.values()).hasSize(14);
         for (RealtimeEventType type : RealtimeEventType.values()) {
             RealtimeEventEnvelope event = event(type, island);
-            RealtimeAudience audience = type == RealtimeEventType.JOIN_REQUEST_UPDATED
-                    ? new RealtimeAudience.UserAudience(Set.of(user))
-                    : new RealtimeAudience.IslandAudience(island);
+            // 응원만 수신 집합이 필수다 — 수신 자격이 구독 인가보다 좁아서다(GROMO-1765).
+            RealtimeAudience audience = switch (type) {
+                case JOIN_REQUEST_UPDATED -> new RealtimeAudience.UserAudience(Set.of(user));
+                case FOCUS_EMOTE -> new RealtimeAudience.IslandAudience(island, Set.of(user));
+                default -> new RealtimeAudience.IslandAudience(island);
+            };
             router.route(event, audience);
             String suffix = switch (type) {
                 case FOCUS_MEMBER_UPDATED -> "focus";
@@ -128,10 +131,23 @@ class EventRouterTest {
     }
 
     @Test
-    void defaultDeliveryFailsClosed() {
-        EventRouter disabled = new EventRouter(new DisabledRealtimeDelivery());
-        assertThatThrownBy(() -> disabled.route(event(RealtimeEventType.ISLAND_UPDATED, island),
-                new RealtimeAudience.IslandAudience(island))).isInstanceOf(IllegalStateException.class);
+    void emoteWithoutRecipientsIsRejected() {
+        // 빈 집합은 «제한 없음»으로 읽히므로, 응원에 그걸 허용하면 실수 하나가 전원 공개가 된다.
+        assertThatThrownBy(() -> router.route(event(RealtimeEventType.FOCUS_EMOTE, island),
+                new RealtimeAudience.IslandAudience(island))).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(delivery);
+    }
+
+    @Test
+    void personalQueueDeliveryStillFailsClosed() {
+        // 섬 토픽은 열렸지만(GROMO-1765) /user/queue/events 는 event 별 owner·방장 권한 재검사가
+        // 없어 계속 닫혀 있다. 조용히 성공한 척하지 않는다.
+        EventRouter router = new EventRouter(new RealtimeEventDelivery(
+                mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
+                mock(org.springframework.data.redis.core.StringRedisTemplate.class), mapper,
+                java.time.Clock.systemUTC()));
+        assertThatThrownBy(() -> router.route(event(RealtimeEventType.JOIN_REQUEST_UPDATED, island),
+                new RealtimeAudience.UserAudience(Set.of(user)))).isInstanceOf(IllegalStateException.class);
     }
 
     @Test
@@ -156,6 +172,49 @@ class EventRouterTest {
             payload.put("ownerType", islandId == null ? "user" : "island");
             payload.put("ownerId", (islandId == null ? user : islandId).toString());
             payload.put("currency", islandId == null ? "fish" : "village_points");
+        }
+        if (type == RealtimeEventType.FOCUS_MEMBER_UPDATED || type == RealtimeEventType.REST_MEMBER_UPDATED) {
+            // 활성화된 주민 사건 둘도 도메인 필드까지 검증한다 — 서비스 토큰은 「Data 가 보냈다」만
+            // 증명하지 「내용이 계약을 지킨다」를 증명하지 않는다(GROMO-1765).
+            payload.put("userId", user.toString());
+            payload.put("sessionId", UUID.randomUUID().toString());
+            payload.put("status", "paused");
+            payload.put("serverNow", Instant.now().toString());
+            payload.put("sessionVersion", 3);
+            if (type == RealtimeEventType.FOCUS_MEMBER_UPDATED) {
+                payload.put("subject", "영어 단어");
+                payload.put("activeSeconds", 120);
+            } else {
+                // nullable 필드는 키를 유지한다(LLD §6) — 「키 없음」은 거절, 「값이 null」은 삭제 신호다.
+                // 다만 «상태와의 조합»이 맞아야 한다: paused 면 둘 다 있어야 하고, 아니면 둘 다 null 이다.
+                payload.put("restStartedAt", Instant.now().toString());
+                payload.put("restSeat", 1);
+            }
+        }
+        if (type == RealtimeEventType.FOCUS_MEMBER_UPDATED || type == RealtimeEventType.REST_MEMBER_UPDATED) {
+            // 활성화된 주민 사건 둘도 도메인 필드까지 검증한다 — 서비스 토큰은 「Data 가 보냈다」만
+            // 증명하지 「내용이 계약을 지킨다」를 증명하지 않는다(GROMO-1765).
+            payload.put("userId", user.toString());
+            payload.put("sessionId", UUID.randomUUID().toString());
+            payload.put("status", "paused");
+            payload.put("serverNow", Instant.now().toString());
+            payload.put("sessionVersion", 3);
+            if (type == RealtimeEventType.FOCUS_MEMBER_UPDATED) {
+                payload.put("subject", "영어 단어");
+                payload.put("activeSeconds", 120);
+            } else {
+                // nullable 필드는 키를 유지한다(LLD §6) — 「키 없음」은 거절, 「값이 null」은 삭제 신호다.
+                // 다만 «상태와의 조합»이 맞아야 한다: paused 면 둘 다 있어야 하고, 아니면 둘 다 null 이다.
+                payload.put("restStartedAt", Instant.now().toString());
+                payload.put("restSeat", 1);
+            }
+        }
+        if (type == RealtimeEventType.FOCUS_EMOTE) {
+            // 응원만 도메인 필드까지 검증한다 — 생산자가 Data 가 아니라 «앱의 STOMP 프레임»이라서다.
+            payload.put("userId", user.toString());
+            payload.put("sessionId", UUID.randomUUID().toString());
+            payload.put("type", FocusEmoteType.CHEER.wireName());
+            payload.put("expiresAt", Instant.now().plusSeconds(3).toString());
         }
         return new RealtimeEventEnvelope(UUID.randomUUID(), type, islandId,
                 type == RealtimeEventType.FOCUS_EMOTE ? null : 1L, Instant.now(), payload);

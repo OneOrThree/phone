@@ -31,7 +31,10 @@ class ChatOutboundChannelInterceptorTest {
     private final JwtValidator jwt = mock(JwtValidator.class);
     private final ChatAccessGuard guard = mock(ChatAccessGuard.class);
     private final RealtimeSessionRegistry sessions = new RealtimeSessionRegistry();
-    private final ChatOutboundChannelInterceptor interceptor = new ChatOutboundChannelInterceptor(sessions, jwt, guard);
+    private final ChatOutboundChannelInterceptor interceptor =
+            new ChatOutboundChannelInterceptor(sessions, jwt, guard,
+                mock(com.oneorthree.realtime.event.RealtimeEventDelivery.class),
+                new tools.jackson.databind.ObjectMapper());
 
     @BeforeEach
     void setUp() {

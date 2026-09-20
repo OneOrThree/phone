@@ -11,8 +11,10 @@ the root `CLAUDE.md`. Run all commands from inside `server/realtime/`.
 2. 집중 중 채팅을 차단한다. CONNECT는 JWT 인증만 담당하고 집중 여부는 채팅 SUBSCRIBE·SEND·REST와
    기존 구독의 메시지 전달 직전에 검사한다. `/ws/realtime`으로 바뀌어도 채팅 제한은 유지한다.
 
-집중 중에도 연결 자체는 허용한다. 향후 집중/휴식 이벤트를 받을 연결과 채팅에 들어갈 권한은 다르다.
-현재 새 섬 채널은 도메인 인가·스냅샷·권한 회수 구현 전이라 모두 닫혀 있다.
+집중 중에도 연결 자체는 허용한다. 집중/휴식 이벤트를 받을 연결과 채팅에 들어갈 권한은 다르다.
+섬 채널 셋(`focus`·`rest`·`emotes`)은 GROMO-1765에서 열렸다 — 관전 둘은 인증만, 응원은 Data 정본으로
+「그 섬의 본인 진행 세션(active·paused)」을 판정한다. 나머지 섬 채널(`events`·`playback`·`messages`)과 `/user/queue/events`는 각 도메인의
+인가·복구 계약이 구현될 때까지 계속 닫혀 있다.
 
 채팅은 푸시를 발송하지 않는다. 기존 `chat_read_cursors`는 본인의 읽은 위치를 나타내며 이번 개명에서
 삭제하거나 의미를 바꾸지 않는다. 서버는 집중 시작에 소켓 전체를 끊지 않고 채팅 본문 전달을 차단한다.
@@ -51,6 +53,7 @@ Domain-based, mirroring `server/data-api/`'s conventions (see
 | `common/redis/` | `RedisKeys` — every Redis key this service touches, in one file |
 | `membership/` | 기존 Redis 소속 캐시 + `client/GroupClient`; 옵션 ON의 전용 Data 현재 인가 client는 아래 별도 계약 |
 | `presence/` | `FocusPresenceReader` — **read-only** view of `presence:focus:*` |
+| `focus/` | 응원 도메인 — `IslandFocusSessions`(Data 정본 인가), `FocusEmoteService`, `FocusEmoteStompController` |
 | `fanout/` | Redis Pub/Sub publish + subscribe, and local delivery |
 | `message/` | The chat domain: controllers at the package root, `service/`, `repository/`(+`repository/domain/`), `dto/`, `exception/` |
 
@@ -113,7 +116,11 @@ architecture decision A19 table.
 | Key | Writer | This service | Purpose |
 | --- | --- | --- | --- |
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
-| `chat:fanout` | chat | pub/sub | cross-instance delivery |
+| `chat:fanout` | chat | pub/sub | cross-instance delivery (채팅 전용 wire) |
+| `chat:events:v1` | realtime | pub/sub | cross-instance delivery of **island events**; `{originInstanceId,destination,event}` |
+| `lock:chat:emote:{islandId}:{userId}` | realtime | read/write | 응원 **성공** 창(3초). 존재가 곧 「이미 보냈다」 |
+| `lock:chat:emote:try:{userId}` | realtime | read/write | 응원 **발신** 시도 창(600ms, **사용자 축**). 거절된 요청도 소모해 상류 조회를 누른다 |
+| `lock:chat:emote:sub:{userId}` | realtime | read/write | 응원 **구독** 시도 창(600ms). SUBSCRIBE 도 상류 조회를 부르므로 같은 상한 |
 | `presence:focus:{userId}` | **Data API** | **read only** | focus lease; existence is the signal, the value is not read |
 
 **This ownership is a code convention, not an enforced boundary — yet.** A19 says the chat
@@ -140,6 +147,9 @@ designed fresh.
 | `SUB /topic/groups/{groupId}` | that island's broadcast; members only |
 | `SUB /user/queue/errors` | send failures, same `{code, message}` envelope |
 | `SUB /user/queue/duplicates` | a resend's ack — the message already stored, sent to that sender only |
+| `SUB /topic/islands/{islandId}/focus`, `/rest` | 섬의 집중·휴식 주민 갱신. **인증만** — 비소속 관전 개방(2026-09-19) |
+| `SUB /topic/islands/{islandId}/emotes` | 응원 수신. 그 섬의 **본인 진행 세션(active·paused)** 이 있어야 한다 |
+| `SEND /app/islands/{islandId}/focus/emotes` | 응원 발신, body `{sessionId,type}`. 성공은 브로드캐스트가 ack |
 | `GET /api/v1/chat/rooms` | my islands + unread counts |
 | `GET /api/v1/chat/rooms/{groupId}/messages?cursor&size` | history, newest → oldest |
 | `POST /api/v1/chat/rooms/{groupId}/read` | advance the read cursor (forward only) |
@@ -184,9 +194,26 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    row here over HTTP by default, or over the `realtime-events` Kafka topic when both flags are on
    (`event/KafkaEventInbound`, `REALTIME_EVENTS_KAFKA_ENABLED`, default false). Both entrances call
    `event/InboundEventService`, which inserts `inbound_events(event_id)` first and applies only on first sight.
-   The 14 app event types are accepted and deduped but **not delivered to STOMP yet** — island destinations are
-   not in the SUBSCRIBE allowlist (`StompAuthChannelInterceptor`) and `DisabledRealtimeDelivery` still throws.
-   Multi-instance fan-out (per-instance consumer group / Redis redistribution) is not implemented.
+   Of the 14 app event types, `focus.member.updated` and `rest.member.updated` are now **delivered to STOMP**
+   (GROMO-1765): `InboundEventService` converts the canonical 10-field outbox envelope to the 7-field
+   `RealtimeEventEnvelope` (`subjectId`→`islandId`, `version`→`aggregateVersion`, `params`→`payload`) and calls
+   `EventRouter`. The other 12 are still accepted-and-deduped only — their domain payload validators and
+   authorization/recovery contracts do not exist yet. **A conversion failure never becomes a 400**: the event is
+   still recorded and only delivery is skipped, because a 400 makes the relay mark the row permanent and that
+   aggregate axis is blocked forever.
+   Multi-instance fan-out **is** implemented, via Redis Pub/Sub on `chat:events:v1` (`RealtimeEventDelivery` +
+   `RealtimeEventFanoutSubscriber`), not per-instance Kafka consumer groups — both entrances (HTTP behind a load
+   balancer, Kafka group `realtime-v1`) land on a single instance, so redistribution covers both while a split
+   consumer group would only fix Kafka.
+
+5. `GET /internal/islands/{islandId}/focus-members` with the Realtime service token + the subject's `X-User-Id`
+   (GROMO-1765) — the **authoritative** answer to "does this user have a progressing (active **or paused**)
+   session in this island, in this session id". That list's filter is `[ACTIVE, PAUSED]`, so a resting user is
+   carried with `status: "paused"` — which is why the 2026-09-20 decision needed no new surface.
+   `focus/IslandFocusSessions` is the only caller; it never caches (LLD §4.2 forbids a stale TTL cache as final
+   authorization evidence) and fails closed. Data's side needs the `realtime` caller allowlist entry in
+   `application-realtime-authorization.yml` — without that profile and token, **emotes only** are rejected
+   wholesale; chat and island watching are unaffected.
 
 ### 선택적 현재 멤버십 인가
 
@@ -239,10 +266,61 @@ Chat never touches the `gromo` database and Data API never touches `gromo_chat`.
 공동 자산은 같은 섬으로만 보낸다. 필수 `schemaVersion: 1`과 안전 정수 자원 버전을 구분하고, payload version 일치·owner/currency 범위를 검사한다.
 알 수 없거나 누락된 schemaVersion은 거절한다. emote도 schemaVersion은 1이고 aggregateVersion만 null이다.
 
-`DisabledRealtimeDelivery`는 항상 거절한다. 새 SUBSCRIBE/SEND 및 새 채널의 아웃바운드도 닫혀 있다.
-새 생산자 HTTP endpoint·Redis fanout 채널·샘플 메시지는 만들지 않았다. 14종 전체 payload 스키마,
-신청 수신자의 현재 방장 권한, 시설 해금, focus/rest 투영 버전, 재연결 스냅샷/구독 완료 확인,
-다중 인스턴스 권한 철회가 준비되어야 각 도메인 작업에서 전달 adapter를 활성화할 수 있다.
+`RealtimeEventDelivery`가 섬 목적지 전달을 담당한다(GROMO-1765) — 로컬 `SimpMessagingTemplate` 먼저,
+그다음 `chat:events:v1` Redis 발행. 둘 중 어느 쪽이 실패해도 예외를 올리지 않는다: 이 메서드는
+`InboundEventService`의 트랜잭션 안에서 불리므로 던지면 수신 기록까지 롤백돼 relay가 무한 재전달한다.
+**개인 큐(`UserAudience`) 전달은 여전히 거절한다** — `/user/queue/events`가 허용목록에 없어 보내도 아무도
+못 받고, event별 owner/방장 권한 재검사가 아직 없다.
+
+응원 자격은 **진행 중(active·paused) 본인 세션**이다(2026-09-20 재영님 결정 — 휴식은 빠진 상태가 아니라
+모닥불에 앉은 상태다). 거절되는 것은 완료·포기·남의 세션·다른 섬·비주민이다.
+
+인가는 세 층이다: SUBSCRIBE(**구독 시도 창 → Data 정본 1회**) → SEND(**발신 시도 창[관문] → 형식 →
+Data 정본 1회 → 성공 창**) → 전달 직전(`ChatOutboundChannelInterceptor` 가 **JWT 재검증 + 사건에
+동반된 수신 집합 대조**).
+
+**두 시도 창 모두 `StompAuthChannelInterceptor` 에서 잡는다 — 본문 변환보다 앞이다.** 컨트롤러 안에서
+재면 `sessionId` 가 빠진 프레임은 `@Payload` 변환·`@Valid` 가 메서드 진입 전에 실패시켜 **창을 아예
+안 거친다** — 가장 싼 거절만 공짜가 되는 구멍이다. 그 대신 `FocusEmoteService` 는 시도 창을 재지
+않는다(이중 소모 방지). 발신 창과 구독 창의 키를 나눈 이유는 응원을 보낸 직후 재구독하는(재연결
+직후가 그렇다) 클라이언트가 자기 발신 때문에 구독을 거절당하지 않게 하기 위해서다.
+
+시도 창 초과 = ERROR 프레임 + 연결 종료(다른 관문 위반과 같다). 정상 클라이언트는 자기 성공 창(3초)
+때문에 그 속도를 만들 수 없다. 사용자에게 보이는 429 는 성공 창이 개인 큐로 보낸다.
+
+**구독은 «빈도»와 별개로 «누적»도 막는다.** `SimpleBroker` 는 구독을 연결이 끊길 때까지 들고 있어,
+STOMP `id` 만 바꿔 반복하면 소켓 하나로 레지스트리 메모리를 계속 불릴 수 있다(관전 채널은 공개라
+상류 조회조차 안 타서 가장 싸게 쌓인다). 빈도 창은 «조회 수»를 막지 «누적 수»를 막지 않는다 —
+창마다 하나씩 꾸준히 쌓으면 걸리지 않는다. 그래서 `RealtimeSessionRegistry` 가 두 가지를 따로 센다:
+**중복**(같은 목적지 재구독 → 사건 하나가 구독 수만큼 복제되는 증폭을 막는다)과
+**총량**(세션당 `MAX_SUBSCRIPTIONS_PER_SESSION` = 64 → 임의 UUID 로 목적지를 바꿔도 막힌다).
+하나만으로는 다른 하나가 샌다. 64 의 근거는 계정당 소속 상한(`GroupService.MAX_JOINED_GROUPS` = 10)
+× 섬당 목적지 4(`focus`·`rest`·`emotes`·채팅) + 개인 큐 2 = **42** 에 약 50% 여유다.
+**UNSUBSCRIBE 가 자리를 돌려주므로**(`id → destination` 으로 추적한다) 섬을 떠날 때 해지하는 정상
+클라이언트는 이 상한에 닿지 않는다.
+
+**SEND 의 빈도 제한이 둘인 것은 「거절도 비용을 치르게」 하기 위해서다.** 성공 창(사용자×섬 3초)만 두고
+인가를 먼저 하면 임의의 다른 섬 UUID 로 보내는 거절 요청이 제한 키를 만들지도 않은 채 매번 Data 정본
+조회를 불러, 인증된 사용자 하나가 동기 HTTP 로 STOMP 채널 스레드와 Data API 를 고갈시킬 수 있다.
+그래서 **시도 창은 사용자 축**(섬을 키에 넣으면 UUID 만 바꿔 비켜 간다)이고 맨 앞에서 잰다 —
+**상류 호출의 상한을 정의하는 것은 성공 창이 아니라 시도 창**이다.
+
+**섬 프레임은 셋 모두 전달 직전에 JWT 를 다시 본다.** 섬 채널은 오래 열려 있는 구독이라 SUBSCRIBE 때
+유효하던 AT 가 그 뒤 만료된다 — 관전이 「공개」라는 말은 *소속을 안 본다*이지 *아무나 받는다*가 아니다.
+만료를 감지하면 프레임을 버리고 소켓도 1008/UNAUTHORIZED 로 닫는다(채팅 경로와 **같은 한 곳**을 쓴다).
+
+**응원의 전달 직전 판정에 `presence:focus:*` 를 쓰지 않는다.** 그 사본은 Data 의 best-effort 쓰기라
+양쪽으로 어긋난다 — 쓰기가 실패하면 정상 참가자의 응원이 전부 버려지고, 삭제가 유실되면 종료한
+사용자가 TTL(13시간) 내내 계속 받는다. focus-rest-session LLD §6 이 「이 사본을 신규 emote 의 최종
+인가 증거로 단독 사용하지 않는다」고 못 박아 뒀다. 대신 **사건마다 정본에서 나온 수신 집합**을
+대조한다(`RealtimeEventDelivery.mayReceive`) — 그 집합은 발신이 이미 치른 조회 한 번에서 공짜로 나오므로
+**추가 HTTP 가 0** 이고, 기록이 없거나 만료됐으면 fail-closed 다. 집합은 프로세스 안에 `eventId` 로
+보관하고 프레임에서는 payload 의 `eventId` 로 되찾는다 — 커스텀 «메시지 헤더»로 싣는 방법을 먼저 썼다가
+되돌렸다: `SimpleBrokerMessageHandler` 가 구독자별 메시지를 다시 만드는 과정에서 살아남지 않아
+**전원이 fail-closed 로 막혔다**(실측). 팬아웃 봉투(`chat:events:v1`)는 다른 인스턴스에 같은 집합을 넘긴다.
+
+14종 전체 payload 스키마, 신청 수신자의 현재 방장 권한, 시설 해금, 개인 큐 전달이 준비되어야
+나머지 12종의 전달 adapter를 활성화할 수 있다.
 
 계약: `docs/prd/fishcat/realtime-events/` (참고 티켓 1754). 기존 `chat:fanout` payload와 Redis 키·DB 이름·테이블은
 호환 유지한다. `com.oneorthree.realtime`, `RealtimeApplication`, Gradle `realtime`과 CI/image/compose 이름만

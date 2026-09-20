@@ -83,8 +83,9 @@ dev 의 `../.gromo-runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다** Secr
 | `KAFKA_BOOTSTRAP_SERVERS` | Realtime(dev.env) · Data·Notification(서비스 env) | Realtime·Data 는 `kafka:9092`. Notification 은 필수 |
 | `FOCUS_SESSION_START_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 새 집중 start 만 503 |
 | `FOCUS_PRESENCE_ENABLED` | Data(같은 경로) | `false` — 프레즌스를 쓰지 않는다 |
+| `REALTIME_AUTHORIZATION_DATA_URL` · `SVC_TOKEN_REALTIME_TO_DATA` | Realtime(미배선) · Data(`realtime-authorization` 프로파일) | **응원(STOMP emote)만** 전량 거절(`UPSTREAM_UNAVAILABLE`) — 인가 정본인 `GET /internal/islands/*/focus-members` 를 부를 수 없어서다(GROMO-1765). 채팅·주민 관전(`/topic/islands/*/focus\|rest`)·Data 사건 전달은 영향 없다 |
 
-켜는 순서는 [runtime.md «dev 에서 켜는 순서»](../../docs/prd/fishcat/server-separation/runtime.md#dev-에서-켜는-순서)가 정본입니다. `REALTIME_AUTHORIZATION_*`·`SVC_TOKEN_REALTIME_TO_DATA`(기본 OFF 인 채팅 멤버십 인가)는 아직 compose 에 배선하지 않았습니다.
+켜는 순서는 [runtime.md «dev 에서 켜는 순서»](../../docs/prd/fishcat/server-separation/runtime.md#dev-에서-켜는-순서)가 정본입니다. `REALTIME_AUTHORIZATION_*`·`SVC_TOKEN_REALTIME_TO_DATA`는 아직 compose 에 배선하지 않았습니다 — 기본 OFF 인 채팅 멤버십 인가와, **같은 값을 쓰는 응원 인가**(GROMO-1765)가 여기에 걸립니다. Data 쪽은 `realtime-authorization` 프로파일을 `DATA_API_PROFILES` 에 더해야 `realtime` caller 허용목록이 생깁니다.
 
 ## 5. 컨테이너 로그 보존
 

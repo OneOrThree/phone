@@ -147,38 +147,43 @@ class IslandFocusMembersIntegrationTest {
     }
 
     @Test
-    @DisplayName("비주민은 두 목록 모두 403 MEMBER_ONLY 다")
-    void nonResidentIsForbidden() {
+    @DisplayName("비소속 방문자·떠난 주민도 주민과 «같은» 목록을 본다 — 2026-09-19 관전 개방")
+    void visitorSeesTheSameList() {
         Island a = island();
+        User focusing = resident(a.group);
+        User resting = resident(a.group);
+        activeSession(focusing, a.id, now.minus(3, ChronoUnit.MINUTES));
+        pausedSession(resting, a.id);
         User outsider = users.save(User.builder().nickname("밖-" + UUID.randomUUID()).build());
+        User departed = resident(a.group);
+        leave(departed, a.group);
 
-        assertThatThrownBy(() -> service.focusMembers(a.id, outsider.getId()))
-                .isInstanceOfSatisfying(GroupException.class, e -> {
-                    assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY);
-                    assertThat(e.getErrorCode().getStatus().value()).isEqualTo(403);
-                });
-        assertThatThrownBy(() -> service.restMembers(a.id, outsider.getId()))
-                .isInstanceOfSatisfying(GroupException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
+        for (UUID visitor : new UUID[] {outsider.getId(), departed.getId()}) {
+            assertThat(service.focusMembers(a.id, visitor).items())
+                    .as("방문자도 주민과 같은 항목을 본다")
+                    .usingRecursiveComparison()
+                    .isEqualTo(service.focusMembers(a.id, a.owner.getId()).items());
+            assertThat(service.restMembers(a.id, visitor).items())
+                    .extracting(IslandRestMembersView.Item::userId).containsExactly(resting.getId());
+        }
     }
 
     @Test
-    @DisplayName("없는 섬 · 종료된 섬 · 떠난 주민은 모두 같은 403 MEMBER_ONLY 다 — 섬 존재가 새지 않는다")
-    void missingEndedOrDepartedIsMemberOnly() {
+    @DisplayName("없는 섬 · 종료된 섬은 여전히 같은 403 MEMBER_ONLY 다 — 섬 존재는 관전 개방 뒤에도 새지 않는다")
+    void missingOrEndedIslandIsMemberOnly() {
         Island ended = island();
         ended.group.close();
         groups.save(ended.group);
         Island a = island();
-        User departed = resident(a.group);
-        leave(departed, a.group);
 
         for (UUID[] call : new UUID[][] {
                 {UUID.randomUUID(), a.owner.getId()},
-                {ended.id, ended.owner.getId()},
-                {a.id, departed.getId()}}) {
+                {ended.id, ended.owner.getId()}}) {
             assertThatThrownBy(() -> service.focusMembers(call[0], call[1]))
-                    .isInstanceOfSatisfying(GroupException.class,
-                            e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
+                    .isInstanceOfSatisfying(GroupException.class, e -> {
+                        assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY);
+                        assertThat(e.getErrorCode().getStatus().value()).isEqualTo(403);
+                    });
             assertThatThrownBy(() -> service.restMembers(call[0], call[1]))
                     .isInstanceOfSatisfying(GroupException.class,
                             e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));

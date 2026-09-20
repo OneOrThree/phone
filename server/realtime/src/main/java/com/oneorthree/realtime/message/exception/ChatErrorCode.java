@@ -76,7 +76,31 @@ public enum ChatErrorCode implements ErrorCode {
      * <p>legacy STOMP 발신은 이 코드를 <b>내지 않는다</b> — 그쪽은 같은 키면 본문이 달라도 원문을
      * 되돌리는 동작을 보존한다({@code ChatMessageService#send}). 두 입구의 정책이 «일부러» 다르다.
      */
-    IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 메시지에 사용한 키입니다.");
+    IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 메시지에 사용한 키입니다."),
+
+    /**
+     * 응원 종류가 5종({@code hello}·{@code cheer}·{@code sleepy}·{@code laugh}·{@code hearts})이 아니다
+     * (GROMO-1765, focus-rest-session LLD §2 emote).
+     *
+     * <p>400 이 아니라 <b>422</b> 인 것은 본문 «형식»은 맞고 값만 계약 밖이기 때문이다 — 앱이 이 둘을
+     * 갈라야 「보내는 코드가 깨졌다」와 「종류 목록이 서버와 어긋났다」를 구분해 고칠 수 있다.
+     */
+    INVALID_EMOTE_TYPE(HttpStatus.UNPROCESSABLE_ENTITY, "보낼 수 없는 응원입니다."),
+
+    /**
+     * 그 섬에서 <b>본인의 active 집중 세션</b>이 아니다 — 휴식 중·이미 끝난 세션·남의 세션·다른 섬이
+     * 전부 이 코드 하나로 합쳐진다({@link #NOT_A_MEMBER} 와 같은 이유로 갈라 주지 않는다).
+     *
+     * <p>409 인 이유는 {@link #FOCUS_IN_PROGRESS} 의 거울상이다 — 권한이 아니라 상태의 충돌이고,
+     * 집중을 다시 시작하면 같은 사람이 같은 섬에서 보낼 수 있다.
+     */
+    NOT_FOCUSING(HttpStatus.CONFLICT, "집중 중일 때만 응원할 수 있습니다."),
+
+    /**
+     * 응원을 너무 자주 보냈다. 창은 표시 TTL 과 같은 3초이고, 한 창에 한 번이다 —
+     * 근거는 {@code FocusEmoteService} 에 있다.
+     */
+    EMOTE_TOO_FREQUENT(HttpStatus.TOO_MANY_REQUESTS, "잠시 후 다시 응원해 주세요.");
 
     private final HttpStatus status;
     private final String message;

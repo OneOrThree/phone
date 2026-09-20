@@ -5,9 +5,14 @@ import com.oneorthree.realtime.fanout.ChatFanout;
 import com.oneorthree.realtime.auth.JwtValidator;
 import com.oneorthree.realtime.common.exception.CommonErrorCode;
 import com.oneorthree.realtime.common.exception.DomainException;
+import com.oneorthree.realtime.common.redis.RedisKeys;
+import com.oneorthree.realtime.focus.IslandFocusSessions;
+import com.oneorthree.realtime.message.exception.ChatErrorCode;
+import com.oneorthree.realtime.message.exception.ChatException;
 import com.oneorthree.realtime.message.service.ChatAccessGuard;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.MessageChannel;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
@@ -15,6 +20,7 @@ import org.springframework.messaging.support.ChannelInterceptor;
 import org.springframework.messaging.support.MessageHeaderAccessor;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -45,7 +51,23 @@ import java.util.regex.Pattern;
  *
  * <p>CONNECT는 인증만 담당한다. 집중 중에도 집중/휴식용 연결은 필요하므로,
  * 집중 차단은 채팅 SUBSCRIBE·SEND·REST 및 기존 구독의 아웃바운드 전달에 적용한다.
- * 신규 섬 목적지는 후속 도메인의 인가·복구 계약이 구현될 때까지 열지 않는다.
+ *
+ * <h2>섬 목적지 셋의 인가가 서로 다르다 (GROMO-1765)</h2>
+ * <ul>
+ *   <li>{@code /topic/islands/{id}/focus}·{@code /rest} — <b>인증만</b>. 비소속 관전을 열기로
+ *       확정했고(2026-09-19), 같은 목록을 내려 주는 {@code GET /islands/{id}/focus-members} 가
+ *       같은 문을 쓴다. 둘의 문턱을 다르게 두면 방문자가 「스냅샷은 보이는데 갱신은 멈춘」 화면을
+ *       본다.</li>
+ *   <li>{@code /topic/islands/{id}/emotes} — <b>그 섬의 본인 active 집중 세션</b>. 응원은 관전자가
+ *       아니라 같이 집중하는 사람들 사이의 신호다(realtime-events LLD §3.1). 판정은 TTL 캐시가 아니라
+ *       Data 정본({@link IslandFocusSessions})이다.</li>
+ *   <li>{@code /app/islands/{id}/focus/emotes}(SEND) — 인증과 <b>시도 창</b>만 본다. 창을 여기서
+ *       잡는 이유는 <b>본문 변환보다 앞</b>이어야 하기 때문이다({@code authorizeSend} 참고).
+ *       「본인 진행 세션인가」는 {@code FocusEmoteService} 한 곳이고, 두 곳에서 검사하면 언젠가
+ *       한쪽만 바뀐다 — 채팅 SEND 가 도메인 규칙을 서비스에 맡기는 것과 같은 규율이다.</li>
+ * </ul>
+ * 나머지 섬 채널({@code events}·{@code playback}·{@code messages})과 {@code /user/queue/events} 는
+ * 각 도메인의 인가·복구 계약이 구현될 때까지 계속 닫아 둔다.
  */
 @Slf4j
 @Component
@@ -88,9 +110,35 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private static final Pattern SEND_DESTINATION =
             Pattern.compile("^/app/groups/([0-9a-f-]{36})/send$");
 
+    /**
+     * 섬 실시간 채널 셋. {@code GROUP_TOPIC} 과 같은 이유로 <b>소문자 UUID 만</b> 받고 채널 이름도
+     * 열거한다 — {@code RealtimeEventType#channel()} 이 만드는 경로와 같은 모양이어야 하고, 열거하지
+     * 않으면 아직 닫혀 있어야 할 {@code events}·{@code playback}·{@code messages} 가 함께 열린다.
+     */
+    private static final Pattern ISLAND_TOPIC =
+            Pattern.compile("^/topic/islands/([0-9a-f-]{36})/(focus|rest|emotes)$");
+
+    /** 응원 발신 목적지 — {@code FocusEmoteStompController} 의 {@code @MessageMapping} 과 같은 모양이다. */
+    private static final Pattern EMOTE_SEND =
+            Pattern.compile("^/app/islands/([0-9a-f-]{36})/focus/emotes$");
+
+    private static final String EMOTES_CHANNEL = "emotes";
+
+    /**
+     * 응원 구독·발신의 프레임 상한. 두 창은 <b>키가 다르고 길이가 같다</b>.
+     *
+     * <p>정상 클라이언트는 섬에 들어갈 때 한 번 구독하고, 응원은 자기 성공 창(3초) 때문에 어차피
+     * 3초에 한 번만 보낸다. 그러니 이 창에 걸린다는 것은 <b>정상 클라이언트가 만들 수 없는 속도</b>
+     * 라는 뜻이다 — 그래서 거절은 다른 관문 위반과 같이 ERROR 프레임 + 연결 종료다. 사용자에게
+     * 보여 줄 「너무 자주 보냈어요」는 성공 창이 개인 큐로 따로 보낸다({@code FocusEmoteService}).
+     */
+    private static final Duration FRAME_WINDOW = Duration.ofMillis(600);
+
     private final JwtValidator jwtValidator;
     private final ChatAccessGuard accessGuard;
     private final RealtimeSessionRegistry sessions;
+    private final IslandFocusSessions focusSessions;
+    private final StringRedisTemplate redis;
 
     @Override
     public Message<?> preSend(Message<?> message, MessageChannel channel) {
@@ -102,6 +150,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         switch (accessor.getCommand()) {
             case CONNECT -> authenticate(accessor);
             case SUBSCRIBE -> authorizeSubscription(accessor);
+            case UNSUBSCRIBE -> sessions.unsubscribe(accessor.getSessionId(), accessor.getSubscriptionId());
             case SEND -> authorizeSend(accessor);
             default -> {
                 // 나머지 프레임(SEND·DISCONNECT·ACK…)은 그대로 흘린다. SEND 의 규칙 검사는 서비스가 한다.
@@ -150,9 +199,24 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         String destination = String.valueOf(accessor.getDestination());
 
         if (PERSONAL_ERROR_QUEUE.equals(destination) || PERSONAL_DUPLICATE_QUEUE.equals(destination)) {
-            ChatPrincipal principal = requireAuthenticated(accessor);
+            ChatPrincipal principal = requireSubscribable(accessor, destination);
             if (PERSONAL_DUPLICATE_QUEUE.equals(destination)) {
                 accessGuard.requireNotFocusing(principal.userId());
+            }
+            return;
+        }
+
+        Matcher island = ISLAND_TOPIC.matcher(destination);
+        if (island.matches()) {
+            ChatPrincipal principal = requireSubscribable(accessor, destination);
+            UUID islandId = uuidOrReject(island.group(1));
+            if (EMOTES_CHANNEL.equals(island.group(2))) {
+                // 상류 조회 «전에» 센다 — 거절될 연타도 비용을 치러야 상한이 성립한다(발신 쪽과 같은 규율).
+                if (!acquireWindow(RedisKeys.emoteSubscribeAttempt(principal.userId()))) {
+                    throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
+                }
+                // 관전(focus·rest)과 달리 응원 수신은 「그 섬에서 지금 진행 중인 사람」의 것이다.
+                focusSessions.requireActiveSession(islandId, principal.userId(), null);
             }
             return;
         }
@@ -164,17 +228,30 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
 
-        ChatPrincipal principal = requireAuthenticated(accessor);
-
-        UUID groupId;
-        try {
-            groupId = UUID.fromString(matcher.group(1));
-        } catch (IllegalArgumentException e) {
-            // 36자 모양은 맞는데 UUID 가 아니다 — 그런 섬은 없다.
-            throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
-        }
+        ChatPrincipal principal = requireSubscribable(accessor, destination);
+        UUID groupId = uuidOrReject(matcher.group(1));
 
         accessGuard.requireCanChat(groupId, principal.userId(), principal.bearer());
+    }
+
+    /**
+     * 인증 + <b>이 세션이 구독 하나를 더 들 수 있는가</b>.
+     *
+     * <p>목적지가 허용 목록에 있다는 것만으로는 부족하다 — {@code SimpleBroker} 는 구독을 연결이 끊길
+     * 때까지 들고 있으므로, STOMP {@code id} 만 바꿔 반복하면 소켓 하나로 레지스트리를 계속 불릴 수 있다.
+     * 관전 채널({@code focus}·{@code rest})은 공개라 상류 조회조차 타지 않아 <b>가장 싸게 쌓인다</b>.
+     * 빈도 창은 «조회 수»를 막지 «누적 수»를 막지 않는다(창마다 하나씩 꾸준히 쌓으면 걸리지 않는다).
+     *
+     * <p>상류 조회보다 <b>앞</b>에서 센다 — 메모리만이 아니라 그 조회까지 함께 눌러야 하기 때문이다.
+     * 판정과 근거는 {@link RealtimeSessionRegistry#subscribe} 에 있다.
+     */
+    private ChatPrincipal requireSubscribable(StompHeaderAccessor accessor, String destination) {
+        ChatPrincipal principal = requireAuthenticated(accessor);
+        if (!sessions.subscribe(accessor.getSessionId(), accessor.getSubscriptionId(), destination)) {
+            log.debug("구독 거절 — 세션의 중복 구독이거나 누적 상한을 넘었다");
+            throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
+        }
+        return principal;
     }
 
     /**
@@ -203,7 +280,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private void authorizeSend(StompHeaderAccessor accessor) {
         String destination = String.valueOf(accessor.getDestination());
         Matcher matcher = SEND_DESTINATION.matcher(destination);
-        if (!matcher.matches()) {
+        Matcher emote = EMOTE_SEND.matcher(destination);
+        if (!matcher.matches() && !emote.matches()) {
             // 브로커 목적지(/topic/**·/queue/**)로의 직접 발신이 여기로 떨어진다.
             log.debug("허용되지 않은 발신 목적지 — {}", destination);
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
@@ -213,13 +291,51 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         // @DestinationVariable UUID 변환이 메시징 계층의 MethodArgumentTypeMismatchException 을 던지는데,
         // 그 타입은 handleInvalidPayload 가 잡는 둘에 없어서 ERROR 프레임 + «연결 종료»로 이어진다 —
         // 오타 하나가 세션을 죽인다. SUBSCRIBE 와 같은 자리에서 같은 방식으로 막는다.
+        uuidOrReject(matcher.matches() ? matcher.group(1) : emote.group(1));
+
+        ChatPrincipal principal = requireAuthenticated(accessor);
+
+        // 응원 시도 창을 «여기서» 잡는다 — 본문 변환·@Valid 보다 앞이다.
+        // 컨트롤러 안에서 재면 sessionId 가 빠지거나 UUID 가 아닌 프레임은 변환 단계에서 죽어
+        // 메서드에 닿지도 못하므로, «가장 싼 거절»만 창을 소모하지 않는 구멍이 남는다 —
+        // 그 프레임을 무제한으로 반복해 변환·오류 응답 경로를 고갈시킬 수 있다.
+        if (!matcher.matches() && !acquireWindow(RedisKeys.emoteAttempt(principal.userId()))) {
+            throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
+        }
+    }
+
+    /**
+     * 프레임 창 하나를 선점한다. Redis 가 답하지 않으면 통과시킨다 — 상한은 «보호»가 아니라 «절약»이고,
+     * 인가 자체는 뒤따르는 Data 정본 조회가 fail-closed 로 지킨다.
+     */
+    private boolean acquireWindow(String key) {
         try {
-            UUID.fromString(matcher.group(1));
+            return Boolean.TRUE.equals(redis.opsForValue().setIfAbsent(key, "1", FRAME_WINDOW));
+        } catch (RuntimeException e) {
+            log.warn("응원 프레임 상한 조회 실패 — 이번 건은 통과시킨다", e);
+            return true;
+        }
+    }
+
+    /**
+     * 36자 모양은 맞는데 <b>정규 UUID 가 아니다</b> — 그런 섬은 없다.
+     *
+     * <p>{@code UUID.fromString} 만으로는 부족하다. 그건 {@code 000000000-000-0000-0000-000000000000}
+     * 처럼 <b>그룹 폭이 비정규</b>인 36자도 받아 준다(앞 그룹의 남는 자리를 잘라 파싱한다). 그 목적지는
+     * 인가를 통과하지만 <b>브로커에는 원문 그대로 등록</b>되는 반면 발행은 {@code UUID.toString()}(정규형)
+     * 으로 하므로, 그 클라이언트는 <b>인가에 성공하고도 영영 아무것도 받지 못한다</b> — 대문자 UUID 를
+     * 막는 것과 정확히 같은 이유다(거절되면 즉시 알지만, 통과시키면 «조용히» 안 된다).
+     */
+    private static UUID uuidOrReject(String value) {
+        try {
+            UUID parsed = UUID.fromString(value);
+            if (!parsed.toString().equals(value)) {
+                throw new IllegalArgumentException("비정규 UUID 표기");
+            }
+            return parsed;
         } catch (IllegalArgumentException e) {
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
         }
-
-        requireAuthenticated(accessor);
     }
 
     /** 사용자별 멤버십 캐시와 무관하게, 이 세션의 토큰이 지금도 유효한지 확인한다. */

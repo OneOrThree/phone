@@ -40,6 +40,12 @@ logging:
     com.oneorthree.realtime: DEBUG
 
 realtime:
+  focus:
+    # 테스트는 IslandFocusSessions 를 스텁으로 갈아 끼운다. 실제로 호출되면 즉시 실패해야 하므로
+    # 닿지 않는 주소를 둔다 — GroupClient 의 ci 설정과 같은 이유다.
+    data-base-url: http://localhost:1
+    data-service-token: ci-token-realtime-to-data
+    data-timeout-ms: 200
   internal:
     # 우체통 내부 어댑터 테스트용 서비스 토큰. 운영 값이 아니다.
     service-token: ci-token-biz-to-realtime

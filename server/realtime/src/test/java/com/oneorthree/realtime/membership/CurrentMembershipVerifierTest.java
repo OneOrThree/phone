@@ -151,7 +151,9 @@ class CurrentMembershipVerifierTest {
         var guard = new ChatAccessGuard(presence, legacy, factory.getBeanProvider(CurrentMembershipVerifier.class));
         var sessions = new RealtimeSessionRegistry();
         sessions.register("socket", new ChatPrincipal(user, "Bearer " + token(claims())));
-        var interceptor = new ChatOutboundChannelInterceptor(sessions, jwt, guard);
+        var interceptor = new ChatOutboundChannelInterceptor(sessions, jwt, guard,
+                mock(com.oneorthree.realtime.event.RealtimeEventDelivery.class),
+                new tools.jackson.databind.ObjectMapper());
         Message<?> frame = frame("/topic/groups/" + island);
 
         assertThat(interceptor.beforeHandle(frame, null, null)).isSameAs(frame);
@@ -179,7 +181,9 @@ class CurrentMembershipVerifierTest {
         var guard = new ChatAccessGuard(presence, legacy, factory.getBeanProvider(CurrentMembershipVerifier.class));
         var sessions = new RealtimeSessionRegistry();
         sessions.register("socket", new ChatPrincipal(user, "Bearer " + token(claims())));
-        var interceptor = new ChatOutboundChannelInterceptor(sessions, jwt, guard);
+        var interceptor = new ChatOutboundChannelInterceptor(sessions, jwt, guard,
+                mock(com.oneorthree.realtime.event.RealtimeEventDelivery.class),
+                new tools.jackson.databind.ObjectMapper());
         Message<?> duplicate = frame("/queue/duplicates-usersocket");
         assertThat(interceptor.beforeHandle(duplicate, null, null)).isSameAs(duplicate);
         assertThat(interceptor.beforeHandle(frame("/topic/islands/" + island + "/events"), null, null)).isNull();
