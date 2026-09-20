@@ -176,9 +176,6 @@ final class ScreenTimeModule: NSObject {
             resolve(false)
             return
         }
-        let center = DeviceActivityCenter()
-        let activity = DeviceActivityName("gromo.usage.buckets")
-        center.stopMonitoring([activity])
         let defaults = UserDefaults(suiteName: appGroupID)
         guard let data = defaults?.data(forKey: "gromo:goal:selection"),
               let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
@@ -187,14 +184,85 @@ final class ScreenTimeModule: NSObject {
             resolve(false)
             return
         }
+        do {
+            try registerUsageBucketMonitoring(
+                selection,
+                maxMinutes: Int(maxMinutesValue),
+                defaults: defaults,
+                fallbackSelection: selection
+            )
+            resolve(true)
+        } catch {
+            reject("MONITOR_ERROR", "스크린타임 측정을 시작하지 못했어요.", error)
+        }
+    }
+
+    private func registerUsageBucketMonitoring(
+        _ selection: FamilyActivitySelection,
+        maxMinutes: Int,
+        defaults: UserDefaults?,
+        fallbackSelection: FamilyActivitySelection?
+    ) throws {
+        let center = DeviceActivityCenter()
+        let activity = DeviceActivityName("gromo.usage.buckets")
         let schedule = DeviceActivitySchedule(
             intervalStart: DateComponents(hour: 0, minute: 0),
             intervalEnd: DateComponents(hour: 23, minute: 59),
             repeats: true
         )
+        let today = Self.dayString(Date())
+        let storedDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
+        let base = storedDate == today
+            ? (defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0) : 0
+        let registeredAtKey = "gromo:screentime:bucketRegisteredAt"
+        let baseMinutesKey = "gromo:screentime:bucketBaseMinutes"
+        let baseDateKey = "gromo:screentime:bucketBaseDate"
+        let previousRegisteredAt = defaults?.object(forKey: registeredAtKey)
+        let previousBaseMinutes = defaults?.object(forKey: baseMinutesKey)
+        let previousBaseDate = defaults?.object(forKey: baseDateKey)
+        let prepareRegistration = {
+            defaults?.set(Date().timeIntervalSince1970, forKey: registeredAtKey)
+            defaults?.set(base, forKey: baseMinutesKey)
+            defaults?.set(today, forKey: baseDateKey)
+        }
+
+        prepareRegistration()
+        center.stopMonitoring([activity])
+        do {
+            try center.startMonitoring(
+                activity,
+                during: schedule,
+                events: usageBucketEvents(selection, maxMinutes: maxMinutes)
+            )
+        } catch let registrationError {
+            var restored = false
+            if let fallbackSelection, !Self.isEmpty(fallbackSelection) {
+                prepareRegistration()
+                do {
+                    try center.startMonitoring(
+                        activity,
+                        during: schedule,
+                        events: usageBucketEvents(fallbackSelection, maxMinutes: maxMinutes)
+                    )
+                    restored = true
+                } catch {}
+            }
+            if !restored {
+                restore(previousRegisteredAt, forKey: registeredAtKey, defaults: defaults)
+                restore(previousBaseMinutes, forKey: baseMinutesKey, defaults: defaults)
+                restore(previousBaseDate, forKey: baseDateKey, defaults: defaults)
+            }
+            throw registrationError
+        }
+    }
+
+    private func usageBucketEvents(
+        _ selection: FamilyActivitySelection,
+        maxMinutes: Int
+    ) -> [DeviceActivityEvent.Name: DeviceActivityEvent] {
         let webDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
-        for minute in stride(from: 15, through: min(max(Int(maxMinutesValue), 15), 900), by: 15) {
+        for minute in stride(from: 15, through: min(max(maxMinutes, 15), 900), by: 15) {
             events[DeviceActivityEvent.Name("gromo.usage.bucket.\(minute)")] = DeviceActivityEvent(
                 applications: selection.applicationTokens,
                 categories: selection.categoryTokens,
@@ -202,18 +270,14 @@ final class ScreenTimeModule: NSObject {
                 threshold: DateComponents(hour: minute / 60, minute: minute % 60)
             )
         }
-        let today = Self.dayString(Date())
-        let storedDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
-        let base = storedDate == today
-            ? (defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0) : 0
-        defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
-        defaults?.set(base, forKey: "gromo:screentime:bucketBaseMinutes")
-        defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
-        do {
-            try center.startMonitoring(activity, during: schedule, events: events)
-            resolve(true)
-        } catch {
-            reject("MONITOR_ERROR", "스크린타임 측정을 시작하지 못했어요.", error)
+        return events
+    }
+
+    private func restore(_ value: Any?, forKey key: String, defaults: UserDefaults?) {
+        if let value {
+            defaults?.set(value, forKey: key)
+        } else {
+            defaults?.removeObject(forKey: key)
         }
     }
 
@@ -286,7 +350,9 @@ final class ScreenTimeModule: NSObject {
         resolver resolve: @escaping RCTPromiseResolveBlock,
         rejecter _: @escaping RCTPromiseRejectBlock
     ) {
-        UserDefaults(suiteName: appGroupID)?.set(allowed, forKey: "gromo:focus:allowSafariWeb")
+        let defaults = UserDefaults(suiteName: appGroupID)
+        defaults?.set(allowed, forKey: "gromo:focus:allowSafariWeb")
+        applyFocusShieldIfActive(defaults)
         resolve(nil)
     }
 
@@ -309,6 +375,18 @@ final class ScreenTimeModule: NSObject {
         }
         let defaults = UserDefaults(suiteName: appGroupID)
         defaults?.set(subjectName, forKey: "gromo:focus:shieldSubject")
+        defaults?.set(true, forKey: "gromo:focus:shieldActive")
+        applyFocusShield(defaults)
+        resolve(true)
+    }
+
+    private func applyFocusShieldIfActive(_ defaults: UserDefaults?) {
+        guard defaults?.bool(forKey: "gromo:focus:shieldActive") == true,
+              Self.isAuthorized else { return }
+        applyFocusShield(defaults)
+    }
+
+    private func applyFocusShield(_ defaults: UserDefaults?) {
         var apps = Set<ApplicationToken>()
         var domains = Set<WebDomainToken>()
         if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
@@ -328,7 +406,6 @@ final class ScreenTimeModule: NSObject {
             let exceptions = Set(domains.prefix(50).map { WebDomain(token: $0) })
             store.webContent.blockedByFilter = .all(except: exceptions)
         }
-        resolve(true)
     }
 
     @objc func stopFocusShield(
@@ -338,6 +415,7 @@ final class ScreenTimeModule: NSObject {
         if #available(iOS 16.0, *) {
             ManagedSettingsStore(named: .init("gromoFocus")).clearAllSettings()
         }
+        UserDefaults(suiteName: appGroupID)?.set(false, forKey: "gromo:focus:shieldActive")
         resolve(nil)
     }
 
