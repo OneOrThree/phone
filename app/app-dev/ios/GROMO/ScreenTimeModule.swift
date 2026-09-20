@@ -15,8 +15,19 @@ final class ScreenTimeModule: NSObject {
     @objc static func requiresMainQueueSetup() -> Bool { false }
 
     private func signature(_ selection: FamilyActivitySelection) -> String {
-        guard let data = try? JSONEncoder().encode(selection) else { return "" }
+        let canonical = [
+            "applications:\(canonicalTokens(selection.applicationTokens).joined(separator: ","))",
+            "categories:\(canonicalTokens(selection.categoryTokens).joined(separator: ","))",
+            "webDomains:\(canonicalTokens(selection.webDomainTokens).joined(separator: ","))",
+        ].joined(separator: "|")
+        guard let data = canonical.data(using: .utf8) else { return "" }
         return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private func canonicalTokens<S: Sequence>(_ tokens: S) -> [String] where S.Element: Encodable {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return tokens.compactMap { try? encoder.encode($0).base64EncodedString() }.sorted()
     }
 
     private func counts(_ selection: FamilyActivitySelection) -> [String: Any] {
@@ -119,7 +130,9 @@ final class ScreenTimeModule: NSObject {
                 },
                 onCancel: { top.dismiss(animated: true) { resolve(nil) } }
             )
-            top.present(UIHostingController(rootView: picker), animated: true)
+            let host = UIHostingController(rootView: picker)
+            host.isModalInPresentation = true
+            top.present(host, animated: true)
         }
     }
 

@@ -22,37 +22,31 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
 
-        let schedule = DeviceActivitySchedule(
-            intervalStart: DateComponents(hour: 0, minute: 0),
-            intervalEnd: DateComponents(hour: 23, minute: 59),
-            repeats: true
-        )
-        let webDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
-        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
-        for minute in stride(from: 15, through: 900, by: 15) {
-            events[DeviceActivityEvent.Name("gromo.usage.bucket.\(minute)")] = DeviceActivityEvent(
-                applications: selection.applicationTokens,
-                categories: selection.categoryTokens,
-                webDomains: webDomains,
-                threshold: DateComponents(hour: minute / 60, minute: minute % 60)
-            )
-        }
-        defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
-        defaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
-        defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
+        let previousSelection = defaults?.data(forKey: "gromo:goal:selection")
+            .flatMap { try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0) }
         let center = DeviceActivityCenter()
         center.stopMonitoring([DeviceActivityName("gromo.usage.buckets")])
         do {
             try center.startMonitoring(
                 DeviceActivityName("gromo.usage.buckets"),
-                during: schedule,
-                events: events
+                during: Self.schedule,
+                events: Self.events(for: selection)
             )
+            defaults?.set(Date().timeIntervalSince1970, forKey: "gromo:screentime:bucketRegisteredAt")
+            defaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
+            defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
             defaults?.set(pendingData, forKey: "gromo:goal:selection")
             defaults?.removeObject(forKey: "gromo:goal:selectionPending")
             defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
             defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
         } catch {
+            if let previousSelection, !Self.isEmpty(previousSelection) {
+                try? center.startMonitoring(
+                    DeviceActivityName("gromo.usage.buckets"),
+                    during: Self.schedule,
+                    events: Self.events(for: previousSelection)
+                )
+            }
             defaults?.removeObject(forKey: "gromo:goal:selectionPromotedOkDate")
         }
     }
@@ -139,5 +133,27 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         selection.applicationTokens.isEmpty
             && selection.categoryTokens.isEmpty
             && selection.webDomainTokens.isEmpty
+    }
+
+    private static let schedule = DeviceActivitySchedule(
+        intervalStart: DateComponents(hour: 0, minute: 0),
+        intervalEnd: DateComponents(hour: 23, minute: 59),
+        repeats: true
+    )
+
+    private static func events(
+        for selection: FamilyActivitySelection
+    ) -> [DeviceActivityEvent.Name: DeviceActivityEvent] {
+        let webDomains = selection.categoryTokens.isEmpty ? selection.webDomainTokens : []
+        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        for minute in stride(from: 15, through: 900, by: 15) {
+            events[DeviceActivityEvent.Name("gromo.usage.bucket.\(minute)")] = DeviceActivityEvent(
+                applications: selection.applicationTokens,
+                categories: selection.categoryTokens,
+                webDomains: webDomains,
+                threshold: DateComponents(hour: minute / 60, minute: minute % 60)
+            )
+        }
+        return events
     }
 }
