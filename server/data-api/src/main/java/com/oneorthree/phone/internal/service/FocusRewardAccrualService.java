@@ -76,6 +76,10 @@ public class FocusRewardAccrualService {
      */
     public static final ZoneOffset REWARD_DAY_ZONE = ZoneOffset.UTC;
 
+    /** 적립 대상 — 진행 중이면 휴식(PAUSED)도 포함한다(아래 {@link #accrue} javadoc). */
+    private static final List<FocusSessionLifecycle> PROGRESSING =
+            List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
+
     private final FocusSessionDetailRepository focusSessionDetailRepository;
     private final FocusSessionIntervalRepository focusSessionIntervalRepository;
     private final FocusSessionRepository focusSessionRepository;
@@ -86,19 +90,28 @@ public class FocusRewardAccrualService {
     private final Clock clock;
 
     /**
-     * 한 세션의 적립 틱 — 진행 중(ACTIVE)이 아니면 아무것도 하지 않는다.
+     * 한 세션의 적립 — 진행 중(ACTIVE·PAUSED)이 아니면 아무것도 하지 않는다.
      *
      * <p>세션 하나가 자기 트랜잭션으로 돈다(퀘스트 회차 개설·건설 진행과 같은 패턴) — 한 섬의 실패가
-     * 다른 섬의 적립을 되돌리지 않게 하기 위해서다.
+     * 다른 섬의 적립을 되돌리지 않게 하기 위해서다. {@code finish} 안에서 부르면 그 트랜잭션에 합류한다.
+     *
+     * <p><b>부르는 곳은 둘</b>이다: 매분 크론({@code FocusRewardScheduler}, ACTIVE 만 훑는다)과
+     * <b>종료 직전</b>({@code FocusSessionLifecycleService.settle}). 종료 쪽이 없으면 「마지막 틱 이후에
+     * «찬» 분」이 영영 사라진다 — 12:00:01 에 시작해 12:01:02 에 끝낸 세션은 12:01:00 틱에 59초뿐이라
+     * 못 받고, 그 뒤 ACTIVE 스캔에서도 빠진다. 「종료 시 추가 지급 없음」은 <b>자투리</b>를 주지 않는다는
+     * 뜻이지 이미 찬 분을 버린다는 뜻이 아니다.
+     *
+     * <p>PAUSED 도 받는 것은 그래서다 — 휴식 중 finish 가 가능하고, 휴식 직전에 찬 분이 그 경로로 나간다.
+     * 크론이 PAUSED 를 훑지 않는 것은 휴식 중에는 {@code activeSeconds} 가 늘지 않아 새로 줄 것이 없기
+     * 때문이다(스캔 비용만 늘린다) — 그 분은 resume 뒤 첫 틱이나 finish 가 가져간다.
      *
      * @param sessionId 적립할 세션
-     * @return 이번 틱에 섬 통장에 실제로 넣은 마리 수(0 이면 아직 1마리가 안 찼거나 상한이다)
+     * @return 이번에 섬 통장에 실제로 넣은 마리 수(0 이면 아직 1마리가 안 찼거나 상한이다)
      */
     @Transactional
     public int accrue(UUID sessionId) {
         FocusSessionDetail detail = focusSessionDetailRepository.findBySessionIdForUpdate(sessionId).orElse(null);
-        if (detail == null || detail.getLifecycle() != FocusSessionLifecycle.ACTIVE
-                || detail.getUserId() == null) {
+        if (detail == null || !PROGRESSING.contains(detail.getLifecycle()) || detail.getUserId() == null) {
             return 0;
         }
         // 기본 마커가 바깥에서 닫힌 세션(레거시 start 의 autoCloseOpenMarkersOf)은 사용자에게 이미 끝난

@@ -125,6 +125,12 @@ focus:
   # 끄면 새 start 만 503 이고, 이미 진행 중인 세션의 pause/resume/finish 는 그대로 열려 있다.
   session:
     start-enabled: ${FOCUS_SESSION_START_ENABLED:false}
+  # 분당 적립 크론 게이트 (GROMO-1990, FocusRewardAccrualGate). LLD §5.2 단계 활성화 표의 한 줄이다 —
+  # 혼합 버전 배포에서는 새 이미지의 크론과 «옛 이미지의 finish» 가 같은 시간을 서로 다른 멱등 키로
+  # 두 번 지급한다. 배포가 한 버전으로 수렴한 뒤에 켠다. 꺼져 있어도 finish 가 적립을 확정하므로
+  # 사용자가 손해 보지는 않는다. ⚠️ 켠 뒤에는 이 flag 를 «먼저 끄고» 진행 세션이 빈 뒤에 롤백한다.
+  reward:
+    accrual-enabled: ${FOCUS_REWARD_ACCRUAL_ENABLED:false}
 
 spring.data.redis:
   host: ${REDIS_HOST:localhost}

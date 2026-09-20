@@ -109,6 +109,7 @@ class FocusSessionLifecycleGuardsTest {
     @Mock private FocusRewardPolicyRepository focusRewardPolicyRepository;
     @Mock private FocusSettlementRepository focusSettlementRepository;
     @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
+    @Mock private FocusRewardAccrualService rewardAccruals;
     @Mock private User caller;
     @Mock private GroupMember membership;
 
@@ -121,7 +122,8 @@ class FocusSessionLifecycleGuardsTest {
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, new FocusMemberEvents(outboxCommandPort),
-                focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, focusPresencePort,
+                focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
+                focusPresencePort,
                 Clock.fixed(wallClock, ZoneOffset.UTC));
     }
 

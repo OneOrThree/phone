@@ -137,11 +137,13 @@ public class FocusSessionLifecycleService {
     private final FocusMemberEvents focusMemberEvents;
     private final FocusRewardPolicyRepository focusRewardPolicyRepository;
     private final FocusSettlementRepository focusSettlementRepository;
-    /**
-     * 적립 원장 — finish 는 여기서 <b>읽기만</b> 한다(GROMO-1990). 지급은 매분 적립 틱
-     * ({@link FocusRewardAccrualService})이 이미 끝냈고, 그래서 이 서비스는 지갑을 아예 모른다.
-     */
+    /** 적립 원장 — finish 는 여기서 합계를 <b>읽기만</b> 한다(GROMO-1990). 지갑은 아예 모른다. */
     private final FocusRewardAccrualRepository focusRewardAccrualRepository;
+    /**
+     * 종료 직전 적립 — 마지막 틱 이후에 «찬» 분을 확정한다(그 클래스 javadoc). 지급 계산은 전부 저쪽에
+     * 있고 이 서비스는 결과 합만 정산 행에 옮긴다.
+     */
+    private final FocusRewardAccrualService rewardAccruals;
     /**
      * 집중 프레즌스 리스(선행 조건 #5) — 채팅 서버가 「집중 중엔 채팅 불가」를 판정하는 근거다.
      * 레거시와 <b>같은 포트·같은 키</b>를 쓴다(LLD §6 「하나의 Data projection 포트」). 리스는 세션 단위라
@@ -386,9 +388,10 @@ public class FocusSessionLifecycleService {
     /**
      * {@code POST /focus-sessions/{sessionId}/finish} — LLD §2 finish. 선행 조건 #6.
      *
-     * <p><b>finish 는 더 이상 지급하지 않는다</b>(GROMO-1990). 물고기는 진행 중에 매분 적립 틱
-     * ({@link FocusRewardAccrualService})이 유효 집중 60초마다 섬 통장에 넣어 두었고, 여기서는 그 합을
-     * 정산 행에 옮겨 적을 뿐이다 — 마지막 틱 이후의 자투리는 지급하지 않는다(「종료 시 추가 지급 없음」).
+     * <p><b>finish 는 새로 «계산»하지 않는다</b>(GROMO-1990). 물고기는 진행 중에 매분 적립 틱
+     * ({@link FocusRewardAccrualService})이 유효 집중 60초마다 섬 통장에 넣어 두었고, 여기서는 <b>마지막 틱
+     * 이후에 찬 분만</b> 같은 적립 경로로 확정한 뒤 그 합을 정산 행에 옮겨 적는다. 1분이 안 찬 자투리는
+     * 주지 않는다 — 그것이 「종료 시 추가 지급 없음」이다. 이미 찬 분을 버리는 뜻이 아니다.
      * 개인 지갑 적립 경로는 없다(D5-귀속-개정 — 섬 통장 100%, 재화는 섬 단일). 그래서 정산 행은
      * {@code P=0, C=E} 로 E=P+C 보존식만 유지한다.
      *
@@ -448,7 +451,11 @@ public class FocusSessionLifecycleService {
         FocusSession marker = focusSessionRepository.findByIdAndUserForUpdate(sessionId, user)
                 .orElseThrow(() -> new IllegalStateException("상세는 있는데 기본 마커가 없습니다 — session=" + sessionId));
 
-        // 지급은 이미 끝났다 — 적립 틱이 넣은 합을 그대로 옮겨 적는다(GROMO-1990, 추가 지급 없음).
+        // 마지막 틱 이후에 «찬» 분을 여기서 확정한다 — 구간을 닫은 뒤라 activeSeconds 와 같은 값을 본다.
+        // 「종료 시 추가 지급 없음」은 자투리(1분이 안 찬 초)를 주지 않는다는 뜻이지, 이미 찬 분을 버린다는
+        // 뜻이 아니다. 크론 게이트가 닫혀 있는 동안에는 이 호출이 그 세션의 «유일한» 지급 경로다.
+        rewardAccruals.accrue(sessionId);
+        // 그렇게 확정된 적립 합을 그대로 옮겨 적는다(GROMO-1990 — 여기서 새로 계산하지 않는다).
         int earned = Math.toIntExact(focusRewardAccrualRepository.sumEarnedFishOfSession(sessionId));
 
         // 일 집계는 KST 날짜 축(date-axis 규약)의 순수 초 — 목표 코인·스트릭 같은 레거시 부수효과는 붙이지

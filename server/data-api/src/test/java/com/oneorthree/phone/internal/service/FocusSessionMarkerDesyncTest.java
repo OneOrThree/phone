@@ -70,13 +70,15 @@ class FocusSessionMarkerDesyncTest {
     @Mock private FocusRewardPolicyRepository focusRewardPolicyRepository;
     @Mock private FocusSettlementRepository focusSettlementRepository;
     @Mock private FocusRewardAccrualRepository focusRewardAccrualRepository;
+    @Mock private FocusRewardAccrualService rewardAccruals;
 
     private FocusSessionLifecycleService service() {
         return new FocusSessionLifecycleService(new FocusSessionStartGate(false), userQueryService,
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
                 focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, new FocusMemberEvents(outboxCommandPort),
-                focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, focusPresencePort,
+                focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
+                focusPresencePort,
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

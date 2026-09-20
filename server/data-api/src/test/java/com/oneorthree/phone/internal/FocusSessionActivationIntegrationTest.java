@@ -24,6 +24,7 @@ import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.config.SchedulingConfig;
 import com.oneorthree.phone.internal.scheduler.FocusRewardScheduler;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
+import com.oneorthree.phone.internal.service.IslandEconomyReadService;
 import com.oneorthree.phone.internal.service.IslandMembershipService;
 import com.oneorthree.phone.league.repository.LeagueRankingQueryRepository;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
@@ -78,6 +79,8 @@ class FocusSessionActivationIntegrationTest {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
         registry.add("focus.session.start-enabled", () -> true);
+        // 분당 적립 크론은 기본 꺼짐(FocusRewardAccrualGate) — 이 테스트는 켠 상태의 운영을 본다.
+        registry.add("focus.reward.accrual-enabled", () -> true);
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         List<String> allow = List.of(
@@ -97,6 +100,8 @@ class FocusSessionActivationIntegrationTest {
     FocusSessionLifecycleService focus;
     @Autowired
     FocusRewardScheduler rewardTicks;
+    @Autowired
+    IslandEconomyReadService economy;
     @Autowired
     IslandMembershipService islands;
     @Autowired
@@ -603,6 +608,79 @@ class FocusSessionActivationIntegrationTest {
     }
 
     @Test
+    @DisplayName("마지막 틱 이후에 «찬» 분은 finish 가 확정한다 — 틱이 한 번도 못 잡은 61초 세션도 1마리다")
+    void finishAccruesTheMinuteThatCompletedAfterTheLastTick() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("자투리섬", null, false),
+                UUID.randomUUID()).id();
+        // 12:00:01 에 시작해 12:01:02 에 끝낸 꼴 — 12:01:00 틱에는 59초뿐이라 한 마리도 못 준다.
+        Instant from = pastUtcMidnight().plusSeconds(7200);
+        FocusSessionView session = focusedSince(user, island, from, 59);
+        tick();
+        assertThat(islandBalance(island)).as("59초 시점의 틱은 아직 0마리다").isZero();
+        // 그 뒤 2초를 더 집중해 1분이 «찼다» — 다음 틱이 오기 전에 사용자가 끝낸다.
+        jdbc.update("update focus_session_intervals set ended_at=? where session_id=? and ordinal=1",
+                ts(from.plusSeconds(61)), session.id());
+
+        FocusFinishView finished = focus.finish(user, session.id(),
+                new FocusVersionedCommandRequest(session.version()), UUID.randomUUID());
+
+        assertThat(finished.earnedFish()).as("이미 «찬» 1분은 버리지 않는다").isEqualTo(1);
+        assertThat(islandBalance(island)).isEqualTo(1);
+        assertThat(ledgerKeys(island, session.id())).containsExactly("focus:" + session.id() + ":1");
+    }
+
+    @Test
+    @DisplayName("휴식 중 finish 도 휴식 직전에 찬 분을 가져간다 — 크론은 PAUSED 를 훑지 않는다")
+    void finishingFromRestStillAccruesTheMinuteEarnedBeforeThePause() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("휴식자투리섬", null, false),
+                UUID.randomUUID()).id();
+        FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(7200), 61);
+        FocusSessionView paused = focus.pause(user, session.id(),
+                new FocusVersionedCommandRequest(session.version()), UUID.randomUUID());
+        tick();
+        assertThat(islandBalance(island)).as("크론의 ACTIVE 스캔에 PAUSED 는 없다").isZero();
+
+        FocusFinishView finished = focus.finish(user, paused.id(),
+                new FocusVersionedCommandRequest(paused.version()), UUID.randomUUID());
+
+        assertThat(finished.earnedFish()).as("휴식 직전에 찬 분은 새지 않는다").isEqualTo(1);
+        assertThat(islandBalance(island)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("V82 이관 — 마이그레이션 전 정산분이 하루 상한과 주민 누적 획득에 그대로 잡힌다")
+    void theMigrationCarriesOldSettlementsIntoTheAccrualLedger() throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("이관섬", null, false),
+                UUID.randomUUID()).id();
+        // V82 «전» 의 세계: 종료 정산으로 480마리를 받은 세션(정산 행만 있고 적립 원장 행은 없다).
+        FocusSessionView legacy = focusedSince(user, island, pastUtcMidnight().plusSeconds(3600), 120);
+        focus.finish(user, legacy.id(), new FocusVersionedCommandRequest(legacy.version()), UUID.randomUUID());
+        Instant completedAt = pastUtcMidnight().plusSeconds(3600);
+        jdbc.update("delete from focus_reward_accruals where session_id=?", legacy.id());
+        jdbc.update("update focus_settlements set earned_fish=480, construction_fish_added=480, "
+                + "completed_at=? where session_id=?", ts(completedAt), legacy.id());
+        LocalDate legacyDay = LocalDate.ofInstant(completedAt, ZoneOffset.UTC);
+
+        runV82Backfill();
+
+        assertThat(accruedFish(legacy.id(), legacyDay))
+                .as("정산 행의 completed_at 의 UTC 날짜로 옮긴다 — 종전 상한 축 그대로다").isEqualTo(480);
+        assertThat(economy.fishEarnings(user, island).members())
+                .as("주민 누적 획득이 과거분을 잃지 않는다")
+                .anySatisfy(member -> assertThat(member.earnedFish()).isEqualTo(480L));
+        runV82Backfill();
+        assertThat(accruedFish(legacy.id(), legacyDay)).as("재실행해도 두 번 들어가지 않는다").isEqualTo(480);
+
+        // 그 날의 상한은 이관분을 센다 — 같은 날 새 세션은 한 마리도 못 받는다.
+        FocusSessionView after = focusedSince(user, island, completedAt.plusSeconds(7200), 300);
+        tick();
+        assertThat(accruedFish(after.id(), legacyDay)).as("이관분이 그 날 상한을 이미 채웠다").isZero();
+    }
+
+    @Test
     @DisplayName("완료한 세션을 새 키로 다시 finish 하면 원 정산을 그대로 돌려주고 두 번 지급하지 않는다")
     void finishingACompletedSessionAgainReplaysTheSettlement() {
         UUID user = newUser();
@@ -703,6 +781,20 @@ class FocusSessionActivationIntegrationTest {
             focus.current(user);
         }
         assertThat(detailRow(sessionId).get("lifecycle")).isEqualTo(ending);
+    }
+
+    /**
+     * V82 의 이관 문장을 <b>파일에서 읽어 그대로</b> 돌린다 — 테스트가 SQL 을 베껴 쓰면 마이그레이션이 바뀌어도
+     * 초록으로 남는다. 문장에 {@code ON CONFLICT DO NOTHING} 이 있어 재실행해도 멱등이다.
+     */
+    void runV82Backfill() throws Exception {
+        String sql;
+        try (var in = getClass().getResourceAsStream("/db/migration/V82__focus_reward_accruals.sql")) {
+            sql = new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        }
+        int from = sql.indexOf("INSERT INTO focus_reward_accruals");
+        assertThat(from).as("이관 문장이 V82 에 있어야 한다").isNotNegative();
+        jdbc.execute(sql.substring(from, sql.indexOf(';', from) + 1));
     }
 
     /** 지난 UTC 자정 — 어제 00:00Z 다. 언제 돌려도 과거라 경계 픽스처가 미래로 새지 않는다. */
