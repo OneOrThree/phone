@@ -41,6 +41,17 @@ public enum CommonErrorCode implements ErrorCode {
      * 앱이 「줄여 주세요」와 「다른 말로 써 주세요」를 다른 안내로 띄워야 한다.
      */
     BANNED_WORD(HttpStatus.BAD_REQUEST, "사용할 수 없는 표현이 포함돼 있어요."),
+    /**
+     * 게스트가 회원 전용 작업을 시도했다 (GROMO-1992, 정책 「인증·게스트 계정」 —
+     * 「친구 추가·편지 보내기·상점 구매를 처음 시도할 때 소셜 로그인을 요청한다」).
+     * 막는 작업이 {@code friend}·{@code shop} 두 도메인에 걸쳐 있어 공통이 코드를 소유한다 —
+     * {@link #BANNED_WORD}·{@link #RATE_LIMITED} 와 같은 이유다(오류 계약 규약 §3 이 도메인 간
+     * code 이름 재사용도, 남의 {@code ErrorCode} 빌려 쓰기도 금지한다).
+     * <p>{@code GroupErrorCode.MEMBER_ONLY}(섬 «주민» 인가)와 <b>축이 다르다</b> — 이쪽은 계정
+     * 상태(게스트/회원), 저쪽은 섬 안의 역할이다. 이름이 비슷하면 앱이 두 안내를 섞으므로
+     * 「무엇을 하면 풀리는가」(소셜 로그인)를 이름에 담았다.
+     */
+    SOCIAL_LOGIN_REQUIRED(HttpStatus.FORBIDDEN, "소셜 로그인하면 이용할 수 있어요."),
     /** 클라이언트가 보낸 타임존 id 를 해석하지 못했다. 문구는 그 id 를 되돌려 준다. */
     INVALID_TIMEZONE(HttpStatus.BAD_REQUEST, "알 수 없는 타임존입니다."),
     /** 요청 {@code Content-Type} 을 받을 수 없다 (예: {@code @RequestBody} 에 {@code text/plain}). */

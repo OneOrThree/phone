@@ -88,7 +88,11 @@ class PublicApiContractTest extends UpstreamTestBase {
                 "NICKNAME_INVALID", "NICKNAME_DUPLICATE", "HOST_WITHDRAW",
                 // GROMO-1986 금칙어(앱스토어 심사 1.2): Data 의 CommonErrorCode 와 이름·상태가 같아야
                 // 정상적인 400 거절이 502 로 접히지 않는다.
-                "BANNED_WORD");
+                "BANNED_WORD",
+                // GROMO-1992 게스트 차단(403)·GROMO-1994 소셜 계정 충돌(409): Data 와 이름·상태가 같아야
+                // registeredUpstream 이 붙는다. 일반 FORBIDDEN·STATE_CONFLICT 로 접으면 앱이 「회원 전환
+                // 안내」와 「기존 계정으로 전환할까요」를 다른 실패와 구분하지 못한다.
+                "SOCIAL_LOGIN_REQUIRED", "SOCIAL_ACCOUNT_ALREADY_LINKED");
     }
 
     @Test

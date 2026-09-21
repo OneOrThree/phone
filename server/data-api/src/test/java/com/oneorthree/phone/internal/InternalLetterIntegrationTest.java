@@ -56,7 +56,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 서는가 ② 허용목록·{@code X-User-Id} 대조가 실제 배선으로 도는가 ③ 우체통 게이트가 「받은함·상세만」
  * 걸리는가(보낸함·발송은 열림) ④ 수신자 첫 열람의 원자적 읽음 표시와 «열람만으로는» 삭제되지 않음
  * ⑤ 닫기가 «양쪽»에서 편지를 지우는가 ⑥ 친구 삭제가 아직 확인하지 않은 편지를 지우는가
- * (policy-2026-09-14, GROMO-2002).
+ * (policy-2026-09-14, GROMO-2002) ⑦ 게스트 발송만 서비스 판정보다 먼저 계정 gate 의 403
+ * {@code SOCIAL_LOGIN_REQUIRED} 다(GROMO-1992 — 목록·상세·닫기는 막지 않는다).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -105,13 +106,13 @@ class InternalLetterIntegrationTest {
     // ---------------------------------------------------------------- 1. 발송
 
     @Test
-    @DisplayName("게스트 발신자도 보낼 수 있고, 수신자에게 우체통·섬이 없어도 발송은 성공한다")
-    void guestCanSendAndRecipientMailboxIsNeverLookedUp() throws Exception {
-        UUID a = newUser();  // 게스트 — newUser() 는 guestLogin 이다
+    @DisplayName("회원 발신자는 보낼 수 있고, 수신자에게 우체통·섬이 없어도 발송은 성공한다")
+    void memberCanSendAndRecipientMailboxIsNeverLookedUp() throws Exception {
+        UUID a = newUser();  // 회원 — newUser() 는 is_guest=false 다
         UUID b = newUser();  // 섬도 우체통도 없는 수신자
         befriend(a, b);
         assertThat(jdbc.queryForObject("select is_guest from users where id = ?", Boolean.class, a))
-                .as("게스트 분기가 있다면 이 테스트는 다른 길을 탄다").isTrue();
+                .as("회원이어야 게스트 gate 를 지나 서비스에 도달한다").isFalse();
 
         // 발신자 a 도 섬이 없다 — 발송은 어느 쪽의 시설도 묻지 않는다(결정 2 = C).
         as(a, post(path(a, "/letters")).contentType(MediaType.APPLICATION_JSON)
@@ -122,6 +123,38 @@ class InternalLetterIntegrationTest {
                 .andExpect(jsonPath("$.content").value("안녕"))   // strip 된 본문이 저장된다
                 .andExpect(jsonPath("$.readAt").value(nullValue()));
         assertThat(countLetters()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("게스트 발송은 서비스 판정보다 먼저 403 SOCIAL_LOGIN_REQUIRED 이고 행을 남기지 않는다 (GROMO-1992)")
+    void guestSendIsRejectedBeforeServiceChecks() throws Exception {
+        UUID guest = newGuest();
+        UUID friend = newUser();
+        UUID stranger = newUser();
+        befriend(guest, friend);   // 받은 요청 수락은 열려 있어 게스트도 친구를 가질 수 있다
+        assertThat(jdbc.queryForObject("select is_guest from users where id = ?", Boolean.class, guest))
+                .as("게스트여야 gate 가 검증 대상이다").isTrue();
+
+        // 유효한 친구·유효한 본문이어도 계정 gate 가 먼저다 — 403 SOCIAL_LOGIN_REQUIRED.
+        as(guest, post(path(guest, "/letters")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"receiverId\":\"" + friend + "\",\"content\":\"안녕\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+
+        // gate 가 서비스의 관계·본문 판정보다 앞이다 — 비친구는 404 가 아니라, 빈 본문은 400 이 아니라
+        // 같은 403 이다. (@Valid·깨진 JSON 은 컨트롤러 진입 전이라 이 순서의 범위 밖이다.)
+        as(guest, post(path(guest, "/letters")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"receiverId\":\"" + stranger + "\",\"content\":\"x\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+        as(guest, post(path(guest, "/letters")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"receiverId\":\"" + friend + "\",\"content\":\"   \"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+
+        assertThat(countLetters()).as("거절된 발송은 행을 남기지 않는다").isZero();
+        // 발송 한도 카운터도 먹지 않는다 — 그 증거는 cap 을 실제로 도는
+        // PerUserRateLimitIntegrationTest.guestLetterSendIsRejectedBeforeTheCap 에 있다.
     }
 
     @Test
@@ -499,7 +532,17 @@ class InternalLetterIntegrationTest {
 
     // ---------------------------------------------------------------- 도구
 
+    /**
+     * 이 표면의 발송은 <b>회원 전용</b> 이므로(GROMO-1992) 기본 배우는 회원이다 — 게스트로 만든 뒤
+     * {@code is_guest} 만 내린다. 이 파일이 검증하는 것은 편지 계약이지 승격 경로가 아니다.
+     */
     private UUID newUser() {
+        UUID id = newGuest();
+        jdbc.update("update users set is_guest = false where id = ?", id);
+        return id;
+    }
+
+    private UUID newGuest() {
         return jwt.extractUserId(auth.guestLogin().accessToken());
     }
 
