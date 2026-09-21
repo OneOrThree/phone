@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V84 · V88 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 · V88 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // V88 — 휴식 1시간 자동 종료와 결과 1회 제공 (GROMO-1998): focus_settlements.auto_closed · acknowledged_at.
 //        auto_closed 가 「서버가 끝냈다」를, acknowledged_at IS NULL 조건부 UPDATE 가 「아직 안 보여 줬다」를 맡는다.
 // V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
@@ -21,6 +21,9 @@
 //        island_quest_claims.kind 를 ACHIEVER·ALL_ACHIEVED_BONUS 로 교체하고 유일키에 claimed_by 추가.
 //        + 매분 보너스 finalizer 조회용 부분 인덱스 idx_island_quest_occurrences_bonus_pending
 //        (occurrence_date) WHERE bonus_settled_at IS NULL.
+// V85 — 주간 섬 랭킹의 동결 분모 island_weekly_member_counts + 랭킹 분자 스캔용 부분 인덱스
+//        focus_session_intervals_active_window_idx (GROMO-1997 · island-rankings LLD §5).
+//        분자(집중 시간)는 복제하지 않는다 — 정본이 focus_session_* 에 남아 언제든 같은 창으로 다시 합친다.
 // V74 — 섬 상점 테이블 선구축 shop_product_revisions · shop_catalog_publications · shop_catalog_publication_entries ·
 //        shop_catalog_active_publication · shop_orders (GROMO-1781 · island-shop LLD §3). 행 없음 — 가격은 S03·S04 확정 뒤.
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
@@ -758,6 +761,7 @@ Table focus_session_intervals [note: 'GROMO-1764: v0.3 세션의 ACTIVE/REST 실
   indexes {
     (session_id, ordinal) [unique]
     (session_id) [unique, name: 'focus_session_intervals_open_uk', note: 'WHERE ended_at IS NULL — 열린 구간 세션당 최대 1개']
+    (started_at, ended_at) [name: 'focus_session_intervals_active_window_idx', note: 'V85 — WHERE kind = ACTIVE AND ended_at IS NOT NULL. 주간 섬 랭킹 분자의 스캔 경로(주 창과 겹치는 «닫힌» ACTIVE 구간). 없으면 랭킹 한 번에 전체 구간을 훑는다']
   }
 }
 
@@ -794,6 +798,17 @@ Table focus_reward_accruals [note: 'GROMO-1990: 집중 보상 적립 원장(migr
   indexes {
     (session_id, accrued_on) [unique, name: 'focus_reward_accruals_session_day_uk', note: '같은 세션의 같은 날 적립은 한 행에 누적 — 동시 기입의 최후 방어선']
     (accrued_on) [name: 'focus_reward_accruals_accrued_on_idx']
+  }
+}
+
+Table island_weekly_member_counts [note: 'GROMO-1997: 주간 섬 랭킹의 «동결된 분모»(migration V85) — 주 마감(UTC 일요일 00:00Z) 시점의 그 섬 활성 주민 수. 주 마감 크론이 INSERT … SELECT … ON CONFLICT DO NOTHING 한 문장으로 적고 그 뒤로는 바뀌지 않는다. 동결하는 이유: group_members 는 (user_id, group_id) 한 행이고 left_at 이 없어 「그 주에 몇 명이었나」를 사후 복원할 수 없다 — 동결하지 않으면 주민을 강퇴하는 것만으로 지난 주 평균(= 섬 집중 초 합 ÷ 주민 수)이 오른다. 분자는 반대로 복제하지 않는다: 정본이 focus_session_details·focus_session_intervals 에 남아 있어 같은 창으로 다시 합칠 수 있고, 복제하면 정본과 어긋날 자리가 생긴다. 끝난 주에 행이 없는 섬은 랭킹에서 빠진다(「지금 인원으로」 대체하지 않는다)'] {
+  week_start   date        [not null, note: '주 시작일 = UTC 일요일. 동결 기준 시각은 크론 실행 순간이 아니라 «주 종료 경계»(다음 주 00:00Z)다 — 가입은 created_at < 경계 로 거르고, 이탈은 group_members 에 이탈 시각이 없어 쿼리로 닫을 수 없어 실행 유예(ranking.freeze.grace)로 창을 좁힌다(잔여 창은 policy RK-D12). CHECK EXTRACT(ISODOW FROM week_start) = 7 — 키가 정말 일요일인지 DB 가 지킨다(크론 존이나 호출측 계산이 틀어져도 월요일자 주가 섞이지 않는다). ISO YYYY-Www 표기를 쓰지 않는 이유는 island-rankings policy RK-P01-키']
+  island_id    uuid        [not null, note: 'FK → groups.id ON DELETE CASCADE']
+  member_count integer     [not null, note: 'CHECK > 0 — 활성 멤버십(is_left=false) + 미탈퇴 계정(is_deleted=false). GroupMemberRepository.countByGroupIdIn 과 같은 모수라 주민 목록·정원 판정과 어긋나지 않는다. 0명인 섬은 GROUP BY 에서 행이 안 나와 자연히 빠진다']
+  frozen_at    timestamptz [not null, default: `now()`, note: '동결 시각 — 배치가 언제 돌았는지의 기록이지 주 경계가 아니다']
+
+  indexes {
+    (week_start, island_id) [pk]
   }
 }
 
@@ -1555,6 +1570,13 @@ Table login_attempts [note: 'POST /auth/sessions 의 내구 로그인 시도 원
   updated_at           timestamptz [not null, default: `now()`]
 }
 
+Table guest_device_claims [note: '게스트 기기 점유 원장 (V87, GROMO-2036). login_attempts 가 소셜 로그인에 대해 하는 일을 게스트 축에서 한다 — 게스트 발급은 호출 한 번마다 users 행이 하나 생기므로, 201 이 유실된 재시도가 같은 사람에게 계정을 둘 만들지 않게 막는다. 축이 「앱이 만든 시도 id」가 아니라 «기기» 라서 PK 가 다르다'] {
+  device_digest       varchar(64) [pk, note: 'Business 가 자기 비밀로 계산한 기기 식별자의 keyed HMAC-SHA256 hex. 원 기기 식별자는 Data 에 도달하지 않는다 — 이 표가 통째로 유출돼도 기기 식별자는 나오지 않는다 (계정 LLD §3 「앱이 제출한 digest 를 자격으로 수락하지 않는다」)']
+  user_id             uuid        [not null, ref: > users.id, note: 'ON DELETE CASCADE — user_main_islands(V81)·user_island_contexts(V57) 와 같은 이유다. 탈퇴는 소프트 딜리트라 여기서 사라지지 않지만, 발급 경로가 「활성 게스트가 아니면 점유를 버린다」로 판정하므로 탈퇴·승격된 유저를 가리키는 행은 재사용되지 않는다']
+  claimed_at          timestamptz [not null, default: `now()`]
+  recovery_expires_at timestamptz [not null, note: '이 점유가 같은 유저를 재생해 주는 마감(5분 — LoginAttemptService.RECOVERY_WINDOW 와 같은 근거: 유실된 201 의 즉시 재시도). 무기한으로 두면 기기 식별자가 게스트 계정의 영구 bearer 자격이 되는데, 계정 LLD §3 은 「게스트의 복구창 밖 처리에는 아직 승인된 대체 복구 수단이 없다」(Q06)고 명시한다. 지난 행은 다음 점유가 같은 PK 로 덮어 재사용하며, 별도 청소 배치는 두지 않았다(게스트 생성이 GuestLoginRateLimiter 로 묶여 있어 증가율이 작다)']
+}
+
 Table invite_claim_intents [note: 'claim 의도 내구 큐 (V52, A22 ㊄·㊺) — 202 를 줄 수 있는 «유일한» 근거다. outbox 행이 아닌 이유: 봉투는 전달 대상이 하나 이상이어야 하는데 claim 의도는 위성으로 나가는 명령이 아니고, Data→링크 HTTP 는 §3·㋟ 위반이다. 재개는 Business 쪽 일회성 실행자가 밟는다'] {
   id                       uuid         [pk]
   user_id                  uuid         [not null]
@@ -1893,3 +1915,6 @@ Table notification_result_bundle_manifests {
   published_at timestamptz [note: '완료 outbox 저장과 같은 트랜잭션에서 기록']
   indexes { (user_id, group_id, slot_at) [pk] }
 }
+
+// 주간 섬 랭킹 동결 분모 (V85)
+Ref: island_weekly_member_counts.island_id > groups.id [delete: cascade]  // GROMO-1997 — 섬이 사라지면 그 섬의 동결 분모도 같이 지운다

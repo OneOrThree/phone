@@ -3,8 +3,10 @@ package com.oneorthree.business.config;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.auth.AccessTokenVerifier;
 import com.oneorthree.business.auth.AuthAttributes;
+import com.oneorthree.business.auth.GuestDeviceCredentials;
 import com.oneorthree.business.auth.LoginAttemptCredentials;
 import com.oneorthree.business.auth.LogoutCredentials;
+import com.oneorthree.business.auth.RefreshCredentials;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.ApiResponses;
 import com.oneorthree.business.common.exception.CommonErrorCode;
@@ -98,10 +100,24 @@ public class AccessTokenFilter extends OncePerRequestFilter {
             log.warn("외부 X-User-Id 헤더를 폐기했다 — path={}", request.getRequestURI());
         }
 
-        // 사용자 자격이 «우리 AT 가 아닌» 두 raw method/path 만 AT 생략을 허용한다.
+        // AT 재발급만 «AT 가 있어도 검증하지 않는다» — 이 요청이 오는 정상적인 상황이 곧 「AT 가
+        // 만료됐다」라서, 만료 AT 를 401 로 끊으면 앱의 401 처리가 다시 갱신을 불러 401 → 갱신 → 401
+        // 루프가 된다(GROMO-2035 가 없애려는 「한 시간마다 로그아웃」과 같은 증상이다).
+        //
+        // ⚠️ 「검증 없이 통과한 AT」가 권한이 되지는 않는다: 이 경로의 컨트롤러·유스케이스는
+        //    Authorization 을 «읽지 않고»(RefreshCredentials), 주체는 Data 가 RT 서명에서 직접 확인한다.
+        //    아래 AuthAttributes 도 심지 않으므로 @LoginUser 로 흘러갈 값 자체가 없다.
+        if (RefreshCredentials.matches(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
+        // 사용자 자격이 «우리 AT 가 아닌» 세 raw method/path 만 AT 생략을 허용한다.
         //   · DELETE /auth/sessions/current — RT 가 인증 정본이다(Data 가 검증한다)
         //   · POST   /auth/sessions        — 제공자 자격이 인증 정본이다. 최초 로그인에는 AT 가
         //                                     아예 없으므로, 열지 않으면 «로그인 자체가 401» 이다
+        //   · POST   /auth/sessions/guest  — 같은 이유. 게스트 시작에는 제시할 자격이 아예 없다
+        //                                     (GROMO-2036). 기기 식별자는 멱등 키이지 인증이 아니다
         //
         // ⚠️ 여는 조건은 「AT 가 없을 때」뿐이다. AT 를 실었다면 아래로 내려가 평소처럼 검증되고,
         //    실패하면 401 이다 — 계정 LLD §2.1 의 「잘못된 AT 를 익명 로그인으로 조용히 강등하지
@@ -135,7 +151,8 @@ public class AccessTokenFilter extends OncePerRequestFilter {
      * 「필터는 열었는데 라우팅은 다른 곳」 또는 그 반대가 된다.
      */
     private static boolean allowsMissingAccessToken(HttpServletRequest request) {
-        return LogoutCredentials.matches(request) || LoginAttemptCredentials.matches(request);
+        return LogoutCredentials.matches(request) || LoginAttemptCredentials.matches(request)
+                || GuestDeviceCredentials.matches(request);
     }
 
     private String extractToken(HttpServletRequest request) {
