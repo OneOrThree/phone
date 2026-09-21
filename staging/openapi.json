@@ -13299,6 +13299,13 @@
           "currentIslandId": {
             "type": "string",
             "format": "uuid"
+          },
+          "lossReason": {
+            "type": "string",
+            "enum": [
+              "LEFT",
+              "KICKED"
+            ]
           }
         }
       },
