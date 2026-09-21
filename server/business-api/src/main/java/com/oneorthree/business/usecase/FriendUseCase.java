@@ -10,6 +10,7 @@ import com.oneorthree.business.upstream.data.DataApiClient;
 import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestState;
+import com.oneorthree.business.upstream.data.dto.FriendSearchItem;
 import com.oneorthree.business.upstream.data.dto.FriendshipDeleted;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,7 +21,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * 친구 7종의 위임 (GROMO-1894, friend-letter LLD §1.1~1.6 · §1.11). 판정은 전부 Data 의
+ * 친구 8종의 위임 (GROMO-1894 7종 + GROMO-1996 검색). 판정은 전부 Data 의
  * {@code FriendService} 가 한다 — Business 는 주체를 AT 에서만 꺼내 전달하고 도메인 실패를 공개 오류 표로 옮긴다.
  *
  * <p>LLD 표의 에러 「코드」({@code SELF_REQUEST}·{@code ALREADY_FRIEND} …)는 Data 의 {@code FriendErrorCode}
@@ -45,6 +46,8 @@ public class FriendUseCase {
             Map.entry("NOT_REQUEST_SENDER", new PublicFailure(ApiErrorCode.FORBIDDEN, "requestId")),
             Map.entry("REQUEST_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "requestId")),
             Map.entry("NOT_FRIEND", new PublicFailure(ApiErrorCode.NOT_FOUND, "friendUserId")),
+            // GROMO-1996 검색: 등록되지 않은 검색 수단. 공개 field 는 앱이 고칠 파라미터 이름이다.
+            Map.entry("INVALID_SEARCH_TYPE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "type")),
             // Data 가 400 으로 되돌리는 입력은 GET /friends 의 date 형식뿐이다 — UUID·필수 파라미터는 여기서 먼저 거른다.
             Map.entry("INVALID_PARAMETER", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "date")));
 
@@ -69,6 +72,24 @@ public class FriendUseCase {
         List<FriendRequestItem> items = relay(() -> data.fetchFriendRequests(claims.userId(), type, deadline));
         if (items == null) {
             throw new UpstreamContractMismatchException("친구 요청 목록 응답이 없습니다");
+        }
+        return items;
+    }
+
+    /**
+     * 친구 검색 (GROMO-1996, policy-2026-09-14 「친구 검색은 대소문자를 구분하지 않고 정확히 일치할
+     * 때만 결과를 보여 주며 본인과 탈퇴한 사용자는 제외한다」).
+     *
+     * <p>결과가 없을 때는 <b>빈 배열</b>이지 404 가 아니다 — 「그런 사람이 없다」는 정상 응답이다.
+     * 봉투가 아예 없는 것만 계약 불일치다.
+     *
+     * <p>비친구의 {@code tierLevel}·{@code occupation} 가리기는 Data 가 한다 — 여기서 한 번 더 가리면
+     * 두 곳의 판정이 갈린다(게이트 정책을 Data 안에만 두는 {@code LetterUseCase} 와 같은 결).
+     */
+    public List<FriendSearchItem> search(AccessTokenClaims claims, String type, String query, Deadline deadline) {
+        List<FriendSearchItem> items = relay(() -> data.searchFriends(claims.userId(), type, query, deadline));
+        if (items == null) {
+            throw new UpstreamContractMismatchException("친구 검색 응답이 없습니다");
         }
         return items;
     }
