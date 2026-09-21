@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 · V91 · V95 · V98 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // ※ 번호는 연속일 필요가 없다 — Flyway 는 「이미 적용된 것보다 낮은 번호가 나중에 나타나지 않을 것」만 요구한다
 //    (prod 는 out-of-order 가 꺼져 있다). V86 은 형제 PR 순서를 풀려고 비워 둔 자리다(GROMO-1996 이 V89 로 옮겼다).
 // V88 — 휴식 1시간 자동 종료와 결과 1회 제공 (GROMO-1998): focus_settlements.auto_closed · acknowledged_at.
@@ -418,12 +418,12 @@ Table friendships [note: '유저 간 친구 관계 (요청 → 수락/거절). f
     // 소프트 딜리트 행도 걸리므로 재친구 요청은 새 행을 넣지 못한다 → createRequest 가 기존 행을 복원·재전환한다(GROMO-719).
     (from_user_id, to_user_id) [unique, note: '같은 «방향»의 중복 행 차단. WHERE 절 없는 unique 라 deleted_at 이 찍힌 행도 자리를 차지한다 — 재요청이 insert 로 빠지면 409 가 나므로 FriendService.createRequest 가 복원(GROMO-719)·재전환으로 같은 행을 되쓴다']
 
-    // V96(GROMO-2042) 표현식 부분 unique — 위 인덱스는 방향이 같을 때만 막아서, A→B 와 B→A 가
+    // V98(GROMO-2042) 표현식 부분 unique — 위 인덱스는 방향이 같을 때만 막아서, A→B 와 B→A 가
     // 동시에 오면 둘 다 findPair 에서 「기존 행 없음」을 보고 PENDING 두 행을 만들었다.
     //   CREATE UNIQUE INDEX uq_friendships_pending_pair ON friendships
     //     (least(from_user_id, to_user_id), greatest(from_user_id, to_user_id))
     //     WHERE status = 'PENDING' AND deleted_at IS NULL;
-    (`least(from_user_id, to_user_id)`, `greatest(from_user_id, to_user_id)`) [unique, name: 'uq_friendships_pending_pair', note: '살아 있는 PENDING 요청은 두 사람당 한 건 — 방향 무관(V96, GROMO-2042). 양방향 동시 요청의 마지막 방어선이며, 지는 쪽은 409 로 떨어진다. ACCEPTED 는 술어에 넣지 않았다 — 「거절했던 요청을 뒤늦게 수락」(acceptRequest 의 전 상태 관용)이 반대 방향 PENDING 과 겹치는 기존 경로를 깨기 때문']
+    (`least(from_user_id, to_user_id)`, `greatest(from_user_id, to_user_id)`) [unique, name: 'uq_friendships_pending_pair', note: '살아 있는 PENDING 요청은 두 사람당 한 건 — 방향 무관(V98, GROMO-2042). 양방향 동시 요청의 마지막 방어선이며, 지는 쪽은 409 로 떨어진다. ACCEPTED 는 술어에 넣지 않았다 — 「거절했던 요청을 뒤늦게 수락」(acceptRequest 의 전 상태 관용)이 반대 방향 PENDING 과 겹치는 기존 경로를 깨기 때문']
   }
 }
 

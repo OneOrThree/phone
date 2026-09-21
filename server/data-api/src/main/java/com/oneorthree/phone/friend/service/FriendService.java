@@ -151,7 +151,7 @@ public class FriendService {
      * REJECTED 행은 PENDING 재전환(쿨다운은 GROMO-475).
      *
      * <p><b>아래 findPair 판정은 락을 잡지 않는다 — 일부러 그렇다</b>(GROMO-2042). 마지막 방어선은
-     * V96 의 표현식 부분 유니크 인덱스 {@code uq_friendships_pending_pair}
+     * V98 의 표현식 부분 유니크 인덱스 {@code uq_friendships_pending_pair}
      * ({@code least(from,to), greatest(from,to)} where {@code PENDING} 이고 미삭제)다.
      * A→B 와 B→A 가 동시에 오면 둘 다 「기존 행 없음」을 보고 지나가는데, 이때 지는 쪽은 커밋 시점에
      * 유니크 위반으로 떨어지고 {@code GlobalExceptionHandler.handleDataIntegrityViolation} 이 409 로 바꾼다
@@ -178,7 +178,7 @@ public class FriendService {
         User fromUser = getCallerParticipant(me);
         User toUser = getRelationParticipant(targetUserId);
 
-        // 락 없는 판정이다 — 동시에 들어온 반대 방향 요청은 여기서 못 거른다. 그건 V96 의
+        // 락 없는 판정이다 — 동시에 들어온 반대 방향 요청은 여기서 못 거른다. 그건 V98 의
         // uq_friendships_pending_pair 가 커밋 시점에 잡고 409 로 떨어뜨린다(위 Javadoc 의 논증).
         List<Friendship> pair = friendshipRepository.findPair(fromUser, toUser);
         for (Friendship f : pair) {

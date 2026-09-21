@@ -106,7 +106,7 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      * 삭제 행까지 돌려받는 데 의존한다. 필터가 생기면 재요청이 insert 로 빠져 F1(409)이 재발한다.
      *
      * <p><b>이 조회는 락을 잡지 않는다 — 동시 경합의 방어선이 아니다</b>(GROMO-2042). A→B 와 B→A 가
-     * 동시에 오면 둘 다 「기존 행 없음」을 보고 지나간다. 그 자리를 막는 것은 V96 의 표현식 부분 유니크
+     * 동시에 오면 둘 다 「기존 행 없음」을 보고 지나간다. 그 자리를 막는 것은 V98 의 표현식 부분 유니크
      * 인덱스 {@code uq_friendships_pending_pair}
      * ({@code least(from_user_id,to_user_id), greatest(from_user_id,to_user_id)}
      * where {@code status='PENDING' AND deleted_at IS NULL}) 다 — 방향 무관으로 「살아 있는 PENDING 은
@@ -172,7 +172,7 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      *       순서 규칙 자체가 필요 없다. 여러 행을 잡아야 하는 날이 오면 그때
      *       {@code GroupMembershipMutationLocks.lockGroups} 처럼 정렬해서 잠근다.
      *       <b>이 전제가 성립하지 않는 경합이 하나 있다</b> — 요청 생성(GROMO-2042)은 행이 «아직 없을 때»
-     *       나는 경합이라 잡을 행 자체가 없다. 거기서는 락 대신 V96 의 유니크 인덱스
+     *       나는 경합이라 잡을 행 자체가 없다. 거기서는 락 대신 V98 의 유니크 인덱스
      *       {@code uq_friendships_pending_pair} 로 막았다({@link #findPair} 참조)</li>
      *   <li><b>층 순서는 언제나 users → friendships 다.</b> 이 락을 쓰는 두 경로가 그 앞에서 잡는
      *       {@code users} 락은 둘 다 <b>공유 락</b>({@code getCallerForShare}·{@code getTargetForShare})

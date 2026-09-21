@@ -55,7 +55,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 다르다) ② 허용목록·{@code X-User-Id} 대조가 실제 배선으로 도는가 ③ 동시 요청·동시 수락·취소↔수락
  * 경합이 배타 락으로 닫히는가(한 스레드 안에서 순서를 바꿔 흉내 내면 잠금이 관여하지 않는다)
  * ④ 검색이 실제 {@code lower(nickname)} 축으로 도는가(create-drop 스키마에는 V89 인덱스가 없다)
- * ⑤ 양방향 동시 요청이 V96 의 {@code uq_friendships_pending_pair} 로 한 건만 남는가(GROMO-2042 —
+ * ⑤ 양방향 동시 요청이 V98 의 {@code uq_friendships_pending_pair} 로 한 건만 남는가(GROMO-2042 —
  * 이것도 create-drop 스키마에는 없는 인덱스라 여기서만 증명된다).
  */
 @SpringBootTest
@@ -231,7 +231,7 @@ class InternalFriendIntegrationTest {
      * 아무것도 막지 않아 둘 다 {@code findPair} 에서 「기존 행 없음」을 보고 PENDING 두 행을 만들었다.
      * 한쪽이 수락되면 나머지가 PENDING 인 채 남아 목록·배지의 유령이 된다.
      *
-     * <p>V96 의 {@code uq_friendships_pending_pair} 가 그 자리를 막는다. 응답 «코드»까지 보는 이유는
+     * <p>V98 의 {@code uq_friendships_pending_pair} 가 그 자리를 막는다. 응답 «코드»까지 보는 이유는
      * 교착 회피를 함께 단언하기 위해서다 — users 두 행을 배타로 잡는 대안을 택했다면 방향마다 잠금
      * 순서가 갈려 Postgres 가 한쪽을 deadlock 으로 끊고, 그건
      * {@code PessimisticLockingFailureException → 409 CONCURRENT_UPDATE} 로 나타난다.
