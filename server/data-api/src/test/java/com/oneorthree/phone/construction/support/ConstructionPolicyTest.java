@@ -3,6 +3,7 @@ package com.oneorthree.phone.construction.support;
 import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
+import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -67,19 +68,30 @@ class ConstructionPolicyTest {
     // ---------------------------------------------------------------- 권한 (C13, GROMO-2000)
 
     @Test
-    @DisplayName("공동 구매·공동 외양은 활성 주민 누구나 한다")
-    void sharedPurchaseIsOpenToEveryResident() {
-        assertThat(SharedPurchase.canSpend(member(GroupMemberRole.MEMBER))).isTrue();
-        assertThat(SharedPurchase.canSpend(member(GroupMemberRole.OWNER))).isTrue();
-        assertThat(SharedPurchase.canSpend(null)).as("비주민은 항상 false").isFalse();
+    @DisplayName("공동 구매는 활성 주민 누구나 하되 게스트는 빠진다")
+    void sharedPurchaseIsOpenToEveryResidentButGuests() {
+        User member = account(false);
+        assertThat(SharedPurchase.canSpend(member, member(GroupMemberRole.MEMBER))).isTrue();
+        assertThat(SharedPurchase.canSpend(member, member(GroupMemberRole.OWNER))).isTrue();
+        assertThat(SharedPurchase.canSpend(member, null)).as("비주민은 항상 false").isFalse();
+
+        // 「상점 구매를 처음 시도할 때 소셜 로그인을 요청한다」 — 게스트는 주민이어도 못 쓴다.
+        User guest = account(true);
+        assertThat(SharedPurchase.canSpend(guest, member(GroupMemberRole.MEMBER))).isFalse();
+        assertThat(SharedPurchase.canSpend(guest, member(GroupMemberRole.OWNER)))
+                .as("게스트 방장도 구매는 못 한다").isFalse();
     }
 
     @Test
-    @DisplayName("건설(목표 선택·건설하기)은 방장만 한다")
+    @DisplayName("건설(목표 선택·건설하기)은 방장만 하고 게스트 축을 타지 않는다")
     void constructionIsOwnerOnly() {
         assertThat(SharedPurchase.canBuild(member(GroupMemberRole.OWNER))).isTrue();
         assertThat(SharedPurchase.canBuild(member(GroupMemberRole.MEMBER))).isFalse();
         assertThat(SharedPurchase.canBuild(null)).as("비주민은 항상 false").isFalse();
+    }
+
+    private static User account(boolean guest) {
+        return User.builder().nickname("u").isGuest(guest).build();
     }
 
     private static GroupMember member(GroupMemberRole role) {

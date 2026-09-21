@@ -337,7 +337,7 @@ public class ShopService {
                 .map(OwnedProduct::getProductId).collect(Collectors.toSet());
         Set<String> islandOwned = ownedProducts.findByIslandId(islandId).stream()
                 .map(OwnedProduct::getProductId).collect(Collectors.toSet());
-        return new Snapshot(SharedPurchase.canSpend(resident.member()), completed, userOwned,
+        return new Snapshot(SharedPurchase.canSpend(resident.caller(), resident.member()), completed, userOwned,
                 islandOwned, islandWallets.balanceOf(islandId));
     }
 
@@ -407,7 +407,8 @@ public class ShopService {
 
     // ---------------------------------------------------------------- 공통 가드
 
-    private record Resident(UUID userId, Group island, GroupMember member) {
+    /** {@code caller} 는 구매 권한의 게스트 축을 보려고 싣는다 — 조회 사유와 명령 거절이 같은 값을 읽어야 한다. */
+    private record Resident(UUID userId, User caller, Group island, GroupMember member) {
     }
 
     /** 읽기 가드 — 살아 있는 섬의 활성 주민만. 비주민은 {@code MEMBER_ONLY}, 없는·끝난 섬은 {@code GROUP_NOT_FOUND}. */
@@ -417,7 +418,7 @@ public class ShopService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
         GroupMember member = members.findByUserAndGroup(viewer, island)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
-        return new Resident(userId, island, member);
+        return new Resident(userId, viewer, island, member);
     }
 
     /**
@@ -427,6 +428,7 @@ public class ShopService {
      * 되살리지 않는다(건설과 같은 규율).
      */
     private void requireSpender(UUID islandId, UUID userId) {
+        User caller = users.getCaller(userId);
         membershipLocks.lockGroup(islandId);
         Group island = groups.getGroup(islandId);
         if (!isAlive(island)) {
@@ -434,10 +436,9 @@ public class ShopService {
         }
         GroupMember member = members.findActiveByUserIdAndGroupIdForShare(userId, islandId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
-        // 지금은 「활성 주민이면 통과」라 위 orElseThrow 뒤에는 항상 참이다. 그래도 호출을 남기는
-        // 이유는 이것이 구매 권한의 «단일 자리»이기 때문이다 — 게스트 제한(GROMO-1992)처럼
-        // 축이 더 붙을 때 여기 한 곳만 좁히면 조회 사유(Snapshot.canSpend)와 같이 움직인다.
-        if (!SharedPurchase.canSpend(member)) {
+        // 구매 권한의 «단일 자리» — 목록의 항목별 사유(Snapshot#canSpend)가 읽는 것과 같은 판정이다.
+        // 한쪽만 좁히면 앱이 열어 둔 구매 버튼을 눌렀을 때 403 이 나는 어긋남이 생긴다.
+        if (!SharedPurchase.canSpend(caller, member)) {
             throw new ShopException(ShopErrorCode.SHOP_FORBIDDEN);
         }
     }

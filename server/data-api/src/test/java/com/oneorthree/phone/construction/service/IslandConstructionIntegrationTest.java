@@ -574,6 +574,46 @@ class IslandConstructionIntegrationTest {
                 .status()).isEqualTo("BUILDING");
     }
 
+    // ---------------------------------------------------------------- V90 백필
+
+    @Test
+    @DisplayName("V90 백필은 이미 골라져 있던 목표의 대상 명단을 채운다 — 기존 기여 금액은 건드리지 않는다")
+    void v90BackfillsCohortOfAlreadySelectedTargets() throws IOException {
+        // 백필 «전» 상태를 손으로 만든다: 목표는 걸려 있는데 대상 행은 기여자에게만 있는 모습이다.
+        SharedFixture pending = sharedIsland();
+        tx().executeWithoutResult(status -> {
+            states.insertIfAbsent(pending.islandId);
+            states.findByIdForUpdate(pending.islandId).orElseThrow().retarget("gram");
+        });
+        long epoch = states.findById(pending.islandId).orElseThrow().getTargetEpoch();
+        jdbc.update("INSERT INTO island_construction_contributions "
+                        + "(island_id, epoch, user_id, amount, updated_at) VALUES (?, ?, ?, ?, now())",
+                pending.islandId, epoch, pending.ownerId, 700);
+        // 목표가 없는 섬은 대상 자체가 없으므로 백필 대상이 아니다.
+        Fixture noTarget = islandOnly();
+
+        jdbc.execute(Files.readString(Path.of("src/main/resources/db/migration/"
+                + "V90__island_construction_target_cohort_backfill.sql")));
+
+        // 기여자는 금액 그대로, 나머지 당시 주민은 amount=0 대상 행이 새로 생긴다.
+        assertThat(jdbc.queryForObject("SELECT amount FROM island_construction_contributions "
+                        + "WHERE island_id = ? AND epoch = ? AND user_id = ?",
+                Integer.class, pending.islandId, epoch, pending.ownerId))
+                .as("ON CONFLICT DO NOTHING — 이미 채운 몫을 지우지 않는다").isEqualTo(700);
+        assertThat(jdbc.queryForObject("SELECT amount FROM island_construction_contributions "
+                        + "WHERE island_id = ? AND epoch = ? AND user_id = ?",
+                Integer.class, pending.islandId, epoch, pending.memberId)).isZero();
+        assertThat(contributionCount(noTarget.islandId))
+                .as("목표 없는 섬은 채우지 않는다").isZero();
+
+        // 백필 뒤에는 기여가 다시 쌓인다 — 채우지 않으면 갱신할 행이 없어 영영 0 이던 자리다.
+        tx().executeWithoutResult(status ->
+                walletService.contribute(pending.islandId, pending.memberId, 660, "after-backfill"));
+        assertThat(jdbc.queryForObject("SELECT amount FROM island_construction_contributions "
+                        + "WHERE island_id = ? AND epoch = ? AND user_id = ?",
+                Integer.class, pending.islandId, epoch, pending.memberId)).isEqualTo(660);
+    }
+
     // ---------------------------------------------------------------- 시설
 
     /** 완공 시설 행을 직접 심는다 — 선행 조건만 채우면 되는 테스트용. */

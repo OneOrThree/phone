@@ -278,6 +278,26 @@ class ShopServiceIntegrationTest {
     // ---------------------------------------------------------------- 권한·선행·버전
 
     @Test
+    @DisplayName("게스트 주민은 못 산다 — 목록 사유도 FORBIDDEN 이라 버튼이 열렸다가 403 나지 않는다")
+    void guestResidentCannotSpend() {
+        Fixture f = island();
+        UUID guest = joinGuest(f.islandId);
+        fund(f.islandId, 100);
+        String id = product("island_theme", "island", null);
+        publish(entry(id, 1, 30, null, null, "island", 1));
+
+        // 조회 사유와 명령 거절이 같은 판정을 읽는다 — 어긋나면 앱이 살 수 있다고 보여 준다.
+        assertThat(shop.products(f.islandId, guest, "island", null, null, null, 30).items().get(0)
+                .reason()).isEqualTo("FORBIDDEN");
+        assertCode(() -> buy(f, guest, id, UUID.randomUUID()), ShopErrorCode.SHOP_FORBIDDEN);
+        assertThat(islandBalance(f.islandId)).isEqualTo(100);
+
+        // 소셜 로그인으로 전환하면 같은 주민이 산다.
+        jdbc.update("UPDATE users SET is_guest = false WHERE id = ?", guest);
+        assertThat(buy(f, guest, id, UUID.randomUUID()).spent()).isEqualTo(30);
+    }
+
+    @Test
     @DisplayName("SHARED_PURCHASE — 주민 누구나 산다(GROMO-2000). 비주민만 MEMBER_ONLY")
     void sharedPurchasePermission() {
         Fixture f = island();
@@ -500,6 +520,14 @@ class ShopServiceIntegrationTest {
 
     private UUID join(UUID islandId) {
         UUID userId = newUser();
+        members.save(GroupMember.builder().user(users.getReferenceById(userId))
+                .group(groups.getReferenceById(islandId)).role(GroupMemberRole.MEMBER).build());
+        return userId;
+    }
+
+    /** 게스트 계정으로 가입한 주민 — 구매만 막히고 소속·집중은 된다(정책 「인증·게스트 계정」). */
+    private UUID joinGuest(UUID islandId) {
+        UUID userId = users.save(User.builder().nickname("g-" + UUID.randomUUID()).isGuest(true).build()).getId();
         members.save(GroupMember.builder().user(users.getReferenceById(userId))
                 .group(groups.getReferenceById(islandId)).role(GroupMemberRole.MEMBER).build());
         return userId;
