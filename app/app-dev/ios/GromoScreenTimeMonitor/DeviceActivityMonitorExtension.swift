@@ -7,19 +7,20 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
 
     private var today: String { Self.dayString(Date()) }
 
-    private func promotePendingSelectionIfDue() {
+    @discardableResult
+    private func promotePendingSelectionIfDue() -> Bool {
         guard let pendingData = defaults?.data(forKey: "gromo:goal:selectionPending") else {
-            return
+            return false
         }
         if let applyDate = defaults?.string(forKey: "gromo:goal:selectionApplyDate"),
-           applyDate > today { return }
+           applyDate > today { return false }
         guard let selection = try? JSONDecoder().decode(
             FamilyActivitySelection.self,
             from: pendingData
         ), !Self.isEmpty(selection) else {
             defaults?.removeObject(forKey: "gromo:goal:selectionPending")
             defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
-            return
+            return false
         }
 
         let registeredSelectionKey = "gromo:screentime:registeredSelection"
@@ -41,16 +42,17 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             try center.startMonitoring(
                 DeviceActivityName("gromo.usage.buckets"),
                 during: Self.schedule,
-                events: Self.events(for: selection)
+                events: Self.events(for: selection, maxMinutes: previousMaxMinutes)
             )
             defaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
             defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
             defaults?.set(pendingData, forKey: "gromo:goal:selection")
             defaults?.set(pendingData, forKey: registeredSelectionKey)
-            defaults?.set(900, forKey: registeredMaxMinutesKey)
+            defaults?.set(previousMaxMinutes, forKey: registeredMaxMinutesKey)
             defaults?.removeObject(forKey: "gromo:goal:selectionPending")
             defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
             defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
+            return true
         } catch {
             var restored = false
             if let previousSelection, !Self.isEmpty(previousSelection) {
@@ -81,6 +83,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
                 }
             }
             defaults?.removeObject(forKey: "gromo:goal:selectionPromotedOkDate")
+            return false
         }
     }
 
@@ -131,6 +134,9 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             current = 0
             defaults?.set(0, forKey: "gromo:screentime:usageBucketMinutes")
             defaults?.set(today, forKey: "gromo:screentime:usageBucketDate")
+            defaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
+            defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
+            if promotePendingSelectionIfDue() { return }
         }
 
         guard isPlausible(minutes) else { return }
