@@ -28,6 +28,7 @@ import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
+import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.IslandLedger;
@@ -37,6 +38,7 @@ import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
+import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
@@ -138,6 +140,7 @@ public class DataApiClient {
     // GROMO-1760 섬 가입·초대 5종 — 요청 소유는 사용자 축이라 모두 /internal/users/{userId} 아래다.
     private static final String PATH_ISLAND_MEMBERSHIPS =
             "/internal/users/{userId}/islands/{islandId}/memberships";
+    private static final String PATH_JOIN_REQUESTS = "/internal/users/{userId}/join-requests";
     private static final String PATH_JOIN_REQUEST =
             "/internal/users/{userId}/join-requests/{requestId}";
     private static final String PATH_INVITATION_RESOLVE =
@@ -198,6 +201,8 @@ public class DataApiClient {
     private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
     // GROMO-1895 섬 공동 가계부 — 회관 화면과 도메인 GET 이 같이 쓰는 섬 축 조회다(B26).
     private static final String PATH_ISLAND_LEDGER = "/internal/islands/{islandId}/resources/ledger";
+    // GROMO-1895 도서관 물고기 장 — 다른 도서관 통계와 같은 statistics/ 아래 섬 축 조회다(B26).
+    private static final String PATH_FISH_EARNINGS = "/internal/islands/{islandId}/statistics/fish-earnings";
     // GROMO-1997 주간 섬 랭킹 — 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26).
     private static final String PATH_ISLAND_RANKINGS = "/internal/users/{userId}/island-rankings";
 
@@ -1118,6 +1123,23 @@ public class DataApiClient {
     }
 
     /**
+     * 내 가입 신청 목록 한 페이지 (GROMO-2047, LLD §3.12). 경계는 Business 가 서명 커서에서 꺼낸
+     * 평문이고, 소유는 상류가 {@code applicant_id} 로 묶어 찾는다 — 남의 요청은 후보조차 아니다.
+     */
+    public MyJoinRequestsPage fetchMyJoinRequests(UUID userId, Instant afterCreatedAt,
+            UUID afterRequestId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_JOIN_REQUESTS, userId))
+                        .onBehalfOf(userId)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterRequestId", afterRequestId == null ? null : afterRequestId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MyJoinRequestsPage>() { });
+    }
+
+    /**
      * 가입 요청 상태 (GROMO-1760, LLD §3.8). 멱등 GET 이라 재시도한다. 본인 소유 판정은
      * 상류의 {@code id+applicantId} 조회가 하고, 남의 요청은 404 로 접힌다.
      */
@@ -1841,6 +1863,19 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandLedger>() { });
+    }
+
+    /**
+     * 도서관 물고기 장 — 주민별 누적 획득 (GROMO-1895). 멱등 GET 이라 재시도한다. query 가 없다 —
+     * 기간도 페이지도 고를 수 없는 「이 섬 전 기간」 집계다.
+     */
+    public IslandFishEarnings fetchFishEarnings(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_FISH_EARNINGS, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandFishEarnings>() { });
     }
 
     /** 스크린타임 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. */

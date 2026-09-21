@@ -10,6 +10,7 @@ import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
 import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandLedger;
 import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import lombok.RequiredArgsConstructor;
@@ -155,6 +156,30 @@ public class IslandRecordsUseCase {
         String next = page.nextCreatedAt() == null ? null : codec().encode(scope,
                 new CursorBoundary(page.nextCreatedAt().toString(), page.nextEntryId().toString()));
         return new Ledger(page.month(), page.earnedTotal(), page.spentTotal(), page.items(), next);
+    }
+
+    /**
+     * 도서관 물고기 장 — 주민별 누적 획득 (GROMO-1895/2046, island-records LLD §7).
+     *
+     * <p>게이트가 둘이고 <b>권한이 시설보다 먼저</b>다(Data 가 그 순서로 판정한다): 비주민·떠난 주민은
+     * {@code MEMBER_ONLY} → 403 {@code FORBIDDEN} 이고, 주민이어도 도서관이 미완공이면
+     * {@code LIBRARY_LOCKED} → 403 {@code FACILITY_LOCKED} 다. 둘 다 이미 {@link #DOMAIN_FAILURES} 에
+     * 있어 실패 표를 늘리지 않는다 — 다만 <b>공개 표를 거치는지</b>가 이 조회의 계약이라 계약 테스트가 그 두 쌍을
+     * 직접 본다(표에 없으면 502 {@code UPSTREAM_CONTRACT_ERROR} 로 새 나간다).
+     *
+     * <p>실패를 <b>빈 명단으로 접지 않는다</b> — {@code members:[]} 는 「아무도 안 낚았다」는 뜻이라
+     * 「못 읽었다」·「볼 권한이 없다」와 같은 값으로 접으면 정책 「주민 개인 기록은 방문자에게 보여 주지 않는다」가
+     * 조용히 뚫린다.
+     */
+    public IslandFishEarnings fishEarnings(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        IslandFishEarnings view = relay(() -> data.fetchFishEarnings(claims.userId(), islandId, deadline));
+        if (view == null || view.members() == null
+                || view.members().stream().anyMatch(member -> member.userId() == null
+                        || member.earnedFish() == null)) {
+            // 빠진 마리 수를 0 으로 지어내지 않는다 — 「안 낚았다」와 「모른다」는 다른 값이다.
+            throw new UpstreamContractMismatchException("물고기 장 응답이 완전하지 않습니다");
+        }
+        return view;
     }
 
     /** 기기 측정 PUT — 응답은 그 기기·날짜의 최신 선택 관측이다. */

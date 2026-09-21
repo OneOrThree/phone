@@ -53,6 +53,8 @@ public class IslandMembershipController {
     private static final int INTRO_MAX = 200;
     private static final int SEARCH_LIMIT_DEFAULT = 20;
     private static final int DISCOVER_LIMIT_DEFAULT = 1;
+    /** 「신청 중」 기본 개수 — 한 사람이 동시에 걸어 둘 수 있는 신청 수가 적어 한 화면이면 충분하다. */
+    private static final int MY_JOIN_REQUESTS_LIMIT_DEFAULT = 20;
     // 초대 code·token 크기는 내부 계약(InvitationResolveCommandRequest·JoinIslandCommandRequest)과
     // 같게 둔다 — 여기서 더 느슨하게 받으면 초과분이 400/422 로 갈리는 경계가 상류와 어긋난다.
     private static final int CODE_MAX = 32;
@@ -179,6 +181,19 @@ public class IslandMembershipController {
             invitationToken = optionalText(body, "invitationToken", TOKEN_MAX);
         }
         return islands.join(claims, uuid(islandId, "islandId"), invitationToken, key, deadline());
+    }
+
+    /**
+     * 내 가입 신청 목록 (GROMO-2047, LLD §3.12) — explore 화면의 「신청 중」 조각이다.
+     *
+     * <p>{@code /me/join-requests/{requestId}}(§3.8) 와 세그먼트 수가 달라 경로가 겹치지 않는다.
+     * 신청이 없으면 404 가 아니라 빈 목록 + 200 이다 — 「신청한 적 없음」은 실패가 아니다.
+     */
+    @GetMapping("/me/join-requests")
+    public IslandMembershipUseCase.MyJoinRequests myJoinRequests(HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return islands.myJoinRequests(claims, single(request, "cursor"),
+                limit(request, MY_JOIN_REQUESTS_LIMIT_DEFAULT), deadline());
     }
 
     /** 가입 요청 상태 (GROMO-1760, LLD §3.8). 남의 요청은 상류가 404 로 접는다. */

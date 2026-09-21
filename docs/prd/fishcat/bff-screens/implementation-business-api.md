@@ -66,7 +66,7 @@ node ~/.claude/skills/archify/bin/archify.mjs deliver sequence docs/prd/fishcat/
 | `home` | 14–18 · 26 · 31 | 섬 문맥 | `GET /me/focus-summary` · `GET /focus-sessions/current` · `GET /islands/{islandId}/rest-members` · `GET /islands/{islandId}/shop/wallets` · 방송기 있으면 `GET /islands/{islandId}/playback` | 방송기 없음: `playbackAvailability:facility_locked`. rest 흡수 확정(BG11 home 해소, 2026-09-19) — `restMembers` 는 필수 조각 |
 | `focus` | 19–25 · 28 | `GET /focus-sessions/current` → 세션 있으면 그 `islandId`로 `GET /islands/{islandId}`(시설·역할), 없으면 섬 문맥 | `GET /islands/{islandId}/focus-members` · 방송기 완공이면 `GET /islands/{islandId}/playback` | 세션 없음 정상. 방송기 미완공은 `playback` 조각만 N(`playbackAvailability:facility_locked`) — 화면 전체는 그대로 200(B03·아래 각주) |
 | `town-hall` | 39–44 · 41A | 섬 문맥 (`role`) | `GET /islands/{islandId}/members` · `…/shop/wallets` · `…/construction-options` · `…/resources/ledger` · 방장이면 `…/join-requests` | 일반 주민: `joinRequestsAvailability:host_only`. 조회 뒤 위임돼 403이면 화면 403. 가계부(GROMO-1786 — 배선 완료)는 **첫 집계에 포함**하는 필수 조각 `ledger` 다. 화면에 query 가 없어 **이번 KST 달·방향 필터 없음**의 첫 쪽이고 다음 쪽은 도메인 `GET /islands/{islandId}/resources/ledger` 가 같은 서명 커서로 이어받는다(B10). 실패는 다른 조각과 같이 화면 전체 실패다 — 빈 장부로 접지 않는다 |
-| `library` | 32–38 | 섬 문맥 (도서관 완공) | `GET /islands/{islandId}/statistics/focus` · `…/statistics/screen-time` | 미완공: 기록 조각 null + `facility_locked`. 물고기 장은 `GET /islands/{islandId}/statistics/fish-earnings`(GROMO-1895, 도서관 게이트 `LIBRARY_LOCKED`), 타 섬 경로는 BG11. 구현(GROMO-1898): 섬 상세에 시설 필드가 없어 완공은 `…/construction-options` 의 `items`(미완공 건물만)로 판정한다. ~~기록 GET(1769) 전까지 완공이면 두 기록 조각은 `missingFragments`·`statisticsAvailability:null`~~ → GROMO-1769: 완공이면 두 조각을 병렬로 싣고 `statisticsAvailability:available`. 화면은 query 가 없어 **이번 UTC 주(월~일)·scope=me** 다(결정 로그 2026-09-19 RC-화면) |
+| `library` | 32–38 | 섬 문맥 (도서관 완공) | `GET /islands/{islandId}/statistics/focus` · `…/statistics/screen-time` · `…/statistics/fish-earnings` | 미완공: 기록 조각 **셋** 다 null + `facility_locked`. 구현(GROMO-1898): 섬 상세에 시설 필드가 없어 완공은 `…/construction-options` 의 `items`(미완공 건물만)로 판정한다. ~~기록 GET(1769) 전까지 완공이면 두 기록 조각은 `missingFragments`·`statisticsAvailability:null`~~ → GROMO-1769: 완공이면 두 조각을 병렬로 싣고 `statisticsAvailability:available`. 화면은 query 가 없어 통계 둘은 **이번 UTC 주(월~일)·scope=me** 다(결정 로그 2026-09-19 RC-화면). 물고기 장(`fishEarnings`, GROMO-1895 설계 → **GROMO-2046 배선 완료**, 도서관 게이트 `LIBRARY_LOCKED`)은 같은 병렬 단계의 세 번째 필수 조각이고 **기간 축이 없다**(전 기간 누적). 타 섬 경로는 BG11 |
 | `board` | 45–55 | 섬 문맥 (게시판 완공·건설 목표) | `GET /islands/{islandId}/quests/current` · `…/notices` · `…/shop/wallets` | 미완공은 화면 403 `FACILITY_LOCKED` |
 | `mailbox` | 63–66 | 섬 문맥 (우체통 완공) | Realtime `…/messages` 첫 페이지 · Data 편지함·친구([friend-letter](../friend-letter/) 설계 완료 — BG10 해소) → 작성자 표시 정보 batch | Realtime 권한 거부는 화면 403. 표시 정보 장애를 탈퇴자로 바꾸지 않는다. 구현(GROMO-1899): 인가는 편지방 조각의 Data `mailbox-access` 가 하고, 작성자 표시 batch 는 POST 라 병렬 조각 밖에서 같은 deadline 으로 잇는다. `letters` 는 받은 편지함 첫 페이지 |
 | `shop` | 68–73 | 섬 문맥 (상점 완공) | `GET /islands/{islandId}/shop/wallets` · `…/shop/products?category=` · `…/inventory` | 미완공은 화면 403. 구현(GROMO-1898): 상점을 가리는 도메인 GET 이 없어 `…/construction-options` 로 완공을 먼저 판정한다. 지갑·상품 GET 은 GROMO-1781 에서 연결됐다 — `category=personal|island`(기본 personal, 그 밖은 422), 상품 커서는 도메인 GET 과 같은 서명 커서 |
@@ -163,10 +163,44 @@ Data 의 `ZonePolicy.KST` 를 따라간 것이다([date-axis 규약](../../../co
 uuid 무부호 비교)을 그대로 쓰고 Business 는 평문 경계를 서명 커서로 감싸기만 한다 — 앱에 원장 행 id 를
 그대로 주지 않기 위해서다. 커서 scope 에 섬·월·방향이 묶여 필터가 다르면 400 `INVALID_CURSOR` 다.
 
+### 4.3 `library` 의 `fishEarnings` — 주민별 누적 물고기 (GROMO-2046)
+
+**방식: 첫 집계 포함.** 가계부와 같은 이유다 — 도서관을 열면 바로 보이는 재료이고 같은 병렬 단계·같은
+deadline 안이라 왕복이 늘지 않는다. 지연 조회도, 다음 쪽도 없다(커서 자체가 없다).
+
+- Data 는 이미 있다(GROMO-1895/1990): `GET /internal/islands/{islandId}/statistics/fish-earnings`
+  → `IslandEconomyReadService.fishEarnings`. **새 집계 서비스·마이그레이션을 만들지 않았다.**
+- Business 공개 경로: `GET /islands/{islandId}/statistics/fish-earnings`(무접두 공개 경로는 business-api 몫).
+  **query 가 하나도 없다** — 기간도 scope 도 페이지도 고를 수 없다. 뭐라도 붙어 오면 400 `INVALID_PARAMETER`
+  이고 상류를 부르지 않는다(모르는 키를 조용히 버리면 앱이 기간이 걸린 줄 안다).
+- 응답: `{"data":{"members":[{"userId","name","earnedFish"}]}}`. Data 응답 그대로이고 투영하지 않는다.
+  현재 활성 주민 **전원**이 한 번에 실린다(섬 정원 상한 안이라 페이지가 없다 — 스크린타임 `scope=island` 와
+  같은 규칙). 기록이 없는 주민은 `earnedFish:0` 으로 명단에 남고, 정렬은 누적 내림차순·동점이면 `userId` 오름차순이다.
+
+**게이트가 둘이고 권한이 시설보다 먼저다**(Data 판정 순서).
+
+| 상류 (상태, 코드) | 공개 | 뜻 |
+| --- | --- | --- |
+| 403 `MEMBER_ONLY` | 403 `FORBIDDEN`(field `islandId`) | 방문자·떠난 주민. 정책 「섬 가입·전망대·랭킹」의 *주민 개인 기록은 보여 주지 않는다* |
+| 403 `LIBRARY_LOCKED` | 403 `FACILITY_LOCKED` | 주민이지만 도서관 미완공. 정책 「물고기 재화와 기록」의 *도서관 공사 완료 후 조회한다* |
+| 404 `GROUP_NOT_FOUND` | 404 `GROUP_NOT_FOUND`(field `islandId`) | 종료·삭제된 섬 |
+
+두 403 은 **공개 오류 표를 반드시 거친다** — 표에 없으면 502 `UPSTREAM_CONTRACT_ERROR` 로 새 나가
+「서버가 고장났다」로 보인다. `IslandRecordsUseCase.DOMAIN_FAILURES` 에 이미 있는 행이라 표를 늘리지
+않았고, 계약 테스트가 그 두 쌍을 직접 본다.
+
+- **실패를 빈 명단으로 접지 않는다.** `members:[]` 는 「아무도 안 낚았다」는 뜻이라 「못 읽었다」·「볼 권한이
+  없다」와 같은 값이 되면 도서관 게이트가 조용히 뚫린다. 상류가 `earnedFish` 를 빠뜨려도 0 으로 지어내지 않고 502 다.
+- **잔액이 아니라 기록이다.** 재화는 섬 단위 하나이고 개인 물고기 지갑은 없지만(GROMO-1989), 「누가 이 섬에서
+  얼마를 낚아 왔는가」는 구매·건설로 섬 잔액이 줄어도 줄지 않는 별도 기록이다(정책 「물고기 재화와 기록」).
+  현재 섬 잔액의 정본은 `wallets` 조각(GROMO-1781)이고 이 조각에 잔액 필드는 없다.
+- **기간 축이 없다.** 같은 화면의 통계 둘이 이번 UTC 주를 읽는 것과 달리 이 조각은 전 기간 누적이라 주 경계
+  결정(GROMO-2048)과 겹치는 축이 없다.
+
 ## 5. 공통 규칙
 
-- 조각 이름이 응답 키다(B26 확정): `me`·`memberships`·`islands`·`island`·`joinRequest`·`focusSummary`·`session`·`focusMembers`·`restMembers`·`wallets`·`playback`·`members`·`constructionOptions`·`joinRequests`·`ledger`·`focusStatistics`·`screenTimeStatistics`·`quests`·`notices`·`messages`·`letters`·`friends`·`friendRequests`·`sentFriendRequests`·`products`·`sharedInventory`·`inventory`·`settings`.
-- availability 필드(B26 확정): `joinRequestAvailability`(visit)·`playbackAvailability`(home·focus)·`joinRequestsAvailability`(town-hall)·`statisticsAvailability`(library, 값 `available`·`facility_locked`).
+- 조각 이름이 응답 키다(B26 확정): `me`·`memberships`·`islands`·`island`·`joinRequest`·`focusSummary`·`session`·`focusMembers`·`restMembers`·`wallets`·`playback`·`members`·`constructionOptions`·`joinRequests`·`ledger`·`focusStatistics`·`screenTimeStatistics`·`fishEarnings`·`quests`·`notices`·`messages`·`letters`·`friends`·`friendRequests`·`sentFriendRequests`·`products`·`sharedInventory`·`inventory`·`settings`.
+- availability 필드(B26 확정): `joinRequestAvailability`(visit)·`playbackAvailability`(home·focus)·`joinRequestsAvailability`(town-hall)·`statisticsAvailability`(library, 값 `available`·`facility_locked` — 기록 조각 **셋**을 한 번에 가린다: `focusStatistics`·`screenTimeStatistics`·`fishEarnings`).
 - 도메인 GET 이 아직 없는 조각은 `missingFragments`(B27) — 명시 `null` + 이름 배열, 없으면 키 생략. availability 로 위장하지 않고, 그 조각의 availability 는 `null` 이다. 현황은 §4.1.
 - 화면 전체 `asOf`는 두지 않는다(B07 개정). 조각마다 온 `serverNow`·`asOf`·`version`을 그대로 둔다.
 - 모든 조각은 `required=true`로 시작한다(B04). 선택 조각을 두려면 B05를 먼저 개정한다.

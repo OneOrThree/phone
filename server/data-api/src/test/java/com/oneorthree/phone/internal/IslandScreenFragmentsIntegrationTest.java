@@ -82,6 +82,8 @@ class IslandScreenFragmentsIntegrationTest {
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
         // 도서관 게이트를 실제로 판정하게 한다 — 기본 OFF 면 모든 섬이 통과해 게이트가 검증되지 않는다.
         registry.add("construction.facility-gates.enforce", () -> true);
+        // 승인·거절이 목록에서 사라지는지 보려면 방장 명령이 열려 있어야 한다(GROMO-2047).
+        registry.add("island-management.commands-enabled", () -> true);
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"GET /internal/users/*/join-requests", "GET /internal/islands/*/resources/ledger",
@@ -165,10 +167,35 @@ class IslandScreenFragmentsIntegrationTest {
     }
 
     @Test
+    @DisplayName("내 대기 목록 — 승인·거절로 닫힌 신청은 목록에서 사라지고, 신청이 하나도 없으면 빈 목록이다")
+    void myRequestsDropsAnsweredRequestsAndIsEmptyWhenNone() {
+        UUID host = newUser();
+        UUID approvedIsland = island("승인섬", true);
+        UUID rejectedIsland = island("거절섬", true);
+        joinAs(host, approvedIsland, GroupMemberRole.OWNER);
+        joinAs(host, rejectedIsland, GroupMemberRole.OWNER);
+        UUID applicant = newUser();
+        assertThat(joins.myRequests(applicant, null, null, 10).items())
+                .as("신청이 없으면 「없음」이 아니라 빈 목록이다").isEmpty();
+
+        UUID approved = joins.join(applicant, approvedIsland, null, UUID.randomUUID()).requestId();
+        UUID rejected = joins.join(applicant, rejectedIsland, null, UUID.randomUUID()).requestId();
+        assertThat(joins.myRequests(applicant, null, null, 10).items())
+                .extracting(MyJoinRequestsPageView.Item::id)
+                .containsExactlyInAnyOrder(approved, rejected);
+
+        joins.answer(host, approvedIsland, approved, true, UUID.randomUUID());
+        joins.answer(host, rejectedIsland, rejected, false, UUID.randomUUID());
+        assertThat(joins.myRequests(applicant, null, null, 10).items())
+                .as("닫힌 신청의 결과는 §3.8 단건 조회로 본다 — 대기 목록에 이력을 쌓지 않는다").isEmpty();
+    }
+
+    @Test
     @DisplayName("내 대기 목록 HTTP — 경로 사용자 축으로 열리고, 경계 한쪽만 오면 400 INVALID_PAGE_REQUEST")
     void myRequestsOverHttp() throws Exception {
         UUID applicant = newUser();
         UUID islandId = island("신청섬", true);
+        joinAs(newUser(), islandId, GroupMemberRole.OWNER);
         UUID request = joins.join(applicant, islandId, null, UUID.randomUUID()).requestId();
 
         mvc.perform(get("/internal/users/" + applicant + "/join-requests").param("limit", "20")
@@ -177,6 +204,9 @@ class IslandScreenFragmentsIntegrationTest {
                 .andExpect(jsonPath("$.items[0].id").value(request.toString()))
                 .andExpect(jsonPath("$.items[0].islandId").value(islandId.toString()))
                 .andExpect(jsonPath("$.items[0].islandName").value("신청섬"))
+                // 섬 요약(이름·주민 수·정원) — 「3/15」를 그리려면 둘 다 필요하다(GROMO-2047).
+                .andExpect(jsonPath("$.items[0].memberCount").value(1))
+                .andExpect(jsonPath("$.items[0].maxMembers").value(10))
                 .andExpect(jsonPath("$.items[0].status").value("pending"))
                 .andExpect(jsonPath("$.nextRequestId").doesNotExist());
         mvc.perform(get("/internal/users/" + applicant + "/join-requests").param("limit", "20")

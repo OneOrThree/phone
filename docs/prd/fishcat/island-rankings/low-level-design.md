@@ -153,26 +153,26 @@ lifecycle 잠금 `public-statistics-snapshot-lifecycle`, 15분 cursor TTL, `CURS
 INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON CONFLICT DO NOTHING
 ```
 
-<<<<<<< HEAD
-크론이 도는 시각은 이미 «새» 주이므로 대상은 직전 주다. `ON CONFLICT DO NOTHING` 이 멱등 가드다 — 두 번 돌아도
-그 주의 분모는 **처음 적힌 값** 그대로다.
-
-**기준 시각은 실행 순간이 아니라 주 종료 경계다**(RK-D01-기준시각). 가입은 `created_at < 경계` 로 걸러 경계 이후
-가입자가 지난 주 분모에 섞이지 않게 한다(`created_at` 이 null 인 legacy 행은 «경계보다 오래된 행»으로 보고 포함한다 —
-DB 가 NOT NULL 이 아니라 빼면 옛 주민이 통째로 사라진다).
-
-**이탈 방향은 쿼리로 닫을 수 없다.** `group_members` 에는 이탈 시각이 없다 — `left_at` 컬럼이 없고, `updated_at` 은
-알림 토글 같은 아무 변경에도 갱신되므로 이탈의 증거가 아니며, `created_at` 은 `rejoin()` 이 갱신하지 않아 «최초»
-가입 시각이다. 그래서 「경계 시점에 활성이었는가」를 사후에 판정할 근거가 DB 에 존재하지 않는다. 대신 **실행 유예**
-(`ranking.freeze.grace`, 기본 1시간)를 넘긴 실행은 **아무것도 쓰지 않는다** — 첫 값이 영구 고착되므로, 늦게 돈
-배치가 「하루치 이탈이 반영된 인원」을 그 주의 정답으로 굳히는 쪽이 더 나쁘다. 쓰지 않으면 그 주는 분모가 없어
-랭킹에서 빠지고(RK-D01-결손) 경고 로그가 남는다. 남는 창(경계 ~ 실제 실행 사이의 이탈)은 RK-D12 로 추적하며,
-닫으려면 소속 도메인에 이탈 시각 컬럼이 필요하다.
-=======
 크론이 도는 시각은 이미 «새» 주이므로 대상은 직전 주다. `ON CONFLICT DO NOTHING` 이 멱등 가드다 — 두 번 돌든,
-늦게 돌든, 락이 새든 그 주의 분모는 **처음 적힌 값** 그대로다. 덮어쓰기였다면 하루 늦게 돈 배치가 하루치
-이탈을 반영해 동결의 의미가 사라진다.
->>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
+늦게 돌든, 락이 새든 그 주의 분모는 **처음 적힌 값** 그대로다.
+
+**기준 시각은 실행 순간이 아니라 주 종료 경계다**(RK-D01-기준시각). 가입·이탈 **양방향**을 그 경계로 판정하므로
+**실행 시각이 값을 바꾸지 않는다** — 하루 늦게 돌아도 같은 분모가 나온다. 판정은
+`IslandWeeklyMemberCountRepository.ACTIVE_AT_BOUNDARY_SQL` 한 자리에 있다:
+멤버십 시작은 `COALESCE(rejoined_at, created_at) IS NULL OR COALESCE(rejoined_at, created_at) < 경계`,
+이탈은 `is_left = false OR (left_at IS NOT NULL AND left_at >= 경계)` (V97, GROMO-2050).
+**이탈 쪽을 `left_at IS NULL OR …` 로 줄여 적으면 안 된다** — V97 «이전» 에 나간 행은 `is_left = true` 인데
+`left_at` 이 null 이라(백필하지 않았다) 그 축약은 그 이력 행을 경계 시점 주민으로 되살려 **과거 주 분모를
+부풀린다**. 재사용하는 쿼리는 위 전체 조건을 그대로 쓴다. `created_at` 이 null 인 legacy 행은 «경계보다 오래된 행»으로 보고 포함한다 — DB 가 NOT NULL 이
+아니라 빼면 옛 주민이 통째로 사라진다.
+
+실행 유예(`ranking.freeze.grace`)는 **삭제했다**. 이탈 방향을 쿼리로 닫을 수 없던 동안의 임시 방편이었고, 이제
+필요 없다. 동결 쿼리에서 `users.is_deleted` 조인도 뺐다 — 남겨 두면 **경계 뒤 계정 탈퇴가 지난 주 분모를 줄여**
+강퇴와 똑같은 조작이 열린 채 남는다(계정 탈퇴는 같은 트랜잭션에서 모든 활성 멤버십에 `leave()` 를 밟으므로
+`left_at` 이 그 역할을 대신한다).
+
+남는 창은 **「경계 뒤에 나갔다가 또 돌아온」 한 벌**뿐이다 — 멤버십 행이 (user, group) 당 하나라 세대가 덮인다.
+닫으려면 멤버십 이력 표가 필요한데, 배치가 경계 직후 한 번만 도는 데 비해 비용이 크다(RK-D12).
 
 분자는 **복제하지 않는다**. 집중 정본(`focus_session_details`·`focus_session_intervals`)이 그대로 남아 있어
 언제든 같은 창으로 다시 합칠 수 있고, 복제하면 정본과 어긋날 자리를 만든다. 그 대가로 «주 경계를 걸친 세션이
