@@ -38,7 +38,20 @@ public class IslandWalletService {
     private final IslandConstructionContributionRepository contributions;
     private final Clock clock;
 
-    /** 표시용 잔액 — 지갑 행이 아직 없는 섬은 0원으로 읽는다. */
+    /**
+     * 표시용 잔액 — 지갑 행이 아직 없는 섬은 <b>0원</b>이다(GROMO-2043, 결정 「통장-부재-0」).
+     *
+     * <p>0 은 위장이 아니라 사실이다. 지갑 행은 섬 생성 때 만들고({@code IslandMembershipService#create}),
+     * 없으면 적립 경로가 {@code insertIfAbsent} 로 만든다. 그리고 {@code island_wallet_transactions} 가
+     * {@code island_wallets} 를 {@code ON DELETE RESTRICT} 로 참조하므로 <b>한 번이라도 적립된 지갑은
+     * 사라질 수 없다</b> — 행이 없다는 것은 그 섬에 원장이 한 줄도 없다는 뜻이고, 그러면 잔액은 0 이다.
+     * 오늘 행이 없는 섬은 레거시 {@code POST /api/v1/groups}(지갑을 만들지 않는다)로 생긴 섬뿐이다.
+     *
+     * <p>그래서 여기서 읽기만으로 행을 만들지 않는다(표시용 읽기는 쓰기 트랜잭션이 아니다). 「경제가 아직
+     * 안 열렸다」는 통장이 아니라 카탈로그가 말한다 — 가격 미승인은 {@code available=false}, 활성 발행본이
+     * 없으면 빈 목록이다(상점 LLD §2.2). 옛 계약의 503 SERVICE_UNAVAILABLE 은 잔액 0 인 섬의 상점 화면을
+     * 통째로 닫을 뿐이라 폐기했다.
+     */
     public int balanceOf(UUID islandId) {
         return wallets.findById(islandId).map(IslandWallet::getBalance).orElse(0);
     }
