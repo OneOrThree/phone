@@ -44,6 +44,10 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     private static final String SCREEN = "/islands/" + ISLAND + "/statistics/screen-time";
     private static final String UPLOAD = "/me/screen-time/2026-09-11";
     private static final String LEDGER_PATH = "/islands/" + ISLAND + "/resources/ledger";
+    private static final String DATA_FISH = "GET /internal/islands/" + ISLAND + "/statistics/fish-earnings";
+    private static final String FISH_PATH = "/islands/" + ISLAND + "/statistics/fish-earnings";
+    private static final String FISH = "{\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\","
+            + "\"earnedFish\":4800},{\"userId\":\"" + SESSION + "\",\"name\":\"도윤\",\"earnedFish\":0}]}";
 
     private static final UUID ENTRY = UUID.fromString("eeeeeeee-1786-0000-0000-000000000001");
     private static final String LEDGER = "{\"month\":\"2026-09\",\"earnedTotal\":4800,\"spentTotal\":1360,"
@@ -308,6 +312,71 @@ class IslandRecordsContractTest extends UpstreamTestBase {
         DATA.on(DATA_LEDGER, request -> ok(LEDGER.replace("\"nextEntryId\":\"" + ENTRY + "\"",
                 "\"nextEntryId\":null")));
         mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    // ---------------------------------------------------------------- 물고기 장 (GROMO-2046)
+
+    @Test
+    @DisplayName("물고기 장 — Data 명단을 순서 그대로 싣고 query 를 상류로 보내지 않는다(기간 축이 없다)")
+    void fishEarningsCarriesMembersWithoutQuery() throws Exception {
+        DATA.on(DATA_FISH, request -> ok(FISH));
+
+        mockMvc.perform(auth(get(FISH_PATH)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.members[0].userId").value(USER.toString()))
+                .andExpect(jsonPath("$.data.members[0].name").value("수빈"))
+                .andExpect(jsonPath("$.data.members[0].earnedFish").value(4800))
+                // 기록이 없는 주민도 0 으로 실린다 — 명단에서 빠지지 않는다.
+                .andExpect(jsonPath("$.data.members[1].earnedFish").value(0))
+                // 잔액·페이지 축이 아니다 — 재화는 섬 단위 하나이고 개인 지갑이 없다(GROMO-1989).
+                .andExpect(jsonPath("$.data.nextCursor").doesNotExist())
+                .andExpect(jsonPath("$.data.balance").doesNotExist());
+        assertThat(DATA.receivedFor(DATA_FISH).get(0).query()).isNullOrEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"from=2026-09-01&to=2026-09-07", "scope=island", "cursor=x", "limit=10"})
+    @DisplayName("물고기 장 — query 는 하나도 받지 않는다(400). 모르는 키를 조용히 버리지 않는다. 상류 호출 없음")
+    void fishEarningsRejectsAnyQuery(String query) throws Exception {
+        mockMvc.perform(auth(get(FISH_PATH + "?" + query)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"403,LIBRARY_LOCKED,403,FACILITY_LOCKED,",
+            "403,MEMBER_ONLY,403,FORBIDDEN,islandId",
+            "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
+            "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
+            "409,LIBRARY_LOCKED,502,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("물고기 장 — 도서관 게이트·비주민은 «공개 오류 표»를 거친다(502 로 새지 않는다)")
+    void fishEarningsMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode,
+            String field) throws Exception {
+        DATA.on(DATA_FISH, request -> error(upstreamStatus, code));
+
+        String body = mockMvc.perform(auth(get(FISH_PATH)))
+                .andExpect(status().is(publicStatus))
+                .andExpect(jsonPath("$.error.code").value(publicCode))
+                .andExpect(jsonPath("$.error.field").value(field))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        // 방문자·미완공에 「아무도 안 낚았다」로 읽히는 빈 명단을 내주지 않는다.
+        assertThat(body).doesNotContain("members", "earnedFish");
+    }
+
+    @Test
+    @DisplayName("물고기 장 — 명단이 없거나 마리 수가 빠지면 502 다. 빠진 값을 0 으로 지어내지 않는다")
+    void fishEarningsRejectsIncompleteUpstream() throws Exception {
+        DATA.on(DATA_FISH, request -> ok("{\"members\":null}"));
+        mockMvc.perform(auth(get(FISH_PATH)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+
+        DATA.on(DATA_FISH, request -> ok("{\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}]}"));
+        mockMvc.perform(auth(get(FISH_PATH)))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }

@@ -282,7 +282,7 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
   id                             uuid        [pk]
   is_guest                       boolean     [not null, default: false, note: '게스트 계정 여부']
 
-  nickname                       varchar(255) [note: '표시 닉네임']
+  nickname                       varchar(255) [note: "표시 닉네임. 저장 값에는 «앞뒤 공백이 없다» — UserService.normalizeNickname 이 String.strip 으로 다듬고 V95 가 기존 행을 같은 규칙으로 백필했다. 종전의 trim 은 U+0020 이하만 잘라 U+2003 이 붙은 닉네임을 통과시켰고, 그 탓에 아래 uq_users_nickname_lower 가 ' alice' 와 'alice' 를 서로 다른 키로 보았다. DB CHECK 은 걸지 않았다 — writer 가 changeNickname 한 곳뿐이다. GROMO-2051, V95"]
   country_code                   varchar(255) [note: 'ISO 3166-1 alpha-2 (예: KR, US) — 값은 2자지만 컬럼은 varchar(255)']
   language                       varchar(8)  [note: '앱이 적용 중인 표시 언어(BCP-47: ko·en·ja·zh-Hant). 푸시 렌더 언어의 정본. NULL=미보고. 국가와 다른 축. GROMO-1659 D11 · 1692 계약, V50']
   cat_color                      varchar(16) [note: "고양이 색 자산 ID. CHECK 'black'|'ginger'|'cream'|'gray'|'white'|'calico'. NULL=미선택(온보딩 전, 백필 없음). 이름과 함께 있어야 온보딩 완료(Q04). 탈퇴 시 파기. GROMO-1945 Q03, V80"]
