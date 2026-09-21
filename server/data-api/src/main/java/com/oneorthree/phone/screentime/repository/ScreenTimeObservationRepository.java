@@ -23,6 +23,12 @@ public interface ScreenTimeObservationRepository extends JpaRepository<ScreenTim
     Optional<ScreenTimeObservation> findFirstByUserIdAndDeviceIdAndMeasuredDateOrderByMeasuredAtDesc(
             UUID userId, UUID deviceId, LocalDate measuredDate);
 
+    /**
+     * 일일 퀘스트 회차 판정용(GROMO-2001) — 그 UTC 날짜의 cohort 관측 전부. 회차는 하루 단위라 기간
+     * 조회가 필요 없고, 판정은 {@code ScreenTimeDayPick} 이 기기별 최신·복수 기기 규칙으로 접는다.
+     */
+    List<ScreenTimeObservation> findByUserIdInAndMeasuredDate(Collection<UUID> userIds, LocalDate measuredDate);
+
     /** 조회 기간의 관측 전부 — 서비스가 (사용자, 날짜, 기기) 별 최신을 고른다. */
     List<ScreenTimeObservation> findByUserIdInAndMeasuredDateBetween(Collection<UUID> userIds, LocalDate from,
                                                                      LocalDate to);

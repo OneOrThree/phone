@@ -228,6 +228,40 @@ focus의기술입력은고정island귀속의서버ACTIVE구간이다. 각구간�
 
 screen은승인된하루정본의device/측정시각/권한상태를사용한다. `group_challenge_members`창형값을하루값으로읽지않는다. 기존일통계의미보고null을0으로채우지않고,현재사용상한이하를최종성공으로간주하지않는다. 마감/grace/새측정의정정허용과현재/이전권한의처리는 QQ03결정후고정한다.
 
+**screen 판정 구현 (2026-09-21 GROMO-2001)** — 위 원칙을 구현으로 고정한 결과다. 입력은 2.0 관측 `screen_time_observations`(저장 축이 처음부터 UTC라 회차 날짜와 같은 축 — 레거시 `daily_screen_time_stats` 의 KST 라벨은 더 이상 읽지 않는다)이고, 그날 값 하나를 고르는 규칙은 `screentime/support/ScreenTimeDayPick` 하나에 둔다(회관 기록 조회 `IslandRecordsService` 와 **같은 정의를 공유**한다 — 갈라지면 도서관이 「측정 불가」로 보여 주는 날을 퀘스트가 「달성」으로 정산한다).
+
+| 그날의 값 | measurementStatus | 분모 | achieved | 근거 |
+| --- | --- | --- | --- | --- |
+| `authorized`, minutes > target | authorized | 든다 | false (확정) | 사용량은 줄지 않는다 — 회차 날짜가 안 끝나도 확정이다 |
+| `authorized`, minutes ≤ target, **회차 날짜(UTC) 종료** | authorized | 든다 | true | 측정된 0 도 달성이다(「실제 0」) |
+| `authorized`, minutes ≤ target, 날짜 진행 중 | pending | 든다 | false | 더 쓸 수 있어 확정 불가. 2.0 관측에 「마감 보고」 플래그가 없어 «날짜 종료»가 지어내지 않는 유일한 마감 근거다 |
+| `denied` | denied | **빠진다** | false | 「데이터 없음·권한 없음·실제 0은 구분한다」 — `unavailable` 로 뭉개지 않는다. 유예를 기다릴 이유도 없다 |
+| 같은 날 기기 2대 이상 | unavailable | **빠진다** | false | 병합 정책 보류(RC-D02) — 더하지도 고르지도 않는다. **유예 없이** 바로 뺀다: 기다린다고 기기 수가 줄지 않고, 대기로 두면 그 주민이 유예 내내 분모에 남아 전원 달성을 혼자 막는다 |
+| 보고 없음 · `pending` · `unavailable` | pending → unavailable | 유예 전 든다 / 뒤 빠진다 | false | 유예 끝은 다음 날 12:00Z(`screenGraceEndsAt`) |
+
+**앱 업로드 → 서버 조회 → 판정 계약 예시** (회차 날짜 `2031-03-10`, `targetMinutes` 60):
+
+```
+# ① 앱이 그날 측정을 올린다 (island-records PUT — deviceId 는 AT 의 sid 와 같아야 한다)
+PUT /islands/{islandId}/records/screen-time/2031-03-10
+{ "deviceId": "3f2a…", "measuredAt": "2031-03-10T09:00:00Z", "minutes": 50,
+  "measurementStatus": "authorized" }
+
+# ② 같은 기기가 정정한다 — 합산이 아니라 «대체» 다(40+50=90 이 되지 않는다)
+PUT … { "deviceId": "3f2a…", "measuredAt": "2031-03-10T22:00:00Z", "minutes": 55,
+        "measurementStatus": "authorized" }
+
+# ③ 판정 조회 — 회차 날짜가 끝난 뒤(2031-03-11T00:00:00Z 이후)
+GET /islands/{islandId}/quests/{questId}/progress?occurrenceId=…
+{ "data": { …, "members": [
+    { "userId": "…", "rate": 100, "measurementStatus": "authorized",
+      "achieved": true, "claimed": false } ] } }
+```
+
+같은 조회를 `2031-03-10T12:00:00Z` 에 하면 `measurementStatus:"pending"`·`achieved:false` 다 — 55분이 상한 이하여도 그날이 안 끝나 확정할 수 없다. `minutes` 가 61이었다면 그 시점에도 `authorized`·`achieved:false`(확정 미달성)이고 `rate` 는 `60*100/61 = 98` 이다.
+
+정정 업로드는 **대체이지 합산이 아니다** — 기기별 `measuredAt` 최댓값 하나만 쓰므로 같은 기기의 40분 → 50분 정정이 90분이 되지 않는다. 수령 마감은 그대로 `date+2 00:00Z`(유예 뒤 확정할 시간)다.
+
 입력집중/측정producer는이미반영한(source-kind,sourceId,sourceVersion,occurrenceId)를원자대조한다. source중복이quest.version을증가시키거나정산을다시실행하지않게한다. 같은원본이업데이트되는경우누적전체를매번더하지말고동일 source의최신 기여를교체하거나검증된차분으로변경한다. FocusService.recordCompletion은통계·스트릭·FOCUS_GOAL/SESSION_COMPLETE개인 coin을변경하므로여기서재호출하지않는다.
 
 quest.progress.version의축은(islandId,questId,occurrenceId)다. 주민변경/측정반영/정의변경의해당회차영향과claim완료가그축을증가시킨다. 정의revision/지갑version/이벤트schemaVersion은다르다. 시간경과만으로판정이바뀌는마감은정책기반finalizer가해당회차를잠그고상태/version/outbox를확정하며GET이숨은정산을실행하지않는다. finalizer중복도같은전이로 1회처리한다.

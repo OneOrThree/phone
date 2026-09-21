@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.common.port.FocusPresenceState;
 import com.oneorthree.phone.focus.repository.FocusRewardPolicyRepository;
 import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
 import com.oneorthree.phone.focus.repository.FocusSettlementRepository;
@@ -33,6 +34,7 @@ import com.oneorthree.phone.outbox.dto.PublicCommandReceipt;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.focus.service.FocusMemberEvents;
+import com.oneorthree.phone.focus.service.FocusPresenceProjection;
 import com.oneorthree.phone.outbox.service.OutboxCommandPort;
 import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -121,9 +123,9 @@ class FocusSessionLifecycleGuardsTest {
         return new FocusSessionLifecycleService(new FocusSessionStartGate(startEnabled), userQueryService,
                 membershipLocks, groupMemberRepository,
                 userIslandContextLockService, focusSessionRepository, focusSessionDetailRepository,
-                focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands, new FocusMemberEvents(outboxCommandPort),
+                focusSessionIntervalRepository, dailyFocusStatRepository, publicCommands,
                 focusRewardPolicyRepository, focusSettlementRepository, focusRewardAccrualRepository, rewardAccruals,
-                focusPresencePort,
+                new FocusPresenceProjection(new FocusMemberEvents(outboxCommandPort), focusPresencePort),
                 Clock.fixed(wallClock, ZoneOffset.UTC));
     }
 
@@ -196,7 +198,7 @@ class FocusSessionLifecycleGuardsTest {
         assertThat(rest.type()).isEqualTo("rest.member.updated");
         assertThat(rest.params()).containsEntry("status", "active").containsEntry("restSeat", null)
                 .containsEntry("sessionId", sessionId.toString());
-        verify(focusPresencePort).focusStarted(USER, 42L, NOW);
+        verify(focusPresencePort).focusStateChanged(USER, 42L, 1L, FocusPresenceState.ACTIVE, NOW);
         // 섬 → 멤버십 순으로 잠근다(선행 조건 #8) — context 잠금 뒤다.
         InOrder order = inOrder(userIslandContextLockService, membershipLocks, groupMemberRepository);
         order.verify(userIslandContextLockService).lock(caller);

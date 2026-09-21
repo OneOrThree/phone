@@ -235,7 +235,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      *
      * <p>인덱스는 {@code uq_users_nickname_lower}(V89) — 같은 {@code lower(nickname)} 표현식이다.
      *
-     * @param nickname 검색어. 호출측이 strip 해서 넘긴다(저장이 trim 이므로 앞뒤 공백은 무의미하다)
+     * @param nickname 검색어. 호출측이 strip 해서 넘긴다(저장도 strip 이므로 앞뒤 공백은 무의미하다 — GROMO-2051)
      * @return 그 닉네임을 쓰는 활성 유저 한 명. 유일성이 보장하므로 둘 이상일 수 없다
      */
     @Query("SELECT u FROM User u WHERE lower(u.nickname) = lower(:nickname) AND u.isDeleted = false")

@@ -162,6 +162,10 @@ public class LandingRenderer {
         if (inviterName == null || inviterName.isBlank()) {
             return "";
         }
+        // GROMO-2051 이후 저장 경로(UserService.normalizeNickname)와 V95 백필이 같은 strip 을 보장하므로
+        // 여기서 잘릴 것은 사실상 없다. 그래도 남긴다 — 이 값은 «HTML 로 렌더되는 사용자 문자열»이고,
+        // changeNickname 을 지나지 않는 writer(V48 봇 시드 같은 직접 INSERT)가 들어오면 제목 줄이 깨진다.
+        // 저장 규칙이 아니라 표시 층의 방어다.
         String trimmed = inviterName.strip();
         // 자르기는 이스케이프 <b>전에</b> 한다 — 뒤에 자르면 &quot; 같은 엔티티가 중간에서 잘려 깨진다.
         String cut = truncateToGraphemes(trimmed);

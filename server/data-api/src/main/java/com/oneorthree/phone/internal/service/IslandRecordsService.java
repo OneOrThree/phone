@@ -38,6 +38,7 @@ import com.oneorthree.phone.outbox.service.PublicCommandService;
 import com.oneorthree.phone.outbox.support.OutboxEnvelopeCodec;
 import com.oneorthree.phone.screentime.repository.ScreenTimeObservationRepository;
 import com.oneorthree.phone.screentime.repository.domain.ScreenTimeObservation;
+import com.oneorthree.phone.screentime.support.ScreenTimeDayPick;
 import com.oneorthree.phone.stats.exception.StatsErrorCode;
 import com.oneorthree.phone.stats.exception.StatsException;
 import com.oneorthree.phone.user.repository.UserQueryService;
@@ -55,7 +56,6 @@ import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -281,23 +281,17 @@ public class IslandRecordsService {
      */
     private static Summary summarize(List<ScreenTimeObservation> found, LocalDate from, LocalDate to,
                                      LocalDate today) {
-        Map<LocalDate, Map<UUID, ScreenTimeObservation>> latest = new TreeMap<>();
+        // 기기별 최신·복수 기기 보류 규칙은 ScreenTimeDayPick 하나에만 둔다 — 같은 원본을 읽는
+        // 퀘스트 판정(IslandQuestJudge)과 규칙이 갈라지면, 도서관이 「측정 불가」로 보여 주는 날을
+        // 퀘스트가 「달성」으로 정산한다(GROMO-2001).
+        Map<LocalDate, List<ScreenTimeObservation>> observed = new TreeMap<>();
         for (ScreenTimeObservation observation : found) {
-            latest.computeIfAbsent(observation.getMeasuredDate(), ignored -> new LinkedHashMap<>())
-                    .merge(observation.getDeviceId(), observation,
-                            (a, b) -> a.getMeasuredAt().isAfter(b.getMeasuredAt()) ? a : b);
+            observed.computeIfAbsent(observation.getMeasuredDate(), ignored -> new ArrayList<>()).add(observation);
         }
         List<ScreenDay> series = new ArrayList<>();
-        latest.forEach((date, devices) -> {
-            Collection<ScreenTimeObservation> picked = devices.values();
-            Instant updatedAt = picked.stream().map(ScreenTimeObservation::getMeasuredAt)
-                    .max(Comparator.naturalOrder()).orElseThrow();
-            if (picked.size() == 1) {
-                ScreenTimeObservation only = picked.iterator().next();
-                series.add(new ScreenDay(date, only.getMinutes(), only.getMeasurementStatus(), updatedAt));
-            } else {
-                series.add(new ScreenDay(date, null, UNAVAILABLE, updatedAt));
-            }
+        observed.forEach((date, sameDay) -> {
+            ScreenTimeDayPick.Day day = ScreenTimeDayPick.of(sameDay);
+            series.add(new ScreenDay(date, day.minutes(), day.measurementStatus(), day.updatedAt()));
         });
         if (series.isEmpty()) {
             return new Summary(UNAVAILABLE, null, List.of(), null);

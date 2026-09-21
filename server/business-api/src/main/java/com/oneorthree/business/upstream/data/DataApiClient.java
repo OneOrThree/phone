@@ -28,6 +28,7 @@ import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
+import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.IslandLedger;
@@ -200,6 +201,8 @@ public class DataApiClient {
     private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
     // GROMO-1895 섬 공동 가계부 — 회관 화면과 도메인 GET 이 같이 쓰는 섬 축 조회다(B26).
     private static final String PATH_ISLAND_LEDGER = "/internal/islands/{islandId}/resources/ledger";
+    // GROMO-1895 도서관 물고기 장 — 다른 도서관 통계와 같은 statistics/ 아래 섬 축 조회다(B26).
+    private static final String PATH_FISH_EARNINGS = "/internal/islands/{islandId}/statistics/fish-earnings";
     // GROMO-1997 주간 섬 랭킹 — 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26).
     private static final String PATH_ISLAND_RANKINGS = "/internal/users/{userId}/island-rankings";
 
@@ -1859,6 +1862,19 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandLedger>() { });
+    }
+
+    /**
+     * 도서관 물고기 장 — 주민별 누적 획득 (GROMO-1895). 멱등 GET 이라 재시도한다. query 가 없다 —
+     * 기간도 페이지도 고를 수 없는 「이 섬 전 기간」 집계다.
+     */
+    public IslandFishEarnings fetchFishEarnings(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_FISH_EARNINGS, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandFishEarnings>() { });
     }
 
     /** 스크린타임 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. */

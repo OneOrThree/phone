@@ -55,12 +55,16 @@ public class InternalSessionIssueController {
      * 하나 생기므로(1.x {@code POST /api/v1/auth/guest} 와 같은 성질), 빼면 2.0 표면이 무제한 계정
      * 생성구가 된다. 기기 digest 유니크는 <b>대체재가 아니다</b> — 기기 식별자는 클라이언트 소유라
      * 값만 바꾸면 얼마든지 새 버킷이 된다({@link GuestLoginRateLimiter} 주석의 같은 논증).
+     *
+     * <p>게스트도 {@code deviceBootstrap} 을 싣는다(GROMO-2037). 게스트 계정도 푸시 기기를 등록하고,
+     * 그 등록의 소유권 CAS·세션 확인은 소셜 로그인과 <b>같은</b> 자격 축 위에서 돈다 — 여기서 빼면
+     * 게스트만 「자격 없이 수락」 경로로 남아 세션 전환 시 기기 정리가 성립하지 않는다.
      */
     @PostMapping("/guest-sessions")
     public LoginSessionResponse guestSession(@RequestBody GuestSessionRequest request) {
         guestLoginRateLimiter.check(request.clientIp());
         AuthService.LoginSessionResult issued = authService.guestSession(request.deviceDigest());
         return new LoginSessionResponse(issued.accessToken(), issued.refreshToken(),
-                issued.userId(), issued.onboardingComplete());
+                issued.userId(), issued.onboardingComplete(), issued.deviceBootstrap());
     }
 }
