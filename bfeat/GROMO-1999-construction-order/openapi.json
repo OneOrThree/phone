@@ -1424,6 +1424,39 @@
         }
       }
     },
+    "/internal/users/{userId}/focus-sessions/{sessionId}/acknowledge": {
+      "post": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "acknowledge",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/device-token-deletions": {
       "post": {
         "tags": [
@@ -1527,7 +1560,7 @@
         "tags": [
           "internal-challenge-result-controller"
         ],
-        "operationId": "acknowledge",
+        "operationId": "acknowledge_1",
         "parameters": [
           {
             "name": "userId",
@@ -3233,7 +3266,7 @@
         ],
         "summary": "결과 확인 표시 (ack)",
         "description": "모달이 실제로 노출된 뒤에 호출한다. 선점 때 받은 claimToken 을 실어 보내면 그 회차를 확인 처리해 다시 노출되지 않게 한다 — acknowledged_at IS NULL 조건부 원자 UPDATE 라 중복·동시 호출에도 최초 1회만 세팅된다. 대상 행 없음·이미 확인됨·중복 호출은 전부 no-op 이며 200 이다(멱등). 토큰이 현재 선점과 다르면 409 RESULT_CLAIM_STALE — 내 선점이 만료돼 다른 기기가 재선점한 경우라, 여기서 확인 처리하면 그 기기가 띄우려던 결과를 삼킨다. 확인이 성사되면 그 회차의 아직 안 나간 BET_RESULT 푸시 클레임도 함께 닫는다 — 안 닫으면 이미 본 결과의 푸시가 묶음 슬롯이 닫힌 뒤나 조용한 시간 이월 뒤에 도착한다.",
-        "operationId": "acknowledge_1",
+        "operationId": "acknowledge_2",
         "parameters": [
           {
             "name": "sessionId",
@@ -6400,6 +6433,37 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "internal-letter-controller"
+        ],
+        "operationId": "close",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "letterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
       }
     },
     "/internal/users/{userId}/join-requests": {
@@ -6783,6 +6847,56 @@
         }
       }
     },
+    "/internal/users/{userId}/friend-search": {
+      "get": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "search_1",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FriendSearchResultResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/focus-summary": {
       "get": {
         "tags": [
@@ -6823,6 +6937,37 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/FocusSummaryView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/focus-sessions/pending-result": {
+      "get": {
+        "tags": [
+          "internal-focus-session-controller"
+        ],
+        "operationId": "pendingResult",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PendingFocusResultResponse"
                 }
               }
             }
@@ -9593,7 +9738,7 @@
           "Friend"
         ],
         "summary": "친구 검색",
-        "description": "type별 검색 전략(NICKNAME\u003dtrgm)으로 검색. 자기자신 제외, 기존 관계(relation) 표기.",
+        "description": "type별 검색 전략(NICKNAME\u003d대소문자 무시 전체 일치)으로 검색. 자기자신·탈퇴자 제외, 기존 관계(relation) 표기. 비친구는 tierLevel·occupation 이 null.",
         "operationId": "searchFriends",
         "parameters": [
           {
@@ -13154,6 +13299,13 @@
           "currentIslandId": {
             "type": "string",
             "format": "uuid"
+          },
+          "lossReason": {
+            "type": "string",
+            "enum": [
+              "LEFT",
+              "KICKED"
+            ]
           }
         }
       },
@@ -13303,6 +13455,33 @@
           }
         }
       },
+      "FriendSearchResultResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "tierLevel": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "occupation": {
+            "type": "string"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PENDING",
+              "FRIEND"
+            ]
+          }
+        }
+      },
       "FriendRequestResponse": {
         "type": "object",
         "properties": {
@@ -13349,6 +13528,14 @@
           "serverNow": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "PendingFocusResultResponse": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "$ref": "#/components/schemas/FocusFinishView"
           }
         }
       },
@@ -16007,33 +16194,6 @@
           },
           "hasPassword": {
             "type": "boolean"
-          }
-        }
-      },
-      "FriendSearchResultResponse": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "occupation": {
-            "type": "string"
-          },
-          "relation": {
-            "type": "string",
-            "enum": [
-              "NONE",
-              "PENDING",
-              "FRIEND"
-            ]
           }
         }
       },
