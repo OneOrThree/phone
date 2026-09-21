@@ -38,7 +38,7 @@ class InternalFriendAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalFriendController.class);
 
-        assertThat(routes).as("7종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(7);
+        assertThat(routes).as("8종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(8);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -57,6 +57,9 @@ class InternalFriendAllowlistTest {
         assertThat(allows(allow, "DELETE /internal/users/" + ID + "/friend-requests/" + ID)).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/friend-requests/" + ID + "/accept")).isFalse();
         assertThat(allows(allow, "POST /internal/users/" + ID + "/friend-requests/" + ID + "/delete")).isFalse();
+        // GROMO-1996 검색은 friend-search 라는 «다른 이름»이다 — friends/{id} 자리를 열지 않는다.
+        assertThat(allows(allow, "GET /internal/users/" + ID + "/friends/search")).isFalse();
+        assertThat(allows(allow, "POST /internal/users/" + ID + "/friend-search")).isFalse();
     }
 
     @Test
@@ -65,7 +68,8 @@ class InternalFriendAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
 
         assertThat(allow).contains("GET /internal/users/*/friend-requests", "POST /internal/users/*/friend-requests",
-                "GET /internal/users/*/friends", "DELETE /internal/users/*/friends/*");
+                "GET /internal/users/*/friends", "DELETE /internal/users/*/friends/*",
+                "GET /internal/users/*/friend-search");
     }
 
     // ---------------------------------------------------------------- 도구
