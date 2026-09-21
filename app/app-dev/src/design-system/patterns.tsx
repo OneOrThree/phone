@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import Svg, { Path, Line, Circle, Polyline } from 'react-native-svg';
 import { C, useScreenInsets, MotionContext } from '@/design-system/primitives';
-import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
@@ -519,10 +519,14 @@ export function Badge({ children, soft = false }: any) {
         alignSelf: 'flex-start',
         height: 28,
         paddingHorizontal: 12,
-        borderRadius: 999,
-        borderWidth: 1.5,
-        borderColor: soft ? componentTokens.badge.border : C.brown,
-        backgroundColor: soft ? C.paper : C.butter,
+        borderRadius: componentTokens.badge.radius,
+        borderWidth: componentTokens.badge.borderWidth,
+        borderColor: soft
+          ? componentTokens.badge.soft.border
+          : componentTokens.badge.default.border,
+        backgroundColor: soft
+          ? componentTokens.badge.soft.background
+          : componentTokens.badge.default.background,
         justifyContent: 'center',
       }}
     >
@@ -532,7 +536,9 @@ export function Badge({ children, soft = false }: any) {
           fontSize: 13,
           lineHeight: 18.85,
           fontWeight: soft ? '600' : '700',
-          color: soft ? C.muted : C.ink,
+          color: soft
+            ? componentTokens.badge.soft.foreground
+            : componentTokens.badge.default.foreground,
         }}
       >
         {children}
@@ -624,8 +630,8 @@ export function Page({
           accessibilityLabel="뒤로"
           onPress={back}
           style={{
-            width: 40,
-            height: 40,
+            width: semanticTokens.size.tapMin,
+            height: semanticTokens.size.tapMin,
             alignItems: 'center',
             justifyContent: 'center',
           }}

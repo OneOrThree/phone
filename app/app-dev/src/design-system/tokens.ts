@@ -28,7 +28,6 @@ export const primitiveTokens = {
     letter: '#FFF0CF',
     letterBorder: '#E7CF9A',
     controlIdle: '#D9C6B8',
-    fieldPlaceholder: '#A0908A',
     progressTrack: '#EADFD2',
     graphLine: '#5FB6E3',
     nightCanvas: '#1D2521',
@@ -199,17 +198,25 @@ export const componentTokens = {
   input: {
     background: semanticTokens.color.field,
     foreground: semanticTokens.color.text,
-    placeholder: color.fieldPlaceholder,
+    placeholder: semanticTokens.color.textMuted,
     border: semanticTokens.color.outline,
     borderWidth: semanticTokens.stroke.default,
     radius: semanticTokens.radius.control,
     minHeight: 48,
   },
   badge: {
-    background: semanticTokens.color.secondary,
-    foreground: semanticTokens.color.text,
-    border: color.controlIdle,
-    radius: semanticTokens.radius.control,
+    default: {
+      background: semanticTokens.color.accent,
+      foreground: semanticTokens.color.text,
+      border: semanticTokens.color.outline,
+    },
+    soft: {
+      background: semanticTokens.color.surface,
+      foreground: semanticTokens.color.textMuted,
+      border: color.controlIdle,
+    },
+    borderWidth: semanticTokens.stroke.default,
+    radius: semanticTokens.radius.full,
   },
   progress: {
     track: color.progressTrack,

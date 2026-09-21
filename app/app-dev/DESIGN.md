@@ -61,33 +61,33 @@ Primitive → Semantic → Component → Screen composition
 
 ### 4.1 주간 · 딸기 소다
 
-| 역할           | 이름              | 값        | 사용                                 |
-| -------------- | ----------------- | --------- | ------------------------------------ |
-| App canvas     | Cream             | `#FFF7EB` | 화면 전체 배경                       |
-| Surface        | Paper             | `#FFFDFA` | 카드·시트·필드                       |
-| Primary        | Pink              | `#FFA6BC` | 주요 CTA·선택·진행                   |
-| Primary hover  | Pink Hover        | `#FFB8CA` | 포인터 hover                         |
-| Secondary      | Sky               | `#ADE1F8` | 보조 영역·정보·아바타 배경           |
-| Accent         | Butter            | `#FFE08A` | 배지·강조·특수 CTA                   |
-| Outline        | Brown             | `#8B6956` | 윤곽선·아이콘·스티커 그림자          |
-| Text           | Ink               | `#493B39` | 제목·본문·주요 아이콘                |
-| Muted text     | Muted Brown       | `#796256` | 메타·보조 설명                       |
-| Selected       | Selected Pink     | `#FFE2EA` | 선택된 행·칩의 옅은 면               |
-| Subtle         | Subtle Pink       | `#FFF0F3` | 약한 강조 표면                       |
-| Danger         | Danger            | `#994C3E` | 오류·위험 텍스트                     |
-| Danger strong  | Danger Strong     | `#B84A32` | 파괴 행동 윤곽선                     |
-| Danger ink     | Danger Ink        | `#7A2E1E` | 파괴 버튼 텍스트                     |
-| Danger surface | Danger Surface    | `#F4C0C0` | 파괴 버튼 배경                       |
-| Danger soft    | Danger Soft       | `#F7E9E3` | 오류 안내 면                         |
-| Success        | Success           | `#3FB6A0` | 켜진 토글 등 성공 상태에만 제한 사용 |
-| Letter         | Letter            | `#FFF0CF` | 편지·재화 요약 스트립                |
-| Letter border  | Letter Border     | `#E7CF9A` | Letter 표면 윤곽                     |
-| Control idle   | Control Idle      | `#D9C6B8` | 비선택 컨트롤                        |
-| Placeholder    | Field Placeholder | `#A0908A` | 입력 힌트                            |
-| Progress track | Progress Track    | `#EADFD2` | 진행 배경                            |
-| Graph line     | Graph Line        | `#5FB6E3` | 통계 선 그래프                       |
-| White          | White             | `#FFFFFF` | 토글 손잡이 등 제한 사용             |
-| Black          | Black             | `#000000` | 투명 그림자 계산용                   |
+| 역할           | 이름           | 값        | 사용                                 |
+| -------------- | -------------- | --------- | ------------------------------------ |
+| App canvas     | Cream          | `#FFF7EB` | 화면 전체 배경                       |
+| Surface        | Paper          | `#FFFDFA` | 카드·시트·필드                       |
+| Primary        | Pink           | `#FFA6BC` | 주요 CTA·선택·진행                   |
+| Primary hover  | Pink Hover     | `#FFB8CA` | 포인터 hover                         |
+| Secondary      | Sky            | `#ADE1F8` | 보조 영역·정보·아바타 배경           |
+| Accent         | Butter         | `#FFE08A` | 배지·강조·특수 CTA                   |
+| Outline        | Brown          | `#8B6956` | 윤곽선·아이콘·스티커 그림자          |
+| Text           | Ink            | `#493B39` | 제목·본문·주요 아이콘                |
+| Muted text     | Muted Brown    | `#796256` | 메타·보조 설명                       |
+| Selected       | Selected Pink  | `#FFE2EA` | 선택된 행·칩의 옅은 면               |
+| Subtle         | Subtle Pink    | `#FFF0F3` | 약한 강조 표면                       |
+| Danger         | Danger         | `#994C3E` | 오류·위험 텍스트                     |
+| Danger strong  | Danger Strong  | `#B84A32` | 파괴 행동 윤곽선                     |
+| Danger ink     | Danger Ink     | `#7A2E1E` | 파괴 버튼 텍스트                     |
+| Danger surface | Danger Surface | `#F4C0C0` | 파괴 버튼 배경                       |
+| Danger soft    | Danger Soft    | `#F7E9E3` | 오류 안내 면                         |
+| Success        | Success        | `#3FB6A0` | 켜진 토글 등 성공 상태에만 제한 사용 |
+| Letter         | Letter         | `#FFF0CF` | 편지·재화 요약 스트립                |
+| Letter border  | Letter Border  | `#E7CF9A` | Letter 표면 윤곽                     |
+| Control idle   | Control Idle   | `#D9C6B8` | 비선택 컨트롤                        |
+| Placeholder    | Muted Brown    | `#796256` | 입력 힌트(텍스트 대비 4.5 이상)      |
+| Progress track | Progress Track | `#EADFD2` | 진행 배경                            |
+| Graph line     | Graph Line     | `#5FB6E3` | 통계 선 그래프                       |
+| White          | White          | `#FFFFFF` | 토글 손잡이 등 제한 사용             |
+| Black          | Black          | `#000000` | 투명 그림자 계산용                   |
 
 주간 테마의 과거 호환 별칭은 이름을 문자 그대로 해석하지 않는다.
 
@@ -230,7 +230,7 @@ Semantic spacing:
 ### 7.1 Page
 
 - 배경은 Cream, 콘텐츠 최대 폭은 앱 레이아웃 기준을 따른다.
-- 상단 헤더 높이 52, 좌측 뒤로가기 터치 영역 40×40.
+- 상단 헤더 높이 52, 좌측 뒤로가기 터치 영역 44×44.
 - 제목은 한 줄, 20/800.
 - 본문 좌우 padding 20, 세로 gap 14.
 - Safe Area를 상·하단 모두 반영한다.
@@ -304,7 +304,7 @@ Semantic spacing:
 - 라벨은 13/18.85, 600, Muted.
 - 필드는 최소 높이 48–50, Paper, Brown 1.5–2px, radius 14.
 - 좌우 padding 14, 세로 padding 12–13, 입력 글자 16.
-- placeholder는 `#A0908A`.
+- placeholder는 Muted Brown(`#796256`, 본문 대비 4.5 이상)을 쓴다.
 - multiline은 최소 높이 96–100, 위쪽 정렬.
 - 숫자 입력은 적절한 키보드 타입을 사용한다.
 - 오류는 색만 바꾸지 않고 원인과 해결 행동을 텍스트로 제공한다.
