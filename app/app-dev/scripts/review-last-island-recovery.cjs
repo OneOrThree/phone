@@ -48,6 +48,37 @@ const reviewUrl = process.env.GROMO_REVIEW_URL ?? 'http://127.0.0.1:18762/?revie
     assert.equal(await page.evaluate(() => window.__gromoReview.state.islandId), nextIsland.id);
     assert.equal(await page.evaluate(() => window.__gromoReview.state.session), null);
 
+    for (const destinationRoute of ['visit', 'travel']) {
+      const destination = structuredClone(fixture);
+      const destinationIsland = destination.islands.find(
+        (island) => island.id !== destination.islandId,
+      );
+      destinationIsland.joined = true;
+      await page.evaluate(
+        ({ route, state, detail }) => window.__gromoReview.open(route, { state, detail }),
+        { route: destinationRoute, state: destination, detail: destinationIsland.id },
+      );
+      await page.waitForFunction(
+        ({ route, id }) =>
+          window.__gromoReview.route === route &&
+          window.__gromoReview.state.islands.find((island) => island.id === id)?.joined,
+        { route: destinationRoute, id: destinationIsland.id },
+      );
+      await page.evaluate(
+        (id) => window.__gromoReview.dispatch({ type: 'KICKED_FROM_ISLAND', id }),
+        destinationIsland.id,
+      );
+      await page.waitForFunction(
+        ({ homeId, kickedId }) =>
+          window.__gromoReview.route === 'home' &&
+          window.__gromoReview.state.islandId === homeId &&
+          window.__gromoReview.state.islands.find((island) => island.id === kickedId)?.kicked,
+        { homeId: destination.islandId, kickedId: destinationIsland.id },
+      );
+      await page.evaluate(() => window.__gromoReview.back());
+      assert.equal(await page.evaluate(() => window.__gromoReview.route), 'home');
+    }
+
     const viewing = structuredClone(fixture);
     const viewingNext = viewing.islands.find((island) => island.id !== viewing.islandId);
     const viewedIsland = viewing.islands.find(

@@ -343,13 +343,17 @@ function Gromo() {
       .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
       .finally(() => setLoaded(true));
   }, []);
+  const kickedDestination =
+    ['visit', 'travel'].includes(route) &&
+    state.islands.some((candidate) => candidate.id === (detail || visited) && candidate.kicked);
   useEffect(() => {
     if (!loaded || !state.loggedIn) return;
-    if (state.membershipRecovery) {
+    if (state.membershipRecovery || kickedDestination) {
       setModal(null);
       setWalkRequest(null);
+      setVisited(state.onboarded ? state.islandId : '');
       reset(state.onboarded ? 'home' : 'chooseIsland');
-      dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
+      if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
     }
     if (state.onboarded) return;
@@ -361,7 +365,15 @@ function Gromo() {
       return;
     // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
     reset('chooseIsland');
-  }, [loaded, state.loggedIn, state.onboarded, state.membershipRecovery, route]);
+  }, [
+    loaded,
+    state.loggedIn,
+    state.onboarded,
+    state.islandId,
+    state.membershipRecovery,
+    kickedDestination,
+    route,
+  ]);
   useEffect(() => {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
