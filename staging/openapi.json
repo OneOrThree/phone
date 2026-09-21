@@ -10548,6 +10548,12 @@
           },
           "approvalRequired": {
             "type": "boolean"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 15,
+            "minimum": 1
           }
         },
         "required": [
@@ -10667,6 +10673,10 @@
             "type": "boolean"
           },
           "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
             "type": "integer",
             "format": "int32"
           },
@@ -11068,6 +11078,10 @@
             "format": "uuid"
           },
           "villagePointsAdded": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "bonusAdded": {
             "type": "integer",
             "format": "int32"
           },
@@ -11710,7 +11724,7 @@
           "maxMembers": {
             "type": "integer",
             "format": "int32",
-            "maximum": 10,
+            "maximum": 15,
             "minimum": 1
           },
           "private": {
@@ -12461,6 +12475,10 @@
           },
           "approvalRequired": {
             "type": "boolean"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -12479,6 +12497,10 @@
           },
           "approvalRequired": {
             "type": "boolean"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
           },
           "version": {
             "type": "integer",
@@ -12698,7 +12720,7 @@
           "maxMembers": {
             "type": "integer",
             "format": "int32",
-            "maximum": 10,
+            "maximum": 15,
             "minimum": 1
           },
           "isPrivate": {
@@ -13304,6 +13326,10 @@
             "type": "integer",
             "format": "int32"
           },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
+          },
           "membershipStatus": {
             "type": "string"
           },
@@ -13841,6 +13867,13 @@
             "type": "string"
           },
           "claimed": {
+            "type": "boolean"
+          },
+          "bonusAmount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "bonusGranted": {
             "type": "boolean"
           },
           "version": {
