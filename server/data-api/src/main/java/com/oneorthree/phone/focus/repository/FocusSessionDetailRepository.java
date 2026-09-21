@@ -39,6 +39,21 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     Optional<FocusSessionOwnership> findOwnershipBySessionId(@Param("sessionId") UUID sessionId);
 
     /**
+     * 프레즌스 재구축용(GROMO-2003) — 이 세션들의 절대 상태와 전이 번호를 한 번에 읽는다.
+     *
+     * <p>모수가 「진행 중 마커」라 동시 집중 인원 규모다. 레거시 마커는 상세가 없어 결과에 빠지고,
+     * 부르는 쪽이 그것을 「active·전이 번호 0」으로 본다({@link FocusSessionControlState}).
+     *
+     * @param sessionIds 진행 중 마커의 id 들
+     * @return 상세가 있는 세션만
+     */
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusSessionControlState("
+            + "d.sessionId, d.lifecycle, d.version) "
+            + "FROM FocusSessionDetail d WHERE d.sessionId IN :sessionIds")
+    List<FocusSessionControlState> findControlStatesBySessionIdIn(
+            @Param("sessionIds") Collection<UUID> sessionIds);
+
+    /**
      * 본인의 진행(active/paused) 세션 — user당 최대 1건(V58 부분 UNIQUE)이라 단건으로 받는다.
      *
      * @param userId      조회 주체
