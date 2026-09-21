@@ -574,10 +574,10 @@ class IslandConstructionIntegrationTest {
                 .status()).isEqualTo("BUILDING");
     }
 
-    // ---------------------------------------------------------------- V90 백필
+    // ---------------------------------------------------------------- V96 백필
 
     @Test
-    @DisplayName("V90 백필은 이미 골라져 있던 목표의 대상 명단을 채운다 — 기존 기여 금액은 건드리지 않는다")
+    @DisplayName("V96 백필은 이미 골라져 있던 목표의 대상 명단을 채운다 — 기존 기여 금액은 건드리지 않는다")
     void v90BackfillsCohortOfAlreadySelectedTargets() throws IOException {
         // 백필 «전» 상태를 손으로 만든다: 목표는 걸려 있는데 대상 행은 기여자에게만 있는 모습이다.
         SharedFixture pending = sharedIsland();
@@ -593,7 +593,7 @@ class IslandConstructionIntegrationTest {
         Fixture noTarget = islandOnly();
 
         jdbc.execute(Files.readString(Path.of("src/main/resources/db/migration/"
-                + "V90__island_construction_target_cohort_backfill.sql")));
+                + "V96__island_construction_target_cohort_backfill.sql")));
 
         // 기여자는 금액 그대로, 나머지 당시 주민은 amount=0 대상 행이 새로 생긴다.
         assertThat(jdbc.queryForObject("SELECT amount FROM island_construction_contributions "

@@ -2,12 +2,12 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V90 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V96 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // ※ 번호는 연속일 필요가 없다 — Flyway 는 「이미 적용된 것보다 낮은 번호가 나중에 나타나지 않을 것」만 요구한다
 //    (prod 는 out-of-order 가 꺼져 있다). V86 은 형제 PR 순서를 풀려고 비워 둔 자리다(GROMO-1996 이 V89 로 옮겼다).
 // V88 — 휴식 1시간 자동 종료와 결과 1회 제공 (GROMO-1998): focus_settlements.auto_closed · acknowledged_at.
 //        auto_closed 가 「서버가 끝냈다」를, acknowledged_at IS NULL 조건부 UPDATE 가 「아직 안 보여 줬다」를 맡는다.
-// V90 — 기존 건설 목표의 대상 주민 명단 데이터 백필 (GROMO-1999): DDL 없음. 기여 누적이 「있는 행만 UPDATE」로
+// V96 — 기존 건설 목표의 대상 주민 명단 데이터 백필 (GROMO-1999): DDL 없음. 기여 누적이 「있는 행만 UPDATE」로
 //        바뀌어 이미 골라져 있던 목표가 대상 0명으로 굳는 것을 막는다. V30 과 같은 데이터 전용 마이그레이션이다.
 // V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
 //        island_quest_cohort_members · island_quest_claims. island_wallet_transactions.type 에 QUEST_SETTLEMENT 추가(스키마 무변경).
@@ -34,7 +34,7 @@
 //        분자(집중 시간)는 복제하지 않는다 — 정본이 focus_session_* 에 남아 언제든 같은 창으로 다시 합친다.
 // V74 — 섬 상점 테이블 선구축 shop_product_revisions · shop_catalog_publications · shop_catalog_publication_entries ·
 //        shop_catalog_active_publication · shop_orders (GROMO-1781 · island-shop LLD §3). 행 없음 — 가격은 S03·S04 확정 뒤.
-// V90 도 데이터 백필 전용(스키마 무변경) — 이미 골라져 있던 건설 목표의 «대상 주민» 명단을
+// V96 도 데이터 백필 전용(스키마 무변경) — 이미 골라져 있던 건설 목표의 «대상 주민» 명단을
 //        island_construction_contributions 에 amount=0 으로 채운다 (GROMO-1999). 이 표의 행이 명단을
 //        겸하게 됐는데 기여 누적이 «있는 행만» UPDATE 하도록 바뀌어, 채우지 않으면 종전 목표가
 //        영구히 대상 0명(=건설 불가)으로 굳는다. 「선택 당시의 주민」 근거가 DB 에 없어 실행 시점의
