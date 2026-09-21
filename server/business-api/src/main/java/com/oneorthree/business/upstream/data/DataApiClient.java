@@ -284,12 +284,19 @@ public class DataApiClient {
      *
      * <p>{@code idempotentCommand()} 를 켜는 이유: 이 호출은 상태를 바꾸지 않아 재시도가 안전한데,
      * 기본 재시도 대상은 GET 뿐이라 켜 주지 않으면 일시 오류 한 번에 로그인이 실패한다.
+     *
+     * <p>뒤의 다섯 값은 전환 시도의 재생 관문 증거다 (GROMO-1992) — 일반 시도는 null/false 그대로
+     * 실려도 되고, Data 는 {@code switch_phase} 가 있는 행에서만 이 값들을 요구한다.
+     * {@code callerAccessToken} 은 source 자격 증명용이며 이 DTO 는 {@code toString} 에서 가린다.
      */
     public LoginAttemptLookup lookupLoginAttempt(UUID attemptId, String digestKeyId, String digest,
-            Deadline deadline) {
+            String callerAccessToken, String provider, String credentialKind, String termsVersion,
+            Boolean accountSwitchConfirmed, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_LOGIN_ATTEMPT_LOOKUP)
-                        .body(new LoginAttemptLookupCommand(attemptId, digestKeyId, digest))
+                        .body(new LoginAttemptLookupCommand(attemptId, digestKeyId, digest,
+                                callerAccessToken, provider, credentialKind, termsVersion,
+                                accountSwitchConfirmed))
                         .endUserAuthErrors()
                         .idempotentCommand()
                         .build(),
@@ -316,8 +323,20 @@ public class DataApiClient {
                 new ParameterizedTypeReference<LoginSession>() { });
     }
 
-    /** 조회 요청 본문. 원 자격이 아니라 digest 만 나간다. */
-    private record LoginAttemptLookupCommand(UUID attemptId, String digestKeyId, String credentialDigest) {
+    /**
+     * 조회 요청 본문. 원 자격이 아니라 digest 만 나간다 — 단 전환 재생 증거로 source AT 가 실리므로
+     * {@code toString} 은 그 값을 가린다 ({@link LoginAttemptCommand} 와 같은 규율).
+     */
+    private record LoginAttemptLookupCommand(
+            UUID attemptId, String digestKeyId, String credentialDigest, String callerAccessToken,
+            String provider, String credentialKind, String termsVersion,
+            Boolean accountSwitchConfirmed) {
+
+        @Override
+        public String toString() {
+            return "LoginAttemptLookupCommand[attemptId=" + attemptId + ", provider=" + provider
+                    + ", credentialKind=" + credentialKind + ", callerAccessToken=redacted]";
+        }
     }
 
     /**

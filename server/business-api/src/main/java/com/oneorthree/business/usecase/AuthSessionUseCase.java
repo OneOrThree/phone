@@ -68,8 +68,13 @@ public class AuthSessionUseCase {
         String keyId = digests.keyId();
         String digest = digests.of(credential);
 
-        LoginAttemptLookup stored =
-                relay(() -> data.lookupLoginAttempt(credentials.attemptId(), keyId, digest, deadline));
+        // 전환 시도의 재생 관문은 execute 와 «같은» 증거를 lookup 에도 요구한다 (GROMO-1992) —
+        // replayable 이면 교환 없이 결과가 나가므로, 여기서 빠뜨리면 source AT·confirmed 대조를
+        // 통째로 우회한다.
+        LoginAttemptLookup stored = relay(() -> data.lookupLoginAttempt(
+                credentials.attemptId(), keyId, digest, credentials.accessToken(),
+                credential.providerEnumName(), credential.kind(), termsVersion,
+                accountSwitchConfirmed, deadline));
         if (stored == null) {
             throw new UpstreamContractMismatchException("Data 로그인 시도 조회 응답이 비어 있다");
         }

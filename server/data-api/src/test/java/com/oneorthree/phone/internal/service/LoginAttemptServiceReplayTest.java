@@ -102,7 +102,7 @@ class LoginAttemptServiceReplayTest {
 
     private LoginAttemptService serviceSignedBy(JwtProvider provider) {
         return new LoginAttemptService(loginAttemptRepository, userQueryService, authService,
-                authSessionService, null, provider, null);
+                authSessionService, null, provider, null, null);
     }
 
     private AuthSession sessionHolding(String refreshToken) {
@@ -117,7 +117,8 @@ class LoginAttemptServiceReplayTest {
                 .willReturn(Optional.of(sessionHolding(originalRefresh)));
 
         LoginAttemptLookupResponse response = serviceSignedBy(issuer)
-                .lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST));
+                .lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST,
+                        null, null, null, null, null));
 
         assertThat(response.replayable()).isTrue();
         assertThat(response.session().refreshToken()).isEqualTo(originalRefresh);
@@ -136,7 +137,8 @@ class LoginAttemptServiceReplayTest {
                 .willReturn(Optional.of(sessionHolding(originalRefresh)));
         LoginAttemptService rotated = serviceSignedBy(new JwtProvider(ROTATED, 3600, 2_592_000, 7_776_000));
 
-        assertThatThrownBy(() -> rotated.lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST)))
+        assertThatThrownBy(() -> rotated.lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST,
+                null, null, null, null, null)))
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);
@@ -151,7 +153,8 @@ class LoginAttemptServiceReplayTest {
         given(authSessionService.verifySession(USER, SESSION)).willReturn(Optional.of(revoked));
 
         assertThatThrownBy(() -> serviceSignedBy(issuer)
-                .lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST)))
+                .lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST,
+                        null, null, null, null, null)))
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);
