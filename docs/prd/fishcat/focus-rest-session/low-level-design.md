@@ -29,6 +29,9 @@ FocusFinishView의 myRate 범위·퀘스트 포함 기준은 1772/1773의 승인
 
 ## 2. 9계약의 동작
 
+원본 9계약 뒤에 **GROMO-1998 이 셋을 더한다** — 서버 크론 `rest-auto-close` 와 그 결과를 한 번만 건네는
+`pending-result`·`acknowledge`. 원본 계약의 동작은 바뀌지 않는다.
+
 ### start — POST /focus-sessions, 201
 
 입력은 `{islandId, subject, targetMinutes}`. Idempotency-Key 필수, expectedVersion 없음.
@@ -77,6 +80,43 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 receipt·정산의 원 결과 전체는 현재 섬 데이터 열람 권한이 있을 때만 공개한다. 소속 상실 뒤 같은 키라는
 이유로 questProgress/섬 정보가 든 결과를 그대로 재생하지 않는다. 본인 완료 증거가 필요한 FR-D03은 관리 정책과
 공개 축소 DTO를 먼저 확정한다. 비활성 계정은404, 타인 세션은403, 없는 세션은404다.
+
+### rest-auto-close — 서버 크론(공개 엔드포인트 없음), GROMO-1998
+
+휴식(`PAUSED`)에 들어간 지 **1시간**이 지나면 서버가 이번 집중을 **정상 완료**로 끝낸다
+([현재 정책](https://github.com/OneOrThree/planning-document/blob/main/policy-2026-09-14.md) 「집중·휴식·도서관」:
+"휴식하기를 누른 순간부터 1시간이 지나면 서버가 이번 집중을 자동 종료한다. 정상 종료와 같게 집중 기록·퀘스트 진행에
+반영하고, 다음에 앱을 켤 때 결과창을 한 번 보여준다. 물고기는 이미 섬 잔액에 들어가 있어 따로 정산하지 않는다").
+
+- 유예의 기산점은 `last_transition_at` 이다 — PAUSED 행에 그 값을 쓰는 전이는 `pause` 하나뿐이라 곧 `restStartedAt` 이다.
+- `finish` 와 **같은 정산 경로**를 탄다: 열린 REST 구간을 닫고, 일 집계·기본 마커(`COMPLETED`)·정산 행·focus/rest
+  사건·프레즌스 해제를 한 TX 에 남긴다. 포기(`ABANDONED`)·소속 상실(`MEMBERSHIP_LOST`)과 달리 **정산 행이 생긴다** —
+  그 둘은 「미정산」이고 이쪽은 「정상 완료」다.
+- 추가 지급은 없다. 적립 틱이 이미 넣었고(D5-적립), 종료 직전 적립 한 번이 마지막에 «찬» 분만 확정한다.
+- 잠금 순서는 전이와 같다(사용자 공유 → 섬 배타 → 멤버십 공유 → 상세 배타). 스캔이 고른 뒤 잠그기까지
+  `resume`·`finish` 가 이길 수 있으므로 **잠근 뒤 다시 판정**한다 — 여전히 `PAUSED` 이고 여전히 1시간을 넘겼을 때만
+  끝낸다. 반대로 크론이 이기면 뒤늦은 `resume` 은 409 `SESSION_STATE_CONFLICT`, 뒤늦은 `finish` 는 완료 세션의
+  도메인 복구 경로로 **원 결과를 그대로** 돌려받는다(새 정산 행 없음).
+- 「본인이 접속하지 않아도」 남의 모닥불 화면에서 사라져야 하므로 지연 판정이 아니라 **크론**이다
+  (`FocusRestAutoCloseScheduler`, 매분 30초, ShedLock). 크론 게이트는 두지 않는다 — 지급 주체가 둘이 되는 문제가
+  없고 세션당 정산 1행(PK)이 최후 방어선이다.
+
+### pending-result — GET /focus-sessions/pending-result, 200
+
+입력 없음, 본인만 조회한다. **자동 종료로 끝났고 아직 안 보여 준** 정산 중 가장 오래된 한 건을 `finish` 와
+**같은 모양**(`FocusFinishView`)으로 돌려준다 — 앱이 결과창을 두 벌 그리지 않게 한다. 보여 줄 것이 없으면
+`data:null` 이고 404 가 아니다(`session` 과 같은 규칙: 빈 본문은 계약 위반이다).
+`finish` 로 끝난 정산은 결과를 그 자리에서 이미 돌려줬으므로 여기에 오지 않는다.
+확인(`acknowledge`) 전에는 몇 번을 물어도 같은 결과가 온다 — 네트워크가 끊기거나 앱이 죽어 결과창을 못 본
+사용자에게 「영영 못 받음」을 만들지 않는다.
+
+### acknowledge — POST /focus-sessions/{sessionId}/acknowledge, 204
+
+본문 없음, 키 없음. `focus_settlements.acknowledged_at IS NULL` **조건부 원자 UPDATE** 라 재접속·동시 접속·재시도에
+몇 번이 와도 최초 1회만 세팅되고 나머지는 0행 no-op 다 — 「한 번만 제공」의 근거는 이 컬럼 하나이고 인메모리
+플래그가 아니다(`league_weekly_results.acknowledged_at` 과 같은 관례). 확인할 것이 없어도(이미 확인했거나 자동 종료가
+아닌 세션) 성공이다. **남의 세션은 403** 이다 — 확인 시각은 그 사람의 결과가 사라지는 부작용이다.
+Business 는 204 를 공통 advice 가 200 `data:null` 로 바꾼다.
 
 ### home-summary — GET /me/focus-summary, 200
 
@@ -166,7 +206,7 @@ EXPIRE가 별도 명령이라 그 사이에 끊기면 수명 없는 카운터가
 | 기존 focus_sessions | PK·user·startedAt·endedAt·COMPLETED·focus_seconds_by_date | legacy와 통계 식별자 공유. 상세가 있는 행은 v0.3 프로토콜 |
 | 신규 focus_session_details | PK/FK session_id, user_id, island_id, membership_epoch_at_start, subject, target_minutes(**nullable — 목표는 선택, D5-적립**), lifecycle, version, last_transition_at, policy_revision, **rewarded_seconds(적립 워터마크)** | 소속 귀속 불변. user당 active/paused 부분 UNIQUE, 휴식 자리의 활성 범위 UNIQUE. 워터마크는 전이가 아니라 적립 틱이 민다 — version 을 올리지 않는다 |
 | 신규 focus_session_intervals | session_id, ordinal, kind ACTIVE/REST, started_at, ended_at nullable | ordinal 유일, 열린 구간 최대1, 역전/겹침 금지. 명령 idempotency와 같은 TX |
-| 신규 focus_settlements | session_id UNIQUE, contract_version, policy_revision, HTTP 결과·원 events·총시간 | 다른 key의 완료 복구 방어. **D5-적립 이후 이 행은 «지급의 근거»가 아니라 «확정 기록»이다** — 지급은 적립 원장이 한다. 개인정보 파기 정책 적용 |
+| 신규 focus_settlements | session_id UNIQUE, contract_version, policy_revision, HTTP 결과·원 events·총시간, **auto_closed·acknowledged_at(V88)** | 다른 key의 완료 복구 방어. **D5-적립 이후 이 행은 «지급의 근거»가 아니라 «확정 기록»이다** — 지급은 적립 원장이 한다. `auto_closed`(서버가 끝냈다) + `acknowledged_at IS NULL`(아직 안 보여 줬다) 이 「다음 접속에 한 번 보여줄 결과」다(GROMO-1998). 개인정보 파기 정책 적용 |
 | 신규 focus_reward_accruals | (session_id, accrued_on) UNIQUE, earned_fish | **적립의 정본**(D5-적립). 매분 틱이 (세션, UTC 날짜)로 누적한다. 하루 상한 합산과 회관 기록의 주민 누적 획득이 둘 다 여기를 읽는다 — 정산 행만 세면 진행 중·강퇴 세션의 적립분이 빠진다 |
 | 신규 주민 projection | (projection,island_id,user_id) UNIQUE, version, 현재 session_id/상태 | 세션 교체·재가입에도 version 초기화 금지, focus/rest 별도 축 |
 | 기존 command_idempotency | PublicCommandService의 사용자/operation/key scope, fingerprint, contractVersion 있는 결과 | TTL 자동 삭제 없음. 미지원 버전409 STATE_CONFLICT, 재실행 금지 |

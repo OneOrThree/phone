@@ -34,12 +34,19 @@ class FocusSessionContractTest extends UpstreamTestBase {
     private static final String DATA_CURRENT = "GET " + INTERNAL + "/focus-sessions/current";
     private static final String DATA_PAUSE = "POST " + INTERNAL + "/focus-sessions/" + FOCUS + "/pause";
     private static final String DATA_SUMMARY = "GET " + INTERNAL + "/focus-summary";
+    private static final String DATA_PENDING = "GET " + INTERNAL + "/focus-sessions/pending-result";
+    private static final String DATA_ACK = "POST " + INTERNAL + "/focus-sessions/" + FOCUS + "/acknowledge";
     private static final String START_BODY =
             "{\"islandId\":\"" + ISLAND + "\",\"subject\":\"알고리즘\",\"targetMinutes\":60}";
     private static final String STATE = "{\"id\":\"" + FOCUS + "\",\"islandId\":\"" + ISLAND + "\","
             + "\"subject\":\"알고리즘\",\"targetMinutes\":60,\"status\":\"active\",\"activeSeconds\":0,"
             + "\"serverNow\":\"2026-09-17T00:00:00Z\",\"startedAt\":\"2026-09-17T00:00:00Z\","
             + "\"restStartedAt\":null,\"version\":1}";
+    /** 자동 종료가 남긴 정산 — finish 응답과 «같은 모양»이다(GROMO-1998). */
+    private static final String FINISH = "{\"recordId\":\"" + FOCUS + "\",\"islandId\":\"" + ISLAND + "\","
+            + "\"subject\":\"알고리즘\",\"targetMinutes\":60,\"activeSeconds\":600,\"goalAchieved\":false,"
+            + "\"earnedFish\":10,\"allocation\":{\"personalFishAdded\":0,\"constructionFishAdded\":10},"
+            + "\"completedAt\":\"2026-09-17T01:00:00Z\",\"questProgress\":[]}";
 
     @Test
     void startForwardsSignedActorToInternalPathAndReturnsCreatedEnvelope() throws Exception {
@@ -221,6 +228,56 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.retryable").value(true))
                 .andExpect(jsonPath("$.data").doesNotExist());
+    }
+
+    /**
+     * 휴식 1시간 자동 종료 결과 조회 (GROMO-1998). 보여 줄 것이 없으면 {@code data:null} 이고, 빈 200 은
+     * 그 증거가 아니라 계약 불일치다 — {@code current} 와 같은 규칙이다.
+     */
+    @Test
+    void pendingResultUnwrapsTheEnvelopeAndTreatsAnEmptyBodyAsAContractError() throws Exception {
+        DATA.on(DATA_PENDING, request -> ok("{\"result\":null}"));
+        mockMvc.perform(auth(get("/focus-sessions/pending-result"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andExpect(jsonPath("$.error").doesNotExist());
+
+        DATA.on(DATA_PENDING, request -> ok("{\"result\":" + FINISH + "}"));
+        mockMvc.perform(auth(get("/focus-sessions/pending-result"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.recordId").value(FOCUS.toString()))
+                .andExpect(jsonPath("$.data.earnedFish").value(10))
+                .andExpect(jsonPath("$.data.allocation.constructionFishAdded").value(10));
+
+        DATA.on(DATA_PENDING, request -> ok(""));
+        mockMvc.perform(auth(get("/focus-sessions/pending-result"))).andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    /**
+     * 확인은 본문도 멱등 키도 없다 — Data 의 조건부 UPDATE 가 최초 1회만 세팅하므로 재시도가 무해하다.
+     * 204 는 공통 advice 가 200 {@code data:null} 로 바꾼다.
+     */
+    @Test
+    void acknowledgeNeedsNoBodyOrKeyAndIsSafeToRetry() throws Exception {
+        DATA.on(DATA_ACK, request -> new MockUpstream.Response(204, ""));
+
+        for (int attempt = 0; attempt < 2; attempt++) {
+            mockMvc.perform(auth(post("/focus-sessions/" + FOCUS + "/acknowledge")))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.data").doesNotExist())
+                    .andExpect(jsonPath("$.error").doesNotExist());
+        }
+
+        assertThat(DATA.hits(DATA_ACK)).isEqualTo(2);
+        assertThat(DATA.received().get(0).header("x-user-id")).isEqualTo(USER.toString());
+    }
+
+    /** 남의 세션 확인은 Data 가 403 으로 거절하고, 그 판정이 공개 FORBIDDEN 으로 내려간다. */
+    @Test
+    void acknowledgeRelaysForbiddenForSomeoneElsesSession() throws Exception {
+        DATA.on(DATA_ACK, request -> error(403, "FORBIDDEN"));
+        mockMvc.perform(auth(post("/focus-sessions/" + FOCUS + "/acknowledge")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {

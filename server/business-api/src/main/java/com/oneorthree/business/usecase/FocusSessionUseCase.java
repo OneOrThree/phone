@@ -11,6 +11,7 @@ import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
+import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -91,6 +92,27 @@ public class FocusSessionUseCase {
     public FocusFinish finish(AccessTokenClaims claims, UUID sessionId, long expectedVersion, UUID key,
             Deadline deadline) {
         return relay(() -> data.finishFocusSession(claims.userId(), sessionId, expectedVersion, key, deadline));
+    }
+
+    /**
+     * 휴식 1시간 초과로 서버가 끝낸 집중의 미확인 결과 (GROMO-1998). 보여 줄 것이 없으면 {@code null} 이고,
+     * 그 null 은 정상값이다 — 공개 응답의 {@code data:null} 이 된다. 봉투 자체가 없는 것은 계약 불일치다
+     * ({@link #current} 와 같은 판정).
+     */
+    public FocusFinish pendingResult(AccessTokenClaims claims, Deadline deadline) {
+        PendingFocusResult envelope = relay(() -> data.fetchPendingFocusResult(claims.userId(), deadline));
+        if (envelope == null) {
+            throw new UpstreamContractMismatchException("미확인 집중 결과 응답 봉투가 없습니다");
+        }
+        return envelope.result();
+    }
+
+    /** 결과창을 보여 줬다고 표시한다 (GROMO-1998). Data 의 조건부 UPDATE 가 최초 1회만 세팅한다. */
+    public void acknowledgeResult(AccessTokenClaims claims, UUID sessionId, Deadline deadline) {
+        relay(() -> {
+            data.acknowledgeFocusResult(claims.userId(), sessionId, deadline);
+            return null;
+        });
     }
 
     public FocusSummary summary(AccessTokenClaims claims, String date, String timezone, Deadline deadline) {

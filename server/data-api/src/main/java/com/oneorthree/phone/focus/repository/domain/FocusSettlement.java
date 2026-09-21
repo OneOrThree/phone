@@ -61,6 +61,24 @@ public class FocusSettlement {
     @Column(name = "completed_at", nullable = false)
     private Instant completedAt;
 
+    /**
+     * 휴식이 1시간을 넘겨 <b>서버가</b> 끝낸 정산인가 (V88, GROMO-1998). {@code finish} 로 끝난 정산은
+     * {@code false} 다 — 그 결과는 응답으로 이미 돌려줬다. 소속 상실 종결(FR-D03)은 정산 행 자체를
+     * 만들지 않으므로 이 축과 섞이지 않는다.
+     */
+    @Column(name = "auto_closed", nullable = false, columnDefinition = "boolean not null default false")
+    @Builder.Default
+    private boolean autoClosed = false;
+
+    /**
+     * 자동 종료 결과창을 보여 준 시각 (V88, GROMO-1998). 「다음 접속에 <b>한 번</b>」의 유일한 근거다 —
+     * {@code auto_closed AND acknowledged_at IS NULL} 이 미확인 결과이고, 확인은
+     * {@code acknowledged_at IS NULL} 조건부 UPDATE 라 동시·반복 호출에도 최초 1회만 성공한다
+     * ({@code league_weekly_results.acknowledged_at} 과 같은 관례).
+     */
+    @Column(name = "acknowledged_at")
+    private Instant acknowledgedAt;
+
     @CreationTimestamp
     @Column(name = "created_at", columnDefinition = "timestamptz not null default now()")
     private Instant createdAt;
