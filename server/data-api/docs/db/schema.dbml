@@ -1566,6 +1566,13 @@ Table login_attempts [note: 'POST /auth/sessions 의 내구 로그인 시도 원
   updated_at           timestamptz [not null, default: `now()`]
 }
 
+Table guest_device_claims [note: '게스트 기기 점유 원장 (V87, GROMO-2036). login_attempts 가 소셜 로그인에 대해 하는 일을 게스트 축에서 한다 — 게스트 발급은 호출 한 번마다 users 행이 하나 생기므로, 201 이 유실된 재시도가 같은 사람에게 계정을 둘 만들지 않게 막는다. 축이 「앱이 만든 시도 id」가 아니라 «기기» 라서 PK 가 다르다'] {
+  device_digest       varchar(64) [pk, note: 'Business 가 자기 비밀로 계산한 기기 식별자의 keyed HMAC-SHA256 hex. 원 기기 식별자는 Data 에 도달하지 않는다 — 이 표가 통째로 유출돼도 기기 식별자는 나오지 않는다 (계정 LLD §3 「앱이 제출한 digest 를 자격으로 수락하지 않는다」)']
+  user_id             uuid        [not null, ref: > users.id, note: 'ON DELETE CASCADE — user_main_islands(V81)·user_island_contexts(V57) 와 같은 이유다. 탈퇴는 소프트 딜리트라 여기서 사라지지 않지만, 발급 경로가 「활성 게스트가 아니면 점유를 버린다」로 판정하므로 탈퇴·승격된 유저를 가리키는 행은 재사용되지 않는다']
+  claimed_at          timestamptz [not null, default: `now()`]
+  recovery_expires_at timestamptz [not null, note: '이 점유가 같은 유저를 재생해 주는 마감(5분 — LoginAttemptService.RECOVERY_WINDOW 와 같은 근거: 유실된 201 의 즉시 재시도). 무기한으로 두면 기기 식별자가 게스트 계정의 영구 bearer 자격이 되는데, 계정 LLD §3 은 「게스트의 복구창 밖 처리에는 아직 승인된 대체 복구 수단이 없다」(Q06)고 명시한다. 지난 행은 다음 점유가 같은 PK 로 덮어 재사용하며, 별도 청소 배치는 두지 않았다(게스트 생성이 GuestLoginRateLimiter 로 묶여 있어 증가율이 작다)']
+}
+
 Table invite_claim_intents [note: 'claim 의도 내구 큐 (V52, A22 ㊄·㊺) — 202 를 줄 수 있는 «유일한» 근거다. outbox 행이 아닌 이유: 봉투는 전달 대상이 하나 이상이어야 하는데 claim 의도는 위성으로 나가는 명령이 아니고, Data→링크 HTTP 는 §3·㋟ 위반이다. 재개는 Business 쪽 일회성 실행자가 밟는다'] {
   id                       uuid         [pk]
   user_id                  uuid         [not null]

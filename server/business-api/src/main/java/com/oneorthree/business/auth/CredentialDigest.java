@@ -83,6 +83,23 @@ public class CredentialDigest {
                 + SEPARATOR + credential.value()));
     }
 
+    /**
+     * 게스트 기기 식별자의 digest (GROMO-2036).
+     *
+     * <p>도메인 접두 {@code "guest-device"} 를 붙여 <b>제공자 자격 digest 와 값 공간을 가른다</b>.
+     * 없으면 {@code provider="guest-device"} 인 자격이 같은 값을 만들어, 한 축에서 만든 점유를 다른
+     * 축의 자격으로 이어받을 수 있다 — 위 {@code of} 가 provider·kind 를 함께 넣는 것과 같은 이유다.
+     *
+     * <p><b>비밀이 바뀌면 모든 기기 점유가 한 번 끊긴다</b> — 같은 기기가 다른 digest 로 보여 새 게스트를
+     * 받는다. 점유의 복구 창이 5분이라 실제 영향은 「배포 순간에 재시도 중이던 요청」으로 한정되지만,
+     * 이 비밀을 로그인 복구와 <b>공유</b>한다는 사실은 그대로다: 키 교체는 두 축을 함께 흔든다.
+     *
+     * @param deviceId 앱이 설치마다 만드는 정규화된 UUID 문자열
+     */
+    public String ofDevice(String deviceId) {
+        return hex(mac("guest-device" + SEPARATOR + deviceId));
+    }
+
     private byte[] mac(String input) {
         try {
             Mac mac = Mac.getInstance(ALGORITHM);

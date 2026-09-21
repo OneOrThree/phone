@@ -55,6 +55,11 @@ internal:
           # `/login-attempts` 와 `/login-attempts/lookup` 은 서로를 덮지 않는다.
           - 'POST /internal/auth/login-attempts'
           - 'POST /internal/auth/login-attempts/lookup'
+          # GROMO-2035·2036 2.0 세션 발급 2종 — AT 재발급과 게스트 시작. 위 로그인과 같은 이유로
+          # 주체 축(`/internal/users/*/…`)이 «아니다»: 갱신의 주체는 RT 서명이 지목하고 게스트 시작의
+          # 주체는 이 요청이 만든다. 와일드카드 없는 정확한 두 경로다.
+          - 'POST /internal/auth/sessions/refresh'
+          - 'POST /internal/auth/guest-sessions'
           - 'POST /internal/islands/*/host-transfer'
           - 'POST /internal/users/*/device-token-deletions'
           - 'PUT /internal/users/*/notification-settings-commands'
