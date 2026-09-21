@@ -831,7 +831,7 @@ Table focus_reward_policies [note: 'GROMO-1924: 집중 보상 산식 revision(FR
   revision                integer [pk]
   seconds_per_fish        integer [not null, note: 'CHECK > 0 — 이 초만큼의 순수 집중마다 1마리(D5: 60)']
   daily_cap_fish          integer [not null, note: 'CHECK >= 0 — 주민·섬별 하루 상한(D5: 480)']
-  personal_share_percent  integer [not null, note: 'CHECK 0..100 — 개인 지갑 몫, 나머지가 섬 통장(D5-귀속: 50)']
+  personal_share_percent  integer [not null, note: 'CHECK = 0 (V97/GROMO-2045 이 V67 의 0..100 을 좁혔다) — 개인 지갑 몫이 0 이라 전액이 섬 통장으로 간다(D5-귀속-개정). 값 하나로 폐기한 개인 재화가 되살아나지 않게 DB 가 막는다. 열을 지우지 않는 것은 E=P+C 보존식의 P 자리를 응답 계약(allocation.personalFishAdded)이 아직 쓰기 때문이다']
   golden_fish_reward      integer [not null, default: 50, note: 'V91/GROMO-1956: 황금 물고기 한 번의 섬 적립량(기획 정본 50). 인원수만큼 곱하지 않는다']
   golden_max_members      integer [not null, default: 5, note: 'V91/GROMO-1956: 확률표가 세는 ACTIVE 인원 상한(기획 정본 5). 그 이상은 5명과 같은 확률']
   golden_chance_ppm       text    [not null, default: '4000,12000,24000,40000', note: 'V91/GROMO-1956: ACTIVE 2명부터의 1분당 당첨 확률(ppm)을 쉼표로 이은 표 — 2명 0.4% · 3명 1.2% · 4명 2.4% · 5명 이상 4%. 열 네 개로 펼치지 않는 이유는 인원 상한도 운영값이라서다']
