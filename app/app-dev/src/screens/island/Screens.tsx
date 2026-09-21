@@ -56,6 +56,7 @@ import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
 import { useScreenInsets } from '@/design-system/primitives';
+import { screenTime } from '@/services/screenTime';
 import {
   art,
   C,
@@ -2828,7 +2829,7 @@ export function RedesignScreens({ e }: any) {
         {divider}
         <View style={{ gap: 10 }}>
           {head('phone', '스크린타임', <Txt kind="meta">오늘</Txt>)}
-          {state.settings.permission ? (
+          {state.settings.permission && state.settings.screenTimeMeasurementReady ? (
             <>
               {big(
                 `${Math.floor(state.screenMinutes / 60)}시간 ${state.screenMinutes % 60}분`,
@@ -2859,13 +2860,18 @@ export function RedesignScreens({ e }: any) {
                   alignItems: 'center',
                 }}
               >
-                <Txt kind="h17">스크린타임 연결이 꺼져 있어요</Txt>
+                <Txt kind="h17">
+                  {state.settings.permission
+                    ? '측정할 앱을 선택해야 해요'
+                    : '스크린타임 연결이 꺼져 있어요'}
+                </Txt>
                 <Txt kind="meta" style={{ textAlign: 'center' }}>
-                  연결하면 오늘 폰 사용 시간을 여기서 볼 수 있어요.{'\n'}기록이 없는 것과 0분은
-                  달라요.
+                  {state.settings.permission
+                    ? `측정할 앱이나 카테고리를 선택하면\n오늘 폰 사용 시간을 볼 수 있어요.`
+                    : `연결하면 오늘 폰 사용 시간을 여기서 볼 수 있어요.\n기록이 없는 것과 0분은 달라요.`}
                 </Txt>
                 <Btn
-                  title="설정에서 켜기"
+                  title={state.settings.permission ? '측정 앱 선택하기' : '설정에서 켜기'}
                   small
                   kind="sec"
                   style={{ marginTop: 4 }}
@@ -4901,8 +4907,13 @@ export function RedesignScreens({ e }: any) {
                   '회원 탈퇴할까요?',
                   '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
                   () => {
-                    act('DELETE_ACCOUNT');
-                    reset('login');
+                    screenTime
+                      .resetScreenTimeData()
+                      .catch(() => {})
+                      .finally(() => {
+                        act('DELETE_ACCOUNT');
+                        reset('login');
+                      });
                   },
                   { ok: '탈퇴', destructive: true },
                 )
@@ -4955,9 +4966,26 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup flat>
           <SheetRow
             title="측정 권한"
-            sub={state.settings.permission ? '연결됨' : '연결 필요 · 폰 사용 퀘스트와 기록에 써요'}
+            sub={
+              state.settings.permission
+                ? state.settings.screenTimeMeasurementReady
+                  ? '연결됨'
+                  : '측정 앱 선택 필요'
+                : '연결 필요 · 폰 사용 퀘스트와 기록에 써요'
+            }
             chevron
             onPress={() => go('permission', 'settings')}
+          />
+          <SheetRow
+            title="측정 앱"
+            sub="사용 시간을 기록할 앱과 카테고리"
+            chevron
+            onPress={() =>
+              go(
+                state.settings.permission ? 'screenTimeApps' : 'permission',
+                state.settings.permission ? 'settings' : 'measured-apps',
+              )
+            }
           />
         </SheetGroup>
         <Txt kind="meta" style={st.meta}>

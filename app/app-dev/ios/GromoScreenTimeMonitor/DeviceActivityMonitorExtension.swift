@@ -8,7 +8,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     private var today: String { Self.dayString(Date()) }
 
     @discardableResult
-    private func promotePendingSelectionIfDue() -> Bool {
+    private func promotePendingSelectionIfDue(markRecoveryDayUnconfirmed: Bool = false) -> Bool {
         guard let pendingData = defaults?.data(forKey: "gromo:goal:selectionPending") else {
             return false
         }
@@ -52,6 +52,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             defaults?.removeObject(forKey: "gromo:goal:selectionPending")
             defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
             defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
+            if markRecoveryDayUnconfirmed { markUnconfirmed(day: today) }
             return true
         } catch {
             var restored = false
@@ -93,7 +94,8 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let previousDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
         guard previousDate != today else { return }
         let previousMinutes = defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
-        if let previousDate, previousMinutes > 0 {
+        if let previousDate {
+            archiveBucket(date: previousDate, minutes: previousMinutes)
             defaults?.set(previousDate, forKey: "gromo:screentime:prevBucketDate")
             defaults?.set(previousMinutes, forKey: "gromo:screentime:prevBucketMinutes")
         }
@@ -108,8 +110,8 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         super.intervalDidEnd(for: activity)
         guard activity.rawValue == "gromo.usage.buckets" else { return }
         let minutes = defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
-        guard minutes > 0,
-              let date = defaults?.string(forKey: "gromo:screentime:usageBucketDate") else { return }
+        guard let date = defaults?.string(forKey: "gromo:screentime:usageBucketDate") else { return }
+        archiveBucket(date: date, minutes: minutes)
         defaults?.set(date, forKey: "gromo:screentime:prevBucketDate")
         defaults?.set(minutes, forKey: "gromo:screentime:prevBucketMinutes")
     }
@@ -127,7 +129,8 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         var current = defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0
         let storedDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
         if storedDate != today {
-            if let storedDate, current > 0 {
+            if let storedDate {
+                archiveBucket(date: storedDate, minutes: current)
                 defaults?.set(storedDate, forKey: "gromo:screentime:prevBucketDate")
                 defaults?.set(current, forKey: "gromo:screentime:prevBucketMinutes")
             }
@@ -136,7 +139,7 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             defaults?.set(today, forKey: "gromo:screentime:usageBucketDate")
             defaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
             defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
-            if promotePendingSelectionIfDue() { return }
+            if promotePendingSelectionIfDue(markRecoveryDayUnconfirmed: true) { return }
         }
 
         guard isPlausible(minutes) else { return }
@@ -157,17 +160,45 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
     private func isPlausible(_ minutes: Int) -> Bool {
         let now = Date()
         let slack = 5.0
-        let elapsedToday = now.timeIntervalSince(Calendar.current.startOfDay(for: now)) / 60
+        var calendar = Calendar(identifier: .gregorian)
+        if let kst = TimeZone(identifier: "Asia/Seoul") { calendar.timeZone = kst }
+        let elapsedToday = now.timeIntervalSince(calendar.startOfDay(for: now)) / 60
         guard Double(minutes) <= elapsedToday + slack else { return false }
         let registeredAt = defaults?.double(forKey: "gromo:screentime:bucketRegisteredAt") ?? 0
         guard registeredAt > 0 else { return true }
         return Double(minutes) <= (now.timeIntervalSince1970 - registeredAt) / 60 + slack
     }
 
+    private func archiveBucket(date: String, minutes: Int) {
+        let unconfirmedDays = Set(
+            defaults?.stringArray(forKey: "gromo:screentime:unconfirmedDays") ?? []
+        )
+        guard !unconfirmedDays.contains(date) else { return }
+        var history = defaults?.dictionary(forKey: "gromo:screentime:bucketHistory") ?? [:]
+        history[date] = min(max(minutes, 0), 900)
+        defaults?.set(history, forKey: "gromo:screentime:bucketHistory")
+    }
+
+    private func markUnconfirmed(day: String) {
+        var unconfirmedDays = Set(
+            defaults?.stringArray(forKey: "gromo:screentime:unconfirmedDays") ?? []
+        )
+        unconfirmedDays.insert(day)
+        defaults?.set(unconfirmedDays.sorted(), forKey: "gromo:screentime:unconfirmedDays")
+        var history = defaults?.dictionary(forKey: "gromo:screentime:bucketHistory") ?? [:]
+        history.removeValue(forKey: day)
+        defaults?.set(history, forKey: "gromo:screentime:bucketHistory")
+        if defaults?.string(forKey: "gromo:screentime:prevBucketDate") == day {
+            defaults?.removeObject(forKey: "gromo:screentime:prevBucketDate")
+            defaults?.removeObject(forKey: "gromo:screentime:prevBucketMinutes")
+        }
+    }
+
     private static func dayString(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
     }
@@ -178,11 +209,17 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
             && selection.webDomainTokens.isEmpty
     }
 
-    private static let schedule = DeviceActivitySchedule(
-        intervalStart: DateComponents(hour: 0, minute: 0),
-        intervalEnd: DateComponents(hour: 23, minute: 59),
-        repeats: true
-    )
+    private static let schedule: DeviceActivitySchedule = {
+        var start = DateComponents()
+        start.timeZone = TimeZone(identifier: "Asia/Seoul")
+        start.hour = 0
+        start.minute = 0
+        var end = DateComponents()
+        end.timeZone = TimeZone(identifier: "Asia/Seoul")
+        end.hour = 23
+        end.minute = 59
+        return DeviceActivitySchedule(intervalStart: start, intervalEnd: end, repeats: true)
+    }()
 
     private static func events(
         for selection: FamilyActivitySelection,

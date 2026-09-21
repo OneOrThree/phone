@@ -80,8 +80,10 @@ test('회관→게시판은 섬 인원과 무관한 총량 고정; 차감 후 �
   assert.deepEqual(currentIsland(s).buildings, ['hall']);
   s = act(s, 'BUILD', { building: 'board', now: 62000 });
   assert.equal(balance(currentIsland(s)), 300 - costs.hall - costs.board);
-  s = act(s, 'TICK', { now: 62000 + buildMinutes.board * 60000 });
+  const boardEndsAt = 62000 + buildMinutes.board * 60000;
+  s = act(s, 'TICK', { now: boardEndsAt + 2 * 86400000 });
   assert.ok(currentIsland(s).buildings.includes('board'));
+  assert.equal(currentIsland(s).boardCompletedDay, dayKey(boardEndsAt));
 });
 test('QA 완공은 온보딩을 유지하고 완료 후 현재 섬의 공사 중간 상태만 정리한다', () => {
   const fresh = initialState();
@@ -288,8 +290,9 @@ test('주민 퀘스트 보상은 달성 시 섬과 주민 누적량에 한 번�
   assert.equal(earnedBy(currentIsland(settled), member.id), beforeEarned + 10);
   assert.deepEqual(currentIsland(settled).quests[0].rounds?.[dayKey(now)]?.claimed, [member.id]);
 });
-test('스크린타임은 다음 날 정산, 권한 없음·기록 없음은 0분으로 보상하지 않는다', () => {
+test('스크린타임은 다음 날 정산, 권한·측정 대상 없음은 0분으로 보상하지 않는다', () => {
   let s = initialState(true);
+  s.settings.screenTimeMeasurementReady = true;
   currentIsland(s).members = [];
   const now = new Date(2026, 8, 15, 12).getTime();
   s = act(s, 'TICK', { now });
@@ -302,6 +305,132 @@ test('스크린타임은 다음 날 정산, 권한 없음·기록 없음은 0분
   no = act(no, 'TICK', { now: now + 86400000 });
   assert.ok(!no.rewards?.some((r) => r.questId === 'q-screen'));
   assert.equal(questRate(no, currentIsland(no).quests[1]), null);
+  let noSelection = initialState(true);
+  noSelection.settings.screenTimeMeasurementReady = false;
+  noSelection.screenMinutes = 0;
+  noSelection = act(noSelection, 'TICK', { now });
+  noSelection = act(noSelection, 'TICK', { now: now + 86400000 });
+  assert.ok(!noSelection.rewards?.some((r) => r.questId === 'q-screen'));
+  assert.equal(questRate(noSelection, currentIsland(noSelection).quests[1]), null);
+});
+test('여러 날 뒤 복구한 스크린타임은 누락된 날짜 라운드와 보상도 정산한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  island.quests.forEach((quest) => delete quest.rounds);
+  const missedDay = '2026-09-14';
+  const now = Date.parse('2026-09-16T03:00:00.000Z');
+
+  s.settings.screenTimeHistoryReady = false;
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: missedDay, minutes: 60 }],
+    now,
+  });
+
+  const screenQuest = currentIsland(s).quests.find((quest) => quest.type === 'screen')!;
+  assert.deepEqual(screenQuest.rounds?.[missedDay]?.achieved, ['me']);
+  assert.ok(
+    s.rewards?.some(
+      (reward) =>
+        reward.questId === screenQuest.id && reward.day === missedDay && !reward.acknowledged,
+    ),
+  );
+});
+test('히스토리 동기화 전 중간값은 정산하지 않고 최종 버킷만 평가한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  const yesterday = '2026-09-15';
+  const now = Date.parse('2026-09-16T03:00:00.000Z');
+  const screenQuest = island.quests.find((quest) => quest.type === 'screen')!;
+  screenQuest.rounds = {
+    [yesterday]: {
+      targets: ['me'],
+      achieved: [],
+      claimed: [],
+      bonus: false,
+      target: screenQuest.target,
+      kind: 'screen',
+    },
+  };
+  s.screenDays = { [yesterday]: 60 };
+  s.settings.screenTimeHistoryReady = false;
+
+  s = act(s, 'TICK', { now });
+  assert.ok(!s.rewards?.some((reward) => reward.day === yesterday));
+
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: yesterday, minutes: 180 }],
+    now,
+  });
+  assert.deepEqual(
+    currentIsland(s).quests.find((quest) => quest.id === screenQuest.id)?.rounds?.[yesterday]
+      ?.achieved,
+    [],
+  );
+  assert.ok(!s.rewards?.some((reward) => reward.day === yesterday));
+});
+test('권한 공백 날짜는 히스토리와 당일 TICK으로 다시 확정하지 않는다', () => {
+  let s = initialState(true);
+  currentIsland(s).members = [];
+  const now = Date.now();
+  const today = dayKey(now);
+  const yesterday = dayKey(now - 86400000);
+
+  s = act(s, 'SCREEN_TIME_UNCONFIRMED', { days: [yesterday, today] });
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: yesterday, minutes: 60 }],
+    now,
+  });
+  s.screenMinutes = 30;
+  s = act(s, 'TICK', { now });
+
+  assert.equal(s.screenDays?.[yesterday], null);
+  assert.equal(s.screenDays?.[today], null);
+  assert.ok(!s.rewards?.some((reward) => reward.day === yesterday));
+});
+test('새 퀘스트와 새 가입일 전의 버킷에는 회차를 소급 생성하지 않는다', () => {
+  let s = initialState(true);
+  const now = Date.parse('2026-09-16T03:00:00.000Z');
+  const oldDay = '2026-09-14';
+  s = act(s, 'QUEST_SAVE', {
+    title: '새 폰 목표',
+    kind: 'screen',
+    target: 120,
+    now,
+  });
+  const created = currentIsland(s).quests.find((quest) => quest.title === '새 폰 목표')!;
+
+  s.settings.screenTimeHistoryReady = false;
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: oldDay, minutes: 60 }],
+    now,
+  });
+
+  assert.equal(created.createdDay, dayKey(now));
+  assert.equal(
+    currentIsland(s).quests.find((quest) => quest.id === created.id)?.rounds?.[oldDay],
+    undefined,
+  );
+  assert.ok(!s.rewards?.some((reward) => reward.questId === created.id && reward.day === oldDay));
+});
+test('게시판 완공 전 스크린타임 버킷에는 퀘스트 회차를 만들지 않는다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  island.boardCompletedDay = '2026-09-15';
+  const beforeBoard = '2026-09-14';
+  const now = Date.parse('2026-09-16T03:00:00.000Z');
+
+  s.settings.screenTimeHistoryReady = false;
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: beforeBoard, minutes: 60 }],
+    now,
+  });
+
+  const screenQuest = currentIsland(s).quests.find((quest) => quest.type === 'screen')!;
+  assert.equal(screenQuest.rounds?.[beforeBoard], undefined);
+  assert.ok(!s.rewards?.some((reward) => reward.day === beforeBoard));
 });
 test('친구 수락·거절 후 재신청·보낸 요청 취소·친구 삭제·타 섬 편지 범위', () => {
   let s = initialState(true);
