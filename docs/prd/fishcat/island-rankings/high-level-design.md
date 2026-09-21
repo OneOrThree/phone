@@ -1,68 +1,64 @@
 # 주간 랭킹 아키텍처·데이터 흐름
 
-랭킹은 계속 움직이는 전광판을 페이지마다 다시 읽는 대신, 한 시점에 찍은 성적표를 넘겨 보는 방식이다. 성적표에는 순위와 시간, 본인 순위까지 같이 적는다. 새로고침하면 새 성적표를 받고, 페이지를 넘길 때는 원래 표를 사용한다.
+섬 간 주간 랭킹은 **한 관측 시점에서 분자와 분모를 함께 읽어** 순위를 만든다. 분자(그 섬에서 집중한 시간)는
+집중 정본에서 그때그때 집계하고, 분모(그 섬 전체 주민 수)는 **주가 끝난 시점에 동결한 값**을 읽는다.
 
 ```mermaid
 flowchart LR
-  Focus[ACTIVE 구간·확정 날짜 기여] --> Aggregate[공통 집중 집계]
-  Membership[가입·탈퇴 이력 / 승인 주차 cohort] --> Aggregate
-  Policy[분모·동점·진행분·마감 policy revision] --> Aggregate
-  Aggregate --> Snapshot[(Data immutable 주차 snapshot)]
-  Snapshot --> Query[Data 인가된 순위 조회]
-  App[전망대 탭] --> Business[Business 인증·현재 섬 context·opaque cursor]
-  Business --> Query
-  Query --> Business
+  Focus[완료 세션의 ACTIVE 구간<br/>island_id = 세션 시작 때 고정] --> Sum[주 창 교집합 초 합<br/>섬별 GROUP BY]
+  Freeze[(island_weekly_member_counts<br/>주 마감 동결 분모)] --> Average
+  Members[현재 주민 수<br/>진행 중인 주에만] --> Average
+  Sum --> Average[평균 = 초 합 ÷ 주민 수<br/>정수로 내림]
+  Average --> Rank[RANK 공동 순위<br/>+ 내 섬 순위]
+  App[전망대 탭] --> Business[Business<br/>인증·모양 검증]
+  Business --> Rank
+  Rank --> Business
   Business --> App
 ```
 
+## 왜 분모만 동결하나
+
+분자의 정본은 `focus_session_details`·`focus_session_intervals` 이고 그 표는 주가 지나도 사라지지 않는다 —
+언제든 같은 창으로 다시 합칠 수 있다. 복제하면 오히려 정본과 어긋날 자리를 만든다.
+
+분모는 반대다. `group_members` 는 (user, group) **한 행**이고 `left_at` 이 없어서 「그 주에 몇 명이었나」가
+어디에도 남지 않는다. 동결하지 않으면 **주민을 내보내는 것만으로 지난 주 평균이 오른다** — 강퇴로 순위를
+조작할 수 있다. 그래서 주 마감 배치가 그 시점 인원을 한 번 적고(`island_weekly_member_counts`, migration V85),
+그 뒤 누가 나가든 지난 주 순위는 움직이지 않는다.
+
 ```mermaid
 sequenceDiagram
-  participant A as 앱
-  participant B as Business
+  participant C as 주 마감 크론 (일 00:00Z)
   participant D as Data
-  participant S as Snapshot 저장소
-  A->>B: GET week, cursor 없음
-  B->>D: 검증 사용자·현재 섬context·week
-  D->>D: 현재 소속/전망대/참가 확인
-  D->>S: 같은 asOf·정책·모수로 표 생성 또는 유효 표 조회
-  S-->>D: snapshotId, scores/ranks/myRank/분모
-  D-->>A: data + asOf + 서명 nextCursor
-  A->>B: GET 같은 week + cursor
-  B->>D: cursor 무결성·범위 검증
-  D->>D: 현재 인가 재검증
-  alt 표가 살아 있고 범위 일치
-    S-->>A: 원래 표의 다음 페이지
-  else 만료/개인정보 파기/인가 변경
-    D-->>A: 409 CURSOR_EXPIRED 또는 현재 인가403/404
-  end
+  participant T as island_weekly_member_counts
+  C->>D: 방금 끝난 주 = previousWeekStart(now)
+  D->>T: INSERT … SELECT 활성 주민 수 GROUP BY 섬<br/>ON CONFLICT DO NOTHING
+  Note over T: 재실행·지연 실행이어도 «처음 적힌 값» 그대로다
 ```
 
-하나의 표가 만들어지는 동안 DB의 읽기 snapshot과 asOf를 고정한다. 서로 다른 HTTP 호출로 주민별 점수를 모아 표를 만드는 N+1은 피한다. timestamp만 저장해 두고 나중에 현재 DB에서 점수를 재계산하는 것은 같은 표가 아니다. 참여 자격과 순위 의미가 미결이면 그 표를 생성·공개하지 않는다.
+동결 행이 없는 끝난 주는 그 섬이 랭킹에서 **빠진다**. 「없으면 지금 인원으로」 라는 대체 경로를 두면 동결이
+막으려던 조작이 그대로 살아나므로, 조용히 틀린 순위 대신 비어 있는 순위를 택한다.
 
-일주일 마감과15분 cursor 수명은 다르다. cursor15분이 지나면 페이지 탐색을 새로 시작하고, 지난 주 결과의 보관/수정 가능 기간은 승인된 별도 정책에 따른다. GET나 snapshot 생성은 기존 리그 지급 함수를 호출하지 않는다.
+## 왜 snapshot 저장소가 없나
 
+종전 설계는 불변 snapshot·사용자 역색인·중앙 탈퇴와의 공통 lifecycle 잠금을 요구했다. 그 장치는 전부
+**「표에 복사된 타인의 개인정보」**를 지키려는 것이었다. 섬 간 랭킹 응답에는 섬 이름과 평균 초밖에 없다 —
+사용자 이름도, catColor 도, 개인 점수도 없다. 2026-09-19 결정 RC-P12-적용이 회관 기록에서 같은 판단을 내렸다:
+「복사본이 없으면 필요 없다」.
 
-표의 복사본에 포함된 다른 주민이 탈퇴해도 동기적으로 폐기한다. 조회와 탈퇴가 같은 Data 문을 통과하게
-해서, 탈퇴가 끝났는데 유효기간이 남은 표로 옛 개인정보가 다시 나오는 틈을 없앤다.
+대신 **페이지를 만들지 않는다**. 움직이는 집계에 keyset 을 붙이면 페이지 사이에 행이 빠지거나 겹치는데,
+상위 N 개만 한 번에 주고 그 아래는 `myRank` 로 알려 주면 그 문제 자체가 없다. 분자·분모는 한 REPEATABLE READ
+트랜잭션에서 함께 읽으므로 「목록의 1위와 내 순위가 서로 다른 시점」도 생기지 않는다.
 
-```mermaid
-sequenceDiagram
-  participant Q as snapshot 생성 또는 페이지 조회
-  participant G as Data 공통 lifecycle 잠금
-  participant W as 중앙 withdraw
-  participant S as Data snapshot 및 사용자 역색인
-  Q->>G: 공유 잠금 - 사용자 락보다 먼저
-  Q->>S: 현재 인가와 유효 상태 확인 / 응답 내용 확정
-  Q->>G: TX 종료 및 공유 잠금 해제
-  W->>G: 배타 잠금 - 선행 조회가 끝날 때까지 대기
-  W->>S: 동일 TX에서 사용자 PII 파기 + 영향 snapshot 전체 파기/무효화
-  W->>G: 커밋 및 배타 잠금 해제
-  Q->>G: 다음 페이지 공유 잠금
-  Q->>S: 현재 요청자 인가 + 정본 상태 재검사
-  S-->>Q: 무효 표는 CURSOR_EXPIRED
-```
+## 주 경계
 
-탈퇴가 먼저 잠금을 얻으면 이후 조회가 무효화를 본다. 조회가 먼저 응답 내용을 확정한 경우는 조회가
-먼저 일어난 순서이며 이미 전송 중인 응답을 회수한다고 주장하지 않는다. Data 밖 payload 캐시는
-사용하지 않고 공개 응답은 no-store로 지정한다. 이 흐름과 잠금 순서가 구현·검증되기 전 공개 활성화는
-금지한다. 실제 정산/분모/귀속 정책은 이 기술 선택으로 결정되지 않는다.
+주는 **UTC 일요일 00:00Z 포함 ~ 다음 일요일 00:00Z 제외**다. 요일은 기획 정본(「주간 랭킹은 매주 일요일 00시에
+초기화한다」), 존은 결정 D8 의 UTC 축에서 온다 — 섬 퀘스트 Q-6·회관 기록 RC-축·집중 적립 D5-적립이 모두 같은
+선택을 했다. 1.x 리그의 KST 월요일 축(`LeagueWeek`)은 살아 있는 정산 축이라 건드리지 않고, 신규 축만
+`RankingWeek` 에 둔다.
+
+주 식별자는 ISO `YYYY-Www` 가 **아니다**. ISO 주차는 월요일 시작이 정의의 일부라, 시작 요일만 일요일로 바꾸고
+이름을 그대로 두면 같은 문자열이 다른 7일을 뜻하게 된다. 주 시작일(`YYYY-MM-DD` 인 UTC 일요일)은 자기 자신이
+경계를 말한다.
+
+랭킹 GET 은 읽기 응답 외의 경제 효과가 0이다 — 지갑·보상 원장을 호출하지 않고 새 실시간 사건도 만들지 않는다.
