@@ -2673,6 +2673,36 @@
         }
       }
     },
+    "/internal/auth/sessions/refresh": {
+      "post": {
+        "tags": [
+          "internal-session-issue-controller"
+        ],
+        "operationId": "refresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRefreshResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/auth/sessions/logout": {
       "post": {
         "tags": [
@@ -2756,6 +2786,36 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/LoginAttemptLookupResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/auth/guest-sessions": {
+      "post": {
+        "tags": [
+          "internal-session-issue-controller"
+        ],
+        "operationId": "guestSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginSessionResponse"
                 }
               }
             }
@@ -6570,6 +6630,55 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/IslandSearchPageView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/island-rankings": {
+      "get": {
+        "tags": [
+          "internal-island-rankings-controller"
+        ],
+        "operationId": "islands",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "week",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandRankingPage"
                 }
               }
             }
@@ -10612,6 +10721,12 @@
           },
           "approvalRequired": {
             "type": "boolean"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 15,
+            "minimum": 1
           }
         },
         "required": [
@@ -10731,6 +10846,10 @@
             "type": "boolean"
           },
           "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
             "type": "integer",
             "format": "int32"
           },
@@ -11135,6 +11254,10 @@
             "type": "integer",
             "format": "int32"
           },
+          "bonusAdded": {
+            "type": "integer",
+            "format": "int32"
+          },
           "claimed": {
             "type": "boolean"
           }
@@ -11509,6 +11632,25 @@
           }
         }
       },
+      "SessionRefreshRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionRefreshResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
       "SessionLogoutRequest": {
         "type": "object",
         "properties": {
@@ -11634,6 +11776,17 @@
           },
           "session": {
             "$ref": "#/components/schemas/LoginSessionResponse"
+          }
+        }
+      },
+      "GuestSessionRequest": {
+        "type": "object",
+        "properties": {
+          "deviceDigest": {
+            "type": "string"
+          },
+          "clientIp": {
+            "type": "string"
           }
         }
       },
@@ -11774,7 +11927,7 @@
           "maxMembers": {
             "type": "integer",
             "format": "int32",
-            "maximum": 10,
+            "maximum": 15,
             "minimum": 1
           },
           "private": {
@@ -12525,6 +12678,10 @@
           },
           "approvalRequired": {
             "type": "boolean"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -12543,6 +12700,10 @@
           },
           "approvalRequired": {
             "type": "boolean"
+          },
+          "maxMembers": {
+            "type": "integer",
+            "format": "int32"
           },
           "version": {
             "type": "integer",
@@ -12762,7 +12923,7 @@
           "maxMembers": {
             "type": "integer",
             "format": "int32",
-            "maximum": 10,
+            "maximum": 15,
             "minimum": 1
           },
           "isPrivate": {
@@ -13075,6 +13236,48 @@
           }
         }
       },
+      "IslandRanking": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "averageFocusSeconds": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "IslandRankingPage": {
+        "type": "object",
+        "properties": {
+          "week": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandRanking"
+            }
+          },
+          "myRank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "IslandDiscoverPageView": {
         "type": "object",
         "properties": {
@@ -13373,6 +13576,10 @@
             "type": "boolean"
           },
           "memberCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "maxMembers": {
             "type": "integer",
             "format": "int32"
           },
@@ -13913,6 +14120,13 @@
             "type": "string"
           },
           "claimed": {
+            "type": "boolean"
+          },
+          "bonusAmount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "bonusGranted": {
             "type": "boolean"
           },
           "version": {
