@@ -15,6 +15,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 /**
@@ -100,6 +101,34 @@ public class LoginAttempt {
     @Column(name = "refresh_jti")
     private UUID refreshJti;
 
+    // ── 계정 전환 재개 증거 (V101, GROMO-1992). 허용 모양은 ck_login_attempts_switch_state 의
+    //    세 절과 같다 — 전환이 아닌 시도는 confirmed=false + 나머지 7열 null 이다.
+    @Builder.Default
+    @Column(name = "account_switch_confirmed", nullable = false)
+    private boolean accountSwitchConfirmed = false;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "switch_phase", length = 24)
+    private LoginAttemptSwitchPhase switchPhase;
+
+    @Column(name = "switch_source_user_id")
+    private UUID switchSourceUserId;
+
+    @Column(name = "switch_source_session_id")
+    private UUID switchSourceSessionId;
+
+    @Column(name = "switch_source_auth_generation")
+    private Long switchSourceAuthGeneration;
+
+    @Column(name = "switch_target_user_id")
+    private UUID switchTargetUserId;
+
+    @Column(name = "switch_target_social_account_id")
+    private UUID switchTargetSocialAccountId;
+
+    @Column(name = "switch_verified_at")
+    private Instant switchVerifiedAt;
+
     @Column(name = "claimed_at", nullable = false)
     private Instant claimedAt;
 
@@ -122,9 +151,24 @@ public class LoginAttempt {
      *
      * <p>호출부가 {@code users} 잠금 아래에서 부르고, 이 쓰기와 세션 확정이 같은 트랜잭션이다 —
      * 결과만 커밋되고 세션이 없거나 그 반대인 상태를 만들지 않는다.
+     *
+     * <p>PENDING 에서만 간다 — 이미 COMPLETED 인 행의 「같은 결과」는 메서드 재호출이 아니라 저장
+     * 결과 조회이고, INVALIDATED·REPREPARE_REQUIRED 는 종료라 다시 완료하지 않는다. 전환 시도는
+     * {@link LoginAttemptSwitchPhase#GUEST_WITHDRAWN} 에서만 완료할 수 있다 — VERIFIED 에서
+     * 완료하면 게스트 원천 정리 없는 전환 결과가 확정된다. 전환 증거는 recovery replay 검증을 위해
+     * 완료 뒤에도 지우지 않는다(CHECK 둘째 절이 status=COMPLETED + evidence 를 허용한다).
      */
     public void complete(UUID userId, UUID sessionId, boolean onboardingComplete,
             LoginTokenMaterials materials, Instant now) {
+        if (this.status != LoginAttemptStatus.PENDING) {
+            throw new IllegalStateException(
+                    "로그인 시도 완료는 PENDING 에서만 가능하다: " + this.status);
+        }
+        if (this.switchPhase != null
+                && this.switchPhase != LoginAttemptSwitchPhase.GUEST_WITHDRAWN) {
+            throw new IllegalStateException(
+                    "전환 시도의 완료는 GUEST_WITHDRAWN 에서만 가능하다: " + this.switchPhase);
+        }
         this.status = LoginAttemptStatus.COMPLETED;
         this.userId = userId;
         this.sessionId = sessionId;
@@ -150,8 +194,97 @@ public class LoginAttempt {
         this.claimedAt = now;
     }
 
-    /** 복구 창이 끝났거나 주체가 폐기됐다. 종료 상태이며 재준비·재생이 모두 닫힌다. */
+    /**
+     * 전환 검증 증거를 박고 {@code VERIFIED} 로 전이한다.
+     *
+     * <p>전제는 PENDING + confirmed 다 — 아니면 불법 전이다. 같은 여섯 증거 값의 재호출은
+     * 멱등이다: VERIFIED 재진입은 no-op 이고, GUEST_WITHDRAWN 재진입은 과거 단계를 되돌리지
+     * 않고 no-op 이다. 하나라도 다른 증거로 재진입하면 「같은 시도의 다른 전환」이라
+     * fail-closed 로 거절한다.
+     */
+    public void verifySwitch(UUID sourceUserId, UUID sourceSessionId, long sourceAuthGeneration,
+            UUID targetUserId, UUID targetSocialAccountId, Instant verifiedAt) {
+        Objects.requireNonNull(sourceUserId, "sourceUserId");
+        Objects.requireNonNull(sourceSessionId, "sourceSessionId");
+        Objects.requireNonNull(targetUserId, "targetUserId");
+        Objects.requireNonNull(targetSocialAccountId, "targetSocialAccountId");
+        Objects.requireNonNull(verifiedAt, "verifiedAt");
+        if (sourceAuthGeneration < 0) {
+            throw new IllegalArgumentException("source auth generation 은 0 이상이어야 한다");
+        }
+        if (this.status != LoginAttemptStatus.PENDING || !this.accountSwitchConfirmed) {
+            throw new IllegalStateException(
+                    "전환 검증은 PENDING + confirmed 시도에서만 가능하다: status=" + this.status
+                            + " confirmed=" + this.accountSwitchConfirmed);
+        }
+        if (this.switchPhase == null) {
+            this.switchSourceUserId = sourceUserId;
+            this.switchSourceSessionId = sourceSessionId;
+            this.switchSourceAuthGeneration = sourceAuthGeneration;
+            this.switchTargetUserId = targetUserId;
+            this.switchTargetSocialAccountId = targetSocialAccountId;
+            this.switchVerifiedAt = verifiedAt;
+            this.switchPhase = LoginAttemptSwitchPhase.VERIFIED;
+            return;
+        }
+        if (sameSwitchEvidence(sourceUserId, sourceSessionId, sourceAuthGeneration,
+                targetUserId, targetSocialAccountId, verifiedAt)) {
+            return;
+        }
+        throw new IllegalStateException(
+                "같은 시도에 다른 전환 증거가 들어왔다: " + this.switchPhase);
+    }
+
+    /**
+     * source 게스트가 정리돼 {@code GUEST_WITHDRAWN} 로 전이한다 — PENDING + VERIFIED 에서만.
+     *
+     * <p>재호출은 no-op 이다. 증거 열은 건드리지 않는다 — 완료·재생 판정과 종료 표지 비교가 그
+     * 값들을 그대로 요구한다.
+     */
+    public void markGuestWithdrawn() {
+        if (this.status == LoginAttemptStatus.PENDING
+                && this.switchPhase == LoginAttemptSwitchPhase.GUEST_WITHDRAWN) {
+            return;
+        }
+        if (this.status != LoginAttemptStatus.PENDING
+                || this.switchPhase != LoginAttemptSwitchPhase.VERIFIED) {
+            throw new IllegalStateException(
+                    "GUEST_WITHDRAWN 전이는 PENDING + VERIFIED 에서만 가능하다: status="
+                            + this.status + " phase=" + this.switchPhase);
+        }
+        this.switchPhase = LoginAttemptSwitchPhase.GUEST_WITHDRAWN;
+    }
+
+    private boolean sameSwitchEvidence(UUID sourceUserId, UUID sourceSessionId,
+            long sourceAuthGeneration, UUID targetUserId, UUID targetSocialAccountId,
+            Instant verifiedAt) {
+        return Objects.equals(this.switchSourceUserId, sourceUserId)
+                && Objects.equals(this.switchSourceSessionId, sourceSessionId)
+                && Objects.equals(this.switchSourceAuthGeneration, sourceAuthGeneration)
+                && Objects.equals(this.switchTargetUserId, targetUserId)
+                && Objects.equals(this.switchTargetSocialAccountId, targetSocialAccountId)
+                && Objects.equals(this.switchVerifiedAt, verifiedAt);
+    }
+
+    /**
+     * 복구 창이 끝났거나 주체가 폐기됐다. 종료 상태이며 재준비·재생이 모두 닫힌다. 재호출은 no-op 이다.
+     *
+     * <p>전환 시도라면 여섯 증거 열(source/target 식별자 5개 + {@code switch_verified_at})을
+     * 지우고 {@code switch_phase}·{@code account_switch_confirmed} 만 종료 분류 표지로 남긴다 —
+     * CHECK 셋째 절이 요구하는 모양이다.
+     */
     public void invalidate() {
+        if (this.status == LoginAttemptStatus.INVALIDATED) {
+            return;
+        }
         this.status = LoginAttemptStatus.INVALIDATED;
+        if (this.switchPhase != null) {
+            this.switchSourceUserId = null;
+            this.switchSourceSessionId = null;
+            this.switchSourceAuthGeneration = null;
+            this.switchTargetUserId = null;
+            this.switchTargetSocialAccountId = null;
+            this.switchVerifiedAt = null;
+        }
     }
 }

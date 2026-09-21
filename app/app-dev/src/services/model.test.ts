@@ -46,6 +46,8 @@ import {
   kstDayStart,
   kstMonthDay,
   kstHourMinute,
+  myIslandsConsistent,
+  intentKeyPool,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -78,8 +80,10 @@ test('회관→게시판은 섬 인원과 무관한 총량 고정; 차감 후 �
   assert.deepEqual(currentIsland(s).buildings, ['hall']);
   s = act(s, 'BUILD', { building: 'board', now: 62000 });
   assert.equal(balance(currentIsland(s)), 300 - costs.hall - costs.board);
-  s = act(s, 'TICK', { now: 62000 + buildMinutes.board * 60000 });
+  const boardEndsAt = 62000 + buildMinutes.board * 60000;
+  s = act(s, 'TICK', { now: boardEndsAt + 2 * 86400000 });
   assert.ok(currentIsland(s).buildings.includes('board'));
+  assert.equal(currentIsland(s).boardCompletedDay, dayKey(boardEndsAt));
 });
 test('QA 완공은 온보딩을 유지하고 완료 후 현재 섬의 공사 중간 상태만 정리한다', () => {
   const fresh = initialState();
@@ -286,8 +290,9 @@ test('주민 퀘스트 보상은 달성 시 섬과 주민 누적량에 한 번�
   assert.equal(earnedBy(currentIsland(settled), member.id), beforeEarned + 10);
   assert.deepEqual(currentIsland(settled).quests[0].rounds?.[dayKey(now)]?.claimed, [member.id]);
 });
-test('스크린타임은 다음 날 정산, 권한 없음·기록 없음은 0분으로 보상하지 않는다', () => {
+test('스크린타임은 다음 날 정산, 권한·측정 대상 없음은 0분으로 보상하지 않는다', () => {
   let s = initialState(true);
+  s.settings.screenTimeMeasurementReady = true;
   currentIsland(s).members = [];
   const now = new Date(2026, 8, 15, 12).getTime();
   s = act(s, 'TICK', { now });
@@ -300,6 +305,132 @@ test('스크린타임은 다음 날 정산, 권한 없음·기록 없음은 0분
   no = act(no, 'TICK', { now: now + 86400000 });
   assert.ok(!no.rewards?.some((r) => r.questId === 'q-screen'));
   assert.equal(questRate(no, currentIsland(no).quests[1]), null);
+  let noSelection = initialState(true);
+  noSelection.settings.screenTimeMeasurementReady = false;
+  noSelection.screenMinutes = 0;
+  noSelection = act(noSelection, 'TICK', { now });
+  noSelection = act(noSelection, 'TICK', { now: now + 86400000 });
+  assert.ok(!noSelection.rewards?.some((r) => r.questId === 'q-screen'));
+  assert.equal(questRate(noSelection, currentIsland(noSelection).quests[1]), null);
+});
+test('여러 날 뒤 복구한 스크린타임은 누락된 날짜 라운드와 보상도 정산한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  island.quests.forEach((quest) => delete quest.rounds);
+  const missedDay = '2026-09-14';
+  const now = Date.parse('2026-09-16T03:00:00.000Z');
+
+  s.settings.screenTimeHistoryReady = false;
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: missedDay, minutes: 60 }],
+    now,
+  });
+
+  const screenQuest = currentIsland(s).quests.find((quest) => quest.type === 'screen')!;
+  assert.deepEqual(screenQuest.rounds?.[missedDay]?.achieved, ['me']);
+  assert.ok(
+    s.rewards?.some(
+      (reward) =>
+        reward.questId === screenQuest.id && reward.day === missedDay && !reward.acknowledged,
+    ),
+  );
+});
+test('히스토리 동기화 전 중간값은 정산하지 않고 최종 버킷만 평가한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  const yesterday = '2026-09-15';
+  const now = Date.parse('2026-09-16T03:00:00.000Z');
+  const screenQuest = island.quests.find((quest) => quest.type === 'screen')!;
+  screenQuest.rounds = {
+    [yesterday]: {
+      targets: ['me'],
+      achieved: [],
+      claimed: [],
+      bonus: false,
+      target: screenQuest.target,
+      kind: 'screen',
+    },
+  };
+  s.screenDays = { [yesterday]: 60 };
+  s.settings.screenTimeHistoryReady = false;
+
+  s = act(s, 'TICK', { now });
+  assert.ok(!s.rewards?.some((reward) => reward.day === yesterday));
+
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: yesterday, minutes: 180 }],
+    now,
+  });
+  assert.deepEqual(
+    currentIsland(s).quests.find((quest) => quest.id === screenQuest.id)?.rounds?.[yesterday]
+      ?.achieved,
+    [],
+  );
+  assert.ok(!s.rewards?.some((reward) => reward.day === yesterday));
+});
+test('권한 공백 날짜는 히스토리와 당일 TICK으로 다시 확정하지 않는다', () => {
+  let s = initialState(true);
+  currentIsland(s).members = [];
+  const now = Date.now();
+  const today = dayKey(now);
+  const yesterday = dayKey(now - 86400000);
+
+  s = act(s, 'SCREEN_TIME_UNCONFIRMED', { days: [yesterday, today] });
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: yesterday, minutes: 60 }],
+    now,
+  });
+  s.screenMinutes = 30;
+  s = act(s, 'TICK', { now });
+
+  assert.equal(s.screenDays?.[yesterday], null);
+  assert.equal(s.screenDays?.[today], null);
+  assert.ok(!s.rewards?.some((reward) => reward.day === yesterday));
+});
+test('새 퀘스트와 새 가입일 전의 버킷에는 회차를 소급 생성하지 않는다', () => {
+  let s = initialState(true);
+  const now = Date.parse('2026-09-16T03:00:00.000Z');
+  const oldDay = '2026-09-14';
+  s = act(s, 'QUEST_SAVE', {
+    title: '새 폰 목표',
+    kind: 'screen',
+    target: 120,
+    now,
+  });
+  const created = currentIsland(s).quests.find((quest) => quest.title === '새 폰 목표')!;
+
+  s.settings.screenTimeHistoryReady = false;
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: oldDay, minutes: 60 }],
+    now,
+  });
+
+  assert.equal(created.createdDay, dayKey(now));
+  assert.equal(
+    currentIsland(s).quests.find((quest) => quest.id === created.id)?.rounds?.[oldDay],
+    undefined,
+  );
+  assert.ok(!s.rewards?.some((reward) => reward.questId === created.id && reward.day === oldDay));
+});
+test('게시판 완공 전 스크린타임 버킷에는 퀘스트 회차를 만들지 않는다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members = [];
+  island.boardCompletedDay = '2026-09-15';
+  const beforeBoard = '2026-09-14';
+  const now = Date.parse('2026-09-16T03:00:00.000Z');
+
+  s.settings.screenTimeHistoryReady = false;
+  s = act(s, 'SCREEN_TIME_HISTORY', {
+    buckets: [{ date: beforeBoard, minutes: 60 }],
+    now,
+  });
+
+  const screenQuest = currentIsland(s).quests.find((quest) => quest.type === 'screen')!;
+  assert.equal(screenQuest.rounds?.[beforeBoard], undefined);
+  assert.ok(!s.rewards?.some((reward) => reward.day === beforeBoard));
 });
 test('친구 수락·거절 후 재신청·보낸 요청 취소·친구 삭제·타 섬 편지 범위', () => {
   let s = initialState(true);
@@ -1688,4 +1819,210 @@ test('강퇴된 주민이 다시 가입하면 예전 기록을 이어받고, 다
   const former = currentIsland(s).formerMembers!;
   assert.equal(former.length, 1);
   assert.equal(former[0].records?.[0].seconds, 960);
+});
+
+// ── 섬 서버 동기화(GROMO-2006) — serverIslands 스냅샷만 쓰고 로컬 fixture를 건드리지 않는다 ──
+const sum = (id: string, over: object = {}) => ({
+  id,
+  name: `서버 섬 ${id}`,
+  intro: '소개',
+  visibility: 'public',
+  approvalRequired: false,
+  memberCount: 3,
+  maxMembers: 15,
+  membershipStatus: 'none',
+  joinRequestId: null,
+  growthStage: null,
+  themeId: null,
+  ...over,
+});
+const req = (id: string, islandId: string, status = 'pending') => ({
+  id,
+  islandId,
+  status,
+  version: 1,
+  islandName: `섬 ${islandId}`,
+  memberCount: 2,
+  maxMembers: 15,
+  createdAt: '2026-09-21T00:00:00Z',
+});
+
+test('ISLAND_SYNC — memberships가 정본이다: onboarded·current 반영, 로컬 fixture 소속을 만들지 않는다', () => {
+  let s = initialState();
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1', { membershipStatus: 'active' })],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+    requests: [],
+  });
+  const snap = s.serverIslands!;
+  assert.equal(snap.currentIslandId, 'srv1');
+  assert.equal(s.onboarded, true);
+  // 서버 섬을 로컬 Island로 합성하지 않는다 — fixture 목록은 그대로다
+  assert.equal(
+    s.islands.some((i) => i.id === 'srv1'),
+    false,
+  );
+  // 서버에 없는 로컬 joined 는 걷는다
+  s.islands[0].joined = true;
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1', { membershipStatus: 'active' })],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+  });
+  assert.equal(s.islands[0].joined, false);
+  // items는 있는데 current가 null — 모호 상태는 소속으로 보지 않는다(fail closed)
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1')],
+      nextCursor: null,
+      currentIslandId: null,
+      lossReason: null,
+    },
+  });
+  assert.equal(s.onboarded, false);
+  assert.equal(s.serverIslands!.currentIslandId, null);
+});
+
+test('ISLAND_SYNC — 빈 memberships는 onboarded=false로 되돌리고 진행 중 세션·구경을 끊는다', () => {
+  let s = initialState();
+  s.islands[0].joined = true;
+  s.islandId = s.islands[0].id;
+  s = act(s, 'START', { subject: '공부', seconds: 60 });
+  s.visitingIslandId = s.islands[0].id;
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: { items: [], nextCursor: null, currentIslandId: null, lossReason: 'KICKED' },
+  });
+  assert.equal(s.onboarded, false);
+  assert.equal(s.session, null);
+  assert.equal(s.visitingIslandId, null);
+  assert.equal(s.serverIslands!.lossReason, 'KICKED');
+});
+
+test('ISLAND_CANDIDATES — 페이지를 이어 붙이고 reset이면 갈아 끼운다', () => {
+  let s = act(initialState(), 'ISLAND_CANDIDATES', {
+    items: [sum('a')],
+    nextCursor: 'c1',
+    reset: true,
+  });
+  s = act(s, 'ISLAND_CANDIDATES', { items: [sum('a'), sum('b')], nextCursor: null });
+  const snap = s.serverIslands!;
+  assert.deepEqual(
+    snap.candidates.map((c) => c.id),
+    ['a', 'b'],
+  ); // 중복 병합
+  assert.equal(snap.nextCursor, null);
+  s = act(s, 'ISLAND_CANDIDATES', { items: [sum('x')], nextCursor: 'c9', reset: true });
+  assert.deepEqual(
+    s.serverIslands!.candidates.map((c) => c.id),
+    ['x'],
+  );
+});
+
+test('ISLAND_REQUEST·ISLAND_SYNC_REQUESTS — 단건 상태와 서버 목록을 분리한다', () => {
+  // 단건 조회는 표시 필드(islandName·memberCount·createdAt)가 없다 — 목록에 합성하지 않는다
+  let s = act(initialState(), 'ISLAND_REQUEST', {
+    request: { id: 'r1', islandId: 'i1', status: 'pending', version: 1 },
+  });
+  assert.equal(s.serverIslands!.joinRequests.length, 0);
+  assert.equal(s.serverIslands!.requestStatus[0].id, 'r1');
+  assert.equal(s.serverIslands!.requestStatus[0].status, 'pending');
+  // 목록에 이미 있는 신청의 단건 갱신은 서버 표시 필드를 유지하고 status/version만 바꾼다
+  s = act(s, 'ISLAND_SYNC_REQUESTS', { requests: [req('r2', 'i2')] });
+  s = act(s, 'ISLAND_REQUEST', {
+    request: { id: 'r2', islandId: 'i2', status: 'approved', version: 2 },
+  });
+  const got = s.serverIslands!.joinRequests.find((r) => r.id === 'r2')!;
+  assert.equal(got.status, 'approved');
+  assert.equal(got.islandName, '섬 i2');
+  assert.equal(s.serverIslands!.requestStatus.find((r) => r.id === 'r2')!.status, 'approved');
+  // 목록 재조회는 서버 pending 목록으로 통째로 갈아 끼운다 — 종결 r2는 빠진다
+  s = act(s, 'ISLAND_SYNC_REQUESTS', { requests: [req('r3', 'i3')] });
+  assert.deepEqual(
+    s.serverIslands!.joinRequests.map((r) => r.id),
+    ['r3'],
+  );
+  // 단건 상태는 목록과 무관하게 남는다 — 화면의 종결 안내 근거
+  assert.equal(s.serverIslands!.requestStatus.find((r) => r.id === 'r2')!.status, 'approved');
+});
+
+test('ISLAND_REQUEST — version 없는 종결 결과는 기존 version을 유지한다(합성 금지)', () => {
+  // 취소 응답({id,status:'cancelled'})에는 version이 없다 — 없는 값은 합성하지 않는다
+  let s = act(initialState(), 'ISLAND_REQUEST', {
+    request: { id: 'r1', islandId: 'i1', status: 'pending', version: 3 },
+  });
+  s = act(s, 'ISLAND_REQUEST', {
+    request: { id: 'r1', islandId: 'i1', status: 'cancelled' },
+  });
+  const entry = s.serverIslands!.requestStatus.find((r) => r.id === 'r1')!;
+  assert.equal(entry.status, 'cancelled');
+  assert.equal(entry.version, 3);
+  // 목록 항목도 version을 덮어쓰지 않고 status만 바꾼다
+  s = act(s, 'ISLAND_SYNC_REQUESTS', { requests: [req('r9', 'i9')] });
+  s = act(s, 'ISLAND_REQUEST', { request: { id: 'r9', islandId: 'i9', status: 'cancelled' } });
+  const got = s.serverIslands!.joinRequests.find((r) => r.id === 'r9')!;
+  assert.equal(got.status, 'cancelled');
+  assert.equal(got.version, req('r9', 'i9').version);
+});
+
+test('myIslandsConsistent — null current+소속은 유효, items 밖 current만 모순', () => {
+  const my = (items: object[], currentIslandId: string | null) => ({
+    items,
+    nextCursor: null,
+    currentIslandId,
+    lossReason: null,
+  });
+  // 정상: 무소속 / current가 items 안 / 첫 pending 승인이 소속을 만들었지만 current는 안 옮김
+  assert.equal(myIslandsConsistent(my([], null) as any), true);
+  assert.equal(myIslandsConsistent(my([sum('a')], 'a') as any), true);
+  assert.equal(myIslandsConsistent(my([sum('a')], null) as any), true);
+  // 모순: items 밖의 current만 fail closed
+  assert.equal(myIslandsConsistent(my([sum('a')], 'zzz') as any), false);
+});
+
+test('ISLAND_SYNC — 첫 승인으로 소속만 생기고 current가 없으면 onboarded=false', () => {
+  // 승인 필요 섬의 첫 신청이 승인돼 소속이 생겨도 current는 안 옮긴다 — 유효 응답이고 소속 미확정
+  const s = act(initialState(false), 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv')],
+      nextCursor: null,
+      currentIslandId: null,
+      lossReason: null,
+    },
+  });
+  assert.equal(s.onboarded, false);
+  assert.equal(s.serverIslands?.currentIslandId, null);
+  assert.equal(s.serverIslands?.memberships.length, 1);
+});
+
+test('intentKeyPool — 재시도는 같은 키, 확정·종결 후 해제하면 새 키', () => {
+  let n = 0;
+  const pool = intentKeyPool(() => `k${++n}`);
+  const k1 = pool.key('join:i1', 'tok');
+  // 응답 유실·재조회 실패 동안 같은 의도 재시도 → 같은 키
+  assert.equal(pool.key('join:i1', 'tok'), k1);
+  // 확정 후 해제 → 취소/거절 뒤 같은 섬 재신청은 새 키(옛 pending 결과 replay 방지)
+  pool.release('join:i1', 'tok');
+  const k2 = pool.key('join:i1', 'tok');
+  assert.notEqual(k2, k1);
+  // 바뀐 의도(body·대상)는 애초에 다른 슬롯
+  assert.notEqual(pool.key('join:i1', 'tok2'), k2);
+  assert.notEqual(pool.key('join:i2', 'tok'), k2);
+});
+
+test('ISLAND_VISIT — 방문 화면 스냅샷을 저장한다', () => {
+  const visit = {
+    island: sum('i7'),
+    members: { items: [], nextCursor: null, version: 1 },
+    joinRequestAvailability: 'available',
+    joinRequest: null,
+  };
+  const s = act(initialState(), 'ISLAND_VISIT', { visit });
+  assert.equal(s.serverIslands!.visit!.island.id, 'i7');
 });

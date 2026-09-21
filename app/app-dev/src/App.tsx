@@ -25,7 +25,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
-import { screenTime } from '@/services/screenTime';
+import { screenTime, selectionCount } from '@/services/screenTime';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
@@ -80,10 +80,12 @@ import {
   Building,
   Quest,
   Member,
+  dayKey,
 } from '@/services/model';
 import { checkSession, logout } from '@/services/api/auth';
-import { restoreSession, setSessionLostHandler } from '@/services/api/session';
-import { restoredRoute } from '@/services/restore';
+import { restoreSession, setSessionLostHandler, sessionGeneration } from '@/services/api/session';
+import { createIslandCommands } from '@/services/islandCommands';
+import { decideBootRoute } from '@/services/islandBoot';
 const REVIEW =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
@@ -146,6 +148,7 @@ const titles: Record<Route, string> = {
   focusTravel: '낚시섬으로',
   returnTravel: '우리 섬으로',
   permission: '측정 권한',
+  screenTimeApps: '측정 앱',
   demo: '목업 체험 도구',
 };
 function Bubble({ text, mine }: { text: string; mine: boolean }) {
@@ -193,6 +196,8 @@ function Gromo() {
   const insets = useScreenInsets();
   const [state, dispatch] = useReducer(reducer, undefined, () => initialState(DEMO));
   const [loaded, setLoaded] = useState(false),
+    // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
+    [islandBootError, setIslandBootError] = useState(false),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
     [history, setHistory] = useState<
       {
@@ -328,6 +333,22 @@ function Gromo() {
     action: () => void,
     opts: { ok?: string; destructive?: boolean } = {},
   ) => setModal({ title, text: txt, action, ...opts });
+  // ── 섬 서버 명령(GROMO-2006) ──
+  // 오케스트레이션은 services/islandCommands.ts — 멱등 키·초대 token은 거기 세대 격리
+  // 저장소에만 둔다(State/AsyncStorage 저장 금지). 매 렌더의 최신 함수·state는 ref로 넘긴다.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const goRef = useRef(go);
+  goRef.current = go;
+  const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
+  islandCmds.current ??= createIslandCommands({
+    dispatch,
+    go: (r, id) => goRef.current(r as Route, id),
+    getSnap: () => stateRef.current?.serverIslands,
+    setBootError: setIslandBootError,
+  });
+  const islands = islandCmds.current.commands,
+    syncIslands = islandCmds.current.syncIslands;
   // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
     setSessionLostHandler(() => {
@@ -367,10 +388,23 @@ function Gromo() {
         // 끝나 account 가 null 이 되고, restoredRoute 가 `!saved.loggedIn` 을 보고 멀쩡한 세션을
         // 두고 로그인 화면을 고른다.
         if (account) dispatch({ type: 'LOGIN' });
-        // 세션만 있고 로컬 저장본이 없는 경우(iOS 재설치 — 키체인은 남고 AsyncStorage 만 사라진다)도
-        // 같은 판정을 쓴다. 이때 앱 상태는 초기값이라 가입한 섬이 없다 — 서버 온보딩이 끝났다고
-        // 홈으로 보내면 홈이 막히므로 섬 선택부터다(restoredRoute 의 `!saved.onboarded` 가지).
-        if (loadable || account) setRoute(restoredRoute(loadable ?? {}, account, rejected));
+        // 세션이 유효하면 섬 소속·대기 신청도 서버 정본으로 맞춘다(GROMO-2006). 실패·모순 응답은
+        // 로컬 저장본으로 home에 들어가지 않고 chooseIsland의 명시 오류+재시도로 보낸다.
+        // 부팅 인증 세대는 checkSession 결과 직후 포획한다 — 동기화 도중 401이 나면 세션 상실
+        // 핸들러가 login으로 돌리고 세대가 올라가므로, stale account로 route를 덮어쓰지 않는다.
+        const bootGen = sessionGeneration();
+        const bootRoute = await decideBootRoute({
+          saved: loadable,
+          account,
+          rejected,
+          serverMode: !!(account && !mock),
+          bootGen,
+          generation: sessionGeneration,
+          syncIslands,
+          onBootError: setIslandBootError,
+        });
+        // decideBootRoute 반환과 적용 사이도 await 경계다 — 그 사이 세대가 죽었으면 쓰지 않는다
+        if (bootRoute && sessionGeneration() === bootGen) setRoute(bootRoute);
       })
       .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
       .finally(() => setLoaded(true));
@@ -431,23 +465,61 @@ function Gromo() {
   }, []);
   useEffect(() => {
     if (!loaded) return;
-    const syncPermission = () => {
+    const syncPermission = async () => {
       if (Platform.OS !== 'ios') {
-        if (!REVIEW && !DEMO) dispatch({ type: 'SETTING', key: 'permission', value: false });
+        if (!REVIEW && !DEMO) {
+          dispatch({ type: 'SETTING', key: 'permission', value: false });
+          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+        }
+        dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
         return;
       }
-      screenTime
-        .getAuthorizationStatus()
-        .then((status) =>
-          dispatch({ type: 'SETTING', key: 'permission', value: status === 'approved' }),
-        )
-        .catch(() => {});
+      dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
+      try {
+        const status = await screenTime.getAuthorizationStatus();
+        const approved = status === 'approved';
+        dispatch({ type: 'SETTING', key: 'permission', value: approved });
+        if (!approved) {
+          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+          const unconfirmedDays = await screenTime
+            .markCurrentUsageBucketUnconfirmed()
+            .catch(() => []);
+          dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+          return;
+        }
+        await screenTime.promotePendingSelectionIfDue().catch(() => false);
+        const selection = await screenTime.getMeasurementSelectionCounts();
+        const measurementReady = selectionCount(selection) > 0;
+        dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: measurementReady });
+        if (!measurementReady) {
+          dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+          return;
+        }
+        const [minutes, history, unconfirmedDays] = await Promise.all([
+          screenTime.getTodayUsageBucketMinutes(),
+          screenTime.getUsageBucketHistory(),
+          screenTime.getUnconfirmedUsageBucketDays(),
+        ]);
+        dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+        dispatch({ type: 'SCREEN_TIME_HISTORY', buckets: history, now: Date.now() });
+        dispatch({ type: 'SCREEN_TIME', value: minutes });
+      } catch {}
     };
-    syncPermission();
+    void syncPermission();
+    let syncedDay = dayKey();
+    const dayChangeTimer = setInterval(() => {
+      const currentDay = dayKey();
+      if (currentDay === syncedDay) return;
+      syncedDay = currentDay;
+      void syncPermission();
+    }, 1000);
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') syncPermission();
+      if (nextState === 'active') void syncPermission();
     });
-    return () => subscription.remove();
+    return () => {
+      clearInterval(dayChangeTimer);
+      subscription.remove();
+    };
   }, [loaded]);
   useEffect(() => {
     if (!loaded || Platform.OS !== 'ios') return;
@@ -650,6 +722,9 @@ function Gromo() {
           setWindowEnd,
           failNext,
           setFailNext,
+          // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
+          islands: REVIEW || DEMO ? undefined : islands,
+          islandBootError,
         }}
       />
     );
