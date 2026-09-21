@@ -23,8 +23,8 @@ class EventRouterTest {
     private final EventRouter router = new EventRouter(delivery);
 
     @Test
-    void allFourteenWireTypesHaveFixedRoutes() {
-        assertThat(RealtimeEventType.values()).hasSize(14);
+    void allFifteenWireTypesHaveFixedRoutes() {
+        assertThat(RealtimeEventType.values()).hasSize(15);
         for (RealtimeEventType type : RealtimeEventType.values()) {
             RealtimeEventEnvelope event = event(type, island);
             // 응원만 수신 집합이 필수다 — 수신 자격이 구독 인가보다 좁아서다(GROMO-1765).
@@ -35,7 +35,7 @@ class EventRouterTest {
             };
             router.route(event, audience);
             String suffix = switch (type) {
-                case FOCUS_MEMBER_UPDATED -> "focus";
+                case FOCUS_MEMBER_UPDATED, GOLDEN_FISH_CAUGHT -> "focus";
                 case REST_MEMBER_UPDATED -> "rest";
                 case FOCUS_EMOTE -> "emotes";
                 case PLAYBACK_UPDATED -> "playback";
@@ -179,6 +179,18 @@ class EventRouterTest {
         ObjectNode payload = mapper.createObjectNode();
         if (type != RealtimeEventType.FOCUS_EMOTE) {
             payload.put("version", 1);
+        }
+        if (type == RealtimeEventType.GOLDEN_FISH_CAUGHT) {
+            // 황금 물고기도 도메인 필드까지 본다 — 2명 미만이거나 배분량이 어긋난 봉투는 앱이 잘못된
+            // 컷신을 재생한다(GROMO-1956).
+            payload.put("drawnAt", Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES).toString());
+            payload.put("reward", 50);
+            payload.put("sharePerMember", 25);
+            tools.jackson.databind.node.ArrayNode members = payload.putArray("members");
+            for (int i = 0; i < 2; i++) {
+                members.addObject().put("userId", UUID.randomUUID().toString())
+                        .put("sessionId", UUID.randomUUID().toString());
+            }
         }
         if (islandId != null) {
             payload.put("islandId", islandId.toString());
