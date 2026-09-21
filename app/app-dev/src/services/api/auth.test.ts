@@ -336,6 +336,7 @@ test('checkSession — 정상이면 계정을 준다', async () => {
           id: 'u1',
           name: '수빈',
           catColor: 'black',
+          mainIslandId: 'i1',
           linkedProviders: ['apple'],
           onboardingComplete: true,
         },
@@ -419,6 +420,7 @@ test('me — {data} 봉투를 벗긴 계정을 돌려준다', async () => {
           id: 'u1',
           name: null,
           catColor: null,
+          mainIslandId: null,
           linkedProviders: [],
           onboardingComplete: false,
         },
@@ -429,4 +431,25 @@ test('me — {data} 봉투를 벗긴 계정을 돌려준다', async () => {
   assert.equal(account.id, 'u1');
   assert.equal(account.onboardingComplete, false);
   assert.deepEqual(account.linkedProviders, []);
+});
+
+test('me — nullable mainIslandId 를 값·null 모두 그대로 보존한다 (current 와 독립 축)', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  const account = (mainIslandId: string | null) => ({
+    id: 'u1',
+    name: '수빈',
+    catColor: 'black',
+    mainIslandId,
+    linkedProviders: ['apple'],
+    onboardingComplete: true,
+  });
+  stub([
+    { status: 200, body: { data: account('i-main') } },
+    { status: 200, body: { data: account(null) } },
+  ]);
+
+  // 프로필 메인 섬 — 어댑터는 어디에도 쓰지 않고 통과시킨다. `/me/islands.currentIslandId` 와
+  // 서로 갱신하지 않는다는 계약상, 여기서 확인할 수 있는 것은 «있는 그대로 보존»뿐이다.
+  assert.equal((await me()).mainIslandId, 'i-main');
+  assert.equal((await me()).mainIslandId, null);
 });

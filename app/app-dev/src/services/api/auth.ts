@@ -53,11 +53,13 @@ export interface LoginResult {
   onboardingComplete: boolean;
 }
 
-/** `GET /me` 의 data. `name`·`catColor` 는 온보딩 전 null 이다. */
+/** `GET /me` 의 data. `name`·`catColor`·`mainIslandId` 는 온보딩 전·무소속이면 null 이다. */
 export interface Account {
   id: string;
   name: string | null;
   catColor: string | null;
+  /** 프로필 메인 섬(GROMO-1971). `/me/islands.currentIslandId`(현재 접속 섬)와 다른 축이라 서로 갱신하지 않는다. */
+  mainIslandId: string | null;
   linkedProviders: string[];
   onboardingComplete: boolean;
 }
