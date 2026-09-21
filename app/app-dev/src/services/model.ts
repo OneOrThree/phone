@@ -28,6 +28,8 @@ export type Route =
   | 'tower'
   | 'explore'
   | 'visit'
+  | 'visitIsland'
+  | 'visitIslandFocus'
   | 'travel'
   | 'mail'
   | 'shop'

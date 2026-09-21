@@ -3530,10 +3530,10 @@ export function RedesignScreens({ e }: any) {
         toast={sheetToast}
         footer={
           state.onboarded ? (
-            // 섬에 자리 잡은 뒤(전망대): 가입·신청 취소는 그 섬 마을회관에서 하므로 이동 버튼 하나만 둔다
+            // 소속 섬은 이동하고, 미가입 섬은 읽기 전용 관전 경로로 이동한다.
             <Cta
               note={pending ? '참여 신청을 보냈어요. 방장이 확인하면 알려드릴게요.' : undefined}
-              title={i.joined ? '이 섬으로 가기' : '섬 구경하기'}
+              title={i.joined ? '이 섬으로 가기' : '섬 둘러보기'}
               onPress={sail}
             />
           ) : (

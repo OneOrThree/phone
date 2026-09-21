@@ -181,7 +181,17 @@ export function CurrentScreens({ e }: any) {
   // 나머지는 내 섬 화면이 섞이거나 섬 상태가 꼬이지 않게 모두 막는다
   if (
     state.visitingIslandId &&
-    !['home', 'manage', 'members', 'board', 'notice', 'quest', 'travel'].includes(r)
+    ![
+      'home',
+      'manage',
+      'members',
+      'board',
+      'notice',
+      'quest',
+      'travel',
+      'visitIsland',
+      'visitIslandFocus',
+    ].includes(r)
   )
     return (
       <Overlay
@@ -239,6 +249,9 @@ export function CurrentScreens({ e }: any) {
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
   if (r === 'focusVisit') return <FocusVisit e={e} />;
+  if (r === 'visitIsland') return <VisitIsland e={e} />;
+  if (r === 'visitIslandFocus')
+    return <FocusVisit e={e} islandId={e.detail || state.visitingIslandId} onBack={e.back} />;
   if (
     [
       'focusTravel',
@@ -315,28 +328,46 @@ function Travel({ e }: any) {
           e.dispatch({ type: 'SWITCH_ISLAND', id: target.id });
           e.home();
         } else if (canVisit(s, target.id)) {
-          // 미가입 섬은 방문자로 내려 그 섬 홈을 구경한다
+          // 기존 방문자 권한(회관 정보·게시판 열람)을 유지한 채 읽기 전용 메인 섬 경로로 연다.
           e.dispatch({ type: 'VISIT', id: target.id });
-          e.home();
+          e.replace('visitIsland', target.id);
         } else e.replace('visit', target.id);
       }}
     />
   );
 }
-function FocusVisit({ e }: any) {
+function VisitIsland({ e }: any) {
   const s: State = e.state,
-    i = currentIsland(s),
+    islandId = e.detail || s.visitingIslandId;
+  return (
+    <FinalIsland
+      state={s}
+      go={e.go}
+      build={e.build}
+      viewingIslandId={s.visitingIslandId ? undefined : islandId}
+      notify={e.notify}
+      dispatch={e.dispatch}
+    />
+  );
+}
+function FocusVisit({ e, islandId, onBack }: any) {
+  const s: State = e.state,
+    i = s.islands.find((island) => island.id === islandId) ?? currentIsland(s),
     L = useAppLayout(),
     safe = useSafeAreaInsets(),
-    peers = i.members.filter((member) => member.focusing),
+    // 서버 연결 뒤 focus-members가 403/빈 응답이어도 로딩 상태를 유지하지 않고 빈 관전 화면으로 끝낸다.
+    peers = (i.members ?? []).filter((member) => member.focusing),
     spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]),
-    reduce = s.settings.reduceMotion;
+    reduce = s.settings.reduceMotion,
+    close = onBack ?? e.home,
+    visiting = !!islandId;
   return (
     <View style={{ flex: 1 }}>
       <FishingIsland
         focus={{ x: 50, y: 50 }}
         spots={spots}
-        onRaft={e.home}
+        onRaft={close}
+        raftLabel={visiting ? '뗏목 · 메인 섬으로 돌아가기' : undefined}
         gram={i.buildings.includes('gram')}
       >
         {(size, sizeY, zoom) => {
@@ -390,7 +421,12 @@ function FocusVisit({ e }: any) {
           left: Math.max(18, safe.left + 8),
         }}
       >
-        <FiButton small title="닫기" id="close-focus-visit" onPress={e.home} />
+        <FiButton
+          small
+          title={visiting ? '돌아가기' : '닫기'}
+          id="close-focus-visit"
+          onPress={close}
+        />
       </View>
       {!peers.length && (
         <View

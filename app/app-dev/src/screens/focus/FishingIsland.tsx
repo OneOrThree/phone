@@ -191,6 +191,7 @@ export function FishingIsland({
   spots,
   onTap,
   onRaft,
+  raftLabel = '뗏목 · 우리 섬으로 돌아가기',
   gram = false,
   onGram,
   seated = false,
@@ -203,6 +204,7 @@ export function FishingIsland({
   spots: Spot[];
   onTap?: (p: Point) => void;
   onRaft: () => void;
+  raftLabel?: string;
   // 축음기(우리 섬에 지었을 때만 보임). onGram 이 없으면 그림만(누를 수 없음), 누르면 음악 고르기만 열리고 고양이는 걷지 않는다
   gram?: boolean;
   onGram?: () => void;
@@ -382,7 +384,7 @@ export function FishingIsland({
         </Svg>
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="뗏목 · 우리 섬으로 돌아가기"
+          accessibilityLabel={raftLabel}
           testID="fishing-raft"
           // 지도를 끌다 뗏목 위에서 손을 떼면 누르기로 치지 않는다
           onPress={() => !dragged.current && onRaft()}
