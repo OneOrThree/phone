@@ -11795,6 +11795,9 @@
           },
           "callerAccessToken": {
             "type": "string"
+          },
+          "accountSwitchConfirmed": {
+            "type": "boolean"
           }
         },
         "required": [
