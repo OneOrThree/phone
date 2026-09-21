@@ -574,6 +574,70 @@ class IslandConstructionIntegrationTest {
                 .status()).isEqualTo("BUILDING");
     }
 
+    @Test
+    @DisplayName("목표 선택 뒤 탈퇴→재가입한 주민은 옛 epoch 대상에서 빠진다 — 옛 기여도 인정되지 않는다")
+    void rejoinedResidentDoesNotReviveOldEpoch() {
+        SharedFixture f = sharedIsland();
+        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
+        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
+        // 대상 2명 — 각자 ceil(1360/2)=680. 탈퇴 전 주민 몫까지 채워 둔다.
+        tx().executeWithoutResult(status -> {
+            walletService.contribute(f.islandId, f.ownerId, 680, "own-" + f.islandId);
+            walletService.contribute(f.islandId, f.memberId, 680, "mem-" + f.islandId);
+        });
+
+        // 선택 뒤 탈퇴 → 같은 행을 되살려 재가입 — 옛 기여 행은 지워지지 않고 남는다.
+        jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ? AND group_id = ?",
+                f.memberId, f.islandId);
+        jdbc.update("UPDATE group_members SET is_left = false, left_reason = NULL, left_at = NULL,"
+                + " rejoined_at = now() WHERE user_id = ? AND group_id = ?",
+                f.memberId, f.islandId);
+
+        // 재가입 주민은 여전히 활성 주민인데도 대상이 아니다 — 분모는 방장 1명이고 몫은 1360.
+        assertThat(members.existsByGroupIdAndUserId(f.islandId, f.memberId)).isTrue();
+        long version = service.options(f.islandId, f.ownerId).islandVersion();
+        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", version, 1,
+                UUID.randomUUID()))
+                .as("재가입 주민의 옛 기여 680 이 인정됐다면 두 명 몫으로 이미 지어졌다")
+                .isInstanceOf(ConstructionException.class)
+                .extracting("errorCode").isEqualTo(ConstructionErrorCode.INSUFFICIENT_FUNDS);
+    }
+
+    @Test
+    @DisplayName("목표를 실제로 바꾸면 새 epoch 대상에 재가입 주민이 다시 포함된다")
+    void retargetSeedsRejoinedResidentIntoNewCohort() {
+        SharedFixture f = sharedIsland();
+        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
+        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
+
+        // 선택 뒤 탈퇴→재가입 — 옛 epoch 에서는 빠진 사람이다.
+        jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ? AND group_id = ?",
+                f.memberId, f.islandId);
+        jdbc.update("UPDATE group_members SET is_left = false, left_reason = NULL, left_at = NULL,"
+                + " rejoined_at = now() WHERE user_id = ? AND group_id = ?",
+                f.memberId, f.islandId);
+
+        // 목표를 «다른 값»으로 바꾸면 새 epoch 의 대상은 지금 주민으로 다시 고정된다.
+        long version = service.options(f.islandId, f.ownerId).islandVersion();
+        service.setTarget(f.islandId, f.ownerId, "library", version, UUID.randomUUID());
+        long epoch = states.findById(f.islandId).orElseThrow().getTargetEpoch();
+
+        // 대상 2명 → 각자 ceil(2720/2)=1360 — 재가입 주민의 새 epoch 기여 행이 다시 심겼다.
+        tx().executeWithoutResult(status -> {
+            walletService.contribute(f.islandId, f.ownerId, 1360, "own2-" + f.islandId);
+            walletService.contribute(f.islandId, f.memberId, 1360, "mem2-" + f.islandId);
+        });
+        assertThat(jdbc.queryForObject("SELECT amount FROM island_construction_contributions "
+                        + "WHERE island_id = ? AND epoch = ? AND user_id = ?",
+                Integer.class, f.islandId, epoch, f.memberId)).isEqualTo(1360);
+
+        long v2 = service.options(f.islandId, f.ownerId).islandVersion();
+        assertThat(service.start(f.islandId, f.ownerId, "library", v2, 1, UUID.randomUUID())
+                .status()).isEqualTo("BUILDING");
+    }
+
     // ---------------------------------------------------------------- V100 백필
 
     @Test

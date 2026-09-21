@@ -133,8 +133,9 @@ public class IslandConstructionService {
         int balance = walletService.balanceOf(islandId);
         boolean canBuild = SharedPurchase.canBuild(member);
         // 「각자 몫」의 분모는 현재 활성 주민이 아니라 «목표 선택 당시의 대상 주민 ∩ 현재 활성
-        // 주민» 이다(GROMO-1999).
-        List<UUID> targetIds = targetResidents(islandId, contributed.keySet());
+        // 주민 ∩ 선택 시각까지 시작된 멤버십» 이다(GROMO-1999).
+        List<UUID> targetIds = targetResidents(islandId, contributed.keySet(),
+                state == null ? null : state.getUpdatedAt());
 
         List<ConstructionOptionItem> items = new ArrayList<>();
         for (ConstructionBuilding building : ConstructionBuilding.values()) {
@@ -401,7 +402,8 @@ public class IslandConstructionService {
                 throw new ConstructionException(ConstructionErrorCode.STATE_CONFLICT);
             }
             Map<UUID, Integer> contributed = contributedByUser(islandId, state.getTargetEpoch());
-            List<UUID> targetIds = targetResidents(islandId, contributed.keySet());
+            List<UUID> targetIds = targetResidents(islandId, contributed.keySet(),
+                    state.getUpdatedAt());
             // balance 에 MAX_VALUE 를 넣어 잔액 항을 비활성화한다 — 여기서 읽은 잔액은 잠금 전
             // 스냅샷이라 판정 근거가 못 되고, 총액 검사는 아래 주석대로 차감이 한다.
             if (!funded(building, cost, Integer.MAX_VALUE, targetIds, contributed,
@@ -414,16 +416,22 @@ public class IslandConstructionService {
     }
 
     /**
-     * 「각자 몫」의 대상 주민 = 목표 선택 당시 고정된 명단 ∩ 현재 활성 주민 (GROMO-1999).
+     * 「각자 몫」의 대상 주민 = 목표 선택 당시 고정된 명단 ∩ 현재 활성 주민 ∩ 선택 시각까지
+     * 시작된 멤버십 (GROMO-1999).
      *
      * <p>고정 명단은 목표를 고를 때 심어 둔 <b>그 epoch 의 기여 행들</b>이다 — 퀘스트 cohort 와
-     * 같은 규율이되 표를 따로 두지 않는다. 그래서 인자는 이미 읽어 둔 기여 맵의 키 집합이다.
+     * 같은 규율이되 표를 따로 두지 않는다. 그래서 첫 인자는 이미 읽어 둔 기여 맵의 키 집합이다.
+     *
+     * <p>{@code selectedAt} 은 {@code IslandConstructionState.updatedAt} — 목표가 걸린 동안 그
+     * 행을 갱신하는 유일한 쓰기가 retarget(선택 자체)이라, 선택 시각과 같다. 탈퇴 후 되살아난
+     * 멤버십 행은 옛 기여 행이 남아 있어도 {@code rejoined_at} 이 선택 시각 뒤라 여기서 빠진다 —
+     * 교집합만으로는 걸러지지 않는 재가입 부활을 막는 축이다.
      */
-    private List<UUID> targetResidents(UUID islandId, Set<UUID> cohort) {
-        if (cohort.isEmpty()) {
+    private List<UUID> targetResidents(UUID islandId, Set<UUID> cohort, Instant selectedAt) {
+        if (cohort.isEmpty() || selectedAt == null) {
             return List.of();
         }
-        return groupMemberRepository.findActiveMemberUserIdsByGroupId(islandId).stream()
+        return groupMemberRepository.findActiveMemberUserIdsJoinedBy(islandId, selectedAt).stream()
                 .filter(cohort::contains)
                 .toList();
     }
