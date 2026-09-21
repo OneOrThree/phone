@@ -187,8 +187,11 @@ public class DataApiClient {
     // GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
     private static final String PATH_FOCUS_STATISTICS = "/internal/islands/{islandId}/statistics/focus";
     private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
+<<<<<<< HEAD
     // GROMO-1895 섬 공동 가계부 — 회관 화면과 도메인 GET 이 같이 쓰는 섬 축 조회다(B26).
     private static final String PATH_ISLAND_LEDGER = "/internal/islands/{islandId}/resources/ledger";
+=======
+>>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
     // GROMO-1997 주간 섬 랭킹 — 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26).
     private static final String PATH_ISLAND_RANKINGS = "/internal/users/{userId}/island-rankings";
 

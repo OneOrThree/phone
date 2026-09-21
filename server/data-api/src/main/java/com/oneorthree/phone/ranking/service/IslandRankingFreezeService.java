@@ -4,13 +4,19 @@ import com.oneorthree.phone.ranking.repository.IslandWeeklyMemberCountRepository
 import com.oneorthree.phone.ranking.support.RankingWeek;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+<<<<<<< HEAD
 import org.springframework.beans.factory.annotation.Value;
+=======
+>>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+<<<<<<< HEAD
 import java.time.Duration;
 import java.time.Instant;
+=======
+>>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
 import java.time.LocalDate;
 
 /**
@@ -33,6 +39,7 @@ public class IslandRankingFreezeService {
     private final Clock clock;
 
     /**
+<<<<<<< HEAD
      * 주 종료 경계로부터 이만큼 안에 실행됐을 때만 동결한다.
      *
      * <p>분모는 「주가 끝난 시점의 인원」이어야 하는데, 이탈 시각이 DB 에 없어 사후 판정이 불가능하다
@@ -50,6 +57,11 @@ public class IslandRankingFreezeService {
      * 「방금 끝난 주」의 분모를 동결한다 — 크론이 부르는 진입점이다.
      *
      * @return 새로 적힌 섬 수. 재실행이거나 유예를 넘겼으면 0 이다
+=======
+     * 「방금 끝난 주」의 분모를 동결한다 — 크론이 부르는 진입점이다.
+     *
+     * @return 새로 적힌 섬 수. 재실행이면 0 이다
+>>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
      */
     @Transactional
     public int freezePreviousWeek() {
@@ -60,6 +72,7 @@ public class IslandRankingFreezeService {
     /**
      * 그 주의 분모를 동결한다.
      *
+<<<<<<< HEAD
      * <p>기준 시각은 크론이 «실행된» 순간이 아니라 그 주의 <b>종료 경계</b>다 — 경계 이후 가입은 세지 않는다.
      * 이탈 방향은 DB 에 근거가 없어 쿼리로 닫을 수 없고, 대신 {@link #grace} 가 어긋날 수 있는 창을 시간으로
      * 좁힌다.
@@ -85,6 +98,19 @@ public class IslandRankingFreezeService {
         }
         int frozen = denominators.freeze(week, boundary);
         log.info("주간 섬 랭킹 분모 동결 week={} boundary={} 섬={}", week, boundary, frozen);
+=======
+     * <p>멱등이다 — {@code ON CONFLICT DO NOTHING} 이라 두 번 돌든, 늦게 돌든, 분산 락이 새든 그 주의 분모는
+     * <b>처음 적힌 값</b> 그대로다. 덮어쓰기였다면 하루 늦게 돈 배치가 하루치 이탈을 반영해 동결의 의미가
+     * 사라진다.
+     *
+     * @param week 동결할 주의 시작일(UTC 일요일)
+     * @return 새로 적힌 섬 수
+     */
+    @Transactional
+    public int freeze(LocalDate week) {
+        int frozen = denominators.freeze(week);
+        log.info("주간 섬 랭킹 분모 동결 week={} 섬={}", week, frozen);
+>>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
         return frozen;
     }
 }

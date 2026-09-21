@@ -153,6 +153,7 @@ lifecycle 잠금 `public-statistics-snapshot-lifecycle`, 15분 cursor TTL, `CURS
 INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON CONFLICT DO NOTHING
 ```
 
+<<<<<<< HEAD
 크론이 도는 시각은 이미 «새» 주이므로 대상은 직전 주다. `ON CONFLICT DO NOTHING` 이 멱등 가드다 — 두 번 돌아도
 그 주의 분모는 **처음 적힌 값** 그대로다.
 
@@ -167,6 +168,11 @@ DB 가 NOT NULL 이 아니라 빼면 옛 주민이 통째로 사라진다).
 배치가 「하루치 이탈이 반영된 인원」을 그 주의 정답으로 굳히는 쪽이 더 나쁘다. 쓰지 않으면 그 주는 분모가 없어
 랭킹에서 빠지고(RK-D01-결손) 경고 로그가 남는다. 남는 창(경계 ~ 실제 실행 사이의 이탈)은 RK-D12 로 추적하며,
 닫으려면 소속 도메인에 이탈 시각 컬럼이 필요하다.
+=======
+크론이 도는 시각은 이미 «새» 주이므로 대상은 직전 주다. `ON CONFLICT DO NOTHING` 이 멱등 가드다 — 두 번 돌든,
+늦게 돌든, 락이 새든 그 주의 분모는 **처음 적힌 값** 그대로다. 덮어쓰기였다면 하루 늦게 돈 배치가 하루치
+이탈을 반영해 동결의 의미가 사라진다.
+>>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
 
 분자는 **복제하지 않는다**. 집중 정본(`focus_session_details`·`focus_session_intervals`)이 그대로 남아 있어
 언제든 같은 창으로 다시 합칠 수 있고, 복제하면 정본과 어긋날 자리를 만든다. 그 대가로 «주 경계를 걸친 세션이

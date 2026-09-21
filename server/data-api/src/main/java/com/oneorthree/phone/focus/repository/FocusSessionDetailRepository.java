@@ -187,6 +187,7 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * 초로 내리지 않고 창과의 교집합을 그대로 합친 뒤 <b>마지막에 한 번만</b> 내린다. 구간마다 잘랐다면
      * 휴식이 잦은 세션에서 초가 조금씩 사라진다.
      *
+<<<<<<< HEAD
      * <p><b>내림 뒤 0초인 섬은 행을 내보내지 않는다</b>({@code HAVING}). 구간이 겹치기만 하면 되는 조건이라
      * 1초 미만으로 끝난 세션도 잡히는데, 그 섬을 내보내면 «0초만 집중한 섬»이 평균 0으로 순위에 들어가
      * 최하위를 차지한다 — 정책은 집중이 0인 섬을 참가로 보지 않는다(RK-D09). 모집단을 여기서 한 번만
@@ -195,6 +196,11 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      * @param windowStart 창 하한(포함)
      * @param windowEnd   창 상한(제외)
      * @return 그 창에 <b>1초 이상</b> 집중이 있었던 섬만 1행씩. 나머지는 행이 없으므로 호출측이 0으로 채운다
+=======
+     * @param windowStart 창 하한(포함)
+     * @param windowEnd   창 상한(제외)
+     * @return 그 창에 집중이 있었던 섬만 1행씩. 집중이 0인 섬은 행이 없으므로 호출측이 0으로 채운다
+>>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
      */
     @Query(value = "SELECT d.island_id AS \"islandId\", CAST(FLOOR(SUM(EXTRACT(EPOCH FROM ("
             + "LEAST(i.ended_at, CAST(:windowEnd AS timestamptz)) "
@@ -203,10 +209,14 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
             + "WHERE d.lifecycle = 'COMPLETED' AND i.kind = 'ACTIVE' AND i.ended_at IS NOT NULL "
             + "AND i.started_at < CAST(:windowEnd AS timestamptz) "
             + "AND i.ended_at > CAST(:windowStart AS timestamptz) "
+<<<<<<< HEAD
             + "GROUP BY d.island_id "
             + "HAVING FLOOR(SUM(EXTRACT(EPOCH FROM ("
             + "LEAST(i.ended_at, CAST(:windowEnd AS timestamptz)) "
             + "- GREATEST(i.started_at, CAST(:windowStart AS timestamptz)))))) > 0", nativeQuery = true)
+=======
+            + "GROUP BY d.island_id", nativeQuery = true)
+>>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
     List<IslandFocusSeconds> sumIslandActiveSeconds(@Param("windowStart") Instant windowStart,
                                                     @Param("windowEnd") Instant windowEnd);
 
