@@ -258,37 +258,45 @@ test('일일 퀘스트 개인 보상은 모달에서 10마리 1회, 전원 보�
   assert.deepEqual(currentIsland(s).quests[0].rounds?.[dayKey(now + 86400000)]?.achieved, []);
 });
 test('주민 퀘스트 보상은 달성 시 섬과 주민 누적량에 한 번만 자동 적립', () => {
-  let s = initialState(true);
-  const island = currentIsland(s),
-    member = island.members[0],
-    now = Date.now();
-  island.members = [member];
-  island.quests = [{ ...island.quests[0], target: 10 }];
-  const beforeFish = balance(island),
-    beforeEarned = earnedBy(island, member.id),
-    legacy = JSON.parse(JSON.stringify(s)) as typeof s,
-    day = dayKey(now);
-  currentIsland(legacy).quests[0].rounds = {
-    [day]: {
-      targets: ['me', member.id],
-      achieved: [member.id],
-      claimed: [],
-      bonus: false,
-      target: 10,
-      kind: 'focus',
-    },
-  };
-  s = act(s, 'TICK', { now });
-  const rewarded = currentIsland(s);
-  assert.equal(balance(rewarded), beforeFish + 10);
-  assert.equal(earnedBy(rewarded, member.id), beforeEarned + 10);
-  assert.deepEqual(rewarded.quests[0].rounds?.[dayKey(now)]?.claimed, [member.id]);
-  assert.deepEqual(act(s, 'TICK', { now }), s);
+  // KST 정오 고정 — 자정 직후에는 시드 1320초 기록이 전날로 잘려 당일 목표 미달이 되는 flake 차단
+  const nowSpy = jest
+    .spyOn(Date, 'now')
+    .mockReturnValue(new Date('2026-09-22T12:00:00+09:00').getTime());
+  try {
+    let s = initialState(true);
+    const island = currentIsland(s),
+      member = island.members[0],
+      now = Date.now();
+    island.members = [member];
+    island.quests = [{ ...island.quests[0], target: 10 }];
+    const beforeFish = balance(island),
+      beforeEarned = earnedBy(island, member.id),
+      legacy = JSON.parse(JSON.stringify(s)) as typeof s,
+      day = dayKey(now);
+    currentIsland(legacy).quests[0].rounds = {
+      [day]: {
+        targets: ['me', member.id],
+        achieved: [member.id],
+        claimed: [],
+        bonus: false,
+        target: 10,
+        kind: 'focus',
+      },
+    };
+    s = act(s, 'TICK', { now });
+    const rewarded = currentIsland(s);
+    assert.equal(balance(rewarded), beforeFish + 10);
+    assert.equal(earnedBy(rewarded, member.id), beforeEarned + 10);
+    assert.deepEqual(rewarded.quests[0].rounds?.[dayKey(now)]?.claimed, [member.id]);
+    assert.deepEqual(act(s, 'TICK', { now }), s);
 
-  const settled = act(legacy, 'TICK', { now });
-  assert.equal(balance(currentIsland(settled)), beforeFish + 10);
-  assert.equal(earnedBy(currentIsland(settled), member.id), beforeEarned + 10);
-  assert.deepEqual(currentIsland(settled).quests[0].rounds?.[dayKey(now)]?.claimed, [member.id]);
+    const settled = act(legacy, 'TICK', { now });
+    assert.equal(balance(currentIsland(settled)), beforeFish + 10);
+    assert.equal(earnedBy(currentIsland(settled), member.id), beforeEarned + 10);
+    assert.deepEqual(currentIsland(settled).quests[0].rounds?.[dayKey(now)]?.claimed, [member.id]);
+  } finally {
+    nowSpy.mockRestore();
+  }
 });
 test('스크린타임은 다음 날 정산, 권한·측정 대상 없음은 0분으로 보상하지 않는다', () => {
   let s = initialState(true);
