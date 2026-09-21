@@ -19,7 +19,7 @@ import java.util.UUID;
  * <p>종전에는 pg_trgm 유사도({@code searchByNicknameTrgm})로 오타·부분 입력까지 잡았다. 그 편의의
  * 대가가 「닉네임 두 글자를 넣고 이 앱을 누가 쓰는지 훑어본다」였다 — 친구 추가는 상대의 닉네임을 이미
  * 아는 사람만 하면 되는 일이라 그 대가를 치를 이유가 없다. 닉네임이 대소문자 무시로 유일하므로
- * (V86 {@code uq_users_nickname_lower}) 결과는 <b>최대 한 건</b>이다 — 상한을 따로 둘 필요가 없어졌다.
+ * (V89 {@code uq_users_nickname_lower}) 결과는 <b>최대 한 건</b>이다 — 상한을 따로 둘 필요가 없어졌다.
  *
  * <p>본인 제외는 여기가 아니라 {@code FriendService.search} 다 — 관계 배지 판정과 같은 자리라야
  * 두 필터가 갈라지지 않는다. 탈퇴자 제외는 쿼리 안에 있다.

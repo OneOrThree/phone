@@ -243,7 +243,7 @@ public class UserService {
         bannedWords.requireClean(nickname);
         // 대소문자를 «구분하지 않고» 센다 (GROMO-1996, policy-2026-09-14). 정확 일치만 보면 Alice 와
         // alice 가 둘 다 가입되고, 그 둘이 대소문자 무시 친구 검색 한 질의에 함께 잡혀 정책의
-        // 「정확히 일치할 때만」이 깨진다. 최종 방어선은 uq_users_nickname_lower(V86) 다 — 아래 flush 가
+        // 「정확히 일치할 때만」이 깨진다. 최종 방어선은 uq_users_nickname_lower(V89) 다 — 아래 flush 가
         // 잡는 유니크 위반이 이제 그 인덱스에서도 난다.
         if (userRepository.existsByNicknameIgnoreCaseAndIdNot(nickname, user.getId())) {
             throw new UserException(UserErrorCode.NICKNAME_DUPLICATE);

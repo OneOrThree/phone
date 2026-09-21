@@ -52,7 +52,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>여기서만 확인되는 것: ① V60 의 CHECK 제약이 {@code CANCELED} 를 받는가(create-drop 스키마는 제약이
  * 다르다) ② 허용목록·{@code X-User-Id} 대조가 실제 배선으로 도는가 ③ 동시 요청·동시 수락·취소↔수락
  * 경합이 배타 락으로 닫히는가(한 스레드 안에서 순서를 바꿔 흉내 내면 잠금이 관여하지 않는다)
- * ④ 검색이 실제 {@code lower(nickname)} 축으로 도는가(create-drop 스키마에는 V86 인덱스가 없다).
+ * ④ 검색이 실제 {@code lower(nickname)} 축으로 도는가(create-drop 스키마에는 V89 인덱스가 없다).
  */
 @SpringBootTest
 @AutoConfigureMockMvc

@@ -380,6 +380,58 @@ class InternalLetterIntegrationTest {
         }
     }
 
+    @Test
+    @DisplayName("경합 — 읽는 중에 닫히면 200 이 아니라 404 이고, 죽은 행에 읽음이 찍히지 않는다 (codex 리뷰 P2)")
+    void concurrentDetailAndCloseNeverMarkADeletedLetterRead() throws Exception {
+        // markReadIfUnread 에 deletedAt 조건이 없으면, 상세의 UPDATE 가 행 잠금을 기다리는 사이 닫기가
+        // 커밋되고 그 «다음에» 죽은 행의 readAt 이 갱신된다 — 그러고도 캐시한 본문이 200 으로 나간다.
+        //
+        // ⚠ 두 시각(read_at·deleted_at)의 대소로는 판정할 수 없다. 둘 다 «행 잠금을 잡기 전»에
+        // 발급되므로(markRead·close 의 Instant.now()) 순서가 커밋 순서를 뜻하지 않는다 — 먼저 시각을
+        // 받아 두고 나중에 이긴 쪽이 있다. 대신 「졌으면 404 이고 읽음이 안 찍힌다」로 판정한다.
+        int lost = 0;
+        for (int attempt = 0; attempt < 20; attempt++) {
+            jdbc.update("delete from letters");
+            UUID sender = newUser();
+            UUID receiver = newUser();
+            befriend(sender, receiver);
+            joinIsland(sender);
+            joinIsland(receiver);
+            UUID id = UUID.fromString(send(sender, receiver, "읽는 중에 닫힌다"));
+
+            List<Throwable> failures = race(
+                    () -> letterService.detail(receiver, id),
+                    () -> {
+                        letterService.close(receiver, id);
+                        return null;
+                    });
+
+            // 닫기는 지지 않는다 — 상세는 행을 지우지 않으므로 닫기가 질 이유가 없다.
+            assertThat(jdbc.queryForObject("select deleted_at is not null from letters where id = ?",
+                    Boolean.class, id)).as("attempt %d — 닫기가 성공해야 한다", attempt).isTrue();
+
+            // 상세가 졌으면 «본문 200» 이 아니라 404 다.
+            boolean detailLost = !failures.isEmpty();
+            if (detailLost) {
+                assertThat(failures).as("attempt %d — 닫기까지 실패했다", attempt).hasSize(1);
+                assertThat(failures.get(0)).as("attempt %d", attempt).hasFieldOrPropertyWithValue(
+                        "errorCode", LetterErrorCode.LETTER_NOT_FOUND);
+                lost++;
+            }
+
+            // 핵심 불변식 — 「404 를 냈다」와 「읽음이 안 찍혔다」는 같은 사건의 앞뒤다. 져서 404 면 UPDATE 가
+            // 죽은 행을 건드리지 않았어야 하고, 이겨서 200 이면 살아 있을 때 찍은 것이라 반드시 찍혀 있다.
+            assertThat(jdbc.queryForObject("select read_at is null from letters where id = ?",
+                    Boolean.class, id))
+                    .as("attempt %d — 404 를 내고도 읽음이 찍혔거나, 200 인데 안 찍혔다", attempt)
+                    .isEqualTo(detailLost);
+        }
+        // 한 번도 지지 않았다면 경합이 일어나지 않은 것이라 위 검사는 아무것도 증명하지 못한다.
+        // 수정 전 코드에서 상세는 «절대» 지지 않는다 — 죽은 행에 그대로 읽음을 찍고 200 을 낸다.
+        // 그래서 이 줄이 회귀를 잡는 자리다.
+        assertThat(lost).as("20 회 중 상세가 닫기에 진 경우가 없다 — 경합이 재현되지 않았다").isPositive();
+    }
+
     // ---------------------------------------------------------------- 5. 닫기 (GROMO-2002)
 
     @Test

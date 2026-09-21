@@ -175,11 +175,20 @@ public class InternalLetterService {
      * <b>행을 지우지 않는다</b>. 편지가 사라지는 것은 「읽음」이 아니라 「닫음」이다({@link #close},
      * GROMO-2002) — 여는 것과 닫는 것이 다른 사건이라야 「열었지만 아직 안 닫은」 상태가 표현된다.
      *
+     * <p><b>읽는 사이에 닫히면 200 이 아니라 404 다</b> (codex 리뷰 P2). 수신자의 최초 열람은
+     * {@link #markRead} 가 조건부 UPDATE 로 박는데, 그 UPDATE 가 행 잠금을 기다리는 동안 다른 기기의
+     * 닫기나 친구 삭제 정리가 커밋될 수 있다. 그때 아래에서 «먼저 꺼내 둔» 본문을 그대로 내보내면
+     * 삭제된 편지를 계속 열람하게 되므로, {@code markRead} 가 활성 재조회로 갈라 404 를 던진다.
+     *
+     * <p>이미 읽은 편지를 다시 여는 경로({@code readAt != null})는 {@code markRead} 를 타지 않아 이
+     * 판정이 없다 — 조회 시점엔 살아 있었으므로 그 스냅샷을 돌려주는 것이 맞고, 락 없는 GET 과
+     * 동시 DELETE 의 경합은 어떤 순서로도 한쪽이 먼저다(알림 경로에 락을 두지 않은 것과 같은 결).
+     *
      * @param userId   조회자
      * @param letterId 편지 id
      * @return 편지 한 통. 방금 읽음 처리했다면 {@code readAt} 이 그 시각이다
-     * @throws LetterException {@code LETTER_MAILBOX_LOCKED}(403) · {@code LETTER_NOT_FOUND}(404) ·
-     *     {@code NOT_LETTER_PARTICIPANT}(403)
+     * @throws LetterException {@code LETTER_MAILBOX_LOCKED}(403) · {@code LETTER_NOT_FOUND}(404,
+     *     읽는 사이 닫힌 경우 포함) · {@code NOT_LETTER_PARTICIPANT}(403)
      */
     @Transactional
     public LetterView detail(UUID userId, UUID letterId) {
@@ -256,6 +265,17 @@ public class InternalLetterService {
     /**
      * 최초 열람 시각을 조건부 UPDATE 로 박는다. 졌다면(다른 기기가 먼저) 이긴 쪽의 시각이 정본이라
      * 다시 읽어 온다 — 내 {@code now()} 를 응답에 실으면 화면과 DB 가 갈린다.
+     *
+     * <p><b>0 행 갱신의 두 사유를 여기서 가른다</b> (codex 리뷰 P2). {@code markReadIfUnread} 의 WHERE 는
+     * {@code readAt IS NULL AND deletedAt IS NULL} 이라 0 행은 「이미 읽었다」일 수도 「그 사이 닫혔다·
+     * 친구 삭제가 지웠다」일 수도 있다. 되짚는 조회를 {@code findById}(필터 없음)로 하면 <b>죽은 행의
+     * readAt 을 그대로 실어 200 을 내보낸다</b> — 그래서 활성 조회({@code findActiveWithSender})로 되짚어,
+     * 없으면 {@code LETTER_NOT_FOUND} 로 떨어뜨린다. 「닫으면 양쪽에서 사라진다」(GROMO-2002)는
+     * 읽는 중에 닫혀도 지켜져야 한다.
+     *
+     * @param letterId 읽음을 박을 편지 id
+     * @return 최초 열람 시각(이번 호출이 졌으면 이긴 쪽의 시각)
+     * @throws LetterException {@code LETTER_NOT_FOUND} — 읽는 사이 편지가 닫히거나 정리됐다
      */
     private Instant markRead(UUID letterId) {
         // timestamptz 는 마이크로초 정밀도다 — 자른 채로 써야 첫 응답과 재조회 값이 같다.
@@ -263,7 +283,10 @@ public class InternalLetterService {
         if (letters.markReadIfUnread(letterId, now) == 1) {
             return now;
         }
-        return letters.findById(letterId).map(Letter::getReadAt).orElse(null);
+        // 살아 있으면 «이미 읽음»(이긴 쪽의 시각이 정본), 없으면 «그 사이 삭제»다.
+        return letters.findActiveWithSender(letterId)
+                .map(Letter::getReadAt)
+                .orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
     }
 
     private static LetterItemView item(Letter letter, UUID me, boolean sent) {

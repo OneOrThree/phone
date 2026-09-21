@@ -207,7 +207,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      * «검색»을 켜면 한 질의에 두 사람이 잡혀 정책의 「정확히 일치할 때만」이 깨진다. 검색과 유일성은
      * 같은 축이어야 한다.
      *
-     * <p>DB 도 같은 축으로 막는다 — {@code uq_users_nickname_lower}(V86)가 TOCTOU 레이스의 최종
+     * <p>DB 도 같은 축으로 막는다 — {@code uq_users_nickname_lower}(V89)가 TOCTOU 레이스의 최종
      * 방어선이고, 이 표현식 인덱스가 아래 검색의 인덱스이기도 하다.
      *
      * <p><b>탈퇴 유저까지 센다</b> — 종전과 같은 취급이다. 다만 탈퇴는 닉네임을 NULL 로 파기하므로
@@ -226,14 +226,14 @@ public interface UserRepository extends JpaRepository<User, UUID> {
      *
      * <p>종전의 pg_trgm 유사도 검색({@code searchByNicknameTrgm})을 대체하며 그 메서드는 함께 지웠다 —
      * 부분 일치는 「누가 이 앱을 쓰는가」를 훑게 해 주는데, 친구 추가는 상대의 닉네임을 이미 아는
-     * 사람만 하면 되는 일이다. DB 의 {@code idx_users_nickname_trgm} 은 안정화 전까지 남겨 둔다(V86 주석).
+     * 사람만 하면 되는 일이다. DB 의 {@code idx_users_nickname_trgm} 은 안정화 전까지 남겨 둔다(V89 주석).
      *
      * <p><b>탈퇴자 제외가 쿼리 안에 있다.</b> 함께 지운 {@code findByNickname} 은 그 조건이 없어 호출측이
      * 따로 걸러야 했는데, 검색은 결과를 «그대로» 내보내는 경로라 걸러지지 않으면 탈퇴자가 화면에 뜬다.
      * <b>본인 제외는 여기가 아니라 {@code FriendService.search} 다</b> — 관계 배지 판정과 같은 자리라야
      * 두 필터가 갈라지지 않는다.
      *
-     * <p>인덱스는 {@code uq_users_nickname_lower}(V86) — 같은 {@code lower(nickname)} 표현식이다.
+     * <p>인덱스는 {@code uq_users_nickname_lower}(V89) — 같은 {@code lower(nickname)} 표현식이다.
      *
      * @param nickname 검색어. 호출측이 strip 해서 넘긴다(저장이 trim 이므로 앞뒤 공백은 무의미하다)
      * @return 그 닉네임을 쓰는 활성 유저 한 명. 유일성이 보장하므로 둘 이상일 수 없다
