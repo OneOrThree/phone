@@ -5,8 +5,6 @@ import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserRepository;
-import jakarta.persistence.EntityManager;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -24,22 +22,9 @@ class FriendshipRepositoryTest extends RepositoryTestBase {
     FriendshipRepository friendshipRepository;
     @Autowired
     UserRepository userRepository;
-    @Autowired
-    EntityManager em;
-
-    @BeforeEach
-    void enableTrgm() {
-        // create-drop 스키마는 확장/인덱스를 만들지 않으므로 trgm 연산자(%, <->)를 테스트 트랜잭션에서 보장한다.
-        em.createNativeQuery("CREATE EXTENSION IF NOT EXISTS pg_trgm").executeUpdate();
-    }
 
     private User saveUser(String nickname) {
         return userRepository.save(User.builder().nickname(nickname).build());
-    }
-
-    private User saveDeletedUser(String nickname) {
-        return userRepository.save(User.builder().nickname(nickname)
-                .isDeleted(true).build());
     }
 
     private Friendship save(User from, User to, FriendshipStatus status) {
@@ -146,24 +131,5 @@ class FriendshipRepositoryTest extends RepositoryTestBase {
         Set<UUID> friendIds = friendshipRepository.findFriendUserIdsByUserId(me.getId());
 
         assertThat(friendIds).containsExactlyInAnyOrder(a.getId(), b.getId());
-    }
-
-    @Test
-    @DisplayName("searchByNicknameTrgm — 실제 trgm 유사 매칭, 다른 닉네임·삭제 유저 제외")
-    void searchByNicknameTrgm_matchesSimilar_excludesDeleted() {
-        User alice = saveUser("alice");
-        User alicekim = saveUser("alicekim");
-        User bob = saveUser("bob");
-        saveDeletedUser("alicezzz");   // trgm 매칭되지만 soft delete → 제외
-        userRepository.flush();
-
-        List<User> results = userRepository.searchByNicknameTrgm("alice", 20);
-
-        List<UUID> ids = results.stream().map(User::getId).toList();
-        assertThat(ids).contains(alice.getId(), alicekim.getId());
-        assertThat(ids).doesNotContain(bob.getId());
-        assertThat(results).extracting(User::getNickname).doesNotContain("alicezzz");
-        // 가장 유사한 'alice'가 거리순(<->) 선두
-        assertThat(results.get(0).getNickname()).isEqualTo("alice");
     }
 }

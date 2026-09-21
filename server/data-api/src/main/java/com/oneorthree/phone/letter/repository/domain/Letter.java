@@ -29,9 +29,19 @@ import java.util.UUID;
  * 그 갱신은 서비스가 조건부 UPDATE 로 원자적으로 한다({@code LetterRepository.markReadIfUnread}) —
  * 엔티티에 setter 를 열면 「읽고 나서 쓰기」가 되어 두 기기가 최초 열람 시각을 서로 덮어쓴다(LLD §1.14).
  *
- * <p>{@code deletedAt} 은 <b>지금 아무도 쓰지 않는</b> 시스템 필드다 — 사용자용 편지 삭제 API 는 이 티켓
- * 범위 밖이고, 친구 삭제 후 편지 처리(LLD §4 결정 3)는 미결이라 A안(보존) 상태다. 읽기 경로는 지금도
- * 전부 {@code deletedAt IS NULL} 을 걸어 두어, 결정이 나면 쓰기 한 줄만 붙이면 된다.
+ * <p>{@code deletedAt} 은 <b>편지의 수명 끝</b>이다 (GROMO-2002, policy-2026-09-14). 정책이
+ * 「친구 편지는 기록으로 남기지 않는다 — 받는 사람이 열었다가 닫으면 지워지고 보낸 사람 목록에서도
+ * 사라진다」와 「친구를 삭제하면 아직 확인하지 않은 편지도 지운다」로 확정되면서, GROMO-1933 이
+ * 미리 걸어 둔 {@code deletedAt IS NULL} 읽기 필터에 쓰기 두 경로가 붙었다
+ * ({@code LetterRepository.softDeleteIfActive} · {@code softDeleteUnreadBetween}).
+ * 갱신을 벌크 UPDATE 로 하는 이유는 {@code readAt} 과 같다 — 아래 setter 부재 논증 참조.
+ *
+ * <p><b>⚠ 알려진 정보 누출 — 2026-09-21 재영님 수용 결정.</b> 닫기가 편지를 «양쪽»에서 지우므로,
+ * 발신자는 자기 보낸함에서 편지가 사라지는 «시점»으로 상대가 읽었다는 사실을 알게 된다. 이는
+ * {@code InternalLetterService.item} 이 보낸함의 {@code isRead} 를 항상 false 로 고정해 열람 여부를
+ * 숨기는 것과 형식상 모순이다. 그럼에도 정책이 「보낸 사람 목록에서도 사라진다」로 명시했고 재영님이
+ * 알고 수용했다 — <b>버그가 아니다.</b> 「숨기려면 삭제를 발신자·수신자 2컬럼으로 나눠야 한다」는
+ * 쪽으로 갈아엎기 전에 이 결정부터 뒤집을 것.
  */
 @Entity
 @Table(name = "letters")

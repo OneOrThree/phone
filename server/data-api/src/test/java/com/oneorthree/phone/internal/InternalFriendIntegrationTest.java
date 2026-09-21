@@ -46,11 +46,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 친구 내부 표면 7종 (GROMO-1894)을 <b>실제 Flyway PostgreSQL + InternalAuthFilter</b> 위에서 검증한다.
+ * 친구 내부 표면 8종 (GROMO-1894 7종 + GROMO-1996 검색)을 <b>실제 Flyway PostgreSQL +
+ * InternalAuthFilter</b> 위에서 검증한다.
  *
  * <p>여기서만 확인되는 것: ① V60 의 CHECK 제약이 {@code CANCELED} 를 받는가(create-drop 스키마는 제약이
  * 다르다) ② 허용목록·{@code X-User-Id} 대조가 실제 배선으로 도는가 ③ 동시 요청·동시 수락·취소↔수락
- * 경합이 배타 락으로 닫히는가(한 스레드 안에서 순서를 바꿔 흉내 내면 잠금이 관여하지 않는다).
+ * 경합이 배타 락으로 닫히는가(한 스레드 안에서 순서를 바꿔 흉내 내면 잠금이 관여하지 않는다)
+ * ④ 검색이 실제 {@code lower(nickname)} 축으로 도는가(create-drop 스키마에는 V89 인덱스가 없다).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -77,6 +79,7 @@ class InternalFriendIntegrationTest {
         registry.add("internal.api.callers.business.allow[5]",
                 () -> "POST /internal/users/*/friend-requests/*/cancel");
         registry.add("internal.api.callers.business.allow[6]", () -> "DELETE /internal/users/*/friends/*");
+        registry.add("internal.api.callers.business.allow[7]", () -> "GET /internal/users/*/friend-search");
     }
 
     /** 수락 이벤트를 세는 리스너 — 동시 수락 둘이 알림 이벤트를 «하나만» 내는지 보기 위한 것. */
@@ -257,7 +260,79 @@ class InternalFriendIntegrationTest {
                 .extracting("errorCode").isEqualTo(FriendErrorCode.INVALID_REQUEST_STATUS);
     }
 
+    // ---------------------------------------------------------------- 3. 검색 (GROMO-1996)
+
+    /**
+     * policy-2026-09-14: 「친구 검색은 대소문자를 구분하지 않고 <b>정확히 일치</b>할 때만 결과를 보여
+     * 주며 본인과 탈퇴한 사용자는 제외한다.」 + 비친구에게는 티어·준비 시험을 주지 않는다.
+     */
+    @Test
+    @DisplayName("검색 — 대소문자 무시 전체 일치, 본인·탈퇴자 제외, 비친구는 tier·occupation 이 null")
+    void searchMatchesWholeNicknameIgnoringCaseAndHidesNonFriendFields() throws Exception {
+        UUID me = newUser();
+        UUID other = newUser();
+        UUID withdrawn = newUser();
+        nickname(me, "Alice");
+        nickname(other, "Bob");
+        nickname(withdrawn, "Carol");
+        jdbc.update("update users set occupation = 'LABOR_ATTORNEY' where id = ?", other);
+        jdbc.update("update users set is_deleted = true where id = ?", withdrawn);
+
+        // 대문자로 쳐도 찾힌다.
+        as(me, get(path(me, "/friend-search")).param("type", "NICKNAME").param("q", "BOB"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].userId").value(other.toString()))
+                .andExpect(jsonPath("$[0].relation").value("NONE"))
+                // 비친구다 — 닉네임·id·relation 만 준다.
+                .andExpect(jsonPath("$[0].tierLevel").doesNotExist())
+                .andExpect(jsonPath("$[0].occupation").doesNotExist());
+
+        // 부분 일치는 안 된다.
+        as(me, get(path(me, "/friend-search")).param("type", "NICKNAME").param("q", "Bo"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        // 본인은 제외한다.
+        as(me, get(path(me, "/friend-search")).param("type", "NICKNAME").param("q", "alice"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+        // 탈퇴자는 제외한다.
+        as(me, get(path(me, "/friend-search")).param("type", "NICKNAME").param("q", "Carol"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(0));
+
+        // 친구가 되면 티어·준비 시험이 열린다 — 가리는 축이 relation 이라는 증명이다.
+        friendService.acceptRequest(other, friendService.createRequest(me, other));
+        as(me, get(path(me, "/friend-search")).param("type", "NICKNAME").param("q", "bob"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].relation").value("FRIEND"))
+                .andExpect(jsonPath("$[0].occupation").value("LABOR_ATTORNEY"));
+    }
+
+    @Test
+    @DisplayName("검색 — 모르는 검색 수단은 도메인 코드로 거절한다 (Spring 변환 실패 400 이 아니다)")
+    void searchRejectsUnknownTypeWithDomainCode() throws Exception {
+        UUID me = newUser();
+
+        as(me, get(path(me, "/friend-search")).param("type", "EMAIL").param("q", "x"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SEARCH_TYPE"));
+        // 전략이 없는 값(CODE)도 같은 코드로 떨어진다 — enum 에는 있지만 구현체가 없다.
+        as(me, get(path(me, "/friend-search")).param("type", "CODE").param("q", "x"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_SEARCH_TYPE"));
+        // 소문자 type 은 받아 준다 — 거절할 이유가 없다.
+        as(me, get(path(me, "/friend-search")).param("type", "nickname").param("q", "아무도없음"))
+                .andExpect(status().isOk());
+    }
+
     // ---------------------------------------------------------------- 도구
+
+    /** 게스트 로그인 계정은 닉네임이 없다 — 검색 대상이 되려면 채워야 한다. */
+    private void nickname(UUID userId, String nickname) {
+        jdbc.update("update users set nickname = ? where id = ?", nickname, userId);
+    }
+
 
     private UUID newUser() {
         return jwt.extractUserId(auth.guestLogin().accessToken());
