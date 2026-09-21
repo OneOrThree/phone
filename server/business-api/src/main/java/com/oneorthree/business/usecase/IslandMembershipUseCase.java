@@ -23,12 +23,16 @@ import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
 import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
+import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -72,6 +76,8 @@ public class IslandMembershipUseCase {
 
     private static final String RESOURCE_SEARCH = "islands";
     private static final String RESOURCE_DISCOVER = "island-discover";
+    private static final String RESOURCE_MY_JOIN_REQUESTS = "me/join-requests";
+    private static final String SORT_CREATED_ASC = "created-asc";
     private static final String SORT_RECENT = "recent";
     private static final String SORT_RELEVANCE = "relevance";
     private static final String SORT_SHUFFLE = "shuffle";
@@ -219,6 +225,33 @@ public class IslandMembershipUseCase {
     }
 
     /**
+     * 내 가입 신청 목록 (GROMO-2047, LLD §3.12) — explore 화면의 「신청 중」 조각이다.
+     *
+     * <p>상류가 <b>pending 만</b> 싣는다. 승인·거절로 닫힌 신청은 다음 페이지 요청부터 사라지고
+     * 결과는 §3.8 단건 조회로 본다 — 정책이 이력 열람을 열지 않았다(policy-2026-09-14 「섬 가입·
+     * 전망대·랭킹」). 신청이 하나도 없으면 404 가 아니라 빈 목록 + 200 이다.
+     *
+     * <p>커서는 §3.2·§3.3 과 같은 규칙이다 — 사용자·자원·정렬·limit 에 묶이고, 평문 keyset 경계만
+     * 상류로 간다. 섬 축이 없으므로 filter 는 비어 있다(자원 자체가 「내 것」이다).
+     */
+    public MyJoinRequests myJoinRequests(AccessTokenClaims claims, String cursor, int limit,
+            Deadline deadline) {
+        CursorScope scope = new CursorScope(claims.userId(), RESOURCE_MY_JOIN_REQUESTS, Map.of(),
+                SORT_CREATED_ASC, limit);
+        CursorBoundary boundary = codec().decode(cursor, scope);
+        MyJoinRequestsPage page = relay(() -> data.fetchMyJoinRequests(claims.userId(),
+                boundary == null ? null : cursorInstant(boundary.sortKey()),
+                boundary == null ? null : cursorUuid(boundary.tieBreaker()), limit, deadline));
+        if (page == null || page.items() == null
+                || (page.nextCreatedAt() == null) != (page.nextRequestId() == null)) {
+            throw new UpstreamContractMismatchException("내 가입 신청 목록 응답이 완전하지 않습니다");
+        }
+        String next = page.nextCreatedAt() == null ? null : codec().encode(scope,
+                new CursorBoundary(page.nextCreatedAt().toString(), page.nextRequestId().toString()));
+        return new MyJoinRequests(page.items(), next);
+    }
+
+    /**
      * 가입 요청 취소 (GROMO-1760, LLD §3.9). 성공은 항상 {@code cancelled} — 같은 키의 재생도
      * 같은 값이고, 이미 승인된 요청은 상류가 409 로 막는다.
      */
@@ -304,6 +337,15 @@ public class IslandMembershipUseCase {
         }
     }
 
+    /** 커서에 실린 경계 시각 — id 와 같은 이유로 다시 검증한다. */
+    private static Instant cursorInstant(String value) {
+        try {
+            return Instant.parse(value);
+        } catch (DateTimeParseException e) {
+            throw new PublicApiException(ApiErrorCode.INVALID_CURSOR, "cursor");
+        }
+    }
+
     private <T> T relay(Supplier<T> upstream) {
         try {
             return upstream.get();
@@ -323,5 +365,9 @@ public class IslandMembershipUseCase {
 
     /** 공개 오류 한 줄 — 코드와 사용자에게 알려 줄 입력 필드. */
     private record PublicFailure(ApiErrorCode code, String field) {
+    }
+
+    /** 공개 「신청 중」 목록 한 페이지 — {@code nextCursor} 는 서명 토큰이다(GROMO-2047). */
+    public record MyJoinRequests(List<MyJoinRequestsPage.Item> items, String nextCursor) {
     }
 }
