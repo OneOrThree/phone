@@ -7,7 +7,7 @@ GROMO-1756 · 2026-09-12 · [색인](README.md) · [상세 계약](low-level-des
 | ID | 정책 | 출처·상태 |
 | --- | --- | --- |
 | A01 | 신규 Business 경로에는 접두어를 붙이지 않고 JSON 성공은 `{data}`로 감싼다. 기존 Data/chat 경로는 보존한다. | 사용자 확정·선행 1750 |
-| A02 | 공개 `name`은 기존 `users.nickname`이다. trim 후 2~10 UTF-16 단위, 다른 사용자와 중복 금지다. | main `UserService.changeNickname`과 DB 유일 제약 유지 |
+| A02 | 공개 `name`은 기존 `users.nickname`이다. **앞뒤 공백을 제거(`String.strip`)한 뒤** 2~10 UTF-16 단위이고, 다른 사용자와 대소문자 무시 중복 금지다. 길이는 정규화 **뒤** 값으로 잰다. | policy-2026-09-14 「닉네임은 … 앞뒤 공백 없이 저장한다」 · `UserService.normalizeNickname`(GROMO-2051)과 `uq_users_nickname_lower`(V89) |
 | A03 | 프로필 변경과 탈퇴는 활성 `users` 행을 수정하기 전에 배타 잠금한다. | 기술 결정. `User`에 `@Version`이 없어 늦은 전체 UPDATE가 파기된 PII를 되살릴 수 있음 |
 | A04 | 선택적 AT는 서명·access 타입·만료·주체와 원 세션 활성/현재 세대를 검증한다. prepare·complete·성공 재생에서 users 우선 잠금 아래 재검사하며, 개별 폐기된 AT로 승격하지 않는다. sidless는 입증된 legacy 결합/폐기 fence가 필수이고 userId만으로 다른 활성 세션을 대신 쓰지 않는다. guest=true일 때만 기존 게스트 승격 규칙을 적용하고 기존 userId를 보존한다. 유효한 guest=false AT는 정상 계정 전환을 막지 않으며 제공자 계정 로그인/가입을 진행한다. 기존 6개 소셜 제공자와 게스트 생성 경로를 보존한다. | 장부 ㊒·기존 AuthService. 원본 Apple 예시는 제공자 축소 결정이 아님 |
 | A05 | AT/RT 타입·서명·만료를 검증하고 RT 원문을 DB/로그에 저장하지 않는다. JWT에는 key ID를 싣고, 키 교체 뒤 이전 키는 그 키로 발급된 AT/RT의 최대 exp까지 검증 전용으로 유지한다. 로그인·digest 복구 창과 분리하며, 더 일찍 제거하는 것은 authGeneration 전진 등 의도적인 전 세션 폐기 롤아웃으로만 한다. | 기존 JwtProvider·TokenHasher |
