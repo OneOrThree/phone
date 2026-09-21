@@ -410,9 +410,16 @@ Table friendships [note: '유저 간 친구 관계 (요청 → 수락/거절). f
   deleted_at   timestamptz       [note: '친구 삭제 시각 (소프트 딜리트)']
 
   indexes {
-    // 재친구 허용: 소프트 딜리트(deleted_at) 행이 남아 단순 unique 불가. 활성 관계만 1개 보장하는 부분 unique는 마이그레이션에서:
-    //   CREATE UNIQUE INDEX ... ON friendships (from_user_id, to_user_id) WHERE deleted_at IS NULL;
-    (from_user_id, to_user_id) [note: '활성 관계 부분 unique(WHERE deleted_at IS NULL)는 마이그레이션 SQL로 적용 — 동일 방향 중복 신청 차단. 양방향(A→B / B→A) 중복은 앱/마이그레이션에서 정규화 처리']
+    // V1 의 ukcw1b2t1f9600yhvikefbpd1gn — 조건 없는 unique 다(부분 인덱스가 아니다).
+    // 소프트 딜리트 행도 걸리므로 재친구 요청은 새 행을 넣지 못한다 → createRequest 가 기존 행을 복원·재전환한다(GROMO-719).
+    (from_user_id, to_user_id) [unique, note: '같은 «방향»의 중복 행 차단. WHERE 절 없는 unique 라 deleted_at 이 찍힌 행도 자리를 차지한다 — 재요청이 insert 로 빠지면 409 가 나므로 FriendService.createRequest 가 복원(GROMO-719)·재전환으로 같은 행을 되쓴다']
+
+    // V96(GROMO-2042) 표현식 부분 unique — 위 인덱스는 방향이 같을 때만 막아서, A→B 와 B→A 가
+    // 동시에 오면 둘 다 findPair 에서 「기존 행 없음」을 보고 PENDING 두 행을 만들었다.
+    //   CREATE UNIQUE INDEX uq_friendships_pending_pair ON friendships
+    //     (least(from_user_id, to_user_id), greatest(from_user_id, to_user_id))
+    //     WHERE status = 'PENDING' AND deleted_at IS NULL;
+    (`least(from_user_id, to_user_id)`, `greatest(from_user_id, to_user_id)`) [unique, name: 'uq_friendships_pending_pair', note: '살아 있는 PENDING 요청은 두 사람당 한 건 — 방향 무관(V96, GROMO-2042). 양방향 동시 요청의 마지막 방어선이며, 지는 쪽은 409 로 떨어진다. ACCEPTED 는 술어에 넣지 않았다 — 「거절했던 요청을 뒤늦게 수락」(acceptRequest 의 전 상태 관용)이 반대 방향 PENDING 과 겹치는 기존 경로를 깨기 때문']
   }
 }
 

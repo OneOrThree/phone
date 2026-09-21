@@ -105,6 +105,16 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      * ⚠️ deletedAt 필터를 넣지 말 것 — createRequest 의 소프트삭제 행 복원 분기(GROMO-719)가
      * 삭제 행까지 돌려받는 데 의존한다. 필터가 생기면 재요청이 insert 로 빠져 F1(409)이 재발한다.
      *
+     * <p><b>이 조회는 락을 잡지 않는다 — 동시 경합의 방어선이 아니다</b>(GROMO-2042). A→B 와 B→A 가
+     * 동시에 오면 둘 다 「기존 행 없음」을 보고 지나간다. 그 자리를 막는 것은 V96 의 표현식 부분 유니크
+     * 인덱스 {@code uq_friendships_pending_pair}
+     * ({@code least(from_user_id,to_user_id), greatest(from_user_id,to_user_id)}
+     * where {@code status='PENDING' AND deleted_at IS NULL}) 다 — 방향 무관으로 「살아 있는 PENDING 은
+     * 쌍당 하나」를 강제하고, 지는 쪽은 커밋 시점 유니크 위반 → 409 가 된다.
+     * <b>여기에 배타 락을 달아 대신하려 하지 말 것</b> — 잠글 행이 아직 없는 경합이라 락이 걸릴 대상이
+     * 없고, {@code users} 두 행으로 올리면 방향마다 순서가 갈려 교착이 생긴다
+     * ({@link #findAcceptedBetweenForUpdate} 의 「쌍당 한 행」 전제가 성립하지 않는 경우다).
+     *
      * @param a 두 유저 중 한 쪽 — a·b 는 대칭이라 순서를 바꿔도 같은 결과다
      * @param b 나머지 한 쪽
      * @return 두 방향 행 전부, 최신 updatedAt 순. soft delete 된 행도 포함되며 그게 이 조회의 목적이다
@@ -160,7 +170,10 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
      *       행은 쌍당 하나 — {@code Optional} 인 것이 그 전제다). 여러 행을 잡을 때만 생기는
      *       「두 방향이 서로 다른 순서로 잠근다」 문제가 성립하지 않으므로 {@code userId} 정렬 같은
      *       순서 규칙 자체가 필요 없다. 여러 행을 잡아야 하는 날이 오면 그때
-     *       {@code GroupMembershipMutationLocks.lockGroups} 처럼 정렬해서 잠근다</li>
+     *       {@code GroupMembershipMutationLocks.lockGroups} 처럼 정렬해서 잠근다.
+     *       <b>이 전제가 성립하지 않는 경합이 하나 있다</b> — 요청 생성(GROMO-2042)은 행이 «아직 없을 때»
+     *       나는 경합이라 잡을 행 자체가 없다. 거기서는 락 대신 V96 의 유니크 인덱스
+     *       {@code uq_friendships_pending_pair} 로 막았다({@link #findPair} 참조)</li>
      *   <li><b>층 순서는 언제나 users → friendships 다.</b> 이 락을 쓰는 두 경로가 그 앞에서 잡는
      *       {@code users} 락은 둘 다 <b>공유 락</b>({@code getCallerForShare}·{@code getTargetForShare})
      *       이라 서로 막지 않는다. 배타 {@code users} 락을 잡는 탈퇴도 users 를 먼저 잡고
