@@ -7,6 +7,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
+import com.oneorthree.business.upstream.data.dto.FriendSearchItem;
 import com.oneorthree.business.usecase.FriendUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,7 +26,7 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 친구 7종의 <b>공개 표면</b> (GROMO-1894, friend-letter LLD §1.1~1.6 · §1.11) — 레거시
+ * 친구 8종의 <b>공개 표면</b> (GROMO-1894 7종 + GROMO-1996 검색) — 레거시
  * {@code /api/v1/friends…}(Data)의 무접두 재노출이다. 동작은 바꾸지 않고, 실제 판정은 Data 의
  * {@code /internal/users/{userId}/…} 가 한다.
  *
@@ -63,6 +64,21 @@ public class FriendController {
     public List<FriendRequestItem> friendRequests(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return friends.friendRequests(claims, required(request, "type"), deadline());
+    }
+
+    /**
+     * 친구 검색 (GROMO-1996) — nginx 가 {@code /friends/*} 를 여기로 보내는데 매핑이 없어 404 로 죽어
+     * 있던 자리다. 레거시 {@code GET /api/v1/friends/search}(Data 직결, 봉투 없음)의 무접두 재노출이며,
+     * 동작은 정책에 맞춰 바뀌었다: 대소문자 무시 <b>전체 일치</b>, 본인·탈퇴자 제외, 비친구는 티어·준비
+     * 시험이 null.
+     *
+     * <p>{@code type}·{@code q} 는 둘 다 필수다 — 값 판정(등록된 검색 수단인가)은 Data 가 한다.
+     * 결과가 없으면 빈 배열이고 404 가 아니다.
+     */
+    @GetMapping("/friends/search")
+    public List<FriendSearchItem> search(HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return friends.search(claims, required(request, "type"), required(request, "q"), deadline());
     }
 
     /** 친구 요청 생성 (LLD §1.1). 본문은 {@code targetUserId} 하나뿐이다 — 다른 키가 섞이면 거절한다. */

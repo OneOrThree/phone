@@ -5,7 +5,7 @@ package com.oneorthree.phone.friend.service.search;
  * 요청하면 400 이 된다.
  */
 public enum SearchType {
-    /** 닉네임 유사도(pg_trgm) 검색. */
+    /** 닉네임 전체 일치 검색 — 대소문자는 구분하지 않는다 (GROMO-1996). */
     NICKNAME,
     /** 초대 코드 검색 — 값만 열어 뒀고 아직 전략 구현체가 없다. */
     CODE

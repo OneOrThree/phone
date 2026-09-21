@@ -50,7 +50,9 @@ class InternalAccountAllowlistTest {
         assertThat(allows(allow, "POST /internal/users/" + ID)).isFalse();
         assertThat(allows(allow, "PUT /internal/users/" + ID)).isFalse();
         assertThat(allows(allow, "PATCH /internal/users/" + ID + "/notification-settings")).isFalse();
-        assertThat(allows(allow, "DELETE /internal/users/" + ID + "/letters/" + ID)).isFalse();
+        // GROMO-2002 가 `DELETE …/letters/{id}`(편지 닫기)를 «의도적으로» 열었다 — 이웃 검사를 한 칸
+        // 위로 옮긴다. 확인하려는 것은 그대로다: 계정의 `DELETE /internal/users/*` 가 하위 경로를 열지 않는다.
+        assertThat(allows(allow, "DELETE /internal/users/" + ID + "/letters")).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/result-ack")).isFalse();
     }
 

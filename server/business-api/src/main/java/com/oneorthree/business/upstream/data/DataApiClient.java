@@ -60,6 +60,7 @@ import com.oneorthree.business.upstream.data.dto.UserActivation;
 import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestState;
+import com.oneorthree.business.upstream.data.dto.FriendSearchItem;
 import com.oneorthree.business.upstream.data.dto.FriendshipDeleted;
 import com.oneorthree.business.upstream.data.dto.LetterSlice;
 import com.oneorthree.business.upstream.data.dto.LetterView;
@@ -142,6 +143,8 @@ public class DataApiClient {
     private static final String PATH_FRIENDS = "/internal/users/{userId}/friends";
     private static final String PATH_FRIEND = "/internal/users/{userId}/friends/{friendUserId}";
     private static final String PATH_FRIEND_REQUESTS = "/internal/users/{userId}/friend-requests";
+    // GROMO-1996 친구 검색. `/friends/{id}` 와 세그먼트가 겹치지 않게 별도 이름을 쓴다(`island-search` 선례).
+    private static final String PATH_FRIEND_SEARCH = "/internal/users/{userId}/friend-search";
     private static final String PATH_FRIEND_REQUEST_ACCEPT =
             "/internal/users/{userId}/friend-requests/{requestId}/accept";
     private static final String PATH_FRIEND_REQUEST_REJECT =
@@ -837,6 +840,21 @@ public class DataApiClient {
     }
 
     /**
+     * 친구 검색 (GROMO-1996). {@code type}·{@code q} 의 값 판정(등록된 전략인가·질의어 해석)은 Data 가
+     * 한다 — 여기서 두 번 해석하지 않는다. 닉네임이 대소문자 무시로 유일하므로 결과는 0건 또는 1건이다.
+     */
+    public List<FriendSearchItem> searchFriends(UUID userId, String type, String query, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_FRIEND_SEARCH, userId))
+                        .onBehalfOf(userId)
+                        .query("type", type)
+                        .query("q", query)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<List<FriendSearchItem>>() { });
+    }
+
+    /**
      * 친구 요청 생성. <b>재시도하지 않는다</b> — 멱등키 적용표(api-platform LLD §2)에 없는 명령이라 앱 키가
      * 없고, 응답 유실 뒤의 재시도는 첫 요청이 남긴 PENDING 행에 409 로 부딪힌다. 그 409 를 앱이 보는 편이
      * 재시도가 만들 두 번째 푸시보다 낫다.
@@ -922,6 +940,19 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<LetterView>() { });
+    }
+
+    /**
+     * 편지 닫기 (GROMO-2002). <b>재시도하지 않는다</b> — 두 번째 시도는 {@code LETTER_NOT_FOUND}(404)라
+     * 재시도가 얻을 것이 없고, 앱은 404 를 받아도 이미 원하던 상태(사라짐)에 있다.
+     */
+    public void closeLetter(UUID userId, UUID letterId, Deadline deadline) {
+        http.execute(
+                InternalCall.to(HttpMethod.DELETE,
+                                userPath(PATH_LETTER, userId).replace("{letterId}", letterId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline);
     }
 
     private FriendRequestState friendRequestAction(String template, UUID userId, UUID requestId,
