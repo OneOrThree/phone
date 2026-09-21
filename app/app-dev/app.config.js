@@ -8,6 +8,10 @@ module.exports = {
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.oneorthree.focuscat',
+      entitlements: {
+        'com.apple.developer.family-controls': true,
+        'com.apple.security.application-groups': ['group.com.oneorthree.focuscat'],
+      },
     },
     android: {
       package: 'com.oneorthree.focuscat',
