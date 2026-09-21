@@ -146,7 +146,7 @@ class SatelliteCommandConcurrencyTest {
                 tx().executeWithoutResult(status -> {
                     GroupMember membership = groupMemberRepository
                             .findActiveByUserIdAndGroupIdForUpdate(memberId, group.getId()).orElseThrow();
-                    membership.leave();
+                    membership.leave(Instant.now());
                     linkMembershipEventService.recordMembershipRevoked(membership);
                 });
                 transitionCommitted.countDown();
@@ -187,7 +187,7 @@ class SatelliteCommandConcurrencyTest {
                 int kickPid = backendPid();
                 GroupMember target = groupMemberRepository
                         .findActiveByUserIdAndGroupIdForUpdate(memberId, group.getId()).orElseThrow();
-                target.kick();
+                target.kick(Instant.now());
 
                 // ② 그 사이 이름 변경이 들어온다. 대상 목록을 읽는 시점에는 강퇴가 아직 커밋 전이라
                 //    이 멤버가 «활성»으로 보이고, 그 뒤 멤버 행 잠금에서 멈춘다.
@@ -902,7 +902,7 @@ class SatelliteCommandConcurrencyTest {
                     .findActiveByUserIdAndGroupIdForUpdate(ownerId, group.getId()).orElseThrow();
             // 대상은 이탈 «전»에 포착해야 한다 — 운영 경로(GroupMemberService)와 같은 순서다.
             List<GroupMember> recipients = groupMemberRepository.findByGroup(membership.getGroup());
-            membership.leave();
+            membership.leave(Instant.now());
             membership.getGroup().close();
             linkMembershipEventService.recordGroupClosed(membership.getGroup(), recipients);
         });

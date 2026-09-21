@@ -590,7 +590,7 @@ class IslandQuestIntegrationTest {
 
     private void leave(User user, Group group) {
         GroupMember membership = members.findByUserAndGroup(user, group).orElseThrow();
-        membership.leave();
+        membership.leave(Instant.now());
         members.save(membership);
     }
 
