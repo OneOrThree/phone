@@ -250,9 +250,8 @@ class IslandRankingsIntegrationTest {
         assertThat(before).isEqualTo(400);
 
         // 주가 끝난 «뒤» 한 명을 내보낸다 — 지금 인원으로 나눴다면 600 으로 올랐을 것이다.
-        GroupMember member = members.findByGroup(home.group).stream()
-                .filter(row -> row.getUser().getId().equals(leaving.getId())).findFirst().orElseThrow();
-        member.kick();
+        GroupMember member = membership(home.group, leaving);
+        member.kick(NOW.get());
         members.save(member);
 
         long after = item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds();
@@ -343,20 +342,61 @@ class IslandRankingsIntegrationTest {
     }
 
     @Test
-    @DisplayName("유예를 넘겨 늦게 돈 배치는 «틀린 인원을 영구 고착»시키지 않고 아무것도 쓰지 않는다")
-    void aFreezeRunLongAfterTheBoundaryWritesNothing() {
+    @DisplayName("경계 직후 강퇴해도 지난 주 분모가 줄지 않는다 — 배치가 하루 늦게 돌아도 경계 시점 인원이다")
+    void kicksAfterTheBoundaryDoNotShrinkLastWeeksDenominator() {
         Island home = island("우리 섬", true);
+        User leaving = resident(home.group);
         focus(home, 1200);
         Instant boundary = RankingWeek.endInstant(week);
 
-        // 기본 유예는 1시간 — 하루 늦게 돈 실행은 거부된다.
-        assertThat(freezeAt(week, boundary.plus(Duration.ofDays(1)))).isZero();
-        assertThat(denominators.findByWeekStart(week)).isEmpty();
+        // GROMO-1997 이 닫지 못했던 창 — 주 경계가 지난 «뒤», 동결 배치가 돌기 «전»에 내보낸다.
+        GroupMember member = membership(home.group, leaving);
+        member.kick(boundary.plus(Duration.ofHours(6)));
+        members.save(member);
 
-        // 분모가 없으므로 그 주 랭킹에서 빠진다(RK-D01-결손) — 조용히 틀린 순위를 만들지 않는다.
-        IslandRankingPage page = service.islands(home.owner.getId(), week, null);
-        assertThat(page.items()).extracting(IslandRanking::islandId).doesNotContain(home.id);
-        assertThat(page.myRank()).isNull();
+        // 유예 가드가 사라져 하루 늦게 돈 실행도 거부되지 않는다(GROMO-2050).
+        assertThat(freezeAt(week, boundary.plus(Duration.ofDays(1)))).isPositive();
+
+        assertThat(item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds())
+                .as("경계 시점 주민은 2명이다 — 강퇴가 분모를 줄였다면 1200 이 됐을 것이다").isEqualTo(600);
+    }
+
+    @Test
+    @DisplayName("경계 «전» 이탈은 지난 주 분모에서 빠진다 — 이탈 시각이 양방향으로 판정한다")
+    void leavesBeforeTheBoundaryStayOutOfLastWeeksDenominator() {
+        Island home = island("우리 섬", true);
+        User leaving = resident(home.group);
+        focus(home, 1200);
+
+        // 주 한가운데에 나간다 — 경계 시점 주민은 방장 1명뿐이다.
+        GroupMember member = membership(home.group, leaving);
+        member.leave(at(3, 0));
+        members.save(member);
+        freeze(week);
+
+        assertThat(item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds())
+                .as("이탈 시각을 무시하고 셌다면 1200÷2=600 이 됐을 것이다").isEqualTo(1200);
+    }
+
+    @Test
+    @DisplayName("경계 전에 나갔다가 경계 뒤에 돌아온 주민은 지난 주 분모에 없다 — 재가입이 시작 시각을 갱신한다")
+    void rejoinsAfterTheBoundaryDoNotEnterLastWeeksDenominator() {
+        Island home = island("우리 섬", true);
+        User returning = resident(home.group);
+        focus(home, 1200);
+        Instant boundary = RankingWeek.endInstant(week);
+
+        // 나갔다 돌아온 행은 «지금» 활성이지만, 되살린 시각이 경계보다 뒤다.
+        // created_at(최초 가입)으로 판정하면 지난 주 주민으로 잘못 잡힌다.
+        GroupMember member = membership(home.group, returning);
+        member.leave(at(3, 0));
+        member.rejoin(boundary.plusSeconds(60));
+        members.save(member);
+
+        freezeAt(week, boundary.plusSeconds(120));
+
+        assertThat(item(service.islands(home.owner.getId(), week, null), home.id).averageFocusSeconds())
+                .as("재가입 시각을 무시하고 created_at 으로 셌다면 1200÷2=600 이 됐을 것이다").isEqualTo(1200);
     }
 
     @Test
@@ -393,8 +433,8 @@ class IslandRankingsIntegrationTest {
     /**
      * 동결은 서비스를 통한다 — 리포지토리는 트랜잭션 경계를 소유하지 않는다(규약 §4·§5).
      *
-     * <p>크론이 «주 종료 경계에» 도는 것을 모사한다 — 서비스가 유예(기본 1시간)를 넘긴 실행을 거부하므로,
-     * 시계를 경계로 옮겨 놓고 부른 뒤 되돌린다. 실제 운영에서도 이 배치는 경계 직후에만 돈다.
+     * <p>크론이 «주 종료 경계에» 도는 것을 모사한다 — 실제 운영에서도 이 배치는 경계 직후에 돈다.
+     * 값 자체는 실행 시각과 무관하다(경계로 판정한다, GROMO-2050) — {@link #freezeAt} 이 그것을 겨눈다.
      */
     private void freeze(LocalDate target) {
         Instant restore = NOW.get();
@@ -406,7 +446,7 @@ class IslandRankingsIntegrationTest {
         }
     }
 
-    /** 지정한 시각에 크론이 돈 것으로 보고 동결한다 — 유예 가드를 직접 겨냥할 때 쓴다. */
+    /** 지정한 시각에 크론이 돈 것으로 보고 동결한다 — 「실행 시각이 값을 바꾸지 않는다」를 겨냥할 때 쓴다. */
     private int freezeAt(LocalDate target, Instant ranAt) {
         Instant restore = NOW.get();
         NOW.set(ranAt);
@@ -446,6 +486,12 @@ class IslandRankingsIntegrationTest {
             facilities.save(tower);
         }
         return new Island(group.getId(), group, owner);
+    }
+
+    /** 그 섬에서 이 사람의 멤버십 행 — 이탈·재가입 시각을 직접 찍을 때 쓴다(GROMO-2050). */
+    private GroupMember membership(Group group, User user) {
+        return members.findByGroup(group).stream()
+                .filter(row -> row.getUser().getId().equals(user.getId())).findFirst().orElseThrow();
     }
 
     private User resident(Group group) {
