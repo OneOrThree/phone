@@ -6433,6 +6433,37 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "internal-letter-controller"
+        ],
+        "operationId": "close",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "letterId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
       }
     },
     "/internal/users/{userId}/join-requests": {
@@ -6808,6 +6839,56 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/FriendResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/users/{userId}/friend-search": {
+      "get": {
+        "tags": [
+          "internal-friend-controller"
+        ],
+        "operationId": "search_1",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FriendSearchResultResponse"
                   }
                 }
               }
@@ -9657,7 +9738,7 @@
           "Friend"
         ],
         "summary": "친구 검색",
-        "description": "type별 검색 전략(NICKNAME\u003dtrgm)으로 검색. 자기자신 제외, 기존 관계(relation) 표기.",
+        "description": "type별 검색 전략(NICKNAME\u003d대소문자 무시 전체 일치)으로 검색. 자기자신·탈퇴자 제외, 기존 관계(relation) 표기. 비친구는 tierLevel·occupation 이 null.",
         "operationId": "searchFriends",
         "parameters": [
           {
@@ -13367,6 +13448,33 @@
           }
         }
       },
+      "FriendSearchResultResponse": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "nickname": {
+            "type": "string"
+          },
+          "tierLevel": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "occupation": {
+            "type": "string"
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "NONE",
+              "PENDING",
+              "FRIEND"
+            ]
+          }
+        }
+      },
       "FriendRequestResponse": {
         "type": "object",
         "properties": {
@@ -16079,33 +16187,6 @@
           },
           "hasPassword": {
             "type": "boolean"
-          }
-        }
-      },
-      "FriendSearchResultResponse": {
-        "type": "object",
-        "properties": {
-          "userId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "nickname": {
-            "type": "string"
-          },
-          "tierLevel": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "occupation": {
-            "type": "string"
-          },
-          "relation": {
-            "type": "string",
-            "enum": [
-              "NONE",
-              "PENDING",
-              "FRIEND"
-            ]
           }
         }
       },
