@@ -41,7 +41,7 @@ public class NicknameSearchStrategy implements FriendSearchStrategy {
      */
     @Override
     public List<FriendSearchResult> search(UUID me, String query) {
-        // 저장이 trim 이라 앞뒤 공백은 검색어에서도 의미가 없다 — 붙여 보내도 찾히게 한다.
+        // 저장이 strip 이라 앞뒤 공백은 검색어에서도 의미가 없다 (GROMO-2051) — 붙여 보내도 찾히게 한다.
         String nickname = query == null ? "" : query.strip();
         User matched = userRepository.findActiveByNicknameIgnoreCase(nickname).orElse(null);
         if (matched == null) {

@@ -178,7 +178,6 @@ public class IslandQuestService {
         requireTimezone(timezone);
         QuestType type = QuestType.fromWire(rawType)
                 .orElseThrow(() -> new QuestException(QuestErrorCode.QUEST_INVALID_REQUEST));
-        requireSupported(type);
         String title = title(rawTitle);
         int target = target(targetMinutes);
         LocalTime windowStart = null;
@@ -245,7 +244,6 @@ public class IslandQuestService {
                     users.getCallerForUpdate(userId);
                     requireOwnerWriter(islandId, userId);
                     IslandQuest quest = requireQuest(islandId, questId);
-                    requireSupported(quest.getType());
                     if (target != null && quest.getType() == QuestType.FOCUS) {
                         requireTargetFits(target, quest.getWindowStart(), quest.getWindowEnd());
                     }
@@ -579,16 +577,6 @@ public class IslandQuestService {
     private static void requireTimezone(String timezone) {
         if (timezone != null && !QuestViews.TIMEZONE.equals(timezone)) {
             throw new QuestException(QuestErrorCode.QUEST_INVALID_TIMEZONE);
-        }
-    }
-
-    /**
-     * screen 퀘스트는 받지 않는다 — 스크린타임 하루 값의 날짜가 KST 라벨({@code ScreenTimeService} 의 보고 시각 KST
-     * 환산)이라 UTC 회차로 읽으면 측정 창이 9시간 밀린다. 저장 축이 UTC 로 바뀌는 1930 전까지 422(결정 Q-6 보완).
-     */
-    private static void requireSupported(QuestType type) {
-        if (type == QuestType.SCREEN) {
-            throw new QuestException(QuestErrorCode.QUEST_TYPE_OUT_OF_RANGE);
         }
     }
 

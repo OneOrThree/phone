@@ -6,6 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
+import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import com.oneorthree.business.usecase.IslandRecordsUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -32,7 +33,8 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * 회관 기록(도서관) 통계 3종의 공개 표면 (GROMO-1769, island-records LLD §1·§2·§4).
+ * 회관 기록(도서관)의 공개 표면 — 통계 3종(GROMO-1769, island-records LLD §1·§2·§4)에 공동 가계부
+ * (GROMO-1786)와 주민별 누적 물고기(GROMO-2046, LLD §7)가 얹혀 있다.
  *
  * <p>{@code /islands/**}·{@code /me/**} 는 {@code PublicApiRoutes.ROOTS} 에 있어 봉투와 {@code no-store} 가 붙는다.
  * 주체는 strict 세션에서만 온다. 여기서 보는 것은 <b>모양</b>이다 — query·본문의 허용 키, 타입, 날짜 형식과 실재,
@@ -109,6 +111,26 @@ public class IslandRecordsController {
         }
         return records.ledger(claims, islandId(islandId), month(required(request, "month")), direction,
                 request.getParameter("cursor"), deadline());
+    }
+
+    /**
+     * 도서관 물고기 장 — 주민별 누적 획득 (GROMO-2046, island-records LLD §7).
+     *
+     * <p><b>query 가 없다</b> — 기간도 scope 도 페이지도 고를 수 없는 「이 섬 전 기간, 활성 주민 전원」 집계다
+     * (섬 정원 상한 안이라 페이지가 없다). 그래서 뭐라도 붙어 오면 400 이다: 모르는 키를 조용히 버리면 앱이
+     * {@code ?from=} 을 붙여 놓고 기간이 걸린 줄 안다.
+     *
+     * <p>주민·도서관 완공 판정은 Data 몫이다 — 방문자는 403 {@code FORBIDDEN}, 미완공은 403
+     * {@code FACILITY_LOCKED} 이고 둘 다 빈 명단이 아니다.
+     */
+    @GetMapping("/islands/{islandId}/statistics/fish-earnings")
+    public IslandFishEarnings fishEarnings(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        if (!request.getParameterMap().isEmpty()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER,
+                    request.getParameterMap().keySet().iterator().next());
+        }
+        return records.fishEarnings(claims, islandId(islandId), deadline());
     }
 
     /**
