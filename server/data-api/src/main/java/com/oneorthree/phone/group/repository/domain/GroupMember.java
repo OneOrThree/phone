@@ -182,7 +182,7 @@ public class GroupMember {
      * 통째로 무력화된다(GROMO-1997 이 그 함정에 걸려 JDBC 로 값을 옮겨야 했다). 그래서 호출부가 주입
      * {@code Clock} 으로 읽은 시각을 <b>인자로</b> 넘긴다.
      *
-     * <p>V94 이전에 이탈한 행은 근거가 없어 null 이다 — 지어내지 않는다.
+     * <p>V97 이전에 이탈한 행은 근거가 없어 null 이다 — 지어내지 않는다.
      */
     @Column(name = "left_at")
     private Instant leftAt;

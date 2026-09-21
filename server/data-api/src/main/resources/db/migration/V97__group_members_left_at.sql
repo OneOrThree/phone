@@ -29,7 +29,7 @@ ALTER TABLE group_members
 
 COMMENT ON COLUMN group_members.left_at IS
     '이탈 시각 — 자진 탈퇴·강퇴·계정 탈퇴가 모두 찍는다(GroupMember.leave/kick). is_left=false 면 항상 NULL '
-    '(rejoin 이 비운다). V94 이전에 이탈한 행은 근거가 없어 NULL 이다. GROMO-2050';
+    '(rejoin 이 비운다). V97 이전에 이탈한 행은 근거가 없어 NULL 이다. GROMO-2050';
 COMMENT ON COLUMN group_members.rejoined_at IS
     '재가입으로 멤버십이 다시 시작된 시각(GroupMember.rejoin). NULL 이면 최초 가입 그대로라 시작 시각은 '
     'created_at 이다 — 과거 시점 소속 판정의 시작 축은 COALESCE(rejoined_at, created_at). GROMO-2050';

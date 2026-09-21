@@ -31,7 +31,7 @@ public interface IslandWeeklyMemberCountRepository
      *       DB 가 NOT NULL 이 아니라, 빼면 옛 주민이 통째로 사라진다.</li>
      *   <li><b>이탈 방향</b> — 지금 나가 있어도 <b>경계 «뒤»에</b> 나갔으면 그 주의 주민이다. 이 조건이
      *       없으면 주 경계 직후 강퇴만으로 지난 주 분모가 줄어 평균이 오른다(RK-D12 가 닫으려던 구멍).
-     *       {@code left_at} 이 NULL 인 이탈 행은 V94 이전에 나간 행이라 근거가 없다 — 어느 경계에서도
+     *       {@code left_at} 이 NULL 인 이탈 행은 V97 이전에 나간 행이라 근거가 없다 — 어느 경계에서도
      *       주민이 아닌 쪽으로 판정한다(종전 {@code is_left = false} 동작과 같다).</li>
      * </ul>
      *

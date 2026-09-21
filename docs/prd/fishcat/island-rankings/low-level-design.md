@@ -160,7 +160,7 @@ INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON C
 **실행 시각이 값을 바꾸지 않는다** — 하루 늦게 돌아도 같은 분모가 나온다. 판정은
 `IslandWeeklyMemberCountRepository.ACTIVE_AT_BOUNDARY_SQL` 한 자리에 있다:
 멤버십 시작은 `COALESCE(rejoined_at, created_at) < 경계`, 이탈은 `left_at IS NULL OR left_at >= 경계`
-(V94, GROMO-2050). `created_at` 이 null 인 legacy 행은 «경계보다 오래된 행»으로 보고 포함한다 — DB 가 NOT NULL 이
+(V97, GROMO-2050). `created_at` 이 null 인 legacy 행은 «경계보다 오래된 행»으로 보고 포함한다 — DB 가 NOT NULL 이
 아니라 빼면 옛 주민이 통째로 사라진다.
 
 실행 유예(`ranking.freeze.grace`)는 **삭제했다**. 이탈 방향을 쿼리로 닫을 수 없던 동안의 임시 방편이었고, 이제
