@@ -117,6 +117,8 @@ const titles: Record<Route, string> = {
   tower: '전망대',
   explore: '다른 섬 둘러보기',
   visit: '바다 건너 섬',
+  visitIsland: '다른 섬 구경',
+  visitIslandFocus: '다른 섬 낚시 구경',
   travel: '섬 사이 이동',
   mail: '우리 섬 편지방',
   shop: '강아지 상점',
@@ -419,6 +421,13 @@ function Gromo() {
         go('travel', island.id);
         return true;
       }
+      // 방문 화면의 시스템 뒤로가기도 하단 `원래 섬으로` 버튼과 같이 귀환 항해를 시작한다.
+      if (route === 'visitIsland' && state.visitingIslandId) {
+        dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
+        dispatch({ type: 'END_VISIT' });
+        go('travel', island.id);
+        return true;
+      }
       if (route === 'home' || route === 'login') return false;
       back();
       return true;
@@ -587,6 +596,8 @@ function Gromo() {
     'focusSetup',
     'focus',
     'focusVisit',
+    'visitIsland',
+    'visitIslandFocus',
     'rest',
     'arrival',
     'travel',
