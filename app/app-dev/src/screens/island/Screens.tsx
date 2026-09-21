@@ -4454,12 +4454,11 @@ export function RedesignScreens({ e }: any) {
         </SheetGroup>
         {sec('측정')}
         <SheetGroup flat>
-          {toggle('스크린타임 연결', 'permission', '폰 사용 퀘스트와 기록에 써요')}
           <SheetRow
             title="측정 권한"
-            sub="iOS 설정 › 스크린타임에서 바꿔요"
+            sub={state.settings.permission ? '연결됨' : '연결 필요 · 폰 사용 퀘스트와 기록에 써요'}
             chevron
-            onPress={() => go('permission')}
+            onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
         <Txt kind="meta" style={st.meta}>

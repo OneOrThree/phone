@@ -15,6 +15,7 @@ import {
   BackHandler,
   Platform,
   ActivityIndicator,
+  AppState,
   KeyboardAvoidingView,
   Share,
   AccessibilityInfo,
@@ -24,6 +25,8 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
+import { screenTime } from '@/services/screenTime';
+import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -251,16 +254,22 @@ function Gromo() {
     toastTimer.current = setTimeout(() => setToast(''), 2400);
   };
   const go = (r: Route, id = '') => {
+    const gateBoard = shouldGateScreenTimeBoard(r, {
+      isIOS: Platform.OS === 'ios',
+      promptSeen: !!state.settings.screenTimeBoardPromptSeen,
+    });
+    const nextRoute: Route = gateBoard ? 'permission' : r;
+    const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
     if (r === 'rest') setRestTravel(route === 'focus');
     if (r === 'home' || route === 'home') setWalkRequest(null);
     if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
-    setDetail(id);
+    setDetail(nextDetail);
     setTab('');
     setText('');
     setBody('');
     setSearch('');
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
-    setRoute(r);
+    setRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
   const replace = (r: Route, id = '') => {
@@ -420,6 +429,34 @@ function Gromo() {
       if (v) dispatch({ type: 'SETTING', key: 'reduceMotion', value: true });
     });
   }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    const syncPermission = () => {
+      if (Platform.OS !== 'ios') {
+        if (!REVIEW && !DEMO) dispatch({ type: 'SETTING', key: 'permission', value: false });
+        return;
+      }
+      screenTime
+        .getAuthorizationStatus()
+        .then((status) =>
+          dispatch({ type: 'SETTING', key: 'permission', value: status === 'approved' }),
+        )
+        .catch(() => {});
+    };
+    syncPermission();
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') syncPermission();
+    });
+    return () => subscription.remove();
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded || Platform.OS !== 'ios') return;
+    if (state.session?.status === 'active') {
+      screenTime.startFocusShield(state.session.subject).catch(() => {});
+    } else {
+      screenTime.stopFocusShield().catch(() => {});
+    }
+  }, [loaded, state.session?.id, state.session?.status, state.session?.subject]);
   useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();

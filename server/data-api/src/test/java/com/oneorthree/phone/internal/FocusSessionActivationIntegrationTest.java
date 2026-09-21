@@ -437,6 +437,8 @@ class FocusSessionActivationIntegrationTest {
                 started.id())).isEqualTo(125);
         assertThat(count("select coalesce(sum(balance),0) from user_fish_wallets where user_id=?", user))
                 .as("개인 지갑 적립은 없다 — 재화는 섬 하나다(D5-귀속-개정)").isZero();
+        assertThat(count("select count(*) from user_fish_wallets where user_id=?", user))
+                .as("지갑 행 자체가 생기지 않는다 — 적립 경로가 이 표를 아예 열지 않는다(GROMO-2045)").isZero();
 
         FocusFinishView finished = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
@@ -453,6 +455,19 @@ class FocusSessionActivationIntegrationTest {
         assertThat(jdbc.queryForObject("select status from focus_sessions where id=?", String.class,
                 started.id())).isEqualTo("COMPLETED");
         assertThat(focus.current(user)).as("완료한 세션은 current 가 아니다").isNull();
+    }
+
+    @Test
+    @DisplayName("개인 몫 0 초과 정책 revision 은 DB 가 거부한다 — 개인 적립을 막는 것이 문서가 아니라 제약이다(V99)")
+    void personalShareAboveZeroIsRejectedByTheDatabase() {
+        assertThatThrownBy(() -> jdbc.update(
+                "insert into focus_reward_policies (revision, seconds_per_fish, daily_cap_fish,"
+                        + " personal_share_percent) values (?, 60, 480, 1)", 999_999))
+                .as("V99 의 CHECK — Flyway 에 0 초과 revision 이 «실수로» 들어가도 부팅에서 걸린다")
+                .hasMessageContaining("focus_reward_policies_personal_share_percent_check");
+
+        assertThat(count("select count(*) from focus_reward_policies where personal_share_percent <> 0"))
+                .as("시드 revision 을 포함해 표 전체가 0 이다").isZero();
     }
 
     @Test
