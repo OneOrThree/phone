@@ -331,6 +331,7 @@ final class ScreenTimeModule: NSObject {
                 if let data = try? JSONEncoder().encode(selection) {
                     defaults?.set(data, forKey: "gromo:focus:allowedSelection")
                 }
+                self.applyFocusShieldIfActive(defaults)
                 top.dismiss(animated: true) {
                     var value = self.counts(selection)
                     value["dismissed"] = true

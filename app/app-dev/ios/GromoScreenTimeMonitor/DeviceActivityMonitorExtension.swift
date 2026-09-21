@@ -143,7 +143,11 @@ final class DeviceActivityMonitorExtension: DeviceActivityMonitor {
         let baseDate = defaults?.string(forKey: "gromo:screentime:bucketBaseDate")
         let base = baseDate == today
             ? (defaults?.integer(forKey: "gromo:screentime:bucketBaseMinutes") ?? 0) : 0
-        let total = min(base + minutes, 900)
+        let registeredMaxMinutes = (
+            defaults?.object(forKey: "gromo:screentime:registeredMaxMinutes") as? NSNumber
+        )?.intValue ?? 900
+        let maxMinutes = min(max(registeredMaxMinutes, 15), 900)
+        let total = min(base + minutes, maxMinutes)
         if total > current {
             defaults?.set(total, forKey: "gromo:screentime:usageBucketMinutes")
         }
