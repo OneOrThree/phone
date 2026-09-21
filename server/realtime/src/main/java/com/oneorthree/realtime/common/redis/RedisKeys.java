@@ -72,6 +72,13 @@ public final class RedisKeys {
      * <p>값을 판정에 쓰지 않는 건 의도다. 값을 읽어 해석하기 시작하면 Data API 가 무엇을 담는지가
      * 채팅의 계약이 되어, 그쪽이 포맷을 바꾸는 순간 이쪽이 조용히 오판한다. 존재 여부만 보면 그 결합이
      * 생기지 않는다.
+     *
+     * <p><b>값에 무엇이 들어 있는지는 이미 두 번 바뀌었다</b>(GROMO-1743 순번 · GROMO-2003
+     * {@code 순번:controlVersion:상태}). 두 번 다 이쪽은 한 줄도 고치지 않았다 — 그게 이 결정이 값을
+     * 치른 만큼 돌려받은 자리다. 특히 지금의 값은 {@code active} 와 {@code paused} 를 구분해 담지만,
+     * <b>둘 다 채팅 차단</b>이다(휴식 중 채팅 허용은 미결 제품 결정 FR-D04, focus-rest-session LLD §6).
+     * 그 결정이 나면 고칠 곳은 여기가 아니라 Data 쪽의 「어느 상태에 키를 남기는가」다 — 이쪽은 계속
+     * 존재만 본다.
      */
     public static String focusPresence(UUID userId) {
         return FOCUS_PRESENCE_PREFIX + userId;

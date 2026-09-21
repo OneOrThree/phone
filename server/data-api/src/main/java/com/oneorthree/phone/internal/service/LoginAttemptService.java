@@ -320,7 +320,9 @@ public class LoginAttemptService {
         attempt.complete(userId, login.sessionId(), onboardingComplete, materials, Instant.now());
 
         return new LoginSessionResponse(
-                login.accessToken(), login.refreshToken(), userId, onboardingComplete);
+                login.accessToken(), login.refreshToken(), userId, onboardingComplete,
+                // 1회용 자격은 «여기서만» 나간다 — 원장에 남기지 않으므로 재생이 되살릴 수 없다.
+                login.deviceBootstrap());
     }
 
     /**
@@ -406,7 +408,14 @@ public class LoginAttemptService {
                 jwtProvider.replayAccessToken(attempt.getUserId(), attempt.getSessionId(), materials),
                 refreshToken,
                 attempt.getUserId(),
-                Boolean.TRUE.equals(attempt.getOnboardingComplete()));
+                Boolean.TRUE.equals(attempt.getOnboardingComplete()),
+                // 재생에는 deviceBootstrap 이 «없다». 자격 원문은 발급 1회만 존재하고 어디에도
+                // 저장하지 않으므로(auth_sessions 는 SHA-256 만 갖는다) 되살릴 길이 없다. 새로
+                // 발급하는 것은 답이 아니다 — 최초 응답을 받은 앱이 든 값이 그 순간 무효가 되고,
+                // 그쪽이야말로 자격을 실제로 쓰고 있는 앱이다(AuthSessionService.rotateActive 의
+                // 「자격이 이미 있으면 그대로 둔다」와 같은 판단). 자격 없이 받은 앱은 기존 기기
+                // 등록 경로로 내려간다 — 알림 서버가 그 경로를 여전히 받는다.
+                null);
     }
 
     /**

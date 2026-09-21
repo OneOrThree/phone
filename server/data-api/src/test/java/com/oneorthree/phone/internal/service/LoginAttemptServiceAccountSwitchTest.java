@@ -72,7 +72,7 @@ class LoginAttemptServiceAccountSwitchTest {
                 authSessionService, accountWithdrawalService, jwtProvider, self);
         lenient().when(self.claim(any())).thenReturn(null);
         lenient().when(self.complete(any(), any()))
-                .thenReturn(new LoginSessionResponse("at", "rt", UUID.randomUUID(), true));
+                .thenReturn(new LoginSessionResponse("at", "rt", UUID.randomUUID(), true, "bootstrap"));
         lenient().when(authService.verifyProviderId(Provider.APPLE, "credential")).thenReturn(PROVIDER_ID);
         lenient().when(jwtProvider.extractUserId(TOKEN)).thenReturn(GUEST);
         lenient().when(authService.loginWithProviderId(any(), any(), any()))

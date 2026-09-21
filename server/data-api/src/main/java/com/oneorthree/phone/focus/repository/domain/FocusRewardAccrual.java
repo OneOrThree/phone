@@ -54,9 +54,23 @@ public class FocusRewardAccrual {
     @Column(name = "accrued_on", nullable = false)
     private LocalDate accruedOn;
 
-    /** 그날 이 세션이 실제로 섬에 적립한 마리 수 — 상한에 걸려 못 받은 몫은 여기 없다(CHECK > 0). */
+    /** 그날 이 세션이 실제로 섬에 적립한 마리 수 — 상한에 걸려 못 받은 몫은 여기 없다. */
     @Column(name = "earned_fish", nullable = false)
     private int earnedFish;
+
+    /**
+     * 그날 이 세션이 황금 물고기로 받은 «자기 몫»(GROMO-1956, V91) — 50 ÷ 함께 낚은 인원(내림)의 합이다.
+     *
+     * <p>{@link #earnedFish} 와 <b>같은 열에 넣지 않는다</b>: 하루 480마리 상한은 earned_fish 만 합산하는데
+     * (기획 정본 「황금 물고기는 480마리 상한과 별도로 지급하며 자체 상한은 두지 않는다」), 섞으면 당첨된
+     * 주민이 그날 기본 보상을 그만큼 덜 받는다. 주민 누적 획득 기록만 두 열의 합을 읽는다
+     * ({@code FocusFishEarningsRepository}).
+     *
+     * <p>섬 잔액에 들어간 50마리는 여기 없다 — 그쪽은 섬 원장({@code island_wallet_transactions} 의
+     * {@code GOLDEN_FISH})이 정본이고, 이 열은 «주민별» 기록 축이다. 나머지(50 − 몫 × 인원)는 섬에만 남는다.
+     */
+    @Column(name = "golden_fish", nullable = false)
+    private int goldenFish;
 
     @CreationTimestamp
     @Column(name = "created_at", columnDefinition = "timestamptz not null default now()")
@@ -72,5 +86,13 @@ public class FocusRewardAccrual {
      */
     public void add(int fish) {
         this.earnedFish = Math.addExact(this.earnedFish, fish);
+    }
+
+    /**
+     * 같은 날 같은 세션의 황금 물고기 몫 추가 — 호출측(황금 추첨)이 세션 상세를 배타 잠근 뒤 부른다.
+     * 하루 상한과 무관한 축이라 {@link #add} 와 섞지 않는다.
+     */
+    public void addGolden(int fish) {
+        this.goldenFish = Math.addExact(this.goldenFish, fish);
     }
 }

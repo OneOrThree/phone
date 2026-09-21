@@ -2,9 +2,13 @@ package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.friend.dto.FriendRequestCreateRequest;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
+import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
+import com.oneorthree.phone.friend.exception.FriendErrorCode;
+import com.oneorthree.phone.friend.exception.FriendException;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.service.FriendService;
+import com.oneorthree.phone.friend.service.search.SearchType;
 import com.oneorthree.phone.internal.dto.FriendRequestStateView;
 import com.oneorthree.phone.internal.dto.FriendshipDeletedView;
 import com.oneorthree.phone.internal.service.GuestAccountGuards;
@@ -24,10 +28,11 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 
 /**
- * 친구 7종의 <b>내부 표면</b> (GROMO-1894, friend-letter LLD §1.1~1.6 · §1.11 · §1.15) — 공개
+ * 친구 8종의 <b>내부 표면</b> (GROMO-1894 7종 + GROMO-1996 검색) — 공개
  * {@code /friends…} 는 Business 의 {@code FriendController} 가 열고 여기는 그 위임만 받는다. 레거시
  * {@code /api/v1/friends…}({@code friend.FriendController})는 그대로 두고 동작도 바꾸지 않는다 — 두 표면이
  * 같은 {@code FriendService} 를 부른다.
@@ -63,6 +68,27 @@ public class InternalFriendController {
     @GetMapping("/friend-requests")
     public List<FriendRequestResponse> friendRequests(@PathVariable UUID userId, @RequestParam String type) {
         return friendService.getRequests(userId, type);
+    }
+
+    /**
+     * 친구 검색 (GROMO-1996) — 공개 {@code GET /friends/search} 가 여기로 온다.
+     *
+     * <p>경로 이름이 {@code friends/search} 가 아니라 {@code friend-search} 인 것은 의도다:
+     * {@code DELETE /internal/users/*&#47;friends/*}(친구 삭제)와 세그먼트 수가 같아, 한 줄로 두면
+     * 허용목록이 메서드로만 갈리는 이웃을 덮기 쉬워진다. 섬 탐색의 {@code island-search} 와 같은 형태다.
+     *
+     * <p>{@code type} 은 <b>문자열로 받는다</b> — {@code @RequestParam SearchType} 으로 바인딩하면
+     * 모르는 값이 Spring 의 변환 실패(코드 없는 400)가 되어 Business 의 오류 표에 걸리지 않고 502 로
+     * 나간다. 여기서 {@code INVALID_SEARCH_TYPE}(400)로 바꿔 공개 {@code INVALID_PARAMETER}(field=type)
+     * 가 되게 한다.
+     *
+     * @return 최대 한 건. 「없음」은 빈 배열이지 404 가 아니다
+     */
+    @GetMapping("/friend-search")
+    public List<FriendSearchResultResponse> search(@PathVariable UUID userId,
+                                                   @RequestParam String type,
+                                                   @RequestParam String q) {
+        return friendService.search(userId, searchType(type), q);
     }
 
     /**
@@ -105,9 +131,21 @@ public class InternalFriendController {
         return new FriendRequestStateView(requestId, FriendshipStatus.CANCELED);
     }
 
-    /** 친구 삭제 (LLD §1.4) — 관계 양쪽 누구나. 탈퇴자와의 잔존 관계도 끊는다. */
+    /**
+     * 친구 삭제 (LLD §1.4) — 관계 양쪽 누구나. 탈퇴자와의 잔존 관계도 끊는다.
+     * 아직 확인하지 않은 편지도 함께 지운다 (GROMO-2002) — 판정은 {@code FriendService.deleteFriend} 안이다.
+     */
     @DeleteMapping("/friends/{friendUserId}")
     public FriendshipDeletedView deleteFriend(@PathVariable UUID userId, @PathVariable UUID friendUserId) {
         return new FriendshipDeletedView(friendService.deleteFriend(userId, friendUserId));
+    }
+
+    /** 대소문자·공백을 받아 주되 모르는 값은 도메인 코드로 거절한다 — Spring 변환 실패는 코드가 없다. */
+    private static SearchType searchType(String raw) {
+        try {
+            return SearchType.valueOf(raw.strip().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new FriendException(FriendErrorCode.INVALID_SEARCH_TYPE);
+        }
     }
 }

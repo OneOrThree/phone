@@ -20,7 +20,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 편지 내부 경로 3종이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을 통과하는지
+ * 편지 내부 경로 4종이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을 통과하는지
  * 검증한다 (GROMO-1933, GROMO-1894 의 {@code InternalFriendAllowlistTest} 와 같은 방식).
  *
  * <p>경로는 <b>컨트롤러 애노테이션에서 읽고</b>, 허용목록은 <b>배포되는 yml 파일에서 읽는다</b> — 둘 중
@@ -38,7 +38,7 @@ class InternalLetterAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalLetterController.class);
 
-        assertThat(routes).as("3종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(3);
+        assertThat(routes).as("4종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(4);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -48,21 +48,22 @@ class InternalLetterAllowlistTest {
     void allowlistDoesNotLeakIntoNeighbours() throws IOException {
         List<String> allow = shippedBusinessAllowlist();
 
-        // 목록·발송·상세 세 줄 외에는 없다 — 편지 삭제·수정·남의 편지함은 열리지 않는다.
+        // 목록·발송·상세·닫기 네 줄 외에는 없다 — 수정·편지함 통째 삭제·남의 편지함은 열리지 않는다.
+        // 닫기(DELETE …/letters/{id})는 GROMO-2002 가 열었지만 편지함 통째(DELETE …/letters)는 여전히 닫혀 있다.
         assertThat(allows(allow, "DELETE /internal/users/" + ID + "/letters")).isFalse();
-        assertThat(allows(allow, "DELETE /internal/users/" + ID + "/letters/" + ID)).isFalse();
         assertThat(allows(allow, "POST /internal/users/" + ID + "/letters/" + ID)).isFalse();
         assertThat(allows(allow, "PUT /internal/users/" + ID + "/letters/" + ID)).isFalse();
         assertThat(allows(allow, "GET /internal/users/" + ID + "/letters/" + ID + "/replies")).isFalse();
     }
 
     @Test
-    @DisplayName("발송과 목록은 메서드로만 갈리므로 한 줄로 합쳐 두지 않았다")
+    @DisplayName("메서드로만 갈리는 줄들(발송·목록, 상세·닫기)을 한 줄로 합쳐 두지 않았다")
     void sendAndListAreSeparateEntries() throws IOException {
         List<String> allow = shippedBusinessAllowlist();
 
         assertThat(allow).contains("POST /internal/users/*/letters",
-                "GET /internal/users/*/letters", "GET /internal/users/*/letters/*");
+                "GET /internal/users/*/letters", "GET /internal/users/*/letters/*",
+                "DELETE /internal/users/*/letters/*");
     }
 
     // ---------------------------------------------------------------- 도구

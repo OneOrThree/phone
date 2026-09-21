@@ -627,7 +627,7 @@ public class AuthService {
 
     private LoginSessionResult resultOf(User user, IssuedGuest issued) {
         return new LoginSessionResult(issued.accessToken(), issued.refreshToken(), user.getId(),
-                OnboardingCompletion.isComplete(user));
+                OnboardingCompletion.isComplete(user), issued.session().deviceBootstrap());
     }
 
     /** 발급 한 건의 재료 — 호출부마다 다른 응답 모양으로 조립한다. */
@@ -636,13 +636,15 @@ public class AuthService {
     }
 
     /**
-     * 2.0 공개 로그인 결과 네 필드 — 소셜 로그인의 {@code LoginSessionResponse} 와 같은 모양이다.
+     * 2.0 공개 로그인 결과 — 소셜 로그인의 {@code LoginSessionResponse} 와 같은 모양이다.
      *
-     * <p>{@code deviceBootstrap}·{@code sessionId} 를 담지 않는다. 그 둘은 기기 등록 축의 자격이고,
-     * 공개 게스트 발급 계약에는 들어 있지 않다(계정 LLD §2.1 「본문 4필드는 유지한다」).
+     * <p>{@code sessionId} 는 담지 않는다. {@code deviceBootstrap} 은 공개 <b>본문</b> 4필드에는
+     * 들어가지 않지만(계정 LLD §2.1 「본문 4필드는 유지한다」) 같은 §2.1 이 그 값을
+     * {@code X-Device-Bootstrap} <b>헤더</b>로 보존하라고 해서 여기 싣는다 — 공개 표면에서 헤더로
+     * 내보내는 일은 Business 가 한다(GROMO-2037).
      */
     public record LoginSessionResult(String accessToken, String refreshToken, UUID userId,
-                                     boolean onboardingComplete) {
+                                     boolean onboardingComplete, String deviceBootstrap) {
 
         @Override
         public String toString() {
