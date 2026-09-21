@@ -3,6 +3,7 @@ package com.oneorthree.phone.withdrawal.service;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.common.port.FocusPresenceState;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -56,10 +57,10 @@ class AccountWithdrawalPresenceErasureIntegrationTest {
         UUID w = guest();
         UUID other = guest();
         Long ended = sessionId();
-        presence.focusStarted(w, ended, Instant.now());
+        started(w, ended);
         presence.focusEnded(w, ended);                        // :closed 표식
-        presence.focusStarted(w, sessionId(), Instant.now()); // 진행 중 리스
-        presence.focusStarted(other, sessionId(), Instant.now());
+        started(w, sessionId());          // 진행 중 리스
+        started(other, sessionId());
         assertThat(presenceKeys(w)).isEqualTo(2);
 
         withdrawal.withdraw(w);
@@ -70,8 +71,9 @@ class AccountWithdrawalPresenceErasureIntegrationTest {
         assertThat(redis.hasKey("presence:focus:" + other)).isTrue();
 
         // 탈퇴 커밋 전에 걸린 시작 콜백·재구축이 늦게 도착해도 리스가 생기지 않는다.
-        presence.focusStarted(w, sessionId(), Instant.now());
-        assertThat(presence.restoreLeaseIfMissing(w, sessionId(), Instant.now())).isTrue();
+        started(w, sessionId());
+        assertThat(presence.restoreLeaseIfMissing(w, sessionId(), 0L, FocusPresenceState.ACTIVE,
+                Instant.now())).isTrue();
         presence.focusEnded(w, sessionId());
         assertThat(presenceKeys(w)).isZero();
 
@@ -84,6 +86,11 @@ class AccountWithdrawalPresenceErasureIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from event_outbox_deliveries d join event_outbox o"
                 + " on o.id = d.outbox_id where o.user_id = ? and o.type = 'user.withdrawn'"
                 + " and d.target = 'REALTIME' and d.delivered_at is null", Long.class, w)).isEqualTo(1L);
+    }
+
+    /** 「집중이 시작됐다」 — 레거시 마커와 같은 모양(controlVersion 0 · active). */
+    private void started(UUID userId, Long presenceOrder) {
+        presence.focusStateChanged(userId, presenceOrder, 0L, FocusPresenceState.ACTIVE, Instant.now());
     }
 
     private UUID guest() {

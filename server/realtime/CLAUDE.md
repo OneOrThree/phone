@@ -265,6 +265,8 @@ Chat never touches the `gromo` database and Data API never touches `gromo_chat`.
 이름별 고정 목적지만 계산하고 payload의 destination을 거절한다. 개인 자산은 소유자 한 명의 개인큐로만,
 공동 자산은 같은 섬으로만 보낸다. 필수 `schemaVersion: 1`과 안전 정수 자원 버전을 구분하고, payload version 일치·owner/currency 범위를 검사한다.
 알 수 없거나 누락된 schemaVersion은 거절한다. emote도 schemaVersion은 1이고 aggregateVersion만 null이다.
+**지갑은 섬 단위 하나다**(GROMO-1989/2044) — `wallet.updated`는 `islandId`가 필수이고 `currency`는 `village_points`뿐이다.
+섬 없는 지갑 사건은 봉투에서 거절한다. 개인 축(`ownerType:user`, `islandId=null`)이 남은 자산은 `inventory.updated` 하나다.
 
 `RealtimeEventDelivery`가 섬 목적지 전달을 담당한다(GROMO-1765) — 로컬 `SimpMessagingTemplate` 먼저,
 그다음 `chat:events:v1` Redis 발행. 둘 중 어느 쪽이 실패해도 예외를 올리지 않는다: 이 메서드는

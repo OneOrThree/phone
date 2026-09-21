@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.Collection;
 import java.util.OptionalInt;
 import java.util.UUID;
 
@@ -146,6 +147,70 @@ public class IslandWalletService {
                 .idempotencyKey(idempotencyKey)
                 .build());
         return wallet.getBalance();
+    }
+
+    /**
+     * 황금 물고기 적립(GROMO-1956) — 같이 집중 보너스의 세 기록을 <b>한 트랜잭션에</b> 확정한다:
+     * 섬 잔액 +{@code reward}(한 번), 함께 낚은 주민의 건설 «각자 몫» +{@code sharePerMember}(각자),
+     * 그리고 원장 한 줄. 주민별 누적 획득 기록은 집중 적립 원장 축이라 호출측이 쓴다
+     * ({@code focus_reward_accruals.golden_fish}).
+     *
+     * <p>{@link #contribute} 를 재사용할 수 없는 이유가 여기 있다 — 그쪽은 지갑과 각자 몫에 <b>같은 값</b>을
+     * 넣는다. 황금은 잔액에 50, 각자 몫에 50 ÷ 인원(내림)이고 나머지는 잔액에만 남는다(기획 정본
+     * 「나누고 남은 물고기는 섬 잔액에만 남는다」).
+     *
+     * <p><b>멱등의 자리는 이 메서드 하나다.</b> 지갑 행을 잠근 뒤 원장을 보고, 이미 있으면 <b>아무것도
+     * 쓰지 않고</b> {@code false} 를 돌려준다 — 잔액·각자 몫·원장이 같은 트랜잭션이라 「잔액만 두 번」이
+     * 생길 수 없다. 같은 키의 동시 요청은 지갑 행 잠금이 직렬화하고
+     * {@code uq_island_wallet_tx_idem} 이 최후 방어선이다. 인메모리 플래그는 두지 않는다.
+     *
+     * <p>잠금 순서는 {@link #contribute} 와 같다(건설 상태 → 지갑) — 각자 몫을 쓰려면 목표 epoch 이
+     * 필요하고, 거꾸로 잡으면 건설 명령과 교착 쌍이 된다. 호출측은 이보다 «위»에서 세션 상세를 이미
+     * 잠근 채 들어온다(집중 적립 틱과 같은 꼬리 순서: 상세 → 건설 상태 → 통장).
+     *
+     * @param islandId       황금 물고기가 나타난 섬
+     * @param reward         섬 잔액에 더할 총량(기획 정본의 50)
+     * @param sharePerMember 주민 한 명의 건설 각자 몫(50 ÷ 인원, 내림). 0 이면 각자 몫을 쓰지 않는다
+     * @param memberIds      함께 낚은 주민 — 호출측이 <b>정렬해</b> 넘긴다(동시 기여와 교착하지 않도록)
+     * @param idempotencyKey 추첨 하나의 키 — {@code golden:<추첨 분 epoch 초>}
+     * @return 이번에 적립했으면 {@code true}, 같은 추첨이 이미 적립돼 있으면 {@code false}
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean creditGoldenFish(UUID islandId, int reward, int sharePerMember,
+                                    Collection<UUID> memberIds, String idempotencyKey) {
+        if (reward <= 0 || sharePerMember < 0) {
+            throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+        }
+        states.insertIfAbsent(islandId);
+        IslandConstructionState state = states.findByIdForUpdate(islandId)
+                .orElseThrow(() -> new IllegalStateException("섬 건설 상태를 만들 직후에 찾지 못했습니다."));
+        wallets.insertIfAbsent(islandId);
+        IslandWallet wallet = wallets.findByIdForUpdate(islandId)
+                .orElseThrow(() -> new IllegalStateException("섬 지갑을 만들 직후에 찾지 못했습니다."));
+        // 잠금 «아래» 에서만 판정한다 — 잠금 전 판정은 같은 키의 동시 요청을 둘 다 통과시킨다.
+        if (ledger.existsByIslandIdAndTypeAndIdempotencyKey(
+                islandId, IslandWalletTransactionType.GOLDEN_FISH, idempotencyKey)) {
+            return false;
+        }
+        if (reward > Integer.MAX_VALUE - wallet.getBalance()) {
+            throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+        }
+        wallet.earn(reward);
+        // 「각자 몫은 목표를 고른 뒤부터 모은 물고기로 판단한다」(정책 P-D04) — 목표가 없으면 잔액만 는다.
+        if (sharePerMember > 0 && state.getTargetBuildingId() != null) {
+            for (UUID memberId : memberIds) {
+                if (contributions.accumulate(islandId, state.getTargetEpoch(), memberId, sharePerMember,
+                        clock.instant()) == 0) {
+                    throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+                }
+            }
+        }
+        ledger.save(IslandWalletTransaction.builder()
+                .islandId(islandId).amount(reward)
+                .type(IslandWalletTransactionType.GOLDEN_FISH)
+                .idempotencyKey(idempotencyKey)
+                .build());
+        return true;
     }
 
     /**
