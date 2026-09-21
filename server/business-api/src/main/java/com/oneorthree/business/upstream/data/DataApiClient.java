@@ -329,7 +329,8 @@ public class DataApiClient {
      */
     public record LoginAttemptCommand(
             UUID attemptId, String digestKeyId, String credentialDigest, String provider,
-            String credentialKind, String credential, String termsVersion, String callerAccessToken) {
+            String credentialKind, String credential, String termsVersion, String callerAccessToken,
+            boolean accountSwitchConfirmed) {
 
         @Override
         public String toString() {
