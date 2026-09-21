@@ -80,6 +80,8 @@ location = /actuator { return 404; }
 # PUT /me/screen-time/{date}.
 # 회관 공동 가계부(GROMO-1786)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/resources/ledger.
+# 내 가입 신청 목록(GROMO-2047)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/join-requests (단건 GET·DELETE /me/join-requests/{requestId} 는 1760 에서 이미 열렸다).
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;

@@ -43,6 +43,12 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     private static final String DATA_DISCOVER = "GET " + INTERNAL + "/island-discovery";
     private static final String DATA_SWITCH = "PUT " + INTERNAL + "/current-island";
     private static final String DATA_ISLAND = "GET /internal/islands/" + ISLAND;
+    private static final String DATA_MY_REQUESTS = "GET " + INTERNAL + "/join-requests";
+
+    private static final UUID REQUEST = UUID.fromString("ffffffff-2047-0000-0000-000000000001");
+    private static final String MY_REQUEST_ITEM = "{\"id\":\"" + REQUEST + "\",\"islandId\":\"" + ISLAND
+            + "\",\"islandName\":\"모래섬\",\"memberCount\":3,\"maxMembers\":15,\"status\":\"pending\","
+            + "\"version\":1,\"createdAt\":\"2026-09-19T01:02:03Z\"}";
 
     private static final String CREATE_BODY = "{\"name\":\"모래섬\",\"approvalRequired\":false}";
     private static final String CREATED = "{\"id\":\"" + ISLAND + "\",\"membershipStatus\":\"active\","
@@ -182,6 +188,65 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(get("/me/islands")))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    // ---------------------------------------------------------------- 내 가입 신청 목록
+
+    @Test
+    @DisplayName("내 신청 목록 — 섬 요약(이름·주민 수·정원)과 상태·신청 시각이 실리고, 경계는 서명 커서로 감싼다")
+    void myJoinRequestsCarryTheIslandSummaryAndASignedCursor() throws Exception {
+        DATA.on(DATA_MY_REQUESTS, request -> ok("{\"items\":[" + MY_REQUEST_ITEM + "],"
+                + "\"nextCreatedAt\":\"2026-09-19T01:02:03Z\",\"nextRequestId\":\"" + REQUEST + "\"}"));
+
+        MvcResult first = mockMvc.perform(auth(get("/me/join-requests")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items[0].id").value(REQUEST.toString()))
+                .andExpect(jsonPath("$.data.items[0].islandId").value(ISLAND.toString()))
+                .andExpect(jsonPath("$.data.items[0].islandName").value("모래섬"))
+                .andExpect(jsonPath("$.data.items[0].memberCount").value(3))
+                .andExpect(jsonPath("$.data.items[0].maxMembers").value(15))
+                .andExpect(jsonPath("$.data.items[0].status").value("pending"))
+                .andExpect(jsonPath("$.data.items[0].createdAt").value("2026-09-19T01:02:03Z"))
+                .andExpect(jsonPath("$.data.nextCreatedAt").doesNotExist())
+                .andExpect(jsonPath("$.data.nextCursor").isNotEmpty()).andReturn();
+        assertThat(DATA.receivedFor(DATA_MY_REQUESTS).get(0).query())
+                .as("기본 limit 은 20 이고 첫 페이지는 경계를 싣지 않는다")
+                .contains("limit=20").doesNotContain("afterCreatedAt");
+
+        String cursor = com.jayway.jsonpath.JsonPath.read(
+                first.getResponse().getContentAsString(), "$.data.nextCursor");
+        mockMvc.perform(auth(get("/me/join-requests")).param("cursor", cursor))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor(DATA_MY_REQUESTS).get(1).query())
+                .contains("afterRequestId=" + REQUEST).contains("afterCreatedAt=2026-09-19T01");
+
+        // limit 이 바뀌면 같은 커서를 못 쓴다 — 다른 목록과 같은 규칙이다.
+        int before = DATA.hits(DATA_MY_REQUESTS);
+        mockMvc.perform(auth(get("/me/join-requests")).param("cursor", cursor).param("limit", "5"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+        assertThat(DATA.hits(DATA_MY_REQUESTS)).isEqualTo(before);
+    }
+
+    @Test
+    @DisplayName("내 신청 목록 — 신청이 없으면 빈 목록 + 200 이고, 단건 조회 경로와 겹치지 않는다")
+    void myJoinRequestsAreEmptyRatherThanNotFound() throws Exception {
+        DATA.on(DATA_MY_REQUESTS, request -> ok("{\"items\":[],\"nextCreatedAt\":null,"
+                + "\"nextRequestId\":null}"));
+
+        mockMvc.perform(auth(get("/me/join-requests")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.items").isEmpty())
+                .andExpect(jsonPath("$.data.nextCursor").doesNotExist());
+
+        // 단건은 여전히 §3.8 상류로 간다 — 목록 경로가 삼키지 않는다.
+        DATA.on("GET " + INTERNAL + "/join-requests/" + REQUEST, request ->
+                ok("{\"id\":\"" + REQUEST + "\",\"islandId\":\"" + ISLAND + "\",\"status\":\"pending\","
+                        + "\"version\":1}"));
+        mockMvc.perform(auth(get("/me/join-requests/" + REQUEST)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(REQUEST.toString()));
+        assertThat(DATA.hits(DATA_MY_REQUESTS)).isEqualTo(1);
     }
 
     // ---------------------------------------------------------------- 커서
