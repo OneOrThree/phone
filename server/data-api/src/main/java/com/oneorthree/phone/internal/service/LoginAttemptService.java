@@ -7,6 +7,7 @@ import com.oneorthree.phone.auth.repository.LoginAttemptRepository;
 import com.oneorthree.phone.auth.repository.domain.LoginAttempt;
 import com.oneorthree.phone.auth.repository.domain.AuthSession;
 import com.oneorthree.phone.auth.repository.domain.LoginAttemptStatus;
+import com.oneorthree.phone.auth.repository.domain.LoginAttemptSwitchPhase;
 import com.oneorthree.phone.auth.repository.domain.LoginTokenMaterials;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.service.AuthSessionService;
@@ -18,8 +19,10 @@ import com.oneorthree.phone.internal.dto.LoginAttemptLookupResponse;
 import com.oneorthree.phone.internal.dto.LoginSessionResponse;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
+import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.Provider;
+import com.oneorthree.phone.user.repository.domain.SocialAccount;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.support.OnboardingCompletion;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
@@ -81,6 +84,7 @@ public class LoginAttemptService {
     private final AuthSessionService authSessionService;
     private final AccountWithdrawalService accountWithdrawalService;
     private final JwtProvider jwtProvider;
+    private final SocialAccountRepository socialAccountRepository;
     private final LoginAttemptService self;
 
     /**
@@ -97,13 +101,15 @@ public class LoginAttemptService {
     public LoginAttemptService(LoginAttemptRepository loginAttemptRepository,
             UserQueryService userQueryService, AuthService authService,
             AuthSessionService authSessionService, AccountWithdrawalService accountWithdrawalService,
-            JwtProvider jwtProvider, @Lazy LoginAttemptService self) {
+            JwtProvider jwtProvider, SocialAccountRepository socialAccountRepository,
+            @Lazy LoginAttemptService self) {
         this.loginAttemptRepository = loginAttemptRepository;
         this.userQueryService = userQueryService;
         this.authService = authService;
         this.authSessionService = authSessionService;
         this.accountWithdrawalService = accountWithdrawalService;
         this.jwtProvider = jwtProvider;
+        this.socialAccountRepository = socialAccountRepository;
         this.self = self;
     }
 
@@ -147,6 +153,19 @@ public class LoginAttemptService {
      * 잠글 ID 발견용이고 인가 결과로 사용하지 않는다」).
      */
     public LoginSessionResponse execute(LoginAttemptExecuteRequest request) {
+        // 이미 전환 증거가 있는 attempt 는 더 이상 일반 로그인 실행이 아니다. 특히
+        // GUEST_WITHDRAWN source 는 의도적으로 죽어 있으므로 live optional-session 관문을
+        // 다시 통과시키면 재개 자체가 불가능해진다. 이 분기는 저장된 digest·의도·source tuple을
+        // 먼저 재검증한 뒤에만 열린다.
+        LoginAttemptSwitchPhase phase = self.switchPhaseForExecute(request);
+        if (phase == LoginAttemptSwitchPhase.VERIFIED) {
+            self.discardGuestAndCheckpoint(request);
+            return self.completeTargetSwitch(request);
+        }
+        if (phase == LoginAttemptSwitchPhase.GUEST_WITHDRAWN) {
+            return self.completeTargetSwitch(request);
+        }
+
         // 선택 AT 를 «승격 자격» 으로 인정하기 전에 그 세션이 지금 살아 있는지 본다. 시도를
         // 선점하기 «전» 이다 — 거절할 요청이 원장에 PENDING 을 남기면 안 된다.
         self.gateOptionalSession(request.callerAccessToken());
@@ -164,6 +183,13 @@ public class LoginAttemptService {
                 ? null : jwtProvider.extractUserId(request.callerAccessToken());
         if (request.accountSwitchConfirmed() && callerUserId != null
                 && authService.isLinkedToAnotherUser(request.provider(), providerId, callerUserId)) {
+            // 게스트의 확정 전환만 checkpoint 프로토콜을 탄다. 회원 caller의 기존 account-switch
+            // 동작은 유지한다(그 경로에는 폐기할 guest source가 없다).
+            if (Boolean.TRUE.equals(jwtProvider.extractIsGuest(request.callerAccessToken()))) {
+                self.prepareSwitch(request, providerId);
+                self.discardGuestAndCheckpoint(request);
+                return self.completeTargetSwitch(request);
+            }
             return self.complete(request.attemptId(), switchToLinkedAccount(
                     request.provider(), providerId, callerUserId));
         }
@@ -174,6 +200,38 @@ public class LoginAttemptService {
                 authService.loginWithProviderId(request.provider(), providerId, authorization);
 
         return self.complete(request.attemptId(), login);
+    }
+
+    /**
+     * execute 직전의 내구 phase를 읽는다. phase 행은 recovery window와 immutable intent,
+     * 서명된 source tuple을 이 자리에서 다시 묶는다. {@code null}은 일반/NONE 경로다.
+     */
+    @Transactional
+    public LoginAttemptSwitchPhase switchPhaseForExecute(LoginAttemptExecuteRequest request) {
+        LoginAttempt attempt = loginAttemptRepository.findByAttemptIdForUpdate(request.attemptId())
+                .orElse(null);
+        if (attempt == null || attempt.getSwitchPhase() == null) {
+            return null;
+        }
+        Instant now = Instant.now();
+        guard(attempt, request.digestKeyId(), request.credentialDigest(), now);
+        guardSwitchIntent(attempt, request.provider().name(), request.credentialKind(),
+                request.termsVersion(), request.accountSwitchConfirmed());
+        if (request.callerAccessToken() == null
+                || !ownsSwitchSource(attempt, request.callerAccessToken())) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        // 완료 결과는 새 실행권을 만들지 않는 replay다. 반면 PENDING phase 재개는 반드시
+        // 같은 30초 lease를 얻어야 한다. attempt 행 잠금과 claimed_at 조건부 UPDATE를 함께 써
+        // VERIFIED 경쟁 패자가 이전 phase를 들고 discard에 진입하는 일을 막는다.
+        if (attempt.getStatus() != LoginAttemptStatus.COMPLETED) {
+            if (now.isBefore(attempt.getClaimedAt().plus(EXECUTION_LEASE))
+                    || loginAttemptRepository.reclaimExpired(
+                            request.attemptId(), attempt.getClaimedAt(), now) != 1) {
+                throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_IN_PROGRESS);
+            }
+        }
+        return attempt.getSwitchPhase();
     }
 
     /**
@@ -222,6 +280,199 @@ public class LoginAttemptService {
                 .filter(User::isGuest)
                 .ifPresent(guest -> accountWithdrawalService.withdraw(guest.getId()));
         return authService.loginWithProviderId(provider, providerId, null);
+    }
+
+    /**
+     * 확인된 전환 시도에 <b>검증 증거를 박아 {@code VERIFIED} 로 전이</b>한다 (GROMO-1992).
+     *
+     * <p>제공자 검증은 호출부가 트랜잭션 «밖»에서 끝내고 {@code providerId} 만 넘긴다 — 원문
+     * credential 은 여기 오지도 저장하지도 않는다. 이 시점에 박는 source tuple(user·sid·gen)과
+     * target 식별자가 탈퇴 뒤 재개의 유일한 근거가 된다.
+     *
+     * <p>판정 순서는 {@link #guard} 와 같은 규율이다 — digest·불변 의도 대조가 먼저, 그 뒤
+     * 「지금 살아 있는 게스트의 AT 인가」와 「기존 회원 연동인가」를 검증한다. 어느 하나라도
+     * 어긋나면 아무것도 쓰지 않고 롤백된다.
+     *
+     * @param request    실행 요청 — 시도 id·digest·불변 의도(provider·kind·terms·confirmed)와
+     *                   source 게스트의 AT 를 담는다
+     * @param providerId 제공자가 확인한 계정 식별자 (IdP 호출은 이미 끝났다)
+     */
+    @Transactional
+    public void prepareSwitch(LoginAttemptExecuteRequest request, String providerId) {
+        Instant now = Instant.now();
+        LoginAttempt attempt = loginAttemptRepository.findByAttemptIdForUpdate(request.attemptId())
+                .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+        guard(attempt, request.digestKeyId(), request.credentialDigest(), now);
+        if (attempt.getStatus() != LoginAttemptStatus.PENDING) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        guardSwitchIntent(attempt, request.provider().name(), request.credentialKind(),
+                request.termsVersion(), request.accountSwitchConfirmed());
+
+        // source: 우리 서명의 unexpired access AT + sid/gen — 그리고 그 주체가 «지금» 살아 있는
+        // 게스트여야 한다. user 행을 «먼저» 배타 잠그고(커밋 전 동시 승격·탈퇴와 직렬화) 그 뒤
+        // sid/gen·세션을 본다 — 기존 user→session 잠금 순서다. 탈퇴가 끝난 source 의 재개는 이
+        // 관문을 통과하지 못하고(그 경로는 저장 증거로 재개한다), 비게스트 주체는 애초에 폐기
+        // 대상이 아니다.
+        String token = request.callerAccessToken();
+        if (token == null || !jwtProvider.isTokenValid(token)
+                || !JwtProvider.TYPE_ACCESS.equals(jwtProvider.extractType(token))) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        UUID sourceUserId = jwtProvider.extractUserId(token);
+        UUID sourceSessionId = jwtProvider.extractSessionId(token);
+        Long sourceGeneration = jwtProvider.extractAuthGeneration(token);
+        User source = userQueryService.getCallerForUpdate(sourceUserId);
+        if (!source.isGuest()) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        if (sourceSessionId == null || sourceGeneration == null
+                || sourceGeneration.longValue() != source.getAuthGeneration()
+                || authSessionService.verifySession(sourceUserId, sourceSessionId)
+                        .filter(AuthSession::isActive).isEmpty()) {
+            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
+        }
+
+        // target: IdP 가 확인한 providerId 의 «기존» 연동 행이어야 하고, 그 주인은 활성 회원
+        // (비게스트)이어야 한다. owner 는 여기서 쓰지 않으므로 share 잠금까지다 — guest source 만
+        // 다루는 이 경로에 target 쓰기 잠금은 없다. 해제됐거나 주인이 사라진 연동은 전환 대상이 아니다.
+        SocialAccount linkage = socialAccountRepository
+                .findByProviderAndProviderId(request.provider(), providerId)
+                .filter(account -> account.getDeletedAt() == null)
+                .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+        User owner = userQueryService.findActiveForShare(linkage.getUser().getId())
+                .filter(candidate -> !candidate.isGuest())
+                .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+
+        try {
+            attempt.verifySwitch(source.getId(), sourceSessionId, sourceGeneration,
+                    owner.getId(), linkage.getId(), now);
+        } catch (IllegalStateException e) {
+            // 같은 시도에 «다른» 전환 증거 — digest 불일치와 같은 409 로 접는다.
+            throw new OutboxException(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+    }
+
+    /**
+     * {@code VERIFIED} 전환 시도의 <b>source 게스트 폐기 + {@code GUEST_WITHDRAWN} 체크포인트</b> —
+     * 둘은 <b>한 트랜잭션</b>이다 (GROMO-1992).
+     *
+     * <p>폐기만 커밋되고 phase 가 {@code VERIFIED} 로 남으면, 재개 요청이 저장 증거를 들고 와도
+     * 아래 활성 게스트 관문을 통과하지 못해 그 시도는 영원히 갇힌다. 반대로 phase 만 전이되면
+     * 폐기 없는 전환 완료로 이어진다. 그래서 {@link AccountWithdrawalService#withdraw} 를 같은
+     * REQUIRED 트랜잭션에 참여시키고, 그 맨 끝의 소셜 벌크 DELETE 가 영속성 컨텍스트를 비운
+     * «뒤»에 조건부 native UPDATE({@link LoginAttemptRepository#markSwitchGuestWithdrawn})로
+     * phase 를 닫는다 — 관리 엔티티의 dirty checking 은 그 지점에서 유실되므로 쓸 수 없다.
+     * UPDATE 가 1 을 돌려주지 않으면 예외로 폐기까지 통째로 롤백한다.
+     */
+    @Transactional
+    public void discardGuestAndCheckpoint(LoginAttemptExecuteRequest request) {
+        Instant now = Instant.now();
+        LoginAttempt attempt = loginAttemptRepository.findByAttemptIdForUpdate(request.attemptId())
+                .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+        guard(attempt, request.digestKeyId(), request.credentialDigest(), now);
+        if (attempt.getStatus() != LoginAttemptStatus.PENDING
+                || attempt.getSwitchPhase() != LoginAttemptSwitchPhase.VERIFIED) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        guardSwitchIntent(attempt, request.provider().name(), request.credentialKind(),
+                request.termsVersion(), request.accountSwitchConfirmed());
+        String token = request.callerAccessToken();
+        if (token == null || !ownsSwitchSource(attempt, token)) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+
+        // source user 행을 «먼저» 배타 잠근 뒤 sid/gen·세션을 본다 — prepareSwitch 와 같은
+        // user→session 잠금 순서다. 저장 증거의 세대가 현재와 어긋났거나 sid 세션이 죽어 있으면
+        // 지금 폐기할 자격이 아니다.
+        UUID sourceUserId = attempt.getSwitchSourceUserId();
+        User source = userQueryService.getCallerForUpdate(sourceUserId);
+        if (!source.isGuest()) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        if (source.getAuthGeneration() != attempt.getSwitchSourceAuthGeneration()
+                || authSessionService.verifySession(sourceUserId, attempt.getSwitchSourceSessionId())
+                        .filter(AuthSession::isActive).isEmpty()) {
+            throw new AuthException(AuthErrorCode.SESSION_NOT_ACTIVE);
+        }
+
+        // target: 저장된 연동 행이 아직 같은 provider·같은 주인을 가리키고 그 주인이 활성
+        // 회원이어야 한다 — 폐기 동의의 대상이 바뀌었으면 진행하지 않는다. write 잠금은 없다
+        // (prepareSwitch 와 같은 이유다).
+        SocialAccount linkage = socialAccountRepository
+                .findById(attempt.getSwitchTargetSocialAccountId())
+                .filter(account -> account.getDeletedAt() == null
+                        && account.getProvider() == request.provider()
+                        && account.getUser().getId().equals(attempt.getSwitchTargetUserId()))
+                .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+        userQueryService.findActiveForShare(linkage.getUser().getId())
+                .filter(candidate -> !candidate.isGuest())
+                .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+
+        accountWithdrawalService.withdraw(sourceUserId);
+        // withdraw 말미의 EM clear 때문에 여기서 entity dirty checking 은 죽어 있다 — 조건부
+        // UPDATE 만이 전이를 보장한다. 0 이면 폐기와 함께 통째로 롤백.
+        if (loginAttemptRepository.markSwitchGuestWithdrawn(request.attemptId(), now) != 1) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+    }
+
+    /**
+     * {@code GUEST_WITHDRAWN} 전환 시도의 <b>대상 회원 로그인 + 결과 확정</b> — 한 트랜잭션
+     * (GROMO-1992). 게스트 폐기와 대상 로그인 사이의 유실 창에서 재개되는 마지막 조각이다.
+     *
+     * <p>source 는 이미 폐기됐으므로 활성 게스트 조회는 <b>하지 않는다</b> — 저장 증거와 AT 의
+     * 대조({@link #ownsSwitchSource})가 source 자격을 증명한다. target 은 처음부터 배타 잠금이다
+     * (share→write 승급 금지 — 이 트랜잭션이 그 행의 RT 해시를 갱신한다). providerId 는 요청이
+     * 아니라 <b>저장된 연동 행에서만</b> 읽는다 — 이 경로는 새 IdP 왕복을 만들지 않는다.
+     *
+     * <p>로그인은 {@link AuthService#loginOrRegister} 가 REQUIRED 로 같은 트랜잭션에 참여한다 —
+     * 세션 오픈·RT 해시 갱신이 attempt 완료와 함께 커밋되거나 함께 롤백된다. 대상 불일치(다른
+     * 계정으로 로그인됐다)면 통째로 롤백해 phase 를 {@code GUEST_WITHDRAWN} 그대로 둔다.
+     */
+    @Transactional
+    public LoginSessionResponse completeTargetSwitch(LoginAttemptExecuteRequest request) {
+        Instant now = Instant.now();
+        LoginAttempt attempt = loginAttemptRepository.findByAttemptIdForUpdate(request.attemptId())
+                .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+        guard(attempt, request.digestKeyId(), request.credentialDigest(), now);
+        guardSwitchIntent(attempt, request.provider().name(), request.credentialKind(),
+                request.termsVersion(), request.accountSwitchConfirmed());
+        String token = request.callerAccessToken();
+        if (token == null || !ownsSwitchSource(attempt, token)) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+
+        if (attempt.getStatus() == LoginAttemptStatus.COMPLETED) {
+            // 동시 후행 — 이미 확정된 결과를 그대로 재생한다. 새 세션은 만들지 않는다.
+            return replayOf(attempt);
+        }
+        if (attempt.getStatus() != LoginAttemptStatus.PENDING
+                || attempt.getSwitchPhase() != LoginAttemptSwitchPhase.GUEST_WITHDRAWN) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+
+        // target user 행을 처음부터 배타 잠근다 — 잠근 뒤 매핑을 다시 본다. 비게스트·활성이
+        // 아니면 폐기 동의의 대상이 아니다.
+        UUID targetUserId = attempt.getSwitchTargetUserId();
+        User target = userQueryService.getCallerForUpdate(targetUserId);
+        if (target.isGuest()) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        SocialAccount linkage = socialAccountRepository
+                .findById(attempt.getSwitchTargetSocialAccountId())
+                .filter(account -> account.getDeletedAt() == null
+                        && account.getProvider() == request.provider()
+                        && account.getUser().getId().equals(targetUserId))
+                .orElseThrow(() -> new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE));
+
+        SocialLoginResponse login = authService.loginOrRegister(
+                request.provider(), linkage.getProviderId(), null, null, null, null);
+        if (!jwtProvider.extractUserId(login.accessToken()).equals(targetUserId)) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        // 같은 TX 안에서 기존 확정 헬퍼 재사용 — complete 가 attempt 를 다시 조회한다.
+        return self.complete(request.attemptId(), login);
     }
 
     /**
@@ -285,7 +536,7 @@ public class LoginAttemptService {
         int claimed = loginAttemptRepository.insertClaim(
                 request.attemptId(), request.digestKeyId(), request.credentialDigest(),
                 request.provider().name(), request.credentialKind(), request.termsVersion(),
-                now, now.plus(RECOVERY_WINDOW));
+                Boolean.TRUE.equals(request.accountSwitchConfirmed()), now, now.plus(RECOVERY_WINDOW));
         if (claimed == 1) {
             return null;
         }
@@ -377,15 +628,25 @@ public class LoginAttemptService {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         }
         // 같은 attempt 의 «다른 불변 의도»다 — digest 불일치와 같은 409 로 접는다.
-        if (!Boolean.TRUE.equals(request.accountSwitchConfirmed())
-                || !attempt.isAccountSwitchConfirmed()
-                || !attempt.getProvider().equals(request.provider().name())
-                || !attempt.getCredentialKind().equals(request.credentialKind())
-                || !attempt.getTermsVersion().equals(request.termsVersion())) {
-            throw new OutboxException(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
-        }
+        guardSwitchIntent(attempt, request.provider().name(), request.credentialKind(),
+                request.termsVersion(), Boolean.TRUE.equals(request.accountSwitchConfirmed()));
         if (!ownsSwitchSource(attempt, token)) {
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+    }
+
+    /**
+     * 저장된 불변 의도와 요청의 provider·kind·terms·confirmed 를 대조한다 — 하나라도 다르면
+     * 「같은 시도의 다른 의도」라 {@code IDEMPOTENCY_KEY_CONFLICT} 다. 재생({@link #guardSwitchReplay})
+     * 과 최초 증거 기록({@link #prepareSwitch})이 같은 규칙을 공유한다.
+     */
+    private void guardSwitchIntent(LoginAttempt attempt, String provider, String credentialKind,
+            String termsVersion, boolean confirmed) {
+        if (!confirmed || !attempt.isAccountSwitchConfirmed()
+                || !attempt.getProvider().equals(provider)
+                || !attempt.getCredentialKind().equals(credentialKind)
+                || !attempt.getTermsVersion().equals(termsVersion)) {
+            throw new OutboxException(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
         }
     }
 

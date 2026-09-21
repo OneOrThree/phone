@@ -93,7 +93,7 @@ class LoginAttemptServiceSwitchReplayTest {
         // lenient — phase null legacy 픽스처 테스트가 같은 키로 다른 행을 다시 스텁한다.
         lenient().when(loginAttemptRepository.findById(ATTEMPT)).thenReturn(Optional.of(attempt));
         service = new LoginAttemptService(loginAttemptRepository, userQueryService, authService,
-                authSessionService, null, issuer, null);
+                authSessionService, null, issuer, null, null);
     }
 
     private LoginAttemptLookupRequest request(String token) {

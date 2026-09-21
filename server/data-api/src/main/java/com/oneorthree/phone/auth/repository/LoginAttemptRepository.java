@@ -1,12 +1,15 @@
 package com.oneorthree.phone.auth.repository;
 
 import com.oneorthree.phone.auth.repository.domain.LoginAttempt;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.UUID;
 
 /** 로그인 시도 원장 (GROMO-1908, 계정 LLD §3). */
@@ -25,12 +28,32 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID
      *
      * @return 1 = 이 호출이 선점했다(제공자 교환을 실행한다), 0 = 이미 있다(조회해서 판정한다)
      */
+    default int insertClaim(
+            UUID attemptId,
+            String digestKeyId,
+            String digest,
+            String provider,
+            String credentialKind,
+            String termsVersion,
+            Instant now,
+            Instant recoveryExpiresAt) {
+        return insertClaim(attemptId, digestKeyId, digest, provider, credentialKind, termsVersion,
+                false, now, recoveryExpiresAt);
+    }
+
+    /**
+     * {@link #insertClaim} 의 전환 의도 확장 — {@code accountSwitchConfirmed} 를 최초 claim 에
+     * 박는다 (GROMO-1992). ON CONFLICT 로 재호출은 no-op 이라 최초 claim 의 confirmed 가 불변이다.
+     *
+     * @param accountSwitchConfirmed 앱이 「회원으로 전환」을 확정한 시도인가
+     * @return 1 = 이 호출이 선점했다, 0 = 이미 있다
+     */
     @Modifying
     @Query(value = "INSERT INTO login_attempts "
             + "(attempt_id, status, digest_key_id, credential_digest, provider, credential_kind, "
-            + " terms_version, claimed_at, recovery_expires_at, created_at, updated_at) "
+            + " terms_version, account_switch_confirmed, claimed_at, recovery_expires_at, created_at, updated_at) "
             + "VALUES (:attemptId, 'PENDING', :digestKeyId, :digest, :provider, :credentialKind, "
-            + " :termsVersion, :now, :recoveryExpiresAt, :now, :now) "
+            + " :termsVersion, :accountSwitchConfirmed, :now, :recoveryExpiresAt, :now, :now) "
             + "ON CONFLICT (attempt_id) DO NOTHING", nativeQuery = true)
     int insertClaim(
             @Param("attemptId") UUID attemptId,
@@ -39,8 +62,20 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID
             @Param("provider") String provider,
             @Param("credentialKind") String credentialKind,
             @Param("termsVersion") String termsVersion,
+            @Param("accountSwitchConfirmed") boolean accountSwitchConfirmed,
             @Param("now") Instant now,
             @Param("recoveryExpiresAt") Instant recoveryExpiresAt);
+
+    /**
+     * 시도 행을 <b>배타 잠금</b>(FOR UPDATE)으로 읽는다 — 전환 phase 전이처럼 읽고-판정하고-쓰는
+     * 경로에서 잠금 없는 조회를 쓰면 두 실행자가 같은 phase 를 각각 전이할 수 있다 (GROMO-1992).
+     *
+     * @param attemptId 시도 식별자
+     * @return 잠근 행. 없으면 비어 있다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT a FROM LoginAttempt a WHERE a.attemptId = :attemptId")
+    Optional<LoginAttempt> findByAttemptIdForUpdate(@Param("attemptId") UUID attemptId);
 
     /**
      * 만료된 PENDING 임차를 <b>조건부로</b> 회수한다.
@@ -61,9 +96,34 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID
             @Param("now") Instant now);
 
     /**
+     * {@code PENDING + VERIFIED} 인 전환 시도만 {@code GUEST_WITHDRAWN} 으로 전이한다
+     * (GROMO-1992). 영향 행이 1 일 때만 이 호출이 전이를 커밋한 것이다 — 0 이면 이미 전이됐거나
+     * 다른 status/phase 다.
+     *
+     * <p>엔티티 dirty checking 이 아니라 <b>조건부 native UPDATE</b> 인 이유: withdrawal 의 social
+     * 벌크 DELETE 가 persistence context 를 clear 하므로, 관리 중이던 엔티티의 변경은 그 지점에서
+     * 유실된다. 조건에 expected status·phase 를 함께 박아 두 실행자가 동시에 전이해도 한쪽만 1 을
+     * 받는다 — {@link #reclaimExpired} 와 같은 임차 규칙이다. 결과 {@code user_id} 와 source/target
+     * 증거 열은 건드리지 않는다.
+     *
+     * @return 1 = VERIFIED → GUEST_WITHDRAWN 전이를 이 호출이 했다, 0 = 조건 불일치
+     */
+    @Modifying(flushAutomatically = true)
+    @Query(value = "UPDATE login_attempts SET switch_phase = 'GUEST_WITHDRAWN', updated_at = :now "
+            + "WHERE attempt_id = :attemptId AND status = 'PENDING' AND switch_phase = 'VERIFIED'",
+            nativeQuery = true)
+    int markSwitchGuestWithdrawn(@Param("attemptId") UUID attemptId, @Param("now") Instant now);
+
+    /**
      * 탈퇴자의 로그인 시도를 INVALIDATED 로 닫고 자격 digest·고정 서명 재료를 지운다
      * (GROMO-1801 · 계정 LLD §3 INVALIDATED · §4 · V65). user_id·session_id·시각만 폐기 표지로 남는다 —
      * 같은 시도의 재생은 digest 대조 «전에» 탈퇴 계정으로 판정돼 404 다.
+     *
+     * <p>전환 시도 행은 {@code switch_phase} 와 여섯 증거 열도 함께 지운다 (GROMO-1992) — 남겨 두면
+     * {@code status=INVALIDATED + 증거 잔존} 이라 {@code ck_login_attempts_switch_state} 의 어느 절에도
+     * 맞지 않아 UPDATE 자체가 거절된다. {@code account_switch_confirmed} 는 최초 claim 표지라 그대로
+     * 둔다 — CHECK 첫째 절은 confirmed 값을 제한하지 않는다. {@code WHERE user_id} 는 결과 사용자
+     * 기준 그대로다 — source 열로 넓히면 탈퇴 중인 게스트의 진행 중 전환 원장까지 지워진다.
      *
      * @param userId 탈퇴하는 유저
      * @param now    갱신 시각
@@ -73,7 +133,11 @@ public interface LoginAttemptRepository extends JpaRepository<LoginAttempt, UUID
     @Query(value = "UPDATE login_attempts SET status = 'INVALIDATED', digest_key_id = NULL,"
             + " credential_digest = NULL, onboarding_complete = NULL, token_guest = NULL, auth_generation = NULL,"
             + " access_issued_at = NULL, access_expires_at = NULL, refresh_issued_at = NULL,"
-            + " refresh_expires_at = NULL, refresh_jti = NULL, updated_at = :now WHERE user_id = :userId",
+            + " refresh_expires_at = NULL, refresh_jti = NULL,"
+            + " switch_phase = NULL, switch_source_user_id = NULL, switch_source_session_id = NULL,"
+            + " switch_source_auth_generation = NULL, switch_target_user_id = NULL,"
+            + " switch_target_social_account_id = NULL, switch_verified_at = NULL,"
+            + " updated_at = :now WHERE user_id = :userId",
             nativeQuery = true)
     int invalidateAndEraseOfUser(@Param("userId") UUID userId, @Param("now") Instant now);
 }

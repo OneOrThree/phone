@@ -69,7 +69,7 @@ class LoginAttemptServiceAccountSwitchTest {
     @BeforeEach
     void setUp() {
         service = new LoginAttemptService(loginAttemptRepository, userQueryService, authService,
-                authSessionService, accountWithdrawalService, jwtProvider, self);
+                authSessionService, accountWithdrawalService, jwtProvider, null, self);
         lenient().when(self.claim(any())).thenReturn(null);
         lenient().when(self.complete(any(), any()))
                 .thenReturn(new LoginSessionResponse("at", "rt", UUID.randomUUID(), true, "bootstrap"));
