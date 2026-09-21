@@ -5,6 +5,7 @@ import {
   islandJoinRequests,
   islandMembers,
   kickIslandMember,
+  leaveIsland,
   manageIsland,
   transferIslandHost,
 } from '@/services/api/islandManagement';
@@ -74,9 +75,40 @@ test('getManagedIsland — GET /islands/{id} 주민 상세를 그대로 돌려�
   assert.equal(path(calls[0]), '/islands/i1');
   assert.equal(calls[0].init.method ?? 'GET', 'GET');
   assert.equal(header(calls[0], 'Idempotency-Key'), undefined);
+  assert.ok('role' in result); // 상세로 좁힌다 — 요약에는 role 이 없다
   assert.equal(result.role, 'host');
   assert.equal(result.maxMembers, 15);
   assert.equal(result.growthStage, null);
+});
+
+test('getManagedIsland — 비소속 응답은 공개 요약으로 그대로 온다 (role/version 없음)', async () => {
+  stub([
+    {
+      status: 200,
+      body: {
+        data: {
+          id: 'i1',
+          name: '구름 섬',
+          intro: '',
+          visibility: 'public',
+          approvalRequired: true,
+          memberCount: 8,
+          maxMembers: 15,
+          membershipStatus: 'none',
+          joinRequestId: null,
+          growthStage: null,
+          themeId: null,
+        },
+      },
+    },
+  ]);
+
+  const result = await getManagedIsland('i1');
+
+  // 요약에는 role/version 이 없다 — 어댑터가 채우지 않고 호출부가 좁힌다.
+  assert.equal('role' in result, false);
+  assert.equal('joinRequestId' in result, true);
+  assert.equal(result.membershipStatus, 'none');
 });
 
 test('manageIsland — PATCH 에 멱등 키와 허용된 body 만 보낸다', async () => {
@@ -261,6 +293,18 @@ test('kickIslandMember — DELETE 에 멱등 키를 싣고 body 는 없다', asy
   assert.equal(header(calls[0], 'Idempotency-Key'), 'idem-kick');
   assert.equal(calls[0].init.body, undefined);
   assert.equal(result.removed, true);
+});
+
+test('leaveIsland — DELETE /memberships/me 에 멱등 키를 싣고 body 는 없다', async () => {
+  stub([{ status: 200, body: { data: { left: true } } }]);
+
+  const result = await leaveIsland('i1', 'idem-leave');
+
+  assert.equal(path(calls[0]), '/islands/i1/memberships/me');
+  assert.equal(calls[0].init.method, 'DELETE');
+  assert.equal(header(calls[0], 'Idempotency-Key'), 'idem-leave');
+  assert.equal(calls[0].init.body, undefined);
+  assert.equal(result.left, true);
 });
 
 test('transferIslandHost — POST, body 정확히 {targetUserId}, query 없음', async () => {

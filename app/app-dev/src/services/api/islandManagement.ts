@@ -14,14 +14,15 @@
  *  - `DELETE /islands/{islandId}/members/{userId}`           강퇴. 키 필수, 본문 없음.
  *  - `POST   /islands/{islandId}/host-transfer`              방장 위임. 키 필수, 본문 정확히
  *                                                            {targetUserId}, query 없음.
+ *  - `DELETE /islands/{islandId}/memberships/me`             나가기. 키 필수, 본문 없음.
  *
  * 쓰기 의도마다 `Idempotency-Key` 를 한 번 만든다 — 응답 유실·retryable 재시도는 같은 키와 같은 body
  * 로 보낸다. 어댑터가 기본값을 만들면 유실 재호출 때 키가 바뀌어 멱등이 깨지므로 필수 인자다.
- * `expectedVersion` 은 공개 계약에 없다 — 이 7종에 만들지 않는다. 403/409 는 호출부가 재조회로
+ * `expectedVersion` 은 공개 계약에 없다 — 이 8종에 만들지 않는다. 403/409 는 호출부가 재조회로
  * 풀며 어댑터가 성공으로 바꾸지 않는다.
  */
 import { request } from './client';
-import type { IslandDetail } from './islands';
+import type { IslandDetail, IslandSummary } from './islands';
 
 /** `GET /islands/{islandId}` 의 주민 상세 — islands.ts 의 같은 계약 타입을 재사용한다. */
 export type ManagedIsland = IslandDetail;
@@ -105,10 +106,11 @@ const query = (params: Record<string, string | number | undefined>): string => {
 
 /**
  * 관리 화면용 섬 재조회 — PATCH·승인·위임의 응답만으로 로컬 상태를 확정하지 않고 이 호출로 읽는다.
- * 비소속·방문자에게는 상세가 아니라 공개 요약이 오므로 방장 관리 경로에서만 부른다.
+ * 비소속·방문자에게는 상세가 아니라 공개 요약(`IslandSummary`, role/version 없음)이 오므로
+ * 호출부는 반드시 좁혀서 쓴다 — 요약을 상세로 적용하지 않는다.
  */
-export function getManagedIsland(islandId: string): Promise<ManagedIsland> {
-  return request<ManagedIsland>(`/islands/${encodeURIComponent(islandId)}`);
+export function getManagedIsland(islandId: string): Promise<ManagedIsland | IslandSummary> {
+  return request<ManagedIsland | IslandSummary>(`/islands/${encodeURIComponent(islandId)}`);
 }
 
 export function manageIsland(
@@ -160,6 +162,14 @@ export function kickIslandMember(
   idempotencyKey: string,
 ): Promise<{ removed: true }> {
   return request(`/islands/${encodeURIComponent(islandId)}/members/${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+    idempotencyKey,
+  });
+}
+
+/** 나가기 — 본문 없이 멱등 키만. 성공 뒤 호출부는 `/me/islands` 재조회로 소속 해제를 확정한다. */
+export function leaveIsland(islandId: string, idempotencyKey: string): Promise<{ left: true }> {
+  return request(`/islands/${encodeURIComponent(islandId)}/memberships/me`, {
     method: 'DELETE',
     idempotencyKey,
   });
