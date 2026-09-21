@@ -67,6 +67,12 @@ class DomainLayerRulesTest {
         LAYERS.put("friend", 3);            // 유저 사이의 관계
         LAYERS.put("stats", 4);             // 기록·관계의 집계
         LAYERS.put("league", 4);
+        // ranking 은 주간 섬 랭킹의 «동결된 분모» 표와 주 경계 계산기뿐이다(GROMO-1997) —
+        // 도메인 타입을 하나도 참조하지 않는다: 엔티티는 island_id 를 그냥 UUID 열로 들고 있고
+        // (group 엔티티를 매핑하지 않는다), 동결은 네이티브 SQL 한 문장이며 RankingWeek 은 순수 계산기다.
+        // 집중 합(focus 2)·주민 수(group 5)·전망대(construction 6)·현재 섬을 «조합»하는 것은 internal(10)의
+        // IslandRankingsService 다 — 여기에 그 조합을 넣으면 이 표를 단숨에 group 위로 밀어 올린다.
+        LAYERS.put("ranking", 4);
         LAYERS.put("group", 5);             // 모임·챌린지·내기
         LAYERS.put("invitelink", 6);        // 그룹을 가리키는 초대
         // construction 은 섬(group)에 딸린 시설·공동 지갑(GROMO-1767) — group 바로 위다.

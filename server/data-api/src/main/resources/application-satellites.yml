@@ -121,6 +121,10 @@ internal:
           - 'GET /internal/islands/*/statistics/focus'
           - 'GET /internal/islands/*/statistics/screen-time'
           - 'PUT /internal/users/*/screen-time/*'
+          # GROMO-1997 주간 섬 랭킹 1종. 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26) — 범위를 정하는 것이
+          # 요청자의 현재 섬이라 1759 의 `/island-search`·`/island-discovery` 와 같은 자리다.
+          # 주민 랭킹(`/islands/*/rankings/members`)은 결정 B23·B15 로 폐기돼 여기 줄이 없다.
+          - 'GET /internal/users/*/island-rankings'
           # GROMO-1771 섬 게시판 6종. `*` 는 세그먼트 하나다 — 목록과 작성, 상세·수정·삭제는 메서드로만
           # 갈리므로 줄을 합치지 않는다(합치면 조회 권한이 쓰기까지 연다).
           - 'GET /internal/islands/*/notices'
