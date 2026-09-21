@@ -32,7 +32,9 @@
 
 ### PublicIslandSummary
 
-필수 필드: `id:Id`, `name:string`, `intro:string`, `visibility:public|private`, `approvalRequired:boolean`, `memberCount:integer>=0`, `membershipStatus:none|pending|active`, `growthStage:string`, `themeId:string`.
+필수 필드: `id:Id`, `name:string`, `intro:string`, `visibility:public|private`, `approvalRequired:boolean`, `memberCount:integer>=0`, `maxMembers:integer(1~15)`, `membershipStatus:none|pending|active`, `growthStage:string`, `themeId:string`.
+
+`maxMembers`는 2026-09-19 결정 V-읽기(「마을회관 섬 정보 등록증 — 이름·소개·주민 수/정원」)로 **방문자 응답에도 들어간다**. 주민 수만 주면 방문 화면이 `3/15`를 그릴 수 없다. 값은 방장만 고칠 수 있고(관리 계약 3.1), 범위는 GROMO-1993의 1~15다.
 
 `intro`는 기존 `Group.description`의 공개 projection이다. 기존 nullable 행과 소개 없이 생성된 그룹도 `COALESCE(description, '')`로 항상 문자열을 반환한다. PublicIslandSummary를 사용하는 탐색/검색/상세/본인 소속/초대 요약 및 이를 확장하는 MemberIslandDetail, 관리 응답에 같은 매퍼를 적용한다. DB의 null을 일괄 변경하거나 legacy 응답 규칙을 바꾸지 않는다. 근거는 `Group.java:51`의 nullable description과 `CreateGroupRequest.java:39~40`의 선택 입력이다.
 

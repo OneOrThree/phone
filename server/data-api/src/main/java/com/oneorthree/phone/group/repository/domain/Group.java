@@ -36,6 +36,24 @@ import java.util.UUID;
 @AllArgsConstructor
 public class Group {
 
+    /**
+     * 섬 정원의 상한 — 정책 「정원은 1~15명」(policy-2026-09-14 §섬 가입·전망대·랭킹, GROMO-1993).
+     *
+     * <p>여기 두는 이유는 정원이 «방의 설정»이라 이 엔티티가 주인이고, {@code CreateGroupRequest}·
+     * {@code UpdateGroupRequest} 의 {@code @Max} 가 컴파일 상수를 요구하기 때문이다. 값을 세 군데에
+     * 흩어 놓으면 한 곳만 고쳐져 「검증은 통과하는데 저장은 거절」이 된다.
+     *
+     * <p><b>계정당 소속 섬 상한(10)과는 다른 축이다</b> — 그쪽은
+     * {@code IslandMovementGuards.MAX_JOINED_ISLANDS} 이고 이 값과 함께 움직이지 않는다.
+     */
+    public static final int MAX_MEMBERS_CEILING = 15;
+
+    /** 정원 하한 — 방장 혼자인 1인 섬이 유효하다(정책 「정원은 1~15명」). */
+    public static final int MAX_MEMBERS_FLOOR = 1;
+
+    /** 정원 미입력 시 기본값 — 정책 「따로 정하지 않으면 15명」. */
+    public static final int DEFAULT_MAX_MEMBERS = MAX_MEMBERS_CEILING;
+
     @Id
     @GeneratedUuidV7
     private UUID id;
@@ -209,5 +227,24 @@ public class Group {
      */
     public void close() {
         this.status = GroupStatus.ENDED;
+    }
+
+    /**
+     * 섬 삭제 묘비 (GROMO-1995) — 정책 「섬 삭제 시 섬 정보·설정 … 을 함께 삭제한다」.
+     *
+     * <p><b>행은 지우지 않는다.</b> 이 섬을 가리키는 FK 가 전부 {@code ON DELETE RESTRICT} 이고
+     * 그중에는 정책이 <b>유지</b>하라고 한 개인 집중 기록·정산 증거({@code focus_sessions}·
+     * {@code group_members}·내기 참가)가 섞여 있다 — 물리 삭제는 그것까지 지우거나 FK 로 실패한다.
+     * 그래서 {@code deleted_at} 으로 「없는 섬」을 확정하고({@code IslandMovementGuards.isAlive} 가
+     * 이미 이 축을 본다), 공동 데이터는 {@code IslandPurgeService} 가 테이블 단위로 지운다.
+     *
+     * <p>이미 지워진 섬을 다시 지우지 않는다 — 같은 명령의 재생이 묘비 시각을 앞뒤로 흔들지 않게.
+     *
+     * @param at 삭제 시각
+     */
+    public void markDeleted(Instant at) {
+        if (this.deletedAt == null) {
+            this.deletedAt = at;
+        }
     }
 }

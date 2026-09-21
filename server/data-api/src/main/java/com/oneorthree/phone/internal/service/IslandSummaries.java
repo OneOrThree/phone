@@ -28,8 +28,8 @@ final class IslandSummaries {
     static IslandSummaryView of(Group island, int memberCount, String membershipStatus,
                                 UUID joinRequestId) {
         return new IslandSummaryView(island.getId(), island.getName(), introOf(island),
-                visibilityOf(island), island.isApprovalRequired(), memberCount, membershipStatus,
-                null, null, joinRequestId);
+                visibilityOf(island), island.isApprovalRequired(), memberCount, island.getMaxMembers(),
+                membershipStatus, null, null, joinRequestId);
     }
 
     /** 기존 nullable {@code description} 의 공개 projection — DB 값은 바꾸지 않는다(LLD §2). */

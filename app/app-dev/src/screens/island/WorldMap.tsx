@@ -47,6 +47,7 @@ type Door = Point & {
   label: string;
   building?: Building;
   memberOnly?: boolean;
+  visitorRoute?: Route;
   direct?: boolean;
   hitbox?: { x: number; y: number; w: number; h: number };
 };
@@ -71,6 +72,7 @@ const doors: Record<string, Door> = {
     r: 'focusVisit',
     label: '낚시섬 구경하기',
     memberOnly: true,
+    visitorRoute: 'visitIslandFocus',
     direct: true,
     hitbox: { x: 1230, y: 810, w: 230, h: 145 },
   },
@@ -166,19 +168,22 @@ function Wanderer({
 }
 export function WorldMap({
   state,
+  islandId,
   fishing = false,
   onSpot,
   emote,
   children,
 }: {
   state: State;
+  islandId?: string;
   fishing?: boolean;
   onSpot?: (p: Point) => void;
   emote?: string | null;
   children?: React.ReactNode | ((scale: number) => React.ReactNode);
 }) {
   const L = useAppLayout(),
-    grid: Grid = fishing ? grids.fishing : grids.home;
+    grid: Grid = fishing ? grids.fishing : grids.home,
+    island = state.islands.find((item) => item.id === islandId) ?? viewIsland(state);
   const [camera, setCamera] = useState({
     x: fishing ? 512 : 585,
     y: fishing ? 770 : 430,
@@ -366,7 +371,7 @@ export function WorldMap({
       </Pressable>
       {!fishing && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {viewIsland(state).buildings.map((b) => (
+          {island.buildings.map((b) => (
             <Image
               key={b}
               source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
@@ -382,7 +387,7 @@ export function WorldMap({
           ))}
         </View>
       )}
-      {!fishing && viewIsland(state).theme !== 'default' && (
+      {!fishing && island.theme !== 'default' && (
         <View
           pointerEvents="none"
           style={{
@@ -398,12 +403,8 @@ export function WorldMap({
       )}
       {!fishing && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {viewIsland(state)
-            .buildings.filter(
-              (b) =>
-                viewIsland(state).buildingThemes?.[b] &&
-                viewIsland(state).buildingThemes?.[b] !== 'default',
-            )
+          {island.buildings
+            .filter((b) => island.buildingThemes?.[b] && island.buildingThemes?.[b] !== 'default')
             .map((b) => (
               <Image
                 key={b}
@@ -446,6 +447,7 @@ export function FinalIsland({
   request,
   notify,
   dispatch,
+  viewingIslandId,
 }: {
   state: State;
   go: (r: Route, id?: string) => void;
@@ -455,10 +457,13 @@ export function FinalIsland({
   request?: Route | null;
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
+  viewingIslandId?: string;
 }) {
-  // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다
-  const i = viewIsland(state),
-    visiting = !!state.visitingIslandId,
+  // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
+  // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
+  const explicitVisit = !!viewingIslandId,
+    i = state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state),
+    visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
   const [pos, setPos] = useState(homePositions[i.id] ?? { x: 585, y: 470 }),
     [walking, setWalking] = useState(false);
@@ -527,9 +532,13 @@ export function FinalIsland({
     return (
       <>
         {Object.entries(doors)
-          // 뗏목·낚시섬은 우리 섬 주민 화면에서만 연다. 다른 섬 관전은 GROMO-1940에서 이어 붙인다.
+          // 방문 카드에서 연 읽기 전용 화면은 낚시섬 관전만 연다. 기존 방문자 홈은 회관·게시판도 열 수 있다.
           .filter(([, d]) =>
-            d.memberOnly ? !visiting : !!d.building && i.buildings.includes(d.building),
+            explicitVisit
+              ? !!d.visitorRoute
+              : d.memberOnly
+                ? !visiting || !!d.visitorRoute
+                : !!d.building && i.buildings.includes(d.building),
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
@@ -546,6 +555,7 @@ export function FinalIsland({
                 }
                 onPress={() => {
                   if (!visiting) return d.direct ? go(d.r) : walk(d, () => go(d.r));
+                  if (d.visitorRoute) return go(d.visitorRoute, i.id);
                   // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
                   if (d.building === 'hall') go('manage');
                   else if (d.building === 'board') go('board');
@@ -613,6 +623,7 @@ export function FinalIsland({
     <View style={{ flex: 1 }}>
       <WorldMap
         state={state}
+        islandId={i.id}
         onSpot={visiting ? undefined : (p) => walk(p)}
         children={actors as any}
       />

@@ -42,6 +42,8 @@ const path = require('path');
       ['tower'],
       ['explore'],
       ['visit', 'cloud'],
+      ['visitIsland', 'cloud'],
+      ['visitIslandFocus', 'cloud'],
       ['shop'],
       ['product', 'scarf'],
       ['product', 'rain'],
