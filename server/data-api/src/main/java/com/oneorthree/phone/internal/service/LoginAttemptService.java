@@ -23,6 +23,7 @@ import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.support.OnboardingCompletion;
 import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
+import io.jsonwebtoken.JwtException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -123,6 +124,9 @@ public class LoginAttemptService {
         }
         Instant now = Instant.now();
         guard(attempt, request.digestKeyId(), request.credentialDigest(), now);
+        if (attempt.getSwitchPhase() != null) {
+            guardSwitchReplay(attempt, request);
+        }
 
         if (attempt.getStatus() == LoginAttemptStatus.COMPLETED) {
             return LoginAttemptLookupResponse.replay(replayOf(attempt));
@@ -238,8 +242,9 @@ public class LoginAttemptService {
      * 「기존 legacy 경로의 선택 AT 동작은 별도 보존한다」).
      *
      * <p>⚠️ 적용 지점은 <b>실행 하나</b>다. 승격이 실제로 일어나는 자리가 여기뿐이기 때문이다.
-     * 결과 재생(lookup)에는 선택 AT 가 실려 오지 않으며, 재생은 이미 그 시도에 발급된 같은 토큰을
-     * 돌려줄 뿐 새 권한을 만들지 않는다. 재생·prepare 시점의 관문 재적용은 LLD 가 적은 후속 범위다.
+     * 전환 시도의 재생에는 선택 AT 가 실려 오지만(GROMO-1992), 그쪽이 요구하는 것은 「기록된 source
+     * 자격인가」이고 활성 세션 여부가 아니라 이 관문과 답이 다르다 — lookup 은
+     * {@link #guardSwitchReplay} 가 본다.
      *
      * @throws AuthException 403 {@code SESSION_NOT_ACTIVE} — Business 가 공개 401 로 매핑한다.
      *                       서비스 자격 거부(401)와 «구분되는» 상태를 쓰는 기존 규율이다
@@ -247,10 +252,9 @@ public class LoginAttemptService {
      */
     @Transactional
     public void gateOptionalSession(String callerAccessToken) {
-        // ponytail: 관문은 execute 한 곳. 재생(lookup)·재준비에는 선택 AT 가 실려 오지 않아 재검사가
-        // 없다 — 재생은 새 권한을 만들지 않으므로 천장은 「폐기된 원 세션으로 이미 발급된 같은 토큰을
-        // 한 번 더 받는 것」이다. LLD 의 4지점 공통 적용이 필요해지면 LoginAttemptLookupRequest 에
-        // callerAccessToken 을 싣고 lookup 에서도 이 메서드를 부른다.
+        // ponytail: 관문은 execute 한 곳. 일반 재생(lookup)은 새 권한을 만들지 않아 재검사가 없고,
+        // 전환 재생은 lookup 의 guardSwitchReplay 가 source 증거로 본다 — 이 메서드의 활성 세션
+        // 관문과 목적이 달라 공유하지 않는다.
         if (callerAccessToken == null) {
             return;
         }
@@ -352,6 +356,58 @@ public class LoginAttemptService {
             // 창이 끝났다는 사실을 내구화한다 — 남겨 두면 시계가 흔들릴 때 되살아난다.
             attempt.invalidate();
             throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+    }
+
+    /**
+     * 전환 시도의 재생 관문 (GROMO-1992) — 기존 digest 관문 <b>뒤</b>, replay 분기 <b>앞</b>이다.
+     *
+     * <p>COMPLETED 전환 결과를 source AT 없이 되살리면, 탈퇴가 끝난 게스트의 자격 없이도 전환 세션을
+     * 받는 우회가 된다. 그래서 저장된 불변 의도(provider·kind·terms·confirmed)와 요청의 다섯 값을
+     * 모두 대조하고, source AT 의 user·sid·gen 이 저장 증거와 정확히 같은지 본다.
+     *
+     * <p>{@link #gateOptionalSession} 을 쓰지 «않는다» — 탈퇴가 끝난 source 는 세션 폐기·세대 상승이
+     * 정상이라 활성 세션 관문은 여기서 틀린 도구다. 필요한 것은 「이 AT 가 기록된 source 자격인가」
+     * 뿐이다.
+     */
+    private void guardSwitchReplay(LoginAttempt attempt, LoginAttemptLookupRequest request) {
+        String token = request.callerAccessToken();
+        if (token == null || request.provider() == null || request.credentialKind() == null
+                || request.termsVersion() == null || request.accountSwitchConfirmed() == null) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+        // 같은 attempt 의 «다른 불변 의도»다 — digest 불일치와 같은 409 로 접는다.
+        if (!Boolean.TRUE.equals(request.accountSwitchConfirmed())
+                || !attempt.isAccountSwitchConfirmed()
+                || !attempt.getProvider().equals(request.provider().name())
+                || !attempt.getCredentialKind().equals(request.credentialKind())
+                || !attempt.getTermsVersion().equals(request.termsVersion())) {
+            throw new OutboxException(OutboxErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+        if (!ownsSwitchSource(attempt, token)) {
+            throw new AuthException(AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
+        }
+    }
+
+    /**
+     * 우리 서명의 unexpired <b>access</b> AT 이고, 그 user·sid·gen 이 저장된 source 증거와
+     * 정확히 같은가. 위조·만료·refresh·구 AT(sid/gen 없음)·다른 주체를 모두 같은 false 로 접어
+     * 세부 원인을 노출하지 않는다 — 토큰 원문은 로그에도 싣지 않는다.
+     */
+    private boolean ownsSwitchSource(LoginAttempt attempt, String token) {
+        try {
+            if (!jwtProvider.isTokenValid(token)
+                    || !JwtProvider.TYPE_ACCESS.equals(jwtProvider.extractType(token))) {
+                return false;
+            }
+            UUID sessionId = jwtProvider.extractSessionId(token);
+            Long generation = jwtProvider.extractAuthGeneration(token);
+            return sessionId != null && generation != null
+                    && jwtProvider.extractUserId(token).equals(attempt.getSwitchSourceUserId())
+                    && sessionId.equals(attempt.getSwitchSourceSessionId())
+                    && generation.equals(attempt.getSwitchSourceAuthGeneration());
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
         }
     }
 
