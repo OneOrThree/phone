@@ -101,7 +101,13 @@ public class IslandMembershipUseCase {
         if (islands == null) {
             throw new UpstreamContractMismatchException("내 섬 목록 응답이 없습니다");
         }
-        return new MyIslandsResponse(islands.items(), null, islands.currentIslandId());
+        // 형태 불변식 — 현재 섬이 있으면 상실 사유는 없다(Data 의 V84 CHECK 와 같은 불변, GROMO-2038).
+        // 둘이 함께 오면 앱이 「섬이 있는데 잃었다」로 갈라진 문구를 띄우므로 여기서 끊는다.
+        if (islands.currentIslandId() != null && islands.lossReason() != null) {
+            throw new UpstreamContractMismatchException("현재 섬이 있는데 상실 사유가 함께 왔습니다");
+        }
+        return new MyIslandsResponse(islands.items(), null, islands.currentIslandId(),
+                islands.lossReason());
     }
 
     /**

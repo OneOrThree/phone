@@ -10,6 +10,7 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
@@ -22,6 +23,7 @@ import com.oneorthree.phone.internal.dto.IslandMemberRemovedView;
 import com.oneorthree.phone.internal.dto.IslandMembersPageView;
 import com.oneorthree.phone.internal.dto.JoinIslandCommandRequest;
 import com.oneorthree.phone.internal.dto.JoinRequestAnswerView;
+import com.oneorthree.phone.internal.dto.MyIslandsView;
 import com.oneorthree.phone.internal.service.IslandInvitationService;
 import com.oneorthree.phone.internal.service.IslandJoinService;
 import com.oneorthree.phone.internal.service.IslandManagementService;
@@ -643,6 +645,10 @@ class IslandManagementIntegrationTest {
                 .as("참여 코드").isZero();
         assertThat(currentIsland(host)).as("마지막 섬을 잃으면 현재 섬이 없다").isNull();
         assertThat(lossReason(host)).isEqualTo("LEFT");
+        // 저장만으로는 앱이 알 수 없다 — 내 섬 조회가 같은 사유를 실어야 한다 (GROMO-2038).
+        MyIslandsView mine = islands.myIslands(host);
+        assertThat(mine.currentIslandId()).isNull();
+        assertThat(mine.lossReason()).as("자진 이탈").isEqualTo(GroupLeaveReason.LEFT);
         assertThat(count("select count(*) from users where id=? and is_deleted=false", host))
                 .as("계정은 유지된다").isEqualTo(1);
         assertThat(count("select count(*) from group_members where group_id=? and user_id=?", islandId, host))
@@ -663,6 +669,12 @@ class IslandManagementIntegrationTest {
 
         assertThat(currentIsland(target)).isNull();
         assertThat(lossReason(target)).isEqualTo("KICKED");
+        // 강퇴와 자진 이탈의 «처리»는 같지만 앱 안내 문구는 갈린다 — 그래서 조회가 사유를 싣는다.
+        MyIslandsView kicked = islands.myIslands(target);
+        assertThat(kicked.currentIslandId()).isNull();
+        assertThat(kicked.lossReason()).as("강퇴").isEqualTo(GroupLeaveReason.KICKED);
+        assertThat(islands.myIslands(newUser()).lossReason())
+                .as("한 번도 소속된 적 없으면 사유가 없다 — 빈 목록의 두 상태가 갈린다").isNull();
     }
 
     @Test
@@ -680,6 +692,10 @@ class IslandManagementIntegrationTest {
 
         assertThat(currentIsland(user)).as("남은 메인 섬으로 이동").isEqualTo(home);
         assertThat(lossReason(user)).isNull();
+        // 불변식 — 현재 섬이 있으면 사유는 없다(V84 의 user_island_contexts_loss_reason_exclusive).
+        MyIslandsView moved = islands.myIslands(user);
+        assertThat(moved.currentIslandId()).isEqualTo(home);
+        assertThat(moved.lossReason()).as("현재 섬이 있으면 상실 사유는 없다").isNull();
     }
 
     // ---------------------------------------------------------------- 재생 인가
