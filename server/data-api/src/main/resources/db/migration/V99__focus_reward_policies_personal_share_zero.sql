@@ -20,7 +20,7 @@ DECLARE
 BEGIN
     SELECT count(*) INTO nonzero FROM focus_reward_policies WHERE personal_share_percent <> 0;
     IF nonzero > 0 THEN
-        RAISE EXCEPTION 'V97: personal_share_percent 가 0 이 아닌 정책 revision 이 % 건 있습니다 — 개인 지갑 적립은 폐기된 경로입니다(D5-귀속-개정). 값을 지우지 말고 그 revision 을 넣은 경위부터 확인하세요', nonzero;
+        RAISE EXCEPTION 'V99: personal_share_percent 가 0 이 아닌 정책 revision 이 % 건 있습니다 — 개인 지갑 적립은 폐기된 경로입니다(D5-귀속-개정). 값을 지우지 말고 그 revision 을 넣은 경위부터 확인하세요', nonzero;
     END IF;
 END $$;
 

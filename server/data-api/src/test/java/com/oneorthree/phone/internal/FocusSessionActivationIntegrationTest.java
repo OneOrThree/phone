@@ -458,12 +458,12 @@ class FocusSessionActivationIntegrationTest {
     }
 
     @Test
-    @DisplayName("개인 몫 0 초과 정책 revision 은 DB 가 거부한다 — 개인 적립을 막는 것이 문서가 아니라 제약이다(V97)")
+    @DisplayName("개인 몫 0 초과 정책 revision 은 DB 가 거부한다 — 개인 적립을 막는 것이 문서가 아니라 제약이다(V99)")
     void personalShareAboveZeroIsRejectedByTheDatabase() {
         assertThatThrownBy(() -> jdbc.update(
                 "insert into focus_reward_policies (revision, seconds_per_fish, daily_cap_fish,"
                         + " personal_share_percent) values (?, 60, 480, 1)", 999_999))
-                .as("V97 의 CHECK — Flyway 에 0 초과 revision 이 «실수로» 들어가도 부팅에서 걸린다")
+                .as("V99 의 CHECK — Flyway 에 0 초과 revision 이 «실수로» 들어가도 부팅에서 걸린다")
                 .hasMessageContaining("focus_reward_policies_personal_share_percent_check");
 
         assertThat(count("select count(*) from focus_reward_policies where personal_share_percent <> 0"))
