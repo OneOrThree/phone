@@ -20,6 +20,12 @@ import java.util.UUID;
  * 세션은 없는데 리스만 남아, 그 사람이 TTL 이 끝날 때까지 채팅에 못 들어간다. 이 규율은 구현이 지킨다
  * ({@code RedisFocusPresence}).
  *
+ * <p><b>이 포트를 직접 부르는 클래스는 하나뿐이다</b> (GROMO-2003, LLD §6 「하나의 Data projection
+ * 포트로 통합한다」). {@code focus/service/FocusPresenceProjection} 이 그 자리이고, 수명주기 전이·레거시
+ * 마커·리컨실러는 전부 그쪽을 거친다 — 「섬 목록 사건은 적었는데 리스는 안 지웠다」 같은 반쪽 기록이
+ * 생기지 않게 두 기록을 한 호출 안에 묶기 위해서다. 그 규율은
+ * {@code architecture/DomainLayerRulesTest} 가 빌드 실패로 고정한다.
+ *
  * <h2>왜 모든 메서드가 순번(presenceOrder)을 받는가</h2>
  * 커밋 이후 콜백은 <b>트랜잭션마다 다른 스레드에서</b> 돌기 때문에, 서로 다른 요청의 Redis 연산이
  * DB 커밋 순서와 어긋난 순서로 도착할 수 있다. 뽀모도로 회전처럼 「직전 세션 종료 + 새 세션 시작」이
@@ -39,6 +45,22 @@ import java.util.UUID;
  *
  * <p>읽는 쪽(채팅)은 여전히 <b>존재 여부만</b> 본다 — 값의 의미는 쓰는 쪽만 안다.
  *
+ * <h2>순번만으로는 같은 세션 안의 역전을 가를 수 없다 — controlVersion (GROMO-2003)</h2>
+ * 순번은 <b>세션</b>마다 하나라, 같은 세션의 {@code active → paused → active} 는 전부 같은 값을 싣는다.
+ * 값이 「집중 중인가」뿐이었을 때는 그래도 됐지만, 값이 {@link FocusPresenceState} 를 담는 순간
+ * <b>뒤바뀐 순서로 도착한 pause 가 이미 반영된 resume 을 덮는다.</b> 그래서 쓰기는
+ * {@code (순번, controlVersion)} <b>쌍</b>을 싣고 그 쌍으로 CAS 한다 — 「지금 값보다 오래되지 않을 때만」.
+ *
+ * <p>controlVersion 은 {@code focus_session_details.version}(전이마다 +1)이고, 레거시 마커처럼 상세가
+ * 없는 경로는 {@code 0} 이다. 이 쌍이 LLD §6 이 요구한 <b>「사용자별 지속 controlVersion」</b>이다:
+ * 순번은 공유 DB 시퀀스라 한 사용자 안에서 세션을 건너 단조 증가하고(같은 사용자의 두 시작은 users 행
+ * 배타 락 아래 INSERT 된다), version 은 그 세션 안에서 단조 증가한다. 둘을 사전식으로 비교하면 한
+ * 사용자의 모든 전이가 하나의 증가하는 축 위에 놓이며, 세션이 바뀌어도 초기화되지 않는다.
+ *
+ * <p><b>종료는 이 축을 쓰지 않는다</b> — {@link #focusEnded}·{@link #releaseLeaseNow} 는 순번만 본다.
+ * 세션이 끝나면 그 세션의 <b>어떤</b> controlVersion 도 낡은 값이라, 「내 순번 이하면 지운다」가 정확히
+ * 옳은 판정이기 때문이다. 쌍으로 비교하면 오히려 종료보다 version 이 큰 잔존 리스를 못 지운다.
+ *
  * <h2>리스는 «언제나» {@code startedAt + 리스 수명} 에 만료한다</h2>
  * 그래서 두 쓰기 메서드가 모두 {@code startedAt} 을 받는다. 「놓는 시점부터 N시간」으로 잡으면
  * <b>늦게 놓을수록 백스톱이 뒤로 밀린다</b> — 11시간 59분 된 집중을 재구축이 그때 처음 놓으면 만료가
@@ -48,19 +70,28 @@ import java.util.UUID;
 public interface FocusPresencePort {
 
     /**
-     * 집중이 시작됐다 — 리스를 놓는다.
+     * 집중·휴식 상태가 바뀌었다 — <b>절대 상태</b>를 CAS 로 적는다(시작·휴식·재개 공용).
      *
-     * @param startedAt 그 마커가 «시작한» 시각. 리스의 만료 기준이다 — 아래 참조
-     * @param presenceOrder 이 시작이 가리키는 <b>진행 중 마커</b>의 순번. 새로 만든 마커이거나(정상 경로),
+     * <p>시작과 휴식 전이를 한 메서드로 둔 이유는 셋이 모두 「지금 이 사람의 상태는 이것이다」를 적는
+     * 같은 연산이기 때문이다. 종전에는 시작만 리스를 놓고 pause/resume 은 아무것도 하지 않았는데, 값이
+     * 상태를 담게 된 이상 휴식 전이도 반영돼야 값이 정본과 어긋나지 않는다. <b>키는 세 경우 모두 남으므로
+     * 채팅 판정({@code FOCUS_IN_PROGRESS})은 바뀌지 않는다.</b>
+     *
+     * @param startedAt 그 <b>세션</b>이 시작한 시각(전이 시각이 아니다). 리스의 만료 기준이다 — 아래 참조
+     * @param presenceOrder 이 상태가 가리키는 <b>진행 중 마커</b>의 순번. 새로 만든 마커이거나(정상 경로),
      *                      이미 열려 있어 새로 만들지 않은 마커의 것이다(순서 역전 방어 경로). 이 값보다
      *                      <b>오래된</b> 세션의 쓰기는 무시되므로, 늦게 도착한 옛 시작이 새 집중을 덮지 않는다
+     * @param controlVersion 그 세션 안의 전이 번호({@code focus_session_details.version}). 상세가 없는
+     *                       레거시 마커는 {@code 0} 이다. 순번이 같을 때 이 값이 순서를 가른다
+     * @param state 지금의 절대 상태
      */
-    void focusStarted(UUID userId, Long presenceOrder, Instant startedAt);
+    void focusStateChanged(UUID userId, Long presenceOrder, long controlVersion, FocusPresenceState state,
+                           Instant startedAt);
 
     /**
      * <b>재구축</b> — 정본에 진행 중인 집중이 있는데 리스가 «없을 때만» 놓는다.
      *
-     * <p>{@link #focusStarted} 와 나눈 이유는 두 가지다.
+     * <p>{@link #focusStateChanged} 와 나눈 이유는 두 가지다.
      *
      * <p>첫째, <b>있는 리스를 건드리면 안 된다.</b> 재구축은 주기적으로 돈다 — 매번 TTL 을 지금부터
      * 다시 13시간으로 밀면, 고아 스윕이 멈춘 동안 「이미 끝난 집중이 채팅을 막는」 창이 13시간에서
@@ -84,8 +115,11 @@ public interface FocusPresencePort {
      *                  만료한다 — 그러지 않으면 백스톱이 늘어난다(아래 참조)
      * @param presenceOrder 정본에서 읽은 진행 중 마커의 순번. 그 사이 세션이 끝났다면 그 종료가 남긴
      *                      표식에 걸려 쓰기가 거부된다 — 끝난 집중이 되살아나지 않는다
+     * @param controlVersion 정본에서 읽은 그 세션의 전이 번호(상세가 없으면 {@code 0})
+     * @param state 정본에서 읽은 절대 상태 — 휴식 중인 세션을 {@code ACTIVE} 로 되살리지 않는다
      */
-    boolean restoreLeaseIfMissing(UUID userId, Long presenceOrder, Instant startedAt);
+    boolean restoreLeaseIfMissing(UUID userId, Long presenceOrder, long controlVersion, FocusPresenceState state,
+                                  Instant startedAt);
 
     /**
      * <b>재구축용 해제</b> — 지금 지우고, <b>지웠는지</b>를 돌려준다.
@@ -124,7 +158,7 @@ public interface FocusPresencePort {
     /**
      * 탈퇴했다 — 리스·종료 표식을 지우고 <b>탈퇴 tombstone</b> 을 남긴다 (GROMO-1943 · 계정 LLD §4).
      *
-     * <p>tombstone 이 있는 동안 {@link #focusStarted}·{@link #restoreLeaseIfMissing} 은 리스를 놓지
+     * <p>tombstone 이 있는 동안 {@link #focusStateChanged}·{@link #restoreLeaseIfMissing} 은 리스를 놓지
      * 않는다 — 탈퇴 커밋 전에 걸어 둔 시작 콜백이 늦게 도착해도 탈퇴자의 리스가 되살아나지 않는다.
      *
      * <p>커밋 이후에만 반영하고 실패는 삼킨다(다른 쓰기와 같은 규율). 여러 번 불러도 결과가 같다.

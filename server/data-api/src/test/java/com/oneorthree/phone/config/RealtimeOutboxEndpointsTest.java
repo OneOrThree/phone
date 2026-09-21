@@ -7,6 +7,7 @@ import com.oneorthree.phone.group.service.IslandJoinRequestEvents;
 import com.oneorthree.phone.group.service.IslandMembershipEvents;
 import com.oneorthree.phone.group.service.IslandNoticeEvents;
 import com.oneorthree.phone.group.service.IslandStateEvents;
+import com.oneorthree.phone.internal.service.GoldenFishService;
 import com.oneorthree.phone.internal.service.InternalIslandMailboxService;
 import com.oneorthree.phone.quest.service.IslandQuestEvents;
 import com.oneorthree.phone.withdrawal.service.WithdrawalSatelliteCommandService;
@@ -44,7 +45,8 @@ class RealtimeOutboxEndpointsTest {
             AppearanceEvents.EVENT_MEMBER_APPEARANCE,
             AppearanceEvents.EVENT_ISLAND_APPEARANCE,
             AppearanceEvents.EVENT_PLAYBACK,
-            AppearanceEvents.EVENT_INVENTORY);
+            AppearanceEvents.EVENT_INVENTORY,
+            GoldenFishService.EVENT_TYPE);
 
     @Test
     @DisplayName("REALTIME 사건 type 전부가 realtime POST /internal/events 로 Data 전용 토큰과 함께 등록돼 있다")

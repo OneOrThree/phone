@@ -316,6 +316,12 @@ outbox:
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      # GROMO-1956 황금 물고기 — 함께 낚은 주민의 3초 컷신 신호. 섬의 focus 채널로 방송된다.
+      "[focus.golden]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
       "[rest.member.updated]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
