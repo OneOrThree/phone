@@ -89,7 +89,7 @@ public class UserService {
     private final BannedWords bannedWords;
 
     /**
-     * 닉네임 규칙 단일점 (GROMO-1215) — trim 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
+     * 닉네임 규칙 단일점 (GROMO-1215) — {@link #normalizeNickname} 후 2~10자. 검사(check API)와 저장(POST/PATCH)이
      * 이 상수·헬퍼를 공유해 "체크는 통과했는데 저장은 거절" 같은 어긋남을 막는다.
      * DTO bean validation 에 기대지 않는 이유: 저장 경로가 둘로 흩어져 있어 어노테이션만으로는
      * 규칙이 갈라지기 쉽고, 검증 주체를 서비스 한 곳으로 고정하는 편이 안전하다.
@@ -183,18 +183,18 @@ public class UserService {
 
     /**
      * 닉네임 사용 가능 여부 판정 (GROMO-1215) — 저장 경로(changeNickname)와 같은 규칙을 공유한다.
-     * 형식 위반(trim 후 2~10자 밖·빈문자열·null)은 예외 없이 false 로 답한다 — 앱이 로컬 형식검사를
+     * 형식 위반(정규화 후 2~10자 밖·빈문자열·null)은 예외 없이 false 로 답한다 — 앱이 로컬 형식검사를
      * 선행해 문구를 구분하고, 서버 판정은 중복 여부의 최종 답이라는 계약(항상 200).
      * 본인 제외(AndIdNot) 조회라 자기 자신의 현재 닉네임은 true — 프로필 편집에서 그대로 저장이
      * "사용 불가"로 뜨지 않고, 자기 닉네임의 «대소문자만» 바꾸는 변경도 막히지 않는다 (GROMO-1996). 탈퇴자는 nickname=null 로 즉시 해방되므로(withdraw 의 PII 파기)
      * 별도 제외 조건이 필요 없고, nickname = ? 동등 비교는 null 행과 매치되지 않아 안전하다.
      *
      * @param userId      판정 기준 유저(본인) ID
-     * @param rawNickname 검사할 닉네임 원문(trim 전)
+     * @param rawNickname 검사할 닉네임 원문(정규화 전)
      * @return 사용 가능하면 true
      */
     public boolean isNicknameAvailable(UUID userId, String rawNickname) {
-        String nickname = rawNickname == null ? "" : rawNickname.trim();
+        String nickname = normalizeNickname(rawNickname);
         if (!hasValidNicknameLength(nickname)) {
             return false;
         }
@@ -208,14 +208,40 @@ public class UserService {
         return !userRepository.existsByNicknameIgnoreCaseAndIdNot(nickname, userId);
     }
 
-    private static boolean hasValidNicknameLength(String trimmedNickname) {
-        return trimmedNickname.length() >= NICKNAME_MIN_LENGTH
-                && trimmedNickname.length() <= NICKNAME_MAX_LENGTH;
+    /**
+     * 닉네임 정규화 <b>단일점</b> (GROMO-2051) — 앞뒤 공백을 지운다.
+     * 정책 정본(policy-2026-09-14 「친구 관리·우체통 대화」): 「닉네임은 대소문자를 구분하지 않고 중복될 수
+     * 없으며 <b>앞뒤 공백 없이 저장한다</b>.」
+     *
+     * <p><b>{@code String.trim} 이 아니라 {@code String.strip} 인 이유.</b> 전자는 U+0020 이하만 자르므로
+     * U+2003(앰 스페이스)이 앞에 붙은 닉네임이 그대로 저장된다. 그러면 V89 의
+     * {@code uq_users_nickname_lower} 가 {@code " alice"} 와 {@code "alice"} 를 <b>서로 다른 키</b>로 보아,
+     * 화면에는 같아 보이는 두 계정이 공존한다 — 그 인덱스가 막으려던 것이 바로 그 「보이기에 같은 이름」이다.
+     * 길이 검증도 같이 샜다: 앰 스페이스 두 개가 「2자」로 통과해 공백처럼 보이는 닉네임이 만들어졌다.
+     *
+     * <p>레포의 표시 텍스트는 이미 전부 {@code strip()} 이다 — 편지 본문({@code InternalLetterService}) ·
+     * 퀘스트 제목({@code IslandQuestService}) · 초대 표시명({@code LandingRenderer}) · 친구 검색어
+     * ({@code NicknameSearchStrategy}). 닉네임 저장만 {@code String.trim} 이라 같은 값이 저장·표시·검색에서
+     * 세 가지로 취급됐다.
+     *
+     * <p>길이 검증은 <b>이 정규화의 결과</b>를 본다({@link #hasValidNicknameLength}) — 원문을 재면 공백 패딩이
+     * 길이를 벌어 준다. 저장되는 값도 같은 결과다: 검사한 값과 저장한 값이 갈라지지 않는다.
+     *
+     * @param raw 요청 원문. {@code null} 은 빈 문자열로 접어 길이 검증이 거절한다
+     * @return 앞뒤 공백을 지운 값
+     */
+    private static String normalizeNickname(String raw) {
+        return raw == null ? "" : raw.strip();
+    }
+
+    private static boolean hasValidNicknameLength(String normalizedNickname) {
+        return normalizedNickname.length() >= NICKNAME_MIN_LENGTH
+                && normalizedNickname.length() <= NICKNAME_MAX_LENGTH;
     }
 
     /**
      * 닉네임 변경의 단일 저장 경로 (GROMO-1215) — setup(POST)·update(PATCH)가 함께 쓴다.
-     * ① 형식(trim 후 2~10자) 위반 → 400 NICKNAME_INVALID
+     * ① 형식({@link #normalizeNickname} 후 2~10자) 위반 → 400 NICKNAME_INVALID
      * ② 금칙어 → 400 BANNED_WORD (GROMO-1986). 중복 검사보다 앞이라 판정 순서가 형식 → 금칙어 → 중복이다
      * ③ 본인 제외 사전 중복 검사 («대소문자 무시», GROMO-1996) → 409 NICKNAME_DUPLICATE (GROMO-584)
      * ④ 사전 검사와 동시 저장이 겹친 TOCTOU 레이스 — uq_users_nickname·uq_users_nickname_lower 유니크 제약 위반을
@@ -234,7 +260,7 @@ public class UserService {
      * 상태에 도달했다(GROMO-1237) — flush() 는 배타 락과 호환이라 동작 변화가 없다.
      */
     private void changeNickname(User user, String rawNickname) {
-        String nickname = rawNickname == null ? "" : rawNickname.trim();
+        String nickname = normalizeNickname(rawNickname);
         if (!hasValidNicknameLength(nickname)) {
             throw new UserException(UserErrorCode.NICKNAME_INVALID);
         }
@@ -354,7 +380,7 @@ public class UserService {
     public PublicProfileChange updatePublicProfile(UUID userId, String rawName, String catColor) {
         User user = userQueryService.getCallerForUpdate(userId);
         boolean wasComplete = OnboardingCompletion.isComplete(user);
-        if (rawName != null && !rawName.trim().equals(user.getNickname())) {
+        if (rawName != null && !normalizeNickname(rawName).equals(user.getNickname())) {
             changeNickname(user, rawName);
         }
         if (catColor != null) {
