@@ -130,7 +130,11 @@ public class AuthSessionUseCase {
     private record PublicFailure(ApiErrorCode code, String field) {
     }
 
-    /** 응답 DTO — 공개 201 의 네 필드. */
+    /**
+     * 응답 DTO — 공개 201 의 네 필드. 상류가 함께 준 {@code deviceBootstrap} 은 <b>여기 없다</b>:
+     * 계정 LLD §2.1 이 그 값을 {@code X-Device-Bootstrap} 헤더로 보내라고 했고 본문 4필드는 고정이다.
+     * 헤더를 싣는 일은 컨트롤러의 {@code DeviceBootstrapHeader} 가 한다(GROMO-2037).
+     */
     public record Result(String accessToken, String refreshToken, UUID userId, boolean onboardingComplete) {
 
         public static Result of(LoginSession session) {

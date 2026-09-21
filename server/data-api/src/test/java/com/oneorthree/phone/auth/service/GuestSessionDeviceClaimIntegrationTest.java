@@ -4,6 +4,7 @@ import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.auth.repository.AuthSessionRepository;
 import com.oneorthree.phone.auth.repository.GuestDeviceClaimRepository;
+import com.oneorthree.phone.auth.support.TokenHasher;
 import com.oneorthree.phone.common.support.IntegrationTestBase;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserNotificationSettingsRepository;
@@ -113,6 +114,9 @@ class GuestSessionDeviceClaimIntegrationTest extends IntegrationTestBase {
 
         assertThat(second.accessToken()).isNotEqualTo(first.accessToken());
         assertThat(second.refreshToken()).isNotEqualTo(first.refreshToken());
+        assertThat(second.deviceBootstrap())
+                .as("새 세션이면 자격도 새로 발급된다 — 재사용하면 두 세션이 같은 fence 를 공유한다")
+                .isNotEqualTo(first.deviceBootstrap());
         assertThat(authSessionRepository.findActiveByUserId(first.userId()))
                 .as("앞선 세션은 폐기되지 않는다 — 개별 기기 로그아웃만 세션을 끊는다")
                 .hasSize(2);
@@ -201,6 +205,33 @@ class GuestSessionDeviceClaimIntegrationTest extends IntegrationTestBase {
         assertThatThrownBy(() -> authService.refreshSessionAccessToken(issued.refreshToken()))
                 .isInstanceOfSatisfying(InvalidTokenException.class, error ->
                         assertThat(error.getErrorCode()).isEqualTo(InvalidTokenErrorCode.REFRESH_TOKEN));
+    }
+
+    /**
+     * 게스트 발급도 1회용 자격을 실어 보낸다 (GROMO-2037 · 계정 LLD §2.1).
+     *
+     * <p>Business 가 이 값을 {@code X-Device-Bootstrap} 헤더로 앱에 넘긴다. 자격이 「있다」만 보면
+     * 안 된다 — 값이 세션 행의 fence 와 다르면 앱은 자격을 «받았다»고 믿고 기기 등록에 실어 보내는데
+     * 알림 서버는 그 값의 SHA-256 으로 fence 를 서므로 어느 기기도 자기 세션에 붙지 못한다. 그래서
+     * <b>원문의 해시가 그 세션 행의 값과 같다</b>까지 단언한다.
+     *
+     * <p>원문은 DB 어디에도 없다는 것도 여기서 함께 고정한다 — 저장하면 DB 유출이 곧 소유권 이전
+     * 자격 유출이다(V52 주석).
+     */
+    @Test
+    @DisplayName("게스트 발급은 1회용 자격을 싣고, 그 해시만 세션 행에 남는다")
+    void carriesOneShotBootstrapWhoseHashIsFencedOnTheSessionRow() {
+        AuthService.LoginSessionResult issued = issue(digest("cccc"));
+
+        assertThat(issued.deviceBootstrap()).isNotBlank();
+        assertThat(authSessionRepository.findActiveByUserId(issued.userId()))
+                .singleElement()
+                .satisfies(session -> assertThat(session.getBootstrapNonceHash())
+                        .isEqualTo(TokenHasher.sha256Hex(issued.deviceBootstrap())));
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM auth_sessions WHERE bootstrap_nonce_hash = ?",
+                Long.class, issued.deviceBootstrap()))
+                .as("원문은 저장하지 않는다 — 저장하면 DB 유출이 곧 자격 유출이다")
+                .isZero();
     }
 
     // ---------------------------------------------------------------- 도구

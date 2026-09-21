@@ -57,9 +57,14 @@ class GuestSessionContractTest extends UpstreamTestBase {
     /**
      * 앱의 세션 저장 코드가 로그인이든 게스트든 한 갈래로 끝나려면 <b>모양이 같아야</b> 한다.
      *
-     * <p>상류가 {@code sessionId}·{@code deviceBootstrap} 을 실어 보내도 나가면 안 되므로 둘을 «실어»
-     * 두고 공개 응답에서 사라지는지 본다. 필드 개수까지 세는 이유는 「있으면 안 되는 것」을 이름으로
-     * 하나씩 적으면 새로 생긴 필드를 영영 못 잡기 때문이다.
+     * <p>상류가 {@code sessionId}·{@code deviceBootstrap} 을 실어 보내도 <b>본문</b>으로는 나가면
+     * 안 되므로 둘을 «실어» 두고 공개 본문에서 사라지는지 본다. 필드 개수까지 세는 이유는 「있으면
+     * 안 되는 것」을 이름으로 하나씩 적으면 새로 생긴 필드를 영영 못 잡기 때문이다.
+     *
+     * <p>{@code deviceBootstrap} 은 사라지는 것이 아니라 {@code X-Device-Bootstrap} <b>헤더</b>로
+     * 옮겨 간다(GROMO-2037 · 계정 LLD §2.1). 본문에서 빠졌다는 단언만 두면 「그냥 버려도」 통과하니
+     * 헤더에 그 값이 있다는 것까지 여기서 함께 고정한다 — 자세한 계약은
+     * {@code DeviceBootstrapHeaderContractTest}.
      */
     @Test
     @DisplayName("201 은 소셜 로그인과 같은 네 필드이고 세션 자격을 흘리지 않는다")
@@ -78,7 +83,8 @@ class GuestSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.length()").value(4))
                 .andExpect(jsonPath("$.data.sessionId").doesNotExist())
                 .andExpect(jsonPath("$.data.deviceBootstrap").doesNotExist())
-                .andExpect(jsonPath("$.data.isNewUser").doesNotExist());
+                .andExpect(jsonPath("$.data.isNewUser").doesNotExist())
+                .andExpect(header().string("X-Device-Bootstrap", "one-shot"));
     }
 
     /** 토큰이 빠진 상류 응답을 201 로 접지 않는다 — 앱이 「시작됐다」고 믿고 다음 요청에서 401 을 맞는다. */

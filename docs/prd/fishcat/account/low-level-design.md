@@ -53,6 +53,12 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 
 토큰은 null이 아니다. 이 응답에 `isNewUser`, raw provider subject, internal nonce, sessionEpoch를 임의로 노출하지 않는다. 기존 `deviceBootstrap` 전달은 신규 응답의 `X-Device-Bootstrap` 헤더로 보존한다(기술 결정). 앱은 이 값을 기존 기기 등록 DTO의 deviceBootstrap으로 전달한다. 본문 4필드는 유지하며 헤더도 자격이므로 저장소/로그/공용 캐시에 노출하지 않는다. 기존 legacy 로그인의 body 전달 방식은 보존한다.
 
+**구현 상태(GROMO-2037, 서버):** Data 내부 로그인 결과(`LoginSessionResponse`)가 `deviceBootstrap`을 싣고, Business가 공개 201에서 그 값을 `X-Device-Bootstrap` 헤더로 내보낸다(본문은 4필드 그대로). 같은 헤더를 `POST /auth/sessions/guest`(2036)에도 적용한다 — 게스트도 푸시 기기를 등록하고 소유권 CAS·세션 확인이 같은 자격 축 위에서 돈다. `Cache-Control: no-store`는 `RequestEnvelopeFilter`가 모든 공개 응답에 이미 붙인다.
+
+**자격이 없는 두 경우에는 헤더를 싣지 않는다.** ① **결과 재생**(응답 유실 복구, 복구 창 5분): 자격 원문은 발급 1회만 존재하고 `auth_sessions`에는 SHA-256만 남아 되살릴 수 없다. 재생에서 새로 발급하면 최초 응답을 받은 앱 — 실제로 그 자격을 쓰고 있는 쪽 — 의 값이 무효가 되므로 발급하지 않는다. ② **AT 재발급**(`POST /auth/sessions/current/refresh`, 2035): 2.0 경로는 RT를 회전하지 않고, 자격은 회전할 때만 새로 생긴다. 두 경우 모두 앱은 자격 없는 기존 기기 등록 경로로 내려간다(알림 서버가 그 경로를 계속 받는다).
+
+`X-Device-Bootstrap`(원문, 로그인 201 응답)과 알림 서버가 기기 DELETE에서 요구하는 `X-Device-Bootstrap-Hash`는 **같은 값의 원문/해시 관계**다 — 둘 다 소문자 SHA-256 hex 64자(`TokenHasher.sha256Hex` ↔ 알림 서버 `Json.digest`). 흐르는 방향이 다르다: **원문은 앱만** 들고 있다가 기기 등록 본문의 `deviceBootstrap`으로 올리고(알림 서버가 해시해 `session_fences.bootstrap_hash`로 세운다), **해시는 서버가** `auth_sessions.bootstrap_nonce_hash`에서 꺼내 기기 DELETE 헤더로 보낸다(`UserSatelliteCommandService` → `DeviceTokenUseCase` → `NotificationApiClient`). 서버는 원문을 저장하지 않고 앱은 해시를 만들 필요가 없다.
+
 ### 2.2 GET /me
 
 요청 본문 없음. 활성 계정 projection 한 번으로 아래 필드를 읽는다.

@@ -7,9 +7,11 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.ClientIpResolver;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
+import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.usecase.AuthSessionUseCase;
 import com.oneorthree.business.usecase.GuestSessionUseCase;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -44,7 +46,8 @@ public class GuestSessionController {
 
     @PostMapping(GuestDeviceCredentials.PATH)
     @ResponseStatus(HttpStatus.CREATED)
-    public AuthSessionUseCase.Result start(HttpServletRequest request) throws IOException {
+    public AuthSessionUseCase.Result start(HttpServletRequest request, HttpServletResponse response)
+            throws IOException {
         // 본문을 받지 않는다 — 자격도 멱등 키도 전부 헤더다. 필터 예외와 «같은» 판정을 다시 확인해
         // 인코딩 변형이 필터를 비껴가고 라우팅에만 걸리는 경로를 여기서 끊는다.
         if (!GuestDeviceCredentials.matches(request) || request.getQueryString() != null
@@ -57,7 +60,10 @@ public class GuestSessionController {
         }
         // IP 는 «Business 가» 판정한다. 이 값 없이 Data 가 내부 호출의 소스 IP 를 보면 모든 게스트가
         // Business 컨테이너 한 주소로 뭉쳐, 레이트리밋이 보호가 아니라 전원 차단으로 동작한다.
-        return guests.start(credentials.deviceId().toString(), clientIpResolver.resolve(request),
+        LoginSession session = guests.start(credentials.deviceId().toString(),
+                clientIpResolver.resolve(request),
                 Deadline.startingNow(properties.getComposition().getDeadline()));
+        DeviceBootstrapHeader.set(response, session.deviceBootstrap());
+        return AuthSessionUseCase.Result.of(session);
     }
 }
