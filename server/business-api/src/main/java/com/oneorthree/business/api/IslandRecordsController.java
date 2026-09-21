@@ -20,6 +20,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
@@ -46,6 +47,8 @@ public class IslandRecordsController {
 
     private static final Set<String> FOCUS_QUERY = Set.of("from", "to", "timezone", "scope", "cursor");
     private static final Set<String> SCREEN_QUERY = Set.of("from", "to", "timezone", "scope");
+    private static final Set<String> LEDGER_QUERY = Set.of("month", "direction", "cursor");
+    private static final Set<String> DIRECTIONS = Set.of("earn", "spend");
     private static final Set<String> UPLOAD_KEYS = Set.of("minutes", "measurementStatus", "timezone",
             "measuredAt", "deviceId");
     private static final Set<String> SCOPES = Set.of(IslandRecordsUseCase.SCOPE_ME, IslandRecordsUseCase.SCOPE_ISLAND);
@@ -54,8 +57,11 @@ public class IslandRecordsController {
     /** 조회 기간 상한(양끝 포함) — Data 와 같다. */
     private static final int MAX_DAYS = 31;
     private static final Pattern DATE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+    private static final Pattern MONTH = Pattern.compile("\\d{4}-\\d{2}");
     private static final DateTimeFormatter STRICT_DATE =
             DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
+    private static final DateTimeFormatter STRICT_MONTH =
+            DateTimeFormatter.ofPattern("uuuu-MM").withResolverStyle(ResolverStyle.STRICT);
     private static final Pattern CANONICAL_UUID =
             Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
@@ -78,6 +84,31 @@ public class IslandRecordsController {
         AccessTokenClaims claims = sessions.requireSession(request);
         Query query = query(request, SCREEN_QUERY);
         return records.screenTime(claims, islandId(islandId), query.from(), query.to(), query.scope(), deadline());
+    }
+
+    /**
+     * 공동 가계부 (GROMO-1786, island-construction LLD §6) — 회관에서 읽는 섬 원장이다.
+     *
+     * <p>{@code month} 는 필수 {@code YYYY-MM} 이고 <b>축은 KST 달력 월</b>이다 — 통계 3종의 UTC 날짜 축과
+     * 다르지만 여기서 만든 규칙이 아니라 Data 의 {@code ZonePolicy.KST} 를 따라간다(date-axis 규약 §2:
+     * UTC 컷오버 전까지 KST 가 현행). {@code timezone} 은 받지 않는다 — 고를 수 있는 축이 아니다.
+     *
+     * <p>{@code direction} 은 {@code earn|spend} 만, {@code limit} 은 공개 query 가 아니다(서버 내부 30).
+     */
+    @GetMapping("/islands/{islandId}/resources/ledger")
+    public IslandRecordsUseCase.Ledger ledger(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        request.getParameterMap().forEach((name, values) -> {
+            if (!LEDGER_QUERY.contains(name) || values.length != 1) {
+                throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, name);
+            }
+        });
+        String direction = request.getParameter("direction");
+        if (direction != null && !DIRECTIONS.contains(direction)) {
+            throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "direction");
+        }
+        return records.ledger(claims, islandId(islandId), month(required(request, "month")), direction,
+                request.getParameter("cursor"), deadline());
     }
 
     /**
@@ -176,6 +207,21 @@ public class IslandRecordsController {
             return LocalDate.parse(value, STRICT_DATE);
         } catch (DateTimeParseException e) {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, field);
+        }
+    }
+
+    /**
+     * {@code YYYY-MM} 이 아니면 400, 모양은 맞는데 없는 달(13월)이면 422 다 — 날짜와 같은 규칙이다.
+     * 값은 Data 가 그대로 되돌려 주므로 정규화한 문자열로 넘긴다.
+     */
+    private static String month(String value) {
+        if (!MONTH.matcher(value).matches()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "month");
+        }
+        try {
+            return YearMonth.parse(value, STRICT_MONTH).toString();
+        } catch (DateTimeParseException e) {
+            throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "month");
         }
     }
 

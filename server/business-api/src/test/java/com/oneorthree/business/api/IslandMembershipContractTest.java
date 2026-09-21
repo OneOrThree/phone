@@ -48,11 +48,11 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     private static final String CREATED = "{\"id\":\"" + ISLAND + "\",\"membershipStatus\":\"active\","
             + "\"role\":\"host\",\"currentIslandId\":\"" + ISLAND + "\"}";
     private static final String SUMMARY = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
-            + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,"
+            + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
             + "\"membershipStatus\":\"none\",\"joinRequestId\":null,"
             + "\"growthStage\":null,\"themeId\":null}";
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
-            + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,"
+            + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
             + "\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
             + "\"role\":\"host\",\"version\":3}";
 
@@ -76,7 +76,7 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         assertThat(forwarded.header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(forwarded.header("X-Service-Token")).isNull();
         assertThat(forwarded.body()).isEqualTo(
-                "{\"name\":\"모래섬\",\"intro\":null,\"approvalRequired\":false}");
+                "{\"name\":\"모래섬\",\"intro\":null,\"approvalRequired\":false,\"maxMembers\":null}");
     }
 
     // ---------------------------------------------------------------- 범위 봉투
@@ -100,6 +100,9 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(get("/islands/" + ISLAND)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.membershipStatus").value("none"))
+                // 결정 V-읽기 — 방문자도 「주민 수/정원」을 한 쌍으로 본다. 주민 전용은 role·version 이다.
+                .andExpect(jsonPath("$.data.memberCount").value(1))
+                .andExpect(jsonPath("$.data.maxMembers").value(15))
                 .andExpect(jsonPath("$.data.role").doesNotExist())
                 .andExpect(jsonPath("$.data.version").doesNotExist())
                 .andExpect(jsonPath("$.data.scope").doesNotExist());
@@ -271,6 +274,12 @@ class IslandMembershipContractTest extends UpstreamTestBase {
             "{\"name\":\"섬\",\"approvalRequired\":\"false\"}",
             "{\"name\":123,\"approvalRequired\":false}",
             "{\"name\":\"섬\",\"approvalRequired\":false,\"maxMembers\":99}",
+        "{\"name\":\"섬\",\"approvalRequired\":false,\"maxMembers\":0}",
+        "{\"name\":\"섬\",\"approvalRequired\":false,\"maxMembers\":-1}",
+        "{\"name\":\"섬\",\"approvalRequired\":false,\"maxMembers\":\"15\"}",
+        // 32비트 경계 — intValue() 로 먼저 자르면 4294967297 이 1 로 접혀 통과한다(2^31 은 -2147483648).
+        "{\"name\":\"섬\",\"approvalRequired\":false,\"maxMembers\":2147483648}",
+        "{\"name\":\"섬\",\"approvalRequired\":false,\"maxMembers\":4294967297}",
             "{\"name\":\"섬\",\"approvalRequired\":false,\"password\":\"1234\"}"})
     @DisplayName("본문 모양이 어긋나면 네트워크 전에 400 이다 — maxMembers·password 주입도 여기서 막힌다")
     void rejectsBodyShapeBeforeTheNetwork(String body) throws Exception {

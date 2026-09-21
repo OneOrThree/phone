@@ -39,7 +39,11 @@ public class IslandManagementController {
 
     private static final int NAME_MAX = 50;
     private static final int INTRO_MAX = 200;
-    private static final Set<String> MANAGE_KEYS = Set.of("name", "intro", "approvalRequired");
+    /** 정원 범위 — 정책 「정원은 1~15명」(GROMO-1993). 현원 하한은 Data 가 본다. */
+    private static final int MEMBERS_MIN = 1;
+    private static final int MEMBERS_MAX = 15;
+    private static final Set<String> MANAGE_KEYS =
+            Set.of("name", "intro", "approvalRequired", "maxMembers");
 
     private final IslandManagementUseCase management;
     private final SettingsSessionGuard sessions;
@@ -47,7 +51,8 @@ public class IslandManagementController {
 
     /**
      * 섬 정보 수정 (LLD §2·§3.1). 키가 없으면 미변경, 명시 null 은 400, 빈 이름·길이 초과는 422 다.
-     * 계약 밖 키(password·maxMembers·isPrivate 등)는 400 으로 거절한다. 빈 객체는 no-op 성공이다.
+     * 계약 밖 키(password·isPrivate 등)는 400 으로 거절한다. 빈 객체는 no-op 성공이다.
+     * {@code maxMembers}(1~15)는 GROMO-1993 에서 열었다 — 현원보다 작게 줄이면 Data 가 400 으로 거절한다.
      */
     @PatchMapping(value = "/islands/{islandId}", consumes = "application/json")
     public IslandManaged manage(@PathVariable String islandId, @RequestBody JsonNode body,
@@ -79,6 +84,17 @@ public class IslandManagementController {
                 throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "approvalRequired");
             }
             fields.put("approvalRequired", body.get("approvalRequired").booleanValue());
+        }
+        if (body.has("maxMembers")) {
+            JsonNode node = body.get("maxMembers");
+            // canConvertToInt 가 «먼저» 다 — 4294967297 같은 32비트 초과 정수는 isIntegralNumber 가 참이고
+            // intValue() 가 1 로 잘려, 범위 검사를 통과한 채 정원이 1 로 저장된다(IslandQuestController#integer
+            // 와 같은 순서). 자르기 전에 원래 값이 int 에 들어가는지부터 본다.
+            if (!node.isIntegralNumber() || !node.canConvertToInt()
+                    || node.intValue() < MEMBERS_MIN || node.intValue() > MEMBERS_MAX) {
+                throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "maxMembers");
+            }
+            fields.put("maxMembers", node.intValue());
         }
         return management.manage(claims, island, fields, key, deadline());
     }

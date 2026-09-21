@@ -130,6 +130,8 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
     @Query(value = "SELECT g.id FROM groups g "
             + "WHERE g.name % :q AND g.is_private = false AND g.deleted_at IS NULL "
             + "AND g.status <> 'ENDED' "
+            + "AND (SELECT count(*) FROM group_members m "
+            + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
             + "AND (CAST(:cursorId AS uuid) IS NULL "
             + "     OR ((g.name <-> :q) > (SELECT c.name <-> :q FROM groups c "
             + "                            WHERE c.id = CAST(:cursorId AS uuid)) "
@@ -154,6 +156,8 @@ public interface GroupRepository extends JpaRepository<Group, UUID> {
      */
     @Query(value = "SELECT g.id FROM groups g "
             + "WHERE g.is_private = false AND g.deleted_at IS NULL AND g.status <> 'ENDED' "
+            + "AND (SELECT count(*) FROM group_members m "
+            + "     WHERE m.group_id = g.id AND m.is_left = false) < g.max_members "
             + "AND (CAST(:cursorId AS uuid) IS NULL OR g.id < CAST(:cursorId AS uuid)) "
             + "ORDER BY g.id DESC LIMIT :limit", nativeQuery = true)
     List<UUID> findRecentPublicIslandIds(@Param("cursorId") String cursorId, @Param("limit") int limit);

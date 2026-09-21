@@ -32,7 +32,8 @@ abstract class ScreenContractTestBase extends UpstreamTestBase {
 
     static String summary(String membershipStatus, UUID joinRequestId) {
         return "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\",\"visibility\":\"public\","
-                + "\"approvalRequired\":true,\"memberCount\":3,\"membershipStatus\":\"" + membershipStatus + "\","
+                + "\"approvalRequired\":true,\"memberCount\":3,\"maxMembers\":15,"
+                + "\"membershipStatus\":\"" + membershipStatus + "\","
                 + "\"joinRequestId\":" + (joinRequestId == null ? "null" : "\"" + joinRequestId + "\"")
                 + ",\"growthStage\":null,\"themeId\":null}";
     }

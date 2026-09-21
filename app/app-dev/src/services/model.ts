@@ -28,6 +28,8 @@ export type Route =
   | 'tower'
   | 'explore'
   | 'visit'
+  | 'visitIsland'
+  | 'visitIslandFocus'
   | 'travel'
   | 'mail'
   | 'shop'
@@ -45,6 +47,7 @@ export type Route =
   | 'friendMail'
   | 'chat'
   | 'fishingArrival'
+  | 'focusVisit'
   | 'focusTravel'
   | 'returnTravel'
   | 'permission'
@@ -121,6 +124,8 @@ export type Message = {
 };
 export type Island = {
   visibility?: 'public' | 'private';
+  // 이 사용자가 강퇴된 섬. 일반 탐색·가입 경로에서는 다시 노출하거나 가입시키지 않는다.
+  kicked?: boolean;
   // 마지막 주민이 떠나 종료된 섬. 기록 참조는 남기되 탐색·검색·재가입 대상에서는 제외한다.
   closed?: boolean;
   id: string;
@@ -249,6 +254,8 @@ export type State = {
   visitingIslandId?: string | null;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
+  // 현재 화면을 잃은 강퇴를 앱 셸이 소비해 안전한 화면으로 reset하기 위한 일회성 신호
+  membershipRecovery?: { reason: 'kicked'; islandId: string };
   // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
   lettersReadAt?: number;
 };
@@ -659,6 +666,7 @@ export const canVisit = (s: State, id: string) => {
     currentIsland(s).buildings.includes('tower') &&
     !!target &&
     !target.joined &&
+    !target.kicked &&
     !target.closed
   );
 };
@@ -708,24 +716,27 @@ export const residentCount = (i: Island) => i.members.length + (i.joined ? 1 : 0
 export const capacityOf = (i: Island) => i.capacity ?? CAPACITY_MAX;
 export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
 // 방문자 등록증의 가입 버튼 상태. 집중 중에는 배 이동부터 막혀 방문 화면에 올 수 없으므로 집중 상태는 없다
-export type VisitorJoin = 'join' | 'apply' | 'cancel' | 'full';
+export type VisitorJoin = 'join' | 'apply' | 'cancel' | 'full' | 'blocked';
 export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
-  (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
-    ? 'cancel'
-    : isFull(i)
-      ? 'full'
-      : i.approval
-        ? 'apply'
-        : 'join';
+  i.kicked
+    ? 'blocked'
+    : (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+      ? 'cancel'
+      : isFull(i)
+        ? 'full'
+        : i.approval
+          ? 'apply'
+          : 'join';
 export const visitorJoinLabel: Record<VisitorJoin, string> = {
   join: '이 섬에 가입',
   apply: '가입 신청',
   cancel: '신청 취소',
   full: '정원이 가득 찼어요',
+  blocked: '다시 가입할 수 없어요',
 };
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
-  islands.find((i) => !i.closed && inviteCodeOf(i) === code.trim().toUpperCase());
+  islands.find((i) => !i.closed && !i.kicked && inviteCodeOf(i) === code.trim().toUpperCase());
 export const recordSecondsBetween = (record: RecordItem, from: number, until: number) =>
   (record.intervals ?? [{ start: record.at - record.seconds * 1000, end: record.at }]).reduce(
     (seconds, interval) =>
@@ -873,6 +884,24 @@ function closeIsland(s: State, i: Island) {
   );
   s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== i.id);
   if (s.pendingIsland === i.id) s.pendingIsland = s.pendingIslands.at(-1) ?? null;
+}
+
+// 내 소속이 사라졌을 때의 공통 정리. 자진 탈퇴는 마지막 주민이면 섬도 닫지만,
+// 강퇴는 방장이 남아 있으므로 내 소속과 개인 화면 컨텍스트만 정리한다.
+function removeOwnMembership(s: State, island: Island, closeWhenEmpty: boolean) {
+  const wasCurrent = s.islandId === island.id;
+  island.joined = false;
+  s.rewards = (s.rewards ?? []).filter((reward) => reward.islandId !== island.id);
+  if (island.buildingQuest)
+    island.buildingQuest.targets = island.buildingQuest.targets.filter((id) => id !== 'me');
+  if (closeWhenEmpty && island.members.length === 0) closeIsland(s, island);
+
+  const nextIsland = s.islands.find((candidate) => candidate.joined && !candidate.closed);
+  s.onboarded = !!nextIsland;
+  if (wasCurrent && nextIsland) s.islandId = nextIsland.id;
+  if (wasCurrent || s.visitingIslandId === island.id || !nextIsland) s.visitingIslandId = null;
+  // 소속을 잃은 섬의 진행 중 집중은 서버에서도 강제 종료된다. 로컬 상태에 좀비 세션을 남기지 않는다.
+  if (s.session?.islandId === island.id) s.session = null;
 }
 export function canBuy(s: State, p: Product): string | null {
   const i = currentIsland(s);
@@ -1145,6 +1174,14 @@ export function reducer(state: State, a: Action): State {
     };
     // 예전 버전에서 닫힌 섬에 남아 있던 공동 데이터도 지금 규칙대로 정리한다(여러 번 해도 같다)
     next.islands.forEach((i) => i.closed && closeIsland(next, i));
+    // 저장본·서버 동기화 결과가 onboarded 플래그보다 우선한다.
+    const joined = next.islands.filter((island) => island.joined && !island.closed);
+    next.onboarded = joined.length > 0;
+    if (!joined.some((island) => island.id === next.islandId) && joined[0])
+      next.islandId = joined[0].id;
+    if (next.session && !joined.some((island) => island.id === next.session!.islandId))
+      next.session = null;
+    if (!next.onboarded) next.visitingIslandId = null;
     return next;
   }
   const hostOnly = [
@@ -1222,7 +1259,8 @@ export function reducer(state: State, a: Action): State {
     case 'JOIN': {
       if (s.session) return state;
       const island = s.islands.find((x) => x.id === a.id);
-      if (!island || island.closed || (!island.joined && isFull(island))) return state;
+      if (!island || island.closed || island.kicked || (!island.joined && isFull(island)))
+        return state;
       if (!island.joined && island.approval && !a.approved) {
         s.pendingIslands = [...new Set([...(s.pendingIslands ?? []), island.id])];
         s.pendingIsland = island.id;
@@ -1659,17 +1697,24 @@ export function reducer(state: State, a: Action): State {
       break;
     case 'LEAVE':
       if (s.session || (isHost(i) && i.members.length > 0)) return state;
-      i.joined = false;
-      // 떠난 섬에서 아직 받지 않은 보상 창은 띄우지 않는다
-      s.rewards = (s.rewards ?? []).filter((r) => r.islandId !== i.id);
-      if (i.members.length === 0) closeIsland(s, i);
-      if (i.buildingQuest)
-        i.buildingQuest.targets = i.buildingQuest.targets.filter((id) => id !== 'me');
-      const nextIsland = s.islands.find((j) => j.joined && j.id !== i.id);
-      s.onboarded = !!nextIsland;
-      if (nextIsland) s.islandId = nextIsland.id;
-      s.visitingIslandId = null;
+      removeOwnMembership(s, i, true);
       break;
+    case 'KICKED_FROM_ISLAND': {
+      const kickedIsland = s.islands.find((island) => island.id === a.id);
+      if (!kickedIsland?.joined) return state;
+      const shouldResetScreen =
+        s.islandId === kickedIsland.id ||
+        s.session?.islandId === kickedIsland.id ||
+        s.visitingIslandId === kickedIsland.id;
+      kickedIsland.kicked = true;
+      removeOwnMembership(s, kickedIsland, false);
+      if (shouldResetScreen) s.membershipRecovery = { reason: 'kicked', islandId: kickedIsland.id };
+      break;
+    }
+    case 'MEMBERSHIP_RECOVERY_HANDLED': {
+      delete s.membershipRecovery;
+      break;
+    }
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);
       break;
@@ -1741,6 +1786,7 @@ export function reducer(state: State, a: Action): State {
         );
       clean.islands = s.islands.map((i) => ({
         ...i,
+        kicked: undefined,
         joined: false,
         earned: Object.fromEntries(Object.entries(i.earned ?? {}).filter(([id]) => id !== 'me')),
         ledger: i.ledger.filter(

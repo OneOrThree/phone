@@ -89,6 +89,11 @@ public class LinkMembershipEventService {
     private final OutboxCommandPort outboxCommandPort;
     private final GroupMemberRepository groupMemberRepository;
     private final MainIslandService mainIslandService;
+    /**
+     * 소속 상실 후 «지금 접속한 섬» 복구 (GROMO-1995) — 메인 섬 이전과 같은 이유로 여기 건다.
+     * 네 경로(자진이탈·강퇴·계정탈퇴·레거시)가 전부 이 메서드를 지나는 유일한 공통 지점이다.
+     */
+    private final UserIslandContextRecovery userIslandContextRecovery;
 
     /**
      * 멤버십 전이(탈퇴·강퇴)를 기록하고 폐기 명령을 적는다.
@@ -96,7 +101,7 @@ public class LinkMembershipEventService {
      * <p><b>{@code leave()}·{@code kick()} 호출과 같은 트랜잭션에서</b> 불러야 한다. 세대를 올리는 것과
      * 이탈 마킹이 갈라지면, 그 사이에 발급된 링크가 새 세대를 못 받아 살아남는다.
      *
-     * <h2>메인 섬 이전도 여기서 건다 (GROMO-1971)</h2>
+     * <h2>메인 섬 이전과 현재 섬 복구도 여기서 건다 (GROMO-1971 · GROMO-1995)</h2>
      * 이 메서드는 이탈·강퇴·계정탈퇴의 마킹 다섯 지점이 <b>전부</b> 바로 뒤에 부르는 유일한 공통 지점이다.
      * 마킹 지점마다 훅을 달면 레거시 {@code DELETE /api/v1/groups/{id}/members/me}·강퇴·계정탈퇴 중 하나가
      * 조용히 새고, 그러면 떠난 섬이 대표로 남아 친구 목록에까지 나간다. 링크 폐기와 관심사가 다르지만
@@ -108,6 +113,8 @@ public class LinkMembershipEventService {
     @Transactional(propagation = Propagation.MANDATORY)
     public long recordMembershipRevoked(GroupMember member) {
         mainIslandService.onMembershipRevoked(member);
+        // 순서가 계약이다 — 메인 섬 이전이 «먼저» 끝나야 여기서 고르는 다음 섬이 이미 떠난 섬이 아니다.
+        userIslandContextRecovery.onMembershipRevoked(member);
         UUID groupId = member.getGroup().getId();
         UUID inviterId = member.getUser().getId();
         long transitionSeq = outboxCommandPort.allocateVersion(AggregateRef.ofLinkMembership(groupId, inviterId));

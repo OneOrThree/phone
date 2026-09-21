@@ -371,7 +371,7 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("maxMembers 미지정 → 기본값 10으로 저장")
+    @DisplayName("maxMembers 미지정 → 정책 기본값 15로 저장 (GROMO-1993)")
     void createGroupDefaultsMaxMembers() {
         // given
         CreateGroupRequest request = durationRequest(null, null, 60);
@@ -385,7 +385,7 @@ class GroupServiceTest {
         // then
         ArgumentCaptor<Group> captor = ArgumentCaptor.forClass(Group.class);
         verify(groupRepository).save(captor.capture());
-        assertThat(captor.getValue().getMaxMembers()).isEqualTo(10);
+        assertThat(captor.getValue().getMaxMembers()).isEqualTo(15);
     }
 
     @Test
