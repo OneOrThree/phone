@@ -924,12 +924,12 @@ public class DataApiClient {
 
     /** 섬 생성 (GROMO-1759, LLD §3.1). 생성자가 방장이 되고 현재 섬이 새 섬으로 옮겨진다. */
     public IslandCreated createIsland(UUID userId, String name, String intro, boolean approvalRequired,
-            UUID key, Deadline deadline) {
+            Integer maxMembers, UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, userPath(PATH_ISLANDS, userId))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
-                        .body(new CreateIslandCommand(name, intro, approvalRequired))
+                        .body(new CreateIslandCommand(name, intro, approvalRequired, maxMembers))
                         .idempotentCommand()
                         .build(),
                 deadline,
@@ -1602,8 +1602,12 @@ public class DataApiClient {
     record LetterSendCommand(UUID receiverId, String content) {
     }
 
-    /** 섬 생성 요청 본문 (GROMO-1759). maxMembers·password 는 client 가 넣지 못한다. */
-    record CreateIslandCommand(String name, String intro, boolean approvalRequired) {
+    /**
+     * 섬 생성 요청 본문 (GROMO-1759 · GROMO-1993). {@code password} 는 여전히 client 가 넣지 못한다.
+     * {@code maxMembers} 는 정책 「섬 생성 시 방장이 … 정원을 설정한다」로 열렸고, null 이면 Data 가
+     * 기본값(15)을 채운다.
+     */
+    record CreateIslandCommand(String name, String intro, boolean approvalRequired, Integer maxMembers) {
     }
 
     /** 현재 섬 이동 요청 본문 (GROMO-1759). */

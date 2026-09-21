@@ -28,6 +28,30 @@ public interface IslandQuestOccurrenceRepository extends JpaRepository<IslandQue
     List<IslandQuestOccurrence> findByIslandIdAndOccurrenceDateBetweenOrderByOccurrenceDateAscCreatedAtAsc(
             UUID islandId, LocalDate from, LocalDate to);
 
+    /**
+     * 전원 달성 보너스가 아직 적립되지 않은 «최근» 회차 (GROMO-1991) — 매분 finalizer 가 훑는다.
+     *
+     * <p>수령 마감은 type 마다 다르므로(focus 다음 날 12:00Z · screen 다음 날 24:00Z) 여기서는 날짜로만
+     * 넉넉히 거르고, 마감·전원 달성 판정은 호출측이 회차를 잠근 뒤에 한다.
+     *
+     * <p><b>인덱스</b>: 섬·퀘스트 조건이 없어 {@code (island_id, …)}·{@code (quest_id, …)} 선두 인덱스를
+     * 쓰지 못한다 — 아래 WHERE 와 글자 그대로 같은 부분 인덱스
+     * {@code idx_island_quest_occurrences_bonus_pending (occurrence_date) WHERE bonus_settled_at IS NULL}
+     * (V83)이 받는다. 적립된 회차는 인덱스에서 빠지므로 매분 훑는 비용이 누적 회차 수가 아니라
+     * 미정산 회차 수에 비례한다. <b>WHERE 를 고치면 그 인덱스 조건도 같이 고쳐야 한다.</b>
+     */
+    @Query("SELECT o.id FROM IslandQuestOccurrence o "
+            + "WHERE o.bonusSettledAt IS NULL AND o.occurrenceDate >= :from ORDER BY o.occurrenceDate ASC")
+    List<UUID> findIdsPendingBonusSince(@Param("from") LocalDate from);
+
+    /**
+     * 회차의 섬 — 잠금 순서(섬 → 회차)를 지키려면 섬 id 를 <b>회차를 잠그기 전에</b> 알아야 한다.
+     * 엔티티가 아니라 스칼라로 읽는 것이 핵심이다: {@code findById} 로 먼저 읽으면 그 인스턴스가 영속성
+     * 컨텍스트에 남아 뒤따르는 {@link #findByIdForUpdate} 가 <b>잠금 전 스냅샷</b>을 돌려준다.
+     */
+    @Query("SELECT o.islandId FROM IslandQuestOccurrence o WHERE o.id = :id")
+    Optional<UUID> findIslandIdById(@Param("id") UUID id);
+
     /** 정산 전용 배타 잠금 — 섬 잠금 뒤, 지갑 잠금 앞(LLD §5). 반드시 트랜잭션 안에서. */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT o FROM IslandQuestOccurrence o WHERE o.id = :id")

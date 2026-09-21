@@ -197,7 +197,9 @@ python3 server/scripts/migrate-link.py --help
 
 로컬 logback 보존(APP 7일·user-activity 30일)과 S3 보존은 **다른 값**입니다. 기간 정본은 [계정 정책 로그·분석 보존 기간](../../docs/prd/fishcat/account/policy.md#로그분석-보존-기간)이며 S3 값을 바꾸면 이 파일과 정책 표를 함께 고칩니다.
 
-**적용 완료 2026-09-19** — 이 파일은 버킷에 적용된 규칙의 기록입니다. 버킷의 Terraform 원본(`docs/terraform/aws-prod-server/s3.tf`, 티켓 590)은 이 레포 밖에 있어 **동기화가 필요**합니다. 동기화 전에 Terraform을 적용하면 이 규칙이 덮어써질 수 있습니다.
+**적용 완료 2026-09-19** — 이 파일은 버킷에 적용된 규칙의 기록입니다. 버킷의 Terraform 원본은 이 레포가 아니라 **`OneOrThree/terraform` 레포의 `aws-prod-server/s3.tf`**(티켓 590)입니다.
+
+2026-09-21 기준 그쪽은 아직 버킷 전체 단일 규칙(`expire-90d` · `filter {}` · 90일 · 멀티파트 정리 없음)이라 이 파일과 **어긋나 있습니다**(동기화 티켓 GROMO-1948). `aws-prod-server/`는 로컬 state·수동 apply 구성이라 그 레포의 CI가 적용하지 않습니다 — 대신 누군가 로컬에서 `AWS_PROFILE=gromo terraform apply`를 돌리는 순간 위 규칙 3개가 `expire-90d` 하나로 되돌아갑니다. 동기화할 때는 접두 3개 규칙으로 교체하되, 종전 `expire-90d`가 버킷 **전체**를 만료시켰다는 점에 주의합니다. 접두 밖 객체는 교체 후 만료되지 않습니다.
 
 `put-bucket-lifecycle-configuration`은 버킷의 기존 규칙 전체를 **교체**합니다. 먼저 현재 규칙을 조회해 다른 규칙이 있으면 이 파일에 합친 뒤 적용합니다.
 

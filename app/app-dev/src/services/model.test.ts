@@ -397,6 +397,7 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
     text: '예전 이름 댓글',
   });
   currentIsland(s).members[0].role = 'host';
+  s.islands[1].kicked = true;
   s = act(s, 'DELETE_ACCOUNT');
   const scrubbed = s.islands[0];
   assert.equal(scrubbed.fish, 1200);
@@ -418,6 +419,7 @@ test('계정 삭제는 섬 물고기는 남기고 사용자 활동과 개인정�
   assert.deepEqual(scrubbed.quests[0].rounds?.today.claimed, []);
   assert.deepEqual(scrubbed.buildingQuest?.targets, ['minji']);
   assert.deepEqual(scrubbed.buildingQuest?.base, { minji: 20 });
+  assert.ok(s.islands.every((entry) => entry.kicked === undefined));
   assert.equal(s.loggedIn, false);
   assert.deepEqual(s.records, []);
 });
@@ -590,12 +592,13 @@ test('방문자는 다른 섬을 구경만 하고 쓰기는 막히며, 가입하
   assert.equal(viewIsland(s).id, 'strawberry');
 });
 
-test('방문자 가입 버튼 라벨은 네 가지다', () => {
+test('방문자 가입 버튼 라벨은 다섯 가지다', () => {
   assert.deepEqual(visitorJoinLabel, {
     join: '이 섬에 가입',
     apply: '가입 신청',
     cancel: '신청 취소',
     full: '정원이 가득 찼어요',
+    blocked: '다시 가입할 수 없어요',
   });
 });
 
@@ -1283,6 +1286,125 @@ test('한 섬을 탈퇴해도 다른 소속 섬과 이전 섬의 공동 물고�
   assert.equal(s.onboarded, true);
   assert.equal(s.islandId, other.id);
   assert.equal(balance(s.islands.find((j) => j.id === previous.id)!), fish);
+});
+
+test('마지막 소속 섬에서 강퇴되면 개인 데이터는 유지하고 첫 소속 선택 상태가 된다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.members[0].role = 'host';
+  s.session = {
+    id: 'kicked-session',
+    islandId: island.id,
+    subject: '수학',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'active',
+  };
+  const personal = {
+    name: s.name,
+    color: s.color,
+    friends: structuredClone(s.friends),
+    owned: [...s.owned],
+    records: structuredClone(s.records),
+  };
+
+  s = act(s, 'KICKED_FROM_ISLAND', { id: island.id });
+
+  assert.equal(currentIsland(s).joined, false);
+  assert.equal(currentIsland(s).closed, undefined);
+  assert.equal(s.onboarded, false);
+  assert.equal(s.session, null);
+  assert.equal(currentIsland(s).kicked, true);
+  assert.deepEqual(s.membershipRecovery, { reason: 'kicked', islandId: island.id });
+  assert.deepEqual(
+    {
+      name: s.name,
+      color: s.color,
+      friends: s.friends,
+      owned: s.owned,
+      records: s.records,
+    },
+    personal,
+  );
+});
+
+test('현재 섬에서 강퇴돼도 다른 소속이 있으면 그 섬을 현재 섬으로 복구한다', () => {
+  let s = initialState(true);
+  const kicked = currentIsland(s);
+  const remaining = s.islands.find((island) => island.id !== kicked.id)!;
+  const visiting = s.islands.find(
+    (island) => island.id !== kicked.id && island.id !== remaining.id,
+  )!;
+  remaining.joined = true;
+  s.visitingIslandId = visiting.id;
+  s.session = {
+    id: 'kicked-session',
+    islandId: kicked.id,
+    subject: '수학',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'active',
+  };
+
+  s = act(s, 'KICKED_FROM_ISLAND', { id: kicked.id });
+
+  assert.equal(s.onboarded, true);
+  assert.equal(s.islandId, remaining.id);
+  assert.equal(s.visitingIslandId, null);
+  assert.equal(s.session, null);
+  assert.deepEqual(s.membershipRecovery, { reason: 'kicked', islandId: kicked.id });
+});
+
+test('가입한 보조 섬을 방문 중 강퇴되면 현재 섬으로 화면 복구 신호를 남긴다', () => {
+  let s = initialState(true);
+  const home = currentIsland(s);
+  const visited = s.islands.find((island) => island.id !== home.id)!;
+  visited.joined = true;
+  s.visitingIslandId = visited.id;
+
+  s = act(s, 'KICKED_FROM_ISLAND', { id: visited.id });
+
+  assert.equal(s.islandId, home.id);
+  assert.equal(s.visitingIslandId, null);
+  assert.equal(visited.id, s.membershipRecovery?.islandId);
+  assert.equal(s.islands.find((island) => island.id === visited.id)?.kicked, true);
+});
+
+test('강퇴된 섬은 일반 탐색·초대 코드·가입 경로에서 복원하지 않는다', () => {
+  let s = initialState(true);
+  const kicked = currentIsland(s);
+  kicked.members[0].role = 'host';
+  const id = kicked.id;
+
+  s = act(s, 'KICKED_FROM_ISLAND', { id });
+  const blocked = s.islands.find((island) => island.id === id)!;
+
+  assert.equal(canVisit(s, id), false);
+  assert.equal(visitorJoinState(s, blocked), 'blocked');
+  assert.equal(findIslandByInviteCode(s.islands, inviteCodeOf(blocked)), undefined);
+  assert.deepEqual(act(s, 'JOIN', { id }), s);
+});
+
+test('저장본 세션의 섬 소속을 잃었으면 다른 소속이 남아도 세션을 복원하지 않는다', () => {
+  const saved = initialState(true);
+  const lost = currentIsland(saved);
+  const remaining = saved.islands.find((island) => island.id !== lost.id)!;
+  lost.joined = false;
+  remaining.joined = true;
+  saved.session = {
+    id: 'stale-session',
+    islandId: lost.id,
+    subject: '수학',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'paused',
+  };
+
+  const restored = act(initialState(), 'LOAD', { state: saved });
+
+  assert.equal(restored.onboarded, true);
+  assert.equal(restored.islandId, remaining.id);
+  assert.equal(restored.session, null);
 });
 
 test('마지막 주민이 탈퇴하면 섬을 종료해 탐색·초대 코드·재가입에서 제외한다', () => {

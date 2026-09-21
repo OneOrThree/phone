@@ -95,8 +95,8 @@ export function restSeats(
       ...seats.map((a) => seatBox(a.x, a.top, a.n)),
       // 모닥불 돌 테두리와 불꽃
       { l: (352 - x0) * s, t: (420 - y0) * s, r: (612 - x0) * s, b: (700 - y0) * s },
-      // "휴식 중..." 배지와 아래 버튼 줄
-      wide ? { l: 0, t: 0, r: 150, b: 64 } : { l: 0, t: 0, r: 150, b: 106 },
+      // "휴식 중..." 배지·멈춘 집중 정보와 아래 버튼 줄
+      wide ? { l: 0, t: 0, r: 220, b: 140 } : { l: 0, t: 0, r: 220, b: 200 },
       wide ? { l: W - 370, t: H - 80, r: W, b: H } : { l: 0, t: H - 96, r: W, b: H },
     ],
     bounds = { l: inset.left + 4, t: inset.top + 4, r: W - inset.right - 4, b: H - inset.bottom };
@@ -159,6 +159,7 @@ export function RestGroup({
     wide = layout.width >= 600,
     safe = useSafeAreaInsets();
   const ended = result ? state.lastResult : null;
+  const pausedSession = result ? null : state.session;
   const [own, setOwn] = useState(false),
     confirming = confirm.confirming ?? own,
     setConfirming = confirm.setConfirming ?? setOwn;
@@ -287,18 +288,90 @@ export function RestGroup({
             position: 'absolute',
             top: wide ? Math.max(18, safe.top + 18) : Math.max(56, safe.top + 4),
             left: Math.max(wide ? 30 : 18, safe.left + 12),
-            backgroundColor: C.sky,
-            borderWidth: 2,
-            borderColor: OUTLINE,
-            borderRadius: 18,
-            boxShadow: `0px 3px 0px ${OUTLINE}`,
-            paddingVertical: wide ? 7 : 10,
-            paddingHorizontal: wide ? 12 : 14,
+            alignItems: 'flex-start',
+            gap: wide ? 8 : 10,
           }}
         >
-          <Text style={[fiTitle(wide ? 17 : 19), { lineHeight: (wide ? 17 : 19) * 1.3 }]}>
-            휴식 중...
-          </Text>
+          <View
+            style={{
+              backgroundColor: C.sky,
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 18,
+              boxShadow: `0px 3px 0px ${OUTLINE}`,
+              paddingVertical: wide ? 7 : 10,
+              paddingHorizontal: wide ? 12 : 14,
+            }}
+          >
+            <Text style={[fiTitle(wide ? 17 : 19), { lineHeight: (wide ? 17 : 19) * 1.3 }]}>
+              휴식 중...
+            </Text>
+          </View>
+          {pausedSession && (
+            <View
+              testID="paused-focus-info"
+              style={{
+                maxWidth: W - Math.max(wide ? 30 : 18, safe.left + 12) - safe.right - 12,
+                alignItems: 'flex-start',
+                overflow: 'hidden',
+                backgroundColor: '#FFFDFAB8',
+                borderRadius: 14,
+                paddingVertical: 6,
+                paddingLeft: 12,
+                paddingRight: 14,
+              }}
+            >
+              <Text
+                testID="paused-focus-subject"
+                numberOfLines={1}
+                style={{
+                  maxWidth: '100%',
+                  color: INK,
+                  fontSize: 16,
+                  lineHeight: 25.6,
+                  fontWeight: '900',
+                  letterSpacing: -0.5,
+                  textShadowColor: '#FFFDFA',
+                  textShadowOffset: { width: 0, height: 0 },
+                  textShadowRadius: 8,
+                }}
+              >
+                {pausedSession.subject}
+              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={{ flexDirection: 'row', gap: 4 }} accessibilityLabel="멈춤">
+                  {[0, 1].map((bar) => (
+                    <View
+                      key={bar}
+                      style={{
+                        width: 5,
+                        height: 20,
+                        borderRadius: 2,
+                        backgroundColor: INK,
+                        boxShadow: '0px 0px 8px #FFFDFA',
+                      }}
+                    />
+                  ))}
+                </View>
+                <Text
+                  testID="paused-focus-time"
+                  style={{
+                    color: INK,
+                    fontSize: 32,
+                    lineHeight: 36.8,
+                    fontWeight: '900',
+                    letterSpacing: -1.5,
+                    fontVariant: ['tabular-nums'],
+                    textShadowColor: '#FFFDFA',
+                    textShadowOffset: { width: 0, height: 0 },
+                    textShadowRadius: 8,
+                  }}
+                >
+                  {hms(pausedSession.seconds)}
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
         {/* 확인창이 떠 있는 동안에는 아래 버튼을 숨긴다 */}
       </View>

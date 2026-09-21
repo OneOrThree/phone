@@ -12,8 +12,11 @@ import java.util.List;
  * 내보낸다. 시각 축은 UTC 다(2026-09-19 결정 Q-6) — {@code timezone} 은 {@code "UTC"} 이다.
  *
  * <p>nullable 은 타입별로 명시된 것만이다: screen 의 {@code windowStart}/{@code windowEnd}, 판정 대상이 아닌
- * 주민의 {@code myRate}, 수령 가능·정산 완료 때의 {@code claimBlockedReason}, 주민의 {@code name}·{@code rate}.
+ * 주민의 {@code myRate}, 수령 가능·수령 완료 때의 {@code claimBlockedReason}, 주민의 {@code name}·{@code rate}.
  * 키는 항상 싣는다. 주민의 {@code catColor} 는 제공자가 main 에 없어 싣지 않는다(GROMO-1765 와 같은 결정).
+ *
+ * <p>수령 축은 <b>요청한 주민</b>이다(GROMO-1991) — {@code reward}·{@code claimable}·{@code claimed}·
+ * {@code settlementStatus} 는 「내」 상태이고, 회차 축은 {@code bonusAmount}·{@code bonusGranted} 다.
  */
 public final class IslandQuestViews {
 
@@ -40,6 +43,8 @@ public final class IslandQuestViews {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean claimable,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) String claimBlockedReason,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean claimed,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long bonusAmount,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean bonusGranted,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long version) {
     }
 
@@ -66,17 +71,24 @@ public final class IslandQuestViews {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean claimable,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) String claimBlockedReason,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean claimed,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long bonusAmount,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean bonusGranted,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long version,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Member> members,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) String nextCursor) {
     }
 
-    /** 판정 대상 주민 — measurementStatus 는 authorized/pending/unavailable. */
+    /**
+     * 판정 대상 주민 — measurementStatus 는 authorized/pending/unavailable. {@code achieved}(목표 달성)와
+     * {@code claimed}(개인 몫 수령)는 GROMO-1991 로 추가됐다 — rate 100 으로 달성을 추정하지 않는다.
+     */
     public record Member(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String userId,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) String name,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) Integer rate,
-            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String measurementStatus) {
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String measurementStatus,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean achieved,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean claimed) {
     }
 
     public record Created(
@@ -90,11 +102,15 @@ public final class IslandQuestViews {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int targetMinutes) {
     }
 
-    /** 정산 결과 — {@code villagePointsAdded} 는 섬 통장에 적립된 섬 물고기다(결정 Q-1, 개명 미결). */
+    /**
+     * 수령 결과 — 섬 통장에 적립된 섬 물고기다(결정 Q-1, 개명 미결). {@code villagePointsAdded} 는 내 개인 몫,
+     * {@code bonusAdded} 는 이 요청이 함께 적립한 전원 달성 보너스(아니면 0)다(GROMO-1991).
+     */
     public record Claimed(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String claimId,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String occurrenceId,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long villagePointsAdded,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long bonusAdded,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean claimed) {
     }
 }

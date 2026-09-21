@@ -17,6 +17,9 @@ import java.util.UUID;
  * 숫자로 대체하지 않고 해당 기능 준비 상태를 드러낸다"고 못 박았으므로 임의의 기본 단계/테마를
  * 지어내지 않는다. island-construction 이 합류하면 그때 실제 projection 을 채운다.
  *
+ * @param maxMembers 섬 정원(1~15, GROMO-1993). <b>방문자에게도 준다</b> — 2026-09-19 결정 V-읽기가
+ *     「마을회관 섬 정보 등록증(이름·소개·주민 수/정원)」을 방문자 열람 범위로 확정했다. 주민 수만 주고
+ *     정원을 빼면 화면이 「3명」만 알고 「3/15」를 못 그린다. 고치는 것은 여전히 방장뿐이다
  * @param membershipStatus {@code none|pending|active} — 본인 기준 값이다. {@code pending} 은
  *     그 섬에 대한 본인의 열린 가입 요청이 있다는 뜻이다 (GROMO-1760)
  * @param joinRequestId 본인의 최신 가입 요청 식별자 — 요청을 한 번도 한 적 없으면 null (LLD §2)
@@ -28,6 +31,7 @@ public record IslandSummaryView(
         String visibility,
         boolean approvalRequired,
         int memberCount,
+        int maxMembers,
         String membershipStatus,
         String growthStage,
         String themeId,
