@@ -39,6 +39,21 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     Optional<FocusSessionOwnership> findOwnershipBySessionId(@Param("sessionId") UUID sessionId);
 
     /**
+     * 프레즌스 재구축용(GROMO-2003) — 이 세션들의 절대 상태와 전이 번호를 한 번에 읽는다.
+     *
+     * <p>모수가 「진행 중 마커」라 동시 집중 인원 규모다. 레거시 마커는 상세가 없어 결과에 빠지고,
+     * 부르는 쪽이 그것을 「active·전이 번호 0」으로 본다({@link FocusSessionControlState}).
+     *
+     * @param sessionIds 진행 중 마커의 id 들
+     * @return 상세가 있는 세션만
+     */
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusSessionControlState("
+            + "d.sessionId, d.lifecycle, d.version) "
+            + "FROM FocusSessionDetail d WHERE d.sessionId IN :sessionIds")
+    List<FocusSessionControlState> findControlStatesBySessionIdIn(
+            @Param("sessionIds") Collection<UUID> sessionIds);
+
+    /**
      * 본인의 진행(active/paused) 세션 — user당 최대 1건(V58 부분 UNIQUE)이라 단건으로 받는다.
      *
      * @param userId      조회 주체
@@ -110,6 +125,36 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
             + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED "
             + "AND d.lastTransitionAt <= :before")
     List<UUID> findSessionIdsRestingSince(@Param("before") Instant before);
+
+    /**
+     * 황금 물고기 추첨 틱용(GROMO-1956) — 지금 ACTIVE 세션이 {@code minimum} 명 이상인 섬.
+     *
+     * <p>「같은 섬에서 ACTIVE(집중 중, 휴식 제외)인 주민이 2명 이상일 때만 추첨한다」(기획 정본)의 그
+     * 선별이다. 섬 전수를 훑지 않으려고 세션 쪽에서 집계한다 — 진행 세션은 사용자당 최대 1건(V58 부분
+     * UNIQUE)이라 세션 수가 곧 주민 수다.
+     *
+     * @param lifecycle {@link FocusSessionLifecycle#ACTIVE} — 휴식(PAUSED)은 인원에 넣지 않는다
+     * @param minimum   추첨 최소 인원(2)
+     * @return 섬 id(순서 무관)
+     */
+    @Query("SELECT d.islandId FROM FocusSessionDetail d WHERE d.lifecycle = :lifecycle "
+            + "AND d.islandId IS NOT NULL AND d.userId IS NOT NULL "
+            + "GROUP BY d.islandId HAVING COUNT(d) >= :minimum")
+    List<UUID> findIslandIdsWithAtLeast(@Param("lifecycle") FocusSessionLifecycle lifecycle,
+                                        @Param("minimum") long minimum);
+
+    /**
+     * 황금 물고기 추첨 틱용(GROMO-1956) — 그 섬에서 지금 그 lifecycle 인 세션 id.
+     *
+     * <p>{@link #findSessionIdsByLifecycle} 과 같은 이유로 엔티티를 올리지 않는다: 당첨되면 호출측이
+     * 세션마다 행을 다시 배타 잠그고 상태를 재확인하므로, 스캔이 낡은 인스턴스를 들고 있으면 안 된다.
+     *
+     * @return 세션 id(순서 무관 — 호출측이 잠금 순서를 정한다)
+     */
+    @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.islandId = :islandId "
+            + "AND d.lifecycle = :lifecycle AND d.userId IS NOT NULL")
+    List<UUID> findSessionIdsByIslandIdAndLifecycle(@Param("islandId") UUID islandId,
+                                                    @Param("lifecycle") FocusSessionLifecycle lifecycle);
 
     /**
      * 휴식 자리 배정용 — 같은 섬에서 현재 paused인 사용자들이 쥔 자리 번호.

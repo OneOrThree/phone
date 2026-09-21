@@ -118,6 +118,20 @@ class DomainLayerRulesTest {
 
     private static final String ROOT = "com.oneorthree.phone";
 
+    /**
+     * 집중 프레즌스를 «적는» 두 경로 — 공유 Redis 리스와 섬 focus/rest 투영 사건.
+     *
+     * <p>둘은 저장소도 반영 시점도 다르지만(하나는 커밋 이후 Redis, 하나는 같은 트랜잭션의 outbox)
+     * <b>같은 사실</b>을 적는다. 호출부가 둘을 각각 부르면 새 전이를 만들 때 한쪽을 빠뜨리게 되고,
+     * 그 반쪽 기록은 코드를 읽어서는 보이지 않는다 — 두 호출이 서로를 모르기 때문이다.
+     */
+    private static final Set<String> PRESENCE_WRITERS = Set.of(
+            ROOT + ".common.port.FocusPresencePort",
+            ROOT + ".focus.service.FocusMemberEvents");
+
+    /** 그 둘을 부를 수 있는 <b>유일한</b> 자리 (GROMO-2003 · focus-rest-session LLD §6). */
+    private static final String PRESENCE_PROJECTION = ROOT + ".focus.service.FocusPresenceProjection";
+
     private static JavaClasses productionClasses;
 
     @BeforeAll
@@ -190,6 +204,41 @@ class DomainLayerRulesTest {
                                     "%s (L%d %s) → %s (L%d %s)",
                                     source.getName(), from, domainOf(source),
                                     target.getName(), to, targetDomain)));
+                        }
+                    }
+                });
+
+        rule.check(productionClasses);
+    }
+
+    @Test
+    @DisplayName("집중 프레즌스를 적는 클래스는 FocusPresenceProjection 하나뿐이다 (GROMO-2003)")
+    void onlyOneClassRecordsFocusPresence() {
+        // LLD §6 「기존 RedisFocusPresence 와 새 도메인 producer 가 각각 직접 쓰는 이중 배선을 두지 않고
+        // 하나의 Data projection 포트로 통합한다」. 종전 호출부는 FocusService 7곳·
+        // FocusSessionLifecycleService 3곳·FocusPresenceReconciler 2곳·FocusMembershipLossService 1곳이었다.
+        // 메서드 «호출»만 센다 — IslandFocusMembersService 는 FocusMemberEvents 의 집계 타입 상수를
+        // 워터마크 이름으로 읽을 뿐 사건을 적지 않는다.
+        ArchRule rule = classes()
+                .that(new DescribedPredicate<>("그 단일 기록 자리가 아니다") {
+                    @Override
+                    public boolean test(JavaClass javaClass) {
+                        return !javaClass.getName().equals(PRESENCE_PROJECTION);
+                    }
+                })
+                .should(new ArchCondition<>("프레즌스 기록 포트를 직접 부르지 않는다") {
+                    @Override
+                    public void check(JavaClass source, ConditionEvents events) {
+                        for (var call : source.getMethodCallsFromSelf()) {
+                            String owner = call.getTargetOwner().getName();
+                            // 자기 자신의 메서드를 부르는 것은 «적는 자리가 여럿»이 아니다 —
+                            // FocusMemberEvents 의 private append 가 그렇다.
+                            if (!PRESENCE_WRITERS.contains(owner) || owner.equals(source.getName())) {
+                                continue;
+                            }
+                            events.add(SimpleConditionEvent.violated(source, String.format(
+                                    "%s → %s#%s — 프레즌스는 %s 를 거쳐 한 번에 적는다",
+                                    source.getName(), owner, call.getName(), PRESENCE_PROJECTION)));
                         }
                     }
                 });

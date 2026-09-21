@@ -23,8 +23,8 @@ class EventRouterTest {
     private final EventRouter router = new EventRouter(delivery);
 
     @Test
-    void allFourteenWireTypesHaveFixedRoutes() {
-        assertThat(RealtimeEventType.values()).hasSize(14);
+    void allFifteenWireTypesHaveFixedRoutes() {
+        assertThat(RealtimeEventType.values()).hasSize(15);
         for (RealtimeEventType type : RealtimeEventType.values()) {
             RealtimeEventEnvelope event = event(type, island);
             // 응원만 수신 집합이 필수다 — 수신 자격이 구독 인가보다 좁아서다(GROMO-1765).
@@ -35,7 +35,7 @@ class EventRouterTest {
             };
             router.route(event, audience);
             String suffix = switch (type) {
-                case FOCUS_MEMBER_UPDATED -> "focus";
+                case FOCUS_MEMBER_UPDATED, GOLDEN_FISH_CAUGHT -> "focus";
                 case REST_MEMBER_UPDATED -> "rest";
                 case FOCUS_EMOTE -> "emotes";
                 case PLAYBACK_UPDATED -> "playback";
@@ -76,18 +76,33 @@ class EventRouterTest {
 
     @Test
     void personalAssetsNeverReachIslandOrAnotherUsersQueue() {
-        for (RealtimeEventType type : new RealtimeEventType[] {
-                RealtimeEventType.WALLET_UPDATED, RealtimeEventType.INVENTORY_UPDATED}) {
-            RealtimeEventEnvelope personal = event(type, null);
-            assertThatThrownBy(() -> router.route(personal, new RealtimeAudience.IslandAudience(island)))
-                    .isInstanceOf(IllegalArgumentException.class);
-            assertThatThrownBy(() -> router.route(personal,
-                    new RealtimeAudience.UserAudience(Set.of(user, UUID.randomUUID()))))
-                    .isInstanceOf(IllegalArgumentException.class);
-            RealtimeAudience owner = new RealtimeAudience.UserAudience(Set.of(user));
-            router.route(personal, owner);
-            verify(delivery).deliver(personal, owner, "/user/queue/events");
-        }
+        // 개인 축이 남은 자산은 inventory 뿐이다 — 지갑은 아래 테스트가 섬 전용임을 단언한다.
+        RealtimeEventEnvelope personal = event(RealtimeEventType.INVENTORY_UPDATED, null);
+        assertThatThrownBy(() -> router.route(personal, new RealtimeAudience.IslandAudience(island)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> router.route(personal,
+                new RealtimeAudience.UserAudience(Set.of(user, UUID.randomUUID()))))
+                .isInstanceOf(IllegalArgumentException.class);
+        RealtimeAudience owner = new RealtimeAudience.UserAudience(Set.of(user));
+        router.route(personal, owner);
+        verify(delivery).deliver(personal, owner, "/user/queue/events");
+    }
+
+    @Test
+    void walletWithoutIslandIsRejectedAndPersonalCurrencyIsGone() {
+        // 재화는 섬 단위 하나다(GROMO-1989, 결정 「재화-단일-호환」). Data 의 유일한 wallet.updated
+        // 발행자가 섬 지갑만 내보내므로 개인 지갑 분기는 도달할 수 없었고, GROMO-2044 에서 걷어냈다.
+        assertThatThrownBy(() -> event(RealtimeEventType.WALLET_UPDATED, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("섬 식별자");
+        // 섬 지갑이 개인 재화(fish)를 실어도 거절한다 — 「fish 면 개인」으로 받아 주던 길이 없다.
+        ObjectNode fish = mapper.createObjectNode().put("version", 1).put("islandId", island.toString())
+                .put("ownerType", "island").put("ownerId", island.toString()).put("currency", "fish");
+        assertThatThrownBy(() -> new RealtimeEventEnvelope(UUID.randomUUID(),
+                RealtimeEventType.WALLET_UPDATED, island, 1L, Instant.now(), fish))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("재화");
+        verifyNoInteractions(delivery);
     }
 
     @Test
@@ -121,7 +136,7 @@ class EventRouterTest {
         assertThatThrownBy(() -> new RealtimeEventEnvelope(UUID.randomUUID(),
                 RealtimeEventType.MESSAGE_CREATED, island, 9_007_199_254_740_992L,
                 Instant.now(), mapper.createObjectNode())).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> router.route(event(RealtimeEventType.WALLET_UPDATED, null),
+        assertThatThrownBy(() -> router.route(event(RealtimeEventType.INVENTORY_UPDATED, null),
                 new RealtimeAudience.UserAudience(Set.of(UUID.randomUUID()))))
                 .isInstanceOf(IllegalArgumentException.class);
         ObjectNode mismatch = mapper.createObjectNode().put("version", 2).put("islandId", island.toString());
@@ -165,13 +180,28 @@ class EventRouterTest {
         if (type != RealtimeEventType.FOCUS_EMOTE) {
             payload.put("version", 1);
         }
+        if (type == RealtimeEventType.GOLDEN_FISH_CAUGHT) {
+            // 황금 물고기도 도메인 필드까지 본다 — 2명 미만이거나 배분량이 어긋난 봉투는 앱이 잘못된
+            // 컷신을 재생한다(GROMO-1956).
+            payload.put("drawnAt", Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES).toString());
+            payload.put("reward", 50);
+            payload.put("sharePerMember", 25);
+            tools.jackson.databind.node.ArrayNode members = payload.putArray("members");
+            for (int i = 0; i < 2; i++) {
+                members.addObject().put("userId", UUID.randomUUID().toString())
+                        .put("sessionId", UUID.randomUUID().toString());
+            }
+        }
         if (islandId != null) {
             payload.put("islandId", islandId.toString());
         }
         if (type == RealtimeEventType.WALLET_UPDATED || type == RealtimeEventType.INVENTORY_UPDATED) {
             payload.put("ownerType", islandId == null ? "user" : "island");
             payload.put("ownerId", (islandId == null ? user : islandId).toString());
-            payload.put("currency", islandId == null ? "fish" : "village_points");
+            if (type == RealtimeEventType.WALLET_UPDATED) {
+                // 지갑 재화는 섬 통장 하나다(GROMO-1989) — 개인 `fish` 는 계약에서 사라졌다.
+                payload.put("currency", "village_points");
+            }
         }
         if (type == RealtimeEventType.FOCUS_MEMBER_UPDATED || type == RealtimeEventType.REST_MEMBER_UPDATED) {
             // 활성화된 주민 사건 둘도 도메인 필드까지 검증한다 — 서비스 토큰은 「Data 가 보냈다」만

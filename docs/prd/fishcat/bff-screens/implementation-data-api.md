@@ -101,4 +101,4 @@ internal:
 | 작성자 표시 정보 batch | mailbox | island-mailbox LLD §5가 요구. 계약 미정 |
 | ~~내 가입 대기 신청 목록~~ **해소** | explore | [island-membership LLD](../island-membership/low-level-design.md) §3.12 — `GET /internal/users/{userId}/join-requests`(GROMO-1895). pending 만, `(createdAt, id)` keyset |
 | ~~공동 가계부~~ **해소** | town-hall | [island-construction LLD](../island-construction/low-level-design.md) §6 — `GET /internal/islands/{islandId}/resources/ledger`(GROMO-1895). KST 월·`direction` 필터·월 합계, 최신순 keyset. 원장 V62 를 그대로 읽는다 |
-| ~~주민별 누적 물고기~~ **해소** | library | [island-records LLD](../island-records/low-level-design.md) §7 — `GET /internal/islands/{islandId}/statistics/fish-earnings`(GROMO-1895). 정산 `earned_fish` 합, 도서관 완공 게이트(`LIBRARY_LOCKED`) |
+| ~~주민별 누적 물고기~~ **해소(공개 배선까지)** | library | [island-records LLD](../island-records/low-level-design.md) §7 — `GET /internal/islands/{islandId}/statistics/fish-earnings`(GROMO-1895). **적립 원장 `focus_reward_accruals.earned_fish` 합**(GROMO-1990 에서 정산 표 대신 이 표로 옮겼다), 도서관 완공 게이트(`LIBRARY_LOCKED`). 공개 경로·`library` 화면 조각은 GROMO-2046 |

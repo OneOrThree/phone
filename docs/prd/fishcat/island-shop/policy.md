@@ -61,7 +61,7 @@ S05(가격 변경 동의)는 2026-09-12 에 채택돼 위 「고정된 범위」
 - 판매 퇴역/가격 개정은 기존 소유의 종류·대상·호환·착용을 바꾸지 않는다. 보유 조회/외양은 active publication 대신 불변 자산 정의를 사용하고 정의는 소유가 남아 있는 동안 보존한다. 구매용 prerequisite 변경을 기존 착용에 소급하지 않는다.
 - product 상세는 선택 nullable requiredProduct:{id,title}를 명시 확장으로 제공한다. blockedReason은 원인 코드이고 선행 자산 식별자가 아니다. 실제 ID는 서버 카탈로그에서 얻으며 새 API를 추가하지 않는다.
 - 같은 key·같은 본문 receipt는 원201과 결과를 재생한다. 새로운 key라도 `(ownerType,ownerId,productId)` 유일성이 중복 차감을 막는다.
-- 개인 inventory는 ownerType=user, ownerId=subject, envelope.islandId=null. 공동은 ownerType=island, ownerId=envelope.islandId. **wallet 은 공동 하나뿐이라 ownerType=island 만 있다**(재화-단일) — 개인 wallet 사건은 발행되지 않는다.
+- 개인 inventory는 ownerType=user, ownerId=subject, envelope.islandId=null. 공동은 ownerType=island, ownerId=envelope.islandId. **개인 wallet 은 없다** — 결제는 섬 통장뿐이라(SH-재화) 개인 지갑 축은 GROMO-1989/2044 로 Realtime 계약에서 제거했고, 섬 없는 `wallet.updated` 는 봉투가 거절한다.
 - receipt는 초기 자동TTL 삭제하지 않는다(1750). PII 최소화·탈퇴 파기 규율을 지킨다. 다른 사용자의 receipt를 복구/재생하지 않는다.
 - 소유권을 반환하는 read DTO와 이벤트의 inventoryVersion은 같은 목록 aggregate를 뜻한다. product별 개별version을 목록version으로 쓰지 않는다.
 
