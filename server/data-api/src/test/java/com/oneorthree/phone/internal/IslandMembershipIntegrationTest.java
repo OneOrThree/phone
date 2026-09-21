@@ -197,6 +197,40 @@ class IslandMembershipIntegrationTest {
         assertThat(again).as("같은 seed 면 순서까지 같다").isEqualTo(first);
     }
 
+    // ---------------------------------------------------------------- 2-1. 정원 (GROMO-1993)
+
+    @Test
+    @DisplayName("섬 생성 정원은 방장이 정하고, 안 주면 정책 기본값 15 다")
+    void islandCapacityIsHostChosenAndDefaultsToFifteen() {
+        UUID host = newUser();
+        UUID defaulted = islands.create(host, new CreateIslandCommandRequest("기본정원섬", null, false, null),
+                UUID.randomUUID()).id();
+        assertThat(groups.findById(defaulted).orElseThrow().getMaxMembers()).isEqualTo(15);
+
+        UUID chosen = islands.create(newUser(),
+                new CreateIslandCommandRequest("작은섬", null, false, 3), UUID.randomUUID()).id();
+        assertThat(groups.findById(chosen).orElseThrow().getMaxMembers()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("가득 찬 섬은 이름 검색·기본 목록에서 빠진다 — 초대 코드 조회만 섬을 보여 준다")
+    void fullIslandsDisappearFromSearchAndRecentList() {
+        UUID searcher = newUser();
+        giveCurrentIsland(searcher);
+        UUID roomy = island("정원섬여유", false, 2);
+        joinAs(newUser(), roomy, GroupMemberRole.OWNER);
+        UUID full = island("정원섬만원", false, 1);
+        joinAs(newUser(), full, GroupMemberRole.OWNER);
+
+        Set<UUID> byName = new HashSet<>(pageThroughSearch(searcher, "정원섬", 50));
+        Set<UUID> recent = new HashSet<>(pageThroughSearch(searcher, null, 50));
+
+        assertThat(byName).contains(roomy).doesNotContain(full);
+        assertThat(recent).contains(roomy).doesNotContain(full);
+        // 초대 코드/직접 조회는 여전히 섬을 보여 준다 — 「섬은 보여 주되 입장만 막는다」.
+        assertThat(islands.view(full, searcher)).isNotNull();
+    }
+
     // ---------------------------------------------------------------- 3. 범위 분기
 
     @Test
@@ -216,6 +250,9 @@ class IslandMembershipIntegrationTest {
         assertThat(asVisitor.scope()).isEqualTo("visitor");
         assertThat(asVisitor.member()).as("방문자 응답에 주민 상세가 실리지 않는다").isNull();
         assertThat(asVisitor.visitor().membershipStatus()).isEqualTo("none");
+        // 결정 V-읽기 — 방문자도 「주민 수/정원」을 함께 본다. 주민 수만 주면 화면이 「1/15」를 못 그린다.
+        assertThat(asVisitor.visitor().memberCount()).isEqualTo(1);
+        assertThat(asVisitor.visitor().maxMembers()).isEqualTo(asMember.member().maxMembers());
 
         UUID secret = island("비밀섬", true, 10);
         assertThatThrownBy(() -> islands.view(secret, visitor))
@@ -252,7 +289,7 @@ class IslandMembershipIntegrationTest {
     @DisplayName("진행 중 집중 세션이 있으면 생성도 이동도 409 다 — 생성으로 이동 가드를 우회할 수 없다")
     void liveFocusSessionBlocksBothCreateAndSwitch() {
         UUID user = newUser();
-        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("집중섬", null, false),
+        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("집중섬", null, false, null),
                 UUID.randomUUID());
         UUID other = publicIsland("다른섬");
         joinAs(user, other, GroupMemberRole.MEMBER);
@@ -264,7 +301,7 @@ class IslandMembershipIntegrationTest {
         legacyFocus.startFocusSession(user, new FocusSessionStartRequest(null, null));
 
         assertThatThrownBy(() -> islands.create(user,
-                new CreateIslandCommandRequest("몰래섬", null, false), UUID.randomUUID()))
+                new CreateIslandCommandRequest("몰래섬", null, false, null), UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_IN_PROGRESS);
         assertThatThrownBy(() -> islands.switchCurrentIsland(user, other, UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_IN_PROGRESS);
@@ -277,7 +314,7 @@ class IslandMembershipIntegrationTest {
     @DisplayName("같은 섬 PUT 은 상태확인이라 이벤트도 membership 도 만들지 않는다")
     void switchingToTheSameIslandIsAStatusCheckOnly() {
         UUID user = newUser();
-        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("제자리섬", null, false),
+        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("제자리섬", null, false, null),
                 UUID.randomUUID());
         long eventsBefore = count("select count(*) from event_outbox where subject_id=?",
                 home.id().toString());
@@ -312,7 +349,7 @@ class IslandMembershipIntegrationTest {
     @DisplayName("내 섬 목록의 currentIslandId 는 아직 활성 소속인 섬일 때만 나온다")
     void myIslandsHidesACurrentIslandThatIsNoLongerMine() {
         UUID user = newUser();
-        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("떠난섬", null, false),
+        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("떠난섬", null, false, null),
                 UUID.randomUUID());
         assertThat(islands.myIslands(user).currentIslandId()).isEqualTo(home.id());
 
@@ -334,7 +371,7 @@ class IslandMembershipIntegrationTest {
     void sameKeyAndBodyReplaysTheOriginalIsland() {
         UUID user = newUser();
         UUID key = UUID.randomUUID();
-        CreateIslandCommandRequest body = new CreateIslandCommandRequest("멱등섬", "소개", false);
+        CreateIslandCommandRequest body = new CreateIslandCommandRequest("멱등섬", "소개", false, null);
 
         IslandCreatedView first = islands.create(user, body, key);
         IslandCreatedView replay = islands.create(user, body, key);
@@ -348,10 +385,10 @@ class IslandMembershipIntegrationTest {
     void sameKeyWithDifferentBodyConflicts() {
         UUID user = newUser();
         UUID key = UUID.randomUUID();
-        islands.create(user, new CreateIslandCommandRequest("원본섬", null, false), key);
+        islands.create(user, new CreateIslandCommandRequest("원본섬", null, false, null), key);
 
         assertThatThrownBy(() -> islands.create(user,
-                new CreateIslandCommandRequest("다른섬", null, false), key))
+                new CreateIslandCommandRequest("다른섬", null, false, null), key))
                 .isInstanceOf(OutboxException.class);
     }
 
@@ -360,7 +397,7 @@ class IslandMembershipIntegrationTest {
     void createEmitsBothIslandAndMemberEvents() {
         UUID user = newUser();
         IslandCreatedView created = islands.create(user,
-                new CreateIslandCommandRequest("사건섬", null, true), UUID.randomUUID());
+                new CreateIslandCommandRequest("사건섬", null, true, null), UUID.randomUUID());
 
         assertThat(created.role()).isEqualTo("host");
         assertThat(created.currentIslandId()).isEqualTo(created.id());
@@ -400,7 +437,7 @@ class IslandMembershipIntegrationTest {
     @DisplayName("강퇴돼 «죽은» 현재 섬만 남은 사용자는 검색도, 같은 섬 확인도 할 수 없다")
     void deadCurrentIslandOpensNeitherSearchNorSameIslandConfirmation() {
         UUID user = newUser();
-        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("강퇴전섬", null, false),
+        IslandCreatedView home = islands.create(user, new CreateIslandCommandRequest("강퇴전섬", null, false, null),
                 UUID.randomUUID());
         jdbc.update("update group_members set is_left=true, left_reason='KICKED' "
                 + "where group_id=? and user_id=?", home.id(), user);
@@ -467,7 +504,7 @@ class IslandMembershipIntegrationTest {
 
     /** 검색 가드를 통과시키려고 현재 섬 하나를 쥐여 준다. */
     private void giveCurrentIsland(UUID userId) {
-        islands.create(userId, new CreateIslandCommandRequest("본거지", null, false), UUID.randomUUID());
+        islands.create(userId, new CreateIslandCommandRequest("본거지", null, false, null), UUID.randomUUID());
     }
 
     /** 컨텍스트 행 자체가 없을 수 있다 — 그 «없음» 도 null 로 읽는다. */

@@ -822,7 +822,7 @@ Table groups [note: '스터디/챌린지 그룹'] {
 
   status           group_status          [not null, default: 'WAITING', note: '챌린지 진행중 여부 파악']
 
-  max_members      integer               [not null, note: '최대 인원']
+  max_members      integer               [not null, note: '섬 정원 1~15, 미입력 기본 15 (GROMO-1993 정책). 방장을 포함한 현재 주민만 세고 승인 대기 신청·NPC 는 세지 않는다. 계정당 소속 섬 상한(10)과는 다른 축']
 
   is_chat_enabled  boolean               [not null, default: true, note: '그룹 채팅 활성화 여부']
   chat_limit_per_person integer            [note: '1인당 채팅 가능한 횟수']
@@ -859,7 +859,8 @@ Table group_join_codes [note: '그룹 참가 코드 (groups에서 분리, 1:1). 
 
 Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1:1) — 논리 모델 UserIslandContext. GROMO-1907, island-membership LLD §4'] {
   user_id            uuid   [pk, note: 'FK → users.id (1:1)']
-  current_island_id  uuid   [note: 'FK → groups.id. 아직 어떤 섬에도 속한 적 없으면 NULL — 상실 사유별 복구(IM-D06)는 미승인이라 이 컬럼 하나로 "없음"과 "복구 대상"을 구분하지 않는다']
+  current_island_id  uuid   [note: 'FK → groups.id. NULL 이면 지금 접속한 섬이 없다 — "한 번도 없음"인지 "잃었음"인지는 loss_reason 이 가른다(GROMO-1995, V84)']
+  loss_reason        varchar(20) [note: '현재 섬을 잃은 이유 — LEFT|KICKED. current_island_id 가 NULL 일 때만 값이 있다(CHECK 로 강제). 값 집합은 group_members.left_reason 과 같다. 마지막 소속 섬 이탈이 온보딩 04 화면으로 돌아가는 근거이고, NULL 이면 첫 소속 탐색 대상이다. V84 백필은 배포 전에 이미 죽어 있던 현재 섬을 같은 규칙으로 회수하되, 사유를 알 수 없는 행(멤버십 행이 없거나 left_reason 이 NULL)은 지어내지 않고 NULL 로 둔다. GROMO-1995, V84']
   context_version    bigint [not null, default: 0, note: 'JPA @Version 낙관락 — groups.version 과 같은 방식. outbox 순서용 aggregate_versions(USER, userId) 축과는 별개 값(컨텍스트 전이는 outbox 사건이 아님)']
 
   created_at  timestamptz [not null, default: `now()`]

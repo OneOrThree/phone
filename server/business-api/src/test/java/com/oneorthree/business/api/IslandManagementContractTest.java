@@ -45,7 +45,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
     private static final String DATA_LEAVE = "DELETE /internal/users/" + USER + "/islands/" + ISLAND + "/membership";
 
     private static final String MANAGED = "{\"id\":\"" + ISLAND + "\",\"name\":\"새섬\",\"intro\":\"\","
-            + "\"approvalRequired\":true,\"version\":4}";
+            + "\"approvalRequired\":true,\"maxMembers\":15,\"version\":4}";
     private static final String MEMBERS = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\","
             + "\"catColor\":\"cream\",\"role\":\"host\",\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,"
             + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
@@ -60,16 +60,18 @@ class IslandManagementContractTest extends UpstreamTestBase {
     void manageForwardsOnlyGivenFields() throws Exception {
         DATA.on(DATA_MANAGE, request -> ok(MANAGED));
 
-        mockMvc.perform(write(patch("/islands/" + ISLAND), "{\"name\":\"새섬\",\"approvalRequired\":true}")
+        mockMvc.perform(write(patch("/islands/" + ISLAND),
+                        "{\"name\":\"새섬\",\"approvalRequired\":true,\"maxMembers\":12}")
                         .header("X-User-Id", TARGET))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.name").value("새섬"))
+                .andExpect(jsonPath("$.data.maxMembers").value(15))
                 .andExpect(jsonPath("$.data.version").value(4));
 
         MockUpstream.RecordedRequest sent = DATA.receivedFor(DATA_MANAGE).get(0);
         assertThat(sent.header("X-User-Id")).isEqualTo(USER.toString());
         assertThat(sent.header("Idempotency-Key")).isEqualTo(KEY);
-        assertThat(sent.body()).isEqualTo("{\"name\":\"새섬\",\"approvalRequired\":true}");
+        assertThat(sent.body()).isEqualTo("{\"name\":\"새섬\",\"approvalRequired\":true,\"maxMembers\":12}");
     }
 
     @ParameterizedTest
@@ -77,6 +79,13 @@ class IslandManagementContractTest extends UpstreamTestBase {
         "{\"name\":null}|400|INVALID_REQUEST",
         "{\"password\":\"1234\"}|400|INVALID_REQUEST",
         "{\"approvalRequired\":\"true\"}|400|INVALID_REQUEST",
+        "{\"maxMembers\":16}|400|INVALID_REQUEST",
+        "{\"maxMembers\":0}|400|INVALID_REQUEST",
+        "{\"maxMembers\":-1}|400|INVALID_REQUEST",
+        "{\"maxMembers\":\"15\"}|400|INVALID_REQUEST",
+        // 32비트 경계 — 자르고 나서 범위를 보면 4294967297 이 1 로 접혀 정원이 1 로 저장된다.
+        "{\"maxMembers\":2147483648}|400|INVALID_REQUEST",
+        "{\"maxMembers\":4294967297}|400|INVALID_REQUEST",
         "{\"name\":\"   \"}|422|OUT_OF_RANGE",
         "{\"name\":\"\"}|422|OUT_OF_RANGE",
         "{\"intro\":null}|400|INVALID_REQUEST"})
@@ -239,9 +248,11 @@ class IslandManagementContractTest extends UpstreamTestBase {
         "PATCH_MANAGE,400,INVALID_REQUEST,400,INVALID_REQUEST",
         "PATCH_MANAGE,403,NOT_OWNER,403,FORBIDDEN",
         "PATCH_MANAGE,422,ISLAND_NAME_BLANK,422,OUT_OF_RANGE",
+        // 정원 축소 거절 — 모양이 아니라 현원이 거절 이유라 409 다. 등록이 빠지면 502 로 새 나간다.
+        "PATCH_MANAGE,400,MAX_MEMBERS_TOO_SMALL,409,STATE_CONFLICT",
         // 상태가 어긋난 같은 이름은 옮기지 않는다 — 조용한 오역 대신 502.
         "DELETE_KICK,409,CANNOT_KICK_SELF,502,UPSTREAM_CONTRACT_ERROR"})
-    @DisplayName("상류 판정은 (상태, 코드) 쌍이 맞을 때만 공개 코드로 옮긴다 — legacy 400 두 건은 409 가 된다")
+    @DisplayName("상류 판정은 (상태, 코드) 쌍이 맞을 때만 공개 코드로 옮긴다 — legacy 400 세 건은 409 가 된다")
     void mapsUpstreamFailuresByStatusAndCode(String route, int upstream, String code, int expected,
             String publicCode) throws Exception {
         MockHttpServletRequestBuilder request;

@@ -59,16 +59,20 @@ public class IslandMovementGuards {
      * <p>현재 섬이 없으면 조건이 없다 — "첫 소속에는 기존 출발 섬이 없으므로 전망대 조건이 적용되지
      * 않는다"(HLD §3).
      *
-     * <p><b>여기서 null 을 첫 소속으로 읽어도 되는 이유.</b> §3.6 은 "{@code currentIslandId=null} 을
-     * 첫 소속으로 간주하지 않는다"고 경고하는데, 그 경고는 <b>현재 섬을 잃은 뒤의 null</b> 을 첫
-     * 소속으로 오인해 전망대 gate 를 우회하는 경우를 막으려는 것이다(IM-D06). 이 레포에는 아직
-     * {@code currentIslandId} 를 <b>null 로 되돌리는 코드가 없다</b> — 유일한 writer 가
-     * {@code moveTo} 이고 non-null 만 쓴다. 그래서 오늘 null 은 «한 번도 가진 적이 없다» 와 동치다.
+     * <p><b>등식은 깨졌고, 그래도 여기는 통과가 맞다 (GROMO-1995).</b> 종전 주석은 "{@code
+     * currentIslandId} 를 null 로 되돌리는 코드가 없으니 null = 한 번도 가진 적 없음"이라고 적어 뒀고,
+     * 그 등식이 깨지기 전에 상실 사유가 필요하다고 경고했다. 이제 {@code UserIslandContextRecovery} 가
+     * 마지막 소속을 잃은 사람의 컨텍스트를 비우므로 등식은 깨졌고, 그 경고대로 사유를 함께 남긴다
+     * ({@code user_island_contexts.loss_reason}, V84).
      *
-     * <p><b>다음 사람에게.</b> 이탈·강퇴·섬 종료가 컨텍스트를 해제하는 경로를 넣는 순간 이 등식이
-     * 깨진다. 그 경로를 만들기 전에 IM-D06(상실 이유·복구 근거)이 승인돼야 하고 이 메서드는 그때
-     * {@code lossReason} 을 읽도록 바뀌어야 한다. 순서를 뒤집어 컨텍스트 해제를 먼저 넣으면 «이탈 →
-     * null → 첫 소속으로 재선택» 으로 전망대를 우회할 수 있다.
+     * <p>그런데도 이 가드는 <b>여전히 통과</b> 다 — 정책이 「모든 주민은 마지막 소속 섬에서도 탈퇴할 수
+     * 있다. 탈퇴하면 처음 온보딩의 `04 · 혼자 시작 / 기존 섬 참여` 화면으로 이동해 섬 만들기와 다른 섬
+     * 참가하기 중 하나를 고른다」로 확정했기 때문이다. 우회가 아니라 <b>설계된 경로</b> 다: 출발 섬이
+     * 없는 사람에게 출발 섬 전망대를 요구할 수 없다.
+     *
+     * <p><b>다음 사람에게.</b> {@code lossReason} 을 실제로 <b>읽어</b> 분기해야 하는 첫 자리는
+     * 「마지막 소속 섬에서 강퇴된 사용자의 처리」다 — 정책이 아직 「추가 결정이 필요하다」로 비워 둔
+     * 칸이고, 그 결정이 {@code KICKED} 만 다르게 대우하기로 하면 여기에 분기가 생긴다.
      */
     public void requireDepartureUnlocked(UserIslandContext context) {
         UUID departure = context.getCurrentIslandId();
