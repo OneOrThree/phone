@@ -1600,6 +1600,16 @@ Table login_attempts [note: 'POST /auth/sessions 의 내구 로그인 시도 원
   refresh_expires_at   timestamptz [note: '고정 서명 재료 — RT 의 exp']
   refresh_jti          uuid        [note: '고정 서명 재료 — RT 의 jti. JwtProvider 가 같은 초의 두 발급을 가르려고 무작위로 박는 값이라, 고정하지 않으면 재생 토큰이 원본과 달라져 저장된 RT 해시와 어긋난다']
 
+  // ── 계정 전환 재개 증거 (V101, GROMO-1992). ck_login_attempts_switch_state CHECK 가 세 모양만 허용: ① phase null + evidence 전부 null, ② phase + status∈(PENDING,COMPLETED) + confirmed + evidence 전부 non-null, ③ phase + INVALIDATED + confirmed + evidence 전부 null. FK 없음 — 탈퇴로 지워지는 source/target 을 넘어 복구 사실을 보존한다 ──
+  account_switch_confirmed      boolean     [not null, default: false, note: '「회원으로 전환」이 확정된 시도. false 면 나머지 전환 7열은 전부 null — confirmed 만 찍히고 일반 로그인으로 끝난 행도 첫 CHECK 절을 만족한다']
+  switch_phase                  varchar(24) [note: 'VERIFIED | GUEST_WITHDRAWN — 일반/미준비 시도는 NONE 문자열이 아니라 NULL']
+  switch_source_user_id         uuid        [note: '전환 «되는» 게스트. FK 없음 — 탈퇴로 사라져도 증거는 남는다']
+  switch_source_session_id      uuid        [note: 'source 게스트의 세션. FK 없음']
+  switch_source_auth_generation bigint      [note: 'source 게스트의 auth generation — 재생 시 토큰 폐기 세대 판정 근거. ≥ 0']
+  switch_target_user_id         uuid        [note: '전환 «받는» 회원. FK 없음']
+  switch_target_social_account_id uuid      [note: '전환 «받는» social account 행. FK 없음']
+  switch_verified_at            timestamptz [note: '전환 검증이 끝난 시각']
+
   claimed_at           timestamptz [not null, note: 'PENDING 실행권의 임차 시각. 실행자가 죽어 PENDING 이 남으면 이 시각으로 회수한다 — 회수가 없으면 그 attempt id 가 영원히 409 REQUEST_IN_PROGRESS 라 사용자가 갇힌다']
   completed_at         timestamptz
   recovery_expires_at  timestamptz [not null, note: '고정 복구 마감(기술 초기값 5분, LLD §3). 넘으면 재생하지 않고 새 제공자 인증을 요구한다']
