@@ -1,0 +1,607 @@
+# GroMo Design System
+
+> 기준일: 2026-09-21<br>
+> 대상: `app/app-dev` 활성 2.0 앱<br>
+> 상태: 주간 **딸기 소다** 확정 · 야간 기존 값 유지<br>
+> 역할: UI 설계와 구현에 필요한 에이전트용 단일 명세
+
+## 1. 문서의 권한과 범위
+
+UI·화면·컴포넌트·Figma 시안을 만들 때는 이 문서를 먼저 읽는다. 색, 글자, 간격, 형태, 상태, 공용 컴포넌트의 사용 원칙은 이 문서만으로 결정할 수 있어야 한다.
+
+이 문서에서 `tokens.json`, `components/`, `foundations/`, `runtime/`처럼 적은 UI Kit 경로는 모두 `.docs/project-context/ui-kit/`를 기준으로 한다. 앱 코드 경로인 `src/design-system/`은 `app/app-dev/`를 기준으로 한다.
+
+기존 파일의 역할은 다음처럼 제한한다.
+
+| 원본                                     | 남겨 두는 이유        | 언제 추가로 여는가              |
+| ---------------------------------------- | --------------------- | ------------------------------- |
+| `tokens.json`, `tokens.css`              | 기계가 읽는 토큰 원본 | 자동 변환·동기화·값 대조 시     |
+| `components.json`                        | 컴포넌트 인덱스       | 자동화 도구가 목록을 읽을 때    |
+| `foundations/`, `components/`의 HTML·PNG | 렌더링된 시각 표본    | 모양과 상태를 눈으로 검증할 때  |
+| `runtime/`의 JS·CSS                      | 모션 시연             | 낚시·휴식·항해 동작을 검증할 때 |
+| `src/design-system/`                     | 앱 런타임 코드 정본   | React Native로 구현할 때        |
+
+HTML에 내장된 이미지 데이터와 실행 코드는 이 문서에 복제하지 않는다. 그 외 에이전트가 UI를 판단하는 데 필요한 규칙과 제품 정책은 이 문서가 흡수한다.
+
+### 충돌 처리
+
+- 디자인 의도는 이 문서가 정본이다.
+- 실제 출시 앱의 현재 동작은 `src/design-system/`이 정본이다.
+- 둘이 다르면 임의의 제3 값을 만들지 않는다. 차이를 디자인 드리프트로 기록하고 같은 작업에서 양쪽을 맞춘다.
+- 특정 화면의 로컬 스타일은 공용 디자인 시스템의 근거가 아니다.
+
+## 2. 디자인 성격
+
+GroMo 2.0은 장기 시험·자격 준비생이 함께 공부하는 섬이다. UI는 생산성 도구처럼 차갑거나 게임처럼 과도하게 장식적이지 않아야 한다.
+
+- **따뜻함:** Cream 바탕과 Paper 표면 위에 Pink·Sky·Butter를 사용한다.
+- **손으로 붙인 느낌:** Brown 윤곽선과 단단한 스티커형 그림자를 쓴다.
+- **또렷함:** 본문은 Ink, 보조 정보는 Muted로 역할을 분리한다.
+- **생활감:** 고양이, 배, 섬의 그림은 정보와 상태를 설명할 때 사용한다.
+- **절제:** 한 화면의 강한 색은 행동, 선택, 상태 전달에만 쓴다.
+
+임의의 초록색 CTA, 무채색 SaaS 카드, 보라색 그라데이션, 흐릿한 회색 블러 그림자를 기본값으로 사용하지 않는다.
+
+## 3. 토큰 체계
+
+모든 스타일 결정은 다음 계층을 따른다.
+
+```text
+Primitive → Semantic → Component → Screen composition
+```
+
+- **Primitive:** 원색, 고정 간격, 기본 반경, 지속 시간
+- **Semantic:** `canvas`, `surface`, `text`, `primary`, `outline`처럼 역할을 가진 값
+- **Component:** 버튼, 카드, 입력창, 배지처럼 특정 요소의 값
+- **Screen:** 기존 토큰과 컴포넌트의 조합. 화면에서 새 원시값을 만들지 않는다.
+
+새 코드는 `semanticTokens` 또는 `componentTokens`를 우선한다. `C.*`는 기존 화면 호환 별칭이다.
+
+## 4. 컬러
+
+### 4.1 주간 · 딸기 소다
+
+| 역할           | 이름              | 값        | 사용                                 |
+| -------------- | ----------------- | --------- | ------------------------------------ |
+| App canvas     | Cream             | `#FFF7EB` | 화면 전체 배경                       |
+| Surface        | Paper             | `#FFFDFA` | 카드·시트·필드                       |
+| Primary        | Pink              | `#FFA6BC` | 주요 CTA·선택·진행                   |
+| Primary hover  | Pink Hover        | `#FFB8CA` | 포인터 hover                         |
+| Secondary      | Sky               | `#ADE1F8` | 보조 영역·정보·아바타 배경           |
+| Accent         | Butter            | `#FFE08A` | 배지·강조·특수 CTA                   |
+| Outline        | Brown             | `#8B6956` | 윤곽선·아이콘·스티커 그림자          |
+| Text           | Ink               | `#493B39` | 제목·본문·주요 아이콘                |
+| Muted text     | Muted Brown       | `#796256` | 메타·보조 설명                       |
+| Selected       | Selected Pink     | `#FFE2EA` | 선택된 행·칩의 옅은 면               |
+| Subtle         | Subtle Pink       | `#FFF0F3` | 약한 강조 표면                       |
+| Danger         | Danger            | `#994C3E` | 오류·위험 텍스트                     |
+| Danger strong  | Danger Strong     | `#B84A32` | 파괴 행동 윤곽선                     |
+| Danger ink     | Danger Ink        | `#7A2E1E` | 파괴 버튼 텍스트                     |
+| Danger surface | Danger Surface    | `#F4C0C0` | 파괴 버튼 배경                       |
+| Danger soft    | Danger Soft       | `#F7E9E3` | 오류 안내 면                         |
+| Success        | Success           | `#3FB6A0` | 켜진 토글 등 성공 상태에만 제한 사용 |
+| Letter         | Letter            | `#FFF0CF` | 편지·재화 요약 스트립                |
+| Letter border  | Letter Border     | `#E7CF9A` | Letter 표면 윤곽                     |
+| Control idle   | Control Idle      | `#D9C6B8` | 비선택 컨트롤                        |
+| Placeholder    | Field Placeholder | `#A0908A` | 입력 힌트                            |
+| Progress track | Progress Track    | `#EADFD2` | 진행 배경                            |
+| Graph line     | Graph Line        | `#5FB6E3` | 통계 선 그래프                       |
+| White          | White             | `#FFFFFF` | 토글 손잡이 등 제한 사용             |
+| Black          | Black             | `#000000` | 투명 그림자 계산용                   |
+
+주간 테마의 과거 호환 별칭은 이름을 문자 그대로 해석하지 않는다.
+
+- `forest` → Pink
+- `sage` → Butter
+- `water` → Sky
+- `sand` → Cream
+- `clay` → Pink
+
+따라서 `forest`, `sage`라는 이름을 근거로 새 초록색을 만들면 안 된다.
+
+### 4.2 야간
+
+| 역할                   | 값        |
+| ---------------------- | --------- |
+| Canvas                 | `#1D2521` |
+| Surface                | `#26302A` |
+| Soft / Secondary       | `#313C33` |
+| Field                  | `#212B25` |
+| Text                   | `#F0F0E4` |
+| Muted text             | `#B6C2B0` |
+| Line                   | `#424E43` |
+| Outline / Control line | `#81917E` |
+| Primary                | `#BED3B4` |
+| Primary hover          | `#D0E1C7` |
+| On primary             | `#23382A` |
+| Selected               | `#354837` |
+| Accent / Letter        | `#393D2E` |
+| Danger                 | `#F1AC98` |
+| Danger soft            | `#493B33` |
+| Letter ink             | `#E8DDBB` |
+
+야간 팔레트는 기존 값을 유지한다. 주간의 Pink·Sky·Butter를 그대로 덮어쓰지 말고 semantic role로 테마를 교체한다.
+
+### 4.3 합성 컬러
+
+- Divider: Brown 20% (`#8B695633`)
+- Overlay: Ink 40% (`#493B3966`)
+- Bottom sheet overlay: Ink 25% (`#493B3940`)
+- Glass button: Paper 약 72%
+
+## 5. 타이포그래피
+
+### 5.1 글꼴
+
+```text
+-apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif
+```
+
+별도 display font나 number font를 만들지 않는다. 숫자는 같은 글꼴에 `tabular-nums`를 적용한다.
+
+### 5.2 크기 토큰
+
+| 토큰      | 크기 | 기본 용도      |
+| --------- | ---: | -------------- |
+| `xs`      |   12 | 캡션·축 라벨   |
+| `sm`      |   14 | 라벨·칩        |
+| `md`      |   16 | 본문·입력      |
+| `lg`      |   20 | 화면 제목      |
+| `xl`      |   26 | 큰 헤딩        |
+| `display` |   32 | 핵심 숫자·표현 |
+
+앱 공용 패턴의 실제 조합은 다음을 기준으로 한다.
+
+| 역할            | 크기 / 행간 | 굵기    | 비고                      |
+| --------------- | ----------- | ------- | ------------------------- |
+| Page title      | 20          | 800     | 자간 `-0.4`               |
+| Major heading   | 22 / 29     | 800     | 자간 `-0.44`              |
+| Section heading | 17 / 23     | 700     | 자간 `-0.15`              |
+| Body            | 15 / 22.5   | 400–600 | 자간 `-0.15`              |
+| Meta            | 13 / 18     | 400–600 | Muted                     |
+| Section label   | 13          | 700     | 자간 `0.26`               |
+| Primary button  | 16          | 800     | 가운데 정렬               |
+| Dialog button   | 15          | 700–800 | 높이 46                   |
+| Number          | 맥락별      | 800     | `tabular-nums`, 자간 `-1` |
+
+지원 굵기는 400, 500, 600, 700, 800이다. 화면 안에서 중요도 차이를 색만으로 표현하지 않는다.
+
+## 6. 공간·형태·모션
+
+### 6.1 간격
+
+| 단계 |  값 |
+| ---- | --: |
+| 1    |   4 |
+| 2    |   8 |
+| 3    |  12 |
+| 4    |  16 |
+| 5    |  20 |
+| 6    |  24 |
+| 8    |  32 |
+| 10   |  40 |
+| 12   |  48 |
+| 16   |  64 |
+
+Semantic spacing:
+
+- Control gap: 12
+- Component gap: 16
+- Section gap: 24
+- Page horizontal padding: 20
+- 일반 화면 콘텐츠 간격: 14
+
+### 6.2 반경
+
+| 역할         |  값 |
+| ------------ | --: |
+| Control      |  14 |
+| Card         |  20 |
+| Preview      |  22 |
+| Modal        |  24 |
+| Sheet        |  26 |
+| Pill / Round | 999 |
+
+### 6.3 선과 그림자
+
+- Subtle stroke: 1
+- Default stroke: 1.5
+- Strong stroke: 2
+- 공용 Group: Brown 2px + `0 4px 0 Brown`
+- Primary sticker button: Brown 2px + `0 4px 0 Brown`
+- Small sticker button: 1.5px + `0 3px 0 Brown`
+- Modal: Brown 2px + `0 6px 0 Brown`
+- 비활성 요소와 ghost 버튼에는 스티커 그림자를 쓰지 않는다.
+
+그림자는 흐릿한 elevation 표현이 아니라 외곽선과 같은 Brown의 단단한 y축 오프셋이다.
+
+### 6.4 모션
+
+- Fast: 140ms
+- Normal: 220ms
+- 기본 easing: `cubic-bezier(.2,.9,.25,1.15)`
+- 버튼 press scale: `0.97`
+- 토글 손잡이 이동: 140ms
+- Reduce Motion 설정 또는 `MotionContext`가 켜져 있으면 장식 모션을 제거한다.
+- 상태 변화는 모션 없이도 색·텍스트·형태로 이해할 수 있어야 한다.
+
+## 7. 공용 컴포넌트 명세
+
+### 7.1 Page
+
+- 배경은 Cream, 콘텐츠 최대 폭은 앱 레이아웃 기준을 따른다.
+- 상단 헤더 높이 52, 좌측 뒤로가기 터치 영역 40×40.
+- 제목은 한 줄, 20/800.
+- 본문 좌우 padding 20, 세로 gap 14.
+- Safe Area를 상·하단 모두 반영한다.
+- 고정 CTA가 있으면 footer에 두고 스크롤 콘텐츠와 분리한다.
+
+### 7.2 Button / Btn
+
+| 변형        |      높이 | 외형                                  | 용도                                  |
+| ----------- | --------: | ------------------------------------- | ------------------------------------- |
+| Primary     |        52 | Pink, Brown 2px, pill, sticker shadow | 화면의 주 행동                        |
+| Secondary   |        52 | Paper, Brown 2px, pill                | 보조 행동                             |
+| Small       | 38 visual | 1.5px, pill, 작은 그림자              | 밀도 높은 보조 행동                   |
+| Dialog      |        46 | 문맥별 Primary/Secondary              | 확인창 행동                           |
+| Ghost       |        44 | 투명, 선·그림자 없음                  | 낮은 위계 행동                        |
+| Danger text |        44 | 투명, Danger text                     | 탈퇴 등 위험 진입                     |
+| Destructive |        52 | Danger Surface, Danger border/text    | 파괴 행동 최종 확인                   |
+| Glass       |        52 | 반투명 Paper                          | 바다·모닥불 위 보조 행동              |
+| Butter      |        52 | Butter + sticker shadow               | 방문 중 원래 섬으로 등 특수 주요 행동 |
+| Round       |     88×88 | 원형 Pink                             | 홈의 집중하기 같은 단일 행동          |
+
+- 기본 글자는 Ink, 가운데 정렬이다.
+- 비활성 opacity는 0.45이고 그림자를 제거한다.
+- 한 화면에서 Primary 버튼을 경쟁시키지 않는다.
+- Small의 시각 높이는 38이지만 실제 터치 영역은 최소 44가 되도록 `hitSlop` 또는 컨테이너를 보장해야 한다.
+- 아이콘만 있는 버튼은 접근성 라벨을 반드시 제공한다.
+
+### 7.3 Card / Group / Row
+
+**Card**
+
+- Paper 배경, Brown 1.5px, radius 20, padding 20, gap 12.
+
+**Group**
+
+- Paper 배경, Brown 2px, radius 18, `0 4px 0 Brown`.
+- 자식 사이 divider는 Brown 20%, 1px.
+- `flat`은 그림자만 제거한다.
+
+**Row**
+
+- 최소 높이 58, 세로 padding 11, 가로 padding 14, gap 12.
+- 제목 16/600, 보조 설명 13/18 Muted.
+- 선택 시 Selected Pink 배경.
+- 비활성 opacity 0.42, press opacity 0.7.
+- 이동 가능한 행은 chevron과 명확한 접근성 라벨을 사용한다.
+
+### 7.4 Segmented control
+
+- 높이 42, 작은 변형 36.
+- Paper 배경, Brown 2px, radius 12.
+- 항목 사이 Brown 2px divider.
+- 선택 항목은 Pink 배경과 Ink 텍스트, 나머지는 Muted.
+
+### 7.5 Chip / Badge
+
+**Chip**
+
+- 기본 높이 36, 큰 변형 44.
+- pill, 좌우 padding 14 또는 18, 항목 간 gap 8.
+- 비선택은 Paper + Control Idle 1.5px.
+- 선택은 Selected Pink + Brown 1.5px.
+
+**Badge**
+
+- 높이 28, 좌우 padding 12, pill.
+- 기본은 Butter + Brown 1.5px + 13/700.
+- soft는 Paper + Control Idle + Muted 13/600.
+
+### 7.6 Field
+
+- 라벨은 13/18.85, 600, Muted.
+- 필드는 최소 높이 48–50, Paper, Brown 1.5–2px, radius 14.
+- 좌우 padding 14, 세로 padding 12–13, 입력 글자 16.
+- placeholder는 `#A0908A`.
+- multiline은 최소 높이 96–100, 위쪽 정렬.
+- 숫자 입력은 적절한 키보드 타입을 사용한다.
+- 오류는 색만 바꾸지 않고 원인과 해결 행동을 텍스트로 제공한다.
+
+### 7.7 Toggle
+
+- Track 46×28, pill.
+- Thumb 22×22, 좌상단 inset 3.
+- Off는 Control Idle, On은 Success.
+- 손잡이 이동 거리 18, 140ms.
+- `accessibilityRole="switch"`, label, checked 상태를 제공한다.
+
+### 7.8 Progress / Bar
+
+- 기본 track은 6–8 높이, Progress Track 색.
+- fill은 Pink.
+- 값은 0–100으로 clamp한다.
+- 값이 없으면 임의로 0%처럼 보이지 않게 “확인 필요” 상태를 전달한다.
+- 진행률은 막대만으로 전달하지 않고 라벨이나 숫자를 함께 둔다.
+
+### 7.9 Avatar / Pic / Art
+
+- 고양이 아바타는 Sky 배경, Brown 1.5px, 둥근 사각형을 기본으로 한다.
+- 기본 Avatar 크기는 54, 목록 아이콘은 40과 radius 14를 쓴다.
+- 캐릭터 색·의상·배 종류는 실제 사용자 상태를 반영한다.
+- 장식 이미지는 정보보다 앞서지 않으며, 의미 있는 이미지는 접근성 라벨을 제공한다.
+
+### 7.10 Strip
+
+- Letter 계열 표면 `#FFF3CF`, Letter Border 1.5px, radius 14.
+- 세로 padding 10, 가로 padding 14.
+- 좌측 13px Meta, 우측 18/800 tabular number.
+- 재화나 짧은 집계처럼 “라벨 + 값” 한 쌍에 사용한다.
+
+### 7.11 Modal / Bottom sheet
+
+- 기본 dim은 Ink 40%, sheet dim은 Ink 25%.
+- Modal은 가운데 정렬, radius 24, Brown 2px, 6px sticker shadow.
+- Bottom sheet는 휴대폰 세로 화면에서 하단 정렬, 상단 radius 26, 하단 radius 0.
+- 태블릿·가로 compact 화면에서는 sheet도 가운데 modal 형태로 전환한다.
+- Sheet handle은 40×5, Control Idle.
+- 내부 padding 20, gap 14.
+- 바깥 영역 터치로 닫을 수 있어도 명시적 닫기 행동과 접근성 포커스 순서를 제공한다.
+
+### 7.12 Wheel picker
+
+- 세 행이 보이는 드럼, Paper, Brown 2px, radius 14.
+- 선택 행은 가운데에 고정하고 Selected Pink 면과 상·하 1.5px 선을 쓴다.
+- 기본 행 높이 44. 가로 분할에서는 24 또는 33까지 축소할 수 있다.
+- 선택 값은 20/800, 비선택 값은 17/400와 Placeholder 색을 기본으로 한다.
+- 항목마다 대상 이름과 값을 합친 접근성 라벨을 제공한다.
+
+### 7.13 Graph
+
+- 그래프 선은 Graph Line, 면은 Sky 40%.
+- 가이드 라인은 Brown 약 13%.
+- 기본 점은 Paper + Brown 1.5px, 현재 점은 Pink.
+- 요일 라벨은 12px Muted.
+- 그래프만 두지 않고 기간, 단위, 핵심 값을 텍스트로 제공한다.
+
+### 7.14 Navigation and overlays
+
+- 뒤로가기, 설정, chevron은 Brown/Ink 선형 아이콘을 사용한다.
+- 탭·세그먼트·칩은 선택 상태를 `accessibilityState`에도 반영한다.
+- 오버레이 뒤 콘텐츠는 스크린 리더 탐색에서 숨긴다.
+- 키보드가 열린 상태에서도 입력과 CTA가 가려지지 않아야 한다.
+
+## 8. 제품 기능 패턴
+
+### 8.1 두 가지 재화
+
+- **물고기:** 개인 집중으로 획득한다.
+- 게시판 완성 전에는 획득한 물고기가 섬 건설에 자동 기여된다.
+- 게시판 완성 후에는 개인이 보관해 상점 꾸밈과 배 성장에 쓴다.
+- 초기 건설 기여분을 별도 종류의 재화나 별도 지갑으로 표시하지 않는다.
+- **마을 포인트:** 퀘스트 달성으로 획득하고 시설 건설·섬 공동 꾸미기에 쓴다.
+- 잔액은 상점 진입 시 물고기와 마을 포인트를 함께 표시한다.
+
+시각 검증: `components/01-currency/`
+
+### 8.2 건설
+
+- 상태는 부족, 건설 가능, 선행 시설 잠금, 완료를 구분한다.
+- 현재 목표, 필요한 공동 자원, 기여 결과, 다음 건물을 같은 흐름에서 이해할 수 있게 한다.
+- 완료 상태에서는 반복 CTA 대신 성취와 다음 행동을 보여준다.
+- HTML의 상품·기록 수치는 시연 데이터다.
+
+시각 검증: `components/02-construction/`
+
+### 8.3 집중·낚시·휴식
+
+- 집중 준비 시트에서 할 일·과목과 목표 시간을 설정한다.
+- 집중 활동이나 자리를 별도로 선택하지 않는다.
+- 핀치 확대 시 내 배, 축소 시 같은 섬에서 집중 중인 주민의 배를 함께 보여준다.
+- 이름, 과목, 집중 시간, 이번 집중에서 잡은 물고기 수를 표시한다.
+- 유효 집중 5분마다 물고기 1마리를 쌓는다.
+- 물고기 더미는 1–7, 8–23, 24 이상 세 단계이며 2시간에 최대 그림이 된다.
+- 이 화면에서는 지갑 잔액이 아니라 이번 집중 누적 획득량을 사용한다.
+- 휴식 시 시간 누적을 즉시 멈추고 배 이동 → 부두에서 네 발 걷기 → 모닥불 독서로 전환한다.
+- 복귀하면 기존 집중 시간과 물고기 수를 이어간다.
+- 휴식 화면에는 실제 휴식 중인 주민, 이름, 이번 휴식 시간을 표시한다.
+- 캐릭터, 배, 낮·밤 상태는 집중과 휴식 사이에서 유지한다.
+
+동작 검증: `components/03-focus/`, `runtime/fishing-catch.js`, `runtime/cat-motion-metrics.js`, `runtime/rest-group.js`, `runtime/reading-manifests.js`
+
+### 8.4 퀘스트
+
+- 시간대 집중 퀘스트와 하루 폰 사용 퀘스트를 구분한다.
+- 조건, 측정 구간, 현재 진행, 보상, 완료 여부를 한 카드에서 읽을 수 있게 한다.
+- 새 퀘스트가 없거나 측정할 수 없는 상태를 실패와 구분한다.
+- UI 예시 수치를 실제 서비스 수치처럼 사용하지 않는다.
+
+시각 검증: `components/04-quest/`
+
+### 8.5 우체통 · 우리 섬 편지방
+
+- 같은 섬 구성원이 함께 대화하는 단체 채팅이다.
+- 상대 메시지는 왼쪽, 내 메시지는 오른쪽에 둔다.
+- 프로필, 이름, 작성 시간을 표시한다.
+- 읽음·안 읽음·읽은 인원 표시는 제공하지 않는다.
+- 수신자를 고르지 않고 섬 전체에 보낸다.
+- 빈 메시지는 보내지 않는다.
+- 말풍선 꼬리는 해당 고양이 프로필을 향한다.
+
+시각 검증: `components/05-mail/`
+
+### 8.6 공동 음원
+
+- 꽃나팔 방송기 건설 후 집중 화면에서 사용할 수 있다.
+- 그룹원 누구나 보유 음원을 바꿀 수 있다.
+- 선택한 음원은 같은 섬에서 집중 중인 주민에게 공동 적용한다.
+- 기기 음량은 개인 설정이다.
+- 추가 ASMR은 상점 구매 항목이다.
+- 누가 어떤 음원을 선택했는지와 현재 공동 적용 상태를 명확히 보여준다.
+
+시각 검증: `components/06-shared-player/`
+
+### 8.7 상점
+
+- 상점에는 기존 강아지 캐릭터를 유지한다.
+- 진입 시 물고기와 마을 포인트 잔액을 함께 보여준다.
+- 상품은 구매 가능, 부족, 보유, 적용 중 상태를 구분한다.
+- 캐릭터 꾸미기, 공동 섬 꾸미기, 선체 성장의 소유 주체를 혼동하지 않는다.
+- 구매 전 확인과 구매 후 완료 피드백을 제공한다.
+
+시각 검증: `components/07-shop/`
+
+### 8.8 주민·랭킹·프로필 목록
+
+- 역할은 방장, 주민, 방문자를 구분한다.
+- 현재 상태는 집중, 휴식, 오프라인/기타 상태를 구분한다.
+- 섬 주민은 최대 15명이다. 목록은 15명이 모두 있을 때도 탐색과 비교가 가능해야 한다.
+- 순위만 강조하지 말고 이름, 캐릭터, 역할, 현재 상태, 핵심 기록을 함께 읽게 한다.
+- 주민 선택은 해당 주민의 상세 프로필이나 기록으로 이어진다는 affordance를 제공한다.
+- 방장 위임, 주민 내보내기처럼 위험한 관리 행동은 일반 프로필 탐색과 분리하고 확인창을 거친다.
+
+시각 검증: `components/08-rank-residents/`
+
+### 8.9 게시판·공지·자료
+
+- 공지 목록, 상세 읽기, 작성·수정, 첨부, 업로드를 구분한다.
+- 빈 목록, 로딩, 업로드 중, 실패, 재시도 상태가 필요하다.
+- 작성 권한과 읽기 권한을 행동 위치와 disabled 상태로 설명한다.
+- 첨부는 파일 이름, 종류, 크기 또는 상태를 텍스트로도 제공한다.
+
+시각 검증: `components/09-board-files/`
+
+### 8.10 연결·권한·복구
+
+- 권한 거부, 측정 불가, 네트워크 실패, 서버 실패를 같은 “오류”로 뭉치지 않는다.
+- 무슨 일이 생겼는지, 데이터에 어떤 영향이 있는지, 사용자가 무엇을 할 수 있는지 순서대로 쓴다.
+- 설정 열기, 다시 시도, 나중에 하기의 위계를 구분한다.
+- 자동 로그인처럼 기다리는 상태에는 진행 중임을 알리는 피드백을 준다.
+
+시각 검증: `components/10-system/`
+
+### 8.11 섬 내비게이션
+
+- 섬 장소 자체를 직접 누르는 방식이 기본이다.
+- 부두 → 낚시 집중
+- 모닥불 → 휴식
+- 마을회관 → 기록
+- 전망대 → 섬 이동·탐색
+- 기본 중앙 화면, 전체 섬 보기, 드래그, 핀치 확대·축소, 고양이 터치 이동을 지원한다.
+- 낮·밤과 성장 7단계를 반영한다.
+- 장소는 그림만으로 식별시키지 않고 라벨 또는 접근성 이름을 제공한다.
+
+시각 검증: `components/11-island-navigation/`
+
+### 8.12 프로필·배·꾸미기
+
+- 기본 캐릭터, 6색 고양이, 무료 이름표, 의상·스카프, 선체 3종을 상태에 맞게 조합한다.
+- 내 모습과 내 배의 편집은 소유한 항목과 미보유 항목을 구분한다.
+- 적용 중, 보유, 구매 가능 상태를 버튼 문구와 배지로도 구분한다.
+- 미리보기는 실제 캐릭터·배 조합을 반영한다.
+
+시각 검증: `components/12-profile-boat/`
+
+### 8.13 섬 사이 항해
+
+- 내 배, 캐릭터, 꾸미기, 낮·밤, 등불 상태를 항해 장면에 반영한다.
+- 이동 중임과 목적지를 명확히 표시한다.
+- 모션이 끝나지 않아도 뒤로가기·중단·오류 같은 상태를 처리한다.
+- Reduce Motion에서는 의미를 유지한 축약 전환을 제공한다.
+
+동작 검증: `components/13-sailing/`, `runtime/sailing.js`, `runtime/sailing.css`
+
+### 8.14 마을회관
+
+- 우리 섬의 기록, 공동 자원 내역, 주민 관리, 섬 관리의 허브다.
+- 기록 탐색과 관리 행동을 같은 위계로 섞지 않는다.
+- 방장에게만 가능한 행동은 권한과 영향을 분명히 표시한다.
+- 섬 탈퇴, 주민 내보내기, 방장 위임은 별도의 확인 단계를 사용한다.
+
+시각 검증: `components/14-hall/`
+
+### 8.15 화면 세부와 상태 표본
+
+- 온보딩: 캐릭터 선택, 섬 생성, 기존 섬 참여, 승인 대기
+- 기록: 오늘의 집중, 스크린타임, 주간 통계, 빈 상태
+- 설정: 내 계정, 측정 권한, 앱 설정, 회원 탈퇴
+- 커뮤니티: 주민, 초대, 관리, 방문 상태
+- 모든 표본의 숫자·이름·상품은 UI 검토용 더미일 수 있으므로 제품 데이터 규칙과 혼동하지 않는다.
+
+시각 검증: `components/15-screen-details/`, `foundations/support/`
+
+## 9. Figma 작업 규칙
+
+Figma의 연결 라이브러리와 이 로컬 UI Kit는 별개이다. 연결 라이브러리가 비어 있어도 GroMo 디자인 시스템이 없는 것이 아니다.
+
+Figma 시안은 다음 순서를 따른다.
+
+1. 이 문서에서 화면의 semantic role과 공용 컴포넌트를 정한다.
+2. 해당 기능의 HTML·PNG 표본으로 실제 외형을 확인한다.
+3. 기존 Figma 프레임이 있다면 정보 구조와 최신 상태를 대조한다.
+4. Pink/Sky/Butter/Cream/Paper/Brown/Ink 토큰으로 스타일을 만든다.
+5. 같은 역할의 버튼·카드·칩·행을 프레임마다 새로 그리지 않고 컴포넌트화한다.
+6. 새 패턴이 필요하면 이름, 상태, 사용 조건을 이 문서와 코드에 반영한다.
+
+로컬 UI Kit를 Figma에서 Assets 패널로 직접 사용하려면 별도 Figma 라이브러리 파일을 만들고 publish한 뒤 대상 파일에 연결해야 한다. `DESIGN.md`는 에이전트 판단을 통일하지만 Figma 라이브러리 연결 자체를 대신하지는 않는다.
+
+## 10. React Native 구현 규칙
+
+```ts
+import { semanticTokens, componentTokens } from '@/design-system/tokens';
+import { Button, Card } from '@/design-system/primitives';
+import { Page, Group, Row, Btn } from '@/design-system/patterns';
+```
+
+- 작은 범용 요소는 `primitives.tsx`를 재사용하거나 확장한다.
+- 화면 구조를 포함한 조합은 `patterns.tsx`를 재사용하거나 확장한다.
+- 한 기능에만 필요한 컴포넌트는 `screens/<feature>/`에 둔다.
+- `.docs`의 HTML·CSS·JS를 런타임에서 직접 import하지 않는다.
+- 토큰이 없으면 화면에 raw hex를 넣기 전에 `tokens.ts`에 역할을 정의한다.
+- 공용 요소와 거의 같은 로컬 복제 컴포넌트를 만들지 않는다.
+- 새 공용 토큰·컴포넌트를 추가하면 이 문서도 같은 작업에서 갱신한다.
+
+## 11. 접근성과 반응형
+
+- 모든 상호작용의 실질 터치 영역은 최소 44×44pt이다.
+- 버튼·아이콘·장소·이미지에 의미가 있으면 접근성 라벨을 제공한다.
+- selected, disabled, checked 상태를 접근성 API에도 반영한다.
+- 색만으로 상태를 전달하지 않는다.
+- 동적 글자 크기에서 잘림보다 재배치와 스크롤을 우선한다.
+- Safe Area, 키보드, 세로·가로, 태블릿 레이아웃을 확인한다.
+- 모달이 열린 동안 뒤 콘텐츠는 스크린 리더에서 숨긴다.
+- 애니메이션은 Reduce Motion을 존중한다.
+
+## 12. 금지 사항
+
+- UI Kit 확인 없이 생성형 도구의 기본 초록 버튼을 사용하지 않는다.
+- Figma 라이브러리 검색 결과만으로 “디자인 시스템이 없다”고 단정하지 않는다.
+- raw hex, 임의 spacing, 임의 radius를 화면 코드에 새로 넣지 않는다.
+- 기존 공용 컴포넌트와 같은 역할의 요소를 화면마다 다시 만들지 않는다.
+- 시연용 숫자·상품·사용자 이름을 실제 정책이나 데이터로 간주하지 않는다.
+- 로딩, 빈 상태, 오류, 권한 거부, disabled를 하나의 화면 상태로 뭉치지 않는다.
+- 주 행동을 여러 색의 CTA로 경쟁시키지 않는다.
+- 아트가 정보 구조와 텍스트 위계를 가리게 하지 않는다.
+
+## 13. 알려진 드리프트
+
+다음은 새 작업에서 무시하지 말고 정리해야 할 차이다.
+
+- HTML 토큰의 기본 `stroke`는 2px이나 앱 `componentTokens.card/input`은 1.5px이다. 런타임 컴포넌트를 사용할 때는 현재 코드값을 따르되, 디자인 갱신 시 역할별 선 굵기로 명시적으로 통일한다.
+- Small 버튼의 시각 높이는 38px이다. 접근성 최소 터치 영역 44pt를 만족하도록 hit area 보완이 필요하다.
+- `components.json`은 13번까지만 등록되어 있지만 실제 폴더에는 14번 마을회관과 15번 화면 세부가 있다. 자동 인덱스를 갱신할 때 두 항목을 포함해야 한다.
+- `components/08-rank-residents/README.md` 제목이 “전망대”로 남아 있다. 폴더 역할은 주민·랭킹·프로필 목록이며 제목은 오래된 생성 흔적이다.
+
+## 14. 완료 체크리스트
+
+- [ ] Cream 배경, Paper 표면, Brown 윤곽의 기본 구조를 지켰는가?
+- [ ] 주요 CTA는 Pink이고 Sky·Butter가 보조 역할에 머무는가?
+- [ ] 임의의 초록색이나 외부 템플릿 팔레트를 섞지 않았는가?
+- [ ] raw 값 대신 semantic/component token을 사용했는가?
+- [ ] 기존 Page, Button, Group, Row, Field, Overlay 패턴을 우선 재사용했는가?
+- [ ] 로딩·빈 상태·오류·권한·disabled·완료 상태를 필요한 만큼 설계했는가?
+- [ ] 최소 44pt 터치 영역과 접근성 상태를 확인했는가?
+- [ ] 세로·가로·태블릿·Safe Area·키보드를 확인했는가?
+- [ ] 새 공용 규칙을 코드와 이 문서에 함께 반영했는가?
+- [ ] Figma/HTML 시안의 더미 데이터를 실제 제품 정책과 구분했는가?
