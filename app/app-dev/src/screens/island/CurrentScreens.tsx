@@ -74,6 +74,7 @@ import {
   Seg,
   Field,
   Strip,
+  Toggle,
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
@@ -210,6 +211,7 @@ export function CurrentScreens({ e }: any) {
       'visitIslandFocus',
       'permission',
       'screenTimeApps',
+      'allowedApps',
     ].includes(r)
   )
     return (
@@ -301,6 +303,7 @@ export function CurrentScreens({ e }: any) {
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
   if (r === 'permission') return <ScreenTimePermission e={e} />;
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
+  if (r === 'allowedApps') return <AllowedApps e={e} />;
   return <RedesignScreens e={e} />;
 }
 
@@ -312,11 +315,14 @@ function ScreenTimePermission({ e }: any) {
   const gateRoute = (gateParts[1] || 'board') as Route;
   const gateDetail = decodeURIComponent(gateParts[2] || '');
   const measuredApps = e.detail === 'measured-apps';
+  const allowedApps = e.detail === 'allowed-apps';
   const finish = () => {
     if (boardFirst) {
       e.replace('screenTimeApps', e.detail);
     } else if (measuredApps) {
       e.replace('screenTimeApps', 'settings');
+    } else if (allowedApps) {
+      e.replace('allowedApps', 'settings');
     } else {
       e.back();
     }
@@ -416,7 +422,7 @@ function ScreenTimePermission({ e }: any) {
       </Group>
       {status === 'approved' ? (
         <Btn
-          title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
+          title={boardFirst ? '측정 앱 고르기' : measuredApps || allowedApps ? '계속' : '완료'}
           onPress={finish}
         />
       ) : status === 'denied' ? (
@@ -543,6 +549,84 @@ function MeasuredAppPicker({ e }: any) {
       {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={finish} />}
       <Txt kind="meta">
         선택을 바꾸는 날에는 기존 앱 기준 기록을 유지하고, 자정부터 새 대상을 측정해요.
+      </Txt>
+    </Sheet>
+  );
+}
+
+function AllowedApps({ e }: any) {
+  const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
+  const [allowWeb, setAllowWeb] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const refresh = () =>
+    Promise.all([screenTime.getAllowedSelectionCounts(), screenTime.getFocusAllowSafariWeb()]).then(
+      ([nextSelection, nextAllowWeb]) => {
+        setSelection(nextSelection);
+        setAllowWeb(nextAllowWeb);
+      },
+    );
+  useEffect(() => {
+    refresh().catch(() => {});
+  }, []);
+  const openManager = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const picked = await screenTime.presentAllowedAppManager();
+      if (picked) {
+        setSelection(picked);
+        e.notify(
+          picked.applications
+            ? `허용 앱 ${picked.applications}개를 저장했어요.`
+            : '집중 중 모든 앱을 차단해요.',
+        );
+      }
+    } catch {
+      e.notify('허용 앱 관리 화면을 열지 못했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  const changeWeb = async (value: boolean) => {
+    setAllowWeb(value);
+    try {
+      await screenTime.setFocusAllowSafariWeb(value);
+    } catch {
+      setAllowWeb(!value);
+      e.notify('웹 허용 설정을 저장하지 못했어요.');
+    }
+  };
+  return (
+    <Sheet e={e} title="집중 중 허용 앱">
+      <Pic id="cat/black/sitting" w={82} />
+      <Txt kind="h17">집중을 깨지 않는 앱만 열어둘게요</Txt>
+      <Txt>
+        집중을 시작하면 여기서 고른 앱을 제외한 나머지 앱을 가려요. 허용 앱을 고르지 않으면 모든
+        앱이 잠겨요.
+      </Txt>
+      <Group flat>
+        <Row
+          title="허용 앱"
+          sub={
+            selection?.applications
+              ? `${selection.applications}개 · 최대 40개`
+              : '없음 · 모든 앱 차단'
+          }
+        />
+        <Row
+          title="Safari와 웹 허용"
+          sub={allowWeb ? '집중 중에도 웹을 열 수 있어요' : '기본값 · 웹도 차단해요'}
+          tail={<Toggle label="Safari와 웹 허용" value={allowWeb} onChange={changeWeb} />}
+        />
+      </Group>
+      <Btn
+        title={busy ? '관리 화면 여는 중…' : '허용 앱 관리'}
+        disabled={busy}
+        onPress={openManager}
+      />
+      <Txt kind="meta">
+        Apple 보호 정책에 따라 앱 이름은 관리 화면 안에서만 보여요. 변경 사항은 진행 중인 집중에도
+        바로 반영돼요.
       </Txt>
     </Sheet>
   );

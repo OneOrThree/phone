@@ -148,6 +148,7 @@ const titles: Record<Route, string> = {
   returnTravel: '우리 섬으로',
   permission: '측정 권한',
   screenTimeApps: '측정 앱',
+  allowedApps: '집중 중 허용 앱',
   demo: '목업 체험 도구',
 };
 function Bubble({ text, mine }: { text: string; mine: boolean }) {

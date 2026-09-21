@@ -489,6 +489,7 @@ final class ScreenTimeModule: NSObject {
             if let data = defaults?.data(forKey: "gromo:focus:allowedSelection"),
                let saved = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
                 initial.applicationTokens = saved.applicationTokens
+                initial.categoryTokens = saved.categoryTokens
                 initial.webDomainTokens = saved.webDomainTokens
             }
             let manager = GromoAllowedAppManager(initialSelection: initial) { selection in
@@ -809,6 +810,9 @@ private struct GromoAllowedAppManager: View {
                     onDone: { picked in
                         var normalized = FamilyActivitySelection(includeEntireCategory: true)
                         normalized.applicationTokens = picked.applicationTokens
+                        // includeEntireCategory가 카테고리의 앱 토큰을 펼쳐 40개 제한을 적용한다.
+                        // 카테고리 토큰도 보존해야 다음 편집에서 선택 상태가 사라지지 않는다.
+                        normalized.categoryTokens = picked.categoryTokens
                         normalized.webDomainTokens = picked.webDomainTokens
                         selection = normalized
                         showPicker = false

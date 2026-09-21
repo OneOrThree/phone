@@ -52,6 +52,7 @@ export type Route =
   | 'returnTravel'
   | 'permission'
   | 'screenTimeApps'
+  | 'allowedApps'
   | 'demo';
 export type Member = {
   id: string;

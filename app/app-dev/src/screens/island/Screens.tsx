@@ -53,7 +53,7 @@ import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
 import { useScreenInsets } from '@/design-system/primitives';
-import { screenTime } from '@/services/screenTime';
+import { isScreenTimeAvailable, screenTime } from '@/services/screenTime';
 import {
   art,
   C,
@@ -4488,6 +4488,19 @@ export function RedesignScreens({ e }: any) {
               )
             }
           />
+          {Platform.OS === 'ios' && isScreenTimeAvailable && (
+            <SheetRow
+              title="집중 중 허용 앱"
+              sub="집중할 때 열어둘 앱 · 최대 40개"
+              chevron
+              onPress={() =>
+                go(
+                  state.settings.permission ? 'allowedApps' : 'permission',
+                  state.settings.permission ? 'settings' : 'allowed-apps',
+                )
+              }
+            />
+          )}
         </SheetGroup>
         <Txt kind="meta" style={st.meta}>
           권한을 끄면 폰 사용 퀘스트 달성률은 "확인 필요"로 표시돼요. 기록이 0분으로 표시되지는
