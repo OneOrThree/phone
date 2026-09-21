@@ -127,11 +127,17 @@ function unbundled(bundle: string, ...values: (string | null)[]): Session | null
  */
 async function commit(session: Session): Promise<void> {
   const bundleId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
-  await Promise.all([
+  // ⚠️ `Promise.all` 이 아니라 **allSettled** 다. all 은 첫 실패에서 즉시 던지고 남은 쓰기를
+  // 기다리지 않는데, 그러면 {@link saveSession} 의 되돌리기가 이전 snapshot 과 새 마커를 쓴 «뒤에»
+  // 그 늦은 쓰기가 착지해 마커와 값의 bundleId 가 어긋난다 — 멀쩡하던 이전 세션까지 복구가
+  // 거부돼 저장 실패 한 번이 로그아웃으로 번진다. 모든 쓰기가 정착한 뒤에 실패를 알린다.
+  const writes = await Promise.allSettled([
     writeItem(KEY_ACCESS, `${bundleId}.${session.accessToken}`),
     writeItem(KEY_REFRESH, `${bundleId}.${session.refreshToken}`),
     writeItem(KEY_USER, `${bundleId}.${session.userId}`),
   ]);
+  const failure = writes.find((w): w is PromiseRejectedResult => w.status === 'rejected');
+  if (failure) throw failure.reason;
   await writeItem(KEY_BUNDLE, bundleId);
 }
 
@@ -172,11 +178,17 @@ export function saveSession(session: Session, expectedGeneration?: number): Prom
  * 마커 삭제가 실패해도 나머지 셋은 계속 지운다: 하나만 사라져도 복구는 거부되므로
  * 「마커 삭제 실패 → 값이 통째로 남아 다음 실행에 되살아나는 세션」이 생기지 않는다.
  *
- * @returns 실제로 지운 세션. 줄 앞에서 다른 로그인이 먼저 공개했으면 호출부가 읽어 둔 것과
- *   **다른** 세션이다 — 서버 폐기 대상은 이쪽이다({@link queue}).
+ * @param expectedGeneration {@link saveSession} 과 **대칭인 fence**. 큐 바깥에서 한 세대 검사는
+ *   「저장이 끝나기 전」의 값이라, 그 사이 공개된 새 세션을 뒤늦게 지운다 — 계정 전환 중 옛 세션의
+ *   401 이 방금 채택한 새 세션을 끊는 경로다. 그래서 임계구역 **안에서** 다시 본다. 사용자가 직접
+ *   누른 로그아웃은 무조건 이겨야 하므로 생략한다(= fence 없음).
+ * @returns 실제로 지운 세션. fence 에 걸려 건너뛰었으면 null이고 저장소는 건드리지 않는다.
+ *   줄 앞에서 다른 로그인이 먼저 공개했으면 호출부가 읽어 둔 것과 **다른** 세션이다 — 서버
+ *   폐기 대상은 이쪽이다({@link queue}).
  */
-export function clearSession(): Promise<Session | null> {
+export function clearSession(expectedGeneration?: number): Promise<Session | null> {
   return serialized(async () => {
+    if (expectedGeneration !== undefined && expectedGeneration !== generation) return null;
     const cleared = cached;
     cached = null;
     generation += 1;
@@ -191,6 +203,21 @@ export function clearSession(): Promise<Session | null> {
     if (failed.length > 0) throw failed[0];
     return cleared;
   });
+}
+
+/**
+ * 서버가 거절한 세션(401·`USER_NOT_FOUND`)의 정리. 「**정말로 정리했는가**」만 돌려준다.
+ *
+ * 저장소 삭제 실패는 삼키되 **true** 다 — fence 에 걸리면 저장소를 건드리지 않고 즉시 돌아오므로,
+ * 던졌다는 것 자체가 fence 를 통과해 정리에 들어갔다는 뜻이다. 메모리 세션·세대는 삭제보다 먼저
+ * 비우니 화면을 로그인으로 되돌려도 된다. false 면 그 사이 세션이 교체된 것이라, 옛 세션의 거절
+ * 판정으로 새 세션을 끊지 않는다.
+ */
+export function clearRejectedSession(expectedGeneration: number): Promise<boolean> {
+  return clearSession(expectedGeneration).then(
+    (cleared) => cleared !== null,
+    () => true,
+  );
 }
 
 /**

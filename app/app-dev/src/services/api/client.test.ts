@@ -48,9 +48,12 @@ function stub(status: number, body: unknown, responseHeaders: Record<string, str
 
 const remove = SecureStore.deleteItemAsync as jest.Mock;
 const realRemove = remove.getMockImplementation() as (key: string) => Promise<void>;
+const write = SecureStore.setItemAsync as jest.Mock;
+const realWrite = write.getMockImplementation() as (key: string, value: string) => Promise<void>;
 
 beforeEach(async () => {
   remove.mockImplementation(realRemove);
+  write.mockImplementation(realWrite);
   calls.length = 0;
   await clearSession();
 });
@@ -169,6 +172,36 @@ test('401 은 세션을 지우고 세션 상실을 알린다', async () => {
   assert.equal(error.code, 'UNAUTHORIZED');
   // 갱신 경로가 없으므로 답은 재로그인뿐이다 — 세션이 비고 세대가 올라간다.
   assert.equal(sessionGeneration(), before + 1);
+});
+
+test('계정 전환 — 저장 «도중» 도착한 옛 세션의 401 은 새로 공개된 세션을 지우지 않는다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'u1' });
+  stub(401, {
+    error: { code: 'UNAUTHORIZED', message: '인증이 필요합니다.', field: null, retryable: false },
+    requestId: 'req-8',
+  });
+  let lost = 0;
+  setSessionLostHandler(() => {
+    lost += 1;
+  });
+
+  // B 로그인의 커밋이 «아직 공개되기 전»에 A 세션 요청의 401 이 도착한다. 큐 바깥의 세대 비교는
+  // 아직 A 의 값이라 통과하고, 이어서 큐에 선 정리는 B 의 commit 뒤에 실행된다.
+  let arriving: Promise<ApiError> | null = null;
+  write.mockImplementation(async (key: string, value: string) => {
+    arriving ??= failed(request('/me'));
+    return realWrite(key, value);
+  });
+
+  await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'u2' });
+  write.mockImplementation(realWrite);
+  const error = await arriving!;
+
+  // A 의 401 로 B 를 끊으면 방금 성공한 계정 전환이 그대로 로그인 화면으로 돌아간다.
+  assert.equal(error.code, 'UNAUTHORIZED');
+  assert.deepEqual(getSession(), { accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'u2' });
+  assert.equal(lost, 0);
+  setSessionLostHandler(null);
 });
 
 test('401 — 키체인 삭제가 실패해도 세션 상실을 알리고 원래의 401 을 던진다', async () => {

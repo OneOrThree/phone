@@ -359,6 +359,24 @@ test('checkSession — 404 USER_NOT_FOUND 는 거절이다 (다른 기기에서 
   assert.equal(await restoreSession(), null);
 });
 
+test('checkSession — 확인 «중» 새 로그인이 끝나면 옛 세션의 404 로 새 세션을 끊지 않는다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'u1' });
+  (global as any).fetch = jest.fn(async () => {
+    // /me 응답이 돌아오기 전에 계정 전환이 끝난 상황.
+    await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'u2' });
+    return {
+      ok: false,
+      status: 404,
+      headers: { get: () => null },
+      text: async () => JSON.stringify(envelope('USER_NOT_FOUND', '사용자를 찾을 수 없습니다.')),
+    } as unknown as Response;
+  });
+
+  // A 의 「탈퇴했다」 판정은 B 에 대한 판정이 아니다 — 지우면 방금 전환한 계정이 끊긴다.
+  assert.equal((await checkSession()).status, 'unreachable');
+  assert.deepEqual(getSession(), { accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'u2' });
+});
+
 test('checkSession — 키체인 삭제가 실패해도 판정은 「거절」이다', async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   stub([{ status: 404, body: envelope('USER_NOT_FOUND', '사용자를 찾을 수 없습니다.') }]);

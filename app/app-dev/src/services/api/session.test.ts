@@ -98,6 +98,41 @@ test('clearSession 은 마커를 먼저 지운다 — 뒤가 실패해도 세션
   assert.equal(await restoreSession(), null);
 });
 
+test('쓰기 하나가 먼저 실패해도 남은 쓰기가 «정착한 뒤에» 되돌린다', async () => {
+  await saveSession({ accessToken: 'AT1', refreshToken: 'RT1', userId: 'u1' });
+
+  let release!: () => void;
+  const slow = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  // 첫 커밋에서만: AT 쓰기는 즉시 실패하고 RT 쓰기는 «늦게» 성공한다(되돌리기는 정상 동작).
+  let first = true;
+  write.mockImplementation(async (key: string, value: string) => {
+    if (!first) return realWrite(key, value);
+    if (key === 'gromo.accessToken') throw new Error('키체인 쓰기 실패');
+    if (key === 'gromo.refreshToken') {
+      first = false;
+      await slow;
+    }
+    return realWrite(key, value);
+  });
+
+  const saving = saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'u2' });
+  // 되돌리기가 이 쓰기를 기다리지 않으면, 늦은 RT2 가 되돌린 마커 «뒤에» 착지한다.
+  setTimeout(release, 0);
+  await assert.rejects(saving);
+  // 그 늦은 쓰기가 착지할 틈을 준다 — 안 주면 되돌리기와의 순서가 드러나지 않는다.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  // 저장 실패 한 번이 「멀쩡하던 이전 세션까지 복구 거부」= 불필요한 로그아웃으로 번지면 안 된다.
+  assert.deepEqual(getSession(), { accessToken: 'AT1', refreshToken: 'RT1', userId: 'u1' });
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'AT1',
+    refreshToken: 'RT1',
+    userId: 'u1',
+  });
+});
+
 test('늦게 도착한 저장은 그 사이 끝난 로그아웃을 되살리지 않는다', async () => {
   await saveSession({ accessToken: 'AT1', refreshToken: 'RT1', userId: 'u1' });
   // 로그인 요청이 시작될 때 잡아 둔 세대.

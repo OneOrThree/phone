@@ -8,7 +8,13 @@
  *  - `GET    /me`                     내 계정.
  */
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from './client';
-import { clearSession, getSession, saveSession, sessionGeneration } from './session';
+import {
+  clearRejectedSession,
+  clearSession,
+  getSession,
+  saveSession,
+  sessionGeneration,
+} from './session';
 
 /**
  * 정책(2026-09-14 「인증·게스트 계정」): 로그인 수단은 이 셋뿐이고, 회원 하나에 하나만 연결한다.
@@ -143,6 +149,8 @@ function revokeRefreshToken(refreshToken: string): Promise<{ revoked: boolean }>
 export async function logout(): Promise<void> {
   let refreshToken = getSession()?.refreshToken;
   // 로컬 삭제와 서버 폐기는 **서로 독립**이다(LLD §2.4 「양쪽 실패에도 각각 진행」).
+  // 여기만 fence 가 **없다** — 401 정리·checkSession 과 달리 사용자가 직접 누른 로그아웃은
+  // 그 사이 로그인이 끝났더라도 이겨야 한다. 무엇을 지웠는지는 cleared 로 되받아 교정한다.
   // 로컬을 먼저 끝내되(느린 네트워크 중 앱이 죽어도 토큰이 남지 않는다) 키체인 삭제가
   // 던졌다는 이유로 서버 폐기를 건너뛰지 않는다 — 건너뛰면 서버 세션이 그대로 남는다.
   // clearSession 은 커밋 마커를 먼저 지우고, 실패해도 나머지를 마저 지운 뒤에 던진다.
@@ -182,6 +190,9 @@ export type SessionCheck =
  *    「사용자 로그아웃 유도 금지」로 못 박았다. 오프라인 시작을 막지 않는다.
  */
 export async function checkSession(): Promise<SessionCheck> {
+  // 확인을 시작한 세대. client 의 401 정리와 **같은 fence** 다 — 응답을 기다리는 사이 로그인이
+  // 끝났으면 옛 세션의 거절 판정으로 새 세션을 지우지도, 로그인 화면으로 보내지도 않는다.
+  const generation = sessionGeneration();
   try {
     return { status: 'active', account: await me() };
   } catch (thrown) {
@@ -190,10 +201,13 @@ export async function checkSession(): Promise<SessionCheck> {
     // 무해하다 — client 가 「우리 AT 거절」만 정리하도록 좁혀졌으므로, 계약 밖 코드로 오는
     // 401 이 「화면만 로그인, 키체인엔 세션」으로 남지 않게 여기서 한 번 더 못 박는다.
     if (error.code === 'USER_NOT_FOUND' || error.status === 401) {
-      // 키체인 삭제가 실패해도 판정은 「거절」이다. 여기서 던지면 호출부(App 복구)가 판정을 잃고
-      // 저장본대로 홈에 들어간다 — 메모리 세션·세대는 clearSession 이 던지기 «전에» 이미 비웠다.
-      await clearSession().catch(() => {});
-      return { status: 'rejected' };
+      // 401 은 client 가 **같은 fence 로 이미** 정리했고 그 정리가 세대를 올린다 — 여기서 시작
+      // 세대로 다시 fence 를 걸면 스스로 올린 세대에 막힌다. 그래서 「지금 공개된 세션」으로 가른다:
+      //  - 없으면(정리 완료·로그아웃) 거절이 맞다. 키체인 삭제가 실패했어도 메모리 세션은 비었다.
+      //  - 있으면 우리가 확인한 그 세션일 때만 지운다(404 경로). 그 사이 새 로그인이 공개한
+      //    세션이면 fence 에 걸리고, 옛 세션의 거절 판정으로 새 세션을 끊지 않는다.
+      if (getSession() === null) return { status: 'rejected' };
+      if (await clearRejectedSession(generation)) return { status: 'rejected' };
     }
     return { status: 'unreachable' };
   }

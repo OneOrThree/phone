@@ -16,7 +16,7 @@
  */
 import { Platform } from 'react-native';
 import {
-  clearSession,
+  clearRejectedSession,
   getAccessToken,
   getSession,
   notifySessionLost,
@@ -219,12 +219,14 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
       // 갱신 경로가 없다(2.0 공개 표면에 refresh 엔드포인트 미존재) — 401 의 답은 재로그인뿐이다.
       // 세대가 이미 바뀐 응답으로는 정리하지 않는다: 옛 계정의 늦은 401 이 새 세션을 죽인다.
       //
-      // 키체인 삭제 실패는 **삼킨다**. 여기서 던지면 세션 상실 알림이 실행되지 않아 화면이 보호
-      // 화면에 남고, 원래의 401 판정까지 저장소 예외로 바뀌어 checkSession 이 그것을 「확인 실패」로
-      // 오인해 로컬 로그인 상태를 되살린다. 메모리 세션·세대는 clearSession 이 던지기 전에 이미
-      // 비웠고, 마커도 먼저 지우므로 재시작 복구가 남은 값을 세션으로 인정하지 않는다.
-      await clearSession().catch(() => {});
-      notifySessionLost();
+      // ⚠️ 위의 세대 비교는 **큐 바깥**이다 — 계정 전환 중 B 의 saveSession 이 «저장하는 동안»
+      // 도착한 A 의 401 은 아직 공개 전인 옛 세대로 이 검사를 통과하고, 이어서 큐에 선 정리가
+      // B 의 commit 뒤에 실행돼 방금 채택한 B 를 지운다. 그래서 잡아 둔 세대를 넘겨 큐 **안에서**
+      // 다시 보게 한다(saveSession 과 같은 fence). 정리를 건너뛰었으면 세션 상실도 알리지 않는다 —
+      // 살아 있는 것은 B 이고 화면을 로그인으로 되돌릴 이유가 없다.
+      // 키체인 삭제 실패는 삼키되 알림은 실행한다: 건너뛰면 화면이 보호 화면에 남고, 원래의 401
+      // 판정까지 저장소 예외로 바뀌어 checkSession 이 그것을 「확인 실패」로 오인한다.
+      if (await clearRejectedSession(generation)) notifySessionLost();
     }
     throw error;
   }
