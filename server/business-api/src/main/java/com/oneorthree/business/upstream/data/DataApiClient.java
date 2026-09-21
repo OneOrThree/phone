@@ -38,6 +38,7 @@ import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
+import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
@@ -139,6 +140,7 @@ public class DataApiClient {
     // GROMO-1760 섬 가입·초대 5종 — 요청 소유는 사용자 축이라 모두 /internal/users/{userId} 아래다.
     private static final String PATH_ISLAND_MEMBERSHIPS =
             "/internal/users/{userId}/islands/{islandId}/memberships";
+    private static final String PATH_JOIN_REQUESTS = "/internal/users/{userId}/join-requests";
     private static final String PATH_JOIN_REQUEST =
             "/internal/users/{userId}/join-requests/{requestId}";
     private static final String PATH_INVITATION_RESOLVE =
@@ -1117,6 +1119,23 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<JoinIslandResult>() { });
+    }
+
+    /**
+     * 내 가입 신청 목록 한 페이지 (GROMO-2047, LLD §3.12). 경계는 Business 가 서명 커서에서 꺼낸
+     * 평문이고, 소유는 상류가 {@code applicant_id} 로 묶어 찾는다 — 남의 요청은 후보조차 아니다.
+     */
+    public MyJoinRequestsPage fetchMyJoinRequests(UUID userId, Instant afterCreatedAt,
+            UUID afterRequestId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_JOIN_REQUESTS, userId))
+                        .onBehalfOf(userId)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterRequestId", afterRequestId == null ? null : afterRequestId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MyJoinRequestsPage>() { });
     }
 
     /**
