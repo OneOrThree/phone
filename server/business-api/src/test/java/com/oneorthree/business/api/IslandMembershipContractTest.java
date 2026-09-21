@@ -217,6 +217,7 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         mockMvc.perform(auth(get("/me/islands")))
                 .andExpect(status().isBadGateway())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
 
     // ---------------------------------------------------------------- 내 가입 신청 목록
 
