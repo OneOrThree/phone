@@ -35,6 +35,11 @@ public enum ApiErrorCode implements ErrorCode {
     FACEBOOK_TOKEN(HttpStatus.UNAUTHORIZED, "페이스북 로그인 자격이 유효하지 않습니다.", false),
     FORBIDDEN(HttpStatus.FORBIDDEN, "이 작업을 수행할 권한이 없습니다.", false),
     FACILITY_LOCKED(HttpStatus.FORBIDDEN, "필요한 시설을 먼저 열어 주세요.", false),
+    // GROMO-1992. Data 의 CommonErrorCode.SOCIAL_LOGIN_REQUIRED 와 이름·상태가 같아야
+    // registeredUpstream 이 붙는다 — 없으면 「게스트라 막았다」는 정상 403 이 502 로 나가고,
+    // 앱은 소셜 로그인 안내 대신 「서버 장애」를 띄운다. 일반 FORBIDDEN 과 코드를 «가르는» 이유는
+    // 앱이 이 하나에만 회원 전환 화면을 열어야 하기 때문이다.
+    SOCIAL_LOGIN_REQUIRED(HttpStatus.FORBIDDEN, "소셜 로그인하면 이용할 수 있어요.", false),
     NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 대상을 찾을 수 없습니다.", false),
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다. 다시 로그인해 주세요.", false),
     GROUP_NOT_FOUND(HttpStatus.NOT_FOUND, "섬을 찾을 수 없습니다.", false),
@@ -47,6 +52,11 @@ public enum ApiErrorCode implements ErrorCode {
     INSUFFICIENT_FUNDS(HttpStatus.CONFLICT, "잔액이 부족합니다.", false),
     NICKNAME_DUPLICATE(HttpStatus.CONFLICT, "이미 사용 중인 닉네임입니다.", false),
     IDEMPOTENCY_KEY_REUSED(HttpStatus.CONFLICT, "다른 요청에 사용한 명령 키입니다.", false),
+    // GROMO-1994. Data 의 AuthErrorCode.SOCIAL_ACCOUNT_ALREADY_LINKED(409)와 이름·상태가 같아야
+    // 매핑이 붙는다. 없으면 「이 소셜은 이미 다른 계정 것」이라는 정상 409 가 502 로 나가 앱이
+    // 전환 확인 다이얼로그를 띄울 수 없다 — 그게 2단계 흐름의 «1단계» 다.
+    // 일반 STATE_CONFLICT 로 접지 않는 이유도 그것이다: 앱이 이 코드에만 전환을 묻는다.
+    SOCIAL_ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 다른 계정에 연동된 소셜 계정입니다", false),
     REQUEST_IN_PROGRESS(HttpStatus.CONFLICT, "요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.", true),
     CURSOR_EXPIRED(HttpStatus.CONFLICT, "목록 커서가 만료되었습니다. 처음부터 조회해 주세요.", false),
     INVITATION_EXPIRED(HttpStatus.GONE, "초대가 만료되었거나 폐기되었습니다.", false),

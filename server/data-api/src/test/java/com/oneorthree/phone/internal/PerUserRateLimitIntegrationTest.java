@@ -34,6 +34,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * 막히거나 게스트가 안 막힘), 레거시 {@code /api/v1/friends/requests} 가 한도를 우회하는 배선, 편지에
  * 게스트 분기가 생겨 정회원이 우회, 429 가 {@code RATE_LIMITED}·{@code retryAfterMs}·{@code Retry-After}
  * 없이 나감.
+ *
+ * <p><b>GROMO-1992 로 친구 축의 무대가 갈렸다.</b> 2.0 내부 표면에서 게스트 친구 요청은 한도에 닿기 전에
+ * 403 {@code SOCIAL_LOGIN_REQUIRED} 로 막히므로, 1934 의 게스트 한도가 실제로 도는 곳은 이제
+ * <b>레거시 {@code /api/v1} 표면뿐</b> 이다(동결된 1.x 앱 보존). 그 사실 자체가 회귀 대상이다 —
+ * 두 표면이 다시 같아지면 둘 중 하나가 잘못 바뀐 것이다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -68,22 +73,22 @@ class PerUserRateLimitIntegrationTest {
     // ---------------------------------------------------------------- 친구 요청 (게스트만)
 
     @Test
-    @DisplayName("게스트 친구 요청(내부 표면) — 1..cap 은 201, cap+1 번째만 429 RATE_LIMITED + 지연")
-    void guestFriendRequestsAreCappedOnInternalSurface() throws Exception {
+    @DisplayName("게스트 친구 요청(내부 표면) — 한도 이전에 403 SOCIAL_LOGIN_REQUIRED 로 막힌다 (GROMO-1992)")
+    void guestFriendRequestsAreRejectedOnInternalSurface() throws Exception {
         UUID guest = newUser();
         assertThat(isGuest(guest)).isTrue();
 
-        for (int i = 0; i < CAP; i++) {
-            internalFriendRequest(guest, newUser()).andExpect(status().isCreated());
-        }
-        expectRateLimited(internalFriendRequest(guest, newUser()));
+        // 정책 「친구 추가…를 처음 시도할 때 소셜 로그인을 요청한다」 — 2.0 표면에서는 «첫 번째» 요청부터
+        // 막힌다. GROMO-1934 의 시간당 한도는 이 표면에서 도달 불가능해졌고 레거시 축에만 남는다.
+        internalFriendRequest(guest, newUser())
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
     }
 
     @Test
     @DisplayName("정회원 친구 요청 — cap+1 번을 보내도 429 가 없다")
     void nonGuestFriendRequestsAreNeverCapped() throws Exception {
-        UUID member = newUser();
-        jdbc.update("update users set is_guest = false where id = ?", member);
+        UUID member = newMember();
 
         for (int i = 0; i < CAP + 1; i++) {
             internalFriendRequest(member, newUser()).andExpect(status().isCreated());
@@ -91,7 +96,7 @@ class PerUserRateLimitIntegrationTest {
     }
 
     @Test
-    @DisplayName("레거시 /api/v1/friends/requests 도 같은 한도에 걸린다 — 두 표면 모두 FriendService.createRequest 로 모인다")
+    @DisplayName("레거시 /api/v1/friends/requests 는 게스트에게 열려 있고 같은 한도에 걸린다 — 동결된 1.x 동작 보존")
     void legacyFriendRequestSurfaceIsCappedForGuests() throws Exception {
         String accessToken = auth.guestLogin().accessToken();
 
@@ -104,18 +109,20 @@ class PerUserRateLimitIntegrationTest {
     @Test
     @DisplayName("값싼 거절(자기 자신·중복 요청)은 카운트를 먹지 않는다 — 거절 cap+1 번 뒤에도 정상 요청 cap 번이 통과한다")
     void rejectedFriendRequestsDoNotConsumeTheCap() throws Exception {
-        UUID guest = newUser();
+        // 게스트 한도만 세므로 게스트가 필요하고, 게스트가 친구 요청을 보낼 수 있는 표면은 이제 레거시뿐이다.
+        String accessToken = auth.guestLogin().accessToken();
+        UUID guest = jwt.extractUserId(accessToken);
         UUID first = newUser();
-        internalFriendRequest(guest, first).andExpect(status().isCreated());
+        legacyFriendRequest(accessToken, first).andExpect(status().isCreated());
 
         for (int i = 0; i < CAP + 1; i++) {
-            internalFriendRequest(guest, guest).andExpect(status().isBadRequest());
-            internalFriendRequest(guest, first).andExpect(status().isConflict());
+            legacyFriendRequest(accessToken, guest).andExpect(status().isBadRequest());
+            legacyFriendRequest(accessToken, first).andExpect(status().isConflict());
         }
         for (int i = 1; i < CAP; i++) {
-            internalFriendRequest(guest, newUser()).andExpect(status().isCreated());
+            legacyFriendRequest(accessToken, newUser()).andExpect(status().isCreated());
         }
-        expectRateLimited(internalFriendRequest(guest, newUser()));
+        expectRateLimited(legacyFriendRequest(accessToken, newUser()));
     }
 
     // ---------------------------------------------------------------- 편지 (전 계정)
@@ -165,6 +172,13 @@ class PerUserRateLimitIntegrationTest {
 
     private UUID newUser() {
         return jwt.extractUserId(auth.guestLogin().accessToken());
+    }
+
+    /** 게스트로 만든 뒤 회원으로 승격시킨다 — 소셜 어댑터 없이 {@code is_guest} 만 필요한 테스트용. */
+    private UUID newMember() {
+        UUID id = newUser();
+        jdbc.update("update users set is_guest = false where id = ?", id);
+        return id;
     }
 
     private boolean isGuest(UUID userId) {

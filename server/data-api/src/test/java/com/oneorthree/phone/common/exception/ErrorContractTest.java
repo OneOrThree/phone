@@ -227,8 +227,12 @@ class ErrorContractTest {
         // GROMO-1997 이 주간 섬 랭킹 코드 1개를 더했다(StatsErrorCode) — week 가 UTC 일요일이 아니거나 아직
         // 오지 않은 주(422 RANKING_WEEK_OUT_OF_RANGE). 형식(날짜 모양)은 Business 가 400 으로 먼저 거르고
         // 달력 의미만 Data 가 판정하므로, 공개 표에서 OUT_OF_RANGE(field=week)로 옮겨진다.
-        assertThat(tests).as("실측 기준 도메인 상수 205개 + 공통 17개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹 포함")
-                .hasSize(222);
+        // GROMO-1992 가 공통 코드 1개(SOCIAL_LOGIN_REQUIRED, 403)를 더했다 — 정책 「친구 추가·편지 보내기·상점
+        // 구매를 처음 시도할 때 소셜 로그인을 요청한다」의 거절이다. 막는 자리가 friend·shop 두 도메인에
+        // 걸쳐 있어 BANNED_WORD·RATE_LIMITED 와 같은 이유로 공통이 소유한다(error-contract §3). 공개 표에도
+        // 같은 이름·상태로 등록했다 — 안 하면 정상 403 이 502 UPSTREAM_CONTRACT_ERROR 로 나간다.
+        assertThat(tests).as("실측 기준 도메인 상수 205개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 9종·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·게스트 회원 전환 요구 포함")
+                .hasSize(223);
         return tests;
     }
 

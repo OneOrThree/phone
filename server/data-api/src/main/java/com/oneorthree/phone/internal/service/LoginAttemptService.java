@@ -19,8 +19,10 @@ import com.oneorthree.phone.internal.dto.LoginSessionResponse;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.exception.OutboxException;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.repository.domain.Provider;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.support.OnboardingCompletion;
+import com.oneorthree.phone.withdrawal.service.AccountWithdrawalService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -76,6 +78,7 @@ public class LoginAttemptService {
     private final UserQueryService userQueryService;
     private final AuthService authService;
     private final AuthSessionService authSessionService;
+    private final AccountWithdrawalService accountWithdrawalService;
     private final JwtProvider jwtProvider;
     private final LoginAttemptService self;
 
@@ -92,12 +95,13 @@ public class LoginAttemptService {
      */
     public LoginAttemptService(LoginAttemptRepository loginAttemptRepository,
             UserQueryService userQueryService, AuthService authService,
-            AuthSessionService authSessionService, JwtProvider jwtProvider,
-            @Lazy LoginAttemptService self) {
+            AuthSessionService authSessionService, AccountWithdrawalService accountWithdrawalService,
+            JwtProvider jwtProvider, @Lazy LoginAttemptService self) {
         this.loginAttemptRepository = loginAttemptRepository;
         this.userQueryService = userQueryService;
         this.authService = authService;
         this.authSessionService = authSessionService;
+        this.accountWithdrawalService = accountWithdrawalService;
         this.jwtProvider = jwtProvider;
         this.self = self;
     }
@@ -150,12 +154,70 @@ public class LoginAttemptService {
         }
 
         // ── 여기부터 트랜잭션 밖이다. DB 잠금을 쥐지 않은 채 제공자를 부른다. ──
+        String providerId = authService.verifyProviderId(request.provider(), request.credential());
+
+        UUID callerUserId = request.callerAccessToken() == null
+                ? null : jwtProvider.extractUserId(request.callerAccessToken());
+        if (request.accountSwitchConfirmed() && callerUserId != null
+                && authService.isLinkedToAnotherUser(request.provider(), providerId, callerUserId)) {
+            return self.complete(request.attemptId(), switchToLinkedAccount(
+                    request.provider(), providerId, callerUserId));
+        }
+
         String authorization = request.callerAccessToken() == null
                 ? null : "Bearer " + request.callerAccessToken();
         SocialLoginResponse login =
-                authService.socialLogin(request.provider(), request.credential(), authorization);
+                authService.loginWithProviderId(request.provider(), providerId, authorization);
 
         return self.complete(request.attemptId(), login);
+    }
+
+    /**
+     * 확인받은 <b>기존 회원 계정으로의 전환</b> (GROMO-1994 · 정책 「인증·게스트 계정」).
+     *
+     * <p>정책은 두 문장이다. 「이미 다른 회원 계정에 연결된 소셜 계정이면 기존 회원 계정을 우선하되,
+     * 사용자에게 전환 여부를 안내하고 명시적으로 확인받는다. 취소하면 게스트 상태와 데이터는
+     * 유지한다」 · 「기존 회원 계정으로 전환을 확정하면 게스트의 고양이·섬 소속·개인 집중 기록은
+     * 폐기하고 기존 회원 데이터를 불러온다. 이미 섬에 적립된 공동 물고기와 공동 거래 기록은
+     * 되돌리지 않는다」.
+     *
+     * <h2>1단계 = 기존 409 그대로다</h2>
+     * 확인 없이 온 요청은 {@code AuthService.loginOrRegister} 가 예전부터 던지던 409
+     * {@code SOCIAL_ACCOUNT_ALREADY_LINKED} 로 거절되고 게스트 상태·데이터는 그대로 남는다.
+     * 전용 코드를 새로 만들지 않았다 — 이미 「이 소셜은 남의 계정이다」를 정확히 뜻하고, 앱은 그
+     * 코드 하나로 전환 확인 다이얼로그를 띄운다.
+     *
+     * <h2>2단계 = 「폐기 → 대상 계정 로그인」</h2>
+     * 정책의 「폐기」는 <b>탈퇴</b> 다. 같은 문단이 요구하는 「주민이 있는 섬의 게스트 방장은 방장
+     * 위임 또는 섬 정리를 끝내고, 진행 중인 집중 세션도 종료한 뒤 전환한다」가 이미
+     * {@link AccountWithdrawalService#withdraw} 의 계약이기 때문이다 — 방장은 400
+     * {@code HOST_WITHDRAW} 로 <b>전환 자체가 거절</b> 되고(그 트랜잭션이 통째로 롤백되므로 아무것도
+     * 파기되지 않는다), 진행 중 집중 세션은 같은 트랜잭션이 종결하며, 섬에 적립된 공동 물고기·주문
+     * 원장은 손대지 않는다. 같은 판정을 여기 다시 쓰면 두 벌이 갈라진다.
+     *
+     * <p>탈퇴가 커밋되면 그 게스트는 더 이상 <b>활성 게스트</b> 가 아니므로
+     * {@code loginOrRegister} 의 {@code findActiveGuestByIdForUpdate} 가 비고, 승격 분기 대신
+     * 「이미 있는 소셜 계정으로 로그인」 분기를 탄다 — 그래서 승격 경로에 새 가지를 내지 않았다.
+     * 선택 AT 를 <b>넘기지 않는 것</b>이 핵심이다: 탈퇴가 그 세션을 이미 폐기하고
+     * {@code authGeneration} 을 올렸으므로 넘기면 자기 자신이 만든 상태 때문에 401 이 된다.
+     * 세션 폐기 관문은 이 메서드보다 «먼저» {@link #gateOptionalSession} 이 봤다.
+     *
+     * <h2>트랜잭션이 둘인 이유와 그 천장</h2>
+     * {@code withdraw} 는 마지막 단계가 소셜 벌크 DELETE 라 영속성 컨텍스트를 비운다 — 로그인과 한
+     * 트랜잭션에 담을 수 없다. 그래서 「탈퇴 커밋 → 로그인」 두 조각이고, <b>탈퇴만 커밋된 채 로그인이
+     * 실패하는 창</b> 이 남는다. 그때 사용자가 잃는 것은 이미 폐기에 동의한 게스트 데이터뿐이고 대상
+     * 회원 계정은 그대로라, 새 로그인(선택 AT 없이)으로 복구된다. 순서를 뒤집으면 「전환은 됐는데
+     * 게스트가 유령 주민으로 남는」 되돌릴 수 없는 쪽으로 깨지므로 이 순서가 맞다.
+     * <p>재개도 이 순서라 안전하다 — 이미 탈퇴한 게스트로 다시 오면 아래 활성 검사가 걸러 탈퇴를
+     * 건너뛰고 로그인만 이어 한다.
+     */
+    private SocialLoginResponse switchToLinkedAccount(Provider provider, String providerId, UUID guestUserId) {
+        // 활성 «게스트» 일 때만 폐기한다. 비게스트 계정 전환은 정책이 파기를 요구하지 않고(두 계정을
+        // 합치지 않을 뿐이다, 계정 LLD §2.1), 이미 탈퇴한 재개 요청은 여기서 그냥 지나간다.
+        userQueryService.findActive(guestUserId)
+                .filter(User::isGuest)
+                .ifPresent(guest -> accountWithdrawalService.withdraw(guest.getId()));
+        return authService.loginWithProviderId(provider, providerId, null);
     }
 
     /**

@@ -240,6 +240,8 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 
 **확정 — A(게스트도 완전히 동일).** 2026-09-18 재영님 결정 FL-결정-1: 게스트도 편지를 보낼 수 있다. 편지 도메인에 게스트 분기를 두지 않는다. ⚠️ **A 가 스스로 지적한 악용 경로는 남는다** — 게스트 계정을 대량 생성해 편지를 뿌리는 스팸은 편지 도메인이 아니라 게스트 생성·친구 요청 쪽에서 막아야 하며, 그 방어는 이 티켓 범위 밖이다(별도 티켓 필요).
 
+> **후속(GROMO-1992, 2026-09-21).** 그 「별도 티켓」의 친구 요청 쪽이 닫혔다 — 2.0 표면 `POST /internal/users/{userId}/friend-requests` 가 게스트를 403 `SOCIAL_LOGIN_REQUIRED` 로 막는다(`internal/service/GuestAccountGuards`). **결정 1 은 그대로다**: 편지 도메인에는 여전히 게스트 분기가 없고, `InternalLetterService` 가 `User.isGuest` 를 읽는 곳도 없다. 게스트가 **받은** 요청을 수락해 친구가 되는 길은 열어 뒀다 — 막으면 「게스트도 편지를 보낼 수 있다」가 도달 불가능한 문장이 되기 때문이다. 위 C 안이 지목한 `FriendService.createRequest` 가 아니라 2.0 컨트롤러에 건 이유(동결된 1.x 앱 보존)와 그 대가로 남는 레거시 우회는 계정 LLD §2.1 「게스트 제한과 기존 계정 충돌의 2단계 확인」에 있다.
+
 ### 결정 2 — 받는 쪽 섬의 우체통 시설이 완공돼야 편지를 받을 수 있는가
 
 우체통은 `island-construction`의 건설 대상 하나다(`docs/prd/fishcat/island-construction/prd.md:11`,

@@ -102,7 +102,7 @@ class LoginAttemptServiceReplayTest {
 
     private LoginAttemptService serviceSignedBy(JwtProvider provider) {
         return new LoginAttemptService(loginAttemptRepository, userQueryService, authService,
-                authSessionService, provider, null);
+                authSessionService, null, provider, null);
     }
 
     private AuthSession sessionHolding(String refreshToken) {

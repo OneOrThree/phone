@@ -7,6 +7,7 @@ import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.service.FriendService;
 import com.oneorthree.phone.internal.dto.FriendRequestStateView;
 import com.oneorthree.phone.internal.dto.FriendshipDeletedView;
+import com.oneorthree.phone.internal.service.GuestAccountGuards;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -49,6 +50,7 @@ import java.util.UUID;
 public class InternalFriendController {
 
     private final FriendService friendService;
+    private final GuestAccountGuards guestAccountGuards;
 
     /** 친구 목록 (LLD §1.5). {@code date} 는 서버 판정 축(KST) 기준 오늘 — 값 판정은 서비스 그대로. */
     @GetMapping("/friends")
@@ -63,11 +65,21 @@ public class InternalFriendController {
         return friendService.getRequests(userId, type);
     }
 
-    /** 친구 요청 생성 (LLD §1.1). 복원·재전환이면 되살린 행의 id 가 돌아온다. */
+    /**
+     * 친구 요청 생성 (LLD §1.1). 복원·재전환이면 되살린 행의 id 가 돌아온다.
+     *
+     * <p>게스트는 여기서 막힌다 (GROMO-1992) — 「친구 추가…를 처음 시도할 때 소셜 로그인을
+     * 요청한다」. 공유 {@code FriendService} 가 아니라 <b>이 2.0 표면</b> 에 거는 이유는
+     * {@link GuestAccountGuards} 클래스 주석에 있다(레거시 1.x 동작 보존).
+     * <p><b>받은 요청 «수락» 에는 걸지 않는다.</b> 걸면 게스트가 친구를 가질 수 없게 되어
+     * 「게스트도 편지를 보낼 수 있다」(FL-결정-1)가 도달 불가능한 문장이 된다 — 정책이 막는 것은
+     * 게스트가 <b>먼저 손을 내미는</b> 쪽이다.
+     */
     @PostMapping("/friend-requests")
     @ResponseStatus(HttpStatus.CREATED)
     public FriendRequestStateView createRequest(@PathVariable UUID userId,
                                                 @Valid @RequestBody FriendRequestCreateRequest body) {
+        guestAccountGuards.requireMember(userId);
         UUID requestId = friendService.createRequest(userId, body.getTargetUserId());
         return new FriendRequestStateView(requestId, FriendshipStatus.PENDING);
     }
