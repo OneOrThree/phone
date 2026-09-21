@@ -354,19 +354,20 @@ class AppearanceServiceIntegrationTest {
     // ---------------------------------------------------------------- PATCH /islands/{id}/appearance
 
     @Test
-    @DisplayName("공동 외양은 방장만 바꾸고 expectedVersion 이 맞아야 한다 — 비방장·비주민은 403")
-    void islandPatchIsHostOnlyWithVersion() {
+    @DisplayName("공동 외양은 주민 누구나 바꾸고 expectedVersion 이 맞아야 한다 — 비주민만 403")
+    void islandPatchIsResidentWideWithVersion() {
         Fixture f = islandWithOwner();
         seedProduct("pine", "island_theme", "island", null);
+        seedProduct("birch", "island_theme", "island", null);
         grant("pine", null, f.islandId);
+        grant("birch", null, f.islandId);
         UUID memberId = newUser();
         joinMember(f.islandId, memberId);
 
-        // 비방장 주민 → 403 NOT_OWNER
-        assertThatThrownBy(() -> service.patchIsland(f.islandId, memberId, UUID.randomUUID(),
-                List.of("islandThemeId"), Map.of("islandThemeId", "pine"), 0L))
-                .isInstanceOfSatisfying(GroupException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.NOT_OWNER));
+        // 비방장 주민도 공동 테마를 적용한다(GROMO-2000) — 버전이 1 로 올라간다.
+        assertThat(service.patchIsland(f.islandId, memberId, UUID.randomUUID(),
+                List.of("islandThemeId"), Map.of("islandThemeId", "birch"), 0L)
+                .data().islandThemeId()).isEqualTo("birch");
         // 비주민 → 403 MEMBER_ONLY
         UUID outsider = newUser();
         assertThatThrownBy(() -> service.patchIsland(f.islandId, outsider, UUID.randomUUID(),
@@ -388,14 +389,14 @@ class AppearanceServiceIntegrationTest {
 
         AppearanceCommandView<IslandAppearanceView> applied = service.patchIsland(f.islandId,
                 f.ownerId, UUID.randomUUID(), List.of("islandThemeId"),
-                Map.of("islandThemeId", "pine"), 0L);
+                Map.of("islandThemeId", "pine"), 1L);
         assertThat(applied.data().islandThemeId()).isEqualTo("pine");
-        assertThat(applied.data().version()).isEqualTo(1);
+        assertThat(applied.data().version()).isEqualTo(2);
         assertThat(applied.events()).hasSize(1);
         Map<String, Object> envelope = applied.events().get(0);
         assertThat(envelope.get("type")).isEqualTo("island.appearance.updated");
         assertThat(envelope.get("subjectId")).isEqualTo(f.islandId.toString());
-        assertThat(envelope.get("version")).isEqualTo(1);
+        assertThat(envelope.get("version")).isEqualTo(2);
     }
 
     @Test
@@ -469,7 +470,7 @@ class AppearanceServiceIntegrationTest {
     }
 
     @Test
-    @DisplayName("공동 PATCH 재생은 재생 시점 권한을 다시 본다 — 방장에서 내려오면 같은 키도 403")
+    @DisplayName("공동 PATCH 재생은 재생 시점 권한을 다시 본다 — 강퇴되면 같은 키도 403")
     void islandReplayRechecksPermission() {
         Fixture f = islandWithOwner();
         seedProduct("pine", "island_theme", "island", null);
@@ -478,13 +479,13 @@ class AppearanceServiceIntegrationTest {
         service.patchIsland(f.islandId, f.ownerId, key,
                 List.of("islandThemeId"), Map.of("islandThemeId", "pine"), 0L);
 
-        jdbc.update("UPDATE group_members SET role = 'MEMBER' WHERE group_id = ? AND user_id = ?",
+        jdbc.update("UPDATE group_members SET is_left = true WHERE group_id = ? AND user_id = ?",
                 f.islandId, f.ownerId);
 
         assertThatThrownBy(() -> service.patchIsland(f.islandId, f.ownerId, key,
                 List.of("islandThemeId"), Map.of("islandThemeId", "pine"), 0L))
                 .isInstanceOfSatisfying(GroupException.class,
-                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.NOT_OWNER));
+                        e -> assertThat(e.getErrorCode()).isEqualTo(GroupErrorCode.MEMBER_ONLY));
     }
 
     @Test

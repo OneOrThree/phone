@@ -226,6 +226,25 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
     List<UUID> findActiveMemberUserIdsByGroupId(@Param("groupId") UUID groupId);
 
     /**
+     * 건설 「각자 몫」 대상 주민 판정 전용 (GROMO-1999) — 활성 멤버 중 멤버십이
+     * {@code selectedAt} «까지» 시작된 사람만 돌려준다. 시작 시각은
+     * {@code COALESCE(rejoinedAt, createdAt)} — 목표 선택 뒤 탈퇴→재가입한 주민은
+     * {@code rejoinedAt} 이 선택 시각 뒤라 여기서 빠져, 되살아난 행의 옛 기여가 옛 epoch
+     * 분모에 다시 들어가지 않는다. 시작 시각이 NULL 인 legacy 행은 «경계보다 오래된 행»으로
+     * 포함한다 — {@code IslandWeeklyMemberCountRepository.ACTIVE_AT_BOUNDARY_SQL} 과 같은 판정.
+     *
+     * @param groupId    섬
+     * @param selectedAt 목표가 선택된 시각 — {@code island_construction_states.updated_at}
+     * @return 선택 시각까지 멤버십이 시작된 활성 주민의 유저 PK
+     */
+    @Query("SELECT gm.user.id FROM GroupMember gm "
+            + "WHERE gm.group.id = :groupId AND gm.isLeft = false "
+            + "AND (COALESCE(gm.rejoinedAt, gm.createdAt) IS NULL "
+            + "OR COALESCE(gm.rejoinedAt, gm.createdAt) <= :selectedAt) ORDER BY gm.id")
+    List<UUID> findActiveMemberUserIdsJoinedBy(@Param("groupId") UUID groupId,
+            @Param("selectedAt") Instant selectedAt);
+
+    /**
      * 닉네임 변경(A22 ㋡) 대상 — 그 유저가 활성 멤버인 그룹 PK 만. 근거는
      * {@link #findActiveMemberUserIdsByGroupId} 와 같다(엔티티를 로드하지 않는다).
      *

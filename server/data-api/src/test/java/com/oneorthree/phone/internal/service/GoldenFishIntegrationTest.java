@@ -94,8 +94,9 @@ class GoldenFishIntegrationTest {
     void sixActiveMembersSplitFiftyAndLeaveTheRemainderOnTheIsland() {
         alwaysWin();
         Island island = island();
-        chooseConstructionTarget(island.id);
         List<Member> caught = active(island, 6);
+        // 주민이 다 들어온 «뒤» 목표를 고른다 — 대상 명단이 그 시점으로 고정되기 때문이다.
+        chooseConstructionTarget(island.id);
 
         assertThat(goldenFish.drawAndCredit(island.id, MINUTE)).isTrue();
 
@@ -134,12 +135,40 @@ class GoldenFishIntegrationTest {
     }
 
     @Test
+    @DisplayName("건설 대상이 아닌 주민이 함께 낚아도 오류가 아니다 — 그 몫은 섬 잔액에만 남는다")
+    void winnerOutsideTheConstructionTargetLeavesTheShareOnTheIsland() {
+        alwaysWin();
+        Island island = island();
+        List<Member> targets = active(island, 2);
+        // 대상 명단은 여기서 고정된다.
+        chooseConstructionTarget(island.id);
+        // 그 «뒤» 들어온 주민이 함께 낚는다 — 이번 건설 퀘스트의 대상이 아니다(GROMO-1999).
+        Member latecomer = member(island, FocusSessionLifecycle.ACTIVE);
+
+        assertThat(goldenFish.drawAndCredit(island.id, MINUTE))
+                .as("대상 밖 주민이 섞여도 적립은 정상 흐름이다").isTrue();
+
+        // 분모는 「함께 낚은 인원」 3명 — 대상 인원 2명이 아니다(기획 정본).
+        assertThat(balance(island.id)).isEqualTo(50);
+        for (Member target : targets) {
+            assertThat(goldenOf(target.sessionId)).isEqualTo(16);
+            assertThat(contribution(island.id, target.userId)).as("대상 주민은 각자 몫이 는다").isEqualTo(16);
+        }
+        // 대상 밖 주민도 «누적 획득 기록»은 똑같이 받는다 — 건설 몫만 없다.
+        assertThat(goldenOf(latecomer.sessionId)).isEqualTo(16);
+        assertThat(contribution(island.id, latecomer.userId))
+                .as("대상이 아니므로 건설 각자 몫 행이 없다").isZero();
+        // 50 − 16 × 2 = 18 이 섬 잔액에만 남는다(내림 나머지 2 + 대상 밖 주민 몫 16).
+        assertThat(50 - targets.size() * 16).isEqualTo(18);
+    }
+
+    @Test
     @DisplayName("같은 추첨을 다시 처리해도 잔액·기록·건설 몫이 한 번만 늘어난다")
     void replayingTheSameDrawCreditsOnce() {
         alwaysWin();
         Island island = island();
-        chooseConstructionTarget(island.id);
         List<Member> caught = active(island, 2);
+        chooseConstructionTarget(island.id);
 
         assertThat(goldenFish.drawAndCredit(island.id, MINUTE)).isTrue();
         for (int i = 0; i < 3; i++) {
@@ -231,10 +260,23 @@ class GoldenFishIntegrationTest {
         return new Island(group.getId(), group);
     }
 
-    /** 건설 목표를 고른다 — 「각자 몫은 목표를 고른 뒤부터 모은 물고기로 판단한다」(정책 P-D04). */
+    /**
+     * 건설 목표를 고른다 — 「각자 몫은 목표를 고른 뒤부터 모은 물고기로 판단한다」(정책 P-D04).
+     *
+     * <p>목표 «선택 시점»의 활성 주민을 대상 명단으로 고정하는 두 번째 쓰기까지 한다
+     * (GROMO-1999, `IslandConstructionService#setTarget` 과 같은 모양). 이걸 빼면 각자 몫을 쌓을
+     * 대상 행이 없어 황금 몫이 섬 잔액에만 남으므로, <b>주민을 들인 뒤에</b> 불러야 한다.
+     */
     private void chooseConstructionTarget(UUID islandId) {
         jdbc.update("INSERT INTO island_construction_states (island_id, target_building_id) VALUES (?, 'library') "
                 + "ON CONFLICT (island_id) DO UPDATE SET target_building_id = 'library'", islandId);
+        jdbc.update("INSERT INTO island_construction_contributions "
+                + "(island_id, epoch, user_id, amount, updated_at) "
+                + "SELECT s.island_id, s.target_epoch, gm.user_id, 0, now() "
+                + "FROM island_construction_states s "
+                + "JOIN group_members gm ON gm.group_id = s.island_id AND gm.is_left = false "
+                + "WHERE s.island_id = ? "
+                + "ON CONFLICT (island_id, epoch, user_id) DO NOTHING", islandId);
     }
 
     private List<Member> active(Island island, int count) {
