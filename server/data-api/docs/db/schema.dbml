@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 · V91 · V95 · V98 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 · V91 · V95 · V97 ~ V99 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // ※ 번호는 연속일 필요가 없다 — Flyway 는 「이미 적용된 것보다 낮은 번호가 나중에 나타나지 않을 것」만 요구한다
 //    (prod 는 out-of-order 가 꺼져 있다). V86 은 형제 PR 순서를 풀려고 비워 둔 자리다(GROMO-1996 이 V89 로 옮겼다).
 // V88 — 휴식 1시간 자동 종료와 결과 1회 제공 (GROMO-1998): focus_settlements.auto_closed · acknowledged_at.
@@ -841,7 +841,7 @@ Table focus_reward_policies [note: 'GROMO-1924: 집중 보상 산식 revision(FR
   revision                integer [pk]
   seconds_per_fish        integer [not null, note: 'CHECK > 0 — 이 초만큼의 순수 집중마다 1마리(D5: 60)']
   daily_cap_fish          integer [not null, note: 'CHECK >= 0 — 주민·섬별 하루 상한(D5: 480)']
-  personal_share_percent  integer [not null, note: 'CHECK 0..100 — 개인 지갑 몫, 나머지가 섬 통장(D5-귀속: 50)']
+  personal_share_percent  integer [not null, note: 'CHECK = 0 (V99/GROMO-2045 이 V67 의 0..100 을 좁혔다) — 개인 지갑 몫이 0 이라 전액이 섬 통장으로 간다(D5-귀속-개정). 값 하나로 폐기한 개인 재화가 되살아나지 않게 DB 가 막는다. 열을 지우지 않는 것은 E=P+C 보존식의 P 자리를 응답 계약(allocation.personalFishAdded)이 아직 쓰기 때문이다']
   golden_fish_reward      integer [not null, default: 50, note: 'V91/GROMO-1956: 황금 물고기 한 번의 섬 적립량(기획 정본 50). 인원수만큼 곱하지 않는다']
   golden_max_members      integer [not null, default: 5, note: 'V91/GROMO-1956: 확률표가 세는 ACTIVE 인원 상한(기획 정본 5). 그 이상은 5명과 같은 확률']
   golden_chance_ppm       text    [not null, default: '4000,12000,24000,40000', note: 'V91/GROMO-1956: ACTIVE 2명부터의 1분당 당첨 확률(ppm)을 쉼표로 이은 표 — 2명 0.4% · 3명 1.2% · 4명 2.4% · 5명 이상 4%. 열 네 개로 펼치지 않는 이유는 인원 상한도 운영값이라서다']
