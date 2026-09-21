@@ -1,5 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Image, Pressable, ScrollView, Share, TextInput, View } from 'react-native';
+import {
+  BackHandler,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  TextInput,
+  View,
+} from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { art, Wheel } from '@/design-system/patterns';
 import { useAppLayout } from '@/utils/layout';
@@ -25,12 +34,26 @@ import {
   ledgerParts,
   canSelectBuilding,
   dayKey,
+  kstMonthDay,
   CAPACITY_MAX,
   CAPACITY_MIN,
 } from '@/services/model';
 import { BROWN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import {
+  useLedgerScreen,
+  shiftMonth,
+  type LedgerScreenState,
+  type LedgerTab,
+} from '@/screens/island/useLedgerScreen';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
+// App.tsx 의 REVIEW/DEMO 와 같은 판정 — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
+// 모듈 상수가 아니라 렌더 때 읽는 함수다(테스트에서 Platform.OS·location 을 바꿔 끼우기 위해).
+const ledgerMockMode = () =>
+  Platform.OS === 'web' &&
+  typeof window !== 'undefined' &&
+  (new URLSearchParams(window.location.search).has('review') ||
+    new URLSearchParams(window.location.search).has('demo'));
 const CARD_INK = '#3e352e';
 const MUTED = '#665348';
 // 받침 유무로 조사 고르기 (을/를, 으로/로: ㄹ받침은 로)
@@ -137,31 +160,66 @@ export function Hall({ e }: any) {
       ok?: string;
       onOk?: () => void;
       body?: React.ReactNode;
-    } | null>(null),
-    [month, setMonth] = useState(0),
-    [tab, setTab] = useState<'잔액' | '적립' | '지출'>('잔액');
+    } | null>(null);
   const [draft, setDraft] = useState({
     name: i.name,
     intro: i.intro,
     approval: i.approval,
     capacity: capacityOf(i),
   });
-  // 가계부: 보고 있는 달의 금액 있는 내역과 적립·사용 합계
+  // 가계부: 서버 원장·지갑 조각이 정본이다 — 로컬 i.ledger 문자열·로컬 잔액 합산을 쓰지 않는다.
+  // 방문자에게는 조회 자체를 하지 않는다(서버도 403). 리뷰·데모 모크 모드는 서버가 아예 없다 —
+  // 거기서는 로컬 원장으로 그리던 기존 화면을 유지하고 API 호출은 0회다.
   const thisMonth = dayKey(e.now).slice(0, 7);
-  const book = useMemo(() => {
-    const [y, m] = thisMonth.split('-').map(Number);
-    const base = new Date(Date.UTC(y, m - 1 + month, 1)),
-      key = `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, '0')}`;
+  const mockLedger = ledgerMockMode();
+  const serverLedger = useLedgerScreen({
+    active: r === 'ledger' && !visitor && !mockLedger,
+    islandId: i.id,
+    currentMonth: thisMonth,
+  });
+  const [mockMonth, setMockMonth] = useState(0);
+  const [mockTab, setMockTab] = useState<LedgerTab>('balance');
+  // 모크 모드용 로컬 view model — 서버 모델과 같은 모양으로 맞춰 아래 렌더를 공유한다.
+  // reason 자리에는 표시용 로컬 제목(l.title)을 싣는다(아래 렌더가 mockLedger 면 그대로 그린다).
+  const mockLedgerState = useMemo<LedgerScreenState>(() => {
+    const key = shiftMonth(thisMonth, mockMonth);
     const rows = i.ledger
       .map((l) => ({ ...l, ...ledgerParts(l) }))
       .filter((l) => l.amount !== 0 && dayKey(l.at).slice(0, 7) === key);
+    const items = rows
+      .filter((l) => mockTab === 'balance' || (mockTab === 'earn' ? l.amount > 0 : l.amount < 0))
+      .map((l, n) => ({
+        id: `local-${n}`,
+        direction: (l.amount > 0 ? 'earn' : 'spend') as 'earn' | 'spend',
+        reason: l.title,
+        amount: Math.abs(l.amount),
+        createdAt: new Date(l.at).toISOString(),
+        groupedUntil: new Date(l.at).toISOString(),
+        entryCount: 1,
+      }));
     return {
-      base,
-      rows,
-      plus: rows.reduce((n, l) => n + Math.max(0, l.amount), 0),
-      minus: rows.reduce((n, l) => n + Math.min(0, l.amount), 0),
+      month: key,
+      offset: mockMonth,
+      canNext: mockMonth < 0,
+      prevMonth: () => setMockMonth((n) => n - 1),
+      nextMonth: () => setMockMonth((n) => Math.min(0, n + 1)),
+      tab: mockTab,
+      setTab: setMockTab,
+      status: 'ready',
+      error: null,
+      items,
+      villagePoints: balance(i),
+      earnedTotal: rows.reduce((n, l) => n + Math.max(0, l.amount), 0),
+      spentTotal: Math.abs(rows.reduce((n, l) => n + Math.min(0, l.amount), 0)),
+      nextCursor: null,
+      loadingMore: false,
+      moreError: null,
+      loadMore: () => {},
+      retry: () => {},
+      refresh: () => {},
     };
-  }, [i.ledger, month, thisMonth]);
+  }, [i, mockMonth, mockTab, thisMonth]);
+  const ledger = mockLedger ? mockLedgerState : serverLedger;
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => void (timer.current && clearTimeout(timer.current)), []);
   // 안드로이드 뒤로 가기: 확인창 → 청사진 → 수정·위임 창 순으로 하나만 닫고 회관에 머문다.
@@ -502,14 +560,56 @@ export function Hall({ e }: any) {
 
   // ── 052·053 공동 가계부 ──
   if (r === 'ledger') {
-    const { base, rows, plus, minus } = book;
-    // 잔액 책갈피는 최근 두 줄, 적립·지출 책갈피는 그 달의 해당 내역 전체
-    const shown =
-      tab === '잔액'
-        ? rows.slice(0, 2)
-        : rows.filter((l) => (tab === '적립' ? l.amount > 0 : l.amount < 0));
-    const bookmark = (label: typeof tab, n: number) => {
-      const on = tab === label;
+    // 방문자에게 공동 가계부는 열리지 않는다(서버도 403) — 조회도, 빈 장부로 위장도 하지 않는다
+    if (visitor) {
+      return shell(
+        <View
+          style={{
+            position: 'absolute',
+            zIndex: 7,
+            left: land ? side : 36,
+            right: land ? side : 36,
+            top: '40%',
+            alignItems: 'center',
+            gap: 8,
+            paddingVertical: 23.2,
+            paddingHorizontal: 16,
+            borderWidth: 1.9,
+            borderStyle: 'dashed',
+            borderColor: '#c5ad8a',
+            borderRadius: 12.9,
+            backgroundColor: '#fff3d8',
+          }}
+        >
+          <T
+            testID="ledger-member-only"
+            style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}
+          >
+            섬 주민만 볼 수 있어요
+          </T>
+          <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
+            공동 가계부는 주민에게만 공개돼요
+          </T>
+        </View>,
+        e.back,
+      );
+    }
+    const [ledgerYear, ledgerMonth] = ledger.month.split('-').map(Number);
+    // 책갈피 라벨 ↔ 서버 direction scope. 잔액은 무필터(최근 두 줄), 적립·지출은 해당 방향 전체
+    const TAB_KEY = { 잔액: 'balance', 적립: 'earn', 지출: 'spend' } as const;
+    const TAB_LABEL = { balance: '잔액', earn: '적립', spend: '지출' } as const;
+    // 서버 원장 사유 → 한 줄 표시 (GROMO-1786 · IslandWalletTransactionType). 거래 주체는 계약에 없다
+    const REASON: Record<string, string> = {
+      contribution: '집중 적립',
+      quest_settlement: '퀘스트 보상',
+      construction_debit: '건설 사용',
+      shop_purchase: '공동 구매',
+      golden_fish: '황금 물고기',
+    };
+    const shown = ledger.tab === 'balance' ? ledger.items.slice(0, 2) : ledger.items;
+    const bookmark = (label: keyof typeof TAB_KEY, n: number) => {
+      const key = TAB_KEY[label];
+      const on = ledger.tab === key;
       const color = ['#f2c1c8', '#f1d77f', '#acd5df'][n];
       return (
         <Pressable
@@ -518,7 +618,7 @@ export function Hall({ e }: any) {
           accessibilityRole="button"
           accessibilityLabel={label}
           accessibilityState={{ selected: on }}
-          onPress={() => setTab(label)}
+          onPress={() => ledger.setTab(key)}
           style={[
             {
               width: 72.3,
@@ -549,7 +649,7 @@ export function Hall({ e }: any) {
     const numberText = (n: number, sign: '+' | '−') =>
       `${sign}${Math.abs(n).toLocaleString('ko-KR')}`;
     const list = shown.map((l) => {
-      const [, mm, dd] = dayKey(l.at).split('-').map(Number);
+      const [mm, dd] = kstMonthDay(Date.parse(l.createdAt)).split('/');
       return (
         <View
           key={l.id}
@@ -566,15 +666,106 @@ export function Hall({ e }: any) {
           }}
         >
           <View style={{ flexShrink: 1 }}>
-            <T style={g(16.8, 26.88, { fontWeight: '700' })}>{l.title}</T>
+            {/* 모크 모드의 reason 자리에는 로컬 제목이 실려 있다 — 그대로 보여 준다 */}
+            <T style={g(16.8, 26.88, { fontWeight: '700' })}>
+              {mockLedger ? l.reason : (REASON[l.reason] ?? '기타')}
+            </T>
             <T style={g(15.5, 24.8, { color: MUTED })}>
-              {mm}월 {dd}일
+              {mm}월 {dd}일{l.entryCount > 1 ? ` · ${l.entryCount}회 적립` : ''}
             </T>
           </View>
-          <T style={g(20.7, 20.7)}>{numberText(l.amount, l.amount > 0 ? '+' : '−')}</T>
+          {/* 서버 amount 는 항상 양수 — 부호는 direction 이 정한다 */}
+          <T style={g(20.7, 20.7)}>{numberText(l.amount, l.direction === 'spend' ? '−' : '+')}</T>
         </View>
       );
     });
+    // 다음 쪽(같은 월·방향의 서명 커서) 더 보기. 잔액 책갈피는 최근 두 줄만 보는 자리라 붙이지 않는다
+    const more =
+      ledger.tab !== 'balance' && ledger.nextCursor ? (
+        <Pressable
+          testID="ledger-more"
+          accessibilityRole="button"
+          accessibilityLabel="이전 내역 더 보기"
+          accessibilityState={{ disabled: ledger.loadingMore }}
+          disabled={ledger.loadingMore}
+          onPress={ledger.loadMore}
+          style={{
+            alignSelf: 'center',
+            marginTop: 7.7,
+            paddingVertical: 9,
+            paddingHorizontal: 19.4,
+            opacity: ledger.loadingMore ? 0.5 : 1,
+          }}
+        >
+          <T style={g(15.5, 24.8, { color: MUTED, fontWeight: '700' })}>
+            {ledger.loadingMore ? '불러오는 중…' : '이전 내역 더 보기'}
+          </T>
+        </Pressable>
+      ) : null;
+    const moreRetry = ledger.moreError && (
+      <Pressable
+        testID="ledger-more-retry"
+        accessibilityRole="button"
+        accessibilityLabel="다시 시도"
+        onPress={ledger.loadMore}
+        style={{ alignSelf: 'center', paddingVertical: 9 }}
+      >
+        <T style={g(15.5, 21.7, { color: '#8a4a3f', textAlign: 'center' })}>
+          내역을 더 불러오지 못했어요 · 다시 시도
+        </T>
+      </Pressable>
+    );
+    const stateBox =
+      ledger.status === 'loading' ? (
+        <View
+          testID="ledger-loading"
+          style={{
+            alignItems: 'center',
+            paddingVertical: 23.2,
+            borderWidth: 1.9,
+            borderStyle: 'dashed',
+            borderColor: '#c5ad8a',
+            borderRadius: 12.9,
+          }}
+        >
+          <T style={g(16.8, 26.88, { fontWeight: '700' })}>불러오는 중이에요</T>
+        </View>
+      ) : ledger.status === 'error' ? (
+        <View
+          testID="ledger-error"
+          style={{
+            alignItems: 'center',
+            gap: 9,
+            paddingVertical: 23.2,
+            paddingHorizontal: 12.9,
+            borderWidth: 1.9,
+            borderStyle: 'dashed',
+            borderColor: '#c5ad8a',
+            borderRadius: 12.9,
+          }}
+        >
+          <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
+            {ledger.error?.message ?? '가계부를 불러오지 못했어요'}
+          </T>
+          <Pressable
+            testID="ledger-retry"
+            accessibilityRole="button"
+            accessibilityLabel="다시 시도"
+            onPress={ledger.retry}
+            style={{
+              minHeight: 44,
+              paddingHorizontal: 19.4,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 1.5,
+              borderColor: BROWN,
+              borderRadius: 99,
+            }}
+          >
+            <T style={g(14, 22.4, { color: CARD_INK })}>다시 시도</T>
+          </Pressable>
+        </View>
+      ) : null;
     const left = (
       <View style={land ? { flex: 1, minWidth: 0 } : undefined}>
         <T style={g(15.5, 24.8, { color: MUTED, letterSpacing: 0.465 })}>
@@ -582,7 +773,8 @@ export function Hall({ e }: any) {
         </T>
         <T style={g(28.4, 35.5, { marginTop: 1.3 })}>우리 섬 물고기</T>
         <T style={g(36.2, 45.25, { marginTop: 2.6 })} numberOfLines={1}>
-          🐟 {balance(i).toLocaleString('ko-KR')}마리
+          🐟 {ledger.villagePoints === null ? '—' : ledger.villagePoints.toLocaleString('ko-KR')}
+          마리
         </T>
         <View
           style={{
@@ -608,8 +800,8 @@ export function Hall({ e }: any) {
           style={{ flexDirection: 'row', gap: 9, marginTop: land ? 0 : 11.6, marginBottom: 11.6 }}
         >
           {[
-            ['이번 달 적립', numberText(plus, '+')],
-            ['이번 달 사용', numberText(minus, '−')],
+            ['이번 달 적립', numberText(ledger.earnedTotal, '+')],
+            ['이번 달 사용', numberText(ledger.spentTotal, '−')],
           ].map(([label, value]) => (
             <View
               key={label}
@@ -621,22 +813,31 @@ export function Hall({ e }: any) {
                 backgroundColor: '#fff8e7',
               }}
             >
-              <T style={g(15.5, 24.8)}>{month ? label.replace('이번', '그') : label}</T>
+              <T style={g(15.5, 24.8)}>{ledger.offset ? label.replace('이번', '그') : label}</T>
               <T style={g(22, 30.8, { marginBottom: 1.24 })}>{value}</T>
             </View>
           ))}
         </View>
-        {/* 고른 책갈피에 보일 내역이 없으면 빈 안내(잔액 0·내역 없음과 구분) */}
-        {shown.length ? (
+        {/* 조회 실패·로딩·진짜 빈 달은 서로 다른 상태다 — 실패를 빈 내역으로 접지 않는다 */}
+        {stateBox ? (
+          stateBox
+        ) : shown.length ? (
           land ? (
             <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
               {list}
+              {more}
+              {moreRetry}
             </ScrollView>
           ) : (
-            list
+            <>
+              {list}
+              {more}
+              {moreRetry}
+            </>
           )
         ) : (
           <View
+            testID="ledger-empty"
             style={{
               alignItems: 'center',
               gap: 5.2,
@@ -649,7 +850,9 @@ export function Hall({ e }: any) {
             }}
           >
             <T style={g(16.8, 26.88, { fontWeight: '700', textAlign: 'center' })}>
-              {tab === '잔액' ? '아직 쌓인 내역이 없어요' : `이 달 ${tab} 내역이 없어요`}
+              {ledger.tab === 'balance'
+                ? '아직 쌓인 내역이 없어요'
+                : `이 달 ${TAB_LABEL[ledger.tab]} 내역이 없어요`}
             </T>
             <T style={g(15.5, 21.7, { color: MUTED, textAlign: 'center' })}>
               주민이 함께 모으고 쓰면 여기 쌓여요
@@ -659,7 +862,7 @@ export function Hall({ e }: any) {
       </View>
     );
     const perBtn = (dir: -1 | 1) => {
-      const disabled = dir === 1 && month >= 0;
+      const disabled = dir === 1 && !ledger.canNext;
       return (
         <Pressable
           testID={dir < 0 ? 'ledger-prev' : 'ledger-next'}
@@ -667,7 +870,7 @@ export function Hall({ e }: any) {
           accessibilityLabel={dir < 0 ? '이전 달' : '다음 달'}
           accessibilityState={{ disabled }}
           disabled={disabled}
-          onPress={() => setMonth((n) => n + dir)}
+          onPress={() => (dir < 0 ? ledger.prevMonth() : ledger.nextMonth())}
           style={{
             width: 41.3,
             height: 41.3,
@@ -795,7 +998,7 @@ export function Hall({ e }: any) {
           >
             {perBtn(-1)}
             <T style={g(15.5, 24.8, { flex: 1, textAlign: 'center' })}>
-              {base.getUTCFullYear()}년 {base.getUTCMonth() + 1}월
+              {ledgerYear}년 {ledgerMonth}월
             </T>
             {perBtn(1)}
           </View>
