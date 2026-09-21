@@ -45,7 +45,7 @@ class IslandJoinContractTest extends UpstreamTestBase {
     private static final String DATA_INVITE = "POST " + INTERNAL + "/islands/" + ISLAND + "/invitations";
 
     private static final String SUMMARY = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
-            + "\"visibility\":\"public\",\"approvalRequired\":true,\"memberCount\":3,"
+            + "\"visibility\":\"public\",\"approvalRequired\":true,\"memberCount\":3,\"maxMembers\":15,"
             + "\"membershipStatus\":\"none\",\"joinRequestId\":null,"
             + "\"growthStage\":null,\"themeId\":null}";
     private static final String JOINED = "{\"status\":\"active\",\"requestId\":null,\"islandId\":\""

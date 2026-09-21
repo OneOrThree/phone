@@ -84,8 +84,9 @@ public class IslandMembershipUseCase {
 
     /** 섬 생성 (LLD §3.1). */
     public IslandCreated create(AccessTokenClaims claims, String name, String intro,
-            boolean approvalRequired, UUID key, Deadline deadline) {
-        return relay(() -> data.createIsland(claims.userId(), name, intro, approvalRequired, key, deadline));
+            boolean approvalRequired, Integer maxMembers, UUID key, Deadline deadline) {
+        return relay(() -> data.createIsland(claims.userId(), name, intro, approvalRequired, maxMembers,
+                key, deadline));
     }
 
     /** 현재 섬 이동 (LLD §3.6). */

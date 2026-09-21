@@ -2,6 +2,8 @@ package com.oneorthree.phone.group.repository.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
@@ -26,10 +28,10 @@ import java.util.UUID;
  * {@link com.oneorthree.phone.group.service.UserIslandContextLockService} 를 거친다. 이 엔티티를
  * 직접 {@code save}/{@code findById} 로 만지는 새 경로를 추가하지 않는다.
  *
- * <p>{@code currentIslandId} 가 {@code null} 인 것은 «아직 어떤 섬에도 속한 적 없음»이다. 상실
- * 사유별 복구 전이(IM-D06, lossReason/previousIslandId/recoveryGeneration)는 아직 미승인이라
- * 이 엔티티는 그 분기에만 쓰는 필드를 갖지 않는다 — 승인되면 그때 추가한다(ponytail: 지금은 미정
- * 정책을 위한 자리를 미리 파지 않는다).
+ * <p>{@code currentIslandId} 가 {@code null} 이면 «지금 접속한 섬이 없다»이고, 그것이 «한 번도 없음»인지
+ * «잃었음»인지는 {@code lossReason} 이 가른다 (GROMO-1995, 정책 「마지막 소속 섬에서도 탈퇴할 수 있다」).
+ * 그 전까지는 null 로 되돌리는 쓰기가 없어 null = 한 번도 없음과 동치였다 — 이탈로 그 등식이 깨지므로
+ * 사유를 함께 남긴다({@code IslandMovementGuards#requireDepartureUnlocked} 의 경고가 이것이다).
  *
  * <p>{@code contextVersion} 은 {@code Group.version} 과 같은 방식의 JPA {@code @Version} 낙관락이다.
  * outbox 순서용 {@code aggregate_versions(USER, userId)} 축(㊸)과는 <b>별개 값</b>이다 — 그 축은
@@ -51,6 +53,16 @@ public class UserIslandContext {
 
     @Column(name = "current_island_id")
     private UUID currentIslandId;
+
+    /**
+     * 현재 섬을 «잃은» 이유 — {@code currentIslandId} 가 null 일 때만 값이 있다 (GROMO-1995).
+     *
+     * <p>값 집합은 {@code group_members.left_reason} 과 같은 {@link GroupLeaveReason} 이다. 같은 사실의
+     * 두 기록이라 이름을 가르지 않는다. DB 가 「현재 섬이 있으면 사유는 null」을 CHECK 로 강제한다(V84).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "loss_reason", length = 20)
+    private GroupLeaveReason lossReason;
 
     @Version
     @Column(name = "context_version", nullable = false)
@@ -81,5 +93,20 @@ public class UserIslandContext {
      */
     public void moveTo(UUID islandId) {
         this.currentIslandId = islandId;
+        // 이동하면 상실 상태가 끝난다 — V84 의 CHECK 가 이것을 DB 에서도 강제한다.
+        this.lossReason = null;
+    }
+
+    /**
+     * 현재 섬을 잃었다 (GROMO-1995) — 마지막 소속 섬에서 이탈·강퇴돼 옮겨 갈 섬이 없을 때.
+     *
+     * <p>사유를 남기는 것이 핵심이다. 사유 없이 null 로만 비우면 «한 번도 소속된 적 없음»과 구별이
+     * 사라져 「이탈 → null → 첫 소속으로 재선택」으로 출발 섬 전망대 가드를 우회할 수 있다.
+     *
+     * @param reason 잃은 이유 — 자진 탈퇴({@link GroupLeaveReason#LEFT}) 또는 강퇴
+     */
+    public void release(GroupLeaveReason reason) {
+        this.currentIslandId = null;
+        this.lossReason = reason;
     }
 }

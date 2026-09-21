@@ -1,6 +1,7 @@
 package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.port.IslandPurgePort;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -93,6 +94,10 @@ class GroupMemberServiceTest {
 
     @Mock
     private GroupBetService groupBetService;
+
+    /** 섬이 닫힐 때 공동 데이터를 지우는 포트 (GROMO-1995) — 이 단위 테스트는 호출만 확인한다. */
+    @Mock
+    private IslandPurgePort islandPurge;
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID OWNER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");

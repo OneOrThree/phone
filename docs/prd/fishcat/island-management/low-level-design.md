@@ -26,7 +26,9 @@ Id/Version/Cursor/PublicIslandSummary는 [소속 값 타입](../island-membershi
 
 신규 manage/request-answer/transfer/kick/leave는 Idempotency-Key 필수, GET은 불필요다. **이 7종에 원본에 없는 expectedVersion을 추가하지 않는다.** 상태·역할·유일성·CAS는 Data에서 검사하고 응답/이벤트의 version은 그 결과를 나타낸다.
 
-관리 입력 name은 기존 50자 및 안전 문자 검증, intro는 200자다. PATCH에서 필드 누락은 미변경, 명시 null은400이며 소개를 비우려면 빈 문자열을 보낸다. 빈 name은422, approvalRequired는 boolean만 받는다. role/memberCount/wallet/growth/password/isPrivate/maxMembers처럼 이 계약 밖 필드로 권한·시설·옛 잠금을 변경하지 못한다. 빈 PATCH는 기존 부분 수정 선례대로 no-op 성공이며 version/outbox를 불필요하게 올리지 않는다.
+관리 입력 name은 기존 50자 및 안전 문자 검증, intro는 200자다. PATCH에서 필드 누락은 미변경, 명시 null은400이며 소개를 비우려면 빈 문자열을 보낸다. 빈 name은422, approvalRequired는 boolean만 받는다. role/memberCount/wallet/growth/password/isPrivate처럼 이 계약 밖 필드로 권한·시설·옛 잠금을 변경하지 못한다. 빈 PATCH는 기존 부분 수정 선례대로 no-op 성공이며 version/outbox를 불필요하게 올리지 않는다.
+
+`maxMembers`는 **GROMO-1993에서 이 계약 안으로 들어왔다**(정책 「방장이 정원을 설정한다」). 1~15 밖이거나 32비트를 넘는 정수는 Business가 네트워크 전에 400 `INVALID_REQUEST`로 거른다. 현재 주민 수(이탈자 제외)보다 작게 줄이는 요청은 값 자체가 범위 안이므로 Data가 그룹 잠금 아래에서 판정해 400 `MAX_MEMBERS_TOO_SMALL`로 거절하고, Business는 이를 **409 `STATE_CONFLICT`(field=maxMembers)**로 옮긴다 — 요청 모양이 아니라 현재 상태가 거절 이유라서 3.6 `CANNOT_KICK_SELF`·3.7 `HOST_WITHDRAW`와 같은 규칙을 받는다.
 
 아래 응답에서 원본에 추가하는 `version`, manage의 `intro`, requests의 `applicantId`와 cursor는 **기술 설계 확장**이다. 새로운 제품 권한이나 expectedVersion 입력을 도입한다는 뜻은 아니다. members의 목록 version은 실시간 무효화와 재연결 시점의 주민 스냅샷을 비교하는 데 필요하다.
 
@@ -34,7 +36,7 @@ Id/Version/Cursor/PublicIslandSummary는 [소속 값 타입](../island-membershi
 
 ### 3.1 manage — PATCH /islands/{islandId}
 
-입력 `{name?:string,intro?:string,approvalRequired?:boolean}`. 성공200 `{data:{id,name,intro,approvalRequired,version}}`. 현재 host만 실행할 수 있고 섬 생존을 확인한다. version은 `(island,islandId)` 축이다. 승인 방식 변경이 과거 pending 요청을 자동 승인/거절하지 않는다. 기존 요청은 명시적으로 처리하거나 별도 정책 변경을 거쳐야 한다.
+입력 `{name?:string,intro?:string,approvalRequired?:boolean,maxMembers?:integer(1~15)}`. 성공200 `{data:{id,name,intro,approvalRequired,maxMembers,version}}`. 현재 host만 실행할 수 있고 섬 생존을 확인한다. version은 `(island,islandId)` 축이다. 승인 방식 변경이 과거 pending 요청을 자동 승인/거절하지 않는다. 기존 요청은 명시적으로 처리하거나 별도 정책 변경을 거쳐야 한다.
 
 그룹 상태 변경과 island.updated/outbox를 같은 TX에 저장한다. **name의 실제 값이 바뀌면** 같은 TX에서 링크 대상 `group.renamed` outbox도 기록한다. 기존 `GroupService.updateGroup` → `LinkMembershipEventService.recordGroupRenamed`와 [링크 표시정보 갱신 정본](../../../architecture/service-architecture.md)의 계약을 재사용한다. 링크는 코어를 조회할 수 없으므로 island.updated만으로 기존 slug의 랜딩 이름을 갱신할 수 없다. 각 활성 발급자에 groupId/inviterId/groupName/snapshotVersion을 기록하고 기존 링크 멤버십 aggregate/relay의 버전 대조로 늦은 이름이 최신 이름을 덮지 않게 한다. 표시정보 변경은 membershipEpoch를 올리지 않으며 이탈한 발급자의 멤버십을 복원하지 않는다. 같은 키 재생은 같은 결과, 새 키 no-op은 새 사건을 만들지 않는다. 늦게 도착한 이전 host의 새 요청은 현재 역할 검사에서403이다. 필드별 업데이트로 미전달 설정을 보존한다. 결과 intro는 기존 description이 null이어도 공개 매퍼에서 빈 문자열로 반환하며 DB의 기존 null을 변경할 필요는 없다.
 

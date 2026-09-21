@@ -1371,7 +1371,7 @@ export function Hall({ e }: any) {
           {ro(next.name).slice(next.name.length)} 이동해요.
         </>
       ) : (
-        '이후 새 섬을 만들거나 기존 섬에 참여할 수 있어요.'
+        '이후 「혼자 시작 / 기존 섬 참여」 화면으로 이동해요.\n계정·고양이·닉네임·친구·개인 보유품·개인 집중 기록은 그대로 유지돼요.'
       ),
       ok: solo ? (next ? '삭제하고 탈퇴' : '삭제하고 나가기') : '탈퇴하기',
       onOk: () => {
@@ -2119,8 +2119,8 @@ export function Hall({ e }: any) {
           testID="hall-join"
           accessibilityRole="button"
           accessibilityLabel={visitorJoinLabel[join]}
-          accessibilityState={{ disabled: join === 'full' }}
-          disabled={join === 'full'}
+          accessibilityState={{ disabled: join === 'full' || join === 'blocked' }}
+          disabled={join === 'full' || join === 'blocked'}
           onPress={() => {
             if (join === 'cancel') {
               e.dispatch({ type: 'CANCEL_JOIN', id: i.id });
@@ -2144,7 +2144,7 @@ export function Hall({ e }: any) {
             borderRadius: 99,
             backgroundColor: '#f3d77d',
             boxShadow: `0px 3px 0px ${BROWN}`,
-            opacity: join === 'full' ? 0.5 : 1,
+            opacity: join === 'full' || join === 'blocked' ? 0.5 : 1,
           }}
         >
           <T style={g(16, 25.6, { color: CARD_INK, fontWeight: '800' })}>

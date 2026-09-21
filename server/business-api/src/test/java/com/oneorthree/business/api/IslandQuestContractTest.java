@@ -50,16 +50,19 @@ class IslandQuestContractTest extends UpstreamTestBase {
     private static final String HEADER = "\"id\":\"" + QUEST + "\",\"occurrenceId\":\"" + OCCURRENCE + "\","
             + "\"title\":\"저녁 30분 집중\",\"type\":\"focus\",\"windowStart\":\"18:00\",\"windowEnd\":\"23:00\","
             + "\"timezone\":\"UTC\",\"date\":\"2026-09-19\",\"targetMinutes\":30,\"myRate\":60,"
-            + "\"reward\":{\"currency\":\"village_points\",\"amount\":30},\"settlementStatus\":\"in_progress\","
-            + "\"claimable\":false,\"claimBlockedReason\":\"MEMBERS_INCOMPLETE\",\"claimed\":false,\"version\":1";
+            + "\"reward\":{\"currency\":\"village_points\",\"amount\":10},\"settlementStatus\":\"in_progress\","
+            + "\"claimable\":false,\"claimBlockedReason\":\"NOT_ACHIEVED\",\"claimed\":false,"
+            + "\"bonusAmount\":10,\"bonusGranted\":false,\"version\":1";
     private static final String CURRENT_BODY = "{\"items\":[{" + HEADER + "}]}";
     private static final String PROGRESS_BODY = "{" + HEADER + ",\"members\":[{\"userId\":\"" + USER
-            + "\",\"name\":\"수빈\",\"rate\":60,\"measurementStatus\":\"authorized\"},{\"userId\":\"" + OTHER
-            + "\",\"name\":null,\"rate\":null,\"measurementStatus\":\"unavailable\"}],\"nextCursor\":null}";
+            + "\",\"name\":\"수빈\",\"rate\":60,\"measurementStatus\":\"authorized\",\"achieved\":false,"
+            + "\"claimed\":false},{\"userId\":\"" + OTHER
+            + "\",\"name\":null,\"rate\":null,\"measurementStatus\":\"unavailable\",\"achieved\":false,"
+            + "\"claimed\":false}],\"nextCursor\":null}";
     private static final String CREATED_BODY = "{\"id\":\"" + QUEST + "\",\"title\":\"저녁 30분 집중\"}";
     private static final String UPDATED_BODY = "{\"id\":\"" + QUEST + "\",\"title\":\"저녁 40분 집중\",\"targetMinutes\":40}";
     private static final String CLAIMED_BODY = "{\"claimId\":\"" + OTHER + "\",\"occurrenceId\":\"" + OCCURRENCE
-            + "\",\"villagePointsAdded\":30,\"claimed\":true}";
+            + "\",\"villagePointsAdded\":10,\"bonusAdded\":25,\"claimed\":true}";
     private static final String CLAIM_REQUEST = "{\"occurrenceId\":\"" + OCCURRENCE + "\",\"expectedVersion\":1}";
     private static final String CREATE_REQUEST = "{\"title\":\"저녁 30분 집중\",\"type\":\"focus\",\"targetMinutes\":30,"
             + "\"windowStart\":\"18:00\",\"windowEnd\":\"23:00\",\"timezone\":\"UTC\"}";
@@ -75,7 +78,8 @@ class IslandQuestContractTest extends UpstreamTestBase {
                         .header("X-User-Id", OTHER))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.claimed").value(true))
-                .andExpect(jsonPath("$.data.villagePointsAdded").value(30));
+                .andExpect(jsonPath("$.data.villagePointsAdded").value(10))
+                .andExpect(jsonPath("$.data.bonusAdded").value(25));
 
         MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_CLAIM).get(0);
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
@@ -95,8 +99,10 @@ class IslandQuestContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.items[0].id").value(QUEST.toString()))
                 .andExpect(jsonPath("$.data.items[0].timezone").value("UTC"))
                 .andExpect(jsonPath("$.data.items[0].reward.currency").value("village_points"))
-                .andExpect(jsonPath("$.data.items[0].reward.amount").value(30))
-                .andExpect(jsonPath("$.data.items[0].claimBlockedReason").value("MEMBERS_INCOMPLETE"))
+                .andExpect(jsonPath("$.data.items[0].reward.amount").value(10))
+                .andExpect(jsonPath("$.data.items[0].bonusAmount").value(10))
+                .andExpect(jsonPath("$.data.items[0].bonusGranted").value(false))
+                .andExpect(jsonPath("$.data.items[0].claimBlockedReason").value("NOT_ACHIEVED"))
                 .andExpect(jsonPath("$.data.items[0].version").value(1));
         assertThat(DATA.receivedFor(DATA_CURRENT).get(0).query()).isNull();
     }
