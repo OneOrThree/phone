@@ -28,11 +28,11 @@ import java.util.UUID;
  * {@code shop} 도메인에는 컨트롤러가 없고 {@code InternalShopController} 가 유일한 호출자라,
  * 여기서 막는 것이 곧 전부 막는 것이다.
  *
- * <h2>편지는 대상이 아니다</h2>
- * 「게스트도 편지를 보낼 수 있다. {@code POST /letters} 에 게스트 차단 분기를 두지 않는다」가
- * 2026-09-18 재영님 확정(decision-log FL-결정-1 · friend-letter LLD §4 결정 1)이고, 정책 문장보다
- * <b>나중</b> 이다. {@code InternalLetterService} 는 「{@code User.isGuest} 를 읽는 곳이 이 클래스에
- * 한 곳도 없어야 한다」를 클래스 계약으로 적어 두었다 — 이 가드를 거기 걸지 않는다.
+ * <h2>편지 발송</h2>
+ * 정책의 세 명령 중 「편지 보내기」다 — {@code InternalLetterController.send} 가
+ * {@code InternalLetterService.send} 앞에서 이 가드를 부른다. 계정 상태 gate 는 2.0 컨트롤러
+ * 경계에 있고 서비스에는 게스트 분기가 없다. 목록·상세·닫기는 읽기·정리 표면이라 정책의
+ * 「처음 시도」가 가리키는 명령이 아니므로 걸지 않는다.
  */
 @Component
 @RequiredArgsConstructor

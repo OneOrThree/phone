@@ -62,9 +62,11 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 
 정책 「인증·게스트 계정」의 세 문장을 구현이 나눠 가진 자리다. **앞의 두 문단은 계약이고, 마지막 문단은 아직 하지 않은 것이다.**
 
-**게스트 제한(1992).** 「친구 추가·편지 보내기·상점 구매를 처음 시도할 때 소셜 로그인을 요청한다」를 **2.0 내부 표면 두 곳**에서 강제한다 — `POST /internal/users/{userId}/friend-requests`(공개 `POST /friends/requests`)와 `POST /internal/islands/{islandId}/shop/orders`(공개 `POST /islands/{islandId}/shop/orders`). 판정은 `internal/service/GuestAccountGuards.requireMember` 하나이고 근거는 AT 의 `guest` 클레임이 아니라 `users.is_guest` **현재 값**이다(클레임은 발급 시점 상태라 다른 기기에서 승격한 직후의 회원이 토큰 수명 동안 튕긴다). 거절은 403 `SOCIAL_LOGIN_REQUIRED`(Data `CommonErrorCode` · 공개 `ApiErrorCode` 양쪽에 같은 이름·상태로 등록)이며, 일반 `FORBIDDEN` 과 코드를 가르는 이유는 앱이 이 하나에만 회원 전환 화면을 열어야 하기 때문이다. 구매 가드는 멱등 `publicCommands.run` **앞**이라 거절이 receipt 를 남기지 않는다.
+**게스트 제한(1992).** 「친구 추가·편지 보내기·상점 구매를 처음 시도할 때 소셜 로그인을 요청한다」를 **2.0 내부 표면 세 곳**에서 강제한다 — `POST /internal/users/{userId}/friend-requests`(공개 `POST /friends/requests`), `POST /internal/users/{userId}/letters`(공개 `POST /letters`), `POST /internal/islands/{islandId}/shop/orders`(공개 `POST /islands/{islandId}/shop/orders`). 판정은 `internal/service/GuestAccountGuards.requireMember` 하나이고 근거는 AT 의 `guest` 클레임이 아니라 `users.is_guest` **현재 값**이다(클레임은 발급 시점 상태라 다른 기기에서 승격한 직후의 회원이 토큰 수명 동안 튕긴다). 거절은 403 `SOCIAL_LOGIN_REQUIRED`(Data `CommonErrorCode` · 공개 `ApiErrorCode` 양쪽에 같은 이름·상태로 등록)이며, 일반 `FORBIDDEN` 과 코드를 가르는 이유는 앱이 이 하나에만 회원 전환 화면을 열어야 하기 때문이다. 가드는 각 서비스 호출 **앞**이다 — 구매는 멱등 `publicCommands.run` 앞이라 거절이 receipt 를 남기지 않고, 편지 발송은 `InternalLetterService.send` 앞이라 `letters` 행과 발송 한도 카운터를 남기지 않는다.
 
-이 목록에서 **세 가지가 빠져 있고 전부 의도한 것이다.** ① **편지 발송**은 「게스트도 편지를 보낼 수 있다」(decision-log FL-결정-1, 2026-09-18 — 정책 문장보다 나중)가 확정이라 제외한다. ② **받은 친구 요청 수락**은 막지 않는다 — 막으면 게스트가 친구를 가질 수 없어 ①이 도달 불가능한 문장이 된다. 정책이 막는 것은 게스트가 먼저 손을 내미는 쪽이다. ③ **레거시 `POST /api/v1/friends/requests`**는 그대로 열어 둔다(동결된 1.x 앱 보존 · GROMO-1934 의 게스트 시간당 한도가 사는 유일한 축). 그 결과 **2.0 게스트 AT 로 레거시 경로를 직접 부르면 가드를 지나지 않는 구멍이 남는다** — 막으려면 레거시 표면을 닫아야 하고 그것은 1.x 종료와 묶인 별도 결정이다.
+편지 발송은 한때 제외됐다 — 「게스트도 편지를 보낼 수 있다」(decision-log FL-결정-1, 2026-09-18)가 정책 문장보다 나중이라고 읽었기 때문이다. 그 해석은 폐기했다: planning-document 를 최상위 기준으로 삼는 source 계층에서 FL-결정-1 은 **상충하는 하위 근거**다 — friend-letter LLD §4 결정 1 의 후속란에 같이 적는다.
+
+이 목록에서 **두 가지가 빠져 있고 전부 의도한 것이다.** ① **받은 친구 요청 수락**은 막지 않는다 — 정책이 막는 것은 게스트가 먼저 손을 내미는 명령이고, 받은 편지함·상세·닫기 같은 읽기·정리 표면도 같은 이유로 열어 둔다. ② **레거시 `POST /api/v1/friends/requests`**는 그대로 열어 둔다(동결된 1.x 앱 보존 · GROMO-1934 의 게스트 시간당 한도가 사는 유일한 축). 그 결과 **2.0 게스트 AT 로 레거시 경로를 직접 부르면 가드를 지나지 않는 구멍이 남는다** — 막으려면 레거시 표면을 닫아야 하고 그것은 1.x 종료와 묶인 별도 결정이다.
 
 **충돌의 2단계 확인(1994).** 「이미 다른 회원 계정에 연결된 소셜 계정이면 기존 회원 계정을 우선하되… 명시적으로 확인받는다」를 **상태를 새로 만들지 않고** 두 번의 `POST /auth/sessions` 로 구현한다.
 

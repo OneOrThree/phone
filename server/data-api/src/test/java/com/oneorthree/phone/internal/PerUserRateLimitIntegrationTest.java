@@ -147,7 +147,7 @@ class PerUserRateLimitIntegrationTest {
     @Test
     @DisplayName("친구 아닌 수신자에게 보낸 거절(404)은 편지 한도를 먹지 않는다")
     void rejectedLettersDoNotConsumeTheCap() throws Exception {
-        UUID sender = newUser();
+        UUID sender = newMember();  // GROMO-1992 — 게스트는 계정 gate 의 403 이 먼저라 404 에 닿지 않는다
         UUID stranger = newUser();
         UUID receiver = newUser();
         friendService.acceptRequest(sender, friendService.createRequest(receiver, sender));
@@ -159,6 +159,32 @@ class PerUserRateLimitIntegrationTest {
             sendLetter(sender, receiver).andExpect(status().isCreated());
         }
         expectRateLimited(sendLetter(sender, receiver));
+    }
+
+    @Test
+    @DisplayName("게스트 편지 발송 — 한도 이전에 403 SOCIAL_LOGIN_REQUIRED 로 막히고 카운터를 먹지 않는다 (GROMO-1992)")
+    void guestLetterSendIsRejectedBeforeTheCap() throws Exception {
+        UUID guest = newUser();
+        assertThat(isGuest(guest)).isTrue();
+        UUID receiver = newUser();
+        // 게스트가 친구를 갖는 유일한 길 — 받은 요청 «수락»은 서비스 수준에서 열려 있다.
+        friendService.acceptRequest(guest, friendService.createRequest(receiver, guest));
+
+        // 정책 「…편지 보내기…를 처음 시도할 때 소셜 로그인을 요청한다」 — «첫 번째» 발송부터 막힌다.
+        for (int i = 0; i < CAP + 1; i++) {
+            sendLetter(guest, receiver)
+                    .andExpect(status().isForbidden())
+                    .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+        }
+        assertThat(jdbc.queryForObject("select count(*) from letters where sender_id = ?",
+                Integer.class, guest)).as("거절은 행을 남기지 않는다").isZero();
+
+        // 거절이 카운터를 먹었다면 승격 뒤 첫 발송부터 429 다 — cap 번 전부 201 이어야 증명된다.
+        jdbc.update("update users set is_guest = false where id = ?", guest);
+        for (int i = 0; i < CAP; i++) {
+            sendLetter(guest, receiver).andExpect(status().isCreated());
+        }
+        expectRateLimited(sendLetter(guest, receiver));
     }
 
     // ---------------------------------------------------------------- 도구
