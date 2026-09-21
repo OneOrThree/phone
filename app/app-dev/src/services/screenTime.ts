@@ -8,6 +8,12 @@ export type ScreenTimeSelection = {
   webDomains: number;
   selectionSignature?: string;
   dismissed?: boolean;
+  appliesImmediately?: boolean;
+};
+
+export type PreviousUsageBucket = {
+  date: string;
+  minutes: number;
 };
 
 type ScreenTimeNativeModule = {
@@ -16,9 +22,14 @@ type ScreenTimeNativeModule = {
   getMeasurementSelectionCounts(): Promise<ScreenTimeSelection | null>;
   presentAppPicker(): Promise<ScreenTimeSelection | null>;
   promoteSelection(): Promise<boolean>;
-  setPendingSelectionApplyDate(dateString: string): Promise<boolean>;
+  promotePendingSelectionIfDue(): Promise<boolean>;
   startUsageBucketMonitoring(maxMinutes: number): Promise<boolean>;
   getTodayUsageBucketMinutes(): Promise<number>;
+  getPreviousUsageBucket(): Promise<PreviousUsageBucket | null>;
+  getUsageBucketHistory(): Promise<PreviousUsageBucket[]>;
+  markCurrentUsageBucketUnconfirmed(): Promise<string[]>;
+  getUnconfirmedUsageBucketDays(): Promise<string[]>;
+  resetScreenTimeData(): Promise<void>;
   presentAllowedAppManager(): Promise<ScreenTimeSelection | null>;
   getAllowedSelectionCounts(): Promise<ScreenTimeSelection | null>;
   setFocusAllowSafariWeb(allowed: boolean): Promise<void>;
@@ -41,12 +52,19 @@ export const screenTime = {
     nativeModule?.getMeasurementSelectionCounts() ?? Promise.resolve(null),
   presentAppPicker: () => nativeModule?.presentAppPicker() ?? Promise.resolve(null),
   promoteSelection: () => nativeModule?.promoteSelection() ?? Promise.resolve(false),
-  setPendingSelectionApplyDate: (dateString: string) =>
-    nativeModule?.setPendingSelectionApplyDate(dateString) ?? Promise.resolve(false),
+  promotePendingSelectionIfDue: () =>
+    nativeModule?.promotePendingSelectionIfDue() ?? Promise.resolve(false),
   startUsageBucketMonitoring: (maxMinutes = 900) =>
     nativeModule?.startUsageBucketMonitoring(maxMinutes) ?? Promise.resolve(false),
   getTodayUsageBucketMinutes: () =>
     nativeModule?.getTodayUsageBucketMinutes() ?? Promise.resolve(0),
+  getPreviousUsageBucket: () => nativeModule?.getPreviousUsageBucket() ?? Promise.resolve(null),
+  getUsageBucketHistory: () => nativeModule?.getUsageBucketHistory() ?? Promise.resolve([]),
+  markCurrentUsageBucketUnconfirmed: () =>
+    nativeModule?.markCurrentUsageBucketUnconfirmed() ?? Promise.resolve([]),
+  getUnconfirmedUsageBucketDays: () =>
+    nativeModule?.getUnconfirmedUsageBucketDays() ?? Promise.resolve([]),
+  resetScreenTimeData: () => nativeModule?.resetScreenTimeData() ?? Promise.resolve(),
   presentAllowedAppManager: () => nativeModule?.presentAllowedAppManager() ?? Promise.resolve(null),
   getAllowedSelectionCounts: () =>
     nativeModule?.getAllowedSelectionCounts() ?? Promise.resolve(null),
