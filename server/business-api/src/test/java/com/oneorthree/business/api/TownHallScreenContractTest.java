@@ -196,7 +196,7 @@ class TownHallScreenContractTest extends ScreenContractTestBase {
     private static void role(String role) {
         DATA.on(DATA_ISLAND, request -> ok("{\"scope\":\"member\",\"visitor\":null,\"member\":{\"id\":\"" + ISLAND
                 + "\",\"name\":\"모래섬\",\"intro\":\"\",\"visibility\":\"public\",\"approvalRequired\":true,"
-                + "\"memberCount\":2,\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
+                + "\"memberCount\":2,\"maxMembers\":15,\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
                 + "\"role\":\"" + role + "\",\"version\":3}}"));
     }
 }

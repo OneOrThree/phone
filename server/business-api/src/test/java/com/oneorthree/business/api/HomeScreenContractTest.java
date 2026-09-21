@@ -31,7 +31,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_WALLETS = DATA_ISLAND + "/shop/wallets";
 
     private static final String DETAIL = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\","
-            + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,"
+            + "\"visibility\":\"public\",\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,"
             + "\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
             + "\"role\":\"host\",\"version\":3}";
     private static final String SUMMARY = "{\"date\":\"2026-09-17\",\"completedSeconds\":60,"

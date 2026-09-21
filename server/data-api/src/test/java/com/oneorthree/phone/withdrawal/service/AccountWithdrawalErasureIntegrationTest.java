@@ -275,7 +275,7 @@ class AccountWithdrawalErasureIntegrationTest {
         UUID wQuestId = UUID.randomUUID();
         jdbc.update("insert into island_quests (id, island_id, type, title, target_minutes, created_by)"
                 + " values (?, ?, 'SCREEN', '화면', 60, ?)", wQuestId, islandId, w.id());
-        // 회차 둘 — 정산은 (섬, 회차, kind) 유일이라 W·C 가 각각 한 회차를 수령한다
+        // 회차 둘 — 개인 수령은 (섬, 회차, kind, 수령자) 유일이라 W·C 가 각각 한 회차를 수령한다(V83)
         UUID wClaim = seedSettledOccurrence(questId, islandId, 1, w.id(), w.id(), c.id());
         UUID cClaim = seedSettledOccurrence(questId, islandId, 2, c.id(), w.id(), c.id());
         long claims = count("select count(*) from island_quest_claims where island_id=?", islandId);
@@ -326,7 +326,7 @@ class AccountWithdrawalErasureIntegrationTest {
         UUID occurrenceId = UUID.randomUUID();
         jdbc.update("insert into island_quest_occurrences (id, quest_id, island_id, occurrence_date,"
                         + " definition_revision, type, title, target_minutes, window_start, window_end,"
-                        + " reward_per_achiever, reward_bonus_per_member, version, claimed_at) values"
+                        + " reward_per_achiever, reward_bonus_per_member, version, bonus_settled_at) values"
                         + " (?, ?, ?, ?, 1, 'FOCUS', '집중', 30, '09:00', '10:00', 10, 5, 1, now())",
                 occurrenceId, questId, islandId, LocalDate.now(ZoneOffset.UTC).minusDays(daysAgo));
         for (UUID member : cohort) {
@@ -335,8 +335,8 @@ class AccountWithdrawalErasureIntegrationTest {
         }
         UUID claimId = UUID.randomUUID();
         jdbc.update("insert into island_quest_claims (id, island_id, occurrence_id, kind, amount, claimed_by,"
-                + " wallet_idempotency_key) values (?, ?, ?, 'SETTLEMENT', 20, ?, ?)",
-                claimId, islandId, occurrenceId, claimer, "quest:" + occurrenceId);
+                + " wallet_idempotency_key) values (?, ?, ?, 'ACHIEVER', 20, ?, ?)",
+                claimId, islandId, occurrenceId, claimer, "quest:" + occurrenceId + ":" + claimer);
         return claimId;
     }
 

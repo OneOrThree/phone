@@ -81,9 +81,6 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class IslandMembershipService {
 
-    /** 생성 시 기본 정원 — 기존 {@code createGroup} 의 미입력 기본값과 같다. */
-    private static final int DEFAULT_MAX_MEMBERS = 10;
-
     private static final String ROLE_HOST = "host";
     private static final String ROLE_MEMBER = "member";
 
@@ -117,7 +114,8 @@ public class IslandMembershipService {
         String intro = request.intro() == null ? "" : request.intro();
         PublicCommandRequest command = new PublicCommandRequest(userId, "POST:/islands:" + userId,
                 idempotencyKey, InternalJson.tree(Map.of("name", request.name(), "intro", intro,
-                        "approvalRequired", request.approvalRequired())));
+                        "approvalRequired", request.approvalRequired(),
+                        "maxMembers", request.maxMembersOrDefault())));
         JsonNode data = publicCommands.run(command,
                 () -> userQueryService.getCallerForUpdate(userId),
                 ignored -> userQueryService.getCallerForUpdate(userId),
@@ -134,7 +132,7 @@ public class IslandMembershipService {
                     Group island = groupRepository.save(Group.builder()
                             .name(request.name())
                             .description(intro)
-                            .maxMembers(DEFAULT_MAX_MEMBERS)
+                            .maxMembers(request.maxMembersOrDefault())
                             .isPrivate(false)
                             .approvalRequired(request.approvalRequired())
                             .build());
@@ -239,7 +237,8 @@ public class IslandMembershipService {
         return IslandViewResponse.ofMember(new IslandDetailView(
                 island.getId(), island.getName(), IslandSummaries.introOf(island),
                 IslandSummaries.visibilityOf(island),
-                island.isApprovalRequired(), memberCount, IslandSummaries.STATUS_ACTIVE, null, null,
+                island.isApprovalRequired(), memberCount, island.getMaxMembers(),
+                IslandSummaries.STATUS_ACTIVE, null, null,
                 roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion()));
     }
 

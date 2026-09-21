@@ -16,6 +16,8 @@ import java.util.UUID;
  * 계산하지 않는다"·"예시 숫자로 대체하지 않는다"고 했으므로 빈 배열이나 가짜 단계를 채워 «구현된
  * 것처럼» 보이게 하지 않는다. island-construction 이 합류할 때 이 record 에 필드를 더한다.
  *
+ * @param maxMembers 섬 정원(1~15, GROMO-1993). {@link IslandSummaryView} 에도 같은 값이 있다 — 결정
+ *     V-읽기가 정원을 방문자 열람 범위에 넣었다. 고치는 권한만 방장에게 있다
  * @param role {@code host|member} — 저장된 {@code GroupMemberRole} 을 공개 이름으로 옮긴 값이다
  * @param version {@code (island, islandId)} 상태 축의 버전. 외양/주민 목록의 버전과 혼용하지 않는다
  */
@@ -26,6 +28,7 @@ public record IslandDetailView(
         String visibility,
         boolean approvalRequired,
         int memberCount,
+        int maxMembers,
         String membershipStatus,
         String growthStage,
         String themeId,

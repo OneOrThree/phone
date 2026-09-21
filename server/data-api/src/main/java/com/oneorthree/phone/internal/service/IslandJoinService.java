@@ -101,9 +101,13 @@ public class IslandJoinService {
      * 섬에 가입하거나 가입을 요청한다 (LLD §3.7).
      *
      * <p>{@code approvalRequired=false} 이면 즉시 가입 — switch 와 같은 이동 가드를 거치고 현재 섬을
-     * 옮긴다. {@code true} 이면 승인 대기 요청만 만든다 — 정원·소속 상한·집중 세션·전망대는
+     * 옮긴다. {@code true} 이면 승인 대기 요청만 만든다 — 소속 상한·집중 세션·전망대는
      * <b>검사하지 않는다</b>: pending 은 자리 예약이 아니라 신청이고, 그 조건은 승인 시점의 값으로
      * 다시 판정해야 한다(IM-D05 — 예약 없음).
+     *
+     * <p><b>정원만은 신청에도 건다</b>(GROMO-1993) — 정책 「승인 필요 섬이 가득 차면 새 가입 신청을
+     * 막는다」. 예약이 생기는 것은 아니다: 이미 열린 신청은 가득 차도 유지되고 승인 시점에 다시
+     * {@code requireCapacity} 로 걸린다(「신청은 유지하고 승인만 막으며」).
      */
     @Transactional
     public JoinIslandResultView join(UUID userId, UUID islandId, JoinIslandCommandRequest body,
@@ -155,6 +159,10 @@ public class IslandJoinService {
                     }
 
                     if (island.isApprovalRequired()) {
+                        // 정책(GROMO-1993): 「승인 필요 섬이 가득 차면 «새» 가입 신청을 막는다.」
+                        // 이미 열린 pending 은 위에서 그대로 돌려줬으므로 여기 오지 않는다 —
+                        // 「승인 대기 중에 가득 차면 신청은 유지하고 승인만 막는다」가 그 둘의 차이다.
+                        requireCapacity(island);
                         IslandJoinRequest request = joinRequestRepository.save(IslandJoinRequest.pending(
                                 island, user, invitation == null ? null : invitation.getId()));
                         List<EventEnvelope> events =
@@ -430,6 +438,15 @@ public class IslandJoinService {
                 .orElse(null);
     }
 
+    /**
+     * 정원 판정 (GROMO-1993) — 「정원에는 방장을 포함한 현재 주민만 센다. 승인 대기 중인 가입 신청과
+     * NPC 는 세지 않는다」. 모수는 {@code group_members} 의 활성 행이라 신청은 자연히 빠진다.
+     *
+     * <p><b>동시성</b>: 호출자가 이미 {@code membershipLocks.lockGroup} 으로 groups 행을
+     * {@code FOR UPDATE} 잡은 뒤다. 그 섬에 멤버십을 넣는 모든 경로(즉시 가입·승인·레거시
+     * {@code GroupService.joinGroup})가 같은 잠금을 먼저 지나므로 count → insert 가 섬 단위로
+     * 직렬화된다 — 정책 「마지막 한 자리에 동시에 가입하면 한 명만 성공한다」가 이것으로 성립한다.
+     */
     private void requireCapacity(Group island) {
         long members = groupMemberRepository.countByGroupIdIn(List.of(island.getId())).stream()
                 .mapToLong(row -> row.getMemberCount())

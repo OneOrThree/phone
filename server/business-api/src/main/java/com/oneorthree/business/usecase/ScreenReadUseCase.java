@@ -505,8 +505,8 @@ public class ScreenReadUseCase {
         }
         if (view instanceof IslandDetail detail) {
             return new IslandSummary(detail.id(), detail.name(), detail.intro(), detail.visibility(),
-                    detail.approvalRequired(), detail.memberCount(), detail.membershipStatus(), null,
-                    detail.growthStage(), detail.themeId());
+                    detail.approvalRequired(), detail.memberCount(), detail.maxMembers(),
+                    detail.membershipStatus(), null, detail.growthStage(), detail.themeId());
         }
         throw new UpstreamContractMismatchException("섬 조회 응답을 판별할 수 없습니다");
     }

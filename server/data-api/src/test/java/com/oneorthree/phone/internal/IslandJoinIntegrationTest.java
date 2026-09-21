@@ -224,7 +224,7 @@ class IslandJoinIntegrationTest {
     void liveFocusSessionBlocksImmediateJoin() {
         UUID applicant = newUser();
         islands.create(applicant, new CreateIslandCommandRequest(
-                "집중섬", null, false), UUID.randomUUID());
+                "집중섬", null, false, null), UUID.randomUUID());
         UUID target = publicIsland("가입대상");
         legacyFocus.startFocusSession(applicant, new FocusSessionStartRequest(null, null));
 
