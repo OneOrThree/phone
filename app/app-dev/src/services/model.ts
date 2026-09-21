@@ -231,6 +231,7 @@ export type State = {
     publicRecords: boolean;
     permission: boolean;
     haptics: boolean;
+    screenTimeBoardPromptSeen?: boolean;
   };
   islands: Island[];
   session: Session | null;
@@ -630,8 +631,9 @@ export function initialState(full = false): State {
       sound: true,
       reduceMotion: false,
       publicRecords: true,
-      permission: true,
+      permission: full,
       haptics: true,
+      screenTimeBoardPromptSeen: false,
     },
     islands: [
       makeIsland('soda', '소다 섬', full, !full),

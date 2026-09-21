@@ -1,5 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   State,
@@ -64,13 +74,13 @@ import {
   Seg,
   Field,
   Strip,
-  Toggle,
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
+import { isScreenTimeAvailable, screenTime, ScreenTimeAuthorization } from '@/services/screenTime';
 const buildingArt: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -113,6 +123,7 @@ function Sheet({
   actionPress,
   tall = true,
   onClose,
+  onBack,
 }: any) {
   return (
     <IslandSheet
@@ -120,7 +131,7 @@ function Sheet({
       sign={sign}
       title={title}
       tall={tall}
-      onBack={e.back}
+      onBack={onBack ?? e.back}
       onClose={onClose ?? e.home}
       action={action}
       actionPress={actionPress}
@@ -191,6 +202,7 @@ export function CurrentScreens({ e }: any) {
       'travel',
       'visitIsland',
       'visitIslandFocus',
+      'permission',
     ].includes(r)
   )
     return (
@@ -280,29 +292,136 @@ export function CurrentScreens({ e }: any) {
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (['boat', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
-  if (r === 'permission')
+  if (r === 'permission') return <ScreenTimePermission e={e} />;
+  return <RedesignScreens e={e} />;
+}
+
+function ScreenTimePermission({ e }: any) {
+  const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
+  const [busy, setBusy] = useState(false);
+  const gateParts = String(e.detail).split('|');
+  const boardFirst = gateParts[0] === 'board-first';
+  const gateRoute = (gateParts[1] || 'board') as Route;
+  const gateDetail = decodeURIComponent(gateParts[2] || '');
+  const finish = () => {
+    if (boardFirst) {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeBoardPromptSeen', value: true });
+      e.replace(gateRoute, gateDetail);
+    } else {
+      e.back();
+    }
+  };
+  const syncStatus = async () => {
+    const next = await screenTime.getAuthorizationStatus();
+    setStatus(next);
+    e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
+    return next;
+  };
+  useEffect(() => {
+    let active = true;
+    screenTime
+      .getAuthorizationStatus()
+      .then((next) => {
+        if (!active) return;
+        setStatus(next);
+        e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
+        if (boardFirst && next === 'approved') finish();
+      })
+      .catch(() => active && setStatus('unavailable'));
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      syncStatus()
+        .then((next) => {
+          if (next === 'approved' && boardFirst) finish();
+        })
+        .catch(() => {});
+    });
+    return () => subscription.remove();
+  }, []);
+  const request = async () => {
+    setBusy(true);
+    try {
+      await screenTime.requestAuthorization();
+      const next = await syncStatus();
+      if (next === 'approved') finish();
+    } catch {
+      e.notify('스크린타임 권한을 요청하지 못했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (status === 'loading')
     return (
-      <Sheet e={e} title="측정 권한">
-        <Txt kind="h17">스크린타임 연결</Txt>
-        <Txt>권한이 없으면 사용 시간을 알 수 없어요. 실제 0분과 기록 없음은 따로 표시해요.</Txt>
-        <Group flat>
-          <Row
-            title="스크린타임 연결"
-            tail={
-              <Toggle
-                label="스크린타임 연결"
-                value={state.settings.permission}
-                onChange={(value: boolean) =>
-                  e.dispatch({ type: 'SETTING', key: 'permission', value })
-                }
-              />
-            }
-          />
-        </Group>
-        <Txt kind="meta">측정 연결을 끄면 사용 시간 퀘스트는 확인 필요로 표시해요.</Txt>
+      <Sheet
+        e={e}
+        title="측정 권한"
+        onBack={boardFirst ? finish : undefined}
+        onClose={boardFirst ? finish : undefined}
+      >
+        <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+          <ActivityIndicator color={C.ink} />
+        </View>
       </Sheet>
     );
-  return <RedesignScreens e={e} />;
+  const unavailable = Platform.OS !== 'ios' || !isScreenTimeAvailable || status === 'unavailable';
+  return (
+    <Sheet
+      e={e}
+      title="측정 권한"
+      onBack={boardFirst ? finish : undefined}
+      onClose={boardFirst ? finish : undefined}
+    >
+      <Pic id="cat/black/sitting" w={82} />
+      <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
+      <Txt>
+        GROMO가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을
+        썼는지나 화면 내용은 볼 수 없어요.
+      </Txt>
+      <Group flat>
+        <Row
+          title="스크린타임 권한"
+          sub={
+            unavailable
+              ? '이 기기에서는 사용할 수 없어요'
+              : status === 'approved'
+                ? '연결됨'
+                : status === 'denied'
+                  ? '설정에서 권한을 허용해 주세요'
+                  : '아직 연결하지 않았어요'
+          }
+        />
+      </Group>
+      {status === 'approved' ? (
+        <Btn title={boardFirst ? '게시판 열기' : '완료'} onPress={finish} />
+      ) : status === 'denied' ? (
+        <>
+          <Btn title="iOS 설정 열기" onPress={() => Linking.openSettings()} />
+          <Btn
+            title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
+            kind="ghost"
+            onPress={finish}
+          />
+        </>
+      ) : unavailable ? (
+        <Btn title={boardFirst ? '게시판 열기' : '확인'} onPress={finish} />
+      ) : (
+        <>
+          <Btn
+            title={busy ? '권한 요청 중…' : '스크린타임 연결하기'}
+            disabled={busy}
+            onPress={request}
+          />
+          {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={finish} />}
+        </>
+      )}
+      <Txt kind="meta">권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요.</Txt>
+    </Sheet>
+  );
 }
 // 섬 구경 · 전망대 · 상점 · 축음기 · 내 뗏목(친구·꾸미기)은 v2 시트 구현(Screens.tsx)이 그린다
 function Visit({ e }: any) {

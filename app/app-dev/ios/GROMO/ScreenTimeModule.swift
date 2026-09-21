@@ -8,6 +8,7 @@ import SwiftUI
 import UIKit
 
 private let appGroupID = "group.com.oneorthree.focuscat"
+private let authorizationWasApprovedKey = "gromo:screentime:authorizationWasApproved"
 
 @objc(ScreenTimeModule)
 final class ScreenTimeModule: NSObject {
@@ -50,6 +51,10 @@ final class ScreenTimeModule: NSObject {
         Task {
             do {
                 try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+                UserDefaults(suiteName: appGroupID)?.set(
+                    Self.isAuthorized,
+                    forKey: authorizationWasApprovedKey
+                )
                 resolve(Self.isAuthorized)
             } catch FamilyControlsError.authorizationCanceled {
                 resolve(false)
@@ -67,10 +72,41 @@ final class ScreenTimeModule: NSObject {
             resolve("unavailable")
             return
         }
+        let defaults = UserDefaults(suiteName: appGroupID)
         switch AuthorizationCenter.shared.authorizationStatus {
-        case .approved, .approvedWithDataAccess: resolve("approved")
-        case .denied: resolve("denied")
-        case .notDetermined: resolve("notDetermined")
+        case .approved, .approvedWithDataAccess:
+            defaults?.set(true, forKey: authorizationWasApprovedKey)
+            resolve("approved")
+        case .denied:
+            defaults?.set(false, forKey: authorizationWasApprovedKey)
+            resolve("denied")
+        case .notDetermined:
+            if defaults?.bool(forKey: authorizationWasApprovedKey) == true {
+                resolve("approved")
+            } else if defaults?.object(forKey: authorizationWasApprovedKey) == nil,
+                      let data = defaults?.data(forKey: "gromo:goal:selection"),
+                      let selection = try? JSONDecoder().decode(
+                          FamilyActivitySelection.self,
+                          from: data
+                      ), !Self.isEmpty(selection) {
+                defaults?.set(true, forKey: authorizationWasApprovedKey)
+                resolve("approved")
+            } else if defaults?.object(forKey: authorizationWasApprovedKey) != nil {
+                switch AuthorizationCenter.shared.authorizationStatus {
+                case .approved, .approvedWithDataAccess:
+                    defaults?.set(true, forKey: authorizationWasApprovedKey)
+                    resolve("approved")
+                case .denied:
+                    defaults?.set(false, forKey: authorizationWasApprovedKey)
+                    resolve("denied")
+                case .notDetermined:
+                    resolve("notDetermined")
+                @unknown default:
+                    resolve("notDetermined")
+                }
+            } else {
+                resolve("notDetermined")
+            }
         @unknown default: resolve("notDetermined")
         }
     }
