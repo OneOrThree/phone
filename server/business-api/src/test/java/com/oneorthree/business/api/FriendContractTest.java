@@ -22,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 친구 7종 공개 표면 (GROMO-1894) — 무접두 경로가 Business 에 있고 Data 로는
+ * 친구 8종 공개 표면 (GROMO-1894 7종 + GROMO-1996 검색) — 무접두 경로가 Business 에 있고 Data 로는
  * {@code /internal/users/{userId}/…} 로만 나간다는 것을 실제 필터·컨트롤러·HTTP 로 확인한다.
  */
 class FriendContractTest extends UpstreamTestBase {
@@ -36,6 +36,9 @@ class FriendContractTest extends UpstreamTestBase {
     private static final String DATA_FRIENDS = "GET " + INTERNAL + "/friends";
     private static final String DATA_REQUESTS = "GET " + INTERNAL + "/friend-requests";
     private static final String DATA_DELETE = "DELETE " + INTERNAL + "/friends/" + TARGET;
+    private static final String DATA_SEARCH = "GET " + INTERNAL + "/friend-search";
+    private static final String SEARCH_HIT = "[{\"userId\":\"" + TARGET + "\",\"nickname\":\"짝꿍\","
+            + "\"tierLevel\":null,\"occupation\":null,\"relation\":\"NONE\"}]";
     private static final String CREATE_BODY = "{\"targetUserId\":\"" + TARGET + "\"}";
     private static final String FRIEND = "{\"userId\":\"" + TARGET + "\",\"nickname\":\"짝꿍\",\"tierLevel\":3,"
             + "\"occupation\":\"CODING\",\"isPinned\":true,\"isFocusing\":true,\"focusTimeMinutes\":42,"
@@ -243,6 +246,93 @@ class FriendContractTest extends UpstreamTestBase {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.error.code").value("NOT_FOUND"))
                 .andExpect(jsonPath("$.error.field").value("friendUserId"));
+    }
+
+    // ---------------------------------------------------------------- 검색 (GROMO-1996)
+
+    /**
+     * nginx 가 {@code /friends/*} 를 Business 로 보내는데 이 매핑이 없어 404 로 죽어 있던 자리다 —
+     * 이 테스트가 그 회귀의 방어선이다. 내부로는 {@code /friend-search}(친구 삭제와 세그먼트 충돌을
+     * 피한 이름)로 나가고, {@code type}·{@code q} 는 해석하지 않고 그대로 전달한다.
+     */
+    @Test
+    void searchForwardsSignedActorAndParamsVerbatim() throws Exception {
+        DATA.on(DATA_SEARCH, request -> ok(SEARCH_HIT));
+        mockMvc.perform(auth(get("/friends/search")).param("type", "NICKNAME").param("q", "짝꿍")
+                        .header("X-User-Id", UUID.randomUUID()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].userId").value(TARGET.toString()))
+                .andExpect(jsonPath("$.data[0].relation").value("NONE"))
+                // 비친구라 Data 가 null 로 떨군 값이다 — Business 가 채워 넣지 않는다.
+                .andExpect(jsonPath("$.data[0].tierLevel").doesNotExist())
+                .andExpect(jsonPath("$.data[0].occupation").doesNotExist());
+        assertThat(DATA.hits(DATA_SEARCH)).isEqualTo(1);
+        var sent = DATA.received().get(0);
+        assertThat(sent.header("x-user-id")).isEqualTo(USER.toString());
+        assertThat(sent.query()).contains("type=NICKNAME");
+    }
+
+    /** 「그런 사람 없음」은 빈 배열이다 — 404 로 바꾸면 앱이 오류 화면을 그린다. */
+    @Test
+    void searchReturnsEmptyArrayWhenNobodyMatches() throws Exception {
+        DATA.on(DATA_SEARCH, request -> ok("[]"));
+        mockMvc.perform(auth(get("/friends/search")).param("type", "NICKNAME").param("q", "없는닉"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.length()").value(0));
+    }
+
+    /** {@code type}·{@code q} 는 둘 다 필수다 — 없거나 중복이면 상류로 나가기 전에 400 이다. */
+    @ParameterizedTest
+    @CsvSource({"type,q", "q,type"})
+    void searchRequiresBothParamsBeforeNetwork(String present, String missing) throws Exception {
+        mockMvc.perform(auth(get("/friends/search")).param(present, "x"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.error.field").value(missing));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    void searchRequiresSignedSession() throws Exception {
+        mockMvc.perform(get("/friends/search").param("type", "NICKNAME").param("q", "x"))
+                .andExpect(status().isUnauthorized());
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    /** 모르는 검색 수단은 Data 가 판정한다 — 공개 표면에서는 field=type 의 INVALID_PARAMETER 다. */
+    @ParameterizedTest
+    @CsvSource({"400,INVALID_SEARCH_TYPE,400,INVALID_PARAMETER,type",
+            "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
+            "400,UNKNOWN_FRIEND_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+    void searchMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
+            String publicCode, String field) throws Exception {
+        DATA.on(DATA_SEARCH, request -> error(upstreamStatus, code));
+        mockMvc.perform(auth(get("/friends/search")).param("type", "BOGUS").param("q", "x"))
+                .andExpect(status().is(publicStatus))
+                .andExpect(jsonPath("$.error.code").value(publicCode))
+                .andExpect(jsonPath("$.error.field").value(field));
+    }
+
+    /**
+     * 빈 2xx 나 필수 키가 빠진 항목은 계약 불일치(502)다 — 이름이 바뀐 배포를 조용히 통과시키지 않는다.
+     *
+     * <p>{@code nickname} 도 {@code userId}·{@code relation} 과 같은 필수다(codex 리뷰) — 검색 결과에서
+     * 닉네임이 빠지면 앱이 「누구인지 모르는 검색 결과」를 그린다. 롤링 배포로 Data 가 필드를 빠뜨리면
+     * 조용히 200 으로 흘리지 말고 502 로 올린다.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "null", "[{}]",
+            "[{\"userId\":null,\"relation\":\"NONE\"}]",
+            "[{\"userId\":\"cccccccc-0000-0000-0000-000000000021\",\"nickname\":\"짝꿍\"}]",
+            "[{\"userId\":\"cccccccc-0000-0000-0000-000000000021\",\"relation\":null}]",
+            "[{\"userId\":\"cccccccc-0000-0000-0000-000000000021\",\"relation\":\"NONE\"}]",
+            "[{\"userId\":\"cccccccc-0000-0000-0000-000000000021\",\"nickname\":null,"
+                    + "\"relation\":\"NONE\"}]"})
+    void searchRejectsIncompleteUpstreamBody(String body) throws Exception {
+        DATA.on(DATA_SEARCH, request -> ok(body));
+        mockMvc.perform(auth(get("/friends/search")).param("type", "NICKNAME").param("q", "x"))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
