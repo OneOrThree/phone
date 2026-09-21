@@ -25,12 +25,14 @@ import java.util.UUID;
 public class NoOpFocusPresence implements FocusPresencePort {
 
     @Override
-    public void focusStarted(UUID userId, Long presenceOrder, Instant startedAt) {
-        log.debug("NoOp 프레즌스 — 집중 시작 무시, userId={} presenceOrder={}", userId, presenceOrder);
+    public void focusStateChanged(UUID userId, Long presenceOrder, long controlVersion, FocusPresenceState state,
+                                  Instant startedAt) {
+        log.debug("NoOp 프레즌스 — 집중 전이 무시, userId={} presenceOrder={} state={}", userId, presenceOrder, state);
     }
 
     @Override
-    public boolean restoreLeaseIfMissing(UUID userId, Long presenceOrder, Instant startedAt) {
+    public boolean restoreLeaseIfMissing(UUID userId, Long presenceOrder, long controlVersion,
+                                         FocusPresenceState state, Instant startedAt) {
         log.debug("NoOp 프레즌스 — 재구축 무시, userId={} presenceOrder={}", userId, presenceOrder);
         return true;
     }

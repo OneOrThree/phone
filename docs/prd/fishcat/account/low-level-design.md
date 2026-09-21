@@ -53,6 +53,12 @@ GROMO-1756 · [정책](policy.md) · [HLD](high-level-design.md) · [원본 예�
 
 토큰은 null이 아니다. 이 응답에 `isNewUser`, raw provider subject, internal nonce, sessionEpoch를 임의로 노출하지 않는다. 기존 `deviceBootstrap` 전달은 신규 응답의 `X-Device-Bootstrap` 헤더로 보존한다(기술 결정). 앱은 이 값을 기존 기기 등록 DTO의 deviceBootstrap으로 전달한다. 본문 4필드는 유지하며 헤더도 자격이므로 저장소/로그/공용 캐시에 노출하지 않는다. 기존 legacy 로그인의 body 전달 방식은 보존한다.
 
+**구현 상태(GROMO-2037, 서버):** Data 내부 로그인 결과(`LoginSessionResponse`)가 `deviceBootstrap`을 싣고, Business가 공개 201에서 그 값을 `X-Device-Bootstrap` 헤더로 내보낸다(본문은 4필드 그대로). 같은 헤더를 `POST /auth/sessions/guest`(2036)에도 적용한다 — 게스트도 푸시 기기를 등록하고 소유권 CAS·세션 확인이 같은 자격 축 위에서 돈다. `Cache-Control: no-store`는 `RequestEnvelopeFilter`가 모든 공개 응답에 이미 붙인다.
+
+**자격이 없는 두 경우에는 헤더를 싣지 않는다.** ① **결과 재생**(응답 유실 복구, 복구 창 5분): 자격 원문은 발급 1회만 존재하고 `auth_sessions`에는 SHA-256만 남아 되살릴 수 없다. 재생에서 새로 발급하면 최초 응답을 받은 앱 — 실제로 그 자격을 쓰고 있는 쪽 — 의 값이 무효가 되므로 발급하지 않는다. ② **AT 재발급**(`POST /auth/sessions/current/refresh`, 2035): 2.0 경로는 RT를 회전하지 않고, 자격은 회전할 때만 새로 생긴다. 두 경우 모두 앱은 자격 없는 기존 기기 등록 경로로 내려간다(알림 서버가 그 경로를 계속 받는다).
+
+`X-Device-Bootstrap`(원문, 로그인 201 응답)과 알림 서버가 기기 DELETE에서 요구하는 `X-Device-Bootstrap-Hash`는 **같은 값의 원문/해시 관계**다 — 둘 다 소문자 SHA-256 hex 64자(`TokenHasher.sha256Hex` ↔ 알림 서버 `Json.digest`). 흐르는 방향이 다르다: **원문은 앱만** 들고 있다가 기기 등록 본문의 `deviceBootstrap`으로 올리고(알림 서버가 해시해 `session_fences.bootstrap_hash`로 세운다), **해시는 서버가** `auth_sessions.bootstrap_nonce_hash`에서 꺼내 기기 DELETE 헤더로 보낸다(`UserSatelliteCommandService` → `DeviceTokenUseCase` → `NotificationApiClient`). 서버는 원문을 저장하지 않고 앱은 해시를 만들 필요가 없다.
+
 ### 2.2 GET /me
 
 요청 본문 없음. 활성 계정 projection 한 번으로 아래 필드를 읽는다.
@@ -501,6 +507,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | group_challenge_bet_participants의 확정 achieved/achieved_at/progress_minutes/payout·회차/사용자 관계 | 기존 정산/동결 증거 보존 | 원본 날짜별 보고와 구분한 최소 정산 근거. 정산·기존 결과 복구 범위로만 사용, 탈퇴자 프로필/측정 원본 조회 금지. 보존 기간을 새로 무기한 확정하지 않음. 진행 중 회차(`creatorUserId`·참가자·세션 참가자)와 정산 결과의 공개 DTO 모두 탈퇴자 행의 userId를 null(목록 key는 회차별 참가 행 id 같은 비연계 값)로 치환하고 내부 정산·중복 지급 근거는 유지 |
 | group_challenge_bet_participants.acknowledged_at/display_claimed_at/display_claim_token | V49의 개인 결과 열람 시각·표시 lease이며 정산 증거와 같은 행에 있음 | 같은 탈퇴 TX에서 본인 행의 세 열만 nullify. achieved/progress/payout·정산 멱등 근거는 보존하고 claim/renew/ack 및 완료 재생은 users 생명주기 잠금으로 탈퇴와 직렬화 |
 | group_members, 혼자 소유한 group | membership leave, 필요 시 close. GroupMember.leave()는 is_left/left_reason만 바꿔 notification_enabled·announcement_permission·status·role이 그대로 남음 | 남은 주민이 있으면 HOST_WITHDRAW 전체 rollback. 관계 증거(user_id·group_id·is_left·left_reason·created_at)만 보존하고 같은 TX에서 notification_enabled=false, announcement_permission=DISALLOW, status=INACTIVE, role=MEMBER로 초기화. 아래 보존 멤버십 절 적용 |
+| user_island_contexts.user_id(PK)/current_island_id/loss_reason/context_version | V57(사유 컬럼은 V84) 이후 사용자당 1행이며 user_id가 PK/FK. 탈퇴 경로에 삭제 호출이 없고, 오히려 탈퇴의 멤버십 해제가 `UserIslandContextRecovery#onMembershipRevoked`를 타 `loss_reason='LEFT'`를 **새로 쓴다**(V84) | 개인 앱 상태이지 정산 증거가 아니다 — user_wallet·개인 설정과 같은 칸이다. 같은 탈퇴 TX에서 본인 행 hard delete하되 **멤버십 해제 뒤**에 둔다(그 전에 지우면 회수 훅이 행을 다시 만든다). 관계 증거는 보존되는 `group_members.left_reason`이 이미 갖고 있으므로 이 행을 지워도 잃는 증거가 없다. `loss_reason`을 별도 보존 근거로 삼지 않으며, 이 행을 남긴 채 「개인 상태 파기 완료」로 닫지 않는다 (GROMO-2038 확인) |
 | group_invites.inviter_id/invitee_id 및 상태·초대/응답 시각 | V1의 두 사용자 FK가 NOT NULL. 직접 초대 기능은 미사용이나 테이블은 유지되고 현재 탈퇴 삭제 호출 없음 | inviter_id 또는 invitee_id가 탈퇴자인 행을 상태와 무관하게 같은 중앙 TX에서 hard delete. 다른 사용자끼리의 초대·그룹·기존 링크/정산 증거는 보존 |
 | user_blocks.blocker_id/blocked_id/created_at | 양쪽 NOT NULL users FK. 현재 탈퇴 정리 호출 없음; 차단 writer는 아직 미구현 | blocker 또는 blocked가 탈퇴자인 행 모두 같은 TX에서 hard delete. 한 방향만 삭제하거나 삭제 flag로 관계 원문을 남기지 않음 |
 | user_streaks.user_id/last_session_date/streak_count/longest_streak_count/updated_at | V2 이후 user_id 자체가 PK/FK. 현재 실제 탈퇴 경로에 삭제 없음 | 집중 정산 증거 동결 뒤 같은 TX에서 사용자 streak 행 hard delete. legacy entity의 '현재 withdraw 하드삭제' 주석을 구현 근거로 삼지 않음 |
@@ -512,7 +519,7 @@ epoch/gen·완료 RT hash·고정 만료/복구창을 검사해 동일 결과를
 | island_quest_cohort_members.user_id | V71 회차 시작 cohort 스냅샷. user_id FK 없음 | 전 회차의 본인 행 hard delete(GROMO-1950 — V71 주석의 「행 수 불변」 의도를 대체). 판정은 이미 「cohort ∩ 현재 활성 주민 ∩ 활성 계정」이라 결과가 같음. cohort 고정은 섬 행 잠금 아래이고 탈퇴가 가입 섬을 먼저 잠가 직렬화 |
 | island_quest_claims.claimed_by | V71 섬 단위 정산 행, 섬 통장 QUEST_SETTLEMENT 원장의 근거. NOT NULL, FK 없음 | 정산 행·금액·멱등 키는 보존하고 claimed_by만 null(V75 nullable, GROMO-1950). 수령 명령은 users 배타 잠금부터 잡아 탈퇴와 직렬화 |
 | island_quests.created_by | V71 퀘스트 정의를 만든 방장. NOT NULL, FK 없음. 스케줄러가 여는 회차의 `quest.progress.updated` 봉투 주체로 쓰임 | 정의 행은 섬 자산이라 보존하고 created_by만 null(V76 nullable, GROMO-1952). 작성자가 없는 퀘스트의 회차는 시스템 주체(`00000000-0000-0000-0000-000000000000`, 봉투 userId 가 필수라서)로 계속 열린다. 섬 방송 사건이라 특정 사용자에게 가지 않는다 |
-| shop_orders.payer_user_id | V74 구매 원장. users FK(ON DELETE RESTRICT)이지만 `shop_orders_payer_check`가 `payer_type='island' AND payer_user_id IS NULL`을 강제 | 어떤 행도 사용자 id를 가질 수 없어 파기 대상 없음(GROMO-1952 확인). 개인 지갑 결제로 CHECK를 넓히는 변경이 이 표에 파기 행을 함께 추가해야 한다 |
+| shop_orders.payer_user_id | V74 구매 원장. users FK(ON DELETE RESTRICT)이지만 `shop_orders_payer_check`가 `payer_type='island' AND payer_user_id IS NULL`을 강제 | 어떤 행도 사용자 id를 가질 수 없어 파기 대상 없음(GROMO-1952 확인). **CHECK 확장 계획은 2026-09-21 재화-단일-호환 ⑤ 로 폐기** — `payer_type='island' AND payer_user_id IS NULL` 이 영구 계약이라 이 행은 앞으로도 파기 대상이 생기지 않는다 |
 | league_rank_snapshots.user_id/rank/created_at | V14 이후 실제 전역 일간 순위 테이블. 현재 탈퇴 삭제 없음 | 같은 탈퇴 TX에서 사용자 행 hard delete. 순위 snapshot writer는 활성 users 공유 잠금을 얻은 뒤 기록하여 파기 후 재생성 차단 |
 | league_weekly_results.user_id/focus_seconds/tier/acknowledged_at | 실제 주간 정산 결과이며 사용자·주차 유일성이 중복 정산 방지에도 쓰임. 현재 탈퇴 삭제 없음 | 개인 순위/집중량/티어 변경/확인 시각은 같은 TX에서 파기. 중복 정산을 막는 최소 userId/weekStart 완료 마커만 분리 보존하고 활성 사용자 재검사로 탈퇴 뒤 정산·재생성 차단. 원 결과를 일반 API로 노출하지 않음 |
 | Redis 랭킹의 모든 주차 ZSET·presence·지연 점수 사건 | 중앙 soft delete만으로 제거 보장 안 됨 | 같은 탈퇴 TX에 version을 가진 user.withdrawn outbox를 내구화. 랭킹 소비자는 tombstone/version 설정과 모든 주차 ZSET·presence 제거를 원자 적용하고 지연·DLT 점수의 부활을 거부 |

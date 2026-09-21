@@ -89,9 +89,11 @@ private 초대 resolve가 반환한 공개 요약은 초대 흐름에서 사용�
 
 ### 3.5 memberships — GET /me/islands
 
-성공200 `{data:{items:PublicIslandSummary[],nextCursor:null,currentIslandId:Id?}}`. 원본 items와 nextCursor에 **본인 currentIslandId를 기술 확장**해 재실행 시 현재 선택을 식별한다. 현재 소속 상한10을 보존하는 동안 목록은 전량이며, 향후 상한 변경은 페이지 계약을 함께 개정한다.
+성공200 `{data:{items:PublicIslandSummary[],nextCursor:null,currentIslandId:Id?,lossReason:"LEFT"|"KICKED"|null}}`. 원본 items와 nextCursor에 **본인 currentIslandId를 기술 확장**해 재실행 시 현재 선택을 식별한다. 현재 소속 상한10을 보존하는 동안 목록은 전량이며, 향후 상한 변경은 페이지 계약을 함께 개정한다.
 
 활성 membership이더라도 종료/삭제 그룹은 반환하지 않는다. 목록 정렬은 membership 생성시각+id로 안정화하되 앱의 로컬 카드 순서를 이 API가 덮어쓰지 않는다. currentIslandId는 여전히 활성 소속인 섬 또는 null이다. 무효 context 처리 정책은 IM-D06 확정에 맞추고 권한 없는 대상을 그대로 표시하지 않는다.
+
+`lossReason`은 **현재 섬이 없는 이유**다(GROMO-2038). null이면 한 번도 소속된 적 없음(온보딩 첫 진입), `LEFT`는 마지막 섬에서 자진 이탈, `KICKED`는 마지막 섬에서 강퇴다. 정본은 `user_island_contexts.loss_reason`(V84)이고 쓰는 쪽은 `UserIslandContextRecovery#onMembershipRevoked` 하나다. **불변식: currentIslandId가 null이 아니면 lossReason은 항상 null**이며, V84의 `user_island_contexts_loss_reason_exclusive` CHECK와 `UserIslandContext#moveTo`가 저장 계층에서 같은 것을 강제하고 Business는 둘이 함께 온 상류 응답을 502 `UPSTREAM_CONTRACT_ERROR`로 끊는다. 이 값은 앱의 안내 문구만 가른다 — 강퇴와 자진 이탈 모두 `04 · 혼자 시작 / 기존 섬 참여` 화면으로 가고 재가입 제한·쿨다운은 이 계약이 만들지 않는다(정책 2026-09-20). Business와 Data는 따로 배포되므로 이 키는 상류 응답에서 **필수가 아니다** — 키를 모르는 Data가 붙는 혼합 구간에서도 정상 200이다.
 
 ### 3.6 switch — PUT /me/current-island
 

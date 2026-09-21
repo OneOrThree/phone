@@ -31,15 +31,21 @@
 | 4 | `DELETE /api/v1/friends/{friendUserId}` | `DELETE /friends/{friendUserId}` | 없음 | `FriendController.java:65-72` → `FriendService.java:253-260` |
 | 5 | `GET /api/v1/friends?date=` | `GET /friends?date=` | 없음 | `FriendController.java:74-80` → `FriendService.java:269-299` |
 | 6 | `GET /api/v1/friends/requests?type=` | `GET /friends/requests?type=` | 없음 | `FriendController.java:82-88` → `FriendService.java:381-415` |
-| 7 | `GET /api/v1/friends/search?type=&q=` | `GET /friends/search?type=&q=` | 없음 | `FriendController.java:90-97` → `FriendService.java:426-445` |
+| 7 | `GET /api/v1/friends/search?type=&q=` | `GET /friends/search?type=&q=` | **GROMO-1996 에서 바뀜** — 무접두 경로가 실제로는 신설됐고(Business 에 매핑이 없어 404 였다), 매칭이 trgm 유사도 → **대소문자 무시 전체 일치**, 본인·탈퇴자 제외, **비친구는 `tierLevel`·`occupation` 이 null**. LLD §1.17 | `FriendController.java:90-97` → `FriendService.java:426-445` |
 | 8 | `POST /api/v1/pins/{userId}` | `POST /pins/{userId}` | 없음 | `PinController.java:33-39` → `FriendService.java:307-317` |
 | 9 | `DELETE /api/v1/pins/{userId}` | `DELETE /pins/{userId}` | 없음 | `PinController.java:42-48` → `FriendService.java:325-332` |
 | 10 | `GET /api/v1/pins?date=` | `GET /pins?date=` | 없음 | `PinController.java:51-56` → `FriendService.java:341-371` |
 | 11 | 없음 | `POST /friends/requests/{id}/cancel` | **신규** — 보낸 요청 취소. `FriendService`에 `cancelRequest` 메서드·`FriendshipStatus.CANCELED`·`Friendship.cancel()` 신설 | LLD §1.11 |
+| 12 | 없음 | `DELETE /letters/{letterId}` | **신규(GROMO-2002)** — 편지 닫기. 수신자만, 양쪽에서 사라진다. `letters.deleted_at` 에 첫 쓰기 경로 | LLD §1.16 |
 
-행 5·6은 화면 조합용 내부 경로도 겸한다 — §3에서 B26 규칙으로 확정한다. 행 7(검색)·8~10(핀)은
-현재 어떤 `/screens/*` 조각 표에도 없어(BG10 재료 표 포함) 내부 경로를 만들지 않는다 — 쓰는 화면이
-생기면 그때 추가한다(ponytail: 안 쓰는 내부 경로를 미리 만들지 않는다).
+행 5·6은 화면 조합용 내부 경로도 겸한다 — §3에서 B26 규칙으로 확정한다. 행 8~10(핀)은 현재 어떤
+`/screens/*` 조각 표에도 없어(BG10 재료 표 포함) 내부 경로를 만들지 않는다 — 쓰는 화면이 생기면 그때
+추가한다(ponytail: 안 쓰는 내부 경로를 미리 만들지 않는다).
+
+> **행 7 정정 (GROMO-1996).** 「내부 경로를 만들지 않는다」는 검색에는 더 이상 맞지 않는다 — nginx 위성
+> include 가 `/friends/*` 를 Business 로 보내므로 무접두 `GET /friends/search` 는 **Business 에 매핑이
+> 있어야 하고**, 없는 동안 그 경로는 404 로 죽어 있었다. 화면 조합용이 아니라 **공개 표면 자체**를
+> 위해 `GET /internal/users/{userId}/friend-search` 를 신설했다. LLD §1.17.
 
 ## §2. 편지 도메인
 
@@ -56,7 +62,7 @@
 | `content` | varchar(500) NOT NULL | 편지 본문. **길이 상한 500 확정 — 2026-09-18 재영님 결정 FL-본문**(종전 제안 ~~1000~~). 앱의 입력 제한도 같은 값을 쓴다 |
 | `read_at` | timestamptz NULL | 수신자가 처음 상세 조회한 시각. NULL = 안 읽음. 별도 status enum을 두지 않는다 — "읽음"은 편지의 유일한 상태 전이라 컬럼 하나로 충분하다(ponytail) |
 | `created_at` | timestamptz NOT NULL DEFAULT now() | 발송 시각. 커서 정렬 축은 이 컬럼이 아니라 `id`다(FocusSession 선례와 동일 이유 — UUID v7이 이미 시간순이라 별도 인덱스 컬럼이 필요 없다) |
-| `deleted_at` | timestamptz NULL | 소프트 삭제. **이 설계는 사용자가 부르는 편지 삭제 API를 만들지 않는다**(티켓 범위 밖) — 이 컬럼은 §결정-3(친구 삭제 후 편지 보존 정책)이 "삭제"로 결론 나면 그 실행에 쓸 시스템 필드다. 탈퇴 처리에는 쓰지 않는다(§4·LLD §3 탈퇴 절 참고 — 탈퇴는 익명화로 충분해 편지 행을 건드리지 않는다) |
+| `deleted_at` | timestamptz NULL | 소프트 삭제. ~~사용자가 부르는 편지 삭제 API를 만들지 않는다~~ → **GROMO-2002 가 두 쓰기 경로를 붙였다**: ① 수신자의 「닫기」(`DELETE /letters/{id}`, LLD §1.16) ② 친구 삭제 시 두 사람 사이의 **미확인** 편지 정리(결정-3 = B, LLD §결정-3). 탈퇴 처리에는 여전히 쓰지 않는다(§4·LLD §3 탈퇴 절 — 탈퇴는 익명화로 충분해 편지 행을 건드리지 않는다) |
 
 `Friendship`(`friend/repository/domain/Friendship.java:71-73,105-107`)처럼 **행 하나에 삭제 시각 하나**만
 둔다 — 발신자·수신자별로 따로 지우는 2컬럼(`deleted_by_sender_at`/`deleted_by_receiver_at`) 모델은

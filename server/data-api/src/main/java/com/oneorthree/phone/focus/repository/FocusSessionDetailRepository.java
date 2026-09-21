@@ -39,6 +39,21 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     Optional<FocusSessionOwnership> findOwnershipBySessionId(@Param("sessionId") UUID sessionId);
 
     /**
+     * 프레즌스 재구축용(GROMO-2003) — 이 세션들의 절대 상태와 전이 번호를 한 번에 읽는다.
+     *
+     * <p>모수가 「진행 중 마커」라 동시 집중 인원 규모다. 레거시 마커는 상세가 없어 결과에 빠지고,
+     * 부르는 쪽이 그것을 「active·전이 번호 0」으로 본다({@link FocusSessionControlState}).
+     *
+     * @param sessionIds 진행 중 마커의 id 들
+     * @return 상세가 있는 세션만
+     */
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusSessionControlState("
+            + "d.sessionId, d.lifecycle, d.version) "
+            + "FROM FocusSessionDetail d WHERE d.sessionId IN :sessionIds")
+    List<FocusSessionControlState> findControlStatesBySessionIdIn(
+            @Param("sessionIds") Collection<UUID> sessionIds);
+
+    /**
      * 본인의 진행(active/paused) 세션 — user당 최대 1건(V58 부분 UNIQUE)이라 단건으로 받는다.
      *
      * @param userId      조회 주체
@@ -91,6 +106,25 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      */
     @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.lifecycle = :lifecycle")
     List<UUID> findSessionIdsByLifecycle(@Param("lifecycle") FocusSessionLifecycle lifecycle);
+
+    /**
+     * 휴식 자동 종료 후보 (GROMO-1998) — {@code PAUSED} 로 들어간 지 {@code before} 보다 오래된 세션 id.
+     *
+     * <p>{@code lastTransitionAt} 이 곧 {@code restStartedAt} 이다: PAUSED 행에 그 값을 쓰는 전이는
+     * {@code applyPause} 하나뿐이고, 다른 전이는 전부 PAUSED 를 벗어난다. REST 구간을 조인해 읽을 이유가
+     * 없다.
+     *
+     * <p>적립 틱과 같이 <b>엔티티를 올리지 않는다</b> — 종결은 세션마다 자기 트랜잭션에서 잠금 순서를
+     * 처음부터 다시 잡으므로 스캔이 낡은 인스턴스를 들고 있으면 안 된다. 여기서 고른 뒤 잠그기까지
+     * resume 이 이길 수 있어 <b>잠근 뒤 다시 판정</b>한다.
+     *
+     * @param before 이 시각 이전에 휴식을 시작한 세션만(= now − 자동 종료 유예)
+     * @return 세션 id(순서 무관)
+     */
+    @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.lifecycle = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED "
+            + "AND d.lastTransitionAt <= :before")
+    List<UUID> findSessionIdsRestingSince(@Param("before") Instant before);
 
     /**
      * 휴식 자리 배정용 — 같은 섬에서 현재 paused인 사용자들이 쥔 자리 번호.

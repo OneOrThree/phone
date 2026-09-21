@@ -13,7 +13,7 @@
 | DTO | 공개 필드 |
 | --- | --- |
 | `FocusSessionView` | id:Id, islandId:Id, subject:string, targetMinutes:integer, status:active\|paused, activeSeconds:Seconds, serverNow:Instant, startedAt:Instant, restStartedAt:Instant?, version:Version |
-| `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, allocation:{personalFishAdded:integer,constructionFishAdded:integer}(2026-09-18 D5-귀속으로 «되살아난» 필드 — 2026-09-19 D5-귀속-개정으로 현재 개인 0 · 섬 통장 100%, 비율은 운영값. `constructionFishAdded` 는 섬 통장 몫인데 이름이 건설로 좁다(섬 통장은 공동 구매에도 쓰인다) — 이름 재검토는 LLD 개정 몫), completedAt:Instant, questProgress:[{id:Id,myRate:number}] |
+| `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, allocation:{personalFishAdded:integer,constructionFishAdded:integer}(2026-09-18 D5-귀속으로 «되살아난» 필드 — **2026-09-21 재화-단일로 `personalFishAdded` 는 영구 0, `constructionFishAdded` 가 `earnedFish` 전부다**. 개인 물고기 지갑이 없어 비율이라는 축 자체가 없다. 두 필드는 호환으로 유지하고 제거는 앱 전량 전환 뒤 별도 티켓(재화-단일-호환 ③). `constructionFishAdded` 는 섬 통장 몫인데 이름이 건설로 좁다(섬 통장은 공동 구매에도 쓰인다) — 이름 재검토는 LLD 개정 몫), completedAt:Instant, questProgress:[{id:Id,myRate:number}] |
 | `FocusMember` | userId:Id, name:string, catColor:catalogKey, appearance:{clothes:catalogKey?,decor:catalogKey?,hull:catalogKey,position:front\|back}, sessionId:Id, subject:string, activeSeconds:Seconds, status:active\|paused |
 | `RestMember` | userId:Id, name:string, catColor:catalogKey, restSeat:integer, restStartedAt:Instant |
 | `FocusSummary` | date:KST date, completedSeconds:Seconds, currentSessionSecondsToday:Seconds, totalSeconds:Seconds, serverNow:Instant |
@@ -28,6 +28,9 @@ FocusFinishView의 myRate 범위·퀘스트 포함 기준은 1772/1773의 승인
 공개 DTO에 없다. 완료 기록의 통계 태그와 subject는 다른 개념이며 subject 문자열로 기존 태그를 자동 생성하지 않는다.
 
 ## 2. 9계약의 동작
+
+원본 9계약 뒤에 **GROMO-1998 이 셋을 더한다** — 서버 크론 `rest-auto-close` 와 그 결과를 한 번만 건네는
+`pending-result`·`acknowledge`. 원본 계약의 동작은 바뀌지 않는다.
 
 ### start — POST /focus-sessions, 201
 
@@ -77,6 +80,43 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 receipt·정산의 원 결과 전체는 현재 섬 데이터 열람 권한이 있을 때만 공개한다. 소속 상실 뒤 같은 키라는
 이유로 questProgress/섬 정보가 든 결과를 그대로 재생하지 않는다. 본인 완료 증거가 필요한 FR-D03은 관리 정책과
 공개 축소 DTO를 먼저 확정한다. 비활성 계정은404, 타인 세션은403, 없는 세션은404다.
+
+### rest-auto-close — 서버 크론(공개 엔드포인트 없음), GROMO-1998
+
+휴식(`PAUSED`)에 들어간 지 **1시간**이 지나면 서버가 이번 집중을 **정상 완료**로 끝낸다
+([현재 정책](https://github.com/OneOrThree/planning-document/blob/main/policy-2026-09-14.md) 「집중·휴식·도서관」:
+"휴식하기를 누른 순간부터 1시간이 지나면 서버가 이번 집중을 자동 종료한다. 정상 종료와 같게 집중 기록·퀘스트 진행에
+반영하고, 다음에 앱을 켤 때 결과창을 한 번 보여준다. 물고기는 이미 섬 잔액에 들어가 있어 따로 정산하지 않는다").
+
+- 유예의 기산점은 `last_transition_at` 이다 — PAUSED 행에 그 값을 쓰는 전이는 `pause` 하나뿐이라 곧 `restStartedAt` 이다.
+- `finish` 와 **같은 정산 경로**를 탄다: 열린 REST 구간을 닫고, 일 집계·기본 마커(`COMPLETED`)·정산 행·focus/rest
+  사건·프레즌스 해제를 한 TX 에 남긴다. 포기(`ABANDONED`)·소속 상실(`MEMBERSHIP_LOST`)과 달리 **정산 행이 생긴다** —
+  그 둘은 「미정산」이고 이쪽은 「정상 완료」다.
+- 추가 지급은 없다. 적립 틱이 이미 넣었고(D5-적립), 종료 직전 적립 한 번이 마지막에 «찬» 분만 확정한다.
+- 잠금 순서는 전이와 같다(사용자 공유 → 섬 배타 → 멤버십 공유 → 상세 배타). 스캔이 고른 뒤 잠그기까지
+  `resume`·`finish` 가 이길 수 있으므로 **잠근 뒤 다시 판정**한다 — 여전히 `PAUSED` 이고 여전히 1시간을 넘겼을 때만
+  끝낸다. 반대로 크론이 이기면 뒤늦은 `resume` 은 409 `SESSION_STATE_CONFLICT`, 뒤늦은 `finish` 는 완료 세션의
+  도메인 복구 경로로 **원 결과를 그대로** 돌려받는다(새 정산 행 없음).
+- 「본인이 접속하지 않아도」 남의 모닥불 화면에서 사라져야 하므로 지연 판정이 아니라 **크론**이다
+  (`FocusRestAutoCloseScheduler`, 매분 30초, ShedLock). 크론 게이트는 두지 않는다 — 지급 주체가 둘이 되는 문제가
+  없고 세션당 정산 1행(PK)이 최후 방어선이다.
+
+### pending-result — GET /focus-sessions/pending-result, 200
+
+입력 없음, 본인만 조회한다. **자동 종료로 끝났고 아직 안 보여 준** 정산 중 가장 오래된 한 건을 `finish` 와
+**같은 모양**(`FocusFinishView`)으로 돌려준다 — 앱이 결과창을 두 벌 그리지 않게 한다. 보여 줄 것이 없으면
+`data:null` 이고 404 가 아니다(`session` 과 같은 규칙: 빈 본문은 계약 위반이다).
+`finish` 로 끝난 정산은 결과를 그 자리에서 이미 돌려줬으므로 여기에 오지 않는다.
+확인(`acknowledge`) 전에는 몇 번을 물어도 같은 결과가 온다 — 네트워크가 끊기거나 앱이 죽어 결과창을 못 본
+사용자에게 「영영 못 받음」을 만들지 않는다.
+
+### acknowledge — POST /focus-sessions/{sessionId}/acknowledge, 204
+
+본문 없음, 키 없음. `focus_settlements.acknowledged_at IS NULL` **조건부 원자 UPDATE** 라 재접속·동시 접속·재시도에
+몇 번이 와도 최초 1회만 세팅되고 나머지는 0행 no-op 다 — 「한 번만 제공」의 근거는 이 컬럼 하나이고 인메모리
+플래그가 아니다(`league_weekly_results.acknowledged_at` 과 같은 관례). 확인할 것이 없어도(이미 확인했거나 자동 종료가
+아닌 세션) 성공이다. **남의 세션은 403** 이다 — 확인 시각은 그 사람의 결과가 사라지는 부작용이다.
+Business 는 204 를 공통 advice 가 200 `data:null` 로 바꾼다.
 
 ### home-summary — GET /me/focus-summary, 200
 
@@ -166,7 +206,7 @@ EXPIRE가 별도 명령이라 그 사이에 끊기면 수명 없는 카운터가
 | 기존 focus_sessions | PK·user·startedAt·endedAt·COMPLETED·focus_seconds_by_date | legacy와 통계 식별자 공유. 상세가 있는 행은 v0.3 프로토콜 |
 | 신규 focus_session_details | PK/FK session_id, user_id, island_id, membership_epoch_at_start, subject, target_minutes(**nullable — 목표는 선택, D5-적립**), lifecycle, version, last_transition_at, policy_revision, **rewarded_seconds(적립 워터마크)** | 소속 귀속 불변. user당 active/paused 부분 UNIQUE, 휴식 자리의 활성 범위 UNIQUE. 워터마크는 전이가 아니라 적립 틱이 민다 — version 을 올리지 않는다 |
 | 신규 focus_session_intervals | session_id, ordinal, kind ACTIVE/REST, started_at, ended_at nullable | ordinal 유일, 열린 구간 최대1, 역전/겹침 금지. 명령 idempotency와 같은 TX |
-| 신규 focus_settlements | session_id UNIQUE, contract_version, policy_revision, HTTP 결과·원 events·총시간 | 다른 key의 완료 복구 방어. **D5-적립 이후 이 행은 «지급의 근거»가 아니라 «확정 기록»이다** — 지급은 적립 원장이 한다. 개인정보 파기 정책 적용 |
+| 신규 focus_settlements | session_id UNIQUE, contract_version, policy_revision, HTTP 결과·원 events·총시간, **auto_closed·acknowledged_at(V88)** | 다른 key의 완료 복구 방어. **D5-적립 이후 이 행은 «지급의 근거»가 아니라 «확정 기록»이다** — 지급은 적립 원장이 한다. `auto_closed`(서버가 끝냈다) + `acknowledged_at IS NULL`(아직 안 보여 줬다) 이 「다음 접속에 한 번 보여줄 결과」다(GROMO-1998). 개인정보 파기 정책 적용 |
 | 신규 focus_reward_accruals | (session_id, accrued_on) UNIQUE, earned_fish | **적립의 정본**(D5-적립). 매분 틱이 (세션, UTC 날짜)로 누적한다. 하루 상한 합산과 회관 기록의 주민 누적 획득이 둘 다 여기를 읽는다 — 정산 행만 세면 진행 중·강퇴 세션의 적립분이 빠진다 |
 | 신규 주민 projection | (projection,island_id,user_id) UNIQUE, version, 현재 session_id/상태 | 세션 교체·재가입에도 version 초기화 금지, focus/rest 별도 축 |
 | 기존 command_idempotency | PublicCommandService의 사용자/operation/key scope, fingerprint, contractVersion 있는 결과 | TTL 자동 삭제 없음. 미지원 버전409 STATE_CONFLICT, 재실행 금지 |
@@ -192,7 +232,7 @@ group를 잡은 뒤 상대 user를 역순으로 잡지 않는다. 늦게 영향 
 
 정산 정책은 시작 시 revision을 고정해 운영 설정 변경이 진행 세션의 지급률을 바꾸지 않게 하는 기술 선택이다.
 ~~시설 완료 instant/상태는 FR-D02 선택에 따라 해석하지만~~ FR-D02 는 **2026-09-18 재영님 결정 D6(「쌓이면 건설한다」)로 폐기**됐다 — 정산은 물고기를 지갑에 적립할 뿐이고 시설 완공 시점과 교차하지 않는다. 같은 TX에서 잠금·정책 revision을 확인하는 규율은 유지한다.
-산식 결과 earnedFish=E, 개인 지갑 반영=P, 섬 통장 반영=C라면 **E=P+C**가 기본 보존식이다 — 2026-09-19 D5-귀속-개정으로 **P:C = 0:100**(비율은 운영값)이다(~~2026-09-18 D5-귀속의 50:50~~ 대체 — 개인 지갑은 테이블만 두고 적립하지 않는다). C 는 「초기 건설 기여」가 아니라 **섬 통장 몫**이다(D1: 섬 통장은 건설·공동 구매에 함께 쓰인다) — D6 가 폐기한 것은 «세션 도중 완공 시 시간 분할·초과 환류»이지 개인/섬 배분 축이 아니었다. 산식은 1830 확정값(60초당 1마리·휴식 제외·주민·섬별 하루 480 상한, [정책](policy.md) FR-D01)이며 아래 응답 예시의 `allocation{personalFishAdded,constructionFishAdded}` 가 그 배분을 싣는다.
+산식 결과 earnedFish=E, 개인 몫=P, 섬 통장 반영=C라면 **E=P+C**가 기본 보존식이고 **P≡0 · C=E** 다 — 2026-09-21 재화-단일로 개인 물고기 지갑이 없어 P 는 영구 0 이다(~~2026-09-18 D5-귀속의 50:50~~ · ~~D5-귀속-개정의 「비율은 운영값」~~ 대체 — `personal_share_percent` 를 올리는 경로를 두지 않는다, 결정 개인적립-차단). 보존식과 두 필드는 호환으로 남긴다. C 는 「초기 건설 기여」가 아니라 **섬 통장 몫**이다(D1: 섬 통장은 건설·공동 구매에 함께 쓰인다) — D6 가 폐기한 것은 «세션 도중 완공 시 시간 분할·초과 환류»이지 개인/섬 배분 축이 아니었다. 산식은 1830 확정값(60초당 1마리·휴식 제외·주민·섬별 하루 480 상한, [정책](policy.md) FR-D01)이며 아래 응답 예시의 `allocation{personalFishAdded,constructionFishAdded}` 가 그 배분을 싣는다.
 **지급 시점은 2026-09-20 결정 D5-적립으로 종료가 아니라 «진행 중 매분»이다.** 매분 크론이 진행(ACTIVE) 세션마다 상세 행을 배타 잠그고 「지금까지의 순수 집중 초로 나올 수 있는 총 마리 수 − 이미 판정한 몫(`rewarded_seconds`)」만 새로 준다. 상한에 걸려 못 받은 몫도 **판정 완료로 워터마크를 민다** — 그러지 않으면 자정에 상한이 풀리는 순간 어제 깎인 몫이 한꺼번에 터진다(반려한 대안: 이월). **새로 주는 분은 한 건으로 접지 않고 하나씩 판정한다**: 분마다 「그 분이 찬 시각」(`FocusIntervalMath.instantAtActiveSeconds` — `activeSecondsAsOf` 의 역함수)을 구해 **그 시각의 UTC 날짜**로 상한을 보고, 섬 원장에도 **분마다 금액 1짜리 한 줄**을 남긴다. 접으면 둘이 깨진다 — ① 적립일이 「틱이 돈 날」이 되어 자정 직전에 찬 분이 다음 날 상한을 먹고, 밀린 분이 여러 날에 걸치면 전부 하루 상한 하나로 판정돼 나머지가 워터마크에 밀려 소실된다 ② 분 단위 감사 추적이 사라져 「원장은 건별, 접는 것은 가계부 조회뿐」(결정 가계부-묶음)이라는 전제가 무너진다. 하루 상한의 창은 **UTC 날짜**이고 일 집계(`daily_focus_stats`)의 KST 축과 일부러 다르다 — 그쪽은 1930 전환 대기 중인 레거시 축이고 이 축은 신규라 처음부터 UTC 다(Q-6·RC-축과 같다). 자정에 걸친 60초는 초 단위 워터마크라 끊기지 않으며, 그 분은 「찬 시각」의 날짜에 적립된다(반려한 대안: 날짜별 분할 배분 — 상한 두 개에 반 마리씩 걸린다). 섬 원장의 멱등 키는 `focus:<sessionId>:<누적 마리 수>` 라 같은 틱을 다시 돌려도 같은 키가 나온다. 휴식은 `activeSeconds` 에 없으므로 휴식 중에는 워터마크가 자연히 멈춘다 — 별도 분기를 두지 않는다.
 **종료 직전에도 같은 적립을 한 번 돌린다**(구간을 닫은 뒤, 정산 행을 쓰기 전). 마지막 틱 이후에 «찬» 분이 그러지 않으면 영영 사라지기 때문이다 — 12:00:01 에 시작해 12:01:02 에 끝낸 세션은 12:01:00 틱에 59초뿐이라 못 받고, 그 뒤 ACTIVE 스캔에서도 빠진다. 「종료 시 추가 지급 없음」은 **1분이 안 찬 자투리**를 주지 않는다는 뜻이지 이미 찬 분을 버린다는 뜻이 아니다. 휴식 중 finish 도 같은 경로라 휴식 직전에 찬 분이 새지 않는다(크론은 PAUSED 를 훑지 않는다 — 휴식 중에는 새로 줄 것이 없다).
 **혼합 버전 창의 구멍은 트리거가 막는다.** 크론 게이트는 «크론» 만 막고 옛 인스턴스의 `finish` 는 일부러 열어 두므로(막으면 그 창에서 끝낸 사용자가 한 마리도 못 받는다), V82 뒤에 옛 이미지가 쓴 정산은 적립 원장에 안 남아 상한·누적에서 사라진다. 그래서 `focus_settlements` 의 AFTER INSERT 트리거가 **「earned_fish > 0 이면서 그 세션의 적립 행이 하나도 없을 때만」** 완료 시각의 UTC 날짜로 한 행을 옮긴다 — 새 코드의 finish 는 정산 행을 쓰기 전에 이미 적립했으므로 트리거가 비켜난다. 앱 코드로는 «다른 버전의 앱» 을 잡을 수 없어 DB 가 유일한 자리다. 배포가 수렴하면 조건에 걸리는 행이 더는 생기지 않는다.
@@ -357,7 +397,7 @@ schemaVersion=1이다. 버전 없는 emote만 aggregateVersion=null. 나머지�
 | focus.member.updated | userId,sessionId,status(active/paused/completed),subject,activeSeconds,serverNow,sessionVersion | (focus.member,islandId,userId) / 해당 섬 주민 focus 토픽 |
 | rest.member.updated | userId,sessionId,status,restStartedAt,restSeat,serverNow,sessionVersion | (rest.member,islandId,userId) / 해당 섬 주민 rest 토픽 |
 | focus.emote | userId,sessionId,type,expiresAt | version 없음, eventId+만료 / 같은 섬 진행 세션(active·paused) 주민 emotes 토픽 |
-| wallet.updated | ownerType,ownerId,currency,version | 개인(user,id,fish)은 islandId=null / 본인 user queue. 공동 포인트가 실제 바뀐 경우만 island scope |
+| wallet.updated | ownerType,ownerId,currency,version | **(island,islandId,village_points) 만** / 해당 섬 events 토픽, 섬 통장이 실제 바뀐 경우만. ~~개인(user,id,fish)은 islandId=null · 본인 user queue~~ 는 재화-단일로 폐기 — 개인 지갑이 없어 발행자가 없다 |
 | quest.progress.updated | questId,occurrenceId,version | (quest.progress,islandId,questId,occurrenceId) / 섬 events 토픽, 관련 진행이 실제 바뀔 때 |
 | island.updated | islandId,version | (island,islandId) / 초기 건설 진행·완성이 실제 바뀔 때 |
 
@@ -426,6 +466,15 @@ CONNECT 자체에 적용하지 않는다. JWT 만료는 기존 PR739의 명시 �
 기존 Redis 값/키를 무단 변경하지 않고, reader 호환·tombstone/TTL·허용 namespace/ACL 개정과 전환 검증을
 공통 기반 담당과 합류한다. FR-D04 결정에 따라 active/paused를 채팅 차단 투영으로 매핑한다.
 이 사본을 신규 emote의 최종 인가 증거로 단독 사용하지 않는다. 현재 Data 상태/인가 revision을 확인한다.
+
+**구현(GROMO-2003).** 통합 자리는 `focus/service/FocusPresenceProjection` 하나다 — 섬 focus/rest 사건(같은 TX outbox)과
+Redis 리스(commit 뒤)를 한 호출로 적고, 다른 클래스가 `FocusPresencePort`·`FocusMemberEvents`를 직접 부르면
+`architecture/DomainLayerRulesTest`가 빌드를 깨뜨린다. controlVersion은 새 표를 만들지 않고 **`(focus_sessions.presence_order,
+focus_session_details.version)` 쌍**으로 잡았다 — 순번은 공유 DB 시퀀스라 한 사용자 안에서 세션을 건너 단조 증가하고(두 시작은
+users 행 배타 락 아래 INSERT된다) version은 전이마다 +1이라, 둘을 사전식으로 비교하면 세션이 바뀌어도 초기화되지 않는 사용자별
+지속 축이 된다. 리스 값은 `순번:controlVersion:상태`이고 쓰기는 「지금 값보다 오래되지 않을 때만」 CAS한다. **종료는 순번만 본다**
+— 끝난 세션의 어떤 controlVersion도 낡은 값이라, 쌍으로 비교하면 휴식 중 종료가 자기 리스를 못 지워 13시간 차단이 돌아온다.
+읽는 쪽(Realtime `FocusPresenceReader`)은 그대로 **키의 존재**만 보므로 FR-D04 전까지 active·paused 둘 다 차단이다.
 
 ## 7. 검증과 관측
 
@@ -611,10 +660,10 @@ subject·이름·JWT·멱등키 원문·원장 개인 응답 전체는 남기지
     "targetMinutes": 25,
     "activeSeconds": 1500,
     "goalAchieved": true,
-    "earnedFish": 5,
+    "earnedFish": 25,
     "allocation": {
-      "personalFishAdded": 5,
-      "constructionFishAdded": 0
+      "personalFishAdded": 0,
+      "constructionFishAdded": 25
     },
     "completedAt": "2026-09-11T09:10:00Z",
     "questProgress": [

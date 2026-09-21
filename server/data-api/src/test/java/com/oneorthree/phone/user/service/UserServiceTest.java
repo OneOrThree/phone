@@ -166,7 +166,7 @@ class UserServiceTest {
     void setupProfileDuplicateNickname() {
         User user = User.builder().id(USER_ID).build();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-        given(userRepository.existsByNicknameAndIdNot("중복닉", USER_ID)).willReturn(true);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("중복닉", USER_ID)).willReturn(true);
 
         UserProfileSetupRequest body = new UserProfileSetupRequest(
                 "중복닉", null, 120, 90, "KR");
@@ -199,7 +199,7 @@ class UserServiceTest {
     void updateProfileDuplicateNickname() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-        given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("남의닉", USER_ID)).willReturn(true);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
                 "남의닉", null, null, null, null);
@@ -247,18 +247,18 @@ class UserServiceTest {
     @Test
     @DisplayName("닉네임 체크 — 미사용 닉네임 → available=true, trim 후 본인 제외로 조회")
     void nicknameCheckAvailable() {
-        given(userRepository.existsByNicknameAndIdNot("새닉네임", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("새닉네임", USER_ID)).willReturn(false);
 
         assertThat(userService.isNicknameAvailable(USER_ID, " 새닉네임 ")).isTrue();
 
         // trim 된 값으로, 본인(userId) 제외 조건으로 조회했는지 — 저장 경로와 같은 규칙
-        verify(userRepository).existsByNicknameAndIdNot("새닉네임", USER_ID);
+        verify(userRepository).existsByNicknameIgnoreCaseAndIdNot("새닉네임", USER_ID);
     }
 
     @Test
     @DisplayName("닉네임 체크 — 타인이 쓰는 닉네임 → available=false")
     void nicknameCheckDuplicateUnavailable() {
-        given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("남의닉", USER_ID)).willReturn(true);
 
         assertThat(userService.isNicknameAvailable(USER_ID, "남의닉")).isFalse();
     }
@@ -267,12 +267,12 @@ class UserServiceTest {
     @DisplayName("닉네임 체크 — 자기 자신의 현재 닉네임 → available=true (본인 행 제외라 중복 아님)")
     void nicknameCheckSelfNicknameAvailable() {
         // 프로필 편집에서 자기 닉네임 그대로 저장이 "사용 불가"로 뜨면 안 된다 —
-        // existsByNicknameAndIdNot 이 본인 행을 제외하므로 false 가 온다.
-        given(userRepository.existsByNicknameAndIdNot("내닉네임", USER_ID)).willReturn(false);
+        // existsByNicknameIgnoreCaseAndIdNot 이 본인 행을 제외하므로 false 가 온다.
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("내닉네임", USER_ID)).willReturn(false);
 
         assertThat(userService.isNicknameAvailable(USER_ID, "내닉네임")).isTrue();
 
-        verify(userRepository).existsByNicknameAndIdNot("내닉네임", USER_ID);
+        verify(userRepository).existsByNicknameIgnoreCaseAndIdNot("내닉네임", USER_ID);
     }
 
     @Test
@@ -283,14 +283,14 @@ class UserServiceTest {
         assertThat(userService.isNicknameAvailable(USER_ID, "   ")).isFalse();
         assertThat(userService.isNicknameAvailable(USER_ID, null)).isFalse();
 
-        verify(userRepository, never()).existsByNicknameAndIdNot(any(), any());
+        verify(userRepository, never()).existsByNicknameIgnoreCaseAndIdNot(any(), any());
     }
 
     @Test
     @DisplayName("닉네임 체크 — 경계값 2자·10자는 형식 통과 → 중복 검사까지 진행")
     void nicknameCheckBoundaryLengthsValid() {
-        given(userRepository.existsByNicknameAndIdNot("가나", USER_ID)).willReturn(false);
-        given(userRepository.existsByNicknameAndIdNot("가".repeat(10), USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("가나", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("가".repeat(10), USER_ID)).willReturn(false);
 
         assertThat(userService.isNicknameAvailable(USER_ID, "가나")).isTrue();
         assertThat(userService.isNicknameAvailable(USER_ID, "가".repeat(10))).isTrue();
@@ -323,7 +323,7 @@ class UserServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_INVALID);
         assertThat(user.getNickname()).isNull();
-        verify(userRepository, never()).existsByNicknameAndIdNot(any(), any());
+        verify(userRepository, never()).existsByNicknameIgnoreCaseAndIdNot(any(), any());
     }
 
     @Test
@@ -373,7 +373,7 @@ class UserServiceTest {
     void updateProfileToctouRaceDegradesToNicknameDuplicate() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-        given(userRepository.existsByNicknameAndIdNot("경합닉", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("경합닉", USER_ID)).willReturn(false);
         // 체크와 저장 사이에 다른 유저가 같은 닉네임을 커밋 → flush 에서 uq_users_nickname 위반
         willThrow(new DataIntegrityViolationException("uq_users_nickname"))
                 .given(userRepository).flush();
@@ -390,7 +390,7 @@ class UserServiceTest {
     void setupProfileToctouRaceDegradesToNicknameDuplicate() {
         User user = User.builder().id(USER_ID).build();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-        given(userRepository.existsByNicknameAndIdNot("경합닉", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("경합닉", USER_ID)).willReturn(false);
         willThrow(new DataIntegrityViolationException("uq_users_nickname"))
                 .given(userRepository).flush();
 

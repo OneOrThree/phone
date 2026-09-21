@@ -1,6 +1,5 @@
 package com.oneorthree.phone.focus.service;
 
-import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
@@ -59,9 +58,12 @@ public class FocusMembershipLossService {
     private final FocusSessionDetailRepository focusSessionDetailRepository;
     private final FocusSessionIntervalRepository focusSessionIntervalRepository;
     private final FocusSessionRepository focusSessionRepository;
-    /** 사건 이름·순서 축·params 는 수명주기 전이와 같은 어댑터가 정한다 — 소비측이 같은 축으로 합친다. */
-    private final FocusMemberEvents focusMemberEvents;
-    private final FocusPresencePort focusPresencePort;
+    /**
+     * 섬 투영과 프레즌스 리스를 한 자리에서 적는 포트(GROMO-2003) — 사건 이름·순서 축·params 는
+     * 수명주기 전이와 «같은» 어댑터가 정한다. 소비측이 같은 축으로 합치고, 「사건은 적었는데
+     * 리스는 안 지웠다」 같은 반쪽 종결이 생기지 않는다.
+     */
+    private final FocusPresenceProjection focusPresenceProjection;
     private final Clock clock;
 
     /**
@@ -96,11 +98,8 @@ public class FocusMembershipLossService {
         focusSessionRepository.markAutoClosedIfOpen(sessionId, t);
 
         // 목록에서 지우는 상태값은 완료와 같다(LLD §6: completed 는 행 제거). 새 상태값을 만들지 않는다.
-        focusMemberEvents.focusUpdated(userId, islandId, sessionId, FocusMemberEvents.STATUS_COMPLETED,
-                detail.getSubject(), activeSeconds, t, detail.getVersion());
-        focusMemberEvents.restUpdated(userId, islandId, sessionId, FocusMemberEvents.STATUS_COMPLETED,
-                null, null, t, detail.getVersion());
-        focusPresencePort.focusEnded(userId, focusSessionRepository.findPresenceOrderById(sessionId).orElse(null));
+        focusPresenceProjection.ended(userId, islandId, sessionId, detail.getSubject(), activeSeconds, t,
+                detail.getVersion(), focusSessionRepository.findPresenceOrderById(sessionId).orElse(null));
         log.info("소속 상실로 진행 집중 세션을 종결했습니다(FR-D03, 미정산). session={}, user={}, island={}",
                 sessionId, userId, islandId);
         return true;
