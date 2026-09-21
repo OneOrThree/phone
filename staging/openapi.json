@@ -11847,6 +11847,33 @@
             "type": "string",
             "maxLength": 64,
             "minLength": 0
+          },
+          "callerAccessToken": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string",
+            "enum": [
+              "APPLE",
+              "GOOGLE",
+              "KAKAO",
+              "LINE",
+              "INSTAGRAM",
+              "FACEBOOK"
+            ]
+          },
+          "credentialKind": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 0
+          },
+          "termsVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 0
+          },
+          "accountSwitchConfirmed": {
+            "type": "boolean"
           }
         },
         "required": [
