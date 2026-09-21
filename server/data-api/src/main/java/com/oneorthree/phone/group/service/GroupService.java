@@ -53,6 +53,7 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.security.SecureRandom;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -105,6 +106,11 @@ public class GroupService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
+    /**
+     * 재가입 시각을 찍는 시계 (GROMO-2050) — 근거는 {@code GroupMember.leftAt} Javadoc(Hibernate 의
+     * 시각 애너테이션은 주입 {@link Clock} 을 타지 않는다).
+     */
+    private final Clock clock;
     /**
      * 금칙어 판정 (GROMO-1986) — 이 레거시 경로와 2.0 {@code IslandMembershipService}·
      * {@code IslandManagementService} 가 <b>같은 {@code groups} 행</b>을 만들고 고친다. 한쪽에만
@@ -371,7 +377,7 @@ public class GroupService {
         GroupMember membership;
         if (priorMembership.isPresent()) {
             membership = priorMembership.get();
-            membership.rejoin();
+            membership.rejoin(clock.instant());
             // 재가입도 멤버십 전이다(ⓚ: 탈퇴·강퇴·«재가입»). 여기서 세대를 올리지 않으면 탈퇴 전에
             // 공유된 옛 링크가 재가입과 함께 그대로 되살아난다.
             linkMembershipEventService.recordMembershipRejoined(membership);
