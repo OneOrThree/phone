@@ -204,6 +204,29 @@ class InternalFriendIntegrationTest {
         assertThat(statusOf(requestId)).isEqualTo("PENDING");
     }
 
+    @Test
+    @DisplayName("게스트는 요청 생성만 403 이고, 받은 요청 수락·친구 목록은 그대로 된다 (GROMO-1992)")
+    void guestCannotOpenFriendRequestsButStillAcceptsThem() throws Exception {
+        UUID guest = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID member = newUser();
+
+        as(guest, post(path(guest, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + member + "\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+        assertThat(jdbc.queryForObject("select count(*) from friendships where from_user_id = ?",
+                Integer.class, guest)).as("거절은 행을 남기지 않는다").isZero();
+
+        // 반대 방향은 열려 있다 — 막으면 「게스트도 편지를 보낼 수 있다」(FL-결정-1)가 도달 불가능해진다.
+        UUID requestId = friendService.createRequest(member, guest);
+        as(guest, post(path(guest, "/friend-requests/" + requestId + "/accept")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACCEPTED"));
+        as(guest, get(path(guest, "/friends")).param("date", DATE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].userId").value(member.toString()));
+    }
+
     // ---------------------------------------------------------------- 2. 경합
 
     @Test
@@ -373,10 +396,15 @@ class InternalFriendIntegrationTest {
     private void nickname(UUID userId, String nickname) {
         jdbc.update("update users set nickname = ? where id = ?", nickname, userId);
     }
-
-
+    /**
+     * 이 표면의 친구 요청 생성은 <b>회원 전용</b> 이므로(GROMO-1992) 기본 배우는 회원이다.
+     * 소셜 어댑터를 띄우지 않고 게스트로 만든 뒤 {@code is_guest} 만 내린다 — 이 파일이 검증하는
+     * 것은 관계 상태·잠금이지 승격 경로가 아니다.
+     */
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID id = jwt.extractUserId(auth.guestLogin().accessToken());
+        jdbc.update("update users set is_guest = false where id = ?", id);
+        return id;
     }
 
     private static String path(UUID userId, String rest) {

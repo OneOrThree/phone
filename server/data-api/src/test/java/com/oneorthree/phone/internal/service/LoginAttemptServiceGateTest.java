@@ -60,7 +60,7 @@ class LoginAttemptServiceGateTest {
     void setUp() {
         // self 프록시는 execute 의 조각 경계용이다 — 관문 메서드 자체는 쓰지 않으므로 null 로 둔다.
         service = new LoginAttemptService(loginAttemptRepository, userQueryService, authService,
-                authSessionService, jwtProvider, null);
+                authSessionService, null, jwtProvider, null);
         // 기본 골격: 서명으로 증명된 subject·sid·gen=0 이 실린 AT, authGeneration=0 인 활성 사용자.
         lenient().when(jwtProvider.extractUserId(TOKEN)).thenReturn(USER_ID);
         lenient().when(jwtProvider.extractSessionId(TOKEN)).thenReturn(SESSION_ID);

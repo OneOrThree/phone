@@ -46,6 +46,8 @@ import {
   kstDayStart,
   kstMonthDay,
   kstHourMinute,
+  myIslandsConsistent,
+  intentKeyPool,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -1825,4 +1827,210 @@ test('강퇴된 주민이 다시 가입하면 예전 기록을 이어받고, 다
   const former = currentIsland(s).formerMembers!;
   assert.equal(former.length, 1);
   assert.equal(former[0].records?.[0].seconds, 960);
+});
+
+// ── 섬 서버 동기화(GROMO-2006) — serverIslands 스냅샷만 쓰고 로컬 fixture를 건드리지 않는다 ──
+const sum = (id: string, over: object = {}) => ({
+  id,
+  name: `서버 섬 ${id}`,
+  intro: '소개',
+  visibility: 'public',
+  approvalRequired: false,
+  memberCount: 3,
+  maxMembers: 15,
+  membershipStatus: 'none',
+  joinRequestId: null,
+  growthStage: null,
+  themeId: null,
+  ...over,
+});
+const req = (id: string, islandId: string, status = 'pending') => ({
+  id,
+  islandId,
+  status,
+  version: 1,
+  islandName: `섬 ${islandId}`,
+  memberCount: 2,
+  maxMembers: 15,
+  createdAt: '2026-09-21T00:00:00Z',
+});
+
+test('ISLAND_SYNC — memberships가 정본이다: onboarded·current 반영, 로컬 fixture 소속을 만들지 않는다', () => {
+  let s = initialState();
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1', { membershipStatus: 'active' })],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+    requests: [],
+  });
+  const snap = s.serverIslands!;
+  assert.equal(snap.currentIslandId, 'srv1');
+  assert.equal(s.onboarded, true);
+  // 서버 섬을 로컬 Island로 합성하지 않는다 — fixture 목록은 그대로다
+  assert.equal(
+    s.islands.some((i) => i.id === 'srv1'),
+    false,
+  );
+  // 서버에 없는 로컬 joined 는 걷는다
+  s.islands[0].joined = true;
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1', { membershipStatus: 'active' })],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+  });
+  assert.equal(s.islands[0].joined, false);
+  // items는 있는데 current가 null — 모호 상태는 소속으로 보지 않는다(fail closed)
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1')],
+      nextCursor: null,
+      currentIslandId: null,
+      lossReason: null,
+    },
+  });
+  assert.equal(s.onboarded, false);
+  assert.equal(s.serverIslands!.currentIslandId, null);
+});
+
+test('ISLAND_SYNC — 빈 memberships는 onboarded=false로 되돌리고 진행 중 세션·구경을 끊는다', () => {
+  let s = initialState();
+  s.islands[0].joined = true;
+  s.islandId = s.islands[0].id;
+  s = act(s, 'START', { subject: '공부', seconds: 60 });
+  s.visitingIslandId = s.islands[0].id;
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: { items: [], nextCursor: null, currentIslandId: null, lossReason: 'KICKED' },
+  });
+  assert.equal(s.onboarded, false);
+  assert.equal(s.session, null);
+  assert.equal(s.visitingIslandId, null);
+  assert.equal(s.serverIslands!.lossReason, 'KICKED');
+});
+
+test('ISLAND_CANDIDATES — 페이지를 이어 붙이고 reset이면 갈아 끼운다', () => {
+  let s = act(initialState(), 'ISLAND_CANDIDATES', {
+    items: [sum('a')],
+    nextCursor: 'c1',
+    reset: true,
+  });
+  s = act(s, 'ISLAND_CANDIDATES', { items: [sum('a'), sum('b')], nextCursor: null });
+  const snap = s.serverIslands!;
+  assert.deepEqual(
+    snap.candidates.map((c) => c.id),
+    ['a', 'b'],
+  ); // 중복 병합
+  assert.equal(snap.nextCursor, null);
+  s = act(s, 'ISLAND_CANDIDATES', { items: [sum('x')], nextCursor: 'c9', reset: true });
+  assert.deepEqual(
+    s.serverIslands!.candidates.map((c) => c.id),
+    ['x'],
+  );
+});
+
+test('ISLAND_REQUEST·ISLAND_SYNC_REQUESTS — 단건 상태와 서버 목록을 분리한다', () => {
+  // 단건 조회는 표시 필드(islandName·memberCount·createdAt)가 없다 — 목록에 합성하지 않는다
+  let s = act(initialState(), 'ISLAND_REQUEST', {
+    request: { id: 'r1', islandId: 'i1', status: 'pending', version: 1 },
+  });
+  assert.equal(s.serverIslands!.joinRequests.length, 0);
+  assert.equal(s.serverIslands!.requestStatus[0].id, 'r1');
+  assert.equal(s.serverIslands!.requestStatus[0].status, 'pending');
+  // 목록에 이미 있는 신청의 단건 갱신은 서버 표시 필드를 유지하고 status/version만 바꾼다
+  s = act(s, 'ISLAND_SYNC_REQUESTS', { requests: [req('r2', 'i2')] });
+  s = act(s, 'ISLAND_REQUEST', {
+    request: { id: 'r2', islandId: 'i2', status: 'approved', version: 2 },
+  });
+  const got = s.serverIslands!.joinRequests.find((r) => r.id === 'r2')!;
+  assert.equal(got.status, 'approved');
+  assert.equal(got.islandName, '섬 i2');
+  assert.equal(s.serverIslands!.requestStatus.find((r) => r.id === 'r2')!.status, 'approved');
+  // 목록 재조회는 서버 pending 목록으로 통째로 갈아 끼운다 — 종결 r2는 빠진다
+  s = act(s, 'ISLAND_SYNC_REQUESTS', { requests: [req('r3', 'i3')] });
+  assert.deepEqual(
+    s.serverIslands!.joinRequests.map((r) => r.id),
+    ['r3'],
+  );
+  // 단건 상태는 목록과 무관하게 남는다 — 화면의 종결 안내 근거
+  assert.equal(s.serverIslands!.requestStatus.find((r) => r.id === 'r2')!.status, 'approved');
+});
+
+test('ISLAND_REQUEST — version 없는 종결 결과는 기존 version을 유지한다(합성 금지)', () => {
+  // 취소 응답({id,status:'cancelled'})에는 version이 없다 — 없는 값은 합성하지 않는다
+  let s = act(initialState(), 'ISLAND_REQUEST', {
+    request: { id: 'r1', islandId: 'i1', status: 'pending', version: 3 },
+  });
+  s = act(s, 'ISLAND_REQUEST', {
+    request: { id: 'r1', islandId: 'i1', status: 'cancelled' },
+  });
+  const entry = s.serverIslands!.requestStatus.find((r) => r.id === 'r1')!;
+  assert.equal(entry.status, 'cancelled');
+  assert.equal(entry.version, 3);
+  // 목록 항목도 version을 덮어쓰지 않고 status만 바꾼다
+  s = act(s, 'ISLAND_SYNC_REQUESTS', { requests: [req('r9', 'i9')] });
+  s = act(s, 'ISLAND_REQUEST', { request: { id: 'r9', islandId: 'i9', status: 'cancelled' } });
+  const got = s.serverIslands!.joinRequests.find((r) => r.id === 'r9')!;
+  assert.equal(got.status, 'cancelled');
+  assert.equal(got.version, req('r9', 'i9').version);
+});
+
+test('myIslandsConsistent — null current+소속은 유효, items 밖 current만 모순', () => {
+  const my = (items: object[], currentIslandId: string | null) => ({
+    items,
+    nextCursor: null,
+    currentIslandId,
+    lossReason: null,
+  });
+  // 정상: 무소속 / current가 items 안 / 첫 pending 승인이 소속을 만들었지만 current는 안 옮김
+  assert.equal(myIslandsConsistent(my([], null) as any), true);
+  assert.equal(myIslandsConsistent(my([sum('a')], 'a') as any), true);
+  assert.equal(myIslandsConsistent(my([sum('a')], null) as any), true);
+  // 모순: items 밖의 current만 fail closed
+  assert.equal(myIslandsConsistent(my([sum('a')], 'zzz') as any), false);
+});
+
+test('ISLAND_SYNC — 첫 승인으로 소속만 생기고 current가 없으면 onboarded=false', () => {
+  // 승인 필요 섬의 첫 신청이 승인돼 소속이 생겨도 current는 안 옮긴다 — 유효 응답이고 소속 미확정
+  const s = act(initialState(false), 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv')],
+      nextCursor: null,
+      currentIslandId: null,
+      lossReason: null,
+    },
+  });
+  assert.equal(s.onboarded, false);
+  assert.equal(s.serverIslands?.currentIslandId, null);
+  assert.equal(s.serverIslands?.memberships.length, 1);
+});
+
+test('intentKeyPool — 재시도는 같은 키, 확정·종결 후 해제하면 새 키', () => {
+  let n = 0;
+  const pool = intentKeyPool(() => `k${++n}`);
+  const k1 = pool.key('join:i1', 'tok');
+  // 응답 유실·재조회 실패 동안 같은 의도 재시도 → 같은 키
+  assert.equal(pool.key('join:i1', 'tok'), k1);
+  // 확정 후 해제 → 취소/거절 뒤 같은 섬 재신청은 새 키(옛 pending 결과 replay 방지)
+  pool.release('join:i1', 'tok');
+  const k2 = pool.key('join:i1', 'tok');
+  assert.notEqual(k2, k1);
+  // 바뀐 의도(body·대상)는 애초에 다른 슬롯
+  assert.notEqual(pool.key('join:i1', 'tok2'), k2);
+  assert.notEqual(pool.key('join:i2', 'tok'), k2);
+});
+
+test('ISLAND_VISIT — 방문 화면 스냅샷을 저장한다', () => {
+  const visit = {
+    island: sum('i7'),
+    members: { items: [], nextCursor: null, version: 1 },
+    joinRequestAvailability: 'available',
+    joinRequest: null,
+  };
+  const s = act(initialState(), 'ISLAND_VISIT', { visit });
+  assert.equal(s.serverIslands!.visit!.island.id, 'i7');
 });

@@ -207,6 +207,7 @@ catalog publication 발행은 모든 product revision/entry를 준비한 뒤 Dat
 
 ## 4. 원자 주문 알고리즘
 
+0. **계정 상태 가드 (GROMO-1992).** 게스트면 여기서 403 `SOCIAL_LOGIN_REQUIRED` 다 — 정책 「…상점 구매를 처음 시도할 때 소셜 로그인을 요청한다」. `InternalShopController.purchase` 가 멱등 `publicCommands.run` **앞**에서 `GuestAccountGuards.requireMember` 를 부르므로 거절된 게스트는 receipt 를 남기지 않는다(남기면 소셜 로그인을 마친 뒤 같은 키로 다시 눌렀을 때 실패가 재생된다). 이것은 **계정 상태** 축이고 아래 3의 membership/역할(「구매=주민」)은 **섬 안의 역할** 축이다 — 둘은 서로를 대신하지 못하므로 나란히 둔다. 판정 근거는 AT 의 `guest` 클레임이 아니라 `users.is_guest` 현재 값이다(계정 LLD §2.1).
 1. JWT/service caller 및 body형식 검증. 검증 subject, method+route template, islandId와body를 포함한 canonical intent로 receipt를 조회/직렬화한다.
 2. 활성 caller와 결과공개자격을 확인한 뒤 확정 같은 요청이면 원receipt 재생. 다른hash면409, 처리중이면 공통 retry 규약.
 3. **새 실행만** 사용자/current-island context, membership/역할, 시설 상태와 상품 활성 revision을 정본 TX 안에서 확인한다. 앱/BFF가 넘긴 cached permit 금지.

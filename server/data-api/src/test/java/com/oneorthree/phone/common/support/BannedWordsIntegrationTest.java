@@ -185,8 +185,11 @@ class BannedWordsIntegrationTest {
     @Test
     @DisplayName("③ 편지 — 내부 HTTP 표면에서 400 BANNED_WORD 봉투가 나가고 행이 남지 않는다")
     void letterRejectsBannedWordsOverHttp() throws Exception {
-        UUID sender = newUser();
-        UUID receiver = newUser();
+        // 발신자는 회원이어야 한다 (GROMO-1992) — 게스트는 계정 gate 의 403 이 금칙어 판정보다 먼저다.
+        UUID sender = newMember();
+        assertThat(jdbc.queryForObject("select is_guest from users where id = ?", Boolean.class, sender))
+                .as("회원이어야 게스트 gate 를 지나 BANNED_WORD 판정에 도달한다").isFalse();
+        UUID receiver = newUser();  // 수신자는 gate 대상이 아니라 게스트 그대로다
         friends.acceptRequest(receiver, friends.createRequest(sender, receiver));
         jdbc.update("delete from letters");
 
@@ -319,6 +322,13 @@ class BannedWordsIntegrationTest {
 
     private UUID newUser() {
         return jwt.extractUserId(auth.guestLogin().accessToken());
+    }
+
+    /** 게스트로 만든 뒤 {@code is_guest} 만 내린 회원 — 2.0 회원 전용 표면(편지 발송)을 통과시킬 때만 쓴다. */
+    private UUID newMember() {
+        UUID id = newUser();
+        jdbc.update("update users set is_guest = false where id = ?", id);
+        return id;
     }
 
     private static UserProfileUpdateRequest nickname(String value) {

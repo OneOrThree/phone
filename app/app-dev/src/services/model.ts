@@ -1,3 +1,11 @@
+import type {
+  IslandSummary,
+  JoinRequestStatus,
+  MyIslands,
+  MyJoinRequest,
+  VisitScreen,
+} from '@/services/api/islands';
+
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
 export type Route =
@@ -260,6 +268,22 @@ export type State = {
   lastResult: RecordItem | null;
   pendingIsland: string | null;
   pendingIslands?: string[];
+  // GROMO-2006 서버 온보딩 스냅샷 — /me/islands 정본과 탐색·신청만 담는다.
+  // 서버 DTO에 없는 자료(건물·주민·원장)를 만들지 않고, 초대 token·멱등 키도 저장하지 않는다
+  // (전체 State가 AsyncStorage에 저장되므로 비밀·진행 중 의도는 App ref에 둔다).
+  serverIslands?: {
+    memberships: IslandSummary[];
+    currentIslandId: string | null;
+    lossReason: 'LEFT' | 'KICKED' | null;
+    candidates: IslandSummary[];
+    nextCursor: string | null;
+    visit: VisitScreen | null;
+    joinRequests: MyJoinRequest[];
+    // 단건 상태 조회(/me/join-requests/{id})는 islandName·memberCount 같은 표시 필드가 없다.
+    // 서버가 안 준 값을 합성하지 않고 상태만 별도로 보관한다 — 화면은 목록 항목에 이 상태를 얹어 쓴다.
+    // 취소 응답처럼 version이 없는 결과도 있으므로 version은 선택이다.
+    requestStatus: RequestStatusEntry[];
+  } | null;
   travelOrigin?: string;
   // 다른 섬을 방문자로 구경 중이면 그 섬 ID(GROMO-1904). 내 현재 섬(islandId)은 그대로 둔다
   visitingIslandId?: string | null;
@@ -757,6 +781,44 @@ export const visitorJoinLabel: Record<VisitorJoin, string> = {
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
   islands.find((i) => !i.closed && !i.kicked && inviteCodeOf(i) === code.trim().toUpperCase());
+// /me/islands 응답 정합(GROMO-2006) — current가 있으면 items 안에 있어야 한다.
+// current null+소속 존재는 유효하다: 첫 pending 승인이 소속을 만들어도 current는 안 옮기고,
+// current 섬에서 나가도 남은 소속은 유지된다. 모순(items 밖 current)만 걸러낸다.
+export const myIslandsConsistent = (my: MyIslands) =>
+  my.currentIslandId == null || my.items.some((x) => x.id === my.currentIslandId);
+// 쓰기 의도 멱등 키 풀(GROMO-2006) — 같은 의도(name+exactBody)의 재시도는 같은 키를 돌려주고,
+// release 후에는 새 키를 만든다. 응답 유실·재조회 실패 동안만 키를 유지하고, 확정 성공·종결
+// 뒤에는 release해서 취소 후 같은 섬 재신청 같은 새 사용자 행동이 옛 결과를 replay 받지 않게 한다.
+// 키는 호출부 ref에만 두고 State·AsyncStorage에는 저장하지 않는다.
+// requestStatus 항목 — 취소 응답({id,status:'cancelled'})처럼 version이 없는 서버 결과도
+// 그대로 담는다. 없는 version은 합성하지 않는다.
+export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?: number };
+export const intentKeyPool = (gen: () => string) => {
+  const keys: Record<string, string> = {};
+  const slot = (name: string, exactBody: string) => `${name}:${exactBody}`;
+  return {
+    key: (name: string, exactBody: string) => (keys[slot(name, exactBody)] ??= gen()),
+    release: (name: string, exactBody: string) => {
+      delete keys[slot(name, exactBody)];
+    },
+  };
+};
+// 서버 온보딩 스냅샷 접근 — null 이면 빈 껍데기를 만든다(리듀서 내부 전용).
+// 구 저장본은 requestStatus가 없을 수 있어 읽기 전에 채운다.
+const serverSnap = (s: State) => {
+  const snap = (s.serverIslands ??= {
+    memberships: [],
+    currentIslandId: null,
+    lossReason: null,
+    candidates: [],
+    nextCursor: null,
+    visit: null,
+    joinRequests: [],
+    requestStatus: [],
+  });
+  snap.requestStatus ??= [];
+  return snap;
+};
 export const recordSecondsBetween = (record: RecordItem, from: number, until: number) =>
   (record.intervals ?? [{ start: record.at - record.seconds * 1000, end: record.at }]).reduce(
     (seconds, interval) =>
@@ -1207,6 +1269,8 @@ export function reducer(state: State, a: Action): State {
         Math.max(loadedAt, ...(loaded.friends ?? []).flatMap((f) => f.messages.map((m) => m.at))),
       pendingIslands,
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
+      // 재실행 복구용 서버 온보딩 스냅샷 — 공개 요약·신청만 담겨 있어 저장해도 안전하다
+      serverIslands: loaded.serverIslands ?? null,
       settings: {
         ...loaded.settings,
         publicRecords: true,
@@ -1351,6 +1415,60 @@ export function reducer(state: State, a: Action): State {
       s.visitingIslandId = null;
       break;
     }
+    // ── 섬 — 서버 동기화(GROMO-2006) ──
+    // 서버 응답만 serverIslands 스냅샷에 반영한다. CREATE_ISLAND·JOIN·CANCEL_JOIN 의
+    // 로컬 성공 경로는 REVIEW·DEMO fixture 용이며 일반 실행의 성공 경로에서 부르지 않는다.
+    case 'ISLAND_SYNC': {
+      // /me/islands 정본 — 소속·current·상실 사유를 갈아 끼우고 로컬 joined 표시를 맞춘다
+      const my = a.memberships as MyIslands,
+        snap = serverSnap(s);
+      snap.memberships = my.items;
+      snap.currentIslandId = my.currentIslandId;
+      snap.lossReason = my.lossReason;
+      if (a.requests) snap.joinRequests = a.requests as MyJoinRequest[];
+      const ids = new Set(my.items.map((x) => x.id));
+      for (const island of s.islands)
+        if (island.joined && !ids.has(island.id)) island.joined = false;
+      if (s.session && !ids.has(s.session.islandId)) s.session = null;
+      if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
+      // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
+      s.onboarded = my.currentIslandId != null;
+      break;
+    }
+    case 'ISLAND_CANDIDATES': {
+      // 발견 페이지 반영 — reset이면 새 filter의 첫 페이지로 갈아 끼운다
+      const snap = serverSnap(s),
+        items = a.items as IslandSummary[];
+      snap.candidates = a.reset
+        ? items
+        : [...snap.candidates, ...items.filter((x) => !snap.candidates.some((c) => c.id === x.id))];
+      snap.nextCursor = a.nextCursor ?? null;
+      break;
+    }
+    case 'ISLAND_VISIT':
+      serverSnap(s).visit = a.visit as VisitScreen;
+      break;
+    case 'ISLAND_REQUEST': {
+      // 단건 상태는 표시 필드가 없다 — requestStatus에만 두고, 목록에 있는 항목은 status/version만 갱신한다.
+      // 종결돼도 /me/join-requests 재조회 전까지는 상태가 남아 approval 화면이 결과를 보여줄 수 있다.
+      const r = a.request as RequestStatusEntry,
+        snap = serverSnap(s),
+        prev =
+          snap.requestStatus.find((x) => x.id === r.id) ??
+          snap.joinRequests.find((x) => x.id === r.id);
+      // 서버가 안 준 필드(version 등)는 기존 값을 유지한다 — 합성하지 않는다
+      snap.requestStatus = [...snap.requestStatus.filter((x) => x.id !== r.id), { ...prev, ...r }];
+      snap.joinRequests = snap.joinRequests.map((x) =>
+        x.id === r.id
+          ? { ...x, status: r.status, ...(r.version != null ? { version: r.version } : {}) }
+          : x,
+      );
+      break;
+    }
+    case 'ISLAND_SYNC_REQUESTS':
+      // 신청 목록 재조회 — pending만 오는 서버 목록으로 통째로 갈아 끼운다
+      serverSnap(s).joinRequests = a.requests as MyJoinRequest[];
+      break;
     // ── 집중 세션 ──
     case 'FOCUS_SPOT':
       if (s.session) return state;
@@ -1822,6 +1940,8 @@ export function reducer(state: State, a: Action): State {
     // ── 인증 — 로그아웃 ──
     case 'LOGOUT':
       s.loggedIn = false;
+      // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
+      s.serverIslands = null;
       break;
     // ── 친구·편지 ──
     case 'FRIEND_REQUEST': {

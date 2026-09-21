@@ -56,8 +56,14 @@ public class AuthSessionUseCase {
     private final DataApiClient data;
     private final CredentialDigest digests;
 
+    /**
+     * @param accountSwitchConfirmed 충돌 안내를 본 사용자가 기존 회원 계정으로의 전환을 확정했는가
+     *                               (GROMO-1994). 자격 digest 에는 넣지 «않는다» — digest 는 「원 자격을
+     *                               들고 있다」의 증거이고, 이 값은 자격이 아니라 의도다. 의도가 바뀌면
+     *                               앱이 새 {@code X-Login-Attempt-Id} 를 쓰므로 원장이 둘을 가른다
+     */
     public LoginSession login(LoginAttemptCredentials credentials, SocialCredential credential,
-            String termsVersion, Deadline deadline) {
+            String termsVersion, boolean accountSwitchConfirmed, Deadline deadline) {
 
         String keyId = digests.keyId();
         String digest = digests.of(credential);
@@ -75,7 +81,8 @@ public class AuthSessionUseCase {
         return verified(relay(() -> data.executeLoginAttempt(
                 new DataApiClient.LoginAttemptCommand(
                         credentials.attemptId(), keyId, digest, credential.providerEnumName(),
-                        credential.kind(), credential.value(), termsVersion, credentials.accessToken()),
+                        credential.kind(), credential.value(), termsVersion, credentials.accessToken(),
+                        accountSwitchConfirmed),
                 deadline)));
     }
 

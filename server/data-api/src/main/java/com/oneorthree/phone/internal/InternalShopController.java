@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal;
 
 import com.oneorthree.phone.internal.dto.ShopOrderRequest;
+import com.oneorthree.phone.internal.service.GuestAccountGuards;
 import com.oneorthree.phone.shop.dto.ShopViews;
 import com.oneorthree.phone.shop.service.ShopService;
 import jakarta.validation.Valid;
@@ -28,6 +29,7 @@ import java.util.UUID;
 public class InternalShopController {
 
     private final ShopService shop;
+    private final GuestAccountGuards guestAccountGuards;
 
     @GetMapping("/internal/islands/{islandId}/shop/wallets")
     public ShopViews.Wallets wallets(@PathVariable UUID islandId, @RequestHeader("X-User-Id") UUID userId) {
@@ -49,11 +51,20 @@ public class InternalShopController {
         return shop.product(islandId, userId, productId);
     }
 
-    /** 구매 — 성공은 201. 같은 키·같은 본문은 원 결과 재생이다. */
+    /**
+     * 구매 — 성공은 201. 같은 키·같은 본문은 원 결과 재생이다.
+     *
+     * <p>게스트는 여기서 막힌다 (GROMO-1992, 정책 「…상점 구매를 처음 시도할 때 소셜 로그인을
+     * 요청한다」). {@code publicCommands.run} <b>앞</b> 이라 거절된 게스트는 멱등 receipt 를
+     * 남기지 않는다 — 남기면 소셜 로그인을 마친 뒤 같은 키로 다시 눌렀을 때 실패가 재생된다.
+     * <p>이 가드는 <b>계정 상태</b> 축이고, 「구매=주민 / 건설=방장」({@code ShopService.requireSpender})
+     * 은 <b>섬 안의 역할</b> 축이다 — 둘은 서로를 대신하지 못하므로 나란히 둔다.
+     */
     @PostMapping("/internal/islands/{islandId}/shop/orders")
     @ResponseStatus(HttpStatus.CREATED)
     public ShopViews.Order purchase(@PathVariable UUID islandId, @RequestHeader("X-User-Id") UUID userId,
             @RequestHeader("Idempotency-Key") UUID idempotencyKey, @Valid @RequestBody ShopOrderRequest body) {
+        guestAccountGuards.requireMember(userId);
         return shop.purchase(islandId, userId, body.productId(), body.expectedWalletVersion(),
                 body.expectedProductVersion(), idempotencyKey);
     }

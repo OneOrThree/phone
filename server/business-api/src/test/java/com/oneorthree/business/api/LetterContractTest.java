@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -202,6 +203,22 @@ class LetterContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value(publicCode))
                 .andExpect(jsonPath("$.error.field").value(field)).andReturn();
         assertThat(result.getResponse().getContentAsString()).doesNotContain("private detail");
+    }
+
+    /**
+     * 게스트 발송 거절 (GROMO-1992) — Data 의 403 {@code SOCIAL_LOGIN_REQUIRED} 는 도메인 표에 없어
+     * 이름·상태가 같은 {@code ApiErrorCode} 등록으로 그대로 전달된다. 502 로 접히거나 다른 코드로
+     * 바뀌면 앱이 「소셜 로그인하고 계속하기」를 열지 못한다.
+     */
+    @Test
+    void sendPassesUpstreamSocialLoginRequiredThroughUnchanged() throws Exception {
+        DATA.on(DATA_SEND, request -> error(403, "SOCIAL_LOGIN_REQUIRED"));
+        var result = mockMvc.perform(write(post("/letters"), SEND_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("SOCIAL_LOGIN_REQUIRED"))
+                .andExpect(jsonPath("$.error.field").value(nullValue())).andReturn();
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("private detail");
+        assertThat(DATA.hits(DATA_SEND)).as("403 은 재시도하지 않는다").isEqualTo(1);
     }
 
     /**
