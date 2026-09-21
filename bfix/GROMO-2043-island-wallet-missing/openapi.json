@@ -11822,6 +11822,9 @@
           },
           "onboardingComplete": {
             "type": "boolean"
+          },
+          "deviceBootstrap": {
+            "type": "string"
           }
         }
       },
@@ -13299,6 +13302,13 @@
           "currentIslandId": {
             "type": "string",
             "format": "uuid"
+          },
+          "lossReason": {
+            "type": "string",
+            "enum": [
+              "LEFT",
+              "KICKED"
+            ]
           }
         }
       },
