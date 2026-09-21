@@ -6575,6 +6575,55 @@
         }
       }
     },
+    "/internal/users/{userId}/island-rankings": {
+      "get": {
+        "tags": [
+          "internal-island-rankings-controller"
+        ],
+        "operationId": "islands",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "week",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/IslandRankingPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/island-discovery": {
       "get": {
         "tags": [
@@ -13111,6 +13160,48 @@
           "nextIslandId": {
             "type": "string",
             "format": "uuid"
+          }
+        }
+      },
+      "IslandRanking": {
+        "type": "object",
+        "properties": {
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "islandId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "averageFocusSeconds": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "IslandRankingPage": {
+        "type": "object",
+        "properties": {
+          "week": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/IslandRanking"
+            }
+          },
+          "myRank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "asOf": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },
