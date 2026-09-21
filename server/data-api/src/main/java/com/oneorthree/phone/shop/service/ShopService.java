@@ -118,7 +118,12 @@ public class ShopService {
 
     // ---------------------------------------------------------------- GET wallets
 
-    /** 본인 개인 지갑과 섬 통장을 한 스냅샷에서 읽는다(LLD §2.1). 활성 주민만. */
+    /**
+     * 본인 개인 지갑과 섬 통장을 한 스냅샷에서 읽는다(LLD §2.1). 활성 주민만.
+     *
+     * <p>통장 행이 없는 섬도 <b>200 에 0</b> 이다 — 왜 0 이 사실인지는
+     * {@link IslandWalletService#balanceOf} 에 있다(GROMO-2043, 결정 「통장-부재-0」).
+     */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ShopViews.Wallets wallets(UUID islandId, UUID userId) {
         requireResident(islandId, userId);
