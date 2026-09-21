@@ -287,8 +287,10 @@ main529a 근거(기존 동작과 신규 요구를 구분):
 GROMO-1895 추가(library 화면 `fishEarnings` 조각 = 도서관 물고기 장, 기획 `GET /v1/islands/{islandId}/library/fish-earnings`). 경로는 이 도메인의 다른 통계와 같은 `statistics/` 아래 둔다.
 
 - query 없음. 성공200 `{data:{members:[{userId,name,earnedFish}]}}`. **현재 활성 주민 전원**을 한 번에 싣는다 — 섬 정원 상한 안이라 페이지가 없다(§2 스크린타임 island scope 와 같은 규칙). 정산 기록이 없는 주민은 `earnedFish=0`. 정렬은 `earnedFish` 내림차순, 같으면 `userId` 오름차순.
-- **획득의 정본은 세션 정산 `focus_settlements.earned_fish`**(E=P+C, GROMO-1924 가 쓰기 시작)이고 섬 귀속은 `focus_session_details.island_id` 다 — 하루 상한 합산과 같은 조인이다. 섬 통장 잔액이나 목표 epoch 기여(`island_construction_contributions`)는 지출·목표 변경으로 줄거나 잘리므로 「누적 획득」이 아니다(섬 건설 정책 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」). 떠났다 돌아온 주민은 이전 소속 기간의 이 섬 획득도 합친다. 다른 섬에서 얻은 물고기는 넣지 않는다.
+- **획득의 정본은 적립 원장 `focus_reward_accruals.earned_fish`** 이고 섬 귀속은 `focus_session_details.island_id` 다 — 하루 상한 합산과 같은 조인이다. ~~세션 정산 `focus_settlements.earned_fish`~~ 는 GROMO-1990 이 정본에서 내렸다(실제 구현 `FocusFishEarningsRepository.sumEarnedFishByUser` 대조, 2026-09-21): 보상이 종료 정산이 아니라 **매분 적립 틱**으로 바뀌어, 진행 중인 세션의 이미 낚은 몫과 강퇴·포기로 정산 행이 끝내 생기지 않는 세션의 적립분이 정산 표만 세면 통째로 빠진다. 섬 통장 잔액이나 목표 epoch 기여(`island_construction_contributions`)는 지출·목표 변경으로 줄거나 잘리므로 「누적 획득」이 아니다(섬 건설 정책 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」). 떠났다 돌아온 주민은 이전 소속 기간의 이 섬 획득도 합친다. 다른 섬에서 얻은 물고기는 넣지 않는다.
 - 도서관 게이트: 도서관(`library`)이 COMPLETED 인 섬만 연다 — 아니면 403 `LIBRARY_LOCKED`(Business 는 공개 `FACILITY_LOCKED` 로 옮긴다). 다른 시설 게이트와 같은 `construction.facility-gates.enforce` 스위치를 따른다(기본 OFF 면 통과). 도서관 **기능 범위**(GROMO-1822)는 미확정이지만 이 조회는 그 결정과 무관한 읽기다.
 - 권한: 살아 있는 섬의 활성 주민(방장·일반 동일). 구경꾼·떠난 주민은 403 `MEMBER_ONLY` — 권한 판정이 게이트보다 먼저다. 종료·삭제 섬은 404 `GROUP_NOT_FOUND`.
 - 내부 경로(B26): `GET /internal/islands/{islandId}/statistics/fish-earnings` + 허용목록 `'GET /internal/islands/*/statistics/fish-earnings'`.
+- 공개 배선(GROMO-2046): business-api 가 무접두 `GET /islands/{islandId}/statistics/fish-earnings` 로 중계하고 `/screens/library` 의 `fishEarnings` 조각으로도 싣는다. query 는 하나도 받지 않는다(400 `INVALID_PARAMETER`). 계약·실패 표는 [bff-screens implementation-business-api.md](../bff-screens/implementation-business-api.md) §4.3.
+- ⚠️ **황금 물고기 몫이 아직 빠져 있다.** 정책 「물고기 재화와 기록」이 *황금 물고기 50마리는 함께 낚은 주민의 누적 획득 기록 … 에 50 ÷ 함께 낚은 인원(내림)씩 나눠 더한다* 고 하는데, 현재 합산은 `earned_fish` 한 열뿐이다. GROMO-1956 이 `focus_reward_accruals` 에 `golden_fish` 열을 더하면(V91) 이 집계는 **`earned_fish + golden_fish`** 여야 한다 — 480 상한 합산만 `earned_fish` 를 쓴다.
 
