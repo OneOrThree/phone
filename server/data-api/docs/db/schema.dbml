@@ -2,7 +2,13 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V90 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V90 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// ※ 번호는 연속일 필요가 없다 — Flyway 는 「이미 적용된 것보다 낮은 번호가 나중에 나타나지 않을 것」만 요구한다
+//    (prod 는 out-of-order 가 꺼져 있다). V86 은 형제 PR 순서를 풀려고 비워 둔 자리다(GROMO-1996 이 V89 로 옮겼다).
+// V88 — 휴식 1시간 자동 종료와 결과 1회 제공 (GROMO-1998): focus_settlements.auto_closed · acknowledged_at.
+//        auto_closed 가 「서버가 끝냈다」를, acknowledged_at IS NULL 조건부 UPDATE 가 「아직 안 보여 줬다」를 맡는다.
+// V90 — 기존 건설 목표의 대상 주민 명단 데이터 백필 (GROMO-1999): DDL 없음. 기여 누적이 「있는 행만 UPDATE」로
+//        바뀌어 이미 골라져 있던 목표가 대상 0명으로 굳는 것을 막는다. V30 과 같은 데이터 전용 마이그레이션이다.
 // V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
 //        island_quest_cohort_members · island_quest_claims. island_wallet_transactions.type 에 QUEST_SETTLEMENT 추가(스키마 무변경).
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·
@@ -307,9 +313,17 @@ Table users [note: '서비스 사용자 계정 (소셜 로그인 기반, 소프�
   is_bot                         boolean [not null, default: false, note: '리그 콜드스타트용 스크립트 유저 여부. 리그 랭킹·친구 검색에는 실유저와 동일하게 노출되고, 실유저 통계 분리·봇 회수 시 대상 특정에만 쓴다. 성향은 bot_profiles. GROMO-1565, V48']
 
   indexes {
+    // GROMO-1996, V89: 닉네임 대소문자 무시 «유일성» + 친구 검색(정확 일치) 인덱스.
+    //   정책(policy-2026-09-14) 「닉네임은 대소문자를 구분하지 않고 중복될 수 없다」 + 「친구 검색은
+    //   대소문자를 구분하지 않고 정확히 일치할 때만」 두 문장이 이 한 표현식 축을 공유한다.
+    //   탈퇴자는 nickname=NULL(PII 파기)이라 유니크에 걸리지 않는다. V1 의 uq_users_nickname(정확 일치)은
+    //   이미 적용된 마이그레이션이라 그대로 둔다 — 이 인덱스에 포섭되는 중복 제약이다.
+    //   DBML 은 표현식 인덱스를 백틱으로 적는다: CREATE UNIQUE INDEX … ON users (lower(nickname))
+    (`lower(nickname)`) [unique, name: 'uq_users_nickname_lower', note: '닉네임 대소문자 무시 유일성 + 친구 검색 GROMO-1996, V89']
     // GROMO-460: 친구 닉네임 fuzzy 검색용 GIN 트라이그램 인덱스 (run-migration-v13.sh)
-    //   전제 확장: CREATE EXTENSION pg_trgm  /  쿼리: nickname % :q ORDER BY nickname <-> :q
-    nickname [type: gin, note: 'pg_trgm GIN (gin_trgm_ops) — 닉네임 trgm 검색 GROMO-460']
+    //   ⚠ GROMO-1996 이 검색을 전체 일치로 바꾸면서 «쓰는 쿼리가 없다». 안정화 전까지 남겨 두고
+    //     제거는 별건으로 다룬다. groups.name 의 trgm(V18)은 계속 쓰인다.
+    nickname [type: gin, note: 'pg_trgm GIN (gin_trgm_ops) — 닉네임 trgm 검색 GROMO-460 (GROMO-1996 이후 미사용)']
     occupation [name: 'idx_users_occupation', note: 'CATEGORY 평균 집중 집계가 occupation=? 로 모수 좁힐 때 사용 GROMO-753, V11']
     is_bot [name: 'idx_users_is_bot', note: '부분 인덱스 WHERE is_bot = true — BotSimulator 가 매 tick 봇 목록을 뽑는다. GROMO-1565, V48']
   }
@@ -780,6 +794,8 @@ Table focus_settlements [note: 'GROMO-1764: v0.3 세션당 정산 결과(다른 
   quest_progress            jsonb
   events                    jsonb   [note: '내부 결과 — 공개 finish 응답에 그대로 노출하지 않는다']
   completed_at              timestamptz [not null, note: '정산을 확정한 서버 시각. 하루 상한 합산 축은 V82 에서 focus_reward_accruals.accrued_on 으로 옮겼다(진행 중 적립분이 상한에 잡혀야 한다)']
+  auto_closed               boolean [not null, default: false, note: 'V88 — 휴식 1시간 초과로 «서버가» 끝낸 정산(GROMO-1998). finish 로 끝난 정산은 false 다. 소속 상실 종결은 정산 행 자체를 만들지 않는다']
+  acknowledged_at           timestamptz [note: 'V88 — 자동 종료 결과창을 보여 준 시각(GROMO-1998). auto_closed AND acknowledged_at IS NULL 이 「다음 접속에 한 번 보여줄 결과」이고, IS NULL 조건부 UPDATE 가 최초 1회만 성공한다']
   created_at                timestamptz [not null, default: `now()`]
 
   indexes {

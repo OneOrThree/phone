@@ -184,6 +184,35 @@ class IslandMembershipContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
+    @Test
+    @DisplayName("현재 섬이 없는 이유는 그대로 미러하고, 없는 이유가 없으면 키도 없다")
+    void lossReasonMirrorsUpstream() throws Exception {
+        DATA.on(DATA_MINE, request -> ok("{\"items\":[],\"currentIslandId\":null,"
+                + "\"lossReason\":\"KICKED\"}"));
+        mockMvc.perform(auth(get("/me/islands")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.currentIslandId").doesNotExist())
+                .andExpect(jsonPath("$.data.lossReason").value("KICKED"));
+
+        DATA.reset();
+        // 이 키를 «모르는» Data 가 붙어도 통과해야 한다 — 두 서비스는 따로 배포된다.
+        DATA.on(DATA_MINE, request -> ok("{\"items\":[],\"currentIslandId\":null}"));
+        mockMvc.perform(auth(get("/me/islands")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.lossReason").doesNotExist());
+    }
+
+    @Test
+    @DisplayName("현재 섬이 있는데 상실 사유가 함께 오면 502 다 — V84 의 CHECK 와 같은 불변식")
+    void aCurrentIslandWithALossReasonIsAContractViolation() throws Exception {
+        DATA.on(DATA_MINE, request -> ok("{\"items\":[" + SUMMARY + "],\"currentIslandId\":\""
+                + ISLAND + "\",\"lossReason\":\"LEFT\"}"));
+
+        mockMvc.perform(auth(get("/me/islands")))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
     // ---------------------------------------------------------------- 커서
 
     @Test

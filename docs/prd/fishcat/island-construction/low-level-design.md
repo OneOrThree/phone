@@ -189,7 +189,7 @@ Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차�
 
 시설 완공은 island.updated, 실제 공동 차감은 wallet.updated, 외양 변경은 island.appearance.updated를 각각 만든다. 각 사건은 해당 projection 버전과 고유 eventId를 갖는다. 기본 테마 값은 PR742 자산 정본에서 찾고 임의 문자열로 seed하지 않는다. Data 내부 명령 결과는 `{data:공개DTO,events:완성된RealtimeEventEnvelope[]}`다. 7필드 schemaVersion/eventId/type/islandId/aggregateVersion/occurredAt/payload를 모두 저장해 응답 유실에도 그대로 재생한다. Data outbox의 기존10필드 저장 EventEnvelope와 이 공개7필드 배열은 다른 표현이며 같은 작성 TX가 둘 다 보관한다. Business에서 outbox를 다시 읽어 사건을 재구성하지 않는다.
 
-공동 wallet.updated와 island.updated는 현재 주민의 `/topic/islands/{islandId}/events`, 외양 사건은 PR737의 events 라우팅을 따른다. 개인 지갑이 함께 바뀌는 승인된 집중 정산이면 그 사건은 해당 개인큐로만 보낸다. 집단 events에 개인 지급 상세를 섞지 않는다.
+공동 wallet.updated와 island.updated는 현재 주민의 `/topic/islands/{islandId}/events`, 외양 사건은 PR737의 events 라우팅을 따른다. ~~개인 지갑이 함께 바뀌는 승인된 집중 정산이면 그 사건은 해당 개인큐로만 보낸다~~ 는 2026-09-21 재화-단일로 **대상 소멸**이다 — 개인 물고기 지갑이 없어 집중 정산이 바꾸는 지갑은 섬 통장 하나뿐이고 개인큐로 가는 `wallet.updated` 는 발행되지 않는다. 집단 events에 개인 지급 상세를 섞지 않는다는 규율은 그대로다(개인 보유품 사건 `inventory.updated` 는 여전히 개인큐다).
 
 ## 5. 기존 코드·구현 순서·검증
 

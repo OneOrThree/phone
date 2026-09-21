@@ -12,9 +12,11 @@ import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.item.dto.CharacterEquipmentResponse;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
+import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.friend.repository.domain.Friendship;
 import com.oneorthree.phone.friend.repository.domain.FriendshipStatus;
 import com.oneorthree.phone.friend.repository.domain.PinnedUser;
+import com.oneorthree.phone.friend.dto.FriendRelation;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
@@ -74,6 +76,11 @@ public class FriendService {
     private final FriendRelationLookup friendRelationLookup;
     private final MainIslandNamePort mainIslandNamePort;
     /**
+     * GROMO-2002: 친구를 끊으면 아직 확인하지 않은 편지도 지운다(policy-2026-09-14). letter 는 L2,
+     * friend 는 L3 이라 참조가 아래로 간다 — {@code DomainLayerRulesTest} 가 이 방향을 위해 층을 갈라 뒀다.
+     */
+    private final LetterRepository letterRepository;
+    /**
      * GROMO-1090: 푸시는 여기서 직접 보내지 않고 이벤트만 발행한다 — 발송은 커밋 이후에 일어나야 한다
      * (요청/수락이 롤백되는데 알림만 나가면 안 된다). 소비는 notification 도메인의 AFTER_COMMIT 리스너.
      */
@@ -98,6 +105,7 @@ public class FriendService {
      * @param friendRelationLookup        검색 결과의 관계 배지 판정 — 프로필 도메인과 공유한다
      * @param mainIslandNamePort          상대들의 메인 섬 이름을 한 번에 뽑는 포트(GROMO-1971) — 섬은
      *                                    group(L5) 데이터라 friend(L3)가 직접 부르면 레이어 역행이다
+     * @param letterRepository            친구 삭제에 딸린 미확인 편지 정리(GROMO-2002)
      * @param eventPublisher              푸시 발송을 커밋 이후로 미루기 위한 이벤트 발행기
      * @param searchStrategies            등록된 검색 전략 전부. {@code type()} 을 키로 Map 이 되며,
      *                                    키가 겹치면 기동 시점에 터진다
@@ -115,6 +123,7 @@ public class FriendService {
                          FocusLiveInfoLookup focusLiveInfoLookup,
                          FriendRelationLookup friendRelationLookup,
                          MainIslandNamePort mainIslandNamePort,
+                         LetterRepository letterRepository,
                          ApplicationEventPublisher eventPublisher,
                          List<FriendSearchStrategy> searchStrategies,
                          @Qualifier("friendRequestRateLimiter") PerUserHourlyLimiter guestRequestLimiter) {
@@ -129,6 +138,7 @@ public class FriendService {
         this.focusLiveInfoLookup = focusLiveInfoLookup;
         this.friendRelationLookup = friendRelationLookup;
         this.mainIslandNamePort = mainIslandNamePort;
+        this.letterRepository = letterRepository;
         this.eventPublisher = eventPublisher;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
@@ -296,6 +306,22 @@ public class FriendService {
     /**
      * 친구 삭제 — ACCEPTED 관계를 양측 누구나 soft delete.
      *
+     * <p><b>아직 확인하지 않은 편지를 함께 지운다</b> (GROMO-2002, policy-2026-09-14 「친구를 삭제하면
+     * 서로 편지를 보낼 수 없고 아직 확인하지 않은 편지도 지운다」). 「보낼 수 없다」는 이미 지켜지고
+     * 있었다 — {@code InternalLetterService.send} 가 관계 확인으로 막는다.
+     * 여기서 더하는 것은 뒤쪽 절반, 남아 있는 미확인 편지의 정리다.
+     *
+     * <p><b>두 절반은 관계 행 배타 락으로 이어 붙인다</b>(codex 리뷰 P1). 발송과 이 삭제가
+     * {@code findAcceptedBetweenForUpdate} 로 같은 행을 잡지 않으면, 발송이 확인을 통과한 뒤 이 정리가
+     * 커밋되고 그 «다음에» 편지가 꽂혀 「관계는 끊겼는데 미확인 편지가 남는」 상태가 만들어진다 —
+     * 앞 절반과 뒤 절반이 각각은 맞는데 합쳐서 틀리는 자리다.
+     *
+     * <p>정리를 «여기»에 둔 것은 의도다. 레거시 {@code friend.FriendController} 와 내부 표면
+     * {@code InternalFriendController} 두 표면이 모두 이 메서드로 모이므로, 상위(internal, L10)에
+     * 올려 두면 레거시 경로만 정책을 어기게 된다. 레이어도 맞다 — {@code letter} 는 L2, {@code friend} 는
+     * L3 이라 참조가 아래로 간다. {@code DomainLayerRulesTest} 의 letter 층 주석이 「친구 삭제 후 편지
+     * 정리가 결정되면 friend 가 letter 를 참조해야 한다」며 미리 비워 둔 자리다.
+     *
      * @param me           끊는 쪽
      * @param friendUserId 끊을 상대. 이미 탈퇴한 유저여도 허용한다 — 아니면 잔존 관계를 영영 못 끊는다
      * @return 끊은 관계 행 id (GROMO-1894 내부 표면이 결과를 돌려주는 데 쓴다. 레거시 컨트롤러는 무시한다)
@@ -306,9 +332,19 @@ public class FriendService {
         // 통과한 요청이 탈퇴가 하드 삭제한 관계 행에 뒤늦게 UPDATE 를 내 500 으로 터진다. 탈퇴가 먼저면 404.
         User meUser = getCallerParticipant(me);
         User friendUser = getAnyUser(friendUserId);   // 탈퇴자와의 잔존 관계도 끊을 수 있어야 한다 (GROMO-801)
-        Friendship friendship = friendshipRepository.findAcceptedBetween(meUser, friendUser)
+        // 관계 행 배타 락 (codex 리뷰 P1) — 편지 발송과 «같은 행»에서 직렬화한다. 락 없이 읽으면
+        // 발송이 관계 확인을 통과한 뒤 이 삭제가 정리까지 커밋하고, 그 다음에 발송이 편지를 꽂아
+        // 「관계는 끊겼는데 미확인 편지가 남는」 상태가 된다(LLD §결정 3 위반).
+        // 잠금 순서는 users(공유) → friendships(배타) — 논증은 findAcceptedBetweenForUpdate Javadoc.
+        Friendship friendship = friendshipRepository.findAcceptedBetweenForUpdate(meUser, friendUser)
                 .orElseThrow(() -> new FriendException(FriendErrorCode.NOT_FRIEND));
-        friendship.softDelete(Instant.now());
+        Instant now = Instant.now();
+        friendship.softDelete(now);
+        // ⚠ 순서가 중요하다. 편지 정리는 벌크 UPDATE(clearAutomatically)라 영속성 컨텍스트를 «비운다» —
+        // 먼저 부르면 위 friendship 이 준영속이 되어 softDelete 가 조용히 유실된다. 뒤에 두면
+        // flushAutomatically 가 friendship UPDATE 를 먼저 내보낸 뒤 정리가 돈다. 같은 트랜잭션이라
+        // 둘은 함께 커밋되거나 함께 롤백된다 — 관계만 끊기고 편지가 남는 중간 상태는 없다.
+        letterRepository.softDeleteUnreadBetween(me, friendUserId, now);
         return friendship.getId();
     }
 
@@ -475,10 +511,18 @@ public class FriendService {
      * 친구 검색 — type 전략에 위임 후 자기자신 제외 + 기존 관계(relation) 표기.
      * relation 판정은 {@link FriendRelationLookup} 공유 컴포넌트에 위임한다 (GROMO-1631 — 프로필과 공유).
      *
+     * <p><b>비친구에게는 티어·준비 시험을 주지 않는다</b> (GROMO-1996). 검색은 닉네임만 알면 누구나
+     * 칠 수 있는 표면이라, 모르는 사람의 프로필 정보를 여기서 흘리면 친구 수락이라는 관문이 무의미해진다.
+     * 남기는 셋({@code userId}·{@code nickname}·{@code relation})은 「이 사람에게 친구 요청을 보낼까」를
+     * 그리는 데 필요한 최소값이다 — 더 보려면 친구가 되고 나서 프로필로 간다.
+     *
+     * <p>가리는 자리가 «여기» 인 것은 의도다: relation 이 이미 계산돼 있으므로 전략은 아무것도 몰라도
+     * 되고, 검색 수단이 늘어도 가림 규칙은 한 곳에 남는다.
+     *
      * @param me    검색하는 유저 — 결과에서 제외되고, 관계 배지 판정의 기준이 된다
      * @param type  검색 수단. 등록된 전략이 없으면 {@link IllegalArgumentException} 을 던져 400 이 된다
      * @param query 검색어. 해석은 전략 몫이다
-     * @return 관계 배지까지 채운 검색 결과
+     * @return 관계 배지까지 채운 검색 결과. 친구가 아닌 건의 {@code tierLevel}·{@code occupation} 은 null 이다
      */
     public List<FriendSearchResultResponse> search(UUID me, SearchType type, String query) {
         FriendSearchStrategy strategy = searchStrategies.get(type);
@@ -491,13 +535,19 @@ public class FriendService {
 
         return strategy.search(me, query).stream()
                 .filter(r -> !r.getUserId().equals(me))
-                .map(r -> FriendSearchResultResponse.builder()
-                        .userId(r.getUserId())
-                        .nickname(r.getNickname())
-                        .tierLevel(r.getTierLevel())
-                        .occupation(r.getOccupation())
-                        .relation(friendRelationLookup.resolveRelation(r.getUserId(), friendIds, pendingIds))
-                        .build())
+                .map(r -> {
+                    FriendRelation relation =
+                            friendRelationLookup.resolveRelation(r.getUserId(), friendIds, pendingIds);
+                    boolean friend = relation == FriendRelation.FRIEND;
+                    return FriendSearchResultResponse.builder()
+                            .userId(r.getUserId())
+                            .nickname(r.getNickname())
+                            // PENDING(요청중)도 아직 친구가 아니다 — 수락 전에 미리 보여 주지 않는다.
+                            .tierLevel(friend ? r.getTierLevel() : null)
+                            .occupation(friend ? r.getOccupation() : null)
+                            .relation(relation)
+                            .build();
+                })
                 .toList();
     }
 

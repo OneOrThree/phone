@@ -17,6 +17,7 @@ import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.focus.repository.DailyFocusStatRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.item.repository.CharacterEquipmentRepository;
+import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.friend.repository.domain.PinnedUser;
 import com.oneorthree.phone.friend.dto.PinnedUserResponse;
 import com.oneorthree.phone.friend.event.FriendRequestAcceptedEvent;
@@ -103,6 +104,10 @@ class FriendServiceTest {
     @Mock
     private MainIslandNamePort mainIslandNamePort;
 
+    /** GROMO-2002: 친구를 끊으면 아직 확인하지 않은 편지도 지운다 — 실제 삭제는 InternalLetterIntegrationTest 가 본다. */
+    @Mock
+    private LetterRepository letterRepository;
+
     private FriendService friendService;
 
     private static final LocalDate DATE = LocalDate.of(2026, 7, 3);
@@ -120,7 +125,8 @@ class FriendServiceTest {
         friendService = new FriendService(friendshipRepository, userQueryService, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
                 userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
-                new FriendRelationLookup(friendshipRepository), mainIslandNamePort, eventPublisher,
+                new FriendRelationLookup(friendshipRepository), mainIslandNamePort, letterRepository,
+                eventPublisher,
                 List.of(nicknameStrategy),
                 // 한도 자체는 PerUserHourlyLimiterTest·PerUserRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
                 new PerUserHourlyLimiter("test", 1_000_000, Clock.systemUTC()));
@@ -714,7 +720,7 @@ class FriendServiceTest {
         Friendship f = friendship(me, target, FriendshipStatus.ACCEPTED);
         given(userQueryService.getCallerForShare(meId)).willReturn(me);
         given(userQueryService.getAny(targetId)).willReturn(target);
-        given(friendshipRepository.findAcceptedBetween(me, target)).willReturn(Optional.of(f));
+        given(friendshipRepository.findAcceptedBetweenForUpdate(me, target)).willReturn(Optional.of(f));
 
         friendService.deleteFriend(meId, targetId);
 
@@ -722,11 +728,38 @@ class FriendServiceTest {
     }
 
     @Test
+    @DisplayName("친구 삭제 — 아직 확인하지 않은 편지도 함께 지운다 (GROMO-2002, policy-2026-09-14)")
+    void deleteFriend_alsoDeletesUnreadLetters() {
+        Friendship f = friendship(me, target, FriendshipStatus.ACCEPTED);
+        given(userQueryService.getCallerForShare(meId)).willReturn(me);
+        given(userQueryService.getAny(targetId)).willReturn(target);
+        given(friendshipRepository.findAcceptedBetweenForUpdate(me, target)).willReturn(Optional.of(f));
+
+        friendService.deleteFriend(meId, targetId);
+
+        // 관계의 삭제 시각과 편지의 삭제 시각이 같아야 한다 — 한 사건이다.
+        verify(letterRepository).softDeleteUnreadBetween(meId, targetId, f.getDeletedAt());
+    }
+
+    @Test
+    @DisplayName("친구 삭제 — 관계가 없으면 편지도 건드리지 않는다 (NOT_FRIEND 가 먼저다)")
+    void deleteFriend_notFriend_leavesLettersAlone() {
+        given(userQueryService.getCallerForShare(meId)).willReturn(me);
+        given(userQueryService.getAny(targetId)).willReturn(target);
+        given(friendshipRepository.findAcceptedBetweenForUpdate(me, target)).willReturn(Optional.empty());
+
+        assertThatThrownBy(() -> friendService.deleteFriend(meId, targetId))
+                .isInstanceOf(FriendException.class);
+
+        verify(letterRepository, never()).softDeleteUnreadBetween(any(), any(), any());
+    }
+
+    @Test
     @DisplayName("친구 삭제 — ACCEPTED 관계 없으면 NOT_FRIEND")
     void deleteFriend_notFriend_throws() {
         given(userQueryService.getCallerForShare(meId)).willReturn(me);
         given(userQueryService.getAny(targetId)).willReturn(target);
-        given(friendshipRepository.findAcceptedBetween(me, target)).willReturn(Optional.empty());
+        given(friendshipRepository.findAcceptedBetweenForUpdate(me, target)).willReturn(Optional.empty());
 
         assertThatThrownBy(() -> friendService.deleteFriend(meId, targetId))
                 .isInstanceOf(FriendException.class)
@@ -742,7 +775,7 @@ class FriendServiceTest {
         Friendship f = friendship(me, withdrawn, FriendshipStatus.ACCEPTED);
         given(userQueryService.getCallerForShare(meId)).willReturn(me);
         given(userQueryService.getAny(targetId)).willReturn(withdrawn);
-        given(friendshipRepository.findAcceptedBetween(me, withdrawn)).willReturn(Optional.of(f));
+        given(friendshipRepository.findAcceptedBetweenForUpdate(me, withdrawn)).willReturn(Optional.of(f));
 
         friendService.deleteFriend(meId, targetId);
 
@@ -953,13 +986,54 @@ class FriendServiceTest {
         assertThat(results).filteredOn(r -> r.getUserId().equals(strangerId))
                 .extracting(FriendSearchResultResponse::getRelation)
                 .containsExactly(FriendRelation.NONE);
-        // 전략이 채운 티어가 응답까지 흐른다 (GROMO-710) — 전략 자체의 티어 도출은 NicknameSearchStrategyTest 담당
-        assertThat(results).extracting(FriendSearchResultResponse::getTierLevel)
-                .containsOnly(1);
+        // 전략이 채운 티어는 «친구에게만» 흐른다 (GROMO-1996) — 상세는 아래 전용 테스트가 본다.
+        assertThat(results).filteredOn(r -> r.getUserId().equals(friendId))
+                .extracting(FriendSearchResultResponse::getTierLevel)
+                .containsExactly(1);
+    }
+
+    @Test
+    @DisplayName("검색 — 친구가 아니면 tierLevel·occupation 을 주지 않는다 (GROMO-1996)")
+    void search_hidesTierAndOccupationFromNonFriends() {
+        UUID friendId = UUID.randomUUID();
+        UUID pendingId = UUID.randomUUID();
+        UUID strangerId = UUID.randomUUID();
+        User friend = user(friendId, "friend");
+        User pending = user(pendingId, "pending");
+
+        given(userQueryService.getCaller(meId)).willReturn(me);
+        given(nicknameStrategy.search(meId, "q")).willReturn(List.of(
+                result(friendId, "friend"), result(pendingId, "pending"), result(strangerId, "stranger")));
+        given(friendshipRepository.findAcceptedByUser(me))
+                .willReturn(List.of(friendship(me, friend, FriendshipStatus.ACCEPTED)));
+        given(friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
+                .willReturn(List.of(friendship(me, pending, FriendshipStatus.PENDING)));
+        given(friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(me, FriendshipStatus.PENDING))
+                .willReturn(List.of());
+
+        List<FriendSearchResultResponse> results = friendService.search(meId, SearchType.NICKNAME, "q");
+
+        // 친구만 값을 받는다.
+        assertThat(results).filteredOn(r -> r.getUserId().equals(friendId))
+                .extracting(FriendSearchResultResponse::getTierLevel, FriendSearchResultResponse::getOccupation)
+                .containsExactly(org.assertj.core.groups.Tuple.tuple(1, "LABOR_ATTORNEY"));
+        // 요청중(PENDING)도 아직 친구가 아니다 — 수락 전에 미리 보여 주지 않는다.
+        assertThat(results).filteredOn(r -> !r.getUserId().equals(friendId))
+                .allSatisfy(r -> {
+                    assertThat(r.getTierLevel()).isNull();
+                    assertThat(r.getOccupation()).isNull();
+                    // 요청 버튼을 그리는 데 필요한 셋은 그대로 남는다.
+                    assertThat(r.getUserId()).isNotNull();
+                    assertThat(r.getNickname()).isNotNull();
+                    assertThat(r.getRelation()).isNotNull();
+                });
+        assertThat(results).extracting(FriendSearchResultResponse::getUserId)
+                .containsExactlyInAnyOrder(friendId, pendingId, strangerId);
     }
 
     private FriendSearchResult result(UUID userId, String nickname) {
-        return FriendSearchResult.builder().userId(userId).nickname(nickname).tierLevel(1).build();
+        return FriendSearchResult.builder().userId(userId).nickname(nickname)
+                .tierLevel(1).occupation("LABOR_ATTORNEY").build();
     }
 
     // ── pin / unpin / getPinned ────────────────────────────
