@@ -159,8 +159,11 @@ INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON C
 **기준 시각은 실행 순간이 아니라 주 종료 경계다**(RK-D01-기준시각). 가입·이탈 **양방향**을 그 경계로 판정하므로
 **실행 시각이 값을 바꾸지 않는다** — 하루 늦게 돌아도 같은 분모가 나온다. 판정은
 `IslandWeeklyMemberCountRepository.ACTIVE_AT_BOUNDARY_SQL` 한 자리에 있다:
-멤버십 시작은 `COALESCE(rejoined_at, created_at) < 경계`, 이탈은 `left_at IS NULL OR left_at >= 경계`
-(V97, GROMO-2050). `created_at` 이 null 인 legacy 행은 «경계보다 오래된 행»으로 보고 포함한다 — DB 가 NOT NULL 이
+멤버십 시작은 `COALESCE(rejoined_at, created_at) IS NULL OR COALESCE(rejoined_at, created_at) < 경계`,
+이탈은 `is_left = false OR (left_at IS NOT NULL AND left_at >= 경계)` (V97, GROMO-2050).
+**이탈 쪽을 `left_at IS NULL OR …` 로 줄여 적으면 안 된다** — V97 «이전» 에 나간 행은 `is_left = true` 인데
+`left_at` 이 null 이라(백필하지 않았다) 그 축약은 그 이력 행을 경계 시점 주민으로 되살려 **과거 주 분모를
+부풀린다**. 재사용하는 쿼리는 위 전체 조건을 그대로 쓴다. `created_at` 이 null 인 legacy 행은 «경계보다 오래된 행»으로 보고 포함한다 — DB 가 NOT NULL 이
 아니라 빼면 옛 주민이 통째로 사라진다.
 
 실행 유예(`ranking.freeze.grace`)는 **삭제했다**. 이탈 방향을 쿼리로 닫을 수 없던 동안의 임시 방편이었고, 이제
