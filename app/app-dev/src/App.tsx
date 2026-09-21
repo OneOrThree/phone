@@ -1,5 +1,6 @@
 import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
+import { useRouteOrientation } from '@/utils/orientation';
 import { Btn as NativeButton, Txt as NativeText } from '@/design-system/patterns';
 import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
 import React, { useState, useReducer, useEffect, useRef } from 'react';
@@ -468,6 +469,8 @@ function Gromo() {
   useEffect(() => {
     if (route !== 'product') setPreviewAudio(false);
   }, [route]);
+  // GROMO-1839 시작·가입 화면만 세로로 고정하고 나머지는 기기 방향을 따른다
+  useRouteOrientation(route);
   useEffect(() => {
     try {
       player.volume = state.settings.sound ? ((state.settings as any).volume ?? 0.55) : 0;
