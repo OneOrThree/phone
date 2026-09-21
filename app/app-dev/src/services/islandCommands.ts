@@ -82,14 +82,34 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
   const alive = (g: number) => {
     if (generation() !== g) throw staleError();
   };
+  const allJoinRequests = async (g: number) => {
+    const requests: Awaited<ReturnType<IslandApi['myJoinRequests']>>['items'] = [];
+    const ids = new Set<string>(),
+      cursors = new Set<string>();
+    let cursor: string | undefined;
+    while (true) {
+      alive(g);
+      const page = await api.myJoinRequests(cursor === undefined ? {} : { cursor });
+      alive(g);
+      for (const request of page.items)
+        if (!ids.has(request.id)) {
+          ids.add(request.id);
+          requests.push(request);
+        }
+      if (page.nextCursor == null) return requests;
+      if (cursors.has(page.nextCursor)) throw contractError();
+      cursors.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
+  };
   // /me/islands·/me/join-requests 정본 동기화. current 가 있으면 items 안에 있어야 한다 —
   // null current+소속은 유효하다(첫 pending 승인이 소속을 만들어도 current는 안 옮긴다).
   const syncIslands = async () => {
     const g = generation();
-    const [my, requests] = await Promise.all([api.myIslands(), api.myJoinRequests()]);
+    const [my, requests] = await Promise.all([api.myIslands(), allJoinRequests(g)]);
     alive(g);
     if (!myIslandsConsistent(my)) throw contractError();
-    deps.dispatch({ type: 'ISLAND_SYNC', memberships: my, requests: requests.items });
+    deps.dispatch({ type: 'ISLAND_SYNC', memberships: my, requests });
     return my;
   };
   // 409·404 계열은 서버 상태가 바뀌었다는 뜻 — 재조회로 화면 데이터를 맞춘 뒤 원 오류를 다시 던진다.
@@ -129,7 +149,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     explore: () =>
       call(async () => {
         const g = generation();
-        const [screen, requests] = await Promise.all([api.explore(), api.myJoinRequests()]);
+        const [screen, requests] = await Promise.all([api.explore(), allJoinRequests(g)]);
         alive(g);
         if (!myIslandsConsistent(screen.memberships)) throw contractError();
         deps.dispatch({ type: 'ISLAND_SYNC', memberships: screen.memberships });
@@ -139,7 +159,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
           nextCursor: screen.islands.nextCursor,
           reset: true,
         });
-        deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests: requests.items });
+        deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests });
         return screen.islands;
       }),
     // 발견 다음 페이지 — INVALID_CURSOR/CURSOR_EXPIRED는 화면이 첫 페이지부터 다시 부른다
@@ -213,6 +233,8 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         const g = generation(),
           r = await api.joinRequest(requestId);
         alive(g);
+        const current = deps.getSnap()?.requestStatus.find((x) => x.id === requestId);
+        if (r.status === 'pending' && current && current.status !== 'pending') return current;
         if (r.status === 'approved') await syncIslands();
         alive(g);
         deps.dispatch({ type: 'ISLAND_REQUEST', request: r });
@@ -222,10 +244,10 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     requests: () =>
       call(async () => {
         const g = generation(),
-          page = await api.myJoinRequests();
+          requests = await allJoinRequests(g);
         alive(g);
-        deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests: page.items });
-        return page;
+        deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests });
+        return { items: requests, nextCursor: null };
       }),
     // 신청 취소 — 목록 재조회 뒤 실제 취소 응답의 status를 requestStatus에도 기록해
     // 대기 카드·취소 버튼이 남지 않게 한다. 서버가 version을 안 주면 기존 값을 유지한다(합성 금지).
@@ -248,9 +270,9 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
             type: 'ISLAND_REQUEST',
             request: { id: res.id, islandId: prev.islandId, status: res.status },
           });
-        const page = await api.myJoinRequests();
+        const requests = await allJoinRequests(g);
         alive(g);
-        deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests: page.items });
+        deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests });
         scoped().keys.release(`cancel:${requestId}`, '');
       }),
     // 부팅 동기화 재시도 — 성공하면 오류 플래그를 내린다. 단, 응답이 늦게 도착해 세대가

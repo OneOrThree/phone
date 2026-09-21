@@ -333,6 +333,92 @@ test('explore의 memberships도 같은 정합 검사를 거친다', async () => 
   assert.equal(h.dispatched.length, 0);
 });
 
+test('sync·explore·requests는 21개 이상 신청을 모든 cursor에서 모아 중복 없이 반영한다', async () => {
+  const first = Array.from({ length: 20 }, (_, n) => myReq({ id: `r${n}` }));
+  const rest = [myReq({ id: 'r19' }), myReq({ id: 'r20' })];
+  const pages = jest.fn(async ({ cursor }: { cursor?: string } = {}) =>
+    cursor ? { items: rest, nextCursor: null } : { items: first, nextCursor: 'next' },
+  );
+  const h = harness({
+    myIslands: async () => myIslands(),
+    myJoinRequests: pages,
+    explore: async () => ({ memberships: myIslands(), islands: { items: [], nextCursor: null } }),
+  });
+  await h.cmds.commands.sync();
+  assert.equal(h.state().serverIslands!.joinRequests.length, 21);
+  await h.cmds.commands.explore();
+  const recovered = await h.cmds.commands.requests();
+  assert.equal(recovered.nextCursor, null);
+  assert.equal(recovered.items.length, 21);
+  assert.equal(h.state().serverIslands!.joinRequests.length, 21);
+  assert.ok(pages.mock.calls.some((args) => args[0]?.cursor === 'next'));
+});
+
+test('반복 cursor와 세대 변경 중 페이지 수집은 정본을 dispatch하지 않는다', async () => {
+  const cyclic = harness({
+    myIslands: async () => myIslands(),
+    myJoinRequests: async () => ({ items: [myReq()], nextCursor: 'same' }),
+  });
+  await assert.rejects(
+    cyclic.cmds.commands.sync(),
+    (e: ApiError) => e.code === 'UPSTREAM_CONTRACT_ERROR',
+  );
+  assert.equal(cyclic.dispatched.length, 0);
+  let changing: ReturnType<typeof harness>;
+  changing = harness({
+    myIslands: async () => myIslands(),
+    myJoinRequests: async ({ cursor } = {}) => {
+      if (!cursor) return { items: [myReq()], nextCursor: 'next' };
+      changing.setGen(1);
+      return { items: [myReq({ id: 'r2' })], nextCursor: null };
+    },
+  });
+  await assert.rejects(
+    changing.cmds.commands.sync(),
+    (e: ApiError) => e.code === 'CLIENT_STALE_SESSION',
+  );
+  assert.equal(changing.dispatched.length, 0);
+});
+
+test('취소와 진행 중 폴링, 승인 뒤의 오래된 pending, 오래된 목록 경쟁은 종결 상태를 되돌리지 않는다', async () => {
+  let release!: (value: Awaited<ReturnType<IslandApi['joinRequest']>>) => void;
+  const delayed = new Promise<Awaited<ReturnType<IslandApi['joinRequest']>>>((resolve) => {
+    release = resolve;
+  });
+  const h = harness({
+    joinRequest: async () => delayed,
+    cancelJoinRequest: async () => ({ id: 'r1', status: 'cancelled' as const }),
+    myJoinRequests: async () => ({ items: [myReq()], nextCursor: null }),
+  });
+  await h.cmds.commands.requests();
+  const polling = h.cmds.commands.status('r1');
+  await h.cmds.commands.cancel('r1');
+  release({ id: 'r1', islandId: 'i1', status: 'pending', version: 3 });
+  await polling;
+  assert.equal(h.state().serverIslands!.requestStatus[0].status, 'cancelled');
+  const approved = reducer(h.state(), {
+    type: 'ISLAND_REQUEST',
+    request: { id: 'r1', islandId: 'i1', status: 'approved', version: 4 },
+  } as never);
+  const protectedState = reducer(approved, {
+    type: 'ISLAND_REQUEST',
+    request: { id: 'r1', islandId: 'i1', status: 'pending', version: 3 },
+  } as never);
+  assert.equal(protectedState.serverIslands!.requestStatus[0].status, 'approved');
+  const listed = reducer(protectedState, {
+    type: 'ISLAND_SYNC_REQUESTS',
+    requests: [myReq()],
+  } as never);
+  assert.equal(listed.serverIslands!.requestStatus[0].status, 'approved');
+  assert.equal(listed.serverIslands!.joinRequests.length, 0);
+  const synced = reducer(listed, {
+    type: 'ISLAND_SYNC',
+    memberships: myIslands(),
+    requests: [myReq()],
+  } as never);
+  assert.equal(synced.serverIslands!.joinRequests.length, 0);
+});
+
 test('LOGOUT은 서버 스냅샷을 비워 orphan 신청이 다음 계정에 섞이지 않는다', () => {
   const h = harness({ myJoinRequests: async () => ({ items: [myReq()], nextCursor: null }) });
   return h.cmds.commands.requests().then(() => {

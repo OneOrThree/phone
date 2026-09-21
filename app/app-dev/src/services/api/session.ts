@@ -44,6 +44,28 @@ const removeItem = (key: string): Promise<void> =>
 let cached: Session | null = null;
 let generation = 0;
 let onLost: (() => void) | null = null;
+const listeners = new Set<(session: Session | null) => void>();
+
+/** 세션 공개 상태 변경 구독. 등록 즉시 현재 snapshot을 알리고 이후 공개 전환도 알린다. */
+export function subscribeSession(listener: (session: Session | null) => void): () => void {
+  listeners.add(listener);
+  try {
+    listener(cached);
+  } catch {
+    // 화면 구독자가 실패해도 인증 저장소 전환을 중단하거나 다른 구독자를 막지 않는다.
+  }
+  return () => listeners.delete(listener);
+}
+
+function notifySessionChanged(): void {
+  listeners.forEach((listener) => {
+    try {
+      listener(cached);
+    } catch {
+      // 구독자 하나의 렌더 실패는 durable token 삭제·다른 구독자에게 전파되지 않는다.
+    }
+  });
+}
 
 /**
  * 인증 상태를 바꾸는 저장소 작업(복구·저장·삭제)을 한 줄로 세운다 — 계정 LLD §3 전환 gate 1
@@ -103,6 +125,7 @@ export function restoreSession(): Promise<Session | null> {
       // 키체인 접근 실패(잠긴 기기 등)를 로그인 상태로 오인하지 않는다.
       cached = null;
     }
+    notifySessionChanged();
     return cached;
   });
 }
@@ -169,6 +192,7 @@ export function saveSession(session: Session, expectedGeneration?: number): Prom
     }
     cached = session;
     generation += 1;
+    notifySessionChanged();
     return true;
   });
 }
@@ -192,6 +216,7 @@ export function clearSession(expectedGeneration?: number): Promise<Session | nul
     const cleared = cached;
     cached = null;
     generation += 1;
+    notifySessionChanged();
     const failed: unknown[] = [];
     const swallow = (error: unknown): void => void failed.push(error);
     await removeItem(KEY_BUNDLE).catch(swallow);
