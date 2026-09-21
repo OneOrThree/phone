@@ -427,6 +427,15 @@ CONNECT 자체에 적용하지 않는다. JWT 만료는 기존 PR739의 명시 �
 공통 기반 담당과 합류한다. FR-D04 결정에 따라 active/paused를 채팅 차단 투영으로 매핑한다.
 이 사본을 신규 emote의 최종 인가 증거로 단독 사용하지 않는다. 현재 Data 상태/인가 revision을 확인한다.
 
+**구현(GROMO-2003).** 통합 자리는 `focus/service/FocusPresenceProjection` 하나다 — 섬 focus/rest 사건(같은 TX outbox)과
+Redis 리스(commit 뒤)를 한 호출로 적고, 다른 클래스가 `FocusPresencePort`·`FocusMemberEvents`를 직접 부르면
+`architecture/DomainLayerRulesTest`가 빌드를 깨뜨린다. controlVersion은 새 표를 만들지 않고 **`(focus_sessions.presence_order,
+focus_session_details.version)` 쌍**으로 잡았다 — 순번은 공유 DB 시퀀스라 한 사용자 안에서 세션을 건너 단조 증가하고(두 시작은
+users 행 배타 락 아래 INSERT된다) version은 전이마다 +1이라, 둘을 사전식으로 비교하면 세션이 바뀌어도 초기화되지 않는 사용자별
+지속 축이 된다. 리스 값은 `순번:controlVersion:상태`이고 쓰기는 「지금 값보다 오래되지 않을 때만」 CAS한다. **종료는 순번만 본다**
+— 끝난 세션의 어떤 controlVersion도 낡은 값이라, 쌍으로 비교하면 휴식 중 종료가 자기 리스를 못 지워 13시간 차단이 돌아온다.
+읽는 쪽(Realtime `FocusPresenceReader`)은 그대로 **키의 존재**만 보므로 FR-D04 전까지 active·paused 둘 다 차단이다.
+
 ## 7. 검증과 관측
 
 | 검증 | 실패 시 막는 문제 |

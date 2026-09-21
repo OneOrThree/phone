@@ -1,8 +1,12 @@
 package com.oneorthree.phone.focus.scheduler;
 
-import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.common.port.FocusPresenceState;
+import com.oneorthree.phone.focus.repository.FocusSessionControlState;
+import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
+import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
+import com.oneorthree.phone.focus.service.FocusPresenceProjection;
 import com.oneorthree.phone.focus.service.FocusService;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -112,7 +116,9 @@ public class FocusPresenceReconciler {
     private final Set<UUID> pendingRecheck = ConcurrentHashMap.newKeySet();
 
     private final FocusSessionRepository focusSessionRepository;
-    private final FocusPresencePort focusPresencePort;
+    /** 진행 중 마커의 <b>절대 상태·전이 번호</b>를 읽는다 — 마커만으로는 휴식인지 알 수 없다(GROMO-2003). */
+    private final FocusSessionDetailRepository focusSessionDetailRepository;
+    private final FocusPresenceProjection focusPresenceProjection;
     private final TransactionOperations transactionOperations;
     private final AsyncTaskExecutor applicationTaskExecutor;
     private final Clock clock;
@@ -138,10 +144,12 @@ public class FocusPresenceReconciler {
     @Autowired
     public FocusPresenceReconciler(
             FocusSessionRepository focusSessionRepository,
-            FocusPresencePort focusPresencePort,
+            FocusSessionDetailRepository focusSessionDetailRepository,
+            FocusPresenceProjection focusPresenceProjection,
             PlatformTransactionManager transactionManager,
             Clock clock) {
-        this(focusSessionRepository, focusPresencePort, readOnlyWithTimeout(transactionManager),
+        this(focusSessionRepository, focusSessionDetailRepository, focusPresenceProjection,
+                readOnlyWithTimeout(transactionManager),
                 new SimpleAsyncTaskExecutor("focus-presence-reconcile-"), clock);
     }
 
@@ -170,12 +178,14 @@ public class FocusPresenceReconciler {
     /** 테스트용 — 실행기를 「제자리 실행」으로 바꿔 재구축 내용을 결정적으로 단언한다. */
     FocusPresenceReconciler(
             FocusSessionRepository focusSessionRepository,
-            FocusPresencePort focusPresencePort,
+            FocusSessionDetailRepository focusSessionDetailRepository,
+            FocusPresenceProjection focusPresenceProjection,
             TransactionOperations transactionOperations,
             AsyncTaskExecutor applicationTaskExecutor,
             Clock clock) {
         this.focusSessionRepository = focusSessionRepository;
-        this.focusPresencePort = focusPresencePort;
+        this.focusSessionDetailRepository = focusSessionDetailRepository;
+        this.focusPresenceProjection = focusPresenceProjection;
         this.transactionOperations = transactionOperations;
         this.applicationTaskExecutor = applicationTaskExecutor;
         this.clock = clock;
@@ -228,10 +238,23 @@ public class FocusPresenceReconciler {
             return;
         }
 
+        List<FocusSession> targets = newestPerUser(alive);
+        Map<UUID, FocusSessionControlState> controls;
+        try {
+            controls = readControlStates(targets);
+        } catch (RuntimeException e) {
+            // 상세를 못 읽으면 「휴식인데 active 로 되살리는」 위험이 남는다 — 이번 회차를 통째로
+            // 건너뛰고 다음 회차에 다시 든다. 리스를 «비어 있을 때만» 채우므로 미루는 대가는 5분이다.
+            log.error("집중 프레즌스 재구축 실패(상태 조회) — 다음 회차에 다시 시도한다", e);
+            return;
+        }
+
         // 트랜잭션이 «닫힌 뒤» 쓴다 — 안에서 쓰면 커밋 콜백으로 밀려 한 시점에 전부 몰린다.
         List<UUID> restored = new ArrayList<>();
-        for (FocusSession session : newestPerUser(alive)) {
-            if (!focusPresencePort.restoreLeaseIfMissing(session.getUser().getId(), session.getPresenceOrder(),
+        for (FocusSession session : targets) {
+            FocusSessionControlState control = controls.get(session.getId());
+            if (!focusPresenceProjection.restoreLeaseIfMissing(session.getUser().getId(),
+                    session.getPresenceOrder(), controlVersionOf(control), stateOf(control),
                     session.getStartedAt())) {
                 // 저장소가 흔들린다. 남은 건을 이어 가면 «각각» 타임아웃을 기다려, 부가 기능의 장애가
                 // 스케줄러 슬롯을 인원수배로 점유한다 — 같은 풀의 다른 크론이 그만큼 밀린다.
@@ -304,7 +327,8 @@ public class FocusPresenceReconciler {
             // 「지웠는가」를 확인하고 뺀다. 조회가 성공해도 해제가 실패할 수 있는데(그쪽은 별개의
             // Redis 연산이다), 그걸 성공으로 치고 빼면 그 세션은 진행 중 조회에도 안 잡히고
             // 대기 목록에도 없어 «아무도» 리스를 못 치운다 — 시작 기준 13시간 차단이다.
-            if (focusPresencePort.releaseLeaseNow(session.getUser().getId(), session.getPresenceOrder())) {
+            if (focusPresenceProjection.releaseLeaseNow(session.getUser().getId(),
+                    session.getPresenceOrder())) {
                 pendingRecheck.remove(session.getId());
                 reclaimed++;
             } else {
@@ -370,6 +394,37 @@ public class FocusPresenceReconciler {
     private static boolean isNewer(FocusSession candidate, FocusSession kept) {
         int byStart = candidate.getStartedAt().compareTo(kept.getStartedAt());
         return byStart != 0 ? byStart > 0 : candidate.getId().compareTo(kept.getId()) > 0;
+    }
+
+    /**
+     * 진행 중 마커들의 v0.3 상세 상태를 한 번에 읽는다 — 레거시 마커는 결과에 없다.
+     *
+     * <p>읽기 트랜잭션을 한 번 더 여는 것은 {@link #readAliveMarkers} 와 같은 이유다: 쓰기는 트랜잭션이
+     * 닫힌 뒤에 해야 커밋 콜백으로 밀리지 않는데, 두 조회를 한 트랜잭션에 묶으면 그 경계가 흐려진다.
+     */
+    private Map<UUID, FocusSessionControlState> readControlStates(List<FocusSession> markers) {
+        if (markers.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = markers.stream().map(FocusSession::getId).toList();
+        List<FocusSessionControlState> rows = transactionOperations.execute(status ->
+                focusSessionDetailRepository.findControlStatesBySessionIdIn(ids));
+        Map<UUID, FocusSessionControlState> byId = new LinkedHashMap<>();
+        for (FocusSessionControlState row : rows) {
+            byId.put(row.sessionId(), row);
+        }
+        return byId;
+    }
+
+    /** 상세가 없으면(레거시 마커) 전이 번호가 없다 — 0 이다. */
+    private static long controlVersionOf(FocusSessionControlState control) {
+        return control == null ? 0L : control.version();
+    }
+
+    /** 상세가 없으면 휴식이라는 개념 자체가 없다 — 레거시 마커는 언제나 집중 중이다. */
+    private static FocusPresenceState stateOf(FocusSessionControlState control) {
+        return control != null && control.lifecycle() == FocusSessionLifecycle.PAUSED
+                ? FocusPresenceState.PAUSED : FocusPresenceState.ACTIVE;
     }
 
     private List<FocusSession> readAliveMarkers() {

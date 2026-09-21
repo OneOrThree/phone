@@ -5,6 +5,7 @@ import com.fasterxml.uuid.UUIDClock;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.common.port.FocusPresencePort;
+import com.oneorthree.phone.common.port.FocusPresenceState;
 import com.oneorthree.phone.focus.dto.FocusSessionStartRequest;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import org.junit.jupiter.api.DisplayName;
@@ -73,12 +74,12 @@ class FocusPresenceDbOrderIntegrationTest {
         // UUID 로 비교했다면 A 의 옛 세션이 «더 새로워» 보인다. DB 순번은 그렇지 않다.
         assertThat(olderIdFromFastClock.toString()).isGreaterThan(newer.toString());
         assertThat(newerOrder).isGreaterThan(olderOrder);
-        assertThat(redis.opsForValue().get(lease)).isEqualTo(String.valueOf(newerOrder));
+        assertThat(redis.opsForValue().get(lease)).isEqualTo(newerOrder + ":0:active");
 
         // A 의 커밋 콜백이 늦게 도착한다 — 옛 시작도, 옛 종료도 새 리스를 바꾸지 못한다.
-        presence.focusStarted(user, olderOrder, Instant.now());
+        presence.focusStateChanged(user, olderOrder, 0L, FocusPresenceState.ACTIVE, Instant.now());
         presence.focusEnded(user, olderOrder);
-        assertThat(redis.opsForValue().get(lease)).isEqualTo(String.valueOf(newerOrder));
+        assertThat(redis.opsForValue().get(lease)).isEqualTo(newerOrder + ":0:active");
 
         // 새 세션의 종료는 지운다.
         presence.focusEnded(user, newerOrder);

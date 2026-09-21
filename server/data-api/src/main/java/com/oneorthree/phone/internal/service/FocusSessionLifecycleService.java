@@ -2,7 +2,6 @@ package com.oneorthree.phone.internal.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.oneorthree.phone.common.port.FocusPresencePort;
 import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
@@ -28,7 +27,7 @@ import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle;
 import com.oneorthree.phone.focus.repository.domain.FocusSettlement;
 import com.oneorthree.phone.focus.repository.domain.FocusType;
-import com.oneorthree.phone.focus.service.FocusMemberEvents;
+import com.oneorthree.phone.focus.service.FocusPresenceProjection;
 import com.oneorthree.phone.focus.support.FocusIntervalMath;
 import com.oneorthree.phone.focus.support.FocusSessionStartGate;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -57,7 +56,6 @@ import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -118,8 +116,6 @@ import java.util.UUID;
 public class FocusSessionLifecycleService {
 
     private static final int MAX_SUBJECT_LENGTH = 200;
-    /** 세션이 끝나 focus/rest 목록에서 지운다는 상태값 — LLD §6 의 {@code completed}(행 제거)다. */
-    private static final String STATUS_ENDED = FocusMemberEvents.STATUS_COMPLETED;
     /** 「진행 중」으로 보는 lifecycle — 사용자당 최대 1건(V58 부분 UNIQUE)이 걸리는 집합 그대로다. */
     private static final List<FocusSessionLifecycle> PROGRESSING =
             List.of(FocusSessionLifecycle.ACTIVE, FocusSessionLifecycle.PAUSED);
@@ -134,7 +130,6 @@ public class FocusSessionLifecycleService {
     private final FocusSessionIntervalRepository focusSessionIntervalRepository;
     private final DailyFocusStatRepository dailyFocusStatRepository;
     private final PublicCommandService publicCommands;
-    private final FocusMemberEvents focusMemberEvents;
     private final FocusRewardPolicyRepository focusRewardPolicyRepository;
     private final FocusSettlementRepository focusSettlementRepository;
     /** 적립 원장 — finish 는 여기서 합계를 <b>읽기만</b> 한다(GROMO-1990). 지갑은 아예 모른다. */
@@ -145,13 +140,15 @@ public class FocusSessionLifecycleService {
      */
     private final FocusRewardAccrualService rewardAccruals;
     /**
-     * 집중 프레즌스 리스(선행 조건 #5) — 채팅 서버가 「집중 중엔 채팅 불가」를 판정하는 근거다.
-     * 레거시와 <b>같은 포트·같은 키</b>를 쓴다(LLD §6 「하나의 Data projection 포트」). 리스는 세션 단위라
-     * start 가 놓고 세션을 끝내는 전이(finish·소속 상실·마커 desync 정리)가 지운다. pause/resume 은
-     * 건드리지 않는다 — 휴식 중 채팅 허용은 미결 제품 결정 FR-D04 이고, 그 결정 전에는 세션이 끝날
-     * 때까지 리스가 남는다(레거시 리컨실러도 열린 마커마다 같은 리스를 복구한다).
+     * 섬 focus/rest 투영과 집중 프레즌스 리스를 <b>한 자리에서</b> 적는 포트(선행 조건 #5 ·
+     * LLD §6 「하나의 Data projection 포트」, GROMO-2003). 레거시와 같은 포트·같은 키를 쓴다.
+     *
+     * <p>pause/resume 도 여기를 거친다 — 리스 값이 {@code active}/{@code paused} 를 구분하게 되면서
+     * 휴식 전이도 반영돼야 값이 정본과 어긋나지 않기 때문이다. <b>키는 세션이 끝날 때까지 남으므로
+     * 채팅 차단 판정은 그대로다</b>(휴식 중 채팅 허용은 미결 제품 결정 FR-D04 이고, 그 결정이 나면
+     * 바뀌는 것은 읽는 쪽의 매핑이지 이 쓰기가 아니다).
      */
-    private final FocusPresencePort focusPresencePort;
+    private final FocusPresenceProjection focusPresenceProjection;
     private final Clock clock;
 
     /**
@@ -231,17 +228,15 @@ public class FocusSessionLifecycleService {
 
                     FocusSessionView view = new FocusSessionView(session.getId(), islandId, subject, targetMinutes,
                             FocusSessionView.STATUS_ACTIVE, 0L, now, now, null, detail.getVersion());
-                    EventEnvelope event = appendFocusMemberEvent(userId, islandId, view);
-                    // 선행 조건 #9 — start 도 rest 투영을 내구화한다(LLD §6). active 는 「rest 목록에서
-                    // 이 사용자를 지운다」라, 이전 세션이 남긴 옛 sessionId·restSeat 가 새 focus 상태와
-                    // 함께 보이지 않는다.
-                    EventEnvelope restEvent = appendRestMemberEvent(userId, islandId, session.getId(),
-                            FocusSessionView.STATUS_ACTIVE, null, null, now, detail.getVersion());
-                    // 반영은 커밋 이후다(RedisFocusPresence) — 롤백된 start 는 리스를 남기지 않는다.
                     // 순번은 INSERT 때 DB 시퀀스가 채운다(GROMO-1743) — 쓰기 지연을 여기서 내보내야 보인다.
                     focusSessionRepository.flush();
-                    focusPresencePort.focusStarted(userId, session.getPresenceOrder(), now);
-                    return new PublicCommandResult(201, tree(view), tree(List.of(event, restEvent)));
+                    // 선행 조건 #9 — start 도 rest 투영을 내구화한다(LLD §6). active 는 「rest 목록에서
+                    // 이 사용자를 지운다」라, 이전 세션이 남긴 옛 sessionId·restSeat 가 새 focus 상태와
+                    // 함께 보이지 않는다. 리스 반영은 커밋 이후다(RedisFocusPresence) — 롤백된 start 는
+                    // 리스를 남기지 않는다.
+                    List<EventEnvelope> events = focusPresenceProjection.progressing(userId, islandId, view,
+                            null, session.getPresenceOrder());
+                    return new PublicCommandResult(201, tree(view), tree(events));
                 }).value().data();
         return decode(data, FocusSessionView.class);
     }
@@ -328,10 +323,8 @@ public class FocusSessionLifecycleService {
                             detail.getSubject(), detail.getTargetMinutes(), FocusSessionView.STATUS_PAUSED,
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), now,
                             detail.getVersion());
-                    EventEnvelope focusEvent = appendFocusMemberEvent(userId, detail.getIslandId(), view);
-                    EventEnvelope restEvent = appendRestMemberEvent(userId, detail.getIslandId(), sessionId,
-                            FocusSessionView.STATUS_PAUSED, now, restSeat, now, detail.getVersion());
-                    return new PublicCommandResult(200, tree(view), tree(List.of(focusEvent, restEvent)));
+                    return new PublicCommandResult(200, tree(view), tree(focusPresenceProjection.progressing(
+                            userId, detail.getIslandId(), view, restSeat, presenceOrderOf(sessionId))));
                 }).value().data();
         return decode(data, FocusSessionView.class);
     }
@@ -376,11 +369,9 @@ public class FocusSessionLifecycleService {
                             detail.getSubject(), detail.getTargetMinutes(), FocusSessionView.STATUS_ACTIVE,
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), null,
                             detail.getVersion());
-                    EventEnvelope focusEvent = appendFocusMemberEvent(userId, detail.getIslandId(), view);
                     // active 전이는 rest 목록에서 제거를 뜻한다 — restStartedAt/restSeat=null(LLD §6).
-                    EventEnvelope restEvent = appendRestMemberEvent(userId, detail.getIslandId(), sessionId,
-                            FocusSessionView.STATUS_ACTIVE, null, null, now, detail.getVersion());
-                    return new PublicCommandResult(200, tree(view), tree(List.of(focusEvent, restEvent)));
+                    return new PublicCommandResult(200, tree(view), tree(focusPresenceProjection.progressing(
+                            userId, detail.getIslandId(), view, null, presenceOrderOf(sessionId))));
                 }).value().data();
         return decode(data, FocusSessionView.class);
     }
@@ -481,12 +472,8 @@ public class FocusSessionLifecycleService {
                 .build());
         // 사건(projection 버전)은 잠금 순서의 맨 끝이다(LLD §3). 지갑 사건은 적립 틱이 그때그때 냈으므로
         // 여기서는 내지 않는다 — finish 는 잔액을 바꾸지 않는다.
-        List<EventEnvelope> events = new ArrayList<>();
-        events.add(appendFocusMemberEvent(userId, islandId, sessionId, STATUS_ENDED, detail.getSubject(),
-                activeSeconds, t, detail.getVersion()));
-        events.add(appendRestMemberEvent(userId, islandId, sessionId, STATUS_ENDED, null, null, t,
-                detail.getVersion()));
-        focusPresencePort.focusEnded(userId, marker.getPresenceOrder());
+        List<EventEnvelope> events = focusPresenceProjection.ended(userId, islandId, sessionId,
+                detail.getSubject(), activeSeconds, t, detail.getVersion(), marker.getPresenceOrder());
         return new PublicCommandResult(200, tree(finishView(detail, settlement)), tree(events));
     }
 
@@ -721,12 +708,9 @@ public class FocusSessionLifecycleService {
         detail.applyAbandon(t);
         // 선행 조건 #9 — 정리된 세션을 그 섬의 focus/rest 목록에서 지운다. 안 보내면 휴식 중에 정리된
         // 사용자의 옛 restSeat 가 그 섬의 rest 투영에 영영 남는다. 세션이 끝났으니 리스도 지운다.
-        appendFocusMemberEvent(detail.getUserId(), detail.getIslandId(), detail.getSessionId(), STATUS_ENDED,
-                detail.getSubject(), FocusIntervalMath.activeSecondsAsOf(intervals, t), t, detail.getVersion());
-        appendRestMemberEvent(detail.getUserId(), detail.getIslandId(), detail.getSessionId(), STATUS_ENDED,
-                null, null, t, detail.getVersion());
-        focusPresencePort.focusEnded(detail.getUserId(),
-                focusSessionRepository.findPresenceOrderById(detail.getSessionId()).orElse(null));
+        focusPresenceProjection.ended(detail.getUserId(), detail.getIslandId(), detail.getSessionId(),
+                detail.getSubject(), FocusIntervalMath.activeSecondsAsOf(intervals, t), t, detail.getVersion(),
+                presenceOrderOf(detail.getSessionId()));
         return true;
     }
 
@@ -761,23 +745,14 @@ public class FocusSessionLifecycleService {
         return seat;
     }
 
-    private EventEnvelope appendFocusMemberEvent(UUID userId, UUID islandId, FocusSessionView view) {
-        return appendFocusMemberEvent(userId, islandId, view.id(), view.status(), view.subject(),
-                view.activeSeconds(), view.serverNow(), view.version());
-    }
-
-    private EventEnvelope appendFocusMemberEvent(UUID userId, UUID islandId, UUID sessionId, String status,
-                                                 String subject, long activeSeconds, Instant serverNow,
-                                                 long sessionVersion) {
-        return focusMemberEvents.focusUpdated(userId, islandId, sessionId, status, subject, activeSeconds,
-                serverNow, sessionVersion);
-    }
-
-    private EventEnvelope appendRestMemberEvent(UUID userId, UUID islandId, UUID sessionId, String status,
-                                                Instant restStartedAt, Integer restSeat, Instant serverNow,
-                                                long sessionVersion) {
-        return focusMemberEvents.restUpdated(userId, islandId, sessionId, status, restStartedAt, restSeat,
-                serverNow, sessionVersion);
+    /**
+     * 프레즌스 리스의 순서 키 — 상세가 아니라 기본 마커({@code focus_sessions})에 있다.
+     *
+     * <p>스칼라로 읽는다 — 마커 엔티티를 잠금 전에 올리면 뒤이은 {@code FOR UPDATE} 가 그 낡은
+     * 인스턴스를 돌려준다({@link #abandonIfMarkerClosed} 와 같은 이유).
+     */
+    private Long presenceOrderOf(UUID sessionId) {
+        return focusSessionRepository.findPresenceOrderById(sessionId).orElse(null);
     }
 
     private static String validateSubject(String subject) {
