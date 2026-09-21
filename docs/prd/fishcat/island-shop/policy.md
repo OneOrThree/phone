@@ -23,15 +23,9 @@ GROMO-1780 · [PRD](prd.md) · [LLD](low-level-design.md)
 
 |상품/행동|ownerType/ownerId|currency|요청자 조건|원자 효과|이벤트 수신|
 |---|---|---|---|---|---|
-<<<<<<< HEAD
-|옷·소품 구매(선체 상품 없음 — 배 종류 폐지)|user/검증 subject|fish(개인 물고기)|활성 본인 + 상점 접근 가능한 현재 섬|개인 지갑 차감 + 개인 소유 추가|본인|
-|섬·건물 테마·음원 구매|island/대상 섬|village_points(섬 물고기)|활성 주민(`SHARED_PURCHASE` = 주민 누구나, GROMO-2000) + 시설|섬 통장 차감 + 섬 소유 추가|해당 섬 주민|
-|내역 personal|user/검증 subject|fish(개인 물고기)|활성 본인 + 경로 context 접근|조회만|발행 없음|
-=======
-|옷·소품 구매(선체 상품 없음 — 배 종류 폐지)|user/검증 subject|village_points(섬 물고기)|활성 본인 + `SHARED_PURCHASE`(섬 설정 토글, D2) + 상점 접근 가능한 현재 섬|**섬 통장** 차감 + 개인 소유 추가|본인|
-|섬·건물 테마·음원 구매|island/대상 섬|village_points(섬 물고기)|활성 주민 + `SHARED_PURCHASE`(섬 설정 토글, D2) + 시설|섬 통장 차감 + 섬 소유 추가|해당 섬 주민|
+|옷·소품 구매(선체 상품 없음 — 배 종류 폐지)|user/검증 subject|village_points(섬 물고기)|활성 본인(게스트 제외, GROMO-1999/2000) + 상점 접근 가능한 현재 섬|**섬 통장** 차감 + 개인 소유 추가|본인|
+|섬·건물 테마·음원 구매|island/대상 섬|village_points(섬 물고기)|활성 주민(`SHARED_PURCHASE` = 주민 누구나, 구매는 게스트 제외 — GROMO-2000) + 시설|섬 통장 차감 + 섬 소유 추가|해당 섬 주민|
 |내역 personal|user/검증 subject|village_points(섬 물고기)|활성 본인 + 경로 context 접근|조회만|발행 없음|
->>>>>>> origin/main
 |내역 shared|island/대상 섬|village_points(섬 물고기)|현재 섬 활성 주민|조회만|발행 없음|
 
 **2026-09-19 SH-재화 + 2026-09-21 재화-단일:** 재화는 섬 단위 하나뿐이고 **개인 물고기 지갑은 없다** — 상점은 개인
