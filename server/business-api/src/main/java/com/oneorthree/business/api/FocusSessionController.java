@@ -84,6 +84,31 @@ public class FocusSessionController {
         return focusSessions.current(sessions.requireSession(request), deadline());
     }
 
+    /**
+     * 휴식이 1시간을 넘겨 서버가 자동 종료한 집중의 <b>아직 안 보여 준</b> 결과 (GROMO-1998).
+     * 보여 줄 것이 없으면 {@code {"data": null}} 이고 404 가 아니다 — {@code current} 와 같은 자리다.
+     * 앱은 켤 때 이 값을 받아 결과창을 띄우고, 닫을 때 아래 {@code acknowledge} 를 부른다.
+     */
+    @GetMapping("/focus-sessions/pending-result")
+    public FocusFinish pendingResult(HttpServletRequest request) {
+        return focusSessions.pendingResult(sessions.requireSession(request), deadline());
+    }
+
+    /**
+     * 결과창을 보여 줬다고 표시한다 (GROMO-1998) — 이후로 {@code pending-result} 에 다시 오지 않는다.
+     *
+     * <p>본문도 {@code Idempotency-Key} 도 받지 않는다. Data 가 {@code acknowledged_at IS NULL} 조건부
+     * UPDATE 로 최초 1회만 세팅하므로 재접속·동시 접속·재시도가 몇 번 오든 결과는 같다 — 멱등 키는
+     * 「두 번 실행되면 안 되는」 명령의 장치이고 이건 그런 명령이 아니다(결과 확인 ack 의 선례:
+     * {@code ChallengeResultAckController}).
+     */
+    @PostMapping("/focus-sessions/{sessionId}/acknowledge")
+    public ResponseEntity<Void> acknowledge(@PathVariable String sessionId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        focusSessions.acknowledgeResult(claims, uuid(sessionId, "sessionId"), deadline());
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping(value = "/focus-sessions/{sessionId}/pause", consumes = "application/json")
     public FocusSessionState pause(@PathVariable String sessionId, @RequestBody JsonNode body,
             HttpServletRequest request) {

@@ -24,6 +24,7 @@
 | FR-P16 | 신규 상세 세션의 legacy live 랭킹·표시도 ACTIVE 구간 합을 사용. pause 고정·resume 추가분·finish 중복 없는 조회 회귀 전 신규 활성화 금지 | 기존 now-start 쿼리의 휴식 가산 결함 방지, LLD §5.1 |
 | FR-P17 | 신규 API 비활성 상태로 상세를 인식하는 legacy writer/reader를 먼저 전량 배포하고, 실제 rollback 최소 호환 baseline 이동·구 이미지 실행 차단 후 신규 활성화 | 기존 이미지 존재 확인만 하는 rollback과 마커 자동 종료의 결함 방지, LLD §5.2 |
 | FR-P18 | 완료 목록과 앱의 재계산도 ACTIVE 합·실제 구간을 사용. 최소 호환 앱/접근 경계 또는 모든 소비처의 의미를 보존하는 검증된 읽기 projection을 준비하기 전 신규 활성화 금지. REST를 totalDistractionSeconds에 넣지 않음 | 완료 목록 소비처의 휴식 가산·시간표 오류 방지, LLD §5.1.1 |
+| FR-P19 | **휴식 1시간 자동 종료와 결과 1회 제공**(GROMO-1998). 휴식하기를 누른 순간부터 1시간이 지나면 서버가 이번 집중을 **정상 완료**로 끝낸다 — `finish` 와 같은 정산 경로라 집중 기록·일 집계·정산 행·focus/rest 사건이 모두 같다. 추가 지급은 없다(물고기는 적립 틱이 이미 넣었다). 정산 행의 `auto_closed` 표지가 그 결과를 「아직 안 보여 준 결과」로 만들고, 앱은 다음 접속에 `GET /focus-sessions/pending-result` 로 받아 결과창을 띄운 뒤 `POST /focus-sessions/{sessionId}/acknowledge` 로 확인한다. **「한 번만」의 근거는 `acknowledged_at IS NULL` 조건부 원자 UPDATE** 이고 인메모리 플래그가 아니다 — 확인 전에는 몇 번을 물어도 같은 결과가 오고(앱이 죽어 못 본 사용자를 잃지 않는다), 확인 뒤에는 오지 않는다. 지연 판정이 아니라 크론인 이유는 「앱을 끈 주민도 자동 종료 «전까지만»」 남의 모닥불에 보여야 하기 때문이다. 포기·소속 상실 종결과 달리 정산 행이 남는다 | [현재 정책](https://github.com/OneOrThree/planning-document/blob/main/policy-2026-09-14.md) 「집중·휴식·도서관」 · [휴식 화면 명세](https://github.com/OneOrThree/planning-document/blob/main/specs/rest-screen-spec.md) §8, LLD §2 rest-auto-close·pending-result·acknowledge |
 
 본 문서의 원자성은 Data 내부 상태에 대한 약속이다. DB commit과 Redis/TCP 전달을 하나의 트랜잭션이라고
 표현하지 않는다. 후자는 outbox/relay, 현재 인가, 스냅샷 복구로 처리한다.
