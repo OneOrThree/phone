@@ -13,7 +13,7 @@
 | DTO | 공개 필드 |
 | --- | --- |
 | `FocusSessionView` | id:Id, islandId:Id, subject:string, targetMinutes:integer, status:active\|paused, activeSeconds:Seconds, serverNow:Instant, startedAt:Instant, restStartedAt:Instant?, version:Version |
-| `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, allocation:{personalFishAdded:integer,constructionFishAdded:integer}(2026-09-18 D5-귀속으로 «되살아난» 필드 — 2026-09-19 D5-귀속-개정으로 현재 개인 0 · 섬 통장 100%, 비율은 운영값. `constructionFishAdded` 는 섬 통장 몫인데 이름이 건설로 좁다(섬 통장은 공동 구매에도 쓰인다) — 이름 재검토는 LLD 개정 몫), completedAt:Instant, questProgress:[{id:Id,myRate:number}] |
+| `FocusFinishView` | recordId:Id, islandId:Id, subject:string, targetMinutes:integer, activeSeconds:Seconds, goalAchieved:boolean, earnedFish:integer, allocation:{personalFishAdded:integer,constructionFishAdded:integer}(2026-09-18 D5-귀속으로 «되살아난» 필드 — **2026-09-21 재화-단일로 `personalFishAdded` 는 영구 0, `constructionFishAdded` 가 `earnedFish` 전부다**. 개인 물고기 지갑이 없어 비율이라는 축 자체가 없다. 두 필드는 호환으로 유지하고 제거는 앱 전량 전환 뒤 별도 티켓(재화-단일-호환 ③). `constructionFishAdded` 는 섬 통장 몫인데 이름이 건설로 좁다(섬 통장은 공동 구매에도 쓰인다) — 이름 재검토는 LLD 개정 몫), completedAt:Instant, questProgress:[{id:Id,myRate:number}] |
 | `FocusMember` | userId:Id, name:string, catColor:catalogKey, appearance:{clothes:catalogKey?,decor:catalogKey?,hull:catalogKey,position:front\|back}, sessionId:Id, subject:string, activeSeconds:Seconds, status:active\|paused |
 | `RestMember` | userId:Id, name:string, catColor:catalogKey, restSeat:integer, restStartedAt:Instant |
 | `FocusSummary` | date:KST date, completedSeconds:Seconds, currentSessionSecondsToday:Seconds, totalSeconds:Seconds, serverNow:Instant |
@@ -232,7 +232,7 @@ group를 잡은 뒤 상대 user를 역순으로 잡지 않는다. 늦게 영향 
 
 정산 정책은 시작 시 revision을 고정해 운영 설정 변경이 진행 세션의 지급률을 바꾸지 않게 하는 기술 선택이다.
 ~~시설 완료 instant/상태는 FR-D02 선택에 따라 해석하지만~~ FR-D02 는 **2026-09-18 재영님 결정 D6(「쌓이면 건설한다」)로 폐기**됐다 — 정산은 물고기를 지갑에 적립할 뿐이고 시설 완공 시점과 교차하지 않는다. 같은 TX에서 잠금·정책 revision을 확인하는 규율은 유지한다.
-산식 결과 earnedFish=E, 개인 지갑 반영=P, 섬 통장 반영=C라면 **E=P+C**가 기본 보존식이다 — 2026-09-19 D5-귀속-개정으로 **P:C = 0:100**(비율은 운영값)이다(~~2026-09-18 D5-귀속의 50:50~~ 대체 — 개인 지갑은 테이블만 두고 적립하지 않는다). C 는 「초기 건설 기여」가 아니라 **섬 통장 몫**이다(D1: 섬 통장은 건설·공동 구매에 함께 쓰인다) — D6 가 폐기한 것은 «세션 도중 완공 시 시간 분할·초과 환류»이지 개인/섬 배분 축이 아니었다. 산식은 1830 확정값(60초당 1마리·휴식 제외·주민·섬별 하루 480 상한, [정책](policy.md) FR-D01)이며 아래 응답 예시의 `allocation{personalFishAdded,constructionFishAdded}` 가 그 배분을 싣는다.
+산식 결과 earnedFish=E, 개인 몫=P, 섬 통장 반영=C라면 **E=P+C**가 기본 보존식이고 **P≡0 · C=E** 다 — 2026-09-21 재화-단일로 개인 물고기 지갑이 없어 P 는 영구 0 이다(~~2026-09-18 D5-귀속의 50:50~~ · ~~D5-귀속-개정의 「비율은 운영값」~~ 대체 — `personal_share_percent` 를 올리는 경로를 두지 않는다, 결정 개인적립-차단). 보존식과 두 필드는 호환으로 남긴다. C 는 「초기 건설 기여」가 아니라 **섬 통장 몫**이다(D1: 섬 통장은 건설·공동 구매에 함께 쓰인다) — D6 가 폐기한 것은 «세션 도중 완공 시 시간 분할·초과 환류»이지 개인/섬 배분 축이 아니었다. 산식은 1830 확정값(60초당 1마리·휴식 제외·주민·섬별 하루 480 상한, [정책](policy.md) FR-D01)이며 아래 응답 예시의 `allocation{personalFishAdded,constructionFishAdded}` 가 그 배분을 싣는다.
 **지급 시점은 2026-09-20 결정 D5-적립으로 종료가 아니라 «진행 중 매분»이다.** 매분 크론이 진행(ACTIVE) 세션마다 상세 행을 배타 잠그고 「지금까지의 순수 집중 초로 나올 수 있는 총 마리 수 − 이미 판정한 몫(`rewarded_seconds`)」만 새로 준다. 상한에 걸려 못 받은 몫도 **판정 완료로 워터마크를 민다** — 그러지 않으면 자정에 상한이 풀리는 순간 어제 깎인 몫이 한꺼번에 터진다(반려한 대안: 이월). **새로 주는 분은 한 건으로 접지 않고 하나씩 판정한다**: 분마다 「그 분이 찬 시각」(`FocusIntervalMath.instantAtActiveSeconds` — `activeSecondsAsOf` 의 역함수)을 구해 **그 시각의 UTC 날짜**로 상한을 보고, 섬 원장에도 **분마다 금액 1짜리 한 줄**을 남긴다. 접으면 둘이 깨진다 — ① 적립일이 「틱이 돈 날」이 되어 자정 직전에 찬 분이 다음 날 상한을 먹고, 밀린 분이 여러 날에 걸치면 전부 하루 상한 하나로 판정돼 나머지가 워터마크에 밀려 소실된다 ② 분 단위 감사 추적이 사라져 「원장은 건별, 접는 것은 가계부 조회뿐」(결정 가계부-묶음)이라는 전제가 무너진다. 하루 상한의 창은 **UTC 날짜**이고 일 집계(`daily_focus_stats`)의 KST 축과 일부러 다르다 — 그쪽은 1930 전환 대기 중인 레거시 축이고 이 축은 신규라 처음부터 UTC 다(Q-6·RC-축과 같다). 자정에 걸친 60초는 초 단위 워터마크라 끊기지 않으며, 그 분은 「찬 시각」의 날짜에 적립된다(반려한 대안: 날짜별 분할 배분 — 상한 두 개에 반 마리씩 걸린다). 섬 원장의 멱등 키는 `focus:<sessionId>:<누적 마리 수>` 라 같은 틱을 다시 돌려도 같은 키가 나온다. 휴식은 `activeSeconds` 에 없으므로 휴식 중에는 워터마크가 자연히 멈춘다 — 별도 분기를 두지 않는다.
 **종료 직전에도 같은 적립을 한 번 돌린다**(구간을 닫은 뒤, 정산 행을 쓰기 전). 마지막 틱 이후에 «찬» 분이 그러지 않으면 영영 사라지기 때문이다 — 12:00:01 에 시작해 12:01:02 에 끝낸 세션은 12:01:00 틱에 59초뿐이라 못 받고, 그 뒤 ACTIVE 스캔에서도 빠진다. 「종료 시 추가 지급 없음」은 **1분이 안 찬 자투리**를 주지 않는다는 뜻이지 이미 찬 분을 버린다는 뜻이 아니다. 휴식 중 finish 도 같은 경로라 휴식 직전에 찬 분이 새지 않는다(크론은 PAUSED 를 훑지 않는다 — 휴식 중에는 새로 줄 것이 없다).
 **혼합 버전 창의 구멍은 트리거가 막는다.** 크론 게이트는 «크론» 만 막고 옛 인스턴스의 `finish` 는 일부러 열어 두므로(막으면 그 창에서 끝낸 사용자가 한 마리도 못 받는다), V82 뒤에 옛 이미지가 쓴 정산은 적립 원장에 안 남아 상한·누적에서 사라진다. 그래서 `focus_settlements` 의 AFTER INSERT 트리거가 **「earned_fish > 0 이면서 그 세션의 적립 행이 하나도 없을 때만」** 완료 시각의 UTC 날짜로 한 행을 옮긴다 — 새 코드의 finish 는 정산 행을 쓰기 전에 이미 적립했으므로 트리거가 비켜난다. 앱 코드로는 «다른 버전의 앱» 을 잡을 수 없어 DB 가 유일한 자리다. 배포가 수렴하면 조건에 걸리는 행이 더는 생기지 않는다.
@@ -397,7 +397,7 @@ schemaVersion=1이다. 버전 없는 emote만 aggregateVersion=null. 나머지�
 | focus.member.updated | userId,sessionId,status(active/paused/completed),subject,activeSeconds,serverNow,sessionVersion | (focus.member,islandId,userId) / 해당 섬 주민 focus 토픽 |
 | rest.member.updated | userId,sessionId,status,restStartedAt,restSeat,serverNow,sessionVersion | (rest.member,islandId,userId) / 해당 섬 주민 rest 토픽 |
 | focus.emote | userId,sessionId,type,expiresAt | version 없음, eventId+만료 / 같은 섬 진행 세션(active·paused) 주민 emotes 토픽 |
-| wallet.updated | ownerType,ownerId,currency,version | 개인(user,id,fish)은 islandId=null / 본인 user queue. 공동 포인트가 실제 바뀐 경우만 island scope |
+| wallet.updated | ownerType,ownerId,currency,version | **(island,islandId,village_points) 만** / 해당 섬 events 토픽, 섬 통장이 실제 바뀐 경우만. ~~개인(user,id,fish)은 islandId=null · 본인 user queue~~ 는 재화-단일로 폐기 — 개인 지갑이 없어 발행자가 없다 |
 | quest.progress.updated | questId,occurrenceId,version | (quest.progress,islandId,questId,occurrenceId) / 섬 events 토픽, 관련 진행이 실제 바뀔 때 |
 | island.updated | islandId,version | (island,islandId) / 초기 건설 진행·완성이 실제 바뀔 때 |
 
@@ -651,10 +651,10 @@ subject·이름·JWT·멱등키 원문·원장 개인 응답 전체는 남기지
     "targetMinutes": 25,
     "activeSeconds": 1500,
     "goalAchieved": true,
-    "earnedFish": 5,
+    "earnedFish": 25,
     "allocation": {
-      "personalFishAdded": 5,
-      "constructionFishAdded": 0
+      "personalFishAdded": 0,
+      "constructionFishAdded": 25
     },
     "completedAt": "2026-09-11T09:10:00Z",
     "questProgress": [

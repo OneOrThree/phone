@@ -194,7 +194,7 @@ contractVersion은 **저장 receipt의 버전**이며 앱이 임의 입력하는
 | 섬 공동 외양(islandId) | PATCH `/islands/{islandId}/appearance` | expectedVersion | 같은 외양을 반환하는 섬 공개 상태 version |
 | 섬 공용 재생(islandId) | PATCH `/islands/{islandId}/playback` | expectedVersion | GET `/islands/{islandId}/playback` |
 | 섬 건설 목표(islandId) | PUT `/islands/{islandId}/construction-target` | expectedVersion | 섬/건설 목표 공개 상태 version |
-| 실제 결제 지갑(ownerType+ownerId+currency) | POST `/islands/{islandId}/shop/orders` | **expectedWalletVersion** | GET `/islands/{islandId}/shop/wallets`의 fishVersion 또는 villagePointsVersion |
+| 실제 결제 지갑(island+village_points) | POST `/islands/{islandId}/shop/orders` | **expectedWalletVersion** | GET `/islands/{islandId}/shop/wallets`의 villagePointsVersion (결제 지갑이 섬 통장 하나뿐이라 분기 없음 — 2026-09-21 재화-단일) |
 
 **상점 설계1780의 명시 개정 — 원본9개와 구분**
 
