@@ -40,7 +40,6 @@ UUID는 데이터 ID, ProductId는 카탈로그 문자열, 시각은 UTC instant
 실제 필드 제거는 앱이 전량 전환한 뒤 또 다른 티켓이다. villagePointsVersion은 `(island,islandId,village_points)`
 지갑의 실제 버전이고 유일한 version 축이다 — 둘의 최댓값을 공용version으로 만들지 않는다.
 통화 식별자 `village_points` 의 개명은 결정에 없어 wire 는 그대로 둔다.
-경제 활성화에 필요한 섬 통장이 없으면0원으로 위장하지 않고503 SERVICE_UNAVAILABLE 및 운영 로그로 처리한다.
 섬 통장 행이 없는 섬은 **200 에 `villagePoints: 0`** 이다(2026-09-21 결정 통장-부재-0 — ~~503 SERVICE_UNAVAILABLE~~ 폐기). 위장이 아니라 사실이다: 통장 행은 섬 생성 때 만들고(`IslandMembershipService#create`) 없으면 첫 적립이 `insertIfAbsent` 로 만드는데, `island_wallet_transactions` 가 `island_wallets` 를 `ON DELETE RESTRICT` 로 참조하므로 **적립된 적 있는 통장은 사라질 수 없다** — 행이 없다 ⇒ 원장 한 줄도 없다 ⇒ 잔액 0 이다.
 「경제 활성화」(S03·S04)는 통장이 아니라 **카탈로그가 표현한다** — 가격 미승인 상품은 `available=false`+`reason`, 활성 발행본이 없으면 빈 목록이다(§2.2, 결정 N25). 통장 조각은 BFF 병렬 조각이라 실패하면 화면 전체가 실패하므로, 잔액 0 인 섬에 503 을 내면 레거시 `POST /api/v1/groups`(통장을 만들지 않는다)로 생긴 섬의 상점 화면이 통째로 닫힌다.
 
