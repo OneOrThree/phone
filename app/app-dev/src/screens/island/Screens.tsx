@@ -796,6 +796,10 @@ export function RedesignScreens({ e }: any) {
     </>
   );
   const join = (i: any) => {
+    if (i.kicked) {
+      notify('강퇴된 섬에는 다시 가입할 수 없어요.');
+      return;
+    }
     if (!i.joined && isFull(i)) {
       notify('정원이 가득 찬 섬이에요');
       return;
@@ -1369,6 +1373,7 @@ export function RedesignScreens({ e }: any) {
     const candidates = state.islands.filter(
       (i) =>
         !i.closed &&
+        !i.kicked &&
         !i.joined &&
         // 초대 코드로 신청한 비공개 섬은 공개 조건과 상관없이 대기 화면에 남긴다
         ((i.visibility !== 'private' && i.members.length > 0 && !isFull(i)) ||
@@ -3384,7 +3389,13 @@ export function RedesignScreens({ e }: any) {
     // 섬 간 랭킹만 보여 준다(우리 섬 주민 순위 없음). 주민 평균 집중(이번 주) 순서, 매주 일요일 00시 초기화
     const islands = state.islands
       // 주민 2명 이상인 섬만 순위에 올린다(혼자 섬은 평균이 의미 없어서)
-      .filter((i) => !i.closed && (i.joined || i.visibility !== 'private') && residentCount(i) >= 2)
+      .filter(
+        (i) =>
+          !i.closed &&
+          !i.kicked &&
+          (i.joined || i.visibility !== 'private') &&
+          residentCount(i) >= 2,
+      )
       .map((i) => ({ i, avg: islandWeeklyAverage(state, i, now) }))
       .sort((a, b) => b.avg - a.avg);
     return (
@@ -3449,10 +3460,11 @@ export function RedesignScreens({ e }: any) {
     const results = state.islands.filter(
       (i) =>
         (!i.closed &&
+          !i.kicked &&
           i.visibility !== 'private' &&
           (!query || i.name.includes(query)) &&
           (i.joined || !isFull(i))) ||
-        (!i.closed && i.id === codeTarget),
+        (!i.closed && !i.kicked && i.id === codeTarget),
     );
     return (
       <IslandSheet
@@ -3510,6 +3522,7 @@ export function RedesignScreens({ e }: any) {
     // 승인 필요 섬은 신청만 하고 같은 시트에 토스트 한 줄(승인 대기 화면 없음). 방장이 확인하면 알림
     const apply = () => {
       if (state.session) return notify('집중을 마친 뒤 가입해 주세요.');
+      if (i.kicked) return notify('강퇴된 섬에는 다시 가입할 수 없어요.');
       if (isFull(i)) return notify('정원이 가득 찬 섬이에요');
       act('JOIN', { id: i.id });
       if (i.approval) setSheetToast('참여 신청이 완료됐어요. 방장이 확인하면 알려드릴게요.');
@@ -3530,10 +3543,10 @@ export function RedesignScreens({ e }: any) {
         toast={sheetToast}
         footer={
           state.onboarded ? (
-            // 섬에 자리 잡은 뒤(전망대): 가입·신청 취소는 그 섬 마을회관에서 하므로 이동 버튼 하나만 둔다
+            // 소속 섬은 이동하고, 미가입 섬은 읽기 전용 관전 경로로 이동한다.
             <Cta
               note={pending ? '참여 신청을 보냈어요. 방장이 확인하면 알려드릴게요.' : undefined}
-              title={i.joined ? '이 섬으로 가기' : '섬 구경하기'}
+              title={i.joined ? '이 섬으로 가기' : '섬 둘러보기'}
               onPress={sail}
             />
           ) : (

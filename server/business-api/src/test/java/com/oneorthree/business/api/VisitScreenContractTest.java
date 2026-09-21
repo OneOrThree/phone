@@ -88,7 +88,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
     @Test
     void residentStillGetsOnlyThePublicSummaryProjection() throws Exception {
         String detail = "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\",\"visibility\":\"public\","
-                + "\"approvalRequired\":false,\"memberCount\":1,\"membershipStatus\":\"active\","
+                + "\"approvalRequired\":false,\"memberCount\":1,\"maxMembers\":15,\"membershipStatus\":\"active\","
                 + "\"growthStage\":null,\"themeId\":null,\"role\":\"host\",\"version\":3}";
         DATA.on(DATA_ISLAND, request -> ok("{\"scope\":\"member\",\"visitor\":null,\"member\":" + detail + "}"));
         DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));

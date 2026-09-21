@@ -220,7 +220,7 @@ class MainIslandLegacyNotificationIntegrationTest {
     }
 
     private UUID island(UUID owner, String name) {
-        return islands.create(owner, new CreateIslandCommandRequest(name, null, false),
+        return islands.create(owner, new CreateIslandCommandRequest(name, null, false, null),
                 UUID.randomUUID()).id();
     }
 

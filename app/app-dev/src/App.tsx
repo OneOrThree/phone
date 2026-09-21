@@ -120,6 +120,8 @@ const titles: Record<Route, string> = {
   tower: '전망대',
   explore: '다른 섬 둘러보기',
   visit: '바다 건너 섬',
+  visitIsland: '다른 섬 구경',
+  visitIslandFocus: '다른 섬 낚시 구경',
   travel: '섬 사이 이동',
   mail: '우리 섬 편지방',
   shop: '강아지 상점',
@@ -137,6 +139,7 @@ const titles: Record<Route, string> = {
   friendMail: '친구 편지',
   chat: '우리 섬 편지방',
   fishingArrival: '낚시섬 도착',
+  focusVisit: '낚시섬 구경',
   focusTravel: '낚시섬으로',
   returnTravel: '우리 섬으로',
   permission: '측정 권한',
@@ -340,7 +343,10 @@ function Gromo() {
         const saved = raw ? JSON.parse(raw) : null;
         const loadable = saved?.version === 1 ? saved : null;
         if (loadable) {
-          dispatch({ type: 'LOAD', state: loadable });
+          // `now` 는 티켓 1941 이 더했다 — LOAD 리듀서가 멈춘 집중의 경과를 그 시각 기준으로
+          // 되살린다. 복구 «경로» 판정은 restoredRoute 가 하므로 여기서 reducer 를 한 번 더
+          // 돌려 restored 를 만들지 않는다.
+          dispatch({ type: 'LOAD', state: loadable, now: Date.now() });
           // ⚠️ LOAD 가 저장본의 loggedIn:true 를 되살린다 — 거절된 세션이면 여기서 다시 내린다.
           // 안 내리면 화면만 로그인이고 저장 effect 가 true 를 다시 써서, 다음 실행에
           // 보안 저장소가 비었는데도 로컬 경로로 홈에 들어간다.
@@ -360,6 +366,37 @@ function Gromo() {
       .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
       .finally(() => setLoaded(true));
   }, []);
+  const kickedDestination =
+    ['visit', 'travel'].includes(route) &&
+    state.islands.some((candidate) => candidate.id === (detail || visited) && candidate.kicked);
+  useEffect(() => {
+    if (!loaded || !state.loggedIn) return;
+    if (state.membershipRecovery || kickedDestination) {
+      setModal(null);
+      setWalkRequest(null);
+      setVisited(state.onboarded ? state.islandId : '');
+      reset(state.onboarded ? 'home' : 'chooseIsland');
+      if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
+      return;
+    }
+    if (state.onboarded) return;
+    if (
+      ['login', 'character', 'chooseIsland', 'createIsland', 'joinIsland', 'approval'].includes(
+        route,
+      )
+    )
+      return;
+    // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
+    reset('chooseIsland');
+  }, [
+    loaded,
+    state.loggedIn,
+    state.onboarded,
+    state.islandId,
+    state.membershipRecovery,
+    kickedDestination,
+    route,
+  ]);
   useEffect(() => {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
@@ -399,6 +436,13 @@ function Gromo() {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
       if (route === 'home' && state.visitingIslandId) {
+        dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
+        dispatch({ type: 'END_VISIT' });
+        go('travel', island.id);
+        return true;
+      }
+      // 방문 화면의 시스템 뒤로가기도 하단 `원래 섬으로` 버튼과 같이 귀환 항해를 시작한다.
+      if (route === 'visitIsland' && state.visitingIslandId) {
         dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
         dispatch({ type: 'END_VISIT' });
         go('travel', island.id);
@@ -448,6 +492,8 @@ function Gromo() {
       back,
       state,
       route,
+      walkRequest,
+      walk: (r: Route) => setWalkRequest(r),
       open: (r: Route, opts: any = {}) => {
         if (opts.state) dispatch({ type: 'LOAD', state: opts.state });
         setModal(null);
@@ -468,7 +514,7 @@ function Gromo() {
       },
       fixture: initialState,
     };
-  }, [loaded, state, route]);
+  }, [loaded, state, route, walkRequest]);
   const walkTo = (r: Route) => {
     setWalkRequest(r);
     setHistory([]);
@@ -571,7 +617,17 @@ function Gromo() {
       />
     );
   }
-  const immersive = ['home', 'focusSetup', 'focus', 'rest', 'arrival', 'travel'].includes(route);
+  const immersive = [
+    'home',
+    'focusSetup',
+    'focus',
+    'focusVisit',
+    'visitIsland',
+    'visitIslandFocus',
+    'rest',
+    'arrival',
+    'travel',
+  ].includes(route);
   if (!loaded)
     return (
       <SafeAreaView style={[S.page, { alignItems: 'center', justifyContent: 'center' }]}>

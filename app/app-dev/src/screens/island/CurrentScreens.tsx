@@ -138,6 +138,7 @@ export function CurrentScreens({ e }: any) {
   const memberRoutes: Route[] = [
     'home',
     'guide',
+    'focusVisit',
     'focusTravel',
     'fishingArrival',
     'focusSetup',
@@ -180,7 +181,17 @@ export function CurrentScreens({ e }: any) {
   // 나머지는 내 섬 화면이 섞이거나 섬 상태가 꼬이지 않게 모두 막는다
   if (
     state.visitingIslandId &&
-    !['home', 'manage', 'members', 'board', 'notice', 'quest', 'travel'].includes(r)
+    ![
+      'home',
+      'manage',
+      'members',
+      'board',
+      'notice',
+      'quest',
+      'travel',
+      'visitIsland',
+      'visitIslandFocus',
+    ].includes(r)
   )
     return (
       <Overlay
@@ -237,6 +248,10 @@ export function CurrentScreens({ e }: any) {
     );
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
+  if (r === 'focusVisit') return <FocusVisit e={e} />;
+  if (r === 'visitIsland') return <VisitIsland e={e} />;
+  if (r === 'visitIslandFocus')
+    return <FocusVisit e={e} islandId={e.detail || state.visitingIslandId} onBack={e.back} />;
   if (
     [
       'focusTravel',
@@ -313,12 +328,132 @@ function Travel({ e }: any) {
           e.dispatch({ type: 'SWITCH_ISLAND', id: target.id });
           e.home();
         } else if (canVisit(s, target.id)) {
-          // 미가입 섬은 방문자로 내려 그 섬 홈을 구경한다
+          // 기존 방문자 권한(회관 정보·게시판 열람)을 유지한 채 읽기 전용 메인 섬 경로로 연다.
           e.dispatch({ type: 'VISIT', id: target.id });
-          e.home();
+          e.replace('visitIsland', target.id);
         } else e.replace('visit', target.id);
       }}
     />
+  );
+}
+function VisitIsland({ e }: any) {
+  const s: State = e.state,
+    islandId = e.detail || s.visitingIslandId;
+  return (
+    <FinalIsland
+      state={s}
+      go={e.go}
+      build={e.build}
+      viewingIslandId={s.visitingIslandId ? undefined : islandId}
+      notify={e.notify}
+      dispatch={e.dispatch}
+    />
+  );
+}
+function FocusVisit({ e, islandId, onBack }: any) {
+  const s: State = e.state,
+    i = s.islands.find((island) => island.id === islandId) ?? currentIsland(s),
+    L = useAppLayout(),
+    safe = useSafeAreaInsets(),
+    // 서버 연결 뒤 focus-members가 403/빈 응답이어도 로딩 상태를 유지하지 않고 빈 관전 화면으로 끝낸다.
+    peers = (i.members ?? []).filter((member) => member.focusing),
+    spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]),
+    reduce = s.settings.reduceMotion,
+    close = onBack ?? e.home,
+    visiting = !!islandId;
+  return (
+    <View style={{ flex: 1 }}>
+      <FishingIsland
+        focus={{ x: 50, y: 50 }}
+        spots={spots}
+        onRaft={close}
+        raftLabel={visiting ? '뗏목 · 메인 섬으로 돌아가기' : undefined}
+        gram={i.buildings.includes('gram')}
+      >
+        {(size, sizeY, zoom) => {
+          const shown = new Set<string>(),
+            kept: ReturnType<typeof labelBox>[] = [];
+          if (zoom >= 1)
+            peers
+              .map((member, index) => ({
+                id: member.id,
+                spot: spots[index],
+                subject: member.subject,
+              }))
+              .sort((a, b) => b.spot.y - a.spot.y)
+              .forEach((label) => {
+                const box = labelBox(label.spot, label.subject, size, sizeY);
+                if (
+                  kept.some(
+                    (other) =>
+                      !(
+                        other.right <= box.left ||
+                        box.right <= other.left ||
+                        other.bottom <= box.top ||
+                        box.bottom <= other.top
+                      ),
+                  )
+                )
+                  return;
+                kept.push(box);
+                shown.add(label.id);
+              });
+          return peers.map((member, index) => (
+            <FishingActor
+              key={member.id}
+              spot={spots[index]}
+              size={size}
+              sizeY={sizeY}
+              color={member.color}
+              name={member.name}
+              subject={shown.has(member.id) ? member.subject : null}
+              seconds={member.seconds}
+              reduce={reduce}
+            />
+          ));
+        }}
+      </FishingIsland>
+      <View
+        style={{
+          position: 'absolute',
+          zIndex: 30,
+          top: L.landscape ? Math.max(14, safe.top + 8) : Math.max(64, safe.top + 12),
+          left: Math.max(18, safe.left + 8),
+        }}
+      >
+        <FiButton
+          small
+          title={visiting ? '돌아가기' : '닫기'}
+          id="close-focus-visit"
+          onPress={close}
+        />
+      </View>
+      {!peers.length && (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
+          ]}
+        >
+          <View
+            style={{
+              marginHorizontal: 24,
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 18,
+              backgroundColor: '#FFFDFAD9',
+              paddingVertical: 12,
+              paddingHorizontal: 18,
+            }}
+          >
+            <Text style={{ fontSize: 14, lineHeight: 22.4, fontWeight: '800', color: INK }}>
+              지금 낚시 중인 주민이 없어요
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 function FocusFlow({ e }: any) {

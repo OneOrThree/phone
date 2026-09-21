@@ -32,8 +32,9 @@ class BoardScreenContractTest extends ScreenContractTestBase {
     private static final String QUESTS = "{\"items\":[{\"id\":\"" + QUEST + "\",\"occurrenceId\":\"" + OCCURRENCE
             + "\",\"title\":\"저녁 30분 집중\",\"type\":\"focus\",\"windowStart\":\"18:00\",\"windowEnd\":\"23:00\","
             + "\"timezone\":\"UTC\",\"date\":\"2026-09-19\",\"targetMinutes\":30,\"myRate\":60,"
-            + "\"reward\":{\"currency\":\"village_points\",\"amount\":30},\"settlementStatus\":\"in_progress\","
-            + "\"claimable\":false,\"claimBlockedReason\":\"MEMBERS_INCOMPLETE\",\"claimed\":false,\"version\":1}]}";
+            + "\"reward\":{\"currency\":\"village_points\",\"amount\":10},\"settlementStatus\":\"in_progress\","
+            + "\"claimable\":false,\"claimBlockedReason\":\"NOT_ACHIEVED\",\"claimed\":false,"
+            + "\"bonusAmount\":10,\"bonusGranted\":false,\"version\":1}]}";
     private static final String NOTICES = "{\"items\":[{\"id\":\"" + NOTICE + "\",\"title\":\"환영해요\","
             + "\"commentCount\":1,\"createdAt\":\"2026-09-19T00:00:00.123456Z\"}],\"hasMore\":true}";
 
