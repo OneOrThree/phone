@@ -662,6 +662,37 @@ test('saveSettings — 응답 유실 재시도는 같은 UUID36 key·같은 body
   await h.unmount();
 });
 
+test('PATCH 성공 뒤 재조회 네트워크 실패도 같은 의도·key로 재시도하며 권한 오류로 바꾸지 않는다', async () => {
+  let detailN = 0;
+  serve({
+    'GET /islands/i1': () => {
+      if (detailN++ === 1) throw new TypeError('Network request failed');
+      return data(detail('host'));
+    },
+    'GET /islands/i1/members': data(membersPage([member('u1', 'host')])),
+    'GET /islands/i1/join-requests': data(requestsPage([])),
+    'PATCH /islands/i1': data(managed({ version: 5 })),
+  });
+  const h = await mount({ active: true, islandId: 'i1' });
+  await flush();
+
+  let first: unknown;
+  await act(async () => {
+    first = await h.result.current.saveSettings({ name: '재시도' }).catch((e) => e);
+  });
+  assert.equal(code(first), 'CLIENT_NETWORK_ERROR');
+  assert.equal(h.result.current.detail, null); // 실패한 canonical read는 fail-closed다
+
+  await act(async () => {
+    await h.result.current.saveSettings({ name: '재시도' });
+  });
+  const patches = writes('/islands/i1', 'PATCH');
+  assert.equal(patches.length, 2);
+  assert.equal(idemKey(patches[0]), idemKey(patches[1]));
+  assert.equal(patches[0].init.body, patches[1].init.body);
+  await h.unmount();
+});
+
 test('saveSettings — 진행 중 같은 payload 는 합류하고 다른 payload 는 거절한다', async () => {
   let release: (r: Resp) => void = () => {};
   const gate = new Promise<Resp>((r) => (release = r));
@@ -695,6 +726,42 @@ test('saveSettings — 진행 중 같은 payload 는 합류하고 다른 payload
   assert.equal(ok1, true); // 합류한 양쪽이 같은 결과를 받는다
   assert.equal(ok2, true);
   assert.equal(gets('/islands/i1').length, 2); // 성공 뒤 재조회가 돌았다
+  await h.unmount();
+});
+
+test('active false→true 재진입은 살아 있는 이전 PATCH가 끝날 때까지 새 PATCH를 막는다', async () => {
+  let releaseA: (r: Resp) => void = () => {};
+  const patchA = new Promise<Resp>((r) => (releaseA = r));
+  let patchN = 0;
+  serveHost({
+    'PATCH /islands/i1': () => (patchN++ === 0 ? patchA : data(managed({ version: 6 }))),
+  });
+  const h = await mount({ active: true, islandId: 'i1' });
+  await flush();
+
+  await act(async () => {
+    h.result.current.saveSettings({ name: 'A' }).catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(writes('/islands/i1', 'PATCH').length, 1);
+
+  await h.rerender({ active: false, islandId: 'i1' });
+  await h.rerender({ active: true, islandId: 'i1' });
+  await flush();
+  const blocked = await h.result.current.saveSettings({ name: 'B' }).catch((e) => e);
+  assert.equal(code(blocked), CLIENT_IN_FLIGHT);
+  assert.equal(writes('/islands/i1', 'PATCH').length, 1);
+
+  await act(async () => {
+    releaseA(data(managed({ name: 'A', version: 5 })));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await act(async () => {
+    await h.result.current.saveSettings({ name: 'B' });
+  });
+  const patches = writes('/islands/i1', 'PATCH');
+  assert.equal(patches.length, 2);
+  assert.deepEqual(sentBody(patches[1]), { name: 'B' });
   await h.unmount();
 });
 

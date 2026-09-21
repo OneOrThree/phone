@@ -82,6 +82,7 @@ const EMPTY: IslandManagementSnapshot = {
 
 /** 한 번 살아 있는 읽기 범위 — 객체 자체가 epoch 이다(정리되면 scopeRef 에서 빠진다). */
 type Scope = { gen: number; islandId: string };
+type WriteIntent = { key: string; payload: string; scope: Scope };
 
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
@@ -183,10 +184,10 @@ export function useIslandManagement({
   /** 마지막으로 성공 확정된 재조회의 seq — 쓰기 성공은 이 값이 최신 loadSeq 일 때만. */
   const confirmSeq = useRef(0);
   /** 의도 슬롯 — 같은 payload 재시도는 같은 key 를 쓰게 보관한다. */
-  const intents = useRef(new Map<string, { key: string; payload: string; gen: number }>());
+  const intents = useRef(new Map<string, WriteIntent>());
   const flights = useRef(new Map<string, Promise<void>>());
   /** 단일 쓰기 flight — 명령 병렬 실행으로 관리 상태를 덮지 않는다. 의도 객체가 소유권 토큰. */
-  const writeBusy = useRef<{ key: string; payload: string; gen: number } | null>(null);
+  const writeBusy = useRef<WriteIntent | null>(null);
   // 렌더 시점에 읽어 effect deps 에 태운다 — 세션 교체 뒤 첫 렌더에서 범위가 재생성된다.
   const generation = sessionGeneration();
 
@@ -269,22 +270,27 @@ export function useIslandManagement({
       scopeRef.current = null;
       detailRef.current = null;
       loadSeq.current += 1;
-      intentMap.clear();
-      flightMap.clear();
-      writeBusy.current = null;
       setSnap(EMPTY);
       return;
     }
     const scope: Scope = { gen: generation, islandId };
+    // 화면을 잠깐 닫았다가 같은 섬·같은 계정으로 돌아오면, 아직 서버에 도착 중인 PATCH를
+    // 새 요청보다 먼저 끝내야 한다. 반면 섬/계정이 달라진 범위는 서로 막지 않는다.
+    if (
+      writeBusy.current === null ||
+      writeBusy.current.scope.gen !== scope.gen ||
+      writeBusy.current.scope.islandId !== scope.islandId
+    ) {
+      intentMap.clear();
+      flightMap.clear();
+      writeBusy.current = null;
+    }
     scopeRef.current = scope;
     runReload(scope).catch(() => undefined);
     return () => {
       if (scopeRef.current === scope) scopeRef.current = null;
       detailRef.current = null;
       loadSeq.current += 1;
-      intentMap.clear();
-      flightMap.clear();
-      writeBusy.current = null;
     };
   }, [active, islandId, generation, runReload]);
 
@@ -323,20 +329,32 @@ export function useIslandManagement({
       const inFlight = flights.current.get(slot);
       if (inFlight !== undefined) {
         const intent = intents.current.get(slot);
-        if (intent !== undefined && intent.payload === payload && intent.gen === scope.gen)
+        if (intent !== undefined && intent.payload === payload && intent.scope === scope)
           return inFlight; // 같은 의도의 중복 호출 — 진행 중인 것 하나로 합류
         throw inFlightError(); // 진행 중 다른 payload — 암묵 성공으로 두지 않는다
       }
       if (writeBusy.current !== null) throw inFlightError(); // 다른 명령 진행 중
 
+      // 네트워크 오류로 성공 뒤 canonical 재조회만 실패한 동일 의도는, 직전의 확정 host
+      // 근거와 key/body를 보존해 다시 보낸다. 진짜 403·요약 응답은 intent를 끝내므로 이
+      // 예외로 권한을 추측하지 않는다.
+      const previousIntent = intents.current.get(slot);
+      const retryingConfirmedIntent =
+        previousIntent !== undefined &&
+        previousIntent.payload === payload &&
+        previousIntent.scope === scope;
       // 방장 권한은 마지막으로 확정된 상세로만 판단한다 — 로딩·오류·비주민에서는 보내지 않는다.
       const confirmed = detailRef.current;
-      if (confirmed === null || confirmed.id !== scope.islandId || confirmed.role !== 'host')
+      if (
+        !retryingConfirmedIntent &&
+        (confirmed === null || confirmed.id !== scope.islandId || confirmed.role !== 'host')
+      )
         throw forbiddenError();
 
-      let intent = intents.current.get(slot);
-      if (intent === undefined || intent.payload !== payload || intent.gen !== scope.gen) {
-        intent = { key: uuid(), payload, gen: scope.gen }; // 새 의도 — 새 UUID36
+      const intent: WriteIntent = retryingConfirmedIntent
+        ? previousIntent
+        : { key: uuid(), payload, scope };
+      if (!retryingConfirmedIntent) {
         intents.current.set(slot, intent);
       }
       const key = intent.key;
