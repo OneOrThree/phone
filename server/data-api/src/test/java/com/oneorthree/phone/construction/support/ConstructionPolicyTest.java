@@ -1,38 +1,45 @@
 package com.oneorthree.phone.construction.support;
 
 import com.oneorthree.phone.construction.repository.domain.ConstructionBuilding;
-import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
-import com.oneorthree.phone.group.repository.domain.GroupPermissionScope;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 섬 건설 정책 판정의 순수 단위 테스트 (GROMO-1767) — DB 없이 도메인 불변식만 잠근다.
- * 대상: {@link ConstructionBuilding} 의 선형 선행 그래프(정책 C01)·모으는 방식(1829 표)과
- * {@link SharedPurchase} 의 지출 권한(정책 C13).
+ * 섬 건설 정책 판정의 순수 단위 테스트 (GROMO-1767·1999·2000) — DB 없이 도메인 불변식만 잠근다.
+ * 대상: {@link ConstructionBuilding} 의 선행 그래프(정책 C01)·모으는 방식(1829 표)과
+ * {@link SharedPurchase} 의 구매·건설 권한(정책 C13).
  */
 class ConstructionPolicyTest {
 
-    // ---------------------------------------------------------------- 선형 그래프 (C01)
+    // ---------------------------------------------------------------- 선행 그래프 (C01)
 
     @Test
-    @DisplayName("건물은 회관→상점 선형 7개이며 각 선행은 바로 앞 건물이다")
-    void buildingsFormOneLinearChain() {
+    @DisplayName("회관→게시판만 고정이고 그 뒤 넷은 자유 순서이며 상점만 넷 전부를 요구한다")
+    void prerequisitesFreeTheMiddleFourAndGateTheShop() {
         assertThat(ConstructionBuilding.values())
                 .extracting(ConstructionBuilding::id)
                 .containsExactly("hall", "board", "gram", "library", "mail", "tower", "shop");
 
-        assertThat(ConstructionBuilding.HALL.prerequisite()).isNull();
-        assertThat(ConstructionBuilding.BOARD.prerequisite()).isEqualTo(ConstructionBuilding.HALL);
-        assertThat(ConstructionBuilding.GRAM.prerequisite()).isEqualTo(ConstructionBuilding.BOARD);
-        assertThat(ConstructionBuilding.LIBRARY.prerequisite()).isEqualTo(ConstructionBuilding.GRAM);
-        assertThat(ConstructionBuilding.MAIL.prerequisite()).isEqualTo(ConstructionBuilding.LIBRARY);
-        assertThat(ConstructionBuilding.TOWER.prerequisite()).isEqualTo(ConstructionBuilding.MAIL);
-        assertThat(ConstructionBuilding.SHOP.prerequisite()).isEqualTo(ConstructionBuilding.TOWER);
+        assertThat(ConstructionBuilding.HALL.prerequisites()).isEmpty();
+        assertThat(ConstructionBuilding.BOARD.prerequisites())
+                .containsExactly(ConstructionBuilding.HALL);
+        // 자유 순서 — 넷 모두 선행은 게시판 하나뿐이라 서로를 기다리지 않는다.
+        assertThat(ConstructionBuilding.GRAM.prerequisites())
+                .containsExactly(ConstructionBuilding.BOARD);
+        assertThat(ConstructionBuilding.LIBRARY.prerequisites())
+                .containsExactly(ConstructionBuilding.BOARD);
+        assertThat(ConstructionBuilding.MAIL.prerequisites())
+                .containsExactly(ConstructionBuilding.BOARD);
+        assertThat(ConstructionBuilding.TOWER.prerequisites())
+                .containsExactly(ConstructionBuilding.BOARD);
+        // 상점은 마지막 — 「다른 모든 건물 공사 완료 후 선택한다」.
+        assertThat(ConstructionBuilding.SHOP.prerequisites())
+                .containsExactlyInAnyOrder(ConstructionBuilding.GRAM, ConstructionBuilding.LIBRARY,
+                        ConstructionBuilding.MAIL, ConstructionBuilding.TOWER);
     }
 
     @Test
@@ -57,32 +64,22 @@ class ConstructionPolicyTest {
         assertThat(ConstructionBuilding.byId("HALL")).as("계약 ID 는 소문자다").isEmpty();
     }
 
-    // ---------------------------------------------------------------- 지출 권한 (C13)
+    // ---------------------------------------------------------------- 권한 (C13, GROMO-2000)
 
     @Test
-    @DisplayName("OWNER_ONLY 기본값에서는 방장만 쓸 수 있다")
-    void ownerOnlyAllowsOnlyTheOwner() {
-        Group island = Group.builder().name("섬").maxMembers(10).build();
-        assertThat(island.getSharedPurchasePermission())
-                .as("기본값은 보존적 OWNER_ONLY 다").isEqualTo(GroupPermissionScope.OWNER_ONLY);
-
-        GroupMember owner = member(GroupMemberRole.OWNER);
-        GroupMember plain = member(GroupMemberRole.MEMBER);
-
-        assertThat(SharedPurchase.canSpend(island, owner)).isTrue();
-        assertThat(SharedPurchase.canSpend(island, plain)).isFalse();
-        assertThat(SharedPurchase.canSpend(island, null)).as("비주민은 항상 false").isFalse();
+    @DisplayName("공동 구매·공동 외양은 활성 주민 누구나 한다")
+    void sharedPurchaseIsOpenToEveryResident() {
+        assertThat(SharedPurchase.canSpend(member(GroupMemberRole.MEMBER))).isTrue();
+        assertThat(SharedPurchase.canSpend(member(GroupMemberRole.OWNER))).isTrue();
+        assertThat(SharedPurchase.canSpend(null)).as("비주민은 항상 false").isFalse();
     }
 
     @Test
-    @DisplayName("ALL_MEMBERS 토글이면 활성 주민 전원이 쓸 수 있다")
-    void allMembersAllowsEveryMember() {
-        Group island = Group.builder().name("섬").maxMembers(10)
-                .sharedPurchasePermission(GroupPermissionScope.ALL_MEMBERS).build();
-
-        assertThat(SharedPurchase.canSpend(island, member(GroupMemberRole.MEMBER))).isTrue();
-        assertThat(SharedPurchase.canSpend(island, member(GroupMemberRole.OWNER))).isTrue();
-        assertThat(SharedPurchase.canSpend(island, null)).isFalse();
+    @DisplayName("건설(목표 선택·건설하기)은 방장만 한다")
+    void constructionIsOwnerOnly() {
+        assertThat(SharedPurchase.canBuild(member(GroupMemberRole.OWNER))).isTrue();
+        assertThat(SharedPurchase.canBuild(member(GroupMemberRole.MEMBER))).isFalse();
+        assertThat(SharedPurchase.canBuild(null)).as("비주민은 항상 false").isFalse();
     }
 
     private static GroupMember member(GroupMemberRole role) {

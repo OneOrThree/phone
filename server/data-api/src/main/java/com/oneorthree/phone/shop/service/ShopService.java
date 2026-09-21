@@ -337,7 +337,7 @@ public class ShopService {
                 .map(OwnedProduct::getProductId).collect(Collectors.toSet());
         Set<String> islandOwned = ownedProducts.findByIslandId(islandId).stream()
                 .map(OwnedProduct::getProductId).collect(Collectors.toSet());
-        return new Snapshot(SharedPurchase.canSpend(resident.island(), resident.member()), completed, userOwned,
+        return new Snapshot(SharedPurchase.canSpend(resident.member()), completed, userOwned,
                 islandOwned, islandWallets.balanceOf(islandId));
     }
 
@@ -421,8 +421,10 @@ public class ShopService {
     }
 
     /**
-     * 쓰기·재생 가드 — 섬 배타 잠금 → 활성 주민(공유 잠금) → 지출 권한(SHARED_PURCHASE, 기본 OWNER_ONLY).
-     * 재생도 같은 검사를 거쳐 강퇴·토글 전환 뒤 옛 권한을 되살리지 않는다(건설과 같은 규율).
+     * 쓰기·재생 가드 — 섬 배타 잠금 → 활성 주민(공유 잠금) → 지출 권한(SHARED_PURCHASE).
+     * 지출 권한은 「주민 누구나 섬 물고기로 상점 상품·축음기 음원을 구매할 수 있다」라 활성 주민
+     * 전원이다(GROMO-2000) — 방장만인 «건설»과 갈린다. 재생도 같은 검사를 거쳐 강퇴 뒤 옛 권한을
+     * 되살리지 않는다(건설과 같은 규율).
      */
     private void requireSpender(UUID islandId, UUID userId) {
         membershipLocks.lockGroup(islandId);
@@ -432,7 +434,10 @@ public class ShopService {
         }
         GroupMember member = members.findActiveByUserIdAndGroupIdForShare(userId, islandId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
-        if (!SharedPurchase.canSpend(island, member)) {
+        // 지금은 「활성 주민이면 통과」라 위 orElseThrow 뒤에는 항상 참이다. 그래도 호출을 남기는
+        // 이유는 이것이 구매 권한의 «단일 자리»이기 때문이다 — 게스트 제한(GROMO-1992)처럼
+        // 축이 더 붙을 때 여기 한 곳만 좁히면 조회 사유(Snapshot.canSpend)와 같이 움직인다.
+        if (!SharedPurchase.canSpend(member)) {
             throw new ShopException(ShopErrorCode.SHOP_FORBIDDEN);
         }
     }

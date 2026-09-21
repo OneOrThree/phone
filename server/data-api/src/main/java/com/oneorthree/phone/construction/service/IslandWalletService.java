@@ -6,6 +6,7 @@ import com.oneorthree.phone.construction.repository.IslandConstructionContributi
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletTransactionRepository;
+import com.oneorthree.phone.construction.repository.domain.IslandConstructionContributionId;
 import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
 import com.oneorthree.phone.construction.repository.domain.IslandWallet;
 import com.oneorthree.phone.construction.repository.domain.IslandWalletTransaction;
@@ -86,10 +87,14 @@ public class IslandWalletService {
         // 동안의 적립은 지갑·원장만 남기고 주민별 기여는 세지 않는다. 세웠다면 이후 어떤
         // 목표에도 속하지 않는 유령 몫이 된다.
         if (state.getTargetBuildingId() != null) {
-            // 기여 누적도 int 열 — upsert 의 WHERE 가 상한 초과 갱신을 건너뛰면 0 행이다.
-            // 같은 섬의 기여는 모두 이 상태 행 잠금 아래 직렬되므로 0 은 곧 상한 거절이다.
+            // 대상 주민 행만 갱신한다(GROMO-1999) — 목표 선택 뒤에 가입한 주민은 행이 없어 0 행이다.
+            // 기여 누적도 int 열이라 상한 초과도 0 행이므로, 0 의 두 원인을 행 존재로 가른다:
+            // 행이 있으면 상한 초과(도메인 거절), 없으면 대상 밖(지갑·원장만 남기고 조용히 통과).
+            // 같은 섬의 기여는 모두 이 상태 행 잠금 아래 직렬되므로 이 판정에 경합이 없다.
             if (contributions.accumulate(islandId, state.getTargetEpoch(), userId, amount,
-                    clock.instant()) == 0) {
+                    clock.instant()) == 0
+                    && contributions.existsById(new IslandConstructionContributionId(
+                            islandId, state.getTargetEpoch(), userId))) {
                 throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
             }
         }

@@ -17,7 +17,6 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
-import com.oneorthree.phone.group.repository.domain.GroupPermissionScope;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.shop.dto.ShopViews;
@@ -115,7 +114,7 @@ class ShopServiceIntegrationTest {
     @DisplayName("활성 발행본이 없으면 목록은 오류가 아니라 빈 배열이고, 상세·구매는 PRODUCT_NOT_FOUND 다 (N25)")
     void emptyCatalogIsAnEmptyList() {
         activePublication.deleteAll();
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
 
         ShopViews.ProductPage page = shop.products(f.islandId, f.ownerId, "personal", null, null, null, 30);
 
@@ -133,7 +132,7 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("가격 미승인(NULL) 상품은 목록에 available=false·STATE_CONFLICT 로 보이고 구매는 차감 없이 409 다 (S03)")
     void unpricedProductIsNeverSoldAsZero() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         fund(f.islandId, 100);
         String id = product("island_theme", "island", null);
         publish(entry(id, 1, null, null, null, "island", 1));
@@ -153,7 +152,7 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("구매는 섬 통장을 정확히 한 번 차감하고 섬 소유를 주문 id 로 지급한다 — 같은 키는 원 결과 재생, 새 키는 409")
     void purchaseDebitsOnceGrantsAndReplays() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         fund(f.islandId, 100);
         String id = product("island_theme", "island", null);
         publish(entry(id, 1, 30, null, null, "island", 1));
@@ -200,7 +199,7 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("같은 상품을 새 키 둘로 동시에 사도 한 번만 차감된다 — 섬 잠금 아래 소유 판정")
     void concurrentPurchasesDebitOnce() throws Exception {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         fund(f.islandId, 100);
         String id = product("island_theme", "island", null);
         publish(entry(id, 1, 30, null, null, "island", 1));
@@ -217,8 +216,8 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("같은 개인 상품을 두 섬에서 동시에 사도 한 번만 차감된다 — 사용자 잠금이 섬을 가로질러 직렬화")
     void concurrentPersonalPurchaseAcrossIslandsDebitsOnce() throws Exception {
-        Fixture a = island(GroupPermissionScope.OWNER_ONLY);
-        Fixture b = island(GroupPermissionScope.ALL_MEMBERS);
+        Fixture a = island();
+        Fixture b = island();
         members.save(GroupMember.builder().user(users.getReferenceById(a.ownerId))
                 .group(groups.getReferenceById(b.islandId)).role(GroupMemberRole.MEMBER).build());
         fund(a.islandId, 100);
@@ -238,7 +237,7 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("개인 상품(옷)은 구매자 소유로 지급되지만 돈은 섬 통장에서 나간다 — 개인 지갑은 건드리지 않는다 (SH-재화)")
     void personalProductIsPaidByTheIsland() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         fund(f.islandId, 50);
         String id = product("clothes", "user", null);
         publish(entry(id, 1, 20, null, null, "personal", 1));
@@ -257,7 +256,7 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("잔액 부족은 아무것도 남기지 않고 409 — 충전 뒤 새 키로 사면 성공한다")
     void insufficientThenNewKey() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         fund(f.islandId, 10);
         String id = product("island_theme", "island", null);
         publish(entry(id, 1, 30, null, null, "island", 1));
@@ -279,32 +278,29 @@ class ShopServiceIntegrationTest {
     // ---------------------------------------------------------------- 권한·선행·버전
 
     @Test
-    @DisplayName("SHARED_PURCHASE — 기본 OWNER_ONLY 섬의 주민은 403, ALL_MEMBERS 섬의 주민은 산다. 비주민은 MEMBER_ONLY")
+    @DisplayName("SHARED_PURCHASE — 주민 누구나 산다(GROMO-2000). 비주민만 MEMBER_ONLY")
     void sharedPurchasePermission() {
-        Fixture ownerOnly = island(GroupPermissionScope.OWNER_ONLY);
-        UUID resident = join(ownerOnly.islandId);
-        Fixture open = island(GroupPermissionScope.ALL_MEMBERS);
-        UUID openResident = join(open.islandId);
-        fund(ownerOnly.islandId, 100);
-        fund(open.islandId, 100);
+        Fixture f = island();
+        UUID resident = join(f.islandId);
+        fund(f.islandId, 100);
         String id = product("island_theme", "island", null);
         publish(entry(id, 1, 30, null, null, "island", 1));
 
-        assertCode(() -> buy(ownerOnly, resident, id, UUID.randomUUID()), ShopErrorCode.SHOP_FORBIDDEN);
-        assertThat(shop.products(ownerOnly.islandId, resident, "island", null, null, null, 30).items().get(0)
-                .reason()).isEqualTo("FORBIDDEN");
-        assertThat(islandBalance(ownerOnly.islandId)).isEqualTo(100);
-        assertCode(() -> buy(ownerOnly, newUser(), id, UUID.randomUUID()), GroupErrorCode.MEMBER_ONLY);
-        assertCode(() -> shop.wallets(ownerOnly.islandId, newUser()), GroupErrorCode.MEMBER_ONLY);
+        // 비방장 주민도 섬 물고기로 공동 상품을 산다 — 목록 사유도 비어 있다.
+        assertThat(shop.products(f.islandId, resident, "island", null, null, null, 30).items().get(0)
+                .reason()).isNull();
+        assertThat(buy(f, resident, id, UUID.randomUUID()).spent()).isEqualTo(30);
+        assertThat(islandBalance(f.islandId)).isEqualTo(70);
 
-        assertThat(buy(open, openResident, id, UUID.randomUUID()).spent()).isEqualTo(30);
-        assertThat(islandBalance(open.islandId)).isEqualTo(70);
+        // 비주민은 그대로 막힌다.
+        assertCode(() -> buy(f, newUser(), id, UUID.randomUUID()), GroupErrorCode.MEMBER_ONLY);
+        assertCode(() -> shop.wallets(f.islandId, newUser()), GroupErrorCode.MEMBER_ONLY);
     }
 
     @Test
     @DisplayName("선행 조건 — requiredBuilding 미완공은 FACILITY_LOCKED, requiredProduct 미보유는 STATE_CONFLICT")
     void prerequisitesAreEnforced() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         fund(f.islandId, 100);
         String base = product("island_theme", "island", null);
         String deluxe = product("building_theme", "island", "hall");
@@ -328,7 +324,7 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("낡은 expectedProductVersion·expectedWalletVersion 은 차감 없이 VERSION_CONFLICT 다")
     void staleVersionsConflict() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         fund(f.islandId, 100);
         String id = product("island_theme", "island", null);
         publish(entry(id, 2, 30, null, null, "island", 1));
@@ -348,7 +344,7 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("카탈로그 커서는 첫 발행본을 고정한다 — 새 발행본이 켜져도 이어 읽고, 폐기되면 CURSOR_EXPIRED")
     void catalogCursorPinsThePublication() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         String a = product("decor", "user", null);
         String b = product("decor", "user", null);
         long first = publish(entry(a, 1, 5, null, null, "personal", 1), entry(b, 1, 5, null, null, "personal", 2));
@@ -373,8 +369,8 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("내역은 섬 귀속이다 — personal 은 그 섬의 내 주문, shared 는 그 섬의 공동 주문, 다른 섬 주문은 섞이지 않는다")
     void orderHistoryIsIslandScoped() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
-        Fixture other = island(GroupPermissionScope.ALL_MEMBERS);
+        Fixture f = island();
+        Fixture other = island();
         members.save(GroupMember.builder().user(users.getReferenceById(f.ownerId))
                 .group(groups.getReferenceById(other.islandId)).role(GroupMemberRole.MEMBER).build());
         fund(f.islandId, 100);
@@ -408,7 +404,7 @@ class ShopServiceIntegrationTest {
     @Test
     @DisplayName("sound 음원을 사면 섬이 소유하고, 방송기 재생 PATCH 가 그 곡을 고를 수 있다 (B20·#825)")
     void soundPurchaseIsPlayable() {
-        Fixture f = island(GroupPermissionScope.OWNER_ONLY);
+        Fixture f = island();
         complete(f, "gram");
         fund(f.islandId, 100);
         String id = product("audio", "island", null);
@@ -495,10 +491,9 @@ class ShopServiceIntegrationTest {
         facilities.save(facility);
     }
 
-    private Fixture island(GroupPermissionScope permission) {
+    private Fixture island() {
         User owner = users.save(User.builder().nickname("방장-" + UUID.randomUUID()).build());
-        Group island = groups.save(Group.builder().name("섬").maxMembers(10).sharedPurchasePermission(permission)
-                .build());
+        Group island = groups.save(Group.builder().name("섬").maxMembers(10).build());
         members.save(GroupMember.builder().user(owner).group(island).role(GroupMemberRole.OWNER).build());
         return new Fixture(island.getId(), owner.getId());
     }

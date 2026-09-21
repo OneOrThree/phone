@@ -2,10 +2,12 @@ package com.oneorthree.phone.construction.service;
 
 import com.oneorthree.phone.construction.exception.ConstructionErrorCode;
 import com.oneorthree.phone.construction.exception.ConstructionException;
+import com.oneorthree.phone.construction.repository.IslandConstructionContributionRepository;
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletRepository;
 import com.oneorthree.phone.construction.repository.domain.FacilityStatus;
+import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.construction.repository.domain.IslandFacilityId;
 import com.oneorthree.phone.construction.scheduler.IslandConstructionScheduler;
@@ -14,7 +16,6 @@ import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
-import com.oneorthree.phone.group.repository.domain.GroupPermissionScope;
 import com.oneorthree.phone.construction.dto.ConstructionStartedView;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
 import com.oneorthree.phone.user.repository.UserRepository;
@@ -76,6 +77,8 @@ class IslandConstructionIntegrationTest {
     IslandConstructionStateRepository states;
     @Autowired
     IslandFacilityRepository facilities;
+    @Autowired
+    IslandConstructionContributionRepository contributions;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -194,10 +197,7 @@ class IslandConstructionIntegrationTest {
     @DisplayName("같은 멱등 키의 동시 기여 둘은 한 번만 적힌다 — 둘 다 정상 종료·지갑 1회·기여 1행·원장 1행")
     void concurrentContributeWithSameKeyWritesOnce() throws Exception {
         Fixture f = islandOnly();
-        tx().executeWithoutResult(status -> {
-            states.insertIfAbsent(f.islandId);
-            states.findByIdForUpdate(f.islandId).orElseThrow().retarget("hall");
-        });
+        chooseTarget(f.islandId, "hall");
         String key = "k-race-" + f.islandId;
 
         // 두 TX 가 잠금 전 멱등 판정을 나란히 지나도록 같은 게이트에서 풀어 준다 — 후발이
@@ -252,12 +252,8 @@ class IslandConstructionIntegrationTest {
     void concurrentContributeSameKeyAcrossIslandsWritesBoth() throws Exception {
         Fixture a = islandOnly();
         Fixture b = islandOnly();
-        tx().executeWithoutResult(status -> {
-            for (Fixture f : new Fixture[] {a, b}) {
-                states.insertIfAbsent(f.islandId);
-                states.findByIdForUpdate(f.islandId).orElseThrow().retarget("hall");
-            }
-        });
+        chooseTarget(a.islandId, "hall");
+        chooseTarget(b.islandId, "hall");
         String key = "k-two-islands";
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
@@ -297,40 +293,64 @@ class IslandConstructionIntegrationTest {
     // ---------------------------------------------------------------- 멱등 재생 권한
 
     @Test
-    @DisplayName("강퇴된 주민의 같은 키 PUT 재생은 403 이다 — 재생 권한은 현재 상태로 다시 검사한다")
+    @DisplayName("강퇴된 방장의 같은 키 PUT 재생은 403 이다 — 재생 권한은 현재 상태로 다시 검사한다")
     void replayedTargetPutIsForbiddenAfterKick() {
         SharedFixture f = sharedIsland();
         UUID key = UUID.randomUUID();
-        service.setTarget(f.islandId, f.memberId, "hall", 0, key);
+        service.setTarget(f.islandId, f.ownerId, "hall", 0, key);
 
         // 강퇴 — 활성 멤버십만 없어지고 계정·섬은 살아 있다.
         jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ? AND group_id = ?",
-                f.memberId, f.islandId);
+                f.ownerId, f.islandId);
 
-        assertThatThrownBy(() -> service.setTarget(f.islandId, f.memberId, "hall", 0, key))
+        assertThatThrownBy(() -> service.setTarget(f.islandId, f.ownerId, "hall", 0, key))
                 .isInstanceOf(ConstructionException.class)
                 .extracting("errorCode").isEqualTo(ConstructionErrorCode.CONSTRUCTION_FORBIDDEN);
     }
 
     @Test
-    @DisplayName("지출 권한을 잃은 주민의 같은 키 POST 재생은 403 이다 — OWNER_ONLY 전환 뒤 재생 불가")
-    void replayedBuildIsForbiddenAfterSpendPermissionFlip() {
+    @DisplayName("방장에서 내려온 뒤의 같은 키 POST 재생은 403 이다 — 건설은 방장만이다")
+    void replayedBuildIsForbiddenAfterHostHandover() {
         SharedFixture f = sharedIsland();
         tx().executeWithoutResult(status ->
                 walletService.contribute(f.islandId, f.ownerId, 100, "seed-" + f.islandId));
         UUID key = UUID.randomUUID();
-        service.start(f.islandId, f.memberId, "hall", 0, 1, key);
+        service.start(f.islandId, f.ownerId, "hall", 0, 1, key);
 
-        // 방장이 지출 토글을 OWNER_ONLY 로 돌렸다 — 일반 주민의 재생 권한은 사라진다.
-        jdbc.update("UPDATE groups SET shared_purchase_permission = 'OWNER_ONLY' WHERE id = ?",
-                f.islandId);
+        // 방장을 위임했다 — 전 방장의 건설 권한은 사라지고 재생도 그때의 권한을 되살리지 않는다.
+        jdbc.update("UPDATE group_members SET role = 'MEMBER' WHERE user_id = ? AND group_id = ?",
+                f.ownerId, f.islandId);
 
-        assertThatThrownBy(() -> service.start(f.islandId, f.memberId, "hall", 0, 1, key))
+        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "hall", 0, 1, key))
                 .isInstanceOf(ConstructionException.class)
                 .extracting("errorCode").isEqualTo(ConstructionErrorCode.CONSTRUCTION_FORBIDDEN);
         // 재생이 거절됐으니 추가 차감도 없다.
         assertThat(balance(f.islandId)).isEqualTo(40);
         assertThat(debitCount(f.islandId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("일반 주민은 목표 선택도 건설하기도 못 한다 — 건설은 방장만(GROMO-2000)")
+    void residentsCannotSelectTargetOrBuild() {
+        SharedFixture f = sharedIsland();
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, 100, "seed-" + f.islandId));
+
+        assertThatThrownBy(() -> service.setTarget(f.islandId, f.memberId, "hall", 0,
+                UUID.randomUUID()))
+                .isInstanceOf(ConstructionException.class)
+                .extracting("errorCode").isEqualTo(ConstructionErrorCode.CONSTRUCTION_FORBIDDEN);
+        assertThatThrownBy(() -> service.start(f.islandId, f.memberId, "hall", 0, 1,
+                UUID.randomUUID()))
+                .isInstanceOf(ConstructionException.class)
+                .extracting("errorCode").isEqualTo(ConstructionErrorCode.CONSTRUCTION_FORBIDDEN);
+        // 조회는 막지 않되 항목마다 FORBIDDEN 사유를 준다(C08).
+        assertThat(service.options(f.islandId, f.memberId).items())
+                .isNotEmpty()
+                .allSatisfy(item -> {
+                    assertThat(item.selectable()).isFalse();
+                    assertThat(item.blockedReason()).isEqualTo("FORBIDDEN");
+                });
     }
 
     // ---------------------------------------------------------------- 숫자 상한
@@ -445,6 +465,115 @@ class IslandConstructionIntegrationTest {
         assertThat(debitCount(f.islandId)).isEqualTo(1);
     }
 
+    // ---------------------------------------------------------------- 자유 순서 (GROMO-1999)
+
+    @Test
+    @DisplayName("게시판 뒤 넷은 순서가 자유다 — 축음기 없이도 도서관을 짓는다")
+    void freeOrderLetsLibraryPrecedeGram() {
+        Fixture f = fundedIsland(2720, "library");
+        completeFacility(f, "hall");
+        completeFacility(f, "board");
+
+        ConstructionStartedView view = service.start(f.islandId, f.ownerId, "library", 0, 1,
+                UUID.randomUUID());
+
+        assertThat(view.status()).isEqualTo("BUILDING");
+        assertThat(view.spent().amount()).isEqualTo(2720);
+    }
+
+    @Test
+    @DisplayName("상점은 나머지 넷이 모두 완공돼야 고를 수 있다 — 하나라도 빠지면 FACILITY_LOCKED")
+    void shopNeedsEveryOtherBuilding() {
+        Fixture f = islandOnly();
+        completeFacility(f, "hall");
+        completeFacility(f, "board");
+        completeFacility(f, "gram");
+        completeFacility(f, "library");
+        completeFacility(f, "mail");
+
+        // 전망대만 빠진 상태 — 상점 목표 선택은 막힌다.
+        assertThatThrownBy(() -> service.setTarget(f.islandId, f.ownerId, "shop", 0,
+                UUID.randomUUID()))
+                .isInstanceOf(ConstructionException.class)
+                .extracting("errorCode").isEqualTo(ConstructionErrorCode.FACILITY_LOCKED);
+
+        completeFacility(f, "tower");
+        assertThat(service.setTarget(f.islandId, f.ownerId, "shop", 0, UUID.randomUUID())
+                .buildingId()).isEqualTo("shop");
+    }
+
+    @Test
+    @DisplayName("한 번에 한 건물만 진행한다 — 공사 중이면 다른 건물 착공도 목표 변경도 막힌다")
+    void onlyOneBuildingRunsAtATime() {
+        Fixture f = fundedIsland(100, "hall");
+        service.start(f.islandId, f.ownerId, "hall", 0, 1, UUID.randomUUID());
+        long version = service.options(f.islandId, f.ownerId).islandVersion();
+
+        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "board", version, 1,
+                UUID.randomUUID()))
+                .isInstanceOf(ConstructionException.class)
+                .extracting("errorCode").isEqualTo(ConstructionErrorCode.STATE_CONFLICT);
+        assertThatThrownBy(() -> service.setTarget(f.islandId, f.ownerId, "board", version,
+                UUID.randomUUID()))
+                .isInstanceOf(ConstructionException.class)
+                .extracting("errorCode").isEqualTo(ConstructionErrorCode.STATE_CONFLICT);
+        assertThat(count("island_facilities", f.islandId)).isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------- 목표 선택 당시 대상 주민
+
+    @Test
+    @DisplayName("대상은 목표 선택 당시의 주민으로 고정된다 — 뒤에 가입한 주민은 몫을 지지 않는다")
+    void targetCohortIsPinnedAtSelection() {
+        SharedFixture f = sharedIsland();
+        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
+        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
+
+        // 목표를 고른 «뒤» 새 주민이 들어온다 — 대상이 아니므로 분모도 몫도 바뀌지 않는다.
+        UUID latecomer = joinNewMember(f.islandId);
+
+        // 대상 2명 → 각자 ceil(1360/2)=680.
+        tx().executeWithoutResult(status -> {
+            walletService.contribute(f.islandId, f.ownerId, 680, "own-" + f.islandId);
+            walletService.contribute(f.islandId, f.memberId, 680, "mem-" + f.islandId);
+        });
+
+        Integer latecomerRow = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM island_construction_contributions "
+                        + "WHERE island_id = ? AND user_id = ?",
+                Integer.class, f.islandId, latecomer);
+        assertThat(latecomerRow).as("대상 밖 주민은 기여 행 자체가 없다").isZero();
+
+        long version = service.options(f.islandId, f.ownerId).islandVersion();
+        assertThat(service.start(f.islandId, f.ownerId, "gram", version, 1, UUID.randomUUID())
+                .status()).isEqualTo("BUILDING");
+    }
+
+    @Test
+    @DisplayName("탈퇴·강퇴한 주민은 대상에서 빠진다 — 남은 대상 인원으로 몫을 다시 나눈다")
+    void leavingResidentDropsOutOfTheTarget() {
+        SharedFixture f = sharedIsland();
+        completeFacility(new Fixture(f.islandId, f.ownerId), "hall");
+        completeFacility(new Fixture(f.islandId, f.ownerId), "board");
+        service.setTarget(f.islandId, f.ownerId, "gram", 0, UUID.randomUUID());
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, 1360, "own-" + f.islandId));
+        long version = service.options(f.islandId, f.ownerId).islandVersion();
+
+        // 대상 2명이면 각자 680 이 필요한데 주민은 0 이다 — 잔액이 총액을 넘어도 몫이 비었다.
+        assertThatThrownBy(() -> service.start(f.islandId, f.ownerId, "gram", version, 1,
+                UUID.randomUUID()))
+                .isInstanceOf(ConstructionException.class)
+                .extracting("errorCode").isEqualTo(ConstructionErrorCode.INSUFFICIENT_FUNDS);
+
+        // 그 주민이 강퇴되면 대상은 방장 1명 — 몫은 1360 이고 방장이 이미 채웠다.
+        jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ? AND group_id = ?",
+                f.memberId, f.islandId);
+        assertThat(service.start(f.islandId, f.ownerId, "gram", version, 1, UUID.randomUUID())
+                .status()).isEqualTo("BUILDING");
+    }
+
     // ---------------------------------------------------------------- 시설
 
     /** 완공 시설 행을 직접 심는다 — 선행 조건만 채우면 되는 테스트용. */
@@ -467,22 +596,40 @@ class IslandConstructionIntegrationTest {
     /** 방장 1명 섬에 {@code target} 을 목표로 골라 두고 물고기 {@code funds} 를 심는다. */
     private Fixture fundedIsland(int funds, String target) {
         Fixture f = islandOnly();
-        tx().executeWithoutResult(status -> {
-            // 목표를 먼저 고른다 — 「각자 몫은 목표를 고른 뒤부터」라 목표 없는 적립은
-            // 주민별 기여 행을 남기지 않으므로 순서가 결과를 바꾼다.
-            states.insertIfAbsent(f.islandId);
-            states.findByIdForUpdate(f.islandId).orElseThrow().retarget(target);
-            walletService.contribute(f.islandId, f.ownerId, funds, "seed-" + f.islandId);
-        });
+        // 목표를 먼저 고른다 — 「각자 몫은 목표를 고른 뒤부터」라 목표 없는 적립은
+        // 주민별 기여 행을 남기지 않으므로 순서가 결과를 바꾼다.
+        chooseTarget(f.islandId, target);
+        tx().executeWithoutResult(status ->
+                walletService.contribute(f.islandId, f.ownerId, funds, "seed-" + f.islandId));
         return f;
     }
 
-    /** 방장 + 일반 주민 1명, 지출 토글 {@code ALL_MEMBERS} 인 섬 — 재생 권한 상실 시나리오용. */
+    /**
+     * 목표 선택을 서비스 없이 재현한다 — {@code setTarget} 과 같은 두 쓰기(목표·epoch 갱신과
+     * 그 시점 주민 고정)를 한 TX 에서 한다. 고정을 빼면 기여가 대상 행을 못 찾아 쌓이지 않는다.
+     */
+    private void chooseTarget(UUID islandId, String buildingId) {
+        tx().executeWithoutResult(status -> {
+            states.insertIfAbsent(islandId);
+            IslandConstructionState state = states.findByIdForUpdate(islandId).orElseThrow();
+            state.retarget(buildingId);
+            contributions.seedCohort(islandId, state.getTargetEpoch(), Instant.now());
+        });
+    }
+
+    /** 섬에 새 주민 한 명을 들인다 — 목표 선택 뒤의 가입을 재현한다. */
+    private UUID joinNewMember(UUID islandId) {
+        User joiner = users.save(User.builder().nickname("신규-" + UUID.randomUUID()).build());
+        members.save(GroupMember.builder().user(joiner).group(groups.findById(islandId).orElseThrow())
+                .role(GroupMemberRole.MEMBER).build());
+        return joiner.getId();
+    }
+
+    /** 방장 + 일반 주민 1명인 섬 — 권한·재생 권한 상실 시나리오용. */
     private SharedFixture sharedIsland() {
         User owner = users.save(User.builder().nickname("방장-" + UUID.randomUUID()).build());
         User member = users.save(User.builder().nickname("주민-" + UUID.randomUUID()).build());
-        Group island = groups.save(Group.builder().name("섬").maxMembers(10)
-                .sharedPurchasePermission(GroupPermissionScope.ALL_MEMBERS).build());
+        Group island = groups.save(Group.builder().name("섬").maxMembers(10).build());
         members.save(GroupMember.builder().user(owner).group(island)
                 .role(GroupMemberRole.OWNER).build());
         members.save(GroupMember.builder().user(member).group(island)
