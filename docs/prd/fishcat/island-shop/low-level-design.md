@@ -226,7 +226,7 @@ Data의 내부 주문 응답은 공개 주문 DTO와 구분하여 `{data:<공개
 
 |종류|개인|공동|
 |---|---|---|
-|wallet.updated|islandId=null, ownerType=user, ownerId=subject, currency=fish|islandId=ownerId=경로섬, ownerType=island, currency=village_points|
+|wallet.updated|**없음** — 결제는 섬 통장뿐이다(SH-재화). 개인 지갑 축은 GROMO-1989/2044 로 Realtime 계약에서도 제거했고, 섬 없는 `wallet.updated` 는 봉투가 거절한다|islandId=ownerId=경로섬, ownerType=island, currency=village_points|
 |inventory.updated|islandId=null, ownerType=user, ownerId=subject, productId|islandId=ownerId=경로섬, ownerType=island, productId|
 |audience/destination|검증owner 하나, `/user/queue/events`|현재섬 주민, `/topic/islands/{islandId}/events`|
 

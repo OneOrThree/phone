@@ -18,6 +18,11 @@ import java.util.UUID;
  * <p>emote 는 생산자가 <b>앱의 STOMP 프레임</b>이라 당연하지만, 주민 사건 둘도 마찬가지로 검사한다 —
  * 서비스 토큰이 증명하는 것은 <b>「Data 가 보냈다」이지 「내용이 계약을 지킨다」가 아니다</b>. 생산자가
  * 필드를 빠뜨리거나 상태값을 바꾸면 그 malformed 사건이 <b>유효한 봉투로</b> 앱에 방송된다.
+ *
+ * <p><b>지갑은 섬 하나다</b>(GROMO-1989/2044). 종전에는 {@code islandId == null} 이면 개인 지갑
+ * ({@code ownerType:user}·{@code currency:fish})으로 받는 분기가 있었지만, Data 의 유일한
+ * {@code wallet.updated} 발행자가 섬 지갑만 내보내 도달할 수 없었다. 남겨 두면 다음 사람이 개인 지갑이
+ * 아직 살아 있다고 읽으므로 걷어냈다 — 지금은 섬 없는 {@code wallet.updated} 가 봉투에서 거절된다.
  */
 final class EventPayloadValidator {
 
@@ -60,16 +65,15 @@ final class EventPayloadValidator {
         }
         if (type == RealtimeEventType.WALLET_UPDATED || type == RealtimeEventType.INVENTORY_UPDATED) {
             UUID ownerId = ownerId(payload);
+            // 여기서 islandId 가 null 일 수 있는 것은 inventory 뿐이다 — 봉투가 지갑의 개인 축을 막는다.
             String expectedOwner = islandId == null ? "user" : "island";
             if (!expectedOwner.equals(textField(payload, "ownerType"))
                     || islandId != null && !islandId.equals(ownerId)) {
                 throw new IllegalArgumentException("자산 소유 범위가 일치하지 않습니다.");
             }
-            if (type == RealtimeEventType.WALLET_UPDATED) {
-                String expectedCurrency = islandId == null ? "fish" : "village_points";
-                if (!expectedCurrency.equals(textField(payload, "currency"))) {
-                    throw new IllegalArgumentException("자산 소유자와 재화가 일치하지 않습니다.");
-                }
+            if (type == RealtimeEventType.WALLET_UPDATED
+                    && !"village_points".equals(textField(payload, "currency"))) {
+                throw new IllegalArgumentException("자산 소유자와 재화가 일치하지 않습니다.");
             }
         }
     }

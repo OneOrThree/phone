@@ -32,8 +32,10 @@ public record RealtimeEventEnvelope(UUID eventId, int schemaVersion, RealtimeEve
                 || aggregateVersion > 9_007_199_254_740_991L) {
             throw new IllegalArgumentException("이벤트 자원 버전이 올바르지 않습니다.");
         }
-        if (islandId == null && type != RealtimeEventType.WALLET_UPDATED
-                && type != RealtimeEventType.INVENTORY_UPDATED) {
+        // 개인 지갑은 없다 — 재화는 섬 단위 하나다(GROMO-1989, 결정 「재화-단일-호환」). Data 의 유일한
+        // wallet.updated 발행자(IslandWalletEvents)가 섬을 subjectId 로 싣는 것 외의 경로가 없으므로,
+        // 섬 없는 지갑 사건은 유효한 payload 가 아니다. 개인 축이 남은 자산은 inventory 뿐이다.
+        if (islandId == null && type != RealtimeEventType.INVENTORY_UPDATED) {
             throw new IllegalArgumentException("섬 식별자가 필요합니다.");
         }
         EventPayloadValidator.validate(type, islandId, aggregateVersion, payload);
