@@ -816,7 +816,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("휴식 59분은 그대로 두고 1시간을 넘기면 «정상 완료»로 끝낸다 — 휴식 자리와 실시간 목록도 비운다")
     void restIsClosedOnlyAfterAnHourAndAsANormalCompletion() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("모닥불섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("모닥불섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView paused = startedThenResting(user, island, 600);
         assertThat(((Number) detailRow(paused.id()).get("rest_seat")).intValue()).isEqualTo(1);
@@ -850,7 +850,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("자동 종료는 이미 섬 통장에 들어간 물고기를 다시 주지 않고 집중 기록만 정상 종료처럼 남긴다")
     void autoCloseRecordsTheSessionWithoutPayingTwice() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("적립섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("적립섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView paused = startedThenResting(user, island, 600);
         long balanceBeforeRest = islandBalance(island);
@@ -876,7 +876,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("resume 이 먼저 이기면 자동 종료는 아무것도 하지 않고, 자동 종료가 먼저면 뒤늦은 resume 이 409 다 — 종결은 한 번")
     void resumeAndAutoCloseRaceEndsTheSessionExactlyOnce() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("경합섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("경합섬", null, false, null),
                 UUID.randomUUID()).id();
 
         FocusSessionView paused = startedThenResting(user, island, 60);
@@ -911,7 +911,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("다음 접속에 결과를 한 번 준다 — 확인 전에는 몇 번을 물어도 같은 결과, 확인 뒤에는 null")
     void theAutoClosedResultIsHandedOverExactlyOnce() throws Exception {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("결과섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("결과섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView paused = startedThenResting(user, island, 600);
         String base = "/internal/users/" + user;
@@ -954,7 +954,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("스스로 끝낸 세션은 미확인 결과가 되지 않는다 — 결과창은 finish 응답으로 이미 봤다")
     void aManuallyFinishedSessionNeverBecomesAPendingResult() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("직접종료섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("직접종료섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
 
@@ -969,7 +969,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("남의 세션은 확인해 줄 수 없다 — 확인 시각은 그 사람의 결과가 사라지는 부작용이다")
     void acknowledgingSomeoneElsesResultIsForbidden() {
         UUID owner = newUser();
-        UUID island = islands.create(owner, new CreateIslandCommandRequest("남의섬", null, false),
+        UUID island = islands.create(owner, new CreateIslandCommandRequest("남의섬", null, false, null),
                 UUID.randomUUID()).id();
         UUID stranger = newUser();
         FocusSessionView paused = startedThenResting(owner, island, 60);
@@ -987,7 +987,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("기본 마커가 바깥에서 닫힌 휴식 세션은 자동 종료가 터지지 않고 ABANDONED 정리로 끝난다 — 매분 에러가 아니다")
     void aMarkerDesyncedRestIsCleanedUpInsteadOfFailingEveryTick() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("어긋난섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("어긋난섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView paused = startedThenResting(user, island, 60);
         shiftSessionBack(paused.id(), 3601);
