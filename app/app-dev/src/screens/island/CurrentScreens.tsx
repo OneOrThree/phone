@@ -80,7 +80,13 @@ import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
-import { isScreenTimeAvailable, screenTime, ScreenTimeAuthorization } from '@/services/screenTime';
+import {
+  isScreenTimeAvailable,
+  screenTime,
+  ScreenTimeAuthorization,
+  ScreenTimeSelection,
+  selectionCount,
+} from '@/services/screenTime';
 const buildingArt: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -203,6 +209,7 @@ export function CurrentScreens({ e }: any) {
       'visitIsland',
       'visitIslandFocus',
       'permission',
+      'screenTimeApps',
     ].includes(r)
   )
     return (
@@ -293,6 +300,7 @@ export function CurrentScreens({ e }: any) {
   if (['boat', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
   if (r === 'permission') return <ScreenTimePermission e={e} />;
+  if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
   return <RedesignScreens e={e} />;
 }
 
@@ -303,7 +311,17 @@ function ScreenTimePermission({ e }: any) {
   const boardFirst = gateParts[0] === 'board-first';
   const gateRoute = (gateParts[1] || 'board') as Route;
   const gateDetail = decodeURIComponent(gateParts[2] || '');
+  const measuredApps = e.detail === 'measured-apps';
   const finish = () => {
+    if (boardFirst) {
+      e.replace('screenTimeApps', e.detail);
+    } else if (measuredApps) {
+      e.replace('screenTimeApps', 'settings');
+    } else {
+      e.back();
+    }
+  };
+  const skip = () => {
     if (boardFirst) {
       e.dispatch({ type: 'SETTING', key: 'screenTimeBoardPromptSeen', value: true });
       e.replace(gateRoute, gateDetail);
@@ -360,8 +378,8 @@ function ScreenTimePermission({ e }: any) {
       <Sheet
         e={e}
         title="측정 권한"
-        onBack={boardFirst ? finish : undefined}
-        onClose={boardFirst ? finish : undefined}
+        onBack={boardFirst ? skip : undefined}
+        onClose={boardFirst ? skip : undefined}
       >
         <View style={{ paddingVertical: 32, alignItems: 'center' }}>
           <ActivityIndicator color={C.ink} />
@@ -373,8 +391,8 @@ function ScreenTimePermission({ e }: any) {
     <Sheet
       e={e}
       title="측정 권한"
-      onBack={boardFirst ? finish : undefined}
-      onClose={boardFirst ? finish : undefined}
+      onBack={boardFirst ? skip : undefined}
+      onClose={boardFirst ? skip : undefined}
     >
       <Pic id="cat/black/sitting" w={82} />
       <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
@@ -397,18 +415,21 @@ function ScreenTimePermission({ e }: any) {
         />
       </Group>
       {status === 'approved' ? (
-        <Btn title={boardFirst ? '게시판 열기' : '완료'} onPress={finish} />
+        <Btn
+          title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
+          onPress={finish}
+        />
       ) : status === 'denied' ? (
         <>
           <Btn title="iOS 설정 열기" onPress={() => Linking.openSettings()} />
           <Btn
             title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
             kind="ghost"
-            onPress={finish}
+            onPress={skip}
           />
         </>
       ) : unavailable ? (
-        <Btn title={boardFirst ? '게시판 열기' : '확인'} onPress={finish} />
+        <Btn title={boardFirst ? '게시판 열기' : '확인'} onPress={skip} />
       ) : (
         <>
           <Btn
@@ -416,10 +437,113 @@ function ScreenTimePermission({ e }: any) {
             disabled={busy}
             onPress={request}
           />
-          {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={finish} />}
+          {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={skip} />}
         </>
       )}
       <Txt kind="meta">권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요.</Txt>
+    </Sheet>
+  );
+}
+
+function MeasuredAppPicker({ e }: any) {
+  const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pickerInFlight = useRef(false);
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gateParts = String(e.detail).split('|');
+  const boardFirst = gateParts[0] === 'board-first';
+  const gateRoute = (gateParts[1] || 'board') as Route;
+  const gateDetail = decodeURIComponent(gateParts[2] || '');
+  const finish = () => {
+    if (boardFirst) {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeBoardPromptSeen', value: true });
+      e.replace(gateRoute, gateDetail);
+    } else {
+      e.back();
+    }
+  };
+  const openPicker = async () => {
+    if (pickerInFlight.current) return;
+    pickerInFlight.current = true;
+    if (autoTimer.current) {
+      clearTimeout(autoTimer.current);
+      autoTimer.current = null;
+    }
+    setBusy(true);
+    try {
+      const active = await screenTime.getMeasurementSelectionCounts();
+      setSelection(active);
+      const picked = await screenTime.presentAppPicker();
+      if (!picked) {
+        if (boardFirst) finish();
+        return;
+      }
+      const count = selectionCount(picked);
+      if (picked.appliesImmediately) {
+        const activated = await screenTime.promoteSelection();
+        if (!activated) throw new Error('measurement selection activation failed');
+        const unconfirmedDays = await screenTime.getUnconfirmedUsageBucketDays();
+        e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+        const minutes = await screenTime.getTodayUsageBucketMinutes();
+        e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
+        e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+        e.dispatch({ type: 'SCREEN_TIME', value: minutes });
+        e.notify(`측정 앱 ${count}개를 바로 적용했어요.`);
+      } else {
+        e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
+      }
+      setSelection(picked);
+      finish();
+    } catch {
+      e.notify('측정 앱 선택 화면을 열지 못했어요.');
+    } finally {
+      pickerInFlight.current = false;
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    screenTime
+      .getMeasurementSelectionCounts()
+      .then(setSelection)
+      .catch(() => {});
+    if (!boardFirst) return;
+    autoTimer.current = setTimeout(openPicker, 450);
+    return () => {
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+    };
+  }, []);
+  return (
+    <Sheet
+      e={e}
+      title="측정 앱"
+      onBack={boardFirst ? finish : undefined}
+      onClose={boardFirst ? finish : undefined}
+    >
+      <Pic id="cat/black/sitting" w={82} />
+      <Txt kind="h17">줄이고 싶은 앱을 골라주세요</Txt>
+      <Txt>
+        선택한 앱과 카테고리의 사용 시간을 15분 단위로 기록해요. 앱 이름은 Apple 선택 화면 안에서만
+        보여요.
+      </Txt>
+      <Group flat>
+        <Row
+          title="현재 측정 대상"
+          sub={selectionCount(selection) ? `${selectionCount(selection)}개 선택됨` : '아직 없음'}
+        />
+        <Row
+          title="변경 적용"
+          sub={selectionCount(selection) ? '기존 대상 변경은 다음 날부터' : '최초 선택은 바로'}
+        />
+      </Group>
+      <Btn
+        title={busy ? '선택 화면 여는 중…' : '측정 앱 고르기'}
+        disabled={busy}
+        onPress={openPicker}
+      />
+      {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={finish} />}
+      <Txt kind="meta">
+        선택을 바꾸는 날에는 기존 앱 기준 기록을 유지하고, 자정부터 새 대상을 측정해요.
+      </Txt>
     </Sheet>
   );
 }

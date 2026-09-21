@@ -25,7 +25,7 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
-import { screenTime } from '@/services/screenTime';
+import { screenTime, selectionCount } from '@/services/screenTime';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
@@ -80,6 +80,7 @@ import {
   Building,
   Quest,
   Member,
+  dayKey,
 } from '@/services/model';
 import { checkSession, logout } from '@/services/api/auth';
 import { restoreSession, setSessionLostHandler } from '@/services/api/session';
@@ -146,6 +147,7 @@ const titles: Record<Route, string> = {
   focusTravel: '낚시섬으로',
   returnTravel: '우리 섬으로',
   permission: '측정 권한',
+  screenTimeApps: '측정 앱',
   demo: '목업 체험 도구',
 };
 function Bubble({ text, mine }: { text: string; mine: boolean }) {
@@ -431,23 +433,61 @@ function Gromo() {
   }, []);
   useEffect(() => {
     if (!loaded) return;
-    const syncPermission = () => {
+    const syncPermission = async () => {
       if (Platform.OS !== 'ios') {
-        if (!REVIEW && !DEMO) dispatch({ type: 'SETTING', key: 'permission', value: false });
+        if (!REVIEW && !DEMO) {
+          dispatch({ type: 'SETTING', key: 'permission', value: false });
+          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+        }
+        dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
         return;
       }
-      screenTime
-        .getAuthorizationStatus()
-        .then((status) =>
-          dispatch({ type: 'SETTING', key: 'permission', value: status === 'approved' }),
-        )
-        .catch(() => {});
+      dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
+      try {
+        const status = await screenTime.getAuthorizationStatus();
+        const approved = status === 'approved';
+        dispatch({ type: 'SETTING', key: 'permission', value: approved });
+        if (!approved) {
+          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+          const unconfirmedDays = await screenTime
+            .markCurrentUsageBucketUnconfirmed()
+            .catch(() => []);
+          dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+          return;
+        }
+        await screenTime.promotePendingSelectionIfDue().catch(() => false);
+        const selection = await screenTime.getMeasurementSelectionCounts();
+        const measurementReady = selectionCount(selection) > 0;
+        dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: measurementReady });
+        if (!measurementReady) {
+          dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+          return;
+        }
+        const [minutes, history, unconfirmedDays] = await Promise.all([
+          screenTime.getTodayUsageBucketMinutes(),
+          screenTime.getUsageBucketHistory(),
+          screenTime.getUnconfirmedUsageBucketDays(),
+        ]);
+        dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+        dispatch({ type: 'SCREEN_TIME_HISTORY', buckets: history, now: Date.now() });
+        dispatch({ type: 'SCREEN_TIME', value: minutes });
+      } catch {}
     };
-    syncPermission();
+    void syncPermission();
+    let syncedDay = dayKey();
+    const dayChangeTimer = setInterval(() => {
+      const currentDay = dayKey();
+      if (currentDay === syncedDay) return;
+      syncedDay = currentDay;
+      void syncPermission();
+    }, 1000);
     const subscription = AppState.addEventListener('change', (nextState) => {
-      if (nextState === 'active') syncPermission();
+      if (nextState === 'active') void syncPermission();
     });
-    return () => subscription.remove();
+    return () => {
+      clearInterval(dayChangeTimer);
+      subscription.remove();
+    };
   }, [loaded]);
   useEffect(() => {
     if (!loaded || Platform.OS !== 'ios') return;
