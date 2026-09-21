@@ -116,11 +116,17 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     List<Friendship> findPair(@Param("a") User a, @Param("b") User b);
 
     /**
-     * 단일 ACCEPTED 친구 관계 양방향 단건 조회 (deletedAt IS NULL) — deleteFriend 용.
+     * 단일 ACCEPTED 친구 관계 양방향 단건 조회 (deletedAt IS NULL) — <b>락을 잡지 않는다</b>.
      *
-     * @param me     끊으려는 쪽
+     * <p><b>관계를 근거로 무언가를 쓰는 경로에서는 쓰지 말 것</b> — 그쪽은
+     * {@link #findAcceptedBetweenForUpdate} 다. 이 조회는 "지금 친구인가"를 <b>표시·열람 판정</b>에만
+     * 쓰는 읽기 경로용이다(공개 프로필의 친구 배지, 통계 열람 권한). 거기서 배타 락을 잡으면
+     * 남의 프로필을 여는 것만으로 그 관계 행이 트랜잭션 내내 잠겨 친구 삭제·편지 발송이 줄을 선다 —
+     * {@link #findStatusByIdAndDeletedAtIsNull} 를 알림 경로용으로 따로 판 것과 같은 이유다.
+     *
+     * @param me     보는 쪽
      * @param friend 상대 — 관계가 어느 방향으로 저장돼 있든 걸린다
-     * @return 살아 있는 ACCEPTED 관계. 없으면 빈 값이고 호출측이 NOT_FRIEND 로 떨어뜨린다
+     * @return 살아 있는 ACCEPTED 관계. 조회 직후 삭제가 커밋될 수 있다
      */
     @Query("SELECT f FROM Friendship f"
             + " WHERE f.status = 'ACCEPTED'"
@@ -128,6 +134,52 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
             + " AND ((f.fromUser = :me AND f.toUser = :friend)"
             + " OR (f.fromUser = :friend AND f.toUser = :me))")
     Optional<Friendship> findAcceptedBetween(@Param("me") User me, @Param("friend") User friend);
+
+    /**
+     * 위 조회와 조건은 같지만 <b>배타 락</b>을 잡는다 (codex 리뷰 P1) — 친구 삭제와 편지 발송을
+     * <b>같은 관계 행</b>에서 직렬화하는 경계다.
+     *
+     * <p>락이 없으면 이렇게 깨진다: 발송이 관계를 확인(통과)한 직후 삭제가 관계를 끊고
+     * 미확인 편지 정리까지 커밋하고, 그 <b>뒤에</b> 발송이 새 {@code letters} 행을 넣는다. 정리가
+     * 이미 지나간 자리라 <b>관계는 끊겼는데 미확인 편지가 양쪽 편지함에 남는다</b> —
+     * friend-letter LLD §결정 3(B) 의 삭제 계약 위반이다.
+     *
+     * <p>락을 잡으면 어느 쪽이 먼저 잡든 결과가 계약과 맞는다:
+     * <ul>
+     *   <li><b>발송이 먼저</b> — 삭제가 대기하다 발송 커밋 후 진행하고, 방금 꽂힌 편지까지
+     *       {@code softDeleteUnreadBetween} 가 함께 지운다</li>
+     *   <li><b>삭제가 먼저</b> — 발송이 대기하다, READ COMMITTED 의 술어 재평가로
+     *       {@code deletedAt IS NULL} 이 깨져 <b>빈 결과</b>를 받고 {@code LETTER_RECIPIENT_NOT_FRIEND}
+     *       로 떨어진다({@link #findByIdAndDeletedAtIsNull} 와 같은 원리)</li>
+     * </ul>
+     *
+     * <p><b>교착이 없는 이유 — 잠금 순서 규칙.</b> 두 가지가 함께 받쳐 준다:
+     * <ol>
+     *   <li><b>잠그는 관계 행은 «쌍당 한 개»다.</b> 이 조회는 {@code (from,to)}·{@code (to,from)} 을
+     *       OR 로 훑는 대칭 질의라 인자 순서를 뒤집어도 <b>같은 행 id</b>를 가리킨다(살아 있는 ACCEPTED
+     *       행은 쌍당 하나 — {@code Optional} 인 것이 그 전제다). 여러 행을 잡을 때만 생기는
+     *       「두 방향이 서로 다른 순서로 잠근다」 문제가 성립하지 않으므로 {@code userId} 정렬 같은
+     *       순서 규칙 자체가 필요 없다. 여러 행을 잡아야 하는 날이 오면 그때
+     *       {@code GroupMembershipMutationLocks.lockGroups} 처럼 정렬해서 잠근다</li>
+     *   <li><b>층 순서는 언제나 users → friendships 다.</b> 이 락을 쓰는 두 경로가 그 앞에서 잡는
+     *       {@code users} 락은 둘 다 <b>공유 락</b>({@code getCallerForShare}·{@code getTargetForShare})
+     *       이라 서로 막지 않는다. 배타 {@code users} 락을 잡는 탈퇴도 users 를 먼저 잡고
+     *       {@code deleteAllInvolving} 으로 friendships 를 나중에 잡아 같은 방향이다.
+     *       역방향(friendships 를 잡고 users 를 잡는) 경로는 없다 — 생기면 여기서부터 다시 따질 것</li>
+     * </ol>
+     *
+     * @param me     관계를 근거로 쓰는 쪽
+     * @param friend 상대 — 관계가 어느 방향으로 저장돼 있든 걸린다
+     * @return 잠긴 ACCEPTED 관계. 락 대기 중 삭제가 커밋됐으면 술어 재평가로 빈 값이 되고,
+     *         그것이 "관계 끊김 확정" 신호다. 반환된 행은 이 트랜잭션이 끝날 때까지 잠긴다
+     */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT f FROM Friendship f"
+            + " WHERE f.status = 'ACCEPTED'"
+            + " AND f.deletedAt IS NULL"
+            + " AND ((f.fromUser = :me AND f.toUser = :friend)"
+            + " OR (f.fromUser = :friend AND f.toUser = :me))")
+    Optional<Friendship> findAcceptedBetweenForUpdate(@Param("me") User me, @Param("friend") User friend);
 
     /**
      * 내 친구 목록 — ACCEPTED, 미삭제, 내가 from 또는 to인 모든 관계 (getFriends 용).

@@ -6,8 +6,8 @@ GROMO-1780 · [PRD](prd.md) · [LLD](low-level-design.md)
 
 |항목|기준|출처|
 |---|---|---|
-|재화 표시|개인 물고기(개인 지갑)와 섬 물고기(섬 통장) 두 종류. 종전 「마을 포인트」가 섬 물고기로 바뀌었고 지갑은 여전히 둘이다. ~~초기 건설 기여는 별도 표시 잔액이 아님~~ → 초기 건설도 섬 통장 잔액으로 짓는다(건설 D4·D6)|원본 wallet + **2026-09-18 재영님 결정 D1**|
-|소유/결제|개인 지갑(`fish`)은 본인, 섬 통장(서버 통화 식별자 `village_points` = 섬 물고기)은 섬 공동|원본 wallet/buy · D1. 식별자 개명은 결정에 없어 wire 는 그대로|
+|재화 표시|**섬 물고기(섬 통장) 한 종류뿐이다.** ~~개인 물고기(개인 지갑)와 섬 물고기 두 종류~~ 는 2026-09-21 재화-단일로 폐기 — 개인 물고기 지갑을 두지 않는다. 종전 「마을 포인트」가 섬 물고기다. ~~초기 건설 기여는 별도 표시 잔액이 아님~~ → 초기 건설도 섬 통장 잔액으로 짓는다(건설 D4·D6)|원본 wallet + **2026-09-21 재영님 결정 재화-단일**(~~2026-09-18 D1~~ 대체). 기획 정본 「재화는 물고기 하나이며 섬 소유다」|
+|소유/결제|**결제 지갑은 섬 통장(서버 통화 식별자 `village_points` = 섬 물고기) 하나**이고 개인 상품도 여기서 뺀다. 물건 주인(ownerType)은 개인·섬 둘 다 남는다 — 재화 축과 소유 축은 다르다|SH-재화 + **재화-단일**. 식별자 개명은 결정에 없어 wire 는 그대로|
 |상품 범위|clothes/decor는 개인, island_theme/building_theme/audio는 공동. ~~hull~~ 은 배 종류 폐지로 판매 상품이 아니다|원본 catalog/shared-inventory · 2026-09-16 B23·B25, GROMO-1851|
 |구매 수량|현재 모든 상품은 1회 소유형, quantity/임의 가격 미지원|원본 buy|
 |~~선체 선행~~|~~뗏목→돛단배→선실 배, 선실 배는 돛단배 보유 필요~~ → **폐지.** 배 종류가 없으므로 선체 계보·선행 구매가 없다|2026-09-16 재영님 B23 「배 종류 제거」·B25 `raft`, GROMO-1851 「배 업그레이드 없음」|
@@ -23,14 +23,18 @@ GROMO-1780 · [PRD](prd.md) · [LLD](low-level-design.md)
 
 |상품/행동|ownerType/ownerId|currency|요청자 조건|원자 효과|이벤트 수신|
 |---|---|---|---|---|---|
-|옷·소품 구매(선체 상품 없음 — 배 종류 폐지)|user/검증 subject|fish(개인 물고기)|활성 본인 + 상점 접근 가능한 현재 섬|개인 지갑 차감 + 개인 소유 추가|본인|
+|옷·소품 구매(선체 상품 없음 — 배 종류 폐지)|user/검증 subject|village_points(섬 물고기)|활성 본인 + `SHARED_PURCHASE`(섬 설정 토글, D2) + 상점 접근 가능한 현재 섬|**섬 통장** 차감 + 개인 소유 추가|본인|
 |섬·건물 테마·음원 구매|island/대상 섬|village_points(섬 물고기)|활성 주민 + `SHARED_PURCHASE`(섬 설정 토글, D2) + 시설|섬 통장 차감 + 섬 소유 추가|해당 섬 주민|
-|내역 personal|user/검증 subject|fish(개인 물고기)|활성 본인 + 경로 context 접근|조회만|발행 없음|
+|내역 personal|user/검증 subject|village_points(섬 물고기)|활성 본인 + 경로 context 접근|조회만|발행 없음|
 |내역 shared|island/대상 섬|village_points(섬 물고기)|현재 섬 활성 주민|조회만|발행 없음|
 
-**2026-09-19 재영님 결정 SH-재화:** 모든 재화는 섬 귀속 — 상점은 개인 상품(옷·소품)도 섬 통장(`village_points`)에서
-차감한다. 위 표의 개인 행 `fish(개인 물고기)` 결제는 이 결정으로 대체되며, 개인 지갑(`user_fish_wallets`)은 테이블로만
-남고 상점은 차감하지 않는다. 물건 주인(ownerType)은 여전히 상품의 불변 정의를 따른다. 구매 내역은 섬 귀속(SH-BG18).
+**2026-09-19 SH-재화 + 2026-09-21 재화-단일:** 재화는 섬 단위 하나뿐이고 **개인 물고기 지갑은 없다** — 상점은 개인
+상품(옷·소품)도 섬 통장(`village_points`)에서 차감한다. 위 표의 `currency` 는 전부 `village_points` 이며
+V74 `shop_product_revisions_currency_check`·`shop_orders_currency_check` 가 그 값만 허용한다(`fish` 통화 상품·주문은
+존재할 수 없다). **물건 주인(ownerType)은 개인·섬 둘 다 그대로다** — 기획 정본 「개인 의상·장신구는 구매한 주민의
+보유품이며 탈퇴해도 유지한다」. 재화가 섬 단위라는 사실이 소유권까지 섬 단위로 만들지 않는다. 구매 내역은 섬 귀속(SH-BG18).
+개인 지갑 표(`user_fish_wallets`)는 남아 있으나 **상점은 읽지도 쓰지도 않고**, `personal_share_percent` 를 올려 개인
+적립을 켜는 경로는 두지 않는다(결정 개인적립-차단 — 조정 주체 없음·정기 재검토 없음, 켜려면 결정 로그에 새 행이 먼저다).
 
 방장이 공동 상품을 구매해도 물건 주인은 방장 계정이 아니다. 위임/퇴장으로 공동 자산을 개인에게 옮기지
 않는다. 섬 종료 시 공동 자산 정리와 회원 탈퇴 시 개인 이력 보존/익명화는 해당 생명주기 정책과 함께 결정한다.
@@ -53,7 +57,7 @@ S05(가격 변경 동의)는 2026-09-12 에 채택돼 위 「고정된 범위」
 
 - productId의 kind/ownerType/targetBuilding 의미는 불변 자산 정의에 고정한다(선체 계보·착용 호환은 배 종류 폐지로 대상 소멸). 변경하려면 새 productId가 필요하다. 가격과 구매용 prerequisite는 immutable 판매 product revision에 기록한다. 컬렉션은 catalogPublicationVersion과 불변 publication entry(productId→productRevision/category/displayOrder)로 식별한다. 발행 시 새 publication 전체를 단일 활성 포인터로 원자 전환하며 상품별 productVersion과 컬렉션 version을 혼용하지 않는다.
 - 페이지 cursor는 첫 publication을 고정하고 이후 상품 개정으로 정렬 집합을 바꾸지 않는다. 현재 소유/권한/available은 별도 현재 상태이며 목록 snapshot이 구매 허가를 예약하지 않는다. 퇴역 publication 보존·폐기는 LLD의 cursor 수명 규약을 따른다.
-- 주문은 현재 활성 판매 revision을 Data TX에서 확인하고 price/currency/owner를 snapshot으로 보존한다. D18의 version 검사는 가격/결제 조건 동의 보호이며 동일 productId의 ownerType 변경 허가가 아니다. 현재 user/fish(개인 지갑)·island/village_points(섬 통장·섬 물고기, D1) 조합을 깨는 통화 revision도 거절한다.
+- 주문은 현재 활성 판매 revision을 Data TX에서 확인하고 price/currency/owner를 snapshot으로 보존한다. D18의 version 검사는 가격/결제 조건 동의 보호이며 동일 productId의 ownerType 변경 허가가 아니다. 결제 통화는 `village_points`(섬 통장·섬 물고기) 하나뿐이므로 다른 통화의 판매 revision은 거절한다(재화-단일).
 - 판매 퇴역/가격 개정은 기존 소유의 종류·대상·호환·착용을 바꾸지 않는다. 보유 조회/외양은 active publication 대신 불변 자산 정의를 사용하고 정의는 소유가 남아 있는 동안 보존한다. 구매용 prerequisite 변경을 기존 착용에 소급하지 않는다.
 - product 상세는 선택 nullable requiredProduct:{id,title}를 명시 확장으로 제공한다. blockedReason은 원인 코드이고 선행 자산 식별자가 아니다. 실제 ID는 서버 카탈로그에서 얻으며 새 API를 추가하지 않는다.
 - 같은 key·같은 본문 receipt는 원201과 결과를 재생한다. 새로운 key라도 `(ownerType,ownerId,productId)` 유일성이 중복 차감을 막는다.

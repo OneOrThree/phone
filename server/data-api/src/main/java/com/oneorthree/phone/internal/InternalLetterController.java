@@ -7,6 +7,7 @@ import com.oneorthree.phone.internal.service.InternalLetterService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 /**
- * 편지 3종의 <b>내부 표면</b> (GROMO-1933, friend-letter LLD §1.12~1.15) — 공개 {@code /letters…} 는
+ * 편지 4종의 <b>내부 표면</b> (GROMO-1933 발송·목록·상세 + GROMO-2002 닫기) — 공개 {@code /letters…} 는
  * Business 의 {@code LetterController} 가 열고 여기는 그 위임만 받는다. nginx 위성 include 가 무접두
  * {@code /letters} 를 Business 로 보내므로 data-api 가 그 경로를 매핑해도 요청이 닿지 않는다.
  *
@@ -57,9 +58,19 @@ public class InternalLetterController {
         return internalLetterService.list(userId, type, cursor, size);
     }
 
-    /** 편지 상세 (LLD §1.14). 수신자의 첫 조회면 읽음 시각이 박히지만 행은 남는다. */
+    /** 편지 상세 (LLD §1.14). 수신자의 첫 조회면 읽음 시각이 박히지만 행은 남는다 — 지우는 것은 닫기다. */
     @GetMapping("/letters/{letterId}")
     public LetterView detail(@PathVariable UUID userId, @PathVariable UUID letterId) {
         return internalLetterService.detail(userId, letterId);
+    }
+
+    /**
+     * 편지 닫기 (GROMO-2002) — 수신자만. 양쪽 목록·상세에서 함께 사라진다.
+     * 본문이 없으므로 204 다(Business 의 공개 봉투 규칙이 200 {@code {"data": null}} 로 접는다).
+     */
+    @DeleteMapping("/letters/{letterId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void close(@PathVariable UUID userId, @PathVariable UUID letterId) {
+        internalLetterService.close(userId, letterId);
     }
 }

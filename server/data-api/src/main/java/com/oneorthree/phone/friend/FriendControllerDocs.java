@@ -121,13 +121,16 @@ public interface FriendControllerDocs {
      * 친구로 추가할 유저를 검색한다. {@code type} 이 고른 검색 전략이 매칭 방식을 정한다.
      *
      * @param type   검색 수단. 등록된 전략이 없는 값이면 400
-     * @param q      검색어 — 해석은 전략 몫이고, 닉네임 검색은 pg_trgm 유사도로 매칭한다
-     * @param userId 로그인 유저. 결과에서 자기 자신은 빠지고, 나머지 각 건에는 나와의 기존 관계
-     *               (없음·요청중·친구)가 채워져 앱이 버튼과 배지를 갈라 그릴 수 있다
-     * @return 검색 결과 목록
+     * @param q      검색어 — 해석은 전략 몫이고, 닉네임 검색은 <b>대소문자를 구분하지 않는 전체 일치</b>다
+     *               (GROMO-1996). 닉네임이 대소문자 무시로 유일하므로 결과는 0건 또는 1건이다
+     * @param userId 로그인 유저. 결과에서 자기 자신과 탈퇴한 사용자는 빠지고, 나머지 각 건에는 나와의
+     *               기존 관계(없음·요청중·친구)가 채워져 앱이 버튼과 배지를 갈라 그릴 수 있다
+     * @return 검색 결과 목록. <b>친구가 아닌 건은 {@code tierLevel}·{@code occupation} 이 null</b> 이다
+     *         (GROMO-1996) — 모르는 사람의 프로필 정보를 검색 표면으로 흘리지 않는다
      */
     @Operation(summary = "친구 검색",
-            description = "type별 검색 전략(NICKNAME=trgm)으로 검색. 자기자신 제외, 기존 관계(relation) 표기.")
+            description = "type별 검색 전략(NICKNAME=대소문자 무시 전체 일치)으로 검색. "
+                    + "자기자신·탈퇴자 제외, 기존 관계(relation) 표기. 비친구는 tierLevel·occupation 이 null.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "검색 성공"),
             @ApiResponse(responseCode = "400", description = "지원하지 않는 검색 수단")
