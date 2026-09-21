@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V100 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 · V91 · V95 · V97 · V98 · V100 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // ※ 번호는 연속일 필요가 없다 — Flyway 는 「이미 적용된 것보다 낮은 번호가 나중에 나타나지 않을 것」만 요구한다
 //    (prod 는 out-of-order 가 꺼져 있다). V86 은 형제 PR 순서를 풀려고 비워 둔 자리다(GROMO-1996 이 V89 로 옮겼다).
 // V88 — 휴식 1시간 자동 종료와 결과 1회 제공 (GROMO-1998): focus_settlements.auto_closed · acknowledged_at.
@@ -29,6 +29,9 @@
 //        island_quest_claims.kind 를 ACHIEVER·ALL_ACHIEVED_BONUS 로 교체하고 유일키에 claimed_by 추가.
 //        + 매분 보너스 finalizer 조회용 부분 인덱스 idx_island_quest_occurrences_bonus_pending
 //        (occurrence_date) WHERE bonus_settled_at IS NULL.
+// V97 — group_members.left_at · rejoined_at (GROMO-2050) — 「그 시점에 주민이었나」를 사후 판정할 근거.
+//        백필 없음(이탈 시각의 관찰 가능한 근거가 없다). 이 두 컬럼으로 V85 동결이 이탈 방향까지 닫혔고
+//        실행 유예 ranking.freeze.grace 가 삭제됐다.
 // V85 — 주간 섬 랭킹의 동결 분모 island_weekly_member_counts + 랭킹 분자 스캔용 부분 인덱스
 //        focus_session_intervals_active_window_idx (GROMO-1997 · island-rankings LLD §5).
 //        분자(집중 시간)는 복제하지 않는다 — 정본이 focus_session_* 에 남아 언제든 같은 창으로 다시 합친다.
@@ -421,9 +424,16 @@ Table friendships [note: '유저 간 친구 관계 (요청 → 수락/거절). f
   deleted_at   timestamptz       [note: '친구 삭제 시각 (소프트 딜리트)']
 
   indexes {
-    // 재친구 허용: 소프트 딜리트(deleted_at) 행이 남아 단순 unique 불가. 활성 관계만 1개 보장하는 부분 unique는 마이그레이션에서:
-    //   CREATE UNIQUE INDEX ... ON friendships (from_user_id, to_user_id) WHERE deleted_at IS NULL;
-    (from_user_id, to_user_id) [note: '활성 관계 부분 unique(WHERE deleted_at IS NULL)는 마이그레이션 SQL로 적용 — 동일 방향 중복 신청 차단. 양방향(A→B / B→A) 중복은 앱/마이그레이션에서 정규화 처리']
+    // V1 의 ukcw1b2t1f9600yhvikefbpd1gn — 조건 없는 unique 다(부분 인덱스가 아니다).
+    // 소프트 딜리트 행도 걸리므로 재친구 요청은 새 행을 넣지 못한다 → createRequest 가 기존 행을 복원·재전환한다(GROMO-719).
+    (from_user_id, to_user_id) [unique, note: '같은 «방향»의 중복 행 차단. WHERE 절 없는 unique 라 deleted_at 이 찍힌 행도 자리를 차지한다 — 재요청이 insert 로 빠지면 409 가 나므로 FriendService.createRequest 가 복원(GROMO-719)·재전환으로 같은 행을 되쓴다']
+
+    // V98(GROMO-2042) 표현식 부분 unique — 위 인덱스는 방향이 같을 때만 막아서, A→B 와 B→A 가
+    // 동시에 오면 둘 다 findPair 에서 「기존 행 없음」을 보고 PENDING 두 행을 만들었다.
+    //   CREATE UNIQUE INDEX uq_friendships_pending_pair ON friendships
+    //     (least(from_user_id, to_user_id), greatest(from_user_id, to_user_id))
+    //     WHERE status = 'PENDING' AND deleted_at IS NULL;
+    (`least(from_user_id, to_user_id)`, `greatest(from_user_id, to_user_id)`) [unique, name: 'uq_friendships_pending_pair', note: '살아 있는 PENDING 요청은 두 사람당 한 건 — 방향 무관(V98, GROMO-2042). 양방향 동시 요청의 마지막 방어선이며, 지는 쪽은 409 로 떨어진다. ACCEPTED 는 술어에 넣지 않았다 — 「거절했던 요청을 뒤늦게 수락」(acceptRequest 의 전 상태 관용)이 반대 방향 PENDING 과 겹치는 기존 경로를 깨기 때문']
   }
 }
 
@@ -824,9 +834,9 @@ Table focus_reward_accruals [note: 'GROMO-1990: 집중 보상 적립 원장(migr
 }
 
 Table island_weekly_member_counts [note: 'GROMO-1997: 주간 섬 랭킹의 «동결된 분모»(migration V85) — 주 마감(UTC 일요일 00:00Z) 시점의 그 섬 활성 주민 수. 주 마감 크론이 INSERT … SELECT … ON CONFLICT DO NOTHING 한 문장으로 적고 그 뒤로는 바뀌지 않는다. 동결하는 이유: group_members 는 (user_id, group_id) 한 행이고 left_at 이 없어 「그 주에 몇 명이었나」를 사후 복원할 수 없다 — 동결하지 않으면 주민을 강퇴하는 것만으로 지난 주 평균(= 섬 집중 초 합 ÷ 주민 수)이 오른다. 분자는 반대로 복제하지 않는다: 정본이 focus_session_details·focus_session_intervals 에 남아 있어 같은 창으로 다시 합칠 수 있고, 복제하면 정본과 어긋날 자리가 생긴다. 끝난 주에 행이 없는 섬은 랭킹에서 빠진다(「지금 인원으로」 대체하지 않는다)'] {
-  week_start   date        [not null, note: '주 시작일 = UTC 일요일. 동결 기준 시각은 크론 실행 순간이 아니라 «주 종료 경계»(다음 주 00:00Z)다 — 가입은 created_at < 경계 로 거르고, 이탈은 group_members 에 이탈 시각이 없어 쿼리로 닫을 수 없어 실행 유예(ranking.freeze.grace)로 창을 좁힌다(잔여 창은 policy RK-D12). CHECK EXTRACT(ISODOW FROM week_start) = 7 — 키가 정말 일요일인지 DB 가 지킨다(크론 존이나 호출측 계산이 틀어져도 월요일자 주가 섞이지 않는다). ISO YYYY-Www 표기를 쓰지 않는 이유는 island-rankings policy RK-P01-키']
+  week_start   date        [not null, note: '주 시작일 = UTC 일요일. 동결 기준 시각은 크론 실행 순간이 아니라 «주 종료 경계»(다음 주 00:00Z)다 — V97 이후 가입·이탈 «양방향»을 경계로 판정하므로(COALESCE(rejoined_at, created_at) < 경계 AND (is_left=false OR left_at >= 경계), GROMO-2050) 배치가 언제 돌든 값이 같다. 종전의 실행 유예 ranking.freeze.grace 는 그래서 삭제됐다. CHECK EXTRACT(ISODOW FROM week_start) = 7 — 키가 정말 일요일인지 DB 가 지킨다(크론 존이나 호출측 계산이 틀어져도 월요일자 주가 섞이지 않는다). ISO YYYY-Www 표기를 쓰지 않는 이유는 island-rankings policy RK-P01-키']
   island_id    uuid        [not null, note: 'FK → groups.id ON DELETE CASCADE']
-  member_count integer     [not null, note: 'CHECK > 0 — 활성 멤버십(is_left=false) + 미탈퇴 계정(is_deleted=false). GroupMemberRepository.countByGroupIdIn 과 같은 모수라 주민 목록·정원 판정과 어긋나지 않는다. 0명인 섬은 GROUP BY 에서 행이 안 나와 자연히 빠진다']
+  member_count integer     [not null, note: 'CHECK > 0 — 「주 종료 경계에 그 섬 주민이었던 사람」 수. 동결 시점 기준으로는 GroupMemberRepository.countByGroupIdIn 과 같은 모수라 주민 목록·정원 판정과 어긋나지 않는다. users 조인은 V97 에서 뺐다 — 계정 탈퇴가 같은 TX 에서 모든 활성 멤버십에 leave() 를 밟으므로(V30 이 그 이전 데이터를 정리) 같은 것을 두 번 묻는 것이고, 남겨 두면 경계 뒤의 계정 탈퇴가 지난 주 분모를 줄인다. 0명인 섬은 GROUP BY 에서 행이 안 나와 자연히 빠진다']
   frozen_at    timestamptz [not null, default: `now()`, note: '동결 시각 — 배치가 언제 돌았는지의 기록이지 주 경계가 아니다']
 
   indexes {
@@ -938,7 +948,10 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   snapshot_version     bigint            [not null, default: 0, note: '표시정보(그룹명·발급자 닉네임) 스냅샷 버전 (V52, A22 ㋡) — 현행 resolveLanding 이 열 때마다 현재 이름을 조회하므로, 분리 후 갱신 경로가 없으면 공유된 slug 가 만료까지 옛 이름을 노출한다. 늦게 온 갱신이 최신 이름을 덮지 않게 대조에 쓴다']
   left_reason          varchar(10)       [null, note: 'A-0(V25) 이탈 사유: null(활성)·LEFT(자진, 재가입 허용)·KICKED(강퇴, 재가입 차단). CHECK IN (LEFT,KICKED)']
 
-  created_at           timestamptz       [default: `now()`, note: '가입 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
+  left_at              timestamptz       [null, note: '이탈 시각 (V97, GROMO-2050) — 자진 탈퇴·강퇴·계정 탈퇴가 모두 찍는다(GroupMember.leave/kick, 주입 Clock). is_left=false 면 항상 null(rejoin 이 비운다). V97 이전 이탈 행은 근거가 없어 null — updated_at 은 @UpdateTimestamp 라 알림 토글에도 갱신돼 이탈의 증거가 아니다']
+  rejoined_at          timestamptz       [null, note: '재가입으로 멤버십이 다시 시작된 시각 (V97, GROMO-2050). null 이면 최초 가입 그대로. created_at 을 덮지 않는 이유는 그 값이 주민 목록 keyset 정렬·메인 섬 도출(GROMO-1971)의 계약이기 때문 — 과거 시점 소속의 시작 축은 COALESCE(rejoined_at, created_at)']
+
+  created_at           timestamptz       [default: `now()`, note: '행이 생긴 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp). rejoin 이 갱신하지 않으므로 «최초» 가입 시각이다 — 멤버십 시작 시각은 rejoined_at 과의 COALESCE']
   updated_at           timestamptz
   indexes {
     // (user,group) 전체 unique — 멤버십은 1행. 재가입은 신규 삽입이 아니라 기존 행 rejoin(is_left=false로 복원).

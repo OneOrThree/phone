@@ -43,6 +43,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -90,6 +91,11 @@ public class IslandJoinService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandMovementGuards movementGuards;
     private final PublicCommandService publicCommands;
+    /**
+     * 재가입 시각을 찍는 시계 (GROMO-2050) — 근거는 {@code GroupMember.leftAt} Javadoc(Hibernate 의
+     * 시각 애너테이션은 주입 {@link Clock} 을 타지 않는다).
+     */
+    private final Clock clock;
 
     /** 섬 관리 명령 게이트(GROMO-1802) — {@code IslandManagementService} 와 같은 스위치다. 기본은 닫혀 있다. */
     @Value("${island-management.commands-enabled:false}")
@@ -396,7 +402,7 @@ public class IslandJoinService {
     private GroupMember admit(User user, Group island, Optional<GroupMember> prior) {
         if (prior.isPresent()) {
             GroupMember membership = prior.get();
-            membership.rejoin();
+            membership.rejoin(clock.instant());
             // 재가입은 새 세대 — 이 사람이 발급한 옛 초대 코드는 이 전이로 폐기된다.
             linkMembershipEventService.recordMembershipRejoined(membership);
             return membership;

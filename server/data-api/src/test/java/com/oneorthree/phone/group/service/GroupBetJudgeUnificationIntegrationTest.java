@@ -553,7 +553,7 @@ class GroupBetJudgeUnificationIntegrationTest extends IntegrationTestBase {
         groupBetService.freezeEvidenceForAccountErasure(erased);
         inTransaction.executeWithoutResult(status -> {
             dailyFocusStatRepository.nullifyUser(erased.getId());
-            groupMemberRepository.findByUser(erased).forEach(GroupMember::leave);
+            groupMemberRepository.findByUser(erased).forEach(row -> row.leave(Instant.now()));
             User row = userRepository.findById(erased.getId()).orElseThrow();
             row.setNickname(null);
             row.setDeleted(true);

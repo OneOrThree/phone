@@ -130,6 +130,27 @@ class ShopServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("섬 통장 행이 없는 섬도 지갑 조회는 0 이다 — 503 이 아니고, 표시용 읽기가 행을 만들지도 않는다 (GROMO-2043)")
+    void walletlessIslandReadsZero() {
+        // island() 는 groups·members 만 심는다 — 레거시 POST /api/v1/groups 로 생긴 「통장 없는 섬」과 같은 모양이다.
+        Fixture f = island();
+        assertThat(count("SELECT COUNT(*) FROM island_wallets WHERE island_id = ?", f.islandId)).isZero();
+
+        ShopViews.Wallets wallets = shop.wallets(f.islandId, f.ownerId);
+
+        assertThat(wallets.villagePoints()).as("행 없음 ⇒ 원장 0줄 ⇒ 잔액 0 — 위장이 아니라 사실이다").isZero();
+        assertThat(wallets.villagePointsVersion()).isZero();
+        assertThat(count("SELECT COUNT(*) FROM island_wallets WHERE island_id = ?", f.islandId))
+                .as("표시용 읽기는 행을 만들지 않는다 — 행은 첫 적립 때 생긴다").isZero();
+        assertThat(count("SELECT COUNT(*) FROM island_wallet_transactions WHERE island_id = ?", f.islandId))
+                .isZero();
+
+        fund(f.islandId, 7);
+
+        assertThat(shop.wallets(f.islandId, f.ownerId).villagePoints()).isEqualTo(7);
+    }
+
+    @Test
     @DisplayName("가격 미승인(NULL) 상품은 목록에 available=false·STATE_CONFLICT 로 보이고 구매는 차감 없이 409 다 (S03)")
     void unpricedProductIsNeverSoldAsZero() {
         Fixture f = island();

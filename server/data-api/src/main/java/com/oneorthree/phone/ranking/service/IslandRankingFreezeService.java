@@ -4,12 +4,10 @@ import com.oneorthree.phone.ranking.repository.IslandWeeklyMemberCountRepository
 import com.oneorthree.phone.ranking.support.RankingWeek;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -33,20 +31,6 @@ public class IslandRankingFreezeService {
     private final Clock clock;
 
     /**
-     * 주 종료 경계로부터 이만큼 안에 실행됐을 때만 동결한다.
-     *
-     * <p>분모는 「주가 끝난 시점의 인원」이어야 하는데, 이탈 시각이 DB 에 없어 사후 판정이 불가능하다
-     * ({@code IslandWeeklyMemberCountRepository#freeze} 참고). 그래서 <b>실행이 경계에 얼마나 가까운지</b>가
-     * 정확도의 상한이다 — 크론이 제때 돌면 창은 초 단위이고, 장애로 한참 늦게 돌면 그만큼 어긋난다.
-     *
-     * <p>유예를 넘기면 <b>쓰지 않는다</b>. {@code ON CONFLICT DO NOTHING} 이 첫 값을 영구 고착시키므로, 늦게
-     * 돈 배치가 「하루치 이탈이 반영된 인원」을 그 주의 정답으로 굳히는 쪽이 더 나쁘다. 안 쓰면 그 주는 분모가
-     * 없어 랭킹에서 빠지고(RK-D01-결손) 경고 로그가 남는다 — 조용히 틀린 순위보다 비어 있는 순위가 낫다.
-     */
-    @Value("${ranking.freeze.grace:PT1H}")
-    private Duration grace;
-
-    /**
      * 「방금 끝난 주」의 분모를 동결한다 — 크론이 부르는 진입점이다.
      *
      * @return 새로 적힌 섬 수. 재실행이거나 유예를 넘겼으면 0 이다
@@ -60,14 +44,17 @@ public class IslandRankingFreezeService {
     /**
      * 그 주의 분모를 동결한다.
      *
-     * <p>기준 시각은 크론이 «실행된» 순간이 아니라 그 주의 <b>종료 경계</b>다 — 경계 이후 가입은 세지 않는다.
-     * 이탈 방향은 DB 에 근거가 없어 쿼리로 닫을 수 없고, 대신 {@link #grace} 가 어긋날 수 있는 창을 시간으로
-     * 좁힌다.
+     * <p>기준 시각은 크론이 «실행된» 순간이 아니라 그 주의 <b>종료 경계</b>다 — 가입도 이탈도 그 경계로
+     * 판정한다({@code IslandWeeklyMemberCountRepository.ACTIVE_AT_BOUNDARY_SQL}). <b>그래서 언제 돌든 값이
+     * 같다</b> — 종전의 실행 유예 가드({@code ranking.freeze.grace})는 이탈 시각이 DB 에 없던 시절, 늦게 돈
+     * 배치가 「하루치 이탈이 반영된 인원」을 영구 고착시키는 것을 막던 임시 방편이었다. 이제 늦은 실행도
+     * 경계 시점 인원을 적으므로, 장애로 크론을 한 번 놓쳤을 때 그 주를 통째로 잃는 손해만 남는다 —
+     * 가드를 지운다(GROMO-2050).
      *
      * <p>멱등이다 — {@code ON CONFLICT DO NOTHING} 이라 두 번 돌아도 그 주의 분모는 <b>처음 적힌 값</b> 그대로다.
      *
      * @param week 동결할 주의 시작일(UTC 일요일)
-     * @return 새로 적힌 섬 수. 아직 끝나지 않은 주이거나 유예를 넘겼으면 0
+     * @return 새로 적힌 섬 수. 아직 끝나지 않은 주이거나 이미 동결됐으면 0
      */
     @Transactional
     public int freeze(LocalDate week) {
@@ -76,11 +63,6 @@ public class IslandRankingFreezeService {
         if (now.isBefore(boundary)) {
             // 아직 끝나지 않은 주는 동결할 것이 없다 — 진행 중인 주는 조회가 «지금» 인원으로 나눈다.
             log.warn("주간 섬 랭킹 분모 동결 건너뜀 — 아직 끝나지 않은 주 week={} boundary={}", week, boundary);
-            return 0;
-        }
-        if (now.isAfter(boundary.plus(grace))) {
-            log.warn("주간 섬 랭킹 분모 동결 건너뜀 — 유예({})를 넘겨 실행됨 week={} boundary={} now={}. "
-                    + "이 주는 분모가 없어 랭킹에서 빠진다(틀린 인원을 영구 고착시키지 않는다)", grace, week, boundary, now);
             return 0;
         }
         int frozen = denominators.freeze(week, boundary);
