@@ -44,14 +44,14 @@ const memberships = (
   lossReason: 'LEFT' | 'KICKED' | null = null,
 ) => ({ items, nextCursor: null, currentIslandId, lossReason });
 
-const homeScreen = (islandId: string, villagePoints = 1500) => ({
+const homeScreen = (islandId: string, villagePoints = 1500, memberCount = 1) => ({
   island: {
     id: islandId,
     name: '모래섬',
     intro: '',
     visibility: 'public',
     approvalRequired: false,
-    memberCount: 3,
+    memberCount,
     maxMembers: 15,
     membershipStatus: 'active',
     growthStage: null,
@@ -213,7 +213,7 @@ test('home.island.id 가 캡처한 current 와 다르면 계약 오류', async (
 test('재확인에서 current 가 바뀌었으면 옛 섬 스냅샷을 돌려주지 않는다', async () => {
   stub([
     ok(memberships('i1')),
-    ok(homeScreen('i1')),
+    ok(homeScreen('i1', 1500, 0)),
     ok(options([])),
     ok(membersPage([])),
     ok(memberships('i2', [summary('i1'), summary('i2')])), // 그 사이 전환됐다
@@ -227,7 +227,7 @@ test('재확인에서 current 가 바뀌었으면 옛 섬 스냅샷을 돌려주
 test('재확인에서 소속이 빠졌으면(강퇴) stale — current 만 같아도 안 된다', async () => {
   stub([
     ok(memberships('i1')),
-    ok(homeScreen('i1')),
+    ok(homeScreen('i1', 1500, 0)),
     ok(options([])),
     ok(membersPage([])),
     ok({ items: [], nextCursor: null, currentIslandId: 'i1', lossReason: 'KICKED' }),
@@ -238,13 +238,13 @@ test('재확인에서 소속이 빠졌으면(강퇴) stale — current 만 같�
   assert.equal(error.code, CLIENT_SNAPSHOT_STALE);
 });
 
-test('isCurrent 가 false 면 첫 조회 뒤 멈춘다 — 후속 호출 0', async () => {
+test('isCurrent 가 처음부터 false 면 요청을 하나도 보내지 않는다', async () => {
   stub(happyPath());
 
   const error = await loadHomeSnapshot({ ...args, isCurrent: () => false }).catch((e) => e);
 
   assert.equal(error.code, CLIENT_STALE_SESSION);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 0);
 });
 
 test('수집 도중 인증 세대가 바뀌면 CLIENT_STALE_SESSION — 재확인을 부르지 않는다', async () => {
@@ -274,7 +274,7 @@ test('수집 도중 인증 세대가 바뀌면 CLIENT_STALE_SESSION — 재확�
 test('members 멀티페이지 — nextCursor 를 끝까지 이어 전원을 모은다', async () => {
   stub([
     ok(memberships('i1')),
-    ok(homeScreen('i1')),
+    ok(homeScreen('i1', 1500, 2)),
     ok(options([])),
     ok(membersPage([member('m1')], 'c2', 5)),
     ok(membersPage([member('m2', { catColor: null })], null, 5)),
@@ -427,4 +427,124 @@ test('memberships 의 409 STATE_CONFLICT 도 그대로 — current 없음을 빈
 
   assert.equal(error.code, 'STATE_CONFLICT');
   assert.equal(error.status, 409);
+});
+
+test('home.memberCount 와 모은 주민 수가 다르면 stale — 수집 도중 소속이 바뀐 것이다', async () => {
+  stub([
+    ok(memberships('i1')),
+    ok(homeScreen('i1', 1500, 2)), // 홈은 2명이라는데
+    ok(options([])),
+    ok(membersPage([member('m1')])), // 모인 건 1명
+    ok(memberships('i1')),
+  ]);
+
+  const error = await loadHomeSnapshot(args).catch((e) => e);
+
+  assert.equal(error.code, CLIENT_SNAPSHOT_STALE);
+  assert.equal(calls.length, 4); // 재확인까지 가지 않는다
+});
+
+test('home.memberCount 자체가 비정상이면 계약 오류다', async () => {
+  const noCount = { ...homeScreen('i1') };
+  delete (noCount.island as Record<string, unknown>).memberCount;
+  stub([ok(memberships('i1')), ok(noCount), ok(options([])), ok(membersPage([member('m1')]))]);
+  assert.equal((await loadHomeSnapshot(args).catch((e) => e)).code, CLIENT_CONTRACT_ERROR);
+
+  calls.length = 0;
+  const negative = { ...homeScreen('i1') };
+  negative.island = { ...negative.island, memberCount: -1 };
+  stub([ok(memberships('i1')), ok(negative), ok(options([])), ok(membersPage([member('m1')]))]);
+  assert.equal((await loadHomeSnapshot(args).catch((e) => e)).code, CLIENT_CONTRACT_ERROR);
+});
+
+test('최상위 null·비객체·null 항목은 TypeError 가 아니라 CLIENT_CONTRACT_ERROR 다', async () => {
+  // memberships 응답 자체가 null
+  stub([{ status: 200, body: { data: null } }]);
+  assert.equal((await loadHomeSnapshot(args).catch((e) => e)).code, CLIENT_CONTRACT_ERROR);
+
+  calls.length = 0;
+  // memberships.items 안에 null 항목
+  stub([ok({ items: [null, summary('i1')], nextCursor: null, currentIslandId: 'i1' })]);
+  assert.equal((await loadHomeSnapshot(args).catch((e) => e)).code, CLIENT_CONTRACT_ERROR);
+
+  calls.length = 0;
+  // home 응답 자체가 null
+  stub([
+    ok(memberships('i1')),
+    { status: 200, body: { data: null } },
+    ok(options([])),
+    ok(membersPage([])),
+  ]);
+  assert.equal((await loadHomeSnapshot(args).catch((e) => e)).code, CLIENT_CONTRACT_ERROR);
+
+  calls.length = 0;
+  // members 첫 페이지가 null
+  stub([
+    ok(memberships('i1')),
+    ok(homeScreen('i1')),
+    ok(options([])),
+    { status: 200, body: { data: null } },
+  ]);
+  assert.equal((await loadHomeSnapshot(args).catch((e) => e)).code, CLIENT_CONTRACT_ERROR);
+
+  calls.length = 0;
+  // members 후속 페이지가 null
+  stub([
+    ok(memberships('i1')),
+    ok(homeScreen('i1', 1500, 2)),
+    ok(options([])),
+    ok(membersPage([member('m1')], 'c2', 5)),
+    { status: 200, body: { data: null } },
+  ]);
+  assert.equal((await loadHomeSnapshot(args).catch((e) => e)).code, CLIENT_CONTRACT_ERROR);
+
+  calls.length = 0;
+  // 재확인 memberships 가 null
+  stub([
+    ok(memberships('i1')),
+    ok(homeScreen('i1')),
+    ok(options([])),
+    ok(membersPage([member('m1')])),
+    { status: 200, body: { data: null } },
+  ]);
+  assert.equal((await loadHomeSnapshot(args).catch((e) => e)).code, CLIENT_CONTRACT_ERROR);
+});
+
+test('reject 도 세대·isCurrent 를 검사한다 — 죽은 호출의 5xx 는 stale, 살아 있으면 원래 코드', async () => {
+  let current = true;
+  (global as any).fetch = jest.fn(async (url: string, init: RequestInit) => {
+    calls.push({ url, init });
+    const alive = [
+      ok(memberships('i1')),
+      ok(homeScreen('i1')),
+      ok(options([])),
+      ok(membersPage([])),
+    ][Math.min(calls.length - 1, 3)];
+    if (calls.length === 2) current = false; // home 응답이 오는 사이 화면 세대가 죽었다
+    const { status, body } =
+      calls.length === 2 ? { status: 500, body: envelope('INTERNAL_ERROR') } : alive;
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      headers: { get: () => null },
+      text: async () => JSON.stringify(body),
+    } as unknown as Response;
+  });
+
+  const error = await loadHomeSnapshot({ ...args, isCurrent: () => current }).catch((e) => e);
+
+  // 죽은 호출의 늦은 500 은 원래 코드가 아니라 CLIENT_STALE_SESSION 이다.
+  assert.equal(error.code, CLIENT_STALE_SESSION);
+
+  calls.length = 0;
+  // 살아 있는 호출의 같은 500 은 코드를 그대로 보존한다.
+  stub([
+    ok(memberships('i1')),
+    ok(homeScreen('i1')),
+    { status: 500, body: envelope('INTERNAL_ERROR') },
+    ok(membersPage([])),
+  ]);
+  const alive500 = await loadHomeSnapshot(args).catch((e) => e);
+  assert.equal(alive500.code, 'INTERNAL_ERROR');
+  assert.equal(alive500.status, 500);
 });
