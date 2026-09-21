@@ -36,7 +36,7 @@ public class GuestSessionUseCase {
      * @param deviceId 정규화된 기기 식별자 UUID 문자열 — 멱등 키다
      * @param clientIp Business 가 신뢰한 프록시에서 판정한 호출자 주소. Data 의 게스트 레이트리밋 축이다
      */
-    public AuthSessionUseCase.Result start(String deviceId, String clientIp, Deadline deadline) {
+    public LoginSession start(String deviceId, String clientIp, Deadline deadline) {
         LoginSession session;
         try {
             session = data.issueGuestSession(digests.ofDevice(deviceId), clientIp, deadline);
@@ -56,6 +56,6 @@ public class GuestSessionUseCase {
                 || session.userId() == null) {
             throw new UpstreamContractMismatchException("Data 게스트 발급 결과 계약 불일치");
         }
-        return AuthSessionUseCase.Result.of(session);
+        return session;
     }
 }
