@@ -368,7 +368,7 @@ class MainIslandIntegrationTest {
 
     /** 생산 생성 경로 — 만든 사람이 방장으로 «첫 가입» 된다. */
     private UUID island(Actor owner, String name) {
-        return islands.create(owner.id(), new CreateIslandCommandRequest(name, null, false),
+        return islands.create(owner.id(), new CreateIslandCommandRequest(name, null, false, null),
                 UUID.randomUUID()).id();
     }
 

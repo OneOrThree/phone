@@ -1,5 +1,6 @@
 package com.oneorthree.phone.group.dto;
 
+import com.oneorthree.phone.group.repository.domain.Group;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
@@ -29,7 +30,7 @@ public class UpdateGroupRequest {
     private String description;
 
     @Min(1)
-    @Max(10)
+    @Max(Group.MAX_MEMBERS_CEILING)
     private Integer maxMembers;
     /**
      * A-1: 공개/비밀 전환. null = 미변경(부분 수정).

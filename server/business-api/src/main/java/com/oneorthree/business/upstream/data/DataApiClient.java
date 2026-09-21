@@ -30,6 +30,7 @@ import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.IslandLedger;
 import com.oneorthree.business.upstream.data.dto.IslandManaged;
 import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
@@ -186,6 +187,8 @@ public class DataApiClient {
     // GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
     private static final String PATH_FOCUS_STATISTICS = "/internal/islands/{islandId}/statistics/focus";
     private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
+    // GROMO-1895 섬 공동 가계부 — 회관 화면과 도메인 GET 이 같이 쓰는 섬 축 조회다(B26).
+    private static final String PATH_ISLAND_LEDGER = "/internal/islands/{islandId}/resources/ledger";
     // GROMO-1997 주간 섬 랭킹 — 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26).
     private static final String PATH_ISLAND_RANKINGS = "/internal/users/{userId}/island-rankings";
 
@@ -895,12 +898,12 @@ public class DataApiClient {
 
     /** 섬 생성 (GROMO-1759, LLD §3.1). 생성자가 방장이 되고 현재 섬이 새 섬으로 옮겨진다. */
     public IslandCreated createIsland(UUID userId, String name, String intro, boolean approvalRequired,
-            UUID key, Deadline deadline) {
+            Integer maxMembers, UUID key, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, userPath(PATH_ISLANDS, userId))
                         .onBehalfOf(userId)
                         .idempotencyKey(key.toString())
-                        .body(new CreateIslandCommand(name, intro, approvalRequired))
+                        .body(new CreateIslandCommand(name, intro, approvalRequired, maxMembers))
                         .idempotentCommand()
                         .build(),
                 deadline,
@@ -1573,8 +1576,12 @@ public class DataApiClient {
     record LetterSendCommand(UUID receiverId, String content) {
     }
 
-    /** 섬 생성 요청 본문 (GROMO-1759). maxMembers·password 는 client 가 넣지 못한다. */
-    record CreateIslandCommand(String name, String intro, boolean approvalRequired) {
+    /**
+     * 섬 생성 요청 본문 (GROMO-1759 · GROMO-1993). {@code password} 는 여전히 client 가 넣지 못한다.
+     * {@code maxMembers} 는 정책 「섬 생성 시 방장이 … 정원을 설정한다」로 열렸고, null 이면 Data 가
+     * 기본값(15)을 채운다.
+     */
+    record CreateIslandCommand(String name, String intro, boolean approvalRequired, Integer maxMembers) {
     }
 
     /** 현재 섬 이동 요청 본문 (GROMO-1759). */
@@ -1698,6 +1705,25 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandRecordViews.FocusStatistics>() { });
+    }
+
+    /**
+     * 섬 공동 가계부 한 쪽 (GROMO-1895). 멱등 GET 이라 재시도한다. {@code month} 는 KST 달력 월
+     * ({@code YYYY-MM}), 경계는 평문 keyset({@code afterCreatedAt}+{@code afterEntryId} 둘 다 또는 둘 다 없음)이다.
+     */
+    public IslandLedger fetchIslandLedger(UUID userId, UUID islandId, String month, String direction,
+            Instant afterCreatedAt, UUID afterEntryId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_ISLAND_LEDGER, islandId))
+                        .onBehalfOf(userId)
+                        .query("month", month)
+                        .query("direction", direction)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterEntryId", afterEntryId == null ? null : afterEntryId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandLedger>() { });
     }
 
     /** 스크린타임 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. */

@@ -95,6 +95,10 @@ public class IslandManagementService {
      * <p>이름이 실제로 바뀔 때만 같은 트랜잭션에 링크 표시정보 {@code group.renamed} 를 남긴다 — 기존
      * {@code GroupService.updateGroup} 과 같은 {@code recordGroupRenamed} 이고, 멤버십 세대는 올리지 않는다.
      * 가입 방식 전환은 이미 열린 요청을 자동 승인·거절하지 않는다.
+     *
+     * <p><b>정원</b>(GROMO-1993) — 정책 「정원은 마을회관에서 방장이 수정할 수 있다. 현재 주민 수보다
+     * 작게 줄일 수는 없다」. 범위(1~15)는 본문 파서가, 현원 하한은 여기가 본다: 현원은 DB 상태라
+     * 그룹 잠금 아래에서만 정확하다. 하한 위반은 400 {@code MAX_MEMBERS_TOO_SMALL} 이다.
      */
     @Transactional
     public IslandManageView manage(UUID userId, UUID islandId, IslandManageCommandRequest body, UUID key) {
@@ -111,6 +115,9 @@ public class IslandManagementService {
         }
         if (body.approvalRequired() != null) {
             fingerprint.put("approvalRequired", body.approvalRequired());
+        }
+        if (body.maxMembers() != null) {
+            fingerprint.put("maxMembers", body.maxMembers());
         }
         PublicCommandRequest command = new PublicCommandRequest(userId, "PATCH:/islands/" + islandId, key,
                 InternalJson.tree(fingerprint));
@@ -138,14 +145,26 @@ public class IslandManagementService {
                     if (approvalChanged) {
                         island.updateApprovalRequired(body.approvalRequired());
                     }
-                    List<EventEnvelope> events = renamed || introChanged || approvalChanged
+                    boolean capacityChanged = body.maxMembers() != null
+                            && body.maxMembers() != island.getMaxMembers();
+                    if (capacityChanged) {
+                        // 「현재 주민 수보다 작게 줄일 수는 없다」 — 현원은 본문이 아니라 DB 상태라
+                        // 그룹 잠금 «아래»에서 센다. 앞에서 세면 그 사이 가입이 하한을 넘겨 버린다.
+                        // 이탈자는 세지 않는다(GROMO-1220) — 유령 자리 때문에 축소가 막히지 않게.
+                        if (body.maxMembers() < activeMemberCount(islandId)) {
+                            throw new GroupException(GroupErrorCode.MAX_MEMBERS_TOO_SMALL);
+                        }
+                        island.updateMaxMembers(body.maxMembers());
+                    }
+                    List<EventEnvelope> events = renamed || introChanged || approvalChanged || capacityChanged
                             ? List.of(islandStateEvents.changed(islandId, userId, "UPDATED"))
                             : List.of();
                     long version = events.isEmpty()
                             ? aggregateVersion(IslandStateEvents.AGGREGATE_TYPE, islandId)
                             : events.get(0).version();
                     return new PublicCommandResult(200, InternalJson.tree(new IslandManageView(island.getId(),
-                            island.getName(), intro(island), island.isApprovalRequired(), version)),
+                            island.getName(), intro(island), island.isApprovalRequired(),
+                            island.getMaxMembers(), version)),
                             InternalJson.tree(events));
                 }).value().data();
         return InternalJson.decode(data, IslandManageView.class);
@@ -271,6 +290,16 @@ public class IslandManagementService {
         if (!enabled) {
             throw new GroupException(GroupErrorCode.ISLAND_MANAGEMENT_NOT_READY);
         }
+    }
+
+    /**
+     * 살아 있는 주민 수 — 정원 축소 하한이다 (GROMO-1993). 정원 판정과 같은 모수를 쓴다
+     * ({@code IslandJoinService.requireCapacity}): 이탈·강퇴 행은 세지 않는다.
+     */
+    private int activeMemberCount(UUID islandId) {
+        return (int) groupMemberRepository.countByGroupIdIn(List.of(islandId)).stream()
+                .mapToLong(row -> row.getMemberCount())
+                .sum();
     }
 
     /** 그룹 행을 잠근 뒤 생존과 현재 방장 역할을 다시 본다 — 위임과 직렬화된다. */

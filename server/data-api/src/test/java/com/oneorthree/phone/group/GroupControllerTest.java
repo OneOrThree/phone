@@ -261,9 +261,9 @@ class GroupControllerTest {
     }
 
     @Test
-    @DisplayName("그룹 수정 정원이 생성 DTO 범위 1~10을 벗어나면 400으로 거절한다")
+    @DisplayName("그룹 수정 정원이 정책 범위 1~15를 벗어나면 400으로 거절한다 (GROMO-1993)")
     void updateGroupRejectsOutOfRangeMaxMembers() throws Exception {
-        for (int maxMembers : List.of(0, 11)) {
+        for (int maxMembers : List.of(0, 16)) {
             mockMvc.perform(patch("/api/v1/groups/{groupId}", GROUP_ID)
                             .contentType(MediaType.APPLICATION_JSON)
                             .content(objectMapper.writeValueAsString(Map.of("maxMembers", maxMembers)))
