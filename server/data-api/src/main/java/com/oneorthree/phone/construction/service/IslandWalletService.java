@@ -6,6 +6,7 @@ import com.oneorthree.phone.construction.repository.IslandConstructionContributi
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletTransactionRepository;
+import com.oneorthree.phone.construction.repository.domain.IslandConstructionContributionId;
 import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
 import com.oneorthree.phone.construction.repository.domain.IslandWallet;
 import com.oneorthree.phone.construction.repository.domain.IslandWalletTransaction;
@@ -100,12 +101,7 @@ public class IslandWalletService {
         // 동안의 적립은 지갑·원장만 남기고 주민별 기여는 세지 않는다. 세웠다면 이후 어떤
         // 목표에도 속하지 않는 유령 몫이 된다.
         if (state.getTargetBuildingId() != null) {
-            // 기여 누적도 int 열 — upsert 의 WHERE 가 상한 초과 갱신을 건너뛰면 0 행이다.
-            // 같은 섬의 기여는 모두 이 상태 행 잠금 아래 직렬되므로 0 은 곧 상한 거절이다.
-            if (contributions.accumulate(islandId, state.getTargetEpoch(), userId, amount,
-                    clock.instant()) == 0) {
-                throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
-            }
+            accumulateShare(islandId, state.getTargetEpoch(), userId, amount);
         }
         ledger.save(IslandWalletTransaction.builder()
                 .islandId(islandId).amount(amount)
@@ -157,7 +153,10 @@ public class IslandWalletService {
      *
      * <p>{@link #contribute} 를 재사용할 수 없는 이유가 여기 있다 — 그쪽은 지갑과 각자 몫에 <b>같은 값</b>을
      * 넣는다. 황금은 잔액에 50, 각자 몫에 50 ÷ 인원(내림)이고 나머지는 잔액에만 남는다(기획 정본
-     * 「나누고 남은 물고기는 섬 잔액에만 남는다」).
+     * 「나누고 남은 물고기는 섬 잔액에만 남는다」). 각자 몫을 <b>쓰는 규칙</b>은 그래도 하나를 공유한다
+     * ({@link #accumulateShare}) — 함께 낚은 주민 중 이번 목표의 대상이 아닌 사람(목표 선택 뒤 가입)이
+     * 있으면 그 사람 몫은 오류가 아니라 섬 잔액에만 남는다. 분모는 그대로 「함께 낚은 인원」이다 —
+     * 정본이 대상 인원이 아니라 함께 낚은 인원으로 나누라고 했다.
      *
      * <p><b>멱등의 자리는 이 메서드 하나다.</b> 지갑 행을 잠근 뒤 원장을 보고, 이미 있으면 <b>아무것도
      * 쓰지 않고</b> {@code false} 를 돌려준다 — 잔액·각자 몫·원장이 같은 트랜잭션이라 「잔액만 두 번」이
@@ -199,10 +198,7 @@ public class IslandWalletService {
         // 「각자 몫은 목표를 고른 뒤부터 모은 물고기로 판단한다」(정책 P-D04) — 목표가 없으면 잔액만 는다.
         if (sharePerMember > 0 && state.getTargetBuildingId() != null) {
             for (UUID memberId : memberIds) {
-                if (contributions.accumulate(islandId, state.getTargetEpoch(), memberId, sharePerMember,
-                        clock.instant()) == 0) {
-                    throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
-                }
+                accumulateShare(islandId, state.getTargetEpoch(), memberId, sharePerMember);
             }
         }
         ledger.save(IslandWalletTransaction.builder()
@@ -211,6 +207,31 @@ public class IslandWalletService {
                 .idempotencyKey(idempotencyKey)
                 .build());
         return true;
+    }
+
+    /**
+     * 건설 「각자 몫」 한 사람 몫의 누적 — 집중 적립({@link #contribute})과 황금 물고기
+     * ({@link #creditGoldenFish})이 <b>같은 규칙</b>을 쓰는 단일 자리다(GROMO-1999).
+     *
+     * <p>누적은 «이미 있는 대상 행만» UPDATE 한다. 대상 명단은 목표를 고를 때 고정되므로
+     * (기획 정본 「목표 선택 시점의 주민으로 대상을 고정한다」), 그 뒤에 가입한 주민은 행이 없다.
+     * 그 사람의 물고기가 사라지는 것은 아니다 — <b>섬 잔액과 원장에는 그대로 들어가고</b> 다만
+     * 이번 건설 퀘스트의 몫으로 세지 않을 뿐이다. 황금 물고기도 같은 결이라 정본의
+     * 「나누고 남은 물고기는 섬 잔액에만 남는다」와 어긋나지 않는다.
+     *
+     * <p>그래서 0 행의 <b>두 원인을 가른다</b>:
+     * <ul>
+     *   <li>행이 <b>없다</b> → 대상 밖. 정상 흐름이라 조용히 지나간다.</li>
+     *   <li>행이 <b>있다</b> → upsert 의 WHERE 가 막은 {@code integer} 상한 초과. 진짜 오류다.</li>
+     * </ul>
+     * 같은 섬의 기여는 모두 호출측이 잡은 건설 상태 행 잠금 아래 직렬되므로 이 판정에 경합이 없다.
+     */
+    private void accumulateShare(UUID islandId, long epoch, UUID userId, int amount) {
+        if (contributions.accumulate(islandId, epoch, userId, amount, clock.instant()) == 0
+                && contributions.existsById(
+                        new IslandConstructionContributionId(islandId, epoch, userId))) {
+            throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+        }
     }
 
     /**

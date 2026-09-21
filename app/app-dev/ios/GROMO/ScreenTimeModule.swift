@@ -143,6 +143,10 @@ final class ScreenTimeModule: NSObject {
                 return
             }
             let defaults = UserDefaults(suiteName: appGroupID)
+            let activeSelection = defaults?.data(forKey: "gromo:goal:selection").flatMap {
+                try? JSONDecoder().decode(FamilyActivitySelection.self, from: $0)
+            }
+            let appliesImmediately = activeSelection.map(Self.isEmpty) ?? true
             var initial = FamilyActivitySelection()
             if let data = defaults?.data(forKey: "gromo:goal:selectionPending")
                 ?? defaults?.data(forKey: "gromo:goal:selection"),
@@ -158,11 +162,21 @@ final class ScreenTimeModule: NSObject {
                 onDone: { selection in
                     guard !Self.isEmpty(selection) else { return }
                     if let data = try? JSONEncoder().encode(selection) {
+                        // 적용일을 먼저 저장하고 pending을 마지막에 공개해 확장이 중간 상태를 읽지 않게 한다.
+                        if appliesImmediately {
+                            defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
+                        } else {
+                            defaults?.set(
+                                Self.nextDayString(Date()),
+                                forKey: "gromo:goal:selectionApplyDate"
+                            )
+                        }
                         defaults?.set(data, forKey: "gromo:goal:selectionPending")
                     }
                     top.dismiss(animated: true) {
                         var value = self.counts(selection)
                         value["dismissed"] = true
+                        value["appliesImmediately"] = appliesImmediately
                         resolve(value)
                     }
                 },
@@ -176,31 +190,66 @@ final class ScreenTimeModule: NSObject {
 
     @objc func promoteSelection(
         _ resolve: @escaping RCTPromiseResolveBlock,
-        rejecter _: @escaping RCTPromiseRejectBlock
+        rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let defaults = UserDefaults(suiteName: appGroupID)
-        guard let data = defaults?.data(forKey: "gromo:goal:selectionPending") else {
+        guard #available(iOS 16.0, *),
+              let data = defaults?.data(forKey: "gromo:goal:selectionPending"),
+              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
+              !Self.isEmpty(selection) else {
             resolve(false)
             return
         }
-        defaults?.set(data, forKey: "gromo:goal:selection")
-        defaults?.removeObject(forKey: "gromo:goal:selectionPending")
-        defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
-        resolve(true)
+        do {
+            try registerUsageBucketMonitoring(
+                selection,
+                maxMinutes: 900,
+                defaults: defaults
+            )
+            // 활성 선택은 모니터 등록이 성공한 뒤에만 확정한다.
+            defaults?.set(data, forKey: "gromo:goal:selection")
+            defaults?.removeObject(forKey: "gromo:goal:selectionPending")
+            defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
+            Self.markCurrentDayUnconfirmed(defaults)
+            resolve(true)
+        } catch {
+            reject("MONITOR_ERROR", "스크린타임 측정을 시작하지 못했어요.", error)
+        }
     }
 
-    @objc func setPendingSelectionApplyDate(
-        _ dateString: String,
-        resolver resolve: @escaping RCTPromiseResolveBlock,
-        rejecter _: @escaping RCTPromiseRejectBlock
+    @objc func promotePendingSelectionIfDue(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter reject: @escaping RCTPromiseRejectBlock
     ) {
         let defaults = UserDefaults(suiteName: appGroupID)
-        if dateString.isEmpty {
-            defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
-        } else {
-            defaults?.set(dateString, forKey: "gromo:goal:selectionApplyDate")
+        guard let applyDate = defaults?.string(forKey: "gromo:goal:selectionApplyDate"),
+              applyDate <= Self.dayString(Date()),
+              let data = defaults?.data(forKey: "gromo:goal:selectionPending"),
+              let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data),
+              !Self.isEmpty(selection) else {
+            resolve(false)
+            return
         }
-        resolve(true)
+        do {
+            try registerUsageBucketMonitoring(
+                selection,
+                maxMinutes: 900,
+                defaults: defaults
+            )
+            let today = Self.dayString(Date())
+            defaults?.set(0, forKey: "gromo:screentime:usageBucketMinutes")
+            defaults?.set(today, forKey: "gromo:screentime:usageBucketDate")
+            defaults?.set(0, forKey: "gromo:screentime:bucketBaseMinutes")
+            defaults?.set(today, forKey: "gromo:screentime:bucketBaseDate")
+            defaults?.set(data, forKey: "gromo:goal:selection")
+            defaults?.removeObject(forKey: "gromo:goal:selectionPending")
+            defaults?.removeObject(forKey: "gromo:goal:selectionApplyDate")
+            defaults?.set(today, forKey: "gromo:goal:selectionPromotedOkDate")
+            Self.markCurrentDayUnconfirmed(defaults)
+            resolve(true)
+        } catch {
+            reject("MONITOR_ERROR", "예약한 측정 앱을 적용하지 못했어요.", error)
+        }
     }
 
     @objc func startUsageBucketMonitoring(
@@ -239,11 +288,7 @@ final class ScreenTimeModule: NSObject {
     ) throws {
         let center = DeviceActivityCenter()
         let activity = DeviceActivityName("gromo.usage.buckets")
-        let schedule = DeviceActivitySchedule(
-            intervalStart: DateComponents(hour: 0, minute: 0),
-            intervalEnd: DateComponents(hour: 23, minute: 59),
-            repeats: true
-        )
+        let schedule = Self.usageSchedule
         let today = Self.dayString(Date())
         let storedDate = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
         let base = storedDate == today
@@ -341,6 +386,89 @@ final class ScreenTimeModule: NSObject {
         let date = defaults?.string(forKey: "gromo:screentime:usageBucketDate")
         resolve(date == Self.dayString(Date())
             ? (defaults?.integer(forKey: "gromo:screentime:usageBucketMinutes") ?? 0) : 0)
+    }
+
+    @objc func getPreviousUsageBucket(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: appGroupID)
+        let unconfirmedDays = Self.unconfirmedDays(defaults)
+        guard let date = defaults?.string(forKey: "gromo:screentime:prevBucketDate"),
+              !unconfirmedDays.contains(date),
+              defaults?.object(forKey: "gromo:screentime:prevBucketMinutes") != nil else {
+            resolve(nil)
+            return
+        }
+        let minutes = defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes") ?? 0
+        resolve(["date": date, "minutes": min(max(minutes, 0), 900)])
+    }
+
+    @objc func getUsageBucketHistory(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: appGroupID)
+        var history = Self.bucketHistory(defaults)
+        let unconfirmedDays = Self.unconfirmedDays(defaults)
+        unconfirmedDays.forEach { history.removeValue(forKey: $0) }
+        if let date = defaults?.string(forKey: "gromo:screentime:prevBucketDate"),
+           !unconfirmedDays.contains(date),
+           defaults?.object(forKey: "gromo:screentime:prevBucketMinutes") != nil {
+            history[date] = min(
+                max(defaults?.integer(forKey: "gromo:screentime:prevBucketMinutes") ?? 0, 0),
+                900
+            )
+        }
+        resolve(history.keys.sorted().map { ["date": $0, "minutes": history[$0] ?? 0] })
+    }
+
+    @objc func markCurrentUsageBucketUnconfirmed(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        let defaults = UserDefaults(suiteName: appGroupID)
+        resolve(Self.markCurrentDayUnconfirmed(defaults).sorted())
+    }
+
+    @objc func getUnconfirmedUsageBucketDays(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        resolve(Self.unconfirmedDays(UserDefaults(suiteName: appGroupID)).sorted())
+    }
+
+    @objc func resetScreenTimeData(
+        _ resolve: @escaping RCTPromiseResolveBlock,
+        rejecter _: @escaping RCTPromiseRejectBlock
+    ) {
+        if #available(iOS 16.0, *) {
+            DeviceActivityCenter().stopMonitoring([DeviceActivityName("gromo.usage.buckets")])
+            ManagedSettingsStore(named: .init("gromoFocus")).clearAllSettings()
+        }
+        let defaults = UserDefaults(suiteName: appGroupID)
+        [
+            "gromo:goal:selection",
+            "gromo:goal:selectionPending",
+            "gromo:goal:selectionApplyDate",
+            "gromo:goal:selectionPromotedOkDate",
+            "gromo:screentime:usageBucketMinutes",
+            "gromo:screentime:usageBucketDate",
+            "gromo:screentime:prevBucketMinutes",
+            "gromo:screentime:prevBucketDate",
+            "gromo:screentime:bucketHistory",
+            "gromo:screentime:bucketBaseMinutes",
+            "gromo:screentime:bucketBaseDate",
+            "gromo:screentime:bucketRegisteredAt",
+            "gromo:screentime:registeredSelection",
+            "gromo:screentime:registeredMaxMinutes",
+            "gromo:screentime:unconfirmedDays",
+            "gromo:focus:allowedSelection",
+            "gromo:focus:allowSafariWeb",
+            "gromo:focus:shieldActive",
+            "gromo:focus:shieldSubject",
+        ].forEach { defaults?.removeObject(forKey: $0) }
+        resolve(nil)
     }
 
     @objc func presentAllowedAppManager(
@@ -490,8 +618,62 @@ final class ScreenTimeModule: NSObject {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(identifier: "Asia/Seoul")
         formatter.dateFormat = "yyyy-MM-dd"
         return formatter.string(from: date)
+    }
+
+    private static func nextDayString(_ date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "Asia/Seoul") ?? .current
+        return dayString(calendar.date(byAdding: .day, value: 1, to: date) ?? date)
+    }
+
+    private static var usageSchedule: DeviceActivitySchedule {
+        var start = DateComponents()
+        start.timeZone = TimeZone(identifier: "Asia/Seoul")
+        start.hour = 0
+        start.minute = 0
+        var end = DateComponents()
+        end.timeZone = TimeZone(identifier: "Asia/Seoul")
+        end.hour = 23
+        end.minute = 59
+        return DeviceActivitySchedule(intervalStart: start, intervalEnd: end, repeats: true)
+    }
+
+    private static func bucketHistory(_ defaults: UserDefaults?) -> [String: Int] {
+        guard let raw = defaults?.dictionary(forKey: "gromo:screentime:bucketHistory") else {
+            return [:]
+        }
+        return raw.reduce(into: [:]) { result, item in
+            if let value = item.value as? NSNumber {
+                result[item.key] = min(max(value.intValue, 0), 900)
+            }
+        }
+    }
+
+    private static func unconfirmedDays(_ defaults: UserDefaults?) -> Set<String> {
+        Set(defaults?.stringArray(forKey: "gromo:screentime:unconfirmedDays") ?? [])
+    }
+
+    @discardableResult
+    private static func markCurrentDayUnconfirmed(_ defaults: UserDefaults?) -> Set<String> {
+        var days = unconfirmedDays(defaults)
+        if let date = defaults?.string(forKey: "gromo:screentime:usageBucketDate") {
+            days.insert(date)
+        }
+        days.insert(dayString(Date()))
+        defaults?.set(days.sorted(), forKey: "gromo:screentime:unconfirmedDays")
+
+        var history = bucketHistory(defaults)
+        days.forEach { history.removeValue(forKey: $0) }
+        defaults?.set(history, forKey: "gromo:screentime:bucketHistory")
+        if let date = defaults?.string(forKey: "gromo:screentime:prevBucketDate"),
+           days.contains(date) {
+            defaults?.removeObject(forKey: "gromo:screentime:prevBucketDate")
+            defaults?.removeObject(forKey: "gromo:screentime:prevBucketMinutes")
+        }
+        return days
     }
 
     private static func topViewController() -> UIViewController? {
