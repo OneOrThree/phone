@@ -1332,7 +1332,11 @@ test('현재 섬에서 강퇴돼도 다른 소속이 있으면 그 섬을 현재
   let s = initialState(true);
   const kicked = currentIsland(s);
   const remaining = s.islands.find((island) => island.id !== kicked.id)!;
+  const visiting = s.islands.find(
+    (island) => island.id !== kicked.id && island.id !== remaining.id,
+  )!;
   remaining.joined = true;
+  s.visitingIslandId = visiting.id;
   s.session = {
     id: 'kicked-session',
     islandId: kicked.id,
@@ -1346,8 +1350,24 @@ test('현재 섬에서 강퇴돼도 다른 소속이 있으면 그 섬을 현재
 
   assert.equal(s.onboarded, true);
   assert.equal(s.islandId, remaining.id);
+  assert.equal(s.visitingIslandId, null);
   assert.equal(s.session, null);
   assert.deepEqual(s.membershipRecovery, { reason: 'kicked', islandId: kicked.id });
+});
+
+test('가입한 보조 섬을 방문 중 강퇴되면 현재 섬으로 화면 복구 신호를 남긴다', () => {
+  let s = initialState(true);
+  const home = currentIsland(s);
+  const visited = s.islands.find((island) => island.id !== home.id)!;
+  visited.joined = true;
+  s.visitingIslandId = visited.id;
+
+  s = act(s, 'KICKED_FROM_ISLAND', { id: visited.id });
+
+  assert.equal(s.islandId, home.id);
+  assert.equal(s.visitingIslandId, null);
+  assert.equal(visited.id, s.membershipRecovery?.islandId);
+  assert.equal(s.islands.find((island) => island.id === visited.id)?.kicked, true);
 });
 
 test('강퇴된 섬은 일반 탐색·초대 코드·가입 경로에서 복원하지 않는다', () => {

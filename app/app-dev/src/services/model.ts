@@ -886,6 +886,7 @@ function closeIsland(s: State, i: Island) {
 // 내 소속이 사라졌을 때의 공통 정리. 자진 탈퇴는 마지막 주민이면 섬도 닫지만,
 // 강퇴는 방장이 남아 있으므로 내 소속과 개인 화면 컨텍스트만 정리한다.
 function removeOwnMembership(s: State, island: Island, closeWhenEmpty: boolean) {
+  const wasCurrent = s.islandId === island.id;
   island.joined = false;
   s.rewards = (s.rewards ?? []).filter((reward) => reward.islandId !== island.id);
   if (island.buildingQuest)
@@ -894,8 +895,8 @@ function removeOwnMembership(s: State, island: Island, closeWhenEmpty: boolean) 
 
   const nextIsland = s.islands.find((candidate) => candidate.joined && !candidate.closed);
   s.onboarded = !!nextIsland;
-  if (s.islandId === island.id && nextIsland) s.islandId = nextIsland.id;
-  if (s.visitingIslandId === island.id || !nextIsland) s.visitingIslandId = null;
+  if (wasCurrent && nextIsland) s.islandId = nextIsland.id;
+  if (wasCurrent || s.visitingIslandId === island.id || !nextIsland) s.visitingIslandId = null;
   // 소속을 잃은 섬의 진행 중 집중은 서버에서도 강제 종료된다. 로컬 상태에 좀비 세션을 남기지 않는다.
   if (s.session?.islandId === island.id) s.session = null;
 }
@@ -1699,7 +1700,9 @@ export function reducer(state: State, a: Action): State {
       const kickedIsland = s.islands.find((island) => island.id === a.id);
       if (!kickedIsland?.joined) return state;
       const shouldResetScreen =
-        s.islandId === kickedIsland.id || s.session?.islandId === kickedIsland.id;
+        s.islandId === kickedIsland.id ||
+        s.session?.islandId === kickedIsland.id ||
+        s.visitingIslandId === kickedIsland.id;
       kickedIsland.kicked = true;
       removeOwnMembership(s, kickedIsland, false);
       if (shouldResetScreen) s.membershipRecovery = { reason: 'kicked', islandId: kickedIsland.id };

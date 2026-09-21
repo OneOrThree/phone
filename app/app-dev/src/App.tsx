@@ -347,6 +347,7 @@ function Gromo() {
     if (!loaded || !state.loggedIn) return;
     if (state.membershipRecovery) {
       setModal(null);
+      setWalkRequest(null);
       reset(state.onboarded ? 'home' : 'chooseIsland');
       dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
       return;
@@ -449,6 +450,8 @@ function Gromo() {
       back,
       state,
       route,
+      walkRequest,
+      walk: (r: Route) => setWalkRequest(r),
       open: (r: Route, opts: any = {}) => {
         if (opts.state) dispatch({ type: 'LOAD', state: opts.state });
         setModal(null);
@@ -469,7 +472,7 @@ function Gromo() {
       },
       fixture: initialState,
     };
-  }, [loaded, state, route]);
+  }, [loaded, state, route, walkRequest]);
   const walkTo = (r: Route) => {
     setWalkRequest(r);
     setHistory([]);
