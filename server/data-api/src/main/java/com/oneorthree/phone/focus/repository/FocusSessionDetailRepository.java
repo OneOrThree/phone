@@ -111,6 +111,7 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
             + "AND d.lastTransitionAt <= :before")
     List<UUID> findSessionIdsRestingSince(@Param("before") Instant before);
 
+    /**
      * 황금 물고기 추첨 틱용(GROMO-1956) — 지금 ACTIVE 세션이 {@code minimum} 명 이상인 섬.
      *
      * <p>「같은 섬에서 ACTIVE(집중 중, 휴식 제외)인 주민이 2명 이상일 때만 추첨한다」(기획 정본)의 그
