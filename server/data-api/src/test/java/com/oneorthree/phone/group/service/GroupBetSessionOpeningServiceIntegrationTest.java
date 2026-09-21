@@ -19,7 +19,6 @@ import com.oneorthree.phone.group.repository.GroupChallengeWindowRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.group.scheduler.GroupBetScheduler;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -183,11 +182,12 @@ class GroupBetSessionOpeningServiceIntegrationTest extends IntegrationTestBase {
     @DisplayName("참가 마감(창 시작)이 지난 창형은 오늘 개설하지 않는다 — 늦은 캐치업이 죽은 회차를 세우지 않는다")
     void skipsWindowedChallengeWhoseJoinDeadlinePassedToday() {
         ZonedDateTime nowKst = ZonedDateTime.now(KST);
-        // 자정 직후에는 "오늘 이미 지난 창 시작"을 만들 수 없다 — 그 경계 시간대만 건너뛴다.
-        Assumptions.assumeTrue(nowKst.toLocalTime().isAfter(LocalTime.of(0, 30)));
         LocalDate today = nowKst.toLocalDate();
+        // 「20분 전」은 자정 직후(00:00~00:20 KST)엔 전날로 감겨 미래 시각이 된다 — 그때는 오늘 00:00 이
+        // 이미 지난 창 시작이다. 종전엔 이 시간대를 assumeTrue 로 통째 건너뛰어 검증이 조용히 빠졌다(GROMO-2034).
+        LocalTime passedStart = nowKst.toLocalTime().minusMinutes(20).withSecond(0).withNano(0);
         GroupChallenge passed = windowChallengeStartingAt(
-                nowKst.toLocalTime().minusMinutes(20).withSecond(0).withNano(0));
+                passedStart.isAfter(nowKst.toLocalTime()) ? LocalTime.MIDNIGHT : passedStart);
         betConfig(passed, true);
 
         assertThat(ensure(passed, today)).isEmpty();

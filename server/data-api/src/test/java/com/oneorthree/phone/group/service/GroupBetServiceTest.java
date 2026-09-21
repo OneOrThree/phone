@@ -2041,10 +2041,12 @@ class GroupBetServiceTest {
     @DisplayName("하루형 당일 참가 — 참가+5분 유예 안이면 철회 성공 (N22 오탭 구제, 응답 myLeaveDeadlineAt 과 같은 판정)")
     void leaveBetAllowsSameDayDurationWithinGrace() {
         givenMember();
-        // 시작(자정)은 이미 지났고 참가는 1분 전 — 유예(5분) 안이다.
-        GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today());
-        GroupChallengeBetParticipant mine =
-                myParticipantJoinedAt(session, Instant.now().minus(1, ChronoUnit.MINUTES));
+        // 시작은 이미 지났고 참가는 그 1분 뒤 — 유예(5분) 안이다. 시작 시각을 벽시계에서 파생해
+        // 회차 시작(하루형 픽스처의 자정)과 「지금」의 거리가 실행 시각에 좌우되지 않게 한다(GROMO-2034).
+        Instant joinedAt = Instant.now().minus(1, ChronoUnit.MINUTES);
+        GroupChallengeBetSession session =
+                session(GroupBetStatus.OPEN, today(), joinedAt.minus(1, ChronoUnit.MINUTES));
+        GroupChallengeBetParticipant mine = myParticipantJoinedAt(session, joinedAt);
         givenLeaveEntry(session, mine, participantOf(session, OTHER_USER_ID));
         given(currencyLedgerService.credit(any(), any(), anyInt(), anyString())).willReturn(true);
 
@@ -2059,9 +2061,12 @@ class GroupBetServiceTest {
     @DisplayName("하루형 당일 참가 — 유예 5분이 지나면 BET_LEAVE_CLOSED (경계 바깥)")
     void leaveBetRejectsSameDayDurationAfterGrace() {
         givenMember();
-        GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today());
-        givenLeaveEntry(session,
-                myParticipantJoinedAt(session, Instant.now().minus(6, ChronoUnit.MINUTES)));
+        // 참가가 시작보다 뒤여야 「유예 밖」 분기를 탄다 — 자정 직후엔 벽시계 -6분이 전날이 되어
+        // 시작 전 참가(유예 없음)로 새고, 같은 오류가 나면서 검증 대상이 사라진다(GROMO-2034).
+        Instant joinedAt = Instant.now().minus(6, ChronoUnit.MINUTES);
+        GroupChallengeBetSession session =
+                session(GroupBetStatus.OPEN, today(), joinedAt.minus(1, ChronoUnit.MINUTES));
+        givenLeaveEntry(session, myParticipantJoinedAt(session, joinedAt));
 
         assertThatThrownBy(() -> groupBetService.leaveBet(GROUP_ID, SESSION_ID, USER_ID))
                 .isInstanceOf(GroupException.class)
@@ -2091,9 +2096,11 @@ class GroupBetServiceTest {
     @DisplayName("응답의 myLeaveDeadlineAt 과 철회 판정이 같은 함수를 쓴다 — 화면이 거짓말하지 않는다")
     void leaveDeadlineIsSharedByResponseAndLeaveGuard() {
         givenMember();
-        GroupChallengeBetSession session = session(GroupBetStatus.OPEN, today());
         // 마감(참가+5분)이 방금 지난 참가 행 — 응답이 주는 값과 서비스 판정이 같은 경계여야 한다.
+        // 시작 시각을 참가보다 앞에 박아 자정 위치와 무관하게 「시작 후 참가」 분기를 고정한다(GROMO-2034).
         Instant joinedAt = Instant.now().minus(GroupBetService.LEAVE_GRACE).minusSeconds(1);
+        GroupChallengeBetSession session =
+                session(GroupBetStatus.OPEN, today(), joinedAt.minus(1, ChronoUnit.MINUTES));
         GroupChallengeBetParticipant mine = myParticipantJoinedAt(session, joinedAt);
         givenLeaveEntry(session, mine);
 
