@@ -34,7 +34,8 @@ final class EventPayloadValidator {
             throw new IllegalArgumentException("이벤트 payload에 전달 경로를 지정할 수 없습니다.");
         }
         boolean versionRequired = switch (type) {
-            case FOCUS_MEMBER_UPDATED, REST_MEMBER_UPDATED, FOCUS_EMOTE, MESSAGE_CREATED -> false;
+            case FOCUS_MEMBER_UPDATED, REST_MEMBER_UPDATED, FOCUS_EMOTE, MESSAGE_CREATED,
+                 GOLDEN_FISH_CAUGHT -> false;
             default -> true;
         };
         JsonNode payloadVersion = payload.get("version");
@@ -54,6 +55,9 @@ final class EventPayloadValidator {
         }
         if (type == RealtimeEventType.FOCUS_EMOTE) {
             validateEmote(payload);
+        }
+        if (type == RealtimeEventType.GOLDEN_FISH_CAUGHT) {
+            validateGoldenFish(islandId, payload);
         }
         if (type == RealtimeEventType.FOCUS_MEMBER_UPDATED || type == RealtimeEventType.REST_MEMBER_UPDATED) {
             validateMember(type, payload);
@@ -91,6 +95,37 @@ final class EventPayloadValidator {
             Instant.parse(textField(payload, "expiresAt"));
         } catch (DateTimeParseException e) {
             throw new IllegalArgumentException("응원 만료 시각이 올바르지 않습니다.");
+        }
+    }
+
+    /**
+     * 황금 물고기 봉투의 도메인 불변식 (GROMO-1956) — 섬·배분량·함께 낚은 주민.
+     *
+     * <p>{@code members} 를 «있는지»만 보지 않고 <b>2명 이상</b>을 요구한다. 「혼자 집중할 때는 나타나지
+     * 않는다」가 기획 정본이므로, 1명짜리 봉투는 생산자 결함이고 그대로 방송하면 앱이 «혼자 낚은 황금
+     * 물고기» 컷신을 재생한다. 배분량도 검사한다 — {@code reward ÷ 인원}(내림)이 계약이라, 어긋난 값은
+     * 앱이 보여 줄 「내 몫」이 서버 기록과 달라진다.
+     *
+     * <p>{@code version} 은 요구하지 않는다(위 exempt 목록) — 이 사건은 스냅샷을 되맞출 상태가 없는
+     * 일회성 연출 신호다. 대신 {@code drawnAt} 이 추첨 분이라 앱이 중복 재생을 걸러낼 수 있다.
+     */
+    private static void validateGoldenFish(UUID islandId, JsonNode payload) {
+        if (!islandId.equals(uuidField(payload, "islandId"))) {
+            throw new IllegalArgumentException("payload의 섬이 일치하지 않습니다.");
+        }
+        instantField(payload, "drawnAt", false);
+        long reward = longField(payload, "reward", false);
+        long share = longField(payload, "sharePerMember", false);
+        JsonNode members = payload.get("members");
+        if (members == null || !members.isArray() || members.size() < 2) {
+            throw new IllegalArgumentException("황금 물고기는 함께 낚은 주민이 2명 이상이어야 합니다.");
+        }
+        for (JsonNode member : members) {
+            uuidField(member, "userId");
+            uuidField(member, "sessionId");
+        }
+        if (reward <= 0 || share < 0 || share != reward / members.size()) {
+            throw new IllegalArgumentException("황금 물고기 배분량이 계약과 다릅니다.");
         }
     }
 

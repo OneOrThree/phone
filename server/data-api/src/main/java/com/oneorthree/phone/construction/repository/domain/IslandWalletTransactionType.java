@@ -18,7 +18,15 @@ public enum IslandWalletTransactionType {
      * 상점 구매 차감(GROMO-1781) — 모든 재화는 섬 귀속이라 개인 상품(옷·소품)도 섬 통장에서 뺀다
      * (2026-09-19 결정 SH-재화).
      */
-    SHOP_PURCHASE(false);
+    SHOP_PURCHASE(false),
+    /**
+     * 황금 물고기 적립(GROMO-1956) — 같이 집중 보너스 50마리가 섬 통장에 «한 번» 들어간다
+     * (기획 정본 「한 번 나타날 때 섬 잔액에 물고기 50마리를 한 번 더한다. 함께 낚은 인원수만큼
+     * 곱해 주지 않으며」). 함께 낚은 주민에게 나눠 주는 몫은 잔액이 아니라 «기록» 축이라 여기 없다 —
+     * 누적 획득은 {@code focus_reward_accruals.golden_fish}, 건설 각자 몫은
+     * {@code island_construction_contributions} 다. 그래서 {@code CONTRIBUTION} 과 다른 사유다.
+     */
+    GOLDEN_FISH(true);
 
     private final boolean earning;
 

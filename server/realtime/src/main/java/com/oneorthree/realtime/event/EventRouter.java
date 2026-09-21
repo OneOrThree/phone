@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
-/** 신규 14종 이벤트의 단일 내부 발행 진입점. STOMP SEND나 외부 HTTP에서 직접 호출하지 않는다. */
+/** 신규 15종 이벤트의 단일 내부 발행 진입점. STOMP SEND나 외부 HTTP에서 직접 호출하지 않는다. */
 @Component
 @RequiredArgsConstructor
 public class EventRouter {
