@@ -2640,6 +2640,36 @@
         }
       }
     },
+    "/internal/auth/sessions/refresh": {
+      "post": {
+        "tags": [
+          "internal-session-issue-controller"
+        ],
+        "operationId": "refresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRefreshResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/auth/sessions/logout": {
       "post": {
         "tags": [
@@ -2723,6 +2753,36 @@
               "*/*": {
                 "schema": {
                   "$ref": "#/components/schemas/LoginAttemptLookupResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/internal/auth/guest-sessions": {
+      "post": {
+        "tags": [
+          "internal-session-issue-controller"
+        ],
+        "operationId": "guestSession",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GuestSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginSessionResponse"
                 }
               }
             }
@@ -11508,6 +11568,25 @@
           }
         }
       },
+      "SessionRefreshRequest": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
+      "SessionRefreshResponse": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
       "SessionLogoutRequest": {
         "type": "object",
         "properties": {
@@ -11633,6 +11712,17 @@
           },
           "session": {
             "$ref": "#/components/schemas/LoginSessionResponse"
+          }
+        }
+      },
+      "GuestSessionRequest": {
+        "type": "object",
+        "properties": {
+          "deviceDigest": {
+            "type": "string"
+          },
+          "clientIp": {
+            "type": "string"
           }
         }
       },
