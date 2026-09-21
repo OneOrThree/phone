@@ -6,10 +6,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-<<<<<<< HEAD
 import java.time.Instant;
-=======
->>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
 import java.time.LocalDate;
 import java.util.List;
 
@@ -31,7 +28,6 @@ public interface IslandWeeklyMemberCountRepository
      * 「목록 N명 · 분모 N+1명」이 생기지 않는다. 멤버가 0인 섬은 {@code GROUP BY} 에서 행 자체가 나오지
      * 않으므로 자연히 빠진다(CHECK {@code member_count > 0} 과 짝이다).
      *
-<<<<<<< HEAD
      * <h2>기준 시각은 주 «종료 경계»다</h2>
      * 가입은 {@code created_at < boundary} 로 걸러 <b>경계 이후에 들어온 주민이 지난 주 분모에 섞이지 않게</b>
      * 한다 — 이 조건이 없으면 「크론이 실제로 실행된 순간의 인원」을 적게 되어, 경계 직후 가입만으로 지난 주
@@ -51,22 +47,11 @@ public interface IslandWeeklyMemberCountRepository
      * <p>{@code ON CONFLICT DO NOTHING} 이라 <b>재실행해도 이미 동결된 값을 덮지 않는다</b>. 이것이 멱등 가드다.
      * 늦게 돈 배치가 «틀린 값을 영구 고착»시키지 않는 것은 호출부의 유예 가드가 맡는다 — 유예를 넘기면 아예
      * 쓰지 않으므로, 고착되는 값은 언제나 유예 안에서 계산된 값이다.
-=======
-     * <p>섬이 살아 있는지는 «여기서» 걸지 않는다 — 조회 경로가 어차피 {@code groups} 와 조인해 소프트 삭제·
-     * 종료 섬을 거른다. 하드 삭제는 FK {@code ON DELETE CASCADE} 가 치운다.
-     *
-     * <p>{@code ON CONFLICT DO NOTHING} 이라 <b>재실행해도 이미 동결된 값을 덮지 않는다</b>. 이것이 멱등 가드다 —
-     * 배치가 두 번 돌거나 늦게 돌아도 그 주의 분모는 «처음 적힌 값» 그대로다. 덮어쓰기로 만들면 하루 늦게 돈
-     * 배치가 하루치 이탈을 반영해 버려 동결의 의미가 사라진다.
->>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
      *
      * <p>트랜잭션 경계는 여기서 열지 않는다(규약 §4·§5) — 호출부인 {@code IslandRankingFreezeService} 가 소유한다.
      *
      * @param weekStart 동결할 주의 시작일(UTC 일요일)
-<<<<<<< HEAD
      * @param boundary  그 주의 종료 경계(= 다음 주 시작 00:00Z). 이 시각 «이후» 가입은 세지 않는다
-=======
->>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
      * @return 새로 적힌 행 수. 재실행이면 0 이다
      */
     @Modifying
@@ -74,14 +59,8 @@ public interface IslandWeeklyMemberCountRepository
             + "SELECT :weekStart, gm.group_id, COUNT(*) "
             + "FROM group_members gm JOIN users u ON u.id = gm.user_id "
             + "WHERE gm.is_left = false AND u.is_deleted = false "
-<<<<<<< HEAD
             + "AND (gm.created_at IS NULL OR gm.created_at < CAST(:boundary AS timestamptz)) "
             + "GROUP BY gm.group_id "
             + "ON CONFLICT (week_start, island_id) DO NOTHING", nativeQuery = true)
     int freeze(@Param("weekStart") LocalDate weekStart, @Param("boundary") Instant boundary);
-=======
-            + "GROUP BY gm.group_id "
-            + "ON CONFLICT (week_start, island_id) DO NOTHING", nativeQuery = true)
-    int freeze(@Param("weekStart") LocalDate weekStart);
->>>>>>> origin/bfeat/GROMO-1997-island-weekly-ranking
 }
