@@ -48,7 +48,7 @@
 |hall|focusStatistics,screenTimeStatistics|없음. 측정 unavailable/null은 조각 전체 실패가 아닌 도메인 데이터|0|
 |island-manage|island,members, host이면joinRequests|검증 일반주민: joinRequests=null,joinRequestsAvailability=host_only|0|
 |board|quests,notices|없음. 비활성 탭도 초기 계약에서필수|0|
-|tower|memberRankings,islandRankings|미결 eligibility를 임의 N으로 만들지 않음. 참가 정책/응답 확정 전gate|0|
+|tower|islandRankings|미결 eligibility를 임의 N으로 만들지 않음. 참가 정책/응답 확정 전gate. 주민 랭킹(`memberRankings`)은 폐기(B15, GROMO-1997)|0|
 |explore|islands,memberships|없음. 소속 조회 실패를 미소속으로 바꾸지 않음|0|
 |visit|public island, 본인요청있으면joinRequest|본인 최신 요청 없음: joinRequest=null,joinRequestAvailability=none|0|
 |shop|wallets,products,sharedInventory|없음. 금액/소유 오류를0/false로 합성하지 않음|0|
