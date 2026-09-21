@@ -46,7 +46,7 @@ home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상�
 - focusStatistics: PR748 scope=me/island DTO와asOf. screenTimeStatistics는 measurementStatus/nullableminutes/series/updatedAt을보존한다. scope=island에개인records/subject를넣지 않는다.
 - members: items/nextCursor/**version**. joinRequests: items[{id,applicantId,name,status,version}]/nextCursor. 일반주민에게는후자를조회하지 않는다.
 - quests/notices:1773/1771 목록공개 DTO. 카드마다progress/detail을추가HTTP로조회하지 않는다. 각item의실제 버전/회차/페이지정보를보존한다.
-- memberRankings/islandRankings: PR748의같은관측시각·승인된cohort/순위정책. myRank는현재페이지번호가아니라전체snapshot순위다.
+- islandRankings: PR748의같은관측시각·승인된cohort/순위정책. myRank는현재페이지번호가아니라전체snapshot순위다. **우리 섬 안 주민 랭킹(`memberRankings`)은 폐기됐다**(B15, GROMO-1997) — 전망대는 다른 섬 랭킹만 보여 주므로 조회가 `GET /rankings/islands` 하나로 줄고 집계를 만들지 않는다.
 - products:1781목록의ownerType/productVersion/owned/available/reason 포함. wallets의villagePointsVersion이유일한지갑축이다(2026-09-21 재화-단일 — `fish`·`fishVersion`은 0·null 고정 호환 필드라 화면이 그리지 않는다). sharedInventory의inventoryVersion/appearance.version, inventory의inventoryVersion/equipped.version도 유지한다. 이 ownerType·productVersion·inventory/외양 버전은 원본 HTML에 있던 필드라는 뜻이 아니라 [1780 상점 설계](https://github.com/OneOrThree/phone/blob/89ebd156ac24cf7a69eb6eb9b10a48b121df4476/docs/prd/island-shop/low-level-design.md)와 [1782 보유품 설계](https://github.com/OneOrThree/phone/blob/89ebd156ac24cf7a69eb6eb9b10a48b121df4476/docs/prd/island-appearance/low-level-design.md)의 명시 확장을 BFF가 상속한다는 뜻이다.
 - me:1757의id/name/catColor/linkedProviders/onboardingComplete. 공개색상/온보딩정책이 미결이면기본값을발명하지 않는다.
 
@@ -522,35 +522,6 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
   "data": {
     "asOf": "2026-09-11T09:10:00Z",
     "islandId": "019f16a0-0000-7000-8000-000000000010",
-    "memberRankings": {
-      "eligibility": "eligible",
-      "items": [
-        {
-          "rank": 1,
-          "userId": "019f16a0-0000-7000-8000-000000000001",
-          "name": "수빈",
-          "catColor": "black",
-          "focusSeconds": 1320
-        },
-        {
-          "rank": 2,
-          "userId": "019f16a0-0000-7000-8000-000000000002",
-          "name": "민지",
-          "catColor": "ginger",
-          "focusSeconds": 1200
-        },
-        {
-          "rank": 3,
-          "userId": "019f16a0-0000-7000-8000-000000000003",
-          "name": "수아",
-          "catColor": "gray",
-          "focusSeconds": 1080
-        }
-      ],
-      "myRank": 1,
-      "nextCursor": null,
-      "asOf": "2026-09-11T09:10:00Z"
-    },
     "islandRankings": {
       "items": [
         {
