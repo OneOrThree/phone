@@ -31,6 +31,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -249,7 +250,7 @@ class UserWithdrawGroupCleanupIntegrationTest extends IntegrationTestBase {
         GroupChallengeBetParticipant kickedJoin = participant(session, kicked);
         participant(session, third);
         GroupMember kickedMembership = groupMemberRepository.findAnyByUserAndGroup(kicked, group).orElseThrow();
-        kickedMembership.kick();
+        kickedMembership.kick(Instant.now());
         groupMemberRepository.save(kickedMembership);
 
         accountWithdrawalService.withdraw(kicked.getId());

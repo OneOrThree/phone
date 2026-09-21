@@ -30,6 +30,8 @@ import com.oneorthree.phone.quest.repository.IslandQuestRepository;
 import com.oneorthree.phone.quest.repository.domain.IslandQuest;
 import com.oneorthree.phone.quest.repository.domain.QuestType;
 import com.oneorthree.phone.quest.scheduler.IslandQuestScheduler;
+import com.oneorthree.phone.screentime.repository.ScreenTimeObservationRepository;
+import com.oneorthree.phone.screentime.repository.domain.ScreenTimeObservation;
 import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.assertj.core.api.ThrowableAssert.ThrowingCallable;
@@ -104,6 +106,8 @@ class IslandQuestIntegrationTest {
     FocusSessionDetailRepository details;
     @Autowired
     FocusSessionIntervalRepository intervals;
+    @Autowired
+    ScreenTimeObservationRepository observations;
     @Autowired
     JdbcTemplate jdbc;
     @Autowired
@@ -307,23 +311,141 @@ class IslandQuestIntegrationTest {
         assertThat(progress.nextCursor()).isNull();
     }
 
+    // ---------------------------------------------------------------- screen (GROMO-2001)
+
     @Test
-    @DisplayName("screen 퀘스트는 1930(스크린타임 날짜 축 UTC 전환) 전까지 생성·수정 모두 422 다")
-    void screenQuestsAreRejectedUntilScreenTimeIsUtc() {
+    @DisplayName("screen 퀘스트 생성·수정 가드가 풀렸다 — 창 없이 만들고, 창을 주면 여전히 400 이다")
+    void screenQuestsCanBeCreatedAndUpdated() {
         Island a = island(true);
 
-        assertQuestError(() -> service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null, null,
-                UUID.randomUUID()), QuestErrorCode.QUEST_TYPE_OUT_OF_RANGE);
-        assertQuestError(() -> service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, "18:00", null,
-                "UTC", UUID.randomUUID()), QuestErrorCode.QUEST_TYPE_OUT_OF_RANGE);
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM island_quests WHERE island_id = ?", Integer.class, a.id))
-                .isZero();
+        QuestViews.Created created = service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null,
+                null, UUID.randomUUID());
+        QuestViews.Item item = service.current(a.id, a.owner.getId()).items().get(0);
+        assertThat(item.type()).isEqualTo("screen");
+        assertThat(item.windowStart()).as("screen 에는 창이 없다").isNull();
+        assertThat(item.windowEnd()).isNull();
+        assertThat(item.date()).isEqualTo(D.toString());
 
-        // 스위치 이전 데이터 등으로 screen 정의가 이미 있어도 수정은 받지 않는다.
-        IslandQuest legacy = quests.save(IslandQuest.builder().islandId(a.id).type(QuestType.SCREEN)
-                .title("폰 1시간 이하").targetMinutes(60).createdBy(a.owner.getId()).build());
-        assertQuestError(() -> service.update(a.id, a.owner.getId(), legacy.getId(), null, 30, UUID.randomUUID()),
-                QuestErrorCode.QUEST_TYPE_OUT_OF_RANGE);
+        assertThat(service.update(a.id, a.owner.getId(), created.id(), null, 30, UUID.randomUUID())
+                .targetMinutes()).isEqualTo(30);
+        // 창은 focus 전용이다 — screen 에 주면 여전히 거절한다.
+        assertQuestError(() -> service.create(a.id, a.owner.getId(), "폰 30분", "screen", 30, "18:00", null,
+                "UTC", UUID.randomUUID()), QuestErrorCode.QUEST_INVALID_REQUEST);
+    }
+
+    @Test
+    @DisplayName("screen 판정 — 권한 없음·미측정·실제 0 을 구분하고, 상한 초과는 날짜가 안 끝나도 미달성 확정이다")
+    void screenJudgementSeparatesDeniedUnmeasuredAndRealZero() {
+        Island a = island(true);
+        User zero = resident(a.group);
+        User over = resident(a.group);
+        User denied = resident(a.group);
+        User silent = resident(a.group);
+        QuestViews.Created created = service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null,
+                "UTC", UUID.randomUUID());
+        UUID occurrenceId = occurrenceOf(created);
+
+        observe(zero, D, "09:00:00", 0, "authorized");
+        observe(over, D, "09:00:00", 61, "authorized");
+        observe(denied, D, "09:00:00", null, "denied");
+        // silent·방장은 보고가 아예 없다.
+
+        at(D, "10:00:00");
+        QuestViews.Progress progress = service.progress(a.id, a.owner.getId(), created.id(), occurrenceId);
+        // 「실제 0」은 측정된 값이라 authorized 지만, 그날이 안 끝나 아직 확정할 수 없다.
+        assertThat(member(progress, zero).measurementStatus()).isEqualTo("pending");
+        assertThat(member(progress, zero).achieved()).isFalse();
+        // 상한 초과는 사용량이 줄지 않으므로 날짜가 안 끝나도 확정 미달성이다.
+        assertThat(member(progress, over).measurementStatus()).isEqualTo("authorized");
+        assertThat(member(progress, over).rate()).isEqualTo(60 * 100 / 61);
+        assertThat(member(progress, over).achieved()).isFalse();
+        // 권한 없음은 「보고 없음」과 다른 사실이다 — 유예를 기다리지 않고 분모 밖이다.
+        assertThat(member(progress, denied).measurementStatus()).isEqualTo("denied");
+        assertThat(member(progress, denied).rate()).isNull();
+        // 보고 없음은 유예까지 측정 대기다.
+        assertThat(member(progress, silent).measurementStatus()).isEqualTo("pending");
+        assertThat(member(progress, silent).rate()).isNull();
+
+        // 회차 날짜가 끝나면 상한 이하가 달성으로 확정된다 — 「실제 0」도 달성이다.
+        at(D.plusDays(1), "00:00:00");
+        progress = service.progress(a.id, a.owner.getId(), created.id(), occurrenceId);
+        assertThat(member(progress, zero).measurementStatus()).isEqualTo("authorized");
+        assertThat(member(progress, zero).achieved()).isTrue();
+        assertThat(member(progress, zero).rate()).isEqualTo(100);
+
+        // 유예(다음 날 12:00Z)가 지나면 보고 없는 주민은 측정 불가로 분모에서 빠진다.
+        at(D.plusDays(1), "12:00:00");
+        progress = service.progress(a.id, a.owner.getId(), created.id(), occurrenceId);
+        assertThat(member(progress, silent).measurementStatus()).isEqualTo("unavailable");
+        assertThat(member(progress, denied).measurementStatus()).isEqualTo("denied");
+    }
+
+    @Test
+    @DisplayName("정정 업로드는 대체이지 합산이 아니고, 같은 날 기기가 둘이면 병합 보류라 측정 불가다")
+    void correctionsReplaceAndMultipleDevicesStayUnavailable() {
+        Island a = island(true);
+        User corrected = resident(a.group);
+        User twoDevices = resident(a.group);
+        QuestViews.Created created = service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null,
+                "UTC", UUID.randomUUID());
+        UUID occurrenceId = occurrenceOf(created);
+
+        UUID device = UUID.randomUUID();
+        // 같은 기기가 40분 → 50분으로 정정했다. 더하면 90분이라 상한을 넘는다 — 대체이므로 50분이다.
+        observe(corrected, device, D, "09:00:00", 40, "authorized");
+        observe(corrected, device, D, "22:00:00", 50, "authorized");
+        observe(twoDevices, UUID.randomUUID(), D, "09:00:00", 10, "authorized");
+        observe(twoDevices, UUID.randomUUID(), D, "09:00:00", 20, "authorized");
+
+        at(D.plusDays(1), "01:00:00");
+        QuestViews.Progress progress = service.progress(a.id, a.owner.getId(), created.id(), occurrenceId);
+        assertThat(member(progress, corrected).achieved()).as("40+50=90 이 아니라 50 이다").isTrue();
+        assertThat(member(progress, corrected).measurementStatus()).isEqualTo("authorized");
+        // RC-D02 보류 — 더하지도(30) 하나를 고르지도(10 또는 20) 않는다.
+        assertThat(member(progress, twoDevices).measurementStatus()).isEqualTo("unavailable");
+        assertThat(member(progress, twoDevices).rate()).isNull();
+    }
+
+    @Test
+    @DisplayName("날짜 축은 UTC 다 — KST 로 읽으면 같은 값이 다른 회차에 붙는다")
+    void measuredDateIsReadOnTheUtcAxis() {
+        Island a = island(true);
+        User member = resident(a.group);
+        QuestViews.Created created = service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null,
+                "UTC", UUID.randomUUID());
+        UUID occurrenceId = occurrenceOf(created);
+
+        // D 의 KST 하루(D-1 15:00Z ~ D 15:00Z)에 걸쳐 있지만 measured_date 는 «관측이 선언한 UTC 날짜» 다.
+        // D+1 로 선언된 값은 D 회차의 판정에 들어오지 않는다.
+        observe(member, D.plusDays(1), "09:00:00", 10, "authorized");
+
+        at(D.plusDays(1), "01:00:00");
+        QuestViews.Progress progress = service.progress(a.id, a.owner.getId(), created.id(), occurrenceId);
+        assertThat(member(progress, member).measurementStatus()).as("D 회차는 D 관측만 본다").isEqualTo("pending");
+
+        observe(member, D, "09:00:00", 10, "authorized");
+        progress = service.progress(a.id, a.owner.getId(), created.id(), occurrenceId);
+        assertThat(member(progress, member).achieved()).isTrue();
+    }
+
+    @Test
+    @DisplayName("screen 수령 마감은 유예 다음 자정(date+2 00:00Z)이다 — 그 전엔 받고 그 뒤엔 409")
+    void screenClaimClosesAfterTheGraceMidnight() {
+        Island a = island(true);
+        User member = resident(a.group);
+        QuestViews.Created created = service.create(a.id, a.owner.getId(), "폰 1시간 이하", "screen", 60, null, null,
+                "UTC", UUID.randomUUID());
+        UUID occurrenceId = occurrenceOf(created);
+        observe(a.owner, D, "09:00:00", 10, "authorized");
+        observe(member, D, "09:00:00", 10, "authorized");
+
+        at(D.plusDays(1), "23:59:59");
+        assertThat(service.claim(a.id, member.getId(), created.id(), occurrenceId, 1, UUID.randomUUID())
+                .villagePointsAdded()).isEqualTo(10);
+
+        at(D.plusDays(2), "00:00:00");
+        assertQuestError(() -> service.claim(a.id, a.owner.getId(), created.id(), occurrenceId, 2,
+                UUID.randomUUID()), QuestErrorCode.QUEST_STATE_CONFLICT);
     }
 
     // ---------------------------------------------------------------- 정산
@@ -590,7 +712,7 @@ class IslandQuestIntegrationTest {
 
     private void leave(User user, Group group) {
         GroupMember membership = members.findByUserAndGroup(user, group).orElseThrow();
-        membership.leave();
+        membership.leave(Instant.now());
         members.save(membership);
     }
 
@@ -606,6 +728,18 @@ class IslandQuestIntegrationTest {
     private void interval(UUID sessionId, int ordinal, FocusIntervalKind kind, Instant startedAt, Instant endedAt) {
         intervals.save(FocusSessionInterval.builder().sessionId(sessionId).ordinal(ordinal).kind(kind)
                 .startedAt(startedAt).endedAt(endedAt).build());
+    }
+
+    /** 앱 업로드 계약 그대로의 관측 한 건 — (사용자, 기기, UTC 날짜, 관측 시각) 불변 행이다. */
+    private void observe(User user, LocalDate date, String time, Integer minutes, String status) {
+        observe(user, UUID.randomUUID(), date, time, minutes, status);
+    }
+
+    private void observe(User user, UUID deviceId, LocalDate date, String time, Integer minutes, String status) {
+        observations.save(ScreenTimeObservation.builder().userId(user.getId()).deviceId(deviceId)
+                .measuredDate(date).measuredAt(Instant.parse(date + "T" + time + "Z"))
+                .minutes(minutes).measurementStatus(status)
+                .build());
     }
 
     private int balance(UUID islandId) {

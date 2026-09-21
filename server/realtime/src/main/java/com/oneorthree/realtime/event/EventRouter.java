@@ -5,7 +5,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
-/** 신규 14종 이벤트의 단일 내부 발행 진입점. STOMP SEND나 외부 HTTP에서 직접 호출하지 않는다. */
+/** 신규 15종 이벤트의 단일 내부 발행 진입점. STOMP SEND나 외부 HTTP에서 직접 호출하지 않는다. */
 @Component
 @RequiredArgsConstructor
 public class EventRouter {
@@ -28,13 +28,14 @@ public class EventRouter {
             }
             destination = "/topic/islands/" + island.islandId() + "/" + event.type().channel();
         } else if (audience instanceof RealtimeAudience.UserAudience users) {
-            boolean personalWallet = event.islandId() == null
-                    && (event.type() == RealtimeEventType.WALLET_UPDATED
-                    || event.type() == RealtimeEventType.INVENTORY_UPDATED);
-            if (!personalWallet && event.type() != RealtimeEventType.JOIN_REQUEST_UPDATED) {
+            // 개인 축이 남은 자산은 inventory 뿐이다 — 지갑은 섬 단위 하나라(GROMO-1989) 봉투가
+            // 섬 없는 wallet.updated 를 이미 거절한다.
+            boolean personalAsset = event.islandId() == null
+                    && event.type() == RealtimeEventType.INVENTORY_UPDATED;
+            if (!personalAsset && event.type() != RealtimeEventType.JOIN_REQUEST_UPDATED) {
                 throw new IllegalArgumentException("이벤트를 개인 큐로 보낼 수 없습니다.");
             }
-            if (personalWallet && (users.userIds().size() != 1
+            if (personalAsset && (users.userIds().size() != 1
                     || !users.userIds().contains(EventPayloadValidator.ownerId(event.payload())))) {
                 throw new IllegalArgumentException("개인 자산 이벤트는 본인 한 명에게만 전달합니다.");
             }

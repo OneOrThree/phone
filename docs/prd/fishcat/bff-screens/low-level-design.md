@@ -43,11 +43,11 @@ home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상�
 - members(visit): 2026-09-19 결정 V-읽기(GROMO-1904·1937)로 싣는다. 도메인 `GET /islands/{islandId}/members` 첫 페이지 그대로 — items[{id,name,role,appearance}]/nextCursor/version. 항목 키는 이 넷뿐이고 집중 기록 등 다른 개인 필드는 키 자체가 없다. 공지·퀘스트는 visit 조각이 아니다 — 방문자도 게시판 건물을 눌러 도메인 GET(읽기 전용)으로 읽는다.
 - session: PR743 current-session DTO 또는 명시 정상null. 빈HTTP200/204는 정상null증거가아니다. focus/rest members는 items/serverNow/**watermarks**를보존한다. rest row에원본에 없는sessionId를만들지않는다.
 - focusMembers.items[].appearanceVersion: 같은 snapshot의 실제 user appearance.version을 직접 매핑하는 필수 안전 정수(0~9007199254740991)다. 현재 PR737/743의 표시용 Appearance={clothes,decor,hull,position}에는 version이 없으므로 주민 항목에 붙인다. PR742 equipped.version과 **같은 개인 외양 정본 값**이며 새 버전 카운터를 만들지 않는다. BFF를 위해 본인전용 GET /me/inventory를 다른 주민에게 호출하거나 개인 보유 목록을 노출하지 않는다.1765의 주민 GET과1783의 외양 제공자를 동기화하는 명시 확장이고 원본22개 GET JSON은 보존한다. 1783 병합 전까지는 구현 유예다([policy B14](policy.md)).
-- focusStatistics: PR748 scope=me/island DTO와asOf. screenTimeStatistics는 measurementStatus/nullableminutes/series/updatedAt을보존한다. scope=island에개인records/subject를넣지 않는다.
+- focusStatistics: PR748 scope=me/island DTO와asOf. screenTimeStatistics는 measurementStatus/nullableminutes/series/updatedAt을보존한다. scope=island에개인records/subject를넣지 않는다. **fishEarnings**(GROMO-2046)는 `members[{userId,name,earnedFish}]` 하나뿐이고 기간·커서·잔액 필드가 없다 — 도메인 `GET /islands/{islandId}/statistics/fish-earnings` 응답 그대로다.
 - members: items/nextCursor/**version**. joinRequests: items[{id,applicantId,name,status,version}]/nextCursor. 일반주민에게는후자를조회하지 않는다.
 - quests/notices:1773/1771 목록공개 DTO. 카드마다progress/detail을추가HTTP로조회하지 않는다. 각item의실제 버전/회차/페이지정보를보존한다.
-- memberRankings/islandRankings: PR748의같은관측시각·승인된cohort/순위정책. myRank는현재페이지번호가아니라전체snapshot순위다.
-- products:1781목록의ownerType/productVersion/owned/available/reason 포함. wallets의fishVersion/villagePointsVersion은각지갑축이다. sharedInventory의inventoryVersion/appearance.version, inventory의inventoryVersion/equipped.version도 유지한다. 이 ownerType·productVersion·inventory/외양 버전은 원본 HTML에 있던 필드라는 뜻이 아니라 [1780 상점 설계](https://github.com/OneOrThree/phone/blob/89ebd156ac24cf7a69eb6eb9b10a48b121df4476/docs/prd/island-shop/low-level-design.md)와 [1782 보유품 설계](https://github.com/OneOrThree/phone/blob/89ebd156ac24cf7a69eb6eb9b10a48b121df4476/docs/prd/island-appearance/low-level-design.md)의 명시 확장을 BFF가 상속한다는 뜻이다.
+- islandRankings: PR748의같은관측시각·승인된cohort/순위정책. myRank는현재페이지번호가아니라전체snapshot순위다. **우리 섬 안 주민 랭킹(`memberRankings`)은 폐기됐다**(B15, GROMO-1997) — 전망대는 다른 섬 랭킹만 보여 주므로 조회가 `GET /rankings/islands` 하나로 줄고 집계를 만들지 않는다.
+- products:1781목록의ownerType/productVersion/owned/available/reason 포함. wallets의villagePointsVersion이유일한지갑축이다(2026-09-21 재화-단일 — `fish`(저장값 그대로, 적립 경로가 꺼져 있어 사실상 0)·`fishVersion`(null 고정)은 화면이 그리지 않는 호환 필드다). sharedInventory의inventoryVersion/appearance.version, inventory의inventoryVersion/equipped.version도 유지한다. 이 ownerType·productVersion·inventory/외양 버전은 원본 HTML에 있던 필드라는 뜻이 아니라 [1780 상점 설계](https://github.com/OneOrThree/phone/blob/89ebd156ac24cf7a69eb6eb9b10a48b121df4476/docs/prd/island-shop/low-level-design.md)와 [1782 보유품 설계](https://github.com/OneOrThree/phone/blob/89ebd156ac24cf7a69eb6eb9b10a48b121df4476/docs/prd/island-appearance/low-level-design.md)의 명시 확장을 BFF가 상속한다는 뜻이다.
 - me:1757의id/name/catColor/linkedProviders/onboardingComplete. 공개색상/온보딩정책이 미결이면기본값을발명하지 않는다.
 
 ### N 상태 불변식
@@ -93,7 +93,7 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
 }
 ```
 
-도서관 미완공이면 조각을 부를 일이 없으므로 `missingFragments` 키 없이 `"statisticsAvailability": "facility_locked"` 와 두 기록 조각 `null` 이다.
+도서관 미완공이면 조각을 부를 일이 없으므로 `missingFragments` 키 없이 `"statisticsAvailability": "facility_locked"` 와 **세** 기록 조각(`focusStatistics`·`screenTimeStatistics`·`fishEarnings`) `null` 이다 — 물고기 장도 같은 도서관 게이트 뒤다(GROMO-2046).
 
 ## 2. 화면 13개 응답 예시
 
@@ -400,10 +400,26 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
       "totalMinutes": null,
       "series": [],
       "updatedAt": null
+    },
+    "fishEarnings": {
+      "members": [
+        {
+          "userId": "019f16a0-0000-7000-8000-000000000021",
+          "name": "수빈",
+          "earnedFish": 4800
+        },
+        {
+          "userId": "019f16a0-0000-7000-8000-000000000022",
+          "name": "도윤",
+          "earnedFish": 0
+        }
+      ]
     }
   }
 }
 ```
+
+`fishEarnings` 는 GROMO-2046 이 붙인 세 번째 기록 조각이다(도서관 물고기 장, [island-records LLD](../island-records/low-level-design.md) §7). 통계 둘과 달리 **기간 축이 없다** — 이 섬 전 기간 누적이라 화면의 주 경계와 무관하고, 활성 주민 전원이 한 번에 실려 커서도 없다. 정산 기록이 없는 주민은 `earnedFish: 0` 으로 명단에 남는다(빠지지 않는다). 잔액이 아니라 **기록**이라 구매·건설로 섬 잔액이 줄어도 줄지 않는다(정책 「물고기 재화와 기록」).
 
 ### 7. GET `/screens/island-manage`
 
@@ -522,35 +538,6 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
   "data": {
     "asOf": "2026-09-11T09:10:00Z",
     "islandId": "019f16a0-0000-7000-8000-000000000010",
-    "memberRankings": {
-      "eligibility": "eligible",
-      "items": [
-        {
-          "rank": 1,
-          "userId": "019f16a0-0000-7000-8000-000000000001",
-          "name": "수빈",
-          "catColor": "black",
-          "focusSeconds": 1320
-        },
-        {
-          "rank": 2,
-          "userId": "019f16a0-0000-7000-8000-000000000002",
-          "name": "민지",
-          "catColor": "ginger",
-          "focusSeconds": 1200
-        },
-        {
-          "rank": 3,
-          "userId": "019f16a0-0000-7000-8000-000000000003",
-          "name": "수아",
-          "catColor": "gray",
-          "focusSeconds": 1080
-        }
-      ],
-      "myRank": 1,
-      "nextCursor": null,
-      "asOf": "2026-09-11T09:10:00Z"
-    },
     "islandRankings": {
       "items": [
         {
@@ -660,9 +647,9 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
     "asOf": "2026-09-11T09:10:00Z",
     "islandId": "019f16a0-0000-7000-8000-000000000010",
     "wallets": {
-      "fish": 500,
+      "fish": 0,
       "villagePoints": 1500,
-      "fishVersion": 4,
+      "fishVersion": null,
       "villagePointsVersion": 7
     },
     "products": {

@@ -789,14 +789,16 @@ export function Wheel({
   value,
   onChange,
   a11yLabel,
-  // row = 한 칸 높이. v2 가로 폰은 좌우 분할 24(드럼 72) · 사이드 패널 33(드럼 100)
+  // row = 한 칸 높이 요청값. 실제 행·터치 영역은 tapMin(44) 미만으로 내려가지 않는다 —
+  // 글자 크기 선택만 요청값을 따른다
   row = 44,
 }: any) {
+  const h = Math.max(row, semanticTokens.size.tapMin);
   const [onSize, offSize] = row >= 44 ? [20, 17] : row >= 33 ? [17, 15] : [15, 13];
   const ref = useRef<ScrollView>(null),
     selected = Math.max(0, items.indexOf(value));
   useEffect(() => {
-    requestAnimationFrame(() => ref.current?.scrollTo({ y: selected * row, animated: false }));
+    requestAnimationFrame(() => ref.current?.scrollTo({ y: selected * h, animated: false }));
   }, []);
   return (
     <View style={{ flex: 1, gap: 4 }}>
@@ -807,7 +809,7 @@ export function Wheel({
       )}
       <View
         style={{
-          height: row * 3,
+          height: h * 3,
           borderWidth: 2,
           borderColor: C.brown,
           borderRadius: 14,
@@ -819,8 +821,8 @@ export function Wheel({
           pointerEvents="none"
           style={{
             position: 'absolute',
-            top: row,
-            height: row,
+            top: h,
+            height: h,
             left: 0,
             right: 0,
             backgroundColor: C.soft,
@@ -831,16 +833,16 @@ export function Wheel({
         />
         <ScrollView
           ref={ref}
-          snapToInterval={row}
+          snapToInterval={h}
           decelerationRate="fast"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingVertical: row }}
+          contentContainerStyle={{ paddingVertical: h }}
           onMomentumScrollEnd={(e) =>
             onChange(
               items[
                 Math.max(
                   0,
-                  Math.min(items.length - 1, Math.round(e.nativeEvent.contentOffset.y / row)),
+                  Math.min(items.length - 1, Math.round(e.nativeEvent.contentOffset.y / h)),
                 )
               ],
             )
@@ -853,10 +855,10 @@ export function Wheel({
               accessibilityLabel={`${a11yLabel ?? label} ${x}`}
               onPress={() => {
                 onChange(x);
-                ref.current?.scrollTo({ y: i * row, animated: true });
+                ref.current?.scrollTo({ y: i * h, animated: true });
               }}
               style={{
-                height: row,
+                height: h,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}

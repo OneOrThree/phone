@@ -6,6 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
+import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import com.oneorthree.business.usecase.IslandRecordsUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -20,6 +21,7 @@ import tools.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.time.format.ResolverStyle;
@@ -31,7 +33,8 @@ import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * 회관 기록(도서관) 통계 3종의 공개 표면 (GROMO-1769, island-records LLD §1·§2·§4).
+ * 회관 기록(도서관)의 공개 표면 — 통계 3종(GROMO-1769, island-records LLD §1·§2·§4)에 공동 가계부
+ * (GROMO-1786)와 주민별 누적 물고기(GROMO-2046, LLD §7)가 얹혀 있다.
  *
  * <p>{@code /islands/**}·{@code /me/**} 는 {@code PublicApiRoutes.ROOTS} 에 있어 봉투와 {@code no-store} 가 붙는다.
  * 주체는 strict 세션에서만 온다. 여기서 보는 것은 <b>모양</b>이다 — query·본문의 허용 키, 타입, 날짜 형식과 실재,
@@ -46,6 +49,8 @@ public class IslandRecordsController {
 
     private static final Set<String> FOCUS_QUERY = Set.of("from", "to", "timezone", "scope", "cursor");
     private static final Set<String> SCREEN_QUERY = Set.of("from", "to", "timezone", "scope");
+    private static final Set<String> LEDGER_QUERY = Set.of("month", "direction", "cursor");
+    private static final Set<String> DIRECTIONS = Set.of("earn", "spend");
     private static final Set<String> UPLOAD_KEYS = Set.of("minutes", "measurementStatus", "timezone",
             "measuredAt", "deviceId");
     private static final Set<String> SCOPES = Set.of(IslandRecordsUseCase.SCOPE_ME, IslandRecordsUseCase.SCOPE_ISLAND);
@@ -54,8 +59,11 @@ public class IslandRecordsController {
     /** 조회 기간 상한(양끝 포함) — Data 와 같다. */
     private static final int MAX_DAYS = 31;
     private static final Pattern DATE = Pattern.compile("\\d{4}-\\d{2}-\\d{2}");
+    private static final Pattern MONTH = Pattern.compile("\\d{4}-\\d{2}");
     private static final DateTimeFormatter STRICT_DATE =
             DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
+    private static final DateTimeFormatter STRICT_MONTH =
+            DateTimeFormatter.ofPattern("uuuu-MM").withResolverStyle(ResolverStyle.STRICT);
     private static final Pattern CANONICAL_UUID =
             Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
@@ -78,6 +86,51 @@ public class IslandRecordsController {
         AccessTokenClaims claims = sessions.requireSession(request);
         Query query = query(request, SCREEN_QUERY);
         return records.screenTime(claims, islandId(islandId), query.from(), query.to(), query.scope(), deadline());
+    }
+
+    /**
+     * 공동 가계부 (GROMO-1786, island-construction LLD §6) — 회관에서 읽는 섬 원장이다.
+     *
+     * <p>{@code month} 는 필수 {@code YYYY-MM} 이고 <b>축은 KST 달력 월</b>이다 — 통계 3종의 UTC 날짜 축과
+     * 다르지만 여기서 만든 규칙이 아니라 Data 의 {@code ZonePolicy.KST} 를 따라간다(date-axis 규약 §2:
+     * UTC 컷오버 전까지 KST 가 현행). {@code timezone} 은 받지 않는다 — 고를 수 있는 축이 아니다.
+     *
+     * <p>{@code direction} 은 {@code earn|spend} 만, {@code limit} 은 공개 query 가 아니다(서버 내부 30).
+     */
+    @GetMapping("/islands/{islandId}/resources/ledger")
+    public IslandRecordsUseCase.Ledger ledger(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        request.getParameterMap().forEach((name, values) -> {
+            if (!LEDGER_QUERY.contains(name) || values.length != 1) {
+                throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, name);
+            }
+        });
+        String direction = request.getParameter("direction");
+        if (direction != null && !DIRECTIONS.contains(direction)) {
+            throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "direction");
+        }
+        return records.ledger(claims, islandId(islandId), month(required(request, "month")), direction,
+                request.getParameter("cursor"), deadline());
+    }
+
+    /**
+     * 도서관 물고기 장 — 주민별 누적 획득 (GROMO-2046, island-records LLD §7).
+     *
+     * <p><b>query 가 없다</b> — 기간도 scope 도 페이지도 고를 수 없는 「이 섬 전 기간, 활성 주민 전원」 집계다
+     * (섬 정원 상한 안이라 페이지가 없다). 그래서 뭐라도 붙어 오면 400 이다: 모르는 키를 조용히 버리면 앱이
+     * {@code ?from=} 을 붙여 놓고 기간이 걸린 줄 안다.
+     *
+     * <p>주민·도서관 완공 판정은 Data 몫이다 — 방문자는 403 {@code FORBIDDEN}, 미완공은 403
+     * {@code FACILITY_LOCKED} 이고 둘 다 빈 명단이 아니다.
+     */
+    @GetMapping("/islands/{islandId}/statistics/fish-earnings")
+    public IslandFishEarnings fishEarnings(@PathVariable String islandId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        if (!request.getParameterMap().isEmpty()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER,
+                    request.getParameterMap().keySet().iterator().next());
+        }
+        return records.fishEarnings(claims, islandId(islandId), deadline());
     }
 
     /**
@@ -176,6 +229,21 @@ public class IslandRecordsController {
             return LocalDate.parse(value, STRICT_DATE);
         } catch (DateTimeParseException e) {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, field);
+        }
+    }
+
+    /**
+     * {@code YYYY-MM} 이 아니면 400, 모양은 맞는데 없는 달(13월)이면 422 다 — 날짜와 같은 규칙이다.
+     * 값은 Data 가 그대로 되돌려 주므로 정규화한 문자열로 넘긴다.
+     */
+    private static String month(String value) {
+        if (!MONTH.matcher(value).matches()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "month");
+        }
+        try {
+            return YearMonth.parse(value, STRICT_MONTH).toString();
+        } catch (DateTimeParseException e) {
+            throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "month");
         }
     }
 

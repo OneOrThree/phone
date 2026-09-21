@@ -1,7 +1,7 @@
 import React from 'react';
-import { StyleSheet } from 'react-native';
-import { render } from '@testing-library/react-native';
-import { Page, Badge, Field } from './patterns';
+import { StyleSheet, ScrollView } from 'react-native';
+import { render, fireEvent } from '@testing-library/react-native';
+import { Page, Badge, Field, Wheel } from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -21,6 +21,18 @@ jest.mock('@/utils/layout', () => ({
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 52, bottom: 32, left: 0, right: 0 }),
 }));
+
+// Wheel의 useEffect RAF를 동기 실행 — 비동기 콜백이 teardown 뒤에 남아 터지는 것을 막는다
+let rafSpy: jest.SpyInstance;
+beforeEach(() => {
+  rafSpy = jest
+    .spyOn(global, 'requestAnimationFrame')
+    .mockImplementation((cb: (time: number) => void) => {
+      cb(0);
+      return 0;
+    });
+});
+afterEach(() => rafSpy.mockRestore());
 
 test('Page 뒤로가기는 양 축 최소 터치 영역 44pt를 지킨다', async () => {
   const { getByLabelText } = await render(<Page title="화면" back={jest.fn()} />);
@@ -49,4 +61,62 @@ test('Field placeholder는 대비 기준을 넘는 input.placeholder 토큰을 �
     <Field label="이름" value="" onChange={() => {}} placeholder="입력" />,
   );
   expect(getByLabelText('이름').props.placeholderTextColor).toBe(componentTokens.input.placeholder);
+});
+
+test.each([24, 33, 44])(
+  'Wheel row=%i 요청도 실제 행·snap 간격·패딩은 tapMin 이상의 같은 값이다',
+  async (row) => {
+    const { getByLabelText } = await render(
+      <Wheel
+        label="시간"
+        items={['1', '2', '3', '4', '5']}
+        value="1"
+        row={row}
+        onChange={() => {}}
+      />,
+    );
+    let scroll: any = getByLabelText('시간 1');
+    while (scroll && scroll.props.snapToInterval === undefined) scroll = scroll.parent;
+    const h = scroll?.props.snapToInterval;
+    expect(h).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+    expect(StyleSheet.flatten(scroll.props.contentContainerStyle).paddingVertical).toBe(h);
+    for (const x of ['1', '2', '3']) {
+      expect(StyleSheet.flatten(getByLabelText(`시간 ${x}`).props.style).height).toBe(h);
+    }
+  },
+);
+
+test.each([24, 33])(
+  'Wheel row=%i에서 momentumScrollEnd offset 88은 effective 행 기준 세 번째 항목을 고른다',
+  async (row) => {
+    const onChange = jest.fn();
+    const { getByLabelText } = await render(
+      <Wheel
+        label="시간"
+        items={['1', '2', '3', '4', '5', '6']}
+        value="1"
+        row={row}
+        onChange={onChange}
+      />,
+    );
+    let scroll: any = getByLabelText('시간 1');
+    while (scroll && scroll.props.snapToInterval === undefined) scroll = scroll.parent;
+    fireEvent(scroll, 'momentumScrollEnd', { nativeEvent: { contentOffset: { y: 88 } } });
+    expect(onChange).toHaveBeenCalledWith('3');
+  },
+);
+
+test('Wheel 행을 누르면 그 행의 값과 effective 행 간격 scrollTo가 호출된다', async () => {
+  const spy = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+  const onChange = jest.fn();
+  const { getByLabelText } = await render(
+    <Wheel label="시간" items={['1', '2', '3']} value="2" row={24} onChange={onChange} />,
+  );
+  // 마운트 시 선택 행 위치로 한 번 스크롤한다(동기 RAF)
+  expect(spy).toHaveBeenCalledWith({ y: semanticTokens.size.tapMin, animated: false });
+  spy.mockClear();
+  fireEvent.press(getByLabelText('시간 3'));
+  expect(onChange).toHaveBeenCalledWith('3');
+  expect(spy).toHaveBeenCalledWith({ y: 2 * semanticTokens.size.tapMin, animated: true });
+  spy.mockRestore();
 });

@@ -10,8 +10,15 @@ import java.util.UUID;
  */
 public record MyJoinRequestsPageView(List<Item> items, Instant nextCreatedAt, UUID nextRequestId) {
 
-    /** 요청 한 건 — {@code id}·{@code status}·{@code version} 은 §3.8 단건 조회와 같은 자원 축이다. */
-    public record Item(UUID id, UUID islandId, String islandName, String status, long version,
-                       Instant createdAt) {
+    /**
+     * 요청 한 건 — {@code id}·{@code status}·{@code version} 은 §3.8 단건 조회와 같은 자원 축이다.
+     *
+     * <p>{@code memberCount}·{@code maxMembers} 는 GROMO-2047 에서 실었다. 「신청 중」 카드가
+     * 「3/15」를 그리려면 둘 다 필요한데, 목록의 각 섬을 다시 조회하면 페이지당 N+1 이 된다.
+     * 모수는 방문자 요약({@code IslandSummaryView})과 같다 — 탈퇴·이탈 계정은 세지 않고, 승인
+     * 대기 중인 신청도 세지 않는다(정책 「정원에는 방장을 포함한 현재 주민만 센다」).
+     */
+    public record Item(UUID id, UUID islandId, String islandName, int memberCount, int maxMembers,
+                       String status, long version, Instant createdAt) {
     }
 }

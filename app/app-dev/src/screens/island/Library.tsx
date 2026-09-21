@@ -240,7 +240,11 @@ function Diary({ e, font }: any) {
     ),
     focus = records.reduce((n, r) => n + recordSecondsBetween(r, bounds.from, bounds.until), 0);
   // 스크린타임: 권한 없음(undefined) · 측정 안 됨(null) · 실제 값(0 포함)을 구분한다
-  const days = nb ? resident?.screenDays : s.settings.permission ? s.screenDays : undefined,
+  const days = nb
+      ? resident?.screenDays
+      : s.settings.permission && s.settings.screenTimeMeasurementReady
+        ? s.screenDays
+        : undefined,
     screen = Object.entries(days ?? {}).filter(([d, v]) => {
       const at = kstDayStart(d);
       return v != null && at >= bounds.from && at < bounds.until;
@@ -552,8 +556,10 @@ function Diary({ e, font }: any) {
       </>
     ) : !days ? (
       empty(
-        '아직 연결되지 않은 기록이에요.',
-        '스크린타임 측정 권한이 없어\n사용 시간을 확인할 수 없어요.\n0분이나 기록 없음과는 달라요.',
+        s.settings.permission ? '측정할 앱을 선택해야 해요.' : '아직 연결되지 않은 기록이에요.',
+        s.settings.permission
+          ? '측정할 앱이나 카테고리를 선택하면\n사용 시간 기록이 쌓여요.'
+          : '스크린타임 측정 권한이 없어\n사용 시간을 확인할 수 없어요.\n0분이나 기록 없음과는 달라요.',
       )
     ) : screen.length ? (
       <>

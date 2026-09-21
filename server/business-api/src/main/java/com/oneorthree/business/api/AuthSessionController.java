@@ -7,8 +7,10 @@ import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
+import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.usecase.AuthSessionUseCase;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -66,7 +68,8 @@ public class AuthSessionController {
 
     @PostMapping(LoginAttemptCredentials.PATH)
     @ResponseStatus(HttpStatus.CREATED)
-    public AuthSessionUseCase.Result login(HttpServletRequest request, @RequestBody JsonNode body) {
+    public AuthSessionUseCase.Result login(HttpServletRequest request, HttpServletResponse response,
+            @RequestBody JsonNode body) {
         // 필터 예외와 «같은» 판정을 다시 확인한다. 인코딩 변형으로 필터의 정확 일치는 비껴가고
         // MVC 라우팅에는 걸리는 경로가 있으면, 이 한 줄이 그 요청을 여기서 끊는다.
         if (!LoginAttemptCredentials.matches(request) || request.getQueryString() != null) {
@@ -82,8 +85,10 @@ public class AuthSessionController {
         SocialCredential credential = credentialOf(body);
         String termsVersion = termsVersionOf(body);
 
-        return AuthSessionUseCase.Result.of(sessions.login(credentials, credential, termsVersion,
-                Deadline.startingNow(properties.getComposition().getDeadline())));
+        LoginSession session = sessions.login(credentials, credential, termsVersion,
+                Deadline.startingNow(properties.getComposition().getDeadline()));
+        DeviceBootstrapHeader.set(response, session.deviceBootstrap());
+        return AuthSessionUseCase.Result.of(session);
     }
 
     private SocialCredential credentialOf(JsonNode body) {

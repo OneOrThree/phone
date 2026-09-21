@@ -20,10 +20,12 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.Map;
+import java.util.UUID;
 
 import static org.mockito.BDDMockito.given;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -80,6 +82,26 @@ class AuthControllerTest {
                 .andExpect(status().isTooManyRequests())
                 .andExpect(jsonPath("$.code").value("GUEST_CREATION_RATE_LIMITED"))
                 .andDo(print());
+    }
+
+    /**
+     * 1.x 로그인 경로는 <b>그대로다</b> — 자격은 여전히 본문에 실리고 헤더는 붙지 않는다
+     * (GROMO-2037 · 계정 LLD §2.1 「기존 legacy 로그인의 body 전달 방식은 보존한다」).
+     *
+     * <p>2.0 표면이 그 값을 {@code X-Device-Bootstrap} 헤더로 옮겼다고 해서 이쪽을 같이 옮기면,
+     * 헤더를 모르는 1.x 앱이 자격을 «받지 못한 채» 통과한다 — 기기 등록은 성공하므로 아무 오류도
+     * 나지 않고, 그 기기만 조용히 세션 확인 없는 경로로 남는다. 스토어의 1.1.0 이 그 앱이다.
+     */
+    @Test
+    @DisplayName("1.x 게스트 로그인은 자격을 본문으로 주고 X-Device-Bootstrap 헤더를 붙이지 않는다")
+    void legacyGuestLoginKeepsTheCredentialInTheBody() throws Exception {
+        given(authService.guestLogin())
+                .willReturn(new GuestLoginResponse("at", "rt", true, "legacy-bootstrap", UUID.randomUUID()));
+
+        mockMvc.perform(post("/api/v1/auth/guest").header("X-Real-IP", "203.0.113.30"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.deviceBootstrap").value("legacy-bootstrap"))
+                .andExpect(header().doesNotExist("X-Device-Bootstrap"));
     }
 
     @Test

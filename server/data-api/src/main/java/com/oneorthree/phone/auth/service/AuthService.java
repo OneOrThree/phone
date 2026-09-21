@@ -2,7 +2,9 @@ package com.oneorthree.phone.auth.service;
 
 import com.oneorthree.phone.auth.client.SocialLoginClient;
 import com.oneorthree.phone.auth.dto.req.LogoutRequest;
+import com.oneorthree.phone.auth.repository.GuestDeviceClaimRepository;
 import com.oneorthree.phone.auth.repository.domain.AuthSession;
+import com.oneorthree.phone.auth.repository.domain.GuestDeviceClaim;
 import com.oneorthree.phone.common.support.InternalCommands;
 import com.oneorthree.phone.auth.dto.res.GuestLoginResponse;
 import com.oneorthree.phone.auth.dto.res.SocialLoginResponse;
@@ -29,6 +31,7 @@ import com.oneorthree.phone.user.repository.UserRepository;
 import com.oneorthree.phone.user.repository.UserScreenTimeSettingsRepository;
 import com.oneorthree.phone.user.repository.UserWalletRepository;
 import com.oneorthree.phone.user.service.UserSatelliteCommandService;
+import com.oneorthree.phone.user.support.OnboardingCompletion;
 import com.oneorthree.phone.auth.support.TokenHasher;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import io.jsonwebtoken.JwtException;
@@ -38,6 +41,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
@@ -81,6 +87,18 @@ public class AuthService {
      */
     private final UserSatelliteCommandService userSatelliteCommandService;
     private final Map<Provider, SocialLoginClient> socialLoginClients;
+    private final GuestDeviceClaimRepository guestDeviceClaimRepository;
+    private final Clock clock;
+
+    /**
+     * 게스트 기기 점유의 복구 창 (GROMO-2036).
+     *
+     * <p>{@code LoginAttemptService.RECOVERY_WINDOW} 와 <b>같은 근거·같은 길이</b>다 — 막으려는 것이
+     * 「유실된 201 의 즉시 재시도」 하나이기 때문이다. 더 길게 잡으면 기기 식별자가 게스트 계정의
+     * 장기 bearer 자격이 되는데, 계정 LLD §3 은 「게스트의 복구창 밖 처리에는 아직 승인된 대체 복구
+     * 수단이 없다」(Q06)고 명시한다. 그 미결을 여기서 임의로 확정하지 않는다.
+     */
+    private static final Duration GUEST_DEVICE_RECOVERY_WINDOW = Duration.ofMinutes(5);
 
     /**
      * 자기 자신 프록시 — 동시 첫 로그인 유니크 위반 시 새 트랜잭션으로 재시도하기 위함 (@Lazy 로 순환 주입 방지).
@@ -100,6 +118,9 @@ public class AuthService {
      * @param authSessionService                세션 축 쓰기 — 로그인·회전·로그아웃과 같은 트랜잭션에서 돈다
      * @param userSatelliteCommandService       기기 토큰 삭제 명령 — 로그아웃 트랜잭션에서 함께 적는다
      * @param socialLoginClients                provider 별 구현 — {@link SocialLoginClient#provider} 키로 맵을 만든다
+     * @param guestDeviceClaimRepository        게스트 기기 점유 원장 (GROMO-2036) — 같은 기기의 재시도가
+     *                                          계정을 하나 더 만들지 않게 하는 축
+     * @param clock                             기기 점유 복구 창 판정용 시계 — 테스트가 고정한다
      * @param self                              자기 프록시. 첫 로그인 유니크 위반을 새 트랜잭션으로
      *                                          재시도하기 위해 필요하다({@code @Lazy} 로 순환 주입 회피)
      */
@@ -115,6 +136,8 @@ public class AuthService {
                        AuthSessionService authSessionService,
                        UserSatelliteCommandService userSatelliteCommandService,
                        List<SocialLoginClient> socialLoginClients,
+                       GuestDeviceClaimRepository guestDeviceClaimRepository,
+                       Clock clock,
                        @Lazy AuthService self) {
         this.userRepository = userRepository;
         this.userQueryService = userQueryService;
@@ -129,6 +152,8 @@ public class AuthService {
         this.userSatelliteCommandService = userSatelliteCommandService;
         this.socialLoginClients = socialLoginClients.stream()
                 .collect(Collectors.toMap(SocialLoginClient::provider, client -> client));
+        this.guestDeviceClaimRepository = guestDeviceClaimRepository;
+        this.clock = clock;
         this.self = self;
     }
 
@@ -449,23 +474,128 @@ public class AuthService {
      */
     @Transactional
     public GuestLoginResponse guestLogin() {
+        IssuedGuest issued = createGuest();
+        return new GuestLoginResponse(issued.accessToken(), issued.refreshToken(), issued.user().isGuest(),
+                issued.session().deviceBootstrap(), issued.session().sessionId());
+    }
+
+    /**
+     * 2.0 공개 표면의 게스트 세션 발급 — <b>같은 기기 digest 의 재시도는 계정을 하나 더 만들지 않는다</b>
+     * (GROMO-2036 · {@link GuestDeviceClaim}).
+     *
+     * <h2>왜 트랜잭션 «밖» 인가</h2>
+     * 같은 기기의 동시 최초 발급에서 판정자는 점유 원장의 PK 유니크다. 진 쪽은 제약 위반으로
+     * 트랜잭션이 통째로 롤백되고(= 자기가 만들던 게스트 유저도 함께 사라져 고아 계정이 남지 않는다)
+     * <b>새 트랜잭션에서</b> 다시 조회해 이긴 쪽의 유저를 받는다. 재시도를 트랜잭션 안에 두면 이미
+     * 롤백 표시된 트랜잭션에서 읽게 되어 아무것도 보이지 않는다 — {@code loginOrRegister} 의
+     * 첫 로그인 유니크 위반 재시도와 같은 구조다.
+     *
+     * <p>{@code NOT_SUPPORTED} 가 <b>반드시</b> 필요하다. 클래스 기본이
+     * {@code @Transactional(readOnly = true)} 라 이 메서드가 읽기 전용 트랜잭션을 열고, 그러면 아래
+     * {@code REQUIRED} 호출이 <b>그 트랜잭션에 합류하면서 readOnly 를 물려받는다</b> — 세션 발급의
+     * {@code SELECT … FOR NO KEY UPDATE} 가 「read-only 트랜잭션에서 실행할 수 없다」로 터진다.
+     * {@code socialLogin} 이 같은 이유로 같은 전파를 쓴다.
+     *
+     * @param deviceDigest Business 가 자기 비밀로 계산한 기기 식별자의 keyed HMAC. 원문은 오지 않는다
+     * @return 발급된 세션. 창 안의 재시도면 <b>같은 userId</b> 의 새 세션이다
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public LoginSessionResult guestSession(String deviceDigest) {
+        try {
+            return self.guestSessionInTransaction(deviceDigest);
+        } catch (DataIntegrityViolationException e) {
+            // 같은 기기의 동시 최초 발급에서 진 쪽. 이제 이긴 점유가 보이므로 그 유저로 이어 붙는다.
+            return self.guestSessionInTransaction(deviceDigest);
+        }
+    }
+
+    /**
+     * 점유 조회 → (창 안이면) 같은 유저의 새 세션 / (아니면) 새 게스트 + 점유 확정.
+     *
+     * <p>만료된 점유는 <b>여기서 지우고 다시 쓴다</b>. 별도 청소 배치를 두지 않은 이유는
+     * V87 주석 ④ 에 있다.
+     */
+    @Transactional
+    public LoginSessionResult guestSessionInTransaction(String deviceDigest) {
+        Instant now = clock.instant();
+        GuestDeviceClaim claim = guestDeviceClaimRepository.findById(deviceDigest).orElse(null);
+        if (claim != null) {
+            // 점유가 살아 있어도 그 유저가 «지금도 활성 게스트» 여야 한다. 탈퇴했거나 소셜로 승격됐으면
+            // 그 계정에 게스트 자격으로 새 세션을 열어 주면 안 된다 — 점유를 버리고 새로 만든다.
+            User owner = claim.isRecoverableAt(now)
+                    ? userRepository.findActiveGuestByIdForUpdate(claim.getUserId()).orElse(null)
+                    : null;
+            if (owner != null) {
+                userActivityEventLogger.log(owner.getId().toString(), UserActivityEvent.LOGIN_SUCCEEDED,
+                        Map.of("is_new_user", false, "method", "guest"));
+                return resultOf(owner, openGuestSession(owner));
+            }
+            // 같은 PK 로 다시 INSERT 하므로 삭제를 먼저 flush 한다 — 순서가 뒤집히면 자기 자신과 충돌한다.
+            guestDeviceClaimRepository.delete(claim);
+            guestDeviceClaimRepository.flush();
+        }
+
+        IssuedGuest issued = createGuest();
+        guestDeviceClaimRepository.save(new GuestDeviceClaim(
+                deviceDigest, issued.user().getId(), now, now.plus(GUEST_DEVICE_RECOVERY_WINDOW)));
+        return resultOf(issued.user(), issued);
+    }
+
+    /** 게스트 유저 한 명 + 부속 4행 + 첫 세션. {@code guestLogin} 과 2.0 게스트 발급이 함께 쓴다. */
+    private IssuedGuest createGuest() {
         User newUser = userRepository.save(User.builder().isGuest(true).build());
         createUserSideRows(newUser.getId());
-
-        String refreshToken = jwtProvider.generateRefreshToken(newUser.getId(), newUser.isGuest());
-        newUser.setRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
-        AuthSessionService.IssuedSession session = authSessionService.open(newUser.getId(), refreshToken);
-        // 게스트 발급 경로 — guest=true 클레임을 실어, 승격 후 이 토큰으로 오는 요청을 판별한다 (GROMO-1229)
-        String accessToken = jwtProvider.generateAccessToken(
-                newUser.getId(), newUser.isGuest(), newUser.getAuthGeneration(), session.sessionId());
+        IssuedGuest issued = openGuestSession(newUser);
 
         // 게스트 생성은 항상 신규 가입
         userActivityEventLogger.log(newUser.getId().toString(), UserActivityEvent.USER_SIGNED_UP,
                 Map.of("method", "guest", "is_guest", true));
         userActivityEventLogger.log(newUser.getId().toString(), UserActivityEvent.LOGIN_SUCCEEDED,
                 Map.of("is_new_user", true, "method", "guest"));
-        return new GuestLoginResponse(accessToken, refreshToken, newUser.isGuest(),
-                session.deviceBootstrap(), session.sessionId());
+        return issued;
+    }
+
+    /**
+     * 게스트 유저 하나에 <b>새 로그인 세션</b>을 연다.
+     *
+     * <p>유저 축 단일 해시도 함께 갈아끼운다 — 이 발급이 그 기기의 마지막 로그인이기 때문이다.
+     * 앞선 세션 행은 살아 있고, 그 RT 는 세션 행이 권위인 갱신 경로로 계속 유효하다(A22 ㋣).
+     */
+    private IssuedGuest openGuestSession(User user) {
+        String refreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
+        user.setRefreshTokenHash(TokenHasher.sha256Hex(refreshToken));
+        AuthSessionService.IssuedSession session = authSessionService.open(user.getId(), refreshToken);
+        // 게스트 발급 경로 — guest=true 클레임을 실어, 승격 후 이 토큰으로 오는 요청을 판별한다 (GROMO-1229)
+        String accessToken = jwtProvider.generateAccessToken(
+                user.getId(), user.isGuest(), user.getAuthGeneration(), session.sessionId());
+        return new IssuedGuest(user, accessToken, refreshToken, session);
+    }
+
+    private LoginSessionResult resultOf(User user, IssuedGuest issued) {
+        return new LoginSessionResult(issued.accessToken(), issued.refreshToken(), user.getId(),
+                OnboardingCompletion.isComplete(user), issued.session().deviceBootstrap());
+    }
+
+    /** 발급 한 건의 재료 — 호출부마다 다른 응답 모양으로 조립한다. */
+    private record IssuedGuest(User user, String accessToken, String refreshToken,
+                               AuthSessionService.IssuedSession session) {
+    }
+
+    /**
+     * 2.0 공개 로그인 결과 — 소셜 로그인의 {@code LoginSessionResponse} 와 같은 모양이다.
+     *
+     * <p>{@code sessionId} 는 담지 않는다. {@code deviceBootstrap} 은 공개 <b>본문</b> 4필드에는
+     * 들어가지 않지만(계정 LLD §2.1 「본문 4필드는 유지한다」) 같은 §2.1 이 그 값을
+     * {@code X-Device-Bootstrap} <b>헤더</b>로 보존하라고 해서 여기 싣는다 — 공개 표면에서 헤더로
+     * 내보내는 일은 Business 가 한다(GROMO-2037).
+     */
+    public record LoginSessionResult(String accessToken, String refreshToken, UUID userId,
+                                     boolean onboardingComplete, String deviceBootstrap) {
+
+        @Override
+        public String toString() {
+            return "LoginSessionResult[userId=" + userId + ", tokens=redacted]";
+        }
     }
 
     /**
@@ -498,6 +628,42 @@ public class AuthService {
      */
     @Transactional
     public TokenRefreshResponse refreshToken(String refreshToken) {
+        return refresh(refreshToken, true);
+    }
+
+    /**
+     * 2.0 공개 표면의 AT 재발급 — <b>회전하지 않고, sid 없는 구 RT 도 받지 않는다</b> (GROMO-2035).
+     *
+     * <h2>왜 회전을 끄는가</h2>
+     * 계정 LLD §3 「정상 RT 회전의 클라이언트 전환 gate」: 「서버는 원자 credential bundle/journal과
+     * 모든 인증 reader·writer의 전환이 검증되지 않은 클라이언트에는 <b>정상 RT 회전을 활성화하지
+     * 않는다</b>. 해당 호환 경로는 기존 유효 RT의 서명·만료·현재 해시를 검증한 뒤 미회전 응답
+     * {@code refreshToken:null} 을 사용한다.」 2.0 앱은 아직 그 gate 를 통과하지 않았다 — 회전 응답이
+     * 유실되면 앱은 새 RT 를 모르는데 구 RT 는 이미 죽어, 그 기기가 통째로 로그아웃된다.
+     *
+     * <h2>왜 legacy 승격을 막는가</h2>
+     * {@code refreshLegacy} 는 <b>언제나</b> 회전하고(세션 축에 올리는 유일한 자리라서) 그 결과가
+     * 유실됐을 때 복원할 승격 전용 receipt 가 아직 없다(LLD §3 「legacy RT 승격 전용 결과 복구」 —
+     * 「main에는 승격 전용 receipt가 없다」). 2.0 앱의 RT 는 전부 {@code POST /auth/sessions} ·
+     * 게스트 발급이 만든 <b>세션 있는</b> 토큰이라 이 분기에 정상적으로 닿지 않는다. 그래서 닿으면
+     * 거절한다 — 복구 불가능한 승격을 새 표면에서 열지 않는다.
+     *
+     * <p>이미 회전돼 죽은 RT·위조·만료도 모두 여기서 401 {@code REFRESH_TOKEN} 이다: 죽은 RT 는
+     * 세션 조회가 비고, 위조·만료는 위 타입·서명 가드에서 걸린다.
+     *
+     * @param refreshToken 세션 있는 RT 원문
+     * @return 새 AT 와 {@code refreshToken=null}
+     */
+    @Transactional
+    public TokenRefreshResponse refreshSessionAccessToken(String refreshToken) {
+        return refresh(refreshToken, false);
+    }
+
+    /**
+     * @param legacyCompatible 1.x {@code /api/v1/auth/refresh} 의 동작 — 회전과 sid 없는 구 RT 승격을
+     *                         허용한다. 2.0 표면은 {@code false} 다
+     */
+    private TokenRefreshResponse refresh(String refreshToken, boolean legacyCompatible) {
         // refresh 타입만 허용 (GROMO-714) — access·구 토큰(type 없음 = null)은 거부한다.
         // 가드가 try 안에 있어야 extractType 이 만료·서명오류에 던지는 JwtException 도 401 로 변환된다
         // (InvalidTokenException 은 RuntimeException 이라 아래 catch 에 걸리지 않는다).
@@ -524,7 +690,12 @@ public class AuthService {
         // 세션 조회는 락 «뒤»다 — 앞에 두면 로그아웃이 그 사이 커밋한 폐기를 못 본다.
         Optional<AuthSession> existingSession = authSessionService.findByRefreshToken(refreshToken);
         if (existingSession.isPresent()) {
-            return refreshOnSession(existingSession.get(), user, refreshToken, refreshExpiresAt);
+            return refreshOnSession(existingSession.get(), user, refreshToken, refreshExpiresAt, legacyCompatible);
+        }
+        if (!legacyCompatible) {
+            // 2.0 표면에는 sid 없는 구 RT 승격이 없다 — 위 refreshSessionAccessToken javadoc 참고.
+            // 이미 회전돼 죽은 세션 RT 도 세션 조회가 비어 여기로 떨어지고, 답은 같은 401 이다.
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
         }
         return refreshLegacy(user, refreshToken);
     }
@@ -538,10 +709,12 @@ public class AuthService {
      * @param user             락 아래에서 읽은 활성 유저 — RT 가 서명으로 지목한 그 유저다
      * @param refreshToken     제시된 RT 원문
      * @param refreshExpiresAt 그 RT 의 만료 시각 — 회전 판정 입력
+     * @param rotationAllowed  {@code false} 면 회전 시점이어도 회전하지 않는다 (GROMO-2035 · 계정 LLD §3
+     *                         「정상 RT 회전의 클라이언트 전환 gate」)
      * @return 새 AT 와, 회전이 일어났으면 새 RT
      */
-    private TokenRefreshResponse refreshOnSession(AuthSession session, User user,
-                                                  String refreshToken, Date refreshExpiresAt) {
+    private TokenRefreshResponse refreshOnSession(AuthSession session, User user, String refreshToken,
+                                                  Date refreshExpiresAt, boolean rotationAllowed) {
         // 남의 세션 행을 자기 RT 로 집어가지 못하게 서명된 소유자와 대조한다 — logout 과 같은 가드다.
         // 폐기된 세션은 되살리지 않는다(락 아래 조회라 「방금 커밋된 로그아웃」도 여기서 보인다).
         if (!session.getUserId().equals(user.getId()) || !session.isActive()) {
@@ -553,7 +726,7 @@ public class AuthService {
         // 소실이다(guestLogin 은 언제나 새 User 를 만든다). 남은 수명이 절반 밑으로 떨어지면
         // 갈아끼워, 계속 쓰는 한 세션이 끊기지 않게 한다. 회전 안 하는 갱신은 refreshToken=null 로
         // 응답하고 클라이언트는 저장소를 건드리지 않는다.
-        if (!jwtProvider.isRefreshRotationDue(refreshExpiresAt, user.isGuest())) {
+        if (!rotationAllowed || !jwtProvider.isRefreshRotationDue(refreshExpiresAt, user.isGuest())) {
             // 회전하지 않아도 AT 는 새로 나간다 — 그 AT 의 sid 는 «지금 쥔 RT 의 세션»이다.
             return new TokenRefreshResponse(
                     issueAccessToken(user, session.getId()), null, session.getId(), null);

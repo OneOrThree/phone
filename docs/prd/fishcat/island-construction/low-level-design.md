@@ -132,7 +132,7 @@
 | PUT target | buildingId, expectedVersion 필수 | buildingId, selected=true, spent=0, version |
 | POST constructions | buildingId, expectedVersion, **expectedCostPolicyVersion** 필수 | buildingId, status=completed, spent:{currency,amount}, version, villagePoints, **walletVersion** |
 
-items의 id/name/cost/currency/selectable/buildable/blockedReason은 모두 필수이며 blockedReason만 nullable이다. 완료 시설은 options에서 제외한다. ~~GET의 목록은 게시판 이후 후보 tower/mail/gram/shop이고 초기 hall/board 진행량은 이 목록에 가짜 상품으로 추가하지 않는다.~~ 건물은 7개 선형(정책 C01, 2026-09-18 D4)이라 목록의 후보는 아직 완공하지 않은 다음 건물이며 도서관(BuildingId 미배정)이 추가된다 — 위 원본 JSON 의 tower/mail/gram/shop 후보 집합과 `cost` 값은 D4 반영 전 형태다. 회관·게시판도 별도 진행량이 아니라 섬 통장 잔액으로 짓는다(D1·D6). 초기 단계의 목록·가격 반환 방식과 「각자 몫 n빵」 표현은 정책 P-D02 잔여·P-D04 결정 시 함께 고정하며 그 전에 해당 조회 화면을 활성화하지 않는다. `buildingId`는 서버 시설 식별자이고 없는 ID는422 OUT_OF_RANGE(field=buildingId), 문자열 아닌 값/누락은400 INVALID_REQUEST다.
+items의 id/name/cost/currency/selectable/buildable/blockedReason은 모두 필수이며 blockedReason만 nullable이다. 완료 시설은 options에서 제외한다. ~~GET의 목록은 게시판 이후 후보 tower/mail/gram/shop이고 초기 hall/board 진행량은 이 목록에 가짜 상품으로 추가하지 않는다.~~ 건물은 7개이고 게시판 뒤 넷은 자유 순서(정책 C01, GROMO-1999)라 목록의 후보는 아직 완공하지 않은 건물 전부이며 도서관이 추가된다 — `selectable` 로 고를 수 있는 것을 가른다 — 위 원본 JSON 의 tower/mail/gram/shop 후보 집합과 `cost` 값은 D4 반영 전 형태다. 회관·게시판도 별도 진행량이 아니라 섬 통장 잔액으로 짓는다(D1·D6). 초기 단계의 목록·가격 반환 방식과 「각자 몫 n빵」 표현은 정책 P-D02 잔여·P-D04 결정 시 함께 고정하며 그 전에 해당 조회 화면을 활성화하지 않는다. `buildingId`는 서버 시설 식별자이고 없는 ID는422 OUT_OF_RANGE(field=buildingId), 문자열 아닌 값/누락은400 INVALID_REQUEST다.
 
 GET options는 활성 주민의 조회다. 변경 권한이 없는 주민도 GET에서는 항목별 selectable=false/blockedReason=FORBIDDEN을 받으며 변경 권한만으로 GET 전체를403으로 거절하지 않는다. PUT/POST는 승인된 실행 권한을 요구한다. selectable은 현재 사용자 실행 권한과 시설 선행 조건을 만족하는지 나타내며 잔액은 보지 않는다. buildable은 selectable에 건설 가능 상태와 현재 잔액을 더해 평가한다. blockedReason은 HTTP 오류 code가 아닌 UI 사유다. 우선순위는 FORBIDDEN → FACILITY_LOCKED → REQUIRES_TOWER_AND_MAIL → INSUFFICIENT_FUNDS이며 통과하면 null이다. 상점은 tower/mail가 하나라도 없으면 REQUIRES_TOWER_AND_MAIL이다. 서버 실행도 같은 evaluator를 쓰되 TX 안에서 재검사한다. 승인되지 않은 권한/가격 정책을 evaluator 기본값으로 통과시키지 않는다.
 
@@ -189,7 +189,7 @@ Data 커밋 뒤 응답 변환 실패 등으로500을 받으면 실패가 미차�
 
 시설 완공은 island.updated, 실제 공동 차감은 wallet.updated, 외양 변경은 island.appearance.updated를 각각 만든다. 각 사건은 해당 projection 버전과 고유 eventId를 갖는다. 기본 테마 값은 PR742 자산 정본에서 찾고 임의 문자열로 seed하지 않는다. Data 내부 명령 결과는 `{data:공개DTO,events:완성된RealtimeEventEnvelope[]}`다. 7필드 schemaVersion/eventId/type/islandId/aggregateVersion/occurredAt/payload를 모두 저장해 응답 유실에도 그대로 재생한다. Data outbox의 기존10필드 저장 EventEnvelope와 이 공개7필드 배열은 다른 표현이며 같은 작성 TX가 둘 다 보관한다. Business에서 outbox를 다시 읽어 사건을 재구성하지 않는다.
 
-공동 wallet.updated와 island.updated는 현재 주민의 `/topic/islands/{islandId}/events`, 외양 사건은 PR737의 events 라우팅을 따른다. 개인 지갑이 함께 바뀌는 승인된 집중 정산이면 그 사건은 해당 개인큐로만 보낸다. 집단 events에 개인 지급 상세를 섞지 않는다.
+공동 wallet.updated와 island.updated는 현재 주민의 `/topic/islands/{islandId}/events`, 외양 사건은 PR737의 events 라우팅을 따른다. ~~개인 지갑이 함께 바뀌는 승인된 집중 정산이면 그 사건은 해당 개인큐로만 보낸다~~ 는 2026-09-21 재화-단일로 **대상 소멸**이다 — 개인 물고기 지갑이 없어 집중 정산이 바꾸는 지갑은 섬 통장 하나뿐이고 개인큐로 가는 `wallet.updated` 는 발행되지 않는다. 집단 events에 개인 지급 상세를 섞지 않는다는 규율은 그대로다(개인 보유품 사건 `inventory.updated` 는 여전히 개인큐다).
 
 ## 5. 기존 코드·구현 순서·검증
 

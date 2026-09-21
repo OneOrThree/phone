@@ -43,6 +43,8 @@ public class LetterUseCase {
             Map.entry("LETTER_RECIPIENT_NOT_FRIEND", new PublicFailure(ApiErrorCode.NOT_FOUND, "receiverId")),
             Map.entry("LETTER_MAILBOX_LOCKED", new PublicFailure(ApiErrorCode.FACILITY_LOCKED, null)),
             Map.entry("NOT_LETTER_PARTICIPANT", new PublicFailure(ApiErrorCode.FORBIDDEN, "letterId")),
+            // GROMO-2002 닫기는 수신자만 — 발신자의 시도는 「참여자가 아님」과 상태가 같고 사유만 다르다.
+            Map.entry("NOT_LETTER_RECEIVER", new PublicFailure(ApiErrorCode.FORBIDDEN, "letterId")),
             Map.entry("LETTER_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "letterId")));
 
     private final DataApiClient data;
@@ -73,6 +75,18 @@ public class LetterUseCase {
             throw new UpstreamContractMismatchException("편지 응답이 없습니다");
         }
         return view;
+    }
+
+    /**
+     * 편지 닫기 (GROMO-2002). 성공 응답에 본문이 없다 — 상류 204 를 그대로 삼키고 공개 표면이
+     * {@code {"data": null}} 로 접는다. 「이미 닫힘」은 상류가 404 {@code LETTER_NOT_FOUND} 로 내고
+     * 여기서 공개 {@code NOT_FOUND}(field=letterId)가 된다.
+     */
+    public void close(AccessTokenClaims claims, UUID letterId, Deadline deadline) {
+        relay(() -> {
+            data.closeLetter(claims.userId(), letterId, deadline);
+            return null;
+        });
     }
 
     private <T> T relay(Supplier<T> upstream) {

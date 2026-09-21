@@ -63,7 +63,7 @@ Data 내부 명령 응답은 확정 결과와 `events: RealtimeEventEnvelope[]`�
 
 새 `/ws/realtime`과 기존 `/ws/chat`은 같은 인증된 STOMP 세션 모델로 연결한다. HTTP 업그레이드만으로 인증된 것이 아니며 CONNECT의 Bearer 검증 후 주체가 정해진다. 토큰을 URL에 넣지 않는다.
 
-채널을 하나로 합치지 않는다. 일반 섬 상태와 음악·편지·응원은 수신 권한이 다르다. 개인 재화와 가입 요청은 공개 섬 토픽이 아닌 `/user/queue/events`에 보낸다. 정확한 경로와 이벤트 매핑은 [상세 계약 §3](./low-level-design.md#3-전송-경로와-router)를 따른다.
+채널을 하나로 합치지 않는다. 일반 섬 상태와 음악·편지·응원은 수신 권한이 다르다. 개인 보유품과 가입 요청은 공개 섬 토픽이 아닌 `/user/queue/events`에 보낸다(재화는 섬 단위 하나라 개인 지갑 사건은 없다). 정확한 경로와 이벤트 매핑은 [상세 계약 §3](./low-level-design.md#3-전송-경로와-router)를 따른다.
 
 기존 CONNECT의 `requireNotFocusing`은 Realtime 공통 인증에서 제거한다. 채팅 구독/발신의 `ChatAccessGuard`는 유지하고 새 편지 채널에도 같은 집중 제한을 적용한다. 집중/휴식 목적지에는 이 채팅 가드를 재사용하지 않는다. 기존에 집중 시작 후 연결된 채팅 수신이 남는 한계도 새 기능 활성화 전에 전달 시점 가드로 닫는다.
 

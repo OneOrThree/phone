@@ -53,10 +53,17 @@ public record InternalCall(
      *   <li>로그인: 제공자 자격이 정본이다. 애플 토큰이 만료됐다면 401 {@code APPLE_TOKEN} 이고,
      *       이것을 서비스 자격 거부로 접으면 <b>정상적인 로그인 실패가 502 로 나간다</b>(계정 LLD
      *       §2.1 이 제공자별 {@code *_TOKEN} 401 보존을 요구한다).</li>
+     *   <li>갱신(GROMO-2035): 로그아웃과 같이 RT 가 정본이다. 만료·위조·이미 교체된 RT 의 401
+     *       {@code REFRESH_TOKEN} 을 서비스 자격 거부로 접으면, 앱이 <b>재로그인해야 할 상황을
+     *       502 「서버 장애」로</b> 읽고 재시도만 반복한다.</li>
+     *   <li>게스트 시작(GROMO-2036): 자격이 아예 없는 경로라 401 자체가 나오지 않지만, 대량 생성
+     *       차단의 429 를 유스케이스가 공개 코드로 옮겨 적으려면 도메인 오류로 도착해야 한다.</li>
      * </ul>
      */
     private static final java.util.Set<String> END_USER_AUTH_PATHS = java.util.Set.of(
             "/internal/auth/sessions/logout",
+            "/internal/auth/sessions/refresh",
+            "/internal/auth/guest-sessions",
             "/internal/auth/login-attempts",
             "/internal/auth/login-attempts/lookup");
 

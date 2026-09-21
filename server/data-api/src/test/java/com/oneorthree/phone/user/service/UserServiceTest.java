@@ -1,5 +1,6 @@
 package com.oneorthree.phone.user.service;
 
+import com.oneorthree.phone.common.exception.BannedWordException;
 import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
@@ -122,6 +123,12 @@ class UserServiceTest {
 
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
 
+    /**
+     * U+2003 EM SPACE — {@code String.trim} 은 U+0020 이하만 자르므로 «못» 자르고,
+     * {@code String.strip}({@code Character.isWhitespace}) 은 자른다. GROMO-2051 이 고친 축이 이 차이다.
+     */
+    private static final String EM_SPACE = Character.toString(0x2003);
+
     // ── setupProfile ──────────────────────────────────────────────────────
 
     @Test
@@ -166,7 +173,7 @@ class UserServiceTest {
     void setupProfileDuplicateNickname() {
         User user = User.builder().id(USER_ID).build();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-        given(userRepository.existsByNicknameAndIdNot("중복닉", USER_ID)).willReturn(true);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("중복닉", USER_ID)).willReturn(true);
 
         UserProfileSetupRequest body = new UserProfileSetupRequest(
                 "중복닉", null, 120, 90, "KR");
@@ -199,7 +206,7 @@ class UserServiceTest {
     void updateProfileDuplicateNickname() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-        given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("남의닉", USER_ID)).willReturn(true);
 
         UserProfileUpdateRequest body = new UserProfileUpdateRequest(
                 "남의닉", null, null, null, null);
@@ -247,18 +254,18 @@ class UserServiceTest {
     @Test
     @DisplayName("닉네임 체크 — 미사용 닉네임 → available=true, trim 후 본인 제외로 조회")
     void nicknameCheckAvailable() {
-        given(userRepository.existsByNicknameAndIdNot("새닉네임", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("새닉네임", USER_ID)).willReturn(false);
 
         assertThat(userService.isNicknameAvailable(USER_ID, " 새닉네임 ")).isTrue();
 
         // trim 된 값으로, 본인(userId) 제외 조건으로 조회했는지 — 저장 경로와 같은 규칙
-        verify(userRepository).existsByNicknameAndIdNot("새닉네임", USER_ID);
+        verify(userRepository).existsByNicknameIgnoreCaseAndIdNot("새닉네임", USER_ID);
     }
 
     @Test
     @DisplayName("닉네임 체크 — 타인이 쓰는 닉네임 → available=false")
     void nicknameCheckDuplicateUnavailable() {
-        given(userRepository.existsByNicknameAndIdNot("남의닉", USER_ID)).willReturn(true);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("남의닉", USER_ID)).willReturn(true);
 
         assertThat(userService.isNicknameAvailable(USER_ID, "남의닉")).isFalse();
     }
@@ -267,12 +274,12 @@ class UserServiceTest {
     @DisplayName("닉네임 체크 — 자기 자신의 현재 닉네임 → available=true (본인 행 제외라 중복 아님)")
     void nicknameCheckSelfNicknameAvailable() {
         // 프로필 편집에서 자기 닉네임 그대로 저장이 "사용 불가"로 뜨면 안 된다 —
-        // existsByNicknameAndIdNot 이 본인 행을 제외하므로 false 가 온다.
-        given(userRepository.existsByNicknameAndIdNot("내닉네임", USER_ID)).willReturn(false);
+        // existsByNicknameIgnoreCaseAndIdNot 이 본인 행을 제외하므로 false 가 온다.
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("내닉네임", USER_ID)).willReturn(false);
 
         assertThat(userService.isNicknameAvailable(USER_ID, "내닉네임")).isTrue();
 
-        verify(userRepository).existsByNicknameAndIdNot("내닉네임", USER_ID);
+        verify(userRepository).existsByNicknameIgnoreCaseAndIdNot("내닉네임", USER_ID);
     }
 
     @Test
@@ -283,14 +290,14 @@ class UserServiceTest {
         assertThat(userService.isNicknameAvailable(USER_ID, "   ")).isFalse();
         assertThat(userService.isNicknameAvailable(USER_ID, null)).isFalse();
 
-        verify(userRepository, never()).existsByNicknameAndIdNot(any(), any());
+        verify(userRepository, never()).existsByNicknameIgnoreCaseAndIdNot(any(), any());
     }
 
     @Test
     @DisplayName("닉네임 체크 — 경계값 2자·10자는 형식 통과 → 중복 검사까지 진행")
     void nicknameCheckBoundaryLengthsValid() {
-        given(userRepository.existsByNicknameAndIdNot("가나", USER_ID)).willReturn(false);
-        given(userRepository.existsByNicknameAndIdNot("가".repeat(10), USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("가나", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("가".repeat(10), USER_ID)).willReturn(false);
 
         assertThat(userService.isNicknameAvailable(USER_ID, "가나")).isTrue();
         assertThat(userService.isNicknameAvailable(USER_ID, "가".repeat(10))).isTrue();
@@ -323,7 +330,7 @@ class UserServiceTest {
                 .extracting("errorCode")
                 .isEqualTo(UserErrorCode.NICKNAME_INVALID);
         assertThat(user.getNickname()).isNull();
-        verify(userRepository, never()).existsByNicknameAndIdNot(any(), any());
+        verify(userRepository, never()).existsByNicknameIgnoreCaseAndIdNot(any(), any());
     }
 
     @Test
@@ -354,6 +361,106 @@ class UserServiceTest {
         assertThat(user.getNickname()).isEqualTo("기존닉네임");
     }
 
+    // ── 정규화는 strip 이다 (GROMO-2051) ──────────────────────────────────
+    // 정책 정본(policy-2026-09-14): 「닉네임은 … 앞뒤 공백 없이 저장한다.」
+    // 종전의 trim 은 U+0020 이하만 잘라 U+2003 이 붙은 닉네임을 그대로 통과시켰고, 그 결과
+    // V89 의 uq_users_nickname_lower 가 ' alice' 와 'alice' 를 서로 다른 키로 보았다.
+
+    @Test
+    @DisplayName("닉네임 체크 — U+2003 뿐인 값·U+2003 을 벗기면 1자인 값 → DB 조회 없이 available=false")
+    void nicknameCheckEmSpacePaddedFormatViolationsUnavailable() {
+        // 회귀: trim 이면 앞의 것은 «2자», 뒤의 것은 «3자» 로 세어 둘 다 형식 검사를 통과했다.
+        assertThat(userService.isNicknameAvailable(USER_ID, EM_SPACE + EM_SPACE)).isFalse();
+        assertThat(userService.isNicknameAvailable(USER_ID, EM_SPACE + "가" + EM_SPACE)).isFalse();
+
+        verify(userRepository, never()).existsByNicknameIgnoreCaseAndIdNot(any(), any());
+    }
+
+    @Test
+    @DisplayName("닉네임 체크 — U+2003 을 벗긴 값으로 중복 조회한다 (검사와 저장의 정규화가 같아야 한다)")
+    void nicknameCheckStripsEmSpaceBeforeLookup() {
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("새닉네임", USER_ID)).willReturn(false);
+
+        assertThat(userService.isNicknameAvailable(USER_ID, EM_SPACE + "새닉네임" + EM_SPACE)).isTrue();
+
+        verify(userRepository).existsByNicknameIgnoreCaseAndIdNot("새닉네임", USER_ID);
+    }
+
+    @Test
+    @DisplayName("셋업 — 앞뒤 U+2003 은 지우고 저장한다 (저장 값이 검사한 값과 같아야 한다)")
+    void setupProfileStripsEmSpacePaddedNickname() {
+        User user = User.builder().id(USER_ID).build();
+        UserScreenTimeSettings screen = UserScreenTimeSettings.builder().userId(USER_ID).build();
+        UserFocusTimeSettings focus = UserFocusTimeSettings.builder().userId(USER_ID).build();
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+        given(userQueryService.getScreenTimeSettings(USER_ID)).willReturn(screen);
+        given(userQueryService.getFocusTimeSettings(USER_ID)).willReturn(focus);
+
+        userService.setupProfile(USER_ID, new UserProfileSetupRequest(
+                EM_SPACE + "조재영" + EM_SPACE, null, 120, 90, "KR"));
+
+        assertThat(user.getNickname()).isEqualTo("조재영");
+    }
+
+    @Test
+    @DisplayName("PATCH — U+2003 뿐인 닉네임 → NICKNAME_INVALID (회귀: trim 은 이것을 «2자» 로 저장했다)")
+    void updateProfileEmSpaceOnlyNicknameBlocked() {
+        User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+
+        assertThatThrownBy(() -> userService.updateProfile(
+                USER_ID, new UserProfileUpdateRequest(EM_SPACE + EM_SPACE, null, null, null, null)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_INVALID);
+        assertThat(user.getNickname()).isEqualTo("기존닉네임");
+        verify(userRepository, never()).existsByNicknameIgnoreCaseAndIdNot(any(), any());
+    }
+
+    @Test
+    @DisplayName("PATCH — 앞뒤 U+2003 을 벗기면 1자인 닉네임 → NICKNAME_INVALID (길이는 정규화 «뒤» 값을 잰다)")
+    void updateProfileEmSpacePaddedShortNicknameBlocked() {
+        User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+
+        assertThatThrownBy(() -> userService.updateProfile(
+                USER_ID, new UserProfileUpdateRequest(EM_SPACE + "가" + EM_SPACE, null, null, null, null)))
+                .isInstanceOf(UserException.class)
+                .extracting("errorCode")
+                .isEqualTo(UserErrorCode.NICKNAME_INVALID);
+        assertThat(user.getNickname()).isEqualTo("기존닉네임");
+    }
+
+    @Test
+    @DisplayName("PATCH — U+2003 으로 감싼 금칙어도 그대로 거절된다 (정규화를 옮겨도 우회 창이 열리지 않는다)")
+    void updateProfileEmSpacePaddedBannedWordStillBlocked() {
+        User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+
+        // BannedWords 는 판정 전에 문자·숫자가 아닌 것을 모두 지우므로 trim/strip 어느 쪽이든 같은 값을 본다.
+        // 이 검사가 고정하는 것은 「정규화를 바꿔도 금칙어 판정의 입력이 달라지지 않는다」는 사실이다.
+        assertThatThrownBy(() -> userService.updateProfile(
+                USER_ID, new UserProfileUpdateRequest(EM_SPACE + "시발" + EM_SPACE, null, null, null, null)))
+                .isInstanceOf(BannedWordException.class);
+        assertThat(user.getNickname()).isEqualTo("기존닉네임");
+        verify(userRepository, never()).existsByNicknameIgnoreCaseAndIdNot(any(), any());
+    }
+
+    @Test
+    @DisplayName("PATCH /me — U+2003 만 다른 같은 이름은 «무변경» 이라 표시정보 writer 를 돌리지 않는다")
+    void updatePublicProfileTreatsEmSpacePaddedSameNameAsUnchanged() {
+        User user = User.builder().id(USER_ID).nickname("조재영").build();
+        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
+
+        userService.updatePublicProfile(USER_ID, EM_SPACE + "조재영" + EM_SPACE, null);
+
+        // 변경 감지도 같은 정규화를 써야 한다 — trim 이면 여기서 «바뀐 이름» 으로 보여 표시정보 변경
+        // 사건이 한 번 더 나갔다.
+        assertThat(user.getNickname()).isEqualTo("조재영");
+        verify(userRepository, never()).existsByNicknameIgnoreCaseAndIdNot(any(), any());
+        verify(eventPublisher, never()).publishEvent(any(Object.class));
+    }
+
     @Test
     @DisplayName("PATCH — 11자 닉네임 → NICKNAME_INVALID (검사 API 와 같은 상한)")
     void updateProfileTooLongNicknameBlocked() {
@@ -373,7 +480,7 @@ class UserServiceTest {
     void updateProfileToctouRaceDegradesToNicknameDuplicate() {
         User user = User.builder().id(USER_ID).nickname("기존닉네임").build();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-        given(userRepository.existsByNicknameAndIdNot("경합닉", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("경합닉", USER_ID)).willReturn(false);
         // 체크와 저장 사이에 다른 유저가 같은 닉네임을 커밋 → flush 에서 uq_users_nickname 위반
         willThrow(new DataIntegrityViolationException("uq_users_nickname"))
                 .given(userRepository).flush();
@@ -390,7 +497,7 @@ class UserServiceTest {
     void setupProfileToctouRaceDegradesToNicknameDuplicate() {
         User user = User.builder().id(USER_ID).build();
         given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-        given(userRepository.existsByNicknameAndIdNot("경합닉", USER_ID)).willReturn(false);
+        given(userRepository.existsByNicknameIgnoreCaseAndIdNot("경합닉", USER_ID)).willReturn(false);
         willThrow(new DataIntegrityViolationException("uq_users_nickname"))
                 .given(userRepository).flush();
 

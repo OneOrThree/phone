@@ -53,6 +53,7 @@ import com.oneorthree.phone.group.dto.GroupSummaryResponse;
 import com.oneorthree.phone.group.dto.JoinGroupRequest;
 import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -65,6 +66,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -87,6 +89,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -115,6 +118,20 @@ class GroupServiceTest {
 
     @Mock
     private IslandJoinRequestEvents joinRequestEvents;
+
+    /**
+     * 재가입 시각을 찍는 시계 (GROMO-2050). {@code lenient} 로 고정한다 — 재가입을 밟지 않는 경로가
+     * 훨씬 많아 strict stub 이면 「쓰지 않은 stub」으로 떨어진다.
+     */
+    @Mock
+    private Clock clock;
+
+    private static final Instant REJOINED_AT = Instant.parse("2026-09-21T00:30:00Z");
+
+    @BeforeEach
+    void fixClock() {
+        lenient().when(clock.instant()).thenReturn(REJOINED_AT);
+    }
 
     @InjectMocks
     private GroupService groupService;
@@ -1676,7 +1693,7 @@ class GroupServiceTest {
         Group group = openGroup();
         GroupMember left = GroupMember.builder()
                 .user(user).group(group).role(GroupMemberRole.MEMBER).build();
-        left.leave();
+        left.leave(Instant.now());
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
@@ -1690,6 +1707,10 @@ class GroupServiceTest {
         // then: 기존 행이 활성으로 복원되고, 신규 insert 는 없다(유니크 제약 회피)
         assertThat(left.isLeft()).isFalse();
         assertThat(left.getRole()).isEqualTo(GroupMemberRole.MEMBER);
+        // 되살린 행은 «여기서» 다시 시작한다 (GROMO-2050) — 옛 이탈 시각을 들고 다니면 안 되고,
+        // 최초 가입 시각으로 과거 소속이 판정돼서도 안 된다.
+        assertThat(left.getLeftAt()).isNull();
+        assertThat(left.membershipStartedAt()).isEqualTo(REJOINED_AT);
         verify(groupMemberRepository, never()).save(any());
     }
 
@@ -1701,7 +1722,7 @@ class GroupServiceTest {
         Group group = openGroup();
         GroupMember kicked = GroupMember.builder()
                 .user(user).group(group).role(GroupMemberRole.MEMBER).build();
-        kicked.kick();
+        kicked.kick(Instant.now());
 
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
         given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);

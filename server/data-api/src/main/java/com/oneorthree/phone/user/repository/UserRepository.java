@@ -18,8 +18,8 @@ import java.util.UUID;
  * 유저 행의 저장·조회 지점. 세 가지가 이 인터페이스의 메서드 수를 설명한다.
  *
  * <p><b>소프트 딜리트</b> — 탈퇴는 행 삭제가 아니라 {@code is_deleted=true} 다. 그래서 활성 유저만 봐야 하는
- * 경로는 이름에 그 조건이 드러난 메서드를 쓰고, 조건이 없는 메서드({@link #findByNickname},
- * {@link #existsByNicknameAndIdNot} 등)는 <b>탈퇴 유저까지 잡는다</b> — 호출측이 따로 걸러야 한다.
+ * 경로는 이름에 그 조건이 드러난 메서드를 쓰고, 조건이 없는 메서드({@link #existsByNicknameIgnoreCaseAndIdNot}
+ * 등)는 <b>탈퇴 유저까지 잡는다</b> — 호출측이 따로 걸러야 한다.
  *
  * <p><b>락 선택</b> — 그 트랜잭션이 users 행을 <b>변경</b>하면 처음부터 배타 락({@link #findActiveByIdForUpdate}),
  * <b>읽기만</b> 하면 공유 락({@link #findActiveByIdForShare})이다. 공유로 읽고 나중에 UPDATE 하면 락 승급
@@ -32,17 +32,6 @@ import java.util.UUID;
  * 되살아나거나 다른 갱신이 조용히 사라진다(lost update). 벌크라 영속성 컨텍스트도 우회한다.
  */
 public interface UserRepository extends JpaRepository<User, UUID> {
-
-    /**
-     * 닉네임 단건 조회.
-     *
-     * <p><b>탈퇴 여부를 보지 않는다</b> — 닉네임은 탈퇴 시 파기되지만 파기 전 행도 잡히므로,
-     * 활성 판정이 필요한 호출측은 결과를 다시 걸러야 한다.
-     *
-     * @param nickname 완전일치로 찾을 닉네임. 부분·유사 검색은 {@link #searchByNicknameTrgm} 쪽이다
-     * @return 그 닉네임을 쓰는 유저. 없으면 빈 값
-     */
-    Optional<User> findByNickname(String nickname);
 
     /**
      * 소프트딜리트(탈퇴) 유저 차단 (GROMO-635) — is_deleted=true 인 유저는 조회/변경 경로에서 제외.
@@ -209,16 +198,48 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     Optional<Instant> findLastActiveAtIfActive(@Param("id") UUID id);
 
     /**
-     * 닉네임 중복 검사 (GROMO-584) — 본인 제외(AndIdNot)로 자기 닉네임 재사용은 허용.
+     * 닉네임 중복 검사 (GROMO-584) — 본인 제외로 자기 닉네임 재사용은 허용.
+     * <b>대소문자를 구분하지 않는다</b> (GROMO-1996, policy-2026-09-14
+     * 「닉네임은 대소문자를 구분하지 않고 중복될 수 없으며 앞뒤 공백 없이 저장한다」).
      *
-     * <p><b>탈퇴 유저까지 센다</b> — 탈퇴 시 닉네임을 파기하기 전 행이 남아 있으면 중복으로 잡힌다.
+     * <p>종전의 정확 일치 검사({@code existsByNicknameAndIdNot})를 대체하며 그 메서드는 함께 지웠다 —
+     * 정확 일치만 검사하면 {@code Alice} 와 {@code alice} 가 둘 다 가입되고, 그 상태에서 대소문자 무시
+     * «검색»을 켜면 한 질의에 두 사람이 잡혀 정책의 「정확히 일치할 때만」이 깨진다. 검색과 유일성은
+     * 같은 축이어야 한다.
+     *
+     * <p>DB 도 같은 축으로 막는다 — {@code uq_users_nickname_lower}(V89)가 TOCTOU 레이스의 최종
+     * 방어선이고, 이 표현식 인덱스가 아래 검색의 인덱스이기도 하다.
+     *
+     * <p><b>탈퇴 유저까지 센다</b> — 종전과 같은 취급이다. 다만 탈퇴는 닉네임을 NULL 로 파기하므로
+     * 실제로 걸리는 행은 파기 전뿐이고, {@code lower(NULL)} 은 NULL 이라 어떤 질의와도 매치되지 않는다.
      *
      * @param nickname 검사할 닉네임
-     * @param id       본인 id. 프로필 수정에서 자기 닉네임을 그대로 두는 걸 허용하려고 제외한다
-     * @return 다른 유저가 이미 쓰고 있으면 true
+     * @param id       본인 id — 자기 닉네임의 대소문자만 바꾸는 변경을 막지 않으려고 제외한다
+     * @return 대소문자를 빼고 같은 닉네임을 다른 유저가 이미 쓰고 있으면 true
      */
-    // 닉네임 중복 검사 (GROMO-584) — 본인 제외(AndIdNot)로 자기 닉네임 재사용은 허용.
-    boolean existsByNicknameAndIdNot(String nickname, UUID id);
+    @Query("SELECT COUNT(u) > 0 FROM User u WHERE lower(u.nickname) = lower(:nickname) AND u.id <> :id")
+    boolean existsByNicknameIgnoreCaseAndIdNot(@Param("nickname") String nickname, @Param("id") UUID id);
+
+    /**
+     * 친구 검색의 <b>유일한</b> 조회 (GROMO-1996, policy-2026-09-14 「친구 검색은 대소문자를 구분하지
+     * 않고 정확히 일치할 때만 결과를 보여 주며 본인과 탈퇴한 사용자는 제외한다」).
+     *
+     * <p>종전의 pg_trgm 유사도 검색({@code searchByNicknameTrgm})을 대체하며 그 메서드는 함께 지웠다 —
+     * 부분 일치는 「누가 이 앱을 쓰는가」를 훑게 해 주는데, 친구 추가는 상대의 닉네임을 이미 아는
+     * 사람만 하면 되는 일이다. DB 의 {@code idx_users_nickname_trgm} 은 안정화 전까지 남겨 둔다(V89 주석).
+     *
+     * <p><b>탈퇴자 제외가 쿼리 안에 있다.</b> 함께 지운 {@code findByNickname} 은 그 조건이 없어 호출측이
+     * 따로 걸러야 했는데, 검색은 결과를 «그대로» 내보내는 경로라 걸러지지 않으면 탈퇴자가 화면에 뜬다.
+     * <b>본인 제외는 여기가 아니라 {@code FriendService.search} 다</b> — 관계 배지 판정과 같은 자리라야
+     * 두 필터가 갈라지지 않는다.
+     *
+     * <p>인덱스는 {@code uq_users_nickname_lower}(V89) — 같은 {@code lower(nickname)} 표현식이다.
+     *
+     * @param nickname 검색어. 호출측이 strip 해서 넘긴다(저장도 strip 이므로 앞뒤 공백은 무의미하다 — GROMO-2051)
+     * @return 그 닉네임을 쓰는 활성 유저 한 명. 유일성이 보장하므로 둘 이상일 수 없다
+     */
+    @Query("SELECT u FROM User u WHERE lower(u.nickname) = lower(:nickname) AND u.isDeleted = false")
+    Optional<User> findActiveByNicknameIgnoreCase(@Param("nickname") String nickname);
 
     /**
      * refresh 토큰 해시 조건부 교체 (GROMO-1509) — 회전 전용. 바뀐 행 수를 반환한다.
@@ -248,21 +269,6 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     int rotateRefreshTokenHash(@Param("id") UUID id,
                                @Param("expectedHash") String expectedHash,
                                @Param("newHash") String newHash);
-
-    /**
-     * 닉네임 trgm fuzzy 검색 (NicknameSearchStrategy에서 호출).
-     * 전제: pg_trgm 확장 + users.nickname GIN trgm 인덱스 (run-migration-v13.sh).
-     * % = 트라이그램 유사도 매칭, &lt;-> = 거리(가까운 순). 임계값 튜닝은 실데이터 기준(한글 gotcha 주의).
-     *
-     * @param q     검색어. 유사도 임계값은 세션 설정값을 따르므로 짧은 한글 질의는 결과가 비기 쉽다
-     * @param limit 최대 반환 수. 정렬이 유사도순이라 이 값이 곧 "가장 비슷한 N명"이다
-     * @return 유사한 순서의 활성 유저. 탈퇴 유저는 빠지고, 차단 관계는 여기서 거르지 않는다
-     */
-    @Query(value = "SELECT * FROM users u"
-            + " WHERE u.nickname % :q AND u.is_deleted = false"
-            + " ORDER BY u.nickname <-> :q"
-            + " LIMIT :limit", nativeQuery = true)
-    List<User> searchByNicknameTrgm(@Param("q") String q, @Param("limit") int limit);
 
     /**
      * last_active_at 스로틀 갱신 (GROMO-578) — JwtFilter 인증 통과 지점에서 호출.

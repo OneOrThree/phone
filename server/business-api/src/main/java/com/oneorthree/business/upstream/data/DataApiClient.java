@@ -14,6 +14,7 @@ import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 import com.oneorthree.business.upstream.data.dto.IslandAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.IslandQuestViews;
+import com.oneorthree.business.upstream.data.dto.IslandRankingViews;
 import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import com.oneorthree.business.upstream.data.dto.PersonalAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.PersonalInventory;
@@ -27,18 +28,22 @@ import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
+import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
+import com.oneorthree.business.upstream.data.dto.IslandLedger;
 import com.oneorthree.business.upstream.data.dto.IslandManaged;
 import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
+import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
+import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
 import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
 import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
@@ -53,10 +58,12 @@ import com.oneorthree.business.upstream.data.dto.MessageAuthors;
 import com.oneorthree.business.upstream.data.dto.MessageCreatedAck;
 import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
+import com.oneorthree.business.upstream.data.dto.SessionRefresh;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
 import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestState;
+import com.oneorthree.business.upstream.data.dto.FriendSearchItem;
 import com.oneorthree.business.upstream.data.dto.FriendshipDeleted;
 import com.oneorthree.business.upstream.data.dto.LetterSlice;
 import com.oneorthree.business.upstream.data.dto.LetterView;
@@ -115,6 +122,10 @@ public class DataApiClient {
             "/internal/users/{userId}/focus-sessions/{sessionId}/resume";
     private static final String PATH_FOCUS_SESSION_FINISH =
             "/internal/users/{userId}/focus-sessions/{sessionId}/finish";
+    private static final String PATH_FOCUS_PENDING_RESULT =
+            "/internal/users/{userId}/focus-sessions/pending-result";
+    private static final String PATH_FOCUS_SESSION_ACKNOWLEDGE =
+            "/internal/users/{userId}/focus-sessions/{sessionId}/acknowledge";
     private static final String PATH_FOCUS_SUMMARY = "/internal/users/{userId}/focus-summary";
     private static final String PATH_MAILBOX_ACCESS = "/internal/islands/{islandId}/mailbox-access";
     private static final String PATH_MESSAGE_AUTHORS = "/internal/islands/{islandId}/message-authors";
@@ -129,6 +140,7 @@ public class DataApiClient {
     // GROMO-1760 섬 가입·초대 5종 — 요청 소유는 사용자 축이라 모두 /internal/users/{userId} 아래다.
     private static final String PATH_ISLAND_MEMBERSHIPS =
             "/internal/users/{userId}/islands/{islandId}/memberships";
+    private static final String PATH_JOIN_REQUESTS = "/internal/users/{userId}/join-requests";
     private static final String PATH_JOIN_REQUEST =
             "/internal/users/{userId}/join-requests/{requestId}";
     private static final String PATH_INVITATION_RESOLVE =
@@ -139,6 +151,8 @@ public class DataApiClient {
     private static final String PATH_FRIENDS = "/internal/users/{userId}/friends";
     private static final String PATH_FRIEND = "/internal/users/{userId}/friends/{friendUserId}";
     private static final String PATH_FRIEND_REQUESTS = "/internal/users/{userId}/friend-requests";
+    // GROMO-1996 친구 검색. `/friends/{id}` 와 세그먼트가 겹치지 않게 별도 이름을 쓴다(`island-search` 선례).
+    private static final String PATH_FRIEND_SEARCH = "/internal/users/{userId}/friend-search";
     private static final String PATH_FRIEND_REQUEST_ACCEPT =
             "/internal/users/{userId}/friend-requests/{requestId}/accept";
     private static final String PATH_FRIEND_REQUEST_REJECT =
@@ -185,6 +199,12 @@ public class DataApiClient {
     // GROMO-1769 회관 기록 3종 — 조회 2 는 섬 축, 측정 PUT 은 본인 명령이라 사용자 축(B26).
     private static final String PATH_FOCUS_STATISTICS = "/internal/islands/{islandId}/statistics/focus";
     private static final String PATH_SCREEN_TIME_STATISTICS = "/internal/islands/{islandId}/statistics/screen-time";
+    // GROMO-1895 섬 공동 가계부 — 회관 화면과 도메인 GET 이 같이 쓰는 섬 축 조회다(B26).
+    private static final String PATH_ISLAND_LEDGER = "/internal/islands/{islandId}/resources/ledger";
+    // GROMO-1895 도서관 물고기 장 — 다른 도서관 통계와 같은 statistics/ 아래 섬 축 조회다(B26).
+    private static final String PATH_FISH_EARNINGS = "/internal/islands/{islandId}/statistics/fish-earnings";
+    // GROMO-1997 주간 섬 랭킹 — 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26).
+    private static final String PATH_ISLAND_RANKINGS = "/internal/users/{userId}/island-rankings";
 
     private final InternalHttpClient http;
 
@@ -316,6 +336,58 @@ public class DataApiClient {
             return "LoginAttemptCommand[attemptId=" + attemptId + ", provider=" + provider
                     + ", credentialKind=" + credentialKind + ", credential=redacted]";
         }
+    }
+
+    /**
+     * AT 재발급 (GROMO-2035). 주체는 Data 가 RT 서명에서 직접 확인한다 — {@code onBehalfOf} 가 없는
+     * 이유도 그것이다(여기 닿는 요청은 유효한 AT 를 갖고 있지 않다).
+     *
+     * <p>{@code idempotentCommand()} 를 켠다: 이 경로는 회전하지 않아 상태를 바꾸지 않으므로 재시도가
+     * 안전하고, 켜 주지 않으면 일시 오류 한 번에 앱이 재로그인으로 떨어진다(기본 재시도 대상은 GET 뿐).
+     */
+    public SessionRefresh refreshSession(String refreshToken, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, "/internal/auth/sessions/refresh")
+                        .body(new SessionRefreshCommand(refreshToken))
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<SessionRefresh>() { });
+    }
+
+    /**
+     * 게스트 세션 발급 (GROMO-2036).
+     *
+     * <p><b>{@code deviceDigest} 가 멱등 키다.</b> Data 의 점유 원장이 그 값으로 복구 창을 잡으므로,
+     * 유실된 201 을 재시도해도 계정이 하나 더 생기지 않는다 — {@code executeLoginAttempt} 의
+     * {@code attemptId} 와 같은 자리다. 그래서 여기서도 {@code idempotentCommand()} 를 켠다.
+     *
+     * @param clientIp Business 가 판정한 호출자 주소. Data 의 게스트 레이트리밋 축이라 <b>반드시</b>
+     *                 넘긴다 — 내부 호출의 소스 IP 를 쓰면 모든 게스트가 한 주소로 뭉쳐 한도가
+     *                 「전원 차단」으로 동작한다
+     */
+    public LoginSession issueGuestSession(String deviceDigest, String clientIp, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, "/internal/auth/guest-sessions")
+                        .body(new GuestSessionCommand(deviceDigest, clientIp))
+                        .endUserAuthErrors()
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<LoginSession>() { });
+    }
+
+    /** 갱신 요청 본문. RT 원문이라 {@code toString} 이 값을 가린다. */
+    private record SessionRefreshCommand(String refreshToken) {
+        @Override
+        public String toString() {
+            return "SessionRefreshCommand[refreshToken=redacted]";
+        }
+    }
+
+    /** 게스트 발급 요청 본문. 기기 식별자 «원문» 은 나가지 않는다 — digest 만 나간다. */
+    private record GuestSessionCommand(String deviceDigest, String clientIp) {
     }
 
     /** 원 RT의 폐기 증명으로 재시도 가능한 로그아웃. 주체는 Data가 자격에서 직접 검증한다. */
@@ -741,6 +813,33 @@ public class DataApiClient {
                 new ParameterizedTypeReference<FocusFinish>() { });
     }
 
+    /**
+     * 휴식 1시간 초과로 서버가 끝낸 집중의 미확인 결과 (GROMO-1998). 보여 줄 것이 없어도
+     * {@code {"result": null}} 이 오고, <b>빈 본문은 계약 위반</b>이다 — {@code current} 와 같은 이유다.
+     */
+    public PendingFocusResult fetchPendingFocusResult(UUID userId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_FOCUS_PENDING_RESULT, userId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<PendingFocusResult>() { });
+    }
+
+    /**
+     * 자동 종료 결과창을 보여 줬다고 표시한다 (GROMO-1998). 멱등 키를 싣지 않는다 — Data 의
+     * {@code acknowledged_at IS NULL} 조건부 UPDATE 자체가 최초 1회만 성공해 재시도가 무해하다.
+     */
+    public void acknowledgeFocusResult(UUID userId, UUID sessionId, Deadline deadline) {
+        http.execute(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_FOCUS_SESSION_ACKNOWLEDGE, userId)
+                                .replace("{sessionId}", sessionId.toString()))
+                        .onBehalfOf(userId)
+                        .idempotentCommand()
+                        .build(),
+                deadline);
+    }
+
     /** 홈 요약. 날짜·timezone 판정은 Data 가 한다 — 여기서 KST 규약을 두 번 해석하지 않는다. */
     public FocusSummary fetchFocusSummary(UUID userId, String date, String timezone, Deadline deadline) {
         return http.exchange(
@@ -775,6 +874,21 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<List<FriendRequestItem>>() { });
+    }
+
+    /**
+     * 친구 검색 (GROMO-1996). {@code type}·{@code q} 의 값 판정(등록된 전략인가·질의어 해석)은 Data 가
+     * 한다 — 여기서 두 번 해석하지 않는다. 닉네임이 대소문자 무시로 유일하므로 결과는 0건 또는 1건이다.
+     */
+    public List<FriendSearchItem> searchFriends(UUID userId, String type, String query, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_FRIEND_SEARCH, userId))
+                        .onBehalfOf(userId)
+                        .query("type", type)
+                        .query("q", query)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<List<FriendSearchItem>>() { });
     }
 
     /**
@@ -863,6 +977,19 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<LetterView>() { });
+    }
+
+    /**
+     * 편지 닫기 (GROMO-2002). <b>재시도하지 않는다</b> — 두 번째 시도는 {@code LETTER_NOT_FOUND}(404)라
+     * 재시도가 얻을 것이 없고, 앱은 404 를 받아도 이미 원하던 상태(사라짐)에 있다.
+     */
+    public void closeLetter(UUID userId, UUID letterId, Deadline deadline) {
+        http.execute(
+                InternalCall.to(HttpMethod.DELETE,
+                                userPath(PATH_LETTER, userId).replace("{letterId}", letterId.toString()))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline);
     }
 
     private FriendRequestState friendRequestAction(String template, UUID userId, UUID requestId,
@@ -992,6 +1119,23 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<JoinIslandResult>() { });
+    }
+
+    /**
+     * 내 가입 신청 목록 한 페이지 (GROMO-2047, LLD §3.12). 경계는 Business 가 서명 커서에서 꺼낸
+     * 평문이고, 소유는 상류가 {@code applicant_id} 로 묶어 찾는다 — 남의 요청은 후보조차 아니다.
+     */
+    public MyJoinRequestsPage fetchMyJoinRequests(UUID userId, Instant afterCreatedAt,
+            UUID afterRequestId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_JOIN_REQUESTS, userId))
+                        .onBehalfOf(userId)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterRequestId", afterRequestId == null ? null : afterRequestId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MyJoinRequestsPage>() { });
     }
 
     /**
@@ -1701,6 +1845,38 @@ public class DataApiClient {
                 new ParameterizedTypeReference<IslandRecordViews.FocusStatistics>() { });
     }
 
+    /**
+     * 섬 공동 가계부 한 쪽 (GROMO-1895). 멱등 GET 이라 재시도한다. {@code month} 는 KST 달력 월
+     * ({@code YYYY-MM}), 경계는 평문 keyset({@code afterCreatedAt}+{@code afterEntryId} 둘 다 또는 둘 다 없음)이다.
+     */
+    public IslandLedger fetchIslandLedger(UUID userId, UUID islandId, String month, String direction,
+            Instant afterCreatedAt, UUID afterEntryId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_ISLAND_LEDGER, islandId))
+                        .onBehalfOf(userId)
+                        .query("month", month)
+                        .query("direction", direction)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterEntryId", afterEntryId == null ? null : afterEntryId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandLedger>() { });
+    }
+
+    /**
+     * 도서관 물고기 장 — 주민별 누적 획득 (GROMO-1895). 멱등 GET 이라 재시도한다. query 가 없다 —
+     * 기간도 페이지도 고를 수 없는 「이 섬 전 기간」 집계다.
+     */
+    public IslandFishEarnings fetchFishEarnings(UUID userId, UUID islandId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, islandPath(PATH_FISH_EARNINGS, islandId))
+                        .onBehalfOf(userId)
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandFishEarnings>() { });
+    }
+
     /** 스크린타임 통계 (GROMO-1769). 멱등 GET 이라 재시도한다. */
     public IslandRecordViews.ScreenTimeStatistics fetchScreenTimeStatistics(UUID userId, UUID islandId,
             LocalDate from, LocalDate to, String scope, Deadline deadline) {
@@ -1713,6 +1889,22 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandRecordViews.ScreenTimeStatistics>() { });
+    }
+
+    /**
+     * 주간 섬 랭킹 (GROMO-1997). 멱등 GET 이라 재시도한다. {@code week} 는 주 시작일(UTC 일요일)이고, 전망대·주민
+     * 판정과 달력 의미(일요일인가·아직 오지 않은 주인가)는 Data 가 한다.
+     */
+    public IslandRankingViews.IslandRankingPage fetchIslandRankings(UUID userId, LocalDate week, Integer limit,
+            Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, PATH_ISLAND_RANKINGS.replace("{userId}", userId.toString()))
+                        .onBehalfOf(userId)
+                        .query("week", week.toString())
+                        .query("limit", limit == null ? null : limit.toString())
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandRankingViews.IslandRankingPage>() { });
     }
 
     /**

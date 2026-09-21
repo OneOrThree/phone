@@ -101,7 +101,7 @@ Business에는 도메인 DB를 추가하지 않는다.
 | 루트 | 적용 범위 |
 | --- | --- |
 | `/auth/sessions`, `/me`, `/islands`, `/focus-sessions`, `/invitations` | 후속 계정·도메인 API |
-| `/rankings`, `/statistics`, `/screens` | 랭킹·통계·화면 집계. 통계 두 경로 `/statistics/focus`, `/statistics/screen-time` 포함 |
+| `/rankings`, `/statistics`, `/screens` | 랭킹·통계·화면 집계. 도서관 통계 세 경로 `/statistics/focus`, `/statistics/screen-time`, `/statistics/fish-earnings` 포함 |
 | `/link-previews` | 연결된 미리보기 POST·GET. `/link-previews/{id}/thumbnail`은 PNG 그대로 |
 
 신규 JSON 성공은 `{"data": ...}`다. 컨트롤러는 공개 DTO를 반환하면 된다.

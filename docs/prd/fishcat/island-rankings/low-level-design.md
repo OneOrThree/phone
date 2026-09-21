@@ -1,54 +1,26 @@
 # 주간 랭킹 상세 설계
 
-[정책](policy.md)의 분모·동점·참가·진행분·마감 규칙이 승인되기 전 이 문서를 임의 운영 기본값으로 실행하지 않는다. 기간과 snapshot·권한·페이지 경계는 독립 기술 계약이다.
+> **2026-09-21 개정(GROMO-1997 구현 반영).** 종전 문서는 ① 주민 랭킹 `GET /islands/{islandId}/rankings/members`
+> 를 정상 계약으로 서술했고 ② 주를 「KST 월요일 + ISO week-year」로 잡았으며 ③ 불변 snapshot·전 사용자
+> 역색인·공통 lifecycle 잠금을 요구했다. 셋 다 바뀌었다 — 근거는 각 절에 적었고 결정 표는
+> [policy.md](policy.md) 가 정본이다.
 
-## 1. 원본 요청·응답 보존
+## 1. 원본 요청·응답
 
-다음은 v0.3-proposed 원본이며 성공200이다. GET 요청 예시는 query를 나타내고 body가 아니다. 첫 cursor:null은 query 생략이며 문자열 null을 받는 규칙이 아니다.
+### ~~GET `/islands/{islandId}/rankings/members`~~ — **폐지**
 
-### GET `/islands/{islandId}/rankings/members`
-
-원본 `/v1/islands/{islandId}/rankings/members`.
-
-요청:
-
-```json
-{
-  "week": "2026-W37",
-  "cursor": null
-}
-```
-
-응답:
-
-```json
-{
-  "data": {
-    "eligibility": "eligible",
-    "items": [
-      {
-        "rank": 1,
-        "userId": "minji",
-        "name": "민지",
-        "catColor": "ginger",
-        "focusSeconds": 1320
-      }
-    ],
-    "myRank": 4,
-    "nextCursor": null
-  }
-}
-```
+2026-09-16 결정 B23·B15. 기획 v1 98계약에 없고 화면 자체가 B15 로 폐지됐다. **BFF 화면에서만 빠지는 것이
+아니라 엔드포인트 자체의 폐기**다. 기획 정본도 「전망대는… 우리 섬 내부 주민 랭킹은 제공하지 않는다」라고
+적는다. 따라서 `eligibility`·`myRank`(주민)·최소 2명 조건·주민 공개 projection(`userId`·`name`·`catColor`)은
+이 설계에서 **전부 사라진다**.
 
 ### GET `/rankings/islands`
 
-원본 `/v1/rankings/islands`.
-
-요청:
+원본 `/v1/rankings/islands`. 요청은 query 다(body 아님).
 
 ```json
 {
-  "week": "2026-W37",
+  "week": "2026-09-06",
   "cursor": null
 }
 ```
@@ -61,153 +33,192 @@
     "items": [
       {
         "rank": 1,
-        "islandId": "soda",
+        "islandId": "019f16a0-0000-7000-8000-000000000010",
         "name": "소다 섬",
         "averageFocusSeconds": 18000
       }
     ],
-    "nextCursor": null
+    "myRank": 4,
+    "nextCursor": null,
+    "asOf": "2026-09-11T09:10:00Z"
   }
 }
 ```
+
+원본 대비 추가는 둘이다 — 승인된 `asOf`, 그리고 `myRank`(RK-D10, 기획 확인 대기). `myRank` 는 목록을 상위
+N 으로 자르는 대신 자기 섬 순위를 알려 주기 위한 것이라 RK-D07 과 한 쌍이다. 원본의 `week` 값
+`"2026-W37"` 은 더 이상 쓰지 않는다(§2).
 
 ## 2. 채택 스키마·기간·인가
 
 | API | query | data |
 | --- | --- | --- |
-| members | week 필수, cursor 선택, limit 선택(기술 확장) | eligibility,items[{rank,userId,name,catColor,focusSeconds}],myRank nullable,nextCursor,**asOf** |
-| islands | week 필수, cursor 선택, limit 선택(기술 확장) | items[{rank,islandId,name,averageFocusSeconds}],nextCursor,**asOf** |
+| islands | `week` 필수, `limit` 선택(1~100, 기본 30) | `items[{rank,islandId,name,averageFocusSeconds}]`, `myRank` nullable, `nextCursor`(언제나 null), `asOf` |
 
-asOf는 승인된 추가 UTC instant다. 원본 예시를 변경하지 않고 실제 data에 `"asOf":"2026-09-11T09:10:00Z"`를 추가한다. 이 값은 현재 주 실시간 점수를 포함하자는 제품 결정이 아니다. 완료분만 사용하는 정책도 어떤 snapshot을 관측했는지는 필요하다. 실제 snapshot ID와 정책 revision은 서버/opaque cursor 내부에 있다.
+`asOf` 는 집계를 고정한 UTC instant 다. `items`·`myRank`·분모·표시 점수가 모두 이 한 관측에서 나온다.
 
-week는 `YYYY-Www` 형태의 ISO week-based-year이며 누락/중복/구문 오류400 INVALID_PARAMETER(field=week), 존재하지 않는53주 등 달력 범위 오류422 OUT_OF_RANGE다. 예: 2026-W37은 KST 2026-09-07 00:00 포함~09-14 00:00 제외, UTC로09-06T15:00:00Z~09-13T15:00:00Z다. 2020-W53은 KST2020-12-28~2021-01-04이며 calendar-year2021의 첫 주라고 다시 명명하지 않는다. UTC 날짜나 서버 기본 timezone으로 주를 자르지 않는다. 미래/허용 과거 주의 공개 범위는 RK-D04 결정과 별도로 명시할 때까지 활성화 gate다.
+### 주 식별자
 
-응답 ID는 UUID36이며 원본 minji/soda는 실제 식별자로 허용하지 않는다. name/catColor는 계정·섬 공개 projection 정본이다. 6색 목록이나 빈 이름의 제품 초기값을 여기서 만들지 않는다. seconds는 음수가 아닌 JS 안전 정수, rank는 양의 정수다. averageFocusSeconds의 출력 정수/소수·반올림은 RK-D06 미결이므로 원본18000만으로 내림 정수 정책을 확정하지 않는다. 산술은 충분한 정밀도의 정수합/분모로 계산하고 overflow를 검사한다.
+`week` 는 **주 시작일 `YYYY-MM-DD`** 이고 그 날짜는 **UTC 일요일**이어야 한다.
 
-members GET는 검증 사용자와 경로 섬의 현재 활성 membership·tower를 확인한다. islands GET는 검증 사용자에서 Data의 currentIslandId/contextVersion을 한 번 확정해 tower와 참가 조건을 검사한다. 이 context는 cursor 범위에도 고정한다. 앱 헤더의 X-User-Id/currentIslandId나 cursor에 적힌 옛 섬을 권한으로 신뢰하지 않는다. 섬 이동 후 옛 cursor의 context 불일치는400 INVALID_CURSOR, 현재 시설/소속 부재는403이다. 존재하지 않는 본인/섬은 기존404 계약을 보존한다.
+- 형식이 `YYYY-MM-DD` 가 아니면 400 `INVALID_PARAMETER`(field=week) — ISO `2026-W37` 도 여기서 걸린다.
+- 형식은 맞는데 없는 날짜(2월 30일)면 422 `OUT_OF_RANGE`.
+- 일요일이 아니거나 **아직 오지 않은 주**면 422 `OUT_OF_RANGE`. 달력 의미 판정은 Data 가 한다(서버 시계가 필요하다).
 
-시설 미해금403 FACILITY_LOCKED는 확정이다. 최소2명의 인원 모수/시점과 비적격 eligibility enum/응답은 정책 미결이며 문서의 추천200 응답을 승인 없이 활성화하지 않는다. 섬 간 조회의 참가 조건과 노출할 섬의 참가 조건도 별개로 검증한다. 1인 섬이 랭킹 비적격이어도 섬 발견 endpoint의 원래 접근 규칙을 바꾸지 않는다.
+**ISO `YYYY-Www` 를 쓰지 않는 이유.** ISO 주차는 «월요일 시작»이 정의의 일부다. 정책이 일요일로 바뀌었는데
+표기를 그대로 두면 `2026-W37` 이 ISO 가 말하는 7일과 다른 7일을 가리킨다 — 앱·서버·로그·지표가 같은 문자열로
+서로 다른 주를 뜻하게 되는, 가장 조용한 종류의 버그다. 주 시작일은 자기 자신이 경계를 말하므로 해석 규칙이
+없고, 「53주차가 없는 해」 같은 달력 예외도 사라진다. 창은 `[weekStart 00:00Z, weekStart+7d 00:00Z)` 반열림이다.
 
-원본 설명의 썸네일은 JSON에 필드가 없다. 내부 섬 엔티티·비공개 초대 자격·전체 외양을 통째로 추가하지 않는다. 별도 공개 썸네일 확장이 승인되거나 기존 승인된 화면 집계 자산으로 표현될 때 연결하며 RK-D06으로 추적한다.
+### 인가
 
-## 3. 주간 점수·분모·순위: 확정 기술과 미결 함수
+Data 가 요청자의 `user_island_contexts.current_island_id` 를 한 번 확정해 검사한다 — 앱 헤더의 섬을 권한으로
+믿지 않는다.
 
-공통 입력은 세션별 고정 islandId와 ACTIVE 날짜 기여, 승인된 주차 cohort/가입 이력, 같은 관측 시각 asOf, 확정된 rankingPolicyRevision이다. 개인 전체 이력을 사용할지 섬 귀속 기여를 사용할지는 RC-D01/RK-D05 답변을 기다린다. 세션 islandId가 원본에 없는 legacy 기록은 현재 멤버십으로 추정해 백필하지 않는다.
+1. 요청자 계정이 활성이 아니면 404 `USER_NOT_FOUND`.
+2. 현재 섬이 없으면 403(`MEMBER_ONLY` → 공개 `FORBIDDEN`) — 「어느 섬의 주민으로서」 보는 화면이다.
+3. 현재 섬이 소프트 삭제·종료됐으면 404 `GROUP_NOT_FOUND`.
+4. 그 섬의 활성 주민이 아니면 403 `MEMBER_ONLY` → 공개 `FORBIDDEN`.
+5. 그 섬의 **전망대가 완공되지 않았으면** 403 `OBSERVATORY_LOCKED` → 공개 `FACILITY_LOCKED`.
+
+이 현재 섬이 `myRank` 의 대상이다. 1인 섬이 랭킹에 참가하지 않더라도 섬 발견 endpoint 의 접근 규칙은 바뀌지
+않는다(RK-P03).
+
+## 3. 주간 점수·분모·순위
 
 ```text
-window = [KST ISO-week Monday 00:00, next Monday 00:00)
-memberScore(u) = approvedAttributionAndLivePolicy(u, window, asOf)
-N = sum(memberScore for approved numerator cohort)
-D = approvedDenominator(cohort, membershipIntervals, window)
-average = exact(N / D), only if approved D > 0
-rank = approvedTiePolicy(scores)
+window   = [UTC 일요일 00:00Z, 다음 일요일 00:00Z)
+분자(i)  = Σ  overlap(ACTIVE 구간, window)          -- lifecycle=COMPLETED, island_id=i 인 세션만
+분모(i)  = 끝난 주면 island_weekly_member_counts(week, i).member_count
+           진행 중인 주면 지금 활성 주민 수
+평균(i)  = floor(분자 / 분모)                       -- 분모가 없거나 0 이면 «참가 아님»
+순위     = RANK() over (평균 DESC)                  -- 동점은 공동 순위, 다음은 건너뜀
+표시 순서 = 평균 DESC, islandId ASC                  -- 보조 키이지 순위 기준이 아니다
 ```
 
-N과 D의 모수·가입 처리·부분 주 계산은 같은 policy revision에서 나온다. 먼저 각 주민 시간을 분으로 내리고 평균내지 않는다. 표시 소수 처리·동률 판단에 반올림을 쓸지 여부도 RK-D02/06에서 함께 결정한다. 내부 정렬 점수와 표시값이 다른 순위를 만들지 않도록 같은 승인 기준으로 equality와 order를 정의한다. 분모0을0점 참가로 자동 전환하지 않는다.
+**분자.** 세 가지가 정책이다.
+- `lifecycle = COMPLETED` — **끝난 집중만** 반영한다(RK-D03). 진행 중 세션은 정렬·표시·`myRank` 어디에도 없다.
+  종전 문서가 열어 두었던 「진행분을 `asOf` 로 닫아 합산」 분기는 채택되지 않았다.
+- ACTIVE 구간만 — 휴식은 더하지 않는다(RK-P04). 기존 `now - startedAt` 식은 휴식을 가산하므로 쓰지 않는다.
+- `island_id` 는 **세션이 시작할 때 고정한 섬**이다(RK-D05 = 2026-09-19 결정 RC-D01). 같은 주민이 다른 섬에서
+  한 집중은 이 섬 분자가 아니다. 세션 `island_id` 가 없는 legacy 기록을 현재 멤버십으로 추정해 백필하지 않는다.
 
-진행분을 포함하기로 승인하면 PR743의 열린 ACTIVE 구간을 asOf로 닫아 합산한다. pause는 증가0, resume 이후만 증가하고 finish가 일집계로 이동하는 순간 완료+진행 이중 합은0이다. 기존 now-startedAt 식을 쓰면 휴식이 가산되므로 재사용하지 않는다. 완료분만으로 승인하면 진행분은 정렬·표시·myRank 모두에서 제외한다. 기존 리그처럼 top에는 live, 페이지에는 settled를 혼용하지 않는다.
+정밀도는 `FocusIntervalMath` 와 **같은 규율**이다 — 구간마다 초로 내리지 않고 창과의 교집합을 그대로 합친 뒤
+**마지막에 한 번만** 내린다. 구간마다 잘랐다면 휴식이 잦은 세션에서 초가 조금씩 사라진다. 섬을 가로지르는
+집계라 세션을 메모리로 올리지 않고 `GROUP BY island_id` 한 문장으로 접는다(회관 기록이 한 섬을 엔티티로 올려
+Java 에서 더하는 것과 다른 점이다).
 
-같은 점수의 페이지 순서를 안정화하려고 UUID ASC 보조키를 사용한다. 이것은 동점자의 rank를1,2로 구분하자는 결정이 아니다. 공동1위/다음3위 등 순위 함수는 RK-D02 승인을 요구한다. myRank는 해당 페이지의 위치가 아니라 **전체 같은 snapshot 모집단**에서의 본인 순위다. 참여하지 않는 본인에만 null을 쓰며 없다는 이유를0위로 만들지 않는다. 어떤 경우 미참가인지는 RK-D01이 정한다.
+**분모.** 기획 정본의 「그 섬 전체 주민 수」이고, 모수는 `GroupMemberRepository.countByGroupIdIn` 과 같다
+(활성 멤버십 `is_left=false` + 미탈퇴 계정 `is_deleted=false`) — 주민 목록·정원 판정과 같은 기준이라
+「목록 N명 · 분모 N+1명」이 생기지 않는다. **주가 끝난 시점으로 동결**한다(RK-D01, migration V85) —
+`group_members` 에 `left_at` 이 없어 사후 복원이 불가능하고, 동결하지 않으면 주민을 내보내는 것만으로 지난 주
+평균이 오르기 때문이다. 끝난 주에 동결 행이 없으면 그 섬은 **빠진다**(RK-D01-결손) — 「지금 인원으로」 대체하면
+그 조작이 그대로 살아난다.
 
-중도 가입·탈퇴·강퇴·재가입·1인→2인 전환은 현재 GroupMember 한 행만으로 복원할 수 없다. 주차 cohort와 가입/이탈 구간 또는 검증된 불변 기여를 논리 저장해야 한다. 어떤 이력을 저장할지와 개인정보 파기는 소속·계정 설계와 합류하고 새로운 물리 migration 번호는 구현 조정자가 배정한다. 강퇴 뒤 모수를 줄여 점수를 올리는 조작을 정책 결정 테스트에 반드시 넣는다.
+**평균과 순위.** 평균을 **먼저 정수로 내린 뒤 그 값으로 줄 세운다** — 표시값과 정렬 키가 같아야 「화면에는 같은
+숫자인데 순위가 다른」 줄이 생기지 않는다. 주민마다 분으로 내려 평균내지 않는다. 동점은 공동 순위이고 다음
+순위를 건너뛴다(RK-D02: 1,1,3). UUID 오름차순은 같은 점수 안의 표시 순서만 고정한다. `myRank` 는 페이지 위치가
+아니라 **전체 모집단**에서의 순위이고, 참가하지 않는 섬은 `null` 이다 — 없다는 이유로 0위를 만들지 않는다.
 
-## 4. immutable snapshot과15분 cursor
+**참가 모집단**은 그 주에 그 섬 귀속 완료 집중이 있었던 섬이다(RK-D09). 집중이 0인 섬을 0점으로 줄 세우지
+않고, 그런 섬의 `myRank` 는 `null` 이다. 모수가 집계 결과라 이어지는 분모·이름 조회도 자연히 유한하다.
 
-동적 정렬에 keyset만 붙여서는 페이지 사이 점수 변경으로 생기는 누락/중복을 막을 수 없다. 첫 페이지는 승인된 policy/cohort에 대해 lifecycle 공유 잠금 획득 후 Data READ COMMITTED TX의 단일 SELECT statement snapshot에서 점수·순위·myRank·평균 분모·공개 행·asOf를 고정한 immutable snapshot을 만든다. 이후 HTTP는 같은 저장 결과를 읽는다. HTTP 사이 DB transaction을 계속 열어두지 않는다.
+## 4. 페이지와 snapshot — 만들지 않는다
 
-논리 snapshot은 임의의 snapshotId, kind,week,policyRevision,asOf,참가/cohort revision,검증 주체/context 범위 digest,만료시각,정렬된 공개 결과/순위 인덱스로 구성한다. 실제 저장소는 Data의 제한된 projection 저장을 사용하고 Business 메모리에만 둬 인스턴스마다 다른 표를 만들지 않는다. 1769/1777이 함께 구현할 Data 불변 조회 snapshot 공통 모듈을 사용한다. 기준 main의 LeagueRankSnapshot은 사용자·날짜별 rank를 덮어쓰는 저장소이므로 이 불변 페이지 정본을 대신하지 못하며, 공통 HMAC cursor 역시 snapshot 보관소가 아니다. 일관된 조회 결과를 snapshot/역색인과 함께 저장하는 TX는 쓰기 가능해야 하고 readOnly TX에서 INSERT하지 않는다. 서비스별 새 HTTP 클라이언트는 만들지 않는다. DB 원본을 asOf로 재조회하면 같은 내용일 것이라고 가정하지 않는다.
+종전 §4 는 불변 snapshot 저장소, `snapshotId → 사용자` / `사용자 → snapshotId` 역색인, 중앙 withdraw 와의 공통
+lifecycle 잠금 `public-statistics-snapshot-lifecycle`, 15분 cursor TTL, `CURSOR_EXPIRED` 를 요구했다.
+**전부 만들지 않는다**(RK-D07·RK-D08).
 
-cursor는 A0의 HMAC 서명·별도 키/키회전 규약을 따른다. 내부 snapshotId/kind/week/scope/currentIsland context/policyRevision/limit/정렬/마지막 결정적 경계/발급·만료를 묶는다. 원문 사용자명·민감 ID·점수 조합을 URL에 노출하지 않도록 snapshot 내 비민감 행 경계 참조를 쓸 수 있다. 서명은 암호화가 아니므로 원시 개인정보를 넣지 않는다. 다음 페이지의 현재 인가와 cursor 무결성은 각각 검사한다.
+그 장치는 모두 **「표에 복사된 타인의 개인정보」**를 지키려는 것이었다. 섬 간 랭킹 응답에는 섬 이름과 평균
+초밖에 없다 — 사용자 이름도, catColor 도, 개인 점수도 없다. 2026-09-19 결정 RC-P12-적용이 회관 기록에서 같은
+판단을 내렸다: 「타인 개인정보 스냅샷을 만들지 않는 설계로 lifecycle 잠금 gate 를 해소… **복사본이 없으면
+필요 없다**」. 주민 랭킹이 폐지되면서 이 모듈에서 타인 PII 가 나올 자리가 사라졌다.
 
-- 첫 limit 기본30,1~100. 페이지 크기도 scope digest에 묶는다. cursor 없이 새 조회하면 새 snapshot을 선택하며 이전 페이지와 합치지 않는다.
-- 발급 시점 기준15분 후 만료. 다음 페이지를 읽어도 연장하지 않는다. snapshot은 적어도 그 cursor 유효기간 동안 유지하되 개인정보 파기·인가 관련 무효화가 우선한다.
-- 만료 또는 snapshot 조기 파기면409 CURSOR_EXPIRED(retryable=false,field=cursor). 새 첫 페이지로 시작한다. 조용히 최신 표로 넘어가지 않는다.
-- 서명/사용자/week/kind/context/limit 불일치는400 INVALID_CURSOR. 조회자 비활성404 USER_NOT_FOUND, 현재 소속/시설 상실403이 우선하며 cursor 자체가 과거 인가를 유지하지 않는다.
-- included user의 PII 파기나 공개 범위 변화는 아래 동일 lifecycle 잠금과 중앙 withdraw TX에서 전체 snapshot을 즉시 무효화하고 payload를 파기한다. 일부 행만 삭제하고 순위/분모는 옛값으로 남겨 새 표처럼 전달하지 않는다.
-- snapshot TTL은 조회 기술 수명이고 과거 주 결과 보관/마감 수정 정책과 다르다. 현재 주 snapshot 갱신 주기·과거 주 final cutoff는 RK-D03/04에서 확정한다.
+페이지 자체도 없앴다. 움직이는 집계에 keyset 을 붙이면 페이지 사이의 점수 변화로 행이 빠지거나 겹치는데,
+**상위 `limit` 개만 한 번에 주고 그 아래는 `myRank` 로 알려 주면 그 문제가 성립하지 않는다**. 따라서
+`nextCursor` 는 언제나 `null` 이고, 들어온 `cursor` 는 발급한 적이 없으므로 400 `INVALID_CURSOR` 다
+(회관 기록 scope=island 와 같은 처리). 분자·분모는 한 REPEATABLE READ 트랜잭션에서 함께 읽어
+`items`·`myRank`·분모가 같은 관측에서 나온다(RK-P06).
 
-### 탈퇴와 snapshot 반환의 동일 원자 경계
-
-요청자만 재인가하면 snapshot 안에 복사된 다른 주민의 PII를 보호할 수 없다. 초기 구현은 Data DB의
-공통 transaction-scoped lifecycle 잠금 `public-statistics-snapshot-lifecycle`을 사용한다. snapshot 생성과
-모든 페이지 반환은 공유 잠금, 중앙 withdraw와 공개 범위 축소·PII 파기는 같은 키의 배타 잠금을 취득한다.
-이는 새 논리 잠금 계약이며 기준 main에 이미 있는 기능이 아니다. 단일 키는 초기 안전성을 위한 기술 선택이고,
-나중에 분할하려면 같은 원자 조건과 잠금 순서를 경합 테스트로 다시 입증해야 한다.
-
-잠금 순서는 **공통 lifecycle 잠금 → 사용자 lifecycle 행(ID 정렬) → 섬/context(ID 정렬) → snapshot(ID 정렬)**이다.
-중앙 withdraw의 모든 진입점은 사용자 락을 잡기 전에 배타 잠금을 얻어야 한다. 이미 사용자/섬 락을 잡은
-상태에서 이 공통 잠금을 뒤늦게 추가하지 않는다. snapshot 만료 정리도 lifecycle 잠금 후 snapshot 순서를
-따르며, 기존 사용자→섬 순서를 역전시키지 않는다. 회관/랭킹 두 모듈은 정확히 같은 잠금 키·프로토콜을 사용한다.
-
-1. 생성: 공유 잠금을 먼저 얻고 현재 인가/피관측자 공개 조건을 검사한 뒤 일관된 집계를 만든다. 정렬 결과와
-   `snapshotId → 관련 사용자` 및 `사용자 → snapshotId` 역색인을 **같은 쓰기 TX**에 저장한다. 관련 사용자는
-   현재 페이지뿐 아니라 전체 결과·myRank·분모·집계 기여에 포함된 사용자까지 포함한다. 초기 구현은 READ COMMITTED
-   TX에서 잠금을 먼저 취득한 다음, **다음 SQL statement의 단일 SELECT/CTE**로 집계 전체를 고정한다.
-   REPEATABLE READ에서 잠금 SELECT가 대기 전에 고정한 오래된 view를 재사용하는 구현은 허용하지 않는다.
-   잠금 전 읽기 결과는 권한·유효성 판정에 쓰지 않으며, 페이지 반환도 같은 READ COMMITTED 순서를 따른다.
-2. 페이지: 공유 잠금 아래 현재 요청자의 활성 계정/소속/시설 권한을 재검사하고, 정본 snapshot의 유효 상태·TTL·
-   scope·정책 revision을 함께 확인한 후 응답에 필요한 공개 결과를 확정한다. 중간에 TX를 끝내고 유효 상태를
-   다시 확인하지 않은 payload를 별도 조회하지 않는다. Data 응답 DTO와 직렬화할 내용을 이 TX에서 확정하며
-   lazy loading/후속 DB 조회를 하지 않는다. 정본 검사 전 Business 캐시에서 응답을 반환할 수 없다.
-3. 탈퇴: 배타 잠금을 얻은 중앙 withdraw가 사용자 비활성/PII 파기와 함께 역색인으로 영향받는 **전체 snapshot**을
-   찾아 무효화하고 복사된 결과 payload·개인정보 인덱스를 삭제한다. 원본 사용자 파기와 무효화/삭제는 같은 Data TX로
-   커밋하거나 전부 rollback한다. 비동기 outbox/TTL/배치가 나중에 snapshot을 내릴 때까지 기다리는 방식은 금지다.
-   외부 서비스 후속 파기가 있더라도 Data 안의 이 원자 작업을 대체하지 않는다.
-4. 재조회: 현재 요청자 권한이 없으면 기존403/404가 우선한다. 요청자는 여전히 인가됐지만 snapshot이 타인의
-   탈퇴로 무효화됐으면409 `CURSOR_EXPIRED`(field=cursor,retryable=false)로 첫 페이지 재조회를 요구한다.
-   중간 행만 빼거나 분모/순위를 그대로 둔 수정본을 기존 snapshotId로 반환하지 않는다. 비민감 무효화 표시만
-   남기거나 snapshot을 완전히 지울 수 있으며, 두 경우 모두 같은 cursor 오류로 처리한다.
-
-반환의 선형화 지점은 공유 잠금 안의 최종 유효성 검사와 응답 내용 확정이다. 탈퇴가 먼저 커밋하면 이후 페이지는
-이전 PII를 받을 수 없다. 페이지가 먼저 이 지점을 통과하면 탈퇴가 공유 잠금 해제까지 기다리므로 조회가 먼저
-일어난 순서다. 이미 인가되어 전송 중인 HTTP 응답을 네트워크에서 회수한다는 보장은 하지 않는다. 여러 HTTP 요청
-사이에 DB TX를 유지하지 않으며, TTL15분은 이 동기 파기 경계를 늦추는 유예 기간이 아니다.
-
-현재 설계는 Data 밖 Redis/Business/local/CDN에 공개 snapshot payload를 복제·캐시하지 않는다. Business는
-Data가 확정한 이번 응답을 전달할 뿐 재사용하지 않고 공개 HTTP에 `Cache-Control: no-store`를 지정한다.
-다른 저장소 캐시는 원자 무효화와 반환 직전 정본 조건 검증을 같은 수준으로 증명하는 별도 설계 전까지 금지한다.
-중앙 withdraw·공개 범위 writer 전수 참여, 전체 사용자 역색인, 실제 PostgreSQL 경합 검증이 없으면1769/1777의
-snapshot 공개 경로를 활성화하지 않는다. 이 gate는 제품 분모·귀속·동점 정책 승인과 별개다.
-
-[회관 기록의 동일 프로토콜](../island-records/low-level-design.md)과 공통 구현을 사용한다. 두 모듈별로 별도 잠금 키를 만들면 중앙 탈퇴의 원자 경계가 깨진다.
+공개 응답은 `Cache-Control: no-store` 다(공개 경로 공통). Data 밖에 payload 를 복제·캐시하지 않는다.
 
 ## 5. 저장·부수효과·계약 경계
 
-집중 날짜 기여는1764 종료 TX가 세션별 유일성으로 만든다. 랭킹 projection은 그 정본의 순수 투영이며 과거 결과 재구축에도 기존 FocusService.recordCompletion/League 보상 정산을 재실행하지 않는다. 소속/이력·지연 완료 보정이 점수 projection을 바꾸면 source ID+source version으로 멱등 적용하고 이미 확정된 주차 처리 여부는 RK-D04 정책을 따른다. 같은 사건 재전달로 점수를 두 번 더하지 않는다.
+새 표는 하나다 — **`island_weekly_member_counts`(migration V85)**: `(week_start, island_id)` PK,
+`member_count > 0` CHECK, `EXTRACT(ISODOW FROM week_start) = 7` CHECK(키가 정말 일요일인지 DB 가 지킨다),
+`island_id → groups ON DELETE CASCADE`. 쓰기는 주 마감 크론 한 곳뿐이다:
 
-GET은 읽기 응답 외의 경제 효과0이다. snapshot 생성에는 지갑/보상 원장 호출이 없고 새로운 realtime ranking 이벤트를 원본14종에 몰래 추가하지 않는다. 필요한 화면 새로고침은 이미 승인된 집중/섬 상태 이벤트와 조회를 연결하되 GET이 사건 producer가 되지 않는다. 만약 이후 실시간 순위 사건을 추가하려면 별도 도메인/실시간 계약 개정이 필요하다.
+```
+@Scheduled(cron = "0 0 0 * * SUN", zone = "UTC")  +  @SchedulerLock("island-weekly-ranking-freeze")
+INSERT INTO island_weekly_member_counts … SELECT … GROUP BY gm.group_id ON CONFLICT DO NOTHING
+```
 
-Business는 검증 주체/서버 requestId/하나의 current context/deadline과 cursor 검증 결과를 기존 내부 클라이언트로 전달한다. Data는 모집단과 집계 정본을 소유한다. 필수 호출 timeout을 빈 랭킹200으로 바꾸지 않는다. 조회마다 주민별 다른 서비스 HTTP를 호출하는 N+1 없이 한 집계 DTO를 반환한다. 신규 profile 색상·시설·소속 기반이 아직 main에 없으므로 mock값을 실제 랭킹으로 포장하지 않는다.
+크론이 도는 시각은 이미 «새» 주이므로 대상은 직전 주다. `ON CONFLICT DO NOTHING` 이 멱등 가드다 — 두 번 돌든,
+늦게 돌든, 락이 새든 그 주의 분모는 **처음 적힌 값** 그대로다.
+
+**기준 시각은 실행 순간이 아니라 주 종료 경계다**(RK-D01-기준시각). 가입·이탈 **양방향**을 그 경계로 판정하므로
+**실행 시각이 값을 바꾸지 않는다** — 하루 늦게 돌아도 같은 분모가 나온다. 판정은
+`IslandWeeklyMemberCountRepository.ACTIVE_AT_BOUNDARY_SQL` 한 자리에 있다:
+멤버십 시작은 `COALESCE(rejoined_at, created_at) IS NULL OR COALESCE(rejoined_at, created_at) < 경계`,
+이탈은 `is_left = false OR (left_at IS NOT NULL AND left_at >= 경계)` (V97, GROMO-2050).
+**이탈 쪽을 `left_at IS NULL OR …` 로 줄여 적으면 안 된다** — V97 «이전» 에 나간 행은 `is_left = true` 인데
+`left_at` 이 null 이라(백필하지 않았다) 그 축약은 그 이력 행을 경계 시점 주민으로 되살려 **과거 주 분모를
+부풀린다**. 재사용하는 쿼리는 위 전체 조건을 그대로 쓴다. `created_at` 이 null 인 legacy 행은 «경계보다 오래된 행»으로 보고 포함한다 — DB 가 NOT NULL 이
+아니라 빼면 옛 주민이 통째로 사라진다.
+
+실행 유예(`ranking.freeze.grace`)는 **삭제했다**. 이탈 방향을 쿼리로 닫을 수 없던 동안의 임시 방편이었고, 이제
+필요 없다. 동결 쿼리에서 `users.is_deleted` 조인도 뺐다 — 남겨 두면 **경계 뒤 계정 탈퇴가 지난 주 분모를 줄여**
+강퇴와 똑같은 조작이 열린 채 남는다(계정 탈퇴는 같은 트랜잭션에서 모든 활성 멤버십에 `leave()` 를 밟으므로
+`left_at` 이 그 역할을 대신한다).
+
+남는 창은 **「경계 뒤에 나갔다가 또 돌아온」 한 벌**뿐이다 — 멤버십 행이 (user, group) 당 하나라 세대가 덮인다.
+닫으려면 멤버십 이력 표가 필요한데, 배치가 경계 직후 한 번만 도는 데 비해 비용이 크다(RK-D12).
+
+분자는 **복제하지 않는다**. 집중 정본(`focus_session_details`·`focus_session_intervals`)이 그대로 남아 있어
+언제든 같은 창으로 다시 합칠 수 있고, 복제하면 정본과 어긋날 자리를 만든다. 그 대가로 «주 경계를 걸친 세션이
+늦게 끝나면 지난 주 합이 늘어나는» 창이 남는다 — cutoff 여부는 RK-D04 미결이다.
+
+랭킹 GET 은 읽기 응답 외의 경제 효과가 0이다. 지갑·보상 원장을 호출하지 않고, 기존 리그 정산 함수도 부르지
+않으며, 새 realtime 사건을 만들지 않는다.
+
+**표면.** 내부 `GET /internal/users/{userId}/island-rankings` — 경로 섬이 없는 «전체 섬» 순위라 주체 축이다
+(B26, 1759 의 `island-search`·`island-discovery` 와 같은 자리). 공개 `GET /rankings/islands` 는
+`PublicApiRoutes.ROOTS` 의 `/rankings/**` 에 이미 걸려 봉투와 `no-store` 가 붙는다. Business 는 **모양**만 본다 —
+허용 query 키, 날짜 형식과 실재, limit 범위. 전망대·주민·주차 의미 판정은 Data 몫이다.
 
 ## 6. 오류와 검증
 
-실패는 `{error:{code,message,field,retryable},requestId}`. cursor 만료409에 임의 최신 순위 current를 넣지 않고 새 조회를 유도한다. 기존 코드를 등록 없이502로 바꾸지 않도록1777에서 실제 상류 조합을 대조한다.
+실패는 `{error:{code,message,field,retryable},requestId}`.
 
 | HTTP/code | 의미 | retryable |
 | --- | --- | --- |
-|400 INVALID_PARAMETER|week/cursor 외 query 형식·누락·중복|false|
-|400 INVALID_CURSOR|서명·scope·week·context·limit 불일치|false|
-|401 UNAUTHORIZED|사용자 인증 실패|false|
-|403 FORBIDDEN / FACILITY_LOCKED|현재 소속/참가 접근 불가 / tower 미해금|false|
-|404 USER_NOT_FOUND / GROUP_NOT_FOUND|본인·섬 부재; 기존404 공개 등록/명시매핑 검증|false|
-|409 CURSOR_EXPIRED|15분 만료·snapshot 파기, field=cursor|false|
-|422 OUT_OF_RANGE|없는 ISO 주차·limit 범위|false|
-|429 RATE_LIMITED / 503 SERVICE_UNAVAILABLE / 504 UPSTREAM_TIMEOUT|공통 일시 제한·필수 집계 실패|true|
-|502 UPSTREAM_CONTRACT_ERROR / UPSTREAM_AUTH_FAILED / 500 INTERNAL_ERROR|잘못된 집계 DTO·서비스 자격·결함|false|
+| 400 `INVALID_PARAMETER` | week 형식·허용 밖 query 키·중복 query | false |
+| 400 `INVALID_CURSOR` | 이 계약에는 페이지가 없다 — 들어온 커서는 위조다 | false |
+| 401 `UNAUTHORIZED` | 사용자 인증 실패 | false |
+| 403 `FORBIDDEN` | 현재 섬이 없거나 그 섬의 활성 주민이 아님 | false |
+| 403 `FACILITY_LOCKED` | 전망대 미완공(Data `OBSERVATORY_LOCKED`) | false |
+| 404 `USER_NOT_FOUND` / `GROUP_NOT_FOUND` | 요청자 비활성 / 현재 섬 부재·종료 | false |
+| 422 `OUT_OF_RANGE` | 없는 날짜·일요일 아님·아직 오지 않은 주(field=week), limit 범위(field=limit) | false |
+| 429 / 503 / 504 | 공통 일시 제한·집계 실패 | true |
+| 502 `UPSTREAM_CONTRACT_ERROR` | 상류가 다른 주를 답하거나 표에 없는 (상태, 코드) | false |
 
-빈 적격 집합의 items=[]와 비적격 응답은 같지 않다. myRank=null도 시스템 장애를 숨기는 대체값으로 쓰지 않는다.405/413/415/빈406 등 일반 경계는 A0를 따른다.
+표에 있는 **(상태, 코드) 쌍이 정확히 같을 때만** 공개 오류로 옮기고 나머지는 502 다 — Data 가 같은 코드의
+상태를 바꾸면 공개 표가 조용히 어긋나는 대신 502 가 된다.
 
-main529a 실제 코드 근거:
+### 검증 (구현된 회귀)
 
-- [LeagueWeek:11/35/60](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/league/support/LeagueWeek.java#L11): KST 월요일 경계와 동일 now 주입은 재사용. ISO week query는 추가 검증 필요.
-- [LeagueRankingQueryRepository:45](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/league/repository/LeagueRankingQueryRepository.java#L45): 실제 daily_focus_stats 합산이지만 섬 귀속 JOIN 없음.
-- [같은 쿼리:124/146/170](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/league/repository/LeagueRankingQueryRepository.java#L124): live now-start와 top 정렬, settled keyset은 새 ACTIVE 휴식/불변 snapshot을 보장하지 않음.
-- [LeagueService:148](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/league/service/LeagueService.java#L148): i+1은 공동순위 정책이 아님.
-- [DailyFocusStatRepository:165/220](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/focus/repository/DailyFocusStatRepository.java#L165): 기존 평균의 행 존재 사용자 분모·전체기간 그룹 합을 새 주차 cohort로 사용하지 않음.
-- [GroupMember:94~114](https://github.com/OneOrThree/phone/blob/529a396/server/data-api/src/main/java/com/oneorthree/phone/group/repository/domain/GroupMember.java#L94): 재가입 복구는 전체 소속 이력을 보존하지 않음.
+`IslandRankingsIntegrationTest`(실 Flyway·Testcontainers) · `RankingWeekTest` · `InternalRankingsAllowlistTest` ·
+business `IslandRankingsContractTest`:
 
-1777 구현 순서: RC-D01/랭킹 정책 결정 → 고정 기여·cohort 및 legacy 이관 → 순수 집계/순위 함수 → immutable snapshot·인가된 cursor → 공개 HTTP → 실제 PostgreSQL·경합 검증. BFF는 뒤에서 이 재료를 사용한다.
+- 주 경계 — 일요일 자정 반열림, 경계를 걸친 세션은 주 «안»의 몫만, 월요일 날짜·미래 주는 422,
+  ISO 주차가 이 경계와 어긋난다는 사실 자체를 못박는다.
+- 분자 — 휴식 제외, 다른 섬 귀속 제외, 진행 중 세션 제외.
+- **분모 동결 — 주가 끝난 뒤 주민을 강퇴해도 지난 주 평균이 오르지 않는다.** 동결의 존재 이유라 반드시 있다.
+- 동결 결손 — 끝난 주에 행이 없는 섬은 빠지고 `myRank` 는 `null`.
+- 진행 중인 주는 지금 인원으로 나눈다(동결 행 없음).
+- 동결 멱등 — 재실행이 이미 적힌 값을 덮지 않는다.
+- 동점 공동 순위 1,1,3 / 목록이 잘려도 `myRank` 는 전체 모집단 기준 / 집중 0인 섬은 참가 아님.
+- 게이트 — 전망대 미완공 403, 현재 섬 없음 403, 종료 섬 404.
+- 공개 계약 — query 모양, `nextCursor` 부재, 들어온 커서 400, 상류 실패 표, 주 불일치 502, 내부 허용목록.
 
-필수 회귀는 ISO week-year/자정/휴식, 진행→완료 중복0, 페이지 경계 동점·myRank 전체순위, 분모0/0초 주민/중도가입/강퇴·재가입/1→2→1, 개인전체와 섬귀속 이동, 같은 snapshot에 완료·이름변경이 끼어도 페이지 안정, cursor 위조·타인·다른주·scope·limit·만료, 다음 페이지 전 탈퇴/시설·소속 상실·PII 파기, 과거 cutoff 뒤 지연반영, relay 중복/재집계 보상0이다. 페이지에 아직 나오지 않은 사용자 또는 섬 평균 기여자의 탈퇴도 전체 snapshot 무효화를 검증한다. 생성/페이지 확정과 중앙 withdraw의 양방향 경합, 역색인 누락 방지, 파기 실패 시 전체 rollback, 탈퇴 선커밋 후 이전 payload 반환0을 실제 PostgreSQL에서 확인한다. 미결 정책은 승인된 fixture 표가 생긴 뒤 테스트 통과를 판단한다.
-
-로그는 requestId, snapshot lookup outcome, operation, durationMs, policyRevision, bounded counts로 남기고 cursor 원문·사용자명·전체 결과·토큰을 남기지 않는다. snapshot 생성시간/보관량/만료율·집계 지연·분모 이상을 유한 label로 계측한다. 빌드·실서비스 검증을 이 문서 작성의 완료 증거로 주장하지 않는다.
+로그는 requestId·주차·소요·집계 섬 수 같은 유한 label 로 남기고 사용자·전체 결과를 남기지 않는다.

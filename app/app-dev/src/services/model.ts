@@ -51,6 +51,7 @@ export type Route =
   | 'focusTravel'
   | 'returnTravel'
   | 'permission'
+  | 'screenTimeApps'
   | 'demo';
 export type Member = {
   id: string;
@@ -72,6 +73,8 @@ export type Quest = {
   windowStart?: string;
   windowEnd?: string;
   claimed: boolean;
+  /** KST date on which this quest became eligible for daily rounds. */
+  createdDay?: string;
   rounds?: Record<string, QuestRound>;
 };
 export type QuestRound = {
@@ -138,6 +141,10 @@ export type Island = {
   // 승인 대기 중인 가입 신청. 예전 저장본은 LOAD에서 빈 목록으로 채운다
   requests?: { id: string; name: string; color: Color }[];
   joined: boolean;
+  /** KST date on which the current user joined this island. */
+  joinedDay?: string;
+  /** KST date on which the board first became available for daily screen-time quests. */
+  boardCompletedDay?: string;
   buildings: Building[];
   /** Legacy aliases kept only for importing old fixtures. UI uses fish. */
   fish?: number;
@@ -213,6 +220,7 @@ export type State = {
   friends?: Friend[];
   rewards?: Reward[];
   screenDays?: Record<string, number | null>;
+  screenTimeUnconfirmedDays?: string[];
   focusSpot?: { x: number; y: number };
   resultFromRest?: boolean;
   loggedIn: boolean;
@@ -231,6 +239,9 @@ export type State = {
     publicRecords: boolean;
     permission: boolean;
     haptics: boolean;
+    screenTimeBoardPromptSeen?: boolean;
+    screenTimeMeasurementReady?: boolean;
+    screenTimeHistoryReady?: boolean;
   };
   islands: Island[];
   session: Session | null;
@@ -300,8 +311,9 @@ export const buildingOrder: Building[] = [
   'tower',
   'shop',
 ];
-function completeAllBuildings(i: Island) {
+function completeAllBuildings(i: Island, now = Date.now()) {
   i.buildings = [...buildingOrder];
+  i.boardCompletedDay ??= dayKey(now);
   delete i.buildingQuest;
   delete i.construction;
   delete i.nextBuilding;
@@ -469,6 +481,8 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
     })),
     formerMembers: [],
     requests: full && !solo ? [{ id: 'saebom', name: '새봄', color: 'white' }] : [],
+    joinedDay: joined ? '1970-01-01' : undefined,
+    boardCompletedDay: full ? '1970-01-01' : undefined,
     quests: [
       {
         id: 'q-focus',
@@ -476,6 +490,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
         type: 'focus',
         target: 30,
         claimed: false,
+        createdDay: '1970-01-01',
       },
       {
         id: 'q-screen',
@@ -483,6 +498,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
         type: 'screen',
         target: 120,
         claimed: false,
+        createdDay: '1970-01-01',
       },
     ],
     notices: solo
@@ -630,8 +646,11 @@ export function initialState(full = false): State {
       sound: true,
       reduceMotion: false,
       publicRecords: true,
-      permission: true,
+      permission: full,
       haptics: true,
+      screenTimeBoardPromptSeen: false,
+      screenTimeMeasurementReady: full,
+      screenTimeHistoryReady: full,
     },
     islands: [
       makeIsland('soda', '소다 섬', full, !full),
@@ -646,6 +665,7 @@ export function initialState(full = false): State {
     records: [],
     orders: [],
     screenMinutes: 90,
+    screenTimeUnconfirmedDays: [],
     lastResult: null,
     pendingIsland: null,
     pendingIslands: [],
@@ -784,7 +804,9 @@ export const sessionSeconds = (session: Session | null, now = Date.now()) =>
       (session.status === 'active' ? Math.max(0, (now - session.startedAt) / 1000) : 0);
 export function questRate(s: State, q: Quest, islandId = s.islandId): number | null {
   if (q.type === 'screen')
-    return !s.settings.permission
+    return !s.settings.permission ||
+      !s.settings.screenTimeMeasurementReady ||
+      s.screenTimeUnconfirmedDays?.includes(dayKey())
       ? null
       : s.screenMinutes <= q.target
         ? 100
@@ -968,7 +990,9 @@ export function questMemberRate(
   if (q.type === 'screen') {
     const v =
       id === 'me'
-        ? s.settings.permission
+        ? s.settings.permission &&
+          s.settings.screenTimeMeasurementReady &&
+          !s.screenTimeUnconfirmedDays?.includes(dayKey(now))
           ? s.screenMinutes
           : null
         : member?.screenDays?.[dayKey(now)];
@@ -1010,24 +1034,38 @@ export function questMemberRate(
     Math.floor((focusTotal(records, islandId, dayKey(now), round) / (q.target * 60)) * 100),
   );
 }
+function ensureQuestRound(i: Island, q: Quest, day: string) {
+  q.rounds ??= {};
+  if (q.rounds[day]) return;
+  if (
+    (q.createdDay && day < q.createdDay) ||
+    (i.joinedDay && day < i.joinedDay) ||
+    (i.boardCompletedDay && day < i.boardCompletedDay)
+  )
+    return;
+  q.rounds[day] ??= {
+    targets: targetIds(i),
+    achieved: [],
+    claimed: [],
+    bonus: false,
+    target: q.target,
+    kind: q.type,
+    windowStart: q.windowStart,
+    windowEnd: q.windowEnd,
+  };
+}
+
 function evaluateQuests(s: State, now: number) {
   s.rewards ??= [];
   for (const i of s.islands.filter((i) => i.joined && i.buildings.includes('board')))
     for (const q of i.quests) {
       q.rounds ??= {};
       const today = dayKey(now);
-      q.rounds[today] ??= {
-        targets: targetIds(i),
-        achieved: [],
-        claimed: [],
-        bonus: false,
-        target: q.target,
-        kind: q.type,
-        windowStart: q.windowStart,
-        windowEnd: q.windowEnd,
-      };
+      ensureQuestRound(i, q, today);
       for (const [day, round] of Object.entries(q.rounds)) {
         if (day > today) continue;
+        if (round.kind === 'screen' && day < today && !s.settings.screenTimeHistoryReady) continue;
+        if (round.kind === 'screen' && s.screenTimeUnconfirmedDays?.includes(day)) continue;
         for (const id of round.targets) {
           const member = memberOf(i, id);
           let achieved = round.achieved.includes(id);
@@ -1113,7 +1151,7 @@ function evaluateQuests(s: State, now: number) {
             });
         }
       }
-      q.claimed = q.rounds[today].claimed.includes('me');
+      q.claimed = q.rounds[today]?.claimed.includes('me') ?? false;
     }
 }
 export type Action = { type: string; [key: string]: any };
@@ -1131,6 +1169,12 @@ export function reducer(state: State, a: Action): State {
       i.chatReadAt ??= Math.max(loadedAt, ...i.messages.map((m) => m.at));
       // 예전 저장본: 가입 신청 목록이 없으면 빈 목록(가짜 새봄 신청을 띄우지 않는다)
       i.requests ??= [];
+      const earliestRound = i.quests.flatMap((quest) => Object.keys(quest.rounds ?? {})).sort()[0];
+      if (i.joined) i.joinedDay ??= earliestRound ?? dayKey(loadedAt);
+      if (i.buildings.includes('board')) i.boardCompletedDay ??= earliestRound ?? dayKey(loadedAt);
+      i.quests.forEach((quest) => {
+        quest.createdDay ??= Object.keys(quest.rounds ?? {}).sort()[0] ?? dayKey(loadedAt);
+      });
       // 예전 규칙(전망대·우체통만 선행)으로 고른 상점 목표는 지금 규칙에 안 맞으면 해제한다
       if (i.buildingQuest?.building === 'shop' && !i.construction && !shopPrerequisitesMet(i)) {
         delete i.buildingQuest;
@@ -1155,6 +1199,7 @@ export function reducer(state: State, a: Action): State {
       friends: loaded.friends ?? [],
       rewards: loaded.rewards ?? [],
       screenDays: loaded.screenDays ?? {},
+      screenTimeUnconfirmedDays: loaded.screenTimeUnconfirmedDays ?? [],
       profileNames: loaded.profileNames ?? [loaded.name],
       // 받은 편지 읽음 기준이 없던 저장본은 이미 받은 편지를 모두 읽은 것으로 본다
       lettersReadAt:
@@ -1162,7 +1207,11 @@ export function reducer(state: State, a: Action): State {
         Math.max(loadedAt, ...(loaded.friends ?? []).flatMap((f) => f.messages.map((m) => m.at))),
       pendingIslands,
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
-      settings: { ...loaded.settings, publicRecords: true },
+      settings: {
+        ...loaded.settings,
+        publicRecords: true,
+        screenTimeHistoryReady: loaded.settings.screenTimeHistoryReady ?? false,
+      },
       equipped: {
         ...loaded.equipped,
         hull: 'raft',
@@ -1225,7 +1274,10 @@ export function reducer(state: State, a: Action): State {
     now = a.now ?? Date.now();
   const log = (text: string, memberId = 'me') =>
     i.ledger.unshift({ id: uuid(), text, at: now, memberId });
+  // 도메인별 구분선(GROMO-2004). 이 리듀서 하나에 여러 티켓이 동시에 붙는다 — 자기 도메인 구간
+  // 안에만 case 를 더하면 서로의 머지 충돌이 줄어든다. 구간 순서는 바꾸지 않는다.
   switch (a.type) {
+    // ── 인증·계정 ──
     case 'LOGIN':
       s.loggedIn = true;
       break;
@@ -1235,9 +1287,11 @@ export function reducer(state: State, a: Action): State {
       s.name = a.name?.trim() || s.name;
       s.color = a.color || s.color;
       break;
+    // ── 섬 — 만들기·가입·이동 ──
     case 'CREATE_ISLAND': {
       const n = makeIsland(uuid(), a.name.trim() || '나의 섬', false, true);
       n.joined = true;
+      n.joinedDay = dayKey(now);
       n.intro = a.intro || '';
       n.approval = !!a.approval;
       n.capacity = Math.min(
@@ -1261,6 +1315,7 @@ export function reducer(state: State, a: Action): State {
       const island = s.islands.find((x) => x.id === a.id);
       if (!island || island.closed || island.kicked || (!island.joined && isFull(island)))
         return state;
+      const wasJoined = island.joined;
       if (!island.joined && island.approval && !a.approved) {
         s.pendingIslands = [...new Set([...(s.pendingIslands ?? []), island.id])];
         s.pendingIsland = island.id;
@@ -1268,6 +1323,7 @@ export function reducer(state: State, a: Action): State {
       }
       s.travelOrigin = s.onboarded ? i.name : '나의 뗏목';
       island.joined = true;
+      if (!wasJoined) island.joinedDay = dayKey(now);
       s.islandId = island.id;
       // 구경하던 섬에 바로 가입하면 그 섬 주민이 되어 구경이 끝난다
       s.visitingIslandId = null;
@@ -1295,6 +1351,7 @@ export function reducer(state: State, a: Action): State {
       s.visitingIslandId = null;
       break;
     }
+    // ── 집중 세션 ──
     case 'FOCUS_SPOT':
       if (s.session) return state;
       s.focusSpot = a.spot;
@@ -1373,6 +1430,7 @@ export function reducer(state: State, a: Action): State {
       s.session = null;
       break;
     }
+    // ── 건물 공사·퀘스트 ──
     case 'SELECT_BUILDING': {
       const b = a.building as Building;
       if (canSelectBuilding(i, b)) return state;
@@ -1411,6 +1469,7 @@ export function reducer(state: State, a: Action): State {
         if (island.construction && now >= island.construction.endsAt) {
           const b = island.construction.building;
           if (!island.buildings.includes(b)) island.buildings.push(b);
+          if (b === 'board') island.boardCompletedDay ??= dayKey(island.construction.endsAt);
           delete island.construction;
           delete island.buildingQuest;
           delete island.nextBuilding;
@@ -1421,7 +1480,11 @@ export function reducer(state: State, a: Action): State {
             at: now,
           });
         }
-      if (s.settings.permission) {
+      if (
+        s.settings.permission &&
+        s.settings.screenTimeMeasurementReady &&
+        !s.screenTimeUnconfirmedDays?.includes(dayKey(now))
+      ) {
         s.screenDays ??= {};
         s.screenDays[dayKey(now)] = s.screenMinutes;
       } else {
@@ -1514,9 +1577,11 @@ export function reducer(state: State, a: Action): State {
           windowStart,
           windowEnd,
           claimed: false,
+          createdDay: dayKey(now),
         });
       break;
     }
+    // ── 게시판·공지·댓글 ──
     case 'NOTICE_SAVE': {
       // 제목·본문은 공백만 있으면 저장하지 않는다
       if (!a.title?.trim() || !a.body?.trim()) return state;
@@ -1561,6 +1626,7 @@ export function reducer(state: State, a: Action): State {
       n.comments = n.comments.filter((x) => x !== c);
       break;
     }
+    // ── 채팅 ──
     case 'CHAT_READ':
       // 읽음 기준은 뒤로 가지 않는다 — LOAD가 미래 시각 메시지까지 읽은 것으로 올려 둔 값을 지키기 위해.
       // 방을 연 채 도착한 시계 오차(미래 시각) 메시지도 이미 본 것이므로 기준에 넣는다
@@ -1587,6 +1653,7 @@ export function reducer(state: State, a: Action): State {
       if (m) m.status = 'sent';
       break;
     }
+    // ── 상점·꾸미기 ──
     case 'BUY': {
       const p = products.find((x) => x.id === a.id);
       if (!p || canBuy(s, p)) return state;
@@ -1625,6 +1692,7 @@ export function reducer(state: State, a: Action): State {
         } else i.theme = a.value;
       }
       break;
+    // ── 설정·화면시간 ──
     case 'TRACK':
       if (i.buildings.includes('gram') && i.sharedOwned.includes(a.value)) {
         i.track = a.value;
@@ -1637,6 +1705,7 @@ export function reducer(state: State, a: Action): State {
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;
       break;
+    // ── 섬 관리 (방장) ──
     case 'MANAGE':
       i.name = a.name?.trim() || i.name;
       i.intro = a.intro ?? i.intro;
@@ -1718,9 +1787,43 @@ export function reducer(state: State, a: Action): State {
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);
       break;
+    case 'SCREEN_TIME_DAY':
+      s.screenDays ??= {};
+      if (s.screenTimeUnconfirmedDays?.includes(a.day)) break;
+      s.screenDays[a.day] = Math.max(0, a.value);
+      for (const island of s.islands.filter(
+        (candidate) => candidate.joined && candidate.buildings.includes('board'),
+      ))
+        for (const quest of island.quests) ensureQuestRound(island, quest, a.day);
+      evaluateQuests(s, now);
+      break;
+    case 'SCREEN_TIME_HISTORY':
+      s.screenDays ??= {};
+      for (const bucket of a.buckets ?? []) {
+        if (s.screenTimeUnconfirmedDays?.includes(bucket.date)) continue;
+        s.screenDays[bucket.date] = Math.max(0, bucket.minutes);
+        for (const island of s.islands.filter(
+          (candidate) => candidate.joined && candidate.buildings.includes('board'),
+        ))
+          for (const quest of island.quests) ensureQuestRound(island, quest, bucket.date);
+      }
+      s.settings.screenTimeHistoryReady = true;
+      evaluateQuests(s, now);
+      break;
+    case 'SCREEN_TIME_UNCONFIRMED':
+      s.screenDays ??= {};
+      s.screenTimeUnconfirmedDays = [
+        ...new Set([...(s.screenTimeUnconfirmedDays ?? []), ...(a.days ?? [])]),
+      ].sort();
+      s.screenTimeUnconfirmedDays.forEach((day) => {
+        s.screenDays![day] = null;
+      });
+      break;
+    // ── 인증 — 로그아웃 ──
     case 'LOGOUT':
       s.loggedIn = false;
       break;
+    // ── 친구·편지 ──
     case 'FRIEND_REQUEST': {
       s.friends ??= [];
       const f = s.friends.find((f) => f.id === a.id);
@@ -1777,6 +1880,7 @@ export function reducer(state: State, a: Action): State {
       m.status = 'sent';
       break;
     }
+    // ── 계정 — 탈퇴 ──
     case 'DELETE_ACCOUNT': {
       const clean = initialState();
       const profileNames = new Set([s.name, ...(s.profileNames ?? [])]);
@@ -1842,9 +1946,10 @@ export function reducer(state: State, a: Action): State {
       });
       return clean;
     }
+    // ── QA·데모 전용 ──
     case 'QA_COMPLETE_ALL_BUILDINGS':
       if (!s.onboarded) return state;
-      completeAllBuildings(i);
+      completeAllBuildings(i, now);
       break;
     case 'DEMO_CREDIT':
       i.fish = balance(i) + (a.fish || 0) + (a.points || 0) + (a.contribution || 0);
@@ -1854,6 +1959,7 @@ export function reducer(state: State, a: Action): State {
     default:
       return state;
   }
-  if (['FINISH', 'QUEST_SAVE', 'SCREEN_TIME'].includes(a.type)) evaluateQuests(s, now);
+  if (['FINISH', 'QUEST_SAVE', 'SCREEN_TIME', 'SCREEN_TIME_DAY'].includes(a.type))
+    evaluateQuests(s, now);
   return s;
 }

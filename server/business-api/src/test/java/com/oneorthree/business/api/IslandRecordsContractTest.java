@@ -39,9 +39,25 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     private static final String DATA_FOCUS = "GET /internal/islands/" + ISLAND + "/statistics/focus";
     private static final String DATA_SCREEN = "GET /internal/islands/" + ISLAND + "/statistics/screen-time";
     private static final String DATA_PUT = "PUT /internal/users/" + USER + "/screen-time/2026-09-11";
+    private static final String DATA_LEDGER = "GET /internal/islands/" + ISLAND + "/resources/ledger";
     private static final String FOCUS = "/islands/" + ISLAND + "/statistics/focus";
     private static final String SCREEN = "/islands/" + ISLAND + "/statistics/screen-time";
     private static final String UPLOAD = "/me/screen-time/2026-09-11";
+    private static final String LEDGER_PATH = "/islands/" + ISLAND + "/resources/ledger";
+    private static final String DATA_FISH = "GET /internal/islands/" + ISLAND + "/statistics/fish-earnings";
+    private static final String FISH_PATH = "/islands/" + ISLAND + "/statistics/fish-earnings";
+    private static final String FISH = "{\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\","
+            + "\"earnedFish\":4800},{\"userId\":\"" + SESSION + "\",\"name\":\"도윤\",\"earnedFish\":0}]}";
+
+    private static final UUID ENTRY = UUID.fromString("eeeeeeee-1786-0000-0000-000000000001");
+    private static final String LEDGER = "{\"month\":\"2026-09\",\"earnedTotal\":4800,\"spentTotal\":1360,"
+            + "\"items\":[{\"id\":\"" + ENTRY + "\",\"direction\":\"spend\",\"reason\":\"construction_debit\","
+            + "\"amount\":1360,\"createdAt\":\"2026-09-11T12:00:00Z\",\"groupedUntil\":\"2026-09-11T12:00:00Z\","
+            + "\"entryCount\":1},{\"id\":\"" + SNAPSHOT + "\",\"direction\":\"earn\",\"reason\":\"contribution\","
+            + "\"amount\":480,\"createdAt\":\"2026-09-11T00:00:00Z\",\"groupedUntil\":\"2026-09-11T14:00:00Z\","
+            + "\"entryCount\":480}],\"nextCreatedAt\":\"2026-09-11T00:00:00Z\",\"nextEntryId\":\"" + ENTRY + "\"}";
+    private static final String LEDGER_LAST = "{\"month\":\"2026-09\",\"earnedTotal\":0,\"spentTotal\":0,"
+            + "\"items\":[],\"nextCreatedAt\":null,\"nextEntryId\":null}";
 
     private static final String RECORD = "{\"id\":\"" + SNAPSHOT + "\",\"subject\":\"수학\",\"activeSeconds\":1500,"
             + "\"completedAt\":\"2026-09-11T09:10:00Z\"}";
@@ -175,6 +191,194 @@ class IslandRecordsContractTest extends UpstreamTestBase {
                 .andExpect(status().is(publicStatus))
                 .andExpect(jsonPath("$.error.code").value(publicCode))
                 .andExpect(jsonPath("$.error.field").value(field));
+    }
+
+    // ---------------------------------------------------------------- 공동 가계부 (GROMO-1786)
+
+    @Test
+    @DisplayName("가계부 — 월 합계와 최신순 줄을 내리고, limit 은 서버가 정하며 커서는 원장 행 id 를 드러내지 않는다")
+    void ledgerPagesWithSignedCursor() throws Exception {
+        DATA.on(DATA_LEDGER, request -> ok(LEDGER));
+
+        MvcResult first = mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.month").value("2026-09"))
+                .andExpect(jsonPath("$.data.earnedTotal").value(4800))
+                .andExpect(jsonPath("$.data.spentTotal").value(1360))
+                .andExpect(jsonPath("$.data.items[0].direction").value("spend"))
+                .andExpect(jsonPath("$.data.items[0].reason").value("construction_debit"))
+                .andExpect(jsonPath("$.data.items[0].amount").value(1360))
+                .andExpect(jsonPath("$.data.items[0].entryCount").value(1))
+                // 집중 적립은 하루로 접힌 줄이다(GROMO-1990) — groupedUntil 과 entryCount 가 그 사실을 말한다.
+                .andExpect(jsonPath("$.data.items[1].reason").value("contribution"))
+                .andExpect(jsonPath("$.data.items[1].groupedUntil").value("2026-09-11T14:00:00Z"))
+                .andExpect(jsonPath("$.data.items[1].entryCount").value(480))
+                // 타인 PII 를 원장 줄에 복사하지 않는다 — 주민별 기여는 도서관 게이트 뒤의 fish-earnings 몫이다.
+                .andExpect(jsonPath("$.data.items[0].userId").doesNotExist())
+                .andExpect(jsonPath("$.data.items[0].name").doesNotExist())
+                .andReturn();
+        assertThat(DATA.receivedFor(DATA_LEDGER).get(0).query().split("&"))
+                .containsExactlyInAnyOrder("month=2026-09", "limit=30");
+
+        String cursor = JsonPath.read(first.getResponse().getContentAsString(), "$.data.nextCursor");
+        assertThat(cursor).isNotBlank().doesNotContain(ENTRY.toString());
+
+        mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09").param("cursor", cursor)))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor(DATA_LEDGER).get(1).query().split("&")).containsExactlyInAnyOrder(
+                "month=2026-09", "limit=30", "afterCreatedAt=2026-09-11T00:00:00Z", "afterEntryId=" + ENTRY);
+
+        // 달·방향을 바꾸면 같은 커서를 받지 않는다 — 필터가 바뀌면 keyset 축의 의미도 바뀐다.
+        mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-08").param("cursor", cursor)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+        mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09").param("direction", "earn")
+                        .param("cursor", cursor)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_CURSOR"));
+    }
+
+    @Test
+    @DisplayName("가계부 — 마지막 쪽은 nextCursor 가 null 이고 방향 필터는 상류로 그대로 나간다")
+    void ledgerLastPageHasNoCursor() throws Exception {
+        DATA.on(DATA_LEDGER, request -> ok(LEDGER_LAST));
+
+        mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09").param("direction", "spend")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nextCursor").value(nullValue()))
+                .andExpect(jsonPath("$.data.items").isEmpty());
+        assertThat(DATA.receivedFor(DATA_LEDGER).get(0).query()).contains("direction=spend");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"month=2026-9,400,INVALID_PARAMETER,month",
+            "month=2026-13,422,OUT_OF_RANGE,month",
+            ",400,INVALID_PARAMETER,month",
+            "month=2026-09&direction=all,422,OUT_OF_RANGE,direction",
+            "month=2026-09&limit=10,400,INVALID_PARAMETER,limit",
+            "month=2026-09&timezone=UTC,400,INVALID_PARAMETER,timezone",
+            "month=2026-09&month=2026-08,400,INVALID_PARAMETER,month"})
+    @DisplayName("가계부 query 모양 — 형식은 400, 없는 달·모르는 방향은 422. limit 은 공개 입력이 아니다. 상류 호출 없음")
+    void ledgerRejectsQueries(String query, int status, String code, String field) throws Exception {
+        mockMvc.perform(auth(get(LEDGER_PATH + (query == null ? "" : "?" + query))))
+                .andExpect(status().is(status))
+                .andExpect(jsonPath("$.error.code").value(code))
+                .andExpect(jsonPath("$.error.field").value(field));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("방문자(비주민)의 가계부 조회는 403 이고 빈 장부가 아니다 — 정책 「방문자에게 공동 가계부를 보여 주지 않는다」")
+    void ledgerRejectsVisitor() throws Exception {
+        DATA.on(DATA_LEDGER, request -> error(403, "MEMBER_ONLY"));
+
+        String body = mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("FORBIDDEN"))
+                .andExpect(jsonPath("$.error.field").value("islandId"))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        // 「거래가 없다」로 읽히는 값이 한 조각도 섞이지 않는다.
+        assertThat(body).doesNotContain("items", "earnedTotal", "spentTotal", "month");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"500,INTERNAL_ERROR,500,INTERNAL_ERROR",
+            "503,SERVICE_UNAVAILABLE,503,SERVICE_UNAVAILABLE",
+            "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND",
+            "502,UPSTREAM_CONTRACT_ERROR,502,UPSTREAM_CONTRACT_ERROR"})
+    @DisplayName("내부 조회 실패는 빈 장부로 접지 않는다 — 실패는 실패로 올라간다")
+    void ledgerNeverFakesAnEmptyBook(int upstreamStatus, String code, int publicStatus, String publicCode)
+            throws Exception {
+        DATA.on(DATA_LEDGER, request -> error(upstreamStatus, code));
+
+        String body = mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
+                .andExpect(status().is(publicStatus))
+                .andExpect(jsonPath("$.error.code").value(publicCode))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain("earnedTotal", "spentTotal");
+    }
+
+    @Test
+    @DisplayName("상류가 다른 달을 주거나 경계가 반쪽이면 502 — 조용히 그 달의 장부인 척하지 않는다")
+    void ledgerRejectsMismatchedUpstream() throws Exception {
+        DATA.on(DATA_LEDGER, request -> ok(LEDGER.replace("\"month\":\"2026-09\"", "\"month\":\"2026-08\"")));
+        mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+
+        // 다음 쪽 경계가 반쪽이면 커서를 만들 수 없다.
+        DATA.on(DATA_LEDGER, request -> ok(LEDGER.replace("\"nextEntryId\":\"" + ENTRY + "\"",
+                "\"nextEntryId\":null")));
+        mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    // ---------------------------------------------------------------- 물고기 장 (GROMO-2046)
+
+    @Test
+    @DisplayName("물고기 장 — Data 명단을 순서 그대로 싣고 query 를 상류로 보내지 않는다(기간 축이 없다)")
+    void fishEarningsCarriesMembersWithoutQuery() throws Exception {
+        DATA.on(DATA_FISH, request -> ok(FISH));
+
+        mockMvc.perform(auth(get(FISH_PATH)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.members[0].userId").value(USER.toString()))
+                .andExpect(jsonPath("$.data.members[0].name").value("수빈"))
+                .andExpect(jsonPath("$.data.members[0].earnedFish").value(4800))
+                // 기록이 없는 주민도 0 으로 실린다 — 명단에서 빠지지 않는다.
+                .andExpect(jsonPath("$.data.members[1].earnedFish").value(0))
+                // 잔액·페이지 축이 아니다 — 재화는 섬 단위 하나이고 개인 지갑이 없다(GROMO-1989).
+                .andExpect(jsonPath("$.data.nextCursor").doesNotExist())
+                .andExpect(jsonPath("$.data.balance").doesNotExist());
+        assertThat(DATA.receivedFor(DATA_FISH).get(0).query()).isNullOrEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"from=2026-09-01&to=2026-09-07", "scope=island", "cursor=x", "limit=10"})
+    @DisplayName("물고기 장 — query 는 하나도 받지 않는다(400). 모르는 키를 조용히 버리지 않는다. 상류 호출 없음")
+    void fishEarningsRejectsAnyQuery(String query) throws Exception {
+        mockMvc.perform(auth(get(FISH_PATH + "?" + query)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"403,LIBRARY_LOCKED,403,FACILITY_LOCKED,",
+            "403,MEMBER_ONLY,403,FORBIDDEN,islandId",
+            "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
+            "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
+            "409,LIBRARY_LOCKED,502,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("물고기 장 — 도서관 게이트·비주민은 «공개 오류 표»를 거친다(502 로 새지 않는다)")
+    void fishEarningsMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode,
+            String field) throws Exception {
+        DATA.on(DATA_FISH, request -> error(upstreamStatus, code));
+
+        String body = mockMvc.perform(auth(get(FISH_PATH)))
+                .andExpect(status().is(publicStatus))
+                .andExpect(jsonPath("$.error.code").value(publicCode))
+                .andExpect(jsonPath("$.error.field").value(field))
+                .andExpect(jsonPath("$.data").doesNotExist())
+                .andReturn().getResponse().getContentAsString();
+        // 방문자·미완공에 「아무도 안 낚았다」로 읽히는 빈 명단을 내주지 않는다.
+        assertThat(body).doesNotContain("members", "earnedFish");
+    }
+
+    @Test
+    @DisplayName("물고기 장 — 명단이 없거나 마리 수가 빠지면 502 다. 빠진 값을 0 으로 지어내지 않는다")
+    void fishEarningsRejectsIncompleteUpstream() throws Exception {
+        DATA.on(DATA_FISH, request -> ok("{\"members\":null}"));
+        mockMvc.perform(auth(get(FISH_PATH)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+
+        DATA.on(DATA_FISH, request -> ok("{\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}]}"));
+        mockMvc.perform(auth(get(FISH_PATH)))
+                .andExpect(status().isBadGateway())
+                .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
     // ---------------------------------------------------------------- 측정 PUT

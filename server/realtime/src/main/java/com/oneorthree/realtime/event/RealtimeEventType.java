@@ -2,11 +2,13 @@ package com.oneorthree.realtime.event;
 
 import com.fasterxml.jackson.annotation.JsonValue;
 
-/** 14종 이벤트 이름과 정적 채널. 목적지 문자열을 생산자 payload에서 읽지 않는다. */
+/** 15종 이벤트 이름과 정적 채널. 목적지 문자열을 생산자 payload에서 읽지 않는다. */
 public enum RealtimeEventType {
     FOCUS_MEMBER_UPDATED("focus.member.updated", "focus"),
     REST_MEMBER_UPDATED("rest.member.updated", "rest"),
     FOCUS_EMOTE("focus.emote", "emotes"),
+    /** 황금 물고기(GROMO-1956) — 함께 낚은 주민의 3초 컷신 신호. 낚시섬 채널로 방송한다. */
+    GOLDEN_FISH_CAUGHT("focus.golden", "focus"),
     PLAYBACK_UPDATED("playback.updated", "playback"),
     MESSAGE_CREATED("message.created", "messages"),
     QUEST_PROGRESS_UPDATED("quest.progress.updated", "events"),

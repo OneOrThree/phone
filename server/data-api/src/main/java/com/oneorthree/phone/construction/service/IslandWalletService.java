@@ -6,6 +6,7 @@ import com.oneorthree.phone.construction.repository.IslandConstructionContributi
 import com.oneorthree.phone.construction.repository.IslandConstructionStateRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletRepository;
 import com.oneorthree.phone.construction.repository.IslandWalletTransactionRepository;
+import com.oneorthree.phone.construction.repository.domain.IslandConstructionContributionId;
 import com.oneorthree.phone.construction.repository.domain.IslandConstructionState;
 import com.oneorthree.phone.construction.repository.domain.IslandWallet;
 import com.oneorthree.phone.construction.repository.domain.IslandWalletTransaction;
@@ -16,6 +17,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.Collection;
 import java.util.OptionalInt;
 import java.util.UUID;
 
@@ -38,7 +40,20 @@ public class IslandWalletService {
     private final IslandConstructionContributionRepository contributions;
     private final Clock clock;
 
-    /** 표시용 잔액 — 지갑 행이 아직 없는 섬은 0원으로 읽는다. */
+    /**
+     * 표시용 잔액 — 지갑 행이 아직 없는 섬은 <b>0원</b>이다(GROMO-2043, 결정 「통장-부재-0」).
+     *
+     * <p>0 은 위장이 아니라 사실이다. 지갑 행은 섬 생성 때 만들고({@code IslandMembershipService#create}),
+     * 없으면 적립 경로가 {@code insertIfAbsent} 로 만든다. 그리고 {@code island_wallet_transactions} 가
+     * {@code island_wallets} 를 {@code ON DELETE RESTRICT} 로 참조하므로 <b>한 번이라도 적립된 지갑은
+     * 사라질 수 없다</b> — 행이 없다는 것은 그 섬에 원장이 한 줄도 없다는 뜻이고, 그러면 잔액은 0 이다.
+     * 오늘 행이 없는 섬은 레거시 {@code POST /api/v1/groups}(지갑을 만들지 않는다)로 생긴 섬뿐이다.
+     *
+     * <p>그래서 여기서 읽기만으로 행을 만들지 않는다(표시용 읽기는 쓰기 트랜잭션이 아니다). 「경제가 아직
+     * 안 열렸다」는 통장이 아니라 카탈로그가 말한다 — 가격 미승인은 {@code available=false}, 활성 발행본이
+     * 없으면 빈 목록이다(상점 LLD §2.2). 옛 계약의 503 SERVICE_UNAVAILABLE 은 잔액 0 인 섬의 상점 화면을
+     * 통째로 닫을 뿐이라 폐기했다.
+     */
     public int balanceOf(UUID islandId) {
         return wallets.findById(islandId).map(IslandWallet::getBalance).orElse(0);
     }
@@ -86,12 +101,7 @@ public class IslandWalletService {
         // 동안의 적립은 지갑·원장만 남기고 주민별 기여는 세지 않는다. 세웠다면 이후 어떤
         // 목표에도 속하지 않는 유령 몫이 된다.
         if (state.getTargetBuildingId() != null) {
-            // 기여 누적도 int 열 — upsert 의 WHERE 가 상한 초과 갱신을 건너뛰면 0 행이다.
-            // 같은 섬의 기여는 모두 이 상태 행 잠금 아래 직렬되므로 0 은 곧 상한 거절이다.
-            if (contributions.accumulate(islandId, state.getTargetEpoch(), userId, amount,
-                    clock.instant()) == 0) {
-                throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
-            }
+            accumulateShare(islandId, state.getTargetEpoch(), userId, amount);
         }
         ledger.save(IslandWalletTransaction.builder()
                 .islandId(islandId).amount(amount)
@@ -133,6 +143,95 @@ public class IslandWalletService {
                 .idempotencyKey(idempotencyKey)
                 .build());
         return wallet.getBalance();
+    }
+
+    /**
+     * 황금 물고기 적립(GROMO-1956) — 같이 집중 보너스의 세 기록을 <b>한 트랜잭션에</b> 확정한다:
+     * 섬 잔액 +{@code reward}(한 번), 함께 낚은 주민의 건설 «각자 몫» +{@code sharePerMember}(각자),
+     * 그리고 원장 한 줄. 주민별 누적 획득 기록은 집중 적립 원장 축이라 호출측이 쓴다
+     * ({@code focus_reward_accruals.golden_fish}).
+     *
+     * <p>{@link #contribute} 를 재사용할 수 없는 이유가 여기 있다 — 그쪽은 지갑과 각자 몫에 <b>같은 값</b>을
+     * 넣는다. 황금은 잔액에 50, 각자 몫에 50 ÷ 인원(내림)이고 나머지는 잔액에만 남는다(기획 정본
+     * 「나누고 남은 물고기는 섬 잔액에만 남는다」). 각자 몫을 <b>쓰는 규칙</b>은 그래도 하나를 공유한다
+     * ({@link #accumulateShare}) — 함께 낚은 주민 중 이번 목표의 대상이 아닌 사람(목표 선택 뒤 가입)이
+     * 있으면 그 사람 몫은 오류가 아니라 섬 잔액에만 남는다. 분모는 그대로 「함께 낚은 인원」이다 —
+     * 정본이 대상 인원이 아니라 함께 낚은 인원으로 나누라고 했다.
+     *
+     * <p><b>멱등의 자리는 이 메서드 하나다.</b> 지갑 행을 잠근 뒤 원장을 보고, 이미 있으면 <b>아무것도
+     * 쓰지 않고</b> {@code false} 를 돌려준다 — 잔액·각자 몫·원장이 같은 트랜잭션이라 「잔액만 두 번」이
+     * 생길 수 없다. 같은 키의 동시 요청은 지갑 행 잠금이 직렬화하고
+     * {@code uq_island_wallet_tx_idem} 이 최후 방어선이다. 인메모리 플래그는 두지 않는다.
+     *
+     * <p>잠금 순서는 {@link #contribute} 와 같다(건설 상태 → 지갑) — 각자 몫을 쓰려면 목표 epoch 이
+     * 필요하고, 거꾸로 잡으면 건설 명령과 교착 쌍이 된다. 호출측은 이보다 «위»에서 세션 상세를 이미
+     * 잠근 채 들어온다(집중 적립 틱과 같은 꼬리 순서: 상세 → 건설 상태 → 통장).
+     *
+     * @param islandId       황금 물고기가 나타난 섬
+     * @param reward         섬 잔액에 더할 총량(기획 정본의 50)
+     * @param sharePerMember 주민 한 명의 건설 각자 몫(50 ÷ 인원, 내림). 0 이면 각자 몫을 쓰지 않는다
+     * @param memberIds      함께 낚은 주민 — 호출측이 <b>정렬해</b> 넘긴다(동시 기여와 교착하지 않도록)
+     * @param idempotencyKey 추첨 하나의 키 — {@code golden:<추첨 분 epoch 초>}
+     * @return 이번에 적립했으면 {@code true}, 같은 추첨이 이미 적립돼 있으면 {@code false}
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public boolean creditGoldenFish(UUID islandId, int reward, int sharePerMember,
+                                    Collection<UUID> memberIds, String idempotencyKey) {
+        if (reward <= 0 || sharePerMember < 0) {
+            throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+        }
+        states.insertIfAbsent(islandId);
+        IslandConstructionState state = states.findByIdForUpdate(islandId)
+                .orElseThrow(() -> new IllegalStateException("섬 건설 상태를 만들 직후에 찾지 못했습니다."));
+        wallets.insertIfAbsent(islandId);
+        IslandWallet wallet = wallets.findByIdForUpdate(islandId)
+                .orElseThrow(() -> new IllegalStateException("섬 지갑을 만들 직후에 찾지 못했습니다."));
+        // 잠금 «아래» 에서만 판정한다 — 잠금 전 판정은 같은 키의 동시 요청을 둘 다 통과시킨다.
+        if (ledger.existsByIslandIdAndTypeAndIdempotencyKey(
+                islandId, IslandWalletTransactionType.GOLDEN_FISH, idempotencyKey)) {
+            return false;
+        }
+        if (reward > Integer.MAX_VALUE - wallet.getBalance()) {
+            throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+        }
+        wallet.earn(reward);
+        // 「각자 몫은 목표를 고른 뒤부터 모은 물고기로 판단한다」(정책 P-D04) — 목표가 없으면 잔액만 는다.
+        if (sharePerMember > 0 && state.getTargetBuildingId() != null) {
+            for (UUID memberId : memberIds) {
+                accumulateShare(islandId, state.getTargetEpoch(), memberId, sharePerMember);
+            }
+        }
+        ledger.save(IslandWalletTransaction.builder()
+                .islandId(islandId).amount(reward)
+                .type(IslandWalletTransactionType.GOLDEN_FISH)
+                .idempotencyKey(idempotencyKey)
+                .build());
+        return true;
+    }
+
+    /**
+     * 건설 「각자 몫」 한 사람 몫의 누적 — 집중 적립({@link #contribute})과 황금 물고기
+     * ({@link #creditGoldenFish})이 <b>같은 규칙</b>을 쓰는 단일 자리다(GROMO-1999).
+     *
+     * <p>누적은 «이미 있는 대상 행만» UPDATE 한다. 대상 명단은 목표를 고를 때 고정되므로
+     * (기획 정본 「목표 선택 시점의 주민으로 대상을 고정한다」), 그 뒤에 가입한 주민은 행이 없다.
+     * 그 사람의 물고기가 사라지는 것은 아니다 — <b>섬 잔액과 원장에는 그대로 들어가고</b> 다만
+     * 이번 건설 퀘스트의 몫으로 세지 않을 뿐이다. 황금 물고기도 같은 결이라 정본의
+     * 「나누고 남은 물고기는 섬 잔액에만 남는다」와 어긋나지 않는다.
+     *
+     * <p>그래서 0 행의 <b>두 원인을 가른다</b>:
+     * <ul>
+     *   <li>행이 <b>없다</b> → 대상 밖. 정상 흐름이라 조용히 지나간다.</li>
+     *   <li>행이 <b>있다</b> → upsert 의 WHERE 가 막은 {@code integer} 상한 초과. 진짜 오류다.</li>
+     * </ul>
+     * 같은 섬의 기여는 모두 호출측이 잡은 건설 상태 행 잠금 아래 직렬되므로 이 판정에 경합이 없다.
+     */
+    private void accumulateShare(UUID islandId, long epoch, UUID userId, int amount) {
+        if (contributions.accumulate(islandId, epoch, userId, amount, clock.instant()) == 0
+                && contributions.existsById(
+                        new IslandConstructionContributionId(islandId, epoch, userId))) {
+            throw new ConstructionException(ConstructionErrorCode.OUT_OF_RANGE);
+        }
     }
 
     /**
