@@ -397,7 +397,7 @@ schemaVersion=1이다. 버전 없는 emote만 aggregateVersion=null. 나머지�
 | focus.member.updated | userId,sessionId,status(active/paused/completed),subject,activeSeconds,serverNow,sessionVersion | (focus.member,islandId,userId) / 해당 섬 주민 focus 토픽 |
 | rest.member.updated | userId,sessionId,status,restStartedAt,restSeat,serverNow,sessionVersion | (rest.member,islandId,userId) / 해당 섬 주민 rest 토픽 |
 | focus.emote | userId,sessionId,type,expiresAt | version 없음, eventId+만료 / 같은 섬 진행 세션(active·paused) 주민 emotes 토픽 |
-| wallet.updated | ownerType,ownerId,currency,version | 개인(user,id,fish)은 islandId=null / 본인 user queue. 공동 포인트가 실제 바뀐 경우만 island scope |
+| wallet.updated | ownerType,ownerId,currency,version | **(island,islandId,village_points) 만** / 해당 섬 events 토픽, 섬 통장이 실제 바뀐 경우만. ~~개인(user,id,fish)은 islandId=null · 본인 user queue~~ 는 재화-단일로 폐기 — 개인 지갑이 없어 발행자가 없다 |
 | quest.progress.updated | questId,occurrenceId,version | (quest.progress,islandId,questId,occurrenceId) / 섬 events 토픽, 관련 진행이 실제 바뀔 때 |
 | island.updated | islandId,version | (island,islandId) / 초기 건설 진행·완성이 실제 바뀔 때 |
 

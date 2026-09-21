@@ -32,8 +32,12 @@ UUID는 데이터 ID, ProductId는 카탈로그 문자열, 시각은 UTC instant
 ```
 
 금액은 원본 형태 예시다. **잔액은 `villagePoints`(섬 통장·섬 물고기) 하나뿐이다**(2026-09-21 재영님 결정 재화-단일 — ~~2026-09-18 D1 의 두 지갑 축~~ 폐기).
-`fish` 는 **항상 0**, `fishVersion` 은 **항상 null** 인 호환 필드다 — 개인 물고기 지갑이 없으므로 지어낼 잔액도, 사건·버전 축도 없다(재화-단일-호환 ①).
-앱은 이 둘을 그리지 않는다. 실제 제거는 앱이 전량 전환한 뒤 별도 티켓이다. villagePointsVersion은 `(island,islandId,village_points)`
+`fishVersion` 은 **항상 null** 이다 — 개인 물고기 지갑에는 사건·버전 축이 없다(`ShopService#wallets` 가 null 을 고정으로 싣는다).
+`fish` 는 **0을 보장하지 않는다**: 현재 구현(`ShopService#wallets`)은 `user_fish_wallets` 의 **저장값을 그대로** 싣고, 행이 없으면 0 이다.
+적립 경로(`FishWalletService#credit`)는 `personal_share_percent > 0` 일 때만 닿는데 `focus_reward_policies` 에는 V67 시드 revision 1 = (60, 480, **0**) 한 행뿐이라
+**실제로는 0 이어야 하지만 코드가 0 을 강제하지는 않는다** — 0 이 아닌 행이 하나라도 있으면 그 값이 그대로 나간다. 응답 0 고정(또는 잔액 정리)은
+`server/**` 변경이라 **별도 티켓 몫**이고 이 문서는 그것을 계약으로 앞당겨 적지 않는다. 그때까지 앱은 이 필드를 그리지 않는다.
+실제 필드 제거는 앱이 전량 전환한 뒤 또 다른 티켓이다. villagePointsVersion은 `(island,islandId,village_points)`
 지갑의 실제 버전이고 유일한 version 축이다 — 둘의 최댓값을 공용version으로 만들지 않는다.
 통화 식별자 `village_points` 의 개명은 결정에 없어 wire 는 그대로 둔다.
 경제 활성화에 필요한 섬 통장이 없으면0원으로 위장하지 않고503 SERVICE_UNAVAILABLE 및 운영 로그로 처리한다.
@@ -103,7 +107,7 @@ previewUrl은 서버 등록 media 자산만 반환하고 사용자 URL을 받아
 Headers: 유효 JWT, application/json, 필수 UUID `Idempotency-Key`.
 
 ```json
-{"productId":"scarf","expectedWalletVersion":4,"expectedProductVersion":3}
+{"productId":"scarf","expectedWalletVersion":7,"expectedProductVersion":3}
 ```
 
 `expectedProductVersion`은 **1780 상세 설계에서 추가 채택한 명시적 확장**이다(2026-09-12 조정자 동의).
@@ -113,10 +117,11 @@ productVersion을 비교하고 stale이면409 VERSION_CONFLICT, field=expectedPr
 방식이나 오래된 가격에 무조건 판매하는 방식이 아니다. 원본9개 버전제출표에 없던 **상점 한정 추가**다.
 
 expectedWalletVersion은 **언제나 villagePointsVersion**이다 — 결제 지갑이 섬 통장 하나뿐이라 분기가 없다(재화-단일-호환 ②. ~~currency가 fish면 fishVersion~~ 폐기). 버전 충돌의 `current.version`도 villagePointsVersion이다.
+위 예시는 §2.1 wallet 응답(`villagePointsVersion: 7`)에서 이어지는 한 흐름이다 — 그 값을 그대로 제출하고, 성공 응답의 `walletVersion` 은 이 구매가 발행한 **다음** 지갑 사건의 버전(8)이다. 예시끼리 어긋나면 그대로 호출했을 때 409 VERSION_CONFLICT 가 난다.
 ownerType/ownerId/currency/price/quantity를 요청에서 받지 않는다. 미등록 필드는400으로 거절한다.
 
 ```json
-{"data":{"id":"order-1","productId":"scarf","spent":20,"currency":"village_points","ownerType":"user","owned":true,"walletVersion":5}}
+{"data":{"id":"order-1","productId":"scarf","spent":20,"currency":"village_points","ownerType":"user","owned":true,"walletVersion":8}}
 ```
 
 201. DTO id는 실제 UUID, 예시는 설명용이다. receipt는 이 결과와 HTTP201을 저장하며 나중의 현재 잔액/버전으로

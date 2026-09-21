@@ -16,7 +16,7 @@ GROMO-1780 · 2026-09-12 · 상태: **설계 초안, 제품 정책 결정 대기
 
 |ID|method/path|사용자 행동|
 |---|---|---|
-|wallet|GET `/islands/{islandId}/shop/wallets`|현재 섬 통장(섬 물고기) 잔액 확인 — `fish`·`fishVersion` 은 0·null 고정 호환 필드다(재화-단일-호환)|
+|wallet|GET `/islands/{islandId}/shop/wallets`|현재 섬 통장(섬 물고기) 잔액 확인 — `fish`(저장값 그대로, 적립 경로가 꺼져 있어 사실상 0)·`fishVersion`(null 고정)은 앱이 그리지 않는 호환 필드다(재화-단일-호환)|
 |catalog|GET `/islands/{islandId}/shop/products`|내 꾸미기/섬/소리 탭 상품 탐색|
 |product|GET `/islands/{islandId}/shop/products/{productId}`|가격·보유·선행 조건 확인, 개인 미리듣기|
 |buy|POST `/islands/{islandId}/shop/orders`|가격 확인 후 하나의 상품 구매|
