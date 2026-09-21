@@ -45,6 +45,8 @@ import {
   type LedgerScreenState,
   type LedgerTab,
 } from '@/screens/island/useLedgerScreen';
+import { useIslandManagement } from '@/screens/interiors/useIslandManagement';
+import { sessionGeneration } from '@/services/api/session';
 
 // v2 시안(042~061) 마을회관: 책상 장면 → 섬 정보 카드·수정·위임·탈퇴 / 공동 가계부 / 목각 건물·청사진
 // App.tsx 의 REVIEW/DEMO 와 같은 판정 — 모크 모드는 서버가 없으므로 가계부도 로컬 원장으로 그린다.
@@ -149,6 +151,14 @@ export function Hall({ e }: any) {
     host = isHost(i),
     // 다른 섬을 구경 중(주민 아님)이면 섬 정보 카드를 방문자 뷰로 보여 준다
     visitor = !!s.visitingIslandId;
+  // review/demo에는 서버가 없으므로 관리 hook을 열지 않고 기존 시연 섬 정보를 유지한다.
+  const liveManagement = (r === 'manage' || r === 'members') && !visitor && !ledgerMockMode();
+  // `manage`/`members`는 실제 App 경로(CurrentScreens → Hall)다. 로컬 Island를 서버 DTO로
+  // 덮어쓰지 않고 이 표면에서만 관리 API snapshot을 직접 소비한다.
+  const management = useIslandManagement({
+    active: liveManagement,
+    islandId: visitor ? null : i.id,
+  });
   const [panel, setPanel] = useState<'' | 'edit' | 'transfer'>(''),
     [plan, setPlan] = useState<Building | null>(null),
     [toast, setToast] = useState(''),
@@ -167,6 +177,47 @@ export function Hall({ e }: any) {
     approval: i.approval,
     capacity: capacityOf(i),
   });
+  const [managementError, setManagementError] = useState('');
+  const managementRun = useRef(0);
+  // 같은 섬의 관리 화면이라도 route 또는 인증 세대가 바뀌면 이전 요청의 UI 완료를 버린다.
+  // 세대는 렌더 때 snapshot으로 잡아 effect dependency에 넣는다.
+  const managementSessionGeneration = sessionGeneration();
+  useEffect(() => {
+    managementRun.current += 1;
+    setManagementError('');
+    return () => {
+      managementRun.current += 1;
+    };
+  }, [liveManagement, i.id, r, managementSessionGeneration]);
+  const managementHost = management.role === 'host';
+  const displayHost = liveManagement ? managementHost : host;
+  const managementMessage = liveManagement
+    ? managementError || management.error?.message || ''
+    : '';
+  const runManagement = async (
+    work: () => Promise<void>,
+    success: string,
+    afterSuccess?: () => void,
+  ) => {
+    const run = managementRun.current;
+    setManagementError('');
+    try {
+      await work();
+      if (run !== managementRun.current) return;
+      afterSuccess?.();
+      notify(success);
+    } catch (error) {
+      if (run !== managementRun.current) return;
+      setManagementError(
+        error instanceof Error ? error.message : '처리하지 못했어요. 다시 시도해 주세요.',
+      );
+    }
+  };
+  const transferCandidates = liveManagement
+    ? (management.members ?? [])
+        .filter((m) => m.role !== 'host')
+        .map((m) => ({ id: m.id, name: m.name ?? '주민', color: m.catColor ?? s.color }))
+    : i.members;
   // 가계부: 서버 원장·지갑 조각이 정본이다 — 로컬 i.ledger 문자열·로컬 잔액 합산을 쓰지 않는다.
   // 방문자에게는 조회 자체를 하지 않는다(서버도 403). 리뷰·데모 모크 모드는 서버가 아예 없다 —
   // 거기서는 로컬 원장으로 그리던 기존 화면을 유지하고 API 호출은 0회다.
@@ -1550,6 +1601,105 @@ export function Hall({ e }: any) {
     );
   }
 
+  const managementFrame = (children: React.ReactNode) => (
+    <View
+      style={{
+        position: 'absolute',
+        zIndex: 10,
+        left: land ? side : 18,
+        right: land ? 16 : 18,
+        top: land ? 10 : 80,
+        bottom: land ? 10 : 45,
+        borderWidth: 2.6,
+        borderColor: '#806449',
+        borderRadius: 18,
+        backgroundColor: '#fff3d8',
+      }}
+    >
+      {children}
+    </View>
+  );
+  // 관리 표면은 server snapshot을 받기 전 로컬 Island를 대체 화면으로 쓰지 않는다.
+  if (liveManagement) {
+    if (management.loading) {
+      return shell(
+        managementFrame(
+          <View
+            testID="hall-management-loading"
+            style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <T style={g(16, 25.6, { color: MUTED, fontWeight: '700' })}>
+              섬 정보를 불러오는 중이에요
+            </T>
+          </View>,
+        ),
+        e.back,
+      );
+    }
+    if (management.error) {
+      return shell(
+        managementFrame(
+          <View
+            testID="hall-management-error"
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              paddingHorizontal: 20,
+            }}
+          >
+            <T style={g(16, 25.6, { color: MUTED, fontWeight: '700', textAlign: 'center' })}>
+              {management.error.message}
+            </T>
+            <Pressable
+              testID="hall-management-retry"
+              accessibilityRole="button"
+              accessibilityLabel="다시 시도"
+              onPress={() => void management.reload().catch(() => undefined)}
+            >
+              <T style={g(14, 22.4, { color: CARD_INK, textDecorationLine: 'underline' })}>
+                다시 시도
+              </T>
+            </Pressable>
+          </View>,
+        ),
+        e.back,
+      );
+    }
+    if (management.accessLost) {
+      return shell(
+        managementFrame(
+          <View
+            testID="hall-management-forbidden"
+            style={{
+              flex: 1,
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 10,
+              paddingHorizontal: 20,
+            }}
+          >
+            <T style={g(16, 25.6, { color: MUTED, fontWeight: '700', textAlign: 'center' })}>
+              섬 주민만 관리할 수 있어요
+            </T>
+            <Pressable
+              testID="hall-management-retry"
+              accessibilityRole="button"
+              accessibilityLabel="다시 시도"
+              onPress={() => void management.reload().catch(() => undefined)}
+            >
+              <T style={g(14, 22.4, { color: CARD_INK, textDecorationLine: 'underline' })}>
+                다시 시도
+              </T>
+            </Pressable>
+          </View>,
+        ),
+        e.back,
+      );
+    }
+  }
+
   // ── 043~051 섬 정보 카드 · 수정 · 방장 위임 · 탈퇴 ──
   const next = s.islands.find((j) => j.joined && j.id !== i.id);
   const leave = () => {
@@ -1557,7 +1707,10 @@ export function Hall({ e }: any) {
       notify('집중 중에는 섬을 떠날 수 없어요.\n집중을 마친 뒤 다시 시도해 주세요.');
       return;
     }
-    if (host && i.members.length) {
+    if (
+      (liveManagement ? managementHost : host) &&
+      (liveManagement ? (management.members?.length ?? 0) > 1 : i.members.length > 0)
+    ) {
       notify('방장은 바로 섬을 나갈 수 없어요.\n방장을 위임한 뒤 나가주세요.');
       setPanel('transfer');
       return;
@@ -1705,17 +1858,39 @@ export function Hall({ e }: any) {
     </Pressable>
   );
   // 방문자는 이 섬 주민이 아니므로 '나'를 앞에 붙이지 않는다
-  const residents = [...(visitor ? [] : [{ id: 'me', name: '나', color: s.color }]), ...i.members];
-  // 왕관을 얹을 방장: 내가 방장이면 나, 아니면 role이 host인 주민
-  const hostId = host ? 'me' : i.members.find((m) => m.role === 'host')?.id;
+  const residents = liveManagement
+    ? (management.members ?? []).map((m) => ({
+        id: m.id,
+        name: m.name ?? '주민',
+        color: m.catColor ?? s.color,
+        isHost: m.role === 'host',
+      }))
+    : [
+        ...(visitor ? [] : [{ id: 'me', name: '나', color: s.color, isHost: host }]),
+        ...i.members.map((m) => ({
+          id: m.id,
+          name: m.name,
+          color: m.color,
+          isHost: m.role === 'host',
+        })),
+      ];
+  const hostId = residents.find((m) => m.isHost)?.id;
   const transferDialog = (m: { id: string; name: string }) => ({
     title: '방장 위임',
     text: `${m.name}에게 방장을 위임하시겠습니까?`,
     ok: '위임하기',
     onOk: () => {
-      e.dispatch({ type: 'TRANSFER', id: m.id });
-      setPanel('');
-      notify(`${m.name}에게 방장을 위임했어요.`);
+      if (liveManagement) {
+        void runManagement(
+          () => management.transferHost(m.id),
+          `${m.name}에게 방장을 위임했어요.`,
+          () => setPanel(''),
+        );
+      } else {
+        e.dispatch({ type: 'TRANSFER', id: m.id });
+        setPanel('');
+        notify(`${m.name}에게 방장을 위임했어요.`);
+      }
     },
   });
   // 방장이 주민 칸을 누르면: 방장 위임 / 섬에서 내보내기(강퇴) 선택창 → 내보내기는 빨간 확인창
@@ -1756,8 +1931,15 @@ export function Hall({ e }: any) {
                 text: `${eul(m.name)} 섬에서 내보내요.\n모은 물고기와 기록은 섬에 남고, 건설 목표 대상에서 빠져요.`,
                 ok: '내보내기',
                 onOk: () => {
-                  e.dispatch({ type: 'KICK', id: m.id });
-                  notify(`${m.name}님을 섬에서 내보냈어요.`);
+                  if (liveManagement)
+                    void runManagement(
+                      () => management.kickMember(m.id),
+                      `${m.name}님을 섬에서 내보냈어요.`,
+                    );
+                  else {
+                    e.dispatch({ type: 'KICK', id: m.id });
+                    notify(`${m.name}님을 섬에서 내보냈어요.`);
+                  }
                 },
               }),
             true,
@@ -1794,17 +1976,17 @@ export function Hall({ e }: any) {
             {close(() => setPanel('edit'), { marginTop: -9, marginRight: -8 })}
           </View>
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: 7, columnGap: 10 }}>
-            {i.members.map((m, n) => (
+            {transferCandidates.map((m, n) => (
               <Pressable
                 key={m.id}
                 testID={`hall-transfer-${m.id}`}
                 accessibilityRole="button"
                 accessibilityLabel={`${m.name}에게 방장 위임`}
-                onPress={() => setDialog(transferDialog(m))}
+                onPress={() => setDialog(transferDialog({ id: m.id, name: m.name }))}
                 // 가로 2열: 목록 폭 = 화면 − 왼쪽 side − 오른쪽 16 − 테두리 4 − 안쪽 여백 32
                 style={{ width: land ? (W - side - 52 - 10) / 2 : '100%' }}
               >
-                {person(m, n, {
+                {person({ ...m, name: m.name, color: m.color }, n, {
                   size: 16,
                   grow: true,
                   style: {
@@ -1940,12 +2122,15 @@ export function Hall({ e }: any) {
     );
     const capacity = setting(
       '주민 정원',
-      `현재 ${residentCount(i)}명 · 최대 ${CAPACITY_MAX}명`,
+      `현재 ${liveManagement ? (management.members?.length ?? 0) : residentCount(i)}명 · 최대 ${CAPACITY_MAX}명`,
       <T style={g(15, 24, { color: CARD_INK, fontWeight: '700' })}>{draft.capacity}명</T>,
       {
         testID: 'hall-capacity',
         onPress: () => {
-          const min = Math.max(CAPACITY_MIN, residentCount(i));
+          const min = Math.max(
+            CAPACITY_MIN,
+            liveManagement ? (management.members?.length ?? CAPACITY_MIN) : residentCount(i),
+          );
           let picked = `${draft.capacity}명`;
           setDialog({
             title: '주민 정원',
@@ -1969,11 +2154,15 @@ export function Hall({ e }: any) {
     );
     const transfer = setting(
       '방장 위임',
-      i.members.length ? '다른 주민에게 방장을 넘겨요.' : '위임할 주민이 없어요.',
+      transferCandidates.length ? '다른 주민에게 방장을 넘겨요.' : '위임할 주민이 없어요.',
       <View style={{ width: 28, height: 44, alignItems: 'center', justifyContent: 'center' }}>
         <Icon d={CHEV} size={18} />
       </View>,
-      { testID: 'hall-transfer', disabled: !i.members.length, onPress: () => setPanel('transfer') },
+      {
+        testID: 'hall-transfer',
+        disabled: !transferCandidates.length,
+        onPress: () => setPanel('transfer'),
+      },
     );
     const save = (
       <Pressable
@@ -1983,15 +2172,29 @@ export function Hall({ e }: any) {
         accessibilityState={{ disabled: !draft.name.trim() }}
         disabled={!draft.name.trim()}
         onPress={() => {
-          e.dispatch({
-            type: 'MANAGE',
-            name: draft.name,
-            intro: draft.intro,
-            approval: draft.approval,
-          });
-          if (draft.capacity !== capacityOf(i))
-            e.dispatch({ type: 'CAPACITY', value: draft.capacity });
-          setPanel('');
+          if (liveManagement)
+            void runManagement(
+              () =>
+                management.saveSettings({
+                  name: draft.name.trim(),
+                  intro: draft.intro,
+                  approvalRequired: draft.approval,
+                  maxMembers: draft.capacity,
+                }),
+              '섬 정보를 저장했어요.',
+              () => setPanel(''),
+            );
+          else {
+            e.dispatch({
+              type: 'MANAGE',
+              name: draft.name,
+              intro: draft.intro,
+              approval: draft.approval,
+            });
+            if (draft.capacity !== capacityOf(i))
+              e.dispatch({ type: 'CAPACITY', value: draft.capacity });
+            setPanel('');
+          }
         }}
         style={{
           minHeight: land ? 43 : 48,
@@ -2078,7 +2281,13 @@ export function Hall({ e }: any) {
   }
 
   // 043 방장 기본 뷰 / 045 주민 뷰 / 45V 방문자 뷰(수정·가입 신청·주민 관리·초대·탈퇴 없이 가입 버튼 하나)
-  const requests = host ? joinRequests(i) : [];
+  const requests = liveManagement
+    ? managementHost
+      ? (management.requests ?? [])
+      : []
+    : host
+      ? joinRequests(i)
+      : [];
   const join = visitorJoinState(s, i);
   const section = (title: string, children: React.ReactNode, right?: string) => (
     <View
@@ -2131,19 +2340,23 @@ export function Hall({ e }: any) {
       <View style={{ minWidth: 0, flexShrink: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
           <T style={g(land ? 32 : 38, land ? 34.56 : 41.04, { color: CARD_INK, flexShrink: 1 })}>
-            {i.name}
+            {liveManagement ? management.detail?.name : i.name}
           </T>
-          {host && (
+          {displayHost && (
             <Pressable
               testID="hall-edit"
               accessibilityRole="button"
               accessibilityLabel="섬 정보 수정"
               onPress={() => {
                 setDraft({
-                  name: i.name,
-                  intro: i.intro,
-                  approval: i.approval,
-                  capacity: capacityOf(i),
+                  name: liveManagement ? (management.detail?.name ?? '') : i.name,
+                  intro: liveManagement ? (management.detail?.intro ?? '') : i.intro,
+                  approval: liveManagement
+                    ? (management.detail?.approvalRequired ?? false)
+                    : i.approval,
+                  capacity: liveManagement
+                    ? (management.detail?.maxMembers ?? CAPACITY_MIN)
+                    : capacityOf(i),
                 });
                 setPanel('edit');
               }}
@@ -2159,7 +2372,7 @@ export function Hall({ e }: any) {
             </Pressable>
           )}
         </View>
-        {!!i.intro && (
+        {!!(liveManagement ? management.detail?.intro : i.intro) && (
           <T
             style={g(land ? 14 : 15, land ? 20.3 : 21.75, {
               color: MUTED,
@@ -2168,7 +2381,7 @@ export function Hall({ e }: any) {
               ...web({ wordBreak: 'keep-all' }),
             })}
           >
-            {i.intro}
+            {liveManagement ? management.detail?.intro : i.intro}
           </T>
         )}
       </View>
@@ -2205,7 +2418,7 @@ export function Hall({ e }: any) {
                 borderTopColor: '#e2d2b7',
               }}
             >
-              {person(q, n, {
+              {person({ ...q, name: q.name ?? '신청자', color: s.color }, n, {
                 size: 16,
                 style: {
                   flex: 1,
@@ -2218,7 +2431,14 @@ export function Hall({ e }: any) {
                 testID={`hall-reject-${q.id}`}
                 accessibilityRole="button"
                 accessibilityLabel={`${q.name} 가입 거절`}
-                onPress={() => e.dispatch({ type: 'REJECT_MEMBER', id: q.id })}
+                onPress={() => {
+                  if (liveManagement)
+                    void runManagement(
+                      () => management.answerRequest(q.id, 'reject'),
+                      `${q.name ?? '신청자'}님의 가입을 거절했어요.`,
+                    );
+                  else e.dispatch({ type: 'REJECT_MEMBER', id: q.id });
+                }}
                 style={{
                   minWidth: 40,
                   height: 40,
@@ -2236,11 +2456,15 @@ export function Hall({ e }: any) {
                 testID={`hall-approve-${q.id}`}
                 accessibilityRole="button"
                 accessibilityLabel={`${q.name} 가입 승인`}
-                onPress={() =>
-                  isFull(i)
-                    ? notify('정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.')
-                    : e.dispatch({ type: 'ADD_MEMBER', id: q.id })
-                }
+                onPress={() => {
+                  if (liveManagement)
+                    void runManagement(
+                      () => management.answerRequest(q.id, 'approve'),
+                      `${q.name ?? '신청자'}님의 가입을 승인했어요.`,
+                    );
+                  else if (isFull(i)) notify('정원이 가득 찼어요.\n정원을 늘린 뒤 승인해 주세요.');
+                  else e.dispatch({ type: 'ADD_MEMBER', id: q.id });
+                }}
                 style={{
                   minWidth: 52,
                   height: 40,
@@ -2257,11 +2481,16 @@ export function Hall({ e }: any) {
             </View>
           )),
         )}
+      {!!managementMessage && (
+        <View testID="hall-management-action-error" style={{ paddingVertical: 10 }}>
+          <T style={g(14, 22.4, { color: '#a3453e', textAlign: 'center' })}>{managementMessage}</T>
+        </View>
+      )}
       {section(
         '함께 사는 주민',
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 7 }}>
           {residents.map((m, n) =>
-            host && m.id !== 'me' ? (
+            displayHost && !m.isHost ? (
               <Pressable
                 key={m.id}
                 testID={`hall-member-${m.id}`}
@@ -2277,7 +2506,7 @@ export function Hall({ e }: any) {
             ),
           )}
         </View>,
-        `${residentCount(i)} / ${capacityOf(i)}명`,
+        `${residents.length} / ${liveManagement ? (management.detail?.maxMembers ?? 0) : capacityOf(i)}명`,
       )}
       {!visitor && (
         <View
@@ -2355,7 +2584,7 @@ export function Hall({ e }: any) {
           </T>
         </Pressable>
       ) : (
-        !host && leaveBtn()
+        !displayHost && leaveBtn()
       )}
     </ScrollView>
   );
