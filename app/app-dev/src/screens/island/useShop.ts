@@ -254,9 +254,10 @@ export function useShop({
         if (!islandId) return;
         set({ loading: true, error: null, items: [], itemsCategory: cat });
         try {
-          const [page, shared] = await Promise.all([
+          const [page, shared, wallets] = await Promise.all([
             getShopProducts(islandId, 'sound'),
             getIslandInventory(islandId),
+            getShopWallets(islandId),
           ]);
           if (!alive(e, generation)) return;
           proven.current = { epoch: e, generation };
@@ -269,6 +270,7 @@ export function useShop({
           }
           set({
             shared,
+            wallets,
             items: page.items,
             itemsCategory: cat,
             nextCursor: page.nextCursor,
@@ -277,7 +279,7 @@ export function useShop({
             loading: false,
             error: null,
           });
-          sync({ sharedInventory: shared });
+          sync({ sharedInventory: shared, wallets });
         } catch (error) {
           if (!alive(e, generation)) return;
           set({ loading: false, error: error as ApiError });

@@ -664,6 +664,17 @@ test('집중 중 축음기는 보유곡만 표시하고 복귀 목적지를 정�
   assert.equal(s.queryByLabelText('빗방울 소리, 30마리로 구매'), null);
 });
 
+test('공동 보유품 중 실제 음원만 축음기 목록에 표시한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['waves', 'pine'];
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByLabelText('잔잔한 파도, 보유');
+  assert.equal(s.queryByText('pine'), null);
+});
+
 test('축음기에서 내 기기 음량을 조절한다', async () => {
   const state = initialState(false);
   state.islands[0].joined = true;
@@ -685,6 +696,7 @@ test('큰 글자에서는 구매 창을 스크롤하고 동작 버튼을 세로�
   const state = initialState(false);
   state.islands[0].joined = true;
   state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 100;
   const s = await render(<Harness route="sound" initial={state} />);
   await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
 
@@ -697,6 +709,10 @@ test('큰 글자에서는 구매 창을 스크롤하고 동작 버튼을 세로�
   const purchaseStyle = StyleSheet.flatten(s.getByLabelText('30마리로 구매').props.style);
   assert.equal(purchaseStyle.height, undefined);
   assert.ok(purchaseStyle.minHeight >= 52);
+  await fireEvent.press(s.getByLabelText('30마리로 구매'));
+  const successStyle = StyleSheet.flatten(s.getByLabelText('지금 재생하기').props.style);
+  assert.equal(successStyle.height, undefined);
+  assert.ok(successStyle.minHeight >= 52);
 });
 
 test('Android 뒤로가기는 축음기 구매 창만 닫는다', async () => {

@@ -755,6 +755,13 @@ function Gromo() {
     } catch {}
   }, [island.track, island.id, previewAudio, islandAudioOn]);
   useEffect(() => {
+    if (!island.playbackReset) return;
+    try {
+      player.pause();
+      player.seekTo(0).catch(() => {});
+    } catch {}
+  }, [island.id, island.playbackReset]);
+  useEffect(() => {
     if (route !== 'product') setPreviewAudio(false);
   }, [route]);
   useEffect(() => {

@@ -119,6 +119,21 @@ test('shop route — /screens/shop 을 읽고 지갑·공동 인벤토리·상�
   assert.equal(syncs[0].wallets?.villagePoints, 1500);
 });
 
+test('sound route — 음원·공동 인벤토리와 구매에 필요한 지갑을 함께 읽는다', async () => {
+  const dispatch = jest.fn();
+  const { result } = await renderHook((p: Parameters<typeof useShop>[0]) => useShop(p), {
+    initialProps: params({ route: 'sound', dispatch }),
+  });
+
+  await waitFor(() => assert.equal(result.current.loading, false));
+  assert.equal((getShopProducts as jest.Mock).mock.calls[0][1], 'sound');
+  assert.equal((getIslandInventory as jest.Mock).mock.calls.length, 1);
+  assert.equal((getShopWallets as jest.Mock).mock.calls.length, 1);
+  assert.equal(result.current.wallets?.villagePointsVersion, 7);
+  const sync = dispatch.mock.calls.map((call) => call[0]).find((action) => action.wallets);
+  assert.equal(sync.wallets.villagePoints, 1500);
+});
+
 test('탭 전환은 category=island 로 /screens/shop 을 다시 읽는다', async () => {
   const { rerender } = await renderHook((p) => useShop(p as any), {
     initialProps: params(),

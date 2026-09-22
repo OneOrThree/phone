@@ -270,6 +270,9 @@ test('축음기는 보유한 현재 곡이 있을 때만 재생한다', () => {
   currentIsland(s).sharedOwned = ['waves'];
   s = act(s, 'PLAY', { value: true });
   assert.equal(currentIsland(s).playing, true);
+  s = act(s, 'PLAY', { value: false });
+  assert.equal(currentIsland(s).playing, false);
+  assert.equal(currentIsland(s).playbackReset, 1);
   assert.equal(trackNames.rain, '빗방울 소리');
 });
 test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {

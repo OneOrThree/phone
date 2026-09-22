@@ -575,9 +575,11 @@ export function FinalIsland({
           .filter(([, d]) =>
             explicitVisit
               ? !!d.visitorRoute
-              : d.memberOnly
-                ? !visiting || !!d.visitorRoute
-                : !!d.building && i.buildings.includes(d.building),
+              : d.building && !i.buildings.includes(d.building)
+                ? false
+                : d.memberOnly
+                  ? !visiting || !!d.visitorRoute
+                  : !!d.building,
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };

@@ -2453,9 +2453,15 @@ export function RedesignScreens({ e }: any) {
     const audioProducts: any[] = server
       ? shopApi.items
       : products.filter((p) => p.kind === 'audio');
-    const ownedTrackIds = server
-      ? (shopApi.shared?.audio ?? island.sharedOwned)
-      : island.sharedOwned;
+    const localAudioIds = new Set(
+      Object.keys(trackNames).concat(
+        products.filter((product) => product.kind === 'audio').map((product) => product.id),
+      ),
+    );
+    const serverAudioLoaded = !!shopApi.shared;
+    const ownedTrackIds = (serverAudioLoaded ? shopApi.shared!.audio : island.sharedOwned).filter(
+      (id) => serverAudioLoaded || localAudioIds.has(id),
+    );
     const trackLabel = (id: string) => trackNames[id] ?? shopApi.titles[id] ?? id;
     const hasOwnedTracks = ownedTrackIds.length > 0;
     const hasCurrentTrack = ownedTrackIds.includes(island.track);
@@ -2471,7 +2477,11 @@ export function RedesignScreens({ e }: any) {
       : undefined;
     const selectTrack = (id: string) => {
       if (ownedTrackIds.includes(id)) setTrack(id);
-      else setSoundDialog({ kind: 'confirm', productId: id });
+      else {
+        const product = audioProducts.find((item) => item.id === id);
+        if (server && (product?.available === false || product?.price == null)) return;
+        setSoundDialog({ kind: 'confirm', productId: id });
+      }
     };
     const buyTrack = async () => {
       if (!dialogProduct) return;
@@ -2732,12 +2742,28 @@ export function RedesignScreens({ e }: any) {
                       const owned = ownedTrackIds.includes(id);
                       const product = audioProducts.find((item) => item.id === id);
                       const selected = island.track === id;
+                      const unavailable =
+                        !owned &&
+                        server &&
+                        (product?.available === false || product?.price == null);
+                      const status = owned
+                        ? '보유'
+                        : unavailable
+                          ? shopBlockReason(product ?? {})
+                          : `${product?.price}마리 · 구매`;
                       return (
                         <Pressable
                           key={id}
                           accessibilityRole="button"
-                          accessibilityLabel={`${trackLabel(id)}${owned ? ', 보유' : `, ${product?.price}마리로 구매`}`}
-                          accessibilityState={{ selected }}
+                          accessibilityLabel={
+                            owned
+                              ? `${trackLabel(id)}, 보유`
+                              : unavailable
+                                ? `${trackLabel(id)}, ${status}`
+                                : `${trackLabel(id)}, ${product?.price}마리로 구매`
+                          }
+                          accessibilityState={{ selected, disabled: unavailable }}
+                          disabled={unavailable}
                           onPress={() => selectTrack(id)}
                           style={{
                             minHeight: gramophone.rowMinHeight,
@@ -2749,6 +2775,7 @@ export function RedesignScreens({ e }: any) {
                             borderColor: C.brown,
                             borderRadius: 7,
                             backgroundColor: selected ? C.pink : owned ? C.paper : C.butter,
+                            opacity: unavailable ? 0.62 : 1,
                           }}
                         >
                           <Txt tabletScale={1} style={{ fontSize: 11, lineHeight: 14 }}>
@@ -2758,11 +2785,7 @@ export function RedesignScreens({ e }: any) {
                             tabletScale={1}
                             style={{ color: gramophone.rowForeground, fontSize: 9, lineHeight: 12 }}
                           >
-                            {selected && island.playing
-                              ? '재생 중'
-                              : owned
-                                ? '보유'
-                                : `${product?.price}마리 · 구매`}
+                            {selected && island.playing ? '재생 중' : status}
                           </Txt>
                         </Pressable>
                       );
@@ -2862,6 +2885,7 @@ export function RedesignScreens({ e }: any) {
                 ) : (
                   <Btn
                     title={soundDialog.kind === 'success' ? '지금 재생하기' : '확인'}
+                    dynamicHeight={largeText}
                     onPress={() => {
                       if (soundDialog.kind === 'success') setTrack(dialogProduct.id);
                       setSoundDialog(null);

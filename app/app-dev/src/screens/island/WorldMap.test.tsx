@@ -57,3 +57,21 @@ test('내 섬에서는 축음기를 열 수 있다', async () => {
 
   screen.getByLabelText(buildingNames.gram);
 });
+
+test('내 섬에서도 미완공 축음기는 터치 대상으로 노출하지 않는다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  island.buildings = island.buildings.filter((building) => building !== 'gram');
+
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showHud={false}
+      showActions={false}
+    />,
+  );
+
+  expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
+});

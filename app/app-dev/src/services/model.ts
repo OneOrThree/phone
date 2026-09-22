@@ -189,6 +189,8 @@ export type Island = {
   buildingThemes?: Record<string, string>;
   track: string;
   playing: boolean;
+  /** 사용자가 정지 버튼을 누른 횟수. 플레이어가 일시정지와 구분해 재생 위치를 초기화한다. */
+  playbackReset?: number;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
   // 우리 섬 채팅방을 마지막으로 연 시각. 이후 다른 주민 글이 새 글이다
   chatReadAt?: number;
@@ -2005,8 +2007,10 @@ export function reducer(state: State, a: Action): State {
       }
       break;
     case 'PLAY':
-      if (i.buildings.includes('gram') && (!a.value || i.sharedOwned.includes(i.track)))
+      if (i.buildings.includes('gram') && (!a.value || i.sharedOwned.includes(i.track))) {
         i.playing = !!a.value;
+        if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
+      }
       break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;
