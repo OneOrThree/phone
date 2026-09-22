@@ -90,14 +90,17 @@ export function getCurrentQuests(islandId: string): Promise<QuestCurrent> {
   return request<QuestCurrent>(`/islands/${enc(islandId)}/quests/current`);
 }
 
-/** occurrenceId 필수 — cursor 는 서버가 발급하지 않으므로 보내지 않는다(400 INVALID_CURSOR). */
+/** occurrenceId 필수. 다음 주민 페이지는 서버가 발급한 cursor를 그대로 보낸다. */
 export function getQuestProgress(
   islandId: string,
   questId: string,
   occurrenceId: string,
+  cursor?: string,
 ): Promise<QuestProgress> {
+  const query = new URLSearchParams({ occurrenceId });
+  if (cursor !== undefined) query.set('cursor', cursor);
   return request<QuestProgress>(
-    `/islands/${enc(islandId)}/quests/${enc(questId)}/progress?occurrenceId=${enc(occurrenceId)}`,
+    `/islands/${enc(islandId)}/quests/${enc(questId)}/progress?${query.toString()}`,
   );
 }
 

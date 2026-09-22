@@ -157,6 +157,8 @@ export type Island = {
   buildings: Building[];
   /** Legacy aliases kept only for importing old fixtures. UI uses fish. */
   fish?: number;
+  /** 서버 섬 공동 지갑 정본을 적용한 버전. 느진 스냅숏의 역전을 막는다. */
+  villagePointsVersion?: number;
   earned?: Record<string, number>;
   buildingQuest?: {
     building: Building;
@@ -1487,6 +1489,23 @@ export function reducer(state: State, a: Action): State {
       if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
       // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
       s.onboarded = my.currentIslandId != null;
+      break;
+    }
+    case 'SERVER_VILLAGE_POINTS': {
+      const target = s.islands.find((island) => island.id === a.islandId),
+        value = Number(a.value),
+        version = Number(a.version);
+      if (
+        !target ||
+        !Number.isFinite(value) ||
+        value < 0 ||
+        !Number.isInteger(version) ||
+        version < (target.villagePointsVersion ?? -1)
+      )
+        return state;
+      // 수령량을 더하지 않고 getBoard 지갑 정본으로 교체한다.
+      target.fish = value;
+      target.villagePointsVersion = version;
       break;
     }
     case 'ISLAND_CANDIDATES': {

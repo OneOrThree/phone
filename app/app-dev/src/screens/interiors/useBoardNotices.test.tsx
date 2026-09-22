@@ -49,6 +49,7 @@ const board = (
   island: { id: 'island-1', role },
   quests: { items: quests },
   notices: { items: items.map((i) => ({ ...i, commentCount: 0 })), nextCursor },
+  wallets: { fish: 0, villagePoints: 50, fishVersion: null, villagePointsVersion: 1 },
 });
 
 const questItem = (over: Record<string, unknown> = {}) => ({
@@ -817,6 +818,41 @@ test('selectQuest — occurrenceId 로 progress 를 싣고 null 로 닫는다', 
   });
   assert.equal(hook.result.current.questDetail, null);
   assert.equal(getQuestProgressMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('selectQuest — nextCursor를 끝까지 따라가 모든 주민을 병합한다', async () => {
+  const hook = await mountWithQuest();
+  getQuestProgressMock
+    .mockResolvedValueOnce(
+      questProgress({
+        members: [questProgress().members[0]],
+        nextCursor: 'cursor-2',
+      }),
+    )
+    .mockResolvedValueOnce(
+      questProgress({
+        members: [
+          questProgress().members[0],
+          { ...questProgress().members[0], userId: 'u2', name: '두부' },
+        ],
+        nextCursor: null,
+      }),
+    );
+
+  await act(async () => {
+    await hook.result.current.selectQuest('occ-1');
+  });
+
+  assert.deepEqual(
+    [...getQuestProgressMock.mock.calls[1]],
+    ['island-1', 'q1', 'occ-1', 'cursor-2'],
+  );
+  assert.deepEqual(
+    hook.result.current.questDetail?.members.map((member) => member.userId),
+    ['u1', 'u2'],
+  );
+  assert.equal(hook.result.current.questDetail?.nextCursor, null);
   await hook.unmount();
 });
 

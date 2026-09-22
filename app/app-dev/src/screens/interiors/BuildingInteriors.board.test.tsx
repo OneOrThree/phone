@@ -51,6 +51,7 @@ const page = (
   island: { id: ISLAND, name: '소다 섬', role },
   quests: { items: quests },
   notices: { items: items.map((i) => ({ commentCount: 0, ...i })), nextCursor },
+  wallets: { fish: 0, villagePoints: 50, fishVersion: null, villagePointsVersion: 1 },
 });
 
 const questItem = (over: Record<string, unknown> = {}) => ({
@@ -978,6 +979,55 @@ test('퀘스트 만들기 — screen 은 창 필드 없이 간다', async () => 
     type: 'screen',
     targetMinutes: 90,
   });
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — screen 목표 0분을 허용한다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'q0', title: '폰 안 쓰기' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'screen',
+    text: '폰 안 쓰기',
+  });
+  const screen = await renderBoard(e);
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '0');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '폰 안 쓰기',
+    type: 'screen',
+    targetMinutes: 0,
+  });
+  await screen.unmount();
+});
+
+test('퀘스트 저장 중 바꾼 초안은 이전 요청 성공 후에도 닫히지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const slow = deferred<{ id: string; title: string }>();
+  postQuestMock.mockReturnValue(slow.promise);
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'screen',
+    text: '폰 줄이기',
+  });
+  const screen = await renderBoard(e);
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '30');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+  await fireEvent.changeText(screen.getByTestId('board-quest-title'), '수정한 초안');
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '20');
+
+  await act(async () => {
+    slow.resolve({ id: 'q1', title: '폰 줄이기' });
+  });
+
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length >= 2, true));
+  assert.equal(e.back.mock.calls.length, 0);
+  assert.equal(e.text, '수정한 초안');
+  assert.equal((screen.getByTestId('board-quest-target') as any).props.value, '20');
   await screen.unmount();
 });
 

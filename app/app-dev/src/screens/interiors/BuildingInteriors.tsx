@@ -3715,7 +3715,12 @@ const dayLabel = (at: number | undefined, now: number) => {
 // 퀘스트 만들기 입력 검사 (목업·앱 공통)
 const questError = (form: QuestForm) => {
   const target = Number(form.target);
-  if (!form.title.trim() || !Number.isInteger(target) || target <= 0)
+  if (
+    !form.title.trim() ||
+    !Number.isInteger(target) ||
+    target < 0 ||
+    (form.type === 'focus' && target === 0)
+  )
     return '제목과 목표 시간을 입력해주세요.';
   if (form.type === 'phone') return '';
   const start = clockMinutes(form.startTime),
@@ -3929,6 +3934,20 @@ export function Board({
     active: serverBoard,
     scopeKey: app ? String(app.island.id) : 'mock',
   });
+  useEffect(() => {
+    if (!serverBoard || !e || !board.islandId || !board.wallets) return;
+    e.dispatch({
+      type: 'SERVER_VILLAGE_POINTS',
+      islandId: board.islandId,
+      value: board.wallets.villagePoints,
+      version: board.wallets.villagePointsVersion,
+    });
+  }, [
+    serverBoard,
+    board.islandId,
+    board.wallets?.villagePoints,
+    board.wallets?.villagePointsVersion,
+  ]);
   // 쓰기 권한은 서버 섬 role 이 정본 — 로딩·실패 중엔 추측하지 않고 숨긴다.
   // 목업·갤러리 경로는 기존 로컬 owner 판정 그대로다.
   const owner = serverBoard
@@ -4025,7 +4044,7 @@ export function Board({
     );
   };
   const mockReady = local.ready && local.balance >= 60;
-  const blueprintView: BlueprintView = app?.blueprint ?? {
+  const localBlueprintView: BlueprintView = app?.blueprint ?? {
     ...buildOptions[0],
     state: ['building', 'complete'].includes(local.view)
       ? (local.view as 'building' | 'complete')
@@ -4043,6 +4062,20 @@ export function Board({
       value: `${local.ready ? 20 : [20, 18, 12][i]} / 20마리${local.ready || i === 0 ? ' ✓' : ''}`,
     })),
   };
+  const blueprintView: BlueprintView =
+    serverBoard && board.wallets
+      ? {
+          ...localBlueprintView,
+          balance: board.wallets.villagePoints,
+          state:
+            localBlueprintView.state === 'waiting' || localBlueprintView.state === 'ready'
+              ? localBlueprintView.collected >= localBlueprintView.needed &&
+                board.wallets.villagePoints >= localBlueprintView.cost
+                ? 'ready'
+                : 'waiting'
+              : localBlueprintView.state,
+        }
+      : localBlueprintView;
 
   // 없는 공지·퀘스트 id로 상세를 열면 목록을 보여 주고 라우트도 목록으로 바꾼다
   // 서버 경로의 공지는 이 검사를 건너뛴다 — 목록은 첫 페이지뿐이라 없는 id 판정이 틀리고,
@@ -4456,6 +4489,8 @@ export function Board({
       if (serverBoard) setUi((prev) => ({ ...prev, target: String(quest.target) }));
     },
     setQuestForm: (form: QuestForm, patch: Partial<QuestForm>) => {
+      // 저장 요청 후에 입력을 바꾸면 이전 성공 콜백이 새 초안을 닫지 못하게 한다.
+      draftEpoch.current += 1;
       if (!e)
         return setS((prev) => ({
           ...prev,

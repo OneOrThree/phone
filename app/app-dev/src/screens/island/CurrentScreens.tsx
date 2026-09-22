@@ -1631,7 +1631,9 @@ function ServerQuestRewardModal({
                 setBusy(false);
                 if (result.bonusAdded > 0)
                   e?.notify?.(`전원 달성 보너스 ${result.bonusAdded}마리도 섬에 함께 쌓였어요`);
-                onDone?.(board.quests.some((q) => q.claimable && q.id !== reward.id));
+                onDone?.(
+                  board.quests.some((q) => q.claimable && q.occurrenceId !== reward.occurrenceId),
+                );
               },
               (err: unknown) => {
                 setBusy(false);

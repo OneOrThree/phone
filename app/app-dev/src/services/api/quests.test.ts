@@ -120,6 +120,17 @@ test('GET progress — occurrenceId 를 유일한 query 로 인코딩해 싣는�
   assert.equal(progress.members[0].claimed, true);
 });
 
+test('GET progress — 서버가 발급한 다음 페이지 cursor를 occurrenceId와 함께 보낸다', async () => {
+  stub(200, { data: { ...item(), members: [], nextCursor: null } });
+
+  await getQuestProgress(ISLAND, QUEST, 'occ-1', 'cursor/next+=');
+
+  assert.equal(
+    calls[0].url,
+    `${API_URL}/islands/${ISLAND}/quests/${QUEST}/progress?occurrenceId=occ-1&cursor=cursor%2Fnext%2B%3D`,
+  );
+});
+
 test('POST quests — 허용 키만 싣고 Idempotency-Key, 201 의 {id,title} 를 돌려준다', async () => {
   stub(201, { data: { id: QUEST, title: '저녁 집중' } });
   const body = {

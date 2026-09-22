@@ -76,6 +76,13 @@ export type BoardNoticesState = {
   questDetail: QuestProgress | null;
   questDetailLoading: boolean;
   questDetailError: ApiError | null;
+  /** getBoard가 내려준 서버 정본 지갑. 수령 후 refreshList에서 같이 갱신한다. */
+  wallets: {
+    fish: number;
+    villagePoints: number;
+    fishVersion: number | null;
+    villagePointsVersion: number;
+  } | null;
 };
 
 const EMPTY: BoardNoticesState = {
@@ -94,7 +101,37 @@ const EMPTY: BoardNoticesState = {
   questDetail: null,
   questDetailLoading: false,
   questDetailError: null,
+  wallets: null,
 };
+
+/**
+ * progress 응답의 주민은 회차 스냅숏 커서로 페이징된다. 상세 화면은 전체 대상을
+ * 그리므로 서버가 발급한 nextCursor를 끝까지 따라가고 userId로 경계 중복을 막는다.
+ */
+async function getAllQuestProgress(
+  islandId: string,
+  questId: string,
+  occurrenceId: string,
+): Promise<QuestProgress> {
+  let page = await getQuestProgress(islandId, questId, occurrenceId);
+  const first = page;
+  const members = [...page.members];
+  const seenMembers = new Set(members.map((member) => member.userId));
+  const seenCursors = new Set<string>();
+  while (page.nextCursor !== null) {
+    const cursor = page.nextCursor;
+    if (seenCursors.has(cursor))
+      throw new ApiError('INVALID_CURSOR', '퀘스트 주민 목록을 이어서 불러오지 못했어요.', 0);
+    seenCursors.add(cursor);
+    page = await getQuestProgress(islandId, questId, occurrenceId, cursor);
+    for (const member of page.members)
+      if (!seenMembers.has(member.userId)) {
+        seenMembers.add(member.userId);
+        members.push(member);
+      }
+  }
+  return { ...first, members, nextCursor: null };
+}
 
 /** 쓰기 의도 슬롯 — key 는 페이로드(의도)가 같을 때만 유지된다. */
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
@@ -148,6 +185,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         items: board.notices.items,
         nextCursor: board.notices.nextCursor,
         quests: board.quests.items,
+        wallets: board.wallets,
         loading: false,
         error: null,
       });
@@ -264,6 +302,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         items: board.notices.items,
         nextCursor: board.notices.nextCursor,
         quests: board.quests.items,
+        wallets: board.wallets,
       });
     },
 
@@ -301,7 +340,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         // 목록에 없는 id — 회차가 굴러 헤더가 바뀐 옛 라우트다. GET 을 만들 수 없으니
         // 클라이언트 오류로 표시해 빙글거리는 스피너 대신 재시도를 보여 준다.
         if (!item) throw new ApiError('QUEST_GONE', '이 퀘스트 회차는 지나갔어요.', 0);
-        const detail = await getQuestProgress(islandId, item.id, item.occurrenceId);
+        const detail = await getAllQuestProgress(islandId, item.id, item.occurrenceId);
         if (!alive(e, generation) || seq !== questSeq.current) return;
         set({ questDetail: detail, questDetailLoading: false });
       } catch (error) {
@@ -318,7 +357,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       if (!alive(e, generation)) throw stale();
       const open = stateRef.current.questDetail;
       if (open?.id !== questId) return;
-      const next = await getQuestProgress(islandId, questId, open.occurrenceId);
+      const next = await getAllQuestProgress(islandId, questId, open.occurrenceId);
       if (!alive(e, generation)) throw stale();
       if (stateRef.current.questDetail?.id === questId) set({ questDetail: next });
     },
