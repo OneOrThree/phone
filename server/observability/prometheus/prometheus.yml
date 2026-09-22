@@ -25,6 +25,11 @@ scrape_configs:
     static_configs:
       - targets: ['kafka-exporter:9308']
 
+  - job_name: kafka-jmx
+    scrape_interval: 5s
+    static_configs:
+      - targets: ['kafka-jmx-exporter:9404']
+
   # 호스트 리소스 — CPU·메모리·디스크
   - job_name: node
     static_configs:

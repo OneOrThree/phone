@@ -100,9 +100,6 @@ services:
       com.datadoghq.tags.service: gromo-redis-dev
       com.datadoghq.ad.checks: >-
         {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9121/metrics","namespace":"gromo_redis","metrics":[".*"],"health_service_check":true}]}}
-    depends_on:
-      redis:
-        condition: service_healthy
     networks: [app-network]
     restart: unless-stopped
 
@@ -119,6 +116,23 @@ services:
       com.datadoghq.tags.service: gromo-kafka-dev
       com.datadoghq.ad.checks: >-
         {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9308/metrics","namespace":"gromo_kafka","metrics":[".*"],"health_service_check":true}]}}
+    networks: [app-network]
+    restart: unless-stopped
+
+  # Kafka broker JMX — 실제 Produce/Fetch 요청률. kafka-exporter의 offset/lag 지표와 역할을 분리한다.
+  # depends_on을 두지 않아 관측 스택 기동이 꺼진 Kafka를 의도치 않게 올리지 않는다.
+  kafka-jmx-exporter:
+    logging: *infra-logging
+    image: prom/jmx-exporter:1.6.0
+    container_name: gromo-kafka-jmx-exporter
+    command: ["9404", "/etc/jmx-exporter/kafka.yml"]
+    volumes:
+      - ../observability/jmx-exporter/kafka.yml:/etc/jmx-exporter/kafka.yml:ro
+    labels:
+      com.datadoghq.tags.env: dev
+      com.datadoghq.tags.service: gromo-kafka-dev
+      com.datadoghq.ad.checks: >-
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9404/metrics","namespace":"gromo_kafka_jmx","metrics":[".*"],"health_service_check":true}]}}
     networks: [app-network]
     restart: unless-stopped
 
