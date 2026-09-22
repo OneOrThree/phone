@@ -61,6 +61,8 @@ import { assets } from '@/constants/assets';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
+import ScreenTimeReportView from '@/components/ScreenTimeReportView';
+import { primitiveTokens } from '@/design-system/tokens';
 import {
   art,
   C,
@@ -2859,13 +2861,21 @@ export function RedesignScreens({ e }: any) {
           {head('phone', '스크린타임', <Txt kind="meta">오늘</Txt>)}
           {state.settings.permission && state.settings.screenTimeMeasurementReady ? (
             <>
-              {big(
-                `${Math.floor(state.screenMinutes / 60)}시간 ${state.screenMinutes % 60}분`,
-                '오늘 · 스크린타임 연결됨',
-              )}
-              <Graph values={[0, 0, 0, 0, 0, 0, state.screenMinutes]} />
+              <Txt kind="meta">오늘 · 선택한 앱의 사용 시간</Txt>
               <Group flat>
-                <Row title="오늘 폰 사용" sub={md(now)} right={state.screenMinutes + '분'} />
+                <Row
+                  title="오늘 폰 사용"
+                  sub={md(now)}
+                  right={
+                    <ScreenTimeReportView
+                      reportContext="Compact Activity"
+                      style={{
+                        width: primitiveTokens.space[16] * 2,
+                        minHeight: primitiveTokens.size.tapMin,
+                      }}
+                    />
+                  }
+                />
                 <Row
                   title="측정 권한"
                   sub="앱 설정에서 켜고 끌 수 있어요"

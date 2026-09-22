@@ -13,7 +13,7 @@
     "prebuild": "expo prebuild",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
-    "format:check": "prettier --check .",
+    "format:check": "prettier --check . && npm run gen:report-palette:check",
     "format:fix": "prettier --write .",
     "typecheck": "tsc --noEmit",
     "test": "jest",
@@ -25,7 +25,9 @@
     "screens:html": "python3 scripts/build-phone-gallery.py",
     "review:v2": "node scripts/review-current-v2.cjs",
     "review:v2-journeys": "node scripts/review-v2-journeys.cjs",
-    "review:last-island-recovery": "node scripts/review-last-island-recovery.cjs"
+    "review:last-island-recovery": "node scripts/review-last-island-recovery.cjs",
+    "gen:report-palette": "node scripts/generate-report-palette.cjs",
+    "gen:report-palette:check": "node scripts/generate-report-palette.cjs --check"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",

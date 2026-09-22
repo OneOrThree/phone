@@ -626,3 +626,11 @@ import { Page, Group, Row, Btn } from '@/design-system/patterns';
 - [ ] 세로·가로·태블릿·Safe Area·키보드를 확인했는가?
 - [ ] 새 공용 규칙을 코드와 이 문서에 함께 반영했는가?
 - [ ] Figma/HTML 시안의 더미 데이터를 실제 제품 정책과 구분했는가?
+
+### iOS 사용량 리포트
+
+- 오늘 폰 사용은 `ScreenTimeReportView`의 `Compact Activity`로 표시한다. iOS 리포트 수치는 확장 내부에서만 렌더링한다.
+- 도서관의 내 일기장 스크린타임 페이지와 기존 기록 화면에 적용한다. 이웃 기록에 내 기기 리포트를 표시하지 않는다.
+- 주·월 합계 및 날짜별 기록은 Monitor의 15분 단위 기록이며 오늘 리포트와 구분해서 표기한다.
+- 권한 없음·측정 대상 미선택·데이터 미수신을 실제 사용량 0분과 구분한다.
+- SwiftUI 색상은 `src/design-system/tokens.ts`에서 `npm run gen:report-palette`로 생성한다. `npm run gen:report-palette:check`로 정합성을 검사한다.

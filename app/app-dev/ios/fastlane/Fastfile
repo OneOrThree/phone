@@ -7,6 +7,7 @@ APP_ID = "com.oneorthree.focuscat".freeze
 IOS_DIR = File.expand_path("..", __dir__).freeze
 HERMES_CLI_PATH = File.expand_path("../node_modules/hermes-compiler/hermesc/osx-bin/hermesc", IOS_DIR).freeze
 DIST_PROFILES = {
+  "com.oneorthree.focuscat.screentimereport" => "distribution-cat-screentimereport",
   APP_ID => "distribution-cat-main",
   "com.oneorthree.focuscat.screentimemonitor" => "distribution-cat-screentimemonitor",
   "com.oneorthree.focuscat.sheildconfiguration" => "distribution-cat-shieldconfiguration",

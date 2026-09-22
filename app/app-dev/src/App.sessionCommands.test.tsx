@@ -38,21 +38,27 @@ beforeEach(async () => {
   await clearSession();
 });
 
-test('CurrentScreens에는 실제 공개 세션이 있을 때만 서버 섬 명령을 주입한다', async () => {
+test('CurrentScreens에는 실제 공개 세션이 있을 때만 서버 섬·집중 명령을 주입한다', async () => {
   await act(async () => {
     render(<App />);
     for (let n = 0; n < 10; n += 1) await Promise.resolve();
   });
   await waitFor(() => assert.ok(captured));
   assert.equal(captured.islands, undefined);
+  assert.equal(captured.focus, undefined);
 
   await act(async () => {
     await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   });
   await waitFor(() => assert.equal(typeof captured.islands?.create, 'function'));
+  assert.equal(typeof captured.focus?.start, 'function');
+  assert.equal(typeof captured.focus?.pause, 'function');
+  assert.equal(typeof captured.focus?.resume, 'function');
+  assert.equal(typeof captured.focus?.finish, 'function');
 
   await act(async () => {
     await clearSession();
   });
   await waitFor(() => assert.equal(captured.islands, undefined));
+  assert.equal(captured.focus, undefined);
 });
