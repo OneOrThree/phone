@@ -606,7 +606,8 @@ final class ScreenTimeModule: NSObject {
             && selection.webDomainTokens.isEmpty
     }
 
-    private static var isAuthorized: Bool {
+    // 권한 브리지와 리포트가 같은 승인 판정을 사용한다.
+    static var isAuthorized: Bool {
         switch AuthorizationCenter.shared.authorizationStatus {
         case .approved, .approvedWithDataAccess: true
         case .denied, .notDetermined: false
