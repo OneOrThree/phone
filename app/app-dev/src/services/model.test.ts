@@ -282,11 +282,41 @@ test('PLAYBACK_SYNC는 서버가 확정한 곡과 재생 상태를 섬에 반영
   const next = reducer(before, {
     type: 'PLAYBACK_SYNC',
     islandId: island.id,
-    trackId: 'rain',
-    playing: true,
+    playback: {
+      trackId: 'rain',
+      playing: true,
+      positionSeconds: 12,
+      effectiveAt: '2026-09-22T00:00:00Z',
+      changedBy: 'u1',
+      version: 3,
+      serverNow: '2026-09-22T00:00:02Z',
+      durationSeconds: 120,
+    },
   });
   assert.equal(currentIsland(next).track, 'rain');
   assert.equal(currentIsland(next).playing, true);
+  assert.equal(currentIsland(next).serverPlayback?.positionSeconds, 12);
+});
+test('PLAYBACK_SYNC는 서버의 null 곡을 명시적인 미선택 상태로 반영한다', () => {
+  const before = initialState(false);
+  const island = currentIsland(before);
+  island.sharedOwned = ['waves'];
+  const next = reducer(before, {
+    type: 'PLAYBACK_SYNC',
+    islandId: island.id,
+    playback: {
+      trackId: null,
+      playing: false,
+      positionSeconds: 0,
+      effectiveAt: '2026-09-22T00:00:00Z',
+      changedBy: null,
+      version: 0,
+      serverNow: '2026-09-22T00:00:01Z',
+      durationSeconds: null,
+    },
+  });
+  assert.equal(currentIsland(next).track, null);
+  assert.equal(currentIsland(next).playing, false);
 });
 test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
   let s = initialState(true);

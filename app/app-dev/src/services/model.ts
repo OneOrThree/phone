@@ -6,6 +6,7 @@ import type {
   VisitScreen,
 } from '@/services/api/islands';
 import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
+import type { PlaybackState } from '@/services/api/playback';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -187,8 +188,10 @@ export type Island = {
   theme: string;
   buildingTheme: string;
   buildingThemes?: Record<string, string>;
-  track: string;
+  track: string | null;
   playing: boolean;
+  /** 서버 공용 재생 전체 상태. null trackId도 명시적인 미선택 상태로 보존한다. */
+  serverPlayback?: PlaybackState;
   /** 사용자가 정지 버튼을 누른 횟수. 플레이어가 일시정지와 구분해 재생 위치를 초기화한다. */
   playbackReset?: number;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
@@ -1577,9 +1580,17 @@ export function reducer(state: State, a: Action): State {
     case 'PLAYBACK_SYNC': {
       const target = s.islands.find((island) => island.id === a.islandId);
       if (!target) return state;
+      const playback = a.playback as PlaybackState;
+      if (
+        !playback ||
+        !Number.isSafeInteger(playback.version) ||
+        (target.serverPlayback && playback.version < target.serverPlayback.version)
+      )
+        return state;
       const wasPlaying = target.playing;
-      if (typeof a.trackId === 'string') target.track = a.trackId;
-      target.playing = typeof a.trackId === 'string' && !!a.playing;
+      target.serverPlayback = playback;
+      target.track = playback.trackId;
+      target.playing = playback.trackId !== null && playback.playing;
       if (wasPlaying && !target.playing) target.playbackReset = (target.playbackReset ?? 0) + 1;
       break;
     }
@@ -2016,7 +2027,10 @@ export function reducer(state: State, a: Action): State {
       }
       break;
     case 'PLAY':
-      if (i.buildings.includes('gram') && (!a.value || i.sharedOwned.includes(i.track))) {
+      if (
+        i.buildings.includes('gram') &&
+        (!a.value || (typeof i.track === 'string' && i.sharedOwned.includes(i.track)))
+      ) {
         i.playing = !!a.value;
         if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
       }

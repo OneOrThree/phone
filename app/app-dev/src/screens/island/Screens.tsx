@@ -59,6 +59,7 @@ import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
+import { BUNDLED_AUDIO_TRACK_IDS, hasBundledAudio } from '@/constants/audio';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
@@ -2349,7 +2350,7 @@ export function RedesignScreens({ e }: any) {
         >
           <Pic id="gram" w={22} />
           <Txt style={{ fontSize: 12, fontWeight: '700' }}>
-            {island.playing ? trackNames[island.track] : '음악 선택'}
+            {island.playing && island.track ? trackNames[island.track] : '음악 선택'}
           </Txt>
         </Pressable>
       )}
@@ -2453,18 +2454,17 @@ export function RedesignScreens({ e }: any) {
     const audioProducts: any[] = server
       ? shopApi.items
       : products.filter((p) => p.kind === 'audio');
-    const localAudioIds = new Set(
-      Object.keys(trackNames).concat(
-        products.filter((product) => product.kind === 'audio').map((product) => product.id),
-      ),
-    );
+    const localAudioIds = new Set<string>(BUNDLED_AUDIO_TRACK_IDS);
     const serverAudioLoaded = !!shopApi.shared;
     const ownedTrackIds = (serverAudioLoaded ? shopApi.shared!.audio : island.sharedOwned).filter(
-      (id) => serverAudioLoaded || localAudioIds.has(id),
+      hasBundledAudio,
     );
     const trackLabel = (id: string) => trackNames[id] ?? shopApi.titles[id] ?? id;
     const hasOwnedTracks = ownedTrackIds.length > 0;
-    const hasCurrentTrack = ownedTrackIds.includes(island.track);
+    const currentTrack = typeof island.track === 'string' ? island.track : null;
+    const serverPlaybackReady = !server || !!e.playback?.state;
+    const hasCurrentTrack =
+      serverPlaybackReady && currentTrack !== null && ownedTrackIds.includes(currentTrack);
     const trackIds = scene
       ? ownedTrackIds
       : [
@@ -2482,7 +2482,7 @@ export function RedesignScreens({ e }: any) {
         return true;
       }
       try {
-        await shopApi.updatePlayback(patch);
+        await e.playback.update(patch);
         return true;
       } catch (thrown) {
         if (e.conversion?.offer(thrown)) return false;
@@ -2494,7 +2494,11 @@ export function RedesignScreens({ e }: any) {
       if (ownedTrackIds.includes(id)) changePlayback({ trackId: id, playing: true });
       else {
         const product = audioProducts.find((item) => item.id === id);
-        if (server && (product?.available === false || product?.price == null)) return;
+        if (
+          !localAudioIds.has(id) ||
+          (server && (product?.available === false || product?.price == null))
+        )
+          return;
         setSoundDialog({ kind: 'confirm', productId: id });
       }
     };
@@ -2638,7 +2642,7 @@ export function RedesignScreens({ e }: any) {
                   <View
                     accessibilityLabel={
                       hasCurrentTrack
-                        ? `${trackLabel(island.track)} 레코드판`
+                        ? `${trackLabel(currentTrack!)} 레코드판`
                         : '재생할 수 있는 곡이 없는 레코드판'
                     }
                     style={{
@@ -2701,6 +2705,8 @@ export function RedesignScreens({ e }: any) {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel="정지"
+                      accessibilityState={{ disabled: !serverPlaybackReady }}
+                      disabled={!serverPlaybackReady}
                       onPress={() => changePlayback({ playing: false })}
                       style={{
                         width: gramophone.controlWidth,
@@ -2725,7 +2731,7 @@ export function RedesignScreens({ e }: any) {
                       style={{ color: gramophone.foreground, fontSize: 19, lineHeight: 24 }}
                     >
                       {hasCurrentTrack
-                        ? trackLabel(island.track)
+                        ? trackLabel(currentTrack!)
                         : hasOwnedTracks
                           ? '재생할 곡을 골라 주세요'
                           : '보유한 곡이 없어요'}
@@ -2760,13 +2766,15 @@ export function RedesignScreens({ e }: any) {
                       const selected = island.track === id;
                       const unavailable =
                         !owned &&
-                        server &&
-                        (product?.available === false || product?.price == null);
+                        (!localAudioIds.has(id) ||
+                          (server && (product?.available === false || product?.price == null)));
                       const status = owned
                         ? '보유'
-                        : unavailable
-                          ? shopBlockReason(product ?? {})
-                          : `${product?.price}마리 · 구매`;
+                        : !localAudioIds.has(id)
+                          ? '앱 업데이트가 필요해요'
+                          : unavailable
+                            ? shopBlockReason(product ?? {})
+                            : `${product?.price}마리 · 구매`;
                       return (
                         <Pressable
                           key={id}

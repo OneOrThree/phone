@@ -1,4 +1,5 @@
 import { sessionGeneration } from '@/services/api/session';
+import { hasBundledAudio } from '@/constants/audio';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -1821,17 +1822,25 @@ function FocusFlow({ e }: any) {
                 보유한 음원 중에서 골라요.
               </Text>
               <View style={{ gap: 8 }}>
-                {i.sharedOwned
-                  .filter((id) => trackNames[id])
-                  .map((id) => (
-                    <FiButton
-                      key={id}
-                      left
-                      primary={i.track === id}
-                      title={trackNames[id]}
-                      onPress={() => e.dispatch({ type: 'TRACK', value: id })}
-                    />
-                  ))}
+                {i.sharedOwned.filter(hasBundledAudio).map((id) => (
+                  <FiButton
+                    key={id}
+                    left
+                    primary={i.track === id}
+                    title={trackNames[id]}
+                    onPress={() => {
+                      if (!e.playback) e.dispatch({ type: 'TRACK', value: id });
+                      else
+                        e.playback
+                          .update({ trackId: id, playing: true })
+                          .catch((thrown: unknown) =>
+                            e.notify(
+                              thrown instanceof Error ? thrown.message : '음악을 바꾸지 못했어요.',
+                            ),
+                          );
+                    }}
+                  />
+                ))}
               </View>
               <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
                 <FiButton

@@ -25,6 +25,9 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
+import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
+import { bundledAudioSource } from '@/constants/audio';
+import { playbackSeekSeconds } from '@/services/api/playback';
 import { screenTime, selectionCount } from '@/services/screenTime';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
@@ -284,6 +287,11 @@ function Gromo() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(''), 2400);
   };
+  const playback = useIslandPlayback({
+    active: !REVIEW && !DEMO && hasServerSession && island.buildings.includes('gram'),
+    islandId: state.serverIslands?.currentIslandId ?? null,
+    dispatch,
+  });
   const go = (r: Route, id = '') => {
     const gateBoard = shouldGateScreenTimeBoard(r, {
       isIOS: Platform.OS === 'ios',
@@ -747,13 +755,35 @@ function Gromo() {
   const islandAudioOn = island.playing && (state.session?.status === 'active' || route === 'sound');
   useEffect(() => {
     if (previewAudio) return;
+    let cancelled = false;
     try {
-      player.replace(assets[`audio/${island.track}.wav`] as number);
+      const source = bundledAudioSource(island.track);
+      if (source === null) {
+        player.pause();
+        return;
+      }
+      player.replace(source);
       player.loop = true;
-      if (islandAudioOn) player.play();
-      else player.pause();
+      const seek = island.serverPlayback ? playbackSeekSeconds(island.serverPlayback) : 0;
+      Promise.resolve(player.seekTo(seek))
+        .then(() => {
+          if (cancelled) return;
+          if (islandAudioOn) player.play();
+          else player.pause();
+        })
+        .catch(() => {});
     } catch {}
-  }, [island.track, island.id, previewAudio, islandAudioOn]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    island.track,
+    island.id,
+    island.serverPlayback?.version,
+    island.serverPlayback?.serverNow,
+    previewAudio,
+    islandAudioOn,
+  ]);
   useEffect(() => {
     if (!island.playbackReset) return;
     try {
@@ -915,6 +945,7 @@ function Gromo() {
           islandBootError,
           // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
           conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
+          playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,
         }}
       />
     );

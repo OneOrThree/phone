@@ -401,6 +401,24 @@ describe('stompIslandChannel', () => {
     );
   });
 
+  test('재생 전용 연결은 playback만 구독하고 재연결 시 onOpen으로 복구를 요청한다', () => {
+    const opened: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      presence: false,
+      playback: true,
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => opened.push('open'),
+      onError: () => {},
+    });
+    assert.deepEqual(
+      client().subs.map((s: { dest: string }) => s.dest),
+      ['/topic/islands/i1/playback', '/user/queue/errors'],
+    );
+    assert.equal(opened.length, 1);
+  });
+
   test('이벤트는 JSON 을 파싱해 올리고, send 는 publish 로 나간다', () => {
     const events: unknown[] = [];
     const ch = stompIslandChannel({
