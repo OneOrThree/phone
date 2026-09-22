@@ -76,7 +76,9 @@ jobs:
               "${compose[@]}" up -d datadog-agent app
               ;;
             restart)
-              "${compose[@]}" restart datadog-agent app
+              # restart는 변경된 compose 환경을 반영하지 않는다. Agent와 app을 재생성해 새 이미지
+              # 인벤토리 설정과 APM overlay를 확실히 적용한다.
+              "${compose[@]}" up -d --force-recreate datadog-agent app
               ;;
             down)
               # Datadog Agent 제거 후, app 을 dev 파일 단독으로 재생성 → 평문(javaagent 없음) 복원
@@ -239,15 +241,15 @@ jobs:
             jq -r --arg k "$2" '[.runnerStats.Checks[$k] // {} | to_entries[]
                                  | .value.TotalMetricSamples // 0] | add // 0' "$1"
           }
-          for chk in container docker container_image; do
+          for chk in container docker; do
             b=$(samples /tmp/dd-before.json "$chk")
             a=$(samples /tmp/dd-after.json "$chk")
             n=$(jq -r --arg k "$chk" '.runnerStats.Checks[$k] // {} | to_entries | length' /tmp/dd-after.json)
             echo "${chk} 체크: 인스턴스 ${n}개, 메트릭 샘플 ${b} -> ${a}"
 
             if [ "${n:-0}" -eq 0 ] 2>/dev/null; then
-              # container와 container_image는 이번 수집 계약이라 부재 자체가 실패다. docker는 보조 지표다.
-              if [ "$chk" = container ] || [ "$chk" = container_image ]; then
+              # container는 이번 메트릭 수집 계약이라 부재 자체가 실패다. docker는 보조 지표다.
+              if [ "$chk" = container ]; then
                 echo "::error::${chk} 체크가 등록되지 않음 — workloadmeta/Autodiscovery 또는 이미지 수집 초기화 실패"
                 fail=1
               else
@@ -264,6 +266,15 @@ jobs:
               fail=1
             fi
           done
+          # container_image는 Container Images Explorer로 메타데이터를 보내는 인벤토리 체크다.
+          # 메트릭 체크가 아니어서 정상이어도 TotalMetricSamples는 0일 수 있으므로 등록 여부와
+          # LastError만 검사하고 샘플 증가를 요구하지 않는다.
+          image_instances=$(jq -r '.runnerStats.Checks.container_image // {} | to_entries | length' /tmp/dd-after.json)
+          echo "container_image 체크: 인스턴스 ${image_instances}개 (인벤토리 — 메트릭 샘플 수 미검사)"
+          if [ "${image_instances:-0}" -eq 0 ] 2>/dev/null; then
+            echo "::error::container_image 체크가 등록되지 않음 — 이미지 인벤토리 초기화 실패"
+            fail=1
+          fi
           errs=$(jq -r '.runnerStats.Checks | to_entries[]
                         | select(.key == "container" or .key == "docker" or .key == "container_image")
                         | .value | to_entries[]
