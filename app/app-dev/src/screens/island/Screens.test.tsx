@@ -603,7 +603,7 @@ test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 
   let release: (v: unknown) => void = () => {};
   mockUpdateProfile.mockImplementation(() => new Promise((resolve) => (release = resolve)));
   const s = await render(
-    <Harness route="profile" full expose={(x: any) => (exposed = x)} />,
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
   await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
@@ -619,7 +619,10 @@ test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 
   );
   await waitFor(() => assert.ok(exposed.actions.includes('PROFILE')));
   // 저장본이 정본 — 응답의 name/catColor 가 로컬을 덮는다
-  assert.equal(notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'), true);
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    true,
+  );
   assert.equal(backMock.mock.calls.length, 1);
 });
 
@@ -629,7 +632,7 @@ test('프로필 저장 실패는 PROFILE·뒤로가기·성공 문구 없이 서
     new ApiError('NICKNAME_DUPLICATE', '이미 쓰는 닉네임이에요.', 409),
   );
   const s = await render(
-    <Harness route="profile" full expose={(x: any) => (exposed = x)} />,
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
 
   await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
@@ -639,5 +642,24 @@ test('프로필 저장 실패는 PROFILE·뒤로가기·성공 문구 없이 서
   );
   assert.ok(!exposed.actions.includes('PROFILE'));
   assert.equal(backMock.mock.calls.length, 0);
-  assert.equal(notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'), false);
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    false,
+  );
+});
+
+test('목업 모드 프로필 저장은 API 없이 로컬 PROFILE을 갱신한다', async () => {
+  let exposed: any;
+  const s = await render(<Harness route="profile" full expose={(x: any) => (exposed = x)} />);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
+  await fireEvent.press(s.getByText('저장'));
+
+  assert.equal(mockUpdateProfile.mock.calls.length, 0);
+  assert.ok(exposed.actions.includes('PROFILE'));
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    true,
+  );
+  assert.equal(backMock.mock.calls.length, 1);
 });

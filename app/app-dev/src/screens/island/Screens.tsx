@@ -5532,6 +5532,12 @@ export function RedesignScreens({ e }: any) {
             notify('닉네임을 입력해 주세요.');
             return;
           }
+          if (!server) {
+            act('PROFILE', { name, color: profileColor });
+            notify('저장했어요.');
+            back();
+            return;
+          }
           run(
             () =>
               updateProfile({ name, catColor: profileColor }).then((saved) => {
