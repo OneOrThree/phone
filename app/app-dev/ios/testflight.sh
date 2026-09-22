@@ -19,7 +19,27 @@ set -a
 source "$CREDENTIALS_ENV"
 set +a
 
-for required in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH; do
+# Datadog RUM 공개 설정은 기존 앱과 같은 RUM application을 사용한다. 값의 정본을 아직
+# 별도 파일로 분리하지 않았으므로, 저장소에 이미 추적 중인 legacy 릴리즈 설정에서 허용한
+# 두 export만 읽는다. 임의의 shell 코드는 실행하지 않는다.
+DATADOG_ENV_SOURCE="../../legacy/app-dev/ios/testflight.sh"
+while IFS= read -r line; do
+  case "$line" in
+    'export EXPO_PUBLIC_DATADOG_APPLICATION_ID='*)
+      value="${line#*=}"
+      value="${value#\"}"
+      export EXPO_PUBLIC_DATADOG_APPLICATION_ID="${value%\"}"
+      ;;
+    'export EXPO_PUBLIC_DATADOG_CLIENT_TOKEN='*)
+      value="${line#*=}"
+      value="${value#\"}"
+      export EXPO_PUBLIC_DATADOG_CLIENT_TOKEN="${value%\"}"
+      ;;
+  esac
+done < "$DATADOG_ENV_SOURCE"
+export EXPO_PUBLIC_ENV="prod"
+
+for required in ASC_KEY_ID ASC_ISSUER_ID ASC_KEY_PATH EXPO_PUBLIC_DATADOG_APPLICATION_ID EXPO_PUBLIC_DATADOG_CLIENT_TOKEN; do
   if [[ -z "${!required:-}" ]]; then
     echo "❌ $required 값이 비어 있어요." >&2
     exit 1

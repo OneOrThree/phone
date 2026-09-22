@@ -325,5 +325,26 @@ jobs:
             fi
           fi
 
+          # 4) Redis·Kafka integration — 컨테이너가 실행 중일 때 Autodiscovery check도 실제 실행한다.
+          # status JSON의 등록 여부만 보면 초기화 직후 0 sample이 통과할 수 있어 `agent check` 결과를 쓴다.
+          if docker ps --format '{{.Names}}' | grep -Fxq phone-redis; then
+            echo "== Redis integration 검증 =="
+            docker exec gromo-datadog-agent agent check redisdb >/tmp/dd-redis-check.txt 2>&1 || {
+              sed -n '1,160p' /tmp/dd-redis-check.txt
+              echo "::error::Redis integration 수집 실패"
+              fail=1
+            }
+          fi
+          if docker ps --format '{{.Names}}' | grep -Fxq phone-kafka; then
+            echo "== Kafka JMX·consumer integration 검증 =="
+            for integration in kafka kafka_consumer; do
+              docker exec gromo-datadog-agent agent check "$integration" >"/tmp/dd-${integration}-check.txt" 2>&1 || {
+                sed -n '1,160p' "/tmp/dd-${integration}-check.txt"
+                echo "::error::${integration} integration 수집 실패"
+                fail=1
+              }
+            done
+          fi
+
           [ "$fail" -eq 0 ] || { echo "수집 검증 실패 — 위 오류 참고"; exit 1; }
           echo "수집 검증 통과"
