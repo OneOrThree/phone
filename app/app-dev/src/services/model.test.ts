@@ -532,6 +532,21 @@ test('서버 친구 스냅샷은 공용 친구 상태를 교체하되 기존 편
   );
   assert.equal(s.friends?.[0].island, '서버 섬');
   assert.equal(s.friends?.[0].messages[0]?.id, 'letter');
+
+  s = act(s, 'FRIENDS_SYNC', {
+    friends: [
+      {
+        id: 'saebom',
+        name: '새봄',
+        color: 'white',
+        island: '',
+        status: 'received',
+        messages: [],
+      },
+    ],
+  });
+  assert.equal(s.friends?.[0].status, 'received');
+  assert.deepEqual(s.friends?.[0].messages, []);
 });
 test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', () => {
   let s = initialState(true);
