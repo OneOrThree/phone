@@ -749,7 +749,17 @@ function FocusFlow({ e }: any) {
     setDialog(null);
     if (r !== 'focus') setEmote(null);
   }, [r]);
+  // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
+  // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
+  const serverSession = () => e.focus && s.session?.version != null;
   const finish = () => {
+    if (serverSession()) {
+      e.focus
+        .finish()
+        .then(() => e.reset('focusResult'))
+        .catch((error: any) => e.notify(error?.message ?? '집중을 마치지 못했어요.'));
+      return;
+    }
     e.dispatch({ type: 'FINISH' });
     e.reset('focusResult');
   };
@@ -804,16 +814,28 @@ function FocusFlow({ e }: any) {
     if (!walkTo(LANDING, arrive)) arrive();
   };
   const result = s.lastResult,
-    leave = () =>
+    leave = () => {
+      // 자동 종료 결과는 닫을 때 acknowledge — 확인 전까지 서버가 계속 돌려주므로 실패해도 잃지 않는다
+      if (result?.ackId) e.focus?.acknowledge(result.ackId).catch(() => {});
       s.resultFromRest
         ? e.home()
-        : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel')),
+        : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel'));
+    },
     // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 바로 섬으로
     done = () => (s.rewards?.some((x) => !x.acknowledged) ? setDialog('reward') : leave()),
     claimed = (more: boolean) => {
       if (!more) leave();
     };
-  const resume = () => setVoyage('toSpot');
+  const resume = () => {
+    if (serverSession()) {
+      e.focus
+        .resume()
+        .then(() => setVoyage('toSpot'))
+        .catch((error: any) => e.notify(error?.message ?? '집중을 이어가지 못했어요.'));
+      return;
+    }
+    setVoyage('toSpot');
+  };
   // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
@@ -871,7 +893,10 @@ function FocusFlow({ e }: any) {
           setLeg('comeback');
           const sit = () => {
             setLeg(null);
-            if (latest.current.s.session?.status === 'paused') e.dispatch({ type: 'RESUME' });
+            // 서버 세션은 RESUME 을 로컬로 흉내 내지 않는다 — resume 명령 성공이 이미 status를 갱신했다
+            const latestSession = latest.current.s.session;
+            if (latestSession?.status === 'paused' && latestSession.version == null)
+              e.dispatch({ type: 'RESUME' });
           };
           if (!walkTo(mine, sit)) sit();
         }}
@@ -923,9 +948,17 @@ function FocusFlow({ e }: any) {
       setError('집중할 과목이나 할 일을 적어주세요.');
       return;
     }
-    if (!i.joined) {
+    if (!e.focus && !i.joined) {
       e.notify('섬에 가입한 뒤 집중할 수 있어요.');
       e.replace('chooseIsland');
+      return;
+    }
+    if (e.focus) {
+      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
+      e.focus
+        .start({ subject: e.text.trim() })
+        .then(() => e.go('focus'))
+        .catch((error: any) => setError(error?.message ?? '집중을 시작하지 못했어요.'));
       return;
     }
     e.dispatch({ type: 'START', subject: e.text });
@@ -1323,12 +1356,24 @@ function FocusFlow({ e }: any) {
               id="pause-focus"
               style={{ flex: 1 }}
               onPress={() => {
-                // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식)
+                // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식).
+                // 서버 세션은 pause 성공 뒤에만 휴식 연출을 시작한다(정책: 이동 연출은 성공 후).
+                const go = () =>
+                  leaveTo(() => {
+                    setVoyage('toRest');
+                    e.go('rest');
+                  });
+                if (serverSession()) {
+                  e.focus
+                    .pause()
+                    .then(go)
+                    .catch((error: any) =>
+                      e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'),
+                    );
+                  return;
+                }
                 e.dispatch({ type: 'PAUSE' });
-                leaveTo(() => {
-                  setVoyage('toRest');
-                  e.go('rest');
-                });
+                go();
               }}
             />
             <FiButton

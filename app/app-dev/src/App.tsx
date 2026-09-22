@@ -91,6 +91,7 @@ import {
   subscribeSession,
 } from '@/services/api/session';
 import { createIslandCommands } from '@/services/islandCommands';
+import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 const REVIEW =
   Platform.OS === 'web' &&
@@ -308,15 +309,11 @@ function Gromo() {
     }
     if (backOverride.current?.()) return;
     if (route === 'focus' && state.session) {
-      confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => {
-        dispatch({ type: 'FINISH' });
-        reset('focusResult');
-      });
+      confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => finishSession());
       return;
     }
     if (route === 'rest' && state.session) {
-      dispatch({ type: 'RESUME' });
-      setRoute('focus');
+      resumeSession();
       return;
     }
     if (history.length) {
@@ -356,6 +353,41 @@ function Gromo() {
   });
   const islands = islandCmds.current.commands,
     syncIslands = islandCmds.current.syncIslands;
+  // ── 집중 세션 서버 명령(GROMO-2009) ──
+  // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
+  const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);
+  focusCmds.current ??= createSessionCommands({
+    dispatch,
+    getSession: () => stateRef.current?.session ?? null,
+    getSnap: () => stateRef.current?.serverIslands,
+  });
+  const focus = focusCmds.current.commands;
+  // 서버 세션(버전 있음)이면 명령이 정본 — 없으면 목업 로컬 reducer 경로다.
+  const serverSession = () => hasServerSession && stateRef.current?.session?.version != null;
+  const finishSession = () => {
+    if (!serverSession()) {
+      dispatch({ type: 'FINISH' });
+      reset('focusResult');
+      return;
+    }
+    focus
+      .finish()
+      .then(() => reset('focusResult'))
+      .catch((error) => notify(error instanceof Error ? error.message : '집중을 마치지 못했어요.'));
+  };
+  const resumeSession = () => {
+    if (!serverSession()) {
+      dispatch({ type: 'RESUME' });
+      setRoute('focus');
+      return;
+    }
+    focus
+      .resume()
+      .then(() => setRoute('focus'))
+      .catch((error) =>
+        notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.'),
+      );
+  };
   useEffect(() => subscribeSession((session) => setHasServerSession(session !== null)), []);
   // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
@@ -413,6 +445,12 @@ function Gromo() {
         });
         // decideBootRoute 반환과 적용 사이도 await 경계다 — 그 사이 세대가 죽었으면 쓰지 않는다
         if (bootRoute && sessionGeneration() === bootGen) setRoute(bootRoute);
+        // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
+        // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
+        if (account && !mock && sessionGeneration() === bootGen) {
+          const recovered = await focusCmds.current!.commands.recover().catch(() => null);
+          if (recovered && sessionGeneration() === bootGen) setRoute(recovered);
+        }
       })
       .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
       .finally(() => setLoaded(true));
@@ -732,6 +770,7 @@ function Gromo() {
           setFailNext,
           // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
           islands: REVIEW || DEMO || !hasServerSession ? undefined : islands,
+          focus: REVIEW || DEMO || !hasServerSession ? undefined : focus,
           islandBootError,
         }}
       />
