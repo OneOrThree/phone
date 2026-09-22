@@ -29,6 +29,7 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite } from '@/components/CatSprite';
+import { claimableQuestRewardCount, HomeQuestIndicator } from '@/screens/island/HomeQuestIndicator';
 import { useAppLayout } from '@/utils/layout';
 import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
@@ -619,6 +620,15 @@ export function FinalIsland({
         (seconds, record) => seconds + recordSecondsBetween(record, todayFrom, todayUntil),
         0,
       );
+  const hudTop = L.landscape ? 14 : Math.max(64, L.insets.top + 5),
+    hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
+    rewardCount = claimableQuestRewardCount(state.rewards, i.id),
+    showQuestIndicator =
+      showHud &&
+      showActions &&
+      !visiting &&
+      i.buildings.includes('board') &&
+      (i.quests.length > 0 || rewardCount > 0);
   return (
     <View style={{ flex: 1 }}>
       <WorldMap
@@ -632,8 +642,8 @@ export function FinalIsland({
           pointerEvents="none"
           style={{
             position: 'absolute',
-            top: L.landscape ? 14 : Math.max(64, L.insets.top + 5),
-            left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
+            top: hudTop,
+            left: hudLeft,
             backgroundColor: '#FFFDFAB3',
             borderRadius: 999,
             paddingVertical: 6,
@@ -671,6 +681,14 @@ export function FinalIsland({
             </>
           )}
         </View>
+      )}
+      {showQuestIndicator && (
+        <HomeQuestIndicator
+          quests={i.quests}
+          rewardCount={rewardCount}
+          onPress={() => go('quest')}
+          style={{ position: 'absolute', top: hudTop + 54, left: hudLeft, zIndex: 10 }}
+        />
       )}
       {showActions && (
         <>
