@@ -16,6 +16,12 @@ import {
   CLIENT_WRITE_IN_PROGRESS,
   useBoardNotices,
 } from '@/screens/interiors/useBoardNotices';
+import {
+  claimQuest as postClaim,
+  createQuest as postQuest,
+  getQuestProgress,
+  updateQuest as patchQuest,
+} from '@/services/api/quests';
 
 jest.mock('@/services/api/notices', () => ({
   getBoard: jest.fn(),
@@ -26,14 +32,61 @@ jest.mock('@/services/api/notices', () => ({
   deleteNotice: jest.fn(),
   createNoticeComment: jest.fn(),
 }));
+jest.mock('@/services/api/quests', () => ({
+  getCurrentQuests: jest.fn(),
+  getQuestProgress: jest.fn(),
+  createQuest: jest.fn(),
+  updateQuest: jest.fn(),
+  claimQuest: jest.fn(),
+}));
 
 const board = (
   items: { id: string; title: string }[],
   nextCursor: string | null = null,
   role: 'host' | 'member' = 'host',
+  quests: Record<string, unknown>[] = [],
 ) => ({
   island: { id: 'island-1', role },
+  quests: { items: quests },
   notices: { items: items.map((i) => ({ ...i, commentCount: 0 })), nextCursor },
+});
+
+const questItem = (over: Record<string, unknown> = {}) => ({
+  id: 'q1',
+  occurrenceId: 'occ-1',
+  title: '저녁 집중',
+  type: 'focus',
+  windowStart: '19:00',
+  windowEnd: '22:00',
+  timezone: 'UTC',
+  date: '2026-09-21',
+  targetMinutes: 50,
+  myRate: 64,
+  reward: { currency: 'village_points', amount: 10 },
+  settlementStatus: 'open',
+  claimable: true,
+  claimBlockedReason: null,
+  claimed: false,
+  bonusAmount: 20,
+  bonusGranted: false,
+  version: 3,
+  ...over,
+});
+
+const questProgress = (over: Record<string, unknown> = {}) => ({
+  ...questItem(),
+  members: [
+    {
+      userId: 'u1',
+      name: '나',
+      rate: 100,
+      measurementStatus: 'measured',
+      achieved: true,
+      claimed: false,
+    },
+  ],
+  nextCursor: null,
+  ...over,
 });
 
 const detail = (
@@ -72,6 +125,10 @@ const postNoticeMock = postNotice as jest.Mock;
 const patchNoticeMock = patchNotice as jest.Mock;
 const delNoticeMock = delNotice as jest.Mock;
 const postCommentMock = postComment as jest.Mock;
+const getQuestProgressMock = getQuestProgress as jest.Mock;
+const postQuestMock = postQuest as jest.Mock;
+const patchQuestMock = patchQuest as jest.Mock;
+const postClaimMock = postClaim as jest.Mock;
 
 /** 로드가 끝난 활성 훅 — 쓰기 테스트의 공통 출발점. */
 const mountActive = async () => {
@@ -723,5 +780,228 @@ test('댓글 페이징 중 다른 공지를 열면 loadingMoreComments 가 풀�
     ['x1', 'x2'],
   );
   assert.deepEqual([...getNoticeMock.mock.calls[3]], ['island-1', 'n2', 'cc2']);
+  await hook.unmount();
+});
+
+/** 퀘스트가 실린 채 로드가 끝난 활성 훅 — 퀘스트 테스트의 공통 출발점. */
+const mountWithQuest = async () => {
+  getBoardMock.mockResolvedValue(board([], null, 'host', [questItem()]));
+  const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useBoardNotices(p), {
+    initialProps: { active: true, scopeKey: 's1' },
+  });
+  await waitFor(() => assert.equal(hook.result.current.loading, false));
+  getBoardMock.mockClear();
+  return hook;
+};
+
+test('getBoard 의 quests.items 가 목록 정본이다 — 진행률·수령 필드를 그대로 싣는다', async () => {
+  const hook = await mountWithQuest();
+  assert.deepEqual(hook.result.current.quests, [questItem()]);
+  await hook.unmount();
+});
+
+test('selectQuest — occurrenceId 로 progress 를 싣고 null 로 닫는다', async () => {
+  const hook = await mountWithQuest();
+  getQuestProgressMock.mockResolvedValue(questProgress());
+
+  await act(async () => {
+    await hook.result.current.selectQuest('q1');
+  });
+  assert.deepEqual([...getQuestProgressMock.mock.calls[0]], ['island-1', 'q1', 'occ-1']);
+  // members 의 rate·achieved·claimed 는 서버 값 그대로다.
+  assert.equal(hook.result.current.questDetail?.members[0].rate, 100);
+  assert.equal(hook.result.current.questDetail?.members[0].achieved, true);
+
+  await act(async () => {
+    await hook.result.current.selectQuest(null);
+  });
+  assert.equal(hook.result.current.questDetail, null);
+  assert.equal(getQuestProgressMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('selectQuest — 목록에 없는 id 는 API 없이 QUEST_GONE 오류를 싣는다', async () => {
+  const hook = await mountWithQuest();
+  await act(async () => {
+    await hook.result.current.selectQuest('gone');
+  });
+  assert.equal((hook.result.current.questDetailError as ApiError).code, 'QUEST_GONE');
+  assert.equal(getQuestProgressMock.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('claimQuest — {occurrenceId, expectedVersion} 만 보내고 성공 뒤 목록·열린 상세를 재조회한다', async () => {
+  const hook = await mountWithQuest();
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  await act(async () => {
+    await hook.result.current.selectQuest('q1');
+  });
+  getQuestProgressMock.mockClear();
+
+  postClaimMock.mockResolvedValue({
+    claimId: 'c1',
+    occurrenceId: 'occ-1',
+    villagePointsAdded: 10,
+    bonusAdded: 0,
+    claimed: true,
+  });
+  getBoardMock.mockResolvedValue(
+    board([], null, 'host', [questItem({ claimable: false, claimed: true, version: 4 })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress({ claimed: true, version: 4 }));
+
+  let result!: unknown;
+  await act(async () => {
+    result = await hook.result.current.claimQuest(questItem() as never);
+  });
+  assert.deepEqual(result, {
+    claimId: 'c1',
+    occurrenceId: 'occ-1',
+    villagePointsAdded: 10,
+    bonusAdded: 0,
+    claimed: true,
+  });
+  // 본문은 정확히 {occurrenceId, expectedVersion} 다 — 지급량·사용자 id 를 싣지 않는다.
+  assert.deepEqual(postClaimMock.mock.calls[0][2], { occurrenceId: 'occ-1', expectedVersion: 3 });
+  assert.equal(typeof postClaimMock.mock.calls[0][3], 'string');
+  // 성공 뒤 목록(getBoard·지갑 포함)과 열린 상세를 다시 읽는다 — 로컬 가산 없음.
+  assert.equal(getBoardMock.mock.calls.length, 1);
+  assert.deepEqual([...getQuestProgressMock.mock.calls[0]], ['island-1', 'q1', 'occ-1']);
+  assert.equal(hook.result.current.quests[0].claimed, true);
+  assert.equal(hook.result.current.questDetail?.claimed, true);
+  await hook.unmount();
+});
+
+test('claimQuest — 응답 유실 재시도는 같은 Idempotency-Key 로 간다', async () => {
+  const hook = await mountWithQuest();
+  postClaimMock.mockRejectedValueOnce(
+    new ApiError('CLIENT_NETWORK_ERROR', '네트워크에 연결할 수 없어요.', 0),
+  );
+  const first = await settle(hook.result.current.claimQuest(questItem() as never));
+  assert.equal((first as { err: ApiError }).err.code, 'CLIENT_NETWORK_ERROR');
+
+  postClaimMock.mockResolvedValue({
+    claimId: 'c1',
+    occurrenceId: 'occ-1',
+    villagePointsAdded: 10,
+    bonusAdded: 0,
+    claimed: true,
+  });
+  getBoardMock.mockResolvedValue(board([], null, 'host', [questItem({ claimed: true })]));
+  await act(async () => {
+    await hook.result.current.claimQuest(questItem() as never);
+  });
+  assert.equal(postClaimMock.mock.calls.length, 2);
+  assert.equal(postClaimMock.mock.calls[0][3], postClaimMock.mock.calls[1][3]);
+  await hook.unmount();
+});
+
+test('claimQuest — 409 버전 충돌은 오류를 그대로 던지고 목록을 새 버전으로 다시 읽는다', async () => {
+  const hook = await mountWithQuest();
+  postClaimMock.mockRejectedValueOnce(
+    new ApiError('VERSION_CONFLICT', '다른 기기에서 먼저 바뀌었습니다.', 409),
+  );
+  getBoardMock.mockResolvedValue(board([], null, 'host', [questItem({ version: 5 })]));
+
+  const r = await settle(hook.result.current.claimQuest(questItem() as never));
+  assert.equal((r as { err: ApiError }).err.code, 'VERSION_CONFLICT');
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await waitFor(() => assert.equal(hook.result.current.quests[0].version, 5));
+  await hook.unmount();
+});
+
+test('claimQuest — 중복 탭은 요청을 하나만 낸다', async () => {
+  const hook = await mountWithQuest();
+  const slow = deferred<unknown>();
+  postClaimMock.mockReturnValue(slow.promise);
+  let p1!: Promise<unknown>, p2!: Promise<unknown>;
+  await act(async () => {
+    p1 = hook.result.current.claimQuest(questItem() as never);
+    p2 = hook.result.current.claimQuest(questItem() as never);
+  });
+  assert.equal(postClaimMock.mock.calls.length, 1);
+
+  getBoardMock.mockResolvedValue(board([], null, 'host', [questItem({ claimed: true })]));
+  await act(async () => {
+    slow.resolve({
+      claimId: 'c1',
+      occurrenceId: 'occ-1',
+      villagePointsAdded: 10,
+      bonusAdded: 0,
+      claimed: true,
+    });
+    await p1;
+    await p2;
+  });
+  assert.equal(postClaimMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('createQuest — POST 본문을 그대로 보내고 성공 뒤 목록을 다시 읽는다', async () => {
+  const hook = await mountWithQuest();
+  postQuestMock.mockResolvedValue({ id: 'q2', title: '새 퀘스트' });
+  getBoardMock.mockResolvedValue(board([], null, 'host', [questItem(), questItem({ id: 'q2' })]));
+
+  const body = {
+    title: '새 퀘스트',
+    type: 'focus' as const,
+    targetMinutes: 30,
+    windowStart: '20:00',
+    windowEnd: '22:00',
+    timezone: 'UTC',
+  };
+  await act(async () => {
+    await hook.result.current.createQuest(body);
+  });
+  assert.deepEqual([...postQuestMock.mock.calls[0]].slice(0, 2), ['island-1', body]);
+  assert.equal(getBoardMock.mock.calls.length, 1);
+  assert.equal(hook.result.current.quests.length, 2);
+  await hook.unmount();
+});
+
+test('updateQuest — PATCH 는 title/targetMinutes 만 보내고 열린 상세도 갱신한다', async () => {
+  const hook = await mountWithQuest();
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  await act(async () => {
+    await hook.result.current.selectQuest('q1');
+  });
+  getQuestProgressMock.mockClear();
+
+  patchQuestMock.mockResolvedValue({ id: 'q1', title: '새 제목', targetMinutes: 60 });
+  getBoardMock.mockResolvedValue(
+    board([], null, 'host', [questItem({ title: '새 제목', targetMinutes: 60 })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress({ title: '새 제목', targetMinutes: 60 }));
+
+  await act(async () => {
+    await hook.result.current.updateQuest('q1', { title: '새 제목', targetMinutes: 60 });
+  });
+  assert.deepEqual([...patchQuestMock.mock.calls[0]].slice(0, 3), [
+    'island-1',
+    'q1',
+    { title: '새 제목', targetMinutes: 60 },
+  ]);
+  assert.equal(hook.result.current.quests[0].title, '새 제목');
+  assert.equal(hook.result.current.questDetail?.title, '새 제목');
+  await hook.unmount();
+});
+
+test('active=false — 퀘스트 쓰기도 CLIENT_INACTIVE 로 거절되고 API 는 0건이다', async () => {
+  const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useBoardNotices(p), {
+    initialProps: { active: false, scopeKey: 's1' },
+  });
+  await act(async () => {});
+  for (const call of [
+    () => hook.result.current.createQuest({ title: 't', type: 'screen', targetMinutes: 30 }),
+    () => hook.result.current.updateQuest('q1', { title: 't' }),
+    () => hook.result.current.claimQuest(questItem() as never),
+  ]) {
+    const r = await settle(call());
+    assert.equal((r as { err: ApiError }).err.code, CLIENT_INACTIVE);
+  }
+  assert.equal(postQuestMock.mock.calls.length, 0);
+  assert.equal(patchQuestMock.mock.calls.length, 0);
+  assert.equal(postClaimMock.mock.calls.length, 0);
+  assert.equal(getQuestProgressMock.mock.calls.length, 0);
   await hook.unmount();
 });

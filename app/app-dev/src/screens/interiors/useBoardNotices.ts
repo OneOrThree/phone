@@ -1,5 +1,6 @@
 /**
- * 섬 게시판 공지 훅 (GROMO-2013). UI 는 이 파일 밖이다.
+ * 섬 게시판 화면 훅 — 공지(GROMO-2013)와 일일 퀘스트(GROMO-2014)를 함께 싣는다.
+ * UI 는 이 파일 밖이다.
  *
  * - `active=false` 이면 API 를 하나도 부르지 않는다(비활성 화면·방문객의 요청 0 보장).
  *   읽기 액션은 조용히 무시하고, 쓰기 액션은 CLIENT_INACTIVE 로 던져 호출부 초안을 보존한다.
@@ -11,6 +12,12 @@
  * (응답 유실·retryable 실패)는 **같은 key** 로 다시 보내고, 쓰기 성공 + GET 새로고침이 끝나야
  * key 를 놓는다 — 다음 의도는 새 key 다(notices.ts 의 계약). 진행 중인 같은 슬롯 호출은
  * 새 요청을 내지 않고 진행 중인 promise 를 돌려준다(중복 탭).
+ *
+ * 퀘스트는 getBoard 가 싣는 `quests.items`(현재 회차 헤더·내 진행률·수령 상태·지갑)를 목록으로
+ * 쓰고, 주민별 진행은 `selectQuest` 의 progress GET 이 가져온다. 수령·생성·수정 성공 뒤에는
+ * refreshList 가 목록과 지갑을 함께 다시 읽는다 — 앱이 보상량을 로컬 지갑에 더하지 않는다.
+ * claim 의 버전은 목록 항목의 `version` 이고, 403/409 실패 뒤엔 목록을 다시 읽어 새 버전·
+ * 권한을 받아 온다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
@@ -29,6 +36,19 @@ import {
   type NoticePage,
   type NoticeWriteResult,
 } from '@/services/api/notices';
+import {
+  claimQuest as postClaim,
+  createQuest as postQuest,
+  getQuestProgress,
+  updateQuest as patchQuest,
+  type QuestClaimed,
+  type QuestCreateBody,
+  type QuestCreated,
+  type QuestItem,
+  type QuestProgress,
+  type QuestUpdateBody,
+  type QuestUpdated,
+} from '@/services/api/quests';
 
 export type NoticeItem = NoticePage['items'][number];
 
@@ -50,6 +70,12 @@ export type BoardNoticesState = {
   detailLoading: boolean;
   detailError: ApiError | null;
   loadingMoreComments: boolean;
+  /** 현재 회차 헤더 — getBoard 의 quests.items 가 정본이다. */
+  quests: QuestItem[];
+  /** 열린 퀘스트의 회차 진행(주민별 rate·achieved·claimed) — progress GET 의 응답 그대로다. */
+  questDetail: QuestProgress | null;
+  questDetailLoading: boolean;
+  questDetailError: ApiError | null;
 };
 
 const EMPTY: BoardNoticesState = {
@@ -64,6 +90,10 @@ const EMPTY: BoardNoticesState = {
   detailLoading: false,
   detailError: null,
   loadingMoreComments: false,
+  quests: [],
+  questDetail: null,
+  questDetailLoading: false,
+  questDetailError: null,
 };
 
 /** 쓰기 의도 슬롯 — key 는 페이로드(의도)가 같을 때만 유지된다. */
@@ -84,6 +114,8 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   const epoch = useRef(0);
   // select 경합 fence — 마지막으로 고른 공지만 detail 로 적용된다.
   const selectSeq = useRef(0);
+  // 퀘스트 상세도 같은 규칙 — 마지막으로 연 회차만 questDetail 로 적용된다.
+  const questSeq = useRef(0);
   const intents = useRef(new Map<string, IntentSlot>());
   // 캐시된 섬 데이터가 어느 epoch·세대에서 왔는지 — 계정/범위 교체 직후 리렌더 전에
   // 잡힌 옛 콜백이 옛 islandId 를 새 계정 토큰으로 보내는 것을 막는다.
@@ -115,6 +147,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         islandRole: board.island.role,
         items: board.notices.items,
         nextCursor: board.notices.nextCursor,
+        quests: board.quests.items,
         loading: false,
         error: null,
       });
@@ -230,6 +263,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         islandRole: board.island.role,
         items: board.notices.items,
         nextCursor: board.notices.nextCursor,
+        quests: board.quests.items,
       });
     },
 
@@ -246,6 +280,48 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       if (stateRef.current.detail?.id === noticeId) set({ detail: next });
     },
 
+    [alive, set],
+  );
+
+  /** 퀘스트 상세 — 회차 식별자 occurrenceId 는 목록 항목에서 찾는다(서버가 받는 유일한 축). */
+  const selectQuest = useCallback(
+    async (id: string | null) => {
+      const seq = ++questSeq.current;
+      if (id === null) {
+        set({ questDetail: null, questDetailLoading: false, questDetailError: null });
+        return;
+      }
+      const { islandId, quests } = stateRef.current;
+      if (!mounted.current || !active || !islandId || !cached()) return;
+      const e = epoch.current;
+      const generation = sessionGeneration();
+      set({ questDetail: null, questDetailLoading: true, questDetailError: null });
+      try {
+        const item = quests.find((q) => q.id === id);
+        // 목록에 없는 id — 회차가 굴러 헤더가 바뀐 옛 라우트다. GET 을 만들 수 없으니
+        // 클라이언트 오류로 표시해 빙글거리는 스피너 대신 재시도를 보여 준다.
+        if (!item) throw new ApiError('QUEST_GONE', '이 퀘스트 회차는 지나갔어요.', 0);
+        const detail = await getQuestProgress(islandId, id, item.occurrenceId);
+        if (!alive(e, generation) || seq !== questSeq.current) return;
+        set({ questDetail: detail, questDetailLoading: false });
+      } catch (error) {
+        if (!alive(e, generation) || seq !== questSeq.current) return;
+        set({ questDetailLoading: false, questDetailError: error as ApiError });
+      }
+    },
+    [active, alive, cached, set],
+  );
+
+  // 열려 있는 퀘스트 상세가 그 퀘스트일 때만 progress 로 갈아 끼운다.
+  const refreshQuestDetail = useCallback(
+    async (e: number, generation: number, islandId: string, questId: string) => {
+      if (!alive(e, generation)) throw stale();
+      const open = stateRef.current.questDetail;
+      if (open?.id !== questId) return;
+      const next = await getQuestProgress(islandId, questId, open.occurrenceId);
+      if (!alive(e, generation)) throw stale();
+      if (stateRef.current.questDetail?.id === questId) set({ questDetail: next });
+    },
     [alive, set],
   );
 
@@ -375,6 +451,75 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     [writable, runWrite, refreshList, refreshDetail],
   );
 
+  /** 퀘스트 만들기 — 본문·권한 검증은 서버가 한다(quests.ts 의 허용 키만 보낸다). */
+  const createQuest = useCallback(
+    async (body: QuestCreateBody): Promise<QuestCreated> => {
+      const islandId = writable();
+      const e = epoch.current;
+      const generation = sessionGeneration();
+      return runWrite(
+        `quest-create:${islandId}`,
+        JSON.stringify(body),
+        (key) => postQuest(islandId, body, key),
+        () => refreshList(e, generation),
+      );
+    },
+    [writable, runWrite, refreshList],
+  );
+
+  /** 퀘스트 수정 — 공개 PATCH 는 title/targetMinutes 만 받는다(quests.ts 계약). */
+  const updateQuest = useCallback(
+    async (id: string, body: QuestUpdateBody): Promise<QuestUpdated> => {
+      const islandId = writable();
+      const e = epoch.current;
+      const generation = sessionGeneration();
+      return runWrite(
+        `quest-update:${id}`,
+        JSON.stringify({ id, ...body }),
+        (key) => patchQuest(islandId, id, body, key),
+        async () => {
+          await refreshList(e, generation);
+          await refreshQuestDetail(e, generation, islandId, id);
+        },
+      );
+    },
+    [writable, runWrite, refreshList, refreshQuestDetail],
+  );
+
+  /**
+   * 개인 몫 수령 — 본문은 {occurrenceId, expectedVersion} 두 키뿐이고 지급량은 서버가 판정한다.
+   * 성공하면 refreshList 로 목록·지갑을 다시 읽는다(로컬 가산 금지).
+   * 403/409 실패는 권한·회차 버전이 바뀌었다는 뜻이라 목록을 다시 읽어 새 버전을 맞춘다.
+   */
+  const claimQuest = useCallback(
+    async (quest: QuestItem): Promise<QuestClaimed> => {
+      const islandId = writable();
+      const e = epoch.current;
+      const generation = sessionGeneration();
+      const body = { occurrenceId: quest.occurrenceId, expectedVersion: quest.version };
+      try {
+        return await runWrite(
+          `claim:${quest.id}`,
+          JSON.stringify(body),
+          (key) => postClaim(islandId, quest.id, body, key),
+          async () => {
+            await refreshList(e, generation);
+            await refreshQuestDetail(e, generation, islandId, quest.id);
+          },
+        );
+      } catch (error) {
+        if (
+          error instanceof ApiError &&
+          (error.status === 403 || error.status === 409) &&
+          alive(e, generation)
+        )
+          await refreshList(e, generation).catch(() => {});
+        throw error;
+      }
+    },
+    [writable, runWrite, refreshList, refreshQuestDetail, alive],
+  );
+
   // 선언 순서가 곧 실행 순서다 — load effect 보다 먼저 mounted 를 세운다.
   useEffect(() => {
     mounted.current = true;
@@ -409,5 +554,9 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     updateNotice,
     deleteNotice,
     addComment,
+    selectQuest,
+    createQuest,
+    updateQuest,
+    claimQuest,
   };
 }

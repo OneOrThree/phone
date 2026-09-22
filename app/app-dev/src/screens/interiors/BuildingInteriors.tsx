@@ -2831,8 +2831,26 @@ type NoticeView = {
   commentCount?: number;
 };
 // rate가 null이면 아직 측정하지 못한 값이다 (0%로 그리지 않는다)
-type QuestView = Omit<Quest, 'rate'> & { id: string; rate: number | null };
-type ResidentRate = { id: string; name: string; color: Cat; rate: number | null };
+// 서버 회차 필드(claimable·claimed·보상)는 서버 경로에서만 채운다 — 목업·로컬은 비어 있다.
+type QuestView = Omit<Quest, 'rate'> & {
+  id: string;
+  rate: number | null;
+  claimable?: boolean;
+  claimed?: boolean;
+  claimBlockedReason?: string | null;
+  rewardAmount?: number;
+  bonusAmount?: number;
+  bonusGranted?: boolean;
+};
+// achieved·claimed 는 서버 회차 진행의 명시 플래그다 — rate 로 추정하지 않는다.
+type ResidentRate = {
+  id: string;
+  name: string;
+  color: Cat;
+  rate: number | null;
+  achieved?: boolean;
+  claimed?: boolean;
+};
 type BlueprintView = {
   state: 'none' | 'waiting' | 'ready' | 'building' | 'complete';
   name: string;
@@ -3635,6 +3653,14 @@ function QuestCard({
             color={complete ? '#7eaa71' : '#c9943f'}
             style={{ height: 5, backgroundColor: '#b99e5b33' }}
           />
+          {/* 수령 상태는 서버 필드가 정본 — 수령 가능/완료를 진행률과 섞지 않는다 */}
+          {(quest.claimed || quest.claimable) && (
+            <Text style={[boardFont(12, 1.45, '700', '#7c5a2e', GOWUN), { marginTop: 6 }]}>
+              {quest.claimed
+                ? '보상 수령 완료'
+                : `보상 받을 수 있어요${quest.rewardAmount != null ? ` · ${quest.rewardAmount}마리` : ''}`}
+            </Text>
+          )}
         </>
       )}
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 }}>
@@ -3793,6 +3819,7 @@ export function Board({
   height,
   reduceMotion,
   e,
+  showToast,
   sceneHeight = height,
 }: ArtifactProps) {
   const [local, setS] = useState(() => makeState(concept));
@@ -3822,14 +3849,18 @@ export function Board({
     // 퀘스트 수정으로 들어오면 목표 분을 기존 값으로 채운다 (나머지 값은 App의 text·body·시간대)
     const editing =
       e.route === 'questEdit' && e.detail
-        ? currentIsland(e.state).quests.find((q) => q.id === e.detail)
+        ? serverBoard
+          ? board.quests.find((q) => q.id === e.detail)
+          : currentIsland(e.state).quests.find((q) => q.id === e.detail)
         : undefined;
     setUi((prev) => ({
       ...prev,
       comment: false,
       confirm: null,
       error: '',
-      target: editing ? String(editing.target) : prev.target,
+      target: editing
+        ? String('targetMinutes' in editing ? editing.targetMinutes : editing.target)
+        : prev.target,
     }));
   }, [routeKey]);
 
@@ -3865,6 +3896,8 @@ export function Board({
   const noticeInflight = useRef<string | null>(null);
   const deleteInflight = useRef<string | null>(null);
   const commentInflight = useRef<string | null>(null);
+  const questInflight = useRef<string | null>(null);
+  const claimInflight = useRef<string | null>(null);
 
   // 다른 섬 방문자: 공지·댓글·퀘스트는 읽기만 하고 청사진은 보지 않는다
   const visitor = app ? app.visitor : concept.boardView === 'visitor';
@@ -3904,6 +3937,15 @@ export function Board({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverBoard, noticeDetailId, board.islandId, board.select]);
 
+  // 퀘스트 상세도 라우트가 연다 — 'quest' 의 detail(단, 청사진의 'building' 은 제외)을 따라 select 한다.
+  const questDetailId =
+    e && e.route === 'quest' && e.detail && e.detail !== 'building' ? e.detail : null;
+  useEffect(() => {
+    if (!serverBoard) return;
+    board.selectQuest(questDetailId).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverBoard, questDetailId, board.islandId, board.selectQuest]);
+
   // 서버 목록 항목은 id·title·commentCount 만 온다 — 시간·본문·댓글을 합성하지 않는다.
   const serverNotices: NoticeView[] = board.items.map((n) => ({
     id: n.id,
@@ -3927,15 +3969,48 @@ export function Board({
           mine: name === user,
         })),
       })));
-  const quests: QuestView[] = app?.quests ?? mockQuests.map((q, i) => ({ ...q, id: String(i) }));
-  const residentsOf = (quest: QuestView): ResidentRate[] =>
-    app?.ratesOf(quest) ??
-    RESIDENTS.map(([name, color], i) => ({
-      id: name,
-      name: name === user ? `${name} · 나` : name,
-      color,
-      rate: local.screenUnknown && quest.type === 'phone' ? null : i < 2 ? quest.rate : 48,
-    }));
+  // 서버 회차 헤더 → 화면 모양. 진행률·수령·보상은 응답 필드가 정본이다(rate===100 추정 금지).
+  const serverQuests: QuestView[] = board.quests.map((q) => ({
+    id: q.id,
+    title: q.title,
+    type: q.type === 'screen' ? 'phone' : 'focus',
+    startTime: q.windowStart ?? undefined,
+    endTime: q.windowEnd ?? undefined,
+    target: q.targetMinutes,
+    rate: q.myRate,
+    claimable: q.claimable,
+    claimed: q.claimed,
+    claimBlockedReason: q.claimBlockedReason,
+    rewardAmount: q.reward.amount,
+    bonusAmount: q.bonusAmount,
+    bonusGranted: q.bonusGranted,
+  }));
+  const quests: QuestView[] = serverBoard
+    ? serverQuests
+    : (app?.quests ?? mockQuests.map((q, i) => ({ ...q, id: String(i) })));
+  const residentsOf = (quest: QuestView): ResidentRate[] => {
+    // 서버 경로의 주민 목록은 progress GET 이 정본 — 응답에 털색이 없으니 중립 자리표시자다.
+    if (serverBoard) {
+      const open = board.questDetail?.id === quest.id ? board.questDetail : null;
+      return (open?.members ?? []).map((m) => ({
+        id: m.userId,
+        name: m.name ?? '주민',
+        color: 'gray' as Cat,
+        rate: m.rate,
+        achieved: m.achieved,
+        claimed: m.claimed,
+      }));
+    }
+    return (
+      app?.ratesOf(quest) ??
+      RESIDENTS.map(([name, color], i) => ({
+        id: name,
+        name: name === user ? `${name} · 나` : name,
+        color,
+        rate: local.screenUnknown && quest.type === 'phone' ? null : i < 2 ? quest.rate : 48,
+      }))
+    );
+  };
   const mockReady = local.ready && local.balance >= 60;
   const blueprintView: BlueprintView = app?.blueprint ?? {
     ...buildOptions[0],
@@ -3964,8 +4039,11 @@ export function Board({
     ((!serverBoard &&
       (e.route === 'notice' || (e.route === 'noticeEdit' && e.detail)) &&
       !notices.some((n) => n.id === e.detail)) ||
-      (((e.route === 'quest' && e.detail !== 'building') ||
-        (e.route === 'questEdit' && e.detail)) &&
+      // 서버 경로의 퀘스트도 이 검사를 건너뛴다 — 목록 로딩 중엔 모르고, 진짜 없는 회차는
+      // progress GET 의 오류 화면(QUEST_GONE·404)이 담당한다.
+      (!serverBoard &&
+        ((e.route === 'quest' && e.detail !== 'building') ||
+          (e.route === 'questEdit' && e.detail)) &&
         !quests.some((q) => q.id === e.detail)));
   useEffect(() => {
     if (!missing) return;
@@ -4358,6 +4436,8 @@ export function Board({
       e.setBody(quest.type === 'phone' ? 'screen' : 'focus');
       e.setWindowStart(form.startTime);
       e.setWindowEnd(form.endTime);
+      // 목표 분은 routeKey effect 가 서버 목록에서 못 찾을 수 있으니 여기서도 채운다.
+      if (serverBoard) setUi((prev) => ({ ...prev, target: String(quest.target) }));
     },
     setQuestForm: (form: QuestForm, patch: Partial<QuestForm>) => {
       if (!e)
@@ -4384,16 +4464,55 @@ export function Board({
       const title = form.title.trim(),
         target = Number(form.target);
       if (e) {
-        e.dispatch({
-          type: 'QUEST_SAVE',
-          id: s.editing ? e.detail : undefined,
-          title,
-          kind: form.type === 'phone' ? 'screen' : 'focus',
-          target,
-          windowStart: clockText(form.startTime),
-          windowEnd: clockText(form.endTime),
-        });
-        return e.back();
+        if (!serverBoard) {
+          // 목업(review/demo) 경로 — 기존 로컬 dispatch 그대로.
+          e.dispatch({
+            type: 'QUEST_SAVE',
+            id: s.editing ? e.detail : undefined,
+            title,
+            kind: form.type === 'phone' ? 'screen' : 'focus',
+            target,
+            windowStart: clockText(form.startTime),
+            windowEnd: clockText(form.endTime),
+          });
+          return e.back();
+        }
+        // 서버 경로: PATCH 는 title/targetMinutes 만 받는다 — 종류·창·expectedVersion 을 섞으면 400.
+        // 성공(쓰기 + getBoard 재조회)해야 돌아간다 — 실패해도 초안은 그대로다.
+        const endText = clockText(form.endTime);
+        const intent = `${s.editing ? e.detail : ''}${title}|${target}|${form.type}|${form.startTime}|${form.endTime}`;
+        if (questInflight.current === intent) return;
+        const write =
+          s.editing && e.detail
+            ? board.updateQuest(e.detail, { title, targetMinutes: target })
+            : board.createQuest({
+                title,
+                type: form.type === 'phone' ? 'screen' : 'focus',
+                targetMinutes: target,
+                ...(form.type === 'focus'
+                  ? {
+                      windowStart: clockText(form.startTime),
+                      // 서버 HH:mm(LocalTime)은 24:00 을 표현하지 못한다 — 자정 종료는 23:59 로 내린다.
+                      windowEnd: endText === '24:00' ? '23:59' : endText,
+                      timezone: 'UTC',
+                    }
+                  : {}),
+              });
+        questInflight.current = intent;
+        const op = routeGen.current;
+        const draftOp = draftEpoch.current;
+        write.then(
+          () => {
+            if (questInflight.current === intent) questInflight.current = null;
+            const now = liveE(op);
+            if (now && draftEpoch.current === draftOp) now.back();
+          },
+          (err: unknown) => {
+            if (questInflight.current === intent) questInflight.current = null;
+            if (liveE(op)) setError(apiWriteMessage(err));
+          },
+        );
+        return;
       }
       const next: Quest =
         form.type === 'phone'
@@ -4412,6 +4531,30 @@ export function Board({
       }
       setQuests([...mockQuests, next]);
       render({ view: 'list', questForm: null, error: '' });
+    },
+    // 개인 몫 수령 — 본문·지급량은 서버 판정이다. 성공하면 훅이 목록·지갑을 다시 읽고
+    // 여기서는 응답의 적립량을 알리기만 한다(로컬 재화 가산 없음).
+    claimQuest: (quest: QuestView) => {
+      if (!serverBoard || !quest.claimable || quest.claimed) return;
+      const item = board.quests.find((q) => q.id === quest.id);
+      if (!item || claimInflight.current === item.id) return;
+      claimInflight.current = item.id;
+      const op = routeGen.current;
+      board.claimQuest(item).then(
+        (result) => {
+          if (claimInflight.current === item.id) claimInflight.current = null;
+          if (!liveE(op)) return;
+          showToast?.(
+            result.bonusAdded > 0
+              ? `보상 ${result.villagePointsAdded}마리와 전원 달성 보너스 ${result.bonusAdded}마리가 섬에 쌓였어요`
+              : `보상 ${result.villagePointsAdded}마리가 섬에 쌓였어요`,
+          );
+        },
+        (err: unknown) => {
+          if (claimInflight.current === item.id) claimInflight.current = null;
+          if (liveE(op)) setError(apiWriteMessage(err));
+        },
+      );
     },
     build: () => {
       if (!owner || blueprintView.state !== 'ready') return;
@@ -4865,17 +5008,33 @@ export function Board({
     />
   );
 
+  // 서버가 내려주는 수령 불가 사유 — 값을 만들지 않고 알려진 코드만 번역한다.
+  const questBlockedText = (reason: string | null | undefined) =>
+    reason === 'NOT_ACHIEVED'
+      ? '목표를 채우면 보상을 받을 수 있어요.'
+      : reason === 'MEASUREMENT_PENDING'
+        ? '측정이 끝나야 보상을 받을 수 있어요.'
+        : reason
+          ? '지금은 보상을 받을 수 없어요.'
+          : '';
+
   const questContent = (listOnly = false) => {
     if (!listOnly && s.view === 'detail') {
       const quest = quests[s.questIndex] ?? quests[0];
       if (!quest) return questContent(true);
+      // 서버 경로의 상세 본문은 progress GET 이 정본이다 — 목록 항목엔 주민 목록이 없다.
+      const progress = serverBoard
+        ? board.questDetail?.id === quest.id
+          ? board.questDetail
+          : null
+        : null;
       return (
         <>
           {detailHead(
             <PaperAction testID="board-quest-back" label="← 목록" onPress={nav.backToQuests} />,
           )}
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 4 }]}>
-            {quest.title}
+            {progress?.title ?? quest.title}
           </Text>
           <Text style={[boardFont(13, 1.55, '400', '#786151', GOWUN), { marginBottom: 12 }]}>
             {quest.type === 'phone'
@@ -4893,43 +5052,86 @@ export function Board({
               />
             </View>
           )}
-          <Text style={[boardFont(13, 1.65, '400', '#786151'), { marginBottom: 4 }]}>
-            주민별 달성률
-          </Text>
-          <View>
-            {residentsOf(quest).map(({ id, name, color, rate }) => {
-              const unknown = rate == null;
-              return (
-                <View
-                  key={id}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 9,
-                    minHeight: 62,
-                    paddingVertical: 9,
-                    paddingHorizontal: 2,
-                    borderBottomWidth: 1,
-                    borderColor: '#b9965866',
-                    borderStyle: 'dashed',
-                  }}
-                >
-                  <Picture
-                    source={interiorArt.avatars[color]}
-                    label={`${name} 고양이 프로필`}
-                    style={{ width: 42, height: 42 }}
-                  />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={boardFont(14, 1.6, '700')}>{name}</Text>
-                    {!unknown && <Track rate={rate} color="#91b67e" style={{ marginTop: 7 }} />}
-                  </View>
-                  <Text style={[boardFont(14, 1.6, '700'), { width: unknown ? 52 : 42 }]}>
-                    {unknown ? '측정 전' : `${rate}%`}
-                  </Text>
+          {serverBoard && board.questDetailError ? (
+            <View>
+              <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+                {apiMessage(board.questDetailError, '불러오지 못했어요.')}
+              </Text>
+              <PaperAction
+                testID="board-quest-detail-retry"
+                label="다시 시도"
+                onPress={() => board.selectQuest(quest.id).catch(() => {})}
+              />
+            </View>
+          ) : serverBoard && !progress ? (
+            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>불러오는 중…</Text>
+          ) : (
+            <>
+              <Text style={[boardFont(13, 1.65, '400', '#786151'), { marginBottom: 4 }]}>
+                주민별 달성률
+              </Text>
+              <View>
+                {residentsOf(quest).map(({ id, name, color, rate, achieved, claimed }) => {
+                  const unknown = rate == null;
+                  return (
+                    <View
+                      key={id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 9,
+                        minHeight: 62,
+                        paddingVertical: 9,
+                        paddingHorizontal: 2,
+                        borderBottomWidth: 1,
+                        borderColor: '#b9965866',
+                        borderStyle: 'dashed',
+                      }}
+                    >
+                      <Picture
+                        source={interiorArt.avatars[color]}
+                        label={`${name} 고양이 프로필`}
+                        style={{ width: 42, height: 42 }}
+                      />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={boardFont(14, 1.6, '700')}>
+                          {name}
+                          {claimed ? ' · 수령 완료' : achieved ? ' · 달성' : ''}
+                        </Text>
+                        {!unknown && <Track rate={rate} color="#91b67e" style={{ marginTop: 7 }} />}
+                      </View>
+                      <Text style={[boardFont(14, 1.6, '700'), { width: unknown ? 52 : 42 }]}>
+                        {unknown ? '측정 전' : `${rate}%`}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+              {/* 개인 몫 수령은 받기 버튼으로만 — 전원 보너스는 서버가 자동 적립한 값을 보여 준다 */}
+              {serverBoard && (
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  {quest.claimed ? (
+                    <Text style={muted({})}>내 몫은 이미 받았어요.</Text>
+                  ) : quest.claimable ? (
+                    <BoardPill
+                      testID="board-quest-claim"
+                      label={`보상 받기${quest.rewardAmount != null ? ` · ${quest.rewardAmount}마리` : ''}`}
+                      primary
+                      onPress={() => nav.claimQuest(quest)}
+                    />
+                  ) : quest.claimBlockedReason ? (
+                    <Text style={muted({})}>{questBlockedText(quest.claimBlockedReason)}</Text>
+                  ) : null}
+                  {quest.bonusGranted && !!quest.bonusAmount && (
+                    <Text style={muted({})}>
+                      모두 달성 보너스 {quest.bonusAmount}마리가 섬에 쌓였어요.
+                    </Text>
+                  )}
+                  {formError}
                 </View>
-              );
-            })}
-          </View>
+              )}
+            </>
+          )}
         </>
       );
     }
@@ -4942,6 +5144,8 @@ export function Board({
         target: '50',
       };
       const setForm = (patch: Partial<QuestForm>) => nav.setQuestForm(form, patch);
+      // 서버 PATCH 는 title/targetMinutes 만 받는다 — 수정할 때 종류·창은 읽기 전용으로 보여 준다.
+      const serverEdit = serverBoard && s.editing;
       return (
         <>
           {questBack}
@@ -4950,7 +5154,13 @@ export function Board({
           </Text>
           <View style={{ gap: 12 }}>
             <BoardField label="퀘스트 종류">
-              <QuestTypeChoice value={form.type} onChange={(type) => setForm({ type })} />
+              {serverEdit ? (
+                <Text style={[inputStyle(), { paddingTop: 13 }]}>
+                  {form.type === 'phone' ? '하루 폰 사용' : '시간대 집중'}
+                </Text>
+              ) : (
+                <QuestTypeChoice value={form.type} onChange={(type) => setForm({ type })} />
+              )}
             </BoardField>
             <BoardField label="퀘스트 제목">
               <TextInput
@@ -4963,78 +5173,91 @@ export function Board({
                 style={inputStyle()}
               />
             </BoardField>
-            {form.type === 'focus' && (
+            {form.type === 'focus' && serverEdit ? (
               <BoardField label="진행 시간">
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>시작</Text>
-                    <QuestTimeInput
-                      testID="board-quest-start"
-                      label="시작 시간"
-                      value={form.startTime}
-                      onChange={(startTime) => setForm({ startTime })}
-                    />
-                  </View>
-                  <Text
-                    style={[boardFont(16, 1.4, '400', '#786151', GOWUN), { paddingBottom: 10 }]}
-                  >
-                    →
-                  </Text>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
-                      {/* 웹 시간 입력은 24:00을 받지 못해 자정까지는 따로 고른다. 라벨 줄 높이 안에 둔다 */}
-                      <Pressable
-                        testID="board-quest-midnight"
-                        accessibilityRole="checkbox"
-                        accessibilityLabel="자정(24:00)까지"
-                        aria-checked={form.endTime === '24:00'}
-                        hitSlop={14}
-                        onPress={() =>
-                          setForm({ endTime: form.endTime === '24:00' ? '' : '24:00' })
-                        }
-                      >
-                        <Text
-                          style={[
-                            boardFont(
-                              11,
-                              1.4,
-                              form.endTime === '24:00' ? '700' : '400',
-                              form.endTime === '24:00' ? INK : '#786151',
-                              GOWUN,
-                            ),
-                            { textDecorationLine: 'underline' },
-                          ]}
-                        >
-                          {form.endTime === '24:00' ? '자정까지 ✓' : '자정까지'}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    {form.endTime === '24:00' ? (
-                      <View
-                        testID="board-quest-end"
-                        accessibilityLabel="종료 시간 24:00"
-                        style={[inputStyle(), { justifyContent: 'center' }]}
-                      >
-                        <Text style={boardFont(14, 1.5, '400', INK, GOWUN)}>24:00</Text>
-                      </View>
-                    ) : (
-                      <QuestTimeInput
-                        testID="board-quest-end"
-                        label="종료 시간"
-                        value={form.endTime}
-                        onChange={(endTime) => setForm({ endTime })}
-                      />
-                    )}
-                  </View>
-                </View>
+                <Text style={[inputStyle(), { paddingTop: 13 }]}>
+                  {form.startTime}–{form.endTime}
+                </Text>
               </BoardField>
+            ) : (
+              form.type === 'focus' && (
+                <BoardField label="진행 시간">
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>시작</Text>
+                      <QuestTimeInput
+                        testID="board-quest-start"
+                        label="시작 시간"
+                        value={form.startTime}
+                        onChange={(startTime) => setForm({ startTime })}
+                      />
+                    </View>
+                    <Text
+                      style={[boardFont(16, 1.4, '400', '#786151', GOWUN), { paddingBottom: 10 }]}
+                    >
+                      →
+                    </Text>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
+                        {/* 웹 시간 입력은 24:00을 받지 못해 자정까지는 따로 고른다. 라벨 줄 높이 안에 둔다 */}
+                        <Pressable
+                          testID="board-quest-midnight"
+                          accessibilityRole="checkbox"
+                          accessibilityLabel="자정(24:00)까지"
+                          aria-checked={form.endTime === '24:00'}
+                          hitSlop={14}
+                          onPress={() =>
+                            setForm({ endTime: form.endTime === '24:00' ? '' : '24:00' })
+                          }
+                        >
+                          <Text
+                            style={[
+                              boardFont(
+                                11,
+                                1.4,
+                                form.endTime === '24:00' ? '700' : '400',
+                                form.endTime === '24:00' ? INK : '#786151',
+                                GOWUN,
+                              ),
+                              { textDecorationLine: 'underline' },
+                            ]}
+                          >
+                            {form.endTime === '24:00' ? '자정까지 ✓' : '자정까지'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      {form.endTime === '24:00' ? (
+                        <View
+                          testID="board-quest-end"
+                          accessibilityLabel="종료 시간 24:00"
+                          style={[inputStyle(), { justifyContent: 'center' }]}
+                        >
+                          <Text style={boardFont(14, 1.5, '400', INK, GOWUN)}>24:00</Text>
+                        </View>
+                      ) : (
+                        <QuestTimeInput
+                          testID="board-quest-end"
+                          label="종료 시간"
+                          value={form.endTime}
+                          onChange={(endTime) => setForm({ endTime })}
+                        />
+                      )}
+                    </View>
+                  </View>
+                </BoardField>
+              )
+            )}
+            {serverEdit && (
+              <Text style={muted({ marginTop: -2 })}>
+                종류·진행 시간은 바꿀 수 없어요. 수정은 다음 회차부터 적용돼요.
+              </Text>
             )}
             <BoardField
               label={form.type === 'focus' ? '목표 집중 시간 · 분' : '하루 폰 사용 상한 · 분'}
@@ -5101,7 +5324,20 @@ export function Board({
           key={e ? routeKey : s.serial}
           style={[{ paddingHorizontal: 2 }, webOnly({ perspective: 700 })]}
         >
-          {quests.length ? (
+          {serverBoard && board.loading ? (
+            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>불러오는 중…</Text>
+          ) : serverBoard && board.error ? (
+            <View>
+              <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+                {apiMessage(board.error, '불러오지 못했어요.')}
+              </Text>
+              <PaperAction
+                testID="board-quests-retry"
+                label="다시 시도"
+                onPress={() => board.retry().catch(() => {})}
+              />
+            </View>
+          ) : quests.length ? (
             quests.map((quest, i) => (
               <QuestCard
                 key={quest.id}
