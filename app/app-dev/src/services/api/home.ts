@@ -284,6 +284,16 @@ export function getHome(date: string, timezone: string): Promise<HomeScreen> {
   return request<HomeScreen>(`/screens/home${query({ date, timezone })}`);
 }
 
+/**
+ * `GET /me/focus-summary?date&timezone` — 오늘 집중 요약 단건(GROMO-2018).
+ * `date` 는 KST `YYYY-MM-DD`(생략 시 서버 KST 오늘), `timezone` 은 명시하면 `Asia/Seoul` 만
+ * 허용된다. `totalSeconds` = 완료 net + 요청 날짜에 걸친 진행 구간 — 이중 합산 없이 서버가
+ * 한 snapshot 에서 읽은 값이다.
+ */
+export function getFocusSummary(date?: string, timezone?: string): Promise<FocusSummary> {
+  return request<FocusSummary>(`/me/focus-summary${query({ date, timezone })}`);
+}
+
 export async function getConstructionOptions(islandId: string): Promise<ConstructionOptions> {
   const raw = await request<unknown>(
     `/islands/${encodeURIComponent(islandId)}/construction-options`,

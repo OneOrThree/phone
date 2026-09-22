@@ -44,6 +44,7 @@ export type Route =
   | 'product'
   | 'orders'
   | 'boat'
+  | 'mainIsland'
   | 'profile'
   | 'settings'
   | 'wardrobe'
@@ -236,6 +237,8 @@ export type State = {
   name: string;
   profileNames?: string[];
   color: Color;
+  // 친구 목록·프로필에 표시하는 대표 섬. 현재 접속 섬(islandId)과 독립적으로 바뀐다.
+  mainIslandId: string | null;
   islandId: string;
   fish: number;
   owned: string[];
@@ -289,6 +292,8 @@ export type State = {
   visitingIslandId?: string | null;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
+  // 최초 우체통 안내를 마친 계정. 섬을 옮겨도 반복하지 않고 계정 간에는 분리한다.
+  mailboxGuideSeenBy?: string[];
   // 현재 화면을 잃은 강퇴를 앱 셸이 소비해 안전한 화면으로 reset하기 위한 일회성 신호
   membershipRecovery?: { reason: 'kicked'; islandId: string };
   // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
@@ -656,6 +661,7 @@ export function initialState(full = false): State {
     name: '수빈',
     profileNames: ['수빈'],
     color: 'black',
+    mainIslandId: full ? 'soda' : null,
     islandId: 'soda',
     fish: 0,
     owned: [],
@@ -697,6 +703,9 @@ export function initialState(full = false): State {
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
+export const mainIsland = (s: State) =>
+  s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??
+  s.islands.find((i) => i.joined && !i.closed);
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
 export const viewIsland = (s: State) =>
   (s.visitingIslandId && s.islands.find((i) => i.id === s.visitingIslandId)) || currentIsland(s);
@@ -737,6 +746,21 @@ export const unreadLetters = (s: State) =>
         .map((m) => ({ friend: f, letter: m })),
     )
     .sort((a, b) => b.letter.at - a.letter.at);
+// 친구 편지의 기존 읽음 정본을 따른다. 방문 중에는 내 편지 상태를 남의 섬에 표시하지 않는다.
+export const hasMailboxLetters = (s: State, islandId = s.islandId) =>
+  !s.visitingIslandId &&
+  islandId === s.islandId &&
+  currentIsland(s).joined &&
+  currentIsland(s).buildings.includes('mail') &&
+  unreadLetters(s).length > 0;
+
+export const shouldShowMailboxGuide = (s: State, userId: string) =>
+  !s.visitingIslandId &&
+  !s.session &&
+  currentIsland(s).joined &&
+  currentIsland(s).buildings.includes('mail') &&
+  !s.mailboxGuideSeenBy?.includes(userId);
+
 // 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
 // 내 댓글인지: memberId가 없던 예전 저장본은 작성자 이름을 내 이름(바꾼 이름 포함)과 비교한다
 // 주민 찾기: 지금 주민이 아니면 떠난 주민(기록 보존)에서 찾는다. 달성률·보상 판정이 같은 기록을 본다
@@ -983,6 +1007,7 @@ function removeOwnMembership(s: State, island: Island, closeWhenEmpty: boolean) 
   const nextIsland = s.islands.find((candidate) => candidate.joined && !candidate.closed);
   s.onboarded = !!nextIsland;
   if (wasCurrent && nextIsland) s.islandId = nextIsland.id;
+  if (s.mainIslandId === island.id) s.mainIslandId = nextIsland?.id ?? null;
   if (wasCurrent || s.visitingIslandId === island.id || !nextIsland) s.visitingIslandId = null;
   // 소속을 잃은 섬의 진행 중 집중은 서버에서도 강제 종료된다. 로컬 상태에 좀비 세션을 남기지 않는다.
   if (s.session?.islandId === island.id) s.session = null;
@@ -1254,6 +1279,9 @@ export function reducer(state: State, a: Action): State {
     });
     const pendingIslands =
       loaded.pendingIslands ?? (loaded.pendingIsland ? [loaded.pendingIsland] : []);
+    const loadedMainIsland = loaded.islands.find(
+      (island) => island.id === loaded.mainIslandId && island.joined && !island.closed,
+    );
     const next: State = {
       ...loaded,
       schema: 2,
@@ -1263,6 +1291,10 @@ export function reducer(state: State, a: Action): State {
       screenDays: loaded.screenDays ?? {},
       screenTimeUnconfirmedDays: loaded.screenTimeUnconfirmedDays ?? [],
       profileNames: loaded.profileNames ?? [loaded.name],
+      mainIslandId:
+        loadedMainIsland?.id ??
+        loaded.islands.find((island) => island.joined && !island.closed)?.id ??
+        null,
       // 받은 편지 읽음 기준이 없던 저장본은 이미 받은 편지를 모두 읽은 것으로 본다
       lettersReadAt:
         loaded.lettersReadAt ??
@@ -1364,6 +1396,7 @@ export function reducer(state: State, a: Action): State {
       );
       s.islands.push(n);
       s.islandId = n.id;
+      s.mainIslandId ??= n.id;
       s.visitingIslandId = null;
       s.onboarded = true;
       break;
@@ -1389,6 +1422,7 @@ export function reducer(state: State, a: Action): State {
       island.joined = true;
       if (!wasJoined) island.joinedDay = dayKey(now);
       s.islandId = island.id;
+      s.mainIslandId ??= island.id;
       // 구경하던 섬에 바로 가입하면 그 섬 주민이 되어 구경이 끝난다
       s.visitingIslandId = null;
       s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== island.id);
@@ -1413,6 +1447,12 @@ export function reducer(state: State, a: Action): State {
         return state;
       s.islandId = target.id;
       s.visitingIslandId = null;
+      break;
+    }
+    case 'MAIN_ISLAND': {
+      const target = s.islands.find((island) => island.id === a.id);
+      if (!target?.joined || target.closed || target.id === state.mainIslandId) return state;
+      s.mainIslandId = target.id;
       break;
     }
     // ── 섬 — 서버 동기화(GROMO-2006) ──
@@ -1877,6 +1917,10 @@ export function reducer(state: State, a: Action): State {
       i.capacity = v;
       break;
     }
+    case 'MAILBOX_GUIDE_DONE':
+      if (typeof a.userId !== 'string' || !shouldShowMailboxGuide(s, a.userId)) return state;
+      s.mailboxGuideSeenBy = [...(s.mailboxGuideSeenBy ?? []), a.userId];
+      break;
     case 'HALL_GUIDE_DONE':
       s.hallGuide = 'done';
       break;

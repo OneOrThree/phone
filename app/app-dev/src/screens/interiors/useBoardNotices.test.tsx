@@ -805,7 +805,7 @@ test('selectQuest — occurrenceId 로 progress 를 싣고 null 로 닫는다', 
   getQuestProgressMock.mockResolvedValue(questProgress());
 
   await act(async () => {
-    await hook.result.current.selectQuest('q1');
+    await hook.result.current.selectQuest('occ-1');
   });
   assert.deepEqual([...getQuestProgressMock.mock.calls[0]], ['island-1', 'q1', 'occ-1']);
   // members 의 rate·achieved·claimed 는 서버 값 그대로다.
@@ -817,6 +817,30 @@ test('selectQuest — occurrenceId 로 progress 를 싣고 null 로 닫는다', 
   });
   assert.equal(hook.result.current.questDetail, null);
   assert.equal(getQuestProgressMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('정의 ID가 같은 여러 회차는 occurrenceId로 구분해 선택한다', async () => {
+  getBoardMock.mockResolvedValue(
+    board([], null, 'host', [
+      questItem({ occurrenceId: 'occ-yesterday', date: '2026-09-20' }),
+      questItem({ occurrenceId: 'occ-today', date: '2026-09-21' }),
+    ]),
+  );
+  const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useBoardNotices(p), {
+    initialProps: { active: true, scopeKey: 's1' },
+  });
+  await waitFor(() => assert.equal(hook.result.current.loading, false));
+  getQuestProgressMock.mockResolvedValue(
+    questProgress({ occurrenceId: 'occ-today', date: '2026-09-21' }),
+  );
+
+  await act(async () => {
+    await hook.result.current.selectQuest('occ-today');
+  });
+
+  assert.deepEqual([...getQuestProgressMock.mock.calls[0]], ['island-1', 'q1', 'occ-today']);
+  assert.equal(hook.result.current.questDetail?.occurrenceId, 'occ-today');
   await hook.unmount();
 });
 
@@ -834,7 +858,7 @@ test('claimQuest — {occurrenceId, expectedVersion} 만 보내고 성공 뒤 �
   const hook = await mountWithQuest();
   getQuestProgressMock.mockResolvedValue(questProgress());
   await act(async () => {
-    await hook.result.current.selectQuest('q1');
+    await hook.result.current.selectQuest('occ-1');
   });
   getQuestProgressMock.mockClear();
 
@@ -963,7 +987,7 @@ test('updateQuest — PATCH 는 title/targetMinutes 만 보내고 열린 상세�
   const hook = await mountWithQuest();
   getQuestProgressMock.mockResolvedValue(questProgress());
   await act(async () => {
-    await hook.result.current.selectQuest('q1');
+    await hook.result.current.selectQuest('occ-1');
   });
   getQuestProgressMock.mockClear();
 

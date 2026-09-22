@@ -1,3 +1,5 @@
+import { GuideBox, MailboxGuide } from '@/screens/island/NpcGuide';
+import { getSession } from '@/services/api/session';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -18,9 +20,11 @@ import {
 import Svg, { Path, Line } from 'react-native-svg';
 import {
   State,
+  shouldShowMailboxGuide,
   Building,
   Color,
   currentIsland,
+  mainIsland,
   isHost,
   sessionSeconds,
   questRate,
@@ -88,6 +92,7 @@ import {
   sheetInput,
   SheetRow,
   SheetGroup,
+  SheetChev,
   RowIcon,
   Avatar,
   Preview,
@@ -98,6 +103,8 @@ import {
   Cta,
   SearchField,
 } from '@/screens/island/IslandSheet';
+import { useIslandRankings } from '@/screens/island/useIslandRankings';
+import { useFocusSummary } from '@/screens/island/useFocusSummary';
 const names: Record<string, string> = {
   waves: '잔잔한 파도',
   campfire: '모닥불 소리',
@@ -123,6 +130,43 @@ function Thumb({ h = 220, warm = false }: any) {
   return (
     <View style={[k.preview, { height: h }]}>
       <Pic id={warm ? 'island/whole/warm' : 'island/whole'} w="100%" h="100%" cover />
+    </View>
+  );
+}
+function IslandCircle({ size }: { size: number }) {
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: size / 2,
+        borderWidth: 2,
+        borderColor: C.brown,
+        overflow: 'hidden',
+        backgroundColor: C.sky,
+      }}
+    >
+      <Pic id="island/whole" w="100%" h="100%" cover />
+    </View>
+  );
+}
+function MainIslandRadio({ selected }: { selected: boolean }) {
+  return (
+    <View
+      style={{
+        width: 24,
+        height: 24,
+        borderRadius: 12,
+        borderWidth: 2,
+        borderColor: C.brown,
+        backgroundColor: C.paper,
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      {selected && (
+        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: C.pink }} />
+      )}
     </View>
   );
 }
@@ -589,47 +633,6 @@ function Eq() {
     </View>
   );
 }
-// 앵무새 대화 모달(guidebox): 대사 + 오른쪽 정렬 버튼 줄. 위치·폭은 style로
-function GuideBox({ text, style, children }: any) {
-  return (
-    <View
-      style={[
-        {
-          position: 'absolute',
-          borderRadius: 20,
-          borderWidth: 2,
-          borderColor: C.brown,
-          backgroundColor: '#FFFDFAF0',
-          paddingVertical: 14,
-          paddingHorizontal: 16,
-          gap: 8,
-          boxShadow: '0px 4px 0px ' + C.brown,
-        },
-        style,
-      ]}
-    >
-      <View style={[k.row, { gap: 12 }]}>
-        <Pic id="parrot" w={56} />
-        <Txt
-          lineBreakStrategyIOS="hangul-word"
-          style={[{ flex: 1, fontSize: 16, lineHeight: 21.6, fontWeight: '700' }, KEEP]}
-        >
-          {text}
-        </Txt>
-      </View>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: 16,
-        }}
-      >
-        {children}
-      </View>
-    </View>
-  );
-}
 export function RedesignScreens({ e }: any) {
   const layout = useAppLayout();
   const state: State = e.state,
@@ -689,6 +692,7 @@ export function RedesignScreens({ e }: any) {
     [capacityPick, setCapacityPick] = useState('15명'),
     [profileName, setProfileName] = useState(state.name),
     [profileColor, setProfileColor] = useState<Color>(state.color),
+    [mainIslandPick, setMainIslandPick] = useState(state.mainIslandId ?? ''),
     // 20b 회관 안내를 이번 홈 방문 동안만 띄우는 창 상태
     [hallGuideOpen, setHallGuideOpen] = useState(false),
     [discoveryIndex] = useState(() => Math.floor(Math.random() * 10)),
@@ -703,6 +707,7 @@ export function RedesignScreens({ e }: any) {
     [serverDone, setServerDone] = useState('');
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
     setFan(false);
@@ -749,6 +754,10 @@ export function RedesignScreens({ e }: any) {
   };
   // 서버 스냅샷 단축 — 첫 로드 전엔 undefined
   const snap = state.serverIslands;
+  // 전망대 주간 섬 랭킹(GROMO-2018) — 서버 모드이고 tower route 일 때만 조회한다
+  const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
+  // 「오늘 집중」요약(GROMO-2018) — 서버 모드면 /me/focus-summary 가 정본이다
+  const focusSummary = useFocusSummary({ active: !!server });
   // 신청 목록에 단건 상태 조회 결과를 얹은 유효 목록 — requestStatus가 최신 상태다.
   // 단건 결과엔 표시 필드가 없으므로 목록에 없는 신청은 상태만 안다.
   const reqList = [
@@ -829,6 +838,9 @@ export function RedesignScreens({ e }: any) {
     setProfileName(state.name);
     setProfileColor(state.color);
   }, [route, state.name, state.color]);
+  useEffect(() => {
+    if (route === 'mainIsland') setMainIslandPick(currentMainIslandId);
+  }, [route, currentMainIslandId]);
   useEffect(() => {
     if (route !== 'questEdit') return;
     const q = island.quests.find((q) => q.id === detail);
@@ -2106,18 +2118,33 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'home') {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
-    const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
+    const guideUserId = getSession()?.userId ?? 'local';
+    const mailboxGuide = shouldShowMailboxGuide(state, guideUserId);
+    const hallGuide = !mailboxGuide && hallGuideOpen && !island.buildings.includes('hall'),
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
     return (
       <View style={{ flex: 1 }}>
-        <IslandHome
-          state={state}
-          go={go}
-          build={build}
-          request={e.walkRequest}
-          notify={notify}
-          dispatch={dispatch}
-        />
+        {mailboxGuide ? (
+          backgroundHome
+        ) : (
+          <IslandHome
+            state={state}
+            go={go}
+            build={build}
+            request={e.walkRequest}
+            notify={notify}
+            dispatch={dispatch}
+          />
+        )}
+        {mailboxGuide && (
+          <MailboxGuide
+            key={`${guideUserId}:${island.id}`}
+            onDone={(openMailbox) => {
+              dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
+              if (openMailbox) go('mail');
+            }}
+          />
+        )}
         {hallGuide && (
           <GuideBox
             text={`제일 먼저 섬의 관리를 위한 마을회관부터 지어보자.\n물고기 ${costs.hall}마리만 모아줘!`}
@@ -2343,11 +2370,12 @@ export function RedesignScreens({ e }: any) {
     // 17(집중 중) = 바다 위 시트, 66(섬에서) = 축음기로 다가간 섬 위 시트 + 축음기 간판. 가로 폰은 오른쪽 540 패널
     const scene = !!state.session,
       panel = layout.compact;
-    // 오늘 = Asia/Seoul 기준 00시부터
+    // 오늘 = Asia/Seoul 기준 00시부터. 서버 모드면 /me/focus-summary 가 정본이고
+    // 아직 못 읽었을 땐 null 로 둬서 로컬 합산 0을 지어내지 않는다.
     const startOfToday = kstDayStart(dayKey(now));
-    const today = state.records
-      .filter((r) => r.at >= startOfToday)
-      .reduce((a, r) => a + r.seconds, 0);
+    const today = server
+      ? (focusSummary.data?.totalSeconds ?? null)
+      : state.records.filter((r) => r.at >= startOfToday).reduce((a, r) => a + r.seconds, 0);
     const card: any = panel
       ? {
           position: 'absolute',
@@ -2406,7 +2434,7 @@ export function RedesignScreens({ e }: any) {
           ) : (
             <>
               <Pic id={(panel ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
-              {!panel && (
+              {!panel && today != null && (
                 <View
                   style={{
                     position: 'absolute',
@@ -3892,6 +3920,89 @@ export function RedesignScreens({ e }: any) {
     );
   if (route === 'tower') {
     // 섬 간 랭킹만 보여 준다(우리 섬 주민 순위 없음). 주민 평균 집중(이번 주) 순서, 매주 일요일 00시 초기화
+    if (server) {
+      // 서버 주간 랭킹이 정본(GROMO-2018) — rank(동점 공동)·myRank(전체 모집단 기준)는
+      // 서버 값 그대로고, 앱이 순번을 다시 매기거나 0위를 지어내지 않는다.
+      const rk = islandRankings,
+        myIslandId = snap?.currentIslandId;
+      return (
+        <IslandSheet
+          bg="tower"
+          sign="bld/observatory"
+          title="전망대"
+          tight
+          action="섬 찾기"
+          actionPress={() => go('explore')}
+          onClose={home}
+        >
+          <Txt kind="meta" style={st.meta}>
+            주민 평균 집중 시간 · 매주 일요일 00시에 새로 시작해요
+          </Txt>
+          {rk.status === 'loading' && (
+            <Txt
+              kind="meta"
+              testID="rankings-loading"
+              style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}
+            >
+              순위를 불러오는 중이에요
+            </Txt>
+          )}
+          {rk.status === 'error' && (
+            <View style={{ alignItems: 'center', paddingVertical: 20, gap: 10 }}>
+              <Txt kind="meta" style={[st.meta, { textAlign: 'center' }]}>
+                {rk.error?.message ?? '순위를 불러오지 못했어요.'}
+              </Txt>
+              <Btn small kind="sec" testID="rankings-retry" title="다시 시도" onPress={rk.retry} />
+            </View>
+          )}
+          {rk.status === 'ready' && rk.data && !rk.data.items.length && (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              아직 순위에 오른 섬이 없어요
+            </Txt>
+          )}
+          {rk.status === 'ready' && rk.data && rk.data.items.length > 0 && (
+            <>
+              <SheetGroup>
+                {rk.data.items.map((item) => (
+                  <SheetRow
+                    key={item.islandId}
+                    title={item.name}
+                    sub={`평균 ${hoursMinutes(item.averageFocusSeconds)}`}
+                    label={`${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`}
+                    tone={item.islandId === myIslandId ? 'butter' : undefined}
+                    lead={
+                      <Txt
+                        style={{
+                          width: 26,
+                          fontSize: 18,
+                          lineHeight: 26.1,
+                          fontWeight: '800',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {item.rank}
+                      </Txt>
+                    }
+                    tail={<IslandThumb />}
+                    chevron={item.islandId !== myIslandId}
+                    onPress={
+                      item.islandId === myIslandId
+                        ? undefined
+                        : () => run(() => server.visit(item.islandId))
+                    }
+                  />
+                ))}
+              </SheetGroup>
+              {rk.data.myRank !== null && (
+                <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingTop: 10 }]}>
+                  우리 섬 이번 주 {rk.data.myRank}위
+                </Txt>
+              )}
+            </>
+          )}
+        </IslandSheet>
+      );
+    }
     const islands = state.islands
       // 주민 2명 이상인 섬만 순위에 올린다(혼자 섬은 평균이 의미 없어서)
       .filter(
@@ -4526,37 +4637,88 @@ export function RedesignScreens({ e }: any) {
   }
   const friends = state.friends ?? [];
   if (route === 'boat') {
-    const received = friends.filter((f) => f.status === 'received').length;
+    const received = friends.filter((f) => f.status === 'received').length,
+      joinedIslands = state.islands.filter((candidate) => candidate.joined && !candidate.closed),
+      primaryIsland = mainIsland(state) ?? island,
+      canChangeMainIsland = joinedIslands.length > 1;
+    const mainIslandCard = (
+      <>
+        <IslandCircle size={112} />
+        <View style={{ flex: 1, height: 128, marginLeft: 20, paddingTop: 1, paddingRight: 22 }}>
+          <Txt
+            kind="meta"
+            style={{ fontSize: 13, lineHeight: 19, fontWeight: '600', color: C.muted }}
+          >
+            현재 내 메인 섬
+          </Txt>
+          <Txt style={[st.h22, { marginTop: 1 }]}>{primaryIsland.name}</Txt>
+          <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, marginTop: 1, color: C.muted }}>
+            친구 목록과 프로필에 표시돼요
+          </Txt>
+          {canChangeMainIsland && (
+            <Txt
+              style={{
+                position: 'absolute',
+                left: 0,
+                bottom: 1,
+                fontSize: 13,
+                lineHeight: 19,
+                fontWeight: '600',
+                color: '#9A4C3E',
+              }}
+            >
+              메인 섬 변경하기
+            </Txt>
+          )}
+          {canChangeMainIsland && (
+            <View style={{ position: 'absolute', right: 0, top: 51 }}>
+              <SheetChev />
+            </View>
+          )}
+        </View>
+      </>
+    );
     return (
       <IslandSheet bg="dock" sign="boat/raft" title="내 뗏목" tight onClose={home}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14 }}>
-          <Preview h={64} w={84} radius={16}>
-            {state.color === 'black' ? (
-              <>
-                <Pic
-                  id={worn === 'scarf' ? 'boat/raft/cat-scarf' : 'boat/raft/cat'}
-                  w={76}
-                  h={56}
-                />
-                {worn === 'straw-hat' && <HatOn image="raft" style={{ width: 76, height: 56 }} />}
-              </>
-            ) : (
-              <RaftCatArt
-                color={state.color}
-                scarf={worn === 'scarf'}
-                hat={worn === 'straw-hat'}
-                width={76}
-                height={56}
-              />
-            )}
-          </Preview>
-          <View style={{ flex: 1, gap: 4 }}>
-            <Txt style={st.h22}>{state.name}의 뗏목</Txt>
-            <Txt kind="meta" style={st.meta}>
-              {products.find((p) => p.id === worn)?.title ?? '기본'}
-            </Txt>
+        {canChangeMainIsland ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`현재 내 메인 섬 ${primaryIsland.name}, 메인 섬 변경하기`}
+            onPress={() => go('mainIsland')}
+            style={({ pressed }) => ({
+              height: 164,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              backgroundColor: C.paper,
+              borderWidth: 2,
+              borderColor: C.brown,
+              borderRadius: 20,
+              boxShadow: '0px 4px 0px #8B695657',
+              opacity: pressed ? 0.78 : 1,
+            })}
+          >
+            {mainIslandCard}
+          </Pressable>
+        ) : (
+          <View
+            accessible
+            accessibilityLabel={`현재 내 메인 섬 ${primaryIsland.name}`}
+            style={{
+              height: 164,
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingHorizontal: 16,
+              backgroundColor: C.paper,
+              borderWidth: 2,
+              borderColor: C.brown,
+              borderRadius: 20,
+              boxShadow: '0px 4px 0px #8B695657',
+            }}
+          >
+            {mainIslandCard}
           </View>
-        </View>
+        )}
         <SheetGroup>
           <SheetRow
             title="보유품 꾸미기"
@@ -4601,6 +4763,146 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('settings')}
           />
         </SheetGroup>
+      </IslandSheet>
+    );
+  }
+  if (route === 'mainIsland') {
+    const joinedIslands = state.islands.filter(
+        (candidate) => candidate.joined && !candidate.closed,
+      ),
+      primaryIsland = mainIsland(state),
+      selectedIsland =
+        joinedIslands.find((candidate) => candidate.id === mainIslandPick) ?? primaryIsland,
+      unchanged = !selectedIsland || selectedIsland.id === primaryIsland?.id;
+    return (
+      <IslandSheet
+        bg="dock"
+        sign="island/whole"
+        title="내 메인 섬 변경하기"
+        tall
+        tight
+        onBack={back}
+        onClose={home}
+      >
+        <View style={{ gap: 5 }}>
+          <Txt style={{ fontSize: 18, lineHeight: 25, fontWeight: '700' }}>
+            대표로 보여줄 섬을 골라 주세요
+          </Txt>
+          <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
+            친구 목록과 프로필에 표시되는 대표 섬이에요.{`\n`}
+            집중하거나 접속 중인 섬은 바뀌지 않아요.
+          </Txt>
+        </View>
+        <View
+          style={{
+            backgroundColor: C.paper,
+            borderWidth: 2,
+            borderColor: C.brown,
+            borderRadius: 18,
+            overflow: 'hidden',
+            boxShadow: '0px 4px 0px #8B695657',
+          }}
+        >
+          {joinedIslands.map((candidate, index) => {
+            const selected = candidate.id === selectedIsland?.id,
+              current = candidate.id === primaryIsland?.id;
+            return (
+              <Pressable
+                key={candidate.id}
+                accessibilityRole="radio"
+                accessibilityLabel={`${candidate.name}, 주민 ${residentCount(candidate)}명, ${isHost(candidate) ? '내가 방장' : '멤버'}${current ? ', 현재 메인 섬' : ''}`}
+                accessibilityState={{ selected }}
+                onPress={() => setMainIslandPick(candidate.id)}
+                style={({ pressed }) => ({
+                  height: 84,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingHorizontal: 14,
+                  backgroundColor: selected ? C.soft : C.paper,
+                  borderBottomWidth: index < joinedIslands.length - 1 ? 1 : 0,
+                  borderBottomColor: '#8B695633',
+                  opacity: pressed ? 0.76 : 1,
+                })}
+              >
+                <IslandCircle size={56} />
+                <View style={{ flex: 1, minWidth: 0, marginLeft: 14, gap: 3 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Txt style={{ fontSize: 16, lineHeight: 22, fontWeight: '700' }}>
+                      {candidate.name}
+                    </Txt>
+                    {current ? (
+                      <View
+                        style={{
+                          height: 22,
+                          paddingHorizontal: 10,
+                          borderRadius: 11,
+                          backgroundColor: C.sky,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Txt style={{ fontSize: 10, lineHeight: 14, fontWeight: '600' }}>
+                          현재 메인 섬
+                        </Txt>
+                      </View>
+                    ) : (
+                      selected && (
+                        <Txt
+                          style={{
+                            fontSize: 11,
+                            lineHeight: 16,
+                            fontWeight: '600',
+                            color: '#9A4C3E',
+                          }}
+                        >
+                          선택됨
+                        </Txt>
+                      )
+                    )}
+                  </View>
+                  <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, color: C.muted }}>
+                    주민 {residentCount(candidate)}명 · {isHost(candidate) ? '내가 방장' : '멤버'}
+                  </Txt>
+                </View>
+                <MainIslandRadio selected={selected} />
+              </Pressable>
+            );
+          })}
+        </View>
+        <Txt
+          kind="meta"
+          style={{ width: '100%', fontSize: 11, lineHeight: 17, textAlign: 'center' }}
+        >
+          메인 섬을 바꿔도 현재 접속한 섬은 그대로예요.
+        </Txt>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={
+            selectedIsland ? `${selectedIsland.name}으로 변경하기` : '메인 섬 변경하기'
+          }
+          accessibilityState={{ disabled: unchanged }}
+          disabled={unchanged}
+          onPress={() => {
+            if (!selectedIsland) return;
+            act('MAIN_ISLAND', { id: selectedIsland.id });
+            back();
+          }}
+          style={({ pressed }) => ({
+            width: '100%',
+            height: 52,
+            borderRadius: 26,
+            borderWidth: 2,
+            borderColor: C.brown,
+            backgroundColor: C.pink,
+            alignItems: 'center',
+            justifyContent: 'center',
+            opacity: unchanged ? 0.42 : pressed ? 0.76 : 1,
+          })}
+        >
+          <Txt style={{ fontSize: 15, lineHeight: 22, fontWeight: '800' }}>
+            {selectedIsland ? `${selectedIsland.name}으로 변경하기` : '메인 섬 변경하기'}
+          </Txt>
+        </Pressable>
       </IslandSheet>
     );
   }

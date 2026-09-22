@@ -64,6 +64,7 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
   art,
   C,
@@ -294,12 +295,21 @@ export function CurrentScreens({ e }: any) {
       <>
         <InteriorRoute e={e} />
         {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
-        {!state.visitingIslandId && <RewardModal e={e} />}
+        {!state.visitingIslandId && (
+          <RewardModal
+            e={e}
+            rewardIslandId={
+              r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL
+                ? currentIsland(state).id
+                : undefined
+            }
+          />
+        )}
       </>
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
-  if (['boat', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
+  if (['boat', 'mainIsland', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
   if (r === 'permission') return <ScreenTimePermission e={e} />;
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
@@ -1441,10 +1451,18 @@ function FocusFlow({ e }: any) {
   );
 }
 // 퀘스트 보상받기(갤러리 49 보상 모달): 결과창 다음에 한 번. 받으면 다음 보상이 없을 때 섬으로.
-function RewardModal({ e, onClaimed }: { e: any; onClaimed?: (more: boolean) => void }) {
+function RewardModal({
+  e,
+  onClaimed,
+  rewardIslandId,
+}: {
+  e: any;
+  onClaimed?: (more: boolean) => void;
+  rewardIslandId?: string;
+}) {
   const s: State = e.state,
     wide = useAppLayout().width >= 600,
-    open = (s.rewards ?? []).filter((r) => !r.acknowledged),
+    open = pendingQuestRewards(s.rewards, rewardIslandId),
     reward = open[0];
   if (!reward) return null;
   const owner = s.islands.find((i) => i.id === reward.islandId),
@@ -1593,9 +1611,9 @@ function Social({ e }: any) {
     r = e.route,
     [query, setQuery] = useState(''),
     friends = s.friends ?? [];
-  if (r === 'boat')
+  if (r === 'boat' || r === 'mainIsland')
     return (
-      // 내 뗏목·친구 관리·친구 찾기는 v2 시트 구현(Screens.tsx)이 그린다
+      // 내 뗏목·메인 섬 변경·친구 관리는 v2 시트 구현(Screens.tsx)이 그린다
       <RedesignScreens e={e} />
     );
   if (r === 'friends' || r === 'friendSearch')

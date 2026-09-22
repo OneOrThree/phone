@@ -11,7 +11,11 @@ import {
   kstDayStart,
   periodBounds,
   recordSecondsBetween,
+  type RecordItem,
 } from '@/services/model';
+import { getSession } from '@/services/api/session';
+import { utcPeriodRange } from '@/services/api/records';
+import { useLibraryDiary } from '@/screens/island/useLibraryDiary';
 import { BROWN, T, fill, hm, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 
 // v2 시안(036~041) 도서관: 원형 테이블 위 일기장 두 권 → 한 권씩 펼치는 책
@@ -20,6 +24,9 @@ const md = (at: number) => {
   const [, m, d] = dayKey(at).split('-').map(Number);
   return `${m}.${d}`;
 };
+// UTC 날짜 하루 뒤 (YYYY-MM-DD)
+const utcNextDay = (d: string) =>
+  new Date(Date.parse(d + 'T00:00:00Z') + 864e5).toISOString().slice(0, 10);
 function Flower({ outline }: { outline: boolean }) {
   return (
     <Svg width={26} height={26} viewBox="-12 -12 24 24">
@@ -229,26 +236,97 @@ function Diary({ e, font }: any) {
     [member, setMember] = useState(e.body || i.members[0]?.id || ''),
     [period, setPeriod] = useState<Period>('주'),
     [offset, setOffset] = useState(0);
-  const resident = nb ? i.members.find((m) => m.id === member) : undefined,
+  // 서버 모드(GROMO-2018): 기록은 전부 서버 응답이다. 로컬 records·screenDays·earnedBy
+  // 예시값은 모크(review/demo) 화면에서만 쓴다.
+  const srv = useLibraryDiary({ active: !!e.islands, nb, page, period, offset });
+  const on = srv.status !== 'mock';
+  const meId = getSession()?.userId;
+  // 주민 포스트잇: scope=island 통계 주민이 정본(catColor 포함) — 아직 안 왔으면
+  // fishEarnings 주민으로 채운다(catColor 없음 → 내 색으로 둔다). '나'는 탭에서 뺀다.
+  const memberRows = on
+    ? [
+        ...(srv.focusIsland?.members ?? srv.screenIsland?.members ?? []).map((m) => ({
+          id: m.userId,
+          name: m.name ?? '주민',
+          color: m.catColor ?? s.color,
+        })),
+        ...(srv.screen?.fishEarnings?.members ?? []).map((m) => ({
+          id: m.userId,
+          name: m.name ?? '주민',
+          color: s.color,
+        })),
+      ].filter((m, n, all) => m.id !== meId && all.findIndex((o) => o.id === m.id) === n)
+    : i.members;
+  // 모크 경로의 기록·screenDays 는 로컬 Member 에서만 읽는다 — 서버 행엔 그 필드가 없다.
+  const residentLocal = nb && !on ? i.members.find((m) => m.id === member) : undefined;
+  const resident = nb
+      ? on
+        ? (memberRows.find((m) => m.id === member) ?? memberRows[0])
+        : residentLocal
+      : undefined,
     // 이웃이 한 명도 없으면 '이웃의 하루' 빈 장을 보여 준다
     lonely = nb && !resident,
-    name = nb ? (resident?.name ?? '이웃') : '나',
-    bounds = periodBounds(period, offset, e.now);
-  // 기간 안에 걸친 집중 시간만 센다(여러 날에 걸친 기록은 겹친 만큼만)
-  const records = (nb ? (resident?.records ?? []) : s.records).filter(
-      (r) => r.islandId === i.id && recordSecondsBetween(r, bounds.from, bounds.until) > 0,
-    ),
-    focus = records.reduce((n, r) => n + recordSecondsBetween(r, bounds.from, bounds.until), 0);
+    name = nb ? (resident?.name ?? '이웃') : '나';
+  // 서버 기간 축은 UTC다 — 경계를 UTC 자정 ms로 두면 아래 라벨·막대 로직을 그대로 쓴다
+  // (00:00Z 는 KST로 찍어도 같은 날짜로 읽힌다).
+  const range = utcPeriodRange(period, offset),
+    bounds = on
+      ? {
+          from: Date.parse(range.from + 'T00:00:00Z'),
+          until: Date.parse(range.to + 'T00:00:00Z') + 864e5,
+        }
+      : periodBounds(period, offset, e.now);
+  // 서버 focus records 를 지역 RecordItem 모양으로 내린다 — 구간은 completedAt-활동~completedAt
+  // 근사라 '일' 막대에만 쓰고, 주·월 막대는 서버 일별 series 가 정본이다.
+  const srvRecords: RecordItem[] =
+    on && !nb
+      ? (srv.focusMe?.records ?? []).map((r) => {
+          const at = Date.parse(r.completedAt);
+          return {
+            id: r.id,
+            islandId: i.id,
+            subject: r.subject,
+            seconds: r.activeSeconds,
+            at,
+            fish: 0,
+            contributed: true,
+            intervals: [{ start: at - r.activeSeconds * 1000, end: at }],
+          };
+        })
+      : [];
+  const memberFocus =
+      on && nb ? srv.focusIsland?.members.find((m) => m.userId === resident?.id) : undefined,
+    memberScreen =
+      on && nb ? srv.screenIsland?.members.find((m) => m.userId === resident?.id) : undefined,
+    screenStats = on ? (nb ? memberScreen : srv.screenMe) : undefined;
+  // 기간 안에 걸친 기록만 센다(여러 날에 걸친 기록은 겹친 만큼만)
+  const records = on
+      ? srvRecords.filter((r) => recordSecondsBetween(r, bounds.from, bounds.until) > 0)
+      : (nb ? (residentLocal?.records ?? []) : s.records).filter(
+          (r) => r.islandId === i.id && recordSecondsBetween(r, bounds.from, bounds.until) > 0,
+        ),
+    // 합계는 서버 totalSeconds 가 정본 — records 근사 합으로 덮지 않는다
+    focus = on
+      ? ((nb ? memberFocus?.totalSeconds : srv.focusMe?.totalSeconds) ?? 0)
+      : records.reduce((n, r) => n + recordSecondsBetween(r, bounds.from, bounds.until), 0);
   // 스크린타임: 권한 없음(undefined) · 측정 안 됨(null) · 실제 값(0 포함)을 구분한다
-  const days = nb
-      ? resident?.screenDays
-      : s.settings.permission && s.settings.screenTimeMeasurementReady
-        ? s.screenDays
-        : undefined,
-    screen = Object.entries(days ?? {}).filter(([d, v]) => {
-      const at = kstDayStart(d);
-      return v != null && at >= bounds.from && at < bounds.until;
-    }) as [string, number][];
+  const days = on
+      ? screenStats?.measurementStatus === 'authorized'
+        ? {}
+        : undefined
+      : nb
+        ? residentLocal?.screenDays
+        : s.settings.permission && s.settings.screenTimeMeasurementReady
+          ? s.screenDays
+          : undefined,
+    screen = on
+      ? (screenStats?.series ?? [])
+          .filter((p) => p.minutes != null && p.date >= range.from && p.date <= range.to)
+          .map((p) => [p.date, p.minutes] as [string, number])
+      : (Object.entries(days ?? {}).filter(([d, v]) => {
+          const at = kstDayStart(d);
+          return v != null && at >= bounds.from && at < bounds.until;
+        }) as [string, number][]);
   const label =
     period === '일'
       ? (() => {
@@ -267,15 +345,40 @@ function Diary({ e, font }: any) {
   // 막대: 일 = 6시간씩 4칸, 주·월 = 하루씩
   const bins = period === '일' ? 4 : Math.round((bounds.until - bounds.from) / 864e5),
     binMs = (bounds.until - bounds.from) / bins;
-  const values = Array.from({ length: bins }, (_, n) => {
-    const from = bounds.from + binMs * n,
-      until = from + binMs;
-    return page === 0
-      ? records.reduce((sum, r) => sum + recordSecondsBetween(r, from, until), 0)
-      : screen
-          .filter(([d]) => kstDayStart(d) >= from && kstDayStart(d) < until)
-          .reduce((sum, [, v]) => sum + v, 0);
-  });
+  // 서버 모드: 주·월 막대는 일별 series 가 정본(미집계 null 은 0 막대). '일' 집중만
+  // records 의 completedAt 근사로 6시간 칸에 나눈다 — 서버가 하루 안 분포를 주지 않는다.
+  const dayList: string[] = [];
+  if (on && period !== '일')
+    for (let d = range.from; ; d = utcNextDay(d)) {
+      dayList.push(d);
+      if (d >= range.to) break;
+    }
+  const focusSeries = new Map(
+      (nb ? (memberFocus?.series ?? []) : (srv.focusMe?.series ?? [])).map((p) => [
+        p.date,
+        p.seconds,
+      ]),
+    ),
+    screenSeries = new Map((screenStats?.series ?? []).map((p) => [p.date, p.minutes ?? 0]));
+  const values = on
+    ? period === '일'
+      ? Array.from({ length: 4 }, (_, n) =>
+          records.reduce(
+            (sum, r) =>
+              sum + recordSecondsBetween(r, bounds.from + n * 216e5, bounds.from + (n + 1) * 216e5),
+            0,
+          ),
+        )
+      : dayList.map((d) => (page === 0 ? (focusSeries.get(d) ?? 0) : (screenSeries.get(d) ?? 0)))
+    : Array.from({ length: bins }, (_, n) => {
+        const from = bounds.from + binMs * n,
+          until = from + binMs;
+        return page === 0
+          ? records.reduce((sum, r) => sum + recordSecondsBetween(r, from, until), 0)
+          : screen
+              .filter(([d]) => kstDayStart(d) >= from && kstDayStart(d) < until)
+              .reduce((sum, [, v]) => sum + v, 0);
+      });
   const barLabel = (n: number) =>
     period === '일'
       ? `${n * 6}시`
@@ -288,7 +391,11 @@ function Diary({ e, font }: any) {
       return acc;
     }, {}),
   ).sort((a, b) => b[1] - a[1]);
-  const screenTotal = screen.reduce((n, [, v]) => n + v, 0);
+  // 서버 합계(scope=me totalMinutes · 주민 minutes)는 미집계면 null — 부분 합을 총계처럼
+  // 보이지 않게 그대로 둔다
+  const screenTotal = on
+    ? ((nb ? memberScreen?.minutes : srv.screenMe?.totalMinutes) ?? null)
+    : screen.reduce((n, [, v]) => n + v, 0);
   const lastPage = nb ? 2 : 1;
   const flip = page === 1;
 
@@ -398,10 +505,10 @@ function Diary({ e, font }: any) {
           ? '주민별 누적 획득 · 섬 잔액과 달라요'
           : `${label} · ${page === 0 ? '집중 기록' : '스크린타임'}`}
       </T>
-      {(page === 0 || (page === 1 && days && screen.length > 0)) && (
+      {(page === 0 || (page === 1 && days && screen.length > 0 && screenTotal != null)) && (
         <>
           <T style={t(32, 43.2, { fontFamily: font, marginTop: 4 })}>
-            {hm(page === 0 ? focus : screenTotal * 60)}
+            {hm(page === 0 ? focus : (screenTotal ?? 0) * 60)}
           </T>
           <View
             style={{
@@ -504,10 +611,64 @@ function Diary({ e, font }: any) {
       </T>
     </>
   );
+  // 물고기 장 행: 서버 fishEarnings 정본(주민별 earnedFish) — '나'는 세션 userId로 표시하고
+  // 아바타 색은 통계 주민 catColor 에 이어 붙인다(없으면 내 색).
+  const catColorOf = (userId: string) =>
+    (srv.focusIsland?.members ?? srv.screenIsland?.members ?? []).find((m) => m.userId === userId)
+      ?.catColor ?? s.color;
+  const fishRows = on
+    ? (srv.screen?.fishEarnings?.members ?? []).map((m) => ({
+        id: m.userId,
+        name: m.userId === meId ? '나' : (m.name ?? '주민'),
+        color: catColorOf(m.userId),
+        count: m.earnedFish,
+      }))
+    : [
+        { id: 'me', name: '나', color: s.color, count: earnedBy(i, 'me') },
+        ...i.members.map((m) => ({
+          id: m.id,
+          name: m.name,
+          color: m.color,
+          count: earnedBy(i, m.id),
+        })),
+      ];
   const body =
-    page === 2 ? (
+    on && srv.status === 'loading' ? (
+      empty('기록을 불러오는 중이에요.', '…')
+    ) : on && srv.status === 'locked' ? (
+      empty('아직 도서관이 없어요.', '도서관을 지으면\n기록을 볼 수 있어요.')
+    ) : on && srv.status === 'error' ? (
+      <>
+        {empty(
+          srv.error?.message ?? '기록을 불러오지 못했어요.',
+          '연결을 확인한 뒤 다시 시도해 주세요.',
+        )}
+        <Pressable
+          testID="diary-retry"
+          accessibilityRole="button"
+          accessibilityLabel="다시 시도"
+          onPress={srv.retry}
+          style={{
+            marginTop: 16,
+            alignSelf: 'center',
+            borderWidth: 1.5,
+            borderColor: BROWN,
+            borderRadius: 99,
+            paddingHorizontal: 14,
+            paddingVertical: 7,
+            backgroundColor: '#fffdfa',
+          }}
+        >
+          <T style={t(11, 15, { fontWeight: '800' })}>다시 시도</T>
+        </Pressable>
+      </>
+    ) : on && page === 2 && !srv.screen?.fishEarnings ? (
+      empty('기록을 준비하고 있어요.', '집계가 끝나면 여기 쌓여요.')
+    ) : page === 2 ? (
       <View style={{ marginTop: 16 }}>
-        {[{ id: 'me', name: '나', color: s.color }, ...i.members].map((m) => (
+        {!fishRows.length &&
+          empty('아직 낚은 물고기가 없어요.', '물고기를 낚으면\n주민별로 여기 쌓여요.')}
+        {fishRows.map((m) => (
           <View
             key={m.id}
             style={{
@@ -535,7 +696,7 @@ function Diary({ e, font }: any) {
               />
               <T style={t(12, 16.2, { fontWeight: '700' })}>{m.name}</T>
             </View>
-            <T style={t(15, 21, { fontFamily: font })}>{earnedBy(i, m.id)}마리</T>
+            <T style={t(15, 21, { fontFamily: font })}>{m.count}마리</T>
           </View>
         ))}
       </View>
@@ -544,22 +705,50 @@ function Diary({ e, font }: any) {
         '아직 함께 사는 이웃이 없어요.',
         '주민이 들어오면 여기서\n서로의 일기장을 볼 수 있어요.',
       )
+    ) : on && page === 0 && !(nb ? srv.focusIsland : srv.focusMe) ? (
+      // missingFragments 의 조각은 실패가 아니라 미집계다 — 0으로 지어내지 않는다
+      empty('기록을 준비하고 있어요.', '집계가 끝나면 여기 쌓여요.')
     ) : page === 0 ? (
       <>
-        {focus > 0 && chart}
+        {values.some((v) => v > 0) && chart}
         {focus > 0
-          ? bySubject.map(([subject, sec]) => log(subject, subject, sumLabel, hm(sec)))
+          ? on && nb
+            ? (memberFocus?.series ?? [])
+                .filter((p) => p.seconds > 0)
+                .sort((a, b) => b.date.localeCompare(a.date))
+                .map((p) => {
+                  const [, mm, dd] = p.date.split('-').map(Number);
+                  return log(p.date, `${mm}월 ${dd}일`, sumLabel, hm(p.seconds));
+                })
+            : bySubject.map(([subject, sec]) => log(subject, subject, sumLabel, hm(sec)))
           : empty(
               '이 기간에 집중한 기록이 없어요.',
               '0분도 소중한 기록이에요.\n집중을 마치면 여기 쌓여요.',
             )}
       </>
+    ) : on && !screenStats ? (
+      empty('기록을 준비하고 있어요.', '집계가 끝나면 여기 쌓여요.')
     ) : !days ? (
-      empty(
-        s.settings.permission ? '측정할 앱을 선택해야 해요.' : '아직 연결되지 않은 기록이에요.',
-        s.settings.permission
-          ? '측정할 앱이나 카테고리를 선택하면\n사용 시간 기록이 쌓여요.'
-          : '스크린타임 측정 권한이 없어\n사용 시간을 확인할 수 없어요.\n0분이나 기록 없음과는 달라요.',
+      on ? (
+        empty(
+          screenStats?.measurementStatus === 'denied'
+            ? '스크린타임 측정 권한이 없어요.'
+            : screenStats?.measurementStatus === 'pending'
+              ? '아직 측정된 기록이 없어요.'
+              : '아직 연결되지 않은 기록이에요.',
+          screenStats?.measurementStatus === 'denied'
+            ? '스크린타임 측정 권한이 없어\n사용 시간을 확인할 수 없어요.\n0분이나 기록 없음과는 달라요.'
+            : screenStats?.measurementStatus === 'pending'
+              ? '측정이 끝나면 여기 쌓여요.'
+              : '이 기기에서는 측정을 지원하지 않아요.',
+        )
+      ) : (
+        empty(
+          s.settings.permission ? '측정할 앱을 선택해야 해요.' : '아직 연결되지 않은 기록이에요.',
+          s.settings.permission
+            ? '측정할 앱이나 카테고리를 선택하면\n사용 시간 기록이 쌓여요.'
+            : '스크린타임 측정 권한이 없어\n사용 시간을 확인할 수 없어요.\n0분이나 기록 없음과는 달라요.',
+        )
       )
     ) : screen.length ? (
       <>
@@ -594,7 +783,10 @@ function Diary({ e, font }: any) {
   // 포스트잇 폭: 시안처럼 칸을 나누되 최대 62, 이웃이 많으면 최소 56으로 두고 가로로 민다.
   // 기울기·그림자·올라간 탭이 잘리지 않게 스크롤 영역을 위·아래·옆으로 조금 넓힌다
   const tabArea = bw * (land ? 0.35 : 0.51),
-    tabW = Math.max(56, Math.min(62, (tabArea - 6 * (i.members.length - 1)) / i.members.length));
+    tabW = Math.max(
+      56,
+      Math.min(62, (tabArea - 6 * (memberRows.length - 1)) / Math.max(1, memberRows.length)),
+    );
   const tabs = nb && (
     <ScrollView
       horizontal
@@ -617,15 +809,15 @@ function Diary({ e, font }: any) {
         paddingHorizontal: 6,
       }}
     >
-      {i.members.map((m, n) => {
-        const on = page !== 2 && m.id === member;
+      {memberRows.map((m, n) => {
+        const sel = page !== 2 && m.id === resident?.id;
         return (
           <Pressable
             key={m.id}
             testID={`diary-member-${m.id}`}
             accessibilityRole="button"
             accessibilityLabel={`${m.name} 기록`}
-            accessibilityState={{ selected: on }}
+            accessibilityState={{ selected: sel }}
             onPress={() => {
               setMember(m.id);
               if (page === 2) setPage(0);
@@ -643,8 +835,8 @@ function Diary({ e, font }: any) {
               backgroundColor: ['#f5df91', '#bcdccd', '#edbcc5'][n % 3],
               boxShadow: 'rgba(73, 51, 35, 0.27) 1px 4px 3px',
               transform: [
-                { translateY: on ? -6 : 6 },
-                { rotate: on ? '-1deg' : ['2deg', '-2deg', '1deg'][n % 3] },
+                { translateY: sel ? -6 : 6 },
+                { rotate: sel ? '-1deg' : ['2deg', '-2deg', '1deg'][n % 3] },
               ],
             }}
           >
@@ -657,7 +849,7 @@ function Diary({ e, font }: any) {
                 // 한 줄 자르기(overflow hidden)에 밑줄이 잘리지 않게 아래로 공간을 둔다
                 paddingBottom: 6,
                 marginBottom: -6,
-                ...(on
+                ...(sel
                   ? web({
                       textDecorationLine: 'underline',
                       textDecorationColor: '#a46b49',

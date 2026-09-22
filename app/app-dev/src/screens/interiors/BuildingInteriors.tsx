@@ -44,6 +44,8 @@ import {
   viewIsland,
 } from '@/services/model';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { semanticTokens } from '@/design-system/tokens';
+import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useBoardNotices } from './useBoardNotices';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
@@ -2834,6 +2836,8 @@ type NoticeView = {
 // 서버 회차 필드(claimable·claimed·보상)는 서버 경로에서만 채운다 — 목업·로컬은 비어 있다.
 type QuestView = Omit<Quest, 'rate'> & {
   id: string;
+  /** 서버 퀘스트 정의 ID. id 는 회차별 라우트 키(occurrenceId)다. */
+  questId?: string;
   rate: number | null;
   claimable?: boolean;
   claimed?: boolean;
@@ -3655,7 +3659,12 @@ function QuestCard({
           />
           {/* 수령 상태는 서버 필드가 정본 — 수령 가능/완료를 진행률과 섞지 않는다 */}
           {(quest.claimed || quest.claimable) && (
-            <Text style={[boardFont(12, 1.45, '700', '#7c5a2e', GOWUN), { marginTop: 6 }]}>
+            <Text
+              style={[
+                boardFont(12, 1.45, '700', semanticTokens.color.textMuted, GOWUN),
+                { marginTop: 6 },
+              ]}
+            >
               {quest.claimed
                 ? '보상 수령 완료'
                 : `보상 받을 수 있어요${quest.rewardAmount != null ? ` · ${quest.rewardAmount}마리` : ''}`}
@@ -3710,7 +3719,10 @@ const questError = (form: QuestForm) => {
     return '제목과 목표 시간을 입력해주세요.';
   if (form.type === 'phone') return '';
   const start = clockMinutes(form.startTime),
-    end = clockMinutes(form.endTime);
+    parsedEnd = clockMinutes(form.endTime),
+    // 서버 LocalTime은 24:00을 받지 못해 23:59로 전송한다. 검증도 같은 창을 써야
+    // UI에서는 통과하고 서버에서 QUEST_TARGET_OUT_OF_RANGE로 거절되는 차이가 없다.
+    end = parsedEnd === 24 * 60 ? 23 * 60 + 59 : parsedEnd;
   if (start === null || end === null) return '시작·종료 시간을 입력해주세요.';
   if (end <= start) return '종료 시간은 시작 시간보다 늦어야 해요.';
   if (target > end - start) return '목표 집중 시간은 진행 시간 안으로 정해주세요.';
@@ -3850,7 +3862,7 @@ export function Board({
     const editing =
       e.route === 'questEdit' && e.detail
         ? serverBoard
-          ? board.quests.find((q) => q.id === e.detail)
+          ? board.quests.find((q) => q.occurrenceId === e.detail)
           : currentIsland(e.state).quests.find((q) => q.id === e.detail)
         : undefined;
     setUi((prev) => ({
@@ -3971,7 +3983,8 @@ export function Board({
       })));
   // 서버 회차 헤더 → 화면 모양. 진행률·수령·보상은 응답 필드가 정본이다(rate===100 추정 금지).
   const serverQuests: QuestView[] = board.quests.map((q) => ({
-    id: q.id,
+    id: q.occurrenceId,
+    questId: q.id,
     title: q.title,
     type: q.type === 'screen' ? 'phone' : 'focus',
     startTime: q.windowStart ?? undefined,
@@ -3991,7 +4004,7 @@ export function Board({
   const residentsOf = (quest: QuestView): ResidentRate[] => {
     // 서버 경로의 주민 목록은 progress GET 이 정본 — 응답에 털색이 없으니 중립 자리표시자다.
     if (serverBoard) {
-      const open = board.questDetail?.id === quest.id ? board.questDetail : null;
+      const open = board.questDetail?.occurrenceId === quest.id ? board.questDetail : null;
       return (open?.members ?? []).map((m) => ({
         id: m.userId,
         name: m.name ?? '주민',
@@ -4034,6 +4047,7 @@ export function Board({
   // 없는 공지·퀘스트 id로 상세를 열면 목록을 보여 주고 라우트도 목록으로 바꾼다
   // 서버 경로의 공지는 이 검사를 건너뛴다 — 목록은 첫 페이지뿐이라 없는 id 판정이 틀리고,
   // 진짜 없는 공지는 상세 GET 의 오류 화면이 담당한다.
+  const homeQuestList = e?.route === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL;
   const missing =
     !!e &&
     ((!serverBoard &&
@@ -4042,7 +4056,7 @@ export function Board({
       // 서버 경로의 퀘스트도 이 검사를 건너뛴다 — 목록 로딩 중엔 모르고, 진짜 없는 회차는
       // progress GET 의 오류 화면(QUEST_GONE·404)이 담당한다.
       (!serverBoard &&
-        ((e.route === 'quest' && e.detail !== 'building') ||
+        ((e.route === 'quest' && e.detail !== 'building' && !homeQuestList) ||
           (e.route === 'questEdit' && e.detail)) &&
         !quests.some((q) => q.id === e.detail)));
   useEffect(() => {
@@ -4081,7 +4095,9 @@ export function Board({
             : r === 'questEdit'
               ? 'write'
               : panel === 'quest' && r === 'quest'
-                ? 'detail'
+                ? homeQuestList
+                  ? 'list'
+                  : 'detail'
                 : panel === 'blueprint'
                   ? blueprintView.state
                   : 'list';
@@ -4484,7 +4500,10 @@ export function Board({
         if (questInflight.current === intent) return;
         const write =
           s.editing && e.detail
-            ? board.updateQuest(e.detail, { title, targetMinutes: target })
+            ? board.updateQuest(
+                quests.find((quest) => quest.id === e.detail)?.questId ?? e.detail,
+                { title, targetMinutes: target },
+              )
             : board.createQuest({
                 title,
                 type: form.type === 'phone' ? 'screen' : 'focus',
@@ -4536,13 +4555,13 @@ export function Board({
     // 여기서는 응답의 적립량을 알리기만 한다(로컬 재화 가산 없음).
     claimQuest: (quest: QuestView) => {
       if (!serverBoard || !quest.claimable || quest.claimed) return;
-      const item = board.quests.find((q) => q.id === quest.id);
-      if (!item || claimInflight.current === item.id) return;
-      claimInflight.current = item.id;
+      const item = board.quests.find((q) => q.occurrenceId === quest.id);
+      if (!item || claimInflight.current === item.occurrenceId) return;
+      claimInflight.current = item.occurrenceId;
       const op = routeGen.current;
       board.claimQuest(item).then(
         (result) => {
-          if (claimInflight.current === item.id) claimInflight.current = null;
+          if (claimInflight.current === item.occurrenceId) claimInflight.current = null;
           if (!liveE(op)) return;
           showToast?.(
             result.bonusAdded > 0
@@ -4551,7 +4570,7 @@ export function Board({
           );
         },
         (err: unknown) => {
-          if (claimInflight.current === item.id) claimInflight.current = null;
+          if (claimInflight.current === item.occurrenceId) claimInflight.current = null;
           if (liveE(op)) setError(apiWriteMessage(err));
         },
       );
@@ -5024,7 +5043,7 @@ export function Board({
       if (!quest) return questContent(true);
       // 서버 경로의 상세 본문은 progress GET 이 정본이다 — 목록 항목엔 주민 목록이 없다.
       const progress = serverBoard
-        ? board.questDetail?.id === quest.id
+        ? board.questDetail?.occurrenceId === quest.id
           ? board.questDetail
           : null
         : null;

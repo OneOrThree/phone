@@ -32,7 +32,7 @@ UUID 입력은 하이픈 포함36자 필수, v4/v7 생성 권고다. userId/curr
 - `joinRequests`(`/screens/island-manage`의 `GET /islands/{islandId}/join-requests`)는 [PR741 관리 LLD §3.3](https://github.com/OneOrThree/phone/blob/dcade7cd1ab54fd5ba1e4a88a8c8cfc8d35e04dc/docs/prd/island-management/low-level-design.md#33-requests--get-islandsislandidjoin-requests)에서 이미 원본 빈 query에 `{cursor?,limit?}`와 응답 `nextCursor`를 **유한 목록 확장**으로 정의했다(기본30/상한100). host의 다음 신청은 이 도메인 GET으로 조회한다. 원본 source-contracts.json은 해당 확장 이전 예시를 보존한 것이며 BFF가31번째 신청을 버려도 된다는 계약이 아니다. 제공자가 이 확장을 구현하고 BFF cursor와의 상호운용 회귀를 통과하기 전 해당 host 화면을 활성화하지 않는다.
 
 
-home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상한, tower ISOweek는 PR743/748 규약을 따른다. timezone 누락은Asia/Seoul, 다른 값·별칭·빈값·null/중복은400 INVALID_PARAMETER. from/to는KST 날짜 포함 범위이고 시각창은[from00:00,to+1일00:00)이다. 같은 값을 두 하위 query가 각각 다른 시각/locale로정규화하지 않는다. 요청에 쓸 수 없는 field·중복query·GET body는400 INVALID_PARAMETER로거절하고 enum/기간범위는 원 도메인의422 OUT_OF_RANGE를 보존한다. q의 검색 길이/문자와 category의 허용집합은1759/1781 정본을 재사용한다.
+home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상한, tower week는 ISO주차가 아니라 주 시작일 YYYY-MM-DD(UTC 일요일)다 — island-rankings 정책 RK-P01-키를 따른다. timezone 누락은Asia/Seoul, 다른 값·별칭·빈값·null/중복은400 INVALID_PARAMETER. from/to는KST 날짜 포함 범위이고 시각창은[from00:00,to+1일00:00)이다. 같은 값을 두 하위 query가 각각 다른 시각/locale로정규화하지 않는다. 요청에 쓸 수 없는 field·중복query·GET body는400 INVALID_PARAMETER로거절하고 enum/기간범위는 원 도메인의422 OUT_OF_RANGE를 보존한다. q의 검색 길이/문자와 category의 허용집합은1759/1781 정본을 재사용한다.
 
 ### 조각 타입
 

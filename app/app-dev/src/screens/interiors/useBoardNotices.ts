@@ -283,11 +283,11 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     [alive, set],
   );
 
-  /** 퀘스트 상세 — 회차 식별자 occurrenceId 는 목록 항목에서 찾는다(서버가 받는 유일한 축). */
+  /** 퀘스트 상세 — 회차별 라우트 키인 occurrenceId로 정확한 목록 항목을 찾는다. */
   const selectQuest = useCallback(
-    async (id: string | null) => {
+    async (occurrenceId: string | null) => {
       const seq = ++questSeq.current;
-      if (id === null) {
+      if (occurrenceId === null) {
         set({ questDetail: null, questDetailLoading: false, questDetailError: null });
         return;
       }
@@ -297,11 +297,11 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       const generation = sessionGeneration();
       set({ questDetail: null, questDetailLoading: true, questDetailError: null });
       try {
-        const item = quests.find((q) => q.id === id);
+        const item = quests.find((q) => q.occurrenceId === occurrenceId);
         // 목록에 없는 id — 회차가 굴러 헤더가 바뀐 옛 라우트다. GET 을 만들 수 없으니
         // 클라이언트 오류로 표시해 빙글거리는 스피너 대신 재시도를 보여 준다.
         if (!item) throw new ApiError('QUEST_GONE', '이 퀘스트 회차는 지나갔어요.', 0);
-        const detail = await getQuestProgress(islandId, id, item.occurrenceId);
+        const detail = await getQuestProgress(islandId, item.id, item.occurrenceId);
         if (!alive(e, generation) || seq !== questSeq.current) return;
         set({ questDetail: detail, questDetailLoading: false });
       } catch (error) {
