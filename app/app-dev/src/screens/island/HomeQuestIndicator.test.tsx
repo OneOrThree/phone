@@ -1,6 +1,12 @@
 import React from 'react';
+import * as ReactNative from 'react-native';
+import { StyleSheet } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
-import { claimableQuestRewardCount, HomeQuestIndicator } from './HomeQuestIndicator';
+import {
+  claimableQuestRewardCount,
+  claimableQuestRewards,
+  HomeQuestIndicator,
+} from './HomeQuestIndicator';
 import type { Quest, Reward } from '@/services/model';
 
 const quest = (overrides: Partial<Quest> = {}): Quest => ({
@@ -22,6 +28,9 @@ test('퀘스트 1개는 제목과 실제 조건만 한 장에 보여준다', asy
   expect(screen.getByText('아침 집중')).toBeTruthy();
   expect(screen.getByText('07:00–09:00 · 25분')).toBeTruthy();
   expect(screen.queryByTestId('home-quest-note-back-near')).toBeNull();
+  expect(StyleSheet.flatten(screen.getByTestId('home-quest-note-front').props.style).height).toBe(
+    undefined,
+  );
 });
 
 test('퀘스트 여러 개는 앞 퀘스트와 남은 개수, 겹친 쪽지를 보여준다', async () => {
@@ -37,6 +46,26 @@ test('퀘스트 여러 개는 앞 퀘스트와 남은 개수, 겹친 쪽지를 �
   expect(screen.getByText('3')).toBeTruthy();
   expect(screen.getByTestId('home-quest-note-back-near')).toBeTruthy();
   expect(screen.getByTestId('home-quest-note-back-far')).toBeTruthy();
+});
+
+test('큰 글자에서는 제목과 조건을 두 줄까지 표시한다', async () => {
+  const dimensions = jest.spyOn(ReactNative, 'useWindowDimensions').mockReturnValue({
+    width: 390,
+    height: 844,
+    scale: 3,
+    fontScale: 1.5,
+  });
+
+  try {
+    const screen = await render(
+      <HomeQuestIndicator quests={[quest()]} rewardCount={0} onPress={jest.fn()} />,
+    );
+
+    expect(screen.getByText('아침 집중').props.numberOfLines).toBe(2);
+    expect(screen.getByText('07:00–09:00 · 25분').props.numberOfLines).toBe(2);
+  } finally {
+    dimensions.mockRestore();
+  }
 });
 
 test('받을 보상이 있으면 퀘스트 요약보다 보상 받기를 우선한다', async () => {
@@ -104,4 +133,7 @@ test('보상 개수는 현재 섬의 미수령 개인 보상만 센다', () => {
   ];
 
   expect(claimableQuestRewardCount(rewards, 'island-a')).toBe(1);
+  expect(claimableQuestRewards(rewards, 'island-a').map((reward) => reward.id)).toEqual([
+    'personal-open',
+  ]);
 });

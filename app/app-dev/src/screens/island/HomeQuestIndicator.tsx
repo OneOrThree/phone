@@ -1,5 +1,5 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
@@ -17,15 +17,20 @@ const questCondition = (quest: Quest) =>
     ? `${quest.windowStart ?? '00:00'}–${quest.windowEnd ?? '24:00'} · ${quest.target}분`
     : `하루 폰 사용 · ${quest.target}분 이하`;
 
-export const claimableQuestRewardCount = (rewards: Reward[] | undefined, islandId: string) =>
+export const claimableQuestRewards = (rewards: Reward[] | undefined, islandId: string) =>
   (rewards ?? []).filter(
     (reward) => reward.islandId === islandId && reward.kind === 'personal' && !reward.acknowledged,
-  ).length;
+  );
+
+export const claimableQuestRewardCount = (rewards: Reward[] | undefined, islandId: string) =>
+  claimableQuestRewards(rewards, islandId).length;
 
 export function HomeQuestIndicator({ quests, rewardCount, onPress, style }: Props) {
+  const { fontScale } = useWindowDimensions();
   const first = quests[0];
   if (!first && rewardCount === 0) return null;
 
+  const largeText = fontScale >= componentTokens.homeQuestIndicator.largeTextThreshold;
   const reward = rewardCount > 0;
   const multiple = !reward && quests.length > 1;
   const count = reward ? rewardCount : multiple ? quests.length : null;
@@ -69,44 +74,47 @@ export function HomeQuestIndicator({ quests, rewardCount, onPress, style }: Prop
       <View
         pointerEvents="none"
         testID="home-quest-note-front"
-        style={[styles.note, reward && styles.rewardNote]}
+        style={[styles.note, largeText && styles.largeTextNote, reward && styles.rewardNote]}
       >
         <View style={[styles.tape, reward && styles.rewardTape]} />
         <Txt numberOfLines={1} style={styles.eyebrow}>
           {eyebrow}
         </Txt>
-        <Txt numberOfLines={1} style={[styles.title, reward && styles.rewardTitle]}>
+        <Txt numberOfLines={largeText ? 2 : 1} style={[styles.title, reward && styles.rewardTitle]}>
           {title}
         </Txt>
-        <Txt numberOfLines={1} style={styles.meta}>
+        <Txt numberOfLines={largeText ? 2 : 1} style={styles.meta}>
           {meta}
         </Txt>
-        {count !== null ? (
-          <View style={styles.countBadge}>
-            <Txt style={styles.count}>{count}</Txt>
-          </View>
-        ) : (
-          <Txt style={styles.chevron}>›</Txt>
-        )}
+        <View style={styles.accessory}>
+          {count !== null ? (
+            <View style={styles.countBadge}>
+              <Txt numberOfLines={1} style={styles.count}>
+                {count}
+              </Txt>
+            </View>
+          ) : (
+            <Txt style={styles.chevron}>›</Txt>
+          )}
+        </View>
       </View>
     </Pressable>
   );
 }
 
-const { space, fontSize, fontWeight, radius, stroke, size } = primitiveTokens;
+const { space, fontSize, fontWeight, radius, stroke } = primitiveTokens;
+const noteToken = componentTokens.homeQuestIndicator;
 
 const styles = StyleSheet.create({
   wrap: {
-    width: 200,
-    height: 98,
-    minWidth: size.tapMin,
-    minHeight: size.tapMin,
+    width: noteToken.width,
+    minHeight: noteToken.noteMinHeight + noteToken.touchTrailingSpace,
+    paddingBottom: noteToken.touchTrailingSpace,
   },
   pressed: { opacity: 0.72 },
   back: {
     position: 'absolute',
-    width: 184,
-    height: 78,
+    width: noteToken.backWidth,
     borderRadius: radius.control,
     borderWidth: stroke.default,
     borderColor: semanticTokens.color.outline,
@@ -114,24 +122,23 @@ const styles = StyleSheet.create({
   },
   backFar: {
     left: 10,
-    top: 12,
+    top: noteToken.backFarInsetTop,
+    bottom: noteToken.backFarInsetBottom,
     transform: [{ rotate: '2.4deg' }],
   },
   backNear: {
     left: 5,
-    top: 6,
+    top: noteToken.backNearInsetTop,
+    bottom: noteToken.backNearInsetBottom,
     transform: [{ rotate: '1.1deg' }],
   },
   note: {
-    position: 'absolute',
-    left: 0,
-    top: 0,
-    width: 190,
-    height: 86,
-    paddingTop: 10,
-    paddingBottom: space[2],
-    paddingLeft: 14,
-    paddingRight: 48,
+    width: noteToken.noteWidth,
+    minHeight: noteToken.noteMinHeight,
+    paddingTop: noteToken.contentPaddingTop,
+    paddingBottom: noteToken.contentPaddingBottom,
+    paddingLeft: noteToken.contentPaddingLeft,
+    paddingRight: noteToken.contentPaddingRight,
     borderRadius: radius.control,
     borderWidth: stroke.default,
     borderColor: componentTokens.card.border,
@@ -139,15 +146,16 @@ const styles = StyleSheet.create({
     boxShadow: `0px 4px 0px ${semanticTokens.color.outline}`,
     transform: [{ rotate: '-0.7deg' }],
   },
+  largeTextNote: { paddingRight: noteToken.largeTextContentPaddingRight },
   rewardNote: {
     borderWidth: stroke.strong,
     borderColor: semanticTokens.color.primary,
   },
   tape: {
     position: 'absolute',
-    top: -4,
-    left: 48,
-    width: 46,
+    top: -space[1],
+    left: space[12],
+    width: noteToken.tapeWidth,
     height: space[2],
     borderRadius: space[1],
     backgroundColor: semanticTokens.color.accent,
@@ -174,11 +182,9 @@ const styles = StyleSheet.create({
     color: semanticTokens.color.textMuted,
   },
   countBadge: {
-    position: 'absolute',
-    top: 10,
-    right: space[3],
-    width: 28,
-    height: 28,
+    minWidth: noteToken.badgeMinSize,
+    minHeight: noteToken.badgeMinSize,
+    paddingHorizontal: space[1],
     borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
@@ -192,12 +198,17 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
   },
   chevron: {
-    position: 'absolute',
-    right: space[3],
-    top: 31,
     fontSize: fontSize.lg,
     lineHeight: 24,
     fontWeight: fontWeight.bold,
     color: semanticTokens.color.outline,
+  },
+  accessory: {
+    position: 'absolute',
+    top: 0,
+    right: space[3],
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

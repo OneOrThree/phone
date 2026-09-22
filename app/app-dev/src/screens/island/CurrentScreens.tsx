@@ -62,6 +62,7 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import { claimableQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
   art,
   C,
@@ -292,7 +293,7 @@ export function CurrentScreens({ e }: any) {
       <>
         <InteriorRoute e={e} />
         {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
-        {!state.visitingIslandId && <RewardModal e={e} />}
+        {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={currentIsland(state).id} />}
       </>
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
@@ -1397,10 +1398,20 @@ function FocusFlow({ e }: any) {
   );
 }
 // 퀘스트 보상받기(갤러리 49 보상 모달): 결과창 다음에 한 번. 받으면 다음 보상이 없을 때 섬으로.
-function RewardModal({ e, onClaimed }: { e: any; onClaimed?: (more: boolean) => void }) {
+function RewardModal({
+  e,
+  onClaimed,
+  rewardIslandId,
+}: {
+  e: any;
+  onClaimed?: (more: boolean) => void;
+  rewardIslandId?: string;
+}) {
   const s: State = e.state,
     wide = useAppLayout().width >= 600,
-    open = (s.rewards ?? []).filter((r) => !r.acknowledged),
+    open = rewardIslandId
+      ? claimableQuestRewards(s.rewards, rewardIslandId)
+      : (s.rewards ?? []).filter((r) => !r.acknowledged),
     reward = open[0];
   if (!reward) return null;
   const owner = s.islands.find((i) => i.id === reward.islandId),
