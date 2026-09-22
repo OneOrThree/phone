@@ -45,8 +45,12 @@ jobs:
         run: |
           set -euo pipefail
           plan=$(cat image-inputs/plan/satellite-deploy-plan.json)
-          echo "business=$(jq -er '.\"business-api\"' <<< "$plan")" >> "$GITHUB_OUTPUT"
-          echo "notification=$(jq -er '.notification' <<< "$plan")" >> "$GITHUB_OUTPUT"
+          # jq 프로그램은 작은따옴표 안이므로 JSON 키의 큰따옴표를 escape 하지 않는다.
+          # `.\"business-api\"`는 일부 jq 버전에서 backslash가 그대로 전달되어 출력만 비고,
+          # command substitution의 실패가 echo에 가려져 Notification만 선택되는 문제가 있었다.
+          business=$(jq -er '.["business-api"] | select(type == "boolean")' <<< "$plan")
+          notification=$(jq -er '.notification | select(type == "boolean")' <<< "$plan")
+          printf 'business=%s\nnotification=%s\n' "$business" "$notification" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         if: steps.plan.outputs.business == 'true'
         with:
