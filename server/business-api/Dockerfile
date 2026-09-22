@@ -38,6 +38,9 @@ FROM eclipse-temurin:17-jre-jammy
 # fonts-noto-cjk — 한글이 들어간 PDF 첫 페이지가 두부(□)로 렌더되지 않게 한다.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl poppler-utils util-linux fonts-noto-cjk \
+    && curl --fail --silent --show-error --location \
+       https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar \
+       --output /opt/dd-java-agent.jar \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 10001 business && useradd -u 10001 -g business -M business \
     && mkdir -p /app/logs && chown -R business:business /app
@@ -45,7 +48,7 @@ WORKDIR /app
 COPY --from=artifact /app/app.jar app.jar
 USER business
 # headless — ImageIO 축소 경로가 X11 을 찾지 않게 한다.
-ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:ActiveProcessorCount=2 -Djava.awt.headless=true"
+ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:ActiveProcessorCount=2 -Djava.awt.headless=true -javaagent:/opt/dd-java-agent.jar"
 # 8080 — compose 가 SERVER_PORT=8080 을 주고 /health 를 검사한다. 위성 배포에서 8082 는 알림 서버 몫이다.
 # 관리 포트 9091 은 EXPOSE 하지 않는다: 포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단이다.
 EXPOSE 8080
