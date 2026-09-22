@@ -8,6 +8,7 @@ import {
   getFocusStatistics,
   getLibraryScreen,
   getScreenTimeStatistics,
+  type MeasurementStatus,
 } from '@/services/api/records';
 
 jest.mock('@/services/api/records', () => ({
@@ -104,6 +105,49 @@ test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 �
   await fireEvent.press(screen.getByLabelText('일'));
   await waitFor(() => expect(screen.getByText('시간대 기록 없음')).toBeTruthy());
   expect(screen.queryByLabelText('6시 0분')).toBeNull();
+});
+
+test.each(
+  (
+    [
+      ['denied', '측정 권한이 꺼져 있어요'],
+      ['pending', '기록을 준비하고 있어요'],
+      ['unavailable', '폰 사용 기록을 이용할 수 없어요'],
+      [null, '기록을 준비하고 있어요'],
+    ] as const
+  ).flatMap(([status, title]) =>
+    [true, false].map((permission) => ({ status, title, permission })),
+  ),
+)('서버 측정 상태를 로컬 권한보다 우선한다: %j', async ({ status, title, permission }) => {
+  const e = { ...environment({ permission, ready: permission }), tab: '', islands: [] };
+  const usage = status
+    ? {
+        scope: 'me' as const,
+        measurementStatus: status as MeasurementStatus,
+        totalMinutes: null,
+        series: [],
+        updatedAt: null,
+      }
+    : null;
+  jest.mocked(getLibraryScreen).mockResolvedValue({
+    island: { id: e.state.islandId, name: '섬', role: 'owner' },
+    statisticsAvailability: 'available',
+    focusStatistics: null,
+    screenTimeStatistics: usage,
+    fishEarnings: { members: [] },
+    missingFragments: usage ? ['focusStatistics'] : ['focusStatistics', 'screenTimeStatistics'],
+  });
+  const screen = await render(<Library e={e} />);
+  await fireEvent.press(screen.getByLabelText('폰 사용'));
+  await waitFor(() => expect(screen.getByText(title)).toBeTruthy());
+  if (status === 'denied') {
+    await fireEvent.press(screen.getByText('측정 설정 열기'));
+    expect(e.go).toHaveBeenCalledWith('permission');
+  } else {
+    expect(screen.queryByText('측정 설정 열기')).toBeNull();
+    expect(e.go).not.toHaveBeenCalled();
+  }
+  expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
 });
 
 test('내 일기장에는 이력이 비어 있어도 iOS 오늘 리포트를 표시한다', async () => {

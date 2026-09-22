@@ -249,16 +249,26 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       );
     }
     if (tab === '폰 사용') {
-      if (!usageAllowed)
+      if (server && !usageAllowed) {
+        const measurementStatus = screenStats?.measurementStatus;
         return (
           <Empty
             title={
-              server && !screenStats
-                ? '기록을 준비하고 있어요'
-                : state.settings.permission
-                  ? '측정 기록이 없어요'
-                  : '측정 권한이 꺼져 있어요'
+              measurementStatus === 'denied'
+                ? '측정 권한이 꺼져 있어요'
+                : measurementStatus === 'unavailable'
+                  ? '폰 사용 기록을 이용할 수 없어요'
+                  : '기록을 준비하고 있어요'
             }
+            action={measurementStatus === 'denied' ? '측정 설정 열기' : undefined}
+            onPress={settings}
+          />
+        );
+      }
+      if (!usageAllowed)
+        return (
+          <Empty
+            title={state.settings.permission ? '측정 기록이 없어요' : '측정 권한이 꺼져 있어요'}
             action={
               state.settings.permission && state.settings.screenTimeMeasurementReady
                 ? undefined
