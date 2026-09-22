@@ -154,10 +154,10 @@ public class GroupMember {
     /**
      * <b>행이 생긴 시각</b>이다 — 「이 멤버십이 시작된 시각」이 아니다.
      *
-     * <p>{@link #rejoin(Instant)} 은 이 값을 갱신하지 <b>않는다</b>. 이미 두 곳의 계약 축이기 때문이다 —
-     * 주민 목록 keyset 페이지네이션({@code GroupMemberRepository.findActivePageByGroupId})과 「가장 먼저
-     * 가입한 활성 섬 = 메인 섬」 도출({@code findActiveIslandsJoinedAsc}·{@code countActiveJoinedBefore},
-     * GROMO-1971). 재가입이 여기를 덮으면 그 두 순서가 조용히 바뀐다.
+     * <p>{@link #rejoin(Instant)} 은 이 값을 갱신하지 <b>않는다</b>. 주민 목록 keyset 페이지네이션
+     * ({@code GroupMemberRepository.findActivePageByGroupId})의 정렬 축이 이 값이기 때문이다 — 재가입이
+     * 여기를 덮으면 주민 목록의 커서 순서가 조용히 바뀐다. (메인 섬 도출·이전은 GROMO-2054 이후 이 컬럼이
+     * 아니라 «멤버십 시작 시각» — {@link #membershipStartedAt()} 축으로 정렬한다.)
      *
      * <p>그래서 «멤버십 시작 시각»은 {@link #rejoinedAt} 이 덧씌운다 — {@link #membershipStartedAt()}.
      */
@@ -227,7 +227,8 @@ public class GroupMember {
      * 이 멤버십이 시작된 시각 — 재가입했으면 되살린 시각, 아니면 행이 생긴 시각 (GROMO-2050).
      *
      * <p>SQL 쪽 짝은 {@code COALESCE(rejoined_at, created_at)} 이다
-     * ({@code IslandWeeklyMemberCountRepository.ACTIVE_AT_BOUNDARY_SQL}).
+     * ({@code IslandWeeklyMemberCountRepository.ACTIVE_AT_BOUNDARY_SQL} · 메인 섬 도출
+     * {@code GroupMemberRepository.findActiveIslandsJoinedDesc}/{@code countActiveJoinedAfter}).
      */
     public Instant membershipStartedAt() {
         return rejoinedAt != null ? rejoinedAt : createdAt;

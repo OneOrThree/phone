@@ -2007,6 +2007,37 @@ test('ISLAND_SYNC — memberships가 정본이다: onboarded·current 반영, �
   assert.equal(s.serverIslands!.currentIslandId, null);
 });
 
+test('ISLAND_SYNC — mainIslandId를 실으면 /me 정본으로 갈아 끼우고, 안 실으면 현재 값을 유지한다', () => {
+  // GROMO-2054: 두 번째 섬 가입처럼 소속이 바뀌는 동기화는 서버 도출 메인을 함께 반영한다.
+  let s = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1', { membershipStatus: 'active' })],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+    mainIslandId: 'srv1',
+  });
+  assert.equal(s.mainIslandId, 'srv1');
+  // 명시 null 도 값이다 — 소속이 하나도 없으면 서버 정본은 null 이다
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: { items: [], nextCursor: null, currentIslandId: null, lossReason: null },
+    mainIslandId: null,
+  });
+  assert.equal(s.mainIslandId, null);
+  // 필드를 안 싣는 발신자(explore의 memberships 동기화)는 로컬 선택값을 건드리지 않는다
+  s.mainIslandId = 'soda';
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1', { membershipStatus: 'active' })],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+  });
+  assert.equal(s.mainIslandId, 'soda');
+});
+
 test('ISLAND_SYNC — 빈 memberships는 onboarded=false로 되돌리고 진행 중 세션·구경을 끊는다', () => {
   let s = initialState();
   s.islands[0].joined = true;

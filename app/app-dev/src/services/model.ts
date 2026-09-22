@@ -1501,6 +1501,9 @@ export function reducer(state: State, a: Action): State {
       if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
       // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
       s.onboarded = my.currentIslandId != null;
+      // /me 정본의 메인 섬 — 실렸을 때만 갈아 끼운다(explore 등 안 싣는 발신자는 현재 값 유지).
+      // 로컬 islands 에 없는 서버 id 도 그대로 둔다 — mainIsland() 선택자가 fallback 을 처리한다.
+      if (a.mainIslandId !== undefined) s.mainIslandId = a.mainIslandId as string | null;
       break;
     }
     case 'SERVER_VILLAGE_POINTS': {
