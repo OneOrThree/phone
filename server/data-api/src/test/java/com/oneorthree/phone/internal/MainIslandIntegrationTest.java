@@ -207,6 +207,54 @@ class MainIslandIntegrationTest {
     }
 
     @Test
+    @DisplayName("시작 시각이 NULL 인 legacy 활성 멤버십은 «가장 최근 가입»으로 취급되지 않는다 — NULLS LAST 다")
+    void aNullStartedMembershipIsNeverTheNewestJoin() {
+        Actor user = actor();
+        UUID legacy = joined(user, island(actor(), "시각없는섬"));
+        // V2 이전 형태 — created_at·rejoined_at 이 모두 NULL 인 legacy 활성 행을 그대로 만든다.
+        nullifyMembershipStart(user, legacy);
+        UUID recent = joined(user, island(actor(), "시각있는섬"));
+
+        // PostgreSQL 의 DESC 기본값은 NULLS FIRST 라, 명시하지 않으면 이 행이 «가장 최근»으로 도출된다.
+        // NULL 시작 시각은 «과거 소속»이라 실제 시각이 있는 멤버십보다 앞설 수 없다.
+        assertThat(mainIslandOf(user)).isEqualTo(recent);
+        assertThat(legacy).isNotEqualTo(recent);
+    }
+
+    @Test
+    @DisplayName("NULL 시작 시각의 비메인 섬 이탈은 메인 상실로 오판하지 않는다 — 행도 알림도 생기지 않는다")
+    void leavingANullStartedNonMainIslandChangesNothing() {
+        Actor user = actor();
+        UUID legacy = joined(user, island(actor(), "널첫섬"));
+        nullifyMembershipStart(user, legacy);
+        UUID recent = joined(user, island(actor(), "널나중섬"));
+
+        management.leave(user.id(), legacy, UUID.randomUUID());
+
+        // NULL 비교는 unknown 이라 0 으로 오판하면(=메인 상실로 보면) 행을 박제하고 알림이 나간다.
+        assertThat(mainIslandOf(user)).isEqualTo(recent);
+        assertThat(chosenRows(user)).isZero();
+        assertThat(transferNotices(user)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("남은 멤버십이 전부 NULL 시각이어도 id 동률 규칙으로 «가장 최근»을 고르고 이탈 시 박제한다")
+    void allNullStartedMembershipsStillResolveByIdOrder() {
+        Actor user = actor();
+        UUID older = joined(user, island(actor(), "널전부첫섬"));
+        UUID newer = joined(user, island(actor(), "널전부나중섬"));
+        nullifyMembershipStart(user, older);
+        nullifyMembershipStart(user, newer);
+        // 시작 시각이 없는 행끼리는 id 내림차순 — 늦게 만들어진 행이 «가장 최근»이다.
+        assertThat(mainIslandOf(user)).isEqualTo(newer);
+
+        management.leave(user.id(), newer, UUID.randomUUID());
+
+        assertThat(mainIslandOf(user)).isEqualTo(older);
+        assertThat(transferNotices(user)).containsExactly(older.toString());
+    }
+
+    @Test
     @DisplayName("마지막 섬에서 이탈하면 메인 섬이 없고, 유효하지 않은 섬을 대신 돌려주지 않는다")
     void losingTheLastMembershipLeavesNoMainIsland() {
         Actor user = actor();
@@ -455,6 +503,13 @@ class MainIslandIntegrationTest {
     private String receipt(String storedKey) {
         return jdbc.queryForObject("select response_body::text from command_idempotency"
                 + " where idempotency_key=?", String.class, storedKey);
+    }
+
+    /** V2 이전 형태의 legacy 행 — 멤버십 시작 시각(COALESCE(rejoined_at, created_at))이 NULL 이다. */
+    private void nullifyMembershipStart(Actor user, UUID islandId) {
+        int updated = jdbc.update("update group_members set created_at=null, rejoined_at=null"
+                + " where user_id=? and group_id=?", user.id(), islandId);
+        assertThat(updated).isEqualTo(1);
     }
 
     private boolean activeMembership(Actor user, UUID islandId) {

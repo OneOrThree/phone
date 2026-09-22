@@ -372,14 +372,18 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
      * 되살아나며({@code rejoin()}) {@code created_at} 은 최초 가입 시각 그대로라, {@code created_at} 만으로
      * 정렬하면 방금 재가입한 섬이 «오래전 가입»으로 밀려 도출이 틀어진다.
      *
+     * <p>{@code NULLS LAST} 는 빠뜨리면 안 되는 절이다 — PostgreSQL 의 DESC 기본값은 NULLS FIRST 라,
+     * {@code created_at} 까지 NULL 인 V2 이전 legacy 활성 행이 있으면 명시 없이는 그 행이 «가장 최근
+     * 가입»으로 도출된다. NULL 시작 시각은 «과거 소속»이므로 실제 시각이 있는 멤버십보다 앞설 수 없다.
+     *
      * @param userIds 조회 대상. 비어 있으면 빈 목록
-     * @return 활성 멤버십분만, {@code (COALESCE(rejoinedAt, createdAt), id)} 내림차순. 소속이 없는 사용자는
-     *     행이 아예 빠진다
+     * @return 활성 멤버십분만, {@code (COALESCE(rejoinedAt, createdAt), id)} 내림차순·NULL 은 맨 뒤.
+     *     소속이 없는 사용자는 행이 아예 빠진다
      */
     @Query("SELECT new com.oneorthree.phone.group.repository.UserIslandNameProjection("
             + "gm.user.id, gm.group.id, gm.group.name) FROM GroupMember gm"
             + " WHERE gm.user.id IN :userIds AND gm.isLeft = false"
-            + " ORDER BY COALESCE(gm.rejoinedAt, gm.createdAt) DESC, gm.id DESC")
+            + " ORDER BY COALESCE(gm.rejoinedAt, gm.createdAt) DESC NULLS LAST, gm.id DESC")
     List<UserIslandNameProjection> findActiveIslandsJoinedDesc(@Param("userIds") Collection<UUID> userIds);
 
     /**
@@ -393,7 +397,9 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
      *
      * @param userId       이탈한 사람
      * @param startedAt    이탈한 멤버십 행의 «시작 시각» — {@code COALESCE(rejoined_at, created_at)},
-     *                     {@code GroupMember#membershipStartedAt()} 의 SQL 짝
+     *                     {@code GroupMember#membershipStartedAt()} 의 SQL 짝. <b>NULL 은 안 된다</b> —
+     *                     NULL 비교는 SQL 에서 unknown 으로 접혀 결과가 0 이 되고 잃은 섬을 메인 상실로
+     *                     오판한다. NULL 인 legacy 행은 {@link #countActiveOutrankingNullStart} 로 간다
      * @param membershipId 이탈한 멤버십 행의 id — 시작 시각 동률의 타이브레이크
      * @return 더 나중에 시작된 활성 멤버십 수. 0 이면 잃은 섬이 도출된 메인 섬이었다
      */
@@ -402,4 +408,18 @@ public interface GroupMemberRepository extends JpaRepository<GroupMember, UUID> 
             + " OR (COALESCE(gm.rejoinedAt, gm.createdAt) = :startedAt AND gm.id > :membershipId))")
     long countActiveJoinedAfter(@Param("userId") UUID userId, @Param("startedAt") Instant startedAt,
                                 @Param("membershipId") UUID membershipId);
+
+    /**
+     * 시작 시각이 NULL 인 legacy 멤버십이 이탈했을 때의 짝 (GROMO-2054) — {@link #countActiveJoinedAfter}
+     * 는 NULL 경계를 비교할 수 없다. NULL 행은 {@link #findActiveIslandsJoinedDesc} 의 NULLS LAST 로
+     * 정렬 맨 아래이므로, 그보다 앞서는 행은 시작 시각이 있는 행 전부와 id 가 더 큰 NULL 행뿐이다.
+     *
+     * @param userId       이탈한 사람
+     * @param membershipId 이탈한 멤버십 행의 id — NULL 행끼리의 타이브레이크
+     * @return 이탈 행보다 앞서는 활성 멤버십 수. 0 이면 잃은 섬이 도출된 메인 섬이었다
+     */
+    @Query("SELECT COUNT(gm) FROM GroupMember gm WHERE gm.user.id = :userId AND gm.isLeft = false"
+            + " AND (COALESCE(gm.rejoinedAt, gm.createdAt) IS NOT NULL OR gm.id > :membershipId)")
+    long countActiveOutrankingNullStart(@Param("userId") UUID userId,
+                                        @Param("membershipId") UUID membershipId);
 }

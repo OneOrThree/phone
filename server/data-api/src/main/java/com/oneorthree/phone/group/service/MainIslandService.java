@@ -182,6 +182,10 @@ public class MainIslandService implements MainIslandNamePort {
         if (chosen.isPresent()) {
             return chosen.get().getIsland().getId().equals(revokedIslandId);
         }
-        return groupMembers.countActiveJoinedAfter(userId, member.membershipStartedAt(), member.getId()) == 0;
+        Instant startedAt = member.membershipStartedAt();
+        // 시작 시각이 NULL 인 legacy 행은 SQL 비교가 unknown 으로 접혀 0 으로 오판한다 — 명시 판정으로 나눈다.
+        return startedAt == null
+                ? groupMembers.countActiveOutrankingNullStart(userId, member.getId()) == 0
+                : groupMembers.countActiveJoinedAfter(userId, startedAt, member.getId()) == 0;
     }
 }
