@@ -200,6 +200,8 @@ export type Session = {
   restStartedAt?: number;
   seconds: number;
   status: 'active' | 'paused';
+  // 서버 세션의 version — pause/resume/finish 의 expectedVersion(GROMO-2009). 로컬 목업 세션에는 없다
+  version?: number;
   // 예전 저장 세션에서 집중 중 이미 섬에 적립한 물고기 수(지금은 종료 때 한 번에 적립)
   creditedFish?: number;
   intervals?: { start: number; end: number }[];
@@ -213,6 +215,9 @@ export type RecordItem = {
   fish: number;
   contributed: boolean;
   intervals?: { start: number; end: number }[];
+  // 서버가 자동 종료한 세션의 미확인 결과(pending-result) — 결과창을 닫을 때 acknowledge 대상
+  // 세션 id다. 확인이 끝나면 지운다(GROMO-2009).
+  ackId?: string;
 };
 export type Product = {
   id: string;
@@ -1612,6 +1617,39 @@ export function reducer(state: State, a: Action): State {
       s.session = null;
       break;
     }
+    case 'SESSION_SYNC':
+      // 서버 current 정본으로 진행 세션을 갈아 끼운다(GROMO-2009). null 이면 지운다 —
+      // 서버에 없는 진행 세션은 이미 끝난 것이다.
+      s.session = (a.session as Session | null) ?? null;
+      break;
+    case 'SESSION_RESULT': {
+      // 서버 finish·pending-result 의 정산 뷰를 기록+결과창으로 반영하고 진행 세션을 닫는다.
+      // earnedFish 는 서버가 이미 섬 통장에 적립한 확정값 — 로컬 잔액 표시만 맞춘다.
+      const record = a.record as RecordItem;
+      if (!s.records.some((r) => r.id === record.id)) s.records.unshift(record);
+      s.lastResult = record;
+      const owner = s.islands.find((x) => x.id === record.islandId);
+      if (!s.records.slice(1).length && !s.hallGuide && owner && !owner.buildings.includes('hall'))
+        s.hallGuide = 'pending';
+      if (owner && record.fish > 0) {
+        owner.fish = balance(owner) + record.fish;
+        owner.earned ??= {};
+        owner.earned.me = earnedBy(owner, 'me') + record.fish;
+        owner.ledger.unshift({
+          id: uuid(),
+          text: `${s.name} · 집중 +${record.fish}마리`,
+          at: record.at,
+          memberId: 'me',
+        });
+      }
+      s.resultFromRest = a.fromRest === true;
+      s.session = null;
+      break;
+    }
+    case 'RESULT_ACK':
+      // 결과 확인(acknowledge) 성공 — 같은 결과를 다시 확인하지 않게 표시를 지운다.
+      if (s.lastResult && s.lastResult.ackId === a.id) delete s.lastResult.ackId;
+      break;
     // ── 건물 공사·퀘스트 ──
     case 'SELECT_BUILDING': {
       const b = a.building as Building;
