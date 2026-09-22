@@ -46,6 +46,7 @@ public interface LetterRepository extends JpaRepository<Letter, UUID> {
      */
     @Query("SELECT l FROM Letter l JOIN FETCH l.sender "
             + "WHERE l.receiver.id = :userId AND l.deletedAt IS NULL "
+            + "AND NOT EXISTS (SELECT 1 FROM UserBlock b WHERE b.blocker.id = :userId AND b.blocked = l.sender) "
             + "AND (:cursor IS NULL OR l.id < :cursor) "
             + "ORDER BY l.id DESC")
     Slice<Letter> findReceivedByCursor(@Param("userId") UUID userId,

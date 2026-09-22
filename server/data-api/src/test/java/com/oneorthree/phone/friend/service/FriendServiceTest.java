@@ -34,6 +34,7 @@ import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.service.UserBlockService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -108,6 +110,10 @@ class FriendServiceTest {
     @Mock
     private LetterRepository letterRepository;
 
+    /** GROMO-1975: 목록·검색의 제외 대조표 — 이 스위트는 차단이 없는 세계를 본다. */
+    @Mock
+    private UserBlockService userBlockService;
+
     private FriendService friendService;
 
     private static final LocalDate DATE = LocalDate.of(2026, 7, 3);
@@ -122,11 +128,13 @@ class FriendServiceTest {
         given(nicknameStrategy.type()).willReturn(SearchType.NICKNAME);
         // FriendRelationLookup 은 목이 아니라 실제 인스턴스 — 검색 relation 테스트가 추출 후에도
         // 실제 판정 로직(리포지토리 스텁 기반)을 통과하도록 한다 (GROMO-1631, 스텁이 시임을 덮지 않게).
+        // 차단 제외는 별도 경로라 이 스위트에선 항상 빈 집합 — strict 스텁 검사를 피하려고 lenient.
+        lenient().when(userBlockService.blockedIds(any())).thenReturn(java.util.Set.of());
         friendService = new FriendService(friendshipRepository, userQueryService, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
                 userActivityEventLogger, userTierLookup, focusLiveInfoLookup,
                 new FriendRelationLookup(friendshipRepository), mainIslandNamePort, letterRepository,
-                eventPublisher,
+                userBlockService, eventPublisher,
                 List.of(nicknameStrategy),
                 // 한도 자체는 PerUserHourlyLimiterTest·PerUserRateLimitIntegrationTest 가 본다 — 여기선 닿지 않게.
                 new PerUserHourlyLimiter("test", 1_000_000, Clock.systemUTC()));
