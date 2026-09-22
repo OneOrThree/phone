@@ -53,7 +53,7 @@ import {
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
-import { updateProfile } from '@/services/api/account';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
@@ -5587,13 +5587,23 @@ export function RedesignScreens({ e }: any) {
                   '회원 탈퇴할까요?',
                   '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
                   () => {
-                    screenTime
-                      .resetScreenTimeData()
-                      .catch(() => {})
-                      .finally(() => {
+                    if (!server) {
+                      screenTime.resetScreenTimeData().catch(() => {}).finally(() => {
                         act('DELETE_ACCOUNT');
                         reset('login');
                       });
+                      return;
+                    }
+                    run(
+                      async () => {
+                        await withdrawAccount();
+                        await screenTime.resetScreenTimeData().catch(() => {});
+                        await e.signOut();
+                        act('DELETE_ACCOUNT');
+                        reset('login');
+                      },
+                      notify,
+                    );
                   },
                   { ok: '탈퇴', destructive: true },
                 )
