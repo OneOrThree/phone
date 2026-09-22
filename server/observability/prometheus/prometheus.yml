@@ -17,6 +17,14 @@ scrape_configs:
     static_configs:
       - targets: ['postgres-exporter:9187']
 
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+
+  - job_name: kafka
+    static_configs:
+      - targets: ['kafka-exporter:9308']
+
   # 호스트 리소스 — CPU·메모리·디스크
   - job_name: node
     static_configs:

@@ -30,7 +30,7 @@ jobs:
       # 관측 overlay — app-network 를 공유해 Prometheus 가 app:9091 을 스크레이프한다.
       # app/db 는 아래 OBS_SERVICES 에서 제외해 CD 로 배포된 컨테이너를 건드리지 않는다.
       RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
-      OBS_SERVICES: prometheus grafana loki promtail postgres-exporter node-exporter cadvisor
+      OBS_SERVICES: prometheus grafana loki promtail postgres-exporter redis-exporter kafka-exporter node-exporter cadvisor
     steps:
       - uses: actions/checkout@v4
 
@@ -65,3 +65,10 @@ jobs:
         run: |
           docker compose --env-file "$RUNTIME_ENV_FILE" \
             -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml ps
+          {
+            echo "### Dev 관측"
+            echo "- Grafana: http://$(hostname -I | awk '{print $1}'):3000"
+            echo "- Prometheus targets: http://127.0.0.1:9090/targets"
+            echo "- Redis target: redis-exporter:9121"
+            echo "- Kafka target: kafka-exporter:9308 (브로커가 꺼져 있으면 no data)"
+          } >> "$GITHUB_STEP_SUMMARY"
