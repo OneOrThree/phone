@@ -52,7 +52,7 @@ import {
   kstHourMinute,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
-import { ApiError } from '@/services/api/client';
+import { ApiError, uuid } from '@/services/api/client';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
@@ -236,7 +236,7 @@ function Boat({ state, h = 260, scarf }: any) {
   );
 }
 // mini = 내 정보의 6칸 작은 그리드, six = 가로 온보딩의 6칸 한 줄. v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
-function AvatarGrid({ value, onChange, mini = false, six = false }: any) {
+function AvatarGrid({ value, onChange, mini = false, six = false, disabled = false }: any) {
   const per = mini || six ? 6 : 3,
     gap = mini ? 6 : six ? 8 : 10,
     size = mini ? 11 : six ? 12 : 13,
@@ -259,6 +259,7 @@ function AvatarGrid({ value, onChange, mini = false, six = false }: any) {
                   accessibilityRole="button"
                   accessibilityLabel={colorNames[colors.indexOf(c)]}
                   accessibilityState={{ selected: on }}
+                  disabled={disabled}
                   key={c}
                   onPress={() => onChange(c)}
                   style={{
@@ -743,7 +744,8 @@ export function RedesignScreens({ e }: any) {
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
     [serverDone, setServerDone] = useState('');
   const chat = useRef<ScrollView>(null),
-    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
+    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null);
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
@@ -5538,9 +5540,15 @@ export function RedesignScreens({ e }: any) {
             back();
             return;
           }
+          const signature = JSON.stringify([name, profileColor]);
+          if (profileSaveIntent.current?.signature !== signature) {
+            profileSaveIntent.current = { signature, key: uuid() };
+          }
+          const intent = profileSaveIntent.current;
           run(
             () =>
-              updateProfile({ name, catColor: profileColor }).then((saved) => {
+              updateProfile({ name, catColor: profileColor }, intent.key).then((saved) => {
+                if (profileSaveIntent.current?.key === intent.key) profileSaveIntent.current = null;
                 act('PROFILE', {
                   name: saved.name ?? name,
                   color: saved.catColor ?? profileColor,
@@ -5555,11 +5563,17 @@ export function RedesignScreens({ e }: any) {
         <View style={{ alignItems: 'center' }}>
           <Avatar color={profileColor} size={96} />
         </View>
-        <AvatarGrid mini value={profileColor} onChange={setProfileColor} />
+        <AvatarGrid
+          mini
+          value={profileColor}
+          onChange={serverBusy ? () => {} : setProfileColor}
+          disabled={serverBusy}
+        />
         <Field
           label="닉네임"
           value={profileName}
-          onChange={setProfileName}
+          onChange={serverBusy ? () => {} : setProfileName}
+          disabled={serverBusy}
           inputStyle={sheetInput}
         />
         <SheetGroup>
@@ -5588,22 +5602,22 @@ export function RedesignScreens({ e }: any) {
                   '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
                   () => {
                     if (!server) {
-                      screenTime.resetScreenTimeData().catch(() => {}).finally(() => {
-                        act('DELETE_ACCOUNT');
-                        reset('login');
-                      });
+                      screenTime
+                        .resetScreenTimeData()
+                        .catch(() => {})
+                        .finally(() => {
+                          act('DELETE_ACCOUNT');
+                          reset('login');
+                        });
                       return;
                     }
-                    run(
-                      async () => {
-                        await withdrawAccount();
-                        await screenTime.resetScreenTimeData().catch(() => {});
-                        await e.signOut();
-                        act('DELETE_ACCOUNT');
-                        reset('login');
-                      },
-                      notify,
-                    );
+                    run(async () => {
+                      await withdrawAccount();
+                      await screenTime.resetScreenTimeData().catch(() => {});
+                      await e.signOut();
+                      act('DELETE_ACCOUNT');
+                      reset('login');
+                    }, notify);
                   },
                   { ok: '탈퇴', destructive: true },
                 )

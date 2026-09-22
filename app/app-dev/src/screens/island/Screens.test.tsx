@@ -12,7 +12,10 @@ import { ApiError } from '@/services/api/client';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
-jest.mock('@/services/api/account', () => ({ updateProfile: jest.fn(), withdrawAccount: jest.fn() }));
+jest.mock('@/services/api/account', () => ({
+  updateProfile: jest.fn(),
+  withdrawAccount: jest.fn(),
+}));
 const mockUpdateProfile = updateProfile as jest.Mock;
 const mockWithdrawAccount = withdrawAccount as jest.Mock;
 const notifyMock = jest.fn();
@@ -652,6 +655,25 @@ test('프로필 저장 실패는 PROFILE·뒤로가기·성공 문구 없이 서
     notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
     false,
   );
+
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 2));
+  assert.equal(mockUpdateProfile.mock.calls[0][1], mockUpdateProfile.mock.calls[1][1]);
+});
+
+test('프로필 저장 중에는 후속 편집을 받지 않는다', async () => {
+  let release: (v: unknown) => void = () => {};
+  mockUpdateProfile.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+  const s = await render(<Harness route="profile" full api={() => ({})} />);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '바다');
+
+  assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+  await act(async () =>
+    release({ id: 'u1', name: '구름이', catColor: 'black', mainIslandId: 'i1' }),
+  );
 });
 
 test('목업 모드 프로필 저장은 API 없이 로컬 PROFILE을 갱신한다', async () => {
@@ -693,7 +715,11 @@ test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 
 
   await fireEvent.press(s.getByText('회원 탈퇴'));
   await waitFor(() =>
-    assert.ok(notifyMock.mock.calls.some((c) => c[0] === '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.')),
+    assert.ok(
+      notifyMock.mock.calls.some(
+        (c) => c[0] === '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
+      ),
+    ),
   );
   assert.equal(exposed.signOut.mock.calls.length, 0);
   assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
