@@ -206,7 +206,7 @@ class MainIslandLegacyNotificationIntegrationTest {
     private Actor reachableUser(boolean notificationEnabled) {
         var login = auth.guestLogin();
         UUID userId = jwt.extractUserId(login.accessToken());
-        users.registerDeviceToken(userId, "test-device-token-" + userId);
+        jdbc.update("update users set device_token=? where id=?", "test-device-token-" + userId, userId);
         NotificationSettingsRequest settings = new NotificationSettingsRequest();
         ReflectionTestUtils.setField(settings, "notificationEnabled", notificationEnabled);
         ReflectionTestUtils.setField(settings, "soundEnabled", true);
