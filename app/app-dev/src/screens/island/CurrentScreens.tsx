@@ -77,11 +77,13 @@ import {
   Txt,
   Pic,
   Btn,
+  Badge,
   Group,
   Row,
   Seg,
   Field,
   Strip,
+  Toggle,
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
@@ -161,7 +163,7 @@ export function CurrentScreens({ e }: any) {
   const friendsScreen = useFriendsScreen({
     // 공용 소비자(뗏목 배지·우체통)가 첫 진입부터 서버 친구를 쓰도록 화면 route와 무관하게 적재한다.
     active: !!e.islands,
-    searchActive: e.route === 'friendSearch',
+    searchActive: e.route === 'friends' || e.route === 'friendSearch',
     date: dayKey(e.now),
   });
   useEffect(() => {
@@ -359,9 +361,148 @@ function CurrentScreensContent({ e }: any) {
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (['boat', 'mainIsland', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
-  if (r === 'permission') return <ScreenTimePermission e={e} />;
+  if (r === 'permission')
+    return e.detail === 'settings' ? (
+      <AppPermissionManager e={e} />
+    ) : (
+      <ScreenTimePermission e={e} />
+    );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
   return <RedesignScreens e={e} />;
+}
+
+function AppPermissionManager({ e }: any) {
+  const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
+  const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
+  const [selectionStatus, setSelectionStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [busy, setBusy] = useState(false);
+  const unavailable = Platform.OS !== 'ios' || !isScreenTimeAvailable || status === 'unavailable';
+  const approved = status === 'approved';
+  const selectedCount = selectionCount(selection);
+  const selectionDescription =
+    selectionStatus === 'loading'
+      ? '선택 상태 확인 중'
+      : selectionStatus === 'error'
+        ? '선택 상태를 확인하지 못했어요'
+        : selectedCount
+          ? `${selectedCount}개 선택됨`
+          : '아직 선택하지 않았어요';
+  const permissionDescription = approved ? '허용됨' : unavailable ? '사용 불가' : '허용 필요';
+
+  useEffect(() => {
+    let active = true;
+    const syncPermissionState = () => {
+      screenTime
+        .getAuthorizationStatus()
+        .then((nextStatus) => {
+          if (!active) return;
+          setStatus(nextStatus);
+          e.dispatch({ type: 'SETTING', key: 'permission', value: nextStatus === 'approved' });
+        })
+        .catch(() => active && setStatus('unavailable'));
+      setSelectionStatus('loading');
+      screenTime
+        .getMeasurementSelectionCounts()
+        .then((nextSelection) => {
+          if (!active) return;
+          setSelection(nextSelection);
+          setSelectionStatus('ready');
+        })
+        .catch(() => active && setSelectionStatus('error'));
+    };
+    syncPermissionState();
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') syncPermissionState();
+    });
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
+  const requestConnection = async () => {
+    if (approved) return true;
+    if (unavailable) {
+      e.notify('이 기기에서는 스크린타임을 연결할 수 없어요.');
+      return false;
+    }
+    setBusy(true);
+    try {
+      await screenTime.requestAuthorization();
+      const nextStatus = await screenTime.getAuthorizationStatus();
+      setStatus(nextStatus);
+      e.dispatch({ type: 'SETTING', key: 'permission', value: nextStatus === 'approved' });
+      if (nextStatus !== 'approved') e.notify('iOS 설정에서 스크린타임 권한을 허용해 주세요.');
+      return nextStatus === 'approved';
+    } catch {
+      e.notify('스크린타임 권한을 요청하지 못했어요.');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeConnection = async (next: boolean) => {
+    if (next) {
+      await requestConnection();
+      return;
+    }
+    // Family Controls 권한은 앱에서 직접 철회할 수 없어 시스템 설정으로 보낸다.
+    await openSystemSettings();
+  };
+
+  const openSystemSettings = async () => {
+    if (Platform.OS !== 'ios' || typeof Linking.openSettings !== 'function') return;
+    await Linking.openSettings();
+  };
+
+  const openMeasuredApps = async () => {
+    if (!(approved || (await requestConnection()))) return;
+    e.go('screenTimeApps', 'settings');
+  };
+
+  return (
+    <Sheet e={e} title="앱 권한 관리">
+      <Txt kind="section">스크린타임</Txt>
+      <Group>
+        <Row
+          title="스크린타임 연결"
+          sub="폰 사용 퀘스트와 기록에 사용해요"
+          tail={
+            <Toggle
+              label="스크린타임 연결"
+              value={approved}
+              disabled={busy || status === 'loading' || unavailable}
+              onChange={changeConnection}
+            />
+          }
+        />
+        <Row
+          title="측정 앱"
+          sub={selectionDescription}
+          accessibilityLabel={`측정 앱, ${selectionDescription}`}
+          chevron
+          onPress={openMeasuredApps}
+        />
+      </Group>
+      <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
+      <Txt kind="section">시스템 설정</Txt>
+      <Group>
+        <Row
+          title="측정 권한"
+          sub={
+            Platform.OS === 'ios' ? 'iOS 설정 › 스크린타임에서 변경' : 'iOS에서만 변경할 수 있어요'
+          }
+          accessibilityLabel={`측정 권한, ${permissionDescription}`}
+          right={<Badge soft>{permissionDescription}</Badge>}
+          chevron
+          disabled={Platform.OS !== 'ios'}
+          onPress={openSystemSettings}
+        />
+      </Group>
+      <Txt kind="meta">권한이 없으면 기록을 0분으로 처리하지 않고 확인이 필요한 상태로 남겨요.</Txt>
+    </Sheet>
+  );
 }
 
 function ScreenTimePermission({ e }: any) {
