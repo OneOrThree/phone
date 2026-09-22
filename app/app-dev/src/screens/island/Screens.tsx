@@ -103,6 +103,8 @@ import {
   Cta,
   SearchField,
 } from '@/screens/island/IslandSheet';
+import { useIslandRankings } from '@/screens/island/useIslandRankings';
+import { useFocusSummary } from '@/screens/island/useFocusSummary';
 const names: Record<string, string> = {
   waves: '잔잔한 파도',
   campfire: '모닥불 소리',
@@ -752,6 +754,10 @@ export function RedesignScreens({ e }: any) {
   };
   // 서버 스냅샷 단축 — 첫 로드 전엔 undefined
   const snap = state.serverIslands;
+  // 전망대 주간 섬 랭킹(GROMO-2018) — 서버 모드이고 tower route 일 때만 조회한다
+  const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
+  // 「오늘 집중」요약(GROMO-2018) — 서버 모드면 /me/focus-summary 가 정본이다
+  const focusSummary = useFocusSummary({ active: !!server });
   // 신청 목록에 단건 상태 조회 결과를 얹은 유효 목록 — requestStatus가 최신 상태다.
   // 단건 결과엔 표시 필드가 없으므로 목록에 없는 신청은 상태만 안다.
   const reqList = [
@@ -2364,11 +2370,12 @@ export function RedesignScreens({ e }: any) {
     // 17(집중 중) = 바다 위 시트, 66(섬에서) = 축음기로 다가간 섬 위 시트 + 축음기 간판. 가로 폰은 오른쪽 540 패널
     const scene = !!state.session,
       panel = layout.compact;
-    // 오늘 = Asia/Seoul 기준 00시부터
+    // 오늘 = Asia/Seoul 기준 00시부터. 서버 모드면 /me/focus-summary 가 정본이고
+    // 아직 못 읽었을 땐 null 로 둬서 로컬 합산 0을 지어내지 않는다.
     const startOfToday = kstDayStart(dayKey(now));
-    const today = state.records
-      .filter((r) => r.at >= startOfToday)
-      .reduce((a, r) => a + r.seconds, 0);
+    const today = server
+      ? (focusSummary.data?.totalSeconds ?? null)
+      : state.records.filter((r) => r.at >= startOfToday).reduce((a, r) => a + r.seconds, 0);
     const card: any = panel
       ? {
           position: 'absolute',
@@ -2427,7 +2434,7 @@ export function RedesignScreens({ e }: any) {
           ) : (
             <>
               <Pic id={(panel ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
-              {!panel && (
+              {!panel && today != null && (
                 <View
                   style={{
                     position: 'absolute',
@@ -3913,6 +3920,89 @@ export function RedesignScreens({ e }: any) {
     );
   if (route === 'tower') {
     // 섬 간 랭킹만 보여 준다(우리 섬 주민 순위 없음). 주민 평균 집중(이번 주) 순서, 매주 일요일 00시 초기화
+    if (server) {
+      // 서버 주간 랭킹이 정본(GROMO-2018) — rank(동점 공동)·myRank(전체 모집단 기준)는
+      // 서버 값 그대로고, 앱이 순번을 다시 매기거나 0위를 지어내지 않는다.
+      const rk = islandRankings,
+        myIslandId = snap?.currentIslandId;
+      return (
+        <IslandSheet
+          bg="tower"
+          sign="bld/observatory"
+          title="전망대"
+          tight
+          action="섬 찾기"
+          actionPress={() => go('explore')}
+          onClose={home}
+        >
+          <Txt kind="meta" style={st.meta}>
+            주민 평균 집중 시간 · 매주 일요일 00시에 새로 시작해요
+          </Txt>
+          {rk.status === 'loading' && (
+            <Txt
+              kind="meta"
+              testID="rankings-loading"
+              style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}
+            >
+              순위를 불러오는 중이에요
+            </Txt>
+          )}
+          {rk.status === 'error' && (
+            <View style={{ alignItems: 'center', paddingVertical: 20, gap: 10 }}>
+              <Txt kind="meta" style={[st.meta, { textAlign: 'center' }]}>
+                {rk.error?.message ?? '순위를 불러오지 못했어요.'}
+              </Txt>
+              <Btn small kind="sec" testID="rankings-retry" title="다시 시도" onPress={rk.retry} />
+            </View>
+          )}
+          {rk.status === 'ready' && rk.data && !rk.data.items.length && (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              아직 순위에 오른 섬이 없어요
+            </Txt>
+          )}
+          {rk.status === 'ready' && rk.data && rk.data.items.length > 0 && (
+            <>
+              <SheetGroup>
+                {rk.data.items.map((item) => (
+                  <SheetRow
+                    key={item.islandId}
+                    title={item.name}
+                    sub={`평균 ${hoursMinutes(item.averageFocusSeconds)}`}
+                    label={`${item.rank}위 ${item.name}, 평균 ${hoursMinutes(item.averageFocusSeconds)}`}
+                    tone={item.islandId === myIslandId ? 'butter' : undefined}
+                    lead={
+                      <Txt
+                        style={{
+                          width: 26,
+                          fontSize: 18,
+                          lineHeight: 26.1,
+                          fontWeight: '800',
+                          textAlign: 'center',
+                        }}
+                      >
+                        {item.rank}
+                      </Txt>
+                    }
+                    tail={<IslandThumb />}
+                    chevron={item.islandId !== myIslandId}
+                    onPress={
+                      item.islandId === myIslandId
+                        ? undefined
+                        : () => run(() => server.visit(item.islandId))
+                    }
+                  />
+                ))}
+              </SheetGroup>
+              {rk.data.myRank !== null && (
+                <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingTop: 10 }]}>
+                  우리 섬 이번 주 {rk.data.myRank}위
+                </Txt>
+              )}
+            </>
+          )}
+        </IslandSheet>
+      );
+    }
     const islands = state.islands
       // 주민 2명 이상인 섬만 순위에 올린다(혼자 섬은 평균이 의미 없어서)
       .filter(
