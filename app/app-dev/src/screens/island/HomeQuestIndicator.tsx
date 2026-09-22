@@ -12,6 +12,8 @@ type Props = {
   style?: StyleProp<ViewStyle>;
 };
 
+export const HOME_QUEST_LIST_DETAIL = 'home-quest-list';
+
 const questCondition = (quest: Quest) =>
   quest.type === 'focus'
     ? `${quest.windowStart ?? '00:00'}–${quest.windowEnd ?? '24:00'} · ${quest.target}분`
@@ -24,6 +26,11 @@ export const claimableQuestRewards = (rewards: Reward[] | undefined, islandId: s
 
 export const claimableQuestRewardCount = (rewards: Reward[] | undefined, islandId: string) =>
   claimableQuestRewards(rewards, islandId).length;
+
+export const pendingQuestRewards = (rewards: Reward[] | undefined, islandId?: string) =>
+  islandId
+    ? claimableQuestRewards(rewards, islandId)
+    : (rewards ?? []).filter((reward) => !reward.acknowledged);
 
 export function HomeQuestIndicator({ quests, rewardCount, onPress, style }: Props) {
   const { fontScale } = useWindowDimensions();
@@ -121,13 +128,13 @@ const styles = StyleSheet.create({
     backgroundColor: semanticTokens.color.letter,
   },
   backFar: {
-    left: 10,
+    left: noteToken.backFarInsetLeft,
     top: noteToken.backFarInsetTop,
     bottom: noteToken.backFarInsetBottom,
     transform: [{ rotate: '2.4deg' }],
   },
   backNear: {
-    left: 5,
+    left: noteToken.backNearInsetLeft,
     top: noteToken.backNearInsetTop,
     bottom: noteToken.backNearInsetBottom,
     transform: [{ rotate: '1.1deg' }],

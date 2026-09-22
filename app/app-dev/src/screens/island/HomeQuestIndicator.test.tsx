@@ -6,6 +6,7 @@ import {
   claimableQuestRewardCount,
   claimableQuestRewards,
   HomeQuestIndicator,
+  pendingQuestRewards,
 } from './HomeQuestIndicator';
 import type { Quest, Reward } from '@/services/model';
 
@@ -135,5 +136,13 @@ test('보상 개수는 현재 섬의 미수령 개인 보상만 센다', () => {
   expect(claimableQuestRewardCount(rewards, 'island-a')).toBe(1);
   expect(claimableQuestRewards(rewards, 'island-a').map((reward) => reward.id)).toEqual([
     'personal-open',
+  ]);
+  expect(pendingQuestRewards(rewards, 'island-a').map((reward) => reward.id)).toEqual([
+    'personal-open',
+  ]);
+  expect(pendingQuestRewards(rewards).map((reward) => reward.id)).toEqual([
+    'personal-open',
+    'bonus-open',
+    'other-island',
   ]);
 });

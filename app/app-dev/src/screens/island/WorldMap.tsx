@@ -29,11 +29,16 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite } from '@/components/CatSprite';
-import { claimableQuestRewardCount, HomeQuestIndicator } from '@/screens/island/HomeQuestIndicator';
+import {
+  claimableQuestRewardCount,
+  HOME_QUEST_LIST_DETAIL,
+  HomeQuestIndicator,
+} from '@/screens/island/HomeQuestIndicator';
 import { useAppLayout } from '@/utils/layout';
 import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
+import { componentTokens } from '@/design-system/tokens';
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -639,56 +644,64 @@ export function FinalIsland({
       />
       {showHud && (
         <View
-          pointerEvents="none"
+          pointerEvents="box-none"
           style={{
             position: 'absolute',
             top: hudTop,
             left: hudLeft,
-            backgroundColor: '#FFFDFAB3',
-            borderRadius: 999,
-            paddingVertical: 6,
-            paddingLeft: 14,
-            paddingRight: 16,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 10,
-            minWidth: visiting ? undefined : 210,
+            zIndex: 10,
+            alignItems: 'flex-start',
           }}
         >
-          {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
-          {visiting ? (
-            <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
-              {`${i.name} 구경 중`}
-            </Txt>
-          ) : (
-            <>
-              <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
-                오늘 집중
+          <View
+            pointerEvents="none"
+            style={{
+              backgroundColor: '#FFFDFAB3',
+              borderRadius: 999,
+              paddingVertical: 6,
+              paddingLeft: 14,
+              paddingRight: 16,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 10,
+              minWidth: visiting ? undefined : 210,
+            }}
+          >
+            {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
+            {visiting ? (
+              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                {`${i.name} 구경 중`}
               </Txt>
-              <Txt
-                style={{
-                  fontSize: 22,
-                  lineHeight: 31.9,
-                  fontWeight: '700',
-                  fontVariant: ['tabular-nums'],
-                  marginLeft: 'auto',
-                }}
-              >
-                {[Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
-                  .map((v) => String(v).padStart(2, '0'))
-                  .join(':')}
-              </Txt>
-            </>
+            ) : (
+              <>
+                <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
+                  오늘 집중
+                </Txt>
+                <Txt
+                  style={{
+                    fontSize: 22,
+                    lineHeight: 31.9,
+                    fontWeight: '700',
+                    fontVariant: ['tabular-nums'],
+                    marginLeft: 'auto',
+                  }}
+                >
+                  {[Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
+                    .map((v) => String(v).padStart(2, '0'))
+                    .join(':')}
+                </Txt>
+              </>
+            )}
+          </View>
+          {showQuestIndicator && (
+            <HomeQuestIndicator
+              quests={i.quests}
+              rewardCount={rewardCount}
+              onPress={() => go('quest', HOME_QUEST_LIST_DETAIL)}
+              style={{ marginTop: componentTokens.homeQuestIndicator.hudGap }}
+            />
           )}
         </View>
-      )}
-      {showQuestIndicator && (
-        <HomeQuestIndicator
-          quests={i.quests}
-          rewardCount={rewardCount}
-          onPress={() => go('quest')}
-          style={{ position: 'absolute', top: hudTop + 54, left: hudLeft, zIndex: 10 }}
-        />
       )}
       {showActions && (
         <>

@@ -62,7 +62,7 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
-import { claimableQuestRewards } from '@/screens/island/HomeQuestIndicator';
+import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
   art,
   C,
@@ -293,7 +293,16 @@ export function CurrentScreens({ e }: any) {
       <>
         <InteriorRoute e={e} />
         {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
-        {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={currentIsland(state).id} />}
+        {!state.visitingIslandId && (
+          <RewardModal
+            e={e}
+            rewardIslandId={
+              r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL
+                ? currentIsland(state).id
+                : undefined
+            }
+          />
+        )}
       </>
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
@@ -1409,9 +1418,7 @@ function RewardModal({
 }) {
   const s: State = e.state,
     wide = useAppLayout().width >= 600,
-    open = rewardIslandId
-      ? claimableQuestRewards(s.rewards, rewardIslandId)
-      : (s.rewards ?? []).filter((r) => !r.acknowledged),
+    open = pendingQuestRewards(s.rewards, rewardIslandId),
     reward = open[0];
   if (!reward) return null;
   const owner = s.islands.find((i) => i.id === reward.islandId),

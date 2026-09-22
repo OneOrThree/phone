@@ -44,6 +44,7 @@ import {
   viewIsland,
 } from '@/services/model';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useBoardNotices } from './useBoardNotices';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
@@ -3959,12 +3960,13 @@ export function Board({
   // 없는 공지·퀘스트 id로 상세를 열면 목록을 보여 주고 라우트도 목록으로 바꾼다
   // 서버 경로의 공지는 이 검사를 건너뛴다 — 목록은 첫 페이지뿐이라 없는 id 판정이 틀리고,
   // 진짜 없는 공지는 상세 GET 의 오류 화면이 담당한다.
+  const homeQuestList = e?.route === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL;
   const missing =
     !!e &&
     ((!serverBoard &&
       (e.route === 'notice' || (e.route === 'noticeEdit' && e.detail)) &&
       !notices.some((n) => n.id === e.detail)) ||
-      (((e.route === 'quest' && e.detail !== 'building') ||
+      (((e.route === 'quest' && e.detail !== 'building' && !homeQuestList) ||
         (e.route === 'questEdit' && e.detail)) &&
         !quests.some((q) => q.id === e.detail)));
   useEffect(() => {
@@ -4003,7 +4005,9 @@ export function Board({
             : r === 'questEdit'
               ? 'write'
               : panel === 'quest' && r === 'quest'
-                ? 'detail'
+                ? homeQuestList
+                  ? 'list'
+                  : 'detail'
                 : panel === 'blueprint'
                   ? blueprintView.state
                   : 'list';
