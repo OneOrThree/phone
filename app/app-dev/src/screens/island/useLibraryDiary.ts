@@ -57,6 +57,7 @@ export function useLibraryDiary({
   period,
   offset,
   combined = false,
+  focusSummaryOnly = false,
   rangeOverride,
   islandKey,
 }: {
@@ -70,6 +71,8 @@ export function useLibraryDiary({
   offset: number;
   /** 달력·이웃 기록은 집중과 폰 사용을 한 번에 표시한다. */
   combined?: boolean;
+  /** 기간 합계·수열만 쓰는 화면은 집중 기록의 다음 페이지를 읽지 않는다. */
+  focusSummaryOnly?: boolean;
   rangeOverride?: { from: string; to: string };
   islandKey?: string;
 }): LibraryDiaryState {
@@ -157,7 +160,12 @@ export function useLibraryDiary({
                 ? null
                 : firstWeek && lib.focusStatistics
                   ? lib.focusStatistics
-                  : collectFocus(lib.island.id, { ...range, scope: 'me' }, stale),
+                  : collectFocus(
+                      lib.island.id,
+                      { ...range, scope: 'me' },
+                      stale,
+                      !focusSummaryOnly,
+                    ),
               firstWeek && missing.includes('screenTimeStatistics') && !lib.screenTimeStatistics
                 ? null
                 : firstWeek && lib.screenTimeStatistics
@@ -213,7 +221,21 @@ export function useLibraryDiary({
     return () => {
       req.current += 1;
     };
-  }, [active, nb, page, period, offset, nonce, session, combined, from, to, islandKey, today]);
+  }, [
+    active,
+    nb,
+    page,
+    period,
+    offset,
+    nonce,
+    session,
+    combined,
+    focusSummaryOnly,
+    from,
+    to,
+    islandKey,
+    today,
+  ]);
 
   return {
     status,
@@ -232,6 +254,7 @@ async function collectFocus(
   islandId: string,
   base: StatisticsQuery,
   stale: () => boolean,
+  paginate = true,
 ): Promise<FocusStatsMe | FocusStatsIsland> {
   const fetchPage = (cursor?: string) => {
     const next = { ...base, ...(cursor ? { cursor } : {}) };
@@ -240,6 +263,7 @@ async function collectFocus(
       : getFocusStatistics(islandId, { ...next, scope: 'island' });
   };
   let page = await fetchPage();
+  if (!paginate) return page;
   const pages = [page];
   let cursor = page.nextCursor;
   const seen = new Set<string>();

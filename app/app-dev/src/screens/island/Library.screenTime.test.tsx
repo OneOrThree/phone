@@ -113,7 +113,6 @@ test.each(
       ['denied', '측정 권한이 꺼져 있어요'],
       ['pending', '기록을 준비하고 있어요'],
       ['unavailable', '폰 사용 기록을 이용할 수 없어요'],
-      [null, '기록을 준비하고 있어요'],
     ] as const
   ).flatMap(([status, title]) =>
     [true, false].map((permission) => ({ status, title, permission })),
@@ -137,7 +136,9 @@ test.each(
     fishEarnings: { members: [] },
     missingFragments: usage ? ['focusStatistics'] : ['focusStatistics', 'screenTimeStatistics'],
   });
+  if (usage) (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
   const screen = await render(<Library e={e} />);
+  await fireEvent.press(screen.getByLabelText('일'));
   await fireEvent.press(screen.getByLabelText('폰 사용'));
   await waitFor(() => expect(screen.getByText(title)).toBeTruthy());
   if (status === 'denied') {
@@ -149,6 +150,61 @@ test.each(
   }
   expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
 });
+
+test.each(['pending', 'unavailable'] as const)(
+  '기간 상태가 %s여도 주·월의 과거 허용 측정값은 표시한다',
+  async (status) => {
+    const e = {
+      ...environment(),
+      tab: '',
+      islands: [],
+      now: Date.parse('2026-09-22T12:00:00+09:00'),
+    };
+    const focus = {
+      scope: 'me' as const,
+      totalSeconds: 0,
+      series: [],
+      records: [],
+      nextCursor: null,
+    };
+    const usage = {
+      scope: 'me' as const,
+      measurementStatus: status,
+      totalMinutes: null,
+      series: [
+        {
+          date: '2026-09-21',
+          minutes: 90,
+          measurementStatus: 'authorized' as const,
+          updatedAt: null,
+        },
+        { date: '2026-09-22', minutes: null, measurementStatus: status, updatedAt: null },
+      ],
+      updatedAt: null,
+    };
+    jest.mocked(getLibraryScreen).mockResolvedValue({
+      island: { id: e.state.islandId, name: '섬', role: 'owner' },
+      statisticsAvailability: 'available',
+      focusStatistics: focus,
+      screenTimeStatistics: usage,
+      fishEarnings: { members: [] },
+      missingFragments: [],
+    });
+    (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
+    (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
+
+    const screen = await render(<Library e={e} />);
+    await fireEvent.press(screen.getByLabelText('폰 사용'));
+    await waitFor(() => expect(screen.getByLabelText('9월 21일 월요일 90분')).toBeTruthy());
+    expect(screen.getByLabelText('9월 22일 화요일 기록 없음')).toBeTruthy();
+
+    await fireEvent.press(screen.getByLabelText('월'));
+    await waitFor(() => expect(screen.getByLabelText('9월 21일 월요일')).toBeTruthy());
+    await fireEvent.press(screen.getByLabelText('9월 21일 월요일'));
+    await waitFor(() => expect(screen.getByText('1시간 30분')).toBeTruthy());
+    expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
+  },
+);
 
 test.each(['ios', 'android'] as const)(
   '월간 %s는 서버 측정 상태가 허용된 경우에만 오늘 네이티브 값을 표시한다',

@@ -56,6 +56,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     period,
     offset,
     combined: neighbors || period === '월',
+    focusSummaryOnly: !neighbors && period === '월',
     rangeOverride: !neighbors && period === '주' && offset === 0 ? undefined : range,
     islandKey: state.islandId,
   });
@@ -123,8 +124,9 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       : srv.focusMe?.totalSeconds
     : days.reduce((sum, key) => sum + (focusSeries.get(key) ?? 0), 0);
   const screenStats = neighbors ? screenMember : srv.screenMe;
+  const measurementStatus = screenStats?.measurementStatus;
   const usageAllowed = server
-    ? screenStats?.measurementStatus === 'authorized'
+    ? !!screenStats && measurementStatus !== 'denied'
     : neighbors
       ? localResident?.screenDays !== undefined
       : state.settings.permission && state.settings.screenTimeMeasurementReady;
@@ -179,7 +181,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     // 오늘의 네이티브 수치는 기기 날짜(KST)와 선택 날짜가 같을 때만 사용한다.
     const deviceToday = key === dayKey(e.now) && key === today;
     const nativeReady =
-      (!server || usageAllowed) &&
+      (!server || measurementStatus === 'authorized') &&
       state.settings.permission &&
       state.settings.screenTimeMeasurementReady;
     if (deviceToday && nativeReady && Platform.OS === 'ios') {
@@ -255,8 +257,12 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       );
     }
     if (tab === '폰 사용') {
-      if (server && !usageAllowed) {
-        const measurementStatus = screenStats?.measurementStatus;
+      if (
+        server &&
+        (!screenStats ||
+          measurementStatus === 'denied' ||
+          (period === '일' && measurementStatus !== 'authorized'))
+      ) {
         return (
           <Empty
             title={
