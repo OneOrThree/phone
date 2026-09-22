@@ -5273,6 +5273,25 @@ export function RedesignScreens({ e }: any) {
         </View>
       </View>
     );
+    const friendColumn = (
+      <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 7 }}>
+        {sectionTitle('친구')}
+        {serverMode && friendsScreen.status === 'loading' ? (
+          <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
+            불러오는 중이에요
+          </Txt>
+        ) : serverMode && friendsScreen.status === 'error' ? (
+          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 12 }}>
+            <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
+            <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+          </View>
+        ) : friendRows.length ? (
+          <SheetGroup>{friendRows}</SheetGroup>
+        ) : (
+          empty('아직 친구가 없어요.')
+        )}
+      </View>
+    );
     return (
       <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
         <SearchField
@@ -5280,11 +5299,11 @@ export function RedesignScreens({ e }: any) {
           onChange={serverMode ? friendsScreen.setQuery : setSearch}
           placeholder="닉네임으로 친구 찾기"
         />
-        {serverMode && friendsScreen.status === 'loading' ? (
+        {serverMode && !query && friendsScreen.status === 'loading' ? (
           <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
             불러오는 중이에요
           </Txt>
-        ) : serverMode && friendsScreen.status === 'error' ? (
+        ) : serverMode && !query && friendsScreen.status === 'error' ? (
           <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
             <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
             {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
@@ -5306,14 +5325,7 @@ export function RedesignScreens({ e }: any) {
             }
           >
             {leftColumn}
-            <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 7 }}>
-              {sectionTitle('친구')}
-              {friendRows.length ? (
-                <SheetGroup>{friendRows}</SheetGroup>
-              ) : (
-                empty('아직 친구가 없어요.')
-              )}
-            </View>
+            {friendColumn}
           </View>
         )}
       </IslandSheet>

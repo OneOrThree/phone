@@ -374,22 +374,41 @@ function CurrentScreensContent({ e }: any) {
 function AppPermissionManager({ e }: any) {
   const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
   const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
+  const [selectionStatus, setSelectionStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [busy, setBusy] = useState(false);
   const unavailable = Platform.OS !== 'ios' || !isScreenTimeAvailable || status === 'unavailable';
   const approved = status === 'approved';
   const selectedCount = selectionCount(selection);
+  const selectionDescription =
+    selectionStatus === 'loading'
+      ? '선택 상태 확인 중'
+      : selectionStatus === 'error'
+        ? '선택 상태를 확인하지 못했어요'
+        : selectedCount
+          ? `${selectedCount}개 선택됨`
+          : '아직 선택하지 않았어요';
+  const permissionDescription = approved ? '허용됨' : unavailable ? '사용 불가' : '허용 필요';
 
   useEffect(() => {
     let active = true;
     const syncPermissionState = () => {
-      Promise.all([screenTime.getAuthorizationStatus(), screenTime.getMeasurementSelectionCounts()])
-        .then(([nextStatus, nextSelection]) => {
+      screenTime
+        .getAuthorizationStatus()
+        .then((nextStatus) => {
           if (!active) return;
           setStatus(nextStatus);
-          setSelection(nextSelection);
           e.dispatch({ type: 'SETTING', key: 'permission', value: nextStatus === 'approved' });
         })
         .catch(() => active && setStatus('unavailable'));
+      setSelectionStatus('loading');
+      screenTime
+        .getMeasurementSelectionCounts()
+        .then((nextSelection) => {
+          if (!active) return;
+          setSelection(nextSelection);
+          setSelectionStatus('ready');
+        })
+        .catch(() => active && setSelectionStatus('error'));
     };
     syncPermissionState();
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -429,6 +448,11 @@ function AppPermissionManager({ e }: any) {
       return;
     }
     // Family Controls 권한은 앱에서 직접 철회할 수 없어 시스템 설정으로 보낸다.
+    await openSystemSettings();
+  };
+
+  const openSystemSettings = async () => {
+    if (Platform.OS !== 'ios' || typeof Linking.openSettings !== 'function') return;
     await Linking.openSettings();
   };
 
@@ -455,7 +479,8 @@ function AppPermissionManager({ e }: any) {
         />
         <Row
           title="측정 앱"
-          sub={selectedCount ? `${selectedCount}개 선택됨` : '아직 선택하지 않았어요'}
+          sub={selectionDescription}
+          accessibilityLabel={`측정 앱, ${selectionDescription}`}
           chevron
           onPress={openMeasuredApps}
         />
@@ -465,12 +490,14 @@ function AppPermissionManager({ e }: any) {
       <Group>
         <Row
           title="측정 권한"
-          sub="iOS 설정 › 스크린타임에서 변경"
-          right={
-            <Badge soft>{approved ? '허용됨' : unavailable ? '사용 불가' : '허용 필요'}</Badge>
+          sub={
+            Platform.OS === 'ios' ? 'iOS 설정 › 스크린타임에서 변경' : 'iOS에서만 변경할 수 있어요'
           }
+          accessibilityLabel={`측정 권한, ${permissionDescription}`}
+          right={<Badge soft>{permissionDescription}</Badge>}
           chevron
-          onPress={() => Linking.openSettings()}
+          disabled={Platform.OS !== 'ios'}
+          onPress={openSystemSettings}
         />
       </Group>
       <Txt kind="meta">권한이 없으면 기록을 0분으로 처리하지 않고 확인이 필요한 상태로 남겨요.</Txt>
