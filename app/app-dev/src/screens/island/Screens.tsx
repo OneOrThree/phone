@@ -60,7 +60,7 @@ import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { primitiveTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import {
   art,
   C,
@@ -2375,6 +2375,7 @@ export function RedesignScreens({ e }: any) {
       />
     );
   if (route === 'sound') {
+    const gramophone = componentTokens.gramophone;
     const scene = !!state.session;
     const audioProducts = products.filter((p) => p.kind === 'audio');
     const trackIds = [
@@ -2397,237 +2398,260 @@ export function RedesignScreens({ e }: any) {
       act('BUY', { id: dialogProduct.id });
       setSoundDialog({ kind: 'success', productId: dialogProduct.id });
     };
-    const bottomWidth = Math.min(366, layout.width - ins.left - ins.right - 36);
+    const bottomWidth = Math.min(gramophone.panelWidth, layout.width - ins.left - ins.right - 36);
     const panelWidth = layout.compact
-      ? Math.min(500, layout.width - ins.left - ins.right - 36)
+      ? Math.min(gramophone.compactPanelWidth, layout.width - ins.left - ins.right - 36)
       : bottomWidth;
+    const panelHeight = layout.compact ? gramophone.compactPanelHeight : gramophone.panelHeight;
+    const contentHeight = layout.compact
+      ? gramophone.compactContentHeight
+      : gramophone.contentHeight;
     return (
       <View style={{ flex: 1, backgroundColor: C.paper }}>
         <View
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          aria-hidden={true}
+          testID="sound-background-content"
           style={StyleSheet.absoluteFill}
+          pointerEvents={soundDialog ? 'none' : 'auto'}
+          accessibilityElementsHidden={!!soundDialog}
+          importantForAccessibility={soundDialog ? 'no-hide-descendants' : 'auto'}
         >
-          {scene ? (
-            focusScene
-          ) : (
-            <Pic id={(layout.compact ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
-          )}
-        </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="섬으로 돌아가기"
-          onPress={back}
-          style={{
-            position: 'absolute',
-            left: 20 + ins.left,
-            top: 16 + ins.top,
-            width: 42,
-            height: 42,
-            borderRadius: 21,
-            borderWidth: 1.5,
-            borderColor: C.brown,
-            backgroundColor: C.paper,
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Txt tabletScale={1} style={{ fontSize: 28, lineHeight: 31 }}>
-            ‹
-          </Txt>
-        </Pressable>
-        {!scene && (
           <View
-            style={[
-              gradient('linear-gradient(90deg, #B87848, #D19B61 50%, #B87848)'),
-              {
-                position: 'absolute',
-                top: 20 + ins.top,
-                alignSelf: 'center',
-                minWidth: 124,
-                height: 40,
-                borderWidth: 1.5,
-                borderColor: '#65462F',
-                borderRadius: 8,
-                alignItems: 'center',
-                justifyContent: 'center',
-                boxShadow: '0px 3px 0px #65462F',
-              },
-            ]}
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            aria-hidden={true}
+            style={StyleSheet.absoluteFill}
           >
-            <Txt tabletScale={1} style={{ color: '#FFF7E7', fontSize: 17, lineHeight: 24 }}>
-              축음기
-            </Txt>
+            {scene ? (
+              focusScene
+            ) : (
+              <Pic id={(layout.compact ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
+            )}
           </View>
-        )}
-        <View
-          style={{
-            position: 'absolute',
-            left: (layout.width - panelWidth) / 2,
-            bottom: Math.max(18, ins.bottom + 8),
-            width: panelWidth,
-            height: layout.compact ? 210 : 226,
-            flexDirection: 'row',
-            alignItems: 'center',
-            gap: 12,
-            padding: 16,
-            borderWidth: 2,
-            borderColor: C.brown,
-            borderRadius: 14,
-            backgroundColor: '#9C6440',
-            boxShadow: '0px 7px 14px #3B291C66',
-          }}
-        >
-          {island.buildings.includes('gram') ? (
-            <>
-              <View
-                style={{
-                  width: 128,
-                  height: 174,
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="섬으로 돌아가기"
+            onPress={back}
+            style={{
+              position: 'absolute',
+              left: 20 + ins.left,
+              top: 16 + ins.top,
+              width: 42,
+              height: 42,
+              borderRadius: 21,
+              borderWidth: 1.5,
+              borderColor: C.brown,
+              backgroundColor: C.paper,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Txt tabletScale={1} style={{ fontSize: 28, lineHeight: 31 }}>
+              ‹
+            </Txt>
+          </Pressable>
+          {!scene && (
+            <View
+              style={[
+                gradient(
+                  `linear-gradient(90deg, ${gramophone.signStart}, ${gramophone.signCenter} 50%, ${gramophone.signEnd})`,
+                ),
+                {
+                  position: 'absolute',
+                  top: 20 + ins.top,
+                  alignSelf: 'center',
+                  minWidth: 124,
+                  height: 40,
+                  borderWidth: 1.5,
+                  borderColor: gramophone.woodBorder,
+                  borderRadius: 8,
                   alignItems: 'center',
-                  justifyContent: 'space-between',
-                }}
+                  justifyContent: 'center',
+                  boxShadow: gramophone.signShadow,
+                },
+              ]}
+            >
+              <Txt
+                tabletScale={1}
+                style={{ color: gramophone.foreground, fontSize: 17, lineHeight: 24 }}
               >
-                <View
-                  accessibilityLabel={`${names[island.track]} 레코드판`}
-                  style={{
-                    width: 112,
-                    height: 112,
-                    borderRadius: 56,
-                    borderWidth: 6,
-                    borderColor: '#24211F',
-                    backgroundColor: '#342F2B',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  {[88, 68, 48].map((size) => (
-                    <View
-                      key={size}
-                      style={{
-                        position: 'absolute',
-                        width: size,
-                        height: size,
-                        borderRadius: size / 2,
-                        borderWidth: 4,
-                        borderColor: '#24211F',
-                      }}
-                    />
-                  ))}
-                  <View
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 15,
-                      backgroundColor: C.pink,
-                      borderWidth: 2,
-                      borderColor: '#24211F',
-                    }}
-                  />
-                </View>
-                <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="재생"
-                    onPress={() => act('PLAY', { value: true })}
-                    style={{
-                      width: 60,
-                      height: 36,
-                      borderWidth: 1.5,
-                      borderColor: C.brown,
-                      borderRadius: 8,
-                      backgroundColor: C.pink,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: '0px 2px 0px ' + C.brown,
-                    }}
-                  >
-                    <PlayIcon />
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="정지"
-                    onPress={() => act('PLAY', { value: false })}
-                    style={{
-                      width: 60,
-                      height: 36,
-                      borderWidth: 1.5,
-                      borderColor: C.brown,
-                      borderRadius: 8,
-                      backgroundColor: C.paper,
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      boxShadow: '0px 2px 0px ' + C.brown,
-                    }}
-                  >
-                    <StopIcon />
-                  </Pressable>
-                </View>
-              </View>
-              <View style={{ flex: 1, minWidth: 0, height: 194, gap: 8 }}>
-                <View style={{ height: 36 }}>
-                  <Txt tabletScale={1} style={{ color: '#FFF7E7', fontSize: 19, lineHeight: 24 }}>
-                    {names[island.track]}
-                  </Txt>
-                  <Txt tabletScale={1} style={{ color: '#FFF0DB', fontSize: 11, lineHeight: 14 }}>
-                    {island.playing ? '재생 중' : '정지됨'}
-                  </Txt>
-                </View>
-                <ScrollView
-                  style={{ flex: 1 }}
-                  contentContainerStyle={{ gap: 4, paddingRight: 4 }}
-                  showsVerticalScrollIndicator
-                >
-                  {trackIds.map((id) => {
-                    const owned = island.sharedOwned.includes(id);
-                    const product = audioProducts.find((item) => item.id === id);
-                    const selected = island.track === id;
-                    return (
-                      <Pressable
-                        key={id}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${names[id] ?? product?.title}${owned ? ', 보유' : `, ${product?.price}마리로 구매`}`}
-                        accessibilityState={{ selected }}
-                        onPress={() => selectTrack(id)}
-                        style={{
-                          minHeight: 34,
-                          paddingHorizontal: 10,
-                          flexDirection: 'row',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          borderWidth: 1.25,
-                          borderColor: C.brown,
-                          borderRadius: 7,
-                          backgroundColor: selected ? C.pink : owned ? C.paper : C.butter,
-                        }}
-                      >
-                        <Txt tabletScale={1} style={{ fontSize: 11, lineHeight: 14 }}>
-                          {names[id] ?? product?.title}
-                        </Txt>
-                        <Txt
-                          tabletScale={1}
-                          style={{ color: C.muted, fontSize: 9, lineHeight: 12 }}
-                        >
-                          {selected && island.playing
-                            ? '재생 중'
-                            : owned
-                              ? '보유'
-                              : `${product?.price}마리 · 구매`}
-                        </Txt>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-            </>
-          ) : (
-            <View style={{ flex: 1, alignItems: 'center', gap: 12 }}>
-              <Txt style={{ color: '#FFF7E7' }}>축음기를 먼저 지어 주세요.</Txt>
-              <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
+                축음기
+              </Txt>
             </View>
           )}
+          <View
+            style={{
+              position: 'absolute',
+              left: (layout.width - panelWidth) / 2,
+              bottom: Math.max(18, ins.bottom + 8),
+              width: panelWidth,
+              height: panelHeight,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              padding: 16,
+              borderWidth: 2,
+              borderColor: C.brown,
+              borderRadius: 14,
+              backgroundColor: gramophone.panelBackground,
+              boxShadow: gramophone.panelShadow,
+            }}
+          >
+            {island.buildings.includes('gram') ? (
+              <>
+                <View
+                  style={{
+                    width: 128,
+                    height: contentHeight,
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <View
+                    accessibilityLabel={`${names[island.track]} 레코드판`}
+                    style={{
+                      width: gramophone.recordSize,
+                      height: gramophone.recordSize,
+                      borderRadius: gramophone.recordSize / 2,
+                      borderWidth: 6,
+                      borderColor: gramophone.recordGroove,
+                      backgroundColor: gramophone.recordBackground,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {[88, 68, 48].map((size) => (
+                      <View
+                        key={size}
+                        style={{
+                          position: 'absolute',
+                          width: size,
+                          height: size,
+                          borderRadius: size / 2,
+                          borderWidth: 4,
+                          borderColor: gramophone.recordGroove,
+                        }}
+                      />
+                    ))}
+                    <View
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 15,
+                        backgroundColor: C.pink,
+                        borderWidth: 2,
+                        borderColor: gramophone.recordGroove,
+                      }}
+                    />
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="재생"
+                      onPress={() => act('PLAY', { value: true })}
+                      style={{
+                        width: gramophone.controlWidth,
+                        height: gramophone.touchMin,
+                        borderWidth: 1.5,
+                        borderColor: C.brown,
+                        borderRadius: 8,
+                        backgroundColor: C.pink,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0px 2px 0px ' + C.brown,
+                      }}
+                    >
+                      <PlayIcon />
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="정지"
+                      onPress={() => act('PLAY', { value: false })}
+                      style={{
+                        width: gramophone.controlWidth,
+                        height: gramophone.touchMin,
+                        borderWidth: 1.5,
+                        borderColor: C.brown,
+                        borderRadius: 8,
+                        backgroundColor: C.paper,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0px 2px 0px ' + C.brown,
+                      }}
+                    >
+                      <StopIcon />
+                    </Pressable>
+                  </View>
+                </View>
+                <View style={{ flex: 1, minWidth: 0, height: contentHeight, gap: 8 }}>
+                  <View testID="sound-current-track" style={{ minHeight: 36, flexShrink: 0 }}>
+                    <Txt
+                      tabletScale={1}
+                      style={{ color: gramophone.foreground, fontSize: 19, lineHeight: 24 }}
+                    >
+                      {names[island.track]}
+                    </Txt>
+                    <Txt
+                      tabletScale={1}
+                      style={{ color: gramophone.foregroundMuted, fontSize: 11, lineHeight: 14 }}
+                    >
+                      {island.playing ? '재생 중' : '정지됨'}
+                    </Txt>
+                  </View>
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ gap: 4, paddingRight: 4 }}
+                    showsVerticalScrollIndicator
+                  >
+                    {trackIds.map((id) => {
+                      const owned = island.sharedOwned.includes(id);
+                      const product = audioProducts.find((item) => item.id === id);
+                      const selected = island.track === id;
+                      return (
+                        <Pressable
+                          key={id}
+                          accessibilityRole="button"
+                          accessibilityLabel={`${names[id] ?? product?.title}${owned ? ', 보유' : `, ${product?.price}마리로 구매`}`}
+                          accessibilityState={{ selected }}
+                          onPress={() => selectTrack(id)}
+                          style={{
+                            minHeight: gramophone.rowMinHeight,
+                            paddingHorizontal: 10,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderWidth: 1.25,
+                            borderColor: C.brown,
+                            borderRadius: 7,
+                            backgroundColor: selected ? C.pink : owned ? C.paper : C.butter,
+                          }}
+                        >
+                          <Txt tabletScale={1} style={{ fontSize: 11, lineHeight: 14 }}>
+                            {names[id] ?? product?.title}
+                          </Txt>
+                          <Txt
+                            tabletScale={1}
+                            style={{ color: C.muted, fontSize: 9, lineHeight: 12 }}
+                          >
+                            {selected && island.playing
+                              ? '재생 중'
+                              : owned
+                                ? '보유'
+                                : `${product?.price}마리 · 구매`}
+                          </Txt>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </>
+            ) : (
+              <View style={{ flex: 1, alignItems: 'center', gap: 12 }}>
+                <Txt style={{ color: gramophone.foreground }}>축음기를 먼저 지어 주세요.</Txt>
+                <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
+              </View>
+            )}
+          </View>
         </View>
         {soundDialog && dialogProduct && (
           <View
@@ -2635,7 +2659,7 @@ export function RedesignScreens({ e }: any) {
             style={[
               StyleSheet.absoluteFill,
               {
-                backgroundColor: '#493B3966',
+                backgroundColor: componentTokens.overlay.background,
                 alignItems: 'center',
                 justifyContent: 'center',
                 padding: 24,

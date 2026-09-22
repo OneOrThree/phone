@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { StyleSheet } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
@@ -573,11 +574,31 @@ test('축음기에서 판매곡을 구매한 뒤 바로 공용 재생한다', as
   );
   await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
   s.getByText('빗방울 소리를 구매할까요?');
+  const background = s.getByTestId('sound-background-content', {
+    includeHiddenElements: true,
+  });
+  assert.equal(background.props.importantForAccessibility, 'no-hide-descendants');
+  assert.equal(background.props.pointerEvents, 'none');
   await fireEvent.press(s.getByText('30마리로 구매'));
   s.getByText('구매했어요');
   await fireEvent.press(s.getByText('지금 재생하기'));
   assert.ok(exposed.actions.includes('BUY'));
   assert.ok(exposed.actions.includes('TRACK'));
+});
+
+test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 높이를 고정하지 않는다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+  assert.ok(StyleSheet.flatten(s.getByLabelText('재생').props.style).height >= 44);
+  assert.ok(
+    StyleSheet.flatten(s.getByLabelText('빗방울 소리, 30마리로 구매').props.style).minHeight >= 44,
+  );
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-current-track').props.style).height,
+    undefined,
+  );
 });
 
 test('축음기 음원 구매 잔액이 부족하면 수량 없이 실패만 알린다', async () => {

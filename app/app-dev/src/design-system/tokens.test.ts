@@ -35,10 +35,16 @@ describe('design system tokens', () => {
     expect(componentTokens.homeQuestIndicator.contentPaddingLeft).toBe(primitiveTokens.space[4]);
     expect(componentTokens.homeQuestIndicator.contentPaddingRight).toBe(primitiveTokens.space[12]);
     expect(componentTokens.homeQuestIndicator.shadow).toContain(semanticTokens.color.outline);
+    expect(componentTokens.gramophone.panelBackground).toBe(primitiveTokens.color.gramophonePanel);
+    expect(componentTokens.gramophone.recordGroove).toBe(
+      primitiveTokens.color.gramophoneRecordGroove,
+    );
   });
 
   it('터치 영역과 UI kit 스케일을 보존한다', () => {
     expect(semanticTokens.size.tapMin).toBeGreaterThanOrEqual(44);
+    expect(componentTokens.gramophone.touchMin).toBeGreaterThanOrEqual(44);
+    expect(componentTokens.gramophone.rowMinHeight).toBeGreaterThanOrEqual(44);
     expect(primitiveTokens.space[4]).toBe(16);
     expect(primitiveTokens.radius.card).toBe(20);
   });
