@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { updateProfile } from '@/services/api/account';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
 import { API_URL } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 
@@ -64,4 +64,17 @@ test('updateProfile — 키 생략 시 UUID36 멱등 키를 만든다', async ()
   assert.match(key, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   // 보내지 않은 키는 생략된다 — 명시 null 은 계약 위반(400)이다
   assert.deepEqual(body(calls[0]), { name: '구름이' });
+});
+
+test('withdrawAccount — DELETE /me 에 확인 본문과 멱등 키를 싣는다', async () => {
+  stub([{ status: 200, body: { data: { deleted: true } } }]);
+
+  const result = await withdrawAccount('withdraw-key');
+
+  assert.equal(path(calls[0]), '/me');
+  assert.equal(calls[0].init.method, 'DELETE');
+  assert.deepEqual(body(calls[0]), { confirmation: 'DELETE' });
+  assert.equal(header(calls[0], 'Idempotency-Key'), 'withdraw-key');
+  assert.equal(header(calls[0], 'Authorization'), 'Bearer AT');
+  assert.deepEqual(result, { deleted: true });
 });

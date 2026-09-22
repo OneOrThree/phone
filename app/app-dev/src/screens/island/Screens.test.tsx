@@ -9,15 +9,20 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
-import { updateProfile } from '@/services/api/account';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
-jest.mock('@/services/api/account', () => ({ updateProfile: jest.fn() }));
+jest.mock('@/services/api/account', () => ({
+  updateProfile: jest.fn(),
+  withdrawAccount: jest.fn(),
+}));
 const mockUpdateProfile = updateProfile as jest.Mock;
+const mockWithdrawAccount = withdrawAccount as jest.Mock;
 const notifyMock = jest.fn();
 const backMock = jest.fn();
 beforeEach(() => {
   mockUpdateProfile.mockReset();
+  mockWithdrawAccount.mockReset();
   notifyMock.mockClear();
   backMock.mockClear();
 });
@@ -79,9 +84,12 @@ function Harness({ route, api, expose, seed, bootError, detail: detailProp, full
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
   const go = useRef(jest.fn()).current;
+  const reset = useRef(jest.fn()).current;
+  const signOut = useRef(jest.fn(async () => {})).current;
+  const confirm = useRef(jest.fn((_title, _body, ok) => ok())).current;
   useEffect(() => {
     seed?.(dispatch);
-    expose?.({ dispatch, actions: actions.current, go });
+    expose?.({ dispatch, actions: actions.current, go, reset, signOut });
   }, []);
   return (
     <RedesignScreens
@@ -91,11 +99,12 @@ function Harness({ route, api, expose, seed, bootError, detail: detailProp, full
         dispatch,
         go,
         replace: jest.fn(),
-        reset: jest.fn(),
+        reset,
         home: jest.fn(),
         back: backMock,
         notify: notifyMock,
-        confirm: jest.fn(),
+        confirm,
+        signOut,
         build: jest.fn(),
         text,
         setText,
@@ -681,4 +690,38 @@ test('목업 모드 프로필 저장은 API 없이 로컬 PROFILE을 갱신한�
     true,
   );
   assert.equal(backMock.mock.calls.length, 1);
+});
+
+test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로그인 이동을 수행한다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  await waitFor(() => assert.equal(exposed.signOut.mock.calls.length, 1));
+  assert.ok(exposed.actions.includes('DELETE_ACCOUNT'));
+  assert.equal(exposed.reset.mock.calls[0][0], 'login');
+});
+
+test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 오류를 알린다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockRejectedValue(new ApiError('STATE_CONFLICT', '탈퇴할 수 없어요.', 409));
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() =>
+    assert.ok(
+      notifyMock.mock.calls.some(
+        (c) => c[0] === '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
+      ),
+    ),
+  );
+  assert.equal(exposed.signOut.mock.calls.length, 0);
+  assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
+  assert.equal(exposed.reset.mock.calls.length, 0);
 });
