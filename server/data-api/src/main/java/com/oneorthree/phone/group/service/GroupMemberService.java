@@ -13,7 +13,6 @@ import com.oneorthree.phone.group.repository.GroupAnnouncementCommentRepository;
 import com.oneorthree.phone.group.repository.GroupAnnouncementRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeBetParticipantRepository;
 import com.oneorthree.phone.group.repository.GroupChallengeMemberRepository;
-import com.oneorthree.phone.group.repository.GroupInviteRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -62,7 +61,6 @@ public class GroupMemberService {
      * 커밋 후 발행이면 응답 유실·프로세스 종료 시 보낼 주체가 사라진다.
      */
     private final LinkMembershipEventService linkMembershipEventService;
-    private final GroupInviteRepository groupInviteRepository;
     private final GroupAnnouncementRepository groupAnnouncementRepository;
     private final GroupAnnouncementCommentRepository groupAnnouncementCommentRepository;
     private final GroupChallengeMemberRepository groupChallengeMemberRepository;
@@ -399,7 +397,6 @@ public class GroupMemberService {
         groupChallengeMemberRepository.deleteAllOfUser(userId);
         groupAnnouncementRepository.detachAuthor(userId);
         groupAnnouncementCommentRepository.detachAuthor(userId);
-        groupInviteRepository.deleteAllInvolving(userId);
         // 링크 서버로 나간·나갈 닉네임 변경 봉투 속 이름 사본(GROMO-1946)
         linkMembershipEventService.eraseWithdrawnDisplayName(userId);
     }

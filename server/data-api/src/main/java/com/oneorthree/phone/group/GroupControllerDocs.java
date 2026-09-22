@@ -10,7 +10,6 @@ import com.oneorthree.phone.group.dto.GroupSearchResponse;
 import com.oneorthree.phone.group.dto.GroupSettingsResponse;
 import com.oneorthree.phone.group.dto.GroupSummaryResponse;
 import com.oneorthree.phone.group.dto.JoinGroupRequest;
-import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,9 +33,9 @@ public interface GroupControllerDocs {
     /**
      * @param request 그룹명·소개·정원과 선택적 비밀번호
      * @param userId 요청자 — 생성자가 곧 방장이자 첫 멤버라 소속 그룹 수 상한도 함께 걸린다
-     * @return 새 그룹 id. 함께 오는 참가 코드는 초대 링크 전환으로 폐기된 잔존 필드다
+     * @return 새 그룹 id
      */
-    @Operation(summary = "그룹 생성", description = "그룹 생성 및 참가 코드(3시간 유효) 발급. 생성자는 OWNER로 자동 등록.")
+    @Operation(summary = "그룹 생성", description = "그룹 생성. 생성자는 OWNER로 자동 등록.")
     @ApiResponses({
             @ApiResponse(responseCode = "201", description = "그룹 생성 성공"),
             @ApiResponse(responseCode = "400", description = "미션 파라미터 누락"),
@@ -100,31 +99,12 @@ public interface GroupControllerDocs {
     ResponseEntity<List<GroupSearchResponse>> searchGroups(String query);
 
     /**
-     * @param groupId 코드를 갱신할 그룹
-     * @param userId 요청자 — 방장이 아니면 403
-     * @return 새 참가 코드와 만료 시각. 앱이 읽지 않으므로 사실상 아무도 보지 않는 값이다
-     * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 앱이 더 이상 호출하지 않는다.
-     *     계약 파괴를 피하려고 엔드포인트만 남겨둔다. 실제 제거는 후속 정리 티켓.
-     */
-    @Deprecated
-    @Operation(summary = "초대 코드 갱신", deprecated = true,
-            description = "미사용(2026-07-31 폐기) — 참여는 초대 링크(groupId)가 담당한다."
-                    + " 그룹장만 호출 가능. 새 8자 코드 발급 + 유효기간 3시간 갱신.")
-    @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "갱신 성공"),
-            @ApiResponse(responseCode = "403", description = "게스트 / 그룹장 아님"),
-            @ApiResponse(responseCode = "404", description = "GROUP_NOT_FOUND(그룹 없음)"
-                    + " / USER_NOT_FOUND(요청자 유저 부재 — 재로그인)")
-    })
-    ResponseEntity<RenewGroupCodeResponse> renewGroupCode(UUID groupId, UUID userId);
-
-    /**
      * @param groupId 조회할 그룹
      * @param date 멤버별 당일 집중분의 기준일 — 서버 판정 축(KST)이라 기기 로컬 날짜가 아니다
-     * @param userId 요청자 — 그룹원이 아니면 403이고, 방장에게만 참가 코드 필드가 채워진다
+     * @param userId 요청자 — 그룹원이 아니면 403
      * @return 그룹 메타와 활성 멤버 목록(전체 누적 집중분 내림차순). 탈퇴 유저는 실리지 않는다
      */
-    @Operation(summary = "그룹 상세 조회", description = "그룹원만 조회 가능. OWNER에게만 code, codeExpiresAt 반환."
+    @Operation(summary = "그룹 상세 조회", description = "그룹원만 조회 가능."
             + " date 는 서버 판정 축(KST 고정, GROMO-1259) 기준 오늘(YYYY-MM-DD) — 멤버별 오늘 집중분 집계 기준,"
             + " 기기 로컬 날짜가 아니다.")
     @ApiResponses({
