@@ -6,7 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataFriendClient;
 import com.oneorthree.business.upstream.data.dto.LetterSlice;
 import com.oneorthree.business.upstream.data.dto.LetterView;
 import lombok.RequiredArgsConstructor;
@@ -47,7 +47,7 @@ public class LetterUseCase {
             Map.entry("NOT_LETTER_RECEIVER", new PublicFailure(ApiErrorCode.FORBIDDEN, "letterId")),
             Map.entry("LETTER_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "letterId")));
 
-    private final DataApiClient data;
+    private final DataFriendClient data;
 
     /** 편지 보내기 (LLD §1.12). 수신자의 섬·시설은 어느 쪽도 묻지 않는다 — 발송은 우체통과 무관하다. */
     public LetterView send(AccessTokenClaims claims, UUID receiverId, String content, Deadline deadline) {

@@ -6,7 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
 import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import lombok.RequiredArgsConstructor;
@@ -31,7 +31,7 @@ public class IslandFocusMembersUseCase {
             // 비주민·없는 섬·종료된 섬 — Data 가 섬 존재를 흘리지 않도록 한 코드로 합쳐 둔 것을 그대로 옮긴다.
             "MEMBER_ONLY", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId"));
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
 
     public IslandFocusMembers focusMembers(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
         IslandFocusMembers members = relay(() -> data.fetchFocusMembers(claims.userId(), islandId, deadline));

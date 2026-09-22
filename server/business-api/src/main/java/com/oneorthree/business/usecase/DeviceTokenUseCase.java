@@ -7,7 +7,8 @@ import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.validation.DeviceOwnershipTokens;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
+import com.oneorthree.business.upstream.data.DataOutboxClient;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
@@ -55,7 +56,8 @@ import java.util.UUID;
 public class DeviceTokenUseCase {
 
     private final ActiveUserGuard activeUserGuard;
-    private final DataApiClient dataApiClient;
+    private final DataAuthClient dataAuthClient;
+    private final DataOutboxClient dataOutboxClient;
     private final NotificationApiClient notificationApiClient;
 
     /**
@@ -82,7 +84,7 @@ public class DeviceTokenUseCase {
             // 확인과 mutation 을 같은 순서 경계에 넣기 위한 fencing 값을 받는다(㋨).
             // 확인만으로는 TOCTOU 가 남는다 — 알림 서버가 자기 tombstone 과 이 값을 원자 대조한다.
             DeviceSessionCheck check =
-                    dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline);
+                    dataAuthClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline);
             if (check == null) {
                 throw new UpstreamContractMismatchException("Data 세션 확인 응답 본문이 없습니다");
             }
@@ -99,7 +101,7 @@ public class DeviceTokenUseCase {
             // 토큰»을 등록할 수 있고, 그 행은 자격에 묶여 있지 않아 세션 폐기 relay 도 닿지 못한다
             // (로그아웃은 유저 세대를 올리지 않는다 ㊼). 즉 로그아웃이 푸시를 끊지 못한다.
             DeviceSessionCheck check =
-                    dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline);
+                    dataAuthClient.verifySession(claims.userId(), claims.sessionId(), deadline);
             if (check == null) {
                 throw new UpstreamContractMismatchException("Data 세션 확인 응답 본문이 없습니다");
             }
@@ -179,8 +181,8 @@ public class DeviceTokenUseCase {
         }
         try {
             DeviceSessionCheck after = checkedByBootstrap
-                    ? dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline)
-                    : dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline);
+                    ? dataAuthClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline)
+                    : dataAuthClient.verifySession(claims.userId(), claims.sessionId(), deadline);
             if (after == null) {
                 throw new UpstreamContractMismatchException("Data 등록 후 세션 확인 응답 본문이 없습니다");
             }
@@ -225,9 +227,9 @@ public class DeviceTokenUseCase {
         RuntimeException outboxFailure = null;
         try {
             DurableCommandAck response = sessionId == null
-                    ? dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
+                    ? dataOutboxClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
                             claims.authGeneration(), keys.forStep("device-delete-outbox"), deadline)
-                    : dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
+                    : dataOutboxClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
                             claims.authGeneration(), sessionId, keys.forStep("device-delete-outbox"), deadline);
             requireDeletionRecord(response, sessionId);
             recorded = response;
@@ -301,7 +303,7 @@ public class DeviceTokenUseCase {
      */
     private void markDeliveredQuietly(AccessTokenClaims claims, DurableCommandAck recorded, Deadline deadline) {
         try {
-            dataApiClient.markCommandDelivered(claims.userId(), recorded.commandId(), deadline);
+            dataOutboxClient.markCommandDelivered(claims.userId(), recorded.commandId(), deadline);
         } catch (RuntimeException e) {
             log.warn("삭제 outbox 완료 표시 실패 — relay 가 한 번 더 보낸다. commandId={}",
                     recorded.commandId(), e);

@@ -7,7 +7,7 @@ import com.oneorthree.business.common.exception.UpstreamContractMismatchExceptio
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.ResourceVersions;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -19,7 +19,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class IslandHostTransferUseCase {
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
 
     public Result transfer(AccessTokenClaims claims, UUID islandId, UUID targetUserId, UUID key, Deadline deadline) {
         JsonNode response;

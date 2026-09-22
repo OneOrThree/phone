@@ -4,7 +4,7 @@ import com.oneorthree.business.common.exception.UpstreamContractMismatchExceptio
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.CompatProperties;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataInviteClient;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentAck;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.InviteIssueContext;
@@ -52,7 +52,7 @@ import java.util.UUID;
 public class InviteLinkUseCase {
 
     private final ActiveUserGuard activeUserGuard;
-    private final DataApiClient dataApiClient;
+    private final DataInviteClient dataApiClient;
     private final LinkApiClient linkApiClient;
     private final CompatProperties compatProperties;
 

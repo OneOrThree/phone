@@ -11,7 +11,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.CurrentIsland;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
 import com.oneorthree.business.upstream.data.dto.IslandCreated;
@@ -84,7 +84,7 @@ public class IslandMembershipUseCase {
     private static final String SCOPE_MEMBER = "member";
     private static final String SCOPE_VISITOR = "visitor";
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
     private final SecureRandom seeds = new SecureRandom();
 

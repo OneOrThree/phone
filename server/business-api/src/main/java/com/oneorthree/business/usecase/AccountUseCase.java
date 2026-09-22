@@ -7,7 +7,7 @@ import com.oneorthree.business.common.exception.UpstreamContractMismatchExceptio
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.linkpreview.repository.PreviewCache;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.AccountMe;
 import com.oneorthree.business.upstream.data.dto.AccountProfile;
 import lombok.RequiredArgsConstructor;
@@ -36,7 +36,7 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class AccountUseCase {
 
-    private final DataApiClient data;
+    private final DataAuthClient data;
     private final PreviewCache previewCache;
 
     public AccountMe me(AccessTokenClaims claims, Deadline deadline) {

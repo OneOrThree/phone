@@ -7,7 +7,7 @@ import com.oneorthree.business.common.api.PublicCurrentState;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataConstructionClient;
 import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
 import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
@@ -55,7 +55,7 @@ public class IslandConstructionUseCase {
                     new PublicFailure(ApiErrorCode.INSUFFICIENT_FUNDS, "buildingId")),
             Map.entry("CONCURRENT_UPDATE", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, null)));
 
-    private final DataApiClient data;
+    private final DataConstructionClient data;
 
     /** 건설 옵션 스냅샷 (LLD §2 GET). */
     public ConstructionOptions options(AccessTokenClaims claims, UUID islandId, Deadline deadline) {

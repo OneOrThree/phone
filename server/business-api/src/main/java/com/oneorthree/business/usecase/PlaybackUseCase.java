@@ -7,7 +7,7 @@ import com.oneorthree.business.common.api.PublicCurrentState;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAppearanceClient;
 import com.oneorthree.business.upstream.data.dto.PlaybackPatchResult;
 import com.oneorthree.business.upstream.data.dto.PlaybackState;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +45,7 @@ public class PlaybackUseCase {
             // 선택 곡 없이 재생 — 서버가 임의 곡을 고르지 않는다.
             Map.entry("STATE_CONFLICT", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "playing")));
 
-    private final DataApiClient data;
+    private final DataAppearanceClient data;
 
     /** GET /islands/{islandId}/playback. */
     public PlaybackState get(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
