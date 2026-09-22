@@ -56,7 +56,7 @@ import java.util.UUID;
 public class DeviceTokenUseCase {
 
     private final ActiveUserGuard activeUserGuard;
-    private final DataAuthClient dataAuthClient;
+    private final DataAuthClient dataApiClient;
     private final DataOutboxClient dataOutboxClient;
     private final NotificationApiClient notificationApiClient;
 
@@ -84,7 +84,7 @@ public class DeviceTokenUseCase {
             // 확인과 mutation 을 같은 순서 경계에 넣기 위한 fencing 값을 받는다(㋨).
             // 확인만으로는 TOCTOU 가 남는다 — 알림 서버가 자기 tombstone 과 이 값을 원자 대조한다.
             DeviceSessionCheck check =
-                    dataAuthClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline);
+                    dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline);
             if (check == null) {
                 throw new UpstreamContractMismatchException("Data 세션 확인 응답 본문이 없습니다");
             }
@@ -101,7 +101,7 @@ public class DeviceTokenUseCase {
             // 토큰»을 등록할 수 있고, 그 행은 자격에 묶여 있지 않아 세션 폐기 relay 도 닿지 못한다
             // (로그아웃은 유저 세대를 올리지 않는다 ㊼). 즉 로그아웃이 푸시를 끊지 못한다.
             DeviceSessionCheck check =
-                    dataAuthClient.verifySession(claims.userId(), claims.sessionId(), deadline);
+                    dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline);
             if (check == null) {
                 throw new UpstreamContractMismatchException("Data 세션 확인 응답 본문이 없습니다");
             }
@@ -181,8 +181,8 @@ public class DeviceTokenUseCase {
         }
         try {
             DeviceSessionCheck after = checkedByBootstrap
-                    ? dataAuthClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline)
-                    : dataAuthClient.verifySession(claims.userId(), claims.sessionId(), deadline);
+                    ? dataApiClient.verifyDeviceSession(claims.userId(), deviceBootstrap, deadline)
+                    : dataApiClient.verifySession(claims.userId(), claims.sessionId(), deadline);
             if (after == null) {
                 throw new UpstreamContractMismatchException("Data 등록 후 세션 확인 응답 본문이 없습니다");
             }
