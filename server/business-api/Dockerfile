@@ -36,11 +36,10 @@ FROM eclipse-temurin:17-jre-jammy
 #        멀쩡한데도 컨테이너가 계속 unhealthy 로 판정된다. 그 의존을 이미지 안에 못 박는다.
 # poppler-utils·util-linux — PDF 썸네일은 prlimit 으로 제한한 별도 pdftoppm 프로세스에서 처리한다.
 # fonts-noto-cjk — 한글이 들어간 PDF 첫 페이지가 두부(□)로 렌더되지 않게 한다.
+ADD --checksum=sha256:aeb74b05314e21211b55af13240723dd9014e18dd70422f8501fa180b1b3113b \
+    https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar /opt/dd-java-agent.jar
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl poppler-utils util-linux fonts-noto-cjk \
-    && curl --fail --silent --show-error --location \
-       https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar \
-       --output /opt/dd-java-agent.jar \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 10001 business && useradd -u 10001 -g business -M business \
     && mkdir -p /app/logs && chown -R business:business /app
