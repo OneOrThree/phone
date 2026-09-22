@@ -66,6 +66,9 @@ services:
       # 512 MB(A12). t4g.large(8 GB)에 app·nginx·datadog 과 함께 올라간다 — 나머지는 페이지 캐시가
       # 쓴다(Kafka 는 힙보다 페이지 캐시로 도는 편이 정상이다).
       KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
+      # Prometheus JMX Exporter가 broker request rate를 읽는 compose 내부 전용 포트.
+      KAFKA_JMX_PORT: "9999"
+      KAFKA_JMX_HOSTNAME: kafka
     volumes:
       # 볼륨이 «필수»다. 없으면 재시작 한 번에 미소비 이벤트가 통째로 사라진다 —
       # outbox 가 커밋 이후 구간을 막아 주지만, 이미 발행된 뒤 소비 전 유실은 outbox 도 못 살린다.

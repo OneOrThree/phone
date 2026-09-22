@@ -150,6 +150,122 @@ test.each(
   expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
 });
 
+test.each(['ios', 'android'] as const)(
+  '월간 %s는 서버 측정 상태가 허용된 경우에만 오늘 네이티브 값을 표시한다',
+  async (os) => {
+    Platform.OS = os;
+    for (const status of ['denied', 'pending', 'unavailable', 'authorized'] as const) {
+      const e = {
+        ...environment(),
+        tab: '',
+        islands: [],
+        now: Date.parse('2026-09-22T12:00:00+09:00'),
+      };
+      e.state.screenMinutes = 777;
+      e.state.settings.screenTimeMeasurementDay = '2026-09-22';
+      const focus = {
+        scope: 'me' as const,
+        totalSeconds: 0,
+        series: [],
+        records: [],
+        nextCursor: null,
+      };
+      const usage = {
+        scope: 'me' as const,
+        measurementStatus: status,
+        totalMinutes: null,
+        series: [],
+        updatedAt: null,
+      };
+      jest.mocked(getLibraryScreen).mockResolvedValue({
+        island: { id: e.state.islandId, name: '섬', role: 'owner' },
+        statisticsAvailability: 'available',
+        focusStatistics: focus,
+        screenTimeStatistics: usage,
+        fishEarnings: { members: [] },
+        missingFragments: [],
+      });
+      (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
+      (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
+      const screen = await render(<Library e={e} />);
+      await waitFor(() => expect(screen.queryByText('기록을 불러오지 못했어요')).toBeNull());
+      await fireEvent.press(screen.getByLabelText('월'));
+      await waitFor(() => expect(screen.getByText('폰 사용')).toBeTruthy());
+      const native =
+        os === 'ios'
+          ? screen.queryByTestId('today-screen-time-report')
+          : screen.queryByText('12시간 57분');
+      if (status === 'authorized') expect(native).toBeTruthy();
+      else expect(native).toBeNull();
+      await cleanup();
+    }
+  },
+);
+
+test.each(['집중', '폰 사용'])('일·주 %s는 선택하지 않은 통계를 조회하지 않는다', async (tab) => {
+  const e = { ...environment(), tab: '', islands: [] };
+  const focus = {
+    scope: 'me' as const,
+    totalSeconds: 600,
+    series: [],
+    records: [],
+    nextCursor: null,
+  };
+  const usage = {
+    scope: 'me' as const,
+    measurementStatus: 'authorized' as const,
+    totalMinutes: 10,
+    series: [],
+    updatedAt: null,
+  };
+  jest.mocked(getLibraryScreen).mockResolvedValue({
+    island: { id: e.state.islandId, name: '섬', role: 'owner' },
+    statisticsAvailability: 'available',
+    focusStatistics: focus,
+    screenTimeStatistics: usage,
+    fishEarnings: { members: [] },
+    missingFragments: [],
+  });
+  const selected = (tab === '집중' ? getFocusStatistics : getScreenTimeStatistics) as jest.Mock;
+  const other = (tab === '집중' ? getScreenTimeStatistics : getFocusStatistics) as jest.Mock;
+  selected.mockResolvedValue(tab === '집중' ? focus : usage);
+  other.mockRejectedValue(new Error('선택하지 않은 통계 장애'));
+  const screen = await render(<Library e={e} />);
+  await waitFor(() => expect(screen.getByText('집중한 날')).toBeTruthy());
+  if (tab === '폰 사용') await fireEvent.press(screen.getByLabelText(tab));
+  await fireEvent.press(screen.getByLabelText('이전 기간'));
+  await waitFor(() =>
+    expect(screen.getByText(tab === '집중' ? '집중한 날' : '이번 주 폰 사용')).toBeTruthy(),
+  );
+  expect(selected).toHaveBeenCalled();
+  expect(other).not.toHaveBeenCalled();
+  await fireEvent.press(screen.getByLabelText('일'));
+  await waitFor(() =>
+    expect(screen.getByText(tab === '집중' ? '시간대 기록 없음' : '이날의 폰 사용')).toBeTruthy(),
+  );
+  expect(selected).toHaveBeenCalled();
+  expect(other).not.toHaveBeenCalled();
+  expect(screen.queryByText('기록을 불러오지 못했어요')).toBeNull();
+});
+
+test('로컬 주간 집중 횟수는 선택 주의 세션만 센다', async () => {
+  const e = { ...environment(), tab: '', now: Date.parse('2026-09-22T12:00:00+09:00') };
+  e.state.records = ['2026-09-15', '2026-09-21'].map((date) => ({
+    id: date,
+    islandId: e.state.islandId,
+    subject: '수학',
+    seconds: 600,
+    at: Date.parse(`${date}T12:00:00+09:00`),
+    fish: 1,
+    contributed: true,
+  }));
+  const screen = await render(<Library e={e} />);
+  expect(screen.getByText('1회')).toBeTruthy();
+  expect(screen.queryByText('2회')).toBeNull();
+  await fireEvent.press(screen.getByLabelText('이전 기간'));
+  expect(screen.getByText('1회')).toBeTruthy();
+});
+
 test('내 일기장에는 이력이 비어 있어도 iOS 오늘 리포트를 표시한다', async () => {
   Platform.OS = 'ios';
   const e = environment();

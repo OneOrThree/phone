@@ -52,12 +52,15 @@ export function localFocusByDay(records: RecordItem[], keys: string[], now: numb
 
 export function recordsOnDay(records: DiaryRecord[], key: string, utc: boolean) {
   const from = dateStart(key, utc);
+  return recordsInRange(records, from, from + DAY);
+}
+
+export function recordsInRange(records: DiaryRecord[], from: number, until: number) {
   return records.flatMap((r) => {
-    if (!r.intervals) return dateKey(r.at, utc) === key ? [r] : [];
-    const seconds = r.intervals.reduce(
+    const intervals = r.intervals ?? [{ start: r.at - r.seconds * 1000, end: r.at }];
+    const seconds = intervals.reduce(
       (sum, interval) =>
-        sum +
-        Math.max(0, Math.min(interval.end, from + DAY) - Math.max(interval.start, from)) / 1000,
+        sum + Math.max(0, Math.min(interval.end, until) - Math.max(interval.start, from)) / 1000,
       0,
     );
     return seconds > 0 ? [{ ...r, seconds }] : [];

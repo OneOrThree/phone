@@ -20,6 +20,7 @@ import {
 import Svg, { Path, Line } from 'react-native-svg';
 import {
   State,
+  Friend,
   shouldShowMailboxGuide,
   Building,
   Color,
@@ -107,11 +108,44 @@ import {
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
 import { useFocusSummary } from '@/screens/island/useFocusSummary';
+import { useShop } from '@/screens/island/useShop';
+import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
+import {
+  acceptFriendRequest,
+  cancelFriendRequest,
+  deleteFriend,
+  friendErrorKind,
+  rejectFriendRequest,
+  sendFriendRequest,
+} from '@/services/api/friends';
 const names: Record<string, string> = {
   waves: '잔잔한 파도',
   campfire: '모닥불 소리',
   'forest-wind': '숲바람',
   rain: '오두막의 빗소리',
+};
+// 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
+const shopUiKind = (kind: string) =>
+  kind === 'island_theme'
+    ? 'island'
+    : kind === 'building_theme'
+      ? 'building'
+      : kind === 'audio'
+        ? 'audio'
+        : 'clothes';
+const shopCard = (p: any) => ({
+  ...p,
+  kind: shopUiKind(p.kind),
+  building: p.targetBuilding ?? p.building,
+});
+// 서버가 준 구매 불가 사유 → 화면 문구. 모르는 코드는 일반 문구로 접는다.
+const shopBlockReason = (p: { blockedReason?: string | null; reason?: string | null }) => {
+  const reason = p.blockedReason ?? p.reason;
+  if (reason === 'INSUFFICIENT_FUNDS') return '섬 물고기가 모자라요.';
+  if (reason === 'STATE_CONFLICT') return '아직 판매 준비 중이에요.';
+  if (reason === 'FACILITY_LOCKED') return '필요한 건물이 아직 없어요.';
+  if (reason === 'MEMBER_ONLY' || reason === 'FORBIDDEN') return '섬 주민만 살 수 있어요.';
+  return '지금은 구매할 수 없어요.';
 };
 const buildingArt: Record<string, string> = {
   library: 'library',
@@ -760,6 +794,42 @@ export function RedesignScreens({ e }: any) {
   const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
   // 「오늘 집중」요약(GROMO-2018) — 서버 모드면 /me/focus-summary 가 정본이다
   const focusSummary = useFocusSummary({ active: !!server });
+  // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
+  // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
+  const shopApi = useShop({
+    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound'].includes(route),
+    islandId: snap?.currentIslandId ?? null,
+    route,
+    category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
+    orderScope: tab === '섬 공동 구매' ? 'shared' : 'personal',
+    productId: route === 'product' ? detail : null,
+    dispatch,
+  });
+  // 서버 상품은 owned 가 응답에 실린다 — 목업 경로만 로컬 보유 목록을 본다.
+  const owned = (p: any) =>
+    server && p.owned !== undefined
+      ? !!p.owned
+      : (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
+  const productTitle = (id: string) =>
+    server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
+  // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
+  const friendsScreen = e.friendsScreen as FriendsScreenState;
+  // 친구 명령의 공통 실패 처리 — 게이트는 회원 전환 시트로, 이미 처리·중복은 재조회로 닫는다
+  const friendFail = (thrown: unknown) => {
+    if (e.conversion?.offer(thrown)) return;
+    const kind = friendErrorKind(thrown);
+    if (kind === 'duplicate') notify('이미 친구이거나 보낸 요청이 있어요.');
+    else if (kind === 'already-handled') notify('이미 처리된 요청이에요. 목록을 새로고침했어요.');
+    else if (kind === 'privacy') notify('이 작업을 할 수 있는 상대가 아니에요.');
+    else if (kind === 'network') notify('네트워크를 확인한 뒤 다시 시도해 주세요.');
+    else
+      notify(thrown instanceof ApiError && thrown.message ? thrown.message : '다시 시도해 주세요.');
+    if (kind === 'duplicate' || kind === 'already-handled') friendsScreen.refresh();
+  };
+  // 성공(2xx) 확인 뒤에만 목록이 바뀐다 — optimistic 성공 없이 command 가 재조회를 건다
+  const friendCmd = (fn: () => Promise<unknown>) => {
+    friendsScreen.command(fn).catch(friendFail);
+  };
   // 신청 목록에 단건 상태 조회 결과를 얹은 유효 목록 — requestStatus가 최신 상태다.
   // 단건 결과엔 표시 필드가 없으므로 목록에 없는 신청은 상태만 안다.
   const reqList = [
@@ -2421,7 +2491,7 @@ export function RedesignScreens({ e }: any) {
           };
     const gap = panel ? 8 : 12;
     // 판매 음원: 주민 누구나 섬 물고기로 산다. 누르면 미리듣기·구매 화면
-    const sale = products.filter((p) => p.kind === 'audio');
+    const sale = server ? shopApi.items.map(shopCard) : products.filter((p) => p.kind === 'audio');
     return (
       <View style={{ flex: 1 }}>
         <View
@@ -2572,28 +2642,29 @@ export function RedesignScreens({ e }: any) {
                 {island.buildings.includes('gram') ? (
                   <>
                     <SheetGroup flat>
-                      {island.sharedOwned
-                        .filter((x) => names[x])
-                        .map((id) => (
-                          <SheetRow
-                            key={id}
-                            dense={panel}
-                            title={names[id]}
-                            lead={<MiniRadio on={island.track === id} />}
-                            tone={island.track === id ? 'on' : undefined}
-                            right={
-                              island.track === id && island.playing ? (
-                                <View style={[k.row, { gap: 6 }]}>
-                                  <Eq />
-                                  <Txt style={{ fontSize: 15, lineHeight: 21.75, color: C.muted }}>
-                                    재생 중
-                                  </Txt>
-                                </View>
-                              ) : undefined
-                            }
-                            onPress={() => setTrack(id)}
-                          />
-                        ))}
+                      {(server
+                        ? (shopApi.shared?.audio ?? [])
+                        : island.sharedOwned.filter((x) => names[x])
+                      ).map((id) => (
+                        <SheetRow
+                          key={id}
+                          dense={panel}
+                          title={server ? (names[id] ?? productTitle(id)) : names[id]}
+                          lead={<MiniRadio on={island.track === id} />}
+                          tone={island.track === id ? 'on' : undefined}
+                          right={
+                            island.track === id && island.playing ? (
+                              <View style={[k.row, { gap: 6 }]}>
+                                <Eq />
+                                <Txt style={{ fontSize: 15, lineHeight: 21.75, color: C.muted }}>
+                                  재생 중
+                                </Txt>
+                              </View>
+                            ) : undefined
+                          }
+                          onPress={() => setTrack(id)}
+                        />
+                      ))}
                     </SheetGroup>
                     <Txt kind="section" style={st.sec}>
                       내 기기 음량
@@ -2642,7 +2713,7 @@ export function RedesignScreens({ e }: any) {
                         key={p.id}
                         dense={panel}
                         title={p.title}
-                        sub={island.sharedOwned.includes(p.id) ? '보유 중' : `${p.price}마리`}
+                        sub={owned(p) ? '보유 중' : p.price == null ? '준비 중' : `${p.price}마리`}
                         lead={
                           <View
                             style={{
@@ -4330,23 +4401,33 @@ export function RedesignScreens({ e }: any) {
         )}
       </View>
     );
-  const owned = (p: any) =>
-    (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
   const fishStrip = (
-    <Strip label={island.name + ' 물고기'} value={balance(island).toLocaleString() + '마리'} />
+    <Strip
+      label={island.name + ' 물고기'}
+      value={
+        server
+          ? shopApi.wallets
+            ? shopApi.wallets.villagePoints.toLocaleString() + '마리'
+            : '…'
+          : balance(island).toLocaleString() + '마리'
+      }
+    />
   );
   if (route === 'shop') {
     // 탭 2개: 내 꾸미기(옷·장신구) · 우리 섬 꾸미기(섬·건물 테마). 음원은 축음기에서 산다
+    // 서버 모드는 탭이 곧 category 이고 목록은 서버 응답 그대로다(GROMO-2017).
     const mine = tab !== '우리 섬 꾸미기',
       cols = layout.compact ? 4 : 2,
-      items = products.filter((p) =>
-        mine ? p.kind === 'clothes' : p.kind === 'island' || p.kind === 'building',
-      );
-    const card = (p: (typeof products)[number]) => (
+      items = server
+        ? shopApi.items.map(shopCard)
+        : products.filter((p) =>
+            mine ? p.kind === 'clothes' : p.kind === 'island' || p.kind === 'building',
+          );
+    const card = (p: any) => (
       <Pressable
         key={p.id}
         accessibilityRole="button"
-        accessibilityLabel={`${p.title}, ${p.price}마리${owned(p) ? ', 보유 중' : ''}`}
+        accessibilityLabel={`${p.title}, ${p.price == null ? '준비 중' : `${p.price}마리`}${owned(p) ? ', 보유 중' : ''}`}
         onPress={() => go('product', p.id)}
         style={{
           flex: 1,
@@ -4407,7 +4488,7 @@ export function RedesignScreens({ e }: any) {
           {p.title}
         </Txt>
         <Txt kind="meta" style={{ lineHeight: 18.85 }}>
-          {p.price}마리
+          {p.price == null ? '준비 중' : `${p.price}마리`}
         </Txt>
       </Pressable>
     );
@@ -4440,6 +4521,18 @@ export function RedesignScreens({ e }: any) {
             섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
           </Txt>
         )}
+        {server && shopApi.error ? (
+          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+            <Txt kind="meta" style={st.meta}>
+              {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
+            </Txt>
+            <Btn title="다시 시도" onPress={shopApi.retry} />
+          </View>
+        ) : server && shopApi.loading ? (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            불러오는 중…
+          </Txt>
+        ) : null}
         {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
         <View style={{ gap: layout.compact ? 10 : 12 }}>
           {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
@@ -4460,27 +4553,93 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'product') {
-    const p = products.find((p) => p.id === detail) || products[0],
+    // 서버 모드는 상품 상세 계약이 정본이다(GROMO-2017) — 가격·owned·available·버전 모두
+    // 서버 응답을 쓰고 목업 products/canBuy 는 건드리지 않는다.
+    const sp = server
+      ? ((shopApi.detail && shopApi.detail.id === detail ? shopApi.detail : null) ??
+        shopApi.items.find((i) => i.id === detail) ??
+        null)
+      : null;
+    if (server && !sp) {
+      return (
+        <IslandSheet
+          bg="shop"
+          sign="dog"
+          signKind="npc"
+          title="상품 상세"
+          tall
+          onBack={back}
+          onClose={home}
+        >
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            {shopApi.detailLoading
+              ? '불러오는 중…'
+              : serverErrorText(shopApi.detailError) || '상품을 불러오지 못했어요.'}
+          </Txt>
+        </IslandSheet>
+      );
+    }
+    const p = sp
+        ? shopCard({ ...sp, description: '' })
+        : products.find((p) => p.id === detail) || products[0],
       audio = p.kind === 'audio',
       clothes = p.kind === 'clothes',
-      has = owned(p),
-      // 살 수 없는 이유(잔액 부족·건물 미완공 등). 있으면 버튼을 막고 보조 문구로 보여 준다
-      error = has ? null : canBuy(state, p),
-      remaining = Math.max(0, balance(island) - p.price),
+      has = server ? !!sp?.owned : owned(p),
+      // 살 수 없는 이유 — 서버 모드는 available/blockedReason 응답이 정본이다
+      error = has
+        ? null
+        : server
+          ? sp!.available
+            ? null
+            : shopBlockReason(sp!)
+          : canBuy(state, p),
+      remaining = Math.max(
+        0,
+        (server ? (shopApi.wallets?.villagePoints ?? 0) : balance(island)) - (p.price ?? 0),
+      ),
       applied =
         p.kind === 'island'
-          ? island.theme === p.id
+          ? (server ? shopApi.shared?.appearance.islandThemeId : island.theme) === p.id
           : p.kind === 'building'
-            ? island.buildingThemes?.[p.building || 'hall'] === p.id
+            ? (server
+                ? shopApi.shared?.appearance.buildingThemes?.[p.building || 'hall']
+                : island.buildingThemes?.[p.building || 'hall']) === p.id
             : false;
-    const apply = (value: string) =>
+    // 적용은 서버 PATCH 가 정본 — 실패하면 성공 토스트를 띄우지 않는다(false 반환).
+    const apply = (value: string): Promise<boolean> => {
+      if (server)
+        return shopApi
+          .applyTheme(
+            p.kind === 'island'
+              ? { islandThemeId: value }
+              : { buildingThemes: { [p.building || 'hall']: value } },
+          )
+          .then(() => true)
+          .catch((thrown) => {
+            const m = serverErrorText(thrown);
+            if (m) notify(m);
+            return false;
+          });
       act('THEME', { kind: p.kind, building: p.building || 'hall', value });
+      return Promise.resolve(true);
+    };
     const buy = () =>
       confirm(
         p.title + '를 살까요?',
         `섬 물고기 ${p.price}마리 사용 · 구매 후 ${remaining.toLocaleString()}마리` +
           (clothes ? '\n산 사람의 보유품이라 섬을 떠나도 남아요.' : ''),
         () => {
+          if (server) {
+            // 응답 + 지갑·인벤토리·내역 재조회가 끝날 때만 성공 토스트 — 실패·응답 유실에는 붙지 않는다.
+            shopApi
+              .buy({ id: p.id, productVersion: sp!.productVersion })
+              .then(() => setSheetToast('구매했어요.'))
+              .catch((thrown) => {
+                const m = serverErrorText(thrown);
+                if (m) notify(m);
+              });
+            return;
+          }
           act('BUY', { id: p.id });
           setSheetToast('구매했어요.');
         },
@@ -4496,7 +4655,7 @@ export function RedesignScreens({ e }: any) {
         }
         title={audio ? `섬 물고기 ${p.price}마리로 구매` : `${p.price}마리로 구매`}
         onPress={buy}
-        disabled={!!error}
+        disabled={!!error || (server && shopApi.writing)}
       />
     ) : clothes ? (
       <Cta title="내 뗏목에서 갈아입기" onPress={() => walkTo('wardrobe')} />
@@ -4509,21 +4668,28 @@ export function RedesignScreens({ e }: any) {
         onPress={
           applied
             ? undefined
-            : () => {
-                apply(p.id);
-                setSheetToast('우리 섬에 적용했어요.');
-              }
+            : () =>
+                void apply(p.id).then((ok) => {
+                  if (ok) setSheetToast('우리 섬에 적용했어요.');
+                })
         }
         ghost="기본 외양으로 해제"
         onGhost={() => {
           const current =
-            p.kind === 'island' ? island.theme : island.buildingThemes?.[p.building || 'hall'];
+            p.kind === 'island'
+              ? server
+                ? shopApi.shared?.appearance.islandThemeId
+                : island.theme
+              : server
+                ? shopApi.shared?.appearance.buildingThemes?.[p.building || 'hall']
+                : island.buildingThemes?.[p.building || 'hall'];
           if (!current || current === 'default') {
             setSheetToast('이미 기본 외양이에요');
             return;
           }
-          apply('default');
-          setSheetToast('기본 외양으로 되돌렸어요.');
+          void apply('default').then((ok) => {
+            if (ok) setSheetToast('기본 외양으로 되돌렸어요.');
+          });
         }}
       />
     );
@@ -4615,11 +4781,21 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'orders') {
     // 내 구매 = 옷·장신구(날짜·시각), 섬 공동 구매 = 이 섬 테마·음원(날짜·구매자, 방장이면 "방장")
+    // 서버 모드는 scope=personal|shared 응답이 정본 — 내역 가격은 당시 확정가 스냅숏이다(GROMO-2017).
     const shared = tab === '섬 공동 구매';
-    const list = state.orders.filter((o) => {
-      const kind = products.find((p) => p.id === o.product)?.kind;
-      return shared ? kind !== 'clothes' && o.islandId === island.id : kind === 'clothes';
-    });
+    const list: State['orders'] = server
+      ? shopApi.orders.map((o) => ({
+          id: o.id,
+          product: o.productId,
+          islandId: island.id,
+          currency: 'village_points',
+          price: o.price,
+          at: Date.parse(o.createdAt),
+        }))
+      : state.orders.filter((o) => {
+          const kind = products.find((p) => p.id === o.product)?.kind;
+          return shared ? kind !== 'clothes' && o.islandId === island.id : kind === 'clothes';
+        });
     return (
       <IslandSheet
         bg="shop"
@@ -4638,12 +4814,23 @@ export function RedesignScreens({ e }: any) {
           value={shared ? '섬 공동 구매' : '내 구매'}
           onChange={setTab}
         />
-        {list.length ? (
+        {server && shopApi.ordersLoading ? (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            불러오는 중…
+          </Txt>
+        ) : server && shopApi.ordersError ? (
+          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+            <Txt kind="meta" style={st.meta}>
+              {serverErrorText(shopApi.ordersError) || '구매 내역을 불러오지 못했어요.'}
+            </Txt>
+            <Btn title="다시 시도" onPress={shopApi.retry} />
+          </View>
+        ) : list.length ? (
           <SheetGroup>
             {list.map((o) => (
               <SheetRow
                 key={o.id}
-                title={products.find((p) => p.id === o.product)?.title || o.product}
+                title={productTitle(o.product)}
                 sub={
                   shared
                     ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '방장' : o.buyer)]
@@ -4787,7 +4974,7 @@ export function RedesignScreens({ e }: any) {
           />
           <SheetRow
             title="앱 설정"
-            sub="알림 · 소리 · 측정 권한 · 튜토리얼 다시보기"
+            sub="알림 · 소리 · 앱 권한 · 튜토리얼 다시보기"
             lead={<RowIcon name="gear" />}
             chevron
             onPress={() => go('settings')}
@@ -4946,7 +5133,23 @@ export function RedesignScreens({ e }: any) {
           accessibilityRole="button"
           accessibilityLabel={label}
           accessibilityState={{ selected: on }}
-          onPress={() => act('EQUIP', { key: 'clothes', value })}
+          onPress={() => {
+            // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다.
+            if (server) {
+              const patch =
+                value === 'default'
+                  ? { clothes: null }
+                  : shopApi.kinds[value] === 'decor'
+                    ? { decor: value }
+                    : { clothes: value };
+              shopApi.equip(patch).catch((thrown) => {
+                const m = serverErrorText(thrown);
+                if (m) notify(m);
+              });
+              return;
+            }
+            act('EQUIP', { key: 'clothes', value });
+          }}
           style={{ width: 76, gap: 5, alignItems: 'center' }}
         >
           <View
@@ -4998,184 +5201,312 @@ export function RedesignScreens({ e }: any) {
         </Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {thumb('default', '기본', <Pic id={'cat/' + state.color} w={60.5} />)}
-          {products
-            .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
-            .map((p) =>
-              thumb(
-                p.id,
-                p.title,
-                p.id === 'straw-hat' ? (
-                  <HatArt w={72} scale={0.7} />
-                ) : (
-                  <Pic id="scarf-cat" w={60.5} />
-                ),
-              ),
-            )}
+          {(server
+            ? [...(shopApi.my?.clothes ?? []), ...(shopApi.my?.decor ?? [])]
+            : products
+                .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
+                .map((p) => p.id)
+          ).map((id) =>
+            thumb(
+              id,
+              server ? productTitle(id) : products.find((p) => p.id === id)?.title || id,
+              id === 'straw-hat' ? <HatArt w={72} scale={0.7} /> : <Pic id="scarf-cat" w={60.5} />,
+            ),
+          )}
         </View>
       </IslandSheet>
     );
   }
-  if (route === 'friends') {
-    // 받은 요청 수락·거절 · 보낸 요청 취소 · 친구 ··· → 친구 삭제. 친구 찾기는 헤더
-    const section = (status: string, name: string) => {
-      const list = friends.filter((f) => f.status === status);
-      return (
-        <React.Fragment key={status}>
-          <Txt kind="section" style={st.sec}>
-            {name} {list.length}
-          </Txt>
-          {list.length ? (
-            <SheetGroup>
-              {list.map((f) => (
-                <SheetRow
-                  key={f.id}
-                  title={f.name}
-                  sub={f.island + (status === 'sent' ? ' · 수락 기다리는 중' : '')}
-                  tone={status === 'received' ? 'butter' : undefined}
-                  lead={<Avatar color={f.color} />}
-                  tail={
-                    status === 'received' ? (
-                      <>
-                        <Btn
-                          small
-                          title="수락"
-                          onPress={() => act('FRIEND_ACCEPT', { id: f.id })}
-                        />
-                        <Btn
-                          small
-                          kind="sec"
-                          title="거절"
-                          style={SEC_BTN}
-                          onPress={() => act('FRIEND_REJECT', { id: f.id })}
-                        />
-                      </>
-                    ) : status === 'sent' ? (
-                      <Btn
-                        small
-                        kind="sec"
-                        title="요청 취소"
-                        style={SEC_BTN}
-                        onPress={() => act('FRIEND_CANCEL', { id: f.id })}
-                      />
-                    ) : (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={`${f.name} 친구 삭제`}
-                        // 32px 버튼 + 사방 6 = 누르는 영역 44
-                        hitSlop={6}
-                        onPress={() =>
-                          confirm(
-                            '친구를 삭제할까요?',
-                            `${f.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
-                            () => act('FRIEND_DELETE', { id: f.id }),
-                            { ok: '삭제', destructive: true },
-                          )
-                        }
-                        style={{
-                          width: 32,
-                          height: 32,
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Txt
-                          style={{
-                            fontSize: 20,
-                            lineHeight: 29,
-                            fontWeight: '800',
-                            letterSpacing: 1,
-                            color: C.brown,
-                          }}
-                        >
-                          ···
-                        </Txt>
-                      </Pressable>
-                    )
-                  }
-                />
-              ))}
-            </SheetGroup>
-          ) : (
-            <Txt kind="meta" style={st.meta}>
-              아직 없어요.
-            </Txt>
-          )}
-        </React.Fragment>
-      );
-    };
-    return (
-      <IslandSheet
-        bg="dock"
-        sign="boat/raft"
-        title="친구 관리"
-        tall
-        tight
-        action="친구 찾기"
-        actionPress={() => go('friendSearch')}
-        onBack={back}
-        onClose={home}
-      >
-        {section('received', '받은 요청')}
-        {section('sent', '보낸 요청')}
-        {section('friend', '친구')}
-      </IslandSheet>
-    );
-  }
-  if (route === 'friendSearch') {
-    // 닉네임은 대소문자 구분 없이 정확히 일치할 때만 찾는다(정책). 섬이 달라도 친구가 될 수 있다
-    const q = search.trim().toLowerCase();
-    const found = q ? friendDirectory.filter((f) => f.name.toLowerCase() === q) : [];
-    return (
-      <IslandSheet bg="dock" sign="boat/raft" title="친구 찾기" tall onBack={back} onClose={home}>
-        <SearchField label="이름으로 찾기" value={search} onChange={setSearch} />
-        <Txt kind="meta" style={st.meta}>
-          상대가 수락하면 친구가 돼요. 섬이 달라도 괜찮아요.
+  if (route === 'friends' || route === 'friendSearch') {
+    const serverMode = !!server;
+    const data = serverMode ? friendsScreen.data : null;
+    const received = serverMode
+      ? (data?.friendRequests ?? [])
+      : friends.filter((friend) => friend.status === 'received');
+    const sent = serverMode
+      ? (data?.sentFriendRequests ?? [])
+      : friends.filter((friend) => friend.status === 'sent');
+    const accepted = serverMode
+      ? (data?.friends ?? [])
+      : friends.filter((friend) => friend.status === 'friend');
+    const queryValue = serverMode ? friendsScreen.query : search;
+    const query = queryValue.trim().toLowerCase();
+    const localResults = query
+      ? friendDirectory.filter((friend) => friend.name.toLowerCase() === query)
+      : [];
+    const sectionTitle = (title: string, count?: number) => (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+        <Txt kind="section" style={[st.sec, { marginTop: 0 }]}>
+          {title}
         </Txt>
-        {found.length ? (
-          <SheetGroup>
-            {found.map((f) => {
-              const status = friends.find((x) => x.id === f.id)?.status ?? 'none';
-              return (
-                <SheetRow
-                  key={f.id}
-                  title={f.name}
-                  sub={f.island}
-                  lead={<Avatar color={f.color} />}
-                  tail={
-                    status === 'none' ? (
-                      <Btn
-                        small
-                        title="친구 요청"
-                        onPress={() => act('FRIEND_REQUEST', { id: f.id, friend: f })}
-                      />
-                    ) : (
-                      <Btn
-                        small
-                        kind="sec"
-                        style={SEC_BTN}
-                        disabled={status !== 'received'}
-                        title={
-                          status === 'sent'
-                            ? '요청 보냄'
-                            : status === 'friend'
-                              ? '친구'
-                              : '받은 요청'
-                        }
-                        // 친구 찾기는 친구 관리에서 들어오므로 뒤로 가면 받은 요청이 보인다
-                        onPress={back}
-                      />
-                    )
-                  }
-                />
-              );
-            })}
-          </SheetGroup>
-        ) : (
-          !!q && (
-            <Txt kind="meta" style={st.meta}>
-              같은 닉네임을 찾지 못했어요. 닉네임을 정확히 입력해 주세요.
-            </Txt>
+        {count !== undefined && <Badge small>{count}</Badge>}
+      </View>
+    );
+    const friendMenu = (name: string, onDelete: () => void) => (
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`${name} 친구 삭제`}
+        hitSlop={6}
+        onPress={() =>
+          confirm(
+            '친구를 삭제할까요?',
+            `${name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+            onDelete,
+            { ok: '삭제', destructive: true },
           )
+        }
+        style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
+      >
+        <Txt
+          style={{
+            fontSize: 20,
+            lineHeight: 29,
+            fontWeight: '800',
+            letterSpacing: 1,
+            color: C.brown,
+          }}
+        >
+          ···
+        </Txt>
+      </Pressable>
+    );
+    const requestActions = (onAccept: () => void, onReject: () => void) => (
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
+        <Btn
+          small
+          kind="sec"
+          title="거절"
+          disabled={serverMode && friendsScreen.busy}
+          onPress={onReject}
+        />
+      </View>
+    );
+    const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
+      <SheetRow
+        key={friend.id}
+        title={friend.name}
+        sub={
+          friend.island +
+          (friend.status === 'sent'
+            ? ' · 수락 기다리는 중'
+            : searchResult && friend.status === 'received'
+              ? ' · 받은 요청'
+              : '')
+        }
+        tone={friend.status === 'received' ? 'butter' : undefined}
+        lead={<Avatar color={friend.color} />}
+        tail={
+          friend.status === 'received' ? (
+            requestActions(
+              () => act('FRIEND_ACCEPT', { id: friend.id }),
+              () => act('FRIEND_REJECT', { id: friend.id }),
+            )
+          ) : friend.status === 'sent' ? (
+            <Btn
+              small
+              kind="sec"
+              title="요청 취소"
+              onPress={() => act('FRIEND_CANCEL', { id: friend.id })}
+            />
+          ) : friend.status === 'friend' ? (
+            searchResult ? (
+              <Badge soft>친구</Badge>
+            ) : (
+              friendMenu(friend.name, () => act('FRIEND_DELETE', { id: friend.id }))
+            )
+          ) : (
+            <Btn
+              small
+              title="친구 요청"
+              onPress={() => act('FRIEND_REQUEST', { id: friend.id, friend })}
+            />
+          )
+        }
+      />
+    );
+    const serverReceivedRows = (data?.friendRequests ?? []).map((friend) => {
+      const name = friend.nickname ?? '탈퇴한 사용자';
+      return (
+        <SheetRow
+          key={friend.requestId}
+          title={name}
+          tone="butter"
+          lead={<Avatar color="white" />}
+          tail={requestActions(
+            () => friendCmd(() => acceptFriendRequest(friend.requestId)),
+            () => friendCmd(() => rejectFriendRequest(friend.requestId)),
+          )}
+        />
+      );
+    });
+    const serverSentRows = (data?.sentFriendRequests ?? []).map((friend) => (
+      <SheetRow
+        key={friend.requestId}
+        title={friend.nickname ?? '탈퇴한 사용자'}
+        sub="수락 기다리는 중"
+        lead={<Avatar color="white" />}
+        tail={
+          <Btn
+            small
+            kind="sec"
+            title="요청 취소"
+            disabled={friendsScreen.busy}
+            onPress={() => friendCmd(() => cancelFriendRequest(friend.requestId))}
+          />
+        }
+      />
+    ));
+    const serverFriendRows = (data?.friends ?? []).map((friend) => {
+      const name = friend.nickname ?? '탈퇴한 사용자';
+      return (
+        <SheetRow
+          key={friend.userId}
+          title={name}
+          sub={friend.mainIslandName ?? undefined}
+          lead={<Avatar color="white" />}
+          tail={friendMenu(name, () => friendCmd(() => deleteFriend(friend.userId)))}
+        />
+      );
+    });
+    const receivedRows = serverMode
+      ? serverReceivedRows
+      : (received as Friend[]).map((friend) => localFriendRow(friend));
+    const sentRows = serverMode
+      ? serverSentRows
+      : (sent as Friend[]).map((friend) => localFriendRow(friend));
+    const friendRows = serverMode
+      ? serverFriendRows
+      : (accepted as Friend[]).map((friend) => localFriendRow(friend));
+    const empty = (message = '아직 없어요.') => (
+      <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
+        {message}
+      </Txt>
+    );
+    const searchRows = serverMode
+      ? friendsScreen.searchItems.map((friend) => (
+          <SheetRow
+            key={friend.userId}
+            title={friend.nickname}
+            sub={friend.relation === 'FRIEND' ? '친구' : undefined}
+            lead={<Avatar color="white" />}
+            tail={
+              friend.relation === 'NONE' ? (
+                <Btn
+                  small
+                  title="친구 요청"
+                  disabled={friendsScreen.busy}
+                  onPress={() => friendCmd(() => sendFriendRequest(friend.userId))}
+                />
+              ) : (
+                <Btn
+                  small
+                  kind="sec"
+                  disabled
+                  title={friend.relation === 'PENDING' ? '요청 중' : '친구'}
+                />
+              )
+            }
+          />
+        ))
+      : localResults.map((candidate) => {
+          const existing = friends.find((friend) => friend.id === candidate.id);
+          return localFriendRow(existing ?? { ...candidate, status: 'none', messages: [] }, true);
+        });
+    const searchContent =
+      serverMode && friendsScreen.searchStatus === 'error' ? (
+        <SheetGroup>
+          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 18 }}>
+            <Txt kind="meta">{friendsScreen.searchError?.message ?? '검색하지 못했어요'}</Txt>
+            <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+          </View>
+        </SheetGroup>
+      ) : serverMode && friendsScreen.searchStatus !== 'ready' ? (
+        <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
+          찾는 중이에요…
+        </Txt>
+      ) : searchRows.length ? (
+        <SheetGroup>{searchRows}</SheetGroup>
+      ) : (
+        <SheetGroup>
+          <View style={{ paddingVertical: 24, paddingHorizontal: 18, alignItems: 'center' }}>
+            <Txt style={{ fontSize: 16, lineHeight: 23, fontWeight: '700' }}>
+              검색 결과가 없어요
+            </Txt>
+          </View>
+        </SheetGroup>
+      );
+    const leftColumn = query ? (
+      <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 7 }}>
+        {sectionTitle('검색 결과')}
+        {searchContent}
+      </View>
+    ) : (
+      <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 16 }}>
+        <View style={{ gap: 7 }}>
+          {sectionTitle('받은 요청', receivedRows.length)}
+          {receivedRows.length ? <SheetGroup>{receivedRows}</SheetGroup> : empty()}
+        </View>
+        <View style={{ gap: 7 }}>
+          {sectionTitle('보낸 요청')}
+          {sentRows.length ? <SheetGroup>{sentRows}</SheetGroup> : empty()}
+        </View>
+      </View>
+    );
+    const friendColumn = (
+      <View style={{ flex: layout.compact ? 1 : undefined, minWidth: 0, gap: 7 }}>
+        {sectionTitle('친구')}
+        {serverMode && friendsScreen.status === 'loading' ? (
+          <Txt kind="meta" style={[st.meta, { paddingVertical: 10 }]}>
+            불러오는 중이에요
+          </Txt>
+        ) : serverMode && friendsScreen.status === 'error' ? (
+          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 12 }}>
+            <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
+            <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+          </View>
+        ) : friendRows.length ? (
+          <SheetGroup>{friendRows}</SheetGroup>
+        ) : (
+          empty('아직 친구가 없어요.')
+        )}
+      </View>
+    );
+    return (
+      <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+        <SearchField
+          value={queryValue}
+          onChange={serverMode ? friendsScreen.setQuery : setSearch}
+          placeholder="닉네임으로 친구 찾기"
+        />
+        {serverMode && !query && friendsScreen.status === 'loading' ? (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            불러오는 중이에요
+          </Txt>
+        ) : serverMode && !query && friendsScreen.status === 'error' ? (
+          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
+            <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
+            {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
+              <Btn
+                small
+                title="소셜 로그인하기"
+                onPress={() => e.conversion.offer(friendsScreen.error)}
+              />
+            ) : (
+              <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+            )}
+          </View>
+        ) : (
+          <View
+            style={
+              layout.compact
+                ? { flexDirection: 'row', alignItems: 'flex-start', gap: 18 }
+                : { gap: 16 }
+            }
+          >
+            {leftColumn}
+            {friendColumn}
+          </View>
         )}
       </IslandSheet>
     );
@@ -5294,40 +5625,15 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup flat>
           {toggle('동작 줄이기', 'reduceMotion', '이동·전환 애니메이션을 줄여요')}
         </SheetGroup>
-        {sec('측정')}
+        {sec('권한')}
         <SheetGroup flat>
           <SheetRow
-            title="측정 권한"
-            sub={
-              state.settings.permission
-                ? state.settings.screenTimeMeasurementReady
-                  ? '연결됨'
-                  : '측정 앱 선택 필요'
-                : '연결 필요 · 폰 사용 퀘스트와 기록에 써요'
-            }
+            title="앱 권한 관리"
+            sub="스크린타임 권한 · 측정 앱"
             chevron
             onPress={() => go('permission', 'settings')}
           />
-          {Platform.OS === 'android' ? (
-            <SheetRow title="측정 범위" sub="전체 앱 사용 시간 · 앱 잠금은 지원하지 않아요" />
-          ) : (
-            <SheetRow
-              title="측정 앱"
-              sub="사용 시간을 기록할 앱과 카테고리"
-              chevron
-              onPress={() =>
-                go(
-                  state.settings.permission ? 'screenTimeApps' : 'permission',
-                  state.settings.permission ? 'settings' : 'measured-apps',
-                )
-              }
-            />
-          )}
         </SheetGroup>
-        <Txt kind="meta" style={st.meta}>
-          권한을 끄면 폰 사용 퀘스트 달성률은 "확인 필요"로 표시돼요. 기록이 0분으로 표시되지는
-          않아요.
-        </Txt>
         {sec('도움말')}
         <SheetGroup flat>
           <SheetRow
@@ -5520,10 +5826,8 @@ function Volume({ value, onChange, dense = false }: any) {
   );
 }
 
-// 시안 .btn.sm.sec: 같은 이름의 .sec(섹션 라벨) 여백 6px이 겹쳐 버튼이 아래로 내려가 있다
-const SEC_BTN = { marginTop: 6 };
 // 친구 찾기 목업 사용자. 닉네임이 같은 사람이 여럿일 수 있다(시안 보리 2명)
-const friendDirectory = [
+const friendDirectory: Omit<Friend, 'status' | 'messages'>[] = [
   { id: 'saebom', name: '새봄', color: 'white', island: '딸기 섬' },
   { id: 'minji', name: '민지', color: 'ginger', island: '소다 섬' },
   { id: 'haneul', name: '하늘', color: 'calico', island: '구름 섬' },

@@ -5,6 +5,7 @@ import type {
   MyJoinRequest,
   VisitScreen,
 } from '@/services/api/islands';
+import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -1519,6 +1520,50 @@ export function reducer(state: State, a: Action): State {
       target.villagePointsVersion = version;
       break;
     }
+    case 'SHOP_SYNC': {
+      // GROMO-2017 — 서버 상점/인벤토리 응답 조각을 로컬 표시 상태에 옮긴다.
+      // 가져온 조각만 갈아 끼우고, 지갑은 낮은 버전 스냅숏을 거절한다.
+      const target = s.islands.find((island) => island.id === a.islandId);
+      if (a.wallets && target) {
+        const value = Number(a.wallets.villagePoints),
+          version = Number(a.wallets.villagePointsVersion);
+        if (
+          Number.isFinite(value) &&
+          value >= 0 &&
+          Number.isInteger(version) &&
+          version >= (target.villagePointsVersion ?? -1)
+        ) {
+          target.fish = value;
+          target.villagePointsVersion = version;
+        }
+      }
+      if (a.sharedInventory && target) {
+        const inv = a.sharedInventory as SharedInventory;
+        target.sharedOwned = [
+          ...inv.audio,
+          ...inv.islandThemes,
+          ...inv.buildingThemes.map((theme) => theme.themeId),
+        ];
+        target.theme = inv.appearance.islandThemeId;
+        target.buildingThemes = { ...inv.appearance.buildingThemes };
+        target.buildingTheme = Object.values(inv.appearance.buildingThemes).some(
+          (theme) => theme !== 'default',
+        )
+          ? 'custom'
+          : 'default';
+      }
+      if (a.myInventory) {
+        const inv = a.myInventory as PersonalInventory;
+        s.owned = [...inv.clothes, ...inv.decor];
+        s.equipped = {
+          clothes: inv.equipped.clothes ?? 'default',
+          decor: inv.equipped.decor ?? 'none',
+          hull: inv.equipped.hull,
+          position: inv.equipped.position,
+        };
+      }
+      break;
+    }
     case 'ISLAND_CANDIDATES': {
       // 발견 페이지 반영 — reset이면 새 filter의 첫 페이지로 갈아 끼운다
       const snap = serverSnap(s),
@@ -2104,6 +2149,21 @@ export function reducer(state: State, a: Action): State {
       s.serverIslands = null;
       break;
     // ── 친구·편지 ──
+    case 'FRIENDS_SYNC': {
+      const previous = new Map((s.friends ?? []).map((friend) => [friend.id, friend]));
+      s.friends = (a.friends as Friend[]).map((friend) => {
+        const before = previous.get(friend.id);
+        return {
+          ...friend,
+          // 서버에서 관계가 끊긴 뒤 재신청된 사용자는 새 관계다. 이전 편지를 되살리지 않는다.
+          messages:
+            before?.status === 'friend' && friend.status === 'friend'
+              ? before.messages
+              : (friend.messages ?? []),
+        };
+      });
+      break;
+    }
     case 'FRIEND_REQUEST': {
       s.friends ??= [];
       const f = s.friends.find((f) => f.id === a.id);

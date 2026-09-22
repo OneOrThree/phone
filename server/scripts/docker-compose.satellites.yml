@@ -33,7 +33,19 @@ services:
       - ${BUSINESS_API_ENV_FILE:?Business 전용 env 파일 필요}
     environment:
       SERVER_PORT: "8080"
+      DD_AGENT_HOST: datadog-agent
+      DD_ENV: ${DEPLOY_ENV:-dev}
       DD_SERVICE: gromo-business-${DEPLOY_ENV:-dev}
+      DD_VERSION: ${IMAGE_REVISION:-unknown}
+      DD_TRACE_SAMPLE_RATE: ${DD_TRACE_SAMPLE_RATE:-1.0}
+      DD_LOGS_INJECTION: "true"
+      DD_RUNTIME_METRICS_ENABLED: "true"
+      DD_PROFILING_ENABLED: "true"
+      DD_DATA_STREAMS_ENABLED: "true"
+      DD_TRACE_ANALYTICS_ENABLED: "true"
+      DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"
+      DD_GIT_REPOSITORY_URL: github.com/OneOrThree/phone
+      DD_GIT_COMMIT_SHA: ${IMAGE_REVISION:-unknown}
       BUSINESS_REDIS_HOST: business-redis
       BUSINESS_REDIS_USERNAME: business
     expose: ["8080"]
@@ -56,6 +68,14 @@ services:
       timeout: 5s
       retries: 30
       start_period: 30s
+    labels:
+      com.datadoghq.tags.env: ${DEPLOY_ENV:-dev}
+      com.datadoghq.tags.service: gromo-business-${DEPLOY_ENV:-dev}
+      com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
+      com.datadoghq.ad.logs: >-
+        [{"source":"java","service":"gromo-business-${DEPLOY_ENV:-dev}"}]
+      com.datadoghq.ad.checks: >-
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_business","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
 
   notification:
     logging: *app-logging
@@ -64,7 +84,19 @@ services:
       - ${NOTIFICATION_ENV_FILE:?Notification 전용 env 파일 필요}
     environment:
       SERVER_PORT: "8082"
+      DD_AGENT_HOST: datadog-agent
+      DD_ENV: ${DEPLOY_ENV:-dev}
       DD_SERVICE: gromo-notification-${DEPLOY_ENV:-dev}
+      DD_VERSION: ${IMAGE_REVISION:-unknown}
+      DD_TRACE_SAMPLE_RATE: ${DD_TRACE_SAMPLE_RATE:-1.0}
+      DD_LOGS_INJECTION: "true"
+      DD_RUNTIME_METRICS_ENABLED: "true"
+      DD_PROFILING_ENABLED: "true"
+      DD_DATA_STREAMS_ENABLED: "true"
+      DD_TRACE_ANALYTICS_ENABLED: "true"
+      DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true"
+      DD_GIT_REPOSITORY_URL: github.com/OneOrThree/phone
+      DD_GIT_COMMIT_SHA: ${IMAGE_REVISION:-unknown}
     expose: ["8082"]
     networks: [app-network]
     restart: unless-stopped
@@ -75,6 +107,14 @@ services:
       timeout: 5s
       retries: 30
       start_period: 30s
+    labels:
+      com.datadoghq.tags.env: ${DEPLOY_ENV:-dev}
+      com.datadoghq.tags.service: gromo-notification-${DEPLOY_ENV:-dev}
+      com.datadoghq.tags.version: ${IMAGE_REVISION:-unknown}
+      com.datadoghq.ad.logs: >-
+        [{"source":"java","service":"gromo-notification-${DEPLOY_ENV:-dev}"}]
+      com.datadoghq.ad.checks: >-
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo_notification","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}
 
 networks:
   business-cache:

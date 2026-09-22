@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
-import { Page, Badge, Field, Wheel, Seg } from './patterns';
+import { Page, Badge, Btn, Field, Wheel, Seg } from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -68,6 +68,22 @@ test('Badge는 componentTokens.badge의 default/soft를 그대로 쓴다', async
   expect(dflt.borderColor).toBe(componentTokens.badge.default.border);
   expect(soft.backgroundColor).toBe(componentTokens.badge.soft.background);
   expect(soft.borderColor).toBe(componentTokens.badge.soft.border);
+});
+
+test('작은 버튼은 시각 높이와 별개로 부모 터치 경계 44pt를 확보한다', async () => {
+  const { getByLabelText } = await render(<Btn small title="수락" onPress={() => {}} />);
+  const button = getByLabelText('수락');
+  const wrapper = StyleSheet.flatten(button.parent?.props.style);
+  expect(wrapper.minHeight).toBeGreaterThanOrEqual(semanticTokens.size.tapMin);
+  expect(wrapper.justifyContent).toBe('center');
+});
+
+test('작은 배지는 글자 크기 확대 시 늘어날 수 있도록 최소 높이와 세로 패딩을 쓴다', async () => {
+  const { getByText } = await render(<Badge small>1</Badge>);
+  const badge = StyleSheet.flatten(getByText('1').parent?.props.style);
+  expect(badge.height).toBeUndefined();
+  expect(badge.minHeight).toBe(22);
+  expect(badge.paddingVertical).toBeGreaterThan(0);
 });
 
 test('Field placeholder는 대비 기준을 넘는 input.placeholder 토큰을 쓴다', async () => {

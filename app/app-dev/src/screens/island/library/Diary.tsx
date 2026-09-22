@@ -11,11 +11,14 @@ import { T, fill, hm } from '@/screens/island/sceneKit';
 import { useAppLayout } from '@/utils/layout';
 import {
   dateKey,
+  dateStart,
+  DAY,
   datesBetween,
   diaryRange,
   localFocusByDay,
   longDate,
   recordsOnDay,
+  recordsInRange,
   shiftDate,
   shortDate,
   timetableRows,
@@ -49,10 +52,10 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const srv = useLibraryDiary({
     active: server,
     nb: neighbors,
-    page: 0,
+    page: tab === '폰 사용' ? 1 : 0,
     period,
     offset,
-    combined: true,
+    combined: neighbors || period === '월',
     rangeOverride: !neighbors && period === '주' && offset === 0 ? undefined : range,
     islandKey: state.islandId,
   });
@@ -175,7 +178,10 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const ownUsage = (key: string) => {
     // 오늘의 네이티브 수치는 기기 날짜(KST)와 선택 날짜가 같을 때만 사용한다.
     const deviceToday = key === dayKey(e.now) && key === today;
-    const nativeReady = state.settings.permission && state.settings.screenTimeMeasurementReady;
+    const nativeReady =
+      (!server || usageAllowed) &&
+      state.settings.permission &&
+      state.settings.screenTimeMeasurementReady;
     if (deviceToday && nativeReady && Platform.OS === 'ios') {
       return (
         <ScreenTimeReportView
@@ -321,7 +327,10 @@ export function Diary({ e, font }: { e: any; font?: string }) {
           <View style={styles.row}>
             <Metric label="집중한 날" value={`${activeDays}일`} />
             <Metric label="집중일 평균" value={hm(focus / Math.max(1, activeDays))} />
-            <Metric label="집중 횟수" value={`${records.length}회`} />
+            <Metric
+              label="집중 횟수"
+              value={`${server ? records.length : recordsInRange(records, dateStart(range.from, false), Math.min(dateStart(range.to, false) + DAY, e.now)).length}회`}
+            />
           </View>
         </>
       );
