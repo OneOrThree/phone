@@ -181,3 +181,101 @@ test('자정 후 새 측정 전까지 이전 날짜의 분 값을 새 날짜에 
   const next = reducer(state, { type: 'TICK', now: Date.parse('2026-09-23T00:00:01+09:00') });
   expect(next.screenDays?.['2026-09-23']).toBeNull();
 });
+
+test('같은 날 권한을 다시 승인해도 미확인 오늘은 측정 완료로 표시하지 않는다', async () => {
+  const h = harness();
+  await h.sync();
+  h.status.mockResolvedValue('denied');
+  await h.sync();
+  h.status.mockResolvedValue('approved');
+  const snapshot = await h.sync();
+  const next = reducer(initialState(true), {
+    type: 'SCREEN_TIME_SNAPSHOT',
+    snapshot,
+    now: Date.parse('2026-09-22T12:00:00+09:00'),
+  });
+  expect(next.settings.permission).toBe(true);
+  expect(next.settings.screenTimeMeasurementReady).toBe(false);
+  expect(next.screenDays?.['2026-09-22']).toBeNull();
+});
+
+test('자정 직후 동기화 시작 전 TICK도 전날 부분 기록으로 보상을 만들지 않는다', () => {
+  const state = initialState(true);
+  const island = state.islands.find((i) => i.id === state.islandId)!;
+  island.members = [];
+  const quest = island.quests.find((q) => q.type === 'screen')!;
+  quest.rounds = {
+    '2026-09-22': {
+      targets: ['me'],
+      achieved: [],
+      claimed: [],
+      bonus: false,
+      target: quest.target,
+      kind: 'screen',
+    },
+  };
+  state.screenDays = { '2026-09-22': 0 };
+  state.settings.screenTimeMeasurementDay = '2026-09-22';
+  state.settings.screenTimeHistoryDay = '2026-09-22';
+  state.settings.screenTimeHistoryReady = true;
+  const now = Date.parse('2026-09-23T00:00:01+09:00');
+  const pending = reducer(state, { type: 'TICK', now });
+  expect(pending.rewards?.some((r) => r.day === '2026-09-22')).toBeFalsy();
+  const settled = reducer(pending, {
+    type: 'SCREEN_TIME_SNAPSHOT',
+    now,
+    snapshot: {
+      approved: true,
+      date: '2026-09-23',
+      minutes: 0,
+      history: [{ date: '2026-09-22', minutes: quest.target + 60 }],
+      unconfirmedDays: [],
+    },
+  });
+  expect(settled.rewards?.some((r) => r.day === '2026-09-22')).toBeFalsy();
+});
+
+test('계정별 저장소는 기록·미확인 날짜를 공유하지 않고 대기 중 이전 계정 조회를 폐기한다', async () => {
+  const h = harness();
+  let owner = 'A';
+  const records = new Map<string, string>();
+  const sync = createAndroidScreenTimeSync({
+    ...h.deps,
+    owner: () => owner,
+    load: async (id) => records.get(id) ?? null,
+    save: async (value, id) => {
+      records.set(id, value);
+    },
+    clear: async (id) => {
+      records.delete(id);
+    },
+  });
+  await sync();
+  h.advance();
+  h.status.mockResolvedValue('denied');
+  await sync();
+  h.status.mockResolvedValue('approved');
+  owner = 'B';
+  expect(await sync()).toMatchObject({ history: [], unconfirmedDays: [] });
+  expect(records.size).toBe(2);
+  let release!: () => void;
+  h.read.mockImplementationOnce(async () => {
+    await new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { date: '2026-09-23', minutes: 200, previousDate: '2026-09-22', previousMinutes: 300 };
+  });
+  const before = records.get('B');
+  const pending = sync();
+  const queued = sync();
+  const failed = Promise.allSettled([pending, queued]);
+  while (!release) await Promise.resolve();
+  owner = 'A';
+  release();
+  expect((await failed).map((r) => r.status)).toEqual(['rejected', 'rejected']);
+  expect(records.get('B')).toBe(before);
+  expect((await sync()).unconfirmedDays).toEqual(['2026-09-22', '2026-09-23']);
+  await sync.reset();
+  expect(records.has('A')).toBe(false);
+  expect(records.has('B')).toBe(true);
+});

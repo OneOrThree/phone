@@ -254,6 +254,7 @@ export type State = {
     screenTimeMeasurementReady?: boolean;
     screenTimeMeasurementDay?: string;
     screenTimeHistoryReady?: boolean;
+    screenTimeHistoryDay?: string;
   };
   islands: Island[];
   session: Session | null;
@@ -1155,7 +1156,13 @@ function evaluateQuests(s: State, now: number) {
       ensureQuestRound(i, q, today);
       for (const [day, round] of Object.entries(q.rounds)) {
         if (day > today) continue;
-        if (round.kind === 'screen' && day < today && !s.settings.screenTimeHistoryReady) continue;
+        if (
+          round.kind === 'screen' &&
+          day < today &&
+          (!s.settings.screenTimeHistoryReady ||
+            (s.settings.screenTimeMeasurementDay && s.settings.screenTimeHistoryDay !== today))
+        )
+          continue;
         if (round.kind === 'screen' && s.screenTimeUnconfirmedDays?.includes(day)) continue;
         for (const id of round.targets) {
           const member = memberOf(i, id);
@@ -1981,8 +1988,13 @@ export function reducer(state: State, a: Action): State {
       s.settings.permission = snapshot.approved;
       s.settings.screenTimeMeasurementDay = snapshot.date;
       s.settings.screenTimeMeasurementReady =
-        snapshot.approved && snapshot.minutes !== null && snapshot.date === dayKey(now);
+        snapshot.approved &&
+        snapshot.minutes !== null &&
+        snapshot.date === dayKey(now) &&
+        !snapshot.unconfirmedDays.includes(snapshot.date) &&
+        !s.screenTimeUnconfirmedDays?.includes(snapshot.date);
       s.settings.screenTimeHistoryReady = false;
+      s.settings.screenTimeHistoryDay = snapshot.date;
       if (snapshot.minutes !== null) s.screenMinutes = snapshot.minutes;
       // 미확인 날짜를 먼저 적용한 뒤 과거 기록을 정산한다. 중간 상태로 0분 보상이 나가면 안 된다.
       const marked = reducer(s, {

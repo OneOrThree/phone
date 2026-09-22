@@ -576,13 +576,15 @@ function Gromo() {
     const syncPermission = async () => {
       if (Platform.OS === 'android') {
         const current = ++request;
+        const generation = sessionGeneration();
+        dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
         try {
           const snapshot = await syncAndroidScreenTime();
-          if (active && current === request)
+          if (active && current === request && generation === sessionGeneration())
             dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
         } catch {
           const status = await screenTime.getAuthorizationStatus().catch(() => 'unavailable');
-          if (active && current === request)
+          if (active && current === request && generation === sessionGeneration())
             dispatch({
               type: 'SCREEN_TIME_SNAPSHOT',
               snapshot: {

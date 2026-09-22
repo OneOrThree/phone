@@ -1,3 +1,4 @@
+import { sessionGeneration } from '@/services/api/session';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -345,11 +346,15 @@ function ScreenTimePermission({ e }: any) {
     }
   };
   const syncStatus = async () => {
+    const generation = sessionGeneration();
     const next = await screenTime.getAuthorizationStatus();
+    if (generation !== sessionGeneration()) return 'unavailable';
     setStatus(next);
     e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
     if (Platform.OS === 'android') {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
       const snapshot = await syncAndroidScreenTime();
+      if (generation !== sessionGeneration()) return 'unavailable';
       e.dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
       setStatus(snapshot.approved ? 'approved' : next === 'approved' ? 'denied' : next);
       return snapshot.approved ? 'approved' : next === 'approved' ? 'denied' : next;

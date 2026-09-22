@@ -1,3 +1,4 @@
+import { getSession } from './api/session';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   screenTimeNative,
@@ -24,10 +25,11 @@ export type ScreenTimeSnapshot = {
 type Dependencies = {
   status: () => Promise<ScreenTimeAuthorization>;
   read: () => Promise<AndroidUsageSnapshot>;
-  load: () => Promise<string | null>;
-  save: (value: string) => Promise<void>;
+  owner?: () => string;
+  load: (owner: string) => Promise<string | null>;
+  save: (value: string, owner: string) => Promise<void>;
   now: () => number;
-  clear: () => Promise<void>;
+  clear: (owner: string) => Promise<void>;
 };
 
 function parse(value: string | null): Measurement | null {
@@ -56,9 +58,14 @@ function parse(value: string | null): Measurement | null {
 // 호출을 직렬화해 복귀·타이머·권한 화면의 동시 조회가 더 최신 기록을 덮지 않게 한다.
 export function createAndroidScreenTimeSync(deps: Dependencies) {
   let tail: Promise<unknown> = Promise.resolve();
-  const run = async (): Promise<ScreenTimeSnapshot> => {
+  const ownerNow = () => deps.owner?.() ?? 'local';
+  const run = async (owner: string): Promise<ScreenTimeSnapshot> => {
+    const checkOwner = () => {
+      if (ownerNow() !== owner) throw new Error('SCREEN_TIME_ACCOUNT_CHANGED');
+    };
+    checkOwner();
     const today = dayKey(deps.now());
-    const stored = parse(await deps.load());
+    const stored = parse(await deps.load(owner));
     if (stored && stored.lastSeen > today) throw new Error('CLOCK_MOVED_BACKWARDS');
     const approved = (await deps.status()) === 'approved';
     const invalid = new Set(stored?.unconfirmed ?? []);
@@ -71,8 +78,10 @@ export function createAndroidScreenTimeSync(deps: Dependencies) {
         }
         stored.unconfirmed = [...invalid].sort();
         stored.lastSeen = today;
-        await deps.save(JSON.stringify(stored));
+        checkOwner();
+        await deps.save(JSON.stringify(stored), owner);
       }
+      checkOwner();
       return {
         approved: false,
         date: today,
@@ -115,7 +124,9 @@ export function createAndroidScreenTimeSync(deps: Dependencies) {
     record.lastSeen = raw.date;
     record.lastGranted = raw.date;
     record.unconfirmed = [...invalid].sort();
-    await deps.save(JSON.stringify(record));
+    checkOwner();
+    await deps.save(JSON.stringify(record), owner);
+    checkOwner();
     return {
       approved: true,
       date: raw.date,
@@ -127,13 +138,21 @@ export function createAndroidScreenTimeSync(deps: Dependencies) {
     };
   };
   const sync = () => {
-    const next = tail.then(run, run);
+    const owner = ownerNow();
+    const next = tail.then(
+      () => run(owner),
+      () => run(owner),
+    );
     tail = next.catch(() => {});
     return next;
   };
   return Object.assign(sync, {
     reset: () => {
-      const cleared = tail.then(deps.clear, deps.clear);
+      const owner = ownerNow();
+      const cleared = tail.then(
+        () => deps.clear(owner),
+        () => deps.clear(owner),
+      );
       tail = cleared.catch(() => {});
       return cleared;
     },
@@ -143,8 +162,9 @@ export function createAndroidScreenTimeSync(deps: Dependencies) {
 export const syncAndroidScreenTime = createAndroidScreenTimeSync({
   status: () => screenTimeNative?.getAuthorizationStatus?.() ?? Promise.resolve('unavailable'),
   read: () => screenTimeNative?.getUsageSnapshot?.() ?? Promise.reject(new Error('UNAVAILABLE')),
-  load: () => AsyncStorage.getItem(ANDROID_SCREEN_TIME_KEY),
-  save: (value) => AsyncStorage.setItem(ANDROID_SCREEN_TIME_KEY, value),
+  owner: () => (getSession()?.userId ? `user:${getSession()!.userId}` : 'local'),
+  load: (owner) => AsyncStorage.getItem(`${ANDROID_SCREEN_TIME_KEY}:${owner}`),
+  save: (value, owner) => AsyncStorage.setItem(`${ANDROID_SCREEN_TIME_KEY}:${owner}`, value),
   now: () => Date.now(),
-  clear: () => AsyncStorage.removeItem(ANDROID_SCREEN_TIME_KEY),
+  clear: (owner) => AsyncStorage.removeItem(`${ANDROID_SCREEN_TIME_KEY}:${owner}`),
 });
