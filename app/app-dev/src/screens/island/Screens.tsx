@@ -45,8 +45,6 @@ import {
   inviteCodeOf,
   findIslandByInviteCode,
   balance,
-  dayKey,
-  kstDayStart,
   kstMonthDay,
   kstHourMinute,
 } from '@/services/model';
@@ -106,12 +104,11 @@ import {
   SearchField,
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
-import { useFocusSummary } from '@/screens/island/useFocusSummary';
 const names: Record<string, string> = {
   waves: '잔잔한 파도',
   campfire: '모닥불 소리',
   'forest-wind': '숲바람',
-  rain: '오두막의 빗소리',
+  rain: '빗방울 소리',
 };
 const buildingArt: Record<string, string> = {
   library: 'library',
@@ -123,8 +120,6 @@ const buildingArt: Record<string, string> = {
   shop: 'shop',
 };
 const pad = (n: number) => String(n).padStart(2, '0');
-const hhmmss = (n: number) =>
-  `${pad(Math.floor(n / 3600))}:${pad(Math.floor(n / 60) % 60)}:${pad(Math.floor(n) % 60)}`;
 // 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
 const md = kstMonthDay;
 const hm = kstHourMinute;
@@ -527,6 +522,13 @@ function PlayIcon({ pause = false, size = 18 }: any) {
     </Svg>
   );
 }
+function StopIcon({ size = 16 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M6 6h12v12H6z" fill={C.ink} />
+    </Svg>
+  );
+}
 // 분홍 원 체크(퀘스트 달성·선택한 카드·착용 중)
 function CheckDot({ size = 22 }: any) {
   return (
@@ -703,6 +705,10 @@ export function RedesignScreens({ e }: any) {
     // ── 서버 온보딩(GROMO-2006). e.islands 가 있으면 실제 API 모드다 ──
     [serverBusy, setServerBusy] = useState(false),
     [serverError, setServerError] = useState(''),
+    [soundDialog, setSoundDialog] = useState<{
+      kind: 'confirm' | 'success' | 'error';
+      productId: string;
+    } | null>(null),
     // 초대 코드 확인으로 받은 섬 미리보기 — 가입은 사용자가 카드를 보고 명시적으로 누른다
     [invitePick, setInvitePick] = useState<IslandSummary | null>(null),
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
@@ -723,6 +729,7 @@ export function RedesignScreens({ e }: any) {
     setHallGuideOpen(false);
     setDiscoveryPick(null);
     setServerError('');
+    setSoundDialog(null);
     setInvitePick(null);
     setServerDone('');
   }, [route]);
@@ -759,7 +766,6 @@ export function RedesignScreens({ e }: any) {
   // 전망대 주간 섬 랭킹(GROMO-2018) — 서버 모드이고 tower route 일 때만 조회한다
   const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
   // 「오늘 집중」요약(GROMO-2018) — 서버 모드면 /me/focus-summary 가 정본이다
-  const focusSummary = useFocusSummary({ active: !!server });
   // 신청 목록에 단건 상태 조회 결과를 얹은 유효 목록 — requestStatus가 최신 상태다.
   // 단건 결과엔 표시 필드가 없으므로 목록에 없는 신청은 상태만 안다.
   const reqList = [
@@ -2369,61 +2375,34 @@ export function RedesignScreens({ e }: any) {
       />
     );
   if (route === 'sound') {
-    // 17(집중 중) = 바다 위 시트, 66(섬에서) = 축음기로 다가간 섬 위 시트 + 축음기 간판. 가로 폰은 오른쪽 540 패널
-    const scene = !!state.session,
-      panel = layout.compact;
-    // 오늘 = Asia/Seoul 기준 00시부터. 서버 모드면 /me/focus-summary 가 정본이고
-    // 아직 못 읽었을 땐 null 로 둬서 로컬 합산 0을 지어내지 않는다.
-    const startOfToday = kstDayStart(dayKey(now));
-    const today = server
-      ? (focusSummary.data?.totalSeconds ?? null)
-      : state.records.filter((r) => r.at >= startOfToday).reduce((a, r) => a + r.seconds, 0);
-    const card: any = panel
-      ? {
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          right: 0,
-          width: Math.min(540 + ins.right, layout.width - ins.left - 80),
-          borderLeftWidth: 2,
-          borderTopLeftRadius: 30,
-          borderBottomLeftRadius: 30,
-          boxShadow: '-5px 0px 0px #8B695640',
-          paddingTop: ins.top + 14,
-          paddingLeft: 22,
-          paddingRight: 22 + ins.right,
-          paddingBottom: Math.max(22, ins.bottom),
-          gap: 8,
-        }
-      : layout.tablet
-        ? {
-            width: layout.modalWidth,
-            maxHeight: layout.height - ins.top - ins.bottom - 40,
-            borderWidth: 2,
-            borderRadius: 26,
-            boxShadow: '0px 6px 0px ' + C.brown,
-            padding: 20,
-            gap: 12,
-          }
-        : {
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            maxHeight: layout.height - ins.top - 60,
-            borderTopWidth: 2,
-            borderTopLeftRadius: 26,
-            borderTopRightRadius: 26,
-            paddingTop: 10,
-            paddingHorizontal: 20,
-            paddingBottom: ins.bottom + 12,
-            gap: 12,
-          };
-    const gap = panel ? 8 : 12;
-    // 판매 음원: 주민 누구나 섬 물고기로 산다. 누르면 미리듣기·구매 화면
-    const sale = products.filter((p) => p.kind === 'audio');
+    const scene = !!state.session;
+    const audioProducts = products.filter((p) => p.kind === 'audio');
+    const trackIds = [
+      ...island.sharedOwned.filter((id) => names[id]),
+      ...audioProducts.map((p) => p.id).filter((id) => !island.sharedOwned.includes(id)),
+    ];
+    const dialogProduct = soundDialog
+      ? audioProducts.find((product) => product.id === soundDialog.productId)
+      : undefined;
+    const selectTrack = (id: string) => {
+      if (island.sharedOwned.includes(id)) setTrack(id);
+      else setSoundDialog({ kind: 'confirm', productId: id });
+    };
+    const buyTrack = () => {
+      if (!dialogProduct) return;
+      if (canBuy(state, dialogProduct)) {
+        setSoundDialog({ kind: 'error', productId: dialogProduct.id });
+        return;
+      }
+      act('BUY', { id: dialogProduct.id });
+      setSoundDialog({ kind: 'success', productId: dialogProduct.id });
+    };
+    const bottomWidth = Math.min(366, layout.width - ins.left - ins.right - 36);
+    const panelWidth = layout.compact
+      ? Math.min(500, layout.width - ins.left - ins.right - 36)
+      : bottomWidth;
     return (
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
         <View
           pointerEvents="none"
           accessibilityElementsHidden
@@ -2434,243 +2413,302 @@ export function RedesignScreens({ e }: any) {
           {scene ? (
             focusScene
           ) : (
-            <>
-              <Pic id={(panel ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
-              {!panel && today != null && (
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 20 + ins.left,
-                    top: 12 + ins.top,
-                    minWidth: 210,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                    paddingLeft: 14,
-                    paddingRight: 16,
-                    paddingVertical: 6,
-                    borderRadius: 999,
-                    backgroundColor: '#FFFDFAB3',
-                  }}
-                >
-                  <Txt
-                    style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600', color: C.muted }}
-                  >
-                    오늘 집중
-                  </Txt>
-                  <Txt
-                    style={{
-                      marginLeft: 'auto',
-                      fontSize: 22,
-                      lineHeight: 31.9,
-                      fontWeight: '700',
-                      fontVariant: ['tabular-nums'],
-                    }}
-                  >
-                    {hhmmss(today)}
-                  </Txt>
-                </View>
-              )}
-            </>
+            <Pic id={(layout.compact ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
           )}
         </View>
         <Pressable
-          accessible={false}
-          importantForAccessibility="no-hide-descendants"
+          accessibilityRole="button"
+          accessibilityLabel="섬으로 돌아가기"
           onPress={back}
-          style={[StyleSheet.absoluteFill, { backgroundColor: scene ? '#493B3940' : '#493B3938' }]}
-        />
-        <View
-          pointerEvents="box-none"
-          style={[
-            StyleSheet.absoluteFill,
-            layout.tablet && { alignItems: 'center', justifyContent: 'center' },
-          ]}
+          style={{
+            position: 'absolute',
+            left: 20 + ins.left,
+            top: 16 + ins.top,
+            width: 42,
+            height: 42,
+            borderRadius: 21,
+            borderWidth: 1.5,
+            borderColor: C.brown,
+            backgroundColor: C.paper,
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
         >
-          <View style={[{ backgroundColor: C.paper, borderColor: C.brown }, card]}>
-            {!panel && !layout.tablet && (
+          <Txt tabletScale={1} style={{ fontSize: 28, lineHeight: 31 }}>
+            ‹
+          </Txt>
+        </Pressable>
+        {!scene && (
+          <View
+            style={[
+              gradient('linear-gradient(90deg, #B87848, #D19B61 50%, #B87848)'),
+              {
+                position: 'absolute',
+                top: 20 + ins.top,
+                alignSelf: 'center',
+                minWidth: 124,
+                height: 40,
+                borderWidth: 1.5,
+                borderColor: '#65462F',
+                borderRadius: 8,
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0px 3px 0px #65462F',
+              },
+            ]}
+          >
+            <Txt tabletScale={1} style={{ color: '#FFF7E7', fontSize: 17, lineHeight: 24 }}>
+              축음기
+            </Txt>
+          </View>
+        )}
+        <View
+          style={{
+            position: 'absolute',
+            left: (layout.width - panelWidth) / 2,
+            bottom: Math.max(18, ins.bottom + 8),
+            width: panelWidth,
+            height: layout.compact ? 210 : 226,
+            flexDirection: 'row',
+            alignItems: 'center',
+            gap: 12,
+            padding: 16,
+            borderWidth: 2,
+            borderColor: C.brown,
+            borderRadius: 14,
+            backgroundColor: '#9C6440',
+            boxShadow: '0px 7px 14px #3B291C66',
+          }}
+        >
+          {island.buildings.includes('gram') ? (
+            <>
               <View
                 style={{
-                  width: 40,
-                  height: 5,
-                  borderRadius: 3,
-                  backgroundColor: '#D9C6B8',
-                  alignSelf: 'center',
-                  marginBottom: 4,
-                }}
-              />
-            )}
-            {!scene && (
-              <View
-                style={{
-                  position: 'absolute',
-                  zIndex: 1,
-                  left: panel ? -62 : 18,
-                  top: panel ? 14 : -36,
-                  width: panel ? 76 : 92,
-                  height: panel ? 76 : 92,
-                  borderRadius: 46,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  backgroundColor: C.paper,
-                  boxShadow: '0px 4px 0px ' + C.brown,
+                  width: 128,
+                  height: 174,
                   alignItems: 'center',
-                  justifyContent: 'center',
-                  overflow: 'hidden',
-                }}
-              >
-                <Pic id="bld/gramophone" w={panel ? 58 : 72} />
-              </View>
-            )}
-            <View
-              style={[
-                k.row,
-                {
                   justifyContent: 'space-between',
-                  minHeight: panel ? 40 : 44,
-                  paddingLeft: panel ? 8 : scene ? 0 : 100,
-                },
-              ]}
-            >
-              <Txt style={st.h17}>축음기</Txt>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={island.playing ? '일시정지' : '재생'}
-                onPress={() => act('PLAY', { value: !island.playing })}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  backgroundColor: C.pink,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0px 3px 0px ' + C.brown,
                 }}
               >
-                <PlayIcon pause={island.playing} />
-              </Pressable>
-            </View>
-            <ScrollView
-              style={{ flexGrow: 0, flexShrink: 1 }}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              // 가로 패널: 왼쪽 열 보유 음원 · 오른쪽 열 음원 사기
-              contentContainerStyle={panel ? { flexDirection: 'row', gap: 16 } : { gap }}
-            >
-              <View style={{ flex: panel ? 1 : undefined, minWidth: 0, gap }}>
-                {/* 두 문장은 각각 한 줄로 두고, 좁으면 문장 단위로 줄을 바꾼다(웹 Text는 끝 공백을 남긴다) */}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                  <Txt kind="meta" style={st.meta}>
-                    {'주민 누구나 바꿀 수 있어요 · '}
+                <View
+                  accessibilityLabel={`${names[island.track]} 레코드판`}
+                  style={{
+                    width: 112,
+                    height: 112,
+                    borderRadius: 56,
+                    borderWidth: 6,
+                    borderColor: '#24211F',
+                    backgroundColor: '#342F2B',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}
+                >
+                  {[88, 68, 48].map((size) => (
+                    <View
+                      key={size}
+                      style={{
+                        position: 'absolute',
+                        width: size,
+                        height: size,
+                        borderRadius: size / 2,
+                        borderWidth: 4,
+                        borderColor: '#24211F',
+                      }}
+                    />
+                  ))}
+                  <View
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: 15,
+                      backgroundColor: C.pink,
+                      borderWidth: 2,
+                      borderColor: '#24211F',
+                    }}
+                  />
+                </View>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="재생"
+                    onPress={() => act('PLAY', { value: true })}
+                    style={{
+                      width: 60,
+                      height: 36,
+                      borderWidth: 1.5,
+                      borderColor: C.brown,
+                      borderRadius: 8,
+                      backgroundColor: C.pink,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0px 2px 0px ' + C.brown,
+                    }}
+                  >
+                    <PlayIcon />
+                  </Pressable>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="정지"
+                    onPress={() => act('PLAY', { value: false })}
+                    style={{
+                      width: 60,
+                      height: 36,
+                      borderWidth: 1.5,
+                      borderColor: C.brown,
+                      borderRadius: 8,
+                      backgroundColor: C.paper,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      boxShadow: '0px 2px 0px ' + C.brown,
+                    }}
+                  >
+                    <StopIcon />
+                  </Pressable>
+                </View>
+              </View>
+              <View style={{ flex: 1, minWidth: 0, height: 194, gap: 8 }}>
+                <View style={{ height: 36 }}>
+                  <Txt tabletScale={1} style={{ color: '#FFF7E7', fontSize: 19, lineHeight: 24 }}>
+                    {names[island.track]}
                   </Txt>
-                  <Txt kind="meta" style={st.meta}>
-                    같은 섬이 함께 들어요
+                  <Txt tabletScale={1} style={{ color: '#FFF0DB', fontSize: 11, lineHeight: 14 }}>
+                    {island.playing ? '재생 중' : '정지됨'}
                   </Txt>
                 </View>
-                {island.buildings.includes('gram') ? (
-                  <>
-                    <SheetGroup flat>
-                      {island.sharedOwned
-                        .filter((x) => names[x])
-                        .map((id) => (
-                          <SheetRow
-                            key={id}
-                            dense={panel}
-                            title={names[id]}
-                            lead={<MiniRadio on={island.track === id} />}
-                            tone={island.track === id ? 'on' : undefined}
-                            right={
-                              island.track === id && island.playing ? (
-                                <View style={[k.row, { gap: 6 }]}>
-                                  <Eq />
-                                  <Txt style={{ fontSize: 15, lineHeight: 21.75, color: C.muted }}>
-                                    재생 중
-                                  </Txt>
-                                </View>
-                              ) : undefined
-                            }
-                            onPress={() => setTrack(id)}
-                          />
-                        ))}
-                    </SheetGroup>
-                    <Txt kind="section" style={st.sec}>
-                      내 기기 음량
-                    </Txt>
-                    <Volume
-                      dense={panel}
-                      value={(state.settings as any).volume ?? 0.55}
-                      onChange={(value: number) => act('SETTING', { key: 'volume', value })}
-                    />
-                    <View style={[k.row, { minHeight: 44, paddingVertical: 6 }]}>
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <Txt style={{ fontSize: 16, lineHeight: 20.8, fontWeight: '600' }}>
-                          나만 음소거
+                <ScrollView
+                  style={{ flex: 1 }}
+                  contentContainerStyle={{ gap: 4, paddingRight: 4 }}
+                  showsVerticalScrollIndicator
+                >
+                  {trackIds.map((id) => {
+                    const owned = island.sharedOwned.includes(id);
+                    const product = audioProducts.find((item) => item.id === id);
+                    const selected = island.track === id;
+                    return (
+                      <Pressable
+                        key={id}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${names[id] ?? product?.title}${owned ? ', 보유' : `, ${product?.price}마리로 구매`}`}
+                        accessibilityState={{ selected }}
+                        onPress={() => selectTrack(id)}
+                        style={{
+                          minHeight: 34,
+                          paddingHorizontal: 10,
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          borderWidth: 1.25,
+                          borderColor: C.brown,
+                          borderRadius: 7,
+                          backgroundColor: selected ? C.pink : owned ? C.paper : C.butter,
+                        }}
+                      >
+                        <Txt tabletScale={1} style={{ fontSize: 11, lineHeight: 14 }}>
+                          {names[id] ?? product?.title}
                         </Txt>
-                        <Txt kind="meta" style={{ lineHeight: 17.55 }}>
-                          섬 재생은 그대로, 내 기기만 꺼요
+                        <Txt
+                          tabletScale={1}
+                          style={{ color: C.muted, fontSize: 9, lineHeight: 12 }}
+                        >
+                          {selected && island.playing
+                            ? '재생 중'
+                            : owned
+                              ? '보유'
+                              : `${product?.price}마리 · 구매`}
                         </Txt>
-                      </View>
-                      <Toggle
-                        label="나만 음소거"
-                        value={!state.settings.sound}
-                        onChange={(v: boolean) => act('SETTING', { key: 'sound', value: !v })}
-                      />
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <Txt>축음기를 먼저 지어 주세요.</Txt>
-                    <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
-                  </>
-                )}
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
               </View>
-              {!scene && island.buildings.includes('gram') && (
-                <View style={{ flex: panel ? 1 : undefined, minWidth: 0, gap }}>
-                  <View style={[k.row, { justifyContent: 'space-between' }]}>
-                    <Txt kind="section" style={[st.sec, { marginTop: 0 }]}>
-                      음원 사기
-                    </Txt>
-                    <Txt kind="meta" style={st.meta}>
-                      주민 누구나 섬 물고기로
-                    </Txt>
-                  </View>
-                  <SheetGroup flat>
-                    {sale.map((p) => (
-                      <SheetRow
-                        key={p.id}
-                        dense={panel}
-                        title={p.title}
-                        sub={island.sharedOwned.includes(p.id) ? '보유 중' : `${p.price}마리`}
-                        lead={
-                          <View
-                            style={{
-                              width: 36,
-                              height: 36,
-                              // 시안 .icobtn.sec에 .sec 여백이 겹쳐 들어가 행이 6px 높다
-                              marginTop: 6,
-                              borderRadius: 18,
-                              borderWidth: 2,
-                              borderColor: C.brown,
-                              backgroundColor: C.paper,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            <PlayIcon />
-                          </View>
-                        }
-                        chevron
-                        onPress={() => go('product', p.id)}
-                      />
-                    ))}
-                  </SheetGroup>
+            </>
+          ) : (
+            <View style={{ flex: 1, alignItems: 'center', gap: 12 }}>
+              <Txt style={{ color: '#FFF7E7' }}>축음기를 먼저 지어 주세요.</Txt>
+              <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
+            </View>
+          )}
+        </View>
+        {soundDialog && dialogProduct && (
+          <View
+            accessibilityViewIsModal
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: '#493B3966',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 24,
+              },
+            ]}
+          >
+            <View
+              style={{
+                width: Math.min(354, layout.width - 48),
+                borderWidth: 2,
+                borderColor: C.brown,
+                borderRadius: 22,
+                backgroundColor: C.paper,
+                padding: 20,
+                gap: 16,
+                boxShadow: '0px 6px 0px ' + C.brown,
+              }}
+            >
+              {soundDialog.kind === 'error' && (
+                <View
+                  style={{
+                    width: 50,
+                    height: 50,
+                    borderRadius: 25,
+                    alignSelf: 'center',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: C.butter,
+                  }}
+                >
+                  <Txt tabletScale={1} style={{ fontSize: 27, lineHeight: 32 }}>
+                    !
+                  </Txt>
                 </View>
               )}
-            </ScrollView>
+              <Txt style={{ fontSize: 20, lineHeight: 28, fontWeight: '700', textAlign: 'center' }}>
+                {soundDialog.kind === 'confirm'
+                  ? `${dialogProduct.title}를 구매할까요?`
+                  : soundDialog.kind === 'success'
+                    ? '구매했어요'
+                    : '물고기가 부족해요'}
+              </Txt>
+              {soundDialog.kind === 'confirm' && (
+                <Txt kind="meta" style={{ textAlign: 'center', lineHeight: 20 }}>
+                  구매한 곡은 같은 섬 주민 모두가 함께 들을 수 있어요.
+                </Txt>
+              )}
+              {soundDialog.kind === 'confirm' ? (
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <Btn
+                    title="취소"
+                    kind="glass"
+                    onPress={() => setSoundDialog(null)}
+                    style={{ flex: 1 }}
+                  />
+                  <Btn
+                    title={`${dialogProduct.price}마리로 구매`}
+                    onPress={buyTrack}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+              ) : (
+                <Btn
+                  title={soundDialog.kind === 'success' ? '지금 재생하기' : '확인'}
+                  onPress={() => {
+                    if (soundDialog.kind === 'success') setTrack(dialogProduct.id);
+                    setSoundDialog(null);
+                  }}
+                />
+              )}
+            </View>
           </View>
-        </View>
+        )}
       </View>
     );
   }

@@ -52,8 +52,12 @@ const pendingReq = (over: Record<string, unknown> = {}) => ({
 });
 
 // 실제 reducer 로 state 를 돌리고 api 목이 dispatch 까지 하게 만든다(App orchestration 축약본).
-function Harness({ route, api, expose, seed, bootError, detail: detailProp }: any) {
-  const [state, baseDispatch] = useReducer(reducer, undefined, () => initialState(false));
+function Harness({ route, api, expose, seed, initial, bootError, detail: detailProp }: any) {
+  const [state, baseDispatch] = useReducer(
+    reducer,
+    initial,
+    (value) => value ?? initialState(false),
+  );
   const actions = useRef<string[]>([]);
   const dispatch = useMemo(() => {
     const d = (a: any) => {
@@ -556,4 +560,35 @@ test('초대 코드가 없으면 resolve 오류를 코드별 문구로 보여준
   await fireEvent.changeText(s.getByLabelText('초대 코드'), 'WRONG');
   await fireEvent.press(s.getByLabelText('확인'));
   await waitFor(() => s.getByText('초대 코드를 다시 확인해 주세요.'));
+});
+
+test('축음기에서 판매곡을 구매한 뒤 바로 공용 재생한다', async () => {
+  let exposed: any;
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 10_000;
+  const s = await render(
+    <Harness route="sound" initial={state} expose={(value: any) => (exposed = value)} />,
+  );
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  s.getByText('빗방울 소리를 구매할까요?');
+  await fireEvent.press(s.getByText('30마리로 구매'));
+  s.getByText('구매했어요');
+  await fireEvent.press(s.getByText('지금 재생하기'));
+  assert.ok(exposed.actions.includes('BUY'));
+  assert.ok(exposed.actions.includes('TRACK'));
+});
+
+test('축음기 음원 구매 잔액이 부족하면 수량 없이 실패만 알린다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 0;
+  const s = await render(<Harness route="sound" initial={state} />);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  await fireEvent.press(s.getByText('30마리로 구매'));
+  s.getByText('물고기가 부족해요');
+  assert.equal(s.queryByText(/더 필요해요/), null);
+  assert.equal(s.queryByText(/지금 섬에는/), null);
 });

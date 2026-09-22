@@ -434,9 +434,9 @@ export const products: Product[] = [
   },
   {
     id: 'rain',
-    title: '오두막의 빗소리',
+    title: '빗방울 소리',
     kind: 'audio',
-    price: 150,
+    price: 30,
     currency: 'fish',
     description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
   },

@@ -194,7 +194,7 @@ test('목표 변경 시 계속 대상인 주민은 모은 양을 이어가고, �
 test('음원 구매로 잔액이 부족해지면 완료 상태가 없어지고 부족분만 다시 채운다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board', 'gram'];
-  currentIsland(s).fish = 2850;
+  currentIsland(s).fish = 2740;
   s = act(s, 'SELECT_BUILDING', { building: 'library' });
   const i = currentIsland(s);
   const share = buildingShare(i, 'library');
@@ -202,7 +202,7 @@ test('음원 구매로 잔액이 부족해지면 완료 상태가 없어지고 �
   for (const id of i.buildingQuest!.targets) i.earned![id] = (i.earned![id] ?? 0) + share;
   assert.ok(buildingReady(currentIsland(s)));
   s = act(s, 'BUY', { id: 'rain' });
-  assert.equal(balance(currentIsland(s)), 2700);
+  assert.equal(balance(currentIsland(s)), 2710);
   assert.ok(!buildingReady(currentIsland(s)));
   assert.equal(currentIsland(s).earned?.me, 320 + share);
   s = act(s, 'DEMO_CREDIT', { fish: 20 });
@@ -246,7 +246,7 @@ test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 �
     null,
   );
   s = act(s, 'BUY', { id: 'rain' });
-  assert.equal(balance(currentIsland(s)), 1050);
+  assert.equal(balance(currentIsland(s)), 1170);
   assert.deepEqual(act(s, 'BUY', { id: 'rain' }), s);
   s = act(s, 'TRACK', { value: 'rain' });
   s = act(s, 'SETTING', { key: 'sound', value: false });
