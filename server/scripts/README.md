@@ -217,3 +217,18 @@ aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod
 - 관측 스택만 멈출 때는 [관측 README의 stop 명령](../observability/README.md)을 사용합니다. 병합 구성의 `down`은 기본 앱·DB까지 내립니다.
 - 관리 포트 `9091`은 내부 수집용이며 호스트에 공개하지 않습니다.
 - 배포 준비·DB 권한·이관 회귀 검증 코드는 [`.github/scripts`](../../.github/scripts)에 있습니다.
+
+## 12. Dev 알림 Kafka 컷오버
+
+[`dev-notification-kafka-cutover.sh`](dev-notification-kafka-cutover.sh)는 사람이 수행해야 하는 dev
+컷오버를 8단계로 안내합니다. Kafka 기동, relay 재시도 정책 기록, Notification 소비자 준비,
+`notification-events`와 `notification-events.DLT`의 3파티션 검증, relay drain, 단방향 OUTBOX 전환을
+순서대로 확인합니다.
+
+```bash
+./server/scripts/dev-notification-kafka-cutover.sh
+```
+
+실행 기록은 기본적으로 gitignored `doc/dev-notification-cutover.env`에 0600으로 저장됩니다.
+스크립트는 Secrets Manager의 값을 자동 변경하거나 발송 gate를 열지 않습니다. 각 비가역 단계에서 사람이
+실제 상태를 확인하고 승인해야 다음 단계로 진행합니다.
