@@ -2859,7 +2859,9 @@ export function RedesignScreens({ e }: any) {
         {divider}
         <View style={{ gap: 10 }}>
           {head('phone', '스크린타임', <Txt kind="meta">오늘</Txt>)}
-          {state.settings.permission && state.settings.screenTimeMeasurementReady ? (
+          {state.settings.permission &&
+          state.settings.screenTimeMeasurementReady &&
+          (Platform.OS !== 'android' || state.settings.screenTimeMeasurementDay === dayKey(now)) ? (
             <>
               <Txt kind="meta">
                 {Platform.OS === 'android'
@@ -2908,16 +2910,26 @@ export function RedesignScreens({ e }: any) {
               >
                 <Txt kind="h17">
                   {state.settings.permission
-                    ? '측정할 앱을 선택해야 해요'
+                    ? Platform.OS === 'android'
+                      ? '오늘 사용 시간을 확인하고 있어요'
+                      : '측정할 앱을 선택해야 해요'
                     : '스크린타임 연결이 꺼져 있어요'}
                 </Txt>
                 <Txt kind="meta" style={{ textAlign: 'center' }}>
                   {state.settings.permission
-                    ? `측정할 앱이나 카테고리를 선택하면\n오늘 폰 사용 시간을 볼 수 있어요.`
+                    ? Platform.OS === 'android'
+                      ? '오늘 측정이 확인되면 사용 시간을 표시해요.'
+                      : `측정할 앱이나 카테고리를 선택하면\n오늘 폰 사용 시간을 볼 수 있어요.`
                     : `연결하면 오늘 폰 사용 시간을 여기서 볼 수 있어요.\n기록이 없는 것과 0분은 달라요.`}
                 </Txt>
                 <Btn
-                  title={state.settings.permission ? '측정 앱 선택하기' : '설정에서 켜기'}
+                  title={
+                    state.settings.permission
+                      ? Platform.OS === 'android'
+                        ? '측정 권한 확인하기'
+                        : '측정 앱 선택하기'
+                      : '설정에서 켜기'
+                  }
                   small
                   kind="sec"
                   style={{ marginTop: 4 }}

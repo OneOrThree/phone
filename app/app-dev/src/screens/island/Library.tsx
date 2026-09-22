@@ -1008,7 +1008,9 @@ function Diary({ e, font }: any) {
                         </Txt>
                         {Platform.OS === 'android' ? (
                           <Txt>
-                            {s.settings.permission && s.settings.screenTimeMeasurementReady
+                            {s.settings.permission &&
+                            s.settings.screenTimeMeasurementReady &&
+                            s.settings.screenTimeMeasurementDay === dayKey(e.now)
                               ? `${s.screenMinutes}분`
                               : '사용 시간을 확인하고 있어요'}
                           </Txt>
