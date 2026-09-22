@@ -166,6 +166,26 @@ test('records nextCursor 는 끝까지 이어서 합친다', async () => {
   );
 });
 
+test('이번 주 진입 조각의 nextCursor부터 나머지 기록을 이어 붙인다', async () => {
+  libMock.mockResolvedValue(lib({ focusStatistics: { ...FOCUS_ME, nextCursor: 'c2' } }));
+  focusMock.mockResolvedValue({
+    ...FOCUS_ME,
+    records: [
+      { id: 'r2', subject: '영어', activeSeconds: 60, completedAt: '2026-09-21T00:00:00Z' },
+    ],
+    nextCursor: null,
+  });
+  const { result } = await mount();
+
+  await waitFor(() => assert.equal(result.current.status, 'ready'));
+  assert.equal(focusMock.mock.calls.length, 1);
+  assert.equal(focusMock.mock.calls[0][1].cursor, 'c2');
+  assert.deepEqual(
+    result.current.focusMe?.records.map((r) => r.id),
+    ['r1', 'r2'],
+  );
+});
+
 test('월간 요약은 첫 페이지의 합계와 수열만 사용한다', async () => {
   libMock.mockResolvedValue(lib({ focusStatistics: null }));
   focusMock.mockResolvedValue({ ...FOCUS_ME, nextCursor: 'unused' });

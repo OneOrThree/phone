@@ -152,9 +152,17 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   const activeDay = period === '월' ? selectedDate : range.from;
   // 서버 records.activeSeconds는 요청 날짜와 겹친 기여분이다. 완료 날짜로 재필터하지 않는다.
   const dayRecords = server ? records : recordsOnDay(records, activeDay, false);
+  const resetScroll = () => scroll.current?.scrollTo({ y: 0, animated: false });
   const settings = () => e.go('permission');
   const close = () => e.back();
-  const back = () => (neighbors && memberId ? setMemberId(null) : close());
+  const back = () => {
+    if (neighbors && memberId) {
+      setMemberId(null);
+      resetScroll();
+      return;
+    }
+    close();
+  };
   const title = neighbors
     ? resident
       ? `${resident.name}의 일기장`
@@ -166,7 +174,6 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       : period === '주'
         ? `${shortDate(range.from)} – ${shortDate(range.to)}`
         : `${range.from.slice(0, 4)}년 ${Number(range.from.slice(5, 7))}월`;
-  const resetScroll = () => scroll.current?.scrollTo({ y: 0, animated: false });
   const changePeriod = (value: Period) => {
     setPeriod(value);
     setOffset(0);

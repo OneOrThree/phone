@@ -29,3 +29,22 @@ test('선택 주와 겹치는 세션만 한 번씩 센다', () => {
     'current',
   ]);
 });
+
+test('실제 구간이 자정을 넘으면 날짜 경계에서 시간 범위도 자른다', () => {
+  const start = Date.parse('2026-09-21T23:30:00+09:00');
+  const end = Date.parse('2026-09-22T00:30:00+09:00');
+  const record = {
+    id: 'interval-overnight',
+    subject: '영어',
+    seconds: 3600,
+    at: end,
+    intervals: [{ start, end }],
+  };
+
+  const previous = recordsOnDay([record], '2026-09-21', false)[0];
+  const next = recordsOnDay([record], '2026-09-22', false)[0];
+  expect(previous.seconds).toBe(1800);
+  expect(previous.intervals).toEqual([{ start, end: dateStart('2026-09-22', false) }]);
+  expect(next.seconds).toBe(1800);
+  expect(next.intervals).toEqual([{ start: dateStart('2026-09-22', false), end }]);
+});

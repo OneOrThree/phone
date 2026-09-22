@@ -181,7 +181,13 @@ export function useLibraryDiary({
             if (!(firstWeek && !lib.focusStatistics && missing.includes('focusStatistics'))) {
               const stats =
                 firstWeek && lib.focusStatistics
-                  ? lib.focusStatistics
+                  ? await collectFocus(
+                      lib.island.id,
+                      { ...range, scope: 'me' },
+                      stale,
+                      true,
+                      lib.focusStatistics,
+                    )
                   : await collectFocus(lib.island.id, { ...range, scope: 'me' }, stale);
               if (stale() || stats.scope !== 'me') return;
               setFocusMe(stats);
@@ -255,6 +261,7 @@ async function collectFocus(
   base: StatisticsQuery,
   stale: () => boolean,
   paginate = true,
+  initialPage?: FocusStatsMe | FocusStatsIsland,
 ): Promise<FocusStatsMe | FocusStatsIsland> {
   const fetchPage = (cursor?: string) => {
     const next = { ...base, ...(cursor ? { cursor } : {}) };
@@ -262,7 +269,7 @@ async function collectFocus(
       ? getFocusStatistics(islandId, { ...next, scope: 'me' })
       : getFocusStatistics(islandId, { ...next, scope: 'island' });
   };
-  let page = await fetchPage();
+  let page = initialPage ?? (await fetchPage());
   if (!paginate) return page;
   const pages = [page];
   let cursor = page.nextCursor;

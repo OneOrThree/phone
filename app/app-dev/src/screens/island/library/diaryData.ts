@@ -58,12 +58,16 @@ export function recordsOnDay(records: DiaryRecord[], key: string, utc: boolean) 
 export function recordsInRange(records: DiaryRecord[], from: number, until: number) {
   return records.flatMap((r) => {
     const intervals = r.intervals ?? [{ start: r.at - r.seconds * 1000, end: r.at }];
-    const seconds = intervals.reduce(
-      (sum, interval) =>
-        sum + Math.max(0, Math.min(interval.end, until) - Math.max(interval.start, from)) / 1000,
+    const clipped = intervals.flatMap((interval) => {
+      const start = Math.max(interval.start, from);
+      const end = Math.min(interval.end, until);
+      return start < end ? [{ start, end }] : [];
+    });
+    const seconds = clipped.reduce(
+      (sum, interval) => sum + (interval.end - interval.start) / 1000,
       0,
     );
-    return seconds > 0 ? [{ ...r, seconds }] : [];
+    return seconds > 0 ? [{ ...r, seconds, ...(r.intervals ? { intervals: clipped } : {}) }] : [];
   });
 }
 

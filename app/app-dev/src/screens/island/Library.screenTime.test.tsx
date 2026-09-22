@@ -1,5 +1,5 @@
 import React from 'react';
-import { Platform } from 'react-native';
+import { Platform, ScrollView } from 'react-native';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Library } from './Library';
 import { RedesignScreens } from './Screens';
@@ -67,6 +67,18 @@ test.each(['뒤로', '책 덮기'])('일기장의 %s는 기존 경로를 pop한�
   await fireEvent.press(screen.getByLabelText(label));
   expect(e.back).toHaveBeenCalledTimes(1);
   expect(e.go).not.toHaveBeenCalled();
+});
+
+test('이웃 상세에서 목록으로 돌아가면 스크롤을 맨 위로 초기화한다', async () => {
+  const scrollTo = jest.spyOn(ScrollView.prototype, 'scrollTo').mockImplementation(() => {});
+  const screen = await render(<Library e={environment({ neighbors: true })} />);
+  await fireEvent.press(screen.getByTestId('diary-member-minji'));
+  scrollTo.mockClear();
+
+  await fireEvent.press(screen.getByLabelText('뒤로'));
+  expect(scrollTo).toHaveBeenCalledWith({ y: 0, animated: false });
+  expect(screen.getByTestId('diary-member-minji')).toBeTruthy();
+  scrollTo.mockRestore();
 });
 
 test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 날은 시간대 미제공을 표시한다', async () => {
