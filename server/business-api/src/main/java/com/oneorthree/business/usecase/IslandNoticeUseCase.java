@@ -10,7 +10,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -70,7 +70,7 @@ public class IslandNoticeUseCase {
             // Data 의 bean 검증 거절 — 공개 경계가 먼저 거르므로 보통 닿지 않는다.
             Map.entry("INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null)));
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
     /** 목록 — 커서를 먼저 푸는 것은 위조·만료 커서로 상류를 두드리지 않기 위해서다. 인가는 매 쪽 Data 가 한다. */

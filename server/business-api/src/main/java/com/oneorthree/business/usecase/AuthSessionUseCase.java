@@ -8,7 +8,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
 import lombok.RequiredArgsConstructor;
@@ -53,7 +53,7 @@ public class AuthSessionUseCase {
             // 복구 창 종료·폐기·digest 키 교체. 답은 하나 — 새 제공자 인증.
             "LOGIN_ATTEMPT_UNUSABLE", new PublicFailure(ApiErrorCode.UNAUTHORIZED, null));
 
-    private final DataApiClient data;
+    private final DataAuthClient data;
     private final CredentialDigest digests;
 
     /**
@@ -84,7 +84,7 @@ public class AuthSessionUseCase {
         }
 
         return verified(relay(() -> data.executeLoginAttempt(
-                new DataApiClient.LoginAttemptCommand(
+                new DataAuthClient.LoginAttemptCommand(
                         credentials.attemptId(), keyId, digest, credential.providerEnumName(),
                         credential.kind(), credential.value(), termsVersion, credentials.accessToken(),
                         accountSwitchConfirmed),

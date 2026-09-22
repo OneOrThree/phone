@@ -9,7 +9,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataRecordsClient;
 import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandLedger;
 import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
@@ -68,7 +68,7 @@ public class IslandRecordsUseCase {
             Map.entry("SCREEN_TIME_INVALID_MEASUREMENT",
                     new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "measurementStatus")));
 
-    private final DataApiClient data;
+    private final DataRecordsClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
     /** 집중 통계 — scope=me 는 {@link MeFocus}, scope=island 는 {@link IslandFocus}. */

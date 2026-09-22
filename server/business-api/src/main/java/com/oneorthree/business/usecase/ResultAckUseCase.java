@@ -2,7 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataOutboxClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.ResultAckPrepareResult;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +49,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ResultAckUseCase {
 
-    private final DataApiClient dataApiClient;
+    private final DataOutboxClient dataApiClient;
     private final NotificationApiClient notificationApiClient;
 
     /**

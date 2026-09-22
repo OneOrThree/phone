@@ -5,7 +5,7 @@ import com.oneorthree.business.config.RequestEnvelopeFilter;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
@@ -153,10 +153,10 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
 
     @RestController
     static class ProbeController {
-        private final DataApiClient data;
+        private final DataAuthClient data;
         private final ScreenComposer composer;
 
-        ProbeController(DataApiClient data, ScreenComposer composer) {
+        ProbeController(DataAuthClient data, ScreenComposer composer) {
             this.data = data;
             this.composer = composer;
         }

@@ -9,7 +9,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.IslandManaged;
 import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
@@ -90,7 +90,7 @@ public class IslandManagementUseCase {
             Map.entry("HOST_WITHDRAW", new PublicFailure(400, ApiErrorCode.STATE_CONFLICT, null)),
             Map.entry("SESSION_IN_PROGRESS", new PublicFailure(409, ApiErrorCode.STATE_CONFLICT, null)));
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
     /** 섬 정보 수정 (LLD §3.1). {@code fields} 는 앱이 보낸 키만 담는다 — 부재가 «미변경» 이다. */

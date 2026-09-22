@@ -2,7 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.SessionRefresh;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -24,7 +24,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class SessionRefreshUseCase {
 
-    private final DataApiClient data;
+    private final DataAuthClient data;
 
     /**
      * <p>상류 실패를 <b>손으로 옮겨 적지 않는다</b>. Data 의 {@code 401 REFRESH_TOKEN} ·

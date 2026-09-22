@@ -69,6 +69,14 @@ cd server/business-api
 > refresh 회전 · logout · 최초 로그인 RT 2단계 · 소셜 선택적 인증)과 그 밖의 패스스루는 **아직 Data
 > API 에 남아 있다.** 전환 기간에 이 서비스는 legacy issuer 가 서명한 AT 를 **검증만** 한다.
 
+Data 상류 호출은 `upstream/data/` 의 도메인별 client가 나눠 담당한다 — `DataAuthClient`(인증·계정·
+세션 확인), `DataFocusClient`(집중 세션), `DataIslandClient`(섬 소속·관리·게시판·우체통·방장 이전),
+`DataFriendClient`(친구·차단·편지), `DataShopClient`, `DataAppearanceClient`(인벤토리·외양·재생),
+`DataQuestClient`, `DataConstructionClient`, `DataRecordsClient`(통계·가계부·랭킹·스크린타임),
+`DataInviteClient`(초대·claim 재개·frozen 후보), `DataOutboxClient`(내구 명령·결과 claim/ack).
+모두 `UpstreamClientConfig`가 만드는 **같은 Data `InternalHttpClient` 하나**를 공유하므로
+연결·worker 풀과 close 책임은 하나다. use case는 자기 도메인의 client만 받는다.
+
 ## 새 공통 계층을 처음 읽는 개발자에게 (GROMO-1751~1753)
 
 앱이 주문서를 내면 Business는 신원을 확인하고 답장을 같은 봉투에 넣는다. Data는 주문서 번호와
@@ -881,7 +889,7 @@ Authorization도 최대 하나만 받으며 있다면 `Bearer <AT>` 형식이다
 
 Business는 RT의 서명이나 폐기 상태를 추정하지 않는다. 내부 요청의 `refreshToken`과 `accessToken`에
 원 토큰을 넣고, 대상별 서비스 토큰으로 Data를 호출한다. AT를 함께 보내더라도 `X-User-Id`는 붙이지
-않으며 Data가 자격에서 사용자를 직접 확인한다. `DataApiClient.logoutSession`의
+않으며 Data가 자격에서 사용자를 직접 확인한다. `DataAuthClient.logoutSession`의
 `endUserAuthErrors()`는 정확한 내부 POST 로그아웃 경로만 허용한다. 해당 호출의 구조화된
 `401 REFRESH_TOKEN`과 `401 UNAUTHORIZED`만 사용자 401로 전달한다. 서비스 토큰 거절이나 코드 없는
 401은 `502 UPSTREAM_AUTH_FAILED`다. 탈퇴 사용자는 `404 USER_NOT_FOUND`로 안내한다.
