@@ -439,6 +439,7 @@ export function Field({
   inputStyle,
   placeholderColor,
   tabletScale,
+  disabled = false,
 }: any) {
   return (
     <View style={{ gap: 6 }}>
@@ -454,6 +455,7 @@ export function Field({
         accessibilityLabel={label || placeholder}
         value={String(value ?? '')}
         onChangeText={onChange}
+        editable={!disabled}
         placeholder={placeholder}
         placeholderTextColor={placeholderColor || componentTokens.input.placeholder}
         multiline={multiline}
