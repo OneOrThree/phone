@@ -68,7 +68,7 @@ final class ScreenTimeReportUIView: UIView {
         } ?? false
 
         let content: AnyView
-        if AuthorizationCenter.shared.authorizationStatus != .approved {
+        if !ScreenTimeModule.isAuthorized {
             content = message("스크린타임 연결이 꺼져 있어요")
         } else if !hasSelection {
             content = message("측정할 앱을 선택해야 해요")
