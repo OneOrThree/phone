@@ -17,6 +17,13 @@ import { initialState } from '@/services/model';
 import { Board, type Concept } from '@/screens/interiors/BuildingInteriors';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 
+import {
+  claimQuest as postClaim,
+  createQuest as postQuest,
+  getQuestProgress,
+  updateQuest as patchQuest,
+} from '@/services/api/quests';
+
 jest.mock('@/services/api/notices', () => ({
   getBoard: jest.fn(),
   listNotices: jest.fn(),
@@ -26,15 +33,71 @@ jest.mock('@/services/api/notices', () => ({
   deleteNotice: jest.fn(),
   createNoticeComment: jest.fn(),
 }));
+jest.mock('@/services/api/quests', () => ({
+  getCurrentQuests: jest.fn(),
+  getQuestProgress: jest.fn(),
+  createQuest: jest.fn(),
+  updateQuest: jest.fn(),
+  claimQuest: jest.fn(),
+}));
 
 const ISLAND = 'island-1';
 const page = (
   items: { id: string; title: string; commentCount?: number }[],
   nextCursor: string | null = null,
   role: 'host' | 'member' = 'host',
+  quests: Record<string, unknown>[] = [],
 ) => ({
   island: { id: ISLAND, name: '소다 섬', role },
+  quests: { items: quests },
   notices: { items: items.map((i) => ({ commentCount: 0, ...i })), nextCursor },
+  wallets: { fish: 0, villagePoints: 50, fishVersion: null, villagePointsVersion: 1 },
+});
+
+const questItem = (over: Record<string, unknown> = {}) => ({
+  id: 'q1',
+  occurrenceId: 'occ-1',
+  title: '저녁 집중',
+  type: 'focus',
+  windowStart: '19:00',
+  windowEnd: '22:00',
+  timezone: 'UTC',
+  date: '2026-09-21',
+  targetMinutes: 50,
+  myRate: 64,
+  reward: { currency: 'village_points', amount: 10 },
+  settlementStatus: 'open',
+  claimable: false,
+  claimBlockedReason: 'NOT_ACHIEVED',
+  claimed: false,
+  bonusAmount: 20,
+  bonusGranted: false,
+  version: 3,
+  ...over,
+});
+
+const questProgress = (over: Record<string, unknown> = {}) => ({
+  ...questItem(),
+  members: [
+    {
+      userId: 'u1',
+      name: '나',
+      rate: 100,
+      measurementStatus: 'measured',
+      achieved: true,
+      claimed: false,
+    },
+    {
+      userId: 'u2',
+      name: null,
+      rate: null,
+      measurementStatus: 'unavailable',
+      achieved: false,
+      claimed: false,
+    },
+  ],
+  nextCursor: null,
+  ...over,
 });
 const detail = (
   id: string,
@@ -62,6 +125,10 @@ const postNoticeMock = postNotice as jest.Mock;
 const patchNoticeMock = patchNotice as jest.Mock;
 const delNoticeMock = delNotice as jest.Mock;
 const postCommentMock = postComment as jest.Mock;
+const getQuestProgressMock = getQuestProgress as jest.Mock;
+const postQuestMock = postQuest as jest.Mock;
+const patchQuestMock = patchQuest as jest.Mock;
+const postClaimMock = postClaim as jest.Mock;
 
 /** App.tsx 가 넘기는 라우트 문맥의 최소 복제 — go/back 이 e 를 바꾸고 _tick 으로 리렌더한다. */
 const makeE = (over: Record<string, unknown> = {}) => {
@@ -106,8 +173,14 @@ const makeE = (over: Record<string, unknown> = {}) => {
       e.body = v;
       e._tick();
     }),
-    setWindowStart: jest.fn(),
-    setWindowEnd: jest.fn(),
+    setWindowStart: jest.fn((v: string) => {
+      e.windowStart = v;
+      e._tick();
+    }),
+    setWindowEnd: jest.fn((v: string) => {
+      e.windowEnd = v;
+      e._tick();
+    }),
     dispatch: jest.fn(),
     setFailNext: jest.fn((v: boolean) => {
       e.failNext = v;
@@ -722,5 +795,293 @@ test('삭제 진행 중 확인창을 취소하면 — 옛 삭제 성공이 back 
   assert.equal(e.back.mock.calls.length, 0);
   await waitFor(() => assert.ok(screen.getByText('삭제됐거나 더 이상 볼 수 없는 공지예요.')));
   assert.equal(screen.queryByText('불러오는 중…'), null);
+  await screen.unmount();
+});
+
+test('퀘스트 목록 — getBoard 의 회차 헤더를 그린다(내 달성률·수령 가능 표시)', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [
+      questItem({ claimable: true, claimBlockedReason: null }),
+      questItem({
+        id: 'q2',
+        occurrenceId: 'occ-2',
+        title: '폰 줄이기',
+        type: 'screen',
+        myRate: null,
+      }),
+    ]),
+  );
+  const screen = await renderBoard(makeE({ tab: '퀘스트' }));
+
+  await waitFor(() => assert.ok(screen.getByText('저녁 집중')));
+  assert.ok(screen.getByText('64%'));
+  assert.ok(screen.getByText(/보상 받을 수 있어요 · 10마리/));
+  // 미집계(rate null)는 0% 가 아니라 '측정 전' 이다.
+  assert.ok(screen.getByText('측정 전'));
+  assert.ok(screen.getByText('하루 폰 사용 50분 이하'));
+  await screen.unmount();
+});
+
+test('퀘스트 목록 — 같은 정의의 여러 회차를 occurrenceId로 라우팅한다', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [
+      questItem({ occurrenceId: 'occ-yesterday', date: '2026-09-20' }),
+      questItem({ occurrenceId: 'occ-today', date: '2026-09-21' }),
+    ]),
+  );
+  const e = makeE({ tab: '퀘스트' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-detail-1')));
+
+  await fireEvent.press(screen.getByTestId('board-quest-detail-1'));
+
+  assert.deepEqual([...e.go.mock.calls[0]], ['quest', 'occ-today']);
+  await screen.unmount();
+});
+
+test('퀘스트 상세 — progress 의 주민 목록을 그리고 수령 버튼은 claims API 를 부른다', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [questItem({ claimable: true, claimBlockedReason: null })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByText(/· 달성/)));
+  assert.ok(screen.getByText('측정 전'));
+  assert.ok(screen.getByText('주민')); // name null → 자리표시자
+  assert.deepEqual([...getQuestProgressMock.mock.calls[0]], [ISLAND, 'q1', 'occ-1']);
+
+  postClaimMock.mockResolvedValue({
+    claimId: 'c1',
+    occurrenceId: 'occ-1',
+    villagePointsAdded: 10,
+    bonusAdded: 0,
+    claimed: true,
+  });
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [questItem({ claimable: false, claimed: true })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress({ claimed: true }));
+
+  await fireEvent.press(screen.getByTestId('board-quest-claim'));
+  await waitFor(() => assert.ok(screen.getByText('내 몫은 이미 받았어요.')));
+  assert.deepEqual([...postClaimMock.mock.calls[0]].slice(0, 3), [
+    ISLAND,
+    'q1',
+    { occurrenceId: 'occ-1', expectedVersion: 3 },
+  ]);
+  // 로컬 CLAIM/지갑 가산은 없다 — 갱신은 getBoard 재조회가 맡는다.
+  assert.equal(e.dispatch.mock.calls.filter((c: any[]) => c[0]?.type === 'CLAIM').length, 0);
+  await screen.unmount();
+});
+
+test('퀘스트 상세 — 수령 불가 사유를 서버 코드 그대로 번역해 보여 준다', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'member', [questItem({ claimBlockedReason: 'MEASUREMENT_PENDING' })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const screen = await renderBoard(makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' }));
+
+  await waitFor(() => assert.ok(screen.getByText('측정이 끝나야 보상을 받을 수 있어요.')));
+  assert.equal(screen.queryByTestId('board-quest-claim'), null);
+  await screen.unmount();
+});
+
+test('퀘스트 상세 — 수령 실패(409)는 문구를 띄우고 목록을 새 버전으로 다시 읽는다', async () => {
+  getBoardMock.mockResolvedValue(
+    page([], null, 'host', [questItem({ claimable: true, claimBlockedReason: null })]),
+  );
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-claim')));
+
+  postClaimMock.mockRejectedValueOnce(
+    new ApiError('VERSION_CONFLICT', '다른 기기에서 먼저 바뀌었습니다.', 409),
+  );
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem({ version: 5 })]));
+  await fireEvent.press(screen.getByTestId('board-quest-claim'));
+  await waitFor(() => assert.ok(screen.getByText('다른 기기에서 먼저 바뀌었습니다.')));
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 2));
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — POST 에 허용 키만 싣고 24:00 은 23:59 로 내린다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'q9', title: '저녁 집중' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'focus',
+    text: '저녁 집중',
+    windowStart: '19:00',
+    windowEnd: '24:00',
+  });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-title')));
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '50');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '저녁 집중',
+    type: 'focus',
+    targetMinutes: 50,
+    windowStart: '19:00',
+    windowEnd: '23:59',
+    timezone: 'UTC',
+  });
+  await waitFor(() => assert.equal(e.back.mock.calls.length > 0, true));
+  // 로컬 QUEST_SAVE 는 호출되지 않는다.
+  assert.equal(e.dispatch.mock.calls.filter((c: any[]) => c[0]?.type === 'QUEST_SAVE').length, 0);
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 24:00은 실제 전송 시각 23:59 기준으로 목표를 검증한다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'focus',
+    text: '자정 집중',
+    windowStart: '23:00',
+    windowEnd: '24:00',
+  });
+  const screen = await renderBoard(e);
+
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '60');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  assert.equal(postQuestMock.mock.calls.length, 0);
+  assert.ok(screen.getByText('목표 집중 시간은 진행 시간 안으로 정해주세요.'));
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — screen 은 창 필드 없이 간다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'q9', title: '폰 줄이기' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'screen',
+    text: '폰 줄이기',
+  });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '90');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '폰 줄이기',
+    type: 'screen',
+    targetMinutes: 90,
+  });
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — screen 목표 0분을 허용한다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockResolvedValue({ id: 'q0', title: '폰 안 쓰기' });
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'screen',
+    text: '폰 안 쓰기',
+  });
+  const screen = await renderBoard(e);
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '0');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(postQuestMock.mock.calls.length, 1));
+  assert.deepEqual(postQuestMock.mock.calls[0][1], {
+    title: '폰 안 쓰기',
+    type: 'screen',
+    targetMinutes: 0,
+  });
+  await screen.unmount();
+});
+
+test('퀘스트 저장 중 바꾼 초안은 이전 요청 성공 후에도 닫히지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  const slow = deferred<{ id: string; title: string }>();
+  postQuestMock.mockReturnValue(slow.promise);
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'screen',
+    text: '폰 줄이기',
+  });
+  const screen = await renderBoard(e);
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '30');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+  await fireEvent.changeText(screen.getByTestId('board-quest-title'), '수정한 초안');
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '20');
+
+  await act(async () => {
+    slow.resolve({ id: 'q1', title: '폰 줄이기' });
+  });
+
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length >= 2, true));
+  assert.equal(e.back.mock.calls.length, 0);
+  assert.equal(e.text, '수정한 초안');
+  assert.equal((screen.getByTestId('board-quest-target') as any).props.value, '20');
+  await screen.unmount();
+});
+
+test('퀘스트 수정 — PATCH 에 title/targetMinutes 만 싣는다(창·종류 필드는 읽기 전용)', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', [questItem()]));
+  getQuestProgressMock.mockResolvedValue(questProgress());
+  patchQuestMock.mockResolvedValue({ id: 'q1', title: '저녁 집중', targetMinutes: 60 });
+  const e = makeE({ route: 'quest', detail: 'occ-1', tab: '퀘스트' });
+  const screen = await renderBoard(e);
+
+  // 실제 진입은 상세의 수정 버튼이다 — 초안과 목표 분을 서버 목록 값으로 채운다.
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-edit')));
+  await act(async () => {
+    await fireEvent.press(screen.getByTestId('board-quest-edit'));
+  });
+
+  await waitFor(() =>
+    assert.ok(screen.getByText('종류·진행 시간은 바꿀 수 없어요. 수정은 다음 회차부터 적용돼요.')),
+  );
+  assert.equal(screen.queryByTestId('board-quest-type'), null);
+  assert.equal(screen.queryByTestId('board-quest-start'), null);
+  // 목표 분은 서버 목록의 targetMinutes 로 미리 채워진다.
+  assert.equal((screen.getByTestId('board-quest-target') as any).props.value, '50');
+
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '60');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.equal(patchQuestMock.mock.calls.length, 1));
+  assert.deepEqual([...patchQuestMock.mock.calls[0]].slice(0, 3), [
+    ISLAND,
+    'q1',
+    { title: '저녁 집중', targetMinutes: 60 },
+  ]);
+  await screen.unmount();
+});
+
+test('퀘스트 만들기 — 서버 실패 시 초안·문구를 보존하고 뒤로 가지 않는다', async () => {
+  getBoardMock.mockResolvedValue(page([], null, 'host', []));
+  postQuestMock.mockRejectedValue(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
+  const e = makeE({
+    route: 'questEdit',
+    tab: '퀘스트',
+    body: 'focus',
+    text: '저녁 집중',
+    windowStart: '19:00',
+    windowEnd: '22:00',
+  });
+  const screen = await renderBoard(e);
+  await waitFor(() => assert.ok(screen.getByTestId('board-quest-target')));
+  await fireEvent.changeText(screen.getByTestId('board-quest-target'), '50');
+  await fireEvent.press(screen.getByTestId('board-quest-save'));
+
+  await waitFor(() => assert.ok(screen.getByText('권한이 없습니다.')));
+  assert.equal(e.back.mock.calls.length, 0);
+  assert.equal(e.text, '저녁 집중');
   await screen.unmount();
 });

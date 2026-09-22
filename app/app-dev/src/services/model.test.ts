@@ -505,6 +505,64 @@ test('친구 수락·거절 후 재신청·보낸 요청 취소·친구 삭제·
   r = act(r, 'FRIEND_REQUEST', { id: 'haneul' });
   assert.equal(r.friends?.find((f) => f.id === 'haneul')?.status, 'sent');
 });
+test('서버 친구 스냅샷은 공용 친구 상태를 교체하되 기존 편지는 보존한다', () => {
+  let s = initialState(true);
+  s.friends!.find((friend) => friend.id === 'saebom')!.messages.push({
+    id: 'letter',
+    memberId: 'saebom',
+    name: '새봄',
+    color: 'white',
+    text: '보존할 편지',
+    at: 1,
+    status: 'sent',
+  });
+
+  s = act(s, 'FRIENDS_SYNC', {
+    friends: [
+      {
+        id: 'saebom',
+        name: '새봄',
+        color: 'white',
+        island: '서버 섬',
+        status: 'friend',
+        messages: [],
+      },
+      {
+        id: 'new-request',
+        name: '신규 요청',
+        color: 'white',
+        island: '',
+        status: 'received',
+        messages: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    s.friends?.map((friend) => [friend.id, friend.status]),
+    [
+      ['saebom', 'friend'],
+      ['new-request', 'received'],
+    ],
+  );
+  assert.equal(s.friends?.[0].island, '서버 섬');
+  assert.equal(s.friends?.[0].messages[0]?.id, 'letter');
+
+  s = act(s, 'FRIENDS_SYNC', {
+    friends: [
+      {
+        id: 'saebom',
+        name: '새봄',
+        color: 'white',
+        island: '',
+        status: 'received',
+        messages: [],
+      },
+    ],
+  });
+  assert.equal(s.friends?.[0].status, 'received');
+  assert.deepEqual(s.friends?.[0].messages, []);
+});
 test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', () => {
   let s = initialState(true);
   s.friends!.find((f) => f.id === 'saebom')!.messages.push({
@@ -1900,6 +1958,25 @@ const req = (id: string, islandId: string, status = 'pending') => ({
   memberCount: 2,
   maxMembers: 15,
   createdAt: '2026-09-21T00:00:00Z',
+});
+
+test('SERVER_VILLAGE_POINTS — 서버 정본으로 교체하고 느진 버전은 버린다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  s = act(s, 'SERVER_VILLAGE_POINTS', {
+    islandId: island.id,
+    value: 77,
+    version: 4,
+  });
+  assert.equal(balance(currentIsland(s)), 77);
+  assert.equal(currentIsland(s).villagePointsVersion, 4);
+
+  s = act(s, 'SERVER_VILLAGE_POINTS', {
+    islandId: island.id,
+    value: 10,
+    version: 3,
+  });
+  assert.equal(balance(currentIsland(s)), 77);
 });
 
 test('ISLAND_SYNC — memberships가 정본이다: onboarded·current 반영, 로컬 fixture 소속을 만들지 않는다', () => {

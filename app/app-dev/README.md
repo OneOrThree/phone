@@ -89,3 +89,15 @@ cd ios
 ```
 
 스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Fishcat 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.
+
+## Android 스크린타임
+
+`modules/screen-time`은 1.x의 UsageStatsManager 계산기를 이식한 로컬 Expo 모듈입니다. Expo Go에서는 사용할 수 없으며 네이티브 개발 빌드가 필요합니다.
+
+- `src/services/ScreenTimeModule.ts`: Android Expo 모듈과 기존 iOS RN 브리지 선택.
+- `src/services/screentimeSync.ts`: 시작·복귀·자정·활성 상태 1분 간격으로 오늘/어제 값을 동기화하며, 호출 직렬화와 로컬 보존으로 관측값 감소를 방지합니다. 날짜는 2.0 퀘스트와 같은 KST입니다.
+- 첫 측정 이전 날짜는 소급하지 않습니다. 마지막 관측일부터 어제 이전까지의 공백과 권한 철회 구간은 미확인으로 보존합니다. 오늘의 승인된 0분과 조회 실패는 구분합니다.
+- 전체 앱 사용량만 연결합니다. Android 앱 잠금과 기존 1.x 서버 업로드 API는 연결하지 않습니다. 기존 계산기의 일별 통계 폴백은 근사값이며 기기 설정의 총합과 차이가 날 수 있습니다.
+- 모듈 namespace는 `com.oneorthree.gromo.screentime`이며 실제 권한 검사는 `context.packageName`을 사용합니다. 앱 applicationId 변경과 독립적입니다.
+
+검증은 `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm test -- --runInBand`, `android/`의 `./gradlew :app:compileDebugKotlin`으로 수행합니다. 기기에서는 설정 → 측정 권한 → 사용 정보 접근 허용/철회 후 복귀, 다른 앱 사용 후 내 일기장 갱신, 자정 후 어제 기록을 확인합니다.
