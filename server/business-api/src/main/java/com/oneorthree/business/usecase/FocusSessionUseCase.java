@@ -6,7 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataFocusClient;
 import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
@@ -58,7 +58,7 @@ public class FocusSessionUseCase {
             Map.entry("SUMMARY_DATE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "date")),
             Map.entry("INVALID_SUMMARY_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")));
 
-    private final DataApiClient data;
+    private final DataFocusClient data;
 
     public FocusSessionState start(AccessTokenClaims claims, UUID islandId, String subject, Integer targetMinutes,
             UUID key, Deadline deadline) {

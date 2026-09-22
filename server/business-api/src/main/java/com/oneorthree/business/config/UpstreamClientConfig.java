@@ -6,6 +6,8 @@ import jakarta.annotation.PreDestroy;
 import com.oneorthree.business.common.http.UpstreamProperties;
 import com.oneorthree.business.common.http.UpstreamTarget;
 import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
+import com.oneorthree.business.upstream.data.DataFocusClient;
 import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.realtime.RealtimeApiClient;
@@ -35,6 +37,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public class UpstreamClientConfig {
 
     private final Queue<InternalHttpClient> ownedClients = new ConcurrentLinkedQueue<>();
+    /** 도메인별 Data 클라이언트가 나눠 쓰는 유일한 DATA 풀 — 첫 bean 이 만들고 나머지가 재사용한다. */
+    private InternalHttpClient dataHttp;
 
     public UpstreamClientConfig(UpstreamConfigProperties properties) {
         properties.validateWorkerBudget();
@@ -72,10 +76,26 @@ public class UpstreamClientConfig {
         }
     }
 
+    private InternalHttpClient dataHttp(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        if (dataHttp == null) {
+            dataHttp = client(UpstreamTarget.DATA, convert(properties.getData()), objectMapper);
+        }
+        return dataHttp;
+    }
+
     @Bean
     public DataApiClient dataApiClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
-        return new DataApiClient(
-                client(UpstreamTarget.DATA, convert(properties.getData()), objectMapper));
+        return new DataApiClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataAuthClient dataAuthClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataAuthClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataFocusClient dataFocusClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataFocusClient(dataHttp(properties, objectMapper));
     }
 
     @Bean
