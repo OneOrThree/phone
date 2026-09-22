@@ -1,0 +1,44 @@
+{
+  "title": "GROMO dev 서버 아키텍처",
+  "description": "dev 서버의 서비스, Docker, Kafka, Redis, APM, 로그와 GCP 리소스를 한곳에서 탐색하는 운영 시작점. GROMO-2065.",
+  "layout_type": "ordered",
+  "reflow_type": "fixed",
+  "template_variables": [
+    { "name": "env", "prefix": "env", "available_values": ["dev"], "default": "dev" }
+  ],
+  "widgets": [
+    {
+      "layout": { "x": 0, "y": 0, "width": 12, "height": 3 },
+      "definition": {
+        "type": "note",
+        "content": "## GROMO dev 아키텍처\n\n[앱/API → APM Service Map](https://us5.datadoghq.com/apm/map?env=dev)　→　[Kafka broker](https://us5.datadoghq.com/integrations/kafka)　→　[Notification](https://us5.datadoghq.com/apm/services?query=env%3Adev%20service%3Agromo-notification-dev)\n\nData API · Business API · Realtime　↔　[공유/Business Redis](https://us5.datadoghq.com/integrations/redisdb)\n\n[GCP VM·Cloud Resources](https://us5.datadoghq.com/cloud-maps)　│　[Docker Containers](https://us5.datadoghq.com/containers?query=env%3Adev)　│　[Container Images](https://us5.datadoghq.com/containers/images)　│　[전체 dev 로그](https://us5.datadoghq.com/logs?query=env%3Adev)",
+        "background_color": "blue", "font_size": "16", "text_align": "center", "vertical_align": "center", "show_tick": false, "tick_pos": "50%", "tick_edge": "left"
+      }
+    },
+    {
+      "layout": { "x": 0, "y": 3, "width": 12, "height": 2 },
+      "definition": {
+        "type": "note",
+        "content": "### 바로가기\n[Containers Explorer](https://us5.datadoghq.com/containers?query=env%3Adev) · [Images Explorer](https://us5.datadoghq.com/containers/images) · [APM Services](https://us5.datadoghq.com/apm/services?query=env%3Adev) · [Kafka Consumer](https://us5.datadoghq.com/integrations/kafka-consumer) · [Redis](https://us5.datadoghq.com/integrations/redisdb) · [Metrics Explorer](https://us5.datadoghq.com/metric/explorer) · [Logs](https://us5.datadoghq.com/logs?query=env%3Adev)",
+        "background_color": "gray", "font_size": "14", "text_align": "center", "vertical_align": "center", "show_tick": false, "tick_pos": "50%", "tick_edge": "left"
+      }
+    },
+    { "layout": { "x": 0, "y": 5, "width": 4, "height": 3 }, "definition": { "title": "컨테이너 CPU (service별)", "type": "timeseries", "requests": [{ "q": "avg:docker.cpu.usage{$env} by {service}", "display_type": "line" }], "show_legend": true } },
+    { "layout": { "x": 4, "y": 5, "width": 4, "height": 3 }, "definition": { "title": "컨테이너 메모리 RSS (service별)", "type": "timeseries", "requests": [{ "q": "avg:docker.mem.rss{$env} by {service}", "display_type": "line" }], "show_legend": true } },
+    { "layout": { "x": 8, "y": 5, "width": 4, "height": 3 }, "definition": { "title": "컨테이너 네트워크 수신 (service별)", "type": "timeseries", "requests": [{ "q": "sum:docker.net.bytes_rcvd{$env} by {service}.as_rate()", "display_type": "line" }], "show_legend": true } },
+    { "layout": { "x": 0, "y": 8, "width": 4, "height": 3 }, "definition": { "title": "Kafka 메시지 유입률", "type": "timeseries", "requests": [{ "q": "sum:kafka.net.messages_in.rate{kafka_cluster:gromo-dev,$env}", "display_type": "bars" }], "show_legend": true } },
+    { "layout": { "x": 4, "y": 8, "width": 4, "height": 3 }, "definition": { "title": "Kafka consumer lag", "type": "timeseries", "requests": [{ "q": "max:kafka.consumer_lag{kafka_cluster:gromo-dev,$env} by {consumer_group,topic}", "display_type": "line" }], "show_legend": true } },
+    { "layout": { "x": 8, "y": 8, "width": 4, "height": 3 }, "definition": { "title": "Kafka broker bytes in/out", "type": "timeseries", "requests": [{ "q": "sum:kafka.net.bytes_in.rate{kafka_cluster:gromo-dev,$env}", "display_type": "line" }, { "q": "sum:kafka.net.bytes_out.rate{kafka_cluster:gromo-dev,$env}", "display_type": "line" }], "show_legend": true } },
+    { "layout": { "x": 0, "y": 11, "width": 4, "height": 3 }, "definition": { "title": "Redis 메모리 사용량", "type": "timeseries", "requests": [{ "q": "avg:redis.mem.used{$env} by {redis_instance}", "display_type": "line" }], "show_legend": true } },
+    { "layout": { "x": 4, "y": 11, "width": 4, "height": 3 }, "definition": { "title": "Redis 연결 수", "type": "timeseries", "requests": [{ "q": "avg:redis.net.clients{$env} by {redis_instance}", "display_type": "line" }], "show_legend": true } },
+    { "layout": { "x": 8, "y": 11, "width": 4, "height": 3 }, "definition": { "title": "Redis hit/miss/eviction", "type": "timeseries", "requests": [{ "q": "sum:redis.stats.keyspace_hits{$env} by {redis_instance}.as_rate()", "display_type": "line" }, { "q": "sum:redis.stats.keyspace_misses{$env} by {redis_instance}.as_rate()", "display_type": "line" }, { "q": "sum:redis.stats.evicted_keys{$env} by {redis_instance}.as_rate()", "display_type": "bars" }], "show_legend": true } },
+    {
+      "layout": { "x": 0, "y": 14, "width": 12, "height": 2 },
+      "definition": {
+        "type": "note",
+        "content": "### 상세 조사\n[Data API APM](https://us5.datadoghq.com/apm/services?query=env%3Adev%20service%3Agromo-back-dev) · [Business API APM](https://us5.datadoghq.com/apm/services?query=env%3Adev%20service%3Agromo-business-dev) · [Notification APM](https://us5.datadoghq.com/apm/services?query=env%3Adev%20service%3Agromo-notification-dev) · [Realtime APM](https://us5.datadoghq.com/apm/services?query=env%3Adev%20service%3Agromo-realtime-dev) · [Kafka 로그](https://us5.datadoghq.com/logs?query=env%3Adev%20service%3Agromo-kafka-dev) · [Redis 로그](https://us5.datadoghq.com/logs?query=env%3Adev%20service%3Agromo-redis-dev)",
+        "background_color": "gray", "font_size": "14", "text_align": "center", "vertical_align": "center", "show_tick": false, "tick_pos": "50%", "tick_edge": "left"
+      }
+    }
+  ]
+}

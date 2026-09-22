@@ -14,6 +14,7 @@ prod 는 `docker-compose.prod.yml` 에 **상시 내장**돼 있다.
 | `server/data-api/Dockerfile` | `dd-java-agent.jar` 내장 + **OpenMetrics AD 라벨**(아래 참고) |
 | `server/data-api/src/main/resources/application-{dev,prod}.yml` | 관리 포트 9091 에 `/actuator/prometheus` 노출 |
 | `.github/workflows/dev-datadog.yml` | dev up/down/restart 토글 + **수집 검증 게이트** |
+| `dashboards/gromo-dev-architecture.json` | dev 아키텍처 클릭 탐색 + Docker·Kafka·Redis 부하 통합 대시보드 |
 
 ### OpenMetrics 브리지가 이미지 라벨에 있는 이유 (GROMO-1489)
 
