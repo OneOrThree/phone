@@ -325,13 +325,14 @@ export function Row({
     </View>
   );
 }
-export function Seg({ items, value, onChange, small = false, style }: any) {
+export function Seg({ items, value, onChange, small = false, inset = false, style }: any) {
   return (
     <View
       style={[
         {
           flexDirection: 'row',
-          height: small ? 36 : 42,
+          height: inset ? semanticTokens.size.tapMin : small ? 36 : 42,
+          padding: inset ? semanticTokens.stroke.strong : 0,
           borderWidth: 2,
           borderColor: C.brown,
           borderRadius: 12,
@@ -352,7 +353,8 @@ export function Seg({ items, value, onChange, small = false, style }: any) {
             flex: 1,
             alignItems: 'center',
             justifyContent: 'center',
-            borderLeftWidth: i ? 2 : 0,
+            borderLeftWidth: !inset && i ? 2 : 0,
+            borderRadius: inset ? semanticTokens.radius.control : 0,
             borderColor: C.brown,
             backgroundColor: x === value ? C.pink : undefined,
           }}

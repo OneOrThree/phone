@@ -56,6 +56,9 @@ export function useLibraryDiary({
   page,
   period,
   offset,
+  combined = false,
+  rangeOverride,
+  islandKey,
 }: {
   /** 서버 모드에서만 true — 모크(review/demo) 화면은 호출부가 로컬로 그린다. */
   active: boolean;
@@ -65,6 +68,10 @@ export function useLibraryDiary({
   page: number;
   period: DiaryPeriod;
   offset: number;
+  /** 달력·이웃 기록은 집중과 폰 사용을 한 번에 표시한다. */
+  combined?: boolean;
+  rangeOverride?: { from: string; to: string };
+  islandKey?: string;
 }): LibraryDiaryState {
   const [nonce, setNonce] = useState(0);
   const [status, setStatus] = useState<LibraryDiaryState['status']>(active ? 'loading' : 'mock');
@@ -76,8 +83,17 @@ export function useLibraryDiary({
   const [screenIsland, setScreenIsland] = useState<ScreenStatsIsland | null>(null);
   const req = useRef(0);
   // nonce(=retry) 단위로 캐시한 진입 집계 — retry 는 화면 조각부터 다시 읽는다
-  const libCache = useRef<{ nonce: number; screen: LibraryScreen } | null>(null);
+  const libCache = useRef<{
+    nonce: number;
+    session: number;
+    islandKey?: string;
+    day: string;
+    screen: LibraryScreen;
+  } | null>(null);
   const session = sessionGeneration();
+  const today = new Date().toISOString().slice(0, 10);
+  const from = rangeOverride?.from;
+  const to = rangeOverride?.to;
 
   useEffect(() => {
     if (!active) {
@@ -96,26 +112,63 @@ export function useLibraryDiary({
     const stale = () => gen !== req.current || session !== sessionGeneration();
     setError(null);
     setStatus('loading');
+    setFocusMe(null);
+    setScreenMe(null);
+    setFocusIsland(null);
+    setScreenIsland(null);
     (async () => {
       try {
-        let lib = libCache.current?.nonce === nonce ? libCache.current.screen : null;
+        const cache = libCache.current;
+        let lib =
+          cache?.nonce === nonce &&
+          cache.session === session &&
+          cache.islandKey === islandKey &&
+          cache.day === today
+            ? cache.screen
+            : null;
         if (!lib) {
           lib = await getLibraryScreen();
           if (stale()) return;
-          libCache.current = { nonce, screen: lib };
+          libCache.current = { nonce, session, islandKey, day: today, screen: lib };
           setScreen(lib);
         }
         if (lib.statisticsAvailability === 'facility_locked') {
           setStatus('locked');
           return;
         }
-        const range = utcPeriodRange(period, offset);
+        const range = from && to ? { from, to } : utcPeriodRange(period, offset);
         // 이번 UTC 주·scope=me 는 진입 집계의 조각을 그대로 쓴다(같은 축·같은 관측).
         // missingFragments 에 든 조각은 서버가 아직 만들지 않은 것 — 다시 묻지 않고
         // null 로 둬서 UI 가 「준비 중」을 그리게 한다.
-        const firstWeek = period === '주' && offset === 0;
+        const firstWeek = !from && period === '주' && offset === 0;
         const missing = lib.missingFragments ?? [];
-        if (!nb) {
+        if (combined) {
+          if (nb) {
+            const [focus, usage] = await Promise.all([
+              collectFocus(lib.island.id, { ...range, scope: 'island' }, stale),
+              getScreenTimeStatistics(lib.island.id, { ...range, scope: 'island' }),
+            ]);
+            if (stale() || focus.scope !== 'island') return;
+            setFocusIsland(focus);
+            setScreenIsland(usage);
+          } else {
+            const [focus, usage] = await Promise.all([
+              firstWeek && missing.includes('focusStatistics') && !lib.focusStatistics
+                ? null
+                : firstWeek && lib.focusStatistics
+                  ? lib.focusStatistics
+                  : collectFocus(lib.island.id, { ...range, scope: 'me' }, stale),
+              firstWeek && missing.includes('screenTimeStatistics') && !lib.screenTimeStatistics
+                ? null
+                : firstWeek && lib.screenTimeStatistics
+                  ? lib.screenTimeStatistics
+                  : getScreenTimeStatistics(lib.island.id, { ...range, scope: 'me' }),
+            ]);
+            if (stale()) return;
+            setFocusMe(focus?.scope === 'me' ? focus : null);
+            setScreenMe(usage);
+          }
+        } else if (!nb) {
           if (page === 0) {
             if (!(firstWeek && !lib.focusStatistics && missing.includes('focusStatistics'))) {
               const stats =
@@ -160,7 +213,7 @@ export function useLibraryDiary({
     return () => {
       req.current += 1;
     };
-  }, [active, nb, page, period, offset, nonce, session]);
+  }, [active, nb, page, period, offset, nonce, session, combined, from, to, islandKey, today]);
 
   return {
     status,
