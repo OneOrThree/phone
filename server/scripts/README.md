@@ -75,7 +75,7 @@ dev 의 `../.gromo-runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다** Secr
 | `SVC_TOKEN_DATA_TO_REALTIME` | Realtime(dev.env → `realtime.yml`) · Data(satellites 프로파일, `data-api.env` 선택) | Realtime `POST /internal/events` 가 401 → Data relay 의 REALTIME 행이 전달되지 않고 재시도로 남는다. Data 는 relay OFF 면 무영향, relay ON 이면 기동 거부 |
 | `REALTIME_BASE_URL` | Business(`business-api.env` **필수**) · Data(satellites, 선택) | Business: writer 가 env 생성 단계에서 거부(수동 누락 시 부팅 fail-fast). Data: relay ON 이면 기동 거부 |
 | `SVC_TOKEN_BIZ_TO_REALTIME` | Business(**필수**) · Realtime(dev.env → `realtime.yml`) | Realtime 쪽이 비면 우체통 내부 어댑터 `/internal/*` 401 → 섬 편지 저장 실패. `SVC_TOKEN_DATA_TO_REALTIME`과 같은 값이면 writer 가 모든 모드에서 거부한다(Data 자격으로 우체통을 부를 수 있게 되므로) |
-| `BUSINESS_CURSOR_ENABLED` · `BUSINESS_CURSOR_KEY_V1` | Business(**필수**) | writer 가 거부. 손으로 비우면 부팅·헬스는 정상인데 `GET /islands`·`/islands/discover` 만 503 |
+| `BUSINESS_CURSOR_ENABLED` · `BUSINESS_CURSOR_KEY_V1` | Business(**필수**) | writer 가 거부. 손으로 비우면 부팅·헬스는 정상인데 커서 목록(`GET /islands`·`/islands/discover`·`/islands/{id}/members`·`/islands/{id}/join-requests`·`/me/join-requests`)만 503 |
 | `BUSINESS_CURSOR_ACTIVE_KEY` | Business(선택) | `v1` |
 | `LOGIN_ATTEMPT_DIGEST_SECRET` | Business(**필수**) | writer 가 거부(부팅 fail-fast) |
 | `OUTBOX_RELAY_REALTIME_KAFKA_ENABLED` | Data(satellites, 선택) | `false` — REALTIME 을 HTTP 로 보낸다 |
@@ -197,7 +197,9 @@ python3 server/scripts/migrate-link.py --help
 
 로컬 logback 보존(APP 7일·user-activity 30일)과 S3 보존은 **다른 값**입니다. 기간 정본은 [계정 정책 로그·분석 보존 기간](../../docs/prd/fishcat/account/policy.md#로그분석-보존-기간)이며 S3 값을 바꾸면 이 파일과 정책 표를 함께 고칩니다.
 
-**적용 완료 2026-09-19** — 이 파일은 버킷에 적용된 규칙의 기록입니다. 버킷의 Terraform 원본(`docs/terraform/aws-prod-server/s3.tf`, 티켓 590)은 이 레포 밖에 있어 **동기화가 필요**합니다. 동기화 전에 Terraform을 적용하면 이 규칙이 덮어써질 수 있습니다.
+**적용 완료 2026-09-19** — 이 파일은 버킷에 적용된 규칙의 기록입니다. 버킷의 Terraform 원본은 이 레포가 아니라 **`OneOrThree/terraform` 레포의 `aws-prod-server/s3.tf`**(티켓 590)입니다.
+
+2026-09-21 기준 그쪽은 아직 버킷 전체 단일 규칙(`expire-90d` · `filter {}` · 90일 · 멀티파트 정리 없음)이라 이 파일과 **어긋나 있습니다**(동기화 티켓 GROMO-1948). `aws-prod-server/`는 로컬 state·수동 apply 구성이라 그 레포의 CI가 적용하지 않습니다 — 대신 누군가 로컬에서 `AWS_PROFILE=gromo terraform apply`를 돌리는 순간 위 규칙 3개가 `expire-90d` 하나로 되돌아갑니다. 동기화할 때는 접두 3개 규칙으로 교체하되, 종전 `expire-90d`가 버킷 **전체**를 만료시켰다는 점에 주의합니다. 접두 밖 객체는 교체 후 만료되지 않습니다.
 
 `put-bucket-lifecycle-configuration`은 버킷의 기존 규칙 전체를 **교체**합니다. 먼저 현재 규칙을 조회해 다른 규칙이 있으면 이 파일에 합친 뒤 적용합니다.
 

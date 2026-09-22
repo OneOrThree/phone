@@ -12,6 +12,7 @@ import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
 import com.oneorthree.phone.focus.exception.FocusErrorCode;
+import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.service.FocusLiveInfoLookup;
 import com.oneorthree.phone.focus.service.FocusService;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -22,6 +23,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.internal.dto.CreateIslandCommandRequest;
 import com.oneorthree.phone.config.SchedulingConfig;
+import com.oneorthree.phone.internal.scheduler.FocusRestAutoCloseScheduler;
 import com.oneorthree.phone.internal.scheduler.FocusRewardScheduler;
 import com.oneorthree.phone.internal.service.FocusSessionLifecycleService;
 import com.oneorthree.phone.internal.service.IslandEconomyReadService;
@@ -56,6 +58,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -89,6 +92,8 @@ class FocusSessionActivationIntegrationTest {
                 "POST /internal/users/*/focus-sessions/*/pause",
                 "POST /internal/users/*/focus-sessions/*/resume",
                 "POST /internal/users/*/focus-sessions/*/finish",
+                "GET /internal/users/*/focus-sessions/pending-result",
+                "POST /internal/users/*/focus-sessions/*/acknowledge",
                 "GET /internal/users/*/focus-summary");
         for (int i = 0; i < allow.size(); i++) {
             String rule = allow.get(i);
@@ -100,6 +105,8 @@ class FocusSessionActivationIntegrationTest {
     FocusSessionLifecycleService focus;
     @Autowired
     FocusRewardScheduler rewardTicks;
+    @Autowired
+    FocusRestAutoCloseScheduler restAutoCloseTicks;
     @Autowired
     IslandEconomyReadService economy;
     @Autowired
@@ -135,7 +142,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("게이트를 열면 내부 표면으로 start 201 → current 200 → pause 200 → resume 200 → finish 200 → summary 200")
     void openedGateRunsTheWholeLifecycleOverTheInternalSurface() throws Exception {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("전체흐름섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("전체흐름섬", null, false, null),
                 UUID.randomUUID()).id();
         String base = "/internal/users/" + user;
 
@@ -178,7 +185,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("강퇴는 대상의 휴식 중 세션을 같은 TX 에서 MEMBERSHIP_LOST 로 끝내고 정산하지 않는다(FR-D03)")
     void kickEndsTheProgressingSessionWithoutSettlement() {
         UUID host = newUser();
-        UUID island = islands.create(host, new CreateIslandCommandRequest("강퇴섬", null, false),
+        UUID island = islands.create(host, new CreateIslandCommandRequest("강퇴섬", null, false, null),
                 UUID.randomUUID()).id();
         UUID member = newUser();
         joinAndMoveTo(member, island);
@@ -209,7 +216,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("강퇴된 사용자는 옛 세션을 전이할 수 없지만, 다른 섬에서 새 세션을 열 수 있다 — 출구가 있다")
     void kickedUserCanStartAgainElsewhere() {
         UUID host = newUser();
-        UUID island = islands.create(host, new CreateIslandCommandRequest("떠난섬", null, false),
+        UUID island = islands.create(host, new CreateIslandCommandRequest("떠난섬", null, false, null),
                 UUID.randomUUID()).id();
         UUID member = newUser();
         joinAndMoveTo(member, island);
@@ -220,7 +227,7 @@ class FocusSessionActivationIntegrationTest {
         assertThatThrownBy(() -> focus.pause(member, started.id(),
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID()))
                 .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
-        UUID home = islands.create(member, new CreateIslandCommandRequest("새섬", null, false),
+        UUID home = islands.create(member, new CreateIslandCommandRequest("새섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView again = start(member, home);
         assertThat(again.status()).isEqualTo(FocusSessionView.STATUS_ACTIVE);
@@ -230,7 +237,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("자진 탈퇴는 진행 중 세션이 있으면 409 다 — 휴식도 같다(「먼저 끝내고 나가라」)")
     void voluntaryLeaveIsRefusedWhileASessionIsProgressing() {
         UUID host = newUser();
-        UUID island = islands.create(host, new CreateIslandCommandRequest("못떠나섬", null, false),
+        UUID island = islands.create(host, new CreateIslandCommandRequest("못떠나섬", null, false, null),
                 UUID.randomUUID()).id();
         UUID member = newUser();
         joinAndMoveTo(member, island);
@@ -250,7 +257,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("start 는 focus 사건과 함께 rest 투영 제거(active·자리 null) 사건을 같은 TX 에 남긴다")
     void startAlsoDurablyClearsTheRestProjection() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("모닥불섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("모닥불섬", null, false, null),
                 UUID.randomUUID()).id();
 
         FocusSessionView started = start(user, island);
@@ -267,7 +274,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("v0.3 세션이 진행 중이면 레거시 start 는 409 이고, 그 세션의 기본 마커를 닫지 않는다")
     void legacyStartNeitherRotatesNorClosesTheV03Marker() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("공존섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("공존섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
 
@@ -286,7 +293,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("구 앱 업로드가 v0.3 서버 구간과 겹치면 적립 없이 성공으로 답하고, 안 겹치는 블록은 그대로 적립한다")
     void legacyUploadOverlappingAServerSessionIsNotCreditedTwice() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("업로드섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("업로드섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
         Instant t0 = started.startedAt();
@@ -308,7 +315,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("이미 적립받은 뒤 강퇴·포기로 끝난 세션의 구간도 구 앱 업로드로 다시 적립되지 않는다")
     void alreadyPaidSessionsBlockTheLegacyUploadEvenAfterAForcedEnd(String ending) {
         UUID host = newUser();
-        UUID island = islands.create(host, new CreateIslandCommandRequest("기지급섬", null, false),
+        UUID island = islands.create(host, new CreateIslandCommandRequest("기지급섬", null, false, null),
                 UUID.randomUUID()).id();
         UUID user = newUser();
         joinAndMoveTo(user, island);
@@ -333,7 +340,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("한 마리도 못 받고 끝난 세션은 종전대로 — 겹치는 구 앱 업로드가 그대로 적립된다(막은 게 아니라 좁혔다)")
     void sessionsThatWereNeverPaidStillLetTheLegacyUploadThrough(String ending) {
         UUID host = newUser();
-        UUID island = islands.create(host, new CreateIslandCommandRequest("무적립섬", null, false),
+        UUID island = islands.create(host, new CreateIslandCommandRequest("무적립섬", null, false, null),
                 UUID.randomUUID()).id();
         UUID user = newUser();
         joinAndMoveTo(user, island);
@@ -363,7 +370,7 @@ class FocusSessionActivationIntegrationTest {
         LocalDate monday = LocalDate.parse("2026-09-14");
         LocalDate sunday = LocalDate.parse("2026-09-20");
         UUID resting = newUser();
-        UUID island = islands.create(resting, new CreateIslandCommandRequest("리그섬", null, false),
+        UUID island = islands.create(resting, new CreateIslandCommandRequest("리그섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView v03 = start(resting, island);
         // 벽시계 60분 = ACTIVE 10분 → REST 40분 → ACTIVE 10분(진행 중). 순수 집중 20분.
@@ -397,7 +404,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("친구 라이브 표시도 같다 — 휴식 중이면 «집중 중»이 아니고, 집중 중이면 앵커가 휴식을 뺀다")
     void friendLiveInfoFollowsTheSameRule() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("친구섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("친구섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
         backdate(started.id(), 3600);
@@ -418,7 +425,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("적립 틱이 60초당 1마리를 섬 통장에 넣고, finish 는 추가 지급 없이 그 합을 확정한다")
     void ticksAccrueEveryMinuteAndFinishAddsNothing() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("적립섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("적립섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
         backdate(started.id(), 125 * 60 + 30);   // 순수 집중 125분 30초 → 125마리(자투리 30초는 안 준다)
@@ -430,6 +437,8 @@ class FocusSessionActivationIntegrationTest {
                 started.id())).isEqualTo(125);
         assertThat(count("select coalesce(sum(balance),0) from user_fish_wallets where user_id=?", user))
                 .as("개인 지갑 적립은 없다 — 재화는 섬 하나다(D5-귀속-개정)").isZero();
+        assertThat(count("select count(*) from user_fish_wallets where user_id=?", user))
+                .as("지갑 행 자체가 생기지 않는다 — 적립 경로가 이 표를 아예 열지 않는다(GROMO-2045)").isZero();
 
         FocusFinishView finished = focus.finish(user, started.id(),
                 new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
@@ -449,10 +458,23 @@ class FocusSessionActivationIntegrationTest {
     }
 
     @Test
+    @DisplayName("개인 몫 0 초과 정책 revision 은 DB 가 거부한다 — 개인 적립을 막는 것이 문서가 아니라 제약이다(V99)")
+    void personalShareAboveZeroIsRejectedByTheDatabase() {
+        assertThatThrownBy(() -> jdbc.update(
+                "insert into focus_reward_policies (revision, seconds_per_fish, daily_cap_fish,"
+                        + " personal_share_percent) values (?, 60, 480, 1)", 999_999))
+                .as("V99 의 CHECK — Flyway 에 0 초과 revision 이 «실수로» 들어가도 부팅에서 걸린다")
+                .hasMessageContaining("focus_reward_policies_personal_share_percent_check");
+
+        assertThat(count("select count(*) from focus_reward_policies where personal_share_percent <> 0"))
+                .as("시드 revision 을 포함해 표 전체가 0 이다").isZero();
+    }
+
+    @Test
     @DisplayName("59초는 0 · 60초는 1 · 120초는 2 — 틱은 «찬» 60초만 적립한다")
     void accruesOnlyWholeMinutes() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("분단위섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("분단위섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
 
@@ -473,7 +495,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("휴식 동안에는 적립이 멈춘다 — 휴식 구간은 순수 집중 초에 들어가지 않는다")
     void restDoesNotAccrue() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("휴식섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("휴식섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
         backdate(started.id(), 120);
@@ -497,7 +519,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("틱을 다시 돌리거나 종료와 겹쳐도 총량은 그대로다 — 멱등 키가 (세션, 누적 마리 수)다")
     void retriedTicksAndFinishNeverDoublePay() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("멱등섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("멱등섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
         backdate(started.id(), 120);
@@ -525,7 +547,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("하루 상한(480)에 닿으면 물고기만 멈추고 집중 기록은 계속 쌓인다 — 같은 날의 다음 세션도 0마리다")
     void dailyCapStopsFishButNotTheRecord() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("상한섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("상한섬", null, false, null),
                 UUID.randomUUID()).id();
         // 두 세션을 «같은 UTC 날짜» 안에 고정한다 — backdate 로 8시간을 밀면 실행 시각에 따라 자정을 넘어
         // 이틀로 갈리고, 그러면 상한 두 개를 쓰게 돼 낮에만 빨개지는 테스트가 된다.
@@ -552,7 +574,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("적립일은 그 분이 «찬» 시각의 UTC 날짜다 — 틱이 돈 날이 아니다(자정을 걸친 세션)")
     void theMinuteIsAccruedOnTheDayItCompletedNotTheDayTheTickRan() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("자정섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("자정섬", null, false, null),
                 UUID.randomUUID()).id();
         // 자정 90초 전에 시작해 2분 — 1분째는 자정 30초 «전» 에 차고, 2분째는 자정 30초 뒤에 찬다.
         Instant midnight = pastUtcMidnight();
@@ -573,7 +595,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("앞선 날의 상한이 가득이어도 새 날의 첫 분부터는 나간다 — 밀린 분이 하루 상한 하나로 소실되지 않는다")
     void aFullCapOnTheEarlierDayDoesNotEatTheNextDay() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("경계상한섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("경계상한섬", null, false, null),
                 UUID.randomUUID()).id();
         Instant midnight = pastUtcMidnight();
         LocalDate before = LocalDate.ofInstant(midnight, ZoneOffset.UTC).minusDays(1);
@@ -594,7 +616,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("틱이 밀려 한 번에 여러 분을 처리해도 원장은 «분마다» 한 줄이다 — 감사 추적이 남는다")
     void aDelayedTickStillLeavesOneLedgerRowPerMinute() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("지연섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("지연섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(7200), 300);
 
@@ -613,7 +635,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("마지막 틱 이후에 «찬» 분은 finish 가 확정한다 — 틱이 한 번도 못 잡은 61초 세션도 1마리다")
     void finishAccruesTheMinuteThatCompletedAfterTheLastTick() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("자투리섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("자투리섬", null, false, null),
                 UUID.randomUUID()).id();
         // 12:00:01 에 시작해 12:01:02 에 끝낸 꼴 — 12:01:00 틱에는 59초뿐이라 한 마리도 못 준다.
         Instant from = pastUtcMidnight().plusSeconds(7200);
@@ -636,7 +658,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("휴식 중 finish 도 휴식 직전에 찬 분을 가져간다 — 크론은 PAUSED 를 훑지 않는다")
     void finishingFromRestStillAccruesTheMinuteEarnedBeforeThePause() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("휴식자투리섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("휴식자투리섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(7200), 61);
         FocusSessionView paused = focus.pause(user, session.id(),
@@ -655,7 +677,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("V82 이관 — 마이그레이션 전 정산분이 하루 상한과 주민 누적 획득에 그대로 잡힌다")
     void theMigrationCarriesOldSettlementsIntoTheAccrualLedger() throws Exception {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("이관섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("이관섬", null, false, null),
                 UUID.randomUUID()).id();
         // V82 «전» 의 세계: 종료 정산으로 480마리를 받은 세션(정산 행만 있고 적립 원장 행은 없다).
         FocusSessionView legacy = focusedSince(user, island, pastUtcMidnight().plusSeconds(3600), 120);
@@ -686,7 +708,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("완료한 세션을 새 키로 다시 finish 하면 원 정산을 그대로 돌려주고 두 번 지급하지 않는다")
     void finishingACompletedSessionAgainReplaysTheSettlement() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("재생섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("재생섬", null, false, null),
                 UUID.randomUUID()).id();
         FocusSessionView started = start(user, island);
         backdate(started.id(), 30 * 60);
@@ -708,7 +730,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("목표 시간이 없어도 시작된다 — 보상은 목표가 아니라 순수 집중 시간에 걸린다")
     void startsWithoutATargetTime() throws Exception {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("무목표섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("무목표섬", null, false, null),
                 UUID.randomUUID()).id();
 
         FocusSessionView started = focus.start(user,
@@ -753,7 +775,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("V82 는 롤링 배포 중 «옛» finish 가 만드는 정산도 적립 원장으로 옮긴다 — 상한·누적이 비지 않는다")
     void anOldImageSettlementWrittenAfterTheMigrationIsMirrored() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("혼합배포섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("혼합배포섬", null, false, null),
                 UUID.randomUUID()).id();
         // 옛 이미지의 finish 를 흉내 낸다 — 정산 행만 쓰고 적립 원장은 모른다.
         FocusSessionView session = focusedSince(user, island, pastUtcMidnight().plusSeconds(3600), 300);
@@ -777,7 +799,7 @@ class FocusSessionActivationIntegrationTest {
     @DisplayName("새 코드의 finish 는 트리거를 깨우지 않는다 — 이미 적립한 세션에 유령 행이 생기지 않는다")
     void aNewImageFinishDoesNotFireTheMirrorTrigger() {
         UUID user = newUser();
-        UUID island = islands.create(user, new CreateIslandCommandRequest("유령방지섬", null, false),
+        UUID island = islands.create(user, new CreateIslandCommandRequest("유령방지섬", null, false, null),
                 UUID.randomUUID()).id();
         Instant from = pastUtcMidnight().plusSeconds(3600);
         FocusSessionView session = focusedSince(user, island, from, 180);
@@ -801,6 +823,200 @@ class FocusSessionActivationIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from pg_trigger"
                 + " where tgname='focus_settlements_mirror_accrual_trg'", Long.class))
                 .as("혼합 배포 구멍을 막는 트리거도 같은 마이그레이션이 깐다").isEqualTo(1L);
+    }
+
+    // ------------------------------------------------- GROMO-1998 휴식 1시간 자동 종료와 결과 1회 제공
+
+    @Test
+    @DisplayName("휴식 59분은 그대로 두고 1시간을 넘기면 «정상 완료»로 끝낸다 — 휴식 자리와 실시간 목록도 비운다")
+    void restIsClosedOnlyAfterAnHourAndAsANormalCompletion() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("모닥불섬", null, false, null),
+                UUID.randomUUID()).id();
+        FocusSessionView paused = startedThenResting(user, island, 600);
+        assertThat(((Number) detailRow(paused.id()).get("rest_seat")).intValue()).isEqualTo(1);
+
+        shiftSessionBack(paused.id(), 59 * 60);
+        autoCloseTick();
+        assertThat(detailRow(paused.id()).get("lifecycle"))
+                .as("59분은 아직 휴식이다 — 유예는 «휴식을 누른 순간부터» 1시간이다").isEqualTo("PAUSED");
+
+        shiftSessionBack(paused.id(), 61);
+        autoCloseTick();
+
+        Map<String, Object> detail = detailRow(paused.id());
+        assertThat(detail.get("lifecycle")).isEqualTo("COMPLETED");
+        assertThat(detail.get("rest_seat")).as("휴식 자리를 반납한다 — 다음 사람이 1번을 쓴다").isNull();
+        assertThat(((Number) detail.get("version")).longValue())
+                .as("전이이므로 version 이 하나 오른다").isEqualTo(paused.version() + 1);
+        assertThat(jdbc.queryForObject("select status from focus_sessions where id=?", String.class, paused.id()))
+                .as("정상 종료와 같게 — 포기·소속 상실의 AUTO_CLOSED 가 아니다").isEqualTo("COMPLETED");
+        assertThat(count("select count(*) from focus_session_intervals where session_id=? and ended_at is null",
+                paused.id())).as("열린 구간이 남지 않는다").isZero();
+        assertThat(count("select count(*) from event_outbox where type='rest.member.updated' "
+                        + "and params->>'sessionId'=? and params->>'status'='completed'", paused.id().toString()))
+                .as("실시간 휴식 목록에서 지우는 사건을 남긴다").isEqualTo(1);
+        assertThat(count("select count(*) from event_outbox where type='focus.member.updated' "
+                        + "and params->>'sessionId'=? and params->>'status'='completed'", paused.id().toString()))
+                .as("집중 목록에서도 지운다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("자동 종료는 이미 섬 통장에 들어간 물고기를 다시 주지 않고 집중 기록만 정상 종료처럼 남긴다")
+    void autoCloseRecordsTheSessionWithoutPayingTwice() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("적립섬", null, false, null),
+                UUID.randomUUID()).id();
+        FocusSessionView paused = startedThenResting(user, island, 600);
+        long balanceBeforeRest = islandBalance(island);
+        assertThat(balanceBeforeRest).as("10분치 10마리가 진행 중에 이미 들어가 있다").isEqualTo(10);
+        int ledgerBeforeRest = ledgerKeys(island, paused.id()).size();
+
+        shiftSessionBack(paused.id(), 3601);
+        autoCloseTick();
+
+        assertThat(islandBalance(island)).as("종료가 추가 지급하지 않는다").isEqualTo(balanceBeforeRest);
+        assertThat(ledgerKeys(island, paused.id())).as("원장 줄도 늘지 않는다").hasSize(ledgerBeforeRest);
+        assertThat(count("select earned_fish from focus_settlements where session_id=?", paused.id()))
+                .as("정산 행은 적립 합을 옮겨 적을 뿐이다").isEqualTo(balanceBeforeRest);
+        assertThat(count("select count(*) from focus_settlements where session_id=? and auto_closed", paused.id()))
+                .as("서버가 끝낸 정산이라는 표지를 남긴다").isEqualTo(1);
+        assertThat(count("select coalesce(sum(total_focus_seconds),0) from daily_focus_stats where user_id=?", user))
+                .as("집중 기록은 정상 종료와 같게 쌓인다 — 휴식(3601초)은 빠진다").isBetween(600L, 659L);
+        assertThat(count("select coalesce(sum(session_count),0) from daily_focus_stats where user_id=?", user))
+                .isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("resume 이 먼저 이기면 자동 종료는 아무것도 하지 않고, 자동 종료가 먼저면 뒤늦은 resume 이 409 다 — 종결은 한 번")
+    void resumeAndAutoCloseRaceEndsTheSessionExactlyOnce() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("경합섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        FocusSessionView paused = startedThenResting(user, island, 60);
+        shiftSessionBack(paused.id(), 3601);
+        FocusSessionView resumed = focus.resume(user, paused.id(),
+                new FocusVersionedCommandRequest(paused.version()), UUID.randomUUID());
+        autoCloseTick();
+        assertThat(detailRow(paused.id()).get("lifecycle"))
+                .as("잠근 뒤 다시 판정하므로 이미 집중으로 돌아간 세션은 건드리지 않는다").isEqualTo("ACTIVE");
+        assertThat(count("select count(*) from focus_settlements where session_id=?", paused.id())).isZero();
+
+        FocusSessionView pausedAgain = focus.pause(user, resumed.id(),
+                new FocusVersionedCommandRequest(resumed.version()), UUID.randomUUID());
+        shiftSessionBack(pausedAgain.id(), 3601);
+        autoCloseTick();
+        autoCloseTick();
+        assertThat(count("select count(*) from focus_settlements where session_id=?", pausedAgain.id()))
+                .as("틱이 두 번 돌아도 정산은 한 행이다").isEqualTo(1);
+        assertThatThrownBy(() -> focus.resume(user, pausedAgain.id(),
+                new FocusVersionedCommandRequest(pausedAgain.version()), UUID.randomUUID()))
+                .isInstanceOf(FocusException.class)
+                .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.SESSION_STATE_CONFLICT);
+        FocusFinishView replayed = focus.finish(user, pausedAgain.id(),
+                new FocusVersionedCommandRequest(pausedAgain.version()), UUID.randomUUID());
+        assertThat(replayed.recordId()).as("뒤늦은 finish 는 자동 종료가 남긴 원 결과를 그대로 돌려준다")
+                .isEqualTo(pausedAgain.id());
+        assertThat(count("select count(*) from focus_settlements where session_id=?", pausedAgain.id()))
+                .as("두 번째 정산 행을 만들지 않는다").isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("다음 접속에 결과를 한 번 준다 — 확인 전에는 몇 번을 물어도 같은 결과, 확인 뒤에는 null")
+    void theAutoClosedResultIsHandedOverExactlyOnce() throws Exception {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("결과섬", null, false, null),
+                UUID.randomUUID()).id();
+        FocusSessionView paused = startedThenResting(user, island, 600);
+        String base = "/internal/users/" + user;
+        call(get(base + "/focus-sessions/pending-result"), user, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").isEmpty());
+
+        shiftSessionBack(paused.id(), 3601);
+        autoCloseTick();
+
+        call(get(base + "/focus-sessions/current"), user, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.session").isEmpty());
+        // 확인 전에는 몇 번을 물어도 같은 결과가 온다 — 앱이 죽어 결과창을 못 본 사용자를 잃지 않는다.
+        for (int attempt = 0; attempt < 2; attempt++) {
+            call(get(base + "/focus-sessions/pending-result"), user, null)
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.result.recordId").value(paused.id().toString()))
+                    .andExpect(jsonPath("$.result.islandId").value(island.toString()))
+                    .andExpect(jsonPath("$.result.activeSeconds")
+                            .value(greaterThanOrEqualTo(600)))
+                    .andExpect(jsonPath("$.result.earnedFish").value(10))
+                    .andExpect(jsonPath("$.result.allocation.constructionFishAdded").value(10));
+        }
+
+        call(post(base + "/focus-sessions/" + paused.id() + "/acknowledge"), user, null)
+                .andExpect(status().isNoContent());
+        // 두 번째 확인도 성공이다 — 재시도가 에러로 보이면 앱이 결과창을 다시 띄운다.
+        call(post(base + "/focus-sessions/" + paused.id() + "/acknowledge"), user, null)
+                .andExpect(status().isNoContent());
+
+        call(get(base + "/focus-sessions/pending-result"), user, null)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").isEmpty());
+        assertThat(count("select count(*) from focus_settlements where session_id=? "
+                + "and acknowledged_at is not null", paused.id())).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("스스로 끝낸 세션은 미확인 결과가 되지 않는다 — 결과창은 finish 응답으로 이미 봤다")
+    void aManuallyFinishedSessionNeverBecomesAPendingResult() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("직접종료섬", null, false, null),
+                UUID.randomUUID()).id();
+        FocusSessionView started = start(user, island);
+
+        focus.finish(user, started.id(), new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+
+        assertThat(count("select count(*) from focus_settlements where session_id=? and auto_closed", started.id()))
+                .isZero();
+        assertThat(focus.pendingResult(user)).isNull();
+    }
+
+    @Test
+    @DisplayName("남의 세션은 확인해 줄 수 없다 — 확인 시각은 그 사람의 결과가 사라지는 부작용이다")
+    void acknowledgingSomeoneElsesResultIsForbidden() {
+        UUID owner = newUser();
+        UUID island = islands.create(owner, new CreateIslandCommandRequest("남의섬", null, false, null),
+                UUID.randomUUID()).id();
+        UUID stranger = newUser();
+        FocusSessionView paused = startedThenResting(owner, island, 60);
+        shiftSessionBack(paused.id(), 3601);
+        autoCloseTick();
+
+        assertThatThrownBy(() -> focus.acknowledgeResult(stranger, paused.id()))
+                .isInstanceOf(FocusException.class)
+                .hasFieldOrPropertyWithValue("errorCode", FocusErrorCode.FORBIDDEN);
+        assertThat(count("select count(*) from focus_settlements where session_id=? "
+                + "and acknowledged_at is not null", paused.id())).isZero();
+    }
+
+    @Test
+    @DisplayName("기본 마커가 바깥에서 닫힌 휴식 세션은 자동 종료가 터지지 않고 ABANDONED 정리로 끝난다 — 매분 에러가 아니다")
+    void aMarkerDesyncedRestIsCleanedUpInsteadOfFailingEveryTick() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("어긋난섬", null, false, null),
+                UUID.randomUUID()).id();
+        FocusSessionView paused = startedThenResting(user, island, 60);
+        shiftSessionBack(paused.id(), 3601);
+        // 레거시 start 가 하는 일 그대로 — 상세는 휴식 중인데 기본 마커만 닫힌다.
+        jdbc.update("update focus_sessions set ended_at=? where id=?", ts(Instant.now()), paused.id());
+
+        autoCloseTick();
+
+        Map<String, Object> detail = detailRow(paused.id());
+        assertThat(detail.get("lifecycle")).as("정산 없이 ABANDONED 로 정리한다 — 다음 틱이 같은 일을 되풀이하지 않는다")
+                .isEqualTo("ABANDONED");
+        assertThat(detail.get("rest_seat")).isNull();
+        assertThat(count("select count(*) from focus_settlements where session_id=?", paused.id()))
+                .as("정상 완료가 아니므로 정산 행을 만들지 않는다").isZero();
     }
 
     // ---------------------------------------------------------------- 도구
@@ -884,6 +1100,38 @@ class FocusSessionActivationIntegrationTest {
 
     void tick() {
         rewardTicks.accrueDueSessions();
+    }
+
+    /** 휴식 자동 종료 크론도 «같은» 진입점으로 돌린다(GROMO-1998) — 스캔·재판정·잠금을 전부 통과시킨다. */
+    void autoCloseTick() {
+        restAutoCloseTicks.closeTimedOutRests();
+    }
+
+    /**
+     * 진행 중 세션 <b>전체</b>를 {@code seconds} 만큼 과거로 민다 — 시작·전이 시각·모든 구간을 같은 폭으로
+     * 옮긴다. 구간 순서와 길이가 그대로라 역전·겹침이 생기지 않고, 절대 시각이 아니라 «지금으로부터의
+     * 상대 거리»만 바꾸므로 자정·경계 시각에 깨지는 픽스처가 되지 않는다.
+     */
+    void shiftSessionBack(UUID sessionId, long seconds) {
+        double secs = seconds;
+        jdbc.update("update focus_sessions set started_at = started_at - make_interval(secs => ?) where id=?",
+                secs, sessionId);
+        jdbc.update("update focus_session_details "
+                + "set last_transition_at = last_transition_at - make_interval(secs => ?) where session_id=?",
+                secs, sessionId);
+        jdbc.update("update focus_session_intervals "
+                + "set started_at = started_at - make_interval(secs => ?), "
+                + "    ended_at = ended_at - make_interval(secs => ?) where session_id=?",
+                secs, secs, sessionId);
+    }
+
+    /** 집중을 시작해 {@code activeSeconds} 만큼 집중한 뒤 휴식에 들어간 상태로 만든다. */
+    FocusSessionView startedThenResting(UUID user, UUID island, long activeSeconds) {
+        FocusSessionView started = start(user, island);
+        shiftSessionBack(started.id(), activeSeconds);
+        tick();
+        return focus.pause(user, started.id(), new FocusVersionedCommandRequest(started.version()),
+                UUID.randomUUID());
     }
 
     long islandBalance(UUID islandId) {

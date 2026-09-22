@@ -13,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -23,7 +24,7 @@ import tools.jackson.databind.JsonNode;
 import java.util.UUID;
 
 /**
- * 편지 3종의 <b>공개 표면</b> (GROMO-1933, friend-letter LLD §1.12~1.15) — 무접두 {@code /letters…}
+ * 편지 4종의 <b>공개 표면</b> (GROMO-1933 발송·목록·상세 + GROMO-2002 닫기) — 무접두 {@code /letters…}
  * 는 nginx 위성 include 의 Business 분기가 보내고, 실제 판정은 Data 의 {@code /internal/users/{userId}/…}
  * 가 한다.
  *
@@ -93,6 +94,20 @@ public class LetterController {
     public LetterView letter(@PathVariable String letterId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return letters.letter(claims, uuid(letterId, "letterId"), deadline());
+    }
+
+    /**
+     * 편지 닫기 (GROMO-2002) — 수신자만. 「열었다가 닫으면 지워지고 보낸 사람 목록에서도 사라진다」의
+     * 그 닫기다. 상세(GET)에 삭제를 얹지 않은 이유는 Data 의 {@code InternalLetterService.close} 에 있다.
+     *
+     * <p>LLD 의 204 는 공개 봉투 규칙으로 200 {@code {"data": null}} 이 된다({@code FriendController.deleteFriend}
+     * 선례). 두 번째 호출은 404 다 — 멱등 200 으로 접지 않는다.
+     */
+    @DeleteMapping("/letters/{letterId}")
+    public ResponseEntity<Void> close(@PathVariable String letterId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        letters.close(claims, uuid(letterId, "letterId"), deadline());
+        return ResponseEntity.noContent().build();
     }
 
     private static UUID uuid(String value, String field) {

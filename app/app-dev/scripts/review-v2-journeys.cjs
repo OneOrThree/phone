@@ -31,22 +31,70 @@ fs.mkdirSync(outputDir, { recursive: true });
     const state = () => p.evaluate(() => window.__gromoReview.state);
     const route = () => p.evaluate(() => window.__gromoReview.route);
     await open('visit', { state: fixture, detail: 'cloud' });
-    await p.getByRole('button', { name: '가입 신청', exact: true }).click();
-    await p.waitForFunction(() => window.__gromoReview.state.pendingIsland === 'cloud');
+    await p.getByRole('button', { name: '섬 둘러보기', exact: true }).click();
+    await p.waitForFunction(() => window.__gromoReview.route === 'visitIsland');
     assert.equal((await state()).islandId, fixture.islandId);
-    await p.getByRole('button', { name: '참여 신청됨 · 취소', exact: true }).click();
-    await p.waitForFunction(() => window.__gromoReview.state.pendingIsland === null);
+    assert.equal((await state()).visitingIslandId, 'cloud');
+    assert.equal(await p.getByRole('button', { name: '집중하기', exact: true }).count(), 0);
+    await p.getByRole('button', { name: '낚시섬 구경하기', exact: true }).click();
+    await p.waitForFunction(() => window.__gromoReview.route === 'visitIslandFocus');
+    await p.getByText('민지', { exact: true }).waitFor();
+    assert.equal(await p.getByRole('button', { name: '휴식하기', exact: true }).count(), 0);
+    await p.getByRole('button', { name: '돌아가기', exact: true }).click();
+    assert.equal(await route(), 'visitIsland');
+    assert.equal(await p.getByRole('button', { name: '집중하기', exact: true }).count(), 0);
+    await p.getByRole('button', { name: '원래 섬으로', exact: true }).click();
+    await p.waitForFunction(() => window.__gromoReview.route === 'home');
+    assert.equal((await state()).visitingIslandId, null);
     const joined = JSON.parse(JSON.stringify(fixture));
     joined.islands.find((j) => j.id === 'cloud').joined = true;
     await open('visit', { state: joined, detail: 'cloud' });
-    await p.getByRole('button', { name: '배 타고 이동', exact: true }).click();
+    await p.getByRole('button', { name: '이 섬으로 가기', exact: true }).click();
     await p.waitForFunction(
       () =>
         window.__gromoReview.route === 'home' && window.__gromoReview.state.islandId === 'cloud',
     );
     report.push({
       orientation,
-      flow: 'request island → cancel → travel to joined island',
+      flow: 'visit card → main island → fishing island → back → travel to joined island',
+      pass: true,
+    });
+    await open('home', { state: fixture });
+    await p.getByRole('button', { name: '낚시섬 구경하기', exact: true }).click();
+    await p.waitForFunction(() => window.__gromoReview.route === 'focusVisit');
+    assert.equal((await state()).session, null);
+    await p.getByText('민지', { exact: true }).waitFor();
+    await p.getByText('두부', { exact: true }).waitFor();
+    assert.equal(await p.getByText('수아', { exact: true }).count(), 0);
+    assert.equal(await p.getByRole('button', { name: '휴식하기', exact: true }).count(), 0);
+    assert.equal(await p.getByRole('button', { name: '집중 종료', exact: true }).count(), 0);
+    await p.getByRole('button', { name: '닫기', exact: true }).click();
+    assert.equal(await route(), 'home');
+    assert.equal((await state()).session, null);
+    const emptyFocus = structuredClone(fixture);
+    emptyFocus.islands
+      .find((island) => island.id === emptyFocus.islandId)
+      .members.forEach((member) => {
+        member.focusing = false;
+      });
+    await open('focusVisit', { state: emptyFocus });
+    await p.getByText('지금 낚시 중인 주민이 없어요', { exact: true }).waitFor();
+    await p.getByRole('button', { name: '뗏목 · 우리 섬으로 돌아가기', exact: true }).click();
+    assert.equal(await route(), 'home');
+    assert.equal((await state()).session, null);
+    report.push({
+      orientation,
+      flow: 'home fishing island → watch focused members → empty state → home',
+      pass: true,
+    });
+    const unavailableFocus = structuredClone(fixture);
+    unavailableFocus.islands.find((island) => island.id === 'cloud').members = [];
+    await open('visitIslandFocus', { state: unavailableFocus, detail: 'cloud' });
+    await p.getByText('지금 낚시 중인 주민이 없어요', { exact: true }).waitFor();
+    assert.equal(await p.getByText('불러오는 중', { exact: false }).count(), 0);
+    report.push({
+      orientation,
+      flow: 'visitor focus members unavailable → empty state without loading',
       pass: true,
     });
     await open('home', { state: fixture });

@@ -1,5 +1,15 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   State,
@@ -64,13 +74,19 @@ import {
   Seg,
   Field,
   Strip,
-  Toggle,
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
+import {
+  isScreenTimeAvailable,
+  screenTime,
+  ScreenTimeAuthorization,
+  ScreenTimeSelection,
+  selectionCount,
+} from '@/services/screenTime';
 const buildingArt: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -113,6 +129,7 @@ function Sheet({
   actionPress,
   tall = true,
   onClose,
+  onBack,
 }: any) {
   return (
     <IslandSheet
@@ -120,7 +137,7 @@ function Sheet({
       sign={sign}
       title={title}
       tall={tall}
-      onBack={e.back}
+      onBack={onBack ?? e.back}
       onClose={onClose ?? e.home}
       action={action}
       actionPress={actionPress}
@@ -138,6 +155,7 @@ export function CurrentScreens({ e }: any) {
   const memberRoutes: Route[] = [
     'home',
     'guide',
+    'focusVisit',
     'focusTravel',
     'fishingArrival',
     'focusSetup',
@@ -180,7 +198,19 @@ export function CurrentScreens({ e }: any) {
   // 나머지는 내 섬 화면이 섞이거나 섬 상태가 꼬이지 않게 모두 막는다
   if (
     state.visitingIslandId &&
-    !['home', 'manage', 'members', 'board', 'notice', 'quest', 'travel'].includes(r)
+    ![
+      'home',
+      'manage',
+      'members',
+      'board',
+      'notice',
+      'quest',
+      'travel',
+      'visitIsland',
+      'visitIslandFocus',
+      'permission',
+      'screenTimeApps',
+    ].includes(r)
   )
     return (
       <Overlay
@@ -237,6 +267,10 @@ export function CurrentScreens({ e }: any) {
     );
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
+  if (r === 'focusVisit') return <FocusVisit e={e} />;
+  if (r === 'visitIsland') return <VisitIsland e={e} />;
+  if (r === 'visitIslandFocus')
+    return <FocusVisit e={e} islandId={e.detail || state.visitingIslandId} onBack={e.back} />;
   if (
     [
       'focusTravel',
@@ -265,29 +299,253 @@ export function CurrentScreens({ e }: any) {
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (['boat', 'mainIsland', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
-  if (r === 'permission')
+  if (r === 'permission') return <ScreenTimePermission e={e} />;
+  if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
+  return <RedesignScreens e={e} />;
+}
+
+function ScreenTimePermission({ e }: any) {
+  const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
+  const [busy, setBusy] = useState(false);
+  const gateParts = String(e.detail).split('|');
+  const boardFirst = gateParts[0] === 'board-first';
+  const gateRoute = (gateParts[1] || 'board') as Route;
+  const gateDetail = decodeURIComponent(gateParts[2] || '');
+  const measuredApps = e.detail === 'measured-apps';
+  const finish = () => {
+    if (boardFirst) {
+      e.replace('screenTimeApps', e.detail);
+    } else if (measuredApps) {
+      e.replace('screenTimeApps', 'settings');
+    } else {
+      e.back();
+    }
+  };
+  const skip = () => {
+    if (boardFirst) {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeBoardPromptSeen', value: true });
+      e.replace(gateRoute, gateDetail);
+    } else {
+      e.back();
+    }
+  };
+  const syncStatus = async () => {
+    const next = await screenTime.getAuthorizationStatus();
+    setStatus(next);
+    e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
+    return next;
+  };
+  useEffect(() => {
+    let active = true;
+    screenTime
+      .getAuthorizationStatus()
+      .then((next) => {
+        if (!active) return;
+        setStatus(next);
+        e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
+        if (boardFirst && next === 'approved') finish();
+      })
+      .catch(() => active && setStatus('unavailable'));
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      syncStatus()
+        .then((next) => {
+          if (next === 'approved' && boardFirst) finish();
+        })
+        .catch(() => {});
+    });
+    return () => subscription.remove();
+  }, []);
+  const request = async () => {
+    setBusy(true);
+    try {
+      await screenTime.requestAuthorization();
+      const next = await syncStatus();
+      if (next === 'approved') finish();
+    } catch {
+      e.notify('스크린타임 권한을 요청하지 못했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (status === 'loading')
     return (
-      <Sheet e={e} title="측정 권한">
-        <Txt kind="h17">스크린타임 연결</Txt>
-        <Txt>권한이 없으면 사용 시간을 알 수 없어요. 실제 0분과 기록 없음은 따로 표시해요.</Txt>
-        <Group flat>
-          <Row
-            title="스크린타임 연결"
-            tail={
-              <Toggle
-                label="스크린타임 연결"
-                value={state.settings.permission}
-                onChange={(value: boolean) =>
-                  e.dispatch({ type: 'SETTING', key: 'permission', value })
-                }
-              />
-            }
-          />
-        </Group>
-        <Txt kind="meta">측정 연결을 끄면 사용 시간 퀘스트는 확인 필요로 표시해요.</Txt>
+      <Sheet
+        e={e}
+        title="측정 권한"
+        onBack={boardFirst ? skip : undefined}
+        onClose={boardFirst ? skip : undefined}
+      >
+        <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+          <ActivityIndicator color={C.ink} />
+        </View>
       </Sheet>
     );
-  return <RedesignScreens e={e} />;
+  const unavailable = Platform.OS !== 'ios' || !isScreenTimeAvailable || status === 'unavailable';
+  return (
+    <Sheet
+      e={e}
+      title="측정 권한"
+      onBack={boardFirst ? skip : undefined}
+      onClose={boardFirst ? skip : undefined}
+    >
+      <Pic id="cat/black/sitting" w={82} />
+      <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
+      <Txt>
+        GROMO가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을
+        썼는지나 화면 내용은 볼 수 없어요.
+      </Txt>
+      <Group flat>
+        <Row
+          title="스크린타임 권한"
+          sub={
+            unavailable
+              ? '이 기기에서는 사용할 수 없어요'
+              : status === 'approved'
+                ? '연결됨'
+                : status === 'denied'
+                  ? '설정에서 권한을 허용해 주세요'
+                  : '아직 연결하지 않았어요'
+          }
+        />
+      </Group>
+      {status === 'approved' ? (
+        <Btn
+          title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
+          onPress={finish}
+        />
+      ) : status === 'denied' ? (
+        <>
+          <Btn title="iOS 설정 열기" onPress={() => Linking.openSettings()} />
+          <Btn
+            title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
+            kind="ghost"
+            onPress={skip}
+          />
+        </>
+      ) : unavailable ? (
+        <Btn title={boardFirst ? '게시판 열기' : '확인'} onPress={skip} />
+      ) : (
+        <>
+          <Btn
+            title={busy ? '권한 요청 중…' : '스크린타임 연결하기'}
+            disabled={busy}
+            onPress={request}
+          />
+          {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={skip} />}
+        </>
+      )}
+      <Txt kind="meta">권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요.</Txt>
+    </Sheet>
+  );
+}
+
+function MeasuredAppPicker({ e }: any) {
+  const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pickerInFlight = useRef(false);
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gateParts = String(e.detail).split('|');
+  const boardFirst = gateParts[0] === 'board-first';
+  const gateRoute = (gateParts[1] || 'board') as Route;
+  const gateDetail = decodeURIComponent(gateParts[2] || '');
+  const finish = () => {
+    if (boardFirst) {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeBoardPromptSeen', value: true });
+      e.replace(gateRoute, gateDetail);
+    } else {
+      e.back();
+    }
+  };
+  const openPicker = async () => {
+    if (pickerInFlight.current) return;
+    pickerInFlight.current = true;
+    if (autoTimer.current) {
+      clearTimeout(autoTimer.current);
+      autoTimer.current = null;
+    }
+    setBusy(true);
+    try {
+      const active = await screenTime.getMeasurementSelectionCounts();
+      setSelection(active);
+      const picked = await screenTime.presentAppPicker();
+      if (!picked) {
+        if (boardFirst) finish();
+        return;
+      }
+      const count = selectionCount(picked);
+      if (picked.appliesImmediately) {
+        const activated = await screenTime.promoteSelection();
+        if (!activated) throw new Error('measurement selection activation failed');
+        const unconfirmedDays = await screenTime.getUnconfirmedUsageBucketDays();
+        e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+        const minutes = await screenTime.getTodayUsageBucketMinutes();
+        e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
+        e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+        e.dispatch({ type: 'SCREEN_TIME', value: minutes });
+        e.notify(`측정 앱 ${count}개를 바로 적용했어요.`);
+      } else {
+        e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
+      }
+      setSelection(picked);
+      finish();
+    } catch {
+      e.notify('측정 앱 선택 화면을 열지 못했어요.');
+    } finally {
+      pickerInFlight.current = false;
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    screenTime
+      .getMeasurementSelectionCounts()
+      .then(setSelection)
+      .catch(() => {});
+    if (!boardFirst) return;
+    autoTimer.current = setTimeout(openPicker, 450);
+    return () => {
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+    };
+  }, []);
+  return (
+    <Sheet
+      e={e}
+      title="측정 앱"
+      onBack={boardFirst ? finish : undefined}
+      onClose={boardFirst ? finish : undefined}
+    >
+      <Pic id="cat/black/sitting" w={82} />
+      <Txt kind="h17">줄이고 싶은 앱을 골라주세요</Txt>
+      <Txt>
+        선택한 앱과 카테고리의 사용 시간을 15분 단위로 기록해요. 앱 이름은 Apple 선택 화면 안에서만
+        보여요.
+      </Txt>
+      <Group flat>
+        <Row
+          title="현재 측정 대상"
+          sub={selectionCount(selection) ? `${selectionCount(selection)}개 선택됨` : '아직 없음'}
+        />
+        <Row
+          title="변경 적용"
+          sub={selectionCount(selection) ? '기존 대상 변경은 다음 날부터' : '최초 선택은 바로'}
+        />
+      </Group>
+      <Btn
+        title={busy ? '선택 화면 여는 중…' : '측정 앱 고르기'}
+        disabled={busy}
+        onPress={openPicker}
+      />
+      {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={finish} />}
+      <Txt kind="meta">
+        선택을 바꾸는 날에는 기존 앱 기준 기록을 유지하고, 자정부터 새 대상을 측정해요.
+      </Txt>
+    </Sheet>
+  );
 }
 // 섬 구경 · 전망대 · 상점 · 축음기 · 내 뗏목(친구·꾸미기)은 v2 시트 구현(Screens.tsx)이 그린다
 function Visit({ e }: any) {
@@ -313,12 +571,132 @@ function Travel({ e }: any) {
           e.dispatch({ type: 'SWITCH_ISLAND', id: target.id });
           e.home();
         } else if (canVisit(s, target.id)) {
-          // 미가입 섬은 방문자로 내려 그 섬 홈을 구경한다
+          // 기존 방문자 권한(회관 정보·게시판 열람)을 유지한 채 읽기 전용 메인 섬 경로로 연다.
           e.dispatch({ type: 'VISIT', id: target.id });
-          e.home();
+          e.replace('visitIsland', target.id);
         } else e.replace('visit', target.id);
       }}
     />
+  );
+}
+function VisitIsland({ e }: any) {
+  const s: State = e.state,
+    islandId = e.detail || s.visitingIslandId;
+  return (
+    <FinalIsland
+      state={s}
+      go={e.go}
+      build={e.build}
+      viewingIslandId={s.visitingIslandId ? undefined : islandId}
+      notify={e.notify}
+      dispatch={e.dispatch}
+    />
+  );
+}
+function FocusVisit({ e, islandId, onBack }: any) {
+  const s: State = e.state,
+    i = s.islands.find((island) => island.id === islandId) ?? currentIsland(s),
+    L = useAppLayout(),
+    safe = useSafeAreaInsets(),
+    // 서버 연결 뒤 focus-members가 403/빈 응답이어도 로딩 상태를 유지하지 않고 빈 관전 화면으로 끝낸다.
+    peers = (i.members ?? []).filter((member) => member.focusing),
+    spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]),
+    reduce = s.settings.reduceMotion,
+    close = onBack ?? e.home,
+    visiting = !!islandId;
+  return (
+    <View style={{ flex: 1 }}>
+      <FishingIsland
+        focus={{ x: 50, y: 50 }}
+        spots={spots}
+        onRaft={close}
+        raftLabel={visiting ? '뗏목 · 메인 섬으로 돌아가기' : undefined}
+        gram={i.buildings.includes('gram')}
+      >
+        {(size, sizeY, zoom) => {
+          const shown = new Set<string>(),
+            kept: ReturnType<typeof labelBox>[] = [];
+          if (zoom >= 1)
+            peers
+              .map((member, index) => ({
+                id: member.id,
+                spot: spots[index],
+                subject: member.subject,
+              }))
+              .sort((a, b) => b.spot.y - a.spot.y)
+              .forEach((label) => {
+                const box = labelBox(label.spot, label.subject, size, sizeY);
+                if (
+                  kept.some(
+                    (other) =>
+                      !(
+                        other.right <= box.left ||
+                        box.right <= other.left ||
+                        other.bottom <= box.top ||
+                        box.bottom <= other.top
+                      ),
+                  )
+                )
+                  return;
+                kept.push(box);
+                shown.add(label.id);
+              });
+          return peers.map((member, index) => (
+            <FishingActor
+              key={member.id}
+              spot={spots[index]}
+              size={size}
+              sizeY={sizeY}
+              color={member.color}
+              name={member.name}
+              subject={shown.has(member.id) ? member.subject : null}
+              seconds={member.seconds}
+              reduce={reduce}
+            />
+          ));
+        }}
+      </FishingIsland>
+      <View
+        style={{
+          position: 'absolute',
+          zIndex: 30,
+          top: L.landscape ? Math.max(14, safe.top + 8) : Math.max(64, safe.top + 12),
+          left: Math.max(18, safe.left + 8),
+        }}
+      >
+        <FiButton
+          small
+          title={visiting ? '돌아가기' : '닫기'}
+          id="close-focus-visit"
+          onPress={close}
+        />
+      </View>
+      {!peers.length && (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
+          ]}
+        >
+          <View
+            style={{
+              marginHorizontal: 24,
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 18,
+              backgroundColor: '#FFFDFAD9',
+              paddingVertical: 12,
+              paddingHorizontal: 18,
+            }}
+          >
+            <Text style={{ fontSize: 14, lineHeight: 22.4, fontWeight: '800', color: INK }}>
+              지금 낚시 중인 주민이 없어요
+            </Text>
+          </View>
+        </View>
+      )}
+    </View>
   );
 }
 function FocusFlow({ e }: any) {

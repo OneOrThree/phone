@@ -25,22 +25,30 @@ UUID는 데이터 ID, ProductId는 카탈로그 문자열, 시각은 UTC instant
 
 ### 2.1 wallet — GET `/islands/{islandId}/shop/wallets`
 
-본문 없음. 본인과 현재 섬의 두 wallet을 **같은 Data 읽기 snapshot**에서 반환한다.
+본문 없음. 현재 섬의 wallet 하나를 **같은 Data 읽기 snapshot**에서 반환한다(재화-단일 — ~~본인과 현재 섬의 두 wallet~~ 폐기).
 
 ```json
-{"data":{"fish":500,"villagePoints":1500,"fishVersion":4,"villagePointsVersion":7}}
+{"data":{"fish":0,"villagePoints":1500,"fishVersion":null,"villagePointsVersion":7}}
 ```
 
-금액은 원본 형태 예시다. `fish` 는 개인 지갑(개인 물고기), `villagePoints` 는 섬 통장(섬 물고기) — **2026-09-18 재영님 결정 D1**(두 지갑 축 유지, 섬 쪽 재화 이름만 섬 물고기). 필드명·통화 식별자 `village_points` 의 개명은 결정에 없어 wire 는 그대로 둔다. fishVersion은 `(user,subject,fish)`, villagePointsVersion은 `(island,islandId,village_points)`
-지갑의 실제 버전이다. 둘의 최댓값을 공용version으로 만들지 않는다. 본인 fish를 섬 전체 응답 캐시에 넣지 않는다.
-회원 생성/경제 활성화에 필요한 wallet이 없으면0원으로 위장하지 않고503 SERVICE_UNAVAILABLE 및 운영 로그로 처리한다.
+금액은 원본 형태 예시다. **잔액은 `villagePoints`(섬 통장·섬 물고기) 하나뿐이다**(2026-09-21 재영님 결정 재화-단일 — ~~2026-09-18 D1 의 두 지갑 축~~ 폐기).
+`fishVersion` 은 **항상 null** 이다 — 개인 물고기 지갑에는 사건·버전 축이 없다(`ShopService#wallets` 가 null 을 고정으로 싣는다).
+`fish` 는 **0을 보장하지 않는다**: 현재 구현(`ShopService#wallets`)은 `user_fish_wallets` 의 **저장값을 그대로** 싣고, 행이 없으면 0 이다.
+적립 경로(`FishWalletService#credit`)는 `personal_share_percent > 0` 일 때만 닿는데 `focus_reward_policies` 에는 V67 시드 revision 1 = (60, 480, **0**) 한 행뿐이라
+**실제로는 0 이어야 하지만 코드가 0 을 강제하지는 않는다** — 0 이 아닌 행이 하나라도 있으면 그 값이 그대로 나간다. 응답 0 고정(또는 잔액 정리)은
+`server/**` 변경이라 **별도 티켓 몫**이고 이 문서는 그것을 계약으로 앞당겨 적지 않는다. 그때까지 앱은 이 필드를 그리지 않는다.
+실제 필드 제거는 앱이 전량 전환한 뒤 또 다른 티켓이다. villagePointsVersion은 `(island,islandId,village_points)`
+지갑의 실제 버전이고 유일한 version 축이다 — 둘의 최댓값을 공용version으로 만들지 않는다.
+통화 식별자 `village_points` 의 개명은 결정에 없어 wire 는 그대로 둔다.
+섬 통장 행이 없는 섬은 **200 에 `villagePoints: 0`** 이다(2026-09-21 결정 통장-부재-0 — ~~503 SERVICE_UNAVAILABLE~~ 폐기). 위장이 아니라 사실이다: 통장 행은 섬 생성 때 만들고(`IslandMembershipService#create`) 없으면 첫 적립이 `insertIfAbsent` 로 만드는데, `island_wallet_transactions` 가 `island_wallets` 를 `ON DELETE RESTRICT` 로 참조하므로 **적립된 적 있는 통장은 사라질 수 없다** — 행이 없다 ⇒ 원장 한 줄도 없다 ⇒ 잔액 0 이다.
+「경제 활성화」(S03·S04)는 통장이 아니라 **카탈로그가 표현한다** — 가격 미승인 상품은 `available=false`+`reason`, 활성 발행본이 없으면 빈 목록이다(§2.2, 결정 N25). 통장 조각은 BFF 병렬 조각이라 실패하면 화면 전체가 실패하므로, 잔액 0 인 섬에 503 을 내면 레거시 `POST /api/v1/groups`(통장을 만들지 않는다)로 생긴 섬의 상점 화면이 통째로 닫힌다.
 
 ### 2.2 catalog — GET `/islands/{islandId}/shop/products`
 
 Query: `category=personal|island|sound` 필수, `cursor` 선택, `limit` 선택(기본30,1~100).
 
 ```json
-{"data":{"items":[{"id":"scarf","title":"바다 스카프","kind":"clothes","price":20,"currency":"fish","ownerType":"user","owned":false,"available":true,"reason":null,"productVersion":3}],"nextCursor":null}}
+{"data":{"items":[{"id":"scarf","title":"바다 스카프","kind":"clothes","price":20,"currency":"village_points","ownerType":"user","owned":false,"available":true,"reason":null,"productVersion":3}],"nextCursor":null}}
 ```
 
 각 항목의 id/title/kind/currency/ownerType/owned/available/reason/productVersion은 필수, reason은 nullable.
@@ -100,7 +108,7 @@ previewUrl은 서버 등록 media 자산만 반환하고 사용자 URL을 받아
 Headers: 유효 JWT, application/json, 필수 UUID `Idempotency-Key`.
 
 ```json
-{"productId":"scarf","expectedWalletVersion":4,"expectedProductVersion":3}
+{"productId":"scarf","expectedWalletVersion":7,"expectedProductVersion":3}
 ```
 
 `expectedProductVersion`은 **1780 상세 설계에서 추가 채택한 명시적 확장**이다(2026-09-12 조정자 동의).
@@ -109,11 +117,12 @@ productVersion을 비교하고 stale이면409 VERSION_CONFLICT, field=expectedPr
 공통 top-level `current:{version:<최신 productVersion>,resource:<인가된 상품 상세 DTO>}`에 제공한다. 앱은 새 가격/조건을 사용자에게 다시 보여준 뒤 새 키로 요청한다. 서버가 가격을 임의로 받는
 방식이나 오래된 가격에 무조건 판매하는 방식이 아니다. 원본9개 버전제출표에 없던 **상점 한정 추가**다.
 
-expectedWalletVersion은 상품 currency가 fish면 fishVersion, village_points면 villagePointsVersion이다.
+expectedWalletVersion은 **언제나 villagePointsVersion**이다 — 결제 지갑이 섬 통장 하나뿐이라 분기가 없다(재화-단일-호환 ②. ~~currency가 fish면 fishVersion~~ 폐기). 버전 충돌의 `current.version`도 villagePointsVersion이다.
+위 예시는 §2.1 wallet 응답(`villagePointsVersion: 7`)에서 이어지는 한 흐름이다 — 그 값을 그대로 제출하고, 성공 응답의 `walletVersion` 은 이 구매가 발행한 **다음** 지갑 사건의 버전(8)이다. 예시끼리 어긋나면 그대로 호출했을 때 409 VERSION_CONFLICT 가 난다.
 ownerType/ownerId/currency/price/quantity를 요청에서 받지 않는다. 미등록 필드는400으로 거절한다.
 
 ```json
-{"data":{"id":"order-1","productId":"scarf","spent":20,"currency":"fish","ownerType":"user","owned":true,"walletVersion":5}}
+{"data":{"id":"order-1","productId":"scarf","spent":20,"currency":"village_points","ownerType":"user","owned":true,"walletVersion":8}}
 ```
 
 201. DTO id는 실제 UUID, 예시는 설명용이다. receipt는 이 결과와 HTTP201을 저장하며 나중의 현재 잔액/버전으로
@@ -132,13 +141,13 @@ INSUFFICIENT_FUNDS/IDEMPOTENCY_KEY_REUSED/REQUEST_IN_PROGRESS,422 OUT_OF_RANGE,5
 Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 
 ```json
-{"data":{"items":[{"id":"order-1","productId":"scarf","price":20,"currency":"fish","createdAt":"2026-09-11T09:00:00Z"}],"nextCursor":null}}
+{"data":{"items":[{"id":"order-1","productId":"scarf","price":20,"currency":"village_points","createdAt":"2026-09-11T09:00:00Z"}],"nextCursor":null}}
 ```
 
 불변 주문 snapshot의 paid price/currency를 반환한다. 현재 가격표와 join하여 과거 금액을 바꾸지 않는다.
 정렬 `(createdAt DESC,id DESC)`; 동시 INSERT/COMMIT의 짧은 경계로 이미 지난 cursor 뒤에 늦게 보이는 row는
 최신 페이지 재조회로 복구하며 전체 DB snapshot을 보장한다고 쓰지 않는다. 공동 내역에 구매자의 원문 닉네임,
-개인 지갑, 자격 토큰을 끼워 넣지 않는다. 신청/퀘스트 결과 이력은 이 endpoint의 대상이 아니다.
+구매자 잔액, 자격 토큰을 끼워 넣지 않는다. 신청/퀘스트 결과 이력은 이 endpoint의 대상이 아니다.
 
 ## 3. 논리 저장 모델 — 실제 migration 아님
 
@@ -149,7 +158,7 @@ Query: `scope=personal|shared` 필수, cursor 선택, limit 기본30/최대100.
 |catalog publication|catalogPublicationVersion 유일, publishedAt/retiredAt/invalidatedAt. 컬렉션 전체의 불변 발행본|
 |catalog publication entry|publicationVersion+productId 유일, productRevision FK, category/displayOrder. 해당 발행본의 상품 집합/정렬을 복원|
 |catalog active pointer|현재 publicationVersion 한 개를 참조. 상품별 현재 정의도 이 publication의 entry로 결정하며 별도 가변 상품 포인터와 이중 정본을 두지 않음|
-|economy wallet|ownerType+ownerId+currency 유일, balance>=0, version. user/fish(개인 지갑) 또는 island/village_points(섬 통장·섬 물고기 — D1) 조합만 허용|
+|economy wallet|ownerType+ownerId+currency 유일, balance>=0, version. **island/village_points(섬 통장·섬 물고기) 조합만 허용**(재화-단일 — ~~user/fish~~ 폐기)|
 |economy ledger|entryId, wallet FK, signedDelta, balanceAfter, 원인 order/settlement, 원인별 유일성, immutable|
 |owned product|ownerType+ownerId+productId 유일, 불변 asset definition FK, grantedOrderId/명시 지급 근거, grantedAt. 판매 활성 포인터와 무관하게 의미 복원, user/island 실제FK무결성 확보|
 |inventory aggregate|ownerType+ownerId 유일, 목록의 단조version; 개인과 섬 독립|
@@ -180,7 +189,7 @@ productId 의 의미에 넣을 일이 없다. 기존 보유 의미를 개정/승
 
 D18의 expectedProductVersion 검사는 **허용된 판매 정의 변경에 대한 동의 보호**이지 ownerType 변경을
 허가하는 정책이 아니다. 이 상세 모델은 ownerType을 productId 수명 동안 불변으로 더 좁게 제한한다.
-현재 통화 조합도 user/fish·island/village_points뿐이므로 같은 productId의 통화를 다른 소유 지갑으로 바꾸는
+현재 통화는 island/village_points 하나뿐이므로(재화-단일, V74 `shop_product_revisions_currency_check`) 다른 통화의
 revision은 발행 validation에서 거절한다. 가격만 변경해도 productVersion은 반드시 오른다.
 향후 승인된 통화 확장이 생긴다면 소유 의미를 유지하는 허용 통화 변경에도 version 검사가 필요하며,
 이 문서가 그 확장을 미리 활성화하지 않는다. 주문은 결제 당시 owner/currency/price/revision을 그대로 보존한다.
@@ -198,10 +207,11 @@ catalog publication 발행은 모든 product revision/entry를 준비한 뒤 Dat
 
 ## 4. 원자 주문 알고리즘
 
+0. **계정 상태 가드 (GROMO-1992).** 게스트면 여기서 403 `SOCIAL_LOGIN_REQUIRED` 다 — 정책 「…상점 구매를 처음 시도할 때 소셜 로그인을 요청한다」. `InternalShopController.purchase` 가 멱등 `publicCommands.run` **앞**에서 `GuestAccountGuards.requireMember` 를 부르므로 거절된 게스트는 receipt 를 남기지 않는다(남기면 소셜 로그인을 마친 뒤 같은 키로 다시 눌렀을 때 실패가 재생된다). 이것은 **계정 상태** 축이고 아래 3의 membership/역할(「구매=주민」)은 **섬 안의 역할** 축이다 — 둘은 서로를 대신하지 못하므로 나란히 둔다. 판정 근거는 AT 의 `guest` 클레임이 아니라 `users.is_guest` 현재 값이다(계정 LLD §2.1).
 1. JWT/service caller 및 body형식 검증. 검증 subject, method+route template, islandId와body를 포함한 canonical intent로 receipt를 조회/직렬화한다.
 2. 활성 caller와 결과공개자격을 확인한 뒤 확정 같은 요청이면 원receipt 재생. 다른hash면409, 처리중이면 공통 retry 규약.
 3. **새 실행만** 사용자/current-island context, membership/역할, 시설 상태와 상품 활성 revision을 정본 TX 안에서 확인한다. 앱/BFF가 넘긴 cached permit 금지.
-4. 공유 변경은 `SHARED_PURCHASE` 권한 제공자 결정이 있어야 한다. 미구현/미승인 권한 제공자를 true로 대체하지 않는다.
+4. 공유 변경의 `SHARED_PURCHASE` 는 **활성 주민 누구나**로 확정됐다(GROMO-2000, S02). 섬 설정 토글은 읽지 않는다.
 5. 해당 owner wallet 잠금, inventory aggregate 잠금을 정해진 순서로 획득한다. 현재 productVersion과 walletVersion 비교 후 owned unique 및 prerequisites 확인.
 6. 잔액이 모자라면409 INSUFFICIENT_FUNDS, 어떤 row도 확정하지 않는다. 차감/ledger/order/owned/inventory version/receipt/outbox를 함께 기록한다. 최초 구매 차감 성공의 서버 분석 `currency_spent` 전달 의도도 같은 TX에서 내구 기록한다(아래 기존 계측 의무).
 7. DB commit 후만 응답/relay전달. 외부전달 실패로 committed order를 취소하지 않고 outbox 재전달한다. DB rollback이면 원장/보유/receipt/outbox모두없다.
@@ -226,7 +236,7 @@ Data의 내부 주문 응답은 공개 주문 DTO와 구분하여 `{data:<공개
 
 |종류|개인|공동|
 |---|---|---|
-|wallet.updated|islandId=null, ownerType=user, ownerId=subject, currency=fish|islandId=ownerId=경로섬, ownerType=island, currency=village_points|
+|wallet.updated|**없음** — 결제는 섬 통장뿐이다(SH-재화). 개인 지갑 축은 GROMO-1989/2044 로 Realtime 계약에서도 제거했고, 섬 없는 `wallet.updated` 는 봉투가 거절한다|islandId=ownerId=경로섬, ownerType=island, currency=village_points|
 |inventory.updated|islandId=null, ownerType=user, ownerId=subject, productId|islandId=ownerId=경로섬, ownerType=island, productId|
 |audience/destination|검증owner 하나, `/user/queue/events`|현재섬 주민, `/topic/islands/{islandId}/events`|
 
@@ -238,7 +248,7 @@ Data의 내부 주문 응답은 공개 주문 DTO와 구분하여 `{data:<공개
 
 [재화 PRD §3.3·REQ-E1](../../gromo/currency/prd.md)의 구매 차감 성공 `currency_spent` 서버 MP 발행 요구를 새 주문에서도 누락하지 않는다. `type=PURCHASE`, 실제 차감한 `amount`, 해당 지갑의 확정 `balance_after`를 원장/주문과 같은 TX의 내구 발행 자료로 고정하고 커밋 뒤 전달한다. 원인 orderId/분석 eventId의 유일성으로 최초 실행에 한 건만 기록하며 receipt 재생, 이미 소유한 상품의 실패, 잔액 부족, rollback은 새 계측 사건0건이다. 전달 재시도는 같은 eventId를 유지하고 기존 서버 분석 중복 제거 계약을 검증한다. 외부 MP 수신 자체의 exactly-once를 DB 원자성으로 보장한다고 주장하지 않는다.
 
-이 분석 사건은 서버 분석 대상이며 주민 토픽에 개인 잔액을 보내는 Realtime 사건이 아니다. `wallet.updated`/`inventory.updated`의 공개 payload에 balance_after나 개인 주문을 추가하지 않는다. 개인 fish와 공동 village_points를 기존 개인 재화 지표 하나로 합산하지 않도록 1781에서 통화/소유 축의 분석 매핑도 검증해야 한다. 기존 `InGameCurrencyService.spendCurrency`는 현재 차감·원장 저장만 하고 서버 MP 호출이 없으므로 **이미 계측이 구현되어 있다는 주장이 아니라 기존 요구를 이행할 후속1781 검증 의무**다. 가격·보상·공동 소비 권한의 미답변 정책은 이 계측 요구로 결정하지 않는다.
+이 분석 사건은 서버 분석 대상이며 주민 토픽에 결제 상세를 보내는 Realtime 사건이 아니다. `wallet.updated`/`inventory.updated`의 공개 payload에 balance_after나 개인 주문을 추가하지 않는다. 차감 통화는 village_points 하나뿐이므로 기존 개인 코인 지표와 같은 축으로 합산하지 않도록 1781에서 통화/소유 축의 분석 매핑을 검증해야 한다. 기존 `InGameCurrencyService.spendCurrency`는 현재 차감·원장 저장만 하고 서버 MP 호출이 없으므로 **이미 계측이 구현되어 있다는 주장이 아니라 기존 요구를 이행할 후속1781 검증 의무**다. 가격·보상·공동 소비 권한의 미답변 정책은 이 계측 요구로 결정하지 않는다.
 
 ## 6. 구현 검증 표
 
@@ -261,7 +271,7 @@ Data의 내부 주문 응답은 공개 주문 DTO와 구분하여 `{data:<공개
 |catalog/order cursor변조·다른scope·만료·동률|공통400/409, 중복페이징루프없음|
 |catalog 페이지 사이 상품 추가/삭제/가격/displayOrder 개정|원 publication entry로 중복/누락 없이 탐색; 현재 구매는 새 productVersion 검사|
 |publication 퇴역/폐기·cursor 수명 경계|보존 기간 조회 또는 명시 CURSOR_EXPIRED, 최신 publication으로 조용히 갈아타지 않음|
-|최초 구매·receipt 재생·실패/rollback·분석 전송 재시도|currency_spent 내구 의도 최초1/재생0, 원 amount/balance_after 보존, 동일 분석 eventId 재전달·중복제거; 개인/공동 통화 축 혼합 없음|
+|최초 구매·receipt 재생·실패/rollback·분석 전송 재시도|currency_spent 내구 의도 최초1/재생0, 원 amount/balance_after 보존, 동일 분석 eventId 재전달·중복제거; 차감 통화는 village_points 하나라 기존 개인 코인 지표와 합산 없음|
 |Data timeout·outbox지연|같은키로원결과복구, DBcommit재실행없음|
 
 이 표는 실행 예정 검증이며 현재 통과 결과가 아니다. 이번 작업은 문서9계약/링크/도식 정합 검토만 수행한다.

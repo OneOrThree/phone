@@ -68,7 +68,8 @@ public class SchedulingConfig {
     }
 
     /**
-     * 집중 보상 분당 적립 전용 풀 (GROMO-1990) — {@code FocusRewardScheduler} 의 크론 하나가 쓴다.
+     * 집중 세션 분당 틱 전용 풀 (GROMO-1990) — {@code FocusRewardScheduler}(적립, 매분 0초)와
+     * {@code FocusRestAutoCloseScheduler}(휴식 1시간 자동 종료, 매분 30초, GROMO-1998)가 쓴다.
      *
      * <p><b>왜 정산 풀에 얹지 않았나.</b> 정산 풀은 {@code GroupBetScheduler} 의 5분 크론 «셋이 같은 시각에»
      * 뜨는 것에 맞춘 정확히 3스레드다({@link #settlementTaskScheduler}). 거기에 매분 도는 전수 스캔을 더하면
@@ -77,9 +78,10 @@ public class SchedulingConfig {
      * 물고기가 늦게 들어온다. 풀을 키우는 대신 격리하는 이유는 위 풀 주석과 같다 — 크론이 늘 때마다 같은
      * 경합이 재발하므로 크기 조정은 미봉이다.
      *
-     * <p><b>1인 근거.</b> 이 크론은 진행 세션을 한 줄로 훑는 <b>단일 직렬 스캔</b>이고 겹쳐 돌 이유가 없다
-     * (ShedLock 이 인스턴스 간 중복도 막는다). 한 틱이 1분을 넘기기 시작하면 그때는 스레드가 아니라 스캔
-     * 자체를 쪼갤 때다(세션 프리필터·섬 샤딩 — 그 스케줄러의 ponytail 주석).
+     * <p><b>1인 근거.</b> 두 크론 다 진행 세션을 한 줄로 훑는 <b>단일 직렬 스캔</b>이고 겹쳐 돌 이유가 없다
+     * (ShedLock 이 인스턴스 간 중복도 막는다). 둘은 <b>초를 어긋나게</b> 두어(0초 · 30초) 한 스레드에서도
+     * 서로를 기다리지 않는다. 한 틱이 30초를 넘기기 시작하면 그때는 스레드가 아니라 스캔 자체를 쪼갤
+     * 때다(세션 프리필터·섬 샤딩 — 각 스케줄러의 ponytail 주석).
      *
      * @return {@code @Scheduled(scheduler = FOCUS_REWARD_SCHEDULER)} 로만 잡히는 1스레드 전용 풀
      */

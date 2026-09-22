@@ -38,13 +38,14 @@ public class IslandQuestUseCase {
             Map.entry("QUEST_INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)),
             Map.entry("INVALID_REQUEST", new PublicFailure(ApiErrorCode.INVALID_REQUEST, null)),
             Map.entry("QUEST_INVALID_TIMEZONE", new PublicFailure(ApiErrorCode.INVALID_PARAMETER, "timezone")),
-            // screen 퀘스트는 스크린타임 날짜 축 UTC 전환(1930) 전까지 받지 않는다.
+            // GROMO-2001 로 screen 퀘스트가 열려 Data 에 이 코드를 내는 경로는 지금 없다. 번역표에는
+            // 남긴다 — 새 종류가 붙어 Data 가 다시 이 코드를 내는 날, 표에 없으면 공개 500 으로 새어 나간다.
             Map.entry("QUEST_TYPE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "type")),
             Map.entry("QUEST_TITLE_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "title")),
             Map.entry("QUEST_TARGET_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "targetMinutes")),
             Map.entry("QUEST_WINDOW_OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, "windowEnd")),
             Map.entry("QUEST_VERSION_CONFLICT", new PublicFailure(ApiErrorCode.VERSION_CONFLICT, "expectedVersion")),
-            // 미달성·측정 대기·다른 키로 이미 정산·수령 기한 지남 — 지급 없음(LLD §5).
+            // 미달성·측정 대기·이미 받음·수령 기한 지남 — 지급 없음(LLD §5, GROMO-1991).
             Map.entry("QUEST_STATE_CONFLICT", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "occurrenceId")),
             // 출시 스위치(policy.md 출시 조건) — 사유는 내부 코드로만 남긴다.
             Map.entry("QUEST_CREATION_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)),
@@ -90,7 +91,7 @@ public class IslandQuestUseCase {
         IslandQuestViews.Claimed claimed = required(relay(() -> data.claimQuest(claims.userId(), islandId,
                 questId, occurrenceId, expectedVersion, key, deadline)), "퀘스트 정산 응답이 없습니다");
         if (!claimed.claimed() || !occurrenceId.toString().equals(claimed.occurrenceId())
-                || claimed.villagePointsAdded() < 0) {
+                || claimed.villagePointsAdded() < 0 || claimed.bonusAdded() < 0) {
             throw new UpstreamContractMismatchException("퀘스트 정산 응답이 계약과 다릅니다");
         }
         return claimed;

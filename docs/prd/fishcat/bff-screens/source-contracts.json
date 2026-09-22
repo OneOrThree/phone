@@ -113,7 +113,8 @@
       "implementation_status": "not_started",
       "read_ingredient_ids": [
         "focus-stats",
-        "screen-stats"
+        "screen-stats",
+        "fish-earnings"
       ],
       "action_ingredient_ids_not_aggregated": []
     },
@@ -165,7 +166,6 @@
       "implementation_ticket": "GROMO-1786",
       "implementation_status": "not_started",
       "read_ingredient_ids": [
-        "rank",
         "rank-islands"
       ],
       "action_ingredient_ids_not_aggregated": []
@@ -508,6 +508,42 @@
       "tests": []
     },
     {
+      "id": "fish-earnings",
+      "source_method": "GET",
+      "source_path": "/v1/islands/{islandId}/library/fish-earnings",
+      "method": "GET",
+      "path": "/islands/{islandId}/statistics/fish-earnings",
+      "request_example": {},
+      "response_example": {
+        "data": {
+          "members": [
+            {
+              "userId": "019f16a0-0000-7000-8000-000000000021",
+              "name": "수빈",
+              "earnedFish": 4800
+            },
+            {
+              "userId": "019f16a0-0000-7000-8000-000000000022",
+              "name": "도윤",
+              "earnedFish": 0
+            }
+          ]
+        }
+      },
+      "implementation_status": "implemented",
+      "implementation_ticket": "GROMO-2046",
+      "code": [
+        "server/business-api/src/main/java/com/oneorthree/business/api/IslandRecordsController.java",
+        "server/business-api/src/main/java/com/oneorthree/business/usecase/IslandRecordsUseCase.java",
+        "server/data-api/src/main/java/com/oneorthree/phone/internal/service/IslandEconomyReadService.java"
+      ],
+      "tests": [
+        "server/business-api/src/test/java/com/oneorthree/business/api/IslandRecordsContractTest.java",
+        "server/business-api/src/test/java/com/oneorthree/business/api/LibraryScreenContractTest.java",
+        "server/data-api/src/test/java/com/oneorthree/phone/internal/IslandScreenFragmentsIntegrationTest.java"
+      ]
+    },
+    {
       "id": "members",
       "source_method": "GET",
       "source_path": "/v1/islands/{islandId}/members",
@@ -619,37 +655,6 @@
       },
       "implementation_status": "not_started",
       "implementation_ticket": "GROMO-1773",
-      "code": [],
-      "tests": []
-    },
-    {
-      "id": "rank",
-      "source_method": "GET",
-      "source_path": "/v1/islands/{islandId}/rankings/members",
-      "method": "GET",
-      "path": "/islands/{islandId}/rankings/members",
-      "request_example": {
-        "week": "2026-W37",
-        "cursor": null
-      },
-      "response_example": {
-        "data": {
-          "eligibility": "eligible",
-          "items": [
-            {
-              "rank": 1,
-              "userId": "minji",
-              "name": "민지",
-              "catColor": "ginger",
-              "focusSeconds": 1320
-            }
-          ],
-          "myRank": 4,
-          "nextCursor": null
-        }
-      },
-      "implementation_status": "not_started",
-      "implementation_ticket": "GROMO-1777",
       "code": [],
       "tests": []
     },
@@ -868,5 +873,6 @@
       "code": [],
       "tests": []
     }
-  ]
+  ],
+  "ingredients": []
 }

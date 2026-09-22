@@ -3,6 +3,7 @@ package com.oneorthree.phone.group.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import com.oneorthree.phone.group.repository.domain.Group;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
@@ -49,7 +50,7 @@ public class CreateGroupRequest {
     private String description;
 
     @Min(1)
-    @Max(10)
+    @Max(Group.MAX_MEMBERS_CEILING)
     private Integer maxMembers;
 
     /**

@@ -29,7 +29,7 @@ final class FacilityFixtures {
 
     static String detail() {
         return "{\"id\":\"" + ISLAND + "\",\"name\":\"모래섬\",\"intro\":\"\",\"visibility\":\"public\","
-                + "\"approvalRequired\":false,\"memberCount\":2,\"membershipStatus\":\"active\","
+                + "\"approvalRequired\":false,\"memberCount\":2,\"maxMembers\":15,\"membershipStatus\":\"active\","
                 + "\"growthStage\":null,\"themeId\":null,\"role\":\"member\",\"version\":3}";
     }
 

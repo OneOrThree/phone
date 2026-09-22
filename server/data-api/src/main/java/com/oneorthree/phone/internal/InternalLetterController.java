@@ -3,10 +3,12 @@ package com.oneorthree.phone.internal;
 import com.oneorthree.phone.internal.dto.LetterSendRequest;
 import com.oneorthree.phone.internal.dto.LetterSliceView;
 import com.oneorthree.phone.internal.dto.LetterView;
+import com.oneorthree.phone.internal.service.GuestAccountGuards;
 import com.oneorthree.phone.internal.service.InternalLetterService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -19,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 /**
- * 편지 3종의 <b>내부 표면</b> (GROMO-1933, friend-letter LLD §1.12~1.15) — 공개 {@code /letters…} 는
+ * 편지 4종의 <b>내부 표면</b> (GROMO-1933 발송·목록·상세 + GROMO-2002 닫기) — 공개 {@code /letters…} 는
  * Business 의 {@code LetterController} 가 열고 여기는 그 위임만 받는다. nginx 위성 include 가 무접두
  * {@code /letters} 를 Business 로 보내므로 data-api 가 그 경로를 매핑해도 요청이 닿지 않는다.
  *
@@ -40,11 +42,20 @@ import java.util.UUID;
 public class InternalLetterController {
 
     private final InternalLetterService internalLetterService;
+    private final GuestAccountGuards guestAccountGuards;
 
-    /** 편지 보내기 (LLD §1.12). 수신자의 섬·시설은 조회하지 않는다 — 발송은 우체통과 무관하다. */
+    /**
+     * 편지 보내기 (LLD §1.12). 수신자의 섬·시설은 조회하지 않는다 — 발송은 우체통과 무관하다.
+     *
+     * <p>게스트는 여기서 막힌다 (GROMO-1992) — 정책 「…편지 보내기…를 처음 시도할 때 소셜 로그인을
+     * 요청한다」. 공유 서비스가 아니라 <b>이 2.0 표면</b> 에 거는 이유는 {@link GuestAccountGuards}
+     * 클래스 주석에 있다. 서비스 호출 <b>앞</b>이라 거절된 게스트는 {@code letters} 행과 발송 한도
+     * 카운터를 남기지 않는다. 목록·상세·닫기는 읽기·정리 표면이라 정책의 세 명령 밖이다.
+     */
     @PostMapping("/letters")
     @ResponseStatus(HttpStatus.CREATED)
     public LetterView send(@PathVariable UUID userId, @Valid @RequestBody LetterSendRequest body) {
+        guestAccountGuards.requireMember(userId);
         return internalLetterService.send(userId, body);
     }
 
@@ -57,9 +68,19 @@ public class InternalLetterController {
         return internalLetterService.list(userId, type, cursor, size);
     }
 
-    /** 편지 상세 (LLD §1.14). 수신자의 첫 조회면 읽음 시각이 박히지만 행은 남는다. */
+    /** 편지 상세 (LLD §1.14). 수신자의 첫 조회면 읽음 시각이 박히지만 행은 남는다 — 지우는 것은 닫기다. */
     @GetMapping("/letters/{letterId}")
     public LetterView detail(@PathVariable UUID userId, @PathVariable UUID letterId) {
         return internalLetterService.detail(userId, letterId);
+    }
+
+    /**
+     * 편지 닫기 (GROMO-2002) — 수신자만. 양쪽 목록·상세에서 함께 사라진다.
+     * 본문이 없으므로 204 다(Business 의 공개 봉투 규칙이 200 {@code {"data": null}} 로 접는다).
+     */
+    @DeleteMapping("/letters/{letterId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void close(@PathVariable UUID userId, @PathVariable UUID letterId) {
+        internalLetterService.close(userId, letterId);
     }
 }

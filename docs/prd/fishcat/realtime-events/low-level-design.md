@@ -51,11 +51,11 @@
 |---|---|---|---|---|
 | 1 | `focus.member.updated` / `FOCUS_MEMBER_UPDATED` | `userId:Id`, `sessionId:Id`, `status:active\|paused\|completed`, `subject:string`, `activeSeconds:Seconds`, `serverNow:Instant`, `sessionVersion:Version` | `(focus.member,islandId,userId)`의 주민 집중 투영. 세션이 바뀌어도 단조 증가. REST sessionVersion과 별개 | `focus` |
 | 2 | `rest.member.updated` / `REST_MEMBER_UPDATED` | `userId:Id`, `sessionId:Id`, `status:active\|paused\|completed`, `restStartedAt:Instant?`, `restSeat:integer?`, `serverNow:Instant`, `sessionVersion:Version` | `(rest.member,islandId,userId)`의 휴식 투영. 세션 교체로 초기화하지 않음 | `rest` |
-| 3 | `focus.emote` / `FOCUS_EMOTE` | `userId:Id`, `sessionId:Id`, `type:hello\|cheer\|sleepy\|laugh\|hearts`, `expiresAt:Instant` | 버전 없음(null). eventId dedup + 만료만 사용 | `emotes` |
+| 3 | `focus.emote` / `FOCUS_EMOTE` | `userId:Id`, `sessionId:Id`, `type:hello\|cheer\|sleepy\|laugh\|hearts`, `expiresAt:Instant` | 버전 없음(null). eventId dedup + `expiresAt=occurredAt+3s` 만료만 사용 | `emotes` |
 | 4 | `playback.updated` / `PLAYBACK_UPDATED` | `trackId:TrackId?`, `playing:boolean`, `positionSeconds:Seconds`, `effectiveAt:Instant`, `changedBy:Id`, `version:Version`, `serverNow:Instant` | `(playback,islandId)`의 전체 재생 상태 | `playback` |
 | 5 | `message.created` / `MESSAGE_CREATED` | `messageId:Id`, `islandId:Id`, `senderId:Id`, `sentAt:Instant`, `clientMessageId:Id` — **본문 `text` 없음**(M02: 메시지 정본은 `gromo_chat`, Data 복제 금지. 앱은 `messageId`로 히스토리에서 읽는다) | 불변 사건. `(MESSAGE,messageId)`의 최초 버전 1. 다른 payload.messageId와 버전 비교 금지. 생산 지점은 Data outbox — Business가 realtime 저장 «처음 성공» 뒤 `POST /internal/islands/{islandId}/message-events`로 적재하고 REALTIME transport 등록 전까지 내구 보류 *(2026-09-18 GROMO-1775, M02)* | `messages` |
 | 6 | `quest.progress.updated` / `QUEST_PROGRESS_UPDATED` | `questId:Id`, `occurrenceId:Id`, `version:Version` | `(quest.progress,islandId,questId,occurrenceId)`의 무효화 신호 | `events` |
-| 7 | `wallet.updated` / `WALLET_UPDATED` | `ownerType:user\|island`, `ownerId:Id`, `currency:fish\|village_points`, `version:Version` | `(wallet,ownerType,ownerId,currency)`의 지갑 무효화. 개인=user/fish(개인 지갑), 공동=island/village_points(섬 통장·섬 물고기 — 2026-09-18 재영님 결정 D1, 식별자 개명 미결)만 허용 | 개인은 개인큐, 공동은 `events` |
+| 7 | `wallet.updated` / `WALLET_UPDATED` | `ownerType:island`, `ownerId:Id`(=`islandId`), `currency:village_points`, `version:Version` | `(wallet,ownerType,ownerId,currency)`의 지갑 무효화. **섬 통장 하나뿐**이다 — 개인 지갑 축(user/fish)은 2026-09-21 GROMO-1989/2044 로 계약에서 제거했다(Data 의 유일한 발행자 `IslandWalletEvents` 가 섬 지갑만 내보내 도달할 수 없는 분기였다). 섬 없는 `wallet.updated` 는 봉투가 거절한다 | `events` |
 | 8 | `inventory.updated` / `INVENTORY_UPDATED` | `ownerType:user\|island`, `ownerId:Id`, `productId:ProductId`, `version:Version` | `(inventory,ownerType,ownerId)` 보유 목록 무효화. productId는 변경 원인이지 전체목록 버전의 key 아님 | 개인은 개인큐, 공동은 `events` |
 | 9 | `member.appearance.updated` / `MEMBER_APPEARANCE_UPDATED` | `userId:Id`, `appearance:Appearance`, `version:Version` | `(member.appearance,userId)`의 개인 외양 **전체 상태**. 다른 섬에서 온 동일 외양도 같은 버전 축 | `events` |
 | 10 | `island.appearance.updated` / `ISLAND_APPEARANCE_UPDATED` | `islandThemeId:ThemeId`, `buildingThemes:object<BuildingId,ThemeId>`, `version:Version` | `(island.appearance,islandId)`의 공동 외양 전체 상태. 변경 PATCH와 달리 전체결과를 발행 | `events` |
@@ -74,7 +74,7 @@
 - 세션별 버전만 쓰면 예전 세션의 큰 버전이 새 세션의 작은 버전을 덮거나, 지연된 예전 입장으로 종료자가 살아난다. 그래서 focus/rest는 **사용자×섬 투영의 지속 버전**을 별도로 저장/조회한다. 이 요구는 현재 Data 모델에 없는 선행 변경이다.
 - `playback`의 null trackId는 음원 미선택 상태의 wire 표현이며 playing=false/positionSeconds=0이어야 한다. 초기 무료곡을 자동 지급한다는 뜻이 아니다. 재생 중 위치는 effectiveAt anchor와 서버 시간 차이로 계산한다. anchor 위치만 현재로 바꾸고 effectiveAt을 그대로 두는 이중 가산을 금지한다.
 - `message.created`는 순서를 가진 상태 덮어쓰기가 아니다. 서로 다른 `payload.messageId`를 모두 처리하고 정렬은 히스토리 계약의 서버 키를 사용한다. `clientMessageId`는 `payload.senderId`와 함께 낙관적 UI를 병합한다. 서로 다른 사용자의 같은 clientMessageId를 하나로 접지 않는다. 이벤트 wire 필드명은 `payload.messageId`·`payload.senderId`·`payload.sentAt`(저장 PK·컬럼과 같은 이름 — outbox params 를 그대로 싣는다), 신규 REST 메시지 DTO의 필드명은 `id`·`userId`·`createdAt`이다(우체통 어댑터가 명시 매핑, island-mailbox LLD §2). 본문 `text`는 이벤트에 없고 REST(히스토리/POST 응답)에만 있다 — 앱은 `payload.messageId`로 히스토리에서 본문을 채운다. 레거시 REST/STOMP의 `messageId` 필드는 그대로 보존한다. *(2026-09-18 GROMO-1775, M02 — 종전 `payload.id/userId/text/createdAt` 정의를 이 PR 의 구현으로 대체)*
-- ownerType=island이면 ownerId=envelope.islandId. ownerType=user이면 islandId=null이고 UserAudience는 해당 ownerId 하나다. wallet/inventory에 balance/잔액 전체나 타인의 보유 목록을 포함하지 않는다.
+- ownerType=island이면 ownerId=envelope.islandId. ownerType=user이면 islandId=null이고 UserAudience는 해당 ownerId 하나다 — **이 개인 축이 남은 것은 `inventory.updated` 뿐이고 `wallet.updated`는 섬 전용**이다(GROMO-1989/2044). wallet/inventory에 balance/잔액 전체나 타인의 보유 목록을 포함하지 않는다.
 - island.updated/island.members.updated의 payload islandId는 envelope와 같아야 한다. join.request의 개인 수신자는 요청자 본인과 현재 방장의 합집합이며 같은 사용자면 한 번으로 접는다. 생산 시점의 방장 목록은 영구 권한이 아니다. 라우팅 시 신뢰된 membership resolver가 현재 방장으로 audience를 다시 확정하고, 이전 방장은 전달 직전 검사에서도 차단한다.
 - inventory/quest/notice 등 무효화 이벤트는 해당 목록/자원을 다시 읽는 신호다. 높은 버전의 product B가 먼저 왔다고 product A의 개별 소유를 수동으로 삭제하지 않는다. 목록 스냅샷은 A/B를 모두 포함해야 한다.
 - 여러 섬에 보이는 개인외양은 대상별 envelope를 별도 eventId로 내구화하되 같은 외양 version을 사용한다. 적용 중 실제 표시 권한이 사라진 섬에는 보내지 않는다.
@@ -112,7 +112,7 @@ GET의 API 설명에 '후속 이벤트'가 표시돼 있어도 조회가 변경 
 | SUBSCRIBE | `/topic/islands/{islandId}/rest` | **인증된 사용자**(위와 같음). 로컬 모닥불 관람 때문에 새 세션을 만들지 않음 |
 | SUBSCRIBE | `/topic/islands/{islandId}/emotes` | 현재 같은 섬에서 **진행 중(active·paused) 집중 세션**을 가진 사용자(구독 시 Data 정본 조회). 집중을 시작한 뒤 구독해야 한다 |
 | SUBSCRIBE | `/topic/islands/{islandId}/playback` | 같은 섬 주민 + 방송기 접근 가능 |
-| SUBSCRIBE | `/topic/islands/{islandId}/messages` | 같은 섬 주민 + 우체통 접근 가능 + 기존 채팅 집중 제한 |
+| SUBSCRIBE | `/topic/islands/{islandId}/messages` | 같은 섬 주민 + 우체통 접근 가능 + active·paused 진행 세션의 채팅 차단 |
 | SUBSCRIBE | `/user/queue/events` | 인증된 본인 큐. event별 owner/신청관계/방장권한은 전달 직전 추가 검사 |
 | 신규 SEND | `/app/islands/{islandId}/focus/emotes` | 본인 **진행 세션(active·paused)** sessionId + 현재 같은 섬 + 5종 + 만료/속도 제한. **1765에서 활성화됨**(휴식 허용은 2026-09-20 결정) |
 | 호환 SUBSCRIBE/SEND | `/topic/groups/{groupId}`, `/app/groups/{groupId}/send` | 기존 ChatAccessGuard 및 와이어 유지 |
@@ -169,7 +169,7 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 1. CONNECT에서 현재 JWT 만료/서명/주체를 검증한다. 쿼리스트링 토큰은 사용하지 않는다.
 2. **CONNECT에서 집중 상태를 검사하지 않는다.** 그렇지 않으면 집중 사용자에게 필요한 focus/emote까지 막힌다.
 3. SUBSCRIBE/SEND는 exact allowlist와 현재 세션 인증을 검사한다. 채팅 목적지에서만 기존 ChatAccessGuard를 적용한다.
-4. 휴식 상태가 '채팅 가능'인지 여부는 새 세션 도메인의 집중 제한 정의와 맞춘다. 이 문서가 PAUSED를 임의 허용하지 않는다. 기존 presence 키 존재 검사로 새 휴식 상태를 판정할 수 있다고 가정하지 않는다.
+4. 채팅 목적지는 active·paused 진행 세션을 둘 다 차단한다(GROMO-1958 — `focus-rest-session` FR-D04/FR-P13). 응원은 별도 채널이라 이 차단을 emotes에 확장하지 않는다. 기존 presence 키 존재 검사로 새 휴식 상태를 판정할 수 있다고 가정하지 않는다.
 5. 음악·집중·경제 이벤트는 채팅 집중 가드로 차단하지 않는다. 1755의 기계적 이름 변경만으로 채팅 guard를 공통 guard로 승격하지 않는다.
 
 ### 4.2 이미 연결된 사용자
@@ -278,7 +278,7 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 | 내구성 | TXrollback 사건0, 커밋후응답유실 같은사건 재생, relay lease 장애·재전달, 버전과 상태 동일snapshot | 내부명령 및 각 producer |
 | 멀티노드 | 두 Realtime 노드의 섬/본인여러기기 전달, origin 반향제거, Redis reconnect 후 리컨실, 모든노드 철회 | fanout/1765 |
 | 응원 | 5종, 본인 **진행 세션(active·paused)** 검증, **휴식 발신 허용**, 다른섬/완료·포기/남의세션 거절, 속도제한, TTL, 재연결replay0 | 1765 |
-| 경제 | 개인·공동 owner/currency 불일치거절, wallet/inventory 별개 version, 공유토픽에 개인payload0 | 1781/1783 |
+| 경제 | owner/currency 불일치거절(**지갑은 섬 전용 — 섬 없는 `wallet.updated` 거절**, GROMO-2044), wallet/inventory 별개 version, 공유토픽에 개인payload0 | 1781/1783 |
 | 관측 | payload/본문/토큰 비노출, command→event→relay→router 추적, 실패메트릭 | 각 단계 |
 
 문서 자체 검증은 상대 링크 존재, 14개 행/enum 중복 없음, 원본 14종과 정확 집합 일치, 세 문서의 신규/호환 경로·단계 구분 및 미정 정책 보존으로 제한한다.

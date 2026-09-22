@@ -32,7 +32,9 @@
 
 ### PublicIslandSummary
 
-필수 필드: `id:Id`, `name:string`, `intro:string`, `visibility:public|private`, `approvalRequired:boolean`, `memberCount:integer>=0`, `membershipStatus:none|pending|active`, `growthStage:string`, `themeId:string`.
+필수 필드: `id:Id`, `name:string`, `intro:string`, `visibility:public|private`, `approvalRequired:boolean`, `memberCount:integer>=0`, `maxMembers:integer(1~15)`, `membershipStatus:none|pending|active`, `growthStage:string`, `themeId:string`.
+
+`maxMembers`는 2026-09-19 결정 V-읽기(「마을회관 섬 정보 등록증 — 이름·소개·주민 수/정원」)로 **방문자 응답에도 들어간다**. 주민 수만 주면 방문 화면이 `3/15`를 그릴 수 없다. 값은 방장만 고칠 수 있고(관리 계약 3.1), 범위는 GROMO-1993의 1~15다.
 
 `intro`는 기존 `Group.description`의 공개 projection이다. 기존 nullable 행과 소개 없이 생성된 그룹도 `COALESCE(description, '')`로 항상 문자열을 반환한다. PublicIslandSummary를 사용하는 탐색/검색/상세/본인 소속/초대 요약 및 이를 확장하는 MemberIslandDetail, 관리 응답에 같은 매퍼를 적용한다. DB의 null을 일괄 변경하거나 legacy 응답 규칙을 바꾸지 않는다. 근거는 `Group.java:51`의 nullable description과 `CreateGroupRequest.java:39~40`의 선택 입력이다.
 
@@ -87,9 +89,11 @@ private 초대 resolve가 반환한 공개 요약은 초대 흐름에서 사용�
 
 ### 3.5 memberships — GET /me/islands
 
-성공200 `{data:{items:PublicIslandSummary[],nextCursor:null,currentIslandId:Id?}}`. 원본 items와 nextCursor에 **본인 currentIslandId를 기술 확장**해 재실행 시 현재 선택을 식별한다. 현재 소속 상한10을 보존하는 동안 목록은 전량이며, 향후 상한 변경은 페이지 계약을 함께 개정한다.
+성공200 `{data:{items:PublicIslandSummary[],nextCursor:null,currentIslandId:Id?,lossReason:"LEFT"|"KICKED"|null}}`. 원본 items와 nextCursor에 **본인 currentIslandId를 기술 확장**해 재실행 시 현재 선택을 식별한다. 현재 소속 상한10을 보존하는 동안 목록은 전량이며, 향후 상한 변경은 페이지 계약을 함께 개정한다.
 
 활성 membership이더라도 종료/삭제 그룹은 반환하지 않는다. 목록 정렬은 membership 생성시각+id로 안정화하되 앱의 로컬 카드 순서를 이 API가 덮어쓰지 않는다. currentIslandId는 여전히 활성 소속인 섬 또는 null이다. 무효 context 처리 정책은 IM-D06 확정에 맞추고 권한 없는 대상을 그대로 표시하지 않는다.
+
+`lossReason`은 **현재 섬이 없는 이유**다(GROMO-2038). null이면 한 번도 소속된 적 없음(온보딩 첫 진입), `LEFT`는 마지막 섬에서 자진 이탈, `KICKED`는 마지막 섬에서 강퇴다. 정본은 `user_island_contexts.loss_reason`(V84)이고 쓰는 쪽은 `UserIslandContextRecovery#onMembershipRevoked` 하나다. **불변식: currentIslandId가 null이 아니면 lossReason은 항상 null**이며, V84의 `user_island_contexts_loss_reason_exclusive` CHECK와 `UserIslandContext#moveTo`가 저장 계층에서 같은 것을 강제하고 Business는 둘이 함께 온 상류 응답을 502 `UPSTREAM_CONTRACT_ERROR`로 끊는다. 이 값은 앱의 안내 문구만 가른다 — 강퇴와 자진 이탈 모두 `04 · 혼자 시작 / 기존 섬 참여` 화면으로 가고 재가입 제한·쿨다운은 이 계약이 만들지 않는다(정책 2026-09-20). Business와 Data는 따로 배포되므로 이 키는 상류 응답에서 **필수가 아니다** — 키를 모르는 Data가 붙는 혼합 구간에서도 정상 200이다.
 
 ### 3.6 switch — PUT /me/current-island
 
@@ -148,10 +152,12 @@ IM-D03의 승인 유지 추천안이 채택될 경우, JoinRequest에는 `admiss
 
 ### 3.12 my-requests — GET /me/join-requests
 
-GROMO-1895 추가(explore 화면 「신청 중」 조각, [BFF Data 구현](../bff-screens/implementation-data-api.md) §4 BG10). §3.8 단건 조회를 대체하지 않는 **목록**이다.
+GROMO-1895 추가(explore 화면 「신청 중」 조각, [BFF Data 구현](../bff-screens/implementation-data-api.md) §4 BG10). §3.8 단건 조회를 대체하지 않는 **목록**이다. 공개 표면은 GROMO-2047 이 열었다 — Data 는 1895 부터 있었고 Business 배선만 없었다.
 
-- query: `limit`(1~100, 기본값은 Business), `cursor`(선택). Business 가 cursor 를 서명·검증한 뒤 Data 에는 평문 keyset 경계 `afterCreatedAt`+`afterRequestId` 를 **둘 다** 넘긴다 — 하나만 오면 400 `INVALID_PAGE_REQUEST`.
-- 성공200 `{data:{items:[{id,islandId,islandName,status:"pending",version,createdAt}],nextCursor}}`. 본인의 **pending 만** 싣는다 — 닫힌 요청의 결과는 §3.8 로 본다. 섬 종료는 같은 TX 에서 pending 을 닫으므로 죽은 섬이 목록에 남지 않는다.
+- query: `limit`(1~100, 기본값 Business 20), `cursor`(선택). Business 가 cursor 를 서명·검증한 뒤 Data 에는 평문 keyset 경계 `afterCreatedAt`+`afterRequestId` 를 **둘 다** 넘긴다 — 하나만 오면 400 `INVALID_PAGE_REQUEST`.
+- 성공200 `{data:{items:[{id,islandId,islandName,memberCount,maxMembers,status:"pending",version,createdAt}],nextCursor}}`. 본인의 **pending 만** 싣는다 — 닫힌 요청의 결과는 §3.8 로 본다. 섬 종료는 같은 TX 에서 pending 을 닫으므로 죽은 섬이 목록에 남지 않는다.
+- **승인·거절로 닫힌 신청은 다음 페이지 요청부터 사라진다**(GROMO-2047 확정). 정책(policy-2026-09-14 「섬 가입·전망대·랭킹」)은 「승인 대기 중인 가입 신청은 취소할 수 있고, 다시 신청할 수 있다」까지만 정하고 신청 **이력** 열람을 열지 않았다 — 대기 목록에 이력을 쌓지 않는다. 신청이 하나도 없으면 404 가 아니라 **빈 목록 + 200** 이다.
+- `memberCount`·`maxMembers` 는 신청한 섬의 공개 요약이다(GROMO-2047) — 「신청 중」 카드가 「3/15」를 그린다. 모수는 §2 `PublicIslandSummary` 와 같다(탈퇴·이탈 계정 제외, 승인 대기 신청은 세지 않음 — 정책 「정원에는 방장을 포함한 현재 주민만 센다」). 페이지의 섬 주민 수는 **한 번에** 센다 — 항목마다 섬을 다시 조회하면 페이지당 N+1 이다. 신청자 본인 외의 사람 정보는 싣지 않는다(방장이 보는 §3.3 목록과 방향이 반대다).
 - 정렬은 `(createdAt, id)` 오름차순 keyset 이다. 같은 시각의 요청은 id 가 가른다 — 페이지 경계에서 빠짐·중복이 없다.
 - 소유는 `applicant_id` 로 묶어 찾는다(§3.8 과 같은 원칙) — 남의 요청은 후보조차 아니다. 새 저장소·인덱스 없이 기존 `ix_island_join_requests_applicant_island` 앞머리를 쓴다.
 - 내부 경로(B26): `GET /internal/users/{userId}/join-requests` — 경로 사용자와 `X-User-Id` 를 `InternalAuthFilter` 가 대조한다. 허용목록 `'GET /internal/users/*/join-requests'` 는 단건(`…/join-requests/*`)과 세그먼트 수가 달라 서로를 덮지 않는다.

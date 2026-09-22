@@ -2,6 +2,7 @@ package com.oneorthree.phone.group.service;
 
 import com.oneorthree.phone.common.logging.UserActivityEvent;
 import com.oneorthree.phone.common.logging.UserActivityEventLogger;
+import com.oneorthree.phone.common.port.IslandPurgePort;
 import com.oneorthree.phone.focus.service.FocusMembershipLossService;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -27,6 +28,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -73,6 +75,16 @@ public class GroupMemberService {
      */
     private final FocusMembershipLossService focusMembershipLossService;
     private final IslandStateEvents islandStateEvents;
+    /**
+     * 섬이 닫히면 공동 데이터도 함께 지운다 (GROMO-1995, 정책 「섬 삭제 시 … 함께 삭제한다」).
+     * 지울 대상이 construction·appearance·quest·shop 소유라 호출을 포트로 뒤집는다 — 구현은 L10 이다.
+     */
+    private final IslandPurgePort islandPurge;
+    /**
+     * 이탈 시각을 찍는 시계 (GROMO-2050) — Hibernate 의 {@code @UpdateTimestamp} 를 쓰지 않는 이유는
+     * {@code GroupMember.leftAt} Javadoc 에 있다(애너테이션은 주입 {@link Clock} 을 타지 않는다).
+     */
+    private final Clock clock;
 
     /**
      * 방장을 넘긴다 — 대상이 OWNER 로 오르고 요청자는 같은 트랜잭션에서 MEMBER 로 내려온다.
@@ -166,7 +178,7 @@ public class GroupMemberService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
 
         // 강퇴 마킹. 진행 중 내기 판돈은 건드리지 않는다(지갑 생존 → 정산 시 정상 지급/환불, 엔진 무변경).
-        target.kick();
+        target.kick(clock.instant());
         // FR-D03 — 멤버십 배타 잠금을 쥔 채 종결한다. 전이(pause/resume/finish)도 같은 섬 행을 먼저
         // 잡으므로, 여기서 끝낸 세션에 뒤늦은 전이가 끼어들지 않는다.
         focusMembershipLossService.endOnMembershipLoss(targetUser.getId(), groupId);
@@ -228,7 +240,7 @@ public class GroupMemberService {
         groupBetService.releaseFromOpenBets(user, group);
 
         if (groupMembers.size() == 1) {
-            groupMember.leave();
+            groupMember.leave(clock.instant());
             linkMembershipEventService.recordMembershipRevoked(groupMember);
             group.close();
             // 그룹 종료는 폐기와 «별개 사건»이다(㋢) — 현행 랜딩·매치가 둘 다 findActiveGroup 으로
@@ -239,8 +251,11 @@ public class GroupMemberService {
             // 공개 섬 상태 축에도 종료를 남긴다(섬 관리 LLD §3.7) — 주민 목록 사건만으로는 섬이 닫힌 것을 모른다.
             islandStateEvents.changed(groupId, userId, "CLOSED");
             closeJoinRequests(group);
+            // 공동 데이터 삭제는 이 블록의 «마지막»이다 — 위의 봉투·신청 전이를 전부 적은 뒤라야
+            // 삭제가 그 쓰기를 앞질러 죽은 섬을 참조하는 반쪽 상태를 만들지 않는다.
+            islandPurge.purgeIsland(groupId);
         } else if (groupMember.getRole() == GroupMemberRole.MEMBER) {
-            groupMember.leave();
+            groupMember.leave(clock.instant());
             linkMembershipEventService.recordMembershipRevoked(groupMember);
         }
         EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
@@ -325,7 +340,7 @@ public class GroupMemberService {
             // 그러면 group.closed 봉투가 한 건도 만들어지지 않는다.
             List<GroupMember> recipients = groupMemberRepository.findByGroup(ownerMembership.getGroup());
             if (recipients.size() <= 1) {
-                ownerMembership.leave();
+                ownerMembership.leave(clock.instant());
                 linkMembershipEventService.recordMembershipRevoked(ownerMembership);
                 membershipEvents.changed(ownerMembership.getGroup().getId(), userId, "MEMBER_REMOVED");
                 ownerMembership.getGroup().close();
@@ -333,6 +348,9 @@ public class GroupMemberService {
                 linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
                 islandStateEvents.changed(ownerMembership.getGroup().getId(), userId, "CLOSED");
                 closeJoinRequests(ownerMembership.getGroup());
+                // 계정 탈퇴로 닫히는 1인 섬도 같은 삭제를 받는다 (GROMO-1995) — 닫히는 경로마다
+                // 다른 결과가 나오면 「닫혔는데 공동 잔액은 남은」 섬이 이쪽으로만 생긴다.
+                islandPurge.purgeIsland(ownerMembership.getGroup().getId());
             }
         }
 
@@ -348,7 +366,7 @@ public class GroupMemberService {
             // 환불 순서는 유지하고, 이탈 직전에 멤버십 → LINK aggregate 순서를 보장한다.
             groupMemberRepository.findActiveByUserIdAndGroupIdForUpdate(userId, membership.getGroup().getId())
                     .ifPresent(locked -> {
-                        locked.leave();
+                        locked.leave(clock.instant());
                         linkMembershipEventService.recordMembershipRevoked(locked);
                         membershipEvents.changed(locked.getGroup().getId(), userId, "MEMBER_REMOVED");
                     });

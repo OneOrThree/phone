@@ -52,7 +52,7 @@ class MailboxScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_MINE, request -> ok("{\"items\":[],\"currentIslandId\":\"" + ISLAND + "\"}"));
         DATA.on(DATA_ISLAND, request -> ok("{\"scope\":\"member\",\"visitor\":null,\"member\":{\"id\":\"" + ISLAND
                 + "\",\"name\":\"모래섬\",\"intro\":\"\",\"visibility\":\"public\",\"approvalRequired\":true,"
-                + "\"memberCount\":2,\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
+                + "\"memberCount\":2,\"maxMembers\":15,\"membershipStatus\":\"active\",\"growthStage\":null,\"themeId\":null,"
                 + "\"role\":\"member\",\"version\":3}}"));
         DATA.on(DATA_ACCESS, request -> ok("{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}"));
         DATA.on(DATA_AUTHORS, request -> ok("{\"authors\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"},"

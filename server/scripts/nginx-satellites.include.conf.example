@@ -26,6 +26,8 @@ location = /actuator { return 404; }
 # 집중 세션 수명주기(GROMO-1764)도 마찬가지로 아래 두 분기가 그대로 전달한다 — 새 location 이
 # 필요하지 않다. focus-sessions 분기: POST /focus-sessions · GET /focus-sessions/current ·
 # POST /focus-sessions/{sessionId}/pause · .../resume · .../finish. me 분기: GET /me/focus-summary.
+# 휴식 1시간 자동 종료의 결과 1회 제공(GROMO-1998)도 같은 focus-sessions 분기다 —
+# GET /focus-sessions/pending-result · POST /focus-sessions/{sessionId}/acknowledge.
 # 섬 소속·탐색(GROMO-1759)도 같다 — 새 location 이 필요하지 않다. islands 분기: POST /islands ·
 # GET /islands · GET /islands/discover · GET /islands/{islandId}. me 분기: GET /me/islands ·
 # PUT /me/current-island.
@@ -44,8 +46,10 @@ location = /actuator { return 404; }
 # GET /islands/{islandId}/focus-members · GET /islands/{islandId}/rest-members.
 # 친구(GROMO-1894)도 아래 friends 분기가 그대로 전달한다 — 새 location 이 필요하지 않다. friends 분기:
 # GET /friends · GET /friends/requests · POST /friends/requests · POST /friends/requests/{requestId}/accept ·
-# .../reject · .../cancel · DELETE /friends/{friendUserId}. 편지(GROMO-1933)도 같은 분기가 전달한다 —
-# letters 분기: POST /letters · GET /letters · GET /letters/{letterId}.
+# .../reject · .../cancel · DELETE /friends/{friendUserId} · GET /friends/search (GROMO-1996 —
+# 이 분기는 처음부터 전달하고 있었는데 Business 쪽 매핑이 없어 404 였다. 1996 이 그 매핑을 채웠다).
+# 편지(GROMO-1933·2002)도 같은 분기가 전달한다 — letters 분기: POST /letters · GET /letters ·
+# GET /letters/{letterId} · DELETE /letters/{letterId}(닫기, GROMO-2002).
 # 꾸미기(GROMO-1783)도 me·islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /me/inventory · PATCH /me/appearance · GET /islands/{islandId}/inventory ·
 # PATCH /islands/{islandId}/appearance.
@@ -78,6 +82,12 @@ location = /actuator { return 404; }
 # 회관 기록(GROMO-1769)도 me·islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/statistics/focus · GET /islands/{islandId}/statistics/screen-time ·
 # PUT /me/screen-time/{date}.
+# 회관 공동 가계부(GROMO-1786)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/resources/ledger.
+# 도서관 물고기 장(GROMO-2046)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /islands/{islandId}/statistics/fish-earnings.
+# 내 가입 신청 목록(GROMO-2047)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/join-requests (단건 GET·DELETE /me/join-requests/{requestId} 는 1760 에서 이미 열렸다).
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;

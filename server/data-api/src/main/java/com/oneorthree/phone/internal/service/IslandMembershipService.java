@@ -15,6 +15,7 @@ import com.oneorthree.phone.group.repository.IslandJoinRequestRepository;
 import com.oneorthree.phone.group.repository.IslandJoinRequestRepository.JoinRequestRef;
 import com.oneorthree.phone.group.repository.UserIslandContextRepository;
 import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupLeaveReason;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
@@ -81,9 +82,6 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class IslandMembershipService {
 
-    /** 생성 시 기본 정원 — 기존 {@code createGroup} 의 미입력 기본값과 같다. */
-    private static final int DEFAULT_MAX_MEMBERS = 10;
-
     private static final String ROLE_HOST = "host";
     private static final String ROLE_MEMBER = "member";
 
@@ -117,7 +115,8 @@ public class IslandMembershipService {
         String intro = request.intro() == null ? "" : request.intro();
         PublicCommandRequest command = new PublicCommandRequest(userId, "POST:/islands:" + userId,
                 idempotencyKey, InternalJson.tree(Map.of("name", request.name(), "intro", intro,
-                        "approvalRequired", request.approvalRequired())));
+                        "approvalRequired", request.approvalRequired(),
+                        "maxMembers", request.maxMembersOrDefault())));
         JsonNode data = publicCommands.run(command,
                 () -> userQueryService.getCallerForUpdate(userId),
                 ignored -> userQueryService.getCallerForUpdate(userId),
@@ -134,7 +133,7 @@ public class IslandMembershipService {
                     Group island = groupRepository.save(Group.builder()
                             .name(request.name())
                             .description(intro)
-                            .maxMembers(DEFAULT_MAX_MEMBERS)
+                            .maxMembers(request.maxMembersOrDefault())
                             .isPrivate(false)
                             .approvalRequired(request.approvalRequired())
                             .build());
@@ -239,13 +238,21 @@ public class IslandMembershipService {
         return IslandViewResponse.ofMember(new IslandDetailView(
                 island.getId(), island.getName(), IslandSummaries.introOf(island),
                 IslandSummaries.visibilityOf(island),
-                island.isApprovalRequired(), memberCount, IslandSummaries.STATUS_ACTIVE, null, null,
+                island.isApprovalRequired(), memberCount, island.getMaxMembers(),
+                IslandSummaries.STATUS_ACTIVE, null, null,
                 roleOf(membership.get()), island.getVersion() == null ? 0L : island.getVersion()));
     }
 
     // ---------------------------------------------------------------- §3.5 memberships
 
-    /** 내 섬 목록 (LLD §3.5). 소속 상한 10 이라 페이지가 없다. */
+    /**
+     * 내 섬 목록 (LLD §3.5). 소속 상한 10 이라 페이지가 없다.
+     *
+     * <p>현재 섬이 없으면 «왜 없는지»({@code lossReason})를 함께 싣는다 (GROMO-2038) — 앱이 「처음
+     * 왔다」와 「방금 잃었다」를 같은 빈 화면으로 보여 주지 않게 하려는 것이다. 사유를 <b>읽기만</b>
+     * 한다: 강퇴와 자진 이탈의 처리는 정책상 같고(둘 다 온보딩 `04` 화면·벌칙 없음) 재가입 제한도
+     * 이 경로가 만들지 않는다. 쓰는 쪽은 {@code UserIslandContextRecovery#onMembershipRevoked} 하나다.
+     */
     public MyIslandsView myIslands(UUID userId) {
         userQueryService.getCaller(userId);
         List<Group> islands = groupMemberRepository.findActiveMembershipsByUserId(userId).stream()
@@ -262,7 +269,13 @@ public class IslandMembershipService {
                         IslandSummaries.STATUS_ACTIVE,
                         latest.containsKey(island.getId()) ? latest.get(island.getId()).getRequestId() : null))
                 .toList();
-        return new MyIslandsView(items, liveCurrentIsland(userId));
+        UUID current = liveCurrentIsland(userId);
+        // 「현재 섬이 있으면 상실 사유는 없다」 — V84 의 CHECK 와 같은 불변이라 사유를 읽지도 않는다.
+        // 저장값이 있는데 «죽은» 섬이라 접힌 경우(위 liveCurrentIsland)도 저장된 사유는 null 이다.
+        GroupLeaveReason lossReason = current != null ? null
+                : userIslandContextRepository.findById(userId)
+                        .map(UserIslandContext::getLossReason).orElse(null);
+        return new MyIslandsView(items, current, lossReason);
     }
 
     // ---------------------------------------------------------------- §3.2 islands

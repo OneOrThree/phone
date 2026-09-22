@@ -39,6 +39,21 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
     Optional<FocusSessionOwnership> findOwnershipBySessionId(@Param("sessionId") UUID sessionId);
 
     /**
+     * 프레즌스 재구축용(GROMO-2003) — 이 세션들의 절대 상태와 전이 번호를 한 번에 읽는다.
+     *
+     * <p>모수가 「진행 중 마커」라 동시 집중 인원 규모다. 레거시 마커는 상세가 없어 결과에 빠지고,
+     * 부르는 쪽이 그것을 「active·전이 번호 0」으로 본다({@link FocusSessionControlState}).
+     *
+     * @param sessionIds 진행 중 마커의 id 들
+     * @return 상세가 있는 세션만
+     */
+    @Query("SELECT new com.oneorthree.phone.focus.repository.FocusSessionControlState("
+            + "d.sessionId, d.lifecycle, d.version) "
+            + "FROM FocusSessionDetail d WHERE d.sessionId IN :sessionIds")
+    List<FocusSessionControlState> findControlStatesBySessionIdIn(
+            @Param("sessionIds") Collection<UUID> sessionIds);
+
+    /**
      * 본인의 진행(active/paused) 세션 — user당 최대 1건(V58 부분 UNIQUE)이라 단건으로 받는다.
      *
      * @param userId      조회 주체
@@ -91,6 +106,55 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
      */
     @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.lifecycle = :lifecycle")
     List<UUID> findSessionIdsByLifecycle(@Param("lifecycle") FocusSessionLifecycle lifecycle);
+
+    /**
+     * 휴식 자동 종료 후보 (GROMO-1998) — {@code PAUSED} 로 들어간 지 {@code before} 보다 오래된 세션 id.
+     *
+     * <p>{@code lastTransitionAt} 이 곧 {@code restStartedAt} 이다: PAUSED 행에 그 값을 쓰는 전이는
+     * {@code applyPause} 하나뿐이고, 다른 전이는 전부 PAUSED 를 벗어난다. REST 구간을 조인해 읽을 이유가
+     * 없다.
+     *
+     * <p>적립 틱과 같이 <b>엔티티를 올리지 않는다</b> — 종결은 세션마다 자기 트랜잭션에서 잠금 순서를
+     * 처음부터 다시 잡으므로 스캔이 낡은 인스턴스를 들고 있으면 안 된다. 여기서 고른 뒤 잠그기까지
+     * resume 이 이길 수 있어 <b>잠근 뒤 다시 판정</b>한다.
+     *
+     * @param before 이 시각 이전에 휴식을 시작한 세션만(= now − 자동 종료 유예)
+     * @return 세션 id(순서 무관)
+     */
+    @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.lifecycle = "
+            + "com.oneorthree.phone.focus.repository.domain.FocusSessionLifecycle.PAUSED "
+            + "AND d.lastTransitionAt <= :before")
+    List<UUID> findSessionIdsRestingSince(@Param("before") Instant before);
+
+    /**
+     * 황금 물고기 추첨 틱용(GROMO-1956) — 지금 ACTIVE 세션이 {@code minimum} 명 이상인 섬.
+     *
+     * <p>「같은 섬에서 ACTIVE(집중 중, 휴식 제외)인 주민이 2명 이상일 때만 추첨한다」(기획 정본)의 그
+     * 선별이다. 섬 전수를 훑지 않으려고 세션 쪽에서 집계한다 — 진행 세션은 사용자당 최대 1건(V58 부분
+     * UNIQUE)이라 세션 수가 곧 주민 수다.
+     *
+     * @param lifecycle {@link FocusSessionLifecycle#ACTIVE} — 휴식(PAUSED)은 인원에 넣지 않는다
+     * @param minimum   추첨 최소 인원(2)
+     * @return 섬 id(순서 무관)
+     */
+    @Query("SELECT d.islandId FROM FocusSessionDetail d WHERE d.lifecycle = :lifecycle "
+            + "AND d.islandId IS NOT NULL AND d.userId IS NOT NULL "
+            + "GROUP BY d.islandId HAVING COUNT(d) >= :minimum")
+    List<UUID> findIslandIdsWithAtLeast(@Param("lifecycle") FocusSessionLifecycle lifecycle,
+                                        @Param("minimum") long minimum);
+
+    /**
+     * 황금 물고기 추첨 틱용(GROMO-1956) — 그 섬에서 지금 그 lifecycle 인 세션 id.
+     *
+     * <p>{@link #findSessionIdsByLifecycle} 과 같은 이유로 엔티티를 올리지 않는다: 당첨되면 호출측이
+     * 세션마다 행을 다시 배타 잠그고 상태를 재확인하므로, 스캔이 낡은 인스턴스를 들고 있으면 안 된다.
+     *
+     * @return 세션 id(순서 무관 — 호출측이 잠금 순서를 정한다)
+     */
+    @Query("SELECT d.sessionId FROM FocusSessionDetail d WHERE d.islandId = :islandId "
+            + "AND d.lifecycle = :lifecycle AND d.userId IS NOT NULL")
+    List<UUID> findSessionIdsByIslandIdAndLifecycle(@Param("islandId") UUID islandId,
+                                                    @Param("lifecycle") FocusSessionLifecycle lifecycle);
 
     /**
      * 휴식 자리 배정용 — 같은 섬에서 현재 paused인 사용자들이 쥔 자리 번호.
@@ -167,4 +231,56 @@ public interface FocusSessionDetailRepository extends JpaRepository<FocusSession
                                                      @Param("userIds") Collection<UUID> userIds,
                                                      @Param("lifecycles") Collection<FocusSessionLifecycle> lifecycles,
                                                      @Param("from") Instant from, @Param("to") Instant to);
+
+    /**
+     * 주간 섬 랭킹의 <b>분자</b> (GROMO-1997) — 창 {@code [windowStart, windowEnd)} 안의 순수 집중 초를
+     * <b>섬마다</b> 합친다. 회관 기록이 한 섬을 엔티티로 올려 Java 에서 더하는 것과 달리, 여기는 «모든 섬»을
+     * 가로지르는 집계라 세션을 메모리로 올리지 않고 DB 가 한 번에 접는다.
+     *
+     * <p>세 가지가 정책이다:
+     * <ul>
+     *   <li>{@code lifecycle = 'COMPLETED'} — <b>끝난 집중만</b> 반영한다(2026-09-21 결정). 진행 중 세션은
+     *       정렬·표시 어디에도 넣지 않는다.</li>
+     *   <li>{@code kind = 'ACTIVE'} — 휴식은 집중 점수에 더하지 않는다(RK-P04). 그래서 {@code now - startedAt}
+     *       식을 쓰지 않는다 — 그 식은 휴식을 가산한다.</li>
+     *   <li>{@code island_id} 는 <b>세션이 시작할 때 고정한 섬</b>이다(2026-09-19 결정 RC-D01). 다른 섬에서
+     *       집중한 시간은 이 섬 분자가 아니다(기획 정본 「다른 섬에서 집중한 시간은 제외한다」).</li>
+     * </ul>
+     *
+     * <p>정밀도는 {@link com.oneorthree.phone.focus.support.FocusIntervalMath} 와 <b>같은 규율</b>이다 — 구간마다
+     * 초로 내리지 않고 창과의 교집합을 그대로 합친 뒤 <b>마지막에 한 번만</b> 내린다. 구간마다 잘랐다면
+     * 휴식이 잦은 세션에서 초가 조금씩 사라진다.
+     *
+     * <p><b>내림 뒤 0초인 섬은 행을 내보내지 않는다</b>({@code HAVING}). 구간이 겹치기만 하면 되는 조건이라
+     * 1초 미만으로 끝난 세션도 잡히는데, 그 섬을 내보내면 «0초만 집중한 섬»이 평균 0으로 순위에 들어가
+     * 최하위를 차지한다 — 정책은 집중이 0인 섬을 참가로 보지 않는다(RK-D09). 모집단을 여기서 한 번만
+     * 정해야 {@code items} 와 {@code myRank} 가 갈리지 않는다.
+     *
+     * @param windowStart 창 하한(포함)
+     * @param windowEnd   창 상한(제외)
+     * @return 그 창에 <b>1초 이상</b> 집중이 있었던 섬만 1행씩. 나머지는 행이 없으므로 호출측이 0으로 채운다
+     */
+    @Query(value = "SELECT d.island_id AS \"islandId\", CAST(FLOOR(SUM(EXTRACT(EPOCH FROM ("
+            + "LEAST(i.ended_at, CAST(:windowEnd AS timestamptz)) "
+            + "- GREATEST(i.started_at, CAST(:windowStart AS timestamptz)))))) AS bigint) AS \"seconds\" "
+            + "FROM focus_session_details d JOIN focus_session_intervals i ON i.session_id = d.session_id "
+            + "WHERE d.lifecycle = 'COMPLETED' AND i.kind = 'ACTIVE' AND i.ended_at IS NOT NULL "
+            + "AND i.started_at < CAST(:windowEnd AS timestamptz) "
+            + "AND i.ended_at > CAST(:windowStart AS timestamptz) "
+            + "GROUP BY d.island_id "
+            + "HAVING FLOOR(SUM(EXTRACT(EPOCH FROM ("
+            + "LEAST(i.ended_at, CAST(:windowEnd AS timestamptz)) "
+            + "- GREATEST(i.started_at, CAST(:windowStart AS timestamptz)))))) > 0", nativeQuery = true)
+    List<IslandFocusSeconds> sumIslandActiveSeconds(@Param("windowStart") Instant windowStart,
+                                                    @Param("windowEnd") Instant windowEnd);
+
+    /** {@link #sumIslandActiveSeconds} 결과 한 행 — 섬과 그 섬의 창 안 순수 집중 초. */
+    interface IslandFocusSeconds {
+
+        /** @return 세션이 시작할 때 고정했던 섬 id */
+        UUID getIslandId();
+
+        /** @return 창과의 교집합 순수 ACTIVE 초 합(floor). 행이 있으면 0 보다 크다 */
+        long getSeconds();
+    }
 }

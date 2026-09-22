@@ -102,7 +102,7 @@ class LoginAttemptServiceReplayTest {
 
     private LoginAttemptService serviceSignedBy(JwtProvider provider) {
         return new LoginAttemptService(loginAttemptRepository, userQueryService, authService,
-                authSessionService, provider, null);
+                authSessionService, null, provider, null, null);
     }
 
     private AuthSession sessionHolding(String refreshToken) {
@@ -117,10 +117,15 @@ class LoginAttemptServiceReplayTest {
                 .willReturn(Optional.of(sessionHolding(originalRefresh)));
 
         LoginAttemptLookupResponse response = serviceSignedBy(issuer)
-                .lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST));
+                .lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST,
+                        null, null, null, null, null));
 
         assertThat(response.replayable()).isTrue();
         assertThat(response.session().refreshToken()).isEqualTo(originalRefresh);
+        // 재생에는 1회용 자격이 «없다» (GROMO-2037). 원문은 발급 1회만 존재하고 원장에도 세션 행에도
+        // 남지 않아 되살릴 길이 없다. 여기서 새로 발급하면 최초 응답을 받은 앱 — 실제로 그 자격을
+        // 쓰고 있는 쪽 — 의 값이 그 순간 무효가 된다. 헤더가 없으면 앱은 기존 등록 경로로 내려간다.
+        assertThat(response.session().deviceBootstrap()).isNull();
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.COMPLETED);
         assertThat(logs.list).isEmpty();
     }
@@ -132,7 +137,8 @@ class LoginAttemptServiceReplayTest {
                 .willReturn(Optional.of(sessionHolding(originalRefresh)));
         LoginAttemptService rotated = serviceSignedBy(new JwtProvider(ROTATED, 3600, 2_592_000, 7_776_000));
 
-        assertThatThrownBy(() -> rotated.lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST)))
+        assertThatThrownBy(() -> rotated.lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST,
+                null, null, null, null, null)))
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);
@@ -147,7 +153,8 @@ class LoginAttemptServiceReplayTest {
         given(authSessionService.verifySession(USER, SESSION)).willReturn(Optional.of(revoked));
 
         assertThatThrownBy(() -> serviceSignedBy(issuer)
-                .lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST)))
+                .lookup(new LoginAttemptLookupRequest(ATTEMPT, KEY_ID, DIGEST,
+                        null, null, null, null, null)))
                 .isInstanceOf(AuthException.class)
                 .hasFieldOrPropertyWithValue("errorCode", AuthErrorCode.LOGIN_ATTEMPT_UNUSABLE);
         assertThat(attempt.getStatus()).isEqualTo(LoginAttemptStatus.INVALIDATED);

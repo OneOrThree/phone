@@ -13,6 +13,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -20,7 +22,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 편지 3종 공개 표면 (GROMO-1933) — 무접두 경로가 Business 에 있고 Data 로는
+ * 편지 4종 공개 표면 (GROMO-1933 발송·목록·상세 + GROMO-2002 닫기) — 무접두 경로가 Business 에 있고 Data 로는
  * {@code /internal/users/{userId}/…} 로만 나간다는 것을 실제 필터·컨트롤러·HTTP 로 확인한다.
  */
 class LetterContractTest extends UpstreamTestBase {
@@ -33,6 +35,7 @@ class LetterContractTest extends UpstreamTestBase {
     private static final String DATA_SEND = "POST " + INTERNAL + "/letters";
     private static final String DATA_LIST = "GET " + INTERNAL + "/letters";
     private static final String DATA_DETAIL = "GET " + INTERNAL + "/letters/" + LETTER;
+    private static final String DATA_CLOSE = "DELETE " + INTERNAL + "/letters/" + LETTER;
     private static final String SEND_BODY = "{\"receiverId\":\"" + PEER + "\",\"content\":\"안녕\"}";
     private static final String VIEW = "{\"id\":\"" + LETTER + "\",\"senderId\":\"" + USER + "\","
             + "\"senderNickname\":\"나\",\"receiverId\":\"" + PEER + "\",\"content\":\"안녕\","
@@ -203,6 +206,22 @@ class LetterContractTest extends UpstreamTestBase {
     }
 
     /**
+     * 게스트 발송 거절 (GROMO-1992) — Data 의 403 {@code SOCIAL_LOGIN_REQUIRED} 는 도메인 표에 없어
+     * 이름·상태가 같은 {@code ApiErrorCode} 등록으로 그대로 전달된다. 502 로 접히거나 다른 코드로
+     * 바뀌면 앱이 「소셜 로그인하고 계속하기」를 열지 못한다.
+     */
+    @Test
+    void sendPassesUpstreamSocialLoginRequiredThroughUnchanged() throws Exception {
+        DATA.on(DATA_SEND, request -> error(403, "SOCIAL_LOGIN_REQUIRED"));
+        var result = mockMvc.perform(write(post("/letters"), SEND_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("SOCIAL_LOGIN_REQUIRED"))
+                .andExpect(jsonPath("$.error.field").value(nullValue())).andReturn();
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("private detail");
+        assertThat(DATA.hits(DATA_SEND)).as("403 은 재시도하지 않는다").isEqualTo(1);
+    }
+
+    /**
      * 계정당 시간 한도(GROMO-1934) — Data 의 429 RATE_LIMITED 는 도메인 표에 없어 이름 매핑으로 공개
      * RATE_LIMITED 가 되고, 본문의 retryAfterMs 는 초 단위 올림 Retry-After 가 된다(policy: 양의 초).
      * 잡는 회귀: 도메인 표가 이 코드를 다른 것으로 삼키거나, 헤더 없이 나가거나, 내림으로 0초가 되는 것.
@@ -244,6 +263,55 @@ class LetterContractTest extends UpstreamTestBase {
                 .andExpect(status().is(publicStatus))
                 .andExpect(jsonPath("$.error.code").value(publicCode))
                 .andExpect(jsonPath("$.error.field").value(field));
+    }
+
+    // ---------------------------------------------------------------- 닫기 (GROMO-2002)
+
+    /**
+     * 닫기는 본문 없는 명령이다 — 상류 204 를 삼키고 공개 봉투 규칙이 200 {@code {"data": null}} 로 접는다.
+     * 잡는 회귀: 멱등키를 안 보내는데 붙이는 것, 주체가 AT 가 아니라 헤더에서 오는 것, 봉투가 빠지는 것.
+     */
+    @Test
+    void closeForwardsSignedActorAndFoldsEmptyBodyIntoEnvelope() throws Exception {
+        DATA.on(DATA_CLOSE, request -> new MockUpstream.Response(204, ""));
+        mockMvc.perform(auth(delete("/letters/" + LETTER)).header("X-User-Id", UUID.randomUUID()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data").doesNotExist());
+        assertThat(DATA.hits(DATA_CLOSE)).isEqualTo(1);
+        var sent = DATA.received().get(0);
+        assertThat(sent.header("x-user-id")).isEqualTo(USER.toString());
+        assertThat(sent.header("idempotency-key")).isNull();
+    }
+
+    @Test
+    void closeRejectsMalformedIdBeforeNetworkAndRequiresSignedSession() throws Exception {
+        mockMvc.perform(auth(delete("/letters/1-2-3-4-5")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.error.field").value("letterId"));
+        mockMvc.perform(delete("/letters/" + LETTER))
+                .andExpect(status().isUnauthorized());
+        assertThat(DATA.received()).isEmpty();
+    }
+
+    /**
+     * 「이미 닫힘」은 404 다 — 멱등 200 으로 접지 않는다. 발신자의 시도는 {@code NOT_LETTER_RECEIVER}
+     * 로 오고 공개 표면에서는 {@code FORBIDDEN}(field=letterId) 이 된다 — Data 의 도메인 이름을 새지 않는다.
+     */
+    @ParameterizedTest
+    @CsvSource({"404,LETTER_NOT_FOUND,404,NOT_FOUND,letterId",
+            "403,NOT_LETTER_RECEIVER,403,FORBIDDEN,letterId",
+            "403,NOT_LETTER_PARTICIPANT,403,FORBIDDEN,letterId",
+            "403,LETTER_MAILBOX_LOCKED,403,FACILITY_LOCKED,",
+            "400,UNKNOWN_LETTER_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+    void closeMapsDomainFailuresWithLetterIdField(int upstreamStatus, String code, int publicStatus,
+            String publicCode, String field) throws Exception {
+        DATA.on(DATA_CLOSE, request -> error(upstreamStatus, code));
+        mockMvc.perform(auth(delete("/letters/" + LETTER)))
+                .andExpect(status().is(publicStatus))
+                .andExpect(jsonPath("$.error.code").value(publicCode))
+                .andExpect(jsonPath("$.error.field").value(field));
+        assertThat(DATA.hits(DATA_CLOSE)).as("명령은 재시도하지 않는다").isEqualTo(1);
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {

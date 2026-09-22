@@ -24,14 +24,17 @@
     "screens:capture": "node scripts/capture-phone-screens.cjs",
     "screens:html": "python3 scripts/build-phone-gallery.py",
     "review:v2": "node scripts/review-current-v2.cjs",
-    "review:v2-journeys": "node scripts/review-v2-journeys.cjs"
+    "review:v2-journeys": "node scripts/review-v2-journeys.cjs",
+    "review:last-island-recovery": "node scripts/review-last-island-recovery.cjs"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@stomp/stompjs": "^7.3.0",
     "expo": "~57.0.8",
     "expo-audio": "~57.0.3",
     "expo-font": "~57.0.3",
     "expo-haptics": "~57.0.1",
+    "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",

@@ -34,7 +34,15 @@ public enum StatsErrorCode implements ErrorCode {
      * 측정 상태가 허용값이 아니거나 분 값이 상태와 맞지 않는다(authorized 만 0~1440, 나머지는 null) — DB CHECK 위반이
      * 500 으로 새지 않게 저장 전에 판정한다.
      */
-    SCREEN_TIME_INVALID_MEASUREMENT(HttpStatus.UNPROCESSABLE_ENTITY, "측정 상태나 사용 시간이 올바르지 않습니다.");
+    SCREEN_TIME_INVALID_MEASUREMENT(HttpStatus.UNPROCESSABLE_ENTITY, "측정 상태나 사용 시간이 올바르지 않습니다."),
+
+    // ── 주간 섬 랭킹(GROMO-1997, island-rankings LLD §6) ──
+
+    /**
+     * {@code week} 가 그 주를 가리키는 식별자가 아니다 — UTC 일요일이 아니거나 아직 오지 않은 주다
+     * ({@code RankingWeek}). 모양(날짜 형식)은 Business 가 400 으로 먼저 거르고, 달력 의미는 여기서 판정한다.
+     */
+    RANKING_WEEK_OUT_OF_RANGE(HttpStatus.UNPROCESSABLE_ENTITY, "조회할 수 있는 주가 아닙니다.");
 
     private final HttpStatus status;
     private final String message;

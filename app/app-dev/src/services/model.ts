@@ -1,3 +1,11 @@
+import type {
+  IslandSummary,
+  JoinRequestStatus,
+  MyIslands,
+  MyJoinRequest,
+  VisitScreen,
+} from '@/services/api/islands';
+
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
 export type Route =
@@ -28,6 +36,8 @@ export type Route =
   | 'tower'
   | 'explore'
   | 'visit'
+  | 'visitIsland'
+  | 'visitIslandFocus'
   | 'travel'
   | 'mail'
   | 'shop'
@@ -46,9 +56,11 @@ export type Route =
   | 'friendMail'
   | 'chat'
   | 'fishingArrival'
+  | 'focusVisit'
   | 'focusTravel'
   | 'returnTravel'
   | 'permission'
+  | 'screenTimeApps'
   | 'demo';
 export type Member = {
   id: string;
@@ -70,6 +82,8 @@ export type Quest = {
   windowStart?: string;
   windowEnd?: string;
   claimed: boolean;
+  /** KST date on which this quest became eligible for daily rounds. */
+  createdDay?: string;
   rounds?: Record<string, QuestRound>;
 };
 export type QuestRound = {
@@ -122,6 +136,8 @@ export type Message = {
 };
 export type Island = {
   visibility?: 'public' | 'private';
+  // 이 사용자가 강퇴된 섬. 일반 탐색·가입 경로에서는 다시 노출하거나 가입시키지 않는다.
+  kicked?: boolean;
   // 마지막 주민이 떠나 종료된 섬. 기록 참조는 남기되 탐색·검색·재가입 대상에서는 제외한다.
   closed?: boolean;
   id: string;
@@ -134,6 +150,10 @@ export type Island = {
   // 승인 대기 중인 가입 신청. 예전 저장본은 LOAD에서 빈 목록으로 채운다
   requests?: { id: string; name: string; color: Color }[];
   joined: boolean;
+  /** KST date on which the current user joined this island. */
+  joinedDay?: string;
+  /** KST date on which the board first became available for daily screen-time quests. */
+  boardCompletedDay?: string;
   buildings: Building[];
   /** Legacy aliases kept only for importing old fixtures. UI uses fish. */
   fish?: number;
@@ -209,6 +229,7 @@ export type State = {
   friends?: Friend[];
   rewards?: Reward[];
   screenDays?: Record<string, number | null>;
+  screenTimeUnconfirmedDays?: string[];
   focusSpot?: { x: number; y: number };
   resultFromRest?: boolean;
   loggedIn: boolean;
@@ -229,6 +250,9 @@ export type State = {
     publicRecords: boolean;
     permission: boolean;
     haptics: boolean;
+    screenTimeBoardPromptSeen?: boolean;
+    screenTimeMeasurementReady?: boolean;
+    screenTimeHistoryReady?: boolean;
   };
   islands: Island[];
   session: Session | null;
@@ -247,11 +271,29 @@ export type State = {
   lastResult: RecordItem | null;
   pendingIsland: string | null;
   pendingIslands?: string[];
+  // GROMO-2006 서버 온보딩 스냅샷 — /me/islands 정본과 탐색·신청만 담는다.
+  // 서버 DTO에 없는 자료(건물·주민·원장)를 만들지 않고, 초대 token·멱등 키도 저장하지 않는다
+  // (전체 State가 AsyncStorage에 저장되므로 비밀·진행 중 의도는 App ref에 둔다).
+  serverIslands?: {
+    memberships: IslandSummary[];
+    currentIslandId: string | null;
+    lossReason: 'LEFT' | 'KICKED' | null;
+    candidates: IslandSummary[];
+    nextCursor: string | null;
+    visit: VisitScreen | null;
+    joinRequests: MyJoinRequest[];
+    // 단건 상태 조회(/me/join-requests/{id})는 islandName·memberCount 같은 표시 필드가 없다.
+    // 서버가 안 준 값을 합성하지 않고 상태만 별도로 보관한다 — 화면은 목록 항목에 이 상태를 얹어 쓴다.
+    // 취소 응답처럼 version이 없는 결과도 있으므로 version은 선택이다.
+    requestStatus: RequestStatusEntry[];
+  } | null;
   travelOrigin?: string;
   // 다른 섬을 방문자로 구경 중이면 그 섬 ID(GROMO-1904). 내 현재 섬(islandId)은 그대로 둔다
   visitingIslandId?: string | null;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
+  // 현재 화면을 잃은 강퇴를 앱 셸이 소비해 안전한 화면으로 reset하기 위한 일회성 신호
+  membershipRecovery?: { reason: 'kicked'; islandId: string };
   // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
   lettersReadAt?: number;
 };
@@ -296,8 +338,9 @@ export const buildingOrder: Building[] = [
   'tower',
   'shop',
 ];
-function completeAllBuildings(i: Island) {
+function completeAllBuildings(i: Island, now = Date.now()) {
   i.buildings = [...buildingOrder];
+  i.boardCompletedDay ??= dayKey(now);
   delete i.buildingQuest;
   delete i.construction;
   delete i.nextBuilding;
@@ -465,6 +508,8 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
     })),
     formerMembers: [],
     requests: full && !solo ? [{ id: 'saebom', name: '새봄', color: 'white' }] : [],
+    joinedDay: joined ? '1970-01-01' : undefined,
+    boardCompletedDay: full ? '1970-01-01' : undefined,
     quests: [
       {
         id: 'q-focus',
@@ -472,6 +517,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
         type: 'focus',
         target: 30,
         claimed: false,
+        createdDay: '1970-01-01',
       },
       {
         id: 'q-screen',
@@ -479,6 +525,7 @@ export function makeIsland(id: string, name: string, full = false, solo = false)
         type: 'screen',
         target: 120,
         claimed: false,
+        createdDay: '1970-01-01',
       },
     ],
     notices: solo
@@ -627,8 +674,11 @@ export function initialState(full = false): State {
       sound: true,
       reduceMotion: false,
       publicRecords: true,
-      permission: true,
+      permission: full,
       haptics: true,
+      screenTimeBoardPromptSeen: false,
+      screenTimeMeasurementReady: full,
+      screenTimeHistoryReady: full,
     },
     islands: [
       makeIsland('soda', '소다 섬', full, !full),
@@ -643,6 +693,7 @@ export function initialState(full = false): State {
     records: [],
     orders: [],
     screenMinutes: 90,
+    screenTimeUnconfirmedDays: [],
     lastResult: null,
     pendingIsland: null,
     pendingIslands: [],
@@ -666,6 +717,7 @@ export const canVisit = (s: State, id: string) => {
     currentIsland(s).buildings.includes('tower') &&
     !!target &&
     !target.joined &&
+    !target.kicked &&
     !target.closed
   );
 };
@@ -715,24 +767,65 @@ export const residentCount = (i: Island) => i.members.length + (i.joined ? 1 : 0
 export const capacityOf = (i: Island) => i.capacity ?? CAPACITY_MAX;
 export const isFull = (i: Island) => residentCount(i) >= capacityOf(i);
 // 방문자 등록증의 가입 버튼 상태. 집중 중에는 배 이동부터 막혀 방문 화면에 올 수 없으므로 집중 상태는 없다
-export type VisitorJoin = 'join' | 'apply' | 'cancel' | 'full';
+export type VisitorJoin = 'join' | 'apply' | 'cancel' | 'full' | 'blocked';
 export const visitorJoinState = (s: State, i: Island): VisitorJoin =>
-  (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
-    ? 'cancel'
-    : isFull(i)
-      ? 'full'
-      : i.approval
-        ? 'apply'
-        : 'join';
+  i.kicked
+    ? 'blocked'
+    : (s.pendingIslands ?? []).includes(i.id) || s.pendingIsland === i.id
+      ? 'cancel'
+      : isFull(i)
+        ? 'full'
+        : i.approval
+          ? 'apply'
+          : 'join';
 export const visitorJoinLabel: Record<VisitorJoin, string> = {
   join: '이 섬에 가입',
   apply: '가입 신청',
   cancel: '신청 취소',
   full: '정원이 가득 찼어요',
+  blocked: '다시 가입할 수 없어요',
 };
 export const inviteCodeOf = (i: Island) => i.id.toUpperCase();
 export const findIslandByInviteCode = (islands: Island[], code: string) =>
-  islands.find((i) => !i.closed && inviteCodeOf(i) === code.trim().toUpperCase());
+  islands.find((i) => !i.closed && !i.kicked && inviteCodeOf(i) === code.trim().toUpperCase());
+// /me/islands 응답 정합(GROMO-2006) — current가 있으면 items 안에 있어야 한다.
+// current null+소속 존재는 유효하다: 첫 pending 승인이 소속을 만들어도 current는 안 옮기고,
+// current 섬에서 나가도 남은 소속은 유지된다. 모순(items 밖 current)만 걸러낸다.
+export const myIslandsConsistent = (my: MyIslands) =>
+  my.currentIslandId == null || my.items.some((x) => x.id === my.currentIslandId);
+// 쓰기 의도 멱등 키 풀(GROMO-2006) — 같은 의도(name+exactBody)의 재시도는 같은 키를 돌려주고,
+// release 후에는 새 키를 만든다. 응답 유실·재조회 실패 동안만 키를 유지하고, 확정 성공·종결
+// 뒤에는 release해서 취소 후 같은 섬 재신청 같은 새 사용자 행동이 옛 결과를 replay 받지 않게 한다.
+// 키는 호출부 ref에만 두고 State·AsyncStorage에는 저장하지 않는다.
+// requestStatus 항목 — 취소 응답({id,status:'cancelled'})처럼 version이 없는 서버 결과도
+// 그대로 담는다. 없는 version은 합성하지 않는다.
+export type RequestStatusEntry = Omit<JoinRequestStatus, 'version'> & { version?: number };
+export const intentKeyPool = (gen: () => string) => {
+  const keys: Record<string, string> = {};
+  const slot = (name: string, exactBody: string) => `${name}:${exactBody}`;
+  return {
+    key: (name: string, exactBody: string) => (keys[slot(name, exactBody)] ??= gen()),
+    release: (name: string, exactBody: string) => {
+      delete keys[slot(name, exactBody)];
+    },
+  };
+};
+// 서버 온보딩 스냅샷 접근 — null 이면 빈 껍데기를 만든다(리듀서 내부 전용).
+// 구 저장본은 requestStatus가 없을 수 있어 읽기 전에 채운다.
+const serverSnap = (s: State) => {
+  const snap = (s.serverIslands ??= {
+    memberships: [],
+    currentIslandId: null,
+    lossReason: null,
+    candidates: [],
+    nextCursor: null,
+    visit: null,
+    joinRequests: [],
+    requestStatus: [],
+  });
+  snap.requestStatus ??= [];
+  return snap;
+};
 export const recordSecondsBetween = (record: RecordItem, from: number, until: number) =>
   (record.intervals ?? [{ start: record.at - record.seconds * 1000, end: record.at }]).reduce(
     (seconds, interval) =>
@@ -780,7 +873,9 @@ export const sessionSeconds = (session: Session | null, now = Date.now()) =>
       (session.status === 'active' ? Math.max(0, (now - session.startedAt) / 1000) : 0);
 export function questRate(s: State, q: Quest, islandId = s.islandId): number | null {
   if (q.type === 'screen')
-    return !s.settings.permission
+    return !s.settings.permission ||
+      !s.settings.screenTimeMeasurementReady ||
+      s.screenTimeUnconfirmedDays?.includes(dayKey())
       ? null
       : s.screenMinutes <= q.target
         ? 100
@@ -881,6 +976,25 @@ function closeIsland(s: State, i: Island) {
   s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== i.id);
   if (s.pendingIsland === i.id) s.pendingIsland = s.pendingIslands.at(-1) ?? null;
 }
+
+// 내 소속이 사라졌을 때의 공통 정리. 자진 탈퇴는 마지막 주민이면 섬도 닫지만,
+// 강퇴는 방장이 남아 있으므로 내 소속과 개인 화면 컨텍스트만 정리한다.
+function removeOwnMembership(s: State, island: Island, closeWhenEmpty: boolean) {
+  const wasCurrent = s.islandId === island.id;
+  island.joined = false;
+  s.rewards = (s.rewards ?? []).filter((reward) => reward.islandId !== island.id);
+  if (island.buildingQuest)
+    island.buildingQuest.targets = island.buildingQuest.targets.filter((id) => id !== 'me');
+  if (closeWhenEmpty && island.members.length === 0) closeIsland(s, island);
+
+  const nextIsland = s.islands.find((candidate) => candidate.joined && !candidate.closed);
+  s.onboarded = !!nextIsland;
+  if (wasCurrent && nextIsland) s.islandId = nextIsland.id;
+  if (s.mainIslandId === island.id) s.mainIslandId = nextIsland?.id ?? null;
+  if (wasCurrent || s.visitingIslandId === island.id || !nextIsland) s.visitingIslandId = null;
+  // 소속을 잃은 섬의 진행 중 집중은 서버에서도 강제 종료된다. 로컬 상태에 좀비 세션을 남기지 않는다.
+  if (s.session?.islandId === island.id) s.session = null;
+}
 export function canBuy(s: State, p: Product): string | null {
   const i = currentIsland(s);
   if (!i.joined) return '이 섬 주민만 구매할 수 있어요.';
@@ -946,7 +1060,9 @@ export function questMemberRate(
   if (q.type === 'screen') {
     const v =
       id === 'me'
-        ? s.settings.permission
+        ? s.settings.permission &&
+          s.settings.screenTimeMeasurementReady &&
+          !s.screenTimeUnconfirmedDays?.includes(dayKey(now))
           ? s.screenMinutes
           : null
         : member?.screenDays?.[dayKey(now)];
@@ -988,24 +1104,38 @@ export function questMemberRate(
     Math.floor((focusTotal(records, islandId, dayKey(now), round) / (q.target * 60)) * 100),
   );
 }
+function ensureQuestRound(i: Island, q: Quest, day: string) {
+  q.rounds ??= {};
+  if (q.rounds[day]) return;
+  if (
+    (q.createdDay && day < q.createdDay) ||
+    (i.joinedDay && day < i.joinedDay) ||
+    (i.boardCompletedDay && day < i.boardCompletedDay)
+  )
+    return;
+  q.rounds[day] ??= {
+    targets: targetIds(i),
+    achieved: [],
+    claimed: [],
+    bonus: false,
+    target: q.target,
+    kind: q.type,
+    windowStart: q.windowStart,
+    windowEnd: q.windowEnd,
+  };
+}
+
 function evaluateQuests(s: State, now: number) {
   s.rewards ??= [];
   for (const i of s.islands.filter((i) => i.joined && i.buildings.includes('board')))
     for (const q of i.quests) {
       q.rounds ??= {};
       const today = dayKey(now);
-      q.rounds[today] ??= {
-        targets: targetIds(i),
-        achieved: [],
-        claimed: [],
-        bonus: false,
-        target: q.target,
-        kind: q.type,
-        windowStart: q.windowStart,
-        windowEnd: q.windowEnd,
-      };
+      ensureQuestRound(i, q, today);
       for (const [day, round] of Object.entries(q.rounds)) {
         if (day > today) continue;
+        if (round.kind === 'screen' && day < today && !s.settings.screenTimeHistoryReady) continue;
+        if (round.kind === 'screen' && s.screenTimeUnconfirmedDays?.includes(day)) continue;
         for (const id of round.targets) {
           const member = memberOf(i, id);
           let achieved = round.achieved.includes(id);
@@ -1091,7 +1221,7 @@ function evaluateQuests(s: State, now: number) {
             });
         }
       }
-      q.claimed = q.rounds[today].claimed.includes('me');
+      q.claimed = q.rounds[today]?.claimed.includes('me') ?? false;
     }
 }
 export type Action = { type: string; [key: string]: any };
@@ -1109,6 +1239,12 @@ export function reducer(state: State, a: Action): State {
       i.chatReadAt ??= Math.max(loadedAt, ...i.messages.map((m) => m.at));
       // 예전 저장본: 가입 신청 목록이 없으면 빈 목록(가짜 새봄 신청을 띄우지 않는다)
       i.requests ??= [];
+      const earliestRound = i.quests.flatMap((quest) => Object.keys(quest.rounds ?? {})).sort()[0];
+      if (i.joined) i.joinedDay ??= earliestRound ?? dayKey(loadedAt);
+      if (i.buildings.includes('board')) i.boardCompletedDay ??= earliestRound ?? dayKey(loadedAt);
+      i.quests.forEach((quest) => {
+        quest.createdDay ??= Object.keys(quest.rounds ?? {}).sort()[0] ?? dayKey(loadedAt);
+      });
       // 예전 규칙(전망대·우체통만 선행)으로 고른 상점 목표는 지금 규칙에 안 맞으면 해제한다
       if (i.buildingQuest?.building === 'shop' && !i.construction && !shopPrerequisitesMet(i)) {
         delete i.buildingQuest;
@@ -1136,6 +1272,7 @@ export function reducer(state: State, a: Action): State {
       friends: loaded.friends ?? [],
       rewards: loaded.rewards ?? [],
       screenDays: loaded.screenDays ?? {},
+      screenTimeUnconfirmedDays: loaded.screenTimeUnconfirmedDays ?? [],
       profileNames: loaded.profileNames ?? [loaded.name],
       mainIslandId:
         loadedMainIsland?.id ??
@@ -1147,7 +1284,13 @@ export function reducer(state: State, a: Action): State {
         Math.max(loadedAt, ...(loaded.friends ?? []).flatMap((f) => f.messages.map((m) => m.at))),
       pendingIslands,
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
-      settings: { ...loaded.settings, publicRecords: true },
+      // 재실행 복구용 서버 온보딩 스냅샷 — 공개 요약·신청만 담겨 있어 저장해도 안전하다
+      serverIslands: loaded.serverIslands ?? null,
+      settings: {
+        ...loaded.settings,
+        publicRecords: true,
+        screenTimeHistoryReady: loaded.settings.screenTimeHistoryReady ?? false,
+      },
       equipped: {
         ...loaded.equipped,
         hull: 'raft',
@@ -1159,6 +1302,14 @@ export function reducer(state: State, a: Action): State {
     };
     // 예전 버전에서 닫힌 섬에 남아 있던 공동 데이터도 지금 규칙대로 정리한다(여러 번 해도 같다)
     next.islands.forEach((i) => i.closed && closeIsland(next, i));
+    // 저장본·서버 동기화 결과가 onboarded 플래그보다 우선한다.
+    const joined = next.islands.filter((island) => island.joined && !island.closed);
+    next.onboarded = joined.length > 0;
+    if (!joined.some((island) => island.id === next.islandId) && joined[0])
+      next.islandId = joined[0].id;
+    if (next.session && !joined.some((island) => island.id === next.session!.islandId))
+      next.session = null;
+    if (!next.onboarded) next.visitingIslandId = null;
     return next;
   }
   const hostOnly = [
@@ -1202,7 +1353,10 @@ export function reducer(state: State, a: Action): State {
     now = a.now ?? Date.now();
   const log = (text: string, memberId = 'me') =>
     i.ledger.unshift({ id: uuid(), text, at: now, memberId });
+  // 도메인별 구분선(GROMO-2004). 이 리듀서 하나에 여러 티켓이 동시에 붙는다 — 자기 도메인 구간
+  // 안에만 case 를 더하면 서로의 머지 충돌이 줄어든다. 구간 순서는 바꾸지 않는다.
   switch (a.type) {
+    // ── 인증·계정 ──
     case 'LOGIN':
       s.loggedIn = true;
       break;
@@ -1212,9 +1366,11 @@ export function reducer(state: State, a: Action): State {
       s.name = a.name?.trim() || s.name;
       s.color = a.color || s.color;
       break;
+    // ── 섬 — 만들기·가입·이동 ──
     case 'CREATE_ISLAND': {
       const n = makeIsland(uuid(), a.name.trim() || '나의 섬', false, true);
       n.joined = true;
+      n.joinedDay = dayKey(now);
       n.intro = a.intro || '';
       n.approval = !!a.approval;
       n.capacity = Math.min(
@@ -1237,7 +1393,9 @@ export function reducer(state: State, a: Action): State {
     case 'JOIN': {
       if (s.session) return state;
       const island = s.islands.find((x) => x.id === a.id);
-      if (!island || island.closed || (!island.joined && isFull(island))) return state;
+      if (!island || island.closed || island.kicked || (!island.joined && isFull(island)))
+        return state;
+      const wasJoined = island.joined;
       if (!island.joined && island.approval && !a.approved) {
         s.pendingIslands = [...new Set([...(s.pendingIslands ?? []), island.id])];
         s.pendingIsland = island.id;
@@ -1245,6 +1403,7 @@ export function reducer(state: State, a: Action): State {
       }
       s.travelOrigin = s.onboarded ? i.name : '나의 뗏목';
       island.joined = true;
+      if (!wasJoined) island.joinedDay = dayKey(now);
       s.islandId = island.id;
       s.mainIslandId ??= island.id;
       // 구경하던 섬에 바로 가입하면 그 섬 주민이 되어 구경이 끝난다
@@ -1279,6 +1438,85 @@ export function reducer(state: State, a: Action): State {
       s.mainIslandId = target.id;
       break;
     }
+    // ── 섬 — 서버 동기화(GROMO-2006) ──
+    // 서버 응답만 serverIslands 스냅샷에 반영한다. CREATE_ISLAND·JOIN·CANCEL_JOIN 의
+    // 로컬 성공 경로는 REVIEW·DEMO fixture 용이며 일반 실행의 성공 경로에서 부르지 않는다.
+    case 'ISLAND_SYNC': {
+      // /me/islands 정본 — 소속·current·상실 사유를 갈아 끼우고 로컬 joined 표시를 맞춘다
+      const my = a.memberships as MyIslands,
+        snap = serverSnap(s);
+      snap.memberships = my.items;
+      snap.currentIslandId = my.currentIslandId;
+      snap.lossReason = my.lossReason;
+      if (a.requests) {
+        const terminalIds = new Set(
+          snap.requestStatus
+            .filter((request) => request.status !== 'pending')
+            .map((request) => request.id),
+        );
+        snap.joinRequests = (a.requests as MyJoinRequest[]).filter(
+          (request) => !terminalIds.has(request.id),
+        );
+      }
+      const ids = new Set(my.items.map((x) => x.id));
+      for (const island of s.islands)
+        if (island.joined && !ids.has(island.id)) island.joined = false;
+      if (s.session && !ids.has(s.session.islandId)) s.session = null;
+      if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
+      // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
+      s.onboarded = my.currentIslandId != null;
+      break;
+    }
+    case 'ISLAND_CANDIDATES': {
+      // 발견 페이지 반영 — reset이면 새 filter의 첫 페이지로 갈아 끼운다
+      const snap = serverSnap(s),
+        items = a.items as IslandSummary[];
+      snap.candidates = a.reset
+        ? items
+        : [...snap.candidates, ...items.filter((x) => !snap.candidates.some((c) => c.id === x.id))];
+      snap.nextCursor = a.nextCursor ?? null;
+      break;
+    }
+    case 'ISLAND_VISIT':
+      serverSnap(s).visit = a.visit as VisitScreen;
+      break;
+    case 'ISLAND_REQUEST': {
+      // 단건 상태는 표시 필드가 없다 — requestStatus에만 두고, 목록에 있는 항목은 status/version만 갱신한다.
+      // 종결돼도 /me/join-requests 재조회 전까지는 상태가 남아 approval 화면이 결과를 보여줄 수 있다.
+      const r = a.request as RequestStatusEntry,
+        snap = serverSnap(s),
+        prev =
+          snap.requestStatus.find((x) => x.id === r.id) ??
+          snap.joinRequests.find((x) => x.id === r.id);
+      if (
+        prev &&
+        ((prev.status !== 'pending' && r.status === 'pending') ||
+          (prev.version != null && r.version != null && r.version < prev.version))
+      )
+        break;
+      // 서버가 안 준 필드(version 등)는 기존 값을 유지한다 — 합성하지 않는다
+      snap.requestStatus = [...snap.requestStatus.filter((x) => x.id !== r.id), { ...prev, ...r }];
+      snap.joinRequests = snap.joinRequests.map((x) =>
+        x.id === r.id
+          ? { ...x, status: r.status, ...(r.version != null ? { version: r.version } : {}) }
+          : x,
+      );
+      break;
+    }
+    case 'ISLAND_SYNC_REQUESTS': {
+      // 신청 목록 재조회 — pending만 오는 서버 목록으로 통째로 갈아 끼운다
+      const snap = serverSnap(s);
+      const terminalIds = new Set(
+        snap.requestStatus
+          .filter((request) => request.status !== 'pending')
+          .map((request) => request.id),
+      );
+      snap.joinRequests = (a.requests as MyJoinRequest[]).filter(
+        (request) => !terminalIds.has(request.id),
+      );
+      break;
+    }
+    // ── 집중 세션 ──
     case 'FOCUS_SPOT':
       if (s.session) return state;
       s.focusSpot = a.spot;
@@ -1357,6 +1595,7 @@ export function reducer(state: State, a: Action): State {
       s.session = null;
       break;
     }
+    // ── 건물 공사·퀘스트 ──
     case 'SELECT_BUILDING': {
       const b = a.building as Building;
       if (canSelectBuilding(i, b)) return state;
@@ -1395,6 +1634,7 @@ export function reducer(state: State, a: Action): State {
         if (island.construction && now >= island.construction.endsAt) {
           const b = island.construction.building;
           if (!island.buildings.includes(b)) island.buildings.push(b);
+          if (b === 'board') island.boardCompletedDay ??= dayKey(island.construction.endsAt);
           delete island.construction;
           delete island.buildingQuest;
           delete island.nextBuilding;
@@ -1405,7 +1645,11 @@ export function reducer(state: State, a: Action): State {
             at: now,
           });
         }
-      if (s.settings.permission) {
+      if (
+        s.settings.permission &&
+        s.settings.screenTimeMeasurementReady &&
+        !s.screenTimeUnconfirmedDays?.includes(dayKey(now))
+      ) {
         s.screenDays ??= {};
         s.screenDays[dayKey(now)] = s.screenMinutes;
       } else {
@@ -1498,9 +1742,11 @@ export function reducer(state: State, a: Action): State {
           windowStart,
           windowEnd,
           claimed: false,
+          createdDay: dayKey(now),
         });
       break;
     }
+    // ── 게시판·공지·댓글 ──
     case 'NOTICE_SAVE': {
       // 제목·본문은 공백만 있으면 저장하지 않는다
       if (!a.title?.trim() || !a.body?.trim()) return state;
@@ -1545,6 +1791,7 @@ export function reducer(state: State, a: Action): State {
       n.comments = n.comments.filter((x) => x !== c);
       break;
     }
+    // ── 채팅 ──
     case 'CHAT_READ':
       // 읽음 기준은 뒤로 가지 않는다 — LOAD가 미래 시각 메시지까지 읽은 것으로 올려 둔 값을 지키기 위해.
       // 방을 연 채 도착한 시계 오차(미래 시각) 메시지도 이미 본 것이므로 기준에 넣는다
@@ -1571,6 +1818,7 @@ export function reducer(state: State, a: Action): State {
       if (m) m.status = 'sent';
       break;
     }
+    // ── 상점·꾸미기 ──
     case 'BUY': {
       const p = products.find((x) => x.id === a.id);
       if (!p || canBuy(s, p)) return state;
@@ -1609,6 +1857,7 @@ export function reducer(state: State, a: Action): State {
         } else i.theme = a.value;
       }
       break;
+    // ── 설정·화면시간 ──
     case 'TRACK':
       if (i.buildings.includes('gram') && i.sharedOwned.includes(a.value)) {
         i.track = a.value;
@@ -1621,6 +1870,7 @@ export function reducer(state: State, a: Action): State {
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;
       break;
+    // ── 섬 관리 (방장) ──
     case 'MANAGE':
       i.name = a.name?.trim() || i.name;
       i.intro = a.intro ?? i.intro;
@@ -1681,24 +1931,66 @@ export function reducer(state: State, a: Action): State {
       break;
     case 'LEAVE':
       if (s.session || (isHost(i) && i.members.length > 0)) return state;
-      i.joined = false;
-      // 떠난 섬에서 아직 받지 않은 보상 창은 띄우지 않는다
-      s.rewards = (s.rewards ?? []).filter((r) => r.islandId !== i.id);
-      if (i.members.length === 0) closeIsland(s, i);
-      if (i.buildingQuest)
-        i.buildingQuest.targets = i.buildingQuest.targets.filter((id) => id !== 'me');
-      const nextIsland = s.islands.find((j) => j.joined && j.id !== i.id);
-      s.onboarded = !!nextIsland;
-      if (nextIsland) s.islandId = nextIsland.id;
-      if (s.mainIslandId === i.id) s.mainIslandId = nextIsland?.id ?? null;
-      s.visitingIslandId = null;
+      removeOwnMembership(s, i, true);
       break;
+    case 'KICKED_FROM_ISLAND': {
+      const kickedIsland = s.islands.find((island) => island.id === a.id);
+      if (!kickedIsland?.joined) return state;
+      const shouldResetScreen =
+        s.islandId === kickedIsland.id ||
+        s.session?.islandId === kickedIsland.id ||
+        s.visitingIslandId === kickedIsland.id;
+      kickedIsland.kicked = true;
+      removeOwnMembership(s, kickedIsland, false);
+      if (shouldResetScreen) s.membershipRecovery = { reason: 'kicked', islandId: kickedIsland.id };
+      break;
+    }
+    case 'MEMBERSHIP_RECOVERY_HANDLED': {
+      delete s.membershipRecovery;
+      break;
+    }
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);
       break;
+    case 'SCREEN_TIME_DAY':
+      s.screenDays ??= {};
+      if (s.screenTimeUnconfirmedDays?.includes(a.day)) break;
+      s.screenDays[a.day] = Math.max(0, a.value);
+      for (const island of s.islands.filter(
+        (candidate) => candidate.joined && candidate.buildings.includes('board'),
+      ))
+        for (const quest of island.quests) ensureQuestRound(island, quest, a.day);
+      evaluateQuests(s, now);
+      break;
+    case 'SCREEN_TIME_HISTORY':
+      s.screenDays ??= {};
+      for (const bucket of a.buckets ?? []) {
+        if (s.screenTimeUnconfirmedDays?.includes(bucket.date)) continue;
+        s.screenDays[bucket.date] = Math.max(0, bucket.minutes);
+        for (const island of s.islands.filter(
+          (candidate) => candidate.joined && candidate.buildings.includes('board'),
+        ))
+          for (const quest of island.quests) ensureQuestRound(island, quest, bucket.date);
+      }
+      s.settings.screenTimeHistoryReady = true;
+      evaluateQuests(s, now);
+      break;
+    case 'SCREEN_TIME_UNCONFIRMED':
+      s.screenDays ??= {};
+      s.screenTimeUnconfirmedDays = [
+        ...new Set([...(s.screenTimeUnconfirmedDays ?? []), ...(a.days ?? [])]),
+      ].sort();
+      s.screenTimeUnconfirmedDays.forEach((day) => {
+        s.screenDays![day] = null;
+      });
+      break;
+    // ── 인증 — 로그아웃 ──
     case 'LOGOUT':
       s.loggedIn = false;
+      // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
+      s.serverIslands = null;
       break;
+    // ── 친구·편지 ──
     case 'FRIEND_REQUEST': {
       s.friends ??= [];
       const f = s.friends.find((f) => f.id === a.id);
@@ -1755,6 +2047,7 @@ export function reducer(state: State, a: Action): State {
       m.status = 'sent';
       break;
     }
+    // ── 계정 — 탈퇴 ──
     case 'DELETE_ACCOUNT': {
       const clean = initialState();
       const profileNames = new Set([s.name, ...(s.profileNames ?? [])]);
@@ -1764,6 +2057,7 @@ export function reducer(state: State, a: Action): State {
         );
       clean.islands = s.islands.map((i) => ({
         ...i,
+        kicked: undefined,
         joined: false,
         earned: Object.fromEntries(Object.entries(i.earned ?? {}).filter(([id]) => id !== 'me')),
         ledger: i.ledger.filter(
@@ -1819,9 +2113,10 @@ export function reducer(state: State, a: Action): State {
       });
       return clean;
     }
+    // ── QA·데모 전용 ──
     case 'QA_COMPLETE_ALL_BUILDINGS':
       if (!s.onboarded) return state;
-      completeAllBuildings(i);
+      completeAllBuildings(i, now);
       break;
     case 'DEMO_CREDIT':
       i.fish = balance(i) + (a.fish || 0) + (a.points || 0) + (a.contribution || 0);
@@ -1831,6 +2126,7 @@ export function reducer(state: State, a: Action): State {
     default:
       return state;
   }
-  if (['FINISH', 'QUEST_SAVE', 'SCREEN_TIME'].includes(a.type)) evaluateQuests(s, now);
+  if (['FINISH', 'QUEST_SAVE', 'SCREEN_TIME', 'SCREEN_TIME_DAY'].includes(a.type))
+    evaluateQuests(s, now);
   return s;
 }

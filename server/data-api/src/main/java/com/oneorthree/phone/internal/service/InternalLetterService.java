@@ -45,10 +45,11 @@ import java.util.UUID;
  * 판정 대상은 <b>호출자</b>의 섬이다({@link #requireMailboxUnlocked}). 보낸 편지함에는 없다 —
  * 이미 보낸 내 편지를 다시 보는 데 시설을 물을 이유가 없다.
  *
- * <h2>게스트 분기가 없다</h2>
- * 재영님 확정(2026-09-18, LLD §4 결정 1 = A): 게스트도 완전히 동일하다. {@code User.isGuest} 를 읽는 곳이
- * 이 클래스에 <b>한 곳도 없어야</b> 한다 — 스팸 방어(GROMO-1934)도 게스트를 가리지 않고 전 계정에 같은
- * 시간 한도를 건다({@link #send}).
+ * <h2>게스트 분기는 서비스가 아니라 표면에 있다</h2>
+ * 정책 「…편지 보내기…를 처음 시도할 때 소셜 로그인을 요청한다」의 계정 상태 gate 는
+ * {@code InternalLetterController.send} 가 {@link GuestAccountGuards#requireMember} 로 앞에서 건다
+ * (GROMO-1992) — 이 클래스는 {@code User.isGuest} 를 읽지 않는다. 스팸 방어(GROMO-1934)도
+ * 게스트를 가리지 않고 전 계정에 같은 시간 한도를 건다({@link #send}).
  */
 @Slf4j
 @Service
@@ -96,6 +97,9 @@ public class InternalLetterService {
      *
      * <p>활성 검증에 공유 락판({@code getCallerForShare}·{@code getTargetForShare})을 쓰는 것은 의도다:
      * 탈퇴 트랜잭션과 직렬화해, 탈퇴가 커밋되는 중에 그 유저 앞으로 편지가 새로 꽂히지 않게 한다.
+     * <b>친구 관계 확인도 같은 이유로 배타 락</b>({@code findAcceptedBetweenForUpdate})이다 — 친구
+     * 삭제와 직렬화해, 관계가 끊긴 뒤 미확인 편지가 새로 꽂히지 않게 한다(codex 리뷰 P1).
+     * 잠금 순서는 언제나 {@code users}(공유) → {@code friendships}(배타)다.
      *
      * @param senderId 보내는 사람(경로에서 오는 주체)
      * @param body     받는 사람과 본문
@@ -114,7 +118,11 @@ public class InternalLetterService {
 
         User sender = users.getCallerForShare(senderId);
         User receiver = users.getTargetForShare(body.receiverId());
-        if (friendships.findAcceptedBetween(sender, receiver).isEmpty()) {
+        // 관계 행 배타 락 (codex 리뷰 P1) — 친구 삭제와 «같은 행»에서 직렬화한다. 락 없이 확인하면
+        // 이 검사를 통과한 뒤 삭제가 미확인 편지 정리까지 커밋하고, 그 다음에 아래 save 가 새 편지를
+        // 꽂아 「관계는 끊겼는데 미확인 편지가 남는」 상태가 된다(LLD §결정 3 위반).
+        // 삭제가 먼저 커밋됐으면 술어 재평가로 빈 결과가 되어 여기서 404 로 떨어진다.
+        if (friendships.findAcceptedBetweenForUpdate(sender, receiver).isEmpty()) {
             throw new LetterException(LetterErrorCode.LETTER_RECIPIENT_NOT_FRIEND);
         }
         // 한도는 판정을 다 통과한 «쓰기 직전»에 센다(GROMO-1934) — 거절될 요청까지 세면 오타 몇 번에 막힌다.
@@ -165,13 +173,23 @@ public class InternalLetterService {
 
     /**
      * 편지 상세 (LLD §1.14). 호출자가 수신자이고 아직 안 읽었으면 최초 열람 시각을 박는다 —
-     * <b>행을 지우지 않는다</b>(일반 우편함이다. 열람으로 사라지는 「읽으면 소멸」 편지가 아니다).
+     * <b>행을 지우지 않는다</b>. 편지가 사라지는 것은 「읽음」이 아니라 「닫음」이다({@link #close},
+     * GROMO-2002) — 여는 것과 닫는 것이 다른 사건이라야 「열었지만 아직 안 닫은」 상태가 표현된다.
+     *
+     * <p><b>읽는 사이에 닫히면 200 이 아니라 404 다</b> (codex 리뷰 P2). 수신자의 최초 열람은
+     * {@link #markRead} 가 조건부 UPDATE 로 박는데, 그 UPDATE 가 행 잠금을 기다리는 동안 다른 기기의
+     * 닫기나 친구 삭제 정리가 커밋될 수 있다. 그때 아래에서 «먼저 꺼내 둔» 본문을 그대로 내보내면
+     * 삭제된 편지를 계속 열람하게 되므로, {@code markRead} 가 활성 재조회로 갈라 404 를 던진다.
+     *
+     * <p>이미 읽은 편지를 다시 여는 경로({@code readAt != null})는 {@code markRead} 를 타지 않아 이
+     * 판정이 없다 — 조회 시점엔 살아 있었으므로 그 스냅샷을 돌려주는 것이 맞고, 락 없는 GET 과
+     * 동시 DELETE 의 경합은 어떤 순서로도 한쪽이 먼저다(알림 경로에 락을 두지 않은 것과 같은 결).
      *
      * @param userId   조회자
      * @param letterId 편지 id
      * @return 편지 한 통. 방금 읽음 처리했다면 {@code readAt} 이 그 시각이다
-     * @throws LetterException {@code LETTER_MAILBOX_LOCKED}(403) · {@code LETTER_NOT_FOUND}(404) ·
-     *     {@code NOT_LETTER_PARTICIPANT}(403)
+     * @throws LetterException {@code LETTER_MAILBOX_LOCKED}(403) · {@code LETTER_NOT_FOUND}(404,
+     *     읽는 사이 닫힌 경우 포함) · {@code NOT_LETTER_PARTICIPANT}(403)
      */
     @Transactional
     public LetterView detail(UUID userId, UUID letterId) {
@@ -199,8 +217,66 @@ public class InternalLetterService {
     }
 
     /**
+     * 편지 닫기 (GROMO-2002, policy-2026-09-14 「받는 사람이 편지를 열었다가 닫으면 지워지고,
+     * <b>보낸 사람 목록에서도 사라진다</b>」).
+     *
+     * <p><b>상세 조회(GET)에 삭제를 얹지 않고 별도 명령으로 둔 이유.</b> 그렇게 하면 「열었지만 아직
+     * 닫지 않은」 상태를 표현할 수 없다 — 앱이 편지를 띄운 순간 서버에서 사라져, 화면을 회전하거나
+     * 네트워크가 끊겨 다시 불러오면 404 다. 여는 것({@link #detail}, {@code readAt})과 닫는 것
+     * (여기, {@code deletedAt})은 다른 사건이다.
+     *
+     * <p><b>닫을 수 있는 사람은 수신자 하나다.</b> 정책의 주어가 「받는 사람」이고, 발신자에게는 애초에
+     * 열람이라는 사건이 없다. 발신자의 시도는 {@code NOT_LETTER_RECEIVER}(403)다.
+     *
+     * <p><b>이미 닫힌 편지는 404 다</b>(멱등 200 이 아니다). 닫힌 편지는 모든 읽기 경로에서 이미
+     * 존재하지 않고({@code deletedAt IS NULL} 필터), 「두 번째 삭제는 404」가 이 저장소의 선례다
+     * ({@code FriendService.deleteFriend} 의 {@code NOT_FRIEND}). 재시도 안전성은 여기서 오지 않는다 —
+     * 404 를 받은 앱은 이미 원하던 상태(사라짐)에 있다.
+     *
+     * <p><b>⚠ 알려진 정보 누출 — 2026-09-21 재영님 수용 결정.</b> 이 삭제는 발신자의 보낸함에서도
+     * 편지를 지우므로, 발신자는 «사라진 시점»으로 상대의 열람 사실을 알게 된다 — {@link #item} 이
+     * 보낸함 {@code isRead} 를 항상 false 로 고정해 숨기는 것과 형식상 모순이다. 정책이
+     * 「보낸 사람 목록에서도 사라진다」로 명시했고 재영님이 알고 수용했다. <b>버그로 보고 2컬럼
+     * 삭제 모델로 갈아엎기 전에 이 결정부터 뒤집을 것.</b>
+     *
+     * @param userId   닫는 사람 — 편지의 수신자여야 한다
+     * @param letterId 닫을 편지 id
+     * @throws LetterException {@code LETTER_MAILBOX_LOCKED}(403) · {@code LETTER_NOT_FOUND}(404, 이미 닫힘 포함) ·
+     *     {@code NOT_LETTER_PARTICIPANT}(403) · {@code NOT_LETTER_RECEIVER}(403, 발신자의 시도)
+     */
+    @Transactional
+    public void close(UUID userId, UUID letterId) {
+        // 상세와 같은 게이트다 — 열 수 없는 사람이 닫을 수 있으면 두 표면의 판정이 갈린다.
+        requireMailboxUnlocked(users.getCaller(userId));
+
+        Letter letter = letters.findActiveWithSender(letterId)
+                .orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
+        if (letter.isNotParticipant(userId)) {
+            throw new LetterException(LetterErrorCode.NOT_LETTER_PARTICIPANT);
+        }
+        if (!letter.getReceiver().getId().equals(userId)) {
+            throw new LetterException(LetterErrorCode.NOT_LETTER_RECEIVER);
+        }
+        // 조회와 UPDATE 사이에 다른 기기가 먼저 닫았으면 0 건이다 — 「이미 없다」는 404 로 되돌린다.
+        if (letters.softDeleteIfActive(letterId, Instant.now().truncatedTo(ChronoUnit.MICROS)) == 0) {
+            throw new LetterException(LetterErrorCode.LETTER_NOT_FOUND);
+        }
+    }
+
+    /**
      * 최초 열람 시각을 조건부 UPDATE 로 박는다. 졌다면(다른 기기가 먼저) 이긴 쪽의 시각이 정본이라
      * 다시 읽어 온다 — 내 {@code now()} 를 응답에 실으면 화면과 DB 가 갈린다.
+     *
+     * <p><b>0 행 갱신의 두 사유를 여기서 가른다</b> (codex 리뷰 P2). {@code markReadIfUnread} 의 WHERE 는
+     * {@code readAt IS NULL AND deletedAt IS NULL} 이라 0 행은 「이미 읽었다」일 수도 「그 사이 닫혔다·
+     * 친구 삭제가 지웠다」일 수도 있다. 되짚는 조회를 {@code findById}(필터 없음)로 하면 <b>죽은 행의
+     * readAt 을 그대로 실어 200 을 내보낸다</b> — 그래서 활성 조회({@code findActiveWithSender})로 되짚어,
+     * 없으면 {@code LETTER_NOT_FOUND} 로 떨어뜨린다. 「닫으면 양쪽에서 사라진다」(GROMO-2002)는
+     * 읽는 중에 닫혀도 지켜져야 한다.
+     *
+     * @param letterId 읽음을 박을 편지 id
+     * @return 최초 열람 시각(이번 호출이 졌으면 이긴 쪽의 시각)
+     * @throws LetterException {@code LETTER_NOT_FOUND} — 읽는 사이 편지가 닫히거나 정리됐다
      */
     private Instant markRead(UUID letterId) {
         // timestamptz 는 마이크로초 정밀도다 — 자른 채로 써야 첫 응답과 재조회 값이 같다.
@@ -208,7 +284,10 @@ public class InternalLetterService {
         if (letters.markReadIfUnread(letterId, now) == 1) {
             return now;
         }
-        return letters.findById(letterId).map(Letter::getReadAt).orElse(null);
+        // 살아 있으면 «이미 읽음»(이긴 쪽의 시각이 정본), 없으면 «그 사이 삭제»다.
+        return letters.findActiveWithSender(letterId)
+                .map(Letter::getReadAt)
+                .orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
     }
 
     private static LetterItemView item(Letter letter, UUID me, boolean sent) {

@@ -55,6 +55,11 @@ internal:
           # `/login-attempts` 와 `/login-attempts/lookup` 은 서로를 덮지 않는다.
           - 'POST /internal/auth/login-attempts'
           - 'POST /internal/auth/login-attempts/lookup'
+          # GROMO-2035·2036 2.0 세션 발급 2종 — AT 재발급과 게스트 시작. 위 로그인과 같은 이유로
+          # 주체 축(`/internal/users/*/…`)이 «아니다»: 갱신의 주체는 RT 서명이 지목하고 게스트 시작의
+          # 주체는 이 요청이 만든다. 와일드카드 없는 정확한 두 경로다.
+          - 'POST /internal/auth/sessions/refresh'
+          - 'POST /internal/auth/guest-sessions'
           - 'POST /internal/islands/*/host-transfer'
           - 'POST /internal/users/*/device-token-deletions'
           - 'PUT /internal/users/*/notification-settings-commands'
@@ -79,6 +84,10 @@ internal:
           - 'POST /internal/users/*/focus-sessions/*/resume'
           - 'POST /internal/users/*/focus-sessions/*/finish'
           - 'GET /internal/users/*/focus-summary'
+          # GROMO-1998 휴식 1시간 자동 종료의 결과 1회 제공. `pending-result` 는 리터럴 한 세그먼트라
+          # `/focus-sessions/*/…`(sessionId 자리) 와 겹치지 않는다.
+          - 'GET /internal/users/*/focus-sessions/pending-result'
+          - 'POST /internal/users/*/focus-sessions/*/acknowledge'
           # GROMO-1775 우체통 편지방 — 주민 인가·작성자 표시·message.created 적재. 메시지 정본은 realtime.
           - 'GET /internal/islands/*/mailbox-access'
           - 'POST /internal/islands/*/message-authors'
@@ -121,6 +130,10 @@ internal:
           - 'GET /internal/islands/*/statistics/focus'
           - 'GET /internal/islands/*/statistics/screen-time'
           - 'PUT /internal/users/*/screen-time/*'
+          # GROMO-1997 주간 섬 랭킹 1종. 경로 섬이 없는 «전체 섬» 순위라 주체 축이다(B26) — 범위를 정하는 것이
+          # 요청자의 현재 섬이라 1759 의 `/island-search`·`/island-discovery` 와 같은 자리다.
+          # 주민 랭킹(`/islands/*/rankings/members`)은 결정 B23·B15 로 폐기돼 여기 줄이 없다.
+          - 'GET /internal/users/*/island-rankings'
           # GROMO-1771 섬 게시판 6종. `*` 는 세그먼트 하나다 — 목록과 작성, 상세·수정·삭제는 메서드로만
           # 갈리므로 줄을 합치지 않는다(합치면 조회 권한이 쓰기까지 연다).
           - 'GET /internal/islands/*/notices'
@@ -136,6 +149,9 @@ internal:
           # 줄을 합치지 않는다.
           - 'GET /internal/users/*/friends'
           - 'GET /internal/users/*/friend-requests'
+          # GROMO-1996 친구 검색. 이름이 `friends/search` 가 아닌 이유는 세그먼트 수다 —
+          # `DELETE /internal/users/*/friends/*`(친구 삭제)와 같은 모양이라 메서드로만 갈리게 된다.
+          - 'GET /internal/users/*/friend-search'
           - 'POST /internal/users/*/friend-requests'
           - 'POST /internal/users/*/friend-requests/*/accept'
           - 'POST /internal/users/*/friend-requests/*/reject'
@@ -146,6 +162,8 @@ internal:
           - 'POST /internal/users/*/letters'
           - 'GET /internal/users/*/letters'
           - 'GET /internal/users/*/letters/*'
+          # GROMO-2002 편지 닫기 — 상세 조회(GET)와 «메서드로만» 갈리므로 줄을 합치지 않는다.
+          - 'DELETE /internal/users/*/letters/*'
           # GROMO-1801 계정 3종 (계정 LLD §2.2·§2.3·§2.5, B26 사용자 축). `*` 는 세그먼트 하나라
           # `/internal/users/{id}` 만 받고 하위 경로를 열지 않는다. 같은 패턴이 매칭하는
           # `GET /internal/users/notification-snapshot` 은 InternalAuthFilter 가 caller 이름으로 막는다(GROMO-1906).
@@ -294,6 +312,12 @@ outbox:
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
       "[focus.member.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      # GROMO-1956 황금 물고기 — 함께 낚은 주민의 3초 컷신 신호. 섬의 focus 채널로 방송된다.
+      "[focus.golden]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST

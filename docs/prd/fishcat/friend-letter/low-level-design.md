@@ -87,7 +87,8 @@ public void cancel() {
 
 `FriendService.createRequest`의 활성 검증 순서(`FriendService.java:137-138`, `getCallerParticipant`→
 `getRelationParticipant`)를 그대로 따른다 — 발신자·수신자 둘 다 활성 유저인지 먼저 확인한 뒤
-`findAcceptedBetween`으로 친구 관계를 확인한다.
+`findAcceptedBetweenForUpdate`로 친구 관계를 확인한다 — 배타 락인 이유는 §결정 3 참조(친구 삭제와
+같은 행에서 직렬화한다).
 
 ### 1.13 — 편지함 목록 (신규)
 
@@ -130,6 +131,69 @@ ORDER BY id DESC
 | 권한 | 발신자 또는 수신자 본인만(HLD §2.5) |
 | 부수효과 | 호출자가 **수신자**이고 `readAt IS NULL`이면 `now()`로 갱신한다. 발신자 본인 조회는 `readAt`을 건드리지 않는다. **갱신은 원자적이어야 한다** — `UPDATE letters SET read_at = :now WHERE id = :id AND read_at IS NULL` 같은 조건부 UPDATE(또는 행 배타 락)로 쓴다. 읽고 나서 쓰면 두 기기·재시도가 동시에 `read_at IS NULL` 을 읽어 각자의 `now()` 를 덮어써 **실제 최초 열람 시각이 보존되지 않는다** |
 
+### 1.16 — 편지 닫기 (GROMO-2002, 신규)
+
+`DELETE /letters/{letterId}`
+
+정책(policy-2026-09-14): 「친구 편지는 기록으로 남기지 않는다. 받는 사람이 편지를 열었다가 닫으면
+지워지고, **보낸 사람 목록에서도 사라진다**.」
+
+| 항목 | 값 |
+| --- | --- |
+| 응답 body | 없음 (내부 204 → 공개 봉투 규칙으로 200 `{"data": null}`) |
+| 성공 코드 | 200(공개) / 204(내부) |
+| 에러 | 404 `LETTER_NOT_FOUND`(없음 **또는 이미 닫힘**) · 403 `NOT_LETTER_PARTICIPANT` · 403 `NOT_LETTER_RECEIVER`(발신자의 시도) · 403 `LETTER_MAILBOX_LOCKED` |
+| 권한 | **수신자 본인만.** 정책의 주어가 「받는 사람」이고, 발신자에게는 열람이라는 사건 자체가 없다 |
+| 부수효과 | `letters.deleted_at` 을 조건부 UPDATE 로 박는다(`WHERE id = :id AND deleted_at IS NULL`). 읽기 경로 셋은 GROMO-1933 부터 이미 `deleted_at IS NULL` 을 걸고 있어 **한 줄도 고치지 않는다** |
+
+**왜 GET 상세에 삭제를 얹지 않는가.** 그러면 「열었지만 아직 닫지 않은」 상태를 표현할 수 없다 —
+앱이 편지를 띄운 순간 서버에서 사라져, 화면 회전이나 네트워크 재시도로 다시 불러오면 404 다.
+여는 것(`readAt`, §1.14)과 닫는 것(`deletedAt`, 여기)은 다른 사건이다.
+
+**왜 재호출이 404 인가(멱등 200 이 아니다).** 닫힌 편지는 모든 읽기 경로에서 이미 존재하지 않고,
+「두 번째 삭제는 404」가 이 도메인의 선례다(§1.4 `NOT_FRIEND`). 404 를 받은 앱은 이미 원하던
+상태(사라짐)에 있으므로 재시도 안전성이 깨지지 않는다.
+
+> ⚠️ **알려진 정보 누출 — 2026-09-21 재영님 «알고» 수용한 결정.**
+> 닫기가 편지를 양쪽에서 지우므로, 발신자는 자기 보낸함에서 편지가 사라지는 **시점**으로 상대가
+> 읽었다는 사실을 알게 된다. 이는 §1.13 이 보낸함 `isRead` 를 항상 `false` 로 고정해 열람 여부를
+> 숨기는 것과 형식상 모순이다. 그럼에도 정책이 「보낸 사람 목록에서도 사라진다」로 명시했고 재영님이
+> 그 대가를 알고 받아들였다 — **버그가 아니다.** 「숨기려면 삭제를 발신자·수신자 2컬럼으로 나눠야
+> 한다」(§2.1 이 명시적으로 배제한 모델)로 갈아엎기 전에 **이 결정부터 뒤집을 것.**
+> 흔적은 코드에도 있다: `Letter` 엔티티 주석 · `InternalLetterService.close` javadoc ·
+> `InternalLetterIntegrationTest.closeRemovesLetterFromBothSidesAndIsNotIdempotent`.
+
+### 1.17 — 친구 검색 (GROMO-1996, 공개 표면 신설)
+
+`GET /friends/search?type=&q=`
+
+정책(policy-2026-09-14): 「닉네임은 **대소문자를 구분하지 않고** 중복될 수 없으며 앞뒤 공백 없이
+저장한다. 친구 검색은 대소문자를 구분하지 않고 **정확히 일치할 때만** 결과를 보여 주며 **본인과
+탈퇴한 사용자는 제외**한다.」
+
+**이 경로는 Business 에 없었다.** nginx 위성 include 가 `/friends/*` 를 Business 로 보내는데
+매핑이 없어 **404 로 죽어 있었다** — 동작하던 것은 레거시 `GET /api/v1/friends/search`(Data 직결,
+봉투 없음)뿐이다. GROMO-1894 가 친구 7종을 옮길 때 검색만 빠졌다.
+
+| 항목 | 값 |
+| --- | --- |
+| 파라미터 | `type`(필수, 현재 `NICKNAME` 만 구현) · `q`(필수) — 둘 다 없으면 Business 에서 400 |
+| 응답 body | `FriendSearchResultResponse[]` — `userId`·`nickname`·`tierLevel`·`occupation`·`relation`. **0건 또는 1건**(닉네임이 대소문자 무시로 유일하므로). 없으면 빈 배열, 404 가 아니다 |
+| 필수 결과 필드 | `userId`·`nickname`·`relation` — Business 가 셋 중 하나라도 누락·null 이면 502 `UPSTREAM_CONTRACT_ERROR` 로 올린다(`FriendSearchItem` 의 `@JsonSetter(nulls = Nulls.FAIL)`). `nickname` 은 친구 목록(`FriendItem`)과 달리 필수다 — 검색은 닉네임으로 찾은 결과이고 탈퇴자를 제외하므로 값이 없다는 건 계약 파손이다. `tierLevel`·`occupation` 은 비친구에게 null 이 정상이라 제외 |
+| 에러 | 400 `INVALID_SEARCH_TYPE`(→ 공개 `INVALID_PARAMETER`, field=`type`) · 404 `USER_NOT_FOUND` |
+| 내부 경로 | `GET /internal/users/{userId}/friend-search` — **`friends/search` 가 아니다.** `DELETE /internal/users/*/friends/*`(§1.4)와 세그먼트 수가 같아 허용목록이 메서드로만 갈리게 된다. `GET /internal/users/*/island-search` 와 같은 형태 |
+
+**비친구 정보 제한.** `relation != FRIEND` 인 건은 `tierLevel`·`occupation` 을 **null 로 떨군다**.
+검색은 닉네임만 알면 누구나 칠 수 있는 표면이라, 모르는 사람의 프로필 정보를 여기서 흘리면 친구
+수락이라는 관문이 무의미해진다. 남기는 셋(`userId`·`nickname`·`relation`)은 「이 사람에게 친구 요청을
+보낼까」를 그리는 데 필요한 최소값이다. `PENDING`(요청중)도 아직 친구가 아니므로 함께 가린다.
+가리는 자리는 `FriendService.search` 한 곳 — relation 이 거기서 계산되므로 전략은 아무것도 모르고,
+검색 수단이 늘어도 규칙이 한 곳에 남는다.
+
+**전체 일치 전환의 부수효과.** 종전 `searchByNicknameTrgm`(pg_trgm 유사도)은 프로덕션 호출이
+사라져 메서드째 제거했다. DB 의 `idx_users_nickname_trgm` 은 **안정화 전까지 남겨 둔다**(제거는
+별건). `groups.name` 의 trgm(V18)은 계속 쓰인다.
+
 ### 1.15 — 내부 GET (B26, Business 전용)
 
 HLD §3 표와 동일. 공개 계약(§1.5·1.6·1.13)과 인가만 다르다 — 서비스 위임 토큰 + `X-User-Id`,
@@ -140,6 +204,10 @@ HLD §3 표와 동일. 공개 계약(§1.5·1.6·1.13)과 인가만 다르다 �
 | `GET /internal/users/{userId}/friends?date=` | §1.5 | `friend/InternalFriendController`(신설) |
 | `GET /internal/users/{userId}/friend-requests?type=` | §1.6 | 위와 동일 클래스 |
 | `GET /internal/users/{userId}/letters?type=&cursor=&size=` | §1.13 | `letter/InternalLetterController`(신설) |
+| `GET /internal/users/{userId}/friend-search?type=&q=` | §1.17 | `internal/InternalFriendController`(GROMO-1996) |
+
+명령 두 줄도 같은 축이다 — `DELETE /internal/users/{userId}/letters/{letterId}`(§1.16 닫기)와
+§1.1~1.4·1.11 의 친구 명령 5종.
 
 **컨트롤러 신설만으로는 호출되지 않는다.** `InternalAuthFilter` 는 등록된 (메서드, 경로) 패턴과 정확히 맞지 않으면 403 을 준다. 현재 `application-satellites.yml` 의 business caller 허용목록(`internal.api.callers.business.allow`)에 이 세 경로가 없으므로, 구현 PR 이 다음 세 줄을 함께 추가해야 `friends`·`mailbox` 조각이 거절되지 않는다.
 
@@ -147,6 +215,10 @@ HLD §3 표와 동일. 공개 계약(§1.5·1.6·1.13)과 인가만 다르다 �
           - 'GET /internal/users/*/friends'
           - 'GET /internal/users/*/friend-requests'
           - 'GET /internal/users/*/letters'
+          # GROMO-1996 · GROMO-2002 가 추가한 두 줄. 각각 조회·상세와 «메서드 또는 이름»으로만
+          # 갈리므로 기존 줄에 합치지 않는다.
+          - 'GET /internal/users/*/friend-search'
+          - 'DELETE /internal/users/*/letters/*'
 ```
 
 세그먼트 하나짜리 `*` 로 적는다 — `GET /internal/users/*` 처럼 넓히면 같은 접두의 다른 계약까지 함께 열린다([bff-screens 구현 문서](../bff-screens/implementation-data-api.md) §3 의 같은 경고).
@@ -240,6 +312,18 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 
 **확정 — A(게스트도 완전히 동일).** 2026-09-18 재영님 결정 FL-결정-1: 게스트도 편지를 보낼 수 있다. 편지 도메인에 게스트 분기를 두지 않는다. ⚠️ **A 가 스스로 지적한 악용 경로는 남는다** — 게스트 계정을 대량 생성해 편지를 뿌리는 스팸은 편지 도메인이 아니라 게스트 생성·친구 요청 쪽에서 막아야 하며, 그 방어는 이 티켓 범위 밖이다(별도 티켓 필요).
 
+> **후속(GROMO-1992, 2026-09-21) — FL-결정-1 의 «발송» 부분은 폐기됐다.** planning-document 의
+> 「친구 추가·편지 발송·상점 구매에서 소셜 로그인을 요청한다」(policy-2026-09-14 「인증·게스트
+> 계정」 · planning decision-log 2026-09-15 「게스트와 회원 계정의 전환 경계」)를 최상위 기준으로
+> 삼는 source 계층에서 FL-결정-1 은 상충하는 하위 근거다. **현재 계약: 게스트는 편지를 보낼 수
+> 없다** — `InternalLetterController.send` 가 `InternalLetterService.send` 앞에서
+> `GuestAccountGuards.requireMember` 를 불러 403 `SOCIAL_LOGIN_REQUIRED` 다. 편지 «도메인»에는
+> 여전히 게스트 분기가 없다 — 계정 상태 gate 는 2.0 컨트롤러 경계에 있고, 서비스는 `User.isGuest`
+> 를 읽지 않는다. 받은함·상세·닫기(읽기·정리 표면)와 받은 친구 요청 «수락»은 정책의 세 명령
+> 밖이라 그대로 열어 둔다. 가드를 공유 서비스가 아니라 2.0 컨트롤러에 두는 이유(동결된 1.x 앱
+> 보존)와 그 대가로 남는 레거시 우회는 계정 LLD §2.1 「게스트 제한과 기존 계정 충돌의 2단계
+> 확인」에 있다.
+
 ### 결정 2 — 받는 쪽 섬의 우체통 시설이 완공돼야 편지를 받을 수 있는가
 
 우체통은 `island-construction`의 건설 대상 하나다(`docs/prd/fishcat/island-construction/prd.md:11`,
@@ -266,4 +350,32 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 | B. 삭제 — 친구를 끊으면 그 사이 주고받은 편지도 양쪽에서 사라진다 | `deleteFriend`가 두 유저 사이의 `letters` 행을 전부 `deletedAt`으로 소프트 삭제해야 한다(§2.1의 `deleted_at` 컬럼이 이 용도로 처음 쓰인다) — `FriendService.deleteFriend`(`FriendService.java:253-260`)에 편지 정리 호출 추가, `Friendship.softDelete` 패턴과 동일한 도메인 메서드(`Letter.softDelete(Instant)`) 신설 |
 | C. 받은 사람만 유지, 보낸 사람 쪽에서만 정리(또는 반대) | §2.1에서 명시적으로 배제한 "발신자/수신자별 개별 삭제" 2컬럼 모델이 필요해진다 — 이 선택지를 고르면 §2.1 데이터 모델부터 다시 설계해야 한다 |
 
-**대기 — 충돌 때문에 아직 정할 수 없다.** GROMO-1867 #11088 은 「친구 삭제: 서로 편지 못 보냄, **확인 안 한 편지도 삭제**」(=B)인데, 2026-09-18 재영님 결정 **FL-형태 「일반 우편함 — 삭제하지 않는다」**와 정면으로 어긋난다. 둘 중 하나를 정해야 한다 — 편지 전반이 삭제 없는 우편함이면 친구 삭제만 예외로 지우는 것이 일관되지 않고, 1867 을 따르면 FL-형태를 다시 좁혀야 한다. [결정 로그](../decision-log.md) FL-결정-3 행 참조.
+**확정 — B(삭제), 단 「아직 확인하지 않은」 편지에 한한다.** policy-2026-09-14 「친구를 삭제하면
+서로 편지를 보낼 수 없고 **아직 확인하지 않은 편지도 지운다**」. 2026-09-18 의 FL-형태
+「일반 우편함 — 삭제하지 않는다」는 정책이 「친구 편지는 기록으로 남기지 않는다」(§1.16 닫기)로
+바뀌면서 함께 폐기됐다 — 이제 편지 전반이 «지워지는» 우편함이라 친구 삭제만 예외가 아니다.
+
+구현(GROMO-2002):
+- 「서로 편지를 보낼 수 없다」는 **이미 지켜지고 있었다** — `InternalLetterService.send` 가
+  친구 관계 확인으로 막는다. 이번에 더한 것은 뒤쪽 절반이다.
+- **두 절반은 관계 행 배타 락으로 이어 붙인다** (codex 리뷰 P1). 발송의 관계 확인과 이 삭제가
+  `FriendshipRepository.findAcceptedBetweenForUpdate` 로 **같은 `friendships` 행**을 잡는다. 락이
+  없으면 발송이 확인을 통과한 뒤 삭제가 정리까지 커밋하고 그 **다음에** `letters` 행이 들어가
+  「관계는 끊겼는데 미확인 편지가 양쪽 편지함에 남는」 상태 — 이 결정(B)의 위반 — 이 만들어진다.
+  락을 잡으면 발송이 먼저면 방금 꽂힌 편지까지 정리가 함께 지우고, 삭제가 먼저면 READ COMMITTED
+  술어 재평가로 발송이 `LETTER_RECIPIENT_NOT_FRIEND` 에 떨어진다.
+  **교착은 없다** — 살아 있는 ACCEPTED 행은 쌍당 하나이고 조회가 양방향 대칭이라 두 방향이 같은
+  행 하나를 잡으므로 순서 문제가 성립하지 않는다. 층 순서는 언제나 `users`(공유 락) →
+  `friendships`(배타 락)이며 탈퇴(`deleteAllInvolving`)도 같은 방향이다.
+  읽기 전용 경로(공개 프로필 친구 배지 · 통계 열람 권한)는 락 없는 `findAcceptedBetween` 을 그대로
+  쓴다 — 거기서 잠그면 남의 프로필을 여는 것만으로 친구 삭제·편지 발송이 줄을 선다.
+  재현 테스트: `InternalLetterIntegrationTest.concurrentDeleteAndSendNeverLeaveAnUnreadLetterOnADeletedFriendship`.
+- `FriendService.deleteFriend` 가 `LetterRepository.softDeleteUnreadBetween(a, b, now)` 를 부른다 —
+  `deleted_at IS NULL AND read_at IS NULL` 인 양방향 행을 한 UPDATE 로 지운다. **이미 읽은 편지는
+  건드리지 않는다**(「아직 확인하지 않은」이 정책 문구의 범위다 — 읽은 편지는 수신자가 닫아서 지운다).
+- 정리를 `internal`(L10) 이 아니라 `FriendService`(L3) 에 둔 이유: 레거시 `friend/FriendController` 와
+  `InternalFriendController` 두 표면이 모두 이 메서드로 모인다. 위로 올리면 레거시 경로만 정책을 어긴다.
+  레이어도 맞다 — `letter` 는 L2, `friend` 는 L3 이라 참조가 아래로 간다. `DomainLayerRulesTest` 의
+  letter 층 주석이 「결정 3 이 B 로 정해지면 friend 가 letter 를 참조해야 한다」며 비워 둔 자리다.
+- 순서 주의: `friendship.softDelete(now)` **다음에** 벌크 UPDATE 를 부른다. 벌크는
+  `clearAutomatically` 라 먼저 부르면 `friendship` 이 준영속이 되어 소프트 삭제가 유실된다.

@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -52,10 +53,20 @@ public class IslandMembershipController {
     private static final int INTRO_MAX = 200;
     private static final int SEARCH_LIMIT_DEFAULT = 20;
     private static final int DISCOVER_LIMIT_DEFAULT = 1;
+    /** 「신청 중」 기본 개수 — 한 사람이 동시에 걸어 둘 수 있는 신청 수가 적어 한 화면이면 충분하다. */
+    private static final int MY_JOIN_REQUESTS_LIMIT_DEFAULT = 20;
     // 초대 code·token 크기는 내부 계약(InvitationResolveCommandRequest·JoinIslandCommandRequest)과
     // 같게 둔다 — 여기서 더 느슨하게 받으면 초과분이 400/422 로 갈리는 경계가 상류와 어긋난다.
     private static final int CODE_MAX = 32;
     private static final int TOKEN_MAX = 64;
+    /** 섬 생성 본문의 화이트리스트 — password 는 없다(LLD §1). maxMembers 는 GROMO-1993 에서 열었다. */
+    private static final Set<String> CREATE_KEYS = Set.of("name", "intro", "approvalRequired", "maxMembers");
+    /**
+     * 정원 범위 — 정책 「정원은 1~15명」(GROMO-1993). 길이 상한과 같은 «모양» 판정이라 Business 가
+     * 네트워크 전에 먼저 거른다. Data 의 {@code @Min}/{@code @Max} 가 여전히 최종 경계다.
+     */
+    private static final int MEMBERS_MIN = 1;
+    private static final int MEMBERS_MAX = 15;
 
     private final IslandMembershipUseCase islands;
     private final SettingsSessionGuard sessions;
@@ -66,20 +77,37 @@ public class IslandMembershipController {
     public ResponseEntity<IslandCreated> create(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        // intro 는 선택이라 본문 크기가 2 또는 3 이다. 그 밖의 키가 섞이면 거절한다 —
-        // maxMembers·password 를 client 가 주입하지 못하게 하는 것이 계약이다(LLD §1).
-        boolean hasIntro = body != null && body.isObject() && body.has("intro");
-        if (body == null || !body.isObject() || body.size() != (hasIntro ? 3 : 2)) {
+        // intro·maxMembers 는 선택이다. 화이트리스트 밖 키가 섞이면 거절한다 — password 를 client 가
+        // 주입하지 못하게 하는 것이 계약이다(LLD §1). maxMembers 는 정책 「방장이 정원을 설정한다」로
+        // 열렸다(GROMO-1993) — 범위(1~15) 판정은 Data 의 검증이 정본이라 여기서는 정수 모양만 본다.
+        if (body == null || !body.isObject()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
+        for (String field : body.propertyNames()) {
+            if (!CREATE_KEYS.contains(field)) {
+                throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
+            }
+        }
         String name = requiredText(body, "name", NAME_MAX);
-        String intro = hasIntro ? optionalText(body, "intro", INTRO_MAX) : null;
+        String intro = body.has("intro") ? optionalText(body, "intro", INTRO_MAX) : null;
         JsonNode approvalRequired = body.get("approvalRequired");
         if (approvalRequired == null || !approvalRequired.isBoolean()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "approvalRequired");
         }
+        Integer maxMembers = null;
+        if (body.has("maxMembers")) {
+            JsonNode node = body.get("maxMembers");
+            // canConvertToInt 가 «먼저» 다 — 32비트를 넘는 JSON 정수(4294967297)는 isIntegralNumber 가
+            // 참인데 intValue() 가 1 로 잘려 범위 검사를 통과한다. 수정 경로
+            // ({@code IslandManagementController#manage})에도 같은 판정이 있다.
+            if (!node.isIntegralNumber() || !node.canConvertToInt()
+                    || node.intValue() < MEMBERS_MIN || node.intValue() > MEMBERS_MAX) {
+                throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "maxMembers");
+            }
+            maxMembers = node.intValue();
+        }
         IslandCreated created = islands.create(claims, name, intro, approvalRequired.booleanValue(),
-                key, deadline());
+                maxMembers, key, deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -153,6 +181,19 @@ public class IslandMembershipController {
             invitationToken = optionalText(body, "invitationToken", TOKEN_MAX);
         }
         return islands.join(claims, uuid(islandId, "islandId"), invitationToken, key, deadline());
+    }
+
+    /**
+     * 내 가입 신청 목록 (GROMO-2047, LLD §3.12) — explore 화면의 「신청 중」 조각이다.
+     *
+     * <p>{@code /me/join-requests/{requestId}}(§3.8) 와 세그먼트 수가 달라 경로가 겹치지 않는다.
+     * 신청이 없으면 404 가 아니라 빈 목록 + 200 이다 — 「신청한 적 없음」은 실패가 아니다.
+     */
+    @GetMapping("/me/join-requests")
+    public IslandMembershipUseCase.MyJoinRequests myJoinRequests(HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return islands.myJoinRequests(claims, single(request, "cursor"),
+                limit(request, MY_JOIN_REQUESTS_LIMIT_DEFAULT), deadline());
     }
 
     /** 가입 요청 상태 (GROMO-1760, LLD §3.8). 남의 요청은 상류가 404 로 접는다. */

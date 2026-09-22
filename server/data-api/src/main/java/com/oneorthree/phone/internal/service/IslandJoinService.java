@@ -43,6 +43,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -90,6 +91,11 @@ public class IslandJoinService {
     private final LinkMembershipEventService linkMembershipEventService;
     private final IslandMovementGuards movementGuards;
     private final PublicCommandService publicCommands;
+    /**
+     * 재가입 시각을 찍는 시계 (GROMO-2050) — 근거는 {@code GroupMember.leftAt} Javadoc(Hibernate 의
+     * 시각 애너테이션은 주입 {@link Clock} 을 타지 않는다).
+     */
+    private final Clock clock;
 
     /** 섬 관리 명령 게이트(GROMO-1802) — {@code IslandManagementService} 와 같은 스위치다. 기본은 닫혀 있다. */
     @Value("${island-management.commands-enabled:false}")
@@ -101,9 +107,13 @@ public class IslandJoinService {
      * 섬에 가입하거나 가입을 요청한다 (LLD §3.7).
      *
      * <p>{@code approvalRequired=false} 이면 즉시 가입 — switch 와 같은 이동 가드를 거치고 현재 섬을
-     * 옮긴다. {@code true} 이면 승인 대기 요청만 만든다 — 정원·소속 상한·집중 세션·전망대는
+     * 옮긴다. {@code true} 이면 승인 대기 요청만 만든다 — 소속 상한·집중 세션·전망대는
      * <b>검사하지 않는다</b>: pending 은 자리 예약이 아니라 신청이고, 그 조건은 승인 시점의 값으로
      * 다시 판정해야 한다(IM-D05 — 예약 없음).
+     *
+     * <p><b>정원만은 신청에도 건다</b>(GROMO-1993) — 정책 「승인 필요 섬이 가득 차면 새 가입 신청을
+     * 막는다」. 예약이 생기는 것은 아니다: 이미 열린 신청은 가득 차도 유지되고 승인 시점에 다시
+     * {@code requireCapacity} 로 걸린다(「신청은 유지하고 승인만 막으며」).
      */
     @Transactional
     public JoinIslandResultView join(UUID userId, UUID islandId, JoinIslandCommandRequest body,
@@ -155,6 +165,10 @@ public class IslandJoinService {
                     }
 
                     if (island.isApprovalRequired()) {
+                        // 정책(GROMO-1993): 「승인 필요 섬이 가득 차면 «새» 가입 신청을 막는다.」
+                        // 이미 열린 pending 은 위에서 그대로 돌려줬으므로 여기 오지 않는다 —
+                        // 「승인 대기 중에 가득 차면 신청은 유지하고 승인만 막는다」가 그 둘의 차이다.
+                        requireCapacity(island);
                         IslandJoinRequest request = joinRequestRepository.save(IslandJoinRequest.pending(
                                 island, user, invitation == null ? null : invitation.getId()));
                         List<EventEnvelope> events =
@@ -207,6 +221,9 @@ public class IslandJoinService {
      * 본인의 대기 중 가입 요청 목록 (GROMO-1895, LLD §3.12) — explore 화면의 「신청 중」 조각이다.
      *
      * <p>pending 만 싣는다: 닫힌 요청은 §3.8 단건 조회로 결과를 확인하는 자원이지 대기 목록이 아니다.
+     * 승인·거절로 닫힌 신청은 <b>다음 페이지 요청부터 사라진다</b> — 정책이 「승인 대기 중인 가입
+     * 신청은 취소할 수 있고, 다시 신청할 수 있다」까지만 정하고 이력 열람을 열지 않았으므로
+     * (policy-2026-09-14 「섬 가입·전망대·랭킹」), 이력은 만들지 않는다(GROMO-2047).
      * 섬이 종결되면 그 섬의 pending 은 같은 TX 에서 닫히므로(ISLAND_CLOSED) 죽은 섬이 목록에 남지 않는다.
      * 커서는 Business 가 서명·검증한 뒤 평문 keyset 경계({@code after…})만 넘긴다(§3.3 과 같은 규칙).
      */
@@ -223,9 +240,19 @@ public class IslandJoinService {
         boolean more = rows.size() > limit;
         List<IslandJoinRequest> page = more ? rows.subList(0, limit) : rows;
         IslandJoinRequest last = more ? page.get(page.size() - 1) : null;
+        // 주민 수는 페이지 전체를 한 번에 센다(GROMO-2047) — 항목마다 세면 페이지당 N+1 이다.
+        // 멤버가 0인 섬은 행 자체가 없으므로 0 으로 채운다(countByGroupIdIn javadoc).
+        Map<UUID, Integer> memberCounts = new HashMap<>();
+        if (!page.isEmpty()) {
+            groupMemberRepository.countByGroupIdIn(page.stream()
+                            .map(request -> request.getIsland().getId()).distinct().toList())
+                    .forEach(row -> memberCounts.put(row.getGroupId(), (int) row.getMemberCount()));
+        }
         return new MyJoinRequestsPageView(page.stream()
                 .map(request -> new MyJoinRequestsPageView.Item(request.getId(), request.getIsland().getId(),
-                        request.getIsland().getName(), request.getStatus().wireName(),
+                        request.getIsland().getName(),
+                        memberCounts.getOrDefault(request.getIsland().getId(), 0),
+                        request.getIsland().getMaxMembers(), request.getStatus().wireName(),
                         request.getVersion() == null ? 0L : request.getVersion(), request.getCreatedAt()))
                 .toList(),
                 last == null ? null : last.getCreatedAt(), last == null ? null : last.getId());
@@ -375,7 +402,7 @@ public class IslandJoinService {
     private GroupMember admit(User user, Group island, Optional<GroupMember> prior) {
         if (prior.isPresent()) {
             GroupMember membership = prior.get();
-            membership.rejoin();
+            membership.rejoin(clock.instant());
             // 재가입은 새 세대 — 이 사람이 발급한 옛 초대 코드는 이 전이로 폐기된다.
             linkMembershipEventService.recordMembershipRejoined(membership);
             return membership;
@@ -430,6 +457,15 @@ public class IslandJoinService {
                 .orElse(null);
     }
 
+    /**
+     * 정원 판정 (GROMO-1993) — 「정원에는 방장을 포함한 현재 주민만 센다. 승인 대기 중인 가입 신청과
+     * NPC 는 세지 않는다」. 모수는 {@code group_members} 의 활성 행이라 신청은 자연히 빠진다.
+     *
+     * <p><b>동시성</b>: 호출자가 이미 {@code membershipLocks.lockGroup} 으로 groups 행을
+     * {@code FOR UPDATE} 잡은 뒤다. 그 섬에 멤버십을 넣는 모든 경로(즉시 가입·승인·레거시
+     * {@code GroupService.joinGroup})가 같은 잠금을 먼저 지나므로 count → insert 가 섬 단위로
+     * 직렬화된다 — 정책 「마지막 한 자리에 동시에 가입하면 한 명만 성공한다」가 이것으로 성립한다.
+     */
     private void requireCapacity(Group island) {
         long members = groupMemberRepository.countByGroupIdIn(List.of(island.getId())).stream()
                 .mapToLong(row -> row.getMemberCount())

@@ -15,6 +15,7 @@ import {
   BackHandler,
   Platform,
   ActivityIndicator,
+  AppState,
   KeyboardAvoidingView,
   Share,
   AccessibilityInfo,
@@ -24,6 +25,8 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
+import { screenTime, selectionCount } from '@/services/screenTime';
+import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -77,7 +80,18 @@ import {
   Building,
   Quest,
   Member,
+  dayKey,
 } from '@/services/model';
+import { checkSession, logout } from '@/services/api/auth';
+import {
+  getSession,
+  restoreSession,
+  setSessionLostHandler,
+  sessionGeneration,
+  subscribeSession,
+} from '@/services/api/session';
+import { createIslandCommands } from '@/services/islandCommands';
+import { decideBootRoute } from '@/services/islandBoot';
 const REVIEW =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
@@ -117,6 +131,8 @@ const titles: Record<Route, string> = {
   tower: '전망대',
   explore: '다른 섬 둘러보기',
   visit: '바다 건너 섬',
+  visitIsland: '다른 섬 구경',
+  visitIslandFocus: '다른 섬 낚시 구경',
   travel: '섬 사이 이동',
   mail: '우리 섬 편지방',
   shop: '강아지 상점',
@@ -135,9 +151,11 @@ const titles: Record<Route, string> = {
   friendMail: '친구 편지',
   chat: '우리 섬 편지방',
   fishingArrival: '낚시섬 도착',
+  focusVisit: '낚시섬 구경',
   focusTravel: '낚시섬으로',
   returnTravel: '우리 섬으로',
   permission: '측정 권한',
+  screenTimeApps: '측정 앱',
   demo: '목업 체험 도구',
 };
 function Bubble({ text, mine }: { text: string; mine: boolean }) {
@@ -185,6 +203,9 @@ function Gromo() {
   const insets = useScreenInsets();
   const [state, dispatch] = useReducer(reducer, undefined, () => initialState(DEMO));
   const [loaded, setLoaded] = useState(false),
+    // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
+    [islandBootError, setIslandBootError] = useState(false),
+    [hasServerSession, setHasServerSession] = useState(() => getSession() !== null),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
     [history, setHistory] = useState<
       {
@@ -246,16 +267,22 @@ function Gromo() {
     toastTimer.current = setTimeout(() => setToast(''), 2400);
   };
   const go = (r: Route, id = '') => {
+    const gateBoard = shouldGateScreenTimeBoard(r, {
+      isIOS: Platform.OS === 'ios',
+      promptSeen: !!state.settings.screenTimeBoardPromptSeen,
+    });
+    const nextRoute: Route = gateBoard ? 'permission' : r;
+    const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
     if (r === 'rest') setRestTravel(route === 'focus');
     if (r === 'home' || route === 'home') setWalkRequest(null);
     if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
-    setDetail(id);
+    setDetail(nextDetail);
     setTab('');
     setText('');
     setBody('');
     setSearch('');
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
-    setRoute(r);
+    setRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
   const replace = (r: Route, id = '') => {
@@ -314,30 +341,114 @@ function Gromo() {
     action: () => void,
     opts: { ok?: string; destructive?: boolean } = {},
   ) => setModal({ title, text: txt, action, ...opts });
+  // ── 섬 서버 명령(GROMO-2006) ──
+  // 오케스트레이션은 services/islandCommands.ts — 멱등 키·초대 token은 거기 세대 격리
+  // 저장소에만 둔다(State/AsyncStorage 저장 금지). 매 렌더의 최신 함수·state는 ref로 넘긴다.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const goRef = useRef(go);
+  goRef.current = go;
+  const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
+  islandCmds.current ??= createIslandCommands({
+    dispatch,
+    go: (r, id) => goRef.current(r as Route, id),
+    getSnap: () => stateRef.current?.serverIslands,
+    setBootError: setIslandBootError,
+  });
+  const islands = islandCmds.current.commands,
+    syncIslands = islandCmds.current.syncIslands;
+  useEffect(() => subscribeSession((session) => setHasServerSession(session !== null)), []);
+  // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
-    (REVIEW || DEMO ? Promise.resolve(null) : AsyncStorage.getItem(STORAGE))
-      .then((raw) => {
-        if (raw) {
-          const saved = JSON.parse(raw);
-          if (saved.version === 1) {
-            dispatch({ type: 'LOAD', state: saved });
-            setRoute(
-              !saved.loggedIn
-                ? 'login'
-                : !saved.onboarded
-                  ? 'chooseIsland'
-                  : saved.session
-                    ? saved.session.status === 'paused'
-                      ? 'rest'
-                      : 'focus'
-                    : 'home',
-            );
-          }
+    setSessionLostHandler(() => {
+      dispatch({ type: 'LOGOUT' });
+      reset('login');
+    });
+    return () => setSessionLostHandler(null);
+  }, []);
+  useEffect(() => {
+    const mock = REVIEW || DEMO;
+    Promise.all([
+      mock ? Promise.resolve(null) : AsyncStorage.getItem(STORAGE),
+      // 보안 저장소의 인증 세션. 있으면 /me 로 «아직 유효한가»까지 확인한다 — 폐기된 세션으로
+      // 홈에 들어가면 다음 요청에서야 401 이 나고, 그때는 원인이 로그인이라는 것이 안 보인다.
+      mock ? Promise.resolve(null) : restoreSession(),
+    ])
+      .then(async ([raw, session]) => {
+        // 「거절(재로그인)」·「확인 실패(오프라인)」·「정상」 셋을 가른다 — checkSession 참조.
+        const check = session ? await checkSession() : null;
+        const account = check?.status === 'active' ? check.account : null;
+        const rejected = check?.status === 'rejected';
+        const saved = raw ? JSON.parse(raw) : null;
+        const loadable = saved?.version === 1 ? saved : null;
+        if (loadable) {
+          // `now` 는 티켓 1941 이 더했다 — LOAD 리듀서가 멈춘 집중의 경과를 그 시각 기준으로
+          // 되살린다. 복구 «경로» 판정은 restoredRoute 가 하므로 여기서 reducer 를 한 번 더
+          // 돌려 restored 를 만들지 않는다.
+          dispatch({ type: 'LOAD', state: loadable, now: Date.now() });
+          // ⚠️ LOAD 가 저장본의 loggedIn:true 를 되살린다 — 거절된 세션이면 여기서 다시 내린다.
+          // 안 내리면 화면만 로그인이고 저장 effect 가 true 를 다시 써서, 다음 실행에
+          // 보안 저장소가 비었는데도 로컬 경로로 홈에 들어간다.
+          if (rejected) dispatch({ type: 'LOGOUT' });
         }
+        // ⚠️ 서버가 계정을 확인해 줬으면 **로컬 로그인 상태도 맞춘다.** 저장본이 없거나(iOS 재설치)
+        // loggedIn:false 인 저장본이면 경로만 바뀌고 state.loggedIn 은 false 로 남는데, 그 값이 곧
+        // 저장 effect 로 다시 쓰인다. 그러면 다음 «오프라인» 실행에서 checkSession 이 확인 실패로
+        // 끝나 account 가 null 이 되고, restoredRoute 가 `!saved.loggedIn` 을 보고 멀쩡한 세션을
+        // 두고 로그인 화면을 고른다.
+        if (account) dispatch({ type: 'LOGIN' });
+        // 세션이 유효하면 섬 소속·대기 신청도 서버 정본으로 맞춘다(GROMO-2006). 실패·모순 응답은
+        // 로컬 저장본으로 home에 들어가지 않고 chooseIsland의 명시 오류+재시도로 보낸다.
+        // 부팅 인증 세대는 checkSession 결과 직후 포획한다 — 동기화 도중 401이 나면 세션 상실
+        // 핸들러가 login으로 돌리고 세대가 올라가므로, stale account로 route를 덮어쓰지 않는다.
+        const bootGen = sessionGeneration();
+        const bootRoute = await decideBootRoute({
+          saved: loadable,
+          account,
+          rejected,
+          serverMode: !!(account && !mock),
+          bootGen,
+          generation: sessionGeneration,
+          syncIslands,
+          onBootError: setIslandBootError,
+        });
+        // decideBootRoute 반환과 적용 사이도 await 경계다 — 그 사이 세대가 죽었으면 쓰지 않는다
+        if (bootRoute && sessionGeneration() === bootGen) setRoute(bootRoute);
       })
       .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
       .finally(() => setLoaded(true));
   }, []);
+  const kickedDestination =
+    ['visit', 'travel'].includes(route) &&
+    state.islands.some((candidate) => candidate.id === (detail || visited) && candidate.kicked);
+  useEffect(() => {
+    if (!loaded || !state.loggedIn) return;
+    if (state.membershipRecovery || kickedDestination) {
+      setModal(null);
+      setWalkRequest(null);
+      setVisited(state.onboarded ? state.islandId : '');
+      reset(state.onboarded ? 'home' : 'chooseIsland');
+      if (state.membershipRecovery) dispatch({ type: 'MEMBERSHIP_RECOVERY_HANDLED' });
+      return;
+    }
+    if (state.onboarded) return;
+    if (
+      ['login', 'character', 'chooseIsland', 'createIsland', 'joinIsland', 'approval'].includes(
+        route,
+      )
+    )
+      return;
+    // 마지막 소속에서 강퇴되거나 동기화 결과 소속이 0개가 되면 이전 화면 기록까지 지운다.
+    reset('chooseIsland');
+  }, [
+    loaded,
+    state.loggedIn,
+    state.onboarded,
+    state.islandId,
+    state.membershipRecovery,
+    kickedDestination,
+    route,
+  ]);
   useEffect(() => {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
@@ -363,6 +474,72 @@ function Gromo() {
   }, []);
   useEffect(() => {
     if (!loaded) return;
+    const syncPermission = async () => {
+      if (Platform.OS !== 'ios') {
+        if (!REVIEW && !DEMO) {
+          dispatch({ type: 'SETTING', key: 'permission', value: false });
+          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+        }
+        dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+        return;
+      }
+      dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
+      try {
+        const status = await screenTime.getAuthorizationStatus();
+        const approved = status === 'approved';
+        dispatch({ type: 'SETTING', key: 'permission', value: approved });
+        if (!approved) {
+          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+          const unconfirmedDays = await screenTime
+            .markCurrentUsageBucketUnconfirmed()
+            .catch(() => []);
+          dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+          return;
+        }
+        await screenTime.promotePendingSelectionIfDue().catch(() => false);
+        const selection = await screenTime.getMeasurementSelectionCounts();
+        const measurementReady = selectionCount(selection) > 0;
+        dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: measurementReady });
+        if (!measurementReady) {
+          dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+          return;
+        }
+        const [minutes, history, unconfirmedDays] = await Promise.all([
+          screenTime.getTodayUsageBucketMinutes(),
+          screenTime.getUsageBucketHistory(),
+          screenTime.getUnconfirmedUsageBucketDays(),
+        ]);
+        dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+        dispatch({ type: 'SCREEN_TIME_HISTORY', buckets: history, now: Date.now() });
+        dispatch({ type: 'SCREEN_TIME', value: minutes });
+      } catch {}
+    };
+    void syncPermission();
+    let syncedDay = dayKey();
+    const dayChangeTimer = setInterval(() => {
+      const currentDay = dayKey();
+      if (currentDay === syncedDay) return;
+      syncedDay = currentDay;
+      void syncPermission();
+    }, 1000);
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void syncPermission();
+    });
+    return () => {
+      clearInterval(dayChangeTimer);
+      subscription.remove();
+    };
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded || Platform.OS !== 'ios') return;
+    if (state.session?.status === 'active') {
+      screenTime.startFocusShield(state.session.subject).catch(() => {});
+    } else {
+      screenTime.stopFocusShield().catch(() => {});
+    }
+  }, [loaded, state.session?.id, state.session?.status, state.session?.subject]);
+  useEffect(() => {
+    if (!loaded) return;
     transition.stopAnimation();
     transition.setValue(state.settings.reduceMotion ? 1 : 0);
     // JS 드라이버: 네이티브 드라이버는 iOS 에서 전환 중 화면(도서관 JPEG 배경 등)이 다시 커밋되면
@@ -377,6 +554,13 @@ function Gromo() {
     const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
       // 구경 중 홈의 뒤로가기는 `원래 섬으로`와 같다: 배를 타고 내 섬으로 돌아간다
       if (route === 'home' && state.visitingIslandId) {
+        dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
+        dispatch({ type: 'END_VISIT' });
+        go('travel', island.id);
+        return true;
+      }
+      // 방문 화면의 시스템 뒤로가기도 하단 `원래 섬으로` 버튼과 같이 귀환 항해를 시작한다.
+      if (route === 'visitIsland' && state.visitingIslandId) {
         dispatch({ type: 'TRAVEL_FROM', name: viewIsland(state).name });
         dispatch({ type: 'END_VISIT' });
         go('travel', island.id);
@@ -426,6 +610,8 @@ function Gromo() {
       back,
       state,
       route,
+      walkRequest,
+      walk: (r: Route) => setWalkRequest(r),
       open: (r: Route, opts: any = {}) => {
         if (opts.state) dispatch({ type: 'LOAD', state: opts.state });
         setModal(null);
@@ -446,7 +632,7 @@ function Gromo() {
       },
       fixture: initialState,
     };
-  }, [loaded, state, route]);
+  }, [loaded, state, route, walkRequest]);
   const walkTo = (r: Route) => {
     setWalkRequest(r);
     setHistory([]);
@@ -481,6 +667,11 @@ function Gromo() {
     setWindowStart('00:00');
     setWindowEnd('24:00');
   };
+  // 정책: 「로그아웃은 서버 데이터를 유지하고 현재 기기 세션만 종료한다」. 서버 호출이 실패해도
+  // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.
+  const signOut = () => {
+    logout().catch(() => {});
+  };
   const send = () => {
     if (!text.trim()) return;
     dispatch({ type: 'MESSAGE', text, fail: failNext });
@@ -510,6 +701,7 @@ function Gromo() {
           notify,
           confirm,
           build,
+          signOut,
           text,
           setText,
           body,
@@ -539,11 +731,24 @@ function Gromo() {
           setWindowEnd,
           failNext,
           setFailNext,
+          // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
+          islands: REVIEW || DEMO || !hasServerSession ? undefined : islands,
+          islandBootError,
         }}
       />
     );
   }
-  const immersive = ['home', 'focusSetup', 'focus', 'rest', 'arrival', 'travel'].includes(route);
+  const immersive = [
+    'home',
+    'focusSetup',
+    'focus',
+    'focusVisit',
+    'visitIsland',
+    'visitIslandFocus',
+    'rest',
+    'arrival',
+    'travel',
+  ].includes(route);
   if (!loaded)
     return (
       <SafeAreaView style={[S.page, { alignItems: 'center', justifyContent: 'center' }]}>

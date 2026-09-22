@@ -7,8 +7,10 @@ import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
+import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.usecase.AuthSessionUseCase;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -43,8 +45,14 @@ public class AuthSessionController {
     private static final String FIELD_CODE = "authorizationCode";
     private static final String FIELD_CREDENTIAL = "credential";
     private static final String FIELD_TERMS = "termsVersion";
+    /**
+     * 기존 회원 계정으로의 전환 확정 (GROMO-1994 · 정책 「…사용자에게 전환 여부를 안내하고 명시적으로
+     * 확인받는다」). 선택 필드이고 생략은 {@code false} 다 — 기존 요청 4필드를 바꾸지 않는
+     * additive 확장이라, 이 값을 모르는 앱은 예전과 똑같이 409 로 거절된다.
+     */
+    private static final String FIELD_SWITCH_CONFIRMED = "accountSwitchConfirmed";
     private static final Set<String> ALLOWED_FIELDS =
-            Set.of(FIELD_PROVIDER, FIELD_CODE, FIELD_CREDENTIAL, FIELD_TERMS);
+            Set.of(FIELD_PROVIDER, FIELD_CODE, FIELD_CREDENTIAL, FIELD_TERMS, FIELD_SWITCH_CONFIRMED);
     private static final Set<String> CREDENTIAL_FIELDS = Set.of("type", "value");
     private static final int MAX_CREDENTIAL_LENGTH = 8192;
     private static final int MAX_TERMS_LENGTH = 64;
@@ -66,7 +74,8 @@ public class AuthSessionController {
 
     @PostMapping(LoginAttemptCredentials.PATH)
     @ResponseStatus(HttpStatus.CREATED)
-    public AuthSessionUseCase.Result login(HttpServletRequest request, @RequestBody JsonNode body) {
+    public AuthSessionUseCase.Result login(HttpServletRequest request, HttpServletResponse response,
+            @RequestBody JsonNode body) {
         // 필터 예외와 «같은» 판정을 다시 확인한다. 인코딩 변형으로 필터의 정확 일치는 비껴가고
         // MVC 라우팅에는 걸리는 경로가 있으면, 이 한 줄이 그 요청을 여기서 끊는다.
         if (!LoginAttemptCredentials.matches(request) || request.getQueryString() != null) {
@@ -82,8 +91,29 @@ public class AuthSessionController {
         SocialCredential credential = credentialOf(body);
         String termsVersion = termsVersionOf(body);
 
-        return AuthSessionUseCase.Result.of(sessions.login(credentials, credential, termsVersion,
-                Deadline.startingNow(properties.getComposition().getDeadline())));
+        LoginSession session = sessions.login(credentials, credential, termsVersion,
+                accountSwitchConfirmedOf(body),
+                Deadline.startingNow(properties.getComposition().getDeadline()));
+        DeviceBootstrapHeader.set(response, session.deviceBootstrap());
+        return AuthSessionUseCase.Result.of(session);
+    }
+
+    /**
+     * 전환 확정 플래그 — 정확한 boolean 하나이거나 생략이다 (GROMO-1994).
+     *
+     * <p>{@code "true"} 문자열·{@code 1} 을 받아 주지 않는다. 여기 느슨함을 두면 「확정하지 않은
+     * 사용자의 요청이 확정으로 읽혀 게스트 데이터가 파기되는」 경로가 생긴다 — 이 필드의 결말이
+     * 되돌릴 수 없으므로 가장 좁게 읽는다.
+     */
+    private boolean accountSwitchConfirmedOf(JsonNode body) {
+        JsonNode value = body.get(FIELD_SWITCH_CONFIRMED);
+        if (value == null || value.isNull()) {
+            return false;
+        }
+        if (!value.isBoolean()) {
+            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, FIELD_SWITCH_CONFIRMED);
+        }
+        return value.booleanValue();
     }
 
     private SocialCredential credentialOf(JsonNode body) {

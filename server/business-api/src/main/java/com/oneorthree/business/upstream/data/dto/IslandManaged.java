@@ -15,5 +15,6 @@ public record IslandManaged(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String name,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String intro,
         @JsonProperty(required = true) boolean approvalRequired,
+        @JsonProperty(required = true) int maxMembers,
         @JsonProperty(required = true) long version) {
 }

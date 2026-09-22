@@ -185,8 +185,11 @@ class BannedWordsIntegrationTest {
     @Test
     @DisplayName("③ 편지 — 내부 HTTP 표면에서 400 BANNED_WORD 봉투가 나가고 행이 남지 않는다")
     void letterRejectsBannedWordsOverHttp() throws Exception {
-        UUID sender = newUser();
-        UUID receiver = newUser();
+        // 발신자는 회원이어야 한다 (GROMO-1992) — 게스트는 계정 gate 의 403 이 금칙어 판정보다 먼저다.
+        UUID sender = newMember();
+        assertThat(jdbc.queryForObject("select is_guest from users where id = ?", Boolean.class, sender))
+                .as("회원이어야 게스트 gate 를 지나 BANNED_WORD 판정에 도달한다").isFalse();
+        UUID receiver = newUser();  // 수신자는 gate 대상이 아니라 게스트 그대로다
         friends.acceptRequest(receiver, friends.createRequest(sender, receiver));
         jdbc.update("delete from letters");
 
@@ -223,17 +226,17 @@ class BannedWordsIntegrationTest {
     void islandNameAndIntroRejectBannedWordsOnCreateAndUpdate() {
         UUID host = newUser();
 
-        assertBanned(() -> islands.create(host, new CreateIslandCommandRequest(DIRTY + "섬", "소개", false), key()));
+        assertBanned(() -> islands.create(host, new CreateIslandCommandRequest(DIRTY + "섬", "소개", false, null), key()));
         assertBanned(() -> islands.create(host,
-                new CreateIslandCommandRequest("멀쩡섬", "여긴 " + DIRTY_EN + " 한 곳", false), key()));
+                new CreateIslandCommandRequest("멀쩡섬", "여긴 " + DIRTY_EN + " 한 곳", false, null), key()));
         assertThat(count("select count(*) from groups where name like ?", "%섬%"))
                 .as("거절된 생성은 섬 행을 남기지 않는다").isZero();
 
-        UUID islandId = islands.create(host, new CreateIslandCommandRequest("고요한섬", "같이 집중해요", false), key()).id();
+        UUID islandId = islands.create(host, new CreateIslandCommandRequest("고요한섬", "같이 집중해요", false, null), key()).id();
         assertBanned(() -> management.manage(host, islandId,
-                new IslandManageCommandRequest(DIRTY_SPACED, null, null), key()));
+                new IslandManageCommandRequest(DIRTY_SPACED, null, null, null), key()));
         assertBanned(() -> management.manage(host, islandId,
-                new IslandManageCommandRequest(null, DIRTY, null), key()));
+                new IslandManageCommandRequest(null, DIRTY, null, null), key()));
 
         Group island = groups.findById(islandId).orElseThrow();
         assertThat(island.getName()).as("거절된 수정은 이름을 바꾸지 않는다").isEqualTo("고요한섬");
@@ -244,20 +247,20 @@ class BannedWordsIntegrationTest {
     @DisplayName("금칙어 판정은 멱등 판정 «뒤» 다 — 성공한 키의 재생은 목록이 늘어도 원 결과고, 키 재사용은 409 다")
     void bannedWordCheckSitsBehindTheReceiptSoReplayKeepsItsResult() {
         UUID host = newUser();
-        UUID islandId = islands.create(host, new CreateIslandCommandRequest("조용한섬", "같이 집중해요", false), key()).id();
+        UUID islandId = islands.create(host, new CreateIslandCommandRequest("조용한섬", "같이 집중해요", false, null), key()).id();
 
         UUID usedKey = key();
         IslandManageView first = management.manage(host, islandId,
-                new IslandManageCommandRequest("새이름", null, null), usedKey);
+                new IslandManageCommandRequest("새이름", null, null, null), usedKey);
 
         // ① 같은 키 + 같은 본문 = 성공 재생. 판정이 앞에 있으면 배포 사이에 목록이 늘었을 때 여기가 400 이 된다.
         IslandManageView replay = management.manage(host, islandId,
-                new IslandManageCommandRequest("새이름", null, null), usedKey);
+                new IslandManageCommandRequest("새이름", null, null, null), usedKey);
         assertThat(replay.version()).as("재생은 원 결과 그대로다").isEqualTo(first.version());
 
         // ② 같은 키 + 다른 본문(금칙어) = 지문 불일치 409 다. 400 BANNED_WORD 가 나오면 판정이 너무 앞에 있다.
         assertThatThrownBy(() -> management.manage(host, islandId,
-                new IslandManageCommandRequest(DIRTY + "섬", null, null), usedKey))
+                new IslandManageCommandRequest(DIRTY + "섬", null, null, null), usedKey))
                 .isNotInstanceOf(BannedWordException.class)
                 .isInstanceOf(OutboxException.class)
                 .extracting(e -> ((OutboxException) e).getErrorCode())
@@ -265,7 +268,7 @@ class BannedWordsIntegrationTest {
 
         // ③ 새 키 + 금칙어 = 정상적으로 400 이다(판정이 죽은 게 아니다).
         assertBanned(() -> management.manage(host, islandId,
-                new IslandManageCommandRequest(DIRTY + "섬", null, null), key()));
+                new IslandManageCommandRequest(DIRTY + "섬", null, null, null), key()));
         assertThat(groups.findById(islandId).orElseThrow().getName()).isEqualTo("새이름");
     }
 
@@ -319,6 +322,13 @@ class BannedWordsIntegrationTest {
 
     private UUID newUser() {
         return jwt.extractUserId(auth.guestLogin().accessToken());
+    }
+
+    /** 게스트로 만든 뒤 {@code is_guest} 만 내린 회원 — 2.0 회원 전용 표면(편지 발송)을 통과시킬 때만 쓴다. */
+    private UUID newMember() {
+        UUID id = newUser();
+        jdbc.update("update users set is_guest = false where id = ?", id);
+        return id;
     }
 
     private static UserProfileUpdateRequest nickname(String value) {

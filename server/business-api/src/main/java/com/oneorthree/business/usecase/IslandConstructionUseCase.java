@@ -41,7 +41,7 @@ public class IslandConstructionUseCase {
             Map.entry("GROUP_NOT_FOUND", new PublicFailure(ApiErrorCode.GROUP_NOT_FOUND, "islandId")),
             // 비주민 — GET 도 포함하는 모든 API 공통 소속 게이트다(LLD §3).
             Map.entry("MEMBER_ONLY", new PublicFailure(ApiErrorCode.FORBIDDEN, "islandId")),
-            // 섬 설정의 지출 권한(SHARED_PURCHASE) 미허용 — PUT/POST 실행 권한이다(C13·D2).
+            // 건설 권한(SHARED_PURCHASE) 없음 — 목표 선택·건설하기는 방장만이다(C13·GROMO-2000).
             Map.entry("CONSTRUCTION_FORBIDDEN", new PublicFailure(ApiErrorCode.FORBIDDEN, null)),
             // 목표 선택의 게시판 미해금.
             Map.entry("FACILITY_LOCKED", new PublicFailure(ApiErrorCode.FACILITY_LOCKED, null)),

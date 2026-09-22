@@ -21,6 +21,7 @@ public record IslandDetail(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String visibility,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean approvalRequired,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int memberCount,
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int maxMembers,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String membershipStatus,
         String growthStage,
         String themeId,

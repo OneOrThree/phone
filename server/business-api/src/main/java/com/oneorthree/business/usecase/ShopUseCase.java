@@ -55,7 +55,7 @@ public class ShopUseCase {
             Map.entry("GROUP_NOT_FOUND", new PublicFailure(404, ApiErrorCode.GROUP_NOT_FOUND, "islandId")),
             // 비주민 — 모든 상점 API 공통 소속 게이트.
             Map.entry("MEMBER_ONLY", new PublicFailure(403, ApiErrorCode.FORBIDDEN, "islandId")),
-            // 섬 물고기 지출 권한(SHARED_PURCHASE) 없음 — 기본 OWNER_ONLY(D2).
+            // 섬 물고기 지출 권한(SHARED_PURCHASE) 없음 — 지금은 비주민만 해당한다(GROMO-2000).
             Map.entry("SHOP_FORBIDDEN", new PublicFailure(403, ApiErrorCode.FORBIDDEN, null)),
             Map.entry("FACILITY_LOCKED", new PublicFailure(403, ApiErrorCode.FACILITY_LOCKED, null)),
             Map.entry("PRODUCT_NOT_FOUND", new PublicFailure(404, ApiErrorCode.PRODUCT_NOT_FOUND, FIELD_PRODUCT)),

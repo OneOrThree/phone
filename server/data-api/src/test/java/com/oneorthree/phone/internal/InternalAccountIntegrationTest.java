@@ -346,7 +346,8 @@ class InternalAccountIntegrationTest {
                 + " where attempt_id=?", attemptId))
                 .containsEntry("status", "INVALIDATED").containsEntry("digest_key_id", null)
                 .containsEntry("credential_digest", null);
-        assertThatThrownBy(() -> loginAttempts.lookup(new LoginAttemptLookupRequest(attemptId, "k1", "digest")))
+        assertThatThrownBy(() -> loginAttempts.lookup(new LoginAttemptLookupRequest(attemptId, "k1",
+                "digest", null, null, null, null, null)))
                 .isInstanceOfSatisfying(UserException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(UserErrorCode.USER_NOT_FOUND));
     }
