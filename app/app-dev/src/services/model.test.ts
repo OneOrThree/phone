@@ -1887,6 +1887,25 @@ const req = (id: string, islandId: string, status = 'pending') => ({
   createdAt: '2026-09-21T00:00:00Z',
 });
 
+test('SERVER_VILLAGE_POINTS — 서버 정본으로 교체하고 느진 버전은 버린다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  s = act(s, 'SERVER_VILLAGE_POINTS', {
+    islandId: island.id,
+    value: 77,
+    version: 4,
+  });
+  assert.equal(balance(currentIsland(s)), 77);
+  assert.equal(currentIsland(s).villagePointsVersion, 4);
+
+  s = act(s, 'SERVER_VILLAGE_POINTS', {
+    islandId: island.id,
+    value: 10,
+    version: 3,
+  });
+  assert.equal(balance(currentIsland(s)), 77);
+});
+
 test('ISLAND_SYNC — memberships가 정본이다: onboarded·current 반영, 로컬 fixture 소속을 만들지 않는다', () => {
   let s = initialState();
   s = act(s, 'ISLAND_SYNC', {

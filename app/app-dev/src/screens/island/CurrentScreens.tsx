@@ -34,6 +34,8 @@ import {
   questMemberRate,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
+import { ApiError } from '@/services/api/client';
+import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -737,6 +739,13 @@ function FocusFlow({ e }: any) {
     latest = useRef({ r, s }),
     backRef = useRef<() => boolean>(() => false);
   latest.current = { r, s };
+  // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
+  // 목업(review/demo·비로그인)은 e.islands 가 없어 로컬 경로 그대로다.
+  const serverQuests = !!e.islands && !s.visitingIslandId;
+  const boardQ = useBoardNotices({
+    active: serverQuests && r === 'focusResult',
+    scopeKey: `focusQuests:${s.serverIslands?.currentIslandId ?? i.id}`,
+  });
   useEffect(
     () => () => {
       walkingToken.current++;
@@ -831,8 +840,17 @@ function FocusFlow({ e }: any) {
         ? e.home()
         : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel'));
     },
-    // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 바로 섬으로
-    done = () => (s.rewards?.some((x) => !x.acknowledged) ? setDialog('reward') : leave()),
+    // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 바로 섬으로.
+    // 서버 경로는 회차 목록 로딩 중이거나 수령 가능한 퀘스트가 있으면 모달을 연다 —
+    // 로딩이 끝났는데 받을 게 없으면 모달 스스로 닫힌다.
+    done = () =>
+      serverQuests
+        ? boardQ.loading || boardQ.quests.some((q) => q.claimable)
+          ? setDialog('reward')
+          : leave()
+        : s.rewards?.some((x) => !x.acknowledged)
+          ? setDialog('reward')
+          : leave(),
     claimed = (more: boolean) => {
       if (!more) leave();
     };
@@ -850,6 +868,12 @@ function FocusFlow({ e }: any) {
   backRef.current = () => {
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
+      // 서버 수령은 명시적 버튼으로만 — 뒤로가기는 모달을 닫고 나간다
+      // (남은 보상은 게시판 상세에서 받을 수 있다).
+      if (serverQuests) {
+        leave();
+        return true;
+      }
       const open = (s.rewards ?? []).filter((x) => !x.acknowledged);
       if (open[0]) e.dispatch({ type: 'CLAIM', id: open[0].id });
       claimed(open.length > 1);
@@ -1047,11 +1071,25 @@ function FocusFlow({ e }: any) {
           달성한 일일 퀘스트
         </Text>
         <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
-          {achieved.length
-            ? achieved.map((q) => '✓ ' + q.title).join('\n')
-            : focusQuests[0]
-              ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
-              : '아직 없어요'}
+          {serverQuests
+            ? // 서버 회차 — 달성은 claimable·claimed 플래그가 정본이다(rate 추정 금지).
+              boardQ.loading
+              ? '확인 중…'
+              : boardQ.error
+                ? '퀘스트를 확인하지 못했어요'
+                : boardQ.quests.filter((q) => q.claimable || q.claimed).length
+                  ? boardQ.quests
+                      .filter((q) => q.claimable || q.claimed)
+                      .map((q) => '✓ ' + q.title)
+                      .join('\n')
+                  : boardQ.quests[0]
+                    ? `아직 없어요 · ${boardQ.quests[0].title} ${boardQ.quests[0].myRate == null ? '측정 전' : `${boardQ.quests[0].myRate}%`}`
+                    : '아직 없어요'
+            : achieved.length
+              ? achieved.map((q) => '✓ ' + q.title).join('\n')
+              : focusQuests[0]
+                ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
+                : '아직 없어요'}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
@@ -1065,7 +1103,13 @@ function FocusFlow({ e }: any) {
       </View>
     </FiModal>
   );
-  const rewardModal = dialog === 'reward' && <RewardModal e={e} onClaimed={claimed} />;
+  const rewardModal =
+    dialog === 'reward' &&
+    (serverQuests ? (
+      <ServerQuestRewardModal e={e} board={boardQ} onDone={claimed} />
+    ) : (
+      <RewardModal e={e} onClaimed={claimed} />
+    ));
   if (r === 'focusResult' && s.resultFromRest)
     return (
       <View style={{ flex: 1 }}>
@@ -1505,6 +1549,101 @@ function RewardModal({
           onPress={() => {
             e.dispatch({ type: 'CLAIM', id: reward.id });
             onClaimed?.(open.length > 1);
+          }}
+        />
+      </View>
+    </View>
+  );
+}
+// 서버 퀘스트 수령 모달 (GROMO-2014): 개인 몫만 POST claims 로 받는다. 지급량은 서버가
+// 판정해 응답으로 주고, 성공 뒤 훅이 목록·지갑을 다시 읽는다 — 여기서 로컬 재화를 만지지 않는다.
+// 전원 달성 보너스는 수령 버튼이 따로 없고, 서버가 함께 적립한 만큼만 알린다.
+function ServerQuestRewardModal({
+  e,
+  board,
+  onDone,
+}: {
+  e: any;
+  board: ReturnType<typeof useBoardNotices>;
+  onDone?: (more: boolean) => void;
+}) {
+  const wide = useAppLayout().width >= 600;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const reward = board.quests.find((q) => q.claimable);
+  const rewardId = reward?.id;
+  // 읽기가 끝났는데(또는 못 읽었는데) 받을 게 없으면 흐름을 닫는다 — 수령은 게시판 상세에도 있다.
+  useEffect(() => {
+    if ((board.error || !board.loading) && !rewardId) onDone?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.error, board.loading, rewardId]);
+  if (board.loading && !reward)
+    return (
+      <FiModal>
+        <Txt kind="h">퀘스트 보상</Txt>
+        <Txt style={{ color: '#796256', textAlign: 'center' }}>
+          받을 수 있는 보상을 확인하고 있어요…
+        </Txt>
+      </FiModal>
+    );
+  if (!reward) return null;
+  const title = reward.title,
+    // 받침 있는 글자 뒤에는 '을'
+    particle = (title.charCodeAt(title.length - 1) - 0xac00) % 28 > 0 ? '을' : '를';
+  return (
+    <View
+      style={[StyleSheet.absoluteFill, { zIndex: 20, justifyContent: 'center' }]}
+      accessibilityViewIsModal
+    >
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3966' }]} />
+      <View
+        style={{
+          marginHorizontal: wide ? 157 : 24,
+          backgroundColor: C.paper,
+          borderWidth: 2,
+          borderColor: OUTLINE,
+          borderRadius: 24,
+          paddingTop: wide ? 14 : 20,
+          paddingHorizontal: 20,
+          paddingBottom: wide ? 14 : 18,
+          gap: wide ? 10 : 14,
+          boxShadow: `0px 6px 0px ${OUTLINE}`,
+          alignItems: 'center',
+        }}
+      >
+        <Image source={art.fish} style={{ width: 72, height: 72 }} />
+        <Txt kind="h">퀘스트 달성!</Txt>
+        <Txt style={{ color: '#796256', textAlign: 'center' }}>
+          {`${title}${particle} 달성했어요.\n물고기 ${reward.reward.amount}마리를 받을 수 있어요!`}
+        </Txt>
+        {!!error && <Txt style={{ color: '#994C3E', textAlign: 'center' }}>{error}</Txt>}
+        <Btn
+          title={busy ? '받는 중…' : '보상받기'}
+          id="claim-server-reward"
+          style={{ alignSelf: 'stretch' }}
+          disabled={busy}
+          onPress={() => {
+            if (busy) return;
+            setBusy(true);
+            setError('');
+            board.claimQuest(reward).then(
+              (result) => {
+                setBusy(false);
+                if (result.bonusAdded > 0)
+                  e?.notify?.(`전원 달성 보너스 ${result.bonusAdded}마리도 섬에 함께 쌓였어요`);
+                onDone?.(
+                  board.quests.some((q) => q.claimable && q.occurrenceId !== reward.occurrenceId),
+                );
+              },
+              (err: unknown) => {
+                setBusy(false);
+                setError(
+                  err instanceof ApiError && err.message
+                    ? err.message
+                    : '받지 못했어요. 다시 시도해 주세요.',
+                );
+              },
+            );
           }}
         />
       </View>
