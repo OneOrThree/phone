@@ -525,7 +525,11 @@ function Diary({ e, font }: any) {
             }}
           >
             <T style={t(8.5, 12.325)}>
-              {page === 0 ? '차곡차곡, 집중한 시간' : '15분 단위 기록 합계'}
+              {page === 0
+                ? '차곡차곡, 집중한 시간'
+                : Platform.OS === 'android'
+                  ? '사용 시간 기록 합계'
+                  : '15분 단위 기록 합계'}
             </T>
           </View>
         </>
@@ -759,7 +763,12 @@ function Diary({ e, font }: any) {
           .sort((a, b) => b[0].localeCompare(a[0]))
           .map(([d, v]) => {
             const [, m, dd] = d.split('-').map(Number);
-            return log(d, `${m}월 ${dd}일`, '스크린타임 · 15분 단위', hm(v * 60));
+            return log(
+              d,
+              `${m}월 ${dd}일`,
+              Platform.OS === 'android' ? '스크린타임' : '스크린타임 · 15분 단위',
+              hm(v * 60),
+            );
           })}
       </>
     ) : (
@@ -982,21 +991,36 @@ function Diary({ e, font }: any) {
               {/* 월간 스크린타임 31줄·주민 15명 물고기 목록도 책 안에서 스크롤한다 */}
               {(!land || right) && (
                 <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-                  {page === 1 && !nb && Platform.OS === 'ios' && days && (
-                    <View
-                      style={{
-                        gap: primitiveTokens.space[2],
-                        marginBottom: semanticTokens.spacing.component,
-                      }}
-                    >
-                      <Txt kind="meta">오늘 폰 사용 · 선택한 앱</Txt>
-                      <ScreenTimeReportView
-                        testID="today-screen-time-report"
-                        reportContext="Compact Activity"
-                        style={{ minHeight: primitiveTokens.size.tapMin }}
-                      />
-                    </View>
-                  )}
+                  {page === 1 &&
+                    !nb &&
+                    (Platform.OS === 'ios' || Platform.OS === 'android') &&
+                    days && (
+                      <View
+                        style={{
+                          gap: primitiveTokens.space[2],
+                          marginBottom: semanticTokens.spacing.component,
+                        }}
+                      >
+                        <Txt kind="meta">
+                          {Platform.OS === 'android'
+                            ? '오늘 폰 사용 · 전체 앱'
+                            : '오늘 폰 사용 · 선택한 앱'}
+                        </Txt>
+                        {Platform.OS === 'android' ? (
+                          <Txt>
+                            {s.settings.permission && s.settings.screenTimeMeasurementReady
+                              ? `${s.screenMinutes}분`
+                              : '사용 시간을 확인하고 있어요'}
+                          </Txt>
+                        ) : (
+                          <ScreenTimeReportView
+                            testID="today-screen-time-report"
+                            reportContext="Compact Activity"
+                            style={{ minHeight: primitiveTokens.size.tapMin }}
+                          />
+                        )}
+                      </View>
+                    )}
                   {body}
                 </ScrollView>
               )}

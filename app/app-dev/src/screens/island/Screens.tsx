@@ -2861,19 +2861,27 @@ export function RedesignScreens({ e }: any) {
           {head('phone', '스크린타임', <Txt kind="meta">오늘</Txt>)}
           {state.settings.permission && state.settings.screenTimeMeasurementReady ? (
             <>
-              <Txt kind="meta">오늘 · 선택한 앱의 사용 시간</Txt>
+              <Txt kind="meta">
+                {Platform.OS === 'android'
+                  ? '오늘 · 전체 앱 사용 시간'
+                  : '오늘 · 선택한 앱의 사용 시간'}
+              </Txt>
               <Group flat>
                 <Row
                   title="오늘 폰 사용"
                   sub={md(now)}
                   right={
-                    <ScreenTimeReportView
-                      reportContext="Compact Activity"
-                      style={{
-                        width: primitiveTokens.space[16] * 2,
-                        minHeight: primitiveTokens.size.tapMin,
-                      }}
-                    />
+                    Platform.OS === 'android' ? (
+                      <Txt>{state.screenMinutes}분</Txt>
+                    ) : (
+                      <ScreenTimeReportView
+                        reportContext="Compact Activity"
+                        style={{
+                          width: primitiveTokens.space[16] * 2,
+                          minHeight: primitiveTokens.size.tapMin,
+                        }}
+                      />
+                    )
                   }
                 />
                 <Row
@@ -5288,17 +5296,21 @@ export function RedesignScreens({ e }: any) {
             chevron
             onPress={() => go('permission', 'settings')}
           />
-          <SheetRow
-            title="측정 앱"
-            sub="사용 시간을 기록할 앱과 카테고리"
-            chevron
-            onPress={() =>
-              go(
-                state.settings.permission ? 'screenTimeApps' : 'permission',
-                state.settings.permission ? 'settings' : 'measured-apps',
-              )
-            }
-          />
+          {Platform.OS === 'android' ? (
+            <SheetRow title="측정 범위" sub="전체 앱 사용 시간 · 앱 잠금은 지원하지 않아요" />
+          ) : (
+            <SheetRow
+              title="측정 앱"
+              sub="사용 시간을 기록할 앱과 카테고리"
+              chevron
+              onPress={() =>
+                go(
+                  state.settings.permission ? 'screenTimeApps' : 'permission',
+                  state.settings.permission ? 'settings' : 'measured-apps',
+                )
+              }
+            />
+          )}
         </SheetGroup>
         <Txt kind="meta" style={st.meta}>
           권한을 끄면 폰 사용 퀘스트 달성률은 "확인 필요"로 표시돼요. 기록이 0분으로 표시되지는

@@ -26,6 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
 import { screenTime, selectionCount } from '@/services/screenTime';
+import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
@@ -570,7 +571,32 @@ function Gromo() {
   }, []);
   useEffect(() => {
     if (!loaded) return;
+    let active = true;
+    let request = 0;
     const syncPermission = async () => {
+      if (Platform.OS === 'android') {
+        const current = ++request;
+        try {
+          const snapshot = await syncAndroidScreenTime();
+          if (active && current === request)
+            dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
+        } catch {
+          const status = await screenTime.getAuthorizationStatus().catch(() => 'unavailable');
+          if (active && current === request)
+            dispatch({
+              type: 'SCREEN_TIME_SNAPSHOT',
+              snapshot: {
+                approved: status === 'approved',
+                date: dayKey(),
+                minutes: null,
+                history: [],
+                unconfirmedDays: [],
+              },
+              now: Date.now(),
+            });
+        }
+        return;
+      }
       if (Platform.OS !== 'ios') {
         if (!REVIEW && !DEMO) {
           dispatch({ type: 'SETTING', key: 'permission', value: false });
@@ -618,10 +644,19 @@ function Gromo() {
       syncedDay = currentDay;
       void syncPermission();
     }, 1000);
+    const usageTimer =
+      Platform.OS === 'android'
+        ? setInterval(() => {
+            if (AppState.currentState === 'active') void syncPermission();
+          }, 60000)
+        : undefined;
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') void syncPermission();
     });
     return () => {
+      active = false;
+      request++;
+      clearInterval(usageTimer);
       clearInterval(dayChangeTimer);
       subscription.remove();
     };

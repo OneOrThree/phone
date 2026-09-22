@@ -1,79 +1,57 @@
-import { NativeModules, Platform } from 'react-native';
+import { syncAndroidScreenTime } from './screentimeSync';
+import { Platform } from 'react-native';
+import {
+  screenTimeNative as nativeModule,
+  type ScreenTimeAuthorization,
+  type ScreenTimeSelection,
+} from './ScreenTimeModule';
+export type {
+  ScreenTimeAuthorization,
+  ScreenTimeSelection,
+  PreviousUsageBucket,
+} from './ScreenTimeModule';
 
-export type ScreenTimeAuthorization = 'approved' | 'denied' | 'notDetermined' | 'unavailable';
-
-export type ScreenTimeSelection = {
-  applications: number;
-  categories: number;
-  webDomains: number;
-  selectionSignature?: string;
-  dismissed?: boolean;
-  appliesImmediately?: boolean;
-};
-
-export type PreviousUsageBucket = {
-  date: string;
-  minutes: number;
-};
-
-type ScreenTimeNativeModule = {
-  requestAuthorization(): Promise<boolean>;
-  getAuthorizationStatus(): Promise<ScreenTimeAuthorization>;
-  getMeasurementSelectionCounts(): Promise<ScreenTimeSelection | null>;
-  presentAppPicker(): Promise<ScreenTimeSelection | null>;
-  promoteSelection(): Promise<boolean>;
-  promotePendingSelectionIfDue(): Promise<boolean>;
-  startUsageBucketMonitoring(maxMinutes: number): Promise<boolean>;
-  getTodayUsageBucketMinutes(): Promise<number>;
-  getPreviousUsageBucket(): Promise<PreviousUsageBucket | null>;
-  getUsageBucketHistory(): Promise<PreviousUsageBucket[]>;
-  markCurrentUsageBucketUnconfirmed(): Promise<string[]>;
-  getUnconfirmedUsageBucketDays(): Promise<string[]>;
-  resetScreenTimeData(): Promise<void>;
-  presentAllowedAppManager(): Promise<ScreenTimeSelection | null>;
-  getAllowedSelectionCounts(): Promise<ScreenTimeSelection | null>;
-  setFocusAllowSafariWeb(allowed: boolean): Promise<void>;
-  getFocusAllowSafariWeb(): Promise<boolean>;
-  startFocusShield(subjectName: string): Promise<boolean>;
-  stopFocusShield(): Promise<void>;
-};
-
-const nativeModule = NativeModules.ScreenTimeModule as ScreenTimeNativeModule | undefined;
-
-export const isScreenTimeAvailable = Platform.OS === 'ios' && !!nativeModule;
+export const isScreenTimeAvailable =
+  (Platform.OS === 'ios' || Platform.OS === 'android') && !!nativeModule;
 
 const unavailable = (): ScreenTimeAuthorization => 'unavailable';
 
 export const screenTime = {
-  requestAuthorization: () => nativeModule?.requestAuthorization() ?? Promise.resolve(false),
+  openUsageAccessSettings: () =>
+    nativeModule?.openUsageAccessSettings?.() ?? Promise.resolve(false),
+  requestAuthorization: () => nativeModule?.requestAuthorization?.() ?? Promise.resolve(false),
   getAuthorizationStatus: () =>
-    nativeModule?.getAuthorizationStatus() ?? Promise.resolve(unavailable()),
+    nativeModule?.getAuthorizationStatus?.() ?? Promise.resolve(unavailable()),
   getMeasurementSelectionCounts: () =>
-    nativeModule?.getMeasurementSelectionCounts() ?? Promise.resolve(null),
-  presentAppPicker: () => nativeModule?.presentAppPicker() ?? Promise.resolve(null),
-  promoteSelection: () => nativeModule?.promoteSelection() ?? Promise.resolve(false),
+    nativeModule?.getMeasurementSelectionCounts?.() ?? Promise.resolve(null),
+  presentAppPicker: () => nativeModule?.presentAppPicker?.() ?? Promise.resolve(null),
+  promoteSelection: () => nativeModule?.promoteSelection?.() ?? Promise.resolve(false),
   promotePendingSelectionIfDue: () =>
-    nativeModule?.promotePendingSelectionIfDue() ?? Promise.resolve(false),
+    nativeModule?.promotePendingSelectionIfDue?.() ?? Promise.resolve(false),
   startUsageBucketMonitoring: (maxMinutes = 900) =>
-    nativeModule?.startUsageBucketMonitoring(maxMinutes) ?? Promise.resolve(false),
+    nativeModule?.startUsageBucketMonitoring?.(maxMinutes) ?? Promise.resolve(false),
   getTodayUsageBucketMinutes: () =>
-    nativeModule?.getTodayUsageBucketMinutes() ?? Promise.resolve(0),
-  getPreviousUsageBucket: () => nativeModule?.getPreviousUsageBucket() ?? Promise.resolve(null),
-  getUsageBucketHistory: () => nativeModule?.getUsageBucketHistory() ?? Promise.resolve([]),
+    nativeModule?.getTodayUsageBucketMinutes?.() ?? Promise.resolve(0),
+  getPreviousUsageBucket: () => nativeModule?.getPreviousUsageBucket?.() ?? Promise.resolve(null),
+  getUsageBucketHistory: () => nativeModule?.getUsageBucketHistory?.() ?? Promise.resolve([]),
   markCurrentUsageBucketUnconfirmed: () =>
-    nativeModule?.markCurrentUsageBucketUnconfirmed() ?? Promise.resolve([]),
+    nativeModule?.markCurrentUsageBucketUnconfirmed?.() ?? Promise.resolve([]),
   getUnconfirmedUsageBucketDays: () =>
-    nativeModule?.getUnconfirmedUsageBucketDays() ?? Promise.resolve([]),
-  resetScreenTimeData: () => nativeModule?.resetScreenTimeData() ?? Promise.resolve(),
-  presentAllowedAppManager: () => nativeModule?.presentAllowedAppManager() ?? Promise.resolve(null),
+    nativeModule?.getUnconfirmedUsageBucketDays?.() ?? Promise.resolve([]),
+  resetScreenTimeData: async () => {
+    if (Platform.OS === 'android') await syncAndroidScreenTime.reset();
+    await nativeModule?.resetScreenTimeData?.();
+  },
+  presentAllowedAppManager: () =>
+    nativeModule?.presentAllowedAppManager?.() ?? Promise.resolve(null),
   getAllowedSelectionCounts: () =>
-    nativeModule?.getAllowedSelectionCounts() ?? Promise.resolve(null),
+    nativeModule?.getAllowedSelectionCounts?.() ?? Promise.resolve(null),
   setFocusAllowSafariWeb: (allowed: boolean) =>
-    nativeModule?.setFocusAllowSafariWeb(allowed) ?? Promise.resolve(),
-  getFocusAllowSafariWeb: () => nativeModule?.getFocusAllowSafariWeb() ?? Promise.resolve(false),
+    nativeModule?.setFocusAllowSafariWeb?.(allowed) ?? Promise.resolve(),
+  getFocusAllowSafariWeb: () => nativeModule?.getFocusAllowSafariWeb?.() ?? Promise.resolve(false),
   startFocusShield: (subjectName: string) =>
-    nativeModule?.startFocusShield(subjectName) ?? Promise.resolve(false),
-  stopFocusShield: () => nativeModule?.stopFocusShield() ?? Promise.resolve(),
+    nativeModule?.startFocusShield?.(subjectName) ?? Promise.resolve(false),
+  stopFocusShield: () => nativeModule?.stopFocusShield?.() ?? Promise.resolve(),
 };
 
 export const selectionCount = (selection: ScreenTimeSelection | null) =>
