@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, View } from 'react-native';
 import Svg, { Circle, Ellipse, G, Polygon } from 'react-native-svg';
-import { art } from '@/design-system/patterns';
+import { art, Txt } from '@/design-system/patterns';
+import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { useAppLayout } from '@/utils/layout';
 import {
   State,
@@ -416,7 +418,7 @@ function Diary({ e, font }: any) {
             }}
           >
             <T style={t(8.5, 12.325)}>
-              {page === 0 ? '차곡차곡, 집중한 시간' : '화면과 함께한 시간'}
+              {page === 0 ? '차곡차곡, 집중한 시간' : '15분 단위 기록 합계'}
             </T>
           </View>
         </>
@@ -568,7 +570,7 @@ function Diary({ e, font }: any) {
           .sort((a, b) => b[0].localeCompare(a[0]))
           .map(([d, v]) => {
             const [, m, dd] = d.split('-').map(Number);
-            return log(d, `${m}월 ${dd}일`, '스크린타임', hm(v * 60));
+            return log(d, `${m}월 ${dd}일`, '스크린타임 · 15분 단위', hm(v * 60));
           })}
       </>
     ) : (
@@ -788,6 +790,21 @@ function Diary({ e, font }: any) {
               {/* 월간 스크린타임 31줄·주민 15명 물고기 목록도 책 안에서 스크롤한다 */}
               {(!land || right) && (
                 <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+                  {page === 1 && !nb && Platform.OS === 'ios' && days && (
+                    <View
+                      style={{
+                        gap: primitiveTokens.space[2],
+                        marginBottom: semanticTokens.spacing.component,
+                      }}
+                    >
+                      <Txt kind="meta">오늘 폰 사용 · 선택한 앱</Txt>
+                      <ScreenTimeReportView
+                        testID="today-screen-time-report"
+                        reportContext="Compact Activity"
+                        style={{ minHeight: primitiveTokens.size.tapMin }}
+                      />
+                    </View>
+                  )}
                   {body}
                 </ScrollView>
               )}
