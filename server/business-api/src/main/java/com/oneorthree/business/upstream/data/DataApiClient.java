@@ -65,6 +65,7 @@ import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestState;
 import com.oneorthree.business.upstream.data.dto.FriendSearchItem;
 import com.oneorthree.business.upstream.data.dto.FriendshipDeleted;
+import com.oneorthree.business.upstream.data.dto.BlockedUser;
 import com.oneorthree.business.upstream.data.dto.LetterSlice;
 import com.oneorthree.business.upstream.data.dto.LetterView;
 import org.springframework.core.ParameterizedTypeReference;
@@ -153,6 +154,8 @@ public class DataApiClient {
     private static final String PATH_FRIEND_REQUESTS = "/internal/users/{userId}/friend-requests";
     // GROMO-1996 친구 검색. `/friends/{id}` 와 세그먼트가 겹치지 않게 별도 이름을 쓴다(`island-search` 선례).
     private static final String PATH_FRIEND_SEARCH = "/internal/users/{userId}/friend-search";
+    private static final String PATH_BLOCKS = "/internal/users/{userId}/blocks";
+    private static final String PATH_BLOCK = "/internal/users/{userId}/blocks/{blockedUserId}";
     private static final String PATH_FRIEND_REQUEST_ACCEPT =
             "/internal/users/{userId}/friend-requests/{requestId}/accept";
     private static final String PATH_FRIEND_REQUEST_REJECT =
@@ -950,6 +953,25 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<FriendshipDeleted>() { });
+    }
+
+    /** 사용자 차단은 Data의 (blocker, blocked) 유니크 관계로 멱등 처리된다. */
+    public void blockUser(UUID userId, UUID blockedUserId, Deadline deadline) {
+        http.execute(InternalCall.to(HttpMethod.POST, userPath(PATH_BLOCKS, userId))
+                .onBehalfOf(userId).body(Map.of("blockedUserId", blockedUserId)).idempotentCommand().build(), deadline);
+    }
+
+    /** 없는 관계도 Data가 성공으로 접는 멱등 차단 해제다. */
+    public void unblockUser(UUID userId, UUID blockedUserId, Deadline deadline) {
+        http.execute(InternalCall.to(HttpMethod.DELETE,
+                userPath(PATH_BLOCK, userId).replace("{blockedUserId}", blockedUserId.toString()))
+                .onBehalfOf(userId).idempotentCommand().build(), deadline);
+    }
+
+    /** blocker 관점의 차단 목록. */
+    public List<BlockedUser> fetchBlockedUsers(UUID userId, Deadline deadline) {
+        return http.exchange(InternalCall.to(HttpMethod.GET, userPath(PATH_BLOCKS, userId)).onBehalfOf(userId).build(),
+                deadline, new ParameterizedTypeReference<List<BlockedUser>>() { });
     }
 
     // ── 편지 3종 (GROMO-1933, friend-letter LLD §1.12~1.15) ─────────────────────────────

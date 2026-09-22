@@ -59,7 +59,9 @@ public enum UserErrorCode implements ErrorCode {
      * 신규 {@code PATCH /me} 가 아직 닫혀 있다 (GROMO-1801 · 계정 LLD §2.3). 온보딩 완료 전이 사건이 연결되기
      * 전에는 열지 않는다. 다른 준비 전 503 과 막는 사유가 달라 코드를 가른다 — Business 는 공개 503 으로 옮긴다.
      */
-    PROFILE_UPDATE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이름 변경을 아직 사용할 수 없습니다.");
+    PROFILE_UPDATE_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "이름 변경을 아직 사용할 수 없습니다."),
+    /** 자기 자신은 차단 대상이 될 수 없다 (GROMO-1975). */
+    SELF_BLOCK(HttpStatus.BAD_REQUEST, "자기 자신은 차단할 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;
