@@ -2104,6 +2104,21 @@ export function reducer(state: State, a: Action): State {
       s.serverIslands = null;
       break;
     // ── 친구·편지 ──
+    case 'FRIENDS_SYNC': {
+      const previous = new Map((s.friends ?? []).map((friend) => [friend.id, friend]));
+      s.friends = (a.friends as Friend[]).map((friend) => {
+        const before = previous.get(friend.id);
+        return {
+          ...friend,
+          // 서버에서 관계가 끊긴 뒤 재신청된 사용자는 새 관계다. 이전 편지를 되살리지 않는다.
+          messages:
+            before?.status === 'friend' && friend.status === 'friend'
+              ? before.messages
+              : (friend.messages ?? []),
+        };
+      });
+      break;
+    }
     case 'FRIEND_REQUEST': {
       s.friends ??= [];
       const f = s.friends.find((f) => f.id === a.id);

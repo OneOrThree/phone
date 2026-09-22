@@ -16,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   State,
   Building,
+  Color,
   Route,
   currentIsland,
   viewIsland,
@@ -85,6 +86,7 @@ import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
+import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
 import {
   isScreenTimeAvailable,
   screenTime,
@@ -154,6 +156,48 @@ function Sheet({
 }
 
 export function CurrentScreens({ e }: any) {
+  const friendsScreen = useFriendsScreen({
+    // 공용 소비자(뗏목 배지·우체통)가 첫 진입부터 서버 친구를 쓰도록 화면 route와 무관하게 적재한다.
+    active: !!e.islands,
+    searchActive: e.route === 'friendSearch',
+    date: dayKey(e.now),
+  });
+  useEffect(() => {
+    const data = friendsScreen.data;
+    if (!data) return;
+    const toFriend = (
+      userId: string,
+      nickname: string | null,
+      islandName: string | null | undefined,
+      status: 'friend' | 'received' | 'sent',
+    ) => ({
+      id: userId,
+      name: nickname ?? '탈퇴한 사용자',
+      color: 'white' as Color,
+      island: islandName ?? '',
+      status,
+      messages: [],
+    });
+    e.dispatch({
+      type: 'FRIENDS_SYNC',
+      friends: [
+        ...data.friends.map((friend) =>
+          toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
+        ),
+        ...data.friendRequests.map((request) =>
+          toFriend(request.userId, request.nickname, null, 'received'),
+        ),
+        ...data.sentFriendRequests.map((request) =>
+          toFriend(request.userId, request.nickname, null, 'sent'),
+        ),
+      ],
+    });
+  }, [e.dispatch, friendsScreen.data]);
+
+  return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
+}
+
+function CurrentScreensContent({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
     r: Route = e.route;
