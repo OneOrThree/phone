@@ -292,6 +292,8 @@ export type State = {
   visitingIslandId?: string | null;
   // 첫 집중 후 마을회관 안내(20b). 없으면(예전 저장본 포함) 띄우지 않는다
   hallGuide?: 'pending' | 'done';
+  // 최초 우체통 안내를 마친 계정. 섬을 옮겨도 반복하지 않고 계정 간에는 분리한다.
+  mailboxGuideSeenBy?: string[];
   // 현재 화면을 잃은 강퇴를 앱 셸이 소비해 안전한 화면으로 reset하기 위한 일회성 신호
   membershipRecovery?: { reason: 'kicked'; islandId: string };
   // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
@@ -744,6 +746,21 @@ export const unreadLetters = (s: State) =>
         .map((m) => ({ friend: f, letter: m })),
     )
     .sort((a, b) => b.letter.at - a.letter.at);
+// 친구 편지의 기존 읽음 정본을 따른다. 방문 중에는 내 편지 상태를 남의 섬에 표시하지 않는다.
+export const hasMailboxLetters = (s: State, islandId = s.islandId) =>
+  !s.visitingIslandId &&
+  islandId === s.islandId &&
+  currentIsland(s).joined &&
+  currentIsland(s).buildings.includes('mail') &&
+  unreadLetters(s).length > 0;
+
+export const shouldShowMailboxGuide = (s: State, userId: string) =>
+  !s.visitingIslandId &&
+  !s.session &&
+  currentIsland(s).joined &&
+  currentIsland(s).buildings.includes('mail') &&
+  !s.mailboxGuideSeenBy?.includes(userId);
+
 // 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
 // 내 댓글인지: memberId가 없던 예전 저장본은 작성자 이름을 내 이름(바꾼 이름 포함)과 비교한다
 // 주민 찾기: 지금 주민이 아니면 떠난 주민(기록 보존)에서 찾는다. 달성률·보상 판정이 같은 기록을 본다
@@ -1900,6 +1917,10 @@ export function reducer(state: State, a: Action): State {
       i.capacity = v;
       break;
     }
+    case 'MAILBOX_GUIDE_DONE':
+      if (typeof a.userId !== 'string' || !shouldShowMailboxGuide(s, a.userId)) return state;
+      s.mailboxGuideSeenBy = [...(s.mailboxGuideSeenBy ?? []), a.userId];
+      break;
     case 'HALL_GUIDE_DONE':
       s.hallGuide = 'done';
       break;

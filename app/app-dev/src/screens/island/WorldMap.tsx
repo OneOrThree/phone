@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import {
   State,
+  hasMailboxLetters,
   Route,
   Building,
   Color,
@@ -172,6 +173,7 @@ export function WorldMap({
   fishing = false,
   onSpot,
   emote,
+  showMailboxLetters,
   children,
 }: {
   state: State;
@@ -179,11 +181,13 @@ export function WorldMap({
   fishing?: boolean;
   onSpot?: (p: Point) => void;
   emote?: string | null;
+  showMailboxLetters?: boolean;
   children?: React.ReactNode | ((scale: number) => React.ReactNode);
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : grids.home,
     island = state.islands.find((item) => item.id === islandId) ?? viewIsland(state);
+  const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : 585,
     y: fishing ? 770 : 430,
@@ -371,20 +375,37 @@ export function WorldMap({
       </Pressable>
       {!fishing && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-          {island.buildings.map((b) => (
+          {island.buildings
+            .filter((b) => b !== 'mail' || !mailboxLetters)
+            .map((b) => (
+              <Image
+                key={b}
+                source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
+                style={{
+                  position: 'absolute',
+                  left,
+                  top,
+                  width: grid.w * scale,
+                  height: grid.h * scale,
+                }}
+                resizeMode="stretch"
+              />
+            ))}
+          {mailboxLetters && (
             <Image
-              key={b}
-              source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
+              testID="mailbox-pelican"
+              source={assets['characters/pelican/npc/on-mailbox.png']}
               style={{
                 position: 'absolute',
-                left,
-                top,
-                width: grid.w * scale,
-                height: grid.h * scale,
+                // 에셋 내부 우체통의 바닥·폭을 기존 레이어 rect [298, 520, 46, 63]에 맞춘다.
+                left: left + 251 * scale,
+                top: top + 459 * scale,
+                width: 137 * scale,
+                height: 137 * scale,
               }}
-              resizeMode="stretch"
+              resizeMode="contain"
             />
-          ))}
+          )}
         </View>
       )}
       {!fishing && island.theme !== 'default' && (
@@ -404,7 +425,12 @@ export function WorldMap({
       {!fishing && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter((b) => island.buildingThemes?.[b] && island.buildingThemes?.[b] !== 'default')
+            .filter(
+              (b) =>
+                (b !== 'mail' || !mailboxLetters) &&
+                island.buildingThemes?.[b] &&
+                island.buildingThemes?.[b] !== 'default',
+            )
             .map((b) => (
               <Image
                 key={b}
@@ -546,7 +572,11 @@ export function FinalIsland({
               <Pressable
                 key={id}
                 accessibilityRole="button"
-                accessibilityLabel={d.label}
+                accessibilityLabel={
+                  id === 'mail' && !visiting && hasMailboxLetters(state, i.id)
+                    ? '우체통, 친구에게 받은 새 편지가 있어요'
+                    : d.label
+                }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
                   visiting && d.building && !['hall', 'board'].includes(d.building)
@@ -624,6 +654,7 @@ export function FinalIsland({
       <WorldMap
         state={state}
         islandId={i.id}
+        showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
         onSpot={visiting ? undefined : (p) => walk(p)}
         children={actors as any}
       />
