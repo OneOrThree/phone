@@ -47,6 +47,7 @@ import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useBoardNotices } from './useBoardNotices';
+import { useMailbox } from './useMailbox';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
 // 건물 안 장면 위에 기능 화면을 얹는 38개 시안을 RN으로 옮긴다. 수치는 원본 CSS 그대로다.
@@ -6724,6 +6725,8 @@ type LetterView = {
   color: Cat;
   time: string;
   body: string;
+  // 서버 목록 경로에서만 온다 — 읽은 편지를 옅게 그리는 데 쓴다.
+  isRead?: boolean;
 };
 type FriendView = { id: string; name: string; island: string; color: Cat };
 type ChatView = {
@@ -6857,64 +6860,124 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const state: State | null = e?.state ?? null,
     island = state && currentIsland(state),
     now: number = e?.now ?? 0;
-  const friends: FriendView[] = state
-    ? (state.friends ?? [])
-        .filter((f) => f.status === 'friend')
-        .map((f) => ({ id: f.id, name: f.name, island: f.island, color: f.color }))
-    : letterFriends;
-  const letters: LetterView[] = state
-    ? unreadLetters(state).map(({ friend, letter }) => ({
-        id: letter.id,
-        friendId: friend.id,
-        from: friend.name,
-        island: friend.island,
-        color: friend.color,
-        time: letterTime(letter.at, now),
-        body: letter.text,
+  // 라이브 앱 경로 — Board 와 같은 판정으로 웹 ?review·?demo 목업을 걸러 낸다.
+  // 목업에서도 e 가 있으므로 e 유무만으로는 서버 경로를 켤 수 없다.
+  const liveApp =
+    !!e &&
+    !(
+      Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      (new URLSearchParams(window.location.search).has('review') ||
+        new URLSearchParams(window.location.search).has('demo'))
+    );
+  // 서버 우체통(GROMO-2016): 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 목업·갤러리는 0콜이다.
+  const serverMail = liveApp && !state?.visitingIslandId;
+  const mail = useMailbox({ active: serverMail, scopeKey: island ? String(island.id) : 'mock' });
+  // 서버는 아바타 색을 주지 않는다 — userId 로 deterministic 하게 고른다.
+  const mailCat = (id: string): Cat =>
+    (['gray', 'cream', 'ginger', 'black', 'calico', 'white'] as Cat[])[
+      [...id].reduce((sum, c) => sum + c.charCodeAt(0), 0) % 6
+    ];
+  const friendIsland = (userId: string) =>
+    mail.friends.find((f) => f.userId === userId)?.mainIslandName ?? '';
+  const friends: FriendView[] = serverMail
+    ? mail.friends.map((f) => ({
+        id: f.userId,
+        name: f.nickname ?? '알 수 없음',
+        island: f.mainIslandName ?? '',
+        color: mailCat(f.userId),
       }))
-    : receivedLetters.filter((letter) => !deletedLetters.includes(letter.id));
+    : state
+      ? (state.friends ?? [])
+          .filter((f) => f.status === 'friend')
+          .map((f) => ({ id: f.id, name: f.name, island: f.island, color: f.color }))
+      : letterFriends;
+  const letters: LetterView[] = serverMail
+    ? mail.letters.map((l) => ({
+        id: l.id,
+        friendId: l.counterpartUserId,
+        from: l.counterpartNickname ?? '알 수 없음',
+        island: friendIsland(l.counterpartUserId),
+        color: mailCat(l.counterpartUserId),
+        time: letterTime(Date.parse(l.createdAt), now),
+        body: l.content,
+        isRead: l.isRead,
+      }))
+    : state
+      ? unreadLetters(state).map(({ friend, letter }) => ({
+          id: letter.id,
+          friendId: friend.id,
+          from: friend.name,
+          island: friend.island,
+          color: friend.color,
+          time: letterTime(letter.at, now),
+          body: letter.text,
+        }))
+      : receivedLetters.filter((letter) => !deletedLetters.includes(letter.id));
   // 읽음 처리한 편지도 상세 화면이 열려 있는 동안은 보여 준다
-  const openedLetter: LetterView | undefined = state
-    ? (state.friends ?? [])
-        .flatMap((f) =>
-          f.messages
-            .filter((m) => m.id === e.detail && m.memberId !== 'me')
-            .map((m) => ({
-              id: m.id,
-              friendId: f.id,
-              from: f.name,
-              island: f.island,
-              color: f.color,
-              time: letterTime(m.at, now),
-              body: m.text,
-            })),
-        )
-        .at(0)
-    : receivedLetters.find((letter) => letter.id === selectedLetter);
-  // 채팅방은 최신 글이 위에 온다
-  const chat: ChatView[] = island
-    ? [...island.messages].reverse().map((m) => ({
+  const openedLetter: LetterView | undefined = serverMail
+    ? mail.detail && mail.detail.id === e?.detail
+      ? {
+          id: mail.detail.id,
+          friendId: mail.detail.senderId,
+          from: mail.detail.senderNickname ?? '알 수 없음',
+          island: friendIsland(mail.detail.senderId),
+          color: mailCat(mail.detail.senderId),
+          time: letterTime(Date.parse(mail.detail.createdAt), now),
+          body: mail.detail.content,
+        }
+      : undefined
+    : state
+      ? (state.friends ?? [])
+          .flatMap((f) =>
+            f.messages
+              .filter((m) => m.id === e.detail && m.memberId !== 'me')
+              .map((m) => ({
+                id: m.id,
+                friendId: f.id,
+                from: f.name,
+                island: f.island,
+                color: f.color,
+                time: letterTime(m.at, now),
+                body: m.text,
+              })),
+          )
+          .at(0)
+      : receivedLetters.find((letter) => letter.id === selectedLetter);
+  // 채팅방은 최신 글이 아래에 온다 — 서버 묶음도 오래된 것부터라 그대로 쓴다
+  const chat: ChatView[] = serverMail
+    ? mail.messages.map((m) => ({
         id: m.id,
-        name: m.name,
+        name: m.name ?? '알 수 없음',
         text: m.text,
-        time: chatTime(m.at, now),
-        color: m.color,
-        mine: m.memberId === 'me',
-        failed: m.status === 'failed',
+        time: chatTime(Date.parse(m.createdAt), now),
+        color: mailCat(m.userId),
+        mine: m.userId === mail.myId,
+        failed: false,
       }))
-    : groupSent
-      ? [
-          ...groupMessages,
-          {
-            ...groupMessages[0],
-            id: 'sent',
-            name: '나',
-            text: groupText,
-            time: '방금',
-            mine: true,
-          },
-        ]
-      : groupMessages;
+    : island
+      ? [...island.messages].reverse().map((m) => ({
+          id: m.id,
+          name: m.name,
+          text: m.text,
+          time: chatTime(m.at, now),
+          color: m.color,
+          mine: m.memberId === 'me',
+          failed: m.status === 'failed',
+        }))
+      : groupSent
+        ? [
+            ...groupMessages,
+            {
+              ...groupMessages[0],
+              id: 'sent',
+              name: '나',
+              text: groupText,
+              time: '방금',
+              mine: true,
+            },
+          ]
+        : groupMessages;
   const friendOf = (id: string) => friends.find((f) => f.id === id);
   const route: MailRoute = !e
     ? localRoute
@@ -6924,7 +6987,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
         ? friendOf(e.detail)
           ? 'compose'
           : 'friend-select'
-        : e.detail && openedLetter
+        : e.detail && (serverMail || openedLetter)
           ? 'letter'
           : e.tab === '받은 편지'
             ? 'inbox'
@@ -6948,16 +7011,21 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     } else setLetterText(value);
   };
 
-  // 채팅방을 열어 둔 동안 들어온 글은 읽은 것으로 본다
-  const chatLength = island?.messages.length ?? 0;
+  // 채팅방을 열어 둔 동안 들어온 글은 읽은 것으로 본다 (목업 경로만 — 서버 경로는 서버가 읽음을 본다)
+  const chatLength = serverMail ? mail.messages.length : (island?.messages.length ?? 0);
   useEffect(() => {
-    if (e && route === 'island') e.dispatch({ type: 'CHAT_READ' });
+    if (e && !serverMail && route === 'island') e.dispatch({ type: 'CHAT_READ' });
   }, [route, chatLength]);
-  // 받은 편지는 여는 순간 읽음 처리한다. 어떤 방법으로 나가도 받은 편지함에서 사라진다
+  // 받은 편지는 여는 순간 읽음 처리한다. 어떤 방법으로 나가도 받은 편지함에서 사라진다 (목업 경로)
   useEffect(() => {
-    if (e && route === 'letter' && openedLetter)
+    if (e && !serverMail && route === 'letter' && openedLetter)
       e.dispatch({ type: 'LETTER_READ', friend: openedLetter.friendId, id: openedLetter.id });
-  }, [route, e?.detail]);
+  }, [route, e?.detail, serverMail]);
+  // 서버 경로 — 라우트가 편지를 가리키면 GET /letters/{id} 상세를 연다(읽음은 서버가 찍는다).
+  useEffect(() => {
+    if (serverMail && route === 'letter' && e?.detail) mail.openLetter(e.detail).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mail.openLetter 는 훅의 안정 콜백, 라우트·편지 id 가 바뀔 때만 다시 연다.
+  }, [serverMail, route, e?.detail]);
 
   const go = (next: MailRoute, toast?: string) => {
     react();
@@ -7092,8 +7160,12 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     </Pressable>
   );
 
-  const newChat = island ? newChatCount(island) : 7,
-    newLetters = state ? letters.length : 3;
+  const newChat = serverMail ? 0 : island ? newChatCount(island) : 7,
+    newLetters = serverMail
+      ? mail.letters.filter((l) => !l.isRead).length
+      : state
+        ? letters.length
+        : 3;
   const homeItems: [string, string][] = [
     ['우리 섬 채팅방', newChat ? `새 글 ${newChat}개` : ''],
     ['받은 편지', newLetters ? `새 편지 ${newLetters}통` : ''],
@@ -7198,6 +7270,15 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const sendGroup = () => {
     if (!text.trim()) return say('남길 말을 적어 주세요');
     if (e) {
+      if (serverMail) {
+        // POST /islands/{id}/messages — 같은 본문 재시도는 같은 clientMessageId 로 간다.
+        // 성공 응답만 목록에 붙는다 — 실패는 입력 초안을 그대로 두고 오류를 보인다.
+        mail
+          .sendMessage(text)
+          .then(() => e.setText(''))
+          .catch((err) => say(err instanceof ApiError ? err.message : '낙서를 남기지 못했어요'));
+        return;
+      }
       // 목업 서버: 다음 보내기를 실패로 만들면 글에 실패 표시와 다시 보내기가 붙는다
       e.dispatch({ type: 'MESSAGE', text, fail: e.failNext });
       if (e.failNext) e.setFailNext(false);
@@ -7210,12 +7291,59 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     <>
       {header(
         '우리 섬 채팅방',
-        island
-          ? `${island.name} 주민 ${residentCount(island)}명이 함께 봐요`
-          : '소다 섬 주민 8명이 함께 봐요',
+        serverMail
+          ? `${mail.islandName ?? '우리 섬'} 주민 ${mail.memberCount}명이 함께 봐요`
+          : island
+            ? `${island.name} 주민 ${residentCount(island)}명이 함께 봐요`
+            : '소다 섬 주민 8명이 함께 봐요',
       )}
       <Scroll style={{ maxHeight: e ? height * 0.4 : undefined }}>
         <View style={{ rowGap: 7 }}>
+          {serverMail && mail.loading && !mail.islandId ? (
+            <Text
+              style={[
+                mailFont(8, 1.4, '#826c5b', '800'),
+                { paddingVertical: 24, textAlign: 'center' },
+              ]}
+            >
+              낙서를 불러오는 중이에요…
+            </Text>
+          ) : serverMail && mail.error && !mail.islandId ? (
+            <View style={{ paddingVertical: 20, alignItems: 'center', rowGap: 8 }}>
+              <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
+                {mail.error.message}
+              </Text>
+              <Pressable
+                testID="chat-retry"
+                accessibilityRole="button"
+                onPress={() => mail.retry().catch(() => {})}
+                style={{ paddingVertical: 5, paddingHorizontal: 10 }}
+              >
+                <Text style={mailFont(7, 1.35, '#795642', '800')}>다시 시도</Text>
+              </Pressable>
+            </View>
+          ) : serverMail && !chat.length ? (
+            <Text
+              style={[
+                mailFont(8, 1.4, '#826c5b', '800'),
+                { paddingVertical: 24, textAlign: 'center' },
+              ]}
+            >
+              아직 남긴 글이 없어요.
+            </Text>
+          ) : null}
+          {serverMail && mail.messagesCursor ? (
+            <Pressable
+              testID="chat-more"
+              accessibilityRole="button"
+              onPress={() => mail.loadMoreMessages()}
+              style={{ alignSelf: 'center', paddingVertical: 4, paddingHorizontal: 9 }}
+            >
+              <Text style={mailFont(6.5, 1.35, '#826c5b', '800')}>
+                {mail.loadingMoreMessages ? '불러오는 중…' : '이전 글 더 보기'}
+              </Text>
+            </Pressable>
+          ) : null}
           {chat.map((m) =>
             m.mine ? (
               <View
@@ -7319,65 +7447,121 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
 
   // 가운데 종이 화면은 머리·본문·바닥으로 나눈다. 본문만 스크롤하고 주 버튼은 바닥에 고정한다
   type Pane = { head: React.ReactNode; body: React.ReactNode; foot: React.ReactNode };
+  // 서버 경로 상태칸 — 로딩·오류·재시도는 목록 대신 이 모양으로 보인다(가짜 성공 없음).
+  const mailStatus = (label: string) => (
+    <View style={{ paddingVertical: 30, alignItems: 'center' }}>
+      <Text style={mailFont(8, 1.4, '#826c5b', '800')}>{label}</Text>
+    </View>
+  );
+  const mailRetry = (error: ApiError, testID: string, onRetry: () => void) => (
+    <View style={{ paddingVertical: 30, alignItems: 'center', rowGap: 8 }}>
+      <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
+        {error.message}
+      </Text>
+      <Pressable
+        testID={testID}
+        accessibilityRole="button"
+        onPress={onRetry}
+        style={{
+          minHeight: 28,
+          paddingVertical: 5,
+          paddingHorizontal: 12,
+          justifyContent: 'center',
+          borderWidth: 1.2,
+          borderColor: '#795642',
+          borderRadius: 7,
+          backgroundColor: '#fff8e8',
+          boxShadow: '0 2px 0 #795642',
+        }}
+      >
+        <Text style={[mailFont(7, 1.35, INK, '800'), { textAlign: 'center' }]}>다시 시도</Text>
+      </Pressable>
+    </View>
+  );
+  const unreadCount = serverMail ? mail.letters.filter((l) => !l.isRead).length : letters.length;
   const inbox: Pane = {
-    head: header('받은 편지', `아직 열지 않은 편지 ${letters.length}통`),
-    body: (
-      <View style={{ rowGap: 7 }}>
-        {letters.length ? (
-          letters.map((letter, i) => (
-            <Pressable
-              key={letter.id}
-              testID={`received-letter-${i}`}
-              accessibilityRole="button"
-              accessibilityLabel={`${letter.from}의 편지 열기`}
-              onPress={() => {
-                if (e) return e.go('mail', letter.id);
-                setSelectedLetter(letter.id);
-                setDeletedLetters((prev) => [...prev, letter.id]);
-                go('letter', `${letter.from}의 편지를 열었어요`);
-              }}
-              style={{
-                minHeight: 56,
-                paddingVertical: 10,
-                paddingRight: 9,
-                paddingLeft: 50,
-                justifyContent: 'center',
-                borderWidth: 1.2,
-                borderColor: '#ad8765',
-                borderRadius: 7,
-                backgroundColor: '#fff8e8',
-                boxShadow: '0 2px 0 #b58f6b',
-              }}
-            >
+    head: header('받은 편지', `아직 열지 않은 편지 ${unreadCount}통`),
+    body:
+      serverMail && mail.loading && !mail.islandId ? (
+        mailStatus('편지를 불러오는 중이에요…')
+      ) : serverMail && mail.error && !mail.islandId ? (
+        mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))
+      ) : (
+        <View style={{ rowGap: 7 }}>
+          {serverMail && mail.error ? (
+            <Text style={[mailFont(6.5, 1.35, '#a35952', '800'), { textAlign: 'center' }]}>
+              {mail.error.message}
+            </Text>
+          ) : null}
+          {letters.length ? (
+            letters.map((letter, i) => (
+              <Pressable
+                key={letter.id}
+                testID={`received-letter-${i}`}
+                accessibilityRole="button"
+                accessibilityLabel={`${letter.from}의 편지 열기`}
+                onPress={() => {
+                  if (e) return e.go('mail', letter.id);
+                  setSelectedLetter(letter.id);
+                  setDeletedLetters((prev) => [...prev, letter.id]);
+                  go('letter', `${letter.from}의 편지를 열었어요`);
+                }}
+                style={{
+                  minHeight: 56,
+                  paddingVertical: 10,
+                  paddingRight: 9,
+                  paddingLeft: 50,
+                  justifyContent: 'center',
+                  borderWidth: 1.2,
+                  borderColor: '#ad8765',
+                  borderRadius: 7,
+                  backgroundColor: '#fff8e8',
+                  boxShadow: '0 2px 0 #b58f6b',
+                  // 서버는 읽어도 닫기 전까지 목록에 남는다 — 읽은 편지는 옅게.
+                  opacity: letter.isRead ? 0.6 : 1,
+                }}
+              >
+                <Image
+                  source={interiorArt.letterEnvelope}
+                  resizeMode="contain"
+                  style={{
+                    position: 'absolute',
+                    left: 8,
+                    top: 8,
+                    width: 39,
+                    height: 39,
+                    transform: [{ rotate: i % 2 ? '2deg' : '-2deg' }],
+                  }}
+                />
+                <Text style={mailFont(9, 1.3, INK, '900')}>{letter.from}</Text>
+              </Pressable>
+            ))
+          ) : (
+            <View style={{ paddingVertical: 35, alignItems: 'center' }}>
               <Image
                 source={interiorArt.letterEnvelope}
                 resizeMode="contain"
-                style={{
-                  position: 'absolute',
-                  left: 8,
-                  top: 8,
-                  width: 39,
-                  height: 39,
-                  transform: [{ rotate: i % 2 ? '2deg' : '-2deg' }],
-                }}
+                style={{ width: 48, height: 48 }}
               />
-              <Text style={mailFont(9, 1.3, INK, '900')}>{letter.from}</Text>
+              <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { marginTop: 7 }]}>
+                기다리는 편지가 없어요.
+              </Text>
+            </View>
+          )}
+          {serverMail && mail.lettersCursor ? (
+            <Pressable
+              testID="letters-more"
+              accessibilityRole="button"
+              onPress={() => mail.loadMoreLetters()}
+              style={{ alignSelf: 'center', paddingVertical: 6, paddingHorizontal: 10 }}
+            >
+              <Text style={mailFont(6.5, 1.35, '#826c5b', '800')}>
+                {mail.loadingMoreLetters ? '불러오는 중…' : '이전 편지 더 보기'}
+              </Text>
             </Pressable>
-          ))
-        ) : (
-          <View style={{ paddingVertical: 35, alignItems: 'center' }}>
-            <Image
-              source={interiorArt.letterEnvelope}
-              resizeMode="contain"
-              style={{ width: 48, height: 48 }}
-            />
-            <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { marginTop: 7 }]}>
-              기다리는 편지가 없어요.
-            </Text>
-          </View>
-        )}
-      </View>
-    ),
+          ) : null}
+        </View>
+      ),
     foot: (
       <Text style={[mailFont(5.8, 1.4, '#856f5f'), { marginTop: 5, textAlign: 'center' }]}>
         받은 편지는 열었다가 닫으면 사라져요.
@@ -7420,7 +7604,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               {openedLetter.from}
             </Text>
             <Text style={[mailFont(6, 1.4, '#9b8878'), { marginTop: 1 }]}>
-              {openedLetter.island} · {openedLetter.time}
+              {[openedLetter.island, openedLetter.time].filter(Boolean).join(' · ')}
             </Text>
           </View>
         </View>
@@ -7463,6 +7647,17 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           testID="close-letter"
           accessibilityRole="button"
           onPress={() => {
+            if (serverMail && e) {
+              // DELETE /letters/{id} — 서버가 양쪽 목록에서 지운다. 성공(목록 재조회까지)
+              // 에만 돌아간다 — 실패하면 편지를 그대로 두고 오류를 보인다.
+              mail
+                .close(openedLetter.id)
+                .then(() => back('inbox'))
+                .catch((err) =>
+                  say(err instanceof ApiError ? err.message : '편지를 닫지 못했어요'),
+                );
+              return;
+            }
             back('inbox');
             if (!e) showToast('편지를 닫았어요');
           }}
@@ -7487,56 +7682,61 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
 
   const friendSelect: Pane = {
     head: header('편지 보낼 친구 선택', ''),
-    body: (
-      <View style={{ rowGap: 7 }}>
-        {friends.map((friend, i) => (
-          <Pressable
-            key={friend.id}
-            testID={`letter-friend-${i}`}
-            accessibilityRole="button"
-            accessibilityLabel={`${friend.name} · ${friend.island}`}
-            accessibilityState={{ selected: chosen === friend }}
-            onPress={() => {
-              setSelectedFriend(friend.id);
-              if (!e) showToast(`${friend.name}를 받는 친구로 골랐어요`);
-            }}
-            style={{
-              minHeight: 57,
-              padding: 8,
-              flexDirection: 'row',
-              alignItems: 'center',
-              columnGap: 9,
-              borderWidth: chosen === friend ? 2 : 1.2,
-              borderColor: chosen === friend ? '#9a654d' : '#b79273',
-              borderRadius: 9,
-              backgroundColor: chosen === friend ? '#fff0cf' : '#fff9ea',
-              transform: chosen === friend ? [{ translateX: 3 }] : undefined,
-            }}
-          >
-            {catAvatar(friend.color, 38)}
-            <View style={{ flex: 1 }}>
-              <Text style={mailFont(9, 1.3, INK, '900')}>{friend.name}</Text>
-              <Text style={[mailFont(6.5, 1.35, '#826c5b'), { marginTop: 2 }]}>
-                {friend.island} · 친구
+    body:
+      serverMail && mail.loading && !mail.islandId ? (
+        mailStatus('친구를 불러오는 중이에요…')
+      ) : serverMail && mail.error && !mail.islandId ? (
+        mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))
+      ) : (
+        <View style={{ rowGap: 7 }}>
+          {friends.map((friend, i) => (
+            <Pressable
+              key={friend.id}
+              testID={`letter-friend-${i}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${friend.name} · ${friend.island}`}
+              accessibilityState={{ selected: chosen === friend }}
+              onPress={() => {
+                setSelectedFriend(friend.id);
+                if (!e) showToast(`${friend.name}를 받는 친구로 골랐어요`);
+              }}
+              style={{
+                minHeight: 57,
+                padding: 8,
+                flexDirection: 'row',
+                alignItems: 'center',
+                columnGap: 9,
+                borderWidth: chosen === friend ? 2 : 1.2,
+                borderColor: chosen === friend ? '#9a654d' : '#b79273',
+                borderRadius: 9,
+                backgroundColor: chosen === friend ? '#fff0cf' : '#fff9ea',
+                transform: chosen === friend ? [{ translateX: 3 }] : undefined,
+              }}
+            >
+              {catAvatar(friend.color, 38)}
+              <View style={{ flex: 1 }}>
+                <Text style={mailFont(9, 1.3, INK, '900')}>{friend.name}</Text>
+                <Text style={[mailFont(6.5, 1.35, '#826c5b'), { marginTop: 2 }]}>
+                  {friend.island} · 친구
+                </Text>
+              </View>
+              <Text style={mailFont(10, 1.2, chosen === friend ? '#9a654d' : '#c5ad99', '900')}>
+                {chosen === friend ? '✓' : '›'}
               </Text>
-            </View>
-            <Text style={mailFont(10, 1.2, chosen === friend ? '#9a654d' : '#c5ad99', '900')}>
-              {chosen === friend ? '✓' : '›'}
+            </Pressable>
+          ))}
+          {!friends.length && (
+            <Text
+              style={[
+                mailFont(8, 1.4, '#826c5b', '800'),
+                { paddingVertical: 24, textAlign: 'center' },
+              ]}
+            >
+              내 뗏목에서 친구를 추가해 주세요.
             </Text>
-          </Pressable>
-        ))}
-        {!friends.length && (
-          <Text
-            style={[
-              mailFont(8, 1.4, '#826c5b', '800'),
-              { paddingVertical: 24, textAlign: 'center' },
-            ]}
-          >
-            내 뗏목에서 친구를 추가해 주세요.
-          </Text>
-        )}
-      </View>
-    ),
+          )}
+        </View>
+      ),
     foot:
       chosen &&
       stamp(`${chosen.name}에게 편지 쓰기`, () => {
@@ -7551,6 +7751,22 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     if (!e) {
       react();
       return showToast(`${composeTo.name}에게 편지를 보냈어요`);
+    }
+    if (serverMail) {
+      // POST /letters — 201 이 오면 발송 확정. 실패는 초안을 그대로 두고 오류를 보인다.
+      // 게스트 거절(SOCIAL_LOGIN_REQUIRED)은 회원 전환 시트로 보낸다(GROMO-2005).
+      mail
+        .send(composeTo.id, text)
+        .then(() => {
+          e.setText('');
+          e.notify(`${composeTo.name}에게 편지를 보냈어요`);
+          e.reset('mail');
+        })
+        .catch((err) => {
+          if (err instanceof ApiError && e.conversion?.offer(err)) return;
+          say(err instanceof ApiError ? err.message : '편지를 보내지 못했어요');
+        });
+      return;
     }
     // reducer가 거절할 편지(친구 아님·내 섬에 우체통 없음)는 보냈다고 하지 않는다
     if (!canSendLetter(e.state, composeTo.id))
@@ -7644,11 +7860,25 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     ),
   };
 
+  // 서버 경로에서 상세가 아직 없을 때 — 로딩이거나 오류다(캐시된 편지를 대신 보여주지 않는다).
+  const letterPending: Pane | undefined =
+    serverMail && route === 'letter' && !openedLetter
+      ? {
+          head: header('받은 편지', '', 'inbox'),
+          body: mail.detailError
+            ? mailRetry(mail.detailError, 'letter-retry', () =>
+                mail.openLetter(e.detail).catch(() => {}),
+              )
+            : mailStatus('편지를 여는 중이에요…'),
+          foot: null,
+        }
+      : undefined;
+
   const pane: Pane | undefined =
     route === 'inbox'
       ? inbox
       : route === 'letter'
-        ? (letter ?? inbox)
+        ? (letter ?? letterPending ?? inbox)
         : route === 'friend-select'
           ? friendSelect
           : route === 'compose'
@@ -7716,7 +7946,15 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           boxShadow: 'inset 0 5px 10px #32110c88',
         }}
       />
-      {home}
+      {serverMail && mail.loading && !mail.islandId ? (
+        <View style={{ padding: 20 }}>{mailStatus('우체통을 여는 중이에요…')}</View>
+      ) : serverMail && mail.error && !mail.islandId ? (
+        <View style={{ padding: 20 }}>
+          {mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))}
+        </View>
+      ) : (
+        home
+      )}
     </Animated.View>
   );
 }
