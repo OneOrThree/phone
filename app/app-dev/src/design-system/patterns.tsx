@@ -152,7 +152,6 @@ export function Btn({
         // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)
         disabled={disabled || !onPress}
         accessibilityState={{ disabled: disabled || !onPress }}
-        hitSlop={small ? 3 : undefined}
         onPress={onPress}
         onPressIn={() => {
           if (!reduce)

@@ -5045,7 +5045,7 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'friends' || route === 'friendSearch') {
     const serverMode = !!server;
-    const data = friendsScreen.data;
+    const data = serverMode ? friendsScreen.data : null;
     const received = serverMode
       ? (data?.friendRequests ?? [])
       : friends.filter((friend) => friend.status === 'received');
@@ -5098,8 +5098,14 @@ export function RedesignScreens({ e }: any) {
     );
     const requestActions = (onAccept: () => void, onReject: () => void) => (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Btn small title="수락" disabled={friendsScreen.busy} onPress={onAccept} />
-        <Btn small kind="sec" title="거절" disabled={friendsScreen.busy} onPress={onReject} />
+        <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
+        <Btn
+          small
+          kind="sec"
+          title="거절"
+          disabled={serverMode && friendsScreen.busy}
+          onPress={onReject}
+        />
       </View>
     );
     const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
