@@ -381,16 +381,23 @@ function AppPermissionManager({ e }: any) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([screenTime.getAuthorizationStatus(), screenTime.getMeasurementSelectionCounts()])
-      .then(([nextStatus, nextSelection]) => {
-        if (!active) return;
-        setStatus(nextStatus);
-        setSelection(nextSelection);
-        e.dispatch({ type: 'SETTING', key: 'permission', value: nextStatus === 'approved' });
-      })
-      .catch(() => active && setStatus('unavailable'));
+    const syncPermissionState = () => {
+      Promise.all([screenTime.getAuthorizationStatus(), screenTime.getMeasurementSelectionCounts()])
+        .then(([nextStatus, nextSelection]) => {
+          if (!active) return;
+          setStatus(nextStatus);
+          setSelection(nextSelection);
+          e.dispatch({ type: 'SETTING', key: 'permission', value: nextStatus === 'approved' });
+        })
+        .catch(() => active && setStatus('unavailable'));
+    };
+    syncPermissionState();
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') syncPermissionState();
+    });
     return () => {
       active = false;
+      subscription.remove();
     };
   }, []);
 

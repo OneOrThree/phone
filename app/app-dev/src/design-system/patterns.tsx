@@ -133,7 +133,16 @@ export function Btn({
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
   return (
-    <Animated.View style={[{ transform: [{ scale: s }] }, style]}>
+    <Animated.View
+      style={[
+        {
+          transform: [{ scale: s }],
+          minHeight: small ? 44 : undefined,
+          justifyContent: small ? 'center' : undefined,
+        },
+        style,
+      ]}
+    >
       <Pressable
         testID={id}
         accessibilityRole="button"
@@ -522,8 +531,9 @@ export function Badge({ children, soft = false, small = false }: any) {
     <View
       style={{
         alignSelf: 'flex-start',
-        height: small ? 22 : 28,
+        minHeight: small ? 22 : 28,
         paddingHorizontal: small ? 7 : 12,
+        paddingVertical: small ? 1 : 3,
         borderRadius: componentTokens.badge.radius,
         borderWidth: componentTokens.badge.borderWidth,
         borderColor: soft
