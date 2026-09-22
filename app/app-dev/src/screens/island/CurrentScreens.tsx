@@ -32,6 +32,7 @@ import {
   islandWeeklyAverage,
   hoursMinutes,
   questMemberRate,
+  trackNames,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { RestGroup } from '@/screens/focus/RestGroup';
@@ -96,12 +97,6 @@ const buildingArt: Record<Building, string> = {
   mail: 'mailbox',
   tower: 'observatory',
   shop: 'shop',
-};
-const tracks: Record<string, string> = {
-  waves: '잔잔한 파도',
-  campfire: '모닥불 소리',
-  'forest-wind': '숲바람',
-  rain: '오두막의 빗소리',
 };
 const date = (at: number) =>
   new Date(at).toLocaleDateString('ko-KR', {
@@ -1423,13 +1418,13 @@ function FocusFlow({ e }: any) {
               </Text>
               <View style={{ gap: 8 }}>
                 {i.sharedOwned
-                  .filter((id) => tracks[id])
+                  .filter((id) => trackNames[id])
                   .map((id) => (
                     <FiButton
                       key={id}
                       left
                       primary={i.track === id}
-                      title={tracks[id]}
+                      title={trackNames[id]}
                       onPress={() => e.dispatch({ type: 'TRACK', value: id })}
                     />
                   ))}

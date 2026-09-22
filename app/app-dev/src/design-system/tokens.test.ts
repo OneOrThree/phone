@@ -56,6 +56,24 @@ describe('design system tokens', () => {
     ).toBeGreaterThanOrEqual(4.5);
   });
 
+  it('축음기 텍스트는 표시되는 모든 배경에서 4.5:1 이상의 대비를 갖는다', () => {
+    const gramophone = componentTokens.gramophone;
+    expect(contrast(gramophone.foreground, gramophone.panelBackground)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(gramophone.foregroundMuted, gramophone.panelBackground)).toBeGreaterThanOrEqual(
+      4.5,
+    );
+    for (const background of [gramophone.signStart, gramophone.signCenter, gramophone.signEnd]) {
+      expect(contrast(gramophone.signForeground, background)).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const background of [
+      semanticTokens.color.primary,
+      semanticTokens.color.surface,
+      semanticTokens.color.accent,
+    ]) {
+      expect(contrast(gramophone.rowForeground, background)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
   it('badge default/soft가 명세 매핑을 따른다', () => {
     expect(componentTokens.badge.default.background).toBe(semanticTokens.color.accent);
     expect(componentTokens.badge.default.foreground).toBe(semanticTokens.color.text);

@@ -47,6 +47,7 @@ import {
   balance,
   kstMonthDay,
   kstHourMinute,
+  trackNames,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
@@ -104,12 +105,6 @@ import {
   SearchField,
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
-const names: Record<string, string> = {
-  waves: '잔잔한 파도',
-  campfire: '모닥불 소리',
-  'forest-wind': '숲바람',
-  rain: '빗방울 소리',
-};
 const buildingArt: Record<string, string> = {
   library: 'library',
   gram: 'gramophone',
@@ -841,6 +836,14 @@ export function RedesignScreens({ e }: any) {
       setKeyboardHeight(0);
     };
   }, [invite]);
+  useEffect(() => {
+    if (!soundDialog) return;
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSoundDialog(null);
+      return true;
+    });
+    return () => backSub.remove();
+  }, [soundDialog]);
   useEffect(() => {
     if (route !== 'profile') return;
     setProfileName(state.name);
@@ -2276,7 +2279,7 @@ export function RedesignScreens({ e }: any) {
         >
           <Pic id="gram" w={22} />
           <Txt style={{ fontSize: 12, fontWeight: '700' }}>
-            {island.playing ? names[island.track] : '음악 선택'}
+            {island.playing ? trackNames[island.track] : '음악 선택'}
           </Txt>
         </Pressable>
       )}
@@ -2378,8 +2381,9 @@ export function RedesignScreens({ e }: any) {
     const gramophone = componentTokens.gramophone;
     const scene = !!state.session;
     const audioProducts = products.filter((p) => p.kind === 'audio');
+    const hasOwnedTracks = island.sharedOwned.some((id) => trackNames[id]);
     const trackIds = [
-      ...island.sharedOwned.filter((id) => names[id]),
+      ...island.sharedOwned.filter((id) => trackNames[id]),
       ...audioProducts.map((p) => p.id).filter((id) => !island.sharedOwned.includes(id)),
     ];
     const dialogProduct = soundDialog
@@ -2436,9 +2440,9 @@ export function RedesignScreens({ e }: any) {
               position: 'absolute',
               left: 20 + ins.left,
               top: 16 + ins.top,
-              width: 42,
-              height: 42,
-              borderRadius: 21,
+              width: gramophone.touchMin,
+              height: gramophone.touchMin,
+              borderRadius: gramophone.touchMin / 2,
               borderWidth: 1.5,
               borderColor: C.brown,
               backgroundColor: C.paper,
@@ -2473,7 +2477,7 @@ export function RedesignScreens({ e }: any) {
             >
               <Txt
                 tabletScale={1}
-                style={{ color: gramophone.foreground, fontSize: 17, lineHeight: 24 }}
+                style={{ color: gramophone.signForeground, fontSize: 17, lineHeight: 24 }}
               >
                 축음기
               </Txt>
@@ -2508,7 +2512,11 @@ export function RedesignScreens({ e }: any) {
                   }}
                 >
                   <View
-                    accessibilityLabel={`${names[island.track]} 레코드판`}
+                    accessibilityLabel={
+                      hasOwnedTracks
+                        ? `${trackNames[island.track]} 레코드판`
+                        : '재생할 수 있는 곡이 없는 레코드판'
+                    }
                     style={{
                       width: gramophone.recordSize,
                       height: gramophone.recordSize,
@@ -2548,6 +2556,8 @@ export function RedesignScreens({ e }: any) {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel="재생"
+                      accessibilityState={{ disabled: !hasOwnedTracks }}
+                      disabled={!hasOwnedTracks}
                       onPress={() => act('PLAY', { value: true })}
                       style={{
                         width: gramophone.controlWidth,
@@ -2556,6 +2566,7 @@ export function RedesignScreens({ e }: any) {
                         borderColor: C.brown,
                         borderRadius: 8,
                         backgroundColor: C.pink,
+                        opacity: hasOwnedTracks ? 1 : 0.5,
                         alignItems: 'center',
                         justifyContent: 'center',
                         boxShadow: '0px 2px 0px ' + C.brown,
@@ -2589,13 +2600,17 @@ export function RedesignScreens({ e }: any) {
                       tabletScale={1}
                       style={{ color: gramophone.foreground, fontSize: 19, lineHeight: 24 }}
                     >
-                      {names[island.track]}
+                      {hasOwnedTracks ? trackNames[island.track] : '보유한 곡이 없어요'}
                     </Txt>
                     <Txt
                       tabletScale={1}
                       style={{ color: gramophone.foregroundMuted, fontSize: 11, lineHeight: 14 }}
                     >
-                      {island.playing ? '재생 중' : '정지됨'}
+                      {hasOwnedTracks
+                        ? island.playing
+                          ? '재생 중'
+                          : '정지됨'
+                        : '곡을 구매해 주세요'}
                     </Txt>
                   </View>
                   <ScrollView
@@ -2611,7 +2626,7 @@ export function RedesignScreens({ e }: any) {
                         <Pressable
                           key={id}
                           accessibilityRole="button"
-                          accessibilityLabel={`${names[id] ?? product?.title}${owned ? ', 보유' : `, ${product?.price}마리로 구매`}`}
+                          accessibilityLabel={`${trackNames[id] ?? product?.title}${owned ? ', 보유' : `, ${product?.price}마리로 구매`}`}
                           accessibilityState={{ selected }}
                           onPress={() => selectTrack(id)}
                           style={{
@@ -2627,11 +2642,11 @@ export function RedesignScreens({ e }: any) {
                           }}
                         >
                           <Txt tabletScale={1} style={{ fontSize: 11, lineHeight: 14 }}>
-                            {names[id] ?? product?.title}
+                            {trackNames[id] ?? product?.title}
                           </Txt>
                           <Txt
                             tabletScale={1}
-                            style={{ color: C.muted, fontSize: 9, lineHeight: 12 }}
+                            style={{ color: gramophone.rowForeground, fontSize: 9, lineHeight: 12 }}
                           >
                             {selected && island.playing
                               ? '재생 중'

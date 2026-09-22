@@ -397,6 +397,12 @@ export const kstDayStart = (day: string) => {
   const [year, month, date] = day.split('-').map(Number);
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
 };
+export const trackNames: Record<string, string> = {
+  waves: '잔잔한 파도',
+  campfire: '모닥불 소리',
+  'forest-wind': '숲바람',
+  rain: '빗방울 소리',
+};
 export const products: Product[] = [
   {
     id: 'scarf',
@@ -1920,7 +1926,8 @@ export function reducer(state: State, a: Action): State {
       }
       break;
     case 'PLAY':
-      if (i.buildings.includes('gram')) i.playing = !!a.value;
+      if (i.buildings.includes('gram') && (!a.value || i.sharedOwned.includes(i.track)))
+        i.playing = !!a.value;
       break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;

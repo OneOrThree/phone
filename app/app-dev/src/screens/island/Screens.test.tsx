@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { BackHandler, StyleSheet } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
@@ -592,6 +592,7 @@ test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 �
   state.islands[0].buildings.push('gram');
   const s = await render(<Harness route="sound" initial={state} />);
   assert.ok(StyleSheet.flatten(s.getByLabelText('재생').props.style).height >= 44);
+  assert.ok(StyleSheet.flatten(s.getByLabelText('섬으로 돌아가기').props.style).width >= 44);
   assert.ok(
     StyleSheet.flatten(s.getByLabelText('빗방울 소리, 30마리로 구매').props.style).minHeight >= 44,
   );
@@ -599,6 +600,38 @@ test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 �
     StyleSheet.flatten(s.getByTestId('sound-current-track').props.style).height,
     undefined,
   );
+});
+
+test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = [];
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByText('보유한 곡이 없어요');
+  s.getByText('곡을 구매해 주세요');
+  assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
+});
+
+test('Android 뒤로가기는 축음기 구매 창만 닫는다', async () => {
+  const handlers: Array<Parameters<typeof BackHandler.addEventListener>[1]> = [];
+  const remove = jest.fn();
+  const backSpy = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_, handler) => {
+    handlers.push(handler);
+    return { remove };
+  });
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  await waitFor(() => assert.equal(handlers.length, 1));
+  await act(async () => assert.equal(handlers[0]({} as never), true));
+  await waitFor(() => assert.equal(s.queryByText('빗방울 소리를 구매할까요?'), null));
+
+  backSpy.mockRestore();
 });
 
 test('축음기 음원 구매 잔액이 부족하면 수량 없이 실패만 알린다', async () => {

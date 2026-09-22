@@ -49,6 +49,7 @@ import {
   kstHourMinute,
   myIslandsConsistent,
   intentKeyPool,
+  trackNames,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -256,6 +257,20 @@ test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 �
   currentIsland(s).buildings.push('library');
   s = act(s, 'SELECT_BUILDING', { building: 'shop' });
   assert.equal(currentIsland(s).buildingQuest?.building, 'shop');
+});
+test('축음기는 보유한 현재 곡이 있을 때만 재생한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.buildings = ['hall', 'board', 'gram'];
+  island.sharedOwned = [];
+
+  s = act(s, 'PLAY', { value: true });
+  assert.equal(currentIsland(s).playing, false);
+
+  currentIsland(s).sharedOwned = ['waves'];
+  s = act(s, 'PLAY', { value: true });
+  assert.equal(currentIsland(s).playing, true);
+  assert.equal(trackNames.rain, '빗방울 소리');
 });
 test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
   let s = initialState(true);
