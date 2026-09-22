@@ -102,6 +102,8 @@ services:
       com.datadoghq.tags.env: "dev"
       com.datadoghq.tags.service: "gromo-redis-dev"
       com.datadoghq.tags.version: "7-alpine"
+      com.datadoghq.ad.checks: >-
+        {"redisdb":{"instances":[{"host":"%%host%%","port":6379,"tags":["env:dev","service:gromo-redis-dev","redis_instance:shared"]}]}}
     networks:
       - app-network
     restart: unless-stopped
