@@ -50,6 +50,9 @@ jobs:
             up)
               # 관측 서비스만 기동/갱신 — app/db 는 named 대상이 아니라 그대로 유지된다.
               "${compose[@]}" up -d "${services[@]}"
+              # bind mount된 prometheus.yml만 바뀌면 Compose는 기존 컨테이너를 재생성하지 않는다.
+              # 명시적으로 재시작해 신규 scrape target을 즉시 반영한다.
+              "${compose[@]}" restart prometheus
               ;;
             restart)
               "${compose[@]}" restart "${services[@]}"
