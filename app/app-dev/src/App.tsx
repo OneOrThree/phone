@@ -139,6 +139,7 @@ const titles: Record<Route, string> = {
   product: '상품 상세',
   orders: '구매 내역',
   boat: '내 배',
+  mainIsland: '내 메인 섬 변경하기',
   profile: '내 정보',
   settings: '앱 설정',
   wardrobe: '내 꾸미기',
