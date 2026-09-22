@@ -618,7 +618,7 @@ class GroupBetJoinServiceIntegrationTest extends IntegrationTestBase {
     void joinFailsRightAfterWithdrawCommit() {
         // 탈퇴 트랜잭션이 커밋된 상태를 재현 — 참여의 멤버십 공유 잠금 조회는 is_left=false 만 본다.
         GroupMember membership = groupMemberRepository.findAnyByUserAndGroup(member, group).orElseThrow();
-        membership.leave();
+        membership.leave(Instant.now());
         groupMemberRepository.save(membership);
 
         GroupChallengeBetSession session = todaySession();

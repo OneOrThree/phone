@@ -38,6 +38,7 @@ import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
 import com.oneorthree.business.upstream.data.dto.IslandView;
 import com.oneorthree.business.upstream.data.dto.MyIslands;
+import com.oneorthree.business.upstream.data.dto.MyJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
@@ -139,6 +140,7 @@ public class DataApiClient {
     // GROMO-1760 섬 가입·초대 5종 — 요청 소유는 사용자 축이라 모두 /internal/users/{userId} 아래다.
     private static final String PATH_ISLAND_MEMBERSHIPS =
             "/internal/users/{userId}/islands/{islandId}/memberships";
+    private static final String PATH_JOIN_REQUESTS = "/internal/users/{userId}/join-requests";
     private static final String PATH_JOIN_REQUEST =
             "/internal/users/{userId}/join-requests/{requestId}";
     private static final String PATH_INVITATION_RESOLVE =
@@ -282,12 +284,19 @@ public class DataApiClient {
      *
      * <p>{@code idempotentCommand()} 를 켜는 이유: 이 호출은 상태를 바꾸지 않아 재시도가 안전한데,
      * 기본 재시도 대상은 GET 뿐이라 켜 주지 않으면 일시 오류 한 번에 로그인이 실패한다.
+     *
+     * <p>뒤의 다섯 값은 전환 시도의 재생 관문 증거다 (GROMO-1992) — 일반 시도는 null/false 그대로
+     * 실려도 되고, Data 는 {@code switch_phase} 가 있는 행에서만 이 값들을 요구한다.
+     * {@code callerAccessToken} 은 source 자격 증명용이며 이 DTO 는 {@code toString} 에서 가린다.
      */
     public LoginAttemptLookup lookupLoginAttempt(UUID attemptId, String digestKeyId, String digest,
-            Deadline deadline) {
+            String callerAccessToken, String provider, String credentialKind, String termsVersion,
+            Boolean accountSwitchConfirmed, Deadline deadline) {
         return http.exchange(
                 InternalCall.to(HttpMethod.POST, PATH_LOGIN_ATTEMPT_LOOKUP)
-                        .body(new LoginAttemptLookupCommand(attemptId, digestKeyId, digest))
+                        .body(new LoginAttemptLookupCommand(attemptId, digestKeyId, digest,
+                                callerAccessToken, provider, credentialKind, termsVersion,
+                                accountSwitchConfirmed))
                         .endUserAuthErrors()
                         .idempotentCommand()
                         .build(),
@@ -314,8 +323,20 @@ public class DataApiClient {
                 new ParameterizedTypeReference<LoginSession>() { });
     }
 
-    /** 조회 요청 본문. 원 자격이 아니라 digest 만 나간다. */
-    private record LoginAttemptLookupCommand(UUID attemptId, String digestKeyId, String credentialDigest) {
+    /**
+     * 조회 요청 본문. 원 자격이 아니라 digest 만 나간다 — 단 전환 재생 증거로 source AT 가 실리므로
+     * {@code toString} 은 그 값을 가린다 ({@link LoginAttemptCommand} 와 같은 규율).
+     */
+    private record LoginAttemptLookupCommand(
+            UUID attemptId, String digestKeyId, String credentialDigest, String callerAccessToken,
+            String provider, String credentialKind, String termsVersion,
+            Boolean accountSwitchConfirmed) {
+
+        @Override
+        public String toString() {
+            return "LoginAttemptLookupCommand[attemptId=" + attemptId + ", provider=" + provider
+                    + ", credentialKind=" + credentialKind + ", callerAccessToken=redacted]";
+        }
     }
 
     /**
@@ -327,7 +348,8 @@ public class DataApiClient {
      */
     public record LoginAttemptCommand(
             UUID attemptId, String digestKeyId, String credentialDigest, String provider,
-            String credentialKind, String credential, String termsVersion, String callerAccessToken) {
+            String credentialKind, String credential, String termsVersion, String callerAccessToken,
+            boolean accountSwitchConfirmed) {
 
         @Override
         public String toString() {
@@ -1117,6 +1139,23 @@ public class DataApiClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<JoinIslandResult>() { });
+    }
+
+    /**
+     * 내 가입 신청 목록 한 페이지 (GROMO-2047, LLD §3.12). 경계는 Business 가 서명 커서에서 꺼낸
+     * 평문이고, 소유는 상류가 {@code applicant_id} 로 묶어 찾는다 — 남의 요청은 후보조차 아니다.
+     */
+    public MyJoinRequestsPage fetchMyJoinRequests(UUID userId, Instant afterCreatedAt,
+            UUID afterRequestId, int limit, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.GET, userPath(PATH_JOIN_REQUESTS, userId))
+                        .onBehalfOf(userId)
+                        .query("afterCreatedAt", afterCreatedAt == null ? null : afterCreatedAt.toString())
+                        .query("afterRequestId", afterRequestId == null ? null : afterRequestId.toString())
+                        .query("limit", Integer.toString(limit))
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<MyJoinRequestsPage>() { });
     }
 
     /**

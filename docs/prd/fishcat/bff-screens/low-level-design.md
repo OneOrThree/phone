@@ -1,6 +1,6 @@
 # BFF 상세 계약
 
-13개 모두 신규 Business GET이다. 원본22개 GET 재료와13개 BFF 매핑은 [source-contracts.json](source-contracts.json)에 보존한다. 여기의 공개 응답은 **새 BFF 계약**이며 원본 JSON을 수정한 것이 아니다. 단일 Data read-model snapshot·R/N·TTL0은 [정책](policy.md)의 승인된 초기 기술 선택이다.
+§§1–2의 13개는 **v0.3 BFF 계약 기록**이다. 현재 공개 계약은 [정책](policy.md) B15·B24~B28과 [Business 구현](implementation-business-api.md) §4다 — `/screens/rest`는 폐지됐고, 휴식 멤버는 `home.restMembers`가 도메인 `GET /islands/{islandId}/rest-members`를 소비한다. 원본22개 GET 재료와13개 BFF 매핑은 [source-contracts.json](source-contracts.json)에 보존한다. 단일 Data read-model snapshot·R/N·TTL0은 v0.3의 승인된 초기 기술 선택이며, 현재 조합 기본은 B24다.
 
 ## 1. 호출·입력·공개 DTO
 
@@ -10,13 +10,13 @@
 
 UUID 입력은 하이픈 포함36자 필수, v4/v7 생성 권고다. userId/currentIslandId/role/isMember/sessionId/가격/잔액/version을 BFF query/header로 받아 서버 context를 바꾸지 않는다. 현재 세션/섬은 검증 주체에서 Data가 확정한다. 명시 islandId 경로가 있는 travel/visit은 그 대상의 권한을 검사하고 현재 섬으로 치환하지 않는다.
 
-| BFF | 허용 query | 대상/제공자 |
+| v0.3 BFF(이력) | 허용 query | 대상/제공자 |
 | --- | --- | --- |
 | `/screens/home` | date?,timezone? | 현재 섬 + 본인, HomeScene |
 | `/screens/travel/{islandId}` | 없음 | 명시 목적지의 활성 소속, TravelScene |
 | `/screens/focus` | 없음 | 본인 세션의 고정 섬, 없으면 검증 현재 섬, FocusScene |
 | `/screens/sound` | 없음 | 현재 섬 + gram, SoundScene |
-| `/screens/rest` | 없음 | 본인 세션의 고정 섬, 없으면 검증 현재 섬, RestScene |
+| ~~`/screens/rest`~~ | — | 폐지(B15). 현재는 `home.restMembers`가 도메인 `GET /islands/{islandId}/rest-members`를 소비 |
 | `/screens/hall` | from,to,scope 필수; timezone? | 현재 섬 + hall, HallRecords |
 | `/screens/island-manage` | 없음 | 현재 섬 주민/host 조건, ManageScene |
 | `/screens/board` | 없음 | 현재 섬 + board, BoardLists |
@@ -32,7 +32,7 @@ UUID 입력은 하이픈 포함36자 필수, v4/v7 생성 권고다. userId/curr
 - `joinRequests`(`/screens/island-manage`의 `GET /islands/{islandId}/join-requests`)는 [PR741 관리 LLD §3.3](https://github.com/OneOrThree/phone/blob/dcade7cd1ab54fd5ba1e4a88a8c8cfc8d35e04dc/docs/prd/island-management/low-level-design.md#33-requests--get-islandsislandidjoin-requests)에서 이미 원본 빈 query에 `{cursor?,limit?}`와 응답 `nextCursor`를 **유한 목록 확장**으로 정의했다(기본30/상한100). host의 다음 신청은 이 도메인 GET으로 조회한다. 원본 source-contracts.json은 해당 확장 이전 예시를 보존한 것이며 BFF가31번째 신청을 버려도 된다는 계약이 아니다. 제공자가 이 확장을 구현하고 BFF cursor와의 상호운용 회귀를 통과하기 전 해당 host 화면을 활성화하지 않는다.
 
 
-home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상한, tower ISOweek는 PR743/748 규약을 따른다. timezone 누락은Asia/Seoul, 다른 값·별칭·빈값·null/중복은400 INVALID_PARAMETER. from/to는KST 날짜 포함 범위이고 시각창은[from00:00,to+1일00:00)이다. 같은 값을 두 하위 query가 각각 다른 시각/locale로정규화하지 않는다. 요청에 쓸 수 없는 field·중복query·GET body는400 INVALID_PARAMETER로거절하고 enum/기간범위는 원 도메인의422 OUT_OF_RANGE를 보존한다. q의 검색 길이/문자와 category의 허용집합은1759/1781 정본을 재사용한다.
+home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상한, tower week는 ISO주차가 아니라 주 시작일 YYYY-MM-DD(UTC 일요일)다 — island-rankings 정책 RK-P01-키를 따른다. timezone 누락은Asia/Seoul, 다른 값·별칭·빈값·null/중복은400 INVALID_PARAMETER. from/to는KST 날짜 포함 범위이고 시각창은[from00:00,to+1일00:00)이다. 같은 값을 두 하위 query가 각각 다른 시각/locale로정규화하지 않는다. 요청에 쓸 수 없는 field·중복query·GET body는400 INVALID_PARAMETER로거절하고 enum/기간범위는 원 도메인의422 OUT_OF_RANGE를 보존한다. q의 검색 길이/문자와 category의 허용집합은1759/1781 정본을 재사용한다.
 
 ### 조각 타입
 
@@ -42,6 +42,7 @@ home의 date 누락은 서버 KST 오늘. hall from/to/scope와31일 기술 상�
 - island(visit): PublicIslandSummary whitelist만. id/name/intro/visibility/approvalRequired/memberCount/membershipStatus/growthStage/themeId/joinRequestId. **role/permissions/초기기여/목표/지갑/집중·기록/편지/신청자 키 부재**를 검사한다. 호출자가주민이어도visit은이projection만쓴다.
 - members(visit): 2026-09-19 결정 V-읽기(GROMO-1904·1937)로 싣는다. 도메인 `GET /islands/{islandId}/members` 첫 페이지 그대로 — items[{id,name,role,appearance}]/nextCursor/version. 항목 키는 이 넷뿐이고 집중 기록 등 다른 개인 필드는 키 자체가 없다. 공지·퀘스트는 visit 조각이 아니다 — 방문자도 게시판 건물을 눌러 도메인 GET(읽기 전용)으로 읽는다.
 - session: PR743 current-session DTO 또는 명시 정상null. 빈HTTP200/204는 정상null증거가아니다. focus/rest members는 items/serverNow/**watermarks**를보존한다. rest row에원본에 없는sessionId를만들지않는다.
+- restMembers: `GET /islands/{islandId}/rest-members`의 paused 세션 주민 목록을 `home`이 소비하는 조각이다. `/screens/rest`는 B15로 폐지됐고, 세션 없는 공유 휴식 주민은 현재 계약에 없다.
 - focusMembers.items[].appearanceVersion: 같은 snapshot의 실제 user appearance.version을 직접 매핑하는 필수 안전 정수(0~9007199254740991)다. 현재 PR737/743의 표시용 Appearance={clothes,decor,hull,position}에는 version이 없으므로 주민 항목에 붙인다. PR742 equipped.version과 **같은 개인 외양 정본 값**이며 새 버전 카운터를 만들지 않는다. BFF를 위해 본인전용 GET /me/inventory를 다른 주민에게 호출하거나 개인 보유 목록을 노출하지 않는다.1765의 주민 GET과1783의 외양 제공자를 동기화하는 명시 확장이고 원본22개 GET JSON은 보존한다. 1783 병합 전까지는 구현 유예다([policy B14](policy.md)).
 - focusStatistics: PR748 scope=me/island DTO와asOf. screenTimeStatistics는 measurementStatus/nullableminutes/series/updatedAt을보존한다. scope=island에개인records/subject를넣지 않는다. **fishEarnings**(GROMO-2046)는 `members[{userId,name,earnedFish}]` 하나뿐이고 기간·커서·잔액 필드가 없다 — 도메인 `GET /islands/{islandId}/statistics/fish-earnings` 응답 그대로다.
 - members: items/nextCursor/**version**. joinRequests: items[{id,applicantId,name,status,version}]/nextCursor. 일반주민에게는후자를조회하지 않는다.
@@ -95,7 +96,7 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
 
 도서관 미완공이면 조각을 부를 일이 없으므로 `missingFragments` 키 없이 `"statisticsAvailability": "facility_locked"` 와 **세** 기록 조각(`focusStatistics`·`screenTimeStatistics`·`fishEarnings`) `null` 이다 — 물고기 장도 같은 도서관 게이트 뒤다(GROMO-2046).
 
-## 2. 화면 13개 응답 예시
+## 2. v0.3 화면 13개 응답 예시(이력)
 
 각 예시는 **독립된 설명용 fixture**이며 동일한시각/사용자ID가나와도모든예시가하나의운영DB상태라는뜻은아니다. 가격·보상·색·가입/분모등목업값을운영정책으로승인하지 않는다. 계정/건설/퀘스트/랭킹미답정책이필요한조각은해당gate완료전활성화하지 않는다. 원본22개 GET예시는source-contracts.json에변경없이따로남겼다.
 
@@ -324,7 +325,7 @@ manage의 joinRequestsAvailability는 available|host_only다. available은현재
 }
 ```
 
-### 5. GET `/screens/rest`
+### 5. ~~GET `/screens/rest`~~ (v0.3 이력 — 현재 `home.restMembers`)
 
 ```json
 {
@@ -757,7 +758,7 @@ Business 화면 usecase는 필터가 검증한 subject/자격과 서버 requestI
 |travel|`/internal/screen-read-models/travel/{islandId}`|목적지활성소속·섬상태·외양버전,조건부재생|
 |focus|`/internal/screen-read-models/focus`|사용자/current/session,focus주민·watermarks,조건부재생|
 |sound|`/internal/screen-read-models/sound`|현재 섬gram,공동보유음원·외양,재생|
-|rest|`/internal/screen-read-models/rest`|사용자/current/session,rest주민·watermarks|
+|rest(폐지)|~~`/internal/screen-read-models/rest`~~|v0.3 이력. 현재는 home 조합이 도메인 `GET /internal/islands/{islandId}/rest-members`를 사용|
 |hall|`/internal/screen-read-models/hall`|현재 섬hall,동일기간/scope의집중·측정집계|
 |island-manage|`/internal/screen-read-models/island-manage`|현재role·섬·주민,host일때신청목록|
 |board|`/internal/screen-read-models/board`|현재board,퀘스트summary와공지목록|
@@ -792,7 +793,7 @@ Data는 단일 SELECT 또는 REPEATABLE READ의 일관된 snapshot에서 다음�
 
 - **home/current없음**: IM-D06 미결복구를새로선택하지 않는다. 자동첫소속·섬생성·discover호출금지다. 현재 섬이필수아닌boat/공개visit까지차단하는전역guard도금지다.
 - **travel**: 원래출발섬과목적지경로를구분한다. GET은switch하지 않는다. 목적지비소속은visit와다른권한이며MemberIslandDetail을공개하지 않는다.
-- **focus/rest**: session=null이정상이면명시null을유지한다. focus화면에서임의세션생성,rest조회에서pause,resume/finish를하지 않는다. 집중중채팅가드를playback/CONNECT전체에적용하지 않는다.
+- **focus/home.restMembers**: session=null이정상이면명시null을유지한다. focus화면에서임의세션생성,rest-members조회에서pause,resume/finish를하지 않는다. 집중중채팅가드를playback/CONNECT전체에적용하지 않는다.
 - **manage**: 일반주민은N으로신청조회없음. host라는과거응답/캐시를근거로현재신청자를읽지않는다. Data가403을주면BFF도전체 실패다.
 - **visit**: 사용자가멤버라고upstream의MemberIslandDetail을그대로내리지않는다. publicwhitelist에초기건설기여/목표/role/개인기록/채팅/지갑/다른신청자는키자체가없어야한다. 주민 목록은 섬 요약과 별개 조각 `members`로 싣는다(2026-09-19 결정 V-읽기(GROMO-1904·1937)) — 섬 요약 성공 뒤 joinRequest와 같은 병렬 단계에서 읽고, 그 실패는 화면 전체 실패다. joinRequest는verifiedUser+requestId+targetIsland가모두맞아야한다.
 - **privatevisit**: PR741의private비소속무자격GET403을보존한다. invitationToken을query/log에노출하거나rawheader를자동복사하지 않는다. 초대resolve는별도사용자행동이며공개요약/검증읽기자격연결은BG05후속이다. 이 설계가토큰없는privateBFF예외를만들지않는다.

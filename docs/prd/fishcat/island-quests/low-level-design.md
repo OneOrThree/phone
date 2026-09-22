@@ -236,7 +236,7 @@ screen은승인된하루정본의device/측정시각/권한상태를사용한다
 | `authorized`, minutes ≤ target, **회차 날짜(UTC) 종료** | authorized | 든다 | true | 측정된 0 도 달성이다(「실제 0」) |
 | `authorized`, minutes ≤ target, 날짜 진행 중 | pending | 든다 | false | 더 쓸 수 있어 확정 불가. 2.0 관측에 「마감 보고」 플래그가 없어 «날짜 종료»가 지어내지 않는 유일한 마감 근거다 |
 | `denied` | denied | **빠진다** | false | 「데이터 없음·권한 없음·실제 0은 구분한다」 — `unavailable` 로 뭉개지 않는다. 유예를 기다릴 이유도 없다 |
-| 같은 날 기기 2대 이상 | unavailable | **빠진다** | false | 병합 정책 보류(RC-D02) — 더하지도 고르지도 않는다. **유예 없이** 바로 뺀다: 기다린다고 기기 수가 줄지 않고, 대기로 두면 그 주민이 유예 내내 분모에 남아 전원 달성을 혼자 막는다 |
+| 같은 날 기기 2대 이상 | unavailable | **빠진다** | false | 병합 없음(2026-09-22 결정 RC-D02-병합) — 더하지도 고르지도 않는다. **유예 없이** 바로 뺀다: 기다린다고 기기 수가 줄지 않고, 대기로 두면 그 주민이 유예 내내 분모에 남아 전원 달성을 혼자 막는다 |
 | 보고 없음 · `pending` · `unavailable` | pending → unavailable | 유예 전 든다 / 뒤 빠진다 | false | 유예 끝은 다음 날 12:00Z(`screenGraceEndsAt`) |
 
 **앱 업로드 → 서버 조회 → 판정 계약 예시** (회차 날짜 `2031-03-10`, `targetMinutes` 60):

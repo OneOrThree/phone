@@ -43,6 +43,10 @@ import {
   unreadLetters,
   viewIsland,
 } from '@/services/model';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { semanticTokens } from '@/design-system/tokens';
+import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
+import { useBoardNotices } from './useBoardNotices';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
 // 건물 안 장면 위에 기능 화면을 얹는 38개 시안을 RN으로 옮긴다. 수치는 원본 CSS 그대로다.
@@ -2825,10 +2829,32 @@ type NoticeView = {
   time: string;
   body: string;
   comments: { id: string; name: string; text: string; mine: boolean }[];
+  // 서버 목록 계약의 댓글 수 — 목록엔 댓글 본문이 없어 이 수를 그린다 (상세 GET 이 댓글을 준다)
+  commentCount?: number;
 };
 // rate가 null이면 아직 측정하지 못한 값이다 (0%로 그리지 않는다)
-type QuestView = Omit<Quest, 'rate'> & { id: string; rate: number | null };
-type ResidentRate = { id: string; name: string; color: Cat; rate: number | null };
+// 서버 회차 필드(claimable·claimed·보상)는 서버 경로에서만 채운다 — 목업·로컬은 비어 있다.
+type QuestView = Omit<Quest, 'rate'> & {
+  id: string;
+  /** 서버 퀘스트 정의 ID. id 는 회차별 라우트 키(occurrenceId)다. */
+  questId?: string;
+  rate: number | null;
+  claimable?: boolean;
+  claimed?: boolean;
+  claimBlockedReason?: string | null;
+  rewardAmount?: number;
+  bonusAmount?: number;
+  bonusGranted?: boolean;
+};
+// achieved·claimed 는 서버 회차 진행의 명시 플래그다 — rate 로 추정하지 않는다.
+type ResidentRate = {
+  id: string;
+  name: string;
+  color: Cat;
+  rate: number | null;
+  achieved?: boolean;
+  claimed?: boolean;
+};
 type BlueprintView = {
   state: 'none' | 'waiting' | 'ready' | 'building' | 'complete';
   name: string;
@@ -3631,6 +3657,19 @@ function QuestCard({
             color={complete ? '#7eaa71' : '#c9943f'}
             style={{ height: 5, backgroundColor: '#b99e5b33' }}
           />
+          {/* 수령 상태는 서버 필드가 정본 — 수령 가능/완료를 진행률과 섞지 않는다 */}
+          {(quest.claimed || quest.claimable) && (
+            <Text
+              style={[
+                boardFont(12, 1.45, '700', semanticTokens.color.textMuted, GOWUN),
+                { marginTop: 6 },
+              ]}
+            >
+              {quest.claimed
+                ? '보상 수령 완료'
+                : `보상 받을 수 있어요${quest.rewardAmount != null ? ` · ${quest.rewardAmount}마리` : ''}`}
+            </Text>
+          )}
         </>
       )}
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 }}>
@@ -3676,11 +3715,19 @@ const dayLabel = (at: number | undefined, now: number) => {
 // 퀘스트 만들기 입력 검사 (목업·앱 공통)
 const questError = (form: QuestForm) => {
   const target = Number(form.target);
-  if (!form.title.trim() || !Number.isInteger(target) || target <= 0)
+  if (
+    !form.title.trim() ||
+    !Number.isInteger(target) ||
+    target < 0 ||
+    (form.type === 'focus' && target === 0)
+  )
     return '제목과 목표 시간을 입력해주세요.';
   if (form.type === 'phone') return '';
   const start = clockMinutes(form.startTime),
-    end = clockMinutes(form.endTime);
+    parsedEnd = clockMinutes(form.endTime),
+    // 서버 LocalTime은 24:00을 받지 못해 23:59로 전송한다. 검증도 같은 창을 써야
+    // UI에서는 통과하고 서버에서 QUEST_TARGET_OUT_OF_RANGE로 거절되는 차이가 없다.
+    end = parsedEnd === 24 * 60 ? 23 * 60 + 59 : parsedEnd;
   if (start === null || end === null) return '시작·종료 시간을 입력해주세요.';
   if (end <= start) return '종료 시간은 시작 시간보다 늦어야 해요.';
   if (target > end - start) return '목표 집중 시간은 진행 시간 안으로 정해주세요.';
@@ -3783,7 +3830,15 @@ function boardFromApp(e: any) {
   };
 }
 
-function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }: ArtifactProps) {
+export function Board({
+  concept,
+  width,
+  height,
+  reduceMotion,
+  e,
+  showToast,
+  sceneHeight = height,
+}: ArtifactProps) {
   const [local, setS] = useState(() => makeState(concept));
   const [mockNotices, setNotices] = useState(() =>
     concept.boardPanel === 'notice' && concept.boardView === 'empty' ? [] : NOTICES,
@@ -3811,44 +3866,185 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
     // 퀘스트 수정으로 들어오면 목표 분을 기존 값으로 채운다 (나머지 값은 App의 text·body·시간대)
     const editing =
       e.route === 'questEdit' && e.detail
-        ? currentIsland(e.state).quests.find((q) => q.id === e.detail)
+        ? serverBoard
+          ? board.quests.find((q) => q.occurrenceId === e.detail)
+          : currentIsland(e.state).quests.find((q) => q.id === e.detail)
         : undefined;
     setUi((prev) => ({
       ...prev,
       comment: false,
       confirm: null,
       error: '',
-      target: editing ? String(editing.target) : prev.target,
+      target: editing
+        ? String('targetMinutes' in editing ? editing.targetMinutes : editing.target)
+        : prev.target,
     }));
   }, [routeKey]);
 
-  const owner = app ? app.owner : local.role === 'owner';
+  // e 는 App 이 렌더마다 새로 조립하고 e.back/setText/setBody 는 그 렌더의 history·초안을
+  // 닫은 클로저다 — 쓰기가 끝날 때 옛 e 를 그대로 부르면 현재 화면을 엉뚱하게 바꾼다.
+  // 콜백은 항상 최신 e(eRef)를 쓰고, route/detail(tab)이 바뀌면 올라가는 routeGen 으로
+  // 「쓰기를 시작한 화면」인지 확인한다 — 나갔다 같은 화면으로 돌아와도 옛 작업은 무효다.
+  const eRef = useRef(e);
+  eRef.current = e;
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const routeGen = useRef(0);
+  const seenRouteKey = useRef(routeKey);
+  if (e && seenRouteKey.current !== routeKey) {
+    seenRouteKey.current = routeKey;
+    routeGen.current += 1;
+  }
+  // 쓰기를 시작한 화면이 그대로면 최신 e, 아니면 null — null 이면 back/setText/창 닫기를 안 한다.
+  const liveE = (gen: number) =>
+    mountedRef.current && eRef.current && routeGen.current === gen ? eRef.current : null;
+  // 초안·입력창·확인창 상호작용 세대 — draft/comment 입력, editor·comment·confirm 의
+  // 열기/닫기마다 올라간다. routeKey 가 같아도(취소 후 다시 열기, 같은 화면에서 계속 수정)
+  // 세대가 다르면 진행 중이던 쓰기의 성공 부수효과는 무효다 — 옛 작업이 새 초안을 지우거나
+  // 다시 연 입력창을 닫지 않는다. 값 비교가 아니라 단조 카운터라 A→B→A 도 무효가 된다.
+  const draftEpoch = useRef(0);
+  // 진행 중 쓰기의 의도 페이로드 — 같은 내용의 중복 탭만 무시하고 다른 내용은 훅에 맡겨
+  // 명시 거절(CLIENT_WRITE_IN_PROGRESS)시킨다. 조용히 삼키면 새 초안이 어디도 안 간다.
+  const noticeInflight = useRef<string | null>(null);
+  const deleteInflight = useRef<string | null>(null);
+  const commentInflight = useRef<string | null>(null);
+  const questInflight = useRef<string | null>(null);
+  const claimInflight = useRef<string | null>(null);
+
   // 다른 섬 방문자: 공지·댓글·퀘스트는 읽기만 하고 청사진은 보지 않는다
   const visitor = app ? app.visitor : concept.boardView === 'visitor';
+  // 라이브 앱 경로 — App.tsx 와 같은 판정으로 웹 ?review·?demo 목업을 걸러 낸다.
+  // 목업에서도 e 가 있으므로 e 유무만으로는 서버 경로를 켤 수 없다.
+  const liveApp =
+    !!e &&
+    !(
+      Platform.OS === 'web' &&
+      typeof window !== 'undefined' &&
+      (new URLSearchParams(window.location.search).has('review') ||
+        new URLSearchParams(window.location.search).has('demo'))
+    );
+  // 서버 게시판: 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 방문자·목업·갤러리는 0콜이다.
+  const serverBoard = liveApp && !visitor;
+  const board = useBoardNotices({
+    active: serverBoard,
+    scopeKey: app ? String(app.island.id) : 'mock',
+  });
+  useEffect(() => {
+    if (!serverBoard || !e || !board.islandId || !board.wallets) return;
+    e.dispatch({
+      type: 'SERVER_VILLAGE_POINTS',
+      islandId: board.islandId,
+      value: board.wallets.villagePoints,
+      version: board.wallets.villagePointsVersion,
+    });
+  }, [
+    serverBoard,
+    board.islandId,
+    board.wallets?.villagePoints,
+    board.wallets?.villagePointsVersion,
+  ]);
+  // 쓰기 권한은 서버 섬 role 이 정본 — 로딩·실패 중엔 추측하지 않고 숨긴다.
+  // 목업·갤러리 경로는 기존 로컬 owner 판정 그대로다.
+  const owner = serverBoard
+    ? board.islandRole === 'host'
+    : app
+      ? app.owner
+      : local.role === 'owner';
   const user = owner ? OWNER : '두부';
-  const notices: NoticeView[] =
-    app?.notices ??
-    mockNotices.map((notice, i) => ({
-      ...notice,
-      id: String(i),
-      comments: notice.comments.map(([name, text], j) => ({
-        id: String(j),
-        name,
-        text,
-        mine: name === user,
-      })),
-    }));
-  const quests: QuestView[] = app?.quests ?? mockQuests.map((q, i) => ({ ...q, id: String(i) }));
-  const residentsOf = (quest: QuestView): ResidentRate[] =>
-    app?.ratesOf(quest) ??
-    RESIDENTS.map(([name, color], i) => ({
-      id: name,
-      name: name === user ? `${name} · 나` : name,
-      color,
-      rate: local.screenUnknown && quest.type === 'phone' ? null : i < 2 ? quest.rate : 48,
-    }));
+  // 공지 상세는 라우트가 연다 — route 'notice' 의 detail id 를 따라 select 한다.
+  const noticeDetailId = e && e.route === 'notice' ? e.detail : null;
+  // 이 라우트 id 의 상세를 이미 요청했는지 — 요청 전 한 프레임과 「삭제로 비워진」 상태를 구분한다.
+  const noticeAsked = useRef<string | null>(null);
+  useEffect(() => {
+    if (!serverBoard) return;
+    noticeAsked.current = noticeDetailId;
+    board.select(noticeDetailId).catch(() => {});
+    // islandId 는 첫 getBoard 가 끝나야 생긴다 — 생기는 순간 다시 select 한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverBoard, noticeDetailId, board.islandId, board.select]);
+
+  // 퀘스트 상세도 라우트가 연다 — 'quest' 의 detail(단, 청사진의 'building' 은 제외)을 따라 select 한다.
+  const questDetailId =
+    e && e.route === 'quest' && e.detail && e.detail !== 'building' ? e.detail : null;
+  useEffect(() => {
+    if (!serverBoard) return;
+    board.selectQuest(questDetailId).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverBoard, questDetailId, board.islandId, board.selectQuest]);
+
+  // 서버 목록 항목은 id·title·commentCount 만 온다 — 시간·본문·댓글을 합성하지 않는다.
+  const serverNotices: NoticeView[] = board.items.map((n) => ({
+    id: n.id,
+    title: n.title,
+    time: '',
+    body: '',
+    comments: [],
+    commentCount: n.commentCount,
+  }));
+  // 서버 경로만 API 목록 — 방문자·목업·갤러리는 기존 로컬 공지 그대로다.
+  const notices: NoticeView[] = serverBoard
+    ? serverNotices
+    : (app?.notices ??
+      mockNotices.map((notice, i) => ({
+        ...notice,
+        id: String(i),
+        comments: notice.comments.map(([name, text], j) => ({
+          id: String(j),
+          name,
+          text,
+          mine: name === user,
+        })),
+      })));
+  // 서버 회차 헤더 → 화면 모양. 진행률·수령·보상은 응답 필드가 정본이다(rate===100 추정 금지).
+  const serverQuests: QuestView[] = board.quests.map((q) => ({
+    id: q.occurrenceId,
+    questId: q.id,
+    title: q.title,
+    type: q.type === 'screen' ? 'phone' : 'focus',
+    startTime: q.windowStart ?? undefined,
+    endTime: q.windowEnd ?? undefined,
+    target: q.targetMinutes,
+    rate: q.myRate,
+    claimable: q.claimable,
+    claimed: q.claimed,
+    claimBlockedReason: q.claimBlockedReason,
+    rewardAmount: q.reward.amount,
+    bonusAmount: q.bonusAmount,
+    bonusGranted: q.bonusGranted,
+  }));
+  const quests: QuestView[] = serverBoard
+    ? serverQuests
+    : (app?.quests ?? mockQuests.map((q, i) => ({ ...q, id: String(i) })));
+  const residentsOf = (quest: QuestView): ResidentRate[] => {
+    // 서버 경로의 주민 목록은 progress GET 이 정본 — 응답에 털색이 없으니 중립 자리표시자다.
+    if (serverBoard) {
+      const open = board.questDetail?.occurrenceId === quest.id ? board.questDetail : null;
+      return (open?.members ?? []).map((m) => ({
+        id: m.userId,
+        name: m.name ?? '주민',
+        color: 'gray' as Cat,
+        rate: m.rate,
+        achieved: m.achieved,
+        claimed: m.claimed,
+      }));
+    }
+    return (
+      app?.ratesOf(quest) ??
+      RESIDENTS.map(([name, color], i) => ({
+        id: name,
+        name: name === user ? `${name} · 나` : name,
+        color,
+        rate: local.screenUnknown && quest.type === 'phone' ? null : i < 2 ? quest.rate : 48,
+      }))
+    );
+  };
   const mockReady = local.ready && local.balance >= 60;
-  const blueprintView: BlueprintView = app?.blueprint ?? {
+  const localBlueprintView: BlueprintView = app?.blueprint ?? {
     ...buildOptions[0],
     state: ['building', 'complete'].includes(local.view)
       ? (local.view as 'building' | 'complete')
@@ -3866,14 +4062,35 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       value: `${local.ready ? 20 : [20, 18, 12][i]} / 20마리${local.ready || i === 0 ? ' ✓' : ''}`,
     })),
   };
+  const blueprintView: BlueprintView =
+    serverBoard && board.wallets
+      ? {
+          ...localBlueprintView,
+          balance: board.wallets.villagePoints,
+          state:
+            localBlueprintView.state === 'waiting' || localBlueprintView.state === 'ready'
+              ? localBlueprintView.collected >= localBlueprintView.needed &&
+                board.wallets.villagePoints >= localBlueprintView.cost
+                ? 'ready'
+                : 'waiting'
+              : localBlueprintView.state,
+        }
+      : localBlueprintView;
 
   // 없는 공지·퀘스트 id로 상세를 열면 목록을 보여 주고 라우트도 목록으로 바꾼다
+  // 서버 경로의 공지는 이 검사를 건너뛴다 — 목록은 첫 페이지뿐이라 없는 id 판정이 틀리고,
+  // 진짜 없는 공지는 상세 GET 의 오류 화면이 담당한다.
+  const homeQuestList = e?.route === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL;
   const missing =
     !!e &&
-    (((e.route === 'notice' || (e.route === 'noticeEdit' && e.detail)) &&
+    ((!serverBoard &&
+      (e.route === 'notice' || (e.route === 'noticeEdit' && e.detail)) &&
       !notices.some((n) => n.id === e.detail)) ||
-      (((e.route === 'quest' && e.detail !== 'building') ||
-        (e.route === 'questEdit' && e.detail)) &&
+      // 서버 경로의 퀘스트도 이 검사를 건너뛴다 — 목록 로딩 중엔 모르고, 진짜 없는 회차는
+      // progress GET 의 오류 화면(QUEST_GONE·404)이 담당한다.
+      (!serverBoard &&
+        ((e.route === 'quest' && e.detail !== 'building' && !homeQuestList) ||
+          (e.route === 'questEdit' && e.detail)) &&
         !quests.some((q) => q.id === e.detail)));
   useEffect(() => {
     if (!missing) return;
@@ -3911,7 +4128,9 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
             : r === 'questEdit'
               ? 'write'
               : panel === 'quest' && r === 'quest'
-                ? 'detail'
+                ? homeQuestList
+                  ? 'list'
+                  : 'detail'
                 : panel === 'blueprint'
                   ? blueprintView.state
                   : 'list';
@@ -3950,6 +4169,28 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
   const setError = (error: string) =>
     e ? setUi((prev) => ({ ...prev, error })) : render({ error });
   const failCopy = '저장하지 못했어요. 입력한 내용은 그대로 남아 있어요.';
+  // 서버 오류 message 는 그대로 띄울 수 있는 계약이다 — 아니면 기존 문구로 떨어진다.
+  const apiMessage = (err: unknown, fallback = failCopy) =>
+    err instanceof ApiError && err.message ? err.message : fallback;
+  // stale(계정·범위 교체 중 시작된) 쓰기 오류는 새 화면에 띄우지 않는다.
+  const apiWriteMessage = (err: unknown) =>
+    err instanceof ApiError && err.code === CLIENT_STALE_SESSION ? '' : apiMessage(err);
+  // 서버 상세 — 본문·댓글은 getNotice 만 준다. 탈퇴 작성자의 name 은 null 그대로 두고
+  // (합성 금지) 댓글 삭제는 공개 API 에 없으니 mine 을 붙이지 않는다.
+  const serverDetailView: NoticeView | null = board.detail
+    ? {
+        id: board.detail.id,
+        title: board.detail.title,
+        time: '',
+        body: board.detail.body,
+        comments: board.detail.comments.map((c) => ({
+          id: c.id,
+          name: c.name ?? '',
+          text: c.text,
+          mine: false,
+        })),
+      }
+    : null;
 
   // 화면 동작. 목업은 로컬 상태를, 앱은 라우트 이동과 reducer 액션을 쓴다
   const nav = {
@@ -3977,6 +4218,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
     backToNotices: () => (e ? e.back() : render({ view: 'list', commentDraft: '', error: '' })),
     newNotice: () => {
       if (!owner) return;
+      draftEpoch.current += 1;
       if (e) return e.go('noticeEdit');
       render({
         view: 'write',
@@ -3987,7 +4229,10 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
     },
     editNotice: () => {
       if (!owner) return;
-      const notice = notices[s.noticeIndex];
+      // 서버 경로의 본문은 상세 GET 에 있다 — 목록 항목엔 본문이 없다.
+      const notice = serverBoard ? serverDetailView : notices[s.noticeIndex];
+      if (!notice) return;
+      draftEpoch.current += 1;
       if (!e)
         return render({
           editing: true,
@@ -3999,8 +4244,12 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       e.setText(notice.title);
       e.setBody(notice.body);
     },
-    cancelEditor: () => (e ? e.back() : render({ view: s.editing ? 'detail' : 'list', error: '' })),
+    cancelEditor: () => {
+      draftEpoch.current += 1;
+      return e ? e.back() : render({ view: s.editing ? 'detail' : 'list', error: '' });
+    },
     setDraft: (patch: { title?: string; body?: string }) => {
+      draftEpoch.current += 1;
       if (!e)
         return setS((prev) => ({
           ...prev,
@@ -4021,8 +4270,35 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
           e.setFailNext(false);
           return setError(failCopy);
         }
-        e.dispatch({ type: 'NOTICE_SAVE', id: e.detail, ...next });
-        return e.back();
+        if (!serverBoard) {
+          // 목업(review/demo) 경로 — 기존 로컬 dispatch 그대로.
+          e.dispatch({ type: 'NOTICE_SAVE', id: e.detail, ...next });
+          return e.back();
+        }
+        // 서버 경로: 쓰기 성공 + 정본 재조회까지 끝나야 돌아간다.
+        // 실패해도 e.text·e.body 초안은 건드리지 않는다.
+        // 같은 의도의 중복 탭만 무시 — 다른 내용은 훅이 진행 중 거절로 명시 실패시켜
+        // 문구를 띄우고 초안을 보존한다(조용히 삼키면 새 내용이 어디도 안 간다).
+        const intent = `${s.editing ? e.detail : ''}${next.title}\n${next.body}`;
+        if (noticeInflight.current === intent) return;
+        const write =
+          s.editing && e.detail ? board.updateNotice(e.detail, next) : board.createNotice(next);
+        noticeInflight.current = intent;
+        const op = routeGen.current;
+        const draftOp = draftEpoch.current;
+        write.then(
+          () => {
+            if (noticeInflight.current === intent) noticeInflight.current = null;
+            // 시작한 화면 + 그대로인 초안일 때만 뒤로 간다 — 이동·재진입·추가 입력은 무효.
+            const now = liveE(op);
+            if (now && draftEpoch.current === draftOp) now.back();
+          },
+          (err: unknown) => {
+            if (noticeInflight.current === intent) noticeInflight.current = null;
+            if (liveE(op)) setError(apiWriteMessage(err));
+          },
+        );
+        return;
       }
       if (s.editing && mockNotices[s.noticeIndex]) {
         setNotices(
@@ -4043,6 +4319,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       if (visitor) return;
       if (target === 'notice' ? !owner : !owner && !notices[s.noticeIndex].comments[index].mine)
         return;
+      draftEpoch.current += 1;
       if (e) return setUi((prev) => ({ ...prev, confirm: { target, index } }));
       render(
         target === 'notice'
@@ -4050,23 +4327,60 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
           : { deleteTarget: 'comment', commentIndex: index, view: 'confirm' },
       );
     },
-    cancelDelete: () =>
-      e ? setUi((prev) => ({ ...prev, confirm: null })) : render({ view: 'detail' }),
+    cancelDelete: () => {
+      draftEpoch.current += 1;
+      return e ? setUi((prev) => ({ ...prev, confirm: null })) : render({ view: 'detail' });
+    },
     confirmDelete: () => {
-      const notice = notices[s.noticeIndex];
-      if (!notice) return;
       if (s.deleteTarget === 'notice') {
         if (!owner) return;
-        if (e) {
+        if (e && !serverBoard) {
+          // 목업(review/demo) 경로 — 기존 로컬 dispatch 그대로.
+          const notice = notices[s.noticeIndex];
+          if (!notice) return;
           e.dispatch({ type: 'NOTICE_DELETE', id: notice.id });
           return e.back();
         }
+        if (serverBoard && e) {
+          // 서버 경로의 삭제 대상 id 는 라우트 detail 이 정본이다 — 목록 첫 페이지에
+          // 없는 공지도 지울 수 있다.
+          const id = e.detail || notices[s.noticeIndex]?.id;
+          if (!id || deleteInflight.current === id) return;
+          const write = board.deleteNotice(id);
+          deleteInflight.current = id;
+          const op = routeGen.current;
+          const draftOp = draftEpoch.current;
+          write.then(
+            () => {
+              if (deleteInflight.current === id) deleteInflight.current = null;
+              // 확인창을 취소·재열거나 화면이 바뀌면 옛 삭제의 닫기/back 은 실행하지 않는다.
+              const now = liveE(op);
+              if (!now || draftEpoch.current !== draftOp) return;
+              setUi((prev) => ({ ...prev, confirm: null }));
+              now.back();
+            },
+            (err: unknown) => {
+              if (deleteInflight.current === id) deleteInflight.current = null;
+              const now = liveE(op);
+              if (!now || draftEpoch.current !== draftOp) return;
+              setUi((prev) => ({ ...prev, confirm: null, error: apiWriteMessage(err) }));
+            },
+          );
+          return;
+        }
+        const notice = notices[s.noticeIndex];
+        if (!notice) return;
         setNotices(mockNotices.filter((_, i) => i !== s.noticeIndex));
         return render({ noticeIndex: 0, view: 'list' });
       }
+      // 댓글 삭제는 공개 API 에 없다 — 서버 경로는 확인창만 닫는다(버튼도 숨겨져 있다).
+      if (e && serverBoard) return setUi((prev) => ({ ...prev, confirm: null }));
+      const notice = notices[s.noticeIndex];
+      if (!notice) return;
       const comment = notice.comments[s.commentIndex];
       if (!comment || (!owner && !comment.mine)) return;
       if (e) {
+        // 목업(review/demo) 경로 — 기존 로컬 dispatch 그대로.
         e.dispatch({ type: 'COMMENT_DELETE', id: notice.id, commentId: comment.id });
         return setUi((prev) => ({ ...prev, confirm: null }));
       }
@@ -4081,24 +4395,55 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
     },
     openComment: () => {
       if (visitor) return;
+      draftEpoch.current += 1;
       if (e) return setUi((prev) => ({ ...prev, comment: true }));
       render({ view: 'comment', error: '' });
     },
     cancelComment: () => {
+      draftEpoch.current += 1;
       if (!e) return render({ view: 'detail', commentDraft: '', error: '' });
       e.setText('');
       setUi((prev) => ({ ...prev, comment: false }));
     },
-    setCommentDraft: (commentDraft: string) =>
-      e ? e.setText(commentDraft) : setS((prev) => ({ ...prev, commentDraft })),
+    setCommentDraft: (commentDraft: string) => {
+      draftEpoch.current += 1;
+      return e ? e.setText(commentDraft) : setS((prev) => ({ ...prev, commentDraft }));
+    },
     submitComment: () => {
       const text = s.commentDraft.trim(),
-        notice = notices[s.noticeIndex];
-      if (visitor || !text || !notice) return;
+        // 서버 경로의 대상 id 는 라우트 detail — 목록 첫 페이지 밖의 공지에도 달 수 있다.
+        noticeId = serverBoard ? e?.detail : notices[s.noticeIndex]?.id;
+      if (visitor || !text || !noticeId) return;
       if (e) {
-        e.dispatch({ type: 'COMMENT', id: notice.id, text });
-        e.setText('');
-        return setUi((prev) => ({ ...prev, comment: false }));
+        if (!serverBoard) {
+          // 목업(review/demo) 경로 — 기존 로컬 dispatch 그대로.
+          e.dispatch({ type: 'COMMENT', id: noticeId, text });
+          e.setText('');
+          return setUi((prev) => ({ ...prev, comment: false }));
+        }
+        // 성공(쓰기 + 정본 재조회)해야 입력을 비우고 닫는다 — 실패하면 댓글 초안이 남는다.
+        // 입력창을 닫았다 열거나 내용이 한 글자라도 바뀌면 옛 작업의 비우기·닫기는 무효다 —
+        // e.text 는 공유 필드라 새 초안을 지울 수 있다. 같은 내용 중복 탭만 무시한다.
+        const intent = `${noticeId}${text}`;
+        if (commentInflight.current === intent) return;
+        const write = board.addComment(noticeId, text);
+        commentInflight.current = intent;
+        const op = routeGen.current;
+        const draftOp = draftEpoch.current;
+        write.then(
+          () => {
+            if (commentInflight.current === intent) commentInflight.current = null;
+            const now = liveE(op);
+            if (!now || draftEpoch.current !== draftOp) return;
+            now.setText('');
+            setUi((prev) => ({ ...prev, comment: false, error: '' }));
+          },
+          (err: unknown) => {
+            if (commentInflight.current === intent) commentInflight.current = null;
+            if (liveE(op)) setError(apiWriteMessage(err));
+          },
+        );
+        return;
       }
       setNotices(
         mockNotices.map((n, i) =>
@@ -4140,8 +4485,12 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       e.setBody(quest.type === 'phone' ? 'screen' : 'focus');
       e.setWindowStart(form.startTime);
       e.setWindowEnd(form.endTime);
+      // 목표 분은 routeKey effect 가 서버 목록에서 못 찾을 수 있으니 여기서도 채운다.
+      if (serverBoard) setUi((prev) => ({ ...prev, target: String(quest.target) }));
     },
     setQuestForm: (form: QuestForm, patch: Partial<QuestForm>) => {
+      // 저장 요청 후에 입력을 바꾸면 이전 성공 콜백이 새 초안을 닫지 못하게 한다.
+      draftEpoch.current += 1;
       if (!e)
         return setS((prev) => ({
           ...prev,
@@ -4166,16 +4515,58 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       const title = form.title.trim(),
         target = Number(form.target);
       if (e) {
-        e.dispatch({
-          type: 'QUEST_SAVE',
-          id: s.editing ? e.detail : undefined,
-          title,
-          kind: form.type === 'phone' ? 'screen' : 'focus',
-          target,
-          windowStart: clockText(form.startTime),
-          windowEnd: clockText(form.endTime),
-        });
-        return e.back();
+        if (!serverBoard) {
+          // 목업(review/demo) 경로 — 기존 로컬 dispatch 그대로.
+          e.dispatch({
+            type: 'QUEST_SAVE',
+            id: s.editing ? e.detail : undefined,
+            title,
+            kind: form.type === 'phone' ? 'screen' : 'focus',
+            target,
+            windowStart: clockText(form.startTime),
+            windowEnd: clockText(form.endTime),
+          });
+          return e.back();
+        }
+        // 서버 경로: PATCH 는 title/targetMinutes 만 받는다 — 종류·창·expectedVersion 을 섞으면 400.
+        // 성공(쓰기 + getBoard 재조회)해야 돌아간다 — 실패해도 초안은 그대로다.
+        const endText = clockText(form.endTime);
+        const intent = `${s.editing ? e.detail : ''}${title}|${target}|${form.type}|${form.startTime}|${form.endTime}`;
+        if (questInflight.current === intent) return;
+        const write =
+          s.editing && e.detail
+            ? board.updateQuest(
+                quests.find((quest) => quest.id === e.detail)?.questId ?? e.detail,
+                { title, targetMinutes: target },
+              )
+            : board.createQuest({
+                title,
+                type: form.type === 'phone' ? 'screen' : 'focus',
+                targetMinutes: target,
+                ...(form.type === 'focus'
+                  ? {
+                      windowStart: clockText(form.startTime),
+                      // 서버 HH:mm(LocalTime)은 24:00 을 표현하지 못한다 — 자정 종료는 23:59 로 내린다.
+                      windowEnd: endText === '24:00' ? '23:59' : endText,
+                      timezone: 'UTC',
+                    }
+                  : {}),
+              });
+        questInflight.current = intent;
+        const op = routeGen.current;
+        const draftOp = draftEpoch.current;
+        write.then(
+          () => {
+            if (questInflight.current === intent) questInflight.current = null;
+            const now = liveE(op);
+            if (now && draftEpoch.current === draftOp) now.back();
+          },
+          (err: unknown) => {
+            if (questInflight.current === intent) questInflight.current = null;
+            if (liveE(op)) setError(apiWriteMessage(err));
+          },
+        );
+        return;
       }
       const next: Quest =
         form.type === 'phone'
@@ -4194,6 +4585,30 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
       }
       setQuests([...mockQuests, next]);
       render({ view: 'list', questForm: null, error: '' });
+    },
+    // 개인 몫 수령 — 본문·지급량은 서버 판정이다. 성공하면 훅이 목록·지갑을 다시 읽고
+    // 여기서는 응답의 적립량을 알리기만 한다(로컬 재화 가산 없음).
+    claimQuest: (quest: QuestView) => {
+      if (!serverBoard || !quest.claimable || quest.claimed) return;
+      const item = board.quests.find((q) => q.occurrenceId === quest.id);
+      if (!item || claimInflight.current === item.occurrenceId) return;
+      claimInflight.current = item.occurrenceId;
+      const op = routeGen.current;
+      board.claimQuest(item).then(
+        (result) => {
+          if (claimInflight.current === item.occurrenceId) claimInflight.current = null;
+          if (!liveE(op)) return;
+          showToast?.(
+            result.bonusAdded > 0
+              ? `보상 ${result.villagePointsAdded}마리와 전원 달성 보너스 ${result.bonusAdded}마리가 섬에 쌓였어요`
+              : `보상 ${result.villagePointsAdded}마리가 섬에 쌓였어요`,
+          );
+        },
+        (err: unknown) => {
+          if (claimInflight.current === item.occurrenceId) claimInflight.current = null;
+          if (liveE(op)) setError(apiWriteMessage(err));
+        },
+      );
     },
     build: () => {
       if (!owner || blueprintView.state !== 'ready') return;
@@ -4256,7 +4671,20 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
         </View>
       </View>
       <View>
-        {notices.length ? (
+        {serverBoard && board.loading ? (
+          <Text style={muted({ marginTop: 4, marginBottom: 14 })}>불러오는 중…</Text>
+        ) : serverBoard && board.error ? (
+          <View>
+            <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+              {apiMessage(board.error, '불러오지 못했어요.')}
+            </Text>
+            <PaperAction
+              testID="board-notices-retry"
+              label="다시 시도"
+              onPress={() => board.retry().catch(() => {})}
+            />
+          </View>
+        ) : notices.length ? (
           notices.map((notice, i) => (
             <Pressable
               key={notice.id}
@@ -4298,7 +4726,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                     webOnly({ whiteSpace: 'nowrap' }),
                   ]}
                 >
-                  {`댓글 ${notice.comments.length} `}
+                  {`댓글 ${notice.commentCount ?? notice.comments.length} `}
                   <Text
                     style={{
                       fontSize: 19,
@@ -4316,12 +4744,50 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
         ) : (
           <Text style={muted({ marginTop: 4, marginBottom: 14 })}>아직 등록된 공지가 없어요.</Text>
         )}
+        {serverBoard && board.nextCursor !== null && (
+          <PaperAction
+            testID="board-notices-more"
+            label={board.loadingMore ? '불러오는 중…' : '더 보기'}
+            onPress={() => board.loadMore()}
+          />
+        )}
       </View>
     </View>
   );
 
   const noticeDetail = () => {
-    const notice = notices[s.noticeIndex];
+    // 서버 경로의 상세는 hook 의 detail 이 정본이다 — 목록 항목엔 본문·댓글이 없다.
+    const notice = serverBoard ? serverDetailView : notices[s.noticeIndex];
+    if (serverBoard && board.detailError)
+      return (
+        <View>
+          {detailHead(
+            <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
+          )}
+          <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+            {apiMessage(board.detailError, '불러오지 못했어요.')}
+          </Text>
+          <PaperAction
+            testID="board-notice-retry"
+            label="다시 시도"
+            onPress={() => board.select(e.detail).catch(() => {})}
+          />
+        </View>
+      );
+    if (serverBoard && !notice)
+      return (
+        <View>
+          {detailHead(
+            <PaperAction testID="board-notice-back" label="← 목록" onPress={nav.backToNotices} />,
+          )}
+          {/* 요청을 냈고 로딩도 끝났는데 detail 이 없으면 종결 — 삭제로 비워진 공지다. */}
+          <Text style={muted({ marginTop: 4 })}>
+            {board.detailLoading || !board.islandId || noticeAsked.current !== noticeDetailId
+              ? '불러오는 중…'
+              : '삭제됐거나 더 이상 볼 수 없는 공지예요.'}
+          </Text>
+        </View>
+      );
     if (!notice) return noticeList();
     const comments = notice.comments.map((comment, i) => [comment, i] as const);
     return (
@@ -4339,10 +4805,13 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
         >
           {notice.title}
         </Text>
-        <Text
-          style={[boardFont(11, 1.45, '400', '#8a7364', GOWUN), { marginBottom: 14 }]}
-        >{`작성일 · ${notice.time}`}</Text>
+        {notice.time !== '' && (
+          <Text
+            style={[boardFont(11, 1.45, '400', '#8a7364', GOWUN), { marginBottom: 14 }]}
+          >{`작성일 · ${notice.time}`}</Text>
+        )}
         <Text style={[body, { marginBottom: 14 }]}>{notice.body}</Text>
+        {formError}
         {owner && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 14 }}>
             <PaperAction testID="board-notice-edit" label="수정" onPress={nav.editNotice} />
@@ -4429,6 +4898,7 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                 },
               ]}
             />
+            {formError}
             <View style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
               <PaperAction
                 testID="board-comment-submit"
@@ -4462,7 +4932,8 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                   >
                     {text}
                   </Text>
-                  {!visitor && (owner || mine) && (
+                  {/* 댓글 삭제는 공개 API 에 없다 — 서버 경로에서는 버튼을 숨긴다 */}
+                  {!visitor && !serverBoard && (owner || mine) && (
                     <View style={{ flexDirection: 'row', marginTop: 5 }}>
                       <Link
                         testID={`board-comment-delete-${commentIndex}`}
@@ -4480,6 +4951,13 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
             <Text style={muted({ marginTop: 4, marginBottom: 14 })}>
               {visitor ? '아직 댓글이 없어요.' : '첫 댓글을 남겨보세요.'}
             </Text>
+          )}
+          {serverBoard && board.detail?.nextCommentsCursor !== null && board.detail && (
+            <PaperAction
+              testID="board-comments-more"
+              label={board.loadingMoreComments ? '불러오는 중…' : '댓글 더 보기'}
+              onPress={() => board.loadMoreComments()}
+            />
           )}
         </View>
       </View>
@@ -4584,17 +5062,33 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
     />
   );
 
+  // 서버가 내려주는 수령 불가 사유 — 값을 만들지 않고 알려진 코드만 번역한다.
+  const questBlockedText = (reason: string | null | undefined) =>
+    reason === 'NOT_ACHIEVED'
+      ? '목표를 채우면 보상을 받을 수 있어요.'
+      : reason === 'MEASUREMENT_PENDING'
+        ? '측정이 끝나야 보상을 받을 수 있어요.'
+        : reason
+          ? '지금은 보상을 받을 수 없어요.'
+          : '';
+
   const questContent = (listOnly = false) => {
     if (!listOnly && s.view === 'detail') {
       const quest = quests[s.questIndex] ?? quests[0];
       if (!quest) return questContent(true);
+      // 서버 경로의 상세 본문은 progress GET 이 정본이다 — 목록 항목엔 주민 목록이 없다.
+      const progress = serverBoard
+        ? board.questDetail?.occurrenceId === quest.id
+          ? board.questDetail
+          : null
+        : null;
       return (
         <>
           {detailHead(
             <PaperAction testID="board-quest-back" label="← 목록" onPress={nav.backToQuests} />,
           )}
           <Text style={[h4, { marginTop: 4, marginRight: 34, marginBottom: 4 }]}>
-            {quest.title}
+            {progress?.title ?? quest.title}
           </Text>
           <Text style={[boardFont(13, 1.55, '400', '#786151', GOWUN), { marginBottom: 12 }]}>
             {quest.type === 'phone'
@@ -4612,43 +5106,86 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
               />
             </View>
           )}
-          <Text style={[boardFont(13, 1.65, '400', '#786151'), { marginBottom: 4 }]}>
-            주민별 달성률
-          </Text>
-          <View>
-            {residentsOf(quest).map(({ id, name, color, rate }) => {
-              const unknown = rate == null;
-              return (
-                <View
-                  key={id}
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 9,
-                    minHeight: 62,
-                    paddingVertical: 9,
-                    paddingHorizontal: 2,
-                    borderBottomWidth: 1,
-                    borderColor: '#b9965866',
-                    borderStyle: 'dashed',
-                  }}
-                >
-                  <Picture
-                    source={interiorArt.avatars[color]}
-                    label={`${name} 고양이 프로필`}
-                    style={{ width: 42, height: 42 }}
-                  />
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <Text style={boardFont(14, 1.6, '700')}>{name}</Text>
-                    {!unknown && <Track rate={rate} color="#91b67e" style={{ marginTop: 7 }} />}
-                  </View>
-                  <Text style={[boardFont(14, 1.6, '700'), { width: unknown ? 52 : 42 }]}>
-                    {unknown ? '측정 전' : `${rate}%`}
-                  </Text>
+          {serverBoard && board.questDetailError ? (
+            <View>
+              <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+                {apiMessage(board.questDetailError, '불러오지 못했어요.')}
+              </Text>
+              <PaperAction
+                testID="board-quest-detail-retry"
+                label="다시 시도"
+                onPress={() => board.selectQuest(quest.id).catch(() => {})}
+              />
+            </View>
+          ) : serverBoard && !progress ? (
+            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>불러오는 중…</Text>
+          ) : (
+            <>
+              <Text style={[boardFont(13, 1.65, '400', '#786151'), { marginBottom: 4 }]}>
+                주민별 달성률
+              </Text>
+              <View>
+                {residentsOf(quest).map(({ id, name, color, rate, achieved, claimed }) => {
+                  const unknown = rate == null;
+                  return (
+                    <View
+                      key={id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 9,
+                        minHeight: 62,
+                        paddingVertical: 9,
+                        paddingHorizontal: 2,
+                        borderBottomWidth: 1,
+                        borderColor: '#b9965866',
+                        borderStyle: 'dashed',
+                      }}
+                    >
+                      <Picture
+                        source={interiorArt.avatars[color]}
+                        label={`${name} 고양이 프로필`}
+                        style={{ width: 42, height: 42 }}
+                      />
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={boardFont(14, 1.6, '700')}>
+                          {name}
+                          {claimed ? ' · 수령 완료' : achieved ? ' · 달성' : ''}
+                        </Text>
+                        {!unknown && <Track rate={rate} color="#91b67e" style={{ marginTop: 7 }} />}
+                      </View>
+                      <Text style={[boardFont(14, 1.6, '700'), { width: unknown ? 52 : 42 }]}>
+                        {unknown ? '측정 전' : `${rate}%`}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+              {/* 개인 몫 수령은 받기 버튼으로만 — 전원 보너스는 서버가 자동 적립한 값을 보여 준다 */}
+              {serverBoard && (
+                <View style={{ marginTop: 12, gap: 6 }}>
+                  {quest.claimed ? (
+                    <Text style={muted({})}>내 몫은 이미 받았어요.</Text>
+                  ) : quest.claimable ? (
+                    <BoardPill
+                      testID="board-quest-claim"
+                      label={`보상 받기${quest.rewardAmount != null ? ` · ${quest.rewardAmount}마리` : ''}`}
+                      primary
+                      onPress={() => nav.claimQuest(quest)}
+                    />
+                  ) : quest.claimBlockedReason ? (
+                    <Text style={muted({})}>{questBlockedText(quest.claimBlockedReason)}</Text>
+                  ) : null}
+                  {quest.bonusGranted && !!quest.bonusAmount && (
+                    <Text style={muted({})}>
+                      모두 달성 보너스 {quest.bonusAmount}마리가 섬에 쌓였어요.
+                    </Text>
+                  )}
+                  {formError}
                 </View>
-              );
-            })}
-          </View>
+              )}
+            </>
+          )}
         </>
       );
     }
@@ -4661,6 +5198,8 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
         target: '50',
       };
       const setForm = (patch: Partial<QuestForm>) => nav.setQuestForm(form, patch);
+      // 서버 PATCH 는 title/targetMinutes 만 받는다 — 수정할 때 종류·창은 읽기 전용으로 보여 준다.
+      const serverEdit = serverBoard && s.editing;
       return (
         <>
           {questBack}
@@ -4669,7 +5208,13 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
           </Text>
           <View style={{ gap: 12 }}>
             <BoardField label="퀘스트 종류">
-              <QuestTypeChoice value={form.type} onChange={(type) => setForm({ type })} />
+              {serverEdit ? (
+                <Text style={[inputStyle(), { paddingTop: 13 }]}>
+                  {form.type === 'phone' ? '하루 폰 사용' : '시간대 집중'}
+                </Text>
+              ) : (
+                <QuestTypeChoice value={form.type} onChange={(type) => setForm({ type })} />
+              )}
             </BoardField>
             <BoardField label="퀘스트 제목">
               <TextInput
@@ -4682,78 +5227,91 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
                 style={inputStyle()}
               />
             </BoardField>
-            {form.type === 'focus' && (
+            {form.type === 'focus' && serverEdit ? (
               <BoardField label="진행 시간">
-                <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>시작</Text>
-                    <QuestTimeInput
-                      testID="board-quest-start"
-                      label="시작 시간"
-                      value={form.startTime}
-                      onChange={(startTime) => setForm({ startTime })}
-                    />
-                  </View>
-                  <Text
-                    style={[boardFont(16, 1.4, '400', '#786151', GOWUN), { paddingBottom: 10 }]}
-                  >
-                    →
-                  </Text>
-                  <View style={{ flex: 1, gap: 4 }}>
-                    <View
-                      style={{
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                      }}
-                    >
-                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
-                      {/* 웹 시간 입력은 24:00을 받지 못해 자정까지는 따로 고른다. 라벨 줄 높이 안에 둔다 */}
-                      <Pressable
-                        testID="board-quest-midnight"
-                        accessibilityRole="checkbox"
-                        accessibilityLabel="자정(24:00)까지"
-                        aria-checked={form.endTime === '24:00'}
-                        hitSlop={14}
-                        onPress={() =>
-                          setForm({ endTime: form.endTime === '24:00' ? '' : '24:00' })
-                        }
-                      >
-                        <Text
-                          style={[
-                            boardFont(
-                              11,
-                              1.4,
-                              form.endTime === '24:00' ? '700' : '400',
-                              form.endTime === '24:00' ? INK : '#786151',
-                              GOWUN,
-                            ),
-                            { textDecorationLine: 'underline' },
-                          ]}
-                        >
-                          {form.endTime === '24:00' ? '자정까지 ✓' : '자정까지'}
-                        </Text>
-                      </Pressable>
-                    </View>
-                    {form.endTime === '24:00' ? (
-                      <View
-                        testID="board-quest-end"
-                        accessibilityLabel="종료 시간 24:00"
-                        style={[inputStyle(), { justifyContent: 'center' }]}
-                      >
-                        <Text style={boardFont(14, 1.5, '400', INK, GOWUN)}>24:00</Text>
-                      </View>
-                    ) : (
-                      <QuestTimeInput
-                        testID="board-quest-end"
-                        label="종료 시간"
-                        value={form.endTime}
-                        onChange={(endTime) => setForm({ endTime })}
-                      />
-                    )}
-                  </View>
-                </View>
+                <Text style={[inputStyle(), { paddingTop: 13 }]}>
+                  {form.startTime}–{form.endTime}
+                </Text>
               </BoardField>
+            ) : (
+              form.type === 'focus' && (
+                <BoardField label="진행 시간">
+                  <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 8 }}>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>시작</Text>
+                      <QuestTimeInput
+                        testID="board-quest-start"
+                        label="시작 시간"
+                        value={form.startTime}
+                        onChange={(startTime) => setForm({ startTime })}
+                      />
+                    </View>
+                    <Text
+                      style={[boardFont(16, 1.4, '400', '#786151', GOWUN), { paddingBottom: 10 }]}
+                    >
+                      →
+                    </Text>
+                    <View style={{ flex: 1, gap: 4 }}>
+                      <View
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                        }}
+                      >
+                        <Text style={boardFont(12, 1.4, '400', '#786151', GOWUN)}>종료</Text>
+                        {/* 웹 시간 입력은 24:00을 받지 못해 자정까지는 따로 고른다. 라벨 줄 높이 안에 둔다 */}
+                        <Pressable
+                          testID="board-quest-midnight"
+                          accessibilityRole="checkbox"
+                          accessibilityLabel="자정(24:00)까지"
+                          aria-checked={form.endTime === '24:00'}
+                          hitSlop={14}
+                          onPress={() =>
+                            setForm({ endTime: form.endTime === '24:00' ? '' : '24:00' })
+                          }
+                        >
+                          <Text
+                            style={[
+                              boardFont(
+                                11,
+                                1.4,
+                                form.endTime === '24:00' ? '700' : '400',
+                                form.endTime === '24:00' ? INK : '#786151',
+                                GOWUN,
+                              ),
+                              { textDecorationLine: 'underline' },
+                            ]}
+                          >
+                            {form.endTime === '24:00' ? '자정까지 ✓' : '자정까지'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                      {form.endTime === '24:00' ? (
+                        <View
+                          testID="board-quest-end"
+                          accessibilityLabel="종료 시간 24:00"
+                          style={[inputStyle(), { justifyContent: 'center' }]}
+                        >
+                          <Text style={boardFont(14, 1.5, '400', INK, GOWUN)}>24:00</Text>
+                        </View>
+                      ) : (
+                        <QuestTimeInput
+                          testID="board-quest-end"
+                          label="종료 시간"
+                          value={form.endTime}
+                          onChange={(endTime) => setForm({ endTime })}
+                        />
+                      )}
+                    </View>
+                  </View>
+                </BoardField>
+              )
+            )}
+            {serverEdit && (
+              <Text style={muted({ marginTop: -2 })}>
+                종류·진행 시간은 바꿀 수 없어요. 수정은 다음 회차부터 적용돼요.
+              </Text>
             )}
             <BoardField
               label={form.type === 'focus' ? '목표 집중 시간 · 분' : '하루 폰 사용 상한 · 분'}
@@ -4820,7 +5378,20 @@ function Board({ concept, width, height, reduceMotion, e, sceneHeight = height }
           key={e ? routeKey : s.serial}
           style={[{ paddingHorizontal: 2 }, webOnly({ perspective: 700 })]}
         >
-          {quests.length ? (
+          {serverBoard && board.loading ? (
+            <Text style={muted({ marginTop: 4, marginBottom: 14 })}>불러오는 중…</Text>
+          ) : serverBoard && board.error ? (
+            <View>
+              <Text style={muted({ marginTop: 4, marginBottom: 8 })}>
+                {apiMessage(board.error, '불러오지 못했어요.')}
+              </Text>
+              <PaperAction
+                testID="board-quests-retry"
+                label="다시 시도"
+                onPress={() => board.retry().catch(() => {})}
+              />
+            </View>
+          ) : quests.length ? (
             quests.map((quest, i) => (
               <QuestCard
                 key={quest.id}

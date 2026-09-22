@@ -16,6 +16,7 @@ import {
   BackHandler,
   Platform,
   ActivityIndicator,
+  AppState,
   KeyboardAvoidingView,
   Share,
   AccessibilityInfo,
@@ -25,6 +26,9 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
+import { screenTime, selectionCount } from '@/services/screenTime';
+import { syncAndroidScreenTime } from '@/services/screentimeSync';
+import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -78,10 +82,21 @@ import {
   Building,
   Quest,
   Member,
+  dayKey,
 } from '@/services/model';
-import { checkSession, logout } from '@/services/api/auth';
-import { restoreSession, setSessionLostHandler } from '@/services/api/session';
-import { restoredRoute } from '@/services/restore';
+import { checkSession, logout, type Provider } from '@/services/api/auth';
+import { ApiError } from '@/services/api/client';
+import {
+  getSession,
+  restoreSession,
+  setSessionLostHandler,
+  sessionGeneration,
+  subscribeSession,
+} from '@/services/api/session';
+import { createIslandCommands } from '@/services/islandCommands';
+import { createSessionCommands } from '@/services/sessionCommands';
+import { decideBootRoute } from '@/services/islandBoot';
+import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 const REVIEW =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
@@ -93,6 +108,14 @@ const DEMO =
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
 const TESTFLIGHT_ALL_BUILDINGS = true;
 const STORAGE = 'gromo-r61-user-v2';
+// 회원 전환(GROMO-2005)의 POST /auth/sessions 필수 필드. 서버가 수용 버전 목록을 비워 두는 동안
+// (정책 Q05 미정) 형식만 검사한다 — 버전 표가 정해지면 이 상수만 바꾼다.
+const TERMS_VERSION = '2026-09';
+const PROVIDER_LABEL: Record<Provider, string> = {
+  apple: 'Apple로 계속하기',
+  google: 'Google로 계속하기',
+  kakao: 'Kakao로 계속하기',
+};
 const titles: Record<Route, string> = {
   login: 'GROMO',
   character: '내 고양이',
@@ -129,6 +152,7 @@ const titles: Record<Route, string> = {
   product: '상품 상세',
   orders: '구매 내역',
   boat: '내 배',
+  mainIsland: '내 메인 섬 변경하기',
   profile: '내 정보',
   settings: '앱 설정',
   wardrobe: '내 꾸미기',
@@ -144,6 +168,7 @@ const titles: Record<Route, string> = {
   focusTravel: '낚시섬으로',
   returnTravel: '우리 섬으로',
   permission: '측정 권한',
+  screenTimeApps: '측정 앱',
   demo: '목업 체험 도구',
 };
 function Bubble({ text, mine }: { text: string; mine: boolean }) {
@@ -191,6 +216,9 @@ function Gromo() {
   const insets = useScreenInsets();
   const [state, dispatch] = useReducer(reducer, undefined, () => initialState(DEMO));
   const [loaded, setLoaded] = useState(false),
+    // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
+    [islandBootError, setIslandBootError] = useState(false),
+    [hasServerSession, setHasServerSession] = useState(() => getSession() !== null),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
     [history, setHistory] = useState<
       {
@@ -221,6 +249,11 @@ function Gromo() {
       ok?: string;
       destructive?: boolean;
     } | null>(null),
+    // 회원 전환(GROMO-2005) — 게이트 거절(403 SOCIAL_LOGIN_REQUIRED)이 여는 공통 시트.
+    // busy 는 진행 중인 제공자, error 는 시트 안에 보여 줄 마지막 실패다.
+    [convUi, setConvUi] = useState<{ busy: Provider | null; error: string | null } | null>(null),
+    // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
+    [switchAsk, setSwitchAsk] = useState(false),
     [visited, setVisited] = useState('strawberry'),
     [guideStep, setGuideStep] = useState(0),
     [previewAudio, setPreviewAudio] = useState(false),
@@ -234,7 +267,8 @@ function Gromo() {
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     mailRef = useRef<FlatList>(null),
     // 화면이 뒤로가기를 먼저 처리하면(true) 아래 기본 동작을 건너뛴다(낚시섬 걷기·항해·모달·결과 흐름)
-    backOverride = useRef<(() => boolean) | null>(null);
+    backOverride = useRef<(() => boolean) | null>(null),
+    switchResolve = useRef<((ok: boolean) => void) | null>(null);
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -252,16 +286,22 @@ function Gromo() {
     toastTimer.current = setTimeout(() => setToast(''), 2400);
   };
   const go = (r: Route, id = '') => {
+    const gateBoard = shouldGateScreenTimeBoard(r, {
+      isIOS: Platform.OS === 'ios',
+      promptSeen: !!state.settings.screenTimeBoardPromptSeen,
+    });
+    const nextRoute: Route = gateBoard ? 'permission' : r;
+    const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
     if (r === 'rest') setRestTravel(route === 'focus');
     if (r === 'home' || route === 'home') setWalkRequest(null);
     if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
-    setDetail(id);
+    setDetail(nextDetail);
     setTab('');
     setText('');
     setBody('');
     setSearch('');
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
-    setRoute(r);
+    setRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
   const replace = (r: Route, id = '') => {
@@ -288,15 +328,11 @@ function Gromo() {
     }
     if (backOverride.current?.()) return;
     if (route === 'focus' && state.session) {
-      confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => {
-        dispatch({ type: 'FINISH' });
-        reset('focusResult');
-      });
+      confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => finishSession());
       return;
     }
     if (route === 'rest' && state.session) {
-      dispatch({ type: 'RESUME' });
-      setRoute('focus');
+      resumeSession();
       return;
     }
     if (history.length) {
@@ -320,9 +356,141 @@ function Gromo() {
     action: () => void,
     opts: { ok?: string; destructive?: boolean } = {},
   ) => setModal({ title, text: txt, action, ...opts });
+  // ── 섬 서버 명령(GROMO-2006) ──
+  // 오케스트레이션은 services/islandCommands.ts — 멱등 키·초대 token은 거기 세대 격리
+  // 저장소에만 둔다(State/AsyncStorage 저장 금지). 매 렌더의 최신 함수·state는 ref로 넘긴다.
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const goRef = useRef(go);
+  goRef.current = go;
+  const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
+  islandCmds.current ??= createIslandCommands({
+    dispatch,
+    go: (r, id) => goRef.current(r as Route, id),
+    getSnap: () => stateRef.current?.serverIslands,
+    setBootError: setIslandBootError,
+  });
+  const islands = islandCmds.current.commands,
+    syncIslands = islandCmds.current.syncIslands;
+  // ── 집중 세션 서버 명령(GROMO-2009) ──
+  // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
+  const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);
+  focusCmds.current ??= createSessionCommands({
+    dispatch,
+    getSession: () => stateRef.current?.session ?? null,
+    getSnap: () => stateRef.current?.serverIslands,
+  });
+  const focus = focusCmds.current.commands;
+  // 서버 세션(버전 있음)이면 명령이 정본 — 없으면 목업 로컬 reducer 경로다.
+  const serverSession = () => hasServerSession && stateRef.current?.session?.version != null;
+  const finishSession = () => {
+    if (!serverSession()) {
+      dispatch({ type: 'FINISH' });
+      reset('focusResult');
+      return;
+    }
+    focus
+      .finish()
+      .then(() => reset('focusResult'))
+      .catch((error) => notify(error instanceof Error ? error.message : '집중을 마치지 못했어요.'));
+  };
+  const resumeSession = () => {
+    if (!serverSession()) {
+      dispatch({ type: 'RESUME' });
+      setRoute('focus');
+      return;
+    }
+    focus
+      .resume()
+      .then(() => setRoute('focus'))
+      .catch((error) =>
+        notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.'),
+      );
+  };
+  // ── 회원 전환(GROMO-2005) ──
+  // 오케스트레이션은 services/memberConversion.ts — 친구·편지·구매의 403 SOCIAL_LOGIN_REQUIRED 를
+  // 받은 호출부가 e.conversion.offer(error) 로 시트를 연다. 진행 중인 대기 확인은 취소로 정리한다.
+  const settleSwitch = (ok: boolean) => {
+    setSwitchAsk(false);
+    switchResolve.current?.(ok);
+    switchResolve.current = null;
+  };
+  const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
+  conversionRef.current ??= createMemberConversion({
+    termsVersion: TERMS_VERSION,
+    openPrompt: () => setConvUi({ busy: null, error: null }),
+    confirmSwitch: () =>
+      new Promise<boolean>((resolve) => {
+        switchResolve.current = resolve;
+        setSwitchAsk(true);
+      }),
+    adopt: (result, previousUserId) =>
+      adoptSignedInAccount(result, previousUserId, {
+        resetLocal: async () => {
+          // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
+          // settings 만 기기 귀속(정책 A15)이라 보존한다.
+          await AsyncStorage.removeItem(STORAGE).catch(() => {});
+          dispatch({
+            type: 'LOAD',
+            state: { ...initialState(DEMO), settings: stateRef.current.settings },
+            now: Date.now(),
+          });
+        },
+        applyAccount: (account) => {
+          dispatch({ type: 'LOGIN' });
+          if (account.name || account.catColor)
+            dispatch({
+              type: 'PROFILE',
+              name: account.name ?? undefined,
+              color: account.catColor ?? undefined,
+            });
+        },
+        navigate: async (account) => {
+          // 부팅과 같은 판정 — 새 계정의 /me/islands 를 다시 조회해 화면을 고른다. 세대가
+          // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
+          const gen = sessionGeneration();
+          const next = await decideBootRoute({
+            saved: null,
+            account,
+            rejected: false,
+            serverMode: true,
+            bootGen: gen,
+            generation: sessionGeneration,
+            syncIslands,
+            onBootError: setIslandBootError,
+          });
+          if (next && sessionGeneration() === gen) reset(next);
+        },
+      }),
+  });
+  const memberConversion = conversionRef.current;
+  // 소셜 제공자 SDK(Apple·Google·Kakao) 연결은 별도 티켓 — 연결 전까진 명시 오류로 끝낸다.
+  // ponytail: 여기서 성공을 지어내면 승격·충돌 계약 검증이 불가능하다. SDK 도착 시 이 함수만 교체.
+  const getCredential = async (_provider: Provider): Promise<string> => {
+    throw new ApiError('CLIENT_PROVIDER_UNAVAILABLE', '소셜 로그인 연결을 준비 중이에요.', 0);
+  };
+  const pickProvider = async (provider: Provider) => {
+    setConvUi((c) => (c ? { ...c, busy: provider, error: null } : c));
+    try {
+      const credential = await getCredential(provider);
+      const outcome = await memberConversion.convert(provider, credential);
+      if (outcome === 'converted') {
+        setConvUi(null);
+        notify('회원으로 전환했어요.');
+      } else setConvUi((c) => (c ? { ...c, busy: null } : c)); // 취소 — 시트로 돌아간다
+    } catch (thrown) {
+      const message =
+        thrown instanceof ApiError ? thrown.message : '문제가 생겼어요. 다시 시도해 주세요.';
+      setConvUi((c) => (c ? { ...c, busy: null, error: message } : c));
+    }
+  };
+  useEffect(() => subscribeSession((session) => setHasServerSession(session !== null)), []);
   // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
     setSessionLostHandler(() => {
+      // 전환 시트·충돌 확인이 열려 있으면 취소로 정리한다 — 떠난 세션의 확인을 뒤에 승인하면 안 된다.
+      setConvUi(null);
+      settleSwitch(false);
       dispatch({ type: 'LOGOUT' });
       reset('login');
     });
@@ -359,10 +527,29 @@ function Gromo() {
         // 끝나 account 가 null 이 되고, restoredRoute 가 `!saved.loggedIn` 을 보고 멀쩡한 세션을
         // 두고 로그인 화면을 고른다.
         if (account) dispatch({ type: 'LOGIN' });
-        // 세션만 있고 로컬 저장본이 없는 경우(iOS 재설치 — 키체인은 남고 AsyncStorage 만 사라진다)도
-        // 같은 판정을 쓴다. 이때 앱 상태는 초기값이라 가입한 섬이 없다 — 서버 온보딩이 끝났다고
-        // 홈으로 보내면 홈이 막히므로 섬 선택부터다(restoredRoute 의 `!saved.onboarded` 가지).
-        if (loadable || account) setRoute(restoredRoute(loadable ?? {}, account, rejected));
+        // 세션이 유효하면 섬 소속·대기 신청도 서버 정본으로 맞춘다(GROMO-2006). 실패·모순 응답은
+        // 로컬 저장본으로 home에 들어가지 않고 chooseIsland의 명시 오류+재시도로 보낸다.
+        // 부팅 인증 세대는 checkSession 결과 직후 포획한다 — 동기화 도중 401이 나면 세션 상실
+        // 핸들러가 login으로 돌리고 세대가 올라가므로, stale account로 route를 덮어쓰지 않는다.
+        const bootGen = sessionGeneration();
+        const bootRoute = await decideBootRoute({
+          saved: loadable,
+          account,
+          rejected,
+          serverMode: !!(account && !mock),
+          bootGen,
+          generation: sessionGeneration,
+          syncIslands,
+          onBootError: setIslandBootError,
+        });
+        // decideBootRoute 반환과 적용 사이도 await 경계다 — 그 사이 세대가 죽었으면 쓰지 않는다
+        if (bootRoute && sessionGeneration() === bootGen) setRoute(bootRoute);
+        // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
+        // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
+        if (account && !mock && sessionGeneration() === bootGen) {
+          const recovered = await focusCmds.current!.commands.recover().catch(() => null);
+          if (recovered && sessionGeneration() === bootGen) setRoute(recovered);
+        }
       })
       .catch(() => notify('저장된 상태를 불러오지 못했어요.'))
       .finally(() => setLoaded(true));
@@ -421,6 +608,108 @@ function Gromo() {
       if (v) dispatch({ type: 'SETTING', key: 'reduceMotion', value: true });
     });
   }, []);
+  useEffect(() => {
+    if (!loaded) return;
+    let active = true;
+    let request = 0;
+    const syncPermission = async () => {
+      if (Platform.OS === 'android') {
+        const current = ++request;
+        const generation = sessionGeneration();
+        dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
+        try {
+          const snapshot = await syncAndroidScreenTime();
+          if (active && current === request && generation === sessionGeneration())
+            dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
+        } catch {
+          const status = await screenTime.getAuthorizationStatus().catch(() => 'unavailable');
+          if (active && current === request && generation === sessionGeneration())
+            dispatch({
+              type: 'SCREEN_TIME_SNAPSHOT',
+              snapshot: {
+                approved: status === 'approved',
+                date: dayKey(),
+                minutes: null,
+                history: [],
+                unconfirmedDays: [],
+              },
+              now: Date.now(),
+            });
+        }
+        return;
+      }
+      if (Platform.OS !== 'ios') {
+        if (!REVIEW && !DEMO) {
+          dispatch({ type: 'SETTING', key: 'permission', value: false });
+          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+        }
+        dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+        return;
+      }
+      dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
+      try {
+        const status = await screenTime.getAuthorizationStatus();
+        const approved = status === 'approved';
+        dispatch({ type: 'SETTING', key: 'permission', value: approved });
+        if (!approved) {
+          dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: false });
+          const unconfirmedDays = await screenTime
+            .markCurrentUsageBucketUnconfirmed()
+            .catch(() => []);
+          dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+          return;
+        }
+        await screenTime.promotePendingSelectionIfDue().catch(() => false);
+        const selection = await screenTime.getMeasurementSelectionCounts();
+        const measurementReady = selectionCount(selection) > 0;
+        dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: measurementReady });
+        if (!measurementReady) {
+          dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+          return;
+        }
+        const [minutes, history, unconfirmedDays] = await Promise.all([
+          screenTime.getTodayUsageBucketMinutes(),
+          screenTime.getUsageBucketHistory(),
+          screenTime.getUnconfirmedUsageBucketDays(),
+        ]);
+        dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+        dispatch({ type: 'SCREEN_TIME_HISTORY', buckets: history, now: Date.now() });
+        dispatch({ type: 'SCREEN_TIME', value: minutes });
+      } catch {}
+    };
+    void syncPermission();
+    let syncedDay = dayKey();
+    const dayChangeTimer = setInterval(() => {
+      const currentDay = dayKey();
+      if (currentDay === syncedDay) return;
+      syncedDay = currentDay;
+      void syncPermission();
+    }, 1000);
+    const usageTimer =
+      Platform.OS === 'android'
+        ? setInterval(() => {
+            if (AppState.currentState === 'active') void syncPermission();
+          }, 60000)
+        : undefined;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') void syncPermission();
+    });
+    return () => {
+      active = false;
+      request++;
+      clearInterval(usageTimer);
+      clearInterval(dayChangeTimer);
+      subscription.remove();
+    };
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded || Platform.OS !== 'ios') return;
+    if (state.session?.status === 'active') {
+      screenTime.startFocusShield(state.session.subject).catch(() => {});
+    } else {
+      screenTime.stopFocusShield().catch(() => {});
+    }
+  }, [loaded, state.session?.id, state.session?.status, state.session?.subject]);
   useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();
@@ -616,6 +905,12 @@ function Gromo() {
           setWindowEnd,
           failNext,
           setFailNext,
+          // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
+          islands: REVIEW || DEMO || !hasServerSession ? undefined : islands,
+          focus: REVIEW || DEMO || !hasServerSession ? undefined : focus,
+          islandBootError,
+          // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
+          conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
         }}
       />
     );
@@ -746,6 +1041,158 @@ function Gromo() {
                       setModal(null);
                       action?.();
                     }}
+                  />
+                </View>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        )}
+        {/* 회원 전환 시트(GROMO-2005) — 게스트의 제한 행동이 게이트에 막혔을 때 여는 공통 진입점 */}
+        {convUi && (
+          <Modal
+            visible={true}
+            transparent
+            animationType={state.settings.reduceMotion ? 'none' : 'fade'}
+            onRequestClose={() => !convUi.busy && setConvUi(null)}
+          >
+            <Pressable
+              accessible={false}
+              onPress={() => !convUi.busy && setConvUi(null)}
+              style={{
+                flex: 1,
+                backgroundColor: '#493B3966',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 24,
+              }}
+            >
+              <Pressable
+                accessible={false}
+                onPress={() => {}}
+                style={[
+                  S.card,
+                  {
+                    gap: 10,
+                    width: layout.compact
+                      ? 400
+                      : layout.tablet
+                        ? layout.modalWidth
+                        : layout.width - 48,
+                    maxHeight: layout.height - layout.insets.top - layout.insets.bottom - 40,
+                    borderWidth: 2,
+                    borderRadius: 22,
+                    paddingTop: 22,
+                    paddingHorizontal: 20,
+                    paddingBottom: 18,
+                    boxShadow: '0px 6px 0px ' + C.brown,
+                  },
+                ]}
+              >
+                <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
+                  소셜 계정으로 계속하기
+                </NativeText>
+                <NativeText
+                  lineBreakStrategyIOS="hangul-word"
+                  style={[
+                    { color: C.muted },
+                    Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
+                  ]}
+                >
+                  친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.
+                  {'\n'}지금 고양이와 섬은 그대로 이어져요.
+                </NativeText>
+                {(['apple', 'google', 'kakao'] as const).map((provider) => (
+                  <NativeButton
+                    key={provider}
+                    dialog
+                    title={convUi.busy === provider ? '연결하는 중…' : PROVIDER_LABEL[provider]}
+                    kind="sec"
+                    disabled={!!convUi.busy}
+                    onPress={() => void pickProvider(provider)}
+                  />
+                ))}
+                {!!convUi.error && (
+                  <NativeText style={{ color: C.danger, textAlign: 'center' }}>
+                    {convUi.error}
+                  </NativeText>
+                )}
+                <NativeButton
+                  dialog
+                  title="나중에"
+                  kind="glass"
+                  disabled={!!convUi.busy}
+                  onPress={() => setConvUi(null)}
+                />
+              </Pressable>
+            </Pressable>
+          </Modal>
+        )}
+        {/* 기존 계정 충돌 확인(409) — 승인하면 게스트 데이터를 폐기하고 그 계정으로 전환한다 */}
+        {switchAsk && (
+          <Modal
+            visible={true}
+            transparent
+            animationType={state.settings.reduceMotion ? 'none' : 'fade'}
+            onRequestClose={() => settleSwitch(false)}
+          >
+            <Pressable
+              accessible={false}
+              onPress={() => settleSwitch(false)}
+              style={{
+                flex: 1,
+                backgroundColor: '#493B3966',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 24,
+              }}
+            >
+              <Pressable
+                accessible={false}
+                onPress={() => {}}
+                style={[
+                  S.card,
+                  {
+                    gap: 10,
+                    width: layout.compact
+                      ? 400
+                      : layout.tablet
+                        ? layout.modalWidth
+                        : layout.width - 48,
+                    maxHeight: layout.height - layout.insets.top - layout.insets.bottom - 40,
+                    borderWidth: 2,
+                    borderRadius: 22,
+                    paddingTop: 22,
+                    paddingHorizontal: 20,
+                    paddingBottom: 18,
+                    boxShadow: '0px 6px 0px ' + C.brown,
+                  },
+                ]}
+              >
+                <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
+                  이미 연결된 계정이 있어요
+                </NativeText>
+                <NativeText
+                  lineBreakStrategyIOS="hangul-word"
+                  style={[
+                    { color: C.muted },
+                    Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
+                  ]}
+                >
+                  이 소셜 계정은 다른 GROMO 계정에 연결돼 있어요. 기존 계정으로 전환하면 지금
+                  게스트의 고양이·섬·기록은 삭제되고 되돌릴 수 없어요. 전환할까요?
+                </NativeText>
+                <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
+                  <NativeButton
+                    dialog
+                    title="취소"
+                    kind="glass"
+                    onPress={() => settleSwitch(false)}
+                  />
+                  <NativeButton
+                    dialog
+                    title="전환하기"
+                    kind="destructive"
+                    onPress={() => settleSwitch(true)}
                   />
                 </View>
               </Pressable>

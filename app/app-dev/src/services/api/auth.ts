@@ -43,6 +43,12 @@ export interface LoginOptions {
    * 처리한다. 동봉한 AT 가 무효면 401 이고 익명 로그인으로 강등되지 않으므로 기본값은 false 다.
    */
   attachCurrentSession?: boolean;
+  /**
+   * 409 `SOCIAL_ACCOUNT_ALREADY_LINKED` 충돌 확인의 확정 신호(계정 LLD §2.1 ②, GROMO-1994).
+   * **새 attemptId** 와 함께 보낸다 — 이 요청엔 현재 AT 를 싣지 않는다(전환으로 폐기된 게스트
+   * 세션을 실으면 서버가 401 로 거절한다).
+   */
+  accountSwitchConfirmed?: boolean;
 }
 
 export interface LoginResult {
@@ -53,11 +59,13 @@ export interface LoginResult {
   onboardingComplete: boolean;
 }
 
-/** `GET /me` 의 data. `name`·`catColor` 는 온보딩 전 null 이다. */
+/** `GET /me` 의 data. `name`·`catColor`·`mainIslandId` 는 온보딩 전·무소속이면 null 이다. */
 export interface Account {
   id: string;
   name: string | null;
   catColor: string | null;
+  /** 프로필 메인 섬(GROMO-1971). `/me/islands.currentIslandId`(현재 접속 섬)와 다른 축이라 서로 갱신하지 않는다. */
+  mainIslandId: string | null;
   linkedProviders: string[];
   onboardingComplete: boolean;
 }
@@ -73,20 +81,26 @@ export async function login(
   provider: Provider,
   credential: string,
   termsVersion: string,
-  { attemptId = uuid(), attachCurrentSession = false }: LoginOptions = {},
+  {
+    attemptId = uuid(),
+    attachCurrentSession = false,
+    accountSwitchConfirmed = false,
+  }: LoginOptions = {},
 ): Promise<LoginResult> {
   // 준비: 전환 «전에» 이전 세션의 RT 와 세대를 쥔다. 새 세션을 커밋한 뒤엔 꺼낼 수 없다.
   const generation = sessionGeneration();
   const previous = getSession();
   const result = await request<LoginResult>('/auth/sessions', {
     method: 'POST',
-    auth: attachCurrentSession,
+    // 충돌 확정 요청에 AT 를 실으면 «폐기된 게스트 세션»이라 401 이다 — 구조적으로 뺀다.
+    auth: attachCurrentSession && !accountSwitchConfirmed,
     generation,
     headers: { 'X-Login-Attempt-Id': attemptId },
     body: {
       provider,
       credential: { type: CREDENTIAL_KIND[provider], value: credential },
       termsVersion,
+      ...(accountSwitchConfirmed ? { accountSwitchConfirmed: true } : {}),
     },
   });
   // commit: 3키 + 마커가 다 쓰인 뒤에만 새 세션이 공개된다(session.saveSession).

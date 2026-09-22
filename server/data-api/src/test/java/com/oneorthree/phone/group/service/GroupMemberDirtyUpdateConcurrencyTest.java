@@ -23,6 +23,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
@@ -162,7 +163,7 @@ class GroupMemberDirtyUpdateConcurrencyTest {
         renameCommitsBetweenLoadAndWrite(group, "강퇴 도중 이름",
                 () -> stale.set(entityManager.find(GroupMember.class, memberRow)),
                 () -> {
-                    stale.get().kick();
+                    stale.get().kick(Instant.now());
                     linkMembershipEventService.recordMembershipRevoked(stale.get());
                 },
                 memberRow);

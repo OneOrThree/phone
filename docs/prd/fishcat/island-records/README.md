@@ -6,7 +6,7 @@ GROMO-1768 설계, 구현1769. 기준 main `529a396`의 기존 통계·측정 �
 
 티켓의 island-statistics 대신 이번 배정 경로 island-records를 사용한다. [날짜 축](../../../conventions/date-axis.md), [공통 PR738](https://github.com/OneOrThree/phone/pull/738), [계정 PR740](https://github.com/OneOrThree/phone/pull/740), [소속 PR741](https://github.com/OneOrThree/phone/pull/741), [집중 PR743](https://github.com/OneOrThree/phone/pull/743), [같은 PR 랭킹](../island-rankings/README.md)을 참조한다. 선행 PR 설계가 기준 main에 이미 구현되었다고 가정하지 않는다.
 
-**2026-09-19 구현(GROMO-1769)**: 개인 기록 범위(RC-D01)·결측/부분 기간(RC-D03)·측정 창(RC-D04)·legacy 범위(RC-D05)·날짜 축(UTC)은 소유자 결정 N26 으로 권장안(없으면 가장 보수적인 안)이 확정됐다. 복수 기기 병합(RC-D02)은 여전히 보류이고 같은 날 기기가 둘 이상이면 그날 값을 null 로 둔다. 결정과 반려한 대안은 [결정 로그](../decision-log.md) 2026-09-19 RC-* 행, 구현 차이는 [LLD](low-level-design.md) 머리말.
+**2026-09-19 구현(GROMO-1769)**: 개인 기록 범위(RC-D01)·결측/부분 기간(RC-D03)·측정 창(RC-D04)·legacy 범위(RC-D05)·날짜 축(UTC)은 소유자 결정 N26 으로 권장안(없으면 가장 보수적인 안)이 확정됐다. 복수 기기는 병합하지 않는다(합산·최대·대표 모두 반려) — 같은 날 기기가 둘 이상이면 그날 값을 `null`·`unavailable` 로 두는 것이 확정 계약이다(2026-09-22 GROMO-1806, [정책](policy.md) 「복수 기기 규칙과 입력·응답 예시」). 결정과 반려한 대안은 [결정 로그](../decision-log.md) 2026-09-19 RC-* 행·2026-09-22 RC-D02-병합, 구현 차이는 [LLD](low-level-design.md) 머리말.
 
 > 아래 단락은 설계 당시의 gate 다. 1769 구현은 **타인 PII 가 들어가는 스냅샷을 만들지 않아**(scope=island 는 페이지 없음, scope=me 스냅샷은 본인 기록만·탈퇴 TX 에서 삭제) 이 gate 를 우회했다 — 결정 로그 2026-09-19 RC-P12-적용.
 

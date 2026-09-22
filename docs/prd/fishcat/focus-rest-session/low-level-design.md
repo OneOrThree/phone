@@ -27,7 +27,7 @@ FocusFinishView의 myRate 범위·퀘스트 포함 기준은 1772/1773의 승인
 반환하거나 계산 불가를 무조건0으로 바꾸지 않는다. subject 원문/이름/외양 이외의 계정정보·토큰·타인 지갑은
 공개 DTO에 없다. 완료 기록의 통계 태그와 subject는 다른 개념이며 subject 문자열로 기존 태그를 자동 생성하지 않는다.
 
-## 2. 9계약의 동작
+## 2. 원본 9계약과 GROMO-1998 추가 계약의 동작
 
 원본 9계약 뒤에 **GROMO-1998 이 셋을 더한다** — 서버 크론 `rest-auto-close` 와 그 결과를 한 번만 건네는
 `pending-result`·`acknowledge`. 원본 계약의 동작은 바뀌지 않는다.
@@ -47,7 +47,7 @@ subject/목표 허용 범위는 FR-D06, reward policy revision은 FR-D01 확정 
 입력 없음, 본인만 조회한다. 단일 DB snapshot의 현재 세션과 상세·구간을 읽고 serverNow 시점 순수 초를 반환한다.
 paused이면 restStartedAt 유지/activeSeconds 고정, active이면 restStartedAt=null.
 completed를 current로 반환하지 않고 data=null이다. 다기기에서 같은 세션으로 복구한다.
-FR-D03이 미결인 소속 상실 중간 상태를 정상으로 만들지 않는다. 정책 확정 후 소속 상실 복구 DTO는 별도 개정한다.
+소속 상실 경합은 FR-D03의 강제 종료 정책을 따르고, 정상 current 세션으로 복구하지 않는다.
 
 ### pause — POST /focus-sessions/{sessionId}/pause, 200
 
@@ -78,13 +78,13 @@ REST 시간은 activeSeconds에 더하지 않는다. completed/active에 대한 
 자동 재지급하지 않고 정합성 오류로 운영 복구한다. legacy 완료행은 새 finish 대상이 아니며 결과를 추정하지 않는다.
 
 receipt·정산의 원 결과 전체는 현재 섬 데이터 열람 권한이 있을 때만 공개한다. 소속 상실 뒤 같은 키라는
-이유로 questProgress/섬 정보가 든 결과를 그대로 재생하지 않는다. 본인 완료 증거가 필요한 FR-D03은 관리 정책과
-공개 축소 DTO를 먼저 확정한다. 비활성 계정은404, 타인 세션은403, 없는 세션은404다.
+이유로 questProgress/섬 정보가 든 결과를 그대로 재생하지 않는다. 본인 완료 증거용 공개 축소 DTO가 필요하면 별도 계약으로 정한다.
+비활성 계정은404, 타인 세션은403, 없는 세션은404다.
 
 ### rest-auto-close — 서버 크론(공개 엔드포인트 없음), GROMO-1998
 
 휴식(`PAUSED`)에 들어간 지 **1시간**이 지나면 서버가 이번 집중을 **정상 완료**로 끝낸다
-([현재 정책](https://github.com/OneOrThree/planning-document/blob/main/policy-2026-09-14.md) 「집중·휴식·도서관」:
+([현재 정책](https://github.com/OneOrThree/planning-document/blob/23f417adf975283dd1caa871a3e462e965877167/policy-2026-09-14.md) 「집중·휴식·도서관」:
 "휴식하기를 누른 순간부터 1시간이 지나면 서버가 이번 집중을 자동 종료한다. 정상 종료와 같게 집중 기록·퀘스트 진행에
 반영하고, 다음에 앱을 켤 때 결과창을 한 번 보여준다. 물고기는 이미 섬 잔액에 들어가 있어 따로 정산하지 않는다").
 
@@ -137,6 +137,9 @@ currentSessionSecondsToday는 진행 세션 ACTIVE 구간과 요청 날짜의 �
 주민**이라 강퇴·탈퇴자는 방문자 화면에서도 사라진다. focus 목록은 진행 세션
 active/paused를 포함하고 completed는 제거한다. rest 목록은 paused만 포함한다. 과목·이름·외양을 batch로
 읽어 N+1을 피한다. activeSeconds는 snapshot의 같은 serverNow anchor로 계산한다.
+`rest-members`의 대상은 **paused 집중 세션을 가진 활성 주민**이다. 「세션 없는 공유 휴식」을 위한
+별도 상태·DTO·endpoint는 현재 정본에 없다 — planning-document/`rest-screen-spec.md` 개정과
+별도 티켓 없이 이 목록에 비세션 주민을 싣지 않는다.
 
 원본 `{items,serverNow}`에 PR737의 **watermarks**를 추가한다. 각 focus row에는 표시 외양/과목에 필요한
 현재 공개 DTO가 있지만 이벤트는 이 전체 프로필을 모두 포함하지 않으므로 미지의 사용자를 이벤트만으로 생성하지 않는다.
@@ -170,8 +173,8 @@ emote는 영속 Idempotency-Key/receipt 대상이 아니고 DB/outbox에 저장�
 대해서만 dedup한다. 앱이 SEND를 두 번 보내면 별도 사건일 수 있으므로 자동 재전송하지 않는다.
 **표시 TTL은 3초다(1765 확정).** 서버가 `expiresAt = occurredAt + 3s`를 만든다. 3초를 고른 근거는
 그것이 존재하는 유일한 실측(앱 목업 `setTimeout(…, 3000)`)이고, 앱이 이미 그 길이로 사라지게 그리고
-있어 서버가 다른 수를 주면 짧은 쪽이 이겨 서버 TTL이 무의미해지기 때문이다. FR-D05가 다른 값을 정하면
-`realtime.focus.emote-ttl` 한 곳만 바꾼다.
+있어 서버가 다른 수를 주면 짧은 쪽이 이겨 서버 TTL이 무의미해지기 때문이다. 값을 바꾸려면
+FR-D05 확정을 먼저 개정하고 `realtime.focus.emote-ttl` 한 곳만 바꾼다.
 
 **빈도 제한은 둘이고 축이 다르다.**
 
@@ -454,8 +457,8 @@ best-effort 쓰기라 양쪽으로 어긋난다(쓰기 실패 → 정상 참가�
 않는다. 기록이 없거나 만료됐으면 fail-closed다.
 남는 창은 발신과 전달 사이(밀리초)에 종료한 사람이 그 한 건을 받는 것뿐이며, 이미 브로커로 넘어간
 프레임을 회수하지 않는다는 §4.2의 경계와 같은 자리다.
-권한 원천 장애는 fail-closed다. paused 채팅 정책은 FR-D04 미결이며(응원과 별개 축이다 — 응원은
-2026-09-20에 paused 허용으로 확정됐다), active 채팅 차단을 focus/rest/emote의
+권한 원천 장애는 fail-closed다. 채팅은 active·paused 모두 차단한다(FR-D04 확정 — 응원과 별개
+축이며 응원은 paused 송·수신을 허용한다). active·paused 채팅 차단을 focus/rest/emote의
 CONNECT 자체에 적용하지 않는다. JWT 만료는 기존 PR739의 명시 세션 종료/재인증 흐름을 따른다.
 
 `presence:focus:*`는 A19대로 **Data만 쓴다**. Realtime/Business에 별도 writer나 쓰기 ACL을 추가하지 않는다.
@@ -464,7 +467,7 @@ CONNECT 자체에 적용하지 않는다. JWT 만료는 기존 PR739의 명시 �
 기존 세션 토큰 기반 삭제만으로 같은 세션 active→paused→active의 역순을 구분할 수 없으므로,
 새 v0.3 투영은 사용자별 지속 controlVersion과 절대 상태를 CAS하는 설계를 필수로 한다.
 기존 Redis 값/키를 무단 변경하지 않고, reader 호환·tombstone/TTL·허용 namespace/ACL 개정과 전환 검증을
-공통 기반 담당과 합류한다. FR-D04 결정에 따라 active/paused를 채팅 차단 투영으로 매핑한다.
+공통 기반 담당과 합류한다. FR-D04 확정에 따라 active·paused를 둘 다 채팅 차단 투영으로 매핑한다.
 이 사본을 신규 emote의 최종 인가 증거로 단독 사용하지 않는다. 현재 Data 상태/인가 revision을 확인한다.
 
 **구현(GROMO-2003).** 통합 자리는 `focus/service/FocusPresenceProjection` 하나다 — 섬 focus/rest 사건(같은 TX outbox)과
@@ -474,7 +477,7 @@ focus_session_details.version)` 쌍**으로 잡았다 — 순번은 공유 DB �
 users 행 배타 락 아래 INSERT된다) version은 전이마다 +1이라, 둘을 사전식으로 비교하면 세션이 바뀌어도 초기화되지 않는 사용자별
 지속 축이 된다. 리스 값은 `순번:controlVersion:상태`이고 쓰기는 「지금 값보다 오래되지 않을 때만」 CAS한다. **종료는 순번만 본다**
 — 끝난 세션의 어떤 controlVersion도 낡은 값이라, 쌍으로 비교하면 휴식 중 종료가 자기 리스를 못 지워 13시간 차단이 돌아온다.
-읽는 쪽(Realtime `FocusPresenceReader`)은 그대로 **키의 존재**만 보므로 FR-D04 전까지 active·paused 둘 다 차단이다.
+읽는 쪽(Realtime `FocusPresenceReader`)은 그대로 **키의 존재**만 보므로 FR-D04 확정 결과도 active·paused 둘 다 차단이다.
 
 ## 7. 검증과 관측
 

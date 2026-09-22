@@ -2356,13 +2356,13 @@ SPEC CHECKSUMS:
   ExpoHaptics: bc5461002fc97e53c213a1af6c88c8f95965b734
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: b67f8912681175eea3bf21c7fbaa5be389146c07
+  ExpoModulesCore: 58c4dd9087d31fa77f3da751e6379ec4a9392b93
   ExpoModulesJSI: 9df8e7c9719f59e8c001ec33611774137fc1484a
   ExpoModulesWorklets: 767d05688faa3bbf38b19c08abca031b5328093a
   ExpoScreenOrientation: 29f306f9e1a37b304862310ceb9664866f653ebd
   ExpoSecureStore: ff1fd5e073957417ba8f9dec0bebcbd55a60e747
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
-  hermes-engine: 867d4d76d4292bb2dcc703560220e43410a25ac7
+  hermes-engine: 5486b4b05cf31ca8c52dc9c3300e56587603beaf
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b
   RCTRequired: 30451112e6fef4e6f31b4e7eee0845156e35e4b0
   RCTSwiftUI: 5aaf0b07e747ba749dc6acc94d8bd41eea4b570f

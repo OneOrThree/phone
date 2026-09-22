@@ -51,7 +51,7 @@
 |---|---|---|---|---|
 | 1 | `focus.member.updated` / `FOCUS_MEMBER_UPDATED` | `userId:Id`, `sessionId:Id`, `status:active\|paused\|completed`, `subject:string`, `activeSeconds:Seconds`, `serverNow:Instant`, `sessionVersion:Version` | `(focus.member,islandId,userId)`의 주민 집중 투영. 세션이 바뀌어도 단조 증가. REST sessionVersion과 별개 | `focus` |
 | 2 | `rest.member.updated` / `REST_MEMBER_UPDATED` | `userId:Id`, `sessionId:Id`, `status:active\|paused\|completed`, `restStartedAt:Instant?`, `restSeat:integer?`, `serverNow:Instant`, `sessionVersion:Version` | `(rest.member,islandId,userId)`의 휴식 투영. 세션 교체로 초기화하지 않음 | `rest` |
-| 3 | `focus.emote` / `FOCUS_EMOTE` | `userId:Id`, `sessionId:Id`, `type:hello\|cheer\|sleepy\|laugh\|hearts`, `expiresAt:Instant` | 버전 없음(null). eventId dedup + 만료만 사용 | `emotes` |
+| 3 | `focus.emote` / `FOCUS_EMOTE` | `userId:Id`, `sessionId:Id`, `type:hello\|cheer\|sleepy\|laugh\|hearts`, `expiresAt:Instant` | 버전 없음(null). eventId dedup + `expiresAt=occurredAt+3s` 만료만 사용 | `emotes` |
 | 4 | `playback.updated` / `PLAYBACK_UPDATED` | `trackId:TrackId?`, `playing:boolean`, `positionSeconds:Seconds`, `effectiveAt:Instant`, `changedBy:Id`, `version:Version`, `serverNow:Instant` | `(playback,islandId)`의 전체 재생 상태 | `playback` |
 | 5 | `message.created` / `MESSAGE_CREATED` | `messageId:Id`, `islandId:Id`, `senderId:Id`, `sentAt:Instant`, `clientMessageId:Id` — **본문 `text` 없음**(M02: 메시지 정본은 `gromo_chat`, Data 복제 금지. 앱은 `messageId`로 히스토리에서 읽는다) | 불변 사건. `(MESSAGE,messageId)`의 최초 버전 1. 다른 payload.messageId와 버전 비교 금지. 생산 지점은 Data outbox — Business가 realtime 저장 «처음 성공» 뒤 `POST /internal/islands/{islandId}/message-events`로 적재하고 REALTIME transport 등록 전까지 내구 보류 *(2026-09-18 GROMO-1775, M02)* | `messages` |
 | 6 | `quest.progress.updated` / `QUEST_PROGRESS_UPDATED` | `questId:Id`, `occurrenceId:Id`, `version:Version` | `(quest.progress,islandId,questId,occurrenceId)`의 무효화 신호 | `events` |
@@ -112,7 +112,7 @@ GET의 API 설명에 '후속 이벤트'가 표시돼 있어도 조회가 변경 
 | SUBSCRIBE | `/topic/islands/{islandId}/rest` | **인증된 사용자**(위와 같음). 로컬 모닥불 관람 때문에 새 세션을 만들지 않음 |
 | SUBSCRIBE | `/topic/islands/{islandId}/emotes` | 현재 같은 섬에서 **진행 중(active·paused) 집중 세션**을 가진 사용자(구독 시 Data 정본 조회). 집중을 시작한 뒤 구독해야 한다 |
 | SUBSCRIBE | `/topic/islands/{islandId}/playback` | 같은 섬 주민 + 방송기 접근 가능 |
-| SUBSCRIBE | `/topic/islands/{islandId}/messages` | 같은 섬 주민 + 우체통 접근 가능 + 기존 채팅 집중 제한 |
+| SUBSCRIBE | `/topic/islands/{islandId}/messages` | 같은 섬 주민 + 우체통 접근 가능 + active·paused 진행 세션의 채팅 차단 |
 | SUBSCRIBE | `/user/queue/events` | 인증된 본인 큐. event별 owner/신청관계/방장권한은 전달 직전 추가 검사 |
 | 신규 SEND | `/app/islands/{islandId}/focus/emotes` | 본인 **진행 세션(active·paused)** sessionId + 현재 같은 섬 + 5종 + 만료/속도 제한. **1765에서 활성화됨**(휴식 허용은 2026-09-20 결정) |
 | 호환 SUBSCRIBE/SEND | `/topic/groups/{groupId}`, `/app/groups/{groupId}/send` | 기존 ChatAccessGuard 및 와이어 유지 |
@@ -169,7 +169,7 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 1. CONNECT에서 현재 JWT 만료/서명/주체를 검증한다. 쿼리스트링 토큰은 사용하지 않는다.
 2. **CONNECT에서 집중 상태를 검사하지 않는다.** 그렇지 않으면 집중 사용자에게 필요한 focus/emote까지 막힌다.
 3. SUBSCRIBE/SEND는 exact allowlist와 현재 세션 인증을 검사한다. 채팅 목적지에서만 기존 ChatAccessGuard를 적용한다.
-4. 휴식 상태가 '채팅 가능'인지 여부는 새 세션 도메인의 집중 제한 정의와 맞춘다. 이 문서가 PAUSED를 임의 허용하지 않는다. 기존 presence 키 존재 검사로 새 휴식 상태를 판정할 수 있다고 가정하지 않는다.
+4. 채팅 목적지는 active·paused 진행 세션을 둘 다 차단한다(GROMO-1958 — `focus-rest-session` FR-D04/FR-P13). 응원은 별도 채널이라 이 차단을 emotes에 확장하지 않는다. 기존 presence 키 존재 검사로 새 휴식 상태를 판정할 수 있다고 가정하지 않는다.
 5. 음악·집중·경제 이벤트는 채팅 집중 가드로 차단하지 않는다. 1755의 기계적 이름 변경만으로 채팅 guard를 공통 guard로 승격하지 않는다.
 
 ### 4.2 이미 연결된 사용자

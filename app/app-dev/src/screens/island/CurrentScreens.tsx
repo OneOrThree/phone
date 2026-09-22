@@ -1,5 +1,17 @@
+import { sessionGeneration } from '@/services/api/session';
+import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  AppState,
+  Image,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   State,
@@ -24,6 +36,8 @@ import {
   questMemberRate,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
+import { ApiError } from '@/services/api/client';
+import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -52,6 +66,7 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
   art,
   C,
@@ -64,13 +79,19 @@ import {
   Seg,
   Field,
   Strip,
-  Toggle,
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
+import {
+  isScreenTimeAvailable,
+  screenTime,
+  ScreenTimeAuthorization,
+  ScreenTimeSelection,
+  selectionCount,
+} from '@/services/screenTime';
 const buildingArt: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -113,6 +134,7 @@ function Sheet({
   actionPress,
   tall = true,
   onClose,
+  onBack,
 }: any) {
   return (
     <IslandSheet
@@ -120,7 +142,7 @@ function Sheet({
       sign={sign}
       title={title}
       tall={tall}
-      onBack={e.back}
+      onBack={onBack ?? e.back}
       onClose={onClose ?? e.home}
       action={action}
       actionPress={actionPress}
@@ -191,6 +213,8 @@ export function CurrentScreens({ e }: any) {
       'travel',
       'visitIsland',
       'visitIslandFocus',
+      'permission',
+      'screenTimeApps',
     ].includes(r)
   )
     return (
@@ -273,36 +297,298 @@ export function CurrentScreens({ e }: any) {
       <>
         <InteriorRoute e={e} />
         {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
-        {!state.visitingIslandId && <RewardModal e={e} />}
+        {!state.visitingIslandId && (
+          <RewardModal
+            e={e}
+            rewardIslandId={
+              r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL
+                ? currentIsland(state).id
+                : undefined
+            }
+          />
+        )}
       </>
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
-  if (['boat', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
+  if (['boat', 'mainIsland', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
-  if (r === 'permission')
+  if (r === 'permission') return <ScreenTimePermission e={e} />;
+  if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
+  return <RedesignScreens e={e} />;
+}
+
+function ScreenTimePermission({ e }: any) {
+  const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
+  const [busy, setBusy] = useState(false);
+  const gateParts = String(e.detail).split('|');
+  const boardFirst = gateParts[0] === 'board-first';
+  const gateRoute = (gateParts[1] || 'board') as Route;
+  const gateDetail = decodeURIComponent(gateParts[2] || '');
+  const measuredApps = e.detail === 'measured-apps';
+  const finish = () => {
+    if (Platform.OS === 'android') {
+      e.back();
+      return;
+    }
+    if (boardFirst) {
+      e.replace('screenTimeApps', e.detail);
+    } else if (measuredApps) {
+      e.replace('screenTimeApps', 'settings');
+    } else {
+      e.back();
+    }
+  };
+  const skip = () => {
+    if (boardFirst) {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeBoardPromptSeen', value: true });
+      e.replace(gateRoute, gateDetail);
+    } else {
+      e.back();
+    }
+  };
+  const syncStatus = async () => {
+    const generation = sessionGeneration();
+    const next = await screenTime.getAuthorizationStatus();
+    if (generation !== sessionGeneration()) return 'unavailable';
+    setStatus(next);
+    e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
+    if (Platform.OS === 'android') {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
+      const snapshot = await syncAndroidScreenTime();
+      if (generation !== sessionGeneration()) return 'unavailable';
+      e.dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
+      setStatus(snapshot.approved ? 'approved' : next === 'approved' ? 'denied' : next);
+      return snapshot.approved ? 'approved' : next === 'approved' ? 'denied' : next;
+    }
+    return next;
+  };
+  useEffect(() => {
+    let active = true;
+    screenTime
+      .getAuthorizationStatus()
+      .then((next) => {
+        if (!active) return;
+        setStatus(next);
+        e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
+        if (boardFirst && next === 'approved') finish();
+      })
+      .catch(() => active && setStatus('unavailable'));
+    return () => {
+      active = false;
+    };
+  }, []);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active') return;
+      syncStatus()
+        .then((next) => {
+          if (next === 'approved' && boardFirst) finish();
+        })
+        .catch(() => {});
+    });
+    return () => subscription.remove();
+  }, []);
+  const request = async () => {
+    setBusy(true);
+    try {
+      await screenTime.requestAuthorization();
+      const next = await syncStatus();
+      if (next === 'approved') finish();
+    } catch {
+      e.notify('스크린타임 권한을 요청하지 못했어요.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (status === 'loading')
     return (
-      <Sheet e={e} title="측정 권한">
-        <Txt kind="h17">스크린타임 연결</Txt>
-        <Txt>권한이 없으면 사용 시간을 알 수 없어요. 실제 0분과 기록 없음은 따로 표시해요.</Txt>
-        <Group flat>
-          <Row
-            title="스크린타임 연결"
-            tail={
-              <Toggle
-                label="스크린타임 연결"
-                value={state.settings.permission}
-                onChange={(value: boolean) =>
-                  e.dispatch({ type: 'SETTING', key: 'permission', value })
-                }
-              />
-            }
-          />
-        </Group>
-        <Txt kind="meta">측정 연결을 끄면 사용 시간 퀘스트는 확인 필요로 표시해요.</Txt>
+      <Sheet
+        e={e}
+        title="측정 권한"
+        onBack={boardFirst ? skip : undefined}
+        onClose={boardFirst ? skip : undefined}
+      >
+        <View style={{ paddingVertical: 32, alignItems: 'center' }}>
+          <ActivityIndicator color={C.ink} />
+        </View>
       </Sheet>
     );
-  return <RedesignScreens e={e} />;
+  const unavailable = !isScreenTimeAvailable || status === 'unavailable';
+  return (
+    <Sheet
+      e={e}
+      title="측정 권한"
+      onBack={boardFirst ? skip : undefined}
+      onClose={boardFirst ? skip : undefined}
+    >
+      <Pic id="cat/black/sitting" w={82} />
+      <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
+      <Txt>
+        {Platform.OS === 'android'
+          ? '설정의 사용 정보 접근에서 GROMO를 허용해 주세요. 앱별 사용 기록으로 전체 사용 시간을 계산해요. 화면 내용은 읽지 않으며 다른 앱을 잠그지 않아요.'
+          : 'GROMO가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
+      </Txt>
+      <Group flat>
+        <Row
+          title="스크린타임 권한"
+          sub={
+            unavailable
+              ? '이 기기에서는 사용할 수 없어요'
+              : status === 'approved'
+                ? '연결됨'
+                : status === 'denied'
+                  ? '설정에서 권한을 허용해 주세요'
+                  : '아직 연결하지 않았어요'
+          }
+        />
+      </Group>
+      {Platform.OS === 'android' && status === 'approved' && (
+        <Btn
+          title="사용 정보 접근 설정 열기"
+          kind="sec"
+          onPress={async () => {
+            if (!(await screenTime.openUsageAccessSettings()))
+              e.notify('사용 정보 접근 설정을 열지 못했어요.');
+          }}
+        />
+      )}
+      {status === 'approved' ? (
+        <Btn
+          title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
+          onPress={finish}
+        />
+      ) : status === 'denied' ? (
+        <>
+          <Btn
+            title={Platform.OS === 'android' ? '사용 정보 접근 설정 열기' : 'iOS 설정 열기'}
+            disabled={busy}
+            onPress={Platform.OS === 'android' ? request : () => Linking.openSettings()}
+          />
+          <Btn
+            title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
+            kind="ghost"
+            onPress={skip}
+          />
+        </>
+      ) : unavailable ? (
+        <Btn title={boardFirst ? '게시판 열기' : '확인'} onPress={skip} />
+      ) : (
+        <>
+          <Btn
+            title={busy ? '권한 요청 중…' : '스크린타임 연결하기'}
+            disabled={busy}
+            onPress={request}
+          />
+          {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={skip} />}
+        </>
+      )}
+      <Txt kind="meta">권한이 없으면 폰 사용 퀘스트는 0분이 아니라 “확인 필요”로 표시돼요.</Txt>
+    </Sheet>
+  );
+}
+
+function MeasuredAppPicker({ e }: any) {
+  const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pickerInFlight = useRef(false);
+  const autoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const gateParts = String(e.detail).split('|');
+  const boardFirst = gateParts[0] === 'board-first';
+  const gateRoute = (gateParts[1] || 'board') as Route;
+  const gateDetail = decodeURIComponent(gateParts[2] || '');
+  const finish = () => {
+    if (boardFirst) {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeBoardPromptSeen', value: true });
+      e.replace(gateRoute, gateDetail);
+    } else {
+      e.back();
+    }
+  };
+  const openPicker = async () => {
+    if (pickerInFlight.current) return;
+    pickerInFlight.current = true;
+    if (autoTimer.current) {
+      clearTimeout(autoTimer.current);
+      autoTimer.current = null;
+    }
+    setBusy(true);
+    try {
+      const active = await screenTime.getMeasurementSelectionCounts();
+      setSelection(active);
+      const picked = await screenTime.presentAppPicker();
+      if (!picked) {
+        if (boardFirst) finish();
+        return;
+      }
+      const count = selectionCount(picked);
+      if (picked.appliesImmediately) {
+        const activated = await screenTime.promoteSelection();
+        if (!activated) throw new Error('measurement selection activation failed');
+        const unconfirmedDays = await screenTime.getUnconfirmedUsageBucketDays();
+        e.dispatch({ type: 'SCREEN_TIME_UNCONFIRMED', days: unconfirmedDays });
+        const minutes = await screenTime.getTodayUsageBucketMinutes();
+        e.dispatch({ type: 'SETTING', key: 'screenTimeMeasurementReady', value: true });
+        e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: true });
+        e.dispatch({ type: 'SCREEN_TIME', value: minutes });
+        e.notify(`측정 앱 ${count}개를 바로 적용했어요.`);
+      } else {
+        e.notify(`측정 앱 ${count}개를 내일부터 적용해요.`);
+      }
+      setSelection(picked);
+      finish();
+    } catch {
+      e.notify('측정 앱 선택 화면을 열지 못했어요.');
+    } finally {
+      pickerInFlight.current = false;
+      setBusy(false);
+    }
+  };
+  useEffect(() => {
+    screenTime
+      .getMeasurementSelectionCounts()
+      .then(setSelection)
+      .catch(() => {});
+    if (!boardFirst) return;
+    autoTimer.current = setTimeout(openPicker, 450);
+    return () => {
+      if (autoTimer.current) clearTimeout(autoTimer.current);
+    };
+  }, []);
+  return (
+    <Sheet
+      e={e}
+      title="측정 앱"
+      onBack={boardFirst ? finish : undefined}
+      onClose={boardFirst ? finish : undefined}
+    >
+      <Pic id="cat/black/sitting" w={82} />
+      <Txt kind="h17">줄이고 싶은 앱을 골라주세요</Txt>
+      <Txt>
+        선택한 앱과 카테고리의 사용 시간을 15분 단위로 기록해요. 앱 이름은 Apple 선택 화면 안에서만
+        보여요.
+      </Txt>
+      <Group flat>
+        <Row
+          title="현재 측정 대상"
+          sub={selectionCount(selection) ? `${selectionCount(selection)}개 선택됨` : '아직 없음'}
+        />
+        <Row
+          title="변경 적용"
+          sub={selectionCount(selection) ? '기존 대상 변경은 다음 날부터' : '최초 선택은 바로'}
+        />
+      </Group>
+      <Btn
+        title={busy ? '선택 화면 여는 중…' : '측정 앱 고르기'}
+        disabled={busy}
+        onPress={openPicker}
+      />
+      {boardFirst && <Btn title="나중에 하고 게시판 열기" kind="ghost" onPress={finish} />}
+      <Txt kind="meta">
+        선택을 바꾸는 날에는 기존 앱 기준 기록을 유지하고, 자정부터 새 대상을 측정해요.
+      </Txt>
+    </Sheet>
+  );
 }
 // 섬 구경 · 전망대 · 상점 · 축음기 · 내 뗏목(친구·꾸미기)은 v2 시트 구현(Screens.tsx)이 그린다
 function Visit({ e }: any) {
@@ -484,6 +770,13 @@ function FocusFlow({ e }: any) {
     latest = useRef({ r, s }),
     backRef = useRef<() => boolean>(() => false);
   latest.current = { r, s };
+  // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
+  // 목업(review/demo·비로그인)은 e.islands 가 없어 로컬 경로 그대로다.
+  const serverQuests = !!e.islands && !s.visitingIslandId;
+  const boardQ = useBoardNotices({
+    active: serverQuests && r === 'focusResult',
+    scopeKey: `focusQuests:${s.serverIslands?.currentIslandId ?? i.id}`,
+  });
   useEffect(
     () => () => {
       walkingToken.current++;
@@ -506,7 +799,17 @@ function FocusFlow({ e }: any) {
     setDialog(null);
     if (r !== 'focus') setEmote(null);
   }, [r]);
+  // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
+  // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
+  const serverSession = () => e.focus && s.session?.version != null;
   const finish = () => {
+    if (serverSession()) {
+      e.focus
+        .finish()
+        .then(() => e.reset('focusResult'))
+        .catch((error: any) => e.notify(error?.message ?? '집중을 마치지 못했어요.'));
+      return;
+    }
     e.dispatch({ type: 'FINISH' });
     e.reset('focusResult');
   };
@@ -561,20 +864,47 @@ function FocusFlow({ e }: any) {
     if (!walkTo(LANDING, arrive)) arrive();
   };
   const result = s.lastResult,
-    leave = () =>
+    leave = () => {
+      // 자동 종료 결과는 닫을 때 acknowledge — 확인 전까지 서버가 계속 돌려주므로 실패해도 잃지 않는다
+      if (result?.ackId) e.focus?.acknowledge(result.ackId).catch(() => {});
       s.resultFromRest
         ? e.home()
-        : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel')),
-    // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 바로 섬으로
-    done = () => (s.rewards?.some((x) => !x.acknowledged) ? setDialog('reward') : leave()),
+        : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel'));
+    },
+    // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 바로 섬으로.
+    // 서버 경로는 회차 목록 로딩 중이거나 수령 가능한 퀘스트가 있으면 모달을 연다 —
+    // 로딩이 끝났는데 받을 게 없으면 모달 스스로 닫힌다.
+    done = () =>
+      serverQuests
+        ? boardQ.loading || boardQ.quests.some((q) => q.claimable)
+          ? setDialog('reward')
+          : leave()
+        : s.rewards?.some((x) => !x.acknowledged)
+          ? setDialog('reward')
+          : leave(),
     claimed = (more: boolean) => {
       if (!more) leave();
     };
-  const resume = () => setVoyage('toSpot');
+  const resume = () => {
+    if (serverSession()) {
+      e.focus
+        .resume()
+        .then(() => setVoyage('toSpot'))
+        .catch((error: any) => e.notify(error?.message ?? '집중을 이어가지 못했어요.'));
+      return;
+    }
+    setVoyage('toSpot');
+  };
   // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
+      // 서버 수령은 명시적 버튼으로만 — 뒤로가기는 모달을 닫고 나간다
+      // (남은 보상은 게시판 상세에서 받을 수 있다).
+      if (serverQuests) {
+        leave();
+        return true;
+      }
       const open = (s.rewards ?? []).filter((x) => !x.acknowledged);
       if (open[0]) e.dispatch({ type: 'CLAIM', id: open[0].id });
       claimed(open.length > 1);
@@ -628,7 +958,10 @@ function FocusFlow({ e }: any) {
           setLeg('comeback');
           const sit = () => {
             setLeg(null);
-            if (latest.current.s.session?.status === 'paused') e.dispatch({ type: 'RESUME' });
+            // 서버 세션은 RESUME 을 로컬로 흉내 내지 않는다 — resume 명령 성공이 이미 status를 갱신했다
+            const latestSession = latest.current.s.session;
+            if (latestSession?.status === 'paused' && latestSession.version == null)
+              e.dispatch({ type: 'RESUME' });
           };
           if (!walkTo(mine, sit)) sit();
         }}
@@ -680,9 +1013,17 @@ function FocusFlow({ e }: any) {
       setError('집중할 과목이나 할 일을 적어주세요.');
       return;
     }
-    if (!i.joined) {
+    if (!e.focus && !i.joined) {
       e.notify('섬에 가입한 뒤 집중할 수 있어요.');
       e.replace('chooseIsland');
+      return;
+    }
+    if (e.focus) {
+      // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
+      e.focus
+        .start({ subject: e.text.trim() })
+        .then(() => e.go('focus'))
+        .catch((error: any) => setError(error?.message ?? '집중을 시작하지 못했어요.'));
       return;
     }
     e.dispatch({ type: 'START', subject: e.text });
@@ -761,11 +1102,25 @@ function FocusFlow({ e }: any) {
           달성한 일일 퀘스트
         </Text>
         <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
-          {achieved.length
-            ? achieved.map((q) => '✓ ' + q.title).join('\n')
-            : focusQuests[0]
-              ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
-              : '아직 없어요'}
+          {serverQuests
+            ? // 서버 회차 — 달성은 claimable·claimed 플래그가 정본이다(rate 추정 금지).
+              boardQ.loading
+              ? '확인 중…'
+              : boardQ.error
+                ? '퀘스트를 확인하지 못했어요'
+                : boardQ.quests.filter((q) => q.claimable || q.claimed).length
+                  ? boardQ.quests
+                      .filter((q) => q.claimable || q.claimed)
+                      .map((q) => '✓ ' + q.title)
+                      .join('\n')
+                  : boardQ.quests[0]
+                    ? `아직 없어요 · ${boardQ.quests[0].title} ${boardQ.quests[0].myRate == null ? '측정 전' : `${boardQ.quests[0].myRate}%`}`
+                    : '아직 없어요'
+            : achieved.length
+              ? achieved.map((q) => '✓ ' + q.title).join('\n')
+              : focusQuests[0]
+                ? `아직 없어요 · ${focusQuests[0].title} ${Math.floor(((questMemberRate(s, focusQuests[0], 'me', i.id, resultAt) ?? 0) * focusQuests[0].target) / 100)}/${focusQuests[0].target}분`
+                : '아직 없어요'}
         </Text>
       </View>
       <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
@@ -779,7 +1134,13 @@ function FocusFlow({ e }: any) {
       </View>
     </FiModal>
   );
-  const rewardModal = dialog === 'reward' && <RewardModal e={e} onClaimed={claimed} />;
+  const rewardModal =
+    dialog === 'reward' &&
+    (serverQuests ? (
+      <ServerQuestRewardModal e={e} board={boardQ} onDone={claimed} />
+    ) : (
+      <RewardModal e={e} onClaimed={claimed} />
+    ));
   if (r === 'focusResult' && s.resultFromRest)
     return (
       <View style={{ flex: 1 }}>
@@ -1080,12 +1441,24 @@ function FocusFlow({ e }: any) {
               id="pause-focus"
               style={{ flex: 1 }}
               onPress={() => {
-                // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식)
+                // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식).
+                // 서버 세션은 pause 성공 뒤에만 휴식 연출을 시작한다(정책: 이동 연출은 성공 후).
+                const go = () =>
+                  leaveTo(() => {
+                    setVoyage('toRest');
+                    e.go('rest');
+                  });
+                if (serverSession()) {
+                  e.focus
+                    .pause()
+                    .then(go)
+                    .catch((error: any) =>
+                      e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'),
+                    );
+                  return;
+                }
                 e.dispatch({ type: 'PAUSE' });
-                leaveTo(() => {
-                  setVoyage('toRest');
-                  e.go('rest');
-                });
+                go();
               }}
             />
             <FiButton
@@ -1154,10 +1527,18 @@ function FocusFlow({ e }: any) {
   );
 }
 // 퀘스트 보상받기(갤러리 49 보상 모달): 결과창 다음에 한 번. 받으면 다음 보상이 없을 때 섬으로.
-function RewardModal({ e, onClaimed }: { e: any; onClaimed?: (more: boolean) => void }) {
+function RewardModal({
+  e,
+  onClaimed,
+  rewardIslandId,
+}: {
+  e: any;
+  onClaimed?: (more: boolean) => void;
+  rewardIslandId?: string;
+}) {
   const s: State = e.state,
     wide = useAppLayout().width >= 600,
-    open = (s.rewards ?? []).filter((r) => !r.acknowledged),
+    open = pendingQuestRewards(s.rewards, rewardIslandId),
     reward = open[0];
   if (!reward) return null;
   const owner = s.islands.find((i) => i.id === reward.islandId),
@@ -1205,6 +1586,101 @@ function RewardModal({ e, onClaimed }: { e: any; onClaimed?: (more: boolean) => 
     </View>
   );
 }
+// 서버 퀘스트 수령 모달 (GROMO-2014): 개인 몫만 POST claims 로 받는다. 지급량은 서버가
+// 판정해 응답으로 주고, 성공 뒤 훅이 목록·지갑을 다시 읽는다 — 여기서 로컬 재화를 만지지 않는다.
+// 전원 달성 보너스는 수령 버튼이 따로 없고, 서버가 함께 적립한 만큼만 알린다.
+function ServerQuestRewardModal({
+  e,
+  board,
+  onDone,
+}: {
+  e: any;
+  board: ReturnType<typeof useBoardNotices>;
+  onDone?: (more: boolean) => void;
+}) {
+  const wide = useAppLayout().width >= 600;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const reward = board.quests.find((q) => q.claimable);
+  const rewardId = reward?.id;
+  // 읽기가 끝났는데(또는 못 읽었는데) 받을 게 없으면 흐름을 닫는다 — 수령은 게시판 상세에도 있다.
+  useEffect(() => {
+    if ((board.error || !board.loading) && !rewardId) onDone?.(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board.error, board.loading, rewardId]);
+  if (board.loading && !reward)
+    return (
+      <FiModal>
+        <Txt kind="h">퀘스트 보상</Txt>
+        <Txt style={{ color: '#796256', textAlign: 'center' }}>
+          받을 수 있는 보상을 확인하고 있어요…
+        </Txt>
+      </FiModal>
+    );
+  if (!reward) return null;
+  const title = reward.title,
+    // 받침 있는 글자 뒤에는 '을'
+    particle = (title.charCodeAt(title.length - 1) - 0xac00) % 28 > 0 ? '을' : '를';
+  return (
+    <View
+      style={[StyleSheet.absoluteFill, { zIndex: 20, justifyContent: 'center' }]}
+      accessibilityViewIsModal
+    >
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: '#493B3966' }]} />
+      <View
+        style={{
+          marginHorizontal: wide ? 157 : 24,
+          backgroundColor: C.paper,
+          borderWidth: 2,
+          borderColor: OUTLINE,
+          borderRadius: 24,
+          paddingTop: wide ? 14 : 20,
+          paddingHorizontal: 20,
+          paddingBottom: wide ? 14 : 18,
+          gap: wide ? 10 : 14,
+          boxShadow: `0px 6px 0px ${OUTLINE}`,
+          alignItems: 'center',
+        }}
+      >
+        <Image source={art.fish} style={{ width: 72, height: 72 }} />
+        <Txt kind="h">퀘스트 달성!</Txt>
+        <Txt style={{ color: '#796256', textAlign: 'center' }}>
+          {`${title}${particle} 달성했어요.\n물고기 ${reward.reward.amount}마리를 받을 수 있어요!`}
+        </Txt>
+        {!!error && <Txt style={{ color: '#994C3E', textAlign: 'center' }}>{error}</Txt>}
+        <Btn
+          title={busy ? '받는 중…' : '보상받기'}
+          id="claim-server-reward"
+          style={{ alignSelf: 'stretch' }}
+          disabled={busy}
+          onPress={() => {
+            if (busy) return;
+            setBusy(true);
+            setError('');
+            board.claimQuest(reward).then(
+              (result) => {
+                setBusy(false);
+                if (result.bonusAdded > 0)
+                  e?.notify?.(`전원 달성 보너스 ${result.bonusAdded}마리도 섬에 함께 쌓였어요`);
+                onDone?.(
+                  board.quests.some((q) => q.claimable && q.occurrenceId !== reward.occurrenceId),
+                );
+              },
+              (err: unknown) => {
+                setBusy(false);
+                setError(
+                  err instanceof ApiError && err.message
+                    ? err.message
+                    : '받지 못했어요. 다시 시도해 주세요.',
+                );
+              },
+            );
+          }}
+        />
+      </View>
+    </View>
+  );
+}
 function Tower({ e }: any) {
   return <RedesignScreens e={e} />;
 }
@@ -1213,9 +1689,9 @@ function Social({ e }: any) {
     r = e.route,
     [query, setQuery] = useState(''),
     friends = s.friends ?? [];
-  if (r === 'boat')
+  if (r === 'boat' || r === 'mainIsland')
     return (
-      // 내 뗏목·친구 관리·친구 찾기는 v2 시트 구현(Screens.tsx)이 그린다
+      // 내 뗏목·메인 섬 변경·친구 관리는 v2 시트 구현(Screens.tsx)이 그린다
       <RedesignScreens e={e} />
     );
   if (r === 'friends' || r === 'friendSearch')

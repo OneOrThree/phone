@@ -45,10 +45,11 @@ import java.util.UUID;
  * 판정 대상은 <b>호출자</b>의 섬이다({@link #requireMailboxUnlocked}). 보낸 편지함에는 없다 —
  * 이미 보낸 내 편지를 다시 보는 데 시설을 물을 이유가 없다.
  *
- * <h2>게스트 분기가 없다</h2>
- * 재영님 확정(2026-09-18, LLD §4 결정 1 = A): 게스트도 완전히 동일하다. {@code User.isGuest} 를 읽는 곳이
- * 이 클래스에 <b>한 곳도 없어야</b> 한다 — 스팸 방어(GROMO-1934)도 게스트를 가리지 않고 전 계정에 같은
- * 시간 한도를 건다({@link #send}).
+ * <h2>게스트 분기는 서비스가 아니라 표면에 있다</h2>
+ * 정책 「…편지 보내기…를 처음 시도할 때 소셜 로그인을 요청한다」의 계정 상태 gate 는
+ * {@code InternalLetterController.send} 가 {@link GuestAccountGuards#requireMember} 로 앞에서 건다
+ * (GROMO-1992) — 이 클래스는 {@code User.isGuest} 를 읽지 않는다. 스팸 방어(GROMO-1934)도
+ * 게스트를 가리지 않고 전 계정에 같은 시간 한도를 건다({@link #send}).
  */
 @Slf4j
 @Service
