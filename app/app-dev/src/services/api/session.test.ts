@@ -6,6 +6,7 @@ import {
   restoreSession,
   saveSession,
   sessionGeneration,
+  subscribeSession,
 } from '@/services/api/session';
 
 const write = SecureStore.setItemAsync as jest.Mock;
@@ -24,6 +25,35 @@ beforeEach(async () => {
 test('저장한 세션은 그대로 복구된다', async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   assert.deepEqual(await restoreSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('세션 구독은 현재 snapshot과 로그인·로그아웃·세대 교체 뒤 공개된 값만 전달한다', async () => {
+  const seen: string[] = [];
+  const unsubscribe = subscribeSession((session) => seen.push(session?.userId ?? 'none'));
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  await clearSession();
+  unsubscribe();
+  await saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'u2' });
+  assert.deepEqual(seen, ['none', 'u1', 'none']);
+});
+
+test('던지는 구독자는 clearSession의 durable 삭제나 다른 구독자를 막지 않는다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  const seen: string[] = [];
+  const stopBroken = subscribeSession(() => {
+    throw new Error('render failed');
+  });
+  const stopHealthy = subscribeSession((session) => seen.push(session?.userId ?? 'none'));
+  remove.mockClear();
+  await clearSession();
+  assert.equal(getSession(), null);
+  assert.deepEqual(seen, ['u1', 'none']);
+  assert.deepEqual(
+    new Set(remove.mock.calls.map((call) => call[0])),
+    new Set(['gromo.sessionBundle', 'gromo.accessToken', 'gromo.refreshToken', 'gromo.userId']),
+  );
+  stopBroken();
+  stopHealthy();
 });
 
 test('커밋 마커를 마지막에 쓴다 — 중간에 죽으면 복구를 거부한다', async () => {

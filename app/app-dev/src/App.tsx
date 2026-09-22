@@ -83,7 +83,13 @@ import {
   dayKey,
 } from '@/services/model';
 import { checkSession, logout } from '@/services/api/auth';
-import { restoreSession, setSessionLostHandler, sessionGeneration } from '@/services/api/session';
+import {
+  getSession,
+  restoreSession,
+  setSessionLostHandler,
+  sessionGeneration,
+  subscribeSession,
+} from '@/services/api/session';
 import { createIslandCommands } from '@/services/islandCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 const REVIEW =
@@ -198,6 +204,7 @@ function Gromo() {
   const [loaded, setLoaded] = useState(false),
     // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
     [islandBootError, setIslandBootError] = useState(false),
+    [hasServerSession, setHasServerSession] = useState(() => getSession() !== null),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
     [history, setHistory] = useState<
       {
@@ -349,6 +356,7 @@ function Gromo() {
   });
   const islands = islandCmds.current.commands,
     syncIslands = islandCmds.current.syncIslands;
+  useEffect(() => subscribeSession((session) => setHasServerSession(session !== null)), []);
   // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
     setSessionLostHandler(() => {
@@ -723,7 +731,7 @@ function Gromo() {
           failNext,
           setFailNext,
           // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
-          islands: REVIEW || DEMO ? undefined : islands,
+          islands: REVIEW || DEMO || !hasServerSession ? undefined : islands,
           islandBootError,
         }}
       />

@@ -1425,7 +1425,16 @@ export function reducer(state: State, a: Action): State {
       snap.memberships = my.items;
       snap.currentIslandId = my.currentIslandId;
       snap.lossReason = my.lossReason;
-      if (a.requests) snap.joinRequests = a.requests as MyJoinRequest[];
+      if (a.requests) {
+        const terminalIds = new Set(
+          snap.requestStatus
+            .filter((request) => request.status !== 'pending')
+            .map((request) => request.id),
+        );
+        snap.joinRequests = (a.requests as MyJoinRequest[]).filter(
+          (request) => !terminalIds.has(request.id),
+        );
+      }
       const ids = new Set(my.items.map((x) => x.id));
       for (const island of s.islands)
         if (island.joined && !ids.has(island.id)) island.joined = false;
@@ -1456,6 +1465,12 @@ export function reducer(state: State, a: Action): State {
         prev =
           snap.requestStatus.find((x) => x.id === r.id) ??
           snap.joinRequests.find((x) => x.id === r.id);
+      if (
+        prev &&
+        ((prev.status !== 'pending' && r.status === 'pending') ||
+          (prev.version != null && r.version != null && r.version < prev.version))
+      )
+        break;
       // 서버가 안 준 필드(version 등)는 기존 값을 유지한다 — 합성하지 않는다
       snap.requestStatus = [...snap.requestStatus.filter((x) => x.id !== r.id), { ...prev, ...r }];
       snap.joinRequests = snap.joinRequests.map((x) =>
@@ -1465,10 +1480,19 @@ export function reducer(state: State, a: Action): State {
       );
       break;
     }
-    case 'ISLAND_SYNC_REQUESTS':
+    case 'ISLAND_SYNC_REQUESTS': {
       // 신청 목록 재조회 — pending만 오는 서버 목록으로 통째로 갈아 끼운다
-      serverSnap(s).joinRequests = a.requests as MyJoinRequest[];
+      const snap = serverSnap(s);
+      const terminalIds = new Set(
+        snap.requestStatus
+          .filter((request) => request.status !== 'pending')
+          .map((request) => request.id),
+      );
+      snap.joinRequests = (a.requests as MyJoinRequest[]).filter(
+        (request) => !terminalIds.has(request.id),
+      );
       break;
+    }
     // ── 집중 세션 ──
     case 'FOCUS_SPOT':
       if (s.session) return state;
