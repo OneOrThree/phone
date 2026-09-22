@@ -95,6 +95,11 @@ services:
     container_name: gromo-redis-exporter
     environment:
       REDIS_ADDR: redis://redis:6379
+    labels:
+      com.datadoghq.tags.env: dev
+      com.datadoghq.tags.service: gromo-redis-dev
+      com.datadoghq.ad.checks: >-
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9121/metrics","namespace":"gromo_redis","metrics":[".*"],"health_service_check":true}]}}
     depends_on:
       redis:
         condition: service_healthy
@@ -109,6 +114,11 @@ services:
     container_name: gromo-kafka-exporter
     command:
       - --kafka.server=kafka:9092
+    labels:
+      com.datadoghq.tags.env: dev
+      com.datadoghq.tags.service: gromo-kafka-dev
+      com.datadoghq.ad.checks: >-
+        {"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9308/metrics","namespace":"gromo_kafka","metrics":[".*"],"health_service_check":true}]}}
     networks: [app-network]
     restart: unless-stopped
 

@@ -51,6 +51,11 @@ services:
       DD_APM_ENABLED: "true"
       DD_APM_NON_LOCAL_TRAFFIC: "true"
       DD_DOGSTATSD_NON_LOCAL_TRAFFIC: "true" # app 컨테이너 DogStatsD(JVM 런타임 메트릭) 수신 — 없으면 JVM 위젯 빈다
+      # Live Processes와 컨테이너 lifecycle을 함께 보내 호스트/컨테이너 리소스에서 실제 프로세스까지
+      # 한 번에 내려갈 수 있게 한다. /host/proc와 docker.sock은 아래 read-only mount를 재사용한다.
+      DD_PROCESS_AGENT_ENABLED: "true"
+      DD_PROCESS_CONFIG_PROCESS_COLLECTION_ENABLED: "true"
+      DD_CONTAINER_LIFECYCLE_ENABLED: "true"
       # 비용/노이즈 제어 — 기존 OSS 관측 컨테이너들은 수집 제외 (app/db 는 수집 대상)
       DD_CONTAINER_EXCLUDE: "name:gromo-prometheus name:gromo-grafana name:gromo-loki name:gromo-promtail name:gromo-postgres-exporter name:gromo-node-exporter name:gromo-cadvisor name:gromo-datadog-agent"
     volumes:
@@ -77,8 +82,11 @@ services:
       # app 자체 trace_id 키를 찍으므로, 완전한 로그↔트레이스 상관은 아직 미완 — JSON 콘솔(별도 datadog
       # 프로파일) 또는 Datadog Grok 로그 파이프라인 필요(Phase 3). 지금은 MDC 주입만 준비해 둔다.
       DD_LOGS_INJECTION: "true"
-      DD_TRACE_SAMPLE_RATE: "0.2" # 비용 제어(dev 저부하)
+      DD_TRACE_SAMPLE_RATE: "1.0" # dev 요청은 전량 보존 — 장애 재현 시 희소 트레이스가 생기지 않게 한다
       DD_RUNTIME_METRICS_ENABLED: "true" # JVM 런타임 메트릭 — prod와 통일
+      DD_PROFILING_ENABLED: "true" # CPU·wall time·allocation·lock 프로파일
+      DD_DATA_STREAMS_ENABLED: "true" # Kafka producer/consumer 경로와 처리 지연
+      DD_TRACE_ANALYTICS_ENABLED: "true"
       DD_TRACE_REMOVE_INTEGRATION_SERVICE_NAMES_ENABLED: "true" # inferred 서비스 안 쪼갬 — prod와 통일
       DD_GIT_REPOSITORY_URL: "github.com/OneOrThree/phone" # 트레이스↔소스코드 연결
       DD_GIT_COMMIT_SHA: ${IMAGE_REVISION:?실제 앱 이미지 revision 미설정}
