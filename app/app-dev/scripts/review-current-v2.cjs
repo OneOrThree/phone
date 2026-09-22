@@ -1,6 +1,7 @@
 const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
+const reviewUrl = process.env.GROMO_REVIEW_URL || 'http://127.0.0.1:18762/?review=1';
 (async () => {
   const b = await chromium.launch({ channel: 'chrome', headless: true });
   const report = [];
@@ -16,7 +17,7 @@ const path = require('path');
     p.on('console', (m) => {
       if (m.type() === 'error') errors.push(m.text());
     });
-    await p.goto('http://127.0.0.1:18762/?review=1');
+    await p.goto(reviewUrl);
     await p.waitForFunction(() => window.__gromoReview);
     for (const [route, detail, tab] of [
       ['home'],
@@ -28,6 +29,7 @@ const path = require('path');
       ['library'],
       ['diary'],
       ['boat'],
+      ['mainIsland'],
       ['friends'],
       ['friendSearch'],
       ['mail'],
@@ -59,6 +61,10 @@ const path = require('path');
       await p.evaluate(
         ({ route, detail, tab }) => {
           const s = window.__gromoReview.fixture(true);
+          if (['boat', 'mainIsland'].includes(route)) {
+            s.islands.find((island) => island.id === 'strawberry').joined = true;
+            s.islands.find((island) => island.id === 'cloud').joined = true;
+          }
           if (['focus', 'rest', 'focusResult'].includes(route))
             s.session = {
               id: 'review',

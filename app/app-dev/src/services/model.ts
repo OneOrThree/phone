@@ -34,6 +34,7 @@ export type Route =
   | 'product'
   | 'orders'
   | 'boat'
+  | 'mainIsland'
   | 'profile'
   | 'settings'
   | 'wardrobe'
@@ -215,6 +216,8 @@ export type State = {
   name: string;
   profileNames?: string[];
   color: Color;
+  // 친구 목록·프로필에 표시하는 대표 섬. 현재 접속 섬(islandId)과 독립적으로 바뀐다.
+  mainIslandId: string | null;
   islandId: string;
   fish: number;
   owned: string[];
@@ -609,6 +612,7 @@ export function initialState(full = false): State {
     name: '수빈',
     profileNames: ['수빈'],
     color: 'black',
+    mainIslandId: full ? 'soda' : null,
     islandId: 'soda',
     fish: 0,
     owned: [],
@@ -646,6 +650,9 @@ export function initialState(full = false): State {
   };
 }
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
+export const mainIsland = (s: State) =>
+  s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??
+  s.islands.find((i) => i.joined && !i.closed);
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
 export const viewIsland = (s: State) =>
   (s.visitingIslandId && s.islands.find((i) => i.id === s.visitingIslandId)) || currentIsland(s);
@@ -1119,6 +1126,9 @@ export function reducer(state: State, a: Action): State {
     });
     const pendingIslands =
       loaded.pendingIslands ?? (loaded.pendingIsland ? [loaded.pendingIsland] : []);
+    const loadedMainIsland = loaded.islands.find(
+      (island) => island.id === loaded.mainIslandId && island.joined && !island.closed,
+    );
     const next: State = {
       ...loaded,
       schema: 2,
@@ -1127,6 +1137,10 @@ export function reducer(state: State, a: Action): State {
       rewards: loaded.rewards ?? [],
       screenDays: loaded.screenDays ?? {},
       profileNames: loaded.profileNames ?? [loaded.name],
+      mainIslandId:
+        loadedMainIsland?.id ??
+        loaded.islands.find((island) => island.joined && !island.closed)?.id ??
+        null,
       // 받은 편지 읽음 기준이 없던 저장본은 이미 받은 편지를 모두 읽은 것으로 본다
       lettersReadAt:
         loaded.lettersReadAt ??
@@ -1209,6 +1223,7 @@ export function reducer(state: State, a: Action): State {
       );
       s.islands.push(n);
       s.islandId = n.id;
+      s.mainIslandId ??= n.id;
       s.visitingIslandId = null;
       s.onboarded = true;
       break;
@@ -1231,6 +1246,7 @@ export function reducer(state: State, a: Action): State {
       s.travelOrigin = s.onboarded ? i.name : '나의 뗏목';
       island.joined = true;
       s.islandId = island.id;
+      s.mainIslandId ??= island.id;
       // 구경하던 섬에 바로 가입하면 그 섬 주민이 되어 구경이 끝난다
       s.visitingIslandId = null;
       s.pendingIslands = (s.pendingIslands ?? []).filter((id) => id !== island.id);
@@ -1255,6 +1271,12 @@ export function reducer(state: State, a: Action): State {
         return state;
       s.islandId = target.id;
       s.visitingIslandId = null;
+      break;
+    }
+    case 'MAIN_ISLAND': {
+      const target = s.islands.find((island) => island.id === a.id);
+      if (!target?.joined || target.closed || target.id === state.mainIslandId) return state;
+      s.mainIslandId = target.id;
       break;
     }
     case 'FOCUS_SPOT':
@@ -1668,6 +1690,7 @@ export function reducer(state: State, a: Action): State {
       const nextIsland = s.islands.find((j) => j.joined && j.id !== i.id);
       s.onboarded = !!nextIsland;
       if (nextIsland) s.islandId = nextIsland.id;
+      if (s.mainIslandId === i.id) s.mainIslandId = nextIsland?.id ?? null;
       s.visitingIslandId = null;
       break;
     case 'SCREEN_TIME':

@@ -3,6 +3,7 @@ import {
   initialState,
   reducer,
   currentIsland,
+  mainIsland,
   viewIsland,
   canVisit,
   visitorJoinState,
@@ -49,6 +50,37 @@ import {
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
+test('메인 섬을 바꿔도 현재 접속 섬은 유지하고 미가입 섬은 선택하지 않는다', () => {
+  let s = initialState(true);
+  s.islands.find((island) => island.id === 'strawberry')!.joined = true;
+  const currentIslandId = s.islandId;
+
+  s = act(s, 'MAIN_ISLAND', { id: 'strawberry' });
+  assert.equal(s.mainIslandId, 'strawberry');
+  assert.equal(mainIsland(s)?.name, '딸기 섬');
+  assert.equal(s.islandId, currentIslandId);
+
+  assert.equal(act(s, 'MAIN_ISLAND', { id: 'cloud' }), s);
+  assert.equal(act(s, 'MAIN_ISLAND', { id: 'strawberry' }), s);
+});
+test('예전 저장본은 가입 중인 섬을 메인 섬으로 복구한다', () => {
+  const stored = initialState(true);
+  delete (stored as Partial<typeof stored>).mainIslandId;
+
+  const loaded = act(initialState(), 'LOAD', { state: stored, now: 1000 });
+  assert.equal(loaded.mainIslandId, 'soda');
+  assert.equal(mainIsland(loaded)?.id, 'soda');
+});
+test('메인 섬에서 탈퇴하면 남은 소속 섬을 메인 섬으로 정한다', () => {
+  let s = initialState(true);
+  s.islands.find((island) => island.id === 'strawberry')!.joined = true;
+  s = act(s, 'MAIN_ISLAND', { id: 'strawberry' });
+  s = act(s, 'SWITCH_ISLAND', { id: 'strawberry' });
+  s = act(s, 'LEAVE');
+
+  assert.equal(s.islandId, 'soda');
+  assert.equal(s.mainIslandId, 'soda');
+});
 test('휴식은 집중에서 제외, 보상은 집중한 섬에만 적립하고 종료 중복을 막는다', () => {
   let s = initialState(true);
   s = act(s, 'START', { subject: '수학', now: 1000 });
