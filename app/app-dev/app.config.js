@@ -5,6 +5,7 @@ module.exports = {
     version: '2.0.0',
     orientation: 'default',
     userInterfaceStyle: 'light',
+    icon: './src/assets/icon.png',
     ios: {
       supportsTablet: true,
       bundleIdentifier: 'com.oneorthree.focuscat',
@@ -15,6 +16,10 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.focuscat',
+      adaptiveIcon: {
+        image: './src/assets/icon.png',
+        backgroundColor: '#FDEFD5',
+      },
     },
     web: {
       bundler: 'metro',
