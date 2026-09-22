@@ -1,3 +1,5 @@
+import { GuideBox, MailboxGuide } from '@/screens/island/NpcGuide';
+import { getSession } from '@/services/api/session';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -18,6 +20,7 @@ import {
 import Svg, { Path, Line } from 'react-native-svg';
 import {
   State,
+  shouldShowMailboxGuide,
   Building,
   Color,
   currentIsland,
@@ -586,47 +589,6 @@ function Eq() {
           }}
         />
       ))}
-    </View>
-  );
-}
-// 앵무새 대화 모달(guidebox): 대사 + 오른쪽 정렬 버튼 줄. 위치·폭은 style로
-function GuideBox({ text, style, children }: any) {
-  return (
-    <View
-      style={[
-        {
-          position: 'absolute',
-          borderRadius: 20,
-          borderWidth: 2,
-          borderColor: C.brown,
-          backgroundColor: '#FFFDFAF0',
-          paddingVertical: 14,
-          paddingHorizontal: 16,
-          gap: 8,
-          boxShadow: '0px 4px 0px ' + C.brown,
-        },
-        style,
-      ]}
-    >
-      <View style={[k.row, { gap: 12 }]}>
-        <Pic id="parrot" w={56} />
-        <Txt
-          lineBreakStrategyIOS="hangul-word"
-          style={[{ flex: 1, fontSize: 16, lineHeight: 21.6, fontWeight: '700' }, KEEP]}
-        >
-          {text}
-        </Txt>
-      </View>
-      <View
-        style={{
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'flex-end',
-          gap: 16,
-        }}
-      >
-        {children}
-      </View>
     </View>
   );
 }
@@ -2106,18 +2068,33 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'home') {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
-    const hallGuide = hallGuideOpen && !island.buildings.includes('hall'),
+    const guideUserId = getSession()?.userId ?? 'local';
+    const mailboxGuide = shouldShowMailboxGuide(state, guideUserId);
+    const hallGuide = !mailboxGuide && hallGuideOpen && !island.buildings.includes('hall'),
       w = layout.compact ? Math.min(layout.floatingWidth, 374) : layout.floatingWidth;
     return (
       <View style={{ flex: 1 }}>
-        <IslandHome
-          state={state}
-          go={go}
-          build={build}
-          request={e.walkRequest}
-          notify={notify}
-          dispatch={dispatch}
-        />
+        {mailboxGuide ? (
+          backgroundHome
+        ) : (
+          <IslandHome
+            state={state}
+            go={go}
+            build={build}
+            request={e.walkRequest}
+            notify={notify}
+            dispatch={dispatch}
+          />
+        )}
+        {mailboxGuide && (
+          <MailboxGuide
+            key={`${guideUserId}:${island.id}`}
+            onDone={(openMailbox) => {
+              dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
+              if (openMailbox) go('mail');
+            }}
+          />
+        )}
         {hallGuide && (
           <GuideBox
             text={`제일 먼저 섬의 관리를 위한 마을회관부터 지어보자.\n물고기 ${costs.hall}마리만 모아줘!`}
