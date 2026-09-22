@@ -634,3 +634,10 @@ import { Page, Group, Row, Btn } from '@/design-system/patterns';
 - 주·월 합계 및 날짜별 기록은 Monitor의 15분 단위 기록이며 오늘 리포트와 구분해서 표기한다.
 - 권한 없음·측정 대상 미선택·데이터 미수신을 실제 사용량 0분과 구분한다.
 - SwiftUI 색상은 `src/design-system/tokens.ts`에서 `npm run gen:report-palette`로 생성한다. `npm run gen:report-palette:check`로 정합성을 검사한다.
+
+### Android 사용량 측정
+
+- 설정의 측정 권한에서 시스템 사용 정보 접근 화면을 열고, 복귀하면 실제 권한을 다시 확인한다. 승인 후에도 같은 화면에서 철회할 수 있다.
+- 측정 범위는 전체 앱이다. 앱 선택·앱 잠금 UI는 제공하지 않는다.
+- 내 오늘 사용량은 네이티브 조회값을 분 단위로 표시하고, iOS의 15분 단위 기록과 문구를 구분한다.
+- 조회 실패·권한 철회·복원할 수 없는 날짜는 실제 0분과 구분하고 미확인 날짜를 퀘스트 달성에 사용하지 않는다.

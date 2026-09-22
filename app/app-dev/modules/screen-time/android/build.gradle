@@ -1,0 +1,14 @@
+// 안드로이드 스크린타임 로컬 Expo 모듈(GROMO-994) — settings.gradle의 expo autolinking이
+// app/modules/ 를 기본 검색 경로(nativeModulesDir)로 스캔해 자동 포함한다.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+android {
+  namespace "com.oneorthree.gromo.screentime"
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}

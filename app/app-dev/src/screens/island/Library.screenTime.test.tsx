@@ -2,7 +2,12 @@ import React from 'react';
 import { Platform } from 'react-native';
 import { cleanup, render } from '@testing-library/react-native';
 import { Library } from './Library';
+import { RedesignScreens } from './Screens';
 import { initialState } from '@/services/model';
+
+jest.mock('react-native-safe-area-context', () => ({
+  useSafeAreaInsets: () => ({ top: 52, bottom: 32, left: 0, right: 0 }),
+}));
 
 jest.mock('@/components/ScreenTimeReportView', () => 'ScreenTimeReportView');
 jest.mock('@/utils/layout', () => ({
@@ -63,3 +68,21 @@ test('Android 기록은 iOS 리포트를 생성하지 않는다', async () => {
   const screen = await render(<Library e={environment()} />);
   expect(screen.queryByTestId('today-screen-time-report')).toBeNull();
 });
+
+test.each(['diary', 'stats'])(
+  'Android %s 화면은 전날 수치를 숨기고 오늘 0분을 표시한다',
+  async (route) => {
+    Platform.OS = 'android';
+    const e = { ...environment(), route, now: Date.parse('2026-09-23T00:00:01+09:00') };
+    e.state.screenDays = {};
+    e.state.screenMinutes = 777;
+    e.state.settings.screenTimeMeasurementDay = '2026-09-22';
+    const view = () => (route === 'diary' ? <Library e={e} /> : <RedesignScreens e={e} />);
+    const screen = await render(view());
+    expect(screen.queryByText('777분')).toBeNull();
+    e.state.settings.screenTimeMeasurementDay = '2026-09-23';
+    e.state.screenMinutes = 0;
+    await screen.rerender(view());
+    expect(screen.getByText('0분')).toBeTruthy();
+  },
+);

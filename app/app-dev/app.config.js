@@ -16,6 +16,7 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.focuscat',
+      permissions: ['android.permission.PACKAGE_USAGE_STATS'],
       adaptiveIcon: {
         image: './src/assets/icon.png',
         backgroundColor: '#FDEFD5',

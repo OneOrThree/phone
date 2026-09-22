@@ -1,3 +1,5 @@
+import { sessionGeneration } from '@/services/api/session';
+import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,6 +16,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   State,
   Building,
+  Color,
   Route,
   currentIsland,
   viewIsland,
@@ -36,6 +39,8 @@ import {
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
+import { getSession } from '@/services/api/session';
+import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -83,6 +88,7 @@ import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
+import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
 import {
   isScreenTimeAvailable,
   screenTime,
@@ -152,6 +158,48 @@ function Sheet({
 }
 
 export function CurrentScreens({ e }: any) {
+  const friendsScreen = useFriendsScreen({
+    // 공용 소비자(뗏목 배지·우체통)가 첫 진입부터 서버 친구를 쓰도록 화면 route와 무관하게 적재한다.
+    active: !!e.islands,
+    searchActive: e.route === 'friendSearch',
+    date: dayKey(e.now),
+  });
+  useEffect(() => {
+    const data = friendsScreen.data;
+    if (!data) return;
+    const toFriend = (
+      userId: string,
+      nickname: string | null,
+      islandName: string | null | undefined,
+      status: 'friend' | 'received' | 'sent',
+    ) => ({
+      id: userId,
+      name: nickname ?? '탈퇴한 사용자',
+      color: 'white' as Color,
+      island: islandName ?? '',
+      status,
+      messages: [],
+    });
+    e.dispatch({
+      type: 'FRIENDS_SYNC',
+      friends: [
+        ...data.friends.map((friend) =>
+          toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
+        ),
+        ...data.friendRequests.map((request) =>
+          toFriend(request.userId, request.nickname, null, 'received'),
+        ),
+        ...data.sentFriendRequests.map((request) =>
+          toFriend(request.userId, request.nickname, null, 'sent'),
+        ),
+      ],
+    });
+  }, [e.dispatch, friendsScreen.data]);
+
+  return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
+}
+
+function CurrentScreensContent({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
     r: Route = e.route;
@@ -325,6 +373,10 @@ function ScreenTimePermission({ e }: any) {
   const gateDetail = decodeURIComponent(gateParts[2] || '');
   const measuredApps = e.detail === 'measured-apps';
   const finish = () => {
+    if (Platform.OS === 'android') {
+      e.back();
+      return;
+    }
     if (boardFirst) {
       e.replace('screenTimeApps', e.detail);
     } else if (measuredApps) {
@@ -342,9 +394,19 @@ function ScreenTimePermission({ e }: any) {
     }
   };
   const syncStatus = async () => {
+    const generation = sessionGeneration();
     const next = await screenTime.getAuthorizationStatus();
+    if (generation !== sessionGeneration()) return 'unavailable';
     setStatus(next);
     e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
+    if (Platform.OS === 'android') {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
+      const snapshot = await syncAndroidScreenTime();
+      if (generation !== sessionGeneration()) return 'unavailable';
+      e.dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
+      setStatus(snapshot.approved ? 'approved' : next === 'approved' ? 'denied' : next);
+      return snapshot.approved ? 'approved' : next === 'approved' ? 'denied' : next;
+    }
     return next;
   };
   useEffect(() => {
@@ -398,7 +460,7 @@ function ScreenTimePermission({ e }: any) {
         </View>
       </Sheet>
     );
-  const unavailable = Platform.OS !== 'ios' || !isScreenTimeAvailable || status === 'unavailable';
+  const unavailable = !isScreenTimeAvailable || status === 'unavailable';
   return (
     <Sheet
       e={e}
@@ -409,8 +471,9 @@ function ScreenTimePermission({ e }: any) {
       <Pic id="cat/black/sitting" w={82} />
       <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
       <Txt>
-        GROMO가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을
-        썼는지나 화면 내용은 볼 수 없어요.
+        {Platform.OS === 'android'
+          ? '설정의 사용 정보 접근에서 GROMO를 허용해 주세요. 앱별 사용 기록으로 전체 사용 시간을 계산해요. 화면 내용은 읽지 않으며 다른 앱을 잠그지 않아요.'
+          : 'GROMO가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
       </Txt>
       <Group flat>
         <Row
@@ -426,6 +489,16 @@ function ScreenTimePermission({ e }: any) {
           }
         />
       </Group>
+      {Platform.OS === 'android' && status === 'approved' && (
+        <Btn
+          title="사용 정보 접근 설정 열기"
+          kind="sec"
+          onPress={async () => {
+            if (!(await screenTime.openUsageAccessSettings()))
+              e.notify('사용 정보 접근 설정을 열지 못했어요.');
+          }}
+        />
+      )}
       {status === 'approved' ? (
         <Btn
           title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
@@ -433,7 +506,11 @@ function ScreenTimePermission({ e }: any) {
         />
       ) : status === 'denied' ? (
         <>
-          <Btn title="iOS 설정 열기" onPress={() => Linking.openSettings()} />
+          <Btn
+            title={Platform.OS === 'android' ? '사용 정보 접근 설정 열기' : 'iOS 설정 열기'}
+            disabled={busy}
+            onPress={Platform.OS === 'android' ? request : () => Linking.openSettings()}
+          />
           <Btn
             title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
             kind="ghost"
@@ -610,12 +687,34 @@ function FocusVisit({ e, islandId, onBack }: any) {
     i = s.islands.find((island) => island.id === islandId) ?? currentIsland(s),
     L = useAppLayout(),
     safe = useSafeAreaInsets(),
-    // 서버 연결 뒤 focus-members가 403/빈 응답이어도 로딩 상태를 유지하지 않고 빈 관전 화면으로 끝낸다.
-    peers = (i.members ?? []).filter((member) => member.focusing),
-    spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]),
     reduce = s.settings.reduceMotion,
     close = onBack ?? e.home,
     visiting = !!islandId;
+  // GROMO-2010 — 서버 모드에서는 대상 섬의 실시간 집중 멤버가 정본이다.
+  // 방문 관전은 serverIslands.visit 의 섬, 내 낚시섬 관전은 현재 섬. 목업·로컬 방문은 기존 로컬 경로.
+  const liveIslandId = e.islands
+    ? islandId
+      ? (s.serverIslands?.visit?.island.id ?? null)
+      : (s.serverIslands?.currentIslandId ?? null)
+    : null;
+  const live = useIslandPresence({ active: liveIslandId !== null, islandId: liveIslandId });
+  const myId = getSession()?.userId;
+  const peers = liveIslandId
+    ? live.focus
+        .filter((m) => m.userId !== myId)
+        .map((m) => ({
+          id: m.userId,
+          name: m.name ?? '주민',
+          color: catColor(m.catColor),
+          subject: m.subject,
+          seconds:
+            m.activeSeconds +
+            (m.status === 'active'
+              ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
+              : 0),
+        }))
+    : (i.members ?? []).filter((member) => member.focusing);
+  const spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]);
   return (
     <View style={{ flex: 1 }}>
       <FishingIsland
@@ -683,7 +782,53 @@ function FocusVisit({ e, islandId, onBack }: any) {
           onPress={close}
         />
       </View>
-      {!peers.length && (
+      {liveIslandId && live.status === 'loading' ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
+          ]}
+        >
+          <ActivityIndicator color={INK} />
+        </View>
+      ) : liveIslandId && live.status === 'error' ? (
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
+          ]}
+        >
+          <View
+            style={{
+              marginHorizontal: 24,
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 18,
+              backgroundColor: '#FFFDFAD9',
+              paddingVertical: 12,
+              paddingHorizontal: 18,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ fontSize: 14, lineHeight: 22.4, fontWeight: '800', color: INK }}>
+              {live.error?.code === 'MEMBER_ONLY'
+                ? '이 섬의 주민 상태를 볼 수 없어요'
+                : '주민 상태를 불러오지 못했어요'}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="다시 시도"
+              onPress={live.retry}
+              style={{ minHeight: 44, justifyContent: 'center' }}
+            >
+              <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
+                다시 시도
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : !peers.length ? (
         <View
           pointerEvents="none"
           style={[
@@ -707,7 +852,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
             </Text>
           </View>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -746,6 +891,20 @@ function FocusFlow({ e }: any) {
     active: serverQuests && r === 'focusResult',
     scopeKey: `focusQuests:${s.serverIslands?.currentIslandId ?? i.id}`,
   });
+  // GROMO-2010 — 서버 모드에서는 같은 섬 주민의 실시간 집중/휴식·응원이 정본이다.
+  // 응원 채널은 내 진행 서버 세션이 이 섬에 있을 때만 구독·발신한다(없으면 서버가 거절한다).
+  const liveIslandId = e.islands ? (s.serverIslands?.currentIslandId ?? null) : null;
+  const emoteSessionId =
+    liveIslandId && s.session?.version != null && s.session.islandId === liveIslandId
+      ? s.session.id
+      : null;
+  const live = useIslandPresence({
+    active: liveIslandId !== null,
+    islandId: liveIslandId,
+    emoteSessionId,
+    onSendError: e.notify,
+  });
+  const myId = getSession()?.userId;
   useEffect(
     () => () => {
       walkingToken.current++;
@@ -786,8 +945,24 @@ function FocusFlow({ e }: any) {
   const mine = castSpot(
     s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
   );
-  const peers = i.members.filter((m) => m.focusing),
-    peerSpots = peers.map((_, n) => PEER_SPOTS[n % PEER_SPOTS.length]);
+  // 주민 자리: 서버 모드는 live 스냅숏+이벤트가 정본 — 로딩·실패면 로컬 멤버로 지어내지 않는다.
+  const peers = liveIslandId
+    ? live.focus
+        .filter((m) => m.userId !== myId)
+        .map((m) => ({
+          id: m.userId,
+          name: m.name ?? '주민',
+          color: catColor(m.catColor),
+          subject: m.subject,
+          seconds:
+            m.activeSeconds +
+            (m.status === 'active'
+              ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
+              : 0),
+        }))
+    : i.members.filter((m) => m.focusing);
+  const peerSpots = peers.map((_, n) => PEER_SPOTS[n % PEER_SPOTS.length]),
+    emoteByUser = new Map(live.emotes.map((em) => [em.userId, em.type]));
   // 걷기: 땅 격자 경로를 따라 지도 폭 11%/초로 걷고, 걷는 중 다시 누르면 지금 위치에서 새 목적지로.
   const walkTo = (to: Point, done: () => void) => {
     const from = position.current,
@@ -940,6 +1115,7 @@ function FocusFlow({ e }: any) {
     return (
       <RestGroup
         state={s}
+        live={liveIslandId ? live : null}
         home={e.home}
         resume={resume}
         endRest={finish}
@@ -1113,7 +1289,13 @@ function FocusFlow({ e }: any) {
   if (r === 'focusResult' && s.resultFromRest)
     return (
       <View style={{ flex: 1 }}>
-        <RestGroup state={s} home={e.home} resume={e.home} result />
+        <RestGroup
+          state={s}
+          live={liveIslandId ? live : null}
+          home={e.home}
+          resume={e.home}
+          result
+        />
         {resultModal}
         {rewardModal}
       </View>
@@ -1213,8 +1395,13 @@ function FocusFlow({ e }: any) {
     );
   };
   const sendEmote = (id: string) => {
-    setEmote(id);
     setFan(false);
+    if (liveIslandId) {
+      // 서버 모드는 STOMP SEND 가 유일한 경로 — 브로드캐스트가 돌아올 때만 화면에 뜬다.
+      if (!live.sendEmote(id)) e.notify('응원을 보내지 못했어요. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
+    setEmote(id);
     if (emoteTimer.current) clearTimeout(emoteTimer.current);
     emoteTimer.current = setTimeout(() => setEmote(null), 3000);
   };
@@ -1294,6 +1481,7 @@ function FocusFlow({ e }: any) {
                   name={m.name}
                   subject={shown.has(m.id) ? m.subject : null}
                   seconds={m.seconds}
+                  emote={emoteByUser.get(m.id) ?? null}
                   reduce={reduce}
                 />
               ))}
@@ -1309,7 +1497,9 @@ function FocusFlow({ e }: any) {
                   seconds={
                     r === 'focusResult' ? (result?.seconds ?? 0) : sessionSeconds(s.session, e.now)
                   }
-                  emote={focusing ? emote : null}
+                  emote={
+                    focusing ? (liveIslandId ? (emoteByUser.get(myId ?? '') ?? null) : emote) : null
+                  }
                   reduce={reduce}
                 />
               ) : (
@@ -1327,6 +1517,35 @@ function FocusFlow({ e }: any) {
           );
         }}
       </FishingIsland>
+      {liveIslandId && live.status === 'error' && (
+        <View
+          style={{
+            position: 'absolute',
+            zIndex: 5,
+            top: Math.max(56, safe.top + 8),
+            left: Math.max(18, safe.left + 8),
+          }}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="주민 상태 다시 불러오기"
+            onPress={live.retry}
+            style={{
+              minHeight: 44,
+              justifyContent: 'center',
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 14,
+              backgroundColor: '#FFFDFAD9',
+              paddingHorizontal: 12,
+            }}
+          >
+            <Text style={{ fontSize: 12, lineHeight: 19.2, fontWeight: '800', color: INK }}>
+              주민 상태를 불러오지 못했어요 · 다시 시도
+            </Text>
+          </Pressable>
+        </View>
+      )}
       {focusing && (
         <>
           <View

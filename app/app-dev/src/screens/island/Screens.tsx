@@ -108,6 +108,15 @@ import {
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
 import { useFocusSummary } from '@/screens/island/useFocusSummary';
 import { useShop } from '@/screens/island/useShop';
+import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
+import {
+  acceptFriendRequest,
+  cancelFriendRequest,
+  deleteFriend,
+  friendErrorKind,
+  rejectFriendRequest,
+  sendFriendRequest,
+} from '@/services/api/friends';
 const names: Record<string, string> = {
   waves: '잔잔한 파도',
   campfire: '모닥불 소리',
@@ -802,6 +811,24 @@ export function RedesignScreens({ e }: any) {
       : (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
   const productTitle = (id: string) =>
     server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
+  // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
+  const friendsScreen = e.friendsScreen as FriendsScreenState;
+  // 친구 명령의 공통 실패 처리 — 게이트는 회원 전환 시트로, 이미 처리·중복은 재조회로 닫는다
+  const friendFail = (thrown: unknown) => {
+    if (e.conversion?.offer(thrown)) return;
+    const kind = friendErrorKind(thrown);
+    if (kind === 'duplicate') notify('이미 친구이거나 보낸 요청이 있어요.');
+    else if (kind === 'already-handled') notify('이미 처리된 요청이에요. 목록을 새로고침했어요.');
+    else if (kind === 'privacy') notify('이 작업을 할 수 있는 상대가 아니에요.');
+    else if (kind === 'network') notify('네트워크를 확인한 뒤 다시 시도해 주세요.');
+    else
+      notify(thrown instanceof ApiError && thrown.message ? thrown.message : '다시 시도해 주세요.');
+    if (kind === 'duplicate' || kind === 'already-handled') friendsScreen.refresh();
+  };
+  // 성공(2xx) 확인 뒤에만 목록이 바뀐다 — optimistic 성공 없이 command 가 재조회를 건다
+  const friendCmd = (fn: () => Promise<unknown>) => {
+    friendsScreen.command(fn).catch(friendFail);
+  };
   // 신청 목록에 단건 상태 조회 결과를 얹은 유효 목록 — requestStatus가 최신 상태다.
   // 단건 결과엔 표시 필드가 없으므로 목록에 없는 신청은 상태만 안다.
   const reqList = [
@@ -2902,21 +2929,31 @@ export function RedesignScreens({ e }: any) {
         {divider}
         <View style={{ gap: 10 }}>
           {head('phone', '스크린타임', <Txt kind="meta">오늘</Txt>)}
-          {state.settings.permission && state.settings.screenTimeMeasurementReady ? (
+          {state.settings.permission &&
+          state.settings.screenTimeMeasurementReady &&
+          (Platform.OS !== 'android' || state.settings.screenTimeMeasurementDay === dayKey(now)) ? (
             <>
-              <Txt kind="meta">오늘 · 선택한 앱의 사용 시간</Txt>
+              <Txt kind="meta">
+                {Platform.OS === 'android'
+                  ? '오늘 · 전체 앱 사용 시간'
+                  : '오늘 · 선택한 앱의 사용 시간'}
+              </Txt>
               <Group flat>
                 <Row
                   title="오늘 폰 사용"
                   sub={md(now)}
                   right={
-                    <ScreenTimeReportView
-                      reportContext="Compact Activity"
-                      style={{
-                        width: primitiveTokens.space[16] * 2,
-                        minHeight: primitiveTokens.size.tapMin,
-                      }}
-                    />
+                    Platform.OS === 'android' ? (
+                      <Txt>{state.screenMinutes}분</Txt>
+                    ) : (
+                      <ScreenTimeReportView
+                        reportContext="Compact Activity"
+                        style={{
+                          width: primitiveTokens.space[16] * 2,
+                          minHeight: primitiveTokens.size.tapMin,
+                        }}
+                      />
+                    )
                   }
                 />
                 <Row
@@ -2943,16 +2980,26 @@ export function RedesignScreens({ e }: any) {
               >
                 <Txt kind="h17">
                   {state.settings.permission
-                    ? '측정할 앱을 선택해야 해요'
+                    ? Platform.OS === 'android'
+                      ? '오늘 사용 시간을 확인하고 있어요'
+                      : '측정할 앱을 선택해야 해요'
                     : '스크린타임 연결이 꺼져 있어요'}
                 </Txt>
                 <Txt kind="meta" style={{ textAlign: 'center' }}>
                   {state.settings.permission
-                    ? `측정할 앱이나 카테고리를 선택하면\n오늘 폰 사용 시간을 볼 수 있어요.`
+                    ? Platform.OS === 'android'
+                      ? '오늘 측정이 확인되면 사용 시간을 표시해요.'
+                      : `측정할 앱이나 카테고리를 선택하면\n오늘 폰 사용 시간을 볼 수 있어요.`
                     : `연결하면 오늘 폰 사용 시간을 여기서 볼 수 있어요.\n기록이 없는 것과 0분은 달라요.`}
                 </Txt>
                 <Btn
-                  title={state.settings.permission ? '측정 앱 선택하기' : '설정에서 켜기'}
+                  title={
+                    state.settings.permission
+                      ? Platform.OS === 'android'
+                        ? '측정 권한 확인하기'
+                        : '측정 앱 선택하기'
+                      : '설정에서 켜기'
+                  }
                   small
                   kind="sec"
                   style={{ marginTop: 4 }}
@@ -5171,6 +5218,161 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'friends') {
     // 받은 요청 수락·거절 · 보낸 요청 취소 · 친구 ··· → 친구 삭제. 친구 찾기는 헤더
+    if (server) {
+      const d = friendsScreen.data;
+      const nameOf = (nickname: string | null) => nickname ?? '탈퇴한 사용자';
+      const reqRow = (
+        f: { requestId: string; userId: string; nickname: string | null },
+        sent: boolean,
+      ) => (
+        <SheetRow
+          key={f.requestId}
+          title={nameOf(f.nickname)}
+          sub={sent ? '수락 기다리는 중' : undefined}
+          tone={sent ? undefined : 'butter'}
+          lead={<Avatar color="white" />}
+          tail={
+            sent ? (
+              <Btn
+                small
+                kind="sec"
+                title="요청 취소"
+                style={SEC_BTN}
+                disabled={friendsScreen.busy}
+                onPress={() => friendCmd(() => cancelFriendRequest(f.requestId))}
+              />
+            ) : (
+              <>
+                <Btn
+                  small
+                  title="수락"
+                  disabled={friendsScreen.busy}
+                  onPress={() => friendCmd(() => acceptFriendRequest(f.requestId))}
+                />
+                <Btn
+                  small
+                  kind="sec"
+                  title="거절"
+                  style={SEC_BTN}
+                  disabled={friendsScreen.busy}
+                  onPress={() => friendCmd(() => rejectFriendRequest(f.requestId))}
+                />
+              </>
+            )
+          }
+        />
+      );
+      const group = (name: string, rows: React.ReactNode[]) => (
+        <React.Fragment key={name}>
+          <Txt kind="section" style={st.sec}>
+            {name} {rows.length}
+          </Txt>
+          {rows.length ? (
+            <SheetGroup>{rows}</SheetGroup>
+          ) : (
+            <Txt kind="meta" style={st.meta}>
+              아직 없어요.
+            </Txt>
+          )}
+        </React.Fragment>
+      );
+      return (
+        <IslandSheet
+          bg="dock"
+          sign="boat/raft"
+          title="친구 관리"
+          tall
+          tight
+          action="친구 찾기"
+          actionPress={() => go('friendSearch')}
+          onBack={back}
+          onClose={home}
+        >
+          {friendsScreen.status === 'loading' ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중이에요
+            </Txt>
+          ) : friendsScreen.status === 'error' ? (
+            <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
+              <Txt kind="meta" style={st.meta}>
+                {friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}
+              </Txt>
+              {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
+                <Btn
+                  small
+                  title="소셜 로그인하기"
+                  onPress={() => e.conversion.offer(friendsScreen.error)}
+                />
+              ) : (
+                <Btn
+                  small
+                  kind="sec"
+                  style={SEC_BTN}
+                  title="다시 시도"
+                  onPress={friendsScreen.retry}
+                />
+              )}
+            </View>
+          ) : (
+            <>
+              {group(
+                '받은 요청',
+                (d?.friendRequests ?? []).map((f) => reqRow(f, false)),
+              )}
+              {group(
+                '보낸 요청',
+                (d?.sentFriendRequests ?? []).map((f) => reqRow(f, true)),
+              )}
+              {group(
+                '친구',
+                (d?.friends ?? []).map((f) => (
+                  <SheetRow
+                    key={f.userId}
+                    title={nameOf(f.nickname)}
+                    sub={f.mainIslandName ?? undefined}
+                    lead={<Avatar color="white" />}
+                    tail={
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`${nameOf(f.nickname)} 친구 삭제`}
+                        // 32px 버튼 + 사방 6 = 누르는 영역 44
+                        hitSlop={6}
+                        onPress={() =>
+                          confirm(
+                            '친구를 삭제할까요?',
+                            `${nameOf(f.nickname)}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                            () => friendCmd(() => deleteFriend(f.userId)),
+                            { ok: '삭제', destructive: true },
+                          )
+                        }
+                        style={{
+                          width: 32,
+                          height: 32,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Txt
+                          style={{
+                            fontSize: 20,
+                            lineHeight: 29,
+                            fontWeight: '800',
+                            letterSpacing: 1,
+                            color: C.brown,
+                          }}
+                        >
+                          ···
+                        </Txt>
+                      </Pressable>
+                    }
+                  />
+                )),
+              )}
+            </>
+          )}
+        </IslandSheet>
+      );
+    }
     const section = (status: string, name: string) => {
       const list = friends.filter((f) => f.status === status);
       return (
@@ -5277,6 +5479,76 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'friendSearch') {
     // 닉네임은 대소문자 구분 없이 정확히 일치할 때만 찾는다(정책). 섬이 달라도 친구가 될 수 있다
+    if (server) {
+      // 검색은 서버 정확 일치 계약 — 입력은 디바운스된 query, 비친구의 티어·직업은 안 온다(null)
+      const trimmed = friendsScreen.query.trim();
+      return (
+        <IslandSheet bg="dock" sign="boat/raft" title="친구 찾기" tall onBack={back} onClose={home}>
+          <SearchField
+            label="이름으로 찾기"
+            value={friendsScreen.query}
+            onChange={friendsScreen.setQuery}
+          />
+          <Txt kind="meta" style={st.meta}>
+            상대가 수락하면 친구가 돼요. 섬이 달라도 괜찮아요.
+          </Txt>
+          {friendsScreen.searchStatus === 'loading' ? (
+            <Txt kind="meta" style={st.meta}>
+              찾는 중이에요…
+            </Txt>
+          ) : friendsScreen.searchStatus === 'error' ? (
+            <View style={{ alignItems: 'center', gap: 9, paddingVertical: 12 }}>
+              <Txt kind="meta" style={st.meta}>
+                {friendsScreen.searchError?.message ?? '검색하지 못했어요'}
+              </Txt>
+              <Btn
+                small
+                kind="sec"
+                style={SEC_BTN}
+                title="다시 시도"
+                onPress={friendsScreen.retry}
+              />
+            </View>
+          ) : friendsScreen.searchItems.length ? (
+            <SheetGroup>
+              {friendsScreen.searchItems.map((f) => (
+                <SheetRow
+                  key={f.userId}
+                  title={f.nickname}
+                  sub={f.relation === 'FRIEND' ? '친구' : undefined}
+                  lead={<Avatar color="white" />}
+                  tail={
+                    f.relation === 'NONE' ? (
+                      <Btn
+                        small
+                        title="친구 요청"
+                        disabled={friendsScreen.busy}
+                        onPress={() => friendCmd(() => sendFriendRequest(f.userId))}
+                      />
+                    ) : (
+                      <Btn
+                        small
+                        kind="sec"
+                        style={SEC_BTN}
+                        disabled
+                        title={f.relation === 'PENDING' ? '요청 중' : '친구'}
+                      />
+                    )
+                  }
+                />
+              ))}
+            </SheetGroup>
+          ) : (
+            !!trimmed &&
+            friendsScreen.searchStatus === 'ready' && (
+              <Txt kind="meta" style={st.meta}>
+                같은 닉네임을 찾지 못했어요. 닉네임을 정확히 입력해 주세요.
+              </Txt>
+            )
+          )}
+        </IslandSheet>
+      );
+    }
     const q = search.trim().toLowerCase();
     const found = q ? friendDirectory.filter((f) => f.name.toLowerCase() === q) : [];
     return (
@@ -5462,17 +5734,21 @@ export function RedesignScreens({ e }: any) {
             chevron
             onPress={() => go('permission', 'settings')}
           />
-          <SheetRow
-            title="측정 앱"
-            sub="사용 시간을 기록할 앱과 카테고리"
-            chevron
-            onPress={() =>
-              go(
-                state.settings.permission ? 'screenTimeApps' : 'permission',
-                state.settings.permission ? 'settings' : 'measured-apps',
-              )
-            }
-          />
+          {Platform.OS === 'android' ? (
+            <SheetRow title="측정 범위" sub="전체 앱 사용 시간 · 앱 잠금은 지원하지 않아요" />
+          ) : (
+            <SheetRow
+              title="측정 앱"
+              sub="사용 시간을 기록할 앱과 카테고리"
+              chevron
+              onPress={() =>
+                go(
+                  state.settings.permission ? 'screenTimeApps' : 'permission',
+                  state.settings.permission ? 'settings' : 'measured-apps',
+                )
+              }
+            />
+          )}
         </SheetGroup>
         <Txt kind="meta" style={st.meta}>
           권한을 끄면 폰 사용 퀘스트 달성률은 "확인 필요"로 표시돼요. 기록이 0분으로 표시되지는
