@@ -2,6 +2,8 @@ import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Image, StyleSheet } from 'react-native';
 import { Color, State, currentIsland } from '@/services/model';
+import { getSession } from '@/services/api/session';
+import { catColor, type IslandPresence } from '@/screens/focus/useIslandPresence';
 import { useAppLayout } from '@/utils/layout';
 import {
   FiButton,
@@ -139,6 +141,7 @@ export function restSeats(
 }
 export function RestGroup({
   state,
+  live,
   resume,
   home,
   endRest,
@@ -146,6 +149,8 @@ export function RestGroup({
   ...confirm
 }: {
   state: State;
+  // GROMO-2010 — 서버 모드에서 넘어오는 실시간 휴식 멤버. 없으면 기존 로컬 멤버 경로.
+  live?: IslandPresence | null;
   resume: () => void;
   home: () => void;
   endRest?: () => void;
@@ -173,11 +178,32 @@ export function RestGroup({
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [result]);
-  const others = currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
-  // 자리 자동 배정: 나는 뒤 가운데(1번), 주민은 0·2·3·4·5번, 7명부터는 바깥 줄(6번~)
+  // 서버 모드는 실시간 rest 멤버가 정본 — 휴식 시작 시각은 서버 시계를 단말 시계로 환산한다.
+  const others =
+    live?.status === 'ready'
+      ? live.rest
+          .filter((m) => m.userId !== getSession()?.userId)
+          .map((m) => ({
+            name: m.name ?? '주민',
+            color: catColor(m.catColor),
+            restStartedAt: m.restStartedAt
+              ? Date.parse(m.restStartedAt) - live.clockOffset
+              : Date.now(),
+            restSeat: m.restSeat,
+          }))
+      : currentIsland(state).members.filter((m) => !m.focusing && m.restStartedAt);
+  // 자리 배정: 나는 뒤 가운데(1번), 주민은 서버 restSeat(있고 겹치지 않으면) 아니면 0·2·3·4·5번, 7명부터는 바깥 줄(6번~)
+  const taken = new Set<number>([1]);
   const actors = [
     { seat: 1, me: true, name: '나', color: state.color, restStartedAt: started },
-    ...others.map((m, n) => ({ ...m, me: false, seat: n < 5 ? [0, 2, 3, 4, 5][n] : n + 1 })),
+    ...others.map((m, n) => {
+      let seat = (m as { restSeat?: number | null }).restSeat;
+      if (typeof seat !== 'number' || seat < 0 || seat === 1 || taken.has(seat))
+        seat = n < 5 ? [0, 2, 3, 4, 5][n] : n + 1;
+      while (taken.has(seat)) seat += 1;
+      taken.add(seat);
+      return { ...m, me: false, seat };
+    }),
   ].sort((a, b) => a.seat - b.seat);
   const { width: W, height: H } = layout,
     { top: it, bottom: ib, left: il, right: ir } = layout.insets;
