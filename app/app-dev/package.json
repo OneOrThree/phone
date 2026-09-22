@@ -27,7 +27,8 @@
     "review:v2-journeys": "node scripts/review-v2-journeys.cjs",
     "review:last-island-recovery": "node scripts/review-last-island-recovery.cjs",
     "gen:report-palette": "node scripts/generate-report-palette.cjs",
-    "gen:report-palette:check": "node scripts/generate-report-palette.cjs --check"
+    "gen:report-palette:check": "node scripts/generate-report-palette.cjs --check",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -61,6 +62,7 @@
     "eslint-plugin-prettier": "^5.5.6",
     "jest": "~29.7.0",
     "jest-expo": "57.0.2",
+    "patch-package": "^8.0.1",
     "playwright": "1.63.0",
     "prettier": "^3.8.3",
     "typescript": "~6.0.3"

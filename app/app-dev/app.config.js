@@ -8,6 +8,9 @@ module.exports = {
     icon: './src/assets/icon.png',
     ios: {
       supportsTablet: true,
+      // GROMO-1839 iPadOS 18 이하는 멀티태스킹을 지원하면 화면 방향 잠금을 무시하므로
+      // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
+      requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.focuscat',
       entitlements: {
         'com.apple.developer.family-controls': true,
