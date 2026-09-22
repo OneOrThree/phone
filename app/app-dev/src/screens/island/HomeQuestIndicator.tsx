@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     borderWidth: stroke.default,
     borderColor: componentTokens.card.border,
     backgroundColor: componentTokens.card.background,
-    boxShadow: `0px 4px 0px ${semanticTokens.color.outline}`,
+    boxShadow: noteToken.shadow,
     transform: [{ rotate: '-0.7deg' }],
   },
   largeTextNote: { paddingRight: noteToken.largeTextContentPaddingRight },

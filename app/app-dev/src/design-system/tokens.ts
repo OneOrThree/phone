@@ -244,6 +244,7 @@ export const componentTokens = {
     badgeMinSize: 28,
     tapeWidth: 46,
     hudGap: space[1],
+    shadow: `0px ${space[1]}px 0px ${semanticTokens.color.outline}`,
   },
   divider: {
     color: semanticTokens.color.divider,
