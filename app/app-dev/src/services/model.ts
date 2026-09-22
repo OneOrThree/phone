@@ -2069,6 +2069,14 @@ export function reducer(state: State, a: Action): State {
       s.serverIslands = null;
       break;
     // ── 친구·편지 ──
+    case 'FRIENDS_SYNC': {
+      const previous = new Map((s.friends ?? []).map((friend) => [friend.id, friend]));
+      s.friends = (a.friends as Friend[]).map((friend) => ({
+        ...friend,
+        messages: previous.get(friend.id)?.messages ?? friend.messages ?? [],
+      }));
+      break;
+    }
     case 'FRIEND_REQUEST': {
       s.friends ??= [];
       const f = s.friends.find((f) => f.id === a.id);

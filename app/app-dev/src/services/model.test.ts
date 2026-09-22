@@ -490,6 +490,49 @@ test('친구 수락·거절 후 재신청·보낸 요청 취소·친구 삭제·
   r = act(r, 'FRIEND_REQUEST', { id: 'haneul' });
   assert.equal(r.friends?.find((f) => f.id === 'haneul')?.status, 'sent');
 });
+test('서버 친구 스냅샷은 공용 친구 상태를 교체하되 기존 편지는 보존한다', () => {
+  let s = initialState(true);
+  s.friends!.find((friend) => friend.id === 'saebom')!.messages.push({
+    id: 'letter',
+    memberId: 'saebom',
+    name: '새봄',
+    color: 'white',
+    text: '보존할 편지',
+    at: 1,
+    status: 'sent',
+  });
+
+  s = act(s, 'FRIENDS_SYNC', {
+    friends: [
+      {
+        id: 'saebom',
+        name: '새봄',
+        color: 'white',
+        island: '서버 섬',
+        status: 'friend',
+        messages: [],
+      },
+      {
+        id: 'new-request',
+        name: '신규 요청',
+        color: 'white',
+        island: '',
+        status: 'received',
+        messages: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    s.friends?.map((friend) => [friend.id, friend.status]),
+    [
+      ['saebom', 'friend'],
+      ['new-request', 'received'],
+    ],
+  );
+  assert.equal(s.friends?.[0].island, '서버 섬');
+  assert.equal(s.friends?.[0].messages[0]?.id, 'letter');
+});
 test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', () => {
   let s = initialState(true);
   s.friends!.find((f) => f.id === 'saebom')!.messages.push({

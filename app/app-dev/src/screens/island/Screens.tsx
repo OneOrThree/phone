@@ -775,6 +775,37 @@ export function RedesignScreens({ e }: any) {
     searchActive: route === 'friendSearch',
     date: dayKey(now),
   });
+  useEffect(() => {
+    const data = friendsScreen.data;
+    if (!data) return;
+    const toFriend = (
+      userId: string,
+      nickname: string | null,
+      islandName: string | null | undefined,
+      status: 'friend' | 'received' | 'sent',
+    ) => ({
+      id: userId,
+      name: nickname ?? '탈퇴한 사용자',
+      color: 'white' as Color,
+      island: islandName ?? '',
+      status,
+      messages: [],
+    });
+    dispatch({
+      type: 'FRIENDS_SYNC',
+      friends: [
+        ...data.friends.map((friend) =>
+          toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
+        ),
+        ...data.friendRequests.map((request) =>
+          toFriend(request.userId, request.nickname, null, 'received'),
+        ),
+        ...data.sentFriendRequests.map((request) =>
+          toFriend(request.userId, request.nickname, null, 'sent'),
+        ),
+      ],
+    });
+  }, [dispatch, friendsScreen.data]);
   // 친구 명령의 공통 실패 처리 — 게이트는 회원 전환 시트로, 이미 처리·중복은 재조회로 닫는다
   const friendFail = (thrown: unknown) => {
     if (e.conversion?.offer(thrown)) return;
