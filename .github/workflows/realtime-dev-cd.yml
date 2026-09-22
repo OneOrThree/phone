@@ -1,0 +1,89 @@
+name: Realtime Dev CD
+
+on:
+  workflow_call:
+    inputs:
+      image_digest:
+        required: true
+        type: string
+      image_revision:
+        required: true
+        type: string
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+env:
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/realtime
+  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, dev]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 배포 입력·런타임 계약 검증
+        env:
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$IMAGE_REVISION" = "$GITHUB_SHA"
+          test -s "$RUNTIME_ENV_FILE"
+          test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
+          export REALTIME_IMAGE="$REALTIME_IMAGE_REPOSITORY@$IMAGE_DIGEST" IMAGE_REVISION
+          rendered=$(docker compose --env-file "$RUNTIME_ENV_FILE" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml \
+            config --format json)
+          printf '%s' "$rendered" | jq -e '
+            .services.realtime.environment as $e |
+            ["JWT_SECRET", "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME"] |
+            all(.[]; ($e[.] // "") | length > 0) and
+            (($e.SVC_TOKEN_DATA_TO_REALTIME) != ($e.SVC_TOKEN_BIZ_TO_REALTIME)) and
+            (($e.KAFKA_BOOTSTRAP_SERVERS // "") | length > 0)' >/dev/null
+
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
+      - name: Realtime 배포
+        env:
+          REALTIME_IMAGE: ${{ env.REALTIME_IMAGE_REPOSITORY }}@${{ inputs.image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml)
+          "${compose[@]}" pull realtime
+          "${compose[@]}" up -d realtime
+          "${compose[@]}" ps realtime
+
+      - name: Realtime readiness
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if docker exec phone-realtime curl -fsS http://localhost:9091/actuator/health/readiness >/dev/null 2>&1; then
+              echo "Realtime readiness 통과"
+              exit 0
+            fi
+            echo "Realtime 기동 대기 중... ($((i * 5))s)"
+            sleep 5
+          done
+          docker logs --tail=100 phone-realtime
+          exit 1
+
+      - name: 실패 로그
+        if: failure()
+        run: docker logs --tail=100 phone-realtime 2>&1 || true
