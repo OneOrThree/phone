@@ -292,5 +292,5 @@ GROMO-1895 추가(library 화면 `fishEarnings` 조각 = 도서관 물고기 장
 - 권한: 살아 있는 섬의 활성 주민(방장·일반 동일). 구경꾼·떠난 주민은 403 `MEMBER_ONLY` — 권한 판정이 게이트보다 먼저다. 종료·삭제 섬은 404 `GROUP_NOT_FOUND`.
 - 내부 경로(B26): `GET /internal/islands/{islandId}/statistics/fish-earnings` + 허용목록 `'GET /internal/islands/*/statistics/fish-earnings'`.
 - 공개 배선(GROMO-2046): business-api 가 무접두 `GET /islands/{islandId}/statistics/fish-earnings` 로 중계하고 `/screens/library` 의 `fishEarnings` 조각으로도 싣는다. query 는 하나도 받지 않는다(400 `INVALID_PARAMETER`). 계약·실패 표는 [bff-screens implementation-business-api.md](../bff-screens/implementation-business-api.md) §4.3.
-- ⚠️ **황금 물고기 몫이 아직 빠져 있다.** 정책 「물고기 재화와 기록」이 *황금 물고기 50마리는 함께 낚은 주민의 누적 획득 기록 … 에 50 ÷ 함께 낚은 인원(내림)씩 나눠 더한다* 고 하는데, 현재 합산은 `earned_fish` 한 열뿐이다. GROMO-1956 이 `focus_reward_accruals` 에 `golden_fish` 열을 더하면(V91) 이 집계는 **`earned_fish + golden_fish`** 여야 한다 — 480 상한 합산만 `earned_fish` 를 쓴다.
+- 황금 물고기 몫도 이 합계에 들어간다 — 정책 「물고기 재화와 기록」의 *황금 물고기 50마리는 함께 낚은 주민의 누적 획득 기록 … 에 50 ÷ 함께 낚은 인원(내림)씩 나눠 더한다* 대로, GROMO-1956 의 `focus_reward_accruals.golden_fish` 열(V91)을 더해 집계는 **`earned_fish + golden_fish`** 다(GROMO-2055). 하루 480 상한 합산(`sumEarnedFishOnDay`)만 `earned_fish` 를 쓴다.
 
