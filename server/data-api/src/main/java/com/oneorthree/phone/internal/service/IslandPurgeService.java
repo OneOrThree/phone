@@ -38,12 +38,12 @@ import java.util.UUID;
  * 신청자의 기록이다) · {@code focus_sessions}·{@code focus_reward_accruals}(개인 집중 기록, 정책이
  * 유지) · {@code owned_products} 의 {@code owner_type='user'} 행(개인 보유품, 정책이 유지).
  *
- * <h2>{@code groups(id)} 참조 전수 — 2026-09-21 실측</h2>
+ * <h2>{@code groups(id)} 참조 전수 — 2026-09-21 실측, GROMO-2070 갱신</h2>
  * 목록을 눈대중으로 늘리면 또 빠진다. 마이그레이션 전량에서 {@code groups(id)} 를 참조하는 테이블을
- * 세어 <b>24개</b>를 찾았고(V1 baseline 6 + V3·V19·V21·V39·V57·V58·V62×3·V63·V64×2·V71×3·V73·V74·V81),
- * 아래 목록과 「안 지우는 것」이 그 24개를 남김없이 덮는다. 지우지 않기로 한 나머지의 근거는 이렇다:
+ * 세어 <b>22개</b>를 찾았고(V1 baseline 5 + V19·V21·V39·V57·V58·V62×3·V63·V64×2·V71×3·V73·V74·V81 —
+ * {@code group_invites}·{@code group_join_codes} 는 GROMO-2070 의 V102 에서 DROP 됐다),
+ * 아래 목록과 「안 지우는 것」이 그 22개를 남김없이 덮는다. 지우지 않기로 한 나머지의 근거는 이렇다:
  * <ul>
- *   <li>{@code group_join_codes} — 지운다(아래). 섬의 참여 코드는 정책이 말한 「섬 정보·설정」이다.</li>
  *   <li>{@code group_announcements}·{@code group_announcement_comments} — 지운다(아래). 게시판은
  *       공동 기록이다. 댓글의 FK 는 {@code ON DELETE SET NULL}(V66, BQ02 미결)이라 공지만 지우면
  *       댓글이 {@code notice_id=null} 로 <b>남는다</b> — 그래서 댓글을 먼저 지운다.</li>
@@ -60,10 +60,6 @@ import java.util.UUID;
  *   <li>{@code group_notice_grants}·{@code share_cards} — 안 지운다. 1.x 잔존 테이블로 엔티티조차
  *       없다(2026-09-21 실측). 공지 작성 권한의 정본은 이 표가 아니라
  *       {@code group_members.announcement_permission} 이고, 그 행은 멤버십과 함께 남는다.</li>
- *   <li>{@code group_invites} — 안 지운다. {@code GroupInviteRepository} 가 스스로 「미사용(2026-07-31,
- *       유저 직접 초대 종료)」이라 적어 두었고, 실제로 남은 호출부는 계정 탈퇴 파기
- *       ({@code deleteAllInvolving}) 하나뿐인 <b>사용자 축</b>이다. 섬 축으로 새로 생기는 행이 없으니
- *       섬 종결이 지울 것도 없다.</li>
  * </ul>
  */
 @Service
@@ -99,8 +95,6 @@ public class IslandPurgeService implements IslandPurgePort {
             "DELETE FROM group_announcement_comments WHERE notice_id IN "
                     + "(SELECT id FROM group_announcements WHERE group_id = :islandId)",
             "DELETE FROM group_announcements WHERE group_id = :islandId",
-            // 참여 코드 (V3) — 섬당 1행인 「섬 설정」이다. 남기면 죽은 섬의 코드가 계속 유효해 보인다.
-            "DELETE FROM group_join_codes WHERE group_id = :islandId",
             // 공동 잔액·원장 (V62) — 원장이 통장의 자식이라 가장 마지막이다.
             "DELETE FROM island_wallet_transactions WHERE island_id = :islandId",
             "DELETE FROM island_wallets WHERE island_id = :islandId");
