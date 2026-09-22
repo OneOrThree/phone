@@ -35,10 +35,9 @@ jobs:
               per_page: 100,
             });
 
-            const targets = [
+            const ciTargets = [
               ['Data API', 'CI'],
               ['Business · Notification 검사', 'Business · Notification CI'],
-              ['Business · Notification 배포', 'Satellite Dev CD'],
               ['Realtime', 'Realtime CI'],
             ];
             const failed = new Set([
@@ -49,23 +48,43 @@ jobs:
               if (run.status !== 'completed') return `진행 중 (${run.status})`;
               return run.conclusion === 'success' ? '성공' : `실패 (${run.conclusion})`;
             };
+            const findRun = (workflow) => data.workflow_runs.find((run) => run.name === workflow);
+            const satelliteCi = findRun('Business · Notification CI');
+            const satelliteCd = findRun('Satellite Dev CD');
+            const satelliteCdLabel = satelliteCd
+              ? label(satelliteCd)
+              : !satelliteCi
+                ? '미대상'
+                : satelliteCi.status !== 'completed'
+                  ? '대기 (CI 진행 중)'
+                  : satelliteCi.conclusion === 'success'
+                    ? '대기 또는 미실행'
+                    : 'CI 실패로 미실행';
+            const rows = [
+              ...ciTargets.map(([component, workflow]) => {
+                const run = findRun(workflow);
+                return [component, workflow, label(run), run ? `<a href="${run.html_url}">#${run.run_number}</a>` : '-'];
+              }),
+              [
+                'Business · Notification 배포',
+                'Satellite Dev CD',
+                satelliteCdLabel,
+                satelliteCd ? `<a href="${satelliteCd.html_url}">#${satelliteCd.run_number}</a>` : '-',
+              ],
+            ];
 
             await core.summary
               .addHeading('Dev 배포 흐름', 2)
               .addRaw(`main SHA: \`${sha}\`\n\n`)
               .addTable([
                 [{ data: '컴포넌트', header: true }, { data: '워크플로', header: true }, { data: '상태', header: true }, { data: '실행', header: true }],
-                ...targets.map(([component, workflow]) => {
-                  const run = data.workflow_runs.find((candidate) => candidate.name === workflow);
-                  return [component, workflow, label(run), run ? `<a href="${run.html_url}">#${run.run_number}</a>` : '-'];
-                }),
+                ...rows,
               ])
               .addRaw('\n`미대상`은 해당 SHA에서 경로 필터상 변경이 없어 배포가 필요 없다는 뜻입니다.\n')
               .write();
 
-            const bad = targets
-              .map(([, workflow]) => data.workflow_runs.find((run) => run.name === workflow))
-              .filter((run) => run && (run.status !== 'completed' || failed.has(run.conclusion)));
+            const bad = [...ciTargets.map(([, workflow]) => findRun(workflow)), satelliteCd]
+              .filter((run) => run && failed.has(run.conclusion));
             if (bad.length > 0) {
               core.setFailed(`완료되지 않았거나 실패한 CI가 있습니다: ${bad.map((run) => run.name).join(', ')}`);
             }
