@@ -82,7 +82,8 @@ import {
   Member,
   dayKey,
 } from '@/services/model';
-import { checkSession, logout } from '@/services/api/auth';
+import { checkSession, logout, type Provider } from '@/services/api/auth';
+import { ApiError } from '@/services/api/client';
 import {
   getSession,
   restoreSession,
@@ -92,6 +93,7 @@ import {
 } from '@/services/api/session';
 import { createIslandCommands } from '@/services/islandCommands';
 import { decideBootRoute } from '@/services/islandBoot';
+import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 const REVIEW =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
@@ -103,6 +105,14 @@ const DEMO =
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
 const TESTFLIGHT_ALL_BUILDINGS = true;
 const STORAGE = 'gromo-r61-user-v2';
+// 회원 전환(GROMO-2005)의 POST /auth/sessions 필수 필드. 서버가 수용 버전 목록을 비워 두는 동안
+// (정책 Q05 미정) 형식만 검사한다 — 버전 표가 정해지면 이 상수만 바꾼다.
+const TERMS_VERSION = '2026-09';
+const PROVIDER_LABEL: Record<Provider, string> = {
+  apple: 'Apple로 계속하기',
+  google: 'Google로 계속하기',
+  kakao: 'Kakao로 계속하기',
+};
 const titles: Record<Route, string> = {
   login: 'GROMO',
   character: '내 고양이',
@@ -235,6 +245,11 @@ function Gromo() {
       ok?: string;
       destructive?: boolean;
     } | null>(null),
+    // 회원 전환(GROMO-2005) — 게이트 거절(403 SOCIAL_LOGIN_REQUIRED)이 여는 공통 시트.
+    // busy 는 진행 중인 제공자, error 는 시트 안에 보여 줄 마지막 실패다.
+    [convUi, setConvUi] = useState<{ busy: Provider | null; error: string | null } | null>(null),
+    // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
+    [switchAsk, setSwitchAsk] = useState(false),
     [visited, setVisited] = useState('strawberry'),
     [guideStep, setGuideStep] = useState(0),
     [previewAudio, setPreviewAudio] = useState(false),
@@ -248,7 +263,8 @@ function Gromo() {
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     mailRef = useRef<FlatList>(null),
     // 화면이 뒤로가기를 먼저 처리하면(true) 아래 기본 동작을 건너뛴다(낚시섬 걷기·항해·모달·결과 흐름)
-    backOverride = useRef<(() => boolean) | null>(null);
+    backOverride = useRef<(() => boolean) | null>(null),
+    switchResolve = useRef<((ok: boolean) => void) | null>(null);
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -356,10 +372,90 @@ function Gromo() {
   });
   const islands = islandCmds.current.commands,
     syncIslands = islandCmds.current.syncIslands;
+  // ── 회원 전환(GROMO-2005) ──
+  // 오케스트레이션은 services/memberConversion.ts — 친구·편지·구매의 403 SOCIAL_LOGIN_REQUIRED 를
+  // 받은 호출부가 e.conversion.offer(error) 로 시트를 연다. 진행 중인 대기 확인은 취소로 정리한다.
+  const settleSwitch = (ok: boolean) => {
+    setSwitchAsk(false);
+    switchResolve.current?.(ok);
+    switchResolve.current = null;
+  };
+  const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
+  conversionRef.current ??= createMemberConversion({
+    termsVersion: TERMS_VERSION,
+    openPrompt: () => setConvUi({ busy: null, error: null }),
+    confirmSwitch: () =>
+      new Promise<boolean>((resolve) => {
+        switchResolve.current = resolve;
+        setSwitchAsk(true);
+      }),
+    adopt: (result, previousUserId) =>
+      adoptSignedInAccount(result, previousUserId, {
+        resetLocal: async () => {
+          // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
+          // settings 만 기기 귀속(정책 A15)이라 보존한다.
+          await AsyncStorage.removeItem(STORAGE).catch(() => {});
+          dispatch({
+            type: 'LOAD',
+            state: { ...initialState(DEMO), settings: stateRef.current.settings },
+            now: Date.now(),
+          });
+        },
+        applyAccount: (account) => {
+          dispatch({ type: 'LOGIN' });
+          if (account.name || account.catColor)
+            dispatch({
+              type: 'PROFILE',
+              name: account.name ?? undefined,
+              color: account.catColor ?? undefined,
+            });
+        },
+        navigate: async (account) => {
+          // 부팅과 같은 판정 — 새 계정의 /me/islands 를 다시 조회해 화면을 고른다. 세대가
+          // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
+          const gen = sessionGeneration();
+          const next = await decideBootRoute({
+            saved: null,
+            account,
+            rejected: false,
+            serverMode: true,
+            bootGen: gen,
+            generation: sessionGeneration,
+            syncIslands,
+            onBootError: setIslandBootError,
+          });
+          if (next && sessionGeneration() === gen) reset(next);
+        },
+      }),
+  });
+  const memberConversion = conversionRef.current;
+  // 소셜 제공자 SDK(Apple·Google·Kakao) 연결은 별도 티켓 — 연결 전까진 명시 오류로 끝낸다.
+  // ponytail: 여기서 성공을 지어내면 승격·충돌 계약 검증이 불가능하다. SDK 도착 시 이 함수만 교체.
+  const getCredential = async (_provider: Provider): Promise<string> => {
+    throw new ApiError('CLIENT_PROVIDER_UNAVAILABLE', '소셜 로그인 연결을 준비 중이에요.', 0);
+  };
+  const pickProvider = async (provider: Provider) => {
+    setConvUi((c) => (c ? { ...c, busy: provider, error: null } : c));
+    try {
+      const credential = await getCredential(provider);
+      const outcome = await memberConversion.convert(provider, credential);
+      if (outcome === 'converted') {
+        setConvUi(null);
+        notify('회원으로 전환했어요.');
+      } else setConvUi((c) => (c ? { ...c, busy: null } : c)); // 취소 — 시트로 돌아간다
+    } catch (thrown) {
+      const message =
+        thrown instanceof ApiError ? thrown.message : '문제가 생겼어요. 다시 시도해 주세요.';
+      setConvUi((c) => (c ? { ...c, busy: null, error: message } : c));
+    }
+  };
   useEffect(() => subscribeSession((session) => setHasServerSession(session !== null)), []);
   // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
     setSessionLostHandler(() => {
+      // 전환 시트·충돌 확인이 열려 있으면 취소로 정리한다 — 떠난 세션의 확인을 뒤에 승인하면 안 된다.
+      setConvUi(null);
+      settleSwitch(false);
       dispatch({ type: 'LOGOUT' });
       reset('login');
     });
@@ -733,6 +829,8 @@ function Gromo() {
           // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
           islands: REVIEW || DEMO || !hasServerSession ? undefined : islands,
           islandBootError,
+          // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
+          conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
         }}
       />
     );
@@ -863,6 +961,158 @@ function Gromo() {
                       setModal(null);
                       action?.();
                     }}
+                  />
+                </View>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        )}
+        {/* 회원 전환 시트(GROMO-2005) — 게스트의 제한 행동이 게이트에 막혔을 때 여는 공통 진입점 */}
+        {convUi && (
+          <Modal
+            visible={true}
+            transparent
+            animationType={state.settings.reduceMotion ? 'none' : 'fade'}
+            onRequestClose={() => !convUi.busy && setConvUi(null)}
+          >
+            <Pressable
+              accessible={false}
+              onPress={() => !convUi.busy && setConvUi(null)}
+              style={{
+                flex: 1,
+                backgroundColor: '#493B3966',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 24,
+              }}
+            >
+              <Pressable
+                accessible={false}
+                onPress={() => {}}
+                style={[
+                  S.card,
+                  {
+                    gap: 10,
+                    width: layout.compact
+                      ? 400
+                      : layout.tablet
+                        ? layout.modalWidth
+                        : layout.width - 48,
+                    maxHeight: layout.height - layout.insets.top - layout.insets.bottom - 40,
+                    borderWidth: 2,
+                    borderRadius: 22,
+                    paddingTop: 22,
+                    paddingHorizontal: 20,
+                    paddingBottom: 18,
+                    boxShadow: '0px 6px 0px ' + C.brown,
+                  },
+                ]}
+              >
+                <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
+                  소셜 계정으로 계속하기
+                </NativeText>
+                <NativeText
+                  lineBreakStrategyIOS="hangul-word"
+                  style={[
+                    { color: C.muted },
+                    Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
+                  ]}
+                >
+                  친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.
+                  {'\n'}지금 고양이와 섬은 그대로 이어져요.
+                </NativeText>
+                {(['apple', 'google', 'kakao'] as const).map((provider) => (
+                  <NativeButton
+                    key={provider}
+                    dialog
+                    title={convUi.busy === provider ? '연결하는 중…' : PROVIDER_LABEL[provider]}
+                    kind="sec"
+                    disabled={!!convUi.busy}
+                    onPress={() => void pickProvider(provider)}
+                  />
+                ))}
+                {!!convUi.error && (
+                  <NativeText style={{ color: C.danger, textAlign: 'center' }}>
+                    {convUi.error}
+                  </NativeText>
+                )}
+                <NativeButton
+                  dialog
+                  title="나중에"
+                  kind="glass"
+                  disabled={!!convUi.busy}
+                  onPress={() => setConvUi(null)}
+                />
+              </Pressable>
+            </Pressable>
+          </Modal>
+        )}
+        {/* 기존 계정 충돌 확인(409) — 승인하면 게스트 데이터를 폐기하고 그 계정으로 전환한다 */}
+        {switchAsk && (
+          <Modal
+            visible={true}
+            transparent
+            animationType={state.settings.reduceMotion ? 'none' : 'fade'}
+            onRequestClose={() => settleSwitch(false)}
+          >
+            <Pressable
+              accessible={false}
+              onPress={() => settleSwitch(false)}
+              style={{
+                flex: 1,
+                backgroundColor: '#493B3966',
+                justifyContent: 'center',
+                alignItems: 'center',
+                padding: 24,
+              }}
+            >
+              <Pressable
+                accessible={false}
+                onPress={() => {}}
+                style={[
+                  S.card,
+                  {
+                    gap: 10,
+                    width: layout.compact
+                      ? 400
+                      : layout.tablet
+                        ? layout.modalWidth
+                        : layout.width - 48,
+                    maxHeight: layout.height - layout.insets.top - layout.insets.bottom - 40,
+                    borderWidth: 2,
+                    borderRadius: 22,
+                    paddingTop: 22,
+                    paddingHorizontal: 20,
+                    paddingBottom: 18,
+                    boxShadow: '0px 6px 0px ' + C.brown,
+                  },
+                ]}
+              >
+                <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
+                  이미 연결된 계정이 있어요
+                </NativeText>
+                <NativeText
+                  lineBreakStrategyIOS="hangul-word"
+                  style={[
+                    { color: C.muted },
+                    Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
+                  ]}
+                >
+                  이 소셜 계정은 다른 GROMO 계정에 연결돼 있어요. 기존 계정으로 전환하면 지금
+                  게스트의 고양이·섬·기록은 삭제되고 되돌릴 수 없어요. 전환할까요?
+                </NativeText>
+                <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
+                  <NativeButton
+                    dialog
+                    title="취소"
+                    kind="glass"
+                    onPress={() => settleSwitch(false)}
+                  />
+                  <NativeButton
+                    dialog
+                    title="전환하기"
+                    kind="destructive"
+                    onPress={() => settleSwitch(true)}
                   />
                 </View>
               </Pressable>
