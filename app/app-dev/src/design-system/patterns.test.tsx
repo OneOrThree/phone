@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, ScrollView } from 'react-native';
 import { render, fireEvent } from '@testing-library/react-native';
-import { Page, Badge, Field, Wheel } from './patterns';
+import { Page, Badge, Field, Wheel, Seg } from './patterns';
 import { componentTokens, semanticTokens } from './tokens';
 
 jest.mock('@/utils/layout', () => ({
@@ -33,6 +33,20 @@ beforeEach(() => {
     });
 });
 afterEach(() => rafSpy.mockRestore());
+
+test('inset 탭은 테두리와 패딩을 제외해도 터치 높이 44pt를 유지한다', async () => {
+  const onChange = jest.fn();
+  const { getByLabelText } = await render(
+    <Seg items={['일', '주', '월']} value="주" onChange={onChange} inset />,
+  );
+  const tab = getByLabelText('일');
+  const container = StyleSheet.flatten(tab.parent?.props.style);
+  expect(container.height - 2 * (container.padding + container.borderWidth)).toBeGreaterThanOrEqual(
+    semanticTokens.size.tapMin,
+  );
+  await fireEvent.press(tab);
+  expect(onChange).toHaveBeenCalledWith('일');
+});
 
 test('Page 뒤로가기는 양 축 최소 터치 영역 44pt를 지킨다', async () => {
   const { getByLabelText } = await render(<Page title="화면" back={jest.fn()} />);

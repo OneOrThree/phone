@@ -331,7 +331,11 @@ export function Seg({ items, value, onChange, small = false, inset = false, styl
       style={[
         {
           flexDirection: 'row',
-          height: inset ? semanticTokens.size.tapMin : small ? 36 : 42,
+          height: inset
+            ? semanticTokens.size.tapMin + semanticTokens.stroke.strong * 4
+            : small
+              ? 36
+              : 42,
           padding: inset ? semanticTokens.stroke.strong : 0,
           borderWidth: 2,
           borderColor: C.brown,

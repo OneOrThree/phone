@@ -53,7 +53,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     period,
     offset,
     combined: true,
-    rangeOverride: range,
+    rangeOverride: !neighbors && period === '주' && offset === 0 ? undefined : range,
     islandKey: state.islandId,
   });
   const allDays = datesBetween(range.from, range.to);
@@ -148,7 +148,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
   // 서버 records.activeSeconds는 요청 날짜와 겹친 기여분이다. 완료 날짜로 재필터하지 않는다.
   const dayRecords = server ? records : recordsOnDay(records, activeDay, false);
   const settings = () => e.go('permission');
-  const close = () => e.go('library');
+  const close = () => e.back();
   const back = () => (neighbors && memberId ? setMemberId(null) : close());
   const title = neighbors
     ? resident
@@ -503,9 +503,7 @@ function Book({
         resizeMode="cover"
       />
       <View pointerEvents="none" style={[fill, styles.scrim]} />
-      <Image
-        source={art['lib/page']}
-        resizeMode="stretch"
+      <View
         pointerEvents="none"
         style={{
           position: 'absolute',
@@ -514,7 +512,9 @@ function Book({
           width,
           height: Math.max(0, L.height - bookTop - S.control),
         }}
-      />
+      >
+        <Image source={art['lib/page']} resizeMode="stretch" style={fill} />
+      </View>
       <View
         style={[styles.header, { left: left + D.headerInset, right: left + D.headerInset, top }]}
       >
@@ -730,7 +730,8 @@ function Chart({
 }
 
 function Timetable({ records, day, utc }: { records: DiaryRecord[]; day: string; utc: boolean }) {
-  if (records.some((r) => !r.intervals)) return <T style={styles.centerMeta}>시간대 기록 없음</T>;
+  if (records.length === 0 || records.some((r) => !r.intervals?.length))
+    return <T style={styles.centerMeta}>시간대 기록 없음</T>;
   return (
     <View style={styles.timetable}>
       {timetableRows(records, day, utc).map(({ hour, cells }) => (

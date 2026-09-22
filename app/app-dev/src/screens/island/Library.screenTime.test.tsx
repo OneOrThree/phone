@@ -1,9 +1,23 @@
 import React from 'react';
 import { Platform } from 'react-native';
-import { cleanup, render } from '@testing-library/react-native';
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Library } from './Library';
 import { RedesignScreens } from './Screens';
 import { initialState } from '@/services/model';
+import {
+  getFocusStatistics,
+  getLibraryScreen,
+  getScreenTimeStatistics,
+} from '@/services/api/records';
+
+jest.mock('@/services/api/records', () => ({
+  ...jest.requireActual('@/services/api/records'),
+  getLibraryScreen: jest.fn(),
+  getFocusStatistics: jest.fn(),
+  getScreenTimeStatistics: jest.fn(),
+}));
+
+beforeEach(() => jest.clearAllMocks());
 
 jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 52, bottom: 32, left: 0, right: 0 }),
@@ -15,7 +29,7 @@ jest.mock('@/utils/layout', () => ({
     width: 402,
     height: 874,
     landscape: false,
-    insets: { top: 52, bottom: 32 },
+    insets: { top: 52, bottom: 32, left: 0, right: 0 },
   }),
 }));
 jest.mock('./sceneKit', () => ({
@@ -45,6 +59,52 @@ function environment({ permission = true, ready = true, neighbors = false } = {}
     home: jest.fn(),
   };
 }
+
+test.each(['뒤로', '책 덮기'])('일기장의 %s는 기존 경로를 pop한다', async (label) => {
+  const e = environment();
+  const screen = await render(<Library e={e} />);
+  await fireEvent.press(screen.getByLabelText(label));
+  expect(e.back).toHaveBeenCalledTimes(1);
+  expect(e.go).not.toHaveBeenCalled();
+});
+
+test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 날은 시간대 미제공을 표시한다', async () => {
+  const e = { ...environment(), tab: '', islands: [], now: Date.now() };
+  const date = new Date(e.now).toISOString().slice(0, 10);
+  const focus = {
+    scope: 'me' as const,
+    totalSeconds: 600,
+    series: [{ date, seconds: 600 }],
+    records: [],
+    nextCursor: null,
+  };
+  const usage = {
+    scope: 'me' as const,
+    measurementStatus: 'authorized' as const,
+    totalMinutes: 10,
+    series: [],
+    updatedAt: null,
+  };
+  jest.mocked(getLibraryScreen).mockResolvedValue({
+    island: { id: e.state.islandId, name: '섬', role: 'owner' },
+    statisticsAvailability: 'available',
+    focusStatistics: focus,
+    screenTimeStatistics: usage,
+    fishEarnings: { members: [] },
+    missingFragments: [],
+  });
+  (getFocusStatistics as jest.Mock).mockResolvedValue(focus);
+  (getScreenTimeStatistics as jest.Mock).mockResolvedValue(usage);
+  const screen = await render(<Library e={e} />);
+  await waitFor(() => expect(screen.getByText('집중한 날')).toBeTruthy());
+  expect(getLibraryScreen).toHaveBeenCalledTimes(1);
+  expect(getFocusStatistics).not.toHaveBeenCalled();
+  expect(getScreenTimeStatistics).not.toHaveBeenCalled();
+
+  await fireEvent.press(screen.getByLabelText('일'));
+  await waitFor(() => expect(screen.getByText('시간대 기록 없음')).toBeTruthy());
+  expect(screen.queryByLabelText('6시 0분')).toBeNull();
+});
 
 test('내 일기장에는 이력이 비어 있어도 iOS 오늘 리포트를 표시한다', async () => {
   Platform.OS = 'ios';
