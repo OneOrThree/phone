@@ -77,8 +77,8 @@ class MainIslandIntegrationTest {
     // ---------------------------------------------------------------- 도출 (요구 4)
 
     @Test
-    @DisplayName("첫 소속 가입 직후 메인 섬은 그 섬이고, 추가 가입은 기존 메인 섬을 유지한다")
-    void firstMembershipBecomesMainIslandAndLaterJoinsKeepIt() {
+    @DisplayName("첫 소속 가입 직후 메인 섬은 그 섬이고, 추가 가입은 가장 최근 가입 섬을 메인으로 도출한다")
+    void firstMembershipBecomesMainIslandAndLatestJoinBecomesMain() {
         Actor user = actor();
         UUID first = island(user, "첫섬");
         assertThat(mainIslandOf(user)).isEqualTo(first);
@@ -88,9 +88,11 @@ class MainIslandIntegrationTest {
         UUID second = joined(user, island(actor(), "둘째섬"));
         UUID third = joined(user, island(actor(), "셋째섬"));
 
-        assertThat(mainIslandOf(user)).isEqualTo(first);
-        assertThat(second).isNotEqualTo(first);
-        assertThat(third).isNotEqualTo(first);
+        // 도출 규칙은 «가장 최근 가입»이다 (GROMO-2054) — 고르지 않은 사용자의 메인 섬은
+        // 새 소속이 생길 때마다 그쪽으로 옮는다.
+        assertThat(mainIslandOf(user)).isEqualTo(third);
+        assertThat(second).isNotEqualTo(third);
+        assertThat(first).isNotEqualTo(third);
     }
 
     // ---------------------------------------------------------------- 선택 (요구 3)
@@ -135,19 +137,21 @@ class MainIslandIntegrationTest {
     // ---------------------------------------------------------------- 이전 (요구 5)
 
     @Test
-    @DisplayName("메인 섬에서 이탈하면 가장 최근 가입 섬으로 옮겨지고 알림 봉투가 같은 트랜잭션에 적힌다")
+    @DisplayName("메인 섬에서 이탈하면 가장 최근 가입한 «남은» 섬으로 옮겨지고 알림 봉투가 같은 트랜잭션에 적힌다")
     void leavingTheMainIslandMovesToTheMostRecentlyJoinedOneAndNotifies() {
         Actor user = actor();
         UUID first = island(user, "첫섬");
-        joined(user, island(actor(), "둘째섬"));
+        UUID middle = joined(user, island(actor(), "둘째섬"));
         UUID latest = joined(user, island(actor(), "셋째섬"));
-        assertThat(mainIslandOf(user)).isEqualTo(first);
-
-        management.leave(user.id(), first, UUID.randomUUID());
-
-        // 도출 규칙(«가장 먼저»)이 아니라 이전 규칙(«가장 최근»)이 적용된다 — 둘째섬이 아니라 셋째섬이다.
+        // 도출 규칙 자체가 «가장 최근 가입»이라(GROMO-2054) 세 섬 중 메인은 처음부터 셋째섬이다.
         assertThat(mainIslandOf(user)).isEqualTo(latest);
-        assertThat(transferNotices(user)).containsExactly(latest.toString());
+
+        management.leave(user.id(), latest, UUID.randomUUID());
+
+        // 방금 떠난 섬은 후보에서 빠진다 — 남은 것 중 가장 최근 가입은 둘째섬이다.
+        assertThat(mainIslandOf(user)).isEqualTo(middle);
+        assertThat(first).isNotEqualTo(middle);
+        assertThat(transferNotices(user)).containsExactly(middle.toString());
     }
 
     @Test
@@ -155,12 +159,51 @@ class MainIslandIntegrationTest {
     void leavingANonMainIslandChangesNothing() {
         Actor user = actor();
         UUID first = island(user, "첫섬");
-        UUID other = joined(user, island(actor(), "둘째섬"));
+        UUID latest = joined(user, island(actor(), "둘째섬"));
 
-        management.leave(user.id(), other, UUID.randomUUID());
+        // 도출된 메인 섬은 «가장 최근 가입»인 둘째섬이다 — 첫섬을 떠나도 건드리지 않는다.
+        management.leave(user.id(), first, UUID.randomUUID());
+
+        assertThat(mainIslandOf(user)).isEqualTo(latest);
+        assertThat(transferNotices(user)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("현재 섬을 잃으면 «가장 최근 가입» 섬으로 옮겨진다 — 도출이 «가장 먼저»였으면 첫섬으로 갔을 것이다")
+    void losingTheCurrentIslandMovesToTheMostRecentlyJoinedOne() {
+        Actor user = actor();
+        joined(user, island(actor(), "상실첫섬"));
+        UUID middle = joined(user, island(actor(), "상실중간섬"));
+        UUID latest = joined(user, island(actor(), "상실나중섬"));
+        // 가입은 현재 섬을 옮긴다 — 지금 서 있는 곳이 곧 도출된 메인 섬이다.
+        assertThat(currentIslandOf(user)).isEqualTo(latest);
+
+        management.leave(user.id(), latest, UUID.randomUUID());
+
+        // GROMO-2054: 남은 섬 중 가장 최근 가입이 메인이 되고, 잃어버린 현재 섬의 복구도 그 값을 쓴다.
+        assertThat(mainIslandOf(user)).isEqualTo(middle);
+        assertThat(currentIslandOf(user)).isEqualTo(middle);
+    }
+
+    @Test
+    @DisplayName("탈퇴 후 재가입한 섬은 «가장 최근 가입»으로 다시 올라온다 — 정렬 축은 created_at 이 아니라 멤버십 시작 시각이다")
+    void aRejoinedIslandCountsAsTheMostRecentlyJoined() {
+        Actor user = actor();
+        UUID first = joined(user, island(actor(), "되살릴첫섬"));
+        UUID second = joined(user, island(actor(), "되살릴둘째섬"));
+        assertThat(mainIslandOf(user)).isEqualTo(second);
+
+        // 비메인 섬 이탈은 메인을 건드리지 않고 행도 남기지 않는다 — 도출 상태 그대로다.
+        management.leave(user.id(), first, UUID.randomUUID());
+        assertThat(mainIslandOf(user)).isEqualTo(second);
+        assertThat(chosenRows(user)).isZero();
+
+        // 재가입은 행을 되살리며 rejoined_at 을 찍는다 — created_at(최초 가입)만으로는 첫섬이 여전히
+        // «먼저»라 도출이 둘째섬에 머무는데, 시작 시각 축이면 방금 재가입한 첫섬이 꼭대기로 온다.
+        joined(user, first);
 
         assertThat(mainIslandOf(user)).isEqualTo(first);
-        assertThat(transferNotices(user)).isEmpty();
+        assertThat(chosenRows(user)).isZero();
     }
 
     @Test
@@ -183,14 +226,14 @@ class MainIslandIntegrationTest {
     void kickAlsoMovesTheMainIsland() {
         Actor host = actor();
         Actor user = actor();
-        UUID first = joined(user, island(host, "방장섬"));
-        UUID latest = joined(user, island(actor(), "나중섬"));
-        assertThat(mainIslandOf(user)).isEqualTo(first);
-
-        management.kick(host.id(), first, user.id(), UUID.randomUUID());
-
+        UUID first = joined(user, island(actor(), "먼저섬"));
+        UUID latest = joined(user, island(host, "방장섬"));
         assertThat(mainIslandOf(user)).isEqualTo(latest);
-        assertThat(transferNotices(user)).containsExactly(latest.toString());
+
+        management.kick(host.id(), latest, user.id(), UUID.randomUUID());
+
+        assertThat(mainIslandOf(user)).isEqualTo(first);
+        assertThat(transferNotices(user)).containsExactly(first.toString());
     }
 
     @Test
@@ -200,10 +243,10 @@ class MainIslandIntegrationTest {
         UUID first = joined(user, island(actor(), "레거시첫섬"));
         UUID latest = joined(user, island(actor(), "레거시나중섬"));
 
-        members.withdrawGroup(first, user.id());
+        members.withdrawGroup(latest, user.id());
 
-        assertThat(mainIslandOf(user)).isEqualTo(latest);
-        assertThat(transferNotices(user)).containsExactly(latest.toString());
+        assertThat(mainIslandOf(user)).isEqualTo(first);
+        assertThat(transferNotices(user)).containsExactly(first.toString());
     }
 
     @Test
@@ -231,25 +274,26 @@ class MainIslandIntegrationTest {
         UUID first = joined(user, island(actor(), "동시첫섬"));
         UUID middle = joined(user, island(actor(), "동시중간섬"));
         UUID latest = joined(user, island(actor(), "동시나중섬"));
-        assertThat(mainIslandOf(user)).isEqualTo(first);
+        // 도출 규칙이 «가장 최근 가입»이라(GROMO-2054) 메인 섬은 나중섬이다.
+        assertThat(mainIslandOf(user)).isEqualTo(latest);
 
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch hooked = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         try {
-            // ① «가장 최근 섬»에서의 회수를 트랜잭션을 연 채로 붙잡아 둔다. 훅은 이미 돌았고 커밋은 아직이다.
+            // ① «중간 섬»에서의 회수를 트랜잭션을 연 채로 붙잡아 둔다. 훅은 이미 돌았고 커밋은 아직이다.
             Future<?> holder = pool.submit(() -> new TransactionTemplate(transactions).execute(status -> {
-                members.withdrawGroupAndRecord(latest, user.id());
+                members.withdrawGroupAndRecord(middle, user.id());
                 hooked.countDown();
                 await(release);
                 return null;
             }));
             assertThat(hooked.await(30, TimeUnit.SECONDS)).isTrue();
 
-            // ② 그 사이 «메인 섬»에서도 회수된다. 직렬화가 없으면 이쪽은 아직 살아 보이는 나중섬을
-            //    후보로 골라 박제한다 — 커밋 순서상 그 섬은 이미 떠난 섬이 된다.
+            // ② 그 사이 «메인 섬»에서도 회수된다. 직렬화가 없으면 이쪽은 아직 살아 보이는 중간섬을
+            //    «남은 것 중 가장 최근»으로 골라 박제한다 — 커밋 순서상 그 섬은 이미 떠난 섬이 된다.
             Future<?> mainLeave = pool.submit(() -> {
-                members.withdrawGroup(first, user.id());
+                members.withdrawGroup(latest, user.id());
                 return null;
             });
 
@@ -265,8 +309,8 @@ class MainIslandIntegrationTest {
             pool.shutdownNow();
         }
 
-        // 남은 활성 섬은 중간섬 하나뿐이다 — 떠난 섬이 박제되면 여기서 깨진다.
-        assertThat(mainIslandOf(user)).isEqualTo(middle);
+        // 남은 활성 섬은 첫섬 하나뿐이다 — 떠난 섬이 박제되면 여기서 깨진다.
+        assertThat(mainIslandOf(user)).isEqualTo(first);
         assertThat(activeMembership(user, mainIslandOf(user))).isTrue();
     }
 
@@ -278,16 +322,16 @@ class MainIslandIntegrationTest {
         UUID middle = joined(user, island(actor(), "연속중간섬"));
         UUID latest = joined(user, island(actor(), "연속나중섬"));
 
-        management.leave(user.id(), first, UUID.randomUUID());
-        assertThat(mainIslandOf(user)).isEqualTo(latest);
         management.leave(user.id(), latest, UUID.randomUUID());
         assertThat(mainIslandOf(user)).isEqualTo(middle);
+        management.leave(user.id(), middle, UUID.randomUUID());
+        assertThat(mainIslandOf(user)).isEqualTo(first);
 
         // 대상 축(섬)이 키에 없으면 같은 분의 둘째 사건이 «중복»으로 버려져, 사용자는 이미 떠난 섬으로
         // 옮겼다는 알림만 받는다. 봉투의 subject_id 로 축이 실제로 실렸는지까지 본다 — 분 경계에 걸려
         // 우연히 두 건이 남는 경우와 구분하기 위해서다.
-        assertThat(transferNotices(user)).containsExactly(latest.toString(), middle.toString());
-        assertThat(transferSubjects(user)).containsExactly(latest.toString(), middle.toString());
+        assertThat(transferNotices(user)).containsExactly(middle.toString(), first.toString());
+        assertThat(transferSubjects(user)).containsExactly(middle.toString(), first.toString());
     }
 
     @Test
