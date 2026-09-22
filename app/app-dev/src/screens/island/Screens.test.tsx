@@ -614,6 +614,13 @@ test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 �
     StyleSheet.flatten(s.getByTestId('sound-current-track').props.style).height,
     undefined,
   );
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).flexShrink,
+    1,
+  );
+  const statusStyle = StyleSheet.flatten(s.getByTestId('sound-track-status-rain').props.style);
+  assert.equal(statusStyle.flexShrink, 1);
+  assert.equal(statusStyle.maxWidth, '45%');
 });
 
 test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async () => {

@@ -1574,6 +1574,15 @@ export function reducer(state: State, a: Action): State {
       }
       break;
     }
+    case 'PLAYBACK_SYNC': {
+      const target = s.islands.find((island) => island.id === a.islandId);
+      if (!target) return state;
+      const wasPlaying = target.playing;
+      if (typeof a.trackId === 'string') target.track = a.trackId;
+      target.playing = typeof a.trackId === 'string' && !!a.playing;
+      if (wasPlaying && !target.playing) target.playbackReset = (target.playbackReset ?? 0) + 1;
+      break;
+    }
     case 'ISLAND_CANDIDATES': {
       // 발견 페이지 반영 — reset이면 새 filter의 첫 페이지로 갈아 끼운다
       const snap = serverSnap(s),

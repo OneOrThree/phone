@@ -2475,8 +2475,23 @@ export function RedesignScreens({ e }: any) {
     const dialogProduct = soundDialog
       ? audioProducts.find((product) => product.id === soundDialog.productId)
       : undefined;
+    const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
+      if (!server) {
+        if (patch.trackId) setTrack(patch.trackId);
+        else if (patch.playing !== undefined) act('PLAY', { value: patch.playing });
+        return true;
+      }
+      try {
+        await shopApi.updatePlayback(patch);
+        return true;
+      } catch (thrown) {
+        if (e.conversion?.offer(thrown)) return false;
+        notify(serverErrorText(thrown) || '재생 상태를 바꾸지 못했어요. 다시 시도해 주세요.');
+        return false;
+      }
+    };
     const selectTrack = (id: string) => {
-      if (ownedTrackIds.includes(id)) setTrack(id);
+      if (ownedTrackIds.includes(id)) changePlayback({ trackId: id, playing: true });
       else {
         const product = audioProducts.find((item) => item.id === id);
         if (server && (product?.available === false || product?.price == null)) return;
@@ -2490,7 +2505,8 @@ export function RedesignScreens({ e }: any) {
           await shopApi.buy(dialogProduct);
           setSoundDialog({ kind: 'success', productId: dialogProduct.id });
         } catch (thrown) {
-          if (thrown instanceof ApiError && thrown.code === 'INSUFFICIENT_FUNDS')
+          if (e.conversion?.offer(thrown)) setSoundDialog(null);
+          else if (thrown instanceof ApiError && thrown.code === 'INSUFFICIENT_FUNDS')
             setSoundDialog({ kind: 'error', productId: dialogProduct.id });
           else {
             setSoundDialog(null);
@@ -2622,7 +2638,7 @@ export function RedesignScreens({ e }: any) {
                   <View
                     accessibilityLabel={
                       hasCurrentTrack
-                        ? `${trackNames[island.track]} 레코드판`
+                        ? `${trackLabel(island.track)} 레코드판`
                         : '재생할 수 있는 곡이 없는 레코드판'
                     }
                     style={{
@@ -2666,7 +2682,7 @@ export function RedesignScreens({ e }: any) {
                       accessibilityLabel="재생"
                       accessibilityState={{ disabled: !hasCurrentTrack }}
                       disabled={!hasCurrentTrack}
-                      onPress={() => act('PLAY', { value: true })}
+                      onPress={() => changePlayback({ playing: true })}
                       style={{
                         width: gramophone.controlWidth,
                         height: gramophone.touchMin,
@@ -2685,7 +2701,7 @@ export function RedesignScreens({ e }: any) {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel="정지"
-                      onPress={() => act('PLAY', { value: false })}
+                      onPress={() => changePlayback({ playing: false })}
                       style={{
                         width: gramophone.controlWidth,
                         height: gramophone.touchMin,
@@ -2778,12 +2794,26 @@ export function RedesignScreens({ e }: any) {
                             opacity: unavailable ? 0.62 : 1,
                           }}
                         >
-                          <Txt tabletScale={1} style={{ fontSize: 11, lineHeight: 14 }}>
-                            {trackLabel(id)}
-                          </Txt>
+                          <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                            <Txt
+                              testID={`sound-track-title-${id}`}
+                              tabletScale={1}
+                              style={{ fontSize: 11, lineHeight: 14, flexShrink: 1 }}
+                            >
+                              {trackLabel(id)}
+                            </Txt>
+                          </View>
                           <Txt
+                            testID={`sound-track-status-${id}`}
                             tabletScale={1}
-                            style={{ color: gramophone.rowForeground, fontSize: 9, lineHeight: 12 }}
+                            style={{
+                              maxWidth: '45%',
+                              flexShrink: 1,
+                              textAlign: 'right',
+                              color: gramophone.rowForeground,
+                              fontSize: 9,
+                              lineHeight: 12,
+                            }}
                           >
                             {selected && island.playing ? '재생 중' : status}
                           </Txt>
@@ -2886,8 +2916,15 @@ export function RedesignScreens({ e }: any) {
                   <Btn
                     title={soundDialog.kind === 'success' ? '지금 재생하기' : '확인'}
                     dynamicHeight={largeText}
-                    onPress={() => {
-                      if (soundDialog.kind === 'success') setTrack(dialogProduct.id);
+                    disabled={server && shopApi.writing}
+                    onPress={async () => {
+                      if (soundDialog.kind === 'success') {
+                        const changed = await changePlayback({
+                          trackId: dialogProduct.id,
+                          playing: true,
+                        });
+                        if (!changed) return;
+                      }
                       setSoundDialog(null);
                     }}
                   />

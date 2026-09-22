@@ -5,6 +5,7 @@
 import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
+import { getPlayback, patchPlayback } from '@/services/api/playback';
 import {
   getIslandInventory,
   getMyInventory,
@@ -30,6 +31,10 @@ jest.mock('@/services/api/shop', () => ({
   patchIslandAppearance: jest.fn(),
   patchMyAppearance: jest.fn(),
   purchaseProduct: jest.fn(),
+}));
+jest.mock('@/services/api/playback', () => ({
+  getPlayback: jest.fn(),
+  patchPlayback: jest.fn(),
 }));
 
 const ISLAND = '11111111-2222-4333-8444-555555555555';
@@ -72,6 +77,17 @@ const myInventory = {
   equipped: { clothes: 'scarf', decor: null, hull: 'raft', position: 'front', version: 2 },
 };
 
+const playback = {
+  trackId: 'waves',
+  playing: false,
+  positionSeconds: 0,
+  effectiveAt: '2026-09-22T00:00:00Z',
+  changedBy: null,
+  version: 2,
+  serverNow: '2026-09-22T00:00:00Z',
+  durationSeconds: 120,
+};
+
 const params = (over: Record<string, unknown> = {}) => ({
   active: true,
   islandId: ISLAND,
@@ -91,6 +107,7 @@ beforeEach(() => {
   (getMyInventory as jest.Mock).mockResolvedValue(myInventory);
   (getShopWallets as jest.Mock).mockResolvedValue(screenBody().wallets);
   (getIslandInventory as jest.Mock).mockResolvedValue(screenBody().sharedInventory);
+  (getPlayback as jest.Mock).mockResolvedValue(playback);
 });
 
 test('비활성이면 API 를 부르지 않는다', async () => {
@@ -129,9 +146,41 @@ test('sound route — 음원·공동 인벤토리와 구매에 필요한 지갑�
   assert.equal((getShopProducts as jest.Mock).mock.calls[0][1], 'sound');
   assert.equal((getIslandInventory as jest.Mock).mock.calls.length, 1);
   assert.equal((getShopWallets as jest.Mock).mock.calls.length, 1);
+  assert.equal((getPlayback as jest.Mock).mock.calls.length, 1);
   assert.equal(result.current.wallets?.villagePointsVersion, 7);
+  assert.equal(result.current.playback?.version, 2);
   const sync = dispatch.mock.calls.map((call) => call[0]).find((action) => action.wallets);
   assert.equal(sync.wallets.villagePoints, 1500);
+});
+
+test('공용 재생 변경 — 조회한 버전을 싣고 서버 응답을 화면 상태에 적용한다', async () => {
+  const dispatch = jest.fn();
+  const next = { ...playback, trackId: 'rain', playing: true, version: 3, changedBy: 'u1' };
+  (patchPlayback as jest.Mock).mockResolvedValue(next);
+  const { result } = await renderHook((p: Parameters<typeof useShop>[0]) => useShop(p), {
+    initialProps: params({ route: 'sound', dispatch }),
+  });
+  await waitFor(() => assert.equal(result.current.loading, false));
+
+  await act(async () => {
+    await result.current.updatePlayback({ trackId: 'rain', playing: true });
+  });
+
+  const [island, body, key] = (patchPlayback as jest.Mock).mock.calls[0];
+  assert.equal(island, ISLAND);
+  assert.deepEqual(body, { trackId: 'rain', playing: true, expectedVersion: 2 });
+  assert.match(key, /^[0-9a-f-]{36}$/);
+  assert.equal(result.current.playback?.version, 3);
+  const applied = dispatch.mock.calls
+    .map((call) => call[0])
+    .filter((action) => action.type === 'PLAYBACK_SYNC')
+    .at(-1);
+  assert.deepEqual(applied, {
+    type: 'PLAYBACK_SYNC',
+    islandId: ISLAND,
+    trackId: 'rain',
+    playing: true,
+  });
 });
 
 test('탭 전환은 category=island 로 /screens/shop 을 다시 읽는다', async () => {

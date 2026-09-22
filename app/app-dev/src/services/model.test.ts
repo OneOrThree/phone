@@ -275,6 +275,19 @@ test('축음기는 보유한 현재 곡이 있을 때만 재생한다', () => {
   assert.equal(currentIsland(s).playbackReset, 1);
   assert.equal(trackNames.rain, '빗방울 소리');
 });
+test('PLAYBACK_SYNC는 서버가 확정한 곡과 재생 상태를 섬에 반영한다', () => {
+  const before = initialState(false);
+  const island = currentIsland(before);
+  island.playing = false;
+  const next = reducer(before, {
+    type: 'PLAYBACK_SYNC',
+    islandId: island.id,
+    trackId: 'rain',
+    playing: true,
+  });
+  assert.equal(currentIsland(next).track, 'rain');
+  assert.equal(currentIsland(next).playing, true);
+});
 test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
   let s = initialState(true);
   s = act(s, 'EQUIP', { key: 'clothes', value: 'scarf' });

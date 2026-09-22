@@ -22,6 +22,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import {
+  getPlayback,
+  patchPlayback,
+  type PlaybackPatch,
+  type PlaybackState,
+} from '@/services/api/playback';
+import {
   getIslandInventory,
   getMyInventory,
   getShopOrders,
@@ -56,6 +62,7 @@ export type ShopState = {
   wallets: ShopWallets | null;
   shared: SharedInventory | null;
   my: PersonalInventory | null;
+  playback: PlaybackState | null;
   /** 현재 탭의 목록 — 서버가 돌려준 순서·필드 그대로다. */
   items: ShopItem[];
   itemsCategory: ShopCategory | null;
@@ -83,6 +90,7 @@ const EMPTY: ShopState = {
   wallets: null,
   shared: null,
   my: null,
+  playback: null,
   items: [],
   itemsCategory: null,
   nextCursor: null,
@@ -222,6 +230,21 @@ export function useShop({
     [alive, set, sync],
   );
 
+  const applyPlayback = useCallback(
+    (e: number, generation: number, playback: PlaybackState) => {
+      if (!alive(e, generation)) return;
+      set({ playback });
+      if (islandId)
+        dispatch({
+          type: 'PLAYBACK_SYNC',
+          islandId,
+          trackId: playback.trackId,
+          playing: playback.playing,
+        });
+    },
+    [alive, dispatch, islandId, set],
+  );
+
   /** 모르는 productId 의 제목·kind 를 상세 GET 으로 채운다 — 내역·옷장의 표시 이름용. */
   const ensureTitles = useCallback(
     async (e: number, generation: number, ids: string[]) => {
@@ -254,10 +277,11 @@ export function useShop({
         if (!islandId) return;
         set({ loading: true, error: null, items: [], itemsCategory: cat });
         try {
-          const [page, shared, wallets] = await Promise.all([
+          const [page, shared, wallets, playback] = await Promise.all([
             getShopProducts(islandId, 'sound'),
             getIslandInventory(islandId),
             getShopWallets(islandId),
+            getPlayback(islandId),
           ]);
           if (!alive(e, generation)) return;
           proven.current = { epoch: e, generation };
@@ -271,6 +295,7 @@ export function useShop({
           set({
             shared,
             wallets,
+            playback,
             items: page.items,
             itemsCategory: cat,
             nextCursor: page.nextCursor,
@@ -280,6 +305,7 @@ export function useShop({
             error: null,
           });
           sync({ sharedInventory: shared, wallets });
+          applyPlayback(e, generation, playback);
         } catch (error) {
           if (!alive(e, generation)) return;
           set({ loading: false, error: error as ApiError });
@@ -298,7 +324,7 @@ export function useShop({
         set({ loading: false, error: error as ApiError });
       }
     },
-    [alive, applyScreen, islandId, set, sync],
+    [alive, applyPlayback, applyScreen, islandId, set, sync],
   );
 
   const loadMore = useCallback(async () => {
@@ -601,6 +627,40 @@ export function useShop({
     [alive, refreshAll, runWrite, writable],
   );
 
+  /** 공용 재생 변경 — 현재 playback.version 을 싣고 서버가 확정한 전체 상태를 적용한다. */
+  const updatePlayback = useCallback(
+    async (patch: Omit<PlaybackPatch, 'expectedVersion'>): Promise<PlaybackState> => {
+      const island = writable();
+      const current = stateRef.current.playback;
+      if (!current)
+        throw new ApiError(
+          CLIENT_INACTIVE,
+          '재생 정보를 아직 못 읽었어요. 잠시 후 다시 시도해 주세요.',
+          0,
+        );
+      const e = epoch.current;
+      const generation = sessionGeneration();
+      const body: PlaybackPatch = { ...patch, expectedVersion: current.version };
+      try {
+        const next = await runWrite(
+          'playback',
+          JSON.stringify(body),
+          (key) => patchPlayback(island, body, key),
+          async () => {},
+        );
+        applyPlayback(e, generation, next);
+        return next;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 409 && alive(e, generation))
+          await getPlayback(island)
+            .then((next) => applyPlayback(e, generation, next))
+            .catch(() => {});
+        throw error;
+      }
+    },
+    [alive, applyPlayback, runWrite, writable],
+  );
+
   /** 개인 외양 — 제출한 필드만 보낸다(생략 유지·명시 null 해제). expectedVersion 없음. */
   const equip = useCallback(
     async (patch: MyAppearancePatch): Promise<PersonalAppearance> => {
@@ -723,6 +783,7 @@ export function useShop({
     loadMoreOrders,
     select,
     buy,
+    updatePlayback,
     equip,
     applyTheme,
     retry: () => {
