@@ -107,7 +107,7 @@ import {
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
 import { useFocusSummary } from '@/screens/island/useFocusSummary';
-import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
+import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import {
   acceptFriendRequest,
   cancelFriendRequest,
@@ -770,42 +770,7 @@ export function RedesignScreens({ e }: any) {
   // 「오늘 집중」요약(GROMO-2018) — 서버 모드면 /me/focus-summary 가 정본이다
   const focusSummary = useFocusSummary({ active: !!server });
   // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
-  const friendsScreen = useFriendsScreen({
-    active: !!server && (route === 'friends' || route === 'friendSearch'),
-    searchActive: route === 'friendSearch',
-    date: dayKey(now),
-  });
-  useEffect(() => {
-    const data = friendsScreen.data;
-    if (!data) return;
-    const toFriend = (
-      userId: string,
-      nickname: string | null,
-      islandName: string | null | undefined,
-      status: 'friend' | 'received' | 'sent',
-    ) => ({
-      id: userId,
-      name: nickname ?? '탈퇴한 사용자',
-      color: 'white' as Color,
-      island: islandName ?? '',
-      status,
-      messages: [],
-    });
-    dispatch({
-      type: 'FRIENDS_SYNC',
-      friends: [
-        ...data.friends.map((friend) =>
-          toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
-        ),
-        ...data.friendRequests.map((request) =>
-          toFriend(request.userId, request.nickname, null, 'received'),
-        ),
-        ...data.sentFriendRequests.map((request) =>
-          toFriend(request.userId, request.nickname, null, 'sent'),
-        ),
-      ],
-    });
-  }, [dispatch, friendsScreen.data]);
+  const friendsScreen = e.friendsScreen as FriendsScreenState;
   // 친구 명령의 공통 실패 처리 — 게이트는 회원 전환 시트로, 이미 처리·중복은 재조회로 닫는다
   const friendFail = (thrown: unknown) => {
     if (e.conversion?.offer(thrown)) return;
