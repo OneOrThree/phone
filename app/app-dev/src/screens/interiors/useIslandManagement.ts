@@ -133,7 +133,7 @@ type Page<T> = { items: T[]; nextCursor: string | null; version?: number };
  * 깨진 페이지(items 배열 없음·id 없는 항목)는 전부 CLIENT_BROKEN_PAGE — 부분 목록을
  * 정상 결과로 돌려주지 않는다. 매 페이지 전에 guard() 로 scope·순서를 다시 본다.
  */
-async function collectPages<T extends { id: string }>(
+export async function collectPages<T extends { id: string }>(
   guard: () => void,
   fetchPage: (cursor: string | undefined) => Promise<Page<T>>,
   versioned: boolean,

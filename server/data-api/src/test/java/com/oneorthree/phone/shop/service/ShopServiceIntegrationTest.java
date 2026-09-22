@@ -339,6 +339,33 @@ class ShopServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("구매 receipt 재생도 현재 권한을 다시 본다 — 강퇴된 주민의 같은 키는 403, 추가 차감 없다 (GROMO-2000)")
+    void replayedPurchaseIsRejectedAfterKick() {
+        Fixture f = island();
+        UUID resident = join(f.islandId);
+        fund(f.islandId, 100);
+        String id = product("island_theme", "island", null);
+        publish(entry(id, 1, 30, null, null, "island", 1));
+        UUID key = UUID.randomUUID();
+        // 강퇴 뒤에는 지갑·목록 조회도 막히므로, 재시도가 실제로 택하는 purchase 재생 경로를
+        // 직접 부른다 — 버전 두 개는 강퇴 전에 잡아 둔다.
+        long walletVersion = shop.wallets(f.islandId, resident).villagePointsVersion();
+        long productVersion = revisionOf(id);
+
+        shop.purchase(f.islandId, resident, id, walletVersion, productVersion, key);
+        assertThat(islandBalance(f.islandId)).isEqualTo(70);
+
+        // 강퇴 — 활성 멤버십만 없어지고 receipt·계정·섬은 살아 있다.
+        jdbc.update("UPDATE group_members SET is_left = true WHERE group_id = ? AND user_id = ?",
+                f.islandId, resident);
+
+        assertCode(() -> shop.purchase(f.islandId, resident, id, walletVersion, productVersion, key),
+                GroupErrorCode.MEMBER_ONLY);
+        assertThat(islandBalance(f.islandId)).as("거절된 재생은 다시 차감하지 않는다").isEqualTo(70);
+        assertThat(count("SELECT COUNT(*) FROM shop_orders WHERE island_id = ?", f.islandId)).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("선행 조건 — requiredBuilding 미완공은 FACILITY_LOCKED, requiredProduct 미보유는 STATE_CONFLICT")
     void prerequisitesAreEnforced() {
         Fixture f = island();
