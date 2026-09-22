@@ -259,7 +259,9 @@ export type State = {
     haptics: boolean;
     screenTimeBoardPromptSeen?: boolean;
     screenTimeMeasurementReady?: boolean;
+    screenTimeMeasurementDay?: string;
     screenTimeHistoryReady?: boolean;
+    screenTimeHistoryDay?: string;
   };
   islands: Island[];
   session: Session | null;
@@ -899,6 +901,7 @@ export function questRate(s: State, q: Quest, islandId = s.islandId): number | n
   if (q.type === 'screen')
     return !s.settings.permission ||
       !s.settings.screenTimeMeasurementReady ||
+      (!!s.settings.screenTimeMeasurementDay && s.settings.screenTimeMeasurementDay !== dayKey()) ||
       s.screenTimeUnconfirmedDays?.includes(dayKey())
       ? null
       : s.screenMinutes <= q.target
@@ -1086,6 +1089,8 @@ export function questMemberRate(
       id === 'me'
         ? s.settings.permission &&
           s.settings.screenTimeMeasurementReady &&
+          (!s.settings.screenTimeMeasurementDay ||
+            s.settings.screenTimeMeasurementDay === dayKey(now)) &&
           !s.screenTimeUnconfirmedDays?.includes(dayKey(now))
           ? s.screenMinutes
           : null
@@ -1158,7 +1163,13 @@ function evaluateQuests(s: State, now: number) {
       ensureQuestRound(i, q, today);
       for (const [day, round] of Object.entries(q.rounds)) {
         if (day > today) continue;
-        if (round.kind === 'screen' && day < today && !s.settings.screenTimeHistoryReady) continue;
+        if (
+          round.kind === 'screen' &&
+          day < today &&
+          (!s.settings.screenTimeHistoryReady ||
+            (s.settings.screenTimeMeasurementDay && s.settings.screenTimeHistoryDay !== today))
+        )
+          continue;
         if (round.kind === 'screen' && s.screenTimeUnconfirmedDays?.includes(day)) continue;
         for (const id of round.targets) {
           const member = memberOf(i, id);
@@ -1722,6 +1733,8 @@ export function reducer(state: State, a: Action): State {
       if (
         s.settings.permission &&
         s.settings.screenTimeMeasurementReady &&
+        (!s.settings.screenTimeMeasurementDay ||
+          s.settings.screenTimeMeasurementDay === dayKey(now)) &&
         !s.screenTimeUnconfirmedDays?.includes(dayKey(now))
       ) {
         s.screenDays ??= {};
@@ -2026,6 +2039,28 @@ export function reducer(state: State, a: Action): State {
     case 'MEMBERSHIP_RECOVERY_HANDLED': {
       delete s.membershipRecovery;
       break;
+    }
+    case 'SCREEN_TIME_SNAPSHOT': {
+      const snapshot = a.snapshot;
+      s.settings.permission = snapshot.approved;
+      s.settings.screenTimeMeasurementDay = snapshot.date;
+      s.settings.screenTimeMeasurementReady =
+        snapshot.approved &&
+        snapshot.minutes !== null &&
+        snapshot.date === dayKey(now) &&
+        !snapshot.unconfirmedDays.includes(snapshot.date) &&
+        !s.screenTimeUnconfirmedDays?.includes(snapshot.date);
+      s.settings.screenTimeHistoryReady = false;
+      s.settings.screenTimeHistoryDay = snapshot.date;
+      if (snapshot.minutes !== null) s.screenMinutes = snapshot.minutes;
+      // 미확인 날짜를 먼저 적용한 뒤 과거 기록을 정산한다. 중간 상태로 0분 보상이 나가면 안 된다.
+      const marked = reducer(s, {
+        type: 'SCREEN_TIME_UNCONFIRMED',
+        days: snapshot.unconfirmedDays,
+      });
+      return snapshot.approved && snapshot.minutes !== null
+        ? reducer(marked, { type: 'SCREEN_TIME_HISTORY', buckets: snapshot.history, now })
+        : marked;
     }
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);

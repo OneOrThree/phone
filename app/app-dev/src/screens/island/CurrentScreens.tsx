@@ -1,3 +1,5 @@
+import { sessionGeneration } from '@/services/api/session';
+import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -325,6 +327,10 @@ function ScreenTimePermission({ e }: any) {
   const gateDetail = decodeURIComponent(gateParts[2] || '');
   const measuredApps = e.detail === 'measured-apps';
   const finish = () => {
+    if (Platform.OS === 'android') {
+      e.back();
+      return;
+    }
     if (boardFirst) {
       e.replace('screenTimeApps', e.detail);
     } else if (measuredApps) {
@@ -342,9 +348,19 @@ function ScreenTimePermission({ e }: any) {
     }
   };
   const syncStatus = async () => {
+    const generation = sessionGeneration();
     const next = await screenTime.getAuthorizationStatus();
+    if (generation !== sessionGeneration()) return 'unavailable';
     setStatus(next);
     e.dispatch({ type: 'SETTING', key: 'permission', value: next === 'approved' });
+    if (Platform.OS === 'android') {
+      e.dispatch({ type: 'SETTING', key: 'screenTimeHistoryReady', value: false });
+      const snapshot = await syncAndroidScreenTime();
+      if (generation !== sessionGeneration()) return 'unavailable';
+      e.dispatch({ type: 'SCREEN_TIME_SNAPSHOT', snapshot, now: Date.now() });
+      setStatus(snapshot.approved ? 'approved' : next === 'approved' ? 'denied' : next);
+      return snapshot.approved ? 'approved' : next === 'approved' ? 'denied' : next;
+    }
     return next;
   };
   useEffect(() => {
@@ -398,7 +414,7 @@ function ScreenTimePermission({ e }: any) {
         </View>
       </Sheet>
     );
-  const unavailable = Platform.OS !== 'ios' || !isScreenTimeAvailable || status === 'unavailable';
+  const unavailable = !isScreenTimeAvailable || status === 'unavailable';
   return (
     <Sheet
       e={e}
@@ -409,8 +425,9 @@ function ScreenTimePermission({ e }: any) {
       <Pic id="cat/black/sitting" w={82} />
       <Txt kind="h17">사용 시간을 정확히 기록할게요</Txt>
       <Txt>
-        GROMO가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을
-        썼는지나 화면 내용은 볼 수 없어요.
+        {Platform.OS === 'android'
+          ? '설정의 사용 정보 접근에서 GROMO를 허용해 주세요. 앱별 사용 기록으로 전체 사용 시간을 계산해요. 화면 내용은 읽지 않으며 다른 앱을 잠그지 않아요.'
+          : 'GROMO가 선택한 앱의 사용 시간만 확인할 수 있도록 스크린타임 권한이 필요해요. 어떤 앱을 썼는지나 화면 내용은 볼 수 없어요.'}
       </Txt>
       <Group flat>
         <Row
@@ -426,6 +443,16 @@ function ScreenTimePermission({ e }: any) {
           }
         />
       </Group>
+      {Platform.OS === 'android' && status === 'approved' && (
+        <Btn
+          title="사용 정보 접근 설정 열기"
+          kind="sec"
+          onPress={async () => {
+            if (!(await screenTime.openUsageAccessSettings()))
+              e.notify('사용 정보 접근 설정을 열지 못했어요.');
+          }}
+        />
+      )}
       {status === 'approved' ? (
         <Btn
           title={boardFirst ? '측정 앱 고르기' : measuredApps ? '계속' : '완료'}
@@ -433,7 +460,11 @@ function ScreenTimePermission({ e }: any) {
         />
       ) : status === 'denied' ? (
         <>
-          <Btn title="iOS 설정 열기" onPress={() => Linking.openSettings()} />
+          <Btn
+            title={Platform.OS === 'android' ? '사용 정보 접근 설정 열기' : 'iOS 설정 열기'}
+            disabled={busy}
+            onPress={Platform.OS === 'android' ? request : () => Linking.openSettings()}
+          />
           <Btn
             title={boardFirst ? '나중에 하고 게시판 열기' : '나중에'}
             kind="ghost"
