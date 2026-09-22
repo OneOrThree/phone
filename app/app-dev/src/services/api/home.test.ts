@@ -6,6 +6,8 @@ import {
   getHome,
   getMembers,
   leaveIsland,
+  selectConstructionTarget,
+  startConstruction,
   switchCurrentIsland,
 } from '@/services/api/home';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -240,6 +242,59 @@ test('leaveIsland — DELETE /islands/{id}/memberships/me, 본문 없이 같은 
   assert.equal(header(calls[0], 'Idempotency-Key'), 'idem-leave');
   assert.equal(calls[0].init.body, undefined);
   assert.equal(result.left, true);
+});
+
+test('selectConstructionTarget — PUT 에 {buildingId, expectedVersion}·멱등 키만 보낸다', async () => {
+  stub([
+    {
+      status: 200,
+      body: { data: { buildingId: 'library', selected: true, spent: 0, version: 5 } },
+    },
+  ]);
+
+  const result = await selectConstructionTarget('i1', 'library', 4, 'idem-target');
+
+  assert.equal(calls[0].init.method, 'PUT');
+  assert.equal(path(calls[0]), '/islands/i1/construction-target');
+  assert.equal(header(calls[0], 'Idempotency-Key'), 'idem-target');
+  // 필드 수 계약 — cost·expectedCostPolicyVersion 같은 여분은 붙이지 않는다.
+  assert.deepEqual(body(calls[0]), { buildingId: 'library', expectedVersion: 4 });
+  assert.equal(result.selected, true);
+  assert.equal(result.version, 5);
+});
+
+test('startConstruction — POST 에 세 필드·멱등 키, BUILDING 응답의 시각을 그대로 돌려준다', async () => {
+  stub([
+    {
+      status: 200,
+      body: {
+        data: {
+          buildingId: 'library',
+          status: 'BUILDING',
+          spent: { currency: 'village_points', amount: 1360 },
+          version: 5,
+          villagePoints: 200,
+          walletVersion: 8,
+          startedAt: '2026-09-21T00:00:00Z',
+          completesAt: '2026-09-21T01:00:00Z',
+        },
+      },
+    },
+  ]);
+
+  const result = await startConstruction('i1', 'library', 4, 1, 'idem-build');
+
+  assert.equal(calls[0].init.method, 'POST');
+  assert.equal(path(calls[0]), '/islands/i1/constructions');
+  assert.equal(header(calls[0], 'Idempotency-Key'), 'idem-build');
+  assert.deepEqual(body(calls[0]), {
+    buildingId: 'library',
+    expectedVersion: 4,
+    expectedCostPolicyVersion: 1,
+  });
+  assert.equal(result.status, 'BUILDING');
+  assert.equal(result.spent.amount, 1360);
+  assert.equal(result.completesAt, '2026-09-21T01:00:00Z');
 });
 
 test('서버 오류는 코드를 그대로 올린다 — 성공으로 접지 않는다', async () => {

@@ -136,6 +136,31 @@ export type ConstructionOptions = {
   items: ConstructionItem[];
 };
 
+/** `PUT /islands/{islandId}/construction-target` 결과 — 목표 변경에는 차감이 없어 spent=0 이다. */
+export type ConstructionTarget = {
+  buildingId: string;
+  selected: boolean;
+  spent: number;
+  version: number;
+};
+
+/**
+ * `POST /islands/{islandId}/constructions` 결과 — `status` 는 계약상 `BUILDING` 뿐이다.
+ * 완공은 서버 스케줄러가 뒤에 바꾼다 — 앱이 `completesAt` 경과로 완공을 확정하지 않는다.
+ */
+export type ConstructionStarted = {
+  buildingId: string;
+  status: string;
+  /** 실제 차감 — 통화는 섬 통장(`village_points`). */
+  spent: { currency: string; amount: number };
+  version: number;
+  villagePoints: number;
+  walletVersion: number;
+  /** 서버가 준 공사 구간 — 파싱 없이 문자열로 보관한다. */
+  startedAt: string;
+  completesAt: string;
+};
+
 export type IslandMember = {
   id: string;
   name: string | null;
@@ -202,6 +227,44 @@ function validateOptions(raw: unknown): ConstructionOptions {
   return raw as unknown as ConstructionOptions;
 }
 
+/** 쓰기 응답도 계약을 벗어나면 성공으로 접지 않는다 — receipt 재생 경로가 같은 모양을 보장한다. */
+function validateTarget(raw: unknown): ConstructionTarget {
+  if (!isRecord(raw)) throw contractError('constructionTarget');
+  const { buildingId, selected, spent, version } = raw;
+  if (typeof buildingId !== 'string') throw contractError('buildingId');
+  if (typeof selected !== 'boolean') throw contractError('selected');
+  if (!isNumber(spent)) throw contractError('spent');
+  if (!isNumber(version)) throw contractError('version');
+  return raw as unknown as ConstructionTarget;
+}
+
+function validateStarted(raw: unknown): ConstructionStarted {
+  if (!isRecord(raw)) throw contractError('constructionStarted');
+  const {
+    buildingId,
+    status,
+    spent,
+    version,
+    villagePoints,
+    walletVersion,
+    startedAt,
+    completesAt,
+  } = raw;
+  if (typeof buildingId !== 'string') throw contractError('buildingId');
+  // 착공 응답의 status 는 BUILDING 뿐이다 — 다른 값은 즉시 완공으로 보이지 않게 계약 오류다.
+  if (status !== 'BUILDING') throw contractError('status');
+  if (!isRecord(spent) || typeof spent.currency !== 'string' || !isNumber(spent.amount)) {
+    throw contractError('spent');
+  }
+  if (!isNumber(version) || !isNumber(villagePoints) || !isNumber(walletVersion)) {
+    throw contractError('version');
+  }
+  if (typeof startedAt !== 'string' || typeof completesAt !== 'string') {
+    throw contractError('startedAt');
+  }
+  return raw as unknown as ConstructionStarted;
+}
+
 /** `canonical7 − items[].id` = 정확한 완공 건물. items 가 비면 7개 모두 완공이다. */
 export function completedBuildings(options: ConstructionOptions): BuildingId[] {
   const pending = new Set(options.items.map((item) => item.id));
@@ -226,6 +289,48 @@ export async function getConstructionOptions(islandId: string): Promise<Construc
     `/islands/${encodeURIComponent(islandId)}/construction-options`,
   );
   return validateOptions(raw);
+}
+
+/**
+ * 건설 목표 선택 — 본문은 `buildingId`·`expectedVersion` 둘뿐이다(서버가 필드 수를 검사한다).
+ * `Idempotency-Key` 필수. 재시도는 같은 키·같은 본문으로 — 버전이 바뀐 의도는 새 키다.
+ * 성공 뒤 호출부가 options 를 재조회하기 전에는 화면을 확정하지 않는다.
+ */
+export async function selectConstructionTarget(
+  islandId: string,
+  buildingId: string,
+  expectedVersion: number,
+  idempotencyKey: string,
+): Promise<ConstructionTarget> {
+  const raw = await request<unknown>(
+    `/islands/${encodeURIComponent(islandId)}/construction-target`,
+    {
+      // 공개 계약은 PUT 이지만 공통 client 의 method union 에 아직 없다 — 여기서 넓힌다.
+      method: 'PUT' as string as RequestOptions['method'],
+      idempotencyKey,
+      body: { buildingId, expectedVersion },
+    },
+  );
+  return validateTarget(raw);
+}
+
+/**
+ * 건설 착공 — `expectedCostPolicyVersion` 은 GET options 가 준 가격 revision 이다.
+ * 응답 `status` 는 항상 `BUILDING` — 완공은 서버 스케줄러 몫이라 앱이 시각으로 판정하지 않는다.
+ */
+export async function startConstruction(
+  islandId: string,
+  buildingId: string,
+  expectedVersion: number,
+  expectedCostPolicyVersion: number,
+  idempotencyKey: string,
+): Promise<ConstructionStarted> {
+  const raw = await request<unknown>(`/islands/${encodeURIComponent(islandId)}/constructions`, {
+    method: 'POST',
+    idempotencyKey,
+    body: { buildingId, expectedVersion, expectedCostPolicyVersion },
+  });
+  return validateStarted(raw);
 }
 
 /**
