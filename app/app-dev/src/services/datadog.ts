@@ -27,22 +27,19 @@ export function initDatadog(): void {
           {
             site: 'US5',
             service: 'gromo-app-v2',
-            rumConfiguration: new dd.RumConfiguration(
-              APPLICATION_ID,
-              true,
-              true,
-              false,
-              {
-                sessionSampleRate: 100,
-                firstPartyHosts: [
-                  { match: 'api.oneorthree.world', propagatorTypes: [dd.PropagatorType.DATADOG] },
-                  {
-                    match: 'oneorthree.dev.mooo.com',
-                    propagatorTypes: [dd.PropagatorType.DATADOG],
-                  },
-                ],
-              },
-            ),
+            rumConfiguration: new dd.RumConfiguration(APPLICATION_ID, true, true, false, {
+              sessionSampleRate: 100,
+              firstPartyHosts: [
+                {
+                  match: 'api.oneorthree.world',
+                  propagatorTypes: [dd.PropagatorType.DATADOG],
+                },
+                {
+                  match: 'oneorthree.dev.mooo.com',
+                  propagatorTypes: [dd.PropagatorType.DATADOG],
+                },
+              ],
+            }),
           },
         ),
       );

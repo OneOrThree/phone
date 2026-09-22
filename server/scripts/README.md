@@ -212,6 +212,10 @@ aws --profile gromo s3api get-bucket-lifecycle-configuration --bucket gromo-prod
 
 ## 11. 실행 전후 확인
 
+- GitHub Actions의 `Dev Stack` 수동 워크플로는 main SHA의 Data API·Business/Notification·Realtime
+  CI 상태와 dev 호스트의 Data API·DB·Redis·Realtime·Business·Notification·Kafka·Datadog 컨테이너
+  상태를 한 Job Summary에 표시합니다. 기본 실행은 미기동 컴포넌트도 보고만 하며, 전체 스택을
+  검증할 때는 `strict`를 켜서 미기동 또는 unhealthy 상태를 실패로 처리합니다.
 - 병합 검증은 실제 적용과 동일한 `-p`, `--env-file`, `-f` 목록에 `config --quiet`를 사용합니다.
 - Data의 서비스별 env 교체는 `app` 재생성을 수반합니다. 생성 계획의 적용·복구 순서를 따릅니다.
 - 관측 스택만 멈출 때는 [관측 README의 stop 명령](../observability/README.md)을 사용합니다. 병합 구성의 `down`은 기본 앱·DB까지 내립니다.
