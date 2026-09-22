@@ -1598,6 +1598,72 @@
         }
       }
     },
+    "/internal/users/{userId}/blocks": {
+      "get": {
+        "tags": [
+          "internal-user-block-controller"
+        ],
+        "operationId": "blocks",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/BlockedUserResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "internal-user-block-controller"
+        ],
+        "operationId": "block",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserBlockCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/internal/outbox-commands/{commandId}/delivered": {
       "post": {
         "tags": [
@@ -10045,6 +10111,39 @@
         }
       }
     },
+    "/internal/users/{userId}/blocks/{blockedUserId}": {
+      "delete": {
+        "tags": [
+          "internal-user-block-controller"
+        ],
+        "operationId": "unblock",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "blockedUserId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          }
+        }
+      }
+    },
     "/internal/islands/{islandId}/members/{targetUserId}": {
       "delete": {
         "tags": [
@@ -11173,6 +11272,18 @@
         },
         "required": [
           "ackDeadlineAt"
+        ]
+      },
+      "UserBlockCreateRequest": {
+        "type": "object",
+        "properties": {
+          "blockedUserId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "blockedUserId"
         ]
       },
       "NotificationEligibilityRequest": {
@@ -13585,6 +13696,18 @@
         "properties": {
           "session": {
             "$ref": "#/components/schemas/FocusSessionView"
+          }
+        }
+      },
+      "BlockedUserResponse": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
           }
         }
       },
