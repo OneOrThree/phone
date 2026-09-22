@@ -120,5 +120,9 @@ jobs:
       - name: 실패 로그
         if: failure()
         run: |
-          docker logs --tail=100 phone-business-api 2>&1 || true
-          docker logs --tail=100 phone-notification 2>&1 || true
+          for service in business-api notification; do
+            container=$(docker ps -aq \
+              --filter label=com.docker.compose.project=phone \
+              --filter label=com.docker.compose.service="$service" | head -n 1)
+            if [ -n "$container" ]; then docker logs --tail=100 "$container" 2>&1 || true; fi
+          done
