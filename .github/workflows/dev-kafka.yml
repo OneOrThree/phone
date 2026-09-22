@@ -136,3 +136,13 @@ jobs:
           else
             echo "$topics"
           fi
+          {
+            echo "### Kafka 운영 상태"
+            echo "- broker health: \`$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' phone-kafka)\`"
+            echo "- Grafana: http://$(hostname -I | awk '{print $1}'):3000/d/redis-kafka-ops"
+            if docker ps --format '{{.Names}}' | grep -Fxq gromo-kafka-exporter; then
+              echo "- kafka-exporter: running"
+            else
+              echo "- kafka-exporter: stopped (Dev Monitoring up 필요)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

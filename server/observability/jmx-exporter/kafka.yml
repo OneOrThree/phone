@@ -1,0 +1,9 @@
+hostPort: kafka:9999
+lowercaseOutputName: true
+
+rules:
+  - pattern: 'kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(.+)><>Count'
+    name: kafka_network_requestmetrics_requests_total
+    type: COUNTER
+    labels:
+      request: "$1"

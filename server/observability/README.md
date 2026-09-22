@@ -72,7 +72,7 @@ docker compose --env-file ../.gromo-runtime/dev.env \
 ```bash
 docker compose --env-file ../.gromo-runtime/dev.env \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml \
-  stop prometheus grafana loki promtail postgres-exporter node-exporter cadvisor
+  stop prometheus grafana loki promtail postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
 ```
 
 > `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
