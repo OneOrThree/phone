@@ -53,6 +53,7 @@ import {
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
+import { updateProfile } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
@@ -5526,13 +5527,23 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
         action="저장"
         actionPress={() => {
-          if (!profileName.trim()) {
+          const name = profileName.trim();
+          if (!name) {
             notify('닉네임을 입력해 주세요.');
             return;
           }
-          act('PROFILE', { name: profileName, color: profileColor });
-          notify('저장했어요.');
-          back();
+          run(
+            () =>
+              updateProfile({ name, catColor: profileColor }).then((saved) => {
+                act('PROFILE', {
+                  name: saved.name ?? name,
+                  color: saved.catColor ?? profileColor,
+                });
+                notify('저장했어요.');
+                back();
+              }),
+            notify,
+          );
         }}
       >
         <View style={{ alignItems: 'center' }}>
