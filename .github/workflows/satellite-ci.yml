@@ -65,6 +65,17 @@ jobs:
           fetch-depth: 0
       - id: plan
         run: python3 .github/scripts/satellite-ci-plan.py
+      - name: dev 배포 대상 기록
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SERVICES: ${{ steps.plan.outputs.services }}
+        run: printf '%s\n' "$SERVICES" > satellite-deploy-plan.json
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: satellite-deploy-plan
+          path: satellite-deploy-plan.json
+          retention-days: 30
 
   runtime-contracts:
     name: 서비스별 시크릿 · DB 격리
