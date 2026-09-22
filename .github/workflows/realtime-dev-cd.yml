@@ -15,6 +15,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
   REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/realtime
   RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
@@ -25,8 +28,45 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
+
+      - name: AWS 자격증명 (OIDC, keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-realtime-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      - name: dev 런타임 값 갱신 (Secrets Manager → checkout 외부 env)
+        run: |
+          set -euo pipefail
+          test -s "$RUNTIME_ENV_FILE"
+          test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
+          # Realtime 배포가 Data 배포보다 먼저 실행되어도 APP_IMAGE를 되돌리지 않도록 현재
+          # 런타임 파일에 명시된 불변 이미지 참조를 보존하면서 공유 시크릿만 다시 쓴다.
+          # base compose를 직접 읽으면 APP_IMAGE 누락을 :latest 기본값으로 숨길 수 있어,
+          # 필수 보간만 가진 probe로 명시적 값이 있는지 먼저 확인한다.
+          probe="$RUNNER_TEMP/realtime-app-image-probe.yml"
+          python3 - "$probe" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump({"services": {"app": {"image": "${APP_IMAGE:?Data 이미지 digest 필요}"}}}, handle)
+          PY
+          app_image=$(docker compose --env-file "$RUNTIME_ENV_FILE" -f "$probe" config --format json \
+            | jq -er '.services.app.image | select(length > 0)')
+          [[ "$app_image" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]
+          aws secretsmanager get-secret-value \
+            --secret-id "$ENV_SECRET_ID" \
+            --query SecretString --output text \
+          | python3 .github/scripts/write-compose-env.py \
+              --output "$RUNTIME_ENV_FILE" \
+              --app-image "$app_image"
 
       - name: 배포 입력·런타임 계약 검증
         env:
