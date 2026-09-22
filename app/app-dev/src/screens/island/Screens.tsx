@@ -107,6 +107,7 @@ import {
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
 import { useFocusSummary } from '@/screens/island/useFocusSummary';
+import { useShop } from '@/screens/island/useShop';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import {
   acceptFriendRequest,
@@ -121,6 +122,29 @@ const names: Record<string, string> = {
   campfire: '모닥불 소리',
   'forest-wind': '숲바람',
   rain: '오두막의 빗소리',
+};
+// 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
+const shopUiKind = (kind: string) =>
+  kind === 'island_theme'
+    ? 'island'
+    : kind === 'building_theme'
+      ? 'building'
+      : kind === 'audio'
+        ? 'audio'
+        : 'clothes';
+const shopCard = (p: any) => ({
+  ...p,
+  kind: shopUiKind(p.kind),
+  building: p.targetBuilding ?? p.building,
+});
+// 서버가 준 구매 불가 사유 → 화면 문구. 모르는 코드는 일반 문구로 접는다.
+const shopBlockReason = (p: { blockedReason?: string | null; reason?: string | null }) => {
+  const reason = p.blockedReason ?? p.reason;
+  if (reason === 'INSUFFICIENT_FUNDS') return '섬 물고기가 모자라요.';
+  if (reason === 'STATE_CONFLICT') return '아직 판매 준비 중이에요.';
+  if (reason === 'FACILITY_LOCKED') return '필요한 건물이 아직 없어요.';
+  if (reason === 'MEMBER_ONLY' || reason === 'FORBIDDEN') return '섬 주민만 살 수 있어요.';
+  return '지금은 구매할 수 없어요.';
 };
 const buildingArt: Record<string, string> = {
   library: 'library',
@@ -769,6 +793,24 @@ export function RedesignScreens({ e }: any) {
   const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
   // 「오늘 집중」요약(GROMO-2018) — 서버 모드면 /me/focus-summary 가 정본이다
   const focusSummary = useFocusSummary({ active: !!server });
+  // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
+  // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
+  const shopApi = useShop({
+    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound'].includes(route),
+    islandId: snap?.currentIslandId ?? null,
+    route,
+    category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
+    orderScope: tab === '섬 공동 구매' ? 'shared' : 'personal',
+    productId: route === 'product' ? detail : null,
+    dispatch,
+  });
+  // 서버 상품은 owned 가 응답에 실린다 — 목업 경로만 로컬 보유 목록을 본다.
+  const owned = (p: any) =>
+    server && p.owned !== undefined
+      ? !!p.owned
+      : (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
+  const productTitle = (id: string) =>
+    server ? (shopApi.titles[id] ?? id) : products.find((p) => p.id === id)?.title || id;
   // 친구 관리·친구 찾기(GROMO-2015) — 서버 모드면 /screens/friends 조각과 명령 API 가 정본이다
   const friendsScreen = e.friendsScreen as FriendsScreenState;
   // 친구 명령의 공통 실패 처리 — 게이트는 회원 전환 시트로, 이미 처리·중복은 재조회로 닫는다
@@ -2448,7 +2490,7 @@ export function RedesignScreens({ e }: any) {
           };
     const gap = panel ? 8 : 12;
     // 판매 음원: 주민 누구나 섬 물고기로 산다. 누르면 미리듣기·구매 화면
-    const sale = products.filter((p) => p.kind === 'audio');
+    const sale = server ? shopApi.items.map(shopCard) : products.filter((p) => p.kind === 'audio');
     return (
       <View style={{ flex: 1 }}>
         <View
@@ -2599,28 +2641,29 @@ export function RedesignScreens({ e }: any) {
                 {island.buildings.includes('gram') ? (
                   <>
                     <SheetGroup flat>
-                      {island.sharedOwned
-                        .filter((x) => names[x])
-                        .map((id) => (
-                          <SheetRow
-                            key={id}
-                            dense={panel}
-                            title={names[id]}
-                            lead={<MiniRadio on={island.track === id} />}
-                            tone={island.track === id ? 'on' : undefined}
-                            right={
-                              island.track === id && island.playing ? (
-                                <View style={[k.row, { gap: 6 }]}>
-                                  <Eq />
-                                  <Txt style={{ fontSize: 15, lineHeight: 21.75, color: C.muted }}>
-                                    재생 중
-                                  </Txt>
-                                </View>
-                              ) : undefined
-                            }
-                            onPress={() => setTrack(id)}
-                          />
-                        ))}
+                      {(server
+                        ? (shopApi.shared?.audio ?? [])
+                        : island.sharedOwned.filter((x) => names[x])
+                      ).map((id) => (
+                        <SheetRow
+                          key={id}
+                          dense={panel}
+                          title={server ? (names[id] ?? productTitle(id)) : names[id]}
+                          lead={<MiniRadio on={island.track === id} />}
+                          tone={island.track === id ? 'on' : undefined}
+                          right={
+                            island.track === id && island.playing ? (
+                              <View style={[k.row, { gap: 6 }]}>
+                                <Eq />
+                                <Txt style={{ fontSize: 15, lineHeight: 21.75, color: C.muted }}>
+                                  재생 중
+                                </Txt>
+                              </View>
+                            ) : undefined
+                          }
+                          onPress={() => setTrack(id)}
+                        />
+                      ))}
                     </SheetGroup>
                     <Txt kind="section" style={st.sec}>
                       내 기기 음량
@@ -2669,7 +2712,7 @@ export function RedesignScreens({ e }: any) {
                         key={p.id}
                         dense={panel}
                         title={p.title}
-                        sub={island.sharedOwned.includes(p.id) ? '보유 중' : `${p.price}마리`}
+                        sub={owned(p) ? '보유 중' : p.price == null ? '준비 중' : `${p.price}마리`}
                         lead={
                           <View
                             style={{
@@ -4357,23 +4400,33 @@ export function RedesignScreens({ e }: any) {
         )}
       </View>
     );
-  const owned = (p: any) =>
-    (p.kind === 'clothes' ? state.owned : island.sharedOwned).includes(p.id);
   const fishStrip = (
-    <Strip label={island.name + ' 물고기'} value={balance(island).toLocaleString() + '마리'} />
+    <Strip
+      label={island.name + ' 물고기'}
+      value={
+        server
+          ? shopApi.wallets
+            ? shopApi.wallets.villagePoints.toLocaleString() + '마리'
+            : '…'
+          : balance(island).toLocaleString() + '마리'
+      }
+    />
   );
   if (route === 'shop') {
     // 탭 2개: 내 꾸미기(옷·장신구) · 우리 섬 꾸미기(섬·건물 테마). 음원은 축음기에서 산다
+    // 서버 모드는 탭이 곧 category 이고 목록은 서버 응답 그대로다(GROMO-2017).
     const mine = tab !== '우리 섬 꾸미기',
       cols = layout.compact ? 4 : 2,
-      items = products.filter((p) =>
-        mine ? p.kind === 'clothes' : p.kind === 'island' || p.kind === 'building',
-      );
-    const card = (p: (typeof products)[number]) => (
+      items = server
+        ? shopApi.items.map(shopCard)
+        : products.filter((p) =>
+            mine ? p.kind === 'clothes' : p.kind === 'island' || p.kind === 'building',
+          );
+    const card = (p: any) => (
       <Pressable
         key={p.id}
         accessibilityRole="button"
-        accessibilityLabel={`${p.title}, ${p.price}마리${owned(p) ? ', 보유 중' : ''}`}
+        accessibilityLabel={`${p.title}, ${p.price == null ? '준비 중' : `${p.price}마리`}${owned(p) ? ', 보유 중' : ''}`}
         onPress={() => go('product', p.id)}
         style={{
           flex: 1,
@@ -4434,7 +4487,7 @@ export function RedesignScreens({ e }: any) {
           {p.title}
         </Txt>
         <Txt kind="meta" style={{ lineHeight: 18.85 }}>
-          {p.price}마리
+          {p.price == null ? '준비 중' : `${p.price}마리`}
         </Txt>
       </Pressable>
     );
@@ -4467,6 +4520,18 @@ export function RedesignScreens({ e }: any) {
             섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
           </Txt>
         )}
+        {server && shopApi.error ? (
+          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+            <Txt kind="meta" style={st.meta}>
+              {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
+            </Txt>
+            <Btn title="다시 시도" onPress={shopApi.retry} />
+          </View>
+        ) : server && shopApi.loading ? (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            불러오는 중…
+          </Txt>
+        ) : null}
         {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
         <View style={{ gap: layout.compact ? 10 : 12 }}>
           {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
@@ -4487,27 +4552,93 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'product') {
-    const p = products.find((p) => p.id === detail) || products[0],
+    // 서버 모드는 상품 상세 계약이 정본이다(GROMO-2017) — 가격·owned·available·버전 모두
+    // 서버 응답을 쓰고 목업 products/canBuy 는 건드리지 않는다.
+    const sp = server
+      ? ((shopApi.detail && shopApi.detail.id === detail ? shopApi.detail : null) ??
+        shopApi.items.find((i) => i.id === detail) ??
+        null)
+      : null;
+    if (server && !sp) {
+      return (
+        <IslandSheet
+          bg="shop"
+          sign="dog"
+          signKind="npc"
+          title="상품 상세"
+          tall
+          onBack={back}
+          onClose={home}
+        >
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            {shopApi.detailLoading
+              ? '불러오는 중…'
+              : serverErrorText(shopApi.detailError) || '상품을 불러오지 못했어요.'}
+          </Txt>
+        </IslandSheet>
+      );
+    }
+    const p = sp
+        ? shopCard({ ...sp, description: '' })
+        : products.find((p) => p.id === detail) || products[0],
       audio = p.kind === 'audio',
       clothes = p.kind === 'clothes',
-      has = owned(p),
-      // 살 수 없는 이유(잔액 부족·건물 미완공 등). 있으면 버튼을 막고 보조 문구로 보여 준다
-      error = has ? null : canBuy(state, p),
-      remaining = Math.max(0, balance(island) - p.price),
+      has = server ? !!sp?.owned : owned(p),
+      // 살 수 없는 이유 — 서버 모드는 available/blockedReason 응답이 정본이다
+      error = has
+        ? null
+        : server
+          ? sp!.available
+            ? null
+            : shopBlockReason(sp!)
+          : canBuy(state, p),
+      remaining = Math.max(
+        0,
+        (server ? (shopApi.wallets?.villagePoints ?? 0) : balance(island)) - (p.price ?? 0),
+      ),
       applied =
         p.kind === 'island'
-          ? island.theme === p.id
+          ? (server ? shopApi.shared?.appearance.islandThemeId : island.theme) === p.id
           : p.kind === 'building'
-            ? island.buildingThemes?.[p.building || 'hall'] === p.id
+            ? (server
+                ? shopApi.shared?.appearance.buildingThemes?.[p.building || 'hall']
+                : island.buildingThemes?.[p.building || 'hall']) === p.id
             : false;
-    const apply = (value: string) =>
+    // 적용은 서버 PATCH 가 정본 — 실패하면 성공 토스트를 띄우지 않는다(false 반환).
+    const apply = (value: string): Promise<boolean> => {
+      if (server)
+        return shopApi
+          .applyTheme(
+            p.kind === 'island'
+              ? { islandThemeId: value }
+              : { buildingThemes: { [p.building || 'hall']: value } },
+          )
+          .then(() => true)
+          .catch((thrown) => {
+            const m = serverErrorText(thrown);
+            if (m) notify(m);
+            return false;
+          });
       act('THEME', { kind: p.kind, building: p.building || 'hall', value });
+      return Promise.resolve(true);
+    };
     const buy = () =>
       confirm(
         p.title + '를 살까요?',
         `섬 물고기 ${p.price}마리 사용 · 구매 후 ${remaining.toLocaleString()}마리` +
           (clothes ? '\n산 사람의 보유품이라 섬을 떠나도 남아요.' : ''),
         () => {
+          if (server) {
+            // 응답 + 지갑·인벤토리·내역 재조회가 끝날 때만 성공 토스트 — 실패·응답 유실에는 붙지 않는다.
+            shopApi
+              .buy({ id: p.id, productVersion: sp!.productVersion })
+              .then(() => setSheetToast('구매했어요.'))
+              .catch((thrown) => {
+                const m = serverErrorText(thrown);
+                if (m) notify(m);
+              });
+            return;
+          }
           act('BUY', { id: p.id });
           setSheetToast('구매했어요.');
         },
@@ -4523,7 +4654,7 @@ export function RedesignScreens({ e }: any) {
         }
         title={audio ? `섬 물고기 ${p.price}마리로 구매` : `${p.price}마리로 구매`}
         onPress={buy}
-        disabled={!!error}
+        disabled={!!error || (server && shopApi.writing)}
       />
     ) : clothes ? (
       <Cta title="내 뗏목에서 갈아입기" onPress={() => walkTo('wardrobe')} />
@@ -4536,21 +4667,28 @@ export function RedesignScreens({ e }: any) {
         onPress={
           applied
             ? undefined
-            : () => {
-                apply(p.id);
-                setSheetToast('우리 섬에 적용했어요.');
-              }
+            : () =>
+                void apply(p.id).then((ok) => {
+                  if (ok) setSheetToast('우리 섬에 적용했어요.');
+                })
         }
         ghost="기본 외양으로 해제"
         onGhost={() => {
           const current =
-            p.kind === 'island' ? island.theme : island.buildingThemes?.[p.building || 'hall'];
+            p.kind === 'island'
+              ? server
+                ? shopApi.shared?.appearance.islandThemeId
+                : island.theme
+              : server
+                ? shopApi.shared?.appearance.buildingThemes?.[p.building || 'hall']
+                : island.buildingThemes?.[p.building || 'hall'];
           if (!current || current === 'default') {
             setSheetToast('이미 기본 외양이에요');
             return;
           }
-          apply('default');
-          setSheetToast('기본 외양으로 되돌렸어요.');
+          void apply('default').then((ok) => {
+            if (ok) setSheetToast('기본 외양으로 되돌렸어요.');
+          });
         }}
       />
     );
@@ -4642,11 +4780,21 @@ export function RedesignScreens({ e }: any) {
   }
   if (route === 'orders') {
     // 내 구매 = 옷·장신구(날짜·시각), 섬 공동 구매 = 이 섬 테마·음원(날짜·구매자, 방장이면 "방장")
+    // 서버 모드는 scope=personal|shared 응답이 정본 — 내역 가격은 당시 확정가 스냅숏이다(GROMO-2017).
     const shared = tab === '섬 공동 구매';
-    const list = state.orders.filter((o) => {
-      const kind = products.find((p) => p.id === o.product)?.kind;
-      return shared ? kind !== 'clothes' && o.islandId === island.id : kind === 'clothes';
-    });
+    const list: State['orders'] = server
+      ? shopApi.orders.map((o) => ({
+          id: o.id,
+          product: o.productId,
+          islandId: island.id,
+          currency: 'village_points',
+          price: o.price,
+          at: Date.parse(o.createdAt),
+        }))
+      : state.orders.filter((o) => {
+          const kind = products.find((p) => p.id === o.product)?.kind;
+          return shared ? kind !== 'clothes' && o.islandId === island.id : kind === 'clothes';
+        });
     return (
       <IslandSheet
         bg="shop"
@@ -4665,12 +4813,23 @@ export function RedesignScreens({ e }: any) {
           value={shared ? '섬 공동 구매' : '내 구매'}
           onChange={setTab}
         />
-        {list.length ? (
+        {server && shopApi.ordersLoading ? (
+          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+            불러오는 중…
+          </Txt>
+        ) : server && shopApi.ordersError ? (
+          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+            <Txt kind="meta" style={st.meta}>
+              {serverErrorText(shopApi.ordersError) || '구매 내역을 불러오지 못했어요.'}
+            </Txt>
+            <Btn title="다시 시도" onPress={shopApi.retry} />
+          </View>
+        ) : list.length ? (
           <SheetGroup>
             {list.map((o) => (
               <SheetRow
                 key={o.id}
-                title={products.find((p) => p.id === o.product)?.title || o.product}
+                title={productTitle(o.product)}
                 sub={
                   shared
                     ? [md(o.at), o.buyer && (isHostName(o.buyer) ? '방장' : o.buyer)]
@@ -4973,7 +5132,23 @@ export function RedesignScreens({ e }: any) {
           accessibilityRole="button"
           accessibilityLabel={label}
           accessibilityState={{ selected: on }}
-          onPress={() => act('EQUIP', { key: 'clothes', value })}
+          onPress={() => {
+            // 서버 모드는 PATCH /me/appearance 가 정본 — 실패하면 착용 표시도 바꾸지 않는다.
+            if (server) {
+              const patch =
+                value === 'default'
+                  ? { clothes: null }
+                  : shopApi.kinds[value] === 'decor'
+                    ? { decor: value }
+                    : { clothes: value };
+              shopApi.equip(patch).catch((thrown) => {
+                const m = serverErrorText(thrown);
+                if (m) notify(m);
+              });
+              return;
+            }
+            act('EQUIP', { key: 'clothes', value });
+          }}
           style={{ width: 76, gap: 5, alignItems: 'center' }}
         >
           <View
@@ -5025,19 +5200,18 @@ export function RedesignScreens({ e }: any) {
         </Txt>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
           {thumb('default', '기본', <Pic id={'cat/' + state.color} w={60.5} />)}
-          {products
-            .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
-            .map((p) =>
-              thumb(
-                p.id,
-                p.title,
-                p.id === 'straw-hat' ? (
-                  <HatArt w={72} scale={0.7} />
-                ) : (
-                  <Pic id="scarf-cat" w={60.5} />
-                ),
-              ),
-            )}
+          {(server
+            ? [...(shopApi.my?.clothes ?? []), ...(shopApi.my?.decor ?? [])]
+            : products
+                .filter((p) => p.kind === 'clothes' && state.owned.includes(p.id))
+                .map((p) => p.id)
+          ).map((id) =>
+            thumb(
+              id,
+              server ? productTitle(id) : products.find((p) => p.id === id)?.title || id,
+              id === 'straw-hat' ? <HatArt w={72} scale={0.7} /> : <Pic id="scarf-cat" w={60.5} />,
+            ),
+          )}
         </View>
       </IslandSheet>
     );
