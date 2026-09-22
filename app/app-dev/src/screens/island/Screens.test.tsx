@@ -55,11 +55,20 @@ const pendingReq = (over: Record<string, unknown> = {}) => ({
 });
 
 // 실제 reducer 로 state 를 돌리고 api 목이 dispatch 까지 하게 만든다(App orchestration 축약본).
-function Harness({ route, api, expose, seed, initial, bootError, detail: detailProp }: any) {
+function Harness({
+  route,
+  api,
+  expose,
+  seed,
+  initial,
+  bootError,
+  detail: detailProp,
+  full = false,
+}: any) {
   const [state, baseDispatch] = useReducer(
     reducer,
     initial,
-    (value) => value ?? initialState(false),
+    (value) => value ?? initialState(full),
   );
   const actions = useRef<string[]>([]);
   const dispatch = useMemo(() => {
@@ -721,4 +730,33 @@ test('축음기 음원 구매 잔액이 부족하면 수량 없이 실패만 알
   s.getByText('물고기가 부족해요');
   assert.equal(s.queryByText(/더 필요해요/), null);
   assert.equal(s.queryByText(/지금 섬에는/), null);
+});
+
+test('친구 관리는 검색과 요청·친구 목록을 한 화면에서 이어서 보여준다', async () => {
+  const s = await render(<Harness route="friends" full />);
+
+  s.getByLabelText('닉네임으로 친구 찾기');
+  s.getByText('받은 요청');
+  s.getByText('보낸 요청');
+  s.getByText('친구');
+  s.getByText('수락');
+  s.getByText('거절');
+  assert.equal(s.queryByText('닉네임이 정확히 일치하는 친구만 보여요.'), null);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임으로 친구 찾기'), '하늘');
+  s.getByText('검색 결과');
+  s.getByLabelText('검색어 지우기');
+});
+
+test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.press(s.getByText('앱 권한 관리'));
+  assert.equal(exposed.go.mock.calls[0][0], 'permission');
+  assert.equal(exposed.go.mock.calls[0][1], 'settings');
+  assert.equal(s.queryByText('측정 권한'), null);
+  assert.equal(s.queryByText('측정 앱'), null);
 });

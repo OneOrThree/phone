@@ -5,6 +5,7 @@ import type {
   MyJoinRequest,
   VisitScreen,
 } from '@/services/api/islands';
+import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -1525,6 +1526,50 @@ export function reducer(state: State, a: Action): State {
       // 수령량을 더하지 않고 getBoard 지갑 정본으로 교체한다.
       target.fish = value;
       target.villagePointsVersion = version;
+      break;
+    }
+    case 'SHOP_SYNC': {
+      // GROMO-2017 — 서버 상점/인벤토리 응답 조각을 로컬 표시 상태에 옮긴다.
+      // 가져온 조각만 갈아 끼우고, 지갑은 낮은 버전 스냅숏을 거절한다.
+      const target = s.islands.find((island) => island.id === a.islandId);
+      if (a.wallets && target) {
+        const value = Number(a.wallets.villagePoints),
+          version = Number(a.wallets.villagePointsVersion);
+        if (
+          Number.isFinite(value) &&
+          value >= 0 &&
+          Number.isInteger(version) &&
+          version >= (target.villagePointsVersion ?? -1)
+        ) {
+          target.fish = value;
+          target.villagePointsVersion = version;
+        }
+      }
+      if (a.sharedInventory && target) {
+        const inv = a.sharedInventory as SharedInventory;
+        target.sharedOwned = [
+          ...inv.audio,
+          ...inv.islandThemes,
+          ...inv.buildingThemes.map((theme) => theme.themeId),
+        ];
+        target.theme = inv.appearance.islandThemeId;
+        target.buildingThemes = { ...inv.appearance.buildingThemes };
+        target.buildingTheme = Object.values(inv.appearance.buildingThemes).some(
+          (theme) => theme !== 'default',
+        )
+          ? 'custom'
+          : 'default';
+      }
+      if (a.myInventory) {
+        const inv = a.myInventory as PersonalInventory;
+        s.owned = [...inv.clothes, ...inv.decor];
+        s.equipped = {
+          clothes: inv.equipped.clothes ?? 'default',
+          decor: inv.equipped.decor ?? 'none',
+          hull: inv.equipped.hull,
+          position: inv.equipped.position,
+        };
+      }
       break;
     }
     case 'ISLAND_CANDIDATES': {

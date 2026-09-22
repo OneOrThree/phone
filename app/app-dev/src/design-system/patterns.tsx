@@ -134,7 +134,16 @@ export function Btn({
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
   return (
-    <Animated.View style={[{ transform: [{ scale: s }] }, style]}>
+    <Animated.View
+      style={[
+        {
+          transform: [{ scale: s }],
+          minHeight: small ? 44 : undefined,
+          justifyContent: small ? 'center' : undefined,
+        },
+        style,
+      ]}
+    >
       <Pressable
         testID={id}
         accessibilityRole="button"
@@ -456,7 +465,7 @@ export function Field({
     </View>
   );
 }
-export function Toggle({ value, onChange, label }: any) {
+export function Toggle({ value, onChange, label, disabled = false }: any) {
   // v2 .tog: 폭 46 · 켜지면 손잡이 18px 이동
   const x = useRef(new Animated.Value(value ? 18 : 0)).current;
   const reduce = React.useContext(MotionContext);
@@ -471,7 +480,8 @@ export function Toggle({ value, onChange, label }: any) {
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={label}
-      accessibilityState={{ checked: value }}
+      accessibilityState={{ checked: value, disabled }}
+      disabled={disabled}
       onPress={() => onChange(!value)}
       hitSlop={8}
       style={{
@@ -479,6 +489,7 @@ export function Toggle({ value, onChange, label }: any) {
         height: 28,
         borderRadius: 999,
         backgroundColor: value ? primitiveTokens.color.success : primitiveTokens.color.controlIdle,
+        opacity: disabled ? componentTokens.button.disabledOpacity : 1,
       }}
     >
       <Animated.View
@@ -519,13 +530,14 @@ export function Bar({ value }: any) {
     </View>
   );
 }
-export function Badge({ children, soft = false }: any) {
+export function Badge({ children, soft = false, small = false }: any) {
   return (
     <View
       style={{
         alignSelf: 'flex-start',
-        height: 28,
-        paddingHorizontal: 12,
+        minHeight: small ? 22 : 28,
+        paddingHorizontal: small ? 7 : 12,
+        paddingVertical: small ? 1 : 3,
         borderRadius: componentTokens.badge.radius,
         borderWidth: componentTokens.badge.borderWidth,
         borderColor: soft
@@ -540,8 +552,8 @@ export function Badge({ children, soft = false }: any) {
       {/* v2 .badge.soft: 보통 굵기 · 옅은 글자 */}
       <Txt
         style={{
-          fontSize: 13,
-          lineHeight: 18.85,
+          fontSize: small ? 12 : 13,
+          lineHeight: small ? 17.4 : 18.85,
           fontWeight: soft ? '600' : '700',
           color: soft
             ? componentTokens.badge.soft.foreground

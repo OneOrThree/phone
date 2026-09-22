@@ -38,12 +38,15 @@ FROM eclipse-temurin:17-jre-jammy
 # 슬림해지는 것만으로 매 검사가 `curl: not found` 가 되어 앱이 멀쩡한데도 컨테이너가 계속 unhealthy
 # 로 판정된다. 그 의존을 이미지 안에 못 박는다.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl ca-certificates \
+    && curl --fail --silent --show-error --location \
+       https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar \
+       --output /opt/dd-java-agent.jar \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-ENV JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom"
+ENV JAVA_OPTS="-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/dd-java-agent.jar"
 
 COPY --from=artifact /app/app.jar app.jar
 
