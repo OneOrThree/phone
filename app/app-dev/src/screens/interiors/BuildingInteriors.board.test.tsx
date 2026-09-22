@@ -15,6 +15,7 @@ import {
 } from '@/services/api/notices';
 import { initialState } from '@/services/model';
 import { Board, type Concept } from '@/screens/interiors/BuildingInteriors';
+import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 
 jest.mock('@/services/api/notices', () => ({
   getBoard: jest.fn(),
@@ -189,6 +190,16 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {
+  getBoardMock.mockResolvedValue(page([]));
+  const e = makeE({ route: 'quest', detail: HOME_QUEST_LIST_DETAIL, tab: '퀘스트' });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
+  assert.equal(screen.queryByText('주민별 달성률'), null);
+  expect(e.replace).not.toHaveBeenCalled();
 });
 
 test('목록 — getBoard 첫 페이지를 그리고 더 보기는 listNotices 로 붙인다', async () => {

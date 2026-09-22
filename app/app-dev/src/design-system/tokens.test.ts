@@ -32,6 +32,9 @@ describe('design system tokens', () => {
     expect(componentTokens.card.background).toBe(semanticTokens.color.surface);
     expect(componentTokens.input.border).toBe(semanticTokens.color.outline);
     expect(componentTokens.progress.fill).toBe(semanticTokens.color.primary);
+    expect(componentTokens.homeQuestIndicator.contentPaddingLeft).toBe(primitiveTokens.space[4]);
+    expect(componentTokens.homeQuestIndicator.contentPaddingRight).toBe(primitiveTokens.space[12]);
+    expect(componentTokens.homeQuestIndicator.shadow).toContain(semanticTokens.color.outline);
   });
 
   it('터치 영역과 UI kit 스케일을 보존한다', () => {
