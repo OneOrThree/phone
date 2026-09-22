@@ -12,10 +12,12 @@ import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import type { IslandSummary } from '@/services/api/islands';
 
+let mockFontScale = 1;
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
+    fontScale: mockFontScale,
     compact: false,
     tablet: false,
     modalWidth: 340,
@@ -123,7 +125,10 @@ function Harness({ route, api, expose, seed, initial, bootError, detail: detailP
 const flush = async () => act(async () => {});
 
 // 서버 폴링·진행 중 Promise가 다음 테스트를 오염시키지 않게 매번 언마운트한다
-afterEach(cleanup);
+afterEach(() => {
+  mockFontScale = 1;
+  cleanup();
+});
 
 test('joinIsland 진입 시 explore를 호출하고 실패하면 오류+재시도를 보여준다', async () => {
   let calls = 0;
@@ -612,6 +617,77 @@ test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async
   s.getByText('보유한 곡이 없어요');
   s.getByText('곡을 구매해 주세요');
   assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
+});
+
+test('현재 곡을 보유하지 않았으면 다른 보유곡이 있어도 재생을 막는다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['rain'];
+  state.islands[0].track = 'waves';
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByText('재생할 곡을 골라 주세요');
+  assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 보유'));
+  await waitFor(() =>
+    assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, false),
+  );
+});
+
+test('집중 중 축음기는 보유곡만 표시하고 복귀 목적지를 정확히 안내한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['waves'];
+  state.session = {
+    id: 'focus-1',
+    islandId: state.islands[0].id,
+    subject: '수학',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'active',
+  };
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByLabelText('집중으로 돌아가기');
+  s.getByLabelText('잔잔한 파도, 보유');
+  assert.equal(s.queryByLabelText('빗방울 소리, 30마리로 구매'), null);
+});
+
+test('축음기에서 내 기기 음량을 조절한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+  const volume = s.getByLabelText('내 기기 음량');
+
+  assert.equal(volume.props.accessibilityValue.now, 55);
+  await fireEvent(volume, 'accessibilityAction', {
+    nativeEvent: { actionName: 'increment' },
+  });
+  await waitFor(() =>
+    assert.equal(s.getByLabelText('내 기기 음량').props.accessibilityValue.now, 65),
+  );
+});
+
+test('큰 글자에서는 구매 창을 스크롤하고 동작 버튼을 세로로 배치한다', async () => {
+  mockFontScale = 1.5;
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+
+  assert.ok(StyleSheet.flatten(s.getByTestId('sound-dialog-card').props.style).maxHeight > 0);
+  assert.equal(StyleSheet.flatten(s.getByTestId('sound-dialog-scroll').props.style).flexShrink, 1);
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-dialog-actions').props.style).flexDirection,
+    'column',
+  );
+  const purchaseStyle = StyleSheet.flatten(s.getByLabelText('30마리로 구매').props.style);
+  assert.equal(purchaseStyle.height, undefined);
+  assert.ok(purchaseStyle.minHeight >= 52);
 });
 
 test('Android 뒤로가기는 축음기 구매 창만 닫는다', async () => {

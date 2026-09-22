@@ -61,7 +61,14 @@ type Door = Point & {
 const doors: Record<string, Door> = {
   hall: { x: 1030, y: 268, r: 'hall', label: buildingNames.hall, building: 'hall' },
   board: { x: 891, y: 250, r: 'board', label: buildingNames.board, building: 'board' },
-  gram: { x: 380, y: 485, r: 'sound', label: buildingNames.gram, building: 'gram' },
+  gram: {
+    x: 380,
+    y: 485,
+    r: 'sound',
+    label: buildingNames.gram,
+    building: 'gram',
+    memberOnly: true,
+  },
   library: {
     x: 1190,
     y: 612,

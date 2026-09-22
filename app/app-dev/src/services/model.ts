@@ -251,6 +251,7 @@ export type State = {
   settings: {
     notifications: boolean;
     sound: boolean;
+    volume?: number;
     reduceMotion: boolean;
     publicRecords: boolean;
     permission: boolean;
@@ -685,6 +686,7 @@ export function initialState(full = false): State {
     settings: {
       notifications: true,
       sound: true,
+      volume: 0.55,
       reduceMotion: false,
       publicRecords: true,
       permission: full,

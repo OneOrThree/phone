@@ -722,10 +722,10 @@ function Gromo() {
   }, [route]);
   useEffect(() => {
     try {
-      player.volume = state.settings.sound ? ((state.settings as any).volume ?? 0.55) : 0;
+      player.volume = state.settings.sound ? (state.settings.volume ?? 0.55) : 0;
       islandAudioOn ? player.play() : player.pause();
     } catch {}
-  }, [islandAudioOn, state.settings.sound, (state.settings as any).volume]);
+  }, [islandAudioOn, state.settings.sound, state.settings.volume]);
   useEffect(() => {
     if (route === 'travel' || route === 'arrival') {
       boatTravel.setValue(-180);

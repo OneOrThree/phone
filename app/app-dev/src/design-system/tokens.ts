@@ -280,6 +280,7 @@ export const componentTokens = {
     recordSize: 112,
     controlWidth: 60,
     rowMinHeight: semanticTokens.size.tapMin,
+    largeTextThreshold: 1.3,
   },
   divider: {
     color: semanticTokens.color.divider,

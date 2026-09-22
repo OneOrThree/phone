@@ -2382,10 +2382,15 @@ export function RedesignScreens({ e }: any) {
     const scene = !!state.session;
     const audioProducts = products.filter((p) => p.kind === 'audio');
     const hasOwnedTracks = island.sharedOwned.some((id) => trackNames[id]);
-    const trackIds = [
-      ...island.sharedOwned.filter((id) => trackNames[id]),
-      ...audioProducts.map((p) => p.id).filter((id) => !island.sharedOwned.includes(id)),
-    ];
+    const hasCurrentTrack = island.sharedOwned.includes(island.track) && !!trackNames[island.track];
+    const ownedTrackIds = island.sharedOwned.filter((id) => trackNames[id]);
+    const trackIds = scene
+      ? ownedTrackIds
+      : [
+          ...ownedTrackIds,
+          ...audioProducts.map((p) => p.id).filter((id) => !island.sharedOwned.includes(id)),
+        ];
+    const largeText = (layout.fontScale ?? 1) >= gramophone.largeTextThreshold;
     const dialogProduct = soundDialog
       ? audioProducts.find((product) => product.id === soundDialog.productId)
       : undefined;
@@ -2434,7 +2439,7 @@ export function RedesignScreens({ e }: any) {
           </View>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="섬으로 돌아가기"
+            accessibilityLabel={scene ? '집중으로 돌아가기' : '섬으로 돌아가기'}
             onPress={back}
             style={{
               position: 'absolute',
@@ -2513,7 +2518,7 @@ export function RedesignScreens({ e }: any) {
                 >
                   <View
                     accessibilityLabel={
-                      hasOwnedTracks
+                      hasCurrentTrack
                         ? `${trackNames[island.track]} 레코드판`
                         : '재생할 수 있는 곡이 없는 레코드판'
                     }
@@ -2556,8 +2561,8 @@ export function RedesignScreens({ e }: any) {
                     <Pressable
                       accessibilityRole="button"
                       accessibilityLabel="재생"
-                      accessibilityState={{ disabled: !hasOwnedTracks }}
-                      disabled={!hasOwnedTracks}
+                      accessibilityState={{ disabled: !hasCurrentTrack }}
+                      disabled={!hasCurrentTrack}
                       onPress={() => act('PLAY', { value: true })}
                       style={{
                         width: gramophone.controlWidth,
@@ -2566,7 +2571,7 @@ export function RedesignScreens({ e }: any) {
                         borderColor: C.brown,
                         borderRadius: 8,
                         backgroundColor: C.pink,
-                        opacity: hasOwnedTracks ? 1 : 0.5,
+                        opacity: hasCurrentTrack ? 1 : 0.5,
                         alignItems: 'center',
                         justifyContent: 'center',
                         boxShadow: '0px 2px 0px ' + C.brown,
@@ -2600,19 +2605,31 @@ export function RedesignScreens({ e }: any) {
                       tabletScale={1}
                       style={{ color: gramophone.foreground, fontSize: 19, lineHeight: 24 }}
                     >
-                      {hasOwnedTracks ? trackNames[island.track] : '보유한 곡이 없어요'}
+                      {hasCurrentTrack
+                        ? trackNames[island.track]
+                        : hasOwnedTracks
+                          ? '재생할 곡을 골라 주세요'
+                          : '보유한 곡이 없어요'}
                     </Txt>
                     <Txt
                       tabletScale={1}
                       style={{ color: gramophone.foregroundMuted, fontSize: 11, lineHeight: 14 }}
                     >
-                      {hasOwnedTracks
+                      {hasCurrentTrack
                         ? island.playing
                           ? '재생 중'
                           : '정지됨'
-                        : '곡을 구매해 주세요'}
+                        : hasOwnedTracks
+                          ? '보유곡에서 선택해 주세요'
+                          : scene
+                            ? '섬에서 곡을 구매할 수 있어요'
+                            : '곡을 구매해 주세요'}
                     </Txt>
                   </View>
+                  <Volume
+                    value={state.settings.volume ?? 0.55}
+                    onChange={(value: number) => act('SETTING', { key: 'volume', value })}
+                  />
                   <ScrollView
                     style={{ flex: 1 }}
                     contentContainerStyle={{ gap: 4, paddingRight: 4 }}
@@ -2682,69 +2699,82 @@ export function RedesignScreens({ e }: any) {
             ]}
           >
             <View
+              testID="sound-dialog-card"
               style={{
                 width: Math.min(354, layout.width - 48),
+                maxHeight: layout.height - ins.top - ins.bottom - 32,
                 borderWidth: 2,
                 borderColor: C.brown,
                 borderRadius: 22,
                 backgroundColor: C.paper,
-                padding: 20,
-                gap: 16,
                 boxShadow: '0px 6px 0px ' + C.brown,
               }}
             >
-              {soundDialog.kind === 'error' && (
-                <View
-                  style={{
-                    width: 50,
-                    height: 50,
-                    borderRadius: 25,
-                    alignSelf: 'center',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: C.butter,
-                  }}
+              <ScrollView
+                testID="sound-dialog-scroll"
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={{ padding: 20, gap: 16 }}
+              >
+                {soundDialog.kind === 'error' && (
+                  <View
+                    style={{
+                      width: 50,
+                      height: 50,
+                      borderRadius: 25,
+                      alignSelf: 'center',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: C.butter,
+                    }}
+                  >
+                    <Txt tabletScale={1} style={{ fontSize: 27, lineHeight: 32 }}>
+                      !
+                    </Txt>
+                  </View>
+                )}
+                <Txt
+                  style={{ fontSize: 20, lineHeight: 28, fontWeight: '700', textAlign: 'center' }}
                 >
-                  <Txt tabletScale={1} style={{ fontSize: 27, lineHeight: 32 }}>
-                    !
-                  </Txt>
-                </View>
-              )}
-              <Txt style={{ fontSize: 20, lineHeight: 28, fontWeight: '700', textAlign: 'center' }}>
-                {soundDialog.kind === 'confirm'
-                  ? `${dialogProduct.title}를 구매할까요?`
-                  : soundDialog.kind === 'success'
-                    ? '구매했어요'
-                    : '물고기가 부족해요'}
-              </Txt>
-              {soundDialog.kind === 'confirm' && (
-                <Txt kind="meta" style={{ textAlign: 'center', lineHeight: 20 }}>
-                  구매한 곡은 같은 섬 주민 모두가 함께 들을 수 있어요.
+                  {soundDialog.kind === 'confirm'
+                    ? `${dialogProduct.title}를 구매할까요?`
+                    : soundDialog.kind === 'success'
+                      ? '구매했어요'
+                      : '물고기가 부족해요'}
                 </Txt>
-              )}
-              {soundDialog.kind === 'confirm' ? (
-                <View style={{ flexDirection: 'row', gap: 8 }}>
+                {soundDialog.kind === 'confirm' && (
+                  <Txt kind="meta" style={{ textAlign: 'center', lineHeight: 20 }}>
+                    구매한 곡은 같은 섬 주민 모두가 함께 들을 수 있어요.
+                  </Txt>
+                )}
+                {soundDialog.kind === 'confirm' ? (
+                  <View
+                    testID="sound-dialog-actions"
+                    style={{ flexDirection: largeText ? 'column' : 'row', gap: 8 }}
+                  >
+                    <Btn
+                      title="취소"
+                      kind="glass"
+                      dynamicHeight={largeText}
+                      onPress={() => setSoundDialog(null)}
+                      style={largeText ? undefined : { flex: 1 }}
+                    />
+                    <Btn
+                      title={`${dialogProduct.price}마리로 구매`}
+                      dynamicHeight={largeText}
+                      onPress={buyTrack}
+                      style={largeText ? undefined : { flex: 1 }}
+                    />
+                  </View>
+                ) : (
                   <Btn
-                    title="취소"
-                    kind="glass"
-                    onPress={() => setSoundDialog(null)}
-                    style={{ flex: 1 }}
+                    title={soundDialog.kind === 'success' ? '지금 재생하기' : '확인'}
+                    onPress={() => {
+                      if (soundDialog.kind === 'success') setTrack(dialogProduct.id);
+                      setSoundDialog(null);
+                    }}
                   />
-                  <Btn
-                    title={`${dialogProduct.price}마리로 구매`}
-                    onPress={buyTrack}
-                    style={{ flex: 1 }}
-                  />
-                </View>
-              ) : (
-                <Btn
-                  title={soundDialog.kind === 'success' ? '지금 재생하기' : '확인'}
-                  onPress={() => {
-                    if (soundDialog.kind === 'success') setTrack(dialogProduct.id);
-                    setSoundDialog(null);
-                  }}
-                />
-              )}
+                )}
+              </ScrollView>
             </View>
           </View>
         )}
@@ -5509,7 +5539,7 @@ function ChatBubble({ name, text, color, own = false, at = '', large = false, av
     </View>
   );
 }
-function Volume({ value, onChange, dense = false }: any) {
+function Volume({ value, onChange }: any) {
   const [width, setWidth] = useState(1),
     ref = useRef({ value, onChange, width });
   ref.current = { value, onChange, width };
@@ -5538,10 +5568,8 @@ function Volume({ value, onChange, dense = false }: any) {
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       {...pan.panHandlers}
       style={{
-        height: 24,
+        height: 44,
         marginHorizontal: 4,
-        marginTop: dense ? -3 : 1,
-        marginBottom: dense ? -7 : -3,
         justifyContent: 'center',
       }}
     >
@@ -5560,7 +5588,7 @@ function Volume({ value, onChange, dense = false }: any) {
         style={{
           position: 'absolute',
           left: width * value - 12,
-          top: 0,
+          top: 10,
           width: 24,
           height: 24,
           borderRadius: 12,
