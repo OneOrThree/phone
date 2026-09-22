@@ -20,6 +20,7 @@ on:
       - '.github/scripts/**'
       - '.github/actions/ci-jar/**'
       - '.github/workflows/satellite-ci.yml'
+      - '.github/workflows/satellite-dev-cd.yml'
       - 'docs/contracts/**'
   push:
     branches: [main, release]
@@ -41,6 +42,7 @@ on:
       - '.github/scripts/**'
       - '.github/actions/ci-jar/**'
       - '.github/workflows/satellite-ci.yml'
+      - '.github/workflows/satellite-dev-cd.yml'
       - 'docs/contracts/**'
 
 concurrency:
