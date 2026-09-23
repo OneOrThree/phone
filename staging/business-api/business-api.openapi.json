@@ -1527,7 +1527,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/AccountMe"
+                  "$ref": "#/components/schemas/AccountView"
                 }
               }
             }
@@ -1583,7 +1583,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/AccountProfile"
+                  "$ref": "#/components/schemas/ProfileView"
                 }
               }
             }
@@ -4273,7 +4273,7 @@
           }
         }
       },
-      "AccountProfile": {
+      "ProfileView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4290,13 +4290,7 @@
             "type": "string",
             "format": "uuid"
           }
-        },
-        "required": [
-          "catColor",
-          "id",
-          "mainIslandId",
-          "name"
-        ]
+        }
       },
       "PersonalAppearanceState": {
         "type": "object",
@@ -4508,7 +4502,7 @@
           }
         }
       },
-      "AccountMe": {
+      "AccountView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4534,15 +4528,7 @@
           "onboardingComplete": {
             "type": "boolean"
           }
-        },
-        "required": [
-          "catColor",
-          "id",
-          "linkedProviders",
-          "mainIslandId",
-          "name",
-          "onboardingComplete"
-        ]
+        }
       },
       "Item": {
         "type": "object",
