@@ -42,12 +42,19 @@ public class UserBlockUseCase {
         });
     }
 
-    public List<BlockedUser> blocks(AccessTokenClaims claims, Deadline deadline) {
+    public List<BlockedUserView> blocks(AccessTokenClaims claims, Deadline deadline) {
         List<BlockedUser> result = relay(() -> data.fetchBlockedUsers(claims.userId(), deadline));
         if (result == null) {
             throw new UpstreamContractMismatchException("차단 목록 응답이 없습니다");
         }
-        return result;
+        return result.stream().map(BlockedUserView::from).toList();
+    }
+
+    /** 차단 목록의 공개 필드만 허용한다. */
+    public record BlockedUserView(UUID id, String name) {
+        private static BlockedUserView from(BlockedUser source) {
+            return source == null ? null : new BlockedUserView(source.id(), source.name());
+        }
     }
 
     private <T> T relay(Supplier<T> upstream) {
