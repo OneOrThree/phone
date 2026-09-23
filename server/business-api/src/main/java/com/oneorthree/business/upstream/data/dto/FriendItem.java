@@ -7,7 +7,7 @@ import com.fasterxml.jackson.annotation.Nulls;
 import java.util.UUID;
 
 /**
- * 친구 목록의 한 건 (GROMO-1894) — Data 의 {@code FriendResponse} 와 같은 필드라 <b>그대로 내보낸다</b>
+ * 친구 목록의 한 건 (GROMO-1894) — Data 의 {@code FriendResponse} 를 받는 내부 전송 계약
  * (friend-letter LLD §1.5). 시각은 계산하지 않고 전달만 하므로 문자열로 받는다({@link FocusSessionState} 와 같은 취급).
  *
  * <p>{@code isPinned}·{@code isFocusing} 은 Data 가 {@code @JsonProperty} 로 키를 고정한 값이라 여기서도

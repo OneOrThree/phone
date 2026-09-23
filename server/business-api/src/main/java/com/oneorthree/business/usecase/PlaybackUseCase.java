@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -13,6 +14,7 @@ import com.oneorthree.business.upstream.data.dto.PlaybackState;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -48,7 +50,7 @@ public class PlaybackUseCase {
     private final DataAppearanceClient data;
 
     /** GET /islands/{islandId}/playback. */
-    public PlaybackState get(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+    public PlaybackView get(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
         try {
             return valid(data.fetchIslandPlayback(islandId, claims.userId(), deadline));
         } catch (UpstreamDomainException e) {
@@ -61,7 +63,7 @@ public class PlaybackUseCase {
      * current 로 단다 — 재조회마저 실패하면 current 없이 충돌만 남긴다(외양과 같은 규칙).
      * 공개 응답은 내부 결과의 {@code data} 뿐이다 — events 는 realtime relay 의 몫이다.
      */
-    public PlaybackState patch(AccessTokenClaims claims, UUID islandId, List<String> fields,
+    public PlaybackView patch(AccessTokenClaims claims, UUID islandId, List<String> fields,
             Map<String, Object> values, long expectedVersion, UUID key, Deadline deadline) {
         PlaybackPatchResult result;
         try {
@@ -80,7 +82,7 @@ public class PlaybackUseCase {
      * 상류 DTO 불변식 — 곡이 없으면 정지·0초·길이 null, 곡이 있으면 양의 유한 길이·0 이상 위치·검증
      * 사용자. 어긋나면 임의 길이를 채우지 않고 502 다.
      */
-    private static PlaybackState valid(PlaybackState state) {
+    private static PlaybackView valid(PlaybackState state) {
         if (state == null || state.version() < 0 || state.positionSeconds() < 0) {
             throw new UpstreamContractMismatchException("공용 음악 응답이 계약과 다릅니다");
         }
@@ -91,7 +93,20 @@ public class PlaybackUseCase {
         if (!consistent) {
             throw new UpstreamContractMismatchException("공용 음악 응답이 계약과 다릅니다");
         }
-        return state;
+        return new PlaybackView(state.trackId(), state.playing(), state.positionSeconds(), state.effectiveAt(),
+                state.changedBy(), state.version(), state.serverNow(), state.durationSeconds());
+    }
+
+    /** 성공 응답과 409 current에 함께 쓰는 공개 재생 계약. */
+    public record PlaybackView(
+            @JsonProperty(required = true) String trackId,
+            @JsonProperty(required = true) boolean playing,
+            @JsonProperty(required = true) long positionSeconds,
+            @JsonProperty(required = true) Instant effectiveAt,
+            @JsonProperty(required = true) UUID changedBy,
+            @JsonProperty(required = true) long version,
+            @JsonProperty(required = true) Instant serverNow,
+            @JsonProperty(required = true) Double durationSeconds) {
     }
 
     private RuntimeException mapped(UpstreamDomainException error, AccessTokenClaims claims,
@@ -109,7 +124,7 @@ public class PlaybackUseCase {
 
     /** 409 의 최신 공개 상태 — 같은 세션 주체로 GET 을 한 번 더 읽는다. 내부 행·타 사용자 정보는 싣지 않는다. */
     private RuntimeException versionConflict(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
-        PlaybackState current;
+        PlaybackView current;
         try {
             current = valid(data.fetchIslandPlayback(islandId, claims.userId(), deadline));
         } catch (RuntimeException e) {

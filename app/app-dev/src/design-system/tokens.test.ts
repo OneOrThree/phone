@@ -35,10 +35,16 @@ describe('design system tokens', () => {
     expect(componentTokens.homeQuestIndicator.contentPaddingLeft).toBe(primitiveTokens.space[4]);
     expect(componentTokens.homeQuestIndicator.contentPaddingRight).toBe(primitiveTokens.space[12]);
     expect(componentTokens.homeQuestIndicator.shadow).toContain(semanticTokens.color.outline);
+    expect(componentTokens.gramophone.panelBackground).toBe(primitiveTokens.color.gramophonePanel);
+    expect(componentTokens.gramophone.recordGroove).toBe(
+      primitiveTokens.color.gramophoneRecordGroove,
+    );
   });
 
   it('터치 영역과 UI kit 스케일을 보존한다', () => {
     expect(semanticTokens.size.tapMin).toBeGreaterThanOrEqual(44);
+    expect(componentTokens.gramophone.touchMin).toBeGreaterThanOrEqual(44);
+    expect(componentTokens.gramophone.rowMinHeight).toBeGreaterThanOrEqual(44);
     expect(primitiveTokens.space[4]).toBe(16);
     expect(primitiveTokens.radius.card).toBe(20);
   });
@@ -48,6 +54,24 @@ describe('design system tokens', () => {
     expect(
       contrast(componentTokens.input.placeholder, semanticTokens.color.surface),
     ).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('축음기 텍스트는 표시되는 모든 배경에서 4.5:1 이상의 대비를 갖는다', () => {
+    const gramophone = componentTokens.gramophone;
+    expect(contrast(gramophone.foreground, gramophone.panelBackground)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(gramophone.foregroundMuted, gramophone.panelBackground)).toBeGreaterThanOrEqual(
+      4.5,
+    );
+    for (const background of [gramophone.signStart, gramophone.signCenter, gramophone.signEnd]) {
+      expect(contrast(gramophone.signForeground, background)).toBeGreaterThanOrEqual(4.5);
+    }
+    for (const background of [
+      semanticTokens.color.primary,
+      semanticTokens.color.surface,
+      semanticTokens.color.accent,
+    ]) {
+      expect(contrast(gramophone.rowForeground, background)).toBeGreaterThanOrEqual(4.5);
+    }
   });
 
   it('badge default/soft가 명세 매핑을 따른다', () => {

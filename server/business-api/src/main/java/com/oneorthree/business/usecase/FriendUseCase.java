@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -59,21 +60,21 @@ public class FriendUseCase {
     private final DataFriendClient data;
 
     /** 친구 목록 (LLD §1.5). 빈 목록은 {@code []} 이고, 봉투가 아예 없는 것은 계약 불일치다. */
-    public List<FriendItem> friends(AccessTokenClaims claims, String date, Deadline deadline) {
+    public List<FriendView> friends(AccessTokenClaims claims, String date, Deadline deadline) {
         List<FriendItem> items = relay(() -> data.fetchFriends(claims.userId(), date, deadline));
         if (items == null) {
             throw new UpstreamContractMismatchException("친구 목록 응답이 없습니다");
         }
-        return items;
+        return items.stream().map(FriendView::from).toList();
     }
 
     /** 받은·보낸 요청 목록 (LLD §1.6). */
-    public List<FriendRequestItem> friendRequests(AccessTokenClaims claims, String type, Deadline deadline) {
+    public List<RequestView> friendRequests(AccessTokenClaims claims, String type, Deadline deadline) {
         List<FriendRequestItem> items = relay(() -> data.fetchFriendRequests(claims.userId(), type, deadline));
         if (items == null) {
             throw new UpstreamContractMismatchException("친구 요청 목록 응답이 없습니다");
         }
-        return items;
+        return items.stream().map(RequestView::from).toList();
     }
 
     /**
@@ -86,12 +87,12 @@ public class FriendUseCase {
      * <p>비친구의 {@code tierLevel}·{@code occupation} 가리기는 Data 가 한다 — 여기서 한 번 더 가리면
      * 두 곳의 판정이 갈린다(게이트 정책을 Data 안에만 두는 {@code LetterUseCase} 와 같은 결).
      */
-    public List<FriendSearchItem> search(AccessTokenClaims claims, String type, String query, Deadline deadline) {
+    public List<SearchView> search(AccessTokenClaims claims, String type, String query, Deadline deadline) {
         List<FriendSearchItem> items = relay(() -> data.searchFriends(claims.userId(), type, query, deadline));
         if (items == null) {
             throw new UpstreamContractMismatchException("친구 검색 응답이 없습니다");
         }
-        return items;
+        return items.stream().map(SearchView::from).toList();
     }
 
     /** 친구 요청 생성 (LLD §1.1). */
@@ -126,6 +127,49 @@ public class FriendUseCase {
     private static void expect(FriendRequestState state, String status) {
         if (state == null || !status.equals(state.status())) {
             throw new UpstreamContractMismatchException("친구 요청 명령 응답이 계약과 다릅니다");
+        }
+    }
+
+    /** 친구 공개 계약. 불리언 키와 nullable 프로필을 내부 DTO와 독립적으로 유지한다. */
+    public record FriendView(
+            @JsonProperty(required = true) UUID userId,
+            String nickname,
+            Integer tierLevel,
+            String occupation,
+            @JsonProperty(value = "isPinned", required = true) boolean isPinned,
+            @JsonProperty(value = "isFocusing", required = true) boolean isFocusing,
+            @JsonProperty(required = true) int focusTimeMinutes,
+            String focusStartedAt,
+            String focusTagName,
+            String mainIslandName) {
+        private static FriendView from(FriendItem source) {
+            return source == null ? null : new FriendView(source.userId(), source.nickname(), source.tierLevel(),
+                    source.occupation(), source.isPinned(), source.isFocusing(), source.focusTimeMinutes(),
+                    source.focusStartedAt(), source.focusTagName(), source.mainIslandName());
+        }
+    }
+
+    public record RequestView(
+            @JsonProperty(required = true) UUID requestId,
+            @JsonProperty(required = true) UUID userId,
+            String nickname,
+            Integer tierLevel,
+            @JsonProperty(required = true) String createdAt) {
+        private static RequestView from(FriendRequestItem source) {
+            return source == null ? null : new RequestView(source.requestId(), source.userId(), source.nickname(),
+                    source.tierLevel(), source.createdAt());
+        }
+    }
+
+    public record SearchView(
+            @JsonProperty(required = true) UUID userId,
+            @JsonProperty(required = true) String nickname,
+            Integer tierLevel,
+            String occupation,
+            @JsonProperty(required = true) String relation) {
+        private static SearchView from(FriendSearchItem source) {
+            return source == null ? null : new SearchView(source.userId(), source.nickname(), source.tierLevel(),
+                    source.occupation(), source.relation());
         }
     }
 

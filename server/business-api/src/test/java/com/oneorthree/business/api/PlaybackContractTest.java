@@ -218,7 +218,71 @@ class PlaybackContractTest extends UpstreamTestBase {
         assertThat(DATA.received()).isEmpty();
     }
 
+    @ParameterizedTest
+    @CsvSource({"get,false", "get,true", "patch,false", "patch,true", "conflict,false", "conflict,true"})
+    void publicStateKeepsExactFieldsInSuccessAndConflict(String operation, boolean initial) throws Exception {
+        String expected = initial ? INITIAL : PLAYING;
+        String upstream = expected.substring(0, expected.length() - 1) + ",\"playback_row_id\":7}";
+        DATA.on(DATA_GET, request -> ok(upstream));
+        DATA.on(DATA_PATCH, request -> operation.equals("conflict") ? error(409, "VERSION_CONFLICT")
+                : ok("{\"data\":" + upstream + ",\"events\":[{\"internal_event_id\":9}]}"));
+
+        var request = operation.equals("get") ? auth(get("/islands/" + ISLAND + "/playback"))
+                : write(patch("/islands/" + ISLAND + "/playback"), "{\"playing\":false,\"expectedVersion\":0}");
+        var result = mockMvc.perform(request)
+                .andExpect(status().is(operation.equals("conflict") ? 409 : 200)).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var response = json.readTree(result.getResponse().getContentAsString());
+        var actual = operation.equals("conflict") ? response.path("current").path("resource") : response.path("data");
+        assertThat(actual).isEqualTo(json.readTree(expected));
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("internal_event_id", "playback_row_id");
+    }
+
+    @Test
+    void publicDocumentationUsesADomainSpecificPlaybackSchema() throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var path = document.path("paths").path("/islands/{islandId}/playback");
+        for (String method : new String[] {"get", "patch"}) {
+            var content = path.path(method).path("responses").path("200").path("content");
+            assertThat(content.isEmpty()).isFalse();
+            for (var media : content) {
+                assertThat(media.path("schema").path("$ref").asText())
+                        .isEqualTo("#/components/schemas/PlaybackView");
+            }
+        }
+        assertThat(document.path("components").path("schemas").path("PlaybackView").path("properties").propertyNames())
+                .containsExactlyInAnyOrder("trackId", "playing", "positionSeconds", "effectiveAt", "changedBy",
+                        "version", "serverNow", "durationSeconds");
+    }
+
     // ---------------------------------------------------------------- 도구
+
+    @ParameterizedTest
+    @CsvSource({"/islands/{islandId}/playback,get,,trackId playing positionSeconds effectiveAt changedBy version serverNow durationSeconds"})
+    void publicDocumentationPreservesRequiredFields(String path, String method, String nested, String fields)
+            throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        if (schema.path("type").asText().equals("array")) {
+            schema = schema.path("items");
+        }
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            schema = schema.path("properties").path(nested);
+            if (schema.path("type").asText().equals("array")) {
+                schema = schema.path("items");
+            }
+            schema = document.at(schema.path("$ref").asText().substring(1));
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+    }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
         return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));

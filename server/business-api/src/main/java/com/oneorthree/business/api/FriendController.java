@@ -5,9 +5,9 @@ import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.FriendItem;
-import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
-import com.oneorthree.business.upstream.data.dto.FriendSearchItem;
+import com.oneorthree.business.usecase.FriendUseCase.FriendView;
+import com.oneorthree.business.usecase.FriendUseCase.RequestView;
+import com.oneorthree.business.usecase.FriendUseCase.SearchView;
 import com.oneorthree.business.usecase.FriendUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -54,14 +54,14 @@ public class FriendController {
 
     /** 친구 목록 (LLD §1.5). {@code date} 는 필수 — 값 판정(KST 오늘)은 Data 가 한다. */
     @GetMapping("/friends")
-    public List<FriendItem> friends(HttpServletRequest request) {
+    public List<FriendView> friends(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return friends.friends(claims, required(request, "date"), deadline());
     }
 
     /** 받은·보낸 요청 목록 (LLD §1.6). {@code type} 은 필수 — {@code received} 외의 값은 Data 가 {@code sent} 로 본다. */
     @GetMapping("/friends/requests")
-    public List<FriendRequestItem> friendRequests(HttpServletRequest request) {
+    public List<RequestView> friendRequests(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return friends.friendRequests(claims, required(request, "type"), deadline());
     }
@@ -76,7 +76,7 @@ public class FriendController {
      * 결과가 없으면 빈 배열이고 404 가 아니다.
      */
     @GetMapping("/friends/search")
-    public List<FriendSearchItem> search(HttpServletRequest request) {
+    public List<SearchView> search(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return friends.search(claims, required(request, "type"), required(request, "q"), deadline());
     }
