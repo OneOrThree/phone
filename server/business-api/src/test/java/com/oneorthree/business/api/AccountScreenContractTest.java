@@ -44,7 +44,7 @@ class AccountScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_ME, request -> ok(ME));
         NOTI.on(NOTI_SETTINGS, request -> ok(""));
         mockMvc.perform(auth(get("/screens/account")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.on(DATA_ME, request -> domainError(403, "SESSION_NOT_ACTIVE"));

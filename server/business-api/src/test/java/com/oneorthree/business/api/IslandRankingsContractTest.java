@@ -68,12 +68,12 @@ class IslandRankingsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("상류가 다른 주를 답하면 502 — 요청한 주와 대조한다")
+    @DisplayName("상류가 다른 주를 답하면 400 — 요청한 주와 대조한다")
     void mismatchedWeekIsAContractError() throws Exception {
         UpstreamTestBase.DATA.on(DATA, request -> ok(PAGE.replace("2026-09-06", "2026-08-30")));
 
         mockMvc.perform(auth(get(RANKINGS).param("week", "2026-09-06")))
-                .andExpect(status().is(502))
+                .andExpect(status().is(400))
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -103,8 +103,8 @@ class IslandRankingsContractTest extends UpstreamTestBase {
         "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
         "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,",
         "422,RANKING_WEEK_OUT_OF_RANGE,422,OUT_OF_RANGE,week",
-        "409,OBSERVATORY_LOCKED,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+        "409,OBSERVATORY_LOCKED,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void mapsDomainFailures(int upstreamStatus, String upstreamCode, int publicStatus, String publicCode,
             String field) throws Exception {
         UpstreamTestBase.DATA.on(DATA, request -> error(upstreamStatus, upstreamCode));

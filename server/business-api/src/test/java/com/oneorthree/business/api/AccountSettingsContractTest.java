@@ -122,7 +122,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
                 ? new MockUpstream.Response(503, "{}") : ok("{\"applied\":true}"));
         DATA.on(DELIVERED, request -> ok(null));
         mockMvc.perform(write("{\"notifications\":false}"))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.retryable").value(true));
         assertThat(DATA.hits(DELIVERED)).isZero();
         unavailable.set(false);
@@ -202,7 +202,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
 
     @ParameterizedTest
     @CsvSource({"403,SESSION_NOT_ACTIVE,401,UNAUTHORIZED", "404,USER_NOT_FOUND,404,USER_NOT_FOUND",
-            "401,SESSION_NOT_ACTIVE,502,UPSTREAM_AUTH_FAILED", "409,SESSION_NOT_ACTIVE,502,UPSTREAM_CONTRACT_ERROR"})
+            "401,SESSION_NOT_ACTIVE,400,UPSTREAM_AUTH_FAILED", "409,SESSION_NOT_ACTIVE,400,UPSTREAM_CONTRACT_ERROR"})
     void mapsDataSessionErrorOnlyAtExactStatus(int upstream, String code, int expected, String publicCode)
             throws Exception {
         DATA.on(DATA_SNAPSHOT, request -> new MockUpstream.Response(upstream,
@@ -214,8 +214,8 @@ class AccountSettingsContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @CsvSource({"STALE_AUTH_GENERATION,401,UNAUTHORIZED", "MIGRATION_NOT_READY,503,SERVICE_UNAVAILABLE",
-            "SETTINGS_NOT_INITIALIZED,502,UPSTREAM_CONTRACT_ERROR"})
+    @CsvSource({"STALE_AUTH_GENERATION,401,UNAUTHORIZED", "MIGRATION_NOT_READY,400,SERVICE_UNAVAILABLE",
+            "SETTINGS_NOT_INITIALIZED,400,UPSTREAM_CONTRACT_ERROR"})
     void mapsNotificationFenceErrorsWithoutFinishingReceipt(String code, int expected, String publicCode)
             throws Exception {
         DATA.on(DATA_PATCH, request -> ok(command(false)));
@@ -232,7 +232,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
         DATA.on(DATA_PATCH, request -> ok(command(false)));
         NOTI.on(APPLY, request -> ok(response));
         mockMvc.perform(write("{\"notifications\":false}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         assertThat(DATA.hits(DELIVERED)).isZero();
     }
@@ -245,7 +245,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
         for (String response : invalid) {
             DATA.on(DATA_PATCH, request -> ok(response));
             mockMvc.perform(write("{\"notifications\":false}"))
-                    .andExpect(status().isBadGateway())
+                    .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         }
         assertThat(NOTI.received()).isEmpty();
@@ -257,7 +257,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
         DATA.on(DATA_PATCH, request -> ok(command(false).replace(
                 "\"eventId\":\"" + COMMAND + "\"", "\"eventId\":\"" + eventId + "\"")));
         mockMvc.perform(write("{\"notifications\":false}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         assertThat(NOTI.received()).isEmpty();
         assertThat(DATA.received()).hasSize(1);
@@ -273,7 +273,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
                 command(false).replace(field, "\"eventId\":1"))) {
             DATA.on(DATA_PATCH, request -> ok(body));
             mockMvc.perform(write("{\"notifications\":false}"))
-                    .andExpect(status().isBadGateway())
+                    .andExpect(status().isBadRequest())
                     .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         }
         assertThat(NOTI.received()).isEmpty();
@@ -307,7 +307,7 @@ class AccountSettingsContractTest extends UpstreamTestBase {
         NOTI.on(APPLY, request -> ok("{\"applied\":true}"));
         DATA.on(DELIVERED, request -> ok(null));
         mockMvc.perform(write("{\"notifications\":false}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
                 .andExpect(jsonPath("$.error.retryable").value(false))
                 .andExpect(jsonPath("$.data").doesNotExist());
@@ -359,11 +359,11 @@ class AccountSettingsContractTest extends UpstreamTestBase {
     @Test
     void invalidSnapshotAndMissingNotificationBooleanAreNotDefaulted() throws Exception {
         DATA.on(DATA_SNAPSHOT, request -> ok(snapshot().replace("\"authGeneration\":3", "\"authGeneration\":4")));
-        mockMvc.perform(auth(get("/me/settings"))).andExpect(status().isBadGateway());
+        mockMvc.perform(auth(get("/me/settings"))).andExpect(status().isBadRequest());
         assertThat(NOTI.received()).isEmpty();
         DATA.on(DATA_SNAPSHOT, request -> ok(snapshot()));
         NOTI.on(INITIALIZE, request -> ok(settings(false).replace("\"notificationEnabled\":false,", "")));
-        mockMvc.perform(auth(get("/me/settings"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/me/settings"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

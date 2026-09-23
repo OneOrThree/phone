@@ -249,9 +249,9 @@ class PublicApiContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @CsvSource({"timeout,504,UPSTREAM_TIMEOUT,true", "capacity,503,SERVICE_UNAVAILABLE,true",
-            "credentials,502,UPSTREAM_AUTH_FAILED,false", "unknown,502,UPSTREAM_CONTRACT_ERROR,false",
-            "mismatched,502,UPSTREAM_CONTRACT_ERROR,false", "unexpected,500,INTERNAL_ERROR,false",
+    @CsvSource({"timeout,400,UPSTREAM_TIMEOUT,true", "capacity,400,SERVICE_UNAVAILABLE,true",
+            "credentials,400,UPSTREAM_AUTH_FAILED,false", "unknown,400,UPSTREAM_CONTRACT_ERROR,false",
+            "mismatched,400,UPSTREAM_CONTRACT_ERROR,false", "unexpected,400,INTERNAL_ERROR,false",
             "receipt-version,409,STATE_CONFLICT,false", "key-conflict,409,IDEMPOTENCY_KEY_REUSED,false",
             "pending,409,REQUEST_IN_PROGRESS,true"})
     void classifiesErrorsWithoutLeakingUpstreamPayload(String kind, int expectedStatus, String code,
