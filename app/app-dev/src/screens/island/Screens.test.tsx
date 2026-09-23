@@ -586,3 +586,21 @@ test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친�
   assert.equal(s.queryByText('측정 권한'), null);
   assert.equal(s.queryByText('측정 앱'), null);
 });
+
+test('완공된 상점 첫 진입에서 강아지 이야기를 한 번만 보여준다', async () => {
+  let exposed: any;
+  const s = await render(<Harness route="shop" full expose={(value: any) => (exposed = value)} />);
+
+  s.getByText(/드디어 마지막 건물까지 완성됐네/);
+  await fireEvent.press(s.getByText('다음'));
+  s.getByText(/상점이 열릴 날만 기다리면서/);
+  await fireEvent.press(s.getByText('다음'));
+  s.getByText(/이제 이 섬을 너희답게 꾸밀 차례야/);
+  await fireEvent.press(s.getByText('상점 둘러보기'));
+
+  await waitFor(() => {
+    assert.ok(exposed.actions.includes('SHOP_GUIDE_DONE'));
+    assert.equal(s.queryByText(/드디어 마지막 건물까지 완성됐네/), null);
+  });
+  s.getByText('강아지 상점');
+});

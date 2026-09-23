@@ -1,4 +1,4 @@
-import { GuideBox, MailboxGuide } from '@/screens/island/NpcGuide';
+import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
@@ -22,6 +22,7 @@ import {
   State,
   Friend,
   shouldShowMailboxGuide,
+  shouldShowShopGuide,
   Building,
   Color,
   currentIsland,
@@ -4492,64 +4493,71 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
+    const guideUserId = getSession()?.userId ?? 'local';
+    const shopGuide = shouldShowShopGuide(state, guideUserId);
     return (
-      <IslandSheet
-        bg="shop"
-        sign="dog"
-        signKind="npc"
-        title="강아지 상점"
-        tall
-        action="구매 내역"
-        actionPress={() => go('orders')}
-        onClose={home}
-      >
-        {fishStrip}
-        <Chips
-          items={['내 꾸미기', '우리 섬 꾸미기']}
-          value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
-          onChange={setTab}
-        />
-        {mine ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Pic id="dog" w={56} />
-            <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
-              어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
-            </Txt>
-          </View>
-        ) : (
-          <Txt kind="meta" style={st.meta}>
-            섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
-          </Txt>
-        )}
-        {server && shopApi.error ? (
-          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
-            <Txt kind="meta" style={st.meta}>
-              {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
-            </Txt>
-            <Btn title="다시 시도" onPress={shopApi.retry} />
-          </View>
-        ) : server && shopApi.loading ? (
-          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            불러오는 중…
-          </Txt>
-        ) : null}
-        {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
-        <View style={{ gap: layout.compact ? 10 : 12 }}>
-          {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
-            <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
-              {Array.from({ length: cols }, (_, c) => {
-                const p = items[r * cols + c];
-                // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
-                return (
-                  <View key={c} style={{ flex: 1, minWidth: 0 }}>
-                    {p && card(p)}
-                  </View>
-                );
-              })}
+      <>
+        <IslandSheet
+          bg="shop"
+          sign="dog"
+          signKind="npc"
+          title="강아지 상점"
+          tall
+          action="구매 내역"
+          actionPress={() => go('orders')}
+          onClose={home}
+        >
+          {fishStrip}
+          <Chips
+            items={['내 꾸미기', '우리 섬 꾸미기']}
+            value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
+            onChange={setTab}
+          />
+          {mine ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Pic id="dog" w={56} />
+              <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
+                어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
+              </Txt>
             </View>
-          ))}
-        </View>
-      </IslandSheet>
+          ) : (
+            <Txt kind="meta" style={st.meta}>
+              섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
+            </Txt>
+          )}
+          {server && shopApi.error ? (
+            <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+              <Txt kind="meta" style={st.meta}>
+                {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
+              </Txt>
+              <Btn title="다시 시도" onPress={shopApi.retry} />
+            </View>
+          ) : server && shopApi.loading ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중…
+            </Txt>
+          ) : null}
+          {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
+          <View style={{ gap: layout.compact ? 10 : 12 }}>
+            {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
+              <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
+                {Array.from({ length: cols }, (_, c) => {
+                  const p = items[r * cols + c];
+                  // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
+                  return (
+                    <View key={c} style={{ flex: 1, minWidth: 0 }}>
+                      {p && card(p)}
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </IslandSheet>
+        {shopGuide && (
+          <ShopGuide onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })} />
+        )}
+      </>
     );
   }
   if (route === 'product') {
