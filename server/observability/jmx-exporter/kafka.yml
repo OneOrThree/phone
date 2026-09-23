@@ -1,5 +1,7 @@
-hostPort: kafka:9999
+jmxUrl: service:jmx:rmi:///jndi/rmi://kafka:9999/jmxrmi
 lowercaseOutputName: true
+includeObjectNames:
+  - 'kafka.network:type=RequestMetrics,name=RequestsPerSec,*'
 
 rules:
   - pattern: 'kafka.network<type=RequestMetrics, name=RequestsPerSec, request=(.+)><>Count'
