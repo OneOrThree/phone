@@ -36,11 +36,30 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
+          name: satellite-deploy-plan
+          path: image-inputs/plan
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: 배포 대상 판정
+        id: plan
+        run: |
+          set -euo pipefail
+          plan=$(cat image-inputs/plan/satellite-deploy-plan.json)
+          # jq 프로그램은 작은따옴표 안이므로 JSON 키의 큰따옴표를 escape 하지 않는다.
+          # `.\"business-api\"`는 일부 jq 버전에서 backslash가 그대로 전달되어 출력만 비고,
+          # command substitution의 실패가 echo에 가려져 Notification만 선택되는 문제가 있었다.
+          business=$(jq -er '.["business-api"] | select(type == "boolean")' <<< "$plan")
+          notification=$(jq -er '.notification | select(type == "boolean")' <<< "$plan")
+          printf 'business=%s\nnotification=%s\n' "$business" "$notification" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        if: steps.plan.outputs.business == 'true'
+        with:
           name: business-api-image
           path: image-inputs/business-api
           run-id: ${{ github.event.workflow_run.id }}
           github-token: ${{ github.token }}
       - uses: actions/download-artifact@v4
+        if: steps.plan.outputs.notification == 'true'
         with:
           name: notification-image
           path: image-inputs/notification
@@ -62,8 +81,18 @@ jobs:
           set -euo pipefail
           test -s "$RUNTIME_ENV_FILE"
           test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
-          business_image=$(cat image-inputs/business-api/business-api-image.txt)
-          notification_image=$(cat image-inputs/notification/notification-image.txt)
+          if [ "${{ steps.plan.outputs.business }}" = true ]; then
+            business_image=$(cat image-inputs/business-api/business-api-image.txt)
+          else
+            business_image=$(sed -n 's/^BUSINESS_API_IMAGE=//p' "$SATELLITE_RUNTIME_DIR/compose.env")
+          fi
+          if [ "${{ steps.plan.outputs.notification }}" = true ]; then
+            notification_image=$(cat image-inputs/notification/notification-image.txt)
+          else
+            notification_image=$(sed -n 's/^NOTIFICATION_IMAGE=//p' "$SATELLITE_RUNTIME_DIR/compose.env")
+          fi
+          test -n "$business_image"
+          test -n "$notification_image"
           aws secretsmanager get-secret-value --secret-id "$ENV_SECRET_ID" \
             --query SecretString --output text \
           | python3 server/scripts/prepare-satellite-deploy.py \
@@ -96,17 +125,24 @@ jobs:
             test -n "$DD_API_KEY"
             compose+=(-f server/scripts/docker-compose.datadog.yml)
           fi
+          services=()
+          if [ "${{ steps.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ steps.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          test "${#services[@]}" -gt 0
           "${compose[@]}" config --quiet
-          "${compose[@]}" pull business-api notification
-          "${compose[@]}" up -d business-api notification
-          "${compose[@]}" ps business-api notification
+          "${compose[@]}" pull "${services[@]}"
+          "${compose[@]}" up -d "${services[@]}"
+          "${compose[@]}" ps "${services[@]}"
 
       - name: 서비스 health check
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
             -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml)
-          for service in business-api notification; do
+          services=()
+          if [ "${{ steps.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ steps.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          for service in "${services[@]}"; do
             container=$("${compose[@]}" ps -q "$service")
             test -n "$container"
             for i in $(seq 1 60); do
@@ -120,7 +156,10 @@ jobs:
       - name: 실패 로그
         if: failure()
         run: |
-          for service in business-api notification; do
+          services=()
+          if [ "${{ steps.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ steps.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          for service in "${services[@]}"; do
             container=$(docker ps -aq \
               --filter label=com.docker.compose.project=phone \
               --filter label=com.docker.compose.service="$service" | head -n 1)

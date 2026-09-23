@@ -86,6 +86,7 @@ FORBIDDEN_EVERYWHERE = ("DD_API_KEY", "GRAFANA_ADMIN_PASSWORD", "CONSOLE_ADMIN_P
 # 실제 자격과 미분류 키는 여전히 검사한다. URL/접속 문자열은 자격을 담을 수 있어 제외하지 않는다.
 PUBLIC_CONFIGURATION_KEYS = frozenset({
     "SPRING_PROFILES_ACTIVE", "DEPLOY_ENV", "DATA_API_PROFILES", "DD_ENV", "DD_SERVICE", "DD_VERSION",
+    "POSTGRES_DB",
 })
 
 def parse_dotenv_keys(text: str) -> list[str]:

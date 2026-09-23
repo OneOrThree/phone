@@ -190,10 +190,10 @@ class AppearanceContractTest extends UpstreamTestBase {
             "400,INVALID_REQUEST,400,INVALID_REQUEST,",
             "422,OUT_OF_RANGE,422,OUT_OF_RANGE,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,VERSION_CONFLICT_409_STATUS_MISMATCH,502,UPSTREAM_CONTRACT_ERROR,",
-            "403,OUT_OF_RANGE,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_APPEARANCE_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "409,VERSION_CONFLICT_409_STATUS_MISMATCH,400,UPSTREAM_CONTRACT_ERROR,",
+            "403,OUT_OF_RANGE,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_APPEARANCE_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_ISLAND_APP, request -> error(upstreamStatus, code));

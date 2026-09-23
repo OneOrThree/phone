@@ -1,5 +1,6 @@
 package com.oneorthree.business.linkpreview.exception;
 
+import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.ApiResponses;
 import com.oneorthree.business.common.api.PublicApiRoutes;
 import com.oneorthree.business.common.exception.ErrorResponse;
@@ -61,17 +62,15 @@ public class PreviewExceptionHandler {
         return response.body(body);
     }
 
-    /**
-     * 전용 Redis 장애 — 503 + {@code Retry-After}.
-     *
-     * <p>500 으로 접지 않는다: 캐시는 사본이라 잠시 뒤 같은 요청이 성공할 수 있고, 앱이 그걸 알아야
-     * 재시도한다. 이 advice 가 미리보기에만 붙어 있으므로 조합 API 의 상류 503 계약과 섞이지 않는다.
-     */
+    /** Redis 장애는 내부 503으로 분류하고 공개 전송 상태와 재시도 안내는 공통 경계에서 만든다. */
     @ExceptionHandler(DataAccessException.class)
     public ResponseEntity<Object> unavailable(DataAccessException error, HttpServletRequest request) {
-        Object body = PublicApiRoutes.usesEnvelope(request)
-                ? responses.envelope(request, "SERVICE_UNAVAILABLE", "잠시 후 다시 시도해 주세요.", null, true, null)
-                : new ErrorResponse("SERVICE_UNAVAILABLE", "잠시 후 다시 시도해 주세요.");
+        if (PublicApiRoutes.usesEnvelope(request)) {
+            var result = responses.error(request, ApiErrorCode.SERVICE_UNAVAILABLE, null, null);
+            return ResponseEntity.status(result.getStatusCode()).headers(result.getHeaders())
+                    .header("Retry-After", "10").body(result.getBody());
+        }
+        Object body = new ErrorResponse("SERVICE_UNAVAILABLE", "잠시 후 다시 시도해 주세요.");
         return ResponseEntity.status(503).contentType(MediaType.APPLICATION_JSON)
                 .header("Retry-After", "10").body(body);
     }

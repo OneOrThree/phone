@@ -222,9 +222,9 @@ class IslandJoinContractTest extends UpstreamTestBase {
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED",
             // 같은 코드라도 상태가 어긋나면 조용히 옮기지 않는다 — 계약 불일치 502.
-            "400,INVITATION_CODE_INVALID,502,UPSTREAM_CONTRACT_ERROR",
-            "404,INVITATION_EXPIRED,502,UPSTREAM_CONTRACT_ERROR",
-            "400,UNKNOWN_JOIN_ERROR,502,UPSTREAM_CONTRACT_ERROR"})
+            "400,INVITATION_CODE_INVALID,400,UPSTREAM_CONTRACT_ERROR",
+            "404,INVITATION_EXPIRED,400,UPSTREAM_CONTRACT_ERROR",
+            "400,UNKNOWN_JOIN_ERROR,400,UPSTREAM_CONTRACT_ERROR"})
     @DisplayName("가입의 (상태, 코드) 쌍만 공개 오류로 옮긴다 — 형식 422 와 폐기 410 의 원본 의미를 지킨다")
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode) throws Exception {
@@ -320,30 +320,30 @@ class IslandJoinContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 응답 계약
 
     @Test
-    @DisplayName("가입 응답의 섬이 요청과 다르거나 상태·필드가 어긋나면 502 다")
+    @DisplayName("가입 응답의 섬이 요청과 다르거나 상태·필드가 어긋나면 400 다")
     void mismatchedJoinResponseIsAContractError() throws Exception {
         DATA.on(DATA_JOIN, request -> ok("{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
                 + OTHER + "\",\"currentIslandId\":\"" + OTHER + "\",\"version\":1}"));
         mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.reset();
         DATA.on(DATA_JOIN, request -> ok("{\"status\":\"pending\",\"requestId\":null,\"islandId\":\""
                 + ISLAND + "\",\"currentIslandId\":null,\"version\":0}"));
         mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
     @Test
-    @DisplayName("취소 응답의 id 가 요청과 다르면 502 다")
+    @DisplayName("취소 응답의 id 가 요청과 다르면 400 다")
     void mismatchedCancelResponseIsAContractError() throws Exception {
         DATA.on(DATA_CANCEL, request -> ok("{\"id\":\"" + OTHER + "\",\"status\":\"cancelled\"}"));
 
         mockMvc.perform(auth(delete("/me/join-requests/" + REQUEST))
                         .header("Idempotency-Key", KEY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

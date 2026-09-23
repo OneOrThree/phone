@@ -341,13 +341,18 @@ export function Row({
     </View>
   );
 }
-export function Seg({ items, value, onChange, small = false, style }: any) {
+export function Seg({ items, value, onChange, small = false, inset = false, style }: any) {
   return (
     <View
       style={[
         {
           flexDirection: 'row',
-          height: small ? 36 : 42,
+          height: inset
+            ? semanticTokens.size.tapMin + semanticTokens.stroke.strong * 4
+            : small
+              ? 36
+              : 42,
+          padding: inset ? semanticTokens.stroke.strong : 0,
           borderWidth: 2,
           borderColor: C.brown,
           borderRadius: 12,
@@ -368,7 +373,8 @@ export function Seg({ items, value, onChange, small = false, style }: any) {
             flex: 1,
             alignItems: 'center',
             justifyContent: 'center',
-            borderLeftWidth: i ? 2 : 0,
+            borderLeftWidth: !inset && i ? 2 : 0,
+            borderRadius: inset ? semanticTokens.radius.control : 0,
             borderColor: C.brown,
             backgroundColor: x === value ? C.pink : undefined,
           }}
@@ -438,6 +444,7 @@ export function Field({
   inputStyle,
   placeholderColor,
   tabletScale,
+  disabled = false,
 }: any) {
   return (
     <View style={{ gap: 6 }}>
@@ -453,6 +460,7 @@ export function Field({
         accessibilityLabel={label || placeholder}
         value={String(value ?? '')}
         onChangeText={onChange}
+        editable={!disabled}
         placeholder={placeholder}
         placeholderTextColor={placeholderColor || componentTokens.input.placeholder}
         multiline={multiline}

@@ -6,7 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataRecordsClient;
 import com.oneorthree.business.upstream.data.dto.IslandRankingViews;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -43,7 +43,7 @@ public class IslandRankingsUseCase {
             // 일요일이 아니거나 아직 오지 않은 주 — 형식은 Business 가 먼저 400 으로 거른다.
             "RANKING_WEEK_OUT_OF_RANGE", new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "week"));
 
-    private final DataApiClient data;
+    private final DataRecordsClient data;
 
     /**
      * 섬 간 주간 랭킹.

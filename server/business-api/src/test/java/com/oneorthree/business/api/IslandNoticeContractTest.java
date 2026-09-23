@@ -281,11 +281,11 @@ class IslandNoticeContractTest extends UpstreamTestBase {
             "404,NOT_FOUND,404,NOT_FOUND,noticeId",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "503,NOTICE_WRITE_UNAVAILABLE,503,SERVICE_UNAVAILABLE,",
+            "503,NOTICE_WRITE_UNAVAILABLE,400,SERVICE_UNAVAILABLE,",
             "422,NOTICE_BODY_TOO_LONG,422,OUT_OF_RANGE,body",
             "422,NOTICE_COMMENT_TOO_LONG,422,OUT_OF_RANGE,text",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,MEMBER_ONLY,502,UPSTREAM_CONTRACT_ERROR,"})
+            "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,"})
     void relaysDataVerdictsAsPublicErrors(int upstreamStatus, String upstreamCode, int status, String code,
             String field) throws Exception {
         DATA.on(DATA_PATCH, request -> error(upstreamStatus, upstreamCode));

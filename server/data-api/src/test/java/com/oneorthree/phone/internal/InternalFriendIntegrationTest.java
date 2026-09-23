@@ -84,6 +84,9 @@ class InternalFriendIntegrationTest {
                 () -> "POST /internal/users/*/friend-requests/*/cancel");
         registry.add("internal.api.callers.business.allow[6]", () -> "DELETE /internal/users/*/friends/*");
         registry.add("internal.api.callers.business.allow[7]", () -> "GET /internal/users/*/friend-search");
+        registry.add("internal.api.callers.business.allow[8]", () -> "GET /internal/users/*/blocks");
+        registry.add("internal.api.callers.business.allow[9]", () -> "POST /internal/users/*/blocks");
+        registry.add("internal.api.callers.business.allow[10]", () -> "DELETE /internal/users/*/blocks/*");
     }
 
     /** 수락 이벤트를 세는 리스너 — 동시 수락 둘이 알림 이벤트를 «하나만» 내는지 보기 위한 것. */
@@ -149,6 +152,26 @@ class InternalFriendIntegrationTest {
         as(a, get(path(a, "/friends")).param("date", DATE))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
+    }
+
+    @Test
+    @DisplayName("차단한 상대는 blocker의 친구 목록과 검색 결과에서만 제외한다")
+    void blockExcludesCounterpartFromFriendsAndSearch() throws Exception {
+        UUID blocker = newUser();
+        UUID blocked = newUser();
+        nickname(blocked, "차단친구");
+        friendService.acceptRequest(blocked, friendService.createRequest(blocker, blocked));
+
+        as(blocker, post(path(blocker, "/blocks")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"blockedUserId\":\"" + blocked + "\"}"))
+                .andExpect(status().isNoContent());
+        as(blocker, get(path(blocker, "/friends")).param("date", DATE))
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
+        as(blocker, get(path(blocker, "/friend-search")).param("type", "NICKNAME").param("q", "차단친구"))
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
+        // 반대 방향 차단은 없으므로 상대의 목록은 그대로다.
+        as(blocked, get(path(blocked, "/friends")).param("date", DATE))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].userId").value(blocker.toString()));
     }
 
     @Test

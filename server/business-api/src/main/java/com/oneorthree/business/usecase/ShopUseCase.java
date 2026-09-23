@@ -10,7 +10,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataShopClient;
 import com.oneorthree.business.upstream.data.dto.ShopViews;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -66,7 +66,7 @@ public class ShopUseCase {
             Map.entry("CURSOR_EXPIRED", new PublicFailure(409, ApiErrorCode.CURSOR_EXPIRED, FIELD_CURSOR)),
             Map.entry("INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null)));
 
-    private final DataApiClient data;
+    private final DataShopClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
     /** 공개 카탈로그 한 쪽. */

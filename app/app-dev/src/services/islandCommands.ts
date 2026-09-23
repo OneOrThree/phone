@@ -4,6 +4,7 @@
 // 모든 명령은 시작 세대를 잡고 후속 API·dispatch·반환 전에 재검사한다 — 세대가 바뀐 늦은
 // 응답은 CLIENT_STALE_SESSION으로 버린다.
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
+import { me as apiMe } from '@/services/api/auth';
 import { sessionGeneration } from '@/services/api/session';
 import {
   cancelJoinRequest as apiCancelJoinRequest,
@@ -31,6 +32,8 @@ export type IslandApi = {
   myJoinRequests: typeof apiMyJoinRequests;
   cancelJoinRequest: typeof apiCancelJoinRequest;
   myIslands: typeof apiMyIslands;
+  /** GET /me — 메인 섬 정본(GROMO-1971·2054). `/me/islands` 는 이 축을 싣지 않는다. */
+  me: typeof apiMe;
 };
 
 export type IslandCommandDeps = {
@@ -56,6 +59,7 @@ const defaultApi: IslandApi = {
   myJoinRequests: apiMyJoinRequests,
   cancelJoinRequest: apiCancelJoinRequest,
   myIslands: apiMyIslands,
+  me: apiMe,
 };
 
 const contractError = () =>
@@ -102,14 +106,25 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       cursor = page.nextCursor;
     }
   };
-  // /me/islands·/me/join-requests 정본 동기화. current 가 있으면 items 안에 있어야 한다 —
+  // /me/islands·/me/join-requests·/me 정본 동기화. current 가 있으면 items 안에 있어야 한다 —
   // null current+소속은 유효하다(첫 pending 승인이 소속을 만들어도 current는 안 옮긴다).
+  // /me 의 mainIslandId 도 함께 싣는다 — 소속 목록이 바뀌는 자리마다(가입·생성·승인·이탈 복구)
+  // 서버 도출값(가장 최근 가입)과 프로필 선택값이 갈리지 않게 같은 액션으로 갈아 끼운다.
   const syncIslands = async () => {
     const g = generation();
-    const [my, requests] = await Promise.all([api.myIslands(), allJoinRequests(g)]);
+    const [my, requests, account] = await Promise.all([
+      api.myIslands(),
+      allJoinRequests(g),
+      api.me(),
+    ]);
     alive(g);
     if (!myIslandsConsistent(my)) throw contractError();
-    deps.dispatch({ type: 'ISLAND_SYNC', memberships: my, requests });
+    deps.dispatch({
+      type: 'ISLAND_SYNC',
+      memberships: my,
+      requests,
+      mainIslandId: account.mainIslandId,
+    });
     return my;
   };
   // 409·404 계열은 서버 상태가 바뀌었다는 뜻 — 재조회로 화면 데이터를 맞춘 뒤 원 오류를 다시 던진다.

@@ -192,6 +192,8 @@ export type Island = {
   playing: boolean;
   /** 서버 공용 재생 전체 상태. null trackId도 명시적인 미선택 상태로 보존한다. */
   serverPlayback?: PlaybackState;
+  /** serverPlayback을 단말에서 관측한 시각. 서버 시계 기준 위치를 현재 시각으로 보정한다. */
+  serverPlaybackObservedAtMs?: number;
   /** 사용자가 정지 버튼을 누른 횟수. 플레이어가 일시정지와 구분해 재생 위치를 초기화한다. */
   playbackReset?: number;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
@@ -1514,6 +1516,9 @@ export function reducer(state: State, a: Action): State {
       if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
       // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
       s.onboarded = my.currentIslandId != null;
+      // /me 정본의 메인 섬 — 실렸을 때만 갈아 끼운다(explore 등 안 싣는 발신자는 현재 값 유지).
+      // 로컬 islands 에 없는 서버 id 도 그대로 둔다 — mainIsland() 선택자가 fallback 을 처리한다.
+      if (a.mainIslandId !== undefined) s.mainIslandId = a.mainIslandId as string | null;
       break;
     }
     case 'SERVER_VILLAGE_POINTS': {
@@ -1589,6 +1594,8 @@ export function reducer(state: State, a: Action): State {
         return state;
       const wasPlaying = target.playing;
       target.serverPlayback = playback;
+      target.serverPlaybackObservedAtMs =
+        typeof a.observedAtMs === 'number' ? a.observedAtMs : Date.now();
       target.track = playback.trackId;
       target.playing = playback.trackId !== null && playback.playing;
       if (wasPlaying && !target.playing) target.playbackReset = (target.playbackReset ?? 0) + 1;

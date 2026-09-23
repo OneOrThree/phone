@@ -7,6 +7,7 @@ import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.FacilityStatus;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.construction.service.IslandWalletService;
+import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
@@ -106,6 +107,8 @@ class IslandScreenFragmentsIntegrationTest {
     FocusSessionRepository sessions;
     @Autowired
     FocusSessionDetailRepository details;
+    @Autowired
+    FocusRewardAccrualRepository accruals;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -410,6 +413,30 @@ class IslandScreenFragmentsIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MEMBER_ONLY"));
     }
 
+    @Test
+    @DisplayName("물고기 장 — 황금 물고기 몫은 누적 획득에 더해지고, 하루 480 상한 합산에는 들어가지 않는다")
+    void fishEarningsIncludesGoldenShareButDailyCapDoesNot() throws Exception {
+        Resident r = residentIsland();
+        facilities.save(IslandFacility.builder().islandId(r.islandId()).buildingId("library")
+                .status(FacilityStatus.COMPLETED).cost(2720).costRevision(1)
+                .completedAt(Instant.now()).build());
+
+        LocalDate accruedOn = settle(r.member(), r.islandId(), 10, 25);   // 황금 50 ÷ 함께 낚은 2명
+        settle(r.host(), r.islandId(), 7);
+
+        IslandFishEarningsView view = economy.fishEarnings(r.host(), r.islandId());
+        assertThat(view.members()).extracting(IslandFishEarningsView.Member::earnedFish)
+                .containsExactly(35L, 7L);
+        assertThat(accruals.sumEarnedFishOnDay(r.member(), r.islandId(), accruedOn))
+                .as("480 상한 합산은 earned_fish 만 본다").isEqualTo(10L);
+
+        mvc.perform(get("/internal/islands/" + r.islandId() + "/statistics/fish-earnings")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", r.member()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.members[0].userId").value(r.member().toString()))
+                .andExpect(jsonPath("$.members[0].earnedFish").value(35));
+    }
+
     // ---------------------------------------------------------------- 도구
 
     private record Resident(UUID islandId, UUID host, UUID member) {
@@ -450,22 +477,29 @@ class IslandScreenFragmentsIntegrationTest {
      * 누적 획득의 정본은 GROMO-1990 부터 적립 원장({@code focus_reward_accruals})이다.
      */
     private void settle(UUID userId, UUID islandId, int earnedFish) {
+        settle(userId, islandId, earnedFish, 0);
+    }
+
+    /** {@link #settle(UUID, UUID, int)} 에 황금 물고기 자기 몫을 얹은 판 — 적립일(UTC)을 돌려준다. */
+    private LocalDate settle(UUID userId, UUID islandId, int earnedFish, int goldenFish) {
         User user = users.getCaller(userId);
         Instant ended = Instant.now().minusSeconds(60);
+        LocalDate accruedOn = LocalDate.ofInstant(ended, ZoneOffset.UTC);
         UUID sessionId = sessions.save(FocusSession.builder().user(user).focusType(FocusType.INFINITE)
                 .startedAt(ended.minusSeconds(earnedFish * 60L)).endedAt(ended).build()).getId();
         details.save(FocusSessionDetail.builder().sessionId(sessionId).userId(userId).islandId(islandId)
                 .membershipEpochAtStart(1L).subject("수학").targetMinutes(25)
                 .lifecycle(FocusSessionLifecycle.COMPLETED).lastTransitionAt(ended).build());
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            if (earnedFish > 0) {
+            if (earnedFish > 0 || goldenFish > 0) {
                 em.persist(FocusRewardAccrual.builder().sessionId(sessionId)
-                        .accruedOn(LocalDate.ofInstant(ended, ZoneOffset.UTC)).earnedFish(earnedFish).build());
+                        .accruedOn(accruedOn).earnedFish(earnedFish).goldenFish(goldenFish).build());
             }
             em.persist(FocusSettlement.builder().sessionId(sessionId).activeSeconds(earnedFish * 60L)
                     .goalAchieved(true).earnedFish(earnedFish).personalFishAdded(0)
                     .constructionFishAdded(earnedFish).completedAt(ended).build());
         });
+        return accruedOn;
     }
 
     private void setRequestCreatedAt(UUID requestId, Instant at) {

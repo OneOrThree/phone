@@ -6,7 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataFriendClient;
 import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestState;
@@ -56,7 +56,7 @@ public class FriendUseCase {
     private static final String REJECTED = "REJECTED";
     private static final String CANCELED = "CANCELED";
 
-    private final DataApiClient data;
+    private final DataFriendClient data;
 
     /** 친구 목록 (LLD §1.5). 빈 목록은 {@code []} 이고, 봉투가 아예 없는 것은 계약 불일치다. */
     public List<FriendItem> friends(AccessTokenClaims claims, String date, Deadline deadline) {

@@ -180,6 +180,28 @@ export const semanticTokens = {
 } as const;
 
 export const componentTokens = {
+  diary: {
+    referenceWidth: 402,
+    maxWidth: 560,
+    headerInset: space[6],
+    bookTop: 85,
+    contentTop: 174,
+    contentLeftRatio: 54 / 402,
+    contentRightRatio: 34 / 402,
+    contentBottom: 78,
+    headerTop: 53,
+    headerHeight: size.tapMin,
+    periodGap: space[4],
+    contentGap: space[4],
+    chartHeight: 108,
+    timetableRowHeight: space[5],
+    timetableGap: space[1],
+    tableRowHeight: 50,
+    avatarSize: space[12],
+    residentMinHeight: 104,
+    pressedOpacity: 0.7,
+    unavailableOpacity: 0.35,
+  },
   button: {
     background: semanticTokens.color.primary,
     backgroundHover: semanticTokens.color.primaryHover,

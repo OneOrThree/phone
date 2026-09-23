@@ -461,6 +461,25 @@ export function useShop({
     [applyMy, ensureTitles],
   );
 
+  /** 집중 화면의 음원 선택기가 사용할 공동 보유곡 정본만 가볍게 읽는다. */
+  const loadShared = useCallback(
+    async (e: number, generation: number) => {
+      const { islandId: island } = stateRef.current;
+      if (!island) return;
+      set({ loading: true, error: null });
+      try {
+        const shared = await getIslandInventory(island);
+        if (!alive(e, generation)) return;
+        applyShared(e, generation, shared);
+        set({ loading: false });
+      } catch (error) {
+        if (!alive(e, generation)) return;
+        set({ loading: false, error: error as ApiError });
+      }
+    },
+    [alive, applyShared, set],
+  );
+
   /**
    * 쓰기 한 건을 의도 슬롯 위에서 돈다 — 진행 중 같은 본문의 중복 탭은 promise 를 공유하고,
    * 실패하면 key 를 남겨 재시도가 같은 key 로 가고, 성공(쓰기+재조회)이면 슬롯을 놓는다.
@@ -700,6 +719,7 @@ export function useShop({
     const g = sessionGeneration();
     if (route === 'shop') loadList(e, g, category);
     else if (route === 'sound') loadList(e, g, 'sound');
+    else if (route === 'focus') loadShared(e, g);
     else if (route === 'product' && productId) select(productId);
     else if (route === 'orders') loadOrders(e, g, orderScope);
     else if (route === 'wardrobe') loadMy(e, g);
@@ -712,6 +732,7 @@ export function useShop({
     productId,
     generation,
     loadList,
+    loadShared,
     loadMy,
     loadOrders,
     select,
@@ -730,6 +751,7 @@ export function useShop({
       const g = sessionGeneration();
       if (route === 'shop' || route === 'sound')
         loadList(e, g, route === 'sound' ? 'sound' : category);
+      else if (route === 'focus') loadShared(e, g);
       else if (route === 'orders') loadOrders(e, g, orderScope);
       else if (route === 'wardrobe') loadMy(e, g);
       else if (route === 'product' && productId) select(productId);

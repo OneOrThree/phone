@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { createIslandCommands, IslandApi } from '@/services/islandCommands';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
+import type { Account } from '@/services/api/auth';
 import type { IslandSummary, MyIslands, MyJoinRequest } from '@/services/api/islands';
 
 jest.mock('@/services/api/session', () => ({ sessionGeneration: () => 0 }));
@@ -29,6 +30,15 @@ const myIslands = (over: Partial<MyIslands> = {}): MyIslands => ({
   nextCursor: null,
   currentIslandId: null,
   lossReason: null,
+  ...over,
+});
+const account = (over: Partial<Account> = {}): Account => ({
+  id: 'u1',
+  name: '수빈',
+  catColor: 'black',
+  mainIslandId: null,
+  linkedProviders: [],
+  onboardingComplete: true,
   ...over,
 });
 const myReq = (over: Partial<MyJoinRequest> = {}): MyJoinRequest => ({
@@ -61,7 +71,8 @@ const harness = (api: Partial<IslandApi> = {}) => {
     generation: () => gen,
     newKey: () => `key-${++keyN}`,
     setBootError: (on) => bootErrors.push(on),
-    api,
+    // syncIslands가 /me도 읽는다 — 지정 없으면 무소속 계정 기본값으로 막아 진짜 fetch를 막는다
+    api: { me: async () => account(), ...api },
   });
   return {
     cmds,
@@ -135,6 +146,42 @@ test('join active — /me/islands 재조회로 current를 확정한다', async (
   assert.equal(my.mock.calls.length, 1);
   assert.ok(types(h).includes('ISLAND_SYNC'));
   assert.equal(h.state().onboarded, true);
+});
+
+test('join active — 두 번째 섬 가입 뒤 /me 정본으로 mainIslandId가 최신 가입 섬으로 갱신된다', async () => {
+  // GROMO-2054: 서버 도출은 «가장 최근 가입»이라 두 번째 가입 성공 순간 메인이 i2로 바뀐다.
+  // ISLAND_SYNC가 mainIslandId를 싣지 않으면 앱 상태는 첫 섬에 남아 프로필·선택값이 갈린다.
+  const me = jest
+    .fn<Promise<Account>, []>()
+    .mockResolvedValueOnce(account({ mainIslandId: 'i1' }))
+    .mockResolvedValue(account({ mainIslandId: 'i2' }));
+  const h = harness({
+    me,
+    join: async () => ({
+      status: 'active' as const,
+      requestId: null,
+      islandId: 'i2',
+      currentIslandId: 'i2',
+      version: 1,
+    }),
+    myIslands: jest
+      .fn<Promise<MyIslands>, []>()
+      .mockResolvedValueOnce(myIslands({ items: [island({ id: 'i1' })], currentIslandId: 'i1' }))
+      .mockResolvedValue(
+        myIslands({
+          items: [island({ id: 'i1' }), island({ id: 'i2' })],
+          currentIslandId: 'i2',
+        }),
+      ),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await h.cmds.commands.sync(); // 부팅 동기화 — 서버는 i1이 메인
+  assert.equal(h.state().mainIslandId, 'i1');
+
+  await h.cmds.commands.join('i2');
+
+  assert.equal(h.state().mainIslandId, 'i2');
+  assert.ok(me.mock.calls.length >= 2); // 동기화마다 /me 정본을 읽는다
 });
 
 test('status approved — memberships 재조회 성공 뒤에만 종결을 공개한다', async () => {

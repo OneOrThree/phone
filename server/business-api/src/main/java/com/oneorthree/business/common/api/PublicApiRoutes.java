@@ -15,7 +15,7 @@ public final class PublicApiRoutes {
             "/auth/sessions/**", "/me/**", "/islands/**", "/focus-sessions/**", "/invitations/**",
             "/rankings/**", "/statistics/**", "/screens/**", "/link-previews/**",
             // GROMO-1894 친구·편지 — nginx 위성 include 의 Business 분기 목록과 같이 늘린다.
-            "/friends/**", "/letters/**")
+            "/friends/**", "/letters/**", "/blocks/**")
             .stream().map(PathPatternParser.defaultInstance::parse).toList();
 
     private PublicApiRoutes() {

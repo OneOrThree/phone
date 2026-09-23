@@ -66,7 +66,7 @@ class RaftScreenContractTest extends ScreenContractTestBase {
         stubAll("[]");
         DATA.on(DATA_INVENTORY, request -> ok(""));
         mockMvc.perform(auth(get("/screens/raft")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 }

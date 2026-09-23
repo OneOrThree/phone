@@ -82,12 +82,13 @@ class MainIslandLegacyNotificationIntegrationTest {
         UUID first = island(user, "레거시첫섬");
         UUID latest = joined(user, island(reachableUser(true).id(), "레거시나중섬"));
 
-        management.leave(user, first, UUID.randomUUID());
+        // 도출 규칙이 «가장 최근 가입»이라(GROMO-2054) 메인 섬은 나중섬이다.
+        management.leave(user, latest, UUID.randomUUID());
 
         // 구 경로는 AFTER_COMMIT + @Async 라 커밋 뒤에 돈다.
         await().atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(sentLogs(user)).isEqualTo(1));
-        assertThat(mainIslandOf(actor)).isEqualTo(latest);
+        assertThat(mainIslandOf(actor)).isEqualTo(first);
         // LEGACY 모드에서는 BEFORE_COMMIT 리스너가 빠지므로 outbox 봉투가 없어야 한다 —
         // 둘이 함께 돌면 같은 알림이 FCM 으로도 가고 Kafka 로도 간다.
         assertThat(outboxNotices(user)).isZero();
@@ -102,10 +103,10 @@ class MainIslandLegacyNotificationIntegrationTest {
         UUID first = island(user, "알림끈첫섬");
         UUID latest = joined(user, island(reachableUser(true).id(), "알림끈나중섬"));
 
-        management.leave(user, first, UUID.randomUUID());
+        management.leave(user, latest, UUID.randomUUID());
 
         // 이전은 도메인 트랜잭션의 일이라 알림 설정과 무관하다.
-        assertThat(mainIslandOf(actor)).isEqualTo(latest);
+        assertThat(mainIslandOf(actor)).isEqualTo(first);
         // 발송 스킵은 recordsLegacyLog() 가 false 라는 뜻이다 — 조용한 시간·토큰 없음과 같은 취급이다.
         // 비동기라 «아직 안 온 것»과 «오지 않을 것»을 구분해야 해서 일정 시간 0 이 유지되는지를 본다.
         await().during(Duration.ofSeconds(2)).atMost(Duration.ofSeconds(10))
@@ -122,15 +123,15 @@ class MainIslandLegacyNotificationIntegrationTest {
         UUID middle = joined(user, island(reachableUser(true).id(), "구경로중간섬"));
         UUID latest = joined(user, island(reachableUser(true).id(), "구경로나중섬"));
 
-        management.leave(user, first, UUID.randomUUID());
         management.leave(user, latest, UUID.randomUUID());
-        assertThat(mainIslandOf(actor)).isEqualTo(middle);
+        management.leave(user, middle, UUID.randomUUID());
+        assertThat(mainIslandOf(actor)).isEqualTo(first);
 
         // 신 경로(OUTBOX)는 커밋 직전에 둘 다 적는다. 구 경로가 「최종 상태와 다르다」로 첫 건을 버리면
         // 같은 사건이 모드에 따라 1건·2건이 된다 — 그 불일치를 여기서 고정한다.
         await().atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(sentLogs(user)).isEqualTo(2));
-        assertThat(sentTargets(user)).containsExactly(latest.toString(), middle.toString());
+        assertThat(sentTargets(user)).containsExactly(middle.toString(), first.toString());
     }
 
     @Test
@@ -141,19 +142,19 @@ class MainIslandLegacyNotificationIntegrationTest {
         UUID first = joined(user, island(reachableUser(true).id(), "지난첫섬"));
         UUID middle = joined(user, island(reachableUser(true).id(), "지난중간섬"));
         UUID latest = joined(user, island(reachableUser(true).id(), "지난나중섬"));
-        management.leave(user, first, UUID.randomUUID());
         management.leave(user, latest, UUID.randomUUID());
-        assertThat(mainIslandOf(actor)).isEqualTo(middle);
+        management.leave(user, middle, UUID.randomUUID());
+        assertThat(mainIslandOf(actor)).isEqualTo(first);
         await().atMost(Duration.ofSeconds(10)).untilAsserted(() -> assertThat(sentLogs(user)).isEqualTo(2));
 
-        // 첫 이전(→ 나중섬)의 사건을 «최종 상태가 중간섬으로 굳은 뒤» 그대로 처리한다. 구 경로는
+        // 첫 이전(→ 중간섬)의 사건을 «최종 상태가 첫섬으로 굳은 뒤» 그대로 처리한다. 구 경로는
         // AFTER_COMMIT + @Async 라 실제로 이 순서가 난다 — 비동기 스케줄링에 기대지 않고 그 순서를 직접 만든다.
         // 여기서 버리면 같은 사건이 신 경로(BEFORE_COMMIT, 2건)와 구 경로(1건)로 갈린다.
-        notifications.notifyTransferred(new MainIslandTransferredEvent(user, latest, "지난나중섬", Instant.now()));
+        notifications.notifyTransferred(new MainIslandTransferredEvent(user, middle, "지난중간섬", Instant.now()));
 
         assertThat(sentLogs(user)).isEqualTo(3);
         assertThat(sentTargets(user))
-                .containsExactly(latest.toString(), middle.toString(), latest.toString());
+                .containsExactly(middle.toString(), first.toString(), middle.toString());
     }
 
     @Test
@@ -165,17 +166,18 @@ class MainIslandLegacyNotificationIntegrationTest {
         UUID first = joined(user, island(reachableUser(true).id(), "왕복첫섬"));
         UUID other = joined(user, island(reachableUser(true).id(), "왕복상대섬"));
 
-        management.leave(user, first, UUID.randomUUID());      // → other (1회차)
+        // 도출 규칙이 «가장 최근 가입»이라(GROMO-2054) 처음 메인은 상대섬이다 — 이탈 춤은 거기서 시작한다.
+        management.leave(user, other, UUID.randomUUID());      // → first (1회차)
+        joined(user, other);                                    // 재가입 — 박제된 메인(first)은 그대로다
+        management.leave(user, first, UUID.randomUUID());       // → other
         joined(user, first);                                    // 재가입
-        management.leave(user, other, UUID.randomUUID());       // → first
-        joined(user, other);                                    // 재가입
-        management.leave(user, first, UUID.randomUUID());       // → other (2회차, 같은 섬)
+        management.leave(user, other, UUID.randomUUID());       // → first (2회차, 같은 섬)
 
         await().atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(sentLogs(user)).isEqualTo(3));
         // 섬을 subject_id 에 넣으면 (user, kind, subject) 유니크가 2회차를 막아 «기록»이 실패하고
         // 비동기 예외가 삼켜져 알림이 조용히 사라진다. 같은 섬 2건이 남는 것이 그 회귀의 증인이다.
-        assertThat(sentTargets(user)).containsExactly(other.toString(), first.toString(), other.toString());
+        assertThat(sentTargets(user)).containsExactly(first.toString(), other.toString(), first.toString());
     }
 
     @Test
@@ -204,7 +206,7 @@ class MainIslandLegacyNotificationIntegrationTest {
     private Actor reachableUser(boolean notificationEnabled) {
         var login = auth.guestLogin();
         UUID userId = jwt.extractUserId(login.accessToken());
-        users.registerDeviceToken(userId, "test-device-token-" + userId);
+        jdbc.update("update users set device_token=? where id=?", "test-device-token-" + userId, userId);
         NotificationSettingsRequest settings = new NotificationSettingsRequest();
         ReflectionTestUtils.setField(settings, "notificationEnabled", notificationEnabled);
         ReflectionTestUtils.setField(settings, "soundEnabled", true);

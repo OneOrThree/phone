@@ -7,7 +7,7 @@ import com.oneorthree.business.common.api.PublicCurrentState;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAppearanceClient;
 import com.oneorthree.business.upstream.data.dto.IslandAppearancePatchResult;
 import com.oneorthree.business.upstream.data.dto.IslandAppearanceState;
 import com.oneorthree.business.upstream.data.dto.PersonalAppearancePatchResult;
@@ -49,7 +49,7 @@ public class AppearanceUseCase {
             // 등록됐지만 종류·소유자·대상이 다르거나 null 불가 슬롯의 null·미등록 건물 키.
             Map.entry("OUT_OF_RANGE", new PublicFailure(ApiErrorCode.OUT_OF_RANGE, null)));
 
-    private final DataApiClient data;
+    private final DataAppearanceClient data;
 
     /** 개인 인벤토리 (LLD §3 GET /me/inventory). */
     public PersonalInventory myInventory(AccessTokenClaims claims, Deadline deadline) {

@@ -12,8 +12,7 @@ import java.util.UUID;
 /**
  * 내 그룹 목록의 한 줄.
  *
- * <p>{@code role} 이 함께 실려 목록에서 바로 방장 배지를 그린다. {@code code} 는 초대 링크 전환으로
- * 폐기된 참가 코드라 화면에 쓰지 않는다(계약 유지용 잔존 필드). 목록은 페이지네이션이 없고,
+ * <p>{@code role} 이 함께 실려 목록에서 바로 방장 배지를 그린다. 목록은 페이지네이션이 없고,
  * 대신 소속 그룹 수 상한이 응답 크기를 상수로 묶는다.
  */
 @Getter
@@ -28,7 +27,6 @@ public class GroupSummaryResponse {
      */
     String description;
 
-    String code;
     int currentMembers;
     int maxMembers;
     GroupMemberRole role;

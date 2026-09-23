@@ -100,7 +100,7 @@ class LetterContractTest extends UpstreamTestBase {
     void sendRejectsEmptyOrIncompleteUpstreamBody(String body) throws Exception {
         DATA.on(DATA_SEND, request -> ok(body));
         mockMvc.perform(write(post("/letters"), SEND_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -168,7 +168,7 @@ class LetterContractTest extends UpstreamTestBase {
     void listRejectsIncompleteSlice(String body) throws Exception {
         DATA.on(DATA_LIST, request -> ok(body));
         mockMvc.perform(auth(get("/letters")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -193,8 +193,8 @@ class LetterContractTest extends UpstreamTestBase {
             "404,LETTER_RECIPIENT_NOT_FRIEND,404,NOT_FOUND,receiverId",
             "404,TARGET_USER_NOT_FOUND,404,NOT_FOUND,receiverId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "422,LETTER_CONTENT_OUT_OF_RANGE,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_LETTER_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "422,LETTER_CONTENT_OUT_OF_RANGE,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_LETTER_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void sendMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_SEND, request -> error(upstreamStatus, code));
@@ -303,7 +303,7 @@ class LetterContractTest extends UpstreamTestBase {
             "403,NOT_LETTER_RECEIVER,403,FORBIDDEN,letterId",
             "403,NOT_LETTER_PARTICIPANT,403,FORBIDDEN,letterId",
             "403,LETTER_MAILBOX_LOCKED,403,FACILITY_LOCKED,",
-            "400,UNKNOWN_LETTER_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "400,UNKNOWN_LETTER_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void closeMapsDomainFailuresWithLetterIdField(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_CLOSE, request -> error(upstreamStatus, code));

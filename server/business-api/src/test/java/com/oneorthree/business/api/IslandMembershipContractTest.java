@@ -133,13 +133,13 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("판별자와 알맹이가 어긋난 상류 응답은 502 다")
+    @DisplayName("판별자와 알맹이가 어긋난 상류 응답은 400 다")
     void inconsistentScopeEnvelopeIsAContractError() throws Exception {
         DATA.on(DATA_ISLAND, request -> ok("{\"scope\":\"member\",\"visitor\":" + SUMMARY
                 + ",\"member\":null}"));
 
         mockMvc.perform(auth(get("/islands/" + ISLAND)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -175,7 +175,7 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("현재 섬이 없는 정상 응답은 null 로 통과하고 빈 본문만 502 다")
+    @DisplayName("현재 섬이 없는 정상 응답은 null 로 통과하고 빈 본문만 400 다")
     void nullCurrentIslandPassesButAnEmptyBodyDoesNot() throws Exception {
         DATA.on(DATA_MINE, request -> ok("{\"items\":[],\"currentIslandId\":null}"));
         mockMvc.perform(auth(get("/me/islands")))
@@ -186,7 +186,7 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         DATA.reset();
         DATA.on(DATA_MINE, request -> new MockUpstream.Response(200, ""));
         mockMvc.perform(auth(get("/me/islands")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -209,13 +209,13 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("현재 섬이 있는데 상실 사유가 함께 오면 502 다 — V84 의 CHECK 와 같은 불변식")
+    @DisplayName("현재 섬이 있는데 상실 사유가 함께 오면 400 다 — V84 의 CHECK 와 같은 불변식")
     void aCurrentIslandWithALossReasonIsAContractViolation() throws Exception {
         DATA.on(DATA_MINE, request -> ok("{\"items\":[" + SUMMARY + "],\"currentIslandId\":\""
                 + ISLAND + "\",\"lossReason\":\"LEFT\"}"));
 
         mockMvc.perform(auth(get("/me/islands")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -344,10 +344,10 @@ class IslandMembershipContractTest extends UpstreamTestBase {
             "409,SESSION_IN_PROGRESS,409,STATE_CONFLICT,",
             "409,GROUP_LIMIT_EXCEEDED,409,STATE_CONFLICT,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,MEMBER_ONLY,502,UPSTREAM_CONTRACT_ERROR,",
-            "403,SESSION_IN_PROGRESS,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_ISLAND_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,",
+            "403,SESSION_IN_PROGRESS,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_ISLAND_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_SWITCH, request -> error(upstreamStatus, code));

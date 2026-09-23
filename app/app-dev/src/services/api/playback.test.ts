@@ -26,19 +26,24 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
 
-test('재생 anchor는 serverNow까지 흐른 시간을 더하고 곡 길이로 순환한다', () => {
+test('재생 anchor는 serverNow와 스냅숏 수신 뒤 흐른 시간을 더하고 곡 길이로 순환한다', () => {
+  const observedAt = Date.parse('2026-09-22T00:01:00Z');
   assert.equal(
-    playbackSeekSeconds({
-      trackId: 'rain',
-      playing: true,
-      positionSeconds: 118,
-      effectiveAt: '2026-09-22T00:00:00Z',
-      changedBy: 'u1',
-      version: 4,
-      serverNow: '2026-09-22T00:00:05Z',
-      durationSeconds: 120,
-    }),
-    3,
+    playbackSeekSeconds(
+      {
+        trackId: 'rain',
+        playing: true,
+        positionSeconds: 118,
+        effectiveAt: '2026-09-22T00:00:00Z',
+        changedBy: 'u1',
+        version: 4,
+        serverNow: '2026-09-22T00:00:05Z',
+        durationSeconds: 120,
+      },
+      observedAt,
+      observedAt + 7_000,
+    ),
+    10,
   );
 });
 

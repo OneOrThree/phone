@@ -52,7 +52,8 @@ import {
   trackNames,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
-import { ApiError } from '@/services/api/client';
+import { ApiError, uuid } from '@/services/api/client';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
@@ -227,7 +228,7 @@ function Boat({ state, h = 260, scarf }: any) {
   );
 }
 // mini = 내 정보의 6칸 작은 그리드, six = 가로 온보딩의 6칸 한 줄. v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
-function AvatarGrid({ value, onChange, mini = false, six = false }: any) {
+function AvatarGrid({ value, onChange, mini = false, six = false, disabled = false }: any) {
   const per = mini || six ? 6 : 3,
     gap = mini ? 6 : six ? 8 : 10,
     size = mini ? 11 : six ? 12 : 13,
@@ -250,6 +251,7 @@ function AvatarGrid({ value, onChange, mini = false, six = false }: any) {
                   accessibilityRole="button"
                   accessibilityLabel={colorNames[colors.indexOf(c)]}
                   accessibilityState={{ selected: on }}
+                  disabled={disabled}
                   key={c}
                   onPress={() => onChange(c)}
                   style={{
@@ -739,13 +741,15 @@ export function RedesignScreens({ e }: any) {
     [soundDialog, setSoundDialog] = useState<{
       kind: 'confirm' | 'success' | 'error';
       productId: string;
+      product: any;
     } | null>(null),
     // 초대 코드 확인으로 받은 섬 미리보기 — 가입은 사용자가 카드를 보고 명시적으로 누른다
     [invitePick, setInvitePick] = useState<IslandSummary | null>(null),
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
     [serverDone, setServerDone] = useState('');
   const chat = useRef<ScrollView>(null),
-    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
+    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null);
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
@@ -799,7 +803,7 @@ export function RedesignScreens({ e }: any) {
   // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
   // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
   const shopApi = useShop({
-    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound'].includes(route),
+    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound', 'focus'].includes(route),
     islandId: snap?.currentIslandId ?? null,
     route,
     category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
@@ -2472,9 +2476,7 @@ export function RedesignScreens({ e }: any) {
           ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
         ];
     const largeText = (layout.fontScale ?? 1) >= gramophone.largeTextThreshold;
-    const dialogProduct = soundDialog
-      ? audioProducts.find((product) => product.id === soundDialog.productId)
-      : undefined;
+    const dialogProduct = soundDialog?.product;
     const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
       if (!server) {
         if (patch.trackId) setTrack(patch.trackId);
@@ -2499,7 +2501,7 @@ export function RedesignScreens({ e }: any) {
           (server && (product?.available === false || product?.price == null))
         )
           return;
-        setSoundDialog({ kind: 'confirm', productId: id });
+        if (product) setSoundDialog({ kind: 'confirm', productId: id, product });
       }
     };
     const buyTrack = async () => {
@@ -2507,11 +2509,11 @@ export function RedesignScreens({ e }: any) {
       if (server) {
         try {
           await shopApi.buy(dialogProduct);
-          setSoundDialog({ kind: 'success', productId: dialogProduct.id });
+          setSoundDialog({ kind: 'success', productId: dialogProduct.id, product: dialogProduct });
         } catch (thrown) {
           if (e.conversion?.offer(thrown)) setSoundDialog(null);
           else if (thrown instanceof ApiError && thrown.code === 'INSUFFICIENT_FUNDS')
-            setSoundDialog({ kind: 'error', productId: dialogProduct.id });
+            setSoundDialog({ kind: 'error', productId: dialogProduct.id, product: dialogProduct });
           else {
             setSoundDialog(null);
             notify(
@@ -2524,11 +2526,11 @@ export function RedesignScreens({ e }: any) {
         return;
       }
       if (canBuy(state, dialogProduct)) {
-        setSoundDialog({ kind: 'error', productId: dialogProduct.id });
+        setSoundDialog({ kind: 'error', productId: dialogProduct.id, product: dialogProduct });
         return;
       }
       act('BUY', { id: dialogProduct.id });
-      setSoundDialog({ kind: 'success', productId: dialogProduct.id });
+      setSoundDialog({ kind: 'success', productId: dialogProduct.id, product: dialogProduct });
     };
     const bottomWidth = Math.min(gramophone.panelWidth, layout.width - ins.left - ins.right - 36);
     const panelWidth = layout.compact
@@ -5725,23 +5727,51 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
         action="저장"
         actionPress={() => {
-          if (!profileName.trim()) {
+          const name = profileName.trim();
+          if (!name) {
             notify('닉네임을 입력해 주세요.');
             return;
           }
-          act('PROFILE', { name: profileName, color: profileColor });
-          notify('저장했어요.');
-          back();
+          if (!server) {
+            act('PROFILE', { name, color: profileColor });
+            notify('저장했어요.');
+            back();
+            return;
+          }
+          const signature = JSON.stringify([name, profileColor]);
+          if (profileSaveIntent.current?.signature !== signature) {
+            profileSaveIntent.current = { signature, key: uuid() };
+          }
+          const intent = profileSaveIntent.current;
+          run(
+            () =>
+              updateProfile({ name, catColor: profileColor }, intent.key).then((saved) => {
+                if (profileSaveIntent.current?.key === intent.key) profileSaveIntent.current = null;
+                act('PROFILE', {
+                  name: saved.name ?? name,
+                  color: saved.catColor ?? profileColor,
+                });
+                notify('저장했어요.');
+                back();
+              }),
+            notify,
+          );
         }}
       >
         <View style={{ alignItems: 'center' }}>
           <Avatar color={profileColor} size={96} />
         </View>
-        <AvatarGrid mini value={profileColor} onChange={setProfileColor} />
+        <AvatarGrid
+          mini
+          value={profileColor}
+          onChange={serverBusy ? () => {} : setProfileColor}
+          disabled={serverBusy}
+        />
         <Field
           label="닉네임"
           value={profileName}
-          onChange={setProfileName}
+          onChange={serverBusy ? () => {} : setProfileName}
+          disabled={serverBusy}
           inputStyle={sheetInput}
         />
         <SheetGroup>
@@ -5769,13 +5799,23 @@ export function RedesignScreens({ e }: any) {
                   '회원 탈퇴할까요?',
                   '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
                   () => {
-                    screenTime
-                      .resetScreenTimeData()
-                      .catch(() => {})
-                      .finally(() => {
-                        act('DELETE_ACCOUNT');
-                        reset('login');
-                      });
+                    if (!server) {
+                      screenTime
+                        .resetScreenTimeData()
+                        .catch(() => {})
+                        .finally(() => {
+                          act('DELETE_ACCOUNT');
+                          reset('login');
+                        });
+                      return;
+                    }
+                    run(async () => {
+                      await withdrawAccount();
+                      await screenTime.resetScreenTimeData().catch(() => {});
+                      await e.signOut();
+                      act('DELETE_ACCOUNT');
+                      reset('login');
+                    }, notify);
                   },
                   { ok: '탈퇴', destructive: true },
                 )

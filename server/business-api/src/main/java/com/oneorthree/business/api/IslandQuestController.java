@@ -7,7 +7,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataQuestClient;
 import com.oneorthree.business.upstream.data.dto.IslandQuestViews;
 import com.oneorthree.business.usecase.IslandQuestUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -112,7 +112,7 @@ public class IslandQuestController {
                 throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "timezone");
             }
         }
-        DataApiClient.QuestCreateCommand command = new DataApiClient.QuestCreateCommand(string(body, "title"), type,
+        DataQuestClient.QuestCreateCommand command = new DataQuestClient.QuestCreateCommand(string(body, "title"), type,
                 integer(body, "targetMinutes"), windowStart, windowEnd, timezone);
         IslandQuestViews.Created created = quests.create(claims,
                 uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER), command, key, deadline());

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
+import { ApiError, CLIENT_NETWORK_ERROR } from '@/services/api/client';
 import { getPlayback, patchPlayback, type PlaybackState } from '@/services/api/playback';
 import { stompIslandChannel, type IslandChannelOpts } from '@/services/islandRealtime';
 import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
@@ -58,7 +59,56 @@ test('진입 GET의 전체 상태를 적용하고 현재 version으로 PATCH한�
     type: 'PLAYBACK_SYNC',
     islandId: ISLAND,
     playback: next,
+    observedAtMs: dispatch.mock.calls.at(-1)?.[0].observedAtMs,
   });
+  assert.equal(typeof dispatch.mock.calls.at(-1)?.[0].observedAtMs, 'number');
+});
+
+test('연속 재생 명령은 앞 요청 뒤에 최신 version으로 직렬 실행한다', async () => {
+  let finishFirst!: (value: PlaybackState) => void;
+  (patchPlayback as jest.Mock)
+    .mockImplementationOnce(() => new Promise<PlaybackState>((resolve) => (finishFirst = resolve)))
+    .mockResolvedValueOnce(playback({ playing: false, version: 4 }));
+  const dispatch = jest.fn();
+  const { result } = await renderHook(() =>
+    useIslandPlayback({ active: true, islandId: ISLAND, dispatch }),
+  );
+  await waitFor(() => assert.equal(result.current.state?.version, 2));
+
+  let play!: Promise<PlaybackState>;
+  let stop!: Promise<PlaybackState>;
+  play = result.current.update({ playing: true });
+  stop = result.current.update({ playing: false });
+  await waitFor(() => assert.equal((patchPlayback as jest.Mock).mock.calls.length, 1));
+  await act(async () => {
+    finishFirst(playback({ playing: true, version: 3 }));
+    await Promise.all([play, stop]);
+  });
+
+  assert.deepEqual((patchPlayback as jest.Mock).mock.calls[1][1], {
+    playing: false,
+    expectedVersion: 3,
+  });
+});
+
+test('응답 유실 재시도는 같은 body와 멱등 키를 다시 사용한다', async () => {
+  (patchPlayback as jest.Mock)
+    .mockRejectedValueOnce(new ApiError(CLIENT_NETWORK_ERROR, '연결 실패', 0))
+    .mockResolvedValueOnce(playback({ playing: true, version: 3 }));
+  const dispatch = jest.fn();
+  const { result } = await renderHook(() =>
+    useIslandPlayback({ active: true, islandId: ISLAND, dispatch }),
+  );
+  await waitFor(() => assert.equal(result.current.state?.version, 2));
+
+  await act(async () => {
+    await result.current.update({ playing: true });
+  });
+
+  const first = (patchPlayback as jest.Mock).mock.calls[0];
+  const retry = (patchPlayback as jest.Mock).mock.calls[1];
+  assert.deepEqual(retry[1], first[1]);
+  assert.equal(retry[2], first[2]);
 });
 
 test('더 높은 playback.updated만 적용하고 재연결 onOpen에서 GET으로 복구한다', async () => {

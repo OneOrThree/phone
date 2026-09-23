@@ -76,7 +76,9 @@ jobs:
               "${compose[@]}" up -d datadog-agent app
               ;;
             restart)
-              "${compose[@]}" restart datadog-agent app
+              # restart는 변경된 compose 환경을 반영하지 않는다. Agent와 app을 재생성해 새 이미지
+              # 인벤토리 설정과 APM overlay를 확실히 적용한다.
+              "${compose[@]}" up -d --force-recreate datadog-agent app
               ;;
             down)
               # Datadog Agent 제거 후, app 을 dev 파일 단독으로 재생성 → 평문(javaagent 없음) 복원
@@ -220,9 +222,10 @@ jobs:
           # 2) 컨테이너별 메트릭 — 체크가 **등록되어 있고** 에러가 없어야 한다.
           #    docker.sock 권한 문제나 Autodiscovery 초기화 실패면 체크가 아예 안 잡히는데,
           #    에러만 검사하면 그 경우가 빈 결과 → 통과로 새어나간다.
-          cnt=$(jq -r '[.runnerStats.Checks.container // {}, .runnerStats.Checks.docker // {}]
+          cnt=$(jq -r '[.runnerStats.Checks.container // {}, .runnerStats.Checks.docker // {},
+                        .runnerStats.Checks.container_image // {}]
                        | map(to_entries | length) | add' /tmp/dd-after.json)
-          echo "container/docker 체크 인스턴스: ${cnt}개"
+          echo "container/docker/container_image 체크 인스턴스: ${cnt}개"
           if [ "${cnt:-0}" -eq 0 ] 2>/dev/null; then
             echo "::error::container/docker 체크가 하나도 등록되지 않음 — docker.sock 마운트·권한 또는 Autodiscovery 초기화 실패"
             fail=1
@@ -245,9 +248,9 @@ jobs:
             echo "${chk} 체크: 인스턴스 ${n}개, 메트릭 샘플 ${b} -> ${a}"
 
             if [ "${n:-0}" -eq 0 ] 2>/dev/null; then
-              # container 는 복구 대상이라 부재 자체가 실패다. docker 는 보조 지표라 경고만 남긴다.
+              # container는 이번 메트릭 수집 계약이라 부재 자체가 실패다. docker는 보조 지표다.
               if [ "$chk" = container ]; then
-                echo "::error::container 체크가 등록되지 않음 — workloadmeta/Autodiscovery 초기화 실패"
+                echo "::error::${chk} 체크가 등록되지 않음 — workloadmeta/Autodiscovery 또는 이미지 수집 초기화 실패"
                 fail=1
               else
                 echo "  (docker 체크 미등록 — container 가 살아 있으면 치명적이지 않다)"
@@ -263,13 +266,22 @@ jobs:
               fail=1
             fi
           done
+          # container_image는 Container Images Explorer로 메타데이터를 보내는 인벤토리 체크다.
+          # 메트릭 체크가 아니어서 정상이어도 TotalMetricSamples는 0일 수 있으므로 등록 여부와
+          # LastError만 검사하고 샘플 증가를 요구하지 않는다.
+          image_instances=$(jq -r '.runnerStats.Checks.container_image // {} | to_entries | length' /tmp/dd-after.json)
+          echo "container_image 체크: 인스턴스 ${image_instances}개 (인벤토리 — 메트릭 샘플 수 미검사)"
+          if [ "${image_instances:-0}" -eq 0 ] 2>/dev/null; then
+            echo "::error::container_image 체크가 등록되지 않음 — 이미지 인벤토리 초기화 실패"
+            fail=1
+          fi
           errs=$(jq -r '.runnerStats.Checks | to_entries[]
-                        | select(.key == "container" or .key == "docker")
+                        | select(.key == "container" or .key == "docker" or .key == "container_image")
                         | .value | to_entries[]
                         | select((.value.LastError // "") != "")
                         | "  \(.value.CheckName): \(.value.LastError)"' /tmp/dd-after.json)
           if [ -n "$errs" ]; then
-            echo "::error::container/docker 체크 에러 — docker API 응답 지연(호스트 부하) 가능. DD_DOCKER_QUERY_TIMEOUT 확인"
+            echo "::error::container/docker/container_image 체크 에러 — docker API 응답 지연(호스트 부하) 가능. DD_DOCKER_QUERY_TIMEOUT 확인"
             echo "$errs"
             fail=1
           fi
@@ -311,6 +323,27 @@ jobs:
               echo "::error::OpenMetrics 샘플 0건 — metrics 허용 목록과 실제 메트릭 이름 불일치 가능"
               fail=1
             fi
+          fi
+
+          # 4) Redis·Kafka integration — 컨테이너가 실행 중일 때 Autodiscovery check도 실제 실행한다.
+          # status JSON의 등록 여부만 보면 초기화 직후 0 sample이 통과할 수 있어 `agent check` 결과를 쓴다.
+          if docker ps --format '{{.Names}}' | grep -Fxq phone-redis; then
+            echo "== Redis integration 검증 =="
+            docker exec gromo-datadog-agent agent check redisdb >/tmp/dd-redis-check.txt 2>&1 || {
+              sed -n '1,160p' /tmp/dd-redis-check.txt
+              echo "::error::Redis integration 수집 실패"
+              fail=1
+            }
+          fi
+          if docker ps --format '{{.Names}}' | grep -Fxq phone-kafka; then
+            echo "== Kafka JMX·consumer integration 검증 =="
+            for integration in kafka kafka_consumer; do
+              docker exec gromo-datadog-agent agent check "$integration" >"/tmp/dd-${integration}-check.txt" 2>&1 || {
+                sed -n '1,160p' "/tmp/dd-${integration}-check.txt"
+                echo "::error::${integration} integration 수집 실패"
+                fail=1
+              }
+            done
           fi
 
           [ "$fail" -eq 0 ] || { echo "수집 검증 실패 — 위 오류 참고"; exit 1; }

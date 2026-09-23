@@ -6,7 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataQuestClient;
 import com.oneorthree.business.upstream.data.dto.IslandQuestViews;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -51,7 +51,7 @@ public class IslandQuestUseCase {
             Map.entry("QUEST_CREATION_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)),
             Map.entry("QUEST_SETTLEMENT_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)));
 
-    private final DataApiClient data;
+    private final DataQuestClient data;
 
     public IslandQuestViews.Current current(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
         return required(relay(() -> data.fetchCurrentQuests(claims.userId(), islandId, deadline)),
@@ -70,7 +70,7 @@ public class IslandQuestUseCase {
     }
 
     public IslandQuestViews.Created create(AccessTokenClaims claims, UUID islandId,
-            DataApiClient.QuestCreateCommand command, UUID key, Deadline deadline) {
+            DataQuestClient.QuestCreateCommand command, UUID key, Deadline deadline) {
         return required(relay(() -> data.createQuest(claims.userId(), islandId, command, key, deadline)),
                 "퀘스트 생성 응답이 없습니다");
     }

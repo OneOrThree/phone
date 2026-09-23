@@ -36,17 +36,19 @@ FROM eclipse-temurin:17-jre-jammy
 #        멀쩡한데도 컨테이너가 계속 unhealthy 로 판정된다. 그 의존을 이미지 안에 못 박는다.
 # poppler-utils·util-linux — PDF 썸네일은 prlimit 으로 제한한 별도 pdftoppm 프로세스에서 처리한다.
 # fonts-noto-cjk — 한글이 들어간 PDF 첫 페이지가 두부(□)로 렌더되지 않게 한다.
+ADD --checksum=sha256:aeb74b05314e21211b55af13240723dd9014e18dd70422f8501fa180b1b3113b \
+    https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar /opt/dd-java-agent.jar
+# 원격 ADD 는 JAR 를 0600 으로 남길 수 있으므로 business 실행 사용자가 읽게 고정한다.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl poppler-utils util-linux fonts-noto-cjk \
-    && curl --fail --silent --show-error --location \
-       https://repo1.maven.org/maven2/com/datadoghq/dd-java-agent/1.64.0/dd-java-agent-1.64.0.jar \
-       --output /opt/dd-java-agent.jar \
     && rm -rf /var/lib/apt/lists/* \
     && groupadd -g 10001 business && useradd -u 10001 -g business -M business \
-    && mkdir -p /app/logs && chown -R business:business /app
+    && mkdir -p /app/logs && chown -R business:business /app \
+    && chmod 0644 /opt/dd-java-agent.jar
 WORKDIR /app
 COPY --from=artifact /app/app.jar app.jar
 USER business
+RUN test -r /opt/dd-java-agent.jar
 # headless — ImageIO 축소 경로가 X11 을 찾지 않게 한다.
 ENV JAVA_TOOL_OPTIONS="-Xmx512m -XX:ActiveProcessorCount=2 -Djava.awt.headless=true -javaagent:/opt/dd-java-agent.jar"
 # 8080 — compose 가 SERVER_PORT=8080 을 주고 /health 를 검사한다. 위성 배포에서 8082 는 알림 서버 몫이다.

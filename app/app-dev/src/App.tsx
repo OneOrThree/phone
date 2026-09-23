@@ -99,6 +99,7 @@ import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
+import { trackDatadogView } from '@/services/datadog';
 const REVIEW =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
@@ -263,6 +264,8 @@ function Gromo() {
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
+
+  useEffect(() => trackDatadogView(route, titles[route]), [route]);
   const transition = useRef(new Animated.Value(1)).current,
     boatTravel = useRef(new Animated.Value(-180)).current,
     toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
@@ -764,7 +767,9 @@ function Gromo() {
       }
       player.replace(source);
       player.loop = true;
-      const seek = island.serverPlayback ? playbackSeekSeconds(island.serverPlayback) : 0;
+      const seek = island.serverPlayback
+        ? playbackSeekSeconds(island.serverPlayback, island.serverPlaybackObservedAtMs)
+        : 0;
       Promise.resolve(player.seekTo(seek))
         .then(() => {
           if (cancelled) return;
@@ -781,6 +786,7 @@ function Gromo() {
     island.id,
     island.serverPlayback?.version,
     island.serverPlayback?.serverNow,
+    island.serverPlaybackObservedAtMs,
     previewAudio,
     islandAudioOn,
   ]);

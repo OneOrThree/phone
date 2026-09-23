@@ -10,9 +10,24 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
 let mockFontScale = 1;
+jest.mock('@/services/api/account', () => ({
+  updateProfile: jest.fn(),
+  withdrawAccount: jest.fn(),
+}));
+const mockUpdateProfile = updateProfile as jest.Mock;
+const mockWithdrawAccount = withdrawAccount as jest.Mock;
+const notifyMock = jest.fn();
+const backMock = jest.fn();
+beforeEach(() => {
+  mockUpdateProfile.mockReset();
+  mockWithdrawAccount.mockReset();
+  notifyMock.mockClear();
+  backMock.mockClear();
+});
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
@@ -84,9 +99,12 @@ function Harness({
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
   const go = useRef(jest.fn()).current;
+  const reset = useRef(jest.fn()).current;
+  const signOut = useRef(jest.fn(async () => {})).current;
+  const confirm = useRef(jest.fn((_title, _body, ok) => ok())).current;
   useEffect(() => {
     seed?.(dispatch);
-    expose?.({ dispatch, actions: actions.current, go });
+    expose?.({ dispatch, actions: actions.current, go, reset, signOut });
   }, []);
   return (
     <RedesignScreens
@@ -96,11 +114,12 @@ function Harness({
         dispatch,
         go,
         replace: jest.fn(),
-        reset: jest.fn(),
+        reset,
         home: jest.fn(),
-        back: jest.fn(),
-        notify: jest.fn(),
-        confirm: jest.fn(),
+        back: backMock,
+        notify: notifyMock,
+        confirm,
+        signOut,
         build: jest.fn(),
         text,
         setText,
@@ -782,4 +801,123 @@ test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친�
   assert.equal(exposed.go.mock.calls[0][1], 'settings');
   assert.equal(s.queryByText('측정 권한'), null);
   assert.equal(s.queryByText('측정 앱'), null);
+});
+
+test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
+  let exposed: any;
+  let release: (v: unknown) => void = () => {};
+  mockUpdateProfile.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
+  await fireEvent.press(s.getByText('저장'));
+  await fireEvent.press(s.getByText('저장'));
+  assert.equal(mockUpdateProfile.mock.calls.length, 1);
+  // 본문은 trim 된 닉네임과 현재 고양이 색 — 서버 계약 키만 보낸다
+  assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: '구름이', catColor: 'black' });
+  assert.ok(!exposed.actions.includes('PROFILE'));
+
+  await act(async () =>
+    release({ id: 'u1', name: '구름이', catColor: 'calico', mainIslandId: 'i1' }),
+  );
+  await waitFor(() => assert.ok(exposed.actions.includes('PROFILE')));
+  // 저장본이 정본 — 응답의 name/catColor 가 로컬을 덮는다
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    true,
+  );
+  assert.equal(backMock.mock.calls.length, 1);
+});
+
+test('프로필 저장 실패는 PROFILE·뒤로가기·성공 문구 없이 서버 오류 문구만 알린다', async () => {
+  let exposed: any;
+  mockUpdateProfile.mockRejectedValue(
+    new ApiError('NICKNAME_DUPLICATE', '이미 쓰는 닉네임이에요.', 409),
+  );
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() =>
+    assert.ok(notifyMock.mock.calls.some((c) => c[0] === '이미 쓰는 닉네임이에요.')),
+  );
+  assert.ok(!exposed.actions.includes('PROFILE'));
+  assert.equal(backMock.mock.calls.length, 0);
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    false,
+  );
+
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 2));
+  assert.equal(mockUpdateProfile.mock.calls[0][1], mockUpdateProfile.mock.calls[1][1]);
+});
+
+test('프로필 저장 중에는 후속 편집을 받지 않는다', async () => {
+  let release: (v: unknown) => void = () => {};
+  mockUpdateProfile.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+  const s = await render(<Harness route="profile" full api={() => ({})} />);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '바다');
+
+  assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+  await act(async () =>
+    release({ id: 'u1', name: '구름이', catColor: 'black', mainIslandId: 'i1' }),
+  );
+});
+
+test('목업 모드 프로필 저장은 API 없이 로컬 PROFILE을 갱신한다', async () => {
+  let exposed: any;
+  const s = await render(<Harness route="profile" full expose={(x: any) => (exposed = x)} />);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
+  await fireEvent.press(s.getByText('저장'));
+
+  assert.equal(mockUpdateProfile.mock.calls.length, 0);
+  assert.ok(exposed.actions.includes('PROFILE'));
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    true,
+  );
+  assert.equal(backMock.mock.calls.length, 1);
+});
+
+test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로그인 이동을 수행한다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  await waitFor(() => assert.equal(exposed.signOut.mock.calls.length, 1));
+  assert.ok(exposed.actions.includes('DELETE_ACCOUNT'));
+  assert.equal(exposed.reset.mock.calls[0][0], 'login');
+});
+
+test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 오류를 알린다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockRejectedValue(new ApiError('STATE_CONFLICT', '탈퇴할 수 없어요.', 409));
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() =>
+    assert.ok(
+      notifyMock.mock.calls.some(
+        (c) => c[0] === '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
+      ),
+    ),
+  );
+  assert.equal(exposed.signOut.mock.calls.length, 0);
+  assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
+  assert.equal(exposed.reset.mock.calls.length, 0);
 });

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
-import { ApiError, uuid } from '@/services/api/client';
+import { ApiError, CLIENT_NETWORK_ERROR, CLIENT_TIMEOUT, uuid } from '@/services/api/client';
 import {
   getPlayback,
   patchPlayback,
@@ -68,7 +68,8 @@ export function useIslandPlayback({
         return;
       stateRef.current = next;
       setState(next);
-      if (islandId) dispatch({ type: 'PLAYBACK_SYNC', islandId, playback: next });
+      if (islandId)
+        dispatch({ type: 'PLAYBACK_SYNC', islandId, playback: next, observedAtMs: Date.now() });
     },
     [dispatch, islandId],
   );
@@ -133,9 +134,7 @@ export function useIslandPlayback({
 
   const update = useCallback(
     (patch: Omit<PlaybackPatch, 'expectedVersion'>): Promise<PlaybackState> => {
-      if (writing.current) return writing.current;
-      const current = stateRef.current;
-      if (!active || !islandId || !current)
+      if (!active || !islandId || !stateRef.current)
         return Promise.reject(
           new ApiError(
             'CLIENT_INACTIVE',
@@ -143,10 +142,28 @@ export function useIslandPlayback({
             0,
           ),
         );
-      const body: PlaybackPatch = { ...patch, expectedVersion: current.version };
       const ownEpoch = epoch.current;
       const generation = sessionGeneration();
-      const flight = patchPlayback(islandId, body, uuid())
+      const previous = writing.current;
+      const flight = (previous ? previous.catch(() => undefined) : Promise.resolve())
+        .then(async () => {
+          const current = stateRef.current;
+          if (!current || ownEpoch !== epoch.current || generation !== sessionGeneration())
+            throw new ApiError('CLIENT_STALE_SESSION', '로그인 정보가 바뀌었어요.', 0);
+          const body: PlaybackPatch = { ...patch, expectedVersion: current.version };
+          const key = uuid();
+          try {
+            return await patchPlayback(islandId, body, key);
+          } catch (thrown) {
+            const retryable =
+              thrown instanceof ApiError &&
+              (thrown.retryable ||
+                thrown.code === CLIENT_NETWORK_ERROR ||
+                thrown.code === CLIENT_TIMEOUT);
+            if (!retryable) throw thrown;
+            return patchPlayback(islandId, body, key);
+          }
+        })
         .then((next) => {
           if (ownEpoch !== epoch.current || generation !== sessionGeneration())
             throw new ApiError('CLIENT_STALE_SESSION', '로그인 정보가 바뀌었어요.', 0);

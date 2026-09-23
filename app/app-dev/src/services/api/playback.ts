@@ -18,13 +18,17 @@ export type PlaybackPatch = {
 };
 
 /** 서버 anchor를 응답 관측 시점의 실제 재생 위치로 환산한다. */
-export function playbackSeekSeconds(state: PlaybackState): number {
+export function playbackSeekSeconds(
+  state: PlaybackState,
+  observedAtMs = Date.now(),
+  nowMs = Date.now(),
+): number {
   if (state.trackId === null) return 0;
   const effectiveAt = Date.parse(state.effectiveAt);
   const serverNow = Date.parse(state.serverNow);
   const elapsed =
     state.playing && Number.isFinite(effectiveAt) && Number.isFinite(serverNow)
-      ? Math.max(0, (serverNow - effectiveAt) / 1000)
+      ? Math.max(0, (serverNow - effectiveAt + Math.max(0, nowMs - observedAtMs)) / 1000)
       : 0;
   const position = Math.max(0, state.positionSeconds + elapsed);
   return state.durationSeconds && state.durationSeconds > 0

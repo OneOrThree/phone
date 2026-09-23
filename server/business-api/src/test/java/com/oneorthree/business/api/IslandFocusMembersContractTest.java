@@ -89,9 +89,9 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
     @CsvSource({"focus-members,403,MEMBER_ONLY,403,FORBIDDEN,islandId",
             "rest-members,403,MEMBER_ONLY,403,FORBIDDEN,islandId",
             "focus-members,404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "rest-members,409,MEMBER_ONLY,502,UPSTREAM_CONTRACT_ERROR,",
-            "focus-members,400,UNKNOWN_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "rest-members,409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,",
+            "focus-members,400,UNKNOWN_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void mapsOnlyExactDomainStatusAndCode(String route, int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on("GET " + INTERNAL + "/" + route, request -> new MockUpstream.Response(upstreamStatus,

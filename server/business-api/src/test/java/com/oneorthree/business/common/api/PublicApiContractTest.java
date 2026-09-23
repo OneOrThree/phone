@@ -39,6 +39,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -92,7 +93,62 @@ class PublicApiContractTest extends UpstreamTestBase {
                 // GROMO-1992 게스트 차단(403)·GROMO-1994 소셜 계정 충돌(409): Data 와 이름·상태가 같아야
                 // registeredUpstream 이 붙는다. 일반 FORBIDDEN·STATE_CONFLICT 로 접으면 앱이 「회원 전환
                 // 안내」와 「기존 계정으로 전환할까요」를 다른 실패와 구분하지 못한다.
-                "SOCIAL_LOGIN_REQUIRED", "SOCIAL_ACCOUNT_ALREADY_LINKED");
+                "SOCIAL_LOGIN_REQUIRED", "SOCIAL_ACCOUNT_ALREADY_LINKED",
+                // GROMO-2053 게스트 승격 경쟁(409): Data AuthErrorCode 와 이름·상태가 같아야
+                // 「이미 승격된 게스트」가 502 UPSTREAM_CONTRACT_ERROR 로 접히지 않는다.
+                "GUEST_ALREADY_PROMOTED");
+    }
+
+    /**
+     * Data 의 AuthErrorCode 전부가 공개 코드로 «나갈 수 있어야» 한다 (GROMO-2053).
+     *
+     * <p>두 프로젝트는 코드를 공유하지 않으므로 상류 표는 여기 베낀 동결 목록이다 —
+     * {@link #freezesPublishedErrorNames} 가 공개 이름을 손으로 열거하듯, 여기선 상수 이름과 상류
+     * 상태를 열거한다. 상류 enum 에 상수가 더해지면 data-api 의 ErrorContractTest 상수 수 단언이
+     * 먼저 깨져 계약 변경을 강제하고, 그때 이 표를 갱신하는 순간 매핑이 없으면 아래가 깨진다.
+     * 이름·상태가 같은 ApiErrorCode 가 있으면 {@code registeredUpstream} 이 붙고, 이름이 다르면
+     * 명시 표가 그 매핑이 «어디» 있는지를 가리킨다. 어느 쪽도 없는 코드는 502 로 나간다.
+     */
+    @Test
+    void everyUpstreamAuthErrorCodeHasAPublicMapping() {
+        // 이름이 공개 계약과 달라 유스케이스가 명시적으로 옮기는 코드들:
+        // AuthSessionUseCase.DOMAIN_FAILURES·mapped, GuestSessionUseCase.
+        // LEGACY_SESSION_NOT_ACTIVE 는 legacy /api/v1/auth/* 전용이라 Business 를 지나지 않는다.
+        Map<String, ApiErrorCode> explicit = Map.of(
+                "SESSION_NOT_ACTIVE", ApiErrorCode.UNAUTHORIZED,
+                "LOGIN_ATTEMPT_IN_PROGRESS", ApiErrorCode.REQUEST_IN_PROGRESS,
+                "LOGIN_ATTEMPT_UNUSABLE", ApiErrorCode.UNAUTHORIZED,
+                "GUEST_CREATION_RATE_LIMITED", ApiErrorCode.RATE_LIMITED,
+                "LEGACY_SESSION_NOT_ACTIVE", ApiErrorCode.UNAUTHORIZED);
+        // 상류 동결 표: AuthErrorCode 상수 이름 → 상류 HTTP 상태.
+        Map<String, Integer> upstream = Map.of(
+                "SOCIAL_ACCOUNT_ALREADY_LINKED", 409,
+                "GUEST_ALREADY_PROMOTED", 409,
+                "GUEST_CREATION_RATE_LIMITED", 429,
+                "UNSUPPORTED_PROVIDER", 400,
+                "SESSION_NOT_ACTIVE", 403,
+                "LEGACY_SESSION_NOT_ACTIVE", 401,
+                "LOGIN_ATTEMPT_IN_PROGRESS", 409,
+                "LOGIN_ATTEMPT_UNUSABLE", 401);
+        List<String> unmapped = new ArrayList<>();
+        for (Map.Entry<String, Integer> code : upstream.entrySet()) {
+            if (explicit.containsKey(code.getKey())) {
+                continue;
+            }
+            ApiErrorCode sameName;
+            try {
+                sameName = ApiErrorCode.valueOf(code.getKey());
+            } catch (IllegalArgumentException e) {
+                sameName = null;
+            }
+            if (sameName == null || sameName.getStatus().value() != code.getValue()) {
+                unmapped.add(code.getKey() + "(" + code.getValue() + ")");
+            }
+        }
+        assertThat(unmapped)
+                .as("Data AuthErrorCode 에 공개 매핑이 없다 — ApiErrorCode 에 동명·동상태 상수를 "
+                        + "등록하거나 유스케이스에 명시 매핑을 추가할 것")
+                .isEmpty();
     }
 
     @Test
@@ -193,9 +249,9 @@ class PublicApiContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @CsvSource({"timeout,504,UPSTREAM_TIMEOUT,true", "capacity,503,SERVICE_UNAVAILABLE,true",
-            "credentials,502,UPSTREAM_AUTH_FAILED,false", "unknown,502,UPSTREAM_CONTRACT_ERROR,false",
-            "mismatched,502,UPSTREAM_CONTRACT_ERROR,false", "unexpected,500,INTERNAL_ERROR,false",
+    @CsvSource({"timeout,400,UPSTREAM_TIMEOUT,true", "capacity,400,SERVICE_UNAVAILABLE,true",
+            "credentials,400,UPSTREAM_AUTH_FAILED,false", "unknown,400,UPSTREAM_CONTRACT_ERROR,false",
+            "mismatched,400,UPSTREAM_CONTRACT_ERROR,false", "unexpected,400,INTERNAL_ERROR,false",
             "receipt-version,409,STATE_CONFLICT,false", "key-conflict,409,IDEMPOTENCY_KEY_REUSED,false",
             "pending,409,REQUEST_IN_PROGRESS,true"})
     void classifiesErrorsWithoutLeakingUpstreamPayload(String kind, int expectedStatus, String code,
