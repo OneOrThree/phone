@@ -102,7 +102,7 @@ jobs:
           set -euo pipefail
 
           components=(
-            'Data API|app'
+            'Data API|data-api'
             'PostgreSQL|db'
             'Data Redis|redis'
             'Realtime|realtime'

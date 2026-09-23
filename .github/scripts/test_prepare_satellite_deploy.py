@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "server" / "scripts" / "prepare-satellite-deploy.py"
 NGINX_EXAMPLE = ROOT / "server" / "scripts" / "nginx-satellites.include.conf.example"
 DATA_OVERLAY = ROOT / "server" / "scripts" / "docker-compose.satellites.data.yml"
+DEV_DATA_OVERLAY = ROOT / "server" / "scripts" / "docker-compose.satellites.data.dev.yml"
 BUSINESS_API = ROOT / "server" / "business-api" / "src" / "main" / "java" / "com" / "oneorthree" / "business" / "api"
 
 WRITER_SPEC = importlib.util.spec_from_file_location(
@@ -288,11 +289,18 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 config = subprocess.run([
                     "docker", "compose", "-p", "test-satellite", "-f", str(fixture.base),
                     "-f", str(ROOT / "server/scripts/docker-compose.satellites.yml"),
-                    "-f", str(DATA_OVERLAY), "--env-file", str(fixture.shared),
+                    "-f", str(DEV_DATA_OVERLAY if environment == "dev" else DATA_OVERLAY), "--env-file", str(fixture.shared),
                     "--env-file", str(fixture.output / "compose.env"), "config", "--format", "json",
                 ], capture_output=True, text=True)
                 self.assertEqual(config.returncode, 0, config.stderr)
-                app = json.loads(config.stdout)["services"]["app"]
+                services = json.loads(config.stdout)["services"]
+                app = services["data-api" if environment == "dev" else "app"]
+                if environment == "dev":
+                    self.assertNotIn("app", services)
+                    self.assertEqual(app["container_name"], "phone-data-api")
+                    self.assertIn("app", app["networks"]["app-network"]["aliases"])
+                    self.assertEqual(app["ports"][0]["host_ip"], "127.0.0.1")
+                    self.assertEqual(app["ports"][0]["published"], "8080")
                 self.assertEqual(app["image"], IMAGES["--data-image"])
                 values = app["environment"]
                 self.assertEqual(values["API_DB_USERNAME"], secret()["API_DB_USERNAME"])
