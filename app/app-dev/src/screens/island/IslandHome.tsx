@@ -89,10 +89,7 @@ export function IslandHome({
   const tapCountRef = useRef(0);
   const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
 
-  const triggerMotion = (
-    m: 'tilt' | 'stretch' | 'groom' | 'yawn',
-    faceLeft?: boolean,
-  ) => {
+  const triggerMotion = (m: 'tilt' | 'stretch' | 'groom' | 'yawn', faceLeft?: boolean) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (faceLeft !== undefined) setLeft(faceLeft);
     setInteractiveMotion(m);
