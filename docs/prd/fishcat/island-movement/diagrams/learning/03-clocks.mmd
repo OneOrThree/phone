@@ -1,0 +1,24 @@
+flowchart TB
+  subgraph path[경로 계산: 입력·맵 변경 시]
+    direction LR
+    Tap[탭 · 맵 변경]
+    Search[A*로 경로 결정]
+    Route[현재 경로 보관]
+    Tap --> Search --> Route
+  end
+  subgraph server[서버: 50ms마다 반복]
+    direction LR
+    Tick[보관된 경로에서 전진]
+    Latest[최신 확정 위치]
+    Send[최대 20Hz 송신<br/>혼잡 시 방송 생략 가능]
+    Tick --> Latest --> Send
+  end
+  subgraph client[앱: 화면 주기로 반복]
+    direction LR
+    Buffer[받은 상태 버퍼]
+    Display[예측 · 보간 · 보정]
+    Frame[화면 한 장 그리기<br/>60fps 예: 약 16.7ms마다]
+    Buffer --> Display --> Frame
+  end
+  path -->|새 경로를 채택| server
+  server -->|좌표가 도착하면 버퍼 갱신| client

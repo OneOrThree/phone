@@ -1,0 +1,13 @@
+flowchart TB
+  subgraph axes[서로 다른 네 가지 선택]
+    direction LR
+    L[언어<br/>계산 규칙을 무엇으로 쓰나<br/>Java · C++ · Go]
+    P[프로세스<br/>어디까지 함께 실행하나<br/>같은 JVM · 별도 JVM]
+    C[연결 경로<br/>앱 요청이 어디를 거치나<br/>직접 · gateway 중계]
+    T[프로토콜<br/>어떻게 전달하나<br/>WebSocket · QUIC]
+    L ~~~ P ~~~ C ~~~ T
+  end
+  Example[가능한 조합의 예<br/>Java + 별도 JVM + 앱 직접 연결 + QUIC]
+  axes --> Example
+  classDef focus fill:#e8f2ff,stroke:#3971a8,color:#183858
+  class Example focus

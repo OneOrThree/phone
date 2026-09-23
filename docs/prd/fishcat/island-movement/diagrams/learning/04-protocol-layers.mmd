@@ -1,0 +1,19 @@
+flowchart TB
+  subgraph ws[현재 Realtime의 WSS 연결]
+    direction TB
+    W1[도메인 데이터]
+    W2[STOMP<br/>SEND · SUBSCRIBE]
+    W3[WebSocket<br/>메시지 프레임]
+    W4[TLS<br/>전송 보호]
+    W5[TCP<br/>순서 있는 바이트 흐름]
+    W6[IP 네트워크]
+    W1 --> W2 --> W3 --> W4 --> W5 --> W6
+  end
+  subgraph quic[제안 Movement 연결]
+    direction TB
+    Q1[명령 · 경로 · 좌표]
+    Q2[QUIC<br/>reliable stream + DATAGRAM<br/>TLS 기반 보호 · 혼잡 제어]
+    Q3[UDP<br/>데이터그램 전송]
+    Q4[IP 네트워크]
+    Q1 --> Q2 --> Q3 --> Q4
+  end

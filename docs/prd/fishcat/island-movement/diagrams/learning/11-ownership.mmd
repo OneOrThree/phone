@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant A as 이전 worker A
+  participant R as 소유권 저장소
+  participant B as 새 worker B
+  participant C as 앱
+  R-->>A: 숲 섬 lease / epoch 41
+  A-->>C: epoch 41의 위치
+  A-xR: 소유권 갱신 실패
+  A->>A: lease 안전 기한 전에 틱·송신 중단
+  Note over R,B: 이전 lease 만료 확인<br/>그 뒤에 새 owner 배정
+  R-->>B: 숲 섬 lease / epoch 42
+  B-->>C: 재입장 후 epoch 42 전체 상태
+  C->>C: 이전 경로·예측 버퍼 폐기
+  A-->>C: 네트워크에 남아 있던 epoch 41 패킷
+  C->>C: 오래된 epoch이므로 무시
+  Note over A,C: lease 갱신 실패가 위치 데이터를 복원해 주지는 않음

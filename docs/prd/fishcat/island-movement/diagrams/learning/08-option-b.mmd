@@ -1,0 +1,14 @@
+flowchart LR
+  App[앱]
+  subgraph gateway[Realtime JVM]
+    G[연결 입구 · room 라우팅<br/>권한·구독 · 앱 송신 큐]
+    Chat[채팅 · 도메인 이벤트]
+    G <--> Chat
+  end
+  subgraph movement[별도 Java Movement JVM]
+    W[방 소유 worker<br/>A* · 틱 · 위치 정본<br/>gateway 송신 큐]
+  end
+  App <-->|기존 STOMP / WebSocket| G
+  G <-->|목적지·위치 중계<br/>추가 서버 홉| W
+  Note[worker 주소 · 양쪽 큐<br/>권한 취소 전파를 함께 관리]
+  movement --> Note
