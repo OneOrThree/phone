@@ -11,6 +11,7 @@ import com.oneorthree.business.linkpreview.repository.PreviewCache;
 import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.AccountMe;
 import com.oneorthree.business.upstream.data.dto.AccountProfile;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -121,6 +122,7 @@ public class AccountUseCase {
     }
 
     /** 탈퇴 성공 {@code {"deleted": true}} — legacy DELETE 의 204 와 구분한다(LLD §2.5). */
+    @Schema(name = "AccountDeleted")
     public record Deleted(boolean deleted) {
     }
 }
