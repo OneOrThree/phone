@@ -2,11 +2,13 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 · V91 · V95 · V97 ~ V99 · V100 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // ※ 번호는 연속일 필요가 없다 — Flyway 는 「이미 적용된 것보다 낮은 번호가 나중에 나타나지 않을 것」만 요구한다
 //    (prod 는 out-of-order 가 꺼져 있다). V86 은 형제 PR 순서를 풀려고 비워 둔 자리다(GROMO-1996 이 V89 로 옮겼다).
 // V88 — 휴식 1시간 자동 종료와 결과 1회 제공 (GROMO-1998): focus_settlements.auto_closed · acknowledged_at.
 //        auto_closed 가 「서버가 끝냈다」를, acknowledged_at IS NULL 조건부 UPDATE 가 「아직 안 보여 줬다」를 맡는다.
+// V100 — 기존 건설 목표의 대상 주민 명단 데이터 백필 (GROMO-1999): DDL 없음. 기여 누적이 「있는 행만 UPDATE」로
+//        바뀌어 이미 골라져 있던 목표가 대상 0명으로 굳는 것을 막는다. V30 과 같은 데이터 전용 마이그레이션이다.
 // V71 — 섬 퀘스트 (GROMO-1773 · island-quests LLD §3): island_quests · island_quest_occurrences ·
 //        island_quest_cohort_members · island_quest_claims. island_wallet_transactions.type 에 QUEST_SETTLEMENT 추가(스키마 무변경).
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·
@@ -27,11 +29,19 @@
 //        island_quest_claims.kind 를 ACHIEVER·ALL_ACHIEVED_BONUS 로 교체하고 유일키에 claimed_by 추가.
 //        + 매분 보너스 finalizer 조회용 부분 인덱스 idx_island_quest_occurrences_bonus_pending
 //        (occurrence_date) WHERE bonus_settled_at IS NULL.
+// V97 — group_members.left_at · rejoined_at (GROMO-2050) — 「그 시점에 주민이었나」를 사후 판정할 근거.
+//        백필 없음(이탈 시각의 관찰 가능한 근거가 없다). 이 두 컬럼으로 V85 동결이 이탈 방향까지 닫혔고
+//        실행 유예 ranking.freeze.grace 가 삭제됐다.
 // V85 — 주간 섬 랭킹의 동결 분모 island_weekly_member_counts + 랭킹 분자 스캔용 부분 인덱스
 //        focus_session_intervals_active_window_idx (GROMO-1997 · island-rankings LLD §5).
 //        분자(집중 시간)는 복제하지 않는다 — 정본이 focus_session_* 에 남아 언제든 같은 창으로 다시 합친다.
 // V74 — 섬 상점 테이블 선구축 shop_product_revisions · shop_catalog_publications · shop_catalog_publication_entries ·
 //        shop_catalog_active_publication · shop_orders (GROMO-1781 · island-shop LLD §3). 행 없음 — 가격은 S03·S04 확정 뒤.
+// V100 도 데이터 백필 전용(스키마 무변경) — 이미 골라져 있던 건설 목표의 «대상 주민» 명단을
+//        island_construction_contributions 에 amount=0 으로 채운다 (GROMO-1999). 이 표의 행이 명단을
+//        겸하게 됐는데 기여 누적이 «있는 행만» UPDATE 하도록 바뀌어, 채우지 않으면 종전 목표가
+//        영구히 대상 0명(=건설 불가)으로 굳는다. 「선택 당시의 주민」 근거가 DB 에 없어 실행 시점의
+//        활성 주민으로 채우는 근사치이며, 그 이유는 SQL 주석에 적었다.
 // V30 은 데이터 백필 전용(스키마 무변경) — 탈퇴 유저 유령 멤버십 leave 처리 + 유령뿐인 그룹 ENDED (GROMO-1220).
 //
 // ── 규약 (GROMO-1912 — V1~V57 을 빈 postgres 에 적용한 실제 스키마와 전수 대조) ──
@@ -161,17 +171,6 @@ Enum group_permission_scope { // 그룹 단위 권한 범위 (초대 등)
 Enum group_announcement_grant { // 멤버 단위 공지 작성 권한 (개별 허용/차단)
   DISALLOW
   ALLOW
-}
-
-Enum code_status {            // 참가 코드 상태
-  ACTIVE
-  ENDED
-}
-
-Enum group_invite_status {    // 그룹 초대 상태 (미사용 — 초대 테이블 미구현)
-  PENDING
-  ACCEPTED
-  DECLINED
 }
 
 // 5. 아이템 / 캐릭터
@@ -414,9 +413,16 @@ Table friendships [note: '유저 간 친구 관계 (요청 → 수락/거절). f
   deleted_at   timestamptz       [note: '친구 삭제 시각 (소프트 딜리트)']
 
   indexes {
-    // 재친구 허용: 소프트 딜리트(deleted_at) 행이 남아 단순 unique 불가. 활성 관계만 1개 보장하는 부분 unique는 마이그레이션에서:
-    //   CREATE UNIQUE INDEX ... ON friendships (from_user_id, to_user_id) WHERE deleted_at IS NULL;
-    (from_user_id, to_user_id) [note: '활성 관계 부분 unique(WHERE deleted_at IS NULL)는 마이그레이션 SQL로 적용 — 동일 방향 중복 신청 차단. 양방향(A→B / B→A) 중복은 앱/마이그레이션에서 정규화 처리']
+    // V1 의 ukcw1b2t1f9600yhvikefbpd1gn — 조건 없는 unique 다(부분 인덱스가 아니다).
+    // 소프트 딜리트 행도 걸리므로 재친구 요청은 새 행을 넣지 못한다 → createRequest 가 기존 행을 복원·재전환한다(GROMO-719).
+    (from_user_id, to_user_id) [unique, note: '같은 «방향»의 중복 행 차단. WHERE 절 없는 unique 라 deleted_at 이 찍힌 행도 자리를 차지한다 — 재요청이 insert 로 빠지면 409 가 나므로 FriendService.createRequest 가 복원(GROMO-719)·재전환으로 같은 행을 되쓴다']
+
+    // V98(GROMO-2042) 표현식 부분 unique — 위 인덱스는 방향이 같을 때만 막아서, A→B 와 B→A 가
+    // 동시에 오면 둘 다 findPair 에서 「기존 행 없음」을 보고 PENDING 두 행을 만들었다.
+    //   CREATE UNIQUE INDEX uq_friendships_pending_pair ON friendships
+    //     (least(from_user_id, to_user_id), greatest(from_user_id, to_user_id))
+    //     WHERE status = 'PENDING' AND deleted_at IS NULL;
+    (`least(from_user_id, to_user_id)`, `greatest(from_user_id, to_user_id)`) [unique, name: 'uq_friendships_pending_pair', note: '살아 있는 PENDING 요청은 두 사람당 한 건 — 방향 무관(V98, GROMO-2042). 양방향 동시 요청의 마지막 방어선이며, 지는 쪽은 409 로 떨어진다. ACCEPTED 는 술어에 넣지 않았다 — 「거절했던 요청을 뒤늦게 수락」(acceptRequest 의 전 상태 관용)이 반대 방향 PENDING 과 겹치는 기존 경로를 깨기 때문']
   }
 }
 
@@ -817,9 +823,9 @@ Table focus_reward_accruals [note: 'GROMO-1990: 집중 보상 적립 원장(migr
 }
 
 Table island_weekly_member_counts [note: 'GROMO-1997: 주간 섬 랭킹의 «동결된 분모»(migration V85) — 주 마감(UTC 일요일 00:00Z) 시점의 그 섬 활성 주민 수. 주 마감 크론이 INSERT … SELECT … ON CONFLICT DO NOTHING 한 문장으로 적고 그 뒤로는 바뀌지 않는다. 동결하는 이유: group_members 는 (user_id, group_id) 한 행이고 left_at 이 없어 「그 주에 몇 명이었나」를 사후 복원할 수 없다 — 동결하지 않으면 주민을 강퇴하는 것만으로 지난 주 평균(= 섬 집중 초 합 ÷ 주민 수)이 오른다. 분자는 반대로 복제하지 않는다: 정본이 focus_session_details·focus_session_intervals 에 남아 있어 같은 창으로 다시 합칠 수 있고, 복제하면 정본과 어긋날 자리가 생긴다. 끝난 주에 행이 없는 섬은 랭킹에서 빠진다(「지금 인원으로」 대체하지 않는다)'] {
-  week_start   date        [not null, note: '주 시작일 = UTC 일요일. 동결 기준 시각은 크론 실행 순간이 아니라 «주 종료 경계»(다음 주 00:00Z)다 — 가입은 created_at < 경계 로 거르고, 이탈은 group_members 에 이탈 시각이 없어 쿼리로 닫을 수 없어 실행 유예(ranking.freeze.grace)로 창을 좁힌다(잔여 창은 policy RK-D12). CHECK EXTRACT(ISODOW FROM week_start) = 7 — 키가 정말 일요일인지 DB 가 지킨다(크론 존이나 호출측 계산이 틀어져도 월요일자 주가 섞이지 않는다). ISO YYYY-Www 표기를 쓰지 않는 이유는 island-rankings policy RK-P01-키']
+  week_start   date        [not null, note: '주 시작일 = UTC 일요일. 동결 기준 시각은 크론 실행 순간이 아니라 «주 종료 경계»(다음 주 00:00Z)다 — V97 이후 가입·이탈 «양방향»을 경계로 판정하므로(COALESCE(rejoined_at, created_at) < 경계 AND (is_left=false OR left_at >= 경계), GROMO-2050) 배치가 언제 돌든 값이 같다. 종전의 실행 유예 ranking.freeze.grace 는 그래서 삭제됐다. CHECK EXTRACT(ISODOW FROM week_start) = 7 — 키가 정말 일요일인지 DB 가 지킨다(크론 존이나 호출측 계산이 틀어져도 월요일자 주가 섞이지 않는다). ISO YYYY-Www 표기를 쓰지 않는 이유는 island-rankings policy RK-P01-키']
   island_id    uuid        [not null, note: 'FK → groups.id ON DELETE CASCADE']
-  member_count integer     [not null, note: 'CHECK > 0 — 활성 멤버십(is_left=false) + 미탈퇴 계정(is_deleted=false). GroupMemberRepository.countByGroupIdIn 과 같은 모수라 주민 목록·정원 판정과 어긋나지 않는다. 0명인 섬은 GROUP BY 에서 행이 안 나와 자연히 빠진다']
+  member_count integer     [not null, note: 'CHECK > 0 — 「주 종료 경계에 그 섬 주민이었던 사람」 수. 동결 시점 기준으로는 GroupMemberRepository.countByGroupIdIn 과 같은 모수라 주민 목록·정원 판정과 어긋나지 않는다. users 조인은 V97 에서 뺐다 — 계정 탈퇴가 같은 TX 에서 모든 활성 멤버십에 leave() 를 밟으므로(V30 이 그 이전 데이터를 정리) 같은 것을 두 번 묻는 것이고, 남겨 두면 경계 뒤의 계정 탈퇴가 지난 주 분모를 줄인다. 0명인 섬은 GROUP BY 에서 행이 안 나와 자연히 빠진다']
   frozen_at    timestamptz [not null, default: `now()`, note: '동결 시각 — 배치가 언제 돌았는지의 기록이지 주 경계가 아니다']
 
   indexes {
@@ -831,7 +837,7 @@ Table focus_reward_policies [note: 'GROMO-1924: 집중 보상 산식 revision(FR
   revision                integer [pk]
   seconds_per_fish        integer [not null, note: 'CHECK > 0 — 이 초만큼의 순수 집중마다 1마리(D5: 60)']
   daily_cap_fish          integer [not null, note: 'CHECK >= 0 — 주민·섬별 하루 상한(D5: 480)']
-  personal_share_percent  integer [not null, note: 'CHECK 0..100 — 개인 지갑 몫, 나머지가 섬 통장(D5-귀속: 50)']
+  personal_share_percent  integer [not null, note: 'CHECK = 0 (V99/GROMO-2045 이 V67 의 0..100 을 좁혔다) — 개인 지갑 몫이 0 이라 전액이 섬 통장으로 간다(D5-귀속-개정). 값 하나로 폐기한 개인 재화가 되살아나지 않게 DB 가 막는다. 열을 지우지 않는 것은 E=P+C 보존식의 P 자리를 응답 계약(allocation.personalFishAdded)이 아직 쓰기 때문이다']
   golden_fish_reward      integer [not null, default: 50, note: 'V91/GROMO-1956: 황금 물고기 한 번의 섬 적립량(기획 정본 50). 인원수만큼 곱하지 않는다']
   golden_max_members      integer [not null, default: 5, note: 'V91/GROMO-1956: 확률표가 세는 ACTIVE 인원 상한(기획 정본 5). 그 이상은 5명과 같은 확률']
   golden_chance_ppm       text    [not null, default: '4000,12000,24000,40000', note: 'V91/GROMO-1956: ACTIVE 2명부터의 1분당 당첨 확률(ppm)을 쉼표로 이은 표 — 2명 0.4% · 3명 1.2% · 4명 2.4% · 5명 이상 4%. 열 네 개로 펼치지 않는 이유는 인원 상한도 운영값이라서다']
@@ -866,7 +872,7 @@ Table groups [note: '스터디/챌린지 그룹'] {
 
   invite_permission group_permission_scope [not null, default: 'OWNER_ONLY', note: '초대 권한 범위 (그룹 단위)']
 
-  shared_purchase_permission group_permission_scope [not null, default: 'OWNER_ONLY', note: '공동 재화 사용 권한 범위 — 섬 건설 목표 선택·시작(GROMO-1767, 정책 C13). ALL_MEMBERS 면 활성 멤버도 가능. 토글 API 는 범위 밖이라 기본 OWNER_ONLY 로만 쓴다']
+  shared_purchase_permission group_permission_scope [not null, default: 'OWNER_ONLY', note: '⚠️ 사용 중지(GROMO-2000) — 읽는 코드가 없다. 기획 정본이 권한을 「건설=방장 / 공동 구매·공동 테마=주민 누구나」로 고정해 토글이 판정 근거에서 빠졌다. 열 제거는 별도 마이그레이션 몫']
 
   approval_required boolean               [not null, default: false, note: '가입에 방장 승인이 필요한지 — GROMO-1907, island-membership LLD §3.1. 기존 행은 전부 false(즉시가입)']
 
@@ -881,17 +887,6 @@ Table groups [note: '스터디/챌린지 그룹'] {
     //   전제 확장: CREATE EXTENSION pg_trgm  /  쿼리: name % :q ORDER BY name <-> :q
     name [type: gin, name: 'idx_groups_name_trgm', note: 'pg_trgm GIN (gin_trgm_ops) — 그룹 이름 trgm 검색, V18']
   }
-}
-
-Table group_join_codes [note: '그룹 참가 코드 (groups에서 분리, 1:1). 발급·만료·재발급 관리. 추후 활성 코드 검증·만료를 Redis(TTL)로 이관 가능 — 이 테이블이 캐시 계층 경계'] {
-  group_id    uuid        [pk, note: 'FK → groups.id (1:1)']
-
-  code        varchar(8)  [not null, unique, note: '참가 코드 (8자 랜덤 영문/숫자). 재발급 시 같은 행 UPDATE']
-  status      code_status [not null, default: 'ACTIVE', note: 'ACTIVE / ENDED']
-  expires_at  timestamptz [note: '만료 시각 (발급 + 24h) — 추후 Redis TTL 로 이관']
-
-  created_at  timestamptz [not null, default: `now()`, note: '발급 시각']
-  updated_at  timestamptz [note: '재발급(코드 갱신) 시각']
 }
 
 Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1:1) — 논리 모델 UserIslandContext. GROMO-1907, island-membership LLD §4'] {
@@ -931,7 +926,10 @@ Table group_members [note: '그룹 멤버십 (역할 · 활동상태 · 알림 �
   snapshot_version     bigint            [not null, default: 0, note: '표시정보(그룹명·발급자 닉네임) 스냅샷 버전 (V52, A22 ㋡) — 현행 resolveLanding 이 열 때마다 현재 이름을 조회하므로, 분리 후 갱신 경로가 없으면 공유된 slug 가 만료까지 옛 이름을 노출한다. 늦게 온 갱신이 최신 이름을 덮지 않게 대조에 쓴다']
   left_reason          varchar(10)       [null, note: 'A-0(V25) 이탈 사유: null(활성)·LEFT(자진, 재가입 허용)·KICKED(강퇴, 재가입 차단). CHECK IN (LEFT,KICKED)']
 
-  created_at           timestamptz       [default: `now()`, note: '가입 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
+  left_at              timestamptz       [null, note: '이탈 시각 (V97, GROMO-2050) — 자진 탈퇴·강퇴·계정 탈퇴가 모두 찍는다(GroupMember.leave/kick, 주입 Clock). is_left=false 면 항상 null(rejoin 이 비운다). V97 이전 이탈 행은 근거가 없어 null — updated_at 은 @UpdateTimestamp 라 알림 토글에도 갱신돼 이탈의 증거가 아니다']
+  rejoined_at          timestamptz       [null, note: '재가입으로 멤버십이 다시 시작된 시각 (V97, GROMO-2050). null 이면 최초 가입 그대로. created_at 을 덮지 않는 이유는 그 값이 주민 목록 keyset 정렬·메인 섬 도출(GROMO-1971)의 계약이기 때문 — 과거 시점 소속의 시작 축은 COALESCE(rejoined_at, created_at)']
+
+  created_at           timestamptz       [default: `now()`, note: '행이 생긴 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp). rejoin 이 갱신하지 않으므로 «최초» 가입 시각이다 — 멤버십 시작 시각은 rejoined_at 과의 COALESCE']
   updated_at           timestamptz
   indexes {
     // (user,group) 전체 unique — 멤버십은 1행. 재가입은 신규 삽입이 아니라 기존 행 rejoin(is_left=false로 복원).
@@ -985,11 +983,11 @@ Table island_construction_states [note: '섬 건설 상태/목표 (GROMO-1767, �
   updated_at         timestamptz
 }
 
-Table island_construction_contributions [note: '목표 epoch 주민별 기여 (GROMO-1767, P-D04) — 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」. 같은 epoch 안에서는 사용자당 1행에 amount 누적'] {
+Table island_construction_contributions [note: '목표 epoch 의 «대상 주민 명단 + 주민별 기여» (GROMO-1767·1999, P-D04) — 「물고기 잔액과 주민별 누적 획득 기록은 구분한다」. 목표를 고를 때 그 시점의 활성 주민을 amount=0 으로 심으므로 «행이 있으면 대상, 없으면 대상 아님»이다(기획 정본 「목표 선택 시점의 주민으로 대상을 고정한다」). 그래서 별도 cohort 표가 없다. 같은 epoch 안에서는 사용자당 1행에 amount 누적'] {
   island_id  uuid    [not null, note: 'FK → island_construction_states.island_id ON DELETE RESTRICT']
   epoch      bigint  [not null, note: 'island_construction_states.target_epoch 스냅샷 — 목표가 바뀌면 새 epoch 행부터 다시']
   user_id    uuid    [not null, note: 'FK → users.id ON DELETE RESTRICT']
-  amount     integer [not null, default: 0, note: 'CHECK amount >= 0 — 해당 epoch 에 기여한 누적 물고기']
+  amount     integer [not null, default: 0, note: 'CHECK amount >= 0 — 해당 epoch 에 기여한 누적 물고기. 0 은 「대상이지만 아직 못 채웠다」다']
   updated_at timestamptz [not null, default: `now()`]
 
   indexes {
@@ -1233,19 +1231,6 @@ Table group_announcement_comments [note: '섬 게시판 공지 댓글 — 불변
   indexes {
     (notice_id, created_at, id) [name: 'ix_group_announcement_comments_notice_created', note: '댓글 페이지 keyset (createdAt ASC, id ASC) + commentCount']
   }
-}
-
-Table group_invites [note: '유저 대 유저 그룹 초대 (V1 baseline). **미사용** — 직접 초대 기능을 접었고 참여는 초대 링크(group_invite_links)·참가 코드(group_join_codes)가 담당한다(2026-07-31). 엔티티 GroupInvite 는 남아 있으나 서비스·컨트롤러 참조 0건이고 테이블도 비어 있다. 잔존 비용 < 삭제 비용이라 두고 있다. 이 파일에 통째로 빠져 있던 것을 GROMO-1912 에서 복원'] {
-  id           uuid         [pk]
-
-  group_id     uuid         [not null, note: 'FK → groups.id — 초대 대상 그룹']
-  inviter_id   uuid         [not null, note: 'FK → users.id — 초대한 유저']
-  invitee_id   uuid         [not null, note: 'FK → users.id — 초대받은 유저']
-
-  status       varchar(255) [not null, note: "PENDING(응답 대기, 발급 시 기본값) / ACCEPTED(수락 — 멤버 행 생성 시점) / DECLINED(거절 — 재초대는 막지 않았다). CHECK group_invites_status_check 3값. Enum 선언을 두지 않은 이유는 폐기 기능이라서다"]
-
-  invited_at   timestamptz  [note: '초대 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
-  responded_at timestamptz  [note: '수락/거절 시각 — PENDING 이면 null']
 }
 
 // ────────────────────────────────────────────
@@ -1580,6 +1565,16 @@ Table login_attempts [note: 'POST /auth/sessions 의 내구 로그인 시도 원
   refresh_expires_at   timestamptz [note: '고정 서명 재료 — RT 의 exp']
   refresh_jti          uuid        [note: '고정 서명 재료 — RT 의 jti. JwtProvider 가 같은 초의 두 발급을 가르려고 무작위로 박는 값이라, 고정하지 않으면 재생 토큰이 원본과 달라져 저장된 RT 해시와 어긋난다']
 
+  // ── 계정 전환 재개 증거 (V101, GROMO-1992). ck_login_attempts_switch_state CHECK 가 세 모양만 허용: ① phase null + evidence 전부 null, ② phase + status∈(PENDING,COMPLETED) + confirmed + evidence 전부 non-null, ③ phase + INVALIDATED + confirmed + evidence 전부 null. FK 없음 — 탈퇴로 지워지는 source/target 을 넘어 복구 사실을 보존한다 ──
+  account_switch_confirmed      boolean     [not null, default: false, note: '「회원으로 전환」이 확정된 시도. false 면 나머지 전환 7열은 전부 null — confirmed 만 찍히고 일반 로그인으로 끝난 행도 첫 CHECK 절을 만족한다']
+  switch_phase                  varchar(24) [note: 'VERIFIED | GUEST_WITHDRAWN — 일반/미준비 시도는 NONE 문자열이 아니라 NULL']
+  switch_source_user_id         uuid        [note: '전환 «되는» 게스트. FK 없음 — 탈퇴로 사라져도 증거는 남는다']
+  switch_source_session_id      uuid        [note: 'source 게스트의 세션. FK 없음']
+  switch_source_auth_generation bigint      [note: 'source 게스트의 auth generation — 재생 시 토큰 폐기 세대 판정 근거. ≥ 0']
+  switch_target_user_id         uuid        [note: '전환 «받는» 회원. FK 없음']
+  switch_target_social_account_id uuid      [note: '전환 «받는» social account 행. FK 없음']
+  switch_verified_at            timestamptz [note: '전환 검증이 끝난 시각']
+
   claimed_at           timestamptz [not null, note: 'PENDING 실행권의 임차 시각. 실행자가 죽어 PENDING 이 남으면 이 시각으로 회수한다 — 회수가 없으면 그 attempt id 가 영원히 409 REQUEST_IN_PROGRESS 라 사용자가 갇힌다']
   completed_at         timestamptz
   recovery_expires_at  timestamptz [not null, note: '고정 복구 마감(기술 초기값 5분, LLD §3). 넘으면 재생하지 않고 새 제공자 인증을 요구한다']
@@ -1805,16 +1800,12 @@ Ref: focus_session_pomodoros.focus_session_id - focus_sessions.id
 Ref: focus_session_pomodoros.pomodoro_setting_id > focus_sessions_pomodoro_setting.id
 
 // 그룹
-Ref: group_join_codes.group_id - groups.id
 Ref: group_members.user_id > users.id
 Ref: group_members.group_id > groups.id
 Ref: group_announcements.group_id > groups.id
 Ref: group_announcements.user_id > users.id
 Ref: group_announcement_comments.notice_id > group_announcements.id [delete: set null]
 Ref: group_announcement_comments.author_id > users.id [delete: set null]
-Ref: group_invites.group_id > groups.id
-Ref: group_invites.inviter_id > users.id
-Ref: group_invites.invitee_id > users.id
 
 // 보유품·외양 (GROMO-1783, V64) — 전부 ON DELETE RESTRICT
 Ref: owned_products.user_id > users.id

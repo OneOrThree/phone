@@ -33,14 +33,15 @@ UUID는 데이터 ID, ProductId는 카탈로그 문자열, 시각은 UTC instant
 
 금액은 원본 형태 예시다. **잔액은 `villagePoints`(섬 통장·섬 물고기) 하나뿐이다**(2026-09-21 재영님 결정 재화-단일 — ~~2026-09-18 D1 의 두 지갑 축~~ 폐기).
 `fishVersion` 은 **항상 null** 이다 — 개인 물고기 지갑에는 사건·버전 축이 없다(`ShopService#wallets` 가 null 을 고정으로 싣는다).
-`fish` 는 **0을 보장하지 않는다**: 현재 구현(`ShopService#wallets`)은 `user_fish_wallets` 의 **저장값을 그대로** 싣고, 행이 없으면 0 이다.
+`fish` 는 **항상 0** 이다 — `ShopService#wallets` 가 상수 0 을 싣고 `user_fish_wallets` 를 읽지 않는다(GROMO-2052).
+~~`fish` 는 0을 보장하지 않는다: 저장값을 그대로 싣고, 행이 없으면 0 이다~~ — 티켓 2052 가 코드를 이 계약으로 올렸다.
 적립 경로(`FishWalletService#credit`)는 `personal_share_percent > 0` 일 때만 닿는데 `focus_reward_policies` 에는 V67 시드 revision 1 = (60, 480, **0**) 한 행뿐이라
-**실제로는 0 이어야 하지만 코드가 0 을 강제하지는 않는다** — 0 이 아닌 행이 하나라도 있으면 그 값이 그대로 나간다. 응답 0 고정(또는 잔액 정리)은
-`server/**` 변경이라 **별도 티켓 몫**이고 이 문서는 그것을 계약으로 앞당겨 적지 않는다. 그때까지 앱은 이 필드를 그리지 않는다.
+저장값도 0 이어야 하고, 0 이 아닌 행이 남아 있어도 응답에는 나가지 않는다(이관·삭제는 별도 티켓). 앱은 이 필드를 그리지 않는다.
 실제 필드 제거는 앱이 전량 전환한 뒤 또 다른 티켓이다. villagePointsVersion은 `(island,islandId,village_points)`
 지갑의 실제 버전이고 유일한 version 축이다 — 둘의 최댓값을 공용version으로 만들지 않는다.
 통화 식별자 `village_points` 의 개명은 결정에 없어 wire 는 그대로 둔다.
-경제 활성화에 필요한 섬 통장이 없으면0원으로 위장하지 않고503 SERVICE_UNAVAILABLE 및 운영 로그로 처리한다.
+섬 통장 행이 없는 섬은 **200 에 `villagePoints: 0`** 이다(2026-09-21 결정 통장-부재-0 — ~~503 SERVICE_UNAVAILABLE~~ 폐기). 위장이 아니라 사실이다: 통장 행은 섬 생성 때 만들고(`IslandMembershipService#create`) 없으면 첫 적립이 `insertIfAbsent` 로 만드는데, `island_wallet_transactions` 가 `island_wallets` 를 `ON DELETE RESTRICT` 로 참조하므로 **적립된 적 있는 통장은 사라질 수 없다** — 행이 없다 ⇒ 원장 한 줄도 없다 ⇒ 잔액 0 이다.
+「경제 활성화」(S03·S04)는 통장이 아니라 **카탈로그가 표현한다** — 가격 미승인 상품은 `available=false`+`reason`, 활성 발행본이 없으면 빈 목록이다(§2.2, 결정 N25). 통장 조각은 BFF 병렬 조각이라 실패하면 화면 전체가 실패하므로, 잔액 0 인 섬에 503 을 내면 레거시 `POST /api/v1/groups`(통장을 만들지 않는다)로 생긴 섬의 상점 화면이 통째로 닫힌다.
 
 ### 2.2 catalog — GET `/islands/{islandId}/shop/products`
 
@@ -206,10 +207,11 @@ catalog publication 발행은 모든 product revision/entry를 준비한 뒤 Dat
 
 ## 4. 원자 주문 알고리즘
 
+0. **계정 상태 가드 (GROMO-1992).** 게스트면 여기서 403 `SOCIAL_LOGIN_REQUIRED` 다 — 정책 「…상점 구매를 처음 시도할 때 소셜 로그인을 요청한다」. `InternalShopController.purchase` 가 멱등 `publicCommands.run` **앞**에서 `GuestAccountGuards.requireMember` 를 부르므로 거절된 게스트는 receipt 를 남기지 않는다(남기면 소셜 로그인을 마친 뒤 같은 키로 다시 눌렀을 때 실패가 재생된다). 이것은 **계정 상태** 축이고 아래 3의 membership/역할(「구매=주민」)은 **섬 안의 역할** 축이다 — 둘은 서로를 대신하지 못하므로 나란히 둔다. 판정 근거는 AT 의 `guest` 클레임이 아니라 `users.is_guest` 현재 값이다(계정 LLD §2.1).
 1. JWT/service caller 및 body형식 검증. 검증 subject, method+route template, islandId와body를 포함한 canonical intent로 receipt를 조회/직렬화한다.
 2. 활성 caller와 결과공개자격을 확인한 뒤 확정 같은 요청이면 원receipt 재생. 다른hash면409, 처리중이면 공통 retry 규약.
 3. **새 실행만** 사용자/current-island context, membership/역할, 시설 상태와 상품 활성 revision을 정본 TX 안에서 확인한다. 앱/BFF가 넘긴 cached permit 금지.
-4. 공유 변경은 `SHARED_PURCHASE` 권한 제공자 결정이 있어야 한다. 미구현/미승인 권한 제공자를 true로 대체하지 않는다.
+4. 공유 변경의 `SHARED_PURCHASE` 는 **활성 주민 누구나**로 확정됐다(GROMO-2000, S02). 섬 설정 토글은 읽지 않는다.
 5. 해당 owner wallet 잠금, inventory aggregate 잠금을 정해진 순서로 획득한다. 현재 productVersion과 walletVersion 비교 후 owned unique 및 prerequisites 확인.
 6. 잔액이 모자라면409 INSUFFICIENT_FUNDS, 어떤 row도 확정하지 않는다. 차감/ledger/order/owned/inventory version/receipt/outbox를 함께 기록한다. 최초 구매 차감 성공의 서버 분석 `currency_spent` 전달 의도도 같은 TX에서 내구 기록한다(아래 기존 계측 의무).
 7. DB commit 후만 응답/relay전달. 외부전달 실패로 committed order를 취소하지 않고 outbox 재전달한다. DB rollback이면 원장/보유/receipt/outbox모두없다.

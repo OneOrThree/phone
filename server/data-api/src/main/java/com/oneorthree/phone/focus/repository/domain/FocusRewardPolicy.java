@@ -44,7 +44,15 @@ public class FocusRewardPolicy {
     @Column(name = "daily_cap_fish", nullable = false)
     private int dailyCapFish;
 
-    /** 개인 지갑 몫(%) — D5-귀속-개정의 0. 나머지가 섬 통장 몫이다. */
+    /**
+     * 개인 지갑 몫(%) — <b>0 고정</b>이다. 나머지(= 전부)가 섬 통장 몫이다.
+     *
+     * <p>2026-09-21 결정 재화-단일·개인적립-차단으로 개인 물고기 지갑은 폐기됐고, GROMO-2045 의 V99 이
+     * V67 의 {@code CHECK 0..100} 을 {@code CHECK = 0} 으로 좁혀 <b>DB 가</b> 그 결정을 지킨다. 어차피
+     * 이 값을 읽는 코드는 없다(정산은 {@code FocusSessionLifecycleService} 가 {@code personalFishAdded=0}
+     * 을 박아 쓰고, 적립은 {@code FocusRewardAccrualService} 가 섬 통장에만 넣는다) — 제약은 이 열이
+     * «다시 배선될» 때 조용히 열리지 않게 하는 최후 방어선이다.
+     */
     @Column(name = "personal_share_percent", nullable = false)
     private int personalSharePercent;
 

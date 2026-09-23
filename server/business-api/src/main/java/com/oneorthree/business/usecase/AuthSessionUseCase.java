@@ -8,9 +8,10 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -53,17 +54,28 @@ public class AuthSessionUseCase {
             // 복구 창 종료·폐기·digest 키 교체. 답은 하나 — 새 제공자 인증.
             "LOGIN_ATTEMPT_UNUSABLE", new PublicFailure(ApiErrorCode.UNAUTHORIZED, null));
 
-    private final DataApiClient data;
+    private final DataAuthClient data;
     private final CredentialDigest digests;
 
+    /**
+     * @param accountSwitchConfirmed 충돌 안내를 본 사용자가 기존 회원 계정으로의 전환을 확정했는가
+     *                               (GROMO-1994). 자격 digest 에는 넣지 «않는다» — digest 는 「원 자격을
+     *                               들고 있다」의 증거이고, 이 값은 자격이 아니라 의도다. 의도가 바뀌면
+     *                               앱이 새 {@code X-Login-Attempt-Id} 를 쓰므로 원장이 둘을 가른다
+     */
     public LoginSession login(LoginAttemptCredentials credentials, SocialCredential credential,
-            String termsVersion, Deadline deadline) {
+            String termsVersion, boolean accountSwitchConfirmed, Deadline deadline) {
 
         String keyId = digests.keyId();
         String digest = digests.of(credential);
 
-        LoginAttemptLookup stored =
-                relay(() -> data.lookupLoginAttempt(credentials.attemptId(), keyId, digest, deadline));
+        // 전환 시도의 재생 관문은 execute 와 «같은» 증거를 lookup 에도 요구한다 (GROMO-1992) —
+        // replayable 이면 교환 없이 결과가 나가므로, 여기서 빠뜨리면 source AT·confirmed 대조를
+        // 통째로 우회한다.
+        LoginAttemptLookup stored = relay(() -> data.lookupLoginAttempt(
+                credentials.attemptId(), keyId, digest, credentials.accessToken(),
+                credential.providerEnumName(), credential.kind(), termsVersion,
+                accountSwitchConfirmed, deadline));
         if (stored == null) {
             throw new UpstreamContractMismatchException("Data 로그인 시도 조회 응답이 비어 있다");
         }
@@ -73,9 +85,10 @@ public class AuthSessionUseCase {
         }
 
         return verified(relay(() -> data.executeLoginAttempt(
-                new DataApiClient.LoginAttemptCommand(
+                new DataAuthClient.LoginAttemptCommand(
                         credentials.attemptId(), keyId, digest, credential.providerEnumName(),
-                        credential.kind(), credential.value(), termsVersion, credentials.accessToken()),
+                        credential.kind(), credential.value(), termsVersion, credentials.accessToken(),
+                        accountSwitchConfirmed),
                 deadline)));
     }
 
@@ -135,6 +148,7 @@ public class AuthSessionUseCase {
      * 계정 LLD §2.1 이 그 값을 {@code X-Device-Bootstrap} 헤더로 보내라고 했고 본문 4필드는 고정이다.
      * 헤더를 싣는 일은 컨트롤러의 {@code DeviceBootstrapHeader} 가 한다(GROMO-2037).
      */
+    @Schema(name = "AuthSessionResult")
     public record Result(String accessToken, String refreshToken, UUID userId, boolean onboardingComplete) {
 
         public static Result of(LoginSession session) {

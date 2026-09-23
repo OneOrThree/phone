@@ -98,7 +98,7 @@ class GuestSessionContractTest extends UpstreamTestBase {
         DATA.on(DATA_GUEST, request -> ok(template.formatted(EXISTING)));
 
         mockMvc.perform(guest(DEVICE_A))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }

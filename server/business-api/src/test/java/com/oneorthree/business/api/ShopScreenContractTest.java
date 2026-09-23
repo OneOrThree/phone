@@ -94,6 +94,21 @@ class ShopScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
+    @DisplayName("섬 통장 행이 없는 섬(잔액 0)도 화면은 200 이고 0 을 그대로 싣는다 — 503 이 아니다 (GROMO-2043)")
+    void walletlessIslandIsStillTwoHundred() throws Exception {
+        // 도메인은 지갑 행이 없어도 0 을 준다(data-api ShopServiceIntegrationTest#walletlessIslandReadsZero).
+        // 지갑은 화면 전체를 실패시키는 병렬 조각이라, 여기서 503 이 나면 상점 화면이 통째로 닫힌다.
+        DATA.on(DATA_WALLETS, request -> ok(FacilityFixtures.WALLETS
+                .replace("\"villagePoints\":1500", "\"villagePoints\":0")
+                .replace("\"villagePointsVersion\":7", "\"villagePointsVersion\":0")));
+
+        mockMvc.perform(auth(get("/screens/shop")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.wallets.villagePoints").value(0))
+                .andExpect(jsonPath("$.data.wallets.villagePointsVersion").value(0));
+    }
+
+    @Test
     @DisplayName("상점 미완공: 화면 전체 403 FACILITY_LOCKED — 조각을 부르지 않는다")
     void shopLockedFailsWholeScreen() throws Exception {
         DATA.on(DATA_OPTIONS, request -> ok(FacilityFixtures.options("tower", "shop")));

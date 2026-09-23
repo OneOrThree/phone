@@ -7,29 +7,144 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		03312F9ACF2B9B8BED7062FB /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
+		05F22501586719F030A194AA /* CompactActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF1437B48DBA89E0A7BF2D35 /* CompactActivityReport.swift */; };
+		0B1496379A3AF0F282927B0A /* HomeUsageReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A8307588BD6BA28216B5958 /* HomeUsageReport.swift */; };
+		0F238FAED05593D75FA75071 /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
+		0F3DD8DEAD019FD70F7D4813 /* RemainingActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C878C66C0F4A8645EE71923 /* RemainingActivityView.swift */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
+		27FF58ABA9F6AE9B663B8DE7 /* screentimereport.appex in Embed Report Extension */ = {isa = PBXBuildFile; fileRef = 79DBC525CEE1901161C9D4D4 /* screentimereport.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */; };
+		422D61DB31180A4450760E30 /* ScreenTimeReportViewManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 9C153D4B2198CA485AA8BA8E /* ScreenTimeReportViewManager.m */; };
+		4A6D5678F116265BD0BA5958 /* TotalActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37E5E91034EC812D5CEB472E /* TotalActivityReport.swift */; };
 		4CE008E421D1DB7491061D15 /* libPods-GROMO.a in Frameworks */ = {isa = PBXBuildFile; fileRef = E1CE6CDC64ED3C9B47124F0B /* libPods-GROMO.a */; };
+		4E75A7010F4CF32FE42CC580 /* ScreenTimeReportUIView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63B72C935E2CA647A107767E /* ScreenTimeReportUIView.swift */; };
+		53CC3CA8CAC4E8261B93BC26 /* screentimereport.swift in Sources */ = {isa = PBXBuildFile; fileRef = AACDB593FFAD602A622C4BBD /* screentimereport.swift */; };
+		6D8E2D0A61D96B01EF2B74E3 /* TotalActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F3A51EEBDA3C876B0863837 /* TotalActivityView.swift */; };
 		8F402AD4E43832218A192350 /* ExpoModulesProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 551B579AEEDD5AFBB82D0B25 /* ExpoModulesProvider.swift */; };
+		A19830000000000000000001 /* ScreenTimeModule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000001 /* ScreenTimeModule.swift */; };
+		A19830000000000000000002 /* ScreenTimeModule.m in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000002 /* ScreenTimeModule.m */; };
+		A19830000000000000000003 /* FocusActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000003 /* FocusActivityAttributes.swift */; };
+		A19830000000000000000004 /* DeviceActivityMonitorExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000004 /* DeviceActivityMonitorExtension.swift */; };
+		A19830000000000000000005 /* ShieldConfigurationExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000008 /* ShieldConfigurationExtension.swift */; };
+		A19830000000000000000006 /* ShieldActionExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1983100000000000000000C /* ShieldActionExtension.swift */; };
+		A19830000000000000000007 /* GromoScreenTimeMonitor.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A19831000000000000000007 /* GromoScreenTimeMonitor.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A19830000000000000000008 /* ShieldConfiguration.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1983100000000000000000B /* ShieldConfiguration.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A19830000000000000000009 /* ShieldAction.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A1983100000000000000000F /* ShieldAction.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A1CDA6989DF2E4DC3F4EA665 /* HomeUsageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B317EBDCA02146843DFCAD52 /* HomeUsageView.swift */; };
 		B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
+		D2D8BCCA685FB07403501067 /* CompactActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB802E10F6288401A5062C2 /* CompactActivityView.swift */; };
+		D773B2A78A2F134A7DB00548 /* ScreenTimeReportViewManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4ED7A607F9096182747BF19A /* ScreenTimeReportViewManager.swift */; };
+		DCFFF543C6596D90A7ABFC1C /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 924CDFF4DCFC00733E587F72 /* Foundation.framework */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
+		F755A5248582A9EA6F2F5F48 /* RemainingActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFF4B5883AE80A8BA12E190F /* RemainingActivityReport.swift */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A19837000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A19834000000000000000001;
+			remoteInfo = GromoScreenTimeMonitor;
+		};
+		A19837000000000000000002 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A19834000000000000000002;
+			remoteInfo = ShieldConfiguration;
+		};
+		A19837000000000000000003 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A19834000000000000000003;
+			remoteInfo = ShieldAction;
+		};
+		A9152440927F220A3FC4735C /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 83CBB9F71A601CBA00E9B192 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3496B5BBFD9FA9159612DB65;
+			remoteInfo = screentimereport;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		36EEE7D751D04F900361AFFA /* Embed Report Extension */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				27FF58ABA9F6AE9B663B8DE7 /* screentimereport.appex in Embed Report Extension */,
+			);
+			name = "Embed Report Extension";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000001 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A19830000000000000000007 /* GromoScreenTimeMonitor.appex in Embed Foundation Extensions */,
+				A19830000000000000000008 /* ShieldConfiguration.appex in Embed Foundation Extensions */,
+				A19830000000000000000009 /* ShieldAction.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		13B07F961A680F5B00A75B9A /* GROMO.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GROMO.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = GROMO/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = GROMO/Info.plist; sourceTree = "<group>"; };
+		2C878C66C0F4A8645EE71923 /* RemainingActivityView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemainingActivityView.swift; sourceTree = "<group>"; };
+		37E5E91034EC812D5CEB472E /* TotalActivityReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TotalActivityReport.swift; sourceTree = "<group>"; };
+		3F3A51EEBDA3C876B0863837 /* TotalActivityView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TotalActivityView.swift; sourceTree = "<group>"; };
+		4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ReportPalette.swift; sourceTree = "<group>"; };
 		4D1C0E843797C471FA8A450D /* Pods-GROMO.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GROMO.release.xcconfig"; path = "Target Support Files/Pods-GROMO/Pods-GROMO.release.xcconfig"; sourceTree = "<group>"; };
+		4ED7A607F9096182747BF19A /* ScreenTimeReportViewManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportViewManager.swift; path = GROMO/ScreenTimeReportViewManager.swift; sourceTree = "<group>"; };
 		551B579AEEDD5AFBB82D0B25 /* ExpoModulesProvider.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ExpoModulesProvider.swift; path = "Pods/Target Support Files/Pods-GROMO/ExpoModulesProvider.swift"; sourceTree = "<group>"; };
+		63B72C935E2CA647A107767E /* ScreenTimeReportUIView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScreenTimeReportUIView.swift; path = GROMO/ScreenTimeReportUIView.swift; sourceTree = "<group>"; };
+		79DBC525CEE1901161C9D4D4 /* screentimereport.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = screentimereport.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		8A8307588BD6BA28216B5958 /* HomeUsageReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HomeUsageReport.swift; sourceTree = "<group>"; };
+		924CDFF4DCFC00733E587F72 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = System/Library/Frameworks/Foundation.framework; sourceTree = SDKROOT; };
+		9C153D4B2198CA485AA8BA8E /* ScreenTimeReportViewManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeReportViewManager.m; path = GROMO/ScreenTimeReportViewManager.m; sourceTree = "<group>"; };
+		A19831000000000000000001 /* ScreenTimeModule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScreenTimeModule.swift; path = GROMO/ScreenTimeModule.swift; sourceTree = "<group>"; };
+		A19831000000000000000002 /* ScreenTimeModule.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; name = ScreenTimeModule.m; path = GROMO/ScreenTimeModule.m; sourceTree = "<group>"; };
+		A19831000000000000000003 /* FocusActivityAttributes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FocusActivityAttributes.swift; sourceTree = "<group>"; };
+		A19831000000000000000004 /* DeviceActivityMonitorExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceActivityMonitorExtension.swift; sourceTree = "<group>"; };
+		A19831000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A19831000000000000000006 /* GromoScreenTimeMonitor.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GromoScreenTimeMonitor.entitlements; sourceTree = "<group>"; };
+		A19831000000000000000007 /* GromoScreenTimeMonitor.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = GromoScreenTimeMonitor.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A19831000000000000000008 /* ShieldConfigurationExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldConfigurationExtension.swift; sourceTree = "<group>"; };
+		A19831000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1983100000000000000000A /* ShieldConfiguration.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShieldConfiguration.entitlements; sourceTree = "<group>"; };
+		A1983100000000000000000B /* ShieldConfiguration.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldConfiguration.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1983100000000000000000C /* ShieldActionExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShieldActionExtension.swift; sourceTree = "<group>"; };
+		A1983100000000000000000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1983100000000000000000E /* ShieldAction.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShieldAction.entitlements; sourceTree = "<group>"; };
+		A1983100000000000000000F /* ShieldAction.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldAction.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = GROMO/SplashScreen.storyboard; sourceTree = "<group>"; };
+		AACDB593FFAD602A622C4BBD /* screentimereport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = screentimereport.swift; sourceTree = "<group>"; };
+		B317EBDCA02146843DFCAD52 /* HomeUsageView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = HomeUsageView.swift; sourceTree = "<group>"; };
+		B6506CBA4CF0F42171FF60F9 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = GROMO/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D1FF28FB82587B907B9C0E57 /* screentimereport.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = screentimereport.entitlements; sourceTree = "<group>"; };
+		DFB802E10F6288401A5062C2 /* CompactActivityView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompactActivityView.swift; sourceTree = "<group>"; };
 		E1CE6CDC64ED3C9B47124F0B /* libPods-GROMO.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-GROMO.a"; sourceTree = BUILT_PRODUCTS_DIR; };
 		EBB09C6D644025DE951FA644 /* Pods-GROMO.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GROMO.debug.xcconfig"; path = "Target Support Files/Pods-GROMO/Pods-GROMO.debug.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = GROMO/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* GROMO-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "GROMO-Bridging-Header.h"; path = "GROMO/GROMO-Bridging-Header.h"; sourceTree = "<group>"; };
+		FF1437B48DBA89E0A7BF2D35 /* CompactActivityReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CompactActivityReport.swift; sourceTree = "<group>"; };
+		FFF4B5883AE80A8BA12E190F /* RemainingActivityReport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemainingActivityReport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +153,35 @@
 			buildActionMask = 2147483647;
 			files = (
 				4CE008E421D1DB7491061D15 /* libPods-GROMO.a in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		6A78296A5CA3709BFFA5DAE0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DCFFF543C6596D90A7ABFC1C /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000006 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000009 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -56,12 +200,17 @@
 			isa = PBXGroup;
 			children = (
 				F11748412D0307B40044C1D9 /* AppDelegate.swift */,
+				A19831000000000000000001 /* ScreenTimeModule.swift */,
+				A19831000000000000000002 /* ScreenTimeModule.m */,
 				F11748442D0722820044C1D9 /* GROMO-Bridging-Header.h */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
 				AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */,
 				BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */,
+				63B72C935E2CA647A107767E /* ScreenTimeReportUIView.swift */,
+				4ED7A607F9096182747BF19A /* ScreenTimeReportViewManager.swift */,
+				9C153D4B2198CA485AA8BA8E /* ScreenTimeReportViewManager.m */,
 			);
 			name = GROMO;
 			sourceTree = "<group>";
@@ -71,8 +220,36 @@
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
 				E1CE6CDC64ED3C9B47124F0B /* libPods-GROMO.a */,
+				5A8FC8FC33F3B41E29BD4B2A /* iOS */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		5947CA12FF8B42FDC5A9310F /* screentimereport */ = {
+			isa = PBXGroup;
+			children = (
+				FF1437B48DBA89E0A7BF2D35 /* CompactActivityReport.swift */,
+				DFB802E10F6288401A5062C2 /* CompactActivityView.swift */,
+				8A8307588BD6BA28216B5958 /* HomeUsageReport.swift */,
+				B317EBDCA02146843DFCAD52 /* HomeUsageView.swift */,
+				B6506CBA4CF0F42171FF60F9 /* Info.plist */,
+				FFF4B5883AE80A8BA12E190F /* RemainingActivityReport.swift */,
+				2C878C66C0F4A8645EE71923 /* RemainingActivityView.swift */,
+				37E5E91034EC812D5CEB472E /* TotalActivityReport.swift */,
+				3F3A51EEBDA3C876B0863837 /* TotalActivityView.swift */,
+				D1FF28FB82587B907B9C0E57 /* screentimereport.entitlements */,
+				AACDB593FFAD602A622C4BBD /* screentimereport.swift */,
+			);
+			name = screentimereport;
+			path = screentimereport;
+			sourceTree = "<group>";
+		};
+		5A8FC8FC33F3B41E29BD4B2A /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				924CDFF4DCFC00733E587F72 /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 		62ABBDC4792E7D2D4B4532D2 /* GROMO */ = {
@@ -94,11 +271,16 @@
 			isa = PBXGroup;
 			children = (
 				13B07FAE1A68108700A75B9A /* GROMO */,
+				A19832000000000000000001 /* Shared */,
+				A19832000000000000000002 /* GromoScreenTimeMonitor */,
+				A19832000000000000000003 /* ShieldConfiguration */,
+				A19832000000000000000004 /* ShieldAction */,
 				832341AE1AAA6A7D00B99B32 /* Libraries */,
 				83CBBA001A601CBA00E9B192 /* Products */,
 				2D16E6871FA4F8E400B85C8A /* Frameworks */,
 				8FC73E13F7E9D0F235BEBFF6 /* Pods */,
 				074669341FFEBF850D25630F /* ExpoModulesProviders */,
+				5947CA12FF8B42FDC5A9310F /* screentimereport */,
 			);
 			indentWidth = 2;
 			sourceTree = "<group>";
@@ -109,6 +291,10 @@
 			isa = PBXGroup;
 			children = (
 				13B07F961A680F5B00A75B9A /* GROMO.app */,
+				A19831000000000000000007 /* GromoScreenTimeMonitor.appex */,
+				A1983100000000000000000B /* ShieldConfiguration.appex */,
+				A1983100000000000000000F /* ShieldAction.appex */,
+				79DBC525CEE1901161C9D4D4 /* screentimereport.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -121,6 +307,45 @@
 			);
 			name = Pods;
 			path = Pods;
+			sourceTree = "<group>";
+		};
+		A19832000000000000000001 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				A19831000000000000000003 /* FocusActivityAttributes.swift */,
+				4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		A19832000000000000000002 /* GromoScreenTimeMonitor */ = {
+			isa = PBXGroup;
+			children = (
+				A19831000000000000000004 /* DeviceActivityMonitorExtension.swift */,
+				A19831000000000000000005 /* Info.plist */,
+				A19831000000000000000006 /* GromoScreenTimeMonitor.entitlements */,
+			);
+			path = GromoScreenTimeMonitor;
+			sourceTree = "<group>";
+		};
+		A19832000000000000000003 /* ShieldConfiguration */ = {
+			isa = PBXGroup;
+			children = (
+				A19831000000000000000008 /* ShieldConfigurationExtension.swift */,
+				A19831000000000000000009 /* Info.plist */,
+				A1983100000000000000000A /* ShieldConfiguration.entitlements */,
+			);
+			path = ShieldConfiguration;
+			sourceTree = "<group>";
+		};
+		A19832000000000000000004 /* ShieldAction */ = {
+			isa = PBXGroup;
+			children = (
+				A1983100000000000000000C /* ShieldActionExtension.swift */,
+				A1983100000000000000000D /* Info.plist */,
+				A1983100000000000000000E /* ShieldAction.entitlements */,
+			);
+			path = ShieldAction;
 			sourceTree = "<group>";
 		};
 		BB2F792B24A3F905000567C9 /* Supporting */ = {
@@ -147,15 +372,89 @@
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
 				800E24972A6A228C8D4807E9 /* [CP] Copy Pods Resources */,
 				A5143E9E19BB29C02AD6BA30 /* [CP] Embed Pods Frameworks */,
+				A19833000000000000000001 /* Embed Foundation Extensions */,
+				36EEE7D751D04F900361AFFA /* Embed Report Extension */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A19837100000000000000001 /* PBXTargetDependency */,
+				A19837100000000000000002 /* PBXTargetDependency */,
+				A19837100000000000000003 /* PBXTargetDependency */,
+				44744793CC9DD9496E401D8D /* PBXTargetDependency */,
 			);
 			name = GROMO;
 			productName = GROMO;
 			productReference = 13B07F961A680F5B00A75B9A /* GROMO.app */;
 			productType = "com.apple.product-type.application";
+		};
+		3496B5BBFD9FA9159612DB65 /* screentimereport */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 3ABA95F276A893B1936F36AF /* Build configuration list for PBXNativeTarget "screentimereport" */;
+			buildPhases = (
+				937DF678A2832E47B86480C5 /* Sources */,
+				6A78296A5CA3709BFFA5DAE0 /* Frameworks */,
+				A63EB2D84CD3E0868893341C /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = screentimereport;
+			productName = screentimereport;
+			productReference = 79DBC525CEE1901161C9D4D4 /* screentimereport.appex */;
+			productType = "com.apple.product-type.extensionkit-extension";
+		};
+		A19834000000000000000001 /* GromoScreenTimeMonitor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A19836000000000000000001 /* Build configuration list for PBXNativeTarget "GromoScreenTimeMonitor" */;
+			buildPhases = (
+				A19833000000000000000002 /* Sources */,
+				A19833000000000000000003 /* Frameworks */,
+				A19833000000000000000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = GromoScreenTimeMonitor;
+			productName = GromoScreenTimeMonitor;
+			productReference = A19831000000000000000007 /* GromoScreenTimeMonitor.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A19834000000000000000002 /* ShieldConfiguration */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A19836000000000000000002 /* Build configuration list for PBXNativeTarget "ShieldConfiguration" */;
+			buildPhases = (
+				A19833000000000000000005 /* Sources */,
+				A19833000000000000000006 /* Frameworks */,
+				A19833000000000000000007 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ShieldConfiguration;
+			productName = ShieldConfiguration;
+			productReference = A1983100000000000000000B /* ShieldConfiguration.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		A19834000000000000000003 /* ShieldAction */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A19836000000000000000003 /* Build configuration list for PBXNativeTarget "ShieldAction" */;
+			buildPhases = (
+				A19833000000000000000008 /* Sources */,
+				A19833000000000000000009 /* Frameworks */,
+				A1983300000000000000000A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ShieldAction;
+			productName = ShieldAction;
+			productReference = A1983100000000000000000F /* ShieldAction.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -167,6 +466,19 @@
 				TargetAttributes = {
 					13B07F861A680F5B00A75B9A = {
 						LastSwiftMigration = 1250;
+					};
+					3496B5BBFD9FA9159612DB65 = {
+						DevelopmentTeam = P6Z68QUK9M;
+						ProvisioningStyle = Manual;
+					};
+					A19834000000000000000001 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					A19834000000000000000002 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+					A19834000000000000000003 = {
+						CreatedOnToolsVersion = 26.0;
 					};
 				};
 			};
@@ -184,6 +496,10 @@
 			projectRoot = "";
 			targets = (
 				13B07F861A680F5B00A75B9A /* GROMO */,
+				A19834000000000000000001 /* GromoScreenTimeMonitor */,
+				A19834000000000000000002 /* ShieldConfiguration */,
+				A19834000000000000000003 /* ShieldAction */,
+				3496B5BBFD9FA9159612DB65 /* screentimereport */,
 			);
 		};
 /* End PBXProject section */
@@ -197,6 +513,34 @@
 				13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */,
 				3E461D99554A48A4959DE609 /* SplashScreen.storyboard in Resources */,
 				B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000007 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1983300000000000000000A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A63EB2D84CD3E0868893341C /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -273,9 +617,17 @@
 			);
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-GROMO/Pods-GROMO-resources.sh",
+				"${PODS_CONFIGURATION_BUILD_DIR}/DatadogCore/DatadogCore.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/DatadogCrashReporting/DatadogCrashReporting.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/DatadogRUM/DatadogRUM.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/EXConstants.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/EXConstants/ExpoConstants_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashCore.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashFilters.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashRecording.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashRecordingCore.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashReportingCore.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNSVG/RNSVGFilters.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
@@ -284,9 +636,17 @@
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/DatadogCore.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/DatadogCrashReporting.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/DatadogRUM.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EXConstants.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoConstants_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashCore.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashFilters.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashRecording.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashRecordingCore.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashReportingCore.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNSVGFilters.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",
@@ -337,12 +697,84 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A19830000000000000000001 /* ScreenTimeModule.swift in Sources */,
+				A19830000000000000000002 /* ScreenTimeModule.m in Sources */,
+				A19830000000000000000003 /* FocusActivityAttributes.swift in Sources */,
 				F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */,
 				8F402AD4E43832218A192350 /* ExpoModulesProvider.swift in Sources */,
+				4E75A7010F4CF32FE42CC580 /* ScreenTimeReportUIView.swift in Sources */,
+				D773B2A78A2F134A7DB00548 /* ScreenTimeReportViewManager.swift in Sources */,
+				422D61DB31180A4450760E30 /* ScreenTimeReportViewManager.m in Sources */,
+				0F238FAED05593D75FA75071 /* ReportPalette.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		937DF678A2832E47B86480C5 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				05F22501586719F030A194AA /* CompactActivityReport.swift in Sources */,
+				D2D8BCCA685FB07403501067 /* CompactActivityView.swift in Sources */,
+				0B1496379A3AF0F282927B0A /* HomeUsageReport.swift in Sources */,
+				A1CDA6989DF2E4DC3F4EA665 /* HomeUsageView.swift in Sources */,
+				F755A5248582A9EA6F2F5F48 /* RemainingActivityReport.swift in Sources */,
+				0F3DD8DEAD019FD70F7D4813 /* RemainingActivityView.swift in Sources */,
+				4A6D5678F116265BD0BA5958 /* TotalActivityReport.swift in Sources */,
+				6D8E2D0A61D96B01EF2B74E3 /* TotalActivityView.swift in Sources */,
+				53CC3CA8CAC4E8261B93BC26 /* screentimereport.swift in Sources */,
+				03312F9ACF2B9B8BED7062FB /* ReportPalette.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A19830000000000000000004 /* DeviceActivityMonitorExtension.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000005 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A19830000000000000000005 /* ShieldConfigurationExtension.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A19833000000000000000008 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A19830000000000000000006 /* ShieldActionExtension.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		44744793CC9DD9496E401D8D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = screentimereport;
+			target = 3496B5BBFD9FA9159612DB65 /* screentimereport */;
+			targetProxy = A9152440927F220A3FC4735C /* PBXContainerItemProxy */;
+		};
+		A19837100000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A19834000000000000000001 /* GromoScreenTimeMonitor */;
+			targetProxy = A19837000000000000000001 /* PBXContainerItemProxy */;
+		};
+		A19837100000000000000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A19834000000000000000002 /* ShieldConfiguration */;
+			targetProxy = A19837000000000000000002 /* PBXContainerItemProxy */;
+		};
+		A19837100000000000000003 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A19834000000000000000003 /* ShieldAction */;
+			targetProxy = A19837000000000000000003 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
@@ -352,9 +784,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GROMO/GROMO.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
-				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
@@ -377,7 +809,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat;
 				PRODUCT_NAME = GROMO;
-				PROVISIONING_PROFILE_SPECIFIER = "dev-cat-main";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "GROMO/GROMO-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -393,9 +825,9 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GROMO/GROMO.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
-				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				INFOPLIST_FILE = GROMO/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
@@ -413,13 +845,42 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat;
 				PRODUCT_NAME = GROMO;
-				PROVISIONING_PROFILE_SPECIFIER = "distribution-cat-main";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_OBJC_BRIDGING_HEADER = "GROMO/GROMO-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Release;
+		};
+		70E83AD090BEF4C49E18E646 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = screentimereport/screentimereport.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = screentimereport/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.screentimereport;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
 		};
 		83CBBA201A601CBA00E9B192 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -557,6 +1018,205 @@
 			};
 			name = Release;
 		};
+		A19835000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMonitor/GromoScreenTimeMonitor.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GromoScreenTimeMonitor/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.screentimemonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A19835000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = GromoScreenTimeMonitor/GromoScreenTimeMonitor.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = GromoScreenTimeMonitor/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.screentimemonitor;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A19835000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ShieldConfiguration/ShieldConfiguration.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShieldConfiguration/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.sheildconfiguration;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A19835000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ShieldConfiguration/ShieldConfiguration.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShieldConfiguration/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.sheildconfiguration;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		A19835000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ShieldAction/ShieldAction.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShieldAction/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.shieldaction;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		A19835000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ShieldAction/ShieldAction.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShieldAction/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.shieldaction;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		AC3E1325AB12AC5C5B6DB16A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = screentimereport/screentimereport.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
+				DEVELOPMENT_TEAM = P6Z68QUK9M;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = screentimereport/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 2.0.0;
+				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.screentimereport;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -569,11 +1229,47 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		3ABA95F276A893B1936F36AF /* Build configuration list for PBXNativeTarget "screentimereport" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AC3E1325AB12AC5C5B6DB16A /* Release */,
+				70E83AD090BEF4C49E18E646 /* Debug */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		83CBB9FA1A601CBA00E9B192 /* Build configuration list for PBXProject "GROMO" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				83CBBA201A601CBA00E9B192 /* Debug */,
 				83CBBA211A601CBA00E9B192 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A19836000000000000000001 /* Build configuration list for PBXNativeTarget "GromoScreenTimeMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A19835000000000000000001 /* Debug */,
+				A19835000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A19836000000000000000002 /* Build configuration list for PBXNativeTarget "ShieldConfiguration" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A19835000000000000000003 /* Debug */,
+				A19835000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A19836000000000000000003 /* Build configuration list for PBXNativeTarget "ShieldAction" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A19835000000000000000005 /* Debug */,
+				A19835000000000000000006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

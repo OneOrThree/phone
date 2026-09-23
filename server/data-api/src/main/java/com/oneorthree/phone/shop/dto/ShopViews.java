@@ -14,8 +14,9 @@ public final class ShopViews {
     }
 
     /**
-     * 지갑 두 개(LLD §2.1). {@code fish} 는 개인 지갑, {@code villagePoints} 는 섬 통장이다. 개인 지갑은 상점이
-     * 차감하지 않고(2026-09-19 SH-재화) 사건·버전 축이 없어 {@code fishVersion} 은 null 이다 — 0 으로 지어내지 않는다.
+     * 지갑(LLD §2.1). {@code villagePoints} 는 섬 통장이다. {@code fish} 는 개인 물고기 지갑의 호환 필드로
+     * <b>항상 0</b> 이다(2026-09-21 재화-단일 — 상점은 {@code user_fish_wallets} 를 읽지 않는다, GROMO-2052).
+     * {@code fishVersion} 도 null 고정이다 — 개인 지갑에는 사건·버전 축이 없다.
      */
     public record Wallets(int fish, int villagePoints, Long fishVersion, long villagePointsVersion) {
     }

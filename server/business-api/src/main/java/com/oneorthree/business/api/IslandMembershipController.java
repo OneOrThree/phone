@@ -1,5 +1,12 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.IslandMembershipResponses.CurrentIslandView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.InvitationResolvedView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandCreatedView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandInvitationView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandJoinResultView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestCancelView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
 import com.oneorthree.business.api.dto.IslandPage;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
@@ -8,13 +15,6 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.CurrentIsland;
-import com.oneorthree.business.upstream.data.dto.InvitationResolved;
-import com.oneorthree.business.upstream.data.dto.IslandCreated;
-import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
-import com.oneorthree.business.upstream.data.dto.JoinIslandResult;
-import com.oneorthree.business.upstream.data.dto.JoinRequestCancel;
-import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
 import com.oneorthree.business.usecase.IslandMembershipUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,6 +53,8 @@ public class IslandMembershipController {
     private static final int INTRO_MAX = 200;
     private static final int SEARCH_LIMIT_DEFAULT = 20;
     private static final int DISCOVER_LIMIT_DEFAULT = 1;
+    /** 「신청 중」 기본 개수 — 한 사람이 동시에 걸어 둘 수 있는 신청 수가 적어 한 화면이면 충분하다. */
+    private static final int MY_JOIN_REQUESTS_LIMIT_DEFAULT = 20;
     // 초대 code·token 크기는 내부 계약(InvitationResolveCommandRequest·JoinIslandCommandRequest)과
     // 같게 둔다 — 여기서 더 느슨하게 받으면 초과분이 400/422 로 갈리는 경계가 상류와 어긋난다.
     private static final int CODE_MAX = 32;
@@ -72,7 +74,7 @@ public class IslandMembershipController {
 
     /** 섬 생성 (LLD §3.1). */
     @PostMapping(value = "/islands", consumes = "application/json")
-    public ResponseEntity<IslandCreated> create(@RequestBody JsonNode body, HttpServletRequest request) {
+    public ResponseEntity<IslandCreatedView> create(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         // intro·maxMembers 는 선택이다. 화이트리스트 밖 키가 섞이면 거절한다 — password 를 client 가
@@ -104,7 +106,7 @@ public class IslandMembershipController {
             }
             maxMembers = node.intValue();
         }
-        IslandCreated created = islands.create(claims, name, intro, approvalRequired.booleanValue(),
+        IslandCreatedView created = islands.create(claims, name, intro, approvalRequired.booleanValue(),
                 maxMembers, key, deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
@@ -145,7 +147,7 @@ public class IslandMembershipController {
 
     /** 현재 섬 이동 (LLD §3.6). */
     @PutMapping(value = "/me/current-island", consumes = "application/json")
-    public CurrentIsland switchCurrentIsland(@RequestBody JsonNode body, HttpServletRequest request) {
+    public CurrentIslandView switchCurrentIsland(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         if (body == null || !body.isObject() || body.size() != 1) {
@@ -166,7 +168,7 @@ public class IslandMembershipController {
      * 즉시 가입이면 {@code active}+새 current, 승인제면 {@code pending} 이다.
      */
     @PostMapping("/islands/{islandId}/memberships")
-    public JoinIslandResult join(@PathVariable String islandId,
+    public IslandJoinResultView join(@PathVariable String islandId,
             @RequestBody(required = false) JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -181,16 +183,29 @@ public class IslandMembershipController {
         return islands.join(claims, uuid(islandId, "islandId"), invitationToken, key, deadline());
     }
 
+    /**
+     * 내 가입 신청 목록 (GROMO-2047, LLD §3.12) — explore 화면의 「신청 중」 조각이다.
+     *
+     * <p>{@code /me/join-requests/{requestId}}(§3.8) 와 세그먼트 수가 달라 경로가 겹치지 않는다.
+     * 신청이 없으면 404 가 아니라 빈 목록 + 200 이다 — 「신청한 적 없음」은 실패가 아니다.
+     */
+    @GetMapping("/me/join-requests")
+    public IslandMembershipUseCase.MyJoinRequests myJoinRequests(HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        return islands.myJoinRequests(claims, single(request, "cursor"),
+                limit(request, MY_JOIN_REQUESTS_LIMIT_DEFAULT), deadline());
+    }
+
     /** 가입 요청 상태 (GROMO-1760, LLD §3.8). 남의 요청은 상류가 404 로 접는다. */
     @GetMapping("/me/join-requests/{requestId}")
-    public JoinRequestStatus joinRequest(@PathVariable String requestId, HttpServletRequest request) {
+    public JoinRequestStatusView joinRequest(@PathVariable String requestId, HttpServletRequest request) {
         return islands.joinRequest(sessions.requireSession(request),
                 uuid(requestId, "requestId"), deadline());
     }
 
     /** 가입 요청 취소 (GROMO-1760, LLD §3.9). 본인의 pending 만 종결된다. */
     @DeleteMapping("/me/join-requests/{requestId}")
-    public JoinRequestCancel cancelJoinRequest(@PathVariable String requestId,
+    public JoinRequestCancelView cancelJoinRequest(@PathVariable String requestId,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -202,7 +217,7 @@ public class IslandMembershipController {
      * 형식·폐기 판정(422/410)은 상류 몫이다 — 여기서 미리 걸러 의미를 갉아먹지 않는다.
      */
     @PostMapping(value = "/invitations/resolve", consumes = "application/json")
-    public InvitationResolved resolveInvitation(@RequestBody JsonNode body,
+    public InvitationResolvedView resolveInvitation(@RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         if (body == null || !body.isObject() || body.size() != 1) {
@@ -213,7 +228,7 @@ public class IslandMembershipController {
 
     /** 섬 초대 발급 (GROMO-1760, LLD §3.11). 본문 없음, 활성 주민만 발급된다. */
     @PostMapping("/islands/{islandId}/invitations")
-    public IslandInvitationIssued issueInvitation(@PathVariable String islandId,
+    public IslandInvitationView issueInvitation(@PathVariable String islandId,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);

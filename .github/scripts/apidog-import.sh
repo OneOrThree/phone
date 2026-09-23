@@ -25,7 +25,7 @@
 # 대신 아래 요약 줄을 남겨 사람이 "계속 0" 을 알아볼 수 있게 한다.
 set -euo pipefail
 
-PROJECT_ID="$1"
+PROJECT_ID="${1:?projectId 인자가 비어 있다 — 워크플로의 projectId 전달을 확인하라}"
 PAYLOAD="$2"
 TOKEN="${APIDOG_TOKEN:?APIDOG_TOKEN 이 비어 있다 — 시크릿 이름을 확인하라}"
 

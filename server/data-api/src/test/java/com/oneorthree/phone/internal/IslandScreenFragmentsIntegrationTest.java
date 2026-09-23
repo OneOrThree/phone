@@ -7,6 +7,7 @@ import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.FacilityStatus;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.construction.service.IslandWalletService;
+import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionDetailRepository;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.focus.repository.domain.FocusSession;
@@ -82,6 +83,8 @@ class IslandScreenFragmentsIntegrationTest {
         registry.add("notification.dispatch.mode", () -> "OUTBOX");
         // 도서관 게이트를 실제로 판정하게 한다 — 기본 OFF 면 모든 섬이 통과해 게이트가 검증되지 않는다.
         registry.add("construction.facility-gates.enforce", () -> true);
+        // 승인·거절이 목록에서 사라지는지 보려면 방장 명령이 열려 있어야 한다(GROMO-2047).
+        registry.add("island-management.commands-enabled", () -> true);
         registry.add("internal.api.enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         String[] allow = {"GET /internal/users/*/join-requests", "GET /internal/islands/*/resources/ledger",
@@ -104,6 +107,8 @@ class IslandScreenFragmentsIntegrationTest {
     FocusSessionRepository sessions;
     @Autowired
     FocusSessionDetailRepository details;
+    @Autowired
+    FocusRewardAccrualRepository accruals;
     @Autowired
     GroupRepository groups;
     @Autowired
@@ -165,10 +170,35 @@ class IslandScreenFragmentsIntegrationTest {
     }
 
     @Test
+    @DisplayName("내 대기 목록 — 승인·거절로 닫힌 신청은 목록에서 사라지고, 신청이 하나도 없으면 빈 목록이다")
+    void myRequestsDropsAnsweredRequestsAndIsEmptyWhenNone() {
+        UUID host = newUser();
+        UUID approvedIsland = island("승인섬", true);
+        UUID rejectedIsland = island("거절섬", true);
+        joinAs(host, approvedIsland, GroupMemberRole.OWNER);
+        joinAs(host, rejectedIsland, GroupMemberRole.OWNER);
+        UUID applicant = newUser();
+        assertThat(joins.myRequests(applicant, null, null, 10).items())
+                .as("신청이 없으면 「없음」이 아니라 빈 목록이다").isEmpty();
+
+        UUID approved = joins.join(applicant, approvedIsland, null, UUID.randomUUID()).requestId();
+        UUID rejected = joins.join(applicant, rejectedIsland, null, UUID.randomUUID()).requestId();
+        assertThat(joins.myRequests(applicant, null, null, 10).items())
+                .extracting(MyJoinRequestsPageView.Item::id)
+                .containsExactlyInAnyOrder(approved, rejected);
+
+        joins.answer(host, approvedIsland, approved, true, UUID.randomUUID());
+        joins.answer(host, rejectedIsland, rejected, false, UUID.randomUUID());
+        assertThat(joins.myRequests(applicant, null, null, 10).items())
+                .as("닫힌 신청의 결과는 §3.8 단건 조회로 본다 — 대기 목록에 이력을 쌓지 않는다").isEmpty();
+    }
+
+    @Test
     @DisplayName("내 대기 목록 HTTP — 경로 사용자 축으로 열리고, 경계 한쪽만 오면 400 INVALID_PAGE_REQUEST")
     void myRequestsOverHttp() throws Exception {
         UUID applicant = newUser();
         UUID islandId = island("신청섬", true);
+        joinAs(newUser(), islandId, GroupMemberRole.OWNER);
         UUID request = joins.join(applicant, islandId, null, UUID.randomUUID()).requestId();
 
         mvc.perform(get("/internal/users/" + applicant + "/join-requests").param("limit", "20")
@@ -177,6 +207,9 @@ class IslandScreenFragmentsIntegrationTest {
                 .andExpect(jsonPath("$.items[0].id").value(request.toString()))
                 .andExpect(jsonPath("$.items[0].islandId").value(islandId.toString()))
                 .andExpect(jsonPath("$.items[0].islandName").value("신청섬"))
+                // 섬 요약(이름·주민 수·정원) — 「3/15」를 그리려면 둘 다 필요하다(GROMO-2047).
+                .andExpect(jsonPath("$.items[0].memberCount").value(1))
+                .andExpect(jsonPath("$.items[0].maxMembers").value(10))
                 .andExpect(jsonPath("$.items[0].status").value("pending"))
                 .andExpect(jsonPath("$.nextRequestId").doesNotExist());
         mvc.perform(get("/internal/users/" + applicant + "/join-requests").param("limit", "20")
@@ -380,6 +413,30 @@ class IslandScreenFragmentsIntegrationTest {
                 .andExpect(jsonPath("$.code").value("MEMBER_ONLY"));
     }
 
+    @Test
+    @DisplayName("물고기 장 — 황금 물고기 몫은 누적 획득에 더해지고, 하루 480 상한 합산에는 들어가지 않는다")
+    void fishEarningsIncludesGoldenShareButDailyCapDoesNot() throws Exception {
+        Resident r = residentIsland();
+        facilities.save(IslandFacility.builder().islandId(r.islandId()).buildingId("library")
+                .status(FacilityStatus.COMPLETED).cost(2720).costRevision(1)
+                .completedAt(Instant.now()).build());
+
+        LocalDate accruedOn = settle(r.member(), r.islandId(), 10, 25);   // 황금 50 ÷ 함께 낚은 2명
+        settle(r.host(), r.islandId(), 7);
+
+        IslandFishEarningsView view = economy.fishEarnings(r.host(), r.islandId());
+        assertThat(view.members()).extracting(IslandFishEarningsView.Member::earnedFish)
+                .containsExactly(35L, 7L);
+        assertThat(accruals.sumEarnedFishOnDay(r.member(), r.islandId(), accruedOn))
+                .as("480 상한 합산은 earned_fish 만 본다").isEqualTo(10L);
+
+        mvc.perform(get("/internal/islands/" + r.islandId() + "/statistics/fish-earnings")
+                        .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", r.member()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.members[0].userId").value(r.member().toString()))
+                .andExpect(jsonPath("$.members[0].earnedFish").value(35));
+    }
+
     // ---------------------------------------------------------------- 도구
 
     private record Resident(UUID islandId, UUID host, UUID member) {
@@ -420,22 +477,29 @@ class IslandScreenFragmentsIntegrationTest {
      * 누적 획득의 정본은 GROMO-1990 부터 적립 원장({@code focus_reward_accruals})이다.
      */
     private void settle(UUID userId, UUID islandId, int earnedFish) {
+        settle(userId, islandId, earnedFish, 0);
+    }
+
+    /** {@link #settle(UUID, UUID, int)} 에 황금 물고기 자기 몫을 얹은 판 — 적립일(UTC)을 돌려준다. */
+    private LocalDate settle(UUID userId, UUID islandId, int earnedFish, int goldenFish) {
         User user = users.getCaller(userId);
         Instant ended = Instant.now().minusSeconds(60);
+        LocalDate accruedOn = LocalDate.ofInstant(ended, ZoneOffset.UTC);
         UUID sessionId = sessions.save(FocusSession.builder().user(user).focusType(FocusType.INFINITE)
                 .startedAt(ended.minusSeconds(earnedFish * 60L)).endedAt(ended).build()).getId();
         details.save(FocusSessionDetail.builder().sessionId(sessionId).userId(userId).islandId(islandId)
                 .membershipEpochAtStart(1L).subject("수학").targetMinutes(25)
                 .lifecycle(FocusSessionLifecycle.COMPLETED).lastTransitionAt(ended).build());
         new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-            if (earnedFish > 0) {
+            if (earnedFish > 0 || goldenFish > 0) {
                 em.persist(FocusRewardAccrual.builder().sessionId(sessionId)
-                        .accruedOn(LocalDate.ofInstant(ended, ZoneOffset.UTC)).earnedFish(earnedFish).build());
+                        .accruedOn(accruedOn).earnedFish(earnedFish).goldenFish(goldenFish).build());
             }
             em.persist(FocusSettlement.builder().sessionId(sessionId).activeSeconds(earnedFish * 60L)
                     .goalAchieved(true).earnedFish(earnedFish).personalFishAdded(0)
                     .constructionFishAdded(earnedFish).completedAt(ended).build());
         });
+        return accruedOn;
     }
 
     private void setRequestCreatedAt(UUID requestId, Instant at) {

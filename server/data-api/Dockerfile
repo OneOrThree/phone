@@ -51,7 +51,8 @@ COPY --from=artifact /app/app.jar app.jar
 # %%host%% 는 Agent 가 컨테이너 IP 로 치환한다. 9091 은 호스트 미공개 관리 포트(application-{dev,prod}.yml).
 # 비용: 커스텀 메트릭은 timeseries 당 과금 → .* 대신 대시보드가 쓰는 것만 큐레이트.
 # ⚠️ OpenMetrics(agent:7)는 카운터의 _total 접미사를 떼고 매칭 → logback_events 처럼 접미사 없이 적는다.
-LABEL com.datadoghq.ad.checks='{"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo","metrics":["http_server_requests_seconds.*","hikaricp_connections.*","jvm_memory_used_bytes","jvm_memory_max_bytes","jvm_gc_pause_seconds.*","jvm_threads_live_threads","process_cpu_usage","system_cpu_usage","logback_events"]}]}}'
+LABEL com.datadoghq.ad.checks='{"openmetrics":{"init_config":{},"instances":[{"openmetrics_endpoint":"http://%%host%%:9091/actuator/prometheus","namespace":"gromo","metrics":[".*"],"health_service_check":true,"send_distribution_buckets":true,"collect_counters_with_distributions":true}]}}' \
+      com.datadoghq.ad.logs='[{"source":"java"}]'
 
 EXPOSE 8080
 

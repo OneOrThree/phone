@@ -6,8 +6,6 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.AccountMe;
-import com.oneorthree.business.upstream.data.dto.AccountProfile;
 import com.oneorthree.business.usecase.AccountUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,7 +44,7 @@ public class AccountController {
     private final UpstreamConfigProperties properties;
 
     @GetMapping("/me")
-    public AccountMe me(HttpServletRequest request) {
+    public AccountUseCase.AccountView me(HttpServletRequest request) {
         return account.me(sessions.requireSession(request), deadline());
     }
 
@@ -58,7 +56,7 @@ public class AccountController {
      * 아래에서 판정해 403 으로 되돌리고, 이 클래스가 섬 목록을 따로 들고 있으면 그것이 곧 두 번째 진실이 된다.
      */
     @PatchMapping(value = "/me", consumes = "application/json")
-    public AccountProfile patch(@RequestBody JsonNode body, HttpServletRequest request) {
+    public AccountUseCase.ProfileView patch(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         if (body == null || !body.isObject() || body.isEmpty()

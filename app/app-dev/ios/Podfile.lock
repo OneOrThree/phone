@@ -1,4 +1,51 @@
 PODS:
+  - DatadogCore (3.16.0):
+    - DatadogInternal (= 3.16.0)
+  - DatadogCrashReporting (3.16.0):
+    - DatadogInternal (= 3.16.0)
+    - KSCrash/Filters (= 2.5.1)
+    - KSCrash/Recording (= 2.5.1)
+  - DatadogFlags (3.16.0):
+    - DatadogInternal (= 3.16.0)
+  - DatadogInternal (3.16.0)
+  - DatadogLogs (3.16.0):
+    - DatadogInternal (= 3.16.0)
+  - DatadogRUM (3.16.0):
+    - DatadogInternal (= 3.16.0)
+  - DatadogSDKReactNative (3.8.0):
+    - DatadogCore (= 3.16.0)
+    - DatadogCrashReporting (= 3.16.0)
+    - DatadogFlags (= 3.16.0)
+    - DatadogLogs (= 3.16.0)
+    - DatadogRUM (= 3.16.0)
+    - DatadogTrace (= 3.16.0)
+    - DatadogWebViewTracking (= 3.16.0)
+    - hermes-engine
+    - RCTRequired
+    - RCTTypeSafety
+    - React-Core
+    - React-Core-prebuilt
+    - React-debug
+    - React-Fabric
+    - React-featureflags
+    - React-graphics
+    - React-ImageManager
+    - React-jsi
+    - React-NativeModulesApple
+    - React-RCTFabric
+    - React-renderercss
+    - React-rendererdebug
+    - React-utils
+    - ReactCodegen
+    - ReactCommon/turbomodule/bridging
+    - ReactCommon/turbomodule/core
+    - ReactNativeDependencies
+    - Yoga
+  - DatadogTrace (3.16.0):
+    - DatadogInternal (= 3.16.0)
+    - OpenTelemetry-Swift-Api (~> 2.5.0)
+  - DatadogWebViewTracking (3.16.0):
+    - DatadogInternal (= 3.16.0)
   - EXConstants (57.0.17):
     - ExpoModulesCore
   - Expo (57.0.21):
@@ -102,6 +149,18 @@ PODS:
   - hermes-engine (250829098.0.14):
     - hermes-engine/Pre-built (= 250829098.0.14)
   - hermes-engine/Pre-built (250829098.0.14)
+  - KSCrash/Core (2.5.1)
+  - KSCrash/Filters (2.5.1):
+    - KSCrash/Recording
+    - KSCrash/RecordingCore
+    - KSCrash/ReportingCore
+  - KSCrash/Recording (2.5.1):
+    - KSCrash/RecordingCore
+  - KSCrash/RecordingCore (2.5.1):
+    - KSCrash/Core
+  - KSCrash/ReportingCore (2.5.1):
+    - KSCrash/Core
+  - OpenTelemetry-Swift-Api (2.5.1)
   - RCTDeprecation (0.86.0)
   - RCTRequired (0.86.0)
   - RCTSwiftUI (0.86.0)
@@ -2061,6 +2120,7 @@ PODS:
   - Yoga (0.0.0)
 
 DEPENDENCIES:
+  - "DatadogSDKReactNative (from `../node_modules/@datadog/mobile-react-native`)"
   - EXConstants (from `../node_modules/expo-constants/ios`)
   - Expo (from `../node_modules/expo`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
@@ -2156,7 +2216,22 @@ DEPENDENCIES:
   - RNSVG (from `../node_modules/react-native-svg`)
   - Yoga (from `../node_modules/react-native/ReactCommon/yoga`)
 
+SPEC REPOS:
+  trunk:
+    - DatadogCore
+    - DatadogCrashReporting
+    - DatadogFlags
+    - DatadogInternal
+    - DatadogLogs
+    - DatadogRUM
+    - DatadogTrace
+    - DatadogWebViewTracking
+    - KSCrash
+    - OpenTelemetry-Swift-Api
+
 EXTERNAL SOURCES:
+  DatadogSDKReactNative:
+    :path: "../node_modules/@datadog/mobile-react-native"
   EXConstants:
     :path: "../node_modules/expo-constants/ios"
   Expo:
@@ -2346,6 +2421,15 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon/yoga"
 
 SPEC CHECKSUMS:
+  DatadogCore: 7eed8fbaaa1575503c389f343c230858343c8baf
+  DatadogCrashReporting: 04f3c3a5bfd9921aef4d44b4ab80accb39c84ddb
+  DatadogFlags: 033cf48e769c271843e77068c015519880011866
+  DatadogInternal: e5a4652ee266986e29c6b8491aff7f78dc3b731d
+  DatadogLogs: 52792add5827042f619771a23656e2bfb6b0f4e7
+  DatadogRUM: b78d608e013f39c5679ed31ad97dad323c6113e8
+  DatadogSDKReactNative: 67e2cae5397c3ec8218d68f023fac0f6bd9fd22d
+  DatadogTrace: 5ef84e254e2e1d337bc52e0cdf16396ca102aeb1
+  DatadogWebViewTracking: e0470157f55a83680a549d79ba2985e0d17465db
   EXConstants: 799577d2516460afb4b57874d6823a62327ce5c7
   Expo: 8fcd49c9918bb861a881ea9844a3f099a9b0bd3b
   ExpoAsset: bea9115098b9f4ddfb0456961c8a7d2779ccc8f5
@@ -2356,13 +2440,15 @@ SPEC CHECKSUMS:
   ExpoHaptics: bc5461002fc97e53c213a1af6c88c8f95965b734
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: b67f8912681175eea3bf21c7fbaa5be389146c07
+  ExpoModulesCore: ec3d253c2b498f33ec6209c4fd354a8241cfdf5c
   ExpoModulesJSI: 9df8e7c9719f59e8c001ec33611774137fc1484a
   ExpoModulesWorklets: 767d05688faa3bbf38b19c08abca031b5328093a
   ExpoScreenOrientation: 29f306f9e1a37b304862310ceb9664866f653ebd
   ExpoSecureStore: ff1fd5e073957417ba8f9dec0bebcbd55a60e747
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
-  hermes-engine: 867d4d76d4292bb2dcc703560220e43410a25ac7
+  hermes-engine: c462101f0fee5850da9cbd88e5ef97af49bae4cb
+  KSCrash: 8c4464fd5da7de520f2ce4a00fdf63f169a80f18
+  OpenTelemetry-Swift-Api: 3be9043f6288eb4ac3cbe7548b5bd45fb4ed5849
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b
   RCTRequired: 30451112e6fef4e6f31b4e7eee0845156e35e4b0
   RCTSwiftUI: 5aaf0b07e747ba749dc6acc94d8bd41eea4b570f

@@ -449,8 +449,8 @@
       "method": "GET",
       "path": "/islands/{islandId}/statistics/focus",
       "request_example": {
-        "from": "2026-09-07",
-        "to": "2026-09-13",
+        "from": "2026-09-06",
+        "to": "2026-09-12",
         "timezone": "Asia/Seoul",
         "scope": "me",
         "cursor": null
@@ -488,8 +488,8 @@
       "method": "GET",
       "path": "/islands/{islandId}/statistics/screen-time",
       "request_example": {
-        "from": "2026-09-07",
-        "to": "2026-09-13",
+        "from": "2026-09-06",
+        "to": "2026-09-12",
         "timezone": "Asia/Seoul",
         "scope": "me"
       },
@@ -665,8 +665,7 @@
       "method": "GET",
       "path": "/rankings/islands",
       "request_example": {
-        "week": "2026-W37",
-        "cursor": null
+        "week": "2026-09-06"
       },
       "response_example": {
         "data": {

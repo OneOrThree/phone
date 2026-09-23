@@ -11,6 +11,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -145,10 +146,10 @@ class GroupMemberRepositoryTest extends RepositoryTestBase {
 
         groupMemberRepository.save(GroupMember.builder().user(active).group(group).build());
         GroupMember leftMember = GroupMember.builder().user(left).group(group).build();
-        leftMember.leave();
+        leftMember.leave(Instant.now());
         groupMemberRepository.save(leftMember);
         GroupMember kickedMember = GroupMember.builder().user(kicked).group(group).build();
-        kickedMember.kick();
+        kickedMember.kick(Instant.now());
         groupMemberRepository.save(kickedMember);
         groupMemberRepository.flush();
 

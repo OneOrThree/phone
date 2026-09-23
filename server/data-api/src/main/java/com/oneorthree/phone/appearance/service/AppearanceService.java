@@ -27,8 +27,6 @@ import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.domain.Group;
-import com.oneorthree.phone.group.repository.domain.GroupMember;
-import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.outbox.dto.PublicCommandReceipt;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
@@ -70,7 +68,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 카탈로그 정의(불변, 잠금 없는 읽기) → 제출 상품의 보유 행(ForShare) → 외양 행(ForUpdate).
  * 보유 행을 외양 행보다 먼저 공유로 잡아 두므로, 보유 행을 지우고 외양을 해제하는 회수 writer 와
  * 같은 순서로 줄을 서며(교착 없음) 회수가 방금 장착한 상품을 놓치는 stale-equip 창이 닫힌다.
- * 권한(멤버십 공유 잠금)은 커밋까지 유지되어 검사 후 방장 이양이 끼어드는 TOCTOU 도 없다.
+ * 권한(멤버십 공유 잠금)은 커밋까지 유지되어 검사 후 강퇴가 끼어드는 TOCTOU 도 없다.
  * 외양 행 잠금 뒤의 보유 확인(미제출 기존 값 재검증)은 잠금 없는 읽기다 — 역순 잠금을 만들지 않는다.
  * 변경과 사건은 같은 TX 에 쓰고, 버전은 잠긴 행이 직접 올린다 — 행 잠금이 곧 버전 발급 직렬화다.
  *
@@ -201,8 +199,8 @@ public class AppearanceService implements IslandAppearancePort {
     // ---------------------------------------------------------------- PATCH /islands/{id}/appearance
 
     /**
-     * 공동 외양 적용 — SHARED_APPEARANCE 권한(방장)만 쓴다. 비주민은 MEMBER_ONLY, 비방장 주민은
-     * NOT_OWNER — 둘 다 공개 계약의 FORBIDDEN 으로 올라간다. expectedVersion 은 잠긴 행의 현재
+     * 공동 외양 적용 — SHARED_APPEARANCE 권한(활성 주민 누구나, GROMO-2000)이다. 비주민은
+     * MEMBER_ONLY 로 공개 계약의 FORBIDDEN 으로 올라간다. expectedVersion 은 잠긴 행의 현재
      * 버전과 비교한다 — receipt 충돌 검사(다른 body 같은 키)와 낙관 버전 검사는 별개 실패다.
      */
     @Transactional
@@ -537,17 +535,18 @@ public class AppearanceService implements IslandAppearancePort {
         return island.getDeletedAt() == null && island.getStatus() != GroupStatus.ENDED;
     }
 
-    /** SHARED_APPEARANCE — 활성 주민이어야 하고 역할이 OWNER 여야 한다. */
+    /**
+     * SHARED_APPEARANCE — <b>활성 주민이면 누구나</b>(GROMO-2000). 기획 정본이 「공동 섬·건물 테마도
+     * 주민 누구나 적용·해제한다」라 방장 제한을 걷었다 — 공동 구매(상점·축음기)와 같은 축이고,
+     * 방장만인 «건설»과 갈린다. 비주민은 그대로 MEMBER_ONLY 다.
+     */
     private void requireSharedAppearance(UUID userId, UUID islandId) {
-        GroupMember member = groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId)
+        groupMemberRepository.findActiveByUserIdAndGroupIdForShare(userId, islandId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
-        if (member.getRole() != GroupMemberRole.OWNER) {
-            throw new GroupException(GroupErrorCode.NOT_OWNER);
-        }
     }
 
     /**
-     * 멱등 재생 권한 — receipt 는 원 명령 성공 시점의 결과다. 재생 시점에 섬이 끝났거나 방장이
+     * 멱등 재생 권한 — receipt 는 원 명령 성공 시점의 결과다. 재생 시점에 섬이 끝났거나 주민이
      * 아니게 됐다면 그때의 권한을 되살리면 안 되므로 실행 경로와 같은 잠금 순서로 다시 검사한다.
      */
     private void requireReplayPermission(UUID islandId, UUID userId) {

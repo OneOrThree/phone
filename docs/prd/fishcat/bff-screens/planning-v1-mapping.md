@@ -47,7 +47,7 @@
 | search | GET `/v1/islands/search` | `islands` 조각(GET `/islands?q=`) | [island-membership LLD](../island-membership/low-level-design.md) §3.2, policy.md B19 | 화면 조회로 흡수 → `islands`(explore, 소속 있을 때) |
 | invite-resolve | POST `/v1/invitations/resolve` | POST `/invitations/resolve` | [island-membership LLD](../island-membership/low-level-design.md) §3.10 | 그대로 |
 | join | POST `/v1/islands/{islandId}/join-requests` | POST `/islands/{islandId}/memberships` | [island-membership LLD](../island-membership/low-level-design.md) §3.7 | 경로만 다름 |
-| my-requests | GET `/v1/me/join-requests`(목록) | GET `/me/join-requests` | [island-membership LLD](../island-membership/low-level-design.md) §3.12 (GROMO-1895) | 경로만 다름 — ~~레포에 없음~~ BG10 해소 |
+| my-requests | GET `/v1/me/join-requests`(목록) | GET `/me/join-requests` | [island-membership LLD](../island-membership/low-level-design.md) §3.12 (GROMO-1895 Data · GROMO-2047 Business) | 경로만 다름 — ~~레포에 없음~~ BG10 해소(2047 에서 공개 표면까지 배선. 1895 가 연 것은 내부 경로뿐이라 그 전까지 앱은 단건 GET/DELETE 만 쓸 수 있었다) |
 | join-cancel | DELETE `/v1/me/join-requests/{requestId}` | DELETE `/me/join-requests/{requestId}` | [island-membership LLD](../island-membership/low-level-design.md) §3.9 | 그대로 |
 | join-incoming | GET `/v1/islands/{islandId}/join-requests` | `joinRequests` 조각(GET `/islands/{islandId}/join-requests`) | [island-management LLD](../island-management/low-level-design.md) §3.3 | 화면 조회로 흡수 → `joinRequests`(town-hall, 방장만) |
 | join-answer | PATCH `/v1/islands/{islandId}/join-requests/{requestId}` | PATCH `/islands/{islandId}/join-requests/{requestId}` | [island-management LLD](../island-management/low-level-design.md) §3.4 | 그대로 |

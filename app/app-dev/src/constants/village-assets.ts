@@ -1,0 +1,28 @@
+import type { ImageSourcePropType } from 'react-native';
+
+export const villageAssets: Record<string, ImageSourcePropType> = {
+  'bridge.png': require('@/assets/village-world/bridge.png'),
+  'bush.png': require('@/assets/village-world/bush.png'),
+  'dock.png': require('@/assets/village-world/dock.png'),
+  'fire.png': require('@/assets/village-world/fire.png'),
+  'flowers.png': require('@/assets/village-world/flowers.png'),
+  'gramophone.png': require('@/assets/village-world/gramophone.png'),
+  'grass.png': require('@/assets/village-world/grass.png'),
+  'hall.png': require('@/assets/village-world/hall.png'),
+  'library.png': require('@/assets/village-world/library.png'),
+  'mailbox.png': require('@/assets/village-world/mailbox.png'),
+  'notice-board.png': require('@/assets/village-world/notice-board.png'),
+  'observatory.png': require('@/assets/village-world/observatory.png'),
+  'pine.png': require('@/assets/village-world/pine.png'),
+  'road-base.png': require('@/assets/village-world/road-base.png'),
+  'road-board.png': require('@/assets/village-world/road-board.png'),
+  'road-gram.png': require('@/assets/village-world/road-gram.png'),
+  'road-hall.png': require('@/assets/village-world/road-hall.png'),
+  'road-library.png': require('@/assets/village-world/road-library.png'),
+  'road-mail.png': require('@/assets/village-world/road-mail.png'),
+  'road-shop.png': require('@/assets/village-world/road-shop.png'),
+  'road-tower.png': require('@/assets/village-world/road-tower.png'),
+  'shop.png': require('@/assets/village-world/shop.png'),
+  'terrain.png': require('@/assets/village-world/terrain.png'),
+  'tree.png': require('@/assets/village-world/tree.png'),
+};

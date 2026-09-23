@@ -89,9 +89,9 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
     @CsvSource({"focus-members,403,MEMBER_ONLY,403,FORBIDDEN,islandId",
             "rest-members,403,MEMBER_ONLY,403,FORBIDDEN,islandId",
             "focus-members,404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "rest-members,409,MEMBER_ONLY,502,UPSTREAM_CONTRACT_ERROR,",
-            "focus-members,400,UNKNOWN_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "rest-members,409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,",
+            "focus-members,400,UNKNOWN_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void mapsOnlyExactDomainStatusAndCode(String route, int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on("GET " + INTERNAL + "/" + route, request -> new MockUpstream.Response(upstreamStatus,
@@ -114,6 +114,91 @@ class IslandFocusMembersContractTest extends UpstreamTestBase {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.field").value("islandId"));
         assertThat(DATA.received()).isEmpty();
+    }
+
+
+    @ParameterizedTest
+    @CsvSource({"focus-members,populated", "rest-members,populated",
+            "focus-members,nullable", "rest-members,nullable",
+            "focus-members,empty", "rest-members,empty",
+            "focus-members,null-entry", "rest-members,null-entry"})
+    @DisplayName("주민 공개 JSON은 순서·명시 null·시각 원문을 보존하고 내부 추가 필드를 노출하지 않는다")
+    void publicSnapshotContract(String route, String shape) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        var expected = (tools.jackson.databind.node.ObjectNode) json.readTree(
+                route.equals("focus-members") ? FOCUS_BODY : REST_BODY);
+        expected.put("serverNow", "2026-09-11T18:10:00.123456+09:00");
+        var items = (tools.jackson.databind.node.ArrayNode) expected.path("items");
+        var watermarks = (tools.jackson.databind.node.ArrayNode) expected.path("watermarks");
+        if (shape.equals("empty")) {
+            items.removeAll();
+            watermarks.removeAll();
+        } else if (shape.equals("null-entry")) {
+            items.addNull();
+            watermarks.addNull();
+        } else {
+            var second = ((tools.jackson.databind.node.ObjectNode) items.get(0)).deepCopy();
+            second.put("userId", USER.toString());
+            second.put("name", "두 번째");
+            items.add(second);
+            var secondWatermark = ((tools.jackson.databind.node.ObjectNode) watermarks.get(0)).deepCopy();
+            secondWatermark.put("aggregateId", USER.toString());
+            secondWatermark.put("version", 0);
+            watermarks.add(secondWatermark);
+            if (shape.equals("nullable")) {
+                ((tools.jackson.databind.node.ObjectNode) items.get(0)).putNull("name");
+            }
+        }
+        var upstream = expected.deepCopy();
+        upstream.put("row_id", "private-root");
+        for (var item : upstream.path("items")) {
+            if (item.isObject()) {
+                ((tools.jackson.databind.node.ObjectNode) item).put("row_id", "private-member");
+            }
+        }
+        for (var watermark : upstream.path("watermarks")) {
+            if (watermark.isObject()) {
+                ((tools.jackson.databind.node.ObjectNode) watermark).put("row_id", "private-watermark");
+            }
+        }
+        DATA.on("GET " + INTERNAL + "/" + route, request -> ok(upstream.toString()));
+        var result = mockMvc.perform(auth(get("/islands/" + ISLAND + "/" + route)))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/focus-members|get||items serverNow watermarks|items serverNow watermarks",
+            "/islands/{islandId}/rest-members|get||items serverNow watermarks|items serverNow watermarks",
+            "/islands/{islandId}/focus-members|get|items|userId name sessionId subject activeSeconds status|userId name sessionId subject activeSeconds status",
+            "/islands/{islandId}/rest-members|get|items|userId name restSeat restStartedAt|userId name restSeat restStartedAt",
+            "/islands/{islandId}/focus-members|get|watermarks|projection islandId aggregateId version|projection islandId aggregateId version",
+            "/islands/{islandId}/rest-members|get|watermarks|projection islandId aggregateId version|projection islandId aggregateId version"})
+    void publicDocumentationKeepsDistinctMemberFields(String path, String method, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String field : nested.split("/")) {
+                schema = schema.path("properties").path(field);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").size()).as("공개 필드 수").isEqualTo(fields.split(" ").length);
+        for (String field : fields.split(" ")) {
+            assertThat(schema.path("properties").has(field)).as("공개 필드 %s", field).isTrue();
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {

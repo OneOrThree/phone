@@ -74,7 +74,7 @@ class GroupControllerTest {
     @Test
     @DisplayName("그룹 생성 요청의 isPrivate 키가 서비스까지 그대로 전달된다")
     void createGroupBindsIsPrivate() throws Exception {
-        given(groupService.createGroup(any(), any())).willReturn(new CreateGroupResponse(GROUP_ID, "ABCD1234"));
+        given(groupService.createGroup(any(), any())).willReturn(new CreateGroupResponse(GROUP_ID));
 
         mockMvc.perform(post("/api/v1/groups")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -93,7 +93,7 @@ class GroupControllerTest {
     @Test
     @DisplayName("isPrivate 미전송 → false(공개)로 바인딩된다")
     void createGroupDefaultsIsPrivateToFalse() throws Exception {
-        given(groupService.createGroup(any(), any())).willReturn(new CreateGroupResponse(GROUP_ID, "ABCD1234"));
+        given(groupService.createGroup(any(), any())).willReturn(new CreateGroupResponse(GROUP_ID));
 
         mockMvc.perform(post("/api/v1/groups")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -303,7 +303,7 @@ class GroupControllerTest {
     @DisplayName("내 그룹 목록 응답에 isPrivate 키가 실린다 — private 로 새지 않는다")
     void getMyGroupsExposesIsPrivateKey() throws Exception {
         given(groupService.getMyGroups(any())).willReturn(List.of(new GroupSummaryResponse(
-                GROUP_ID, "비밀방", "비밀 소개", "ABCD1234", 1, 5, GroupMemberRole.OWNER, GroupStatus.WAITING, true)));
+                GROUP_ID, "비밀방", "비밀 소개", 1, 5, GroupMemberRole.OWNER, GroupStatus.WAITING, true)));
 
         mockMvc.perform(get("/api/v1/groups")
                         .requestAttr(AuthAttributes.USER_ID, LOGIN_USER_ID))

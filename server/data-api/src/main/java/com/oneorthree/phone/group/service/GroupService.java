@@ -16,8 +16,6 @@ import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
-import com.oneorthree.phone.group.repository.domain.GroupJoinCodeStatus;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
@@ -31,13 +29,11 @@ import com.oneorthree.phone.group.dto.GroupSearchResponse;
 import com.oneorthree.phone.group.dto.GroupSettingsResponse;
 import com.oneorthree.phone.group.dto.GroupSummaryResponse;
 import com.oneorthree.phone.group.dto.JoinGroupRequest;
-import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import com.oneorthree.phone.group.dto.UpdateGroupRequest;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupChallengeRepository;
-import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -52,10 +48,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.security.SecureRandom;
-import java.time.Instant;
+import java.time.Clock;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -88,7 +82,6 @@ public class GroupService {
     private final GroupMembershipMutationLocks membershipLocks;
     private final IslandMembershipEvents membershipEvents;
     private final GroupQueryService groupQueryService;
-    private final GroupJoinCodeRepository groupJoinCodeRepository;
     private final GroupMemberRepository groupMemberRepository;
     private final GroupChallengeRepository groupChallengeRepository;
     private final UserQueryService userQueryService;
@@ -106,17 +99,16 @@ public class GroupService {
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
     /**
+     * 재가입 시각을 찍는 시계 (GROMO-2050) — 근거는 {@code GroupMember.leftAt} Javadoc(Hibernate 의
+     * 시각 애너테이션은 주입 {@link Clock} 을 타지 않는다).
+     */
+    private final Clock clock;
+    /**
      * 금칙어 판정 (GROMO-1986) — 이 레거시 경로와 2.0 {@code IslandMembershipService}·
      * {@code IslandManagementService} 가 <b>같은 {@code groups} 행</b>을 만들고 고친다. 한쪽에만
      * 검사를 두면 다른 쪽이 그대로 우회로가 된다({@code CreateGroupRequest} 주석이 경고하는 그것).
      */
     private final BannedWords bannedWords;
-
-    /**
-     * 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 참가 코드 생성 전용 상수다.
-     */
-    private static final String CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    private static final SecureRandom RANDOM = new SecureRandom();
 
     /** 그룹 이름 검색 최대 반환 수 — 닉네임 검색(NicknameSearchStrategy)과 동일 값. */
     private static final int SEARCH_LIMIT = 20;
@@ -143,13 +135,12 @@ public class GroupService {
     /**
      * 그룹을 만들고 생성자를 방장 멤버로 함께 등록한다.
      *
-     * <p>생성도 곧 가입이라 소속 그룹 수 상한을 참가와 같은 기준으로 적용한다. 참가 코드는 발급만
-     * 계속하고 읽는 경로가 없으며(초대 링크 전환으로 폐기), 대표 챌린지는 만들지 않는다 —
-     * 챌린지는 그룹방에서 따로 세운다.
+     * <p>생성도 곧 가입이라 소속 그룹 수 상한을 참가와 같은 기준으로 적용한다. 대표 챌린지는
+     * 만들지 않는다 — 챌린지는 그룹방에서 따로 세운다.
      *
      * @param userId 요청자 — 탈퇴가 확정된 계정이 방장인 그룹이 남지 않도록 공유 락으로 검증한다
      * @param request 그룹명·소개·정원·공개 여부와 선택적 비밀번호. 정원을 안 주면 10 이다
-     * @return 새 그룹 id. 함께 실리는 코드는 앱이 읽지 않는 잔존 필드다
+     * @return 새 그룹 id
      */
     @Transactional
     public CreateGroupResponse createGroup(UUID userId, CreateGroupRequest request) {
@@ -164,9 +155,6 @@ public class GroupService {
 
         // 1-2) 금칙어 (GROMO-1986) — 2.0 IslandMembershipService.create 와 같은 판정이다.
         bannedWords.requireClean(request.getName(), request.getDescription());
-
-        // 3) 유니크 코드 생성 (충돌 시 만료 여부 확인 후 재사용 or 재시도)
-        String uniqueCode = generateUniqueCode();
 
         // 4) 비밀번호 BCrypt 해시
         String hashedPassword = null;
@@ -183,16 +171,6 @@ public class GroupService {
                 .isPrivate(request.isPrivate())
                 .build());
 
-        // GROMO-672: 참가 코드는 1:1 테이블(group_join_codes)에 저장 (발급 + 3시간 유효, ACTIVE)
-        // 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 발급은 계속되지만 조회하는 경로가 없다.
-        // 3시간 상수는 GroupJoinCode#renew 에도 이중 정의돼 있다 — 제거 시 함께 정리할 것.
-        groupJoinCodeRepository.save(GroupJoinCode.builder()
-                .group(group)
-                .code(uniqueCode)
-                .status(GroupJoinCodeStatus.ACTIVE)
-                .expiresAt(Instant.now().plus(3, ChronoUnit.HOURS))
-                .build());
-
         // D18: 그룹 생성 시 대표 챌린지를 만들지 않는다 — 챌린지는 그룹방 '챌린지 생성'으로 별도 생성한다.
 
         // GroupMember(OWNER) 저장
@@ -205,13 +183,13 @@ public class GroupService {
         membershipEvents.changed(group.getId(), userId, "MEMBER_ADDED");
 
         // 6) 응답 반환
-        return new CreateGroupResponse(group.getId(), uniqueCode);
+        return new CreateGroupResponse(group.getId());
     }
 
     /**
      * 내가 속한 그룹을 전부 읽는다 — 페이지네이션이 없고, 소속 그룹 수 상한이 응답 크기를 묶는다.
      *
-     * <p>그룹 수와 무관하게 쿼리가 상수다: 참가 코드와 멤버 수를 각각 IN 집계 1회로 모은다
+     * <p>그룹 수와 무관하게 쿼리가 상수다: 멤버 수를 IN 집계 1회로 모은다
      * (그룹마다 조회하던 N+1 을 닫았다).
      *
      * @param userId 요청자 — 이탈·강퇴로 빠진 그룹은 실리지 않는다
@@ -223,26 +201,21 @@ public class GroupService {
 
         List<GroupMember> groupMembers = groupMemberRepository.findByUser(user);
 
-        // GROMO-672: 참가 코드는 1:1 테이블(PK=group_id)에서 일괄 조회 — 그룹당 단건 조회 N+1 방지
         List<UUID> groupIds = groupMembers.stream()
                 .map(member -> member.getGroup().getId())
                 .toList();
-        Map<UUID, String> codeByGroupId = groupQueryService.findAllJoinCodes(groupIds).stream()
-                .collect(Collectors.toMap(GroupJoinCode::getGroupId, GroupJoinCode::getCode));
 
-        // 멤버 수도 IN 집계 1회 — 그룹마다 findByGroup(group).size() 로 멤버 엔티티를 로드하던 N+1 제거
+        // 멤버 수는 IN 집계 1회 — 그룹마다 findByGroup(group).size() 로 멤버 엔티티를 로드하던 N+1 제거
         Map<UUID, Integer> memberCountByGroupId = memberCountsOf(groupIds);
 
         return groupMembers.stream()
                 .map(member -> {
                     Group group = member.getGroup();
                     int currentMembers = memberCountByGroupId.getOrDefault(group.getId(), 0);
-                    String code = codeByGroupId.get(group.getId());
                     return new GroupSummaryResponse(
                             group.getId(),
                             group.getName(),
                             group.getDescription(),
-                            code,
                             currentMembers,
                             group.getMaxMembers(),
                             member.getRole(),
@@ -371,7 +344,7 @@ public class GroupService {
         GroupMember membership;
         if (priorMembership.isPresent()) {
             membership = priorMembership.get();
-            membership.rejoin();
+            membership.rejoin(clock.instant());
             // 재가입도 멤버십 전이다(ⓚ: 탈퇴·강퇴·«재가입»). 여기서 세대를 올리지 않으면 탈퇴 전에
             // 공유된 옛 링크가 재가입과 함께 그대로 되살아난다.
             linkMembershipEventService.recordMembershipRejoined(membership);
@@ -583,36 +556,6 @@ public class GroupService {
     }
 
     /**
-     * 참가 코드 재발급.
-     *
-     * @param groupId 코드를 갈아끼울 그룹
-     * @param userId 요청자 — 방장이 아니면 {@code NOT_OWNER}
-     * @return 새 코드와 만료 시각. 읽는 경로가 없어 사실상 아무도 보지 않는 값이다
-     * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31). 앱이 더 이상 호출하지 않는다.
-     *     엔드포인트를 남겨두는 것은 계약 파괴를 피하기 위함이며, 실제 제거는 후속 정리 티켓에서 다룬다.
-     */
-    @Deprecated
-    @Transactional
-    public RenewGroupCodeResponse renewGroupCode(UUID groupId, UUID userId) {
-        // Deprecated 지만 변경 트랜잭션이므로 락 규율은 동일하게 적용 (GROMO-1237).
-        User user = requireActiveUser(userId);
-
-        membershipLocks.lockGroup(groupId);
-        Group group = groupQueryService.getGroup(groupId);
-
-        Optional<GroupMember> groupMember = groupQueryService.findMembership(user, group);
-
-        if (!(groupMember.isPresent() && groupMember.get().getRole() == GroupMemberRole.OWNER)) {
-            throw new GroupException(GroupErrorCode.NOT_OWNER);
-        }
-
-        // GROMO-672: 참가 코드 재발급은 group_join_codes 의 같은 행 UPDATE (code/status/expiresAt 갱신)
-        GroupJoinCode joinCode = groupQueryService.getJoinCode(group.getId());
-        joinCode.renew(generateUniqueCode());
-        return new RenewGroupCodeResponse(joinCode.getCode(), joinCode.getExpiresAt());
-    }
-
-    /**
      * 그룹방 상세 — 그룹 메타·대표 미션·활성 멤버 목록을 한 번에 낸다.
      *
      * <p>멤버 수와 무관하게 쿼리가 상수다: 당일 집중분과 라이브 세션은 공용 배치 도출 1회,
@@ -620,7 +563,7 @@ public class GroupService {
      * <b>서버가 확정</b>하므로 클라가 다시 정렬하지 않는다.
      *
      * @param groupId 조회할 그룹
-     * @param userId 요청자 — 그룹원이 아니면 {@code MEMBER_ONLY}. 방장에게만 참가 코드 필드가 채워진다
+     * @param userId 요청자 — 그룹원이 아니면 {@code MEMBER_ONLY}
      * @param date 당일 집중분의 기준일 — 서버 판정 축(KST)이라 기기 로컬 날짜가 아니다
      * @return 그룹 상세. 집계·라이브 어느 쪽에도 안 잡힌 멤버는 0·false·null 기본값으로 실린다
      */
@@ -630,7 +573,7 @@ public class GroupService {
 
         Group group = groupQueryService.getGroup(groupId);
 
-        GroupMember groupMember = groupQueryService.getMembership(user, group);
+        groupQueryService.getMembership(user, group);
 
         // 탈퇴자 제외(GROMO-1220) — 빈 닉네임 타일 방지 + 프로필 조회 404(ProfileService)와 정합.
         List<GroupMember> groupMembers = activeMembersOf(group);
@@ -676,12 +619,6 @@ public class GroupService {
         // GROMO-674: 미션 정보는 대표 챌린지(최초 ACTIVE)에서 조회
         RepresentativeMission mission = resolveRepresentativeMission(group);
 
-        // GROMO-672: OWNER 에게만 노출하는 참가 코드/만료시각은 group_join_codes 에서 조회
-        boolean isOwner = groupMember.getRole() == GroupMemberRole.OWNER;
-        GroupJoinCode joinCode = isOwner
-                ? groupQueryService.findJoinCode(group.getId()).orElse(null)
-                : null;
-
         return GroupDetailResponse.builder()
                 .id(group.getId())
                 .name(group.getName())
@@ -695,8 +632,6 @@ public class GroupService {
                 .status(group.getStatus())
                 .isPrivate(group.isPrivate())
                 .members(list)
-                .code(joinCode != null ? joinCode.getCode() : null)
-                .codeExpiresAt(joinCode != null ? joinCode.getExpiresAt() : null)
                 .noticeGrantedUserIds(granteUsers)
                 .build();
     }
@@ -942,39 +877,5 @@ public class GroupService {
             String windowEnd) {
 
         private static final RepresentativeMission EMPTY = new RepresentativeMission(null, null, null, null, null);
-    }
-
-    /**
-     * 8자 참가 코드 생성.
-     *
-     * @deprecated 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31).
-     *     createGroup 이 아직 호출하지만 발급된 코드를 조회하는 경로가 없다. CHARS/RANDOM 도 같이 dead 다.
-     */
-    @Deprecated
-    private String generateUniqueCode() {
-        StringBuilder sb = new StringBuilder(8);
-        for (int i = 0; i < 10; i++) {
-            sb.setLength(0);
-            for (int j = 0; j < 8; j++) {
-                sb.append(CHARS.charAt(RANDOM.nextInt(CHARS.length())));
-            }
-            String code = sb.toString();
-
-            // GROMO-672: 유일성 검사는 group_join_codes 기준
-            if (!groupJoinCodeRepository.existsByCode(code)) {
-                return code;
-            }
-
-            // 충돌: 만료된 코드면 ENDED 로 정리하고 다른 코드로 재시도.
-            // 의도된 동작 — code 는 NOT NULL UNIQUE 라 구 스키마처럼 null 로 비워 재사용하지 않는다.
-            // 즉 한 번 발급된 코드 문자열은 영구히 재발급되지 않음(36^8 공간이라 고갈 우려 없음).
-            groupJoinCodeRepository.findByCode(code).ifPresent(existing -> {
-                if (existing.getExpiresAt() != null
-                        && existing.getExpiresAt().isBefore(Instant.now())) {
-                    existing.expire();
-                }
-            });
-        }
-        throw new GroupException(GroupErrorCode.CODE_GENERATION_FAILED);
     }
 }

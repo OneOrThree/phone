@@ -32,6 +32,7 @@ import com.oneorthree.phone.friend.service.search.SearchType;
 import com.oneorthree.phone.user.service.UserTierLookup;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.service.UserBlockService;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -80,6 +81,8 @@ public class FriendService {
      * friend 는 L3 이라 참조가 아래로 간다 — {@code DomainLayerRulesTest} 가 이 방향을 위해 층을 갈라 뒀다.
      */
     private final LetterRepository letterRepository;
+    /** 차단은 친구 관계와 독립이지만, 목록·검색에서는 blocker 관점으로만 상대를 숨긴다 (GROMO-1975). */
+    private final UserBlockService userBlockService;
     /**
      * GROMO-1090: 푸시는 여기서 직접 보내지 않고 이벤트만 발행한다 — 발송은 커밋 이후에 일어나야 한다
      * (요청/수락이 롤백되는데 알림만 나가면 안 된다). 소비는 notification 도메인의 AFTER_COMMIT 리스너.
@@ -124,6 +127,7 @@ public class FriendService {
                          FriendRelationLookup friendRelationLookup,
                          MainIslandNamePort mainIslandNamePort,
                          LetterRepository letterRepository,
+                         UserBlockService userBlockService,
                          ApplicationEventPublisher eventPublisher,
                          List<FriendSearchStrategy> searchStrategies,
                          @Qualifier("friendRequestRateLimiter") PerUserHourlyLimiter guestRequestLimiter) {
@@ -139,6 +143,7 @@ public class FriendService {
         this.friendRelationLookup = friendRelationLookup;
         this.mainIslandNamePort = mainIslandNamePort;
         this.letterRepository = letterRepository;
+        this.userBlockService = userBlockService;
         this.eventPublisher = eventPublisher;
         this.searchStrategies = searchStrategies.stream()
                 .collect(Collectors.toMap(FriendSearchStrategy::type, strategy -> strategy));
@@ -149,6 +154,21 @@ public class FriendService {
      * 친구 요청 생성. 자기자신·중복·이미친구 검증 후 PENDING insert,
      * 단 내가 보냈던 행이 남아 있으면 재사용한다 — soft delete 행은 복원(GROMO-719),
      * REJECTED 행은 PENDING 재전환(쿨다운은 GROMO-475).
+     *
+     * <p><b>아래 findPair 판정은 락을 잡지 않는다 — 일부러 그렇다</b>(GROMO-2042). 마지막 방어선은
+     * V98 의 표현식 부분 유니크 인덱스 {@code uq_friendships_pending_pair}
+     * ({@code least(from,to), greatest(from,to)} where {@code PENDING} 이고 미삭제)다.
+     * A→B 와 B→A 가 동시에 오면 둘 다 「기존 행 없음」을 보고 지나가는데, 이때 지는 쪽은 커밋 시점에
+     * 유니크 위반으로 떨어지고 {@code GlobalExceptionHandler.handleDataIntegrityViolation} 이 409 로 바꾼다
+     * (같은 방향 동시 중복이 V1 의 unique 로 떨어지던 것과 같은 결이다).
+     *
+     * <p>「두 {@code users} 행을 배타 락」으로 직렬화하지 않은 이유: ① 행이 «아직 없을 때» 나는 경합이라
+     * 잠글 관계 행이 없고({@code findAcceptedBetweenForUpdate} 의 「쌍당 한 행」 전제가 여기서는 성립하지
+     * 않는다), users 두 행을 잡으면 방향마다 순서가 달라 새 교착이 생긴다 — 막으려면 「userId 오름차순」
+     * 규칙을 같은 쌍을 잡는 모든 경로가 지켜야 하고, 어긴 경로는 부하 걸린 운영에서 교착 500 으로만
+     * 드러난다. ② 요청 한 건이 상대의 {@code users} 행을 배타로 잡으면 상대의 프로필 수정·닉네임
+     * 변경·탈퇴까지 줄을 선다. 그래서 여기서는 {@code users} 를 <b>공유 락</b>으로만 잡고
+     * (서로 막지 않으므로 교착이 없다) 유일성은 인덱스에 맡긴다.
      *
      * @param me           요청을 보내는 유저
      * @param targetUserId 요청을 받을 유저. 자기 자신이면 SELF_REQUEST, 탈퇴자면 유저 없음으로 떨어진다
@@ -163,6 +183,8 @@ public class FriendService {
         User fromUser = getCallerParticipant(me);
         User toUser = getRelationParticipant(targetUserId);
 
+        // 락 없는 판정이다 — 동시에 들어온 반대 방향 요청은 여기서 못 거른다. 그건 V98 의
+        // uq_friendships_pending_pair 가 커밋 시점에 잡고 409 로 떨어뜨린다(위 Javadoc 의 논증).
         List<Friendship> pair = friendshipRepository.findPair(fromUser, toUser);
         for (Friendship f : pair) {
             if (f.getStatus() == FriendshipStatus.ACCEPTED && f.getDeletedAt() == null) {
@@ -360,8 +382,10 @@ public class FriendService {
         Set<UUID> pinnedIds = pinnedUserRepository.findByUser(meUser).stream()
                 .map(p -> p.getPinnedUser().getId())
                 .collect(Collectors.toSet());
+        Set<UUID> blockedIds = userBlockService.blockedIds(me);
         List<User> others = friendshipRepository.findAcceptedByUser(meUser).stream()
                 .map(f -> counterpart(f, me))
+                .filter(other -> !blockedIds.contains(other.getId()))
                 .toList();
         List<UUID> otherIds = others.stream().map(User::getId).toList();
         // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
@@ -532,9 +556,11 @@ public class FriendService {
         User meUser = getUser(me);
         Set<UUID> friendIds = friendRelationLookup.collectFriendIds(meUser);
         Set<UUID> pendingIds = friendRelationLookup.collectPendingIds(meUser);
+        Set<UUID> blockedIds = userBlockService.blockedIds(me);
 
         return strategy.search(me, query).stream()
                 .filter(r -> !r.getUserId().equals(me))
+                .filter(r -> !blockedIds.contains(r.getUserId()))
                 .map(r -> {
                     FriendRelation relation =
                             friendRelationLookup.resolveRelation(r.getUserId(), friendIds, pendingIds);

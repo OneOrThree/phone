@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.ConstructionResponses.ConstructionOptionsView;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
@@ -9,11 +10,11 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.ReadFragment;
 import com.oneorthree.business.common.http.ScreenComposer;
 import com.oneorthree.business.common.http.UpstreamRequestContext;
-import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
-import com.oneorthree.business.upstream.data.dto.FocusSessionState;
-import com.oneorthree.business.upstream.data.dto.IslandDetail;
-import com.oneorthree.business.upstream.data.dto.IslandSummary;
-import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
+import com.oneorthree.business.common.time.WeekAxis;
+import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandDetailView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.NotificationSettingsView;
 import com.oneorthree.business.upstream.realtime.dto.RealtimeHistory;
@@ -21,11 +22,10 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 
-import java.time.DayOfWeek;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -156,7 +156,7 @@ public class ScreenReadUseCase {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         Map<String, Object> first = composer.compose(context, List.of(
                 fragment("island", deadline -> publicSummary(islands.island(claims, islandId, deadline)))));
-        IslandSummary island = (IslandSummary) first.get("island");
+        IslandSummaryView island = (IslandSummaryView) first.get("island");
         List<ReadFragment<?>> fragments = new ArrayList<>(List.of(fragment("members",
                 deadline -> management.members(claims, islandId, null, IslandManagementUseCase.DEFAULT_LIMIT,
                         deadline))));
@@ -172,7 +172,7 @@ public class ScreenReadUseCase {
             screen.put("joinRequest", null);
             return screen;
         }
-        JoinRequestStatus joinRequest = (JoinRequestStatus) second.get("joinRequest");
+        JoinRequestStatusView joinRequest = (JoinRequestStatusView) second.get("joinRequest");
         if (!islandId.equals(joinRequest.islandId())) {
             throw new UpstreamContractMismatchException("가입 요청의 섬이 방문 섬과 다릅니다");
         }
@@ -194,7 +194,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> home(AccessTokenClaims claims, String date, String timezone, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
         Map<String, Object> parallel = composer.compose(context, List.of(
@@ -215,8 +215,8 @@ public class ScreenReadUseCase {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         Map<String, Object> first = composer.compose(context, List.of(
                 fragment("session", deadline -> focus.current(claims, deadline))));
-        FocusSessionState session = (FocusSessionState) first.get("session");
-        IslandDetail island = session == null ? currentIsland(context, claims)
+        StateView session = (StateView) first.get("session");
+        IslandDetailView island = session == null ? currentIsland(context, claims)
                 : memberIsland(context, claims, session.islandId());
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
@@ -242,7 +242,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> townHall(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         boolean host = switch (island.role()) {
             case ROLE_HOST -> true;
             case ROLE_MEMBER -> false;
@@ -283,7 +283,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> board(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         UUID islandId = island.id();
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
@@ -297,8 +297,10 @@ public class ScreenReadUseCase {
     /**
      * {@code library} — 섬 문맥 뒤 도서관 완공을 판정한다. 미완공이면 기록 조각을 부르지 않고 셋 다 null +
      * {@code statisticsAvailability:facility_locked}(B03 N, 화면은 200)다. 완공이면 집중·스크린타임 통계(GROMO-1769)와
-     * 주민별 누적 물고기(GROMO-2046)를 병렬로 읽는다 — 화면에는 query 가 없으므로 통계 둘은 <b>이번 UTC 주(월~일)·
-     * scope=me</b> 첫 페이지다. 집중 기록 커서는 도메인 GET 과 같은 서명 커서라 다음 페이지는
+     * 주민별 누적 물고기(GROMO-2046)를 병렬로 읽는다 — 화면에는 query 가 없으므로 통계 둘은 <b>이번 UTC 주(일~토)·
+     * scope=me</b> 첫 페이지다. 주 경계는 주간 섬 랭킹과 <b>같은 7일</b>이다({@link WeekAxis}, 결정 RK-주 —
+     * GROMO-2048 이 종전의 월요일 시작을 고쳤다. 도서관과 전망대가 서로 다른 7일을 「이번 주」라고 부르면
+     * 두 화면의 숫자가 대조되지 않는다). 집중 기록 커서는 도메인 GET 과 같은 서명 커서라 다음 페이지는
      * {@code GET /islands/{islandId}/statistics/focus} 가 이어받는다(B10).
      *
      * <p>물고기 장만 <b>기간 축이 없다</b> — 이 섬 전 기간 누적이라 주 경계와 무관하다. 그래서 세 조각이 같은
@@ -306,7 +308,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> library(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
         if (!completed(context, claims, island.id(), LIBRARY)) {
@@ -318,12 +320,13 @@ public class ScreenReadUseCase {
             return screen;
         }
         UUID islandId = island.id();
-        LocalDate monday = LocalDate.now(ZoneOffset.UTC).with(DayOfWeek.MONDAY);
-        LocalDate sunday = monday.plusDays(6);
+        // 주 경계는 주간 섬 랭킹과 «같은 7일» 이어야 한다 — 계산은 WeekAxis 한 곳뿐이다(GROMO-2048).
+        LocalDate from = WeekAxis.weekStart(Instant.now());
+        LocalDate to = from.plusDays(6);
         screen.putAll(composer.compose(context, List.of(
-                fragment("focusStatistics", deadline -> records.focus(claims, islandId, monday, sunday,
+                fragment("focusStatistics", deadline -> records.focus(claims, islandId, from, to,
                         IslandRecordsUseCase.SCOPE_ME, null, deadline)),
-                fragment("screenTimeStatistics", deadline -> records.screenTime(claims, islandId, monday, sunday,
+                fragment("screenTimeStatistics", deadline -> records.screenTime(claims, islandId, from, to,
                         IslandRecordsUseCase.SCOPE_ME, deadline)),
                 fragment("fishEarnings", deadline -> records.fishEarnings(claims, islandId, deadline)))));
         screen.put("statisticsAvailability", AVAILABLE);
@@ -338,7 +341,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> shop(AccessTokenClaims claims, String category, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         UUID islandId = island.id();
         if (!completed(context, claims, islandId, SHOP)) {
             throw new PublicApiException(ApiErrorCode.FACILITY_LOCKED, null);
@@ -359,7 +362,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> playback(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         UUID islandId = island.id();
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
@@ -387,7 +390,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> mailbox(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         UUID islandId = island.id();
         Map<String, Object> parts = composer.compose(context, List.of(
                 fragment("messages", deadline -> mailbox.firstPage(claims, islandId, deadline)),
@@ -417,7 +420,7 @@ public class ScreenReadUseCase {
     }
 
     /** 섬 문맥 — 현재 섬 → 주민 상세. 현재 섬이 없으면 임의로 고르지 않는다(BG01). */
-    private IslandDetail currentIsland(UpstreamRequestContext context, AccessTokenClaims claims) {
+    private IslandDetailView currentIsland(UpstreamRequestContext context, AccessTokenClaims claims) {
         MyIslandsResponse mine = (MyIslandsResponse) composer.compose(context, List.of(memberships(claims)))
                 .get("memberships");
         if (mine.currentIslandId() == null) {
@@ -427,17 +430,17 @@ public class ScreenReadUseCase {
     }
 
     /** 주민 상세만 받는다 — 방문자 요약이 오면(그 사이 소속을 잃음) 화면 전체 403 이다. */
-    private IslandDetail memberIsland(UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId) {
+    private IslandDetailView memberIsland(UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId) {
         Object island = composer.compose(context, List.of(
                 fragment("island", deadline -> islands.island(claims, islandId, deadline)))).get("island");
-        if (island instanceof IslandDetail detail) {
+        if (island instanceof IslandDetailView detail) {
             return detail;
         }
         throw new PublicApiException(ApiErrorCode.FORBIDDEN, "islandId");
     }
 
     /**
-     * 시설 완공 판정 재료 — 섬 상세에는 시설 필드가 아직 없어({@link IslandDetail} 주석) 건설 옵션을 쓴다.
+     * 시설 완공 판정 재료 — 섬 상세에는 시설 필드가 아직 없어({@link IslandDetailView} 주석) 건설 옵션을 쓴다.
      * 병렬 단계에 끼워 넣을 수 있게 조각으로 둔다.
      */
     private ReadFragment<?> facilities(AccessTokenClaims claims, UUID islandId) {
@@ -445,14 +448,14 @@ public class ScreenReadUseCase {
     }
 
     /** 옵션 {@code items} 는 완공(COMPLETED)하지 않은 건물만 담으므로 목록에 없으면 완공이다. */
-    private static boolean built(ConstructionOptions options, String building) {
+    private static boolean built(ConstructionOptionsView options, String building) {
         return options.items().stream().noneMatch(item -> building.equals(item.id()));
     }
 
     /** 시설 완공 판정을 단독 순차 단계로 — 판정 결과가 다음 조각의 호출 여부를 정할 때 쓴다. */
     private boolean completed(UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId,
             String building) {
-        return built((ConstructionOptions) composer.compose(context, List.of(facilities(claims, islandId)))
+        return built((ConstructionOptionsView) composer.compose(context, List.of(facilities(claims, islandId)))
                 .get(FACILITIES), building);
     }
 
@@ -469,7 +472,7 @@ public class ScreenReadUseCase {
                 screen.put(name, value);
             }
         });
-        if (!built((ConstructionOptions) parallel.get(FACILITIES), GRAM)) {
+        if (!built((ConstructionOptionsView) parallel.get(FACILITIES), GRAM)) {
             screen.put("playback", null);
             screen.put("playbackAvailability", FACILITY_LOCKED);
             return;
@@ -506,12 +509,12 @@ public class ScreenReadUseCase {
     }
 
     /** 주민 상세를 공개 요약 whitelist 로 줄인다. 주민에게는 가입 요청이 없으므로 joinRequestId 는 null 이다. */
-    private static IslandSummary publicSummary(Object view) {
-        if (view instanceof IslandSummary summary) {
+    private static IslandSummaryView publicSummary(Object view) {
+        if (view instanceof IslandSummaryView summary) {
             return summary;
         }
-        if (view instanceof IslandDetail detail) {
-            return new IslandSummary(detail.id(), detail.name(), detail.intro(), detail.visibility(),
+        if (view instanceof IslandDetailView detail) {
+            return new IslandSummaryView(detail.id(), detail.name(), detail.intro(), detail.visibility(),
                     detail.approvalRequired(), detail.memberCount(), detail.maxMembers(),
                     detail.membershipStatus(), null, detail.growthStage(), detail.themeId());
         }

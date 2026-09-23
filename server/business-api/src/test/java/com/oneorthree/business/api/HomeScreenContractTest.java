@@ -181,19 +181,19 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    @DisplayName("필수 조각의 상류 계약 위반은 화면 전체 502 — 빈 조각 200 으로 줄이지 않는다")
+    @DisplayName("필수 조각의 상류 계약 위반은 화면 전체 400 — 빈 조각 200 으로 줄이지 않는다")
     void requiredFragmentFailureFailsWholeScreen() throws Exception {
         // 일시 5xx 는 공유 서킷을 열어 다른 계약 테스트를 오염시키므로 여기서 재현하지 않는다 —
         // 전체 예산 소진은 ScreenDeadlineContractTest 가 별도 컨텍스트로 본다.
         DATA.on(DATA_SUMMARY, request -> domainError(400, "UNKNOWN"));
         mockMvc.perform(auth(get("/screens/home")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.on(DATA_SUMMARY, request -> ok(SUMMARY));
         DATA.on(DATA_CURRENT, request -> ok("{}"));
         mockMvc.perform(auth(get("/screens/home")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

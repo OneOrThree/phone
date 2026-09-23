@@ -82,11 +82,13 @@ stateDiagram-v2
   paused --> active: resume REST / 같은 sessionId
   active --> completed: finish REST / 원자 정산
   paused --> completed: finish REST / 휴식 제외 원자 정산
+  paused --> completed: rest-auto-close / 휴식 1시간(GROMO-1998)
   completed --> completed: 완료 결과 복구 / 추가 정산 없음
 ```
 
 목표 시간 도달, WebSocket 끊김, 모닥불 관람, 화면 종료는 상태 전이가 아니다.
-FR-D03/06의 강퇴·orphan 전이는 아직 위 그림에 운영 규칙으로 넣지 않았다.
+FR-D03의 강퇴 강제 종료는 확정됐고, FR-D06의 orphan 전이는 아직 위 그림에 운영 규칙으로 넣지 않았다.
+세션 없는 공유 휴식도 현재 정본의 상태 전이가 아니다(GROMO-1958 — planning-document/`rest-screen-spec.md` 개정 뒤 별도 범위).
 active·paused는 모두 현재 섬 전환과 두 번째 세션 시작을 막는다.
 
 ## 종료와 보상 흐름
@@ -129,6 +131,7 @@ PR737의 7필드 봉투, PR739의 `/ws/realtime`·기존 `/ws/chat` 호환 및 �
 
 focus/rest의 상태는 snapshot+사용자×섬 지속 watermark로 복구한다. emote는 DB/outbox/히스토리 없이
 현재 **진행 세션(active·paused)** 자격과 만료만 검증한다(휴식 중 송·수신 허용 — 2026-09-20 결정). Redis Pub/Sub를 내구 메시지 스트림으로 설명하지 않는다.
+채팅은 active·paused 모두 차단하고 STOMP CONNECT 전체는 막지 않는다.
 소속 상실은 실제 구독 해지 또는 소켓 종료로 반영하고 각 프레임 송신 직전에 다시 인가한다.
 이미 TCP에 내보낸 프레임까지 회수한다고 약속하지 않는다.
 

@@ -48,6 +48,7 @@ location = /actuator { return 404; }
 # GET /friends · GET /friends/requests · POST /friends/requests · POST /friends/requests/{requestId}/accept ·
 # .../reject · .../cancel · DELETE /friends/{friendUserId} · GET /friends/search (GROMO-1996 —
 # 이 분기는 처음부터 전달하고 있었는데 Business 쪽 매핑이 없어 404 였다. 1996 이 그 매핑을 채웠다).
+# 사용자 차단(GROMO-1975)도 같은 분기가 전달한다 — GET·POST /blocks · DELETE /blocks/{blockedUserId}.
 # 편지(GROMO-1933·2002)도 같은 분기가 전달한다 — letters 분기: POST /letters · GET /letters ·
 # GET /letters/{letterId} · DELETE /letters/{letterId}(닫기, GROMO-2002).
 # 꾸미기(GROMO-1783)도 me·islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
@@ -86,8 +87,10 @@ location = /actuator { return 404; }
 # GET /islands/{islandId}/resources/ledger.
 # 도서관 물고기 장(GROMO-2046)도 islands 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /islands/{islandId}/statistics/fish-earnings.
+# 내 가입 신청 목록(GROMO-2047)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
+# GET /me/join-requests (단건 GET·DELETE /me/join-requests/{requestId} 는 1760 에서 이미 열렸다).
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
-location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters)(?:/|$) {
+location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;
     proxy_http_version 1.1;
     proxy_set_header Host $host;
