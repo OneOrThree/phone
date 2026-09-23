@@ -909,7 +909,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/FriendRequestItem"
+                    "$ref": "#/components/schemas/RequestView"
                   }
                 }
               }
@@ -1030,7 +1030,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/FocusSessionState"
+                  "$ref": "#/components/schemas/StateView"
                 }
               }
             }
@@ -1070,7 +1070,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/FocusSessionState"
+                  "$ref": "#/components/schemas/StateView"
                 }
               }
             }
@@ -1110,7 +1110,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/FocusSessionState"
+                  "$ref": "#/components/schemas/StateView"
                 }
               }
             }
@@ -1150,7 +1150,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/FocusFinish"
+                  "$ref": "#/components/schemas/FinishView"
                 }
               }
             }
@@ -1195,7 +1195,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/BlockedUser"
+                    "$ref": "#/components/schemas/BlockedUserView"
                   }
                 }
               }
@@ -1661,7 +1661,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/PersonalAppearanceState"
+                  "$ref": "#/components/schemas/PersonalAppearanceView"
                 }
               }
             }
@@ -1807,7 +1807,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/PlaybackState"
+                  "$ref": "#/components/schemas/PlaybackView"
                 }
               }
             }
@@ -1845,7 +1845,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/PlaybackState"
+                  "$ref": "#/components/schemas/PlaybackView"
                 }
               }
             }
@@ -2053,7 +2053,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/IslandAppearanceState"
+                  "$ref": "#/components/schemas/IslandAppearanceView"
                 }
               }
             }
@@ -2495,7 +2495,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/PersonalInventory"
+                  "$ref": "#/components/schemas/PersonalInventoryView"
                 }
               }
             }
@@ -2515,7 +2515,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/FocusSummary"
+                  "$ref": "#/components/schemas/SummaryView"
                 }
               }
             }
@@ -2972,7 +2972,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/SharedInventory"
+                  "$ref": "#/components/schemas/SharedInventoryView"
                 }
               }
             }
@@ -3074,7 +3074,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/FriendItem"
+                    "$ref": "#/components/schemas/FriendView"
                   }
                 }
               }
@@ -3097,7 +3097,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/FriendSearchItem"
+                    "$ref": "#/components/schemas/SearchView"
                   }
                 }
               }
@@ -3118,7 +3118,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/FocusFinish"
+                  "$ref": "#/components/schemas/FinishView"
                 }
               }
             }
@@ -3138,7 +3138,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/FocusSessionState"
+                  "$ref": "#/components/schemas/StateView"
                 }
               }
             }
@@ -4043,7 +4043,7 @@
           "visibility"
         ]
       },
-      "FocusSessionState": {
+      "StateView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4093,7 +4093,7 @@
           "version"
         ]
       },
-      "Allocation": {
+      "AllocationView": {
         "type": "object",
         "properties": {
           "personalFishAdded": {
@@ -4110,7 +4110,7 @@
           "personalFishAdded"
         ]
       },
-      "FocusFinish": {
+      "FinishView": {
         "type": "object",
         "properties": {
           "recordId": {
@@ -4140,7 +4140,7 @@
             "format": "int32"
           },
           "allocation": {
-            "$ref": "#/components/schemas/Allocation"
+            "$ref": "#/components/schemas/AllocationView"
           },
           "completedAt": {
             "type": "string"
@@ -4148,7 +4148,7 @@
           "questProgress": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/QuestProgress"
+              "$ref": "#/components/schemas/QuestProgressView"
             }
           }
         },
@@ -4163,7 +4163,7 @@
           "subject"
         ]
       },
-      "QuestProgress": {
+      "QuestProgressView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4292,7 +4292,7 @@
           }
         }
       },
-      "PersonalAppearanceState": {
+      "PersonalAppearanceView": {
         "type": "object",
         "properties": {
           "clothes": {
@@ -4374,7 +4374,7 @@
           "title"
         ]
       },
-      "PlaybackState": {
+      "PlaybackView": {
         "type": "object",
         "properties": {
           "trackId": {
@@ -4439,7 +4439,7 @@
           "version"
         ]
       },
-      "IslandAppearanceState": {
+      "IslandAppearanceView": {
         "type": "object",
         "properties": {
           "islandThemeId": {
@@ -4635,7 +4635,7 @@
           }
         }
       },
-      "PersonalInventory": {
+      "PersonalInventoryView": {
         "type": "object",
         "properties": {
           "clothes": {
@@ -4661,7 +4661,7 @@
             "format": "int64"
           },
           "equipped": {
-            "$ref": "#/components/schemas/PersonalAppearanceState"
+            "$ref": "#/components/schemas/PersonalAppearanceView"
           }
         },
         "required": [
@@ -4672,7 +4672,7 @@
           "inventoryVersion"
         ]
       },
-      "FocusSummary": {
+      "SummaryView": {
         "type": "object",
         "properties": {
           "date": {
@@ -5307,7 +5307,7 @@
           }
         }
       },
-      "BuildingTheme": {
+      "BuildingThemeView": {
         "type": "object",
         "properties": {
           "buildingId": {
@@ -5322,7 +5322,7 @@
           "themeId"
         ]
       },
-      "SharedInventory": {
+      "SharedInventoryView": {
         "type": "object",
         "properties": {
           "audio": {
@@ -5340,7 +5340,7 @@
           "buildingThemes": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/BuildingTheme"
+              "$ref": "#/components/schemas/BuildingThemeView"
             }
           },
           "inventoryVersion": {
@@ -5348,7 +5348,7 @@
             "format": "int64"
           },
           "appearance": {
-            "$ref": "#/components/schemas/IslandAppearanceState"
+            "$ref": "#/components/schemas/IslandAppearanceView"
           }
         },
         "required": [
@@ -5422,7 +5422,7 @@
           "walletVersion"
         ]
       },
-      "FriendItem": {
+      "FriendView": {
         "type": "object",
         "properties": {
           "userId": {
@@ -5466,7 +5466,7 @@
           "userId"
         ]
       },
-      "FriendSearchItem": {
+      "SearchView": {
         "type": "object",
         "properties": {
           "userId": {
@@ -5493,7 +5493,7 @@
           "userId"
         ]
       },
-      "FriendRequestItem": {
+      "RequestView": {
         "type": "object",
         "properties": {
           "requestId": {
@@ -5521,7 +5521,7 @@
           "userId"
         ]
       },
-      "BlockedUser": {
+      "BlockedUserView": {
         "type": "object",
         "properties": {
           "id": {
