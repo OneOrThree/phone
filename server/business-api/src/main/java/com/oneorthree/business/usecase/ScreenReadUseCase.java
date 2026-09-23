@@ -12,9 +12,9 @@ import com.oneorthree.business.common.http.ScreenComposer;
 import com.oneorthree.business.common.http.UpstreamRequestContext;
 import com.oneorthree.business.common.time.WeekAxis;
 import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
-import com.oneorthree.business.upstream.data.dto.IslandDetail;
-import com.oneorthree.business.upstream.data.dto.IslandSummary;
-import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandDetailView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.NotificationSettingsView;
 import com.oneorthree.business.upstream.realtime.dto.RealtimeHistory;
@@ -156,7 +156,7 @@ public class ScreenReadUseCase {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         Map<String, Object> first = composer.compose(context, List.of(
                 fragment("island", deadline -> publicSummary(islands.island(claims, islandId, deadline)))));
-        IslandSummary island = (IslandSummary) first.get("island");
+        IslandSummaryView island = (IslandSummaryView) first.get("island");
         List<ReadFragment<?>> fragments = new ArrayList<>(List.of(fragment("members",
                 deadline -> management.members(claims, islandId, null, IslandManagementUseCase.DEFAULT_LIMIT,
                         deadline))));
@@ -172,7 +172,7 @@ public class ScreenReadUseCase {
             screen.put("joinRequest", null);
             return screen;
         }
-        JoinRequestStatus joinRequest = (JoinRequestStatus) second.get("joinRequest");
+        JoinRequestStatusView joinRequest = (JoinRequestStatusView) second.get("joinRequest");
         if (!islandId.equals(joinRequest.islandId())) {
             throw new UpstreamContractMismatchException("가입 요청의 섬이 방문 섬과 다릅니다");
         }
@@ -194,7 +194,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> home(AccessTokenClaims claims, String date, String timezone, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
         Map<String, Object> parallel = composer.compose(context, List.of(
@@ -216,7 +216,7 @@ public class ScreenReadUseCase {
         Map<String, Object> first = composer.compose(context, List.of(
                 fragment("session", deadline -> focus.current(claims, deadline))));
         StateView session = (StateView) first.get("session");
-        IslandDetail island = session == null ? currentIsland(context, claims)
+        IslandDetailView island = session == null ? currentIsland(context, claims)
                 : memberIsland(context, claims, session.islandId());
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
@@ -242,7 +242,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> townHall(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         boolean host = switch (island.role()) {
             case ROLE_HOST -> true;
             case ROLE_MEMBER -> false;
@@ -283,7 +283,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> board(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         UUID islandId = island.id();
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
@@ -308,7 +308,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> library(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
         if (!completed(context, claims, island.id(), LIBRARY)) {
@@ -341,7 +341,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> shop(AccessTokenClaims claims, String category, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         UUID islandId = island.id();
         if (!completed(context, claims, islandId, SHOP)) {
             throw new PublicApiException(ApiErrorCode.FACILITY_LOCKED, null);
@@ -362,7 +362,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> playback(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         UUID islandId = island.id();
         Map<String, Object> screen = new LinkedHashMap<>();
         screen.put("island", island);
@@ -390,7 +390,7 @@ public class ScreenReadUseCase {
      */
     public Map<String, Object> mailbox(AccessTokenClaims claims, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
-        IslandDetail island = currentIsland(context, claims);
+        IslandDetailView island = currentIsland(context, claims);
         UUID islandId = island.id();
         Map<String, Object> parts = composer.compose(context, List.of(
                 fragment("messages", deadline -> mailbox.firstPage(claims, islandId, deadline)),
@@ -420,7 +420,7 @@ public class ScreenReadUseCase {
     }
 
     /** 섬 문맥 — 현재 섬 → 주민 상세. 현재 섬이 없으면 임의로 고르지 않는다(BG01). */
-    private IslandDetail currentIsland(UpstreamRequestContext context, AccessTokenClaims claims) {
+    private IslandDetailView currentIsland(UpstreamRequestContext context, AccessTokenClaims claims) {
         MyIslandsResponse mine = (MyIslandsResponse) composer.compose(context, List.of(memberships(claims)))
                 .get("memberships");
         if (mine.currentIslandId() == null) {
@@ -430,17 +430,17 @@ public class ScreenReadUseCase {
     }
 
     /** 주민 상세만 받는다 — 방문자 요약이 오면(그 사이 소속을 잃음) 화면 전체 403 이다. */
-    private IslandDetail memberIsland(UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId) {
+    private IslandDetailView memberIsland(UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId) {
         Object island = composer.compose(context, List.of(
                 fragment("island", deadline -> islands.island(claims, islandId, deadline)))).get("island");
-        if (island instanceof IslandDetail detail) {
+        if (island instanceof IslandDetailView detail) {
             return detail;
         }
         throw new PublicApiException(ApiErrorCode.FORBIDDEN, "islandId");
     }
 
     /**
-     * 시설 완공 판정 재료 — 섬 상세에는 시설 필드가 아직 없어({@link IslandDetail} 주석) 건설 옵션을 쓴다.
+     * 시설 완공 판정 재료 — 섬 상세에는 시설 필드가 아직 없어({@link IslandDetailView} 주석) 건설 옵션을 쓴다.
      * 병렬 단계에 끼워 넣을 수 있게 조각으로 둔다.
      */
     private ReadFragment<?> facilities(AccessTokenClaims claims, UUID islandId) {
@@ -509,12 +509,12 @@ public class ScreenReadUseCase {
     }
 
     /** 주민 상세를 공개 요약 whitelist 로 줄인다. 주민에게는 가입 요청이 없으므로 joinRequestId 는 null 이다. */
-    private static IslandSummary publicSummary(Object view) {
-        if (view instanceof IslandSummary summary) {
+    private static IslandSummaryView publicSummary(Object view) {
+        if (view instanceof IslandSummaryView summary) {
             return summary;
         }
-        if (view instanceof IslandDetail detail) {
-            return new IslandSummary(detail.id(), detail.name(), detail.intro(), detail.visibility(),
+        if (view instanceof IslandDetailView detail) {
+            return new IslandSummaryView(detail.id(), detail.name(), detail.intro(), detail.visibility(),
                     detail.approvalRequired(), detail.memberCount(), detail.maxMembers(),
                     detail.membershipStatus(), null, detail.growthStage(), detail.themeId());
         }

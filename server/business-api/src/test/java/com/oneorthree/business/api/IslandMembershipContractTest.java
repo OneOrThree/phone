@@ -447,4 +447,88 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         return new MockUpstream.Response(status,
                 "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"create", "switch", "member", "visitor", "mine", "search", "discover", "requests",
+            "empty-mine", "empty-search", "empty-discover", "empty-requests"})
+    void publicMembershipFieldsRemainStable(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String fixture = switch (operation) {
+            case "create" -> CREATED;
+            case "switch" -> "{\"currentIslandId\":null}";
+            case "member" -> DETAIL;
+            case "visitor" -> SUMMARY;
+            default -> "{\"items\":[" + (operation.endsWith("requests") ? MY_REQUEST_ITEM : SUMMARY)
+                    + "],\"nextCursor\":null}";
+        };
+        var expected = (tools.jackson.databind.node.ObjectNode) json.readTree(fixture);
+        if (operation.startsWith("empty-")) {
+            expected.putArray("items");
+        }
+        if (operation.endsWith("mine")) {
+            expected.putNull("currentIslandId");
+            expected.putNull("lossReason");
+        }
+        var upstream = expected.deepCopy();
+        upstream.remove("nextCursor");
+        if (operation.endsWith("requests")) {
+            upstream.putNull("nextCreatedAt");
+            upstream.putNull("nextRequestId");
+        }
+        if (operation.endsWith("search")) {
+            upstream.putNull("nextIslandId");
+        }
+        if (operation.endsWith("discover")) {
+            upstream.putNull("nextHandle");
+        }
+        String payload = upstream.toString();
+        if (operation.equals("member") || operation.equals("visitor")) {
+            payload = "{\"scope\":\"" + operation + "\",\"" + operation + "\":" + payload + "}";
+        }
+        String decorated = payload.replace("{", "{\"row_id\":\"private\",");
+        String route = operation.endsWith("mine") ? DATA_MINE : operation.endsWith("search") ? DATA_SEARCH
+                : operation.endsWith("discover") ? DATA_DISCOVER : operation.endsWith("requests") ? DATA_MY_REQUESTS
+                : operation.equals("create") ? DATA_CREATE : operation.equals("switch") ? DATA_SWITCH : DATA_ISLAND;
+        DATA.on(route, r -> ok(decorated));
+        var request = switch (operation) {
+            case "create" -> write(post("/islands"), CREATE_BODY);
+            case "switch" -> write(put("/me/current-island"), "{\"islandId\":\"" + ISLAND + "\"}");
+            case "member", "visitor" -> auth(get("/islands/" + ISLAND));
+            default -> auth(get(operation.endsWith("mine") ? "/me/islands"
+                    : operation.endsWith("requests") ? "/me/join-requests"
+                    : operation.endsWith("discover") ? "/islands/discover" : "/islands"));
+        };
+        var result = mockMvc.perform(request).andExpect(status().is(operation.equals("create") ? 201 : 200)).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands|post|200||id membershipStatus role currentIslandId|id membershipStatus role currentIslandId",
+            "/me/current-island|put|200||currentIslandId|currentIslandId",
+            "/me/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands/discover|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/me/join-requests|get|200|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

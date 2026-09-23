@@ -366,4 +366,67 @@ class IslandJoinContractTest extends UpstreamTestBase {
         return new MockUpstream.Response(status,
                 "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"join", "pending", "request", "cancel", "resolve", "issue", "expiring-issue"})
+    void publicJoinFieldsRemainStable(String operation) throws Exception {
+        String expected = switch (operation) {
+            case "join" -> JOINED;
+            case "pending" -> PENDING;
+            case "request" -> REQUEST_VIEW;
+            case "cancel" -> CANCELLED;
+            case "resolve" -> RESOLVED;
+            case "expiring-issue" -> ISSUED.replace("null", "\"2026-10-01T01:02:03.123456Z\"");
+            default -> ISSUED;
+        };
+        String decorated = expected.replace("{", "{\"row_id\":\"private\",");
+        String route = switch (operation) {
+            case "join", "pending" -> DATA_JOIN;
+            case "request" -> DATA_REQUEST;
+            case "cancel" -> DATA_CANCEL;
+            case "resolve" -> DATA_RESOLVE;
+            default -> DATA_INVITE;
+        };
+        DATA.on(route, r -> ok(decorated));
+        var request = switch (operation) {
+            case "join", "pending" -> write(post("/islands/" + ISLAND + "/memberships"), "{}");
+            case "request" -> auth(get("/me/join-requests/" + REQUEST));
+            case "cancel" -> auth(delete("/me/join-requests/" + REQUEST)).header("Idempotency-Key", KEY);
+            case "resolve" -> write(post("/invitations/resolve"), "{\"code\":\"abcd2345\"}");
+            default -> auth(post("/islands/" + ISLAND + "/invitations")).header("Idempotency-Key", KEY);
+        };
+        var result = mockMvc.perform(request).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(json.readTree(expected));
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/memberships|post|200||status requestId islandId currentIslandId version|status requestId islandId currentIslandId version",
+            "/me/join-requests/{requestId}|get|200||id islandId status version|id islandId status version",
+            "/me/join-requests/{requestId}|delete|200||id status|id status",
+            "/invitations/resolve|post|200||island invitationToken|island invitationToken",
+            "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands/{islandId}/invitations|post|200||code url expiresAt|code url expiresAt"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }
