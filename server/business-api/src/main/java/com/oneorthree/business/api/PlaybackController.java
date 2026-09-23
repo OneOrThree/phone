@@ -7,7 +7,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.usecase.PlaybackUseCase.StateView;
+import com.oneorthree.business.usecase.PlaybackUseCase.PlaybackView;
 import com.oneorthree.business.usecase.PlaybackUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,14 +43,14 @@ public class PlaybackController {
 
     /** 재생 상태 — 저장된 anchor 그대로. 현재 위치는 앱이 serverNow 로 계산한다. */
     @GetMapping("/islands/{islandId}/playback")
-    public StateView get(@PathVariable String islandId, HttpServletRequest request) {
+    public PlaybackView get(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return playback.get(claims, uuid(islandId), deadline());
     }
 
     /** 재생 변경 — 같은 섬 주민 누구나, Idempotency-Key(UUID36) 필수. */
     @PatchMapping(value = "/islands/{islandId}/playback", consumes = "application/json")
-    public StateView patch(@PathVariable String islandId, @RequestBody JsonNode body,
+    public PlaybackView patch(@PathVariable String islandId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
