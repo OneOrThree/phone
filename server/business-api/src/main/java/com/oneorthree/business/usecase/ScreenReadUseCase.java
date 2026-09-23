@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.ConstructionResponses.ConstructionOptionsView;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
@@ -10,7 +11,6 @@ import com.oneorthree.business.common.http.ReadFragment;
 import com.oneorthree.business.common.http.ScreenComposer;
 import com.oneorthree.business.common.http.UpstreamRequestContext;
 import com.oneorthree.business.common.time.WeekAxis;
-import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
 import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
 import com.oneorthree.business.upstream.data.dto.IslandDetail;
 import com.oneorthree.business.upstream.data.dto.IslandSummary;
@@ -448,14 +448,14 @@ public class ScreenReadUseCase {
     }
 
     /** 옵션 {@code items} 는 완공(COMPLETED)하지 않은 건물만 담으므로 목록에 없으면 완공이다. */
-    private static boolean built(ConstructionOptions options, String building) {
+    private static boolean built(ConstructionOptionsView options, String building) {
         return options.items().stream().noneMatch(item -> building.equals(item.id()));
     }
 
     /** 시설 완공 판정을 단독 순차 단계로 — 판정 결과가 다음 조각의 호출 여부를 정할 때 쓴다. */
     private boolean completed(UpstreamRequestContext context, AccessTokenClaims claims, UUID islandId,
             String building) {
-        return built((ConstructionOptions) composer.compose(context, List.of(facilities(claims, islandId)))
+        return built((ConstructionOptionsView) composer.compose(context, List.of(facilities(claims, islandId)))
                 .get(FACILITIES), building);
     }
 
@@ -472,7 +472,7 @@ public class ScreenReadUseCase {
                 screen.put(name, value);
             }
         });
-        if (!built((ConstructionOptions) parallel.get(FACILITIES), GRAM)) {
+        if (!built((ConstructionOptionsView) parallel.get(FACILITIES), GRAM)) {
             screen.put("playback", null);
             screen.put("playbackAvailability", FACILITY_LOCKED);
             return;
