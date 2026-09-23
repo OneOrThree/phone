@@ -49,6 +49,7 @@ import {
   kstHourMinute,
   myIslandsConsistent,
   intentKeyPool,
+  trackNames,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -194,7 +195,7 @@ test('목표 변경 시 계속 대상인 주민은 모은 양을 이어가고, �
 test('음원 구매로 잔액이 부족해지면 완료 상태가 없어지고 부족분만 다시 채운다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board', 'gram'];
-  currentIsland(s).fish = 2850;
+  currentIsland(s).fish = 2740;
   s = act(s, 'SELECT_BUILDING', { building: 'library' });
   const i = currentIsland(s);
   const share = buildingShare(i, 'library');
@@ -202,7 +203,7 @@ test('음원 구매로 잔액이 부족해지면 완료 상태가 없어지고 �
   for (const id of i.buildingQuest!.targets) i.earned![id] = (i.earned![id] ?? 0) + share;
   assert.ok(buildingReady(currentIsland(s)));
   s = act(s, 'BUY', { id: 'rain' });
-  assert.equal(balance(currentIsland(s)), 2700);
+  assert.equal(balance(currentIsland(s)), 2710);
   assert.ok(!buildingReady(currentIsland(s)));
   assert.equal(currentIsland(s).earned?.me, 320 + share);
   s = act(s, 'DEMO_CREDIT', { fish: 20 });
@@ -246,7 +247,7 @@ test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 �
     null,
   );
   s = act(s, 'BUY', { id: 'rain' });
-  assert.equal(balance(currentIsland(s)), 1050);
+  assert.equal(balance(currentIsland(s)), 1170);
   assert.deepEqual(act(s, 'BUY', { id: 'rain' }), s);
   s = act(s, 'TRACK', { value: 'rain' });
   s = act(s, 'SETTING', { key: 'sound', value: false });
@@ -256,6 +257,66 @@ test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 �
   currentIsland(s).buildings.push('library');
   s = act(s, 'SELECT_BUILDING', { building: 'shop' });
   assert.equal(currentIsland(s).buildingQuest?.building, 'shop');
+});
+test('축음기는 보유한 현재 곡이 있을 때만 재생한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.buildings = ['hall', 'board', 'gram'];
+  island.sharedOwned = [];
+
+  s = act(s, 'PLAY', { value: true });
+  assert.equal(currentIsland(s).playing, false);
+
+  currentIsland(s).sharedOwned = ['waves'];
+  s = act(s, 'PLAY', { value: true });
+  assert.equal(currentIsland(s).playing, true);
+  s = act(s, 'PLAY', { value: false });
+  assert.equal(currentIsland(s).playing, false);
+  assert.equal(currentIsland(s).playbackReset, 1);
+  assert.equal(trackNames.rain, '빗방울 소리');
+});
+test('PLAYBACK_SYNC는 서버가 확정한 곡과 재생 상태를 섬에 반영한다', () => {
+  const before = initialState(false);
+  const island = currentIsland(before);
+  island.playing = false;
+  const next = reducer(before, {
+    type: 'PLAYBACK_SYNC',
+    islandId: island.id,
+    playback: {
+      trackId: 'rain',
+      playing: true,
+      positionSeconds: 12,
+      effectiveAt: '2026-09-22T00:00:00Z',
+      changedBy: 'u1',
+      version: 3,
+      serverNow: '2026-09-22T00:00:02Z',
+      durationSeconds: 120,
+    },
+  });
+  assert.equal(currentIsland(next).track, 'rain');
+  assert.equal(currentIsland(next).playing, true);
+  assert.equal(currentIsland(next).serverPlayback?.positionSeconds, 12);
+});
+test('PLAYBACK_SYNC는 서버의 null 곡을 명시적인 미선택 상태로 반영한다', () => {
+  const before = initialState(false);
+  const island = currentIsland(before);
+  island.sharedOwned = ['waves'];
+  const next = reducer(before, {
+    type: 'PLAYBACK_SYNC',
+    islandId: island.id,
+    playback: {
+      trackId: null,
+      playing: false,
+      positionSeconds: 0,
+      effectiveAt: '2026-09-22T00:00:00Z',
+      changedBy: null,
+      version: 0,
+      serverNow: '2026-09-22T00:00:01Z',
+      durationSeconds: null,
+    },
+  });
+  assert.equal(currentIsland(next).track, null);
+  assert.equal(currentIsland(next).playing, false);
 });
 test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
   let s = initialState(true);

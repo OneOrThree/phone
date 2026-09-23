@@ -1,8 +1,8 @@
 /**
- * 섬 주민 집중/휴식 실시간 동기화 (GROMO-2010).
+ * 섬 주민 집중/휴식과 공용 재생 실시간 동기화 (GROMO-2010, GROMO-1845).
  *
  * 정본은 `GET /islands/{id}/focus-members`·`/rest-members` 스냅숏이고
- * STOMP `SUB /topic/islands/{id}/focus|rest|emotes` 이벤트가 증분으로 쌓인다.
+ * STOMP `SUB /topic/islands/{id}/focus|rest|emotes|playback` 이벤트를 구독한다.
  * 응원은 `SEND /app/islands/{id}/focus/emotes` — HTTP 응원 경로는 없고
  * 발신 성공 화면은 서버 브로드캐스트가 돌아올 때만 그린다.
  *
@@ -249,6 +249,10 @@ export type IslandChannel = {
 
 export type IslandChannelOpts = {
   islandId: string;
+  /** focus/rest 채널. 생략하면 기존 동작대로 구독한다. */
+  presence?: boolean;
+  /** 공용 재생 전체 상태 채널. */
+  playback?: boolean;
   /** 내 진행 세션이 있을 때만 emotes 채널을 구독한다 — 없으면 서버가 구독을 거절한다. */
   emote: boolean;
   onEvent: (body: unknown) => void;
@@ -282,8 +286,11 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
           // 깨진 프레임은 무시한다.
         }
       };
-      client.subscribe(`/topic/islands/${id}/focus`, onMsg);
-      client.subscribe(`/topic/islands/${id}/rest`, onMsg);
+      if (opts.presence !== false) {
+        client.subscribe(`/topic/islands/${id}/focus`, onMsg);
+        client.subscribe(`/topic/islands/${id}/rest`, onMsg);
+      }
+      if (opts.playback) client.subscribe(`/topic/islands/${id}/playback`, onMsg);
       client.subscribe('/user/queue/errors', (msg: IMessage) => {
         let text = '실시간 요청이 거절됐어요.';
         try {
