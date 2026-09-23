@@ -128,9 +128,9 @@ class PlaybackContractTest extends UpstreamTestBase {
             "422,OUT_OF_RANGE,422,OUT_OF_RANGE,",
             "409,STATE_CONFLICT,409,STATE_CONFLICT,playing",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "403,OUT_OF_RANGE,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_PLAYBACK_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "403,OUT_OF_RANGE,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_PLAYBACK_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_PATCH, request -> error(upstreamStatus, code));
@@ -168,12 +168,12 @@ class PlaybackContractTest extends UpstreamTestBase {
                     + "\"changedBy\":null,\"version\":0,\"serverNow\":\"2026-09-11T09:10:00Z\",\"durationSeconds\":null}",
             // 필드 누락
             "{\"trackId\":null,\"playing\":false}"})
-    @DisplayName("상류 DTO 불변식이 깨지면 502 UPSTREAM_CONTRACT_ERROR 로 fail closed")
+    @DisplayName("상류 DTO 불변식이 깨지면 400 UPSTREAM_CONTRACT_ERROR 로 fail closed")
     void malformedUpstreamFailsClosed(String upstream) throws Exception {
         DATA.on(DATA_GET, request -> ok(upstream));
 
         mockMvc.perform(auth(get("/islands/" + ISLAND + "/playback")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

@@ -87,7 +87,7 @@ class FriendContractTest extends UpstreamTestBase {
     void createRejectsEmptyOrIncompleteUpstreamBody(String body) throws Exception {
         DATA.on(DATA_CREATE, request -> ok(body));
         mockMvc.perform(write(post("/friends/requests"), CREATE_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -108,7 +108,7 @@ class FriendContractTest extends UpstreamTestBase {
     void acceptRejectsMismatchedResultingStateAsContractError() throws Exception {
         DATA.on("POST " + INTERNAL + "/friend-requests/" + REQUEST + "/accept", request -> ok(state("PENDING")));
         mockMvc.perform(auth(post("/friends/requests/" + REQUEST + "/accept")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -131,7 +131,7 @@ class FriendContractTest extends UpstreamTestBase {
         assertThat(DATA.hits(DATA_DELETE)).isEqualTo(1);
         DATA.on(DATA_DELETE, request -> ok(""));
         mockMvc.perform(auth(delete("/friends/" + TARGET)))
-                .andExpect(status().isBadGateway());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -159,7 +159,7 @@ class FriendContractTest extends UpstreamTestBase {
         DATA.on(DATA_FRIENDS, request -> ok("[{\"nickname\":\"x\",\"isPinned\":false,\"isFocusing\":false,"
                 + "\"focusTimeMinutes\":0}]"));
         mockMvc.perform(auth(get("/friends")).queryParam("date", "2026-09-18"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -194,8 +194,8 @@ class FriendContractTest extends UpstreamTestBase {
             "409,DATA_INTEGRITY_VIOLATION,409,STATE_CONFLICT,targetUserId",
             "404,TARGET_USER_NOT_FOUND,404,NOT_FOUND,targetUserId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "409,SELF_REQUEST,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_FRIEND_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "409,SELF_REQUEST,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_FRIEND_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void createMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_CREATE, request -> error(upstreamStatus, code));
@@ -303,7 +303,7 @@ class FriendContractTest extends UpstreamTestBase {
     @ParameterizedTest
     @CsvSource({"400,INVALID_SEARCH_TYPE,400,INVALID_PARAMETER,type",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "400,UNKNOWN_FRIEND_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "400,UNKNOWN_FRIEND_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void searchMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_SEARCH, request -> error(upstreamStatus, code));
@@ -331,7 +331,7 @@ class FriendContractTest extends UpstreamTestBase {
     void searchRejectsIncompleteUpstreamBody(String body) throws Exception {
         DATA.on(DATA_SEARCH, request -> ok(body));
         mockMvc.perform(auth(get("/friends/search")).param("type", "NICKNAME").param("q", "x"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
