@@ -335,6 +335,67 @@ class FriendContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"friends", "received", "sent", "search"})
+    void listProjectionKeepsExactPublicFieldsAndNulls(String kind) throws Exception {
+        String item;
+        String route;
+        MockHttpServletRequestBuilder request;
+        switch (kind) {
+            case "friends" -> {
+                item = FRIEND.replace("\"nickname\":\"짝꿍\"", "\"nickname\":null")
+                        .replace("2026-09-18T01:00:00Z", "2026-09-18T01:00:00.123456+00:00");
+                route = DATA_FRIENDS;
+                request = get("/friends").queryParam("date", "2026-09-18");
+            }
+            case "search" -> {
+                item = SEARCH_HIT.substring(1, SEARCH_HIT.length() - 1);
+                route = DATA_SEARCH;
+                request = get("/friends/search").queryParam("type", "NICKNAME").queryParam("q", "짝꿍");
+            }
+            default -> {
+                item = "{\"requestId\":\"" + REQUEST + "\",\"userId\":\"" + TARGET
+                        + "\",\"nickname\":null,\"tierLevel\":null,\"createdAt\":\"2026-09-18T00:00:00.123456+00:00\"}";
+                route = DATA_REQUESTS;
+                request = get("/friends/requests").queryParam("type", kind);
+            }
+        }
+        String upstream = "[" + item.substring(0, item.length() - 1) + ",\"relation_row_id\":7}]";
+        DATA.on(route, call -> ok(upstream));
+        var result = mockMvc.perform(auth(request)).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
+                .isEqualTo(json.readTree("[" + item + "]"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"/friends,get,,userId isPinned isFocusing focusTimeMinutes",
+            "/friends/requests,get,,requestId userId createdAt",
+            "/friends/search,get,,userId nickname relation",
+            "/blocks,get,,id name"})
+    void publicDocumentationPreservesRequiredFields(String path, String method, String nested, String fields)
+            throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        if (schema.path("type").asText().equals("array")) {
+            schema = schema.path("items");
+        }
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            schema = schema.path("properties").path(nested);
+            if (schema.path("type").asText().equals("array")) {
+                schema = schema.path("items");
+            }
+            schema = document.at(schema.path("$ref").asText().substring(1));
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+    }
+
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
         return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
     }

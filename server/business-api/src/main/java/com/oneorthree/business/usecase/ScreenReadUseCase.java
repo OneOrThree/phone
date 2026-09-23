@@ -11,7 +11,7 @@ import com.oneorthree.business.common.http.ScreenComposer;
 import com.oneorthree.business.common.http.UpstreamRequestContext;
 import com.oneorthree.business.common.time.WeekAxis;
 import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
-import com.oneorthree.business.upstream.data.dto.FocusSessionState;
+import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
 import com.oneorthree.business.upstream.data.dto.IslandDetail;
 import com.oneorthree.business.upstream.data.dto.IslandSummary;
 import com.oneorthree.business.upstream.data.dto.JoinRequestStatus;
@@ -215,7 +215,7 @@ public class ScreenReadUseCase {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
         Map<String, Object> first = composer.compose(context, List.of(
                 fragment("session", deadline -> focus.current(claims, deadline))));
-        FocusSessionState session = (FocusSessionState) first.get("session");
+        StateView session = (StateView) first.get("session");
         IslandDetail island = session == null ? currentIsland(context, claims)
                 : memberIsland(context, claims, session.islandId());
         Map<String, Object> screen = new LinkedHashMap<>();

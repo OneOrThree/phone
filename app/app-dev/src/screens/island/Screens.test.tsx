@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { BackHandler, StyleSheet } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
@@ -12,6 +13,7 @@ import { ApiError } from '@/services/api/client';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
+let mockFontScale = 1;
 jest.mock('@/services/api/account', () => ({
   updateProfile: jest.fn(),
   withdrawAccount: jest.fn(),
@@ -26,11 +28,11 @@ beforeEach(() => {
   notifyMock.mockClear();
   backMock.mockClear();
 });
-
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
+    fontScale: mockFontScale,
     compact: false,
     tablet: false,
     modalWidth: 340,
@@ -68,8 +70,21 @@ const pendingReq = (over: Record<string, unknown> = {}) => ({
 });
 
 // 실제 reducer 로 state 를 돌리고 api 목이 dispatch 까지 하게 만든다(App orchestration 축약본).
-function Harness({ route, api, expose, seed, bootError, detail: detailProp, full = false }: any) {
-  const [state, baseDispatch] = useReducer(reducer, undefined, () => initialState(full));
+function Harness({
+  route,
+  api,
+  expose,
+  seed,
+  initial,
+  bootError,
+  detail: detailProp,
+  full = false,
+}: any) {
+  const [state, baseDispatch] = useReducer(
+    reducer,
+    initial,
+    (value) => value ?? initialState(full),
+  );
   const actions = useRef<string[]>([]);
   const dispatch = useMemo(() => {
     const d = (a: any) => {
@@ -138,7 +153,10 @@ function Harness({ route, api, expose, seed, bootError, detail: detailProp, full
 const flush = async () => act(async () => {});
 
 // 서버 폴링·진행 중 Promise가 다음 테스트를 오염시키지 않게 매번 언마운트한다
-afterEach(cleanup);
+afterEach(() => {
+  mockFontScale = 1;
+  cleanup();
+});
 
 test('joinIsland 진입 시 explore를 호출하고 실패하면 오류+재시도를 보여준다', async () => {
   let calls = 0;
@@ -576,6 +594,184 @@ test('초대 코드가 없으면 resolve 오류를 코드별 문구로 보여준
   await fireEvent.changeText(s.getByLabelText('초대 코드'), 'WRONG');
   await fireEvent.press(s.getByLabelText('확인'));
   await waitFor(() => s.getByText('초대 코드를 다시 확인해 주세요.'));
+});
+
+test('축음기에서 판매곡을 구매한 뒤 바로 공용 재생한다', async () => {
+  let exposed: any;
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 10_000;
+  const s = await render(
+    <Harness route="sound" initial={state} expose={(value: any) => (exposed = value)} />,
+  );
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  s.getByText('빗방울 소리를 구매할까요?');
+  const background = s.getByTestId('sound-background-content', {
+    includeHiddenElements: true,
+  });
+  assert.equal(background.props.importantForAccessibility, 'no-hide-descendants');
+  assert.equal(background.props.pointerEvents, 'none');
+  await fireEvent.press(s.getByText('30마리로 구매'));
+  s.getByText('구매했어요');
+  await fireEvent.press(s.getByText('지금 재생하기'));
+  assert.ok(exposed.actions.includes('BUY'));
+  assert.ok(exposed.actions.includes('TRACK'));
+});
+
+test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 높이를 고정하지 않는다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+  assert.ok(StyleSheet.flatten(s.getByLabelText('재생').props.style).height >= 44);
+  assert.ok(StyleSheet.flatten(s.getByLabelText('섬으로 돌아가기').props.style).width >= 44);
+  assert.ok(
+    StyleSheet.flatten(s.getByLabelText('빗방울 소리, 30마리로 구매').props.style).minHeight >= 44,
+  );
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-current-track').props.style).height,
+    undefined,
+  );
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).flexShrink,
+    1,
+  );
+  const statusStyle = StyleSheet.flatten(s.getByTestId('sound-track-status-rain').props.style);
+  assert.equal(statusStyle.flexShrink, 1);
+  assert.equal(statusStyle.maxWidth, '45%');
+});
+
+test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = [];
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByText('보유한 곡이 없어요');
+  s.getByText('곡을 구매해 주세요');
+  assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
+});
+
+test('현재 곡을 보유하지 않았으면 다른 보유곡이 있어도 재생을 막는다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['rain'];
+  state.islands[0].track = 'waves';
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByText('재생할 곡을 골라 주세요');
+  assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 보유'));
+  await waitFor(() =>
+    assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, false),
+  );
+});
+
+test('집중 중 축음기는 보유곡만 표시하고 복귀 목적지를 정확히 안내한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['waves'];
+  state.session = {
+    id: 'focus-1',
+    islandId: state.islands[0].id,
+    subject: '수학',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'active',
+  };
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByLabelText('집중으로 돌아가기');
+  s.getByLabelText('잔잔한 파도, 보유');
+  assert.equal(s.queryByLabelText('빗방울 소리, 30마리로 구매'), null);
+});
+
+test('공동 보유품 중 실제 음원만 축음기 목록에 표시한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['waves', 'pine'];
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByLabelText('잔잔한 파도, 보유');
+  assert.equal(s.queryByText('pine'), null);
+});
+
+test('축음기에서 내 기기 음량을 조절한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+  const volume = s.getByLabelText('내 기기 음량');
+
+  assert.equal(volume.props.accessibilityValue.now, 55);
+  await fireEvent(volume, 'accessibilityAction', {
+    nativeEvent: { actionName: 'increment' },
+  });
+  await waitFor(() =>
+    assert.equal(s.getByLabelText('내 기기 음량').props.accessibilityValue.now, 65),
+  );
+});
+
+test('큰 글자에서는 구매 창을 스크롤하고 동작 버튼을 세로로 배치한다', async () => {
+  mockFontScale = 1.5;
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 100;
+  const s = await render(<Harness route="sound" initial={state} />);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+
+  assert.ok(StyleSheet.flatten(s.getByTestId('sound-dialog-card').props.style).maxHeight > 0);
+  assert.equal(StyleSheet.flatten(s.getByTestId('sound-dialog-scroll').props.style).flexShrink, 1);
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-dialog-actions').props.style).flexDirection,
+    'column',
+  );
+  const purchaseStyle = StyleSheet.flatten(s.getByLabelText('30마리로 구매').props.style);
+  assert.equal(purchaseStyle.height, undefined);
+  assert.ok(purchaseStyle.minHeight >= 52);
+  await fireEvent.press(s.getByLabelText('30마리로 구매'));
+  const successStyle = StyleSheet.flatten(s.getByLabelText('지금 재생하기').props.style);
+  assert.equal(successStyle.height, undefined);
+  assert.ok(successStyle.minHeight >= 52);
+});
+
+test('Android 뒤로가기는 축음기 구매 창만 닫는다', async () => {
+  const handlers: Array<Parameters<typeof BackHandler.addEventListener>[1]> = [];
+  const remove = jest.fn();
+  const backSpy = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_, handler) => {
+    handlers.push(handler);
+    return { remove };
+  });
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  await waitFor(() => assert.equal(handlers.length, 1));
+  await act(async () => assert.equal(handlers[0]({} as never), true));
+  await waitFor(() => assert.equal(s.queryByText('빗방울 소리를 구매할까요?'), null));
+
+  backSpy.mockRestore();
+});
+
+test('축음기 음원 구매 잔액이 부족하면 수량 없이 실패만 알린다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 0;
+  const s = await render(<Harness route="sound" initial={state} />);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  await fireEvent.press(s.getByText('30마리로 구매'));
+  s.getByText('물고기가 부족해요');
+  assert.equal(s.queryByText(/더 필요해요/), null);
+  assert.equal(s.queryByText(/지금 섬에는/), null);
 });
 
 test('친구 관리는 검색과 요청·친구 목록을 한 화면에서 이어서 보여준다', async () => {

@@ -284,7 +284,87 @@ class AppearanceContractTest extends UpstreamTestBase {
         assertThat(DATA.received()).isEmpty();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"personalInventory", "sharedInventory", "personalPatch", "islandPatch", "conflict"})
+    void publicProjectionKeepsNestedFieldsAndSlotNulls(String operation) throws Exception {
+        String expected;
+        MockHttpServletRequestBuilder request;
+        switch (operation) {
+            case "personalInventory" -> {
+                expected = MY_INV_BODY;
+                DATA.on(DATA_MY_INV, call -> ok(MY_INV_BODY.replace("\"inventoryVersion\":3",
+                        "\"inventoryVersion\":3,\"inventory_row_id\":7")
+                        .replace("\"version\":2}", "\"version\":2,\"equipped_row_id\":8}")));
+                request = auth(get("/me/inventory"));
+            }
+            case "sharedInventory" -> {
+                expected = ISLAND_INV_BODY;
+                DATA.on(DATA_ISLAND_INV, call -> ok(ISLAND_INV_BODY.replace("\"themeId\":\"hall_theme\"}",
+                        "\"themeId\":\"hall_theme\",\"purchase_row_id\":7}")
+                        .replace("\"version\":5}", "\"version\":5,\"appearance_row_id\":8}")));
+                request = auth(get("/islands/" + ISLAND + "/inventory"));
+            }
+            case "personalPatch" -> {
+                expected = "{\"clothes\":\"jacket\",\"decor\":null,\"hull\":\"raft\",\"position\":\"front\",\"version\":2}";
+                DATA.on(DATA_MY_APP, call -> ok(MY_APP_RESULT.replace("\"version\":2}",
+                        "\"version\":2,\"equipped_row_id\":8}")));
+                request = write(patch("/me/appearance"), "{\"decor\":null}");
+            }
+            case "islandPatch" -> {
+                expected = "{\"islandThemeId\":\"pine\",\"buildingThemes\":{\"hall\":\"default\"},\"version\":6}";
+                DATA.on(DATA_ISLAND_APP, call -> ok(ISLAND_APP_RESULT.replace("\"version\":6}",
+                        "\"version\":6,\"appearance_row_id\":8}")));
+                request = write(patch("/islands/" + ISLAND + "/appearance"),
+                        "{\"islandThemeId\":\"pine\",\"expectedVersion\":5}");
+            }
+            default -> {
+                expected = "{\"islandThemeId\":\"pine\",\"buildingThemes\":{\"hall\":\"default\"},\"version\":5}";
+                DATA.on(DATA_ISLAND_APP, call -> error(409, "VERSION_CONFLICT"));
+                DATA.on(DATA_ISLAND_INV, call -> ok(ISLAND_INV_BODY.replace("\"version\":5}",
+                        "\"version\":5,\"appearance_row_id\":8}")));
+                request = write(patch("/islands/" + ISLAND + "/appearance"),
+                        "{\"islandThemeId\":\"pine\",\"expectedVersion\":3}");
+            }
+        }
+        var result = mockMvc.perform(request)
+                .andExpect(status().is(operation.equals("conflict") ? 409 : 200)).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var response = json.readTree(result.getResponse().getContentAsString());
+        var actual = operation.equals("conflict") ? response.path("current").path("resource") : response.path("data");
+        assertThat(actual).isEqualTo(json.readTree(expected));
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("eventId", "row_id");
+    }
+
     // ---------------------------------------------------------------- 도구
+
+    @ParameterizedTest
+    @CsvSource({"/me/inventory,get,,clothes decor hulls inventoryVersion equipped",
+            "/me/inventory,get,equipped,clothes decor hull position version",
+            "/islands/{islandId}/inventory,get,,audio islandThemes buildingThemes inventoryVersion appearance",
+            "/islands/{islandId}/inventory,get,appearance,islandThemeId buildingThemes version",
+            "/islands/{islandId}/inventory,get,buildingThemes,buildingId themeId"})
+    void publicDocumentationPreservesRequiredFields(String path, String method, String nested, String fields)
+            throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        if (schema.path("type").asText().equals("array")) {
+            schema = schema.path("items");
+        }
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            schema = schema.path("properties").path(nested);
+            if (schema.path("type").asText().equals("array")) {
+                schema = schema.path("items");
+            }
+            schema = document.at(schema.path("$ref").asText().substring(1));
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+    }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
         return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
