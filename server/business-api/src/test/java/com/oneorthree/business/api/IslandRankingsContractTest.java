@@ -5,6 +5,7 @@ import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -128,4 +129,80 @@ class IslandRankingsContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"ordered", "empty", "nullable"})
+    void publicRankingFieldsRemainStable(String shape) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        var upstream = (tools.jackson.databind.node.ObjectNode) json.readTree(PAGE);
+        upstream.put("asOf", "2026-09-11T09:10:00.123456Z");
+        if (shape.equals("empty")) {
+            upstream.putArray("items");
+            upstream.putNull("myRank");
+        } else {
+            var items = (tools.jackson.databind.node.ArrayNode) upstream.path("items");
+            var second = ((tools.jackson.databind.node.ObjectNode) items.get(0)).deepCopy();
+            second.put("rank", 2).put("islandId", SESSION.toString()).put("averageFocusSeconds", 500);
+            items.add(second);
+            if (shape.equals("nullable")) {
+                second.putNull("name");
+                items.addNull();
+            }
+        }
+        var expected = upstream.deepCopy();
+        expected.remove("week");
+        expected.putNull("nextCursor");
+        String decorated = upstream.toString().replace("{", "{\"row_id\":\"private\",");
+        UpstreamTestBase.DATA.on(DATA, request -> ok(decorated));
+        var result = mockMvc.perform(auth(get(RANKINGS).param("week", "2026-09-06")))
+                .andExpect(status().isOk()).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/rankings/islands|get|200|items|rank islandId name averageFocusSeconds|"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
+
+    @Test
+    void rankingResponseContainsOnlyPublicTypes() {
+        assertPublicType(com.oneorthree.business.usecase.IslandRankingsUseCase.IslandRankings.class);
+    }
+
+    private static void assertPublicType(java.lang.reflect.Type type) {
+        if (type instanceof java.lang.reflect.ParameterizedType parameterized) {
+            for (var argument : parameterized.getActualTypeArguments()) {
+                assertPublicType(argument);
+            }
+            assertPublicType(parameterized.getRawType());
+        } else if (type instanceof Class<?> value) {
+            assertThat(value.getPackageName()).doesNotStartWith("com.oneorthree.business.upstream");
+            if (value.isRecord()) {
+                for (var component : value.getRecordComponents()) {
+                    assertPublicType(component.getGenericType());
+                }
+            }
+        }
+    }
+
 }

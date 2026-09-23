@@ -502,4 +502,102 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"focus-me", "focus-island", "screen-me", "screen-island", "ledger", "empty-ledger",
+            "fish", "empty-fish", "upload"})
+    void publicRecordFieldsRemainStable(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String fixture = switch (operation) {
+            case "focus-me" -> FOCUS_ME;
+            case "focus-island" -> FOCUS_ISLAND;
+            case "screen-me" -> SCREEN_ME;
+            case "screen-island" -> SCREEN_ISLAND;
+            case "ledger" -> LEDGER;
+            case "empty-ledger" -> LEDGER_LAST;
+            case "upload" -> "{\"date\":\"2026-09-11\",\"minutes\":90,\"measurementStatus\":\"authorized\"}";
+            default -> FISH;
+        };
+        var upstream = (tools.jackson.databind.node.ObjectNode) json.readTree(fixture);
+        if (operation.equals("empty-fish")) {
+            upstream.putArray("members");
+        }
+        if (operation.startsWith("focus")) {
+            upstream.putNull("nextSnapshotId");
+            upstream.putNull("nextOffset");
+        }
+        if (operation.endsWith("ledger")) {
+            upstream.putNull("nextCreatedAt");
+            upstream.putNull("nextEntryId");
+        }
+        if (operation.startsWith("screen")) {
+            var day = json.createObjectNode().put("date", "2026-09-11").putNull("minutes")
+                    .put("measurementStatus", "denied").putNull("updatedAt");
+            var series = operation.equals("screen-me") ? upstream.path("series")
+                    : upstream.path("members").get(0).path("series");
+            ((tools.jackson.databind.node.ArrayNode) series).add(day);
+        }
+        var expected = upstream.deepCopy();
+        for (String internal : new String[]{"nextSnapshotId", "nextOffset", "nextCreatedAt", "nextEntryId"}) {
+            expected.remove(internal);
+        }
+        if (operation.startsWith("focus") || operation.endsWith("ledger")) {
+            expected.putNull("nextCursor");
+        }
+        if (operation.endsWith("me")) {
+            expected.remove("members");
+        } else if (operation.endsWith("island")) {
+            for (String personal : new String[]{"totalSeconds", "totalMinutes", "series", "records",
+                    "measurementStatus", "updatedAt"}) {
+                expected.remove(personal);
+            }
+        }
+        String decorated = upstream.toString().replace("{", "{\"row_id\":\"private\",");
+        String route = operation.startsWith("focus") ? DATA_FOCUS : operation.startsWith("screen") ? DATA_SCREEN
+                : operation.endsWith("ledger") ? DATA_LEDGER : operation.equals("upload") ? DATA_PUT : DATA_FISH;
+        DATA.on(route, r -> ok(decorated));
+        MockHttpServletRequestBuilder request;
+        if (operation.equals("upload")) {
+            request = auth(put(UPLOAD)).header("Idempotency-Key", KEY).contentType(MediaType.APPLICATION_JSON)
+                    .content(UPLOAD_BODY);
+        } else if (operation.endsWith("ledger")) {
+            request = auth(get(LEDGER_PATH).param("month", "2026-09"));
+        } else if (operation.endsWith("fish")) {
+            request = auth(get(FISH_PATH));
+        } else {
+            request = auth(get(operation.startsWith("focus") ? FOCUS : SCREEN)
+                    .param("from", "2026-09-07").param("to", "2026-09-13")
+                    .param("scope", operation.endsWith("me") ? "me" : "island"));
+        }
+        var result = mockMvc.perform(request).andExpect(status().isOk()).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/resources/ledger|get|200|items|id direction reason amount createdAt groupedUntil entryCount|",
+            "/islands/{islandId}/statistics/fish-earnings|get|200||members|",
+            "/islands/{islandId}/statistics/fish-earnings|get|200|members|userId name earnedFish|",
+            "/me/screen-time/{date}|put|200||date minutes measurementStatus|"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }
