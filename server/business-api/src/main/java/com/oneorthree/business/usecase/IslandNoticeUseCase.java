@@ -1,6 +1,9 @@
 package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.api.dto.IslandNoticeResponses;
+import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeCommentCreatedView;
+import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeDeletedView;
+import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -122,31 +125,34 @@ public class IslandNoticeUseCase {
                 comments, next);
     }
 
-    public IslandNotices.Notice create(AccessTokenClaims claims, UUID islandId, String title, String body, UUID key,
+    public NoticeView create(AccessTokenClaims claims, UUID islandId, String title, String body, UUID key,
             Deadline deadline) {
-        return required(relay(() -> data.createNotice(claims.userId(), islandId, title, body, key, deadline)));
+        return NoticeView.from(required(relay(() -> data.createNotice(claims.userId(), islandId, title, body, key,
+            deadline))));
     }
 
-    public IslandNotices.Notice update(AccessTokenClaims claims, UUID islandId, UUID noticeId, String title,
+    public NoticeView update(AccessTokenClaims claims, UUID islandId, UUID noticeId, String title,
             String body, UUID key, Deadline deadline) {
-        return required(relay(() -> data.updateNotice(claims.userId(), islandId, noticeId, title, body, key,
-                deadline)));
+        return NoticeView.from(required(relay(() -> data.updateNotice(claims.userId(), islandId, noticeId, title,
+            body, key,
+                deadline))));
     }
 
-    public IslandNotices.Deleted delete(AccessTokenClaims claims, UUID islandId, UUID noticeId, UUID key,
+    public NoticeDeletedView delete(AccessTokenClaims claims, UUID islandId, UUID noticeId, UUID key,
             Deadline deadline) {
         IslandNotices.Deleted deleted = relay(() -> data.deleteNotice(claims.userId(), islandId, noticeId, key,
                 deadline));
         if (deleted == null || !deleted.deleted()) {
             throw new UpstreamContractMismatchException("공지 삭제 응답이 계약과 다릅니다");
         }
-        return deleted;
+        return NoticeDeletedView.from(deleted);
     }
 
-    public IslandNotices.CommentCreated comment(AccessTokenClaims claims, UUID islandId, UUID noticeId, String text,
+    public NoticeCommentCreatedView comment(AccessTokenClaims claims, UUID islandId, UUID noticeId, String text,
             UUID key, Deadline deadline) {
-        return required(relay(() -> data.createNoticeComment(claims.userId(), islandId, noticeId, text, key,
-                deadline)));
+        return NoticeCommentCreatedView.from(required(relay(() -> data.createNoticeComment(claims.userId(),
+            islandId, noticeId, text, key,
+                deadline))));
     }
 
     // ---------------------------------------------------------------- 도구
