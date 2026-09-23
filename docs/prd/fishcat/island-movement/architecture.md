@@ -102,8 +102,6 @@ Movement→Business/Data 동기 조회와 코어 DB 직접 접근은 두지 않�
 
 ## 7. Java · Kafka · Realtime 선택 검토
 
-용어와 비교 기준이 낯설다면 [그림으로 이해하는 이동 서버 설계](learning-guide.md)를 먼저 읽는다. 같은 JVM 통합·gateway 중계·직접 연결을 각각 독립된 그림으로 설명하고, Kafka·손실·큐·소유권의 기초를 연결한다.
-
 **2026-09-23 Plannotator 피드백:** Java로 좌표를 계산하고 Kafka를 앱이 소비할지, 직접 통신과 C++ 분리가 필요한지, 이미 연결된 Realtime에 합칠지 비교해 달라는 질문이다.
 
 **추천을 Java 이동 서비스 + 앱 직접 연결로 수정한다.** 최초 초안의 Go/quic-go 출발안은 기존 JVM 운영 기반을 우선한 Java/Netty 후보로 대체한다. 아직 기술 POC나 사용자 최종 승인을 마친 결정은 아니다.
