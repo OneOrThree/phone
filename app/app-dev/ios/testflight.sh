@@ -57,10 +57,17 @@ else
   pod install
 fi
 
-if ! /opt/homebrew/bin/bundle check >/dev/null 2>&1; then
+if [[ -x /opt/homebrew/opt/ruby/bin/bundle ]]; then
+  export PATH="/opt/homebrew/opt/ruby/bin:$PATH"
+  BUNDLE_BIN=/opt/homebrew/opt/ruby/bin/bundle
+else
+  BUNDLE_BIN="$(command -v bundle)"
+fi
+
+if ! "$BUNDLE_BIN" check >/dev/null 2>&1; then
   echo "💎 Fastlane 설치 중..."
-  /opt/homebrew/bin/bundle install
+  "$BUNDLE_BIN" install
 fi
 
 echo "🚀 Fishcat → TestFlight 업로드..."
-/opt/homebrew/bin/bundle exec fastlane beta
+"$BUNDLE_BIN" exec fastlane beta
