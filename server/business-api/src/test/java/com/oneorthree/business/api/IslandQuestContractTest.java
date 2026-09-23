@@ -344,4 +344,74 @@ class IslandQuestContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"current", "empty-current", "progress", "nullable-progress", "create", "update", "claim"})
+    void publicQuestFieldsRemainStable(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String fixture = switch (operation) {
+            case "current", "empty-current" -> CURRENT_BODY;
+            case "progress", "nullable-progress" -> PROGRESS_BODY;
+            case "create" -> CREATED_BODY;
+            case "update" -> UPDATED_BODY;
+            default -> CLAIMED_BODY;
+        };
+        var expected = (tools.jackson.databind.node.ObjectNode) json.readTree(fixture);
+        if (operation.equals("empty-current")) {
+            expected.putArray("items");
+        }
+        if (operation.equals("nullable-progress")) {
+            expected.putNull("windowStart");
+            expected.putNull("windowEnd");
+            expected.putNull("myRate");
+            expected.putNull("claimBlockedReason");
+            expected.putArray("members");
+        }
+        String decorated = expected.toString().replace("{", "{\"row_id\":\"private\",");
+        String route = operation.endsWith("current") ? DATA_CURRENT : operation.endsWith("progress") ? DATA_PROGRESS
+                : operation.equals("create") ? DATA_CREATE : operation.equals("update") ? DATA_UPDATE : DATA_CLAIM;
+        DATA.on(route, r -> ok(decorated));
+        var request = switch (operation) {
+            case "current", "empty-current" -> auth(get(PUBLIC + "/current"));
+            case "progress", "nullable-progress" -> auth(get(PUBLIC + "/" + QUEST + "/progress")
+                    .param("occurrenceId", OCCURRENCE.toString()));
+            case "create" -> write(post(PUBLIC), CREATE_REQUEST);
+            case "update" -> write(patch(PUBLIC + "/" + QUEST), "{\"title\":\"저녁 40분 집중\",\"targetMinutes\":40}");
+            default -> write(post(PUBLIC + "/" + QUEST + "/claims"), CLAIM_REQUEST);
+        };
+        var result = mockMvc.perform(request).andExpect(status().is(operation.equals("create") ? 201 : 200)).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/quests/current|get|200||items|items",
+            "/islands/{islandId}/quests/current|get|200|items|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version",
+            "/islands/{islandId}/quests/current|get|200|items/reward|currency amount|currency amount",
+            "/islands/{islandId}/quests/{questId}/progress|get|200||id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version members nextCursor|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version members nextCursor",
+            "/islands/{islandId}/quests/{questId}/progress|get|200|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
+            "/islands/{islandId}/quests|post|200||id title|id title",
+            "/islands/{islandId}/quests/{questId}|patch|200||id title targetMinutes|id title targetMinutes",
+            "/islands/{islandId}/quests/{questId}/claims|post|200||claimId occurrenceId villagePointsAdded bonusAdded claimed|claimId occurrenceId villagePointsAdded bonusAdded claimed"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }
