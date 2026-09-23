@@ -4780,7 +4780,10 @@ export function RedesignScreens({ e }: any) {
           </View>
         </IslandSheet>
         {shopGuide && (
-          <ShopGuide onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })} />
+          <ShopGuide
+            onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })}
+            onCancel={home}
+          />
         )}
       </>
     );

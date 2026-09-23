@@ -102,12 +102,13 @@ function Harness({
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
   const go = useRef(jest.fn()).current;
+  const home = useRef(jest.fn()).current;
   const reset = useRef(jest.fn()).current;
   const signOut = useRef(jest.fn(async () => {})).current;
   const confirm = useRef(jest.fn((_title, _body, ok) => ok())).current;
   useEffect(() => {
     seed?.(dispatch);
-    expose?.({ dispatch, actions: actions.current, go, reset, signOut });
+    expose?.({ dispatch, actions: actions.current, go, home, reset, signOut });
   }, []);
   return (
     <RedesignScreens
@@ -118,7 +119,7 @@ function Harness({
         go,
         replace: jest.fn(),
         reset,
-        home: jest.fn(),
+        home,
         back: backMock,
         notify: notifyMock,
         confirm,
@@ -845,6 +846,16 @@ test('완공된 상점 첫 진입에서 강아지 이야기를 한 번만 보여
     assert.equal(s.queryByText(/드디어 마지막 건물까지 완성됐네/), null);
   });
   s.getByText('강아지 상점');
+});
+
+test('상점 안내 중 시스템 뒤로가기는 완료 처리 없이 상점을 닫는다', async () => {
+  let exposed: any;
+  const s = await render(<Harness route="shop" full expose={(value: any) => (exposed = value)} />);
+
+  await fireEvent(s.getByTestId('shop-guide'), 'requestClose');
+
+  assert.equal(exposed.home.mock.calls.length, 1);
+  assert.ok(!exposed.actions.includes('SHOP_GUIDE_DONE'));
 });
 
 test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {

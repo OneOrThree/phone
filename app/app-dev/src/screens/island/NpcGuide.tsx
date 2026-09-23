@@ -110,12 +110,12 @@ const shopLines = [
   '다 같이 모은 물고기로 마음에 드는 걸 골라 봐.\n이제 이 섬을 너희답게 꾸밀 차례야!',
 ];
 
-export function ShopGuide({ onDone }: { onDone: () => void }) {
+export function ShopGuide({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [step, setStep] = useState(0);
   const layout = useAppLayout();
   const last = step === shopLines.length - 1;
   return (
-    <Modal transparent animationType="none" onRequestClose={onDone}>
+    <Modal transparent animationType="none" testID="shop-guide" onRequestClose={onCancel}>
       <View
         accessibilityViewIsModal
         style={[
