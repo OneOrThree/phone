@@ -20,6 +20,7 @@ import {
   visitIsland as apiVisitIsland,
 } from '@/services/api/islands';
 import { intentKeyPool, myIslandsConsistent, State } from '@/services/model';
+import { captureProductEvent } from '@/services/posthog';
 
 export type IslandApi = {
   createIsland: typeof apiCreateIsland;
@@ -159,6 +160,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         await syncIslands();
         alive(g);
         scoped().keys.release('create', body);
+        captureProductEvent('island_membership_activated', { method: 'created' });
       }),
     // 첫 발견 첫 페이지 — memberships도 함께 오므로 같은 정합 검사를 거쳐 정본 반영한다
     explore: () =>
@@ -233,10 +235,12 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
             },
           });
           deps.go('approval', islandId);
+          captureProductEvent('island_join_requested');
         } else if (result.status === 'active') {
           await syncIslands();
           alive(g);
           scoped().keys.release(`join:${islandId}`, body);
+          captureProductEvent('island_membership_activated', { method: 'joined' });
         }
         alive(g);
         return result;
@@ -253,6 +257,8 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         if (r.status === 'approved') await syncIslands();
         alive(g);
         deps.dispatch({ type: 'ISLAND_REQUEST', request: r });
+        if (r.status === 'approved' && current?.status === 'pending')
+          captureProductEvent('island_membership_activated', { method: 'approved' });
         return r;
       }),
     // pending 목록 재조회 — 재실행 복구와 취소 후 정정에 쓴다
