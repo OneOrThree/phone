@@ -1,8 +1,8 @@
 package com.oneorthree.business.api.dto;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
+import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.time.Instant;
 import java.util.List;
