@@ -122,7 +122,7 @@ class AuthSessionContractTest extends UpstreamTestBase {
     void rejectsUpstreamResultMissingAnyCredential(String template) throws Exception {
         DATA.on(DATA_EXECUTE, request -> ok(template.formatted(USER)));
         mockMvc.perform(login(APPLE_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
@@ -468,7 +468,7 @@ class AuthSessionContractTest extends UpstreamTestBase {
     void treatsCodelessUpstream401AsServiceCredentialRejection() throws Exception {
         DATA.on(DATA_EXECUTE, request -> new MockUpstream.Response(401, "{\"error\":\"denied\"}"));
         mockMvc.perform(login(APPLE_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_AUTH_FAILED"));
     }
 

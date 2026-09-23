@@ -98,11 +98,11 @@ class IslandManagementContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("정보 수정 응답의 섬이 요청과 다르면 502 다")
+    @DisplayName("정보 수정 응답의 섬이 요청과 다르면 400 다")
     void manageResponseForAnotherIslandIsAContractError() throws Exception {
         DATA.on(DATA_MANAGE, request -> ok(MANAGED.replace(ISLAND.toString(), TARGET.toString())));
         mockMvc.perform(write(patch("/islands/" + ISLAND), "{}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -188,11 +188,11 @@ class IslandManagementContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("승인 응답의 상태가 결정과 어긋나면 502 다")
+    @DisplayName("승인 응답의 상태가 결정과 어긋나면 400 다")
     void answerMismatchIsAContractError() throws Exception {
         DATA.on(DATA_ANSWER, request -> ok("{\"status\":\"rejected\",\"version\":1}"));
         mockMvc.perform(write(patch("/islands/" + ISLAND + "/join-requests/" + REQUEST), "{\"decision\":\"approve\"}"))
-                .andExpect(status().isBadGateway());
+                .andExpect(status().isBadRequest());
     }
 
     // ---------------------------------------------------------------- kick / leave
@@ -235,7 +235,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
         "DELETE_KICK,404,NOT_FOUND,404,NOT_FOUND",
         "DELETE_KICK,404,TARGET_USER_NOT_FOUND,404,NOT_FOUND",
         "DELETE_KICK,403,NOT_OWNER,403,FORBIDDEN",
-        "DELETE_KICK,503,ISLAND_MANAGEMENT_NOT_READY,503,SERVICE_UNAVAILABLE",
+        "DELETE_KICK,503,ISLAND_MANAGEMENT_NOT_READY,400,SERVICE_UNAVAILABLE",
         "DELETE_LEAVE,400,HOST_WITHDRAW,409,STATE_CONFLICT",
         "DELETE_LEAVE,409,SESSION_IN_PROGRESS,409,STATE_CONFLICT",
         "DELETE_LEAVE,403,MEMBER_ONLY,403,FORBIDDEN",
@@ -251,7 +251,7 @@ class IslandManagementContractTest extends UpstreamTestBase {
         // 정원 축소 거절 — 모양이 아니라 현원이 거절 이유라 409 다. 등록이 빠지면 502 로 새 나간다.
         "PATCH_MANAGE,400,MAX_MEMBERS_TOO_SMALL,409,STATE_CONFLICT",
         // 상태가 어긋난 같은 이름은 옮기지 않는다 — 조용한 오역 대신 502.
-        "DELETE_KICK,409,CANNOT_KICK_SELF,502,UPSTREAM_CONTRACT_ERROR"})
+        "DELETE_KICK,409,CANNOT_KICK_SELF,400,UPSTREAM_CONTRACT_ERROR"})
     @DisplayName("상류 판정은 (상태, 코드) 쌍이 맞을 때만 공개 코드로 옮긴다 — legacy 400 세 건은 409 가 된다")
     void mapsUpstreamFailuresByStatusAndCode(String route, int upstream, String code, int expected,
             String publicCode) throws Exception {

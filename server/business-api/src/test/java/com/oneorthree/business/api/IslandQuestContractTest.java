@@ -122,12 +122,12 @@ class IslandQuestContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("progress 응답의 대상이 요청과 다르면 502 다")
+    @DisplayName("progress 응답의 대상이 요청과 다르면 400 다")
     void progressForAnotherOccurrenceIsAContractError() throws Exception {
         DATA.on(DATA_PROGRESS, request -> ok(PROGRESS_BODY));
 
         mockMvc.perform(auth(get(PUBLIC + "/" + QUEST + "/progress").param("occurrenceId", OTHER.toString())))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -166,12 +166,12 @@ class IslandQuestContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("claimed=false 를 주는 정산 응답은 계약 불일치 502 다")
+    @DisplayName("claimed=false 를 주는 정산 응답은 계약 불일치 400 다")
     void unclaimedSuccessIsAContractError() throws Exception {
         DATA.on(DATA_CLAIM, request -> ok(CLAIMED_BODY.replace("\"claimed\":true", "\"claimed\":false")));
 
         mockMvc.perform(write(post(PUBLIC + "/" + QUEST + "/claims"), CLAIM_REQUEST))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -188,11 +188,11 @@ class IslandQuestContractTest extends UpstreamTestBase {
             "400,QUEST_INVALID_REQUEST,400,INVALID_REQUEST,",
             "409,QUEST_VERSION_CONFLICT,409,VERSION_CONFLICT,expectedVersion",
             "409,QUEST_STATE_CONFLICT,409,STATE_CONFLICT,occurrenceId",
-            "503,QUEST_SETTLEMENT_UNAVAILABLE,503,SERVICE_UNAVAILABLE,",
+            "503,QUEST_SETTLEMENT_UNAVAILABLE,400,SERVICE_UNAVAILABLE,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,QUEST_FORBIDDEN,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_QUEST_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("claim — 정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "409,QUEST_FORBIDDEN,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_QUEST_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("claim — 정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void claimMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_CLAIM, request -> error(upstreamStatus, code));
@@ -211,8 +211,8 @@ class IslandQuestContractTest extends UpstreamTestBase {
             "422,QUEST_WINDOW_OUT_OF_RANGE,422,OUT_OF_RANGE,windowEnd",
             "400,QUEST_INVALID_TIMEZONE,400,INVALID_PARAMETER,timezone",
             "403,QUEST_FORBIDDEN,403,FORBIDDEN,",
-            "503,QUEST_CREATION_UNAVAILABLE,503,SERVICE_UNAVAILABLE,"})
-    @DisplayName("생성 — 범위 위반은 필드를 지목한 422, 생성 스위치가 닫히면 503 이다")
+            "503,QUEST_CREATION_UNAVAILABLE,400,SERVICE_UNAVAILABLE,"})
+    @DisplayName("생성 — 범위 위반은 필드를 지목한 422, 생성 스위치가 닫히면 400 이다")
     void createMapsRangeAndGate(int upstreamStatus, String code, int publicStatus, String publicCode, String field)
             throws Exception {
         DATA.on(DATA_CREATE, request -> error(upstreamStatus, code));

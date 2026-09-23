@@ -227,11 +227,11 @@ class AccountContractTest extends UpstreamTestBase {
             "PATCH,400,NICKNAME_INVALID,400,NICKNAME_INVALID,name",
             "PATCH,409,NICKNAME_DUPLICATE,409,NICKNAME_DUPLICATE,name",
             "PATCH,409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "PATCH,503,PROFILE_UPDATE_UNAVAILABLE,503,SERVICE_UNAVAILABLE,-",
+            "PATCH,503,PROFILE_UPDATE_UNAVAILABLE,400,SERVICE_UNAVAILABLE,-",
             "DELETE,400,HOST_WITHDRAW,400,HOST_WITHDRAW,-",
             "DELETE,404,USER_NOT_FOUND,404,USER_NOT_FOUND,-",
             "DELETE,403,SESSION_NOT_ACTIVE,401,UNAUTHORIZED,-",
-            "DELETE,409,HOST_WITHDRAW,502,UPSTREAM_CONTRACT_ERROR,-"})
+            "DELETE,409,HOST_WITHDRAW,400,UPSTREAM_CONTRACT_ERROR,-"})
     void mapsDataVerdictsToPublicErrors(String method, int upstream, String code, int expected, String publicCode,
                                         String field) throws Exception {
         seedPreviewCopies();
@@ -255,13 +255,13 @@ class AccountContractTest extends UpstreamTestBase {
     void foreignSubjectOrMissingFieldsAreContractErrors() throws Exception {
         DATA.on(DATA_GET, request -> ok("{\"id\":\"" + UUID.randomUUID() + "\",\"name\":null,\"catColor\":null,\"mainIslandId\":null,"
                 + "\"linkedProviders\":[],\"onboardingComplete\":false}"));
-        mockMvc.perform(auth(get("/me"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/me"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":null,\"catColor\":null}"));
-        mockMvc.perform(auth(get("/me"))).andExpect(status().isBadGateway());
+        mockMvc.perform(auth(get("/me"))).andExpect(status().isBadRequest());
         DATA.on(DATA_DELETE, request -> ok("{\"deleted\":false}"));
         seedPreviewCopies();
-        mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\"}")).andExpect(status().isBadGateway());
+        mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\"}")).andExpect(status().isBadRequest());
         assertCopiesUntouched();
     }
 

@@ -66,7 +66,7 @@ class UserBlockContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.field").value("blockedUserId"));
         DATA.on("POST " + INTERNAL, request -> error(400, "UNKNOWN_BLOCK_ERROR"));
         mockMvc.perform(auth(post("/blocks").contentType(MediaType.APPLICATION_JSON).content(BODY)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

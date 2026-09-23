@@ -110,7 +110,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
     @Test
     void currentRejectsEmptyBodyAsAbsentSession() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok(""));
-        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -122,7 +122,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
     @ValueSource(strings = {"{}", "null", "{\"other\":1}"})
     void currentRejectsBodyWithoutTheSessionKey(String body) throws Exception {
         DATA.on(DATA_CURRENT, request -> ok(body));
-        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
@@ -132,7 +132,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
     void startRelaysClosedStartGateAsRetryableUnavailable() throws Exception {
         DATA.on(DATA_START, request -> error(503, "SESSION_START_UNAVAILABLE"));
         mockMvc.perform(write(post("/focus-sessions"), START_BODY))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.retryable").value(true))
                 .andExpect(jsonPath("$.data").doesNotExist());
@@ -206,8 +206,8 @@ class FocusSessionContractTest extends UpstreamTestBase {
             "400,INVALID_TARGET_MINUTES,400,INVALID_PARAMETER,targetMinutes",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,ISLAND_NOT_CURRENT,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_FOCUS_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "409,ISLAND_NOT_CURRENT,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_FOCUS_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_START, request -> error(upstreamStatus, code));
@@ -224,7 +224,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
         DATA.on("POST " + INTERNAL + "/focus-sessions/" + FOCUS + "/finish",
                 request -> error(503, "REWARD_POLICY_UNAVAILABLE"));
         mockMvc.perform(write(post("/focus-sessions/" + FOCUS + "/finish"), "{\"expectedVersion\":3}"))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.retryable").value(true))
                 .andExpect(jsonPath("$.data").doesNotExist());
@@ -248,7 +248,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.allocation.constructionFishAdded").value(10));
 
         DATA.on(DATA_PENDING, request -> ok(""));
-        mockMvc.perform(auth(get("/focus-sessions/pending-result"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/focus-sessions/pending-result"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

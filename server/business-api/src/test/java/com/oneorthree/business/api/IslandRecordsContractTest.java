@@ -181,8 +181,8 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             "403,LIBRARY_LOCKED,403,FACILITY_LOCKED,",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "409,STATISTICS_SNAPSHOT_EXPIRED,409,CURSOR_EXPIRED,cursor",
-            "409,LIBRARY_LOCKED,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("조회 — 정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "409,LIBRARY_LOCKED,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("조회 — 정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void focusMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode, String field)
             throws Exception {
         DATA.on(DATA_FOCUS, request -> error(upstreamStatus, code));
@@ -283,10 +283,10 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @CsvSource({"500,INTERNAL_ERROR,500,INTERNAL_ERROR",
-            "503,SERVICE_UNAVAILABLE,503,SERVICE_UNAVAILABLE",
+    @CsvSource({"500,INTERNAL_ERROR,400,INTERNAL_ERROR",
+            "503,SERVICE_UNAVAILABLE,400,SERVICE_UNAVAILABLE",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND",
-            "502,UPSTREAM_CONTRACT_ERROR,502,UPSTREAM_CONTRACT_ERROR"})
+            "502,UPSTREAM_CONTRACT_ERROR,400,UPSTREAM_CONTRACT_ERROR"})
     @DisplayName("내부 조회 실패는 빈 장부로 접지 않는다 — 실패는 실패로 올라간다")
     void ledgerNeverFakesAnEmptyBook(int upstreamStatus, String code, int publicStatus, String publicCode)
             throws Exception {
@@ -301,18 +301,18 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("상류가 다른 달을 주거나 경계가 반쪽이면 502 — 조용히 그 달의 장부인 척하지 않는다")
+    @DisplayName("상류가 다른 달을 주거나 경계가 반쪽이면 400 — 조용히 그 달의 장부인 척하지 않는다")
     void ledgerRejectsMismatchedUpstream() throws Exception {
         DATA.on(DATA_LEDGER, request -> ok(LEDGER.replace("\"month\":\"2026-09\"", "\"month\":\"2026-08\"")));
         mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         // 다음 쪽 경계가 반쪽이면 커서를 만들 수 없다.
         DATA.on(DATA_LEDGER, request -> ok(LEDGER.replace("\"nextEntryId\":\"" + ENTRY + "\"",
                 "\"nextEntryId\":null")));
         mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -351,8 +351,8 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             "403,MEMBER_ONLY,403,FORBIDDEN,islandId",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "409,LIBRARY_LOCKED,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("물고기 장 — 도서관 게이트·비주민은 «공개 오류 표»를 거친다(502 로 새지 않는다)")
+            "409,LIBRARY_LOCKED,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("물고기 장 — 도서관 게이트·비주민은 상태와 코드 쌍에 따라 공개 오류를 구분한다")
     void fishEarningsMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode,
             String field) throws Exception {
         DATA.on(DATA_FISH, request -> error(upstreamStatus, code));
@@ -368,16 +368,16 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("물고기 장 — 명단이 없거나 마리 수가 빠지면 502 다. 빠진 값을 0 으로 지어내지 않는다")
+    @DisplayName("물고기 장 — 명단이 없거나 마리 수가 빠지면 400 다. 빠진 값을 0 으로 지어내지 않는다")
     void fishEarningsRejectsIncompleteUpstream() throws Exception {
         DATA.on(DATA_FISH, request -> ok("{\"members\":null}"));
         mockMvc.perform(auth(get(FISH_PATH)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.on(DATA_FISH, request -> ok("{\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}]}"));
         mockMvc.perform(auth(get(FISH_PATH)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -463,7 +463,7 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             "422,SCREEN_TIME_OUT_OF_WINDOW,422,OUT_OF_RANGE,measuredAt",
             "422,SCREEN_TIME_INVALID_MEASUREMENT,422,OUT_OF_RANGE,measurementStatus",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "400,UNKNOWN,502,UPSTREAM_CONTRACT_ERROR,"})
+            "400,UNKNOWN,400,UPSTREAM_CONTRACT_ERROR,"})
     @DisplayName("PUT — 도메인 실패의 공개 오류 표")
     void putMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode, String field)
             throws Exception {
@@ -476,12 +476,12 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("PUT — authorized 인데 minutes 가 없는 응답은 계약 불일치 502")
+    @DisplayName("PUT — authorized 인데 minutes 가 없는 응답은 계약 불일치 400")
     void putResponseShapeIsChecked() throws Exception {
         DATA.on(DATA_PUT, request -> ok("{\"date\":\"2026-09-11\",\"minutes\":null,\"measurementStatus\":\"authorized\"}"));
 
         mockMvc.perform(write(put(UPLOAD), UPLOAD_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
