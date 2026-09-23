@@ -45,7 +45,9 @@
   "type": "terrain-roads-objects",
   "roads": {
     "surface": {
-      "version": 4,
+      "version": 5,
+      "palette": "light-warm-earth",
+      "gravel": "sparse-2-4px",
       "render": "distance-field-watercolor",
       "edge": "irregular-feather",
       "seed": 919
@@ -18993,7 +18995,7 @@
       "file": "road-mail.png",
       "x": 340,
       "y": 555,
-      "w": 166,
+      "w": 165,
       "h": 97,
       "cells": [
         false,
