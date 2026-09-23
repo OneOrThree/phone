@@ -52,6 +52,7 @@ import {
   trackNames,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
+import { semanticTokens } from '@/design-system/tokens';
 import { ApiError, uuid } from '@/services/api/client';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
@@ -988,7 +989,7 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       )}
       {/* v2 CTA 바: 가로 폰에서도 주 버튼 아래 고스트 버튼을 쌓는다 */}
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: semanticTokens.spacing.control }}>
         <Btn title={primary} onPress={fn} disabled={disabled} />
         {ghost && <Btn title={ghost} onPress={gfn} kind="ghost" />}
       </View>
@@ -1096,7 +1097,11 @@ export function RedesignScreens({ e }: any) {
         accessibilityRole="checkbox"
         accessibilityState={{ checked: terms }}
         onPress={() => setTerms(!terms)}
-        style={[k.row, layout.compact ? { minHeight: 36, paddingVertical: 4 } : { minHeight: 40 }]}
+        style={[
+          k.row,
+          { minHeight: semanticTokens.size.tapMin },
+          layout.compact && { paddingVertical: semanticTokens.spacing.control },
+        ]}
       >
         <View
           style={{
@@ -1114,14 +1119,31 @@ export function RedesignScreens({ e }: any) {
       </Pressable>
     );
     const start = (
-      <Btn
-        title="GROMO 시작하기"
-        disabled={!terms}
-        onPress={() => {
-          act('LOGIN');
-          state.onboarded ? home() : go('character');
-        }}
-      />
+      <View style={{ gap: 8 }}>
+        {!!e.guestError && (
+          <Txt kind="meta" accessibilityLiveRegion="polite" style={{ color: C.ink }}>
+            {e.guestError}
+          </Txt>
+        )}
+        <Btn
+          title={
+            e.guestBusy
+              ? '게스트 계정을 여는 중…'
+              : e.startGuest
+                ? '게스트로 시작하기'
+                : 'GROMO 시작하기'
+          }
+          disabled={!terms || !!e.guestBusy}
+          onPress={() => {
+            if (e.startGuest) {
+              void e.startGuest();
+              return;
+            }
+            act('LOGIN');
+            state.onboarded ? home() : go('character');
+          }}
+        />
+      </View>
     );
     // v2 로고: 흰 글자 + 아래로 떨어지는 그림자
     const shade = {
@@ -1202,6 +1224,7 @@ export function RedesignScreens({ e }: any) {
               {'조금씩 집중하고,\n함께 자라요.'}
             </Txt>
             <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
+            {!!e.startGuest && <Txt kind="meta">게스트 계정으로 먼저 시작할 수 있어요.</Txt>}
             {agree}
             <View style={{ flex: 1 }} />
             {start}
@@ -1265,6 +1288,7 @@ export function RedesignScreens({ e }: any) {
               {'조금씩 집중하고,\n함께 자라요.'}
             </Txt>
             <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
+            {!!e.startGuest && <Txt kind="meta">게스트 계정으로 먼저 시작할 수 있어요.</Txt>}
             {agree}
           </ScrollView>
           <View

@@ -77,6 +77,8 @@ function Harness({
   seed,
   initial,
   bootError,
+  startGuest,
+  guestError,
   detail: detailProp,
   full = false,
 }: any) {
@@ -95,6 +97,7 @@ function Harness({
   }, []);
   const [text, setText] = useState(''),
     [body, setBody] = useState(''),
+    [terms, setTerms] = useState(false),
     [approval, setApproval] = useState(false),
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
@@ -129,8 +132,10 @@ function Harness({
         setTab: jest.fn(),
         detail,
         now: Date.now(),
-        terms: {},
-        setTerms: jest.fn(),
+        terms,
+        setTerms,
+        startGuest,
+        guestError,
         approval,
         setApproval,
         visited: '',
@@ -149,6 +154,27 @@ function Harness({
     />
   );
 }
+
+test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 로컬 LOGIN은 하지 않는다', async () => {
+  const startGuest = jest.fn();
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="login"
+      startGuest={startGuest}
+      guestError="게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요."
+      expose={(value: any) => (exposed = value)}
+    />,
+  );
+
+  assert.ok(screen.getByText('게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요.'));
+  await fireEvent.press(screen.getByText('게스트로 시작하기'));
+  assert.equal(startGuest.mock.calls.length, 0);
+  await fireEvent.press(screen.getByRole('checkbox'));
+  await fireEvent.press(screen.getByText('게스트로 시작하기'));
+  assert.equal(startGuest.mock.calls.length, 1);
+  assert.equal(exposed.actions.includes('LOGIN'), false);
+});
 
 const flush = async () => act(async () => {});
 

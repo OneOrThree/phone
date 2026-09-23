@@ -86,7 +86,13 @@ import {
   Member,
   dayKey,
 } from '@/services/model';
-import { checkSession, logout, type Provider } from '@/services/api/auth';
+import {
+  checkSession,
+  guestLogin,
+  logout,
+  type LoginResult,
+  type Provider,
+} from '@/services/api/auth';
 import { ApiError } from '@/services/api/client';
 import {
   getSession,
@@ -240,6 +246,8 @@ function Gromo() {
     [windowEnd, setWindowEnd] = useState('24:00'),
     [search, setSearch] = useState(''),
     [terms, setTerms] = useState(false),
+    [guestBusy, setGuestBusy] = useState(false),
+    [guestError, setGuestError] = useState(''),
     [approval, setApproval] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [now, setNow] = useState(Date.now()),
@@ -274,6 +282,7 @@ function Gromo() {
     // 화면이 뒤로가기를 먼저 처리하면(true) 아래 기본 동작을 건너뛴다(낚시섬 걷기·항해·모달·결과 흐름)
     backOverride = useRef<(() => boolean) | null>(null),
     switchResolve = useRef<((ok: boolean) => void) | null>(null);
+  const guestLoginFlight = useRef(false);
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -425,6 +434,44 @@ function Gromo() {
     switchResolve.current?.(ok);
     switchResolve.current = null;
   };
+  const adoptSession = (result: LoginResult, previousUserId: string | null) =>
+    adoptSignedInAccount(result, previousUserId, {
+      resetLocal: async () => {
+        // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
+        // settings 만 기기 귀속(정책 A15)이라 보존한다.
+        await AsyncStorage.removeItem(STORAGE).catch(() => {});
+        dispatch({
+          type: 'LOAD',
+          state: { ...initialState(DEMO), settings: stateRef.current.settings },
+          now: Date.now(),
+        });
+      },
+      applyAccount: (account) => {
+        dispatch({ type: 'LOGIN' });
+        if (account.name || account.catColor)
+          dispatch({
+            type: 'PROFILE',
+            name: account.name ?? undefined,
+            color: account.catColor ?? undefined,
+          });
+      },
+      navigate: async (account) => {
+        // 부팅과 같은 판정 — 새 계정의 /me/islands 를 다시 조회해 화면을 고른다. 세대가
+        // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
+        const gen = sessionGeneration();
+        const next = await decideBootRoute({
+          saved: null,
+          account,
+          rejected: false,
+          serverMode: true,
+          bootGen: gen,
+          generation: sessionGeneration,
+          syncIslands,
+          onBootError: setIslandBootError,
+        });
+        if (next && sessionGeneration() === gen) reset(next);
+      },
+    });
   const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
   conversionRef.current ??= createMemberConversion({
     termsVersion: TERMS_VERSION,
@@ -434,45 +481,27 @@ function Gromo() {
         switchResolve.current = resolve;
         setSwitchAsk(true);
       }),
-    adopt: (result, previousUserId) =>
-      adoptSignedInAccount(result, previousUserId, {
-        resetLocal: async () => {
-          // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
-          // settings 만 기기 귀속(정책 A15)이라 보존한다.
-          await AsyncStorage.removeItem(STORAGE).catch(() => {});
-          dispatch({
-            type: 'LOAD',
-            state: { ...initialState(DEMO), settings: stateRef.current.settings },
-            now: Date.now(),
-          });
-        },
-        applyAccount: (account) => {
-          dispatch({ type: 'LOGIN' });
-          if (account.name || account.catColor)
-            dispatch({
-              type: 'PROFILE',
-              name: account.name ?? undefined,
-              color: account.catColor ?? undefined,
-            });
-        },
-        navigate: async (account) => {
-          // 부팅과 같은 판정 — 새 계정의 /me/islands 를 다시 조회해 화면을 고른다. 세대가
-          // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
-          const gen = sessionGeneration();
-          const next = await decideBootRoute({
-            saved: null,
-            account,
-            rejected: false,
-            serverMode: true,
-            bootGen: gen,
-            generation: sessionGeneration,
-            syncIslands,
-            onBootError: setIslandBootError,
-          });
-          if (next && sessionGeneration() === gen) reset(next);
-        },
-      }),
+    adopt: adoptSession,
   });
+  const startGuest = async () => {
+    if (guestLoginFlight.current) return;
+    guestLoginFlight.current = true;
+    setGuestBusy(true);
+    setGuestError('');
+    try {
+      const result = await guestLogin();
+      await adoptSession(result, null);
+    } catch (error) {
+      setGuestError(
+        error instanceof ApiError && error.message
+          ? error.message
+          : '게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요.',
+      );
+    } finally {
+      guestLoginFlight.current = false;
+      setGuestBusy(false);
+    }
+  };
   const memberConversion = conversionRef.current;
   // 소셜 제공자 SDK(Apple·Google·Kakao) 연결은 별도 티켓 — 연결 전까진 명시 오류로 끝낸다.
   // ponytail: 여기서 성공을 지어내면 승격·충돌 계약 검증이 불가능하다. SDK 도착 시 이 함수만 교체.
@@ -926,6 +955,9 @@ function Gromo() {
           now,
           terms,
           setTerms,
+          startGuest: REVIEW || DEMO ? undefined : startGuest,
+          guestBusy,
+          guestError,
           approval,
           setApproval,
           visited,
