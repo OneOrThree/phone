@@ -11,6 +11,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.LoginAttemptLookup;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -147,6 +148,7 @@ public class AuthSessionUseCase {
      * 계정 LLD §2.1 이 그 값을 {@code X-Device-Bootstrap} 헤더로 보내라고 했고 본문 4필드는 고정이다.
      * 헤더를 싣는 일은 컨트롤러의 {@code DeviceBootstrapHeader} 가 한다(GROMO-2037).
      */
+    @Schema(name = "AuthSessionResult")
     public record Result(String accessToken, String refreshToken, UUID userId, boolean onboardingComplete) {
 
         public static Result of(LoginSession session) {

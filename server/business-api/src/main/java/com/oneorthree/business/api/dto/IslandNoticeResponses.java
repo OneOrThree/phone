@@ -1,6 +1,7 @@
 package com.oneorthree.business.api.dto;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 import java.util.List;
@@ -19,6 +20,7 @@ public final class IslandNoticeResponses {
     public record Page(List<Item> items, @JsonInclude(JsonInclude.Include.ALWAYS) String nextCursor) {
     }
 
+    @Schema(name = "IslandNoticeItem")
     public record Item(UUID id, String title, long commentCount) {
     }
 
