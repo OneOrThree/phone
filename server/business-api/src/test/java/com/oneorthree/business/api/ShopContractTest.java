@@ -279,4 +279,96 @@ class ShopContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"wallets", "product", "linked-product", "purchase", "products", "orders",
+            "products-empty", "orders-empty", "product-conflict", "wallet-conflict"})
+    void publicJsonIsExplicitAcrossSuccessAndConflicts(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String fixture = switch (operation) {
+            case "wallets", "wallet-conflict" -> WALLETS;
+            case "purchase" -> ORDER_BODY;
+            case "products", "products-empty" -> UNPRICED_PAGE;
+            case "orders", "orders-empty" -> ORDERS_PAGE;
+            default -> PRODUCT;
+        };
+        var upstream = (tools.jackson.databind.node.ObjectNode) json.readTree(fixture);
+        if (operation.equals("linked-product")) {
+            upstream.putObject("requiredProduct").put("id", "starter").put("title", "기본 상품");
+        }
+        if (operation.equals("product-conflict")) {
+            upstream.put("productVersion", 6);
+        }
+        var expected = upstream.deepCopy();
+        if (operation.startsWith("products") || operation.startsWith("orders")) {
+            upstream.put("hasMore", false);
+            expected.remove("hasMore");
+            expected.remove("publicationVersion");
+            expected.remove("lastDisplayOrder");
+            expected.remove("lastProductId");
+            expected.putNull("nextCursor");
+            if (operation.endsWith("empty")) {
+                upstream.putArray("items");
+                expected.putArray("items");
+            }
+        }
+        String decorated = upstream.toString().replace("{", "{\"row_id\":\"private\",");
+        MockHttpServletRequestBuilder request;
+        int responseStatus = 200;
+        boolean conflict = operation.endsWith("conflict");
+        if (conflict) {
+            DATA.on(DATA_BUY, r -> new MockUpstream.Response(409, "{\"code\":\"VERSION_CONFLICT\"}"));
+            DATA.on(DATA_PRODUCT, r -> ok(operation.equals("product-conflict") ? decorated : PRODUCT));
+            DATA.on(DATA_WALLETS, r -> ok(decorated));
+            request = write(post(PUBLIC + "/orders"), BUY_BODY);
+            responseStatus = 409;
+        } else if (operation.equals("purchase")) {
+            DATA.on(DATA_BUY, r -> new MockUpstream.Response(201, decorated));
+            request = write(post(PUBLIC + "/orders"), BUY_BODY);
+            responseStatus = 201;
+        } else if (operation.startsWith("products")) {
+            DATA.on(DATA_PRODUCTS, r -> ok(decorated));
+            request = auth(get(PUBLIC + "/products").param("category", "personal"));
+        } else if (operation.startsWith("orders")) {
+            DATA.on(DATA_ORDERS, r -> ok(decorated));
+            request = auth(get(PUBLIC + "/orders").param("scope", "shared"));
+        } else {
+            boolean wallets = operation.equals("wallets");
+            DATA.on(wallets ? DATA_WALLETS : DATA_PRODUCT, r -> ok(decorated));
+            request = auth(get(PUBLIC + (wallets ? "/wallets" : "/products/rain")));
+        }
+        var result = mockMvc.perform(request).andExpect(status().is(responseStatus)).andReturn();
+        var body = json.readTree(result.getResponse().getContentAsString());
+        assertThat(conflict ? body.path("current").path("resource") : body.path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/shop/wallets|get|200||fish villagePoints fishVersion villagePointsVersion|fish villagePoints fishVersion villagePointsVersion",
+            "/islands/{islandId}/shop/products/{productId}|get|200||id kind title price currency ownerType productVersion previewUrl owned available blockedReason requiredBuilding requiredProduct targetBuilding|id kind title price currency ownerType productVersion previewUrl owned available blockedReason requiredBuilding requiredProduct targetBuilding",
+            "/islands/{islandId}/shop/products/{productId}|get|200|requiredProduct|id title|id title",
+            "/islands/{islandId}/shop/products|get|200|items|id title kind price currency ownerType owned available reason productVersion|id title kind price currency ownerType owned available reason productVersion",
+            "/islands/{islandId}/shop/orders|post|200||id productId spent currency ownerType owned walletVersion|id productId spent currency ownerType owned walletVersion",
+            "/islands/{islandId}/shop/orders|get|200|items|id productId price currency createdAt|id productId price currency createdAt"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }
