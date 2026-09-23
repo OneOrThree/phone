@@ -1,0 +1,18 @@
+flowchart TB
+  subgraph move[신규 추천: 이동 좌표 경로]
+    direction LR
+    AppMove[앱 MovementTransport]
+    Worker[Java Movement worker<br/>A* · 50ms 틱 · 위치 정본]
+    AppMove <-->|직접 QUIC 연결<br/>명령·경로 stream / 좌표 DATAGRAM| Worker
+  end
+  subgraph domain[기존 도메인 사건 경로: 좌표 틱과 분리]
+    direction LR
+    Core[도메인 유스케이스<br/>재전달 가능한 사건]
+    Inbound[내부 HTTP 또는 Kafka<br/>Kafka 소비자는 서버]
+    RT[Realtime 서버<br/>인가 · 인스턴스 간 fanout]
+    AppEvent[앱 기존 STOMP 구독]
+    Core --> Inbound --> RT --> AppEvent
+  end
+  move ~~~ domain
+  classDef proposed fill:#e8f2ff,stroke:#3971a8,color:#183858
+  class Worker,AppMove proposed

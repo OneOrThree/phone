@@ -4,8 +4,8 @@ flowchart TB
   subgraph internal[신규 이동 서비스 배포 영역]
     Control[제어 어댑터<br/>내부 HTTPS]
     Directory[선형화 가능한 소유권 저장소<br/>room → worker / epoch / lease]
-    A[Worker A<br/>방 1 · 방 2]
-    B[Worker B<br/>방 3 · 방 4]
+    A[Java Worker A<br/>방 1 · 방 2]
+    B[Java Worker B<br/>방 3 · 방 4]
     Metrics[로그 · 지표 · 경보]
     Control --> A
     Control --> B

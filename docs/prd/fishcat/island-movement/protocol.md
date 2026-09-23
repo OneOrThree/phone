@@ -16,9 +16,11 @@ TLS 기반 QUIC 보호를 사용하고 클라이언트는 서버 인증서·호�
 
 | 위치 | POC 후보 | 확인한 근거 / 남은 검증 |
 | --- | --- | --- |
-| Go 서버 | quic-go | 공식 문서는 DATAGRAM 경로의 처리량 제약을 언급한다. 20Hz 대량 팬아웃 성능을 별도로 측정해야 함. [공식 문서](https://quic-go.net/docs/quic/datagrams/) |
+| Java 서버 | Netty QUIC codec | 공식 API에 QUIC stream·DATAGRAM 지원이 있다. 지원 JDK·Netty 버전·네이티브 바이너리의 배포 OS/CPU 호환, 모바일 상호 운용과 팬아웃 처리량은 POC로 검증한다. [공식 API](https://netty.io/4.2/api/io/netty/handler/codec/quic/package-summary.html) · [DATAGRAM 설정](https://netty.io/4.2/api/io/netty/handler/codec/quic/QuicCodecBuilder.html) |
 | iOS·Android | quiche C FFI를 감싼 네이티브 모듈 | upstream은 C API·모바일 빌드 지침을 제공한다. 이 앱의 Expo/RN·서명·배터리 호환은 미검증. [upstream](https://github.com/cloudflare/quiche) |
 | 앱 JS | MovementTransport 추상화 | 기존 RN Fetch/WebSocket만으로 raw QUIC가 제공된다고 가정하지 않는다. 네이티브 구현 필요는 현재 앱 코드와 [RN networking 문서](https://reactnative.dev/docs/network)에 근거한 설계 판단 |
+
+서버 도메인 로직은 Java로 작성하고, 네트워크 라이브러리의 네이티브 의존성은 빌드·배포에서 관리한다. 네이티브 의존성을 쓴다는 사실이 별도 C++ 게임 서버를 개발한다는 뜻은 아니다. 기존 서버의 Java 17을 POC 기준으로 삼되 선택 라이브러리와 JDK 조합은 검증 후 고정한다.
 
 커스텀 ALPN `fishcat-movement/1` 후보로 raw QUIC를 사용한다. HTTP/3나 WebTransport 서버를 자동으로 함께 제공하는 설계가 아니다. 웹 미리보기에는 별도 mock transport를 사용하며 네트워크 검증 증거로 계산하지 않는다.
 
