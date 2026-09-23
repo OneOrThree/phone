@@ -1729,7 +1729,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/IslandManaged"
+                  "$ref": "#/components/schemas/ManagedIslandView"
                 }
               }
             }
@@ -2013,7 +2013,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/JoinRequestAnswer"
+                  "$ref": "#/components/schemas/JoinRequestAnswerView"
                 }
               }
             }
@@ -2784,7 +2784,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/IslandRestMembers"
+                  "$ref": "#/components/schemas/RestMembersView"
                 }
               }
             }
@@ -3002,7 +3002,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/IslandFocusMembers"
+                  "$ref": "#/components/schemas/FocusMembersView"
                 }
               }
             }
@@ -4290,7 +4290,13 @@
             "type": "string",
             "format": "uuid"
           }
-        }
+        },
+        "required": [
+          "catColor",
+          "id",
+          "mainIslandId",
+          "name"
+        ]
       },
       "PersonalAppearanceView": {
         "type": "object",
@@ -4320,7 +4326,7 @@
           "version"
         ]
       },
-      "IslandManaged": {
+      "ManagedIslandView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4419,7 +4425,7 @@
           "version"
         ]
       },
-      "JoinRequestAnswer": {
+      "JoinRequestAnswerView": {
         "type": "object",
         "properties": {
           "status": {
@@ -4528,7 +4534,15 @@
           "onboardingComplete": {
             "type": "boolean"
           }
-        }
+        },
+        "required": [
+          "catColor",
+          "id",
+          "linkedProviders",
+          "mainIslandId",
+          "name",
+          "onboardingComplete"
+        ]
       },
       "Item": {
         "type": "object",
@@ -4967,32 +4981,7 @@
           }
         }
       },
-      "IslandRestMembers": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Item"
-            }
-          },
-          "serverNow": {
-            "type": "string"
-          },
-          "watermarks": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/MemberWatermark"
-            }
-          }
-        },
-        "required": [
-          "items",
-          "serverNow",
-          "watermarks"
-        ]
-      },
-      "MemberWatermark": {
+      "MemberWatermarkView": {
         "type": "object",
         "properties": {
           "projection": {
@@ -5014,6 +5003,55 @@
           "islandId",
           "projection",
           "version"
+        ]
+      },
+      "RestMemberView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "restSeat": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "restStartedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "restSeat",
+          "restStartedAt",
+          "userId"
+        ]
+      },
+      "RestMembersView": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RestMemberView"
+            }
+          },
+          "serverNow": {
+            "type": "string"
+          },
+          "watermarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MemberWatermarkView"
+            }
+          }
+        },
+        "required": [
+          "items",
+          "serverNow",
+          "watermarks"
         ]
       },
       "Entry": {
@@ -5275,13 +5313,67 @@
           }
         }
       },
+      "IslandMemberView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "catColor": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "appearance": {
+            "$ref": "#/components/schemas/MemberAppearanceView"
+          }
+        },
+        "required": [
+          "appearance",
+          "id",
+          "role"
+        ]
+      },
+      "MemberAppearanceView": {
+        "type": "object",
+        "properties": {
+          "clothes": {
+            "type": "string"
+          },
+          "decor": {
+            "type": "string"
+          },
+          "hull": {
+            "type": "string"
+          },
+          "position": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "clothes",
+          "decor",
+          "hull",
+          "position",
+          "version"
+        ]
+      },
       "MembersPage": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Item"
+              "$ref": "#/components/schemas/IslandMemberView"
             }
           },
           "nextCursor": {
@@ -5293,13 +5385,42 @@
           }
         }
       },
+      "IslandJoinRequestView": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "applicantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "applicantId",
+          "id",
+          "status",
+          "version"
+        ]
+      },
       "JoinRequestsPage": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Item"
+              "$ref": "#/components/schemas/IslandJoinRequestView"
             }
           },
           "nextCursor": {
@@ -5359,13 +5480,45 @@
           "islandThemes"
         ]
       },
-      "IslandFocusMembers": {
+      "FocusMemberView": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "activeSeconds": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "activeSeconds",
+          "name",
+          "sessionId",
+          "status",
+          "subject",
+          "userId"
+        ]
+      },
+      "FocusMembersView": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Item"
+              "$ref": "#/components/schemas/FocusMemberView"
             }
           },
           "serverNow": {
@@ -5374,7 +5527,7 @@
           "watermarks": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/MemberWatermark"
+              "$ref": "#/components/schemas/MemberWatermarkView"
             }
           }
         },
