@@ -280,6 +280,35 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
+    @ParameterizedTest
+    @CsvSource({"/focus-sessions/current,get,,id islandId subject status activeSeconds serverNow startedAt version",
+            "/focus-sessions/{sessionId}/finish,post,,recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt",
+            "/focus-sessions/{sessionId}/finish,post,allocation,personalFishAdded constructionFishAdded",
+            "/focus-sessions/{sessionId}/finish,post,questProgress,id myRate",
+            "/me/focus-summary,get,,date completedSeconds currentSessionSecondsToday totalSeconds serverNow"})
+    void publicDocumentationPreservesRequiredFields(String path, String method, String nested, String fields)
+            throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        if (schema.path("type").asText().equals("array")) {
+            schema = schema.path("items");
+        }
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            schema = schema.path("properties").path(nested);
+            if (schema.path("type").asText().equals("array")) {
+                schema = schema.path("items");
+            }
+            schema = document.at(schema.path("$ref").asText().substring(1));
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+    }
+
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
         return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
     }

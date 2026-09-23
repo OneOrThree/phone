@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -125,8 +126,17 @@ public class FocusSessionUseCase {
     }
 
     /** 공개 세션 계약. 내부 응답이 확장되어도 허용한 필드만 내보낸다. */
-    public record StateView(UUID id, UUID islandId, String subject, Integer targetMinutes, String status,
-            long activeSeconds, String serverNow, String startedAt, String restStartedAt, long version) {
+    public record StateView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) UUID islandId,
+            @JsonProperty(required = true) String subject,
+            Integer targetMinutes,
+            @JsonProperty(required = true) String status,
+            @JsonProperty(required = true) long activeSeconds,
+            @JsonProperty(required = true) String serverNow,
+            @JsonProperty(required = true) String startedAt,
+            String restStartedAt,
+            @JsonProperty(required = true) long version) {
         private static StateView from(FocusSessionState source) {
             if (source == null) {
                 return null;
@@ -138,9 +148,17 @@ public class FocusSessionUseCase {
     }
 
     /** 공개 정산 계약. 중첩 객체도 내부 DTO와 분리한다. */
-    public record FinishView(UUID recordId, UUID islandId, String subject, Integer targetMinutes,
-            long activeSeconds, boolean goalAchieved, int earnedFish, AllocationView allocation,
-            String completedAt, List<QuestProgressView> questProgress) {
+    public record FinishView(
+            @JsonProperty(required = true) UUID recordId,
+            @JsonProperty(required = true) UUID islandId,
+            @JsonProperty(required = true) String subject,
+            Integer targetMinutes,
+            @JsonProperty(required = true) long activeSeconds,
+            @JsonProperty(required = true) boolean goalAchieved,
+            @JsonProperty(required = true) int earnedFish,
+            @JsonProperty(required = true) AllocationView allocation,
+            @JsonProperty(required = true) String completedAt,
+            List<QuestProgressView> questProgress) {
         private static FinishView from(FocusFinish source) {
             if (source == null) {
                 return null;
@@ -155,18 +173,26 @@ public class FocusSessionUseCase {
         }
     }
 
-    public record AllocationView(int personalFishAdded, int constructionFishAdded) {
+    public record AllocationView(
+            @JsonProperty(required = true) int personalFishAdded,
+            @JsonProperty(required = true) int constructionFishAdded) {
     }
 
-    public record QuestProgressView(UUID id, double myRate) {
+    public record QuestProgressView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) double myRate) {
         private static QuestProgressView from(FocusFinish.QuestProgress source) {
             return source == null ? null : new QuestProgressView(source.id(), source.myRate());
         }
     }
 
     /** 공개 요약 계약. Data가 계산한 날짜·시각의 문자열 표현을 보존한다. */
-    public record SummaryView(String date, long completedSeconds, long currentSessionSecondsToday,
-            long totalSeconds, String serverNow) {
+    public record SummaryView(
+            @JsonProperty(required = true) String date,
+            @JsonProperty(required = true) long completedSeconds,
+            @JsonProperty(required = true) long currentSessionSecondsToday,
+            @JsonProperty(required = true) long totalSeconds,
+            @JsonProperty(required = true) String serverNow) {
         private static SummaryView from(FocusSummary source) {
             return source == null ? null : new SummaryView(source.date(), source.completedSeconds(),
                     source.currentSessionSecondsToday(), source.totalSeconds(), source.serverNow());
