@@ -254,9 +254,10 @@ export function useShop({
         if (!islandId) return;
         set({ loading: true, error: null, items: [], itemsCategory: cat });
         try {
-          const [page, shared] = await Promise.all([
+          const [page, shared, wallets] = await Promise.all([
             getShopProducts(islandId, 'sound'),
             getIslandInventory(islandId),
+            getShopWallets(islandId),
           ]);
           if (!alive(e, generation)) return;
           proven.current = { epoch: e, generation };
@@ -269,6 +270,7 @@ export function useShop({
           }
           set({
             shared,
+            wallets,
             items: page.items,
             itemsCategory: cat,
             nextCursor: page.nextCursor,
@@ -277,7 +279,7 @@ export function useShop({
             loading: false,
             error: null,
           });
-          sync({ sharedInventory: shared });
+          sync({ sharedInventory: shared, wallets });
         } catch (error) {
           if (!alive(e, generation)) return;
           set({ loading: false, error: error as ApiError });
@@ -457,6 +459,25 @@ export function useShop({
       }
     },
     [applyMy, ensureTitles],
+  );
+
+  /** 집중 화면의 음원 선택기가 사용할 공동 보유곡 정본만 가볍게 읽는다. */
+  const loadShared = useCallback(
+    async (e: number, generation: number) => {
+      const { islandId: island } = stateRef.current;
+      if (!island) return;
+      set({ loading: true, error: null });
+      try {
+        const shared = await getIslandInventory(island);
+        if (!alive(e, generation)) return;
+        applyShared(e, generation, shared);
+        set({ loading: false });
+      } catch (error) {
+        if (!alive(e, generation)) return;
+        set({ loading: false, error: error as ApiError });
+      }
+    },
+    [alive, applyShared, set],
   );
 
   /**
@@ -698,6 +719,7 @@ export function useShop({
     const g = sessionGeneration();
     if (route === 'shop') loadList(e, g, category);
     else if (route === 'sound') loadList(e, g, 'sound');
+    else if (route === 'focus') loadShared(e, g);
     else if (route === 'product' && productId) select(productId);
     else if (route === 'orders') loadOrders(e, g, orderScope);
     else if (route === 'wardrobe') loadMy(e, g);
@@ -710,6 +732,7 @@ export function useShop({
     productId,
     generation,
     loadList,
+    loadShared,
     loadMy,
     loadOrders,
     select,
@@ -728,6 +751,7 @@ export function useShop({
       const g = sessionGeneration();
       if (route === 'shop' || route === 'sound')
         loadList(e, g, route === 'sound' ? 'sound' : category);
+      else if (route === 'focus') loadShared(e, g);
       else if (route === 'orders') loadOrders(e, g, orderScope);
       else if (route === 'wardrobe') loadMy(e, g);
       else if (route === 'product' && productId) select(productId);

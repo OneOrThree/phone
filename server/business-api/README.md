@@ -69,6 +69,14 @@ cd server/business-api
 > refresh 회전 · logout · 최초 로그인 RT 2단계 · 소셜 선택적 인증)과 그 밖의 패스스루는 **아직 Data
 > API 에 남아 있다.** 전환 기간에 이 서비스는 legacy issuer 가 서명한 AT 를 **검증만** 한다.
 
+Data 상류 호출은 `upstream/data/` 의 도메인별 client가 나눠 담당한다 — `DataAuthClient`(인증·계정·
+세션 확인), `DataFocusClient`(집중 세션), `DataIslandClient`(섬 소속·관리·게시판·우체통·방장 이전),
+`DataFriendClient`(친구·차단·편지), `DataShopClient`, `DataAppearanceClient`(인벤토리·외양·재생),
+`DataQuestClient`, `DataConstructionClient`, `DataRecordsClient`(통계·가계부·랭킹·스크린타임),
+`DataInviteClient`(초대·claim 재개·frozen 후보), `DataOutboxClient`(내구 명령·결과 claim/ack).
+모두 `UpstreamClientConfig`가 만드는 **같은 Data `InternalHttpClient` 하나**를 공유하므로
+연결·worker 풀과 close 책임은 하나다. use case는 자기 도메인의 client만 받는다.
+
 ## 새 공통 계층을 처음 읽는 개발자에게 (GROMO-1751~1753)
 
 앱이 주문서를 내면 Business는 신원을 확인하고 답장을 같은 봉투에 넣는다. Data는 주문서 번호와
@@ -124,6 +132,29 @@ Business에는 도메인 DB를 추가하지 않는다.
 ```
 
 위 message/resource는 설명용 예시다. 오류 코드는 [ApiErrorCode](src/main/java/com/oneorthree/business/common/api/ApiErrorCode.java)를 사용한다.
+
+### 앱 공개 HTTP 상태와 내부 장애 분류
+
+활성 공개 경로(`PublicApiRoutes.usesEnvelope`)는 내부 5xx 오류를 **HTTP 400**으로 전달한다.
+MVC·필터·미리보기 Redis 장애에 같은 정책을 적용한다. 기존 4xx 상태는 유지한다.
+
+| 오류 코드 | 내부 상태 | 앱 공개 HTTP | retryable |
+| --- | --- | --- | --- |
+| `INTERNAL_ERROR` | 500 | 400 | false |
+| `UPSTREAM_CONTRACT_ERROR`, `UPSTREAM_AUTH_FAILED` | 502 | 400 | false |
+| `SERVICE_UNAVAILABLE` | 503 | 400 | true |
+| `UPSTREAM_TIMEOUT` | 504 | 400 | true |
+
+오류의 의미와 재시도 판단은 `error.code`·`error.retryable`·`Retry-After`에 보존한다.
+HTTP 400만으로 사용자 입력 오류라고 판단하지 않는다. 내부 서비스 HTTP 호출의 상태와 재시도 정책은 유지한다.
+`business_public_failure` 로그에는 `request_id`, `internal_status`, `public_status`, `code`를 남긴다.
+운영 장애 집계는 공개 HTTP 5xx 건수 대신 이 내부 분류를 사용해야 한다.
+DB·SQL·예외 원문은 공개 응답에 복사하지 않는다.
+
+이 정책은 활성 공개 경로의 애플리케이션 응답에 적용한다. 기존 `/api/v1/**`·`/l/match`,
+내부·관리 경로, 프록시가 직접 생성한 장애 응답에는 적용하지 않는다.
+아래 도메인 설명의 5xx는 별도 표기가 없으면 내부 오류 분류이며, 활성 공개 전송 상태는 위 표를 따른다.
+
 `error`의 4필드는 항상 있고 `field`가 없으면 null이다. `current`는 409에서만 선택적으로 붙인다.
 `new PublicApiException(code, field, new PublicCurrentState(version, publicDto))`를 쓸 때 호출부가
 **현재 사용자에게 공개 가능한 DTO와 version을 같은 스냅샷에서 읽어** 전달해야 한다.
@@ -283,8 +314,9 @@ Retry-After가 남은 전체 예산 이상이면 새 시도를 하지 않고 tim
 짧게 잘라 재시도하지 않고 즉시 원 장애 종류로 종료한다(일시 불가 또는 신규 strict의 504 timeout).
 유한한 전체 예산 부족 판정은 이 대기 상한보다 먼저 적용하며, legacy/strict 오류 분류와 429 비재시도는 유지한다.
 
-신규 외부 응답은 시간 초과 504 `UPSTREAM_TIMEOUT`, 용량 초과·일시 장애 503 `SERVICE_UNAVAILABLE`,
+내부 분류는 시간 초과 504 `UPSTREAM_TIMEOUT`, 용량 초과·일시 장애 503 `SERVICE_UNAVAILABLE`,
 상류 계약 오류 502 `UPSTREAM_CONTRACT_ERROR`, 서비스 자격 오류 502 `UPSTREAM_AUTH_FAILED`다.
+활성 공개 응답은 같은 오류 코드와 재시도 정보를 담은 HTTP 400이다.
 legacy 경로의 시간 초과는 기존 503을 유지한다. 취소는 실제 HTTP 요청도 닫으며,
 상위 코드가 조기 종료할 때는 `context.cancel()`로 취소를 전파한다.
 Servlet의 모든 클라이언트 연결 종료를 자동 감지해 이 context를 취소하는 기능까지 구현한 것은 아니다.
@@ -307,7 +339,7 @@ Servlet의 모든 클라이언트 연결 종료를 자동 감지해 이 context�
 늘려도 총합을 넘으면 부팅을 거절한다. 서비스/관리 Tomcat worker는 각각 최대16으로 제한해 합계32이며,
 preview/DNS8 외에 JVM·Redis·PDF 자식 프로세스가 사용할 PID 여유를 남긴다. Compose의 PID128 상한을
 올리지 않으며, 운영 모니터링·부하 검증을 대신하는 처리량 보장은 아니다.
-신규 동기 요청은 상류의 정상 `504 UPSTREAM_TIMEOUT` 응답을 제한 재시도한 뒤에도 504로 반환한다.
+신규 동기 요청은 상류의 정상 `504 UPSTREAM_TIMEOUT` 응답을 제한 재시도한 뒤 공개 HTTP 400과 같은 코드로 반환한다.
 503 장애와 시간 초과의 종류를 합치지 않고, legacy 오류 매핑과 선택 조각의 허용된 null 폴백은 유지한다.
 HTTP 응답 본문은 시도당 1MiB로 제한하고 초과는 계약 오류로 처리한다.
 `upstream_retry`, `screen_optional_unavailable` 로그는 서버 request_id로 연결한다.
@@ -881,7 +913,7 @@ Authorization도 최대 하나만 받으며 있다면 `Bearer <AT>` 형식이다
 
 Business는 RT의 서명이나 폐기 상태를 추정하지 않는다. 내부 요청의 `refreshToken`과 `accessToken`에
 원 토큰을 넣고, 대상별 서비스 토큰으로 Data를 호출한다. AT를 함께 보내더라도 `X-User-Id`는 붙이지
-않으며 Data가 자격에서 사용자를 직접 확인한다. `DataApiClient.logoutSession`의
+않으며 Data가 자격에서 사용자를 직접 확인한다. `DataAuthClient.logoutSession`의
 `endUserAuthErrors()`는 정확한 내부 POST 로그아웃 경로만 허용한다. 해당 호출의 구조화된
 `401 REFRESH_TOKEN`과 `401 UNAUTHORIZED`만 사용자 401로 전달한다. 서비스 토큰 거절이나 코드 없는
 401은 `502 UPSTREAM_AUTH_FAILED`다. 탈퇴 사용자는 `404 USER_NOT_FOUND`로 안내한다.
@@ -974,3 +1006,22 @@ GROMO-1802 가 [섬 관리 LLD](../../docs/prd/fishcat/island-management/low-lev
 **명령 4종도 기본 비활성이다.** Data 의 `island-management.commands-enabled` 기본값이 false 라 수정·승인/거절·
 강퇴·나가기는 503 `SERVICE_UNAVAILABLE` 로 끝나며 아무것도 쓰지 않는다. 두 목록 조회는 게이트가 없다.
 legacy 400 코드 `CANNOT_KICK_SELF`·`HOST_WITHDRAW` 는 공개 409 `STATE_CONFLICT` 로 옮긴다(상태가 거절 이유다).
+
+
+## 계정 공개 DTO 경계
+
+`GET /me`와 화면 응답의 `me` 조각은 `AccountUseCase.AccountView`,
+`PATCH /me`는 `AccountUseCase.ProfileView`를 직렬화한다.
+Data 내부 전송 DTO(`AccountMe`, `AccountProfile`)는 사용자 ID 검증 후 필요한 필드만 명시적으로 옮긴다.
+DB 엔티티·컬럼이나 내부 전송 DTO를 공개 응답 타입으로 사용하지 않는다.
+
+| 공개 응답 | 허용 필드 |
+| --- | --- |
+| 계정 조회·화면의 `me` | `id`, `name`, `catColor`, `mainIslandId`, `linkedProviders`, `onboardingComplete` |
+| 프로필 변경 | `id`, `name`, `catColor`, `mainIslandId` |
+
+공개 이름은 앱 도메인 계약으로 관리한다. 예를 들어 DB `cat_color`는 공개 `catColor`이며,
+`auth_generation` 같은 내부 인증 상태와 삭제 상태는 응답에 싣지 않는다.
+내부 필드가 늘어도 공개 필드 목록은 자동으로 늘어나지 않는다.
+이 분리는 기존 공개 이름·값·null 계약을 유지하므로 앱 코드 변경이 필요 없다.
+계약 테스트는 내부 추가 필드를 주입한 GET·PATCH·화면 응답의 정확한 필드 수와 값을 검증한다.

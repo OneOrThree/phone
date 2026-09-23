@@ -6,6 +6,7 @@ import type {
   VisitScreen,
 } from '@/services/api/islands';
 import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
+import type { PlaybackState } from '@/services/api/playback';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -187,8 +188,14 @@ export type Island = {
   theme: string;
   buildingTheme: string;
   buildingThemes?: Record<string, string>;
-  track: string;
+  track: string | null;
   playing: boolean;
+  /** 서버 공용 재생 전체 상태. null trackId도 명시적인 미선택 상태로 보존한다. */
+  serverPlayback?: PlaybackState;
+  /** serverPlayback을 단말에서 관측한 시각. 서버 시계 기준 위치를 현재 시각으로 보정한다. */
+  serverPlaybackObservedAtMs?: number;
+  /** 사용자가 정지 버튼을 누른 횟수. 플레이어가 일시정지와 구분해 재생 위치를 초기화한다. */
+  playbackReset?: number;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
   // 우리 섬 채팅방을 마지막으로 연 시각. 이후 다른 주민 글이 새 글이다
   chatReadAt?: number;
@@ -254,6 +261,7 @@ export type State = {
   settings: {
     notifications: boolean;
     sound: boolean;
+    volume?: number;
     reduceMotion: boolean;
     publicRecords: boolean;
     permission: boolean;
@@ -404,6 +412,12 @@ export const kstDayStart = (day: string) => {
   const [year, month, date] = day.split('-').map(Number);
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
 };
+export const trackNames: Record<string, string> = {
+  waves: '잔잔한 파도',
+  campfire: '모닥불 소리',
+  'forest-wind': '숲바람',
+  rain: '빗방울 소리',
+};
 export const products: Product[] = [
   {
     id: 'scarf',
@@ -441,9 +455,9 @@ export const products: Product[] = [
   },
   {
     id: 'rain',
-    title: '오두막의 빗소리',
+    title: '빗방울 소리',
     kind: 'audio',
-    price: 150,
+    price: 30,
     currency: 'fish',
     description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
   },
@@ -686,6 +700,7 @@ export function initialState(full = false): State {
     settings: {
       notifications: true,
       sound: true,
+      volume: 0.55,
       reduceMotion: false,
       publicRecords: true,
       permission: full,
@@ -1575,6 +1590,25 @@ export function reducer(state: State, a: Action): State {
       }
       break;
     }
+    case 'PLAYBACK_SYNC': {
+      const target = s.islands.find((island) => island.id === a.islandId);
+      if (!target) return state;
+      const playback = a.playback as PlaybackState;
+      if (
+        !playback ||
+        !Number.isSafeInteger(playback.version) ||
+        (target.serverPlayback && playback.version < target.serverPlayback.version)
+      )
+        return state;
+      const wasPlaying = target.playing;
+      target.serverPlayback = playback;
+      target.serverPlaybackObservedAtMs =
+        typeof a.observedAtMs === 'number' ? a.observedAtMs : Date.now();
+      target.track = playback.trackId;
+      target.playing = playback.trackId !== null && playback.playing;
+      if (wasPlaying && !target.playing) target.playbackReset = (target.playbackReset ?? 0) + 1;
+      break;
+    }
     case 'ISLAND_CANDIDATES': {
       // 발견 페이지 반영 — reset이면 새 filter의 첫 페이지로 갈아 끼운다
       const snap = serverSnap(s),
@@ -2008,7 +2042,13 @@ export function reducer(state: State, a: Action): State {
       }
       break;
     case 'PLAY':
-      if (i.buildings.includes('gram')) i.playing = !!a.value;
+      if (
+        i.buildings.includes('gram') &&
+        (!a.value || (typeof i.track === 'string' && i.sharedOwned.includes(i.track)))
+      ) {
+        i.playing = !!a.value;
+        if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
+      }
       break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;

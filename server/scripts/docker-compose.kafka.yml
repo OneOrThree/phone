@@ -28,6 +28,12 @@ services:
     # 변경이 그대로 운영 사고가 된다.
     image: apache/kafka:3.8.1
     container_name: phone-kafka
+    labels:
+      com.datadoghq.tags.env: "dev"
+      com.datadoghq.tags.service: "gromo-kafka-dev"
+      com.datadoghq.tags.version: "3.8.1"
+      com.datadoghq.ad.checks: >-
+        {"kafka":{"init_config":{"is_jmx":true,"collect_default_metrics":true},"instances":[{"host":"%%host%%","port":"9999","tags":["env:dev","service:gromo-kafka-dev","kafka_cluster:gromo-dev"]}]},"kafka_consumer":{"init_config":{},"instances":[{"kafka_connect_str":"%%host%%:9092","monitor_unlisted_consumer_groups":true,"tags":["env:dev","service:gromo-kafka-dev","kafka_cluster:gromo-dev"]}]}}
     environment:
       # ── KRaft 단일 노드 ────────────────────────────────────────────────
       KAFKA_NODE_ID: "1"
@@ -66,19 +72,21 @@ services:
       # 512 MB(A12). t4g.large(8 GB)에 app·nginx·datadog 과 함께 올라간다 — 나머지는 페이지 캐시가
       # 쓴다(Kafka 는 힙보다 페이지 캐시로 도는 편이 정상이다).
       KAFKA_HEAP_OPTS: "-Xmx512m -Xms512m"
-      # Prometheus JMX Exporter가 broker request rate를 읽는 compose 내부 전용 포트.
+      # Datadog JMXFetch 전용. 호스트 ports에는 매핑하지 않아 app-network 안의 Agent만 접근한다.
       KAFKA_JMX_PORT: "9999"
       KAFKA_JMX_HOSTNAME: kafka
+    expose: ["9092", "9999"]
     volumes:
       # 볼륨이 «필수»다. 없으면 재시작 한 번에 미소비 이벤트가 통째로 사라진다 —
       # outbox 가 커밋 이후 구간을 막아 주지만, 이미 발행된 뒤 소비 전 유실은 outbox 도 못 살린다.
       - kafka-data:/var/lib/kafka/data
+      - ./kafka-api-healthcheck.sh:/opt/kafka/bin/kafka-api-healthcheck.sh:ro
     networks:
       - app-network
     restart: unless-stopped
     healthcheck:
-      # 브로커가 «API 를 받는가»를 본다. 포트 열림만 보면 기동 중인 브로커를 정상으로 오판한다.
-      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null 2>&1 || exit 1"]
+      # JVM을 매번 띄우지 않고 브로커의 ApiVersions 응답을 직접 확인한다.
+      test: ["CMD", "bash", "/opt/kafka/bin/kafka-api-healthcheck.sh"]
       interval: 15s
       timeout: 10s
       retries: 10

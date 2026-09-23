@@ -1,8 +1,9 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.ChallengeResultClaimResponse;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataOutboxClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.ResultAckPrepareResult;
 import lombok.RequiredArgsConstructor;
@@ -49,7 +50,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ResultAckUseCase {
 
-    private final DataApiClient dataApiClient;
+    private final DataOutboxClient dataApiClient;
     private final NotificationApiClient notificationApiClient;
 
     /**
@@ -60,14 +61,15 @@ public class ResultAckUseCase {
      * <p>활성 검사를 걸지 않는 이유: 위성 쓰기가 아니고, Data 가 {@code /internal/*} 호출마다
      * {@code X-User-Id} 활성 검사를 한다(§5).
      */
-    public Object claimDisplay(UUID userId, UUID sessionId, UUID currentToken, Deadline deadline) {
+    public ChallengeResultClaimResponse claimDisplay(UUID userId, UUID sessionId, UUID currentToken,
+            Deadline deadline) {
         Object response = dataApiClient.claimResultDisplay(userId, sessionId, currentToken, deadline);
         if (!(response instanceof Map<?, ?> body) || !(body.get("claimToken") instanceof String token)
                 || !validClaimToken(token)) {
             throw new UpstreamContractMismatchException("결과 표시 선점 응답에 유효한 claimToken이 없습니다");
         }
-        // Data의 추가 필드는 그대로 보존한다. 비멱등 선점을 여기서 재시도하지 않는다.
-        return response;
+        // 내부 추가 필드는 공개 계약에 자동 반영하지 않는다. 비멱등 선점을 여기서 재시도하지 않는다.
+        return new ChallengeResultClaimResponse(token);
     }
 
     private static boolean validClaimToken(String token) {

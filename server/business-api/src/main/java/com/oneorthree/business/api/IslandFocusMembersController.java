@@ -5,8 +5,6 @@ import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
-import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.usecase.IslandFocusMembersUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,13 +31,15 @@ public class IslandFocusMembersController {
     private final UpstreamConfigProperties properties;
 
     @GetMapping("/islands/{islandId}/focus-members")
-    public IslandFocusMembers focusMembers(@PathVariable String islandId, HttpServletRequest request) {
+    public IslandFocusMembersUseCase.FocusMembersView focusMembers(@PathVariable String islandId,
+            HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return members.focusMembers(claims, uuid(islandId), deadline());
     }
 
     @GetMapping("/islands/{islandId}/rest-members")
-    public IslandRestMembers restMembers(@PathVariable String islandId, HttpServletRequest request) {
+    public IslandFocusMembersUseCase.RestMembersView restMembers(@PathVariable String islandId,
+            HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return members.restMembers(claims, uuid(islandId), deadline());
     }

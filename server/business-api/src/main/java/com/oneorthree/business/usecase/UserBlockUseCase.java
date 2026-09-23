@@ -1,12 +1,13 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataFriendClient;
 import com.oneorthree.business.upstream.data.dto.BlockedUser;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -26,7 +27,7 @@ public class UserBlockUseCase {
             "TARGET_USER_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "blockedUserId"),
             "USER_NOT_FOUND", new PublicFailure(ApiErrorCode.USER_NOT_FOUND, null));
 
-    private final DataApiClient data;
+    private final DataFriendClient data;
 
     public void block(AccessTokenClaims claims, UUID blockedUserId, Deadline deadline) {
         relay(() -> {
@@ -42,12 +43,21 @@ public class UserBlockUseCase {
         });
     }
 
-    public List<BlockedUser> blocks(AccessTokenClaims claims, Deadline deadline) {
+    public List<BlockedUserView> blocks(AccessTokenClaims claims, Deadline deadline) {
         List<BlockedUser> result = relay(() -> data.fetchBlockedUsers(claims.userId(), deadline));
         if (result == null) {
             throw new UpstreamContractMismatchException("차단 목록 응답이 없습니다");
         }
-        return result;
+        return result.stream().map(BlockedUserView::from).toList();
+    }
+
+    /** 차단 목록의 공개 필드만 허용한다. */
+    public record BlockedUserView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) String name) {
+        private static BlockedUserView from(BlockedUser source) {
+            return source == null ? null : new BlockedUserView(source.id(), source.name());
+        }
     }
 
     private <T> T relay(Supplier<T> upstream) {

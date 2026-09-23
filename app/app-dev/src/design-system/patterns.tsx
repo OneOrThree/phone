@@ -127,6 +127,7 @@ export function Btn({
   // 확인창 버튼(.dlg .acts .btn): 높이 46 · 글자 15
   dialog = false,
   disabled = false,
+  dynamicHeight = false,
   style,
   id,
 }: any) {
@@ -171,15 +172,19 @@ export function Btn({
             }).start();
         }}
         style={{
-          height: round
-            ? 88
-            : small
-              ? 38
-              : dialog
-                ? 46
-                : kind === 'ghost' || kind === 'danger'
-                  ? 44
-                  : 52,
+          height: dynamicHeight
+            ? undefined
+            : round
+              ? 88
+              : small
+                ? 38
+                : dialog
+                  ? 46
+                  : kind === 'ghost' || kind === 'danger'
+                    ? 44
+                    : 52,
+          minHeight: dynamicHeight ? 52 : undefined,
+          paddingVertical: dynamicHeight ? 12 : undefined,
           ...(round ? { width: 88 } : {}),
           borderRadius: 999,
           paddingHorizontal: round ? 0 : small ? 14 : kind === 'glass' ? 22 : 20,
@@ -439,6 +444,7 @@ export function Field({
   inputStyle,
   placeholderColor,
   tabletScale,
+  disabled = false,
 }: any) {
   return (
     <View style={{ gap: 6 }}>
@@ -454,6 +460,7 @@ export function Field({
         accessibilityLabel={label || placeholder}
         value={String(value ?? '')}
         onChangeText={onChange}
+        editable={!disabled}
         placeholder={placeholder}
         placeholderTextColor={placeholderColor || componentTokens.input.placeholder}
         multiline={multiline}

@@ -95,6 +95,9 @@ services:
       CHAT_DB_USERNAME: ${POSTGRES_USER}
       CHAT_DB_PASSWORD: ${POSTGRES_PASSWORD}
       REDIS_HOST: redis
+      # 4GB dev VM에서 여러 JVM을 함께 시작하면 Redis 초기 handshake가 기본 2초를 넘겨 앱이 종료된다.
+      SPRING_DATA_REDIS_CONNECT_TIMEOUT: 5s
+      SPRING_DATA_REDIS_TIMEOUT: 10s
       # Data API 와 «같은 값»이어야 한다. 채팅은 이 키로 서명을 검증만 한다 — 발급하지 않는다.
       JWT_SECRET: ${JWT_SECRET}
       # 멤버십 조회 상류. 컨테이너 이름으로 부른다(호스트 포트를 거치지 않는다).

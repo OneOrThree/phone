@@ -1,0 +1,151 @@
+name: Dev Stack
+
+on:
+  workflow_dispatch:
+    inputs:
+      strict:
+        description: "미기동·unhealthy 컴포넌트가 하나라도 있으면 실패 처리"
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  deployment-status:
+    name: main 배포 흐름
+    runs-on: ubuntu-latest
+    steps:
+      - name: main SHA별 CI 상태 요약
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: ref } = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            });
+            const sha = ref.object.sha;
+            const { data } = await github.rest.actions.listWorkflowRunsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head_sha: sha,
+              per_page: 100,
+            });
+
+            const ciTargets = [
+              ['Data API', 'CI'],
+              ['Business · Notification 검사', 'Business · Notification CI'],
+              ['Realtime', 'Realtime CI'],
+            ];
+            const failed = new Set([
+              'action_required', 'cancelled', 'failure', 'stale', 'startup_failure', 'timed_out',
+            ]);
+            const label = (run) => {
+              if (!run) return '미대상';
+              if (run.status !== 'completed') return `진행 중 (${run.status})`;
+              return run.conclusion === 'success' ? '성공' : `실패 (${run.conclusion})`;
+            };
+            const findRun = (workflow) => data.workflow_runs.find((run) => run.name === workflow);
+            const satelliteCi = findRun('Business · Notification CI');
+            const satelliteCd = findRun('Satellite Dev CD');
+            const satelliteCdLabel = satelliteCd
+              ? label(satelliteCd)
+              : !satelliteCi
+                ? '미대상'
+                : satelliteCi.status !== 'completed'
+                  ? '대기 (CI 진행 중)'
+                  : satelliteCi.conclusion === 'success'
+                    ? '대기 또는 미실행'
+                    : 'CI 실패로 미실행';
+            const rows = [
+              ...ciTargets.map(([component, workflow]) => {
+                const run = findRun(workflow);
+                return [component, workflow, label(run), run ? `<a href="${run.html_url}">#${run.run_number}</a>` : '-'];
+              }),
+              [
+                'Business · Notification 배포',
+                'Satellite Dev CD',
+                satelliteCdLabel,
+                satelliteCd ? `<a href="${satelliteCd.html_url}">#${satelliteCd.run_number}</a>` : '-',
+              ],
+            ];
+
+            await core.summary
+              .addHeading('Dev 배포 흐름', 2)
+              .addRaw(`main SHA: \`${sha}\`\n\n`)
+              .addTable([
+                [{ data: '컴포넌트', header: true }, { data: '워크플로', header: true }, { data: '상태', header: true }, { data: '실행', header: true }],
+                ...rows,
+              ])
+              .addRaw('\n`미대상`은 해당 SHA에서 경로 필터상 변경이 없어 배포가 필요 없다는 뜻입니다.\n')
+              .write();
+
+            const bad = [...ciTargets.map(([, workflow]) => findRun(workflow)), satelliteCd]
+              .filter((run) => run && failed.has(run.conclusion));
+            if (bad.length > 0) {
+              core.setFailed(`완료되지 않았거나 실패한 CI가 있습니다: ${bad.map((run) => run.name).join(', ')}`);
+            }
+
+  runtime-status:
+    name: dev 런타임
+    runs-on: [self-hosted, dev]
+    timeout-minutes: 10
+    steps:
+      - name: 컨테이너·헬스 상태 요약
+        env:
+          STRICT: ${{ inputs.strict }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          components=(
+            'Data API|app'
+            'PostgreSQL|db'
+            'Data Redis|redis'
+            'Realtime|realtime'
+            'Business API|business-api'
+            'Business Redis|business-redis'
+            'Notification|notification'
+            'Kafka|kafka'
+            'Datadog Agent|datadog-agent'
+          )
+
+          failed=0
+          {
+            echo '## Dev 런타임 상태'
+            echo
+            echo '| 컴포넌트 | 컨테이너 | 이미지 | 실행 | 헬스 |'
+            echo '|---|---|---|---|---|'
+            for item in "${components[@]}"; do
+              IFS='|' read -r component service <<< "$item"
+              container_id=$(docker ps -aq \
+                --filter 'label=com.docker.compose.project=phone' \
+                --filter "label=com.docker.compose.service=$service" | head -n 1)
+
+              if [ -z "$container_id" ]; then
+                echo "| $component | - | - | 미기동 | - |"
+                failed=1
+                continue
+              fi
+
+              name=$(docker inspect --format '{{.Name}}' "$container_id" | sed 's#^/##')
+              image=$(docker inspect --format '{{.Config.Image}}' "$container_id")
+              state=$(docker inspect --format '{{.State.Status}}' "$container_id")
+              health=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}미설정{{end}}' "$container_id")
+              echo "| $component | \`$name\` | \`$image\` | $state | $health |"
+
+              if [ "$state" != running ] || { [ "$health" != healthy ] && [ "$health" != 미설정 ]; }; then
+                failed=1
+              fi
+            done
+            echo
+            echo '[Datadog Infrastructure](https://us5.datadoghq.com/infrastructure) · [APM Services](https://us5.datadoghq.com/apm/services) · [Kafka](https://us5.datadoghq.com/integrations/kafka) · [Redis](https://us5.datadoghq.com/integrations/redisdb)'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$STRICT" = true ] && [ "$failed" -ne 0 ]; then
+            echo 'strict 검사에서 미기동 또는 비정상 컴포넌트를 발견했습니다.' >&2
+            exit 1
+          fi

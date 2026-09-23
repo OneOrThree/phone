@@ -1,7 +1,17 @@
 package com.oneorthree.business.config;
 
 import com.oneorthree.business.common.http.ScreenComposer;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAppearanceClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
+import com.oneorthree.business.upstream.data.DataConstructionClient;
+import com.oneorthree.business.upstream.data.DataFocusClient;
+import com.oneorthree.business.upstream.data.DataFriendClient;
+import com.oneorthree.business.upstream.data.DataInviteClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
+import com.oneorthree.business.upstream.data.DataOutboxClient;
+import com.oneorthree.business.upstream.data.DataQuestClient;
+import com.oneorthree.business.upstream.data.DataRecordsClient;
+import com.oneorthree.business.upstream.data.DataShopClient;
 import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.realtime.RealtimeApiClient;
@@ -37,7 +47,17 @@ class UpstreamWorkerBudgetTest {
         runner.run(context -> assertThat(context).hasNotFailed()
                 .hasSingleBean(UpstreamConfigProperties.class)
                 .hasSingleBean(UpstreamClientConfig.class)
-                .hasSingleBean(DataApiClient.class)
+                .hasSingleBean(DataAuthClient.class)
+                .hasSingleBean(DataFocusClient.class)
+                .hasSingleBean(DataIslandClient.class)
+                .hasSingleBean(DataFriendClient.class)
+                .hasSingleBean(DataShopClient.class)
+                .hasSingleBean(DataAppearanceClient.class)
+                .hasSingleBean(DataQuestClient.class)
+                .hasSingleBean(DataConstructionClient.class)
+                .hasSingleBean(DataRecordsClient.class)
+                .hasSingleBean(DataInviteClient.class)
+                .hasSingleBean(DataOutboxClient.class)
                 .hasSingleBean(NotificationApiClient.class)
                 .hasSingleBean(LinkApiClient.class)
                 .hasSingleBean(RealtimeApiClient.class)
@@ -70,7 +90,7 @@ class UpstreamWorkerBudgetTest {
     @Test
     void validRedistributionAtBoundaryBindsAndStartsInsteadOfEnforcingPerTargetDefault() {
         configured(7, 3, 3, 3).run(context -> {
-            assertThat(context).hasNotFailed().hasSingleBean(DataApiClient.class)
+            assertThat(context).hasNotFailed().hasSingleBean(DataAuthClient.class)
                     .hasSingleBean(NotificationApiClient.class).hasSingleBean(LinkApiClient.class)
                     .hasSingleBean(ScreenComposer.class);
             // 상한 검증이 기본 객체가 아니라 실제 외부 설정으로 수행되는지 확인한다.

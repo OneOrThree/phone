@@ -649,9 +649,7 @@ class DispatchService {
                 // 시한이 지났다. 한 대라도 받았으면 발송으로 맺고, 아무도 못 받았으면 종결한다 — 재시도로 남기면
                 // 다음 틱이 만료를 다시 확인하는 사이 후보 상한을 차지하고, 형제의 재시도에 딸려 되살아날 여지가 남는다.
                 if (deliveredSomewhere) {
-                    store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
-                            + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
-                            Timestamp.from(clock.instant()), delivery);
+                    markSent(delivery);
                 } else {
                     expire(delivery);
                 }
@@ -662,13 +660,17 @@ class DispatchService {
                 // 기다린다. 다른 기기에 이미 성공한 알림은 무효 토큰 때문에 다시 보내지 않는다.
                 retry(delivery, "NO_ACTIVE_DEVICE");
             } else {
-                // 판정 잠금은 이미 풀렸다 — 상태를 다시 걸어, 그사이 탈퇴가 억제한 행을 되살리지 않는다.
-                store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
-                        + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
-                        Timestamp.from(clock.instant()), delivery);
+                markSent(delivery);
             }
             releaseLease(delivery, plan.leaseToken());
         }
+    }
+
+    private void markSent(UUID delivery) {
+        // 판정 잠금은 이미 풀렸다 — 상태를 다시 걸어, 그사이 탈퇴가 억제한 행을 되살리지 않는다.
+        store.update("UPDATE deliveries SET status='SENT',sent_at=?,attempts=attempts+1,"
+                + "last_error=NULL WHERE id=? AND status IN ('PENDING','DEFERRED')",
+                Timestamp.from(clock.instant()), delivery);
     }
 
     /**

@@ -550,32 +550,6 @@ public class UserService {
     }
 
     /**
-     * 푸시 기기 토큰 등록·갱신. 유저당 <b>토큰 1개</b>만 보관하므로 새 값이 옛 값을 덮는다 —
-     * 여러 기기에 동시에 푸시가 가지 않는다.
-     *
-     * @param userId      본인. 탈퇴 계정이면 404
-     * @param deviceToken FCM 등록 토큰. 기기·재설치마다 회전하므로 같은 유저가 반복해서 보낸다
-     */
-    @Transactional
-    public void registerDeviceToken(UUID userId, String deviceToken) {
-        // users 행(device_token) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getCallerForUpdate(userId);
-        user.setDeviceToken(deviceToken);
-    }
-
-    /**
-     * 토큰 해제 — 로그아웃/기기 변경 시 이전 유저에게 오발송되는 것 방지 (GROMO-528)
-     *
-     * @param userId 본인. 탈퇴 계정이면 404. 해제 뒤에는 새로 등록할 때까지 이 유저에게 푸시가 가지 않는다
-     */
-    @Transactional
-    public void clearDeviceToken(UUID userId) {
-        // users 행(device_token) 변경 트랜잭션 — 처음부터 배타 락 (GROMO-801, GROMO-1237).
-        User user = userQueryService.getCallerForUpdate(userId);
-        user.setDeviceToken(null);
-    }
-
-    /**
      * 유저의 활성 소셜 연동 목록 조회 (deletedAt IS NULL).
      * 게스트(연동 0개)는 빈 리스트 반환.
      *

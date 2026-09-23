@@ -6,8 +6,6 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.IslandManaged;
-import com.oneorthree.business.upstream.data.dto.JoinRequestAnswer;
 import com.oneorthree.business.usecase.IslandManagementUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -55,7 +53,7 @@ public class IslandManagementController {
      * {@code maxMembers}(1~15)는 GROMO-1993 에서 열었다 — 현원보다 작게 줄이면 Data 가 400 으로 거절한다.
      */
     @PatchMapping(value = "/islands/{islandId}", consumes = "application/json")
-    public IslandManaged manage(@PathVariable String islandId, @RequestBody JsonNode body,
+    public IslandManagementUseCase.ManagedIslandView manage(@PathVariable String islandId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -118,8 +116,8 @@ public class IslandManagementController {
 
     /** 가입 요청 승인·거절 (LLD §3.4). 본문은 정확히 {@code {decision: approve|reject}}. */
     @PatchMapping(value = "/islands/{islandId}/join-requests/{requestId}", consumes = "application/json")
-    public JoinRequestAnswer answer(@PathVariable String islandId, @PathVariable String requestId,
-            @RequestBody JsonNode body, HttpServletRequest request) {
+    public IslandManagementUseCase.JoinRequestAnswerView answer(@PathVariable String islandId,
+            @PathVariable String requestId, @RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         UUID island = uuid(islandId, "islandId");

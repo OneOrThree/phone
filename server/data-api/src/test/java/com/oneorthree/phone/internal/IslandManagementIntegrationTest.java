@@ -618,15 +618,13 @@ class IslandManagementIntegrationTest {
         UUID islandId = islands.create(host, new CreateIslandCommandRequest("혼자섬", null, false, null),
                 UUID.randomUUID()).id();
         assertThat(count("select count(*) from island_wallets where island_id=?", islandId)).isEqualTo(1);
-        // 게시판·참여 코드는 create 가 만들지 않으므로 직접 심는다 — 「공동 기록을 함께 삭제」의 대상이
+        // 게시판은 create 가 만들지 않으므로 직접 심는다 — 「공동 기록을 함께 삭제」의 대상이
         // 지갑·건설만이 아니라는 것을 고정한다(댓글 FK 는 ON DELETE SET NULL 이라 저절로 사라지지 않는다).
         UUID noticeId = UUID.randomUUID();
         jdbc.update("insert into group_announcements (id, group_id, user_id, title, content, created_at)"
                 + " values (?, ?, ?, '제목', '공지', now())", noticeId, islandId, host);
         jdbc.update("insert into group_announcement_comments (id, notice_id, author_id, text, created_at)"
                 + " values (?, ?, ?, '댓글', now())", UUID.randomUUID(), noticeId, host);
-        jdbc.update("insert into group_join_codes (group_id, code, status, created_at, updated_at)"
-                + " values (?, 'ABC123', 'ACTIVE', now(), now())", islandId);
 
         management.leave(host, islandId, UUID.randomUUID());
 
@@ -641,8 +639,6 @@ class IslandManagementIntegrationTest {
                 .as("게시판 공지").isZero();
         assertThat(count("select count(*) from group_announcement_comments where notice_id=?", noticeId))
                 .as("공지 댓글 — SET NULL 로 남지 않는다").isZero();
-        assertThat(count("select count(*) from group_join_codes where group_id=?", islandId))
-                .as("참여 코드").isZero();
         assertThat(currentIsland(host)).as("마지막 섬을 잃으면 현재 섬이 없다").isNull();
         assertThat(lossReason(host)).isEqualTo("LEFT");
         // 저장만으로는 앱이 알 수 없다 — 내 섬 조회가 같은 사유를 실어야 한다 (GROMO-2038).

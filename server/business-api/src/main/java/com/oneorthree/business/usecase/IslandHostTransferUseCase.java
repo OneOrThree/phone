@@ -7,7 +7,8 @@ import com.oneorthree.business.common.exception.UpstreamContractMismatchExceptio
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.ResourceVersions;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -19,7 +20,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class IslandHostTransferUseCase {
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
 
     public Result transfer(AccessTokenClaims claims, UUID islandId, UUID targetUserId, UUID key, Deadline deadline) {
         JsonNode response;
@@ -79,6 +80,7 @@ public class IslandHostTransferUseCase {
         return new UpstreamContractMismatchException("방장 위임 응답 계약 불일치");
     }
 
+    @Schema(name = "IslandHostTransferResult")
     public record Result(UUID hostUserId, long version) {
     }
 }

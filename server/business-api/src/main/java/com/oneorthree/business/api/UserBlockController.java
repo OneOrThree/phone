@@ -5,7 +5,7 @@ import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.BlockedUser;
+import com.oneorthree.business.usecase.UserBlockUseCase.BlockedUserView;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import com.oneorthree.business.usecase.UserBlockUseCase;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,7 +46,7 @@ public class UserBlockController {
     }
 
     @GetMapping("/blocks")
-    public List<BlockedUser> blocks(HttpServletRequest request) {
+    public List<BlockedUserView> blocks(HttpServletRequest request) {
         return blocks.blocks(sessions.requireSession(request), deadline());
     }
 

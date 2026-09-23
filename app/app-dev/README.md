@@ -45,6 +45,21 @@ npm test
 npx expo export --platform all
 ```
 
+## PostHog 제품 분석
+
+릴리스 빌드는 PostHog `CatUs / Default project`(US)의 공개 프로젝트 토큰으로 이벤트를 보냅니다. [활성화와 집중 대시보드](https://us.posthog.com/project/624010/dashboard/2126236)에서 첫 사용·집중 퍼널과 일별 사용량을 봅니다. 개발 빌드는 기본적으로 전송하지 않으며, 검증할 때만 `EXPO_PUBLIC_POSTHOG_DEV_ENABLED=1`을 설정합니다. `?demo`·`?review` 웹 화면은 수집 대상에서 제외합니다.
+
+| 이벤트                              | 발생 시점                                           |
+| ----------------------------------- | --------------------------------------------------- |
+| `$screen`                           | 커스텀 라우터의 화면 전환                           |
+| `guest_login_completed`             | 게스트 계정 세션 채택 완료                          |
+| `member_conversion_completed`       | 소셜 회원 전환 완료                                 |
+| `island_join_requested`             | 섬 가입 승인 요청 확정                              |
+| `island_membership_activated`       | 섬 생성·즉시 가입·승인 후 소속 확정 (`method` 속성) |
+| `focus_started` / `focus_completed` | 서버 집중 시작·정산 확정                            |
+
+로그인 세션의 서버 `userId`만 분석 식별자로 쓰고 로그아웃 시 식별자를 초기화합니다. 화면의 입력 내용·섬 이름·집중 주제는 전송하지 않습니다. 세션 리플레이, 터치 자동 수집, 위치 추정은 꺼져 있습니다. 프로젝트 토큰과 수집 호스트는 각각 `EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN`, `EXPO_PUBLIC_POSTHOG_HOST`로 빌드별 재정의할 수 있습니다.
+
 웹 상호작용 검증은 정적 빌드를 로컬 서버로 띄운 뒤 실행합니다.
 
 ```sh

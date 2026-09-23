@@ -173,17 +173,6 @@ Enum group_announcement_grant { // 멤버 단위 공지 작성 권한 (개별 �
   ALLOW
 }
 
-Enum code_status {            // 참가 코드 상태
-  ACTIVE
-  ENDED
-}
-
-Enum group_invite_status {    // 그룹 초대 상태 (미사용 — 초대 테이블 미구현)
-  PENDING
-  ACCEPTED
-  DECLINED
-}
-
 // 5. 아이템 / 캐릭터
 Enum item_type {              // 아이템 종류
   EQUIPPABLE
@@ -900,17 +889,6 @@ Table groups [note: '스터디/챌린지 그룹'] {
   }
 }
 
-Table group_join_codes [note: '그룹 참가 코드 (groups에서 분리, 1:1). 발급·만료·재발급 관리. 추후 활성 코드 검증·만료를 Redis(TTL)로 이관 가능 — 이 테이블이 캐시 계층 경계'] {
-  group_id    uuid        [pk, note: 'FK → groups.id (1:1)']
-
-  code        varchar(8)  [not null, unique, note: '참가 코드 (8자 랜덤 영문/숫자). 재발급 시 같은 행 UPDATE']
-  status      code_status [not null, default: 'ACTIVE', note: 'ACTIVE / ENDED']
-  expires_at  timestamptz [note: '만료 시각 (발급 + 24h) — 추후 Redis TTL 로 이관']
-
-  created_at  timestamptz [not null, default: `now()`, note: '발급 시각']
-  updated_at  timestamptz [note: '재발급(코드 갱신) 시각']
-}
-
 Table user_island_contexts [note: '사용자의 현재 섬 컨텍스트 (users 1:1) — 논리 모델 UserIslandContext. GROMO-1907, island-membership LLD §4'] {
   user_id            uuid   [pk, note: 'FK → users.id (1:1)']
   current_island_id  uuid   [note: 'FK → groups.id. NULL 이면 지금 접속한 섬이 없다 — "한 번도 없음"인지 "잃었음"인지는 loss_reason 이 가른다(GROMO-1995, V84)']
@@ -1253,19 +1231,6 @@ Table group_announcement_comments [note: '섬 게시판 공지 댓글 — 불변
   indexes {
     (notice_id, created_at, id) [name: 'ix_group_announcement_comments_notice_created', note: '댓글 페이지 keyset (createdAt ASC, id ASC) + commentCount']
   }
-}
-
-Table group_invites [note: '유저 대 유저 그룹 초대 (V1 baseline). **미사용** — 직접 초대 기능을 접었고 참여는 초대 링크(group_invite_links)·참가 코드(group_join_codes)가 담당한다(2026-07-31). 엔티티 GroupInvite 는 남아 있으나 서비스·컨트롤러 참조 0건이고 테이블도 비어 있다. 잔존 비용 < 삭제 비용이라 두고 있다. 이 파일에 통째로 빠져 있던 것을 GROMO-1912 에서 복원'] {
-  id           uuid         [pk]
-
-  group_id     uuid         [not null, note: 'FK → groups.id — 초대 대상 그룹']
-  inviter_id   uuid         [not null, note: 'FK → users.id — 초대한 유저']
-  invitee_id   uuid         [not null, note: 'FK → users.id — 초대받은 유저']
-
-  status       varchar(255) [not null, note: "PENDING(응답 대기, 발급 시 기본값) / ACCEPTED(수락 — 멤버 행 생성 시점) / DECLINED(거절 — 재초대는 막지 않았다). CHECK group_invites_status_check 3값. Enum 선언을 두지 않은 이유는 폐기 기능이라서다"]
-
-  invited_at   timestamptz  [note: '초대 시각 (DB 는 NOT NULL 아님 — @CreationTimestamp)']
-  responded_at timestamptz  [note: '수락/거절 시각 — PENDING 이면 null']
 }
 
 // ────────────────────────────────────────────
@@ -1835,16 +1800,12 @@ Ref: focus_session_pomodoros.focus_session_id - focus_sessions.id
 Ref: focus_session_pomodoros.pomodoro_setting_id > focus_sessions_pomodoro_setting.id
 
 // 그룹
-Ref: group_join_codes.group_id - groups.id
 Ref: group_members.user_id > users.id
 Ref: group_members.group_id > groups.id
 Ref: group_announcements.group_id > groups.id
 Ref: group_announcements.user_id > users.id
 Ref: group_announcement_comments.notice_id > group_announcements.id [delete: set null]
 Ref: group_announcement_comments.author_id > users.id [delete: set null]
-Ref: group_invites.group_id > groups.id
-Ref: group_invites.inviter_id > users.id
-Ref: group_invites.invitee_id > users.id
 
 // 보유품·외양 (GROMO-1783, V64) — 전부 ON DELETE RESTRICT
 Ref: owned_products.user_id > users.id

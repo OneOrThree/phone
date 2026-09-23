@@ -6,7 +6,7 @@ import java.util.List;
  * 주간 섬 랭킹의 상류 응답 (GROMO-1997, island-rankings LLD §2). 주는 <b>주 시작일</b>({@code YYYY-MM-DD} 인
  * UTC 일요일)이고 {@code asOf} 는 UTC instant 문자열이다 — 형식을 다시 쓰지 않고 그대로 내보낸다.
  *
- * <p>개인정보가 없다 — 섬 이름과 평균 초뿐이다. 항목 record 는 공개 모양과 같아 그대로 싣는다.
+ * <p>개인정보가 없다 — 섬 이름과 평균 초뿐이다. 항목은 Business 공개 DTO로 변환한 뒤 응답에 싣는다.
  */
 public final class IslandRankingViews {
 

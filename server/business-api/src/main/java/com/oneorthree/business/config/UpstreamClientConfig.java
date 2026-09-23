@@ -5,7 +5,17 @@ import com.oneorthree.business.common.http.ScreenComposer;
 import jakarta.annotation.PreDestroy;
 import com.oneorthree.business.common.http.UpstreamProperties;
 import com.oneorthree.business.common.http.UpstreamTarget;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAppearanceClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
+import com.oneorthree.business.upstream.data.DataConstructionClient;
+import com.oneorthree.business.upstream.data.DataFocusClient;
+import com.oneorthree.business.upstream.data.DataFriendClient;
+import com.oneorthree.business.upstream.data.DataInviteClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
+import com.oneorthree.business.upstream.data.DataOutboxClient;
+import com.oneorthree.business.upstream.data.DataQuestClient;
+import com.oneorthree.business.upstream.data.DataRecordsClient;
+import com.oneorthree.business.upstream.data.DataShopClient;
 import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.realtime.RealtimeApiClient;
@@ -35,6 +45,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 public class UpstreamClientConfig {
 
     private final Queue<InternalHttpClient> ownedClients = new ConcurrentLinkedQueue<>();
+    /** 도메인별 Data 클라이언트가 나눠 쓰는 유일한 DATA 풀 — 첫 bean 이 만들고 나머지가 재사용한다. */
+    private InternalHttpClient dataHttp;
 
     public UpstreamClientConfig(UpstreamConfigProperties properties) {
         properties.validateWorkerBudget();
@@ -72,10 +84,68 @@ public class UpstreamClientConfig {
         }
     }
 
+    private InternalHttpClient dataHttp(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        if (dataHttp == null) {
+            dataHttp = client(UpstreamTarget.DATA, convert(properties.getData()), objectMapper);
+        }
+        return dataHttp;
+    }
+
+    /** Data 대상은 도메인별 client 가 하나의 HTTP 풀·자격을 나눠 쓴다 — 전송 규율은 {@link InternalHttpClient} 한 곳. */
     @Bean
-    public DataApiClient dataApiClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
-        return new DataApiClient(
-                client(UpstreamTarget.DATA, convert(properties.getData()), objectMapper));
+    public DataAuthClient dataAuthClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataAuthClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataFocusClient dataFocusClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataFocusClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataIslandClient dataIslandClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataIslandClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataFriendClient dataFriendClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataFriendClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataShopClient dataShopClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataShopClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataAppearanceClient dataAppearanceClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataAppearanceClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataQuestClient dataQuestClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataQuestClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataConstructionClient dataConstructionClient(UpstreamConfigProperties properties,
+            ObjectMapper objectMapper) {
+        return new DataConstructionClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataRecordsClient dataRecordsClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataRecordsClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataInviteClient dataInviteClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataInviteClient(dataHttp(properties, objectMapper));
+    }
+
+    @Bean
+    public DataOutboxClient dataOutboxClient(UpstreamConfigProperties properties, ObjectMapper objectMapper) {
+        return new DataOutboxClient(dataHttp(properties, objectMapper));
     }
 
     @Bean

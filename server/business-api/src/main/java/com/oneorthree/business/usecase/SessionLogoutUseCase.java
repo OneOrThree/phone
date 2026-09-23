@@ -6,7 +6,8 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -16,7 +17,7 @@ import tools.jackson.databind.JsonNode;
 @RequiredArgsConstructor
 public class SessionLogoutUseCase {
 
-    private final DataApiClient data;
+    private final DataAuthClient data;
 
     public Result logout(LogoutCredentials credentials, Deadline deadline) {
         JsonNode response;
@@ -41,6 +42,7 @@ public class SessionLogoutUseCase {
         return new Result(true);
     }
 
+    @Schema(name = "SessionLogoutResult")
     public record Result(boolean revoked) {
     }
 }

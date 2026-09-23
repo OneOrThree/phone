@@ -66,8 +66,22 @@ class UserBlockContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.field").value("blockedUserId"));
         DATA.on("POST " + INTERNAL, request -> error(400, "UNKNOWN_BLOCK_ERROR"));
         mockMvc.perform(auth(post("/blocks").contentType(MediaType.APPLICATION_JSON).content(BODY)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void blockListProjectsOnlyPublicFieldsAndPreservesOrder(boolean empty) throws Exception {
+        String expected = empty ? "[]" : "[{\"id\":\"" + TARGET + "\",\"name\":\"첫 상대\"},"
+                + "{\"id\":\"" + USER + "\",\"name\":\"다음 상대\"}]";
+        String upstream = expected.replace("\"name\":\"첫 상대\"}", "\"name\":\"첫 상대\",\"block_row_id\":7}")
+                .replace("\"name\":\"다음 상대\"}", "\"name\":\"다음 상대\",\"blocked_at\":\"internal\"}");
+        DATA.on("GET " + INTERNAL, request -> ok(upstream));
+        var result = mockMvc.perform(auth(get("/blocks"))).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
+                .isEqualTo(json.readTree(expected));
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
