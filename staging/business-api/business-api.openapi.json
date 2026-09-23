@@ -44,7 +44,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScreenTimeDay"
+                  "$ref": "#/components/schemas/ScreenTimeDayView"
                 }
               }
             }
@@ -74,7 +74,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/CurrentIsland"
+                  "$ref": "#/components/schemas/CurrentIslandView"
                 }
               }
             }
@@ -114,7 +114,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConstructionTarget"
+                  "$ref": "#/components/schemas/ConstructionTargetView"
                 }
               }
             }
@@ -262,7 +262,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/LetterSlice"
+                  "$ref": "#/components/schemas/LetterPageView"
                 }
               }
             }
@@ -290,7 +290,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/LetterView"
+                  "$ref": "#/components/schemas/LetterDetailView"
                 }
               }
             }
@@ -368,7 +368,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/IslandCreated"
+                  "$ref": "#/components/schemas/IslandCreatedView"
                 }
               }
             }
@@ -436,7 +436,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Order"
+                  "$ref": "#/components/schemas/ShopOrder"
                 }
               }
             }
@@ -476,7 +476,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Created"
+                  "$ref": "#/components/schemas/IslandQuestCreated"
                 }
               }
             }
@@ -524,7 +524,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Claimed"
+                  "$ref": "#/components/schemas/IslandQuestClaimed"
                 }
               }
             }
@@ -592,7 +592,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Notice"
+                  "$ref": "#/components/schemas/NoticeView"
                 }
               }
             }
@@ -640,7 +640,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/CommentCreated"
+                  "$ref": "#/components/schemas/NoticeCommentCreatedView"
                 }
               }
             }
@@ -747,7 +747,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/JoinIslandResult"
+                  "$ref": "#/components/schemas/IslandJoinResultView"
                 }
               }
             }
@@ -777,7 +777,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/IslandInvitationIssued"
+                  "$ref": "#/components/schemas/IslandInvitationView"
                 }
               }
             }
@@ -817,7 +817,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "$ref": "#/components/schemas/IslandHostTransferResult"
                 }
               }
             }
@@ -857,7 +857,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConstructionResult"
+                  "$ref": "#/components/schemas/ConstructionResultView"
                 }
               }
             }
@@ -887,7 +887,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/InvitationResolved"
+                  "$ref": "#/components/schemas/InvitationResolvedView"
                 }
               }
             }
@@ -1247,7 +1247,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "$ref": "#/components/schemas/AuthSessionResult"
                 }
               }
             }
@@ -1267,7 +1267,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "$ref": "#/components/schemas/AuthSessionResult"
                 }
               }
             }
@@ -1287,7 +1287,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "$ref": "#/components/schemas/SessionRefreshResult"
                 }
               }
             }
@@ -1327,7 +1327,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "type": "object"
+                  "$ref": "#/components/schemas/ChallengeResultClaimResponse"
                 }
               }
             }
@@ -1555,7 +1555,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Deleted"
+                  "$ref": "#/components/schemas/AccountDeleted"
                 }
               }
             }
@@ -1603,7 +1603,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "$ref": "#/components/schemas/AccountSettingsResult"
                 }
               }
             }
@@ -1631,7 +1631,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "$ref": "#/components/schemas/AccountSettingsResult"
                 }
               }
             }
@@ -1777,7 +1777,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Updated"
+                  "$ref": "#/components/schemas/IslandQuestUpdated"
                 }
               }
             }
@@ -1919,7 +1919,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Deleted"
+                  "$ref": "#/components/schemas/NoticeDeletedView"
                 }
               }
             }
@@ -1965,7 +1965,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Notice"
+                  "$ref": "#/components/schemas/NoticeView"
                 }
               }
             }
@@ -2427,7 +2427,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/JoinRequestStatus"
+                  "$ref": "#/components/schemas/JoinRequestStatusView"
                 }
               }
             }
@@ -2455,7 +2455,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/JoinRequestCancel"
+                  "$ref": "#/components/schemas/JoinRequestCancelView"
                 }
               }
             }
@@ -2545,7 +2545,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/LetterView"
+                  "$ref": "#/components/schemas/LetterDetailView"
                 }
               }
             }
@@ -2656,7 +2656,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/IslandFishEarnings"
+                  "$ref": "#/components/schemas/FishEarningsView"
                 }
               }
             }
@@ -2686,7 +2686,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Wallets"
+                  "$ref": "#/components/schemas/ShopWallets"
                 }
               }
             }
@@ -2754,7 +2754,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Product"
+                  "$ref": "#/components/schemas/ShopProduct"
                 }
               }
             }
@@ -2852,7 +2852,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Progress"
+                  "$ref": "#/components/schemas/IslandQuestProgressView"
                 }
               }
             }
@@ -2882,7 +2882,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Current"
+                  "$ref": "#/components/schemas/CurrentQuestsView"
                 }
               }
             }
@@ -3032,7 +3032,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/ConstructionOptions"
+                  "$ref": "#/components/schemas/ConstructionOptionsView"
                 }
               }
             }
@@ -3394,7 +3394,7 @@
             "content": {
               "*/*": {
                 "schema": {
-                  "$ref": "#/components/schemas/Result"
+                  "$ref": "#/components/schemas/SessionLogoutResult"
                 }
               }
             }
@@ -3494,7 +3494,7 @@
           }
         }
       },
-      "ScreenTimeDay": {
+      "ScreenTimeDayView": {
         "type": "object",
         "properties": {
           "date": {
@@ -3509,7 +3509,7 @@
           }
         }
       },
-      "CurrentIsland": {
+      "CurrentIslandView": {
         "type": "object",
         "properties": {
           "currentIslandId": {
@@ -3521,7 +3521,7 @@
           "currentIslandId"
         ]
       },
-      "ConstructionTarget": {
+      "ConstructionTargetView": {
         "type": "object",
         "properties": {
           "buildingId": {
@@ -3605,7 +3605,7 @@
           }
         }
       },
-      "LetterView": {
+      "LetterDetailView": {
         "type": "object",
         "properties": {
           "id": {
@@ -3680,7 +3680,7 @@
           }
         }
       },
-      "IslandCreated": {
+      "IslandCreatedView": {
         "type": "object",
         "properties": {
           "id": {
@@ -3705,7 +3705,7 @@
           "role"
         ]
       },
-      "Order": {
+      "ShopOrder": {
         "type": "object",
         "properties": {
           "id": {
@@ -3743,7 +3743,7 @@
           "walletVersion"
         ]
       },
-      "Created": {
+      "IslandQuestCreated": {
         "type": "object",
         "properties": {
           "id": {
@@ -3758,7 +3758,7 @@
           "title"
         ]
       },
-      "Claimed": {
+      "IslandQuestClaimed": {
         "type": "object",
         "properties": {
           "claimId": {
@@ -3787,7 +3787,7 @@
           "villagePointsAdded"
         ]
       },
-      "Notice": {
+      "NoticeView": {
         "type": "object",
         "properties": {
           "id": {
@@ -3807,7 +3807,7 @@
           "title"
         ]
       },
-      "CommentCreated": {
+      "NoticeCommentCreatedView": {
         "type": "object",
         "properties": {
           "id": {
@@ -3853,7 +3853,7 @@
           }
         }
       },
-      "JoinIslandResult": {
+      "IslandJoinResultView": {
         "type": "object",
         "properties": {
           "status": {
@@ -3884,7 +3884,7 @@
           "version"
         ]
       },
-      "IslandInvitationIssued": {
+      "IslandInvitationView": {
         "type": "object",
         "properties": {
           "code": {
@@ -3904,7 +3904,7 @@
           "url"
         ]
       },
-      "Result": {
+      "IslandHostTransferResult": {
         "type": "object",
         "properties": {
           "hostUserId": {
@@ -3917,7 +3917,7 @@
           }
         }
       },
-      "ConstructionResult": {
+      "ConstructionResultView": {
         "type": "object",
         "properties": {
           "buildingId": {
@@ -3927,7 +3927,7 @@
             "type": "string"
           },
           "spent": {
-            "$ref": "#/components/schemas/Spent"
+            "$ref": "#/components/schemas/ConstructionSpent"
           },
           "version": {
             "type": "integer",
@@ -3959,7 +3959,7 @@
           "walletVersion"
         ]
       },
-      "Spent": {
+      "ConstructionSpent": {
         "type": "object",
         "properties": {
           "currency": {
@@ -3975,11 +3975,11 @@
           "currency"
         ]
       },
-      "InvitationResolved": {
+      "InvitationResolvedView": {
         "type": "object",
         "properties": {
           "island": {
-            "$ref": "#/components/schemas/IslandSummary"
+            "$ref": "#/components/schemas/IslandSummaryView"
           },
           "invitationToken": {
             "type": "string"
@@ -3990,7 +3990,7 @@
           "island"
         ]
       },
-      "IslandSummary": {
+      "IslandSummaryView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4180,6 +4180,35 @@
           "myRate"
         ]
       },
+      "AuthSessionResult": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          },
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "onboardingComplete": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionRefreshResult": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string"
+          },
+          "refreshToken": {
+            "type": "string"
+          }
+        }
+      },
       "ChallengeResultClaimRequest": {
         "type": "object",
         "properties": {
@@ -4188,6 +4217,17 @@
             "format": "uuid"
           }
         }
+      },
+      "ChallengeResultClaimResponse": {
+        "type": "object",
+        "properties": {
+          "claimToken": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "claimToken"
+        ]
       },
       "ChallengeResultAckRequest": {
         "type": "object",
@@ -4298,6 +4338,14 @@
           "name"
         ]
       },
+      "AccountSettingsResult": {
+        "type": "object",
+        "properties": {
+          "notifications": {
+            "type": "boolean"
+          }
+        }
+      },
       "PersonalAppearanceView": {
         "type": "object",
         "properties": {
@@ -4360,7 +4408,7 @@
           "version"
         ]
       },
-      "Updated": {
+      "IslandQuestUpdated": {
         "type": "object",
         "properties": {
           "id": {
@@ -4468,7 +4516,7 @@
           "version"
         ]
       },
-      "IslandRanking": {
+      "IslandRankingView": {
         "type": "object",
         "properties": {
           "rank": {
@@ -4493,7 +4541,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/IslandRanking"
+              "$ref": "#/components/schemas/IslandRankingView"
             }
           },
           "myRank": {
@@ -4544,7 +4592,7 @@
           "onboardingComplete"
         ]
       },
-      "Item": {
+      "MyJoinRequestView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4594,7 +4642,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Item"
+              "$ref": "#/components/schemas/MyJoinRequestView"
             }
           },
           "nextCursor": {
@@ -4602,7 +4650,7 @@
           }
         }
       },
-      "JoinRequestStatus": {
+      "JoinRequestStatusView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4634,7 +4682,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/IslandSummary"
+              "$ref": "#/components/schemas/IslandSummaryView"
             }
           },
           "nextCursor": {
@@ -4716,7 +4764,7 @@
           "totalSeconds"
         ]
       },
-      "LetterItem": {
+      "LetterItemView": {
         "type": "object",
         "properties": {
           "id": {
@@ -4748,13 +4796,13 @@
           "isRead"
         ]
       },
-      "LetterSlice": {
+      "LetterPageView": {
         "type": "object",
         "properties": {
           "content": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/LetterItem"
+              "$ref": "#/components/schemas/LetterItemView"
             }
           },
           "size": {
@@ -4781,7 +4829,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/IslandSummary"
+              "$ref": "#/components/schemas/IslandSummaryView"
             }
           },
           "nextCursor": {
@@ -4789,18 +4837,7 @@
           }
         }
       },
-      "IslandFishEarnings": {
-        "type": "object",
-        "properties": {
-          "members": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Member"
-            }
-          }
-        }
-      },
-      "Member": {
+      "FishEarningsMember": {
         "type": "object",
         "properties": {
           "userId": {
@@ -4816,7 +4853,18 @@
           }
         }
       },
-      "Wallets": {
+      "FishEarningsView": {
+        "type": "object",
+        "properties": {
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FishEarningsMember"
+            }
+          }
+        }
+      },
+      "ShopWallets": {
         "type": "object",
         "properties": {
           "fish": {
@@ -4849,7 +4897,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Item"
+              "$ref": "#/components/schemas/ShopCatalogItem"
             }
           },
           "nextCursor": {
@@ -4857,7 +4905,56 @@
           }
         }
       },
-      "Product": {
+      "ShopCatalogItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "price": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "ownerType": {
+            "type": "string"
+          },
+          "owned": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "productVersion": {
+            "type": "integer",
+            "format": "int32"
+          }
+        },
+        "required": [
+          "available",
+          "currency",
+          "id",
+          "kind",
+          "owned",
+          "ownerType",
+          "price",
+          "productVersion",
+          "reason",
+          "title"
+        ]
+      },
+      "ShopProduct": {
         "type": "object",
         "properties": {
           "id": {
@@ -4899,7 +4996,7 @@
             "type": "string"
           },
           "requiredProduct": {
-            "$ref": "#/components/schemas/RequiredProduct"
+            "$ref": "#/components/schemas/ShopRequiredProduct"
           },
           "targetBuilding": {
             "type": "string"
@@ -4922,7 +5019,7 @@
           "title"
         ]
       },
-      "RequiredProduct": {
+      "ShopRequiredProduct": {
         "type": "object",
         "properties": {
           "id": {
@@ -4937,7 +5034,21 @@
           "title"
         ]
       },
-      "OrderItem": {
+      "Orders": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ShopOrderItem"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "ShopOrderItem": {
         "type": "object",
         "properties": {
           "id": {
@@ -4966,20 +5077,6 @@
           "price",
           "productId"
         ]
-      },
-      "Orders": {
-        "type": "object",
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/OrderItem"
-            }
-          },
-          "nextCursor": {
-            "type": "string"
-          }
-        }
       },
       "MemberWatermarkView": {
         "type": "object",
@@ -5054,7 +5151,7 @@
           "watermarks"
         ]
       },
-      "Entry": {
+      "IslandLedgerEntry": {
         "type": "object",
         "properties": {
           "id": {
@@ -5102,7 +5199,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Entry"
+              "$ref": "#/components/schemas/IslandLedgerEntry"
             }
           },
           "nextCursor": {
@@ -5110,7 +5207,39 @@
           }
         }
       },
-      "Progress": {
+      "IslandQuestMember": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rate": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "measurementStatus": {
+            "type": "string"
+          },
+          "achieved": {
+            "type": "boolean"
+          },
+          "claimed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "achieved",
+          "claimed",
+          "measurementStatus",
+          "name",
+          "rate",
+          "userId"
+        ]
+      },
+      "IslandQuestProgressView": {
         "type": "object",
         "properties": {
           "id": {
@@ -5146,7 +5275,7 @@
             "format": "int32"
           },
           "reward": {
-            "$ref": "#/components/schemas/Reward"
+            "$ref": "#/components/schemas/IslandQuestReward"
           },
           "settlementStatus": {
             "type": "string"
@@ -5174,7 +5303,7 @@
           "members": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Member"
+              "$ref": "#/components/schemas/IslandQuestMember"
             }
           },
           "nextCursor": {
@@ -5204,7 +5333,7 @@
           "windowStart"
         ]
       },
-      "Reward": {
+      "IslandQuestReward": {
         "type": "object",
         "properties": {
           "currency": {
@@ -5220,13 +5349,13 @@
           "currency"
         ]
       },
-      "Current": {
+      "CurrentQuestsView": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Item"
+              "$ref": "#/components/schemas/IslandQuestItem"
             }
           }
         },
@@ -5234,13 +5363,112 @@
           "items"
         ]
       },
+      "IslandQuestItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "occurrenceId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "windowStart": {
+            "type": "string"
+          },
+          "windowEnd": {
+            "type": "string"
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "targetMinutes": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "myRate": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "reward": {
+            "$ref": "#/components/schemas/IslandQuestReward"
+          },
+          "settlementStatus": {
+            "type": "string"
+          },
+          "claimable": {
+            "type": "boolean"
+          },
+          "claimBlockedReason": {
+            "type": "string"
+          },
+          "claimed": {
+            "type": "boolean"
+          },
+          "bonusAmount": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "bonusGranted": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64"
+          }
+        },
+        "required": [
+          "bonusAmount",
+          "bonusGranted",
+          "claimBlockedReason",
+          "claimable",
+          "claimed",
+          "date",
+          "id",
+          "myRate",
+          "occurrenceId",
+          "reward",
+          "settlementStatus",
+          "targetMinutes",
+          "timezone",
+          "title",
+          "type",
+          "version",
+          "windowEnd",
+          "windowStart"
+        ]
+      },
+      "IslandNoticeItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "commentCount": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
       "Page": {
         "type": "object",
         "properties": {
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Item"
+              "$ref": "#/components/schemas/IslandNoticeItem"
             }
           },
           "nextCursor": {
@@ -5537,7 +5765,43 @@
           "watermarks"
         ]
       },
-      "ConstructionOptions": {
+      "ConstructionOptionItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "cost": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "selectable": {
+            "type": "boolean"
+          },
+          "buildable": {
+            "type": "boolean"
+          },
+          "blockedReason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "blockedReason",
+          "buildable",
+          "cost",
+          "currency",
+          "id",
+          "name",
+          "selectable"
+        ]
+      },
+      "ConstructionOptionsView": {
         "type": "object",
         "properties": {
           "islandVersion": {
@@ -5562,7 +5826,7 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Item"
+              "$ref": "#/components/schemas/ConstructionOptionItem"
             }
           }
         },
@@ -5710,7 +5974,7 @@
           }
         }
       },
-      "Deleted": {
+      "AccountDeleted": {
         "type": "object",
         "properties": {
           "deleted": {
@@ -5718,7 +5982,7 @@
           }
         }
       },
-      "JoinRequestCancel": {
+      "JoinRequestCancelView": {
         "type": "object",
         "properties": {
           "id": {
@@ -5734,6 +5998,17 @@
           "status"
         ]
       },
+      "NoticeDeletedView": {
+        "type": "object",
+        "properties": {
+          "deleted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted"
+        ]
+      },
       "Left": {
         "type": "object",
         "properties": {
@@ -5746,6 +6021,14 @@
         "type": "object",
         "properties": {
           "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SessionLogoutResult": {
+        "type": "object",
+        "properties": {
+          "revoked": {
             "type": "boolean"
           }
         }
