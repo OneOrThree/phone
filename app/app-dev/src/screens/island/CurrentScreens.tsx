@@ -1041,6 +1041,27 @@ function FocusFlow({ e }: any) {
     emoteSessionId,
     onSendError: e.notify,
   });
+  const activeFocusCount = live.focus.filter((member) => member.status === 'active').length;
+  useEffect(() => {
+    if (!liveIslandId || !s.session) return;
+    e.onPresenceCounts?.(
+      s.session.id,
+      liveIslandId,
+      live.status === 'ready'
+        ? {
+            focus: Math.max(activeFocusCount, s.session.status === 'active' ? 1 : 0),
+            rest: Math.max(live.rest.length, s.session.status === 'paused' ? 1 : 0),
+          }
+        : null,
+    );
+  }, [
+    liveIslandId,
+    s.session?.id,
+    s.session?.status,
+    live.status,
+    activeFocusCount,
+    live.rest.length,
+  ]);
   const myId = getSession()?.userId;
   useEffect(
     () => () => {

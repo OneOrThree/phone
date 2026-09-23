@@ -12,6 +12,9 @@ module.exports = {
       // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
       requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.focuscat',
+      infoPlist: {
+        NSSupportsLiveActivities: true,
+      },
       entitlements: {
         'com.apple.developer.family-controls': true,
         'com.apple.security.application-groups': ['group.com.oneorthree.focuscat'],

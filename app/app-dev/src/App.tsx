@@ -21,6 +21,7 @@ import {
   Share,
   AccessibilityInfo,
   FlatList,
+  Linking,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -30,6 +31,7 @@ import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
 import { bundledAudioSource } from '@/constants/audio';
 import { playbackSeekSeconds } from '@/services/api/playback';
 import { screenTime, selectionCount } from '@/services/screenTime';
+import { endLiveActivities, syncLiveActivity } from '@/services/liveActivity';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
@@ -279,6 +281,12 @@ function Gromo() {
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
+  const [liveCounts, setLiveCounts] = useState<{
+    sessionId: string;
+    islandId: string;
+    focus: number;
+    rest: number;
+  } | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
   const transition = useRef(new Animated.Value(1)).current,
@@ -550,6 +558,7 @@ function Gromo() {
       setConvUi(null);
       settleSwitch(false);
       dispatch({ type: 'LOGOUT' });
+      void endLiveActivities().catch(() => {});
       reset('login');
     });
     return () => setSessionLostHandler(null);
@@ -769,6 +778,38 @@ function Gromo() {
     }
   }, [loaded, state.session?.id, state.session?.status, state.session?.subject]);
   useEffect(() => {
+    if (!loaded || Platform.OS !== 'ios') return;
+    const session = REVIEW || DEMO || hasServerSession ? state.session : null;
+    const counts =
+      session && liveCounts?.sessionId === session.id && liveCounts.islandId === session.islandId
+        ? liveCounts
+        : null;
+    void syncLiveActivity(session, state.color, counts).catch(() => {});
+  }, [
+    loaded,
+    hasServerSession,
+    state.session?.id,
+    state.session?.islandId,
+    state.session?.status,
+    state.session?.subject,
+    state.session?.startedAt,
+    state.session?.restStartedAt,
+    state.session?.seconds,
+    state.color,
+    liveCounts,
+  ]);
+  useEffect(() => {
+    if (!loaded) return;
+    const openActivity = (url: string | null) => {
+      if (url?.startsWith('com.oneorthree.focuscat://activity') && state.session) {
+        replace(state.session.status === 'paused' ? 'rest' : 'focus');
+      }
+    };
+    const subscription = Linking.addEventListener('url', ({ url }) => openActivity(url));
+    void Linking.getInitialURL().then(openActivity);
+    return () => subscription.remove();
+  }, [loaded, state.session?.id, state.session?.status]);
+  useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();
     transition.setValue(state.settings.reduceMotion ? 1 : 0);
@@ -934,6 +975,7 @@ function Gromo() {
   // 정책: 「로그아웃은 서버 데이터를 유지하고 현재 기기 세션만 종료한다」. 서버 호출이 실패해도
   // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.
   const signOut = () => {
+    void endLiveActivities().catch(() => {});
     logout().catch(() => {});
   };
   const send = () => {
@@ -1001,6 +1043,16 @@ function Gromo() {
           // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
           islands: REVIEW || DEMO || !hasServerSession ? undefined : islands,
           focus: REVIEW || DEMO || !hasServerSession ? undefined : focus,
+          onPresenceCounts: (
+            sessionId: string,
+            islandId: string,
+            counts: { focus: number; rest: number } | null,
+          ) => {
+            setLiveCounts((previous) => {
+              const next = counts ? { sessionId, islandId, ...counts } : null;
+              return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+            });
+          },
           islandBootError,
           // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
           conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,

@@ -1,0 +1,7 @@
+"focus.status" = "Focusing";
+"focus.short" = "Focus";
+"focus.count" = "%d focusing";
+"rest.status" = "Resting";
+"rest.short" = "Rest";
+"rest.title" = "Break time";
+"rest.count" = "%d resting";
