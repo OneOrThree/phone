@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -51,7 +52,9 @@ public class UserBlockUseCase {
     }
 
     /** 차단 목록의 공개 필드만 허용한다. */
-    public record BlockedUserView(UUID id, String name) {
+    public record BlockedUserView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) String name) {
         private static BlockedUserView from(BlockedUser source) {
             return source == null ? null : new BlockedUserView(source.id(), source.name());
         }

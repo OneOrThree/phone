@@ -131,9 +131,17 @@ public class FriendUseCase {
     }
 
     /** 친구 공개 계약. 불리언 키와 nullable 프로필을 내부 DTO와 독립적으로 유지한다. */
-    public record FriendView(UUID userId, String nickname, Integer tierLevel, String occupation,
-            @JsonProperty("isPinned") boolean isPinned, @JsonProperty("isFocusing") boolean isFocusing,
-            int focusTimeMinutes, String focusStartedAt, String focusTagName, String mainIslandName) {
+    public record FriendView(
+            @JsonProperty(required = true) UUID userId,
+            String nickname,
+            Integer tierLevel,
+            String occupation,
+            @JsonProperty(value = "isPinned", required = true) boolean isPinned,
+            @JsonProperty(value = "isFocusing", required = true) boolean isFocusing,
+            @JsonProperty(required = true) int focusTimeMinutes,
+            String focusStartedAt,
+            String focusTagName,
+            String mainIslandName) {
         private static FriendView from(FriendItem source) {
             return source == null ? null : new FriendView(source.userId(), source.nickname(), source.tierLevel(),
                     source.occupation(), source.isPinned(), source.isFocusing(), source.focusTimeMinutes(),
@@ -141,14 +149,24 @@ public class FriendUseCase {
         }
     }
 
-    public record RequestView(UUID requestId, UUID userId, String nickname, Integer tierLevel, String createdAt) {
+    public record RequestView(
+            @JsonProperty(required = true) UUID requestId,
+            @JsonProperty(required = true) UUID userId,
+            String nickname,
+            Integer tierLevel,
+            @JsonProperty(required = true) String createdAt) {
         private static RequestView from(FriendRequestItem source) {
             return source == null ? null : new RequestView(source.requestId(), source.userId(), source.nickname(),
                     source.tierLevel(), source.createdAt());
         }
     }
 
-    public record SearchView(UUID userId, String nickname, Integer tierLevel, String occupation, String relation) {
+    public record SearchView(
+            @JsonProperty(required = true) UUID userId,
+            @JsonProperty(required = true) String nickname,
+            Integer tierLevel,
+            String occupation,
+            @JsonProperty(required = true) String relation) {
         private static SearchView from(FriendSearchItem source) {
             return source == null ? null : new SearchView(source.userId(), source.nickname(), source.tierLevel(),
                     source.occupation(), source.relation());
