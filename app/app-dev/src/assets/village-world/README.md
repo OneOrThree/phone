@@ -1,0 +1,28 @@
+# 타일 마을 · 개발 미리보기 에셋
+
+출처: OneOrThree/planning-document의 `assets/village-world/export/`.
+기획 시연 `village-world.html`에서 확정한 배치를 `scripts/export-village-world.cjs`로 내보내고 이 폴더에 복사한다.
+
+- `map.json`: 1536×1024 좌표, 소품 109개, 시설별 문, 통행 폴리곤과 32px 길 데이터.
+- `terrain.png`: 조각을 합친 빈 지형. 타일마다 별도 네이티브 뷰를 생성하지 않는다.
+- `road-*.png`: 투명 길 레이어. `map.json`의 잘라낸 영역 좌표에 그린다.
+- 나머지 PNG: 투명 소품·건물·부두·다리. 발밑 중심을 배치 기준으로 사용한다.
+
+실행: 개발 빌드의 마을에서 **새 마을 미리보기** 버튼. 웹은 `?demo=1&village=layered`로 바로 연다.
+명시적인 QA 빌드는 `EXPO_PUBLIC_VILLAGE_PREVIEW=1`로 활성화할 수 있다. 일반 배포 기본값은 기존 마을이다.
+
+기존 화면의 카메라·건물 진입·권한·건설 HUD를 재사용한다. 시설별 표시와 충돌은 실제 건설 상태를 따른다.
+캐릭터 이동 비용은 길 0.8, 잔디 2.7. 나무와 시설은 발밑 좌표로 고양이 앞뒤에 그린다.
+모션 감소 설정과 앱 비활성 상태에서는 자연 소품 모션을 중지한다.
+
+이 단계에는 사용자 배치 편집·저장 기능과 새 밤 원화를 포함하지 않는다. 최종 미술과 실기기 성능은 검토 대상이다.
+
+## 검증과 갱신
+
+내보내기 폴더를 복사한 뒤 `npx prettier --write src/assets/village-world/map.json`을 실행한다.
+JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 동일한 파일을 사용한다.
+
+- `src/utils/village-world.test.ts`: 시설별 그림·샛길·충돌, 모든 문·부두·다리 경로와 대각선 모서리 통과 방지.
+- Expo 웹 서버 실행 후 `node scripts/review-village-world.cjs`: 세로·가로 전환, 시설 탭/이동/진입, 건설 단계, 기존 화면 기본값 검사. 서버 주소는 `GROMO_REVIEW_URL`로 지정한다.
+- 2026-09-23: Jest 59개 묶음/741개 테스트, 타입/포맷/팔레트 검사, ESLint 오류 0개, 3개 플랫폼 JS 번들 생성 통과. 웹 시각·동작 검사 통과, 실기기 성능은 미검증.
+- 현재 앱의 `TESTFLIGHT_ALL_BUILDINGS` 정책 때문에 내 섬은 모든 건물을 완성한다. 일부 시설 렌더링은 구경할 섬에서 확인한다.
