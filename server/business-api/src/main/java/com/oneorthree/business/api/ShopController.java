@@ -1,5 +1,8 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.ShopResponses.ShopOrder;
+import com.oneorthree.business.api.dto.ShopResponses.ShopProduct;
+import com.oneorthree.business.api.dto.ShopResponses.ShopWallets;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -7,7 +10,6 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.ShopViews;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import com.oneorthree.business.usecase.ShopUseCase;
 import jakarta.servlet.http.HttpServletRequest;
@@ -49,7 +51,7 @@ public class ShopController {
 
     /** 본인 개인 지갑과 섬 통장 (LLD §2.1). */
     @GetMapping("/islands/{islandId}/shop/wallets")
-    public ShopViews.Wallets wallets(@PathVariable String islandId, HttpServletRequest request) {
+    public ShopWallets wallets(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return shop.wallets(claims, uuid(islandId), deadline());
     }
@@ -71,7 +73,7 @@ public class ShopController {
 
     /** 상품 상세 (LLD §2.3). */
     @GetMapping("/islands/{islandId}/shop/products/{productId}")
-    public ShopViews.Product product(@PathVariable String islandId, @PathVariable String productId,
+    public ShopProduct product(@PathVariable String islandId, @PathVariable String productId,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID island = uuid(islandId);
@@ -83,7 +85,7 @@ public class ShopController {
 
     /** 구매 (LLD §2.4) — {@code Idempotency-Key}(UUID36) 필수, 성공 201. */
     @PostMapping(value = "/islands/{islandId}/shop/orders", consumes = "application/json")
-    public ResponseEntity<ShopViews.Order> purchase(@PathVariable String islandId, @RequestBody JsonNode body,
+    public ResponseEntity<ShopOrder> purchase(@PathVariable String islandId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -102,7 +104,7 @@ public class ShopController {
         if (!PRODUCT_ID.matcher(productId.stringValue()).matches()) {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "productId");
         }
-        ShopViews.Order order = shop.purchase(claims, uuid(islandId), productId.stringValue(),
+        ShopOrder order = shop.purchase(claims, uuid(islandId), productId.stringValue(),
                 ResourceVersions.fromJson(body.get("expectedWalletVersion"), "expectedWalletVersion"),
                 ResourceVersions.fromJson(body.get("expectedProductVersion"), "expectedProductVersion"),
                 key, deadline());

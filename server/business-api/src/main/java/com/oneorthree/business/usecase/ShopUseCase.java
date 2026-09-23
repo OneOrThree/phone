@@ -1,5 +1,10 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.ShopResponses.ShopCatalogItem;
+import com.oneorthree.business.api.dto.ShopResponses.ShopOrder;
+import com.oneorthree.business.api.dto.ShopResponses.ShopOrderItem;
+import com.oneorthree.business.api.dto.ShopResponses.ShopProduct;
+import com.oneorthree.business.api.dto.ShopResponses.ShopWallets;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -70,15 +75,15 @@ public class ShopUseCase {
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
     /** 공개 카탈로그 한 쪽. */
-    public record Products(List<ShopViews.Item> items, String nextCursor) {
+    public record Products(List<ShopCatalogItem> items, String nextCursor) {
     }
 
     /** 공개 내역 한 쪽. */
-    public record Orders(List<ShopViews.OrderItem> items, String nextCursor) {
+    public record Orders(List<ShopOrderItem> items, String nextCursor) {
     }
 
-    public ShopViews.Wallets wallets(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
-        return required(relay(() -> data.fetchShopWallets(claims.userId(), islandId, deadline)));
+    public ShopWallets wallets(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        return ShopWallets.from(required(relay(() -> data.fetchShopWallets(claims.userId(), islandId, deadline))));
     }
 
     /** 카탈로그 — 커서를 먼저 푸는 것은 위조·만료 커서로 상류를 두드리지 않기 위해서다. */
@@ -100,22 +105,24 @@ public class ShopUseCase {
             next = codec().encode(scope, new CursorBoundary(
                     page.publicationVersion() + ":" + page.lastDisplayOrder(), page.lastProductId()));
         }
-        return new Products(page.items(), next);
+        return new Products(page.items().stream().map(ShopCatalogItem::from).toList(), next);
     }
 
-    public ShopViews.Product product(AccessTokenClaims claims, UUID islandId, String productId, Deadline deadline) {
-        return required(relay(() -> data.fetchShopProduct(claims.userId(), islandId, productId, deadline)));
+    public ShopProduct product(AccessTokenClaims claims, UUID islandId, String productId, Deadline deadline) {
+        return ShopProduct.from(required(relay(() -> data.fetchShopProduct(claims.userId(), islandId, productId,
+            deadline))));
     }
 
     /**
      * 구매. 같은 키·같은 본문은 Data 의 원 201 재생이다. 버전 충돌이면 상세·지갑을 같은 주체로 다시 읽어
      * 어긋난 축을 field 로 지목하고 최신 공개 상태를 {@code current} 에 싣는다(LLD §2.4).
      */
-    public ShopViews.Order purchase(AccessTokenClaims claims, UUID islandId, String productId,
+    public ShopOrder purchase(AccessTokenClaims claims, UUID islandId, String productId,
             long expectedWalletVersion, long expectedProductVersion, UUID key, Deadline deadline) {
         try {
-            return required(data.purchaseShopProduct(claims.userId(), islandId, productId, expectedWalletVersion,
-                    expectedProductVersion, key, deadline));
+            return ShopOrder.from(required(data.purchaseShopProduct(claims.userId(), islandId, productId,
+                expectedWalletVersion,
+                    expectedProductVersion, key, deadline)));
         } catch (UpstreamDomainException e) {
             if (e.getStatus() == 409 && "VERSION_CONFLICT".equals(e.getCode())) {
                 throw versionConflict(claims, islandId, productId, expectedProductVersion, deadline);
@@ -142,7 +149,7 @@ public class ShopUseCase {
             next = codec().encode(scope,
                     new CursorBoundary(last.createdAt().toString(), last.id().toString()));
         }
-        return new Orders(page.items(), next);
+        return new Orders(page.items().stream().map(ShopOrderItem::from).toList(), next);
     }
 
     // ---------------------------------------------------------------- 도구
@@ -153,12 +160,12 @@ public class ShopUseCase {
             ShopViews.Product product = data.fetchShopProduct(claims.userId(), islandId, productId, deadline);
             if (product != null && product.productVersion() != expectedProductVersion) {
                 return new PublicApiException(ApiErrorCode.VERSION_CONFLICT, FIELD_PRODUCT_VERSION,
-                        new PublicCurrentState(product.productVersion(), product));
+                        new PublicCurrentState(product.productVersion(), ShopProduct.from(product)));
             }
             ShopViews.Wallets wallets = data.fetchShopWallets(claims.userId(), islandId, deadline);
             if (wallets != null) {
                 return new PublicApiException(ApiErrorCode.VERSION_CONFLICT, FIELD_WALLET_VERSION,
-                        new PublicCurrentState(wallets.villagePointsVersion(), wallets));
+                        new PublicCurrentState(wallets.villagePointsVersion(), ShopWallets.from(wallets)));
             }
         } catch (RuntimeException e) {
             // 재조회 실패 — 지목 근거가 없으므로 current 없이 충돌만 남긴다. 앱은 정본 GET 으로 다시 읽는다.
