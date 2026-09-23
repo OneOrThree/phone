@@ -1484,13 +1484,17 @@ function FocusFlow({ e }: any) {
             }}
           >
             <Text style={fiTitle(18)}>집중 준비</Text>
-            <CatSprite
-              color={s.color}
-              motion="tilt"
-              size={44}
-              reduce={reduce}
-              testID="focus-setup-cat"
-            />
+            <View style={{ width: 44, height: 44, position: 'relative' }}>
+              <View style={{ position: 'absolute', left: 22, top: 36 }}>
+                <CatSprite
+                  color={s.color}
+                  motion="tilt"
+                  size={44}
+                  reduce={reduce}
+                  testID="focus-setup-cat"
+                />
+              </View>
+            </View>
           </View>
           <Text
             style={{

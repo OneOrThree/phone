@@ -586,6 +586,20 @@ function FinalIslandScene({
     }, durations[m] ?? 2000);
   };
   const triggerTilt = () => triggerMotion('tilt');
+  const transitionTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const navigateWithTilt = (targetRoute: Route) => {
+    triggerTilt();
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    const delay = state.settings.reduceMotion ? 0 : 520;
+    if (delay) {
+      transitionTimer.current = setTimeout(() => {
+        go(targetRoute);
+      }, delay);
+    } else {
+      go(targetRoute);
+    }
+  };
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -611,6 +625,7 @@ function FinalIslandScene({
     return () => {
       if (tiltTimer.current) clearTimeout(tiltTimer.current);
       if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+      if (transitionTimer.current) clearTimeout(transitionTimer.current);
     };
   }, []);
   const xy = useRef(new Animated.ValueXY(pos)).current,
@@ -678,12 +693,10 @@ function FinalIslandScene({
       const d = Object.values(doors).find((d) => d.r === request);
       if (d) {
         if (d.direct) {
-          triggerTilt();
-          go(request);
+          navigateWithTilt(request);
         } else {
           walk(d, () => {
-            triggerTilt();
-            go(request);
+            navigateWithTilt(request);
           });
         }
       }
@@ -732,12 +745,10 @@ function FinalIslandScene({
                 onPress={() => {
                   if (!visiting) {
                     if (d.direct) {
-                      triggerTilt();
-                      return go(d.r);
+                      return navigateWithTilt(d.r);
                     }
                     return walk(d, () => {
-                      triggerTilt();
-                      go(d.r);
+                      navigateWithTilt(d.r);
                     });
                   }
                   if (d.visitorRoute) return go(d.visitorRoute, i.id);

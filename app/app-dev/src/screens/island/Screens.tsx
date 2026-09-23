@@ -2284,12 +2284,16 @@ export function RedesignScreens({ e }: any) {
         <View style={[k.row, { justifyContent: 'space-between' }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Txt kind="h">집중 준비</Txt>
-            <CatSprite
-              color={state.color}
-              motion="tilt"
-              size={36}
-              reduce={state.settings.reduceMotion}
-            />
+            <View style={{ width: 36, height: 36, position: 'relative' }}>
+              <View style={{ position: 'absolute', left: 18, top: 30 }}>
+                <CatSprite
+                  color={state.color}
+                  motion="tilt"
+                  size={36}
+                  reduce={state.settings.reduceMotion}
+                />
+              </View>
+            </View>
           </View>
           <Pressable
             accessibilityRole="button"

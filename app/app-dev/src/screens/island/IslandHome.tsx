@@ -99,6 +99,20 @@ export function IslandHome({
     }, durations[m] ?? 2000);
   };
   const triggerTilt = () => triggerMotion('tilt');
+  const transitionTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const navigateWithTilt = (targetRoute: Route) => {
+    triggerTilt();
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    const delay = state.settings.reduceMotion ? 0 : 520;
+    if (delay) {
+      transitionTimer.current = setTimeout(() => {
+        go(targetRoute);
+      }, delay);
+    } else {
+      go(targetRoute);
+    }
+  };
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -124,6 +138,7 @@ export function IslandHome({
     return () => {
       if (tiltTimer.current) clearTimeout(tiltTimer.current);
       if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+      if (transitionTimer.current) clearTimeout(transitionTimer.current);
     };
   }, []);
   const pos = useRef(nearestPoint(islandPositions[island.id] || { x: 442, y: 980 }, bs)),
@@ -176,6 +191,7 @@ export function IslandHome({
   }, [island.id]);
   const walk = (dest: Point, _label = '', route?: Route) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
     const run = ++token.current;
     // Read the native presentation position when interrupting. A JS listener can
@@ -200,9 +216,10 @@ export function IslandHome({
           setDestination(null);
           if (route) {
             if (['board', 'mail', 'quest', 'hall', 'shop', 'tower', 'focusSetup'].includes(route)) {
-              triggerTilt();
+              navigateWithTilt(route);
+            } else {
+              go(route);
             }
-            go(route);
           } else if (path.length >= 6) {
             triggerMotion('stretch');
           }
