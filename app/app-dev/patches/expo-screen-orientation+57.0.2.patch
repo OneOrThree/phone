@@ -1,0 +1,37 @@
+diff --git a/node_modules/expo-screen-orientation/ios/ScreenOrientationRegistry.swift b/node_modules/expo-screen-orientation/ios/ScreenOrientationRegistry.swift
+index f0cbbac..cd2e86c 100644
+--- a/node_modules/expo-screen-orientation/ios/ScreenOrientationRegistry.swift
++++ b/node_modules/expo-screen-orientation/ios/ScreenOrientationRegistry.swift
+@@ -94,6 +94,9 @@ public class ScreenOrientationRegistry: NSObject, UIApplicationDelegate {
+         let windowScene = self.rootViewController?.view.window?.windowScene
+         windowScene?.requestGeometryUpdate(.iOS(interfaceOrientations: orientationMask))
+         self.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
++        if #available(iOS 26.0, *) {
++          self.rootViewController?.setNeedsUpdateOfPrefersInterfaceOrientationLocked()
++        }
+       }
+       UIDevice.current.setValue(newOrientation.rawValue, forKey: "orientation")
+       UIViewController.attemptRotationToDeviceOrientation()
+diff --git a/node_modules/expo-screen-orientation/ios/ScreenOrientationViewController.swift b/node_modules/expo-screen-orientation/ios/ScreenOrientationViewController.swift
+index 52b60e4..f3092d5 100644
+--- a/node_modules/expo-screen-orientation/ios/ScreenOrientationViewController.swift
++++ b/node_modules/expo-screen-orientation/ios/ScreenOrientationViewController.swift
+@@ -81,6 +81,18 @@ class ScreenOrientationViewController: UIViewController {
+     return !mask.isEmpty ? mask : defaultOrientationMask
+   }
+ 
++  @available(iOS 26.0, *)
++  override var prefersInterfaceOrientationLocked: Bool {
++    let mask = screenOrientationRegistry.requiredOrientationMask()
++
++    // iPadOS 26의 크기 조절 가능한 scene은 지원 방향을 선호값으로만 취급한다.
++    // 단일 방향을 명시한 경우에만 잠그고 DEFAULT와 복수 방향은 회전을 허용한다.
++    return mask == .portrait
++      || mask == .portraitUpsideDown
++      || mask == .landscapeLeft
++      || mask == .landscapeRight
++  }
++
+   override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+     super.traitCollectionDidChange(previousTraitCollection)
+     screenOrientationRegistry.traitCollectionDidChange(to: traitCollection)

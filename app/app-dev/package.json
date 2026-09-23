@@ -25,7 +25,8 @@
     "screens:html": "python3 scripts/build-phone-gallery.py",
     "review:v2": "node scripts/review-current-v2.cjs",
     "review:v2-journeys": "node scripts/review-v2-journeys.cjs",
-    "review:last-island-recovery": "node scripts/review-last-island-recovery.cjs"
+    "review:last-island-recovery": "node scripts/review-last-island-recovery.cjs",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
@@ -59,6 +60,7 @@
     "eslint-plugin-prettier": "^5.5.6",
     "jest": "~29.7.0",
     "jest-expo": "57.0.2",
+    "patch-package": "^8.0.1",
     "playwright": "1.63.0",
     "prettier": "^3.8.3",
     "typescript": "~6.0.3"
