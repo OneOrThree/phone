@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -61,13 +62,16 @@ class AccountContractTest extends UpstreamTestBase {
     @Test
     void readsAccountWithSignedSessionProofAndDataEnvelope() throws Exception {
         DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,\"mainIslandId\":null,"
-                + "\"linkedProviders\":[\"apple\",\"kakao\"],\"onboardingComplete\":true}"));
+                + "\"linkedProviders\":[\"apple\",\"kakao\"],\"onboardingComplete\":true,"
+                + "\"auth_generation\":3,\"deleted_at\":null,\"internal_note\":\"private\"}"));
 
         mockMvc.perform(auth(get("/me")).header("X-User-Id", UUID.randomUUID()))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", aMapWithSize(6)))
                 .andExpect(jsonPath("$.data.id").value(USER.toString()))
                 .andExpect(jsonPath("$.data.name").value("수빈"))
                 .andExpect(jsonPath("$.data.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.mainIslandId").value(nullValue()))
                 .andExpect(jsonPath("$.data.linkedProviders[0]").value("apple"))
                 .andExpect(jsonPath("$.data.linkedProviders[1]").value("kakao"))
                 .andExpect(jsonPath("$.data.onboardingComplete").value(true));
@@ -80,19 +84,38 @@ class AccountContractTest extends UpstreamTestBase {
 
     @Test
     void renamesWithAppKeyAndReturnsFourFields() throws Exception {
-        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,\"mainIslandId\":null}"));
+        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,"
+                + "\"mainIslandId\":null,\"auth_generation\":3,\"internal_note\":\"private\"}"));
 
         mockMvc.perform(write("{\"name\":\" 수빈 \"}"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", aMapWithSize(4)))
                 .andExpect(jsonPath("$.data.id").value(USER.toString()))
                 .andExpect(jsonPath("$.data.name").value("수빈"))
                 .andExpect(jsonPath("$.data.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.mainIslandId").value(nullValue()))
                 .andExpect(jsonPath("$.data.onboardingComplete").doesNotExist());
 
         var sent = DATA.receivedFor(DATA_PATCH).get(0);
         assertThat(sent.header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(sent.header("X-Session-Id")).isEqualTo(SESSION.toString());
         assertThat(sent.body()).isEqualTo("{\"name\":\" 수빈 \"}");
+    }
+
+    @Test
+    void accountBeforeOnboardingPreservesExplicitNullsAndEmptyProviders() throws Exception {
+        DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":null,\"catColor\":null,"
+                + "\"mainIslandId\":null,\"linkedProviders\":[],\"onboardingComplete\":false}"));
+
+        mockMvc.perform(auth(get("/me")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", aMapWithSize(6)))
+                .andExpect(jsonPath("$.data.id").value(USER.toString()))
+                .andExpect(jsonPath("$.data.name").value(nullValue()))
+                .andExpect(jsonPath("$.data.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.mainIslandId").value(nullValue()))
+                .andExpect(jsonPath("$.data.linkedProviders").isEmpty())
+                .andExpect(jsonPath("$.data.onboardingComplete").value(false));
     }
 
     @Test
