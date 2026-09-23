@@ -283,6 +283,113 @@ class IslandManagementContractTest extends UpstreamTestBase {
 
     // ---------------------------------------------------------------- 도구
 
+
+    @ParameterizedTest
+    @ValueSource(strings = {"manage", "approve", "reject", "members", "members-null", "members-empty",
+            "requests", "requests-null", "requests-empty"})
+    @DisplayName("섬 관리 공개 JSON은 중첩 외양·null·빈 목록을 보존하고 내부 경계를 노출하지 않는다")
+    void publicManagementContract(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String source;
+        String route;
+        MockHttpServletRequestBuilder request;
+        if (operation.equals("manage")) {
+            source = MANAGED;
+            route = DATA_MANAGE;
+            request = write(patch("/islands/" + ISLAND), "{}");
+        } else if (operation.equals("approve") || operation.equals("reject")) {
+            source = "{\"status\":\"" + (operation.equals("approve") ? "approved" : "rejected")
+                    + "\",\"memberId\":" + (operation.equals("approve") ? "\"" + TARGET + "\"" : "null")
+                    + ",\"version\":1}";
+            route = DATA_ANSWER;
+            request = write(patch("/islands/" + ISLAND + "/join-requests/" + REQUEST),
+                    "{\"decision\":\"" + operation + "\"}");
+        } else {
+            boolean members = operation.startsWith("members");
+            source = members ? MEMBERS : REQUESTS;
+            route = members ? DATA_MEMBERS : DATA_REQUESTS;
+            request = auth(get("/islands/" + ISLAND + (members ? "/members" : "/join-requests")));
+        }
+        var upstream = (tools.jackson.databind.node.ObjectNode) json.readTree(source);
+        var expected = upstream.deepCopy();
+        if (operation.startsWith("members") || operation.startsWith("requests")) {
+            for (String field : new String[]{"nextJoinedAt", "nextMembershipId", "nextCreatedAt", "nextRequestId"}) {
+                upstream.remove(field);
+                expected.remove(field);
+            }
+            expected.putNull("nextCursor");
+            var items = (tools.jackson.databind.node.ArrayNode) upstream.path("items");
+            if (operation.endsWith("empty")) {
+                items.removeAll();
+                ((tools.jackson.databind.node.ArrayNode) expected.path("items")).removeAll();
+            } else {
+                var item = (tools.jackson.databind.node.ObjectNode) items.get(0);
+                var expectedItem = (tools.jackson.databind.node.ObjectNode) expected.path("items").get(0);
+                if (operation.endsWith("null")) {
+                    item.putNull("name");
+                    expectedItem.putNull("name");
+                    if (operation.startsWith("members")) {
+                        item.putNull("catColor");
+                        expectedItem.putNull("catColor");
+                        ((tools.jackson.databind.node.ObjectNode) item.path("appearance")).putNull("clothes");
+                        ((tools.jackson.databind.node.ObjectNode) expectedItem.path("appearance")).putNull("clothes");
+                    }
+                }
+                if (operation.startsWith("members")) {
+                    ((tools.jackson.databind.node.ObjectNode) item.path("appearance")).put("row_id", "private-appearance");
+                }
+                item.put("row_id", "private-item");
+                var second = item.deepCopy();
+                second.put("id", TARGET.toString());
+                items.add(second);
+                var expectedSecond = expectedItem.deepCopy();
+                expectedSecond.put("id", TARGET.toString());
+                ((tools.jackson.databind.node.ArrayNode) expected.path("items")).add(expectedSecond);
+                items.addNull();
+                ((tools.jackson.databind.node.ArrayNode) expected.path("items")).addNull();
+            }
+        }
+        upstream.put("row_id", "private-root");
+        DATA.on(route, r -> ok(upstream.toString()));
+        var result = mockMvc.perform(request).andExpect(status().isOk()).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}|patch||id name intro approvalRequired maxMembers version|id name intro approvalRequired maxMembers version",
+            "/islands/{islandId}/join-requests/{requestId}|patch||status memberId version|status version",
+            "/islands/{islandId}/members|get||items nextCursor version|",
+            "/islands/{islandId}/members|get|items|id name catColor role appearance|id role appearance",
+            "/islands/{islandId}/members|get|items/appearance|clothes decor hull position version|clothes decor hull position version",
+            "/islands/{islandId}/join-requests|get||items nextCursor|",
+            "/islands/{islandId}/join-requests|get|items|id applicantId name status version|id applicantId status version"})
+    void publicDocumentationPreservesFieldsAndPresence(String path, String method, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String field : nested.split("/")) {
+                schema = schema.path("properties").path(field);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").size()).as("공개 필드 수").isEqualTo(fields.split(" ").length);
+        for (String field : fields.split(" ")) {
+            assertThat(schema.path("properties").has(field)).as("공개 필드 %s", field).isTrue();
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
         return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
     }
