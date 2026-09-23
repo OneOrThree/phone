@@ -1,5 +1,7 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.LetterResponses.LetterDetailView;
+import com.oneorthree.business.api.dto.LetterResponses.LetterPageView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -50,31 +52,31 @@ public class LetterUseCase {
     private final DataFriendClient data;
 
     /** 편지 보내기 (LLD §1.12). 수신자의 섬·시설은 어느 쪽도 묻지 않는다 — 발송은 우체통과 무관하다. */
-    public LetterView send(AccessTokenClaims claims, UUID receiverId, String content, Deadline deadline) {
+    public LetterDetailView send(AccessTokenClaims claims, UUID receiverId, String content, Deadline deadline) {
         LetterView view = relay(() -> data.sendLetter(claims.userId(), receiverId, content, deadline));
         if (view == null) {
             throw new UpstreamContractMismatchException("편지 발송 응답이 없습니다");
         }
-        return view;
+        return LetterDetailView.from(view);
     }
 
     /** 편지함 목록 (LLD §1.13). 빈 페이지도 봉투 한 겹이다 — 봉투가 아예 없으면 계약 불일치다. */
-    public LetterSlice letters(AccessTokenClaims claims, String type, String cursor, String size,
+    public LetterPageView letters(AccessTokenClaims claims, String type, String cursor, String size,
             Deadline deadline) {
         LetterSlice slice = relay(() -> data.fetchLetters(claims.userId(), type, cursor, size, deadline));
         if (slice == null) {
             throw new UpstreamContractMismatchException("편지함 응답이 없습니다");
         }
-        return slice;
+        return LetterPageView.from(slice);
     }
 
     /** 편지 상세 (LLD §1.14). 수신자의 첫 조회는 읽음을 박는다 — 행은 지워지지 않는다. */
-    public LetterView letter(AccessTokenClaims claims, UUID letterId, Deadline deadline) {
+    public LetterDetailView letter(AccessTokenClaims claims, UUID letterId, Deadline deadline) {
         LetterView view = relay(() -> data.fetchLetter(claims.userId(), letterId, deadline));
         if (view == null) {
             throw new UpstreamContractMismatchException("편지 응답이 없습니다");
         }
-        return view;
+        return LetterDetailView.from(view);
     }
 
     /**

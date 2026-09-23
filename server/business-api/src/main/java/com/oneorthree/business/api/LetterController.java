@@ -1,12 +1,12 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.LetterResponses.LetterDetailView;
+import com.oneorthree.business.api.dto.LetterResponses.LetterPageView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.LetterSlice;
-import com.oneorthree.business.upstream.data.dto.LetterView;
 import com.oneorthree.business.usecase.LetterUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -51,7 +51,7 @@ public class LetterController {
      * 거절한다. 201 응답은 방금 만든 편지 한 통이다.
      */
     @PostMapping(value = "/letters", consumes = "application/json")
-    public ResponseEntity<LetterView> send(@RequestBody JsonNode body, HttpServletRequest request) {
+    public ResponseEntity<LetterDetailView> send(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         if (body == null || !body.isObject() || body.size() != 2) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
@@ -64,7 +64,7 @@ public class LetterController {
         if (content == null || !content.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "content");
         }
-        LetterView sent = letters.send(claims, uuid(receiver.stringValue(), "receiverId"),
+        LetterDetailView sent = letters.send(claims, uuid(receiver.stringValue(), "receiverId"),
                 content.stringValue(), deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(sent);
     }
@@ -76,7 +76,7 @@ public class LetterController {
      * 범위·기본값·알 수 없는 {@code type} 의 400 판정은 계속 Data 가 한다.
      */
     @GetMapping("/letters")
-    public LetterSlice letters(HttpServletRequest request) {
+    public LetterPageView letters(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         String cursor = request.getParameter("cursor");
         String size = request.getParameter("size");
@@ -91,7 +91,7 @@ public class LetterController {
 
     /** 편지 상세 (LLD §1.14). 수신자의 첫 조회는 읽음을 박는다 — 행은 지워지지 않는다. */
     @GetMapping("/letters/{letterId}")
-    public LetterView letter(@PathVariable String letterId, HttpServletRequest request) {
+    public LetterDetailView letter(@PathVariable String letterId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return letters.letter(claims, uuid(letterId, "letterId"), deadline());
     }
