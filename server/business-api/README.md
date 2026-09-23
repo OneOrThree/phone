@@ -982,3 +982,22 @@ GROMO-1802 가 [섬 관리 LLD](../../docs/prd/fishcat/island-management/low-lev
 **명령 4종도 기본 비활성이다.** Data 의 `island-management.commands-enabled` 기본값이 false 라 수정·승인/거절·
 강퇴·나가기는 503 `SERVICE_UNAVAILABLE` 로 끝나며 아무것도 쓰지 않는다. 두 목록 조회는 게이트가 없다.
 legacy 400 코드 `CANNOT_KICK_SELF`·`HOST_WITHDRAW` 는 공개 409 `STATE_CONFLICT` 로 옮긴다(상태가 거절 이유다).
+
+
+## 계정 공개 DTO 경계
+
+`GET /me`와 화면 응답의 `me` 조각은 `AccountUseCase.AccountView`,
+`PATCH /me`는 `AccountUseCase.ProfileView`를 직렬화한다.
+Data 내부 전송 DTO(`AccountMe`, `AccountProfile`)는 사용자 ID 검증 후 필요한 필드만 명시적으로 옮긴다.
+DB 엔티티·컬럼이나 내부 전송 DTO를 공개 응답 타입으로 사용하지 않는다.
+
+| 공개 응답 | 허용 필드 |
+| --- | --- |
+| 계정 조회·화면의 `me` | `id`, `name`, `catColor`, `mainIslandId`, `linkedProviders`, `onboardingComplete` |
+| 프로필 변경 | `id`, `name`, `catColor`, `mainIslandId` |
+
+공개 이름은 앱 도메인 계약으로 관리한다. 예를 들어 DB `cat_color`는 공개 `catColor`이며,
+`auth_generation` 같은 내부 인증 상태와 삭제 상태는 응답에 싣지 않는다.
+내부 필드가 늘어도 공개 필드 목록은 자동으로 늘어나지 않는다.
+이 분리는 기존 공개 이름·값·null 계약을 유지하므로 앱 코드 변경이 필요 없다.
+계약 테스트는 내부 추가 필드를 주입한 GET·PATCH·화면 응답의 정확한 필드 수와 값을 검증한다.
