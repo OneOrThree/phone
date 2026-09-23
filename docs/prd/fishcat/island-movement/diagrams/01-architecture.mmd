@@ -1,0 +1,21 @@
+flowchart LR
+  App[앱<br/>입력 · A* 예측 · 보정 · 렌더링<br/>신규 네이티브 QUIC 어댑터]
+  Business[Business API<br/>기존 인증 + 신규 입장·제어 어댑터]
+  Data[Data API<br/>소속 · 시설 정본]
+  Movement[신규 이동 서비스<br/>입장 인증 · 통행 맵 합성<br/>서버 A* · 방별 50ms 틱]
+  Owner[신규 소유권 저장소<br/>owner · epoch · lease]
+  Maps[맵 저장소 / CDN<br/>불변 artifact · hash]
+  Realtime[기존 Realtime<br/>집중 · 휴식 · 감정 · 재생]
+  App -->|HTTPS 입장| Business
+  Business -->|기존 내부 API| Data
+  Business -. 권한 · 배치 push .-> Movement
+  Business -. 배정 · 주소 조회 .-> Owner
+  App <-->|QUIC stream: 명령·경로<br/>DATAGRAM: 20Hz 좌표| Movement
+  Movement -. lease 갱신 .-> Owner
+  Movement <-->|원본 조회 · 통행 맵 게시| Maps
+  Maps -->|HTTPS 통행 맵| App
+  Realtime -. 기존 STOMP .-> App
+  classDef proposed fill:#e8f2ff,stroke:#3971a8,color:#183858
+  classDef existing fill:#f4f4f4,stroke:#777,color:#222
+  class Movement,Owner proposed
+  class Business,Data,Realtime existing
