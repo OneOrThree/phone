@@ -1,5 +1,8 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.ConstructionResponses.ConstructionOptionsView;
+import com.oneorthree.business.api.dto.ConstructionResponses.ConstructionResultView;
+import com.oneorthree.business.api.dto.ConstructionResponses.ConstructionTargetView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -58,18 +61,18 @@ public class IslandConstructionUseCase {
     private final DataConstructionClient data;
 
     /** 건설 옵션 스냅샷 (LLD §2 GET). */
-    public ConstructionOptions options(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+    public ConstructionOptionsView options(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
         ConstructionOptions options = relay(
                 () -> data.fetchConstructionOptions(claims.userId(), islandId, deadline),
                 claims, null, null, null, deadline);
         if (options == null) {
             throw new UpstreamContractMismatchException("건설 옵션 응답이 없습니다");
         }
-        return options;
+        return ConstructionOptionsView.from(options);
     }
 
     /** 건설 목표 선택 (LLD §2 PUT). 같은 키·본문은 Data 의 확정 receipt 재생이다. */
-    public ConstructionTarget selectTarget(AccessTokenClaims claims, UUID islandId, String buildingId,
+    public ConstructionTargetView selectTarget(AccessTokenClaims claims, UUID islandId, String buildingId,
             long expectedVersion, UUID key, Deadline deadline) {
         ConstructionTarget target = relay(
                 () -> data.selectConstructionTarget(claims.userId(), islandId, buildingId,
@@ -78,7 +81,7 @@ public class IslandConstructionUseCase {
         if (target == null) {
             throw new UpstreamContractMismatchException("건설 목표 선택 응답이 없습니다");
         }
-        return target;
+        return ConstructionTargetView.from(target);
     }
 
     /**
@@ -87,7 +90,7 @@ public class IslandConstructionUseCase {
      * <p>승인 정책상 성공 상태는 {@code "BUILDING"} 하나다 — 공사 시간이 있는 동안 완공이 아니다.
      * 다른 상태는 이 계약의 응답이 아니므로 조용히 넘기지 않고 계약 불일치(502)로 접는다.
      */
-    public ConstructionResult build(AccessTokenClaims claims, UUID islandId, String buildingId,
+    public ConstructionResultView build(AccessTokenClaims claims, UUID islandId, String buildingId,
             long expectedVersion, long expectedCostPolicyVersion, UUID key, Deadline deadline) {
         ConstructionResult result = relay(
                 () -> data.startConstruction(claims.userId(), islandId, buildingId, expectedVersion,
@@ -96,7 +99,7 @@ public class IslandConstructionUseCase {
         if (result == null || !STATUS_BUILDING.equals(result.status())) {
             throw new UpstreamContractMismatchException("건설 명령 응답 상태가 계약과 다릅니다");
         }
-        return result;
+        return ConstructionResultView.from(result);
     }
 
     private <T> T relay(Supplier<T> upstream, AccessTokenClaims claims, UUID islandId,
@@ -144,7 +147,7 @@ public class IslandConstructionUseCase {
         String field = expectedVersion != null && expectedVersion == current.islandVersion()
                 && expectedCostPolicyVersion != null ? FIELD_COST_VERSION : FIELD_VERSION;
         return new PublicApiException(ApiErrorCode.VERSION_CONFLICT, field,
-                new PublicCurrentState(current.islandVersion(), current));
+                new PublicCurrentState(current.islandVersion(), ConstructionOptionsView.from(current)));
     }
 
     /** 공개 오류 한 줄 — 코드와 사용자에게 알려 줄 입력 필드. */
