@@ -39,6 +39,16 @@ import { useAppLayout } from '@/utils/layout';
 import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
+import { VillageScenery } from './VillageScenery';
+import { villageAssets } from '@/constants/village-assets';
+import {
+  villageScene,
+  villagePath,
+  villageDoors,
+  villageMap,
+  VillageScene,
+} from '@/utils/village-world';
+import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens } from '@/design-system/tokens';
 const layer: Record<Building, string> = {
   hall: 'hall',
@@ -58,7 +68,7 @@ type Door = Point & {
   direct?: boolean;
   hitbox?: { x: number; y: number; w: number; h: number };
 };
-const doors: Record<string, Door> = {
+const legacyDoors: Record<string, Door> = {
   hall: { x: 1030, y: 268, r: 'hall', label: buildingNames.hall, building: 'hall' },
   board: { x: 891, y: 250, r: 'board', label: buildingNames.board, building: 'board' },
   gram: { x: 380, y: 485, r: 'sound', label: buildingNames.gram, building: 'gram' },
@@ -97,28 +107,33 @@ function Wanderer({
   s,
   reduce,
   delay,
+  scene,
 }: {
   color: Color;
   start: Point;
   s: number;
   reduce: boolean;
   delay: number;
+  scene?: VillageScene;
 }) {
   const xy = useRef(new Animated.ValueXY(start)).current,
     at = useRef(start);
   const [walking, setWalking] = useState(false),
-    [left, setLeft] = useState(false);
+    [left, setLeft] = useState(false),
+    [depth, setDepth] = useState(start.y);
   useEffect(() => {
     let alive = true,
       timer: ReturnType<typeof setTimeout>;
     const roam = () => {
       if (!alive) return;
       // 지금 자리에서 ±200·±150px 안의 땅 한 곳으로, 최대 14칸까지만 걷는다
-      const target = nearestLand(grids.home, {
+      const target = nearestLand(scene?.grid ?? grids.home, {
         x: at.current.x + Math.random() * 400 - 200,
         y: at.current.y + Math.random() * 300 - 150,
       });
-      const path = landPath(grids.home, at.current, target).slice(1, 15);
+      const path = (
+        scene ? villagePath(scene, at.current, target) : landPath(grids.home, at.current, target)
+      ).slice(1, 15);
       if (!path.length) {
         timer = setTimeout(roam, 1500);
         return;
@@ -142,6 +157,7 @@ function Wanderer({
         }).start(({ finished }) => {
           if (!finished) return;
           at.current = next;
+          setDepth(next.y);
           step();
         });
       };
@@ -153,7 +169,7 @@ function Wanderer({
       clearTimeout(timer);
       xy.stopAnimation();
     };
-  }, []);
+  }, [scene, reduce]);
   return (
     <Animated.View
       pointerEvents="none"
@@ -161,6 +177,7 @@ function Wanderer({
         position: 'absolute',
         left: Animated.multiply(xy.x, s),
         top: Animated.multiply(xy.y, s),
+        zIndex: scene ? Math.round(depth) : undefined,
       }}
     >
       <CatSprite
@@ -180,6 +197,7 @@ export function WorldMap({
   onSpot,
   emote,
   showMailboxLetters,
+  village,
   children,
 }: {
   state: State;
@@ -188,15 +206,16 @@ export function WorldMap({
   onSpot?: (p: Point) => void;
   emote?: string | null;
   showMailboxLetters?: boolean;
+  village?: VillageScene;
   children?: React.ReactNode | ((scale: number) => React.ReactNode);
 }) {
   const L = useAppLayout(),
-    grid: Grid = fishing ? grids.fishing : grids.home,
+    grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? viewIsland(state);
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
-    x: fishing ? 512 : 585,
-    y: fishing ? 770 : 430,
+    x: fishing ? 512 : village ? 800 : 585,
+    y: fishing ? 770 : village ? 510 : 430,
     z: 1,
   });
   // 홈 카메라: v2 시안 배경(prep-redesign-assets.py HOME_ZOOM_P 1.8 · HOME_ZOOM_L 1.3)보다 조금 더
@@ -336,7 +355,9 @@ export function WorldMap({
               patternUnits="userSpaceOnUse"
             >
               <SvgImage
-                href={assets['backgrounds/island/base/day.png']}
+                href={
+                  village ? villageAssets['terrain.png'] : assets['backgrounds/island/base/day.png']
+                }
                 x={-800 * scale}
                 y={-936 * scale}
                 width={1536 * scale}
@@ -373,13 +394,15 @@ export function WorldMap({
           source={
             fishing
               ? require('@/assets/reference-v2/fishing-island.png')
-              : assets['backgrounds/island/base/day.png']
+              : village
+                ? villageAssets['terrain.png']
+                : assets['backgrounds/island/base/day.png']
           }
           style={{ width: '100%', height: '100%' }}
           resizeMode="stretch"
         />
       </Pressable>
-      {!fishing && (
+      {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
             .filter((b) => b !== 'mail' || !mailboxLetters)
@@ -428,7 +451,7 @@ export function WorldMap({
           }}
         />
       )}
-      {!fishing && (
+      {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
             .filter(
@@ -465,12 +488,20 @@ export function WorldMap({
           height: grid.h * scale,
         }}
       >
+        {village && (
+          <VillageScenery
+            scene={village}
+            scale={scale}
+            reduce={state.settings.reduceMotion}
+            mailboxLetters={mailboxLetters}
+          />
+        )}
         {typeof children === 'function' ? (children as any)(scale) : children}
       </View>
     </View>
   );
 }
-export function FinalIsland({
+function FinalIslandScene({
   state,
   go,
   build,
@@ -480,6 +511,7 @@ export function FinalIsland({
   notify,
   dispatch,
   viewingIslandId,
+  layeredPreview = false,
 }: {
   state: State;
   go: (r: Route, id?: string) => void;
@@ -490,6 +522,7 @@ export function FinalIsland({
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
+  layeredPreview?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
@@ -497,16 +530,48 @@ export function FinalIsland({
     i = state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state),
     visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
-  const [pos, setPos] = useState(homePositions[i.id] ?? { x: 585, y: 470 }),
+  const scene = useMemo(
+    () => (layeredPreview ? villageScene(i.buildings) : undefined),
+    [layeredPreview, i.buildings],
+  );
+  const grid = scene?.grid ?? grids.home;
+  const doors: Record<string, Door> = scene
+    ? Object.fromEntries(
+        Object.entries(legacyDoors).map(([id, door]) => [
+          id,
+          id === 'raft'
+            ? {
+                ...door,
+                x: villageMap.crossings.dock.arrival[0],
+                y: villageMap.crossings.dock.arrival[1],
+              }
+            : door.building
+              ? { ...door, ...villageDoors[door.building] }
+              : door,
+        ]),
+      )
+    : legacyDoors;
+  const positionKey = i.id + (layeredPreview ? ':layered' : ':original');
+  const initial = () =>
+    nearestLand(
+      grid,
+      homePositions[positionKey] ?? (layeredPreview ? { x: 820, y: 535 } : { x: 585, y: 470 }),
+    );
+  const [pos, setPos] = useState(initial),
     [walking, setWalking] = useState(false);
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
     location = useRef(pos);
   const walk = (target: Point, done?: () => void) => {
-    const path = landPath(grids.home, location.current, nearestLand(grids.home, target));
+    const path = scene
+      ? villagePath(scene, location.current, target)
+      : landPath(grid, location.current, nearestLand(grid, target));
     const t = ++token.current;
     xy.stopAnimation();
-    if (!path.length) return;
+    if (!path.length) {
+      setWalking(false);
+      return;
+    }
     setWalking(true);
     let idx = 1;
     const next = () => {
@@ -525,7 +590,7 @@ export function FinalIsland({
         if (finished) {
           location.current = p;
           setPos(p);
-          homePositions[i.id] = p;
+          homePositions[positionKey] = p;
           next();
         }
       });
@@ -533,15 +598,16 @@ export function FinalIsland({
     next();
   };
   useEffect(() => {
-    const p = homePositions[i.id] ?? { x: 585, y: 470 };
+    const p = initial();
     location.current = p;
     xy.setValue(p);
     setPos(p);
+    setWalking(false);
     return () => {
       token.current++;
       xy.stopAnimation();
     };
-  }, [i.id]);
+  }, [positionKey, scene]);
   useEffect(() => {
     if (request && !visiting) {
       const d = Object.values(doors).find((d) => d.r === request);
@@ -605,6 +671,7 @@ export function FinalIsland({
                   height: hitbox.h * s,
                   minWidth: 44,
                   minHeight: 44,
+                  zIndex: scene ? 2000 : undefined,
                 }}
               />
             );
@@ -614,7 +681,8 @@ export function FinalIsland({
           <Wanderer
             key={color + n}
             color={color}
-            start={nearestLand(grids.home, WANDER_STARTS[n])}
+            start={nearestLand(grid, WANDER_STARTS[n])}
+            scene={scene}
             s={s}
             reduce={state.settings.reduceMotion}
             delay={1200 + n * 2500}
@@ -628,6 +696,7 @@ export function FinalIsland({
               position: 'absolute',
               left: Animated.multiply(xy.x, s),
               top: Animated.multiply(xy.y, s),
+              zIndex: scene ? Math.round(pos.y) : undefined,
             }}
           >
             {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 이름표 없음 */}
@@ -668,6 +737,7 @@ export function FinalIsland({
     <View style={{ flex: 1 }}>
       <WorldMap
         state={state}
+        village={scene}
         islandId={i.id}
         showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
         onSpot={visiting ? undefined : (p) => walk(p)}
@@ -833,6 +903,46 @@ export function FinalIsland({
             )}
           </View>
         </>
+      )}
+    </View>
+  );
+}
+
+// 개발 빌드 또는 명시적인 QA 빌드에서만 제공하는 로컬 표시 전환이다.
+const CAN_PREVIEW_VILLAGE = __DEV__ || process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1';
+export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>) {
+  const L = useAppLayout();
+  const [layered, setLayered] = useState(
+    () =>
+      CAN_PREVIEW_VILLAGE &&
+      ((Platform.OS === 'web' &&
+        typeof window !== 'undefined' &&
+        new URLSearchParams(window.location.search).get('village') === 'layered') ||
+        process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
+  );
+  return (
+    <View style={{ flex: 1 }}>
+      <FinalIslandScene
+        key={layered ? 'layered' : 'original'}
+        {...props}
+        layeredPreview={layered}
+      />
+      {CAN_PREVIEW_VILLAGE && props.showHud !== false && props.showActions !== false && (
+        <View
+          style={{
+            position: 'absolute',
+            right: semanticTokens.spacing.page,
+            top: Math.max(L.insets.top, semanticTokens.spacing.page),
+            zIndex: 20,
+          }}
+        >
+          <Btn
+            id="village-preview-toggle"
+            kind="sec"
+            title={layered ? '기존 마을 보기' : '새 마을 미리보기'}
+            onPress={() => setLayered((value) => !value)}
+          />
+        </View>
       )}
     </View>
   );
