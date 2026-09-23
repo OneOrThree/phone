@@ -115,7 +115,7 @@ jobs:
               ;;
             down)
               # 브로커 컨테이너만 중지·제거한다. kafka-data 볼륨은 지우지 않는다(rm 에 -v 없음).
-              relay=$(docker exec phone-app printenv OUTBOX_RELAY_ENABLED 2>/dev/null || true)
+              relay=$(docker exec phone-data-api printenv OUTBOX_RELAY_ENABLED 2>/dev/null || true)
               if [ "$relay" = true ]; then
                 echo "::warning::app 의 OUTBOX_RELAY_ENABLED=true — 브로커가 내려가면 Kafka 대상 행은 재시도로 쌓인다(보존됨)"
               fi

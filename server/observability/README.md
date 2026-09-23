@@ -8,7 +8,7 @@
 
 ```mermaid
 flowchart LR
-  app["Data API · app:9091"] -->|"Actuator 메트릭"| prometheus["Prometheus"]
+  app["Data API · data-api:9091"] -->|"Actuator 메트릭"| prometheus["Prometheus"]
   db["PostgreSQL"] --> exporter["postgres-exporter"]
   exporter --> prometheus
   host["호스트"] --> node["node-exporter"]
@@ -22,7 +22,7 @@ flowchart LR
   app -.->|"별도 APM 구성"| datadog["Datadog Agent"]
 ```
 
-현재 [Prometheus 설정](prometheus/prometheus.yml)은 `app:9091`과 PostgreSQL·호스트·컨테이너를 수집합니다. Business·Notification·Realtime에도 관리 포트가 있지만 이 설정에 자동 등록되지는 않습니다. 신규 서비스를 관측하려면 scrape 대상과 대시보드를 추가해야 합니다.
+현재 [Prometheus 설정](prometheus/prometheus.yml)은 `data-api:9091`과 PostgreSQL·호스트·컨테이너를 수집합니다. Business·Notification·Realtime에도 관리 포트가 있지만 이 설정에 자동 등록되지는 않습니다. 신규 서비스를 관측하려면 scrape 대상과 대시보드를 추가해야 합니다.
 
 ## 2. 무엇을 확인하나
 
@@ -78,7 +78,7 @@ docker compose --env-file ../.gromo-runtime/dev.env \
 > `down`은 병합된 기본 앱·DB까지 종료하므로 관측만 중지할 때는 위 `stop`을 사용합니다.
 
 > ⚠️ 반드시 `-f` 두 개로 실행. 그래야 dev 의 `app-network`·`app`·`db` 와 같은 프로젝트/네트워크를 공유해
-> `app:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `dev-cd.yml` 은 `up -d app` 만 하므로 배포와 간섭 없음.
+> `data-api:9091`·`db:5432` 를 서비스명으로 스크레이프한다. `dev-cd.yml` 은 `up -d --no-deps data-api` 만 하므로 배포와 간섭 없음.
 
 ## 한 화면 구성
 
@@ -116,7 +116,7 @@ DB 캐시히트↓(`blks_read`↑) → 인덱스/쿼리 문제. 두 지표의 �
 
 ## 로컬(비-dev)에서 볼 때
 
-app 을 호스트에서 `bootRun` 으로 띄우면, `server/observability/prometheus/prometheus.yml` 의 타깃 `app:9091` 을
+app 을 호스트에서 `bootRun` 으로 띄우면, `server/observability/prometheus/prometheus.yml` 의 타깃 `data-api:9091` 을
 `host.docker.internal:9091` 로 바꾸고 app 을 관리 포트가 설정된 프로파일(dev)로 실행한다.
 
 관련: GROMO-588(수집층) · GROMO-589(알람·uptime·Terraform).

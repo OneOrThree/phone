@@ -57,10 +57,10 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 | 환경 | 파일 조합 | 지금 자동으로 도는 부분 | 사람이 붙이는 부분 |
 | --- | --- | --- | --- |
 | local | local | — | 전부 |
-| dev | dev (+datadog) (+kafka) (+satellites.data) → + realtime · satellites | `dev-cd.yml`: `dev.yml` + 이미 떠 있는 datadog·kafka·Data 전용 env 를 유지하며 `up -d app`만 | Realtime(`up -d realtime`) · 위성(준비 도구의 계획) · Kafka 기동(Actions **Dev Kafka**) |
+| dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites | `dev-cd.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(준비 도구의 계획) · Kafka 기동(Actions **Dev Kafka**) |
 | prod | prod (+kafka) (+satellites (+satellites.data)) | `prod-cd.yml` → SSM 문서가 `docker-compose.prod.yml` 단독 `up -d` | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
 
-- Data 를 전용 env 로 바꿀 때만(준비 도구를 `--data-image`로 실행해 `compose.env`에 `DATA_API_ENV_FILE`·`DATA_API_PROFILES`가 있을 때) 위 줄 끝에 `-f server/scripts/docker-compose.satellites.data.yml`을 **마지막 `-f`** 로 더합니다. 그 값이 없으면 이 파일의 필수 보간이 실패하므로 붙이지 않고, Data 는 legacy env 로 뜹니다.
+- Data 를 전용 env 로 바꿀 때만(준비 도구를 `--data-image`로 실행해 `compose.env`에 `DATA_API_ENV_FILE`·`DATA_API_PROFILES`가 있을 때) dev에서는 `docker-compose.satellites.data.dev.yml`, prod에서는 `docker-compose.satellites.data.yml`을 **마지막 `-f`**로 더합니다. dev CD는 전용 env가 없거나 유효하지 않으면 배포를 중단합니다.
 - prod 호스트에는 레포가 없고 `prod-cd.yml`이 `docker-compose.prod.yml`만 S3 로 올립니다. prod 줄의 `server/scripts/…`는 같은 커밋의 파일을 호스트에 옮겨 둔 경로로 바꾸고, `.env.prod`·`./deploy/nginx.conf`·`./certs`는 `--project-directory`(현행 배포 디렉터리) 기준으로 풉니다.
 - prod 파일에는 `name:`이 없어 프로젝트명이 호스트 디렉터리에서 정해집니다. `satellites.yml`의 `name: phone`이 이를 바꾸지 않도록 `-p`에 `docker compose ls`로 확인한 현재 이름을 넣습니다.
 - `docker-compose.business.yml`은 Notification 없이 Business 만 띄우는 옛 진입점입니다. `satellites.yml`과 **함께 쓰지 않습니다**(같은 서비스를 정의).
@@ -99,7 +99,7 @@ dev 의 `../.gromo-runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다** Secr
 
 - JVM 서비스의 stdout 은 logback APP 로그(L01, **7일**)와 같은 내용이므로 목표는 7일입니다. Docker 는 **기간이 아니라 크기로만** 지우므로 200 MB 는 「하루 약 30 MB 이하」를 가정한 근사치입니다. 로그가 더 적으면 7일보다 오래 남고, 많으면 일찍 지워집니다.
 - 실측 후 보정합니다. 하루 뒤 `sudo du -h $(docker inspect -f '{{.LogPath}}' <컨테이너>)*`로 일 증가량을 재고 `max-size × max-file ≈ 7 × 일 증가량`이 되도록 이 파일들의 앵커 한 줄을 고칩니다.
-- `logging`이 바뀐 컨테이너는 다음 `up`에서 **재생성**됩니다. dev 는 CD 의 `up -d app`이 의존성 `db`까지 한 번 재생성합니다(짧은 DB 재기동). `redis`는 app 의존성이 아니라 사람이 `up -d redis`를 할 때 적용됩니다. prod 는 SSM 의 `up -d`가 nginx·agent 까지 재생성합니다.
+- `logging`이 바뀐 컨테이너는 다음 `up`에서 **재생성**됩니다. dev CD는 `up -d --no-deps data-api`로 DB 재생성을 막습니다. `redis`는 app 의존성이 아니라 사람이 `up -d redis`를 할 때 적용됩니다. prod 는 SSM 의 `up -d`가 nginx·agent 까지 재생성합니다.
 
 ## 6. Business Redis ACL 반영
 

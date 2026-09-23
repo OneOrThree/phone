@@ -40,7 +40,7 @@ env:
 
 jobs:
   deploy:
-    name: 앱 서버 배포
+    name: Data API 배포
     runs-on: [self-hosted, dev]
     environment: production
     timeout-minutes: 20
@@ -181,6 +181,10 @@ jobs:
           else
             echo "KAFKA_OVERLAY_ENABLED=0" >> "$GITHUB_ENV"
           fi
+          if [ ! -e "$DATA_API_ENV_FILE" ]; then
+            echo "::error::Data 전용 env 가 없습니다 — 2.0 Data API 배포를 중단합니다"
+            exit 1
+          fi
           if [ -e "$DATA_API_ENV_FILE" ]; then
             # 파일이 «있다»는 것은 사람이 위성 모드를 의도했다는 뜻이다. 그래서 형식이 틀리면 조용히 dev 단독으로
             # 되돌리지 않고 app 을 건드리기 전에 멈춘다(fail-closed). 값은 로그에 남기지 않는다.
@@ -210,7 +214,7 @@ jobs:
               DATA_API_JAVA_OPTS+=" -javaagent:/opt/datadog/dd-java-agent.jar"
             fi
             export DEPLOY_ENV=dev DATA_API_PROFILES DATA_API_JAVA_OPTS
-            compose+=(-f server/scripts/docker-compose.satellites.data.yml)
+            compose+=(-f server/scripts/docker-compose.satellites.data.dev.yml)
             overlays+=("data-api($DATA_API_PROFILES)")
             {
               echo "DATA_API_OVERLAY_ENABLED=1"
@@ -225,8 +229,16 @@ jobs:
           fi
           echo "적용한 compose 오버레이: ${overlays[*]:-없음 (docker-compose.dev.yml 단독)}"
           echo "- compose 오버레이: \`${overlays[*]:-없음}\`" >> "$GITHUB_STEP_SUMMARY"
-          "${compose[@]}" pull app
-          "${compose[@]}" up -d app
+          "${compose[@]}" pull data-api
+          # DB는 기존 컨테이너와 볼륨을 그대로 쓴다. 새 서비스가 같은 8080 포트를
+          # 사용하므로 예전 컨테이너만 멈춘 뒤 Data API를 기동한다.
+          db_before=$(docker inspect -f '{{.Id}}' phone-db)
+          test "$(docker inspect -f '{{.State.Health.Status}}' phone-db)" = healthy
+          if docker container inspect phone-app >/dev/null 2>&1; then
+            docker stop phone-app
+          fi
+          "${compose[@]}" up -d --no-deps data-api
+          test "$db_before" = "$(docker inspect -f '{{.Id}}' phone-db)"
           "${compose[@]}" ps
 
       - name: 헬스체크
@@ -246,20 +258,34 @@ jobs:
           fi
           # 배포 step 과 같은 순서 — satellites.data.yml 은 마지막. DEPLOY_ENV·DATA_API_* 는 GITHUB_ENV 로 넘어온다.
           if [ "${DATA_API_OVERLAY_ENABLED:-0}" = 1 ]; then
-            compose+=(-f server/scripts/docker-compose.satellites.data.yml)
+            compose+=(-f server/scripts/docker-compose.satellites.data.dev.yml)
           fi
-          echo "앱 기동 대기 중..."
+          echo "Data API 기동 대기 중..."
           # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.
           for i in $(seq 1 60); do
             sleep 5
-            if curl -sf http://localhost:8080/health; then
+            if curl -sf http://127.0.0.1:8080/health \
+              && [ "$(docker inspect -f '{{.State.Health.Status}}' phone-data-api)" = healthy ]; then
               echo "헬스체크 통과"
+              docker rm phone-app 2>/dev/null || true
+              ! docker container inspect phone-app >/dev/null 2>&1
               exit 0
             fi
             echo "대기 중... ($((i*5))s)"
           done
-          "${compose[@]}" logs app
+          "${compose[@]}" logs data-api
           exit 1
+
+      - name: 전환 실패 시 이전 Data API 복구
+        if: failure()
+        run: |
+          set -euo pipefail
+          if [ "$(docker inspect phone-app --format '{{.State.Running}}' 2>/dev/null || true)" = false ]; then
+            docker stop phone-data-api 2>/dev/null || true
+            docker start phone-app
+            curl --fail --silent --show-error http://127.0.0.1:8080/health >/dev/null
+            echo "::warning::새 Data API가 실패하여 이전 컨테이너를 복구했습니다. DB는 변경하지 않았습니다."
+          fi
 
       - name: 배포 실패 리포트
         if: failure()
