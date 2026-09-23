@@ -7,9 +7,9 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.FocusFinish;
-import com.oneorthree.business.upstream.data.dto.FocusSessionState;
-import com.oneorthree.business.upstream.data.dto.FocusSummary;
+import com.oneorthree.business.usecase.FocusSessionUseCase.FinishView;
+import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
+import com.oneorthree.business.usecase.FocusSessionUseCase.SummaryView;
 import com.oneorthree.business.usecase.FocusSessionUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -48,7 +48,7 @@ public class FocusSessionController {
     private final UpstreamConfigProperties properties;
 
     @PostMapping(value = "/focus-sessions", consumes = "application/json")
-    public ResponseEntity<FocusSessionState> start(@RequestBody JsonNode body, HttpServletRequest request) {
+    public ResponseEntity<StateView> start(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         // targetMinutes 는 선택이다(GROMO-1990) — 그래서 필드 «개수»는 2 또는 3 이다. 개수 검사를 놓으면
@@ -73,14 +73,14 @@ public class FocusSessionController {
         if (!absent && (!targetMinutes.isIntegralNumber() || !targetMinutes.canConvertToInt())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "targetMinutes");
         }
-        FocusSessionState started = focusSessions.start(claims, uuid(islandId.stringValue(), "islandId"),
+        StateView started = focusSessions.start(claims, uuid(islandId.stringValue(), "islandId"),
                 subject.stringValue(), absent ? null : targetMinutes.intValue(), key, deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(started);
     }
 
     /** 진행 세션이 없으면 {@code {"data": null}} 이다 — 정상값이고 404 가 아니다(LLD §2 session). */
     @GetMapping("/focus-sessions/current")
-    public FocusSessionState current(HttpServletRequest request) {
+    public StateView current(HttpServletRequest request) {
         return focusSessions.current(sessions.requireSession(request), deadline());
     }
 
@@ -90,7 +90,7 @@ public class FocusSessionController {
      * 앱은 켤 때 이 값을 받아 결과창을 띄우고, 닫을 때 아래 {@code acknowledge} 를 부른다.
      */
     @GetMapping("/focus-sessions/pending-result")
-    public FocusFinish pendingResult(HttpServletRequest request) {
+    public FinishView pendingResult(HttpServletRequest request) {
         return focusSessions.pendingResult(sessions.requireSession(request), deadline());
     }
 
@@ -110,7 +110,7 @@ public class FocusSessionController {
     }
 
     @PostMapping(value = "/focus-sessions/{sessionId}/pause", consumes = "application/json")
-    public FocusSessionState pause(@PathVariable String sessionId, @RequestBody JsonNode body,
+    public StateView pause(@PathVariable String sessionId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -118,7 +118,7 @@ public class FocusSessionController {
     }
 
     @PostMapping(value = "/focus-sessions/{sessionId}/resume", consumes = "application/json")
-    public FocusSessionState resume(@PathVariable String sessionId, @RequestBody JsonNode body,
+    public StateView resume(@PathVariable String sessionId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -126,7 +126,7 @@ public class FocusSessionController {
     }
 
     @PostMapping(value = "/focus-sessions/{sessionId}/finish", consumes = "application/json")
-    public FocusFinish finish(@PathVariable String sessionId, @RequestBody JsonNode body,
+    public FinishView finish(@PathVariable String sessionId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -138,7 +138,7 @@ public class FocusSessionController {
      * 여기서 보는 것은 값이 아니라 <b>개수</b>다({@link #single}).
      */
     @GetMapping("/me/focus-summary")
-    public FocusSummary summary(HttpServletRequest request) {
+    public SummaryView summary(HttpServletRequest request) {
         return focusSessions.summary(sessions.requireSession(request), single(request, "date"),
                 single(request, "timezone"), deadline());
     }
