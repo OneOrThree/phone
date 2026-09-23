@@ -28,7 +28,7 @@ import {
 import { assets } from '@/constants/assets';
 import { C, T, Button, Progress, useScreenInsets } from '@/design-system/primitives';
 import { IslandDecor } from '@/screens/cosmetics/Cosmetics';
-import { CatSprite, catFrameBox } from '@/components/CatSprite';
+import { CatSprite, catFrameBox, CatMotionInput } from '@/components/CatSprite';
 import {
   Point,
   nodes,
@@ -61,6 +61,7 @@ export function IslandHome({
   request,
   showHud = true,
   showActions = true,
+  motion,
 }: {
   state: State;
   go: (r: Route) => void;
@@ -68,6 +69,7 @@ export function IslandHome({
   request?: Route | null;
   showHud?: boolean;
   showActions?: boolean;
+  motion?: CatMotionInput;
 }) {
   const insets = useScreenInsets();
   const startOfToday = new Date().setHours(0, 0, 0, 0);
@@ -79,7 +81,54 @@ export function IslandHome({
   const [size, setSize] = useState({ w: 390, h: 740 }),
     [walking, setWalking] = useState(false),
     [left, setLeft] = useState(false),
-    [destination, setDestination] = useState<Point | null>(null);
+    [destination, setDestination] = useState<Point | null>(null),
+    [interactiveMotion, setInteractiveMotion] = useState<
+      'tilt' | 'stretch' | 'groom' | 'yawn' | null
+    >(null);
+  const tiltTimer = useRef<NodeJS.Timeout | null>(null);
+  const tapCountRef = useRef(0);
+  const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerMotion = (
+    m: 'tilt' | 'stretch' | 'groom' | 'yawn',
+    faceLeft?: boolean,
+  ) => {
+    if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (faceLeft !== undefined) setLeft(faceLeft);
+    setInteractiveMotion(m);
+    const durations = { tilt: 2400, stretch: 1800, groom: 1600, yawn: 1800 };
+    tiltTimer.current = setTimeout(() => {
+      setInteractiveMotion(null);
+    }, durations[m] ?? 2000);
+  };
+  const triggerTilt = () => triggerMotion('tilt');
+
+  const handleCatPress = (e: any) => {
+    if (walking) return;
+    const nativeX = e?.nativeEvent?.locationX ?? (140 * scale) / 2;
+    const isTouchLeft = nativeX < (140 * scale) / 2;
+    setLeft(isTouchLeft);
+
+    if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+    const count = tapCountRef.current % 4;
+    tapCountRef.current++;
+    tapResetTimer.current = setTimeout(() => {
+      tapCountRef.current = 0;
+    }, 4000);
+
+    const motionCycle: ('tilt' | 'stretch' | 'groom' | 'yawn')[] = isTouchLeft
+      ? ['tilt', 'groom', 'stretch', 'yawn']
+      : ['stretch', 'tilt', 'yawn', 'groom'];
+
+    triggerMotion(motionCycle[count]);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (tiltTimer.current) clearTimeout(tiltTimer.current);
+      if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+    };
+  }, []);
   const pos = useRef(nearestPoint(islandPositions[island.id] || { x: 442, y: 980 }, bs)),
     xy = useRef(new Animated.ValueXY(pos.current)).current,
     token = useRef(0);
@@ -87,7 +136,8 @@ export function IslandHome({
     mapW = 1024 * scale,
     mapH = 1536 * scale;
   const camera = useIslandCamera(size);
-  const catBox = catFrameBox(state.color, walking ? 'walking' : 'blink', 140 * scale);
+  const activeMotion = motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'));
+  const catBox = catFrameBox(state.color, activeMotion, 140 * scale);
   const renderScale = useRef(new Animated.Value(scale)).current;
   const catTransform = useMemo(
     () => [
@@ -128,6 +178,8 @@ export function IslandHome({
     };
   }, [island.id]);
   const walk = (dest: Point, _label = '', route?: Route) => {
+    if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    setInteractiveMotion(null);
     const run = ++token.current;
     // Read the native presentation position when interrupting. A JS listener can
     // be one frame behind on iPad, which used to pull the cat backwards on retap.
@@ -149,7 +201,14 @@ export function IslandHome({
         if (i >= path.length) {
           setWalking(false);
           setDestination(null);
-          if (route) go(route);
+          if (route) {
+            if (['board', 'mail', 'quest', 'hall', 'shop', 'tower', 'focusSetup'].includes(route)) {
+              triggerTilt();
+            }
+            go(route);
+          } else if (path.length >= 6) {
+            triggerMotion('stretch');
+          }
           return;
         }
         const start = path[i - 1],
@@ -456,7 +515,7 @@ export function IslandHome({
             />
           )}
           <Animated.View
-            pointerEvents="none"
+            pointerEvents="box-none"
             testID={walking ? 'cat-walking' : 'cat-arrived'}
             // Explicit paint bounds keep the sprite visible after native remounts.
             collapsable={false}
@@ -467,16 +526,32 @@ export function IslandHome({
               width: catBox.extent,
               height: catBox.extent,
               transform: catTransform,
+              zIndex: 30,
             }}
           >
-            <CatSprite
-              anchored={false}
-              color={state.color}
-              motion={walking ? 'walking' : 'blink'}
-              size={140 * scale}
-              left={left}
-              reduce={state.settings.reduceMotion}
-            />
+            <Pressable
+              testID="island-cat-actor"
+              accessibilityRole="button"
+              accessibilityLabel="내 고양이"
+              hitSlop={8}
+              onPress={handleCatPress}
+              style={{
+                width: '100%',
+                height: '100%',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <CatSprite
+                testID="island-cat-sprite"
+                anchored={false}
+                color={state.color}
+                motion={activeMotion}
+                size={140 * scale}
+                left={left}
+                reduce={state.settings.reduceMotion}
+              />
+            </Pressable>
           </Animated.View>
         </Animated.View>
       </View>

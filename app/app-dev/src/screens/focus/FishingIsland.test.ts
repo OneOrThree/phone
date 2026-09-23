@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict';
+import React from 'react';
+import { act, render } from '@testing-library/react-native';
 import { landPath, onLand } from '@/utils/world-grid';
+import { SECONDS_PER_FISH } from '@/services/model';
+import { FishingBoat } from '@/screens/focus/FocusSea';
 import {
   LANDING,
   PEER_SPOTS,
   DEFAULT_SPOT,
+  FishingActor,
   GRAM,
   anchorCard,
   castSpot,
@@ -14,6 +19,15 @@ import {
   nearRaft,
   occupied,
 } from '@/screens/focus/FishingIsland';
+
+jest.mock('@/components/CatSprite', () => {
+  const React = require('react');
+  const { View } = require('react-native');
+  return {
+    CatSprite: ({ testID, motion }: { testID?: string; motion: string }) =>
+      React.createElement(View, { testID, motion }),
+  };
+});
 
 test('낚시섬: 물은 누를 수 없고, 뗏목 옆 땅에서 누른 땅까지 걸어갈 수 있다', () => {
   assert.equal(onLand(fishingGrid, { x: 2, y: 2 }), false); // 바다
@@ -124,4 +138,92 @@ test('지도 창: 세로는 폭 640 지도를 가운데 높이에, 가로는 화
   // 가로에서 0.8배로 줄여 지도가 화면보다 좁으면 가로 가운데
   const far = fishingCamera(874, 402, 0.8, { x: 10, y: 55.9 });
   assert.ok(Math.abs(far.left - (874 - far.size) / 2) <= 0.5);
+});
+
+test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가고 동작 줄이기는 즉시 reel을 멈춘다', async () => {
+  jest.useFakeTimers();
+  const props = {
+    spot: { x: 34.1, y: 55.9, face: 1 },
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '나',
+    seconds: 0,
+    reduce: false,
+  };
+  const screen = await render(React.createElement(FishingActor, props));
+  const motion = () => screen.getByTestId('fishing-actor-cat').props.motion;
+
+  assert.equal(motion(), 'focus');
+  await screen.rerender(React.createElement(FishingActor, { ...props, seconds: SECONDS_PER_FISH }));
+  assert.equal(motion(), 'reel');
+
+  await act(async () => jest.advanceTimersByTime(2000));
+  assert.equal(motion(), 'focus');
+
+  await screen.rerender(
+    React.createElement(FishingActor, { ...props, seconds: SECONDS_PER_FISH * 2 }),
+  );
+  assert.equal(motion(), 'reel');
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      seconds: SECONDS_PER_FISH * 2,
+      reduce: true,
+    }),
+  );
+  assert.equal(motion(), 'focus');
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초기화 때 남지 않는다', async () => {
+  jest.useFakeTimers();
+  const props = {
+    color: 'ginger' as const,
+    hull: 'raft',
+    seconds: 0,
+    emote: null,
+    name: '나',
+    subject: '집중',
+    mine: true,
+    reduce: false,
+  };
+  const screen = await render(React.createElement(FishingBoat, props));
+  const motion = () => screen.getByTestId('fishing-boat-cat').props.motion;
+
+  await screen.rerender(React.createElement(FishingBoat, { ...props, seconds: SECONDS_PER_FISH }));
+  assert.equal(motion(), 'reel');
+  await act(async () => jest.advanceTimersByTime(1900));
+  assert.equal(motion(), 'focus');
+
+  await screen.rerender(
+    React.createElement(FishingBoat, { ...props, seconds: SECONDS_PER_FISH * 2 }),
+  );
+  assert.equal(motion(), 'reel');
+  await screen.rerender(
+    React.createElement(FishingBoat, { ...props, seconds: SECONDS_PER_FISH * 2, reduce: true }),
+  );
+  assert.equal(motion(), 'focus');
+  await screen.rerender(React.createElement(FishingBoat, { ...props, seconds: 0 }));
+  assert.equal(motion(), 'focus');
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('FishingActor: motion="tilt" 지정 시 갸웃 모션이 전달되고 낚싯대를 숨긴다', async () => {
+  const actor = await render(
+    React.createElement(FishingActor, {
+      spot: { x: 50, y: 50, face: 1 },
+      size: 100,
+      sizeY: 100,
+      color: 'ginger',
+      name: '나',
+      seconds: 0,
+      reduce: false,
+      motion: 'tilt',
+    }),
+  );
+  assert.equal(actor.getByTestId('fishing-actor-cat').props.motion, 'tilt');
+  await actor.unmount();
 });

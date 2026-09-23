@@ -11,10 +11,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Defs, Ellipse, Image as SvgImage, Path, Pattern, Rect } from 'react-native-svg';
 import { Text } from '@/design-system/typography';
-import { assets, cat } from '@/constants/assets';
+import { assets } from '@/constants/assets';
 import { art } from '@/constants/art';
 import { C } from '@/design-system/primitives';
-import { CatSprite } from '@/components/CatSprite';
+import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
 import { Grid, Point, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
@@ -485,6 +485,7 @@ export function FishingActor({
   seconds,
   emote,
   reduce,
+  motion,
 }: {
   spot: Spot;
   size: number;
@@ -496,25 +497,27 @@ export function FishingActor({
   seconds: number;
   emote?: string | null;
   reduce: boolean;
+  motion?: CatMotionInput;
 }) {
-  const [frame, setFrame] = useState(0),
-    [reeling, setReeling] = useState(false);
+  const [reeling, setReeling] = useState(false);
   const count = Math.floor(seconds / SECONDS_PER_FISH),
     last = useRef(count);
   // 새로 한 마리 잡으면 2초 동안 낚아올리기
   useEffect(() => {
-    const caught = count > last.current;
+    if (count <= last.current) {
+      last.current = count;
+      setReeling(false);
+      return;
+    }
     last.current = count;
-    if (!caught || reduce) return;
+    if (reduce) {
+      setReeling(false);
+      return;
+    }
     setReeling(true);
     const t = setTimeout(() => setReeling(false), 2000);
     return () => clearTimeout(t);
   }, [count, reduce]);
-  useEffect(() => {
-    if (reduce) return;
-    const t = setInterval(() => setFrame((f) => (f + 1) % 4), 450);
-    return () => clearInterval(t);
-  }, [reduce]);
   const a = size * 0.077,
     face = spot.face;
   return (
@@ -529,24 +532,30 @@ export function FishingActor({
         zIndex: 20 + Math.round(spot.y),
       }}
     >
-      <Image
-        source={cat(color, `fishing/${reeling ? 'reel' : 'fishing'}-frame-${frame}`)}
-        style={{ position: 'absolute', width: a, height: a, transform: [{ scaleX: face }] }}
-        resizeMode="contain"
+      <CatSprite
+        color={color}
+        motion={motion ?? (reeling ? 'reel' : 'focus')}
+        size={a}
+        left={face < 0}
+        reduce={reduce}
+        anchored={false}
+        testID="fishing-actor-cat"
       />
-      <Image
-        source={assets['props/fishing/fishing-rod.png']}
-        resizeMode="contain"
-        style={{
-          position: 'absolute',
-          width: a * 0.6,
-          height: a * 0.6,
-          left: face < 0 ? -a * 0.25 : a * 0.65,
-          top: a * 0.1,
-          transform: [{ scaleX: face }],
-          transformOrigin: '20% 85%',
-        }}
-      />
+      {motion !== 'tilt' && (
+        <Image
+          source={assets['props/fishing/fishing-rod.png']}
+          resizeMode="contain"
+          style={{
+            position: 'absolute',
+            width: a * 0.6,
+            height: a * 0.6,
+            left: face < 0 ? -a * 0.25 : a * 0.65,
+            top: a * 0.1,
+            transform: [{ scaleX: face }],
+            transformOrigin: '20% 85%',
+          }}
+        />
+      )}
       <View
         style={{ position: 'absolute', bottom: a * 1.05, left: a / 2 - 100, width: 200 }}
         pointerEvents="none"
@@ -639,7 +648,7 @@ export function FishingWalker({
       <CatSprite
         color={color}
         size={a}
-        motion={walking ? 'walking' : 'blink'}
+        motion={walking ? 'walk' : 'idle'}
         left={left}
         reduce={reduce}
       />

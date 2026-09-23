@@ -52,6 +52,7 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import { CatSprite } from '@/components/CatSprite';
 import {
   art,
   C,
@@ -825,7 +826,23 @@ function FocusFlow({ e }: any) {
             },
           ]}
         >
-          <Text style={[fiTitle(18), { marginBottom: 4 }]}>집중 준비</Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 4,
+            }}
+          >
+            <Text style={fiTitle(18)}>집중 준비</Text>
+            <CatSprite
+              color={s.color}
+              motion="tilt"
+              size={44}
+              reduce={reduce}
+              testID="focus-setup-cat"
+            />
+          </View>
           <Text
             style={{
               fontSize: 12,
@@ -980,6 +997,7 @@ function FocusFlow({ e }: any) {
                     r === 'focusResult' ? (result?.seconds ?? 0) : sessionSeconds(s.session, e.now)
                   }
                   emote={focusing ? emote : null}
+                  motion={r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined}
                   reduce={reduce}
                 />
               ) : (

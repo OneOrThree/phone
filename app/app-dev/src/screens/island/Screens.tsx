@@ -48,6 +48,7 @@ import {
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
+import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
@@ -766,6 +767,7 @@ export function RedesignScreens({ e }: any) {
         build={build}
         showHud={route !== 'focusSetup'}
         showActions={false}
+        motion={route === 'focusSetup' ? 'tilt' : undefined}
       />
     </View>
   );
@@ -1643,7 +1645,15 @@ export function RedesignScreens({ e }: any) {
     return (
       <Overlay close={home} background={backgroundHome}>
         <View style={[k.row, { justifyContent: 'space-between' }]}>
-          <Txt kind="h">집중 준비</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Txt kind="h">집중 준비</Txt>
+            <CatSprite
+              color={state.color}
+              motion="tilt"
+              size={36}
+              reduce={state.settings.reduceMotion}
+            />
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="닫기"
