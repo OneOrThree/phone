@@ -321,4 +321,19 @@ class AccountContractTest extends UpstreamTestBase {
     private static MockUpstream.Response ok(String body) {
         return new MockUpstream.Response(200, body);
     }
+    @ParameterizedTest
+    @CsvSource({"get,id name catColor mainIslandId linkedProviders onboardingComplete",
+            "patch,id name catColor mainIslandId"})
+    void publicDocumentationPreservesRequiredFields(String method, String fields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path("/me").path(method).path("responses").path("200").path("content");
+        var ref = content.iterator().next().path("schema").path("$ref").asText();
+        var schema = document.at(ref.substring(1));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+    }
+
 }

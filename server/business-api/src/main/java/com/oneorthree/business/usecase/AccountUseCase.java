@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -102,12 +103,21 @@ public class AccountUseCase {
     }
 
     /** 공개 계정 조회 필드. 내부 전송 DTO의 필드 추가가 공개 응답을 확장하지 않도록 명시적으로 조립한다. */
-    public record AccountView(UUID id, String name, String catColor, UUID mainIslandId,
-                              List<String> linkedProviders, boolean onboardingComplete) {
+    public record AccountView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) String name,
+            @JsonProperty(required = true) String catColor,
+            @JsonProperty(required = true) UUID mainIslandId,
+            @JsonProperty(required = true) List<String> linkedProviders,
+            @JsonProperty(required = true) boolean onboardingComplete) {
     }
 
     /** 공개 프로필 변경 결과. DB 컬럼·내부 인증 상태를 포함하지 않는다. */
-    public record ProfileView(UUID id, String name, String catColor, UUID mainIslandId) {
+    public record ProfileView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) String name,
+            @JsonProperty(required = true) String catColor,
+            @JsonProperty(required = true) UUID mainIslandId) {
     }
 
     /** 탈퇴 성공 {@code {"deleted": true}} — legacy DELETE 의 204 와 구분한다(LLD §2.5). */
