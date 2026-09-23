@@ -1,4 +1,5 @@
 import { sessionGeneration } from '@/services/api/session';
+import { hasBundledAudio } from '@/constants/audio';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -16,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   State,
   Building,
+  Color,
   Route,
   currentIsland,
   viewIsland,
@@ -34,10 +36,13 @@ import {
   islandWeeklyAverage,
   hoursMinutes,
   questMemberRate,
+  trackNames,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
 import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
+import { getSession } from '@/services/api/session';
+import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -74,17 +79,20 @@ import {
   Txt,
   Pic,
   Btn,
+  Badge,
   Group,
   Row,
   Seg,
   Field,
   Strip,
+  Toggle,
   Overlay,
 } from '@/design-system/patterns';
 import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
+import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
 import {
   isScreenTimeAvailable,
   screenTime,
@@ -100,12 +108,6 @@ const buildingArt: Record<Building, string> = {
   mail: 'mailbox',
   tower: 'observatory',
   shop: 'shop',
-};
-const tracks: Record<string, string> = {
-  waves: '잔잔한 파도',
-  campfire: '모닥불 소리',
-  'forest-wind': '숲바람',
-  rain: '오두막의 빗소리',
 };
 const date = (at: number) =>
   new Date(at).toLocaleDateString('ko-KR', {
@@ -154,6 +156,48 @@ function Sheet({
 }
 
 export function CurrentScreens({ e }: any) {
+  const friendsScreen = useFriendsScreen({
+    // 공용 소비자(뗏목 배지·우체통)가 첫 진입부터 서버 친구를 쓰도록 화면 route와 무관하게 적재한다.
+    active: !!e.islands,
+    searchActive: e.route === 'friends' || e.route === 'friendSearch',
+    date: dayKey(e.now),
+  });
+  useEffect(() => {
+    const data = friendsScreen.data;
+    if (!data) return;
+    const toFriend = (
+      userId: string,
+      nickname: string | null,
+      islandName: string | null | undefined,
+      status: 'friend' | 'received' | 'sent',
+    ) => ({
+      id: userId,
+      name: nickname ?? '탈퇴한 사용자',
+      color: 'white' as Color,
+      island: islandName ?? '',
+      status,
+      messages: [],
+    });
+    e.dispatch({
+      type: 'FRIENDS_SYNC',
+      friends: [
+        ...data.friends.map((friend) =>
+          toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
+        ),
+        ...data.friendRequests.map((request) =>
+          toFriend(request.userId, request.nickname, null, 'received'),
+        ),
+        ...data.sentFriendRequests.map((request) =>
+          toFriend(request.userId, request.nickname, null, 'sent'),
+        ),
+      ],
+    });
+  }, [e.dispatch, friendsScreen.data]);
+
+  return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
+}
+
+function CurrentScreensContent({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
     r: Route = e.route;
@@ -313,9 +357,148 @@ export function CurrentScreens({ e }: any) {
   if (['tower', 'explore'].includes(r)) return <Tower e={e} />;
   if (['boat', 'mainIsland', 'friends', 'friendSearch'].includes(r)) return <Social e={e} />;
   if (['shop', 'product', 'orders', 'sound'].includes(r)) return <ShopMusic e={e} />;
-  if (r === 'permission') return <ScreenTimePermission e={e} />;
+  if (r === 'permission')
+    return e.detail === 'settings' ? (
+      <AppPermissionManager e={e} />
+    ) : (
+      <ScreenTimePermission e={e} />
+    );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
   return <RedesignScreens e={e} />;
+}
+
+function AppPermissionManager({ e }: any) {
+  const [status, setStatus] = useState<ScreenTimeAuthorization | 'loading'>('loading');
+  const [selection, setSelection] = useState<ScreenTimeSelection | null>(null);
+  const [selectionStatus, setSelectionStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [busy, setBusy] = useState(false);
+  const unavailable = Platform.OS !== 'ios' || !isScreenTimeAvailable || status === 'unavailable';
+  const approved = status === 'approved';
+  const selectedCount = selectionCount(selection);
+  const selectionDescription =
+    selectionStatus === 'loading'
+      ? '선택 상태 확인 중'
+      : selectionStatus === 'error'
+        ? '선택 상태를 확인하지 못했어요'
+        : selectedCount
+          ? `${selectedCount}개 선택됨`
+          : '아직 선택하지 않았어요';
+  const permissionDescription = approved ? '허용됨' : unavailable ? '사용 불가' : '허용 필요';
+
+  useEffect(() => {
+    let active = true;
+    const syncPermissionState = () => {
+      screenTime
+        .getAuthorizationStatus()
+        .then((nextStatus) => {
+          if (!active) return;
+          setStatus(nextStatus);
+          e.dispatch({ type: 'SETTING', key: 'permission', value: nextStatus === 'approved' });
+        })
+        .catch(() => active && setStatus('unavailable'));
+      setSelectionStatus('loading');
+      screenTime
+        .getMeasurementSelectionCounts()
+        .then((nextSelection) => {
+          if (!active) return;
+          setSelection(nextSelection);
+          setSelectionStatus('ready');
+        })
+        .catch(() => active && setSelectionStatus('error'));
+    };
+    syncPermissionState();
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') syncPermissionState();
+    });
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, []);
+
+  const requestConnection = async () => {
+    if (approved) return true;
+    if (unavailable) {
+      e.notify('이 기기에서는 스크린타임을 연결할 수 없어요.');
+      return false;
+    }
+    setBusy(true);
+    try {
+      await screenTime.requestAuthorization();
+      const nextStatus = await screenTime.getAuthorizationStatus();
+      setStatus(nextStatus);
+      e.dispatch({ type: 'SETTING', key: 'permission', value: nextStatus === 'approved' });
+      if (nextStatus !== 'approved') e.notify('iOS 설정에서 스크린타임 권한을 허용해 주세요.');
+      return nextStatus === 'approved';
+    } catch {
+      e.notify('스크린타임 권한을 요청하지 못했어요.');
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const changeConnection = async (next: boolean) => {
+    if (next) {
+      await requestConnection();
+      return;
+    }
+    // Family Controls 권한은 앱에서 직접 철회할 수 없어 시스템 설정으로 보낸다.
+    await openSystemSettings();
+  };
+
+  const openSystemSettings = async () => {
+    if (Platform.OS !== 'ios' || typeof Linking.openSettings !== 'function') return;
+    await Linking.openSettings();
+  };
+
+  const openMeasuredApps = async () => {
+    if (!(approved || (await requestConnection()))) return;
+    e.go('screenTimeApps', 'settings');
+  };
+
+  return (
+    <Sheet e={e} title="앱 권한 관리">
+      <Txt kind="section">스크린타임</Txt>
+      <Group>
+        <Row
+          title="스크린타임 연결"
+          sub="폰 사용 퀘스트와 기록에 사용해요"
+          tail={
+            <Toggle
+              label="스크린타임 연결"
+              value={approved}
+              disabled={busy || status === 'loading' || unavailable}
+              onChange={changeConnection}
+            />
+          }
+        />
+        <Row
+          title="측정 앱"
+          sub={selectionDescription}
+          accessibilityLabel={`측정 앱, ${selectionDescription}`}
+          chevron
+          onPress={openMeasuredApps}
+        />
+      </Group>
+      <Txt kind="meta">연결을 끄면 폰 사용 퀘스트 달성률은 “확인 필요”로 표시돼요.</Txt>
+      <Txt kind="section">시스템 설정</Txt>
+      <Group>
+        <Row
+          title="측정 권한"
+          sub={
+            Platform.OS === 'ios' ? 'iOS 설정 › 스크린타임에서 변경' : 'iOS에서만 변경할 수 있어요'
+          }
+          accessibilityLabel={`측정 권한, ${permissionDescription}`}
+          right={<Badge soft>{permissionDescription}</Badge>}
+          chevron
+          disabled={Platform.OS !== 'ios'}
+          onPress={openSystemSettings}
+        />
+      </Group>
+      <Txt kind="meta">권한이 없으면 기록을 0분으로 처리하지 않고 확인이 필요한 상태로 남겨요.</Txt>
+    </Sheet>
+  );
 }
 
 function ScreenTimePermission({ e }: any) {
@@ -641,12 +824,34 @@ function FocusVisit({ e, islandId, onBack }: any) {
     i = s.islands.find((island) => island.id === islandId) ?? currentIsland(s),
     L = useAppLayout(),
     safe = useSafeAreaInsets(),
-    // 서버 연결 뒤 focus-members가 403/빈 응답이어도 로딩 상태를 유지하지 않고 빈 관전 화면으로 끝낸다.
-    peers = (i.members ?? []).filter((member) => member.focusing),
-    spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]),
     reduce = s.settings.reduceMotion,
     close = onBack ?? e.home,
     visiting = !!islandId;
+  // GROMO-2010 — 서버 모드에서는 대상 섬의 실시간 집중 멤버가 정본이다.
+  // 방문 관전은 serverIslands.visit 의 섬, 내 낚시섬 관전은 현재 섬. 목업·로컬 방문은 기존 로컬 경로.
+  const liveIslandId = e.islands
+    ? islandId
+      ? (s.serverIslands?.visit?.island.id ?? null)
+      : (s.serverIslands?.currentIslandId ?? null)
+    : null;
+  const live = useIslandPresence({ active: liveIslandId !== null, islandId: liveIslandId });
+  const myId = getSession()?.userId;
+  const peers = liveIslandId
+    ? live.focus
+        .filter((m) => m.userId !== myId)
+        .map((m) => ({
+          id: m.userId,
+          name: m.name ?? '주민',
+          color: catColor(m.catColor),
+          subject: m.subject,
+          seconds:
+            m.activeSeconds +
+            (m.status === 'active'
+              ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
+              : 0),
+        }))
+    : (i.members ?? []).filter((member) => member.focusing);
+  const spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]);
   return (
     <View style={{ flex: 1 }}>
       <FishingIsland
@@ -714,7 +919,53 @@ function FocusVisit({ e, islandId, onBack }: any) {
           onPress={close}
         />
       </View>
-      {!peers.length && (
+      {liveIslandId && live.status === 'loading' ? (
+        <View
+          pointerEvents="none"
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
+          ]}
+        >
+          <ActivityIndicator color={INK} />
+        </View>
+      ) : liveIslandId && live.status === 'error' ? (
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 5, alignItems: 'center', justifyContent: 'center' },
+          ]}
+        >
+          <View
+            style={{
+              marginHorizontal: 24,
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 18,
+              backgroundColor: '#FFFDFAD9',
+              paddingVertical: 12,
+              paddingHorizontal: 18,
+              alignItems: 'center',
+            }}
+          >
+            <Text style={{ fontSize: 14, lineHeight: 22.4, fontWeight: '800', color: INK }}>
+              {live.error?.code === 'MEMBER_ONLY'
+                ? '이 섬의 주민 상태를 볼 수 없어요'
+                : '주민 상태를 불러오지 못했어요'}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="다시 시도"
+              onPress={live.retry}
+              style={{ minHeight: 44, justifyContent: 'center' }}
+            >
+              <Text style={{ fontSize: 13, lineHeight: 20.8, fontWeight: '800', color: INK }}>
+                다시 시도
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : !peers.length ? (
         <View
           pointerEvents="none"
           style={[
@@ -738,7 +989,7 @@ function FocusVisit({ e, islandId, onBack }: any) {
             </Text>
           </View>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }
@@ -777,6 +1028,20 @@ function FocusFlow({ e }: any) {
     active: serverQuests && r === 'focusResult',
     scopeKey: `focusQuests:${s.serverIslands?.currentIslandId ?? i.id}`,
   });
+  // GROMO-2010 — 서버 모드에서는 같은 섬 주민의 실시간 집중/휴식·응원이 정본이다.
+  // 응원 채널은 내 진행 서버 세션이 이 섬에 있을 때만 구독·발신한다(없으면 서버가 거절한다).
+  const liveIslandId = e.islands ? (s.serverIslands?.currentIslandId ?? null) : null;
+  const emoteSessionId =
+    liveIslandId && s.session?.version != null && s.session.islandId === liveIslandId
+      ? s.session.id
+      : null;
+  const live = useIslandPresence({
+    active: liveIslandId !== null,
+    islandId: liveIslandId,
+    emoteSessionId,
+    onSendError: e.notify,
+  });
+  const myId = getSession()?.userId;
   useEffect(
     () => () => {
       walkingToken.current++;
@@ -817,8 +1082,24 @@ function FocusFlow({ e }: any) {
   const mine = castSpot(
     s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
   );
-  const peers = i.members.filter((m) => m.focusing),
-    peerSpots = peers.map((_, n) => PEER_SPOTS[n % PEER_SPOTS.length]);
+  // 주민 자리: 서버 모드는 live 스냅숏+이벤트가 정본 — 로딩·실패면 로컬 멤버로 지어내지 않는다.
+  const peers = liveIslandId
+    ? live.focus
+        .filter((m) => m.userId !== myId)
+        .map((m) => ({
+          id: m.userId,
+          name: m.name ?? '주민',
+          color: catColor(m.catColor),
+          subject: m.subject,
+          seconds:
+            m.activeSeconds +
+            (m.status === 'active'
+              ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
+              : 0),
+        }))
+    : i.members.filter((m) => m.focusing);
+  const peerSpots = peers.map((_, n) => PEER_SPOTS[n % PEER_SPOTS.length]),
+    emoteByUser = new Map(live.emotes.map((em) => [em.userId, em.type]));
   // 걷기: 땅 격자 경로를 따라 지도 폭 11%/초로 걷고, 걷는 중 다시 누르면 지금 위치에서 새 목적지로.
   const walkTo = (to: Point, done: () => void) => {
     const from = position.current,
@@ -971,6 +1252,7 @@ function FocusFlow({ e }: any) {
     return (
       <RestGroup
         state={s}
+        live={liveIslandId ? live : null}
         home={e.home}
         resume={resume}
         endRest={finish}
@@ -1144,7 +1426,13 @@ function FocusFlow({ e }: any) {
   if (r === 'focusResult' && s.resultFromRest)
     return (
       <View style={{ flex: 1 }}>
-        <RestGroup state={s} home={e.home} resume={e.home} result />
+        <RestGroup
+          state={s}
+          live={liveIslandId ? live : null}
+          home={e.home}
+          resume={e.home}
+          result
+        />
         {resultModal}
         {rewardModal}
       </View>
@@ -1244,8 +1532,13 @@ function FocusFlow({ e }: any) {
     );
   };
   const sendEmote = (id: string) => {
-    setEmote(id);
     setFan(false);
+    if (liveIslandId) {
+      // 서버 모드는 STOMP SEND 가 유일한 경로 — 브로드캐스트가 돌아올 때만 화면에 뜬다.
+      if (!live.sendEmote(id)) e.notify('응원을 보내지 못했어요. 잠시 후 다시 시도해 주세요.');
+      return;
+    }
+    setEmote(id);
     if (emoteTimer.current) clearTimeout(emoteTimer.current);
     emoteTimer.current = setTimeout(() => setEmote(null), 3000);
   };
@@ -1325,6 +1618,7 @@ function FocusFlow({ e }: any) {
                   name={m.name}
                   subject={shown.has(m.id) ? m.subject : null}
                   seconds={m.seconds}
+                  emote={emoteByUser.get(m.id) ?? null}
                   reduce={reduce}
                 />
               ))}
@@ -1340,7 +1634,9 @@ function FocusFlow({ e }: any) {
                   seconds={
                     r === 'focusResult' ? (result?.seconds ?? 0) : sessionSeconds(s.session, e.now)
                   }
-                  emote={focusing ? emote : null}
+                  emote={
+                    focusing ? (liveIslandId ? (emoteByUser.get(myId ?? '') ?? null) : emote) : null
+                  }
                   reduce={reduce}
                 />
               ) : (
@@ -1358,6 +1654,35 @@ function FocusFlow({ e }: any) {
           );
         }}
       </FishingIsland>
+      {liveIslandId && live.status === 'error' && (
+        <View
+          style={{
+            position: 'absolute',
+            zIndex: 5,
+            top: Math.max(56, safe.top + 8),
+            left: Math.max(18, safe.left + 8),
+          }}
+        >
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="주민 상태 다시 불러오기"
+            onPress={live.retry}
+            style={{
+              minHeight: 44,
+              justifyContent: 'center',
+              borderWidth: 2,
+              borderColor: OUTLINE,
+              borderRadius: 14,
+              backgroundColor: '#FFFDFAD9',
+              paddingHorizontal: 12,
+            }}
+          >
+            <Text style={{ fontSize: 12, lineHeight: 19.2, fontWeight: '800', color: INK }}>
+              주민 상태를 불러오지 못했어요 · 다시 시도
+            </Text>
+          </Pressable>
+        </View>
+      )}
       {focusing && (
         <>
           <View
@@ -1497,17 +1822,25 @@ function FocusFlow({ e }: any) {
                 보유한 음원 중에서 골라요.
               </Text>
               <View style={{ gap: 8 }}>
-                {i.sharedOwned
-                  .filter((id) => tracks[id])
-                  .map((id) => (
-                    <FiButton
-                      key={id}
-                      left
-                      primary={i.track === id}
-                      title={tracks[id]}
-                      onPress={() => e.dispatch({ type: 'TRACK', value: id })}
-                    />
-                  ))}
+                {i.sharedOwned.filter(hasBundledAudio).map((id) => (
+                  <FiButton
+                    key={id}
+                    left
+                    primary={i.track === id}
+                    title={trackNames[id]}
+                    onPress={() => {
+                      if (!e.playback) e.dispatch({ type: 'TRACK', value: id });
+                      else
+                        e.playback
+                          .update({ trackId: id, playing: true })
+                          .catch((thrown: unknown) =>
+                            e.notify(
+                              thrown instanceof Error ? thrown.message : '음악을 바꾸지 못했어요.',
+                            ),
+                          );
+                    }}
+                  />
+                ))}
               </View>
               <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
                 <FiButton

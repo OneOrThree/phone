@@ -157,6 +157,10 @@ internal:
           - 'POST /internal/users/*/friend-requests/*/reject'
           - 'POST /internal/users/*/friend-requests/*/cancel'
           - 'DELETE /internal/users/*/friends/*'
+          # GROMO-1975 사용자 차단 3종. 목록·생성은 같은 경로라도 메서드를 분리한다.
+          - 'GET /internal/users/*/blocks'
+          - 'POST /internal/users/*/blocks'
+          - 'DELETE /internal/users/*/blocks/*'
           # GROMO-1933 편지 3종 (friend-letter LLD §1.12~1.15). 목록과 상세는 세그먼트 수가 다르고
           # 목록과 발송은 메서드로만 갈리므로 세 줄을 합치지 않는다 — `*` 는 세그먼트 하나다.
           - 'POST /internal/users/*/letters'

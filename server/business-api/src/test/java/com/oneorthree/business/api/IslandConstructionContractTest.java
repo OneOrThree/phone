@@ -135,13 +135,13 @@ class IslandConstructionContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("BUILDING 이 아닌 상태를 주는 상류 응답은 계약 불일치로 502 다")
+    @DisplayName("BUILDING 이 아닌 상태를 주는 상류 응답은 계약 불일치로 400 다")
     void nonBuildingStatusIsAContractError() throws Exception {
         DATA.on(DATA_BUILD, request -> ok(BUILD_BODY.replace("\"BUILDING\"", "\"completed\"")));
 
         mockMvc.perform(write(post("/islands/" + ISLAND + "/constructions"),
                         "{\"buildingId\":\"gram\",\"expectedVersion\":4,\"expectedCostPolicyVersion\":1}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -222,10 +222,10 @@ class IslandConstructionContractTest extends UpstreamTestBase {
             "409,INSUFFICIENT_FUNDS,409,INSUFFICIENT_FUNDS,buildingId",
             "422,OUT_OF_RANGE,422,OUT_OF_RANGE,buildingId",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,MEMBER_ONLY,502,UPSTREAM_CONTRACT_ERROR,",
-            "403,STATE_CONFLICT,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_CONSTRUCTION_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,",
+            "403,STATE_CONFLICT,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_CONSTRUCTION_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_TARGET, request -> error(upstreamStatus, code));
@@ -355,4 +355,65 @@ class IslandConstructionContractTest extends UpstreamTestBase {
         return new MockUpstream.Response(status,
                 "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"options", "empty-options", "target", "build", "conflict"})
+    void publicJsonIncludesOnlyConstructionFields(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        var expected = (tools.jackson.databind.node.ObjectNode) json.readTree(
+                operation.equals("target") ? TARGET_BODY : operation.equals("build") ? BUILD_BODY : OPTIONS_BODY);
+        if (operation.equals("empty-options")) {
+            expected.putArray("items");
+            expected.putNull("selectedBuildingId");
+        }
+        String decorated = expected.toString().replace("{", "{\"row_id\":\"private\",");
+        MockHttpServletRequestBuilder request;
+        if (operation.equals("target")) {
+            DATA.on(DATA_TARGET, r -> ok(decorated));
+            request = write(put("/islands/" + ISLAND + "/construction-target"),
+                    "{\"buildingId\":\"gram\",\"expectedVersion\":4}");
+        } else if (operation.equals("build") || operation.equals("conflict")) {
+            DATA.on(DATA_BUILD, r -> operation.equals("conflict")
+                    ? new MockUpstream.Response(409, "{\"code\":\"VERSION_CONFLICT\"}") : ok(decorated));
+            DATA.on(DATA_OPTIONS, r -> ok(decorated));
+            request = write(post("/islands/" + ISLAND + "/constructions"),
+                    "{\"buildingId\":\"gram\",\"expectedVersion\":3,\"expectedCostPolicyVersion\":1}");
+        } else {
+            DATA.on(DATA_OPTIONS, r -> ok(decorated));
+            request = auth(get("/islands/" + ISLAND + "/construction-options"));
+        }
+        boolean conflict = operation.equals("conflict");
+        var result = mockMvc.perform(request).andExpect(status().is(conflict ? 409 : 200)).andReturn();
+        var body = json.readTree(result.getResponse().getContentAsString());
+        assertThat(conflict ? body.path("current").path("resource") : body.path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items",
+            "/islands/{islandId}/construction-options|get|200|items|id name cost currency selectable buildable blockedReason|id name cost currency selectable buildable blockedReason",
+            "/islands/{islandId}/construction-target|put|200||buildingId selected spent version|buildingId selected spent version",
+            "/islands/{islandId}/constructions|post|200||buildingId status spent version villagePoints walletVersion startedAt completesAt|buildingId status spent version villagePoints walletVersion startedAt completesAt",
+            "/islands/{islandId}/constructions|post|200|spent|currency amount|currency amount"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

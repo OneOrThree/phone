@@ -141,7 +141,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 189개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 224개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -233,7 +233,10 @@ class ErrorContractTest {
         // 구매를 처음 시도할 때 소셜 로그인을 요청한다」의 거절이다. 막는 자리가 friend·shop 두 도메인에
         // 걸쳐 있어 BANNED_WORD·RATE_LIMITED 와 같은 이유로 공통이 소유한다(error-contract §3). 공개 표에도
         // 같은 이름·상태로 등록했다 — 안 하면 정상 403 이 502 UPSTREAM_CONTRACT_ERROR 로 나간다.
-        assertThat(tests).as("실측 기준 도메인 상수 206개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청 포함")
+        // GROMO-1975 가 사용자 코드 1개(SELF_BLOCK, 400)를 더했다 — 차단 대상과 호출자가 같을 때의 입력 오류다.
+        // GROMO-2070 이 참가 코드 생성 실패 상수 1개(GroupErrorCode.CODE_GENERATION_FAILED)를 뺐다 —
+        // 초대 코드 기능 폐기로 던지는 곳이 없어졌다.
+        assertThat(tests).as("실측 기준 도메인 상수 206개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류 포함")
                 .hasSize(224);
         return tests;
     }

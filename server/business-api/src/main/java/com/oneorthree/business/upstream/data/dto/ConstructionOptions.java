@@ -3,6 +3,7 @@ package com.oneorthree.business.upstream.data.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
@@ -22,6 +23,7 @@ public record ConstructionOptions(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Item> items) {
 
     /** {@code blockedReason} 만 null 허용 — 통과하면 null, 아니면 FORBIDDEN 등 UI 사유다. */
+    @Schema(name = "ConstructionOptionItem")
     public record Item(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String id,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String name,

@@ -29,6 +29,6 @@ module.exports = {
       bundler: 'metro',
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
-    plugins: ['expo-audio'],
+    plugins: ['expo-audio', 'expo-localization'],
   },
 };

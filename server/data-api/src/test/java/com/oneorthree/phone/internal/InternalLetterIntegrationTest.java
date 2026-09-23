@@ -76,6 +76,9 @@ class InternalLetterIntegrationTest {
         registry.add("internal.api.callers.business.allow[1]", () -> "GET /internal/users/*/letters");
         registry.add("internal.api.callers.business.allow[2]", () -> "GET /internal/users/*/letters/*");
         registry.add("internal.api.callers.business.allow[3]", () -> "DELETE /internal/users/*/letters/*");
+        registry.add("internal.api.callers.business.allow[4]", () -> "GET /internal/users/*/blocks");
+        registry.add("internal.api.callers.business.allow[5]", () -> "POST /internal/users/*/blocks");
+        registry.add("internal.api.callers.business.allow[6]", () -> "DELETE /internal/users/*/blocks/*");
     }
 
     @Autowired
@@ -528,6 +531,38 @@ class InternalLetterIntegrationTest {
         // 안 읽은 편지도 닫을 수 있다 — 여는 것과 닫는 것은 다른 사건이라 순서를 강제하지 않는다.
         as(receiver, delete(path(receiver, "/letters/" + letterId)))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("차단한 발신자의 편지는 받은함에서만 숨기고 보낸함과 원문은 보존한다")
+    void blockHidesReceivedLettersWithoutDeletingOriginalOrSentMailbox() throws Exception {
+        UUID sender = newUser();
+        UUID receiver = newUser();
+        befriend(sender, receiver);
+        joinIsland(receiver);
+        String letterId = send(sender, receiver, "숨길 편지");
+
+        as(receiver, post(path(receiver, "/blocks")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"blockedUserId\":\"" + sender + "\"}"))
+                .andExpect(status().isNoContent());
+        // 같은 POST는 관계를 하나 더 만들지 않는 멱등 성공이다.
+        as(receiver, post(path(receiver, "/blocks")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"blockedUserId\":\"" + sender + "\"}"))
+                .andExpect(status().isNoContent());
+        as(receiver, get(path(receiver, "/blocks")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(sender.toString()));
+        as(receiver, get(path(receiver, "/letters")).param("type", "received"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content").isEmpty());
+        as(sender, get(path(sender, "/letters")).param("type", "sent"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].id").value(letterId));
+        assertThat(jdbc.queryForObject("select deleted_at is null from letters where id = ?", Boolean.class,
+                UUID.fromString(letterId))).isTrue();
+
+        as(receiver, delete(path(receiver, "/blocks/" + sender))).andExpect(status().isNoContent());
+        as(receiver, delete(path(receiver, "/blocks/" + sender))).andExpect(status().isNoContent());
+        as(receiver, get(path(receiver, "/letters")).param("type", "received"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.content[0].id").value(letterId));
     }
 
     // ---------------------------------------------------------------- 도구

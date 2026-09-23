@@ -1,6 +1,6 @@
 package com.oneorthree.business.api.dto;
 
-import com.oneorthree.business.upstream.data.dto.IslandSummary;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryView;
 
 import java.util.List;
 
@@ -10,5 +10,5 @@ import java.util.List;
  * <p>{@code nextCursor} 는 사용자·필터·정렬·limit 에 묶인 서명 토큰이다. 없으면 null 이고, 빈 결과는
  * {@code items=[]}·{@code nextCursor=null} 이다(LLD §3.3).
  */
-public record IslandPage(List<IslandSummary> items, String nextCursor) {
+public record IslandPage(List<IslandSummaryView> items, String nextCursor) {
 }

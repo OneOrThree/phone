@@ -21,7 +21,6 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBet;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeMember;
-import com.oneorthree.phone.group.repository.domain.GroupInvite;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupMemberStatus;
@@ -155,11 +154,6 @@ class AccountWithdrawalErasureIntegrationTest {
         assertThat(row("select * from group_members where id=?", s.cMembership()))
                 .containsEntry("is_left", false).containsEntry("role", "OWNER")
                 .containsEntry("announcement_permission", "ALLOW").containsEntry("status", "FOCUS");
-
-        // group_invites — 양방향 삭제, 타인끼리는 유지
-        assertThat(count("select count(*) from group_invites where inviter_id=? or invitee_id=?", w.id(), w.id()))
-                .isZero();
-        assertThat(count("select count(*) from group_invites where id=?", s.otherInvite())).isEqualTo(1L);
 
         // user_blocks — 양방향 삭제, 타인끼리는 유지
         assertThat(count("select count(*) from user_blocks where blocker_id=? or blocked_id=?", w.id(), w.id()))
@@ -389,7 +383,7 @@ class AccountWithdrawalErasureIntegrationTest {
 
     private record Seed(UUID wAnnouncement, UUID cAnnouncement, UUID friendLogAboutW, UUID overtakeAboutW,
                         UUID otherLog, UUID otherSubject, UUID wParticipant, UUID cParticipant,
-                        UUID wMembership, UUID cMembership, UUID otherInvite, UUID otherFriendship,
+                        UUID wMembership, UUID cMembership, UUID otherFriendship,
                         UUID wFocusSession, UUID cFocusSession, UUID cTag, UUID wLink, UUID cLink,
                         UUID clickOnWLink, UUID wClaimedClick, UUID wAttempt, UUID cAttempt,
                         UUID wComment, UUID cComment) {
@@ -431,10 +425,6 @@ class AccountWithdrawalErasureIntegrationTest {
             GroupAnnouncementComment cComment = new GroupAnnouncementComment(wNotice.getId(), c.getId(), "C댓글");
             em.persist(wComment);
             em.persist(cComment);
-            em.persist(GroupInvite.builder().group(group).inviter(c).invitee(w).build());
-            em.persist(GroupInvite.builder().group(group).inviter(w).invitee(c).build());
-            GroupInvite otherInvite = GroupInvite.builder().group(group).inviter(c).invitee(t).build();
-            em.persist(otherInvite);
 
             // 창형 보고 + 정산 끝난 회차의 참가 행
             GroupChallenge challenge = GroupChallenge.builder().group(group).category(MissionCategory.SCREEN_TIME)
@@ -552,7 +542,7 @@ class AccountWithdrawalErasureIntegrationTest {
 
             return new Seed(wNotice.getId(), cNotice.getId(), friendAboutW.getId(), overtakeAboutW.getId(),
                     other.getId(), otherSubject, wPart.getId(), cPart.getId(), wMember.getId(), cMember.getId(),
-                    otherInvite.getId(), otherFriendship.getId(), wSession.getId(), cSession.getId(), cTag.getId(),
+                    otherFriendship.getId(), wSession.getId(), cSession.getId(), cTag.getId(),
                     wLink.getId(), cLink.getId(), clickOnWLink.getId(), wClaimed.getId(), wAttempt, cAttempt,
                     wComment.getId(), cComment.getId());
         });

@@ -57,6 +57,10 @@ public enum ApiErrorCode implements ErrorCode {
     // 전환 확인 다이얼로그를 띄울 수 없다 — 그게 2단계 흐름의 «1단계» 다.
     // 일반 STATE_CONFLICT 로 접지 않는 이유도 그것이다: 앱이 이 코드에만 전환을 묻는다.
     SOCIAL_ACCOUNT_ALREADY_LINKED(HttpStatus.CONFLICT, "이미 다른 계정에 연동된 소셜 계정입니다", false),
+    // GROMO-2053. Data 의 AuthErrorCode.GUEST_ALREADY_PROMOTED(409)와 이름·상태가 같아야
+    // registeredUpstream 이 붙는다 — 없으면 「승격 경쟁의 패자」라는 정상 409 가 502 로 나가
+    // 앱이 재로그인 안내 대신 서버 장애를 띄운다(SOCIAL_ACCOUNT_ALREADY_LINKED 와 같은 결).
+    GUEST_ALREADY_PROMOTED(HttpStatus.CONFLICT, "이미 다른 계정으로 승격된 게스트예요", false),
     REQUEST_IN_PROGRESS(HttpStatus.CONFLICT, "요청을 처리 중입니다. 잠시 후 다시 시도해 주세요.", true),
     CURSOR_EXPIRED(HttpStatus.CONFLICT, "목록 커서가 만료되었습니다. 처음부터 조회해 주세요.", false),
     INVITATION_EXPIRED(HttpStatus.GONE, "초대가 만료되었거나 폐기되었습니다.", false),

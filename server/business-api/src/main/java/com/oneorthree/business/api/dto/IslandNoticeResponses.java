@@ -1,6 +1,9 @@
 package com.oneorthree.business.api.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 import java.util.List;
@@ -19,6 +22,7 @@ public final class IslandNoticeResponses {
     public record Page(List<Item> items, @JsonInclude(JsonInclude.Include.ALWAYS) String nextCursor) {
     }
 
+    @Schema(name = "IslandNoticeItem")
     public record Item(UUID id, String title, long commentCount) {
     }
 
@@ -33,5 +37,46 @@ public final class IslandNoticeResponses {
      */
     public record Comment(UUID id, @JsonInclude(JsonInclude.Include.ALWAYS) UUID userId,
             @JsonInclude(JsonInclude.Include.ALWAYS) String name, String text, Instant createdAt) {
+    }
+
+    public record NoticeView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) String title,
+            @JsonProperty(required = true) String body) {
+        public static NoticeView from(IslandNotices.Notice value) {
+            if (value == null) {
+                return null;
+            }
+            return new NoticeView(
+                    value.id(),
+                    value.title(),
+                    value.body());
+        }
+    }
+
+    public record NoticeDeletedView(
+            @JsonProperty(required = true) boolean deleted) {
+        public static NoticeDeletedView from(IslandNotices.Deleted value) {
+            if (value == null) {
+                return null;
+            }
+            return new NoticeDeletedView(
+                    value.deleted());
+        }
+    }
+
+    public record NoticeCommentCreatedView(
+            @JsonProperty(required = true) UUID id,
+            @JsonInclude(JsonInclude.Include.ALWAYS) String name,
+            @JsonProperty(required = true) String text) {
+        public static NoticeCommentCreatedView from(IslandNotices.CommentCreated value) {
+            if (value == null) {
+                return null;
+            }
+            return new NoticeCommentCreatedView(
+                    value.id(),
+                    value.name(),
+                    value.text());
+        }
     }
 }

@@ -33,10 +33,10 @@ UUID는 데이터 ID, ProductId는 카탈로그 문자열, 시각은 UTC instant
 
 금액은 원본 형태 예시다. **잔액은 `villagePoints`(섬 통장·섬 물고기) 하나뿐이다**(2026-09-21 재영님 결정 재화-단일 — ~~2026-09-18 D1 의 두 지갑 축~~ 폐기).
 `fishVersion` 은 **항상 null** 이다 — 개인 물고기 지갑에는 사건·버전 축이 없다(`ShopService#wallets` 가 null 을 고정으로 싣는다).
-`fish` 는 **0을 보장하지 않는다**: 현재 구현(`ShopService#wallets`)은 `user_fish_wallets` 의 **저장값을 그대로** 싣고, 행이 없으면 0 이다.
+`fish` 는 **항상 0** 이다 — `ShopService#wallets` 가 상수 0 을 싣고 `user_fish_wallets` 를 읽지 않는다(GROMO-2052).
+~~`fish` 는 0을 보장하지 않는다: 저장값을 그대로 싣고, 행이 없으면 0 이다~~ — 티켓 2052 가 코드를 이 계약으로 올렸다.
 적립 경로(`FishWalletService#credit`)는 `personal_share_percent > 0` 일 때만 닿는데 `focus_reward_policies` 에는 V67 시드 revision 1 = (60, 480, **0**) 한 행뿐이라
-**실제로는 0 이어야 하지만 코드가 0 을 강제하지는 않는다** — 0 이 아닌 행이 하나라도 있으면 그 값이 그대로 나간다. 응답 0 고정(또는 잔액 정리)은
-`server/**` 변경이라 **별도 티켓 몫**이고 이 문서는 그것을 계약으로 앞당겨 적지 않는다. 그때까지 앱은 이 필드를 그리지 않는다.
+저장값도 0 이어야 하고, 0 이 아닌 행이 남아 있어도 응답에는 나가지 않는다(이관·삭제는 별도 티켓). 앱은 이 필드를 그리지 않는다.
 실제 필드 제거는 앱이 전량 전환한 뒤 또 다른 티켓이다. villagePointsVersion은 `(island,islandId,village_points)`
 지갑의 실제 버전이고 유일한 version 축이다 — 둘의 최댓값을 공용version으로 만들지 않는다.
 통화 식별자 `village_points` 의 개명은 결정에 없어 wire 는 그대로 둔다.

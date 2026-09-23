@@ -151,6 +151,21 @@ class ShopServiceIntegrationTest {
     }
 
     @Test
+    @DisplayName("개인 물고기 지갑에 저장된 잔액이 있어도 fish 는 항상 0 이다 — 상점은 그 축을 읽지 않는다 (GROMO-2052)")
+    void fishIsAlwaysZeroEvenWithStoredBalance() {
+        Fixture f = island();
+        // 적립 경로는 막혀 있지만(티켓 2045) 저장값이 새는 출구였다 — 0 이 아닌 행을 직접 심어 그 경로를 검증한다.
+        jdbc.update("INSERT INTO user_fish_wallets (user_id, balance) VALUES (?, 42)", f.ownerId);
+
+        ShopViews.Wallets wallets = shop.wallets(f.islandId, f.ownerId);
+
+        assertThat(wallets.fish()).isZero();
+        assertThat(wallets.fishVersion()).isNull();
+        assertThat(count("SELECT balance FROM user_fish_wallets WHERE user_id = ?", f.ownerId))
+                .as("읽지 않는 것뿐 — 저장값은 지우지 않는다(이관·삭제는 별도 티켓)").isEqualTo(42);
+    }
+
+    @Test
     @DisplayName("가격 미승인(NULL) 상품은 목록에 available=false·STATE_CONFLICT 로 보이고 구매는 차감 없이 409 다 (S03)")
     void unpricedProductIsNeverSoldAsZero() {
         Fixture f = island();

@@ -212,3 +212,50 @@ export function resolveInvitation(
 export function myIslands(): Promise<MyIslands> {
   return request<MyIslands>('/me/islands');
 }
+
+/**
+ * 섬 주민 집중/휴식 스냅숏 (GROMO-2010).
+ *
+ * STOMP 이벤트에는 이름·고양이 색 같은 프로필이 없어 주민 전체 모습은 이 응답이 정본이다.
+ * `watermarks` 는 프로젝션별 최신 버전으로 이벤트 중복·역순 방어의 기준선이 된다 —
+ * 없는 key 는 프로젝션에서 버리고 정본 재조회로 복구한다.
+ */
+export type FocusMember = {
+  userId: string;
+  name: string | null;
+  catColor: string | null;
+  appearance: unknown;
+  sessionId: string;
+  subject: string;
+  activeSeconds: number;
+  status: 'active' | 'paused';
+};
+
+export type RestMember = {
+  userId: string;
+  name: string | null;
+  catColor: string | null;
+  restSeat: number | null;
+  restStartedAt: string | null;
+};
+
+export type ProjectionWatermark = {
+  projection: 'focus.member' | 'rest.member';
+  islandId: string;
+  aggregateId: string;
+  version: number;
+};
+
+export type MembersSnapshot<T> = {
+  items: T[];
+  serverNow: string;
+  watermarks?: ProjectionWatermark[];
+};
+
+export function focusMembers(islandId: string): Promise<MembersSnapshot<FocusMember>> {
+  return request(`/islands/${encodeURIComponent(islandId)}/focus-members`);
+}
+
+export function restMembers(islandId: string): Promise<MembersSnapshot<RestMember>> {
+  return request(`/islands/${encodeURIComponent(islandId)}/rest-members`);
+}

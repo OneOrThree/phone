@@ -44,7 +44,7 @@ class ResultAckContractTest extends UpstreamTestBase {
     }
 
     @Test
-    void validDisplayClaimKeepsAdditionalFieldsAndToken() throws Exception {
+    void validDisplayClaimKeepsTokenAndExcludesInternalFields() throws Exception {
         String path = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim";
         DATA.on(path, request -> new MockUpstream.Response(200,
                 "{\"claimToken\":\"" + CLAIM_TOKEN + "\",\"extra\":{\"version\":7}}"));
@@ -52,7 +52,7 @@ class ResultAckContractTest extends UpstreamTestBase {
                         .header("Authorization", "Bearer " + Tokens.access(USER)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.claimToken").value(CLAIM_TOKEN.toString()))
-                .andExpect(jsonPath("$.extra.version").value(7));
+                .andExpect(jsonPath("$.extra").doesNotExist());
         assertThat(DATA.hits(path)).isEqualTo(1);
     }
 
@@ -341,4 +341,22 @@ class ResultAckContractTest extends UpstreamTestBase {
         assertThat(DATA.hits("POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim"))
                 .isEqualTo(1);
     }
+    @ParameterizedTest
+    @ValueSource(strings = {"lower", "upper"})
+    void displayClaimHasExactlyThePublicToken(String letterCase) throws Exception {
+        String token = letterCase.equals("upper") ? CLAIM_TOKEN.toString().toUpperCase(java.util.Locale.ROOT)
+                : CLAIM_TOKEN.toString();
+        String path = "POST /internal/users/" + USER + "/challenge-results/" + SESSION + "/claim";
+        DATA.on(path, request -> new MockUpstream.Response(200,
+                "{\"claimToken\":\"" + token + "\",\"row_id\":9,\"extra\":{\"version\":7}}"));
+        var result = mockMvc.perform(post("/api/v1/me/challenge-results/" + SESSION + "/claim")
+                        .header("Authorization", "Bearer " + Tokens.access(USER)))
+                .andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()))
+                .isEqualTo(json.readTree("{\"claimToken\":\"" + token + "\"}"));
+        assertThat(DATA.hits(path)).isEqualTo(1);
+        assertThat(NOTI.received()).isEmpty();
+    }
+
 }

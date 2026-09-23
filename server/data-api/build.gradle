@@ -126,9 +126,11 @@ dependencies {
 }
 
 openApi {
-	apiDocsUrl.set("http://localhost:8080/v0/api-docs")      // 앱 구동 후 호출할 URL
-	outputDir.set(file("$buildDir/docs/api/"))               // 생성된 spec 저장 위치
-	outputFileName.set("openapi.json")
+	// GROMO-2069: 게시 대상은 internal 그룹 하나다 — 앱용 /api/v1/** 는 legacy 그룹으로 격리돼
+	// 여기서 나오는 스펙에 섞이지 않는다.
+	apiDocsUrl.set("http://localhost:8080/v0/api-docs/internal") // 앱 구동 후 호출할 URL
+	outputDir.set(file("$buildDir/docs/api/"))                 // 생성된 spec 저장 위치
+	outputFileName.set("data-api.openapi.json")
 	// 앱 구동 대기 시간. 30초로는 CI 러너에서 부족해 2026-08-10 이후 모든 브랜치가 실패했다
 	// (GROMO-1515). 실패 런 로그 기준 21초에 겨우 DataSource 를 열고 Hibernate SessionFactory
 	// 구축 중에 창이 닫혔다 — 앱이 죽은 게 아니라 아직 부팅 중이었다.

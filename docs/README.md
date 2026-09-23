@@ -81,5 +81,6 @@ Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `
 
 ## 엔지니어링 개선 기록
 
+- [2026-09-23 dev 배포 장애 및 복구 기록](engineering/dev-deployment-incident-2026-09-23.md) — 실행 이력, 장애 원인, 복구 절차와 최종 검증.
 - [CI 중복 빌드·캐시·실행 범위 개선](engineering/ci-build-reuse/README.md) — 원인 분석, 검증 로그, 전후 측정과 성과 서술 근거.
 - [README 정보구조 개선 조사](engineering/readme-information-architecture/research.md) — 루트·영역·상세 문서 분리, 접힌 섹션, 문서 사이트 도입 기준.

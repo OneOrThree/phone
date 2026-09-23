@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 import java.util.List;
@@ -59,6 +60,7 @@ public final class IslandNotices {
     }
 
     /** 삭제 결과. */
+    @Schema(name = "IslandNoticeDeleted")
     public record Deleted(@JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) boolean deleted) {
     }
 

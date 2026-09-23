@@ -3,6 +3,7 @@ package com.oneorthree.business.upstream.data.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.time.Instant;
 import java.util.List;
@@ -26,6 +27,7 @@ public final class ShopViews {
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long villagePointsVersion) {
     }
 
+    @Schema(name = "ShopCatalogItem")
     public record Item(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String id,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String title,

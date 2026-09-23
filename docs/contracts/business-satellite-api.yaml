@@ -1946,6 +1946,61 @@ paths:
       x-idempotent: true
       x-retryable: true
 
+  /internal/users/{userId}/blocks:
+    get:
+      tags: [data-사용자]
+      operationId: listBlockedUsers
+      summary: 요청자(blocker)가 차단한 사용자 목록
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/UserIdPath'
+      responses:
+        '200':
+          description: blocker 관점의 방향성 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/BlockedUser' }
+    post:
+      tags: [data-사용자]
+      operationId: blockUser
+      summary: 사용자 차단 — 같은 방향 재시도도 성공
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/UserIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [blockedUserId]
+              properties:
+                blockedUserId: { type: string, format: uuid }
+      responses:
+        '204': { description: 차단됨 또는 이미 차단됨 }
+        '400': { description: '`SELF_BLOCK`', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: '`TARGET_USER_NOT_FOUND`', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+      x-idempotent: true
+
+  /internal/users/{userId}/blocks/{blockedUserId}:
+    delete:
+      tags: [data-사용자]
+      operationId: unblockUser
+      summary: 사용자 차단 해제 — 없는 관계도 성공
+      parameters:
+        - $ref: '#/components/parameters/XUserId'
+        - $ref: '#/components/parameters/UserIdPath'
+        - name: blockedUserId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204': { description: 해제됨 또는 이미 해제됨 }
+      x-idempotent: true
+
 components:
 
   securitySchemes:
@@ -2004,6 +2059,14 @@ components:
         인정하고, 앱 보급 후 필수화한다.
 
   schemas:
+
+    BlockedUser:
+      type: object
+      required: [id, name]
+      description: blocker가 목록에서 보는 차단 상대. 반대 방향 차단은 이 목록에 없다.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
 
     Error:
       type: object

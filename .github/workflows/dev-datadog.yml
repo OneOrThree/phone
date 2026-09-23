@@ -1,7 +1,7 @@
 name: Dev Datadog (APM + Observability)
 
 # Datadog Agent + APM 을 dev(self-hosted) 서버에 수동으로 올린다.
-# 앱 배포(dev-cd.yml)와 분리한다. DB/app 시크릿은 checkout 밖의 동일 runtime env를 재사용하고,
+# 앱 배포(dev-cd.yml)와 분리한다. DB/Data API 시크릿은 checkout 밖의 동일 runtime env를 재사용하고,
 # DD_API_KEY만 GitHub Actions 시크릿으로 필요한 compose step에 주입한다.
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ on:
         default: up
         options: [up, restart, down]
 
-# dev-cd.yml 과 동일 그룹 — 둘 다 같은 dev 호스트의 phone-app 을 (compose 입력만 다르게) 재생성하므로,
+# dev-cd.yml 과 동일 그룹 — 둘 다 같은 dev 호스트의 phone-data-api 를 재생성하므로,
 # 수동 Datadog 토글과 push 배포가 겹쳐 서로의 app 상태(APM 활성 여부)·헬스결과를 무효화하지 않도록 직렬화한다.
 concurrency:
   group: cd-production
@@ -27,10 +27,22 @@ jobs:
       contents: read
     env:
       RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+      DATA_API_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/data-api.env
+      DEPLOY_ENV: dev
       GAR_HOST: asia-northeast3-docker.pkg.dev
       DD_SITE: us5.datadoghq.com
     steps:
       - uses: actions/checkout@v4
+
+      - name: Data API 설정 확인
+        run: |
+          set -euo pipefail
+          test -s "$RUNTIME_ENV_FILE"
+          test -s "$DATA_API_ENV_FILE"
+          DATA_API_PROFILES=$(docker exec phone-data-api printenv SPRING_PROFILES_ACTIVE)
+          [[ ",$DATA_API_PROFILES," == *,dev,* ]]
+          [[ ",$DATA_API_PROFILES," == *,satellites,* ]]
+          echo "DATA_API_PROFILES=$DATA_API_PROFILES" >> "$GITHUB_ENV"
 
       - name: 배포된 앱 이미지 확인 및 GAR 인증
         if: ${{ inputs.action != 'down' }}
@@ -42,7 +54,7 @@ jobs:
           test -s "$RUNTIME_ENV_FILE"
           test -n "$DD_API_KEY"
           APP_IMAGE_REF=$(docker compose --env-file "$RUNTIME_ENV_FILE" \
-            -f server/scripts/docker-compose.dev.yml config --format json | jq -er '.services.app.image')
+            -f server/scripts/docker-compose.dev.yml config --format json | jq -er '.services["data-api"].image')
           curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
             "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
           | jq -er .access_token \
@@ -68,20 +80,28 @@ jobs:
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
-            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.datadog.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.datadog.yml \
+            -f server/scripts/docker-compose.satellites.data.dev.yml)
+          plain=(docker compose --env-file "$RUNTIME_ENV_FILE" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.data.dev.yml)
+          APP_IMAGE=$(docker inspect phone-data-api --format '{{.Config.Image}}')
+          export APP_IMAGE
           case "${{ inputs.action }}" in
             up)
-              # CD가 배포한 실제 digest를 pull한 뒤 같은 이미지에 APM overlay만 적용한다.
+              export DATA_API_JAVA_OPTS='-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/datadog/dd-java-agent.jar'
               "${compose[@]}" pull datadog-agent
-              "${compose[@]}" up -d datadog-agent app
+              "${compose[@]}" up -d --no-deps datadog-agent
+              "${compose[@]}" up -d --no-deps data-api
               ;;
             restart)
-              "${compose[@]}" restart datadog-agent app
+              export DATA_API_JAVA_OPTS='-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/datadog/dd-java-agent.jar'
+              "${compose[@]}" up -d --no-deps --force-recreate datadog-agent
+              "${compose[@]}" up -d --no-deps --force-recreate data-api
               ;;
             down)
-              # Datadog Agent 제거 후, app 을 dev 파일 단독으로 재생성 → 평문(javaagent 없음) 복원
+              export DATA_API_JAVA_OPTS='-Djava.security.egd=file:/dev/./urandom'
               docker rm -f gromo-datadog-agent 2>/dev/null || true
-              docker compose --env-file "$RUNTIME_ENV_FILE" -f server/scripts/docker-compose.dev.yml up -d app
+              "${plain[@]}" up -d --no-deps data-api
               ;;
           esac
 
@@ -92,8 +112,12 @@ jobs:
           DD_API_KEY: ${{ secrets.DD_API_KEY }}
         run: |
           set -euo pipefail
+          export DATA_API_JAVA_OPTS='-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/datadog/dd-java-agent.jar'
+          APP_IMAGE=$(docker inspect phone-data-api --format '{{.Config.Image}}')
+          export APP_IMAGE
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
-            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.datadog.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.datadog.yml \
+            -f server/scripts/docker-compose.satellites.data.dev.yml)
           "${compose[@]}" ps
           echo "== app 헬스체크 (APM -javaagent 기동 실패 조기 탐지) =="
           # 60초(12회)로는 `up --build` + -javaagent 콜드스타트를 못 기다려, 정상 기동한 7/16·7/24 실행이
@@ -102,12 +126,12 @@ jobs:
           ok=0
           for i in $(seq 1 60); do
             sleep 5
-            if curl -sf http://localhost:8080/health >/dev/null; then ok=1; echo "app OK"; break; fi
+            if curl -sf http://127.0.0.1:8080/health >/dev/null; then ok=1; echo "data-api OK"; break; fi
             echo "대기... ($((i*5))s)"
           done
           if [ "$ok" != 1 ]; then
             echo "app 헬스체크 실패 — APM(-javaagent) 기동 확인 필요"
-            "${compose[@]}" logs --tail=50 app
+            "${compose[@]}" logs --tail=50 data-api
             exit 1
           fi
           echo "== agent status (요약) =="
@@ -220,9 +244,10 @@ jobs:
           # 2) 컨테이너별 메트릭 — 체크가 **등록되어 있고** 에러가 없어야 한다.
           #    docker.sock 권한 문제나 Autodiscovery 초기화 실패면 체크가 아예 안 잡히는데,
           #    에러만 검사하면 그 경우가 빈 결과 → 통과로 새어나간다.
-          cnt=$(jq -r '[.runnerStats.Checks.container // {}, .runnerStats.Checks.docker // {}]
+          cnt=$(jq -r '[.runnerStats.Checks.container // {}, .runnerStats.Checks.docker // {},
+                        .runnerStats.Checks.container_image // {}]
                        | map(to_entries | length) | add' /tmp/dd-after.json)
-          echo "container/docker 체크 인스턴스: ${cnt}개"
+          echo "container/docker/container_image 체크 인스턴스: ${cnt}개"
           if [ "${cnt:-0}" -eq 0 ] 2>/dev/null; then
             echo "::error::container/docker 체크가 하나도 등록되지 않음 — docker.sock 마운트·권한 또는 Autodiscovery 초기화 실패"
             fail=1
@@ -245,9 +270,9 @@ jobs:
             echo "${chk} 체크: 인스턴스 ${n}개, 메트릭 샘플 ${b} -> ${a}"
 
             if [ "${n:-0}" -eq 0 ] 2>/dev/null; then
-              # container 는 복구 대상이라 부재 자체가 실패다. docker 는 보조 지표라 경고만 남긴다.
+              # container는 이번 메트릭 수집 계약이라 부재 자체가 실패다. docker는 보조 지표다.
               if [ "$chk" = container ]; then
-                echo "::error::container 체크가 등록되지 않음 — workloadmeta/Autodiscovery 초기화 실패"
+                echo "::error::${chk} 체크가 등록되지 않음 — workloadmeta/Autodiscovery 또는 이미지 수집 초기화 실패"
                 fail=1
               else
                 echo "  (docker 체크 미등록 — container 가 살아 있으면 치명적이지 않다)"
@@ -263,13 +288,22 @@ jobs:
               fail=1
             fi
           done
+          # container_image는 Container Images Explorer로 메타데이터를 보내는 인벤토리 체크다.
+          # 메트릭 체크가 아니어서 정상이어도 TotalMetricSamples는 0일 수 있으므로 등록 여부와
+          # LastError만 검사하고 샘플 증가를 요구하지 않는다.
+          image_instances=$(jq -r '.runnerStats.Checks.container_image // {} | to_entries | length' /tmp/dd-after.json)
+          echo "container_image 체크: 인스턴스 ${image_instances}개 (인벤토리 — 메트릭 샘플 수 미검사)"
+          if [ "${image_instances:-0}" -eq 0 ] 2>/dev/null; then
+            echo "::error::container_image 체크가 등록되지 않음 — 이미지 인벤토리 초기화 실패"
+            fail=1
+          fi
           errs=$(jq -r '.runnerStats.Checks | to_entries[]
-                        | select(.key == "container" or .key == "docker")
+                        | select(.key == "container" or .key == "docker" or .key == "container_image")
                         | .value | to_entries[]
                         | select((.value.LastError // "") != "")
                         | "  \(.value.CheckName): \(.value.LastError)"' /tmp/dd-after.json)
           if [ -n "$errs" ]; then
-            echo "::error::container/docker 체크 에러 — docker API 응답 지연(호스트 부하) 가능. DD_DOCKER_QUERY_TIMEOUT 확인"
+            echo "::error::container/docker/container_image 체크 에러 — docker API 응답 지연(호스트 부하) 가능. DD_DOCKER_QUERY_TIMEOUT 확인"
             echo "$errs"
             fail=1
           fi
@@ -311,6 +345,27 @@ jobs:
               echo "::error::OpenMetrics 샘플 0건 — metrics 허용 목록과 실제 메트릭 이름 불일치 가능"
               fail=1
             fi
+          fi
+
+          # 4) Redis·Kafka integration — 컨테이너가 실행 중일 때 Autodiscovery check도 실제 실행한다.
+          # status JSON의 등록 여부만 보면 초기화 직후 0 sample이 통과할 수 있어 `agent check` 결과를 쓴다.
+          if docker ps --format '{{.Names}}' | grep -Fxq phone-redis; then
+            echo "== Redis integration 검증 =="
+            docker exec gromo-datadog-agent agent check redisdb >/tmp/dd-redis-check.txt 2>&1 || {
+              sed -n '1,160p' /tmp/dd-redis-check.txt
+              echo "::error::Redis integration 수집 실패"
+              fail=1
+            }
+          fi
+          if docker ps --format '{{.Names}}' | grep -Fxq phone-kafka; then
+            echo "== Kafka JMX·consumer integration 검증 =="
+            for integration in kafka kafka_consumer; do
+              docker exec gromo-datadog-agent agent check "$integration" >"/tmp/dd-${integration}-check.txt" 2>&1 || {
+                sed -n '1,160p' "/tmp/dd-${integration}-check.txt"
+                echo "::error::${integration} integration 수집 실패"
+                fail=1
+              }
+            done
           fi
 
           [ "$fail" -eq 0 ] || { echo "수집 검증 실패 — 위 오류 참고"; exit 1; }

@@ -49,6 +49,7 @@ import {
   kstHourMinute,
   myIslandsConsistent,
   intentKeyPool,
+  trackNames,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
@@ -194,7 +195,7 @@ test('목표 변경 시 계속 대상인 주민은 모은 양을 이어가고, �
 test('음원 구매로 잔액이 부족해지면 완료 상태가 없어지고 부족분만 다시 채운다', () => {
   let s = initialState(true);
   currentIsland(s).buildings = ['hall', 'board', 'gram'];
-  currentIsland(s).fish = 2850;
+  currentIsland(s).fish = 2740;
   s = act(s, 'SELECT_BUILDING', { building: 'library' });
   const i = currentIsland(s);
   const share = buildingShare(i, 'library');
@@ -202,7 +203,7 @@ test('음원 구매로 잔액이 부족해지면 완료 상태가 없어지고 �
   for (const id of i.buildingQuest!.targets) i.earned![id] = (i.earned![id] ?? 0) + share;
   assert.ok(buildingReady(currentIsland(s)));
   s = act(s, 'BUY', { id: 'rain' });
-  assert.equal(balance(currentIsland(s)), 2700);
+  assert.equal(balance(currentIsland(s)), 2710);
   assert.ok(!buildingReady(currentIsland(s)));
   assert.equal(currentIsland(s).earned?.me, 320 + share);
   s = act(s, 'DEMO_CREDIT', { fish: 20 });
@@ -246,7 +247,7 @@ test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 �
     null,
   );
   s = act(s, 'BUY', { id: 'rain' });
-  assert.equal(balance(currentIsland(s)), 1050);
+  assert.equal(balance(currentIsland(s)), 1170);
   assert.deepEqual(act(s, 'BUY', { id: 'rain' }), s);
   s = act(s, 'TRACK', { value: 'rain' });
   s = act(s, 'SETTING', { key: 'sound', value: false });
@@ -256,6 +257,66 @@ test('상점은 다른 네 건물을 모두 완공해야 고르며, 축음기 �
   currentIsland(s).buildings.push('library');
   s = act(s, 'SELECT_BUILDING', { building: 'shop' });
   assert.equal(currentIsland(s).buildingQuest?.building, 'shop');
+});
+test('축음기는 보유한 현재 곡이 있을 때만 재생한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.buildings = ['hall', 'board', 'gram'];
+  island.sharedOwned = [];
+
+  s = act(s, 'PLAY', { value: true });
+  assert.equal(currentIsland(s).playing, false);
+
+  currentIsland(s).sharedOwned = ['waves'];
+  s = act(s, 'PLAY', { value: true });
+  assert.equal(currentIsland(s).playing, true);
+  s = act(s, 'PLAY', { value: false });
+  assert.equal(currentIsland(s).playing, false);
+  assert.equal(currentIsland(s).playbackReset, 1);
+  assert.equal(trackNames.rain, '빗방울 소리');
+});
+test('PLAYBACK_SYNC는 서버가 확정한 곡과 재생 상태를 섬에 반영한다', () => {
+  const before = initialState(false);
+  const island = currentIsland(before);
+  island.playing = false;
+  const next = reducer(before, {
+    type: 'PLAYBACK_SYNC',
+    islandId: island.id,
+    playback: {
+      trackId: 'rain',
+      playing: true,
+      positionSeconds: 12,
+      effectiveAt: '2026-09-22T00:00:00Z',
+      changedBy: 'u1',
+      version: 3,
+      serverNow: '2026-09-22T00:00:02Z',
+      durationSeconds: 120,
+    },
+  });
+  assert.equal(currentIsland(next).track, 'rain');
+  assert.equal(currentIsland(next).playing, true);
+  assert.equal(currentIsland(next).serverPlayback?.positionSeconds, 12);
+});
+test('PLAYBACK_SYNC는 서버의 null 곡을 명시적인 미선택 상태로 반영한다', () => {
+  const before = initialState(false);
+  const island = currentIsland(before);
+  island.sharedOwned = ['waves'];
+  const next = reducer(before, {
+    type: 'PLAYBACK_SYNC',
+    islandId: island.id,
+    playback: {
+      trackId: null,
+      playing: false,
+      positionSeconds: 0,
+      effectiveAt: '2026-09-22T00:00:00Z',
+      changedBy: null,
+      version: 0,
+      serverNow: '2026-09-22T00:00:01Z',
+      durationSeconds: null,
+    },
+  });
+  assert.equal(currentIsland(next).track, null);
+  assert.equal(currentIsland(next).playing, false);
 });
 test('의상은 섬 잔액으로 구매하고 개인 보유품으로 남긴다; 중복 결제·미보유 착용 방지', () => {
   let s = initialState(true);
@@ -489,6 +550,64 @@ test('친구 수락·거절 후 재신청·보낸 요청 취소·친구 삭제·
   r = act(r, 'FRIEND_REJECT', { id: 'haneul' });
   r = act(r, 'FRIEND_REQUEST', { id: 'haneul' });
   assert.equal(r.friends?.find((f) => f.id === 'haneul')?.status, 'sent');
+});
+test('서버 친구 스냅샷은 공용 친구 상태를 교체하되 기존 편지는 보존한다', () => {
+  let s = initialState(true);
+  s.friends!.find((friend) => friend.id === 'saebom')!.messages.push({
+    id: 'letter',
+    memberId: 'saebom',
+    name: '새봄',
+    color: 'white',
+    text: '보존할 편지',
+    at: 1,
+    status: 'sent',
+  });
+
+  s = act(s, 'FRIENDS_SYNC', {
+    friends: [
+      {
+        id: 'saebom',
+        name: '새봄',
+        color: 'white',
+        island: '서버 섬',
+        status: 'friend',
+        messages: [],
+      },
+      {
+        id: 'new-request',
+        name: '신규 요청',
+        color: 'white',
+        island: '',
+        status: 'received',
+        messages: [],
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    s.friends?.map((friend) => [friend.id, friend.status]),
+    [
+      ['saebom', 'friend'],
+      ['new-request', 'received'],
+    ],
+  );
+  assert.equal(s.friends?.[0].island, '서버 섬');
+  assert.equal(s.friends?.[0].messages[0]?.id, 'letter');
+
+  s = act(s, 'FRIENDS_SYNC', {
+    friends: [
+      {
+        id: 'saebom',
+        name: '새봄',
+        color: 'white',
+        island: '',
+        status: 'received',
+        messages: [],
+      },
+    ],
+  });
+  assert.equal(s.friends?.[0].status, 'received');
+  assert.deepEqual(s.friends?.[0].messages, []);
 });
 test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', () => {
   let s = initialState(true);
@@ -1947,6 +2066,37 @@ test('ISLAND_SYNC — memberships가 정본이다: onboarded·current 반영, �
   });
   assert.equal(s.onboarded, false);
   assert.equal(s.serverIslands!.currentIslandId, null);
+});
+
+test('ISLAND_SYNC — mainIslandId를 실으면 /me 정본으로 갈아 끼우고, 안 실으면 현재 값을 유지한다', () => {
+  // GROMO-2054: 두 번째 섬 가입처럼 소속이 바뀌는 동기화는 서버 도출 메인을 함께 반영한다.
+  let s = act(initialState(true), 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1', { membershipStatus: 'active' })],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+    mainIslandId: 'srv1',
+  });
+  assert.equal(s.mainIslandId, 'srv1');
+  // 명시 null 도 값이다 — 소속이 하나도 없으면 서버 정본은 null 이다
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: { items: [], nextCursor: null, currentIslandId: null, lossReason: null },
+    mainIslandId: null,
+  });
+  assert.equal(s.mainIslandId, null);
+  // 필드를 안 싣는 발신자(explore의 memberships 동기화)는 로컬 선택값을 건드리지 않는다
+  s.mainIslandId = 'soda';
+  s = act(s, 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1', { membershipStatus: 'active' })],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+  });
+  assert.equal(s.mainIslandId, 'soda');
 });
 
 test('ISLAND_SYNC — 빈 memberships는 onboarded=false로 되돌리고 진행 중 세션·구경을 끊는다', () => {

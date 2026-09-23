@@ -6,7 +6,7 @@ import com.oneorthree.business.common.exception.CommonErrorCode;
 import com.oneorthree.business.common.exception.DomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.CompatProperties;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataInviteClient;
 import com.oneorthree.business.upstream.data.dto.FrozenClickCandidate;
 import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.link.dto.LinkMatchCommand;
@@ -58,7 +58,7 @@ public class CompatMatchUseCase {
     private static final Duration OBSERVATION_BUDGET = Duration.ofMillis(100);
 
     private final CompatProperties compatProperties;
-    private final DataApiClient dataApiClient;
+    private final DataInviteClient dataApiClient;
     private final LinkApiClient linkApiClient;
 
     /**
