@@ -89,6 +89,14 @@ def run(fixture: Fixture, *extra: str, payload: dict | None = None,
 
 class PrepareSatelliteDeployTest(unittest.TestCase):
 
+    def test_dev_db_name_can_match_public_deploy_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            fixture = Fixture(directory)
+            payload = {**secret(), "POSTGRES_DB": "dev"}
+            result = run(fixture, payload=payload)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("DEPLOY_ENV='dev'", (fixture.output / "compose.env").read_text())
+
     def test_공유_JSON의_공개_환경값도_dev_prod_준비와_프로파일에_쓸_수_있다(self) -> None:
         for deployment in ("dev", "prod"):
             for key in ("SPRING_PROFILES_ACTIVE", "DD_ENV", "DD_SERVICE", "DD_VERSION"):
