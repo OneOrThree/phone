@@ -106,6 +106,12 @@ import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
+import {
+  captureProductEvent,
+  identifyPostHogUser,
+  resetPostHogUser,
+  trackPostHogScreen,
+} from '@/services/posthog';
 const REVIEW =
   Platform.OS === 'web' &&
   typeof window !== 'undefined' &&
@@ -491,6 +497,7 @@ function Gromo() {
     try {
       const result = await guestLogin();
       await adoptSession(result, null);
+      captureProductEvent('guest_login_completed');
     } catch (error) {
       setGuestError(
         error instanceof ApiError && error.message
@@ -514,6 +521,7 @@ function Gromo() {
       const credential = await getCredential(provider);
       const outcome = await memberConversion.convert(provider, credential);
       if (outcome === 'converted') {
+        captureProductEvent('member_conversion_completed', { provider });
         setConvUi(null);
         notify('회원으로 전환했어요.');
       } else setConvUi((c) => (c ? { ...c, busy: null } : c)); // 취소 — 시트로 돌아간다
@@ -524,6 +532,16 @@ function Gromo() {
     }
   };
   useEffect(() => subscribeSession((session) => setHasServerSession(session !== null)), []);
+  useEffect(() => {
+    if (!loaded || REVIEW || DEMO) return;
+    return subscribeSession((session) => {
+      if (session) identifyPostHogUser(session.userId);
+      else resetPostHogUser();
+    });
+  }, [loaded]);
+  useEffect(() => {
+    if (loaded && !REVIEW && !DEMO) trackPostHogScreen(route);
+  }, [loaded, route]);
   // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
     setSessionLostHandler(() => {

@@ -17,6 +17,7 @@ import {
   startFocusSession as apiStart,
 } from '@/services/api/focusSessions';
 import { intentKeyPool, RecordItem, Route, Session, State } from '@/services/model';
+import { captureProductEvent } from '@/services/posthog';
 
 export type FocusApi = {
   current: typeof apiCurrent;
@@ -163,6 +164,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         alive(g);
         deps.dispatch({ type: 'SESSION_SYNC', session: sessionFromServer(view) });
         scoped().keys.release('start', raw);
+        captureProductEvent('focus_started');
         return view;
       }),
     pause: () =>
@@ -183,6 +185,10 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         const fromRest = deps.getSession()?.status === 'paused',
           result = await transition('finish', api.finish);
         deps.dispatch({ type: 'SESSION_RESULT', record: recordFromFinish(result), fromRest });
+        captureProductEvent('focus_completed', {
+          duration_seconds: result.activeSeconds,
+          earned_fish: result.earnedFish,
+        });
         return result;
       }),
     // 결과 1회 표시의 확인 — 서버가 조건부 UPDATE 라 재시도·중복 호출이 무해하다.
