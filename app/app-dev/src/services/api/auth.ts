@@ -4,9 +4,11 @@
  *
  * 서버 계약(business-api):
  *  - `POST   /auth/sessions`          소셜 로그인. `X-Login-Attempt-Id`(UUID36) 필수, AT 는 선택.
+ *  - `POST   /auth/sessions/guest`    게스트 시작. 저장된 `X-Device-Id`(UUID36) 필수.
  *  - `DELETE /auth/sessions/current`  로그아웃. `X-Refresh-Token` 필수.
  *  - `GET    /me`                     내 계정.
  */
+import * as SecureStore from 'expo-secure-store';
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from './client';
 import {
   clearRejectedSession,
@@ -57,6 +59,50 @@ export interface LoginResult {
   userId: string;
   /** 고양이 색·이름까지 고른 계정인지. 재시작 복구에서 이 값이 정본이다. */
   onboardingComplete: boolean;
+}
+
+const GUEST_DEVICE_ID_KEY = 'gromo.guestDeviceId';
+let guestDeviceIdFlight: Promise<string> | null = null;
+
+/** 재시도에도 같은 기기 ID를 보내야 201 응답 유실이 중복 게스트 계정이 되지 않는다. */
+async function guestDeviceId(): Promise<string> {
+  guestDeviceIdFlight ??= (async () => {
+    const saved = await SecureStore.getItemAsync(GUEST_DEVICE_ID_KEY);
+    if (saved && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saved))
+      return saved;
+    const created = uuid();
+    await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, created);
+    return created;
+  })();
+  const flight = guestDeviceIdFlight;
+  try {
+    return await flight;
+  } finally {
+    if (guestDeviceIdFlight === flight) guestDeviceIdFlight = null;
+  }
+}
+
+/** 게스트도 소셜 로그인과 같은 세션 묶음을 보안 저장소에 커밋한다. */
+export async function guestLogin(): Promise<LoginResult> {
+  const generation = sessionGeneration();
+  const previous = getSession();
+  const deviceId = await guestDeviceId();
+  const result = await request<LoginResult>('/auth/sessions/guest', {
+    method: 'POST',
+    auth: false,
+    generation,
+    headers: { 'X-Device-Id': deviceId },
+  });
+  const published = await saveSession(
+    { accessToken: result.accessToken, refreshToken: result.refreshToken, userId: result.userId },
+    generation,
+  );
+  if (!published) {
+    revokeUnlessCurrent(result.refreshToken);
+    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
+  }
+  if (previous) revokeUnlessCurrent(previous.refreshToken);
+  return result;
 }
 
 /** `GET /me` 의 data. `name`·`catColor`·`mainIslandId` 는 온보딩 전·무소속이면 null 이다. */
