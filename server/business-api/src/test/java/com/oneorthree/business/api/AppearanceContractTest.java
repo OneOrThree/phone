@@ -337,6 +337,35 @@ class AppearanceContractTest extends UpstreamTestBase {
 
     // ---------------------------------------------------------------- 도구
 
+    @ParameterizedTest
+    @CsvSource({"/me/inventory,get,,clothes decor hulls inventoryVersion equipped",
+            "/me/inventory,get,equipped,clothes decor hull position version",
+            "/islands/{islandId}/inventory,get,,audio islandThemes buildingThemes inventoryVersion appearance",
+            "/islands/{islandId}/inventory,get,appearance,islandThemeId buildingThemes version",
+            "/islands/{islandId}/inventory,get,buildingThemes,buildingId themeId"})
+    void publicDocumentationPreservesRequiredFields(String path, String method, String nested, String fields)
+            throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        if (schema.path("type").asText().equals("array")) {
+            schema = schema.path("items");
+        }
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            schema = schema.path("properties").path(nested);
+            if (schema.path("type").asText().equals("array")) {
+                schema = schema.path("items");
+            }
+            schema = document.at(schema.path("$ref").asText().substring(1));
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+    }
+
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
         return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
     }

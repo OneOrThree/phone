@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -108,8 +109,12 @@ public class AppearanceUseCase {
     }
 
     /** 개인 보유 목록과 착용 상태를 공개 계약으로 조립한다. */
-    public record PersonalInventoryView(List<String> clothes, List<String> decor, List<String> hulls,
-            long inventoryVersion, PersonalAppearanceView equipped) {
+    public record PersonalInventoryView(
+            @JsonProperty(required = true) List<String> clothes,
+            @JsonProperty(required = true) List<String> decor,
+            @JsonProperty(required = true) List<String> hulls,
+            @JsonProperty(required = true) long inventoryVersion,
+            @JsonProperty(required = true) PersonalAppearanceView equipped) {
         private static PersonalInventoryView from(PersonalInventory source) {
             return new PersonalInventoryView(source.clothes(), source.decor(), source.hulls(),
                     source.inventoryVersion(), PersonalAppearanceView.from(source.equipped()));
@@ -117,8 +122,12 @@ public class AppearanceUseCase {
     }
 
     /** 공동 보유 목록은 상품 식별자만, 외양은 공개 슬롯과 버전만 내보낸다. */
-    public record SharedInventoryView(List<String> audio, List<String> islandThemes,
-            List<BuildingThemeView> buildingThemes, long inventoryVersion, IslandAppearanceView appearance) {
+    public record SharedInventoryView(
+            @JsonProperty(required = true) List<String> audio,
+            @JsonProperty(required = true) List<String> islandThemes,
+            @JsonProperty(required = true) List<BuildingThemeView> buildingThemes,
+            @JsonProperty(required = true) long inventoryVersion,
+            @JsonProperty(required = true) IslandAppearanceView appearance) {
         private static SharedInventoryView from(SharedInventory source) {
             return new SharedInventoryView(source.audio(), source.islandThemes(),
                     source.buildingThemes().stream().map(BuildingThemeView::from).toList(),
@@ -126,13 +135,20 @@ public class AppearanceUseCase {
         }
     }
 
-    public record BuildingThemeView(String buildingId, String themeId) {
+    public record BuildingThemeView(
+            @JsonProperty(required = true) String buildingId,
+            @JsonProperty(required = true) String themeId) {
         private static BuildingThemeView from(SharedInventory.BuildingTheme source) {
             return source == null ? null : new BuildingThemeView(source.buildingId(), source.themeId());
         }
     }
 
-    public record PersonalAppearanceView(String clothes, String decor, String hull, String position, long version) {
+    public record PersonalAppearanceView(
+            @JsonProperty(required = true) String clothes,
+            @JsonProperty(required = true) String decor,
+            @JsonProperty(required = true) String hull,
+            @JsonProperty(required = true) String position,
+            @JsonProperty(required = true) long version) {
         private static PersonalAppearanceView from(PersonalAppearanceState source) {
             return source == null ? null : new PersonalAppearanceView(source.clothes(), source.decor(), source.hull(),
                     source.position(), source.version());
@@ -140,7 +156,10 @@ public class AppearanceUseCase {
     }
 
     /** 성공 응답과 409 current가 공유하는 공개 공동 외양. 건물별 테마 맵은 도메인 값이다. */
-    public record IslandAppearanceView(String islandThemeId, Map<String, String> buildingThemes, long version) {
+    public record IslandAppearanceView(
+            @JsonProperty(required = true) String islandThemeId,
+            @JsonProperty(required = true) Map<String, String> buildingThemes,
+            @JsonProperty(required = true) long version) {
         private static IslandAppearanceView from(IslandAppearanceState source) {
             return source == null ? null : new IslandAppearanceView(source.islandThemeId(), source.buildingThemes(),
                     source.version());
