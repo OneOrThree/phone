@@ -218,6 +218,26 @@ class PlaybackContractTest extends UpstreamTestBase {
         assertThat(DATA.received()).isEmpty();
     }
 
+    @ParameterizedTest
+    @CsvSource({"get,false", "get,true", "patch,false", "patch,true", "conflict,false", "conflict,true"})
+    void publicStateKeepsExactFieldsInSuccessAndConflict(String operation, boolean initial) throws Exception {
+        String expected = initial ? INITIAL : PLAYING;
+        String upstream = expected.substring(0, expected.length() - 1) + ",\"playback_row_id\":7}";
+        DATA.on(DATA_GET, request -> ok(upstream));
+        DATA.on(DATA_PATCH, request -> operation.equals("conflict") ? error(409, "VERSION_CONFLICT")
+                : ok("{\"data\":" + upstream + ",\"events\":[{\"internal_event_id\":9}]}"));
+
+        var request = operation.equals("get") ? auth(get("/islands/" + ISLAND + "/playback"))
+                : write(patch("/islands/" + ISLAND + "/playback"), "{\"playing\":false,\"expectedVersion\":0}");
+        var result = mockMvc.perform(request)
+                .andExpect(status().is(operation.equals("conflict") ? 409 : 200)).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var response = json.readTree(result.getResponse().getContentAsString());
+        var actual = operation.equals("conflict") ? response.path("current").path("resource") : response.path("data");
+        assertThat(actual).isEqualTo(json.readTree(expected));
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("internal_event_id", "playback_row_id");
+    }
+
     // ---------------------------------------------------------------- 도구
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
