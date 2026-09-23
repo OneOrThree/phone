@@ -15,6 +15,7 @@ import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
@@ -60,9 +61,10 @@ public class FocusSessionUseCase {
 
     private final DataFocusClient data;
 
-    public FocusSessionState start(AccessTokenClaims claims, UUID islandId, String subject, Integer targetMinutes,
+    public StateView start(AccessTokenClaims claims, UUID islandId, String subject, Integer targetMinutes,
             UUID key, Deadline deadline) {
-        return relay(() -> data.startFocusSession(claims.userId(), islandId, subject, targetMinutes, key, deadline));
+        return StateView.from(relay(() -> data.startFocusSession(
+                claims.userId(), islandId, subject, targetMinutes, key, deadline)));
     }
 
     /**
@@ -71,27 +73,30 @@ public class FocusSessionUseCase {
      * <p>봉투 자체가 없는 것({@code null} 본문, 예: 상류가 {@code "null"} 을 준 경우)은 정상값이 아니라
      * 계약 불일치다 — 그냥 {@code .session()} 하면 NPE 로 500 이 되어 배선 사고가 서버 버그처럼 보인다.
      */
-    public FocusSessionState current(AccessTokenClaims claims, Deadline deadline) {
+    public StateView current(AccessTokenClaims claims, Deadline deadline) {
         CurrentFocusSession envelope = relay(() -> data.fetchCurrentFocusSession(claims.userId(), deadline));
         if (envelope == null) {
             throw new UpstreamContractMismatchException("현재 집중 세션 응답 봉투가 없습니다");
         }
-        return envelope.session();
+        return StateView.from(envelope.session());
     }
 
-    public FocusSessionState pause(AccessTokenClaims claims, UUID sessionId, long expectedVersion, UUID key,
+    public StateView pause(AccessTokenClaims claims, UUID sessionId, long expectedVersion, UUID key,
             Deadline deadline) {
-        return relay(() -> data.pauseFocusSession(claims.userId(), sessionId, expectedVersion, key, deadline));
+        return StateView.from(relay(() -> data.pauseFocusSession(
+                claims.userId(), sessionId, expectedVersion, key, deadline)));
     }
 
-    public FocusSessionState resume(AccessTokenClaims claims, UUID sessionId, long expectedVersion, UUID key,
+    public StateView resume(AccessTokenClaims claims, UUID sessionId, long expectedVersion, UUID key,
             Deadline deadline) {
-        return relay(() -> data.resumeFocusSession(claims.userId(), sessionId, expectedVersion, key, deadline));
+        return StateView.from(relay(() -> data.resumeFocusSession(
+                claims.userId(), sessionId, expectedVersion, key, deadline)));
     }
 
-    public FocusFinish finish(AccessTokenClaims claims, UUID sessionId, long expectedVersion, UUID key,
+    public FinishView finish(AccessTokenClaims claims, UUID sessionId, long expectedVersion, UUID key,
             Deadline deadline) {
-        return relay(() -> data.finishFocusSession(claims.userId(), sessionId, expectedVersion, key, deadline));
+        return FinishView.from(relay(() -> data.finishFocusSession(
+                claims.userId(), sessionId, expectedVersion, key, deadline)));
     }
 
     /**
@@ -99,12 +104,12 @@ public class FocusSessionUseCase {
      * 그 null 은 정상값이다 — 공개 응답의 {@code data:null} 이 된다. 봉투 자체가 없는 것은 계약 불일치다
      * ({@link #current} 와 같은 판정).
      */
-    public FocusFinish pendingResult(AccessTokenClaims claims, Deadline deadline) {
+    public FinishView pendingResult(AccessTokenClaims claims, Deadline deadline) {
         PendingFocusResult envelope = relay(() -> data.fetchPendingFocusResult(claims.userId(), deadline));
         if (envelope == null) {
             throw new UpstreamContractMismatchException("미확인 집중 결과 응답 봉투가 없습니다");
         }
-        return envelope.result();
+        return FinishView.from(envelope.result());
     }
 
     /** 결과창을 보여 줬다고 표시한다 (GROMO-1998). Data 의 조건부 UPDATE 가 최초 1회만 세팅한다. */
@@ -115,8 +120,57 @@ public class FocusSessionUseCase {
         });
     }
 
-    public FocusSummary summary(AccessTokenClaims claims, String date, String timezone, Deadline deadline) {
-        return relay(() -> data.fetchFocusSummary(claims.userId(), date, timezone, deadline));
+    public SummaryView summary(AccessTokenClaims claims, String date, String timezone, Deadline deadline) {
+        return SummaryView.from(relay(() -> data.fetchFocusSummary(claims.userId(), date, timezone, deadline)));
+    }
+
+    /** 공개 세션 계약. 내부 응답이 확장되어도 허용한 필드만 내보낸다. */
+    public record StateView(UUID id, UUID islandId, String subject, Integer targetMinutes, String status,
+            long activeSeconds, String serverNow, String startedAt, String restStartedAt, long version) {
+        private static StateView from(FocusSessionState source) {
+            if (source == null) {
+                return null;
+            }
+            return new StateView(source.id(), source.islandId(), source.subject(), source.targetMinutes(),
+                    source.status(), source.activeSeconds(), source.serverNow(), source.startedAt(),
+                    source.restStartedAt(), source.version());
+        }
+    }
+
+    /** 공개 정산 계약. 중첩 객체도 내부 DTO와 분리한다. */
+    public record FinishView(UUID recordId, UUID islandId, String subject, Integer targetMinutes,
+            long activeSeconds, boolean goalAchieved, int earnedFish, AllocationView allocation,
+            String completedAt, List<QuestProgressView> questProgress) {
+        private static FinishView from(FocusFinish source) {
+            if (source == null) {
+                return null;
+            }
+            List<QuestProgressView> progress = source.questProgress() == null ? null : source.questProgress()
+                    .stream().map(QuestProgressView::from).toList();
+            return new FinishView(source.recordId(), source.islandId(), source.subject(), source.targetMinutes(),
+                    source.activeSeconds(), source.goalAchieved(), source.earnedFish(),
+                    new AllocationView(source.allocation().personalFishAdded(),
+                            source.allocation().constructionFishAdded()),
+                    source.completedAt(), progress);
+        }
+    }
+
+    public record AllocationView(int personalFishAdded, int constructionFishAdded) {
+    }
+
+    public record QuestProgressView(UUID id, double myRate) {
+        private static QuestProgressView from(FocusFinish.QuestProgress source) {
+            return source == null ? null : new QuestProgressView(source.id(), source.myRate());
+        }
+    }
+
+    /** 공개 요약 계약. Data가 계산한 날짜·시각의 문자열 표현을 보존한다. */
+    public record SummaryView(String date, long completedSeconds, long currentSessionSecondsToday,
+            long totalSeconds, String serverNow) {
+        private static SummaryView from(FocusSummary source) {
+            return source == null ? null : new SummaryView(source.date(), source.completedSeconds(),
+                    source.currentSessionSecondsToday(), source.totalSeconds(), source.serverNow());
+        }
     }
 
     private <T> T relay(Supplier<T> upstream) {
