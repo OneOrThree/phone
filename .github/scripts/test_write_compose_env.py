@@ -304,7 +304,7 @@ class WriteComposeEnvTest(unittest.TestCase):
                      "-f", str(scripts / "docker-compose.dev.yml"), "-f", str(scripts / "docker-compose.realtime.yml"),
                      "config", "--format", "json"], text=True, check=True, capture_output=True)
                 services = json.loads(configured.stdout)["services"]
-                realtime, app = services["realtime"]["environment"], services["app"]["environment"]
+                realtime, app = services["realtime"]["environment"], services["data-api"]["environment"]
                 self.assertEqual(realtime["SVC_TOKEN_DATA_TO_REALTIME"], "data-rt" if present else "")
                 self.assertEqual(realtime["SVC_TOKEN_BIZ_TO_REALTIME"], "biz-rt" if present else "")
                 self.assertEqual(app["FOCUS_SESSION_START_ENABLED"], "True" if present else "false")
