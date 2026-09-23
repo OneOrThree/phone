@@ -1,13 +1,13 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.IslandRecordsResponses.FishEarningsView;
+import com.oneorthree.business.api.dto.IslandRecordsResponses.ScreenTimeDayView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
-import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
 import com.oneorthree.business.usecase.IslandRecordsUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -124,7 +124,7 @@ public class IslandRecordsController {
      * {@code FACILITY_LOCKED} 이고 둘 다 빈 명단이 아니다.
      */
     @GetMapping("/islands/{islandId}/statistics/fish-earnings")
-    public IslandFishEarnings fishEarnings(@PathVariable String islandId, HttpServletRequest request) {
+    public FishEarningsView fishEarnings(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         if (!request.getParameterMap().isEmpty()) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER,
@@ -138,7 +138,7 @@ public class IslandRecordsController {
      * 명시 null 이다 — 결측을 0 으로 지어내지 않는다(RC-P06).
      */
     @PutMapping(value = "/me/screen-time/{date}", consumes = "application/json")
-    public IslandRecordViews.ScreenTimeDay putScreenTime(@PathVariable String date, @RequestBody JsonNode body,
+    public ScreenTimeDayView putScreenTime(@PathVariable String date, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         if (!request.getParameterMap().isEmpty()) {
