@@ -792,7 +792,7 @@ function FinalIslandScene({
               // 섬 이름(최대 20자)이 길어도 화면 밖으로 밀리지 않게 폭을 묶어 이름만 말줄임한다.
               // 아주 좁은 창에서 minWidth 가 maxWidth 를 이기지 않게 같은 상한으로 묶는다
               minWidth: visiting ? undefined : Math.min(210, hudMax),
-              maxWidth: hudMax,
+              maxWidth: visiting ? undefined : hudMax,
             }}
           >
             {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
