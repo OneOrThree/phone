@@ -25,6 +25,9 @@ import java.util.UUID;
  * @param allocation    개인/건설 기여 분배
  * @param completedAt   정산을 확정한 서버 시각
  * @param questProgress 이 세션이 기여한 퀘스트 진행률
+ * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131) — finish 시점엔 전부 닫혀 있다.
+ *                      구버전 Data 가 안 보내면 {@code null} 로 두어 공개 응답에서도 빠지게 한다 —
+ *                      빈 목록으로 채우면 앱이 «구간 0건»으로 읽어 같은 날 집중이 사라진다
  */
 public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID recordId,
@@ -36,7 +39,8 @@ public record FocusFinish(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) int earnedFish,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) Allocation allocation,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String completedAt,
-        @JsonSetter(nulls = Nulls.AS_EMPTY) List<QuestProgress> questProgress) {
+        @JsonSetter(nulls = Nulls.AS_EMPTY) List<QuestProgress> questProgress,
+        List<ActiveIntervalState> activeIntervals) {
 
     /**
      * @param personalFishAdded     개인 지갑 반영

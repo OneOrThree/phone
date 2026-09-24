@@ -49,6 +49,7 @@ import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import java.sql.Timestamp;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -177,6 +178,52 @@ class FocusSessionActivationIntegrationTest {
         assertThat(detailRow(UUID.fromString(sessionId)).get("lifecycle")).isEqualTo("COMPLETED");
         assertThat(count("select count(*) from focus_settlements where session_id=?", UUID.fromString(sessionId)))
                 .isEqualTo(1);
+    }
+
+    // ---------------------------------------------------------------- activeIntervals(GROMO-2131)
+
+    @Test
+    @DisplayName("activeIntervals 는 ACTIVE 구간만(REST 제외) 담고, 열린 구간은 serverNow 로 닫혀 길이 합이 "
+            + "activeSeconds 와 같다")
+    void activeIntervalsTrackTheRealActiveSpansAcrossTheLifecycle() {
+        UUID user = newUser();
+        UUID island = islands.create(user, new CreateIslandCommandRequest("구간섬", null, false, null),
+                UUID.randomUUID()).id();
+
+        FocusSessionView started = start(user, island);
+        assertThat(started.activeIntervals()).hasSize(1);
+        assertThat(started.activeIntervals().get(0).startedAt()).isEqualTo(started.serverNow());
+        assertThat(started.activeIntervals().get(0).endedAt()).isEqualTo(started.serverNow());
+
+        FocusSessionView paused = focus.pause(user, started.id(),
+                new FocusVersionedCommandRequest(started.version()), UUID.randomUUID());
+        assertThat(paused.activeIntervals()).as("휴식 구간은 activeIntervals 에 없다").hasSize(1);
+        assertThat(paused.activeIntervals().get(0).endedAt()).as("첫 구간은 pause 시각에 닫힌다")
+                .isEqualTo(paused.serverNow());
+
+        FocusSessionView resumed = focus.resume(user, started.id(),
+                new FocusVersionedCommandRequest(paused.version()), UUID.randomUUID());
+        assertThat(resumed.activeIntervals()).hasSize(2);
+        assertThat(resumed.activeIntervals().get(0).endedAt()).as("이미 닫힌 첫 구간은 그대로다")
+                .isEqualTo(paused.serverNow());
+        assertThat(resumed.activeIntervals().get(1).endedAt()).as("방금 연 둘째 구간도 이 응답의 serverNow 로 닫혀 나간다")
+                .isEqualTo(resumed.serverNow());
+
+        FocusSessionView current = focus.current(user);
+        assertThat(current.activeIntervals()).as("REST 없이 ACTIVE 두 구간뿐이다").hasSize(2);
+        assertThat(current.activeIntervals().get(0).endedAt()).isEqualTo(paused.serverNow());
+        assertThat(current.activeIntervals().get(1).endedAt()).as("열린 둘째 구간은 이 조회의 serverNow 로 다시 닫힌다")
+                .isEqualTo(current.serverNow());
+
+        FocusFinishView finished = focus.finish(user, started.id(),
+                new FocusVersionedCommandRequest(current.version()), UUID.randomUUID());
+        assertThat(finished.activeIntervals()).hasSize(2);
+        assertThat(finished.activeIntervals()).as("finish 시점엔 전부 닫혀 있다")
+                .allSatisfy(span -> assertThat(span.endedAt()).isNotNull());
+        long spanSecondsSum = finished.activeIntervals().stream()
+                .mapToLong(span -> Duration.between(span.startedAt(), span.endedAt()).getSeconds())
+                .sum();
+        assertThat(spanSecondsSum).as("구간 길이 합은 activeSeconds 와 같다").isEqualTo(finished.activeSeconds());
     }
 
     // ---------------------------------------------------------------- #7 소속 상실의 출구
