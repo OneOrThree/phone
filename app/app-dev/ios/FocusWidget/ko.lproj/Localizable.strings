@@ -1,0 +1,10 @@
+"focus.status" = "집중 중";
+"focus.short" = "집중";
+"focus.count" = "%d명이 집중 중";
+"rest.status" = "휴식 중";
+"rest.short" = "휴식";
+"rest.title" = "쉬는 시간";
+"rest.count" = "%d명이 휴식 중";
+"rest.expired.status" = "휴식 시간 만료";
+"rest.expired.short" = "휴식 끝";
+"rest.expired.title" = "앱에서 결과를 확인해요";

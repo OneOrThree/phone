@@ -20,6 +20,7 @@ const colors = {
   divider: semantic.color.divider,
   track: primitive.color.progressTrack,
   accent: semantic.color.primary,
+  secondary: semantic.color.secondary,
   accentAlt: semantic.color.danger,
   dangerInk: primitive.color.dangerInk,
 };

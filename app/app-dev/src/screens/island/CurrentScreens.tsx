@@ -1041,6 +1041,27 @@ function FocusFlow({ e }: any) {
     emoteSessionId,
     onSendError: e.notify,
   });
+  const activeFocusCount = live.focus.filter((member) => member.status === 'active').length;
+  useEffect(() => {
+    if (!liveIslandId || !s.session) return;
+    e.onPresenceCounts?.(
+      s.session.id,
+      liveIslandId,
+      live.status === 'ready'
+        ? {
+            focus: Math.max(activeFocusCount, s.session.status === 'active' ? 1 : 0),
+            rest: Math.max(live.rest.length, s.session.status === 'paused' ? 1 : 0),
+          }
+        : null,
+    );
+  }, [
+    liveIslandId,
+    s.session?.id,
+    s.session?.status,
+    live.status,
+    activeFocusCount,
+    live.rest.length,
+  ]);
   const myId = getSession()?.userId;
   useEffect(
     () => () => {
@@ -1069,10 +1090,14 @@ function FocusFlow({ e }: any) {
   const serverSession = () => e.focus && s.session?.version != null;
   const finish = () => {
     if (serverSession()) {
+      const session = s.session;
       e.focus
         .finish()
         .then(() => e.reset('focusResult'))
-        .catch((error: any) => e.notify(error?.message ?? '집중을 마치지 못했어요.'));
+        .catch(async (error: any) => {
+          if (await e.recoverExpiredRestConflict?.(error, session)) return;
+          e.notify(error?.message ?? '집중을 마치지 못했어요.');
+        });
       return;
     }
     e.dispatch({ type: 'FINISH' });
@@ -1168,10 +1193,14 @@ function FocusFlow({ e }: any) {
     };
   const resume = () => {
     if (serverSession()) {
+      const session = s.session;
       e.focus
         .resume()
         .then(() => setVoyage('toSpot'))
-        .catch((error: any) => e.notify(error?.message ?? '집중을 이어가지 못했어요.'));
+        .catch(async (error: any) => {
+          if (await e.recoverExpiredRestConflict?.(error, session)) return;
+          e.notify(error?.message ?? '집중을 이어가지 못했어요.');
+        });
       return;
     }
     setVoyage('toSpot');
