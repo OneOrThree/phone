@@ -36,6 +36,7 @@ import {
   isHost,
   isOwnComment,
   kstDayStart,
+  kstHourMinute,
   newChatCount,
   questMemberRate,
   residentCount,
@@ -6803,15 +6804,11 @@ const groupMessages: ChatView[] = [
 ];
 
 const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
-const kstClock = (at: number) => {
-  const d = new Date(at + 9 * 3600000);
-  return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
-};
 // 받은 편지 시각: 오늘 09:12 · 어제 22:40 · 일주일 안이면 요일 · 그 전은 M월 D일
 const letterTime = (at: number, now: number) => {
   const days = Math.round((kstDayStart(dayKey(now)) - kstDayStart(dayKey(at))) / 86400000);
-  if (days === 0) return `오늘 ${kstClock(at)}`;
-  if (days === 1) return `어제 ${kstClock(at)}`;
+  if (days === 0) return `오늘 ${kstHourMinute(at)}`;
+  if (days === 1) return `어제 ${kstHourMinute(at)}`;
   const [year, month, date] = dayKey(at).split('-').map(Number);
   if (days < 7) return `${weekdays[new Date(Date.UTC(year, month - 1, date)).getUTCDay()]}요일`;
   return `${month}월 ${date}일`;
