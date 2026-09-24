@@ -3,7 +3,13 @@
 // 확정). 멱등 키·초대 token은 세대 격리 ref에만 두고 State/AsyncStorage에 저장하지 않는다.
 // 모든 명령은 시작 세대를 잡고 후속 API·dispatch·반환 전에 재검사한다 — 세대가 바뀐 늦은
 // 응답은 CLIENT_STALE_SESSION으로 버린다.
-import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
+import {
+  ApiError,
+  CLIENT_NETWORK_ERROR,
+  CLIENT_STALE_SESSION,
+  CLIENT_TIMEOUT,
+  uuid,
+} from '@/services/api/client';
 import { me as apiMe } from '@/services/api/auth';
 import { sessionGeneration } from '@/services/api/session';
 import {
@@ -129,6 +135,8 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     return my;
   };
   // 409·404 계열은 서버 상태가 바뀌었다는 뜻 — 재조회로 화면 데이터를 맞춘 뒤 원 오류를 다시 던진다.
+  // 타임아웃·네트워크 오류는 «결과 불명»이다 — 서버는 이미 커밋했을 수 있다(GROMO-2118: 타임아웃으로
+  // 실패처럼 보인 섬 만들기를 사용자가 다시 눌러 섬이 두 개 생겼다). 같은 재조회로 정본을 보여준다.
   const call = async <T>(fn: () => Promise<T>): Promise<T> => {
     // 명령 시작 세대 — 오류가 늦게 도착해 세대가 죽었으면 재조회도 rethrow도 하지 않는다.
     // 새 세션 화면에 옛 세션의 오류 배너를 심지 않게 CLIENT_STALE_SESSION으로 바꾼다.
@@ -139,7 +147,15 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       if (generation() !== g) throw staleError();
       if (
         thrown instanceof ApiError &&
-        ['STATE_CONFLICT', 'VERSION_CONFLICT', 'GROUP_NOT_FOUND', 'NOT_FOUND'].includes(thrown.code)
+        [
+          'STATE_CONFLICT',
+          'VERSION_CONFLICT',
+          'GROUP_NOT_FOUND',
+          'NOT_FOUND',
+          'UPSTREAM_TIMEOUT',
+          CLIENT_TIMEOUT,
+          CLIENT_NETWORK_ERROR,
+        ].includes(thrown.code)
       )
         try {
           await syncIslands();
