@@ -113,6 +113,7 @@ import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createRouteTransitionShield } from '@/services/routeTransition';
+import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
 import {
@@ -1180,6 +1181,8 @@ function Gromo() {
         >
           <Animated.View
             key={reviewEpoch}
+            accessibilityElementsHidden={routeTransitionShielded}
+            importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
             style={{
               flex: 1,
               opacity: transition,
@@ -1196,16 +1199,7 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
-        {routeTransitionShielded && (
-          <Pressable
-            accessible={false}
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            pointerEvents="box-only"
-            onPress={() => {}}
-            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10 }}
-          />
-        )}
+        <RouteTransitionShield visible={routeTransitionShielded} />
         {toast !== '' && (
           <View
             pointerEvents="none"
@@ -1232,6 +1226,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => setModal(null)}
               style={{
                 flex: 1,
@@ -1304,6 +1301,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => !convUi.busy && setConvUi(null)}
               style={{
                 flex: 1,
@@ -1384,6 +1384,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => settleSwitch(false)}
               style={{
                 flex: 1,

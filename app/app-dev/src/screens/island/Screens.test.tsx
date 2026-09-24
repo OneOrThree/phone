@@ -5,12 +5,13 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { BackHandler, StyleSheet } from 'react-native';
+import { BackHandler, StyleSheet, View } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
+import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
@@ -85,7 +86,7 @@ function Harness({
   flow = false,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
-  const shielded = useRef(false);
+  const [shielded, setShielded] = useState(false);
   const [state, baseDispatch] = useReducer(
     reducer,
     initial,
@@ -105,16 +106,11 @@ function Harness({
     [approval, setApproval] = useState(false),
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
-  const transitionShield = useRef(
-    createRouteTransitionShield((value) => {
-      shielded.current = value;
-    }),
-  ).current;
+  const transitionShield = useRef(createRouteTransitionShield(setShielded)).current;
   const go = useRef(
     jest.fn((nextRoute: string) => {
-      if (flow && shielded.current) return;
-      transitionShield();
       if (flow) {
+        transitionShield();
         setActiveRoute(nextRoute);
       }
     }),
@@ -127,7 +123,7 @@ function Harness({
     seed?.(dispatch);
     expose?.({ dispatch, actions: actions.current, go, home, reset, signOut });
   }, []);
-  return (
+  const screens = (
     <RedesignScreens
       e={{
         state,
@@ -171,6 +167,14 @@ function Harness({
       }}
     />
   );
+  return flow ? (
+    <View style={{ flex: 1 }}>
+      {screens}
+      <RouteTransitionShield visible={shielded} />
+    </View>
+  ) : (
+    screens
+  );
 }
 
 test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 로컬 LOGIN은 하지 않는다', async () => {
@@ -194,23 +198,35 @@ test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 �
   assert.equal(exposed.actions.includes('LOGIN'), false);
 });
 
-test('GROMO 시작하기의 화면 전환 후 100ms 안에 온 탭은 내 고양이 CTA를 실행하지 않는다', async () => {
+test('GROMO 시작하기 전환 후 100ms에는 터치 차단막이 있고 만료 뒤 CTA가 동작한다', async () => {
   jest.useFakeTimers();
   try {
     const screen = await render(<Harness route="login" flow />);
     await fireEvent.press(screen.getByRole('checkbox'));
     await fireEvent.press(screen.getByText('GROMO 시작하기'));
     expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
-
-    jest.advanceTimersByTime(100);
-    await fireEvent.press(screen.getByText('내 고양이와 시작'));
+    expect(
+      screen.getByTestId('route-transition-shield', { includeHiddenElements: true }).props
+        .pointerEvents,
+    ).toBe('box-only');
+    await fireEvent.press(
+      screen.getByTestId('route-transition-shield', { includeHiddenElements: true }),
+    );
     expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
     expect(screen.queryByText('첫 섬 선택')).toBeNull();
 
-    jest.advanceTimersByTime(250);
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
+    expect(screen.queryByText('첫 섬 선택')).toBeNull();
+
+    await act(async () => jest.advanceTimersByTime(250));
+    expect(
+      screen.queryByTestId('route-transition-shield', { includeHiddenElements: true }),
+    ).toBeNull();
     await fireEvent.press(screen.getByText('내 고양이와 시작'));
     expect(screen.getByText('첫 섬 선택')).toBeTruthy();
   } finally {
+    await act(async () => jest.runOnlyPendingTimers());
     jest.useRealTimers();
   }
 });
