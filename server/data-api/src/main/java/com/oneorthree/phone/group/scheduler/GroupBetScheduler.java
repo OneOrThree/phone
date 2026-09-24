@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.scheduler;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.config.SchedulingConfig;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.SettleTrigger;
@@ -17,7 +19,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -43,8 +44,6 @@ import java.util.UUID;
 @Component
 @RequiredArgsConstructor
 public class GroupBetScheduler {
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetRepository groupChallengeBetRepository;

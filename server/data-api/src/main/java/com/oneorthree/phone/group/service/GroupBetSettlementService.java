@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.SettleTrigger;
@@ -11,7 +13,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -37,8 +38,6 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class GroupBetSettlementService {
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /** 실패 요약 로그에 실을 sessionId 상한 — 대량 실패 시 로그 한 줄이 무한정 길어지지 않게 자른다. */
     static final int FAILED_SESSION_ID_LOG_LIMIT = 20;
