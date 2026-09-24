@@ -61,8 +61,9 @@ public class InternalFriendController {
     /**
      * 친구 목록 (LLD §1.5). {@code date} 는 서버 판정 축(KST) 기준 오늘 — 값 판정은 서비스 그대로.
      *
-     * <p>{@code date} 를 생략하면 KST 오늘이다(GROMO-2119). 우체통 화면은 친구 이름만 쓰고 날짜를 받지 않아
-     * Business 가 이 파라미터를 싣지 않는데, 필수였을 때는 화면 전체가 400 이 됐다. KST 해석은 Data 만 한다.
+     * <p>{@code date} 를 생략하면 KST 오늘이다(GROMO-2119). 우체통 화면은 날짜를 받지 않아 Business 가 이
+     * 파라미터를 싣지 않는데, 필수였을 때는 화면 전체가 400 이 됐다. 친구의 당일 집중 필드는 그대로 «오늘» 기준으로
+     * 나간다. KST 해석은 Data 만 한다.
      */
     @GetMapping("/friends")
     public List<FriendResponse> friends(@PathVariable UUID userId,
