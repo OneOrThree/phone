@@ -16,7 +16,7 @@ aws secretsmanager get-secret-value --secret-id gromo/dev/env --query SecretStri
       --output .runtime/business-api.env
 ```
 
-같은 명령에서 `--service notification`으로 알림 파일, `--service data-api`로 Data 파일을 만든다. 이미지 digest는 해당 서비스 CI 산출물의 값을 사용한다. 운영에서는 `--environment prod`와 `gromo/prod/env`를 사용한다. 파일은 원자 교체하고 권한은 0600, 상위 디렉터리는 0700이다. 검증 실패는 기존 파일을 보존한다.
+같은 명령에서 `--service notification`으로 알림 파일, `--service data-api`로 Data 파일을 만든다. dev VM 에서 `/var/lib/gromo/runtime/` 에 직접 만들 때는 그 디렉터리가 runner 소유 0700 이라 `sudo -u runner` 로 실행한다 — 다른 계정 소유로 생기면 다음 CD 가 못 읽어 파일이 없는 것과 같다. 특히 `data-api.env` 는 CD 가 다시 만들지 않는 수동 파일이다. 이미지 digest는 해당 서비스 CI 산출물의 값을 사용한다. 운영에서는 `--environment prod`와 `gromo/prod/env`를 사용한다. 파일은 원자 교체하고 권한은 0600, 상위 디렉터리는 0700이다. 검증 실패는 기존 파일을 보존한다.
 
 | 서비스 | 필수 자격 |
 |---|---|
