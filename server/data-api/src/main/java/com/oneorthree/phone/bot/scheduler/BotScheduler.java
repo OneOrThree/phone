@@ -1,6 +1,7 @@
 package com.oneorthree.phone.bot.scheduler;
 
 import com.oneorthree.phone.bot.service.BotSimulator;
+import com.oneorthree.phone.common.util.ZonePolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
@@ -32,7 +33,7 @@ public class BotScheduler {
      * {@code FocusService} 의 close-then-open 이 마커를 하나로 유지하긴 하지만, 애초에 겹쳐 돌지 않는
      * 편이 낫다. 락은 주기(5분)보다 짧게 잡아 tick 이 멈춰도 다음 회차가 이어받는다.
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 */5 * * * *", zone = ZonePolicy.KST_ID)
     @SchedulerLock(name = "bot-simulator-tick", lockAtMostFor = "PT4M")
     public void runBotTick() {
         BotSimulator.BotTickResult result = botSimulator.tick(Instant.now());

@@ -1,5 +1,6 @@
 package com.oneorthree.phone.construction.scheduler;
 
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.construction.repository.IslandFacilityRepository;
 import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.construction.service.IslandFacilityCompletionService;
@@ -33,7 +34,7 @@ public class IslandConstructionScheduler {
     /**
      * 1분 주기 완공 스캔 — 가장 짧은 공사 시간이 1분(회관)이라 그보다 긴 주기는 완공을 늦춘다.
      */
-    @Scheduled(cron = "0 * * * * *", zone = "Asia/Seoul",
+    @Scheduled(cron = "0 * * * * *", zone = ZonePolicy.KST_ID,
             scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "island-construction-completion-sweep")
     public void completeDueFacilities() {
