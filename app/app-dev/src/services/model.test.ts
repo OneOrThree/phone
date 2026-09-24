@@ -2329,4 +2329,11 @@ test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 
   assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
   s = sync(s, 'srv2');
   assert.equal(serverHome(s), null);
+  // 옛 섬으로 돌아와도(강퇴 뒤 재가입 포함) 새 스냅샷 전에는 옛 스냅샷을 되살리지 않는다
+  s = sync(s, 'srv1');
+  assert.equal(serverHome(s), null);
+  // 같은 current 재동기화는 스냅샷을 유지한다
+  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
+  s = sync(s, 'srv1');
+  assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
 });

@@ -1551,6 +1551,9 @@ export function reducer(state: State, a: Action): State {
       const my = a.memberships as MyIslands,
         snap = serverSnap(s);
       snap.memberships = my.items;
+      // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아
+      // 옛 방장 여부·완공 건물이 새 스냅샷 전에 그려지지 않게 한다(GROMO-2138)
+      if (snap.currentIslandId !== my.currentIslandId) snap.home = null;
       snap.currentIslandId = my.currentIslandId;
       snap.lossReason = my.lossReason;
       if (a.requests) {
