@@ -33,6 +33,7 @@ import { playbackSeekSeconds } from '@/services/api/playback';
 import { screenTime, selectionCount } from '@/services/screenTime';
 import {
   endLiveActivities,
+  shouldPollExpiredRest,
   shouldReconcileExpiredRest,
   syncLiveActivity,
 } from '@/services/liveActivity';
@@ -419,9 +420,62 @@ function Gromo() {
     getSnap: () => stateRef.current?.serverIslands,
   });
   const focus = focusCmds.current.commands;
+  const restRecovery = useRef<{
+    sessionId: string;
+    at: number;
+    promise: Promise<boolean> | null;
+  } | null>(null);
+  const applyRecoveredRestRoute = (sessionId: string, recovered: Route | null): boolean => {
+    const current = stateRef.current.session;
+    if (
+      current &&
+      (current.id !== sessionId || (current.status === 'active' && recovered !== 'focus'))
+    )
+      return false;
+    if (recovered === 'focusResult') reset('focusResult');
+    else if (recovered === 'focus') reset('focus');
+    else if (recovered === null) home();
+    else return false;
+    return true;
+  };
+  const recoverExpiredRest = (sessionId: string, force = false): Promise<boolean> => {
+    const previous = restRecovery.current;
+    if (previous?.sessionId === sessionId && previous.promise) {
+      // 버튼 충돌은 진행 중인 조회가 서버 자동 종료 직전 상태를 읽었을 수도 있어 한 번 더 확인한다.
+      return force
+        ? previous.promise.then((handled) => handled || recoverExpiredRest(sessionId, true))
+        : previous.promise;
+    }
+    const at = Date.now();
+    if (!force && !shouldPollExpiredRest(stateRef.current.session, at, previous))
+      return Promise.resolve(false);
+    const promise = focus
+      .recover()
+      .then((recovered) => applyRecoveredRestRoute(sessionId, recovered))
+      .catch(() => false)
+      .finally(() => {
+        if (restRecovery.current?.sessionId === sessionId) restRecovery.current.promise = null;
+      });
+    restRecovery.current = { sessionId, at, promise };
+    return promise;
+  };
+  const recoverExpiredRestConflict = (
+    error: unknown,
+    session: State['session'],
+  ): Promise<boolean> => {
+    if (
+      !session ||
+      !shouldReconcileExpiredRest(session, Date.now()) ||
+      !(error instanceof ApiError) ||
+      !['STATE_CONFLICT', 'VERSION_CONFLICT', 'NOT_FOUND', 'GROUP_NOT_FOUND'].includes(error.code)
+    )
+      return Promise.resolve(false);
+    return recoverExpiredRest(session.id, true);
+  };
   // 서버 세션(버전 있음)이면 명령이 정본 — 없으면 목업 로컬 reducer 경로다.
   const serverSession = () => hasServerSession && stateRef.current?.session?.version != null;
   const finishSession = () => {
+    const session = stateRef.current.session;
     if (!serverSession()) {
       dispatch({ type: 'FINISH' });
       reset('focusResult');
@@ -430,9 +484,13 @@ function Gromo() {
     focus
       .finish()
       .then(() => reset('focusResult'))
-      .catch((error) => notify(error instanceof Error ? error.message : '집중을 마치지 못했어요.'));
+      .catch(async (error) => {
+        if (await recoverExpiredRestConflict(error, session)) return;
+        notify(error instanceof Error ? error.message : '집중을 마치지 못했어요.');
+      });
   };
   const resumeSession = () => {
+    const session = stateRef.current.session;
     if (!serverSession()) {
       dispatch({ type: 'RESUME' });
       setRoute('focus');
@@ -441,9 +499,10 @@ function Gromo() {
     focus
       .resume()
       .then(() => setRoute('focus'))
-      .catch((error) =>
-        notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.'),
-      );
+      .catch(async (error) => {
+        if (await recoverExpiredRestConflict(error, session)) return;
+        notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.');
+      });
   };
   // ── 회원 전환(GROMO-2005) ──
   // 오케스트레이션은 services/memberConversion.ts — 친구·편지·구매의 403 SOCIAL_LOGIN_REQUIRED 를
@@ -820,30 +879,20 @@ function Gromo() {
   }, [loaded]);
   useEffect(() => {
     if (!loaded || !hasServerSession || REVIEW || DEMO) return;
-    let checking = false;
     const subscription = AppState.addEventListener('change', (nextState) => {
-      const session = stateRef.current.session;
-      if (nextState !== 'active' || checking || !shouldReconcileExpiredRest(session, Date.now()))
-        return;
-      if (!session) return;
-      checking = true;
-      const sessionId = session.id;
-      void focus
-        .recover()
-        .then((recovered) => {
-          // 사용자가 조회 중 휴식을 재개했다면 늦게 도착한 경로 변경은 적용하지 않는다.
-          const current = stateRef.current.session;
-          if (current && (current.id !== sessionId || current.status !== 'paused')) return;
-          if (recovered === 'focusResult') reset('focusResult');
-          else if (recovered === null) home();
-        })
-        .catch(() => {})
-        .finally(() => {
-          checking = false;
-        });
+      if (nextState === 'active') setNow(Date.now());
     });
     return () => subscription.remove();
   }, [loaded, hasServerSession]);
+  useEffect(() => {
+    if (!loaded || !hasServerSession || REVIEW || DEMO || AppState.currentState !== 'active')
+      return;
+    const session = stateRef.current.session;
+    if (session && shouldPollExpiredRest(session, now, restRecovery.current)) {
+      // 서버 자동 종료 스케줄러가 다음 분에 실행될 수 있어 만료 후에도 간격을 두고 재조회한다.
+      void recoverExpiredRest(session.id);
+    }
+  }, [loaded, hasServerSession, now]);
   useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();
@@ -1078,6 +1127,7 @@ function Gromo() {
           // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
           islands: REVIEW || DEMO || !hasServerSession ? undefined : islands,
           focus: REVIEW || DEMO || !hasServerSession ? undefined : focus,
+          recoverExpiredRestConflict,
           onPresenceCounts: (
             sessionId: string,
             islandId: string,

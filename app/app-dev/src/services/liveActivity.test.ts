@@ -1,6 +1,8 @@
 import {
   buildLiveActivityPayload,
   REST_AUTO_CLOSE_MS,
+  REST_RECOVERY_RETRY_MS,
+  shouldPollExpiredRest,
   shouldReconcileExpiredRest,
 } from './liveActivity';
 import type { Color, Session } from './model';
@@ -60,5 +62,18 @@ describe('Live Activity payload', () => {
     expect(
       shouldReconcileExpiredRest({ ...rest, version: undefined }, 1_050_000 + REST_AUTO_CLOSE_MS),
     ).toBe(false);
+  });
+
+  it('polls an expired rest again after the retry interval or when the session changes', () => {
+    const rest = { ...base, status: 'paused' as const, version: 3, restStartedAt: 1_050_000 };
+    const expiredAt = rest.restStartedAt + REST_AUTO_CLOSE_MS;
+    const lastAttempt = { sessionId: rest.id, at: expiredAt };
+    expect(shouldPollExpiredRest(rest, expiredAt, null)).toBe(true);
+    expect(shouldPollExpiredRest(rest, expiredAt + REST_RECOVERY_RETRY_MS - 1, lastAttempt)).toBe(
+      false,
+    );
+    expect(shouldPollExpiredRest(rest, expiredAt + REST_RECOVERY_RETRY_MS, lastAttempt)).toBe(true);
+    expect(shouldPollExpiredRest({ ...rest, id: 'session-2' }, expiredAt, lastAttempt)).toBe(true);
+    expect(shouldPollExpiredRest(rest, expiredAt - 1, null)).toBe(false);
   });
 });

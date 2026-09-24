@@ -1090,10 +1090,14 @@ function FocusFlow({ e }: any) {
   const serverSession = () => e.focus && s.session?.version != null;
   const finish = () => {
     if (serverSession()) {
+      const session = s.session;
       e.focus
         .finish()
         .then(() => e.reset('focusResult'))
-        .catch((error: any) => e.notify(error?.message ?? '집중을 마치지 못했어요.'));
+        .catch(async (error: any) => {
+          if (await e.recoverExpiredRestConflict?.(error, session)) return;
+          e.notify(error?.message ?? '집중을 마치지 못했어요.');
+        });
       return;
     }
     e.dispatch({ type: 'FINISH' });
@@ -1189,10 +1193,14 @@ function FocusFlow({ e }: any) {
     };
   const resume = () => {
     if (serverSession()) {
+      const session = s.session;
       e.focus
         .resume()
         .then(() => setVoyage('toSpot'))
-        .catch((error: any) => e.notify(error?.message ?? '집중을 이어가지 못했어요.'));
+        .catch(async (error: any) => {
+          if (await e.recoverExpiredRestConflict?.(error, session)) return;
+          e.notify(error?.message ?? '집중을 이어가지 못했어요.');
+        });
       return;
     }
     setVoyage('toSpot');

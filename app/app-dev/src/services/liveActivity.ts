@@ -3,6 +3,7 @@ import type { Color, Session } from '@/services/model';
 
 // 서버 FocusSessionLifecycleService.REST_AUTO_CLOSE_AFTER 와 같은 1시간 정책.
 export const REST_AUTO_CLOSE_MS = 60 * 60 * 1000;
+export const REST_RECOVERY_RETRY_MS = 15 * 1000;
 
 export function shouldReconcileExpiredRest(session: Session | null, now: number): boolean {
   return !!(
@@ -11,6 +12,15 @@ export function shouldReconcileExpiredRest(session: Session | null, now: number)
     session.restStartedAt != null &&
     now >= session.restStartedAt + REST_AUTO_CLOSE_MS
   );
+}
+
+export function shouldPollExpiredRest(
+  session: Session | null,
+  now: number,
+  lastAttempt: { sessionId: string; at: number } | null,
+): boolean {
+  if (!session || !shouldReconcileExpiredRest(session, now)) return false;
+  return lastAttempt?.sessionId !== session.id || now - lastAttempt.at >= REST_RECOVERY_RETRY_MS;
 }
 
 export type LiveActivityPayload = {
