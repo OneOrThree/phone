@@ -213,7 +213,7 @@ notice.updated 봉투는 schemaVersion1,eventId,type,islandId,aggregateVersion,o
 
 ## 5. 개인정보와 검증
 
-기존 공지는 탈퇴 후 보존 의도이나 작성자nullable만으로 파기가 완료되지 않는다. 계정삭제의 users배타잠금과 생성/댓글 writer 공유잠금을 맞추고 authorId/name/catColor 사본·receipt·outbox·조회 캐시 파기를 전수 확인한다. 타인수정이 늦은 전체UPDATE로 nullify된 authorId를 되살리지 않게 동적컬럼 갱신/공지행직렬화 등 실제경쟁으로 검증한다. 댓글은 공지와 다른 파기 방식이다(BQ02 확정, 2026-09-25 결정 GROMO-2136) — 공지는 작성자만 detach(본문 보존)하지만 댓글은 원문째 delete 한다.
+기존 공지는 탈퇴 후 보존 의도이나 작성자nullable만으로 파기가 완료되지 않는다. 계정삭제의 users배타잠금과 생성/댓글 writer 공유잠금을 맞추고 authorId/name/catColor 사본·receipt·outbox·조회 캐시 파기를 전수 확인한다. 타인수정이 늦은 전체UPDATE로 nullify된 authorId를 되살리지 않게 동적컬럼 갱신/공지행직렬화 등 실제경쟁으로 검증한다. 댓글은 공지와 다른 파기 방식이다(BQ02 확정, 2026-09-25 결정 GROMO-2136) — 공지는 작성자만 detach(본문 보존)하지만 댓글은 원문째 delete 한다. 댓글 벌크 delete도 다른 writer와 같은 섬 배타 락 아래에서 돌고(이미 나간 섬도 댓글이 남아 있으면 함께 잠근다) 지운 공지마다 notice.updated를 내 다른 주민의 commentCount를 갱신시킨다(GROMO-2137 코드리뷰 대응).
 
 로그: requestId,route,commandId,단계,안전한code,처리시간,outboxlag/재시도; title/body/text·프로필·토큰·키원문·상류본문은 금지. PII가 지워져도 사용자비활성과 명령tombstone으로 재실행을 차단한다.
 

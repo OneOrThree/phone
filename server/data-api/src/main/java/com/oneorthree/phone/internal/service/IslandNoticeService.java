@@ -73,6 +73,11 @@ import java.util.stream.Collectors;
  * 않는다 — 모든 공지·댓글 writer 가 먼저 섬 행을 배타로 잡으므로 그 아래에서 공지 행의 경쟁자가 없다.
  * ponytail: 섬 단위 직렬화 — 한 섬의 공지 쓰기가 몰려 병목이면 공지 행 잠금으로 좁힌다.
  *
+ * <p>계정 탈퇴의 댓글 벌크 삭제({@code GroupMemberService.eraseWithdrawnUserRecords})도 같은 writer 다 — 활성
+ * 멤버십이 없는(이미 나간) 섬이라도 댓글이 남아 있으면 {@code GroupMemberService.lockGroupsForAccountWithdrawal}
+ * 이 그 섬까지 배타로 잠근 뒤에 지우고 {@code notice.updated} 를 낸다(GROMO-2137 코드리뷰 대응). 이 writer 도
+ * 이 클래스의 다른 writer 와 같은 잠금 순서를 지키므로 위 불변식은 깨지지 않는다.
+ *
  * <h2>version (LLD §3·§4, 정책 B08)</h2>
  * 별도 컬럼 없이 {@code aggregate_versions(NOTICE, noticeId)} 다. 생성 1, 수정·댓글·삭제마다 +1 이고 같은
  * TX 에 {@code notice.updated} 가 적힌다({@link IslandNoticeEvents}). 조회는 사건을 만들지 않는다.
