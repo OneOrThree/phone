@@ -34,6 +34,7 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 | [realtime](docker-compose.realtime.yml) | dev에 채팅 DB 준비 작업·Realtime 추가 |
 | [business](docker-compose.business.yml) | Business와 미리보기 전용 Redis 추가 |
 | [satellites](docker-compose.satellites.yml) | Business·Notification·전용 Redis. 서비스별 env와 이미지 digest 필수 |
+| [satellites.dev](docker-compose.satellites.dev.yml) | dev Nginx용 Business loopback 포트 8083. prod에는 적용하지 않음 |
 | [satellites.data](docker-compose.satellites.data.yml) | 기존 Data의 env·이미지 교체. `!override` 지원 Compose 필요 |
 | [kafka](docker-compose.kafka.yml) | 위성 이벤트 전달용 Kafka |
 | [observability](docker-compose.observability.yml) | dev에 Prometheus·Grafana·Loki·exporter 추가 |
@@ -57,7 +58,7 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 | 환경 | 파일 조합 | 지금 자동으로 도는 부분 | 사람이 붙이는 부분 |
 | --- | --- | --- | --- |
 | local | local | — | 전부 |
-| dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites | `dev-cd.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(준비 도구의 계획) · Kafka 기동(Actions **Dev Kafka**) |
+| dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites · satellites.dev | `dev-cd.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(Satellite Dev CD) · Kafka 기동(Actions **Dev Kafka**) |
 | prod | prod (+kafka) (+satellites (+satellites.data)) | `prod-cd.yml` → SSM 문서가 `docker-compose.prod.yml` 단독 `up -d` | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
 
 - Data 를 전용 env 로 바꿀 때만(준비 도구를 `--data-image`로 실행해 `compose.env`에 `DATA_API_ENV_FILE`·`DATA_API_PROFILES`가 있을 때) dev에서는 `docker-compose.satellites.data.dev.yml`, prod에서는 `docker-compose.satellites.data.yml`을 **마지막 `-f`**로 더합니다. dev CD는 전용 env가 없거나 유효하지 않으면 배포를 중단합니다.

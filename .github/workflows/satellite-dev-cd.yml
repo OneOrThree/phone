@@ -120,7 +120,8 @@ jobs:
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
-            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml \
+            -f server/scripts/docker-compose.satellites.dev.yml)
           if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
             test -n "$DD_API_KEY"
             compose+=(-f server/scripts/docker-compose.datadog.yml)
@@ -138,7 +139,8 @@ jobs:
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
-            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml \
+            -f server/scripts/docker-compose.satellites.dev.yml)
           services=()
           if [ "${{ steps.plan.outputs.business }}" = true ]; then services+=(business-api); fi
           if [ "${{ steps.plan.outputs.notification }}" = true ]; then services+=(notification); fi
