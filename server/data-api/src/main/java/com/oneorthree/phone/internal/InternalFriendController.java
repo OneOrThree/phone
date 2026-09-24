@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal;
 
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.friend.dto.FriendRequestCreateRequest;
 import com.oneorthree.phone.friend.dto.FriendRequestResponse;
 import com.oneorthree.phone.friend.dto.FriendSearchResultResponse;
@@ -57,11 +58,17 @@ public class InternalFriendController {
     private final FriendService friendService;
     private final GuestAccountGuards guestAccountGuards;
 
-    /** 친구 목록 (LLD §1.5). {@code date} 는 서버 판정 축(KST) 기준 오늘 — 값 판정은 서비스 그대로. */
+    /**
+     * 친구 목록 (LLD §1.5). {@code date} 는 서버 판정 축(KST) 기준 오늘 — 값 판정은 서비스 그대로.
+     *
+     * <p>{@code date} 를 생략하면 KST 오늘이다(GROMO-2119). 우체통 화면은 친구 이름만 쓰고 날짜를 받지 않아
+     * Business 가 이 파라미터를 싣지 않는데, 필수였을 때는 화면 전체가 400 이 됐다. KST 해석은 Data 만 한다.
+     */
     @GetMapping("/friends")
     public List<FriendResponse> friends(@PathVariable UUID userId,
-                                        @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
-        return friendService.getFriends(userId, date);
+                                        @RequestParam(required = false)
+                                        @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
+        return friendService.getFriends(userId, date != null ? date : LocalDate.now(ZonePolicy.KST));
     }
 
     /** 받은·보낸 PENDING 요청 목록 (LLD §1.6). 봉투 없는 배열이다 — raft 조각이 배열 길이를 센다(HLD §3). */
