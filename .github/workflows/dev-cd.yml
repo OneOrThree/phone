@@ -43,7 +43,7 @@ jobs:
     name: Data API 배포
     runs-on: [self-hosted, dev]
     environment: production
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       id-token: write
       contents: read
@@ -135,6 +135,9 @@ jobs:
                      if not isinstance(env.get(key), str) or not env[key].strip()]
             if blank:
                 print("::error::Data 전용 env 에 없거나 비어 있는 키: " + ", ".join(blank))
+                sys.exit(1)
+            if env.get("INTERNAL_API_ENABLED") != "true":
+                print("::error::2.0 Data 내부 API가 활성화되지 않았습니다(INTERNAL_API_ENABLED=true 필요)")
                 sys.exit(1)
             if "SPRING_PROFILES_ACTIVE" in env:
                 raw = env["SPRING_PROFILES_ACTIVE"]
@@ -261,17 +264,19 @@ jobs:
             compose+=(-f server/scripts/docker-compose.satellites.data.dev.yml)
           fi
           echo "Data API 기동 대기 중..."
-          # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.
-          for i in $(seq 1 60); do
+          # 4GB dev VM에서 Data/JPA 초기화가 300초를 넘는다. curl 시간도 포함해 최대 900초 기다린다.
+          started_at=$SECONDS
+          deadline=$((started_at + 900))
+          while (( SECONDS < deadline )); do
             sleep 5
-            if curl -sf http://127.0.0.1:8080/health \
+            if curl -sf --max-time 10 http://127.0.0.1:8080/health \
               && [ "$(docker inspect -f '{{.State.Health.Status}}' phone-data-api)" = healthy ]; then
               echo "헬스체크 통과"
               docker rm phone-app 2>/dev/null || true
               ! docker container inspect phone-app >/dev/null 2>&1
               exit 0
             fi
-            echo "대기 중... ($((i*5))s)"
+            echo "대기 중... ($((SECONDS - started_at))s)"
           done
           "${compose[@]}" logs data-api
           exit 1
@@ -283,8 +288,18 @@ jobs:
           if [ "$(docker inspect phone-app --format '{{.State.Running}}' 2>/dev/null || true)" = false ]; then
             docker stop phone-data-api 2>/dev/null || true
             docker start phone-app
-            curl --fail --silent --show-error http://127.0.0.1:8080/health >/dev/null
-            echo "::warning::새 Data API가 실패하여 이전 컨테이너를 복구했습니다. DB는 변경하지 않았습니다."
+            # 이전 컨테이너도 실제 재기동에 약 330초가 걸렸다. 시작 명령 성공만으로 복구라 하지 않는다.
+            recovery_started=$SECONDS
+            recovery_deadline=$((recovery_started + 600))
+            while (( SECONDS < recovery_deadline )); do
+              if curl --fail --silent --max-time 10 http://127.0.0.1:8080/health >/dev/null; then
+                echo "::warning::새 Data API가 실패하여 이전 컨테이너를 복구했습니다. DB는 변경하지 않았습니다."
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "::error::이전 Data API를 재시작했지만 600초 안에 /health 응답이 없습니다."
+            exit 1
           fi
 
       - name: 배포 실패 리포트
