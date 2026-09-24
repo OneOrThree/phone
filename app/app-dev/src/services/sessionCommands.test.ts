@@ -3,8 +3,13 @@
  * 실제 reducer와 함께 돌려 멱등 키 수명주기·세대 fence·정본 동기화·결과 1회 표시를 고정한다.
  */
 import assert from 'node:assert/strict';
-import { createSessionCommands, FocusApi, sessionFromServer } from '@/services/sessionCommands';
-import { initialState, reducer, sessionSeconds } from '@/services/model';
+import {
+  createSessionCommands,
+  FocusApi,
+  recordFromFinish,
+  sessionFromServer,
+} from '@/services/sessionCommands';
+import { currentIsland, initialState, questMemberRate, reducer, sessionSeconds } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import type { FocusFinishView, FocusSessionView } from '@/services/api/focusSessions';
 
@@ -275,4 +280,81 @@ test('sessionFromServer — serverNow 를 anchor 로 삼아 화면이 경과를 
   );
   assert.equal(sessionSeconds(paused, Date.parse('2026-09-22T01:10:00Z')), 120);
   assert.equal(paused.restStartedAt, Date.parse('2026-09-22T01:05:00Z'));
+});
+
+// GROMO-2131 — activeIntervals 매핑
+test('sessionFromServer/recordFromFinish — activeIntervals 를 ms {start,end} 로 그대로 옮긴다', () => {
+  const spans = [
+    { startedAt: '2026-08-01T14:00:00Z', endedAt: '2026-08-01T15:00:00Z' },
+    { startedAt: '2026-08-01T15:00:00Z', endedAt: '2026-08-01T15:15:00Z' },
+  ];
+  const mapped = sessionFromServer(view({ activeIntervals: spans }));
+  assert.deepEqual(mapped.intervals, [
+    { start: Date.parse('2026-08-01T14:00:00Z'), end: Date.parse('2026-08-01T15:00:00Z') },
+    { start: Date.parse('2026-08-01T15:00:00Z'), end: Date.parse('2026-08-01T15:15:00Z') },
+  ]);
+  const record = recordFromFinish(finish({ activeIntervals: spans }));
+  assert.deepEqual(record.intervals, [
+    { start: Date.parse('2026-08-01T14:00:00Z'), end: Date.parse('2026-08-01T15:00:00Z') },
+    { start: Date.parse('2026-08-01T15:00:00Z'), end: Date.parse('2026-08-01T15:15:00Z') },
+  ]);
+});
+
+// 구버전 서버는 activeIntervals 자체를 안 보낸다 — []가 아니라 undefined 로 남아야 기존
+// 폴백(seconds 를 at 직전으로 뭉뚱그리는 합성 구간)이 그대로 작동한다. 회귀 방지.
+test('activeIntervals 가 없으면 intervals 는 undefined 다 (빈 배열이면 당일 집중이 사라진다)', () => {
+  assert.equal(sessionFromServer(view()).intervals, undefined);
+  assert.equal(recordFromFinish(finish()).intervals, undefined);
+});
+
+// 티켓 DoD — 어제 60분 + 오늘 15분짜리 세션의 시간대(하루) 퀘스트 진행률은 오늘 15분만 센다.
+// KST 기준 2026-08-01T15:00:00Z = 8/2 00:00. 목표 30분짜리 오늘의 집중 퀘스트라 15분=50%.
+// 자정 직후 45분 휴식을 끼운다 — 연속 세션이면 구간 없이 [now-누적, now] 로 소급해도 15분이 나와
+// 회귀를 못 잡는다. 휴식이 있으면 소급은 어제 45분을 오늘로 끌어와 100% 가 된다.
+test('활성 세션 — activeIntervals + 실시간 꼬리로 오늘 퀘스트 진행률은 어제분을 빼고 센다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  const serverNow = '2026-08-01T15:45:00Z'; // KST 8/2 00:45 — 휴식 끝, 재개 직후
+  const now = Date.parse('2026-08-01T16:00:00Z'); // KST 8/2 01:00 — 재개 후 15분 경과
+  const mapped = sessionFromServer(
+    view({
+      id: 'cross-midnight-live',
+      islandId: island.id,
+      status: 'active',
+      activeSeconds: 3600, // 어제분 60분까지 서버가 이미 합산해 둔 상태
+      serverNow,
+      version: 3,
+      activeIntervals: [
+        { startedAt: '2026-08-01T14:00:00Z', endedAt: '2026-08-01T15:00:00Z' }, // 어제 60분
+        { startedAt: serverNow, endedAt: serverNow }, // 막 재개한 열린 구간(serverNow 로 닫힘)
+      ],
+    }),
+  );
+  s = reducer(s, { type: 'SESSION_SYNC', session: mapped } as never);
+
+  const rate = questMemberRate(s, island.quests[0], 'me', island.id, now);
+  assert.equal(island.quests[0].target, 30);
+  assert.equal(rate, 50);
+});
+
+test('종료 후 — recordFromFinish 의 activeIntervals 로도 오늘 퀘스트 진행률은 어제분을 빼고 센다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  const now = Date.parse('2026-08-01T16:00:00Z'); // KST 8/2 01:00
+  const record = recordFromFinish(
+    finish({
+      recordId: 'cross-midnight-finished',
+      islandId: island.id,
+      activeSeconds: 4500, // 75분(어제 60 + 오늘 15)
+      completedAt: '2026-08-01T16:00:00Z',
+      activeIntervals: [
+        { startedAt: '2026-08-01T14:00:00Z', endedAt: '2026-08-01T15:00:00Z' }, // 어제 60분
+        { startedAt: '2026-08-01T15:45:00Z', endedAt: '2026-08-01T16:00:00Z' }, // 오늘 15분
+      ],
+    }),
+  );
+  s = reducer(s, { type: 'SESSION_RESULT', record, fromRest: false } as never);
+
+  const rate = questMemberRate(s, island.quests[0], 'me', island.id, now);
+  assert.equal(rate, 50);
 });

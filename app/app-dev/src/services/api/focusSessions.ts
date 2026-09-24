@@ -30,6 +30,11 @@ export type FocusSessionView = {
   restStartedAt: string | null;
   /** pause/resume/finish 의 expectedVersion. 전이마다 +1. */
   version: number;
+  /**
+   * ACTIVE 구간 목록(GROMO-2131) — 없으면 구버전 서버라 undefined 로 둔다(퀘스트 집계는
+   * 기존처럼 seconds 로 뭉뚱그린다). 마지막 구간이 열려 있어도 서버가 serverNow 로 닫아 보낸다.
+   */
+  activeIntervals?: { startedAt: string; endedAt: string }[];
 };
 
 /** finish·pending-result 공용 정산 뷰 — earnedFish·allocation 은 서버 확정값이다. */
@@ -45,6 +50,8 @@ export type FocusFinishView = {
   allocation: { personalFishAdded: number; constructionFishAdded: number };
   completedAt: string;
   questProgress: { id: string; myRate: number }[];
+  /** ACTIVE 구간 목록(GROMO-2131) — 전부 닫힌 구간. 없으면 구버전 서버. */
+  activeIntervals?: { startedAt: string; endedAt: string }[];
 };
 
 export type FocusSessionStartInput = {
