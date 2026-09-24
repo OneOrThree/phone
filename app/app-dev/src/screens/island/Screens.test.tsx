@@ -858,6 +858,51 @@ test('상점 안내 중 시스템 뒤로가기는 완료 처리 없이 상점을
   assert.ok(!exposed.actions.includes('SHOP_GUIDE_DONE'));
 });
 
+test('가입 닉네임은 마지막 글자를 지운 뒤 새 이름을 입력할 수 있고 빈 편집값은 복원되지 않는다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="character" full expose={(value: any) => (exposed = value)} />,
+  );
+  const nickname = s.getByLabelText('닉네임');
+
+  assert.equal(nickname.props.value, '수빈');
+  await fireEvent.changeText(nickname, '수');
+  await fireEvent.changeText(nickname, '');
+  assert.equal(s.getByLabelText('닉네임').props.value, '');
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
+  assert.equal(s.getByLabelText('닉네임').props.value, 'abc');
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  assert.ok(exposed.go.mock.calls.some((call: unknown[]) => call[0] === 'chooseIsland'));
+});
+
+test('프로필 최종 저장은 빈 닉네임을 차단한다', async () => {
+  let exposed: any;
+  mockUpdateProfile.mockResolvedValue({
+    id: 'u1',
+    name: 'abc',
+    catColor: 'black',
+    mainIslandId: 'i1',
+  });
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '');
+  await fireEvent.press(s.getByText('저장'));
+
+  assert.equal(mockUpdateProfile.mock.calls.length, 0);
+  assert.ok(notifyMock.mock.calls.some((call) => call[0] === '닉네임을 입력해 주세요.'));
+  assert.equal(backMock.mock.calls.length, 0);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 1));
+  assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: 'abc', catColor: 'black' });
+  await waitFor(() => assert.ok(exposed.actions.includes('PROFILE')));
+  assert.equal(backMock.mock.calls.length, 1);
+});
+
 test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
   let exposed: any;
   let release: (v: unknown) => void = () => {};
