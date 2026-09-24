@@ -21,7 +21,7 @@ import {
   Building,
   Route,
   currentIsland,
-  sessionSeconds,
+  todayFocusSeconds,
   buildingNames,
   costs,
 } from '@/services/model';
@@ -70,12 +70,9 @@ export function IslandHome({
   showActions?: boolean;
 }) {
   const insets = useScreenInsets();
-  const startOfToday = new Date().setHours(0, 0, 0, 0);
-  const todaySeconds =
-    state.records.filter((r) => r.at >= startOfToday).reduce((sum, r) => sum + r.seconds, 0) +
-    sessionSeconds(state.session);
   const island = currentIsland(state),
-    bs = island.buildings;
+    bs = island.buildings,
+    todaySeconds = todayFocusSeconds(state, island.id);
   const [size, setSize] = useState({ w: 390, h: 740 }),
     [walking, setWalking] = useState(false),
     [left, setLeft] = useState(false),

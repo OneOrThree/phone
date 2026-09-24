@@ -921,6 +921,16 @@ export const sessionSeconds = (session: Session | null, now = Date.now()) =>
     ? 0
     : session.seconds +
       (session.status === 'active' ? Math.max(0, (now - session.startedAt) / 1000) : 0);
+// "오늘 집중" = KST 자정부터 지금까지 그 섬에서 끝낸 집중 기록의 합. 자정을 넘은 기록은 이후분만 센다.
+// ponytail: 진행 중 세션은 뺀다 — 서버에서 복원한 세션은 과거 구간 없이 누적 초만 오고 startedAt 이
+// 복원 시각이라, 자정을 넘긴 세션의 어제 집중을 오늘로 잘못 센다. 서버가 구간을 주면 그때 더한다.
+export const todayFocusSeconds = (s: State, islandId: string, now = Date.now()) => {
+  const from = kstDayStart(dayKey(now)),
+    until = from + 86400000;
+  return s.records
+    .filter((r) => r.islandId === islandId)
+    .reduce((sum, r) => sum + recordSecondsBetween(r, from, until), 0);
+};
 export function questRate(s: State, q: Quest, islandId = s.islandId): number | null {
   if (q.type === 'screen')
     return !s.settings.permission ||

@@ -22,11 +22,8 @@ import {
   balance,
   isHost,
   buildingCost,
-  sessionSeconds,
   buildMinutes,
-  dayKey,
-  kstDayStart,
-  recordSecondsBetween,
+  todayFocusSeconds,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite } from '@/components/CatSprite';
@@ -725,14 +722,7 @@ function FinalIslandScene({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
-  const todayFrom = kstDayStart(dayKey()),
-    todayUntil = todayFrom + 86400000,
-    today = state.records
-      .filter((record) => record.islandId === i.id)
-      .reduce(
-        (seconds, record) => seconds + recordSecondsBetween(record, todayFrom, todayUntil),
-        0,
-      );
+  const today = todayFocusSeconds(state, i.id);
   const hudTop = L.landscape ? 14 : Math.max(64, L.insets.top + 5),
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
