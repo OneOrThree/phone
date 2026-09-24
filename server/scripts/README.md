@@ -126,7 +126,7 @@ docker compose -f server/scripts/docker-compose.local.yml ps
 
 ### 기존 dev에 Realtime 추가
 
-아래 예시는 기존 dev가 `phone` 프로젝트와 `/var/lib/gromo/runtime/dev.env`를 사용하는 경우입니다. 실제 배포의 프로젝트명·env 경로가 다르면 동일한 값으로 맞춥니다. `REALTIME_IMAGE`로 사용할 이미지를 지정할 수 있습니다.
+아래 예시는 기존 dev가 `phone` 프로젝트와 `/var/lib/gromo/runtime/dev.env`를 사용하는 경우입니다. 실제 배포의 프로젝트명·env 경로가 다르면 동일한 값으로 맞춥니다. 런타임 디렉터리는 runner 소유 0700 이라 VM 에서 `sudo -u runner` 로 실행합니다. `REALTIME_IMAGE`로 사용할 이미지를 지정할 수 있습니다.
 
 ```bash
 docker compose -p phone --env-file /var/lib/gromo/runtime/dev.env   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml config --quiet
