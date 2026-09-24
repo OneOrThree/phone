@@ -42,7 +42,9 @@ jobs:
       contents: read
     env:
       # dev.yml 과 같은 프로젝트(name: phone)·네트워크(app-network)로 묶기 위해 CD 와 같은 runtime env 를 쓴다.
-      RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+      # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
+      # 재부팅에도 살아남는다.
+      RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
       # 힙 512 MB + JVM 비힙·스레드 스택 약 200~300 MB + 최소 페이지 캐시. 이보다 적으면 app 과 OOM 을 다툰다.
       KAFKA_MIN_AVAILABLE_MB: "1024"
       KAFKA_MONITOR_MIN_AVAILABLE_MB: "512"
@@ -53,7 +55,7 @@ jobs:
       - name: checkout 외부 runtime env 확인
         run: |
           set -euo pipefail
-          test -s "$RUNTIME_ENV_FILE"
+          test -s "$RUNTIME_ENV_FILE" || { echo "::error::$RUNTIME_ENV_FILE 가 없거나 비었습니다 — 파일은 dev-cd(Data 배포)가 쓰고, 디렉터리는 VM 시작 스크립트가 만든다(GROMO-2134)"; exit 1; }
           test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
 
       - name: Kafka ${{ inputs.action }}
