@@ -10,6 +10,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
+import { createRouteTransitionGate } from '@/services/routeTransition';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
@@ -81,7 +82,9 @@ function Harness({
   guestError,
   detail: detailProp,
   full = false,
+  flow = false,
 }: any) {
+  const [activeRoute, setActiveRoute] = useState(route);
   const [state, baseDispatch] = useReducer(
     reducer,
     initial,
@@ -101,7 +104,14 @@ function Harness({
     [approval, setApproval] = useState(false),
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
-  const go = useRef(jest.fn()).current;
+  const transitionGate = useRef(createRouteTransitionGate()).current;
+  const go = useRef(
+    jest.fn((nextRoute: string, id = '') =>
+      transitionGate(() => {
+        setActiveRoute(nextRoute);
+      }),
+    ),
+  ).current;
   const home = useRef(jest.fn()).current;
   const reset = useRef(jest.fn()).current;
   const signOut = useRef(jest.fn(async () => {})).current;
@@ -114,7 +124,7 @@ function Harness({
     <RedesignScreens
       e={{
         state,
-        route,
+        route: flow ? activeRoute : route,
         dispatch,
         go,
         replace: jest.fn(),
@@ -175,6 +185,23 @@ test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 �
   await fireEvent.press(screen.getByText('게스트로 시작하기'));
   assert.equal(startGuest.mock.calls.length, 1);
   assert.equal(exposed.actions.includes('LOGIN'), false);
+});
+
+test('GROMO 시작하기의 화면 전환 후 100ms 안에 온 탭은 내 고양이 CTA를 실행하지 않는다', async () => {
+  jest.useFakeTimers();
+  try {
+    const screen = await render(<Harness route="login" flow />);
+    await fireEvent.press(screen.getByRole('checkbox'));
+    await fireEvent.press(screen.getByText('GROMO 시작하기'));
+    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
+
+    jest.advanceTimersByTime(100);
+    await fireEvent.press(screen.getByText('내 고양이와 시작'));
+    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
+    expect(screen.queryByText('첫 섬 선택')).toBeNull();
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 const flush = async () => act(async () => {});

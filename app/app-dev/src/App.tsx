@@ -112,6 +112,7 @@ import {
 import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
+import { createRouteTransitionGate } from '@/services/routeTransition';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
 import {
@@ -303,6 +304,7 @@ function Gromo() {
     backOverride = useRef<(() => boolean) | null>(null),
     switchResolve = useRef<((ok: boolean) => void) | null>(null);
   const guestLoginFlight = useRef(false);
+  const routeTransitionGate = useRef(createRouteTransitionGate()).current;
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -325,23 +327,25 @@ function Gromo() {
     dispatch,
   });
   const go = (r: Route, id = '') => {
-    const gateBoard = shouldGateScreenTimeBoard(r, {
-      isIOS: Platform.OS === 'ios',
-      promptSeen: !!state.settings.screenTimeBoardPromptSeen,
+    routeTransitionGate(() => {
+      const gateBoard = shouldGateScreenTimeBoard(r, {
+        isIOS: Platform.OS === 'ios',
+        promptSeen: !!state.settings.screenTimeBoardPromptSeen,
+      });
+      const nextRoute: Route = gateBoard ? 'permission' : r;
+      const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
+      if (r === 'rest') setRestTravel(route === 'focus');
+      if (r === 'home' || route === 'home') setWalkRequest(null);
+      if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
+      setDetail(nextDetail);
+      setTab('');
+      setText('');
+      setBody('');
+      setSearch('');
+      setHistory((h) => [...h, { route, detail, tab, text, body }]);
+      setRoute(nextRoute);
+      if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
     });
-    const nextRoute: Route = gateBoard ? 'permission' : r;
-    const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
-    if (r === 'rest') setRestTravel(route === 'focus');
-    if (r === 'home' || route === 'home') setWalkRequest(null);
-    if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
-    setDetail(nextDetail);
-    setTab('');
-    setText('');
-    setBody('');
-    setSearch('');
-    setHistory((h) => [...h, { route, detail, tab, text, body }]);
-    setRoute(nextRoute);
-    if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
   const replace = (r: Route, id = '') => {
     setDetail(id);
