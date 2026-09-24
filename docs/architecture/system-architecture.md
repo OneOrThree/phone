@@ -9,7 +9,7 @@
 
 | 환경 | 컴퓨트 | 현재 compose | DB | 관측 |
 |---|---|---|---|---|
-| **dev** | GCP `oneorthree2` / `gromo-dev-app` **e2-custom-2-6144 (2 vCPU · 6 GB)**, asia-northeast3-a(A25) — 가용 메모리 500 MB 미만 또는 스왑 500 MB 초과가 지속되면 e2-standard-2(8 GB)로 추가 사이즈업. CI 러너 `gromo-dev-build`(e2-custom-4-8192)는 삭제, app CI·prod-cd·prod-rollback은 GitHub-hosted `ubuntu-latest`로 이전(A25) | `app` · `db`(Postgres 컨테이너) + `datadog` 오버레이 | 컨테이너 Postgres | Datadog `gromo-back-dev`, 샘플 20% |
+| **dev** | GCP `oneorthree2` / `gromo-dev-app` **e2-custom-2-6144 (2 vCPU · 6 GB)**, asia-northeast3-a(A25) — 가용 메모리 500 MB 미만 또는 스왑 500 MB 초과가 지속되면 e2-standard-2(8 GB)로 추가 사이즈업. CI 러너 `gromo-dev-build`는 삭제가 아니라 e2-custom-4-8192(러너 3대) → e2-medium(러너 1대, gromo-dev-build-1)로 축소 — push 시 GAR 이미지 발행(dev-ci·realtime-ci·satellite-ci·prod-ci) 전용으로만 남는다. app CI·prod-cd·prod-rollback은 GitHub-hosted `ubuntu-latest`로 이전(A25) | `app` · `db`(Postgres 컨테이너) + `datadog` 오버레이 | 컨테이너 Postgres | Datadog `gromo-back-dev`, 샘플 20% |
 | **prod** | AWS **`gromo-prod` t4g.medium (2 vCPU · 4 GB, arm64, ap-northeast-2a)** → **Target-1 은 t4g.large(8 GB) 사이즈업(A14)** + Kafka 컨테이너(A12) | `app` · `nginx` · `datadog-agent` | **RDS `gromo-prod-db` db.t4g.micro (2 vCPU · 1 GB · 20 GB · single-AZ · PG 16.13)** — 알림 database 추가 시 db.t4g.small 검토 | Datadog `gromo-back-prod`, 샘플 20% |
 | ~~**link**~~ → A23(2026-09-13) | ~~Vercel (Hobby → Pro 또는 Cloudflare, 링크 장부 미결)~~ → 없음 — business-api·data-api 컨테이너 안 | — | ~~Neon Postgres (무료)~~ → RDS `gromo` | ~~Vercel 로그 (Datadog 밖)~~ → business/data 와 같은 Datadog(§4) |
 
