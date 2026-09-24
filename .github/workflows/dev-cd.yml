@@ -271,7 +271,7 @@ jobs:
             compose+=(-f server/scripts/docker-compose.satellites.data.dev.yml)
           fi
           echo "Data API 기동 대기 중..."
-          # 4GB dev VM에서 Data/JPA 초기화가 300초를 넘는다. curl 시간도 포함해 최대 900초 기다린다.
+          # 4GB 시절 dev VM(e2-medium)에서 Data/JPA 초기화가 300초를 넘었다(지금은 8 GB — A25). 여유를 그대로 둔다. curl 시간도 포함해 최대 900초 기다린다.
           started_at=$SECONDS
           deadline=$((started_at + 900))
           while (( SECONDS < deadline )); do

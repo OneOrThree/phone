@@ -9,7 +9,7 @@
 
 | 환경 | 컴퓨트 | 현재 compose | DB | 관측 |
 |---|---|---|---|---|
-| **dev** | GCP `oneorthree2` / `gromo-dev-app` **e2-custom-2-6144 (2 vCPU · 6 GB)**, asia-northeast3-a(A25) — 가용 메모리 500 MB 미만 또는 스왑 500 MB 초과가 지속되면 e2-standard-2(8 GB)로 추가 사이즈업. CI 러너 `gromo-dev-build`는 삭제가 아니라 e2-custom-4-8192(러너 3대) → e2-medium(러너 1대, gromo-dev-build-1)로 축소 — push 시 GAR 이미지 발행(dev-ci·realtime-ci·satellite-ci·prod-ci) 전용으로만 남는다. app CI·prod-cd·prod-rollback은 GitHub-hosted `ubuntu-latest`로 이전(A25) | `app` · `db`(Postgres 컨테이너) + `datadog` 오버레이 | 컨테이너 Postgres | Datadog `gromo-back-dev`, 샘플 20% |
+| **dev** | GCP `oneorthree2` / `gromo-dev-app` **e2-standard-2 (2 vCPU · 8 GB)**, asia-northeast3-a(A25) — 6 GB 커스텀 타입은 존 자원 부족으로 기동 거부(09-24), 8 GB 유지 확정(09-25). CI 러너 `gromo-dev-build`는 삭제가 아니라 e2-custom-4-8192(러너 3대) → e2-small(러너 1대, gromo-dev-build-1, 2 vCPU 버스트 · 2 GB)로 축소 — push 시 GAR 이미지 발행(dev-ci·realtime-ci·satellite-ci·prod-ci) 전용으로만 남는다. app CI·prod-cd·prod-rollback은 GitHub-hosted `ubuntu-latest`로 이전(A25) | `app` · `db`(Postgres 컨테이너) + `datadog` 오버레이 | 컨테이너 Postgres | Datadog `gromo-back-dev`, 샘플 20% |
 | **prod** | AWS **`gromo-prod` t4g.medium (2 vCPU · 4 GB, arm64, ap-northeast-2a)** → **Target-1 은 t4g.large(8 GB) 사이즈업(A14)** + Kafka 컨테이너(A12) | `app` · `nginx` · `datadog-agent` | **RDS `gromo-prod-db` db.t4g.micro (2 vCPU · 1 GB · 20 GB · single-AZ · PG 16.13)** — 알림 database 추가 시 db.t4g.small 검토 | Datadog `gromo-back-prod`, 샘플 20% |
 | ~~**link**~~ → A23(2026-09-13) | ~~Vercel (Hobby → Pro 또는 Cloudflare, 링크 장부 미결)~~ → 없음 — business-api·data-api 컨테이너 안 | — | ~~Neon Postgres (무료)~~ → RDS `gromo` | ~~Vercel 로그 (Datadog 밖)~~ → business/data 와 같은 Datadog(§4) |
 
@@ -23,7 +23,7 @@ flowchart TB
     APPLE["Apple SKAN 포스트백"]
     %% A23(2026-09-13): Vercel(OneOrThree/mmp-custom)·Neon 노드 제거 — 링크는 business-api·data-api 안
   end
-  subgraph VM["prod: AWS t4g.large · Docker Compose (dev: GCP e2-custom-2-6144, 동일 구성 + db)"]
+  subgraph VM["prod: AWS t4g.large · Docker Compose (dev: GCP e2-standard-2, 동일 구성 + db)"]
     NX["nginx :443<br/>/api /auth → business<br/>/l /link /.well-known /console → business (A23)<br/>/internal/admin → notification<br/>/health"]
     BIZ["business-api :8080<br/>링크 공개 표면 · 콘솔 (A23)"]
     DATA["data-api :8081<br/>(compose 내부망만) · 링크 원장 (A23)"]
@@ -78,7 +78,7 @@ data-api 는 호스트 포트를 열지 않는다(compose 네트워크 내부만
 | **kafka** (A12) | 9092 (compose 내부만) | **512 MB** + 페이지 캐시 | `apache/kafka` KRaft 단일 노드, retention 7일, **내부 토픽 복제 계수 1**(`OFFSETS_TOPIC_REPLICATION_FACTOR`·트랜잭션 사용 시 `TRANSACTION_STATE_LOG_*` 도 — 기본 3 이면 컨슈머 그룹 불가), `KAFKA_LOG_DIRS=/var/lib/kafka/data`와 같은 경로의 볼륨 필수(디스크 감시). 컨테이너 재생성 후 토픽·메시지 보존을 검증한다. 외부 미노출~~ — Vercel 은 붙지 않음~~(→ A23) |
 | nginx · datadog-agent | 443 · 8126 | — | 현행 |
 
-힙 합계 2 GB 는 실사용으로 ≈1.3~1.5배(메타스페이스·스택·다이렉트 버퍼) = 2.6~3 GB 로 본다. dev e2-medium(4 GB)에 JVM 셋 **+ Kafka 512 MB** + Postgres + agent 는 **넘친다** — dev 는 `notification`·`business-api` 힙 256 MB, Kafka 384 MB 로 시작해도 여유가 거의 없어 사이즈업이 필요했다. **e2-custom-2-6144(6 GB)로 사이즈업**(A25) — 리사이즈 후 가용 메모리 500 MB 미만 또는 스왑 500 MB 초과가 지속되면 e2-standard-2(8 GB)로 추가 사이즈업한다(A25). prod 는 **A14 사이즈업(t4g.large 권장)** 전제 — 현 타입 실측 후 차이만 티켓에.
+힙 합계 2 GB 는 실사용으로 ≈1.3~1.5배(메타스페이스·스택·다이렉트 버퍼) = 2.6~3 GB 로 본다. dev e2-medium(4 GB)에 JVM 셋 **+ Kafka 512 MB** + Postgres + agent 는 **넘친다** — dev 는 `notification`·`business-api` 힙 256 MB, Kafka 384 MB 로 시작해도 여유가 거의 없어 사이즈업이 필요했다. 6 GB 커스텀 타입은 존 자원 부족으로 기동 거부돼(09-24) **e2-standard-2(8 GB)로 사이즈업**(A25, 09-25 유지 확정) — 리사이즈 후 가용 메모리 ≈3.9 GB·swap 0 실측. prod 는 **A14 사이즈업(t4g.large 권장)** 전제 — 현 타입 실측 후 차이만 티켓에.
 
 ### 2.3 DB (A10)
 
