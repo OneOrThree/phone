@@ -189,7 +189,7 @@ Data의 논리 모델은 기존 notice 행+단조 noticeVersion, 신규 comment(
 
 쓰기 caller가 Data TX를 열고 활성 users 공유 잠금 → group 잠금(소속/역할 변경과 같은 경계)을 확보한 뒤 공통 PublicCommandService.run을 호출한다. 공통 명령/receipt 잠금 뒤 신규 command callback 안에서 notice를 잠그고 댓글/본문을 변경한다. 즉 users → group → 공통 명령 → notice 순서다. 새 noticeId는 최초 성공 명령에서 한 번 발급한다. 모든 신규 writer와 그 legacy 공용 변경 경로가 이 순서와 권한경계를 지키도록 통합한다.
 
-읽은 선행 구현의 PublicCommandService.run은 Propagation.MANDATORY이며 activeAuthorization/replayAuthorization/command callback을 받는다. activeAuthorization은 이미 잠근 활성 주체·현재 섬/권한을 검증하고, replayAuthorization은 현재 공개 결과를 볼 자격을 검증한다. **대상 notice 존재 검사는 activeAuthorization에서 하지 않는다.** DELETE 완료 재생은 대상이 이미 사라졌기 때문이다. 신규 command callback에서만 대상 부재를 검사한다. 공통층 자체가 주민/시설 검사를 대신한다고 가정하지 않는다.
+읽은 선행 구현의 PublicCommandService.run은 Propagation.MANDATORY이며 activeAuthorization/replayAuthorization/command callback을 받는다. activeAuthorization은 이미 잠근 활성 주체·현재 섬/권한을 검증하고, replayAuthorization은 현재 공개 결과를 볼 자격을 검증한다. **대상 notice 존재 검사는 activeAuthorization에서 하지 않는다.** DELETE 완료 재생은 대상이 이미 사라졌기 때문이다. 신규 command callback에서만 대상 부재를 검사한다. 공통층 자체가 주민/시설 검사를 대신한다고 가정하지 않는다. 댓글 delete는 activeAuthorization(주민 확인)만으로 재생 인가가 부족하다 — 방장이 남의 댓글을 지운 뒤 방장을 위임해도 옛 방장은 여전히 주민이다. 그래서 완료 command가 근거(작성자 본인이면 AUTHOR, 아니면 HOST)를 receipt 내부 데이터에 남기고, replayAuthorization이 재생마다 그 근거가 지금도 유효한지(AUTHOR는 언제나, HOST는 지금도 방장인지) 다시 잰다(codex 리뷰 대응, GROMO-2137) — 근거가 없거나 모르는 값이면 닫힌 실패다.
 
 scope는 검증actor+method+route+실제islandId/noticeId+키이며 다른 섬/공지는 다른 scope다. fingerprint는 정규화한 의미JSON, 요청중/완료 다른본문은409(본문/원결과 공개 없음). PATCH의 생략과 null을 구분하고 미지필드를 버려 같은명령으로 취급하지 않는다. contractVersion은 resourceVersion과 별개다.
 

@@ -359,6 +359,54 @@ class IslandNoticeIntegrationTest {
         assertThat(notices.deleteComment(is.id, noticeId, commentId, is.owner, key).deleted()).isTrue();
     }
 
+    @Test
+    @DisplayName("방장이 남의 댓글을 지운 뒤 위임하면, 같은 키 재생은 옛 방장에게 NOTICE_COMMENT_FORBIDDEN(codex 리뷰 대응)")
+    void hostDeleteReplayForbiddenAfterHostTransfer() {
+        Island is = boardIsland();
+        UUID author = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID commentId = notices.comment(is.id, noticeId, author, "댓글", key()).id();
+        UUID key = key();
+
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, is.owner, key).deleted()).isTrue();
+
+        UUID successor = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        memberService.transferOwner(is.id, successor, is.owner);
+
+        assertThatThrownBy(() -> notices.deleteComment(is.id, noticeId, commentId, is.owner, key))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("작성자 본인 삭제의 같은 키 재생은 방장이 아니어도 200 이다 — basis=AUTHOR 는 방장 자격을 안 본다")
+    void authorDeleteReplaySucceedsWithoutHostRole() {
+        Island is = boardIsland();
+        UUID author = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID commentId = notices.comment(is.id, noticeId, author, "댓글", key()).id();
+        UUID key = key();
+
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, author, key).deleted()).isTrue();
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, author, key).deleted()).isTrue();
+    }
+
+    @Test
+    @DisplayName("방장이 자기 댓글을 지우면 basis=AUTHOR — 방장을 위임한 뒤에도 같은 키 재생은 200 이다")
+    void hostDeleteOwnCommentReplayStaysAuthorizedAfterTransfer() {
+        Island is = boardIsland();
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID commentId = notices.comment(is.id, noticeId, is.owner, "방장 댓글", key()).id();
+        UUID key = key();
+        UUID owner = is.owner;
+
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, owner, key).deleted()).isTrue();
+
+        UUID successor = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        memberService.transferOwner(is.id, successor, owner);
+
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, owner, key).deleted()).isTrue();
+    }
+
     // ---------------------------------------------------------------- 상한 (BQ03 확정값)
 
     @Test

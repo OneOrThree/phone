@@ -1,5 +1,6 @@
 package com.oneorthree.phone.internal.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.common.support.BannedWords;
 import com.oneorthree.phone.construction.service.IslandFacilityQueryService;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
@@ -18,6 +19,7 @@ import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandNoticeEvents;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.outbox.dto.EventEnvelope;
+import com.oneorthree.phone.outbox.dto.PublicCommandReceipt;
 import com.oneorthree.phone.outbox.dto.PublicCommandRequest;
 import com.oneorthree.phone.outbox.dto.PublicCommandResult;
 import com.oneorthree.phone.outbox.repository.AggregateVersionRepository;
@@ -40,6 +42,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -87,6 +90,10 @@ import java.util.stream.Collectors;
 public class IslandNoticeService {
 
     private static final int MAX_PAGE = 100;
+    /** 댓글 삭제 receipt 의 근거 — 작성자 본인. {@link #requireCommentDeleteReplayAuthorized} 참조. */
+    private static final String BASIS_AUTHOR = "AUTHOR";
+    /** 댓글 삭제 receipt 의 근거 — 방장(작성자 아님). 재생 때마다 «지금도» 방장인지 다시 잰다. */
+    private static final String BASIS_HOST = "HOST";
 
     private final UserQueryService users;
     private final UserRepository userRepository;
@@ -291,27 +298,42 @@ public class IslandNoticeService {
      * 부재 검사와 같은 이유다: 완료 재생은 activeAuthorization 을 다시 부르는데, 성공한 삭제 뒤에는 그 댓글이
      * 이미 없어 작성자 여부를 다시 물을 수 없다. guard 는 주민 확인까지만 한다({@code member -> { }}, 댓글
      * 작성과 같다).
+     *
+     * <p><b>재생 인가는 명령이 아니라 receipt 에 남긴 근거로 다시 본다</b>(codex P2 리뷰 대응, GROMO-2137) —
+     * guard 재실행(주민 확인)만으로는 부족하다: 방장이 남의 댓글을 지운 뒤 방장을 위임해도 옛 방장은 여전히
+     * 주민이라 guard 를 통과한다. 그래서 완료 명령이 근거({@code basis} — 작성자 본인이면 {@code AUTHOR},
+     * 아니면 {@code HOST})를 receipt 내부 데이터({@link CommentDeleted})에 남기고,
+     * {@link #requireCommentDeleteReplayAuthorized} 가 재생마다 그 근거가 <b>지금도</b> 유효한지 다시 잰다 —
+     * AUTHOR 는 언제나, HOST 는 지금도 방장이어야 한다. 근거가 없거나 모르는 값이면 닫힌 실패다. 공개 응답은
+     * 그대로 {@link IslandNoticeViews.Deleted} 하나뿐이다 — basis 는 공개 계약에 나가지 않는다.
      */
     @Transactional
     public IslandNoticeViews.Deleted deleteComment(UUID islandId, UUID noticeId, UUID commentId, UUID userId,
             UUID key) {
         requireWritesEnabled();
-        return run(userId, islandId, new PublicCommandRequest(userId,
+        CommentDeleted result = run(userId, islandId, new PublicCommandRequest(userId,
                 "DELETE:/islands/" + islandId + "/notices/" + noticeId + "/comments/" + commentId, key,
-                InternalJson.tree(Map.of())), member -> { }, () -> {
+                InternalJson.tree(Map.of())), member -> { },
+                IslandNoticeService::requireCommentDeleteReplayAuthorized, () -> {
                     GroupMember member = groups.getMembership(users.getCallerForShare(userId),
                             groups.getGroup(islandId));
-                    comments.delete(requireCommentDeletable(islandId, noticeId, commentId, userId, member));
+                    GroupAnnouncementComment comment =
+                            requireCommentDeletable(islandId, noticeId, commentId, userId, member);
+                    // 방장이 자기 댓글을 지워도 AUTHOR 를 남긴다 — 방장 자격을 안 봐도 되는 근거가 더 강하다.
+                    String basis = userId.equals(comment.getAuthorId()) ? BASIS_AUTHOR : BASIS_HOST;
+                    comments.delete(comment);
                     EventEnvelope event = noticeEvents.changed(islandId, noticeId, userId);
-                    return new PublicCommandResult(200, InternalJson.tree(new IslandNoticeViews.Deleted(true)),
+                    return new PublicCommandResult(200, InternalJson.tree(new CommentDeleted(true, basis)),
                             InternalJson.tree(List.of(event)));
-                }, IslandNoticeViews.Deleted.class);
+                }, CommentDeleted.class);
+        return new IslandNoticeViews.Deleted(result.deleted());
     }
 
     /**
      * 쓰기 공통 골격 — users 공유 → 섬 배타를 잡고 {@link PublicCommandService#run} 에 들어간다. 재생 권한은
      * 활성 인가와 같다: 원 결과 재생도 «지금» 주민·완공·작성 권한이 있어야 한다(B10). 공통 층이 활성 인가를
-     * 재생 경로에서도 다시 부르므로 재생 검사가 따로 할 일은 없다.
+     * 재생 경로에서도 다시 부르므로 재생 검사가 따로 할 일은 없다. replayGuard 없는 4-인자 오버로드는 이
+     * no-op 을 쓴다 — 공지 작성·수정·삭제·댓글 작성이 그대로다.
      *
      * <p>본문·댓글 길이 상한(422)은 각 {@code body} 첫 줄에서 판정한다 — 인가(403)가 먼저다(api-platform LLD
      * §1 4단계, GROMO-1949). 422 는 TX 전체를 rollback 해 receipt 가 남지 않으므로 같은 키 재전송도 다시 422 다.
@@ -322,11 +344,28 @@ public class IslandNoticeService {
      */
     private <T> T run(UUID userId, UUID islandId, PublicCommandRequest command, Consumer<GroupMember> guard,
             Supplier<PublicCommandResult> body, Class<T> type) {
+        return run(userId, islandId, command, guard, (member, receipt) -> { }, body, type);
+    }
+
+    /**
+     * {@link #run(UUID, UUID, PublicCommandRequest, Consumer, Supplier, Class)} 에 재생 전용 인가를 더한
+     * 오버로드 — guard(활성 인가) 재실행만으로 부족한 댓글 삭제가 쓴다({@link #deleteComment}). guard 는
+     * 재생에서도 먼저 돈다(공통층이 activeAuthorization 을 재생 전에 다시 부른다) — replayGuard 는 그 «다음»
+     * 좁히는 검사다.
+     *
+     * @param replayGuard 재생마다 다시 도는 추가 인가 — 지금 주민({@link GroupMember})과 저장된 receipt 를
+     *     받는다. 활성 인가만으로 충분하면 no-op
+     */
+    private <T> T run(UUID userId, UUID islandId, PublicCommandRequest command, Consumer<GroupMember> guard,
+            BiConsumer<GroupMember, PublicCommandReceipt> replayGuard, Supplier<PublicCommandResult> body,
+            Class<T> type) {
         User caller = users.getCallerForShare(userId);
         membershipLocks.lockGroup(islandId);
         Runnable authorize = () -> guard.accept(requireResident(islandId, caller));
-        return InternalJson.decode(publicCommands.run(command, authorize, stored -> { }, body).value().data(),
-                type);
+        Consumer<PublicCommandReceipt> replayAuthorization =
+                stored -> replayGuard.accept(requireResident(islandId, caller), stored);
+        return InternalJson.decode(
+                publicCommands.run(command, authorize, replayAuthorization, body).value().data(), type);
     }
 
     // ---------------------------------------------------------------- 판정
@@ -394,6 +433,23 @@ public class IslandNoticeService {
         return comment;
     }
 
+    /**
+     * 댓글 삭제 재생 인가(codex P2 리뷰 대응, GROMO-2137) — receipt 내부 {@code basis} 를 «지금» 다시 잰다.
+     * {@code AUTHOR} 는 방장 자격을 안 보므로 언제나 유효하고, {@code HOST} 는 지금도 방장이어야 한다. 근거가
+     * 없거나 모르는 값이면(구버전 receipt 혼입 방어) 닫힌 실패 — {@link #deleteComment} 참조.
+     */
+    private static void requireCommentDeleteReplayAuthorized(GroupMember member, PublicCommandReceipt receipt) {
+        JsonNode data = receipt.data();
+        String basis = data == null ? null : data.path("basis").asText(null);
+        if (BASIS_AUTHOR.equals(basis)) {
+            return;
+        }
+        if (BASIS_HOST.equals(basis) && member.getRole() == GroupMemberRole.OWNER) {
+            return;
+        }
+        throw new GroupException(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN);
+    }
+
     private void requireWritesEnabled() {
         if (!writesEnabled) {
             throw new GroupException(GroupErrorCode.NOTICE_WRITE_UNAVAILABLE);
@@ -427,5 +483,16 @@ public class IslandNoticeService {
                         noticeId.toString()))
                 .map(AggregateVersion::getLastVersion)
                 .orElse(0L);
+    }
+
+    // ---------------------------------------------------------------- 내부 타입
+
+    /**
+     * 댓글 삭제 receipt 의 <b>내부</b> 완료 결과 — {@code basis} 는 재생 인가에만 쓰고 공개 응답에는 나가지
+     * 않는다(codex P2 리뷰 대응, GROMO-2137). {@link #deleteComment} 가 공개 {@link IslandNoticeViews.Deleted}
+     * 로 매핑한다 — {@code PublicCommandService} javadoc 의 "공개 DTO 매퍼에서 최소 완료 증거만 반환" 원칙과
+     * 같다({@code InternalHostTransferService} 의 {@code response(JsonNode)} 선례).
+     */
+    private record CommentDeleted(boolean deleted, String basis) {
     }
 }
