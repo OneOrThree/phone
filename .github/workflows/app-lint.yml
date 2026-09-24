@@ -15,7 +15,7 @@ on:
       # 실제로 이 파일의 NODE_OPTIONS 수정이 그 상황에 걸렸다.
       - '.github/workflows/app-lint.yml'
 
-# 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 `ci` 슬롯 3개 중 하나를 물고 있다
+# 중간 푸시분은 어차피 다음 푸시에 무의미해지는데, 그때까지 러너를 물고 있다
 # (GROMO-1797). 그룹 이름은 다른 파이프라인과 달라야 한다 — 같으면 서로를 막는다.
 concurrency:
   group: app-lint-${{ github.ref }}
@@ -24,19 +24,17 @@ concurrency:
 
 jobs:
   lint:
-    # 앱 검사는 «우리 러너»에서 돈다 (GROMO-1918 결정). 기술적으로는 GitHub-hosted 로도
-    # 돌지만, 앱 쪽은 node_modules·Android SDK 를 러너에 두고 재사용하는 편이 실측으로 빠르다.
-    # 같은 이유로 app-android-build.yml 도 self-hosted 다 — 둘을 갈라 두면 한쪽만 캐시를
-    # 못 쓰게 되어 의미가 없다.
-    runs-on: [self-hosted, ci, spot]
+    # GitHub-hosted 러너에서 돈다 (GROMO-2121). 예전엔 node_modules·Android SDK 를 러너에 두고
+    # 재사용하려고 self-hosted(gromo-dev-build)를 썼지만, 그 VM 을 폐기하고 dev 서버 메모리에
+    # 몰아주기로 했다(decisions.md A25). 캐시는 setup-node 의 npm 캐시가 맡는다.
+    runs-on: ubuntu-latest
 
-    # 러너(gromo-dev-build)는 e2-medium(2 vCPU / 4 GB)이다. NODE_OPTIONS 를 안 주면 Node 가
-    # 힙 상한을 자동 산정하는데, 그 값이 tsc 가 필요로 하는 양보다 낮게 잡혀 Typecheck 가
-    # "Ineffective mark-compacts near heap limit" 으로 죽었다 — OS OOM killer 가 아니라
-    # V8 자체 상한이다. 앱 PR 3건(#606·#612·#616)이 전부 같은 지점에서 실패했다 (GROMO-1513).
+    # NODE_OPTIONS 를 안 주면 Node 가 힙 상한을 자동 산정하는데, 그 값이 tsc 가 필요로 하는
+    # 양보다 낮게 잡혀 Typecheck 가 "Ineffective mark-compacts near heap limit" 으로 죽었다 —
+    # OS OOM killer 가 아니라 V8 자체 상한이다. 앱 PR 3건(#606·#612·#616)이 같은 지점에서
+    # 실패했다 (GROMO-1513). 러너가 바뀌어도 V8 상한은 그대로라 값을 유지한다.
     #
-    # 2048 인 이유: 로컬 실측 peak RSS 가 880 MB 라 성장 여유까지 충분하고, 4 GB 박스에서
-    # OS·npm·러너 에이전트 몫을 남긴다. 3072 는 스왑 위험이 있어 피한다.
+    # 2048 인 이유: 로컬 실측 peak RSS 가 880 MB 라 성장 여유까지 충분하다.
     env:
       NODE_OPTIONS: --max-old-space-size=2048
 
