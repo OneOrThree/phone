@@ -6,6 +6,7 @@ import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.request.CommandKeys;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandRecordsUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -63,8 +64,6 @@ public class IslandRecordsController {
             DateTimeFormatter.ofPattern("uuuu-MM-dd").withResolverStyle(ResolverStyle.STRICT);
     private static final DateTimeFormatter STRICT_MONTH =
             DateTimeFormatter.ofPattern("uuuu-MM").withResolverStyle(ResolverStyle.STRICT);
-    private static final Pattern CANONICAL_UUID =
-            Pattern.compile("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
     private final IslandRecordsUseCase records;
     private final SettingsSessionGuard sessions;
@@ -170,17 +169,14 @@ public class IslandRecordsController {
         } catch (DateTimeParseException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "measuredAt");
         }
-        String deviceId = text(body, "deviceId");
-        if (!CANONICAL_UUID.matcher(deviceId).matches()) {
-            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "deviceId");
-        }
+        UUID deviceId = PublicIds.uuid(text(body, "deviceId"), "deviceId", ApiErrorCode.INVALID_REQUEST);
         Map<String, Object> command = new LinkedHashMap<>();
         command.put("minutes", minutes);
         command.put("measurementStatus", status);
         command.put("timezone", UTC);
         // timestamptz 정밀도(마이크로초)로 맞춰 보낸다 — Data 가 저장한 시각과 같은 값으로 비교한다.
         command.put("measuredAt", measuredAt.truncatedTo(ChronoUnit.MICROS).toString());
-        command.put("deviceId", UUID.fromString(deviceId).toString());
+        command.put("deviceId", deviceId.toString());
         return records.putScreenTime(claims, day, command, key, properties.deadline());
     }
 
@@ -278,10 +274,7 @@ public class IslandRecordsController {
     }
 
     private static UUID islandId(String value) {
-        if (!CANONICAL_UUID.matcher(value).matches()) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "islandId");
-        }
-        return UUID.fromString(value);
+        return PublicIds.uuid(value, "islandId");
     }
 
     private record Query(LocalDate from, LocalDate to, String scope) {
