@@ -4,7 +4,7 @@
 
 이 문서는 후속 티켓을 나눌 수 있는 작업 범위다. 이 문서에서 후속 Jira 티켓을 생성한 것은 아니다. 차단 API와 일부 표시 필터는 GROMO-1975로 구현됐지만 신고센터 전체 구현은 완료되지 않았다. 확정 RP 정책을 기준으로 구현하고, 정책의 D 초안 항목은 설계 검토에서 확정한다. 2026-09-24 RP-메일정본에 따라 자체 신고 사건·원문 DB는 범위에서 제외한다.
 
-## 현재 코드 대조 — 2026-09-24, main 2bbc9f8b
+## 현재 코드 대조 — 2026-09-24, main e221cc58
 
 - `UserBlockRepository`와 `UserBlock`에 더해 GROMO-1975의 차단 생성·해제·목록 API가 있다. 친구 목록·검색과 받은 편지함 목록에는 차단자 관점 표시 필터가 붙었다. `FriendService.createRequest`와 `InternalLetterService.send`에는 차단 판정이 없고, 앱에는 차단 조작 UI가 확인되지 않았다. RP-차단의 양방향 직접 연락 제한과 채팅·댓글·공지 숨김은 남은 범위다.
 - `InternalLetterService.close`는 수신자 권한 확인 후 `softDeleteIfActive`로 편지를 닫는다. 조회와 닫기 경합은 처리하지만 신고 증거 확보와의 경합 처리는 새로 연결해야 한다.
