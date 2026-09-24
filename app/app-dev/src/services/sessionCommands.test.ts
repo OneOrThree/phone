@@ -323,6 +323,29 @@ test('activeIntervals 에 파싱 불가 시각이 있으면 intervals 는 undefi
   assert.equal(recordFromFinish(finish({ activeIntervals: spans })).intervals, undefined);
 });
 
+// 구버전 서버 때 구간 없이 저장된 결과가 새 서버에서 같은 recordId 로 재생되면 구간만 채운다.
+test('같은 recordId 결과가 구간과 함께 재생되면 기존 기록의 intervals 를 채운다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  const base = { recordId: 'replayed', islandId: island.id, completedAt: '2026-08-01T16:00:00Z' };
+  s = reducer(s, {
+    type: 'SESSION_RESULT',
+    record: recordFromFinish(finish(base)),
+    fromRest: false,
+  } as never);
+  const spans = [{ startedAt: '2026-08-01T15:45:00Z', endedAt: '2026-08-01T16:00:00Z' }];
+  s = reducer(s, {
+    type: 'SESSION_RESULT',
+    record: recordFromFinish(finish({ ...base, activeIntervals: spans })),
+    fromRest: false,
+  } as never);
+  const saved = s.records.filter((r) => r.id === 'replayed');
+  assert.equal(saved.length, 1);
+  assert.deepEqual(saved[0].intervals, [
+    { start: Date.parse('2026-08-01T15:45:00Z'), end: Date.parse('2026-08-01T16:00:00Z') },
+  ]);
+});
+
 // 티켓 DoD — 어제 60분 + 오늘 15분짜리 세션의 시간대(하루) 퀘스트 진행률은 오늘 15분만 센다.
 // KST 기준 2026-08-01T15:00:00Z = 8/2 00:00. 목표 30분짜리 오늘의 집중 퀘스트라 15분=50%.
 // 자정 직후 45분 휴식을 끼운다 — 연속 세션이면 구간 없이 [now-누적, now] 로 소급해도 15분이 나와

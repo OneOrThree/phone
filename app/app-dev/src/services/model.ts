@@ -1756,7 +1756,10 @@ export function reducer(state: State, a: Action): State {
       // 서버 finish·pending-result 의 정산 뷰를 기록+결과창으로 반영하고 진행 세션을 닫는다.
       // earnedFish 는 서버가 이미 섬 통장에 적립한 확정값 — 로컬 잔액 표시만 맞춘다.
       const record = a.record as RecordItem;
-      if (!s.records.some((r) => r.id === record.id)) s.records.unshift(record);
+      const prev = s.records.find((r) => r.id === record.id);
+      if (!prev) s.records.unshift(record);
+      // 구간 없이 먼저 저장된 기록(구버전 서버 시절 결과)이 재생되면 구간만 채운다(GROMO-2131).
+      else if (!prev.intervals && record.intervals) prev.intervals = record.intervals;
       s.lastResult = record;
       const owner = s.islands.find((x) => x.id === record.islandId);
       if (!s.records.slice(1).length && !s.hallGuide && owner && !owner.buildings.includes('hall'))
