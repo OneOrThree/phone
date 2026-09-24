@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Switch, View } from 'react-native';
 import { CatSprite } from '@/components/CatSprite';
 import { Text } from '@/design-system/typography';
-import { primitiveTokens } from '@/design-system/tokens';
+import { semanticTokens } from '@/design-system/tokens';
 import { colors, colorNames } from '@/services/model';
 
 const motions = [
@@ -17,7 +17,6 @@ const motions = [
   ['reading', '독서'],
   ['reel', '낚아올리기'],
 ] as const;
-const C = primitiveTokens.color;
 
 // 앱과 같은 렌더러를 사용한다. 웹의 ?motion 에서 계정·저장 데이터 없이 확인한다.
 export function CatMotionPreview() {
@@ -102,35 +101,85 @@ export function CatMotionPreview() {
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: C.cream },
-  content: { width: '100%', maxWidth: 1100, alignSelf: 'center', padding: 24, paddingVertical: 40 },
-  eyebrow: { fontSize: 12, letterSpacing: 2, color: C.mutedBrown, marginBottom: 12 },
-  title: { fontSize: 30, fontWeight: '800', color: C.ink },
-  description: { fontSize: 15, lineHeight: 24, color: C.mutedBrown, marginTop: 12, maxWidth: 680 },
-  toolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 24 },
-  button: {
-    minHeight: 44,
-    justifyContent: 'center',
-    paddingHorizontal: 16,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: C.progressTrack,
-    backgroundColor: C.paper,
+  page: { flex: 1, backgroundColor: semanticTokens.color.canvas },
+  content: {
+    width: '100%',
+    maxWidth: 1100,
+    alignSelf: 'center',
+    padding: semanticTokens.spacing.section,
+    paddingVertical: 40,
   },
-  selected: { backgroundColor: C.selectedPink, borderColor: C.brown },
-  buttonText: { color: C.ink, fontSize: 14, fontWeight: '600' },
-  options: { flexDirection: 'row', flexWrap: 'wrap', gap: 24, marginVertical: 24 },
-  option: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 44 },
-  optionText: { color: C.mutedBrown, fontSize: 14 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  eyebrow: {
+    fontSize: semanticTokens.typography.caption,
+    letterSpacing: 2,
+    color: semanticTokens.color.textMuted,
+    marginBottom: semanticTokens.spacing.control,
+  },
+  title: {
+    fontSize: 30,
+    fontWeight: semanticTokens.typography.extraBold,
+    color: semanticTokens.color.text,
+  },
+  description: {
+    fontSize: 15,
+    lineHeight: 24,
+    color: semanticTokens.color.textMuted,
+    marginTop: semanticTokens.spacing.control,
+    maxWidth: 680,
+  },
+  toolbar: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: semanticTokens.spacing.section,
+  },
+  button: {
+    minHeight: semanticTokens.size.tapMin,
+    justifyContent: 'center',
+    paddingHorizontal: semanticTokens.spacing.component,
+    borderRadius: semanticTokens.radius.control,
+    borderWidth: semanticTokens.stroke.subtle,
+    borderColor: semanticTokens.color.divider,
+    backgroundColor: semanticTokens.color.surface,
+  },
+  selected: {
+    backgroundColor: semanticTokens.color.selected,
+    borderColor: semanticTokens.color.outline,
+  },
+  buttonText: {
+    color: semanticTokens.color.text,
+    fontSize: semanticTokens.typography.label,
+    fontWeight: semanticTokens.typography.semibold,
+  },
+  options: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: semanticTokens.spacing.section,
+    marginVertical: semanticTokens.spacing.section,
+  },
+  option: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: semanticTokens.size.tapMin,
+  },
+  optionText: {
+    color: semanticTokens.color.textMuted,
+    fontSize: semanticTokens.typography.label,
+  },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: semanticTokens.spacing.component,
+  },
   card: {
     flexGrow: 1,
     flexBasis: 260,
-    backgroundColor: C.paper,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: C.progressTrack,
-    paddingBottom: 20,
+    backgroundColor: semanticTokens.color.surface,
+    borderRadius: semanticTokens.radius.card,
+    borderWidth: semanticTokens.stroke.subtle,
+    borderColor: semanticTokens.color.divider,
+    paddingBottom: semanticTokens.spacing.page,
     alignItems: 'center',
   },
   stage: { width: 230, height: 215 },
@@ -142,9 +191,22 @@ const styles = StyleSheet.create({
     width: 100,
     height: 12,
     borderRadius: 50,
-    backgroundColor: C.cream,
+    backgroundColor: semanticTokens.color.canvas,
   },
-  name: { color: C.ink, fontWeight: '700', fontSize: 17 },
-  caption: { color: C.mutedBrown, fontSize: 12, marginTop: 5 },
-  footer: { fontSize: 12, lineHeight: 20, color: C.mutedBrown, marginTop: 24 },
+  name: {
+    color: semanticTokens.color.text,
+    fontWeight: semanticTokens.typography.bold,
+    fontSize: 17,
+  },
+  caption: {
+    color: semanticTokens.color.textMuted,
+    fontSize: semanticTokens.typography.caption,
+    marginTop: 5,
+  },
+  footer: {
+    fontSize: semanticTokens.typography.caption,
+    lineHeight: 20,
+    color: semanticTokens.color.textMuted,
+    marginTop: semanticTokens.spacing.section,
+  },
 });

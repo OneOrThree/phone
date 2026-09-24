@@ -633,6 +633,7 @@ function FinalIslandScene({
     location = useRef(pos);
   const walk = (target: Point, done?: () => void) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
     setInteractiveMotion(null);
     const path = scene
       ? villagePath(scene, location.current, target)
