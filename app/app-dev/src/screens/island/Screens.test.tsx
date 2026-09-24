@@ -1083,6 +1083,8 @@ test('서버 모드 home 은 스냅샷의 완공 건물과 오늘 집중을 그�
   s.getByLabelText(buildingNames.hall);
   assert.equal(s.queryByLabelText(buildingNames.board), null);
   s.getByText('01:02:05');
+  // 홈 HUD 에 스냅샷의 섬 이름이 보인다
+  s.getByText('복구 섬');
   // 로컬 비용으로 그리는 건설 카드는 서버 모드에서 띄우지 않는다
   assert.equal(s.queryByText(/짓기$/), null);
 });

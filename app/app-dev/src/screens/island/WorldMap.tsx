@@ -790,9 +790,19 @@ function FinalIslandScene({
               </Txt>
             ) : (
               <>
-                <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
-                  오늘 집중
-                </Txt>
+                {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
+                <View style={{ flexShrink: 1 }}>
+                  <Txt
+                    kind="meta"
+                    numberOfLines={1}
+                    style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '700' }}
+                  >
+                    {i.name}
+                  </Txt>
+                  <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
+                    오늘 집중
+                  </Txt>
+                </View>
                 <Txt
                   style={{
                     fontSize: 22,
