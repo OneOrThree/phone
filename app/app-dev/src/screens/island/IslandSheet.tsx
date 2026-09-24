@@ -329,35 +329,45 @@ export function IslandSheet({
           )}
           <CloseX onPress={onClose} size={34} font={19} />
         </View>
-        <ScrollView
-          ref={scrollRef}
-          style={{ flex: 1 }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{
-            gap: tight && !panel ? 10 : g.gap,
-            paddingTop: g.padTop,
-            paddingLeft: g.padX,
-            paddingRight: g.padX + right,
-            paddingBottom: footer ? 12 : endPad,
+        <View
+          testID="island-sheet-content-clip"
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            borderBottomLeftRadius: panel || L.tablet ? 28 : 0,
+            borderBottomRightRadius: L.tablet ? 28 : 0,
           }}
         >
-          {children}
-        </ScrollView>
-        {!!footer && (
-          <View
-            onLayout={(e) => setFootH(e.nativeEvent.layout.height)}
-            style={{
-              gap: 8,
-              paddingTop: panel ? 8 : 10,
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              gap: tight && !panel ? 10 : g.gap,
+              paddingTop: g.padTop,
               paddingLeft: g.padX,
               paddingRight: g.padX + right,
-              paddingBottom: endPad,
+              paddingBottom: footer ? 12 : endPad,
             }}
           >
-            {footer}
-          </View>
-        )}
+            {children}
+          </ScrollView>
+          {!!footer && (
+            <View
+              onLayout={(e) => setFootH(e.nativeEvent.layout.height)}
+              style={{
+                gap: 8,
+                paddingTop: panel ? 8 : 10,
+                paddingLeft: g.padX,
+                paddingRight: g.padX + right,
+                paddingBottom: endPad,
+              }}
+            >
+              {footer}
+            </View>
+          )}
+        </View>
         {/* 가로 패널·태블릿 카드에서는 상자 안(.lpanel .toast) */}
         {!!toast && (panel || L.tablet) && (
           <SheetToast text={toast} bottom={(footer ? footH : 0) + 14} right={right} />
