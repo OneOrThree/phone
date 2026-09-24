@@ -633,9 +633,12 @@ function FinalIslandScene({
     const others = facts
       ? facts.members.filter((m) => m.id !== myId && m.catColor).map((m) => catColor(m.catColor))
       : i.members.filter((m) => m.id !== 'me').map((m) => m.color as Color);
-    const spare = (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
-      (c) => c !== state.color && !others.includes(c),
-    );
+    // 모자란 자리를 보충 색으로 채우는 연출은 목업 섬에서만 — 서버 홈엔 없는 주민을 세우지 않는다
+    const spare = facts
+      ? []
+      : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
+          (c) => c !== state.color && !others.includes(c),
+        );
     return [...others, ...spare].slice(0, 2);
   }, [i.members, facts, state.color]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.

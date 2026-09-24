@@ -1390,7 +1390,8 @@ export function reducer(state: State, a: Action): State {
       pendingIslands,
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
       // 재실행 복구용 서버 온보딩 스냅샷 — 공개 요약·신청만 담겨 있어 저장해도 안전하다
-      serverIslands: loaded.serverIslands ?? null,
+      // 홈 스냅샷은 저장본에서 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)
+      serverIslands: loaded.serverIslands ? { ...loaded.serverIslands, home: null } : null,
       settings: {
         ...loaded.settings,
         publicRecords: true,

@@ -426,8 +426,10 @@ function Gromo() {
     setHomeError(false);
     loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
       .then((r) => {
-        // select(current 없음)는 소속 동기화가 chooseIsland 로 보낸다
-        if (live && r.status === 'loaded') dispatch({ type: 'SERVER_HOME', facts: r.facts });
+        if (!live) return;
+        if (r.status === 'loaded') dispatch({ type: 'SERVER_HOME', facts: r.facts });
+        // 그 사이 current 가 풀렸다(강퇴·다른 기기 해제) — 소속 동기화로 반영해 chooseIsland 로 보낸다
+        else dispatch({ type: 'ISLAND_SYNC', memberships: r.memberships });
       })
       .catch((thrown) => {
         if (live && !(thrown instanceof ApiError && thrown.code === CLIENT_STALE_SESSION))

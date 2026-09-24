@@ -2337,3 +2337,17 @@ test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 
   s = sync(s, 'srv1');
   assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
 });
+
+test('LOAD 는 저장된 홈 스냅샷을 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)', () => {
+  const stored = {
+    ...initialState(),
+    serverIslands: {
+      ...initialState().serverIslands,
+      currentIslandId: 'srv1',
+      home: { islandId: 'srv1' },
+    },
+  } as any;
+  const loaded = act(initialState(), 'LOAD', { state: stored });
+  assert.equal(loaded.serverIslands?.currentIslandId, 'srv1');
+  assert.equal(serverHome(loaded), null);
+});

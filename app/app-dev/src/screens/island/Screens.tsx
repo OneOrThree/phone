@@ -2244,7 +2244,13 @@ export function RedesignScreens({ e }: any) {
   if (route === 'home' && server && !serverHome(state))
     return (
       <View
-        style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 }}
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: semanticTokens.spacing.control,
+          padding: semanticTokens.spacing.page,
+        }}
       >
         {e.homeError ? (
           <>
