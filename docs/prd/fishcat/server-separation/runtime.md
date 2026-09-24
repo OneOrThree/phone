@@ -62,7 +62,7 @@ env 파일을 통째로 공유하지 않는다. Business의 HTTP port는 8080, N
 
 ## dev 에서 켜는 순서
 
-dev(GCP `gromo-dev-app`, e2-medium 4 GB)에서 Kafka와 Data 위성 모드를 켜는 순서다. 모든 단계는 사람이 명시적으로 실행한다. `dev-cd.yml`은 **이미 켜진 것을 유지만** 하고 스스로 켜거나 끄지 않는다. 스위치의 의미와 전환 조건은 [구현된 컷오버 스위치](#구현된-컷오버-스위치) 표가 정본이다.
+dev(GCP `gromo-dev-app`, e2-custom-2-6144 · 2 vCPU · 6 GB, decisions.md A25)에서 Kafka와 Data 위성 모드를 켜는 순서다. 모든 단계는 사람이 명시적으로 실행한다. `dev-cd.yml`은 **이미 켜진 것을 유지만** 하고 스스로 켜거나 끄지 않는다. 스위치의 의미와 전환 조건은 [구현된 컷오버 스위치](#구현된-컷오버-스위치) 표가 정본이다.
 
 | 단계 | 하는 일 | 되돌리기 |
 |---|---|---|
@@ -86,7 +86,7 @@ dev(GCP `gromo-dev-app`, e2-medium 4 GB)에서 Kafka와 Data 위성 모드를 �
 막힌 곳:
 
 - **A18 보류** — relay 재시도 값이 정해지지 않아 3단계 이후로 못 간다.
-- **4 GB VM** — kafka.yml의 512 MB 힙은 prod t4g.large(8 GB) 기준이다. dev에는 app·db·redis·(datadog-agent 512 MB)가 이미 있다. 1단계의 메모리 게이트가 첫 관문이고, 여유가 없으면 관측 스택 정리나 VM 사이즈업이 먼저다.
+- **dev VM 메모리** — kafka.yml의 512 MB 힙은 prod t4g.large(8 GB) 기준이다. dev는 e2-medium(4 GB)에서 **e2-custom-2-6144(6 GB)로 사이즈업**(decisions.md A25)하지만 app·db·redis·(datadog-agent 512 MB)가 이미 있어 여유가 넉넉하지 않다 — 리사이즈 후 가용 메모리 500 MB 미만 또는 스왑 500 MB 초과가 지속되면 e2-standard-2(8 GB)로 추가 사이즈업한다(A25). 1단계의 메모리 게이트가 첫 관문이고, 여유가 없으면 관측 스택 정리가 먼저다.
 - **GROMO-893** — 5단계 선행 조건.
 
 2단계 주의:
