@@ -36,10 +36,11 @@ import java.util.UUID;
  *
  * <h2>저장하지 않은 상태가 기본이다</h2>
  * {@code user_main_islands} 행은 사용자가 <b>직접 고르거나</b>({@link #choose}) <b>메인 섬을 잃어 옮겨질 때</b>
- * ({@link #onMembershipRevoked}) 만 생긴다. 행이 없으면 «가장 먼저 가입한 활성 섬»으로 도출한다. 그래서
- * 가입 경로마다 훅을 달지 않아도 「첫 소속 가입 직후의 메인 섬 = 그 섬」과 「추가 가입 때는 기존 유지」가
- * 동시에 성립하고, 레거시 {@code /api/v1/groups/{id}/join} 으로 들어온 사람과 이 기능 이전의 주민까지 같은
- * 규칙을 받는다(마이그레이션 백필도 필요 없다).
+ * ({@link #onMembershipRevoked}) 만 생긴다. 행이 없으면 «가장 최근에 가입한 활성 섬»으로 도출한다 — 정책
+ * (기획 정본 「남은 섬 중 가장 최근에 가입한 섬이 메인 섬이 된다」)을 GROMO-2054 가 도출에까지 맞춘 것이다.
+ * 그래서 가입 경로마다 훅을 달지 않아도 「첫 소속 가입 직후의 메인 섬 = 그 섬」과 「추가 가입하면 새 섬이
+ * 메인」이 동시에 성립하고, 레거시 {@code /api/v1/groups/{id}/join} 으로 들어온 사람과 이 기능 이전의
+ * 주민까지 같은 규칙을 받는다(마이그레이션 백필도 필요 없다).
  *
  * <h2>이전은 사용자 단위로 직렬화된다</h2>
  * 회수 경로가 {@code users} 를 <b>공유</b> 잠금으로만 잡아, 같은 사람이 서로 다른 두 섬에서 동시에
@@ -47,10 +48,12 @@ import java.util.UUID;
  * <b>이미 떠난 섬</b>이 메인으로 박힌다. 그래서 {@link #onMembershipRevoked} 는 어떤 읽기보다 먼저
  * 사용자 축 advisory 잠금을 잡는다 — 근거와 잠금 순서는 {@link UserMainIslandRepository#lockUserAxis}.
  *
- * <h2>도출과 이전의 규칙이 다르다 — 일부러다</h2>
- * 도출은 «가장 먼저», 이전은 «가장 최근»이다. 도출은 「처음 정착한 섬이 내 대표」라는 기본값이고, 이전은
- * 대표를 잃었을 때 «지금 가장 활발할 법한 곳»으로 보내는 복구다. 그래서 도출값을 잃는 순간 그 값을 행으로
- * 박제한다 — 박제하지 않으면 도출 규칙이 두 번째로 오래된 섬을 고르고, 그건 복구 규칙이 아니다.
+ * <h2>도출과 이전이 같은 축이다 (GROMO-2054)</h2>
+ * 둘 다 «가장 최근에 가입한» 활성 섬을 고른다 — 정렬 축은 멤버십 시작 시각
+ * {@code COALESCE(rejoined_at, created_at)} 이다. 도출값을 잃는 순간에도 다음 도출값이 이전 대상과
+ * 같아지지만, 그 결과를 행으로 박제하는 이유가 두 개 있다: 이전 알림 사건({@link MainIslandTransferredEvent})
+ * 의 근거 행을 남기고, 이후 <b>새 가입</b>으로 도출값이 다시 흔들리지 않게 옮겨진 섬을 «고른 것»으로
+ * 고정하기 위해서다 — 박제 없는 이전은 새 섬에 들어갈 때마다 대표가 조용히 바뀌는 상태를 만든다.
  */
 @Service
 @RequiredArgsConstructor
@@ -65,7 +68,7 @@ public class MainIslandService implements MainIslandNamePort {
     private final ApplicationEventPublisher events;
 
     /**
-     * 이 사람의 메인 섬 — 고른 것이 있으면 그것, 없으면 가장 먼저 가입한 활성 섬.
+     * 이 사람의 메인 섬 — 고른 것이 있으면 그것, 없으면 가장 최근에 가입한 활성 섬.
      *
      * @param userId 대상
      * @return 메인 섬 id. <b>소속이 하나도 없으면 {@code null}</b> 이다 — 유효하지 않은 섬을 대신 내주지 않는다
@@ -87,8 +90,8 @@ public class MainIslandService implements MainIslandNamePort {
         List<UUID> undecided = new ArrayList<>(userIds);
         undecided.removeAll(names.keySet());
         if (!undecided.isEmpty()) {
-            // 가입 순 오름차순이라 «첫 행»이 도출값이다. putIfAbsent 가 그 첫 행만 남긴다.
-            for (UserIslandNameProjection active : groupMembers.findActiveIslandsJoinedAsc(undecided)) {
+            // 최근 가입 순 내림차순이라 «첫 행»이 도출값이다. putIfAbsent 가 그 첫 행만 남긴다.
+            for (UserIslandNameProjection active : groupMembers.findActiveIslandsJoinedDesc(undecided)) {
                 names.putIfAbsent(active.userId(), active.name());
             }
         }
@@ -142,12 +145,13 @@ public class MainIslandService implements MainIslandNamePort {
             return;
         }
         // 이탈 마킹은 이 조회의 자동 플러시로 반영돼 있다 — 방금 떠난 섬은 후보에 없다.
-        List<UserIslandNameProjection> remaining = groupMembers.findActiveIslandsJoinedAsc(List.of(userId));
+        List<UserIslandNameProjection> remaining = groupMembers.findActiveIslandsJoinedDesc(List.of(userId));
         if (remaining.isEmpty()) {
             chosen.ifPresent(mainIslands::delete);
             return;
         }
-        UserIslandNameProjection moved = remaining.get(remaining.size() - 1);
+        // 최근 가입 순 내림차순이라 «첫 행»이 이전 대상이다 — 도출과 같은 축이다(GROMO-2054).
+        UserIslandNameProjection moved = remaining.get(0);
         // 방금 «활성 멤버십»으로 떠온 섬이라 존재가 증명돼 있다 — 프록시 참조로 잡아 조회도 잠금도 더하지
         // 않는다. 여기서 새 잠금을 잡으면 강퇴·탈퇴 경로의 잠금 순서가 이 기능 때문에 늘어난다.
         Group island = groups.getReferenceById(moved.islandId());
@@ -162,7 +166,7 @@ public class MainIslandService implements MainIslandNamePort {
         if (!chosen.isEmpty()) {
             return Optional.of(chosen.get(0));
         }
-        List<UserIslandNameProjection> active = groupMembers.findActiveIslandsJoinedAsc(List.of(userId));
+        List<UserIslandNameProjection> active = groupMembers.findActiveIslandsJoinedDesc(List.of(userId));
         return active.isEmpty() ? Optional.empty() : Optional.of(active.get(0));
     }
 
@@ -170,13 +174,18 @@ public class MainIslandService implements MainIslandNamePort {
      * 방금 잃은 섬이 메인 섬이었는가 — 고른 행이 있으면 그것과 대조하고, 없으면 도출 규칙으로 판정한다.
      *
      * <p>도출 쪽을 «이탈 전 목록의 첫 행»으로 다시 뜨지 못하는 이유는 마킹이 이미 플러시됐기 때문이다.
-     * 그래서 「이 멤버십보다 먼저 생긴 활성 멤버십이 없다」로 같은 것을 묻는다.
+     * 그래서 「이 멤버십보다 나중에 시작된 활성 멤버십이 없다」로 같은 것을 묻는다 — 도출값이 «가장 최근
+     * 가입»이라, 잃은 행이 목록의 꼭대기였는지만 확인하면 된다.
      */
     private boolean wasMainIsland(GroupMember member, Optional<UserMainIsland> chosen, UUID userId,
                                   UUID revokedIslandId) {
         if (chosen.isPresent()) {
             return chosen.get().getIsland().getId().equals(revokedIslandId);
         }
-        return groupMembers.countActiveJoinedBefore(userId, member.getCreatedAt(), member.getId()) == 0;
+        Instant startedAt = member.membershipStartedAt();
+        // 시작 시각이 NULL 인 legacy 행은 SQL 비교가 unknown 으로 접혀 0 으로 오판한다 — 명시 판정으로 나눈다.
+        return startedAt == null
+                ? groupMembers.countActiveOutrankingNullStart(userId, member.getId()) == 0
+                : groupMembers.countActiveJoinedAfter(userId, startedAt, member.getId()) == 0;
     }
 }

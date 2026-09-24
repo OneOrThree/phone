@@ -1,0 +1,169 @@
+name: Satellite Dev CD
+
+on:
+  workflow_run:
+    workflows: ["Business · Notification CI"]
+    types: [completed]
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  ENV_SECRET_ID: gromo/dev/env
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+  SATELLITE_RUNTIME_DIR: ${{ github.workspace }}/../.gromo-runtime/satellites
+
+jobs:
+  deploy:
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: [self-hosted, dev]
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: satellite-deploy-plan
+          path: image-inputs/plan
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - name: 배포 대상 판정
+        id: plan
+        run: |
+          set -euo pipefail
+          plan=$(cat image-inputs/plan/satellite-deploy-plan.json)
+          # jq 프로그램은 작은따옴표 안이므로 JSON 키의 큰따옴표를 escape 하지 않는다.
+          # `.\"business-api\"`는 일부 jq 버전에서 backslash가 그대로 전달되어 출력만 비고,
+          # command substitution의 실패가 echo에 가려져 Notification만 선택되는 문제가 있었다.
+          business=$(jq -er '.["business-api"] | select(type == "boolean")' <<< "$plan")
+          notification=$(jq -er '.notification | select(type == "boolean")' <<< "$plan")
+          printf 'business=%s\nnotification=%s\n' "$business" "$notification" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v4
+        if: steps.plan.outputs.business == 'true'
+        with:
+          name: business-api-image
+          path: image-inputs/business-api
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        if: steps.plan.outputs.notification == 'true'
+        with:
+          name: notification-image
+          path: image-inputs/notification
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ github.token }}
+
+      - name: AWS 자격증명
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-satellite-dev-${{ github.run_id }}
+          unset-current-credentials: true
+
+      - name: 배포 입력 준비
+        env:
+          IMAGE_REVISION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          test -s "$RUNTIME_ENV_FILE"
+          test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
+          if [ "${{ steps.plan.outputs.business }}" = true ]; then
+            business_image=$(cat image-inputs/business-api/business-api-image.txt)
+          else
+            business_image=$(sed -n 's/^BUSINESS_API_IMAGE=//p' "$SATELLITE_RUNTIME_DIR/compose.env")
+          fi
+          if [ "${{ steps.plan.outputs.notification }}" = true ]; then
+            notification_image=$(cat image-inputs/notification/notification-image.txt)
+          else
+            notification_image=$(sed -n 's/^NOTIFICATION_IMAGE=//p' "$SATELLITE_RUNTIME_DIR/compose.env")
+          fi
+          test -n "$business_image"
+          test -n "$notification_image"
+          aws secretsmanager get-secret-value --secret-id "$ENV_SECRET_ID" \
+            --query SecretString --output text \
+          | python3 server/scripts/prepare-satellite-deploy.py \
+              --environment dev \
+              --output-dir "$SATELLITE_RUNTIME_DIR" \
+              --base-compose server/scripts/docker-compose.dev.yml \
+              --shared-env-file "$RUNTIME_ENV_FILE" \
+              --business-image "$business_image" \
+              --notification-image "$notification_image"
+          echo "IMAGE_REVISION=$IMAGE_REVISION" >> "$GITHUB_ENV"
+
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
+      - name: Business·Notification 배포
+        env:
+          DD_API_KEY: ${{ secrets.DD_API_KEY }}
+          DD_SITE: us5.datadoghq.com
+          IMAGE_VERSION: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml)
+          if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
+            test -n "$DD_API_KEY"
+            compose+=(-f server/scripts/docker-compose.datadog.yml)
+          fi
+          services=()
+          if [ "${{ steps.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ steps.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          test "${#services[@]}" -gt 0
+          "${compose[@]}" config --quiet
+          "${compose[@]}" pull "${services[@]}"
+          "${compose[@]}" up -d "${services[@]}"
+          "${compose[@]}" ps "${services[@]}"
+
+      - name: 서비스 health check
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml)
+          services=()
+          if [ "${{ steps.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ steps.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          for service in "${services[@]}"; do
+            container=$("${compose[@]}" ps -q "$service")
+            test -n "$container"
+            # 4GB dev VM에서 Datadog 에이전트가 붙은 JVM 두 개를 함께 시작하면 5분을 넘긴다.
+            for i in $(seq 1 180); do
+              health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo missing)
+              if [ "$health" = healthy ]; then break; fi
+              if (( i % 12 == 0 )); then echo "$service health=$health 대기 $((i * 5))초"; fi
+              if [ "$i" = 180 ]; then docker logs --tail=100 "$container"; exit 1; fi
+              sleep 5
+            done
+          done
+
+      - name: 실패 로그
+        if: failure()
+        run: |
+          services=()
+          if [ "${{ steps.plan.outputs.business }}" = true ]; then services+=(business-api); fi
+          if [ "${{ steps.plan.outputs.notification }}" = true ]; then services+=(notification); fi
+          for service in "${services[@]}"; do
+            container=$(docker ps -aq \
+              --filter label=com.docker.compose.project=phone \
+              --filter label=com.docker.compose.service="$service" | head -n 1)
+            if [ -n "$container" ]; then docker logs --tail=100 "$container" 2>&1 || true; fi
+          done

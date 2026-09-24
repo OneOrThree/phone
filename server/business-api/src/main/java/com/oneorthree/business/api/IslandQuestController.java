@@ -1,5 +1,10 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.QuestResponses.CurrentQuestsView;
+import com.oneorthree.business.api.dto.QuestResponses.IslandQuestClaimed;
+import com.oneorthree.business.api.dto.QuestResponses.IslandQuestCreated;
+import com.oneorthree.business.api.dto.QuestResponses.IslandQuestProgressView;
+import com.oneorthree.business.api.dto.QuestResponses.IslandQuestUpdated;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -7,8 +12,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.DataApiClient;
-import com.oneorthree.business.upstream.data.dto.IslandQuestViews;
+import com.oneorthree.business.upstream.data.DataQuestClient;
 import com.oneorthree.business.usecase.IslandQuestUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -60,7 +64,7 @@ public class IslandQuestController {
 
     /** 현재 회차 목록 (LLD quests). 질의가 없다. */
     @GetMapping("/islands/{islandId}/quests/current")
-    public IslandQuestViews.Current current(@PathVariable String islandId, HttpServletRequest request) {
+    public CurrentQuestsView current(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return quests.current(claims, uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER), deadline());
     }
@@ -70,7 +74,7 @@ public class IslandQuestController {
      * 전부라 서버는 커서를 발급하지 않는다 — 그래서 들어온 {@code cursor} 는 무엇이든 위조로 본다(400).
      */
     @GetMapping("/islands/{islandId}/quests/{questId}/progress")
-    public IslandQuestViews.Progress progress(@PathVariable String islandId, @PathVariable String questId,
+    public IslandQuestProgressView progress(@PathVariable String islandId, @PathVariable String questId,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         if (request.getParameterValues("cursor") != null) {
@@ -87,7 +91,7 @@ public class IslandQuestController {
 
     /** 퀘스트 생성 (LLD quest-create) — 방장만. 201 {@code {id,title}}. */
     @PostMapping(value = "/islands/{islandId}/quests", consumes = "application/json")
-    public ResponseEntity<IslandQuestViews.Created> create(@PathVariable String islandId,
+    public ResponseEntity<IslandQuestCreated> create(@PathVariable String islandId,
             @RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -112,16 +116,16 @@ public class IslandQuestController {
                 throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "timezone");
             }
         }
-        DataApiClient.QuestCreateCommand command = new DataApiClient.QuestCreateCommand(string(body, "title"), type,
+        DataQuestClient.QuestCreateCommand command = new DataQuestClient.QuestCreateCommand(string(body, "title"), type,
                 integer(body, "targetMinutes"), windowStart, windowEnd, timezone);
-        IslandQuestViews.Created created = quests.create(claims,
+        IslandQuestCreated created = quests.create(claims,
                 uuid(islandId, "islandId", ApiErrorCode.INVALID_PARAMETER), command, key, deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     /** 정의 수정 (LLD quest-edit) — 방장만. title/targetMinutes 중 하나 이상, 생략은 유지·null 은 거절. */
     @PatchMapping(value = "/islands/{islandId}/quests/{questId}", consumes = "application/json")
-    public IslandQuestViews.Updated update(@PathVariable String islandId, @PathVariable String questId,
+    public IslandQuestUpdated update(@PathVariable String islandId, @PathVariable String questId,
             @RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -137,7 +141,7 @@ public class IslandQuestController {
 
     /** 회차 정산 (LLD claim) — 주민 누구나. 본문은 정확히 {occurrenceId, expectedVersion}. */
     @PostMapping(value = "/islands/{islandId}/quests/{questId}/claims", consumes = "application/json")
-    public IslandQuestViews.Claimed claim(@PathVariable String islandId, @PathVariable String questId,
+    public IslandQuestClaimed claim(@PathVariable String islandId, @PathVariable String questId,
             @RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);

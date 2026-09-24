@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.aMapWithSize;
 import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -61,13 +62,16 @@ class AccountContractTest extends UpstreamTestBase {
     @Test
     void readsAccountWithSignedSessionProofAndDataEnvelope() throws Exception {
         DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,\"mainIslandId\":null,"
-                + "\"linkedProviders\":[\"apple\",\"kakao\"],\"onboardingComplete\":true}"));
+                + "\"linkedProviders\":[\"apple\",\"kakao\"],\"onboardingComplete\":true,"
+                + "\"auth_generation\":3,\"deleted_at\":null,\"internal_note\":\"private\"}"));
 
         mockMvc.perform(auth(get("/me")).header("X-User-Id", UUID.randomUUID()))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", aMapWithSize(6)))
                 .andExpect(jsonPath("$.data.id").value(USER.toString()))
                 .andExpect(jsonPath("$.data.name").value("수빈"))
                 .andExpect(jsonPath("$.data.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.mainIslandId").value(nullValue()))
                 .andExpect(jsonPath("$.data.linkedProviders[0]").value("apple"))
                 .andExpect(jsonPath("$.data.linkedProviders[1]").value("kakao"))
                 .andExpect(jsonPath("$.data.onboardingComplete").value(true));
@@ -80,19 +84,38 @@ class AccountContractTest extends UpstreamTestBase {
 
     @Test
     void renamesWithAppKeyAndReturnsFourFields() throws Exception {
-        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,\"mainIslandId\":null}"));
+        DATA.on(DATA_PATCH, request -> ok("{\"id\":\"" + USER + "\",\"name\":\"수빈\",\"catColor\":null,"
+                + "\"mainIslandId\":null,\"auth_generation\":3,\"internal_note\":\"private\"}"));
 
         mockMvc.perform(write("{\"name\":\" 수빈 \"}"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", aMapWithSize(4)))
                 .andExpect(jsonPath("$.data.id").value(USER.toString()))
                 .andExpect(jsonPath("$.data.name").value("수빈"))
                 .andExpect(jsonPath("$.data.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.mainIslandId").value(nullValue()))
                 .andExpect(jsonPath("$.data.onboardingComplete").doesNotExist());
 
         var sent = DATA.receivedFor(DATA_PATCH).get(0);
         assertThat(sent.header("Idempotency-Key")).isEqualTo(KEY);
         assertThat(sent.header("X-Session-Id")).isEqualTo(SESSION.toString());
         assertThat(sent.body()).isEqualTo("{\"name\":\" 수빈 \"}");
+    }
+
+    @Test
+    void accountBeforeOnboardingPreservesExplicitNullsAndEmptyProviders() throws Exception {
+        DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":null,\"catColor\":null,"
+                + "\"mainIslandId\":null,\"linkedProviders\":[],\"onboardingComplete\":false}"));
+
+        mockMvc.perform(auth(get("/me")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data", aMapWithSize(6)))
+                .andExpect(jsonPath("$.data.id").value(USER.toString()))
+                .andExpect(jsonPath("$.data.name").value(nullValue()))
+                .andExpect(jsonPath("$.data.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.mainIslandId").value(nullValue()))
+                .andExpect(jsonPath("$.data.linkedProviders").isEmpty())
+                .andExpect(jsonPath("$.data.onboardingComplete").value(false));
     }
 
     @Test
@@ -227,11 +250,11 @@ class AccountContractTest extends UpstreamTestBase {
             "PATCH,400,NICKNAME_INVALID,400,NICKNAME_INVALID,name",
             "PATCH,409,NICKNAME_DUPLICATE,409,NICKNAME_DUPLICATE,name",
             "PATCH,409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "PATCH,503,PROFILE_UPDATE_UNAVAILABLE,503,SERVICE_UNAVAILABLE,-",
+            "PATCH,503,PROFILE_UPDATE_UNAVAILABLE,400,SERVICE_UNAVAILABLE,-",
             "DELETE,400,HOST_WITHDRAW,400,HOST_WITHDRAW,-",
             "DELETE,404,USER_NOT_FOUND,404,USER_NOT_FOUND,-",
             "DELETE,403,SESSION_NOT_ACTIVE,401,UNAUTHORIZED,-",
-            "DELETE,409,HOST_WITHDRAW,502,UPSTREAM_CONTRACT_ERROR,-"})
+            "DELETE,409,HOST_WITHDRAW,400,UPSTREAM_CONTRACT_ERROR,-"})
     void mapsDataVerdictsToPublicErrors(String method, int upstream, String code, int expected, String publicCode,
                                         String field) throws Exception {
         seedPreviewCopies();
@@ -255,13 +278,13 @@ class AccountContractTest extends UpstreamTestBase {
     void foreignSubjectOrMissingFieldsAreContractErrors() throws Exception {
         DATA.on(DATA_GET, request -> ok("{\"id\":\"" + UUID.randomUUID() + "\",\"name\":null,\"catColor\":null,\"mainIslandId\":null,"
                 + "\"linkedProviders\":[],\"onboardingComplete\":false}"));
-        mockMvc.perform(auth(get("/me"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/me"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         DATA.on(DATA_GET, request -> ok("{\"id\":\"" + USER + "\",\"name\":null,\"catColor\":null}"));
-        mockMvc.perform(auth(get("/me"))).andExpect(status().isBadGateway());
+        mockMvc.perform(auth(get("/me"))).andExpect(status().isBadRequest());
         DATA.on(DATA_DELETE, request -> ok("{\"deleted\":false}"));
         seedPreviewCopies();
-        mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\"}")).andExpect(status().isBadGateway());
+        mockMvc.perform(withdraw("{\"confirmation\":\"DELETE\"}")).andExpect(status().isBadRequest());
         assertCopiesUntouched();
     }
 
@@ -298,4 +321,19 @@ class AccountContractTest extends UpstreamTestBase {
     private static MockUpstream.Response ok(String body) {
         return new MockUpstream.Response(200, body);
     }
+    @ParameterizedTest
+    @CsvSource({"get,id name catColor mainIslandId linkedProviders onboardingComplete",
+            "patch,id name catColor mainIslandId"})
+    void publicDocumentationPreservesRequiredFields(String method, String fields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path("/me").path(method).path("responses").path("200").path("content");
+        var ref = content.iterator().next().path("schema").path("$ref").asText();
+        var schema = document.at(ref.substring(1));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+    }
+
 }

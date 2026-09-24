@@ -87,7 +87,7 @@ class FriendContractTest extends UpstreamTestBase {
     void createRejectsEmptyOrIncompleteUpstreamBody(String body) throws Exception {
         DATA.on(DATA_CREATE, request -> ok(body));
         mockMvc.perform(write(post("/friends/requests"), CREATE_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -108,7 +108,7 @@ class FriendContractTest extends UpstreamTestBase {
     void acceptRejectsMismatchedResultingStateAsContractError() throws Exception {
         DATA.on("POST " + INTERNAL + "/friend-requests/" + REQUEST + "/accept", request -> ok(state("PENDING")));
         mockMvc.perform(auth(post("/friends/requests/" + REQUEST + "/accept")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -131,7 +131,7 @@ class FriendContractTest extends UpstreamTestBase {
         assertThat(DATA.hits(DATA_DELETE)).isEqualTo(1);
         DATA.on(DATA_DELETE, request -> ok(""));
         mockMvc.perform(auth(delete("/friends/" + TARGET)))
-                .andExpect(status().isBadGateway());
+                .andExpect(status().isBadRequest());
     }
 
     @Test
@@ -159,7 +159,7 @@ class FriendContractTest extends UpstreamTestBase {
         DATA.on(DATA_FRIENDS, request -> ok("[{\"nickname\":\"x\",\"isPinned\":false,\"isFocusing\":false,"
                 + "\"focusTimeMinutes\":0}]"));
         mockMvc.perform(auth(get("/friends")).queryParam("date", "2026-09-18"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -194,8 +194,8 @@ class FriendContractTest extends UpstreamTestBase {
             "409,DATA_INTEGRITY_VIOLATION,409,STATE_CONFLICT,targetUserId",
             "404,TARGET_USER_NOT_FOUND,404,NOT_FOUND,targetUserId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "409,SELF_REQUEST,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_FRIEND_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "409,SELF_REQUEST,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_FRIEND_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void createMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_CREATE, request -> error(upstreamStatus, code));
@@ -303,7 +303,7 @@ class FriendContractTest extends UpstreamTestBase {
     @ParameterizedTest
     @CsvSource({"400,INVALID_SEARCH_TYPE,400,INVALID_PARAMETER,type",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "400,UNKNOWN_FRIEND_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "400,UNKNOWN_FRIEND_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void searchMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_SEARCH, request -> error(upstreamStatus, code));
@@ -331,8 +331,69 @@ class FriendContractTest extends UpstreamTestBase {
     void searchRejectsIncompleteUpstreamBody(String body) throws Exception {
         DATA.on(DATA_SEARCH, request -> ok(body));
         mockMvc.perform(auth(get("/friends/search")).param("type", "NICKNAME").param("q", "x"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"friends", "received", "sent", "search"})
+    void listProjectionKeepsExactPublicFieldsAndNulls(String kind) throws Exception {
+        String item;
+        String route;
+        MockHttpServletRequestBuilder request;
+        switch (kind) {
+            case "friends" -> {
+                item = FRIEND.replace("\"nickname\":\"짝꿍\"", "\"nickname\":null")
+                        .replace("2026-09-18T01:00:00Z", "2026-09-18T01:00:00.123456+00:00");
+                route = DATA_FRIENDS;
+                request = get("/friends").queryParam("date", "2026-09-18");
+            }
+            case "search" -> {
+                item = SEARCH_HIT.substring(1, SEARCH_HIT.length() - 1);
+                route = DATA_SEARCH;
+                request = get("/friends/search").queryParam("type", "NICKNAME").queryParam("q", "짝꿍");
+            }
+            default -> {
+                item = "{\"requestId\":\"" + REQUEST + "\",\"userId\":\"" + TARGET
+                        + "\",\"nickname\":null,\"tierLevel\":null,\"createdAt\":\"2026-09-18T00:00:00.123456+00:00\"}";
+                route = DATA_REQUESTS;
+                request = get("/friends/requests").queryParam("type", kind);
+            }
+        }
+        String upstream = "[" + item.substring(0, item.length() - 1) + ",\"relation_row_id\":7}]";
+        DATA.on(route, call -> ok(upstream));
+        var result = mockMvc.perform(auth(request)).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
+                .isEqualTo(json.readTree("[" + item + "]"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"/friends,get,,userId isPinned isFocusing focusTimeMinutes",
+            "/friends/requests,get,,requestId userId createdAt",
+            "/friends/search,get,,userId nickname relation",
+            "/blocks,get,,id name"})
+    void publicDocumentationPreservesRequiredFields(String path, String method, String nested, String fields)
+            throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        if (schema.path("type").asText().equals("array")) {
+            schema = schema.path("items");
+        }
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            schema = schema.path("properties").path(nested);
+            if (schema.path("type").asText().equals("array")) {
+                schema = schema.path("items");
+            }
+            schema = document.at(schema.path("$ref").asText().substring(1));
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
     }
 
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {

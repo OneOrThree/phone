@@ -17,6 +17,7 @@ import {
   startFocusSession as apiStart,
 } from '@/services/api/focusSessions';
 import { intentKeyPool, RecordItem, Route, Session, State } from '@/services/model';
+import { captureProductEvent } from '@/services/posthog';
 
 export type FocusApi = {
   current: typeof apiCurrent;
@@ -92,6 +93,8 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     newKey = deps.newKey ?? uuid;
   // 세대 격리 저장소 — 계정·세션이 바뀌면 진행 중 멱등 키를 함께 버린다.
   let box: { gen: number; keys: ReturnType<typeof intentKeyPool> } | null = null;
+  let transitionRevision = 0;
+  let transitioning = 0;
   const scoped = () => {
     const g = generation();
     if (box?.gen !== g) box = { gen: g, keys: intentKeyPool(newKey) };
@@ -140,14 +143,18 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
       throw new ApiError('STATE_CONFLICT', '진행 중인 집중이 없어요.', 409);
     }
     const body = String(session.version),
-      result = await fn(
-        session.id,
-        session.version,
-        scoped().keys.key(`${kind}:${session.id}`, body),
-      );
-    alive(g);
-    scoped().keys.release(`${kind}:${session.id}`, body);
-    return result;
+      key = scoped().keys.key(`${kind}:${session.id}`, body);
+    transitioning += 1;
+    transitionRevision += 1;
+    try {
+      const result = await fn(session.id, session.version, key);
+      alive(g);
+      scoped().keys.release(`${kind}:${session.id}`, body);
+      return result;
+    } finally {
+      transitioning -= 1;
+      transitionRevision += 1;
+    }
   };
   const commands = {
     // 시작 — islandId 는 memberships 의 current 에서만 온다(화면이 고르지 않는다)
@@ -163,6 +170,7 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         alive(g);
         deps.dispatch({ type: 'SESSION_SYNC', session: sessionFromServer(view) });
         scoped().keys.release('start', raw);
+        captureProductEvent('focus_started');
         return view;
       }),
     pause: () =>
@@ -183,6 +191,10 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
         const fromRest = deps.getSession()?.status === 'paused',
           result = await transition('finish', api.finish);
         deps.dispatch({ type: 'SESSION_RESULT', record: recordFromFinish(result), fromRest });
+        captureProductEvent('focus_completed', {
+          duration_seconds: result.activeSeconds,
+          earned_fish: result.earnedFish,
+        });
         return result;
       }),
     // 결과 1회 표시의 확인 — 서버가 조건부 UPDATE 라 재시도·중복 호출이 무해하다.
@@ -200,8 +212,14 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
      */
     recover: async (): Promise<Route | null> => {
       const g = generation();
+      // 폴링 응답이 동시에 진행한 재개·종료 명령의 최신 상태를 되돌리지 않게 한다.
+      if (transitioning)
+        throw new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
+      const revision = transitionRevision;
       const [view, pending] = await Promise.all([api.current(), api.pendingResult()]);
       alive(g);
+      if (transitioning || transitionRevision !== revision)
+        throw new ApiError('CLIENT_RECOVERY_DEFERRED', '집중 상태 전환 중이에요.', 0);
       deps.dispatch({ type: 'SESSION_SYNC', session: view ? sessionFromServer(view) : null });
       if (view) return view.status === 'paused' ? 'rest' : 'focus';
       if (pending) {

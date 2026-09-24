@@ -379,3 +379,30 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
   letter 층 주석이 「결정 3 이 B 로 정해지면 friend 가 letter 를 참조해야 한다」며 비워 둔 자리다.
 - 순서 주의: `friendship.softDelete(now)` **다음에** 벌크 UPDATE 를 부른다. 벌크는
   `clearAutomatically` 라 먼저 부르면 `friendship` 이 준영속이 되어 소프트 삭제가 유실된다.
+
+### 1.18 — 사용자 차단 (GROMO-1975, GROMO-1976 호환)
+
+차단 관계는 기존 `user_blocks(blocker_id, blocked_id)`를 재사용한다. 별도 삭제 표지·마이그레이션은
+만들지 않는다. 방향은 항상 **blocker → blocked** 이며, 상대가 나를 차단한 사실이나 목록은 이 계약으로
+노출하지 않는다.
+
+| 계약 | 요청 | 응답 | 성공 | 오류 |
+| --- | --- | --- | --- | --- |
+| `POST /blocks` | `{blockedUserId: UUID}` | 없음 | 내부 204 / 공개 `{"data": null}` 200 | 400 `SELF_BLOCK`, 404 `TARGET_USER_NOT_FOUND` |
+| `DELETE /blocks/{blockedUserId}` | 없음 | 없음 | 내부 204 / 공개 `{"data": null}` 200 | 요청자 부재만 404 `USER_NOT_FOUND` |
+| `GET /blocks` | 없음 | `[{id, name}]` | 200 | 404 `USER_NOT_FOUND` |
+
+POST와 DELETE는 둘 다 멱등이다. 같은 방향의 차단을 다시 만들거나 이미 해제된 관계를 다시 삭제해도
+성공한다. POST는 blocker·blocked 양쪽을 활성 사용자로 공유 잠금 조회해 탈퇴와 직렬화하고, DELETE는
+탈퇴자가 이미 차단 정리로 사라진 경우도 성공으로 접는다. 탈퇴 처리의 `deleteAllInvolving`은 기존대로
+두 방향 행을 hard delete한다.
+
+GROMO-1975에서 구현한 차단 효과는 친구 관계·편지 원문을 바꾸지 않는 **표시 필터**다.
+
+이 문단은 GROMO-1975에서 구현한 **1단계 범위**다. Fishcat 2.0의 최종 정책은 [RP-차단](../character-report/policy.md#rp-차단--직접-연락-차단과-상대-콘텐츠-숨김)에 따라 양방향 편지 발송·친구 요청을 막고, 차단자가 보는 채팅·댓글·사용자 공지도 숨긴다. 이 후속 범위가 구현되기 전에는 1단계 필터만으로 신고센터 출시 조건을 충족했다고 판단하지 않는다.
+
+- blocker의 `GET /friends`와 `GET /friends/search`에서 `blocked_id`를 제외한다. 반대 방향 목록은 유지한다.
+- blocker의 받은 편지함에서만 차단한 발신자의 편지를 제외한다. 보낸 편지함·`letters` 원문·상세 삭제는
+  건드리지 않으므로, 해제하면 같은 편지가 다시 받은 편지함에 나타난다.
+- Business는 `/blocks/**`를 응답 봉투·nginx 공개 경로에 등록하고 Data 내부 계약은
+  `/internal/users/{userId}/blocks`의 GET·POST 및 `/blocks/{blockedUserId}`의 DELETE로 고정한다.

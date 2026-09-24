@@ -1,0 +1,129 @@
+name: Realtime Dev CD
+
+on:
+  workflow_call:
+    inputs:
+      image_digest:
+        required: true
+        type: string
+      image_revision:
+        required: true
+        type: string
+
+concurrency:
+  group: cd-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: ap-northeast-2
+  AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
+  ENV_SECRET_ID: gromo/dev/env
+  GAR_HOST: asia-northeast3-docker.pkg.dev
+  REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/realtime
+  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, dev]
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: AWS 자격증명 (OIDC, keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: gromo-realtime-dev-${{ github.run_id }}
+          unset-current-credentials: true
+          mask-aws-account-id: true
+
+      - name: dev 런타임 값 갱신 (Secrets Manager → checkout 외부 env)
+        run: |
+          set -euo pipefail
+          test -s "$RUNTIME_ENV_FILE"
+          test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
+          # Realtime 배포가 Data 배포보다 먼저 실행되어도 APP_IMAGE를 되돌리지 않도록 현재
+          # 런타임 파일에 명시된 불변 이미지 참조를 보존하면서 공유 시크릿만 다시 쓴다.
+          # base compose를 직접 읽으면 APP_IMAGE 누락을 :latest 기본값으로 숨길 수 있어,
+          # 필수 보간만 가진 probe로 명시적 값이 있는지 먼저 확인한다.
+          probe="$RUNNER_TEMP/realtime-app-image-probe.yml"
+          python3 - "$probe" <<'PY'
+          import json
+          import sys
+
+          with open(sys.argv[1], "w", encoding="utf-8") as handle:
+              json.dump({"services": {"app": {"image": "${APP_IMAGE:?Data 이미지 digest 필요}"}}}, handle)
+          PY
+          app_image=$(docker compose --env-file "$RUNTIME_ENV_FILE" -f "$probe" config --format json \
+            | jq -er '.services.app.image | select(length > 0)')
+          [[ "$app_image" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]
+          aws secretsmanager get-secret-value \
+            --secret-id "$ENV_SECRET_ID" \
+            --query SecretString --output text \
+          | python3 .github/scripts/write-compose-env.py \
+              --output "$RUNTIME_ENV_FILE" \
+              --app-image "$app_image"
+
+      - name: 배포 입력·런타임 계약 검증
+        env:
+          IMAGE_DIGEST: ${{ inputs.image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]
+          test "$IMAGE_REVISION" = "$GITHUB_SHA"
+          test -s "$RUNTIME_ENV_FILE"
+          test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
+          export REALTIME_IMAGE="$REALTIME_IMAGE_REPOSITORY@$IMAGE_DIGEST" IMAGE_REVISION
+          rendered=$(docker compose --env-file "$RUNTIME_ENV_FILE" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml \
+            config --format json)
+          printf '%s' "$rendered" | jq -e '
+            .services.realtime.environment as $e |
+            ["JWT_SECRET", "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME"] |
+            all(.[]; ($e[.] // "") | length > 0) and
+            (($e.SVC_TOKEN_DATA_TO_REALTIME) != ($e.SVC_TOKEN_BIZ_TO_REALTIME)) and
+            (($e.KAFKA_BOOTSTRAP_SERVERS // "") | length > 0)' >/dev/null
+
+      - name: GAR 인증
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
+            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
+          | jq -er .access_token \
+          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+
+      - name: Realtime 배포
+        env:
+          REALTIME_IMAGE: ${{ env.REALTIME_IMAGE_REPOSITORY }}@${{ inputs.image_digest }}
+          IMAGE_REVISION: ${{ inputs.image_revision }}
+        run: |
+          set -euo pipefail
+          compose=(docker compose --env-file "$RUNTIME_ENV_FILE" \
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml)
+          "${compose[@]}" pull realtime
+          "${compose[@]}" up -d realtime
+          "${compose[@]}" ps realtime
+
+      - name: Realtime readiness
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 60); do
+            if docker exec phone-realtime curl -fsS http://localhost:9091/actuator/health/readiness >/dev/null 2>&1; then
+              echo "Realtime readiness 통과"
+              exit 0
+            fi
+            echo "Realtime 기동 대기 중... ($((i * 5))s)"
+            sleep 5
+          done
+          docker logs --tail=100 phone-realtime
+          exit 1
+
+      - name: 실패 로그
+        if: failure()
+        run: docker logs --tail=100 phone-realtime 2>&1 || true

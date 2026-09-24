@@ -1,5 +1,7 @@
 # 섬 공용 음악 API 설계
 
+앱 화면과 구매 피드백은 [축음기 화면 명세](gramophone-ui.md)를 따른다.
+
 GROMO-1778 설계 / GROMO-1779 구현. 기준 main `529a396`에는 아래 신규 공유 재생 상태가 구현되지 않았다. [요구사항](prd.md), [정책](policy.md), [아키텍처](high-level-design.md), [상세 계약](low-level-design.md), [원본 두 계약](source-contracts.json)을 함께 읽는다. 충돌 시 policy.md가 정본이다.
 
 원본 GROMO-1739 HTML은 154704 bytes, SHA-256 `2b56a4553d75863f1c1db50fd1c1f7123dd21ecf99bac4d38959ad945e9f9c30`이다. 원본 예시는 수정하지 않고 이번 확장 예시를 분리한다. 티켓 산출물의 `shared-playback` 경로 대신 이번 병렬 배정의 `island-playback`을 사용한다.

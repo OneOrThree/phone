@@ -1,6 +1,6 @@
 # GROMO-1670 완료 조건 간극 검토 — 2026-09-24
 
-기준: Jira GROMO-1670 본문과 2026-09-20 범위 변경 댓글, `origin/main` `2bbc9f8b`, 이 브랜치의 `policy.md`·`legal-response.md`·`follow-up-scope.md`.
+기준: Jira GROMO-1670 본문과 2026-09-20 범위 변경 댓글, 2026-09-24에 병합한 `origin/main` `e221cc58`, 이 브랜치의 `policy.md`·`legal-response.md`·`follow-up-scope.md`.
 
 이 문서는 간극을 하나씩 검토하기 위한 작업 목록이다. 기존 RP 결정 13건을 임의로 바꾸거나 아래 질문의 답을 확정하지 않는다. 1670은 **정책·범위 정의 티켓**이고, 실제 신고센터 구현·출시 검증은 후속 작업이다.
 
@@ -20,9 +20,9 @@
 - `origin/main`의 결정 로그 `차단-도입`과 친구 편지 LLD §1.18은 차단을 친구 목록·검색·받은 편지함의 **표시 필터**로 정의한다. GROMO-1975로 `GET·POST /blocks`, `DELETE /blocks/{blockedUserId}` 및 해당 필터가 구현됐다.
 - 이 브랜치의 RP-차단은 **양방향 편지 발송·친구 요청 차단**과 차단자가 보는 **채팅·댓글·공지 숨김**을 확정 정책으로 적었다. `policy.md`는 결정 로그를 우선한다고 명시하므로, 병합 시 두 확정 행을 모순 없이 연결해야 한다.
 - **Plannotator 피드백:** “지금 구현된 백엔드 정책이 출시 최소 조건을 만족했는가? 그렇다면 현재 백엔드 정책을 따라간다.”
-- **검증 결과: 현재 구현만으로는 최소 조건 충족을 판정할 수 없다.** 최신 `main`의 `FriendService.createRequest`와 `InternalLetterService.send`는 차단 관계를 검사하지 않아 차단된 상대에게도 친구 요청·편지 쓰기를 시도할 수 있다. `LetterRepository.findReceivedByCursor`는 받은 편지함 목록에서만 차단 발신자를 거른다. 앱 `src`에는 `/blocks` 소비나 차단 조작 UI가 확인되지 않았다. 서버 API가 있어도 사용자가 앱 안에서 차단할 수 없다.
+- **검증 결과: 현재 구현만으로는 최소 조건 충족을 판정할 수 없다.** 병합한 `main`에서도 `FriendService.createRequest`와 `InternalLetterService.send`는 차단 관계를 검사하지 않아 차단된 상대에게도 친구 요청·편지 쓰기를 시도할 수 있다. `LetterRepository.findReceivedByCursor`는 받은 편지함 목록에서만 차단 발신자를 거른다. 앱 `src`에는 `/blocks` 소비나 차단 조작 UI가 확인되지 않았다. 서버 API가 있어도 사용자가 앱 안에서 차단할 수 없다.
 - [Apple App Review Guideline 1.2](https://developer.apple.com/app-store/review/guidelines/#user-generated-content)는 UGC의 신고·대응과 악성 사용자 차단 수단을 요구한다. [Google Play UGC 정책](https://support.google.com/googleplay/android-developer/answer/9876937?hl=en)은 1:1 상호작용에서 **앱 내** 사용자 차단, 공개 UGC에서 사용자·콘텐츠 신고와 차단을 요구한다. 두 문서 모두 “목록 한 곳의 표시 필터면 충분하다”는 보증을 주지 않는다. 스토어 심사 통과 자체도 이 문서로 확정할 수 없다.
-- **정리 방향:** GROMO-1975의 API·필터는 재사용한다. RP-차단의 직접 연락 차단과 공개 콘텐츠 숨김은 아직 구현되지 않은 후속 범위로 유지한다. 기존 `차단-도입` 행은 당시 구현 범위인 “표시 필터 1단계”로 설명하고, RP-차단이 최종 2.0 정책임을 결정 로그·친구 편지 LLD·신고 정책에서 일치시킨다.
+- **정리 결과:** GROMO-1975의 API·필터는 재사용한다. RP-차단의 직접 연락 차단과 공개 콘텐츠 숨김은 아직 구현되지 않은 후속 범위로 유지한다. 기존 `차단-도입` 행과 친구 편지 LLD §1.18은 당시 구현 범위인 “표시 필터 1단계”로 설명하고, RP-차단이 최종 2.0 정책임을 문서에서 일치시켰다.
 - **사용자 후속 지시:** 앱의 신고·차단 UI는 **별도 Jira 티켓으로 만들어 1670에 연결할 예정**이다. 현재 티켓 번호는 없으며, 이 문서는 티켓을 생성했다고 기록하지 않는다. 1670 자체의 완료 판정에는 UI 구현을 넣지 않되, 2.0 출시 게이트에는 해당 티켓의 구현·검증 완료가 필요하다.
 - 완료 증거: 결정 로그·친구 편지 LLD·신고 정책이 같은 규칙을 가리키고, 현재 구현/남은 구현이 분리되어 있다.
 

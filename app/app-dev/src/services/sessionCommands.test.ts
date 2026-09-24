@@ -180,6 +180,44 @@ test('STATE_CONFLICT — current 재조회로 정본을 맞춘 뒤 원 오류를
   assert.equal(h.calls.at(-1), 'current([])');
 });
 
+test('휴식 자동 종료 후 재개 충돌 — recover 가 미확인 결과를 복구한다', async () => {
+  const h = harness({
+    pause: async () =>
+      view({ status: 'paused', version: 2, restStartedAt: '2026-09-22T01:05:00Z' }),
+    resume: async () => {
+      throw new ApiError('STATE_CONFLICT', '이미 종료된 집중이에요.', 409);
+    },
+    pendingResult: async () => finish(),
+  });
+  h.join();
+  await h.cmds.start({ subject: '수학' });
+  await h.cmds.pause();
+  const error = await h.cmds.resume().catch((e) => e);
+  assert.equal(error.code, 'STATE_CONFLICT');
+  assert.equal(h.state().session, null);
+
+  assert.equal(await h.cmds.recover(), 'focusResult');
+  assert.equal(h.state().lastResult?.ackId, 'sess-1');
+  assert.equal(h.state().resultFromRest, true);
+});
+
+test('늦은 휴식 복구 응답은 동시에 성공한 재개 상태를 덮지 않는다', async () => {
+  let releaseCurrent!: (value: FocusSessionView | null) => void;
+  const h = harness({
+    current: () => new Promise<FocusSessionView | null>((resolve) => (releaseCurrent = resolve)),
+  });
+  h.join();
+  await h.cmds.start({ subject: '수학' });
+  await h.cmds.pause();
+  const recovering = h.cmds.recover().catch((error) => error);
+  await h.cmds.resume();
+  releaseCurrent(view({ status: 'paused', version: 2 }));
+  const error = await recovering;
+  assert.equal(error.code, 'CLIENT_RECOVERY_DEFERRED');
+  assert.equal(h.state().session?.status, 'active');
+  assert.equal(h.state().session?.version, 3);
+});
+
 test('세대가 바뀐 늦은 응답은 CLIENT_STALE_SESSION — state 를 덮지 않는다', async () => {
   let release!: (v: FocusSessionView) => void;
   const h = harness({

@@ -1,6 +1,6 @@
 package com.oneorthree.business.api.dto;
 
-import com.oneorthree.business.upstream.data.dto.IslandSummary;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryView;
 
 import java.util.List;
 import java.util.UUID;
@@ -21,6 +21,6 @@ import java.util.UUID;
  * CHECK(V84)와 같은 불변이고, 어긋난 상류 응답은 {@code IslandMembershipUseCase#myIslands} 가 502 로
  * 끊는다 — 앱에 「섬이 있는데 잃었다」를 내려보내지 않는다.
  */
-public record MyIslandsResponse(List<IslandSummary> items, String nextCursor, UUID currentIslandId,
+public record MyIslandsResponse(List<IslandSummaryView> items, String nextCursor, UUID currentIslandId,
         String lossReason) {
 }

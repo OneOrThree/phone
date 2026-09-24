@@ -1340,13 +1340,35 @@ export function SearchField({
           placeholder={placeholder}
           placeholderTextColor={componentTokens.input.placeholder}
           returnKeyType="search"
-          style={[k.field, sheetInput, { paddingLeft: 14 + SEARCH_ICON }]}
+          style={[
+            k.field,
+            sheetInput,
+            { paddingLeft: 14 + SEARCH_ICON, paddingRight: value ? 50 : 14 },
+          ]}
         />
         <View pointerEvents="none" style={{ position: 'absolute', left: 16, top: 15 }}>
           <Txt aria-hidden style={{ fontSize: 16, lineHeight: 23.2 }}>
             🔍
           </Txt>
         </View>
+        {!!value && (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="검색어 지우기"
+            onPress={() => onChange('')}
+            style={{
+              position: 'absolute',
+              right: 2,
+              top: 3,
+              width: 44,
+              height: 44,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Txt style={{ fontSize: 18, lineHeight: 22, color: C.muted }}>×</Txt>
+          </Pressable>
+        )}
       </View>
     </View>
   );

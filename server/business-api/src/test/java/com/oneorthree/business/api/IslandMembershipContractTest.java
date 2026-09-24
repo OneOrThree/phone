@@ -133,13 +133,13 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("판별자와 알맹이가 어긋난 상류 응답은 502 다")
+    @DisplayName("판별자와 알맹이가 어긋난 상류 응답은 400 다")
     void inconsistentScopeEnvelopeIsAContractError() throws Exception {
         DATA.on(DATA_ISLAND, request -> ok("{\"scope\":\"member\",\"visitor\":" + SUMMARY
                 + ",\"member\":null}"));
 
         mockMvc.perform(auth(get("/islands/" + ISLAND)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -175,7 +175,7 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("현재 섬이 없는 정상 응답은 null 로 통과하고 빈 본문만 502 다")
+    @DisplayName("현재 섬이 없는 정상 응답은 null 로 통과하고 빈 본문만 400 다")
     void nullCurrentIslandPassesButAnEmptyBodyDoesNot() throws Exception {
         DATA.on(DATA_MINE, request -> ok("{\"items\":[],\"currentIslandId\":null}"));
         mockMvc.perform(auth(get("/me/islands")))
@@ -186,7 +186,7 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         DATA.reset();
         DATA.on(DATA_MINE, request -> new MockUpstream.Response(200, ""));
         mockMvc.perform(auth(get("/me/islands")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -209,13 +209,13 @@ class IslandMembershipContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("현재 섬이 있는데 상실 사유가 함께 오면 502 다 — V84 의 CHECK 와 같은 불변식")
+    @DisplayName("현재 섬이 있는데 상실 사유가 함께 오면 400 다 — V84 의 CHECK 와 같은 불변식")
     void aCurrentIslandWithALossReasonIsAContractViolation() throws Exception {
         DATA.on(DATA_MINE, request -> ok("{\"items\":[" + SUMMARY + "],\"currentIslandId\":\""
                 + ISLAND + "\",\"lossReason\":\"LEFT\"}"));
 
         mockMvc.perform(auth(get("/me/islands")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -344,10 +344,10 @@ class IslandMembershipContractTest extends UpstreamTestBase {
             "409,SESSION_IN_PROGRESS,409,STATE_CONFLICT,",
             "409,GROUP_LIMIT_EXCEEDED,409,STATE_CONFLICT,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,MEMBER_ONLY,502,UPSTREAM_CONTRACT_ERROR,",
-            "403,SESSION_IN_PROGRESS,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_ISLAND_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,",
+            "403,SESSION_IN_PROGRESS,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_ISLAND_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_SWITCH, request -> error(upstreamStatus, code));
@@ -447,4 +447,88 @@ class IslandMembershipContractTest extends UpstreamTestBase {
         return new MockUpstream.Response(status,
                 "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"create", "switch", "member", "visitor", "mine", "search", "discover", "requests",
+            "empty-mine", "empty-search", "empty-discover", "empty-requests"})
+    void publicMembershipFieldsRemainStable(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String fixture = switch (operation) {
+            case "create" -> CREATED;
+            case "switch" -> "{\"currentIslandId\":null}";
+            case "member" -> DETAIL;
+            case "visitor" -> SUMMARY;
+            default -> "{\"items\":[" + (operation.endsWith("requests") ? MY_REQUEST_ITEM : SUMMARY)
+                    + "],\"nextCursor\":null}";
+        };
+        var expected = (tools.jackson.databind.node.ObjectNode) json.readTree(fixture);
+        if (operation.startsWith("empty-")) {
+            expected.putArray("items");
+        }
+        if (operation.endsWith("mine")) {
+            expected.putNull("currentIslandId");
+            expected.putNull("lossReason");
+        }
+        var upstream = expected.deepCopy();
+        upstream.remove("nextCursor");
+        if (operation.endsWith("requests")) {
+            upstream.putNull("nextCreatedAt");
+            upstream.putNull("nextRequestId");
+        }
+        if (operation.endsWith("search")) {
+            upstream.putNull("nextIslandId");
+        }
+        if (operation.endsWith("discover")) {
+            upstream.putNull("nextHandle");
+        }
+        String payload = upstream.toString();
+        if (operation.equals("member") || operation.equals("visitor")) {
+            payload = "{\"scope\":\"" + operation + "\",\"" + operation + "\":" + payload + "}";
+        }
+        String decorated = payload.replace("{", "{\"row_id\":\"private\",");
+        String route = operation.endsWith("mine") ? DATA_MINE : operation.endsWith("search") ? DATA_SEARCH
+                : operation.endsWith("discover") ? DATA_DISCOVER : operation.endsWith("requests") ? DATA_MY_REQUESTS
+                : operation.equals("create") ? DATA_CREATE : operation.equals("switch") ? DATA_SWITCH : DATA_ISLAND;
+        DATA.on(route, r -> ok(decorated));
+        var request = switch (operation) {
+            case "create" -> write(post("/islands"), CREATE_BODY);
+            case "switch" -> write(put("/me/current-island"), "{\"islandId\":\"" + ISLAND + "\"}");
+            case "member", "visitor" -> auth(get("/islands/" + ISLAND));
+            default -> auth(get(operation.endsWith("mine") ? "/me/islands"
+                    : operation.endsWith("requests") ? "/me/join-requests"
+                    : operation.endsWith("discover") ? "/islands/discover" : "/islands"));
+        };
+        var result = mockMvc.perform(request).andExpect(status().is(operation.equals("create") ? 201 : 200)).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands|post|200||id membershipStatus role currentIslandId|id membershipStatus role currentIslandId",
+            "/me/current-island|put|200||currentIslandId|currentIslandId",
+            "/me/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands/discover|get|200|items|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/me/join-requests|get|200|items|id islandId islandName memberCount maxMembers status version createdAt|id islandId memberCount maxMembers status version createdAt"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

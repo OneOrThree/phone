@@ -19,12 +19,12 @@ x-infra-logging: &infra-logging
   options: {max-size: "10m", max-file: "3"}
 
 services:
-  app:
+  data-api:
     logging: *app-logging
     image: ${APP_IMAGE:-asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back:latest}
-    container_name: phone-app
+    container_name: phone-data-api
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     environment:
       SPRING_PROFILES_ACTIVE: dev
       API_DB_URL: jdbc:postgresql://db:5432/${POSTGRES_DB}
@@ -59,8 +59,15 @@ services:
       #    redis 가 늦게 뜨면 그동안의 리스 쓰기만 실패하고 로그에 warn 이 남는다.
       #    반대로 chat 은 redis 에 묶는다(docker-compose.realtime.yml) — 그쪽은 하드 의존성이다.
     networks:
-      - app-network
+      app-network:
+        aliases: [app]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
 
   db:
     logging: *infra-logging
@@ -102,6 +109,8 @@ services:
       com.datadoghq.tags.env: "dev"
       com.datadoghq.tags.service: "gromo-redis-dev"
       com.datadoghq.tags.version: "7-alpine"
+      com.datadoghq.ad.checks: >-
+        {"redisdb":{"instances":[{"host":"%%host%%","port":6379,"tags":["env:dev","service:gromo-redis-dev","redis_instance:shared"]}]}}
     networks:
       - app-network
     restart: unless-stopped

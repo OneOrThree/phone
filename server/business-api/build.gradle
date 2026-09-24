@@ -3,6 +3,9 @@ plugins {
 	id 'org.springframework.boot' version '4.0.6'
 	id 'io.spring.dependency-management' version '1.1.7'
 
+	//API 문서화 — GROMO-2069: 서비스별 독립 스펙 생성
+	id "org.springdoc.openapi-gradle-plugin" version "1.9.0"
+
 	// CI: 코드 스타일 + 정적 분석 + 커버리지 (server/chat 과 같은 규율)
 	id 'checkstyle'
 	id 'com.github.spotbugs' version '6.0.18'
@@ -23,6 +26,9 @@ repositories {
 }
 
 dependencies {
+	// API 문서화 — 게시 대상은 public 그룹뿐이다 (OpenApiConfig.publicApi)
+	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.0.2'
+
 	// Spring Web + MVC — 앱이 들어오는 유일한 표면(REST). 내장 Tomcat.
 	implementation 'org.springframework.boot:spring-boot-starter-web'
 	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
@@ -65,6 +71,14 @@ dependencies {
 	testCompileOnly 'org.projectlombok:lombok'
 	testAnnotationProcessor 'org.projectlombok:lombok'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+openApi {
+	apiDocsUrl.set("http://localhost:8080/v0/api-docs/public") // 공개 그룹만 스펙으로 굽는다
+	outputDir.set(file("$buildDir/docs/api/"))
+	outputFileName.set("business-api.openapi.json")
+	// 이 서비스는 DB·JPA 없이 부팅된다 — data-api 의 180초는 Hibernate 대기분이라 여기선 과하다.
+	waitTimeInSeconds.set(60)
 }
 
 tasks.named('test') {

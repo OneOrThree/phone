@@ -7,10 +7,10 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.IslandAppearanceState;
-import com.oneorthree.business.upstream.data.dto.PersonalAppearanceState;
-import com.oneorthree.business.upstream.data.dto.PersonalInventory;
-import com.oneorthree.business.upstream.data.dto.SharedInventory;
+import com.oneorthree.business.usecase.AppearanceUseCase.IslandAppearanceView;
+import com.oneorthree.business.usecase.AppearanceUseCase.PersonalAppearanceView;
+import com.oneorthree.business.usecase.AppearanceUseCase.PersonalInventoryView;
+import com.oneorthree.business.usecase.AppearanceUseCase.SharedInventoryView;
 import com.oneorthree.business.usecase.AppearanceUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -55,14 +55,14 @@ public class AppearanceController {
 
     /** 개인 인벤토리 (LLD §3 GET) — 본인 소유 목록과 현재 외양을 한 스냅샷으로 돌려준다. */
     @GetMapping("/me/inventory")
-    public PersonalInventory myInventory(HttpServletRequest request) {
+    public PersonalInventoryView myInventory(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return appearance.myInventory(claims, deadline());
     }
 
     /** 개인 외양 적용 (LLD §4 PATCH) — 미제출 필드 유지·null 해제·값 적용. */
     @PatchMapping(value = "/me/appearance", consumes = "application/json")
-    public PersonalAppearanceState patchMine(@RequestBody JsonNode body, HttpServletRequest request) {
+    public PersonalAppearanceView patchMine(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         PatchCarrier carrier = carrier(body, PERSONAL_FIELDS);
@@ -71,14 +71,14 @@ public class AppearanceController {
 
     /** 공동 인벤토리 (LLD §3 GET) — 활성 주민만 본다. */
     @GetMapping("/islands/{islandId}/inventory")
-    public SharedInventory islandInventory(@PathVariable String islandId, HttpServletRequest request) {
+    public SharedInventoryView islandInventory(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         return appearance.islandInventory(claims, uuid(islandId), deadline());
     }
 
     /** 공동 외양 적용 (LLD §4 PATCH) — 방장 전용·expectedVersion 낙관 검사. */
     @PatchMapping(value = "/islands/{islandId}/appearance", consumes = "application/json")
-    public IslandAppearanceState patchIsland(@PathVariable String islandId,
+    public IslandAppearanceView patchIsland(@PathVariable String islandId,
             @RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);

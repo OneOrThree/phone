@@ -1,5 +1,7 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -9,11 +11,12 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandJoinRequestsPage;
 import com.oneorthree.business.upstream.data.dto.IslandManaged;
 import com.oneorthree.business.upstream.data.dto.IslandMembersPage;
 import com.oneorthree.business.upstream.data.dto.JoinRequestAnswer;
+import com.oneorthree.business.upstream.data.dto.PersonalAppearanceState;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -90,18 +93,19 @@ public class IslandManagementUseCase {
             Map.entry("HOST_WITHDRAW", new PublicFailure(400, ApiErrorCode.STATE_CONFLICT, null)),
             Map.entry("SESSION_IN_PROGRESS", new PublicFailure(409, ApiErrorCode.STATE_CONFLICT, null)));
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
     /** 섬 정보 수정 (LLD §3.1). {@code fields} 는 앱이 보낸 키만 담는다 — 부재가 «미변경» 이다. */
-    public IslandManaged manage(AccessTokenClaims claims, UUID islandId, Map<String, Object> fields, UUID key,
+    public ManagedIslandView manage(AccessTokenClaims claims, UUID islandId, Map<String, Object> fields, UUID key,
             Deadline deadline) {
         IslandManaged result = relay(() -> data.manageIsland(claims.userId(), islandId, fields, key, deadline),
                 MANAGE);
         if (result == null || !islandId.equals(result.id()) || result.version() < 0) {
             throw new UpstreamContractMismatchException("섬 정보 수정 응답이 요청과 다릅니다");
         }
-        return result;
+        return new ManagedIslandView(result.id(), result.name(), result.intro(), result.approvalRequired(),
+                result.maxMembers(), result.version());
     }
 
     /**
@@ -121,7 +125,7 @@ public class IslandManagementUseCase {
         }
         String next = page.nextJoinedAt() == null ? null : codec().encode(scope,
                 new CursorBoundary(page.nextJoinedAt().toString(), page.nextMembershipId().toString()));
-        return new MembersPage(page.items(), next, page.version());
+        return new MembersPage(page.items().stream().map(IslandMemberView::from).toList(), next, page.version());
     }
 
     /** 신청자 목록 (LLD §3.3) — 방장 전용. 403 을 빈 목록으로 접지 않는다. */
@@ -138,11 +142,11 @@ public class IslandManagementUseCase {
         }
         String next = page.nextCreatedAt() == null ? null : codec().encode(scope,
                 new CursorBoundary(page.nextCreatedAt().toString(), page.nextRequestId().toString()));
-        return new JoinRequestsPage(page.items(), next);
+        return new JoinRequestsPage(page.items().stream().map(IslandJoinRequestView::from).toList(), next);
     }
 
     /** 가입 요청 승인·거절 (LLD §3.4). 승인이면 {@code memberId} 가 있고 거절이면 null 이다. */
-    public JoinRequestAnswer answer(AccessTokenClaims claims, UUID islandId, UUID requestId, boolean approve,
+    public JoinRequestAnswerView answer(AccessTokenClaims claims, UUID islandId, UUID requestId, boolean approve,
             UUID key, Deadline deadline) {
         JoinRequestAnswer result = relay(() -> data.answerJoinRequest(claims.userId(), islandId, requestId,
                 approve ? "approve" : "reject", key, deadline), ANSWER);
@@ -152,7 +156,7 @@ public class IslandManagementUseCase {
         if (!shaped) {
             throw new UpstreamContractMismatchException("가입 요청 처리 응답의 상태와 필드가 어긋납니다");
         }
-        return result;
+        return new JoinRequestAnswerView(result.status(), result.memberId(), result.version());
     }
 
     /** 주민 강퇴 (LLD §3.6). */
@@ -241,11 +245,62 @@ public class IslandManagementUseCase {
     }
 
     /** 공개 주민 목록 한 페이지 — {@code nextCursor} 는 서명 토큰, {@code version} 은 목록 버전이다. */
-    public record MembersPage(List<IslandMembersPage.Item> items, String nextCursor, long version) {
+    public record MembersPage(List<IslandMemberView> items, String nextCursor, long version) {
     }
 
     /** 공개 신청자 목록 한 페이지. */
-    public record JoinRequestsPage(List<IslandJoinRequestsPage.Item> items, String nextCursor) {
+    public record JoinRequestsPage(List<IslandJoinRequestView> items, String nextCursor) {
+    }
+
+    public record ManagedIslandView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) String name,
+            @JsonProperty(required = true) String intro,
+            @JsonProperty(required = true) boolean approvalRequired,
+            @JsonProperty(required = true) int maxMembers,
+            @JsonProperty(required = true) long version) {
+    }
+
+    public record JoinRequestAnswerView(
+            @JsonProperty(required = true) String status,
+            @JsonInclude(JsonInclude.Include.ALWAYS) UUID memberId,
+            @JsonProperty(required = true) long version) {
+    }
+
+    public record IslandMemberView(
+            @JsonProperty(required = true) UUID id,
+            String name,
+            String catColor,
+            @JsonProperty(required = true) String role,
+            @JsonProperty(required = true) MemberAppearanceView appearance) {
+        private static IslandMemberView from(IslandMembersPage.Item item) {
+            return item == null ? null : new IslandMemberView(item.id(), item.name(), item.catColor(), item.role(),
+                    MemberAppearanceView.from(item.appearance()));
+        }
+    }
+
+    public record MemberAppearanceView(
+            @JsonProperty(required = true) String clothes,
+            @JsonProperty(required = true) String decor,
+            @JsonProperty(required = true) String hull,
+            @JsonProperty(required = true) String position,
+            @JsonProperty(required = true) long version) {
+        private static MemberAppearanceView from(PersonalAppearanceState appearance) {
+            return new MemberAppearanceView(appearance.clothes(), appearance.decor(), appearance.hull(),
+                    appearance.position(), appearance.version());
+        }
+    }
+
+    public record IslandJoinRequestView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) UUID applicantId,
+            String name,
+            @JsonProperty(required = true) String status,
+            @JsonProperty(required = true) long version) {
+        private static IslandJoinRequestView from(IslandJoinRequestsPage.Item item) {
+            return item == null ? null : new IslandJoinRequestView(item.id(), item.applicantId(), item.name(),
+                    item.status(), item.version());
+        }
     }
 
     /** 강퇴 결과 {@code {removed:true}}. */

@@ -5,6 +5,8 @@ import type {
   MyJoinRequest,
   VisitScreen,
 } from '@/services/api/islands';
+import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
+import type { PlaybackState } from '@/services/api/playback';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -186,8 +188,14 @@ export type Island = {
   theme: string;
   buildingTheme: string;
   buildingThemes?: Record<string, string>;
-  track: string;
+  track: string | null;
   playing: boolean;
+  /** 서버 공용 재생 전체 상태. null trackId도 명시적인 미선택 상태로 보존한다. */
+  serverPlayback?: PlaybackState;
+  /** serverPlayback을 단말에서 관측한 시각. 서버 시계 기준 위치를 현재 시각으로 보정한다. */
+  serverPlaybackObservedAtMs?: number;
+  /** 사용자가 정지 버튼을 누른 횟수. 플레이어가 일시정지와 구분해 재생 위치를 초기화한다. */
+  playbackReset?: number;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
   // 우리 섬 채팅방을 마지막으로 연 시각. 이후 다른 주민 글이 새 글이다
   chatReadAt?: number;
@@ -253,13 +261,16 @@ export type State = {
   settings: {
     notifications: boolean;
     sound: boolean;
+    volume?: number;
     reduceMotion: boolean;
     publicRecords: boolean;
     permission: boolean;
     haptics: boolean;
     screenTimeBoardPromptSeen?: boolean;
     screenTimeMeasurementReady?: boolean;
+    screenTimeMeasurementDay?: string;
     screenTimeHistoryReady?: boolean;
+    screenTimeHistoryDay?: string;
   };
   islands: Island[];
   session: Session | null;
@@ -399,6 +410,12 @@ export const kstDayStart = (day: string) => {
   const [year, month, date] = day.split('-').map(Number);
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
 };
+export const trackNames: Record<string, string> = {
+  waves: '잔잔한 파도',
+  campfire: '모닥불 소리',
+  'forest-wind': '숲바람',
+  rain: '빗방울 소리',
+};
 export const products: Product[] = [
   {
     id: 'scarf',
@@ -436,9 +453,9 @@ export const products: Product[] = [
   },
   {
     id: 'rain',
-    title: '오두막의 빗소리',
+    title: '빗방울 소리',
     kind: 'audio',
-    price: 150,
+    price: 30,
     currency: 'fish',
     description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
   },
@@ -681,6 +698,7 @@ export function initialState(full = false): State {
     settings: {
       notifications: true,
       sound: true,
+      volume: 0.55,
       reduceMotion: false,
       publicRecords: true,
       permission: full,
@@ -899,6 +917,7 @@ export function questRate(s: State, q: Quest, islandId = s.islandId): number | n
   if (q.type === 'screen')
     return !s.settings.permission ||
       !s.settings.screenTimeMeasurementReady ||
+      (!!s.settings.screenTimeMeasurementDay && s.settings.screenTimeMeasurementDay !== dayKey()) ||
       s.screenTimeUnconfirmedDays?.includes(dayKey())
       ? null
       : s.screenMinutes <= q.target
@@ -1086,6 +1105,8 @@ export function questMemberRate(
       id === 'me'
         ? s.settings.permission &&
           s.settings.screenTimeMeasurementReady &&
+          (!s.settings.screenTimeMeasurementDay ||
+            s.settings.screenTimeMeasurementDay === dayKey(now)) &&
           !s.screenTimeUnconfirmedDays?.includes(dayKey(now))
           ? s.screenMinutes
           : null
@@ -1158,7 +1179,13 @@ function evaluateQuests(s: State, now: number) {
       ensureQuestRound(i, q, today);
       for (const [day, round] of Object.entries(q.rounds)) {
         if (day > today) continue;
-        if (round.kind === 'screen' && day < today && !s.settings.screenTimeHistoryReady) continue;
+        if (
+          round.kind === 'screen' &&
+          day < today &&
+          (!s.settings.screenTimeHistoryReady ||
+            (s.settings.screenTimeMeasurementDay && s.settings.screenTimeHistoryDay !== today))
+        )
+          continue;
         if (round.kind === 'screen' && s.screenTimeUnconfirmedDays?.includes(day)) continue;
         for (const id of round.targets) {
           const member = memberOf(i, id);
@@ -1489,6 +1516,9 @@ export function reducer(state: State, a: Action): State {
       if (s.visitingIslandId && !ids.has(s.visitingIslandId)) s.visitingIslandId = null;
       // current가 null인데 items만 있으면 소속을 단정하지 않는다 — fail closed
       s.onboarded = my.currentIslandId != null;
+      // /me 정본의 메인 섬 — 실렸을 때만 갈아 끼운다(explore 등 안 싣는 발신자는 현재 값 유지).
+      // 로컬 islands 에 없는 서버 id 도 그대로 둔다 — mainIsland() 선택자가 fallback 을 처리한다.
+      if (a.mainIslandId !== undefined) s.mainIslandId = a.mainIslandId as string | null;
       break;
     }
     case 'SERVER_VILLAGE_POINTS': {
@@ -1506,6 +1536,69 @@ export function reducer(state: State, a: Action): State {
       // 수령량을 더하지 않고 getBoard 지갑 정본으로 교체한다.
       target.fish = value;
       target.villagePointsVersion = version;
+      break;
+    }
+    case 'SHOP_SYNC': {
+      // GROMO-2017 — 서버 상점/인벤토리 응답 조각을 로컬 표시 상태에 옮긴다.
+      // 가져온 조각만 갈아 끼우고, 지갑은 낮은 버전 스냅숏을 거절한다.
+      const target = s.islands.find((island) => island.id === a.islandId);
+      if (a.wallets && target) {
+        const value = Number(a.wallets.villagePoints),
+          version = Number(a.wallets.villagePointsVersion);
+        if (
+          Number.isFinite(value) &&
+          value >= 0 &&
+          Number.isInteger(version) &&
+          version >= (target.villagePointsVersion ?? -1)
+        ) {
+          target.fish = value;
+          target.villagePointsVersion = version;
+        }
+      }
+      if (a.sharedInventory && target) {
+        const inv = a.sharedInventory as SharedInventory;
+        target.sharedOwned = [
+          ...inv.audio,
+          ...inv.islandThemes,
+          ...inv.buildingThemes.map((theme) => theme.themeId),
+        ];
+        target.theme = inv.appearance.islandThemeId;
+        target.buildingThemes = { ...inv.appearance.buildingThemes };
+        target.buildingTheme = Object.values(inv.appearance.buildingThemes).some(
+          (theme) => theme !== 'default',
+        )
+          ? 'custom'
+          : 'default';
+      }
+      if (a.myInventory) {
+        const inv = a.myInventory as PersonalInventory;
+        s.owned = [...inv.clothes, ...inv.decor];
+        s.equipped = {
+          clothes: inv.equipped.clothes ?? 'default',
+          decor: inv.equipped.decor ?? 'none',
+          hull: inv.equipped.hull,
+          position: inv.equipped.position,
+        };
+      }
+      break;
+    }
+    case 'PLAYBACK_SYNC': {
+      const target = s.islands.find((island) => island.id === a.islandId);
+      if (!target) return state;
+      const playback = a.playback as PlaybackState;
+      if (
+        !playback ||
+        !Number.isSafeInteger(playback.version) ||
+        (target.serverPlayback && playback.version < target.serverPlayback.version)
+      )
+        return state;
+      const wasPlaying = target.playing;
+      target.serverPlayback = playback;
+      target.serverPlaybackObservedAtMs =
+        typeof a.observedAtMs === 'number' ? a.observedAtMs : Date.now();
+      target.track = playback.trackId;
+      target.playing = playback.trackId !== null && playback.playing;
+      if (wasPlaying && !target.playing) target.playbackReset = (target.playbackReset ?? 0) + 1;
       break;
     }
     case 'ISLAND_CANDIDATES': {
@@ -1722,6 +1815,8 @@ export function reducer(state: State, a: Action): State {
       if (
         s.settings.permission &&
         s.settings.screenTimeMeasurementReady &&
+        (!s.settings.screenTimeMeasurementDay ||
+          s.settings.screenTimeMeasurementDay === dayKey(now)) &&
         !s.screenTimeUnconfirmedDays?.includes(dayKey(now))
       ) {
         s.screenDays ??= {};
@@ -1939,7 +2034,13 @@ export function reducer(state: State, a: Action): State {
       }
       break;
     case 'PLAY':
-      if (i.buildings.includes('gram')) i.playing = !!a.value;
+      if (
+        i.buildings.includes('gram') &&
+        (!a.value || (typeof i.track === 'string' && i.sharedOwned.includes(i.track)))
+      ) {
+        i.playing = !!a.value;
+        if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
+      }
       break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;
@@ -2027,6 +2128,28 @@ export function reducer(state: State, a: Action): State {
       delete s.membershipRecovery;
       break;
     }
+    case 'SCREEN_TIME_SNAPSHOT': {
+      const snapshot = a.snapshot;
+      s.settings.permission = snapshot.approved;
+      s.settings.screenTimeMeasurementDay = snapshot.date;
+      s.settings.screenTimeMeasurementReady =
+        snapshot.approved &&
+        snapshot.minutes !== null &&
+        snapshot.date === dayKey(now) &&
+        !snapshot.unconfirmedDays.includes(snapshot.date) &&
+        !s.screenTimeUnconfirmedDays?.includes(snapshot.date);
+      s.settings.screenTimeHistoryReady = false;
+      s.settings.screenTimeHistoryDay = snapshot.date;
+      if (snapshot.minutes !== null) s.screenMinutes = snapshot.minutes;
+      // 미확인 날짜를 먼저 적용한 뒤 과거 기록을 정산한다. 중간 상태로 0분 보상이 나가면 안 된다.
+      const marked = reducer(s, {
+        type: 'SCREEN_TIME_UNCONFIRMED',
+        days: snapshot.unconfirmedDays,
+      });
+      return snapshot.approved && snapshot.minutes !== null
+        ? reducer(marked, { type: 'SCREEN_TIME_HISTORY', buckets: snapshot.history, now })
+        : marked;
+    }
     case 'SCREEN_TIME':
       s.screenMinutes = Math.max(0, a.value);
       break;
@@ -2069,6 +2192,21 @@ export function reducer(state: State, a: Action): State {
       s.serverIslands = null;
       break;
     // ── 친구·편지 ──
+    case 'FRIENDS_SYNC': {
+      const previous = new Map((s.friends ?? []).map((friend) => [friend.id, friend]));
+      s.friends = (a.friends as Friend[]).map((friend) => {
+        const before = previous.get(friend.id);
+        return {
+          ...friend,
+          // 서버에서 관계가 끊긴 뒤 재신청된 사용자는 새 관계다. 이전 편지를 되살리지 않는다.
+          messages:
+            before?.status === 'friend' && friend.status === 'friend'
+              ? before.messages
+              : (friend.messages ?? []),
+        };
+      });
+      break;
+    }
     case 'FRIEND_REQUEST': {
       s.friends ??= [];
       const f = s.friends.find((f) => f.id === a.id);

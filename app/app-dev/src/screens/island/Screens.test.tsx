@@ -5,16 +5,34 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { BackHandler, StyleSheet } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
+let mockFontScale = 1;
+jest.mock('@/services/api/account', () => ({
+  updateProfile: jest.fn(),
+  withdrawAccount: jest.fn(),
+}));
+const mockUpdateProfile = updateProfile as jest.Mock;
+const mockWithdrawAccount = withdrawAccount as jest.Mock;
+const notifyMock = jest.fn();
+const backMock = jest.fn();
+beforeEach(() => {
+  mockUpdateProfile.mockReset();
+  mockWithdrawAccount.mockReset();
+  notifyMock.mockClear();
+  backMock.mockClear();
+});
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
     width: 402,
     height: 874,
+    fontScale: mockFontScale,
     compact: false,
     tablet: false,
     modalWidth: 340,
@@ -52,8 +70,23 @@ const pendingReq = (over: Record<string, unknown> = {}) => ({
 });
 
 // 실제 reducer 로 state 를 돌리고 api 목이 dispatch 까지 하게 만든다(App orchestration 축약본).
-function Harness({ route, api, expose, seed, bootError, detail: detailProp }: any) {
-  const [state, baseDispatch] = useReducer(reducer, undefined, () => initialState(false));
+function Harness({
+  route,
+  api,
+  expose,
+  seed,
+  initial,
+  bootError,
+  startGuest,
+  guestError,
+  detail: detailProp,
+  full = false,
+}: any) {
+  const [state, baseDispatch] = useReducer(
+    reducer,
+    initial,
+    (value) => value ?? initialState(full),
+  );
   const actions = useRef<string[]>([]);
   const dispatch = useMemo(() => {
     const d = (a: any) => {
@@ -64,13 +97,17 @@ function Harness({ route, api, expose, seed, bootError, detail: detailProp }: an
   }, []);
   const [text, setText] = useState(''),
     [body, setBody] = useState(''),
+    [terms, setTerms] = useState(false),
     [approval, setApproval] = useState(false),
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
   const go = useRef(jest.fn()).current;
+  const reset = useRef(jest.fn()).current;
+  const signOut = useRef(jest.fn(async () => {})).current;
+  const confirm = useRef(jest.fn((_title, _body, ok) => ok())).current;
   useEffect(() => {
     seed?.(dispatch);
-    expose?.({ dispatch, actions: actions.current, go });
+    expose?.({ dispatch, actions: actions.current, go, reset, signOut });
   }, []);
   return (
     <RedesignScreens
@@ -80,11 +117,12 @@ function Harness({ route, api, expose, seed, bootError, detail: detailProp }: an
         dispatch,
         go,
         replace: jest.fn(),
-        reset: jest.fn(),
+        reset,
         home: jest.fn(),
-        back: jest.fn(),
-        notify: jest.fn(),
-        confirm: jest.fn(),
+        back: backMock,
+        notify: notifyMock,
+        confirm,
+        signOut,
         build: jest.fn(),
         text,
         setText,
@@ -94,8 +132,10 @@ function Harness({ route, api, expose, seed, bootError, detail: detailProp }: an
         setTab: jest.fn(),
         detail,
         now: Date.now(),
-        terms: {},
-        setTerms: jest.fn(),
+        terms,
+        setTerms,
+        startGuest,
+        guestError,
         approval,
         setApproval,
         visited: '',
@@ -115,10 +155,34 @@ function Harness({ route, api, expose, seed, bootError, detail: detailProp }: an
   );
 }
 
+test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 로컬 LOGIN은 하지 않는다', async () => {
+  const startGuest = jest.fn();
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="login"
+      startGuest={startGuest}
+      guestError="게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요."
+      expose={(value: any) => (exposed = value)}
+    />,
+  );
+
+  assert.ok(screen.getByText('게스트 계정을 열지 못했어요. 잠시 후 다시 시도해 주세요.'));
+  await fireEvent.press(screen.getByText('게스트로 시작하기'));
+  assert.equal(startGuest.mock.calls.length, 0);
+  await fireEvent.press(screen.getByRole('checkbox'));
+  await fireEvent.press(screen.getByText('게스트로 시작하기'));
+  assert.equal(startGuest.mock.calls.length, 1);
+  assert.equal(exposed.actions.includes('LOGIN'), false);
+});
+
 const flush = async () => act(async () => {});
 
 // 서버 폴링·진행 중 Promise가 다음 테스트를 오염시키지 않게 매번 언마운트한다
-afterEach(cleanup);
+afterEach(() => {
+  mockFontScale = 1;
+  cleanup();
+});
 
 test('joinIsland 진입 시 explore를 호출하고 실패하면 오류+재시도를 보여준다', async () => {
   let calls = 0;
@@ -556,4 +620,330 @@ test('초대 코드가 없으면 resolve 오류를 코드별 문구로 보여준
   await fireEvent.changeText(s.getByLabelText('초대 코드'), 'WRONG');
   await fireEvent.press(s.getByLabelText('확인'));
   await waitFor(() => s.getByText('초대 코드를 다시 확인해 주세요.'));
+});
+
+test('축음기에서 판매곡을 구매한 뒤 바로 공용 재생한다', async () => {
+  let exposed: any;
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 10_000;
+  const s = await render(
+    <Harness route="sound" initial={state} expose={(value: any) => (exposed = value)} />,
+  );
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  s.getByText('빗방울 소리를 구매할까요?');
+  const background = s.getByTestId('sound-background-content', {
+    includeHiddenElements: true,
+  });
+  assert.equal(background.props.importantForAccessibility, 'no-hide-descendants');
+  assert.equal(background.props.pointerEvents, 'none');
+  await fireEvent.press(s.getByText('30마리로 구매'));
+  s.getByText('구매했어요');
+  await fireEvent.press(s.getByText('지금 재생하기'));
+  assert.ok(exposed.actions.includes('BUY'));
+  assert.ok(exposed.actions.includes('TRACK'));
+});
+
+test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 높이를 고정하지 않는다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+  assert.ok(StyleSheet.flatten(s.getByLabelText('재생').props.style).height >= 44);
+  assert.ok(StyleSheet.flatten(s.getByLabelText('섬으로 돌아가기').props.style).width >= 44);
+  assert.ok(
+    StyleSheet.flatten(s.getByLabelText('빗방울 소리, 30마리로 구매').props.style).minHeight >= 44,
+  );
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-current-track').props.style).height,
+    undefined,
+  );
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-track-title-rain').props.style).flexShrink,
+    1,
+  );
+  const statusStyle = StyleSheet.flatten(s.getByTestId('sound-track-status-rain').props.style);
+  assert.equal(statusStyle.flexShrink, 1);
+  assert.equal(statusStyle.maxWidth, '45%');
+});
+
+test('보유곡이 없으면 재생을 막고 빈 상태를 표시한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = [];
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByText('보유한 곡이 없어요');
+  s.getByText('곡을 구매해 주세요');
+  assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
+});
+
+test('현재 곡을 보유하지 않았으면 다른 보유곡이 있어도 재생을 막는다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['rain'];
+  state.islands[0].track = 'waves';
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByText('재생할 곡을 골라 주세요');
+  assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, true);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 보유'));
+  await waitFor(() =>
+    assert.equal(s.getByLabelText('재생').props.accessibilityState.disabled, false),
+  );
+});
+
+test('집중 중 축음기는 보유곡만 표시하고 복귀 목적지를 정확히 안내한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['waves'];
+  state.session = {
+    id: 'focus-1',
+    islandId: state.islands[0].id,
+    subject: '수학',
+    startedAt: 1000,
+    seconds: 0,
+    status: 'active',
+  };
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByLabelText('집중으로 돌아가기');
+  s.getByLabelText('잔잔한 파도, 보유');
+  assert.equal(s.queryByLabelText('빗방울 소리, 30마리로 구매'), null);
+});
+
+test('공동 보유품 중 실제 음원만 축음기 목록에 표시한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].sharedOwned = ['waves', 'pine'];
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  s.getByLabelText('잔잔한 파도, 보유');
+  assert.equal(s.queryByText('pine'), null);
+});
+
+test('축음기에서 내 기기 음량을 조절한다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+  const volume = s.getByLabelText('내 기기 음량');
+
+  assert.equal(volume.props.accessibilityValue.now, 55);
+  await fireEvent(volume, 'accessibilityAction', {
+    nativeEvent: { actionName: 'increment' },
+  });
+  await waitFor(() =>
+    assert.equal(s.getByLabelText('내 기기 음량').props.accessibilityValue.now, 65),
+  );
+});
+
+test('큰 글자에서는 구매 창을 스크롤하고 동작 버튼을 세로로 배치한다', async () => {
+  mockFontScale = 1.5;
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 100;
+  const s = await render(<Harness route="sound" initial={state} />);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+
+  assert.ok(StyleSheet.flatten(s.getByTestId('sound-dialog-card').props.style).maxHeight > 0);
+  assert.equal(StyleSheet.flatten(s.getByTestId('sound-dialog-scroll').props.style).flexShrink, 1);
+  assert.equal(
+    StyleSheet.flatten(s.getByTestId('sound-dialog-actions').props.style).flexDirection,
+    'column',
+  );
+  const purchaseStyle = StyleSheet.flatten(s.getByLabelText('30마리로 구매').props.style);
+  assert.equal(purchaseStyle.height, undefined);
+  assert.ok(purchaseStyle.minHeight >= 52);
+  await fireEvent.press(s.getByLabelText('30마리로 구매'));
+  const successStyle = StyleSheet.flatten(s.getByLabelText('지금 재생하기').props.style);
+  assert.equal(successStyle.height, undefined);
+  assert.ok(successStyle.minHeight >= 52);
+});
+
+test('Android 뒤로가기는 축음기 구매 창만 닫는다', async () => {
+  const handlers: Array<Parameters<typeof BackHandler.addEventListener>[1]> = [];
+  const remove = jest.fn();
+  const backSpy = jest.spyOn(BackHandler, 'addEventListener').mockImplementation((_, handler) => {
+    handlers.push(handler);
+    return { remove };
+  });
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  await waitFor(() => assert.equal(handlers.length, 1));
+  await act(async () => assert.equal(handlers[0]({} as never), true));
+  await waitFor(() => assert.equal(s.queryByText('빗방울 소리를 구매할까요?'), null));
+
+  backSpy.mockRestore();
+});
+
+test('축음기 음원 구매 잔액이 부족하면 수량 없이 실패만 알린다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  state.islands[0].fish = 0;
+  const s = await render(<Harness route="sound" initial={state} />);
+  await fireEvent.press(s.getByLabelText('빗방울 소리, 30마리로 구매'));
+  await fireEvent.press(s.getByText('30마리로 구매'));
+  s.getByText('물고기가 부족해요');
+  assert.equal(s.queryByText(/더 필요해요/), null);
+  assert.equal(s.queryByText(/지금 섬에는/), null);
+});
+
+test('친구 관리는 검색과 요청·친구 목록을 한 화면에서 이어서 보여준다', async () => {
+  const s = await render(<Harness route="friends" full />);
+
+  s.getByLabelText('닉네임으로 친구 찾기');
+  s.getByText('받은 요청');
+  s.getByText('보낸 요청');
+  s.getByText('친구');
+  s.getByText('수락');
+  s.getByText('거절');
+  assert.equal(s.queryByText('닉네임이 정확히 일치하는 친구만 보여요.'), null);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임으로 친구 찾기'), '하늘');
+  s.getByText('검색 결과');
+  s.getByLabelText('검색어 지우기');
+});
+
+test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.press(s.getByText('앱 권한 관리'));
+  assert.equal(exposed.go.mock.calls[0][0], 'permission');
+  assert.equal(exposed.go.mock.calls[0][1], 'settings');
+  assert.equal(s.queryByText('측정 권한'), null);
+  assert.equal(s.queryByText('측정 앱'), null);
+});
+
+test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
+  let exposed: any;
+  let release: (v: unknown) => void = () => {};
+  mockUpdateProfile.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
+  await fireEvent.press(s.getByText('저장'));
+  await fireEvent.press(s.getByText('저장'));
+  assert.equal(mockUpdateProfile.mock.calls.length, 1);
+  // 본문은 trim 된 닉네임과 현재 고양이 색 — 서버 계약 키만 보낸다
+  assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: '구름이', catColor: 'black' });
+  assert.ok(!exposed.actions.includes('PROFILE'));
+
+  await act(async () =>
+    release({ id: 'u1', name: '구름이', catColor: 'calico', mainIslandId: 'i1' }),
+  );
+  await waitFor(() => assert.ok(exposed.actions.includes('PROFILE')));
+  // 저장본이 정본 — 응답의 name/catColor 가 로컬을 덮는다
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    true,
+  );
+  assert.equal(backMock.mock.calls.length, 1);
+});
+
+test('프로필 저장 실패는 PROFILE·뒤로가기·성공 문구 없이 서버 오류 문구만 알린다', async () => {
+  let exposed: any;
+  mockUpdateProfile.mockRejectedValue(
+    new ApiError('NICKNAME_DUPLICATE', '이미 쓰는 닉네임이에요.', 409),
+  );
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() =>
+    assert.ok(notifyMock.mock.calls.some((c) => c[0] === '이미 쓰는 닉네임이에요.')),
+  );
+  assert.ok(!exposed.actions.includes('PROFILE'));
+  assert.equal(backMock.mock.calls.length, 0);
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    false,
+  );
+
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 2));
+  assert.equal(mockUpdateProfile.mock.calls[0][1], mockUpdateProfile.mock.calls[1][1]);
+});
+
+test('프로필 저장 중에는 후속 편집을 받지 않는다', async () => {
+  let release: (v: unknown) => void = () => {};
+  mockUpdateProfile.mockImplementation(() => new Promise((resolve) => (release = resolve)));
+  const s = await render(<Harness route="profile" full api={() => ({})} />);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '구름이');
+  await fireEvent.press(s.getByText('저장'));
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '바다');
+
+  assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+  await act(async () =>
+    release({ id: 'u1', name: '구름이', catColor: 'black', mainIslandId: 'i1' }),
+  );
+});
+
+test('목업 모드 프로필 저장은 API 없이 로컬 PROFILE을 갱신한다', async () => {
+  let exposed: any;
+  const s = await render(<Harness route="profile" full expose={(x: any) => (exposed = x)} />);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '  구름이  ');
+  await fireEvent.press(s.getByText('저장'));
+
+  assert.equal(mockUpdateProfile.mock.calls.length, 0);
+  assert.ok(exposed.actions.includes('PROFILE'));
+  assert.equal(
+    notifyMock.mock.calls.some((c) => c[0] === '저장했어요.'),
+    true,
+  );
+  assert.equal(backMock.mock.calls.length, 1);
+});
+
+test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로그인 이동을 수행한다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
+  await waitFor(() => assert.equal(exposed.signOut.mock.calls.length, 1));
+  assert.ok(exposed.actions.includes('DELETE_ACCOUNT'));
+  assert.equal(exposed.reset.mock.calls[0][0], 'login');
+});
+
+test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 오류를 알린다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockRejectedValue(new ApiError('STATE_CONFLICT', '탈퇴할 수 없어요.', 409));
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  await fireEvent.press(s.getByText('회원 탈퇴'));
+  await waitFor(() =>
+    assert.ok(
+      notifyMock.mock.calls.some(
+        (c) => c[0] === '섬 정보가 바뀌었어요. 최신 상태로 다시 시도해 주세요.',
+      ),
+    ),
+  );
+  assert.equal(exposed.signOut.mock.calls.length, 0);
+  assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
+  assert.equal(exposed.reset.mock.calls.length, 0);
 });

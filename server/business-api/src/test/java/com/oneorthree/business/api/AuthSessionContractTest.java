@@ -122,7 +122,7 @@ class AuthSessionContractTest extends UpstreamTestBase {
     void rejectsUpstreamResultMissingAnyCredential(String template) throws Exception {
         DATA.on(DATA_EXECUTE, request -> ok(template.formatted(USER)));
         mockMvc.perform(login(APPLE_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
@@ -468,8 +468,25 @@ class AuthSessionContractTest extends UpstreamTestBase {
     void treatsCodelessUpstream401AsServiceCredentialRejection() throws Exception {
         DATA.on(DATA_EXECUTE, request -> new MockUpstream.Response(401, "{\"error\":\"denied\"}"));
         mockMvc.perform(login(APPLE_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_AUTH_FAILED"));
+    }
+
+    /**
+     * 승격 경쟁의 패자는 <b>409 {@code GUEST_ALREADY_PROMOTED}</b> 이지 502 가 아니다 (GROMO-2053).
+     *
+     * <p>이미 다른 계정으로 승격이 끝난 게스트의 AT 로 온 로그인을 Data 가 409 로 거절한다.
+     * 공개 표에 이름이 없으면 이 정상 거절이 UPSTREAM_CONTRACT_ERROR 로 접혀, 앱은 「재로그인하면
+     * 승격된 계정을 쓴다」는 안내 대신 서버 장애를 띄운다.
+     */
+    @Test
+    void preservesGuestPromotionConflictAsARegisteredConflict() throws Exception {
+        DATA.on(DATA_EXECUTE, request -> error(409, "GUEST_ALREADY_PROMOTED"));
+        mockMvc.perform(login(APPLE_BODY))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error.code").value("GUEST_ALREADY_PROMOTED"))
+                .andExpect(jsonPath("$.error.retryable").value(false))
+                .andExpect(jsonPath("$.data").doesNotExist());
     }
 
     // ── helpers ─────────────────────────────────────────────────────────────────

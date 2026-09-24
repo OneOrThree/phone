@@ -152,6 +152,23 @@ test('legacy 최상위 {code,message} 봉투도 읽는다 (비봉투 경로)', a
   assert.equal(error.message, '인증이 필요합니다.');
 });
 
+test('없는 API 경로의 서버 원문은 모든 화면에 공통 재시도 안내로 전달한다', async () => {
+  const raw = '요청한 경로를 찾을 수 없습니다.';
+  stub(404, { code: 'RESOURCE_NOT_FOUND', message: raw });
+  const error = await failed(request('/screens/board'));
+  assert.equal(error.code, 'RESOURCE_NOT_FOUND');
+  assert.equal(error.status, 404);
+  assert.equal(error.message, '요청을 처리하지 못했어요. 잠시 후 다시 시도해 주세요.');
+  assert.equal(
+    new ApiError('NOT_FOUND', '요청하신 경로를 찾을 수 없습니다.', 404).message,
+    error.message,
+  );
+  assert.equal(
+    new ApiError('NOT_FOUND', '섬을 찾을 수 없어요.', 404).message,
+    '섬을 찾을 수 없어요.',
+  );
+});
+
 test('code 없는 실패는 HTTP_<status> 로 떨어진다 — 분기가 조용히 빠지지 않게', async () => {
   stub(502, undefined);
   const error = await failed(request('/me'));

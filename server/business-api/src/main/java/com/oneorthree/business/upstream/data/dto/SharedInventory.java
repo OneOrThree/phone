@@ -7,8 +7,8 @@ import com.fasterxml.jackson.annotation.Nulls;
 import java.util.List;
 
 /**
- * 공동 인벤토리 (GROMO-1783, LLD §3 GET /islands/{islandId}/inventory). 공개 GET 의
- * {@code data} 와 같은 필드라 그대로 내보낸다.
+ * 공동 인벤토리 (GROMO-1783, LLD §3 GET /islands/{islandId}/inventory). 공개 GET 은
+ * UseCase의 별도 DTO로 중첩 건물 테마·외양까지 명시적으로 매핑한다.
  */
 public record SharedInventory(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<String> audio,

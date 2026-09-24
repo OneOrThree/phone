@@ -13,8 +13,6 @@ import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.construction.service.IslandWalletEvents;
 import com.oneorthree.phone.construction.service.IslandWalletService;
 import com.oneorthree.phone.construction.support.SharedPurchase;
-import com.oneorthree.phone.currency.repository.UserFishWalletRepository;
-import com.oneorthree.phone.currency.repository.domain.UserFishWallet;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -108,7 +106,6 @@ public class ShopService {
     private final CatalogAssetRepository assets;
     private final OwnedProductRepository ownedProducts;
     private final IslandFacilityRepository facilities;
-    private final UserFishWalletRepository fishWallets;
     private final IslandWalletService islandWallets;
     private final IslandWalletEvents walletEvents;
     private final AppearanceEvents appearanceEvents;
@@ -119,16 +116,18 @@ public class ShopService {
     // ---------------------------------------------------------------- GET wallets
 
     /**
-     * 본인 개인 지갑과 섬 통장을 한 스냅샷에서 읽는다(LLD §2.1). 활성 주민만.
+     * 섬 통장을 읽는다(LLD §2.1). 활성 주민만.
      *
      * <p>통장 행이 없는 섬도 <b>200 에 0</b> 이다 — 왜 0 이 사실인지는
      * {@link IslandWalletService#balanceOf} 에 있다(GROMO-2043, 결정 「통장-부재-0」).
+     *
+     * <p>{@code fish} 는 <b>항상 0</b> 이다(GROMO-2052, 결정 「재화-단일」) — 개인 물고기 지갑은 폐기 축이라
+     * {@code user_fish_wallets} 저장값을 읽지 않는다. 필드 자체는 앱 전량 전환 전까지 호환으로 남긴다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ShopViews.Wallets wallets(UUID islandId, UUID userId) {
         requireResident(islandId, userId);
-        int fish = fishWallets.findById(userId).map(UserFishWallet::getBalance).orElse(0);
-        return new ShopViews.Wallets(fish, islandWallets.balanceOf(islandId), null, walletVersion(islandId));
+        return new ShopViews.Wallets(0, islandWallets.balanceOf(islandId), null, walletVersion(islandId));
     }
 
     // ---------------------------------------------------------------- GET products
