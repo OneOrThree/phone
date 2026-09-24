@@ -261,8 +261,10 @@ jobs:
             compose+=(-f server/scripts/docker-compose.satellites.data.dev.yml)
           fi
           echo "Data API 기동 대기 중..."
-          # 4GB dev VM에서 Data/JPA 초기화가 300초를 넘는다. 새 서비스는 최대 900초 기다린다.
-          for i in $(seq 1 180); do
+          # 4GB dev VM에서 Data/JPA 초기화가 300초를 넘는다. curl 시간도 포함해 최대 900초 기다린다.
+          started_at=$SECONDS
+          deadline=$((started_at + 900))
+          while (( SECONDS < deadline )); do
             sleep 5
             if curl -sf --max-time 3 http://127.0.0.1:8080/health \
               && [ "$(docker inspect -f '{{.State.Health.Status}}' phone-data-api)" = healthy ]; then
@@ -271,7 +273,7 @@ jobs:
               ! docker container inspect phone-app >/dev/null 2>&1
               exit 0
             fi
-            echo "대기 중... ($((i*5))s)"
+            echo "대기 중... ($((SECONDS - started_at))s)"
           done
           "${compose[@]}" logs data-api
           exit 1
@@ -284,7 +286,9 @@ jobs:
             docker stop phone-data-api 2>/dev/null || true
             docker start phone-app
             # 이전 컨테이너도 실제 재기동에 약 330초가 걸렸다. 시작 명령 성공만으로 복구라 하지 않는다.
-            for i in $(seq 1 120); do
+            recovery_started=$SECONDS
+            recovery_deadline=$((recovery_started + 600))
+            while (( SECONDS < recovery_deadline )); do
               if curl --fail --silent --max-time 3 http://127.0.0.1:8080/health >/dev/null; then
                 echo "::warning::새 Data API가 실패하여 이전 컨테이너를 복구했습니다. DB는 변경하지 않았습니다."
                 exit 0
