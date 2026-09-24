@@ -4043,6 +4043,21 @@
           "visibility"
         ]
       },
+      "ActiveIntervalView": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endedAt",
+          "startedAt"
+        ]
+      },
       "StateView": {
         "type": "object",
         "properties": {
@@ -4080,6 +4095,12 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          },
+          "activeIntervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveIntervalView"
+            }
           }
         },
         "required": [
@@ -4149,6 +4170,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/QuestProgressView"
+            }
+          },
+          "activeIntervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveIntervalView"
             }
           }
         },

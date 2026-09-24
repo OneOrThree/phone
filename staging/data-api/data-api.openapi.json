@@ -5849,6 +5849,19 @@
           }
         }
       },
+      "ActiveInterval": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "endedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "FocusSessionView": {
         "type": "object",
         "properties": {
@@ -5889,6 +5902,12 @@
           "version": {
             "type": "integer",
             "format": "int64"
+          },
+          "activeIntervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveInterval"
+            }
           }
         }
       },
@@ -5954,6 +5973,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/QuestProgress"
+            }
+          },
+          "activeIntervals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ActiveInterval"
             }
           }
         }
