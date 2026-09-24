@@ -1764,7 +1764,8 @@ export function reducer(state: State, a: Action): State {
       const owner = s.islands.find((x) => x.id === record.islandId);
       if (!s.records.slice(1).length && !s.hallGuide && owner && !owner.buildings.includes('hall'))
         s.hallGuide = 'pending';
-      if (owner && record.fish > 0) {
+      // 재생된 결과(같은 recordId)는 이미 잔액·원장에 반영됐다 — 구간만 채우고 경제 효과는 건너뛴다.
+      if (!prev && owner && record.fish > 0) {
         owner.fish = balance(owner) + record.fish;
         owner.earned ??= {};
         owner.earned.me = earnedBy(owner, 'me') + record.fish;

@@ -333,6 +333,8 @@ test('같은 recordId 결과가 구간과 함께 재생되면 기존 기록의 i
     record: recordFromFinish(finish(base)),
     fromRest: false,
   } as never);
+  const fishAfterFirst = currentIsland(s).fish;
+  const ledgerAfterFirst = currentIsland(s).ledger.length;
   const spans = [{ startedAt: '2026-08-01T15:45:00Z', endedAt: '2026-08-01T16:00:00Z' }];
   s = reducer(s, {
     type: 'SESSION_RESULT',
@@ -341,6 +343,9 @@ test('같은 recordId 결과가 구간과 함께 재생되면 기존 기록의 i
   } as never);
   const saved = s.records.filter((r) => r.id === 'replayed');
   assert.equal(saved.length, 1);
+  // 보상은 첫 도착 때 한 번만 — 재생이 잔액·원장을 다시 늘리지 않는다.
+  assert.equal(currentIsland(s).fish, fishAfterFirst);
+  assert.equal(currentIsland(s).ledger.length, ledgerAfterFirst);
   assert.deepEqual(saved[0].intervals, [
     { start: Date.parse('2026-08-01T15:45:00Z'), end: Date.parse('2026-08-01T16:00:00Z') },
   ]);
