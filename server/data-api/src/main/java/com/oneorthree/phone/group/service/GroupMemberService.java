@@ -28,8 +28,10 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -67,6 +69,11 @@ public class GroupMemberService {
     private final GroupChallengeBetParticipantRepository betParticipantRepository;
     private final IslandJoinRequestRepository joinRequestRepository;
     private final IslandJoinRequestEvents joinRequestEvents;
+    /**
+     * 탈퇴자의 댓글 벌크 삭제도 다른 공지·댓글 writer 와 같은 축으로 {@code notice.updated} 를 낸다
+     * (GROMO-2137 코드리뷰 대응) — {@link #eraseWithdrawnUserRecords} 참조.
+     */
+    private final IslandNoticeEvents noticeEvents;
     /**
      * 소속 상실과 진행 집중 세션의 연결 (GROMO-1924, FR-D03) — 강퇴는 종결, 자진 탈퇴는 거절.
      * 멤버십을 바꾸는 이 클래스의 잠금 아래에서 부른다.
@@ -266,14 +273,26 @@ public class GroupMemberService {
      * 챌린지 생성의 BEFORE_COMMIT 알림은 그룹 → 수신자 USER aggregate 순서이므로 탈퇴도
      * 같은 순서를 따른다. 가입·이탈은 users 잠금과 직렬화되어 이 목록은 탈퇴 TX 동안 안정적이다.
      *
+     * <p><b>잠그는 대상은 활성 멤버십 그룹 ∪ 댓글을 남긴 섬이다</b>(GROMO-2137 코드리뷰 대응). 이 유저의
+     * 댓글은 {@link #eraseWithdrawnUserRecords} 가 원문째 지우며 그 섬의 {@code notice.updated} 를 발행하는데,
+     * {@code IslandNoticeService} 의 잠금 규율(모든 공지·댓글 writer 가 섬 배타 락을 먼저 쥔다, class Javadoc
+     * §「잠금 순서」)을 지키려면 <b>이미 나간 섬</b>이라도 댓글이 남아 있으면 함께 잠가야 한다 — 활성 멤버십
+     * 목록만 잠그면 그 섬의 동시 공지 쓰기와 경합 없이 댓글이 사라진다. <b>반환값은 여전히 활성 그룹뿐</b>이다:
+     * {@link #detachWithdrawnUser} 는 이 목록으로 <b>활성</b> 멤버 행만 잠그면 되고, 이미 나간 섬은 잠글
+     * 멤버 행 자체가 없다.
+     *
      * @param user 호출자가 배타 잠금으로 로드한 탈퇴 대상
-     * @return 선점한 활성 그룹 ID 목록
+     * @return 선점한 <b>활성</b> 그룹 ID 목록 — 락 자체는 댓글을 남긴 섬까지 포함해 걸린다
      */
     @Transactional(propagation = Propagation.MANDATORY)
     public List<UUID> lockGroupsForAccountWithdrawal(User user) {
-        List<UUID> groupIds = groupMemberRepository.findActiveGroupIdsByUserId(user.getId());
-        membershipLocks.lockGroups(groupIds);
-        return groupIds;
+        List<UUID> activeGroupIds = groupMemberRepository.findActiveGroupIdsByUserId(user.getId());
+        Set<UUID> groupIdsToLock = new LinkedHashSet<>(activeGroupIds);
+        groupAnnouncementCommentRepository.findDistinctNoticesCommentedByUser(user.getId()).stream()
+                .map(GroupAnnouncementCommentRepository.CommentedNotice::getIslandId)
+                .forEach(groupIdsToLock::add);
+        membershipLocks.lockGroups(groupIdsToLock);
+        return activeGroupIds;
     }
 
     /**
@@ -387,6 +406,14 @@ public class GroupMemberService {
      * 끝내야 여기서 지우는 원본(창형 보고)과 열람 기록이 정산 근거에서 빠져도 금액이 바뀌지 않는다.
      * 남는 것은 관계·정산 증거(멤버십 행·참가 행·공지 본문)뿐이다.
      *
+     * <p><b>댓글 벌크 삭제는 {@code notice.updated} 를 함께 낸다</b>(GROMO-2137 코드리뷰 대응) — 안 그러면
+     * 다른 주민의 목록·상세({@code commentCount})가 이 변화를 영영 모른다. {@code IslandNoticeService} 의 다른
+     * 모든 공지·댓글 writer 처럼 같은 TX 에서 공지마다 한 번씩 사건을 낸다. actorId 는 <b>탈퇴 중인 본인</b>이다
+     * — {@code IslandNoticeEvents.changed} 가 그 값을 outbox 행의 필수 필드({@code OutboxAppendCommand.userId})로
+     * 그대로 쓰므로 null 을 줄 수 없고, 이 정리를 일으킨 주체도 이 탈퇴 자신이라 값이 맞다(다른 outbox 호출도
+     * 이 메서드 전체에서 탈퇴자 id 를 그대로 쓴다). 섬 배타 락은 {@link #lockGroupsForAccountWithdrawal} 이
+     * 댓글 섬까지 포함해 이미 쥐고 있다.
+     *
      * @param user 탈퇴 중인 유저 — 호출부가 배타 락으로 로드했다
      */
     @Transactional
@@ -396,7 +423,14 @@ public class GroupMemberService {
         betParticipantRepository.eraseResultViewsOf(userId);
         groupChallengeMemberRepository.deleteAllOfUser(userId);
         groupAnnouncementRepository.detachAuthor(userId);
-        groupAnnouncementCommentRepository.detachAuthor(userId);
+        // 댓글은 공지와 달리 원문째 지운다 (2026-09-25 결정 GROMO-2136 — BQ02 확정). 지우기 전에 영향받는
+        // (섬, 공지) 쌍을 모아 둔다 — 지운 뒤에는 어떤 공지의 댓글이 사라졌는지 알 수 없다.
+        List<GroupAnnouncementCommentRepository.CommentedNotice> commentedNotices =
+                groupAnnouncementCommentRepository.findDistinctNoticesCommentedByUser(userId);
+        groupAnnouncementCommentRepository.deleteAllOfUser(userId);
+        for (GroupAnnouncementCommentRepository.CommentedNotice notice : commentedNotices) {
+            noticeEvents.changed(notice.getIslandId(), notice.getNoticeId(), userId);
+        }
         // 링크 서버로 나간·나갈 닉네임 변경 봉투 속 이름 사본(GROMO-1946)
         linkMembershipEventService.eraseWithdrawnDisplayName(userId);
     }

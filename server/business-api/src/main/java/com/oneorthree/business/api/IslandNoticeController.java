@@ -29,11 +29,12 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * 섬 게시판 6종의 <b>공개 경계</b> (GROMO-1771, island-board LLD §1·§2) — 공지 목록·상세·작성·수정·삭제와 댓글 작성.
+ * 섬 게시판 7종의 <b>공개 경계</b> (GROMO-1771, island-board LLD §1·§2) — 공지 목록·상세·작성·수정·삭제와 댓글
+ * 작성·삭제(댓글 삭제는 GROMO-2136).
  *
  * <p>여기서 하는 것은 입력의 «모양» 검증뿐이다. 주민·게시판 완공·작성 권한·멱등·version 은 Data 가 판정하고
  * {@link IslandNoticeUseCase} 가 코드만 옮긴다. 주체는 AT 에서만 온다 — 본문에 사용자 id 를 받지 않는다.
- * 네 쓰기는 {@code Idempotency-Key}(UUID36)가 필수다(정책 B07). 성공 봉투는 공통 advice 가 씌운다.
+ * 다섯 쓰기는 {@code Idempotency-Key}(UUID36)가 필수다(정책 B07). 성공 봉투는 공통 advice 가 씌운다.
  *
  * <p>입력 규칙(LLD §1·§2, 정책 B05·B06): JSON object 만, 미지 필드·명시 null·잘못된 타입은 400
  * {@code INVALID_REQUEST}. 공백만인 제목·본문·댓글, 100 UTF-16 단위를 넘는 제목, NUL 문자는 422
@@ -120,6 +121,17 @@ public class IslandNoticeController {
         NoticeCommentCreatedView created = notices.comment(claims, island, notice,
                 text(body.get("text"), "text"), key, properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
+    }
+
+    /** 댓글 삭제(GROMO-2136) — 작성자 본인 또는 방장만. 본문을 읽지 않는다. 200 {@code deleted=true}. */
+    @DeleteMapping("/islands/{islandId}/notices/{noticeId}/comments/{commentId}")
+    public NoticeDeletedView deleteComment(@PathVariable String islandId, @PathVariable String noticeId,
+            @PathVariable String commentId, HttpServletRequest request) {
+        AccessTokenClaims claims = sessions.requireSession(request);
+        UUID key = CommandKeys.required(request);
+        return notices.deleteComment(claims, PublicIds.uuid(islandId, "islandId"),
+                PublicIds.uuid(noticeId, "noticeId"), PublicIds.uuid(commentId, "commentId"), key,
+                properties.deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석

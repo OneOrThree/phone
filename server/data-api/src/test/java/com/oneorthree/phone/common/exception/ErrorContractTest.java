@@ -141,7 +141,7 @@ class ErrorContractTest {
     }
 
     @TestFactory
-    @DisplayName("상수 224개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
+    @DisplayName("상수 225개 전부 — (status, code=name(), message) 가 enum 에 적힌 그대로 나간다")
     List<DynamicTest> everyConstantGoesOutExactlyAsDeclared() {
         List<DynamicTest> tests = new ArrayList<>();
         for (Class<? extends ErrorCode> enumClass : errorCodeEnums()) {
@@ -236,8 +236,11 @@ class ErrorContractTest {
         // GROMO-1975 가 사용자 코드 1개(SELF_BLOCK, 400)를 더했다 — 차단 대상과 호출자가 같을 때의 입력 오류다.
         // GROMO-2070 이 참가 코드 생성 실패 상수 1개(GroupErrorCode.CODE_GENERATION_FAILED)를 뺐다 —
         // 초대 코드 기능 폐기로 던지는 곳이 없어졌다.
-        assertThat(tests).as("실측 기준 도메인 상수 206개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 4종·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류 포함")
-                .hasSize(224);
+        // GROMO-2137 이 게시판 댓글 삭제 전용 코드 1개(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN, 403)를 더했다 —
+        // 작성자 본인도 방장도 아닌 삭제 시도(2026-09-25 결정 GROMO-2136). NOTICE_FORBIDDEN 과 메시지가
+        // 가리키는 대상이 달라 코드를 나눈다(NOTICE_BODY_TOO_LONG/NOTICE_COMMENT_TOO_LONG 과 같은 결).
+        assertThat(tests).as("실측 기준 도메인 상수 207개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류 포함")
+                .hasSize(225);
         return tests;
     }
 
