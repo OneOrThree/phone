@@ -142,6 +142,34 @@ jobs:
               fi
             done
             echo
+            echo '### 2.0 전환 조건'
+            echo
+            if docker container inspect phone-app >/dev/null 2>&1; then
+              echo '- 레거시 `phone-app`: 남아 있음'
+              failed=1
+            else
+              echo '- 레거시 `phone-app`: 제거됨'
+            fi
+
+            for spec in 'phone-data-api|8080|127.0.0.1:8080' 'phone-business-api-1|8080|127.0.0.1:8083' 'phone-realtime|8081|127.0.0.1:8081'; do
+              IFS='|' read -r name port expected <<< "$spec"
+              actual=$(docker port "$name" "$port/tcp" 2>/dev/null || true)
+              if [ "$actual" = "$expected" ]; then
+                echo "- \`$name\` 공개 포트: \`$actual\` (loopback)"
+              else
+                echo "- \`$name\` 공개 포트 오류: \`${actual:-미설정}\` (기대: \`$expected\`)"
+                failed=1
+              fi
+            done
+
+            db_id=$(docker inspect phone-db --format '{{.Id}}' 2>/dev/null || true)
+            db_volume=$(docker inspect phone-db --format '{{range .Mounts}}{{if eq .Destination "/var/lib/postgresql/data"}}{{.Name}}{{end}}{{end}}' 2>/dev/null || true)
+            echo "- PostgreSQL 컨테이너 ID: \`${db_id:-미확인}\`"
+            echo "- PostgreSQL 데이터 볼륨: \`${db_volume:-미확인}\`"
+            if [ -z "$db_id" ] || [ "$db_volume" != phone_postgres_dev_data ]; then
+              failed=1
+            fi
+            echo
             echo '[Datadog Infrastructure](https://us5.datadoghq.com/infrastructure) · [APM Services](https://us5.datadoghq.com/apm/services) · [Kafka](https://us5.datadoghq.com/integrations/kafka) · [Redis](https://us5.datadoghq.com/integrations/redisdb)'
           } >> "$GITHUB_STEP_SUMMARY"
 
