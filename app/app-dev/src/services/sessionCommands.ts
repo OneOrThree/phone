@@ -57,8 +57,15 @@ const staleError = () =>
 
 // 서버 ACTIVE 구간 → 로컬 {start,end}(ms) 매핑(GROMO-2131). 필드가 아예 없으면(구버전 서버)
 // undefined 를 유지한다 — []로 두면 당일 집중이 있어도 구간 0건이 되어 퀘스트 진행이 사라진다.
-const mapIntervals = (spans?: { startedAt: string; endedAt: string }[]) =>
-  spans?.map((span) => ({ start: Date.parse(span.startedAt), end: Date.parse(span.endedAt) }));
+// 파싱 못 한 시각이 하나라도 있으면 역시 undefined 로 폴백한다 — NaN 구간은 Math.min/max 합산을
+// 오염시켜 그 섬·그 날 전체 합계가 NaN 이 되고, 구간 하나만 버리면 집중 초가 빠진다.
+const mapIntervals = (spans?: { startedAt: string; endedAt: string }[]) => {
+  const mapped = spans?.map((span) => ({
+    start: Date.parse(span.startedAt),
+    end: Date.parse(span.endedAt),
+  }));
+  return mapped?.some((i) => Number.isNaN(i.start) || Number.isNaN(i.end)) ? undefined : mapped;
+};
 
 /**
  * 서버 뷰 → 로컬 Session. 시각은 서버가 정본이다 — `startedAt` 을 serverNow 로 두고

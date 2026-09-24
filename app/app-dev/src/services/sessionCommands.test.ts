@@ -313,6 +313,16 @@ test('activeIntervals 가 없으면 intervals 는 undefined 다 (빈 배열이�
   assert.equal(recordFromFinish(finish()).intervals, undefined);
 });
 
+// 파싱 못 하는 시각이 섞이면 구간 전체를 버리고 기존 폴백으로 — NaN 이 합산을 오염시키지 않게.
+test('activeIntervals 에 파싱 불가 시각이 있으면 intervals 는 undefined 다', () => {
+  const spans = [
+    { startedAt: '2026-08-01T14:00:00Z', endedAt: '2026-08-01T15:00:00Z' },
+    { startedAt: 'not-a-time', endedAt: '2026-08-01T15:15:00Z' },
+  ];
+  assert.equal(sessionFromServer(view({ activeIntervals: spans })).intervals, undefined);
+  assert.equal(recordFromFinish(finish({ activeIntervals: spans })).intervals, undefined);
+});
+
 // 티켓 DoD — 어제 60분 + 오늘 15분짜리 세션의 시간대(하루) 퀘스트 진행률은 오늘 15분만 센다.
 // KST 기준 2026-08-01T15:00:00Z = 8/2 00:00. 목표 30분짜리 오늘의 집중 퀘스트라 15분=50%.
 // 자정 직후 45분 휴식을 끼운다 — 연속 세션이면 구간 없이 [now-누적, now] 로 소급해도 15분이 나와
