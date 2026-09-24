@@ -4,6 +4,7 @@ import {
   reducer,
   currentIsland,
   mainIsland,
+  serverHome,
   viewIsland,
   canVisit,
   visitorJoinState,
@@ -2310,4 +2311,22 @@ test('todayFocusSeconds — KST 자정 기준, 현재 섬만, 자정을 넘은 �
   };
   assert.equal(todayFocusSeconds(s, 'soda', now), 1800);
   assert.equal(todayFocusSeconds(s, 'strawberry', now), 600);
+});
+
+test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 스냅샷은 버린다(GROMO-2138)', () => {
+  const sync = (s: any, id: string) =>
+    act(s, 'ISLAND_SYNC', {
+      memberships: {
+        items: [sum('srv1'), sum('srv2')],
+        nextCursor: null,
+        currentIslandId: id,
+        lossReason: null,
+      },
+    });
+  let s = sync(initialState(), 'srv1');
+  assert.equal(serverHome(s), null);
+  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
+  assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
+  s = sync(s, 'srv2');
+  assert.equal(serverHome(s), null);
 });

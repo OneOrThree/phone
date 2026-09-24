@@ -7,6 +7,7 @@ import type {
 } from '@/services/api/islands';
 import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
 import type { PlaybackState } from '@/services/api/playback';
+import type { HomeWorldFacts } from '@/services/homeSnapshot';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -304,6 +305,8 @@ export type State = {
     // 서버가 안 준 값을 합성하지 않고 상태만 별도로 보관한다 — 화면은 목록 항목에 이 상태를 얹어 쓴다.
     // 취소 응답처럼 version이 없는 결과도 있으므로 version은 선택이다.
     requestStatus: RequestStatusEntry[];
+    // 서버 모드 홈이 직접 그리는 스냅샷(GROMO-2138). 읽을 때는 serverHome() 으로 current 와 대조한다
+    home?: HomeWorldFacts | null;
   } | null;
   travelOrigin?: string;
   // 다른 섬을 방문자로 구경 중이면 그 섬 ID(GROMO-1904). 내 현재 섬(islandId)은 그대로 둔다
@@ -733,9 +736,42 @@ export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.isla
 export const mainIsland = (s: State) =>
   s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??
   s.islands.find((i) => i.joined && !i.closed);
+// 서버 모드 홈 스냅샷 — 현재 섬의 것일 때만 돌려준다(전환·이탈 뒤 옛 섬 스냅샷을 그리지 않는다)
+export const serverHome = (s: State) => {
+  const snap = s.serverIslands;
+  return snap?.home && snap.home.islandId === snap.currentIslandId ? snap.home : null;
+};
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
 export const viewIsland = (s: State) =>
   (s.visitingIslandId && s.islands.find((i) => i.id === s.visitingIslandId)) || currentIsland(s);
+// 서버 모드 홈이 그릴 섬(GROMO-2138) — 스냅샷에 있는 값만 채우고 퀘스트·공사·꾸미기·주민 기록처럼
+// 스냅샷에 없는 것은 비운다(로컬 목업 섬 값으로 메우지 않는다). 구경 중이거나 스냅샷이 없으면 viewIsland.
+export const homeIsland = (s: State): Island => {
+  const facts = serverHome(s);
+  if (!facts || s.visitingIslandId) return viewIsland(s);
+  const { island, wallets } = facts.home;
+  return {
+    id: island.id,
+    name: island.name,
+    intro: island.intro,
+    approval: island.approvalRequired,
+    capacity: island.maxMembers,
+    joined: true,
+    buildings: [...facts.completedBuildings],
+    points: wallets.villagePoints,
+    contribution: wallets.villagePoints,
+    members: [],
+    quests: [],
+    notices: [],
+    messages: [],
+    sharedOwned: [],
+    theme: 'default',
+    buildingTheme: 'default',
+    track: null,
+    playing: false,
+    ledger: [],
+  };
+};
 // 방문자로 내릴 수 있는지: 섬에 자리 잡은 뒤, 지금 섬 전망대에서, 집중 중이 아닐 때 미가입 섬만
 export const canVisit = (s: State, id: string) => {
   const target = s.islands.find((i) => i.id === id);
@@ -1539,6 +1575,9 @@ export function reducer(state: State, a: Action): State {
       if (a.mainIslandId !== undefined) s.mainIslandId = a.mainIslandId as string | null;
       break;
     }
+    case 'SERVER_HOME':
+      serverSnap(s).home = a.facts as HomeWorldFacts;
+      break;
     case 'SERVER_VILLAGE_POINTS': {
       const target = s.islands.find((island) => island.id === a.islandId),
         value = Number(a.value),

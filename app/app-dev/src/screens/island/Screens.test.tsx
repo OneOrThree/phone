@@ -8,7 +8,7 @@ import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { BackHandler, StyleSheet } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { initialState, reducer } from '@/services/model';
+import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
@@ -81,6 +81,8 @@ function Harness({
   guestError,
   detail: detailProp,
   full = false,
+  homeError = false,
+  retryHome,
 }: any) {
   const [state, baseDispatch] = useReducer(
     reducer,
@@ -151,6 +153,8 @@ function Harness({
         walkRequest: null,
         islands,
         islandBootError: !!bootError,
+        homeError,
+        retryHome,
       }}
     />
   );
@@ -975,4 +979,110 @@ test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 
   assert.equal(exposed.signOut.mock.calls.length, 0);
   assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
   assert.equal(exposed.reset.mock.calls.length, 0);
+});
+
+// ── GROMO-2138 서버 모드 홈 진입 ──
+const syncCurrent = (d: any, id = 'srv-1', name = '복구 섬') =>
+  d({
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [islandSummary({ id, name })],
+      nextCursor: null,
+      currentIslandId: id,
+      lossReason: null,
+    },
+  });
+const homeFacts = (islandId = 'srv-1', completedBuildings: string[] = ['hall']) => ({
+  islandId,
+  completedBuildings,
+  members: [],
+  home: {
+    island: {
+      id: islandId,
+      name: '복구 섬',
+      intro: '',
+      approvalRequired: false,
+      maxMembers: 15,
+      role: 'host',
+    },
+    focusSummary: { totalSeconds: 3725 },
+    wallets: { villagePoints: 0 },
+  },
+});
+
+test('createIsland 서버 성공 뒤 섬으로 가기는 home 으로 reset 한다', async () => {
+  let exposed: any;
+  const api = (dispatch: any) => ({
+    create: jest.fn(async () => syncCurrent(dispatch, 'new-1', '새 섬')),
+  });
+  const s = await render(
+    <Harness route="createIsland" api={api} expose={(x: any) => (exposed = x)} />,
+  );
+  await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
+  await fireEvent.press(s.getByLabelText('섬 만들기'));
+  await waitFor(() => s.getByText('섬을 만들었어요'));
+  await fireEvent.press(s.getByText('섬으로 가기'));
+  assert.equal(exposed.reset.mock.calls.at(-1)[0], 'home');
+});
+
+test('재시작 복구 카드에서도 섬으로 가기로 home 에 들어간다', async () => {
+  let exposed: any;
+  const api = () => ({ sync: jest.fn(async () => {}) });
+  const s = await render(
+    <Harness
+      route="chooseIsland"
+      api={api}
+      seed={(d: any) => syncCurrent(d)}
+      expose={(x: any) => (exposed = x)}
+    />,
+  );
+  await waitFor(() => s.getByText('가입이 확인됐어요'));
+  await fireEvent.press(s.getByText('섬으로 가기'));
+  assert.equal(exposed.reset.mock.calls.at(-1)[0], 'home');
+});
+
+test('current 가 없으면 섬으로 가기를 띄우지 않는다', async () => {
+  const api = () => ({ sync: jest.fn(async () => {}) });
+  const s = await render(<Harness route="chooseIsland" api={api} />);
+  await waitFor(() => s.getByText('어디에서 시작할까요?'));
+  assert.equal(s.queryByText('섬으로 가기'), null);
+});
+
+test('서버 모드 home 은 스냅샷 전에는 목업 섬 대신 로딩을, 실패면 재시도를 보여준다', async () => {
+  const retryHome = jest.fn();
+  const api = () => ({});
+  const s = await render(
+    <Harness
+      route="home"
+      api={api}
+      seed={(d: any) => syncCurrent(d)}
+      homeError
+      retryHome={retryHome}
+    />,
+  );
+  await waitFor(() => s.getByText('섬 정보를 불러오지 못했어요'));
+  assert.equal(s.queryByTestId('final-island-world'), null);
+  await fireEvent.press(s.getByText('다시 시도'));
+  assert.equal(retryHome.mock.calls.length, 1);
+});
+
+test('서버 모드 home 은 스냅샷의 완공 건물과 오늘 집중을 그리고 로컬 건설 카드를 띄우지 않는다', async () => {
+  const api = () => ({});
+  const s = await render(
+    <Harness
+      route="home"
+      api={api}
+      seed={(d: any) => {
+        syncCurrent(d);
+        d({ type: 'SERVER_HOME', facts: homeFacts() });
+      }}
+    />,
+  );
+  await waitFor(() => s.getByTestId('final-island-world'));
+  // 문은 스냅샷에서 완공된 건물만 열린다 — 회관은 있고 게시판은 없다
+  s.getByLabelText(buildingNames.hall);
+  assert.equal(s.queryByLabelText(buildingNames.board), null);
+  s.getByText('01:02:05');
+  // 로컬 비용으로 그리는 건설 카드는 서버 모드에서 띄우지 않는다
+  assert.equal(s.queryByText(/짓기$/), null);
 });
