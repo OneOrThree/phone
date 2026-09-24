@@ -49,10 +49,28 @@ import {
   kstHourMinute,
   myIslandsConsistent,
   intentKeyPool,
+  shouldShowShopGuide,
   trackNames,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
+
+test('상점 안내는 완공 뒤 계정별 최초 1회만 표시한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.buildings = island.buildings.filter((building) => building !== 'shop');
+  assert.equal(shouldShowShopGuide(s, 'user-a'), false);
+
+  island.buildings.push('shop');
+  assert.equal(shouldShowShopGuide(s, 'user-a'), true);
+  s = act(s, 'SHOP_GUIDE_DONE', { userId: 'user-a' });
+  assert.equal(shouldShowShopGuide(s, 'user-a'), false);
+  assert.equal(shouldShowShopGuide(s, 'user-b'), true);
+
+  s.visitingIslandId = 'strawberry';
+  assert.equal(shouldShowShopGuide(s, 'user-b'), false);
+});
+
 test('메인 섬을 바꿔도 현재 접속 섬은 유지하고 미가입 섬은 선택하지 않는다', () => {
   let s = initialState(true);
   s.islands.find((island) => island.id === 'strawberry')!.joined = true;
