@@ -220,9 +220,11 @@ class FocusSessionActivationIntegrationTest {
         assertThat(finished.activeIntervals()).hasSize(2);
         assertThat(finished.activeIntervals()).as("finish 시점엔 전부 닫혀 있다")
                 .allSatisfy(span -> assertThat(span.endedAt()).isNotNull());
+        // 구간마다 절삭하지 않고 합친 뒤 한 번만 초로 — activeSeconds 도 합산 후 절삭한다.
         long spanSecondsSum = finished.activeIntervals().stream()
-                .mapToLong(span -> Duration.between(span.startedAt(), span.endedAt()).getSeconds())
-                .sum();
+                .map(span -> Duration.between(span.startedAt(), span.endedAt()))
+                .reduce(Duration.ZERO, Duration::plus)
+                .getSeconds();
         assertThat(spanSecondsSum).as("구간 길이 합은 activeSeconds 와 같다").isEqualTo(finished.activeSeconds());
     }
 

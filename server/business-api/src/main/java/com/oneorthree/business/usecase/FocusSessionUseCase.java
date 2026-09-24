@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
@@ -138,7 +139,7 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) String startedAt,
             String restStartedAt,
             @JsonProperty(required = true) long version,
-            List<ActiveIntervalView> activeIntervals) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals) {
         private static StateView from(FocusSessionState source) {
             if (source == null) {
                 return null;
@@ -161,7 +162,7 @@ public class FocusSessionUseCase {
             @JsonProperty(required = true) AllocationView allocation,
             @JsonProperty(required = true) String completedAt,
             List<QuestProgressView> questProgress,
-            List<ActiveIntervalView> activeIntervals) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) List<ActiveIntervalView> activeIntervals) {
         private static FinishView from(FocusFinish source) {
             if (source == null) {
                 return null;

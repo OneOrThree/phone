@@ -89,9 +89,11 @@ class FocusSessionContractTest extends UpstreamTestBase {
     void currentOmitsActiveIntervalsWhenDataDoesNotSendThem() throws Exception {
         String legacy = STATE.substring(0, STATE.indexOf(",\"activeIntervals\"")) + "}";
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":" + legacy + "}"));
-        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isOk())
+        String body = mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isOk())
                 .andExpect(jsonPath("$.data.id").value(FOCUS.toString()))
-                .andExpect(jsonPath("$.data.activeIntervals").doesNotExist());
+                .andReturn().getResponse().getContentAsString();
+        // doesNotExist 는 명시 null 도 통과시키므로 키 자체가 없는지 본다.
+        assertThat(body).doesNotContain("activeIntervals");
     }
 
     @ParameterizedTest
