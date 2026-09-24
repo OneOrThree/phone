@@ -5,7 +5,6 @@ import com.oneorthree.business.auth.LoginAttemptCredentials;
 import com.oneorthree.business.auth.SocialCredential;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.usecase.AuthSessionUseCase;
@@ -93,7 +92,7 @@ public class AuthSessionController {
 
         LoginSession session = sessions.login(credentials, credential, termsVersion,
                 accountSwitchConfirmedOf(body),
-                Deadline.startingNow(properties.getComposition().getDeadline()));
+                properties.deadline());
         DeviceBootstrapHeader.set(response, session.deviceBootstrap());
         return AuthSessionUseCase.Result.of(session);
     }

@@ -3,9 +3,9 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.AppearanceUseCase.IslandAppearanceView;
 import com.oneorthree.business.usecase.AppearanceUseCase.PersonalAppearanceView;
@@ -57,7 +57,7 @@ public class AppearanceController {
     @GetMapping("/me/inventory")
     public PersonalInventoryView myInventory(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return appearance.myInventory(claims, deadline());
+        return appearance.myInventory(claims, properties.deadline());
     }
 
     /** 개인 외양 적용 (LLD §4 PATCH) — 미제출 필드 유지·null 해제·값 적용. */
@@ -66,14 +66,14 @@ public class AppearanceController {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         PatchCarrier carrier = carrier(body, PERSONAL_FIELDS);
-        return appearance.patchMine(claims, carrier.fields(), carrier.values(), key, deadline());
+        return appearance.patchMine(claims, carrier.fields(), carrier.values(), key, properties.deadline());
     }
 
     /** 공동 인벤토리 (LLD §3 GET) — 활성 주민만 본다. */
     @GetMapping("/islands/{islandId}/inventory")
     public SharedInventoryView islandInventory(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return appearance.islandInventory(claims, uuid(islandId), deadline());
+        return appearance.islandInventory(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
     }
 
     /** 공동 외양 적용 (LLD §4 PATCH) — 방장 전용·expectedVersion 낙관 검사. */
@@ -83,9 +83,9 @@ public class AppearanceController {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         PatchCarrier carrier = carrier(body, ISLAND_FIELDS, Set.of("expectedVersion"));
-        return appearance.patchIsland(claims, uuid(islandId), carrier.fields(), carrier.values(),
+        return appearance.patchIsland(claims, PublicIds.uuid(islandId, "islandId"), carrier.fields(), carrier.values(),
                 ResourceVersions.fromJson(body.get("expectedVersion"), "expectedVersion"),
-                key, deadline());
+                key, properties.deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석
@@ -149,21 +149,5 @@ public class AppearanceController {
     }
 
     private record PatchCarrier(List<String> fields, Map<String, Object> values) {
-    }
-
-    private static UUID uuid(String value) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "islandId");
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

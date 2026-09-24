@@ -1,5 +1,7 @@
 package com.oneorthree.phone.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.league.repository.domain.LeagueRankSnapshot;
@@ -25,7 +27,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -45,7 +46,6 @@ import java.util.stream.Collectors;
 @Transactional(isolation = Isolation.REPEATABLE_READ)
 public class RankOvertakeNotificationService {
 
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
     /** 주간 마감 임박 억제 창 — 아래 LIVE_SESSION_MAX_AGE 와 값만 같고 의미는 무관하다(합치지 말 것). */
     private static final Duration DEADLINE_SUPPRESS_WINDOW = Duration.ofHours(12);
     /**

@@ -40,9 +40,10 @@ on:
         description: >-
           잡을 돌릴 러너 라벨. 워크플로 입력은 «문자열만» 받으므로 JSON 배열 문자열로 넘기고
           아래에서 `fromJSON` 으로 푼다 — 예: '["ubuntu-latest"]'.
-          기본값은 지금까지와 같은 self-hosted 슬롯이라 호출부를 고치지 않으면 동작이 바뀌지 않는다.
+          기본값은 GitHub-hosted 다(GROMO-2121) — self-hosted `ci` 러너는 이미지 발행 전용 1대로
+          줄었다(decisions.md A25). 검사 잡이 그 한 대를 물면 main 이미지 발행이 밀린다.
         type: string
-        default: '["self-hosted", "ci", "spot"]'
+        default: '["ubuntu-latest"]'
       tasks:
         description: "돌릴 Gradle 태스크. 기본 build 는 checkstyle·spotbugs·test·bootJar 를 전부 돈다"
         type: string
@@ -61,9 +62,7 @@ on:
         default: false
       measure-jar:
         description: >-
-          bootJar 크기를 재서 `jar-size` 아티팩트로 올린다. dev-ci 의 PR 코멘트 생성
-          (.github/scripts/generate-pr-comment.py) 이 `jar-size/jar-size.txt` 경로를 그대로
-          읽으므로 이 아티팩트 «이름»은 바꾸면 안 된다.
+          bootJar 크기를 재서 `jar-size` 아티팩트로 올린다.
         type: boolean
         default: false
 

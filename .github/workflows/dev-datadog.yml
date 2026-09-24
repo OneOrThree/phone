@@ -44,7 +44,7 @@ jobs:
           [[ ",$DATA_API_PROFILES," == *,satellites,* ]]
           echo "DATA_API_PROFILES=$DATA_API_PROFILES" >> "$GITHUB_ENV"
 
-      - name: 배포된 앱 이미지 확인 및 GAR 인증
+      - name: 배포된 앱 이미지 확인
         if: ${{ inputs.action != 'down' }}
         env:
           # checkout에는 노출하지 않고 compose가 runtime env를 파싱하는 shell step에만 주입한다.
@@ -55,10 +55,18 @@ jobs:
           test -n "$DD_API_KEY"
           APP_IMAGE_REF=$(docker compose --env-file "$RUNTIME_ENV_FILE" \
             -f server/scripts/docker-compose.dev.yml config --format json | jq -er '.services["data-api"].image')
-          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
-            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+          echo "APP_IMAGE_REF=$APP_IMAGE_REF" >> "$GITHUB_ENV"
+
+      - name: GAR 인증
+        if: ${{ inputs.action != 'down' }}
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
+
+      - name: 이미지 pull 및 배포 버전 확인
+        if: ${{ inputs.action != 'down' }}
+        run: |
+          set -euo pipefail
           docker pull "$APP_IMAGE_REF"
           APP_IMAGE_DIGEST=$(docker image inspect "$APP_IMAGE_REF" --format '{{json .RepoDigests}}' \
             | jq -er --arg prefix "$GAR_HOST/" 'map(select(startswith($prefix))) | first')

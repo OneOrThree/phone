@@ -3,7 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.FriendUseCase.FriendView;
 import com.oneorthree.business.usecase.FriendUseCase.RequestView;
@@ -23,7 +23,6 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 친구 8종의 <b>공개 표면</b> (GROMO-1894 7종 + GROMO-1996 검색) — 레거시
@@ -56,14 +55,14 @@ public class FriendController {
     @GetMapping("/friends")
     public List<FriendView> friends(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return friends.friends(claims, required(request, "date"), deadline());
+        return friends.friends(claims, required(request, "date"), properties.deadline());
     }
 
     /** 받은·보낸 요청 목록 (LLD §1.6). {@code type} 은 필수 — {@code received} 외의 값은 Data 가 {@code sent} 로 본다. */
     @GetMapping("/friends/requests")
     public List<RequestView> friendRequests(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return friends.friendRequests(claims, required(request, "type"), deadline());
+        return friends.friendRequests(claims, required(request, "type"), properties.deadline());
     }
 
     /**
@@ -78,7 +77,7 @@ public class FriendController {
     @GetMapping("/friends/search")
     public List<SearchView> search(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return friends.search(claims, required(request, "type"), required(request, "q"), deadline());
+        return friends.search(claims, required(request, "type"), required(request, "q"), properties.deadline());
     }
 
     /** 친구 요청 생성 (LLD §1.1). 본문은 {@code targetUserId} 하나뿐이다 — 다른 키가 섞이면 거절한다. */
@@ -92,7 +91,7 @@ public class FriendController {
         if (target == null || !target.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "targetUserId");
         }
-        friends.createRequest(claims, uuid(target.stringValue(), "targetUserId"), deadline());
+        friends.createRequest(claims, PublicIds.uuid(target.stringValue(), "targetUserId"), properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).build();
     }
 
@@ -100,7 +99,7 @@ public class FriendController {
     @PostMapping("/friends/requests/{requestId}/accept")
     public ResponseEntity<Void> accept(@PathVariable String requestId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        friends.accept(claims, uuid(requestId, "requestId"), deadline());
+        friends.accept(claims, PublicIds.uuid(requestId, "requestId"), properties.deadline());
         return ResponseEntity.ok().build();
     }
 
@@ -108,7 +107,7 @@ public class FriendController {
     @PostMapping("/friends/requests/{requestId}/reject")
     public ResponseEntity<Void> reject(@PathVariable String requestId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        friends.reject(claims, uuid(requestId, "requestId"), deadline());
+        friends.reject(claims, PublicIds.uuid(requestId, "requestId"), properties.deadline());
         return ResponseEntity.ok().build();
     }
 
@@ -116,7 +115,7 @@ public class FriendController {
     @PostMapping("/friends/requests/{requestId}/cancel")
     public ResponseEntity<Void> cancel(@PathVariable String requestId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        friends.cancel(claims, uuid(requestId, "requestId"), deadline());
+        friends.cancel(claims, PublicIds.uuid(requestId, "requestId"), properties.deadline());
         return ResponseEntity.ok().build();
     }
 
@@ -124,7 +123,7 @@ public class FriendController {
     @DeleteMapping("/friends/{friendUserId}")
     public ResponseEntity<Void> deleteFriend(@PathVariable String friendUserId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        friends.deleteFriend(claims, uuid(friendUserId, "friendUserId"), deadline());
+        friends.deleteFriend(claims, PublicIds.uuid(friendUserId, "friendUserId"), properties.deadline());
         return ResponseEntity.noContent().build();
     }
 
@@ -135,21 +134,5 @@ public class FriendController {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, name);
         }
         return values[0];
-    }
-
-    private static UUID uuid(String value, String field) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -47,7 +49,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -117,8 +118,6 @@ public class GroupBetService {
      * (GROMO-1418)도 같은 함수를 싣는다.
      */
     static final Duration LEAVE_GRACE = Duration.ofMinutes(5);
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GroupMemberRepository groupMemberRepository;
     private final GroupQueryService groupQueryService;

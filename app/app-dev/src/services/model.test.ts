@@ -49,10 +49,29 @@ import {
   kstHourMinute,
   myIslandsConsistent,
   intentKeyPool,
+  shouldShowShopGuide,
   trackNames,
+  todayFocusSeconds,
 } from '@/services/model';
 const act = (s: ReturnType<typeof initialState>, type: string, data = {}) =>
   reducer(s, { type, ...data });
+
+test('상점 안내는 완공 뒤 계정별 최초 1회만 표시한다', () => {
+  let s = initialState(true);
+  const island = currentIsland(s);
+  island.buildings = island.buildings.filter((building) => building !== 'shop');
+  assert.equal(shouldShowShopGuide(s, 'user-a'), false);
+
+  island.buildings.push('shop');
+  assert.equal(shouldShowShopGuide(s, 'user-a'), true);
+  s = act(s, 'SHOP_GUIDE_DONE', { userId: 'user-a' });
+  assert.equal(shouldShowShopGuide(s, 'user-a'), false);
+  assert.equal(shouldShowShopGuide(s, 'user-b'), true);
+
+  s.visitingIslandId = 'strawberry';
+  assert.equal(shouldShowShopGuide(s, 'user-b'), false);
+});
+
 test('메인 섬을 바꿔도 현재 접속 섬은 유지하고 미가입 섬은 선택하지 않는다', () => {
   let s = initialState(true);
   s.islands.find((island) => island.id === 'strawberry')!.joined = true;
@@ -2234,4 +2253,61 @@ test('ISLAND_VISIT — 방문 화면 스냅샷을 저장한다', () => {
   };
   const s = act(initialState(), 'ISLAND_VISIT', { visit });
   assert.equal(s.serverIslands!.visit!.island.id, 'i7');
+});
+
+test('todayFocusSeconds — KST 자정 기준, 현재 섬만, 자정을 넘은 구간은 이후분만, 진행 중 세션은 빼고 센다', () => {
+  const s = initialState(true);
+  s.islandId = 'soda';
+  // KST 로 고정된 테스트 TZ(jest.config.js)라 로컬 Date 생성자가 곧 KST 벽시계 시각이다.
+  const now = new Date(2026, 8, 20, 10, 0).getTime();
+  s.records = [
+    // 자정을 넘어 끝난 기록 — 23:30~00:30 중 자정 이후 30분(1800초)만 오늘 집중에 들어간다
+    {
+      id: 'cross-midnight',
+      islandId: 'soda',
+      subject: '공부',
+      seconds: 3600,
+      at: new Date(2026, 8, 20, 0, 30).getTime(),
+      fish: 60,
+      contributed: true,
+      intervals: [
+        {
+          start: new Date(2026, 8, 19, 23, 30).getTime(),
+          end: new Date(2026, 8, 20, 0, 30).getTime(),
+        },
+      ],
+    },
+    // 오늘, 다른 섬 — 섬이 다르므로 제외
+    {
+      id: 'other-island-today',
+      islandId: 'strawberry',
+      subject: '공부',
+      seconds: 600,
+      at: new Date(2026, 8, 20, 1, 0).getTime(),
+      fish: 10,
+      contributed: true,
+    },
+    // 어제, 같은 섬 — KST 자정 이전이므로 제외
+    {
+      id: 'yesterday',
+      islandId: 'soda',
+      subject: '공부',
+      seconds: 600,
+      at: new Date(2026, 8, 19, 10, 10).getTime(),
+      fish: 10,
+      contributed: true,
+    },
+  ];
+  // 진행 중 세션은 더하지 않는다 — 서버 복원 세션은 누적 초만 있어 자정 이전 집중을 오늘로 셀 수 있다.
+  // 어제 3600초를 집중하고 자정을 넘긴 복원 세션(startedAt = 복원 시각)이 오늘 값을 부풀리지 않아야 한다.
+  s.session = {
+    id: 'restored',
+    islandId: 'soda',
+    subject: '공부',
+    startedAt: new Date(2026, 8, 20, 9, 55).getTime(),
+    seconds: 3600,
+    status: 'paused',
+  };
+  assert.equal(todayFocusSeconds(s, 'soda', now), 1800);
+  assert.equal(todayFocusSeconds(s, 'strawberry', now), 600);
 });

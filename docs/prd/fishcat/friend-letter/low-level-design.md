@@ -199,9 +199,12 @@ ORDER BY id DESC
 HLD §3 표와 동일. 공개 계약(§1.5·1.6·1.13)과 인가만 다르다 — 서비스 위임 토큰 + `X-User-Id`,
 `InternalAuthFilter`가 경로의 `{userId}`와 대조(선례 `InternalUserController.java:44-58`).
 
+예외 하나 — 내부 `friends` 의 `date` 는 **선택**이고, 생략하면 서버 판정 축(KST) 오늘이다(GROMO-2119). 우체통 화면이
+날짜 없이 친구 조각을 조합하기 때문이다. 공개 §1.5 는 그대로 필수(누락 400)다.
+
 | 내부 GET | 대응 공개 계약 | 신설 위치 |
 | --- | --- | --- |
-| `GET /internal/users/{userId}/friends?date=` | §1.5 | `friend/InternalFriendController`(신설) |
+| `GET /internal/users/{userId}/friends?date=` | §1.5 (단, `date` 선택 — 생략 시 KST 오늘) | `friend/InternalFriendController`(신설) |
 | `GET /internal/users/{userId}/friend-requests?type=` | §1.6 | 위와 동일 클래스 |
 | `GET /internal/users/{userId}/letters?type=&cursor=&size=` | §1.13 | `letter/InternalLetterController`(신설) |
 | `GET /internal/users/{userId}/friend-search?type=&q=` | §1.17 | `internal/InternalFriendController`(GROMO-1996) |

@@ -1,5 +1,8 @@
 package com.oneorthree.phone.group.scheduler;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+import static com.oneorthree.phone.common.util.ZonePolicy.KST_ID;
+
 import com.oneorthree.phone.config.SchedulingConfig;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.SettleTrigger;
@@ -17,7 +20,6 @@ import org.springframework.stereotype.Component;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -44,8 +46,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class GroupBetScheduler {
 
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupBetSettler groupBetSettler;
@@ -57,7 +57,7 @@ public class GroupBetScheduler {
      * ({@code findDue} 의 OR 술어) — 정산·환불 분기는 {@code settle} 이 락 안에서 스스로 가른다
      * (24h 판정이 진입점마다 흩어지면 수동 경로가 우회한다 — N21).
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+    @Scheduled(cron = "0 */5 * * * *", zone = KST_ID,
             scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-settle-scan")
     public void retryDueSessions() {
@@ -103,7 +103,7 @@ public class GroupBetScheduler {
      * 기다리면 창형은 창 전체 + 30분 동안 혼자 남은 참가비가 묶이고 카드도 OPEN 으로 남는다(K1).
      * {@code settle()} 안의 인원 가드는 경합·크론 지연 대비 안전망으로 존치한다.
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+    @Scheduled(cron = "0 */5 * * * *", zone = KST_ID,
             scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-void-short-sessions")
     public void voidShortSessions() {
@@ -132,7 +132,7 @@ public class GroupBetScheduler {
      * 반환형이 primitive 면 그 null 이 언박싱 NPE 가 된다 — 잠금 대상 메서드는 void 가 규약이다.
      * 개설 건수를 쓰는 호출부(테스트·수동)는 {@link #openTodaySessions()} 를 직접 부른다.
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+    @Scheduled(cron = "0 */5 * * * *", zone = KST_ID,
             scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-ensure-today-sessions")
     public void ensureTodaySessions() {

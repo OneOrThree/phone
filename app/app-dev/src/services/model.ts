@@ -312,6 +312,8 @@ export type State = {
   hallGuide?: 'pending' | 'done';
   // 최초 우체통 안내를 마친 계정. 섬을 옮겨도 반복하지 않고 계정 간에는 분리한다.
   mailboxGuideSeenBy?: string[];
+  // 최초 상점 안내를 마친 계정. 마지막 건물인 상점에 처음 들어갈 때 한 번만 보여 준다.
+  shopGuideSeenBy?: string[];
   // 현재 화면을 잃은 강퇴를 앱 셸이 소비해 안전한 화면으로 reset하기 위한 일회성 신호
   membershipRecovery?: { reason: 'kicked'; islandId: string };
   // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
@@ -786,6 +788,12 @@ export const shouldShowMailboxGuide = (s: State, userId: string) =>
   currentIsland(s).buildings.includes('mail') &&
   !s.mailboxGuideSeenBy?.includes(userId);
 
+export const shouldShowShopGuide = (s: State, userId: string) =>
+  !s.visitingIslandId &&
+  currentIsland(s).joined &&
+  currentIsland(s).buildings.includes('shop') &&
+  !s.shopGuideSeenBy?.includes(userId);
+
 // 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
 // 내 댓글인지: memberId가 없던 예전 저장본은 작성자 이름을 내 이름(바꾼 이름 포함)과 비교한다
 // 주민 찾기: 지금 주민이 아니면 떠난 주민(기록 보존)에서 찾는다. 달성률·보상 판정이 같은 기록을 본다
@@ -913,6 +921,16 @@ export const sessionSeconds = (session: Session | null, now = Date.now()) =>
     ? 0
     : session.seconds +
       (session.status === 'active' ? Math.max(0, (now - session.startedAt) / 1000) : 0);
+// "오늘 집중" = KST 자정부터 지금까지 그 섬에서 끝낸 집중 기록의 합. 자정을 넘은 기록은 이후분만 센다.
+// ponytail: 진행 중 세션은 뺀다 — 서버에서 복원한 세션은 과거 구간 없이 누적 초만 오고 startedAt 이
+// 복원 시각이라, 자정을 넘긴 세션의 어제 집중을 오늘로 잘못 센다. 서버가 구간을 주면 그때 더한다.
+export const todayFocusSeconds = (s: State, islandId: string, now = Date.now()) => {
+  const from = kstDayStart(dayKey(now)),
+    until = from + 86400000;
+  return s.records
+    .filter((r) => r.islandId === islandId)
+    .reduce((sum, r) => sum + recordSecondsBetween(r, from, until), 0);
+};
 export function questRate(s: State, q: Quest, islandId = s.islandId): number | null {
   if (q.type === 'screen')
     return !s.settings.permission ||
@@ -2078,6 +2096,10 @@ export function reducer(state: State, a: Action): State {
     case 'MAILBOX_GUIDE_DONE':
       if (typeof a.userId !== 'string' || !shouldShowMailboxGuide(s, a.userId)) return state;
       s.mailboxGuideSeenBy = [...(s.mailboxGuideSeenBy ?? []), a.userId];
+      break;
+    case 'SHOP_GUIDE_DONE':
+      if (typeof a.userId !== 'string' || !shouldShowShopGuide(s, a.userId)) return state;
+      s.shopGuideSeenBy = [...(s.shopGuideSeenBy ?? []), a.userId];
       break;
     case 'HALL_GUIDE_DONE':
       s.hallGuide = 'done';
