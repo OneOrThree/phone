@@ -29,7 +29,11 @@ public class UpstreamConfigProperties {
     private Target realtime = withMaxConnections(2);
     private Composition composition = new Composition();
 
-    /** 화면 조합 요청 하나의 시간 예산 — 지금부터 시작하는 새 {@link Deadline}. */
+    /**
+     * 공개 요청 하나가 상류 호출들에 쓸 공유 시간 예산 — {@code composition.deadline} 값으로
+     * 지금부터 시작하는 새 {@link Deadline}. 화면 조합 컨트롤러뿐 아니라 단건 위임 컨트롤러도 같은
+     * 값을 쓴다.
+     */
     public Deadline deadline() {
         return Deadline.startingNow(composition.getDeadline());
     }

@@ -156,6 +156,25 @@ class ShopContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.current.resource.villagePoints").value(1500));
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"wallets", "products", "product", "purchase", "orders"})
+    @DisplayName("경로의 islandId 가 비정규 UUID(1-2-3-4-5) 이면 400 이고 상류를 부르지 않는다")
+    void malformedIslandIdNeverReachesUpstream(String route) throws Exception {
+        String base = "/islands/1-2-3-4-5/shop";
+        MockHttpServletRequestBuilder request = switch (route) {
+            case "wallets" -> auth(get(base + "/wallets"));
+            case "products" -> auth(get(base + "/products").queryParam("category", "personal"));
+            case "product" -> auth(get(base + "/products/rain"));
+            case "purchase" -> write(post(base + "/orders"), BUY_BODY);
+            default -> auth(get(base + "/orders").queryParam("scope", "shared"));
+        };
+        mockMvc.perform(request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.error.field").value("islandId"));
+        assertThat(DATA.received()).isEmpty();
+    }
+
     // ---------------------------------------------------------------- 조회
 
     @Test

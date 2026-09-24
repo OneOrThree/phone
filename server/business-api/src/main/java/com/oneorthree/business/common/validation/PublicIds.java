@@ -6,7 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import java.util.UUID;
 
 /**
- * 공개 경로/쿼리 파라미터에 실려 오는 UUID 문자열의 엄격 파서.
+ * 공개 경로·쿼리·요청 본문 필드에 실려 오는 UUID 문자열의 엄격 파서.
  *
  * <p>{@code UUID.fromString} 은 {@code "1-1-1-1-1"} 같은 축약형도 받아들이므로, 길이(36)와
  * 정규 표기 왕복 여부를 함께 검사해 정규 표기(8-4-4-4-12)만 통과시킨다. {@code value} 가
