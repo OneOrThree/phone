@@ -346,7 +346,7 @@ test('create 결과 불명 — 재조회에 새 섬이 없으면 원 오류를 �
 test('쓰기 결과 불명 — 재조회가 실패해도 원 오류를 던진다', async () => {
   for (const code of [
     'UPSTREAM_TIMEOUT',
-    'REQUEST_IN_PROGRESS',
+    'SERVICE_UNAVAILABLE',
     'CLIENT_TIMEOUT',
     'CLIENT_NETWORK_ERROR',
   ]) {
