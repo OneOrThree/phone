@@ -5,7 +5,6 @@ import com.oneorthree.business.auth.GuestDeviceCredentials;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.http.ClientIpResolver;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
 import com.oneorthree.business.usecase.AuthSessionUseCase;
@@ -62,7 +61,7 @@ public class GuestSessionController {
         // Business 컨테이너 한 주소로 뭉쳐, 레이트리밋이 보호가 아니라 전원 차단으로 동작한다.
         LoginSession session = guests.start(credentials.deviceId().toString(),
                 clientIpResolver.resolve(request),
-                Deadline.startingNow(properties.getComposition().getDeadline()));
+                properties.deadline());
         DeviceBootstrapHeader.set(response, session.deviceBootstrap());
         return AuthSessionUseCase.Result.of(session);
     }

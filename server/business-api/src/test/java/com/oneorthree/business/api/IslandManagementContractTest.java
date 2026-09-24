@@ -227,6 +227,37 @@ class IslandManagementContractTest extends UpstreamTestBase {
         assertThat(DATA.received()).isEmpty();
     }
 
+    @ParameterizedTest
+    @CsvSource({
+        "manage,islandId",
+        "members,islandId",
+        "joinRequests,islandId",
+        "answer-island,islandId",
+        "answer-request,requestId",
+        "kick-island,islandId",
+        "kick-user,userId",
+        "leave,islandId"})
+    @DisplayName("경로의 islandId·requestId·userId 가 비정규 UUID(1-2-3-4-5) 이면 400 이고 상류를 부르지 않는다")
+    void malformedPathIdsNeverReachUpstream(String route, String field) throws Exception {
+        MockHttpServletRequestBuilder request = switch (route) {
+            case "manage" -> write(patch("/islands/1-2-3-4-5"), "{}");
+            case "members" -> auth(get("/islands/1-2-3-4-5/members"));
+            case "joinRequests" -> auth(get("/islands/1-2-3-4-5/join-requests"));
+            case "answer-island" -> write(patch("/islands/1-2-3-4-5/join-requests/" + REQUEST),
+                    "{\"decision\":\"approve\"}");
+            case "answer-request" -> write(patch("/islands/" + ISLAND + "/join-requests/1-2-3-4-5"),
+                    "{\"decision\":\"approve\"}");
+            case "kick-island" -> auth(delete("/islands/1-2-3-4-5/members/" + TARGET)).header("Idempotency-Key", KEY);
+            case "kick-user" -> auth(delete("/islands/" + ISLAND + "/members/1-2-3-4-5")).header("Idempotency-Key", KEY);
+            default -> auth(delete("/islands/1-2-3-4-5/memberships/me")).header("Idempotency-Key", KEY);
+        };
+        mockMvc.perform(request)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                .andExpect(jsonPath("$.error.field").value(field));
+        assertThat(DATA.received()).isEmpty();
+    }
+
     // ---------------------------------------------------------------- 오류 변환
 
     @ParameterizedTest

@@ -3,7 +3,6 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.AccountUseCase;
@@ -45,7 +44,7 @@ public class AccountController {
 
     @GetMapping("/me")
     public AccountUseCase.AccountView me(HttpServletRequest request) {
-        return account.me(sessions.requireSession(request), deadline());
+        return account.me(sessions.requireSession(request), properties.deadline());
     }
 
     /**
@@ -81,7 +80,7 @@ public class AccountController {
         }
         return account.updateProfile(claims, name == null ? null : name.stringValue(),
                 catColor == null ? null : catColor.stringValue(),
-                mainIslandId == null ? null : islandId(mainIslandId.stringValue()), key, deadline());
+                mainIslandId == null ? null : islandId(mainIslandId.stringValue()), key, properties.deadline());
     }
 
     /** 탈퇴. {@code confirmation} 은 재인증이 아니라 오조작 방지이며 대소문자까지 정확히 {@code "DELETE"} 다. */
@@ -94,7 +93,7 @@ public class AccountController {
                 || !CONFIRMATION.equals(confirmation.stringValue())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "confirmation");
         }
-        return account.withdraw(claims, deadline());
+        return account.withdraw(claims, properties.deadline());
     }
 
     /**
@@ -115,9 +114,5 @@ public class AccountController {
         } catch (IllegalArgumentException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "mainIslandId");
         }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }
