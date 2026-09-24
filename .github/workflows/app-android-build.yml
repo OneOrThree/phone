@@ -71,10 +71,10 @@ jobs:
   checks:
     # GitHub-hosted 러너에서 돈다 (GROMO-2121, decisions.md A25). self-hosted(gromo-dev-build)를
     # 폐기했다. 예전에 GitHub-hosted 로 옮겼다 되돌린 이유(GROMO-1918)는 프로젝트가 요구하는 NDK
-    # (27.0.12077973)가 이미지에 없어 구성 단계에서 실패한 것이다:
+    # 가 이미지에 없어 구성 단계에서 실패한 것이다(에러가 찍는 버전은 AGP 기본값이라 요구 버전이 아니다):
     #     > Failed to apply plugin 'com.facebook.react.rootproject'.
     #        > NDK not configured. Preferred NDK version is '27.0.12077973'.
-    # 그래서 아래 「NDK 설치」 단이 그 버전만 sdkmanager 로 받아 캐시한다.
+    # 그래서 아래 「NDK 설치」 단이 요구 버전(지금 27.1.12297006)만 sdkmanager 로 받아 캐시한다.
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -125,20 +125,21 @@ jobs:
           PY
 
       # ── NDK 설치 (GitHub-hosted 러너 전용 보정) ────────────────────────────────
-      # 이미지에는 NDK 가 있어도 프로젝트가 요구하는 버전이 없다. RN 루트 플러그인이 구성 단계에서
-      # 없는 버전을 자동 다운로드(4.8 GB)하려 들기 때문에, 요구 버전 하나만 미리 받아 캐시에 둔다.
-      # 버전은 expo-root-project 가 정한다 — 플러그인이 올라 NDK 요구가 바뀌면 이 값도 같이 올린다
-      # (어긋나면 Gradle 이 "NDK not configured. Preferred NDK version is ..." 로 즉시 알려준다).
+      # 이미지에는 NDK 가 여러 벌 있어도 프로젝트가 요구하는 버전이 없다. 요구 버전 하나만 미리 받아
+      # 캐시에 둔다. 버전은 expo-root-project 가 정한다(`ExpoRootProjectPlugin.kt` 의 ndkVersion 기본값,
+      # Gradle 로그 첫머리 `- ndk:` 줄). 플러그인이 올라 요구가 바뀌면 이 값도 같이 올린다 — 어긋나면
+      # Gradle 이 "NDK not configured" 로 즉시 실패한다. 이 에러가 함께 찍는 "Preferred NDK version"
+      # 은 AGP 기본값이라 **요구 버전이 아니다**(첫 시도에서 그 값을 받아 실패했다).
       - name: NDK 캐시
         id: ndk-cache
         uses: actions/cache@v4
         with:
-          path: /usr/local/lib/android/sdk/ndk/27.0.12077973
-          key: android-ndk-27.0.12077973
+          path: /usr/local/lib/android/sdk/ndk/27.1.12297006
+          key: android-ndk-27.1.12297006
 
       - name: NDK 설치
         if: steps.ndk-cache.outputs.cache-hit != 'true'
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.0.12077973" > /dev/null
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006" > /dev/null
 
       # ── 2단: Gradle 검사 (SDK 필요) ────────────────────────────────────────────
       # 셋 다 있어야 켠다. `platforms` 디렉터리 유무만 보면 **부분 설치에서 오히려 위험하다**
@@ -184,6 +185,8 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '17'
+          # GitHub-hosted 는 매번 새 VM 이라 ~/.gradle 이 남지 않는다 — 의존성을 캐시로 재사용한다.
+          cache: 'gradle'
 
       - name: Setup Node.js
         if: steps.sdk.outputs.present == 'true'
