@@ -7,6 +7,7 @@
 | [정책](policy.md) | 사용자 확정 RP 결정과 2026-09-24 메일 정본 개정, 대상·증거·UX·운영을 구체화한 D1~D7 초안 |
 | [이메일 접수 계약](email-intake-contract.md) | 자체 신고 DB 없는 접수·증거·중복·운영 상태·결과 이메일·파기 조건 |
 | [공식 근거·긴급 대응](legal-response.md) | 스토어·국내 법령·기관 신고 경로와 실행 절차, 실제 적용 사실 확인표 |
+| [공개 커뮤니티·아동 안전 기준 원고](public-community-and-child-safety.md) | [GROMO-2132](https://romance.atlassian.net/browse/GROMO-2132)에서 팀 페이지에 게시할 사용자 대상 문안 초안. 공개 연락처 확인과 실제 웹 게시 전에는 앱 등록 URL이 아님 |
 | [후속 구현 범위](follow-up-scope.md) | 현재 코드 대조, 구현 작업 분할·의존성·검증 기준 |
 | [제품 결정 로그](../decision-log.md) | 확정 결정·후속 구체화·법률 확인 상태의 이력 |
 
