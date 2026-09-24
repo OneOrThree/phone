@@ -1,0 +1,26 @@
+sequenceDiagram
+  participant C as 앱
+  participant B as Business
+  participant D as Data
+  participant R as 소유권 저장소
+  participant S as 이동 worker
+  participant M as 맵 저장소
+  C->>B: HTTPS 이동 세션 요청
+  B->>D: 현재 섬·활성 소속·배치 조회
+  D-->>B: 권한 version + layoutRevision
+  B->>R: 방 배정 / owner 조회
+  R-->>B: endpoint + roomEpoch
+  B->>S: 권한 lease·배치 스냅샷 push
+  S->>S: 맵 합성·권한 투영 준비
+  S->>M: hash로 식별되는 artifact 게시
+  S-->>B: 준비 ack + manifest
+  B-->>C: 1회용 ticket + endpoint + manifest
+  C->>S: QUIC handshake / Join(ticket)
+  S->>S: 서명·scope·권한·jti 원자 검사
+  S-->>C: Welcome(epoch, actor, tick, manifest)
+  C->>M: HTTPS artifact 다운로드
+  M-->>C: 통행 데이터
+  C->>C: hash 검증
+  C->>S: MapReady(navRevision, hash)
+  S-->>C: FullState(현재 actor·경로·tick)
+  C->>C: 이동 입력 활성화

@@ -1,0 +1,22 @@
+sequenceDiagram
+  actor U as 주민
+  participant C as 내 앱
+  participant S as 이동 서버
+  participant O as 다른 주민 앱
+  U->>C: 목적지 탭
+  C->>C: 좌표 변환 + 로컬 A* 예측
+  C->>S: MoveIntent(seq, navRevision, goal)
+  S->>S: 권한·순서 검사, 현재 서버 위치에서 A*
+  S-->>C: PathAccepted(seq, pathId, startTick, path)
+  S-->>O: PathAccepted(actorId, pathId, path)
+  C->>C: 확정 경로 채택 + 미처리 입력 재예측
+  loop 50ms 고정 스텝
+    S->>S: 경로 위에서 speed × 0.05 전진
+    S-->>C: DATAGRAM Snapshot(tick, position, ackSeq)
+    S-->>O: DATAGRAM Snapshot(tick, position)
+    C->>C: 서버 상태에 보정
+    O->>O: 100ms 버퍼에서 경로 보간
+  end
+  S-->>C: reliable Arrived(pathId, position)
+  S-->>O: reliable Arrived(pathId, position)
+  C->>C: 정지 애니메이션
