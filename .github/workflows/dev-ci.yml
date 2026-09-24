@@ -27,6 +27,7 @@ on:
       - ".github/workflows/dev-ci.yml"
       - ".github/workflows/be-gradle.yml"
       - ".github/actions/ci-jar/**"
+      - ".github/actions/gar-login/**"
       - ".github/scripts/ci-jar.py"
       - ".github/workflows/dev-cd.yml"
   # squash merge 뒤에는 최종 main SHA를 다시 검사하고, 이 실행에서 배포 이미지를 만든다.
@@ -48,6 +49,7 @@ on:
       - ".github/workflows/dev-ci.yml"
       - ".github/workflows/be-gradle.yml"
       - ".github/actions/ci-jar/**"
+      - ".github/actions/gar-login/**"
       - ".github/scripts/ci-jar.py"
       - ".github/workflows/dev-cd.yml"
 
@@ -61,9 +63,7 @@ env:
   APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
 
 jobs:
-  # 셋 다 be-gradle.yml 하나를 부른다(GROMO-1790). 아티팩트 이름 `test-results`·`jar-size` 는
-  # 아래 pr-comment 잡이 그 이름으로 내려받아 .github/scripts/generate-pr-comment.py 에 넘기므로
-  # 바꾸면 PR 코멘트가 빈 값으로 나온다.
+  # 셋 다 be-gradle.yml 하나를 부른다(GROMO-1790).
   #
   # ── 러너 배치 (GROMO-1793 → GROMO-1910 현행화, 2026-09-17) ───────────────────
   # CI 가 느린 건 «실행»이 아니라 «대기»다. `ci` 라벨 self-hosted 슬롯이 gromo-dev-build-1/2/3
@@ -150,12 +150,9 @@ jobs:
       # metadata.google.internal 은 GitHub-hosted 에서 응답하지 않는다 (GROMO-1918).
       - name: GAR 인증
         if: github.event_name == 'push'
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
-            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -210,68 +207,3 @@ jobs:
       image_digest: ${{ needs.build.outputs.image-digest }}
       image_revision: ${{ github.sha }}
     secrets: inherit
-
-  pr-report:
-    needs: [checkstyle, spotbugs, test, build]
-    # 지금은 꺼져 있다(`if: false`). 그래도 러너를 옮겨 둔다 — 되살리는 사람이 self-hosted
-    # 의존을 새로 발견하지 않도록. 이 잡은 아티팩트를 받아 코멘트를 다는 것뿐이라 GAR·GCE
-    # 의존이 없다 (GROMO-1918).
-    if: false
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      pull-requests: write
-      contents: read
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: test-results
-          path: test-results/
-
-      - uses: actions/download-artifact@v4
-        with:
-          name: jar-size
-          path: jar-size/
-
-      - name: Generate PR comment
-        env:
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          CHECKSTYLE_RESULT: ${{ needs.checkstyle.result }}
-          SPOTBUGS_RESULT: ${{ needs.spotbugs.result }}
-          TEST_RESULT: ${{ needs.test.result }}
-          BUILD_RESULT: ${{ needs.build.result }}
-        run: python3 .github/scripts/generate-pr-comment.py
-
-      - name: Post or update PR comment
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const body = fs.readFileSync('pr-comment.md', 'utf8');
-            const marker = '## CI Report';
-
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-
-            const existing = comments.find(c =>
-              c.user.login === 'github-actions[bot]' && c.body.startsWith(marker)
-            );
-
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }

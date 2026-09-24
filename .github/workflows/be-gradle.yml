@@ -61,9 +61,7 @@ on:
         default: false
       measure-jar:
         description: >-
-          bootJar 크기를 재서 `jar-size` 아티팩트로 올린다. dev-ci 의 PR 코멘트 생성
-          (.github/scripts/generate-pr-comment.py) 이 `jar-size/jar-size.txt` 경로를 그대로
-          읽으므로 이 아티팩트 «이름»은 바꾸면 안 된다.
+          bootJar 크기를 재서 `jar-size` 아티팩트로 올린다.
         type: boolean
         default: false
 

@@ -91,12 +91,9 @@ jobs:
             (($e.KAFKA_BOOTSTRAP_SERVERS // "") | length > 0)' >/dev/null
 
       - name: GAR 인증
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
-            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
 
       - name: Realtime 배포
         env:
