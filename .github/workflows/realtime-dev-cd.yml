@@ -113,14 +113,16 @@ jobs:
       - name: Realtime readiness
         run: |
           set -euo pipefail
-          for i in $(seq 1 60); do
-            if docker exec phone-realtime curl -fsS http://localhost:9091/actuator/health/readiness >/dev/null 2>&1; then
+          deadline=$((SECONDS + 900))
+          while (( SECONDS < deadline )); do
+            if docker exec phone-realtime curl -fsS --max-time 10 http://localhost:9091/actuator/health/readiness >/dev/null 2>&1; then
               echo "Realtime readiness 통과"
               exit 0
             fi
-            echo "Realtime 기동 대기 중... ($((i * 5))s)"
+            echo "Realtime 기동 대기 중... ($((900 - deadline + SECONDS))s / 900s)"
             sleep 5
           done
+          echo '::error::Realtime readiness가 900초 안에 통과하지 못했습니다'
           docker logs --tail=100 phone-realtime
           exit 1
 
