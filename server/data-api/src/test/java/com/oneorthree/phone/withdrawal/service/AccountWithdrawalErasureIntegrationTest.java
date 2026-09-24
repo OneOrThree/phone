@@ -119,9 +119,8 @@ class AccountWithdrawalErasureIntegrationTest {
         assertThat(row("select user_id, title from group_announcements where id=?", s.wAnnouncement()))
                 .containsEntry("user_id", null).containsEntry("title", "W공지");
         assertThat(uuid("select user_id from group_announcements where id=?", s.cAnnouncement())).isEqualTo(c.id());
-        // group_announcement_comments — users 는 소프트 삭제라 FK SET NULL 이 안 돈다. 작성자만 명시적으로 끊고 본문은 남긴다
-        assertThat(row("select author_id, text from group_announcement_comments where id=?", s.wComment()))
-                .containsEntry("author_id", null).containsEntry("text", "W댓글");
+        // group_announcement_comments — 공지와 달리 detach 가 아니라 delete 다(2026-09-25 결정 GROMO-2136, BQ02).
+        assertThat(count("select count(*) from group_announcement_comments where id=?", s.wComment())).isZero();
         assertThat(uuid("select author_id from group_announcement_comments where id=?", s.cComment()))
                 .isEqualTo(c.id());
 

@@ -14,6 +14,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.IslandJoinRequest;
 import com.oneorthree.phone.group.service.GroupAnnouncementService;
+import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
 import com.oneorthree.phone.internal.service.IslandNoticeService;
 import com.oneorthree.phone.outbox.exception.OutboxErrorCode;
@@ -80,6 +81,8 @@ class IslandNoticeIntegrationTest {
     @Autowired
     GroupAnnouncementService legacy;
     @Autowired
+    GroupMemberService memberService;
+    @Autowired
     GroupRepository groups;
     @Autowired
     GroupMemberRepository members;
@@ -119,15 +122,21 @@ class IslandNoticeIntegrationTest {
     }
 
     @Test
-    @DisplayName("ALLOW 주민은 남의 공지도 수정·삭제한다 — 작성자 검사가 없다(B03)")
-    void allowResidentManagesOthersNotices() {
+    @DisplayName("ALLOW 주민은 더는 공지를 쓰지 못한다 — 방장 전용이다(2026-09-25 결정 GROMO-2136, B03 재확정)")
+    void allowResidentCanNoLongerWriteNotices() {
         Island is = boardIsland();
         UUID allowed = resident(is.id, GroupAnnouncementGrant.ALLOW);
         UUID noticeId = notices.create(is.id, is.owner, "방장 공지", "본문", key()).id();
 
-        assertThat(notices.update(is.id, noticeId, allowed, null, "주민이 고침", key()).body()).isEqualTo("주민이 고침");
-        assertThat(notices.create(is.id, allowed, "주민 공지", "본문", key()).id()).isNotNull();
-        assertThat(notices.delete(is.id, noticeId, allowed, key()).deleted()).isTrue();
+        assertThatThrownBy(() -> notices.create(is.id, allowed, "주민 공지", "본문", key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
+        assertThatThrownBy(() -> notices.update(is.id, noticeId, allowed, null, "주민이 고침", key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
+        assertThatThrownBy(() -> notices.delete(is.id, noticeId, allowed, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
+        // legacy /api/v1 경로는 그대로 ALLOW 주민을 허용한다 — 이 새 API 만 방장 전용으로 바뀌었다.
+        legacy.updateAnnouncement(is.id, noticeId, allowed, new CreateAnnouncementRequest("ALLOW 주민이 고침", "본문"));
+        assertThat(notices.detail(is.id, noticeId, is.owner, null, null, 30).title()).isEqualTo("ALLOW 주민이 고침");
     }
 
     @Test
@@ -275,24 +284,85 @@ class IslandNoticeIntegrationTest {
     }
 
     @Test
-    @DisplayName("재생도 현재 인가가 필요하다 — 권한이 회수된 뒤 같은 키 재전송은 NOTICE_FORBIDDEN")
+    @DisplayName("재생도 현재 인가가 필요하다 — 방장 위임 뒤 같은 키 재전송은 옛 방장에게 NOTICE_FORBIDDEN")
     void replayRequiresCurrentAuthorization() {
         Island is = boardIsland();
-        UUID allowed = resident(is.id, GroupAnnouncementGrant.ALLOW);
         UUID key = key();
-        notices.create(is.id, allowed, "공지", "본문", key);
+        notices.create(is.id, is.owner, "공지", "본문", key);
 
-        jdbc.update("update group_members set announcement_permission='DISALLOW' where group_id=? and user_id=?",
-                is.id, allowed);
+        UUID successor = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        memberService.transferOwner(is.id, successor, is.owner);
 
-        assertThatThrownBy(() -> notices.create(is.id, allowed, "공지", "본문", key))
+        assertThatThrownBy(() -> notices.create(is.id, is.owner, "공지", "본문", key))
                 .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_FORBIDDEN);
     }
 
-    // ---------------------------------------------------------------- 상한 (BQ03 임시값)
+    // ---------------------------------------------------------------- 댓글 삭제 (B11, 2026-09-25 결정 GROMO-2136)
 
     @Test
-    @DisplayName("본문·댓글 임시 상한을 넘으면 422 코드 — 쓰기 전 거절이라 행이 남지 않는다")
+    @DisplayName("댓글은 작성자 본인이 지운다 — 200 deleted=true, 공지 version 도 오른다")
+    void authorDeletesOwnComment() {
+        Island is = boardIsland();
+        UUID plain = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID commentId = notices.comment(is.id, noticeId, plain, "댓글", key()).id();
+
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, plain, key()).deleted()).isTrue();
+
+        assertThat(count("select count(*) from group_announcement_comments where id=?", commentId)).isZero();
+        assertThat(events(noticeId)).containsExactly(1L, 2L, 3L);
+    }
+
+    @Test
+    @DisplayName("방장은 남의 댓글도 지운다")
+    void hostDeletesOthersComment() {
+        Island is = boardIsland();
+        UUID plain = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID commentId = notices.comment(is.id, noticeId, plain, "댓글", key()).id();
+
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, is.owner, key()).deleted()).isTrue();
+
+        assertThat(count("select count(*) from group_announcement_comments where id=?", commentId)).isZero();
+    }
+
+    @Test
+    @DisplayName("작성자도 방장도 아닌 주민은 NOTICE_COMMENT_FORBIDDEN, 없는 댓글·다른 공지 댓글은 NOT_FOUND")
+    void otherResidentCannotDeleteAndUnknownCommentIsNotFound() {
+        Island is = boardIsland();
+        UUID author = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID other = resident(is.id, GroupAnnouncementGrant.DISALLOW);
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID commentId = notices.comment(is.id, noticeId, author, "댓글", key()).id();
+
+        assertThatThrownBy(() -> notices.deleteComment(is.id, noticeId, commentId, other, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN);
+        assertThatThrownBy(() -> notices.deleteComment(is.id, noticeId, UUID.randomUUID(), is.owner, key()))
+                .extracting("errorCode").isEqualTo(GroupErrorCode.NOT_FOUND);
+
+        Island otherIsland = boardIsland();
+        UUID otherNoticeId = notices.create(otherIsland.id, otherIsland.owner, "다른 섬 공지", "본문", key()).id();
+        assertThatThrownBy(() -> notices.deleteComment(otherIsland.id, otherNoticeId, commentId, otherIsland.owner,
+                key())).extracting("errorCode").isEqualTo(GroupErrorCode.NOT_FOUND);
+        assertThat(count("select count(*) from group_announcement_comments where id=?", commentId)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("댓글 삭제의 같은 키 재생은 댓글이 없어도 deleted=true")
+    void deleteCommentReplayAfterDeletion() {
+        Island is = boardIsland();
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID commentId = notices.comment(is.id, noticeId, is.owner, "댓글", key()).id();
+        UUID key = key();
+
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, is.owner, key).deleted()).isTrue();
+        assertThat(notices.deleteComment(is.id, noticeId, commentId, is.owner, key).deleted()).isTrue();
+    }
+
+    // ---------------------------------------------------------------- 상한 (BQ03 확정값)
+
+    @Test
+    @DisplayName("본문·댓글 상한을 넘으면 422 코드 — 쓰기 전 거절이라 행이 남지 않는다")
     void provisionalLimitsRejectBeforeWriting() {
         Island is = boardIsland();
         UUID noticeId = notices.create(is.id, is.owner, "공지", "가".repeat(20), key()).id();
@@ -408,16 +478,28 @@ class IslandNoticeIntegrationTest {
 
         legacy.updateAnnouncement(is.id, noticeId, is.owner, new CreateAnnouncementRequest("고친 제목", "본문"));
         // 새 경로 댓글이 legacy 수정 다음 번호를 잇는다 — 같은 축이다.
-        notices.comment(is.id, noticeId, is.owner, "댓글", key());
+        UUID commentId = notices.comment(is.id, noticeId, is.owner, "댓글", key()).id();
         IslandNoticeViews.Detail detail = notices.detail(is.id, noticeId, is.owner, null, null, 30);
         assertThat(detail.title()).isEqualTo("고친 제목");
         assertThat(detail.version()).isEqualTo(3);
 
         legacy.deleteAnnouncement(is.id, noticeId, is.owner);
         assertThat(events(noticeId)).containsExactly(1L, 2L, 3L, 4L);
-        // 댓글 행은 남고 notice_id 만 비워진다(BQ02 미결 — 파기하지 않는다).
-        assertThat(count("select count(*) from group_announcement_comments where notice_id is null"
-                + " and author_id=?", is.owner)).isEqualTo(1);
+        // 댓글도 DB ON DELETE CASCADE(V103)로 함께 지워진다 — legacy 삭제도 마찬가지다(2026-09-25 결정 GROMO-2136).
+        assertThat(count("select count(*) from group_announcement_comments where id=?", commentId)).isZero();
+    }
+
+    @Test
+    @DisplayName("공지 삭제는 댓글도 함께 지운다 — DB ON DELETE CASCADE(V103, 2026-09-25 결정 GROMO-2136)")
+    void deletingNoticeCascadesItsComments() {
+        Island is = boardIsland();
+        UUID noticeId = notices.create(is.id, is.owner, "공지", "본문", key()).id();
+        UUID commentId = notices.comment(is.id, noticeId, is.owner, "댓글", key()).id();
+        assertThat(count("select count(*) from group_announcement_comments where id=?", commentId)).isEqualTo(1);
+
+        assertThat(notices.delete(is.id, noticeId, is.owner, key()).deleted()).isTrue();
+
+        assertThat(count("select count(*) from group_announcement_comments where id=?", commentId)).isZero();
     }
 
     // ---------------------------------------------------------------- 내부 HTTP

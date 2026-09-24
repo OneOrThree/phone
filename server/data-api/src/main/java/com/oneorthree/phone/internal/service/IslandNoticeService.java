@@ -11,7 +11,9 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncement;
 import com.oneorthree.phone.group.repository.domain.GroupAnnouncementComment;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
+import com.oneorthree.phone.group.service.GroupAnnouncementService;
 import com.oneorthree.phone.group.service.GroupMembershipMutationLocks;
 import com.oneorthree.phone.group.service.IslandNoticeEvents;
 import com.oneorthree.phone.internal.dto.IslandNoticeViews;
@@ -38,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -46,20 +49,23 @@ import java.util.stream.Collectors;
  * 섬 게시판 — 공지 목록·상세(댓글 페이지)·작성·수정·삭제·댓글 작성의 Data 측 구현 (GROMO-1771, island-board
  * LLD §1~§4). 저장소는 legacy 공지({@code group_announcements})를 그대로 쓰고 댓글 테이블만 새로 둔다.
  *
- * <h2>인가 — 읽기는 누구나, 쓰기는 주민만, 둘 다 게시판 완공 뒤에만 (정책 B01·B03)</h2>
+ * <h2>인가 — 읽기는 누구나, 쓰기는 주민만, 둘 다 게시판 완공 뒤에만 (정책 B01, GROMO-2136)</h2>
  * 목록·상세 읽기는 활성 계정이면 방문자(가입 대기자 포함)도 된다(2026-09-19 결정 V-읽기, GROMO-1904) — 판정은
  * 요청자 활성 → 섬 생존 → 게시판 완공이다. 미완공 게시판은 방문자에게도 {@code BOARD_LOCKED} 다.
- * 댓글은 활성 주민, 공지 쓰기는 방장 또는 {@code announcement_permission=ALLOW} 주민이다
- * ({@link GroupMember#canWriteAnnouncement} — legacy 와 같은 술어, 수정·삭제도 작성자를 보지 않는다).
- * 쓰기 판정 순서는 요청자 활성 → 섬 생존 → 주민 → 게시판 완공 → (공지면) 작성 권한이다. 방문자(비주민)의 쓰기는
- * 시설 잠금보다 먼저 {@code MEMBER_ONLY} 로 거절된다. 게시판 게이트는 {@code construction.facility-gates.enforce}
- * 를 따른다(기본 OFF — 적립 경로 배포 전엔 어느 섬도 지을 수 없다).
+ * 댓글 작성은 활성 주민 누구나다. <b>공지 작성·수정·삭제는 방장(OWNER)만</b> 이다(2026-09-25 결정 GROMO-2136,
+ * island-board policy B03) — legacy {@code /api/v1} 공지({@link GroupAnnouncementService},
+ * {@link GroupMember#canWriteAnnouncement})는 여전히 방장 + {@code announcement_permission=ALLOW} 주민이지만,
+ * 이 새 API 에서만 그 규칙을 대체한다. <b>댓글 삭제는 작성자 본인 또는 방장</b>이다(같은 결정).
+ * 쓰기 판정 순서는 요청자 활성 → 섬 생존 → 주민 → 게시판 완공 → (공지·댓글 삭제면) 작성 권한이다. 방문자(비주민)의
+ * 쓰기는 시설 잠금보다 먼저 {@code MEMBER_ONLY} 로 거절된다. 게시판 게이트는
+ * {@code construction.facility-gates.enforce} 를 따른다(기본 OFF — 적립 경로 배포 전엔 어느 섬도 지을 수 없다).
  *
  * <h2>쓰기 게이트 — {@code island-board.writes-enabled} (기본 OFF)</h2>
- * 정책 BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)이 정해지기 전에는 writer 출시 금지다(island-board
- * policy). 네 쓰기는 끝까지 구현하되 이 스위치가 꺼져 있으면 receipt 선점·잠금보다 먼저 503
- * {@code NOTICE_WRITE_UNAVAILABLE} 로 거절한다({@code InternalHostTransferService} 와 같은 모양). 상한 두 값도
- * BQ03 결정 전 임시값으로 설정에서 읽는다.
+ * 정책 BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정으로 확정됐다(island-board policy) —
+ * 공지 삭제는 댓글을 함께 지우고(DB {@code ON DELETE CASCADE}, V103), 탈퇴자의 댓글은 원문째 지운다. 그래도
+ * 스위치 기본값은 그대로 OFF 다: prod 개방은 별도 릴리스 결정, dev 는 {@code ISLAND_BOARD_WRITES_ENABLED} 로 켠다.
+ * 네 쓰기(+댓글 삭제)는 이 스위치가 꺼져 있으면 receipt 선점·잠금보다 먼저 503
+ * {@code NOTICE_WRITE_UNAVAILABLE} 로 거절한다({@code InternalHostTransferService} 와 같은 모양).
  *
  * <h2>잠금 순서 (LLD §3)</h2>
  * users 공유 → 섬(groups) 배타 → 공통 명령 receipt → 공지 aggregate. legacy {@code GroupAnnouncementService}
@@ -185,7 +191,7 @@ public class IslandNoticeService {
         semantic.put("title", title);
         semantic.put("body", body);
         return run(userId, islandId, new PublicCommandRequest(userId, "POST:/islands/" + islandId + "/notices",
-                key, InternalJson.tree(semantic)), true, () -> {
+                key, InternalJson.tree(semantic)), IslandNoticeService::requireHost, () -> {
                     requireBodyLength(body);
                     bannedWords.requireClean(title, body);
                     User author = users.getCallerForShare(userId);
@@ -215,8 +221,8 @@ public class IslandNoticeService {
             semantic.put("body", body);
         }
         return run(userId, islandId, new PublicCommandRequest(userId,
-                "PATCH:/islands/" + islandId + "/notices/" + noticeId, key, InternalJson.tree(semantic)), true,
-                () -> {
+                "PATCH:/islands/" + islandId + "/notices/" + noticeId, key, InternalJson.tree(semantic)),
+                IslandNoticeService::requireHost, () -> {
                     if (body != null) {
                         requireBodyLength(body);
                     }
@@ -231,15 +237,16 @@ public class IslandNoticeService {
 
     /**
      * 공지 삭제 — 200 {@code deleted=true}. 같은 키 재생은 공지가 이미 없어도 원 결과다: 대상 부재 검사는
-     * 명령 안에서만 하므로 완료 재생 뒤다(LLD §3). 새 키로 없는 공지를 지우면 404 다. 댓글 행은 DB 가
-     * {@code notice_id} 만 비우고 남긴다(BQ02 미결 — 파기 범위 결정 전 지우지 않는다).
+     * 명령 안에서만 하므로 완료 재생 뒤다(LLD §3). 새 키로 없는 공지를 지우면 404 다. 댓글은 DB 가
+     * {@code ON DELETE CASCADE} 로 함께 지운다(V103, 2026-09-25 결정 GROMO-2136 — BQ02 확정) — 여기서 따로
+     * 지우지 않는다.
      */
     @Transactional
     public IslandNoticeViews.Deleted delete(UUID islandId, UUID noticeId, UUID userId, UUID key) {
         requireWritesEnabled();
         return run(userId, islandId, new PublicCommandRequest(userId,
-                "DELETE:/islands/" + islandId + "/notices/" + noticeId, key, InternalJson.tree(Map.of())), true,
-                () -> {
+                "DELETE:/islands/" + islandId + "/notices/" + noticeId, key, InternalJson.tree(Map.of())),
+                IslandNoticeService::requireHost, () -> {
                     notices.delete(requireNotice(islandId, noticeId));
                     EventEnvelope event = noticeEvents.changed(islandId, noticeId, userId);
                     return new PublicCommandResult(200, InternalJson.tree(new IslandNoticeViews.Deleted(true)),
@@ -254,7 +261,7 @@ public class IslandNoticeService {
         requireWritesEnabled();
         return run(userId, islandId, new PublicCommandRequest(userId,
                 "POST:/islands/" + islandId + "/notices/" + noticeId + "/comments", key,
-                InternalJson.tree(Map.of("text", text))), false,
+                InternalJson.tree(Map.of("text", text))), member -> { },
                 () -> {
                     if (text.length() > commentMaxLength) {
                         throw new GroupException(GroupErrorCode.NOTICE_COMMENT_TOO_LONG);
@@ -272,23 +279,47 @@ public class IslandNoticeService {
     }
 
     /**
+     * 댓글 삭제 — 작성자 본인 또는 방장만(2026-09-25 결정 GROMO-2136). 200 {@code deleted=true}, 없는 댓글·다른
+     * 공지의 댓글은 {@link #requireComment} 가 {@code NOT_FOUND} 로 거절한다(공지와 같은 코드 — 그룹 안의 것).
+     *
+     * <p>작성자·방장 검사는 {@code authorize}(guard) 가 아니라 <b>명령 안</b>에서 한다 — {@link #delete} 의 대상
+     * 부재 검사와 같은 이유다: 완료 재생은 activeAuthorization 을 다시 부르는데, 성공한 삭제 뒤에는 그 댓글이
+     * 이미 없어 작성자 여부를 다시 물을 수 없다. guard 는 주민 확인까지만 한다({@code member -> { }}, 댓글
+     * 작성과 같다).
+     */
+    @Transactional
+    public IslandNoticeViews.Deleted deleteComment(UUID islandId, UUID noticeId, UUID commentId, UUID userId,
+            UUID key) {
+        requireWritesEnabled();
+        return run(userId, islandId, new PublicCommandRequest(userId,
+                "DELETE:/islands/" + islandId + "/notices/" + noticeId + "/comments/" + commentId, key,
+                InternalJson.tree(Map.of())), member -> { }, () -> {
+                    GroupMember member = groups.getMembership(users.getCallerForShare(userId),
+                            groups.getGroup(islandId));
+                    comments.delete(requireCommentDeletable(islandId, noticeId, commentId, userId, member));
+                    EventEnvelope event = noticeEvents.changed(islandId, noticeId, userId);
+                    return new PublicCommandResult(200, InternalJson.tree(new IslandNoticeViews.Deleted(true)),
+                            InternalJson.tree(List.of(event)));
+                }, IslandNoticeViews.Deleted.class);
+    }
+
+    /**
      * 쓰기 공통 골격 — users 공유 → 섬 배타를 잡고 {@link PublicCommandService#run} 에 들어간다. 재생 권한은
      * 활성 인가와 같다: 원 결과 재생도 «지금» 주민·완공·작성 권한이 있어야 한다(B10). 공통 층이 활성 인가를
      * 재생 경로에서도 다시 부르므로 재생 검사가 따로 할 일은 없다.
      *
      * <p>본문·댓글 길이 상한(422)은 각 {@code body} 첫 줄에서 판정한다 — 인가(403)가 먼저다(api-platform LLD
      * §1 4단계, GROMO-1949). 422 는 TX 전체를 rollback 해 receipt 가 남지 않으므로 같은 키 재전송도 다시 422 다.
+     *
+     * @param guard 활성 주민 확인 뒤의 미세 인가 — 공지 쓰기는 {@link #requireHost}, 댓글 작성·삭제는 제한 없음
+     *     (주민이면 충분). 댓글 삭제의 작성자·방장 검사({@link #requireCommentDeletable})는 guard 가 아니라
+     *     명령 본문에 있다 — 이유는 {@link #deleteComment} 참조
      */
-    private <T> T run(UUID userId, UUID islandId, PublicCommandRequest command, boolean noticeWriter,
+    private <T> T run(UUID userId, UUID islandId, PublicCommandRequest command, Consumer<GroupMember> guard,
             Supplier<PublicCommandResult> body, Class<T> type) {
         User caller = users.getCallerForShare(userId);
         membershipLocks.lockGroup(islandId);
-        Runnable authorize = () -> {
-            GroupMember member = requireResident(islandId, caller);
-            if (noticeWriter && !member.canWriteAnnouncement()) {
-                throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
-            }
-        };
+        Runnable authorize = () -> guard.accept(requireResident(islandId, caller));
         return InternalJson.decode(publicCommands.run(command, authorize, stored -> { }, body).value().data(),
                 type);
     }
@@ -329,6 +360,33 @@ public class IslandNoticeService {
     private GroupAnnouncement requireNotice(UUID islandId, UUID noticeId) {
         return notices.findByIdAndGroupId(noticeId, islandId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+    }
+
+    /**
+     * 댓글 조회 — 공지가 이 섬 것인지 먼저 확인한 뒤, 그 공지의 댓글인지를 본다. 둘 다 {@code NOT_FOUND}(공지와
+     * 같은 코드 — 그룹 안의 것) 다.
+     */
+    private GroupAnnouncementComment requireComment(UUID islandId, UUID noticeId, UUID commentId) {
+        requireNotice(islandId, noticeId);
+        return comments.findById(commentId).filter(c -> noticeId.equals(c.getNoticeId()))
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
+    }
+
+    /** 공지 작성·수정·삭제 — 방장만(2026-09-25 결정 GROMO-2136, B03). legacy {@code canWriteAnnouncement} 와 다르다. */
+    private static void requireHost(GroupMember member) {
+        if (member.getRole() != GroupMemberRole.OWNER) {
+            throw new GroupException(GroupErrorCode.NOTICE_FORBIDDEN);
+        }
+    }
+
+    /** 댓글 삭제 — 작성자 본인 또는 방장만(같은 결정). 검증한 댓글을 그대로 돌려줘 호출부가 다시 조회하지 않게 한다. */
+    private GroupAnnouncementComment requireCommentDeletable(UUID islandId, UUID noticeId, UUID commentId,
+            UUID userId, GroupMember member) {
+        GroupAnnouncementComment comment = requireComment(islandId, noticeId, commentId);
+        if (member.getRole() != GroupMemberRole.OWNER && !userId.equals(comment.getAuthorId())) {
+            throw new GroupException(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN);
+        }
+        return comment;
     }
 
     private void requireWritesEnabled() {

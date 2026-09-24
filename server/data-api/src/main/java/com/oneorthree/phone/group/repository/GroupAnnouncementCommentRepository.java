@@ -34,13 +34,13 @@ public interface GroupAnnouncementCommentRepository extends JpaRepository<GroupA
     List<NoticeCommentCount> countByNoticeIds(@Param("noticeIds") Collection<UUID> noticeIds);
 
     /**
-     * 탈퇴자가 쓴 댓글의 작성자 연결만 끊는다 (GROMO-1771 × GROMO-1801 계정 LLD §4). 사용자 행은 소프트 삭제라
-     * V66 의 {@code ON DELETE SET NULL} 이 발동하지 않으므로 {@code group_announcements.user_id} 와 같이 명시적으로 비운다.
-     * 댓글 행·본문은 BQ02 결정 전까지 남는다.
+     * 탈퇴자가 쓴 댓글을 원문째 지운다 (GROMO-1771 × GROMO-1801 계정 LLD §4, 2026-09-25 결정 GROMO-2136 — BQ02
+     * 확정). 공지({@code group_announcements.user_id})는 여전히 작성자 연결만 끊고 행·내용을 보존하지만, 댓글은
+     * detach 가 아니라 delete 다 — 사용자 행은 소프트 삭제라 V66 의 {@code ON DELETE SET NULL} 이 발동하지 않는다.
      */
     @Modifying(flushAutomatically = true)
-    @Query("UPDATE GroupAnnouncementComment c SET c.authorId = null WHERE c.authorId = :userId")
-    int detachAuthor(@Param("userId") UUID userId);
+    @Query("DELETE FROM GroupAnnouncementComment c WHERE c.authorId = :userId")
+    int deleteAllOfUser(@Param("userId") UUID userId);
 
     /** {@link #countByNoticeIds} 의 한 줄. */
     interface NoticeCommentCount {

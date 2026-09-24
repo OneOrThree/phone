@@ -396,7 +396,8 @@ public class GroupMemberService {
         betParticipantRepository.eraseResultViewsOf(userId);
         groupChallengeMemberRepository.deleteAllOfUser(userId);
         groupAnnouncementRepository.detachAuthor(userId);
-        groupAnnouncementCommentRepository.detachAuthor(userId);
+        // 댓글은 공지와 달리 원문째 지운다 (2026-09-25 결정 GROMO-2136 — BQ02 확정).
+        groupAnnouncementCommentRepository.deleteAllOfUser(userId);
         // 링크 서버로 나간·나갈 닉네임 변경 봉투 속 이름 사본(GROMO-1946)
         linkMembershipEventService.eraseWithdrawnDisplayName(userId);
     }
