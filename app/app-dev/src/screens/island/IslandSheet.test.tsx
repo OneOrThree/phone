@@ -14,12 +14,15 @@ let mockLayout = {
 jest.mock('@/utils/layout', () => ({ useAppLayout: () => mockLayout }));
 
 test.each([
-  ['가로 패널', true, false],
-  ['태블릿 카드', false, true],
-  ['세로 시트', false, false],
+  ['가로 패널', true, false, true],
+  ['가로 패널', true, false, false],
+  ['태블릿 카드', false, true, true],
+  ['태블릿 카드', false, true, false],
+  ['세로 시트', false, false, true],
+  ['세로 시트', false, false, false],
 ] as const)(
-  '%s에서 클립을 유지하면서 스크롤 끝 항목과 footer를 렌더링한다',
-  async (_name, compact, tablet) => {
+  '%s에서 footer 유무와 관계없이 마지막 항목 접근 및 클립을 유지한다',
+  async (_name, compact, tablet, hasFooter) => {
     mockLayout = { ...mockLayout, compact, tablet };
     const { getByLabelText, getByText, getByTestId } = await render(
       <IslandSheet
@@ -27,7 +30,7 @@ test.each([
         sign="boat/raft"
         title="설정"
         onClose={() => {}}
-        footer={<Text>저장</Text>}
+        footer={hasFooter ? <Text>저장</Text> : undefined}
       >
         <Pressable accessibilityLabel="마지막 항목">
           <Text>마지막 항목</Text>
@@ -42,6 +45,6 @@ test.each([
       borderBottomLeftRadius: compact || tablet ? 28 : 0,
     });
     expect(clipStyle.borderBottomRightRadius).toBe(tablet ? 28 : 0);
-    expect(getByText('저장')).toBeTruthy();
+    if (hasFooter) expect(getByText('저장')).toBeTruthy();
   },
 );
