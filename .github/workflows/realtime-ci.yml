@@ -21,6 +21,7 @@ on:
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
       - '.github/workflows/be-gradle.yml'
       - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
       - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
   push:
@@ -35,6 +36,7 @@ on:
       # realtime 게이트가 안 돌아 «머지해 봐야» 맞는지 안다 (GROMO-1515 와 같은 이유).
       - '.github/workflows/be-gradle.yml'
       - '.github/actions/ci-jar/**'
+      - '.github/actions/gar-login/**'
       - '.github/scripts/ci-jar.py'
       - 'server/scripts/docker-compose.realtime.yml'
 
