@@ -17,6 +17,8 @@ import {
   Building,
   Color,
   currentIsland,
+  homeIsland,
+  serverHome,
   viewIsland,
   buildingNames,
   balance,
@@ -47,6 +49,8 @@ import {
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens } from '@/design-system/tokens';
+import { getSession } from '@/services/api/session';
+import { catColor } from '@/screens/focus/useIslandPresence';
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -215,7 +219,7 @@ export function WorldMap({
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
-    island = state.islands.find((item) => item.id === islandId) ?? viewIsland(state);
+    island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
@@ -531,7 +535,12 @@ function FinalIslandScene({
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
   const explicitVisit = !!viewingIslandId,
-    i = state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state),
+    // 방문 카드(viewingIslandId)로 연 섬은 내 홈 스냅샷으로 대신 그리지 않는다 — 기존 폴백 유지
+    i = viewingIslandId
+      ? (state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state))
+      : homeIsland(state),
+    // 서버 모드 내 섬 홈이면 스냅샷(GROMO-2138) — 주민 색·오늘 집중을 서버 값으로 그린다
+    facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
   const scene = useMemo(
@@ -623,12 +632,19 @@ function FinalIslandScene({
   }, [request]);
 
   const wanderColors = useMemo(() => {
-    const others = i.members.filter((m) => m.id !== 'me').map((m) => m.color as Color);
-    const spare = (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
-      (c) => c !== state.color && !others.includes(c),
-    );
+    const myId = getSession()?.userId;
+    // 서버 주민 색은 고른 사람만 — catColor null 은 임의 색으로 채우지 않는다
+    const others = facts
+      ? facts.members.filter((m) => m.id !== myId && m.catColor).map((m) => catColor(m.catColor))
+      : i.members.filter((m) => m.id !== 'me').map((m) => m.color as Color);
+    // 모자란 자리를 보충 색으로 채우는 연출은 목업 섬에서만 — 서버 홈엔 없는 주민을 세우지 않는다
+    const spare = facts
+      ? []
+      : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
+          (c) => c !== state.color && !others.includes(c),
+        );
     return [...others, ...spare].slice(0, 2);
-  }, [i.members, state.color]);
+  }, [i.members, facts, state.color]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number) => {
     return (
@@ -722,7 +738,7 @@ function FinalIslandScene({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
-  const today = todayFocusSeconds(state, i.id);
+  const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id);
   const hudTop = L.landscape ? 14 : Math.max(64, L.insets.top + 5),
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
@@ -805,7 +821,8 @@ function FinalIslandScene({
       )}
       {showActions && (
         <>
-          {!visiting && (i.construction || next) && (
+          {/* 서버 건설은 회관의 서버 경로 몫이다 — 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
+          {!visiting && !facts && (i.construction || next) && (
             <View
               style={{
                 position: 'absolute',

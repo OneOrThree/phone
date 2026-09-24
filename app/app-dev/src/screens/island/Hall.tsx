@@ -181,14 +181,16 @@ export function Hall({ e }: any) {
     r = e.route,
     host = isHost(i),
     // 다른 섬을 구경 중(주민 아님)이면 섬 정보 카드를 방문자 뷰로 보여 준다
-    visitor = !!s.visitingIslandId;
+    visitor = !!s.visitingIslandId,
+    // 서버 훅이 부를 섬 — 서버 모드 current 는 로컬 목업 섬 목록에 없다(GROMO-2138). 목업은 기존 섬 id
+    liveIslandId = s.serverIslands?.currentIslandId ?? i.id;
   // review/demo에는 서버가 없으므로 관리 hook을 열지 않고 기존 시연 섬 정보를 유지한다.
   const liveManagement = (r === 'manage' || r === 'members') && !visitor && !ledgerMockMode();
   // `manage`/`members`는 실제 App 경로(CurrentScreens → Hall)다. 로컬 Island를 서버 DTO로
   // 덮어쓰지 않고 이 표면에서만 관리 API snapshot을 직접 소비한다.
   const management = useIslandManagement({
     active: liveManagement,
-    islandId: visitor ? null : i.id,
+    islandId: visitor ? null : liveIslandId,
   });
   const [panel, setPanel] = useState<'' | 'edit' | 'transfer'>(''),
     [plan, setPlan] = useState<Building | null>(null),
@@ -256,14 +258,14 @@ export function Hall({ e }: any) {
   const mockLedger = ledgerMockMode();
   const serverLedger = useLedgerScreen({
     active: r === 'ledger' && !visitor && !mockLedger,
-    islandId: i.id,
+    islandId: liveIslandId,
     currentMonth: thisMonth,
   });
   // 건설 화면도 같은 서버 정본 규칙 — 방문자·모크 모드는 로컬 시연 UI 를 유지한다.
   const liveConstruction = r === 'construction' && !visitor && !mockLedger;
   const construction = useConstruction({
     active: liveConstruction,
-    islandId: visitor ? null : i.id,
+    islandId: visitor ? null : liveIslandId,
     now: e.now,
   });
   const [mockMonth, setMockMonth] = useState(0);

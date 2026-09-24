@@ -101,7 +101,8 @@ import {
   type LoginResult,
   type Provider,
 } from '@/services/api/auth';
-import { ApiError } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getSession,
   restoreSession,
@@ -411,6 +412,33 @@ function Gromo() {
   });
   const islands = islandCmds.current.commands,
     syncIslands = islandCmds.current.syncIslands;
+  // ── 서버 모드 홈 스냅샷(GROMO-2138) ──
+  // 홈에 들어올 때마다(그리고 current 가 바뀌면) 불러 홈이 서버 값을 직접 그린다.
+  // 실패는 홈이 재시도로 띄운다 — 로컬 목업 섬으로 대신 그리지 않는다.
+  const [homeError, setHomeError] = useState(false),
+    [homeReload, setHomeReload] = useState(0);
+  const serverCurrent =
+    !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
+  const onHome = route === 'home';
+  useEffect(() => {
+    if (!loaded || !serverCurrent || !onHome) return;
+    let live = true;
+    setHomeError(false);
+    loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
+      .then((r) => {
+        if (!live) return;
+        if (r.status === 'loaded') dispatch({ type: 'SERVER_HOME', facts: r.facts });
+        // 그 사이 current 가 풀렸다(강퇴·다른 기기 해제) — 소속 동기화로 반영해 chooseIsland 로 보낸다
+        else dispatch({ type: 'ISLAND_SYNC', memberships: r.memberships });
+      })
+      .catch((thrown) => {
+        if (live && !(thrown instanceof ApiError && thrown.code === CLIENT_STALE_SESSION))
+          setHomeError(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [loaded, serverCurrent, onHome, homeReload]);
   // ── 집중 세션 서버 명령(GROMO-2009) ──
   // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
   const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);
@@ -1139,6 +1167,9 @@ function Gromo() {
             });
           },
           islandBootError,
+          // 서버 모드 홈 스냅샷 실패 표시·재시도(GROMO-2138)
+          homeError,
+          retryHome: () => setHomeReload((n) => n + 1),
           // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
           conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
           playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,
