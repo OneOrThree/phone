@@ -36,7 +36,7 @@ GROMO-1893. **설계 문서이며 구현·배포 완료가 아니다.**
 
 ## 관련 문서
 
-- [신고센터 정책](../character-report/policy.md): RP-편지증거의 열린 편지 신고·접수 시 원문 확보와 RP-표시차단의 차단자 화면 숨김이 추가 구현 기준이다. 편지·친구 요청 발송은 차단만으로 거절하지 않는다. 받은 편지함의 서버 필터에 더해 앱의 요청·상세·알림 진입 화면과 푸시 경로를 확인해야 한다.
+- [신고센터 정책](../character-report/policy.md): RP-편지증거의 열린 편지 신고·접수 시 원문 확보, RP-차단의 양방향 편지·친구 요청 차단이 추가 구현 기준이다. 차단 제외에 관한 옛 결정은 제품 결정 로그의 RP-차단으로 대체됐다. 기존 친구·편지 동작만으로 이 정책 구현이 완료된 것은 아니다.
 
 - [친구 화면 조각](../bff-screens/implementation-business-api.md) §4 `friends`·`raft`·`mailbox` 행
 - [편지함이 쓰는 내부 GET](../bff-screens/implementation-data-api.md) §2·§4 (BG10 재료 표)
