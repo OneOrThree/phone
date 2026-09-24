@@ -39,6 +39,15 @@ import {
   nearestPoint,
   isWalkable,
 } from '@/utils/island-path';
+
+const pathDistance = (pts: readonly Point[]) => {
+  let sum = 0;
+  for (let idx = 1; idx < pts.length; idx++) {
+    sum += Math.hypot(pts[idx].x - pts[idx - 1].x, pts[idx].y - pts[idx - 1].y);
+  }
+  return sum;
+};
+
 export const islandPositions: Record<string, Point> = {};
 export function growthStage(bs: Building[]) {
   return bs.includes('shop')
@@ -222,7 +231,7 @@ export function IslandHome({
             } else {
               go(route);
             }
-          } else if (path.length >= 6) {
+          } else if (pathDistance(path) >= 180) {
             triggerMotion('stretch');
           }
           return;

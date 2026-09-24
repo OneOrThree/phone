@@ -50,6 +50,15 @@ import {
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens } from '@/design-system/tokens';
+
+const pathDistance = (pts: readonly Point[]) => {
+  let sum = 0;
+  for (let idx = 1; idx < pts.length; idx++) {
+    sum += Math.hypot(pts[idx].x - pts[idx - 1].x, pts[idx].y - pts[idx - 1].y);
+  }
+  return sum;
+};
+
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -606,8 +615,9 @@ function FinalIslandScene({
   const handleCatPress = (e: any) => {
     if (walking) return;
     const catSize = 70 * scaleRef.current;
-    const nativeX = e?.nativeEvent?.locationX ?? catSize / 2;
-    const isTouchLeft = nativeX < catSize / 2;
+    const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
+    const nativeX = e?.nativeEvent?.locationX ?? hitSize / 2;
+    const isTouchLeft = nativeX < hitSize / 2;
     setLeft(isTouchLeft);
 
     if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
@@ -656,7 +666,7 @@ function FinalIslandScene({
       if (t !== token.current) return;
       if (idx >= path.length) {
         setWalking(false);
-        if (path.length >= 6) {
+        if (pathDistance(path) >= 180) {
           triggerMotion('stretch');
         }
         done?.();
@@ -718,7 +728,7 @@ function FinalIslandScene({
   const actors = (s: number) => {
     scaleRef.current = s;
     const catSize = 70 * s;
-    const catHitSlop = Math.max(12, Math.ceil((semanticTokens.size.tapMin - catSize) / 2));
+    const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
     return (
       <>
         {Object.entries(doors)
@@ -805,28 +815,33 @@ function FinalIslandScene({
               testID="home-cat-actor"
               accessibilityRole="button"
               accessibilityLabel="내 고양이"
-              hitSlop={{
-                top: catHitSlop,
-                bottom: catHitSlop,
-                left: catHitSlop,
-                right: catHitSlop,
-              }}
               onPress={handleCatPress}
               style={{
-                width: catSize,
-                height: catSize,
+                position: 'absolute',
+                left: -hitSize / 2,
+                top: -catSize / 2 - hitSize / 2,
+                width: hitSize,
+                height: hitSize,
                 justifyContent: 'center',
                 alignItems: 'center',
               }}
             >
-              <CatSprite
-                testID="home-cat-sprite"
-                color={state.color}
-                size={catSize}
-                motion={motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'))}
-                left={left}
-                reduce={state.settings.reduceMotion}
-              />
+              <View
+                style={{
+                  position: 'absolute',
+                  left: hitSize / 2,
+                  top: catSize / 2 + hitSize / 2,
+                }}
+              >
+                <CatSprite
+                  testID="home-cat-sprite"
+                  color={state.color}
+                  size={catSize}
+                  motion={motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'))}
+                  left={left}
+                  reduce={state.settings.reduceMotion}
+                />
+              </View>
             </Pressable>
           </Animated.View>
         )}

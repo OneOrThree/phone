@@ -149,7 +149,7 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     await screen.unmount();
   });
 
-  it('FinalIsland에서 카메라 배율과 무관하게 최소 44pt 터치 영역을 보장한다', async () => {
+  it('FinalIsland에서 카메라 배율과 무관하게 실제 레이아웃으로 최소 44pt 터치 영역을 보장한다', async () => {
     const state = initialState(true);
     const screen = await renderWithContext(
       React.createElement(FinalIsland, {
@@ -160,13 +160,11 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     );
 
     const catActor = screen.getByTestId('home-cat-actor');
-    const hitSlop = catActor.props.hitSlop;
     const style = catActor.props.style;
-    const totalWidth = (style.width ?? 0) + (hitSlop.left ?? 0) + (hitSlop.right ?? 0);
-    const totalHeight = (style.height ?? 0) + (hitSlop.top ?? 0) + (hitSlop.bottom ?? 0);
 
-    expect(totalWidth).toBeGreaterThanOrEqual(44);
-    expect(totalHeight).toBeGreaterThanOrEqual(44);
+    // hitSlop에 의존하지 않고 실제 Pressable의 레이아웃 너비와 높이가 44pt 이상이어야 한다.
+    expect(style.width).toBeGreaterThanOrEqual(44);
+    expect(style.height).toBeGreaterThanOrEqual(44);
 
     await screen.unmount();
   });
