@@ -738,7 +738,10 @@ function FinalIslandScene({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
-  const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id);
+  const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
+    todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
+      .map((v) => String(v).padStart(2, '0'))
+      .join(':');
   const hudTop = L.landscape ? 14 : Math.max(64, L.insets.top + 5),
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
@@ -771,6 +774,9 @@ function FinalIslandScene({
         >
           <View
             pointerEvents="none"
+            // 섬 이름·오늘 집중·시간을 스크린리더가 한 번에 읽는다
+            accessible={!visiting}
+            accessibilityLabel={visiting ? undefined : `${i.name} 오늘 집중 ${todayClock}`}
             style={{
               backgroundColor: '#FFFDFAB3',
               borderRadius: 999,
@@ -781,6 +787,8 @@ function FinalIslandScene({
               alignItems: 'center',
               gap: 10,
               minWidth: visiting ? undefined : 210,
+              // 섬 이름(최대 20자)이 길어도 화면 밖으로 밀리지 않게 폭을 묶어 이름만 말줄임한다
+              maxWidth: L.width - hudLeft * 2,
             }}
           >
             {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
@@ -812,9 +820,7 @@ function FinalIslandScene({
                     marginLeft: 'auto',
                   }}
                 >
-                  {[Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
-                    .map((v) => String(v).padStart(2, '0'))
-                    .join(':')}
+                  {todayClock}
                 </Txt>
               </>
             )}
