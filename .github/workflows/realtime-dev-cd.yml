@@ -20,7 +20,9 @@ env:
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
   REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/realtime
-  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+  # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
+  # 재부팅에도 살아남는다.
+  RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
 
 jobs:
   deploy:

@@ -57,9 +57,10 @@ docker-compose overlay 로 기존 dev 스택 위에 얹는다. 무료(컨테이�
 
 ```bash
 # 저장소 루트에서 실행
-# --env-file 은 dev-cd 가 checkout 밖에 만든 runtime env (POSTGRES_*, GRAFANA_ADMIN_PASSWORD 등
+# --env-file 은 dev-cd 가 /var/lib/gromo/runtime 에 만든 runtime env (POSTGRES_*, GRAFANA_ADMIN_PASSWORD 등
 # — dev-monitor.yml 이 쓰는 것과 동일). 빼면 빈 값으로 치환돼 db 재생성·기동 실패 위험.
-docker compose --env-file ../.gromo-runtime/dev.env \
+# /var/lib/gromo/runtime 은 runner 소유 0700 이라, 서버에서 수동 실행할 때는 sudo -u runner 로 돌리거나 sudo 가 필요합니다.
+docker compose --env-file /var/lib/gromo/runtime/dev.env \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml up -d
 ```
 
@@ -70,7 +71,7 @@ docker compose --env-file ../.gromo-runtime/dev.env \
 관측 컨테이너만 중지:
 
 ```bash
-docker compose --env-file ../.gromo-runtime/dev.env \
+docker compose --env-file /var/lib/gromo/runtime/dev.env \
   -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.observability.yml \
   stop prometheus grafana loki promtail postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
 ```

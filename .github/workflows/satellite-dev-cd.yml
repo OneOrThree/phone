@@ -14,8 +14,10 @@ env:
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
-  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
-  SATELLITE_RUNTIME_DIR: ${{ github.workspace }}/../.gromo-runtime/satellites
+  # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
+  # 재부팅에도 살아남는다.
+  RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
+  SATELLITE_RUNTIME_DIR: /var/lib/gromo/runtime/satellites
 
 jobs:
   deploy:

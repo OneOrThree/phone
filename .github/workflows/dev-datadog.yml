@@ -26,8 +26,10 @@ jobs:
     permissions:
       contents: read
     env:
-      RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
-      DATA_API_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/data-api.env
+      # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
+      # 재부팅에도 살아남는다.
+      RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
+      DATA_API_ENV_FILE: /var/lib/gromo/runtime/data-api.env
       DEPLOY_ENV: dev
       GAR_HOST: asia-northeast3-docker.pkg.dev
       DD_SITE: us5.datadoghq.com

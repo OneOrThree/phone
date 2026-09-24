@@ -29,7 +29,9 @@ jobs:
     env:
       # 관측 overlay — app-network 를 공유해 Prometheus 가 app:9091 을 스크레이프한다.
       # app/db 는 아래 OBS_SERVICES 에서 제외해 CD 로 배포된 컨테이너를 건드리지 않는다.
-      RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+      # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
+      # 재부팅에도 살아남는다.
+      RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
       OBS_SERVICES: prometheus grafana loki promtail postgres-exporter redis-exporter kafka-exporter kafka-jmx-exporter node-exporter cadvisor
     steps:
       - uses: actions/checkout@v4

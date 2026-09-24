@@ -66,9 +66,9 @@ dev(GCP `gromo-dev-app`, e2-custom-2-6144 · 2 vCPU · 6 GB, decisions.md A25)�
 
 | 단계 | 하는 일 | 되돌리기 |
 |---|---|---|
-| 0 | `dev-cd.yml` 조건부 오버레이 + `dev-kafka.yml` 머지. `phone-kafka` 미실행이고 `../.gromo-runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
+| 0 | `dev-cd.yml` 조건부 오버레이 + `dev-kafka.yml` 머지. `phone-kafka` 미실행이고 `/var/lib/gromo/runtime/data-api.env`가 없으면 배포 입력은 `docker-compose.dev.yml`(+기존 datadog) 그대로다 — **no-op** | 해당 PR revert |
 | 1 | 서버에서 `free -m` 확인 → Actions **Dev Kafka** `up`. 여유 1024 MiB 미만이면 워크플로가 거부한다. 브로커만 뜨고 토픽은 없다(자동 생성 꺼짐). 이후 CD는 `phone-kafka`가 돌면 `docker-compose.kafka.yml`을 함께 물린다 | **Dev Kafka** `down` (`kafka-data` 볼륨 보존) |
-| 2 | 러너 checkout 옆 `../.gromo-runtime/data-api.env`(0600)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `INTERNAL_API_ENABLED=false`, `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`. 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
+| 2 | `/var/lib/gromo/runtime/data-api.env`(0600, VM 시작 스크립트가 만드는 고정 경로 — GROMO-2134)를 [서비스별 시크릿 생성](#서비스별-시크릿-생성)의 `--service data-api --environment dev`로 만든다. 스위치는 전부 끈 채로 둔다: `INTERNAL_API_ENABLED=false`, `OUTBOX_RELAY_ENABLED=false`, `NOTIFICATION_DISPATCH_MODE=LEGACY`. 다음 CD부터 `docker-compose.satellites.data.yml`이 마지막 `-f`로 붙어 파일의 `SPRING_PROFILES_ACTIVE`(기본 `dev,satellites`)로 뜬다 | 파일 삭제 → 다음 CD가 dev 단독으로 app 재생성 |
 | 3 | relay ON. A18의 `OUTBOX_RELAY_*` 여섯 값을 모두 명시하고, 정적 목적지 ~~`LINK_BASE_URL`·~~`NOTIFICATION_BASE_URL`이 app 컨테이너 안에서 풀려야 한다(A23: relay 를 켜기 전에 `outbox.relay.endpoints` 의 `link.*` 대상을 뺀다 — 링크 LLD §9.1). `notification-events`·`.DLT` 토픽은 이때 NewTopic 빈이 만든다. REALTIME 대상도 이때 함께 열리므로 아래 [relay ON 체크리스트](#relay-on-체크리스트)를 먼저 채운다 | `OUTBOX_RELAY_ENABLED=false` (미전달 행 보존) |
 | 4 | Notification·Business 위성 기동 — [신규 서비스 compose](#신규-서비스-compose)와 [deployment.md](deployment.md) | 해당 서비스만 제거 |
 | 5 | `NOTIFICATION_DISPATCH_MODE=OUTBOX` — [OUTBOX 선행 조건](#outbox-후보-배치-활성화-선행-조건)(GROMO-893) 해소 후에만. **단방향** | 되돌리지 않는다. OUTBOX→LEGACY는 알림을 재발송한다 |
