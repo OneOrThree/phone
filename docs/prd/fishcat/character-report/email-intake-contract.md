@@ -24,4 +24,5 @@
 
 - **이메일 주소 확인:** 계정에 이메일이 없는 게스트도 신고할 수 있다. 선택 입력한 답장 주소의 소유 확인, 반송·재전송, 답장 주소가 확인되지 않은 사건을 무연락 종결로 전환하는 조건은 구현 계약에서 검증한다. 답장에는 신고 원문·상대 제재 내용을 넣지 않는다.
 - **메일 제공자:** 현재 저장소에서 신고 전용 메일 발송·메일함 조회 기반을 확인하지 못했다. 제공자 선택은 구현 티켓의 작업이지만, 위의 접수 확인·접근 감사·상태·파기 능력을 갖춘 제품만 사용할 수 있다.
+- **제공자 조사 예시:** [Zendesk 티켓 API](https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/)는 티켓 생성과 [감사 기록](https://developer.zendesk.com/api-reference/ticketing/tickets/ticket_audits/)을 제공한다. 그러나 [Zendesk의 삭제 안내](https://support.zendesk.com/hc/en-us/articles/4408883501210-Are-tickets-and-ticket-data-kept-permanently-on-my-Zendesk)에 따르면 일반 삭제 후에도 자료가 일정 기간 남을 수 있어, 이 문서의 **30일 만료 즉시 실제 파기** 계약을 만족한다고 확인할 수 없다. 특정 제품을 채택했다는 뜻이 아니며, 후보마다 원문·보낸 편지·검색·백업의 삭제 시점을 별도로 검증한다.
 - **법적 적용:** 사업자 지위·출시국·Play Console 분류, 개인정보 처리방침과 메일 제공자의 처리·백업 범위는 실제 사실을 확인해야 한다.
