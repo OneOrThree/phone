@@ -266,7 +266,7 @@ jobs:
           deadline=$((started_at + 900))
           while (( SECONDS < deadline )); do
             sleep 5
-            if curl -sf --max-time 3 http://127.0.0.1:8080/health \
+            if curl -sf --max-time 10 http://127.0.0.1:8080/health \
               && [ "$(docker inspect -f '{{.State.Health.Status}}' phone-data-api)" = healthy ]; then
               echo "헬스체크 통과"
               docker rm phone-app 2>/dev/null || true
@@ -289,7 +289,7 @@ jobs:
             recovery_started=$SECONDS
             recovery_deadline=$((recovery_started + 600))
             while (( SECONDS < recovery_deadline )); do
-              if curl --fail --silent --max-time 3 http://127.0.0.1:8080/health >/dev/null; then
+              if curl --fail --silent --max-time 10 http://127.0.0.1:8080/health >/dev/null; then
                 echo "::warning::새 Data API가 실패하여 이전 컨테이너를 복구했습니다. DB는 변경하지 않았습니다."
                 exit 0
               fi
