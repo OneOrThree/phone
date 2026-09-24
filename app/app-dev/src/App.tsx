@@ -31,7 +31,11 @@ import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
 import { bundledAudioSource } from '@/constants/audio';
 import { playbackSeekSeconds } from '@/services/api/playback';
 import { screenTime, selectionCount } from '@/services/screenTime';
-import { endLiveActivities, syncLiveActivity } from '@/services/liveActivity';
+import {
+  endLiveActivities,
+  shouldReconcileExpiredRest,
+  syncLiveActivity,
+} from '@/services/liveActivity';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
@@ -800,15 +804,46 @@ function Gromo() {
   ]);
   useEffect(() => {
     if (!loaded) return;
+    let active = true;
     const openActivity = (url: string | null) => {
-      if (url?.startsWith('com.oneorthree.focuscat://activity') && state.session) {
-        replace(state.session.status === 'paused' ? 'rest' : 'focus');
+      const session = stateRef.current.session;
+      if (active && url?.startsWith('com.oneorthree.focuscat://activity') && session) {
+        replace(session.status === 'paused' ? 'rest' : 'focus');
       }
     };
     const subscription = Linking.addEventListener('url', ({ url }) => openActivity(url));
     void Linking.getInitialURL().then(openActivity);
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded || !hasServerSession || REVIEW || DEMO) return;
+    let checking = false;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      const session = stateRef.current.session;
+      if (nextState !== 'active' || checking || !shouldReconcileExpiredRest(session, Date.now()))
+        return;
+      if (!session) return;
+      checking = true;
+      const sessionId = session.id;
+      void focus
+        .recover()
+        .then((recovered) => {
+          // 사용자가 조회 중 휴식을 재개했다면 늦게 도착한 경로 변경은 적용하지 않는다.
+          const current = stateRef.current.session;
+          if (current && (current.id !== sessionId || current.status !== 'paused')) return;
+          if (recovered === 'focusResult') reset('focusResult');
+          else if (recovered === null) home();
+        })
+        .catch(() => {})
+        .finally(() => {
+          checking = false;
+        });
+    });
     return () => subscription.remove();
-  }, [loaded, state.session?.id, state.session?.status]);
+  }, [loaded, hasServerSession]);
   useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();

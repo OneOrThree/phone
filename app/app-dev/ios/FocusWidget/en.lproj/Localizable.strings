@@ -5,3 +5,6 @@
 "rest.short" = "Rest";
 "rest.title" = "Break time";
 "rest.count" = "%d resting";
+"rest.expired.status" = "Break time expired";
+"rest.expired.short" = "Break ended";
+"rest.expired.title" = "Check your result in the app";

@@ -1,4 +1,8 @@
-import { buildLiveActivityPayload } from './liveActivity';
+import {
+  buildLiveActivityPayload,
+  REST_AUTO_CLOSE_MS,
+  shouldReconcileExpiredRest,
+} from './liveActivity';
 import type { Color, Session } from './model';
 
 const base: Session = {
@@ -44,5 +48,17 @@ describe('Live Activity payload', () => {
       anchorMs: 1_050_000,
       restCount: 3,
     });
+  });
+
+  it('reconciles a server-backed rest only after the one-hour expiry', () => {
+    const rest = { ...base, status: 'paused' as const, version: 3, restStartedAt: 1_050_000 };
+    expect(shouldReconcileExpiredRest(rest, 1_050_000 + REST_AUTO_CLOSE_MS - 1)).toBe(false);
+    expect(shouldReconcileExpiredRest(rest, 1_050_000 + REST_AUTO_CLOSE_MS)).toBe(true);
+    expect(
+      shouldReconcileExpiredRest({ ...rest, status: 'active' }, 1_050_000 + REST_AUTO_CLOSE_MS),
+    ).toBe(false);
+    expect(
+      shouldReconcileExpiredRest({ ...rest, version: undefined }, 1_050_000 + REST_AUTO_CLOSE_MS),
+    ).toBe(false);
   });
 });

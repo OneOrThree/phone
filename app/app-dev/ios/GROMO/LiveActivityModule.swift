@@ -36,7 +36,7 @@ final class LiveActivityModule: NSObject {
                 await activity.end(nil, dismissalPolicy: .immediate)
             }
             if let activity = Activity<GromoFocusAttributes>.activities.first(where: { $0.attributes.sessionId == sessionId }) {
-                await activity.update(ActivityContent(state: state, staleDate: nil))
+                await activity.update(ActivityContent(state: state, staleDate: state.restExpiresAt))
 #if DEBUG
                 NSLog("GROMO Live Activity updated: %@ (%@)", activity.id, phase)
 #endif
@@ -53,7 +53,7 @@ final class LiveActivityModule: NSObject {
             do {
                 let activity = try Activity.request(
                     attributes: GromoFocusAttributes(sessionId: sessionId),
-                    content: ActivityContent(state: state, staleDate: nil),
+                    content: ActivityContent(state: state, staleDate: state.restExpiresAt),
                     pushType: nil
                 )
 #if DEBUG

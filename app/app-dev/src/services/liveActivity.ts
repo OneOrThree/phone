@@ -1,6 +1,18 @@
 import { NativeModules, Platform } from 'react-native';
 import type { Color, Session } from '@/services/model';
 
+// 서버 FocusSessionLifecycleService.REST_AUTO_CLOSE_AFTER 와 같은 1시간 정책.
+export const REST_AUTO_CLOSE_MS = 60 * 60 * 1000;
+
+export function shouldReconcileExpiredRest(session: Session | null, now: number): boolean {
+  return !!(
+    session?.status === 'paused' &&
+    session.version != null &&
+    session.restStartedAt != null &&
+    now >= session.restStartedAt + REST_AUTO_CLOSE_MS
+  );
+}
+
 export type LiveActivityPayload = {
   sessionId: string;
   phase: 'focus' | 'rest';

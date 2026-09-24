@@ -36,6 +36,7 @@
 		B18650000000000000000002 /* LiveActivityModule.m in Sources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000012 /* LiveActivityModule.m */; };
 		B18650000000000000000003 /* FocusActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000003 /* FocusActivityAttributes.swift */; };
 		B18650000000000000000004 /* FocusWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000013 /* FocusWidget.swift */; };
+		B18650000000000000000031 /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
 		B18650000000000000000005 /* CatArt in Resources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000015 /* CatArt */; };
 		B18650000000000000000006 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000019 /* Localizable.strings */; };
 		B18650000000000000000008 /* FocusWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B18650000000000000000018 /* FocusWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -545,7 +546,7 @@
 					};
 					B18650000000000000000025 = {
 						CreatedOnToolsVersion = 26.0;
-						ProvisioningStyle = Manual;
+						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -842,6 +843,7 @@
 			files = (
 				B18650000000000000000003 /* FocusActivityAttributes.swift in Sources */,
 				B18650000000000000000004 /* FocusWidget.swift in Sources */,
+				B18650000000000000000031 /* ReportPalette.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1333,9 +1335,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
-				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FocusWidget/Info.plist;
@@ -1349,7 +1351,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "dev-cat-widget";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -1361,9 +1363,9 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
-				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
-				CODE_SIGN_STYLE = Manual;
-				CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 9;
 				DEVELOPMENT_TEAM = P6Z68QUK9M;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FocusWidget/Info.plist;
@@ -1377,7 +1379,7 @@
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
 				PRODUCT_BUNDLE_IDENTIFIER = com.oneorthree.focuscat.widget;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				PROVISIONING_PROFILE_SPECIFIER = "distribution-cat-widget";
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
