@@ -148,7 +148,7 @@ changes trigger different jobs. This list rots; the authoritative source is
   (Checkstyle / SpotBugs / tests) on `server/data-api/**`.
   On PRs it also build-verifies the Docker image (no push); on `main` push the same
   run pushes `back:<sha>` to GAR and calls the reusable `dev-cd.yml` with the image
-  digest, which deploys to the GCP dev VM (`gromo-dev-app`, e2-custom-2-6144 — 2 vCPU · 6 GB,
+  digest, which deploys to the GCP dev VM (`gromo-dev-app`, e2-standard-2 — 2 vCPU · 8 GB,
   asia-northeast3-a; see `docs/architecture/decisions.md` A25) on the
   self-hosted `dev` runner — AWS is touched only for OIDC → Secrets Manager `gromo/dev/env`
   (`dev-cd.yml` has no trigger of its own).

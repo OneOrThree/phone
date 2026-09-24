@@ -70,7 +70,7 @@ concurrency:
 jobs:
   checks:
     # GitHub-hosted 러너에서 돈다 (GROMO-2121, decisions.md A25). 앱 체크는 self-hosted
-    # (gromo-dev-build)를 떠났다 — 그 VM 은 e2-medium·러너 1대로 축소돼 push 시 이미지 발행
+    # (gromo-dev-build)를 떠났다 — 그 VM 은 e2-small·러너 1대로 축소돼 push 시 이미지 발행
     # 전용으로만 남는다. 예전에 GitHub-hosted 로 옮겼다 되돌린 이유(GROMO-1918)는 프로젝트가 요구하는 NDK
     # 가 이미지에 없어 구성 단계에서 실패한 것이다(에러가 찍는 버전은 AGP 기본값이라 요구 버전이 아니다):
     #     > Failed to apply plugin 'com.facebook.react.rootproject'.

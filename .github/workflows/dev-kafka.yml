@@ -3,8 +3,8 @@ name: Dev Kafka (single-node broker)
 # Kafka 단일 노드 브로커(docker-compose.kafka.yml)를 dev(self-hosted) 서버에 수동으로 올리고 내린다 (GROMO-1658).
 #
 # ⚠️ 먼저 읽을 것
-# - dev VM(gromo-dev-app)은 GCP e2-medium **4 GB** 다. kafka.yml 의 힙 512 MB 는 prod t4g.large(8 GB)
-#   기준으로 잡은 값이고, dev 에는 이미 app(JVM)·db·redis(와 켜져 있으면 datadog-agent 512 MB)가 올라가 있다.
+# - dev VM(gromo-dev-app)은 GCP e2-standard-2 **8 GB** 다(decisions.md A25). kafka.yml 의 힙 512 MB 는
+#   prod t4g.large(8 GB) 기준으로 잡은 값이고, dev 에는 이미 app(JVM)·db·redis(와 켜져 있으면 datadog-agent 512 MB)가 올라가 있다.
 #   `up` 전에 서버에서 `free -m` 을 확인한다. 아래 up 단계도 MemAvailable 이 KAFKA_MIN_AVAILABLE_MB 미만이면 거부한다.
 # - up은 브로커와 Kafka 대시보드에 필요한 Prometheus·Grafana·exporter만 올린다.
 #   **outbox relay 는 켜지 않는다**(OUTBOX_RELAY_ENABLED 기본 false).
