@@ -7,8 +7,8 @@ import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandNoticeUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -54,15 +54,16 @@ public class IslandNoticeController {
     @GetMapping("/islands/{islandId}/notices")
     public IslandNoticeResponses.Page list(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return notices.list(claims, uuid(islandId, "islandId"), single(request, "cursor"), deadline());
+        return notices.list(claims, PublicIds.uuid(islandId, "islandId"), single(request, "cursor"),
+                properties.deadline());
     }
 
     @GetMapping("/islands/{islandId}/notices/{noticeId}")
     public IslandNoticeResponses.Detail detail(@PathVariable String islandId, @PathVariable String noticeId,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return notices.detail(claims, uuid(islandId, "islandId"), uuid(noticeId, "noticeId"),
-                single(request, "commentsCursor"), deadline());
+        return notices.detail(claims, PublicIds.uuid(islandId, "islandId"), PublicIds.uuid(noticeId, "noticeId"),
+                single(request, "commentsCursor"), properties.deadline());
     }
 
     @PostMapping(value = "/islands/{islandId}/notices", consumes = "application/json")
@@ -70,12 +71,12 @@ public class IslandNoticeController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        UUID island = uuid(islandId, "islandId");
+        UUID island = PublicIds.uuid(islandId, "islandId");
         if (body == null || !body.isObject() || body.size() != 2 || !body.has("title") || !body.has("body")) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
         NoticeView created = notices.create(claims, island, title(body.get("title")),
-                text(body.get("body"), "body"), key, deadline());
+                text(body.get("body"), "body"), key, properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -85,14 +86,14 @@ public class IslandNoticeController {
             @RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        UUID island = uuid(islandId, "islandId");
-        UUID notice = uuid(noticeId, "noticeId");
+        UUID island = PublicIds.uuid(islandId, "islandId");
+        UUID notice = PublicIds.uuid(noticeId, "noticeId");
         if (body == null || !body.isObject() || body.isEmpty() || !PATCH_FIELDS.containsAll(body.propertyNames())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
         String title = body.has("title") ? title(body.get("title")) : null;
         String text = body.has("body") ? text(body.get("body"), "body") : null;
-        return notices.update(claims, island, notice, title, text, key, deadline());
+        return notices.update(claims, island, notice, title, text, key, properties.deadline());
     }
 
     /** 삭제 — 본문을 읽지 않는다. 200 {@code deleted=true}(legacy 의 204 와 섞지 않는다). */
@@ -101,7 +102,8 @@ public class IslandNoticeController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return notices.delete(claims, uuid(islandId, "islandId"), uuid(noticeId, "noticeId"), key, deadline());
+        return notices.delete(claims, PublicIds.uuid(islandId, "islandId"), PublicIds.uuid(noticeId, "noticeId"), key,
+                properties.deadline());
     }
 
     /** 댓글 — 정확히 {@code text} 하나. 작성자는 AT 주체이고 대리 userId 입력이 없다. */
@@ -110,13 +112,13 @@ public class IslandNoticeController {
             @PathVariable String noticeId, @RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        UUID island = uuid(islandId, "islandId");
-        UUID notice = uuid(noticeId, "noticeId");
+        UUID island = PublicIds.uuid(islandId, "islandId");
+        UUID notice = PublicIds.uuid(noticeId, "noticeId");
         if (body == null || !body.isObject() || body.size() != 1 || !body.has("text")) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
         NoticeCommentCreatedView created = notices.comment(claims, island, notice,
-                text(body.get("text"), "text"), key, deadline());
+                text(body.get("text"), "text"), key, properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
@@ -153,21 +155,5 @@ public class IslandNoticeController {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, name);
         }
         return values[0];
-    }
-
-    private static UUID uuid(String value, String field) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

@@ -1,5 +1,6 @@
 package com.oneorthree.business.config;
 
+import com.oneorthree.business.common.http.Deadline;
 import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -27,6 +28,11 @@ public class UpstreamConfigProperties {
      */
     private Target realtime = withMaxConnections(2);
     private Composition composition = new Composition();
+
+    /** 화면 조합 요청 하나의 시간 예산 — 지금부터 시작하는 새 {@link Deadline}. */
+    public Deadline deadline() {
+        return Deadline.startingNow(composition.getDeadline());
+    }
 
     /** 대상 넷과 조합 worker의 합계. Tomcat·JVM·Redis·미리보기/PDF PID 여유는 별도로 남긴다. */
     public void validateWorkerBudget() {

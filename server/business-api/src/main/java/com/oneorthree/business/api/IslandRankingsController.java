@@ -3,7 +3,6 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandRankingsUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -62,7 +61,7 @@ public class IslandRankingsController {
             throw new PublicApiException(ApiErrorCode.INVALID_CURSOR, "cursor");
         }
         return rankings.islands(claims, week(request.getParameter("week")), limit(request.getParameter("limit")),
-                Deadline.startingNow(properties.getComposition().getDeadline()));
+                properties.deadline());
     }
 
     /** {@code YYYY-MM-DD} 가 아니면 400, 모양은 맞는데 없는 날짜(2월 30일)면 422 다(LLD §2). */

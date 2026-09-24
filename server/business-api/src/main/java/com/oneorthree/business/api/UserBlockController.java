@@ -3,7 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.UserBlockUseCase.BlockedUserView;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -34,20 +34,20 @@ public class UserBlockController {
     @PostMapping(value = "/blocks", consumes = "application/json")
     public ResponseEntity<Void> block(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        blocks.block(claims, blockedUserId(body), deadline());
+        blocks.block(claims, blockedUserId(body), properties.deadline());
         return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/blocks/{blockedUserId}")
     public ResponseEntity<Void> unblock(@PathVariable String blockedUserId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        blocks.unblock(claims, uuid(blockedUserId), deadline());
+        blocks.unblock(claims, PublicIds.uuid(blockedUserId, "blockedUserId"), properties.deadline());
         return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/blocks")
     public List<BlockedUserView> blocks(HttpServletRequest request) {
-        return blocks.blocks(sessions.requireSession(request), deadline());
+        return blocks.blocks(sessions.requireSession(request), properties.deadline());
     }
 
     private static UUID blockedUserId(JsonNode body) {
@@ -58,22 +58,6 @@ public class UserBlockController {
         if (value == null || !value.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "blockedUserId");
         }
-        return uuid(value.stringValue());
-    }
-
-    private static UUID uuid(String value) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "blockedUserId");
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
+        return PublicIds.uuid(value.stringValue(), "blockedUserId");
     }
 }

@@ -2,7 +2,6 @@ package com.oneorthree.business.api;
 
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandHostTransferUseCase;
@@ -42,7 +41,7 @@ public class IslandHostTransferController {
         }
         UUID target = id(body.get("targetUserId").stringValue(), "targetUserId");
         return transfers.transfer(claims, island, target, key,
-                Deadline.startingNow(properties.getComposition().getDeadline()));
+                properties.deadline());
     }
 
     private static UUID id(String value, String field) {
