@@ -27,6 +27,7 @@ import {
 } from '@/services/model';
 import { assets } from '@/constants/assets';
 import { C, T, Button, Progress, useScreenInsets } from '@/design-system/primitives';
+import { semanticTokens } from '@/design-system/tokens';
 import { IslandDecor } from '@/screens/cosmetics/Cosmetics';
 import { CatSprite, catFrameBox, CatMotionInput } from '@/components/CatSprite';
 import {
@@ -150,6 +151,7 @@ export function IslandHome({
   const camera = useIslandCamera(size);
   const activeMotion = motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'));
   const catBox = catFrameBox(state.color, activeMotion, 140 * scale);
+  const catHitSlop = Math.max(8, Math.ceil((semanticTokens.size.tapMin - catBox.extent) / 2));
   const renderScale = useRef(new Animated.Value(scale)).current;
   const catTransform = useMemo(
     () => [
@@ -547,7 +549,12 @@ export function IslandHome({
               testID="island-cat-actor"
               accessibilityRole="button"
               accessibilityLabel="내 고양이"
-              hitSlop={8}
+              hitSlop={{
+                top: catHitSlop,
+                bottom: catHitSlop,
+                left: catHitSlop,
+                right: catHitSlop,
+              }}
               onPress={handleCatPress}
               style={{
                 width: '100%',

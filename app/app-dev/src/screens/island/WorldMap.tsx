@@ -601,10 +601,13 @@ function FinalIslandScene({
     }
   };
 
+  const scaleRef = useRef(1);
+
   const handleCatPress = (e: any) => {
     if (walking) return;
-    const nativeX = e?.nativeEvent?.locationX ?? 35;
-    const isTouchLeft = nativeX < 35;
+    const catSize = 70 * scaleRef.current;
+    const nativeX = e?.nativeEvent?.locationX ?? catSize / 2;
+    const isTouchLeft = nativeX < catSize / 2;
     setLeft(isTouchLeft);
 
     if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
@@ -713,6 +716,9 @@ function FinalIslandScene({
   }, [i.members, state.color]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number) => {
+    scaleRef.current = s;
+    const catSize = 70 * s;
+    const catHitSlop = Math.max(12, Math.ceil((semanticTokens.size.tapMin - catSize) / 2));
     return (
       <>
         {Object.entries(doors)
@@ -799,11 +805,16 @@ function FinalIslandScene({
               testID="home-cat-actor"
               accessibilityRole="button"
               accessibilityLabel="내 고양이"
-              hitSlop={12}
+              hitSlop={{
+                top: catHitSlop,
+                bottom: catHitSlop,
+                left: catHitSlop,
+                right: catHitSlop,
+              }}
               onPress={handleCatPress}
               style={{
-                width: 70 * s,
-                height: 70 * s,
+                width: catSize,
+                height: catSize,
                 justifyContent: 'center',
                 alignItems: 'center',
               }}
@@ -811,7 +822,7 @@ function FinalIslandScene({
               <CatSprite
                 testID="home-cat-sprite"
                 color={state.color}
-                size={70 * s}
+                size={catSize}
                 motion={motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'))}
                 left={left}
                 reduce={state.settings.reduceMotion}
