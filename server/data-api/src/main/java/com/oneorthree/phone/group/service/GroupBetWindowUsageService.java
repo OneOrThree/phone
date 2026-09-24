@@ -25,6 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -94,6 +95,8 @@ public class GroupBetWindowUsageService {
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final WindowFocusAggregator windowFocusAggregator;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * 창 사용분 보고 — (챌린지, 유저, 날짜)당 1행 upsert, measured_at 단조 갱신. 역전 보고는
@@ -146,7 +149,7 @@ public class GroupBetWindowUsageService {
             throw new GroupException(GroupErrorCode.INVALID_MISSION_PARAMS);
         }
         Instant measuredAt = request.getMeasuredAt();
-        if (measuredAt != null && measuredAt.isAfter(Instant.now().plus(MEASURED_AT_TOLERANCE))) {
+        if (measuredAt != null && measuredAt.isAfter(clock.instant().plus(MEASURED_AT_TOLERANCE))) {
             throw new GroupException(GroupErrorCode.INVALID_MEASURED_AT);
         }
 
@@ -168,7 +171,7 @@ public class GroupBetWindowUsageService {
                 if (!lockedSessionAcceptsReport(target.getId(), challengeId, userId)) {
                     return;
                 }
-            } else if (Instant.now().isBefore(target.getStartsAt())) {
+            } else if (clock.instant().isBefore(target.getStartsAt())) {
                 // 미참가 멤버라도 <b>시작 전</b> 회차에는 못 쓴다 — 창형은 참가 마감 = 창 시작이라
                 // (joinClosesAt == startsAt) 시작 후 참가가 불가능하고, 그래서 "심어두고 나중에
                 // 참가"는 이 한 줄로 완전히 닫힌다. 잠글 필요는 없다: 아직 판정 대상이 아니고,
@@ -325,7 +328,7 @@ public class GroupBetWindowUsageService {
      */
     private boolean challengeClockAllowsReport(UUID challengeId, LocalDate usageDate, UUID userId,
             boolean sessionBound) {
-        LocalDate today = LocalDate.ofInstant(Instant.now(), KST);
+        LocalDate today = LocalDate.ofInstant(clock.instant(), KST);
         if (usageDate.isAfter(today)) {
             log.info("창 사용분 보고 무시 — 아직 오지 않은 날짜. challengeId={}, usageDate={}, userId={}",
                     challengeId, usageDate, userId);
@@ -344,7 +347,7 @@ public class GroupBetWindowUsageService {
         if (window == null) {
             return true;
         }
-        if (Instant.now().isBefore(windowFocusAggregator.windowStartOn(today, window))) {
+        if (clock.instant().isBefore(windowFocusAggregator.windowStartOn(today, window))) {
             log.info("창 사용분 보고 무시 — 오늘 창이 아직 시작되지 않았다. challengeId={}, usageDate={}, userId={}",
                     challengeId, usageDate, userId);
             return false;
@@ -374,7 +377,7 @@ public class GroupBetWindowUsageService {
                     sessionId, locked.getStatus(), userId);
             return false;
         }
-        if (Instant.now().isBefore(locked.getStartsAt())) {
+        if (clock.instant().isBefore(locked.getStartsAt())) {
             // 시작 전 선기록 차단 — 예약(join-week)된 미래 회차에 낮은 값을 미리 심는 경로다.
             log.info("창 사용분 보고 무시 — 아직 시작되지 않은 회차. sessionId={}, startsAt={}, userId={}",
                     sessionId, locked.getStartsAt(), userId);
