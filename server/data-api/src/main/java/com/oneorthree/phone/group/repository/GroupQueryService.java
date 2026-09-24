@@ -8,7 +8,6 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.user.repository.domain.User;
 import lombok.RequiredArgsConstructor;
@@ -71,7 +70,6 @@ public class GroupQueryService {
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     private final GroupChallengeWindowRepository groupChallengeWindowRepository;
     private final GroupChallengeDurationRepository groupChallengeDurationRepository;
-    private final GroupJoinCodeRepository groupJoinCodeRepository;
     private final GroupChallengeRepository groupChallengeRepository;
 
     /**
@@ -234,41 +232,6 @@ public class GroupQueryService {
         return groupChallengeDurationRepository.findById(challengeId);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // 참가 코드 — PK 가 group_id 인 1:1 행이다.
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /**
-     * 참가 코드 — 부재가 오류. 재발급처럼 코드가 있어야 성립하는 자리가 쓴다.
-     *
-     * @param groupId 그룹 id (이 테이블의 PK 다)
-     * @return 참가 코드 행
-     * @throws GroupException 없으면 {@link GroupErrorCode#GROUP_NOT_FOUND}
-     */
-    public GroupJoinCode getJoinCode(UUID groupId) {
-        return groupJoinCodeRepository.findById(groupId)
-                .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
-    }
-
-    /**
-     * 참가 코드 — <b>부재가 정상</b>. 상세 응답이 방장에게만 코드를 실을 때처럼, 없으면 안 싣는 자리.
-     *
-     * @param groupId 그룹 id
-     * @return 참가 코드 행. 없으면 빈 값
-     */
-    public Optional<GroupJoinCode> findJoinCode(UUID groupId) {
-        return groupJoinCodeRepository.findById(groupId);
-    }
-
-    /**
-     * 참가 코드 배치 조회 — 내 그룹 목록이 그룹마다 코드를 실을 때. N+1 을 IN 집계 1회로 접는다.
-     *
-     * @param groupIds 그룹 id 들
-     * @return 참가 코드 행. <b>부재분은 빠지므로 요청 수와 결과 수가 다를 수 있다</b>
-     */
-    public List<GroupJoinCode> findAllJoinCodes(Collection<UUID> groupIds) {
-        return groupJoinCodeRepository.findAllById(groupIds);
-    }
     // ─────────────────────────────────────────────────────────────────────────
     // 다른 도메인이 빌려 가는 조회 — 부재가 정상인 쪽만 있다.
     // 알림·초대링크는 이벤트를 뒤늦게 처리하므로 그 사이 삭제된 대상을 만나는 게 흔한 일이다.

@@ -3,6 +3,7 @@ package com.oneorthree.phone.internal;
 import com.oneorthree.phone.internal.dto.LetterSendRequest;
 import com.oneorthree.phone.internal.dto.LetterSliceView;
 import com.oneorthree.phone.internal.dto.LetterView;
+import com.oneorthree.phone.internal.service.GuestAccountGuards;
 import com.oneorthree.phone.internal.service.InternalLetterService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -41,11 +42,20 @@ import java.util.UUID;
 public class InternalLetterController {
 
     private final InternalLetterService internalLetterService;
+    private final GuestAccountGuards guestAccountGuards;
 
-    /** 편지 보내기 (LLD §1.12). 수신자의 섬·시설은 조회하지 않는다 — 발송은 우체통과 무관하다. */
+    /**
+     * 편지 보내기 (LLD §1.12). 수신자의 섬·시설은 조회하지 않는다 — 발송은 우체통과 무관하다.
+     *
+     * <p>게스트는 여기서 막힌다 (GROMO-1992) — 정책 「…편지 보내기…를 처음 시도할 때 소셜 로그인을
+     * 요청한다」. 공유 서비스가 아니라 <b>이 2.0 표면</b> 에 거는 이유는 {@link GuestAccountGuards}
+     * 클래스 주석에 있다. 서비스 호출 <b>앞</b>이라 거절된 게스트는 {@code letters} 행과 발송 한도
+     * 카운터를 남기지 않는다. 목록·상세·닫기는 읽기·정리 표면이라 정책의 세 명령 밖이다.
+     */
     @PostMapping("/letters")
     @ResponseStatus(HttpStatus.CREATED)
     public LetterView send(@PathVariable UUID userId, @Valid @RequestBody LetterSendRequest body) {
+        guestAccountGuards.requireMember(userId);
         return internalLetterService.send(userId, body);
     }
 

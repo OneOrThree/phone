@@ -13,8 +13,6 @@ import com.oneorthree.phone.construction.repository.domain.IslandFacility;
 import com.oneorthree.phone.construction.service.IslandWalletEvents;
 import com.oneorthree.phone.construction.service.IslandWalletService;
 import com.oneorthree.phone.construction.support.SharedPurchase;
-import com.oneorthree.phone.currency.repository.UserFishWalletRepository;
-import com.oneorthree.phone.currency.repository.domain.UserFishWallet;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
@@ -108,7 +106,6 @@ public class ShopService {
     private final CatalogAssetRepository assets;
     private final OwnedProductRepository ownedProducts;
     private final IslandFacilityRepository facilities;
-    private final UserFishWalletRepository fishWallets;
     private final IslandWalletService islandWallets;
     private final IslandWalletEvents walletEvents;
     private final AppearanceEvents appearanceEvents;
@@ -119,16 +116,18 @@ public class ShopService {
     // ---------------------------------------------------------------- GET wallets
 
     /**
-     * 본인 개인 지갑과 섬 통장을 한 스냅샷에서 읽는다(LLD §2.1). 활성 주민만.
+     * 섬 통장을 읽는다(LLD §2.1). 활성 주민만.
      *
      * <p>통장 행이 없는 섬도 <b>200 에 0</b> 이다 — 왜 0 이 사실인지는
      * {@link IslandWalletService#balanceOf} 에 있다(GROMO-2043, 결정 「통장-부재-0」).
+     *
+     * <p>{@code fish} 는 <b>항상 0</b> 이다(GROMO-2052, 결정 「재화-단일」) — 개인 물고기 지갑은 폐기 축이라
+     * {@code user_fish_wallets} 저장값을 읽지 않는다. 필드 자체는 앱 전량 전환 전까지 호환으로 남긴다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public ShopViews.Wallets wallets(UUID islandId, UUID userId) {
         requireResident(islandId, userId);
-        int fish = fishWallets.findById(userId).map(UserFishWallet::getBalance).orElse(0);
-        return new ShopViews.Wallets(fish, islandWallets.balanceOf(islandId), null, walletVersion(islandId));
+        return new ShopViews.Wallets(0, islandWallets.balanceOf(islandId), null, walletVersion(islandId));
     }
 
     // ---------------------------------------------------------------- GET products
@@ -342,7 +341,7 @@ public class ShopService {
                 .map(OwnedProduct::getProductId).collect(Collectors.toSet());
         Set<String> islandOwned = ownedProducts.findByIslandId(islandId).stream()
                 .map(OwnedProduct::getProductId).collect(Collectors.toSet());
-        return new Snapshot(SharedPurchase.canSpend(resident.island(), resident.member()), completed, userOwned,
+        return new Snapshot(SharedPurchase.canSpend(resident.caller(), resident.member()), completed, userOwned,
                 islandOwned, islandWallets.balanceOf(islandId));
     }
 
@@ -412,7 +411,8 @@ public class ShopService {
 
     // ---------------------------------------------------------------- 공통 가드
 
-    private record Resident(UUID userId, Group island, GroupMember member) {
+    /** {@code caller} 는 구매 권한의 게스트 축을 보려고 싣는다 — 조회 사유와 명령 거절이 같은 값을 읽어야 한다. */
+    private record Resident(UUID userId, User caller, Group island, GroupMember member) {
     }
 
     /** 읽기 가드 — 살아 있는 섬의 활성 주민만. 비주민은 {@code MEMBER_ONLY}, 없는·끝난 섬은 {@code GROUP_NOT_FOUND}. */
@@ -422,14 +422,17 @@ public class ShopService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
         GroupMember member = members.findByUserAndGroup(viewer, island)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
-        return new Resident(userId, island, member);
+        return new Resident(userId, viewer, island, member);
     }
 
     /**
-     * 쓰기·재생 가드 — 섬 배타 잠금 → 활성 주민(공유 잠금) → 지출 권한(SHARED_PURCHASE, 기본 OWNER_ONLY).
-     * 재생도 같은 검사를 거쳐 강퇴·토글 전환 뒤 옛 권한을 되살리지 않는다(건설과 같은 규율).
+     * 쓰기·재생 가드 — 섬 배타 잠금 → 활성 주민(공유 잠금) → 지출 권한(SHARED_PURCHASE).
+     * 지출 권한은 「주민 누구나 섬 물고기로 상점 상품·축음기 음원을 구매할 수 있다」라 활성 주민
+     * 전원이다(GROMO-2000) — 방장만인 «건설»과 갈린다. 재생도 같은 검사를 거쳐 강퇴 뒤 옛 권한을
+     * 되살리지 않는다(건설과 같은 규율).
      */
     private void requireSpender(UUID islandId, UUID userId) {
+        User caller = users.getCaller(userId);
         membershipLocks.lockGroup(islandId);
         Group island = groups.getGroup(islandId);
         if (!isAlive(island)) {
@@ -437,7 +440,9 @@ public class ShopService {
         }
         GroupMember member = members.findActiveByUserIdAndGroupIdForShare(userId, islandId)
                 .orElseThrow(() -> new GroupException(GroupErrorCode.MEMBER_ONLY));
-        if (!SharedPurchase.canSpend(island, member)) {
+        // 구매 권한의 «단일 자리» — 목록의 항목별 사유(Snapshot#canSpend)가 읽는 것과 같은 판정이다.
+        // 한쪽만 좁히면 앱이 열어 둔 구매 버튼을 눌렀을 때 403 이 나는 어긋남이 생긴다.
+        if (!SharedPurchase.canSpend(caller, member)) {
             throw new ShopException(ShopErrorCode.SHOP_FORBIDDEN);
         }
     }

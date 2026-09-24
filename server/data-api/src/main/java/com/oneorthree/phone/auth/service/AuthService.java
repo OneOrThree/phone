@@ -192,11 +192,40 @@ public class AuthService {
      */
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public SocialLoginResponse socialLogin(Provider provider, String token, String authorizationHeader) {
+        return loginWithProviderId(provider, verifyProviderId(provider, token), authorizationHeader);
+    }
+
+    /**
+     * 제공자에게 자격을 검증시키고 provider 측 식별자만 얻는다 — <b>부수효과도 DB 접근도 없다</b>.
+     *
+     * <p>{@link #socialLogin} 에서 갈라낸 이유는 GROMO-1994(확인 후 계정 전환)다. 전환을 확정하려면
+     * 「이 소셜 계정이 이미 다른 사용자에게 붙어 있는가」를 <b>로그인 트랜잭션에 들어가기 전에</b>
+     * 알아야 하는데, 그 판정의 입력이 providerId 다. 합쳐 두면 L10 조합 층이 같은 일회성 자격으로
+     * 제공자를 <b>두 번</b> 불러야 한다(kakao·line·instagram 은 실제 HTTP 왕복이다).
+     *
+     * <p>{@code NOT_SUPPORTED} 가 <b>반드시</b> 필요하다. 클래스 기본이 {@code @Transactional(readOnly
+     * = true)} 라, 이 메서드를 프록시로 부르는 바깥(L10 조합 층)에서는 제공자 왕복 내내 읽기 전용
+     * 트랜잭션과 DB 커넥션을 쥐게 된다 — {@link #socialLogin} 이 같은 이유로 같은 전파를 쓴다.
+     *
+     * @throws AuthException 400 {@code UNSUPPORTED_PROVIDER} — 어댑터가 없는 제공자 (GROMO-1725)
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public String verifyProviderId(Provider provider, String token) {
         SocialLoginClient client = socialLoginClients.get(provider);
         if (client == null) {
             throw new AuthException(AuthErrorCode.UNSUPPORTED_PROVIDER);   // 400 (GROMO-1725)
         }
-        String providerId = client.getProviderId(token);
+        return client.getProviderId(token);
+    }
+
+    /**
+     * 검증이 끝난 providerId 로 회원 매핑·토큰 발급까지 수행한다.
+     *
+     * @param authorizationHeader 선택 AT. {@code null} 이면 승격·전환 판정 없이 대상 계정 로그인이다
+     */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public SocialLoginResponse loginWithProviderId(Provider provider, String providerId,
+                                                   String authorizationHeader) {
         CallerToken caller = resolveCaller(authorizationHeader);
 
         try {
@@ -466,6 +495,31 @@ public class AuthService {
                         .isPresent();
     }
 
+
+    /**
+     * 이 소셜 계정이 <b>호출자가 아닌 다른 사용자</b> 에게 이미 붙어 있는가 (GROMO-1994).
+     *
+     * <p>{@link #loginOrRegister} 의 {@code socialAccount.isPresent() && guestUser != null} 분기가
+     * 409 {@code SOCIAL_ACCOUNT_ALREADY_LINKED} 를 던지는 바로 그 조건을, 트랜잭션·잠금 없이 먼저
+     * 물어보는 read 다. 「확인 후 전환」의 2단계 중 <b>2단계가 정말 전환인지</b> 를 파기(게스트 탈퇴)
+     * 전에 확정해야 하기 때문이다 — 충돌이 아닌데 전환으로 처리하면 게스트 데이터를 버리고 빈 신규
+     * 계정을 만든다.
+     *
+     * <p>소프트 해제된 연동도 <b>붙어 있는 것으로 센다</b> — {@code loginOrRegister} 가 같은 행을
+     * {@code deletedAt = null} 로 되살려 그 계정에 로그인시키므로, 여기서만 없는 셈 치면 두 판정이
+     * 어긋난다.
+     *
+     * <p>무락 사전 조회이므로 <b>인가 결과가 아니다</b>(계정 LLD §3 「무락 사전 조회는 잠글 ID
+     * 발견용이고 인가 결과로 사용하지 않는다」). 실제 분기는 잠금을 쥔 {@code loginOrRegister} 가 다시 한다.
+     *
+     * @param callerUserId 선택 AT 의 주체. {@code null} 이면 「다른 사용자」 비교 대상이 없다
+     */
+    public boolean isLinkedToAnotherUser(Provider provider, String providerId, UUID callerUserId) {
+        return socialAccountRepository.findByProviderAndProviderId(provider, providerId)
+                .map(account -> account.getUser().getId())
+                .filter(ownerId -> !ownerId.equals(callerUserId))
+                .isPresent();
+    }
 
     /**
      * 게스트 가입 — 소셜 연동 없이 User 를 만들고 부속 4행까지 함께 만든다.
@@ -742,11 +796,7 @@ public class AuthService {
         // 탈퇴가 세운 is_deleted·파기된 PII 를 되살리지 않게 — UserRepository 주석 참고).
         // 락을 쥔 채이므로 여기서 0 행이 나오면 그것은 경합이 아니라 «불변식 위반»이다 → fail-closed.
         if (currentHash.equals(user.getRefreshTokenHash())) {
-            int rotated = userRepository.rotateRefreshTokenHash(
-                    user.getId(), currentHash, TokenHasher.sha256Hex(rotatedRefreshToken));
-            if (rotated == 0) {
-                throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
-            }
+            rotateUserRefreshHash(user.getId(), currentHash, rotatedRefreshToken);
         }
         // 세션 행 CAS. users 락이 같은 유저의 동시 회전을 이미 직렬화하므로 여기서 0 이 나올 수는
         // 없지만, 락 규율이 깨지는 날 조용히 덮어쓰는 대신 끊기도록 fail-closed 로 남겨 둔다.
@@ -779,19 +829,20 @@ public class AuthService {
         }
 
         String rotatedRefreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
-        int rotated = userRepository.rotateRefreshTokenHash(
-                user.getId(), currentHash, TokenHasher.sha256Hex(rotatedRefreshToken));
-        if (rotated == 0) {
-            // 락을 쥐고 대조까지 통과한 뒤라 여기까지 오면 불변식이 깨진 것이다 — 끊긴 세션은
-            // 되살리지 않는다는 계약대로 거절한다(fail-closed).
-            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
-        }
+        rotateUserRefreshHash(user.getId(), currentHash, rotatedRefreshToken);
         // 세션 행이 여기서 승격(백필)된다(㋪) — 구 RT 는 sessionId 가 없어서, 첫 회전이 세션 축에
         // 올리는 유일한 자리다.
         AuthSessionService.IssuedSession session =
                 authSessionService.promoteLegacy(user.getId(), rotatedRefreshToken, user.getDeviceToken());
         return new TokenRefreshResponse(issueAccessToken(user, session.sessionId()), rotatedRefreshToken,
                 session.sessionId(), session.deviceBootstrap());
+    }
+
+    /** 사용자 락 아래 해시를 교체한다. CAS 실패 시 두 갱신 경로 모두 새 자격 발급 전에 거절한다. */
+    private void rotateUserRefreshHash(UUID userId, String currentHash, String nextRefreshToken) {
+        if (userRepository.rotateRefreshTokenHash(userId, currentHash, TokenHasher.sha256Hex(nextRefreshToken)) == 0) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
     }
 
     /**

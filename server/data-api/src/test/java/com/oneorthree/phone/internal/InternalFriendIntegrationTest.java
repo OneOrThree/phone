@@ -16,12 +16,14 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
@@ -52,7 +54,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * <p>여기서만 확인되는 것: ① V60 의 CHECK 제약이 {@code CANCELED} 를 받는가(create-drop 스키마는 제약이
  * 다르다) ② 허용목록·{@code X-User-Id} 대조가 실제 배선으로 도는가 ③ 동시 요청·동시 수락·취소↔수락
  * 경합이 배타 락으로 닫히는가(한 스레드 안에서 순서를 바꿔 흉내 내면 잠금이 관여하지 않는다)
- * ④ 검색이 실제 {@code lower(nickname)} 축으로 도는가(create-drop 스키마에는 V89 인덱스가 없다).
+ * ④ 검색이 실제 {@code lower(nickname)} 축으로 도는가(create-drop 스키마에는 V89 인덱스가 없다)
+ * ⑤ 양방향 동시 요청이 V98 의 {@code uq_friendships_pending_pair} 로 한 건만 남는가(GROMO-2042 —
+ * 이것도 create-drop 스키마에는 없는 인덱스라 여기서만 증명된다).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -80,6 +84,9 @@ class InternalFriendIntegrationTest {
                 () -> "POST /internal/users/*/friend-requests/*/cancel");
         registry.add("internal.api.callers.business.allow[6]", () -> "DELETE /internal/users/*/friends/*");
         registry.add("internal.api.callers.business.allow[7]", () -> "GET /internal/users/*/friend-search");
+        registry.add("internal.api.callers.business.allow[8]", () -> "GET /internal/users/*/blocks");
+        registry.add("internal.api.callers.business.allow[9]", () -> "POST /internal/users/*/blocks");
+        registry.add("internal.api.callers.business.allow[10]", () -> "DELETE /internal/users/*/blocks/*");
     }
 
     /** 수락 이벤트를 세는 리스너 — 동시 수락 둘이 알림 이벤트를 «하나만» 내는지 보기 위한 것. */
@@ -148,6 +155,26 @@ class InternalFriendIntegrationTest {
     }
 
     @Test
+    @DisplayName("차단한 상대는 blocker의 친구 목록과 검색 결과에서만 제외한다")
+    void blockExcludesCounterpartFromFriendsAndSearch() throws Exception {
+        UUID blocker = newUser();
+        UUID blocked = newUser();
+        nickname(blocked, "차단친구");
+        friendService.acceptRequest(blocked, friendService.createRequest(blocker, blocked));
+
+        as(blocker, post(path(blocker, "/blocks")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"blockedUserId\":\"" + blocked + "\"}"))
+                .andExpect(status().isNoContent());
+        as(blocker, get(path(blocker, "/friends")).param("date", DATE))
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
+        as(blocker, get(path(blocker, "/friend-search")).param("type", "NICKNAME").param("q", "차단친구"))
+                .andExpect(status().isOk()).andExpect(content().json("[]"));
+        // 반대 방향 차단은 없으므로 상대의 목록은 그대로다.
+        as(blocked, get(path(blocked, "/friends")).param("date", DATE))
+                .andExpect(status().isOk()).andExpect(jsonPath("$[0].userId").value(blocker.toString()));
+    }
+
+    @Test
     @DisplayName("취소는 V60 CHECK 를 통과해 CANCELED 로 남고, 수신자 수락은 409, 재요청은 같은 행을 되살린다")
     void cancelPersistsUnderProductionConstraintAndBlocksLateAccept() throws Exception {
         UUID a = newUser();
@@ -200,6 +227,29 @@ class InternalFriendIntegrationTest {
         assertThat(statusOf(requestId)).isEqualTo("PENDING");
     }
 
+    @Test
+    @DisplayName("게스트는 요청 생성만 403 이고, 받은 요청 수락·친구 목록은 그대로 된다 (GROMO-1992)")
+    void guestCannotOpenFriendRequestsButStillAcceptsThem() throws Exception {
+        UUID guest = jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID member = newUser();
+
+        as(guest, post(path(guest, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + member + "\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("SOCIAL_LOGIN_REQUIRED"));
+        assertThat(jdbc.queryForObject("select count(*) from friendships where from_user_id = ?",
+                Integer.class, guest)).as("거절은 행을 남기지 않는다").isZero();
+
+        // 반대 방향은 열려 있다 — 막으면 「게스트도 편지를 보낼 수 있다」(FL-결정-1)가 도달 불가능해진다.
+        UUID requestId = friendService.createRequest(member, guest);
+        as(guest, post(path(guest, "/friend-requests/" + requestId + "/accept")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("ACCEPTED"));
+        as(guest, get(path(guest, "/friends")).param("date", DATE))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].userId").value(member.toString()));
+    }
+
     // ---------------------------------------------------------------- 2. 경합
 
     @Test
@@ -220,6 +270,43 @@ class InternalFriendIntegrationTest {
         Integer rows = jdbc.queryForObject(
                 "select count(*) from friendships where from_user_id = ? and to_user_id = ?", Integer.class, a, b);
         assertThat(rows).isEqualTo(1);
+    }
+
+    /**
+     * GROMO-2042. 같은 «방향» 중복은 V1 의 unique(from_user_id, to_user_id) 가 막았지만, 반대 방향은
+     * 아무것도 막지 않아 둘 다 {@code findPair} 에서 「기존 행 없음」을 보고 PENDING 두 행을 만들었다.
+     * 한쪽이 수락되면 나머지가 PENDING 인 채 남아 목록·배지의 유령이 된다.
+     *
+     * <p>V98 의 {@code uq_friendships_pending_pair} 가 그 자리를 막는다. 응답 «코드»까지 보는 이유는
+     * 교착 회피를 함께 단언하기 위해서다 — users 두 행을 배타로 잡는 대안을 택했다면 방향마다 잠금
+     * 순서가 갈려 Postgres 가 한쪽을 deadlock 으로 끊고, 그건
+     * {@code PessimisticLockingFailureException → 409 CONCURRENT_UPDATE} 로 나타난다.
+     * 아래 단정이 그 코드를 허용하지 않으므로 교착이 나면 이 테스트가 깨진다.
+     */
+    @Test
+    @DisplayName("A→B 와 B→A 를 동시에 보내면 PENDING 은 한 행, 한쪽은 201·다른 쪽은 409 (교착 없음)")
+    void concurrentOppositeDirectionRequestsLeaveExactlyOnePending() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+
+        List<String> outcomes = new CopyOnWriteArrayList<>();
+        List<Throwable> failures = runConcurrently(
+                () -> outcomes.add(requestOutcome(a, b)),
+                () -> outcomes.add(requestOutcome(b, a)));
+
+        assertThat(failures).as("두 요청 모두 HTTP 응답으로 끝나야 한다").isEmpty();
+        assertThat(outcomes).hasSize(2)
+                .filteredOn("201"::equals).as("둘 다 201 이면 PENDING 이 두 행이다 — 유령 요청").hasSize(1);
+        assertThat(outcomes).filteredOn(outcome -> !"201".equals(outcome))
+                .singleElement()
+                .as("교착(CONCURRENT_UPDATE)이나 500 이 아니라 결정적 409 여야 한다")
+                .isIn("409 REQUEST_ALREADY_EXISTS", "409 DATA_INTEGRITY_VIOLATION");
+
+        Integer pending = jdbc.queryForObject(
+                "select count(*) from friendships where status = 'PENDING' and deleted_at is null"
+                        + " and ((from_user_id = ? and to_user_id = ?) or (from_user_id = ? and to_user_id = ?))",
+                Integer.class, a, b, b, a);
+        assertThat(pending).as("살아 있는 PENDING 은 두 사람당 한 건이다").isEqualTo(1);
     }
 
     @Test
@@ -332,10 +419,15 @@ class InternalFriendIntegrationTest {
     private void nickname(UUID userId, String nickname) {
         jdbc.update("update users set nickname = ? where id = ?", nickname, userId);
     }
-
-
+    /**
+     * 이 표면의 친구 요청 생성은 <b>회원 전용</b> 이므로(GROMO-1992) 기본 배우는 회원이다.
+     * 소셜 어댑터를 띄우지 않고 게스트로 만든 뒤 {@code is_guest} 만 내린다 — 이 파일이 검증하는
+     * 것은 관계 상태·잠금이지 승격 경로가 아니다.
+     */
     private UUID newUser() {
-        return jwt.extractUserId(auth.guestLogin().accessToken());
+        UUID id = jwt.extractUserId(auth.guestLogin().accessToken());
+        jdbc.update("update users set is_guest = false where id = ?", id);
+        return id;
     }
 
     private static String path(UUID userId, String rest) {
@@ -346,6 +438,26 @@ class InternalFriendIntegrationTest {
         return mvc.perform(request
                 .header("Authorization", "Bearer " + TOKEN)
                 .header("X-User-Id", actor.toString()));
+    }
+
+    /**
+     * 내부 표면으로 친구 요청을 보내고 결과를 «HTTP 상태 + 도메인 코드» 한 줄로 돌려준다 (GROMO-2042).
+     * 성공은 {@code "201"}, 실패는 {@code "409 REQUEST_ALREADY_EXISTS"} 처럼 코드까지 담는다 —
+     * 경합에서 중요한 것은 누가 졌는지가 아니라 «어떤 이유로» 졌는지다.
+     */
+    private String requestOutcome(UUID from, UUID to) {
+        try {
+            MvcResult result = as(from, post(path(from, "/friend-requests"))
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("{\"targetUserId\":\"" + to + "\"}")).andReturn();
+            int httpStatus = result.getResponse().getStatus();
+            if (httpStatus == HttpStatus.CREATED.value()) {
+                return String.valueOf(httpStatus);
+            }
+            return httpStatus + " " + JsonPath.read(result.getResponse().getContentAsString(), "$.code");
+        } catch (Exception e) {
+            throw new IllegalStateException("요청 호출이 응답 없이 터졌다", e);
+        }
     }
 
     private String statusOf(UUID requestId) {

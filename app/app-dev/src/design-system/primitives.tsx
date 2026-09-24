@@ -59,8 +59,10 @@ export const S = StyleSheet.create({
   badge: {
     paddingHorizontal: 12,
     paddingVertical: 5,
-    backgroundColor: C.sky,
-    borderRadius: 12,
+    backgroundColor: componentTokens.badge.default.background,
+    borderWidth: componentTokens.badge.borderWidth,
+    borderColor: componentTokens.badge.default.border,
+    borderRadius: componentTokens.badge.radius,
     alignSelf: 'flex-start',
   },
   divider: {

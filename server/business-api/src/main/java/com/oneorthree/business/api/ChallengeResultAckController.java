@@ -2,6 +2,7 @@ package com.oneorthree.business.api;
 
 import com.oneorthree.business.api.dto.ChallengeResultAckRequest;
 import com.oneorthree.business.api.dto.ChallengeResultClaimRequest;
+import com.oneorthree.business.api.dto.ChallengeResultClaimResponse;
 import com.oneorthree.business.auth.LoginUser;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.usecase.RequestIdempotencyKeys;
@@ -29,9 +30,8 @@ import java.util.UUID;
  * <p>{@code /me/challenge-results} <b>조회</b>는 이 서비스로 오지 않는다 — 위성을 조합할 필요가 없는
  * 순수 Data 읽기라 1661 의 전체 전환 때 함께 옮긴다. 최소 Business 의 범위를 여기서 넓히지 않는다.
  *
- * <p>선점 응답을 {@code Object} 로 그대로 통과시키는 이유: 기존 응답은 {@code {claimToken}} 한 필드지만
- * 상류가 필드를 늘릴 수 있고(additive 가 계약이다), Business 가 모양을 알고 있으면 그 변경마다 여기도
- * 배포해야 한다 — 제공자 선배포·소비자 후배포(㉹)를 지키려면 모르는 필드를 통과시키는 쪽이 맞다.
+ * <p>선점 응답은 공개 {@code claimToken}만 반환한다. 내부 응답에 필드가 추가돼도 자동으로
+ * 외부에 노출되지 않으며, 토큰 검증과 비멱등 명령의 재시도 금지는 유스케이스가 유지한다.
  */
 @RestController
 @RequestMapping("/api/v1")
@@ -41,7 +41,7 @@ public class ChallengeResultAckController {
     private final ResultAckUseCase resultAckUseCase;
 
     @PostMapping("/me/challenge-results/{sessionId}/claim")
-    public ResponseEntity<Object> claimDisplay(
+    public ResponseEntity<ChallengeResultClaimResponse> claimDisplay(
             @PathVariable UUID sessionId,
             @RequestBody(required = false) ChallengeResultClaimRequest body,
             @LoginUser UUID userId) {

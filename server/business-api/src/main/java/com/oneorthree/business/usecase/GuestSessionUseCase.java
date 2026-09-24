@@ -6,7 +6,7 @@ import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.LoginSession;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -29,7 +29,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class GuestSessionUseCase {
 
-    private final DataApiClient data;
+    private final DataAuthClient data;
     private final CredentialDigest digests;
 
     /**

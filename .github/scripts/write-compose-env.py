@@ -233,7 +233,9 @@ def business_redis_acl(secret: dict[str, Any]) -> str:
         raise ValueError("BUSINESS_REDIS_PASSWORD는 문자열이어야 합니다")
     digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
     return ("user default off\n"
-            "user health on nopass +ping\n"
+            # 비밀번호 없는 계정이지만 business-cache 내부망에서만 접근 가능하고 키 명령은 전부 막힌다.
+            # Datadog Redis check가 요구하는 읽기 전용 관리 명령만 허용한다.
+            "user health on nopass +ping +info +config|get +slowlog|get\n"
             f"user business on #{digest} ~cache:business:* "
             "+get +set +incrby +expire +eval +evalsha +script|load +scan +del "
             "+ping +hello +info +select +client|setinfo +client|setname\n")

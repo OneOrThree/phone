@@ -312,6 +312,18 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 
 **확정 — A(게스트도 완전히 동일).** 2026-09-18 재영님 결정 FL-결정-1: 게스트도 편지를 보낼 수 있다. 편지 도메인에 게스트 분기를 두지 않는다. ⚠️ **A 가 스스로 지적한 악용 경로는 남는다** — 게스트 계정을 대량 생성해 편지를 뿌리는 스팸은 편지 도메인이 아니라 게스트 생성·친구 요청 쪽에서 막아야 하며, 그 방어는 이 티켓 범위 밖이다(별도 티켓 필요).
 
+> **후속(GROMO-1992, 2026-09-21) — FL-결정-1 의 «발송» 부분은 폐기됐다.** planning-document 의
+> 「친구 추가·편지 발송·상점 구매에서 소셜 로그인을 요청한다」(policy-2026-09-14 「인증·게스트
+> 계정」 · planning decision-log 2026-09-15 「게스트와 회원 계정의 전환 경계」)를 최상위 기준으로
+> 삼는 source 계층에서 FL-결정-1 은 상충하는 하위 근거다. **현재 계약: 게스트는 편지를 보낼 수
+> 없다** — `InternalLetterController.send` 가 `InternalLetterService.send` 앞에서
+> `GuestAccountGuards.requireMember` 를 불러 403 `SOCIAL_LOGIN_REQUIRED` 다. 편지 «도메인»에는
+> 여전히 게스트 분기가 없다 — 계정 상태 gate 는 2.0 컨트롤러 경계에 있고, 서비스는 `User.isGuest`
+> 를 읽지 않는다. 받은함·상세·닫기(읽기·정리 표면)와 받은 친구 요청 «수락»은 정책의 세 명령
+> 밖이라 그대로 열어 둔다. 가드를 공유 서비스가 아니라 2.0 컨트롤러에 두는 이유(동결된 1.x 앱
+> 보존)와 그 대가로 남는 레거시 우회는 계정 LLD §2.1 「게스트 제한과 기존 계정 충돌의 2단계
+> 확인」에 있다.
+
 ### 결정 2 — 받는 쪽 섬의 우체통 시설이 완공돼야 편지를 받을 수 있는가
 
 우체통은 `island-construction`의 건설 대상 하나다(`docs/prd/fishcat/island-construction/prd.md:11`,
@@ -367,3 +379,28 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
   letter 층 주석이 「결정 3 이 B 로 정해지면 friend 가 letter 를 참조해야 한다」며 비워 둔 자리다.
 - 순서 주의: `friendship.softDelete(now)` **다음에** 벌크 UPDATE 를 부른다. 벌크는
   `clearAutomatically` 라 먼저 부르면 `friendship` 이 준영속이 되어 소프트 삭제가 유실된다.
+
+### 1.18 — 사용자 차단 (GROMO-1975, GROMO-1976 호환)
+
+차단 관계는 기존 `user_blocks(blocker_id, blocked_id)`를 재사용한다. 별도 삭제 표지·마이그레이션은
+만들지 않는다. 방향은 항상 **blocker → blocked** 이며, 상대가 나를 차단한 사실이나 목록은 이 계약으로
+노출하지 않는다.
+
+| 계약 | 요청 | 응답 | 성공 | 오류 |
+| --- | --- | --- | --- | --- |
+| `POST /blocks` | `{blockedUserId: UUID}` | 없음 | 내부 204 / 공개 `{"data": null}` 200 | 400 `SELF_BLOCK`, 404 `TARGET_USER_NOT_FOUND` |
+| `DELETE /blocks/{blockedUserId}` | 없음 | 없음 | 내부 204 / 공개 `{"data": null}` 200 | 요청자 부재만 404 `USER_NOT_FOUND` |
+| `GET /blocks` | 없음 | `[{id, name}]` | 200 | 404 `USER_NOT_FOUND` |
+
+POST와 DELETE는 둘 다 멱등이다. 같은 방향의 차단을 다시 만들거나 이미 해제된 관계를 다시 삭제해도
+성공한다. POST는 blocker·blocked 양쪽을 활성 사용자로 공유 잠금 조회해 탈퇴와 직렬화하고, DELETE는
+탈퇴자가 이미 차단 정리로 사라진 경우도 성공으로 접는다. 탈퇴 처리의 `deleteAllInvolving`은 기존대로
+두 방향 행을 hard delete한다.
+
+차단은 친구 관계·편지 원문을 바꾸지 않는 **표시 필터**다.
+
+- blocker의 `GET /friends`와 `GET /friends/search`에서 `blocked_id`를 제외한다. 반대 방향 목록은 유지한다.
+- blocker의 받은 편지함에서만 차단한 발신자의 편지를 제외한다. 보낸 편지함·`letters` 원문·상세 삭제는
+  건드리지 않으므로, 해제하면 같은 편지가 다시 받은 편지함에 나타난다.
+- Business는 `/blocks/**`를 응답 봉투·nginx 공개 경로에 등록하고 Data 내부 계약은
+  `/internal/users/{userId}/blocks`의 GET·POST 및 `/blocks/{blockedUserId}`의 DELETE로 고정한다.

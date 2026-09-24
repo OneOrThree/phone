@@ -1,6 +1,9 @@
 package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.api.dto.IslandNoticeResponses;
+import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeCommentCreatedView;
+import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeDeletedView;
+import com.oneorthree.business.api.dto.IslandNoticeResponses.NoticeView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -10,7 +13,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.IslandNotices;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.ObjectProvider;
@@ -70,7 +73,7 @@ public class IslandNoticeUseCase {
             // Data 의 bean 검증 거절 — 공개 경계가 먼저 거르므로 보통 닿지 않는다.
             Map.entry("INVALID_REQUEST", new PublicFailure(400, ApiErrorCode.INVALID_REQUEST, null)));
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
     /** 목록 — 커서를 먼저 푸는 것은 위조·만료 커서로 상류를 두드리지 않기 위해서다. 인가는 매 쪽 Data 가 한다. */
@@ -122,31 +125,34 @@ public class IslandNoticeUseCase {
                 comments, next);
     }
 
-    public IslandNotices.Notice create(AccessTokenClaims claims, UUID islandId, String title, String body, UUID key,
+    public NoticeView create(AccessTokenClaims claims, UUID islandId, String title, String body, UUID key,
             Deadline deadline) {
-        return required(relay(() -> data.createNotice(claims.userId(), islandId, title, body, key, deadline)));
+        return NoticeView.from(required(relay(() -> data.createNotice(claims.userId(), islandId, title, body, key,
+            deadline))));
     }
 
-    public IslandNotices.Notice update(AccessTokenClaims claims, UUID islandId, UUID noticeId, String title,
+    public NoticeView update(AccessTokenClaims claims, UUID islandId, UUID noticeId, String title,
             String body, UUID key, Deadline deadline) {
-        return required(relay(() -> data.updateNotice(claims.userId(), islandId, noticeId, title, body, key,
-                deadline)));
+        return NoticeView.from(required(relay(() -> data.updateNotice(claims.userId(), islandId, noticeId, title,
+            body, key,
+                deadline))));
     }
 
-    public IslandNotices.Deleted delete(AccessTokenClaims claims, UUID islandId, UUID noticeId, UUID key,
+    public NoticeDeletedView delete(AccessTokenClaims claims, UUID islandId, UUID noticeId, UUID key,
             Deadline deadline) {
         IslandNotices.Deleted deleted = relay(() -> data.deleteNotice(claims.userId(), islandId, noticeId, key,
                 deadline));
         if (deleted == null || !deleted.deleted()) {
             throw new UpstreamContractMismatchException("공지 삭제 응답이 계약과 다릅니다");
         }
-        return deleted;
+        return NoticeDeletedView.from(deleted);
     }
 
-    public IslandNotices.CommentCreated comment(AccessTokenClaims claims, UUID islandId, UUID noticeId, String text,
+    public NoticeCommentCreatedView comment(AccessTokenClaims claims, UUID islandId, UUID noticeId, String text,
             UUID key, Deadline deadline) {
-        return required(relay(() -> data.createNoticeComment(claims.userId(), islandId, noticeId, text, key,
-                deadline)));
+        return NoticeCommentCreatedView.from(required(relay(() -> data.createNoticeComment(claims.userId(),
+            islandId, noticeId, text, key,
+                deadline))));
     }
 
     // ---------------------------------------------------------------- 도구

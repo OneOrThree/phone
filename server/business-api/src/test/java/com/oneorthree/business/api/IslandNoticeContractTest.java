@@ -5,6 +5,7 @@ import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.MediaType;
@@ -281,11 +282,11 @@ class IslandNoticeContractTest extends UpstreamTestBase {
             "404,NOT_FOUND,404,NOT_FOUND,noticeId",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "503,NOTICE_WRITE_UNAVAILABLE,503,SERVICE_UNAVAILABLE,",
+            "503,NOTICE_WRITE_UNAVAILABLE,400,SERVICE_UNAVAILABLE,",
             "422,NOTICE_BODY_TOO_LONG,422,OUT_OF_RANGE,body",
             "422,NOTICE_COMMENT_TOO_LONG,422,OUT_OF_RANGE,text",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,MEMBER_ONLY,502,UPSTREAM_CONTRACT_ERROR,"})
+            "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,"})
     void relaysDataVerdictsAsPublicErrors(int upstreamStatus, String upstreamCode, int status, String code,
             String field) throws Exception {
         DATA.on(DATA_PATCH, request -> error(upstreamStatus, upstreamCode));
@@ -343,4 +344,58 @@ class IslandNoticeContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"create", "update", "delete", "comment"})
+    void publicNoticeCommandFieldsRemainStable(String operation) throws Exception {
+        String expected = operation.equals("delete") ? "{\"deleted\":true}"
+                : operation.equals("comment") ? "{\"id\":\"" + C1 + "\",\"name\":null,\"text\":\"안녕\"}"
+                : NOTICE_BODY;
+        String decorated = expected.replace("{", "{\"row_id\":\"private\",");
+        String route = switch (operation) {
+            case "create" -> DATA_CREATE;
+            case "update" -> DATA_PATCH;
+            case "delete" -> DATA_DELETE;
+            default -> DATA_COMMENT;
+        };
+        int responseStatus = operation.equals("create") || operation.equals("comment") ? 201 : 200;
+        DATA.on(route, r -> new MockUpstream.Response(responseStatus, decorated));
+        var request = switch (operation) {
+            case "create" -> write(post(PUBLIC), "{\"title\":\"공지 제목\",\"body\":\"내용\"}");
+            case "update" -> write(patch(PUBLIC + "/" + N1), "{\"title\":\"공지 제목\",\"body\":\"내용\"}");
+            case "delete" -> auth(delete(PUBLIC + "/" + N1)).header("Idempotency-Key", KEY);
+            default -> write(post(PUBLIC + "/" + N1 + "/comments"), "{\"text\":\"안녕\"}");
+        };
+        var result = mockMvc.perform(request).andExpect(status().is(responseStatus)).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(json.readTree(expected));
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/notices|post|200||id title body|id title body",
+            "/islands/{islandId}/notices/{noticeId}|patch|200||id title body|id title body",
+            "/islands/{islandId}/notices/{noticeId}|delete|200||deleted|deleted",
+            "/islands/{islandId}/notices/{noticeId}/comments|post|200||id name text|id text"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

@@ -30,6 +30,10 @@ export function useSoundPlayer(onError: (message: string) => void) {
         pause() {
           el.pause();
         },
+        seekTo(seconds: number) {
+          el.currentTime = Math.max(0, seconds);
+          return Promise.resolve();
+        },
         get volume() {
           return el.volume;
         },

@@ -110,7 +110,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
     @Test
     void currentRejectsEmptyBodyAsAbsentSession() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok(""));
-        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -122,7 +122,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
     @ValueSource(strings = {"{}", "null", "{\"other\":1}"})
     void currentRejectsBodyWithoutTheSessionKey(String body) throws Exception {
         DATA.on(DATA_CURRENT, request -> ok(body));
-        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }
@@ -132,7 +132,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
     void startRelaysClosedStartGateAsRetryableUnavailable() throws Exception {
         DATA.on(DATA_START, request -> error(503, "SESSION_START_UNAVAILABLE"));
         mockMvc.perform(write(post("/focus-sessions"), START_BODY))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.retryable").value(true))
                 .andExpect(jsonPath("$.data").doesNotExist());
@@ -206,8 +206,8 @@ class FocusSessionContractTest extends UpstreamTestBase {
             "400,INVALID_TARGET_MINUTES,400,INVALID_PARAMETER,targetMinutes",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,ISLAND_NOT_CURRENT,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_FOCUS_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "409,ISLAND_NOT_CURRENT,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_FOCUS_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_START, request -> error(upstreamStatus, code));
@@ -224,7 +224,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
         DATA.on("POST " + INTERNAL + "/focus-sessions/" + FOCUS + "/finish",
                 request -> error(503, "REWARD_POLICY_UNAVAILABLE"));
         mockMvc.perform(write(post("/focus-sessions/" + FOCUS + "/finish"), "{\"expectedVersion\":3}"))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.retryable").value(true))
                 .andExpect(jsonPath("$.data").doesNotExist());
@@ -248,7 +248,7 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.allocation.constructionFishAdded").value(10));
 
         DATA.on(DATA_PENDING, request -> ok(""));
-        mockMvc.perform(auth(get("/focus-sessions/pending-result"))).andExpect(status().isBadGateway())
+        mockMvc.perform(auth(get("/focus-sessions/pending-result"))).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -280,8 +280,94 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("FORBIDDEN"));
     }
 
+    @ParameterizedTest
+    @CsvSource({"/focus-sessions/current,get,,id islandId subject status activeSeconds serverNow startedAt version",
+            "/focus-sessions/{sessionId}/finish,post,,recordId islandId subject activeSeconds goalAchieved earnedFish allocation completedAt",
+            "/focus-sessions/{sessionId}/finish,post,allocation,personalFishAdded constructionFishAdded",
+            "/focus-sessions/{sessionId}/finish,post,questProgress,id myRate",
+            "/me/focus-summary,get,,date completedSeconds currentSessionSecondsToday totalSeconds serverNow"})
+    void publicDocumentationPreservesRequiredFields(String path, String method, String nested, String fields)
+            throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        var document = json.readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path("200").path("content");
+        var schema = content.iterator().next().path("schema");
+        if (schema.path("type").asText().equals("array")) {
+            schema = schema.path("items");
+        }
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            schema = schema.path("properties").path(nested);
+            if (schema.path("type").asText().equals("array")) {
+                schema = schema.path("items");
+            }
+            schema = document.at(schema.path("$ref").asText().substring(1));
+        }
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(fields.split(" "));
+    }
+
     private MockHttpServletRequestBuilder auth(MockHttpServletRequestBuilder request) {
         return request.header("Authorization", "Bearer " + Tokens.accessWithSession(USER, 3, SESSION));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"start", "current", "pause", "resume"})
+    void stateResponsesExposeOnlyPublicFieldsAndPreserveNullsAndTimestampText(String operation) throws Exception {
+        String expected = STATE.replace("\"targetMinutes\":60", "\"targetMinutes\":null")
+                .replace("2026-09-17T00:00:00Z", "2026-09-17T00:00:00.123456+00:00");
+        String upstream = expected.substring(0, expected.length() - 1) + ",\"policy_revision\":7}";
+        String path = switch (operation) {
+            case "start" -> "/focus-sessions";
+            case "current" -> "/focus-sessions/current";
+            default -> "/focus-sessions/" + FOCUS + "/" + operation;
+        };
+        boolean current = operation.equals("current");
+        String response = current ? "{\"session\":" + upstream + "}" : upstream;
+        DATA.on((current ? "GET " : "POST ") + INTERNAL + path, request -> ok(response));
+        var request = current ? auth(get(path))
+                : write(post(path), operation.equals("start") ? START_BODY : "{\"expectedVersion\":1}");
+
+        var result = mockMvc.perform(request).andExpect(status().is(operation.equals("start") ? 201 : 200))
+                .andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
+                .isEqualTo(json.readTree(expected));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void finishAndPendingResponsesProjectNestedPublicFields(boolean pending) throws Exception {
+        String expected = FINISH.replace("\"questProgress\":[]", "\"questProgress\":[{\"id\":\""
+                + ISLAND + "\",\"myRate\":0.25}]");
+        String upstream = expected.replace("\"constructionFishAdded\":10}",
+                "\"constructionFishAdded\":10,\"ledger_row_id\":3}")
+                .replace("\"myRate\":0.25}", "\"myRate\":0.25,\"internal_count\":2}");
+        upstream = upstream.substring(0, upstream.length() - 1) + ",\"policy_revision\":7}";
+        String path = pending ? "/focus-sessions/pending-result" : "/focus-sessions/" + FOCUS + "/finish";
+        String response = pending ? "{\"result\":" + upstream + "}" : upstream;
+        DATA.on((pending ? "GET " : "POST ") + INTERNAL + path, request -> ok(response));
+
+        var result = mockMvc.perform(pending ? auth(get(path)) : write(post(path), "{\"expectedVersion\":1}"))
+                .andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
+                .isEqualTo(json.readTree(expected));
+    }
+
+    @Test
+    void summaryExposesOnlyPublicFields() throws Exception {
+        String expected = "{\"date\":\"2026-09-17\",\"completedSeconds\":60,\"currentSessionSecondsToday\":30,"
+                + "\"totalSeconds\":90,\"serverNow\":\"2026-09-17T01:00:00.123456+00:00\"}";
+        DATA.on(DATA_SUMMARY, request -> ok(expected.substring(0, expected.length() - 1)
+                + ",\"aggregate_row_id\":4}"));
+
+        var result = mockMvc.perform(auth(get("/me/focus-summary"))).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data"))
+                .isEqualTo(json.readTree(expected));
     }
 
     private MockHttpServletRequestBuilder write(MockHttpServletRequestBuilder request, String body) {

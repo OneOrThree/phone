@@ -170,7 +170,7 @@ class IslandMailboxContractTest extends UpstreamTestBase {
         stubHappyPath();
         DATA.on(DATA_AUTHORS, request -> error(503, "SERVICE_UNAVAILABLE"));
         mockMvc.perform(auth(get(PUBLIC)))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.data").doesNotExist());
     }

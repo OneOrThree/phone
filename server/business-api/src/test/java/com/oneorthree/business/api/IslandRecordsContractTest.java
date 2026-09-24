@@ -181,8 +181,8 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             "403,LIBRARY_LOCKED,403,FACILITY_LOCKED,",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "409,STATISTICS_SNAPSHOT_EXPIRED,409,CURSOR_EXPIRED,cursor",
-            "409,LIBRARY_LOCKED,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("조회 — 정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "409,LIBRARY_LOCKED,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("조회 — 정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void focusMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode, String field)
             throws Exception {
         DATA.on(DATA_FOCUS, request -> error(upstreamStatus, code));
@@ -283,10 +283,10 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     }
 
     @ParameterizedTest
-    @CsvSource({"500,INTERNAL_ERROR,500,INTERNAL_ERROR",
-            "503,SERVICE_UNAVAILABLE,503,SERVICE_UNAVAILABLE",
+    @CsvSource({"500,INTERNAL_ERROR,400,INTERNAL_ERROR",
+            "503,SERVICE_UNAVAILABLE,400,SERVICE_UNAVAILABLE",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND",
-            "502,UPSTREAM_CONTRACT_ERROR,502,UPSTREAM_CONTRACT_ERROR"})
+            "502,UPSTREAM_CONTRACT_ERROR,400,UPSTREAM_CONTRACT_ERROR"})
     @DisplayName("내부 조회 실패는 빈 장부로 접지 않는다 — 실패는 실패로 올라간다")
     void ledgerNeverFakesAnEmptyBook(int upstreamStatus, String code, int publicStatus, String publicCode)
             throws Exception {
@@ -301,18 +301,18 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("상류가 다른 달을 주거나 경계가 반쪽이면 502 — 조용히 그 달의 장부인 척하지 않는다")
+    @DisplayName("상류가 다른 달을 주거나 경계가 반쪽이면 400 — 조용히 그 달의 장부인 척하지 않는다")
     void ledgerRejectsMismatchedUpstream() throws Exception {
         DATA.on(DATA_LEDGER, request -> ok(LEDGER.replace("\"month\":\"2026-09\"", "\"month\":\"2026-08\"")));
         mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         // 다음 쪽 경계가 반쪽이면 커서를 만들 수 없다.
         DATA.on(DATA_LEDGER, request -> ok(LEDGER.replace("\"nextEntryId\":\"" + ENTRY + "\"",
                 "\"nextEntryId\":null")));
         mockMvc.perform(auth(get(LEDGER_PATH).param("month", "2026-09")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -351,8 +351,8 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             "403,MEMBER_ONLY,403,FORBIDDEN,islandId",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "409,LIBRARY_LOCKED,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("물고기 장 — 도서관 게이트·비주민은 «공개 오류 표»를 거친다(502 로 새지 않는다)")
+            "409,LIBRARY_LOCKED,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("물고기 장 — 도서관 게이트·비주민은 상태와 코드 쌍에 따라 공개 오류를 구분한다")
     void fishEarningsMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode,
             String field) throws Exception {
         DATA.on(DATA_FISH, request -> error(upstreamStatus, code));
@@ -368,16 +368,16 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("물고기 장 — 명단이 없거나 마리 수가 빠지면 502 다. 빠진 값을 0 으로 지어내지 않는다")
+    @DisplayName("물고기 장 — 명단이 없거나 마리 수가 빠지면 400 다. 빠진 값을 0 으로 지어내지 않는다")
     void fishEarningsRejectsIncompleteUpstream() throws Exception {
         DATA.on(DATA_FISH, request -> ok("{\"members\":null}"));
         mockMvc.perform(auth(get(FISH_PATH)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.on(DATA_FISH, request -> ok("{\"members\":[{\"userId\":\"" + USER + "\",\"name\":\"수빈\"}]}"));
         mockMvc.perform(auth(get(FISH_PATH)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -463,7 +463,7 @@ class IslandRecordsContractTest extends UpstreamTestBase {
             "422,SCREEN_TIME_OUT_OF_WINDOW,422,OUT_OF_RANGE,measuredAt",
             "422,SCREEN_TIME_INVALID_MEASUREMENT,422,OUT_OF_RANGE,measurementStatus",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "400,UNKNOWN,502,UPSTREAM_CONTRACT_ERROR,"})
+            "400,UNKNOWN,400,UPSTREAM_CONTRACT_ERROR,"})
     @DisplayName("PUT — 도메인 실패의 공개 오류 표")
     void putMapsDomainFailures(int upstreamStatus, String code, int publicStatus, String publicCode, String field)
             throws Exception {
@@ -476,12 +476,12 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("PUT — authorized 인데 minutes 가 없는 응답은 계약 불일치 502")
+    @DisplayName("PUT — authorized 인데 minutes 가 없는 응답은 계약 불일치 400")
     void putResponseShapeIsChecked() throws Exception {
         DATA.on(DATA_PUT, request -> ok("{\"date\":\"2026-09-11\",\"minutes\":null,\"measurementStatus\":\"authorized\"}"));
 
         mockMvc.perform(write(put(UPLOAD), UPLOAD_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -502,4 +502,102 @@ class IslandRecordsContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"focus-me", "focus-island", "screen-me", "screen-island", "ledger", "empty-ledger",
+            "fish", "empty-fish", "upload"})
+    void publicRecordFieldsRemainStable(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String fixture = switch (operation) {
+            case "focus-me" -> FOCUS_ME;
+            case "focus-island" -> FOCUS_ISLAND;
+            case "screen-me" -> SCREEN_ME;
+            case "screen-island" -> SCREEN_ISLAND;
+            case "ledger" -> LEDGER;
+            case "empty-ledger" -> LEDGER_LAST;
+            case "upload" -> "{\"date\":\"2026-09-11\",\"minutes\":90,\"measurementStatus\":\"authorized\"}";
+            default -> FISH;
+        };
+        var upstream = (tools.jackson.databind.node.ObjectNode) json.readTree(fixture);
+        if (operation.equals("empty-fish")) {
+            upstream.putArray("members");
+        }
+        if (operation.startsWith("focus")) {
+            upstream.putNull("nextSnapshotId");
+            upstream.putNull("nextOffset");
+        }
+        if (operation.endsWith("ledger")) {
+            upstream.putNull("nextCreatedAt");
+            upstream.putNull("nextEntryId");
+        }
+        if (operation.startsWith("screen")) {
+            var day = json.createObjectNode().put("date", "2026-09-11").putNull("minutes")
+                    .put("measurementStatus", "denied").putNull("updatedAt");
+            var series = operation.equals("screen-me") ? upstream.path("series")
+                    : upstream.path("members").get(0).path("series");
+            ((tools.jackson.databind.node.ArrayNode) series).add(day);
+        }
+        var expected = upstream.deepCopy();
+        for (String internal : new String[]{"nextSnapshotId", "nextOffset", "nextCreatedAt", "nextEntryId"}) {
+            expected.remove(internal);
+        }
+        if (operation.startsWith("focus") || operation.endsWith("ledger")) {
+            expected.putNull("nextCursor");
+        }
+        if (operation.endsWith("me")) {
+            expected.remove("members");
+        } else if (operation.endsWith("island")) {
+            for (String personal : new String[]{"totalSeconds", "totalMinutes", "series", "records",
+                    "measurementStatus", "updatedAt"}) {
+                expected.remove(personal);
+            }
+        }
+        String decorated = upstream.toString().replace("{", "{\"row_id\":\"private\",");
+        String route = operation.startsWith("focus") ? DATA_FOCUS : operation.startsWith("screen") ? DATA_SCREEN
+                : operation.endsWith("ledger") ? DATA_LEDGER : operation.equals("upload") ? DATA_PUT : DATA_FISH;
+        DATA.on(route, r -> ok(decorated));
+        MockHttpServletRequestBuilder request;
+        if (operation.equals("upload")) {
+            request = auth(put(UPLOAD)).header("Idempotency-Key", KEY).contentType(MediaType.APPLICATION_JSON)
+                    .content(UPLOAD_BODY);
+        } else if (operation.endsWith("ledger")) {
+            request = auth(get(LEDGER_PATH).param("month", "2026-09"));
+        } else if (operation.endsWith("fish")) {
+            request = auth(get(FISH_PATH));
+        } else {
+            request = auth(get(operation.startsWith("focus") ? FOCUS : SCREEN)
+                    .param("from", "2026-09-07").param("to", "2026-09-13")
+                    .param("scope", operation.endsWith("me") ? "me" : "island"));
+        }
+        var result = mockMvc.perform(request).andExpect(status().isOk()).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/resources/ledger|get|200|items|id direction reason amount createdAt groupedUntil entryCount|",
+            "/islands/{islandId}/statistics/fish-earnings|get|200||members|",
+            "/islands/{islandId}/statistics/fish-earnings|get|200|members|userId name earnedFish|",
+            "/me/screen-time/{date}|put|200||date minutes measurementStatus|"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

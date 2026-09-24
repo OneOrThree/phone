@@ -72,7 +72,7 @@ class ExploreScreenContractTest extends ScreenContractTestBase {
         DATA.reset();
         DATA.on(DATA_MINE, request -> ok(""));
         mockMvc.perform(auth(get("/screens/explore")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         assertThat(DATA.hits(DATA_SEARCH) + DATA.hits(DATA_DISCOVER)).isZero();
     }

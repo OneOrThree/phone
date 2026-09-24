@@ -13,6 +13,7 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -99,7 +100,7 @@ class LetterContractTest extends UpstreamTestBase {
     void sendRejectsEmptyOrIncompleteUpstreamBody(String body) throws Exception {
         DATA.on(DATA_SEND, request -> ok(body));
         mockMvc.perform(write(post("/letters"), SEND_BODY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -167,7 +168,7 @@ class LetterContractTest extends UpstreamTestBase {
     void listRejectsIncompleteSlice(String body) throws Exception {
         DATA.on(DATA_LIST, request -> ok(body));
         mockMvc.perform(auth(get("/letters")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -192,8 +193,8 @@ class LetterContractTest extends UpstreamTestBase {
             "404,LETTER_RECIPIENT_NOT_FRIEND,404,NOT_FOUND,receiverId",
             "404,TARGET_USER_NOT_FOUND,404,NOT_FOUND,receiverId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "422,LETTER_CONTENT_OUT_OF_RANGE,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_LETTER_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "422,LETTER_CONTENT_OUT_OF_RANGE,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_LETTER_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void sendMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_SEND, request -> error(upstreamStatus, code));
@@ -202,6 +203,22 @@ class LetterContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value(publicCode))
                 .andExpect(jsonPath("$.error.field").value(field)).andReturn();
         assertThat(result.getResponse().getContentAsString()).doesNotContain("private detail");
+    }
+
+    /**
+     * 게스트 발송 거절 (GROMO-1992) — Data 의 403 {@code SOCIAL_LOGIN_REQUIRED} 는 도메인 표에 없어
+     * 이름·상태가 같은 {@code ApiErrorCode} 등록으로 그대로 전달된다. 502 로 접히거나 다른 코드로
+     * 바뀌면 앱이 「소셜 로그인하고 계속하기」를 열지 못한다.
+     */
+    @Test
+    void sendPassesUpstreamSocialLoginRequiredThroughUnchanged() throws Exception {
+        DATA.on(DATA_SEND, request -> error(403, "SOCIAL_LOGIN_REQUIRED"));
+        var result = mockMvc.perform(write(post("/letters"), SEND_BODY))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error.code").value("SOCIAL_LOGIN_REQUIRED"))
+                .andExpect(jsonPath("$.error.field").value(nullValue())).andReturn();
+        assertThat(result.getResponse().getContentAsString()).doesNotContain("private detail");
+        assertThat(DATA.hits(DATA_SEND)).as("403 은 재시도하지 않는다").isEqualTo(1);
     }
 
     /**
@@ -286,7 +303,7 @@ class LetterContractTest extends UpstreamTestBase {
             "403,NOT_LETTER_RECEIVER,403,FORBIDDEN,letterId",
             "403,NOT_LETTER_PARTICIPANT,403,FORBIDDEN,letterId",
             "403,LETTER_MAILBOX_LOCKED,403,FACILITY_LOCKED,",
-            "400,UNKNOWN_LETTER_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "400,UNKNOWN_LETTER_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void closeMapsDomainFailuresWithLetterIdField(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_CLOSE, request -> error(upstreamStatus, code));
@@ -312,4 +329,64 @@ class LetterContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"send", "detail", "nullable-detail", "list", "empty-list"})
+    void publicLetterFieldsRemainStable(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        boolean list = operation.endsWith("list");
+        var expected = (tools.jackson.databind.node.ObjectNode) json.readTree(list ? SLICE : VIEW);
+        if (operation.equals("empty-list")) {
+            expected.putArray("content");
+        } else if (list) {
+            var item = (tools.jackson.databind.node.ObjectNode) expected.path("content").get(0);
+            item.putNull("counterpartNickname");
+            var second = item.deepCopy();
+            second.put("id", PEER.toString());
+            second.put("isRead", true);
+            ((tools.jackson.databind.node.ArrayNode) expected.path("content")).add(second);
+        } else if (operation.equals("nullable-detail")) {
+            expected.putNull("senderNickname");
+            expected.put("readAt", "2026-09-18T10:01:02.123456+09:00");
+        }
+        String decorated = expected.toString().replace("{", "{\"row_id\":\"private\",");
+        boolean send = operation.equals("send");
+        DATA.on(send ? DATA_SEND : list ? DATA_LIST : DATA_DETAIL,
+                r -> new MockUpstream.Response(send ? 201 : 200, decorated));
+        var request = send ? write(post("/letters"), SEND_BODY)
+                : auth(get(list ? "/letters" : "/letters/" + LETTER));
+        if (list) {
+            request.param("type", "received");
+        }
+        var result = mockMvc.perform(request).andExpect(status().is(send ? 201 : 200)).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/letters|post|200||id senderId senderNickname receiverId content createdAt readAt|id senderId receiverId content createdAt",
+            "/letters/{letterId}|get|200||id senderId senderNickname receiverId content createdAt readAt|id senderId receiverId content createdAt",
+            "/letters|get|200||content size hasNext nextCursor|content size hasNext",
+            "/letters|get|200|content|id counterpartUserId counterpartNickname content isRead createdAt|id counterpartUserId content isRead createdAt"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

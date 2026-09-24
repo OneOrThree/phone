@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import Svg, { Path, Line, Circle, Polyline } from 'react-native-svg';
 import { C, useScreenInsets, MotionContext } from '@/design-system/primitives';
-import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { art } from '@/constants/art';
 import { assets } from '@/constants/assets';
 import { useAppLayout } from '@/utils/layout';
@@ -127,17 +127,29 @@ export function Btn({
   // 확인창 버튼(.dlg .acts .btn): 높이 46 · 글자 15
   dialog = false,
   disabled = false,
+  dynamicHeight = false,
   style,
   id,
 }: any) {
   const reduce = React.useContext(MotionContext),
     s = useRef(new Animated.Value(1)).current;
   return (
-    <Animated.View style={[{ transform: [{ scale: s }] }, style]}>
+    <Animated.View
+      style={[
+        {
+          transform: [{ scale: s }],
+          minHeight: small ? 44 : undefined,
+          justifyContent: small ? 'center' : undefined,
+        },
+        style,
+      ]}
+    >
       <Pressable
         testID={id}
         accessibilityRole="button"
         accessibilityLabel={title}
+        // small은 시각 높이 38pt를 유지하되 실제 누름 영역은 최소 44pt로 확장한다.
+        hitSlop={small ? 3 : undefined}
         // 누를 동작이 없는 버튼(적용됨 같은 상태 표시)은 모양은 그대로 두고 비활성으로 읽는다(흐림은 disabled일 때만)
         disabled={disabled || !onPress}
         accessibilityState={{ disabled: disabled || !onPress }}
@@ -160,15 +172,19 @@ export function Btn({
             }).start();
         }}
         style={{
-          height: round
-            ? 88
-            : small
-              ? 38
-              : dialog
-                ? 46
-                : kind === 'ghost' || kind === 'danger'
-                  ? 44
-                  : 52,
+          height: dynamicHeight
+            ? undefined
+            : round
+              ? 88
+              : small
+                ? 38
+                : dialog
+                  ? 46
+                  : kind === 'ghost' || kind === 'danger'
+                    ? 44
+                    : 52,
+          minHeight: dynamicHeight ? 52 : undefined,
+          paddingVertical: dynamicHeight ? 12 : undefined,
           ...(round ? { width: 88 } : {}),
           borderRadius: 999,
           paddingHorizontal: round ? 0 : small ? 14 : kind === 'glass' ? 22 : 20,
@@ -325,13 +341,18 @@ export function Row({
     </View>
   );
 }
-export function Seg({ items, value, onChange, small = false, style }: any) {
+export function Seg({ items, value, onChange, small = false, inset = false, style }: any) {
   return (
     <View
       style={[
         {
           flexDirection: 'row',
-          height: small ? 36 : 42,
+          height: inset
+            ? semanticTokens.size.tapMin + semanticTokens.stroke.strong * 4
+            : small
+              ? 36
+              : 42,
+          padding: inset ? semanticTokens.stroke.strong : 0,
           borderWidth: 2,
           borderColor: C.brown,
           borderRadius: 12,
@@ -352,7 +373,8 @@ export function Seg({ items, value, onChange, small = false, style }: any) {
             flex: 1,
             alignItems: 'center',
             justifyContent: 'center',
-            borderLeftWidth: i ? 2 : 0,
+            borderLeftWidth: !inset && i ? 2 : 0,
+            borderRadius: inset ? semanticTokens.radius.control : 0,
             borderColor: C.brown,
             backgroundColor: x === value ? C.pink : undefined,
           }}
@@ -422,6 +444,7 @@ export function Field({
   inputStyle,
   placeholderColor,
   tabletScale,
+  disabled = false,
 }: any) {
   return (
     <View style={{ gap: 6 }}>
@@ -437,6 +460,7 @@ export function Field({
         accessibilityLabel={label || placeholder}
         value={String(value ?? '')}
         onChangeText={onChange}
+        editable={!disabled}
         placeholder={placeholder}
         placeholderTextColor={placeholderColor || componentTokens.input.placeholder}
         multiline={multiline}
@@ -449,7 +473,7 @@ export function Field({
     </View>
   );
 }
-export function Toggle({ value, onChange, label }: any) {
+export function Toggle({ value, onChange, label, disabled = false }: any) {
   // v2 .tog: 폭 46 · 켜지면 손잡이 18px 이동
   const x = useRef(new Animated.Value(value ? 18 : 0)).current;
   const reduce = React.useContext(MotionContext);
@@ -464,7 +488,8 @@ export function Toggle({ value, onChange, label }: any) {
     <Pressable
       accessibilityRole="switch"
       accessibilityLabel={label}
-      accessibilityState={{ checked: value }}
+      accessibilityState={{ checked: value, disabled }}
+      disabled={disabled}
       onPress={() => onChange(!value)}
       hitSlop={8}
       style={{
@@ -472,6 +497,7 @@ export function Toggle({ value, onChange, label }: any) {
         height: 28,
         borderRadius: 999,
         backgroundColor: value ? primitiveTokens.color.success : primitiveTokens.color.controlIdle,
+        opacity: disabled ? componentTokens.button.disabledOpacity : 1,
       }}
     >
       <Animated.View
@@ -512,27 +538,34 @@ export function Bar({ value }: any) {
     </View>
   );
 }
-export function Badge({ children, soft = false }: any) {
+export function Badge({ children, soft = false, small = false }: any) {
   return (
     <View
       style={{
         alignSelf: 'flex-start',
-        height: 28,
-        paddingHorizontal: 12,
-        borderRadius: 999,
-        borderWidth: 1.5,
-        borderColor: soft ? componentTokens.badge.border : C.brown,
-        backgroundColor: soft ? C.paper : C.butter,
+        minHeight: small ? 22 : 28,
+        paddingHorizontal: small ? 7 : 12,
+        paddingVertical: small ? 1 : 3,
+        borderRadius: componentTokens.badge.radius,
+        borderWidth: componentTokens.badge.borderWidth,
+        borderColor: soft
+          ? componentTokens.badge.soft.border
+          : componentTokens.badge.default.border,
+        backgroundColor: soft
+          ? componentTokens.badge.soft.background
+          : componentTokens.badge.default.background,
         justifyContent: 'center',
       }}
     >
       {/* v2 .badge.soft: 보통 굵기 · 옅은 글자 */}
       <Txt
         style={{
-          fontSize: 13,
-          lineHeight: 18.85,
+          fontSize: small ? 12 : 13,
+          lineHeight: small ? 17.4 : 18.85,
           fontWeight: soft ? '600' : '700',
-          color: soft ? C.muted : C.ink,
+          color: soft
+            ? componentTokens.badge.soft.foreground
+            : componentTokens.badge.default.foreground,
         }}
       >
         {children}
@@ -624,8 +657,8 @@ export function Page({
           accessibilityLabel="뒤로"
           onPress={back}
           style={{
-            width: 40,
-            height: 40,
+            width: semanticTokens.size.tapMin,
+            height: semanticTokens.size.tapMin,
             alignItems: 'center',
             justifyContent: 'center',
           }}
@@ -783,14 +816,16 @@ export function Wheel({
   value,
   onChange,
   a11yLabel,
-  // row = 한 칸 높이. v2 가로 폰은 좌우 분할 24(드럼 72) · 사이드 패널 33(드럼 100)
+  // row = 한 칸 높이 요청값. 실제 행·터치 영역은 tapMin(44) 미만으로 내려가지 않는다 —
+  // 글자 크기 선택만 요청값을 따른다
   row = 44,
 }: any) {
+  const h = Math.max(row, semanticTokens.size.tapMin);
   const [onSize, offSize] = row >= 44 ? [20, 17] : row >= 33 ? [17, 15] : [15, 13];
   const ref = useRef<ScrollView>(null),
     selected = Math.max(0, items.indexOf(value));
   useEffect(() => {
-    requestAnimationFrame(() => ref.current?.scrollTo({ y: selected * row, animated: false }));
+    requestAnimationFrame(() => ref.current?.scrollTo({ y: selected * h, animated: false }));
   }, []);
   return (
     <View style={{ flex: 1, gap: 4 }}>
@@ -801,7 +836,7 @@ export function Wheel({
       )}
       <View
         style={{
-          height: row * 3,
+          height: h * 3,
           borderWidth: 2,
           borderColor: C.brown,
           borderRadius: 14,
@@ -813,8 +848,8 @@ export function Wheel({
           pointerEvents="none"
           style={{
             position: 'absolute',
-            top: row,
-            height: row,
+            top: h,
+            height: h,
             left: 0,
             right: 0,
             backgroundColor: C.soft,
@@ -825,16 +860,16 @@ export function Wheel({
         />
         <ScrollView
           ref={ref}
-          snapToInterval={row}
+          snapToInterval={h}
           decelerationRate="fast"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingVertical: row }}
+          contentContainerStyle={{ paddingVertical: h }}
           onMomentumScrollEnd={(e) =>
             onChange(
               items[
                 Math.max(
                   0,
-                  Math.min(items.length - 1, Math.round(e.nativeEvent.contentOffset.y / row)),
+                  Math.min(items.length - 1, Math.round(e.nativeEvent.contentOffset.y / h)),
                 )
               ],
             )
@@ -847,10 +882,10 @@ export function Wheel({
               accessibilityLabel={`${a11yLabel ?? label} ${x}`}
               onPress={() => {
                 onChange(x);
-                ref.current?.scrollTo({ y: i * row, animated: true });
+                ref.current?.scrollTo({ y: i * h, animated: true });
               }}
               style={{
-                height: row,
+                height: h,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}

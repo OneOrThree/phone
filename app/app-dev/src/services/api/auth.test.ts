@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import * as SecureStore from 'expo-secure-store';
-import { checkSession, login, logout, me } from '@/services/api/auth';
+import { checkSession, guestLogin, login, logout, me } from '@/services/api/auth';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import {
   clearSession,
@@ -39,6 +39,50 @@ beforeEach(async () => {
   read.mockImplementation(realRead);
   calls.length = 0;
   await clearSession();
+  await SecureStore.deleteItemAsync('gromo.guestDeviceId');
+});
+
+test('게스트 시작 — 기기 UUID를 보내고 세션을 보안 저장소에서 복원한다', async () => {
+  stub([session('GUEST', 'guest-1')]);
+
+  const result = await guestLogin();
+
+  assert.equal(result.userId, 'guest-1');
+  assert.ok(calls[0].url.endsWith('/auth/sessions/guest'));
+  assert.equal(calls[0].init.method, 'POST');
+  assert.match(
+    header(calls[0], 'X-Device-Id'),
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  assert.equal(header(calls[0], 'Authorization'), undefined);
+  assert.equal(calls[0].init.body, undefined);
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'GUEST_AT',
+    refreshToken: 'GUEST_RT',
+    userId: 'guest-1',
+  });
+});
+
+test('게스트 시작 실패 뒤 재시도는 같은 기기 UUID를 재사용한다', async () => {
+  stub([
+    {
+      status: 503,
+      body: { error: { code: 'UPSTREAM_UNAVAILABLE', message: '잠시 후 다시 시도해 주세요.' } },
+    },
+    session('GUEST', 'guest-1'),
+  ]);
+
+  const error = await guestLogin().then(
+    () => {
+      throw new Error('게스트 시작은 실패해야 합니다.');
+    },
+    (caught: ApiError) => caught,
+  );
+  assert.equal(error.code, 'UPSTREAM_UNAVAILABLE');
+  assert.equal(getSession(), null);
+  await guestLogin();
+  assert.equal(header(calls[0], 'X-Device-Id'), header(calls[1], 'X-Device-Id'));
+  assert.equal(getSession()?.userId, 'guest-1');
 });
 
 test('login — 시도 id 를 헤더로 보내고 토큰을 보안 저장소에 넣는다', async () => {
@@ -336,6 +380,7 @@ test('checkSession — 정상이면 계정을 준다', async () => {
           id: 'u1',
           name: '수빈',
           catColor: 'black',
+          mainIslandId: 'i1',
           linkedProviders: ['apple'],
           onboardingComplete: true,
         },
@@ -419,6 +464,7 @@ test('me — {data} 봉투를 벗긴 계정을 돌려준다', async () => {
           id: 'u1',
           name: null,
           catColor: null,
+          mainIslandId: null,
           linkedProviders: [],
           onboardingComplete: false,
         },
@@ -429,4 +475,25 @@ test('me — {data} 봉투를 벗긴 계정을 돌려준다', async () => {
   assert.equal(account.id, 'u1');
   assert.equal(account.onboardingComplete, false);
   assert.deepEqual(account.linkedProviders, []);
+});
+
+test('me — nullable mainIslandId 를 값·null 모두 그대로 보존한다 (current 와 독립 축)', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  const account = (mainIslandId: string | null) => ({
+    id: 'u1',
+    name: '수빈',
+    catColor: 'black',
+    mainIslandId,
+    linkedProviders: ['apple'],
+    onboardingComplete: true,
+  });
+  stub([
+    { status: 200, body: { data: account('i-main') } },
+    { status: 200, body: { data: account(null) } },
+  ]);
+
+  // 프로필 메인 섬 — 어댑터는 어디에도 쓰지 않고 통과시킨다. `/me/islands.currentIslandId` 와
+  // 서로 갱신하지 않는다는 계약상, 여기서 확인할 수 있는 것은 «있는 그대로 보존»뿐이다.
+  assert.equal((await me()).mainIslandId, 'i-main');
+  assert.equal((await me()).mainIslandId, null);
 });
