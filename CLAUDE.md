@@ -134,8 +134,8 @@ changes trigger different jobs. This list rots; the authoritative source is
   `measure-jar`, and isolates `GRADLE_USER_HOME` per service. It starts **no database** — every
   service's tests bring their own via Testcontainers (GROMO-1793 verified data-api's 2,152 tests
   pass with the datasource pointed at a dead port). `runs-on` takes a **JSON array string**
-  (`'["ubuntu-latest"]'`) unpacked with `fromJSON`; its default keeps the self-hosted labels, so a
-  caller that omits it is unchanged.
+  (`'["ubuntu-latest"]'`) unpacked with `fromJSON`; its default is `'["ubuntu-latest"]'` (GROMO-2121 — the one
+  remaining self-hosted `ci` runner is reserved for push-time image publishing).
   **Callers today are exactly two**: `dev-ci.yml` (`service: data-api`) and `realtime-ci.yml`
   (`service: realtime`). `satellite-ci.yml` (business-api + notification) is a deliberate
   **exception** — business-api's PDF-preview tests need `poppler-utils`, installed by the `test`
