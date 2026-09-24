@@ -3268,6 +3268,52 @@
         }
       }
     },
+    "/islands/{islandId}/notices/{noticeId}/comments/{commentId}": {
+      "delete": {
+        "tags": [
+          "island-notice-controller"
+        ],
+        "operationId": "deleteComment",
+        "parameters": [
+          {
+            "name": "islandId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "noticeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDeletedView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/islands/{islandId}/memberships/me": {
       "delete": {
         "tags": [
