@@ -74,6 +74,14 @@ const contractError = () =>
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
 
+// 결과 불명 — 서버가 커밋했는지 알 수 없다. REQUEST_IN_PROGRESS는 같은 키의 앞선 요청이 아직 처리 중이다.
+// UPSTREAM_TIMEOUT은 공개 응답에서 HTTP 400으로 오므로(티켓 2088) 상태가 아니라 code로 가른다.
+const unknownOutcome = (e: unknown) =>
+  e instanceof ApiError &&
+  ['UPSTREAM_TIMEOUT', 'REQUEST_IN_PROGRESS', CLIENT_TIMEOUT, CLIENT_NETWORK_ERROR].includes(
+    e.code,
+  );
+
 export const createIslandCommands = (deps: IslandCommandDeps) => {
   const api = { ...defaultApi, ...deps.api },
     generation = deps.generation ?? sessionGeneration,
@@ -135,9 +143,9 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
     return my;
   };
   // 409·404 계열은 서버 상태가 바뀌었다는 뜻 — 재조회로 화면 데이터를 맞춘 뒤 원 오류를 다시 던진다.
-  // 타임아웃·네트워크 오류는 «결과 불명»이다 — 서버는 이미 커밋했을 수 있다(GROMO-2118: 타임아웃으로
-  // 실패처럼 보인 섬 만들기를 사용자가 다시 눌러 섬이 두 개 생겼다). 같은 재조회로 정본을 보여준다.
-  const call = async <T>(fn: () => Promise<T>): Promise<T> => {
+  // 쓰기 명령(write)은 결과 불명 오류에서도 재조회한다 — 서버가 이미 커밋했을 수 있다(GROMO-2118).
+  // 조회는 아무것도 불명으로 만들지 않으므로 제외한다(승인 대기 폴링이 실패마다 재조회를 부르지 않게).
+  const call = async <T>(fn: () => Promise<T>, write = false): Promise<T> => {
     // 명령 시작 세대 — 오류가 늦게 도착해 세대가 죽었으면 재조회도 rethrow도 하지 않는다.
     // 새 세션 화면에 옛 세션의 오류 배너를 심지 않게 CLIENT_STALE_SESSION으로 바꾼다.
     const g = generation();
@@ -147,15 +155,10 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       if (generation() !== g) throw staleError();
       if (
         thrown instanceof ApiError &&
-        [
-          'STATE_CONFLICT',
-          'VERSION_CONFLICT',
-          'GROUP_NOT_FOUND',
-          'NOT_FOUND',
-          'UPSTREAM_TIMEOUT',
-          CLIENT_TIMEOUT,
-          CLIENT_NETWORK_ERROR,
-        ].includes(thrown.code)
+        (['STATE_CONFLICT', 'VERSION_CONFLICT', 'GROUP_NOT_FOUND', 'NOT_FOUND'].includes(
+          thrown.code,
+        ) ||
+          (write && unknownOutcome(thrown)))
       )
         try {
           await syncIslands();
@@ -171,7 +174,22 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
       call(async () => {
         const g = generation(),
           body = JSON.stringify(input);
-        await api.createIsland(input, scoped().keys.key('create', body));
+        const before = new Set((deps.getSnap()?.memberships ?? []).map((m) => m.id));
+        try {
+          await api.createIsland(input, scoped().keys.key('create', body));
+        } catch (thrown) {
+          if (!unknownOutcome(thrown)) throw thrown;
+          // 결과 불명 — 재조회에서 방금 입력한 이름의 새 섬이 current면 서버가 커밋한 것이다.
+          // 실패로 보여주면 사용자가 다시 만들어 섬이 두 개 생긴다(GROMO-2118).
+          alive(g);
+          const my = await syncIslands().catch(() => null);
+          alive(g);
+          const current = my?.items.find((m) => m.id === my.currentIslandId);
+          if (!current || before.has(current.id) || current.name !== input.name) throw thrown;
+          scoped().keys.release('create', body);
+          captureProductEvent('island_membership_activated', { method: 'created' });
+          return;
+        }
         alive(g);
         await syncIslands();
         alive(g);
@@ -260,7 +278,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         }
         alive(g);
         return result;
-      }),
+      }, true),
     // 신청 상태 조회(승인 대기 폴링) — approved는 memberships 재조회 성공 뒤에만 공개한다.
     // 재조회가 실패하면 requestStatus를 갱신하지 않아 미확정 성공 카드가 뜨지 않고 다음 폴링이 재시도한다.
     status: (requestId: string) =>
@@ -311,7 +329,7 @@ export const createIslandCommands = (deps: IslandCommandDeps) => {
         alive(g);
         deps.dispatch({ type: 'ISLAND_SYNC_REQUESTS', requests });
         scoped().keys.release(`cancel:${requestId}`, '');
-      }),
+      }, true),
     // 부팅 동기화 재시도 — 성공하면 오류 플래그를 내린다. 단, 응답이 늦게 도착해 세대가
     // 죽었으면 플래그도 건드리지 않는다.
     sync: async () => {

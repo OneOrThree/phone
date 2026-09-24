@@ -312,28 +312,44 @@ test('call 오류 경로 — 같은 세대의 409는 memberships를 재조회하
   assert.equal(my.mock.calls.length, 1); // 재조회는 살아 있는 세대에서만
 });
 
-test('call 오류 경로 — 타임아웃이지만 서버가 커밋한 섬 만들기는 재조회로 새 섬을 current로 반영한다', async () => {
-  // GROMO-2118: Business→Data 타임아웃(UPSTREAM_TIMEOUT)이어도 Data는 섬을 이미 만들었다.
-  const created = island({ id: 'new', membershipStatus: 'active' });
+const createInput = { name: '빛섬', intro: '', approvalRequired: false, maxMembers: 15 };
+const timedOutCreate = async () => {
+  throw new ApiError('UPSTREAM_TIMEOUT', '응답 시간이 초과되었습니다.', 400);
+};
+
+test('create 결과 불명 — 재조회에서 입력한 이름의 새 섬이 current면 성공으로 끝낸다', async () => {
+  // GROMO-2118: Business→Data 타임아웃이어도 Data는 섬을 이미 만들었다. 실패로 보이면 다시 만든다.
+  const created = island({ id: 'new', name: '빛섬', membershipStatus: 'active' });
   const h = harness({
-    createIsland: async () => {
-      throw new ApiError('UPSTREAM_TIMEOUT', '응답 시간이 초과되었습니다.', 400);
-    },
+    createIsland: timedOutCreate,
     myIslands: async () => myIslands({ items: [created], currentIslandId: 'new' }),
     myJoinRequests: async () => ({ items: [], nextCursor: null }),
   });
-  await assert.rejects(
-    h.cmds.commands.create({ name: '빛섬', intro: '', approvalRequired: false, maxMembers: 15 }),
-    (e: ApiError) => {
-      assert.equal(e.code, 'UPSTREAM_TIMEOUT'); // 결과 불명은 그대로 알린다
-      return true;
-    },
-  );
+  await h.cmds.commands.create(createInput);
   assert.equal(h.state().serverIslands?.currentIslandId, 'new');
 });
 
-test('call 오류 경로 — 결과 불명 오류 뒤 재조회가 실패해도 원 오류를 던진다', async () => {
-  for (const code of ['UPSTREAM_TIMEOUT', 'CLIENT_TIMEOUT', 'CLIENT_NETWORK_ERROR']) {
+test('create 결과 불명 — 재조회에 새 섬이 없으면 원 오류를 던진다', async () => {
+  const mine = island({ id: 'old', name: '빛섬', membershipStatus: 'active' });
+  const h = harness({
+    createIsland: timedOutCreate,
+    myIslands: async () => myIslands({ items: [mine], currentIslandId: 'old' }),
+    myJoinRequests: async () => ({ items: [], nextCursor: null }),
+  });
+  await h.cmds.commands.sync(); // 이미 소속된 같은 이름의 섬 — 새로 생긴 게 아니다
+  await assert.rejects(h.cmds.commands.create(createInput), (e: ApiError) => {
+    assert.equal(e.code, 'UPSTREAM_TIMEOUT');
+    return true;
+  });
+});
+
+test('쓰기 결과 불명 — 재조회가 실패해도 원 오류를 던진다', async () => {
+  for (const code of [
+    'UPSTREAM_TIMEOUT',
+    'REQUEST_IN_PROGRESS',
+    'CLIENT_TIMEOUT',
+    'CLIENT_NETWORK_ERROR',
+  ]) {
     const my = jest.fn(async (): Promise<MyIslands> => {
       throw new ApiError('CLIENT_NETWORK_ERROR', 'offline', 0);
     });
@@ -348,8 +364,20 @@ test('call 오류 경로 — 결과 불명 오류 뒤 재조회가 실패해도 
       assert.equal(e.code, code);
       return true;
     });
-    assert.equal(my.mock.calls.length, 1, code); // 재조회를 시도했다
+    assert.equal(my.mock.calls.length, 1, code); // 쓰기는 재조회를 시도한다
   }
+});
+
+test('조회 결과 불명 — 승인 대기 폴링의 타임아웃은 소속을 재조회하지 않는다', async () => {
+  const my = jest.fn(async () => myIslands());
+  const h = harness({
+    joinRequest: async () => {
+      throw new ApiError('CLIENT_TIMEOUT', 'slow', 0);
+    },
+    myIslands: my,
+  });
+  await assert.rejects(h.cmds.commands.status('r1'));
+  assert.equal(my.mock.calls.length, 0);
 });
 
 test('call 오류 경로 — 재조회 도중 세대가 죽으면 원 오류 대신 CLIENT_STALE_SESSION', async () => {
