@@ -12,6 +12,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -46,6 +47,9 @@ class GroupBetSettlementServiceTest {
 
     @Mock
     private GroupBetSettler groupBetSettler;
+
+    @Mock
+    private Clock clock;
 
     private static final Instant NOW = Instant.parse("2026-08-10T03:00:00Z");
 

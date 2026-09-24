@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -39,6 +40,8 @@ public class GroupBetFreezeMonitor {
     static final int LOGGED_BET_ID_LIMIT = 20;
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * 스케줄러(09:00 KST) 진입점.
@@ -46,7 +49,7 @@ public class GroupBetFreezeMonitor {
      * @return 동결로 판정된 OPEN 회차 수(0 이면 정상). 알림의 정본은 이 값이 아니라 error 로그다
      */
     public int detectFrozenBets() {
-        return detectFrozenBets(Instant.now());
+        return detectFrozenBets(clock.instant());
     }
 
     /**

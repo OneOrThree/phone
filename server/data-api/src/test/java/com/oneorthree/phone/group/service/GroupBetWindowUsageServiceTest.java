@@ -25,8 +25,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -72,6 +74,10 @@ class GroupBetWindowUsageServiceTest {
     private GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
     @Mock
     private WindowFocusAggregator windowFocusAggregator;
+    /** 실 시계로 위임 — 기존 테스트 대다수가 {@code Instant.now()} 상대값을 쓰므로 스텁 없이도 그대로
+     *  동작해야 한다(GROMO-2135). 경계 테스트만 개별로 {@code given(clock.instant())} 로 덮어쓴다. */
+    @Spy
+    private Clock clock = Clock.systemUTC();
 
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID USER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
@@ -606,5 +612,55 @@ class GroupBetWindowUsageServiceTest {
         // then
         verify(groupChallengeMemberRepository)
                 .upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID), eq(USER_ID), eq(today), eq(25), any());
+    }
+
+    // ── 창 시작 판정 ±1초 경계(GROMO-2135) ────────────────────────────────
+
+    /** 2026-08-01 19:00 KST — 같은 날짜(usageDate) 판정을 위해 두 경계 테스트가 공유하는 창 시작. */
+    private static final Instant WINDOW_START_BOUNDARY = Instant.parse("2026-08-01T10:00:00Z");
+    private static final LocalDate WINDOW_START_BOUNDARY_DATE = LocalDate.of(2026, 8, 1);
+
+    @Test
+    @DisplayName("창 시작 1초 전 — 아직 시작 전으로 무시한다(경계 회귀 고정)")
+    void windowStartBoundaryOneSecondBeforeIsIgnored() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        GroupChallengeWindow window = GroupChallengeWindow.builder().challengeId(CHALLENGE_ID).build();
+        given(groupQueryService.findChallengeWindow(CHALLENGE_ID)).willReturn(Optional.of(window));
+        given(windowFocusAggregator.windowStartOn(WINDOW_START_BOUNDARY_DATE, window))
+                .willReturn(WINDOW_START_BOUNDARY);
+        given(clock.instant()).willReturn(WINDOW_START_BOUNDARY.minusSeconds(1));
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(WINDOW_START_BOUNDARY_DATE, 0, WINDOW_START_BOUNDARY));
+
+        // then
+        verify(groupChallengeMemberRepository, never())
+                .upsertWindowUsage(any(), any(), any(), any(), anyInt(), any());
+    }
+
+    @Test
+    @DisplayName("창 시작 정각 — 시작으로 간주해 저장한다(isBefore 는 정각을 포함하지 않는다)")
+    void windowStartBoundaryAtStartIsStored() {
+        // given
+        User user = member();
+        Group group = Group.builder().id(GROUP_ID).build();
+        givenMemberWithChallenge(user, group, MissionCategory.SCREEN_TIME, MissionType.TIME_WINDOW);
+        GroupChallengeWindow window = GroupChallengeWindow.builder().challengeId(CHALLENGE_ID).build();
+        given(groupQueryService.findChallengeWindow(CHALLENGE_ID)).willReturn(Optional.of(window));
+        given(windowFocusAggregator.windowStartOn(WINDOW_START_BOUNDARY_DATE, window))
+                .willReturn(WINDOW_START_BOUNDARY);
+        given(clock.instant()).willReturn(WINDOW_START_BOUNDARY);
+
+        // when
+        groupBetWindowUsageService.reportWindowUsage(GROUP_ID, CHALLENGE_ID, USER_ID,
+                new WindowUsageReportRequest(WINDOW_START_BOUNDARY_DATE, 15, WINDOW_START_BOUNDARY));
+
+        // then
+        verify(groupChallengeMemberRepository).upsertWindowUsage(any(UUID.class), eq(CHALLENGE_ID),
+                eq(USER_ID), eq(WINDOW_START_BOUNDARY_DATE), eq(15), eq(WINDOW_START_BOUNDARY));
     }
 }

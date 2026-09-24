@@ -17,6 +17,7 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -50,6 +51,8 @@ public class GroupBetScheduler {
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupBetSettler groupBetSettler;
     private final GroupBetSessionOpeningService groupBetSessionOpeningService;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * 5분 주기 정산 스캔(N12) — {@code settle_after} 가 지난 OPEN 회차 중 백오프
@@ -61,7 +64,7 @@ public class GroupBetScheduler {
             scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-settle-scan")
     public void retryDueSessions() {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<GroupChallengeBetSession> due = groupChallengeBetSessionRepository.findDue(
                 now, now.minus(GroupBetSettler.REFUND_DEADLINE));
         for (GroupChallengeBetSession session : due) {
@@ -71,8 +74,8 @@ public class GroupBetScheduler {
             } catch (RuntimeException e) {
                 // 시도 횟수 +1 과 다음 시도 시각을 같은 UPDATE 로 기록 — findDue 엔티티는 detached 라
                 // 필드 변경으로는 영영 저장되지 않는다(백오프가 전진하지 못해 5분마다 무한 재시도).
-                Instant next = nextAttemptAt(session, session.getSettleAttempts() + 1);
-                groupChallengeBetSessionRepository.recordFailure(session.getId(), next, Instant.now());
+                Instant next = nextAttemptAt(session, session.getSettleAttempts() + 1, clock);
+                groupChallengeBetSessionRepository.recordFailure(session.getId(), next, clock.instant());
                 log.error("회차 정산 실패 — 백오프 기록. sessionId={}, attempts={}, nextAttemptAt={}",
                         session.getId(), session.getSettleAttempts() + 1, next, e);
             }
@@ -85,14 +88,14 @@ public class GroupBetScheduler {
      * 스캔에 그 회차가 없어 참가비가 하드 SLO 를 넘겨 동결된다 — {@code findDue} 의 OR 술어와
      * 두 겹 방어). N21 은 시각에 걸린 약속이라 어떤 재시도 정책도 이를 늦출 수 없다.
      */
-    static Instant nextAttemptAt(GroupChallengeBetSession session, int attempts) {
+    static Instant nextAttemptAt(GroupChallengeBetSession session, int attempts, Clock clock) {
         Duration delay = switch (attempts) {
             case 1 -> Duration.ofMinutes(5);
             case 2 -> Duration.ofMinutes(15);
             case 3 -> Duration.ofHours(1);
             default -> Duration.ofHours(4);
         };
-        Instant next = Instant.now().plus(delay);
+        Instant next = clock.instant().plus(delay);
         Instant deadline = session.getSettleAfter().plus(GroupBetSettler.REFUND_DEADLINE);
         return next.isAfter(deadline) ? deadline : next;
     }
@@ -108,7 +111,7 @@ public class GroupBetScheduler {
     @SchedulerLock(name = "group-bet-void-short-sessions")
     public void voidShortSessions() {
         List<UUID> targets = groupChallengeBetSessionRepository
-                .findOpenPastJoinDeadlineWithFewParticipants(Instant.now());
+                .findOpenPastJoinDeadlineWithFewParticipants(clock.instant());
         for (UUID sessionId : targets) {
             try {
                 groupBetSettler.closeShortOrUnused(sessionId);
@@ -150,7 +153,7 @@ public class GroupBetScheduler {
      *         회차를 신규로 세면 개설 장애 감시 지표가 항상 양수라 무의미해진다)
      */
     public int openTodaySessions() {
-        LocalDate today = LocalDate.ofInstant(Instant.now(), KST);
+        LocalDate today = LocalDate.ofInstant(clock.instant(), KST);
         List<UUID> challengeIds = groupChallengeBetRepository.findActiveEnabledChallengeIds();
         int opened = 0;
         for (UUID challengeId : challengeIds) {
