@@ -69,8 +69,9 @@ concurrency:
 
 jobs:
   checks:
-    # GitHub-hosted 러너에서 돈다 (GROMO-2121, decisions.md A25). self-hosted(gromo-dev-build)를
-    # 폐기했다. 예전에 GitHub-hosted 로 옮겼다 되돌린 이유(GROMO-1918)는 프로젝트가 요구하는 NDK
+    # GitHub-hosted 러너에서 돈다 (GROMO-2121, decisions.md A25). 앱 체크는 self-hosted
+    # (gromo-dev-build)를 떠났다 — 그 VM 은 e2-medium·러너 1대로 축소돼 push 시 이미지 발행
+    # 전용으로만 남는다. 예전에 GitHub-hosted 로 옮겼다 되돌린 이유(GROMO-1918)는 프로젝트가 요구하는 NDK
     # 가 이미지에 없어 구성 단계에서 실패한 것이다(에러가 찍는 버전은 AGP 기본값이라 요구 버전이 아니다):
     #     > Failed to apply plugin 'com.facebook.react.rootproject'.
     #        > NDK not configured. Preferred NDK version is '27.0.12077973'.
@@ -139,7 +140,16 @@ jobs:
 
       - name: NDK 설치
         if: steps.ndk-cache.outputs.cache-hit != 'true'
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006" > /dev/null
+        # 설치가 도중에 끊기면 반쯤 풀린 디렉터리가 post 단에서 **불변 캐시로 굳는다**(키가 버전뿐이라
+        # 이후 전부 캐시 히트로 설치를 건너뛴다). 그래서 완결 표식(source.properties)이 없으면 지우고 실패한다.
+        run: |
+          NDK="$ANDROID_HOME/ndk/27.1.12297006"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;27.1.12297006" > /dev/null || true  # 성패는 아래 표식으로 판정(yes 의 SIGPIPE 무시)
+          if [ ! -f "$NDK/source.properties" ]; then
+            rm -rf "$NDK"
+            echo "::error::NDK 27.1.12297006 설치가 완결되지 않았습니다(source.properties 없음)."
+            exit 1
+          fi
 
       # ── 2단: Gradle 검사 (SDK 필요) ────────────────────────────────────────────
       # 셋 다 있어야 켠다. `platforms` 디렉터리 유무만 보면 **부분 설치에서 오히려 위험하다**

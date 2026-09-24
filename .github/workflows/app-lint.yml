@@ -25,8 +25,9 @@ concurrency:
 jobs:
   lint:
     # GitHub-hosted 러너에서 돈다 (GROMO-2121). 예전엔 node_modules·Android SDK 를 러너에 두고
-    # 재사용하려고 self-hosted(gromo-dev-build)를 썼지만, 그 VM 을 폐기하고 dev 서버 메모리에
-    # 몰아주기로 했다(decisions.md A25). 캐시는 setup-node 의 npm 캐시가 맡는다.
+    # 재사용하려고 self-hosted(gromo-dev-build)를 썼지만, 앱 체크는 그 러너를 떠났다 — VM 은
+    # e2-medium·러너 1대로 축소돼 push 시 이미지 발행 전용으로만 남는다(decisions.md A25).
+    # 캐시는 setup-node 의 npm 캐시가 맡는다.
     runs-on: ubuntu-latest
 
     # NODE_OPTIONS 를 안 주면 Node 가 힙 상한을 자동 산정하는데, 그 값이 tsc 가 필요로 하는
