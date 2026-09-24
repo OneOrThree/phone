@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { BackHandler, StyleSheet } from 'react-native';
+import { BackHandler, Keyboard, StyleSheet } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
@@ -175,6 +175,38 @@ test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 �
   await fireEvent.press(screen.getByText('게스트로 시작하기'));
   assert.equal(startGuest.mock.calls.length, 1);
   assert.equal(exposed.actions.includes('LOGIN'), false);
+});
+
+test('닉네임 키보드가 열리면 시작 CTA를 접고 Done 뒤 재입력해도 값이 유지된다', async () => {
+  const listeners: Record<string, () => void> = {};
+  let exposed: any;
+  const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+    event: string,
+    callback: (...args: any[]) => void,
+  ) => {
+    listeners[event] = callback as () => void;
+    return { remove: jest.fn() } as any;
+  }) as any);
+  try {
+    const s = await render(
+      <Harness route="character" expose={(value: any) => (exposed = value)} />,
+    );
+    const nickname = s.getByLabelText('닉네임');
+    await fireEvent.changeText(nickname, '구름이');
+    await fireEvent(nickname, 'focus');
+    act(() => listeners.keyboardDidShow?.());
+    assert.equal(s.queryByText('내 고양이와 시작'), null);
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+    assert.equal(exposed.go.mock.calls.length, 0);
+    act(() => listeners.keyboardDidHide?.());
+    assert.ok(s.getByText('내 고양이와 시작'));
+    await fireEvent(s.getByLabelText('닉네임'), 'focus');
+    act(() => listeners.keyboardDidShow?.());
+    assert.equal(s.queryByText('내 고양이와 시작'), null);
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+  } finally {
+    addListener.mockRestore();
+  }
 });
 
 const flush = async () => act(async () => {});

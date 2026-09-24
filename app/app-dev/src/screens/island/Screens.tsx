@@ -387,12 +387,30 @@ function Spinner({ reduce }: { reduce: boolean }) {
 // v2 온보딩 페이지: 헤더(.hdr) · 스크롤(.scroll) · 아래 고정 CTA(.ctabar, 그라데이션으로 스크롤 위에 겹침).
 // 가로 폰은 왼쪽 330px 그림 칸(.lsplit .lleft) + 오른쪽 페이지(다이내믹 아일랜드 자리 56px 비움).
 // 작은 가로 폰(667 폭 등)은 그림 칸을 폭의 38%로 줄이고 오른쪽 여백은 20px(안전 영역이 더 크면 그만큼)
-function Onboard({ title, back, left, leftBg = C.sky, cta, children }: any) {
+function Onboard({
+  title,
+  back,
+  left,
+  leftBg = C.sky,
+  cta,
+  hideCtaOnKeyboard = false,
+  children,
+}: any) {
   const layout = useAppLayout(),
     ins = useScreenInsets(),
     land = layout.compact,
     gutter = land ? 22 : 20,
-    [ctaHeight, setCtaHeight] = useState(0);
+    [ctaHeight, setCtaHeight] = useState(0),
+    [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    if (!hideCtaOnKeyboard) return;
+    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, [hideCtaOnKeyboard]);
   const page = (
     <View
       style={{
@@ -440,17 +458,23 @@ function Onboard({ title, back, left, leftBg = C.sky, cta, children }: any) {
       <ScrollView
         style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={hideCtaOnKeyboard}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingHorizontal: gutter,
           paddingTop: land ? 6 : 16,
-          paddingBottom: cta ? Math.max(land ? 92 : 120, ctaHeight) : land ? 28 : 48,
+          paddingBottom:
+            cta && !(hideCtaOnKeyboard && keyboardVisible)
+              ? Math.max(land ? 92 : 120, ctaHeight)
+              : land
+                ? 28
+                : 48,
           gap: land ? 12 : 14,
         }}
       >
         {children}
       </ScrollView>
-      {cta && (
+      {cta && !(hideCtaOnKeyboard && keyboardVisible) && (
         <View
           onLayout={(ev) => setCtaHeight(ev.nativeEvent.layout.height)}
           style={[
@@ -1311,6 +1335,7 @@ export function RedesignScreens({ e }: any) {
       <Onboard
         title="내 고양이"
         back={back}
+        hideCtaOnKeyboard
         leftBg={C.soft}
         left={
           <View style={{ alignItems: 'center', gap: 6 }}>
