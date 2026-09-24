@@ -1,5 +1,7 @@
 package com.oneorthree.phone.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
@@ -16,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -51,8 +52,6 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ChallengeDurationEndNotificationService {
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /** 푸시 종류 식별자 — 앱이 data.type 으로 읽어 GA4 push_opened 를 가른다(계약 §1·§2). */
     static final String PUSH_TYPE = NotificationSentLog.TYPE_CHALLENGE_ENDED;

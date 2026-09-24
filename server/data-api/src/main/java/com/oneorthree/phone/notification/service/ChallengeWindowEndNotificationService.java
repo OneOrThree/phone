@@ -1,5 +1,7 @@
 package com.oneorthree.phone.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeStatus;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
@@ -18,7 +20,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -53,8 +54,6 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class ChallengeWindowEndNotificationService {
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /** 푸시 종류 식별자 — 앱이 data.type 으로 읽어 딥링크 폴백·GA4 push_opened 에 쓴다(계약 §2). */
     static final String PUSH_TYPE = NotificationSentLog.TYPE_CHALLENGE_WINDOW_END;

@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.GroupChallengeBetSessionRepository;
 import lombok.RequiredArgsConstructor;
@@ -9,7 +11,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -30,8 +31,6 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class GroupBetFreezeMonitor {
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /** 동결로 보는 나이(일) — session_date 가 오늘 − 이 값 이하면 정산 기회를 이미 놓친 것이다. */
     static final int FROZEN_AGE_DAYS = 2;

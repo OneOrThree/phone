@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
@@ -26,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.UUID;
 
 /**
@@ -85,8 +86,6 @@ public class GroupBetWindowUsageService {
      * 근거는 {@link #challengeClockAllowsReport}.
      */
     private static final int DISPLAY_REPORT_LOOKBACK_DAYS = 1;
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final UserQueryService userQueryService;
     private final GroupQueryService groupQueryService;
