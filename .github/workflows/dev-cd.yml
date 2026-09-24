@@ -136,6 +136,9 @@ jobs:
             if blank:
                 print("::error::Data 전용 env 에 없거나 비어 있는 키: " + ", ".join(blank))
                 sys.exit(1)
+            if env.get("INTERNAL_API_ENABLED") != "true":
+                print("::error::2.0 Data 내부 API가 활성화되지 않았습니다(INTERNAL_API_ENABLED=true 필요)")
+                sys.exit(1)
             if "SPRING_PROFILES_ACTIVE" in env:
                 raw = env["SPRING_PROFILES_ACTIVE"]
                 profiles = raw.strip() if isinstance(raw, str) else ""
