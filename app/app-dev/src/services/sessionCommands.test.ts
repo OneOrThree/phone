@@ -9,7 +9,13 @@ import {
   recordFromFinish,
   sessionFromServer,
 } from '@/services/sessionCommands';
-import { currentIsland, initialState, questMemberRate, reducer, sessionSeconds } from '@/services/model';
+import {
+  currentIsland,
+  initialState,
+  questMemberRate,
+  reducer,
+  sessionSeconds,
+} from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import type { FocusFinishView, FocusSessionView } from '@/services/api/focusSessions';
 
