@@ -19,6 +19,7 @@ import {
   currentIsland,
   homeIsland,
   serverHome,
+  viewIsland,
   buildingNames,
   balance,
   isHost,
@@ -534,7 +535,10 @@ function FinalIslandScene({
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
   const explicitVisit = !!viewingIslandId,
-    i = state.islands.find((island) => island.id === viewingIslandId) ?? homeIsland(state),
+    // 방문 카드(viewingIslandId)로 연 섬은 내 홈 스냅샷으로 대신 그리지 않는다 — 기존 폴백 유지
+    i = viewingIslandId
+      ? (state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state))
+      : homeIsland(state),
     // 서버 모드 내 섬 홈이면 스냅샷(GROMO-2138) — 주민 색·오늘 집중을 서버 값으로 그린다
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
