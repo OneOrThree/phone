@@ -124,10 +124,13 @@ export function IslandHome({
     }
   };
 
+  const hitExtentRef = useRef(120);
+
   const handleCatPress = (e: any) => {
     if (walking) return;
-    const nativeX = e?.nativeEvent?.locationX ?? (140 * scale) / 2;
-    const isTouchLeft = nativeX < (140 * scale) / 2;
+    const hitExtent = hitExtentRef.current;
+    const nativeX = e?.nativeEvent?.locationX ?? hitExtent / 2;
+    const isTouchLeft = nativeX < hitExtent / 2;
     setLeft(isTouchLeft);
 
     if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
@@ -160,7 +163,9 @@ export function IslandHome({
   const camera = useIslandCamera(size);
   const activeMotion = motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'));
   const catBox = catFrameBox(state.color, activeMotion, 140 * scale);
-  const catHitSlop = Math.max(8, Math.ceil((semanticTokens.size.tapMin - catBox.extent) / 2));
+  const minZoom = Math.max(0.1, camera.camera.minScale / scale);
+  const hitExtent = Math.max(catBox.extent, Math.ceil(semanticTokens.size.tapMin / minZoom));
+  hitExtentRef.current = hitExtent;
   const renderScale = useRef(new Animated.Value(scale)).current;
   const catTransform = useMemo(
     () => [
@@ -546,10 +551,8 @@ export function IslandHome({
             collapsable={false}
             style={{
               position: 'absolute',
-              left: -catBox.x,
-              top: -catBox.y,
-              width: catBox.extent,
-              height: catBox.extent,
+              left: 0,
+              top: 0,
               transform: catTransform,
               zIndex: 30,
             }}
@@ -558,29 +561,36 @@ export function IslandHome({
               testID="island-cat-actor"
               accessibilityRole="button"
               accessibilityLabel="내 고양이"
-              hitSlop={{
-                top: catHitSlop,
-                bottom: catHitSlop,
-                left: catHitSlop,
-                right: catHitSlop,
-              }}
               onPress={handleCatPress}
               style={{
-                width: '100%',
-                height: '100%',
-                alignItems: 'center',
+                position: 'absolute',
+                left: -hitExtent / 2,
+                top: -catBox.y - (hitExtent - catBox.extent) / 2,
+                width: hitExtent,
+                height: hitExtent,
                 justifyContent: 'center',
+                alignItems: 'center',
               }}
             >
-              <CatSprite
-                testID="island-cat-sprite"
-                anchored={false}
-                color={state.color}
-                motion={activeMotion}
-                size={140 * scale}
-                left={left}
-                reduce={state.settings.reduceMotion}
-              />
+              <View
+                style={{
+                  position: 'absolute',
+                  left: hitExtent / 2 - catBox.x,
+                  top: (hitExtent - catBox.extent) / 2,
+                  width: catBox.extent,
+                  height: catBox.extent,
+                }}
+              >
+                <CatSprite
+                  testID="island-cat-sprite"
+                  anchored={false}
+                  color={state.color}
+                  motion={activeMotion}
+                  size={140 * scale}
+                  left={left}
+                  reduce={state.settings.reduceMotion}
+                />
+              </View>
             </Pressable>
           </Animated.View>
         </Animated.View>

@@ -149,9 +149,9 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     await screen.unmount();
   });
 
-  it('FinalIsland에서 카메라 배율과 무관하게 실제 레이아웃으로 최소 44pt 터치 영역을 보장한다', async () => {
+  it('FinalIsland 및 IslandHome에서 실제 레이아웃으로 최소 44pt 터치 영역을 보장한다', async () => {
     const state = initialState(true);
-    const screen = await renderWithContext(
+    const screen1 = await renderWithContext(
       React.createElement(FinalIsland, {
         state,
         go: jest.fn(),
@@ -159,13 +159,22 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
       }),
     );
 
-    const catActor = screen.getByTestId('home-cat-actor');
-    const style = catActor.props.style;
+    const homeCat = screen1.getByTestId('home-cat-actor');
+    expect(homeCat.props.style.width).toBeGreaterThanOrEqual(44);
+    expect(homeCat.props.style.height).toBeGreaterThanOrEqual(44);
+    await screen1.unmount();
 
-    // hitSlop에 의존하지 않고 실제 Pressable의 레이아웃 너비와 높이가 44pt 이상이어야 한다.
-    expect(style.width).toBeGreaterThanOrEqual(44);
-    expect(style.height).toBeGreaterThanOrEqual(44);
+    const screen2 = await renderWithContext(
+      React.createElement(IslandHome, {
+        state,
+        go: jest.fn(),
+        build: jest.fn(),
+      }),
+    );
 
-    await screen.unmount();
+    const islandCat = screen2.getByTestId('island-cat-actor');
+    expect(islandCat.props.style.width).toBeGreaterThanOrEqual(44);
+    expect(islandCat.props.style.height).toBeGreaterThanOrEqual(44);
+    await screen2.unmount();
   });
 });
