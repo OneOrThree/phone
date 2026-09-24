@@ -112,7 +112,7 @@ import {
 import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
-import { createRouteTransitionGate } from '@/services/routeTransition';
+import { createRouteTransitionShield } from '@/services/routeTransition';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
 import {
@@ -244,6 +244,7 @@ function Gromo() {
     [islandBootError, setIslandBootError] = useState(false),
     [hasServerSession, setHasServerSession] = useState(() => getSession() !== null),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
+    [routeTransitionShielded, setRouteTransitionShielded] = useState(false),
     [history, setHistory] = useState<
       {
         route: Route;
@@ -304,7 +305,9 @@ function Gromo() {
     backOverride = useRef<(() => boolean) | null>(null),
     switchResolve = useRef<((ok: boolean) => void) | null>(null);
   const guestLoginFlight = useRef(false);
-  const routeTransitionGate = useRef(createRouteTransitionGate()).current;
+  const routeTransitionShield = useRef(
+    createRouteTransitionShield(setRouteTransitionShielded),
+  ).current;
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -327,25 +330,24 @@ function Gromo() {
     dispatch,
   });
   const go = (r: Route, id = '') => {
-    routeTransitionGate(() => {
-      const gateBoard = shouldGateScreenTimeBoard(r, {
-        isIOS: Platform.OS === 'ios',
-        promptSeen: !!state.settings.screenTimeBoardPromptSeen,
-      });
-      const nextRoute: Route = gateBoard ? 'permission' : r;
-      const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
-      if (r === 'rest') setRestTravel(route === 'focus');
-      if (r === 'home' || route === 'home') setWalkRequest(null);
-      if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
-      setDetail(nextDetail);
-      setTab('');
-      setText('');
-      setBody('');
-      setSearch('');
-      setHistory((h) => [...h, { route, detail, tab, text, body }]);
-      setRoute(nextRoute);
-      if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+    routeTransitionShield();
+    const gateBoard = shouldGateScreenTimeBoard(r, {
+      isIOS: Platform.OS === 'ios',
+      promptSeen: !!state.settings.screenTimeBoardPromptSeen,
     });
+    const nextRoute: Route = gateBoard ? 'permission' : r;
+    const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
+    if (r === 'rest') setRestTravel(route === 'focus');
+    if (r === 'home' || route === 'home') setWalkRequest(null);
+    if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
+    setDetail(nextDetail);
+    setTab('');
+    setText('');
+    setBody('');
+    setSearch('');
+    setHistory((h) => [...h, { route, detail, tab, text, body }]);
+    setRoute(nextRoute);
+    if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
   const replace = (r: Route, id = '') => {
     setDetail(id);
@@ -1194,6 +1196,16 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
+        {routeTransitionShielded && (
+          <Pressable
+            accessible={false}
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            pointerEvents="box-only"
+            onPress={() => {}}
+            style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 10 }}
+          />
+        )}
         {toast !== '' && (
           <View
             pointerEvents="none"

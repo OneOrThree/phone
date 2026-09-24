@@ -10,7 +10,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { RedesignScreens } from '@/screens/island/Screens';
 import { initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
-import { createRouteTransitionGate } from '@/services/routeTransition';
+import { createRouteTransitionShield } from '@/services/routeTransition';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
@@ -85,6 +85,7 @@ function Harness({
   flow = false,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
+  const shielded = useRef(false);
   const [state, baseDispatch] = useReducer(
     reducer,
     initial,
@@ -104,13 +105,19 @@ function Harness({
     [approval, setApproval] = useState(false),
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
-  const transitionGate = useRef(createRouteTransitionGate()).current;
+  const transitionShield = useRef(
+    createRouteTransitionShield((value) => {
+      shielded.current = value;
+    }),
+  ).current;
   const go = useRef(
-    jest.fn((nextRoute: string, id = '') =>
-      transitionGate(() => {
+    jest.fn((nextRoute: string) => {
+      if (flow && shielded.current) return;
+      transitionShield();
+      if (flow) {
         setActiveRoute(nextRoute);
-      }),
-    ),
+      }
+    }),
   ).current;
   const home = useRef(jest.fn()).current;
   const reset = useRef(jest.fn()).current;
@@ -199,6 +206,10 @@ test('GROMO 시작하기의 화면 전환 후 100ms 안에 온 탭은 내 고양
     await fireEvent.press(screen.getByText('내 고양이와 시작'));
     expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
     expect(screen.queryByText('첫 섬 선택')).toBeNull();
+
+    jest.advanceTimersByTime(250);
+    await fireEvent.press(screen.getByText('내 고양이와 시작'));
+    expect(screen.getByText('첫 섬 선택')).toBeTruthy();
   } finally {
     jest.useRealTimers();
   }
