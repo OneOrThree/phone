@@ -1,4 +1,4 @@
-# 신고센터 정책 — Fishcat 2.0
+# 신고센터 정책 — Catus 2.0
 
 [제품 결정 로그](../decision-log.md) · [티켓 GROMO-1670](https://romance.atlassian.net/browse/GROMO-1670)
 
