@@ -31,6 +31,10 @@ final class DataPaths {
         return islandPath(template, islandId).replace("{noticeId}", noticeId.toString());
     }
 
+    static String commentPath(String template, UUID islandId, UUID noticeId, UUID commentId) {
+        return noticePath(template, islandId, noticeId).replace("{commentId}", commentId.toString());
+    }
+
     static String resultPath(String template, UUID userId, UUID sessionId) {
         return userPath(template, userId).replace("{sessionId}", sessionId.toString());
     }

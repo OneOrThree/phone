@@ -146,7 +146,7 @@ public class IslandMembershipService {
                     context.moveTo(island.getId());
 
                     EventEnvelope created = islandStateEvents.created(island.getId(), userId);
-                    EventEnvelope members = membershipEvents.changed(island.getId(), userId, "MEMBER_ADDED");
+                    EventEnvelope members = membershipEvents.changed(island.getId(), userId, "MEMBER_ADDED", userId);
                     IslandCreatedView view = new IslandCreatedView(
                             island.getId(), IslandSummaries.STATUS_ACTIVE, ROLE_HOST, island.getId());
                     return new PublicCommandResult(201,

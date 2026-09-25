@@ -80,6 +80,9 @@ public enum GroupErrorCode implements ErrorCode {
     // 앱이 응답의 code 문자열(GROUP_LIMIT_EXCEEDED)로 분기한다 — 이름 변경 금지.
     GROUP_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "참여할 수 있는 그룹 수를 초과했어요"),
     NOTICE_FORBIDDEN(HttpStatus.FORBIDDEN, "공지 작성/수정/삭제 권한이 없습니다."),
+    // 섬 게시판 댓글 삭제 전용(GROMO-2136, 2026-09-25 결정) — 작성자 본인 또는 방장만. 메시지가 가리키는
+    // 대상이 달라 NOTICE_FORBIDDEN 과 코드를 나눈다(NOTICE_BODY_TOO_LONG/NOTICE_COMMENT_TOO_LONG 과 같은 결).
+    NOTICE_COMMENT_FORBIDDEN(HttpStatus.FORBIDDEN, "댓글 삭제 권한이 없습니다."),
 
     // 섬 가입 요청 (GROMO-1760 · 섬 소속 LLD §3.7~§3.9) — 앱이 응답의 code 문자열로 분기한다.
     // 본인 것이 아닌 요청도 이 코드다 — 타인 요청의 존재를 응답으로 구분해 주지 않는다(§3.8).

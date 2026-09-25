@@ -20,8 +20,8 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * 섬 게시판 내부 경로 6종이 <b>실제</b> {@code application-satellites.yml} 의 business 허용목록을 통과하는지
- * 검증한다 (GROMO-1771, {@code InternalIslandConstructionAllowlistTest} 와 같은 방식).
+ * 섬 게시판 내부 경로 7종(댓글 삭제는 GROMO-2136)이 <b>실제</b> {@code application-satellites.yml} 의 business
+ * 허용목록을 통과하는지 검증한다 (GROMO-1771, {@code InternalIslandConstructionAllowlistTest} 와 같은 방식).
  *
  * <p>경로는 컨트롤러 애노테이션에서, 허용목록은 배포되는 yml 에서 읽는다. 겨냥하는 실패는 «세그먼트 수»와
  * «메서드» 다: 목록·작성, 상세·수정·삭제가 같은 경로를 메서드로만 가르므로 한 줄로 합치면 조회 권한이 쓰기를 연다.
@@ -37,7 +37,7 @@ class InternalIslandNoticeAllowlistTest {
         List<String> allow = shippedBusinessAllowlist();
         List<String> routes = routesOf(InternalIslandNoticeController.class);
 
-        assertThat(routes).as("6종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(6);
+        assertThat(routes).as("7종이 모두 잡혔는지 — 매핑이 늘면 허용목록도 함께 늘어야 한다").hasSize(7);
         assertThat(routes).allSatisfy(route ->
                 assertThat(allows(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
     }
@@ -51,20 +51,23 @@ class InternalIslandNoticeAllowlistTest {
         assertThat(allows(allow, "DELETE /internal/islands/" + ID + "/notices")).isFalse();
         assertThat(allows(allow, "PATCH /internal/islands/" + ID + "/notices")).isFalse();
         assertThat(allows(allow, "GET /internal/islands/" + ID + "/notices/" + ID + "/comments")).isFalse();
-        assertThat(allows(allow, "DELETE /internal/islands/" + ID + "/notices/" + ID + "/comments/" + ID))
+        // 댓글 삭제(GROMO-2136)는 이제 허용된다 — 세그먼트가 하나 더 많은 이웃(존재하지 않는 하위 경로)은 아니다.
+        assertThat(allows(allow, "PATCH /internal/islands/" + ID + "/notices/" + ID + "/comments/" + ID))
                 .isFalse();
+        assertThat(allows(allow, "DELETE /internal/islands/" + ID + "/notices/" + ID + "/comments")).isFalse();
     }
 
     @Test
-    @DisplayName("여섯 계약은 메서드·경로가 각각 달라 여섯 줄로 등록돼 있다")
-    void sixContractsAreSeparateEntries() throws IOException {
+    @DisplayName("일곱 계약은 메서드·경로가 각각 달라 일곱 줄로 등록돼 있다")
+    void sevenContractsAreSeparateEntries() throws IOException {
         assertThat(shippedBusinessAllowlist()).contains(
                 "GET /internal/islands/*/notices",
                 "POST /internal/islands/*/notices",
                 "GET /internal/islands/*/notices/*",
                 "PATCH /internal/islands/*/notices/*",
                 "DELETE /internal/islands/*/notices/*",
-                "POST /internal/islands/*/notices/*/comments");
+                "POST /internal/islands/*/notices/*/comments",
+                "DELETE /internal/islands/*/notices/*/comments/*");
     }
 
     // ---------------------------------------------------------------- 도구

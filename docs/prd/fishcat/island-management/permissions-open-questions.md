@@ -13,9 +13,9 @@
 |---|---|---|---|---|---|
 | 1 | 건설 실행 | `permissions.md:30` | 방장·주민 | 건설 `policy.md` **P-D01** | ~~미정~~ → **확정(2026-09-21, GROMO-2000·D2-개정): 방장만** |
 | 2 | 퀘스트 작성/수정 | `permissions.md:31` | 방장·주민 | 퀘스트 `policy.md` **QQ04** | 미정 |
-| 3 | 공지 작성/수정/삭제 | `permissions.md:32` | 방장·주민 | 게시판 `policy.md` **BQ01** | 미정 |
+| 3 | 공지 작성/수정/삭제 | `permissions.md:32` | 방장·주민 | 게시판 `policy.md` **BQ01** | **확정(2026-09-25, GROMO-2136): 신규 게시판 API 는 방장만.** legacy `/api/v1` 은 D9(방장+ALLOW 주민) 그대로 |
 | 4 | 공동 상품 구매 | `permissions.md:33` | 방장·주민 | 상점 `policy.md` **S02** | `SHARED_PURCHASE` — **확정(2026-09-21, GROMO-2000·D2-개정): 활성 주민 누구나, 게스트 제외** |
-| — | **댓글** | **행 없음** | — | 게시판 `policy.md` **BQ02** | 미정 |
+| — | **댓글** | **행 없음** | — | 게시판 `policy.md` **BQ02** | **확정(2026-09-25, GROMO-2136): 삭제 주체=작성자 본인 또는 방장(M-2), 공지 삭제 시 댓글 CASCADE, 탈퇴 시 댓글 delete, 댓글 DELETE endpoint 포함(GROMO-2137)** |
 
 방문자 열은 네 행 모두 이미 `거절`이다. 열려 있는 것은 방장·주민 두 열뿐이다.
 「공동 테마 적용」(`permissions.md:34`)은 GROMO-1909 확정 → GROMO-2000 개정(활성 주민 누구나)으로 닫혀 있다 — 결정 대상이 아니다.
@@ -136,7 +136,12 @@ const hostOnly = ['MANAGE','KICK','TRANSFER','ADD_MEMBER','REJECT_MEMBER','CAPAC
 
 ### 4.1 공지 작성/수정/삭제 (`permissions.md:32` · BQ01 · 막는 티켓 GROMO-1771)
 
-**이 칸은 코드가 이미 답을 갖고 있다.** 새로 만들 것이 아니라 표에 적는 일에 가깝다.
+> **확정(2026-09-25, 재영님 결정 GROMO-2136): 신규 게시판 API 는 B-2(방장만).** 아래 분석은 결정 전
+> 기록이다 — 추천은 B-1(현행 유지)이었지만 실제 결정은 B-2 다. legacy `/api/v1` 공지는 그대로 B-1(현행
+> 유지, D9)이다 — 신규 API 와 legacy 가 **같은 저장소를 다른 규칙으로** 쓴다. `announcementPermission`
+> 컬럼은 legacy 판정에만 남고 신규 게시판 API 는 `GroupMember.getRole() == OWNER` 만 본다.
+
+**이 칸은 코드가 이미 답을 갖고 있다.** 새로 만들 것이 아니라 표에 적는 일에 가깝다. (아래는 결정 전 분석)
 
 현행 동작(legacy, 운영 중) — 세 경로가 **같은 단일 판정**을 쓴다:
 
@@ -238,6 +243,12 @@ C-2·C-3·C-4 를 닫았다 — 목표 선택을 주민에게 여는 C-3 도 채
 ③ QQ04 가 요구하는 *"새 공통 권한 질문 답과 일치시켜야 함"* 을, 공동 소비 3행을 같은 값으로 두어 만족시킨다.
 
 ### 4.5 댓글 — 표에 행이 없다 (BQ02 · 막는 티켓 GROMO-1771)
+
+> **확정(2026-09-25, 재영님 결정 GROMO-2136): M-2(본인 + 방장)** — 아래 추천 그대로 채택됐다. ②③④ 도 함께
+> 결정됐다: 공지 삭제 시 댓글은 **CASCADE 로 함께 삭제**(V103), 탈퇴자의 댓글은 **원문째 delete**(공지
+> 작성자는 여전히 detach 뿐이다 — 댓글만 다르다), 댓글 DELETE endpoint 는 **이번 범위**(GROMO-2137)에
+> 포함됐다. 구현은 `IslandNoticeService.requireCommentDeletable` · `GroupAnnouncementCommentRepository
+> .deleteAllOfUser`. 아래는 결정 전 분석 기록이다.
 
 티켓은 「댓글 작성 권한과 삭제 정책」을 완료 조건에 넣었는데 `permissions.md` 에 댓글 행이 없다
 (`grep 댓글 permissions.md` → 0건). 실제 상태는 둘로 갈린다.

@@ -146,7 +146,7 @@ jobs:
           for service in "${services[@]}"; do
             container=$("${compose[@]}" ps -q "$service")
             test -n "$container"
-            # 4GB dev VM에서 Datadog 에이전트가 붙은 JVM 두 개를 함께 시작하면 5분을 넘긴다.
+            # 4GB 시절 dev VM(e2-medium)에서 Datadog 에이전트가 붙은 JVM 두 개를 함께 시작하면 5분을 넘겼다(지금은 8 GB — A25).
             for i in $(seq 1 180); do
               health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo missing)
               if [ "$health" = healthy ]; then break; fi

@@ -18,6 +18,7 @@ import java.util.UUID;
  * @param allocation     개인 지갑/섬 통장 분배(D5-귀속-개정 — 현재 개인 0 · 섬 통장 전부)
  * @param completedAt    정산을 확정한 서버 시각
  * @param questProgress  이 세션이 기여한 퀘스트 진행률(1772/1773 계약). 퀘스트 계약이 아직 없어 늘 빈 목록이다
+ * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131, LLD §1) — finish 시점엔 전부 닫혀 있다. 없으면 빈 목록
  */
 public record FocusFinishView(
         UUID recordId,
@@ -29,7 +30,8 @@ public record FocusFinishView(
         int earnedFish,
         Allocation allocation,
         Instant completedAt,
-        List<QuestProgress> questProgress) {
+        List<QuestProgress> questProgress,
+        List<ActiveInterval> activeIntervals) {
 
     /** @param personalFishAdded 개인 지갑 반영 @param constructionFishAdded 섬 통장(섬 물고기) 반영 — 이름은 LLD 계약 그대로 */
     public record Allocation(int personalFishAdded, int constructionFishAdded) {

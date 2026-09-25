@@ -21,13 +21,13 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * 섬 게시판의 Data 내부 표면 (GROMO-1771) — 공개 {@code /islands/{islandId}/notices…} 6종의 상류다. 호출자는
- * Business 하나이고 caller 별 exact 허용목록({@code application-satellites.yml})이 여섯 경로를 연다. 주체는
+ * 섬 게시판의 Data 내부 표면 (GROMO-1771) — 공개 {@code /islands/{islandId}/notices…} 7종의 상류다. 호출자는
+ * Business 하나이고 caller 별 exact 허용목록({@code application-satellites.yml})이 일곱 경로를 연다. 주체는
  * {@code InternalAuthFilter} 가 검증한 {@code X-User-Id} 뿐이다 — 본문에 사용자 id 를 받지 않는다.
  *
  * <p>커서는 여기 없다. Business 가 서명 커서를 풀어 불변 정렬 키 두 값({@code …AfterCreatedAt}·{@code …AfterId})
- * 으로 넘기고, 응답의 {@code hasMore} 와 마지막 행으로 다음 커서를 만든다. 쓰기 네 경로는 모두
- * {@code Idempotency-Key} 가 필수다(api-platform LLD §2).
+ * 으로 넘기고, 응답의 {@code hasMore} 와 마지막 행으로 다음 커서를 만든다. 쓰기 다섯 경로는 모두
+ * {@code Idempotency-Key} 가 필수다(api-platform LLD §2). 댓글 삭제(GROMO-2136)는 작성자 본인 또는 방장만이다.
  */
 @RestController
 @RequiredArgsConstructor
@@ -74,5 +74,12 @@ public class InternalIslandNoticeController {
             @RequestHeader("X-User-Id") UUID userId, @RequestHeader("Idempotency-Key") UUID key,
             @Valid @RequestBody NoticeCommentRequest body) {
         return notices.comment(islandId, noticeId, userId, body.text(), key);
+    }
+
+    @DeleteMapping("/internal/islands/{islandId}/notices/{noticeId}/comments/{commentId}")
+    public IslandNoticeViews.Deleted deleteComment(@PathVariable UUID islandId, @PathVariable UUID noticeId,
+            @PathVariable UUID commentId, @RequestHeader("X-User-Id") UUID userId,
+            @RequestHeader("Idempotency-Key") UUID key) {
+        return notices.deleteComment(islandId, noticeId, commentId, userId, key);
     }
 }

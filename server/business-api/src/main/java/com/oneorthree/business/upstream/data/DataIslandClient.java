@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
+import static com.oneorthree.business.upstream.data.DataPaths.commentPath;
 import static com.oneorthree.business.upstream.data.DataPaths.islandPath;
 import static com.oneorthree.business.upstream.data.DataPaths.noticePath;
 import static com.oneorthree.business.upstream.data.DataPaths.userPath;
@@ -64,10 +65,12 @@ public class DataIslandClient {
             "/internal/users/{userId}/invitations/resolve";
     private static final String PATH_ISLAND_INVITATIONS =
             "/internal/users/{userId}/islands/{islandId}/invitations";
-    // GROMO-1771 섬 게시판 6종
+    // GROMO-1771 섬 게시판 6종 + 댓글 삭제(GROMO-2136)
     private static final String PATH_NOTICES = "/internal/islands/{islandId}/notices";
     private static final String PATH_NOTICE = "/internal/islands/{islandId}/notices/{noticeId}";
     private static final String PATH_NOTICE_COMMENTS = "/internal/islands/{islandId}/notices/{noticeId}/comments";
+    private static final String PATH_NOTICE_COMMENT =
+            "/internal/islands/{islandId}/notices/{noticeId}/comments/{commentId}";
     // GROMO-1765 같이 낚시 초기 스냅샷 2종 — 공개 경로와 이름이 같다.
     private static final String PATH_FOCUS_MEMBERS = "/internal/islands/{islandId}/focus-members";
     private static final String PATH_REST_MEMBERS = "/internal/islands/{islandId}/rest-members";
@@ -425,6 +428,19 @@ public class DataIslandClient {
                         .build(),
                 deadline,
                 new ParameterizedTypeReference<IslandNotices.CommentCreated>() { });
+    }
+
+    /** 댓글 삭제 (GROMO-2136) — 작성자 본인 또는 방장만. 같은 키 재전송은 댓글이 이미 없어도 원 결과다. */
+    public IslandNotices.Deleted deleteNoticeComment(UUID userId, UUID islandId, UUID noticeId, UUID commentId,
+            UUID key, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.DELETE, commentPath(PATH_NOTICE_COMMENT, islandId, noticeId, commentId))
+                        .onBehalfOf(userId)
+                        .idempotencyKey(key.toString())
+                        .idempotentCommand()
+                        .build(),
+                deadline,
+                new ParameterizedTypeReference<IslandNotices.Deleted>() { });
     }
 
     /** 집중 주민 스냅샷 (GROMO-1765). 멱등 GET 이라 재시도한다. 소속 판정은 상류 몫이다. */

@@ -26,6 +26,7 @@ import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.GroupMemberStatus;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.MissionType;
+import com.oneorthree.phone.group.service.GroupMemberService;
 import com.oneorthree.phone.internal.dto.AccountPatchRequest;
 import com.oneorthree.phone.internal.service.InternalAccountService;
 import com.oneorthree.phone.invitelink.repository.domain.GroupInviteLink;
@@ -83,6 +84,7 @@ class AccountWithdrawalErasureIntegrationTest {
 
     @Autowired AccountWithdrawalService withdrawal;
     @Autowired InternalAccountService account;
+    @Autowired GroupMemberService groupMemberService;
     @Autowired InviteLinkService inviteLinks;
     @Autowired AuthService auth;
     @Autowired JwtProvider jwt;
@@ -119,11 +121,16 @@ class AccountWithdrawalErasureIntegrationTest {
         assertThat(row("select user_id, title from group_announcements where id=?", s.wAnnouncement()))
                 .containsEntry("user_id", null).containsEntry("title", "W공지");
         assertThat(uuid("select user_id from group_announcements where id=?", s.cAnnouncement())).isEqualTo(c.id());
-        // group_announcement_comments — users 는 소프트 삭제라 FK SET NULL 이 안 돈다. 작성자만 명시적으로 끊고 본문은 남긴다
-        assertThat(row("select author_id, text from group_announcement_comments where id=?", s.wComment()))
-                .containsEntry("author_id", null).containsEntry("text", "W댓글");
+        // group_announcement_comments — 공지와 달리 detach 가 아니라 delete 다(2026-09-25 결정 GROMO-2136, BQ02).
+        assertThat(count("select count(*) from group_announcement_comments where id=?", s.wComment())).isZero();
         assertThat(uuid("select author_id from group_announcement_comments where id=?", s.cComment()))
                 .isEqualTo(c.id());
+        // 댓글 벌크 삭제도 notice.updated 를 낸다(GROMO-2137 코드리뷰 대응) — W 댓글이 달린 C 공지의 aggregate
+        // version 이 오르고 같은 축으로 outbox 행이 남는다.
+        assertThat(noticeVersion(s.cAnnouncement())).isEqualTo(1L);
+        assertThat(count("select count(*) from event_outbox where type='notice.updated'"
+                + " and aggregate_type='NOTICE' and aggregate_id=? and version=1", s.cAnnouncement().toString()))
+                .isEqualTo(1L);
 
         // notification_sent_logs — W 수신 전부·W 상대 친구 알림은 삭제, 타인 추월은 상대만 null
         assertThat(count("select count(*) from notification_sent_logs where user_id=?", w.id())).isZero();
@@ -361,6 +368,43 @@ class AccountWithdrawalErasureIntegrationTest {
     }
 
     @Test
+    @DisplayName("댓글을 남기고 섬을 나간 뒤 탈퇴해도 그 댓글은 지워지고 섬의 notice.updated 가 발행된다"
+            + " (GROMO-2137 코드리뷰 대응 — B: 이탈한 섬도 댓글 삭제 시 잠그고 사건을 낸다)")
+    void erasesCommentAndFiresNoticeUpdatedForIslandTheUserAlreadyLeft() {
+        Actor w = actor();
+        Actor c = actor();
+        record IslandNotice(UUID islandId, UUID noticeId) {
+        }
+        IslandNotice seeded = new TransactionTemplate(transactions).execute(status -> {
+            Group island = Group.builder().name("이탈댓글" + suffix()).maxMembers(10).build();
+            em.persist(island);
+            em.persist(GroupMember.builder().group(island).user(em.find(User.class, c.id()))
+                    .role(GroupMemberRole.OWNER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            em.persist(GroupMember.builder().group(island).user(em.find(User.class, w.id()))
+                    .role(GroupMemberRole.MEMBER).status(GroupMemberStatus.FOCUS)
+                    .announcementPermission(GroupAnnouncementGrant.ALLOW).build());
+            GroupAnnouncement notice = GroupAnnouncement.builder().group(island).user(em.find(User.class, c.id()))
+                    .title("공지").content("본문").build();
+            em.persist(notice);
+            em.persist(new GroupAnnouncementComment(notice.getId(), w.id(), "W댓글"));
+            return new IslandNotice(island.getId(), notice.getId());
+        });
+        // W 는 댓글을 남긴 뒤 섬을 나간다 — 탈퇴 시점엔 이 섬이 W 의 활성 멤버십 목록에 없다(메서드 자체가
+        // @Transactional 이라 별도 TransactionTemplate 이 필요 없다)
+        groupMemberService.withdrawGroup(seeded.islandId(), w.id());
+
+        withdrawal.withdraw(w.id());
+
+        assertThat(count("select count(*) from group_announcement_comments where notice_id=? and author_id=?",
+                seeded.noticeId(), w.id())).isZero();
+        assertThat(noticeVersion(seeded.noticeId())).isEqualTo(1L);
+        assertThat(count("select count(*) from event_outbox where type='notice.updated'"
+                + " and aggregate_type='NOTICE' and aggregate_id=? and version=1", seeded.noticeId().toString()))
+                .isEqualTo(1L);
+    }
+
+    @Test
     @DisplayName("비활성 발급자의 초대 링크 발급은 INSERT 전에 404 — 탈퇴 스윕을 지나친 발급자 연결이 남지 않는다")
     void inviteIssueChecksInviterInTheInsertTransaction() {
         Actor w = actor();
@@ -567,6 +611,13 @@ class AccountWithdrawalErasureIntegrationTest {
 
     private Map<String, Object> row(String sql, Object... args) {
         return jdbc.queryForMap(sql, args);
+    }
+
+    /** 공지 aggregate 의 마지막 발급 version — {@code IslandNoticeIntegrationTest} 와 같은 조회. */
+    private long noticeVersion(UUID noticeId) {
+        Long value = jdbc.queryForObject("select last_version from aggregate_versions"
+                + " where aggregate_type='NOTICE' and aggregate_id=?", Long.class, noticeId.toString());
+        return value == null ? 0L : value;
     }
 
     private long count(String sql, Object... args) {
