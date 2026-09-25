@@ -106,7 +106,6 @@ export const ShopMotion = memo(function ShopMotionView({
             style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
           />
         ))}
-      {state !== 'normal' && <View testID="shop-motion-highlight" style={styles.highlight} />}
       {stateLabel && (
         <View testID="shop-motion-tooltip" style={styles.tooltip}>
           <Text style={styles.tooltipText}>{stateLabel}</Text>
@@ -121,17 +120,6 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
-  highlight: {
-    position: 'absolute',
-    left: '8%',
-    top: '6%',
-    width: '84%',
-    height: '86%',
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: semanticTokens.color.accent,
-    backgroundColor: `${semanticTokens.color.accent}1A`,
-  },
   tooltip: {
     position: 'absolute',
     top: 0,

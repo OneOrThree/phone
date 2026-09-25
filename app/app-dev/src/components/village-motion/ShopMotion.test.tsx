@@ -56,14 +56,13 @@ describe('ShopMotion', () => {
     ['normal', '상점'],
     ['new-product', '상점, 새 상품'],
     ['purchasable', '상점, 구매 가능'],
-  ] as const)('exposes the %s state and its highlight', async (state, label) => {
+  ] as const)('exposes the %s state without outlining the storefront', async (state, label) => {
     const view = await render(<ShopMotion state={state} />);
     expect(view.getByTestId('shop-motion').props.accessibilityLabel).toBe(label);
+    expect(view.queryByTestId('shop-motion-highlight')).toBeNull();
     if (state === 'normal') {
-      expect(view.queryByTestId('shop-motion-highlight')).toBeNull();
       expect(view.queryByTestId('shop-motion-tooltip')).toBeNull();
     } else {
-      expect(view.getByTestId('shop-motion-highlight')).toBeTruthy();
       expect(view.getByTestId('shop-motion-tooltip')).toBeTruthy();
     }
     await view.unmount();
