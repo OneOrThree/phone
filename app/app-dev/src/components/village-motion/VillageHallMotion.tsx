@@ -57,8 +57,14 @@ export function VillageHallMotion({
           style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
         />
       ))}
-      {highlighted && <View pointerEvents="none" testID="village-hall-highlight" style={styles.highlight} />}
-      {tooltip != null && <View testID="village-hall-tooltip" style={styles.tooltip}>{tooltip}</View>}
+      {highlighted && (
+        <View pointerEvents="none" testID="village-hall-highlight" style={styles.highlight} />
+      )}
+      {tooltip != null && (
+        <View testID="village-hall-tooltip" style={styles.tooltip}>
+          {tooltip}
+        </View>
+      )}
     </View>
   );
 }
