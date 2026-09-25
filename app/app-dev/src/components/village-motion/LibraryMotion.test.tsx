@@ -43,7 +43,11 @@ describe('LibraryMotion', () => {
     expect(Boolean(view.queryByTestId('library-motion-indicator'))).toBe(state !== 'normal');
     if (state !== 'normal') {
       expect(view.getByTestId('library-motion-indicator').props.style).toEqual(
-        expect.objectContaining({ top: 0, right: -29 }),
+        expect.objectContaining({
+          bottom: -29,
+          left: '50%',
+          transform: [{ translateX: -12.5 }],
+        }),
       );
     }
     await view.unmount();

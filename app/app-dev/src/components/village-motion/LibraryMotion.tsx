@@ -93,8 +93,9 @@ const styles = StyleSheet.create({
   hidden: { opacity: 0 },
   indicator: {
     position: 'absolute',
-    top: 0,
-    right: -29,
+    bottom: -29,
+    left: '50%',
+    transform: [{ translateX: -12.5 }],
     width: 25,
     height: 25,
     alignItems: 'center',
