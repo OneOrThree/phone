@@ -191,7 +191,9 @@ public class GroupMemberService {
         // 그것이 실패했을 때 예전 slug 가 살아 «비공개 그룹 무단 가입»이 된다 — 같은 트랜잭션에서
         // outbox 를 적고 relay 가 재전달한다.
         linkMembershipEventService.recordMembershipRevoked(target);
-        EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
+        // memberUserId 는 강퇴 «대상»이다 — 요청자(userId, 방장)가 아니라 targetUserId 를 줘야 Realtime 이
+        // 강퇴당한 그 유저의 멤버십 캐시를 지운다(GROMO-2140). actorId 자리(userId)는 그대로 방장이다.
+        EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED", targetUserId);
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
         return event;
     }
@@ -263,7 +265,7 @@ public class GroupMemberService {
             groupMember.leave(clock.instant());
             linkMembershipEventService.recordMembershipRevoked(groupMember);
         }
-        EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED");
+        EventEnvelope event = membershipEvents.changed(groupId, userId, "MEMBER_REMOVED", userId);
         userActivityEventLogger.log(UserActivityEvent.GROUP_LEFT, Map.of("group_id", group.getId().toString()));
         return event;
     }
@@ -359,7 +361,7 @@ public class GroupMemberService {
             if (recipients.size() <= 1) {
                 ownerMembership.leave(clock.instant());
                 linkMembershipEventService.recordMembershipRevoked(ownerMembership);
-                membershipEvents.changed(ownerMembership.getGroup().getId(), userId, "MEMBER_REMOVED");
+                membershipEvents.changed(ownerMembership.getGroup().getId(), userId, "MEMBER_REMOVED", userId);
                 ownerMembership.getGroup().close();
                 // 그룹 종료도 함께 전달한다(㋢). 폐기만 보내면 그 그룹의 «다른» 발급자 링크가 남는다.
                 linkMembershipEventService.recordGroupClosed(ownerMembership.getGroup(), recipients);
@@ -385,7 +387,7 @@ public class GroupMemberService {
                     .ifPresent(locked -> {
                         locked.leave(clock.instant());
                         linkMembershipEventService.recordMembershipRevoked(locked);
-                        membershipEvents.changed(locked.getGroup().getId(), userId, "MEMBER_REMOVED");
+                        membershipEvents.changed(locked.getGroup().getId(), userId, "MEMBER_REMOVED", userId);
                     });
         }
 
