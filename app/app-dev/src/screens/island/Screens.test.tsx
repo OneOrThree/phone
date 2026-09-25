@@ -5,7 +5,7 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { BackHandler, StyleSheet, View } from 'react-native';
+import { BackHandler, Keyboard, StyleSheet, View } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { buildingNames, initialState, reducer } from '@/services/model';
@@ -200,6 +200,43 @@ test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 �
   await fireEvent.press(screen.getByText('게스트로 시작하기'));
   assert.equal(startGuest.mock.calls.length, 1);
   assert.equal(exposed.actions.includes('LOGIN'), false);
+});
+
+test('닉네임 키보드 표시 이벤트를 두 번 처리해도 값이 유지되고 첫 섬으로 이동하지 않는다', async () => {
+  const listeners: Record<string, () => void> = {};
+  let exposed: any;
+  const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+    event: string,
+    callback: (...args: any[]) => void,
+  ) => {
+    listeners[event] = callback as () => void;
+    return { remove: jest.fn() } as any;
+  }) as any);
+  try {
+    const s = await render(
+      <Harness route="character" expose={(value: any) => (exposed = value)} />,
+    );
+    const nickname = s.getByLabelText('닉네임');
+    await fireEvent.changeText(nickname, '구름이');
+    await fireEvent(nickname, 'focus');
+    await act(async () => listeners.keyboardWillShow?.());
+    assert.ok(addListener.mock.calls.some(([event]) => event === 'keyboardWillShow'));
+    assert.ok(addListener.mock.calls.some(([event]) => event === 'keyboardDidHide'));
+    assert.equal(s.queryByText('내 고양이와 시작'), null);
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+    assert.equal(exposed.go.mock.calls.length, 0);
+    await act(async () => listeners.keyboardDidHide?.());
+    assert.ok(s.getByText('내 고양이와 시작'));
+    await fireEvent(s.getByLabelText('닉네임'), 'focus');
+    await act(async () => listeners.keyboardWillShow?.());
+    assert.equal(s.queryByText('내 고양이와 시작'), null);
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+    assert.equal(exposed.go.mock.calls.length, 0);
+    await act(async () => listeners.keyboardDidHide?.());
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+  } finally {
+    addListener.mockRestore();
+  }
 });
 
 test('GROMO 시작하기 전환 후 100ms에는 터치 차단막이 있고 만료 뒤 CTA가 동작한다', async () => {
