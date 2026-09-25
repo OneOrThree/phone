@@ -52,6 +52,7 @@ function useCatPlayback(
   color: Color,
   paused: boolean,
   onFinish?: () => void,
+  generation?: number,
 ) {
   const normalized = normalizeCatMotion(motion);
   const [frame, setFrame] = useState(0);
@@ -74,7 +75,21 @@ function useCatPlayback(
 
     setFrame(0);
     setIdleBehavior('blink');
-    if (paused) return clearTimer;
+    if (paused) {
+      if (
+        onFinishRef.current &&
+        (normalized === 'tilt' ||
+          normalized === 'stretch' ||
+          normalized === 'groom' ||
+          normalized === 'yawn')
+      ) {
+        timer = setTimeout(() => {
+          if (cancelled) return;
+          onFinishRef.current?.();
+        }, 500);
+      }
+      return clearTimer;
+    }
 
     const playBlink = (next: () => void) => {
       let tick = 1;
@@ -136,14 +151,21 @@ function useCatPlayback(
       const targetCycles = isInteractive
         ? (INTERACTIVE_MOTION_CYCLES[animatedMotion as keyof typeof INTERACTIVE_MOTION_CYCLES] ?? 1)
         : undefined;
+      const targetTicks = targetCycles ? totalFrames * targetCycles : undefined;
       let tick = 0;
       const advance = () => {
         if (cancelled) return;
         tick += 1;
         setFrame(tick);
-        if (targetCycles && onFinishRef.current && tick >= totalFrames * targetCycles) {
-          onFinishRef.current();
-          return;
+        if (targetTicks !== undefined && tick >= targetTicks) {
+          // 중립 프레임(0번)을 표시한 뒤, 한 프레임 지연 시간 동안 노출 후 onFinish를 호출한다.
+          if (onFinishRef.current) {
+            timer = setTimeout(() => {
+              if (cancelled) return;
+              onFinishRef.current?.();
+            }, catFrameDelay(animatedMotion));
+            return;
+          }
         }
         timer = setTimeout(advance, catFrameDelay(animatedMotion));
       };
@@ -154,7 +176,7 @@ function useCatPlayback(
       cancelled = true;
       clearTimer();
     };
-  }, [color, normalized, paused]);
+  }, [color, normalized, paused, generation]);
 
   return { frame, effectiveMotion: normalized === 'idle' ? idleBehavior : normalized };
 }
@@ -168,6 +190,7 @@ export function CatSprite({
   reduceMotion = false,
   anchored = true,
   onFinish,
+  generation,
   testID,
 }: {
   color: Color;
@@ -178,11 +201,12 @@ export function CatSprite({
   reduceMotion?: boolean;
   anchored?: boolean;
   onFinish?: () => void;
+  generation?: number;
   testID?: string;
 }) {
   const [appState, setAppState] = useState(AppState.currentState);
   const paused = reduce || reduceMotion || appState === 'background' || appState === 'inactive';
-  const { frame, effectiveMotion } = useCatPlayback(motion, color, paused, onFinish);
+  const { frame, effectiveMotion } = useCatPlayback(motion, color, paused, onFinish, generation);
   const isTilting = effectiveMotion === 'tilt';
   const questionAnim = useRef(new Animated.Value(0)).current;
   // idle 도중 자세 아틀라스로 바뀌어도 부모가 잡은 기존 발 기준 영역은 유지한다.

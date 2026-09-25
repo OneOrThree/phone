@@ -16,18 +16,28 @@ jest.mock('@/components/CatSprite', () => {
       motion,
       left,
       onFinish,
+      generation,
     }: {
       testID?: string;
       motion: string;
       left?: boolean;
       onFinish?: () => void;
-    }) =>
-      React.createElement(View, {
+      generation?: number;
+    }) => {
+      React.useEffect(() => {
+        if (!onFinish || !motion || motion === 'idle' || motion === 'walking') return;
+        const duration = catMotion.interactiveMotionDurationMs(motion);
+        const timer = setTimeout(onFinish, duration);
+        return () => clearTimeout(timer);
+      }, [motion, generation, onFinish]);
+      return React.createElement(View, {
         testID: testID ?? 'mock-cat-sprite',
         testPropMotion: motion,
         testPropLeft: left,
+        testPropGeneration: generation,
         onFinish,
-      }),
+      });
+    },
     catFrameBox: () => ({ extent: 140, x: 70, y: 70 }),
   };
 });
@@ -153,16 +163,16 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     expect(getCat().testPropLeft).toBe(true);
     expect(getCat().testPropMotion).toBe('tilt');
 
-    // tilt 모션 1사이클(1560ms) 경과 후 idle로 복귀
+    // tilt 모션 1사이클 + 중립 복귀(1820ms) 경과 후 idle로 복귀
     await act(async () => {
-      jest.advanceTimersByTime(1560);
+      jest.advanceTimersByTime(1820);
     });
     expect(getCat().testPropMotion).toBe('idle');
 
     await screen.unmount();
   });
 
-  it('모션이 하드코딩된 시간이 아닌 프레임 주기(중립 자세 복귀) 완료 시점에 종료된다', async () => {
+  it('모션이 동작 프레임과 중립 복귀 프레임 노출을 모두 마친 뒤 종료된다', async () => {
     const state = initialState(true);
     const screen = await renderWithContext(
       React.createElement(FinalIsland, {
@@ -175,21 +185,69 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     const catActor = screen.getByTestId('home-cat-actor');
     const getCat = () => screen.getByTestId('home-cat-sprite').props;
 
-    // 오른쪽 터치: stretch (4프레임 * 360ms = 1440ms 주기)
+    // 오른쪽 터치: stretch (4프레임 동작 + 1프레임 중립 = 5프레임 * 360ms = 1800ms)
     await act(async () => {
       fireEvent(catActor, 'press', { nativeEvent: { locationX: 50 } });
     });
     expect(getCat().testPropMotion).toBe('stretch');
 
-    // 1430ms 시점에는 아직 stretch 유지
+    // 1780ms 시점에는 중립 복귀 프레임 유지 중
     await act(async () => {
-      jest.advanceTimersByTime(1430);
+      jest.advanceTimersByTime(1780);
     });
     expect(getCat().testPropMotion).toBe('stretch');
 
-    // 1440ms 경과(1사이클 완료) 후 정확히 idle 복귀
+    // 1800ms 경과 후 정확히 idle 복귀
     await act(async () => {
-      jest.advanceTimersByTime(20);
+      jest.advanceTimersByTime(25);
+    });
+    expect(getCat().testPropMotion).toBe('idle');
+
+    await screen.unmount();
+  });
+
+  it('동일한 모션을 연속 선택해도 generation이 갱신되어 재생이 처음부터 다시 시작된다', async () => {
+    const state = initialState(true);
+    const screen = await renderWithContext(
+      React.createElement(FinalIsland, {
+        state,
+        go: jest.fn(),
+        build: jest.fn(),
+      }),
+    );
+
+    const catActor = screen.getByTestId('home-cat-actor');
+    const getCat = () => screen.getByTestId('home-cat-sprite').props;
+
+    // 1회: 왼쪽 터치 -> tilt (generation: 1)
+    await act(async () => {
+      fireEvent(catActor, 'press', { nativeEvent: { locationX: 10 } });
+    });
+    expect(getCat().testPropMotion).toBe('tilt');
+    expect(getCat().testPropGeneration).toBe(1);
+
+    // 1000ms 경과 (tilt 총 1820ms 중 중간 진행)
+    await act(async () => {
+      jest.advanceTimersByTime(1000);
+    });
+    expect(getCat().testPropMotion).toBe('tilt');
+
+    // 2회: 오른쪽 터치 -> count 1에 의해 오른쪽 사이클에서도 동일하게 tilt 선택 (generation: 2)
+    await act(async () => {
+      fireEvent(catActor, 'press', { nativeEvent: { locationX: 50 } });
+    });
+    expect(getCat().testPropMotion).toBe('tilt');
+    expect(getCat().testPropGeneration).toBe(2);
+
+    // 첫 번째 시작 시각 기준 1820ms(앞으로 820ms 뒤)에 조기 종료되지 않고 여전히 tilt 유지
+    await act(async () => {
+      jest.advanceTimersByTime(820);
+    });
+    expect(getCat().testPropMotion).toBe('tilt');
+
+    // 두 번째 탭 시점으로부터 온전히 1820ms가 경과한 시점(추가 1010ms 뒤)에 idle 복귀
+    await act(async () => {
+      jest.advanceTimersByTime(1010);
     });
     expect(getCat().testPropMotion).toBe('idle');
 

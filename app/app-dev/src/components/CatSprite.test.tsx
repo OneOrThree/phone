@@ -87,4 +87,51 @@ describe('CatSprite 재생 제어', () => {
     expect(view.getByTestId('cat-frame-2').props.source).toBe(cat('ginger', 'tilt/tilt-frame-2'));
     await view.unmount();
   });
+
+  it('동일한 모션이라도 generation이 갱신되면 재생이 처음부터 다시 시작된다', async () => {
+    const onFinish = jest.fn();
+    const view = await render(
+      <CatSprite color="black" motion="stretch" onFinish={onFinish} generation={0} testID="cat" />,
+    );
+    // 360ms 경과: frame 1
+    await act(async () => jest.advanceTimersByTime(360));
+    expect(view.getByTestId('cat-frame-1')).toBeTruthy();
+
+    // 중간에 동일한 모션으로 새 generation 전달
+    await view.rerender(
+      <CatSprite color="black" motion="stretch" onFinish={onFinish} generation={1} testID="cat" />,
+    );
+    // frame 0으로 재시작됨
+    expect(view.getByTestId('cat-frame-0')).toBeTruthy();
+    await view.unmount();
+  });
+
+  it('상호작용 모션은 동작 프레임 완료 후 중립 프레임(0번)을 표시하고 onFinish를 호출한다', async () => {
+    const onFinish = jest.fn();
+    const view = await render(
+      <CatSprite color="black" motion="stretch" onFinish={onFinish} testID="cat" />,
+    );
+    // 0ms: frame 0
+    expect(view.getByTestId('cat-frame-0')).toBeTruthy();
+    // 360ms: frame 1
+    await act(async () => jest.advanceTimersByTime(360));
+    expect(view.getByTestId('cat-frame-1')).toBeTruthy();
+    // 720ms: frame 2
+    await act(async () => jest.advanceTimersByTime(360));
+    expect(view.getByTestId('cat-frame-2')).toBeTruthy();
+    // 1080ms: frame 3 (마지막 동작 프레임)
+    await act(async () => jest.advanceTimersByTime(360));
+    expect(view.getByTestId('cat-frame-3')).toBeTruthy();
+    expect(onFinish).not.toHaveBeenCalled();
+
+    // 1440ms: 중립 프레임(0번)으로 복귀하여 화면에 표시
+    await act(async () => jest.advanceTimersByTime(360));
+    expect(view.getByTestId('cat-frame-0')).toBeTruthy();
+    expect(onFinish).not.toHaveBeenCalled();
+
+    // 1800ms: 중립 프레임 1프레임 노출 완료 후 onFinish 호출
+    await act(async () => jest.advanceTimersByTime(360));
+    expect(onFinish).toHaveBeenCalledTimes(1);
+    await view.unmount();
+  });
 });

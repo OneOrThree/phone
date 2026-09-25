@@ -585,19 +585,25 @@ function FinalIslandScene({
     [left, setLeft] = useState(false),
     [interactiveMotion, setInteractiveMotion] = useState<
       'tilt' | 'stretch' | 'groom' | 'yawn' | null
-    >(null);
+    >(null),
+    [motionGen, setMotionGen] = useState(0);
   const tiltTimer = useRef<NodeJS.Timeout | null>(null);
   const tapCountRef = useRef(0);
   const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
 
   const triggerMotion = (m: 'tilt' | 'stretch' | 'groom' | 'yawn', faceLeft?: boolean) => {
-    if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (tiltTimer.current) {
+      clearTimeout(tiltTimer.current);
+      tiltTimer.current = null;
+    }
     if (faceLeft !== undefined) setLeft(faceLeft);
     setInteractiveMotion(m);
-    const duration = interactiveMotionDurationMs(m);
-    tiltTimer.current = setTimeout(() => {
-      setInteractiveMotion(null);
-    }, duration);
+    setMotionGen((g) => g + 1);
+    if (state.settings.reduceMotion) {
+      tiltTimer.current = setTimeout(() => {
+        setInteractiveMotion(null);
+      }, 500);
+    }
   };
   const triggerTilt = () => triggerMotion('tilt');
   const transitionTimer = useRef<NodeJS.Timeout | null>(null);
@@ -853,6 +859,7 @@ function FinalIslandScene({
                   left={left}
                   reduce={state.settings.reduceMotion}
                   onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
+                  generation={motionGen}
                 />
               </View>
             </Pressable>
