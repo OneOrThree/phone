@@ -606,8 +606,8 @@ export function WorldMap({
               position: 'absolute',
               left: left + 402 * scale,
               top: top + 425 * scale,
-              width: 166 * scale,
-              height: 111 * scale,
+              width: 116 * scale,
+              height: 77 * scale,
             }}
           />
         </View>
