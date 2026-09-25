@@ -41,12 +41,14 @@ class FocusSessionContractTest extends UpstreamTestBase {
     private static final String STATE = "{\"id\":\"" + FOCUS + "\",\"islandId\":\"" + ISLAND + "\","
             + "\"subject\":\"알고리즘\",\"targetMinutes\":60,\"status\":\"active\",\"activeSeconds\":0,"
             + "\"serverNow\":\"2026-09-17T00:00:00Z\",\"startedAt\":\"2026-09-17T00:00:00Z\","
-            + "\"restStartedAt\":null,\"version\":1}";
+            + "\"restStartedAt\":null,\"version\":1,\"activeIntervals\":[{\"startedAt\":\"2026-09-17T00:00:00Z\","
+            + "\"endedAt\":\"2026-09-17T00:00:00Z\"}]}";
     /** 자동 종료가 남긴 정산 — finish 응답과 «같은 모양»이다(GROMO-1998). */
     private static final String FINISH = "{\"recordId\":\"" + FOCUS + "\",\"islandId\":\"" + ISLAND + "\","
             + "\"subject\":\"알고리즘\",\"targetMinutes\":60,\"activeSeconds\":600,\"goalAchieved\":false,"
             + "\"earnedFish\":10,\"allocation\":{\"personalFishAdded\":0,\"constructionFishAdded\":10},"
-            + "\"completedAt\":\"2026-09-17T01:00:00Z\",\"questProgress\":[]}";
+            + "\"completedAt\":\"2026-09-17T01:00:00Z\",\"questProgress\":[],"
+            + "\"activeIntervals\":[{\"startedAt\":\"2026-09-17T00:00:00Z\",\"endedAt\":\"2026-09-17T01:00:00Z\"}]}";
 
     @Test
     void startForwardsSignedActorToInternalPathAndReturnsCreatedEnvelope() throws Exception {
@@ -77,6 +79,21 @@ class FocusSessionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.id").value(FOCUS.toString()))
                 .andExpect(jsonPath("$.data.targetMinutes").doesNotExist());
         assertThat(DATA.hits(DATA_START)).isEqualTo(1);
+    }
+
+    /**
+     * 구간을 안 보내는 구버전 Data 와 섞여 배포돼도 공개 응답은 {@code activeIntervals} 를 빼고 내린다(GROMO-2131)
+     * — 빈 목록으로 채우면 앱이 구간 0건으로 읽어 같은 날 집중을 잃는다.
+     */
+    @Test
+    void currentOmitsActiveIntervalsWhenDataDoesNotSendThem() throws Exception {
+        String legacy = STATE.substring(0, STATE.indexOf(",\"activeIntervals\"")) + "}";
+        DATA.on(DATA_CURRENT, request -> ok("{\"session\":" + legacy + "}"));
+        String body = mockMvc.perform(auth(get("/focus-sessions/current"))).andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.id").value(FOCUS.toString()))
+                .andReturn().getResponse().getContentAsString();
+        // doesNotExist 는 명시 null 도 통과시키므로 키 자체가 없는지 본다.
+        assertThat(body).doesNotContain("activeIntervals");
     }
 
     @ParameterizedTest

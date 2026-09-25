@@ -2,7 +2,7 @@
 // Docs: https://dbml.dbdiagram.io/docs
 // Project: Gromo — ERD v10 (UUID PK 전환)
 // 섹션 순서: 1.유저 → 2.챌린지 → 3.포커스 → 4.그룹 → 5.아이템 → 6.리그 → 7.재화 → 8.LLM/집계
-// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 · V91 · V95 · V97 ~ V99 · V100 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
+// Flyway 반영: V1__baseline ~ V67 · V71 · V73 ~ V77 · V79 ~ V85 · V87 ~ V89 · V91 · V95 · V97 ~ V99 · V100 · V103 (src/main/resources/db/migration — V68~V70·V72·V78 은 비어 있다). 스키마 변경 시 V<N> SQL 추가와 함께 이 파일 갱신.
 // ※ 번호는 연속일 필요가 없다 — Flyway 는 「이미 적용된 것보다 낮은 번호가 나중에 나타나지 않을 것」만 요구한다
 //    (prod 는 out-of-order 가 꺼져 있다). V86 은 형제 PR 순서를 풀려고 비워 둔 자리다(GROMO-1996 이 V89 로 옮겼다).
 // V88 — 휴식 1시간 자동 종료와 결과 1회 제공 (GROMO-1998): focus_settlements.auto_closed · acknowledged_at.
@@ -14,6 +14,7 @@
 // V65 — 탈퇴 파기용 NOT NULL 해제 (GROMO-1801 · 계정 LLD §4): users.last_active_at · group_invite_links.inviter_id ·
 //        invite_link_clicks.ip_hash · league_weekly_results 결과 4열 · login_attempts digest 2열 · auth_sessions.refresh_token_hash.
 // V66 — 섬 게시판 공지 댓글 group_announcement_comments + 목록 keyset 인덱스 + 공지 version 백필 (GROMO-1771 · island-board LLD §3·§4).
+// V103 — 섬 게시판 공지 댓글 notice_id FK 를 SET NULL → CASCADE 로 전환 (GROMO-2136, 2026-09-25 결정 — BQ02 확정).
 // V82 — 집중 보상 분당 적립 전환 (GROMO-1990): focus_reward_accruals 신설(+ 기존 focus_settlements 지급분 이관
 //        + 혼합 배포용 AFTER INSERT 트리거 focus_settlements_mirror_accrual_trg) · 조인 경로 인덱스
 //        focus_session_details_user_island_idx ·
@@ -1219,13 +1220,13 @@ Table group_announcements [note: '그룹 공지 — 섬 게시판 공지(GROMO-1
   }
 }
 
-Table group_announcement_comments [note: '섬 게시판 공지 댓글 — 불변(수정·삭제 API 없음). GROMO-1771, island-board LLD §3. migration V66'] {
+Table group_announcement_comments [note: '섬 게시판 공지 댓글 — 작성만 있고 수정 API 없음. GROMO-1771, island-board LLD §3. migration V66, V103(2026-09-25 결정 GROMO-2136 — BQ02 확정)'] {
   id         uuid        [pk]
 
-  notice_id  uuid        [note: 'FK → group_announcements.id (ON DELETE SET NULL) — BQ02 결정 전까지 공지가 지워져도 댓글 행 보존']
-  author_id  uuid        [note: 'FK → users.id (ON DELETE SET NULL) — 작성자. BQ02 결정 전까지 행 보존']
+  notice_id  uuid        [note: 'FK → group_announcements.id (ON DELETE CASCADE, V103) — 공지가 지워지면 댓글도 함께 지워진다']
+  author_id  uuid        [note: 'FK → users.id (ON DELETE SET NULL) — 탈퇴자 댓글은 애플리케이션이 먼저 delete 하므로(deleteAllOfUser) 이 FK 는 사실상 발동하지 않는다']
 
-  text       text        [not null, note: '댓글 본문. 상한은 BQ03 결정 전 임시값(island-board.comment-max-length)']
+  text       text        [not null, note: '댓글 본문. 상한은 island-board.comment-max-length(2026-09-25 결정 GROMO-2136 — BQ03 확정)']
   created_at timestamptz [not null, default: `now()`]
 
   indexes {
@@ -1804,7 +1805,7 @@ Ref: group_members.user_id > users.id
 Ref: group_members.group_id > groups.id
 Ref: group_announcements.group_id > groups.id
 Ref: group_announcements.user_id > users.id
-Ref: group_announcement_comments.notice_id > group_announcements.id [delete: set null]
+Ref: group_announcement_comments.notice_id > group_announcements.id [delete: cascade]
 Ref: group_announcement_comments.author_id > users.id [delete: set null]
 
 // 보유품·외양 (GROMO-1783, V64) — 전부 ON DELETE RESTRICT

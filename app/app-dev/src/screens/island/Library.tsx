@@ -4,6 +4,8 @@ import Svg, { Circle, Ellipse, G, Polygon } from 'react-native-svg';
 import { art } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
+import { CatSprite } from '@/components/CatSprite';
+import { State } from '@/services/model';
 import { BROWN, T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 import { Diary } from './library/Diary';
 
@@ -165,6 +167,23 @@ export function Library({ e }: any) {
     return (
       <View style={{ flex: 1 }}>
         <Image source={art[land ? 'L/lib/room' : 'lib/room']} style={fill} resizeMode="cover" />
+        <View
+          pointerEvents="none"
+          testID="library-reading-cat"
+          style={{
+            position: 'absolute',
+            left: rx + rw * (land ? 0.72 : 0.65),
+            top: cy - (land ? 40 : 55),
+            zIndex: 5,
+          }}
+        >
+          <CatSprite
+            color={(e.state as State).color}
+            motion="read"
+            size={land ? 95 : 85}
+            reduce={(e.state as State).settings.reduceMotion}
+          />
+        </View>
         {[false, true].map((nb) => (
           <Cover
             key={String(nb)}

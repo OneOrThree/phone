@@ -5,11 +5,13 @@
  */
 import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { BackHandler, Keyboard, StyleSheet } from 'react-native';
+import { BackHandler, Keyboard, StyleSheet, View } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
-import { initialState, reducer } from '@/services/model';
+import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
+import { createRouteTransitionShield } from '@/services/routeTransition';
+import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 
@@ -81,7 +83,12 @@ function Harness({
   guestError,
   detail: detailProp,
   full = false,
+  flow = false,
+  homeError = false,
+  retryHome,
 }: any) {
+  const [activeRoute, setActiveRoute] = useState(route);
+  const [shielded, setShielded] = useState(false);
   const [state, baseDispatch] = useReducer(
     reducer,
     initial,
@@ -101,7 +108,15 @@ function Harness({
     [approval, setApproval] = useState(false),
     [detail] = useState(detailProp ?? '');
   const islands = useMemo(() => api?.(dispatch), []);
-  const go = useRef(jest.fn()).current;
+  const transitionShield = useRef(createRouteTransitionShield(setShielded)).current;
+  const go = useRef(
+    jest.fn((nextRoute: string) => {
+      if (flow) {
+        transitionShield();
+        setActiveRoute(nextRoute);
+      }
+    }),
+  ).current;
   const home = useRef(jest.fn()).current;
   const reset = useRef(jest.fn()).current;
   const signOut = useRef(jest.fn(async () => {})).current;
@@ -110,11 +125,11 @@ function Harness({
     seed?.(dispatch);
     expose?.({ dispatch, actions: actions.current, go, home, reset, signOut });
   }, []);
-  return (
+  const screens = (
     <RedesignScreens
       e={{
         state,
-        route,
+        route: flow ? activeRoute : route,
         dispatch,
         go,
         replace: jest.fn(),
@@ -151,8 +166,18 @@ function Harness({
         walkRequest: null,
         islands,
         islandBootError: !!bootError,
+        homeError,
+        retryHome,
       }}
     />
+  );
+  return flow ? (
+    <View style={{ flex: 1 }}>
+      {screens}
+      <RouteTransitionShield visible={shielded} />
+    </View>
+  ) : (
+    screens
   );
 }
 
@@ -211,6 +236,39 @@ test('닉네임 키보드 표시 이벤트를 두 번 처리해도 값이 유지
     assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
   } finally {
     addListener.mockRestore();
+  }
+});
+
+test('GROMO 시작하기 전환 후 100ms에는 터치 차단막이 있고 만료 뒤 CTA가 동작한다', async () => {
+  jest.useFakeTimers();
+  try {
+    const screen = await render(<Harness route="login" flow />);
+    await fireEvent.press(screen.getByRole('checkbox'));
+    await fireEvent.press(screen.getByText('GROMO 시작하기'));
+    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
+    expect(
+      screen.getByTestId('route-transition-shield', { includeHiddenElements: true }).props
+        .pointerEvents,
+    ).toBe('box-only');
+    await fireEvent.press(
+      screen.getByTestId('route-transition-shield', { includeHiddenElements: true }),
+    );
+    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
+    expect(screen.queryByText('첫 섬 선택')).toBeNull();
+
+    await act(async () => jest.advanceTimersByTime(100));
+    expect(screen.getByText('어떤 고양이로 시작할까요?')).toBeTruthy();
+    expect(screen.queryByText('첫 섬 선택')).toBeNull();
+
+    await act(async () => jest.advanceTimersByTime(250));
+    expect(
+      screen.queryByTestId('route-transition-shield', { includeHiddenElements: true }),
+    ).toBeNull();
+    await fireEvent.press(screen.getByText('내 고양이와 시작'));
+    expect(screen.getByText('첫 섬 선택')).toBeTruthy();
+  } finally {
+    await act(async () => jest.runOnlyPendingTimers());
+    jest.useRealTimers();
   }
 });
 
@@ -895,6 +953,53 @@ test('상점 안내 중 시스템 뒤로가기는 완료 처리 없이 상점을
   assert.ok(!exposed.actions.includes('SHOP_GUIDE_DONE'));
 });
 
+test('가입 닉네임은 마지막 글자를 지운 뒤 새 이름을 입력할 수 있고 빈 편집값은 복원되지 않는다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="character" full expose={(value: any) => (exposed = value)} />,
+  );
+  const nickname = s.getByLabelText('닉네임');
+
+  assert.equal(nickname.props.value, '수빈');
+  await fireEvent.changeText(nickname, '수');
+  await fireEvent.changeText(nickname, '');
+  assert.equal(s.getByLabelText('닉네임').props.value, '');
+  await fireEvent.press(s.getByLabelText('내 고양이와 시작'));
+  assert.equal(exposed.go.mock.calls.length, 0);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
+  assert.equal(s.getByLabelText('닉네임').props.value, 'abc');
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  assert.ok(exposed.go.mock.calls.some((call: unknown[]) => call[0] === 'chooseIsland'));
+});
+
+test('프로필 최종 저장은 빈 닉네임을 차단한다', async () => {
+  let exposed: any;
+  mockUpdateProfile.mockResolvedValue({
+    id: 'u1',
+    name: 'abc',
+    catColor: 'black',
+    mainIslandId: 'i1',
+  });
+  const s = await render(
+    <Harness route="profile" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), '');
+  await fireEvent.press(s.getByText('저장'));
+
+  assert.equal(mockUpdateProfile.mock.calls.length, 0);
+  assert.ok(notifyMock.mock.calls.some((call) => call[0] === '닉네임을 입력해 주세요.'));
+  assert.equal(backMock.mock.calls.length, 0);
+
+  await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
+  await fireEvent.press(s.getByText('저장'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 1));
+  assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: 'abc', catColor: 'black' });
+  await waitFor(() => assert.ok(exposed.actions.includes('PROFILE')));
+  assert.equal(backMock.mock.calls.length, 1);
+});
+
 test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
   let exposed: any;
   let release: (v: unknown) => void = () => {};
@@ -1012,4 +1117,114 @@ test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 
   assert.equal(exposed.signOut.mock.calls.length, 0);
   assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
   assert.equal(exposed.reset.mock.calls.length, 0);
+});
+
+// ── GROMO-2138 서버 모드 홈 진입 ──
+const syncCurrent = (d: any, id = 'srv-1', name = '복구 섬') =>
+  d({
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: [islandSummary({ id, name })],
+      nextCursor: null,
+      currentIslandId: id,
+      lossReason: null,
+    },
+  });
+const homeFacts = (islandId = 'srv-1', completedBuildings: string[] = ['hall']) => ({
+  islandId,
+  completedBuildings,
+  members: [],
+  home: {
+    island: {
+      id: islandId,
+      name: '복구 섬',
+      intro: '',
+      approvalRequired: false,
+      maxMembers: 15,
+      role: 'host',
+    },
+    focusSummary: { totalSeconds: 3725 },
+    wallets: { villagePoints: 0 },
+  },
+});
+
+test('createIsland 서버 성공 뒤 섬으로 가기는 home 으로 reset 한다', async () => {
+  let exposed: any;
+  const api = (dispatch: any) => ({
+    create: jest.fn(async () => syncCurrent(dispatch, 'new-1', '새 섬')),
+  });
+  const s = await render(
+    <Harness route="createIsland" api={api} expose={(x: any) => (exposed = x)} />,
+  );
+  await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
+  await fireEvent.press(s.getByLabelText('섬 만들기'));
+  await waitFor(() => s.getByText('섬을 만들었어요'));
+  await fireEvent.press(s.getByText('섬으로 가기'));
+  assert.equal(exposed.reset.mock.calls.at(-1)[0], 'home');
+});
+
+test('재시작 복구 카드에서도 섬으로 가기로 home 에 들어간다', async () => {
+  let exposed: any;
+  const api = () => ({ sync: jest.fn(async () => {}) });
+  const s = await render(
+    <Harness
+      route="chooseIsland"
+      api={api}
+      seed={(d: any) => syncCurrent(d)}
+      expose={(x: any) => (exposed = x)}
+    />,
+  );
+  await waitFor(() => s.getByText('가입이 확인됐어요'));
+  await fireEvent.press(s.getByText('섬으로 가기'));
+  assert.equal(exposed.reset.mock.calls.at(-1)[0], 'home');
+});
+
+test('current 가 없으면 섬으로 가기를 띄우지 않는다', async () => {
+  const api = () => ({ sync: jest.fn(async () => {}) });
+  const s = await render(<Harness route="chooseIsland" api={api} />);
+  await waitFor(() => s.getByText('어디에서 시작할까요?'));
+  assert.equal(s.queryByText('섬으로 가기'), null);
+});
+
+test('서버 모드 home 은 스냅샷 전에는 목업 섬 대신 로딩을, 실패면 재시도를 보여준다', async () => {
+  const retryHome = jest.fn();
+  const api = () => ({});
+  const s = await render(
+    <Harness
+      route="home"
+      api={api}
+      seed={(d: any) => syncCurrent(d)}
+      homeError
+      retryHome={retryHome}
+    />,
+  );
+  await waitFor(() => s.getByText('섬 정보를 불러오지 못했어요'));
+  assert.equal(s.queryByTestId('final-island-world'), null);
+  await fireEvent.press(s.getByText('다시 시도'));
+  assert.equal(retryHome.mock.calls.length, 1);
+});
+
+test('서버 모드 home 은 스냅샷의 완공 건물과 오늘 집중을 그리고 로컬 건설 카드를 띄우지 않는다', async () => {
+  const api = () => ({});
+  const s = await render(
+    <Harness
+      route="home"
+      api={api}
+      seed={(d: any) => {
+        syncCurrent(d);
+        d({ type: 'SERVER_HOME', facts: homeFacts() });
+      }}
+    />,
+  );
+  await waitFor(() => s.getByTestId('final-island-world'));
+  // 문은 스냅샷에서 완공된 건물만 열린다 — 회관은 있고 게시판은 없다
+  s.getByLabelText(buildingNames.hall);
+  assert.equal(s.queryByLabelText(buildingNames.board), null);
+  s.getByText('01:02:05');
+  // 홈 HUD 에 스냅샷의 섬 이름이 보인다
+  s.getByText('복구 섬');
+  // 스크린리더는 HUD 알약을 한 문장으로 읽는다
+  s.getByLabelText('복구 섬 오늘 집중 01:02:05');
+  // 로컬 비용으로 그리는 건설 카드는 서버 모드에서 띄우지 않는다
+  assert.equal(s.queryByText(/짓기$/), null);
 });

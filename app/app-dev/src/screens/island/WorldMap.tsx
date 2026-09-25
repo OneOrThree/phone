@@ -17,6 +17,8 @@ import {
   Building,
   Color,
   currentIsland,
+  homeIsland,
+  serverHome,
   viewIsland,
   buildingNames,
   balance,
@@ -26,7 +28,7 @@ import {
   todayFocusSeconds,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
-import { CatSprite } from '@/components/CatSprite';
+import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
 import {
   claimableQuestRewardCount,
   HOME_QUEST_LIST_DETAIL,
@@ -47,6 +49,16 @@ import {
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens } from '@/design-system/tokens';
+import { getSession } from '@/services/api/session';
+import { catColor } from '@/screens/focus/useIslandPresence';
+
+const pathDistance = (pts: readonly Point[]) => {
+  let sum = 0;
+  for (let idx = 1; idx < pts.length; idx++) {
+    sum += Math.hypot(pts[idx].x - pts[idx - 1].x, pts[idx].y - pts[idx - 1].y);
+  }
+  return sum;
+};
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -215,7 +227,7 @@ export function WorldMap({
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
-    island = state.islands.find((item) => item.id === islandId) ?? viewIsland(state);
+    island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
@@ -515,6 +527,7 @@ function FinalIslandScene({
   notify,
   dispatch,
   viewingIslandId,
+  motion,
   layeredPreview = false,
 }: {
   state: State;
@@ -526,12 +539,18 @@ function FinalIslandScene({
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
+  motion?: CatMotionInput;
   layeredPreview?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
   const explicitVisit = !!viewingIslandId,
-    i = state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state),
+    // 방문 카드(viewingIslandId)로 연 섬은 내 홈 스냅샷으로 대신 그리지 않는다 — 기존 폴백 유지
+    i = viewingIslandId
+      ? (state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state))
+      : homeIsland(state),
+    // 서버 모드 내 섬 홈이면 스냅샷(GROMO-2138) — 주민 색·오늘 집중을 서버 값으로 그린다
+    facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
   const scene = useMemo(
@@ -562,11 +581,84 @@ function FinalIslandScene({
       homePositions[positionKey] ?? (layeredPreview ? { x: 820, y: 535 } : { x: 585, y: 470 }),
     );
   const [pos, setPos] = useState(initial),
-    [walking, setWalking] = useState(false);
+    [walking, setWalking] = useState(false),
+    [left, setLeft] = useState(false),
+    [interactiveMotion, setInteractiveMotion] = useState<
+      'tilt' | 'stretch' | 'groom' | 'yawn' | null
+    >(null),
+    [motionGen, setMotionGen] = useState(0);
+  const tiltTimer = useRef<NodeJS.Timeout | null>(null);
+  const tapCountRef = useRef(0);
+  const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerMotion = (m: 'tilt' | 'stretch' | 'groom' | 'yawn', faceLeft?: boolean) => {
+    if (tiltTimer.current) {
+      clearTimeout(tiltTimer.current);
+      tiltTimer.current = null;
+    }
+    if (faceLeft !== undefined) setLeft(faceLeft);
+    setInteractiveMotion(m);
+    setMotionGen((g) => g + 1);
+    if (state.settings.reduceMotion) {
+      tiltTimer.current = setTimeout(() => {
+        setInteractiveMotion(null);
+      }, 500);
+    }
+  };
+  const triggerTilt = () => triggerMotion('tilt');
+  const transitionTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const navigateWithTilt = (targetRoute: Route) => {
+    triggerTilt();
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    const delay = state.settings.reduceMotion ? 0 : interactiveMotionDurationMs('tilt');
+    if (delay) {
+      transitionTimer.current = setTimeout(() => {
+        go(targetRoute);
+      }, delay);
+    } else {
+      go(targetRoute);
+    }
+  };
+
+  const scaleRef = useRef(1);
+
+  const handleCatPress = (e: any) => {
+    if (walking) return;
+    const catSize = 70 * scaleRef.current;
+    const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
+    const nativeX = e?.nativeEvent?.locationX ?? hitSize / 2;
+    const isTouchLeft = nativeX < hitSize / 2;
+    setLeft(isTouchLeft);
+
+    if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+    const count = tapCountRef.current % 4;
+    tapCountRef.current++;
+    tapResetTimer.current = setTimeout(() => {
+      tapCountRef.current = 0;
+    }, 4000);
+
+    const motionCycle: ('tilt' | 'stretch' | 'groom' | 'yawn')[] = isTouchLeft
+      ? ['tilt', 'groom', 'stretch', 'yawn']
+      : ['stretch', 'tilt', 'yawn', 'groom'];
+
+    triggerMotion(motionCycle[count]);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (tiltTimer.current) clearTimeout(tiltTimer.current);
+      if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+      if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    };
+  }, []);
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
     location = useRef(pos);
   const walk = (target: Point, done?: () => void) => {
+    if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    setInteractiveMotion(null);
     const path = scene
       ? villagePath(scene, location.current, target)
       : landPath(grid, location.current, nearestLand(grid, target));
@@ -576,16 +668,25 @@ function FinalIslandScene({
       setWalking(false);
       return;
     }
+    if (path.length > 1) {
+      setLeft(path[path.length - 1].x < location.current.x);
+    }
     setWalking(true);
     let idx = 1;
     const next = () => {
       if (t !== token.current) return;
       if (idx >= path.length) {
         setWalking(false);
+        if (pathDistance(path) >= 180) {
+          triggerMotion('stretch');
+        }
         done?.();
         return;
       }
       const p = path[idx++];
+      if (Math.abs(p.x - location.current.x) > 0.5) {
+        setLeft(p.x < location.current.x);
+      }
       Animated.timing(xy, {
         toValue: p,
         duration: state.settings.reduceMotion ? 0 : 95,
@@ -616,21 +717,36 @@ function FinalIslandScene({
     if (request && !visiting) {
       const d = Object.values(doors).find((d) => d.r === request);
       if (d) {
-        if (d.direct) go(request);
-        else walk(d, () => go(request));
+        if (d.direct) {
+          navigateWithTilt(request);
+        } else {
+          walk(d, () => {
+            navigateWithTilt(request);
+          });
+        }
       }
     }
   }, [request]);
 
   const wanderColors = useMemo(() => {
-    const others = i.members.filter((m) => m.id !== 'me').map((m) => m.color as Color);
-    const spare = (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
-      (c) => c !== state.color && !others.includes(c),
-    );
+    const myId = getSession()?.userId;
+    // 서버 주민 색은 고른 사람만 — catColor null 은 임의 색으로 채우지 않는다
+    const others = facts
+      ? facts.members.filter((m) => m.id !== myId && m.catColor).map((m) => catColor(m.catColor))
+      : i.members.filter((m) => m.id !== 'me').map((m) => m.color as Color);
+    // 모자란 자리를 보충 색으로 채우는 연출은 목업 섬에서만 — 서버 홈엔 없는 주민을 세우지 않는다
+    const spare = facts
+      ? []
+      : (['white', 'gray', 'ginger', 'calico', 'cream', 'black'] as Color[]).filter(
+          (c) => c !== state.color && !others.includes(c),
+        );
     return [...others, ...spare].slice(0, 2);
-  }, [i.members, state.color]);
+  }, [i.members, facts, state.color]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number) => {
+    scaleRef.current = s;
+    const catSize = 70 * s;
+    const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
     return (
       <>
         {Object.entries(doors)
@@ -662,7 +778,14 @@ function FinalIslandScene({
                     : undefined
                 }
                 onPress={() => {
-                  if (!visiting) return d.direct ? go(d.r) : walk(d, () => go(d.r));
+                  if (!visiting) {
+                    if (d.direct) {
+                      return navigateWithTilt(d.r);
+                    }
+                    return walk(d, () => {
+                      navigateWithTilt(d.r);
+                    });
+                  }
                   if (d.visitorRoute) return go(d.visitorRoute, i.id);
                   // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
                   if (d.building === 'hall') go('manage');
@@ -697,21 +820,49 @@ function FinalIslandScene({
         {/* 구경 중에는 내 고양이가 이 섬에 없다 */}
         {!visiting && (
           <Animated.View
-            pointerEvents="none"
+            testID="home-cat-container"
+            pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: Animated.multiply(xy.x, s),
-              top: Animated.multiply(xy.y, s),
-              zIndex: scene ? Math.round(pos.y) : undefined,
+              left: Animated.subtract(Animated.multiply(xy.x, s), hitSize / 2),
+              top: Animated.subtract(Animated.multiply(xy.y, s), catSize / 2 + hitSize / 2),
+              width: hitSize,
+              height: hitSize,
+              zIndex: scene ? Math.round(pos.y) : 25,
             }}
           >
             {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 이름표 없음 */}
-            <CatSprite
-              color={state.color}
-              size={70 * s}
-              motion={walking ? 'walking' : 'blink'}
-              reduce={state.settings.reduceMotion}
-            />
+            <Pressable
+              testID="home-cat-actor"
+              accessibilityRole="button"
+              accessibilityLabel="내 고양이"
+              onPress={handleCatPress}
+              style={{
+                width: hitSize,
+                height: hitSize,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  position: 'absolute',
+                  left: hitSize / 2,
+                  top: catSize / 2 + hitSize / 2,
+                }}
+              >
+                <CatSprite
+                  testID="home-cat-sprite"
+                  color={state.color}
+                  size={catSize}
+                  motion={motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'))}
+                  left={left}
+                  reduce={state.settings.reduceMotion}
+                  onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
+                  generation={motionGen}
+                />
+              </View>
+            </Pressable>
           </Animated.View>
         )}
       </>
@@ -722,9 +873,15 @@ function FinalIslandScene({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
-  const today = todayFocusSeconds(state, i.id);
+  const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
+    todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
+      .map((v) => String(v).padStart(2, '0'))
+      .join(':');
   const hudTop = L.landscape ? 14 : Math.max(64, L.insets.top + 5),
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
+    // 오른쪽 여백은 오른쪽 안전영역으로 따로 잡는다(노치가 오른쪽인 가로 방향) — 아래 집중 버튼과 같은 규칙
+    hudRight = L.landscape ? Math.max(56, L.insets.right + 4) : 20,
+    hudMax = Math.max(0, L.width - hudLeft - hudRight),
     rewardCount = claimableQuestRewardCount(state.rewards, i.id),
     showQuestIndicator =
       showHud &&
@@ -755,6 +912,9 @@ function FinalIslandScene({
         >
           <View
             pointerEvents="none"
+            // 섬 이름·오늘 집중·시간을 스크린리더가 한 번에 읽는다
+            accessible={!visiting}
+            accessibilityLabel={visiting ? undefined : `${i.name} 오늘 집중 ${todayClock}`}
             style={{
               backgroundColor: '#FFFDFAB3',
               borderRadius: 999,
@@ -764,7 +924,10 @@ function FinalIslandScene({
               flexDirection: 'row',
               alignItems: 'center',
               gap: 10,
-              minWidth: visiting ? undefined : 210,
+              // 섬 이름(최대 20자)이 길어도 화면 밖으로 밀리지 않게 폭을 묶어 이름만 말줄임한다.
+              // 아주 좁은 창에서 minWidth 가 maxWidth 를 이기지 않게 같은 상한으로 묶는다
+              minWidth: visiting ? undefined : Math.min(210, hudMax),
+              maxWidth: visiting ? undefined : hudMax,
             }}
           >
             {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
@@ -774,9 +937,19 @@ function FinalIslandScene({
               </Txt>
             ) : (
               <>
-                <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
-                  오늘 집중
-                </Txt>
+                {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
+                <View style={{ flexShrink: 1 }}>
+                  <Txt
+                    kind="meta"
+                    numberOfLines={1}
+                    style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '700' }}
+                  >
+                    {i.name}
+                  </Txt>
+                  <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
+                    오늘 집중
+                  </Txt>
+                </View>
                 <Txt
                   style={{
                     fontSize: 22,
@@ -786,9 +959,7 @@ function FinalIslandScene({
                     marginLeft: 'auto',
                   }}
                 >
-                  {[Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
-                    .map((v) => String(v).padStart(2, '0'))
-                    .join(':')}
+                  {todayClock}
                 </Txt>
               </>
             )}
@@ -805,7 +976,8 @@ function FinalIslandScene({
       )}
       {showActions && (
         <>
-          {!visiting && (i.construction || next) && (
+          {/* 서버 건설은 회관의 서버 경로 몫이다 — 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
+          {!visiting && !facts && (i.construction || next) && (
             <View
               style={{
                 position: 'absolute',

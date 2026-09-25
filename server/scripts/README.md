@@ -87,6 +87,7 @@ dev 의 `/var/lib/gromo/runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다**
 | `FOCUS_PRESENCE_ENABLED` | Data(같은 경로) | `false` — 프레즌스를 쓰지 않는다 |
 | `REALTIME_AUTHORIZATION_DATA_URL` · `SVC_TOKEN_REALTIME_TO_DATA` | Realtime(미배선) · Data(`realtime-authorization` 프로파일) | **응원(STOMP emote)만** 전량 거절(`UPSTREAM_UNAVAILABLE`) — 인가 정본인 `GET /internal/islands/*/focus-members` 를 부를 수 없어서다(GROMO-1765). 채팅·주민 관전(`/topic/islands/*/focus\|rest`)·Data 사건 전달은 영향 없다 |
 | `FOCUS_REWARD_ACCRUAL_ENABLED` | Data(같은 경로) | `false` — 분당 적립 크론이 돌지 않는다. 적립은 finish 가 한 번에 확정하므로 정상 종료는 제값을 받지만, **finish 를 안 거치는 강퇴·포기 세션은 그 시점까지의 몫을 못 받는다**. 켜는 것은 배포가 한 버전으로 수렴한 뒤 — 혼합 버전 창에서는 새 크론과 옛 `finish` 가 다른 멱등 키로 이중 지급한다 |
+| `ISLAND_BOARD_WRITES_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 섬 게시판 공지 작성·수정·삭제·댓글 작성·댓글 삭제 5종이 503 `NOTICE_WRITE_UNAVAILABLE`. BQ02·BQ03 는 2026-09-25 결정(GROMO-2136)으로 확정됐지만 prod 개방은 별도 릴리스 결정이라 기본값은 그대로 `false` |
 
 켜는 순서는 [runtime.md «dev 에서 켜는 순서»](../../docs/prd/fishcat/server-separation/runtime.md#dev-에서-켜는-순서)가 정본입니다. `REALTIME_AUTHORIZATION_*`·`SVC_TOKEN_REALTIME_TO_DATA`는 아직 compose 에 배선하지 않았습니다 — 기본 OFF 인 채팅 멤버십 인가와, **같은 값을 쓰는 응원 인가**(GROMO-1765)가 여기에 걸립니다. Data 쪽은 `realtime-authorization` 프로파일을 `DATA_API_PROFILES` 에 더해야 `realtime` caller 허용목록이 생깁니다.
 

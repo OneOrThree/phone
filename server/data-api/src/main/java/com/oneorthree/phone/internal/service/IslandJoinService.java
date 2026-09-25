@@ -186,7 +186,7 @@ public class IslandJoinService {
 
                     GroupMember membership = admit(user, island, prior);
                     context.moveTo(islandId);
-                    EventEnvelope members = membershipEvents.changed(islandId, userId, "MEMBER_ADDED");
+                    EventEnvelope members = membershipEvents.changed(islandId, userId, "MEMBER_ADDED", userId);
                     if (invitation != null) {
                         linkMembershipEventService.recordJoinAttribution(islandId, userId,
                                 invitation.getSlug(), "invite", membership.getMembershipEpoch());
@@ -363,7 +363,9 @@ public class IslandJoinService {
                         requireCapacity(island);
                         GroupMember membership = admit(applicant, island, prior);
                         request.approve();
-                        events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED"));
+                        // memberUserId 는 신청자(applicant)다 — actorId(userId) 는 승인한 방장이라, 방장 id 를
+                        // 주면 Realtime 이 엉뚱한 사람의 캐시를 지운다(GROMO-2140).
+                        events.add(membershipEvents.changed(islandId, userId, "MEMBER_ADDED", applicant.getId()));
                         if (invitation != null) {
                             linkMembershipEventService.recordJoinAttribution(islandId, applicant.getId(),
                                     invitation.getSlug(), "invite", membership.getMembershipEpoch());

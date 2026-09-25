@@ -21,6 +21,7 @@ import {
   Route,
   currentIsland,
   viewIsland,
+  serverHome,
   canVisit,
   buildingNames,
   costs,
@@ -71,6 +72,7 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import { CatSprite } from '@/components/CatSprite';
 import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
   art,
@@ -197,6 +199,19 @@ export function CurrentScreens({ e }: any) {
   return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
 }
 
+// 주민 화면 가드 판정(GROMO-2138). 서버 모드는 로컬 목업 섬 대신 서버 current 로 소속을,
+// 스냅샷의 완공 건물로 잠금을 본다. 스냅샷이 오기 전(built undefined)에는 잠그지 않는다 —
+// 각 건물 화면이 서버에서 다시 확인한다.
+export function memberGate(state: State, server: boolean) {
+  const i = currentIsland(state);
+  if (!server) return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
+  const facts = state.visitingIslandId ? null : serverHome(state);
+  return {
+    joined: state.serverIslands?.currentIslandId != null,
+    built: state.visitingIslandId ? viewIsland(state).buildings : facts?.completedBuildings,
+    host: facts?.home.island.role === 'host',
+  };
+}
 function CurrentScreensContent({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
@@ -235,7 +250,8 @@ function CurrentScreensContent({ e }: any) {
     'orders',
     'sound',
   ];
-  if (!i.joined && memberRoutes.includes(r))
+  const { joined, built, host } = memberGate(state, !!e.islands);
+  if (!joined && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
         <Txt kind="h17">가입한 섬이 없어요</Txt>
@@ -293,7 +309,7 @@ function CurrentScreensContent({ e }: any) {
     sound: 'gram',
   };
   const required = locked[r];
-  if (required && !viewIsland(state).buildings.includes(required))
+  if (required && built && !built.includes(required))
     return (
       <Overlay
         close={e.home}
@@ -307,10 +323,8 @@ function CurrentScreensContent({ e }: any) {
             : '완공 후 이용할 수 있어요.'}
         </Txt>
         <Btn
-          title={isHost(i) && i.buildings.includes('hall') ? '회관에서 다음 건물 보기' : '확인'}
-          onPress={() =>
-            isHost(i) && i.buildings.includes('hall') ? e.go('construction') : e.home()
-          }
+          title={host && built.includes('hall') ? '회관에서 다음 건물 보기' : '확인'}
+          onPress={() => (host && built.includes('hall') ? e.go('construction') : e.home())}
         />
       </Overlay>
     );
@@ -1503,7 +1517,27 @@ function FocusFlow({ e }: any) {
             },
           ]}
         >
-          <Text style={[fiTitle(18), { marginBottom: 4 }]}>집중 준비</Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 4,
+            }}
+          >
+            <Text style={fiTitle(18)}>집중 준비</Text>
+            <View style={{ width: 44, height: 44, position: 'relative' }}>
+              <View style={{ position: 'absolute', left: 22, top: 36 }}>
+                <CatSprite
+                  color={s.color}
+                  motion="tilt"
+                  size={44}
+                  reduce={reduce}
+                  testID="focus-setup-cat"
+                />
+              </View>
+            </View>
+          </View>
           <Text
             style={{
               fontSize: 12,
@@ -1666,6 +1700,7 @@ function FocusFlow({ e }: any) {
                   emote={
                     focusing ? (liveIslandId ? (emoteByUser.get(myId ?? '') ?? null) : emote) : null
                   }
+                  motion={r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined}
                   reduce={reduce}
                 />
               ) : (

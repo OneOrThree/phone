@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -44,6 +45,8 @@ public class GroupBetSettlementService {
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupBetSettler groupBetSettler;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * {@code settle_after} 가 지난 OPEN 회차를 정산한다 — 수동 트리거의 진입점.
@@ -53,7 +56,7 @@ public class GroupBetSettlementService {
       *     나머지는 계속 돈다
      */
     public GroupBetSettlementSummaryResponse settleDueBets(MissionCategory category) {
-        return settleDueBets(Instant.now(), category);
+        return settleDueBets(clock.instant(), category);
     }
 
     /**

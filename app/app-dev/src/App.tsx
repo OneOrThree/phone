@@ -101,7 +101,8 @@ import {
   type LoginResult,
   type Provider,
 } from '@/services/api/auth';
-import { ApiError } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getSession,
   restoreSession,
@@ -112,6 +113,8 @@ import {
 import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
+import { createShieldedRouteTransition } from '@/services/routeTransition';
+import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
 import {
@@ -243,6 +246,7 @@ function Gromo() {
     [islandBootError, setIslandBootError] = useState(false),
     [hasServerSession, setHasServerSession] = useState(() => getSession() !== null),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
+    [routeTransitionShielded, setRouteTransitionShielded] = useState(false),
     [history, setHistory] = useState<
       {
         route: Route;
@@ -303,6 +307,9 @@ function Gromo() {
     backOverride = useRef<(() => boolean) | null>(null),
     switchResolve = useRef<((ok: boolean) => void) | null>(null);
   const guestLoginFlight = useRef(false);
+  const transitionRoute = useRef(
+    createShieldedRouteTransition(setRouteTransitionShielded, setRoute),
+  ).current;
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -340,7 +347,7 @@ function Gromo() {
     setBody('');
     setSearch('');
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
-    setRoute(nextRoute);
+    transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
   const replace = (r: Route, id = '') => {
@@ -349,7 +356,7 @@ function Gromo() {
     setText('');
     setBody('');
     setSearch('');
-    setRoute(r);
+    transitionRoute(r);
   };
   const reset = (r: Route, id = '') => {
     setHistory([]);
@@ -358,7 +365,7 @@ function Gromo() {
     setText('');
     setBody('');
     setSearch('');
-    setRoute(r);
+    transitionRoute(r);
   };
   const back = () => {
     if (modal) {
@@ -376,18 +383,18 @@ function Gromo() {
     }
     if (history.length) {
       const previous = history[history.length - 1];
-      setRoute(previous.route);
+      transitionRoute(previous.route);
       setDetail(previous.detail);
       setTab(previous.tab);
       setText(previous.text);
       setBody(previous.body);
       setHistory((h) => h.slice(0, -1));
-    } else setRoute(state.onboarded ? 'home' : 'chooseIsland');
+    } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
   };
   const home = () => {
     setWalkRequest(null);
     setHistory([]);
-    setRoute('home');
+    transitionRoute('home');
   };
   const confirm = (
     title: string,
@@ -411,6 +418,33 @@ function Gromo() {
   });
   const islands = islandCmds.current.commands,
     syncIslands = islandCmds.current.syncIslands;
+  // ── 서버 모드 홈 스냅샷(GROMO-2138) ──
+  // 홈에 들어올 때마다(그리고 current 가 바뀌면) 불러 홈이 서버 값을 직접 그린다.
+  // 실패는 홈이 재시도로 띄운다 — 로컬 목업 섬으로 대신 그리지 않는다.
+  const [homeError, setHomeError] = useState(false),
+    [homeReload, setHomeReload] = useState(0);
+  const serverCurrent =
+    !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
+  const onHome = route === 'home';
+  useEffect(() => {
+    if (!loaded || !serverCurrent || !onHome) return;
+    let live = true;
+    setHomeError(false);
+    loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
+      .then((r) => {
+        if (!live) return;
+        if (r.status === 'loaded') dispatch({ type: 'SERVER_HOME', facts: r.facts });
+        // 그 사이 current 가 풀렸다(강퇴·다른 기기 해제) — 소속 동기화로 반영해 chooseIsland 로 보낸다
+        else dispatch({ type: 'ISLAND_SYNC', memberships: r.memberships });
+      })
+      .catch((thrown) => {
+        if (live && !(thrown instanceof ApiError && thrown.code === CLIENT_STALE_SESSION))
+          setHomeError(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [loaded, serverCurrent, onHome, homeReload]);
   // ── 집중 세션 서버 명령(GROMO-2009) ──
   // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
   const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);
@@ -493,12 +527,12 @@ function Gromo() {
     const session = stateRef.current.session;
     if (!serverSession()) {
       dispatch({ type: 'RESUME' });
-      setRoute('focus');
+      transitionRoute('focus');
       return;
     }
     focus
       .resume()
-      .then(() => setRoute('focus'))
+      .then(() => transitionRoute('focus'))
       .catch(async (error) => {
         if (await recoverExpiredRestConflict(error, session)) return;
         notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.');
@@ -1025,7 +1059,7 @@ function Gromo() {
   const walkTo = (r: Route) => {
     setWalkRequest(r);
     setHistory([]);
-    setRoute('home');
+    transitionRoute('home');
   };
   const build = (b: Building) => {
     const error = canBuild(state, b);
@@ -1081,6 +1115,7 @@ function Gromo() {
         e={{
           state,
           route,
+          routeTransitionShielded,
           dispatch,
           go,
           replace,
@@ -1139,6 +1174,9 @@ function Gromo() {
             });
           },
           islandBootError,
+          // 서버 모드 홈 스냅샷 실패 표시·재시도(GROMO-2138)
+          homeError,
+          retryHome: () => setHomeReload((n) => n + 1),
           // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
           conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
           playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,
@@ -1174,6 +1212,8 @@ function Gromo() {
         >
           <Animated.View
             key={reviewEpoch}
+            accessibilityElementsHidden={routeTransitionShielded}
+            importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
             style={{
               flex: 1,
               opacity: transition,
@@ -1190,6 +1230,7 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
+        <RouteTransitionShield visible={routeTransitionShielded} />
         {toast !== '' && (
           <View
             pointerEvents="none"
@@ -1216,6 +1257,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => setModal(null)}
               style={{
                 flex: 1,
@@ -1288,6 +1332,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => !convUi.busy && setConvUi(null)}
               style={{
                 flex: 1,
@@ -1368,6 +1415,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => settleSwitch(false)}
               style={{
                 flex: 1,

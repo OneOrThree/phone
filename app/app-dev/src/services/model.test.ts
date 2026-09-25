@@ -4,6 +4,7 @@ import {
   reducer,
   currentIsland,
   mainIsland,
+  serverHome,
   viewIsland,
   canVisit,
   visitorJoinState,
@@ -746,6 +747,17 @@ test('레거시 원장은 닉네임의 정확한 작성자 접두어만 삭제�
     s.islands[0].ledger.map((entry) => entry.id),
     ['other'],
   );
+});
+test('프로필 닉네임은 편집 중 빈 값이 되고 새 입력을 다시 반영한다', () => {
+  let s = initialState(true);
+  s = act(s, 'PROFILE', { name: '수' });
+  s = act(s, 'PROFILE', { name: '' });
+  assert.equal(s.name, '');
+  assert.deepEqual(s.profileNames, ['수빈', '수']);
+
+  s = act(s, 'PROFILE', { name: 'abc' });
+  assert.equal(s.name, 'abc');
+  assert.deepEqual(s.profileNames, ['수빈', '수', 'abc']);
 });
 test('공지·댓글·그룹 편지 실패와 재시도', () => {
   let s = initialState(true);
@@ -2310,4 +2322,43 @@ test('todayFocusSeconds — KST 자정 기준, 현재 섬만, 자정을 넘은 �
   };
   assert.equal(todayFocusSeconds(s, 'soda', now), 1800);
   assert.equal(todayFocusSeconds(s, 'strawberry', now), 600);
+});
+
+test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 스냅샷은 버린다(GROMO-2138)', () => {
+  const sync = (s: any, id: string) =>
+    act(s, 'ISLAND_SYNC', {
+      memberships: {
+        items: [sum('srv1'), sum('srv2')],
+        nextCursor: null,
+        currentIslandId: id,
+        lossReason: null,
+      },
+    });
+  let s = sync(initialState(), 'srv1');
+  assert.equal(serverHome(s), null);
+  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
+  assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
+  s = sync(s, 'srv2');
+  assert.equal(serverHome(s), null);
+  // 옛 섬으로 돌아와도(강퇴 뒤 재가입 포함) 새 스냅샷 전에는 옛 스냅샷을 되살리지 않는다
+  s = sync(s, 'srv1');
+  assert.equal(serverHome(s), null);
+  // 같은 current 재동기화는 스냅샷을 유지한다
+  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
+  s = sync(s, 'srv1');
+  assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
+});
+
+test('LOAD 는 저장된 홈 스냅샷을 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)', () => {
+  const stored = {
+    ...initialState(),
+    serverIslands: {
+      ...initialState().serverIslands,
+      currentIslandId: 'srv1',
+      home: { islandId: 'srv1' },
+    },
+  } as any;
+  const loaded = act(initialState(), 'LOAD', { state: stored });
+  assert.equal(loaded.serverIslands?.currentIslandId, 'srv1');
+  assert.equal(serverHome(loaded), null);
 });

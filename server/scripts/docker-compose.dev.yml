@@ -49,6 +49,9 @@ services:
       # 받지만 «finish 를 안 거치는» 강퇴·포기 세션은 그 시점까지의 몫을 못 받는다(그 경로는 크론만 메운다).
       # 배포가 한 버전으로 수렴한 뒤 켠다 — 혼합 버전 창의 이중 지급은 FocusRewardAccrualGate javadoc.
       FOCUS_REWARD_ACCRUAL_ENABLED: ${FOCUS_REWARD_ACCRUAL_ENABLED:-false}
+      # 섬 게시판 쓰기 4종 + 댓글 삭제 (GROMO-1771 · GROMO-2136). BQ02·BQ03 는 확정됐지만 기본은 여전히
+      # false — prod 개방은 별도 릴리스 결정이고, dev 는 여기서 켠다.
+      ISLAND_BOARD_WRITES_ENABLED: ${ISLAND_BOARD_WRITES_ENABLED:-false}
       REDIS_HOST: redis
     depends_on:
       db:

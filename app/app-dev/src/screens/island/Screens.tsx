@@ -27,6 +27,7 @@ import {
   Color,
   currentIsland,
   mainIsland,
+  serverHome,
   isHost,
   sessionSeconds,
   questRate,
@@ -59,6 +60,7 @@ import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
+import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
@@ -885,7 +887,17 @@ export function RedesignScreens({ e }: any) {
     detail
       ? reqList.find((r) => r.status === 'pending' && r.islandId === detail)
       : reqList.find((r) => r.status === 'pending');
-  // 서버 소속 확인 카드 — 생성·가입 성공과 재시작 복구에 공용. arrival은 열지 않는다
+  // 서버 current 가 정해졌을 때만 홈으로 들어간다(GROMO-2138) — 승인만 되고 current 가 null 이면
+  // 홈이 chooseIsland 로 되돌리므로 버튼을 띄우지 않는다. 홈은 서버 스냅샷을 직접 그린다
+  const enterHome = snap?.currentIslandId ? (
+    <Btn
+      id="enter-home"
+      title="섬으로 가기"
+      style={{ marginTop: 6 }}
+      onPress={() => reset('home')}
+    />
+  ) : null;
+  // 서버 소속 확인 카드 — 생성·가입 성공과 재시작 복구에 공용. arrival 연출은 건너뛰고 홈으로 간다
   const doneCard = (title: string, sub: string) => (
     <View
       style={{
@@ -902,6 +914,7 @@ export function RedesignScreens({ e }: any) {
       <Txt kind="meta" style={META}>
         {sub}
       </Txt>
+      {enterHome}
     </View>
   );
   // 섬 찾기·승인 대기 진입 시 첫 페이지와 pending 목록을 서버에서 가져온다(재실행 복구 포함).
@@ -997,6 +1010,7 @@ export function RedesignScreens({ e }: any) {
         build={build}
         showHud={route !== 'focusSetup'}
         showActions={false}
+        motion={route === 'focusSetup' ? 'tilt' : undefined}
       />
     </View>
   );
@@ -1352,7 +1366,13 @@ export function RedesignScreens({ e }: any) {
             </Txt>
           </View>
         }
-        cta={<Btn title="내 고양이와 시작" onPress={() => go('chooseIsland')} />}
+        cta={
+          <Btn
+            title="내 고양이와 시작"
+            disabled={!state.name.trim()}
+            onPress={() => go('chooseIsland')}
+          />
+        }
       >
         {!layout.compact && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>
@@ -1736,12 +1756,13 @@ export function RedesignScreens({ e }: any) {
         }
       >
         {serverDone ? (
-          // 서버 current 확인 상태 — rich 섬 데이터가 없어 arrival 로는 이동하지 않는다
+          // 서버 current 확인 상태 — arrival 연출 없이 홈(서버 스냅샷)으로 들어간다
           <View style={{ gap: 6 }}>
             <Txt style={H22}>섬을 만들었어요</Txt>
             <Txt kind="meta" style={META}>
               {`「${serverDone}」이 내 섬이 됐어요.`}
             </Txt>
+            {enterHome}
           </View>
         ) : null}
         {serverError ? (
@@ -2258,6 +2279,28 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
+  // 서버 모드 홈은 스냅샷이 올 때까지 로컬 목업 섬 대신 로딩·재시도를 보여 준다(GROMO-2138)
+  if (route === 'home' && server && !serverHome(state))
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: semanticTokens.spacing.control,
+          padding: semanticTokens.spacing.page,
+        }}
+      >
+        {e.homeError ? (
+          <>
+            <Txt style={H17}>섬 정보를 불러오지 못했어요</Txt>
+            <Btn kind="ghost" id="home-retry" title="다시 시도" onPress={e.retryHome} />
+          </>
+        ) : (
+          <Spinner reduce={state.settings.reduceMotion} />
+        )}
+      </View>
+    );
   if (route === 'home') {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
     const guideUserId = getSession()?.userId ?? 'local';
@@ -2280,6 +2323,7 @@ export function RedesignScreens({ e }: any) {
         )}
         {mailboxGuide && (
           <MailboxGuide
+            blocked={e.routeTransitionShielded}
             key={`${guideUserId}:${island.id}`}
             onDone={(openMailbox) => {
               dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
@@ -2312,7 +2356,19 @@ export function RedesignScreens({ e }: any) {
     return (
       <Overlay close={home} background={backgroundHome}>
         <View style={[k.row, { justifyContent: 'space-between' }]}>
-          <Txt kind="h">집중 준비</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Txt kind="h">집중 준비</Txt>
+            <View style={{ width: 36, height: 36, position: 'relative' }}>
+              <View style={{ position: 'absolute', left: 18, top: 30 }}>
+                <CatSprite
+                  color={state.color}
+                  motion="tilt"
+                  size={36}
+                  reduce={state.settings.reduceMotion}
+                />
+              </View>
+            </View>
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="닫기"
@@ -4812,6 +4868,7 @@ export function RedesignScreens({ e }: any) {
         </IslandSheet>
         {shopGuide && (
           <ShopGuide
+            blocked={e.routeTransitionShielded}
             onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })}
             onCancel={home}
           />
