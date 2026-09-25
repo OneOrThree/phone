@@ -51,6 +51,13 @@ import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens } from '@/design-system/tokens';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
+import {
+  BUILDING_TRANSITION_ROUTE,
+  createBuildingTransitionController,
+  type BuildingTransitionState,
+  type BuildingTransitionTarget,
+} from '@/services/buildingTransition';
+import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -223,7 +230,8 @@ export function WorldMap({
   emote?: string | null;
   showMailboxLetters?: boolean;
   village?: VillageScene;
-  children?: React.ReactNode | ((scale: number) => React.ReactNode);
+  children?:
+    React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
@@ -512,7 +520,12 @@ export function WorldMap({
             mailboxLetters={mailboxLetters}
           />
         )}
-        {typeof children === 'function' ? (children as any)(scale) : children}
+        {typeof children === 'function'
+          ? (children as (scale: number, project: (point: Point) => Point) => React.ReactNode)(
+              scale,
+              (point) => ({ x: left + point.x * scale, y: top + point.y * scale }),
+            )
+          : children}
       </View>
     </View>
   );
@@ -587,6 +600,15 @@ function FinalIslandScene({
       'tilt' | 'stretch' | 'groom' | 'yawn' | null
     >(null),
     [motionGen, setMotionGen] = useState(0);
+  const [buildingTransition, setBuildingTransition] = useState<BuildingTransitionState>({
+    phase: 'idle',
+    target: null,
+    direction: null,
+    generation: 0,
+  });
+  const buildingTransitionController = useRef(createBuildingTransitionController()).current;
+  const [transitionOrigin, setTransitionOrigin] = useState({ x: L.width / 2, y: L.height / 2 });
+  const buildingEntryPending = useRef(false);
   const tiltTimer = useRef<NodeJS.Timeout | null>(null);
   const tapCountRef = useRef(0);
   const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
@@ -622,6 +644,15 @@ function FinalIslandScene({
   };
 
   const scaleRef = useRef(1);
+  useEffect(
+    () =>
+      buildingTransitionController.subscribe((next) => {
+        setBuildingTransition(next);
+        if (next.phase === 'idle') buildingEntryPending.current = false;
+      }),
+    [buildingTransitionController],
+  );
+  useEffect(() => () => buildingTransitionController.dispose(), [buildingTransitionController]);
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -743,7 +774,7 @@ function FinalIslandScene({
     return [...others, ...spare].slice(0, 2);
   }, [i.members, facts, state.color]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
-  const actors = (s: number) => {
+  const actors = (s: number, project: (point: Point) => Point) => {
     scaleRef.current = s;
     const catSize = 70 * s;
     const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
@@ -782,9 +813,29 @@ function FinalIslandScene({
                     if (d.direct) {
                       return navigateWithTilt(d.r);
                     }
-                    return walk(d, () => {
-                      navigateWithTilt(d.r);
-                    });
+                    const transitionTarget =
+                      d.building && d.building in BUILDING_TRANSITION_ROUTE
+                        ? (d.building as BuildingTransitionTarget)
+                        : null;
+                    const enter = () => {
+                      if (!transitionTarget) {
+                        navigateWithTilt(d.r);
+                        return true;
+                      }
+                      setTransitionOrigin(project(d));
+                      return buildingTransitionController.start(
+                        transitionTarget,
+                        'enter',
+                        state.settings.reduceMotion,
+                        () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
+                      );
+                    };
+                    if (transitionTarget) {
+                      if (buildingEntryPending.current) return;
+                      buildingEntryPending.current = true;
+                      return walk(d, enter);
+                    }
+                    return walk(d, enter);
                   }
                   if (d.visitorRoute) return go(d.visitorRoute, i.id);
                   // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
@@ -1075,6 +1126,11 @@ function FinalIslandScene({
           </View>
         </>
       )}
+      <BuildingTransitionOverlay
+        state={buildingTransition}
+        reduceMotion={state.settings.reduceMotion}
+        origin={transitionOrigin}
+      />
     </View>
   );
 }

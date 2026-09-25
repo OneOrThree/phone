@@ -114,6 +114,15 @@ import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createShieldedRouteTransition } from '@/services/routeTransition';
+import {
+  BUILDING_TRANSITION_RETURN_TARGET,
+  createBuildingTransitionController,
+  cancelBuildingTransition,
+  isBuildingTransitionRouteCovered,
+  type BuildingTransitionTarget,
+  type BuildingTransitionState,
+} from '@/services/buildingTransition';
+import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOverlay';
 import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
@@ -310,6 +319,18 @@ function Gromo() {
   const transitionRoute = useRef(
     createShieldedRouteTransition(setRouteTransitionShielded, setRoute),
   ).current;
+  const fireTransitionController = useRef(createBuildingTransitionController()).current;
+  const [fireTransition, setFireTransition] = useState<BuildingTransitionState>({
+    phase: 'idle',
+    target: null,
+    direction: null,
+    generation: 0,
+  });
+  useEffect(
+    () => fireTransitionController.subscribe(setFireTransition),
+    [fireTransitionController],
+  );
+  useEffect(() => () => fireTransitionController.dispose(), [fireTransitionController]);
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -331,7 +352,7 @@ function Gromo() {
     islandId: state.serverIslands?.currentIslandId ?? null,
     dispatch,
   });
-  const go = (r: Route, id = '') => {
+  const performGo = (r: Route, id = '') => {
     const gateBoard = shouldGateScreenTimeBoard(r, {
       isIOS: Platform.OS === 'ios',
       promptSeen: !!state.settings.screenTimeBoardPromptSeen,
@@ -350,6 +371,20 @@ function Gromo() {
     transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
+  const go = (r: Route, id = '') => {
+    const direction =
+      route === 'focus' && r === 'rest'
+        ? 'enter'
+        : route === 'rest' && r === 'focus'
+          ? 'return'
+          : null;
+    if (!direction) return performGo(r, id);
+    return fireTransitionController.start('fire', direction, state.settings.reduceMotion, () =>
+      performGo(r, id),
+    );
+  };
+  const returnToIsland = (target: BuildingTransitionTarget, done: () => void) =>
+    fireTransitionController.start(target, 'return', state.settings.reduceMotion, done);
   const replace = (r: Route, id = '') => {
     setDetail(id);
     setTab('');
@@ -372,6 +407,7 @@ function Gromo() {
       setModal(null);
       return;
     }
+    if (cancelBuildingTransition()) return;
     if (backOverride.current?.()) return;
     if (route === 'focus' && state.session) {
       confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => finishSession());
@@ -383,18 +419,31 @@ function Gromo() {
     }
     if (history.length) {
       const previous = history[history.length - 1];
-      transitionRoute(previous.route);
-      setDetail(previous.detail);
-      setTab(previous.tab);
-      setText(previous.text);
-      setBody(previous.body);
-      setHistory((h) => h.slice(0, -1));
+      const restorePrevious = () => {
+        transitionRoute(previous.route);
+        setDetail(previous.detail);
+        setTab(previous.tab);
+        setText(previous.text);
+        setBody(previous.body);
+        setHistory((h) => h.slice(0, -1));
+      };
+      const target = BUILDING_TRANSITION_RETURN_TARGET[route];
+      if (previous.route === 'home' && target) {
+        returnToIsland(target, restorePrevious);
+        return;
+      }
+      restorePrevious();
     } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
   };
   const home = () => {
-    setWalkRequest(null);
-    setHistory([]);
-    transitionRoute('home');
+    const finish = () => {
+      setWalkRequest(null);
+      setHistory([]);
+      transitionRoute('home');
+    };
+    const target = BUILDING_TRANSITION_RETURN_TARGET[route];
+    if (target) returnToIsland(target, finish);
+    else finish();
   };
   const confirm = (
     title: string,
@@ -1230,7 +1279,15 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
-        <RouteTransitionShield visible={routeTransitionShielded} />
+        <RouteTransitionShield
+          visible={routeTransitionShielded}
+          coverLoading={isBuildingTransitionRouteCovered()}
+        />
+        <BuildingTransitionOverlay
+          state={fireTransition}
+          reduceMotion={state.settings.reduceMotion}
+          origin={{ x: layout.width / 2, y: layout.height / 2 }}
+        />
         {toast !== '' && (
           <View
             pointerEvents="none"

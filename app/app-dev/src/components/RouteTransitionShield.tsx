@@ -1,7 +1,14 @@
 import React from 'react';
 import { Pressable, StyleSheet } from 'react-native';
+import { semanticTokens } from '@/design-system/tokens';
 
-export function RouteTransitionShield({ visible }: { visible: boolean }) {
+export function RouteTransitionShield({
+  visible,
+  coverLoading = false,
+}: {
+  visible: boolean;
+  coverLoading?: boolean;
+}) {
   if (!visible) return null;
 
   return (
@@ -12,7 +19,13 @@ export function RouteTransitionShield({ visible }: { visible: boolean }) {
       importantForAccessibility="no-hide-descendants"
       pointerEvents="box-only"
       onPress={() => {}}
-      style={[StyleSheet.absoluteFill, { zIndex: 10 }]}
+      style={[
+        StyleSheet.absoluteFill,
+        {
+          zIndex: 10,
+          backgroundColor: coverLoading ? semanticTokens.color.canvas : 'transparent',
+        },
+      ]}
     />
   );
 }
