@@ -54,6 +54,7 @@ import { catColor } from '@/screens/focus/useIslandPresence';
 import {
   BUILDING_TRANSITION_ROUTE,
   createBuildingTransitionController,
+  runBuildingEntryWalk,
   type BuildingTransitionState,
   type BuildingTransitionTarget,
 } from '@/services/buildingTransition';
@@ -697,7 +698,7 @@ function FinalIslandScene({
     xy.stopAnimation();
     if (!path.length) {
       setWalking(false);
-      return;
+      return false;
     }
     if (path.length > 1) {
       setLeft(path[path.length - 1].x < location.current.x);
@@ -732,6 +733,7 @@ function FinalIslandScene({
       });
     };
     next();
+    return true;
   };
   useEffect(() => {
     const p = initial();
@@ -810,6 +812,7 @@ function FinalIslandScene({
                 }
                 onPress={() => {
                   if (!visiting) {
+                    if (buildingEntryPending.current) return;
                     if (d.direct) {
                       return navigateWithTilt(d.r);
                     }
@@ -831,9 +834,14 @@ function FinalIslandScene({
                       );
                     };
                     if (transitionTarget) {
-                      if (buildingEntryPending.current) return;
                       buildingEntryPending.current = true;
-                      return walk(d, enter);
+                      return runBuildingEntryWalk(
+                        (onArrival) => walk(d, onArrival),
+                        enter,
+                        () => {
+                          buildingEntryPending.current = false;
+                        },
+                      );
                     }
                     return walk(d, enter);
                   }
@@ -947,7 +955,13 @@ function FinalIslandScene({
         village={scene}
         islandId={i.id}
         showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
-        onSpot={visiting ? undefined : (p) => walk(p)}
+        onSpot={
+          visiting
+            ? undefined
+            : (p) => {
+                if (!buildingEntryPending.current) walk(p);
+              }
+        }
         children={actors as any}
       />
       {showHud && (
@@ -1120,7 +1134,9 @@ function FinalIslandScene({
                 round
                 title="집중하기"
                 id="depart-focus"
-                onPress={() => walk(doors.raft, () => go('focusTravel'))}
+                onPress={() => {
+                  if (!buildingEntryPending.current) walk(doors.raft, () => go('focusTravel'));
+                }}
               />
             )}
           </View>

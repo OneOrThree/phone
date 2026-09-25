@@ -6,6 +6,8 @@ import {
   cancelBuildingTransition,
   createBuildingTransitionController,
   isBuildingTransitionRouteCovered,
+  runBuildingEntryWalk,
+  subscribeBuildingTransitionRouteCover,
 } from './buildingTransition';
 
 describe('공통 건물 전환 계약', () => {
@@ -44,8 +46,59 @@ describe('공통 건물 전환 계약', () => {
       jest.advanceTimersByTime(1);
       expect(navigate).toHaveBeenCalledTimes(1);
       expect(controller.getState().phase).toBe('idle');
+      jest.advanceTimersByTime(900);
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
     } finally {
       controller.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('walk 경로가 없을 때 건물 진입 대기 플래그를 해제한다', () => {
+    let pending = true;
+    const start = jest.fn(() => true);
+    const walked = runBuildingEntryWalk(
+      () => false,
+      start,
+      () => (pending = false),
+    );
+    expect(walked).toBe(false);
+    expect(start).not.toHaveBeenCalled();
+    expect(pending).toBe(false);
+  });
+
+  it('controller가 시작을 거부하면 walk 완료 후 대기 플래그를 해제한다', () => {
+    let pending = true;
+    let onArrival: () => void = () => {};
+    const started = runBuildingEntryWalk(
+      (callback) => {
+        onArrival = callback;
+        return true;
+      },
+      () => false,
+      () => (pending = false),
+    );
+    expect(started).toBe(true);
+    expect(pending).toBe(true);
+    onArrival();
+    expect(pending).toBe(false);
+  });
+
+  it('비활성 controller를 dispose해도 다른 controller의 진행 중 전환은 유지한다', () => {
+    jest.useFakeTimers();
+    const activeController = createBuildingTransitionController();
+    const inactiveController = createBuildingTransitionController();
+    const navigate = jest.fn();
+    try {
+      expect(activeController.start('hall', 'enter', false, navigate)).toBe(true);
+      expect(inactiveController.start('board', 'enter', false, jest.fn())).toBe(false);
+      inactiveController.dispose();
+      expect(cancelBuildingTransition()).toBe(true);
+      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(activeController.getState().phase).toBe('idle');
+    } finally {
+      activeController.dispose();
       jest.useRealTimers();
     }
   });
@@ -86,6 +139,8 @@ describe('공통 건물 전환 계약', () => {
       expect(navigate).not.toHaveBeenCalled();
       jest.advanceTimersByTime(1);
       expect(navigate).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(900);
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
     } finally {
       controller.dispose();
       jest.useRealTimers();
@@ -105,6 +160,51 @@ describe('공통 건물 전환 계약', () => {
       expect(isBuildingTransitionRouteCovered()).toBe(false);
     } finally {
       controller.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('route-cover 변경을 구독자에게 알리고 controller dispose 후에도 만료까지 유지한다', () => {
+    jest.useFakeTimers();
+    const controller = createBuildingTransitionController();
+    const onCovered = jest.fn();
+    const unsubscribe = subscribeBuildingTransitionRouteCover(onCovered);
+    try {
+      controller.start('shop', 'enter', false, jest.fn(), 10);
+      jest.advanceTimersByTime(10);
+      expect(isBuildingTransitionRouteCovered()).toBe(true);
+      expect(onCovered).toHaveBeenLastCalledWith(true);
+      controller.dispose();
+      jest.advanceTimersByTime(899);
+      expect(isBuildingTransitionRouteCovered()).toBe(true);
+      jest.advanceTimersByTime(1);
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
+      expect(onCovered).toHaveBeenLastCalledWith(false);
+    } finally {
+      unsubscribe();
+      controller.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('서로 다른 전환의 route-cover 만료가 다른 cover를 먼저 해제하지 않는다', () => {
+    jest.useFakeTimers();
+    const first = createBuildingTransitionController();
+    const second = createBuildingTransitionController();
+    try {
+      first.start('hall', 'enter', false, jest.fn(), 10);
+      jest.advanceTimersByTime(10);
+      second.start('board', 'enter', false, jest.fn(), 10);
+      jest.advanceTimersByTime(10);
+      jest.advanceTimersByTime(880);
+      expect(isBuildingTransitionRouteCovered()).toBe(true);
+      jest.advanceTimersByTime(10);
+      expect(isBuildingTransitionRouteCovered()).toBe(true);
+      jest.advanceTimersByTime(10);
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
+    } finally {
+      first.dispose();
+      second.dispose();
       jest.useRealTimers();
     }
   });

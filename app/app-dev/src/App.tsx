@@ -119,6 +119,7 @@ import {
   createBuildingTransitionController,
   cancelBuildingTransition,
   isBuildingTransitionRouteCovered,
+  subscribeBuildingTransitionRouteCover,
   type BuildingTransitionTarget,
   type BuildingTransitionState,
 } from '@/services/buildingTransition';
@@ -326,10 +327,14 @@ function Gromo() {
     direction: null,
     generation: 0,
   });
+  const [buildingRouteCovered, setBuildingRouteCovered] = useState(
+    isBuildingTransitionRouteCovered,
+  );
   useEffect(
     () => fireTransitionController.subscribe(setFireTransition),
     [fireTransitionController],
   );
+  useEffect(() => subscribeBuildingTransitionRouteCover(setBuildingRouteCovered), []);
   useEffect(() => () => fireTransitionController.dispose(), [fireTransitionController]);
   const island = currentIsland(state),
     qaBuildingsReady =
@@ -1281,7 +1286,7 @@ function Gromo() {
         </KeyboardAvoidingView>
         <RouteTransitionShield
           visible={routeTransitionShielded}
-          coverLoading={isBuildingTransitionRouteCovered()}
+          coverLoading={buildingRouteCovered}
         />
         <BuildingTransitionOverlay
           state={fireTransition}
