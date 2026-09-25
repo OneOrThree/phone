@@ -1,0 +1,92 @@
+element_num,depth,attributes,parent_num
+0,0,"bounds=[0,0][0,0]",
+1,1,"accessibilityText=GROMO; bounds=[0,0][834,1210]; enabled=true; enabled=true",0
+2,2,"bounds=[0,0][834,1210]; enabled=true; enabled=true",1
+3,3,"bounds=[0,0][834,1210]; enabled=true; enabled=true",2
+4,4,"bounds=[0,0][834,1210]; enabled=true; enabled=true",3
+5,5,"bounds=[0,0][834,1210]; enabled=true; enabled=true",4
+6,6,"bounds=[0,0][834,1210]; enabled=true; enabled=true",5
+7,7,"bounds=[0,0][834,1210]; enabled=true; enabled=true",6
+8,8,"bounds=[0,0][834,1210]; enabled=true; enabled=true",7
+9,9,"bounds=[0,0][834,1210]; enabled=true; enabled=true",8
+10,10,"bounds=[0,0][834,1210]; enabled=true; enabled=true",9
+11,11,"bounds=[0,0][834,1210]; enabled=true; enabled=true",10
+77,12,"bounds=[0,0][834,1210]; enabled=true; enabled=true",11
+78,13,"bounds=[0,0][834,1210]; enabled=true; enabled=true",77
+78,12,"bounds=[0,0][834,1210]; enabled=true; enabled=true",11
+15,12,"bounds=[157,48][249,140]; enabled=true; enabled=true",11
+16,13,"bounds=[157,48][249,140]; enabled=true; enabled=true",15
+17,14,"bounds=[167,58][239,130]; enabled=true; enabled=true",16
+18,15,"bounds=[167,58][239,130]; enabled=true; enabled=true",17
+19,12,"bounds=[137,82][697,1163]; enabled=true; enabled=true",11
+20,12,"accessibilityText=뒤로; bounds=[249,107][283,141]; enabled=true; enabled=true",11
+21,12,"accessibilityText=앱 설정; bounds=[289,108][643,140]; enabled=true; enabled=true",11
+22,13,"accessibilityText=앱 설정; bounds=[289,108][643,140]; enabled=true; enabled=true",21
+23,12,"accessibilityText=닫기; bounds=[649,107][683,141]; enabled=true; enabled=true",11
+24,12,"resource-id=island-sheet-content-clip; bounds=[139,156][695,1161]; enabled=true; enabled=true",11
+25,13,"bounds=[139,156][695,1161]; enabled=true; enabled=true",24
+26,14,"bounds=[139,156][695,1161]; enabled=true; enabled=true",25
+27,15,"bounds=[139,156][695,964]; enabled=true; enabled=true",26
+28,16,"bounds=[139,156][695,964]; enabled=true; enabled=true",27
+29,17,"accessibilityText=알림·소리; bounds=[159,172][675,196]; enabled=true; enabled=true",28
+30,18,"accessibilityText=알림·소리; bounds=[159,172][675,196]; enabled=true; enabled=true",29
+31,17,"bounds=[159,206][675,384]; enabled=true; enabled=true",28
+32,18,"bounds=[161,208][673,266]; enabled=true; enabled=true",31
+33,18,"accessibilityText=알림; bounds=[175,224][601,250]; enabled=true; enabled=true",31
+34,19,"accessibilityText=알림; bounds=[175,224][601,250]; enabled=true; enabled=true",33
+35,18,"accessibilityText=알림; value=1; text=1; bounds=[613,223][659,251]; enabled=true; checked=true; enabled=true; checked=true",31
+36,18,"bounds=[161,266][673,324]; enabled=true; enabled=true",31
+37,18,"accessibilityText=소리; bounds=[175,283][601,309]; enabled=true; enabled=true",31
+38,19,"accessibilityText=소리; bounds=[175,283][601,309]; enabled=true; enabled=true",37
+39,18,"accessibilityText=소리; value=1; text=1; bounds=[613,282][659,310]; enabled=true; checked=true; enabled=true; checked=true",31
+40,18,"bounds=[161,324][673,382]; enabled=true; enabled=true",31
+41,18,"accessibilityText=가벼운 진동; bounds=[175,341][601,367]; enabled=true; enabled=true",31
+42,19,"accessibilityText=가벼운 진동; bounds=[175,341][601,367]; enabled=true; enabled=true",41
+43,18,"accessibilityText=가벼운 진동; value=1; text=1; bounds=[613,340][659,368]; enabled=true; checked=true; enabled=true; checked=true",31
+44,17,"accessibilityText=화면; bounds=[159,400][675,424]; enabled=true; enabled=true",28
+45,18,"accessibilityText=화면; bounds=[159,400][675,424]; enabled=true; enabled=true",44
+46,17,"bounds=[159,434][675,510]; enabled=true; enabled=true",28
+47,18,"bounds=[161,436][673,508]; enabled=true; enabled=true",46
+48,18,"accessibilityText=동작 줄이기; bounds=[175,447][601,473]; enabled=true; enabled=true",46
+49,19,"accessibilityText=동작 줄이기; bounds=[175,447][601,473]; enabled=true; enabled=true",48
+50,18,"accessibilityText=동작 줄이기; value=0; text=0; bounds=[613,458][659,486]; enabled=true; enabled=true",46
+51,18,"accessibilityText=이동·전환 애니메이션을 줄여요; bounds=[175,475][601,497]; enabled=true; enabled=true",46
+52,19,"accessibilityText=이동·전환 애니메이션을 줄여요; bounds=[175,475][601,497]; enabled=true; enabled=true",51
+53,17,"accessibilityText=권한; bounds=[159,526][675,550]; enabled=true; enabled=true",28
+54,18,"accessibilityText=권한; bounds=[159,526][675,550]; enabled=true; enabled=true",53
+55,17,"bounds=[159,560][675,636]; enabled=true; enabled=true",28
+56,18,"accessibilityText=앱 권한 관리, 스크린타임 권한 · 측정 앱; bounds=[161,562][673,634]; enabled=true; enabled=true",55
+57,17,"accessibilityText=도움말; bounds=[159,652][675,676]; enabled=true; enabled=true",28
+58,18,"accessibilityText=도움말; bounds=[159,652][675,676]; enabled=true; enabled=true",57
+59,17,"bounds=[159,686][675,762]; enabled=true; enabled=true",28
+60,18,"accessibilityText=튜토리얼 다시보기, 앵무새 안내를 처음부터 다시 봐요; bounds=[161,688][673,760]; enabled=true; enabled=true",59
+61,17,"accessibilityText=앱 정보; bounds=[159,778][675,802]; enabled=true; enabled=true",28
+62,18,"accessibilityText=앱 정보; bounds=[159,778][675,802]; enabled=true; enabled=true",61
+63,17,"bounds=[159,812][675,946]; enabled=true; enabled=true",28
+64,18,"bounds=[161,814][673,886]; enabled=true; enabled=true",63
+65,18,"accessibilityText=버전; bounds=[175,825][659,851]; enabled=true; enabled=true",63
+66,19,"accessibilityText=버전; bounds=[175,825][659,851]; enabled=true; enabled=true",65
+67,18,"accessibilityText=R61 · v2; bounds=[175,853][659,875]; enabled=true; enabled=true",63
+68,19,"accessibilityText=R61 · v2; bounds=[175,853][659,875]; enabled=true; enabled=true",67
+69,18,"accessibilityText=이용약관 · 개인정보; bounds=[161,886][673,944]; enabled=true; enabled=true",63
+72,15,"accessibilityText=Horizontal scroll bar, 1 page; value=0%; text=0%; bounds=[139,1128][695,1158]; enabled=true; enabled=true",26
+73,16,"bounds=[142,1155][692,1158]; enabled=true; enabled=true",72
+72,15,"accessibilityText=Horizontal scroll bar, 1 page; value=0%; text=0%; bounds=[139,1128][695,1158]; enabled=true; enabled=true",26
+73,16,"bounds=[142,1155][692,1158]; enabled=true; enabled=true",72
+74,11,"bounds=[8,40][52,72]; enabled=true; enabled=true",10
+75,12,"accessibilityText=QA route menu; resource-id=gromo-2057-open-route-picker; bounds=[8,40][52,72]; enabled=true; enabled=true",74
+76,9,"bounds=[0,0][834,1210]; enabled=true; enabled=true",8
+77,10,"bounds=[0,0][834,1210]; enabled=true; enabled=true",76
+78,11,"bounds=[0,0][834,1210]; enabled=true; enabled=true",77
+79,1,"bounds=[0,0][0,0]",0
+80,2,"bounds=[0,0][834,32]; enabled=true; enabled=true",79
+81,2,"bounds=[0,0][834,32]; enabled=true; enabled=true",79
+82,3,"bounds=[0,0][834,32]; enabled=true; enabled=true",81
+83,4,"bounds=[0,0][834,32]; enabled=true; enabled=true",82
+84,5,"bounds=[25,11][379,21]; enabled=true; enabled=true",83
+85,6,"accessibilityText=4:38 PM; bounds=[25,7][79,24]; enabled=true; enabled=true",84
+86,6,"accessibilityText=Fri Sep 25; bounds=[89,7][157,24]; enabled=true; enabled=true",84
+87,5,"bounds=[455,11][808,21]; enabled=true; enabled=true",83
+88,6,"value=SSID, 3 of 3 Wi-Fi bars; text=SSID, 3 of 3 Wi-Fi bars; resource-id=3 of 3 Wi-Fi bars; bounds=[719,11][734,21]; enabled=true; enabled=true",87
+89,6,"accessibilityText=100%; bounds=[738,7][778,24]; enabled=true; enabled=true",87
+90,6,"accessibilityText=100% battery power; value=Not charging; text=Not charging; bounds=[780,9][808,22]; enabled=true; enabled=true",87

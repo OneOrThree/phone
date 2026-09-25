@@ -37,6 +37,10 @@ import { useAppLayout } from '@/utils/layout';
 // 꽉 채우는 그림. 웹(react-native-web)은 absoluteFill만 주면 원본 픽셀 크기로 그려서 폭·높이를 같이 준다
 const fill: ImageStyle = { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' };
 
+const ISLAND_SHEET_RADIUS = 30;
+const ISLAND_SHEET_BORDER_WIDTH = 2;
+const ISLAND_SHEET_CONTENT_RADIUS = ISLAND_SHEET_RADIUS - ISLAND_SHEET_BORDER_WIDTH;
+
 export type IslandBgKey =
   'hall' | 'board' | 'tower' | 'mail' | 'shop' | 'dock' | 'gram' | 'fire' | 'library';
 
@@ -180,9 +184,9 @@ export function IslandSheet({
         bottom: 0,
         right: 0,
         width: Math.min(540 + right, L.width - ins.left - 80),
-        borderLeftWidth: 2,
-        borderTopLeftRadius: 30,
-        borderBottomLeftRadius: 30,
+        borderLeftWidth: ISLAND_SHEET_BORDER_WIDTH,
+        borderTopLeftRadius: ISLAND_SHEET_RADIUS,
+        borderBottomLeftRadius: ISLAND_SHEET_RADIUS,
         boxShadow: '-5px 0px 0px #8B695640',
       }
     : L.tablet
@@ -191,8 +195,8 @@ export function IslandSheet({
           height: cardH,
           left: (L.width - L.modalWidth) / 2,
           top: (L.height - cardH) / 2 + 18,
-          borderWidth: 2,
-          borderRadius: 30,
+          borderWidth: ISLAND_SHEET_BORDER_WIDTH,
+          borderRadius: ISLAND_SHEET_RADIUS,
           boxShadow: `0px 6px 0px ${C.brown}`,
         }
       : {
@@ -329,35 +333,45 @@ export function IslandSheet({
           )}
           <CloseX onPress={onClose} size={34} font={19} />
         </View>
-        <ScrollView
-          ref={scrollRef}
-          style={{ flex: 1 }}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{
-            gap: tight && !panel ? 10 : g.gap,
-            paddingTop: g.padTop,
-            paddingLeft: g.padX,
-            paddingRight: g.padX + right,
-            paddingBottom: footer ? 12 : endPad,
+        <View
+          testID="island-sheet-content-clip"
+          style={{
+            flex: 1,
+            overflow: 'hidden',
+            borderBottomLeftRadius: panel || L.tablet ? ISLAND_SHEET_CONTENT_RADIUS : 0,
+            borderBottomRightRadius: L.tablet ? ISLAND_SHEET_CONTENT_RADIUS : 0,
           }}
         >
-          {children}
-        </ScrollView>
-        {!!footer && (
-          <View
-            onLayout={(e) => setFootH(e.nativeEvent.layout.height)}
-            style={{
-              gap: 8,
-              paddingTop: panel ? 8 : 10,
+          <ScrollView
+            ref={scrollRef}
+            style={{ flex: 1 }}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={{
+              gap: tight && !panel ? 10 : g.gap,
+              paddingTop: g.padTop,
               paddingLeft: g.padX,
               paddingRight: g.padX + right,
-              paddingBottom: endPad,
+              paddingBottom: footer ? 12 : endPad,
             }}
           >
-            {footer}
-          </View>
-        )}
+            {children}
+          </ScrollView>
+          {!!footer && (
+            <View
+              onLayout={(e) => setFootH(e.nativeEvent.layout.height)}
+              style={{
+                gap: 8,
+                paddingTop: panel ? 8 : 10,
+                paddingLeft: g.padX,
+                paddingRight: g.padX + right,
+                paddingBottom: endPad,
+              }}
+            >
+              {footer}
+            </View>
+          )}
+        </View>
         {/* 가로 패널·태블릿 카드에서는 상자 안(.lpanel .toast) */}
         {!!toast && (panel || L.tablet) && (
           <SheetToast text={toast} bottom={(footer ? footH : 0) + 14} right={right} />
