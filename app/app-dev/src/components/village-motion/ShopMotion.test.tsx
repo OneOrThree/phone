@@ -36,6 +36,22 @@ describe('ShopMotion', () => {
     await view.unmount();
   });
 
+  it('plays the storefront frames immediately on building entry and holds the open frame', async () => {
+    const view = await render(<ShopMotion />);
+    await view.rerender(<ShopMotion trigger={1} entryActive />);
+
+    await act(async () => jest.advanceTimersByTime(150));
+    expect(activeFrame(view)).toBe(1);
+    await act(async () => jest.advanceTimersByTime(300));
+    expect(activeFrame(view)).toBe(3);
+    await act(async () => jest.advanceTimersByTime(20_000));
+    expect(activeFrame(view)).toBe(3);
+
+    await view.rerender(<ShopMotion trigger={1} entryActive={false} />);
+    expect(activeFrame(view)).toBe(0);
+    await view.unmount();
+  });
+
   it.each([
     ['normal', '상점'],
     ['new-product', '상점, 새 상품'],

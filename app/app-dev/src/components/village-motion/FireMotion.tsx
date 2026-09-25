@@ -8,7 +8,6 @@ import {
   type ImageSourcePropType,
   type ViewStyle,
 } from 'react-native';
-import { semanticTokens } from '@/design-system/tokens';
 
 export type FireMotionMode = 'day' | 'evening';
 
@@ -95,9 +94,6 @@ export const FireMotion = memo(function FireMotionView({
       pointerEvents="none"
       style={[styles.fill, style]}
     >
-      {mode === 'evening' && (
-        <View testID="fire-motion-glow" pointerEvents="none" style={styles.glow} />
-      )}
       {frames.map((source, index) => (
         <Image
           key={index}
@@ -113,16 +109,6 @@ export const FireMotion = memo(function FireMotionView({
 
 const styles = StyleSheet.create({
   fill: { width: '100%', height: '100%', aspectRatio: 116 / 77 },
-  glow: {
-    position: 'absolute',
-    top: '18%',
-    left: '17%',
-    width: '66%',
-    height: '66%',
-    borderRadius: 999,
-    backgroundColor: semanticTokens.color.accent,
-    opacity: 0.22,
-  },
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },

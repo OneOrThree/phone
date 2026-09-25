@@ -52,6 +52,8 @@ import { componentTokens } from '@/design-system/tokens';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import {
+  BUILDING_ENTRY_DURATION_MS,
+  BUILDING_SPRITE_LEAD_IN_MS,
   BUILDING_TRANSITION_ROUTE,
   createBuildingTransitionController,
   runBuildingEntryWalk,
@@ -240,6 +242,8 @@ export function WorldMap({
   libraryArrivalGeneration = 0,
   towerArrivalActive = false,
   towerArrivalGeneration = 0,
+  shopArrivalActive = false,
+  shopArrivalGeneration = 0,
   village,
   children,
 }: {
@@ -259,6 +263,8 @@ export function WorldMap({
   libraryArrivalGeneration?: number;
   towerArrivalActive?: boolean;
   towerArrivalGeneration?: number;
+  shopArrivalActive?: boolean;
+  shopArrivalGeneration?: number;
   village?: VillageScene;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
@@ -266,18 +272,25 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
+  const demoDay =
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('demo') &&
+    !new URLSearchParams(window.location.search).has('night');
   const [dayNight, setDayNight] = useState<'day' | 'night'>(() => {
+    if (demoDay) return 'day';
     const hour = new Date().getHours();
     return hour >= 6 && hour < 18 ? 'day' : 'night';
   });
   useEffect(() => {
+    if (demoDay) return;
     const updateLocalTime = () => {
       const hour = new Date().getHours();
       setDayNight(hour >= 6 && hour < 18 ? 'day' : 'night');
     };
     const timer = setInterval(updateLocalTime, 60_000);
     return () => clearInterval(timer);
-  }, []);
+  }, [demoDay]);
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
@@ -571,6 +584,8 @@ export function WorldMap({
             <ShopMotion
               testID="world-shop-motion"
               state={shopState}
+              trigger={shopArrivalActive ? shopArrivalGeneration : 0}
+              entryActive={shopArrivalActive}
               showFrames={dayNight === 'day'}
               reduceMotion={state.settings.reduceMotion}
               style={{
@@ -587,6 +602,7 @@ export function WorldMap({
               testID="world-library-motion"
               state={libraryState}
               trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
+              entryActive={libraryArrivalActive}
               showFrames={dayNight === 'day'}
               reduceMotion={state.settings.reduceMotion}
               style={{
@@ -1028,6 +1044,7 @@ function FinalIslandScene({
                         'enter',
                         state.settings.reduceMotion,
                         () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
+                        BUILDING_ENTRY_DURATION_MS,
                       );
                     };
                     if (transitionTarget) {
@@ -1167,6 +1184,10 @@ function FinalIslandScene({
           buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
         }
         towerArrivalGeneration={buildingTransition.generation}
+        shopArrivalActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'shop'
+        }
+        shopArrivalGeneration={buildingTransition.generation}
         showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
         onSpot={
           visiting
@@ -1359,6 +1380,7 @@ function FinalIslandScene({
         state={buildingTransition}
         reduceMotion={state.settings.reduceMotion}
         origin={transitionOrigin}
+        delayMs={buildingTransition.direction === 'enter' ? BUILDING_SPRITE_LEAD_IN_MS : 0}
       />
     </View>
   );
@@ -1376,11 +1398,21 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         new URLSearchParams(window.location.search).get('village') === 'layered') ||
         process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
+  const demoMotionStates =
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('demo');
   return (
     <View style={{ flex: 1 }}>
       <FinalIslandScene
         key={layered ? 'layered' : 'original'}
         {...props}
+        boardStatus={props.boardStatus ?? (demoMotionStates ? 'new-comment' : undefined)}
+        observatoryRankState={
+          props.observatoryRankState ?? (demoMotionStates ? 'rank-updated' : undefined)
+        }
+        shopState={props.shopState ?? (demoMotionStates ? 'purchasable' : undefined)}
+        libraryState={props.libraryState ?? (demoMotionStates ? 'new-reading' : undefined)}
         layeredPreview={layered}
       />
       {CAN_PREVIEW_VILLAGE && props.showHud !== false && props.showActions !== false && (

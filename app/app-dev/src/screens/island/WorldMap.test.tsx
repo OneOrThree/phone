@@ -3,7 +3,7 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { Animated } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
-import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
+import { BUILDING_ENTRY_DURATION_MS } from '@/services/buildingTransition';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -168,6 +168,22 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   jest.useRealTimers();
 });
 
+test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const screen = await render(<WorldMap state={state} />);
+
+  await screen.rerender(<WorldMap state={state} shopArrivalActive shopArrivalGeneration={1} />);
+  await act(async () => jest.advanceTimersByTime(150));
+  expect(screen.getByTestId('shop-motion-frame-1').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌표와 접근성 문구로 알린다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
@@ -229,7 +245,7 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
   expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
     '모닥불, 저녁, 불꽃',
   );
-  expect(night.getByTestId('fire-motion-glow')).toBeTruthy();
+  expect(night.queryByTestId('fire-motion-glow')).toBeNull();
   await night.unmount();
   jest.useRealTimers();
 });
@@ -317,7 +333,7 @@ test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 
     ).toBeTruthy();
 
     await act(async () => {
-      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+      jest.advanceTimersByTime(BUILDING_ENTRY_DURATION_MS);
     });
     expect(go).toHaveBeenCalledTimes(1);
     expect(go).toHaveBeenCalledWith('hall');

@@ -70,6 +70,27 @@ test('진입 시 선택한 원점을 중심으로 화면 전체를 덮는 확대
   }
 });
 
+test('건물 프레임을 먼저 보여 줄 때는 지정 시간 뒤 확대 애니메이션을 잇는다', async () => {
+  const delay = jest.spyOn(Animated, 'delay');
+  const sequence = jest.spyOn(Animated, 'sequence');
+  try {
+    await render(
+      <BuildingTransitionOverlay
+        state={state()}
+        reduceMotion={false}
+        origin={{ x: 75, y: 125 }}
+        delayMs={660}
+      />,
+    );
+
+    expect(delay).toHaveBeenCalledWith(660);
+    expect(sequence).toHaveBeenCalled();
+  } finally {
+    delay.mockRestore();
+    sequence.mockRestore();
+  }
+});
+
 test('복귀 시 축소 방향 애니메이션을 시작한다', async () => {
   const timing = jest.spyOn(Animated, 'timing');
   try {

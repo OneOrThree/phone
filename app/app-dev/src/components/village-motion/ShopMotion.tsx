@@ -1,4 +1,4 @@
-import React, { memo, useContext, useEffect, useState } from 'react';
+import React, { memo, useContext, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { semanticTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
@@ -19,12 +19,16 @@ const idleIntervalMs = 20_000;
 /** 상점 아트 전용 애니메이션. 실제 섬 좌표와 확대 배율은 부모가 전달한다. */
 export const ShopMotion = memo(function ShopMotionView({
   state = 'normal',
+  trigger = 0,
+  entryActive = false,
   reduceMotion = false,
   showFrames = true,
   style,
   testID = 'shop-motion',
 }: {
   state?: ShopMotionState;
+  trigger?: number;
+  entryActive?: boolean;
   reduceMotion?: boolean;
   showFrames?: boolean;
   style?: ViewStyle;
@@ -32,9 +36,23 @@ export const ShopMotion = memo(function ShopMotionView({
 }) {
   const motionDisabled = useContext(MotionContext) || reduceMotion;
   const [frame, setFrame] = useState(0);
+  const lastTrigger = useRef(trigger);
 
   useEffect(() => {
-    if (motionDisabled || !showFrames) {
+    if (motionDisabled || !showFrames || !entryActive || trigger <= lastTrigger.current) return;
+    lastTrigger.current = trigger;
+    const timers = frames
+      .slice(1)
+      .map((_, index) => setTimeout(() => setFrame(index + 1), (index + 1) * 150));
+    return () => timers.forEach(clearTimeout);
+  }, [entryActive, motionDisabled, showFrames, trigger]);
+
+  useEffect(() => {
+    if (!entryActive) setFrame(0);
+  }, [entryActive]);
+
+  useEffect(() => {
+    if (motionDisabled || !showFrames || entryActive) {
       setFrame(0);
       return;
     }
@@ -64,7 +82,7 @@ export const ShopMotion = memo(function ShopMotionView({
       mounted = false;
       clearTimeout(timer);
     };
-  }, [motionDisabled, showFrames]);
+  }, [entryActive, motionDisabled, showFrames]);
 
   const stateLabel =
     state === 'new-product' ? '새 상품' : state === 'purchasable' ? '구매 가능' : null;

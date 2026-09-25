@@ -43,10 +43,10 @@ describe('FireMotion', () => {
     await view.unmount();
   });
 
-  it('loops through evening flame frames every 155ms with a warm glow', async () => {
+  it('loops through evening flame frames every 155ms', async () => {
     const view = await render(<FireMotion mode="evening" residentCount={1} />);
     expect(activeFrame(view, 'evening')).toBe(1);
-    expect(view.getByTestId('fire-motion-glow')).toBeTruthy();
+    expect(view.queryByTestId('fire-motion-glow')).toBeNull();
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
     expect(activeFrame(view, 'evening')).toBe(2);

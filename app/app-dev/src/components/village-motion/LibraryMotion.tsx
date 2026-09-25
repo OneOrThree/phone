@@ -16,6 +16,7 @@ const frameDurationMs = 120;
 /** 도서관 문 에셋을 한 번 재생한다. 좌표와 크기는 배치하는 부모가 결정한다. */
 export const LibraryMotion = memo(function LibraryMotionView({
   trigger = 0,
+  entryActive = false,
   state = 'normal',
   reduceMotion = false,
   showFrames = true,
@@ -23,6 +24,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
   testID = 'library-motion',
 }: {
   trigger?: number;
+  entryActive?: boolean;
   state?: LibraryMotionState;
   reduceMotion?: boolean;
   showFrames?: boolean;
@@ -45,9 +47,13 @@ export const LibraryMotion = memo(function LibraryMotionView({
     frames.forEach((_, index) => {
       timers.push(setTimeout(() => setFrame(index), index * frameDurationMs));
     });
-    timers.push(setTimeout(() => setFrame(0), frames.length * frameDurationMs));
+    if (!entryActive) timers.push(setTimeout(() => setFrame(0), frames.length * frameDurationMs));
     return () => timers.forEach(clearTimeout);
-  }, [reduceMotion, showFrames, trigger]);
+  }, [entryActive, reduceMotion, showFrames, trigger]);
+
+  useEffect(() => {
+    if (!entryActive) setFrame(0);
+  }, [entryActive]);
 
   const stateLabel =
     state === 'new-quest' ? '새 퀘스트' : state === 'new-reading' ? '새 읽을거리' : null;
