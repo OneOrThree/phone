@@ -327,6 +327,8 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 > 보존)와 그 대가로 남는 레거시 우회는 계정 LLD §2.1 「게스트 제한과 기존 계정 충돌의 2단계
 > 확인」에 있다.
 
+**2026-09-25 후속 결정(RP-게스트쓰기):** 2.0 게스트의 편지 발송·친구 요청을 다시 허용한다. 위 인용은 1992의 현재 구현 설명이며 목표 계약이 아니다. 소셜 로그인 대신 확인된 이메일에 결박한 쓰기 자격과 제재·차단 재결박을 적용하고, 현행 `SOCIAL_LOGIN_REQUIRED` 가드는 후속 구현에서 교체한다. 상점 구매 정책은 그대로다.
+
 ### 결정 2 — 받는 쪽 섬의 우체통 시설이 완공돼야 편지를 받을 수 있는가
 
 우체통은 `island-construction`의 건설 대상 하나다(`docs/prd/fishcat/island-construction/prd.md:11`,
