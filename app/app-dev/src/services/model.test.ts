@@ -748,6 +748,17 @@ test('레거시 원장은 닉네임의 정확한 작성자 접두어만 삭제�
     ['other'],
   );
 });
+test('프로필 닉네임은 편집 중 빈 값이 되고 새 입력을 다시 반영한다', () => {
+  let s = initialState(true);
+  s = act(s, 'PROFILE', { name: '수' });
+  s = act(s, 'PROFILE', { name: '' });
+  assert.equal(s.name, '');
+  assert.deepEqual(s.profileNames, ['수빈', '수']);
+
+  s = act(s, 'PROFILE', { name: 'abc' });
+  assert.equal(s.name, 'abc');
+  assert.deepEqual(s.profileNames, ['수빈', '수', 'abc']);
+});
 test('공지·댓글·그룹 편지 실패와 재시도', () => {
   let s = initialState(true);
   s = act(s, 'NOTICE_SAVE', { title: '내일', body: '함께 집중' });

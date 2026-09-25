@@ -1335,7 +1335,13 @@ export function RedesignScreens({ e }: any) {
             </Txt>
           </View>
         }
-        cta={<Btn title="내 고양이와 시작" onPress={() => go('chooseIsland')} />}
+        cta={
+          <Btn
+            title="내 고양이와 시작"
+            disabled={!state.name.trim()}
+            onPress={() => go('chooseIsland')}
+          />
+        }
       >
         {!layout.compact && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>

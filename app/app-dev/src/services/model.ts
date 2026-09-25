@@ -1468,8 +1468,11 @@ export function reducer(state: State, a: Action): State {
       break;
     case 'PROFILE':
       if (a.name?.trim() && a.name.trim() !== s.name)
-        s.profileNames = [...new Set([...(s.profileNames ?? [s.name]), s.name, a.name.trim()])];
-      s.name = a.name?.trim() || s.name;
+        s.profileNames = [
+          ...new Set([...(s.profileNames ?? [s.name]), s.name, a.name.trim()].filter(Boolean)),
+        ];
+      // 편집 중에는 빈 문자열도 실제 초안 값이다. 최종 저장 검증은 화면에서 처리한다.
+      if (typeof a.name === 'string') s.name = a.name.trim();
       s.color = a.color || s.color;
       break;
     // ── 섬 — 만들기·가입·이동 ──
