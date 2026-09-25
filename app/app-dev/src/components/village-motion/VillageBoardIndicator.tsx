@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ViewStyle } from 'react-native';
 import { villageAssets } from '@/constants/village-assets';
 import { Text } from '@/design-system/typography';
@@ -8,12 +8,14 @@ import { semanticTokens } from '@/design-system/tokens';
 export function VillageBoardIndicator({
   hasUnread = false,
   hasNewComment = false,
+  tooltip,
   indicatorScale = 1,
   style,
   testID = 'village-board-indicator',
 }: {
   hasUnread?: boolean;
   hasNewComment?: boolean;
+  tooltip?: ReactNode;
   indicatorScale?: number;
   style?: ViewStyle;
   testID?: string;
@@ -46,6 +48,11 @@ export function VillageBoardIndicator({
           <Text style={[styles.badgeText, { fontSize: 17 * indicatorScale }]}>!</Text>
         </View>
       )}
+      {hasNotice && tooltip != null && (
+        <View testID="village-board-tooltip" style={styles.tooltip}>
+          {tooltip}
+        </View>
+      )}
     </View>
   );
 }
@@ -62,5 +69,22 @@ const styles = StyleSheet.create({
     borderColor: semanticTokens.color.outline,
     borderWidth: 1.5,
   },
-  badgeText: { color: semanticTokens.color.text, fontWeight: '800', lineHeight: 20, textAlign: 'center' },
+  badgeText: {
+    color: semanticTokens.color.text,
+    fontWeight: '800',
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  tooltip: {
+    position: 'absolute',
+    alignSelf: 'center',
+    bottom: '100%',
+    maxWidth: 180,
+    paddingHorizontal: semanticTokens.spacing.control,
+    paddingVertical: 8,
+    backgroundColor: semanticTokens.color.surface,
+    borderColor: semanticTokens.color.outline,
+    borderWidth: 1.5,
+    borderRadius: semanticTokens.radius.control,
+  },
 });

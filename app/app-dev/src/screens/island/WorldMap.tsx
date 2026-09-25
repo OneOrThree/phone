@@ -60,6 +60,7 @@ import {
 } from '@/services/buildingTransition';
 import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
+import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -224,6 +225,7 @@ export function WorldMap({
   showMailboxLetters,
   hallMotionActive = false,
   hallMotionGeneration = 0,
+  boardStatus = null,
   village,
   children,
 }: {
@@ -235,6 +237,7 @@ export function WorldMap({
   showMailboxLetters?: boolean;
   hallMotionActive?: boolean;
   hallMotionGeneration?: number;
+  boardStatus?: 'unread' | 'new-comment' | null;
   village?: VillageScene;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
@@ -437,6 +440,7 @@ export function WorldMap({
           {island.buildings
             .filter((b) => b !== 'mail' || !mailboxLetters)
             .filter((b) => !(b === 'hall' && !village && !fishing))
+            .filter((b) => !(b === 'board' && !village && !fishing))
             .map((b) => (
               <Image
                 key={b}
@@ -473,13 +477,37 @@ export function WorldMap({
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
               highlighted={hallMotionActive}
-              tooltip={hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined}
+              tooltip={
+                hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
+              }
               style={{
                 position: 'absolute',
                 left: 950 * scale,
                 top: 20 * scale,
                 width: 242 * scale,
                 height: 244 * scale,
+              }}
+            />
+          )}
+          {island.buildings.includes('board') && (
+            <VillageBoardIndicator
+              testID="world-board-indicator"
+              hasUnread={boardStatus === 'unread'}
+              hasNewComment={boardStatus === 'new-comment'}
+              indicatorScale={scale}
+              tooltip={
+                boardStatus === 'new-comment' ? (
+                  <Txt kind="meta">새 댓글이 있어요</Txt>
+                ) : boardStatus === 'unread' ? (
+                  <Txt kind="meta">읽지 않은 새 소식이 있어요</Txt>
+                ) : undefined
+              }
+              style={{
+                position: 'absolute',
+                left: 858 * scale,
+                top: 158 * scale,
+                width: 80 * scale,
+                height: 80 * scale,
               }}
             />
           )}
@@ -565,6 +593,7 @@ function FinalIslandScene({
   dispatch,
   viewingIslandId,
   motion,
+  boardStatus = null,
   layeredPreview = false,
 }: {
   state: State;
@@ -577,6 +606,7 @@ function FinalIslandScene({
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
   motion?: CatMotionInput;
+  boardStatus?: 'unread' | 'new-comment' | null;
   layeredPreview?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
@@ -825,15 +855,21 @@ function FinalIslandScene({
                 accessibilityLabel={
                   id === 'mail' && !visiting && hasMailboxLetters(state, i.id)
                     ? '우체통, 친구에게 받은 새 편지가 있어요'
-                    : d.label
+                    : d.building === 'board' && boardStatus === 'new-comment'
+                      ? `${d.label}, 새 댓글이 있어요`
+                      : d.building === 'board' && boardStatus === 'unread'
+                        ? `${d.label}, 읽지 않은 새 소식이 있어요`
+                        : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
                   d.building === 'hall' && !visiting
                     ? '터치하면 마을 회관으로 들어가요'
-                    : visiting && d.building && !['hall', 'board'].includes(d.building)
-                      ? '주민만 이용할 수 있어요'
-                      : undefined
+                    : d.building === 'board' && !!boardStatus
+                      ? '게시판을 열어 확인하세요'
+                      : visiting && d.building && !['hall', 'board'].includes(d.building)
+                        ? '주민만 이용할 수 있어요'
+                        : undefined
                 }
                 onPress={() => {
                   if (!visiting) {
@@ -979,8 +1015,11 @@ function FinalIslandScene({
         state={state}
         village={scene}
         islandId={i.id}
-        hallMotionActive={buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'}
+        hallMotionActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
+        }
         hallMotionGeneration={buildingTransition.generation}
+        boardStatus={boardStatus}
         showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
         onSpot={
           visiting

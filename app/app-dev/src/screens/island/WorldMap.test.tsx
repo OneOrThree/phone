@@ -27,14 +27,14 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
   if (!island.buildings.includes('hall')) island.buildings.push('hall');
-  const screen = await render(
-    <WorldMap state={state} hallMotionActive hallMotionGeneration={1} />,
-  );
+  const screen = await render(<WorldMap state={state} hallMotionActive hallMotionGeneration={1} />);
 
   expect(screen.queryByTestId('world-static-building-hall')).toBeNull();
   const frame = screen.getByTestId('village-hall-frame-0');
-  expect(frame.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ opacity: 1 })]));
-  const worldScale = ((874 / 874) * 402) / 1536 * 2.8;
+  expect(frame.props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
@@ -52,14 +52,40 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
   expect(screen.getByTestId('village-hall-frame-2').props.style).toEqual(
     expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
   );
-  await screen.rerender(
-    <WorldMap state={state} hallMotionActive hallMotionGeneration={2} />,
-  );
+  await screen.rerender(<WorldMap state={state} hallMotionActive hallMotionGeneration={2} />);
   expect(screen.getByTestId('village-hall-frame-0').props.style).toEqual(
     expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
   );
   await screen.unmount();
   jest.useRealTimers();
+});
+
+test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태가 없으면 표시를 숨긴다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('board')) island.buildings.push('board');
+  const screen = await render(<WorldMap state={state} />);
+
+  expect(screen.queryByTestId('world-static-building-board')).toBeNull();
+  expect(screen.queryByTestId('village-board-new-indicator')).toBeNull();
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  expect(screen.getByTestId('world-board-indicator').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: 858 * worldScale,
+        top: 158 * worldScale,
+        width: 80 * worldScale,
+        height: 80 * worldScale,
+      }),
+    ]),
+  );
+
+  await screen.rerender(<WorldMap state={state} boardStatus="new-comment" />);
+  expect(screen.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
+    '새 댓글이 있습니다',
+  );
+  expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
+  await screen.unmount();
 });
 
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
