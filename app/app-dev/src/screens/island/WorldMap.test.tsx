@@ -183,8 +183,8 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
       expect.objectContaining({
         left: worldLeft + 402 * worldScale,
         top: worldTop + 425 * worldScale,
-        width: 166 * worldScale,
-        height: 111 * worldScale,
+        width: 116 * worldScale,
+        height: 77 * worldScale,
       }),
     ]),
   );
