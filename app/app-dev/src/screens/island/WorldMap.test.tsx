@@ -203,6 +203,14 @@ test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한�
     expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
     expect(screen.getByText(buildingNames[building])).toBeTruthy();
   }
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  expect(screen.getByTestId('building-name-shop').props.style).toEqual(
+    expect.objectContaining({
+      left: (456 - (577 - 60)) * worldScale,
+      top: (580 - (783 - 95)) * worldScale - 30,
+      alignItems: 'flex-start',
+    }),
+  );
   await screen.unmount();
 });
 

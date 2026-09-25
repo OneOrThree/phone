@@ -978,10 +978,10 @@ function FinalIslandScene({
               d.building == null
                 ? { left: 0, top: 0 }
                 : scene
-                  ? { left: 0, top: 0 }
+                  ? { left: 0, top: -30 }
                   : {
-                      left: (legacyBuildingLabelPosition[d.building].x + 8 - hitbox.x) * s,
-                      top: (legacyBuildingLabelPosition[d.building].y + 8 - hitbox.y) * s,
+                      left: (legacyBuildingLabelPosition[d.building].x - hitbox.x) * s,
+                      top: (legacyBuildingLabelPosition[d.building].y - hitbox.y) * s - 30,
                     };
             return (
               <Pressable
