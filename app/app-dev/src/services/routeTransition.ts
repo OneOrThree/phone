@@ -14,3 +14,15 @@ export function createRouteTransitionShield(
     }, durationMs);
   };
 }
+
+export function createShieldedRouteTransition<T>(
+  setShielded: (shielded: boolean) => void,
+  setRoute: (route: T) => void,
+  durationMs = 350,
+) {
+  const shield = createRouteTransitionShield(setShielded, durationMs);
+  return (route: T) => {
+    shield();
+    setRoute(route);
+  };
+}

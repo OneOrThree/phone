@@ -2284,6 +2284,7 @@ export function RedesignScreens({ e }: any) {
         )}
         {mailboxGuide && (
           <MailboxGuide
+            blocked={e.routeTransitionShielded}
             key={`${guideUserId}:${island.id}`}
             onDone={(openMailbox) => {
               dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
@@ -4816,6 +4817,7 @@ export function RedesignScreens({ e }: any) {
         </IslandSheet>
         {shopGuide && (
           <ShopGuide
+            blocked={e.routeTransitionShielded}
             onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })}
             onCancel={home}
           />

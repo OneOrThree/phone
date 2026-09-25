@@ -66,13 +66,23 @@ const lines = [
   '친구에게 편지가 오면 내가 우체통 위에 앉아 있을게.\n그때 우체통을 눌러 봐!',
 ];
 
-export function MailboxGuide({ onDone }: { onDone: (openMailbox: boolean) => void }) {
+export function MailboxGuide({
+  onDone,
+  blocked = false,
+}: {
+  onDone: (openMailbox: boolean) => void;
+  blocked?: boolean;
+}) {
   const [step, setStep] = useState(0);
   const layout = useAppLayout();
   const last = step === lines.length - 1;
   return (
-    <Modal transparent animationType="none" onRequestClose={() => onDone(false)}>
+    <Modal transparent animationType="none" onRequestClose={() => !blocked && onDone(false)}>
       <View
+        testID="mailbox-guide-overlay"
+        pointerEvents={blocked ? 'none' : 'auto'}
+        accessibilityElementsHidden={blocked}
+        importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'}
         accessibilityViewIsModal
         style={[
           styles.overlay,
@@ -110,13 +120,30 @@ const shopLines = [
   '다 같이 모은 물고기로 마음에 드는 걸 골라 봐.\n이제 이 섬을 너희답게 꾸밀 차례야!',
 ];
 
-export function ShopGuide({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+export function ShopGuide({
+  onDone,
+  onCancel,
+  blocked = false,
+}: {
+  onDone: () => void;
+  onCancel: () => void;
+  blocked?: boolean;
+}) {
   const [step, setStep] = useState(0);
   const layout = useAppLayout();
   const last = step === shopLines.length - 1;
   return (
-    <Modal transparent animationType="none" testID="shop-guide" onRequestClose={onCancel}>
+    <Modal
+      transparent
+      animationType="none"
+      testID="shop-guide"
+      onRequestClose={() => !blocked && onCancel()}
+    >
       <View
+        testID="shop-guide-overlay"
+        pointerEvents={blocked ? 'none' : 'auto'}
+        accessibilityElementsHidden={blocked}
+        importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'}
         accessibilityViewIsModal
         style={[
           styles.overlay,
