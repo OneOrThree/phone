@@ -9,7 +9,7 @@ export function RouteTransitionShield({
   visible: boolean;
   coverLoading?: boolean;
 }) {
-  if (!visible) return null;
+  if (!visible && !coverLoading) return null;
 
   return (
     <Pressable

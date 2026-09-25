@@ -135,12 +135,36 @@ describe('공통 건물 전환 계약', () => {
     try {
       controller.start('fire', 'return', false, navigate);
       expect(controller.getState().phase).toBe('returning');
+      expect(navigate).toHaveBeenCalledTimes(1);
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
       jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS - 1);
-      expect(navigate).not.toHaveBeenCalled();
+      expect(controller.getState().phase).toBe('returning');
       jest.advanceTimersByTime(1);
       expect(navigate).toHaveBeenCalledTimes(1);
-      jest.advanceTimersByTime(900);
+      expect(controller.getState().phase).toBe('idle');
       expect(isBuildingTransitionRouteCovered()).toBe(false);
+    } finally {
+      controller.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('역방향 route를 즉시 표시하고 이전 loading cover를 제거한다', () => {
+    jest.useFakeTimers();
+    const controller = createBuildingTransitionController();
+    const enter = jest.fn();
+    const returnToHome = jest.fn();
+    try {
+      controller.start('shop', 'enter', false, enter, 10);
+      jest.advanceTimersByTime(10);
+      expect(isBuildingTransitionRouteCovered()).toBe(true);
+
+      controller.start('shop', 'return', false, returnToHome);
+      expect(returnToHome).toHaveBeenCalledTimes(1);
+      expect(controller.getState().phase).toBe('returning');
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
+      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+      expect(controller.getState().phase).toBe('idle');
     } finally {
       controller.dispose();
       jest.useRealTimers();

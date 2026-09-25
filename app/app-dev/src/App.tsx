@@ -1285,7 +1285,7 @@ function Gromo() {
           </Animated.View>
         </KeyboardAvoidingView>
         <RouteTransitionShield
-          visible={routeTransitionShielded}
+          visible={routeTransitionShielded || buildingRouteCovered}
           coverLoading={buildingRouteCovered}
         />
         <BuildingTransitionOverlay

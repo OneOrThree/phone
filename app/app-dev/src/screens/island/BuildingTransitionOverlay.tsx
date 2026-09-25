@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useLayoutEffect, useRef } from 'react';
 import { Animated, Easing, View } from 'react-native';
 import { useAppLayout } from '@/utils/layout';
 import { semanticTokens } from '@/design-system/tokens';
@@ -21,7 +21,7 @@ export function BuildingTransitionOverlay({ state, reduceMotion, origin }: Props
   const visible = state.phase !== 'idle';
   const diameter = Math.hypot(layout.width, layout.height) * 2;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     progress.stopAnimation();
     const returning = state.direction === 'return';
     progress.setValue(returning ? 1 : 0);

@@ -68,6 +68,14 @@ function coverRoute(owner: RouteCoverOwner) {
   routeCoverTimers.set(owner, timer);
 }
 
+function clearRouteCovers() {
+  if (!routeCoverOwners.size) return;
+  routeCoverTimers.forEach((timer) => clearTimeout(timer));
+  routeCoverTimers.clear();
+  routeCoverOwners.clear();
+  publishRouteCover();
+}
+
 /** 앱 공통 뒤로가기 처리기가 진행 중인 건물 확대를 우선 취소할 때 사용한다. */
 export function cancelBuildingTransition() {
   return activeTransition?.cancel() ?? false;
@@ -127,27 +135,52 @@ export function createBuildingTransitionController() {
       durationMs = BUILDING_TRANSITION_DURATION_MS,
     ) {
       if (state.phase !== 'idle' || activeTransition) return false;
+      if (direction === 'return') clearRouteCovers();
       const generation = state.generation + 1;
+      activeTransition = { owner, cancel: () => this.cancel() };
       publish({
         phase: direction === 'enter' ? 'entering' : 'returning',
         target,
         direction,
         generation,
       });
-      activeTransition = { owner, cancel: () => this.cancel() };
-      const finish = () => {
+      const publishIdle = () => {
+        if (activeTransition?.owner === owner) activeTransition = null;
+        publish({ phase: 'idle', target: null, direction: null, generation });
+      };
+      const finishEnter = () => {
         if (state.generation !== generation || state.phase === 'idle') return;
         timer = null;
-        if (!reduceMotion) coverRoute(Symbol('building-route-cover'));
-        if (activeTransition?.owner === owner) activeTransition = null;
+        coverRoute(Symbol('building-route-cover'));
         try {
           navigate();
         } finally {
-          publish({ phase: 'idle', target: null, direction: null, generation });
+          publishIdle();
         }
       };
-      if (reduceMotion) finish();
-      else timer = setTimeout(finish, durationMs);
+      const finishReturn = () => {
+        if (state.generation !== generation || state.phase === 'idle') return;
+        timer = null;
+        publishIdle();
+      };
+
+      if (reduceMotion) {
+        try {
+          navigate();
+        } finally {
+          publishIdle();
+        }
+      } else if (direction === 'return') {
+        try {
+          navigate();
+        } catch (error) {
+          this.cancel();
+          throw error;
+        }
+        timer = setTimeout(finishReturn, durationMs);
+      } else {
+        timer = setTimeout(finishEnter, durationMs);
+      }
       return true;
     },
     cancel() {
