@@ -72,6 +72,7 @@ import { Welcome, SceneHero, RestWorld, Sailing } from '@/screens/world/WorldVie
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import {
   initialState,
+  demoState,
   reducer,
   currentIsland,
   viewIsland,
@@ -252,7 +253,9 @@ export default function App() {
 function Gromo() {
   const layout = useAppLayout();
   const insets = useScreenInsets();
-  const [state, dispatch] = useReducer(reducer, undefined, () => initialState(DEMO));
+  const [state, dispatch] = useReducer(reducer, undefined, () =>
+    DEMO ? demoState() : initialState(),
+  );
   const [loaded, setLoaded] = useState(false),
     // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
     [islandBootError, setIslandBootError] = useState(false),
@@ -617,7 +620,10 @@ function Gromo() {
         await AsyncStorage.removeItem(STORAGE).catch(() => {});
         dispatch({
           type: 'LOAD',
-          state: { ...initialState(DEMO), settings: stateRef.current.settings },
+          state: {
+            ...(DEMO ? demoState() : initialState()),
+            settings: stateRef.current.settings,
+          },
           now: Date.now(),
         });
       },

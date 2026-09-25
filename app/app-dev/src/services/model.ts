@@ -732,6 +732,14 @@ export function initialState(full = false): State {
     lettersReadAt: 0,
   };
 }
+// Expo 웹 모션 검수용 상태. 제품의 최초 안내 동작은 유지하고 데모에서만 월드맵을 바로 연다.
+export function demoState(): State {
+  return {
+    ...initialState(true),
+    mailboxGuideSeenBy: ['local'],
+    shopGuideSeenBy: ['local'],
+  };
+}
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
 export const mainIsland = (s: State) =>
   s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??
