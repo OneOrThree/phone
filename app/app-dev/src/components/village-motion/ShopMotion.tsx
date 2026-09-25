@@ -1,0 +1,128 @@
+import React, { memo, useEffect, useState } from 'react';
+import { Image, StyleSheet, View, type ImageSourcePropType } from 'react-native';
+import { semanticTokens } from '@/design-system/tokens';
+import { Text } from '@/design-system/typography';
+
+export type ShopMotionState = 'normal' | 'new-product' | 'purchasable';
+
+const frames: readonly ImageSourcePropType[] = [
+  require('@/assets/village-world/motion/shop/frame-0.png'),
+  require('@/assets/village-world/motion/shop/frame-1.png'),
+  require('@/assets/village-world/motion/shop/frame-2.png'),
+  require('@/assets/village-world/motion/shop/frame-3.png'),
+];
+
+const frameDurationMs = 230;
+const idleIntervalMs = 20_000;
+
+/** 상점 아트 전용 애니메이션. 실제 섬 좌표와 확대 배율은 부모가 전달한다. */
+export const ShopMotion = memo(function ShopMotionView({
+  state = 'normal',
+  reduceMotion = false,
+  testID = 'shop-motion',
+}: {
+  state?: ShopMotionState;
+  reduceMotion?: boolean;
+  testID?: string;
+}) {
+  const [frame, setFrame] = useState(0);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      setFrame(0);
+      return;
+    }
+
+    let timer: ReturnType<typeof setTimeout>;
+    let mounted = true;
+    const run = () => {
+      if (!mounted) return;
+      setFrame(0);
+      let nextFrame = 1;
+      const advance = () => {
+        if (!mounted) return;
+        setFrame(nextFrame);
+        nextFrame += 1;
+        if (nextFrame < frames.length) {
+          timer = setTimeout(advance, frameDurationMs);
+        } else {
+          // 20초는 애니메이션이 끝난 시점부터 다음 시작까지의 대기 시간이다.
+          timer = setTimeout(run, idleIntervalMs);
+        }
+      };
+      timer = setTimeout(advance, frameDurationMs);
+    };
+
+    timer = setTimeout(run, idleIntervalMs);
+    return () => {
+      mounted = false;
+      clearTimeout(timer);
+    };
+  }, [reduceMotion]);
+
+  const stateLabel =
+    state === 'new-product' ? '새 상품' : state === 'purchasable' ? '구매 가능' : null;
+
+  return (
+    <View
+      testID={testID}
+      accessible
+      accessibilityRole="image"
+      accessibilityLabel={stateLabel ? `상점, ${stateLabel}` : '상점'}
+      pointerEvents="none"
+      style={styles.fill}
+    >
+      {frames.map((source, index) => (
+        <Image
+          key={index}
+          testID={`shop-motion-frame-${index}`}
+          source={source}
+          resizeMode="stretch"
+          style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
+        />
+      ))}
+      {state !== 'normal' && (
+        <View
+          testID="shop-motion-highlight"
+          style={styles.highlight}
+        />
+      )}
+      {stateLabel && (
+        <View testID="shop-motion-tooltip" style={styles.tooltip}>
+          <Text style={styles.tooltipText}>{stateLabel}</Text>
+        </View>
+      )}
+    </View>
+  );
+});
+
+const styles = StyleSheet.create({
+  fill: { width: '100%', height: '100%' },
+  frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
+  visible: { opacity: 1 },
+  hidden: { opacity: 0 },
+  highlight: {
+    position: 'absolute',
+    left: '8%',
+    top: '6%',
+    width: '84%',
+    height: '86%',
+    borderRadius: 18,
+    borderWidth: 2,
+    borderColor: semanticTokens.color.accent,
+    backgroundColor: `${semanticTokens.color.accent}1A`,
+  },
+  tooltip: {
+    position: 'absolute',
+    top: 0,
+    right: '4%',
+    minHeight: 24,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: semanticTokens.color.outline,
+    backgroundColor: semanticTokens.color.surface,
+  },
+  tooltipText: { color: semanticTokens.color.text, fontSize: 12, fontWeight: '700' },
+});
