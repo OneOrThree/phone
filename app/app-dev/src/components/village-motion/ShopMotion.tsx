@@ -1,7 +1,5 @@
 import React, { memo, useContext, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
-import { semanticTokens } from '@/design-system/tokens';
-import { Text } from '@/design-system/typography';
 import { MotionContext } from '@/design-system/primitives';
 
 export type ShopMotionState = 'normal' | 'new-product' | 'purchasable';
@@ -106,11 +104,6 @@ export const ShopMotion = memo(function ShopMotionView({
             style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
           />
         ))}
-      {stateLabel && (
-        <View testID="shop-motion-tooltip" style={styles.tooltip}>
-          <Text style={styles.tooltipText}>{stateLabel}</Text>
-        </View>
-      )}
     </View>
   );
 });
@@ -120,17 +113,4 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
-  tooltip: {
-    position: 'absolute',
-    top: 0,
-    right: '4%',
-    minHeight: 24,
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: semanticTokens.color.outline,
-    backgroundColor: semanticTokens.color.surface,
-  },
-  tooltipText: { color: semanticTokens.color.text, fontSize: 12, fontWeight: '700' },
 });

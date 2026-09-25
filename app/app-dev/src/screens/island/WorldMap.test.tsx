@@ -49,7 +49,7 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
     ]),
   );
   expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
-  expect(screen.getByText('마을 회관에 들어가는 중')).toBeTruthy();
+  expect(screen.queryByText('마을 회관에 들어가는 중')).toBeNull();
 
   await act(async () => jest.advanceTimersByTime(360));
   expect(screen.getByTestId('village-hall-frame-2').props.style).toEqual(
@@ -183,14 +183,27 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   );
   expect(screen.getByTestId('world-shop-motion').props.accessibilityLabel).toBe('상점');
   expect(screen.queryByTestId('shop-motion-tooltip')).toBeNull();
+  expect(screen.getByTestId('building-name-shop')).toBeTruthy();
+  expect(screen.getByText(buildingNames.shop)).toBeTruthy();
 
   await screen.rerender(
     <FinalIsland state={state} go={jest.fn()} build={jest.fn()} shopState="purchasable" />,
   );
   screen.getByLabelText(`${buildingNames.shop}, 구매 가능한 상품이 있어요`);
-  expect(screen.getByTestId('shop-motion-tooltip')).toBeTruthy();
+  expect(screen.queryByTestId('shop-motion-tooltip')).toBeNull();
   await screen.unmount();
   jest.useRealTimers();
+});
+
+test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한다', async () => {
+  const state = initialState(true);
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+
+  for (const building of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const) {
+    expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
+    expect(screen.getByText(buildingNames[building])).toBeTruthy();
+  }
+  await screen.unmount();
 });
 
 test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {

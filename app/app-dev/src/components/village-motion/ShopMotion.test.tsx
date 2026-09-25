@@ -60,11 +60,7 @@ describe('ShopMotion', () => {
     const view = await render(<ShopMotion state={state} />);
     expect(view.getByTestId('shop-motion').props.accessibilityLabel).toBe(label);
     expect(view.queryByTestId('shop-motion-highlight')).toBeNull();
-    if (state === 'normal') {
-      expect(view.queryByTestId('shop-motion-tooltip')).toBeNull();
-    } else {
-      expect(view.getByTestId('shop-motion-tooltip')).toBeTruthy();
-    }
+    expect(view.queryByTestId('shop-motion-tooltip')).toBeNull();
     await view.unmount();
   });
 

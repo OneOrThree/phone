@@ -88,6 +88,15 @@ const layer: Record<Building, string> = {
   tower: 'observatory',
   shop: 'shop',
 };
+const legacyBuildingLabelTop: Record<Building, number> = {
+  hall: 10,
+  board: 145,
+  gram: 378,
+  library: 275,
+  mail: 507,
+  tower: 10,
+  shop: 565,
+};
 type Door = Point & {
   r: Route;
   label: string;
@@ -521,9 +530,6 @@ export function WorldMap({
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
               highlighted={hallMotionActive}
-              tooltip={
-                hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
-              }
               style={{
                 position: 'absolute',
                 left: left + 950 * scale,
@@ -969,6 +975,12 @@ function FinalIslandScene({
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
+            const buildingLabelTop =
+              d.building == null
+                ? 0
+                : scene
+                  ? -12 * s
+                  : (legacyBuildingLabelTop[d.building] - hitbox.y) * s;
             return (
               <Pressable
                 key={id}
@@ -1056,7 +1068,37 @@ function FinalIslandScene({
                   minHeight: 44,
                   zIndex: scene ? 2000 : undefined,
                 }}
-              />
+              >
+                {d.building && (
+                  <View
+                    testID={`building-name-${id}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      top: buildingLabelTop,
+                      left: 0,
+                      right: 0,
+                      alignItems: 'center',
+                    }}
+                  >
+                    <View
+                      style={{
+                        minHeight: 24,
+                        justifyContent: 'center',
+                        paddingHorizontal: 8,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: semanticTokens.color.outline,
+                        backgroundColor: semanticTokens.color.surface,
+                      }}
+                    >
+                      <Txt kind="meta" numberOfLines={1} style={{ fontWeight: '700' }}>
+                        {d.label}
+                      </Txt>
+                    </View>
+                  </View>
+                )}
+              </Pressable>
             );
           })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
