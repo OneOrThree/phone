@@ -88,15 +88,16 @@ const layer: Record<Building, string> = {
   tower: 'observatory',
   shop: 'shop',
 };
-const legacyBuildingLabelPosition: Record<Building, Point> = {
-  hall: { x: 949, y: 21 },
-  board: { x: 856, y: 157 },
-  gram: { x: 330, y: 391 },
-  library: { x: 1120, y: 288 },
-  mail: { x: 298, y: 520 },
-  tower: { x: 150, y: 24 },
-  shop: { x: 456, y: 580 },
+const legacyBuildingLabelBox: Record<Building, { x: number; y: number; w: number }> = {
+  hall: { x: 949, y: 21, w: 242 },
+  board: { x: 856, y: 157, w: 80 },
+  gram: { x: 330, y: 391, w: 73 },
+  library: { x: 1120, y: 288, w: 239 },
+  mail: { x: 298, y: 520, w: 46 },
+  tower: { x: 150, y: 24, w: 112 },
+  shop: { x: 456, y: 580, w: 262 },
 };
+const rightAlignedBuildingLabels = new Set<Building>(['hall', 'library', 'shop']);
 type Door = Point & {
   r: Route;
   label: string;
@@ -521,7 +522,7 @@ export function WorldMap({
               testID="mailbox-new-indicator"
               accessibilityLabel="친구에게 받은 새 편지가 있습니다"
               scale={scale}
-              style={{ left: left + 326 * scale, top: top + 509 * scale }}
+              style={{ left: left + 348 * scale, top: top + 520 * scale }}
             />
           )}
           {island.buildings.includes('hall') && dayNight === 'day' && (
@@ -974,15 +975,27 @@ function FinalIslandScene({
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
-            const buildingLabelPosition =
-              d.building == null
-                ? { left: 0, top: 0 }
-                : scene
-                  ? { left: 0, top: -30 }
-                  : {
-                      left: (legacyBuildingLabelPosition[d.building].x - hitbox.x) * s,
-                      top: (legacyBuildingLabelPosition[d.building].y - hitbox.y) * s - 30,
-                    };
+            const labelOnRight = d.building != null && rightAlignedBuildingLabels.has(d.building);
+            const buildingLabelPosition = (() => {
+              if (d.building == null) return { left: 0, top: 0, alignItems: 'flex-start' as const };
+              if (scene) {
+                return labelOnRight
+                  ? { right: 0, top: -30, alignItems: 'flex-end' as const }
+                  : { left: 0, top: -30, alignItems: 'flex-start' as const };
+              }
+              const box = legacyBuildingLabelBox[d.building];
+              return labelOnRight
+                ? {
+                    right: (hitbox.x + hitbox.w - (box.x + box.w)) * s,
+                    top: (box.y - hitbox.y) * s - 30,
+                    alignItems: 'flex-end' as const,
+                  }
+                : {
+                    left: (box.x - hitbox.x) * s,
+                    top: (box.y - hitbox.y) * s - 30,
+                    alignItems: 'flex-start' as const,
+                  };
+            })();
             return (
               <Pressable
                 key={id}
@@ -1077,9 +1090,7 @@ function FinalIslandScene({
                     pointerEvents="none"
                     style={{
                       position: 'absolute',
-                      top: buildingLabelPosition.top,
-                      left: buildingLabelPosition.left,
-                      alignItems: 'flex-start',
+                      ...buildingLabelPosition,
                     }}
                   >
                     <View

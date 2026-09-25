@@ -93,8 +93,8 @@ const styles = StyleSheet.create({
   hidden: { opacity: 0 },
   indicator: {
     position: 'absolute',
-    top: '4%',
-    right: '8%',
+    top: 0,
+    right: -29,
     width: 25,
     height: 25,
     alignItems: 'center',

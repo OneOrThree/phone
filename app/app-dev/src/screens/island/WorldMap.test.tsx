@@ -91,6 +91,9 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   expect(screen.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
     '새 댓글이 있습니다',
   );
+  expect(screen.getByTestId('village-board-new-indicator').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ top: 0, right: -29 * worldScale })]),
+  );
   expect(screen.queryByTestId('village-board-tooltip')).toBeNull();
   await screen.unmount();
   jest.useRealTimers();
@@ -112,10 +115,21 @@ test('새 편지가 있으면 우편함은 그대로 두고 ! 배지만 표시�
   });
 
   const screen = await render(<WorldMap state={state} />);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
   expect(screen.getByTestId('world-static-building-mail')).toBeTruthy();
   expect(screen.queryByTestId('mailbox-pelican')).toBeNull();
   expect(screen.getByTestId('mailbox-new-indicator').props.accessibilityLabel).toBe(
     '친구에게 받은 새 편지가 있습니다',
+  );
+  expect(screen.getByTestId('mailbox-new-indicator').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 348 * worldScale,
+        top: worldTop + 520 * worldScale,
+      }),
+    ]),
   );
   await screen.unmount();
   jest.useRealTimers();
@@ -203,12 +217,17 @@ test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한�
     expect(screen.getByTestId(`building-name-${building}`)).toBeTruthy();
     expect(screen.getByText(buildingNames[building])).toBeTruthy();
   }
+  for (const building of ['hall', 'library', 'shop'] as const) {
+    expect(screen.getByTestId(`building-name-${building}`).props.style).toEqual(
+      expect.objectContaining({ alignItems: 'flex-end' }),
+    );
+  }
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   expect(screen.getByTestId('building-name-shop').props.style).toEqual(
     expect.objectContaining({
-      left: (456 - (577 - 60)) * worldScale,
+      right: (577 - 60 + 120 - (456 + 262)) * worldScale,
       top: (580 - (783 - 95)) * worldScale - 30,
-      alignItems: 'flex-start',
+      alignItems: 'flex-end',
     }),
   );
   await screen.unmount();

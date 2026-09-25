@@ -41,6 +41,11 @@ describe('LibraryMotion', () => {
     const view = await render(<LibraryMotion state={state} />);
     expect(view.getByTestId('library-motion').props.accessibilityLabel).toBe(label);
     expect(Boolean(view.queryByTestId('library-motion-indicator'))).toBe(state !== 'normal');
+    if (state !== 'normal') {
+      expect(view.getByTestId('library-motion-indicator').props.style).toEqual(
+        expect.objectContaining({ top: 0, right: -29 }),
+      );
+    }
     await view.unmount();
   });
 
