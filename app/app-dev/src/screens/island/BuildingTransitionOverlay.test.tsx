@@ -32,11 +32,7 @@ test('reduceMotion이면 진행 상태여도 애니메이션 덮개를 생략한
   const timing = jest.spyOn(Animated, 'timing');
   try {
     const screen = await render(
-      <BuildingTransitionOverlay
-        state={state()}
-        reduceMotion
-        origin={{ x: 10, y: 20 }}
-      />,
+      <BuildingTransitionOverlay state={state()} reduceMotion origin={{ x: 10, y: 20 }} />,
     );
 
     expect(screen.queryByTestId('building-transition-overlay')).toBeNull();
@@ -50,11 +46,7 @@ test('진입 시 선택한 원점을 중심으로 화면 전체를 덮는 확대
   const timing = jest.spyOn(Animated, 'timing');
   try {
     const screen = await render(
-      <BuildingTransitionOverlay
-        state={state()}
-        reduceMotion={false}
-        origin={{ x: 75, y: 125 }}
-      />,
+      <BuildingTransitionOverlay state={state()} reduceMotion={false} origin={{ x: 75, y: 125 }} />,
     );
     const overlay = screen.getByTestId('building-transition-overlay', {
       includeHiddenElements: true,
