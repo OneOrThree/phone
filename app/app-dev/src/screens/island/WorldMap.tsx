@@ -66,6 +66,7 @@ import {
   type ObservatoryRankState,
 } from '@/components/village-motion/VillageObservatoryMotion';
 import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
+import { LibraryMotion, type LibraryMotionState } from '@/components/village-motion/LibraryMotion';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -233,6 +234,9 @@ export function WorldMap({
   boardStatus = null,
   observatoryRankState = 'normal',
   shopState = 'normal',
+  libraryState = 'normal',
+  libraryArrivalActive = false,
+  libraryArrivalGeneration = 0,
   towerArrivalActive = false,
   towerArrivalGeneration = 0,
   village,
@@ -249,6 +253,9 @@ export function WorldMap({
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
   shopState?: ShopMotionState;
+  libraryState?: LibraryMotionState;
+  libraryArrivalActive?: boolean;
+  libraryArrivalGeneration?: number;
   towerArrivalActive?: boolean;
   towerArrivalGeneration?: number;
   village?: VillageScene;
@@ -470,6 +477,7 @@ export function WorldMap({
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'shop' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'library' && !village && !fishing && dayNight === 'day'))
             .map((b) => (
               <Image
                 key={b}
@@ -573,6 +581,22 @@ export function WorldMap({
               }}
             />
           )}
+          {island.buildings.includes('library') && (
+            <LibraryMotion
+              testID="world-library-motion"
+              state={libraryState}
+              trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
+              showFrames={dayNight === 'day'}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                position: 'absolute',
+                left: left + 1120 * scale,
+                top: top + 289 * scale,
+                width: 239 * scale,
+                height: 323 * scale,
+              }}
+            />
+          )}
         </View>
       )}
       {!fishing && island.theme !== 'default' && (
@@ -658,6 +682,7 @@ function FinalIslandScene({
   boardStatus = null,
   observatoryRankState = 'normal',
   shopState = 'normal',
+  libraryState = 'normal',
   onBuildingEntrySound,
   layeredPreview = false,
 }: {
@@ -674,6 +699,7 @@ function FinalIslandScene({
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
   shopState?: ShopMotionState;
+  libraryState?: LibraryMotionState;
   /** 문 소스 확보 전까지는 선택적 연결 계약으로 두고 소리가 꺼져 있으면 호출하지 않는다. */
   onBuildingEntrySound?: (target: BuildingTransitionTarget, generation: number) => void;
   layeredPreview?: boolean;
@@ -948,7 +974,11 @@ function FinalIslandScene({
                           ? `${d.label}, 새 상품이 있어요`
                           : d.building === 'shop' && shopState === 'purchasable'
                             ? `${d.label}, 구매 가능한 상품이 있어요`
-                            : d.label
+                            : d.building === 'library' && libraryState === 'new-quest'
+                              ? `${d.label}, 새 퀘스트가 있어요`
+                              : d.building === 'library' && libraryState === 'new-reading'
+                                ? `${d.label}, 새 읽을거리가 있어요`
+                                : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
@@ -958,9 +988,11 @@ function FinalIslandScene({
                       ? '게시판을 열어 확인하세요'
                       : d.building === 'shop' && shopState !== 'normal'
                         ? '상점에서 상품을 확인하세요'
-                        : visiting && d.building && !['hall', 'board'].includes(d.building)
-                          ? '주민만 이용할 수 있어요'
-                          : undefined
+                        : d.building === 'library' && libraryState !== 'normal'
+                          ? '도서관에서 새 내용을 확인하세요'
+                          : visiting && d.building && !['hall', 'board'].includes(d.building)
+                            ? '주민만 이용할 수 있어요'
+                            : undefined
                 }
                 onPress={() => {
                   if (!visiting) {
@@ -1113,6 +1145,11 @@ function FinalIslandScene({
         boardStatus={boardStatus}
         observatoryRankState={observatoryRankState}
         shopState={shopState}
+        libraryState={libraryState}
+        libraryArrivalActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'library'
+        }
+        libraryArrivalGeneration={buildingTransition.generation}
         towerArrivalActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
         }

@@ -168,6 +168,36 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
   jest.useRealTimers();
 });
 
+test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌표와 접근성 문구로 알린다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('library')) island.buildings.push('library');
+  const screen = await render(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} libraryState="new-quest" />,
+  );
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
+
+  expect(screen.queryByTestId('world-static-building-library')).toBeNull();
+  expect(screen.getByTestId('world-library-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 1120 * worldScale,
+        top: worldTop + 289 * worldScale,
+        width: 239 * worldScale,
+        height: 323 * worldScale,
+      }),
+    ]),
+  );
+  expect(screen.getByTestId('library-motion-indicator')).toBeTruthy();
+  screen.getByLabelText(`${buildingNames.library}, 새 퀘스트가 있어요`);
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id === 'cloud')!;
