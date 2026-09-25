@@ -558,8 +558,10 @@ export function IslandHome({
             collapsable={false}
             style={{
               position: 'absolute',
-              left: 0,
-              top: 0,
+              left: -hitExtent / 2,
+              top: -catBox.y - (hitExtent - catBox.extent) / 2,
+              width: hitExtent,
+              height: hitExtent,
               transform: catTransform,
               zIndex: 30,
             }}
@@ -570,9 +572,6 @@ export function IslandHome({
               accessibilityLabel="내 고양이"
               onPress={handleCatPress}
               style={{
-                position: 'absolute',
-                left: -hitExtent / 2,
-                top: -catBox.y - (hitExtent - catBox.extent) / 2,
                 width: hitExtent,
                 height: hitExtent,
                 justifyContent: 'center',

@@ -196,7 +196,7 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     await screen.unmount();
   });
 
-  it('FinalIsland 및 IslandHome에서 실제 레이아웃으로 최소 44pt 터치 영역을 보장한다', async () => {
+  it('FinalIsland 및 IslandHome에서 부모 뷰와 액터 모두 실제 레이아웃으로 최소 44pt 터치 영역을 보장한다', async () => {
     const state = initialState(true);
     const screen1 = await renderWithContext(
       React.createElement(FinalIsland, {
@@ -206,7 +206,10 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
       }),
     );
 
+    const homeContainer = screen1.getByTestId('home-cat-container');
     const homeCat = screen1.getByTestId('home-cat-actor');
+    expect(homeContainer.props.style.width).toBeGreaterThanOrEqual(44);
+    expect(homeContainer.props.style.height).toBeGreaterThanOrEqual(44);
     expect(homeCat.props.style.width).toBeGreaterThanOrEqual(44);
     expect(homeCat.props.style.height).toBeGreaterThanOrEqual(44);
     await screen1.unmount();
@@ -219,7 +222,10 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
       }),
     );
 
+    const islandContainer = screen2.getByTestId('cat-arrived');
     const islandCat = screen2.getByTestId('island-cat-actor');
+    expect(islandContainer.props.style.width).toBeGreaterThanOrEqual(44);
+    expect(islandContainer.props.style.height).toBeGreaterThanOrEqual(44);
     expect(islandCat.props.style.width).toBeGreaterThanOrEqual(44);
     expect(islandCat.props.style.height).toBeGreaterThanOrEqual(44);
     await screen2.unmount();

@@ -802,11 +802,14 @@ function FinalIslandScene({
         {/* 구경 중에는 내 고양이가 이 섬에 없다 */}
         {!visiting && (
           <Animated.View
+            testID="home-cat-container"
             pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: Animated.multiply(xy.x, s),
-              top: Animated.multiply(xy.y, s),
+              left: Animated.subtract(Animated.multiply(xy.x, s), hitSize / 2),
+              top: Animated.subtract(Animated.multiply(xy.y, s), catSize / 2 + hitSize / 2),
+              width: hitSize,
+              height: hitSize,
               zIndex: scene ? Math.round(pos.y) : 25,
             }}
           >
@@ -817,9 +820,6 @@ function FinalIslandScene({
               accessibilityLabel="내 고양이"
               onPress={handleCatPress}
               style={{
-                position: 'absolute',
-                left: -hitSize / 2,
-                top: -catSize / 2 - hitSize / 2,
                 width: hitSize,
                 height: hitSize,
                 justifyContent: 'center',
