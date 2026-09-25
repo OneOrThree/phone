@@ -288,4 +288,56 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     expect(islandCat.props.style.height).toBeGreaterThanOrEqual(44);
     await screen2.unmount();
   });
+
+  it('건물 진입 시 갸웃(tilt) 모션 전체 주기(1,820ms)가 끝난 뒤 화면이 전환된다', async () => {
+    const state = initialState(true);
+    const goMock = jest.fn();
+    const screen = await renderWithContext(
+      React.createElement(FinalIsland, {
+        state,
+        go: goMock,
+        build: jest.fn(),
+      }),
+    );
+
+    const fishingDoor = screen.getByLabelText('낚시섬 구경하기');
+    await act(async () => {
+      fireEvent(fishingDoor, 'press');
+    });
+
+    // 1810ms 시점에는 갸웃 모션이 진행 중이며 화면 전환이 아직 일어나지 않음
+    await act(async () => {
+      jest.advanceTimersByTime(1810);
+    });
+    expect(goMock).not.toHaveBeenCalled();
+
+    // 1820ms(갸웃 모션 전체 주기) 완료 시점에 비로소 화면 전환 호출
+    await act(async () => {
+      jest.advanceTimersByTime(20);
+    });
+    expect(goMock).toHaveBeenCalledWith('focusVisit');
+
+    await screen.unmount();
+  });
+
+  it('reduceMotion 활성화 시 건물 진입 모션 지연 없이 즉시 화면이 전환된다', async () => {
+    const state = initialState(true);
+    state.settings.reduceMotion = true;
+    const goMock = jest.fn();
+    const screen = await renderWithContext(
+      React.createElement(FinalIsland, {
+        state,
+        go: goMock,
+        build: jest.fn(),
+      }),
+    );
+
+    const fishingDoor = screen.getByLabelText('낚시섬 구경하기');
+    await act(async () => {
+      fireEvent(fishingDoor, 'press');
+    });
+
+    expect(goMock).toHaveBeenCalledWith('focusVisit');
+    await screen.unmount();
+  });
 });

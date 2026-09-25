@@ -611,7 +611,7 @@ function FinalIslandScene({
   const navigateWithTilt = (targetRoute: Route) => {
     triggerTilt();
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
-    const delay = state.settings.reduceMotion ? 0 : 520;
+    const delay = state.settings.reduceMotion ? 0 : interactiveMotionDurationMs('tilt');
     if (delay) {
       transitionTimer.current = setTimeout(() => {
         go(targetRoute);
