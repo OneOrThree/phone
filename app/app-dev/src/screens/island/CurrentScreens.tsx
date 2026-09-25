@@ -72,6 +72,7 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import { CatSprite } from '@/components/CatSprite';
 import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
   art,
@@ -1516,7 +1517,27 @@ function FocusFlow({ e }: any) {
             },
           ]}
         >
-          <Text style={[fiTitle(18), { marginBottom: 4 }]}>집중 준비</Text>
+          <View
+            style={{
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: 4,
+            }}
+          >
+            <Text style={fiTitle(18)}>집중 준비</Text>
+            <View style={{ width: 44, height: 44, position: 'relative' }}>
+              <View style={{ position: 'absolute', left: 22, top: 36 }}>
+                <CatSprite
+                  color={s.color}
+                  motion="tilt"
+                  size={44}
+                  reduce={reduce}
+                  testID="focus-setup-cat"
+                />
+              </View>
+            </View>
+          </View>
           <Text
             style={{
               fontSize: 12,
@@ -1679,6 +1700,7 @@ function FocusFlow({ e }: any) {
                   emote={
                     focusing ? (liveIslandId ? (emoteByUser.get(myId ?? '') ?? null) : emote) : null
                   }
+                  motion={r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined}
                   reduce={reduce}
                 />
               ) : (

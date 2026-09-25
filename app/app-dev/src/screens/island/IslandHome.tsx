@@ -27,8 +27,14 @@ import {
 } from '@/services/model';
 import { assets } from '@/constants/assets';
 import { C, T, Button, Progress, useScreenInsets } from '@/design-system/primitives';
+import { semanticTokens } from '@/design-system/tokens';
 import { IslandDecor } from '@/screens/cosmetics/Cosmetics';
-import { CatSprite, catFrameBox } from '@/components/CatSprite';
+import {
+  CatSprite,
+  catFrameBox,
+  CatMotionInput,
+  interactiveMotionDurationMs,
+} from '@/components/CatSprite';
 import {
   Point,
   nodes,
@@ -38,6 +44,15 @@ import {
   nearestPoint,
   isWalkable,
 } from '@/utils/island-path';
+
+const pathDistance = (pts: readonly Point[]) => {
+  let sum = 0;
+  for (let idx = 1; idx < pts.length; idx++) {
+    sum += Math.hypot(pts[idx].x - pts[idx - 1].x, pts[idx].y - pts[idx - 1].y);
+  }
+  return sum;
+};
+
 export const islandPositions: Record<string, Point> = {};
 export function growthStage(bs: Building[]) {
   return bs.includes('shop')
@@ -61,6 +76,7 @@ export function IslandHome({
   request,
   showHud = true,
   showActions = true,
+  motion,
 }: {
   state: State;
   go: (r: Route) => void;
@@ -68,6 +84,7 @@ export function IslandHome({
   request?: Route | null;
   showHud?: boolean;
   showActions?: boolean;
+  motion?: CatMotionInput;
 }) {
   const insets = useScreenInsets();
   const island = currentIsland(state),
@@ -76,7 +93,75 @@ export function IslandHome({
   const [size, setSize] = useState({ w: 390, h: 740 }),
     [walking, setWalking] = useState(false),
     [left, setLeft] = useState(false),
-    [destination, setDestination] = useState<Point | null>(null);
+    [destination, setDestination] = useState<Point | null>(null),
+    [interactiveMotion, setInteractiveMotion] = useState<
+      'tilt' | 'stretch' | 'groom' | 'yawn' | null
+    >(null),
+    [motionGen, setMotionGen] = useState(0);
+  const tiltTimer = useRef<NodeJS.Timeout | null>(null);
+  const tapCountRef = useRef(0);
+  const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerMotion = (m: 'tilt' | 'stretch' | 'groom' | 'yawn', faceLeft?: boolean) => {
+    if (tiltTimer.current) {
+      clearTimeout(tiltTimer.current);
+      tiltTimer.current = null;
+    }
+    if (faceLeft !== undefined) setLeft(faceLeft);
+    setInteractiveMotion(m);
+    setMotionGen((g) => g + 1);
+    if (state.settings.reduceMotion) {
+      tiltTimer.current = setTimeout(() => {
+        setInteractiveMotion(null);
+      }, 500);
+    }
+  };
+  const triggerTilt = () => triggerMotion('tilt');
+  const transitionTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const navigateWithTilt = (targetRoute: Route) => {
+    triggerTilt();
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    const delay = state.settings.reduceMotion ? 0 : interactiveMotionDurationMs('tilt');
+    if (delay) {
+      transitionTimer.current = setTimeout(() => {
+        go(targetRoute);
+      }, delay);
+    } else {
+      go(targetRoute);
+    }
+  };
+
+  const hitExtentRef = useRef(120);
+
+  const handleCatPress = (e: any) => {
+    if (walking) return;
+    const hitExtent = hitExtentRef.current;
+    const nativeX = e?.nativeEvent?.locationX ?? hitExtent / 2;
+    const isTouchLeft = nativeX < hitExtent / 2;
+    setLeft(isTouchLeft);
+
+    if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+    const count = tapCountRef.current % 4;
+    tapCountRef.current++;
+    tapResetTimer.current = setTimeout(() => {
+      tapCountRef.current = 0;
+    }, 4000);
+
+    const motionCycle: ('tilt' | 'stretch' | 'groom' | 'yawn')[] = isTouchLeft
+      ? ['tilt', 'groom', 'stretch', 'yawn']
+      : ['stretch', 'tilt', 'yawn', 'groom'];
+
+    triggerMotion(motionCycle[count]);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (tiltTimer.current) clearTimeout(tiltTimer.current);
+      if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+      if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    };
+  }, []);
   const pos = useRef(nearestPoint(islandPositions[island.id] || { x: 442, y: 980 }, bs)),
     xy = useRef(new Animated.ValueXY(pos.current)).current,
     token = useRef(0);
@@ -84,7 +169,13 @@ export function IslandHome({
     mapW = 1024 * scale,
     mapH = 1536 * scale;
   const camera = useIslandCamera(size);
-  const catBox = catFrameBox(state.color, walking ? 'walking' : 'blink', 140 * scale);
+  const activeMotion = motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'));
+  const catBox = catFrameBox(state.color, activeMotion, 140 * scale);
+  const currentCameraScale = camera.scale ?? camera.camera.scale;
+  const currentZoom = Math.max(0.1, currentCameraScale / scale);
+  const minHitExtent = Math.ceil(semanticTokens.size.tapMin / currentZoom);
+  const hitExtent = Math.max(catBox.extent, minHitExtent);
+  hitExtentRef.current = hitExtent;
   const renderScale = useRef(new Animated.Value(scale)).current;
   const catTransform = useMemo(
     () => [
@@ -125,6 +216,9 @@ export function IslandHome({
     };
   }, [island.id]);
   const walk = (dest: Point, _label = '', route?: Route) => {
+    if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    setInteractiveMotion(null);
     const run = ++token.current;
     // Read the native presentation position when interrupting. A JS listener can
     // be one frame behind on iPad, which used to pull the cat backwards on retap.
@@ -146,7 +240,15 @@ export function IslandHome({
         if (i >= path.length) {
           setWalking(false);
           setDestination(null);
-          if (route) go(route);
+          if (route) {
+            if (['board', 'mail', 'quest', 'hall', 'shop', 'tower', 'focusSetup'].includes(route)) {
+              navigateWithTilt(route);
+            } else {
+              go(route);
+            }
+          } else if (pathDistance(path) >= 180) {
+            triggerMotion('stretch');
+          }
           return;
         }
         const start = path[i - 1],
@@ -453,27 +555,54 @@ export function IslandHome({
             />
           )}
           <Animated.View
-            pointerEvents="none"
+            pointerEvents="box-none"
             testID={walking ? 'cat-walking' : 'cat-arrived'}
             // Explicit paint bounds keep the sprite visible after native remounts.
             collapsable={false}
             style={{
               position: 'absolute',
-              left: -catBox.x,
-              top: -catBox.y,
-              width: catBox.extent,
-              height: catBox.extent,
+              left: -hitExtent / 2,
+              top: -catBox.y - (hitExtent - catBox.extent) / 2,
+              width: hitExtent,
+              height: hitExtent,
               transform: catTransform,
+              zIndex: 30,
             }}
           >
-            <CatSprite
-              anchored={false}
-              color={state.color}
-              motion={walking ? 'walking' : 'blink'}
-              size={140 * scale}
-              left={left}
-              reduce={state.settings.reduceMotion}
-            />
+            <Pressable
+              testID="island-cat-actor"
+              accessibilityRole="button"
+              accessibilityLabel="내 고양이"
+              onPress={handleCatPress}
+              style={{
+                width: hitExtent,
+                height: hitExtent,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  position: 'absolute',
+                  left: hitExtent / 2 - catBox.x,
+                  top: (hitExtent - catBox.extent) / 2,
+                  width: catBox.extent,
+                  height: catBox.extent,
+                }}
+              >
+                <CatSprite
+                  testID="island-cat-sprite"
+                  anchored={false}
+                  color={state.color}
+                  motion={activeMotion}
+                  size={140 * scale}
+                  left={left}
+                  reduce={state.settings.reduceMotion}
+                  onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
+                  generation={motionGen}
+                />
+              </View>
+            </Pressable>
           </Animated.View>
         </Animated.View>
       </View>

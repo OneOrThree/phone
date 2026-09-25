@@ -28,7 +28,7 @@ import {
   todayFocusSeconds,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
-import { CatSprite } from '@/components/CatSprite';
+import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
 import {
   claimableQuestRewardCount,
   HOME_QUEST_LIST_DETAIL,
@@ -51,6 +51,14 @@ import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens } from '@/design-system/tokens';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
+
+const pathDistance = (pts: readonly Point[]) => {
+  let sum = 0;
+  for (let idx = 1; idx < pts.length; idx++) {
+    sum += Math.hypot(pts[idx].x - pts[idx - 1].x, pts[idx].y - pts[idx - 1].y);
+  }
+  return sum;
+};
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -519,6 +527,7 @@ function FinalIslandScene({
   notify,
   dispatch,
   viewingIslandId,
+  motion,
   layeredPreview = false,
 }: {
   state: State;
@@ -530,6 +539,7 @@ function FinalIslandScene({
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
+  motion?: CatMotionInput;
   layeredPreview?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
@@ -571,11 +581,84 @@ function FinalIslandScene({
       homePositions[positionKey] ?? (layeredPreview ? { x: 820, y: 535 } : { x: 585, y: 470 }),
     );
   const [pos, setPos] = useState(initial),
-    [walking, setWalking] = useState(false);
+    [walking, setWalking] = useState(false),
+    [left, setLeft] = useState(false),
+    [interactiveMotion, setInteractiveMotion] = useState<
+      'tilt' | 'stretch' | 'groom' | 'yawn' | null
+    >(null),
+    [motionGen, setMotionGen] = useState(0);
+  const tiltTimer = useRef<NodeJS.Timeout | null>(null);
+  const tapCountRef = useRef(0);
+  const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const triggerMotion = (m: 'tilt' | 'stretch' | 'groom' | 'yawn', faceLeft?: boolean) => {
+    if (tiltTimer.current) {
+      clearTimeout(tiltTimer.current);
+      tiltTimer.current = null;
+    }
+    if (faceLeft !== undefined) setLeft(faceLeft);
+    setInteractiveMotion(m);
+    setMotionGen((g) => g + 1);
+    if (state.settings.reduceMotion) {
+      tiltTimer.current = setTimeout(() => {
+        setInteractiveMotion(null);
+      }, 500);
+    }
+  };
+  const triggerTilt = () => triggerMotion('tilt');
+  const transitionTimer = useRef<NodeJS.Timeout | null>(null);
+
+  const navigateWithTilt = (targetRoute: Route) => {
+    triggerTilt();
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    const delay = state.settings.reduceMotion ? 0 : interactiveMotionDurationMs('tilt');
+    if (delay) {
+      transitionTimer.current = setTimeout(() => {
+        go(targetRoute);
+      }, delay);
+    } else {
+      go(targetRoute);
+    }
+  };
+
+  const scaleRef = useRef(1);
+
+  const handleCatPress = (e: any) => {
+    if (walking) return;
+    const catSize = 70 * scaleRef.current;
+    const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
+    const nativeX = e?.nativeEvent?.locationX ?? hitSize / 2;
+    const isTouchLeft = nativeX < hitSize / 2;
+    setLeft(isTouchLeft);
+
+    if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+    const count = tapCountRef.current % 4;
+    tapCountRef.current++;
+    tapResetTimer.current = setTimeout(() => {
+      tapCountRef.current = 0;
+    }, 4000);
+
+    const motionCycle: ('tilt' | 'stretch' | 'groom' | 'yawn')[] = isTouchLeft
+      ? ['tilt', 'groom', 'stretch', 'yawn']
+      : ['stretch', 'tilt', 'yawn', 'groom'];
+
+    triggerMotion(motionCycle[count]);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (tiltTimer.current) clearTimeout(tiltTimer.current);
+      if (tapResetTimer.current) clearTimeout(tapResetTimer.current);
+      if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    };
+  }, []);
   const xy = useRef(new Animated.ValueXY(pos)).current,
     token = useRef(0),
     location = useRef(pos);
   const walk = (target: Point, done?: () => void) => {
+    if (tiltTimer.current) clearTimeout(tiltTimer.current);
+    if (transitionTimer.current) clearTimeout(transitionTimer.current);
+    setInteractiveMotion(null);
     const path = scene
       ? villagePath(scene, location.current, target)
       : landPath(grid, location.current, nearestLand(grid, target));
@@ -585,16 +668,25 @@ function FinalIslandScene({
       setWalking(false);
       return;
     }
+    if (path.length > 1) {
+      setLeft(path[path.length - 1].x < location.current.x);
+    }
     setWalking(true);
     let idx = 1;
     const next = () => {
       if (t !== token.current) return;
       if (idx >= path.length) {
         setWalking(false);
+        if (pathDistance(path) >= 180) {
+          triggerMotion('stretch');
+        }
         done?.();
         return;
       }
       const p = path[idx++];
+      if (Math.abs(p.x - location.current.x) > 0.5) {
+        setLeft(p.x < location.current.x);
+      }
       Animated.timing(xy, {
         toValue: p,
         duration: state.settings.reduceMotion ? 0 : 95,
@@ -625,8 +717,13 @@ function FinalIslandScene({
     if (request && !visiting) {
       const d = Object.values(doors).find((d) => d.r === request);
       if (d) {
-        if (d.direct) go(request);
-        else walk(d, () => go(request));
+        if (d.direct) {
+          navigateWithTilt(request);
+        } else {
+          walk(d, () => {
+            navigateWithTilt(request);
+          });
+        }
       }
     }
   }, [request]);
@@ -647,6 +744,9 @@ function FinalIslandScene({
   }, [i.members, facts, state.color]);
   // Child positions scale with the camera, rather than being pasted onto a cropped image.
   const actors = (s: number) => {
+    scaleRef.current = s;
+    const catSize = 70 * s;
+    const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
     return (
       <>
         {Object.entries(doors)
@@ -678,7 +778,14 @@ function FinalIslandScene({
                     : undefined
                 }
                 onPress={() => {
-                  if (!visiting) return d.direct ? go(d.r) : walk(d, () => go(d.r));
+                  if (!visiting) {
+                    if (d.direct) {
+                      return navigateWithTilt(d.r);
+                    }
+                    return walk(d, () => {
+                      navigateWithTilt(d.r);
+                    });
+                  }
                   if (d.visitorRoute) return go(d.visitorRoute, i.id);
                   // 구경 중: 고양이가 걷지 않고 바로 연다. 회관은 책상 없이 섬 정보 카드로, 게시판만 열람
                   if (d.building === 'hall') go('manage');
@@ -713,21 +820,49 @@ function FinalIslandScene({
         {/* 구경 중에는 내 고양이가 이 섬에 없다 */}
         {!visiting && (
           <Animated.View
-            pointerEvents="none"
+            testID="home-cat-container"
+            pointerEvents="box-none"
             style={{
               position: 'absolute',
-              left: Animated.multiply(xy.x, s),
-              top: Animated.multiply(xy.y, s),
-              zIndex: scene ? Math.round(pos.y) : undefined,
+              left: Animated.subtract(Animated.multiply(xy.x, s), hitSize / 2),
+              top: Animated.subtract(Animated.multiply(xy.y, s), catSize / 2 + hitSize / 2),
+              width: hitSize,
+              height: hitSize,
+              zIndex: scene ? Math.round(pos.y) : 25,
             }}
           >
             {/* v2 홈 시안은 고양이 100px(섬 원본 좌표)인데 카메라를 당기면서 70px 로 줄임 · 이름표 없음 */}
-            <CatSprite
-              color={state.color}
-              size={70 * s}
-              motion={walking ? 'walking' : 'blink'}
-              reduce={state.settings.reduceMotion}
-            />
+            <Pressable
+              testID="home-cat-actor"
+              accessibilityRole="button"
+              accessibilityLabel="내 고양이"
+              onPress={handleCatPress}
+              style={{
+                width: hitSize,
+                height: hitSize,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+            >
+              <View
+                style={{
+                  position: 'absolute',
+                  left: hitSize / 2,
+                  top: catSize / 2 + hitSize / 2,
+                }}
+              >
+                <CatSprite
+                  testID="home-cat-sprite"
+                  color={state.color}
+                  size={catSize}
+                  motion={motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'))}
+                  left={left}
+                  reduce={state.settings.reduceMotion}
+                  onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
+                  generation={motionGen}
+                />
+              </View>
+            </Pressable>
           </Animated.View>
         )}
       </>
