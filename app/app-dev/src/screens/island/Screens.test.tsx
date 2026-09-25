@@ -869,6 +869,8 @@ test('가입 닉네임은 마지막 글자를 지운 뒤 새 이름을 입력할
   await fireEvent.changeText(nickname, '수');
   await fireEvent.changeText(nickname, '');
   assert.equal(s.getByLabelText('닉네임').props.value, '');
+  await fireEvent.press(s.getByLabelText('내 고양이와 시작'));
+  assert.equal(exposed.go.mock.calls.length, 0);
 
   await fireEvent.changeText(s.getByLabelText('닉네임'), 'abc');
   assert.equal(s.getByLabelText('닉네임').props.value, 'abc');
