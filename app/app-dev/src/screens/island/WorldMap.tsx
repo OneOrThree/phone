@@ -88,14 +88,14 @@ const layer: Record<Building, string> = {
   tower: 'observatory',
   shop: 'shop',
 };
-const legacyBuildingLabelTop: Record<Building, number> = {
-  hall: 10,
-  board: 145,
-  gram: 378,
-  library: 275,
-  mail: 507,
-  tower: 10,
-  shop: 565,
+const legacyBuildingLabelPosition: Record<Building, Point> = {
+  hall: { x: 949, y: 21 },
+  board: { x: 856, y: 157 },
+  gram: { x: 330, y: 391 },
+  library: { x: 1120, y: 288 },
+  mail: { x: 298, y: 520 },
+  tower: { x: 150, y: 24 },
+  shop: { x: 456, y: 580 },
 };
 type Door = Point & {
   r: Route;
@@ -529,7 +529,6 @@ export function WorldMap({
               testID="world-hall-motion"
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
-              highlighted={hallMotionActive}
               style={{
                 position: 'absolute',
                 left: left + 950 * scale,
@@ -975,12 +974,15 @@ function FinalIslandScene({
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
-            const buildingLabelTop =
+            const buildingLabelPosition =
               d.building == null
-                ? 0
+                ? { left: 0, top: 0 }
                 : scene
-                  ? -12 * s
-                  : (legacyBuildingLabelTop[d.building] - hitbox.y) * s;
+                  ? { left: 0, top: 0 }
+                  : {
+                      left: (legacyBuildingLabelPosition[d.building].x + 8 - hitbox.x) * s,
+                      top: (legacyBuildingLabelPosition[d.building].y + 8 - hitbox.y) * s,
+                    };
             return (
               <Pressable
                 key={id}
@@ -1075,10 +1077,9 @@ function FinalIslandScene({
                     pointerEvents="none"
                     style={{
                       position: 'absolute',
-                      top: buildingLabelTop,
-                      left: 0,
-                      right: 0,
-                      alignItems: 'center',
+                      top: buildingLabelPosition.top,
+                      left: buildingLabelPosition.left,
+                      alignItems: 'flex-start',
                     }}
                   >
                     <View

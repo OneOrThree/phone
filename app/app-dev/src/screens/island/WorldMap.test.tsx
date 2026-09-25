@@ -48,7 +48,7 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
       }),
     ]),
   );
-  expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
+  expect(screen.queryByTestId('village-hall-highlight')).toBeNull();
   expect(screen.queryByText('마을 회관에 들어가는 중')).toBeNull();
 
   await act(async () => jest.advanceTimersByTime(360));
