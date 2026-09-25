@@ -211,8 +211,8 @@ test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초
   jest.useRealTimers();
 });
 
-test('FishingActor: motion="tilt" 지정 시 갸웃 모션이 전달되고 낚싯대를 숨긴다', async () => {
-  const actor = await render(
+test('FishingActor: motion="tilt" 또는 "stretch" 지정 시 낚싯대를 숨기고 focus/reel 시 표시한다', async () => {
+  const tiltActor = await render(
     React.createElement(FishingActor, {
       spot: { x: 50, y: 50, face: 1 },
       size: 100,
@@ -224,6 +224,37 @@ test('FishingActor: motion="tilt" 지정 시 갸웃 모션이 전달되고 낚�
       motion: 'tilt',
     }),
   );
-  assert.equal(actor.getByTestId('fishing-actor-cat').props.motion, 'tilt');
-  await actor.unmount();
+  assert.equal(tiltActor.getByTestId('fishing-actor-cat').props.motion, 'tilt');
+  assert.equal(tiltActor.queryByTestId('fishing-actor-rod'), null);
+  await tiltActor.unmount();
+
+  const stretchActor = await render(
+    React.createElement(FishingActor, {
+      spot: { x: 50, y: 50, face: 1 },
+      size: 100,
+      sizeY: 100,
+      color: 'ginger',
+      name: '나',
+      seconds: 0,
+      reduce: false,
+      motion: 'stretch',
+    }),
+  );
+  assert.equal(stretchActor.getByTestId('fishing-actor-cat').props.motion, 'stretch');
+  assert.equal(stretchActor.queryByTestId('fishing-actor-rod'), null);
+  await stretchActor.unmount();
+
+  const focusActor = await render(
+    React.createElement(FishingActor, {
+      spot: { x: 50, y: 50, face: 1 },
+      size: 100,
+      sizeY: 100,
+      color: 'ginger',
+      name: '나',
+      seconds: 0,
+      reduce: false,
+    }),
+  );
+  assert.notEqual(focusActor.queryByTestId('fishing-actor-rod'), null);
+  await focusActor.unmount();
 });

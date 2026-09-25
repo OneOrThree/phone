@@ -541,10 +541,11 @@ export function FishingActor({
         anchored={false}
         testID="fishing-actor-cat"
       />
-      {motion !== 'tilt' && (
+      {(!motion || motion === 'focus' || motion === 'reel') && (
         <Image
           source={assets['props/fishing/fishing-rod.png']}
           resizeMode="contain"
+          testID="fishing-actor-rod"
           style={{
             position: 'absolute',
             width: a * 0.6,
