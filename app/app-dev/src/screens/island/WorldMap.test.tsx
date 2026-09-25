@@ -1,7 +1,9 @@
 import React from 'react';
-import { cleanup, render } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
+import { Animated } from 'react-native';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
+import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -74,4 +76,83 @@ test('내 섬에서도 미완공 축음기는 터치 대상으로 노출하지 �
   );
 
   expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
+});
+
+test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 완료 뒤 route를 연다', async () => {
+  jest.useFakeTimers();
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  const state = initialState(true);
+  const go = jest.fn();
+  try {
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={go}
+        build={jest.fn()}
+        showHud={false}
+        showActions={false}
+      />,
+    );
+    const hall = screen.getByLabelText(buildingNames.hall);
+
+    await fireEvent.press(hall);
+    await fireEvent.press(hall);
+
+    expect(go).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId('building-transition-overlay', { includeHiddenElements: true }),
+    ).toBeTruthy();
+
+    await act(async () => {
+      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+    });
+    expect(go).toHaveBeenCalledTimes(1);
+    expect(go).toHaveBeenCalledWith('hall');
+
+    await act(async () => {
+      jest.advanceTimersByTime(900);
+    });
+  } finally {
+    timing.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
+test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다', async () => {
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  const state = initialState(true);
+  state.settings.reduceMotion = true;
+  const go = jest.fn();
+  try {
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={go}
+        build={jest.fn()}
+        showHud={false}
+        showActions={false}
+      />,
+    );
+
+    await fireEvent.press(screen.getByLabelText(buildingNames.hall));
+
+    expect(go).toHaveBeenCalledWith('hall');
+    expect(screen.queryByTestId('building-transition-overlay')).toBeNull();
+  } finally {
+    timing.mockRestore();
+  }
 });

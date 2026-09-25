@@ -115,9 +115,11 @@ import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createShieldedRouteTransition } from '@/services/routeTransition';
 import {
+  BUILDING_TRANSITION_DURATION_MS,
   BUILDING_TRANSITION_RETURN_TARGET,
   createBuildingTransitionController,
   cancelBuildingTransition,
+  clearBuildingTransitionRouteCovers,
   isBuildingTransitionRouteCovered,
   subscribeBuildingTransitionRouteCover,
   type BuildingTransitionTarget,
@@ -376,7 +378,7 @@ function Gromo() {
     transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
-  const go = (r: Route, id = '') => {
+  const go = (r: Route, id = '', onTransitionCancel?: () => void) => {
     const direction =
       route === 'focus' && r === 'rest'
         ? 'enter'
@@ -384,8 +386,13 @@ function Gromo() {
           ? 'return'
           : null;
     if (!direction) return performGo(r, id);
-    return fireTransitionController.start('fire', direction, state.settings.reduceMotion, () =>
-      performGo(r, id),
+    return fireTransitionController.start(
+      'fire',
+      direction,
+      state.settings.reduceMotion,
+      () => performGo(r, id),
+      BUILDING_TRANSITION_DURATION_MS,
+      onTransitionCancel,
     );
   };
   const returnToIsland = (target: BuildingTransitionTarget, done: () => void) =>
@@ -399,6 +406,8 @@ function Gromo() {
     transitionRoute(r);
   };
   const reset = (r: Route, id = '') => {
+    cancelBuildingTransition();
+    clearBuildingTransitionRouteCovers();
     setHistory([]);
     setDetail(id);
     setTab('');
@@ -1009,7 +1018,8 @@ function Gromo() {
         go('travel', island.id);
         return true;
       }
-      if (route === 'home' || route === 'login') return false;
+      if (route === 'home') return cancelBuildingTransition();
+      if (route === 'login') return false;
       back();
       return true;
     });
@@ -1256,6 +1266,8 @@ function Gromo() {
         <T>내 섬을 불러오는 중이에요.</T>
       </SafeAreaView>
     );
+  const appContentHidden =
+    routeTransitionShielded || buildingRouteCovered || fireTransition.phase !== 'idle';
   return (
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>
@@ -1266,8 +1278,9 @@ function Gromo() {
         >
           <Animated.View
             key={reviewEpoch}
-            accessibilityElementsHidden={routeTransitionShielded}
-            importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+            accessibilityElementsHidden={appContentHidden}
+            importantForAccessibility={appContentHidden ? 'no-hide-descendants' : 'auto'}
+            aria-hidden={appContentHidden}
             style={{
               flex: 1,
               opacity: transition,

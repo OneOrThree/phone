@@ -4,6 +4,7 @@ import {
   BUILDING_TRANSITION_RETURN_TARGET,
   BUILDING_TRANSITION_ROUTE,
   cancelBuildingTransition,
+  clearBuildingTransitionRouteCovers,
   createBuildingTransitionController,
   isBuildingTransitionRouteCovered,
   runBuildingEntryWalk,
@@ -24,12 +25,25 @@ describe('공통 건물 전환 계약', () => {
     });
     expect(BUILDING_TRANSITION_RETURN_TARGET).toEqual({
       hall: 'hall',
+      stats: 'hall',
       manage: 'hall',
+      members: 'hall',
+      ledger: 'hall',
+      construction: 'hall',
       board: 'board',
+      notice: 'board',
+      noticeEdit: 'board',
+      quest: 'board',
+      questEdit: 'board',
       tower: 'tower',
+      explore: 'tower',
+      visit: 'tower',
       shop: 'shop',
+      product: 'shop',
+      orders: 'shop',
       rest: 'fire',
       library: 'library',
+      diary: 'library',
     });
   });
 
@@ -93,6 +107,8 @@ describe('공통 건물 전환 계약', () => {
       expect(activeController.start('hall', 'enter', false, navigate)).toBe(true);
       expect(inactiveController.start('board', 'enter', false, jest.fn())).toBe(false);
       inactiveController.dispose();
+      expect(inactiveController.cancel()).toBe(false);
+      expect(activeController.getState().phase).toBe('entering');
       expect(cancelBuildingTransition()).toBe(true);
       jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
       expect(navigate).not.toHaveBeenCalled();
@@ -113,6 +129,23 @@ describe('공통 건물 전환 계약', () => {
       jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
       expect(navigate).not.toHaveBeenCalled();
       expect(controller.getState().phase).toBe('idle');
+    } finally {
+      controller.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('전환 취소 시 호출자의 대기 상태도 정리한다', () => {
+    jest.useFakeTimers();
+    const controller = createBuildingTransitionController();
+    const navigate = jest.fn();
+    const onCancel = jest.fn();
+    try {
+      controller.start('fire', 'enter', false, navigate, BUILDING_TRANSITION_DURATION_MS, onCancel);
+      expect(controller.cancel()).toBe(true);
+      expect(onCancel).toHaveBeenCalledTimes(1);
+      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+      expect(navigate).not.toHaveBeenCalled();
     } finally {
       controller.dispose();
       jest.useRealTimers();
@@ -211,6 +244,21 @@ describe('공통 건물 전환 계약', () => {
     }
   });
 
+  it('강제 route 초기화는 남은 loading cover를 즉시 제거한다', () => {
+    jest.useFakeTimers();
+    const controller = createBuildingTransitionController();
+    try {
+      controller.start('shop', 'enter', false, jest.fn(), 10);
+      jest.advanceTimersByTime(10);
+      expect(isBuildingTransitionRouteCovered()).toBe(true);
+      clearBuildingTransitionRouteCovers();
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
+    } finally {
+      controller.dispose();
+      jest.useRealTimers();
+    }
+  });
+
   it('서로 다른 전환의 route-cover 만료가 다른 cover를 먼저 해제하지 않는다', () => {
     jest.useFakeTimers();
     const first = createBuildingTransitionController();
@@ -229,6 +277,82 @@ describe('공통 건물 전환 계약', () => {
     } finally {
       first.dispose();
       second.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('reduceMotion navigation이 실패해도 idle로 복구하고 다음 전환을 허용한다', () => {
+    const failed = createBuildingTransitionController();
+    const next = createBuildingTransitionController();
+    const error = new Error('navigation failed');
+    try {
+      expect(() =>
+        failed.start('hall', 'enter', true, () => {
+          throw error;
+        }),
+      ).toThrow(error);
+      expect(failed.getState()).toMatchObject({ phase: 'idle', target: null, direction: null });
+      expect(next.start('board', 'enter', true, jest.fn())).toBe(true);
+    } finally {
+      failed.dispose();
+      next.dispose();
+    }
+  });
+
+  it('복귀 navigation이 실패하면 진행 상태를 취소하고 예외를 다시 던진다', () => {
+    const controller = createBuildingTransitionController();
+    const error = new Error('return navigation failed');
+    try {
+      expect(() =>
+        controller.start('shop', 'return', false, () => {
+          throw error;
+        }),
+      ).toThrow(error);
+      expect(controller.getState().phase).toBe('idle');
+      expect(cancelBuildingTransition()).toBe(false);
+    } finally {
+      controller.dispose();
+    }
+  });
+
+  it('지연 진입 navigation이 실패해도 idle로 복구하고 route cover를 만료시킨다', () => {
+    jest.useFakeTimers();
+    const controller = createBuildingTransitionController();
+    const error = new Error('enter navigation failed');
+    try {
+      controller.start(
+        'tower',
+        'enter',
+        false,
+        () => {
+          throw error;
+        },
+        10,
+      );
+      expect(() => jest.advanceTimersByTime(10)).toThrow(error);
+      expect(controller.getState().phase).toBe('idle');
+      expect(isBuildingTransitionRouteCovered()).toBe(true);
+      jest.advanceTimersByTime(900);
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
+    } finally {
+      controller.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('활성 controller를 dispose하면 예약 navigation과 전역 전환을 함께 정리한다', () => {
+    jest.useFakeTimers();
+    const controller = createBuildingTransitionController();
+    const navigate = jest.fn();
+    try {
+      controller.start('library', 'enter', false, navigate);
+      controller.dispose();
+      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+      expect(navigate).not.toHaveBeenCalled();
+      expect(controller.getState().phase).toBe('idle');
+      expect(cancelBuildingTransition()).toBe(false);
+    } finally {
+      controller.dispose();
       jest.useRealTimers();
     }
   });

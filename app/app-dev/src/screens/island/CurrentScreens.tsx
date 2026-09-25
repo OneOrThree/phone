@@ -1835,7 +1835,8 @@ function FocusFlow({ e }: any) {
                 const go = () =>
                   leaveTo(() => {
                     setVoyage('toRest');
-                    e.go('rest');
+                    const started = e.go('rest', '', () => setVoyage(null));
+                    if (started === false) setVoyage(null);
                   });
                 if (serverSession()) {
                   e.focus

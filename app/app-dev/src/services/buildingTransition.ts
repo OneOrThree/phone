@@ -15,12 +15,25 @@ export const BUILDING_TRANSITION_ROUTE: Record<BuildingTransitionTarget, Route> 
 };
 export const BUILDING_TRANSITION_RETURN_TARGET: Partial<Record<Route, BuildingTransitionTarget>> = {
   hall: 'hall',
+  stats: 'hall',
   manage: 'hall',
+  members: 'hall',
+  ledger: 'hall',
+  construction: 'hall',
   board: 'board',
+  notice: 'board',
+  noticeEdit: 'board',
+  quest: 'board',
+  questEdit: 'board',
   tower: 'tower',
+  explore: 'tower',
+  visit: 'tower',
   shop: 'shop',
+  product: 'shop',
+  orders: 'shop',
   rest: 'fire',
   library: 'library',
+  diary: 'library',
 };
 
 export const BUILDING_TRANSITION_DURATION_MS = 620;
@@ -76,6 +89,11 @@ function clearRouteCovers() {
   publishRouteCover();
 }
 
+/** 인증 초기화처럼 현재 화면을 강제로 교체할 때 남아 있는 로딩 가림을 제거한다. */
+export function clearBuildingTransitionRouteCovers() {
+  clearRouteCovers();
+}
+
 /** 앱 공통 뒤로가기 처리기가 진행 중인 건물 확대를 우선 취소할 때 사용한다. */
 export function cancelBuildingTransition() {
   return activeTransition?.cancel() ?? false;
@@ -111,6 +129,7 @@ export function createBuildingTransitionController() {
     generation: 0,
   };
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let cancelActive: (() => void) | null = null;
   const owner = Symbol('building-transition');
   const listeners = new Set<(next: BuildingTransitionState) => void>();
 
@@ -133,10 +152,12 @@ export function createBuildingTransitionController() {
       reduceMotion: boolean,
       navigate: () => void,
       durationMs = BUILDING_TRANSITION_DURATION_MS,
+      onCancel?: () => void,
     ) {
       if (state.phase !== 'idle' || activeTransition) return false;
       if (direction === 'return') clearRouteCovers();
       const generation = state.generation + 1;
+      cancelActive = onCancel ?? null;
       activeTransition = { owner, cancel: () => this.cancel() };
       publish({
         phase: direction === 'enter' ? 'entering' : 'returning',
@@ -146,6 +167,7 @@ export function createBuildingTransitionController() {
       });
       const publishIdle = () => {
         if (activeTransition?.owner === owner) activeTransition = null;
+        cancelActive = null;
         publish({ phase: 'idle', target: null, direction: null, generation });
       };
       const finishEnter = () => {
@@ -188,7 +210,10 @@ export function createBuildingTransitionController() {
       if (timer) clearTimeout(timer);
       timer = null;
       activeTransition = null;
+      const notifyCancelled = cancelActive;
+      cancelActive = null;
       publish({ phase: 'idle', target: null, direction: null, generation: state.generation + 1 });
+      notifyCancelled?.();
       return true;
     },
     dispose() {
