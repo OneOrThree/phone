@@ -177,7 +177,7 @@ test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 �
   assert.equal(exposed.actions.includes('LOGIN'), false);
 });
 
-test('닉네임 키보드가 열리면 시작 CTA를 접고 Done 뒤 재입력해도 값이 유지된다', async () => {
+test('닉네임 키보드를 두 번 열고 닫아도 값이 유지되고 입력 탭이 첫 섬 이동을 가로채지 않는다', async () => {
   const listeners: Record<string, () => void> = {};
   let exposed: any;
   const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
@@ -194,15 +194,23 @@ test('닉네임 키보드가 열리면 시작 CTA를 접고 Done 뒤 재입력�
     const nickname = s.getByLabelText('닉네임');
     await fireEvent.changeText(nickname, '구름이');
     await fireEvent(nickname, 'focus');
-    act(() => listeners.keyboardDidShow?.());
+    act(() => listeners.keyboardWillShow?.());
     assert.equal(s.queryByText('내 고양이와 시작'), null);
     assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+    assert.equal(exposed.go.mock.calls.length, 0);
+    await fireEvent(s.getByLabelText('닉네임'), 'focus');
+    await fireEvent(s.getByLabelText('닉네임'), 'focus');
     assert.equal(exposed.go.mock.calls.length, 0);
     act(() => listeners.keyboardDidHide?.());
     assert.ok(s.getByText('내 고양이와 시작'));
     await fireEvent(s.getByLabelText('닉네임'), 'focus');
-    act(() => listeners.keyboardDidShow?.());
+    act(() => listeners.keyboardWillShow?.());
     assert.equal(s.queryByText('내 고양이와 시작'), null);
+    assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
+    await fireEvent(s.getByLabelText('닉네임'), 'focus');
+    await fireEvent(s.getByLabelText('닉네임'), 'focus');
+    assert.equal(exposed.go.mock.calls.length, 0);
+    act(() => listeners.keyboardDidHide?.());
     assert.equal(s.getByLabelText('닉네임').props.value, '구름이');
   } finally {
     addListener.mockRestore();

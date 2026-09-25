@@ -404,10 +404,16 @@ function Onboard({
     [keyboardVisible, setKeyboardVisible] = useState(false);
   useEffect(() => {
     if (!hideCtaOnKeyboard) return;
-    const show = Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    // 키보드 애니메이션이 끝나기 전에 CTA를 제거해 첫 포커스 탭과 입력 칸을 가리지 않는다.
+    const show = Keyboard.addListener('keyboardWillShow', () => setKeyboardVisible(true));
+    const didShow =
+      Platform.OS === 'ios'
+        ? undefined
+        : Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
     const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
     return () => {
       show.remove();
+      didShow?.remove();
       hide.remove();
     };
   }, [hideCtaOnKeyboard]);
