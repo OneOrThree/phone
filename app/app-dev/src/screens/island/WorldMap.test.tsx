@@ -91,7 +91,32 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   expect(screen.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
     '새 댓글이 있습니다',
   );
-  expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
+  expect(screen.queryByTestId('village-board-tooltip')).toBeNull();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('새 편지가 있으면 우편함은 그대로 두고 ! 배지만 표시한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const friend = state.friends?.find((item) => item.status === 'friend');
+  friend?.messages.push({
+    id: 'new-letter',
+    memberId: friend.id,
+    name: friend.name,
+    color: friend.color,
+    text: '새 편지',
+    at: Date.now(),
+    status: 'sent',
+  });
+
+  const screen = await render(<WorldMap state={state} />);
+  expect(screen.getByTestId('world-static-building-mail')).toBeTruthy();
+  expect(screen.queryByTestId('mailbox-pelican')).toBeNull();
+  expect(screen.getByTestId('mailbox-new-indicator').props.accessibilityLabel).toBe(
+    '친구에게 받은 새 편지가 있습니다',
+  );
   await screen.unmount();
   jest.useRealTimers();
 });

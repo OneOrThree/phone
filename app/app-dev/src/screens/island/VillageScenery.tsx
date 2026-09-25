@@ -2,8 +2,8 @@ import React, { memo, useEffect, useRef } from 'react';
 import { Animated, AppState, Easing, Image, View, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { villageAssets } from '@/constants/village-assets';
-import { assets } from '@/constants/assets';
 import { villageMap, VillageScene } from '@/utils/village-world';
+import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
 // UI 색상이 아니라 원화의 불꽃 색상이다. 바닥 타일은 한 장으로 합쳐 그린다.
 export const VillageScenery = memo(function VillageScenery({
@@ -101,35 +101,30 @@ export const VillageScenery = memo(function VillageScenery({
             zIndex: Math.round(o.y),
           }}
         >
-          {o.kind === 'mailbox' && mailboxLetters ? (
-            <Image
-              source={assets['characters/pelican/npc/on-mailbox.png']}
-              style={{
-                position: 'absolute',
-                left: -47 * scale,
-                top: -61 * scale,
-                width: 137 * scale,
-                height: 137 * scale,
-              }}
-            />
-          ) : (
-            <Animated.Image
-              source={villageAssets[o.kind + '.png']}
-              style={{
-                width: '100%',
-                height: '100%',
-                transform:
-                  o.layer === 'trees' && !reduce
-                    ? [
-                        {
-                          rotate: pulse.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: ['-0.4deg', '0.4deg'],
-                          }),
-                        },
-                      ]
-                    : [],
-              }}
+          <Animated.Image
+            source={villageAssets[o.kind + '.png']}
+            style={{
+              width: '100%',
+              height: '100%',
+              transform:
+                o.layer === 'trees' && !reduce
+                  ? [
+                      {
+                        rotate: pulse.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: ['-0.4deg', '0.4deg'],
+                        }),
+                      },
+                    ]
+                  : [],
+            }}
+          />
+          {o.kind === 'mailbox' && mailboxLetters && (
+            <VillageNotificationBadge
+              testID="village-mailbox-new-indicator"
+              accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              scale={scale}
+              style={{ top: -10 * scale, right: -5 * scale }}
             />
           )}
           {o.kind === 'fire' && (

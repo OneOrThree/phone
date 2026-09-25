@@ -36,6 +36,7 @@ import {
   weekStart,
   periodBounds,
   unreadLetters,
+  hasMailboxLetters,
   newChatCount,
   clockMinutes,
   canSendLetter,
@@ -64,6 +65,7 @@ test('완성형 데모는 최초 건물 안내 없이 월드맵을 바로 보여
 
   assert.equal(shouldShowMailboxGuide(state, 'local'), false);
   assert.equal(shouldShowShopGuide(state, 'local'), false);
+  assert.equal(hasMailboxLetters(state), true);
 });
 
 test('상점 안내는 완공 뒤 계정별 최초 1회만 표시한다', () => {

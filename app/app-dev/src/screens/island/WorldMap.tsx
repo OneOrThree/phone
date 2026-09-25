@@ -70,6 +70,7 @@ import {
 import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
 import { LibraryMotion, type LibraryMotionState } from '@/components/village-motion/LibraryMotion';
 import { FireMotion } from '@/components/village-motion/FireMotion';
+import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -486,7 +487,6 @@ export function WorldMap({
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter((b) => b !== 'mail' || !mailboxLetters)
             .filter((b) => !(b === 'hall' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
@@ -508,18 +508,11 @@ export function WorldMap({
               />
             ))}
           {mailboxLetters && (
-            <Image
-              testID="mailbox-pelican"
-              source={assets['characters/pelican/npc/on-mailbox.png']}
-              style={{
-                position: 'absolute',
-                // 에셋 내부 우체통의 바닥·폭을 기존 레이어 rect [298, 520, 46, 63]에 맞춘다.
-                left: left + 251 * scale,
-                top: top + 459 * scale,
-                width: 137 * scale,
-                height: 137 * scale,
-              }}
-              resizeMode="contain"
+            <VillageNotificationBadge
+              testID="mailbox-new-indicator"
+              accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              scale={scale}
+              style={{ left: left + 326 * scale, top: top + 509 * scale }}
             />
           )}
           {island.buildings.includes('hall') && dayNight === 'day' && (
@@ -547,13 +540,6 @@ export function WorldMap({
               hasUnread={boardStatus === 'unread'}
               hasNewComment={boardStatus === 'new-comment'}
               indicatorScale={scale}
-              tooltip={
-                boardStatus === 'new-comment' ? (
-                  <Txt kind="meta">새 댓글이 있어요</Txt>
-                ) : boardStatus === 'unread' ? (
-                  <Txt kind="meta">읽지 않은 새 소식이 있어요</Txt>
-                ) : undefined
-              }
               style={{
                 position: 'absolute',
                 left: left + 858 * scale,
@@ -645,12 +631,7 @@ export function WorldMap({
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter(
-              (b) =>
-                (b !== 'mail' || !mailboxLetters) &&
-                island.buildingThemes?.[b] &&
-                island.buildingThemes?.[b] !== 'default',
-            )
+            .filter((b) => island.buildingThemes?.[b] && island.buildingThemes?.[b] !== 'default')
             .map((b) => (
               <Image
                 key={b}
