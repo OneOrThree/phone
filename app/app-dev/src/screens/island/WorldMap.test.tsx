@@ -24,6 +24,7 @@ afterEach(cleanup);
 
 test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 대체하고 전환 세대마다 재생한다', async () => {
   jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
   if (!island.buildings.includes('hall')) island.buildings.push('hall');
@@ -61,6 +62,8 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
 });
 
 test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태가 없으면 표시를 숨긴다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
   if (!island.buildings.includes('board')) island.buildings.push('board');
@@ -86,6 +89,32 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   );
   expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
   await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에서만 프레임을 연다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('tower')) island.buildings.push('tower');
+  const screen = await render(<WorldMap state={state} />);
+  const activeFrame = () =>
+    [0, 1, 2, 3].find((index) => {
+      const style = screen.getByTestId(`village-observatory-frame-${index}`).props.style;
+      return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
+    });
+
+  await act(async () => jest.advanceTimersByTime(2000));
+  expect(activeFrame()).toBe(0);
+  expect(screen.getByTestId('world-observatory-motion').props.accessibilityLabel).toContain('낮');
+  await screen.rerender(<WorldMap state={state} towerArrivalActive towerArrivalGeneration={1} />);
+  await act(async () => jest.advanceTimersByTime(220));
+  expect(activeFrame()).toBe(1);
+  await act(async () => jest.advanceTimersByTime(440));
+  expect(activeFrame()).toBe(3);
+  await screen.unmount();
+  jest.useRealTimers();
 });
 
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {

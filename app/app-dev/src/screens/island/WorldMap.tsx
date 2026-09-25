@@ -61,6 +61,10 @@ import {
 import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
+import {
+  VillageObservatoryMotion,
+  type ObservatoryRankState,
+} from '@/components/village-motion/VillageObservatoryMotion';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -226,6 +230,9 @@ export function WorldMap({
   hallMotionActive = false,
   hallMotionGeneration = 0,
   boardStatus = null,
+  observatoryRankState = 'normal',
+  towerArrivalActive = false,
+  towerArrivalGeneration = 0,
   village,
   children,
 }: {
@@ -238,6 +245,9 @@ export function WorldMap({
   hallMotionActive?: boolean;
   hallMotionGeneration?: number;
   boardStatus?: 'unread' | 'new-comment' | null;
+  observatoryRankState?: ObservatoryRankState;
+  towerArrivalActive?: boolean;
+  towerArrivalGeneration?: number;
   village?: VillageScene;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
@@ -245,6 +255,18 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
+  const [dayNight, setDayNight] = useState<'day' | 'night'>(() => {
+    const hour = new Date().getHours();
+    return hour >= 6 && hour < 18 ? 'day' : 'night';
+  });
+  useEffect(() => {
+    const updateLocalTime = () => {
+      const hour = new Date().getHours();
+      setDayNight(hour >= 6 && hour < 18 ? 'day' : 'night');
+    };
+    const timer = setInterval(updateLocalTime, 60_000);
+    return () => clearInterval(timer);
+  }, []);
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
@@ -389,7 +411,9 @@ export function WorldMap({
             >
               <SvgImage
                 href={
-                  village ? villageAssets['terrain.png'] : assets['backgrounds/island/base/day.png']
+                  village
+                    ? villageAssets['terrain.png']
+                    : assets[`backgrounds/island/base/${dayNight}.png`]
                 }
                 x={-800 * scale}
                 y={-936 * scale}
@@ -429,7 +453,7 @@ export function WorldMap({
               ? require('@/assets/reference-v2/fishing-island.png')
               : village
                 ? villageAssets['terrain.png']
-                : assets['backgrounds/island/base/day.png']
+                : assets[`backgrounds/island/base/${dayNight}.png`]
           }
           style={{ width: '100%', height: '100%' }}
           resizeMode="stretch"
@@ -439,13 +463,14 @@ export function WorldMap({
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
             .filter((b) => b !== 'mail' || !mailboxLetters)
-            .filter((b) => !(b === 'hall' && !village && !fishing))
-            .filter((b) => !(b === 'board' && !village && !fishing))
+            .filter((b) => !(b === 'hall' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
             .map((b) => (
               <Image
                 key={b}
                 testID={`world-static-building-${b}`}
-                source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
+                source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
                   left,
@@ -471,7 +496,7 @@ export function WorldMap({
               resizeMode="contain"
             />
           )}
-          {island.buildings.includes('hall') && (
+          {island.buildings.includes('hall') && dayNight === 'day' && (
             <VillageHallMotion
               testID="world-hall-motion"
               state={hallMotionActive ? 'arrival' : 'normal'}
@@ -492,6 +517,7 @@ export function WorldMap({
           {island.buildings.includes('board') && (
             <VillageBoardIndicator
               testID="world-board-indicator"
+              showBoardImage={dayNight === 'day'}
               hasUnread={boardStatus === 'unread'}
               hasNewComment={boardStatus === 'new-comment'}
               indicatorScale={scale}
@@ -508,6 +534,23 @@ export function WorldMap({
                 top: 158 * scale,
                 width: 80 * scale,
                 height: 80 * scale,
+              }}
+            />
+          )}
+          {island.buildings.includes('tower') && (
+            <VillageObservatoryMotion
+              testID="world-observatory-motion"
+              rankState={observatoryRankState}
+              dayNight={dayNight}
+              showFrames={dayNight === 'day'}
+              generation={dayNight === 'day' && towerArrivalActive ? towerArrivalGeneration : 0}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                position: 'absolute',
+                left: 152 * scale,
+                top: 23 * scale,
+                width: 112 * scale,
+                height: 193 * scale,
               }}
             />
           )}
@@ -539,7 +582,7 @@ export function WorldMap({
             .map((b) => (
               <Image
                 key={b}
-                source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
+                source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
                   left,
@@ -594,6 +637,8 @@ function FinalIslandScene({
   viewingIslandId,
   motion,
   boardStatus = null,
+  observatoryRankState = 'normal',
+  onBuildingEntrySound,
   layeredPreview = false,
 }: {
   state: State;
@@ -607,6 +652,9 @@ function FinalIslandScene({
   viewingIslandId?: string;
   motion?: CatMotionInput;
   boardStatus?: 'unread' | 'new-comment' | null;
+  observatoryRankState?: ObservatoryRankState;
+  /** 문 소스 확보 전까지는 선택적 연결 계약으로 두고 소리가 꺼져 있으면 호출하지 않는다. */
+  onBuildingEntrySound?: (target: BuildingTransitionTarget, generation: number) => void;
   layeredPreview?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
@@ -707,6 +755,22 @@ function FinalIslandScene({
     [buildingTransitionController],
   );
   useEffect(() => () => buildingTransitionController.dispose(), [buildingTransitionController]);
+  useEffect(() => {
+    const target = buildingTransition.target;
+    if (
+      !state.settings.sound ||
+      buildingTransition.phase !== 'entering' ||
+      (target !== 'hall' && target !== 'library')
+    )
+      return;
+    onBuildingEntrySound?.(target, buildingTransition.generation);
+  }, [
+    buildingTransition.generation,
+    buildingTransition.phase,
+    buildingTransition.target,
+    onBuildingEntrySound,
+    state.settings.sound,
+  ]);
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -1020,6 +1084,11 @@ function FinalIslandScene({
         }
         hallMotionGeneration={buildingTransition.generation}
         boardStatus={boardStatus}
+        observatoryRankState={observatoryRankState}
+        towerArrivalActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
+        }
+        towerArrivalGeneration={buildingTransition.generation}
         showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
         onSpot={
           visiting

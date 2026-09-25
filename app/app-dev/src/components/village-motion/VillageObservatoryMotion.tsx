@@ -20,12 +20,16 @@ const frameDuration = 220;
 export function VillageObservatoryMotion({
   rankState = 'normal',
   dayNight = 'day',
+  generation = 0,
+  showFrames = true,
   reduceMotion = false,
   style,
   testID = 'village-observatory-motion',
 }: {
   rankState?: ObservatoryRankState;
   dayNight?: ObservatoryDayNight;
+  generation?: number;
+  showFrames?: boolean;
   reduceMotion?: boolean;
   style?: ViewStyle;
   testID?: string;
@@ -41,14 +45,15 @@ export function VillageObservatoryMotion({
 
   useEffect(() => {
     setFrame(0);
-    if (motionDisabled) return;
+    if (motionDisabled || (generation === 0 && rankState === 'normal')) return;
     let sequenceIndex = 0;
     const timer = setInterval(() => {
       sequenceIndex = (sequenceIndex + 1) % sequence.length;
       setFrame(sequence[sequenceIndex]);
+      if (sequenceIndex === sequence.length - 1) clearInterval(timer);
     }, frameDuration);
     return () => clearInterval(timer);
-  }, [dayNight, motionDisabled]);
+  }, [dayNight, generation, motionDisabled, rankState]);
 
   return (
     <View
@@ -56,15 +61,16 @@ export function VillageObservatoryMotion({
       accessibilityLabel={`전망대, ${dayNight === 'day' ? '낮' : '밤'}${rankLabel ? `, ${rankLabel}` : ''}`}
       style={[styles.root, style]}
     >
-      {frames.map((source, index) => (
-        <Image
-          key={index}
-          testID={`village-observatory-frame-${index}`}
-          source={source}
-          resizeMode="stretch"
-          style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
-        />
-      ))}
+      {showFrames &&
+        frames.map((source, index) => (
+          <Image
+            key={index}
+            testID={`village-observatory-frame-${index}`}
+            source={source}
+            resizeMode="stretch"
+            style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
+          />
+        ))}
       {rankLabel && (
         <View testID="village-observatory-rank-indicator" style={styles.badge}>
           <Text style={styles.badgeText}>↑</Text>

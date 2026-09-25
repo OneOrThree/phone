@@ -9,6 +9,7 @@ export function VillageBoardIndicator({
   hasUnread = false,
   hasNewComment = false,
   tooltip,
+  showBoardImage = true,
   indicatorScale = 1,
   style,
   testID = 'village-board-indicator',
@@ -16,6 +17,7 @@ export function VillageBoardIndicator({
   hasUnread?: boolean;
   hasNewComment?: boolean;
   tooltip?: ReactNode;
+  showBoardImage?: boolean;
   indicatorScale?: number;
   style?: ViewStyle;
   testID?: string;
@@ -24,12 +26,14 @@ export function VillageBoardIndicator({
 
   return (
     <View testID={testID} pointerEvents="none" style={[styles.root, style]}>
-      <Image
-        testID="village-board-still-image"
-        source={villageAssets['notice-board.png']}
-        resizeMode="stretch"
-        style={styles.frame}
-      />
+      {showBoardImage && (
+        <Image
+          testID="village-board-still-image"
+          source={villageAssets['notice-board.png']}
+          resizeMode="stretch"
+          style={styles.frame}
+        />
+      )}
       {hasNotice && (
         <View
           testID="village-board-new-indicator"
