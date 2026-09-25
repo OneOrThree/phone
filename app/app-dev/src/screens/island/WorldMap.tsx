@@ -67,6 +67,7 @@ import {
 } from '@/components/village-motion/VillageObservatoryMotion';
 import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
 import { LibraryMotion, type LibraryMotionState } from '@/components/village-motion/LibraryMotion';
+import { FireMotion } from '@/components/village-motion/FireMotion';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -597,6 +598,18 @@ export function WorldMap({
               }}
             />
           )}
+          <FireMotion
+            testID="world-fire-motion"
+            mode={dayNight === 'day' ? 'day' : 'evening'}
+            reduceMotion={state.settings.reduceMotion}
+            style={{
+              position: 'absolute',
+              left: left + 402 * scale,
+              top: top + 425 * scale,
+              width: 166 * scale,
+              height: 111 * scale,
+            }}
+          />
         </View>
       )}
       {!fishing && island.theme !== 'default' && (

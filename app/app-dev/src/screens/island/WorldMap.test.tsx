@@ -198,6 +198,42 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
   jest.useRealTimers();
 });
 
+test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const screen = await render(<WorldMap state={state} />);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
+
+  expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe('모닥불, 낮, 연기');
+  expect(screen.getByTestId('world-fire-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 402 * worldScale,
+        top: worldTop + 425 * worldScale,
+        width: 166 * worldScale,
+        height: 111 * worldScale,
+      }),
+    ]),
+  );
+  await act(async () => jest.advanceTimersByTime(360));
+  expect(screen.getByTestId('fire-motion-frame-day-1').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+
+  await screen.unmount();
+  jest.setSystemTime(new Date('2026-06-15T21:00:00'));
+  const night = await render(<WorldMap state={state} />);
+  expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
+    '모닥불, 저녁, 불꽃',
+  );
+  expect(night.getByTestId('fire-motion-glow')).toBeTruthy();
+  await night.unmount();
+  jest.useRealTimers();
+});
+
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id === 'cloud')!;
@@ -268,13 +304,7 @@ test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 
   const go = jest.fn();
   try {
     const screen = await render(
-      <FinalIsland
-        state={state}
-        go={go}
-        build={jest.fn()}
-        showHud={false}
-        showActions={false}
-      />,
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
     );
     const hall = screen.getByLabelText(buildingNames.hall);
 
@@ -315,13 +345,7 @@ test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다'
   const go = jest.fn();
   try {
     const screen = await render(
-      <FinalIsland
-        state={state}
-        go={go}
-        build={jest.fn()}
-        showHud={false}
-        showActions={false}
-      />,
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
     );
 
     await fireEvent.press(screen.getByLabelText(buildingNames.hall));
