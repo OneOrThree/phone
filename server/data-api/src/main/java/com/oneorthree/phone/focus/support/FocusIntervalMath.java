@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.support;
 
+import com.oneorthree.phone.focus.dto.session.ActiveInterval;
 import com.oneorthree.phone.focus.repository.domain.FocusIntervalKind;
 import com.oneorthree.phone.focus.repository.domain.FocusSessionInterval;
 
@@ -9,6 +10,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.NavigableMap;
@@ -42,6 +44,27 @@ public final class FocusIntervalMath {
             totalMicros += microsBetween(interval.getStartedAt(), end);
         }
         return totalMicros / 1_000_000L;
+    }
+
+    /**
+     * ACTIVE 구간의 공개 표현(GROMO-2131, LLD §1 {@code activeIntervals}) — REST 는 빠지고, 열린 구간은
+     * {@code now} 로 임시로 닫는다. {@link #activeSecondsAsOf} 와 같은 anchor 를 넘기면 구간 길이 합이
+     * {@code activeSeconds} 와 맞는다(서브초 절삭 제외).
+     *
+     * @param intervals 세션의 전체 구간(ordinal 순)
+     * @param now       열린 구간을 임시로 닫을 anchor
+     * @return ACTIVE 구간만, ordinal 순
+     */
+    public static List<ActiveInterval> activeIntervalsAsOf(List<FocusSessionInterval> intervals, Instant now) {
+        List<ActiveInterval> result = new ArrayList<>();
+        for (FocusSessionInterval interval : intervals) {
+            if (interval.getKind() != FocusIntervalKind.ACTIVE) {
+                continue;
+            }
+            Instant end = interval.getEndedAt() != null ? interval.getEndedAt() : now;
+            result.add(new ActiveInterval(interval.getStartedAt(), end));
+        }
+        return result;
     }
 
     /**

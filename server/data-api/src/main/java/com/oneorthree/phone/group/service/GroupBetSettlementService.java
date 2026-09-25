@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
 import com.oneorthree.phone.group.repository.domain.SettleTrigger;
@@ -9,9 +11,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -38,13 +40,13 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class GroupBetSettlementService {
 
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-
     /** 실패 요약 로그에 실을 sessionId 상한 — 대량 실패 시 로그 한 줄이 무한정 길어지지 않게 자른다. */
     static final int FAILED_SESSION_ID_LOG_LIMIT = 20;
 
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupBetSettler groupBetSettler;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * {@code settle_after} 가 지난 OPEN 회차를 정산한다 — 수동 트리거의 진입점.
@@ -54,7 +56,7 @@ public class GroupBetSettlementService {
       *     나머지는 계속 돈다
      */
     public GroupBetSettlementSummaryResponse settleDueBets(MissionCategory category) {
-        return settleDueBets(Instant.now(), category);
+        return settleDueBets(clock.instant(), category);
     }
 
     /**

@@ -34,6 +34,7 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 | [realtime](docker-compose.realtime.yml) | dev에 채팅 DB 준비 작업·Realtime 추가 |
 | [business](docker-compose.business.yml) | Business와 미리보기 전용 Redis 추가 |
 | [satellites](docker-compose.satellites.yml) | Business·Notification·전용 Redis. 서비스별 env와 이미지 digest 필수 |
+| [satellites.dev](docker-compose.satellites.dev.yml) | dev Nginx용 Business loopback 포트 8083. prod에는 적용하지 않음 |
 | [satellites.data](docker-compose.satellites.data.yml) | 기존 Data의 env·이미지 교체. `!override` 지원 Compose 필요 |
 | [kafka](docker-compose.kafka.yml) | 위성 이벤트 전달용 Kafka |
 | [observability](docker-compose.observability.yml) | dev에 Prometheus·Grafana·Loki·exporter 추가 |
@@ -48,7 +49,8 @@ Realtime·OSS 관측 overlay는 dev용입니다. 그림의 선택 항목을 모�
 docker compose -f server/scripts/docker-compose.local.yml up -d db redis
 
 # dev (GCP gromo-dev-app) — Data·Postgres·공유 Redis·Realtime·Kafka·Business(+전용 Redis)·Notification. nginx 없음
-docker compose -p phone --env-file ../.gromo-runtime/dev.env --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
+# /var/lib/gromo/runtime 은 runner 소유 0700 이라, 서버에서 수동 실행할 때는 sudo -u runner 로 돌리거나 sudo 가 필요합니다.
+docker compose -p phone --env-file /var/lib/gromo/runtime/dev.env --env-file <out>/compose.env -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.realtime.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
 
 # prod (AWS gromo-prod) — nginx·Data·datadog-agent·Kafka·Business(+전용 Redis)·Notification. DB 는 RDS, Realtime 없음
 docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리> --env-file <prod 배포 디렉터리>/.env.prod --env-file <out>/compose.env -f server/scripts/docker-compose.prod.yml -f server/scripts/docker-compose.kafka.yml -f server/scripts/docker-compose.satellites.yml up -d
@@ -57,7 +59,7 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 | 환경 | 파일 조합 | 지금 자동으로 도는 부분 | 사람이 붙이는 부분 |
 | --- | --- | --- | --- |
 | local | local | — | 전부 |
-| dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites | `dev-cd.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(준비 도구의 계획) · Kafka 기동(Actions **Dev Kafka**) |
+| dev | dev (+datadog) (+kafka) (+satellites.data.dev) → + realtime · satellites · satellites.dev | `dev-cd.yml`: 기존 DB를 유지하며 `data-api`만 갱신 | Realtime(`up -d realtime`) · 위성(Satellite Dev CD) · Kafka 기동(Actions **Dev Kafka**) |
 | prod | prod (+kafka) (+satellites (+satellites.data)) | `prod-cd.yml` → SSM 문서가 `docker-compose.prod.yml` 단독 `up -d` | 위성·Kafka 전부 수동. Realtime 은 prod 배선 자체가 없다 |
 
 - Data 를 전용 env 로 바꿀 때만(준비 도구를 `--data-image`로 실행해 `compose.env`에 `DATA_API_ENV_FILE`·`DATA_API_PROFILES`가 있을 때) dev에서는 `docker-compose.satellites.data.dev.yml`, prod에서는 `docker-compose.satellites.data.yml`을 **마지막 `-f`**로 더합니다. dev CD는 전용 env가 없거나 유효하지 않으면 배포를 중단합니다.
@@ -68,7 +70,7 @@ docker compose -p "$PROD_PROJECT" --project-directory <prod 배포 디렉터리>
 
 ## 4. 시크릿·스위치 — 비었을 때의 동작
 
-dev 의 `../.gromo-runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다** Secrets Manager `gromo/dev/env`에서 다시 씁니다([`write-compose-env.py`](../../.github/scripts/write-compose-env.py) legacy). 그래서 dev 스위치는 파일이 아니라 **SM 키**로 바꿉니다. 필수 9개 외 아래 dev 행의 키는 SM 에 있을 때만 옮기고, 없으면 compose 기본값이 남습니다. 위성·Data 전용 env 는 같은 스크립트의 `--service` 허용목록이 정합니다. prod 의 Data 는 `.env.prod`(SM `gromo/prod/env` 전체)를 통째로 받습니다.
+dev 의 `/var/lib/gromo/runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다** Secrets Manager `gromo/dev/env`에서 다시 씁니다([`write-compose-env.py`](../../.github/scripts/write-compose-env.py) legacy). 그래서 dev 스위치는 파일이 아니라 **SM 키**로 바꿉니다. 필수 9개 외 아래 dev 행의 키는 SM 에 있을 때만 옮기고, 없으면 compose 기본값이 남습니다. 위성·Data 전용 env 는 같은 스크립트의 `--service` 허용목록이 정합니다. prod 의 Data 는 `.env.prod`(SM `gromo/prod/env` 전체)를 통째로 받습니다.
 
 | 키 | 받는 쪽 · 경로 | 비었을 때 |
 | --- | --- | --- |
@@ -85,6 +87,7 @@ dev 의 `../.gromo-runtime/dev.env`는 `dev-cd.yml`이 **매 배포마다** Secr
 | `FOCUS_PRESENCE_ENABLED` | Data(같은 경로) | `false` — 프레즌스를 쓰지 않는다 |
 | `REALTIME_AUTHORIZATION_DATA_URL` · `SVC_TOKEN_REALTIME_TO_DATA` | Realtime(미배선) · Data(`realtime-authorization` 프로파일) | **응원(STOMP emote)만** 전량 거절(`UPSTREAM_UNAVAILABLE`) — 인가 정본인 `GET /internal/islands/*/focus-members` 를 부를 수 없어서다(GROMO-1765). 채팅·주민 관전(`/topic/islands/*/focus\|rest`)·Data 사건 전달은 영향 없다 |
 | `FOCUS_REWARD_ACCRUAL_ENABLED` | Data(같은 경로) | `false` — 분당 적립 크론이 돌지 않는다. 적립은 finish 가 한 번에 확정하므로 정상 종료는 제값을 받지만, **finish 를 안 거치는 강퇴·포기 세션은 그 시점까지의 몫을 못 받는다**. 켜는 것은 배포가 한 버전으로 수렴한 뒤 — 혼합 버전 창에서는 새 크론과 옛 `finish` 가 다른 멱등 키로 이중 지급한다 |
+| `ISLAND_BOARD_WRITES_ENABLED` | Data(dev.env → `dev.yml`, `data-api.env` 선택) | `false` — 섬 게시판 공지 작성·수정·삭제·댓글 작성·댓글 삭제 5종이 503 `NOTICE_WRITE_UNAVAILABLE`. BQ02·BQ03 는 2026-09-25 결정(GROMO-2136)으로 확정됐지만 prod 개방은 별도 릴리스 결정이라 기본값은 그대로 `false` |
 
 켜는 순서는 [runtime.md «dev 에서 켜는 순서»](../../docs/prd/fishcat/server-separation/runtime.md#dev-에서-켜는-순서)가 정본입니다. `REALTIME_AUTHORIZATION_*`·`SVC_TOKEN_REALTIME_TO_DATA`는 아직 compose 에 배선하지 않았습니다 — 기본 OFF 인 채팅 멤버십 인가와, **같은 값을 쓰는 응원 인가**(GROMO-1765)가 여기에 걸립니다. Data 쪽은 `realtime-authorization` 프로파일을 `DATA_API_PROFILES` 에 더해야 `realtime` caller 허용목록이 생깁니다.
 
@@ -124,12 +127,12 @@ docker compose -f server/scripts/docker-compose.local.yml ps
 
 ### 기존 dev에 Realtime 추가
 
-아래 예시는 기존 dev가 `phone` 프로젝트와 `../.gromo-runtime/dev.env`를 사용하는 경우입니다. 실제 배포의 프로젝트명·env 경로가 다르면 동일한 값으로 맞춥니다. `REALTIME_IMAGE`로 사용할 이미지를 지정할 수 있습니다.
+아래 예시는 기존 dev가 `phone` 프로젝트와 `/var/lib/gromo/runtime/dev.env`를 사용하는 경우입니다. 실제 배포의 프로젝트명·env 경로가 다르면 동일한 값으로 맞춥니다. 런타임 디렉터리는 runner 소유 0700 이라 VM 에서 `sudo -u runner` 로 실행합니다. `REALTIME_IMAGE`로 사용할 이미지를 지정할 수 있습니다.
 
 ```bash
-docker compose -p phone --env-file ../.gromo-runtime/dev.env   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml config --quiet
+docker compose -p phone --env-file /var/lib/gromo/runtime/dev.env   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml config --quiet
 
-docker compose -p phone --env-file ../.gromo-runtime/dev.env   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml up -d realtime
+docker compose -p phone --env-file /var/lib/gromo/runtime/dev.env   -f server/scripts/docker-compose.dev.yml   -f server/scripts/docker-compose.realtime.yml up -d realtime
 ```
 
 Compose가 DB·Redis 및 `realtime-db-init` 의존성을 함께 처리합니다. 기존 `chat` 이름의 서비스는 자동으로 중지되지 않으므로 인스턴스 전환 절차에서 확인합니다.

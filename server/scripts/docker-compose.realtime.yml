@@ -72,7 +72,7 @@ services:
     ports:
       # 8081 — data-api(8080)와 같은 호스트에 뜨므로 겹치지 않게 잡았다.
       # 관리 포트 9091 은 절대 여기 올리지 않는다(포트 격리가 /actuator/* 를 사설로 유지하는 유일한 수단).
-      - "8081:8081"
+      - "127.0.0.1:8081:8081"
     environment:
       JAVA_OPTS: "-Djava.security.egd=file:/dev/./urandom -javaagent:/opt/dd-java-agent.jar"
       DD_AGENT_HOST: datadog-agent

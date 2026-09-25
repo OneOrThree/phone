@@ -3,9 +3,9 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.FocusSessionUseCase.FinishView;
 import com.oneorthree.business.usecase.FocusSessionUseCase.StateView;
@@ -36,8 +36,8 @@ import java.util.UUID;
  * 않으므로 「남의 세션」을 가리킬 입력이 없다. 성공 {@code {"data": …}} 봉투는 공통 advice 가 씌운다.
  *
  * <p>요청 URI 의 정확 일치 검사({@code IslandHostTransferController} 가 하는 것)는 두지 않는다 — 여기
- * 경로 변수는 {@link #uuid} 로 canonical UUID 만 통과하고, 그 값이 상류 URL 로 나갈 때는 파싱된 UUID 를
- * 다시 문자열로 만든 것이라 인코딩 장난이 상류 경로에 실릴 자리가 없다.
+ * 경로 변수는 {@link PublicIds#uuid} 로 canonical UUID 만 통과하고, 그 값이 상류 URL 로 나갈 때는 파싱된
+ * UUID 를 다시 문자열로 만든 것이라 인코딩 장난이 상류 경로에 실릴 자리가 없다.
  */
 @RestController
 @RequiredArgsConstructor
@@ -73,15 +73,15 @@ public class FocusSessionController {
         if (!absent && (!targetMinutes.isIntegralNumber() || !targetMinutes.canConvertToInt())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "targetMinutes");
         }
-        StateView started = focusSessions.start(claims, uuid(islandId.stringValue(), "islandId"),
-                subject.stringValue(), absent ? null : targetMinutes.intValue(), key, deadline());
+        StateView started = focusSessions.start(claims, PublicIds.uuid(islandId.stringValue(), "islandId"),
+                subject.stringValue(), absent ? null : targetMinutes.intValue(), key, properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(started);
     }
 
     /** 진행 세션이 없으면 {@code {"data": null}} 이다 — 정상값이고 404 가 아니다(LLD §2 session). */
     @GetMapping("/focus-sessions/current")
     public StateView current(HttpServletRequest request) {
-        return focusSessions.current(sessions.requireSession(request), deadline());
+        return focusSessions.current(sessions.requireSession(request), properties.deadline());
     }
 
     /**
@@ -91,7 +91,7 @@ public class FocusSessionController {
      */
     @GetMapping("/focus-sessions/pending-result")
     public FinishView pendingResult(HttpServletRequest request) {
-        return focusSessions.pendingResult(sessions.requireSession(request), deadline());
+        return focusSessions.pendingResult(sessions.requireSession(request), properties.deadline());
     }
 
     /**
@@ -105,7 +105,7 @@ public class FocusSessionController {
     @PostMapping("/focus-sessions/{sessionId}/acknowledge")
     public ResponseEntity<Void> acknowledge(@PathVariable String sessionId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        focusSessions.acknowledgeResult(claims, uuid(sessionId, "sessionId"), deadline());
+        focusSessions.acknowledgeResult(claims, PublicIds.uuid(sessionId, "sessionId"), properties.deadline());
         return ResponseEntity.noContent().build();
     }
 
@@ -114,7 +114,8 @@ public class FocusSessionController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return focusSessions.pause(claims, uuid(sessionId, "sessionId"), expectedVersion(body), key, deadline());
+        return focusSessions.pause(claims, PublicIds.uuid(sessionId, "sessionId"), expectedVersion(body), key,
+                properties.deadline());
     }
 
     @PostMapping(value = "/focus-sessions/{sessionId}/resume", consumes = "application/json")
@@ -122,7 +123,8 @@ public class FocusSessionController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return focusSessions.resume(claims, uuid(sessionId, "sessionId"), expectedVersion(body), key, deadline());
+        return focusSessions.resume(claims, PublicIds.uuid(sessionId, "sessionId"), expectedVersion(body), key,
+                properties.deadline());
     }
 
     @PostMapping(value = "/focus-sessions/{sessionId}/finish", consumes = "application/json")
@@ -130,7 +132,8 @@ public class FocusSessionController {
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        return focusSessions.finish(claims, uuid(sessionId, "sessionId"), expectedVersion(body), key, deadline());
+        return focusSessions.finish(claims, PublicIds.uuid(sessionId, "sessionId"), expectedVersion(body), key,
+                properties.deadline());
     }
 
     /**
@@ -140,7 +143,7 @@ public class FocusSessionController {
     @GetMapping("/me/focus-summary")
     public SummaryView summary(HttpServletRequest request) {
         return focusSessions.summary(sessions.requireSession(request), single(request, "date"),
-                single(request, "timezone"), deadline());
+                single(request, "timezone"), properties.deadline());
     }
 
     /**
@@ -169,21 +172,5 @@ public class FocusSessionController {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "expectedVersion");
         }
         return ResourceVersions.fromJson(body.get("expectedVersion"), "expectedVersion");
-    }
-
-    private static UUID uuid(String value, String field) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

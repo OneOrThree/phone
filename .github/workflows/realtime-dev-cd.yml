@@ -20,12 +20,14 @@ env:
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
   REALTIME_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/realtime
-  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+  # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
+  # 재부팅에도 살아남는다.
+  RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
 
 jobs:
   deploy:
     runs-on: [self-hosted, dev]
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: read
       id-token: write
@@ -44,7 +46,7 @@ jobs:
       - name: dev 런타임 값 갱신 (Secrets Manager → checkout 외부 env)
         run: |
           set -euo pipefail
-          test -s "$RUNTIME_ENV_FILE"
+          test -s "$RUNTIME_ENV_FILE" || { echo "::error::$RUNTIME_ENV_FILE 가 없거나 비었습니다 — 파일은 dev-cd(Data 배포)가 쓰고, 디렉터리는 VM 시작 스크립트가 만든다(GROMO-2134)"; exit 1; }
           test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
           # Realtime 배포가 Data 배포보다 먼저 실행되어도 APP_IMAGE를 되돌리지 않도록 현재
           # 런타임 파일에 명시된 불변 이미지 참조를 보존하면서 공유 시크릿만 다시 쓴다.
@@ -77,7 +79,7 @@ jobs:
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "$IMAGE_REVISION" =~ ^[0-9a-f]{40}$ ]]
           test "$IMAGE_REVISION" = "$GITHUB_SHA"
-          test -s "$RUNTIME_ENV_FILE"
+          test -s "$RUNTIME_ENV_FILE" || { echo "::error::$RUNTIME_ENV_FILE 가 없거나 비었습니다 — 파일은 dev-cd(Data 배포)가 쓰고, 디렉터리는 VM 시작 스크립트가 만든다(GROMO-2134)"; exit 1; }
           test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
           export REALTIME_IMAGE="$REALTIME_IMAGE_REPOSITORY@$IMAGE_DIGEST" IMAGE_REVISION
           rendered=$(docker compose --env-file "$RUNTIME_ENV_FILE" \
@@ -91,12 +93,9 @@ jobs:
             (($e.KAFKA_BOOTSTRAP_SERVERS // "") | length > 0)' >/dev/null
 
       - name: GAR 인증
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
-            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
 
       - name: Realtime 배포
         env:
@@ -113,14 +112,16 @@ jobs:
       - name: Realtime readiness
         run: |
           set -euo pipefail
-          for i in $(seq 1 60); do
-            if docker exec phone-realtime curl -fsS http://localhost:9091/actuator/health/readiness >/dev/null 2>&1; then
+          deadline=$((SECONDS + 900))
+          while (( SECONDS < deadline )); do
+            if docker exec phone-realtime curl -fsS --max-time 10 http://localhost:9091/actuator/health/readiness >/dev/null 2>&1; then
               echo "Realtime readiness 통과"
               exit 0
             fi
-            echo "Realtime 기동 대기 중... ($((i * 5))s)"
+            echo "Realtime 기동 대기 중... ($((900 - deadline + SECONDS))s / 900s)"
             sleep 5
           done
+          echo '::error::Realtime readiness가 900초 안에 통과하지 못했습니다'
           docker logs --tail=100 phone-realtime
           exit 1
 

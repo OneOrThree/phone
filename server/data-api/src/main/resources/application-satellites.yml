@@ -15,11 +15,12 @@ island-management:
   # 꺼져 있으면 receipt·쓰기보다 먼저 503 ISLAND_MANAGEMENT_NOT_READY 다. 주민·신청자 목록 조회는 게이트가 없다.
   commands-enabled: false
 
-# GROMO-1771 섬 게시판. 공지 작성·수정·삭제·댓글 네 쓰기는 BQ02(댓글 삭제·탈퇴 처리)와
-# BQ03(본문·댓글 상한)이 결정되기 전 출시 금지라 꺼 둔다(island-board policy). 조회는 열려 있다.
+# GROMO-1771 섬 게시판. BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정(GROMO-2136)으로
+# 확정됐다(island-board policy) — 공지 작성·수정·삭제는 방장만, 댓글 삭제는 작성자 본인 또는 방장이다.
+# 그래도 기본값은 OFF 로 둔다: prod 개방은 별도 릴리스 결정이고, dev 는 ISLAND_BOARD_WRITES_ENABLED 로 켠다.
 island-board:
-  writes-enabled: false
-  # BQ03 결정 전 임시값 — 결정이 나면 이 두 값과 island-board 정책 문서를 함께 바꾼다(UTF-16 단위).
+  writes-enabled: ${ISLAND_BOARD_WRITES_ENABLED:false}
+  # UTF-16 단위 — 2026-09-25 결정 GROMO-2136 으로 확정값이다(BQ03).
   notice-body-max-length: 5000
   comment-max-length: 500
 
@@ -134,14 +135,15 @@ internal:
           # 요청자의 현재 섬이라 1759 의 `/island-search`·`/island-discovery` 와 같은 자리다.
           # 주민 랭킹(`/islands/*/rankings/members`)은 결정 B23·B15 로 폐기돼 여기 줄이 없다.
           - 'GET /internal/users/*/island-rankings'
-          # GROMO-1771 섬 게시판 6종. `*` 는 세그먼트 하나다 — 목록과 작성, 상세·수정·삭제는 메서드로만
-          # 갈리므로 줄을 합치지 않는다(합치면 조회 권한이 쓰기까지 연다).
+          # GROMO-1771 섬 게시판 7종(댓글 삭제는 GROMO-2136). `*` 는 세그먼트 하나다 — 목록과 작성, 상세·수정·삭제는
+          # 메서드로만 갈리므로 줄을 합치지 않는다(합치면 조회 권한이 쓰기까지 연다).
           - 'GET /internal/islands/*/notices'
           - 'POST /internal/islands/*/notices'
           - 'GET /internal/islands/*/notices/*'
           - 'PATCH /internal/islands/*/notices/*'
           - 'DELETE /internal/islands/*/notices/*'
           - 'POST /internal/islands/*/notices/*/comments'
+          - 'DELETE /internal/islands/*/notices/*/comments/*'
           # GROMO-1765 같이 낚시 초기 스냅샷 2종 — 역시 `/internal/islands/*` 가 덮지 않는다.
           - 'GET /internal/islands/*/focus-members'
           - 'GET /internal/islands/*/rest-members'

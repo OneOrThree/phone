@@ -31,19 +31,23 @@ env:
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
   APP_IMAGE_REPOSITORY: asia-northeast3-docker.pkg.dev/oneorthree2/ci-cache/back
-  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
+  # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로다(GROMO-2134). 러너 디렉터리(actions-runner)는
+  # 시작 스크립트가 매 재부팅마다 rm -rf 로 지운다 — 2026-09-24 재부팅으로 옛 위치의 dev.env 가 사라져
+  # Satellite Dev CD 가 실패했다. data-api.env 는 CD 가 다시 만들지 않는 수동 파일이라, 없으면 Data API 배포가
+  # 중단된다(아래 「Data 전용 env 가 없습니다」) — 같은 날 실제로 그렇게 멈춰 컨테이너 env 로 복원했다.
+  RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
   # 위성 모드 Data 전용 env (GROMO-1658). CD 는 이 파일을 «만들지도 지우지도 않는다» — 사람이
   # `write-compose-env.py --service data-api --environment dev` 로 직접 둔 경우에만 아래 배포가
   # docker-compose.satellites.data.yml 을 마지막 -f 로 붙인다. 파일이 없으면 이 값은 어디서도 읽히지 않는다.
   # 켜는 순서: docs/prd/fishcat/server-separation/runtime.md «dev 에서 켜는 순서».
-  DATA_API_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/data-api.env
+  DATA_API_ENV_FILE: /var/lib/gromo/runtime/data-api.env
 
 jobs:
   deploy:
     name: Data API 배포
     runs-on: [self-hosted, dev]
     environment: production
-    timeout-minutes: 20
+    timeout-minutes: 40
     permissions:
       id-token: write
       contents: read
@@ -79,14 +83,20 @@ jobs:
       - name: AWS 계정 경계 확인
         run: test "$(aws sts get-caller-identity --query Account --output text)" = 808715036056
 
-      # checkout sibling은 actions/checkout의 git clean 범위 밖이다. 배포 뒤 수동 compose와
-      # dev-monitor/dev-datadog도 같은 0600 파일을 --env-file로 명시해 사용한다.
-      - name: 런타임 값 로드 (Secrets Manager → checkout 외부 env)
+      # /var/lib/gromo/runtime 은 러너 디렉터리 밖의 고정 경로라 checkout git clean 범위 밖이고 재부팅에도
+      # 살아남는다(GROMO-2134). 배포 뒤 수동 compose와 dev-monitor/dev-datadog도 같은 0600 파일을
+      # --env-file로 명시해 사용한다.
+      - name: 런타임 값 로드 (Secrets Manager → /var/lib/gromo/runtime)
         env:
           IMAGE_DIGEST: ${{ inputs.image_digest }}
         run: |
           set -euo pipefail
           [[ "$IMAGE_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          # 러너는 /var/lib 에 못 쓰므로 여기서 만들지 않는다 — 없으면 시작 스크립트 문제다.
+          if [ ! -d "$(dirname "$RUNTIME_ENV_FILE")" ]; then
+            echo "::error::$(dirname "$RUNTIME_ENV_FILE") 가 없습니다 — VM 시작 스크립트가 runner 소유 0700 으로 만들어야 합니다(GROMO-2134)"
+            exit 1
+          fi
           aws secretsmanager get-secret-value \
             --secret-id "$ENV_SECRET_ID" \
             --query SecretString --output text \
@@ -95,12 +105,9 @@ jobs:
               --app-image "$APP_IMAGE_REPOSITORY@$IMAGE_DIGEST"
 
       - name: GAR 인증
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
-            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
 
       - name: 배포
         env:
@@ -135,6 +142,9 @@ jobs:
                      if not isinstance(env.get(key), str) or not env[key].strip()]
             if blank:
                 print("::error::Data 전용 env 에 없거나 비어 있는 키: " + ", ".join(blank))
+                sys.exit(1)
+            if env.get("INTERNAL_API_ENABLED") != "true":
+                print("::error::2.0 Data 내부 API가 활성화되지 않았습니다(INTERNAL_API_ENABLED=true 필요)")
                 sys.exit(1)
             if "SPRING_PROFILES_ACTIVE" in env:
                 raw = env["SPRING_PROFILES_ACTIVE"]
@@ -261,17 +271,19 @@ jobs:
             compose+=(-f server/scripts/docker-compose.satellites.data.dev.yml)
           fi
           echo "Data API 기동 대기 중..."
-          # Datadog -javaagent 콜드스타트까지 포함한 직전 운영 계약: 최대 300초.
-          for i in $(seq 1 60); do
+          # 4GB 시절 dev VM(e2-medium)에서 Data/JPA 초기화가 300초를 넘었다(지금은 8 GB — A25). 여유를 그대로 둔다. curl 시간도 포함해 최대 900초 기다린다.
+          started_at=$SECONDS
+          deadline=$((started_at + 900))
+          while (( SECONDS < deadline )); do
             sleep 5
-            if curl -sf http://127.0.0.1:8080/health \
+            if curl -sf --max-time 10 http://127.0.0.1:8080/health \
               && [ "$(docker inspect -f '{{.State.Health.Status}}' phone-data-api)" = healthy ]; then
               echo "헬스체크 통과"
               docker rm phone-app 2>/dev/null || true
               ! docker container inspect phone-app >/dev/null 2>&1
               exit 0
             fi
-            echo "대기 중... ($((i*5))s)"
+            echo "대기 중... ($((SECONDS - started_at))s)"
           done
           "${compose[@]}" logs data-api
           exit 1
@@ -283,8 +295,18 @@ jobs:
           if [ "$(docker inspect phone-app --format '{{.State.Running}}' 2>/dev/null || true)" = false ]; then
             docker stop phone-data-api 2>/dev/null || true
             docker start phone-app
-            curl --fail --silent --show-error http://127.0.0.1:8080/health >/dev/null
-            echo "::warning::새 Data API가 실패하여 이전 컨테이너를 복구했습니다. DB는 변경하지 않았습니다."
+            # 이전 컨테이너도 실제 재기동에 약 330초가 걸렸다. 시작 명령 성공만으로 복구라 하지 않는다.
+            recovery_started=$SECONDS
+            recovery_deadline=$((recovery_started + 600))
+            while (( SECONDS < recovery_deadline )); do
+              if curl --fail --silent --max-time 10 http://127.0.0.1:8080/health >/dev/null; then
+                echo "::warning::새 Data API가 실패하여 이전 컨테이너를 복구했습니다. DB는 변경하지 않았습니다."
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "::error::이전 Data API를 재시작했지만 600초 안에 /health 응답이 없습니다."
+            exit 1
           fi
 
       - name: 배포 실패 리포트

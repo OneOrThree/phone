@@ -21,6 +21,7 @@ import {
   Share,
   AccessibilityInfo,
   FlatList,
+  Linking,
 } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -30,6 +31,12 @@ import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
 import { bundledAudioSource } from '@/constants/audio';
 import { playbackSeekSeconds } from '@/services/api/playback';
 import { screenTime, selectionCount } from '@/services/screenTime';
+import {
+  endLiveActivities,
+  shouldPollExpiredRest,
+  shouldReconcileExpiredRest,
+  syncLiveActivity,
+} from '@/services/liveActivity';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
 import * as Haptics from 'expo-haptics';
@@ -94,7 +101,8 @@ import {
   type LoginResult,
   type Provider,
 } from '@/services/api/auth';
-import { ApiError } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getSession,
   restoreSession,
@@ -279,6 +287,12 @@ function Gromo() {
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
+  const [liveCounts, setLiveCounts] = useState<{
+    sessionId: string;
+    islandId: string;
+    focus: number;
+    rest: number;
+  } | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
   const transition = useRef(new Animated.Value(1)).current,
@@ -398,6 +412,33 @@ function Gromo() {
   });
   const islands = islandCmds.current.commands,
     syncIslands = islandCmds.current.syncIslands;
+  // ── 서버 모드 홈 스냅샷(GROMO-2138) ──
+  // 홈에 들어올 때마다(그리고 current 가 바뀌면) 불러 홈이 서버 값을 직접 그린다.
+  // 실패는 홈이 재시도로 띄운다 — 로컬 목업 섬으로 대신 그리지 않는다.
+  const [homeError, setHomeError] = useState(false),
+    [homeReload, setHomeReload] = useState(0);
+  const serverCurrent =
+    !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
+  const onHome = route === 'home';
+  useEffect(() => {
+    if (!loaded || !serverCurrent || !onHome) return;
+    let live = true;
+    setHomeError(false);
+    loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
+      .then((r) => {
+        if (!live) return;
+        if (r.status === 'loaded') dispatch({ type: 'SERVER_HOME', facts: r.facts });
+        // 그 사이 current 가 풀렸다(강퇴·다른 기기 해제) — 소속 동기화로 반영해 chooseIsland 로 보낸다
+        else dispatch({ type: 'ISLAND_SYNC', memberships: r.memberships });
+      })
+      .catch((thrown) => {
+        if (live && !(thrown instanceof ApiError && thrown.code === CLIENT_STALE_SESSION))
+          setHomeError(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [loaded, serverCurrent, onHome, homeReload]);
   // ── 집중 세션 서버 명령(GROMO-2009) ──
   // 섬 명령과 같은 저장소 규칙 — 멱등 키는 세대 격리 ref, state·세션은 최신 ref로 읽는다.
   const focusCmds = useRef<ReturnType<typeof createSessionCommands> | null>(null);
@@ -407,9 +448,62 @@ function Gromo() {
     getSnap: () => stateRef.current?.serverIslands,
   });
   const focus = focusCmds.current.commands;
+  const restRecovery = useRef<{
+    sessionId: string;
+    at: number;
+    promise: Promise<boolean> | null;
+  } | null>(null);
+  const applyRecoveredRestRoute = (sessionId: string, recovered: Route | null): boolean => {
+    const current = stateRef.current.session;
+    if (
+      current &&
+      (current.id !== sessionId || (current.status === 'active' && recovered !== 'focus'))
+    )
+      return false;
+    if (recovered === 'focusResult') reset('focusResult');
+    else if (recovered === 'focus') reset('focus');
+    else if (recovered === null) home();
+    else return false;
+    return true;
+  };
+  const recoverExpiredRest = (sessionId: string, force = false): Promise<boolean> => {
+    const previous = restRecovery.current;
+    if (previous?.sessionId === sessionId && previous.promise) {
+      // 버튼 충돌은 진행 중인 조회가 서버 자동 종료 직전 상태를 읽었을 수도 있어 한 번 더 확인한다.
+      return force
+        ? previous.promise.then((handled) => handled || recoverExpiredRest(sessionId, true))
+        : previous.promise;
+    }
+    const at = Date.now();
+    if (!force && !shouldPollExpiredRest(stateRef.current.session, at, previous))
+      return Promise.resolve(false);
+    const promise = focus
+      .recover()
+      .then((recovered) => applyRecoveredRestRoute(sessionId, recovered))
+      .catch(() => false)
+      .finally(() => {
+        if (restRecovery.current?.sessionId === sessionId) restRecovery.current.promise = null;
+      });
+    restRecovery.current = { sessionId, at, promise };
+    return promise;
+  };
+  const recoverExpiredRestConflict = (
+    error: unknown,
+    session: State['session'],
+  ): Promise<boolean> => {
+    if (
+      !session ||
+      !shouldReconcileExpiredRest(session, Date.now()) ||
+      !(error instanceof ApiError) ||
+      !['STATE_CONFLICT', 'VERSION_CONFLICT', 'NOT_FOUND', 'GROUP_NOT_FOUND'].includes(error.code)
+    )
+      return Promise.resolve(false);
+    return recoverExpiredRest(session.id, true);
+  };
   // 서버 세션(버전 있음)이면 명령이 정본 — 없으면 목업 로컬 reducer 경로다.
   const serverSession = () => hasServerSession && stateRef.current?.session?.version != null;
   const finishSession = () => {
+    const session = stateRef.current.session;
     if (!serverSession()) {
       dispatch({ type: 'FINISH' });
       reset('focusResult');
@@ -418,9 +512,13 @@ function Gromo() {
     focus
       .finish()
       .then(() => reset('focusResult'))
-      .catch((error) => notify(error instanceof Error ? error.message : '집중을 마치지 못했어요.'));
+      .catch(async (error) => {
+        if (await recoverExpiredRestConflict(error, session)) return;
+        notify(error instanceof Error ? error.message : '집중을 마치지 못했어요.');
+      });
   };
   const resumeSession = () => {
+    const session = stateRef.current.session;
     if (!serverSession()) {
       dispatch({ type: 'RESUME' });
       setRoute('focus');
@@ -429,9 +527,10 @@ function Gromo() {
     focus
       .resume()
       .then(() => setRoute('focus'))
-      .catch((error) =>
-        notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.'),
-      );
+      .catch(async (error) => {
+        if (await recoverExpiredRestConflict(error, session)) return;
+        notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.');
+      });
   };
   // ── 회원 전환(GROMO-2005) ──
   // 오케스트레이션은 services/memberConversion.ts — 친구·편지·구매의 403 SOCIAL_LOGIN_REQUIRED 를
@@ -550,6 +649,7 @@ function Gromo() {
       setConvUi(null);
       settleSwitch(false);
       dispatch({ type: 'LOGOUT' });
+      void endLiveActivities().catch(() => {});
       reset('login');
     });
     return () => setSessionLostHandler(null);
@@ -769,6 +869,59 @@ function Gromo() {
     }
   }, [loaded, state.session?.id, state.session?.status, state.session?.subject]);
   useEffect(() => {
+    if (!loaded || Platform.OS !== 'ios') return;
+    const session = REVIEW || DEMO || hasServerSession ? state.session : null;
+    const counts =
+      session && liveCounts?.sessionId === session.id && liveCounts.islandId === session.islandId
+        ? liveCounts
+        : null;
+    void syncLiveActivity(session, state.color, counts).catch(() => {});
+  }, [
+    loaded,
+    hasServerSession,
+    state.session?.id,
+    state.session?.islandId,
+    state.session?.status,
+    state.session?.subject,
+    state.session?.startedAt,
+    state.session?.restStartedAt,
+    state.session?.seconds,
+    state.color,
+    liveCounts,
+  ]);
+  useEffect(() => {
+    if (!loaded) return;
+    let active = true;
+    const openActivity = (url: string | null) => {
+      const session = stateRef.current.session;
+      if (active && url?.startsWith('com.oneorthree.focuscat://activity') && session) {
+        replace(session.status === 'paused' ? 'rest' : 'focus');
+      }
+    };
+    const subscription = Linking.addEventListener('url', ({ url }) => openActivity(url));
+    void Linking.getInitialURL().then(openActivity);
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [loaded]);
+  useEffect(() => {
+    if (!loaded || !hasServerSession || REVIEW || DEMO) return;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') setNow(Date.now());
+    });
+    return () => subscription.remove();
+  }, [loaded, hasServerSession]);
+  useEffect(() => {
+    if (!loaded || !hasServerSession || REVIEW || DEMO || AppState.currentState !== 'active')
+      return;
+    const session = stateRef.current.session;
+    if (session && shouldPollExpiredRest(session, now, restRecovery.current)) {
+      // 서버 자동 종료 스케줄러가 다음 분에 실행될 수 있어 만료 후에도 간격을 두고 재조회한다.
+      void recoverExpiredRest(session.id);
+    }
+  }, [loaded, hasServerSession, now]);
+  useEffect(() => {
     if (!loaded) return;
     transition.stopAnimation();
     transition.setValue(state.settings.reduceMotion ? 1 : 0);
@@ -934,6 +1087,7 @@ function Gromo() {
   // 정책: 「로그아웃은 서버 데이터를 유지하고 현재 기기 세션만 종료한다」. 서버 호출이 실패해도
   // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.
   const signOut = () => {
+    void endLiveActivities().catch(() => {});
     logout().catch(() => {});
   };
   const send = () => {
@@ -1001,7 +1155,21 @@ function Gromo() {
           // 서버 명령은 실제 API 모드에서만 넘긴다 — REVIEW/DEMO는 undefined 라 화면이 목업 경로를 쓴다
           islands: REVIEW || DEMO || !hasServerSession ? undefined : islands,
           focus: REVIEW || DEMO || !hasServerSession ? undefined : focus,
+          recoverExpiredRestConflict,
+          onPresenceCounts: (
+            sessionId: string,
+            islandId: string,
+            counts: { focus: number; rest: number } | null,
+          ) => {
+            setLiveCounts((previous) => {
+              const next = counts ? { sessionId, islandId, ...counts } : null;
+              return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+            });
+          },
           islandBootError,
+          // 서버 모드 홈 스냅샷 실패 표시·재시도(GROMO-2138)
+          homeError,
+          retryHome: () => setHomeReload((n) => n + 1),
           // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
           conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
           playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,

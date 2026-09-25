@@ -21,6 +21,7 @@ import {
   Route,
   currentIsland,
   viewIsland,
+  serverHome,
   canVisit,
   buildingNames,
   costs,
@@ -198,6 +199,19 @@ export function CurrentScreens({ e }: any) {
   return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
 }
 
+// 주민 화면 가드 판정(GROMO-2138). 서버 모드는 로컬 목업 섬 대신 서버 current 로 소속을,
+// 스냅샷의 완공 건물로 잠금을 본다. 스냅샷이 오기 전(built undefined)에는 잠그지 않는다 —
+// 각 건물 화면이 서버에서 다시 확인한다.
+export function memberGate(state: State, server: boolean) {
+  const i = currentIsland(state);
+  if (!server) return { joined: i.joined, built: viewIsland(state).buildings, host: isHost(i) };
+  const facts = state.visitingIslandId ? null : serverHome(state);
+  return {
+    joined: state.serverIslands?.currentIslandId != null,
+    built: state.visitingIslandId ? viewIsland(state).buildings : facts?.completedBuildings,
+    host: facts?.home.island.role === 'host',
+  };
+}
 function CurrentScreensContent({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
@@ -236,7 +250,8 @@ function CurrentScreensContent({ e }: any) {
     'orders',
     'sound',
   ];
-  if (!i.joined && memberRoutes.includes(r))
+  const { joined, built, host } = memberGate(state, !!e.islands);
+  if (!joined && memberRoutes.includes(r))
     return (
       <Overlay close={() => e.reset('chooseIsland')}>
         <Txt kind="h17">가입한 섬이 없어요</Txt>
@@ -294,7 +309,7 @@ function CurrentScreensContent({ e }: any) {
     sound: 'gram',
   };
   const required = locked[r];
-  if (required && !viewIsland(state).buildings.includes(required))
+  if (required && built && !built.includes(required))
     return (
       <Overlay
         close={e.home}
@@ -308,10 +323,8 @@ function CurrentScreensContent({ e }: any) {
             : '완공 후 이용할 수 있어요.'}
         </Txt>
         <Btn
-          title={isHost(i) && i.buildings.includes('hall') ? '회관에서 다음 건물 보기' : '확인'}
-          onPress={() =>
-            isHost(i) && i.buildings.includes('hall') ? e.go('construction') : e.home()
-          }
+          title={host && built.includes('hall') ? '회관에서 다음 건물 보기' : '확인'}
+          onPress={() => (host && built.includes('hall') ? e.go('construction') : e.home())}
         />
       </Overlay>
     );
@@ -1042,6 +1055,27 @@ function FocusFlow({ e }: any) {
     emoteSessionId,
     onSendError: e.notify,
   });
+  const activeFocusCount = live.focus.filter((member) => member.status === 'active').length;
+  useEffect(() => {
+    if (!liveIslandId || !s.session) return;
+    e.onPresenceCounts?.(
+      s.session.id,
+      liveIslandId,
+      live.status === 'ready'
+        ? {
+            focus: Math.max(activeFocusCount, s.session.status === 'active' ? 1 : 0),
+            rest: Math.max(live.rest.length, s.session.status === 'paused' ? 1 : 0),
+          }
+        : null,
+    );
+  }, [
+    liveIslandId,
+    s.session?.id,
+    s.session?.status,
+    live.status,
+    activeFocusCount,
+    live.rest.length,
+  ]);
   const myId = getSession()?.userId;
   useEffect(
     () => () => {
@@ -1070,10 +1104,14 @@ function FocusFlow({ e }: any) {
   const serverSession = () => e.focus && s.session?.version != null;
   const finish = () => {
     if (serverSession()) {
+      const session = s.session;
       e.focus
         .finish()
         .then(() => e.reset('focusResult'))
-        .catch((error: any) => e.notify(error?.message ?? '집중을 마치지 못했어요.'));
+        .catch(async (error: any) => {
+          if (await e.recoverExpiredRestConflict?.(error, session)) return;
+          e.notify(error?.message ?? '집중을 마치지 못했어요.');
+        });
       return;
     }
     e.dispatch({ type: 'FINISH' });
@@ -1169,10 +1207,14 @@ function FocusFlow({ e }: any) {
     };
   const resume = () => {
     if (serverSession()) {
+      const session = s.session;
       e.focus
         .resume()
         .then(() => setVoyage('toSpot'))
-        .catch((error: any) => e.notify(error?.message ?? '집중을 이어가지 못했어요.'));
+        .catch(async (error: any) => {
+          if (await e.recoverExpiredRestConflict?.(error, session)) return;
+          e.notify(error?.message ?? '집중을 이어가지 못했어요.');
+        });
       return;
     }
     setVoyage('toSpot');

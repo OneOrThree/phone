@@ -1,5 +1,8 @@
 package com.oneorthree.phone.group.scheduler;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+import static com.oneorthree.phone.common.util.ZonePolicy.KST_ID;
+
 import com.oneorthree.phone.config.SchedulingConfig;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.SettleTrigger;
@@ -14,10 +17,10 @@ import net.javacrumbs.shedlock.spring.annotation.SchedulerLock;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -44,12 +47,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class GroupBetScheduler {
 
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetRepository groupChallengeBetRepository;
     private final GroupBetSettler groupBetSettler;
     private final GroupBetSessionOpeningService groupBetSessionOpeningService;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * 5분 주기 정산 스캔(N12) — {@code settle_after} 가 지난 OPEN 회차 중 백오프
@@ -57,11 +60,11 @@ public class GroupBetScheduler {
      * ({@code findDue} 의 OR 술어) — 정산·환불 분기는 {@code settle} 이 락 안에서 스스로 가른다
      * (24h 판정이 진입점마다 흩어지면 수동 경로가 우회한다 — N21).
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+    @Scheduled(cron = "0 */5 * * * *", zone = KST_ID,
             scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-settle-scan")
     public void retryDueSessions() {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<GroupChallengeBetSession> due = groupChallengeBetSessionRepository.findDue(
                 now, now.minus(GroupBetSettler.REFUND_DEADLINE));
         for (GroupChallengeBetSession session : due) {
@@ -71,8 +74,8 @@ public class GroupBetScheduler {
             } catch (RuntimeException e) {
                 // 시도 횟수 +1 과 다음 시도 시각을 같은 UPDATE 로 기록 — findDue 엔티티는 detached 라
                 // 필드 변경으로는 영영 저장되지 않는다(백오프가 전진하지 못해 5분마다 무한 재시도).
-                Instant next = nextAttemptAt(session, session.getSettleAttempts() + 1);
-                groupChallengeBetSessionRepository.recordFailure(session.getId(), next, Instant.now());
+                Instant next = nextAttemptAt(session, session.getSettleAttempts() + 1, clock);
+                groupChallengeBetSessionRepository.recordFailure(session.getId(), next, clock.instant());
                 log.error("회차 정산 실패 — 백오프 기록. sessionId={}, attempts={}, nextAttemptAt={}",
                         session.getId(), session.getSettleAttempts() + 1, next, e);
             }
@@ -85,14 +88,14 @@ public class GroupBetScheduler {
      * 스캔에 그 회차가 없어 참가비가 하드 SLO 를 넘겨 동결된다 — {@code findDue} 의 OR 술어와
      * 두 겹 방어). N21 은 시각에 걸린 약속이라 어떤 재시도 정책도 이를 늦출 수 없다.
      */
-    static Instant nextAttemptAt(GroupChallengeBetSession session, int attempts) {
+    static Instant nextAttemptAt(GroupChallengeBetSession session, int attempts, Clock clock) {
         Duration delay = switch (attempts) {
             case 1 -> Duration.ofMinutes(5);
             case 2 -> Duration.ofMinutes(15);
             case 3 -> Duration.ofHours(1);
             default -> Duration.ofHours(4);
         };
-        Instant next = Instant.now().plus(delay);
+        Instant next = clock.instant().plus(delay);
         Instant deadline = session.getSettleAfter().plus(GroupBetSettler.REFUND_DEADLINE);
         return next.isAfter(deadline) ? deadline : next;
     }
@@ -103,12 +106,12 @@ public class GroupBetScheduler {
      * 기다리면 창형은 창 전체 + 30분 동안 혼자 남은 참가비가 묶이고 카드도 OPEN 으로 남는다(K1).
      * {@code settle()} 안의 인원 가드는 경합·크론 지연 대비 안전망으로 존치한다.
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+    @Scheduled(cron = "0 */5 * * * *", zone = KST_ID,
             scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-void-short-sessions")
     public void voidShortSessions() {
         List<UUID> targets = groupChallengeBetSessionRepository
-                .findOpenPastJoinDeadlineWithFewParticipants(Instant.now());
+                .findOpenPastJoinDeadlineWithFewParticipants(clock.instant());
         for (UUID sessionId : targets) {
             try {
                 groupBetSettler.closeShortOrUnused(sessionId);
@@ -132,7 +135,7 @@ public class GroupBetScheduler {
      * 반환형이 primitive 면 그 null 이 언박싱 NPE 가 된다 — 잠금 대상 메서드는 void 가 규약이다.
      * 개설 건수를 쓰는 호출부(테스트·수동)는 {@link #openTodaySessions()} 를 직접 부른다.
      */
-    @Scheduled(cron = "0 */5 * * * *", zone = "Asia/Seoul",
+    @Scheduled(cron = "0 */5 * * * *", zone = KST_ID,
             scheduler = SchedulingConfig.SETTLEMENT_SCHEDULER)
     @SchedulerLock(name = "group-bet-ensure-today-sessions")
     public void ensureTodaySessions() {
@@ -150,7 +153,7 @@ public class GroupBetScheduler {
      *         회차를 신규로 세면 개설 장애 감시 지표가 항상 양수라 무의미해진다)
      */
     public int openTodaySessions() {
-        LocalDate today = LocalDate.ofInstant(Instant.now(), KST);
+        LocalDate today = LocalDate.ofInstant(clock.instant(), KST);
         List<UUID> challengeIds = groupChallengeBetRepository.findActiveEnabledChallengeIds();
         int opened = 0;
         for (UUID challengeId : challengeIds) {

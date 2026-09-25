@@ -46,6 +46,8 @@ PODS:
     - OpenTelemetry-Swift-Api (~> 2.5.0)
   - DatadogWebViewTracking (3.16.0):
     - DatadogInternal (= 3.16.0)
+  - EXApplication (57.0.3):
+    - ExpoModulesCore
   - EXConstants (57.0.17):
     - ExpoModulesCore
   - Expo (57.0.21):
@@ -78,6 +80,8 @@ PODS:
     - ExpoModulesCore
   - ExpoAudio (57.0.4):
     - ExpoModulesCore
+  - ExpoDevice (57.0.2):
+    - ExpoModulesCore
   - ExpoDomWebView (57.0.1):
     - ExpoModulesCore
   - ExpoFileSystem (57.0.6):
@@ -87,6 +91,8 @@ PODS:
   - ExpoHaptics (57.0.2):
     - ExpoModulesCore
   - ExpoKeepAwake (57.0.1):
+    - ExpoModulesCore
+  - ExpoLocalization (57.0.2):
     - ExpoModulesCore
   - ExpoLogBox (57.0.4):
     - React-Core
@@ -2121,15 +2127,18 @@ PODS:
 
 DEPENDENCIES:
   - "DatadogSDKReactNative (from `../node_modules/@datadog/mobile-react-native`)"
+  - EXApplication (from `../node_modules/expo-application/ios`)
   - EXConstants (from `../node_modules/expo-constants/ios`)
   - Expo (from `../node_modules/expo`)
   - ExpoAsset (from `../node_modules/expo-asset/ios`)
   - ExpoAudio (from `../node_modules/expo-audio/ios`)
+  - ExpoDevice (from `../node_modules/expo-device/ios`)
   - "ExpoDomWebView (from `../node_modules/@expo/dom-webview/ios`)"
   - ExpoFileSystem (from `../node_modules/expo-file-system/ios/ExpoFileSystem.podspec`)
   - ExpoFont (from `../node_modules/expo-font/ios/ExpoFont.podspec`)
   - ExpoHaptics (from `../node_modules/expo-haptics/ios`)
   - ExpoKeepAwake (from `../node_modules/expo-keep-awake/ios`)
+  - ExpoLocalization (from `../node_modules/expo-localization/ios`)
   - "ExpoLogBox (from `../node_modules/@expo/log-box`)"
   - ExpoModulesCore (from `../node_modules/expo-modules-core/ExpoModulesCore.podspec`)
   - ExpoModulesJSI (from `../node_modules/expo-modules-jsi/apple`)
@@ -2232,6 +2241,8 @@ SPEC REPOS:
 EXTERNAL SOURCES:
   DatadogSDKReactNative:
     :path: "../node_modules/@datadog/mobile-react-native"
+  EXApplication:
+    :path: "../node_modules/expo-application/ios"
   EXConstants:
     :path: "../node_modules/expo-constants/ios"
   Expo:
@@ -2240,6 +2251,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-asset/ios"
   ExpoAudio:
     :path: "../node_modules/expo-audio/ios"
+  ExpoDevice:
+    :path: "../node_modules/expo-device/ios"
   ExpoDomWebView:
     :path: "../node_modules/@expo/dom-webview/ios"
   ExpoFileSystem:
@@ -2250,6 +2263,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/expo-haptics/ios"
   ExpoKeepAwake:
     :path: "../node_modules/expo-keep-awake/ios"
+  ExpoLocalization:
+    :path: "../node_modules/expo-localization/ios"
   ExpoLogBox:
     :path: "../node_modules/@expo/log-box"
   ExpoModulesCore:
@@ -2430,23 +2445,26 @@ SPEC CHECKSUMS:
   DatadogSDKReactNative: 67e2cae5397c3ec8218d68f023fac0f6bd9fd22d
   DatadogTrace: 5ef84e254e2e1d337bc52e0cdf16396ca102aeb1
   DatadogWebViewTracking: e0470157f55a83680a549d79ba2985e0d17465db
+  EXApplication: a727f05eb8592f0bc764f6ab8d51eacc158652ec
   EXConstants: 799577d2516460afb4b57874d6823a62327ce5c7
   Expo: 8fcd49c9918bb861a881ea9844a3f099a9b0bd3b
   ExpoAsset: bea9115098b9f4ddfb0456961c8a7d2779ccc8f5
   ExpoAudio: bd075db379c5a70b7f9a7b5b541d5c67f59b5dca
+  ExpoDevice: 5c638e530304a51992263ab5c1cab726f992b9dc
   ExpoDomWebView: beaec034e51bd028428b98bb1f2633ab79c6d095
   ExpoFileSystem: cc500f33804065aacc7b3366007267b84deca8c8
   ExpoFont: d5b77d74f8d5d1a248de70955bfad847079e9074
   ExpoHaptics: bc5461002fc97e53c213a1af6c88c8f95965b734
   ExpoKeepAwake: c26f14275017370cc8a4b7b43a0e23361f2053a5
+  ExpoLocalization: f204d4ca963bfcea932068a978247878f664f5a4
   ExpoLogBox: 80957303325cd4439137765c90a87d7f22aaf2ff
-  ExpoModulesCore: ec3d253c2b498f33ec6209c4fd354a8241cfdf5c
+  ExpoModulesCore: 2be4ef61646b846a0703789ab9132aacb0b1cc73
   ExpoModulesJSI: 9df8e7c9719f59e8c001ec33611774137fc1484a
   ExpoModulesWorklets: 767d05688faa3bbf38b19c08abca031b5328093a
   ExpoScreenOrientation: 29f306f9e1a37b304862310ceb9664866f653ebd
   ExpoSecureStore: ff1fd5e073957417ba8f9dec0bebcbd55a60e747
   FBLazyVector: b3e7ad108f0d882e30445c5527d774e3fd432f3d
-  hermes-engine: c462101f0fee5850da9cbd88e5ef97af49bae4cb
+  hermes-engine: 7888539ef7f8fa4639c3a789a4b83276070479d6
   KSCrash: 8c4464fd5da7de520f2ce4a00fdf63f169a80f18
   OpenTelemetry-Swift-Api: 3be9043f6288eb4ac3cbe7548b5bd45fb4ed5849
   RCTDeprecation: 2a74a2c57675e64419bd89078efde81f7c1de90b

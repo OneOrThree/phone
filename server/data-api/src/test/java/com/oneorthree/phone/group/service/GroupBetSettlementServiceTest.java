@@ -12,7 +12,9 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -45,6 +47,9 @@ class GroupBetSettlementServiceTest {
 
     @Mock
     private GroupBetSettler groupBetSettler;
+
+    @Mock
+    private Clock clock;
 
     private static final Instant NOW = Instant.parse("2026-08-10T03:00:00Z");
 
@@ -161,6 +166,31 @@ class GroupBetSettlementServiceTest {
         assertThat(summary.settledCount()).isEqualTo(1);
         verify(groupChallengeBetSessionRepository, never())
                 .findIdsByStatusAndSettleAfterBefore(any(), any());
+    }
+
+    @Test
+    @DisplayName("정산 기준일(settledBefore)은 KST 자정에 갈린다 — UTC 15:00:00 경계 (GROMO-2129)")
+    void settledBeforeFlipsAtKstMidnightBoundary() {
+        // 2026-08-01 23:59:59 KST — 아직 8/1.
+        Instant justBeforeKstMidnight = Instant.parse("2026-08-01T14:59:59Z");
+        // 2026-08-02 00:00:00 KST — 8/2 로 넘어간 바로 그 순간.
+        Instant atKstMidnight = Instant.parse("2026-08-01T15:00:00Z");
+        given(groupChallengeBetSessionRepository
+                .findIdsByStatusAndSettleAfterBefore(GroupBetStatus.OPEN, justBeforeKstMidnight))
+                .willReturn(List.of());
+        given(groupChallengeBetSessionRepository
+                .findIdsByStatusAndSettleAfterBefore(GroupBetStatus.OPEN, atKstMidnight))
+                .willReturn(List.of());
+
+        GroupBetSettlementSummaryResponse before =
+                groupBetSettlementService.settleDueBets(justBeforeKstMidnight, null);
+        GroupBetSettlementSummaryResponse at =
+                groupBetSettlementService.settleDueBets(atKstMidnight, null);
+
+        // UTC 로 존이 잘못 바뀌면 두 instant 모두 LocalDate.ofInstant(_, UTC) == 2026-08-01 이라
+        // flip 자체가 사라진다 — 날짜가 갈리는 것 자체가 KST 산술의 증거다.
+        assertThat(before.settledBefore()).isEqualTo(LocalDate.of(2026, 8, 1));
+        assertThat(at.settledBefore()).isEqualTo(LocalDate.of(2026, 8, 2));
     }
 
     @Test

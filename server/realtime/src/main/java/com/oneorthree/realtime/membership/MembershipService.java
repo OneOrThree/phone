@@ -39,11 +39,13 @@ import java.util.stream.Collectors;
  * {@link GroupClient.Membership} 에 있다. 「소속이 없다」와 「이 토큰으로는 못 본다」는 둘 다
  * 빈 집합이지만 캐시해도 되는지가 정반대다.
  *
- * <h2>무효화는 TTL 뿐이다</h2>
- * 가입·탈퇴·강퇴가 즉시 반영되지 않는다. 최대 {@code chat.membership.cache-ttl-seconds} 만큼
- * 늦는다 — 탈퇴한 사람이 그동안 대화를 계속 볼 수 있다는 뜻이라, TTL 을 늘리는 건 상류 부하를
- * 줄이는 대신 그 창을 넓히는 거래다. 즉시 무효화를 원하면 Data API 가 멤버십 변경 이벤트를
- * 발행하고 채팅이 키를 지우는 배선이 필요하다(이 PR 범위 밖).
+ * <h2>무효화는 TTL 과 사건 둘이다(GROMO-2140)</h2>
+ * Data 가 {@code island.members.updated}(MEMBER_ADDED·MEMBER_REMOVED) 를 발행하면
+ * {@link com.oneorthree.realtime.event.InboundEventService} 가 그 {@code params.memberUserId} 로
+ * {@link #evict} 를 불러 그 유저 하나의 캐시만 즉시 지운다 — 강퇴·탈퇴가 다음 발신까지 기다리지 않는다.
+ * {@code chat.membership.cache-ttl-seconds} 는 <b>여전히 백스톱</b>이다: 사건이 옛 Data 버전이라 필드가
+ * 없거나, 유실되거나, 무효화 자체가 실패해도 최대 그 초만큼 뒤에는 저절로 닫힌다. TTL 을 늘리는 건
+ * 그 백스톱 창을 늘리는 거래인 건 그대로다.
  */
 @Slf4j
 @Service
@@ -109,6 +111,20 @@ public class MembershipService {
             redis.opsForValue().set(key, value, Duration.ofSeconds(cacheTtlSeconds));
         } catch (RuntimeException e) {
             log.warn("멤버십 캐시 적재 실패 — key={}", key, e);
+        }
+    }
+
+    /**
+     * 사건이 준 즉시 무효화 — 그 유저의 캐시만 지운다(GROMO-2140).
+     *
+     * <p>실패해도 사건 처리를 막지 않는다({@link #store} 와 같은 이유) — 지우기가 실패해도 그 TTL 이
+     * 지나면 어차피 만료되므로, 여기서 예외를 올려 사건 적용 전체를 되돌릴 값어치가 없다.
+     */
+    public void evict(UUID userId) {
+        try {
+            redis.delete(RedisKeys.memberCache(userId));
+        } catch (RuntimeException e) {
+            log.warn("멤버십 캐시 무효화 실패 — userId={}", userId, e);
         }
     }
 

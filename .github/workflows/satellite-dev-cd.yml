@@ -14,8 +14,10 @@ env:
   AWS_ROLE_ARN: arn:aws:iam::808715036056:role/gromo-dev-github-actions
   ENV_SECRET_ID: gromo/dev/env
   GAR_HOST: asia-northeast3-docker.pkg.dev
-  RUNTIME_ENV_FILE: ${{ github.workspace }}/../.gromo-runtime/dev.env
-  SATELLITE_RUNTIME_DIR: ${{ github.workspace }}/../.gromo-runtime/satellites
+  # /var/lib/gromo/runtime 은 VM 시작 스크립트가 만드는 고정 경로(GROMO-2134) — 러너 디렉터리와 달리
+  # 재부팅에도 살아남는다.
+  RUNTIME_ENV_FILE: /var/lib/gromo/runtime/dev.env
+  SATELLITE_RUNTIME_DIR: /var/lib/gromo/runtime/satellites
 
 jobs:
   deploy:
@@ -79,7 +81,7 @@ jobs:
           IMAGE_REVISION: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          test -s "$RUNTIME_ENV_FILE"
+          test -s "$RUNTIME_ENV_FILE" || { echo "::error::$RUNTIME_ENV_FILE 가 없거나 비었습니다 — 파일은 dev-cd(Data 배포)가 쓰고, 디렉터리는 VM 시작 스크립트가 만든다(GROMO-2134)"; exit 1; }
           test "$(stat -c '%a' "$RUNTIME_ENV_FILE")" = 600
           if [ "${{ steps.plan.outputs.business }}" = true ]; then
             business_image=$(cat image-inputs/business-api/business-api-image.txt)
@@ -105,12 +107,9 @@ jobs:
           echo "IMAGE_REVISION=$IMAGE_REVISION" >> "$GITHUB_ENV"
 
       - name: GAR 인증
-        run: |
-          set -euo pipefail
-          curl --fail --silent --show-error -H "Metadata-Flavor: Google" \
-            "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token" \
-          | jq -er .access_token \
-          | docker login -u oauth2accesstoken --password-stdin "$GAR_HOST"
+        uses: ./.github/actions/gar-login
+        with:
+          registry: ${{ env.GAR_HOST }}
 
       - name: Business·Notification 배포
         env:
@@ -120,7 +119,8 @@ jobs:
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
-            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml \
+            -f server/scripts/docker-compose.satellites.dev.yml)
           if docker ps --format '{{.Names}}' | grep -Fxq gromo-datadog-agent; then
             test -n "$DD_API_KEY"
             compose+=(-f server/scripts/docker-compose.datadog.yml)
@@ -138,14 +138,15 @@ jobs:
         run: |
           set -euo pipefail
           compose=(docker compose --env-file "$RUNTIME_ENV_FILE" --env-file "$SATELLITE_RUNTIME_DIR/compose.env" \
-            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml)
+            -f server/scripts/docker-compose.dev.yml -f server/scripts/docker-compose.satellites.yml \
+            -f server/scripts/docker-compose.satellites.dev.yml)
           services=()
           if [ "${{ steps.plan.outputs.business }}" = true ]; then services+=(business-api); fi
           if [ "${{ steps.plan.outputs.notification }}" = true ]; then services+=(notification); fi
           for service in "${services[@]}"; do
             container=$("${compose[@]}" ps -q "$service")
             test -n "$container"
-            # 4GB dev VM에서 Datadog 에이전트가 붙은 JVM 두 개를 함께 시작하면 5분을 넘긴다.
+            # 4GB 시절 dev VM(e2-medium)에서 Datadog 에이전트가 붙은 JVM 두 개를 함께 시작하면 5분을 넘겼다(지금은 8 GB — A25).
             for i in $(seq 1 180); do
               health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container" 2>/dev/null || echo missing)
               if [ "$health" = healthy ]; then break; fi

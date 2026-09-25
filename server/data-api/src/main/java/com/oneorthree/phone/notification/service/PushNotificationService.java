@@ -1,5 +1,7 @@
 package com.oneorthree.phone.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.common.port.PushNotificationPort;
 import com.oneorthree.phone.common.port.PushSendResult;
@@ -13,7 +15,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
 /**
@@ -32,8 +33,6 @@ public class PushNotificationService {
      */
     static final LocalTime DEFAULT_QUIET_START = LocalTime.of(23, 0);
     static final LocalTime DEFAULT_QUIET_END = LocalTime.of(7, 0);
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final PushNotificationPort pushNotificationPort;
     private final UserRepository userRepository;

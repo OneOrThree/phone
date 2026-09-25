@@ -64,13 +64,13 @@ test('myJoinRequests 401도 같은 경로 — 세대가 죽으면 route를 돌�
   assert.equal(await decideBootRoute(d.args as never), null);
 });
 
-test('정상 동기화 — serverMode에서 current가 있어도 chooseIsland를 돌려준다(home 금지)', async () => {
+test('정상 동기화 — serverMode에서 current가 있으면 home 으로 부팅한다(로컬 집중 세션은 복구하지 않는다)', async () => {
   const d = deps({
     syncIslands: async () => myIslands({ currentIslandId: 'i1' }),
     saved: { loggedIn: true, onboarded: true, session: { status: 'active' } },
   });
   const route = await decideBootRoute(d.args as never);
-  assert.equal(route, 'chooseIsland'); // home·focus·rest 복구 금지
+  assert.equal(route, 'home'); // focus·rest 로컬 복구 금지 — 서버 recover 가 따로 한다
   assert.deepEqual(d.bootErrors, [false]);
 });
 

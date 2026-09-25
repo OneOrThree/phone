@@ -289,6 +289,8 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                 config = subprocess.run([
                     "docker", "compose", "-p", "test-satellite", "-f", str(fixture.base),
                     "-f", str(ROOT / "server/scripts/docker-compose.satellites.yml"),
+                    *(["-f", str(ROOT / "server/scripts/docker-compose.satellites.dev.yml")]
+                      if environment == "dev" else []),
                     "-f", str(DEV_DATA_OVERLAY if environment == "dev" else DATA_OVERLAY), "--env-file", str(fixture.shared),
                     "--env-file", str(fixture.output / "compose.env"), "config", "--format", "json",
                 ], capture_output=True, text=True)
@@ -301,6 +303,11 @@ class PrepareSatelliteDeployTest(unittest.TestCase):
                     self.assertIn("app", app["networks"]["app-network"]["aliases"])
                     self.assertEqual(app["ports"][0]["host_ip"], "127.0.0.1")
                     self.assertEqual(app["ports"][0]["published"], "8080")
+                    business_port = services["business-api"]["ports"][0]
+                    self.assertEqual(business_port["host_ip"], "127.0.0.1")
+                    self.assertEqual(business_port["published"], "8083")
+                else:
+                    self.assertNotIn("ports", services["business-api"])
                 self.assertEqual(app["image"], IMAGES["--data-image"])
                 values = app["environment"]
                 self.assertEqual(values["API_DB_USERNAME"], secret()["API_DB_USERNAME"])

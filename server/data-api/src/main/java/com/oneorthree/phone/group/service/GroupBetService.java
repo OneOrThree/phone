@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.currency.repository.domain.CurrencyTransactionType;
 import com.oneorthree.phone.currency.service.CurrencyLedgerService;
 import com.oneorthree.phone.group.repository.domain.Group;
@@ -44,10 +46,10 @@ import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -118,8 +120,6 @@ public class GroupBetService {
      */
     static final Duration LEAVE_GRACE = Duration.ofMinutes(5);
 
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-
     private final GroupMemberRepository groupMemberRepository;
     private final GroupQueryService groupQueryService;
     private final UserQueryService userQueryService;
@@ -131,6 +131,8 @@ public class GroupBetService {
     private final GroupBetJudge groupBetJudge;
     private final GroupBetSessionFactory groupBetSessionFactory;
     private final GroupBetWindowUsageService groupBetWindowUsageService;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     // ── 개설 브리지 / 참가 ──────────────────────────────────────────────
 
@@ -158,7 +160,7 @@ public class GroupBetService {
         // 회차는 "오늘 또는 내일"(KST)에만 열 수 있다(계약 §3, GROMO-1103) — 지난 날짜는 결과가
         // 이미 정해졌고, 모레 이후는 앱이 만들 수 없는 값이다(주간 예약은 B4 join-week 의 몫).
         LocalDate sessionDate = request.getDate();
-        LocalDate today = today();
+        LocalDate today = today(clock);
         if (!sessionDate.equals(today) && !sessionDate.equals(today.plusDays(1))) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
@@ -235,7 +237,7 @@ public class GroupBetService {
                 .orElseThrow(() -> new GroupException(GroupErrorCode.BET_NOT_FOUND));
         // 정산됐거나(status≠OPEN) 날짜가 지난 회차는 닫힌 것으로 본다. 배치가 돌기 전(FOCUS 01:00 /
         // SCREEN_TIME 12:00 KST 이전)의 전일자 회차가 여기 걸린다. 미래(내일) 회차는 참가를 허용한다.
-        if (!session.isOpen() || session.getSessionDate().isBefore(today())) {
+        if (!session.isOpen() || session.getSessionDate().isBefore(today(clock))) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
         if (groupChallengeBetParticipantRepository.existsBySessionIdAndUserId(sessionId, userId)) {
@@ -289,7 +291,7 @@ public class GroupBetService {
         // (join·join-next·join-week)가 만든 회차 id 를 이 경로에 넣으면 참가자 수·OPEN 만 보고 전액
         // 환불되던 구멍(codex P1 ②): 하루형 5분 유예·창형/예약분의 회차 시작 마감이 전부 우회됐다.
         // 구앱의 "개설 직후 취소"는 참가+5분 유예 안이라 그대로 성립한다.
-        if (!Instant.now().isBefore(leaveDeadline(session, mine))) {
+        if (!clock.instant().isBefore(leaveDeadline(session, mine))) {
             throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
         }
 
@@ -336,7 +338,7 @@ public class GroupBetService {
         if (!session.isOpen()) {
             throw new GroupException(GroupErrorCode.BET_NOT_OPEN);
         }
-        if (!Instant.now().isBefore(leaveDeadline(session, mine))) {
+        if (!clock.instant().isBefore(leaveDeadline(session, mine))) {
             throw new GroupException(GroupErrorCode.BET_LEAVE_CLOSED);
         }
 
@@ -435,7 +437,7 @@ public class GroupBetService {
             if (GroupBetJudge.isAchieved(target.get(), minutes)) {
                 // 확정 시각도 함께 박제한다(V42 achieved_at) — 탈퇴 박제도 "승리가 닫힌 순간"이
                 // 있는 사건이라 조기 확정과 같은 축을 남긴다.
-                mine.get().confirmWin(minutes == null ? 0 : minutes, Instant.now());
+                mine.get().confirmWin(minutes == null ? 0 : minutes, clock.instant());
                 log.info("탈퇴 판정 근거 박제 — sessionId={}, userId={}, progressMinutes={}",
                         sessionId, user.getId(), minutes);
             }
@@ -483,7 +485,7 @@ public class GroupBetService {
             // 취소 마감이 지난 회차는 환불하지 않고 정산 대상으로 남긴다(FR-40 — 취소와 같은 규칙,
             // GROMO-1423). 탈퇴로 시작된 판의 돈을 되찾는 각도를 막는 것이고, 명단에는 정산 시
             // "탈퇴한 사용자"로 표기된다(D1). 참가 후 5분 안의 하루형 오탭은 탈퇴 경로에서도 무른다.
-            if (!Instant.now().isBefore(leaveDeadline(session, mine.get()))) {
+            if (!clock.instant().isBefore(leaveDeadline(session, mine.get()))) {
                 log.info("내기 참가 유지 — 탈퇴 연동, 취소 마감 경과로 정산 잔류. sessionId={}, userId={}",
                         session.getId(), user.getId());
                 continue;
@@ -677,7 +679,7 @@ public class GroupBetService {
         List<GroupChallengeBetSession> sessions = new ArrayList<>(
                 groupChallengeBetSessionRepository.findByChallengeIdInAndSessionDateAndStatusNot(
                         challengeIds, date, GroupBetStatus.UNUSED));
-        if (date.equals(today())) {
+        if (date.equals(today(clock))) {
             Set<UUID> covered = sessions.stream()
                     .map(session -> session.getChallenge().getId())
                     .collect(Collectors.toSet());
@@ -700,7 +702,7 @@ public class GroupBetService {
         // 시작 전 회차의 라이브 명단에서 뺄 비활성 멤버(강퇴·탈퇴) 판정용 — 필요할 때만 조회한다
         // (시작된 회차뿐이면 필터 자체가 없다). 빈 집합을 "전원 비활성"으로 오독하지 않도록
         // 필터는 preStart 인 회차에만 적용한다.
-        Set<UUID> activeMemberUserIds = sessions.stream().anyMatch(GroupBetService::preStart)
+        Set<UUID> activeMemberUserIds = sessions.stream().anyMatch(this::preStart)
                 ? activeMemberUserIdsOf(sessions)
                 : Set.of();
         Map<UUID, GroupBetResponse> result = new LinkedHashMap<>();
@@ -783,8 +785,8 @@ public class GroupBetService {
     }
 
     /** 회차가 아직 시작되지 않았는가 — 라이브 명단 필터(LLD §2.1)의 단일 판정점. */
-    private static boolean preStart(GroupChallengeBetSession session) {
-        return Instant.now().isBefore(session.getStartsAt());
+    private boolean preStart(GroupChallengeBetSession session) {
+        return clock.instant().isBefore(session.getStartsAt());
     }
 
     /**
@@ -968,7 +970,7 @@ public class GroupBetService {
         if (actives.isEmpty()) {
             return Map.of();
         }
-        LocalDate today = today();
+        LocalDate today = today(clock);
         Map<UUID, LocalDate> nextDateByChallengeId = new LinkedHashMap<>();
         Map<LocalDate, List<UUID>> challengeIdsByNextDate = new LinkedHashMap<>();
         for (GroupChallenge challenge : actives) {
@@ -1194,8 +1196,14 @@ public class GroupBetService {
         return "session:" + sessionId + ":refund:" + participantId;
     }
 
-    static LocalDate today() {
-        return LocalDate.ofInstant(Instant.now(), KST);
+    /**
+     * KST 오늘(GROMO-2133) — 돈 걸린 경로라 벽시계를 직접 읽지 않고 주입된 시계를 받는다. static 인
+     * 이유: 참가 커널을 공유하는 {@code GroupBetJoinService} 가 인스턴스 없이도 같은 "오늘"을
+     * 계산해야 한다(자기 자신의 {@code Clock} 빈을 이 메서드에 넘긴다) — 고정 시계를 넘기면 KST
+     * 자정 경계를 실행 시각과 무관하게 테스트할 수 있다.
+     */
+    static LocalDate today(Clock clock) {
+        return LocalDate.ofInstant(clock.instant(), KST);
     }
 
     /**
@@ -1286,7 +1294,7 @@ public class GroupBetService {
      */
     private void requireWindowStillOpen(GroupBetJudge.Target target, LocalDate date) {
         Optional<Instant> closesAt = groupBetJudge.windowClosesAt(target, date);
-        if (closesAt.isPresent() && !Instant.now().isBefore(closesAt.get())) {
+        if (closesAt.isPresent() && !clock.instant().isBefore(closesAt.get())) {
             throw new GroupException(GroupErrorCode.BET_CLOSED);
         }
     }
