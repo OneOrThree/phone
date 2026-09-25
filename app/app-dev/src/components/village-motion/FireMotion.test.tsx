@@ -93,9 +93,9 @@ describe('FireMotion', () => {
     expect(view.getByTestId('fire-motion').props.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-      width: '100%',
-      height: '100%',
-      aspectRatio: 116 / 77,
+          width: '100%',
+          height: '100%',
+          aspectRatio: 116 / 77,
         }),
       ]),
     );
