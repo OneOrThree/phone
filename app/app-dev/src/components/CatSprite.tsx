@@ -19,8 +19,11 @@ import {
   nextIdleBehavior,
   normalizeCatMotion,
   IDLE_REST_DELAY_MS,
+  INTERACTIVE_MOTION_CYCLES,
+  interactiveMotionDurationMs,
 } from './catMotion';
 export type { CatMotion, CatMotionInput } from './catMotion';
+export { INTERACTIVE_MOTION_CYCLES, interactiveMotionDurationMs };
 
 type MetricMotion = 'blink' | 'walking' | 'reading';
 type MotionMetric = { scale: number; footAnchor: readonly number[] };
@@ -44,10 +47,17 @@ export function catFrameBox(color: Color, motion: CatMotionInput, size: number) 
   };
 }
 
-function useCatPlayback(motion: CatMotionInput, color: Color, paused: boolean) {
+function useCatPlayback(
+  motion: CatMotionInput,
+  color: Color,
+  paused: boolean,
+  onFinish?: () => void,
+) {
   const normalized = normalizeCatMotion(motion);
   const [frame, setFrame] = useState(0);
   const [idleBehavior, setIdleBehavior] = useState<CatIdleBehavior>('blink');
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -117,11 +127,24 @@ function useCatPlayback(motion: CatMotionInput, color: Color, paused: boolean) {
       timer = setTimeout(play, IDLE_REST_DELAY_MS);
     } else {
       const animatedMotion = normalized as CatFrameMotion;
+      const totalFrames = catSequenceLength(animatedMotion);
+      const isInteractive =
+        animatedMotion === 'tilt' ||
+        animatedMotion === 'stretch' ||
+        animatedMotion === 'groom' ||
+        animatedMotion === 'yawn';
+      const targetCycles = isInteractive
+        ? (INTERACTIVE_MOTION_CYCLES[animatedMotion as keyof typeof INTERACTIVE_MOTION_CYCLES] ?? 1)
+        : undefined;
       let tick = 0;
       const advance = () => {
         if (cancelled) return;
         tick += 1;
         setFrame(tick);
+        if (targetCycles && onFinishRef.current && tick >= totalFrames * targetCycles) {
+          onFinishRef.current();
+          return;
+        }
         timer = setTimeout(advance, catFrameDelay(animatedMotion));
       };
       timer = setTimeout(advance, catFrameDelay(animatedMotion));
@@ -144,6 +167,7 @@ export function CatSprite({
   reduce = false,
   reduceMotion = false,
   anchored = true,
+  onFinish,
   testID,
 }: {
   color: Color;
@@ -153,11 +177,12 @@ export function CatSprite({
   reduce?: boolean;
   reduceMotion?: boolean;
   anchored?: boolean;
+  onFinish?: () => void;
   testID?: string;
 }) {
   const [appState, setAppState] = useState(AppState.currentState);
   const paused = reduce || reduceMotion || appState === 'background' || appState === 'inactive';
-  const { frame, effectiveMotion } = useCatPlayback(motion, color, paused);
+  const { frame, effectiveMotion } = useCatPlayback(motion, color, paused, onFinish);
   const isTilting = effectiveMotion === 'tilt';
   const questionAnim = useRef(new Animated.Value(0)).current;
   // idle 도중 자세 아틀라스로 바뀌어도 부모가 잡은 기존 발 기준 영역은 유지한다.

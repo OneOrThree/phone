@@ -29,7 +29,7 @@ import {
   recordSecondsBetween,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
-import { CatSprite, CatMotionInput } from '@/components/CatSprite';
+import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
 import {
   claimableQuestRewardCount,
   HOME_QUEST_LIST_DETAIL,
@@ -589,10 +589,10 @@ function FinalIslandScene({
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (faceLeft !== undefined) setLeft(faceLeft);
     setInteractiveMotion(m);
-    const durations = { tilt: 2400, stretch: 1800, groom: 1600, yawn: 1800 };
+    const duration = interactiveMotionDurationMs(m);
     tiltTimer.current = setTimeout(() => {
       setInteractiveMotion(null);
-    }, durations[m] ?? 2000);
+    }, duration);
   };
   const triggerTilt = () => triggerMotion('tilt');
   const transitionTimer = useRef<NodeJS.Timeout | null>(null);
@@ -840,6 +840,7 @@ function FinalIslandScene({
                   motion={motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'))}
                   left={left}
                   reduce={state.settings.reduceMotion}
+                  onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
                 />
               </View>
             </Pressable>

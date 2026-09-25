@@ -29,7 +29,12 @@ import { assets } from '@/constants/assets';
 import { C, T, Button, Progress, useScreenInsets } from '@/design-system/primitives';
 import { semanticTokens } from '@/design-system/tokens';
 import { IslandDecor } from '@/screens/cosmetics/Cosmetics';
-import { CatSprite, catFrameBox, CatMotionInput } from '@/components/CatSprite';
+import {
+  CatSprite,
+  catFrameBox,
+  CatMotionInput,
+  interactiveMotionDurationMs,
+} from '@/components/CatSprite';
 import {
   Point,
   nodes,
@@ -103,10 +108,10 @@ export function IslandHome({
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (faceLeft !== undefined) setLeft(faceLeft);
     setInteractiveMotion(m);
-    const durations = { tilt: 2400, stretch: 1800, groom: 1600, yawn: 1800 };
+    const duration = interactiveMotionDurationMs(m);
     tiltTimer.current = setTimeout(() => {
       setInteractiveMotion(null);
-    }, durations[m] ?? 2000);
+    }, duration);
   };
   const triggerTilt = () => triggerMotion('tilt');
   const transitionTimer = useRef<NodeJS.Timeout | null>(null);
@@ -163,8 +168,10 @@ export function IslandHome({
   const camera = useIslandCamera(size);
   const activeMotion = motion ?? (walking ? 'walking' : (interactiveMotion ?? 'idle'));
   const catBox = catFrameBox(state.color, activeMotion, 140 * scale);
-  const minZoom = Math.max(0.1, camera.camera.minScale / scale);
-  const hitExtent = Math.max(catBox.extent, Math.ceil(semanticTokens.size.tapMin / minZoom));
+  const currentCameraScale = camera.scale ?? camera.camera.scale;
+  const currentZoom = Math.max(0.1, currentCameraScale / scale);
+  const minHitExtent = Math.ceil(semanticTokens.size.tapMin / currentZoom);
+  const hitExtent = Math.max(catBox.extent, minHitExtent);
   hitExtentRef.current = hitExtent;
   const renderScale = useRef(new Animated.Value(scale)).current;
   const catTransform = useMemo(
@@ -589,6 +596,7 @@ export function IslandHome({
                   size={140 * scale}
                   left={left}
                   reduce={state.settings.reduceMotion}
+                  onFinish={interactiveMotion ? () => setInteractiveMotion(null) : undefined}
                 />
               </View>
             </Pressable>

@@ -8,12 +8,25 @@ import { IslandHome } from './IslandHome';
 jest.mock('@/components/CatSprite', () => {
   const React = require('react');
   const { View } = require('react-native');
+  const catMotion = jest.requireActual('@/components/catMotion');
   return {
-    CatSprite: ({ testID, motion, left }: { testID?: string; motion: string; left?: boolean }) =>
+    ...catMotion,
+    CatSprite: ({
+      testID,
+      motion,
+      left,
+      onFinish,
+    }: {
+      testID?: string;
+      motion: string;
+      left?: boolean;
+      onFinish?: () => void;
+    }) =>
       React.createElement(View, {
         testID: testID ?? 'mock-cat-sprite',
         testPropMotion: motion,
         testPropLeft: left,
+        onFinish,
       }),
     catFrameBox: () => ({ extent: 140, x: 70, y: 70 }),
   };
@@ -140,9 +153,43 @@ describe('고양이 터치 인터랙션, 좌우 방향 및 다중 모션 검증'
     expect(getCat().testPropLeft).toBe(true);
     expect(getCat().testPropMotion).toBe('tilt');
 
-    // 2400ms 경과 후 idle로 복귀
+    // tilt 모션 1사이클(1560ms) 경과 후 idle로 복귀
     await act(async () => {
-      jest.advanceTimersByTime(2400);
+      jest.advanceTimersByTime(1560);
+    });
+    expect(getCat().testPropMotion).toBe('idle');
+
+    await screen.unmount();
+  });
+
+  it('모션이 하드코딩된 시간이 아닌 프레임 주기(중립 자세 복귀) 완료 시점에 종료된다', async () => {
+    const state = initialState(true);
+    const screen = await renderWithContext(
+      React.createElement(FinalIsland, {
+        state,
+        go: jest.fn(),
+        build: jest.fn(),
+      }),
+    );
+
+    const catActor = screen.getByTestId('home-cat-actor');
+    const getCat = () => screen.getByTestId('home-cat-sprite').props;
+
+    // 오른쪽 터치: stretch (4프레임 * 360ms = 1440ms 주기)
+    await act(async () => {
+      fireEvent(catActor, 'press', { nativeEvent: { locationX: 50 } });
+    });
+    expect(getCat().testPropMotion).toBe('stretch');
+
+    // 1430ms 시점에는 아직 stretch 유지
+    await act(async () => {
+      jest.advanceTimersByTime(1430);
+    });
+    expect(getCat().testPropMotion).toBe('stretch');
+
+    // 1440ms 경과(1사이클 완료) 후 정확히 idle 복귀
+    await act(async () => {
+      jest.advanceTimersByTime(20);
     });
     expect(getCat().testPropMotion).toBe('idle');
 
