@@ -226,7 +226,7 @@ test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한�
   expect(screen.getByTestId('building-name-shop').props.style).toEqual(
     expect.objectContaining({
       right: (577 - 60 + 120 - (456 + 262)) * worldScale,
-      top: (580 - (783 - 95)) * worldScale - 30,
+      top: (603 - (783 - 95)) * worldScale,
       alignItems: 'flex-end',
     }),
   );

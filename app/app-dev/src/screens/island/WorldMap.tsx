@@ -97,6 +97,15 @@ const legacyBuildingLabelBox: Record<Building, { x: number; y: number; w: number
   tower: { x: 150, y: 24, w: 112 },
   shop: { x: 456, y: 580, w: 262 },
 };
+const legacyBuildingLabelAnchorY: Record<Building, number> = {
+  hall: 70,
+  board: 157,
+  gram: 365,
+  library: 310,
+  mail: 494,
+  tower: -2,
+  shop: 603,
+};
 const rightAlignedBuildingLabels = new Set<Building>(['hall', 'library', 'shop']);
 type Door = Point & {
   r: Route;
@@ -984,15 +993,16 @@ function FinalIslandScene({
                   : { left: 0, top: -30, alignItems: 'flex-start' as const };
               }
               const box = legacyBuildingLabelBox[d.building];
+              const anchorY = legacyBuildingLabelAnchorY[d.building];
               return labelOnRight
                 ? {
                     right: (hitbox.x + hitbox.w - (box.x + box.w)) * s,
-                    top: (box.y - hitbox.y) * s - 30,
+                    top: (anchorY - hitbox.y) * s,
                     alignItems: 'flex-end' as const,
                   }
                 : {
                     left: (box.x - hitbox.x) * s,
-                    top: (box.y - hitbox.y) * s - 30,
+                    top: (anchorY - hitbox.y) * s,
                     alignItems: 'flex-start' as const,
                   };
             })();
