@@ -59,6 +59,7 @@ import {
   type BuildingTransitionTarget,
 } from '@/services/buildingTransition';
 import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
+import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -221,6 +222,8 @@ export function WorldMap({
   onSpot,
   emote,
   showMailboxLetters,
+  hallMotionActive = false,
+  hallMotionGeneration = 0,
   village,
   children,
 }: {
@@ -230,6 +233,8 @@ export function WorldMap({
   onSpot?: (p: Point) => void;
   emote?: string | null;
   showMailboxLetters?: boolean;
+  hallMotionActive?: boolean;
+  hallMotionGeneration?: number;
   village?: VillageScene;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
@@ -431,9 +436,11 @@ export function WorldMap({
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
             .filter((b) => b !== 'mail' || !mailboxLetters)
+            .filter((b) => !(b === 'hall' && !village && !fishing))
             .map((b) => (
               <Image
                 key={b}
+                testID={`world-static-building-${b}`}
                 source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
@@ -458,6 +465,22 @@ export function WorldMap({
                 height: 137 * scale,
               }}
               resizeMode="contain"
+            />
+          )}
+          {island.buildings.includes('hall') && (
+            <VillageHallMotion
+              testID="world-hall-motion"
+              state={hallMotionActive ? 'arrival' : 'normal'}
+              generation={hallMotionGeneration}
+              highlighted={hallMotionActive}
+              tooltip={hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined}
+              style={{
+                position: 'absolute',
+                left: 950 * scale,
+                top: 20 * scale,
+                width: 242 * scale,
+                height: 244 * scale,
+              }}
             />
           )}
         </View>
@@ -806,9 +829,11 @@ function FinalIslandScene({
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
-                  visiting && d.building && !['hall', 'board'].includes(d.building)
-                    ? '주민만 이용할 수 있어요'
-                    : undefined
+                  d.building === 'hall' && !visiting
+                    ? '터치하면 마을 회관으로 들어가요'
+                    : visiting && d.building && !['hall', 'board'].includes(d.building)
+                      ? '주민만 이용할 수 있어요'
+                      : undefined
                 }
                 onPress={() => {
                   if (!visiting) {
@@ -954,6 +979,8 @@ function FinalIslandScene({
         state={state}
         village={scene}
         islandId={i.id}
+        hallMotionActive={buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'}
+        hallMotionGeneration={buildingTransition.generation}
         showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
         onSpot={
           visiting

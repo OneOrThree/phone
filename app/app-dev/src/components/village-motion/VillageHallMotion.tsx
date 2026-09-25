@@ -3,7 +3,7 @@ import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } fro
 import { MotionContext } from '@/design-system/primitives';
 import { semanticTokens } from '@/design-system/tokens';
 
-export type VillageHallState = 'normal' | 'new-record' | 'weekly-goal';
+export type VillageHallState = 'normal' | 'arrival' | 'new-record' | 'weekly-goal';
 
 const frames: readonly ImageSourcePropType[] = [
   require('@/assets/village-world/motion/hall/frame-0.png'),
@@ -20,6 +20,7 @@ export function VillageHallMotion({
   highlighted = false,
   tooltip,
   reduceMotion = false,
+  generation = 0,
   style,
   testID = 'village-hall-motion',
 }: {
@@ -27,6 +28,7 @@ export function VillageHallMotion({
   highlighted?: boolean;
   tooltip?: ReactNode;
   reduceMotion?: boolean;
+  generation?: number;
   style?: ViewStyle;
   testID?: string;
 }) {
@@ -42,7 +44,7 @@ export function VillageHallMotion({
       setFrame(doorSequence[sequenceIndex]);
     }, frameDuration);
     return () => clearInterval(timer);
-  }, [motionDisabled, state]);
+  }, [generation, motionDisabled, state]);
 
   return (
     <View testID={testID} style={[styles.root, style]}>

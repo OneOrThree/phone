@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { Animated } from 'react-native';
-import { FinalIsland } from '@/screens/island/WorldMap';
+import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
 
@@ -21,6 +21,46 @@ jest.mock('@/utils/layout', () => ({
 }));
 
 afterEach(cleanup);
+
+test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 대체하고 전환 세대마다 재생한다', async () => {
+  jest.useFakeTimers();
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('hall')) island.buildings.push('hall');
+  const screen = await render(
+    <WorldMap state={state} hallMotionActive hallMotionGeneration={1} />,
+  );
+
+  expect(screen.queryByTestId('world-static-building-hall')).toBeNull();
+  const frame = screen.getByTestId('village-hall-frame-0');
+  expect(frame.props.style).toEqual(expect.arrayContaining([expect.objectContaining({ opacity: 1 })]));
+  const worldScale = ((874 / 874) * 402) / 1536 * 2.8;
+  expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: 950 * worldScale,
+        top: 20 * worldScale,
+        width: 242 * worldScale,
+        height: 244 * worldScale,
+      }),
+    ]),
+  );
+  expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
+  expect(screen.getByText('마을 회관에 들어가는 중')).toBeTruthy();
+
+  await act(async () => jest.advanceTimersByTime(360));
+  expect(screen.getByTestId('village-hall-frame-2').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+  await screen.rerender(
+    <WorldMap state={state} hallMotionActive hallMotionGeneration={2} />,
+  );
+  expect(screen.getByTestId('village-hall-frame-0').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+  await screen.unmount();
+  jest.useRealTimers();
+});
 
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);
