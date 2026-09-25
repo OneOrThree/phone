@@ -113,6 +113,8 @@ import {
 import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
+import { createShieldedRouteTransition } from '@/services/routeTransition';
+import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
 import {
@@ -244,6 +246,7 @@ function Gromo() {
     [islandBootError, setIslandBootError] = useState(false),
     [hasServerSession, setHasServerSession] = useState(() => getSession() !== null),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
+    [routeTransitionShielded, setRouteTransitionShielded] = useState(false),
     [history, setHistory] = useState<
       {
         route: Route;
@@ -304,6 +307,9 @@ function Gromo() {
     backOverride = useRef<(() => boolean) | null>(null),
     switchResolve = useRef<((ok: boolean) => void) | null>(null);
   const guestLoginFlight = useRef(false);
+  const transitionRoute = useRef(
+    createShieldedRouteTransition(setRouteTransitionShielded, setRoute),
+  ).current;
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -341,7 +347,7 @@ function Gromo() {
     setBody('');
     setSearch('');
     setHistory((h) => [...h, { route, detail, tab, text, body }]);
-    setRoute(nextRoute);
+    transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
   const replace = (r: Route, id = '') => {
@@ -350,7 +356,7 @@ function Gromo() {
     setText('');
     setBody('');
     setSearch('');
-    setRoute(r);
+    transitionRoute(r);
   };
   const reset = (r: Route, id = '') => {
     setHistory([]);
@@ -359,7 +365,7 @@ function Gromo() {
     setText('');
     setBody('');
     setSearch('');
-    setRoute(r);
+    transitionRoute(r);
   };
   const back = () => {
     if (modal) {
@@ -377,18 +383,18 @@ function Gromo() {
     }
     if (history.length) {
       const previous = history[history.length - 1];
-      setRoute(previous.route);
+      transitionRoute(previous.route);
       setDetail(previous.detail);
       setTab(previous.tab);
       setText(previous.text);
       setBody(previous.body);
       setHistory((h) => h.slice(0, -1));
-    } else setRoute(state.onboarded ? 'home' : 'chooseIsland');
+    } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
   };
   const home = () => {
     setWalkRequest(null);
     setHistory([]);
-    setRoute('home');
+    transitionRoute('home');
   };
   const confirm = (
     title: string,
@@ -521,12 +527,12 @@ function Gromo() {
     const session = stateRef.current.session;
     if (!serverSession()) {
       dispatch({ type: 'RESUME' });
-      setRoute('focus');
+      transitionRoute('focus');
       return;
     }
     focus
       .resume()
-      .then(() => setRoute('focus'))
+      .then(() => transitionRoute('focus'))
       .catch(async (error) => {
         if (await recoverExpiredRestConflict(error, session)) return;
         notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.');
@@ -1053,7 +1059,7 @@ function Gromo() {
   const walkTo = (r: Route) => {
     setWalkRequest(r);
     setHistory([]);
-    setRoute('home');
+    transitionRoute('home');
   };
   const build = (b: Building) => {
     const error = canBuild(state, b);
@@ -1109,6 +1115,7 @@ function Gromo() {
         e={{
           state,
           route,
+          routeTransitionShielded,
           dispatch,
           go,
           replace,
@@ -1205,6 +1212,8 @@ function Gromo() {
         >
           <Animated.View
             key={reviewEpoch}
+            accessibilityElementsHidden={routeTransitionShielded}
+            importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
             style={{
               flex: 1,
               opacity: transition,
@@ -1221,6 +1230,7 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
+        <RouteTransitionShield visible={routeTransitionShielded} />
         {toast !== '' && (
           <View
             pointerEvents="none"
@@ -1247,6 +1257,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => setModal(null)}
               style={{
                 flex: 1,
@@ -1319,6 +1332,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => !convUi.busy && setConvUi(null)}
               style={{
                 flex: 1,
@@ -1399,6 +1415,9 @@ function Gromo() {
           >
             <Pressable
               accessible={false}
+              accessibilityElementsHidden={routeTransitionShielded}
+              importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+              pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
               onPress={() => settleSwitch(false)}
               style={{
                 flex: 1,
