@@ -1,7 +1,8 @@
-import React, { memo, useEffect, useState } from 'react';
-import { Image, StyleSheet, View, type ImageSourcePropType } from 'react-native';
+import React, { memo, useContext, useEffect, useState } from 'react';
+import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { semanticTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
+import { MotionContext } from '@/design-system/primitives';
 
 export type ShopMotionState = 'normal' | 'new-product' | 'purchasable';
 
@@ -19,16 +20,21 @@ const idleIntervalMs = 20_000;
 export const ShopMotion = memo(function ShopMotionView({
   state = 'normal',
   reduceMotion = false,
+  showFrames = true,
+  style,
   testID = 'shop-motion',
 }: {
   state?: ShopMotionState;
   reduceMotion?: boolean;
+  showFrames?: boolean;
+  style?: ViewStyle;
   testID?: string;
 }) {
+  const motionDisabled = useContext(MotionContext) || reduceMotion;
   const [frame, setFrame] = useState(0);
 
   useEffect(() => {
-    if (reduceMotion) {
+    if (motionDisabled || !showFrames) {
       setFrame(0);
       return;
     }
@@ -58,7 +64,7 @@ export const ShopMotion = memo(function ShopMotionView({
       mounted = false;
       clearTimeout(timer);
     };
-  }, [reduceMotion]);
+  }, [motionDisabled, showFrames]);
 
   const stateLabel =
     state === 'new-product' ? '새 상품' : state === 'purchasable' ? '구매 가능' : null;
@@ -70,23 +76,19 @@ export const ShopMotion = memo(function ShopMotionView({
       accessibilityRole="image"
       accessibilityLabel={stateLabel ? `상점, ${stateLabel}` : '상점'}
       pointerEvents="none"
-      style={styles.fill}
+      style={[styles.fill, style]}
     >
-      {frames.map((source, index) => (
-        <Image
-          key={index}
-          testID={`shop-motion-frame-${index}`}
-          source={source}
-          resizeMode="stretch"
-          style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
-        />
-      ))}
-      {state !== 'normal' && (
-        <View
-          testID="shop-motion-highlight"
-          style={styles.highlight}
-        />
-      )}
+      {showFrames &&
+        frames.map((source, index) => (
+          <Image
+            key={index}
+            testID={`shop-motion-frame-${index}`}
+            source={source}
+            resizeMode="stretch"
+            style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
+          />
+        ))}
+      {state !== 'normal' && <View testID="shop-motion-highlight" style={styles.highlight} />}
       {stateLabel && (
         <View testID="shop-motion-tooltip" style={styles.tooltip}>
           <Text style={styles.tooltipText}>{stateLabel}</Text>

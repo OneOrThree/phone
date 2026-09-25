@@ -65,6 +65,7 @@ import {
   VillageObservatoryMotion,
   type ObservatoryRankState,
 } from '@/components/village-motion/VillageObservatoryMotion';
+import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -231,6 +232,7 @@ export function WorldMap({
   hallMotionGeneration = 0,
   boardStatus = null,
   observatoryRankState = 'normal',
+  shopState = 'normal',
   towerArrivalActive = false,
   towerArrivalGeneration = 0,
   village,
@@ -246,6 +248,7 @@ export function WorldMap({
   hallMotionGeneration?: number;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
+  shopState?: ShopMotionState;
   towerArrivalActive?: boolean;
   towerArrivalGeneration?: number;
   village?: VillageScene;
@@ -466,6 +469,7 @@ export function WorldMap({
             .filter((b) => !(b === 'hall' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'shop' && !village && !fishing && dayNight === 'day'))
             .map((b) => (
               <Image
                 key={b}
@@ -507,8 +511,8 @@ export function WorldMap({
               }
               style={{
                 position: 'absolute',
-                left: 950 * scale,
-                top: 20 * scale,
+                left: left + 950 * scale,
+                top: top + 20 * scale,
                 width: 242 * scale,
                 height: 244 * scale,
               }}
@@ -530,8 +534,8 @@ export function WorldMap({
               }
               style={{
                 position: 'absolute',
-                left: 858 * scale,
-                top: 158 * scale,
+                left: left + 858 * scale,
+                top: top + 158 * scale,
                 width: 80 * scale,
                 height: 80 * scale,
               }}
@@ -547,10 +551,25 @@ export function WorldMap({
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
-                left: 152 * scale,
-                top: 23 * scale,
+                left: left + 152 * scale,
+                top: top + 23 * scale,
                 width: 112 * scale,
                 height: 193 * scale,
+              }}
+            />
+          )}
+          {island.buildings.includes('shop') && (
+            <ShopMotion
+              testID="world-shop-motion"
+              state={shopState}
+              showFrames={dayNight === 'day'}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                position: 'absolute',
+                left: left + 456 * scale,
+                top: top + 580 * scale,
+                width: 262 * scale,
+                height: 199 * scale,
               }}
             />
           )}
@@ -638,6 +657,7 @@ function FinalIslandScene({
   motion,
   boardStatus = null,
   observatoryRankState = 'normal',
+  shopState = 'normal',
   onBuildingEntrySound,
   layeredPreview = false,
 }: {
@@ -653,6 +673,7 @@ function FinalIslandScene({
   motion?: CatMotionInput;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
+  shopState?: ShopMotionState;
   /** 문 소스 확보 전까지는 선택적 연결 계약으로 두고 소리가 꺼져 있으면 호출하지 않는다. */
   onBuildingEntrySound?: (target: BuildingTransitionTarget, generation: number) => void;
   layeredPreview?: boolean;
@@ -923,7 +944,11 @@ function FinalIslandScene({
                       ? `${d.label}, 새 댓글이 있어요`
                       : d.building === 'board' && boardStatus === 'unread'
                         ? `${d.label}, 읽지 않은 새 소식이 있어요`
-                        : d.label
+                        : d.building === 'shop' && shopState === 'new-product'
+                          ? `${d.label}, 새 상품이 있어요`
+                          : d.building === 'shop' && shopState === 'purchasable'
+                            ? `${d.label}, 구매 가능한 상품이 있어요`
+                            : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
@@ -931,9 +956,11 @@ function FinalIslandScene({
                     ? '터치하면 마을 회관으로 들어가요'
                     : d.building === 'board' && !!boardStatus
                       ? '게시판을 열어 확인하세요'
-                      : visiting && d.building && !['hall', 'board'].includes(d.building)
-                        ? '주민만 이용할 수 있어요'
-                        : undefined
+                      : d.building === 'shop' && shopState !== 'normal'
+                        ? '상점에서 상품을 확인하세요'
+                        : visiting && d.building && !['hall', 'board'].includes(d.building)
+                          ? '주민만 이용할 수 있어요'
+                          : undefined
                 }
                 onPress={() => {
                   if (!visiting) {
@@ -1085,6 +1112,7 @@ function FinalIslandScene({
         hallMotionGeneration={buildingTransition.generation}
         boardStatus={boardStatus}
         observatoryRankState={observatoryRankState}
+        shopState={shopState}
         towerArrivalActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
         }

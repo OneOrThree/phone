@@ -36,11 +36,13 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
     expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
   );
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
   expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: 950 * worldScale,
-        top: 20 * worldScale,
+        left: worldLeft + 950 * worldScale,
+        top: worldTop + 20 * worldScale,
         width: 242 * worldScale,
         height: 244 * worldScale,
       }),
@@ -72,11 +74,13 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   expect(screen.queryByTestId('world-static-building-board')).toBeNull();
   expect(screen.queryByTestId('village-board-new-indicator')).toBeNull();
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
   expect(screen.getByTestId('world-board-indicator').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: 858 * worldScale,
-        top: 158 * worldScale,
+        left: worldLeft + 858 * worldScale,
+        top: worldTop + 158 * worldScale,
         width: 80 * worldScale,
         height: 80 * worldScale,
       }),
@@ -104,15 +108,62 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
       const style = screen.getByTestId(`village-observatory-frame-${index}`).props.style;
       return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
     });
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
 
   await act(async () => jest.advanceTimersByTime(2000));
   expect(activeFrame()).toBe(0);
   expect(screen.getByTestId('world-observatory-motion').props.accessibilityLabel).toContain('낮');
+  expect(screen.getByTestId('world-observatory-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 152 * worldScale,
+        top: worldTop + 23 * worldScale,
+        width: 112 * worldScale,
+        height: 193 * worldScale,
+      }),
+    ]),
+  );
   await screen.rerender(<WorldMap state={state} towerArrivalActive towerArrivalGeneration={1} />);
   await act(async () => jest.advanceTimersByTime(220));
   expect(activeFrame()).toBe(1);
   await act(async () => jest.advanceTimersByTime(440));
   expect(activeFrame()).toBe(3);
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면 강조를 숨긴다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('shop')) island.buildings.push('shop');
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
+
+  expect(screen.queryByTestId('world-static-building-shop')).toBeNull();
+  expect(screen.getByTestId('world-shop-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 456 * worldScale,
+        top: worldTop + 580 * worldScale,
+        width: 262 * worldScale,
+        height: 199 * worldScale,
+      }),
+    ]),
+  );
+  expect(screen.getByTestId('world-shop-motion').props.accessibilityLabel).toBe('상점');
+  expect(screen.queryByTestId('shop-motion-tooltip')).toBeNull();
+
+  await screen.rerender(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} shopState="purchasable" />,
+  );
+  screen.getByLabelText(`${buildingNames.shop}, 구매 가능한 상품이 있어요`);
+  expect(screen.getByTestId('shop-motion-tooltip')).toBeTruthy();
   await screen.unmount();
   jest.useRealTimers();
 });
