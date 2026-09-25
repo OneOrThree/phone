@@ -92,13 +92,7 @@ test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 
   const go = jest.fn();
   try {
     const screen = await render(
-      <FinalIsland
-        state={state}
-        go={go}
-        build={jest.fn()}
-        showHud={false}
-        showActions={false}
-      />,
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
     );
     const hall = screen.getByLabelText(buildingNames.hall);
 
@@ -139,13 +133,7 @@ test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다'
   const go = jest.fn();
   try {
     const screen = await render(
-      <FinalIsland
-        state={state}
-        go={go}
-        build={jest.fn()}
-        showHud={false}
-        showActions={false}
-      />,
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
     );
 
     await fireEvent.press(screen.getByLabelText(buildingNames.hall));
