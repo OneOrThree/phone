@@ -40,7 +40,7 @@ sequenceDiagram
   participant R as Realtime
   A->>B: GET construction-options
   B->>D: 검증 주체로 현재 옵션 조회
-  D-->>A: islandVersion + costPolicyVersion + walletVersion + 잔액/가능 사유
+  D-->>A: islandVersion + costPolicyVersion + walletVersion + activeConstruction + 잔액/가능 사유
   A->>B: POST constructions + 두 expectedVersion + 같은 의도 키
   B->>D: 검증 주체·키·서버 requestId
   D->>DB: 사용자/receipt/섬/정책/지갑/외양 잠금·재검증
@@ -57,7 +57,7 @@ sequenceDiagram
 
 Business가 지갑 서비스 차감 후 별도 시설 저장을 조합하지 않는다. 섬 버전·지갑 버전·외양 버전은 각 projection의 시계다. 같은 커밋이라고 모두 같은 숫자를 붙이지 않는다. outbox 저장 봉투와 공개 전달 봉투도 구분한다.
 
-기준 main `Group.java`는 기존 그룹 정보·낙관 버전만 갖고 신규 시설 상태가 없다. 기존 CurrencyLedgerService는 User 지갑 대상이다. 이 그림은 새 계약 설계이며 main에서 공용 건설이 이미 동작한다는 설명이 아니다.
+건설 진행 상태는 별도 current 경로가 아니라 GET `construction-options`의 `activeConstruction`으로 복원한다. 앱은 `serverNow`를 기준으로 진행률을 계산하고, 예정 완료 시각은 재조회 신호로만 사용한다. 완료 여부는 서버 조회 결과로 확정한다. GROMO-1815는 이 복원 흐름과 공사 중 건물의 단계별 스프라이트 모션을 앱에 연결한다.
 
 ## 공인 경로와 활성화 선행 조건
 
