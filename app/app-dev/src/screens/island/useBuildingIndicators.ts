@@ -3,8 +3,10 @@ import { AppState } from 'react-native';
 import {
   boardSnapshot,
   boardStatus,
+  fetchBoardPollPage,
   fetchBoardSnapshot,
   fetchLibrarySnapshot,
+  fetchMailboxPollPage,
   fetchMailboxUnreadCount,
   libraryStatus,
   loadBoardSeen,
@@ -97,6 +99,10 @@ export function useBuildingIndicators({
   const currentBoard = useRef<BoardSnapshot | null>(null);
   const currentLibrary = useRef<LibrarySnapshot | null>(null);
   const librarySeenRevision = useRef(0);
+  const boardPollCursors = useRef(new Map<string, string | null>());
+  const mailboxPollCursors = useRef(new Map<string, string | null>());
+  const mailboxCycleSawUnread = useRef(new Map<string, boolean>());
+  const mailboxPollReady = useRef(new Set<string>());
   const refreshInFlight = useRef(0);
   const queuedLiveRefresh = useRef(false);
   const requestLiveRefresh = useCallback(() => {
@@ -148,12 +154,22 @@ export function useBuildingIndicators({
 
     Promise.all([
       (async () => {
-        const latestOnly = currentBoard.current !== null;
-        const snapshot = await fetchBoardSnapshot(requestScope.islandId, alive, latestOnly);
+        const hasBaseline = currentBoard.current !== null;
+        const pollPage = hasBaseline
+          ? await fetchBoardPollPage(
+              requestScope.islandId,
+              boardPollCursors.current.get(scopeKey) ?? null,
+              alive,
+            )
+          : null;
+        const snapshot = pollPage
+          ? pollPage.snapshot
+          : await fetchBoardSnapshot(requestScope.islandId, alive);
         if (!alive()) return;
-        // Frequent refreshes inspect the newest notice page only; retain known older notices
-        // from the initial full snapshot so their unread state is not discarded.
-        const current = latestOnly ? { ...currentBoard.current, ...snapshot } : snapshot;
+        // 과거 공지는 고정 페이지 예산으로 순환 점검한다. 매분 최신 페이지와 과거
+        // 페이지 하나만 요청하고, 나머지 기존 관측값은 메모리에 보존한다.
+        if (pollPage) boardPollCursors.current.set(scopeKey, pollPage.nextCursor);
+        const current = hasBaseline ? { ...currentBoard.current, ...snapshot } : snapshot;
         currentBoard.current = current;
         const effectiveSeen = await serializeBoardWrite(scopeKey, async () => {
           if (!alive()) return null;
@@ -187,9 +203,9 @@ export function useBuildingIndicators({
         );
         if (!alive() || !current) return;
         const hasUpdate = await serializeLibraryWrite(scopeKey, async () => {
-          if (!alive()) return null;
+          if (!alive() || confirmationRevision !== librarySeenRevision.current) return null;
           const seen = await loadLibrarySeen(requestScope);
-          if (!alive()) return null;
+          if (!alive() || confirmationRevision !== librarySeenRevision.current) return null;
           const updated = libraryStatus(current, seen);
           // 첫 관측은 전체 기준점, 주 변경은 누적 어획 기준을 보존하며 주간 기준만 이동한다.
           if (!seen || seen.periodKey !== current.periodKey) {
@@ -207,8 +223,30 @@ export function useBuildingIndicators({
         }));
       })().catch(() => {}),
       (async () => {
+        if (mailboxPollReady.current.has(scopeKey)) {
+          const page = await fetchMailboxPollPage(
+            requestScope.islandId,
+            mailboxPollCursors.current.get(scopeKey) ?? null,
+            alive,
+          );
+          if (!alive()) return;
+          mailboxPollCursors.current.set(scopeKey, page.nextCursor);
+          const sawUnread =
+            (mailboxCycleSawUnread.current.get(scopeKey) ?? false) ||
+            page.latestUnread ||
+            page.historyUnread;
+          if (page.cycleComplete) {
+            mailboxCycleSawUnread.current.set(scopeKey, false);
+            setIndicators((value) => ({ ...value, showMailboxLetters: sawUnread }));
+          } else {
+            mailboxCycleSawUnread.current.set(scopeKey, sawUnread);
+            if (sawUnread) setIndicators((value) => ({ ...value, showMailboxLetters: true }));
+          }
+          return;
+        }
         const unread = await fetchMailboxUnreadCount(requestScope.islandId, alive);
         if (!alive()) return;
+        mailboxPollReady.current.add(scopeKey);
         setIndicators((value) => ({ ...value, showMailboxLetters: unread > 0 }));
       })().catch(() => {}),
     ]).finally(() => {
@@ -274,6 +312,7 @@ export function useBuildingIndicators({
       const generation = sessionGeneration();
       const requestScope = scope;
       const requestScopeKey = scopeKey;
+      const confirmationRevision = ++librarySeenRevision.current;
       const alive = () =>
         activeScopeKey.current === requestScopeKey &&
         generation === sessionGeneration() &&
@@ -287,13 +326,12 @@ export function useBuildingIndicators({
         );
         if (!current || !alive()) return;
         await serializeLibraryWrite(requestScopeKey, async () => {
-          if (!alive()) return;
+          if (!alive() || confirmationRevision !== librarySeenRevision.current) return;
           const previous = await loadLibrarySeen(requestScope);
-          if (!alive()) return;
+          if (!alive() || confirmationRevision !== librarySeenRevision.current) return;
           await saveLibrarySeen(requestScope, mergeLibrarySeen(previous, current));
         });
-        if (!alive()) return;
-        librarySeenRevision.current += 1;
+        if (!alive() || confirmationRevision !== librarySeenRevision.current) return;
         currentLibrary.current = current;
         setIndicators((value) => ({ ...value, libraryState: 'normal' }));
       } catch {

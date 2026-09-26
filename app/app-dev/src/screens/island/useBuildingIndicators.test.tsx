@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import {
   fetchBoardSnapshot,
+  fetchBoardPollPage,
   fetchLibrarySnapshot,
   fetchMailboxUnreadCount,
+  fetchMailboxPollPage,
   loadBoardSeen,
   loadLibrarySeen,
   saveBoardSeen,
@@ -16,8 +18,10 @@ import type { LibraryScreen } from '@/services/api/records';
 jest.mock('@/services/buildingIndicators', () => ({
   ...jest.requireActual('@/services/buildingIndicators'),
   fetchBoardSnapshot: jest.fn(),
+  fetchBoardPollPage: jest.fn(),
   fetchLibrarySnapshot: jest.fn(),
   fetchMailboxUnreadCount: jest.fn(),
+  fetchMailboxPollPage: jest.fn(),
   loadBoardSeen: jest.fn(),
   loadLibrarySeen: jest.fn(),
   saveBoardSeen: jest.fn(),
@@ -25,8 +29,10 @@ jest.mock('@/services/buildingIndicators', () => ({
 }));
 
 const boardNow = fetchBoardSnapshot as jest.Mock;
+const boardPoll = fetchBoardPollPage as jest.Mock;
 const libraryNow = fetchLibrarySnapshot as jest.Mock;
 const mailboxNow = fetchMailboxUnreadCount as jest.Mock;
+const mailboxPoll = fetchMailboxPollPage as jest.Mock;
 const boardSeen = loadBoardSeen as jest.Mock;
 const librarySeen = loadLibrarySeen as jest.Mock;
 const saveBoard = saveBoardSeen as jest.Mock;
@@ -56,12 +62,19 @@ beforeEach(async () => {
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'user-1' });
   boardNow.mockResolvedValue({ notice: 2 });
+  boardPoll.mockResolvedValue({ snapshot: { notice: 2 }, nextCursor: null });
   libraryNow.mockResolvedValue({
     periodKey: '2026-09-20',
     weeklyFingerprint: 'new',
     fishEarnings: { user: 2 },
   });
   mailboxNow.mockResolvedValue(0);
+  mailboxPoll.mockResolvedValue({
+    latestUnread: false,
+    historyUnread: false,
+    cycleComplete: true,
+    nextCursor: null,
+  });
   boardSeen.mockResolvedValue({ notice: 2 });
   librarySeen.mockResolvedValue({
     periodKey: '2026-09-20',
@@ -96,6 +109,28 @@ test('저장된 확인 상태와 서버 현재 값을 비교해 세 배지를 �
   await waitFor(() => assert.equal(result.current.showMailboxLetters, true));
   assert.equal(result.current.boardStatus, 'new-comment');
   assert.equal(result.current.libraryState, 'new-reading');
+});
+
+test('과거 공지 페이지에서 발견한 새 댓글은 전체 관측 snapshot에 병합된다', async () => {
+  boardNow.mockResolvedValue({ old: 2, latest: 0 });
+  boardSeen.mockResolvedValue({ old: 2, latest: 0 });
+  boardPoll.mockResolvedValue({ snapshot: { old: 3 }, nextCursor: 'older-2' });
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+
+  await waitFor(() => assert.equal(boardNow.mock.calls.length, 1));
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(hook.result.current.boardStatus, 'new-comment'));
+  expect(boardPoll).toHaveBeenCalledWith('island-1', null, expect.any(Function));
+  hook.unmount();
 });
 
 test('첫 관측은 기준점으로 저장하고 과거 콘텐츠 배지를 만들지 않는다', async () => {
@@ -305,7 +340,7 @@ test('늦게 끝난 홈 조회는 더 최신인 도서관 확인 기준점을 �
   assert.equal(result.current.libraryState, 'normal');
 });
 
-test('60초 폴링은 중복 조회를 막고 후속 갱신을 최신 페이지만 읽는다', async () => {
+test('60초 폴링은 과거 페이지 하나만 순환하고 중복 조회를 막는다', async () => {
   jest.useFakeTimers();
   let release!: (value: Record<string, number>) => void;
   const pending = new Promise<Record<string, number>>((resolve) => {
@@ -317,7 +352,6 @@ test('60초 폴링은 중복 조회를 막고 후속 갱신을 최신 페이지�
   );
   await act(async () => Promise.resolve());
   assert.equal(boardNow.mock.calls.length, 1);
-  assert.equal(boardNow.mock.calls[0][2], false);
   assert.equal(libraryNow.mock.calls[0][4], false);
 
   await act(async () => {
@@ -333,12 +367,142 @@ test('60초 폴링은 중복 조회를 막고 후속 갱신을 최신 페이지�
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
   await waitFor(() => {
-    assert.equal(boardNow.mock.calls.length, 2);
+    assert.equal(boardPoll.mock.calls.length, 1);
     assert.equal(libraryNow.mock.calls.length, 2);
   });
-  assert.equal(boardNow.mock.calls[1][2], true);
+  assert.equal(boardPoll.mock.calls[0][1], null);
   assert.equal(libraryNow.mock.calls[1][4], true);
   hook.unmount();
+});
+
+test('과거 커서는 성공 응답에서만 전진하고 한 주기당 한 페이지 예산을 지킨다', async () => {
+  jest.useFakeTimers();
+  boardNow.mockResolvedValue({ latest: 0, old: 0 });
+  boardPoll
+    .mockResolvedValueOnce({ snapshot: { latest: 0, old1: 2 }, nextCursor: 'cursor-2' })
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce({ snapshot: { latest: 0, old2: 3 }, nextCursor: 'cursor-3' });
+  const hook = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+  await waitFor(() => assert.equal(boardNow.mock.calls.length, 1));
+
+  await act(async () => {
+    jest.advanceTimersByTime(60_000);
+    await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 1));
+  assert.equal(boardPoll.mock.calls[0][1], null);
+
+  await act(async () => {
+    jest.advanceTimersByTime(60_000);
+    await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 2));
+  assert.equal(boardPoll.mock.calls[1][1], 'cursor-2');
+
+  await act(async () => {
+    jest.advanceTimersByTime(60_000);
+    await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 3));
+  // 실패한 요청의 커서는 저장되지 않으므로 같은 페이지를 다시 요청한다.
+  assert.equal(boardPoll.mock.calls[2][1], 'cursor-2');
+  jest.useRealTimers();
+  hook.unmount();
+});
+
+test('우체통 커서와 확인된 배지는 페이지 조회 실패 때 보존된다', async () => {
+  jest.useFakeTimers();
+  mailboxPoll
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: true,
+      cycleComplete: false,
+      nextCursor: 'mail-cursor-2',
+    })
+    .mockRejectedValueOnce(new Error('offline'))
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      cycleComplete: true,
+      nextCursor: 'mail-cursor-1',
+    })
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      cycleComplete: true,
+      nextCursor: 'mail-cursor-1',
+    });
+  const hook = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+  await waitFor(() => assert.equal(mailboxNow.mock.calls.length, 1));
+
+  const tick = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(60_000);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+  await tick();
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, true));
+  expect(mailboxPoll.mock.calls[0][1]).toBeNull();
+  await tick();
+  expect(mailboxPoll.mock.calls[1][1]).toBe('mail-cursor-2');
+  expect(hook.result.current.showMailboxLetters).toBe(true);
+  await tick();
+  expect(mailboxPoll.mock.calls[2][1]).toBe('mail-cursor-2');
+  expect(hook.result.current.showMailboxLetters).toBe(true);
+  await tick();
+  expect(hook.result.current.showMailboxLetters).toBe(false);
+
+  jest.useRealTimers();
+  hook.unmount();
+});
+
+test('도서관 확인은 가장 늦게 시작한 확인 요청만 기준점에 반영한다', async () => {
+  let releaseOld!: (value: {
+    periodKey: string;
+    weeklyFingerprint: string;
+    fishEarnings: Record<string, number>;
+  }) => void;
+  const old = new Promise<{
+    periodKey: string;
+    weeklyFingerprint: string;
+    fishEarnings: Record<string, number>;
+  }>((resolve) => {
+    releaseOld = resolve;
+  });
+  libraryNow.mockResolvedValueOnce(old).mockResolvedValueOnce({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'latest-screen',
+    fishEarnings: { user: 5 },
+  });
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: false, refreshKey: 0 }),
+  );
+
+  let oldMark!: Promise<void>;
+  let newMark!: Promise<void>;
+  await act(async () => {
+    oldMark = result.current.markLibrarySeen(displayedLibraryScreen);
+    newMark = result.current.markLibrarySeen({
+      ...displayedLibraryScreen,
+      focusStatistics: { ...displayedLibraryScreen.focusStatistics!, totalSeconds: 99 },
+    });
+    await newMark;
+    releaseOld({
+      periodKey: '2026-09-20',
+      weeklyFingerprint: 'stale-screen',
+      fishEarnings: { user: 2 },
+    });
+    await oldMark;
+  });
+
+  expect(saveLibrary).toHaveBeenCalledTimes(1);
+  expect(saveLibrary.mock.calls[0][1].weeklyFingerprint).toBe('latest-screen');
 });
 
 test('같은 섬 재조회가 실패해도 마지막 성공 배지를 유지한다', async () => {
@@ -360,6 +524,7 @@ test('같은 섬 재조회가 실패해도 마지막 성공 배지를 유지한�
   boardNow.mockRejectedValue(new Error('offline'));
   libraryNow.mockRejectedValue(new Error('offline'));
   mailboxNow.mockRejectedValue(new Error('offline'));
+  mailboxPoll.mockRejectedValue(new Error('offline'));
   await hook.rerender({ refreshKey: 1 });
   await act(async () => Promise.resolve());
 

@@ -228,7 +228,6 @@ function nextPage(cursor: unknown, used: Set<string>): string | null {
 export async function fetchBoardSnapshot(
   islandId: string,
   isCurrent?: () => boolean,
-  latestOnly = false,
 ): Promise<BoardSnapshot> {
   const alive = guard(isCurrent);
   alive();
@@ -250,11 +249,53 @@ export async function fetchBoardSnapshot(
       items.push(item);
     }
     const cursor = nextPage(page.nextCursor, cursors);
-    if (latestOnly) return boardSnapshot(items);
     if (cursor === null) return boardSnapshot(items);
     alive();
     page = await gated(listNotices(islandId, cursor), alive);
   }
+}
+
+export type BoardPollPage = { snapshot: BoardSnapshot; nextCursor: string | null };
+
+/**
+ * 60초 갱신용 게시판 조회. 최신 페이지와 순환 커서가 가리키는 과거 페이지 하나만
+ * 확인하므로 요청량은 이력 길이에 비례하지 않는다. 오래된 공지 댓글 변경은 커서가
+ * 한 바퀴 도는 동안 발견되며, 페이지 수에 따라 발견 지연이 늘어난다.
+ */
+export async function fetchBoardPollPage(
+  islandId: string,
+  historyCursor: string | null,
+  isCurrent?: () => boolean,
+): Promise<BoardPollPage> {
+  const alive = guard(isCurrent);
+  alive();
+  const screen = await gated(getBoard(), alive);
+  if (screen.island.id !== islandId) throw contract('board.island.id');
+  const latest = validateNoticeItems(screen.notices);
+  const firstHistoryCursor = nextPage(screen.notices.nextCursor, new Set());
+  if (!firstHistoryCursor) return { snapshot: latest, nextCursor: null };
+
+  const cursor = historyCursor ?? firstHistoryCursor;
+  alive();
+  const page = await gated(listNotices(islandId, cursor), alive);
+  const historical = validateNoticeItems(page);
+  const next = nextPage(page.nextCursor, new Set([cursor]));
+  return {
+    // 최신 페이지를 우선해 경계에서 중복된 공지의 값을 최신 응답으로 유지한다.
+    snapshot: { ...historical, ...latest },
+    nextCursor: next ?? firstHistoryCursor,
+  };
+}
+
+function validateNoticeItems(page: NoticePage): BoardSnapshot {
+  if (!Array.isArray(page.items)) throw contract('notices.items');
+  const result: BoardSnapshot = {};
+  for (const item of page.items) {
+    if (!item || typeof item.id !== 'string' || !count(item.commentCount))
+      throw contract('notices.items');
+    result[item.id] = item.commentCount;
+  }
+  return result;
 }
 
 export async function fetchMailboxUnreadCount(
@@ -292,6 +333,64 @@ export async function fetchMailboxUnreadCount(
     alive();
     page = await gated(listLetters('received', cursor), alive);
   }
+}
+
+export type MailboxPollPage = {
+  latestUnread: boolean;
+  historyUnread: boolean;
+  cycleComplete: boolean;
+  nextCursor: string | null;
+};
+
+/** 60초 갱신당 최신 편지와 과거 커서 페이지 하나만 읽는다. */
+export async function fetchMailboxPollPage(
+  islandId: string,
+  historyCursor: string | null,
+  isCurrent?: () => boolean,
+): Promise<MailboxPollPage> {
+  const alive = guard(isCurrent);
+  alive();
+  const screen = await gated(getMailboxScreen(), alive);
+  if (screen.island.id !== islandId) throw contract('mailbox.island.id');
+  const latest = validateLetterPage(screen.letters);
+  const firstHistoryCursor = screen.letters.hasNext
+    ? nextPage(screen.letters.nextCursor, new Set())
+    : null;
+  if (!firstHistoryCursor)
+    return {
+      latestUnread: latest.some((item) => !item.isRead),
+      historyUnread: false,
+      cycleComplete: true,
+      nextCursor: null,
+    };
+
+  const cursor = historyCursor ?? firstHistoryCursor;
+  alive();
+  const page = await gated(listLetters('received', cursor), alive);
+  const history = validateLetterPage(page);
+  const next = page.hasNext ? nextPage(page.nextCursor, new Set([cursor])) : null;
+  return {
+    latestUnread: latest.some((item) => !item.isRead),
+    historyUnread: history.some((item) => !item.isRead),
+    cycleComplete: next === null,
+    nextCursor: next ?? firstHistoryCursor,
+  };
+}
+
+function validateLetterPage(page: LetterSlice): LetterSlice['content'] {
+  if (!Array.isArray(page.content) || typeof page.hasNext !== 'boolean') throw contract('letters');
+  const ids = new Set<string>();
+  for (const item of page.content) {
+    if (
+      !item ||
+      typeof item.id !== 'string' ||
+      typeof item.isRead !== 'boolean' ||
+      ids.has(item.id)
+    )
+      throw contract('letters.content');
+    ids.add(item.id);
+  }
+  return page.content;
 }
 
 export async function fetchLibrarySnapshot(

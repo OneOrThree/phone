@@ -2,7 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   boardSnapshot,
   boardStatus,
+  fetchBoardPollPage,
   fetchBoardSnapshot,
+  fetchMailboxPollPage,
   fetchLibrarySnapshot,
   fetchMailboxUnreadCount,
   librarySnapshot,
@@ -188,23 +190,77 @@ test('33쪽을 넘는 정상 공지·편지·집중 기록 페이지를 끝까�
   expect(getFocusStatistics).toHaveBeenCalledTimes(last);
 });
 
-test('빠른 홈 갱신은 게시판 최신 공지와 도서관 집계만 확인하고 이력을 페이지 조회하지 않는다', async () => {
-  (getBoard as jest.Mock).mockResolvedValue({
-    island: { id: 'i:1' },
-    notices: {
-      items: [{ id: 'latest', title: '최근 공지', commentCount: 2 }],
-      nextCursor: 'older',
-    },
-  });
-  expect(await fetchBoardSnapshot('i:1', undefined, true)).toEqual({ latest: 2 });
-  expect(listNotices).not.toHaveBeenCalled();
-
+test('빠른 도서관 갱신은 전체 기록 페이지 대신 서버 집계만 확인한다', async () => {
   const screen = library();
   screen.focusStatistics!.nextCursor = 'older';
   (getLibraryScreen as jest.Mock).mockResolvedValue(screen);
   const summary = await fetchLibrarySnapshot('i:1', undefined, now, undefined, true);
   expect(summary).not.toBeNull();
   expect(getFocusStatistics).not.toHaveBeenCalled();
+});
+
+test('게시판 고정 예산은 최신 공지와 커서 과거 페이지 하나만 조회하고 끝에서 wrap한다', async () => {
+  (getBoard as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    notices: {
+      items: [{ id: 'latest', title: '새 공지', commentCount: 0 }],
+      nextCursor: 'history-1',
+    },
+  });
+  (listNotices as jest.Mock).mockResolvedValueOnce({
+    items: [{ id: 'old-commented', title: '과거 공지', commentCount: 4 }],
+    nextCursor: 'history-2',
+  });
+  const first = await fetchBoardPollPage('i:1', null);
+  expect(first).toEqual({
+    snapshot: { 'old-commented': 4, latest: 0 },
+    nextCursor: 'history-2',
+  });
+  expect(listNotices).toHaveBeenCalledTimes(1);
+  expect(listNotices).toHaveBeenCalledWith('i:1', 'history-1');
+
+  (listNotices as jest.Mock).mockResolvedValueOnce({
+    items: [{ id: 'last', title: '마지막 페이지', commentCount: 1 }],
+    nextCursor: null,
+  });
+  const wrapped = await fetchBoardPollPage('i:1', 'history-40');
+  expect(wrapped.nextCursor).toBe('history-1');
+  expect(listNotices).toHaveBeenLastCalledWith('i:1', 'history-40');
+});
+
+test('우체통 고정 예산은 과거 페이지 하나를 확인하고 마지막 페이지에서 순환 완료한다', async () => {
+  (getMailboxScreen as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    letters: {
+      content: [{ id: 'latest', isRead: true }],
+      hasNext: true,
+      nextCursor: 'history-1',
+    },
+  });
+  (listLetters as jest.Mock).mockResolvedValueOnce({
+    content: [{ id: 'old-unread', isRead: false }],
+    hasNext: true,
+    nextCursor: 'history-2',
+  });
+  expect(await fetchMailboxPollPage('i:1', null)).toEqual({
+    latestUnread: false,
+    historyUnread: true,
+    cycleComplete: false,
+    nextCursor: 'history-2',
+  });
+  expect(listLetters).toHaveBeenCalledTimes(1);
+
+  (listLetters as jest.Mock).mockResolvedValueOnce({
+    content: [{ id: 'last-read', isRead: true }],
+    hasNext: false,
+    nextCursor: null,
+  });
+  expect(await fetchMailboxPollPage('i:1', 'history-40')).toEqual({
+    latestUnread: false,
+    historyUnread: false,
+    cycleComplete: true,
+    nextCursor: 'history-1',
+  });
 });
 
 test('도서관 빠른 집계는 전체 기준점과 비교해도 레코드 페이지 차이로 배지를 만들지 않는다', () => {
