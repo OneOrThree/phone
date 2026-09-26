@@ -103,6 +103,51 @@ test('휴식 진입 전환을 취소하면 일시정지한 집중 세션을 다�
   assert.equal(captured.route, 'focus');
 });
 
+test('서버 집중 재개가 실패하면 일시정지 세션을 휴식 경로로 돌려보낸다', async () => {
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await act(async () => {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  });
+  await waitFor(() => assert.equal(typeof captured.focus?.resume, 'function'));
+
+  const resume = jest.fn().mockRejectedValue(new Error('network unavailable'));
+  captured.focus.resume = resume;
+  await act(async () => {
+    captured.dispatch({
+      type: 'SESSION_SYNC',
+      session: {
+        id: 'server-session',
+        islandId: 'cloud',
+        subject: '집중',
+        startedAt: Date.now() - 60_000,
+        restStartedAt: Date.now(),
+        seconds: 60,
+        status: 'paused',
+        intervals: [],
+        version: 2,
+      },
+    });
+    captured.go('focus');
+  });
+  await waitFor(() => assert.equal(captured.route, 'focus'));
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 400));
+  });
+
+  await act(async () => captured.go('rest'));
+  await act(async () => {
+    assert.equal(cancelBuildingTransition(), true);
+  });
+
+  await waitFor(() => assert.equal(resume.mock.calls.length, 1));
+  await waitFor(() => assert.equal(captured.route, 'rest'));
+  assert.equal(captured.state.session?.status, 'paused');
+});
+
 test('WorldMap의 진입 전환 중에는 앱 콘텐츠를 접근성 트리에서 숨긴다', async () => {
   let app!: Awaited<ReturnType<typeof render>>;
   await act(async () => {

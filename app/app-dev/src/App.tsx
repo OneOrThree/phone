@@ -365,7 +365,7 @@ function Gromo() {
     islandId: state.serverIslands?.currentIslandId ?? null,
     dispatch,
   });
-  const performGo = (r: Route, id = '') => {
+  const performGo = (r: Route, id = '', options: { sessionIsAlreadyPaused?: boolean } = {}) => {
     const gateBoard = shouldGateScreenTimeBoard(r, {
       isIOS: Platform.OS === 'ios',
       promptSeen: !!state.settings.screenTimeBoardPromptSeen,
@@ -374,7 +374,8 @@ function Gromo() {
     const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
     if (r === 'rest') setRestTravel(route === 'focus');
     if (r === 'home' || route === 'home') setWalkRequest(null);
-    if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
+    if (r === 'rest' && !options.sessionIsAlreadyPaused && state.session?.status === 'active')
+      dispatch({ type: 'PAUSE' });
     setDetail(nextDetail);
     setTab('');
     setText('');
@@ -480,6 +481,8 @@ function Gromo() {
   // 저장소에만 둔다(State/AsyncStorage 저장 금지). 매 렌더의 최신 함수·state는 ref로 넘긴다.
   const stateRef = useRef(state);
   stateRef.current = state;
+  const routeRef = useRef(route);
+  routeRef.current = route;
   const goRef = useRef(go);
   goRef.current = go;
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
@@ -611,6 +614,9 @@ function Gromo() {
       .catch(async (error) => {
         if (await recoverExpiredRestConflict(error, session)) return;
         notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.');
+        if (routeRef.current === 'focus' && stateRef.current.session?.status === 'paused') {
+          performGo('rest', '', { sessionIsAlreadyPaused: true });
+        }
       });
   };
   // ── 회원 전환(GROMO-2005) ──
