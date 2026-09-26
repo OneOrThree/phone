@@ -25,6 +25,7 @@ const smokeFrames: readonly ImageSourcePropType[] = [
   require('@/assets/village-world/motion/fire-smoke/frame-2.png'),
   require('@/assets/village-world/motion/fire-smoke/frame-3.png'),
 ];
+const unlitFireSource = require('@/assets/village-world/fire.png') as ImageSourcePropType;
 const flameSequence = [1, 2, 3, 2] as const;
 const smokeSequence = [0, 1, 2, 3, 2, 1] as const;
 const quietFlameSequence = [1, 1, 2, 1] as const;
@@ -37,6 +38,10 @@ const flameCorePath =
   'M165 16 C154 34 133 53 126 78 C116 111 137 137 165 140 C193 137 214 111 204 78 C197 53 176 34 165 16 Z';
 const smokeCorePath =
   'M165 26 C156 39 151 51 154 62 C140 68 137 85 151 94 C141 105 148 122 163 124 C177 125 185 112 177 101 C194 93 194 76 180 67 C181 52 174 38 165 26 Z';
+// 낮 base의 정적 불꽃은 이 장작 코어 전체 안쪽에 들어온다. 불 없는 원본 화덕의
+// 장작 부분으로 먼저 덮어 정적 불꽃이 smoke 프레임 밖으로 새지 않게 하고, 돌 테두리는 보존한다.
+const dayLogCorePath =
+  'M165 12 C145 18 127 34 112 54 C98 72 98 111 113 133 C127 154 146 169 165 173 C184 169 203 154 217 133 C232 111 232 72 218 54 C203 34 185 18 165 12 Z';
 
 /** 모닥불 코어만 부모의 레이아웃과 확대 배율로 표시한다(기준 상자 비율 100:71). */
 export const FireMotion = memo(function FireMotionView({
@@ -156,6 +161,9 @@ export const FireMotion = memo(function FireMotionView({
         style={StyleSheet.absoluteFill}
       >
         <Defs>
+          <ClipPath id="fire-motion-day-log-core">
+            <Path testID="fire-motion-day-log-core-path" d={dayLogCorePath} />
+          </ClipPath>
           <ClipPath id="fire-motion-core">
             <Path
               testID="fire-motion-core-path"
@@ -163,6 +171,18 @@ export const FireMotion = memo(function FireMotionView({
             />
           </ClipPath>
         </Defs>
+        {mode === 'day' && (
+          <SvgImage
+            testID="fire-motion-day-log-cover"
+            href={unlitFireSource as number}
+            x={0}
+            y={0}
+            width={330}
+            height={220}
+            preserveAspectRatio="none"
+            clipPath="url(#fire-motion-day-log-core)"
+          />
+        )}
         {frames.map((source, index) => (
           <SvgImage
             key={index}

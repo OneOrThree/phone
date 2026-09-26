@@ -37,6 +37,10 @@ describe('FireMotion', () => {
     expect(activeFrame(view, 'day')).toBe(0);
     expect(view.getByTestId('fire-motion-frame-day-0').props.clipPath).toBe('fire-motion-core');
     expect(corePath(view)).toContain('M165 26');
+    expect(view.getByTestId('fire-motion-day-log-cover').props.clipPath).toBe(
+      'fire-motion-day-log-core',
+    );
+    expect(view.getByTestId('fire-motion-day-log-core-path').props.d).toContain('M165 12');
     await act(async () => jest.advanceTimersByTime(360));
     expect(activeFrame(view, 'day')).toBe(1);
     expect(visibleFrameCount(view, 'day')).toBe(1);
@@ -51,6 +55,7 @@ describe('FireMotion', () => {
     expect(view.getByTestId('fire-motion-frame-evening-1').props.clipPath).toBe('fire-motion-core');
     expect(corePath(view)).toContain('M165 16');
     expect(view.getByTestId('fire-motion-glow')).toBeTruthy();
+    expect(view.queryByTestId('fire-motion-day-log-cover')).toBeNull();
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
     expect(activeFrame(view, 'evening')).toBe(2);
