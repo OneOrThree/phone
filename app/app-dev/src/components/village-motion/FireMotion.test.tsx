@@ -35,9 +35,8 @@ describe('FireMotion', () => {
   it('loops through day smoke frames every 360ms', async () => {
     const view = await render(<FireMotion mode="day" />);
     expect(activeFrame(view, 'day')).toBe(0);
-    expect(view.getByTestId('fire-motion-frame-day-0').props.clipPath).toBe('fire-motion-core');
-    expect(corePath(view)).toContain('M165 26');
-    expect(view.queryByTestId('fire-motion-day-log-cover')).toBeNull();
+    expect(view.getByTestId('fire-motion-frame-day-0').props.clipPath).toBeUndefined();
+    expect(view.queryByTestId('fire-motion-night-off-core')).toBeNull();
     await act(async () => jest.advanceTimersByTime(360));
     expect(activeFrame(view, 'day')).toBe(1);
     expect(visibleFrameCount(view, 'day')).toBe(1);
@@ -52,8 +51,7 @@ describe('FireMotion', () => {
     expect(view.getByTestId('fire-motion-frame-evening-1').props.clipPath).toBe('fire-motion-core');
     expect(corePath(view)).toContain('M165 16');
     expect(view.getByTestId('fire-motion-glow')).toBeTruthy();
-    expect(view.queryByTestId('fire-motion-quiet-unlit-core')).toBeNull();
-    expect(view.queryByTestId('fire-motion-quiet-off-core')).toBeNull();
+    expect(view.getByTestId('fire-motion-night-off-core').props.d).toContain('M171 16');
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
     expect(activeFrame(view, 'evening')).toBe(2);
@@ -76,8 +74,7 @@ describe('FireMotion', () => {
     expect(empty.getByTestId('fire-motion').props.style).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ opacity: 0.68 })]),
     );
-    expect(empty.getByTestId('fire-motion-quiet-unlit-core').props.opacity).toBe(1);
-    expect(empty.getByTestId('fire-motion-quiet-off-core').props.d).toContain('M165 1');
+    expect(empty.getByTestId('fire-motion-night-off-core').props.d).toContain('M171 16');
     expect(empty.getByTestId('fire-motion-frame-evening-1').props).toMatchObject({
       opacity: 0.52,
       clipPath: 'fire-motion-quiet-core',
