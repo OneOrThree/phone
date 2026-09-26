@@ -13,6 +13,7 @@ import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
 import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
+import { getIslandRankings } from '@/services/api/rankings';
 import type { IslandSummary } from '@/services/api/islands';
 
 let mockFontScale = 1;
@@ -20,13 +21,24 @@ jest.mock('@/services/api/account', () => ({
   updateProfile: jest.fn(),
   withdrawAccount: jest.fn(),
 }));
+jest.mock('@/services/api/rankings', () => ({
+  utcWeekStart: () => '2026-09-20',
+  getIslandRankings: jest.fn(async () => ({
+    items: [],
+    myRank: null,
+    nextCursor: null,
+    asOf: '2026-09-26T00:00:00Z',
+  })),
+}));
 const mockUpdateProfile = updateProfile as jest.Mock;
 const mockWithdrawAccount = withdrawAccount as jest.Mock;
+const mockGetIslandRankings = getIslandRankings as jest.Mock;
 const notifyMock = jest.fn();
 const backMock = jest.fn();
 beforeEach(() => {
   mockUpdateProfile.mockReset();
   mockWithdrawAccount.mockReset();
+  mockGetIslandRankings.mockClear();
   notifyMock.mockClear();
   backMock.mockClear();
 });
@@ -1227,4 +1239,20 @@ test('서버 모드 home 은 스냅샷의 완공 건물과 오늘 집중을 그�
   s.getByLabelText('복구 섬 오늘 집중 01:02:05');
   // 로컬 비용으로 그리는 건설 카드는 서버 모드에서 띄우지 않는다
   assert.equal(s.queryByText(/짓기$/), null);
+});
+
+test('서버 홈의 완공 전망대가 로컬 건물 목록에 없어도 섬 랭킹을 조회한다', async () => {
+  const s = await render(
+    <Harness
+      route="home"
+      api={() => ({})}
+      seed={(d: any) => {
+        syncCurrent(d);
+        d({ type: 'SERVER_HOME', facts: homeFacts('srv-1', ['hall', 'tower']) });
+      }}
+    />,
+  );
+
+  await waitFor(() => assert.equal(mockGetIslandRankings.mock.calls.length, 1));
+  await waitFor(() => s.getByTestId('final-island-world'));
 });

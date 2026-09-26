@@ -833,16 +833,21 @@ export function RedesignScreens({ e }: any) {
   };
   // 서버 스냅샷 단축 — 첫 로드 전엔 undefined
   const snap = state.serverIslands;
+  // 서버 홈에서는 currentIsland 의 로컬 건물 목록이 비어 있을 수 있으므로, 완공 여부는
+  // 홈 스냅샷을 정본으로 사용한다. 구경 중에는 방문 섬의 로컬 상태를 유지한다.
+  const observatoryBuilt = state.visitingIslandId
+    ? island.buildings.includes('tower')
+    : (serverHome(state)?.completedBuildings ?? island.buildings).includes('tower');
   // 전망대 주간 섬 랭킹(GROMO-2018) — 홈 지도 배지와 전망대 화면이 같은 서버 정본을 쓴다.
   const islandRankings = useIslandRankings({
     active:
       ['home', 'tower'].includes(route) &&
       !!server &&
       !state.visitingIslandId &&
-      island.buildings.includes('tower'),
+      observatoryBuilt,
   });
   const observatoryRankState = useObservatoryRankIndicator({
-    active: !!server && !state.visitingIslandId && island.buildings.includes('tower'),
+    active: !!server && !state.visitingIslandId && observatoryBuilt,
     userId: getSession()?.userId ?? null,
     islandId: snap?.currentIslandId ?? null,
     week: islandRankings.week,
