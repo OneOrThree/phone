@@ -40,6 +40,7 @@ const library = (): LibraryScreen => ({
       { id: 'r1', subject: '공부', activeSeconds: 10, completedAt: '2026-09-24T10:00:00Z' },
     ],
     nextCursor: null,
+    asOf: '2026-09-24T12:00:00Z',
   },
   screenTimeStatistics: {
     scope: 'me',
@@ -117,7 +118,7 @@ test('댓글 감소 시 확인 기준도 낮춰 이후 새 댓글을 다시 감�
 test('도서관 요약 지표가 유지되면 페이지 레코드 변경은 배지를 만들지 않는다', () => {
   const screen = library();
   const seen = librarySnapshot(screen, now);
-  screen.focusStatistics!.asOf = '새 조회 시각';
+  screen.focusStatistics!.asOf = '2026-09-24T13:00:00Z';
   screen.fishEarnings!.members[0].name = '새 이름';
   expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(false);
   screen.focusStatistics!.records[0].activeSeconds = 11;
@@ -480,6 +481,28 @@ test('이미 표시한 도서관 응답을 기준으로 남은 집중 기록 페
     scope: 'me',
     cursor: 'more',
   });
+});
+
+test('도서관 페이지네이션과 기준점은 첫 서버 응답의 asOf 주간에 고정된다', async () => {
+  const screen = library();
+  screen.focusStatistics!.asOf = '2026-09-27T23:59:59Z';
+  screen.focusStatistics!.nextCursor = 'more';
+  (getFocusStatistics as jest.Mock).mockResolvedValue({
+    ...screen.focusStatistics,
+    records: [{ id: 'r2', subject: '책', activeSeconds: 5, completedAt: '2026-09-28T00:00:01Z' }],
+    nextCursor: null,
+  });
+
+  // 응답을 받은 시점에는 클라이언트가 이미 다음 UTC 주에 있어도 기존 snapshot 주를 유지한다.
+  const result = await fetchLibrarySnapshot('i:1', undefined, new Date('2026-09-28T00:00:02Z'), screen);
+
+  expect(getFocusStatistics).toHaveBeenCalledWith('i:1', {
+    from: '2026-09-27',
+    to: '2026-10-03',
+    scope: 'me',
+    cursor: 'more',
+  });
+  expect(result?.periodKey).toBe('2026-09-27');
 });
 
 test('현재 섬과 다른 화면 응답을 거부한다', async () => {

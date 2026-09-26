@@ -36,6 +36,7 @@ const FOCUS_ME: FocusStatsMe = {
     { id: 'r1', subject: '수학', activeSeconds: 3600, completedAt: '2026-09-20T01:00:00Z' },
   ],
   nextCursor: null,
+  asOf: '2026-09-20T12:00:00Z',
 };
 const SCREEN_ME: ScreenStatsMe = {
   scope: 'me',

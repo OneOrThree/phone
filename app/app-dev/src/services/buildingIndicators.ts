@@ -105,6 +105,8 @@ export function librarySnapshot(
   now = new Date(),
   allowPartialRecords = false,
 ): LibrarySnapshot | null {
+  // 인자는 호출부 호환을 위해 남겨 두지만 주간 키는 서버 응답 asOf만 신뢰한다.
+  void now;
   if (
     screen.statisticsAvailability !== 'available' ||
     screen.missingFragments?.length ||
@@ -115,10 +117,14 @@ export function librarySnapshot(
   )
     return null;
   const focus = screen.focusStatistics;
+  // `/screens/library`의 asOf가 서버가 실제 집계한 주의 기준이다. 클라이언트
+  // 시각은 응답 도착 전후 UTC 주 경계를 넘을 수 있으므로 기간 표시에 사용하지 않는다.
+  const periodAnchor = new Date(focus.asOf);
+  if (!Number.isFinite(periodAnchor.getTime())) return null;
   const usage = screen.screenTimeStatistics;
   // 조회·집계 시각(asOf/updatedAt), 주민 이름, 배열 순서는 콘텐츠 변경으로 세지 않는다.
   return {
-    periodKey: week(now).from,
+    periodKey: week(periodAnchor).from,
     weeklyFingerprint: JSON.stringify({
       focus: {
         totalSeconds: focus.totalSeconds,
@@ -452,7 +458,10 @@ export async function fetchLibrarySnapshot(
   if (screen.island.id !== islandId) throw contract('library.island.id');
   if (screen.statisticsAvailability !== 'available' || screen.missingFragments?.length) return null;
   if (!screen.focusStatistics) return null;
-  if (latestOnly) return librarySnapshot(screen, now, true);
+  const periodAnchor = new Date(screen.focusStatistics.asOf);
+  if (!Number.isFinite(periodAnchor.getTime())) throw contract('library.focusStatistics.asOf');
+  const period = week(periodAnchor);
+  if (latestOnly) return librarySnapshot(screen, periodAnchor, true);
   const focus = screen.focusStatistics;
   const records = [...focus.records];
   const ids = new Set(records.map((item) => item.id));
@@ -462,7 +471,7 @@ export async function fetchLibrarySnapshot(
   while (cursor !== null) {
     alive();
     const page = await gated(
-      getFocusStatistics(islandId, { ...week(now), scope: 'me', cursor }),
+      getFocusStatistics(islandId, { ...period, scope: 'me', cursor }),
       alive,
     );
     const pageIds = new Set<string>();
@@ -477,6 +486,6 @@ export async function fetchLibrarySnapshot(
   }
   return librarySnapshot(
     { ...screen, focusStatistics: { ...focus, records, nextCursor: null } },
-    now,
+    periodAnchor,
   );
 }

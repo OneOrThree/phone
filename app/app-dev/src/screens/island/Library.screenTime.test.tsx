@@ -100,6 +100,7 @@ test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 �
     series: [{ date, seconds: 600 }],
     records: [],
     nextCursor: null,
+    asOf: '2026-09-22T12:00:00Z',
   };
   const usage = {
     scope: 'me' as const,
@@ -188,6 +189,7 @@ test.each(['pending', 'unavailable'] as const)(
       series: [],
       records: [],
       nextCursor: null,
+      asOf: '2026-09-22T12:00:00Z',
     };
     const usage = {
       scope: 'me' as const,
@@ -247,6 +249,7 @@ test.each(['ios', 'android'] as const)(
         series: [],
         records: [],
         nextCursor: null,
+        asOf: '2026-09-22T12:00:00Z',
       };
       const usage = {
         scope: 'me' as const,
@@ -288,6 +291,7 @@ test.each(['집중', '폰 사용'])('일·주 %s는 선택하지 않은 통계�
     series: [],
     records: [],
     nextCursor: null,
+    asOf: '2026-09-22T12:00:00Z',
   };
   const usage = {
     scope: 'me' as const,

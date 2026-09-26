@@ -1,14 +1,13 @@
 import React, { memo, useEffect, useRef } from 'react';
-import { Animated, AppState, Easing, Image, StyleSheet, View, type ViewStyle } from 'react-native';
-import { assets } from '@/constants/assets';
+import { Animated, AppState, Easing, StyleSheet, View, type ViewStyle } from 'react-native';
 
 export const RaftWaterMotion = memo(function RaftWaterMotionView({
   reduceMotion = false,
-  dayNight = 'day',
   style,
   testID = 'raft-water-motion',
 }: {
   reduceMotion?: boolean;
+  /** 바탕 이미지가 낮/밤 뗏목의 단일 시각 정본이며 물결은 팔레트와 무관하다. */
   dayNight?: 'day' | 'night';
   style?: ViewStyle;
   testID?: string;
@@ -16,10 +15,6 @@ export const RaftWaterMotion = memo(function RaftWaterMotionView({
   const drift = useRef(new Animated.Value(0)).current;
   // 월드가 전달하는 컨테이너 폭은 카메라 배율을 반영하므로 내부 물결도 같은 배율을 쓴다.
   const scale = typeof style?.width === 'number' ? style.width / 210 : 1;
-  // boats/raft 레이어에서 실제 뗏목 그림은 원본 viewBox (48, 307, 928, 669)에 있다.
-  // 전체 경계를 잘라 쓰도록 원본 1024px 캔버스를 목표 프레임에 맞춰 축소한다.
-  const raftScaleX = typeof style?.width === 'number' ? style.width / 928 : 210 / 928;
-  const raftScaleY = typeof style?.height === 'number' ? style.height / 669 : 92 / 669;
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -61,18 +56,6 @@ export const RaftWaterMotion = memo(function RaftWaterMotionView({
 
   return (
     <View testID={testID} pointerEvents="none" style={[styles.fill, styles.clip, style]}>
-      <Image
-        testID={`${testID}-raft-back`}
-        source={assets[`boats/raft/layers/back-${dayNight}.png`]}
-        resizeMode="stretch"
-        style={{
-          position: 'absolute',
-          left: -48 * raftScaleX,
-          top: -307 * raftScaleY,
-          width: 1024 * raftScaleX,
-          height: 1024 * raftScaleY,
-        }}
-      />
       <Animated.View
         testID={`${testID}-left`}
         style={[
@@ -114,18 +97,6 @@ export const RaftWaterMotion = memo(function RaftWaterMotionView({
           },
           animatedStyle,
         ]}
-      />
-      <Image
-        testID={`${testID}-raft-front`}
-        source={assets[`boats/raft/layers/front-${dayNight}.png`]}
-        resizeMode="stretch"
-        style={{
-          position: 'absolute',
-          left: -48 * raftScaleX,
-          top: -307 * raftScaleY,
-          width: 1024 * raftScaleX,
-          height: 1024 * raftScaleY,
-        }}
       />
     </View>
   );

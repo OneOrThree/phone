@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
-import { Animated, AppState, Platform, StyleSheet } from 'react-native';
+import { Animated, AppState, Platform } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState, residentCount } from '@/services/model';
 import {
@@ -451,12 +451,9 @@ test('부두의 뗏목에 뗏목 이름을 표시한다', async () => {
   await screen.unmount();
 });
 
-test.each([
-  ['day', '2026-06-15T12:00:00', 'day'],
-  ['night', '2026-06-15T21:00:00', 'night'],
-] as const)(
-  '뗏목 에셋은 %s 팔레트를 쓰고 카메라 배율에 맞춰 배치한다',
-  async (_label, time, theme) => {
+test.each(['2026-06-15T12:00:00', '2026-06-15T21:00:00'])(
+  '정적 바탕의 뗏목은 중복 렌더링하지 않고 물결만 카메라 배율에 맞춰 배치한다 (%s)',
+  async (time) => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date(time));
     const state = initialState(true);
@@ -466,10 +463,8 @@ test.each([
     const screen = await render(<WorldMap state={state} />);
 
     const raft = screen.getByTestId('world-raft-water-motion');
-    const back = screen.getByTestId('world-raft-water-motion-raft-back');
-    const front = screen.getByTestId('world-raft-water-motion-raft-front');
-    expect(back.props.source).toBe(assets[`boats/raft/layers/back-${theme}.png`]);
-    expect(front.props.source).toBe(assets[`boats/raft/layers/front-${theme}.png`]);
+    expect(screen.queryByTestId('world-raft-water-motion-raft-back')).toBeNull();
+    expect(screen.queryByTestId('world-raft-water-motion-raft-front')).toBeNull();
     expect(raft.props.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -480,14 +475,6 @@ test.each([
         }),
       ]),
     );
-    const raftBackStyle = StyleSheet.flatten(back.props.style);
-    const raftFrontStyle = StyleSheet.flatten(front.props.style);
-    expect(raftBackStyle.left).toBeCloseTo((-48 * (210 * scale)) / 928);
-    expect(raftBackStyle.top).toBeCloseTo((-307 * (92 * scale)) / 669);
-    expect(raftBackStyle.width).toBeCloseTo((1024 * (210 * scale)) / 928);
-    expect(raftBackStyle.height).toBeCloseTo((1024 * (92 * scale)) / 669);
-    expect(raftFrontStyle).toEqual(raftBackStyle);
-
     await screen.unmount();
     jest.useRealTimers();
   },

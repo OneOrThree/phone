@@ -665,7 +665,6 @@ export function WorldMap({
           <RaftWaterMotion
             testID="world-raft-water-motion"
             reduceMotion={state.settings.reduceMotion}
-            dayNight={dayNight}
             style={{
               left: left + 185 * scale,
               top: top + 835 * scale,

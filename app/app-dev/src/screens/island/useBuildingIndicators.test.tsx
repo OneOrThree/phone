@@ -46,6 +46,7 @@ const displayedLibraryScreen: LibraryScreen = {
     series: [],
     records: [],
     nextCursor: null,
+    asOf: '2026-09-27T12:00:00Z',
   },
   screenTimeStatistics: {
     scope: 'me',
