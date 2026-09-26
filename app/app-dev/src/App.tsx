@@ -114,6 +114,20 @@ import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createShieldedRouteTransition } from '@/services/routeTransition';
+import {
+  BUILDING_TRANSITION_DURATION_MS,
+  BUILDING_TRANSITION_RETURN_TARGET,
+  createBuildingTransitionController,
+  cancelBuildingTransition,
+  clearBuildingTransitionRouteCovers,
+  isBuildingTransitionActive,
+  isBuildingTransitionRouteCovered,
+  subscribeBuildingTransitionActivity,
+  subscribeBuildingTransitionRouteCover,
+  type BuildingTransitionTarget,
+  type BuildingTransitionState,
+} from '@/services/buildingTransition';
+import { BuildingTransitionOverlay } from '@/screens/island/BuildingTransitionOverlay';
 import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { adoptSignedInAccount, createMemberConversion } from '@/services/memberConversion';
 import { trackDatadogView } from '@/services/datadog';
@@ -310,6 +324,26 @@ function Gromo() {
   const transitionRoute = useRef(
     createShieldedRouteTransition(setRouteTransitionShielded, setRoute),
   ).current;
+  const fireTransitionController = useRef(createBuildingTransitionController()).current;
+  const [fireTransition, setFireTransition] = useState<BuildingTransitionState>({
+    phase: 'idle',
+    target: null,
+    direction: null,
+    generation: 0,
+  });
+  const [buildingRouteCovered, setBuildingRouteCovered] = useState(
+    isBuildingTransitionRouteCovered,
+  );
+  const [buildingTransitionActive, setBuildingTransitionActive] = useState(
+    isBuildingTransitionActive,
+  );
+  useEffect(
+    () => fireTransitionController.subscribe(setFireTransition),
+    [fireTransitionController],
+  );
+  useEffect(() => subscribeBuildingTransitionActivity(setBuildingTransitionActive), []);
+  useEffect(() => subscribeBuildingTransitionRouteCover(setBuildingRouteCovered), []);
+  useEffect(() => () => fireTransitionController.dispose(), [fireTransitionController]);
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -331,7 +365,7 @@ function Gromo() {
     islandId: state.serverIslands?.currentIslandId ?? null,
     dispatch,
   });
-  const go = (r: Route, id = '') => {
+  const performGo = (r: Route, id = '', options: { sessionIsAlreadyPaused?: boolean } = {}) => {
     const gateBoard = shouldGateScreenTimeBoard(r, {
       isIOS: Platform.OS === 'ios',
       promptSeen: !!state.settings.screenTimeBoardPromptSeen,
@@ -340,7 +374,8 @@ function Gromo() {
     const nextDetail = gateBoard ? `board-first|${r}|${encodeURIComponent(id)}` : id;
     if (r === 'rest') setRestTravel(route === 'focus');
     if (r === 'home' || route === 'home') setWalkRequest(null);
-    if (r === 'rest' && state.session?.status === 'active') dispatch({ type: 'PAUSE' });
+    if (r === 'rest' && !options.sessionIsAlreadyPaused && state.session?.status === 'active')
+      dispatch({ type: 'PAUSE' });
     setDetail(nextDetail);
     setTab('');
     setText('');
@@ -350,6 +385,29 @@ function Gromo() {
     transitionRoute(nextRoute);
     if (state.settings.haptics && Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
   };
+  const go = (r: Route, id = '', onTransitionCancel?: () => void) => {
+    const direction =
+      route === 'focus' && r === 'rest'
+        ? 'enter'
+        : route === 'rest' && r === 'focus'
+          ? 'return'
+          : null;
+    if (!direction) return performGo(r, id);
+    return fireTransitionController.start(
+      'fire',
+      direction,
+      state.settings.reduceMotion,
+      () => performGo(r, id),
+      BUILDING_TRANSITION_DURATION_MS,
+      () => {
+        onTransitionCancel?.();
+        // 휴식 진입 전 pause는 이미 끝났다. 뒤로가기로 진입만 취소하면 집중을 다시 켜야 한다.
+        if (route === 'focus' && r === 'rest') resumeSession();
+      },
+    );
+  };
+  const returnToIsland = (target: BuildingTransitionTarget, done: () => void) =>
+    fireTransitionController.start(target, 'return', state.settings.reduceMotion, done);
   const replace = (r: Route, id = '') => {
     setDetail(id);
     setTab('');
@@ -359,6 +417,8 @@ function Gromo() {
     transitionRoute(r);
   };
   const reset = (r: Route, id = '') => {
+    cancelBuildingTransition();
+    clearBuildingTransitionRouteCovers();
     setHistory([]);
     setDetail(id);
     setTab('');
@@ -372,6 +432,7 @@ function Gromo() {
       setModal(null);
       return;
     }
+    if (cancelBuildingTransition()) return;
     if (backOverride.current?.()) return;
     if (route === 'focus' && state.session) {
       confirm('집중을 마칠까요?', '이번 집중을 기록해요.', () => finishSession());
@@ -383,18 +444,31 @@ function Gromo() {
     }
     if (history.length) {
       const previous = history[history.length - 1];
-      transitionRoute(previous.route);
-      setDetail(previous.detail);
-      setTab(previous.tab);
-      setText(previous.text);
-      setBody(previous.body);
-      setHistory((h) => h.slice(0, -1));
+      const restorePrevious = () => {
+        transitionRoute(previous.route);
+        setDetail(previous.detail);
+        setTab(previous.tab);
+        setText(previous.text);
+        setBody(previous.body);
+        setHistory((h) => h.slice(0, -1));
+      };
+      const target = BUILDING_TRANSITION_RETURN_TARGET[route];
+      if (previous.route === 'home' && target) {
+        returnToIsland(target, restorePrevious);
+        return;
+      }
+      restorePrevious();
     } else transitionRoute(state.onboarded ? 'home' : 'chooseIsland');
   };
   const home = () => {
-    setWalkRequest(null);
-    setHistory([]);
-    transitionRoute('home');
+    const finish = () => {
+      setWalkRequest(null);
+      setHistory([]);
+      transitionRoute('home');
+    };
+    const target = BUILDING_TRANSITION_RETURN_TARGET[route];
+    if (target) returnToIsland(target, finish);
+    else finish();
   };
   const confirm = (
     title: string,
@@ -407,6 +481,8 @@ function Gromo() {
   // 저장소에만 둔다(State/AsyncStorage 저장 금지). 매 렌더의 최신 함수·state는 ref로 넘긴다.
   const stateRef = useRef(state);
   stateRef.current = state;
+  const routeRef = useRef(route);
+  routeRef.current = route;
   const goRef = useRef(go);
   goRef.current = go;
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
@@ -527,15 +603,20 @@ function Gromo() {
     const session = stateRef.current.session;
     if (!serverSession()) {
       dispatch({ type: 'RESUME' });
-      transitionRoute('focus');
+      if (route !== 'focus') transitionRoute('focus');
       return;
     }
     focus
       .resume()
-      .then(() => transitionRoute('focus'))
+      .then(() => {
+        if (route !== 'focus') transitionRoute('focus');
+      })
       .catch(async (error) => {
         if (await recoverExpiredRestConflict(error, session)) return;
         notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.');
+        if (routeRef.current === 'focus' && stateRef.current.session?.status === 'paused') {
+          performGo('rest', '', { sessionIsAlreadyPaused: true });
+        }
       });
   };
   // ── 회원 전환(GROMO-2005) ──
@@ -955,7 +1036,8 @@ function Gromo() {
         go('travel', island.id);
         return true;
       }
-      if (route === 'home' || route === 'login') return false;
+      if (route === 'home') return cancelBuildingTransition();
+      if (route === 'login') return false;
       back();
       return true;
     });
@@ -1202,6 +1284,11 @@ function Gromo() {
         <T>내 섬을 불러오는 중이에요.</T>
       </SafeAreaView>
     );
+  const appContentHidden =
+    routeTransitionShielded ||
+    buildingRouteCovered ||
+    buildingTransitionActive ||
+    fireTransition.phase !== 'idle';
   return (
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>
@@ -1212,8 +1299,10 @@ function Gromo() {
         >
           <Animated.View
             key={reviewEpoch}
-            accessibilityElementsHidden={routeTransitionShielded}
-            importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
+            testID="app-content"
+            accessibilityElementsHidden={appContentHidden}
+            importantForAccessibility={appContentHidden ? 'no-hide-descendants' : 'auto'}
+            aria-hidden={appContentHidden}
             style={{
               flex: 1,
               opacity: transition,
@@ -1230,7 +1319,15 @@ function Gromo() {
             {render()}
           </Animated.View>
         </KeyboardAvoidingView>
-        <RouteTransitionShield visible={routeTransitionShielded} />
+        <RouteTransitionShield
+          visible={routeTransitionShielded || buildingRouteCovered}
+          coverLoading={buildingRouteCovered}
+        />
+        <BuildingTransitionOverlay
+          state={fireTransition}
+          reduceMotion={state.settings.reduceMotion}
+          origin={{ x: layout.width / 2, y: layout.height / 2 }}
+        />
         {toast !== '' && (
           <View
             pointerEvents="none"
