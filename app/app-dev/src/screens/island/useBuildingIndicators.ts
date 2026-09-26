@@ -117,6 +117,10 @@ export function useBuildingIndicators({
   const mailboxUnreadIds = useRef(new Map<string, Set<string>>());
   const mailboxConfirmedReadIds = useRef(new Map<string, Set<string>>());
   const mailboxCyclePagesByScope = useRef(new Map<string, Map<string, Set<string>>>());
+  const mailboxLatestPageIdsByScope = useRef(new Map<string, Set<string>>());
+  const mailboxFirstHistoryByScope = useRef(new Map<string, string>());
+  const mailboxShiftedLatestByScope = useRef(new Map<string, Set<string>>());
+  const mailboxShiftedCyclePending = useRef(new Set<string>());
   const mailboxPollReady = useRef(new Set<string>());
   const refreshInFlight = useRef(0);
   const queuedLiveRefresh = useRef(false);
@@ -333,9 +337,11 @@ export function useBuildingIndicators({
           ...value,
           libraryState: hasUpdate.hasNewQuest
             ? 'new-quest'
-            : hasUpdate.updated
-              ? 'new-reading'
-              : 'normal',
+            : questIds === null && value.libraryState === 'new-quest'
+              ? 'new-quest'
+              : hasUpdate.updated
+                ? 'new-reading'
+                : 'normal',
         }));
       })().catch(() => {}),
       (async () => {
@@ -343,6 +349,10 @@ export function useBuildingIndicators({
           mailboxPollReady.current.delete(scopeKey);
           mailboxUnreadIds.current.delete(scopeKey);
           mailboxCyclePagesByScope.current.delete(scopeKey);
+          mailboxLatestPageIdsByScope.current.delete(scopeKey);
+          mailboxFirstHistoryByScope.current.delete(scopeKey);
+          mailboxShiftedLatestByScope.current.delete(scopeKey);
+          mailboxShiftedCyclePending.current.delete(scopeKey);
           mailboxPollCursors.current.delete(scopeKey);
           setIndicators((value) => ({ ...value, showMailboxLetters: false }));
           return;
@@ -362,20 +372,54 @@ export function useBuildingIndicators({
             else unread.add(letter.id);
           }
           const cyclePages = mailboxCyclePagesByScope.current.get(scopeKey) ?? new Map();
-          cyclePages.set('latest', new Set(page.latestItems.map(({ id }) => id)));
+          const latestIds = new Set(page.latestItems.map(({ id }) => id));
+          const previousLatestIds = mailboxLatestPageIdsByScope.current.get(scopeKey) ?? new Set();
+          const shifted = mailboxShiftedLatestByScope.current.get(scopeKey) ?? new Set<string>();
+          let addedShiftedLetter = false;
           if (page.historyPageKey)
+            for (const id of previousLatestIds)
+              if (!latestIds.has(id) && unread.has(id) && !shifted.has(id)) {
+                shifted.add(id);
+                addedShiftedLetter = true;
+              }
+          if (addedShiftedLetter) {
+            // 최신 페이지의 새 경계 이후 이력 전체를 다시 돌기 전까지는 이전 페이지 꼬리를 보존한다.
+            cyclePages.clear();
+            mailboxShiftedCyclePending.current.add(scopeKey);
+          }
+          mailboxLatestPageIdsByScope.current.set(scopeKey, latestIds);
+          cyclePages.set('latest', latestIds);
+          if (page.historyPageKey) {
             cyclePages.set(page.historyPageKey, new Set(page.historyItems.map(({ id }) => id)));
+            for (const letter of page.historyItems) shifted.delete(letter.id);
+          }
           if (page.cycleComplete) {
-            const observed = new Set([...cyclePages.values()].flatMap((ids) => [...ids]));
-            for (const id of unread) if (!observed.has(id)) unread.delete(id);
+            const firstHistoryPage = mailboxFirstHistoryByScope.current.get(scopeKey);
+            const pendingFreshCycle = mailboxShiftedCyclePending.current.has(scopeKey);
+            const caughtUp =
+              !pendingFreshCycle ||
+              (firstHistoryPage !== undefined && cyclePages.has(firstHistoryPage));
+            if (caughtUp) {
+              const observed = new Set([...cyclePages.values()].flatMap((ids) => [...ids]));
+              for (const id of unread) if (!observed.has(id)) unread.delete(id);
+              shifted.clear();
+              mailboxShiftedCyclePending.current.delete(scopeKey);
+            }
             cyclePages.clear();
           }
           mailboxCyclePagesByScope.current.set(scopeKey, cyclePages);
+          mailboxShiftedLatestByScope.current.set(scopeKey, shifted);
           mailboxUnreadIds.current.set(scopeKey, unread);
           setIndicators((value) => ({ ...value, showMailboxLetters: unread.size > 0 }));
           return;
         }
-        const unread = await fetchMailboxUnreadLetterIds(requestScope.islandId, alive);
+        const unread = await fetchMailboxUnreadLetterIds(requestScope.islandId, alive, (pages) => {
+          mailboxLatestPageIdsByScope.current.set(scopeKey, new Set(pages[0]?.ids ?? []));
+          const firstHistoryPage = pages.find(({ key }) => key !== 'latest');
+          if (firstHistoryPage)
+            mailboxFirstHistoryByScope.current.set(scopeKey, firstHistoryPage.key);
+          else mailboxFirstHistoryByScope.current.delete(scopeKey);
+        });
         if (!alive()) return;
         mailboxPollReady.current.add(scopeKey);
         const confirmedRead = mailboxConfirmedReadIds.current.get(scopeKey) ?? new Set();

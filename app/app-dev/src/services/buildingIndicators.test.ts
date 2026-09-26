@@ -400,7 +400,14 @@ test('초기 우체통 기준점은 모든 페이지의 미열람 편지 ID를 �
     hasNext: false,
     nextCursor: null,
   });
-  expect(await fetchMailboxUnreadLetterIds('i:1')).toEqual(['l1', 'l2']);
+  const pages: Array<{ key: string; ids: string[] }> = [];
+  expect(
+    await fetchMailboxUnreadLetterIds('i:1', undefined, (observed) => pages.push(...observed)),
+  ).toEqual(['l1', 'l2']);
+  expect(pages).toEqual([
+    { key: 'latest', ids: ['l1'] },
+    { key: 'older', ids: ['l2'] },
+  ]);
   expect(listLetters).toHaveBeenCalledTimes(1);
 });
 

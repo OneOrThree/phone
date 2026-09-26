@@ -372,6 +372,7 @@ export async function fetchMailboxUnreadCount(
 export async function fetchMailboxUnreadLetterIds(
   islandId: string,
   isCurrent?: () => boolean,
+  onPages?: (pages: Array<{ key: string; ids: string[] }>) => void,
 ): Promise<string[]> {
   const alive = guard(isCurrent);
   alive();
@@ -381,6 +382,8 @@ export async function fetchMailboxUnreadLetterIds(
   const cursors = new Set<string>();
   let page: LetterSlice = screen.letters;
   const unread = new Set<string>();
+  const pages: Array<{ key: string; ids: string[] }> = [];
+  let pageKey = 'latest';
   for (;;) {
     if (!Array.isArray(page.content) || typeof page.hasNext !== 'boolean')
       throw contract('letters');
@@ -398,10 +401,15 @@ export async function fetchMailboxUnreadLetterIds(
       ids.add(item.id);
       if (!item.isRead) unread.add(item.id);
     }
-    if (!page.hasNext) return [...unread];
+    pages.push({ key: pageKey, ids: [...pageIds] });
+    if (!page.hasNext) {
+      onPages?.(pages);
+      return [...unread];
+    }
     const cursor = nextPage(page.nextCursor, cursors);
     if (cursor === null) throw contract('letters.nextCursor');
     alive();
+    pageKey = cursor;
     page = await gated(listLetters('received', cursor), alive);
   }
 }

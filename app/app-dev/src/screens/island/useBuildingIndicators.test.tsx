@@ -211,6 +211,33 @@ test('퀘스트 서버 조회 실패 시 도서관 진입으로 새 퀘스트 �
   assert.equal(result.current.libraryState, 'new-quest');
 });
 
+test('퀘스트 API가 일시 실패하면 홈 폴링도 마지막 새 퀘스트 알림을 보존한다', async () => {
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'new',
+    fishEarnings: { user: 2 },
+    questIds: [],
+  });
+  libraryQuestNow.mockResolvedValue(['quest-1']);
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(hook.result.current.libraryState, 'new-quest'));
+
+  libraryQuestNow.mockRejectedValue(new Error('offline'));
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(libraryQuestNow.mock.calls.length, 2));
+  assert.equal(hook.result.current.libraryState, 'new-quest');
+  hook.unmount();
+});
+
 test('과거 공지 페이지에서 발견한 새 댓글은 전체 관측 snapshot에 병합된다', async () => {
   boardNow.mockResolvedValue({ old: 2, latest: 0 });
   boardSeen.mockResolvedValue({ old: 2, latest: 0 });
@@ -712,6 +739,75 @@ test('우체통 커서와 확인된 배지는 페이지 조회 실패 때 보존
   expect(hook.result.current.showMailboxLetters).toBe(false);
 
   jest.useRealTimers();
+  hook.unmount();
+});
+
+test('최신 페이지 경계에서 밀린 미확인 편지는 새 이력 순환 확인 전까지 보존한다', async () => {
+  mailboxNow.mockImplementation(async (_islandId, _alive, onPages) => {
+    onPages([
+      { key: 'latest', ids: ['shifted-mail', 'stable-mail'] },
+      { key: 'mail-cursor-1', ids: ['older-mail'] },
+      { key: 'mail-cursor-2', ids: ['oldest-mail'] },
+    ]);
+    return ['shifted-mail'];
+  });
+  mailboxPoll
+    .mockResolvedValueOnce({
+      latestUnread: true,
+      historyUnread: false,
+      latestItems: [
+        { id: 'shifted-mail', isRead: false },
+        { id: 'stable-mail', isRead: true },
+      ],
+      historyItems: [],
+      historyPageKey: 'mail-cursor-1',
+      cycleComplete: false,
+      nextCursor: 'mail-cursor-2',
+    })
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      latestItems: [
+        { id: 'new-mail', isRead: true },
+        { id: 'stable-mail', isRead: true },
+      ],
+      historyItems: [{ id: 'older-mail', isRead: true }],
+      historyPageKey: 'mail-cursor-2',
+      cycleComplete: true,
+      nextCursor: 'mail-cursor-1',
+    })
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: true,
+      latestItems: [
+        { id: 'new-mail', isRead: true },
+        { id: 'stable-mail', isRead: true },
+      ],
+      historyItems: [{ id: 'shifted-mail', isRead: false }],
+      historyPageKey: 'mail-cursor-1',
+      cycleComplete: false,
+      nextCursor: 'mail-cursor-2',
+    });
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(mailboxNow.mock.calls.length, 1));
+
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 1));
+  await hook.rerender({ refreshKey: 2 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 2));
+  assert.equal(hook.result.current.showMailboxLetters, true);
+  await hook.rerender({ refreshKey: 3 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 3));
+  assert.equal(hook.result.current.showMailboxLetters, true);
   hook.unmount();
 });
 
