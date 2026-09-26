@@ -956,10 +956,10 @@ function FinalIslandScene({
                     ? '터치하면 마을 회관으로 들어가요'
                     : d.building === 'board' && !!boardStatus
                       ? '게시판을 열어 확인하세요'
-                      : d.building === 'shop' && shopState !== 'normal'
-                        ? '상점에서 상품을 확인하세요'
-                        : visiting && d.building && !['hall', 'board'].includes(d.building)
-                          ? '주민만 이용할 수 있어요'
+                      : visiting && d.building && !['hall', 'board'].includes(d.building)
+                        ? '주민만 이용할 수 있어요'
+                        : d.building === 'shop' && shopState !== 'normal'
+                          ? '상점에서 상품을 확인하세요'
                           : undefined
                 }
                 onPress={() => {

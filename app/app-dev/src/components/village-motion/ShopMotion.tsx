@@ -1,6 +1,6 @@
 import React, { memo, useContext, useEffect, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
 import { MotionContext } from '@/design-system/primitives';
 
@@ -72,9 +72,9 @@ export const ShopMotion = memo(function ShopMotionView({
   return (
     <View
       testID={testID}
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={stateLabel ? `상점, ${stateLabel}` : '상점'}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden={true}
       pointerEvents="none"
       style={[styles.fill, style]}
     >
@@ -118,13 +118,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: '4%',
-    minHeight: 24,
+    minHeight: componentTokens.shopStatusLabel.minHeight,
     justifyContent: 'center',
-    paddingHorizontal: 8,
-    borderRadius: 12,
-    borderWidth: 1,
+    paddingHorizontal: componentTokens.shopStatusLabel.horizontalPadding,
+    borderRadius: componentTokens.shopStatusLabel.radius,
+    borderWidth: componentTokens.shopStatusLabel.borderWidth,
     borderColor: semanticTokens.color.outline,
     backgroundColor: semanticTokens.color.surface,
   },
-  tooltipText: { color: semanticTokens.color.text, fontSize: 12, fontWeight: '700' },
+  tooltipText: {
+    color: semanticTokens.color.text,
+    fontSize: componentTokens.shopStatusLabel.fontSize,
+    fontWeight: '700',
+  },
 });
