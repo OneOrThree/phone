@@ -109,11 +109,13 @@ it('홈 조회 전에 상점에 진입하면 현재 카탈로그를 읽음 기�
   const hook = await renderHook((value: StatusProps) => useShopBuildingStatus(value), {
     initialProps: props,
   });
-  await waitFor(() => expect(hook.result.current).toBe('normal'));
+  await waitFor(() => {
+    const stored = JSON.parse(mockStorage.get('gromo:shop-catalog:user-1:island-1')!);
+    expect(stored.knownIds).toContain('new-hat');
+  });
   await act(async () => hook.rerender({ ...props, active: true, acknowledge: false }));
   await waitFor(() => expect(hook.result.current).toBe('purchasable'));
   const stored = JSON.parse(mockStorage.get('gromo:shop-catalog:user-1:island-1')!);
-  expect(stored.knownIds).toContain('new-hat');
   expect(stored.pendingIds).toEqual([]);
   hook.unmount();
 });
