@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
-import { Animated } from 'react-native';
+import { Animated, AppState } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState, residentCount } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
@@ -172,6 +172,7 @@ test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면
 
 test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
   jest.useFakeTimers();
+  AppState.currentState = 'active';
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
