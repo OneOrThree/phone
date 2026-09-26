@@ -13,6 +13,7 @@ import {
   EMPTY_PRESENCE,
   startIslandRealtime,
   type IslandRealtime,
+  type IslandPresenceTransition,
   type PresenceView,
 } from '@/services/islandRealtime';
 
@@ -34,6 +35,7 @@ export function useIslandPresence(
     /** 응원 자격이 되는 내 진행 중 서버 세션 id — 없으면 emotes 를 구독·발신하지 않는다. */
     emoteSessionId?: string | null;
     onSendError?: (message: string) => void;
+    onTransition?: (transition: IslandPresenceTransition) => void;
   },
   start: typeof startIslandRealtime = startIslandRealtime,
 ): IslandPresence {
@@ -44,6 +46,8 @@ export function useIslandPresence(
   const rt = useRef<IslandRealtime | null>(null);
   const onSendError = useRef(opts.onSendError);
   onSendError.current = opts.onSendError;
+  const onTransition = useRef(opts.onTransition);
+  onTransition.current = opts.onTransition;
 
   useEffect(() => {
     if (!active || !islandId) {
@@ -57,6 +61,9 @@ export function useIslandPresence(
       emoteSessionId,
       alive,
       onView: setView,
+      onTransition: (transition) => {
+        if (alive()) onTransition.current?.(transition);
+      },
       onSendError: (message) => {
         if (alive()) onSendError.current?.(message);
       },
@@ -66,7 +73,7 @@ export function useIslandPresence(
     const appSub = AppState.addEventListener('change', (state) => {
       if (state === 'active' && alive()) {
         session.reopen();
-        session.resync();
+        session.resync('reconnect');
       }
     });
     return () => {

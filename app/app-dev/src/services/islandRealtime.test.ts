@@ -11,6 +11,7 @@ import {
   startIslandRealtime,
   stompIslandChannel,
   type IslandChannelOpts,
+  type IslandPresenceTransition,
   type PresenceView,
 } from '@/services/islandRealtime';
 import type { FocusMember, ProjectionWatermark, RestMember } from '@/services/api/islands';
@@ -186,6 +187,16 @@ describe('IslandProjection', () => {
     assert.equal(p.focus().length, 0);
   });
 
+  test('완료 전이는 이전 주민 데이터를 보존한다', () => {
+    const p = new IslandProjection('i1');
+    p.loadFocus(focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]));
+    const result = p.applyWithTransition(focusEvent('u1', 2, { status: 'completed' }));
+    assert.equal(result.changed, true);
+    assert.equal(result.transition?.kind, 'focus');
+    assert.equal(result.transition?.previous?.userId, 'u1');
+    assert.equal(result.transition?.current, null);
+  });
+
   test('rest 이벤트: paused 는 앉히고 active/completed 는 거둔다', () => {
     const p = new IslandProjection('i1');
     p.loadRest(restSnap([], [wm('rest.member', 'u1', 1)]));
@@ -244,6 +255,7 @@ function start(
     snapshots?: { focus: ReturnType<typeof focusSnap>; rest: ReturnType<typeof restSnap> };
     loadError?: unknown;
     views?: PresenceView[];
+    transitions?: IslandPresenceTransition[];
     sendError?: string[];
   },
   channel: FakeChannel,
@@ -253,6 +265,7 @@ function start(
     islandId: deps.islandId,
     emoteSessionId: deps.emoteSessionId,
     onView: (v) => deps.views?.push(v),
+    onTransition: (transition) => deps.transitions?.push(transition),
     onSendError: (m) => deps.sendError?.push(m),
     alive: () => true,
     connect: (opts) => {
@@ -299,6 +312,67 @@ describe('startIslandRealtime', () => {
     await flush();
     assert.equal(views.at(-1)?.status, 'ready');
     assert.equal(views.at(-1)?.focus[0].userId, 'u1');
+  });
+
+  test('초기·재연결 스냅숏은 전이를 내지 않고 unknown-user gap 재조회는 확인된 신규 주민을 낸다', async () => {
+    const channel = fakeChannel();
+    const transitions: IslandPresenceTransition[] = [];
+    const deps = {
+      islandId: 'i1',
+      transitions,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await flush();
+    channel.opts?.onOpen();
+    await flush();
+    assert.equal(transitions.length, 0);
+
+    deps.snapshots = {
+      focus: focusSnap(
+        [focusItem('u1'), focusItem('ghost')],
+        [wm('focus.member', 'u1', 1), wm('focus.member', 'ghost', 1)],
+      ),
+      rest: restSnap([]),
+    };
+    channel.opts?.onEvent(focusEvent('ghost', 2));
+    await flush();
+    assert.equal(transitions.length, 1);
+    assert.equal(transitions[0].source, 'event-gap');
+    assert.equal(transitions[0].userId, 'ghost');
+    assert.equal(transitions[0].previous, null);
+    assert.equal(transitions[0].current?.userId, 'ghost');
+  });
+
+  test('알려진 상태 이벤트는 뷰 발행 뒤 상태 경계 전이를 낸다', async () => {
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const transitions: IslandPresenceTransition[] = [];
+    const { rt } = start(
+      {
+        islandId: 'i1',
+        views,
+        transitions,
+        snapshots: {
+          focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+          rest: restSnap([]),
+        },
+      },
+      channel,
+    );
+    rt.resync();
+    await flush();
+    channel.opts?.onEvent(focusEvent('u1', 2, { status: 'paused' }));
+    assert.equal(views.at(-1)?.focus[0].status, 'paused');
+    const transition = transitions.at(-1);
+    assert.ok(transition?.kind === 'focus');
+    assert.equal(transition.source, 'event');
+    assert.equal(transition.previous?.status, 'active');
+    assert.equal(transition.current?.status, 'paused');
   });
 
   test('스냅숏 실패는 error 상태로 올린다 — 가짜 빈 성공이 아니다', async () => {
