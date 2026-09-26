@@ -976,7 +976,7 @@ function FinalIslandScene({
                         state.settings.reduceMotion,
                         () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
                         transitionTarget === 'tower'
-                          ? OBSERVATORY_ENTRY_DURATION_MS
+                          ? OBSERVATORY_ENTRY_DURATION_MS + BUILDING_TRANSITION_DURATION_MS
                           : BUILDING_TRANSITION_DURATION_MS,
                       );
                     };

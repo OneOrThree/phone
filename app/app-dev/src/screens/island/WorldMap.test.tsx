@@ -382,11 +382,11 @@ test('전망대 진입 전환은 마지막 프레임 노출을 마친 뒤 route�
     );
     await fireEvent.press(screen.getByLabelText(buildingNames.tower));
     await act(async () => {
-      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+      jest.advanceTimersByTime(OBSERVATORY_ENTRY_DURATION_MS);
     });
     expect(go).not.toHaveBeenCalled();
     await act(async () => {
-      jest.advanceTimersByTime(OBSERVATORY_ENTRY_DURATION_MS - BUILDING_TRANSITION_DURATION_MS);
+      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
     });
     expect(go).toHaveBeenCalledWith('tower');
   } finally {

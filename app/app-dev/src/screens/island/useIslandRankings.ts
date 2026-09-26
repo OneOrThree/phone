@@ -32,6 +32,7 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
   const req = useRef(0);
   const lastRequestedWeek = useRef<string | null>(null);
   const session = sessionGeneration();
+  const lastRequestedSession = useRef(session);
 
   useEffect(() => {
     if (!active) {
@@ -43,10 +44,12 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
     const currentWeek = utcWeekStart();
     const crossedWeekBoundary =
       lastRequestedWeek.current !== null && lastRequestedWeek.current !== currentWeek;
+    const changedSession = lastRequestedSession.current !== session;
     lastRequestedWeek.current = currentWeek;
+    lastRequestedSession.current = session;
     setWeek(currentWeek);
-    // 같은 주의 갱신은 기존 목록/배지를 유지하지만, 새 주에는 이전 주 결과를 노출하지 않는다.
-    if (crossedWeekBoundary) {
+    // 같은 세션·주 안의 갱신만 직전 결과를 유지한다. 주/세션 경계에선 오래된 정본을 비운다.
+    if (crossedWeekBoundary || changedSession) {
       setData(null);
       setStatus('loading');
     } else {

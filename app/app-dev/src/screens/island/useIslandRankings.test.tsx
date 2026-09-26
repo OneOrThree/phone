@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { getIslandRankings, utcWeekStart } from '@/services/api/rankings';
+import { sessionGeneration } from '@/services/api/session';
 import type { IslandRankings } from '@/services/api/rankings';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
 
@@ -13,8 +14,13 @@ jest.mock('@/services/api/rankings', () => ({
   ...jest.requireActual('@/services/api/rankings'),
   getIslandRankings: jest.fn(),
 }));
+jest.mock('@/services/api/session', () => ({
+  ...jest.requireActual('@/services/api/session'),
+  sessionGeneration: jest.fn(),
+}));
 
 const rankingsMock = getIslandRankings as jest.Mock;
+const sessionMock = sessionGeneration as jest.Mock;
 
 const rankings = (over: Partial<IslandRankings> = {}): IslandRankings => ({
   items: [
@@ -28,7 +34,10 @@ const rankings = (over: Partial<IslandRankings> = {}): IslandRankings => ({
   ...over,
 });
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  sessionMock.mockReturnValue(1);
+});
 
 test('비활성이면 조회하지 않는다', async () => {
   const { result } = await renderHook(() => useIslandRankings({ active: false }));
@@ -117,14 +126,12 @@ test('주기 갱신 중에는 직전 ready 순위 데이터를 유지한다', as
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-09-28T12:00:00Z'));
   let finishRefresh: ((value: IslandRankings) => void) | undefined;
-  rankingsMock
-    .mockResolvedValueOnce(rankings({ myRank: 7 }))
-    .mockImplementationOnce(
-      () =>
-        new Promise<IslandRankings>((resolve) => {
-          finishRefresh = resolve;
-        }),
-    );
+  rankingsMock.mockResolvedValueOnce(rankings({ myRank: 7 })).mockImplementationOnce(
+    () =>
+      new Promise<IslandRankings>((resolve) => {
+        finishRefresh = resolve;
+      }),
+  );
   try {
     const { result, unmount } = await renderHook(() => useIslandRankings({ active: true }));
     await waitFor(() => assert.equal(result.current.status, 'ready'));
@@ -145,4 +152,29 @@ test('주기 갱신 중에는 직전 ready 순위 데이터를 유지한다', as
   } finally {
     jest.useRealTimers();
   }
+});
+
+test('세션 교체 시 이전 계정의 순위를 비우고 새 계정 결과를 기다린다', async () => {
+  let finishRefresh: ((value: IslandRankings) => void) | undefined;
+  rankingsMock.mockResolvedValueOnce(rankings({ myRank: 7 })).mockImplementationOnce(
+    () =>
+      new Promise<IslandRankings>((resolve) => {
+        finishRefresh = resolve;
+      }),
+  );
+  const { result, rerender, unmount } = await renderHook(() => useIslandRankings({ active: true }));
+  await waitFor(() => assert.equal(result.current.status, 'ready'));
+  assert.equal(result.current.data?.myRank, 7);
+
+  sessionMock.mockReturnValue(2);
+  await act(async () => rerender(undefined));
+  assert.equal(result.current.status, 'loading');
+  assert.equal(result.current.data, null);
+
+  await act(async () => {
+    finishRefresh?.(rankings({ myRank: 4 }));
+  });
+  await waitFor(() => assert.equal(result.current.data?.myRank, 4));
+  assert.equal(result.current.status, 'ready');
+  unmount();
 });
