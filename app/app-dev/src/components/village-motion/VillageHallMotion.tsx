@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState, type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 
 export type VillageHallState = 'normal' | 'arrival' | 'new-record' | 'weekly-goal';
 
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     bottom: '100%',
     maxWidth: '100%',
     paddingHorizontal: semanticTokens.spacing.control,
-    paddingVertical: 8,
+    paddingVertical: componentTokens.villageNotificationTooltip.paddingVertical,
     backgroundColor: semanticTokens.color.surface,
     borderColor: semanticTokens.color.outline,
     borderWidth: 1.5,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
 import { MotionContext } from '@/design-system/primitives';
+import { componentTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
 import { VillageHallMotion } from './VillageHallMotion';
 
@@ -37,7 +38,11 @@ describe('VillageHallMotion', () => {
       expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
     );
     expect(view.getByTestId('village-hall-highlight')).toBeTruthy();
-    expect(view.getByTestId('village-hall-tooltip')).toBeTruthy();
+    const tooltip = view.getByTestId('village-hall-tooltip');
+    expect(tooltip).toBeTruthy();
+    expect(tooltip.props.style).toMatchObject({
+      paddingVertical: componentTokens.villageNotificationTooltip.paddingVertical,
+    });
     await view.unmount();
   });
 

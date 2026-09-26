@@ -36,11 +36,13 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
     expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
   );
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const cameraLeft = 402 / 2 - 585 * worldScale;
+  const cameraTop = 874 / 2 - 430 * worldScale;
   expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: 950 * worldScale,
-        top: 20 * worldScale,
+        left: cameraLeft + 950 * worldScale,
+        top: cameraTop + 20 * worldScale,
         width: 242 * worldScale,
         height: 244 * worldScale,
       }),
@@ -70,11 +72,13 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   expect(screen.queryByTestId('world-static-building-board')).toBeNull();
   expect(screen.queryByTestId('village-board-new-indicator')).toBeNull();
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const cameraLeft = 402 / 2 - 585 * worldScale;
+  const cameraTop = 874 / 2 - 430 * worldScale;
   expect(screen.getByTestId('world-board-indicator').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: 858 * worldScale,
-        top: 158 * worldScale,
+        left: cameraLeft + 858 * worldScale,
+        top: cameraTop + 158 * worldScale,
         width: 80 * worldScale,
         height: 80 * worldScale,
       }),
@@ -105,6 +109,30 @@ test('레이어드 마을에서도 게시판 상태를 VillageScenery 알림에 
     '새 댓글이 있습니다',
   );
   expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('레이어드 마을에서도 회관 진입 문 모션을 표시한다', async () => {
+  jest.useFakeTimers();
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('hall')) island.buildings.push('hall');
+  const screen = await render(
+    <WorldMap
+      state={state}
+      village={villageScene(['hall'])}
+      hallMotionActive
+      hallMotionGeneration={3}
+    />,
+  );
+
+  expect(screen.getByTestId('village-hall-scene-motion')).toBeTruthy();
+  expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
+  await act(async () => jest.advanceTimersByTime(180));
+  expect(screen.getByTestId('village-hall-frame-1').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
   await screen.unmount();
   jest.useRealTimers();
 });

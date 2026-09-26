@@ -495,8 +495,8 @@ export function WorldMap({
               }
               style={{
                 position: 'absolute',
-                left: 950 * scale,
-                top: 20 * scale,
+                left: left + 950 * scale,
+                top: top + 20 * scale,
                 width: 242 * scale,
                 height: 244 * scale,
               }}
@@ -517,8 +517,8 @@ export function WorldMap({
               }
               style={{
                 position: 'absolute',
-                left: 858 * scale,
-                top: 158 * scale,
+                left: left + 858 * scale,
+                top: top + 158 * scale,
                 width: 80 * scale,
                 height: 80 * scale,
               }}
@@ -584,6 +584,8 @@ export function WorldMap({
             reduce={state.settings.reduceMotion}
             mailboxLetters={mailboxLetters}
             boardStatus={boardStatus}
+            hallMotionActive={hallMotionActive}
+            hallMotionGeneration={hallMotionGeneration}
           />
         )}
         {typeof children === 'function'

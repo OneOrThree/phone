@@ -5,6 +5,7 @@ import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
 import { villageMap, VillageScene } from '@/utils/village-world';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
+import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { Txt } from '@/design-system/patterns';
 
 // UI 색상이 아니라 원화의 불꽃 색상이다. 바닥 타일은 한 장으로 합쳐 그린다.
@@ -14,12 +15,16 @@ export const VillageScenery = memo(function VillageScenery({
   reduce,
   mailboxLetters,
   boardStatus = null,
+  hallMotionActive = false,
+  hallMotionGeneration = 0,
 }: {
   scene: VillageScene;
   scale: number;
   reduce: boolean;
   mailboxLetters: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
+  hallMotionActive?: boolean;
+  hallMotionGeneration?: number;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -105,7 +110,19 @@ export const VillageScenery = memo(function VillageScenery({
             zIndex: Math.round(o.y),
           }}
         >
-          {o.kind === 'mailbox' && mailboxLetters ? (
+          {o.building === 'hall' ? (
+            <VillageHallMotion
+              testID="village-hall-scene-motion"
+              state={hallMotionActive ? 'arrival' : 'normal'}
+              generation={hallMotionGeneration}
+              highlighted={hallMotionActive}
+              reduceMotion={reduce}
+              tooltip={
+                hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
+              }
+              style={StyleSheet.absoluteFill}
+            />
+          ) : o.kind === 'mailbox' && mailboxLetters ? (
             <Image
               source={assets['characters/pelican/npc/on-mailbox.png']}
               style={{
