@@ -5,6 +5,7 @@ import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
 import { villageMap, VillageScene } from '@/utils/village-world';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
+import type { LibraryMotionState } from '@/components/village-motion/LibraryMotion';
 
 // UI 색상이 아니라 원화의 불꽃 색상이다. 바닥 타일은 한 장으로 합쳐 그린다.
 export const VillageScenery = memo(function VillageScenery({
@@ -12,11 +13,13 @@ export const VillageScenery = memo(function VillageScenery({
   scale,
   reduce,
   mailboxLetters,
+  libraryState,
 }: {
   scene: VillageScene;
   scale: number;
   reduce: boolean;
   mailboxLetters: boolean;
+  libraryState: LibraryMotionState;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -138,6 +141,18 @@ export const VillageScenery = memo(function VillageScenery({
             <VillageNotificationBadge
               testID="village-mailbox-new-indicator"
               accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              scale={scale}
+              style={{ top: -10 * scale, right: -5 * scale }}
+            />
+          )}
+          {o.kind === 'library' && libraryState !== 'normal' && (
+            <VillageNotificationBadge
+              testID="village-library-new-indicator"
+              accessibilityLabel={
+                libraryState === 'new-quest'
+                  ? '도서관에 새 퀘스트가 있습니다'
+                  : '도서관에 새 읽을거리가 있습니다'
+              }
               scale={scale}
               style={{ top: -10 * scale, right: -5 * scale }}
             />

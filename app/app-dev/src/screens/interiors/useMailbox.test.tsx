@@ -155,6 +155,66 @@ test('편지 열기 — GET 상세를 싣고 목록 항목의 isRead 를 서버 
   await hook.unmount();
 });
 
+test('상세 화면 fence가 바뀌어도 서버 읽음 확인을 같은 섬 알림에 전달한다', async () => {
+  let resolveDetail!: (detail: ReturnType<typeof letterView>) => void;
+  const pending = new Promise<ReturnType<typeof letterView>>((resolve) => {
+    resolveDetail = resolve;
+  });
+  getLetterMock.mockReturnValueOnce(pending);
+  const onLetterRead = jest.fn();
+  const hook = await mount({ onLetterRead });
+
+  let opening!: Promise<void>;
+  await act(async () => {
+    opening = hook.result.current.openLetter(LETTER);
+    await waitFor(() => assert.equal(getLetterMock.mock.calls.length, 1));
+    hook.result.current.clearDetail();
+  });
+  resolveDetail(letterView());
+  await act(async () => opening);
+
+  expect(onLetterRead).toHaveBeenCalledWith(LETTER);
+  assert.equal(hook.result.current.detail, null);
+  await hook.unmount();
+});
+
+test('우체통 언마운트 뒤에도 성공한 서버 읽음을 홈 알림에 전달한다', async () => {
+  let resolveDetail!: (detail: ReturnType<typeof letterView>) => void;
+  const pending = new Promise<ReturnType<typeof letterView>>((resolve) => {
+    resolveDetail = resolve;
+  });
+  getLetterMock.mockReturnValueOnce(pending);
+  const onLetterRead = jest.fn();
+  const hook = await mount({ onLetterRead });
+  const opening = hook.result.current.openLetter(LETTER);
+  await waitFor(() => assert.equal(getLetterMock.mock.calls.length, 1));
+
+  await hook.unmount();
+  resolveDetail(letterView());
+  await opening;
+
+  expect(onLetterRead).toHaveBeenCalledWith(LETTER);
+});
+
+test('다른 섬으로 전환된 뒤 완료된 읽음은 새 섬 알림에 전달하지 않는다', async () => {
+  let resolveDetail!: (detail: ReturnType<typeof letterView>) => void;
+  const pending = new Promise<ReturnType<typeof letterView>>((resolve) => {
+    resolveDetail = resolve;
+  });
+  getLetterMock.mockReturnValueOnce(pending);
+  const onLetterRead = jest.fn();
+  const hook = await mount({ onLetterRead });
+  const opening = hook.result.current.openLetter(LETTER);
+  await waitFor(() => assert.equal(getLetterMock.mock.calls.length, 1));
+
+  await hook.rerender({ active: true, scopeKey: 'island-2', onLetterRead });
+  resolveDetail(letterView());
+  await opening;
+
+  expect(onLetterRead).not.toHaveBeenCalled();
+  await hook.unmount();
+});
+
 test('상세 403/404 — 그 편지의 목록 캐시를 지우고 오류를 보인다', async () => {
   getLetterMock.mockRejectedValue(new ApiError('FORBIDDEN', '권한이 없습니다.', 403));
   const hook = await mount();

@@ -561,6 +561,45 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
   jest.useRealTimers();
 });
 
+test.each(['new-reading', 'new-quest'] as const)(
+  '레이어드 월드 도서관 %s 상태에 이름표 강조와 알림 배지를 표시한다',
+  async (libraryState) => {
+    const state = initialState(true);
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    if (!island.buildings.includes('library')) island.buildings.push('library');
+    const screen = await render(
+      <FinalIslandScene
+        state={state}
+        go={jest.fn()}
+        build={jest.fn()}
+        layeredPreview
+        libraryState={libraryState}
+      />,
+    );
+
+    expect(screen.queryByTestId('world-library-motion')).toBeNull();
+    expect(
+      screen.getByTestId('village-library-new-indicator', { includeHiddenElements: true }).props
+        .accessibilityLabel,
+    ).toBe(
+      libraryState === 'new-quest'
+        ? '도서관에 새 퀘스트가 있습니다'
+        : '도서관에 새 읽을거리가 있습니다',
+    );
+    expect(screen.getByTestId('building-name-pill-library').props.style.backgroundColor).toBe(
+      semanticTokens.color.accent,
+    );
+    expect(
+      screen.getByLabelText(
+        libraryState === 'new-quest'
+          ? `${buildingNames.library}, 새 퀘스트가 있어요`
+          : `${buildingNames.library}, 새 읽을거리가 있어요`,
+      ),
+    ).toBeTruthy();
+    await screen.unmount();
+  },
+);
+
 test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
   jest.useFakeTimers();
   AppState.currentState = 'active';

@@ -121,6 +121,10 @@ export function useMailbox({
 
   const mounted = useRef(false);
   const epoch = useRef(0);
+  const currentScopeKey = useRef(scopeKey);
+  const letterReadCallback = useRef(onLetterRead);
+  currentScopeKey.current = scopeKey;
+  letterReadCallback.current = onLetterRead;
   // 상세 경합 fence — 마지막으로 연 편지만 detail 로 적용된다.
   const openSeq = useRef(0);
   const intents = useRef(new Map<string, IntentSlot>());
@@ -268,11 +272,24 @@ export function useMailbox({
       const wasUnread = stateRef.current.letters.some(
         (letter) => letter.id === letterId && !letter.isRead,
       );
+      const readScopeKey = scopeKey;
+      const readUserId = getSession()?.userId;
       const e = epoch.current;
       const generation = sessionGeneration();
       set({ detail: null, detailLoading: true, detailError: null });
       try {
         const detail = await getLetter(letterId);
+        // 서버 성공은 편지 readAt 의 정본이다. 화면 적용 fence(openSeq/mounted)는
+        // 상세 UI만 막고, 같은 계정·섬에서 확인된 읽음 사실은 홈 배지에도 전달한다.
+        if (
+          wasUnread &&
+          detail.readAt !== null &&
+          readUserId !== null &&
+          generation === sessionGeneration() &&
+          getSession()?.userId === readUserId &&
+          currentScopeKey.current === readScopeKey
+        )
+          letterReadCallback.current?.(letterId);
         if (!alive(e, generation) || seq !== openSeq.current) return;
         set({
           detail,
@@ -281,7 +298,6 @@ export function useMailbox({
             l.id === letterId && detail.readAt !== null ? { ...l, isRead: true } : l,
           ),
         });
-        if (wasUnread && detail.readAt !== null) onLetterRead?.(letterId);
       } catch (error) {
         if (!alive(e, generation) || seq !== openSeq.current) return;
         // 권한 상실·이미 지워진 편지는 목록 캐시에서도 지운다 — 캐시로 재진입 금지.
@@ -296,7 +312,7 @@ export function useMailbox({
         });
       }
     },
-    [active, alive, cached, onLetterRead, set],
+    [active, alive, cached, scopeKey, set],
   );
 
   const clearDetail = useCallback(() => {

@@ -731,6 +731,7 @@ export function WorldMap({
             scale={scale}
             reduce={state.settings.reduceMotion}
             mailboxLetters={mailboxLetters}
+            libraryState={libraryState}
           />
         )}
         {typeof children === 'function'
@@ -1183,10 +1184,12 @@ export function FinalIslandScene({
                         borderColor: semanticTokens.color.outline,
                         backgroundColor:
                           (d.building === 'shop' && shopState !== 'normal') ||
-                          (d.building === 'tower' && observatoryRankState !== 'normal')
+                          (d.building === 'tower' && observatoryRankState !== 'normal') ||
+                          (d.building === 'library' && libraryState !== 'normal')
                             ? semanticTokens.color.accent
                             : semanticTokens.color.surface,
                       }}
+                      testID={d.building === 'library' ? 'building-name-pill-library' : undefined}
                     >
                       <Txt kind="meta" numberOfLines={1} style={{ fontWeight: '700' }}>
                         {d.label}
