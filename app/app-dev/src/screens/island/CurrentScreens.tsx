@@ -44,6 +44,7 @@ import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { getSession } from '@/services/api/session';
 import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
+import { useFishingPeerActors, type FishingPeer } from '@/screens/focus/useFishingPeerActors';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -51,6 +52,7 @@ import {
   FiModal,
   FishingActor,
   FishingIsland,
+  FishingPeerActorView,
   FishingWalker,
   INK,
   a11yHidden,
@@ -61,7 +63,6 @@ import {
   occupied,
   LANDING,
   OUTLINE,
-  PEER_SPOTS,
   castSpot,
   fiCard,
   fiTitle,
@@ -848,13 +849,19 @@ function FocusVisit({ e, islandId, onBack }: any) {
       ? (s.serverIslands?.visit?.island.id ?? null)
       : (s.serverIslands?.currentIslandId ?? null)
     : null;
-  const live = useIslandPresence({ active: liveIslandId !== null, islandId: liveIslandId });
+  const transitionHandler = useRef<(transition: any) => void>(() => {});
+  const live = useIslandPresence({
+    active: liveIslandId !== null,
+    islandId: liveIslandId,
+    onTransition: (transition) => transitionHandler.current(transition),
+  });
   const myId = getSession()?.userId;
-  const peers = liveIslandId
+  const peerMembers: FishingPeer[] = liveIslandId
     ? live.focus
         .filter((m) => m.userId !== myId)
         .map((m) => ({
-          id: m.userId,
+          userId: m.userId,
+          sessionId: m.sessionId,
           name: m.name ?? '주민',
           color: catColor(m.catColor),
           subject: m.subject,
@@ -863,9 +870,29 @@ function FocusVisit({ e, islandId, onBack }: any) {
             (m.status === 'active'
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
+          status: m.status,
         }))
-    : (i.members ?? []).filter((member) => member.focusing);
-  const spots = peers.map((_, index) => PEER_SPOTS[index % PEER_SPOTS.length]);
+    : (i.members ?? [])
+        .filter((member) => member.focusing)
+        .map((member: any) => ({
+          userId: member.id,
+          sessionId: member.sessionId ?? member.id,
+          name: member.name ?? '주민',
+          color: member.color,
+          subject: member.subject ?? null,
+          seconds: member.seconds ?? 0,
+          status: 'active' as const,
+        }));
+  const peerFlow = useFishingPeerActors({
+    members: peerMembers,
+    ready: liveIslandId ? live.status === 'ready' : true,
+    reduce,
+    realtime: liveIslandId !== null,
+    snapshotVersion: live.snapshotVersion,
+  });
+  transitionHandler.current = peerFlow.onTransition;
+  const peers = peerFlow.actors.filter((actor) => actor.visible);
+  const spots = peers.map((actor) => actor.spot);
   return (
     <View style={{ flex: 1 }}>
       <FishingIsland
@@ -880,10 +907,10 @@ function FocusVisit({ e, islandId, onBack }: any) {
             kept: ReturnType<typeof labelBox>[] = [];
           if (zoom >= 1)
             peers
-              .map((member, index) => ({
-                id: member.id,
-                spot: spots[index],
-                subject: member.subject,
+              .map((actor) => ({
+                id: actor.key,
+                spot: actor.spot,
+                subject: actor.subject ?? '',
               }))
               .sort((a, b) => b.spot.y - a.spot.y)
               .forEach((label) => {
@@ -903,17 +930,18 @@ function FocusVisit({ e, islandId, onBack }: any) {
                 kept.push(box);
                 shown.add(label.id);
               });
-          return peers.map((member, index) => (
-            <FishingActor
-              key={member.id}
-              spot={spots[index]}
+          return peers.map((actor) => (
+            <FishingPeerActorView
+              key={actor.key}
+              actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
               size={size}
               sizeY={sizeY}
-              color={member.color}
-              name={member.name}
-              subject={shown.has(member.id) ? member.subject : null}
-              seconds={member.seconds}
               reduce={reduce}
+              onEntered={peerFlow.entered}
+              onCast={peerFlow.cast}
+              onPausedExit={peerFlow.leftForPause}
+              onStretch={peerFlow.stretched}
+              onCompletedExit={peerFlow.leftForComplete}
             />
           ));
         }}
@@ -1049,11 +1077,13 @@ function FocusFlow({ e }: any) {
     liveIslandId && s.session?.version != null && s.session.islandId === liveIslandId
       ? s.session.id
       : null;
+  const transitionHandler = useRef<(transition: any) => void>(() => {});
   const live = useIslandPresence({
     active: liveIslandId !== null,
     islandId: liveIslandId,
     emoteSessionId,
     onSendError: e.notify,
+    onTransition: (transition) => transitionHandler.current(transition),
   });
   const activeFocusCount = live.focus.filter((member) => member.status === 'active').length;
   useEffect(() => {
@@ -1122,11 +1152,12 @@ function FocusFlow({ e }: any) {
     s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
   );
   // 주민 자리: 서버 모드는 live 스냅숏+이벤트가 정본 — 로딩·실패면 로컬 멤버로 지어내지 않는다.
-  const peers = liveIslandId
+  const peerMembers: FishingPeer[] = liveIslandId
     ? live.focus
         .filter((m) => m.userId !== myId)
         .map((m) => ({
-          id: m.userId,
+          userId: m.userId,
+          sessionId: m.sessionId,
           name: m.name ?? '주민',
           color: catColor(m.catColor),
           subject: m.subject,
@@ -1135,9 +1166,29 @@ function FocusFlow({ e }: any) {
             (m.status === 'active'
               ? Math.max(0, Math.floor((e.now + live.clockOffset - m.anchorMs) / 1000))
               : 0),
+          status: m.status,
         }))
-    : i.members.filter((m) => m.focusing);
-  const peerSpots = peers.map((_, n) => PEER_SPOTS[n % PEER_SPOTS.length]),
+    : i.members
+        .filter((m) => m.focusing)
+        .map((m: any) => ({
+          userId: m.id,
+          sessionId: m.sessionId ?? m.id,
+          name: m.name ?? '주민',
+          color: m.color,
+          subject: m.subject ?? null,
+          seconds: m.seconds ?? 0,
+          status: 'active' as const,
+        }));
+  const peerFlow = useFishingPeerActors({
+    members: peerMembers,
+    ready: liveIslandId ? live.status === 'ready' : true,
+    reduce,
+    realtime: liveIslandId !== null,
+    snapshotVersion: live.snapshotVersion,
+  });
+  transitionHandler.current = peerFlow.onTransition;
+  const peers = peerFlow.actors.filter((actor) => actor.visible),
+    peerSpots = peerFlow.actors.map((actor) => actor.spot),
     emoteByUser = new Map(live.emotes.map((em) => [em.userId, em.type]));
   // 걷기: 땅 격자 경로를 따라 지도 폭 11%/초로 걷고, 걷는 중 다시 누르면 지금 위치에서 새 목적지로.
   const walkTo = (to: Point, done: () => void) => {
@@ -1646,10 +1697,10 @@ function FocusFlow({ e }: any) {
             ...(zoom < 1
               ? []
               : peers
-                  .map((m, n) => ({
-                    id: m.id,
-                    spot: PEER_SPOTS[n % PEER_SPOTS.length],
-                    subject: m.subject,
+                  .map((actor) => ({
+                    id: actor.key,
+                    spot: actor.spot,
+                    subject: actor.subject ?? '',
                   }))
                   .sort((a, b) => b.spot.y - a.spot.y)),
           ].forEach((l) => {
@@ -1671,18 +1722,19 @@ function FocusFlow({ e }: any) {
           });
           return (
             <>
-              {peers.map((m, n) => (
-                <FishingActor
-                  key={m.id}
-                  spot={PEER_SPOTS[n % PEER_SPOTS.length]}
+              {peers.map((actor) => (
+                <FishingPeerActorView
+                  key={actor.key}
+                  actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
                   size={size}
                   sizeY={sizeY}
-                  color={m.color}
-                  name={m.name}
-                  subject={shown.has(m.id) ? m.subject : null}
-                  seconds={m.seconds}
-                  emote={emoteByUser.get(m.id) ?? null}
+                  emote={emoteByUser.get(actor.userId) ?? null}
                   reduce={reduce}
+                  onEntered={peerFlow.entered}
+                  onCast={peerFlow.cast}
+                  onPausedExit={peerFlow.leftForPause}
+                  onStretch={peerFlow.stretched}
+                  onCompletedExit={peerFlow.leftForComplete}
                 />
               ))}
               {seated ? (

@@ -177,6 +177,24 @@ test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가�
   jest.useRealTimers();
 });
 
+test('낚시 주민: cast 스프라이트 동작 중에는 정적 낚싯대를 겹치지 않는다', async () => {
+  const screen = await render(
+    React.createElement(FishingActor, {
+      spot: { x: 34.1, y: 55.9, face: 1 },
+      size: 640,
+      sizeY: 640 / 1.5,
+      color: 'ginger',
+      name: '주민',
+      seconds: 0,
+      reduce: false,
+      motion: 'cast',
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'cast');
+  assert.equal(screen.queryByTestId('fishing-actor-rod'), null);
+  await screen.unmount();
+});
+
 test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초기화 때 남지 않는다', async () => {
   jest.useFakeTimers();
   const props = {

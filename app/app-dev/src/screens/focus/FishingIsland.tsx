@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Image,
   PanResponder,
   Platform,
@@ -473,7 +474,7 @@ const nameText = (me: boolean) => ({
   textShadowRadius: 5,
 });
 // 낚시하는 고양이(fi-actor): 지도 폭 7.7% · 발 기준점(256,464)/512 · 머리 위 과목·시간표(이모티콘이 오면 그 자리에 3초) · 아래 이름.
-// 집중 화면에는 잡은 수를 숫자로 보이지 않는다(더미 그림만: 1마리부터 한 마리, 8마리부터 작은 더미, 24마리부터 큰 더미).
+// 집중 화면에는 잡은 수를 숫자로 보이지 않는다(1마리, 3마리 작은 더미, 6마리 중간 더미, 10마리 큰 더미).
 export function FishingActor({
   spot,
   size,
@@ -486,6 +487,9 @@ export function FishingActor({
   emote,
   reduce,
   motion,
+  onMotionFinish,
+  generation,
+  animatedPosition,
 }: {
   spot: Spot;
   size: number;
@@ -498,6 +502,12 @@ export function FishingActor({
   emote?: string | null;
   reduce: boolean;
   motion?: CatMotionInput;
+  onMotionFinish?: () => void;
+  generation?: number;
+  animatedPosition?: {
+    left: Animated.AnimatedInterpolation<number> | Animated.Value;
+    top: Animated.AnimatedInterpolation<number> | Animated.Value;
+  };
 }) {
   const [reeling, setReeling] = useState(false);
   const count = Math.floor(seconds / SECONDS_PER_FISH),
@@ -521,12 +531,12 @@ export function FishingActor({
   const a = size * 0.077,
     face = spot.face;
   return (
-    <View
+    <Animated.View
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: (size * spot.x) / 100 - a / 2,
-        top: (sizeY * spot.y) / 100 - a * 0.90625,
+        left: animatedPosition?.left ?? (size * spot.x) / 100 - a / 2,
+        top: animatedPosition?.top ?? (sizeY * spot.y) / 100 - a * 0.90625,
         width: a,
         height: a,
         zIndex: 20 + Math.round(spot.y),
@@ -539,6 +549,8 @@ export function FishingActor({
         left={face < 0}
         reduce={reduce}
         anchored={false}
+        onFinish={onMotionFinish}
+        generation={generation}
         testID="fishing-actor-cat"
       />
       {(!motion || motion === 'focus' || motion === 'reel') && (
@@ -614,7 +626,145 @@ export function FishingActor({
           }}
         />
       )}
-    </View>
+    </Animated.View>
+  );
+}
+
+/** 실시간 주민: 자리 배정 훅의 경로/상태를 스프라이트 모션으로 표현한다. */
+export function FishingPeerActorView({
+  actor,
+  size,
+  sizeY,
+  emote,
+  reduce,
+  onEntered,
+  onCast,
+  onPausedExit,
+  onStretch,
+  onCompletedExit,
+}: {
+  actor: import('@/screens/focus/useFishingPeerActors').FishingPeerActor;
+  size: number;
+  sizeY: number;
+  emote?: string | null;
+  reduce: boolean;
+  onEntered: (key: string, generation: number) => void;
+  onCast: (key: string, generation: number) => void;
+  onPausedExit: (key: string, generation: number) => void;
+  onStretch: (key: string, generation: number) => void;
+  onCompletedExit: (key: string, generation: number) => void;
+}) {
+  const { Animated: NativeAnimated } = require('react-native');
+  const left = useRef(
+    new NativeAnimated.Value((size * actor.position.x) / 100 - (size * 0.077) / 2),
+  ).current;
+  const top = useRef(
+    new NativeAnimated.Value((sizeY * actor.position.y) / 100 - size * 0.077 * 0.90625),
+  ).current;
+  const motionToken = useRef(actor.generation);
+  useEffect(() => {
+    const token = actor.generation;
+    motionToken.current = token;
+    const toPoint =
+      actor.phase === 'entering' ||
+      actor.phase === 'leaving-pause' ||
+      actor.phase === 'leaving-complete'
+        ? actor.phase === 'entering'
+          ? actor.spot
+          : LANDING
+        : actor.position;
+    const toLeft = (size * toPoint.x) / 100 - (size * 0.077) / 2;
+    const toTop = (sizeY * toPoint.y) / 100 - size * 0.077 * 0.90625;
+    if (
+      actor.phase === 'entering' ||
+      actor.phase === 'leaving-pause' ||
+      actor.phase === 'leaving-complete'
+    ) {
+      if (reduce) {
+        left.setValue(toLeft);
+        top.setValue(toTop);
+        if (actor.phase === 'entering') onEntered(actor.key, token);
+        else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
+        else onCompletedExit(actor.key, token);
+        return;
+      }
+      const distance = Math.hypot(
+        actor.position.x - toPoint.x,
+        ((actor.position.y - toPoint.y) * 2) / 3,
+      );
+      const duration = Math.max(450, Math.min(1500, Math.round(distance * 35)));
+      NativeAnimated.parallel([
+        NativeAnimated.timing(left, { toValue: toLeft, duration, useNativeDriver: false }),
+        NativeAnimated.timing(top, { toValue: toTop, duration, useNativeDriver: false }),
+      ]).start(({ finished }: { finished: boolean }) => {
+        if (!finished || motionToken.current !== token) return;
+        if (actor.phase === 'entering') onEntered(actor.key, token);
+        else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
+        else onCompletedExit(actor.key, token);
+      });
+      return () => {
+        NativeAnimated.stopAnimation(left);
+        NativeAnimated.stopAnimation(top);
+      };
+    }
+    left.setValue(toLeft);
+    top.setValue(toTop);
+  }, [
+    actor.key,
+    actor.generation,
+    actor.phase,
+    actor.position.x,
+    actor.position.y,
+    actor.spot.x,
+    actor.spot.y,
+    size,
+    sizeY,
+    reduce,
+    onEntered,
+    onPausedExit,
+    onCompletedExit,
+    left,
+    top,
+  ]);
+
+  if (!actor.visible) return null;
+  const motion =
+    actor.phase === 'entering' ||
+    actor.phase === 'leaving-pause' ||
+    actor.phase === 'leaving-complete'
+      ? 'walk'
+      : actor.phase === 'casting'
+        ? 'cast'
+        : actor.phase === 'finishing'
+          ? 'stretch'
+          : undefined;
+  const movingTo = actor.phase === 'entering' ? actor.spot : LANDING;
+  const spriteSpot =
+    motion === 'walk'
+      ? { ...actor.spot, face: movingTo.x < actor.position.x ? -1 : 1 }
+      : actor.spot;
+  return (
+    <FishingActor
+      spot={spriteSpot}
+      size={size}
+      sizeY={sizeY}
+      color={actor.color}
+      name={actor.name}
+      subject={actor.subject}
+      seconds={actor.seconds}
+      emote={emote}
+      reduce={reduce}
+      motion={motion}
+      onMotionFinish={
+        actor.phase === 'casting'
+          ? () => onCast(actor.key, actor.generation)
+          : actor.phase === 'finishing'
+            ? () => onStretch(actor.key, actor.generation)
+            : undefined
+      }
+      generation={actor.generation}
+      animatedPosition={{ left, top }}
+    />
   );
 }
 // 서 있거나 걷는 내 고양이(fi-walker): 낚시 고양이와 같은 크기·발 기준점, 걷는 동안만 걷기 그림.
