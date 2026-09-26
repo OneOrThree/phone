@@ -92,8 +92,15 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
     '새 댓글이 있습니다',
   );
   expect(screen.getByTestId('village-board-new-indicator').props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ top: 0, left: -29 * worldScale })]),
+    expect.arrayContaining([
+      expect.objectContaining({ top: 4 * worldScale, right: -20 * worldScale }),
+    ]),
   );
+  const boardBadgeSize = screen
+    .getByTestId('village-board-new-indicator')
+    .props.style.find((entry: { width?: number }) => entry?.width != null);
+  expect(boardBadgeSize.width).toBeCloseTo(25 * worldScale * 0.72);
+  expect(boardBadgeSize.height).toBeCloseTo(25 * worldScale * 0.72);
   expect(screen.queryByTestId('village-board-tooltip')).toBeNull();
   await screen.unmount();
   jest.useRealTimers();
