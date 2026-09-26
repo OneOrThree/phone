@@ -1,12 +1,20 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState, type AppStateStatus } from 'react-native';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { getShopProducts, type ShopProductPage } from '@/services/api/shop';
-import { useShopBuildingStatus } from './useShopBuildingStatus';
+import {
+  acknowledgeShopForScope,
+  updateShopCatalogSnapshot,
+  useShopBuildingStatus,
+} from './useShopBuildingStatus';
 
 const mockStorage = new Map<string, string>();
 const api = jest.mocked(getShopProducts);
 const storage = jest.mocked(AsyncStorage);
-const key = 'gromo:shop-catalog:user-1:island-1';
+const appState = jest.spyOn(AppState, 'addEventListener');
+let key = '';
+let scope = 0;
+let appStateHandler: ((state: AppStateStatus) => void) | null = null;
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
@@ -19,11 +27,11 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 }));
 jest.mock('@/services/api/shop', () => ({ getShopProducts: jest.fn() }));
 
-const item = (id: string) => ({
+const item = (id: string, price: number | null = 10) => ({
   id,
   title: id,
   kind: 'clothes',
-  price: 10,
+  price,
   currency: 'village_points',
   ownerType: 'user',
   owned: false,
@@ -37,7 +45,17 @@ const page = (...items: ReturnType<typeof item>[]): ShopProductPage => ({
 });
 
 beforeEach(() => {
+  scope += 1;
+  key = `gromo:shop-catalog:user-${scope}:island-${scope}`;
   mockStorage.clear();
+  appStateHandler = null;
+  appState.mockClear().mockImplementation(((
+    eventType: 'change',
+    handler: (state: AppStateStatus) => void,
+  ) => {
+    if (eventType === 'change') appStateHandler = handler;
+    return { remove: jest.fn() };
+  }) as typeof AppState.addEventListener);
   api
     .mockReset()
     .mockImplementation(async (_islandId, category) =>
@@ -51,7 +69,7 @@ beforeEach(() => {
   });
 });
 
-it('상점을 빠르게 닫아도 시작된 읽음 처리는 카탈로그 조회 후 저장한다', async () => {
+it('상점 훅이 재마운트되어도 같은 scope의 진행 중 읽음 처리를 공유한다', async () => {
   let resolvePersonal!: (value: ShopProductPage) => void;
   let resolveIsland!: (value: ShopProductPage) => void;
   api.mockImplementation(
@@ -61,31 +79,20 @@ it('상점을 빠르게 닫아도 시작된 읽음 처리는 카탈로그 조회
         else resolveIsland = resolve;
       }),
   );
-  const props = { active: false, acknowledge: true, islandId: 'island-1', userId: 'user-1' };
-  const hook = await renderHook((value: typeof props) => useShopBuildingStatus(value), {
-    initialProps: props,
-  });
-  await waitFor(() => expect(api).toHaveBeenCalledWith('island-1', 'personal', undefined));
-
-  await act(async () => {
-    hook.rerender({ ...props, active: true, acknowledge: false });
-    resolvePersonal(page(item('shirt'), item('new-hat')));
-  });
-  await waitFor(() => expect(api).toHaveBeenCalledWith('island-1', 'island', undefined));
-  await act(async () => {
-    resolveIsland(page(item('island-lantern')));
-    api.mockImplementation(async (_islandId, category) =>
-      category === 'personal' ? page(item('shirt'), item('new-hat')) : page(item('island-lantern')),
-    );
-  });
-
-  await waitFor(() => {
-    const stored = JSON.parse(mockStorage.get(key)!);
-    expect(stored.knownIds).toContain('new-hat');
-    expect(stored.pendingIds).toEqual([]);
-  });
-  await waitFor(() => expect(hook.result.current).toBe('purchasable'));
-  hook.unmount();
+  const first = acknowledgeShopForScope(key, `island-${scope}`);
+  // 홈 화면의 새 훅 인스턴스가 같은 scope를 확인했을 때 작업을 재사용한다.
+  const remounted = acknowledgeShopForScope(key, `island-${scope}`);
+  expect(remounted).toBe(first);
+  await waitFor(() => expect(api).toHaveBeenCalledWith(`island-${scope}`, 'personal', undefined));
+  resolvePersonal(page(item('shirt'), item('new-hat')));
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  resolveIsland(page(item('island-lantern')));
+  const acknowledgedStatus = await remounted;
+  expect(api).toHaveBeenCalledTimes(2);
+  const stored = JSON.parse(mockStorage.get(key)!);
+  expect(stored.knownIds).toContain('new-hat');
+  expect(stored.pendingIds).toEqual([]);
+  expect(acknowledgedStatus).toBe('purchasable');
 });
 
 it.each(['getItem', 'setItem'] as const)(
@@ -99,8 +106,8 @@ it.each(['getItem', 'setItem'] as const)(
       useShopBuildingStatus({
         active: false,
         acknowledge: true,
-        islandId: 'island-1',
-        userId: 'user-1',
+        islandId: `island-${scope}`,
+        userId: `user-${scope}`,
       }),
     );
     await waitFor(() =>
@@ -111,6 +118,7 @@ it.each(['getItem', 'setItem'] as const)(
       await expect(failedWrite).rejects.toThrow('storage full');
     }
     await waitFor(() => expect(hook.result.current).toBe('normal'));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     hook.unmount();
   },
 );
@@ -128,26 +136,31 @@ it('반복 커서면 불완전한 카탈로그를 저장하지 않고 다음 카
     useShopBuildingStatus({
       active: true,
       acknowledge: false,
-      islandId: 'island-1',
-      userId: 'user-1',
+      islandId: `island-${scope}`,
+      userId: `user-${scope}`,
     }),
   );
   await waitFor(() => expect(api).toHaveBeenCalledTimes(2));
   expect(api.mock.calls.map(([, category]) => category)).toEqual(['personal', 'personal']);
   expect(api.mock.calls[1][2]).toBe('repeated');
   await waitFor(() => expect(hook.result.current).toBe('normal'));
-  expect(api).not.toHaveBeenCalledWith('island-1', 'island', undefined);
+  expect(api).not.toHaveBeenCalledWith(`island-${scope}`, 'island', undefined);
   expect(mockStorage.get(key)).toBe(previous);
   hook.unmount();
 });
 
 it('첫 상점 카탈로그 조회가 실패하면 빈 기준점을 저장하지 않는다', async () => {
   api.mockRejectedValueOnce(new Error('catalog unavailable'));
-  const props = { active: false, acknowledge: true, islandId: 'island-1', userId: 'user-1' };
+  const props = {
+    active: false,
+    acknowledge: true,
+    islandId: `island-${scope}`,
+    userId: `user-${scope}`,
+  };
   const hook = await renderHook((value: typeof props) => useShopBuildingStatus(value), {
     initialProps: props,
   });
-  await waitFor(() => expect(api).toHaveBeenCalledWith('island-1', 'personal', undefined));
+  await waitFor(() => expect(api).toHaveBeenCalledWith(`island-${scope}`, 'personal', undefined));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(mockStorage.has(key)).toBe(false);
   expect(storage.setItem).not.toHaveBeenCalled();
@@ -159,5 +172,48 @@ it('첫 상점 카탈로그 조회가 실패하면 빈 기준점을 저장하지
   await waitFor(() => expect(hook.result.current).toBe('purchasable'));
   const stored = JSON.parse(mockStorage.get(key)!);
   expect(stored.pendingIds).toEqual([]);
+  hook.unmount();
+});
+
+it('가격이 null인 상품은 새 상품 또는 구매 가능 상태로 표시하지 않는다', async () => {
+  api.mockImplementation(async (_islandId, category) =>
+    category === 'personal' ? page(item('unapproved', null)) : page(),
+  );
+  const hook = await renderHook(() =>
+    useShopBuildingStatus({
+      active: true,
+      acknowledge: false,
+      islandId: `island-${scope}`,
+      userId: `user-${scope}`,
+    }),
+  );
+  await waitFor(() => expect(api).toHaveBeenCalledWith(`island-${scope}`, 'island', undefined));
+  expect(hook.result.current).toBe('normal');
+  expect(
+    updateShopCatalogSnapshot({ knownIds: [], pendingIds: [] }, [item('unapproved', null)])
+      .pendingIds,
+  ).toEqual([]);
+  hook.unmount();
+});
+
+it('앱이 백그라운드에서 복귀하면 홈 상품 상태를 다시 조회한다', async () => {
+  const hook = await renderHook(() =>
+    useShopBuildingStatus({
+      active: true,
+      acknowledge: false,
+      islandId: `island-${scope}`,
+      userId: `user-${scope}`,
+    }),
+  );
+  await waitFor(() => expect(hook.result.current).toBe('purchasable'));
+  api.mockImplementation(async (_islandId, category) =>
+    category === 'personal' ? page(item('shirt'), item('new-hat')) : page(),
+  );
+  await act(async () => {
+    appStateHandler?.('background');
+    appStateHandler?.('active');
+  });
+  await waitFor(() => expect(hook.result.current).toBe('new-product'));
+  expect(api).toHaveBeenCalledTimes(4);
   hook.unmount();
 });
