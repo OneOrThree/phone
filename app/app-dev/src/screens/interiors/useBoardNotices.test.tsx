@@ -647,7 +647,7 @@ test('addComment 성공 뒤 열린 상세의 댓글이 서버 값으로 갱신�
   await hook.unmount();
 });
 
-test('오래된 공지에 쓴 내 댓글은 불러온 범위의 확인 카운트에 즉시 반영한다', async () => {
+test('오래된 공지 댓글 작성 뒤 목록 페이지의 서버 정본 카운트를 확인 상태에 반영한다', async () => {
   getBoardMock.mockResolvedValue(board([{ id: 'recent', title: '최근' }], 'older'));
   listNoticesMock.mockResolvedValue({
     items: [{ id: 'old', title: '오래된 공지', commentCount: 4 }],
@@ -665,6 +665,10 @@ test('오래된 공지에 쓴 내 댓글은 불러온 범위의 확인 카운트
   });
   postCommentMock.mockResolvedValue({ id: 'mine', name: '나', text: '내 댓글' });
   getNoticeMock.mockResolvedValueOnce(detail('old', [{ id: 'mine' }]));
+  listNoticesMock.mockResolvedValueOnce({
+    items: [{ id: 'old', title: '오래된 공지', commentCount: 7 }],
+    nextCursor: null,
+  });
   getBoardMock.mockClear();
 
   await act(async () => {
@@ -672,9 +676,10 @@ test('오래된 공지에 쓴 내 댓글은 불러온 범위의 확인 카운트
   });
 
   assert.equal(getBoardMock.mock.calls.length, 0);
-  assert.equal(hook.result.current.items.find((item) => item.id === 'old')?.commentCount, 5);
+  assert.equal(hook.result.current.items.find((item) => item.id === 'old')?.commentCount, 7);
+  assert.deepEqual([...listNoticesMock.mock.calls.at(-1)!.slice(0, 2)], ['island-1', 'older']);
   const confirmed = onLoaded.mock.calls.at(-1)?.[0];
-  assert.equal(confirmed.items.find((item: { id: string }) => item.id === 'old')?.commentCount, 5);
+  assert.equal(confirmed.items.find((item: { id: string }) => item.id === 'old')?.commentCount, 7);
   assert.equal(confirmed.nextCursor, null);
   await hook.unmount();
 });

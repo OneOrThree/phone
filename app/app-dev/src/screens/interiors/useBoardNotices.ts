@@ -171,8 +171,8 @@ export function useBoardNotices({
   // 퀘스트 상세도 같은 규칙 — 마지막으로 연 회차만 questDetail 로 적용된다.
   const questSeq = useRef(0);
   const intents = useRef(new Map<string, IntentSlot>());
-  // 멱등 재시도가 같은 댓글 결과를 재생해도 목록 카운트를 두 번 올리지 않는다.
-  const confirmedCommentIds = useRef(new Set<string>());
+  // 로드된 공지가 속한 서버 페이지의 시작 커서 — 댓글 성공 후 정확한 페이지에서 정본 카운트를 읽는다.
+  const noticePageCursors = useRef(new Map<string, string | null>());
   // 캐시된 섬 데이터가 어느 epoch·세대에서 왔는지 — 계정/범위 교체 직후 리렌더 전에
   // 잡힌 옛 콜백이 옛 islandId 를 새 계정 토큰으로 보내는 것을 막는다.
   const proven = useRef({ epoch: -1, generation: -1 });
@@ -198,6 +198,7 @@ export function useBoardNotices({
       const board = await getBoard();
       if (!alive(e, generation)) return;
       proven.current = { epoch: e, generation };
+      noticePageCursors.current = new Map(board.notices.items.map((item) => [item.id, null]));
       set({
         islandId: board.island.id,
         islandRole: board.island.role,
@@ -235,8 +236,10 @@ export function useBoardNotices({
       if (!alive(e, generation)) return;
       // 커서 경계에서 같은 항목이 겹쳐 와도 id 로 한 번만 둔다.
       const seen = new Set(stateRef.current.items.map((i) => i.id));
+      const newItems = page.items.filter((i) => !seen.has(i.id));
+      for (const item of newItems) noticePageCursors.current.set(item.id, nextCursor);
       set({
-        items: [...stateRef.current.items, ...page.items.filter((i) => !seen.has(i.id))],
+        items: [...stateRef.current.items, ...newItems],
         nextCursor: page.nextCursor,
         loadingMore: false,
       });
@@ -321,6 +324,7 @@ export function useBoardNotices({
       const board = await getBoard();
       if (!alive(e, generation)) throw stale();
       proven.current = { epoch: e, generation };
+      noticePageCursors.current = new Map(board.notices.items.map((item) => [item.id, null]));
       set({
         islandId: board.island.id,
         islandRole: board.island.role,
@@ -345,6 +349,27 @@ export function useBoardNotices({
       if (stateRef.current.detail?.id === noticeId) set({ detail: next });
     },
 
+    [alive, set],
+  );
+
+  // 공지 상세에는 전체 댓글 수가 없으므로, 댓글 작성 뒤 해당 공지가 있던 목록 페이지를 다시 읽는다.
+  const refreshNoticePage = useCallback(
+    async (e: number, generation: number, islandId: string, noticeId: string) => {
+      if (!alive(e, generation)) throw stale();
+      const cursor = noticePageCursors.current.get(noticeId);
+      if (cursor === undefined) return;
+      const page = await listNotices(islandId, cursor ?? undefined);
+      if (!alive(e, generation)) throw stale();
+      const updated = page.items.find((item) => item.id === noticeId);
+      if (!updated) return;
+      const items = stateRef.current.items.map((item) => (item.id === noticeId ? updated : item));
+      set({ items });
+      onLoadedRef.current?.({
+        islandId,
+        items,
+        nextCursor: stateRef.current.nextCursor,
+      });
+    },
     [alive, set],
   );
 
@@ -507,25 +532,14 @@ export function useBoardNotices({
         `comment:${noticeId}`,
         text,
         (key) => postComment(islandId, noticeId, { text }, key),
-        async (created) => {
+        async () => {
           if (!alive(e, generation)) throw stale();
-          if (!confirmedCommentIds.current.has(created.id)) {
-            const items = stateRef.current.items.map((item) =>
-              item.id === noticeId ? { ...item, commentCount: item.commentCount + 1 } : item,
-            );
-            set({ items });
-            onLoadedRef.current?.({
-              islandId,
-              items,
-              nextCursor: stateRef.current.nextCursor,
-            });
-            confirmedCommentIds.current.add(created.id);
-          }
+          await refreshNoticePage(e, generation, islandId, noticeId);
           await refreshDetail(e, generation, islandId, noticeId);
         },
       );
     },
-    [writable, runWrite, refreshDetail, alive, set],
+    [writable, runWrite, refreshNoticePage, refreshDetail, alive],
   );
 
   /** 퀘스트 만들기 — 본문·권한 검증은 서버가 한다(quests.ts 의 허용 키만 보낸다). */
@@ -612,7 +626,7 @@ export function useBoardNotices({
     epoch.current += 1;
     // 범위·계정이 바뀌면 미해결 쓰기 의도도 새 범위로 넘기지 않는다.
     intents.current.clear();
-    confirmedCommentIds.current.clear();
+    noticePageCursors.current.clear();
     if (!active) set(EMPTY);
     else load().catch(() => {});
     // 언마운트·의존성 교체로 돌아온 응답이 새 범위를 덮지 못하게 epoch 를 올린다.
