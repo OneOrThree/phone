@@ -582,12 +582,14 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
+                !(b === 'tower' && dayNight === 'day') &&
                 island.buildingThemes?.[b] &&
                 island.buildingThemes?.[b] !== 'default',
             )
             .map((b) => (
               <Image
                 key={b}
+                testID={`world-themed-building-${b}`}
                 source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',

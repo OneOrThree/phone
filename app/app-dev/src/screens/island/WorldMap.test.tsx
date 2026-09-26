@@ -135,6 +135,30 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   jest.useRealTimers();
 });
 
+test('주간 전망대 모션에서 정적 테마 레이어를 숨기고 야간에는 다시 표시한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  island.buildingThemes = { ...island.buildingThemes, tower: 'rose' };
+  const screen = await render(
+    <WorldMap state={state} towerArrivalActive towerArrivalGeneration={1} />,
+  );
+
+  expect(screen.queryByTestId('world-themed-building-tower')).toBeNull();
+  expect(
+    screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }),
+  ).toBeTruthy();
+
+  jest.setSystemTime(new Date('2026-06-15T22:00:00'));
+  await act(async () => {
+    jest.advanceTimersByTime(60_000);
+  });
+  expect(screen.getByTestId('world-themed-building-tower')).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('야간 건물 진입은 주간 스프라이트 없이도 강조 피드백을 제공한다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date(2026, 5, 15, 22));

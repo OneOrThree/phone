@@ -78,21 +78,30 @@ test('API 오류는 error 상태로 두고 retry 가 같은 week 로 다시 읽�
   assert.equal(rankingsMock.mock.calls[1][0].week, utcWeekStart());
 });
 
-test('활성 상태에서 UTC 주 경계를 지나면 새 주 랭킹을 다시 조회한다', async () => {
+test('활성 상태에서 같은 주의 순위와 UTC 주 경계를 주기적으로 다시 조회한다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-09-27T23:59:30Z'));
-  rankingsMock.mockResolvedValue(rankings());
+  rankingsMock
+    .mockResolvedValueOnce(rankings({ myRank: 7 }))
+    .mockResolvedValueOnce(rankings({ myRank: 6 }))
+    .mockResolvedValueOnce(rankings({ myRank: 5 }));
   try {
     const { result, unmount } = await renderHook(() => useIslandRankings({ active: true }));
     await act(async () => {});
     assert.equal(rankingsMock.mock.calls[0][0].week, '2026-09-27');
 
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+    await waitFor(() => assert.equal(result.current.data?.myRank, 6));
+    assert.equal(rankingsMock.mock.calls[1][0].week, '2026-09-27');
+
     jest.setSystemTime(new Date('2026-10-04T00:00:01Z'));
     await act(async () => {
       await jest.advanceTimersByTimeAsync(60_000);
     });
-    await waitFor(() => assert.equal(rankingsMock.mock.calls.length, 2));
-    assert.equal(rankingsMock.mock.calls[1][0].week, '2026-10-04');
+    await waitFor(() => assert.equal(rankingsMock.mock.calls.length, 3));
+    assert.equal(rankingsMock.mock.calls[2][0].week, '2026-10-04');
     unmount();
   } finally {
     jest.useRealTimers();
