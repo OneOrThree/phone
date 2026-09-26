@@ -60,6 +60,7 @@ import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
+import { useShopBuildingStatus } from '@/screens/island/useShopBuildingStatus';
 import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
@@ -806,6 +807,12 @@ export function RedesignScreens({ e }: any) {
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
   // stale 세션의 늦은 응답(CLIENT_STALE_SESSION)은 문구 없이 버린다.
   const server = e.islands;
+  const shopBuildingStatus = useShopBuildingStatus({
+    active: route === 'home' && !!server && !state.visitingIslandId,
+    acknowledge: ['shop', 'product', 'orders'].includes(route) && !!server,
+    islandId: state.serverIslands?.currentIslandId ?? null,
+    userId: getSession()?.userId ?? null,
+  });
   const serverErrorText = (thrown: unknown) => {
     if (!(thrown instanceof ApiError)) return '연결을 확인한 뒤 다시 시도해 주세요.';
     const code = thrown.code;
@@ -1029,6 +1036,7 @@ export function RedesignScreens({ e }: any) {
         observatoryRankState={observatoryRankState}
         showHud={route !== 'focusSetup'}
         showActions={false}
+        shopState={shopBuildingStatus}
         motion={route === 'focusSetup' ? 'tilt' : undefined}
       />
     </View>
@@ -2339,6 +2347,7 @@ export function RedesignScreens({ e }: any) {
             request={e.walkRequest}
             notify={notify}
             dispatch={dispatch}
+            shopState={shopBuildingStatus}
           />
         )}
         {mailboxGuide && (

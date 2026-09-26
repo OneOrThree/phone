@@ -250,6 +250,15 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.default,
     radius: semanticTokens.radius.full,
   },
+  shopStatusLabel: {
+    minHeight: primitiveTokens.space[6],
+    horizontalPadding: semanticTokens.spacing.control,
+    fontSize: semanticTokens.typography.label,
+    borderWidth: semanticTokens.stroke.default,
+    radius: semanticTokens.radius.full,
+    highlightRadius: semanticTokens.radius.control,
+    highlightBorderWidth: semanticTokens.stroke.strong,
+  },
   villageNotificationBadge: {
     diameter: 25,
     radius: 13,
@@ -323,6 +332,9 @@ export const componentTokens = {
   overlay: {
     background: semanticTokens.color.overlay,
     sheetBackground: semanticTokens.color.overlaySheet,
+  },
+  villageMotion: {
+    fireOffCore: '#382b26',
   },
 } as const;
 

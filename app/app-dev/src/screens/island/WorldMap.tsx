@@ -25,6 +25,7 @@ import {
   isHost,
   buildingCost,
   buildMinutes,
+  residentCount,
   todayFocusSeconds,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
@@ -62,6 +63,8 @@ import {
 import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
+import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
+import { FireMotion } from '@/components/village-motion/FireMotion';
 import {
   VillageObservatoryMotion,
   OBSERVATORY_ENTRY_DURATION_MS,
@@ -233,6 +236,7 @@ export function WorldMap({
   hallMotionGeneration = 0,
   boardStatus = null,
   observatoryRankState = 'normal',
+  shopState = 'normal',
   towerArrivalActive = false,
   towerArrivalGeneration = 0,
   village,
@@ -248,6 +252,7 @@ export function WorldMap({
   hallMotionGeneration?: number;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
+  shopState?: ShopMotionState;
   towerArrivalActive?: boolean;
   towerArrivalGeneration?: number;
   village?: VillageScene;
@@ -261,6 +266,11 @@ export function WorldMap({
     const hour = new Date().getHours();
     return hour >= 6 && hour < 18 ? 'day' : 'night';
   });
+  const homeFacts = serverHome(state);
+  const fireResidentCount =
+    homeFacts?.home.island.id === island.id
+      ? homeFacts.home.island.memberCount
+      : residentCount(island);
   useEffect(() => {
     const updateLocalTime = () => {
       const hour = new Date().getHours();
@@ -468,6 +478,7 @@ export function WorldMap({
             .filter((b) => !(b === 'hall' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'shop' && !village && !fishing && dayNight === 'day'))
             .map((b) => (
               <Image
                 key={b}
@@ -560,6 +571,48 @@ export function WorldMap({
               }}
             />
           )}
+          {island.buildings.includes('shop') && (
+            <ShopMotion
+              testID="world-shop-motion"
+              state={shopState}
+              showFrames={dayNight === 'day'}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                position: 'absolute',
+                left: left + 456 * scale,
+                top: top + 580 * scale,
+                width: 262 * scale,
+                height: 199 * scale,
+              }}
+            />
+          )}
+          {dayNight === 'day' && (
+            <Image
+              testID="world-fire-day-off-overlay"
+              source={require('@/assets/village-world/motion/fire/day-fire-off-overlay.png')}
+              resizeMode="stretch"
+              style={{
+                position: 'absolute',
+                left: left + 440 * scale,
+                top: top + 435 * scale,
+                width: 60 * scale,
+                height: 80 * scale,
+              }}
+            />
+          )}
+          <FireMotion
+            testID="world-fire-motion"
+            mode={dayNight === 'day' ? 'day' : 'evening'}
+            residentCount={fireResidentCount}
+            reduceMotion={state.settings.reduceMotion}
+            style={{
+              position: 'absolute',
+              left: left + 420 * scale,
+              top: top + 443 * scale,
+              width: 100 * scale,
+              height: 71 * scale,
+            }}
+          />
         </View>
       )}
       {!fishing && island.theme !== 'default' && (
@@ -651,6 +704,7 @@ function FinalIslandScene({
   motion,
   boardStatus = null,
   observatoryRankState = 'normal',
+  shopState = 'normal',
   onBuildingEntrySound,
   layeredPreview = false,
 }: {
@@ -666,6 +720,7 @@ function FinalIslandScene({
   motion?: CatMotionInput;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
+  shopState?: ShopMotionState;
   /** 문 소스 확보 전까지는 선택적 연결 계약으로 두고 소리가 꺼져 있으면 호출하지 않는다. */
   onBuildingEntrySound?: (target: BuildingTransitionTarget, generation: number) => void;
   layeredPreview?: boolean;
@@ -940,7 +995,11 @@ function FinalIslandScene({
                           ? `${d.label}, 주간 순위가 갱신되었습니다`
                           : d.building === 'tower' && observatoryRankState === 'rank-changed'
                             ? `${d.label}, 주간 순위가 변동되었습니다`
-                            : d.label
+                            : !visiting && d.building === 'shop' && shopState === 'new-product'
+                              ? `${d.label}, 새 상품이 있어요`
+                              : !visiting && d.building === 'shop' && shopState === 'purchasable'
+                                ? `${d.label}, 구매 가능한 상품이 있어요`
+                                : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
@@ -950,9 +1009,11 @@ function FinalIslandScene({
                       ? '게시판을 열어 확인하세요'
                       : d.building === 'tower' && observatoryRankState !== 'normal'
                         ? '전망대에서 주간 섬 순위를 확인하세요'
-                        : visiting && d.building && !['hall', 'board'].includes(d.building)
-                          ? '주민만 이용할 수 있어요'
-                          : undefined
+                        : !visiting && d.building === 'shop' && shopState !== 'normal'
+                          ? '상점에서 상품을 확인하세요'
+                          : visiting && d.building && !['hall', 'board'].includes(d.building)
+                            ? '주민만 이용할 수 있어요'
+                            : undefined
                 }
                 onPress={() => {
                   if (!visiting) {
@@ -1115,6 +1176,7 @@ function FinalIslandScene({
           hallMotionGeneration={buildingTransition.generation}
           boardStatus={boardStatus}
           observatoryRankState={observatoryRankState}
+          shopState={shopState}
           towerArrivalActive={
             buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
           }

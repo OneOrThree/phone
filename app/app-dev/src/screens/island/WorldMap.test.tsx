@@ -1,8 +1,8 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
-import { Animated } from 'react-native';
+import { Animated, AppState } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
-import { buildingNames, initialState } from '@/services/model';
+import { buildingNames, initialState, residentCount } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
 import { OBSERVATORY_ENTRY_DURATION_MS } from '@/components/village-motion/VillageObservatoryMotion';
 import { villageScene } from '@/utils/village-world';
@@ -450,4 +450,75 @@ test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다'
   } finally {
     timing.mockRestore();
   }
+});
+
+test('홈 상점은 월드 배율을 따르고 상품 상태를 접근성 버튼에 표시한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('shop')) island.buildings.push('shop');
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
+
+  expect(screen.queryByTestId('world-static-building-shop')).toBeNull();
+  expect(
+    screen.getByTestId('world-shop-motion', { includeHiddenElements: true }).props.style,
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 456 * worldScale,
+        top: worldTop + 580 * worldScale,
+        width: 262 * worldScale,
+        height: 199 * worldScale,
+      }),
+    ]),
+  );
+  expect(screen.getByLabelText('상점')).toBeTruthy();
+
+  await screen.rerender(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} shopState="purchasable" />,
+  );
+  expect(screen.getByLabelText(`${buildingNames.shop}, 구매 가능한 상품이 있어요`)).toBeTruthy();
+  expect(screen.getByTestId('shop-motion-tooltip', { includeHiddenElements: true })).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('모닥불은 낮 연기와 저녁 불꽃을 표시하고 서버 주민 수를 쓴다', async () => {
+  jest.useFakeTimers();
+  AppState.currentState = 'active';
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  const screen = await render(<WorldMap state={state} />);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
+
+  expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
+    `모닥불, 낮, 연기, 주민 ${residentCount(island)}명`,
+  );
+  expect(screen.getByTestId('world-fire-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 420 * worldScale,
+        top: worldTop + 443 * worldScale,
+        width: 100 * worldScale,
+        height: 71 * worldScale,
+      }),
+    ]),
+  );
+  expect(screen.getByTestId('world-fire-day-off-overlay')).toBeTruthy();
+
+  await screen.unmount();
+  jest.setSystemTime(new Date('2026-06-15T21:00:00'));
+  const night = await render(<WorldMap state={state} />);
+  expect(night.queryByTestId('world-fire-day-off-overlay')).toBeNull();
+  expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toContain('저녁, 불꽃');
+  expect(night.getByTestId('fire-motion-glow')).toBeTruthy();
+  await night.unmount();
+  jest.useRealTimers();
 });
