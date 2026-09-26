@@ -15,16 +15,14 @@ jest.mock('@/utils/layout', () => ({
 
 test('전망대 확대 오버레이는 스프라이트 진입 프레임 뒤에 시작한다', async () => {
   jest.useFakeTimers();
-  const timing = jest
-    .spyOn(Animated, 'timing')
-    .mockImplementation(
-      (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
-        ({
-          start: jest.fn(),
-          stop: jest.fn(),
-          reset: jest.fn(),
-        }) as unknown as Animated.CompositeAnimation,
-    );
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: jest.fn(),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
   try {
     const view = await render(
       <BuildingTransitionOverlay

@@ -841,10 +841,8 @@ export function RedesignScreens({ e }: any) {
   // 전망대 주간 섬 랭킹(GROMO-2018) — 홈 지도 배지와 전망대 화면이 같은 서버 정본을 쓴다.
   const islandRankings = useIslandRankings({
     active:
-      ['home', 'tower'].includes(route) &&
-      !!server &&
-      !state.visitingIslandId &&
-      observatoryBuilt,
+      ['home', 'tower'].includes(route) && !!server && !state.visitingIslandId && observatoryBuilt,
+    islandId: snap?.currentIslandId ?? null,
   });
   const observatoryRankState = useObservatoryRankIndicator({
     active: !!server && !state.visitingIslandId && observatoryBuilt,

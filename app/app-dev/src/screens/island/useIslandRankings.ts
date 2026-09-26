@@ -23,7 +23,13 @@ export interface IslandRankingsState {
   retry: () => void;
 }
 
-export function useIslandRankings({ active }: { active: boolean }): IslandRankingsState {
+export function useIslandRankings({
+  active,
+  islandId = null,
+}: {
+  active: boolean;
+  islandId?: string | null;
+}): IslandRankingsState {
   const [nonce, setNonce] = useState(0);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState<ApiError | null>(null);
@@ -31,6 +37,7 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
   const [week, setWeek] = useState(() => utcWeekStart());
   const req = useRef(0);
   const lastRequestedWeek = useRef<string | null>(null);
+  const lastRequestedIslandId = useRef<string | null>(null);
   const session = sessionGeneration();
   const lastRequestedSession = useRef(session);
 
@@ -45,11 +52,14 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
     const crossedWeekBoundary =
       lastRequestedWeek.current !== null && lastRequestedWeek.current !== currentWeek;
     const changedSession = lastRequestedSession.current !== session;
+    const changedIsland =
+      lastRequestedIslandId.current !== null && lastRequestedIslandId.current !== islandId;
     lastRequestedWeek.current = currentWeek;
     lastRequestedSession.current = session;
+    lastRequestedIslandId.current = islandId;
     setWeek(currentWeek);
-    // 같은 세션·주 안의 갱신만 직전 결과를 유지한다. 주/세션 경계에선 오래된 정본을 비운다.
-    if (crossedWeekBoundary || changedSession) {
+    // 같은 세션·섬·주 안의 갱신만 직전 결과를 유지한다. 경계 변경 시 오래된 정본을 비운다.
+    if (crossedWeekBoundary || changedSession || changedIsland) {
       setData(null);
       setStatus('loading');
     } else {
@@ -70,7 +80,7 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
     return () => {
       req.current += 1;
     };
-  }, [active, nonce, session]);
+  }, [active, islandId, nonce, session]);
 
   // 홈을 계속 열어 둔 동안 다른 섬의 집중 기록으로 순위가 바뀔 수 있으므로 주기적으로
   // 서버 정본을 새로 읽는다. UTC 주 경계도 같은 갱신으로 처리된다.

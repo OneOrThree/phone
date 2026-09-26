@@ -381,6 +381,11 @@ test('전망대 진입 전환은 마지막 프레임 노출을 마친 뒤 route�
       <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
     );
     await fireEvent.press(screen.getByLabelText(buildingNames.tower));
+    expect(
+      screen.getByTestId('final-island-content', { includeHiddenElements: true }).props
+        .accessibilityElementsHidden,
+    ).toBe(true);
+    expect(screen.getByLabelText('전망대에 들어가는 중')).toBeTruthy();
     await act(async () => {
       jest.advanceTimersByTime(OBSERVATORY_ENTRY_DURATION_MS);
     });
@@ -389,6 +394,10 @@ test('전망대 진입 전환은 마지막 프레임 노출을 마친 뒤 route�
       jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
     });
     expect(go).toHaveBeenCalledWith('tower');
+    expect(
+      screen.getByTestId('final-island-content', { includeHiddenElements: true }).props
+        .accessibilityElementsHidden,
+    ).toBe(false);
   } finally {
     timing.mockRestore();
     jest.useRealTimers();

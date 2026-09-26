@@ -55,8 +55,17 @@ export function BuildingTransitionOverlay({ state, reduceMotion, origin }: Props
     <View
       testID="building-transition-overlay"
       pointerEvents="box-only"
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
+      accessible
+      accessibilityRole="progressbar"
+      accessibilityViewIsModal
+      accessibilityLabel={
+        state.direction === 'return'
+          ? '섬으로 돌아가는 중'
+          : state.target === 'tower'
+            ? '전망대에 들어가는 중'
+            : '건물 화면으로 이동 중'
+      }
+      importantForAccessibility="yes"
       style={{ position: 'absolute', inset: 0, zIndex: 10000, overflow: 'hidden' }}
     >
       <Animated.View

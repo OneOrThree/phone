@@ -42,6 +42,7 @@ describe('VillageScenery', () => {
     expect(
       view.getByTestId('village-observatory-rank-indicator', { includeHiddenElements: true }),
     ).toBeTruthy();
+    expect(view.getByText('!', { includeHiddenElements: true }).props.allowFontScaling).toBe(false);
     expect(view.queryByTestId('village-observatory-frame-0')).toBeNull();
     expect(
       view.getByTestId('village-observatory-entry-highlight', { includeHiddenElements: true }),

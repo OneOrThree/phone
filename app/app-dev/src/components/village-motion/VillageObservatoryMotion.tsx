@@ -96,6 +96,8 @@ export function VillageObservatoryMotion({
           ]}
         >
           <Text
+            allowFontScaling={false}
+            tabletScale={1}
             style={[
               styles.badgeText,
               { fontSize: 15 * indicatorScale, lineHeight: 18 * indicatorScale },

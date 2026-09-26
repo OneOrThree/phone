@@ -178,3 +178,30 @@ test('세션 교체 시 이전 계정의 순위를 비우고 새 계정 결과�
   assert.equal(result.current.status, 'ready');
   unmount();
 });
+
+test('현재 섬 교체 시 이전 섬의 순위를 비우고 다시 조회한다', async () => {
+  let finishRefresh: ((value: IslandRankings) => void) | undefined;
+  rankingsMock.mockResolvedValueOnce(rankings({ myRank: 7 })).mockImplementationOnce(
+    () =>
+      new Promise<IslandRankings>((resolve) => {
+        finishRefresh = resolve;
+      }),
+  );
+  const { result, rerender, unmount } = await renderHook(
+    ({ islandId }: { islandId: string }) => useIslandRankings({ active: true, islandId }),
+    { initialProps: { islandId: 'island-a' } },
+  );
+  await waitFor(() => assert.equal(result.current.status, 'ready'));
+  assert.equal(result.current.data?.myRank, 7);
+
+  await act(async () => rerender({ islandId: 'island-b' }));
+  assert.equal(result.current.status, 'loading');
+  assert.equal(result.current.data, null);
+
+  await act(async () => {
+    finishRefresh?.(rankings({ myRank: 4 }));
+  });
+  await waitFor(() => assert.equal(result.current.data?.myRank, 4));
+  assert.equal(result.current.status, 'ready');
+  unmount();
+});
