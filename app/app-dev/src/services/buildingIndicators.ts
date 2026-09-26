@@ -374,6 +374,7 @@ export type MailboxPollPage = {
   historyUnread: boolean;
   latestItems: Array<{ id: string; isRead: boolean }>;
   historyItems: Array<{ id: string; isRead: boolean }>;
+  historyPageKey: string | null;
   cycleComplete: boolean;
   nextCursor: string | null;
 };
@@ -398,6 +399,7 @@ export async function fetchMailboxPollPage(
       historyUnread: false,
       latestItems: latest.map(({ id, isRead }) => ({ id, isRead })),
       historyItems: [],
+      historyPageKey: null,
       cycleComplete: true,
       nextCursor: null,
     };
@@ -412,6 +414,7 @@ export async function fetchMailboxPollPage(
     historyUnread: history.some((item) => !item.isRead),
     latestItems: latest.map(({ id, isRead }) => ({ id, isRead })),
     historyItems: history.map(({ id, isRead }) => ({ id, isRead })),
+    historyPageKey: cursor,
     cycleComplete: next === null,
     nextCursor: next ?? firstHistoryCursor,
   };

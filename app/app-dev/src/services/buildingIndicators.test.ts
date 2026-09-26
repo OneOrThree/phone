@@ -253,6 +253,7 @@ test('우체통 고정 예산은 과거 페이지 하나를 확인하고 마지�
     historyUnread: true,
     latestItems: [{ id: 'latest', isRead: true }],
     historyItems: [{ id: 'old-unread', isRead: false }],
+    historyPageKey: 'history-1',
     cycleComplete: false,
     nextCursor: 'history-2',
   });
@@ -268,6 +269,7 @@ test('우체통 고정 예산은 과거 페이지 하나를 확인하고 마지�
     historyUnread: false,
     latestItems: [{ id: 'latest', isRead: true }],
     historyItems: [{ id: 'last-read', isRead: true }],
+    historyPageKey: 'history-40',
     cycleComplete: true,
     nextCursor: 'history-1',
   });

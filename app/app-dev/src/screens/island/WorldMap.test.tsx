@@ -436,8 +436,16 @@ test('부두의 뗏목에 뗏목 이름을 표시한다', async () => {
     expect.objectContaining({
       left: 0,
       top: -30,
-      width: 120 * worldScale,
+      width: 210 * worldScale,
       alignItems: 'center',
+    }),
+  );
+  expect(screen.getByLabelText('뗏목').props.style).toEqual(
+    expect.objectContaining({
+      left: 185 * worldScale,
+      top: 835 * worldScale,
+      width: 210 * worldScale,
+      height: 92 * worldScale,
     }),
   );
   await screen.unmount();

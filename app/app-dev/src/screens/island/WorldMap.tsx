@@ -144,7 +144,14 @@ const legacyDoors: Record<string, Door> = {
   mail: { x: 320, y: 596, r: 'mail', label: buildingNames.mail, building: 'mail' },
   tower: { x: 272, y: 200, r: 'tower', label: buildingNames.tower, building: 'tower' },
   shop: { x: 577, y: 783, r: 'shop', label: buildingNames.shop, building: 'shop' },
-  raft: { x: 274, y: 740, r: 'boat', label: '뗏목', memberOnly: true },
+  raft: {
+    x: 290,
+    y: 881,
+    r: 'boat',
+    label: '뗏목',
+    memberOnly: true,
+    hitbox: { x: 185, y: 835, w: 210, h: 92 },
+  },
   fishingIsland: {
     x: 1345,
     y: 882,
@@ -1049,7 +1056,7 @@ function FinalIslandScene({
                   : {
                       left: 0,
                       top: -30,
-                      width: hitbox.w * s,
+                      width: 210 * s,
                       alignItems: 'center' as const,
                     };
               }

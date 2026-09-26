@@ -105,6 +105,7 @@ export function useBuildingIndicators({
   const mailboxPollCursors = useRef(new Map<string, string | null>());
   const mailboxUnreadIds = useRef(new Map<string, Set<string>>());
   const mailboxConfirmedReadIds = useRef(new Map<string, Set<string>>());
+  const mailboxCyclePagesByScope = useRef(new Map<string, Map<string, Set<string>>>());
   const mailboxPollReady = useRef(new Set<string>());
   const refreshInFlight = useRef(0);
   const queuedLiveRefresh = useRef(false);
@@ -265,6 +266,16 @@ export function useBuildingIndicators({
             if (letter.isRead || confirmedRead.has(letter.id)) unread.delete(letter.id);
             else unread.add(letter.id);
           }
+          const cyclePages = mailboxCyclePagesByScope.current.get(scopeKey) ?? new Map();
+          cyclePages.set('latest', new Set(page.latestItems.map(({ id }) => id)));
+          if (page.historyPageKey)
+            cyclePages.set(page.historyPageKey, new Set(page.historyItems.map(({ id }) => id)));
+          if (page.cycleComplete) {
+            const observed = new Set([...cyclePages.values()].flatMap((ids) => [...ids]));
+            for (const id of unread) if (!observed.has(id)) unread.delete(id);
+            cyclePages.clear();
+          }
+          mailboxCyclePagesByScope.current.set(scopeKey, cyclePages);
           mailboxUnreadIds.current.set(scopeKey, unread);
           setIndicators((value) => ({ ...value, showMailboxLetters: unread.size > 0 }));
           return;

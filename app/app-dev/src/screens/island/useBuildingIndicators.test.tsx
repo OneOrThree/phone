@@ -495,6 +495,7 @@ test('우체통 커서와 확인된 배지는 페이지 조회 실패 때 보존
       historyUnread: true,
       latestItems: [],
       historyItems: [{ id: 'unread-old', isRead: false }],
+      historyPageKey: 'mail-cursor-1',
       cycleComplete: false,
       nextCursor: 'mail-cursor-2',
     })
@@ -504,6 +505,7 @@ test('우체통 커서와 확인된 배지는 페이지 조회 실패 때 보존
       historyUnread: false,
       latestItems: [],
       historyItems: [{ id: 'unread-old', isRead: false }],
+      historyPageKey: 'mail-cursor-2',
       cycleComplete: true,
       nextCursor: 'mail-cursor-1',
     })
@@ -512,6 +514,7 @@ test('우체통 커서와 확인된 배지는 페이지 조회 실패 때 보존
       historyUnread: false,
       latestItems: [],
       historyItems: [{ id: 'unread-old', isRead: true }],
+      historyPageKey: 'mail-cursor-2',
       cycleComplete: true,
       nextCursor: 'mail-cursor-1',
     });
@@ -573,6 +576,48 @@ test('마지막 미확인 편지의 성공한 열람은 즉시 배지를 내리�
   await hook.rerender({ refreshKey: 1 });
   await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 1));
   assert.equal(hook.result.current.showMailboxLetters, false);
+  hook.unmount();
+});
+
+test('다른 기기에서 삭제된 미확인 편지는 우체통 순환 완료 때 배지 집합에서 제거한다', async () => {
+  mailboxNow.mockResolvedValue(['deleted-unread']);
+  mailboxPoll
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      latestItems: [],
+      historyItems: [],
+      historyPageKey: 'cursor-1',
+      cycleComplete: false,
+      nextCursor: 'cursor-2',
+    })
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      latestItems: [],
+      historyItems: [],
+      historyPageKey: 'cursor-2',
+      cycleComplete: true,
+      nextCursor: 'cursor-1',
+    });
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, true));
+
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 1));
+  assert.equal(hook.result.current.showMailboxLetters, true);
+  await hook.rerender({ refreshKey: 2 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, false));
   hook.unmount();
 });
 
