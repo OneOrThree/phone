@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { getShopProducts, type ShopItem } from '@/services/api/shop';
 import type { ShopMotionState } from '@/components/village-motion/ShopMotion';
 
@@ -49,7 +49,9 @@ async function readCatalog(islandId: string): Promise<ShopItem[]> {
       const page = await getShopProducts(islandId, category, cursor);
       items.push(...page.items);
       cursor = page.nextCursor ?? undefined;
-      if (cursor && usedCursors.has(cursor)) return items;
+      if (cursor && usedCursors.has(cursor)) {
+        throw new Error(`Shop catalog repeated cursor: ${category}`);
+      }
       if (cursor) usedCursors.add(cursor);
     } while (cursor);
   }
@@ -69,6 +71,7 @@ export function useShopBuildingStatus({
   userId: string | null;
 }): ShopMotionState {
   const [status, setStatus] = useState<ShopMotionState>('normal');
+  const acknowledgements = useRef(new Map<string, Promise<void>>());
   const key = islandId && userId ? `gromo:shop-catalog:${userId}:${islandId}` : null;
 
   useEffect(() => {
@@ -82,16 +85,30 @@ export function useShopBuildingStatus({
 
     const run = async () => {
       if (acknowledge) {
-        const previous = await readSnapshot(key);
-        let acknowledged = previous ?? { knownIds: [], pendingIds: [] };
-        try {
-          const items = await readCatalog(islandId!);
-          acknowledged = updateShopCatalogSnapshot(previous, items);
-        } catch {
-          // 상점 화면이 열렸다는 사실은 유지하고, 다음 홈 진입에서 실패한 카탈로그를 다시 읽는다.
+        if (!acknowledgements.current.has(key)) {
+          const task = (async () => {
+            try {
+              const previous = await readSnapshot(key);
+              let acknowledged = previous ?? { knownIds: [], pendingIds: [] };
+              try {
+                const items = await readCatalog(islandId!);
+                acknowledged = updateShopCatalogSnapshot(previous, items);
+              } catch {
+                // 상점 진입 자체는 확인으로 간주한다. 카탈로그 실패 시 다음 홈 조회가 다시 시도한다.
+              }
+              await AsyncStorage.setItem(key, JSON.stringify({ ...acknowledged, pendingIds: [] }));
+            } catch {
+              // 저장소 장애는 읽음 작업의 거부로 전파하지 않는다. 다음 진입에서 다시 시도한다.
+            }
+          })();
+          acknowledgements.current.set(key, task);
+          const cleanup = () => {
+            if (acknowledgements.current.get(key) === task) {
+              acknowledgements.current.delete(key);
+            }
+          };
+          task.then(cleanup, cleanup);
         }
-        if (cancelled) return;
-        await AsyncStorage.setItem(key, JSON.stringify({ ...acknowledged, pendingIds: [] }));
         setStatus('normal');
         return;
       }
@@ -101,6 +118,12 @@ export function useShopBuildingStatus({
       }
 
       try {
+        const acknowledgement = acknowledgements.current.get(key);
+        if (acknowledgement) {
+          await acknowledgement;
+          if (!cancelled) setStatus('normal');
+          return;
+        }
         const [previous, items] = await Promise.all([readSnapshot(key), readCatalog(islandId!)]);
         if (cancelled) return;
         const next = updateShopCatalogSnapshot(previous, items);
@@ -118,7 +141,9 @@ export function useShopBuildingStatus({
       }
     };
 
-    void run();
+    run().catch(() => {
+      if (!cancelled) setStatus('normal');
+    });
     return () => {
       cancelled = true;
     };

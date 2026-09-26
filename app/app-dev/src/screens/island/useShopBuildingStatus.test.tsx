@@ -10,7 +10,9 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   __esModule: true,
   default: {
     getItem: jest.fn(async (key: string) => mockStorage.get(key) ?? null),
-    setItem: jest.fn(async (key: string, value: string) => void mockStorage.set(key, value)),
+    setItem: jest.fn(async (key: string, value: string) => {
+      mockStorage.set(key, value);
+    }),
   },
 }));
 jest.mock('@/services/api/shop', () => ({ getShopProducts: jest.fn() }));
