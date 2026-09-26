@@ -570,6 +570,7 @@ export function WorldMap({
             scale={scale}
             reduce={state.settings.reduceMotion}
             mailboxLetters={mailboxLetters}
+            boardStatus={boardStatus}
           />
         )}
         {typeof children === 'function'
