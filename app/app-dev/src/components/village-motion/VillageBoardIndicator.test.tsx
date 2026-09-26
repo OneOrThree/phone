@@ -19,14 +19,16 @@ describe('VillageBoardIndicator', () => {
 
   it('shows the same ! indicator for unread notices or new comments', async () => {
     const view = await render(<VillageBoardIndicator hasUnread />);
-    expect(view.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
-      '읽지 않은 새 소식이 있습니다',
-    );
+    expect(
+      view.getByTestId('village-board-new-indicator', { includeHiddenElements: true }).props
+        .accessibilityLabel,
+    ).toBe('읽지 않은 새 소식이 있습니다');
 
     await view.rerender(<VillageBoardIndicator hasNewComment />);
-    expect(view.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
-      '새 댓글이 있습니다',
-    );
+    expect(
+      view.getByTestId('village-board-new-indicator', { includeHiddenElements: true }).props
+        .accessibilityLabel,
+    ).toBe('새 댓글이 있습니다');
     await view.unmount();
   });
 });

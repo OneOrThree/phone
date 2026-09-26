@@ -20,7 +20,10 @@ export function VillageNotificationBadge({
   return (
     <View
       testID={testID}
-      accessible
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden
       accessibilityLabel={accessibilityLabel}
       pointerEvents="none"
       style={[
