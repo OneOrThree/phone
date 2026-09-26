@@ -4,6 +4,7 @@ import { Animated } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
+import { villageScene } from '@/utils/village-world';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -181,6 +182,26 @@ test('랭킹 상태는 전망대 건물 버튼의 접근성 라벨에만 포함�
       .accessibilityElementsHidden,
   ).toBe(true);
   await screen.unmount();
+});
+
+test('레이어드 마을에서도 게시판 상태를 VillageScenery 알림에 전달한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('board')) island.buildings.push('board');
+  const screen = await render(
+    <WorldMap state={state} village={villageScene(['board'])} boardStatus="new-comment" />,
+  );
+
+  expect(screen.queryByTestId('world-board-indicator')).toBeNull();
+  expect(screen.getByTestId('village-board-scene-indicator')).toBeTruthy();
+  expect(screen.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
+    '새 댓글이 있습니다',
+  );
+  expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
 });
 
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {

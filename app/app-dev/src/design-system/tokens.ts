@@ -257,6 +257,11 @@ export const componentTokens = {
     topOffset: -11,
     rightOffset: 21,
   },
+  villageNotificationTooltip: {
+    maxWidth: 180,
+    paddingVertical: space[2],
+    borderWidth: semanticTokens.stroke.default,
+  },
   progress: {
     track: color.progressTrack,
     fill: semanticTokens.color.primary,
