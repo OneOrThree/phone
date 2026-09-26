@@ -8,6 +8,7 @@ import { CatSprite } from '@/components/CatSprite';
 import { State } from '@/services/model';
 import { BROWN, T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 import { Diary } from './library/Diary';
+import { useBuildingIndicatorSeen } from './useBuildingIndicatorSeen';
 
 function Flower({ outline }: { outline: boolean }) {
   return (
@@ -151,6 +152,13 @@ function Round({ title, glyph, onPress, disabled, size, style, testID }: any) {
   );
 }
 export function Library({ e }: any) {
+  useBuildingIndicatorSeen({
+    active: e.route === 'library' && !!e.islands && !!e.buildingIndicators,
+    islandId: e.state.serverIslands?.currentIslandId ?? null,
+    onLoaded: () => {
+      void e.buildingIndicators?.markLibrarySeen();
+    },
+  });
   const font = useGowun();
   const L = useAppLayout(),
     off = safeOffset(L),

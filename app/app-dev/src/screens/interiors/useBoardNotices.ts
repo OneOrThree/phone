@@ -52,6 +52,13 @@ import {
 
 export type NoticeItem = NoticePage['items'][number];
 
+/** 실제로 불러온 공지만 확인한다. nextCursor가 null일 때만 전체 목록이다. */
+export type BoardLoadedSnapshot = {
+  islandId: string;
+  items: NoticeItem[];
+  nextCursor: string | null;
+};
+
 /** 화면이 비활성·섬 미확정이라 쓰기를 시작할 수 없다 — 호출부 분기용 클라이언트 코드. */
 export const CLIENT_INACTIVE = 'CLIENT_INACTIVE';
 /** 같은 슬롯의 쓰기가 아직 진행 중인데 다른 본문이 들어왔다 — 이전 결과를 새 초안에 입히지 않는다. */
@@ -136,7 +143,17 @@ async function getAllQuestProgress(
 /** 쓰기 의도 슬롯 — key 는 페이로드(의도)가 같을 때만 유지된다. */
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
 
-export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKey: string }) {
+export function useBoardNotices({
+  active,
+  scopeKey,
+  onLoaded,
+}: {
+  active: boolean;
+  scopeKey: string;
+  onLoaded?: (snapshot: BoardLoadedSnapshot) => void;
+}) {
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
   const [state, setState] = useState<BoardNoticesState>(EMPTY);
   // 액션 콜백이 클로저의 옛 state 를 읽지 않도록 최신값을 거울에 둔다.
   const stateRef = useRef(state);
@@ -189,6 +206,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         loading: false,
         error: null,
       });
+      onLoadedRef.current?.({ islandId: board.island.id, ...board.notices });
     } catch (error) {
       if (!alive(e, generation)) return;
       set({ loading: false, error: error as ApiError });
@@ -219,6 +237,11 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         items: [...stateRef.current.items, ...page.items.filter((i) => !seen.has(i.id))],
         nextCursor: page.nextCursor,
         loadingMore: false,
+      });
+      onLoadedRef.current?.({
+        islandId,
+        items: stateRef.current.items,
+        nextCursor: page.nextCursor,
       });
     } catch (error) {
       if (!alive(e, generation)) return;
@@ -304,6 +327,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         quests: board.quests.items,
         wallets: board.wallets,
       });
+      onLoadedRef.current?.({ islandId: board.island.id, ...board.notices });
     },
 
     [alive, set],

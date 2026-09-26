@@ -721,6 +721,7 @@ function FinalIslandScene({
   dispatch,
   viewingIslandId,
   motion,
+  showMailboxLetters,
   boardStatus = null,
   observatoryRankState = 'normal',
   shopState = 'normal',
@@ -738,6 +739,7 @@ function FinalIslandScene({
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
   motion?: CatMotionInput;
+  showMailboxLetters?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
   shopState?: ShopMotionState;
@@ -757,6 +759,7 @@ function FinalIslandScene({
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
+  const mailboxLetters = !visiting && (showMailboxLetters ?? hasMailboxLetters(state, i.id));
   const scene = useMemo(
     () => (layeredPreview ? villageScene(i.buildings) : undefined),
     [layeredPreview, i.buildings],
@@ -1044,7 +1047,7 @@ function FinalIslandScene({
                 key={id}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  id === 'mail' && !visiting && hasMailboxLetters(state, i.id)
+                  id === 'mail' && mailboxLetters
                     ? '우체통, 친구에게 받은 새 편지가 있어요'
                     : d.building === 'board' && boardStatus === 'new-comment'
                       ? `${d.label}, 새 댓글이 있어요`
@@ -1266,7 +1269,7 @@ function FinalIslandScene({
           buildingTransition.phase === 'entering' && buildingTransition.target === 'shop'
         }
         shopArrivalGeneration={buildingTransition.generation}
-        showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
+        showMailboxLetters={mailboxLetters}
         onSpot={
           visiting
             ? undefined

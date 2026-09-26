@@ -155,6 +155,53 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
 
+test('성공적으로 조회한 페이지의 범위만 onLoaded에 전달한다', async () => {
+  getBoardMock.mockResolvedValue(board([{ id: 'n1', title: '첫 공지' }], 'next'));
+  listNoticesMock.mockResolvedValue({
+    items: [{ id: 'n2', title: '다음 공지', commentCount: 2 }],
+    nextCursor: null,
+  });
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1', onLoaded }));
+  await waitFor(() => assert.equal(onLoaded.mock.calls.length, 1));
+  assert.equal(onLoaded.mock.calls[0][0].nextCursor, 'next');
+  assert.deepEqual(
+    onLoaded.mock.calls[0][0].items.map((item: { id: string }) => item.id),
+    ['n1'],
+  );
+  await act(async () => {
+    await hook.result.current.loadMore();
+  });
+  assert.equal(onLoaded.mock.calls[1][0].nextCursor, null);
+  assert.deepEqual(
+    onLoaded.mock.calls[1][0].items.map((item: { id: string }) => item.id),
+    ['n1', 'n2'],
+  );
+  await hook.unmount();
+});
+
+test('게시판 조회 실패는 onLoaded를 호출하지 않는다', async () => {
+  getBoardMock.mockRejectedValue(new Error('offline'));
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1', onLoaded }));
+  await waitFor(() => assert.ok(hook.result.current.error));
+  assert.equal(onLoaded.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('계정 전환 후 도착한 게시판 응답은 onLoaded를 호출하지 않는다', async () => {
+  const pending = deferred<ReturnType<typeof board>>();
+  getBoardMock.mockReturnValue(pending.promise);
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1', onLoaded }));
+  await act(async () => {
+    await clearSession();
+    pending.resolve(board([{ id: 'n1', title: '옛 계정 공지' }]));
+  });
+  assert.equal(onLoaded.mock.calls.length, 0);
+  await hook.unmount();
+});
+
 test('active=false — API 를 하나도 부르지 않고 빈 상태를 유지한다', async () => {
   const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useBoardNotices(p), {
     initialProps: { active: false, scopeKey: 's1' },
