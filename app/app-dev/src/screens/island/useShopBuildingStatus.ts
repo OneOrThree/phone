@@ -82,10 +82,15 @@ export function useShopBuildingStatus({
     const run = async () => {
       if (acknowledge) {
         const previous = await readSnapshot(key);
-        if (cancelled) return;
-        if (previous?.pendingIds.length) {
-          await AsyncStorage.setItem(key, JSON.stringify({ ...previous, pendingIds: [] }));
+        let acknowledged = previous ?? { knownIds: [], pendingIds: [] };
+        try {
+          const items = await readCatalog(islandId!);
+          acknowledged = updateShopCatalogSnapshot(previous, items);
+        } catch {
+          // 상점 화면이 열렸다는 사실은 유지하고, 다음 홈 진입에서 실패한 카탈로그를 다시 읽는다.
         }
+        if (cancelled) return;
+        await AsyncStorage.setItem(key, JSON.stringify({ ...acknowledged, pendingIds: [] }));
         setStatus('normal');
         return;
       }
