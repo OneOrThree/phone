@@ -26,6 +26,7 @@ import {
   buildingCost,
   buildMinutes,
   todayFocusSeconds,
+  residentCount as islandResidentCount,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
@@ -577,6 +578,7 @@ export function WorldMap({
           <FireMotion
             testID="world-fire-motion"
             mode={dayNight === 'day' ? 'day' : 'evening'}
+            residentCount={islandResidentCount(island)}
             reduceMotion={state.settings.reduceMotion}
             style={{
               position: 'absolute',

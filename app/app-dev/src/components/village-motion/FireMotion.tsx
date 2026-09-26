@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useState } from 'react';
+import React, { memo, useContext, useEffect, useState } from 'react';
 import {
   AppState,
   Image,
@@ -9,6 +9,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { semanticTokens } from '@/design-system/tokens';
+import { MotionContext } from '@/design-system/primitives';
 
 export type FireMotionMode = 'day' | 'evening';
 
@@ -26,6 +27,10 @@ const smokeFrames: readonly ImageSourcePropType[] = [
 ];
 const flameSequence = [1, 2, 3, 2] as const;
 const smokeSequence = [0, 1, 2, 3, 2, 1] as const;
+const quietFlameSequence = [1, 1, 2, 1] as const;
+const groupFlameSequence = [1, 2, 3, 2, 3, 2] as const;
+const quietSmokeSequence = [0, 0, 1, 0] as const;
+const groupSmokeSequence = [0, 1, 2, 3, 2, 1, 2, 1] as const;
 
 /** 모닥불 프레임. 부모의 레이아웃과 확대 배율을 그대로 채운다(기준 상자 비율 116:77). */
 export const FireMotion = memo(function FireMotionView({
@@ -43,11 +48,44 @@ export const FireMotion = memo(function FireMotionView({
 }) {
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   const [frame, setFrame] = useState(mode === 'day' ? 0 : 1);
-  const paused = reduceMotion || appState === 'background' || appState === 'inactive';
+  const motionDisabled = useContext(MotionContext) || reduceMotion;
+  const paused = motionDisabled || appState === 'background' || appState === 'inactive';
   const frames = mode === 'day' ? smokeFrames : flameFrames;
-  const sequence = mode === 'day' ? smokeSequence : flameSequence;
-  const frameDurationMs = mode === 'day' ? 360 : 155;
+  const residentGroup =
+    residentCount == null
+      ? 'unknown'
+      : residentCount <= 0
+        ? 'empty'
+        : residentCount < 3
+          ? 'small'
+          : 'large';
+  const sequence =
+    mode === 'day'
+      ? residentGroup === 'empty'
+        ? quietSmokeSequence
+        : residentGroup === 'large'
+          ? groupSmokeSequence
+          : smokeSequence
+      : residentGroup === 'empty'
+        ? quietFlameSequence
+        : residentGroup === 'large'
+          ? groupFlameSequence
+          : flameSequence;
+  const baseFrameDurationMs = mode === 'day' ? 360 : 155;
+  const frameDurationMs =
+    residentGroup === 'empty'
+      ? baseFrameDurationMs * 1.35
+      : residentGroup === 'large'
+        ? baseFrameDurationMs * 0.85
+        : baseFrameDurationMs;
   const stillFrame = mode === 'day' ? 0 : 1;
+  const glowOpacity =
+    residentCount == null
+      ? 0.22
+      : residentCount <= 0
+        ? 0.08
+        : Math.min(0.4, 0.16 + residentCount * 0.035);
+  const residentOpacity = residentCount == null ? 1 : residentCount <= 0 ? 0.68 : 1;
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
@@ -93,10 +131,14 @@ export const FireMotion = memo(function FireMotionView({
       accessibilityRole="image"
       accessibilityLabel={`모닥불, ${modeLabel}${residentLabel ? `, ${residentLabel}` : ''}`}
       pointerEvents="none"
-      style={[styles.fill, style]}
+      style={[styles.fill, style, { opacity: residentOpacity }]}
     >
       {mode === 'evening' && (
-        <View testID="fire-motion-glow" pointerEvents="none" style={styles.glow} />
+        <View
+          testID="fire-motion-glow"
+          pointerEvents="none"
+          style={[styles.glow, { opacity: glowOpacity }]}
+        />
       )}
       {frames.map((source, index) => (
         <Image
@@ -119,9 +161,8 @@ const styles = StyleSheet.create({
     left: '17%',
     width: '66%',
     height: '66%',
-    borderRadius: 999,
+    borderRadius: semanticTokens.radius.full,
     backgroundColor: semanticTokens.color.accent,
-    opacity: 0.22,
   },
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },

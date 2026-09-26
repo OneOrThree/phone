@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
 import { AppState, type AppStateStatus } from 'react-native';
+import { MotionContext } from '@/design-system/primitives';
 import { FireMotion } from './FireMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
@@ -64,6 +65,25 @@ describe('FireMotion', () => {
     await view.unmount();
   });
 
+  it('residentCount changes the visible ember pace and glow intensity', async () => {
+    const empty = await render(<FireMotion mode="evening" residentCount={0} />);
+    const emptyGlow = empty
+      .getByTestId('fire-motion-glow')
+      .props.style.find((style: { opacity?: number }) => style?.opacity !== undefined).opacity;
+    await act(async () => jest.advanceTimersByTime(155));
+    expect(activeFrame(empty, 'evening')).toBe(1);
+    await empty.unmount();
+
+    const group = await render(<FireMotion mode="evening" residentCount={5} />);
+    const groupGlow = group
+      .getByTestId('fire-motion-glow')
+      .props.style.find((style: { opacity?: number }) => style?.opacity !== undefined).opacity;
+    await act(async () => jest.advanceTimersByTime(155));
+    expect(activeFrame(group, 'evening')).toBe(2);
+    expect(groupGlow).toBeGreaterThan(emptyGlow);
+    await group.unmount();
+  });
+
   it('hides the resident count when presence has not loaded', async () => {
     const view = await render(<FireMotion residentCount={null} />);
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toBe('모닥불, 저녁, 불꽃');
@@ -83,6 +103,17 @@ describe('FireMotion', () => {
     expect(activeFrame(view, 'evening')).toBe(2);
 
     await view.rerender(<FireMotion mode="evening" reduceMotion />);
+    await act(async () => jest.advanceTimersByTime(5_000));
+    expect(activeFrame(view, 'evening')).toBe(1);
+    await view.unmount();
+  });
+
+  it('MotionContext의 동작 줄이기 설정이 개별 prop 없이도 애니메이션을 멈춘다', async () => {
+    const view = await render(
+      <MotionContext.Provider value={true}>
+        <FireMotion mode="evening" />
+      </MotionContext.Provider>,
+    );
     await act(async () => jest.advanceTimersByTime(5_000));
     expect(activeFrame(view, 'evening')).toBe(1);
     await view.unmount();
