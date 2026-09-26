@@ -15,6 +15,7 @@ const motions = [
   'stretch',
   'groom',
   'focus',
+  'cast',
   'reading',
   'reel',
 ];
@@ -59,7 +60,7 @@ async function signature(page) {
         );
       assert.deepEqual(broken, [], `${motion}: 로딩되지 않은 이미지`);
       report.push({ motion, renderedStates: samples.size, broken });
-      if (['walking', 'yawn', 'stretch', 'groom', 'reading'].includes(motion)) {
+      if (['walking', 'yawn', 'stretch', 'groom', 'reading', 'cast'].includes(motion)) {
         if (['yawn', 'stretch', 'groom'].includes(motion)) {
           await page.getByTestId('motion-cat-ginger-frame-2').waitFor();
         }

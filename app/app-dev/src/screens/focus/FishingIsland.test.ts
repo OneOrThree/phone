@@ -67,7 +67,7 @@ test('도착 지점과 이어지지 않은 땅(연못 가운데 섬)은 걸어�
 });
 
 test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {
-  assert.equal(PEER_SPOTS.length, 14);
+  assert.equal(PEER_SPOTS.length, 15);
   assert.deepEqual(PEER_SPOTS[0], { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 });
   for (const [n, p] of PEER_SPOTS.entries()) {
     assert.ok(onLand(fishingGrid, p), `${n}`);
@@ -175,6 +175,24 @@ test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가�
   assert.equal(motion(), 'focus');
   await screen.unmount();
   jest.useRealTimers();
+});
+
+test('낚시 주민: cast 스프라이트 동작 중에는 정적 낚싯대를 겹치지 않는다', async () => {
+  const screen = await render(
+    React.createElement(FishingActor, {
+      spot: { x: 34.1, y: 55.9, face: 1 },
+      size: 640,
+      sizeY: 640 / 1.5,
+      color: 'ginger',
+      name: '주민',
+      seconds: 0,
+      reduce: false,
+      motion: 'cast',
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'cast');
+  assert.equal(screen.queryByTestId('fishing-actor-rod'), null);
+  await screen.unmount();
 });
 
 test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초기화 때 남지 않는다', async () => {

@@ -76,6 +76,13 @@ function useCatPlayback(
     setFrame(0);
     setIdleBehavior('blink');
     if (paused) {
+      if (onFinishRef.current && normalized === 'cast') {
+        // Reduce Motion·백그라운드에서는 시각 재생 없이 one-shot을 완료한다.
+        timer = setTimeout(() => {
+          if (cancelled) return;
+          onFinishRef.current?.();
+        }, 0);
+      }
       if (
         onFinishRef.current &&
         (normalized === 'tilt' ||
@@ -150,7 +157,9 @@ function useCatPlayback(
         animatedMotion === 'yawn';
       const targetCycles = isInteractive
         ? (INTERACTIVE_MOTION_CYCLES[animatedMotion as keyof typeof INTERACTIVE_MOTION_CYCLES] ?? 1)
-        : undefined;
+        : animatedMotion === 'cast'
+          ? 1
+          : undefined;
       const targetTicks = targetCycles ? totalFrames * targetCycles : undefined;
       let tick = 0;
       const advance = () => {
@@ -166,6 +175,7 @@ function useCatPlayback(
             }, catFrameDelay(animatedMotion));
             return;
           }
+          if (animatedMotion === 'cast') return;
         }
         timer = setTimeout(advance, catFrameDelay(animatedMotion));
       };
@@ -257,6 +267,8 @@ export function CatSprite({
     source = cat(color, `tilt/tilt-frame-${displayedFrame}`);
   } else if (effectiveMotion === 'focus') {
     source = cat(color, `fishing/fishing-frame-${displayedFrame}`);
+  } else if (effectiveMotion === 'cast') {
+    source = cat(color, `fishing/cast-frame-${displayedFrame}`);
   } else if (effectiveMotion === 'reel') {
     source = cat(color, `fishing/reel-frame-${displayedFrame}`);
   } else if (isReadingAtlas) {

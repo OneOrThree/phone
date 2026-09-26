@@ -1,6 +1,6 @@
 /** 고양이 스프라이트의 프레임 순서와 재생 간격을 한곳에서 관리한다. */
 export type CatMotion =
-  'idle' | 'walk' | 'read' | 'focus' | 'reel' | 'tilt' | 'yawn' | 'stretch' | 'groom';
+  'idle' | 'walk' | 'read' | 'focus' | 'cast' | 'reel' | 'tilt' | 'yawn' | 'stretch' | 'groom';
 
 export type LegacyCatMotion = 'blink' | 'walking' | 'reading' | 'reeling';
 export type CatMotionInput = CatMotion | LegacyCatMotion;
@@ -16,6 +16,7 @@ export const CAT_FRAME_SEQUENCES: Record<CatFrameMotion, readonly number[]> = {
   walk: [0, 1, 2, 3, 4, 5],
   read: [0, 1, 2, 3, 4, 5],
   focus: [0, 1, 2, 3],
+  cast: [0, 1, 2, 3],
   reel: [0, 1, 2, 3],
   tilt: [0, 1, 2, 2, 2, 1],
   yawn: [0, 1, 2, 3],
@@ -28,6 +29,7 @@ export const CAT_FRAME_DELAYS_MS: Record<CatFrameMotion, number> = {
   walk: 125,
   read: 220,
   focus: 250,
+  cast: 125,
   reel: 100,
   tilt: 260,
   yawn: 320,
