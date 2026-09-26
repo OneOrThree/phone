@@ -14,7 +14,6 @@ import { MotionContext } from '@/design-system/primitives';
 export type FireMotionMode = 'day' | 'evening';
 
 const flameFrames: readonly ImageSourcePropType[] = [
-  require('@/assets/village-world/motion/fire/frame-0.png'),
   require('@/assets/village-world/motion/fire/frame-1.png'),
   require('@/assets/village-world/motion/fire/frame-2.png'),
   require('@/assets/village-world/motion/fire/frame-3.png'),
@@ -25,10 +24,10 @@ const smokeFrames: readonly ImageSourcePropType[] = [
   require('@/assets/village-world/motion/fire-smoke-core/frame-2.png'),
   require('@/assets/village-world/motion/fire-smoke-core/frame-3.png'),
 ];
-const flameSequence = [1, 2, 3, 2] as const;
+const flameSequence = [0, 1, 2, 1] as const;
 const smokeSequence = [0, 1, 2, 3, 2, 1] as const;
-const quietFlameSequence = [1, 2, 1, 2] as const;
-const groupFlameSequence = [1, 2, 3, 2, 3, 2] as const;
+const quietFlameSequence = [0, 1, 0, 1] as const;
+const groupFlameSequence = [0, 1, 2, 1, 2, 1] as const;
 const quietSmokeSequence = [0, 0, 1, 0] as const;
 const groupSmokeSequence = [0, 1, 2, 3, 2, 1, 2, 1] as const;
 // 배경 base에 원본 돌 테두리·장작이 이미 그려져 있다. 밤 불꽃은 중앙 코어만 클립하고,
@@ -54,7 +53,7 @@ export const FireMotion = memo(function FireMotionView({
   testID?: string;
 }) {
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
-  const [frame, setFrame] = useState(mode === 'day' ? 0 : 1);
+  const [frame, setFrame] = useState(0);
   const motionDisabled = useContext(MotionContext) || reduceMotion;
   const paused = motionDisabled || appState !== 'active';
   const frames = mode === 'day' ? smokeFrames : flameFrames;
@@ -85,7 +84,7 @@ export const FireMotion = memo(function FireMotionView({
       : residentGroup === 'large'
         ? baseFrameDurationMs * 0.85
         : baseFrameDurationMs;
-  const stillFrame = mode === 'day' ? 0 : 1;
+  const stillFrame = 0;
   const quietFlame = mode === 'evening' && residentGroup === 'empty';
   const glowOpacity =
     residentCount == null

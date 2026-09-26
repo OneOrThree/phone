@@ -25,11 +25,11 @@ describe('FireMotion', () => {
   });
 
   const activeFrame = (view: MotionView, mode: 'day' | 'evening') =>
-    [0, 1, 2, 3].find((index) => {
+    Array.from({ length: mode === 'day' ? 4 : 3 }, (_, index) => index).find((index) => {
       return view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.opacity > 0;
     });
   const visibleFrameCount = (view: MotionView, mode: 'day' | 'evening') =>
-    [0, 1, 2, 3].filter((index) => {
+    Array.from({ length: mode === 'day' ? 4 : 3 }, (_, index) => index).filter((index) => {
       return view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.opacity > 0;
     }).length;
   const corePath = (view: MotionView) => view.getByTestId('fire-motion-core-path').props.d;
@@ -49,8 +49,8 @@ describe('FireMotion', () => {
 
   it('loops through evening flame frames every 155ms with a warm glow', async () => {
     const view = await render(<FireMotion mode="evening" residentCount={1} />);
-    expect(activeFrame(view, 'evening')).toBe(1);
-    expect(view.getByTestId('fire-motion-frame-evening-1').props.clipPath).toBe('fire-motion-core');
+    expect(activeFrame(view, 'evening')).toBe(0);
+    expect(view.getByTestId('fire-motion-frame-evening-0').props.clipPath).toBe('fire-motion-core');
     expect(corePath(view)).toContain('M165 16');
     expect(view.getByTestId('fire-motion-glow')).toBeTruthy();
     expect(view.getByTestId('fire-motion-night-off-core').props.d).toContain('M171 16');
@@ -59,7 +59,7 @@ describe('FireMotion', () => {
     });
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
-    expect(activeFrame(view, 'evening')).toBe(2);
+    expect(activeFrame(view, 'evening')).toBe(1);
     expect(visibleFrameCount(view, 'evening')).toBe(1);
     await view.unmount();
   });
@@ -80,7 +80,7 @@ describe('FireMotion', () => {
       expect.arrayContaining([expect.objectContaining({ opacity: 0.68 })]),
     );
     expect(empty.getByTestId('fire-motion-night-off-core').props.d).toContain('M171 16');
-    expect(empty.getByTestId('fire-motion-frame-evening-1').props).toMatchObject({
+    expect(empty.getByTestId('fire-motion-frame-evening-0').props).toMatchObject({
       opacity: 0.52,
       clipPath: 'fire-motion-quiet-core',
       x: 55,
@@ -93,7 +93,7 @@ describe('FireMotion', () => {
       .getByTestId('fire-motion-glow')
       .props.style.find((style: { opacity?: number }) => style?.opacity !== undefined).opacity;
     await act(async () => jest.advanceTimersByTime(210));
-    expect(activeFrame(empty, 'evening')).toBe(2);
+    expect(activeFrame(empty, 'evening')).toBe(1);
     await empty.unmount();
 
     const group = await render(<FireMotion mode="evening" residentCount={5} />);
@@ -101,7 +101,7 @@ describe('FireMotion', () => {
       .getByTestId('fire-motion-glow')
       .props.style.find((style: { opacity?: number }) => style?.opacity !== undefined).opacity;
     await act(async () => jest.advanceTimersByTime(155));
-    expect(activeFrame(group, 'evening')).toBe(2);
+    expect(activeFrame(group, 'evening')).toBe(1);
     expect(groupGlow).toBeGreaterThan(emptyGlow);
     await group.unmount();
   });
@@ -115,18 +115,18 @@ describe('FireMotion', () => {
   it('pauses in background and holds still when reduce motion is enabled', async () => {
     const view = await render(<FireMotion mode="evening" />);
     await act(async () => jest.advanceTimersByTime(155));
-    expect(activeFrame(view, 'evening')).toBe(2);
+    expect(activeFrame(view, 'evening')).toBe(1);
     await act(async () => onAppStateChange?.('background'));
-    expect(activeFrame(view, 'evening')).toBe(1);
+    expect(activeFrame(view, 'evening')).toBe(0);
     await act(async () => jest.advanceTimersByTime(5_000));
-    expect(activeFrame(view, 'evening')).toBe(1);
+    expect(activeFrame(view, 'evening')).toBe(0);
     await act(async () => onAppStateChange?.('active'));
     await act(async () => jest.advanceTimersByTime(155));
-    expect(activeFrame(view, 'evening')).toBe(2);
+    expect(activeFrame(view, 'evening')).toBe(1);
 
     await view.rerender(<FireMotion mode="evening" reduceMotion />);
     await act(async () => jest.advanceTimersByTime(5_000));
-    expect(activeFrame(view, 'evening')).toBe(1);
+    expect(activeFrame(view, 'evening')).toBe(0);
     await view.unmount();
   });
 
@@ -136,11 +136,11 @@ describe('FireMotion', () => {
       const view = await render(<FireMotion mode="evening" />);
       await act(async () => onAppStateChange?.('active'));
       await act(async () => jest.advanceTimersByTime(155));
-      expect(activeFrame(view, 'evening')).toBe(2);
+      expect(activeFrame(view, 'evening')).toBe(1);
       await act(async () => onAppStateChange?.(status));
-      expect(activeFrame(view, 'evening')).toBe(1);
+      expect(activeFrame(view, 'evening')).toBe(0);
       await act(async () => jest.advanceTimersByTime(5_000));
-      expect(activeFrame(view, 'evening')).toBe(1);
+      expect(activeFrame(view, 'evening')).toBe(0);
       await view.unmount();
     },
   );
@@ -152,7 +152,7 @@ describe('FireMotion', () => {
       </MotionContext.Provider>,
     );
     await act(async () => jest.advanceTimersByTime(5_000));
-    expect(activeFrame(view, 'evening')).toBe(1);
+    expect(activeFrame(view, 'evening')).toBe(0);
     await view.unmount();
   });
 

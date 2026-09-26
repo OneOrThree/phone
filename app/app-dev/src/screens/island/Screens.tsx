@@ -114,6 +114,7 @@ import {
   SearchField,
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
+import { useObservatoryRankIndicator } from '@/screens/island/useObservatoryRankIndicator';
 import { useShop } from '@/screens/island/useShop';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import {
@@ -808,7 +809,7 @@ export function RedesignScreens({ e }: any) {
   const server = e.islands;
   const shopBuildingStatus = useShopBuildingStatus({
     active: route === 'home' && !!server && !state.visitingIslandId,
-    acknowledge: route === 'shop' && !!server,
+    acknowledge: ['shop', 'product', 'orders'].includes(route) && !!server,
     islandId: state.serverIslands?.currentIslandId ?? null,
     userId: getSession()?.userId ?? null,
   });
@@ -839,8 +840,25 @@ export function RedesignScreens({ e }: any) {
   };
   // 서버 스냅샷 단축 — 첫 로드 전엔 undefined
   const snap = state.serverIslands;
-  // 전망대 주간 섬 랭킹(GROMO-2018) — 서버 모드이고 tower route 일 때만 조회한다
-  const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
+  // 서버 홈에서는 currentIsland 의 로컬 건물 목록이 비어 있을 수 있으므로, 완공 여부는
+  // 홈 스냅샷을 정본으로 사용한다. 구경 중에는 방문 섬의 로컬 상태를 유지한다.
+  const observatoryBuilt = state.visitingIslandId
+    ? island.buildings.includes('tower')
+    : (serverHome(state)?.completedBuildings ?? island.buildings).includes('tower');
+  // 전망대 주간 섬 랭킹(GROMO-2018) — 홈 지도 배지와 전망대 화면이 같은 서버 정본을 쓴다.
+  const islandRankings = useIslandRankings({
+    active:
+      ['home', 'tower'].includes(route) && !!server && !state.visitingIslandId && observatoryBuilt,
+    islandId: snap?.currentIslandId ?? null,
+  });
+  const observatoryRankState = useObservatoryRankIndicator({
+    active: !!server && !state.visitingIslandId && observatoryBuilt,
+    userId: getSession()?.userId ?? null,
+    islandId: snap?.currentIslandId ?? null,
+    week: islandRankings.week,
+    rank: islandRankings.status === 'ready' ? (islandRankings.data?.myRank ?? null) : undefined,
+    viewed: route === 'tower',
+  });
   // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
   // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
   const shopApi = useShop({
@@ -1015,6 +1033,7 @@ export function RedesignScreens({ e }: any) {
         state={state}
         go={go}
         build={build}
+        observatoryRankState={observatoryRankState}
         showHud={route !== 'focusSetup'}
         showActions={false}
         shopState={shopBuildingStatus}
@@ -2324,6 +2343,7 @@ export function RedesignScreens({ e }: any) {
             state={state}
             go={go}
             build={build}
+            observatoryRankState={observatoryRankState}
             request={e.walkRequest}
             notify={notify}
             dispatch={dispatch}

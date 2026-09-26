@@ -19,6 +19,7 @@ export function VillageHallMotion({
   state = 'normal',
   highlighted = false,
   tooltip,
+  showFrames = true,
   reduceMotion = false,
   generation = 0,
   style,
@@ -27,6 +28,7 @@ export function VillageHallMotion({
   state?: VillageHallState;
   highlighted?: boolean;
   tooltip?: ReactNode;
+  showFrames?: boolean;
   reduceMotion?: boolean;
   generation?: number;
   style?: ViewStyle;
@@ -48,15 +50,16 @@ export function VillageHallMotion({
 
   return (
     <View testID={testID} style={[styles.root, style]}>
-      {frames.map((source, index) => (
-        <Image
-          key={index}
-          testID={`village-hall-frame-${index}`}
-          source={source}
-          resizeMode="stretch"
-          style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
-        />
-      ))}
+      {showFrames &&
+        frames.map((source, index) => (
+          <Image
+            key={index}
+            testID={`village-hall-frame-${index}`}
+            source={source}
+            resizeMode="stretch"
+            style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
+          />
+        ))}
       {highlighted && (
         <View pointerEvents="none" testID="village-hall-highlight" style={styles.highlight} />
       )}

@@ -1,5 +1,8 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { componentTokens } from '@/design-system/tokens';
+import { Text } from '@/design-system/typography';
 import { VillageBoardIndicator } from './VillageBoardIndicator';
 
 describe('VillageBoardIndicator', () => {
@@ -27,6 +30,39 @@ describe('VillageBoardIndicator', () => {
     expect(view.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
       '새 댓글이 있습니다',
     );
+    await view.unmount();
+  });
+
+  it('scales badge size, radius, and outline from the component token', async () => {
+    const scale = 0.72;
+    const view = await render(<VillageBoardIndicator hasUnread indicatorScale={scale} />);
+    const style = StyleSheet.flatten(view.getByTestId('village-board-new-indicator').props.style);
+
+    expect(style.width).toBe(componentTokens.villageNotificationBadge.diameter * scale);
+    expect(style.height).toBe(componentTokens.villageNotificationBadge.diameter * scale);
+    expect(style.borderRadius).toBe(componentTokens.villageNotificationBadge.radius * scale);
+    expect(style.borderWidth).toBe(componentTokens.villageNotificationBadge.borderWidth);
+    await view.unmount();
+  });
+
+  it('can render an indicator over a layered board without a duplicate image', async () => {
+    const view = await render(
+      <VillageBoardIndicator
+        showBoardImage={false}
+        hasNewComment
+        tooltip={<Text>새 댓글이 있어요</Text>}
+        testID="layered-board-indicator"
+      />,
+    );
+    expect(view.queryByTestId('village-board-still-image')).toBeNull();
+    expect(view.getByTestId('village-board-new-indicator')).toBeTruthy();
+    expect(view.getByTestId('village-board-tooltip')).toBeTruthy();
+    const tooltipStyle = StyleSheet.flatten(view.getByTestId('village-board-tooltip').props.style);
+    expect(tooltipStyle.maxWidth).toBe(componentTokens.villageNotificationTooltip.maxWidth);
+    expect(tooltipStyle.paddingVertical).toBe(
+      componentTokens.villageNotificationTooltip.paddingVertical,
+    );
+    expect(tooltipStyle.borderWidth).toBe(componentTokens.villageNotificationTooltip.borderWidth);
     await view.unmount();
   });
 });

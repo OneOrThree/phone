@@ -90,5 +90,22 @@ describe('design system tokens', () => {
     expect(componentTokens.shopStatusLabel.fontSize).toBe(semanticTokens.typography.label);
     expect(componentTokens.shopStatusLabel.radius).toBe(semanticTokens.radius.full);
     expect(componentTokens.shopStatusLabel.borderWidth).toBe(semanticTokens.stroke.default);
+    expect(componentTokens.shopStatusLabel.highlightRadius).toBe(semanticTokens.radius.control);
+    expect(componentTokens.shopStatusLabel.highlightBorderWidth).toBe(semanticTokens.stroke.strong);
+  });
+
+  it('마을 새 소식 배지 치수를 전용 component token으로 관리한다', () => {
+    expect(componentTokens.villageNotificationBadge).toEqual({
+      diameter: 25,
+      radius: 13,
+      borderWidth: semanticTokens.stroke.default,
+      topOffset: -11,
+      rightOffset: 21,
+    });
+    expect(componentTokens.villageNotificationTooltip).toEqual({
+      maxWidth: 180,
+      paddingVertical: primitiveTokens.space[2],
+      borderWidth: semanticTokens.stroke.default,
+    });
   });
 });

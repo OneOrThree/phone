@@ -1,8 +1,8 @@
-import React, { useContext, useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState, type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
 import { Text } from '@/design-system/typography';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 
 export type ObservatoryRankState = 'normal' | 'rank-updated' | 'rank-changed';
 export type ObservatoryDayNight = 'day' | 'night';
@@ -15,6 +15,8 @@ const frames: readonly ImageSourcePropType[] = [
 ];
 const sequence = [0, 1, 2, 3] as const;
 const frameDuration = 220;
+/** 4프레임을 모두 노출하고 마지막 프레임도 한 간격 유지하는 전망대 진입 길이. */
+export const OBSERVATORY_ENTRY_DURATION_MS = frameDuration * sequence.length;
 
 /** 전망대 망원경의 4프레임 줌/조리개 idle 모션과 랭킹 상태를 표시한다. */
 export function VillageObservatoryMotion({
@@ -22,6 +24,9 @@ export function VillageObservatoryMotion({
   dayNight = 'day',
   generation = 0,
   showFrames = true,
+  entryActive = false,
+  entryTooltip,
+  indicatorScale = 1,
   reduceMotion = false,
   style,
   testID = 'village-observatory-motion',
@@ -30,6 +35,9 @@ export function VillageObservatoryMotion({
   dayNight?: ObservatoryDayNight;
   generation?: number;
   showFrames?: boolean;
+  entryActive?: boolean;
+  entryTooltip?: ReactNode;
+  indicatorScale?: number;
   reduceMotion?: boolean;
   style?: ViewStyle;
   testID?: string;
@@ -58,7 +66,10 @@ export function VillageObservatoryMotion({
   return (
     <View
       testID={testID}
-      accessibilityLabel={`전망대, ${dayNight === 'day' ? '낮' : '밤'}${rankLabel ? `, ${rankLabel}` : ''}`}
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden
       style={[styles.root, style]}
     >
       {showFrames &&
@@ -72,9 +83,45 @@ export function VillageObservatoryMotion({
           />
         ))}
       {rankLabel && (
-        <View testID="village-observatory-rank-indicator" style={styles.badge}>
-          <Text style={styles.badgeText}>↑</Text>
+        <View
+          testID="village-observatory-rank-indicator"
+          style={[
+            styles.badge,
+            {
+              width: componentTokens.villageNotificationBadge.diameter * indicatorScale,
+              height: componentTokens.villageNotificationBadge.diameter * indicatorScale,
+              borderRadius: componentTokens.villageNotificationBadge.radius * indicatorScale,
+              borderWidth: componentTokens.villageNotificationBadge.borderWidth * indicatorScale,
+            },
+          ]}
+        >
+          <Text
+            allowFontScaling={false}
+            tabletScale={1}
+            style={[
+              styles.badgeText,
+              { fontSize: 15 * indicatorScale, lineHeight: 18 * indicatorScale },
+            ]}
+          >
+            !
+          </Text>
         </View>
+      )}
+      {entryActive && dayNight === 'night' && (
+        <>
+          <View
+            testID="village-observatory-entry-highlight"
+            pointerEvents="none"
+            style={styles.entryHighlight}
+          />
+          <View
+            testID="village-observatory-entry-feedback"
+            pointerEvents="none"
+            style={styles.entryFeedback}
+          >
+            {entryTooltip}
+          </View>
+        </>
       )}
     </View>
   );
@@ -89,15 +136,38 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 0,
     right: 0,
-    minWidth: 24,
-    height: 24,
-    paddingHorizontal: 5,
+    paddingHorizontal: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: semanticTokens.color.accent,
-    borderColor: semanticTokens.color.outline,
-    borderWidth: 1.5,
-    borderRadius: semanticTokens.radius.full,
+    backgroundColor: componentTokens.badge.default.background,
+    borderColor: componentTokens.badge.default.border,
   },
-  badgeText: { color: semanticTokens.color.text, fontSize: 15, fontWeight: '800', lineHeight: 18 },
+  badgeText: {
+    color: componentTokens.badge.default.foreground,
+    fontSize: 15,
+    fontWeight: '800',
+    lineHeight: 18,
+  },
+  entryHighlight: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    borderWidth: semanticTokens.stroke.strong,
+    borderColor: semanticTokens.color.accent,
+    borderRadius: semanticTokens.radius.preview,
+  },
+  entryFeedback: {
+    position: 'absolute',
+    alignSelf: 'center',
+    top: -30,
+    maxWidth: 180,
+    paddingHorizontal: semanticTokens.spacing.control,
+    paddingVertical: semanticTokens.spacing.control,
+    backgroundColor: semanticTokens.color.surface,
+    borderColor: semanticTokens.color.outline,
+    borderWidth: semanticTokens.stroke.default,
+    borderRadius: semanticTokens.radius.control,
+  },
 });

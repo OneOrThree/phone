@@ -12,7 +12,8 @@ export function updateShopCatalogSnapshot(
   if (!previous) return { knownIds: items.map((item) => item.id), pendingIds: [] };
 
   const known = new Set(previous.knownIds);
-  const pending = new Set(previous.pendingIds);
+  const available = new Set(availableIds);
+  const pending = new Set(previous.pendingIds.filter((id) => available.has(id)));
   for (const id of availableIds) {
     if (!known.has(id)) pending.add(id);
   }

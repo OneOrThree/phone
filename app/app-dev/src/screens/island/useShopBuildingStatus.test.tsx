@@ -80,6 +80,16 @@ it('사용 불가이거나 이미 보유한 상품은 구매 상태로 표시하
   expect(next.pendingIds).toEqual([]);
 });
 
+it('판매 중지되거나 이미 보유하게 된 신규 상품은 pending 상태에서 제거한다', () => {
+  const previous = { knownIds: ['shirt', 'hat'], pendingIds: ['hat', 'scarf'] };
+  const next = updateShopCatalogSnapshot(previous, [
+    item('shirt'),
+    item('hat', { available: false }),
+    item('scarf', { owned: true }),
+  ] as any);
+  expect(next.pendingIds).toEqual([]);
+});
+
 it('새 상품 알림을 서버 카탈로그에서 관찰하고 scope별로 저장한다', async () => {
   const hook = await renderHook(() =>
     useShopBuildingStatus({

@@ -4,6 +4,8 @@ import { Animated, AppState } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState, residentCount } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
+import { OBSERVATORY_ENTRY_DURATION_MS } from '@/components/village-motion/VillageObservatoryMotion';
+import { villageScene } from '@/utils/village-world';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -36,13 +38,11 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
     expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
   );
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
-  const worldLeft = 402 / 2 - 585 * worldScale;
-  const worldTop = 874 / 2 - 430 * worldScale;
   expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 950 * worldScale,
-        top: worldTop + 20 * worldScale,
+        left: 402 / 2 - 585 * worldScale + 950 * worldScale,
+        top: 874 / 2 - 430 * worldScale + 20 * worldScale,
         width: 242 * worldScale,
         height: 244 * worldScale,
       }),
@@ -74,13 +74,11 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   expect(screen.queryByTestId('world-static-building-board')).toBeNull();
   expect(screen.queryByTestId('village-board-new-indicator')).toBeNull();
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
-  const worldLeft = 402 / 2 - 585 * worldScale;
-  const worldTop = 874 / 2 - 430 * worldScale;
   expect(screen.getByTestId('world-board-indicator').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 858 * worldScale,
-        top: worldTop + 158 * worldScale,
+        left: 402 / 2 - 585 * worldScale + 858 * worldScale,
+        top: 874 / 2 - 430 * worldScale + 158 * worldScale,
         width: 80 * worldScale,
         height: 80 * worldScale,
       }),
@@ -105,23 +103,26 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   const screen = await render(<WorldMap state={state} />);
   const activeFrame = () =>
     [0, 1, 2, 3].find((index) => {
-      const style = screen.getByTestId(`village-observatory-frame-${index}`).props.style;
+      const style = screen.getByTestId(`village-observatory-frame-${index}`, {
+        includeHiddenElements: true,
+      }).props.style;
       return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
     });
-  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
-  const worldLeft = 402 / 2 - 585 * worldScale;
-  const worldTop = 874 / 2 - 430 * worldScale;
 
   await act(async () => jest.advanceTimersByTime(2000));
   expect(activeFrame()).toBe(0);
-  expect(screen.getByTestId('world-observatory-motion').props.accessibilityLabel).toContain('낮');
-  expect(screen.getByTestId('world-observatory-motion').props.style).toEqual(
+  expect(
+    screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }).props
+      .accessibilityElementsHidden,
+  ).toBe(true);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  expect(
+    screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }).props.style,
+  ).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 152 * worldScale,
-        top: worldTop + 23 * worldScale,
-        width: 112 * worldScale,
-        height: 193 * worldScale,
+        left: 201 - 585 * worldScale + 152 * worldScale,
+        top: 437 - 430 * worldScale + 23 * worldScale,
       }),
     ]),
   );
@@ -134,119 +135,156 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   jest.useRealTimers();
 });
 
-test('홈 상점은 실제 월드 배율로 놓이고 상태 입력이 없으면 강조를 숨긴다', async () => {
+test('주간 전망대 테마는 대기 중 유지하고 진입 모션 중에만 숨긴다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
-  if (!island.buildings.includes('shop')) island.buildings.push('shop');
-  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
-  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
-  const worldLeft = 402 / 2 - 585 * worldScale;
-  const worldTop = 874 / 2 - 430 * worldScale;
+  island.buildingThemes = { ...island.buildingThemes, tower: 'rose' };
+  const screen = await render(<WorldMap state={state} />);
 
-  expect(screen.queryByTestId('world-static-building-shop')).toBeNull();
+  expect(screen.getByTestId('world-themed-building-tower')).toBeTruthy();
+  await screen.rerender(<WorldMap state={state} towerArrivalActive towerArrivalGeneration={1} />);
+
+  expect(screen.queryByTestId('world-themed-building-tower')).toBeNull();
   expect(
-    screen.getByTestId('world-shop-motion', { includeHiddenElements: true }).props.style,
-  ).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        left: worldLeft + 456 * worldScale,
-        top: worldTop + 580 * worldScale,
-        width: 262 * worldScale,
-        height: 199 * worldScale,
-      }),
-    ]),
-  );
-  expect(screen.getByLabelText('상점')).toBeTruthy();
-  expect(screen.queryByTestId('shop-motion-tooltip', { includeHiddenElements: true })).toBeNull();
+    screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  await screen.rerender(<WorldMap state={state} />);
+  expect(screen.getByTestId('world-themed-building-tower')).toBeTruthy();
 
-  await screen.rerender(
-    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} shopState="purchasable" />,
-  );
-  screen.getByLabelText(`${buildingNames.shop}, 구매 가능한 상품이 있어요`);
-  expect(screen.getByTestId('shop-motion-tooltip', { includeHiddenElements: true })).toBeTruthy();
+  jest.setSystemTime(new Date('2026-06-15T22:00:00'));
+  await act(async () => {
+    jest.advanceTimersByTime(60_000);
+  });
+  expect(screen.getByTestId('world-themed-building-tower')).toBeTruthy();
   await screen.unmount();
   jest.useRealTimers();
 });
 
-test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
+test('야간 건물 진입은 주간 스프라이트 없이도 강조 피드백을 제공한다', async () => {
   jest.useFakeTimers();
-  AppState.currentState = 'active';
-  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  jest.setSystemTime(new Date(2026, 5, 15, 22));
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
-  const screen = await render(<WorldMap state={state} />);
+  for (const building of ['hall', 'board', 'tower'] as const) {
+    if (!island.buildings.includes(building)) island.buildings.push(building);
+  }
+  const screen = await render(
+    <WorldMap
+      state={state}
+      hallMotionActive
+      hallMotionGeneration={1}
+      towerArrivalActive
+      towerArrivalGeneration={1}
+    />,
+  );
+
+  expect(screen.getByTestId('world-static-building-hall')).toBeTruthy();
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   const worldLeft = 402 / 2 - 585 * worldScale;
   const worldTop = 874 / 2 - 430 * worldScale;
-
-  expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
-    `모닥불, 낮, 연기, 주민 ${residentCount(island)}명`,
-  );
-  expect(screen.getByTestId('world-fire-motion').props.style).toEqual(
+  expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 420 * worldScale,
-        top: worldTop + 443 * worldScale,
-        width: 100 * worldScale,
-        height: 71 * worldScale,
+        left: worldLeft + 950 * worldScale,
+        top: worldTop + 20 * worldScale,
       }),
     ]),
   );
-  expect(screen.getByTestId('world-fire-day-off-overlay').props.style).toEqual(
-    expect.objectContaining({
-      left: worldLeft + 440 * worldScale,
-      top: worldTop + 435 * worldScale,
-      width: 60 * worldScale,
-      height: 80 * worldScale,
-    }),
+  expect(screen.queryByTestId('village-hall-frame-0')).toBeNull();
+  expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
+  expect(screen.getByText('마을 회관에 들어가는 중')).toBeTruthy();
+  expect(screen.getByTestId('world-static-building-board')).toBeTruthy();
+  expect(screen.getByTestId('world-board-indicator').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 858 * worldScale,
+        top: worldTop + 158 * worldScale,
+      }),
+    ]),
   );
-  await act(async () => jest.advanceTimersByTime(360));
-  expect(screen.getByTestId('fire-motion-frame-day-1').props.opacity).toBe(1);
 
+  expect(screen.getByTestId('world-static-building-tower')).toBeTruthy();
+  expect(
+    screen.queryByTestId('village-observatory-frame-0', { includeHiddenElements: true }),
+  ).toBeNull();
+  expect(
+    screen.getByTestId('village-observatory-entry-highlight', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    screen.getByTestId('village-observatory-entry-feedback', { includeHiddenElements: true }),
+  ).toBeTruthy();
   await screen.unmount();
-  jest.setSystemTime(new Date('2026-06-15T21:00:00'));
-  const night = await render(<WorldMap state={state} />);
-  expect(night.queryByTestId('world-fire-day-off-overlay')).toBeNull();
-  expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
-    `모닥불, 저녁, 불꽃, 주민 ${residentCount(island)}명`,
-  );
-  expect(night.getByTestId('fire-motion-glow')).toBeTruthy();
-  await night.unmount();
   jest.useRealTimers();
 });
 
-test('서버 홈 모닥불 주민 수는 로컬 목업의 가입자 기본값 대신 서버 memberCount를 쓴다', async () => {
-  jest.useFakeTimers();
-  jest.setSystemTime(new Date('2026-06-15T21:00:00'));
+test('랭킹 상태는 전망대 건물 버튼의 접근성 라벨에만 포함한다', async () => {
   const state = initialState(true);
-  state.serverIslands = {
-    ...state.serverIslands,
-    currentIslandId: 'server-home',
-    home: {
-      islandId: 'server-home',
-      home: {
-        island: {
-          id: 'server-home',
-          name: '서버 홈',
-          intro: '',
-          approvalRequired: false,
-          maxMembers: 10,
-          memberCount: 0,
-        },
-        wallets: { villagePoints: 0 },
-        focusSummary: { totalSeconds: 0 },
-      },
-      completedBuildings: [],
-      members: [],
-    },
-  } as any;
-
-  const screen = await render(<WorldMap state={state} />);
-  expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
-    '모닥불, 저녁, 불꽃, 주민 없음',
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('tower')) island.buildings.push('tower');
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      observatoryRankState="rank-changed"
+      showHud={false}
+      showActions={false}
+    />,
   );
+
+  expect(screen.getByLabelText(`${buildingNames.tower}, 주간 순위가 변동되었습니다`)).toBeTruthy();
+  expect(
+    screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }).props
+      .accessibilityElementsHidden,
+  ).toBe(true);
+  await screen.unmount();
+});
+
+test('레이어드 마을에서도 게시판 상태를 VillageScenery 알림에 전달한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('board')) island.buildings.push('board');
+  const screen = await render(
+    <WorldMap state={state} village={villageScene(['board'])} boardStatus="new-comment" />,
+  );
+
+  expect(screen.queryByTestId('world-board-indicator')).toBeNull();
+  expect(screen.getByTestId('village-board-scene-indicator')).toBeTruthy();
+  expect(screen.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
+    '새 댓글이 있습니다',
+  );
+  expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('레이어드 마을 전망대에도 순위 알림과 진입 모션을 전달한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const screen = await render(
+    <WorldMap
+      state={state}
+      village={villageScene(['tower'])}
+      observatoryRankState="rank-updated"
+      towerArrivalActive
+      towerArrivalGeneration={4}
+    />,
+  );
+
+  expect(
+    screen.getByTestId('village-observatory-motion', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    screen.getByTestId('village-observatory-rank-indicator', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    screen.getByTestId('village-observatory-frame-0', { includeHiddenElements: true }),
+  ).toBeTruthy();
   await screen.unmount();
   jest.useRealTimers();
 });
@@ -348,6 +386,46 @@ test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 
   }
 });
 
+test('전망대 진입 전환은 마지막 프레임 노출을 마친 뒤 route를 연다', async () => {
+  jest.useFakeTimers();
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  const state = initialState(true);
+  const go = jest.fn();
+  try {
+    const screen = await render(
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
+    );
+    await fireEvent.press(screen.getByLabelText(buildingNames.tower));
+    expect(
+      screen.getByTestId('final-island-content', { includeHiddenElements: true }).props
+        .accessibilityElementsHidden,
+    ).toBe(true);
+    expect(screen.getByLabelText('전망대에 들어가는 중')).toBeTruthy();
+    await act(async () => {
+      jest.advanceTimersByTime(OBSERVATORY_ENTRY_DURATION_MS);
+    });
+    expect(go).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+    });
+    expect(go).toHaveBeenCalledWith('tower');
+    expect(
+      screen.getByTestId('final-island-content', { includeHiddenElements: true }).props
+        .accessibilityElementsHidden,
+    ).toBe(false);
+  } finally {
+    timing.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
 test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다', async () => {
   const timing = jest.spyOn(Animated, 'timing').mockImplementation(
     (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
@@ -374,25 +452,73 @@ test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다'
   }
 });
 
-test('방문 중인 상점은 상품 상태보다 주민 전용 안내를 먼저 읽는다', async () => {
+test('홈 상점은 월드 배율을 따르고 상품 상태를 접근성 버튼에 표시한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
-  const visited = state.islands.find((island) => island.id === 'cloud')!;
-  if (!visited.buildings.includes('shop')) visited.buildings.push('shop');
-  state.visitingIslandId = visited.id;
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('shop')) island.buildings.push('shop');
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
 
-  const screen = await render(
-    <FinalIsland
-      state={state}
-      go={jest.fn()}
-      build={jest.fn()}
-      shopState="purchasable"
-      showHud={false}
-      showActions={false}
-    />,
+  expect(screen.queryByTestId('world-static-building-shop')).toBeNull();
+  expect(
+    screen.getByTestId('world-shop-motion', { includeHiddenElements: true }).props.style,
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 456 * worldScale,
+        top: worldTop + 580 * worldScale,
+        width: 262 * worldScale,
+        height: 199 * worldScale,
+      }),
+    ]),
   );
+  expect(screen.getByLabelText('상점')).toBeTruthy();
 
-  expect(screen.getByLabelText('상점, 구매 가능한 상품이 있어요').props.accessibilityHint).toBe(
-    '주민만 이용할 수 있어요',
+  await screen.rerender(
+    <FinalIsland state={state} go={jest.fn()} build={jest.fn()} shopState="purchasable" />,
   );
+  expect(screen.getByLabelText(`${buildingNames.shop}, 구매 가능한 상품이 있어요`)).toBeTruthy();
+  expect(screen.getByTestId('shop-motion-tooltip', { includeHiddenElements: true })).toBeTruthy();
   await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('모닥불은 낮 연기와 저녁 불꽃을 표시하고 서버 주민 수를 쓴다', async () => {
+  jest.useFakeTimers();
+  AppState.currentState = 'active';
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  const screen = await render(<WorldMap state={state} />);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
+
+  expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
+    `모닥불, 낮, 연기, 주민 ${residentCount(island)}명`,
+  );
+  expect(screen.getByTestId('world-fire-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 420 * worldScale,
+        top: worldTop + 443 * worldScale,
+        width: 100 * worldScale,
+        height: 71 * worldScale,
+      }),
+    ]),
+  );
+  expect(screen.getByTestId('world-fire-day-off-overlay')).toBeTruthy();
+
+  await screen.unmount();
+  jest.setSystemTime(new Date('2026-06-15T21:00:00'));
+  const night = await render(<WorldMap state={state} />);
+  expect(night.queryByTestId('world-fire-day-off-overlay')).toBeNull();
+  expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toContain('저녁, 불꽃');
+  expect(night.getByTestId('fire-motion-glow')).toBeTruthy();
+  await night.unmount();
+  jest.useRealTimers();
 });

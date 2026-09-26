@@ -1,5 +1,7 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { componentTokens } from '@/design-system/tokens';
 import { ShopMotion } from './ShopMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
@@ -50,24 +52,26 @@ describe('ShopMotion', () => {
     expect(
       view.getByTestId('shop-motion', { includeHiddenElements: true }).props
         .importantForAccessibility,
-    ).toBe(
-      'no-hide-descendants',
-    );
+    ).toBe('no-hide-descendants');
     expect(view.queryByLabelText(label)).toBeNull();
     if (state === 'normal') {
       expect(
         view.queryByTestId('shop-motion-highlight', { includeHiddenElements: true }),
       ).toBeNull();
-      expect(
-        view.queryByTestId('shop-motion-tooltip', { includeHiddenElements: true }),
-      ).toBeNull();
+      expect(view.queryByTestId('shop-motion-tooltip', { includeHiddenElements: true })).toBeNull();
     } else {
       expect(
         view.getByTestId('shop-motion-highlight', { includeHiddenElements: true }),
       ).toBeTruthy();
+      expect(view.getByTestId('shop-motion-tooltip', { includeHiddenElements: true })).toBeTruthy();
       expect(
-        view.getByTestId('shop-motion-tooltip', { includeHiddenElements: true }),
-      ).toBeTruthy();
+        StyleSheet.flatten(
+          view.getByTestId('shop-motion-highlight', { includeHiddenElements: true }).props.style,
+        ),
+      ).toMatchObject({
+        borderRadius: componentTokens.shopStatusLabel.highlightRadius,
+        borderWidth: componentTokens.shopStatusLabel.highlightBorderWidth,
+      });
     }
     await view.unmount();
   });

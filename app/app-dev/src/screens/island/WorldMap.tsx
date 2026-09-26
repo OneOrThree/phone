@@ -25,8 +25,8 @@ import {
   isHost,
   buildingCost,
   buildMinutes,
+  residentCount,
   todayFocusSeconds,
-  residentCount as islandResidentCount,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
@@ -54,6 +54,7 @@ import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import {
   BUILDING_TRANSITION_ROUTE,
+  BUILDING_TRANSITION_DURATION_MS,
   createBuildingTransitionController,
   runBuildingEntryWalk,
   type BuildingTransitionState,
@@ -62,12 +63,13 @@ import {
 import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
-import {
-  VillageObservatoryMotion,
-  type ObservatoryRankState,
-} from '@/components/village-motion/VillageObservatoryMotion';
 import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
 import { FireMotion } from '@/components/village-motion/FireMotion';
+import {
+  VillageObservatoryMotion,
+  OBSERVATORY_ENTRY_DURATION_MS,
+  type ObservatoryRankState,
+} from '@/components/village-motion/VillageObservatoryMotion';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -268,7 +270,7 @@ export function WorldMap({
   const fireResidentCount =
     homeFacts?.home.island.id === island.id
       ? homeFacts.home.island.memberCount
-      : islandResidentCount(island);
+      : residentCount(island);
   useEffect(() => {
     const updateLocalTime = () => {
       const hour = new Date().getHours();
@@ -507,11 +509,12 @@ export function WorldMap({
               resizeMode="contain"
             />
           )}
-          {island.buildings.includes('hall') && dayNight === 'day' && (
+          {island.buildings.includes('hall') && (
             <VillageHallMotion
               testID="world-hall-motion"
-              state={hallMotionActive ? 'arrival' : 'normal'}
+              state={hallMotionActive && dayNight === 'day' ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
+              showFrames={dayNight === 'day'}
               highlighted={hallMotionActive}
               tooltip={
                 hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
@@ -552,9 +555,12 @@ export function WorldMap({
             <VillageObservatoryMotion
               testID="world-observatory-motion"
               rankState={observatoryRankState}
+              indicatorScale={scale}
               dayNight={dayNight}
               showFrames={dayNight === 'day'}
               generation={dayNight === 'day' && towerArrivalActive ? towerArrivalGeneration : 0}
+              entryActive={towerArrivalActive}
+              entryTooltip={<Txt kind="meta">전망대에 들어가는 중</Txt>}
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
@@ -601,7 +607,6 @@ export function WorldMap({
             reduceMotion={state.settings.reduceMotion}
             style={{
               position: 'absolute',
-              // 정적 돌·장작은 base에 보존하고 실제 불꽃 코어만 source 경계에 맞춰 덮는다.
               left: left + 420 * scale,
               top: top + 443 * scale,
               width: 100 * scale,
@@ -630,12 +635,14 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
+                !(b === 'tower' && dayNight === 'day' && towerArrivalActive) &&
                 island.buildingThemes?.[b] &&
                 island.buildingThemes?.[b] !== 'default',
             )
             .map((b) => (
               <Image
                 key={b}
+                testID={`world-themed-building-${b}`}
                 source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
@@ -667,6 +674,11 @@ export function WorldMap({
             scale={scale}
             reduce={state.settings.reduceMotion}
             mailboxLetters={mailboxLetters}
+            boardStatus={boardStatus}
+            observatoryRankState={observatoryRankState}
+            towerArrivalActive={towerArrivalActive}
+            towerArrivalGeneration={towerArrivalGeneration}
+            dayNight={dayNight}
           />
         )}
         {typeof children === 'function'
@@ -979,11 +991,15 @@ function FinalIslandScene({
                       ? `${d.label}, 새 댓글이 있어요`
                       : d.building === 'board' && boardStatus === 'unread'
                         ? `${d.label}, 읽지 않은 새 소식이 있어요`
-                        : d.building === 'shop' && shopState === 'new-product'
-                          ? `${d.label}, 새 상품이 있어요`
-                          : d.building === 'shop' && shopState === 'purchasable'
-                            ? `${d.label}, 구매 가능한 상품이 있어요`
-                            : d.label
+                        : d.building === 'tower' && observatoryRankState === 'rank-updated'
+                          ? `${d.label}, 주간 순위가 갱신되었습니다`
+                          : d.building === 'tower' && observatoryRankState === 'rank-changed'
+                            ? `${d.label}, 주간 순위가 변동되었습니다`
+                            : !visiting && d.building === 'shop' && shopState === 'new-product'
+                              ? `${d.label}, 새 상품이 있어요`
+                              : !visiting && d.building === 'shop' && shopState === 'purchasable'
+                                ? `${d.label}, 구매 가능한 상품이 있어요`
+                                : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
@@ -991,11 +1007,13 @@ function FinalIslandScene({
                     ? '터치하면 마을 회관으로 들어가요'
                     : d.building === 'board' && !!boardStatus
                       ? '게시판을 열어 확인하세요'
-                      : visiting && d.building && !['hall', 'board'].includes(d.building)
-                        ? '주민만 이용할 수 있어요'
-                        : d.building === 'shop' && shopState !== 'normal'
+                      : d.building === 'tower' && observatoryRankState !== 'normal'
+                        ? '전망대에서 주간 섬 순위를 확인하세요'
+                        : !visiting && d.building === 'shop' && shopState !== 'normal'
                           ? '상점에서 상품을 확인하세요'
-                          : undefined
+                          : visiting && d.building && !['hall', 'board'].includes(d.building)
+                            ? '주민만 이용할 수 있어요'
+                            : undefined
                 }
                 onPress={() => {
                   if (!visiting) {
@@ -1018,6 +1036,9 @@ function FinalIslandScene({
                         'enter',
                         state.settings.reduceMotion,
                         () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
+                        transitionTarget === 'tower'
+                          ? OBSERVATORY_ENTRY_DURATION_MS + BUILDING_TRANSITION_DURATION_MS
+                          : BUILDING_TRANSITION_DURATION_MS,
                       );
                     };
                     if (transitionTarget) {
@@ -1137,209 +1158,223 @@ function FinalIslandScene({
       (i.quests.length > 0 || rewardCount > 0);
   return (
     <View style={{ flex: 1 }}>
-      <WorldMap
-        state={state}
-        village={scene}
-        islandId={i.id}
-        hallMotionActive={
-          buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
+      <View
+        testID="final-island-content"
+        style={{ flex: 1 }}
+        accessibilityElementsHidden={buildingTransition.phase !== 'idle'}
+        importantForAccessibility={
+          buildingTransition.phase !== 'idle' ? 'no-hide-descendants' : 'auto'
         }
-        hallMotionGeneration={buildingTransition.generation}
-        boardStatus={boardStatus}
-        observatoryRankState={observatoryRankState}
-        shopState={shopState}
-        towerArrivalActive={
-          buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
-        }
-        towerArrivalGeneration={buildingTransition.generation}
-        showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
-        onSpot={
-          visiting
-            ? undefined
-            : (p) => {
-                if (!buildingEntryPending.current) walk(p);
-              }
-        }
-        children={actors as any}
-      />
-      {showHud && (
-        <View
-          pointerEvents="box-none"
-          style={{
-            position: 'absolute',
-            top: hudTop,
-            left: hudLeft,
-            zIndex: 10,
-            alignItems: 'flex-start',
-          }}
-        >
-          <View
-            pointerEvents="none"
-            // 섬 이름·오늘 집중·시간을 스크린리더가 한 번에 읽는다
-            accessible={!visiting}
-            accessibilityLabel={visiting ? undefined : `${i.name} 오늘 집중 ${todayClock}`}
-            style={{
-              backgroundColor: '#FFFDFAB3',
-              borderRadius: 999,
-              paddingVertical: 6,
-              paddingLeft: 14,
-              paddingRight: 16,
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 10,
-              // 섬 이름(최대 20자)이 길어도 화면 밖으로 밀리지 않게 폭을 묶어 이름만 말줄임한다.
-              // 아주 좁은 창에서 minWidth 가 maxWidth 를 이기지 않게 같은 상한으로 묶는다
-              minWidth: visiting ? undefined : Math.min(210, hudMax),
-              maxWidth: visiting ? undefined : hudMax,
-            }}
-          >
-            {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
-            {visiting ? (
-              <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
-                {`${i.name} 구경 중`}
-              </Txt>
-            ) : (
-              <>
-                {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
-                <View style={{ flexShrink: 1 }}>
-                  <Txt
-                    kind="meta"
-                    numberOfLines={1}
-                    style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '700' }}
-                  >
-                    {i.name}
-                  </Txt>
-                  <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
-                    오늘 집중
-                  </Txt>
-                </View>
-                <Txt
-                  style={{
-                    fontSize: 22,
-                    lineHeight: 31.9,
-                    fontWeight: '700',
-                    fontVariant: ['tabular-nums'],
-                    marginLeft: 'auto',
-                  }}
-                >
-                  {todayClock}
-                </Txt>
-              </>
-            )}
-          </View>
-          {showQuestIndicator && (
-            <HomeQuestIndicator
-              quests={i.quests}
-              rewardCount={rewardCount}
-              onPress={() => go('quest', HOME_QUEST_LIST_DETAIL)}
-              style={{ marginTop: componentTokens.homeQuestIndicator.hudGap }}
-            />
-          )}
-        </View>
-      )}
-      {showActions && (
-        <>
-          {/* 서버 건설은 회관의 서버 경로 몫이다 — 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
-          {!visiting && !facts && (i.construction || next) && (
-            <View
-              style={{
-                position: 'absolute',
-                left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
-                width: L.landscape ? 300 : L.width * 0.52,
-                bottom: L.landscape ? 24 : Math.max(52, L.insets.bottom + 18),
-                backgroundColor: '#FFFDFAF2',
-                borderColor: '#8B6956',
-                borderWidth: 1.5,
-                borderRadius: 18,
-                paddingVertical: 12,
-                paddingHorizontal: 14,
-                gap: 8,
-              }}
-            >
-              <View
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  gap: 6,
-                }}
-              >
-                <Txt style={{ fontSize: 14, lineHeight: 20.3, fontWeight: '800' }}>
-                  {buildingNames[i.construction?.building ?? next!]}{' '}
-                  {i.construction ? '공사 중' : '짓기'}
-                </Txt>
-                <Txt
-                  kind="meta"
-                  style={{
-                    fontSize: 12,
-                    lineHeight: 17.4,
-                    fontWeight: '600',
-                    fontVariant: ['tabular-nums'],
-                  }}
-                >
-                  {i.construction
-                    ? `${Math.max(0, Math.ceil((i.construction.endsAt - Date.now()) / 60000))}분 남음`
-                    : `${balance(i)}/${buildingCost(i, next!)} 마리`}
-                </Txt>
-              </View>
-              <View
-                style={{
-                  height: 6,
-                  backgroundColor: '#EADFD2',
-                  borderRadius: 3,
-                  overflow: 'hidden',
-                }}
-              >
-                <View
-                  style={{
-                    height: '100%',
-                    width: `${i.construction ? Math.max(0, Math.min(100, (100 * (Date.now() - i.construction.startedAt)) / (i.construction.endsAt - i.construction.startedAt))) : Math.min(100, (balance(i) / buildingCost(i, next!)) * 100)}%`,
-                    backgroundColor: '#FFA6BC',
-                  }}
-                />
-              </View>
-              {!i.construction && next && balance(i) >= buildingCost(i, next) && isHost(i) && (
-                <Btn small title="건설하기" style={{ marginTop: 2 }} onPress={() => build(next)} />
-              )}
-            </View>
-          )}
+      >
+        <WorldMap
+          state={state}
+          village={scene}
+          islandId={i.id}
+          hallMotionActive={
+            buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
+          }
+          hallMotionGeneration={buildingTransition.generation}
+          boardStatus={boardStatus}
+          observatoryRankState={observatoryRankState}
+          shopState={shopState}
+          towerArrivalActive={
+            buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
+          }
+          towerArrivalGeneration={buildingTransition.generation}
+          showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
+          onSpot={
+            visiting
+              ? undefined
+              : (p) => {
+                  if (!buildingEntryPending.current) walk(p);
+                }
+          }
+          children={actors as any}
+        />
+        {showHud && (
           <View
             pointerEvents="box-none"
             style={{
               position: 'absolute',
-              ...(visiting
-                ? { left: 0, right: 0, alignItems: 'center' }
-                : { right: L.landscape ? Math.max(56, L.insets.right + 4) : 20 }),
-              bottom: L.landscape
-                ? Math.max(22, L.insets.bottom)
-                : Math.max(44, L.insets.bottom + 10),
+              top: hudTop,
+              left: hudLeft,
+              zIndex: 10,
+              alignItems: 'flex-start',
             }}
           >
-            {visiting ? (
-              <Btn
-                kind="butter"
-                title="원래 섬으로"
-                id="visit-return"
-                onPress={() => {
-                  // 구경을 끝내고 내 섬으로 배를 타고 돌아간다. Travel 도착 시 SWITCH_ISLAND 후 홈
-                  dispatch?.({ type: 'TRAVEL_FROM', name: i.name });
-                  dispatch?.({ type: 'END_VISIT' });
-                  go('travel', currentIsland(state).id);
-                }}
-              />
-            ) : (
-              <Btn
-                round
-                title="집중하기"
-                id="depart-focus"
-                onPress={() => {
-                  if (!buildingEntryPending.current) walk(doors.raft, () => go('focusTravel'));
-                }}
+            <View
+              pointerEvents="none"
+              // 섬 이름·오늘 집중·시간을 스크린리더가 한 번에 읽는다
+              accessible={!visiting}
+              accessibilityLabel={visiting ? undefined : `${i.name} 오늘 집중 ${todayClock}`}
+              style={{
+                backgroundColor: '#FFFDFAB3',
+                borderRadius: 999,
+                paddingVertical: 6,
+                paddingLeft: 14,
+                paddingRight: 16,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 10,
+                // 섬 이름(최대 20자)이 길어도 화면 밖으로 밀리지 않게 폭을 묶어 이름만 말줄임한다.
+                // 아주 좁은 창에서 minWidth 가 maxWidth 를 이기지 않게 같은 상한으로 묶는다
+                minWidth: visiting ? undefined : Math.min(210, hudMax),
+                maxWidth: visiting ? undefined : hudMax,
+              }}
+            >
+              {/* 구경 중에는 내 집중 시간 대신 어느 섬을 구경하는지만 작게 보여준다 */}
+              {visiting ? (
+                <Txt kind="meta" style={{ fontSize: 13, lineHeight: 18.85, fontWeight: '600' }}>
+                  {`${i.name} 구경 중`}
+                </Txt>
+              ) : (
+                <>
+                  {/* 어느 섬의 홈인지 — 서버 모드는 스냅샷의 섬 이름(GROMO-2138) */}
+                  <View style={{ flexShrink: 1 }}>
+                    <Txt
+                      kind="meta"
+                      numberOfLines={1}
+                      style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '700' }}
+                    >
+                      {i.name}
+                    </Txt>
+                    <Txt kind="meta" style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600' }}>
+                      오늘 집중
+                    </Txt>
+                  </View>
+                  <Txt
+                    style={{
+                      fontSize: 22,
+                      lineHeight: 31.9,
+                      fontWeight: '700',
+                      fontVariant: ['tabular-nums'],
+                      marginLeft: 'auto',
+                    }}
+                  >
+                    {todayClock}
+                  </Txt>
+                </>
+              )}
+            </View>
+            {showQuestIndicator && (
+              <HomeQuestIndicator
+                quests={i.quests}
+                rewardCount={rewardCount}
+                onPress={() => go('quest', HOME_QUEST_LIST_DETAIL)}
+                style={{ marginTop: componentTokens.homeQuestIndicator.hudGap }}
               />
             )}
           </View>
-        </>
-      )}
+        )}
+        {showActions && (
+          <>
+            {/* 서버 건설은 회관의 서버 경로 몫이다 — 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
+            {!visiting && !facts && (i.construction || next) && (
+              <View
+                style={{
+                  position: 'absolute',
+                  left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
+                  width: L.landscape ? 300 : L.width * 0.52,
+                  bottom: L.landscape ? 24 : Math.max(52, L.insets.bottom + 18),
+                  backgroundColor: '#FFFDFAF2',
+                  borderColor: '#8B6956',
+                  borderWidth: 1.5,
+                  borderRadius: 18,
+                  paddingVertical: 12,
+                  paddingHorizontal: 14,
+                  gap: 8,
+                }}
+              >
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    gap: 6,
+                  }}
+                >
+                  <Txt style={{ fontSize: 14, lineHeight: 20.3, fontWeight: '800' }}>
+                    {buildingNames[i.construction?.building ?? next!]}{' '}
+                    {i.construction ? '공사 중' : '짓기'}
+                  </Txt>
+                  <Txt
+                    kind="meta"
+                    style={{
+                      fontSize: 12,
+                      lineHeight: 17.4,
+                      fontWeight: '600',
+                      fontVariant: ['tabular-nums'],
+                    }}
+                  >
+                    {i.construction
+                      ? `${Math.max(0, Math.ceil((i.construction.endsAt - Date.now()) / 60000))}분 남음`
+                      : `${balance(i)}/${buildingCost(i, next!)} 마리`}
+                  </Txt>
+                </View>
+                <View
+                  style={{
+                    height: 6,
+                    backgroundColor: '#EADFD2',
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                  }}
+                >
+                  <View
+                    style={{
+                      height: '100%',
+                      width: `${i.construction ? Math.max(0, Math.min(100, (100 * (Date.now() - i.construction.startedAt)) / (i.construction.endsAt - i.construction.startedAt))) : Math.min(100, (balance(i) / buildingCost(i, next!)) * 100)}%`,
+                      backgroundColor: '#FFA6BC',
+                    }}
+                  />
+                </View>
+                {!i.construction && next && balance(i) >= buildingCost(i, next) && isHost(i) && (
+                  <Btn
+                    small
+                    title="건설하기"
+                    style={{ marginTop: 2 }}
+                    onPress={() => build(next)}
+                  />
+                )}
+              </View>
+            )}
+            <View
+              pointerEvents="box-none"
+              style={{
+                position: 'absolute',
+                ...(visiting
+                  ? { left: 0, right: 0, alignItems: 'center' }
+                  : { right: L.landscape ? Math.max(56, L.insets.right + 4) : 20 }),
+                bottom: L.landscape
+                  ? Math.max(22, L.insets.bottom)
+                  : Math.max(44, L.insets.bottom + 10),
+              }}
+            >
+              {visiting ? (
+                <Btn
+                  kind="butter"
+                  title="원래 섬으로"
+                  id="visit-return"
+                  onPress={() => {
+                    // 구경을 끝내고 내 섬으로 배를 타고 돌아간다. Travel 도착 시 SWITCH_ISLAND 후 홈
+                    dispatch?.({ type: 'TRAVEL_FROM', name: i.name });
+                    dispatch?.({ type: 'END_VISIT' });
+                    go('travel', currentIsland(state).id);
+                  }}
+                />
+              ) : (
+                <Btn
+                  round
+                  title="집중하기"
+                  id="depart-focus"
+                  onPress={() => {
+                    if (!buildingEntryPending.current) walk(doors.raft, () => go('focusTravel'));
+                  }}
+                />
+              )}
+            </View>
+          </>
+        )}
+      </View>
       <BuildingTransitionOverlay
         state={buildingTransition}
         reduceMotion={state.settings.reduceMotion}
