@@ -15,6 +15,8 @@ const frames: readonly ImageSourcePropType[] = [
 ];
 const sequence = [0, 1, 2, 3] as const;
 const frameDuration = 220;
+/** 4프레임을 모두 노출하고 마지막 프레임도 한 간격 유지하는 전망대 진입 길이. */
+export const OBSERVATORY_ENTRY_DURATION_MS = frameDuration * sequence.length;
 
 /** 전망대 망원경의 4프레임 줌/조리개 idle 모션과 랭킹 상태를 표시한다. */
 export function VillageObservatoryMotion({

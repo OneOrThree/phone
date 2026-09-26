@@ -131,10 +131,12 @@ export const VillageScenery = memo(function VillageScenery({
             />
           ) : (
             <Animated.Image
+              testID={o.building ? `village-building-art-${o.building}` : undefined}
               source={villageAssets[o.kind + '.png']}
               style={{
                 width: '100%',
                 height: '100%',
+                opacity: o.building === 'tower' && dayNight === 'day' ? 0 : 1,
                 transform:
                   o.layer === 'trees' && !reduce
                     ? [

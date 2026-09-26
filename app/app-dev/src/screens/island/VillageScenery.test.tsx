@@ -38,6 +38,7 @@ describe('VillageScenery', () => {
       />,
     );
 
+    expect(view.getByTestId('village-building-art-tower').props.style.opacity).toBe(1);
     expect(
       view.getByTestId('village-observatory-rank-indicator', { includeHiddenElements: true }),
     ).toBeTruthy();
@@ -47,6 +48,20 @@ describe('VillageScenery', () => {
     ).toBeTruthy();
     expect(
       view.getByTestId('village-observatory-entry-feedback', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    await view.rerender(
+      <VillageScenery
+        scene={scene}
+        scale={1}
+        reduce
+        mailboxLetters={false}
+        observatoryRankState="rank-changed"
+        dayNight="day"
+      />,
+    );
+    expect(view.getByTestId('village-building-art-tower').props.style.opacity).toBe(0);
+    expect(
+      view.getByTestId('village-observatory-frame-0', { includeHiddenElements: true }),
     ).toBeTruthy();
     await view.unmount();
   });

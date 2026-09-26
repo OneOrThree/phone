@@ -53,6 +53,7 @@ import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import {
   BUILDING_TRANSITION_ROUTE,
+  BUILDING_TRANSITION_DURATION_MS,
   createBuildingTransitionController,
   runBuildingEntryWalk,
   type BuildingTransitionState,
@@ -63,6 +64,7 @@ import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
 import {
   VillageObservatoryMotion,
+  OBSERVATORY_ENTRY_DURATION_MS,
   type ObservatoryRankState,
 } from '@/components/village-motion/VillageObservatoryMotion';
 
@@ -551,8 +553,8 @@ export function WorldMap({
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
-                left: 152 * scale,
-                top: 23 * scale,
+                left: left + 152 * scale,
+                top: top + 23 * scale,
                 width: 112 * scale,
                 height: 193 * scale,
               }}
@@ -971,6 +973,9 @@ function FinalIslandScene({
                         'enter',
                         state.settings.reduceMotion,
                         () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
+                        transitionTarget === 'tower'
+                          ? OBSERVATORY_ENTRY_DURATION_MS
+                          : BUILDING_TRANSITION_DURATION_MS,
                       );
                     };
                     if (transitionTarget) {

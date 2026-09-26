@@ -4,6 +4,7 @@ import { Animated } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
+import { OBSERVATORY_ENTRY_DURATION_MS } from '@/components/village-motion/VillageObservatoryMotion';
 import { villageScene } from '@/utils/village-world';
 
 jest.mock('@/utils/layout', () => ({
@@ -114,6 +115,17 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
     screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }).props
       .accessibilityElementsHidden,
   ).toBe(true);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  expect(
+    screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }).props.style,
+  ).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: 201 - 585 * worldScale + 152 * worldScale,
+        top: 437 - 430 * worldScale + 23 * worldScale,
+      }),
+    ]),
+  );
   await screen.rerender(<WorldMap state={state} towerArrivalActive towerArrivalGeneration={1} />);
   await act(async () => jest.advanceTimersByTime(220));
   expect(activeFrame()).toBe(1);
@@ -322,6 +334,37 @@ test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 
     await act(async () => {
       jest.advanceTimersByTime(900);
     });
+  } finally {
+    timing.mockRestore();
+    jest.useRealTimers();
+  }
+});
+
+test('전망대 진입 전환은 마지막 프레임 노출을 마친 뒤 route를 연다', async () => {
+  jest.useFakeTimers();
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  const state = initialState(true);
+  const go = jest.fn();
+  try {
+    const screen = await render(
+      <FinalIsland state={state} go={go} build={jest.fn()} showHud={false} showActions={false} />,
+    );
+    await fireEvent.press(screen.getByLabelText(buildingNames.tower));
+    await act(async () => {
+      jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS);
+    });
+    expect(go).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(OBSERVATORY_ENTRY_DURATION_MS - BUILDING_TRANSITION_DURATION_MS);
+    });
+    expect(go).toHaveBeenCalledWith('tower');
   } finally {
     timing.mockRestore();
     jest.useRealTimers();
