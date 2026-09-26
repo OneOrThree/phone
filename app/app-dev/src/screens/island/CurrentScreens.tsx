@@ -72,6 +72,7 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import { useBoardHomeIndicator } from '@/screens/island/useBoardHomeIndicator';
 import { CatSprite } from '@/components/CatSprite';
 import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
@@ -216,6 +217,24 @@ function CurrentScreensContent({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
     r: Route = e.route;
+  const [boardReadVersion, setBoardReadVersion] = useState(0);
+  const boardBuilt = memberGate(state, !!e.islands).built;
+  const boardStatus = useBoardHomeIndicator({
+    active:
+      !!e.islands &&
+      !state.visitingIslandId &&
+      !!boardBuilt?.includes('board') &&
+      ['home', 'board', 'notice'].includes(r),
+    ownerId: getSession()?.userId ?? null,
+    islandId: state.serverIslands?.currentIslandId ?? i.id,
+    markRead: ['board', 'notice'].includes(r),
+    readVersion: boardReadVersion,
+  });
+  const screenE = {
+    ...e,
+    boardStatus,
+    onBoardCommentRead: () => setBoardReadVersion((version) => version + 1),
+  };
   const memberRoutes: Route[] = [
     'home',
     'guide',
@@ -280,7 +299,15 @@ function CurrentScreensContent({ e }: any) {
     return (
       <Overlay
         close={e.home}
-        background={<FinalIsland state={state} go={e.go} build={e.build} showActions={false} />}
+        background={
+          <FinalIsland
+            state={state}
+            go={e.go}
+            build={e.build}
+            showActions={false}
+            boardStatus={boardStatus}
+          />
+        }
       >
         <Txt kind="h17">주민만 이용할 수 있어요</Txt>
         <Btn title="확인" onPress={e.home} />
@@ -313,7 +340,15 @@ function CurrentScreensContent({ e }: any) {
     return (
       <Overlay
         close={e.home}
-        background={<FinalIsland state={state} go={e.go} build={e.build} showActions={false} />}
+        background={
+          <FinalIsland
+            state={state}
+            go={e.go}
+            build={e.build}
+            showActions={false}
+            boardStatus={boardStatus}
+          />
+        }
       >
         <Pic id={`bld/${buildingArt[required]}`} w={100} />
         <Txt kind="h17">아직 {buildingNames[required]}이 없어요</Txt>
@@ -331,7 +366,7 @@ function CurrentScreensContent({ e }: any) {
   if (r === 'visit') return <Visit e={e} />;
   if (['arrival', 'travel'].includes(r)) return <Travel e={e} />;
   if (r === 'focusVisit') return <FocusVisit e={e} />;
-  if (r === 'visitIsland') return <VisitIsland e={e} />;
+  if (r === 'visitIsland') return <VisitIsland e={screenE} />;
   if (r === 'visitIslandFocus')
     return <FocusVisit e={e} islandId={e.detail || state.visitingIslandId} onBack={e.back} />;
   if (
@@ -353,7 +388,7 @@ function CurrentScreensContent({ e }: any) {
   if (['board', 'notice', 'noticeEdit', 'quest', 'questEdit'].includes(r))
     return (
       <>
-        <InteriorRoute e={e} />
+        <InteriorRoute e={screenE} />
         {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
         {!state.visitingIslandId && (
           <RewardModal
@@ -378,7 +413,7 @@ function CurrentScreensContent({ e }: any) {
       <ScreenTimePermission e={e} />
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
-  return <RedesignScreens e={e} />;
+  return <RedesignScreens e={screenE} />;
 }
 
 function AppPermissionManager({ e }: any) {
@@ -827,6 +862,7 @@ function VisitIsland({ e }: any) {
       state={s}
       go={e.go}
       build={e.build}
+      boardStatus={e.boardStatus}
       viewingIslandId={s.visitingIslandId ? undefined : islandId}
       notify={e.notify}
       dispatch={e.dispatch}

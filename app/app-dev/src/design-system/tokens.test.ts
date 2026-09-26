@@ -83,4 +83,20 @@ describe('design system tokens', () => {
     expect(componentTokens.badge.soft.border).toBe(primitiveTokens.color.controlIdle);
     expect(componentTokens.badge.radius).toBe(semanticTokens.radius.full);
   });
+
+  it('마을 새 소식 배지 치수를 전용 component token으로 관리한다', () => {
+    expect(componentTokens.villageNotificationBadge).toEqual({
+      diameter: 25,
+      radius: 13,
+      borderWidth: semanticTokens.stroke.default,
+      topOffset: -11,
+      rightOffset: 21,
+    });
+    expect(componentTokens.villageNotificationTooltip).toEqual({
+      maxWidth: 180,
+      paddingVertical: primitiveTokens.space[2],
+      borderWidth: semanticTokens.stroke.default,
+    });
+    expect(componentTokens.villageBuildingThemeTint).toEqual({ color: '#d7829b', opacity: 0.3 });
+  });
 });

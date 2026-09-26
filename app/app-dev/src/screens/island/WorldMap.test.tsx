@@ -1,9 +1,10 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { Animated } from 'react-native';
-import { createWorldProjector, FinalIsland } from '@/screens/island/WorldMap';
+import { createWorldProjector, FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
+import { villageScene } from '@/utils/village-world';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -21,6 +22,134 @@ jest.mock('@/utils/layout', () => ({
 }));
 
 afterEach(cleanup);
+
+test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 대체하고 전환 세대마다 재생한다', async () => {
+  jest.useFakeTimers();
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('hall')) island.buildings.push('hall');
+  const screen = await render(<WorldMap state={state} hallMotionActive hallMotionGeneration={1} />);
+
+  expect(screen.queryByTestId('world-static-building-hall')).toBeNull();
+  const frame = screen.getByTestId('village-hall-frame-0');
+  expect(frame.props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const cameraLeft = 402 / 2 - 585 * worldScale;
+  const cameraTop = 874 / 2 - 430 * worldScale;
+  expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: cameraLeft + 950 * worldScale,
+        top: cameraTop + 20 * worldScale,
+        width: 242 * worldScale,
+        height: 244 * worldScale,
+      }),
+    ]),
+  );
+  expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
+  expect(screen.getByText('마을 회관에 들어가는 중')).toBeTruthy();
+
+  await act(async () => jest.advanceTimersByTime(360));
+  expect(screen.getByTestId('village-hall-frame-2').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+  await screen.rerender(<WorldMap state={state} hallMotionActive hallMotionGeneration={2} />);
+  expect(screen.getByTestId('village-hall-frame-0').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태가 없으면 표시를 숨긴다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('board')) island.buildings.push('board');
+  const screen = await render(<WorldMap state={state} />);
+
+  expect(screen.queryByTestId('world-static-building-board')).toBeNull();
+  expect(screen.queryByTestId('village-board-new-indicator')).toBeNull();
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const cameraLeft = 402 / 2 - 585 * worldScale;
+  const cameraTop = 874 / 2 - 430 * worldScale;
+  expect(screen.getByTestId('world-board-indicator').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: cameraLeft + 858 * worldScale,
+        top: cameraTop + 158 * worldScale,
+        width: 80 * worldScale,
+        height: 80 * worldScale,
+      }),
+    ]),
+  );
+
+  await screen.rerender(<WorldMap state={state} boardStatus="new-comment" />);
+  expect(screen.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
+    '새 댓글이 있습니다',
+  );
+  expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
+  await screen.unmount();
+});
+
+test('레이어드 마을에서도 게시판 상태를 VillageScenery 알림에 전달한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('board')) island.buildings.push('board');
+  const screen = await render(
+    <WorldMap state={state} village={villageScene(['board'])} boardStatus="new-comment" />,
+  );
+
+  expect(screen.queryByTestId('world-board-indicator')).toBeNull();
+  expect(screen.getByTestId('village-board-scene-indicator')).toBeTruthy();
+  expect(screen.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
+    '새 댓글이 있습니다',
+  );
+  expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('레이어드 마을에서도 회관 진입 문 모션을 표시한다', async () => {
+  jest.useFakeTimers();
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('hall')) island.buildings.push('hall');
+  const screen = await render(
+    <WorldMap
+      state={state}
+      village={villageScene(['hall'])}
+      hallMotionActive
+      hallMotionGeneration={3}
+    />,
+  );
+
+  expect(screen.getByTestId('village-hall-scene-motion')).toBeTruthy();
+  expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
+  await act(async () => jest.advanceTimersByTime(180));
+  expect(screen.getByTestId('village-hall-frame-1').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('테마 회관 진입 중에는 닫힌 문 테마 레이어 대신 현재 모션 프레임을 착색한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('hall')) island.buildings.push('hall');
+  island.buildingThemes = { ...island.buildingThemes, hall: 'pink' } as any;
+  const screen = await render(<WorldMap state={state} hallMotionActive />);
+
+  expect(screen.queryByTestId('world-building-theme-hall')).toBeNull();
+  expect(screen.getByTestId('village-hall-theme-tint').props.source).toBe(
+    screen.getByTestId('village-hall-frame-0').props.source,
+  );
+  await screen.unmount();
+});
 
 test('걷는 중 카메라가 바뀌면 보관된 진입 콜백도 최신 건물 좌표를 투영한다', () => {
   let viewport = { left: -120, top: -80, scale: 0.7 };
