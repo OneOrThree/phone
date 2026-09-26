@@ -149,16 +149,19 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   );
 
   await screen.rerender(<WorldMap state={state} boardStatus="new-comment" />);
-  expect(screen.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
-    '새 댓글이 있습니다',
-  );
-  expect(screen.getByTestId('village-board-new-indicator').props.style).toEqual(
+  expect(
+    screen.getByTestId('village-board-new-indicator', { includeHiddenElements: true }).props
+      .accessibilityLabel,
+  ).toBe('새 댓글이 있습니다');
+  expect(
+    screen.getByTestId('village-board-new-indicator', { includeHiddenElements: true }).props.style,
+  ).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ top: -20 * worldScale, right: 12 * worldScale }),
     ]),
   );
   const boardBadgeSize = screen
-    .getByTestId('village-board-new-indicator')
+    .getByTestId('village-board-new-indicator', { includeHiddenElements: true })
     .props.style.find((entry: { width?: number }) => entry?.width != null);
   expect(boardBadgeSize.width).toBeCloseTo(25 * worldScale * 0.72);
   expect(boardBadgeSize.height).toBeCloseTo(25 * worldScale * 0.72);
@@ -191,10 +194,13 @@ test('새 편지가 있으면 정적 우체통을 펠리컨으로 교체하고 �
   expect(screen.queryByTestId('world-static-building-mail')).toBeNull();
   expect(screen.getByTestId('mailbox-pelican')).toBeTruthy();
   expect(screen.queryByTestId('world-themed-building-mail')).toBeNull();
-  expect(screen.getByTestId('mailbox-new-indicator').props.accessibilityLabel).toBe(
-    '친구에게 받은 새 편지가 있습니다',
-  );
-  expect(screen.getByTestId('mailbox-new-indicator').props.style).toEqual(
+  expect(
+    screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true }).props
+      .accessibilityLabel,
+  ).toBe('친구에게 받은 새 편지가 있습니다');
+  expect(
+    screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true }).props.style,
+  ).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
         left: worldLeft + 348 * worldScale,
@@ -215,33 +221,44 @@ test('마을 미리보기 우체통도 미읽음 때 펠리컨으로 교체하�
   expect(screen.getByTestId('village-mailbox-pelican').props.source).toBe(
     assets['characters/pelican/npc/on-mailbox.png'],
   );
-  expect(screen.getByTestId('village-mailbox-new-indicator')).toBeTruthy();
+  expect(
+    screen.getByTestId('village-mailbox-new-indicator', { includeHiddenElements: true }),
+  ).toBeTruthy();
   await screen.rerender(<WorldMap state={state} village={scene} showMailboxLetters={false} />);
   expect(screen.queryByTestId('village-mailbox-pelican')).toBeNull();
   expect(screen.queryByTestId('village-mailbox-new-indicator')).toBeNull();
 });
 
-test('구매 가능 상점과 갱신된 전망대는 이름표의 강조색으로 상태를 표시한다', async () => {
-  const state = initialState(true);
-  const island = state.islands.find((item) => item.id === state.islandId)!;
-  for (const building of ['shop', 'tower'] as const)
-    if (!island.buildings.includes(building)) island.buildings.push(building);
-  const screen = await render(
-    <FinalIsland
-      state={state}
-      go={jest.fn()}
-      build={jest.fn()}
-      shopState="purchasable"
-      observatoryRankState="rank-updated"
-    />,
-  );
-  for (const building of ['shop', 'tower']) {
-    const label = screen.getByTestId(`building-name-${building}`).children[0];
-    expect(typeof label).not.toBe('string');
-    if (typeof label !== 'string')
-      expect(label.props.style.backgroundColor).toBe(semanticTokens.color.accent);
-  }
-});
+test.each([
+  ['purchasable', 'rank-updated'],
+  ['new-product', 'rank-changed'],
+  ['normal', 'normal'],
+] as const)(
+  '상점 %s와 전망대 %s의 이름표는 상태에 맞게 강조한다',
+  async (shopState, observatoryRankState) => {
+    const state = initialState(true);
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    for (const building of ['shop', 'tower'] as const)
+      if (!island.buildings.includes(building)) island.buildings.push(building);
+    const screen = await render(
+      <FinalIsland
+        state={state}
+        go={jest.fn()}
+        build={jest.fn()}
+        shopState={shopState}
+        observatoryRankState={observatoryRankState}
+      />,
+    );
+    for (const building of ['shop', 'tower']) {
+      const label = screen.getByTestId(`building-name-${building}`).children[0];
+      expect(typeof label).not.toBe('string');
+      if (typeof label !== 'string')
+        expect(label.props.style.backgroundColor).toBe(
+          shopState === 'normal' ? semanticTokens.color.surface : semanticTokens.color.accent,
+        );
+    }
+  },
+);
 
 test.each(['board', 'hall'] as const)(
   '진입 스프라이트가 없는 %s는 620ms 뒤 라우트를 연다',

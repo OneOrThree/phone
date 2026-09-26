@@ -1179,8 +1179,8 @@ function FinalIslandScene({
                         borderWidth: 1,
                         borderColor: semanticTokens.color.outline,
                         backgroundColor:
-                          (d.building === 'shop' && shopState === 'purchasable') ||
-                          (d.building === 'tower' && observatoryRankState === 'rank-updated')
+                          (d.building === 'shop' && shopState !== 'normal') ||
+                          (d.building === 'tower' && observatoryRankState !== 'normal')
                             ? semanticTokens.color.accent
                             : semanticTokens.color.surface,
                       }}
