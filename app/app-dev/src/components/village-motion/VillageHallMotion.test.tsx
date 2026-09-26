@@ -46,6 +46,12 @@ describe('VillageHallMotion', () => {
     await view.unmount();
   });
 
+  it('applies building theme tint over the active frame instead of a duplicate static layer', async () => {
+    const view = await render(<VillageHallMotion state="arrival" themed />);
+    expect(view.getByTestId('village-hall-theme-tint')).toBeTruthy();
+    await view.unmount();
+  });
+
   it('does not animate with reduce motion from props or MotionContext and clears its interval', async () => {
     const clearInterval = jest.spyOn(global, 'clearInterval');
     const view = await render(<VillageHallMotion state="new-record" />);

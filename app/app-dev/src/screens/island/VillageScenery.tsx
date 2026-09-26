@@ -17,6 +17,7 @@ export const VillageScenery = memo(function VillageScenery({
   boardStatus = null,
   hallMotionActive = false,
   hallMotionGeneration = 0,
+  hallThemed = false,
 }: {
   scene: VillageScene;
   scale: number;
@@ -25,6 +26,7 @@ export const VillageScenery = memo(function VillageScenery({
   boardStatus?: 'unread' | 'new-comment' | null;
   hallMotionActive?: boolean;
   hallMotionGeneration?: number;
+  hallThemed?: boolean;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -116,6 +118,7 @@ export const VillageScenery = memo(function VillageScenery({
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
               highlighted={hallMotionActive}
+              themed={hallThemed && hallMotionActive}
               reduceMotion={reduce}
               tooltip={
                 hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined

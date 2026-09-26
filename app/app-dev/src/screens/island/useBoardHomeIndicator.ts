@@ -1,14 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
-import { getBoard } from '@/services/api/notices';
+import { AppState } from 'react-native';
+import { getBoard, listNotices } from '@/services/api/notices';
 
 export type BoardHomeStatus = 'unread' | 'new-comment' | null;
 export type BoardNoticeSnapshot = Record<string, number>;
 
-export function boardNoticeSnapshot(
+export async function boardNoticeSnapshot(
   board: Awaited<ReturnType<typeof getBoard>>,
-): BoardNoticeSnapshot {
-  return Object.fromEntries(board.notices.items.map(({ id, commentCount }) => [id, commentCount]));
+): Promise<BoardNoticeSnapshot> {
+  const notices = [...board.notices.items];
+  const cursors = new Set<string>();
+  let cursor = board.notices.nextCursor;
+  while (cursor !== null) {
+    if (cursors.has(cursor)) throw new Error('게시판 공지 페이지를 이어서 불러오지 못했어요.');
+    cursors.add(cursor);
+    const page = await listNotices(board.island.id, cursor);
+    notices.push(...page.items);
+    cursor = page.nextCursor;
+  }
+  return Object.fromEntries(notices.map(({ id, commentCount }) => [id, commentCount]));
 }
 
 export function compareBoardNoticeSnapshots(
@@ -52,6 +63,15 @@ export function useBoardHomeIndicator({
   markRead: boolean;
 }): BoardHomeStatus {
   const [status, setStatus] = useState<BoardHomeStatus>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    if (!active) return;
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') setRefreshKey((key) => key + 1);
+    });
+    return () => subscription.remove();
+  }, [active]);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,7 +86,7 @@ export function useBoardHomeIndicator({
       try {
         const board = await getBoard();
         if (cancelled || board.island.id !== islandId) return;
-        const current = boardNoticeSnapshot(board);
+        const current = await boardNoticeSnapshot(board);
         const seen = parseSnapshot(await AsyncStorage.getItem(key));
         if (cancelled) return;
         if (markRead || !seen) {
@@ -83,7 +103,7 @@ export function useBoardHomeIndicator({
     return () => {
       cancelled = true;
     };
-  }, [active, ownerId, islandId, markRead]);
+  }, [active, ownerId, islandId, markRead, refreshKey]);
 
   return status;
 }

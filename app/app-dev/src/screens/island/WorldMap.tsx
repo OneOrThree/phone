@@ -490,6 +490,11 @@ export function WorldMap({
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
               highlighted={hallMotionActive}
+              themed={
+                hallMotionActive &&
+                !!island.buildingThemes?.hall &&
+                island.buildingThemes.hall !== 'default'
+              }
               tooltip={
                 hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
               }
@@ -546,12 +551,14 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
+                !(b === 'hall' && hallMotionActive) &&
                 island.buildingThemes?.[b] &&
                 island.buildingThemes?.[b] !== 'default',
             )
             .map((b) => (
               <Image
                 key={b}
+                testID={`world-building-theme-${b}`}
                 source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
@@ -586,6 +593,7 @@ export function WorldMap({
             boardStatus={boardStatus}
             hallMotionActive={hallMotionActive}
             hallMotionGeneration={hallMotionGeneration}
+            hallThemed={!!island.buildingThemes?.hall && island.buildingThemes.hall !== 'default'}
           />
         )}
         {typeof children === 'function'

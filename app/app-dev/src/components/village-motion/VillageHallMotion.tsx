@@ -20,6 +20,7 @@ export function VillageHallMotion({
   highlighted = false,
   tooltip,
   reduceMotion = false,
+  themed = false,
   generation = 0,
   style,
   testID = 'village-hall-motion',
@@ -28,6 +29,7 @@ export function VillageHallMotion({
   highlighted?: boolean;
   tooltip?: ReactNode;
   reduceMotion?: boolean;
+  themed?: boolean;
   generation?: number;
   style?: ViewStyle;
   testID?: string;
@@ -57,6 +59,9 @@ export function VillageHallMotion({
           style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
         />
       ))}
+      {themed && (
+        <View pointerEvents="none" testID="village-hall-theme-tint" style={styles.themeTint} />
+      )}
       {highlighted && (
         <View pointerEvents="none" testID="village-hall-highlight" style={styles.highlight} />
       )}
@@ -74,6 +79,15 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
+  themeTint: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#d7829b',
+    opacity: 0.3,
+  },
   highlight: {
     position: 'absolute',
     left: 0,

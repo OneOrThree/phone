@@ -223,10 +223,10 @@ function CurrentScreensContent({ e }: any) {
       !!e.islands &&
       !state.visitingIslandId &&
       !!boardBuilt?.includes('board') &&
-      ['home', 'board', 'notice', 'quest', 'noticeEdit', 'questEdit'].includes(r),
+      ['home', 'board', 'notice'].includes(r),
     ownerId: getSession()?.userId ?? null,
     islandId: state.serverIslands?.currentIslandId ?? i.id,
-    markRead: ['board', 'notice', 'quest', 'noticeEdit', 'questEdit'].includes(r),
+    markRead: ['board', 'notice'].includes(r),
   });
   const screenE = { ...e, boardStatus };
   const memberRoutes: Route[] = [

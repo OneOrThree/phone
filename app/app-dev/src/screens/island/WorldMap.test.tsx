@@ -137,6 +137,18 @@ test('레이어드 마을에서도 회관 진입 문 모션을 표시한다', as
   jest.useRealTimers();
 });
 
+test('테마 회관 진입 중에는 닫힌 문 테마 레이어 대신 현재 모션 프레임을 착색한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('hall')) island.buildings.push('hall');
+  island.buildingThemes = { ...island.buildingThemes, hall: 'pink' } as any;
+  const screen = await render(<WorldMap state={state} hallMotionActive />);
+
+  expect(screen.queryByTestId('world-building-theme-hall')).toBeNull();
+  expect(screen.getByTestId('village-hall-theme-tint')).toBeTruthy();
+  await screen.unmount();
+});
+
 test('걷는 중 카메라가 바뀌면 보관된 진입 콜백도 최신 건물 좌표를 투영한다', () => {
   let viewport = { left: -120, top: -80, scale: 0.7 };
   const projectAtArrival = createWorldProjector(() => viewport);

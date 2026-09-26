@@ -49,7 +49,14 @@ export function VillageBoardIndicator({
             },
           ]}
         >
-          <Text style={[styles.badgeText, { fontSize: 17 * indicatorScale }]}>!</Text>
+          <Text
+            style={[
+              styles.badgeText,
+              { fontSize: 17 * indicatorScale, lineHeight: 20 * indicatorScale },
+            ]}
+          >
+            !
+          </Text>
         </View>
       )}
       {hasNotice && tooltip != null && (
