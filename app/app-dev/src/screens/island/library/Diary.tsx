@@ -71,6 +71,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
       srv.status === 'ready',
     islandId: state.serverIslands?.currentIslandId ?? null,
     screen: srv.status === 'ready' ? srv.indicatorScreen : null,
+    identity: srv.screen,
     onLoaded: (screen) => {
       void e.buildingIndicators?.markLibrarySeen(screen ?? undefined);
     },

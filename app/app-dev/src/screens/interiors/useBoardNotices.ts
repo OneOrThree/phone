@@ -57,6 +57,8 @@ export type BoardLoadedSnapshot = {
   islandId: string;
   items: NoticeItem[];
   nextCursor: string | null;
+  /** 상세 댓글이 일부 페이지만 로드된 경우 기존에 읽은 더 높은 수를 낮추지 않는다. */
+  preserveHigherCommentCounts?: boolean;
 };
 
 /** 화면이 비활성·섬 미확정이라 쓰기를 시작할 수 없다 — 호출부 분기용 클라이언트 코드. */

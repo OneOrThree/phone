@@ -608,6 +608,27 @@ test('게시판에서 실제로 불러온 페이지만 기존 확인 상태에 �
   assert.equal(result.current.boardStatus, 'new-comment');
 });
 
+test('일부만 로드한 상세 댓글은 더 높은 기존 확인 기준을 낮추지 않는다', async () => {
+  boardNow.mockResolvedValue({ n1: 110 });
+  boardSeen.mockResolvedValue({ n1: 100 });
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+  await waitFor(() => assert.equal(result.current.boardStatus, 'new-comment'));
+
+  await act(async () => {
+    await result.current.markBoardSeen({
+      islandId: 'island-1',
+      items: [{ id: 'n1', title: '오래된 공지', commentCount: 30 }],
+      nextCursor: null,
+      preserveHigherCommentCounts: true,
+    });
+  });
+
+  assert.deepEqual(saveBoard.mock.calls.at(-1)?.[1], { n1: 100 });
+  assert.equal(result.current.boardStatus, 'new-comment');
+});
+
 test('홈 기준점 저장이 게시판에서 방금 확인한 페이지를 덮어쓰지 않는다', async () => {
   let releaseHome!: (value: Record<string, number>) => void;
   boardNow.mockImplementationOnce(

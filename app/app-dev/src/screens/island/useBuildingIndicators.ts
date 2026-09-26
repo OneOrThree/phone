@@ -588,7 +588,12 @@ export function useBuildingIndicators({
             getSession()?.userId !== requestScope.userId
           )
             return null;
-          const next = { ...(previous ?? {}), ...boardSnapshot(loaded.items) };
+          const snapshot = boardSnapshot(loaded.items);
+          const next = { ...(previous ?? {}) };
+          for (const [noticeId, commentCount] of Object.entries(snapshot))
+            next[noticeId] = loaded.preserveHigherCommentCounts
+              ? Math.max(previous?.[noticeId] ?? 0, commentCount)
+              : commentCount;
           await saveBoardSeen(requestScope, next);
           return next;
         });

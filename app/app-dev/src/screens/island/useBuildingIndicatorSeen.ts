@@ -6,11 +6,14 @@ export function useBuildingIndicatorSeen({
   active,
   islandId,
   screen,
+  identity,
   onLoaded,
 }: {
   active: boolean;
   islandId: string | null;
   screen: LibraryScreen | null;
+  /** 탭별로 파생된 화면이 같은 캐시 응답에서 왔을 때 공유하는 원본 응답 정체성. */
+  identity?: LibraryScreen | null;
   onLoaded: (screen: LibraryScreen | null) => void;
 }) {
   const callback = useRef(onLoaded);
@@ -31,10 +34,11 @@ export function useBuildingIndicatorSeen({
       (screen.missingFragments?.length ?? 0) > 0
     )
       return;
-    const seenIslands = dispatchedScreens.current.get(screen) ?? new Set<string>();
+    const observationIdentity = identity ?? screen;
+    const seenIslands = dispatchedScreens.current.get(observationIdentity) ?? new Set<string>();
     if (seenIslands.has(islandId)) return;
     seenIslands.add(islandId);
-    dispatchedScreens.current.set(screen, seenIslands);
+    dispatchedScreens.current.set(observationIdentity, seenIslands);
     callback.current(screen);
-  }, [active, islandId, screen]);
+  }, [active, islandId, screen, identity]);
 }

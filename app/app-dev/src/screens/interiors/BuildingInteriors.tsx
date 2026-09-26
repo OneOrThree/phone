@@ -3956,6 +3956,7 @@ export function Board({
           },
         ],
         nextCursor: null,
+        preserveHigherCommentCounts: !listedNotice,
       });
       return;
     }

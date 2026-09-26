@@ -46,7 +46,6 @@ test('실제로 표시된 성공 도서관 화면만 확인 처리한다', async
 test.each([
   ['화면 로딩 중', false, 'i1', screen],
   ['화면 조회 실패', false, 'i1', screen],
-  ['아직 화면 데이터 없음', true, 'i1', null],
   ['다른 섬', true, 'i2', screen],
   ['미완공', true, 'i1', { ...screen, statisticsAvailability: 'facility_locked' }],
   ['누락 조각', true, 'i1', { ...screen, missingFragments: ['focusStatistics'] }],
@@ -56,6 +55,16 @@ test.each([
     useBuildingIndicatorSeen({ active, islandId, screen: value as LibraryScreen | null, onLoaded }),
   );
   assert.equal(onLoaded.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('실제 도서관 진입은 화면 snapshot 없이 서버 기준점 조회를 요청한다', async () => {
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() =>
+    useBuildingIndicatorSeen({ active: true, islandId: 'i1', screen: null, onLoaded }),
+  );
+  assert.equal(onLoaded.mock.calls.length, 1);
+  assert.equal(onLoaded.mock.calls[0][0], null);
   await hook.unmount();
 });
 
@@ -78,6 +87,30 @@ test('같은 캐시 도서관 응답은 탭 전환 시 한 번만 확인 처리�
   await hook.rerender({ active: true, islandId: 'i2', value: otherIslandScreen });
   await hook.rerender({ active: true, islandId: 'i1', value: screen });
   assert.equal(onLoaded.mock.calls.length, 3);
+  await hook.unmount();
+});
+
+test('같은 원본 응답에서 파생된 탭별 화면은 한 번만 확인 처리한다', async () => {
+  const onLoaded = jest.fn();
+  const identity = { ...screen };
+  const hook = await renderHook(
+    ({ value, source }: { value: LibraryScreen; source: LibraryScreen }) =>
+      useBuildingIndicatorSeen({
+        active: true,
+        islandId: 'i1',
+        screen: value,
+        identity: source,
+        onLoaded,
+      }),
+    { initialProps: { value: { ...screen }, source: identity } },
+  );
+
+  assert.equal(onLoaded.mock.calls.length, 1);
+  await hook.rerender({ value: { ...screen }, source: identity });
+  assert.equal(onLoaded.mock.calls.length, 1);
+
+  await hook.rerender({ value: { ...screen }, source: { ...identity } });
+  assert.equal(onLoaded.mock.calls.length, 2);
   await hook.unmount();
 });
 

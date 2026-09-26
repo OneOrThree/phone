@@ -332,6 +332,7 @@ test('퀘스트에서 재사용한 Board는 공지를 읽음 처리하지 않고
     islandId: ISLAND,
     items: [{ id: 'n1', title: '공지 제목', commentCount: 7 }],
     nextCursor: null,
+    preserveHigherCommentCounts: false,
   });
   await screen.unmount();
 });
@@ -353,6 +354,7 @@ test('첫 페이지 밖 공지 상세에 들어가면 열린 공지만 확인 �
     islandId: ISLAND,
     items: [{ id: 'n1', title: '공지 제목', commentCount: 2 }],
     nextCursor: null,
+    preserveHigherCommentCounts: true,
   });
   await screen.unmount();
 });
