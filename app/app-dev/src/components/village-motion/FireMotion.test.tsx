@@ -24,11 +24,11 @@ describe('FireMotion', () => {
 
   const activeFrame = (view: MotionView, mode: 'day' | 'evening') =>
     [0, 1, 2, 3].find((index) => {
-      return view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.opacity === 1;
+      return view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.opacity > 0;
     });
   const visibleFrameCount = (view: MotionView, mode: 'day' | 'evening') =>
     [0, 1, 2, 3].filter((index) => {
-      return view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.opacity === 1;
+      return view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.opacity > 0;
     }).length;
   const corePath = (view: MotionView) => view.getByTestId('fire-motion-core-path').props.d;
 
@@ -37,10 +37,7 @@ describe('FireMotion', () => {
     expect(activeFrame(view, 'day')).toBe(0);
     expect(view.getByTestId('fire-motion-frame-day-0').props.clipPath).toBe('fire-motion-core');
     expect(corePath(view)).toContain('M165 26');
-    expect(view.getByTestId('fire-motion-day-log-cover').props.clipPath).toBe(
-      'fire-motion-day-log-core',
-    );
-    expect(view.getByTestId('fire-motion-day-log-core-path').props.d).toContain('M165 12');
+    expect(view.queryByTestId('fire-motion-day-log-cover')).toBeNull();
     await act(async () => jest.advanceTimersByTime(360));
     expect(activeFrame(view, 'day')).toBe(1);
     expect(visibleFrameCount(view, 'day')).toBe(1);
@@ -55,7 +52,7 @@ describe('FireMotion', () => {
     expect(view.getByTestId('fire-motion-frame-evening-1').props.clipPath).toBe('fire-motion-core');
     expect(corePath(view)).toContain('M165 16');
     expect(view.getByTestId('fire-motion-glow')).toBeTruthy();
-    expect(view.queryByTestId('fire-motion-day-log-cover')).toBeNull();
+    expect(view.queryByTestId('fire-motion-quiet-unlit-core')).toBeNull();
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
     expect(activeFrame(view, 'evening')).toBe(2);
@@ -78,12 +75,21 @@ describe('FireMotion', () => {
     expect(empty.getByTestId('fire-motion').props.style).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ opacity: 0.68 })]),
     );
-    expect(empty.getByTestId('fire-motion-frame-evening-1').props.opacity).toBe(1);
+    expect(empty.getByTestId('fire-motion-quiet-unlit-core').props.opacity).toBe(1);
+    expect(empty.getByTestId('fire-motion-frame-evening-1').props).toMatchObject({
+      opacity: 0.52,
+      clipPath: 'fire-motion-quiet-core',
+      x: 55,
+      y: 26,
+      width: 220,
+      height: 147,
+    });
+    expect(empty.getByTestId('fire-motion-quiet-core-path').props.d).toContain('M165 16');
     const emptyGlow = empty
       .getByTestId('fire-motion-glow')
       .props.style.find((style: { opacity?: number }) => style?.opacity !== undefined).opacity;
-    await act(async () => jest.advanceTimersByTime(155));
-    expect(activeFrame(empty, 'evening')).toBe(1);
+    await act(async () => jest.advanceTimersByTime(210));
+    expect(activeFrame(empty, 'evening')).toBe(2);
     await empty.unmount();
 
     const group = await render(<FireMotion mode="evening" residentCount={5} />);

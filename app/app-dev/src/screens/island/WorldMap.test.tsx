@@ -193,12 +193,21 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
       }),
     ]),
   );
+  expect(screen.getByTestId('world-fire-day-off-overlay').props.style).toEqual(
+    expect.objectContaining({
+      left: worldLeft + 440 * worldScale,
+      top: worldTop + 435 * worldScale,
+      width: 60 * worldScale,
+      height: 80 * worldScale,
+    }),
+  );
   await act(async () => jest.advanceTimersByTime(360));
   expect(screen.getByTestId('fire-motion-frame-day-1').props.opacity).toBe(1);
 
   await screen.unmount();
   jest.setSystemTime(new Date('2026-06-15T21:00:00'));
   const night = await render(<WorldMap state={state} />);
+  expect(night.queryByTestId('world-fire-day-off-overlay')).toBeNull();
   expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
     `모닥불, 저녁, 불꽃, 주민 ${residentCount(island)}명`,
   );

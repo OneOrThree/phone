@@ -7,7 +7,7 @@ import {
   type ImageSourcePropType,
   type ViewStyle,
 } from 'react-native';
-import Svg, { ClipPath, Defs, Image as SvgImage, Path } from 'react-native-svg';
+import Svg, { ClipPath, Defs, G, Image as SvgImage, Path } from 'react-native-svg';
 import { semanticTokens } from '@/design-system/tokens';
 import { MotionContext } from '@/design-system/primitives';
 
@@ -28,7 +28,7 @@ const smokeFrames: readonly ImageSourcePropType[] = [
 const unlitFireSource = require('@/assets/village-world/fire.png') as ImageSourcePropType;
 const flameSequence = [1, 2, 3, 2] as const;
 const smokeSequence = [0, 1, 2, 3, 2, 1] as const;
-const quietFlameSequence = [1, 1, 2, 1] as const;
+const quietFlameSequence = [1, 2, 1, 2] as const;
 const groupFlameSequence = [1, 2, 3, 2, 3, 2] as const;
 const quietSmokeSequence = [0, 0, 1, 0] as const;
 const groupSmokeSequence = [0, 1, 2, 3, 2, 1, 2, 1] as const;
@@ -38,10 +38,6 @@ const flameCorePath =
   'M165 16 C154 34 133 53 126 78 C116 111 137 137 165 140 C193 137 214 111 204 78 C197 53 176 34 165 16 Z';
 const smokeCorePath =
   'M165 26 C156 39 151 51 154 62 C140 68 137 85 151 94 C141 105 148 122 163 124 C177 125 185 112 177 101 C194 93 194 76 180 67 C181 52 174 38 165 26 Z';
-// 낮 base의 정적 불꽃은 이 장작 코어 전체 안쪽에 들어온다. 불 없는 원본 화덕의
-// 장작 부분으로 먼저 덮어 정적 불꽃이 smoke 프레임 밖으로 새지 않게 하고, 돌 테두리는 보존한다.
-const dayLogCorePath =
-  'M165 12 C145 18 127 34 112 54 C98 72 98 111 113 133 C127 154 146 169 165 173 C184 169 203 154 217 133 C232 111 232 72 218 54 C203 34 185 18 165 12 Z';
 
 /** 모닥불 코어만 부모의 레이아웃과 확대 배율로 표시한다(기준 상자 비율 100:71). */
 export const FireMotion = memo(function FireMotionView({
@@ -90,6 +86,7 @@ export const FireMotion = memo(function FireMotionView({
         ? baseFrameDurationMs * 0.85
         : baseFrameDurationMs;
   const stillFrame = mode === 'day' ? 0 : 1;
+  const quietFlame = mode === 'evening' && residentGroup === 'empty';
   const glowOpacity =
     residentCount == null
       ? 0.22
@@ -161,26 +158,29 @@ export const FireMotion = memo(function FireMotionView({
         style={StyleSheet.absoluteFill}
       >
         <Defs>
-          <ClipPath id="fire-motion-day-log-core">
-            <Path testID="fire-motion-day-log-core-path" d={dayLogCorePath} />
-          </ClipPath>
           <ClipPath id="fire-motion-core">
             <Path
               testID="fire-motion-core-path"
               d={mode === 'day' ? smokeCorePath : flameCorePath}
             />
           </ClipPath>
+          <ClipPath id="fire-motion-quiet-core">
+            <G transform="translate(165 78) scale(0.68) translate(-165 -78)">
+              <Path testID="fire-motion-quiet-core-path" d={flameCorePath} />
+            </G>
+          </ClipPath>
         </Defs>
-        {mode === 'day' && (
+        {quietFlame && (
           <SvgImage
-            testID="fire-motion-day-log-cover"
+            testID="fire-motion-quiet-unlit-core"
             href={unlitFireSource as number}
             x={0}
             y={0}
             width={330}
             height={220}
             preserveAspectRatio="none"
-            clipPath="url(#fire-motion-day-log-core)"
+            clipPath="url(#fire-motion-core)"
+            opacity={1}
           />
         )}
         {frames.map((source, index) => (
@@ -188,13 +188,13 @@ export const FireMotion = memo(function FireMotionView({
             key={index}
             testID={`fire-motion-frame-${mode}-${index}`}
             href={source as number}
-            x={0}
-            y={0}
-            width={330}
-            height={220}
+            x={quietFlame ? 55 : 0}
+            y={quietFlame ? 26 : 0}
+            width={quietFlame ? 220 : 330}
+            height={quietFlame ? 147 : 220}
             preserveAspectRatio="none"
-            clipPath="url(#fire-motion-core)"
-            opacity={frame === index ? 1 : 0}
+            clipPath={quietFlame ? 'url(#fire-motion-quiet-core)' : 'url(#fire-motion-core)'}
+            opacity={frame === index ? (quietFlame ? 0.52 : 1) : 0}
           />
         ))}
       </Svg>

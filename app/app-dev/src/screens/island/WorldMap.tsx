@@ -580,6 +580,20 @@ export function WorldMap({
               }}
             />
           )}
+          {dayNight === 'day' && (
+            <Image
+              testID="world-fire-day-off-overlay"
+              source={require('@/assets/village-world/motion/fire/day-fire-off-overlay.png')}
+              resizeMode="stretch"
+              style={{
+                position: 'absolute',
+                left: left + 440 * scale,
+                top: top + 435 * scale,
+                width: 60 * scale,
+                height: 80 * scale,
+              }}
+            />
+          )}
           <FireMotion
             testID="world-fire-motion"
             mode={dayNight === 'day' ? 'day' : 'evening'}
