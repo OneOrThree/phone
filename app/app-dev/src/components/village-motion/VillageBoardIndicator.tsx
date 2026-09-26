@@ -2,7 +2,7 @@ import React, { type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ViewStyle } from 'react-native';
 import { villageAssets } from '@/constants/village-assets';
 import { Text } from '@/design-system/typography';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 
 /** 게시판은 정지 이미지로 유지하고 새 소식이 있을 때만 표시를 붙인다. */
 export function VillageBoardIndicator({
@@ -41,11 +41,11 @@ export function VillageBoardIndicator({
           style={[
             styles.badge,
             {
-              width: 25 * indicatorScale,
-              height: 25 * indicatorScale,
-              top: -11 * indicatorScale,
-              right: 21 * indicatorScale,
-              borderRadius: 13 * indicatorScale,
+              width: componentTokens.villageNotificationBadge.diameter * indicatorScale,
+              height: componentTokens.villageNotificationBadge.diameter * indicatorScale,
+              top: componentTokens.villageNotificationBadge.topOffset * indicatorScale,
+              right: componentTokens.villageNotificationBadge.rightOffset * indicatorScale,
+              borderRadius: componentTokens.villageNotificationBadge.radius * indicatorScale,
             },
           ]}
         >
@@ -69,12 +69,12 @@ const styles = StyleSheet.create({
     zIndex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: semanticTokens.color.accent,
-    borderColor: semanticTokens.color.outline,
-    borderWidth: 1.5,
+    backgroundColor: componentTokens.badge.default.background,
+    borderColor: componentTokens.badge.default.border,
+    borderWidth: componentTokens.villageNotificationBadge.borderWidth,
   },
   badgeText: {
-    color: semanticTokens.color.text,
+    color: componentTokens.badge.default.foreground,
     fontWeight: '800',
     lineHeight: 20,
     textAlign: 'center',

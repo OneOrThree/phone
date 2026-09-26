@@ -57,6 +57,8 @@ Primitive → Semantic → Component → Screen composition
 
 새 코드는 `semanticTokens` 또는 `componentTokens`를 우선한다. `C.*`는 기존 화면 호환 별칭이다.
 
+마을 건물의 새 소식 배지는 `componentTokens.villageNotificationBadge`에서 지름, 반경, 테두리, 월드 기준 오프셋을 관리한다. 게시판·우체통·도서관이 같은 크기와 윤곽을 공유하고, 지도 배율은 토큰 치수에 곱해 적용한다.
+
 ## 4. 컬러
 
 ### 4.1 주간 · 딸기 소다

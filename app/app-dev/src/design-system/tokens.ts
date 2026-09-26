@@ -250,6 +250,13 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.default,
     radius: semanticTokens.radius.full,
   },
+  villageNotificationBadge: {
+    diameter: 25,
+    radius: 13,
+    borderWidth: semanticTokens.stroke.default,
+    topOffset: -11,
+    rightOffset: 21,
+  },
   progress: {
     track: color.progressTrack,
     fill: semanticTokens.color.primary,
