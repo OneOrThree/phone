@@ -319,6 +319,9 @@ export const componentTokens = {
     background: semanticTokens.color.overlay,
     sheetBackground: semanticTokens.color.overlaySheet,
   },
+  villageMotion: {
+    fireOffCore: '#382b26',
+  },
 } as const;
 
 /** 기존 화면의 C.* 사용처를 깨지 않고 semantic token으로 연결하는 호환 별칭. */
