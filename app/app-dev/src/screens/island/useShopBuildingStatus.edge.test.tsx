@@ -72,14 +72,19 @@ it('상점을 빠르게 닫아도 시작된 읽음 처리는 카탈로그 조회
     resolvePersonal(page(item('shirt'), item('new-hat')));
   });
   await waitFor(() => expect(api).toHaveBeenCalledWith('island-1', 'island', undefined));
-  await act(async () => resolveIsland(page(item('island-lantern'))));
+  await act(async () => {
+    resolveIsland(page(item('island-lantern')));
+    api.mockImplementation(async (_islandId, category) =>
+      category === 'personal' ? page(item('shirt'), item('new-hat')) : page(item('island-lantern')),
+    );
+  });
 
   await waitFor(() => {
     const stored = JSON.parse(mockStorage.get(key)!);
     expect(stored.knownIds).toContain('new-hat');
     expect(stored.pendingIds).toEqual([]);
   });
-  expect(hook.result.current).not.toBe('new-product');
+  await waitFor(() => expect(hook.result.current).toBe('purchasable'));
   hook.unmount();
 });
 
@@ -133,5 +138,26 @@ it('반복 커서면 불완전한 카탈로그를 저장하지 않고 다음 카
   await waitFor(() => expect(hook.result.current).toBe('normal'));
   expect(api).not.toHaveBeenCalledWith('island-1', 'island', undefined);
   expect(mockStorage.get(key)).toBe(previous);
+  hook.unmount();
+});
+
+it('첫 상점 카탈로그 조회가 실패하면 빈 기준점을 저장하지 않는다', async () => {
+  api.mockRejectedValueOnce(new Error('catalog unavailable'));
+  const props = { active: false, acknowledge: true, islandId: 'island-1', userId: 'user-1' };
+  const hook = await renderHook((value: typeof props) => useShopBuildingStatus(value), {
+    initialProps: props,
+  });
+  await waitFor(() => expect(api).toHaveBeenCalledWith('island-1', 'personal', undefined));
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(mockStorage.has(key)).toBe(false);
+  expect(storage.setItem).not.toHaveBeenCalled();
+
+  api.mockImplementation(async (_islandId, category) =>
+    category === 'personal' ? page(item('shirt')) : page(),
+  );
+  await act(async () => hook.rerender({ ...props, active: true, acknowledge: false }));
+  await waitFor(() => expect(hook.result.current).toBe('purchasable'));
+  const stored = JSON.parse(mockStorage.get(key)!);
+  expect(stored.pendingIds).toEqual([]);
   hook.unmount();
 });

@@ -95,6 +95,7 @@ export function useShopBuildingStatus({
                 acknowledged = updateShopCatalogSnapshot(previous, items);
               } catch {
                 // 상점 진입 자체는 확인으로 간주한다. 카탈로그 실패 시 다음 홈 조회가 다시 시도한다.
+                if (!previous) return;
               }
               await AsyncStorage.setItem(key, JSON.stringify({ ...acknowledged, pendingIds: [] }));
             } catch {
@@ -121,9 +122,8 @@ export function useShopBuildingStatus({
         const acknowledgement = acknowledgements.current.get(key);
         if (acknowledgement) {
           await acknowledgement;
-          if (!cancelled) setStatus('normal');
-          return;
         }
+        if (cancelled) return;
         const [previous, items] = await Promise.all([readSnapshot(key), readCatalog(islandId!)]);
         if (cancelled) return;
         const next = updateShopCatalogSnapshot(previous, items);
