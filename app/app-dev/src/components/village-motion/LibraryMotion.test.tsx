@@ -45,7 +45,7 @@ describe('LibraryMotion', () => {
       expect(view.getByTestId('library-motion-indicator').props.style).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ width: 18, height: 18 }),
-          expect.objectContaining({ top: '12%', left: -29 }),
+          expect.objectContaining({ top: -4, left: 75 }),
         ]),
       );
     }

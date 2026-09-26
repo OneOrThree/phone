@@ -83,7 +83,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
           testID="library-motion-indicator"
           accessibilityLabel={`${stateLabel}이 있습니다`}
           scale={indicatorScale}
-          style={{ top: '12%', left: -29 * indicatorScale }}
+          style={{ top: -4 * indicatorScale, left: 75 * indicatorScale }}
         />
       )}
     </View>
