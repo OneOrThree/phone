@@ -70,6 +70,7 @@ import {
 import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
 import { LibraryMotion, type LibraryMotionState } from '@/components/village-motion/LibraryMotion';
 import { FireMotion } from '@/components/village-motion/FireMotion';
+import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
 const pathDistance = (pts: readonly Point[]) => {
@@ -631,6 +632,16 @@ export function WorldMap({
               top: top + (dayNight === 'day' ? 425 : 437) * scale,
               width: (dayNight === 'day' ? 116 : 140) * scale,
               height: (dayNight === 'day' ? 77 : 93) * scale,
+            }}
+          />
+          <RaftWaterMotion
+            testID="world-raft-water-motion"
+            reduceMotion={state.settings.reduceMotion}
+            style={{
+              left: left + 185 * scale,
+              top: top + 835 * scale,
+              width: 210 * scale,
+              height: 92 * scale,
             }}
           />
         </View>

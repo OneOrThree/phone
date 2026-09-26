@@ -318,6 +318,16 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
       }),
     ]),
   );
+  expect(screen.getByTestId('world-raft-water-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 185 * worldScale,
+        top: worldTop + 835 * worldScale,
+        width: 210 * worldScale,
+        height: 92 * worldScale,
+      }),
+    ]),
+  );
   await act(async () => jest.advanceTimersByTime(360));
   expect(screen.getByTestId('fire-motion-frame-day-1').props.style).toEqual(
     expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
