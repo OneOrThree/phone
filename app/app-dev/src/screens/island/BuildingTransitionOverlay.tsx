@@ -41,7 +41,8 @@ export function BuildingTransitionOverlay({ state, reduceMotion, origin, delayMs
   }, [delayMs, progress, reduceMotion, state.generation, visible]);
 
   if (!visible || reduceMotion) return null;
-  const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [0.015, 1] });
+  // 진입 프레임을 먼저 보여 주는 delay 동안 작은 원이 미리 보이지 않게 0에서 시작한다.
+  const scale = progress.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   return (
     <View
       testID="building-transition-overlay"

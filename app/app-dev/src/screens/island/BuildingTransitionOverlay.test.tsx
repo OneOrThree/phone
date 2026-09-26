@@ -44,6 +44,7 @@ test('reduceMotion이면 진행 상태여도 애니메이션 덮개를 생략한
 
 test('진입 시 선택한 원점을 중심으로 화면 전체를 덮는 확대 애니메이션을 시작한다', async () => {
   const timing = jest.spyOn(Animated, 'timing');
+  const interpolate = jest.spyOn(Animated.Value.prototype, 'interpolate');
   try {
     const screen = await render(
       <BuildingTransitionOverlay state={state()} reduceMotion={false} origin={{ x: 75, y: 125 }} />,
@@ -61,12 +62,14 @@ test('진입 시 선택한 원점을 중심으로 화면 전체를 덮는 확대
       top: -375,
       borderRadius: 500,
     });
+    expect(interpolate).toHaveBeenCalledWith({ inputRange: [0, 1], outputRange: [0, 1] });
     expect(timing).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ toValue: 1, duration: 620, useNativeDriver: true }),
     );
   } finally {
     timing.mockRestore();
+    interpolate.mockRestore();
   }
 });
 
