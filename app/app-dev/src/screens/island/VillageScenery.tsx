@@ -13,12 +13,14 @@ export const VillageScenery = memo(function VillageScenery({
   scale,
   reduce,
   mailboxLetters,
+  boardStatus,
   libraryState,
 }: {
   scene: VillageScene;
   scale: number;
   reduce: boolean;
   mailboxLetters: boolean;
+  boardStatus: 'unread' | 'new-comment' | null;
   libraryState: LibraryMotionState;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
@@ -141,6 +143,16 @@ export const VillageScenery = memo(function VillageScenery({
             <VillageNotificationBadge
               testID="village-mailbox-new-indicator"
               accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              scale={scale}
+              style={{ top: -10 * scale, right: -5 * scale }}
+            />
+          )}
+          {o.kind === 'notice-board' && boardStatus !== null && (
+            <VillageNotificationBadge
+              testID="village-board-new-indicator"
+              accessibilityLabel={
+                boardStatus === 'unread' ? '새 공지가 있습니다' : '새 댓글이 있습니다'
+              }
               scale={scale}
               style={{ top: -10 * scale, right: -5 * scale }}
             />

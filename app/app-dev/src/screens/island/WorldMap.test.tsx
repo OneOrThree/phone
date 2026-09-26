@@ -600,6 +600,31 @@ test.each(['new-reading', 'new-quest'] as const)(
   },
 );
 
+test.each(['unread', 'new-comment'] as const)(
+  '레이어드 월드 게시판 %s 상태에 알림 배지를 표시한다',
+  async (boardStatus) => {
+    const state = initialState(true);
+    const island = state.islands.find((item) => item.id === state.islandId)!;
+    if (!island.buildings.includes('board')) island.buildings.push('board');
+    const screen = await render(
+      <FinalIslandScene
+        state={state}
+        go={jest.fn()}
+        build={jest.fn()}
+        layeredPreview
+        boardStatus={boardStatus}
+      />,
+    );
+
+    expect(screen.queryByTestId('world-board-indicator')).toBeNull();
+    expect(
+      screen.getByTestId('village-board-new-indicator', { includeHiddenElements: true }).props
+        .accessibilityLabel,
+    ).toBe(boardStatus === 'unread' ? '새 공지가 있습니다' : '새 댓글이 있습니다');
+    await screen.unmount();
+  },
+);
+
 test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
   jest.useFakeTimers();
   AppState.currentState = 'active';

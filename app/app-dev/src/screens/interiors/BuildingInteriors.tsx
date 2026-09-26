@@ -3940,6 +3940,25 @@ export function Board({
     serverBoard && !!e && (e.route === 'notice' || (e.route === 'board' && e.tab === '공지'));
   useEffect(() => {
     if (!boardNoticesVisible || board.loading || board.error || !board.islandId) return;
+    if (e?.route === 'notice') {
+      const detail = board.detail;
+      if (!detail || detail.id !== e.detail) return;
+      // 상세 화면에서는 실제로 연 공지만 확인한다. 목록의 다른 공지까지
+      // 확인 기준점에 넣으면 한 공지만 읽어도 unread 배지가 사라진다.
+      const listedNotice = board.items.find((item) => item.id === detail.id);
+      e?.buildingIndicators?.markBoardSeen?.({
+        islandId: board.islandId,
+        items: [
+          {
+            id: detail.id,
+            title: detail.title,
+            commentCount: listedNotice?.commentCount ?? detail.comments.length,
+          },
+        ],
+        nextCursor: null,
+      });
+      return;
+    }
     e?.buildingIndicators?.markBoardSeen?.({
       islandId: board.islandId,
       items: board.items,
@@ -3950,8 +3969,11 @@ export function Board({
     board.loading,
     board.error,
     board.islandId,
+    board.detail,
     board.items,
     board.nextCursor,
+    e?.detail,
+    e?.route,
     e?.buildingIndicators?.markBoardSeen,
   ]);
   useEffect(() => {

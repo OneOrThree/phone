@@ -302,7 +302,13 @@ test('목록 — getBoard 첫 페이지를 그리고 더 보기는 listNotices �
 });
 
 test('퀘스트에서 재사용한 Board는 공지를 읽음 처리하지 않고 공지 화면에서만 기준점을 기록한다', async () => {
-  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지', commentCount: 2 }]));
+  getBoardMock.mockResolvedValue(
+    page([
+      { id: 'n1', title: '첫 공지', commentCount: 7 },
+      { id: 'n2', title: '둘째 공지', commentCount: 4 },
+    ]),
+  );
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }]));
   const markBoardSeen = jest.fn();
   const e = makeE({
     route: 'quest',
@@ -324,7 +330,28 @@ test('퀘스트에서 재사용한 Board는 공지를 읽음 처리하지 않고
   await waitFor(() => expect(markBoardSeen).toHaveBeenCalledTimes(1));
   expect(markBoardSeen).toHaveBeenCalledWith({
     islandId: ISLAND,
-    items: [{ id: 'n1', title: '첫 공지', commentCount: 2 }],
+    items: [{ id: 'n1', title: '공지 제목', commentCount: 7 }],
+    nextCursor: null,
+  });
+  await screen.unmount();
+});
+
+test('첫 페이지 밖 공지 상세에 들어가면 열린 공지만 확인 기준점에 추가한다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n2', title: '목록의 공지', commentCount: 9 }]));
+  getNoticeMock.mockResolvedValue(detail('n1', [{ id: 'c1' }, { id: 'c2' }]));
+  const markBoardSeen = jest.fn();
+  const screen = await renderBoard(
+    makeE({
+      route: 'notice',
+      detail: 'n1',
+      buildingIndicators: { markBoardSeen },
+    }),
+  );
+
+  await waitFor(() => expect(markBoardSeen).toHaveBeenCalledTimes(1));
+  expect(markBoardSeen).toHaveBeenCalledWith({
+    islandId: ISLAND,
+    items: [{ id: 'n1', title: '공지 제목', commentCount: 2 }],
     nextCursor: null,
   });
   await screen.unmount();

@@ -731,6 +731,7 @@ export function WorldMap({
             scale={scale}
             reduce={state.settings.reduceMotion}
             mailboxLetters={mailboxLetters}
+            boardStatus={boardStatus}
             libraryState={libraryState}
           />
         )}
