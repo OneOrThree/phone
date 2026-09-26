@@ -137,7 +137,11 @@ test('완공 목록이 없거나 시설이 미완공이면 해당 시설 폴링�
   expect(libraryNow).not.toHaveBeenCalled();
   expect(mailboxNow).not.toHaveBeenCalled();
   expect(result.current).toEqual(
-    expect.objectContaining({ boardStatus: null, libraryState: 'normal', showMailboxLetters: false }),
+    expect.objectContaining({
+      boardStatus: null,
+      libraryState: 'normal',
+      showMailboxLetters: false,
+    }),
   );
 
   await rerender({ completedBuildings: ['library'] });
@@ -194,34 +198,41 @@ test('과거 공지 페이지에서 발견한 새 댓글은 전체 관측 snapsh
 test.each(['INVALID_CURSOR', 'CURSOR_EXPIRED'] as const)(
   '게시판 순환 커서 %s가 무효화되면 기존 순환을 폐기하고 새 첫 이력 커서부터 재개한다',
   async (code) => {
-  boardNow.mockImplementation(async (_islandId, _alive, onPages) => {
-    onPages([
-      { key: 'latest', snapshot: { latest: 0 } },
-      { key: 'fresh-first-history', snapshot: { old: 2 } },
-    ]);
-    return { latest: 0, old: 2 };
-  });
-  boardPoll.mockRejectedValueOnce(new ApiError(code, 'expired', code === 'CURSOR_EXPIRED' ? 409 : 400));
-  const hook = await renderHook(
-    (props: { refreshKey: number }) =>
-      useBuildingIndicators({
-        active: true,
-        islandId: 'island-1',
-        onHome: true,
-        refreshKey: props.refreshKey,
-      }),
-    { initialProps: { refreshKey: 0 } },
-  );
-  await waitFor(() => assert.equal(boardNow.mock.calls.length, 1));
+    boardNow.mockImplementation(async (_islandId, _alive, onPages) => {
+      onPages([
+        { key: 'latest', snapshot: { latest: 0 } },
+        { key: 'fresh-first-history', snapshot: { old: 2 } },
+      ]);
+      return { latest: 0, old: 2 };
+    });
+    boardPoll.mockRejectedValueOnce(
+      new ApiError(code, 'expired', code === 'CURSOR_EXPIRED' ? 409 : 400),
+    );
+    const hook = await renderHook(
+      (props: { refreshKey: number }) =>
+        useBuildingIndicators({
+          active: true,
+          islandId: 'island-1',
+          onHome: true,
+          refreshKey: props.refreshKey,
+        }),
+      { initialProps: { refreshKey: 0 } },
+    );
+    await waitFor(() => assert.equal(boardNow.mock.calls.length, 1));
 
-  await hook.rerender({ refreshKey: 1 });
-  await waitFor(() => assert.equal(boardNow.mock.calls.length, 2));
-  expect(boardPoll).toHaveBeenNthCalledWith(1, 'island-1', null, expect.any(Function));
+    await hook.rerender({ refreshKey: 1 });
+    await waitFor(() => assert.equal(boardNow.mock.calls.length, 2));
+    expect(boardPoll).toHaveBeenNthCalledWith(1, 'island-1', null, expect.any(Function));
 
-  await hook.rerender({ refreshKey: 2 });
-  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 2));
-  expect(boardPoll).toHaveBeenNthCalledWith(2, 'island-1', 'fresh-first-history', expect.any(Function));
-  hook.unmount();
+    await hook.rerender({ refreshKey: 2 });
+    await waitFor(() => assert.equal(boardPoll.mock.calls.length, 2));
+    expect(boardPoll).toHaveBeenNthCalledWith(
+      2,
+      'island-1',
+      'fresh-first-history',
+      expect.any(Function),
+    );
+    hook.unmount();
   },
 );
 

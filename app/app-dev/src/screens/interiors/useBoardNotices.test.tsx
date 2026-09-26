@@ -684,6 +684,64 @@ test('오래된 공지 댓글 작성 뒤 목록 페이지의 서버 정본 카�
   await hook.unmount();
 });
 
+test.each(['INVALID_CURSOR', 'CURSOR_EXPIRED'] as const)(
+  '댓글 POST 뒤 페이지 커서 %s면 새 cursor로 대상 공지를 다시 찾아 목록과 상세를 동기화한다',
+  async (code) => {
+    getBoardMock.mockResolvedValue(board([{ id: 'recent', title: '최근' }], 'old-first'));
+    listNoticesMock.mockResolvedValueOnce({
+      items: [{ id: 'old', title: '오래된 공지', commentCount: 4 }],
+      nextCursor: 'old-next',
+    });
+    const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1' }));
+    await waitFor(() => assert.equal(hook.result.current.loading, false));
+    await act(async () => {
+      await hook.result.current.loadMore();
+    });
+    getNoticeMock.mockResolvedValueOnce(detail('old', []));
+    await act(async () => {
+      await hook.result.current.select('old');
+    });
+
+    postCommentMock.mockResolvedValue({ id: 'mine', name: '나', text: '내 댓글' });
+    listNoticesMock.mockRejectedValueOnce(
+      new ApiError(code, 'expired', code === 'CURSOR_EXPIRED' ? 409 : 400),
+    );
+    getBoardMock.mockClear();
+    getBoardMock.mockResolvedValue(board([{ id: 'recent', title: '최근' }], 'fresh-first'));
+    listNoticesMock
+      .mockResolvedValueOnce({
+        items: [{ id: 'middle', title: '중간 공지', commentCount: 1 }],
+        nextCursor: 'fresh-second',
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: 'old', title: '오래된 공지', commentCount: 5 }],
+        nextCursor: null,
+      });
+    getNoticeMock.mockResolvedValueOnce(detail('old', [{ id: 'mine' }]));
+
+    await act(async () => {
+      await hook.result.current.addComment('old', '내 댓글');
+    });
+
+    assert.equal(
+      JSON.stringify(listNoticesMock.mock.calls.map((call) => call[1])),
+      JSON.stringify(['old-first', 'old-first', 'fresh-first', 'fresh-second']),
+    );
+    assert.equal(hook.result.current.items.find((item) => item.id === 'old')?.commentCount, 5);
+    assert.equal(
+      hook.result.current.items.some((item) => item.id === 'middle'),
+      true,
+    );
+    assert.deepEqual(
+      hook.result.current.detail?.comments.map((comment) => comment.id),
+      ['mine'],
+    );
+    assert.equal(hook.result.current.nextCursor, null);
+    assert.equal(getBoardMock.mock.calls.length, 1);
+    await hook.unmount();
+  },
+);
+
 test('범위 교체 중인 쓰기의 refresh 는 새 범위 목록을 덮지 않는다', async () => {
   const hook = await mountActive();
   const slow = deferred<{ id: string; title: string; body: string }>();

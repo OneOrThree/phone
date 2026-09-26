@@ -358,7 +358,40 @@ export function useBoardNotices({
       if (!alive(e, generation)) throw stale();
       const cursor = noticePageCursors.current.get(noticeId);
       if (cursor === undefined) return;
-      const page = await listNotices(islandId, cursor ?? undefined);
+      let page: NoticePage;
+      try {
+        page = await listNotices(islandId, cursor ?? undefined);
+      } catch (error) {
+        if (
+          !(error instanceof ApiError) ||
+          (error.code !== 'INVALID_CURSOR' && error.code !== 'CURSOR_EXPIRED')
+        )
+          throw error;
+
+        // 댓글 POST는 이미 성공했다. 만료된 페이지 커서 때문에 쓰기 전체를 실패로
+        // 보이지 않도록 목록을 다시 읽고, 새 커서로 해당 공지가 있는 페이지까지 찾는다.
+        await refreshList(e, generation);
+        let nextCursor = stateRef.current.nextCursor;
+        const seenCursors = new Set<string>();
+        while (nextCursor !== null) {
+          if (seenCursors.has(nextCursor))
+            throw new ApiError('INVALID_CURSOR', '공지 목록을 새로고침하지 못했어요.', 0);
+          seenCursors.add(nextCursor);
+          const pageCursor = nextCursor;
+          const freshPage = await listNotices(islandId, pageCursor);
+          if (!alive(e, generation)) throw stale();
+          for (const item of freshPage.items) noticePageCursors.current.set(item.id, pageCursor);
+          const byId = new Map(stateRef.current.items.map((item) => [item.id, item]));
+          for (const item of freshPage.items) byId.set(item.id, item);
+          const items = [...byId.values()];
+          set({ items, nextCursor: freshPage.nextCursor });
+          onLoadedRef.current?.({ islandId, items, nextCursor: freshPage.nextCursor });
+          if (freshPage.items.some((item) => item.id === noticeId)) return;
+          nextCursor = freshPage.nextCursor;
+        }
+        // 공지가 댓글 POST와 재탐색 사이에 삭제된 경우에도 최신 목록은 이미 반영했다.
+        return;
+      }
       if (!alive(e, generation)) throw stale();
       const updated = page.items.find((item) => item.id === noticeId);
       if (!updated) return;
@@ -370,7 +403,7 @@ export function useBoardNotices({
         nextCursor: stateRef.current.nextCursor,
       });
     },
-    [alive, set],
+    [alive, refreshList, set],
   );
 
   /** 퀘스트 상세 — 회차별 라우트 키인 occurrenceId로 정확한 목록 항목을 찾는다. */

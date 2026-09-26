@@ -494,7 +494,12 @@ test('도서관 페이지네이션과 기준점은 첫 서버 응답의 asOf 주
   });
 
   // 응답을 받은 시점에는 클라이언트가 이미 다음 UTC 주에 있어도 기존 snapshot 주를 유지한다.
-  const result = await fetchLibrarySnapshot('i:1', undefined, new Date('2026-09-28T00:00:02Z'), screen);
+  const result = await fetchLibrarySnapshot(
+    'i:1',
+    undefined,
+    new Date('2026-09-28T00:00:02Z'),
+    screen,
+  );
 
   expect(getFocusStatistics).toHaveBeenCalledWith('i:1', {
     from: '2026-09-27',
