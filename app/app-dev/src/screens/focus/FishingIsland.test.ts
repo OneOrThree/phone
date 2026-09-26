@@ -67,7 +67,7 @@ test('도착 지점과 이어지지 않은 땅(연못 가운데 섬)은 걸어�
 });
 
 test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {
-  assert.equal(PEER_SPOTS.length, 14);
+  assert.equal(PEER_SPOTS.length, 15);
   assert.deepEqual(PEER_SPOTS[0], { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 });
   for (const [n, p] of PEER_SPOTS.entries()) {
     assert.ok(onLand(fishingGrid, p), `${n}`);

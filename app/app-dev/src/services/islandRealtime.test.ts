@@ -253,6 +253,10 @@ function start(
     islandId: string;
     emoteSessionId?: string | null;
     snapshots?: { focus: ReturnType<typeof focusSnap>; rest: ReturnType<typeof restSnap> };
+    loadSnapshots?: () => Promise<{
+      focus: ReturnType<typeof focusSnap>;
+      rest: ReturnType<typeof restSnap>;
+    }>;
     loadError?: unknown;
     views?: PresenceView[];
     transitions?: IslandPresenceTransition[];
@@ -287,6 +291,7 @@ function start(
     loadSnapshots: async () => {
       loads += 1;
       if (deps.loadError) throw deps.loadError;
+      if (deps.loadSnapshots) return deps.loadSnapshots();
       return deps.snapshots ?? { focus: focusSnap([]), rest: restSnap([]) };
     },
   });
@@ -375,6 +380,268 @@ describe('startIslandRealtime', () => {
     assert.equal(transition.current?.status, 'paused');
   });
 
+  test('상태가 active로 같아도 sessionId가 바뀌면 세션 교체 전이를 낸다', async () => {
+    const channel = fakeChannel();
+    const transitions: IslandPresenceTransition[] = [];
+    const { rt } = start(
+      {
+        islandId: 'i1',
+        transitions,
+        snapshots: {
+          focus: focusSnap([focusItem('u1', { sessionId: 'old' })], [wm('focus.member', 'u1', 1)]),
+          rest: restSnap([]),
+        },
+      },
+      channel,
+    );
+    rt.resync();
+    await flush();
+
+    channel.opts?.onEvent(focusEvent('u1', 2, { sessionId: 'new', status: 'active' }));
+
+    assert.equal(transitions.length, 1);
+    const transition = transitions[0];
+    assert.equal(transition.kind, 'focus');
+    if (transition.kind !== 'focus') throw new Error('focus 전이가 필요하다');
+    assert.equal(transition.previous?.sessionId, 'old');
+    assert.equal(transition.current?.sessionId, 'new');
+  });
+
+  test('재연결 조회 중 도착한 최신 이벤트를 늦은 스냅숏이 되감지 않는다', async () => {
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const deps: Parameters<typeof start>[0] = {
+      islandId: 'i1',
+      views,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await flush();
+
+    let resolveSnapshot!: (value: {
+      focus: ReturnType<typeof focusSnap>;
+      rest: ReturnType<typeof restSnap>;
+    }) => void;
+    deps.loadSnapshots = () => new Promise((resolve) => (resolveSnapshot = resolve));
+    rt.resync('reconnect');
+    channel.opts?.onEvent(focusEvent('u1', 2, { status: 'paused' }));
+    resolveSnapshot({
+      focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+      rest: restSnap([]),
+    });
+    await flush();
+
+    assert.equal(views.at(-1)?.focus[0].status, 'paused');
+  });
+
+  test('재연결 조회가 실패해도 그 사이 도착한 상태 이벤트를 마지막 정상 뷰에 반영한다', async () => {
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const deps: Parameters<typeof start>[0] = {
+      islandId: 'i1',
+      views,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await flush();
+
+    deps.loadSnapshots = () => Promise.reject(new ApiError('NETWORK', '재연결 실패', 0));
+    rt.resync('reconnect');
+    channel.opts?.onEvent(focusEvent('u1', 2, { status: 'paused' }));
+    await flush();
+
+    assert.equal(views.at(-1)?.status, 'ready');
+    assert.equal(views.at(-1)?.focus[0].status, 'paused');
+  });
+
+  test('재연결 조회 실패 중 처음 본 주민 이벤트는 후속 정본 조회로 복구한다', async () => {
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const deps: Parameters<typeof start>[0] = {
+      islandId: 'i1',
+      views,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await flush();
+
+    let attempt = 0;
+    deps.loadSnapshots = () => {
+      attempt += 1;
+      if (attempt === 1) return Promise.reject(new ApiError('NETWORK', '재연결 실패', 0));
+      return Promise.resolve({
+        focus: focusSnap(
+          [focusItem('u1'), focusItem('ghost')],
+          [wm('focus.member', 'u1', 1), wm('focus.member', 'ghost', 1)],
+        ),
+        rest: restSnap([]),
+      });
+    };
+    rt.resync('reconnect');
+    channel.opts?.onEvent(focusEvent('ghost', 2));
+    await flush();
+    await flush();
+
+    assert.equal(attempt, 2);
+    assert.ok(views.at(-1)?.focus.some((member) => member.userId === 'ghost'));
+  });
+
+  test('event-gap 조회 중 도착한 또 다른 신규 주민도 후속 정본 조회로 복구한다', async () => {
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const deps: Parameters<typeof start>[0] = {
+      islandId: 'i1',
+      views,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await flush();
+
+    let resolveFirst!: (value: {
+      focus: ReturnType<typeof focusSnap>;
+      rest: ReturnType<typeof restSnap>;
+    }) => void;
+    let attempt = 0;
+    deps.loadSnapshots = () => {
+      attempt += 1;
+      if (attempt === 1) return new Promise((resolve) => (resolveFirst = resolve));
+      return Promise.resolve({
+        focus: focusSnap(
+          [focusItem('u1'), focusItem('a'), focusItem('b')],
+          [wm('focus.member', 'u1', 1), wm('focus.member', 'a', 2), wm('focus.member', 'b', 2)],
+        ),
+        rest: restSnap([]),
+      });
+    };
+    channel.opts?.onEvent(focusEvent('a', 2));
+    channel.opts?.onEvent(focusEvent('b', 2));
+    resolveFirst({
+      focus: focusSnap(
+        [focusItem('u1'), focusItem('a')],
+        [wm('focus.member', 'u1', 1), wm('focus.member', 'a', 2)],
+      ),
+      rest: restSnap([]),
+    });
+    await flush();
+    await flush();
+
+    assert.equal(attempt, 2);
+    assert.ok(views.at(-1)?.focus.some((member) => member.userId === 'b'));
+  });
+
+  test('후속 event-gap 조회 중 다시 들어온 신규 주민은 backoff 재조회로 복구한다', async () => {
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const deps: Parameters<typeof start>[0] = {
+      islandId: 'i1',
+      views,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await flush();
+
+    let resolveFirst!: (value: {
+      focus: ReturnType<typeof focusSnap>;
+      rest: ReturnType<typeof restSnap>;
+    }) => void;
+    let resolveSecond!: typeof resolveFirst;
+    let attempt = 0;
+    deps.loadSnapshots = () => {
+      attempt += 1;
+      if (attempt === 1) return new Promise((resolve) => (resolveFirst = resolve));
+      if (attempt === 2) return new Promise((resolve) => (resolveSecond = resolve));
+      return Promise.resolve({
+        focus: focusSnap(
+          [focusItem('u1'), focusItem('a'), focusItem('b'), focusItem('c')],
+          [
+            wm('focus.member', 'u1', 1),
+            wm('focus.member', 'a', 2),
+            wm('focus.member', 'b', 2),
+            wm('focus.member', 'c', 2),
+          ],
+        ),
+        rest: restSnap([]),
+      });
+    };
+    channel.opts?.onEvent(focusEvent('a', 2));
+    channel.opts?.onEvent(focusEvent('b', 2));
+    resolveFirst({
+      focus: focusSnap(
+        [focusItem('u1'), focusItem('a')],
+        [wm('focus.member', 'u1', 1), wm('focus.member', 'a', 2)],
+      ),
+      rest: restSnap([]),
+    });
+    await flush();
+
+    channel.opts?.onEvent(focusEvent('c', 2));
+    resolveSecond({
+      focus: focusSnap(
+        [focusItem('u1'), focusItem('a'), focusItem('b')],
+        [wm('focus.member', 'u1', 1), wm('focus.member', 'a', 2), wm('focus.member', 'b', 2)],
+      ),
+      rest: restSnap([]),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await flush();
+
+    assert.equal(attempt, 3);
+    assert.ok(views.at(-1)?.focus.some((member) => member.userId === 'c'));
+    rt.dispose();
+  });
+
+  test('재동기화 중 버퍼링된 응원도 만료 시점에 화면에서 제거한다', async () => {
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const deps: Parameters<typeof start>[0] = {
+      islandId: 'i1',
+      views,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await flush();
+
+    let resolveSnapshot!: (value: {
+      focus: ReturnType<typeof focusSnap>;
+      rest: ReturnType<typeof restSnap>;
+    }) => void;
+    deps.loadSnapshots = () => new Promise((resolve) => (resolveSnapshot = resolve));
+    rt.resync('reconnect');
+    channel.opts?.onEvent(
+      emoteEvent('buffered-emote', { expiresAt: new Date(Date.parse(NOW) + 30).toISOString() }),
+    );
+    resolveSnapshot(deps.snapshots!);
+    await flush();
+    assert.equal(views.at(-1)?.emotes.length, 1);
+
+    await new Promise((resolve) => setTimeout(resolve, 70));
+    assert.equal(views.at(-1)?.emotes.length, 0);
+  });
+
   test('스냅숏 실패는 error 상태로 올린다 — 가짜 빈 성공이 아니다', async () => {
     const channel = fakeChannel();
     const views: PresenceView[] = [];
@@ -397,7 +664,9 @@ describe('startIslandRealtime', () => {
     assert.equal(loads(), 2);
     channel.opts?.onEvent(focusEvent('ghost', 9));
     await flush();
-    assert.equal(loads(), 3);
+    // 첫 정본이 아직 신규 주민을 포함하지 않으면 전파 지연을 고려해 한 번 더 확인한다.
+    assert.equal(loads(), 4);
+    rt.dispose();
   });
 
   test('sendEmote 는 기존 STOMP SEND 계약으로만 보낸다', async () => {

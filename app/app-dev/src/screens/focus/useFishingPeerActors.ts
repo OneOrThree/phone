@@ -95,6 +95,12 @@ export function useFishingPeerActors({
     }
     if (realtime && appliedSnapshotVersion.current === snapshotVersion) return;
     appliedSnapshotVersion.current = snapshotVersion;
+    const incomingKeys = new Set(
+      membersRef.current.map((member) => actorKey(member.userId, member.sessionId)),
+    );
+    for (const key of slots.current.keys()) {
+      if (!incomingKeys.has(key)) slots.current.delete(key);
+    }
     const next = membersRef.current.map((member) => {
       const key = actorKey(member.userId, member.sessionId),
         slot = alloc(key),
@@ -161,11 +167,18 @@ export function useFishingPeerActors({
         if (!sessionId) continue;
         const key = actorKey(transition.userId, sessionId),
           found = next.findIndex((actor) => actor.key === key),
-          existing = found >= 0 ? next[found] : null;
+          previousKey = before?.sessionId ? actorKey(transition.userId, before.sessionId) : null,
+          previousFound = previousKey ? next.findIndex((actor) => actor.key === previousKey) : -1,
+          existing = found >= 0 ? next[found] : null,
+          replaced = !existing && previousFound >= 0 ? next[previousFound] : null;
         if (after?.status === 'active') {
           const peer = fromLive(after, after.activeSeconds),
-            slot = existing?.slot ?? alloc(key),
+            slot = existing?.slot ?? replaced?.slot ?? alloc(key),
             spot = PEER_SPOTS[slot];
+          if (replaced) {
+            slots.current.delete(replaced.key);
+            slots.current.set(key, slot);
+          }
           const actor: FishingPeerActor = {
             ...peer,
             key,
@@ -182,6 +195,7 @@ export function useFishingPeerActors({
             generation: (existing?.generation ?? 0) + 1,
           };
           if (found >= 0) next[found] = actor;
+          else if (previousFound >= 0) next[previousFound] = actor;
           else next.push(actor);
         } else if (after?.status === 'paused' && before?.status === 'active' && existing) {
           next[found] = {

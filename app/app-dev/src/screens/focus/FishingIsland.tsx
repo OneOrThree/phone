@@ -62,7 +62,7 @@ export function castSpot({ x, y }: Point): Spot {
 const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536);
 // 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
 export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
-// 낚시 중인 주민 자리(정원 15명 = 나 + 주민 14명). 앞 두 자리는 시안 예시 좌표, 다음 다섯은 땅 위 예시 자리.
+// 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
 // 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
 // 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
 export const PEER_SPOTS: Spot[] = (() => {
@@ -94,7 +94,7 @@ export const PEER_SPOTS: Spot[] = (() => {
   }
   candidates.sort((a, b) => apart(a, { x: 50, y: 50 }) - apart(b, { x: 50, y: 50 }));
   for (const p of candidates) {
-    if (spots.length >= 14) break;
+    if (spots.length >= 15) break;
     if ([...spots, ...avoid].every((q) => apart(p, q) >= 11) && castSpot(p).bx != null)
       spots.push(p);
   }

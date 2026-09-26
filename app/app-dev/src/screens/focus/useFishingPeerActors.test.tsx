@@ -95,6 +95,7 @@ test('재연결 스냅숏은 입장 모션을 재생하지 않고 즉시 교체�
     }),
   );
 
+  const previousSpot = result.current.actors[0].spot;
   assert.deepEqual(
     result.current.actors.map((actor) => actor.userId),
     ['u1'],
@@ -108,6 +109,7 @@ test('재연결 스냅숏은 입장 모션을 재생하지 않고 즉시 교체�
   );
   assert.equal(result.current.actors[0].phase, 'fishing');
   assert.deepEqual(result.current.actors[0].position, result.current.actors[0].spot);
+  assert.deepEqual(result.current.actors[0].spot, previousSpot);
 });
 
 test('퇴장 중 바로 재개하면 이전 퇴장을 취소하고 같은 자리로 돌아온다', async () => {
@@ -140,4 +142,43 @@ test('퇴장 중 바로 재개하면 이전 퇴장을 취소하고 같은 자리
   await act(async () => result.current.leftForPause('u1:s1', staleExitGeneration));
   assert.equal(result.current.actors[0].phase, 'entering');
   assert.equal(result.current.actors[0].visible, true);
+});
+
+test('같은 주민의 active 세션이 교체되면 이전 actor를 남기지 않고 같은 슬롯에서 다시 입장한다', async () => {
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({ members: [peer], ready: true, reduce: false }),
+  );
+  const previous = member('active'),
+    current = { ...member('active'), sessionId: 's2' };
+  const seat = result.current.actors[0].spot;
+
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u1',
+      previous,
+      current,
+    }),
+  );
+
+  assert.equal(result.current.actors.length, 1);
+  assert.equal(result.current.actors[0].key, 'u1:s2');
+  assert.equal(result.current.actors[0].phase, 'entering');
+  assert.deepEqual(result.current.actors[0].spot, seat);
+});
+
+test('방문 화면의 최대 정원 15명에게 서로 다른 자리를 배정한다', async () => {
+  const peers = Array.from({ length: 15 }, (_, index) => ({
+    ...peer,
+    userId: `u${index}`,
+    sessionId: `s${index}`,
+  }));
+  const { result } = await renderHook(() =>
+    useFishingPeerActors({ members: peers, ready: true, reduce: false }),
+  );
+
+  assert.equal(result.current.actors.length, 15);
+  assert.equal(new Set(result.current.actors.map((actor) => actor.slot)).size, 15);
+  assert.equal(new Set(result.current.actors.map((actor) => actor.spot)).size, 15);
 });

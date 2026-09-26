@@ -221,7 +221,7 @@ export class IslandProjection {
       return {
         changed: true,
         transition:
-          prev?.status !== current.status
+          prev?.status !== current.status || prev?.sessionId !== current.sessionId
             ? { source: 'event', kind, userId, previous: prev ?? null, current }
             : null,
       };
@@ -422,9 +422,13 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   let disposed = false;
   let resyncing = false;
   let resyncAfter: 'reconnect' | 'manual' | 'event-gap' | null = null;
+  let eventGapRetries = 0;
   let hadData = false;
   let snapshotVersion = 0;
+  const pendingEvents: unknown[] = [];
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+  let gapRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let gapRetryDelay = 250;
 
   const publish = (status: PresenceView['status'], error: ApiError | null = null) => {
     if (disposed || !alive()) return;
@@ -450,6 +454,40 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     }
   };
 
+  const replayPendingEvents = () => {
+    let changed = false;
+    const transitions: IslandPresenceTransition[] = [];
+    const pending = pendingEvents.splice(0);
+    for (const raw of pending) {
+      const previouslyNeeded = projection.resyncNeeded;
+      projection.resyncNeeded = false;
+      const result = projection.applyWithTransition(raw);
+      const unresolved = projection.resyncNeeded;
+      projection.resyncNeeded = previouslyNeeded || unresolved;
+      if (unresolved) pendingEvents.push(raw);
+      changed ||= result.changed;
+      if (result.transition) transitions.push(result.transition);
+    }
+    scheduleExpiry();
+    return { changed, transitions, processed: pending.length > 0 };
+  };
+
+  const clearGapRetry = () => {
+    if (gapRetryTimer) clearTimeout(gapRetryTimer);
+    gapRetryTimer = null;
+  };
+
+  const scheduleGapRetry = (retry: () => void) => {
+    if (gapRetryTimer) return;
+    const delay = gapRetryDelay;
+    gapRetryDelay = Math.min(gapRetryDelay * 2, 5000);
+    gapRetryTimer = setTimeout(() => {
+      gapRetryTimer = null;
+      eventGapRetries = 0;
+      retry();
+    }, delay);
+  };
+
   const resync = async (source: 'reconnect' | 'manual' | 'event-gap' = 'manual') => {
     if (disposed || !alive()) return;
     if (resyncing) {
@@ -458,27 +496,46 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       return;
     }
     resyncing = true;
+    if (source !== 'event-gap') {
+      eventGapRetries = 0;
+      gapRetryDelay = 250;
+      clearGapRetry();
+    }
     if (!hadData) publish('loading');
+    const previousFocus =
+      source === 'event-gap' ? new Map(projection.focus().map((m) => [m.userId, m])) : null;
+    const previousRest =
+      source === 'event-gap' ? new Map(projection.rest().map((m) => [m.userId, m])) : null;
     try {
       const { focus, rest } = await load(islandId);
       if (disposed || !alive()) return;
-      const previousFocus =
-        source === 'event-gap' ? new Map(projection.focus().map((m) => [m.userId, m])) : null;
-      const previousRest =
-        source === 'event-gap' ? new Map(projection.rest().map((m) => [m.userId, m])) : null;
       projection.loadFocus(focus);
       projection.loadRest(rest);
       projection.resyncNeeded = false;
+      const replay = replayPendingEvents();
+      // 프로젝션 전파 지연은 한 번 더 확인하되, 미반영 이벤트를 보존해 무한 즉시 재조회는 막는다.
+      if (projection.resyncNeeded && eventGapRetries < 1) {
+        eventGapRetries += 1;
+        resyncAfter = 'event-gap';
+      } else if (projection.resyncNeeded) scheduleGapRetry(() => void resync('event-gap'));
+      else {
+        eventGapRetries = 0;
+        gapRetryDelay = 250;
+        clearGapRetry();
+      }
       hadData = true;
       if (source !== 'event-gap') snapshotVersion = ++nextSnapshotVersion;
       publish('ready');
+      if (source !== 'event-gap') {
+        for (const transition of replay.transitions) deps.onTransition?.(transition);
+      }
       if (source === 'event-gap') {
         const transitions: IslandPresenceTransition[] = [];
         const nextFocus = new Map(projection.focus().map((m) => [m.userId, m]));
         for (const userId of new Set([...(previousFocus?.keys() ?? []), ...nextFocus.keys()])) {
           const previous = previousFocus?.get(userId) ?? null;
           const current = nextFocus.get(userId) ?? null;
-          if (previous?.status !== current?.status) {
+          if (previous?.status !== current?.status || previous?.sessionId !== current?.sessionId) {
             transitions.push({ source, kind: 'focus', userId, previous, current });
           }
         }
@@ -498,6 +555,19 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       if (disposed || !alive()) return;
       // 첫 스냅숏 실패만 화면 오류로 올린다 — 이미 데이터가 있으면 재연결 때 다시 맞춘다.
       if (!hadData) publish('error', thrown as ApiError);
+      else {
+        // 재연결 조회가 실패해도 그 사이 도착한 이벤트는 마지막 정상 스냅숏 위에 반영한다.
+        const replay = replayPendingEvents();
+        if (replay.processed && projection.resyncNeeded && eventGapRetries < 1) {
+          eventGapRetries += 1;
+          resyncAfter = 'event-gap';
+        } else if (replay.processed && projection.resyncNeeded)
+          scheduleGapRetry(() => void resync('event-gap'));
+        if (replay.changed) {
+          publish('ready');
+          for (const transition of replay.transitions) deps.onTransition?.(transition);
+        }
+      }
     } finally {
       resyncing = false;
       if (resyncAfter !== null) {
@@ -513,7 +583,16 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     emote: !!deps.emoteSessionId,
     onEvent: (raw) => {
       if (disposed || !alive()) return;
+      if (resyncing) {
+        pendingEvents.push(raw);
+        return;
+      }
+      const previouslyNeeded = projection.resyncNeeded;
+      projection.resyncNeeded = false;
       const result = projection.applyWithTransition(raw);
+      const unresolved = projection.resyncNeeded;
+      projection.resyncNeeded = previouslyNeeded || unresolved;
+      if (unresolved) pendingEvents.push(raw);
       if (projection.resyncNeeded) void resync('event-gap');
       if (result.changed) {
         scheduleExpiry();
@@ -538,6 +617,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     dispose: () => {
       disposed = true;
       if (expiryTimer) clearTimeout(expiryTimer);
+      clearGapRetry();
       conn.close();
     },
   };
