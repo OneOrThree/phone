@@ -496,11 +496,12 @@ export function WorldMap({
               resizeMode="contain"
             />
           )}
-          {island.buildings.includes('hall') && dayNight === 'day' && (
+          {island.buildings.includes('hall') && (
             <VillageHallMotion
               testID="world-hall-motion"
-              state={hallMotionActive ? 'arrival' : 'normal'}
+              state={hallMotionActive && dayNight === 'day' ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
+              showFrames={dayNight === 'day'}
               highlighted={hallMotionActive}
               tooltip={
                 hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
@@ -541,9 +542,12 @@ export function WorldMap({
             <VillageObservatoryMotion
               testID="world-observatory-motion"
               rankState={observatoryRankState}
+              indicatorScale={scale}
               dayNight={dayNight}
               showFrames={dayNight === 'day'}
               generation={dayNight === 'day' && towerArrivalActive ? towerArrivalGeneration : 0}
+              entryActive={towerArrivalActive}
+              entryTooltip={<Txt kind="meta">전망대에 들어가는 중</Txt>}
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
@@ -923,7 +927,11 @@ function FinalIslandScene({
                       ? `${d.label}, 새 댓글이 있어요`
                       : d.building === 'board' && boardStatus === 'unread'
                         ? `${d.label}, 읽지 않은 새 소식이 있어요`
-                        : d.label
+                        : d.building === 'tower' && observatoryRankState === 'rank-updated'
+                          ? `${d.label}, 주간 순위가 갱신되었습니다`
+                          : d.building === 'tower' && observatoryRankState === 'rank-changed'
+                            ? `${d.label}, 주간 순위가 변동되었습니다`
+                            : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
@@ -931,9 +939,11 @@ function FinalIslandScene({
                     ? '터치하면 마을 회관으로 들어가요'
                     : d.building === 'board' && !!boardStatus
                       ? '게시판을 열어 확인하세요'
-                      : visiting && d.building && !['hall', 'board'].includes(d.building)
-                        ? '주민만 이용할 수 있어요'
-                        : undefined
+                      : d.building === 'tower' && observatoryRankState !== 'normal'
+                        ? '전망대에서 주간 섬 순위를 확인하세요'
+                        : visiting && d.building && !['hall', 'board'].includes(d.building)
+                          ? '주민만 이용할 수 있어요'
+                          : undefined
                 }
                 onPress={() => {
                   if (!visiting) {

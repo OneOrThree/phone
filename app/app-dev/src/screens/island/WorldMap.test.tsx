@@ -101,13 +101,18 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   const screen = await render(<WorldMap state={state} />);
   const activeFrame = () =>
     [0, 1, 2, 3].find((index) => {
-      const style = screen.getByTestId(`village-observatory-frame-${index}`).props.style;
+      const style = screen.getByTestId(`village-observatory-frame-${index}`, {
+        includeHiddenElements: true,
+      }).props.style;
       return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
     });
 
   await act(async () => jest.advanceTimersByTime(2000));
   expect(activeFrame()).toBe(0);
-  expect(screen.getByTestId('world-observatory-motion').props.accessibilityLabel).toContain('낮');
+  expect(
+    screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }).props
+      .accessibilityElementsHidden,
+  ).toBe(true);
   await screen.rerender(<WorldMap state={state} towerArrivalActive towerArrivalGeneration={1} />);
   await act(async () => jest.advanceTimersByTime(220));
   expect(activeFrame()).toBe(1);
@@ -115,6 +120,67 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   expect(activeFrame()).toBe(3);
   await screen.unmount();
   jest.useRealTimers();
+});
+
+test('야간 건물 진입은 주간 스프라이트 없이도 강조 피드백을 제공한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date(2026, 5, 15, 22));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  for (const building of ['hall', 'tower'] as const) {
+    if (!island.buildings.includes(building)) island.buildings.push(building);
+  }
+  const screen = await render(
+    <WorldMap
+      state={state}
+      hallMotionActive
+      hallMotionGeneration={1}
+      towerArrivalActive
+      towerArrivalGeneration={1}
+    />,
+  );
+
+  expect(screen.getByTestId('world-static-building-hall')).toBeTruthy();
+  expect(screen.getByTestId('world-hall-motion')).toBeTruthy();
+  expect(screen.queryByTestId('village-hall-frame-0')).toBeNull();
+  expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
+  expect(screen.getByText('마을 회관에 들어가는 중')).toBeTruthy();
+
+  expect(screen.getByTestId('world-static-building-tower')).toBeTruthy();
+  expect(
+    screen.queryByTestId('village-observatory-frame-0', { includeHiddenElements: true }),
+  ).toBeNull();
+  expect(
+    screen.getByTestId('village-observatory-entry-highlight', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    screen.getByTestId('village-observatory-entry-feedback', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('랭킹 상태는 전망대 건물 버튼의 접근성 라벨에만 포함한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('tower')) island.buildings.push('tower');
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      observatoryRankState="rank-changed"
+      showHud={false}
+      showActions={false}
+    />,
+  );
+
+  expect(screen.getByLabelText(`${buildingNames.tower}, 주간 순위가 변동되었습니다`)).toBeTruthy();
+  expect(
+    screen.getByTestId('world-observatory-motion', { includeHiddenElements: true }).props
+      .accessibilityElementsHidden,
+  ).toBe(true);
+  await screen.unmount();
 });
 
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
