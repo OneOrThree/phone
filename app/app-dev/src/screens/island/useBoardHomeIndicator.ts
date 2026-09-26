@@ -62,24 +62,29 @@ export function useBoardHomeIndicator({
   islandId: string;
   markRead: boolean;
 }): BoardHomeStatus {
-  const [status, setStatus] = useState<BoardHomeStatus>(null);
+  const [statusRecord, setStatusRecord] = useState<{
+    scopeKey: string;
+    status: BoardHomeStatus;
+  } | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const scopeKey = `${ownerId ?? ''}:${islandId}`;
 
   useEffect(() => {
-    if (!active) return;
+    if (!active || markRead) return;
     const subscription = AppState.addEventListener('change', (nextState) => {
       if (nextState === 'active') setRefreshKey((key) => key + 1);
     });
     return () => subscription.remove();
-  }, [active]);
+  }, [active, markRead]);
 
   useEffect(() => {
     let cancelled = false;
-    setStatus(null);
-    if (!active || !ownerId || !islandId)
+    if (!active || !ownerId || !islandId) {
+      setStatusRecord(null);
       return () => {
         cancelled = true;
       };
+    }
 
     const key = `gromo.board-indicator.v1:${ownerId}:${islandId}`;
     (async () => {
@@ -91,19 +96,19 @@ export function useBoardHomeIndicator({
         if (cancelled) return;
         if (markRead || !seen) {
           await AsyncStorage.setItem(key, JSON.stringify(current));
-          if (!cancelled) setStatus(null);
+          if (!cancelled) setStatusRecord({ scopeKey, status: null });
           return;
         }
-        setStatus(compareBoardNoticeSnapshots(current, seen));
+        setStatusRecord({ scopeKey, status: compareBoardNoticeSnapshots(current, seen) });
       } catch {
-        if (!cancelled) setStatus(null);
+        // 실패 시 같은 사용자·섬에서 마지막으로 확인한 상태를 유지해 배지를 숨기지 않는다.
       }
     })().catch(() => undefined);
 
     return () => {
       cancelled = true;
     };
-  }, [active, ownerId, islandId, markRead, refreshKey]);
+  }, [active, ownerId, islandId, markRead, refreshKey, scopeKey]);
 
-  return status;
+  return active && statusRecord?.scopeKey === scopeKey ? statusRecord.status : null;
 }

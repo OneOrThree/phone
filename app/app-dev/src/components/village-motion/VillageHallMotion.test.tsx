@@ -46,9 +46,17 @@ describe('VillageHallMotion', () => {
     await view.unmount();
   });
 
-  it('applies building theme tint over the active frame instead of a duplicate static layer', async () => {
+  it('applies building theme tint to the active frame alpha instead of a rectangular overlay', async () => {
     const view = await render(<VillageHallMotion state="arrival" themed />);
-    expect(view.getByTestId('village-hall-theme-tint')).toBeTruthy();
+    expect(view.getByTestId('village-hall-frame-0').props.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tintColor: componentTokens.villageBuildingThemeTint.color,
+          opacity: componentTokens.villageBuildingThemeTint.opacity,
+        }),
+      ]),
+    );
+    expect(view.queryByTestId('village-hall-theme-tint')).toBeNull();
     await view.unmount();
   });
 

@@ -257,6 +257,10 @@ export const componentTokens = {
     topOffset: -11,
     rightOffset: 21,
   },
+  villageBuildingThemeTint: {
+    color: '#d7829b',
+    opacity: 0.3,
+  },
   villageNotificationTooltip: {
     maxWidth: 180,
     paddingVertical: space[2],

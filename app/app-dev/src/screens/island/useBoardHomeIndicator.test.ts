@@ -18,6 +18,8 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   setItem: jest.fn().mockResolvedValue(null),
 }));
 
+beforeEach(() => jest.clearAllMocks());
+
 test('게시판 기준점 이후 새 공지와 댓글 증가를 구분한다', () => {
   const seen = { noticeA: 2, noticeB: 0 };
   expect(compareBoardNoticeSnapshots({ noticeA: 2, noticeB: 0 }, seen)).toBeNull();
@@ -97,6 +99,94 @@ test('홈이 foreground로 돌아오면 게시판 상태를 다시 조회한다'
   await waitFor(() => expect(getBoard).toHaveBeenCalledTimes(1));
   await act(async () => listeners[0]('active'));
   await waitFor(() => expect(getBoard).toHaveBeenCalledTimes(2));
+
+  await hook.unmount();
+  addListener.mockRestore();
+});
+
+test('공지 화면에서 foreground 복귀만으로 읽음 기준점을 올리지 않는다', async () => {
+  const board = {
+    island: {
+      id: 'island-1',
+      name: '섬',
+      intro: '',
+      visibility: 'public',
+      approvalRequired: false,
+      memberCount: 1,
+      maxMembers: 15,
+      membershipStatus: 'active',
+      growthStage: null,
+      themeId: null,
+      role: 'host',
+      version: 1,
+    },
+    notices: { items: [], nextCursor: null },
+    quests: { items: [] },
+    wallets: { fish: 0, villagePoints: 0, fishVersion: null, villagePointsVersion: 0 },
+  } as Awaited<ReturnType<typeof getBoard>>;
+  (getBoard as jest.Mock).mockResolvedValue(board);
+  const addListener = jest.spyOn(AppState, 'addEventListener');
+  await renderHook(() =>
+    useBoardHomeIndicator({
+      active: true,
+      ownerId: 'user-1',
+      islandId: 'island-1',
+      markRead: true,
+    }),
+  );
+
+  await waitFor(() => expect(getBoard).toHaveBeenCalledTimes(1));
+  expect(addListener).not.toHaveBeenCalled();
+  addListener.mockRestore();
+});
+
+test('foreground 재조회 실패 시 같은 섬의 기존 미확인 배지를 유지한다', async () => {
+  const board = {
+    island: {
+      id: 'island-1',
+      name: '섬',
+      intro: '',
+      visibility: 'public',
+      approvalRequired: false,
+      memberCount: 1,
+      maxMembers: 15,
+      membershipStatus: 'active',
+      growthStage: null,
+      themeId: null,
+      role: 'host',
+      version: 1,
+    },
+    notices: {
+      items: [{ id: 'notice-new', title: '새 소식', commentCount: 0 }],
+      nextCursor: null,
+    },
+    quests: { items: [] },
+    wallets: { fish: 0, villagePoints: 0, fishVersion: null, villagePointsVersion: 0 },
+  } as Awaited<ReturnType<typeof getBoard>>;
+  (getBoard as jest.Mock).mockResolvedValueOnce(board);
+  (getBoard as jest.Mock).mockRejectedValueOnce(new Error('offline'));
+  (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify({}));
+  const listeners: ((state: string) => void)[] = [];
+  const addListener = jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+    _event: string,
+    listener: (state: string) => void,
+  ) => {
+    listeners.push(listener);
+    return { remove: jest.fn() };
+  }) as never);
+  const hook = await renderHook(() =>
+    useBoardHomeIndicator({
+      active: true,
+      ownerId: 'user-1',
+      islandId: 'island-1',
+      markRead: false,
+    }),
+  );
+
+  await waitFor(() => expect(hook.result.current).toBe('unread'));
+  await act(async () => listeners[0]('active'));
+  await waitFor(() => expect(getBoard).toHaveBeenCalledTimes(2));
+  expect(hook.result.current).toBe('unread');
 
   await hook.unmount();
   addListener.mockRestore();

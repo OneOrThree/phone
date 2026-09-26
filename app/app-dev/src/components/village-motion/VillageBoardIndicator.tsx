@@ -46,6 +46,7 @@ export function VillageBoardIndicator({
               top: componentTokens.villageNotificationBadge.topOffset * indicatorScale,
               right: componentTokens.villageNotificationBadge.rightOffset * indicatorScale,
               borderRadius: componentTokens.villageNotificationBadge.radius * indicatorScale,
+              borderWidth: componentTokens.villageNotificationBadge.borderWidth * indicatorScale,
             },
           ]}
         >
@@ -78,7 +79,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: componentTokens.badge.default.background,
     borderColor: componentTokens.badge.default.border,
-    borderWidth: componentTokens.villageNotificationBadge.borderWidth,
   },
   badgeText: {
     color: componentTokens.badge.default.foreground,

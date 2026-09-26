@@ -41,7 +41,7 @@ describe('VillageBoardIndicator', () => {
     expect(style.width).toBe(componentTokens.villageNotificationBadge.diameter * scale);
     expect(style.height).toBe(componentTokens.villageNotificationBadge.diameter * scale);
     expect(style.borderRadius).toBe(componentTokens.villageNotificationBadge.radius * scale);
-    expect(style.borderWidth).toBe(componentTokens.villageNotificationBadge.borderWidth);
+    expect(style.borderWidth).toBe(componentTokens.villageNotificationBadge.borderWidth * scale);
     expect(
       StyleSheet.flatten(
         view.getByTestId('village-board-new-indicator').props.children.props.style,

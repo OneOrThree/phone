@@ -97,5 +97,6 @@ describe('design system tokens', () => {
       paddingVertical: primitiveTokens.space[2],
       borderWidth: semanticTokens.stroke.default,
     });
+    expect(componentTokens.villageBuildingThemeTint).toEqual({ color: '#d7829b', opacity: 0.3 });
   });
 });
