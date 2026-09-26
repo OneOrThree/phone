@@ -28,7 +28,13 @@ test('서버 current 가 있으면 로컬 목업 섬과 무관하게 주민이�
 
 test('스냅샷이 오면 완공 건물과 방장 여부를 서버 값으로 판정한다', () => {
   const s = act(synced('srv1'), 'SERVER_HOME', {
-    facts: { islandId: 'srv1', completedBuildings: ['hall'], home: { island: { role: 'host' } } },
+    facts: {
+      islandId: 'srv1',
+      completedBuildings: ['hall'],
+      activeConstruction: null,
+      constructionObservedAt: 0,
+      home: { island: { role: 'host' } },
+    },
   });
   const gate = memberGate(s, true);
   assert.deepEqual([...(gate.built ?? [])], ['hall']);

@@ -90,6 +90,7 @@ const options = (items: object[], over: object = {}) => ({
   selectedBuildingId: null,
   villagePoints: 800,
   walletVersion: 7,
+  activeConstruction: null,
   items,
   ...over,
 });
@@ -116,10 +117,16 @@ const envelope = (code: string, field: string | null = null) => ({
 });
 
 /** memberships → home+options+members → memberships 재확인까지 정상인 최소 응답 열. */
-const happyPath = (over: { optionsItems?: object[]; membersItems?: object[] } = {}) => [
+const happyPath = (
+  over: {
+    optionsItems?: object[];
+    membersItems?: object[];
+    activeConstruction?: object | null;
+  } = {},
+) => [
   ok(memberships('i1')),
   ok(homeScreen('i1')),
-  ok(options(over.optionsItems ?? [])),
+  ok(options(over.optionsItems ?? [], { activeConstruction: over.activeConstruction ?? null })),
   ok(membersPage(over.membersItems ?? [member('m1')])),
   ok(memberships('i1')),
 ];
@@ -133,7 +140,20 @@ beforeEach(async () => {
 });
 
 test('성공 — memberships → 병렬 3조각 → 재확인을 거쳐 원자적 facts 하나를 돌려준다', async () => {
-  stub(happyPath({ optionsItems: [optionItem('gram'), optionItem('shop')] }));
+  const activeConstruction = {
+    buildingId: 'library',
+    status: 'BUILDING',
+    startedAt: '2026-09-21T00:00:00Z',
+    completesAt: '2026-09-21T01:00:00Z',
+    serverNow: '2026-09-21T00:10:00Z',
+    version: 3,
+  };
+  stub(
+    happyPath({
+      optionsItems: [optionItem('gram'), optionItem('library'), optionItem('shop')],
+      activeConstruction,
+    }),
+  );
 
   const snap = await loadHomeSnapshot(args);
 
@@ -149,7 +169,9 @@ test('성공 — memberships → 병렬 3조각 → 재확인을 거쳐 원자�
   assert.equal(snap.facts.islandId, 'i1');
   assert.equal(snap.facts.home.island.name, '모래섬');
   assert.equal(snap.facts.home.focusSummary.totalSeconds, 90);
-  assert.deepEqual(snap.facts.completedBuildings, ['hall', 'board', 'library', 'mail', 'tower']);
+  assert.deepEqual(snap.facts.completedBuildings, ['hall', 'board', 'mail', 'tower']);
+  assert.deepEqual(snap.facts.activeConstruction, activeConstruction);
+  assert.equal(Number.isFinite(snap.facts.constructionObservedAt), true);
   assert.equal(snap.facts.members.length, 1);
 });
 
@@ -163,6 +185,7 @@ test('서로 다른 잔액 — options 잔액이 home 지갑을 덮어쓰지 않
   // home 스냅샷의 공동 잔액(1500)이 options 의 별도 스냅샷(800)으로 바뀌지 않는다.
   assert.equal(snap.facts.home.wallets.villagePoints, 1500);
   assert.equal(snap.facts.home.wallets.fish, 500);
+  assert.equal(Number.isFinite(snap.facts.constructionObservedAt), true);
 });
 
 test('current null — 소속 목록·lossReason 을 담은 선택 상태, 추가 호출 없다', async () => {

@@ -9,8 +9,8 @@
  *  - 목표는 `PUT …/construction-target`(`buildingId`+`expectedVersion`), 착공은
  *    `POST …/constructions`(`expectedCostPolicyVersion` 포함) — 둘 다 `Idempotency-Key` 필수.
  *    같은 의도의 재시도는 같은 키·같은 본문, 바뀐 본문은 새 키다(409 `IDEMPOTENCY_KEY_REUSED`).
- *  - BUILDING·`startedAt`/`completesAt` 은 POST 응답이 정본이다 — GET 에는 공사 시각이 없다.
- *    앱은 `completesAt` 경과를 「재조회 신호」로만 쓰고 로컬 타이머로 완공을 확정하지 않는다.
+ *  - GET options 의 `activeConstruction` 이 재실행·복귀 후 복원의 정본이다. POST 응답은
+ *    재조회 사이 임시 상태로 쓴다. 앱은 `completesAt` 경과를 「재조회 신호」로만 쓴다.
  *    재실행·앱 전면 복귀·기기 시각 변경·완공 예정 시각 도달 때마다 GET 을 다시 부른다.
  *  - `islandId` 입력은 지금 로컬 섬 id 라 fetch 에 쓰지 않는다 — 서버 섬 id 는 `/me/islands`
  *    의 current 에서 배우고(`useLedgerScreen` 과 같은 계약), `islandId` 는 scope 리셋 신호다.
@@ -38,8 +38,10 @@ import {
   startConstruction,
   type ConstructionOptions,
   type ConstructionStarted,
+  type ActiveConstruction,
   type IslandMember,
 } from '@/services/api/home';
+import { constructionPhase, normalizedConstructionProgress } from './constructionProgress';
 import { myIslands } from '@/services/api/islands';
 import { sessionGeneration } from '@/services/api/session';
 import { collectPages } from '@/screens/interiors/useIslandManagement';
@@ -106,8 +108,9 @@ export function useConstruction({
   now: number;
 }) {
   const [snap, setSnap] = useState<ConstructionSnapshot>(EMPTY);
-  /** 이 세션에서 POST 로 접수된 공사 — GET 에는 공사 시각이 없어 응답을 그대로 들고 있는다. */
-  const [started, setStarted] = useState<ConstructionStarted | null>(null);
+  /** 공사 상태는 GET 스냅샷으로 복원하며 POST 결과는 재조회 전의 임시 표시다. */
+  const [started, setStarted] = useState<ConstructionStarted | ActiveConstruction | null>(null);
+  const [startedObservedAt, setStartedObservedAt] = useState(0);
   const mounted = useRef(false);
   const scopeRef = useRef<Scope | null>(null);
   const loadSeq = useRef(0);
@@ -178,11 +181,9 @@ export function useConstruction({
         optionsRef.current = options;
         publish({ options, members, loading: false, error: null });
         confirmSeq.current = seq; // canonical 확정 — 쓰기 성공의 근거는 이 값이다
-        // POST 로 접수한 건물이 items 에서 빠졌다 = 서버가 완공으로 옮겼다. 앱이 시각으로
-        // 판정한 것이 아니라 서버 목록이 말한 것이다.
-        setStarted((prev) =>
-          prev !== null && !options.items.some((item) => item.id === prev.buildingId) ? null : prev,
-        );
+        // GET 의 activeConstruction 이 재실행/복귀 뒤에도 이어지는 canonical 상태다.
+        setStarted(options.activeConstruction);
+        setStartedObservedAt(lastNow.current);
       } catch (error) {
         publish({ ...EMPTY, loading: false, error: asApiError(error) });
         // 옛 scope(세대 교체·섬 이동·supersede)의 결과는 성공이든 실패든 STALE 로 통일한다.
@@ -256,7 +257,7 @@ export function useConstruction({
     return () => sub.remove();
   }, [active, reload]);
 
-  // 기기 시각 변경·completesAt 도달은 「재조회 신호」다 — 완공 확정은 서버 목록이 내린다.
+  // 기기 시각 변경·서버 기준 completesAt 도달은 「재조회 신호」다 — 완공 확정은 서버 목록이 내린다.
   useEffect(() => {
     const prev = lastNow.current;
     lastNow.current = now;
@@ -264,10 +265,12 @@ export function useConstruction({
     const jumped = Math.abs(now - prev) > CLOCK_JUMP_MS;
     const dueKey = started !== null ? `${started.buildingId}:${started.completesAt}` : null;
     const due =
-      dueKey !== null && now >= Date.parse(started!.completesAt) && dueHandled.current !== dueKey;
+      dueKey !== null &&
+      normalizedConstructionProgress(started, now, startedObservedAt) >= 1 &&
+      dueHandled.current !== dueKey;
     if (due) dueHandled.current = dueKey;
     if (jumped || due) reload().catch(() => undefined);
-  }, [now, active, started, reload]);
+  }, [now, active, started, startedObservedAt, reload]);
 
   /**
    * 모든 쓰기 명령의 단일 통로 — fence·의도 슬롯·단일 flight·성공 후 재조회·오류 분류를
@@ -397,19 +400,14 @@ export function useConstruction({
         expectedVersion: options.islandVersion,
         expectedCostPolicyVersion: options.costPolicyVersion,
       };
-      return runWrite(
-        scope,
-        `build:${buildingId}`,
-        JSON.stringify(body),
-        (key) =>
-          startConstruction(
-            serverIsland.current!,
-            buildingId,
-            body.expectedVersion,
-            body.expectedCostPolicyVersion,
-            key,
-          ),
-        (result) => setStarted(result as ConstructionStarted),
+      return runWrite(scope, `build:${buildingId}`, JSON.stringify(body), (key) =>
+        startConstruction(
+          serverIsland.current!,
+          buildingId,
+          body.expectedVersion,
+          body.expectedCostPolicyVersion,
+          key,
+        ),
       );
     },
     [callScope, confirmedItem, runWrite],
@@ -421,6 +419,11 @@ export function useConstruction({
     options: snap.options,
     members: snap.members,
     started,
+    progress: normalizedConstructionProgress(started, now, startedObservedAt),
+    phase: constructionPhase(
+      normalizedConstructionProgress(started, now, startedObservedAt),
+      started !== null,
+    ),
     error: snap.error,
     reload,
     retry: reload,

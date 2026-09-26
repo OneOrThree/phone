@@ -6,7 +6,7 @@ import {
   CLIENT_NOT_SELECTABLE,
   useConstruction,
 } from '@/screens/island/useConstruction';
-import { CLIENT_NETWORK_ERROR, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { CLIENT_NETWORK_ERROR } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
@@ -85,6 +85,7 @@ const options = (items: object[], over: object = {}) => ({
   selectedBuildingId: null,
   villagePoints: 800,
   walletVersion: 7,
+  activeConstruction: null,
   items,
   ...over,
 });
@@ -165,6 +166,30 @@ test('ready — 화면의 로컬 id 가 아니라 /me/islands 의 current 로 �
   await h.unmount();
 });
 
+test('activeConstruction — 새 화면 진입과 다시 활성화할 때 GET 상태를 복원한다', async () => {
+  const activeConstruction = {
+    buildingId: 'library',
+    status: 'BUILDING',
+    startedAt: '2026-09-21T00:00:00Z',
+    completesAt: '2026-09-21T01:00:00Z',
+    serverNow: '2026-09-21T00:10:00Z',
+    version: 5,
+  };
+  serve(live(options([item('library')], { activeConstruction })));
+  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  assert.deepEqual(h.result.current.started, activeConstruction);
+  assert.equal(h.result.current.progress, 1 / 6);
+  assert.equal(h.result.current.phase, 'building');
+
+  await h.rerender({ active: false, islandId: 'local1', now: NOW });
+  await h.rerender({ active: true, islandId: 'local1', now: NOW });
+  await flush();
+  assert.deepEqual(h.result.current.started, activeConstruction);
+  assert.equal(gets('/islands/srv1/construction-options').length, 2);
+  await h.unmount();
+});
+
 test('items 가 비었다 = 전부 완공 — ready 상태의 빈 목록이지 오류가 아니다', async () => {
   serve(live(options([])));
   const h = await mount({ active: true, islandId: 'local1', now: NOW });
@@ -222,14 +247,26 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
       if (optCalls === 2) {
         // 공사 중에도 library 는 items 에 남는다(IN_PROGRESS) — 조기 완공 오인 금지
         return data(
-          options([
-            item('library', {
-              selectable: false,
-              buildable: false,
-              blockedReason: 'IN_PROGRESS',
-            }),
-            item('mail'),
-          ]),
+          options(
+            [
+              item('library', {
+                selectable: false,
+                buildable: false,
+                blockedReason: 'IN_PROGRESS',
+              }),
+              item('mail'),
+            ],
+            {
+              activeConstruction: {
+                buildingId: 'library',
+                status: 'BUILDING',
+                startedAt: startedBody.startedAt,
+                completesAt: startedBody.completesAt,
+                serverNow: startedBody.startedAt,
+                version: 5,
+              },
+            },
+          ),
         );
       }
       // 서버가 완공으로 옮겼다 — items 에서 빠졌다.
@@ -254,6 +291,7 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
   const started = h.result.current.started;
   assert.equal(started?.status, 'BUILDING');
   assert.equal(started?.completesAt, '2026-09-21T01:00:00Z');
+  assert.equal('serverNow' in (started ?? {}), true); // GET canonical 스냅샷이 POST receipt을 덮는다
 
   // completesAt 이 지나도 앱이 시각으로 완공 처리하지 않는다 — 아직 items 에 있다.
   await h.rerender({ active: true, islandId: 'local1', now: NOW + 55 * 60_000 });
@@ -418,6 +456,31 @@ test('기기 시각 점프는 재조회 신호다 — 완공 판정 없이 GET �
   await h.rerender({ active: true, islandId: 'local1', now: NOW + 60_000 });
   await flush();
   assert.equal(gets('/islands/srv1/construction-options').length, 2);
+  await h.unmount();
+});
+
+test('기기 시계가 서버보다 빨라도 서버 기준 완공 전에는 조기 재조회하지 않는다', async () => {
+  const deviceNow = Date.parse('2026-09-21T10:00:00Z');
+  serve(
+    live(
+      options([item('library')], {
+        activeConstruction: {
+          buildingId: 'library',
+          status: 'BUILDING',
+          startedAt: '2026-09-21T00:00:00Z',
+          completesAt: '2026-09-21T01:00:00Z',
+          serverNow: '2026-09-21T00:10:00Z',
+          version: 5,
+        },
+      }),
+    ),
+  );
+  const h = await mount({ active: true, islandId: 'local1', now: deviceNow });
+  await flush();
+
+  await h.rerender({ active: true, islandId: 'local1', now: deviceNow + 1_000 });
+  await flush();
+  assert.equal(gets('/islands/srv1/construction-options').length, 1);
   await h.unmount();
 });
 
