@@ -143,9 +143,8 @@ export function useShopBuildingStatus({
       try {
         const acknowledgement = acknowledgements.get(key);
         if (acknowledgement) {
-          const acknowledgedStatus = await acknowledgement;
-          if (!cancelled) setStatus(acknowledgedStatus);
-          return;
+          await acknowledgement;
+          if (cancelled) return;
         }
         if (cancelled) return;
         const [previous, items] = await Promise.all([readSnapshot(key), readCatalog(islandId!)]);

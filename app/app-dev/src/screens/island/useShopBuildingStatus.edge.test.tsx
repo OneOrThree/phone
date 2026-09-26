@@ -95,6 +95,40 @@ it('상점 훅이 재마운트되어도 같은 scope의 진행 중 읽음 처리
   expect(acknowledgedStatus).toBe('purchasable');
 });
 
+it('읽음 완료 대기 후 최신 카탈로그로 구매 가능 상태를 다시 계산한다', async () => {
+  let resolveAcknowledgementCatalog!: (value: ShopProductPage) => void;
+  let apiCallCount = 0;
+  mockStorage.set(key, JSON.stringify({ knownIds: ['old-item'], pendingIds: ['new-hat'] }));
+  api.mockImplementation(async (_islandId, category) => {
+    apiCallCount += 1;
+    if (apiCallCount === 1 && category === 'personal') {
+      return new Promise((resolve) => {
+        resolveAcknowledgementCatalog = resolve;
+      });
+    }
+    if (apiCallCount === 2) return page();
+    // 읽음 처리 도중 마지막 구매 가능 상품이 구매된 상태를 나타내는 최신 홈 조회.
+    return page();
+  });
+
+  const acknowledgement = acknowledgeShopForScope(key, `island-${scope}`);
+  const hook = await renderHook(() =>
+    useShopBuildingStatus({
+      active: true,
+      acknowledge: false,
+      islandId: `island-${scope}`,
+      userId: `user-${scope}`,
+    }),
+  );
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(1));
+  resolveAcknowledgementCatalog(page(item('new-hat')));
+  await acknowledgement;
+
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(4));
+  await waitFor(() => expect(hook.result.current).toBe('normal'));
+  hook.unmount();
+});
+
 it.each(['getItem', 'setItem'] as const)(
   '%s 오류가 읽음 작업의 거부로 전파되지 않는다',
   async (operation) => {
