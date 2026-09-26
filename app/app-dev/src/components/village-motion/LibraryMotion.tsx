@@ -1,7 +1,6 @@
 import React, { memo, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
-import { semanticTokens } from '@/design-system/tokens';
-import { Text } from '@/design-system/typography';
+import { VillageNotificationBadge } from './VillageNotificationBadge';
 
 export type LibraryMotionState = 'normal' | 'new-quest' | 'new-reading';
 
@@ -18,6 +17,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
   trigger = 0,
   entryActive = false,
   state = 'normal',
+  indicatorScale = 1,
   reduceMotion = false,
   showFrames = true,
   style,
@@ -26,6 +26,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
   trigger?: number;
   entryActive?: boolean;
   state?: LibraryMotionState;
+  indicatorScale?: number;
   reduceMotion?: boolean;
   showFrames?: boolean;
   style?: ViewStyle;
@@ -78,9 +79,12 @@ export const LibraryMotion = memo(function LibraryMotionView({
           />
         ))}
       {stateLabel && (
-        <View testID="library-motion-indicator" style={styles.indicator}>
-          <Text style={styles.indicatorText}>!</Text>
-        </View>
+        <VillageNotificationBadge
+          testID="library-motion-indicator"
+          accessibilityLabel={`${stateLabel}이 있습니다`}
+          scale={indicatorScale}
+          style={{ top: '12%', left: -29 * indicatorScale }}
+        />
       )}
     </View>
   );
@@ -91,18 +95,4 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
-  indicator: {
-    position: 'absolute',
-    top: '12%',
-    left: -39,
-    width: 35,
-    height: 35,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 18,
-    borderWidth: 1.5,
-    borderColor: semanticTokens.color.outline,
-    backgroundColor: semanticTokens.color.accent,
-  },
-  indicatorText: { color: semanticTokens.color.text, fontSize: 22, fontWeight: '800' },
 });

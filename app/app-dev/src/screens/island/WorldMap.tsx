@@ -605,6 +605,7 @@ export function WorldMap({
             <LibraryMotion
               testID="world-library-motion"
               state={libraryState}
+              indicatorScale={scale}
               trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
               entryActive={libraryArrivalActive}
               showFrames={dayNight === 'day'}
