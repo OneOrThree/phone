@@ -587,10 +587,11 @@ export function WorldMap({
             reduceMotion={state.settings.reduceMotion}
             style={{
               position: 'absolute',
-              left: left + 402 * scale,
-              top: top + 425 * scale,
-              width: 116 * scale,
-              height: 77 * scale,
+              // base day/night의 정적 화덕을 프레임 전체로 덮는 source 좌표 상자.
+              left: left + 358 * scale,
+              top: top + 434 * scale,
+              width: 150 * scale,
+              height: 90 * scale,
             }}
           />
         </View>

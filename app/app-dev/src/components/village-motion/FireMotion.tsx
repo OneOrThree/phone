@@ -32,7 +32,7 @@ const groupFlameSequence = [1, 2, 3, 2, 3, 2] as const;
 const quietSmokeSequence = [0, 0, 1, 0] as const;
 const groupSmokeSequence = [0, 1, 2, 3, 2, 1, 2, 1] as const;
 
-/** 모닥불 프레임. 부모의 레이아웃과 확대 배율을 그대로 채운다(기준 상자 비율 116:77). */
+/** 모닥불 프레임. 부모의 레이아웃과 확대 배율을 그대로 채운다(기준 상자 비율 150:90). */
 export const FireMotion = memo(function FireMotionView({
   mode = 'evening',
   residentCount = null,
@@ -155,7 +155,7 @@ export const FireMotion = memo(function FireMotionView({
 });
 
 const styles = StyleSheet.create({
-  fill: { width: '100%', height: '100%', aspectRatio: 116 / 77 },
+  fill: { width: '100%', height: '100%', aspectRatio: 150 / 90 },
   glow: {
     position: 'absolute',
     top: '18%',

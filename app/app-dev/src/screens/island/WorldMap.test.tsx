@@ -186,10 +186,10 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
   expect(screen.getByTestId('world-fire-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 402 * worldScale,
-        top: worldTop + 425 * worldScale,
-        width: 116 * worldScale,
-        height: 77 * worldScale,
+        left: worldLeft + 358 * worldScale,
+        top: worldTop + 434 * worldScale,
+        width: 150 * worldScale,
+        height: 90 * worldScale,
       }),
     ]),
   );

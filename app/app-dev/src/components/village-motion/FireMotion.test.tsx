@@ -125,14 +125,14 @@ describe('FireMotion', () => {
     await view.unmount();
   });
 
-  it('fills the parent using the 116:77 phone box ratio', async () => {
+  it('fills the parent using the 150:90 fire-pit box ratio', async () => {
     const view = await render(<FireMotion />);
     expect(view.getByTestId('fire-motion').props.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           width: '100%',
           height: '100%',
-          aspectRatio: 116 / 77,
+          aspectRatio: 150 / 90,
         }),
       ]),
     );
