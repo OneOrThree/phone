@@ -627,10 +627,10 @@ export function WorldMap({
             reduceMotion={state.settings.reduceMotion}
             style={{
               position: 'absolute',
-              left: left + 402 * scale,
-              top: top + 425 * scale,
-              width: 116 * scale,
-              height: 77 * scale,
+              left: left + (dayNight === 'day' ? 402 : 405) * scale,
+              top: top + (dayNight === 'day' ? 425 : 437) * scale,
+              width: (dayNight === 'day' ? 116 : 140) * scale,
+              height: (dayNight === 'day' ? 77 : 93) * scale,
             }}
           />
         </View>

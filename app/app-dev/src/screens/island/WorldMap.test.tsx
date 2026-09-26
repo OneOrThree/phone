@@ -329,6 +329,16 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
   expect(night.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
     '모닥불, 저녁, 불꽃',
   );
+  expect(night.getByTestId('world-fire-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 405 * worldScale,
+        top: worldTop + 437 * worldScale,
+        width: 140 * worldScale,
+        height: 93 * worldScale,
+      }),
+    ]),
+  );
   expect(night.queryByTestId('fire-motion-glow')).toBeNull();
   await night.unmount();
   jest.useRealTimers();
