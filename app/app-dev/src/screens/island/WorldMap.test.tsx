@@ -645,6 +645,28 @@ test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는�
   expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
 });
 
+test('도서관 테마 레이어는 평상시 유지하고 낮 진입 모션 중에만 숨긴다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('library')) island.buildings.push('library');
+  island.buildingThemes = { ...island.buildingThemes, library: 'rose' };
+
+  const screen = await render(<WorldMap state={state} />);
+  expect(screen.getByTestId('world-themed-building-library')).toBeTruthy();
+
+  await screen.rerender(
+    <WorldMap state={state} libraryArrivalActive libraryArrivalGeneration={1} />,
+  );
+  expect(screen.queryByTestId('world-themed-building-library')).toBeNull();
+
+  await screen.rerender(<WorldMap state={state} />);
+  expect(screen.getByTestId('world-themed-building-library')).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('내 섬에서는 축음기를 열 수 있다', async () => {
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;

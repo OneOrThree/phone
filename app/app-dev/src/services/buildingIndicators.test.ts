@@ -71,6 +71,21 @@ test('깨진 JSON과 잘못된 마커는 미확인 baseline으로 돌아간다',
   expect(await loadBoardSeen(scope)).toBeNull();
   await AsyncStorage.setItem('gromo:indicators:v1:u%3A1:i%3A1:library', '{"periodKey":2}');
   expect(await loadLibrarySeen(scope)).toBeNull();
+  await AsyncStorage.setItem(
+    'gromo:indicators:v1:u%3A1:i%3A1:library',
+    JSON.stringify({ periodKey: 'zzzz', weeklyFingerprint: 'old', fishEarnings: {} }),
+  );
+  expect(await loadLibrarySeen(scope)).toBeNull();
+  await AsyncStorage.setItem(
+    'gromo:indicators:v1:u%3A1:i%3A1:library',
+    JSON.stringify({ periodKey: '2026-02-30', weeklyFingerprint: 'old', fishEarnings: {} }),
+  );
+  expect(await loadLibrarySeen(scope)).toBeNull();
+  await AsyncStorage.setItem(
+    'gromo:indicators:v1:u%3A1:i%3A1:library',
+    JSON.stringify({ periodKey: '2026-09-21', weeklyFingerprint: 'old', fishEarnings: {} }),
+  );
+  expect(await loadLibrarySeen(scope)).toBeNull();
 });
 
 test('저장소 오류는 성공으로 숨기지 않는다', async () => {

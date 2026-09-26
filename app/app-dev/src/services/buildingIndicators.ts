@@ -20,6 +20,15 @@ const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 const count = (value: unknown): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0;
+const periodKey = (value: unknown): value is string => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value &&
+    date.getUTCDay() === 0
+  );
+};
 
 async function load<T>(
   storageKey: string,
@@ -47,7 +56,7 @@ export const loadLibrarySeen = (scope: IndicatorScope) =>
     key(scope, 'library'),
     (value): value is LibrarySnapshot =>
       record(value) &&
-      typeof value.periodKey === 'string' &&
+      periodKey(value.periodKey) &&
       typeof value.weeklyFingerprint === 'string' &&
       record(value.fishEarnings) &&
       Object.values(value.fishEarnings).every(count),

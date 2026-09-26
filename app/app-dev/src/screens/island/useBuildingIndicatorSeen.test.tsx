@@ -1,11 +1,8 @@
 import assert from 'node:assert/strict';
-import { act, renderHook, waitFor } from '@testing-library/react-native';
-import { getLibraryScreen, type LibraryScreen } from '@/services/api/records';
-import { clearSession } from '@/services/api/session';
+import { act, renderHook } from '@testing-library/react-native';
+import type { LibraryScreen } from '@/services/api/records';
 import { useBuildingIndicatorSeen } from './useBuildingIndicatorSeen';
 
-jest.mock('@/services/api/records', () => ({ getLibraryScreen: jest.fn() }));
-const load = getLibraryScreen as jest.Mock;
 const screen: LibraryScreen = {
   island: { id: 'i1', name: '섬', role: 'member' },
   statisticsAvailability: 'available',
@@ -14,66 +11,57 @@ const screen: LibraryScreen = {
   fishEarnings: null,
 };
 
-beforeEach(() => jest.clearAllMocks());
-
-test('도서관 성공 진입에서만 관측값을 전달한다', async () => {
-  load.mockResolvedValue(screen);
+test('실제로 표시된 성공 도서관 화면만 확인 처리한다', async () => {
   const onLoaded = jest.fn();
-  const hook = await renderHook(() =>
-    useBuildingIndicatorSeen({ active: true, islandId: 'i1', onLoaded }),
+  const hook = await renderHook(
+    ({
+      active,
+      islandId,
+      value,
+    }: {
+      active: boolean;
+      islandId: string | null;
+      value: LibraryScreen | null;
+    }) => useBuildingIndicatorSeen({ active, islandId, screen: value, onLoaded }),
+    { initialProps: { active: true, islandId: 'i1', value: screen } },
   );
-  await waitFor(() => assert.equal(onLoaded.mock.calls.length, 1));
+  assert.equal(onLoaded.mock.calls.length, 1);
   assert.equal(onLoaded.mock.calls[0][0], screen);
   await hook.unmount();
 });
 
 test.each([
-  ['조회 실패', new Error('offline')],
-  ['다른 섬', { ...screen, island: { ...screen.island, id: 'i2' } }],
-  ['미완공', { ...screen, statisticsAvailability: 'facility_locked' }],
-  ['누락 조각', { ...screen, missingFragments: ['focusStatistics'] }],
-])('%s는 확인 처리하지 않는다', async (_label, response) => {
-  if (response instanceof Error) load.mockRejectedValue(response);
-  else load.mockResolvedValue(response);
+  ['화면 로딩 중', false, 'i1', screen],
+  ['화면 조회 실패', false, 'i1', screen],
+  ['아직 화면 데이터 없음', true, 'i1', null],
+  ['다른 섬', true, 'i2', screen],
+  ['미완공', true, 'i1', { ...screen, statisticsAvailability: 'facility_locked' }],
+  ['누락 조각', true, 'i1', { ...screen, missingFragments: ['focusStatistics'] }],
+])('%s는 확인 처리하지 않는다', async (_label, active, islandId, value) => {
   const onLoaded = jest.fn();
   const hook = await renderHook(() =>
-    useBuildingIndicatorSeen({ active: true, islandId: 'i1', onLoaded }),
+    useBuildingIndicatorSeen({ active, islandId, screen: value as LibraryScreen | null, onLoaded }),
   );
-  await act(async () => {});
   assert.equal(onLoaded.mock.calls.length, 0);
   await hook.unmount();
 });
 
-test('비활성 도서관은 조회하지 않는다', async () => {
-  const hook = await renderHook(() =>
-    useBuildingIndicatorSeen({ active: false, islandId: 'i1', onLoaded: jest.fn() }),
+test('화면 데이터가 바뀐 뒤 실제 표시값으로 확인 상태를 갱신한다', async () => {
+  const onLoaded = jest.fn();
+  const updated = { ...screen, fishEarnings: { members: [] } } as LibraryScreen;
+  const hook = await renderHook(
+    ({ value }: { value: LibraryScreen | null }) =>
+      useBuildingIndicatorSeen({ active: true, islandId: 'i1', screen: value, onLoaded }),
+    { initialProps: { value: null as LibraryScreen | null } },
   );
-  assert.equal(load.mock.calls.length, 0);
+  await act(async () => {
+    await hook.rerender({ value: screen });
+  });
+  await act(async () => {
+    await hook.rerender({ value: updated });
+  });
+  assert.equal(onLoaded.mock.calls.length, 2);
+  assert.equal(onLoaded.mock.calls[0][0], screen);
+  assert.equal(onLoaded.mock.calls[1][0], updated);
   await hook.unmount();
 });
-
-test.each(['unmount', 'session'])(
-  '%s 이후 늦게 도착한 성공은 확인 처리하지 않는다',
-  async (change) => {
-    let resolve!: (value: LibraryScreen) => void;
-    load.mockReturnValue(
-      new Promise<LibraryScreen>((done) => {
-        resolve = done;
-      }),
-    );
-    const onLoaded = jest.fn();
-    const hook = await renderHook(() =>
-      useBuildingIndicatorSeen({ active: true, islandId: 'i1', onLoaded }),
-    );
-    if (change === 'unmount') await hook.unmount();
-    else
-      await act(async () => {
-        await clearSession();
-      });
-    await act(async () => {
-      resolve(screen);
-    });
-    assert.equal(onLoaded.mock.calls.length, 0);
-    if (change !== 'unmount') await hook.unmount();
-  },
-);
