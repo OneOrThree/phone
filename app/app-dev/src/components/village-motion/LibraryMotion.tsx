@@ -36,6 +36,11 @@ export const LibraryMotion = memo(function LibraryMotionView({
   const lastTrigger = useRef(trigger);
 
   useEffect(() => {
+    if (trigger < lastTrigger.current || trigger === 0) {
+      lastTrigger.current = trigger;
+      setFrame(0);
+      return;
+    }
     if (reduceMotion || !showFrames) {
       setFrame(0);
       if (trigger > lastTrigger.current) lastTrigger.current = trigger;
@@ -62,9 +67,10 @@ export const LibraryMotion = memo(function LibraryMotionView({
   return (
     <View
       testID={testID}
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={stateLabel ? `도서관, ${stateLabel}` : '도서관'}
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden
       pointerEvents="none"
       style={[styles.fill, style]}
     >

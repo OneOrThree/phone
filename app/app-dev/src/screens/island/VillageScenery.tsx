@@ -2,6 +2,7 @@ import React, { memo, useEffect, useRef } from 'react';
 import { Animated, AppState, Easing, Image, View, StyleSheet } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 import { villageAssets } from '@/constants/village-assets';
+import { assets } from '@/constants/assets';
 import { villageMap, VillageScene } from '@/utils/village-world';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
@@ -102,10 +103,24 @@ export const VillageScenery = memo(function VillageScenery({
           }}
         >
           <Animated.Image
-            source={villageAssets[o.kind + '.png']}
+            testID={o.kind === 'mailbox' && mailboxLetters ? 'village-mailbox-pelican' : undefined}
+            source={
+              o.kind === 'mailbox' && mailboxLetters
+                ? assets['characters/pelican/npc/on-mailbox.png']
+                : villageAssets[o.kind + '.png']
+            }
             style={{
               width: '100%',
               height: '100%',
+              ...(o.kind === 'mailbox' && mailboxLetters
+                ? {
+                    position: 'absolute',
+                    width: o.w * scale * (512 / 170),
+                    height: o.h * scale * (512 / 248),
+                    left: -o.w * scale * (176 / 170),
+                    top: -o.h * scale * (217 / 248),
+                  }
+                : {}),
               transform:
                 o.layer === 'trees' && !reduce
                   ? [

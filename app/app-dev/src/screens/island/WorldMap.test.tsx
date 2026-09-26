@@ -3,7 +3,13 @@ import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { Animated, Platform } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
-import { BUILDING_ENTRY_DURATION_MS } from '@/services/buildingTransition';
+import {
+  BUILDING_ENTRY_DURATION_MS,
+  BUILDING_TRANSITION_DURATION_MS,
+} from '@/services/buildingTransition';
+import { semanticTokens } from '@/design-system/tokens';
+import { villageScene } from '@/utils/village-world';
+import { assets } from '@/constants/assets';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -161,11 +167,13 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   jest.useRealTimers();
 });
 
-test('새 편지가 있으면 우편함은 그대로 두고 ! 배지만 표시한다', async () => {
+test('새 편지가 있으면 정적 우체통을 펠리컨으로 교체하고 공용 ! 배지를 표시한다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
   const friend = state.friends?.find((item) => item.status === 'friend');
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  island.buildingThemes = { ...island.buildingThemes, mail: 'rose' };
   friend?.messages.push({
     id: 'new-letter',
     memberId: friend.id,
@@ -180,8 +188,9 @@ test('새 편지가 있으면 우편함은 그대로 두고 ! 배지만 표시�
   const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
   const worldLeft = 402 / 2 - 585 * worldScale;
   const worldTop = 874 / 2 - 430 * worldScale;
-  expect(screen.getByTestId('world-static-building-mail')).toBeTruthy();
-  expect(screen.queryByTestId('mailbox-pelican')).toBeNull();
+  expect(screen.queryByTestId('world-static-building-mail')).toBeNull();
+  expect(screen.getByTestId('mailbox-pelican')).toBeTruthy();
+  expect(screen.queryByTestId('world-themed-building-mail')).toBeNull();
   expect(screen.getByTestId('mailbox-new-indicator').props.accessibilityLabel).toBe(
     '친구에게 받은 새 편지가 있습니다',
   );
@@ -196,6 +205,77 @@ test('새 편지가 있으면 우편함은 그대로 두고 ! 배지만 표시�
   await screen.unmount();
   jest.useRealTimers();
 });
+
+test('마을 미리보기 우체통도 미읽음 때 펠리컨으로 교체하고 배지를 유지한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('mail')) island.buildings.push('mail');
+  const scene = villageScene(island.buildings);
+  const screen = await render(<WorldMap state={state} village={scene} showMailboxLetters />);
+  expect(screen.getByTestId('village-mailbox-pelican').props.source).toBe(
+    assets['characters/pelican/npc/on-mailbox.png'],
+  );
+  expect(screen.getByTestId('village-mailbox-new-indicator')).toBeTruthy();
+  await screen.rerender(<WorldMap state={state} village={scene} showMailboxLetters={false} />);
+  expect(screen.queryByTestId('village-mailbox-pelican')).toBeNull();
+  expect(screen.queryByTestId('village-mailbox-new-indicator')).toBeNull();
+});
+
+test('구매 가능 상점과 갱신된 전망대는 이름표의 강조색으로 상태를 표시한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  for (const building of ['shop', 'tower'] as const)
+    if (!island.buildings.includes(building)) island.buildings.push(building);
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      shopState="purchasable"
+      observatoryRankState="rank-updated"
+    />,
+  );
+  for (const building of ['shop', 'tower']) {
+    const label = screen.getByTestId(`building-name-${building}`).children[0];
+    expect(typeof label).not.toBe('string');
+    if (typeof label !== 'string')
+      expect(label.props.style.backgroundColor).toBe(semanticTokens.color.accent);
+  }
+});
+
+test.each(['board', 'hall'] as const)(
+  '진입 스프라이트가 없는 %s는 620ms 뒤 라우트를 연다',
+  async (building) => {
+    jest.useFakeTimers();
+    jest.setSystemTime(
+      new Date(building === 'hall' ? '2026-06-15T22:00:00' : '2026-06-15T12:00:00'),
+    );
+    const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+      () =>
+        ({
+          start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+          stop: jest.fn(),
+          reset: jest.fn(),
+        }) as unknown as Animated.CompositeAnimation,
+    );
+    try {
+      const state = initialState(true);
+      const island = state.islands.find((item) => item.id === state.islandId)!;
+      if (!island.buildings.includes(building)) island.buildings.push(building);
+      const go = jest.fn();
+      const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+      await fireEvent.press(screen.getByLabelText(buildingNames[building]));
+      await act(async () => jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS - 1));
+      expect(go).not.toHaveBeenCalled();
+      await act(async () => jest.advanceTimersByTime(1));
+      expect(go).toHaveBeenCalledWith(building);
+      await screen.unmount();
+    } finally {
+      timing.mockRestore();
+      jest.useRealTimers();
+    }
+  },
+);
 
 test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에서만 프레임을 연다', async () => {
   jest.useFakeTimers();
@@ -349,7 +429,9 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
   const worldTop = 874 / 2 - 430 * worldScale;
 
   expect(screen.queryByTestId('world-static-building-library')).toBeNull();
-  expect(screen.getByTestId('world-library-motion').props.style).toEqual(
+  expect(
+    screen.getByTestId('world-library-motion', { includeHiddenElements: true }).props.style,
+  ).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
         left: worldLeft + 1120 * worldScale,
@@ -360,7 +442,7 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
     ]),
   );
   const libraryBadgeSize = screen
-    .getByTestId('library-motion-indicator')
+    .getByTestId('library-motion-indicator', { includeHiddenElements: true })
     .props.style.find((entry: { width?: number }) => entry?.width != null);
   const mailboxBadgeSize = 25 * worldScale * 0.72;
   expect(libraryBadgeSize.width).toBeCloseTo(mailboxBadgeSize);
