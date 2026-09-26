@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
+import { ApiError } from '@/services/api/client';
 import {
   boardSnapshot,
   boardStatus,
@@ -16,6 +17,7 @@ import {
   saveBoardSeen,
   saveLibrarySeen,
   type BoardSnapshot,
+  type BoardPollPage,
   type IndicatorScope,
   type LibrarySnapshot,
 } from '@/services/buildingIndicators';
@@ -85,11 +87,13 @@ export function useBuildingIndicators({
   islandId,
   onHome,
   refreshKey,
+  completedBuildings,
 }: {
   active: boolean;
   islandId: string | null;
   onHome: boolean;
   refreshKey: number;
+  completedBuildings: readonly string[] | null;
 }) {
   const [userId, setUserId] = useState(() => getSession()?.userId ?? null);
   const [indicators, setIndicators] = useState<BuildingIndicators>(EMPTY);
@@ -122,6 +126,9 @@ export function useBuildingIndicators({
   );
   const scopeKey = scope ? `${scope.userId}\n${scope.islandId}` : '';
   activeScopeKey.current = scopeKey;
+  const hasBoard = completedBuildings?.includes('board') === true;
+  const hasMailbox = completedBuildings?.includes('mail') === true;
+  const hasLibrary = completedBuildings?.includes('library') === true;
 
   useEffect(() => {
     epoch.current += 1;
@@ -158,14 +165,38 @@ export function useBuildingIndicators({
 
     Promise.all([
       (async () => {
+        if (!hasBoard) {
+          currentBoard.current = null;
+          boardPollCursors.current.delete(scopeKey);
+          boardPagesByScope.current.delete(scopeKey);
+          boardCyclePagesByScope.current.delete(scopeKey);
+          setIndicators((value) => ({ ...value, boardStatus: null }));
+          return;
+        }
         const hasBaseline = currentBoard.current !== null;
-        const pollPage = hasBaseline
-          ? await fetchBoardPollPage(
+        let pollPage: BoardPollPage | null = null;
+        let recoveredCursor = false;
+        if (hasBaseline) {
+          try {
+            pollPage = await fetchBoardPollPage(
               requestScope.islandId,
               boardPollCursors.current.get(scopeKey) ?? null,
               alive,
+            );
+          } catch (error) {
+            if (
+              !(error instanceof ApiError) ||
+              (error.code !== 'INVALID_CURSOR' && error.code !== 'CURSOR_EXPIRED')
             )
-          : null;
+              throw error;
+            // 커서가 만료·무효면 이전 순환 페이지 집합을 폐기하고 새 첫 페이지부터 다시 만든다.
+            boardPollCursors.current.delete(scopeKey);
+            boardPagesByScope.current.delete(scopeKey);
+            boardCyclePagesByScope.current.delete(scopeKey);
+            currentBoard.current = null;
+            recoveredCursor = true;
+          }
+        }
         const snapshot = pollPage
           ? pollPage.snapshot
           : await fetchBoardSnapshot(requestScope.islandId, alive, (pages) => {
@@ -175,6 +206,12 @@ export function useBuildingIndicators({
               );
             });
         if (!alive()) return;
+        if (recoveredCursor) {
+          const pages = boardPagesByScope.current.get(scopeKey);
+          const firstHistoryCursor = [...(pages?.keys() ?? [])].find((key) => key !== 'latest');
+          boardPollCursors.current.set(scopeKey, firstHistoryCursor ?? null);
+          boardCyclePagesByScope.current.set(scopeKey, new Set());
+        }
         // 과거 공지는 고정 페이지 예산으로 순환 점검한다. 매분 최신 페이지와 과거
         // 페이지 하나만 요청하고, 나머지 기존 관측값은 메모리에 보존한다.
         let current = snapshot;
@@ -221,6 +258,11 @@ export function useBuildingIndicators({
         }));
       })().catch(() => {}),
       (async () => {
+        if (!hasLibrary) {
+          currentLibrary.current = null;
+          setIndicators((value) => ({ ...value, libraryState: 'normal' }));
+          return;
+        }
         const confirmationRevision = librarySeenRevision.current;
         const latestOnly = currentLibrary.current !== null;
         const current = await fetchLibrarySnapshot(
@@ -252,6 +294,14 @@ export function useBuildingIndicators({
         }));
       })().catch(() => {}),
       (async () => {
+        if (!hasMailbox) {
+          mailboxPollReady.current.delete(scopeKey);
+          mailboxUnreadIds.current.delete(scopeKey);
+          mailboxCyclePagesByScope.current.delete(scopeKey);
+          mailboxPollCursors.current.delete(scopeKey);
+          setIndicators((value) => ({ ...value, showMailboxLetters: false }));
+          return;
+        }
         if (mailboxPollReady.current.has(scopeKey)) {
           const page = await fetchMailboxPollPage(
             requestScope.islandId,
@@ -299,7 +349,7 @@ export function useBuildingIndicators({
     return () => {
       epoch.current += 1;
     };
-  }, [scope, scopeKey, onHome, refreshKey, liveRefresh]);
+  }, [scope, scopeKey, onHome, refreshKey, liveRefresh, hasBoard, hasMailbox, hasLibrary]);
 
   const markBoardSeen = useCallback(
     async (loaded: BoardLoadedSnapshot) => {

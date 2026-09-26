@@ -95,6 +95,7 @@ import {
   Quest,
   Member,
   dayKey,
+  serverHome,
 } from '@/services/model';
 import {
   checkSession,
@@ -498,6 +499,7 @@ function Gromo() {
     islandId: serverCurrent,
     onHome,
     refreshKey: homeReload,
+    completedBuildings: serverHome(state)?.completedBuildings ?? null,
   });
   useEffect(() => {
     if (!loaded || !serverCurrent || !onHome) return;

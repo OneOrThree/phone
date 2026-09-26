@@ -12,7 +12,8 @@ import {
   saveLibrarySeen,
 } from '@/services/buildingIndicators';
 import { clearSession, saveSession } from '@/services/api/session';
-import { useBuildingIndicators } from './useBuildingIndicators';
+import { ApiError } from '@/services/api/client';
+import { useBuildingIndicators as useBuildingIndicatorsHook } from './useBuildingIndicators';
 import type { LibraryScreen } from '@/services/api/records';
 
 jest.mock('@/services/buildingIndicators', () => ({
@@ -37,6 +38,16 @@ const boardSeen = loadBoardSeen as jest.Mock;
 const librarySeen = loadLibrarySeen as jest.Mock;
 const saveBoard = saveBoardSeen as jest.Mock;
 const saveLibrary = saveLibrarySeen as jest.Mock;
+const useBuildingIndicators = (
+  options: Omit<Parameters<typeof useBuildingIndicatorsHook>[0], 'completedBuildings'> & {
+    completedBuildings?: readonly string[] | null;
+  },
+) =>
+  useBuildingIndicatorsHook({
+    ...options,
+    completedBuildings:
+      'completedBuildings' in options ? options.completedBuildings! : ['board', 'mail', 'library'],
+  });
 const displayedLibraryScreen: LibraryScreen = {
   island: { id: 'island-1', name: '섬', role: 'host' },
   statisticsAvailability: 'available',
@@ -103,6 +114,38 @@ test('홈이 아니거나 서버 섬이 없으면 배지 API를 호출하지 않
   assert.equal(mailboxNow.mock.calls.length, 0);
 });
 
+test('완공 목록이 없거나 시설이 미완공이면 해당 시설 폴링을 건너뛴다', async () => {
+  const { result, rerender } = await renderHook(
+    (props: { completedBuildings: readonly string[] | null }) =>
+      useBuildingIndicatorsHook({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: 0,
+        completedBuildings: props.completedBuildings,
+      }),
+    { initialProps: { completedBuildings: null } },
+  );
+  await act(async () => {});
+  expect(boardNow).not.toHaveBeenCalled();
+  expect(libraryNow).not.toHaveBeenCalled();
+  expect(mailboxNow).not.toHaveBeenCalled();
+
+  await rerender({ completedBuildings: ['hall', 'shop'] });
+  await act(async () => {});
+  expect(boardNow).not.toHaveBeenCalled();
+  expect(libraryNow).not.toHaveBeenCalled();
+  expect(mailboxNow).not.toHaveBeenCalled();
+  expect(result.current).toEqual(
+    expect.objectContaining({ boardStatus: null, libraryState: 'normal', showMailboxLetters: false }),
+  );
+
+  await rerender({ completedBuildings: ['library'] });
+  await waitFor(() => expect(libraryNow).toHaveBeenCalledTimes(1));
+  expect(boardNow).not.toHaveBeenCalled();
+  expect(mailboxNow).not.toHaveBeenCalled();
+});
+
 test('저장된 확인 상태와 서버 현재 값을 비교해 세 배지를 계산한다', async () => {
   boardSeen.mockResolvedValue({ notice: 1 });
   librarySeen.mockResolvedValue({
@@ -147,6 +190,40 @@ test('과거 공지 페이지에서 발견한 새 댓글은 전체 관측 snapsh
   expect(boardPoll).toHaveBeenCalledWith('island-1', null, expect.any(Function));
   hook.unmount();
 });
+
+test.each(['INVALID_CURSOR', 'CURSOR_EXPIRED'] as const)(
+  '게시판 순환 커서 %s가 무효화되면 기존 순환을 폐기하고 새 첫 이력 커서부터 재개한다',
+  async (code) => {
+  boardNow.mockImplementation(async (_islandId, _alive, onPages) => {
+    onPages([
+      { key: 'latest', snapshot: { latest: 0 } },
+      { key: 'fresh-first-history', snapshot: { old: 2 } },
+    ]);
+    return { latest: 0, old: 2 };
+  });
+  boardPoll.mockRejectedValueOnce(new ApiError(code, 'expired', code === 'CURSOR_EXPIRED' ? 409 : 400));
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(boardNow.mock.calls.length, 1));
+
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(boardNow.mock.calls.length, 2));
+  expect(boardPoll).toHaveBeenNthCalledWith(1, 'island-1', null, expect.any(Function));
+
+  await hook.rerender({ refreshKey: 2 });
+  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 2));
+  expect(boardPoll).toHaveBeenNthCalledWith(2, 'island-1', 'fresh-first-history', expect.any(Function));
+  hook.unmount();
+  },
+);
 
 test('완주한 게시판 페이지 순환은 삭제된 공지의 캐시 snapshot도 정리한다', async () => {
   boardSeen.mockResolvedValue({ stale: 1 });
