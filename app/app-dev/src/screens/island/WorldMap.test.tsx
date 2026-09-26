@@ -443,6 +443,45 @@ test('부두의 뗏목에 뗏목 이름을 표시한다', async () => {
   await screen.unmount();
 });
 
+test.each([
+  ['day', '2026-06-15T12:00:00', 'day'],
+  ['night', '2026-06-15T21:00:00', 'night'],
+] as const)(
+  '뗏목 에셋은 %s 팔레트를 쓰고 카메라 배율에 맞춰 배치한다',
+  async (_label, time, theme) => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date(time));
+    const state = initialState(true);
+    const scale = (((874 / 874) * 402) / 1536) * 2.8;
+    const worldLeft = 402 / 2 - 585 * scale;
+    const worldTop = 874 / 2 - 430 * scale;
+    const screen = await render(<WorldMap state={state} />);
+
+    const raft = screen.getByTestId('world-raft-water-motion');
+    const back = screen.getByTestId('world-raft-water-motion-raft-back');
+    const front = screen.getByTestId('world-raft-water-motion-raft-front');
+    expect(back.props.source).toBe(assets[`boats/raft/layers/back-${theme}.png`]);
+    expect(front.props.source).toBe(assets[`boats/raft/layers/front-${theme}.png`]);
+    expect(raft.props.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          left: worldLeft + 185 * scale,
+          top: worldTop + 835 * scale,
+          width: 210 * scale,
+          height: 92 * scale,
+        }),
+      ]),
+    );
+    expect(back.props.style).toEqual(
+      expect.objectContaining({ left: -48 * scale, top: -307 * scale, width: 1024 * scale }),
+    );
+    expect(front.props.style).toEqual(back.props.style);
+
+    await screen.unmount();
+    jest.useRealTimers();
+  },
+);
+
 test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));

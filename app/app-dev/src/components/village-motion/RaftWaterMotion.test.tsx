@@ -1,6 +1,7 @@
 import React from 'react';
 import { Animated, AppState, StyleSheet } from 'react-native';
 import { render } from '@testing-library/react-native';
+import { assets } from '@/constants/assets';
 import { RaftWaterMotion } from './RaftWaterMotion';
 
 test('뗏목 주변 물결은 동작 줄이기 설정을 존중한다', async () => {
@@ -39,6 +40,17 @@ test.each([0.25, 0.5, 1, 2])(
     const left = StyleSheet.flatten(screen.getByTestId('raft-water-motion-left').props.style);
     const right = StyleSheet.flatten(screen.getByTestId('raft-water-motion-right').props.style);
     const bottom = StyleSheet.flatten(screen.getByTestId('raft-water-motion-bottom').props.style);
+    const back = screen.getByTestId('raft-water-motion-raft-back');
+    const front = screen.getByTestId('raft-water-motion-raft-front');
+    expect(back.props.source).toBe(assets['boats/raft/layers/back-day.png']);
+    expect(front.props.source).toBe(assets['boats/raft/layers/front-day.png']);
+    expect(StyleSheet.flatten(back.props.style)).toMatchObject({
+      left: -48 * scale,
+      top: -307 * scale,
+      width: 1024 * scale,
+      height: 1024 * scale,
+    });
+    expect(StyleSheet.flatten(front.props.style)).toEqual(StyleSheet.flatten(back.props.style));
     expect(left).toMatchObject({
       left: 0,
       top: 45 * scale,
@@ -63,3 +75,14 @@ test.each([0.25, 0.5, 1, 2])(
     await screen.unmount();
   },
 );
+
+test('뗏목은 야간 팔레트 레이어를 사용한다', async () => {
+  const screen = await render(<RaftWaterMotion reduceMotion dayNight="night" />);
+  expect(screen.getByTestId('raft-water-motion-raft-back').props.source).toBe(
+    assets['boats/raft/layers/back-night.png'],
+  );
+  expect(screen.getByTestId('raft-water-motion-raft-front').props.source).toBe(
+    assets['boats/raft/layers/front-night.png'],
+  );
+  await screen.unmount();
+});

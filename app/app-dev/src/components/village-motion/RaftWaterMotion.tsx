@@ -1,18 +1,22 @@
 import React, { memo, useEffect, useRef } from 'react';
-import { Animated, AppState, Easing, StyleSheet, View, type ViewStyle } from 'react-native';
+import { Animated, AppState, Easing, Image, StyleSheet, View, type ViewStyle } from 'react-native';
+import { assets } from '@/constants/assets';
 
 export const RaftWaterMotion = memo(function RaftWaterMotionView({
   reduceMotion = false,
+  dayNight = 'day',
   style,
   testID = 'raft-water-motion',
 }: {
   reduceMotion?: boolean;
+  dayNight?: 'day' | 'night';
   style?: ViewStyle;
   testID?: string;
 }) {
   const drift = useRef(new Animated.Value(0)).current;
   // 월드가 전달하는 컨테이너 폭은 카메라 배율을 반영하므로 내부 물결도 같은 배율을 쓴다.
   const scale = typeof style?.width === 'number' ? style.width / 210 : 1;
+  const scaleY = typeof style?.height === 'number' ? style.height / 92 : scale;
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -53,7 +57,19 @@ export const RaftWaterMotion = memo(function RaftWaterMotionView({
   };
 
   return (
-    <View testID={testID} pointerEvents="none" style={[styles.fill, style]}>
+    <View testID={testID} pointerEvents="none" style={[styles.fill, styles.clip, style]}>
+      <Image
+        testID={`${testID}-raft-back`}
+        source={assets[`boats/raft/layers/back-${dayNight}.png`]}
+        resizeMode="stretch"
+        style={{
+          position: 'absolute',
+          left: -48 * scale,
+          top: -307 * scaleY,
+          width: 1024 * scale,
+          height: 1024 * scaleY,
+        }}
+      />
       <Animated.View
         testID={`${testID}-left`}
         style={[
@@ -96,12 +112,25 @@ export const RaftWaterMotion = memo(function RaftWaterMotionView({
           animatedStyle,
         ]}
       />
+      <Image
+        testID={`${testID}-raft-front`}
+        source={assets[`boats/raft/layers/front-${dayNight}.png`]}
+        resizeMode="stretch"
+        style={{
+          position: 'absolute',
+          left: -48 * scale,
+          top: -307 * scaleY,
+          width: 1024 * scale,
+          height: 1024 * scaleY,
+        }}
+      />
     </View>
   );
 });
 
 const styles = StyleSheet.create({
   fill: { position: 'absolute' },
+  clip: { overflow: 'hidden' },
   ripple: {
     position: 'absolute',
     borderBottomColor: 'rgba(225, 251, 255, 0.92)',
