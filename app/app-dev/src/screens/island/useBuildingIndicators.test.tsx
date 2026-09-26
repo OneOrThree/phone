@@ -171,6 +171,71 @@ test('게시판에서 실제로 불러온 페이지만 기존 확인 상태에 �
   assert.equal(result.current.boardStatus, 'new-comment');
 });
 
+test('홈 기준점 저장이 게시판에서 방금 확인한 페이지를 덮어쓰지 않는다', async () => {
+  let releaseHome!: (value: Record<string, number>) => void;
+  boardNow.mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        releaseHome = resolve;
+      }),
+  );
+  let persisted: Record<string, number> | null = null;
+  boardSeen.mockImplementation(async () => persisted);
+  saveBoard.mockImplementation(async (_scope, value) => {
+    persisted = value;
+  });
+
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+  await act(async () => {
+    await result.current.markBoardSeen({
+      islandId: 'island-1',
+      items: [{ id: 'page-only', title: '읽은 페이지', commentCount: 0 }],
+      nextCursor: null,
+    });
+  });
+  releaseHome({ latest: 3 });
+  await waitFor(() => assert.deepEqual(persisted, { 'page-only': 0 }));
+  assert.deepEqual(persisted, { 'page-only': 0 });
+});
+
+test('게시판 페이지 확인이 겹쳐도 늦게 끝난 이전 저장이 최신 범위를 덮지 않는다', async () => {
+  let persisted: Record<string, number> | null = null;
+  let releaseFirst!: () => void;
+  const firstSave = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  boardSeen.mockImplementation(async () => persisted);
+  saveBoard.mockImplementation(async (_scope, value) => {
+    if (saveBoard.mock.calls.length === 1) await firstSave;
+    persisted = value;
+  });
+
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: false, refreshKey: 0 }),
+  );
+  let first!: Promise<void>;
+  let second!: Promise<void>;
+  await act(async () => {
+    first = result.current.markBoardSeen({
+      islandId: 'island-1',
+      items: [{ id: 'first', title: '첫 페이지', commentCount: 0 }],
+      nextCursor: 'next',
+    });
+    second = result.current.markBoardSeen({
+      islandId: 'island-1',
+      items: [{ id: 'second', title: '두 번째 페이지', commentCount: 0 }],
+      nextCursor: null,
+    });
+    await waitFor(() => assert.equal(saveBoard.mock.calls.length, 1));
+    releaseFirst();
+    await Promise.all([first, second]);
+  });
+
+  assert.deepEqual(persisted, { first: 0, second: 0 });
+});
+
 test('도서관 확인은 전체 기록 조회와 저장이 모두 성공한 뒤 배지를 내린다', async () => {
   librarySeen.mockResolvedValue({
     periodKey: '2026-09-20',

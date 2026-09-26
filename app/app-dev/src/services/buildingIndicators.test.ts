@@ -217,6 +217,21 @@ test('공지 전체 페이지의 과거 공지 새 댓글을 모은다', async (
   expect(listNotices).toHaveBeenCalledWith('i:1', 'older');
 });
 
+test('공지 페이지 경계의 중복 ID는 건너뛰고 반복 커서는 계속 거부한다', async () => {
+  (getBoard as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    notices: { items: [{ id: 'same', title: '최근', commentCount: 2 }], nextCursor: 'older' },
+  });
+  (listNotices as jest.Mock).mockResolvedValue({
+    items: [
+      { id: 'same', title: '중복', commentCount: 9 },
+      { id: 'old', title: '과거', commentCount: 1 },
+    ],
+    nextCursor: null,
+  });
+  expect(await fetchBoardSnapshot('i:1')).toEqual({ same: 2, old: 1 });
+});
+
 test('공지 페이지 반복과 부분 실패는 불완전한 snapshot을 반환하지 않는다', async () => {
   (getBoard as jest.Mock).mockResolvedValue({
     island: { id: 'i:1' },
@@ -260,7 +275,7 @@ test('첫 페이지에서 미열람 편지를 찾으면 뒤 페이지 장애와 
   expect(listLetters).not.toHaveBeenCalled();
 });
 
-test('편지 중복과 hasNext에 없는 커서는 계약 오류다', async () => {
+test('페이지 경계의 편지 중복은 건너뛰고 hasNext에 없는 커서는 계약 오류다', async () => {
   (getMailboxScreen as jest.Mock).mockResolvedValue({
     island: { id: 'i:1' },
     letters: {
@@ -274,9 +289,7 @@ test('편지 중복과 hasNext에 없는 커서는 계약 오류다', async () =
     hasNext: false,
     nextCursor: null,
   });
-  await expect(fetchMailboxUnreadCount('i:1')).rejects.toMatchObject({
-    code: 'CLIENT_CONTRACT_ERROR',
-  });
+  expect(await fetchMailboxUnreadCount('i:1')).toBe(0);
   (getMailboxScreen as jest.Mock).mockResolvedValue({
     island: { id: 'i:1' },
     letters: { content: [], hasNext: true, nextCursor: null },
@@ -284,6 +297,24 @@ test('편지 중복과 hasNext에 없는 커서는 계약 오류다', async () =
   await expect(fetchMailboxUnreadCount('i:1')).rejects.toMatchObject({
     code: 'CLIENT_CONTRACT_ERROR',
   });
+});
+
+test('도서관 집중 기록 페이지 경계의 중복 ID는 한 번만 반영한다', async () => {
+  const screen = library();
+  screen.focusStatistics!.nextCursor = 'more';
+  (getFocusStatistics as jest.Mock).mockResolvedValue({
+    ...screen.focusStatistics,
+    records: [
+      screen.focusStatistics!.records[0],
+      { id: 'r2', subject: '책', activeSeconds: 5, completedAt: 't2' },
+    ],
+    nextCursor: null,
+  });
+
+  const result = await fetchLibrarySnapshot('i:1', undefined, now, screen);
+
+  expect(result?.weeklyFingerprint).toContain('r1');
+  expect(result?.weeklyFingerprint).toContain('r2');
 });
 
 test('도서관 집중 기록을 끝까지 수집해 안정 snapshot을 만든다', async () => {

@@ -33,6 +33,21 @@ const EMPTY: BuildingIndicators = {
   showMailboxLetters: false,
 };
 
+// 홈 기준점 갱신과 게시판 화면 확인은 같은 AsyncStorage 키를 수정하므로
+// 읽기-병합-저장 전체를 scope 단위로 직렬화한다.
+const boardWrites = new Map<string, Promise<unknown>>();
+function serializeBoardWrite<T>(key: string, write: () => Promise<T>): Promise<T> {
+  const previous = boardWrites.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(write);
+  boardWrites.set(key, next);
+  void next
+    .finally(() => {
+      if (boardWrites.get(key) === next) boardWrites.delete(key);
+    })
+    .catch(() => {});
+  return next;
+}
+
 /**
  * 홈 건물 배지는 서버의 현재 값과 이 기기에서 마지막으로 확인한 값을 비교한다.
  * 확인 마커는 사용자·섬별로 격리하며, 계정/섬 전환 중 늦게 온 응답은 적용하지 않는다.
@@ -98,20 +113,24 @@ export function useBuildingIndicators({
 
     Promise.all([
       (async () => {
-        const [current, seen] = await Promise.all([
-          fetchBoardSnapshot(requestScope.islandId, alive),
-          loadBoardSeen(requestScope),
-        ]);
+        const current = await fetchBoardSnapshot(requestScope.islandId, alive);
         if (!alive()) return;
         currentBoard.current = current;
-        const effectiveSeen = seen ? reconcileBoardSeen(current, seen) : null;
-        if (!seen) {
-          await saveBoardSeen(requestScope, current);
-          if (!alive()) return;
-        } else if (JSON.stringify(effectiveSeen) !== JSON.stringify(seen)) {
-          await saveBoardSeen(requestScope, effectiveSeen!);
-          if (!alive()) return;
-        }
+        const effectiveSeen = await serializeBoardWrite(scopeKey, async () => {
+          if (!alive()) return null;
+          // 직렬화 대기 중 게시판 화면이 더 최신 기록을 저장했을 수 있으므로 재조회한다.
+          const seen = await loadBoardSeen(requestScope);
+          if (!alive()) return null;
+          if (!seen) {
+            await saveBoardSeen(requestScope, current);
+            return null;
+          }
+          const reconciled = reconcileBoardSeen(current, seen);
+          if (JSON.stringify(reconciled) !== JSON.stringify(seen))
+            await saveBoardSeen(requestScope, reconciled);
+          return reconciled;
+        });
+        if (!alive()) return;
         setIndicators((value) => ({
           ...value,
           boardStatus: boardStatus(current, effectiveSeen),
@@ -156,15 +175,25 @@ export function useBuildingIndicators({
         const generation = sessionGeneration();
         const requestScope = scope;
         const requestScopeKey = scopeKey;
-        const previous = await loadBoardSeen(requestScope);
-        if (
-          activeScopeKey.current !== requestScopeKey ||
-          generation !== sessionGeneration() ||
-          getSession()?.userId !== requestScope.userId
-        )
-          return;
-        const merged = { ...(previous ?? {}), ...boardSnapshot(loaded.items) };
-        await saveBoardSeen(requestScope, merged);
+        const merged = await serializeBoardWrite(requestScopeKey, async () => {
+          if (
+            activeScopeKey.current !== requestScopeKey ||
+            generation !== sessionGeneration() ||
+            getSession()?.userId !== requestScope.userId
+          )
+            return null;
+          const previous = await loadBoardSeen(requestScope);
+          if (
+            activeScopeKey.current !== requestScopeKey ||
+            generation !== sessionGeneration() ||
+            getSession()?.userId !== requestScope.userId
+          )
+            return null;
+          const next = { ...(previous ?? {}), ...boardSnapshot(loaded.items) };
+          await saveBoardSeen(requestScope, next);
+          return next;
+        });
+        if (!merged) return;
         if (
           activeScopeKey.current !== requestScopeKey ||
           generation !== sessionGeneration() ||

@@ -207,9 +207,12 @@ export async function fetchBoardSnapshot(
   let page = screen.notices;
   for (;;) {
     if (!Array.isArray(page.items)) throw contract('notices.items');
+    const pageIds = new Set<string>();
     for (const item of page.items) {
-      if (!item || typeof item.id !== 'string' || !count(item.commentCount) || ids.has(item.id))
+      if (!item || typeof item.id !== 'string' || !count(item.commentCount) || pageIds.has(item.id))
         throw contract('notices.items');
+      pageIds.add(item.id);
+      if (ids.has(item.id)) continue;
       ids.add(item.id);
       items.push(item);
     }
@@ -235,14 +238,17 @@ export async function fetchMailboxUnreadCount(
   for (;;) {
     if (!Array.isArray(page.content) || typeof page.hasNext !== 'boolean')
       throw contract('letters');
+    const pageIds = new Set<string>();
     for (const item of page.content) {
       if (
         !item ||
         typeof item.id !== 'string' ||
         typeof item.isRead !== 'boolean' ||
-        ids.has(item.id)
+        pageIds.has(item.id)
       )
         throw contract('letters.content');
+      pageIds.add(item.id);
+      if (ids.has(item.id)) continue;
       ids.add(item.id);
       if (!item.isRead) return unread + 1;
     }
@@ -281,8 +287,11 @@ export async function fetchLibrarySnapshot(
       getFocusStatistics(islandId, { ...week(now), scope: 'me', cursor }),
       alive,
     );
+    const pageIds = new Set<string>();
     for (const item of page.records) {
-      if (ids.has(item.id)) throw contract('records');
+      if (pageIds.has(item.id)) throw contract('records');
+      pageIds.add(item.id);
+      if (ids.has(item.id)) continue;
       ids.add(item.id);
       records.push(item);
     }
