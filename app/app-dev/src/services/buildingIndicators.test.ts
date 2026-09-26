@@ -10,6 +10,7 @@ import {
   fetchMailboxUnreadLetterIds,
   librarySnapshot,
   libraryStatus,
+  libraryHasNewQuest,
   reconcileBoardSeen,
   rolloverLibrarySeen,
   loadBoardSeen,
@@ -305,19 +306,22 @@ test('잠긴 도서관·누락 조각·미완성 페이지·UTC 주 변경은 �
 
 test('주 경계에서는 주간 통계만 초기화하고 미확인 누적 어획 증가는 유지한다', () => {
   const screen = library();
-  const seen = librarySnapshot(screen, now)!;
+  const seen = { ...librarySnapshot(screen, now)!, questIds: ['old-quest'] };
   const nextWeek = new Date('2026-09-27T00:00:00Z');
 
   expect(libraryStatus(librarySnapshot(screen, nextWeek), seen)).toBe(false);
 
   screen.fishEarnings!.members[0].earnedFish = 3;
   const current = librarySnapshot(screen, nextWeek)!;
+  const withNewQuest = { ...current, questIds: ['old-quest', 'new-quest'] };
   expect(libraryStatus(current, seen)).toBe(true);
 
-  const rolled = rolloverLibrarySeen(current, seen);
+  const rolled = rolloverLibrarySeen(withNewQuest, seen);
   expect(rolled.periodKey).toBe(current.periodKey);
   expect(rolled.weeklyFingerprint).toBe(current.weeklyFingerprint);
   expect(rolled.fishEarnings).toEqual(seen.fishEarnings);
+  expect(rolled.questIds).toEqual(['old-quest']);
+  expect(libraryHasNewQuest(withNewQuest.questIds, rolled)).toBe(true);
   expect(libraryStatus(current, rolled)).toBe(true);
   expect(libraryStatus(current, current)).toBe(false);
 });

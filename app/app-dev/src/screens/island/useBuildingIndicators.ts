@@ -7,6 +7,8 @@ import {
   fetchBoardPollPage,
   fetchBoardSnapshot,
   fetchLibrarySnapshot,
+  fetchLibraryQuestIds,
+  libraryHasNewQuest,
   fetchMailboxPollPage,
   fetchMailboxUnreadLetterIds,
   libraryStatus,
@@ -27,7 +29,7 @@ import type { BoardLoadedSnapshot } from '@/screens/interiors/useBoardNotices';
 
 export type BuildingIndicators = {
   boardStatus: 'unread' | 'new-comment' | null;
-  libraryState: 'normal' | 'new-reading';
+  libraryState: 'normal' | 'new-reading' | 'new-quest';
   showMailboxLetters: boolean;
 };
 
@@ -73,9 +75,12 @@ function mergeLibrarySeen(
   const fishEarnings = { ...previous.fishEarnings };
   for (const [userId, amount] of Object.entries(next.fishEarnings))
     fishEarnings[userId] = Math.max(fishEarnings[userId] ?? 0, amount);
-  return next.periodKey < previous.periodKey
-    ? { ...previous, fishEarnings }
-    : { ...next, fishEarnings };
+  const base = next.periodKey < previous.periodKey ? previous : next;
+  return {
+    ...base,
+    fishEarnings,
+    questIds: next.questIds ?? previous.questIds,
+  };
 }
 
 /**
@@ -105,6 +110,8 @@ export function useBuildingIndicators({
   const librarySeenRevision = useRef(0);
   const boardPagesByScope = useRef(new Map<string, Map<string, BoardSnapshot>>());
   const boardCyclePagesByScope = useRef(new Map<string, Set<string>>());
+  const boardShiftedLatestByScope = useRef(new Map<string, BoardSnapshot>());
+  const boardShiftedCyclePending = useRef(new Set<string>());
   const boardPollCursors = useRef(new Map<string, string | null>());
   const mailboxPollCursors = useRef(new Map<string, string | null>());
   const mailboxUnreadIds = useRef(new Map<string, Set<string>>());
@@ -170,6 +177,8 @@ export function useBuildingIndicators({
           boardPollCursors.current.delete(scopeKey);
           boardPagesByScope.current.delete(scopeKey);
           boardCyclePagesByScope.current.delete(scopeKey);
+          boardShiftedLatestByScope.current.delete(scopeKey);
+          boardShiftedCyclePending.current.delete(scopeKey);
           setIndicators((value) => ({ ...value, boardStatus: null }));
           return;
         }
@@ -193,6 +202,8 @@ export function useBuildingIndicators({
             boardPollCursors.current.delete(scopeKey);
             boardPagesByScope.current.delete(scopeKey);
             boardCyclePagesByScope.current.delete(scopeKey);
+            boardShiftedLatestByScope.current.delete(scopeKey);
+            boardShiftedCyclePending.current.delete(scopeKey);
             currentBoard.current = null;
             recoveredCursor = true;
           }
@@ -218,22 +229,51 @@ export function useBuildingIndicators({
         if (pollPage) {
           boardPollCursors.current.set(scopeKey, pollPage.nextCursor);
           const pages = boardPagesByScope.current.get(scopeKey) ?? new Map();
+          const shifted: BoardSnapshot = boardShiftedLatestByScope.current.get(scopeKey) ?? {};
+          const previousLatest: BoardSnapshot = pages.get('latest') ?? {};
+          let addedShiftedNotice = false;
+          for (const [id, comments] of Object.entries(previousLatest))
+            if (
+              !Object.prototype.hasOwnProperty.call(pollPage.latestSnapshot, id) &&
+              !Object.prototype.hasOwnProperty.call(shifted, id)
+            ) {
+              shifted[id] = Math.max(shifted[id] ?? 0, comments);
+              addedShiftedNotice = true;
+            }
           pages.set('latest', pollPage.latestSnapshot);
           const cyclePages = boardCyclePagesByScope.current.get(scopeKey) ?? new Set<string>();
+          if (addedShiftedNotice) {
+            // 기존 순환의 앞부분은 페이지 경계 변경보다 이전 관측일 수 있다.
+            cyclePages.clear();
+            boardShiftedCyclePending.current.add(scopeKey);
+          }
           if (pollPage.historyPageKey) {
             pages.set(pollPage.historyPageKey, pollPage.historySnapshot);
             cyclePages.add(pollPage.historyPageKey);
+            for (const id of Object.keys(pollPage.historySnapshot)) delete shifted[id];
           }
           if (pollPage.cycleComplete) {
-            for (const key of pages.keys())
-              if (key !== 'latest' && !cyclePages.has(key)) pages.delete(key);
+            const firstHistoryPage = [...pages.keys()].find((key) => key !== 'latest');
+            const pendingFreshCycle = boardShiftedCyclePending.current.has(scopeKey);
+            const caughtUp =
+              !pendingFreshCycle ||
+              (firstHistoryPage !== undefined && cyclePages.has(firstHistoryPage));
+            if (caughtUp) {
+              for (const key of pages.keys())
+                if (key !== 'latest' && !cyclePages.has(key)) pages.delete(key);
+              // 새 경계 이후 한 바퀴를 완주한 뒤에도 이력에 없는 항목은 삭제된 공지다.
+              for (const id of Object.keys(shifted)) delete shifted[id];
+              boardShiftedCyclePending.current.delete(scopeKey);
+            }
             cyclePages.clear();
           }
+          boardShiftedLatestByScope.current.set(scopeKey, shifted);
           boardCyclePagesByScope.current.set(scopeKey, cyclePages);
           boardPagesByScope.current.set(scopeKey, pages);
           current = {};
           for (const [key, pageSnapshot] of pages)
             if (key !== 'latest') Object.assign(current, pageSnapshot);
+          Object.assign(current, shifted);
           Object.assign(current, pages.get('latest') ?? {});
         }
         currentBoard.current = current;
@@ -265,32 +305,37 @@ export function useBuildingIndicators({
         }
         const confirmationRevision = librarySeenRevision.current;
         const latestOnly = currentLibrary.current !== null;
-        const current = await fetchLibrarySnapshot(
-          requestScope.islandId,
-          alive,
-          new Date(),
-          undefined,
-          latestOnly,
-        );
+        const [current, questIds] = await Promise.all([
+          fetchLibrarySnapshot(requestScope.islandId, alive, new Date(), undefined, latestOnly),
+          fetchLibraryQuestIds(requestScope.islandId, alive).catch(() => null),
+        ]);
         if (!alive() || !current) return;
+        const observed = questIds ? { ...current, questIds } : current;
         const hasUpdate = await serializeLibraryWrite(scopeKey, async () => {
           if (!alive() || confirmationRevision !== librarySeenRevision.current) return null;
           const seen = await loadLibrarySeen(requestScope);
           if (!alive() || confirmationRevision !== librarySeenRevision.current) return null;
-          const updated = libraryStatus(current, seen);
+          const updated = libraryStatus(observed, seen);
+          const hasNewQuest = questIds !== null && libraryHasNewQuest(questIds, seen);
           // 첫 관측은 전체 기준점, 주 변경은 누적 어획 기준을 보존하며 주간 기준만 이동한다.
           if (!seen || seen.periodKey !== current.periodKey) {
-            const candidate = seen && updated ? rolloverLibrarySeen(current, seen) : current;
+            const candidate = seen ? rolloverLibrarySeen(observed, seen) : observed;
             await saveLibrarySeen(requestScope, mergeLibrarySeen(seen, candidate));
+          } else if (seen.questIds === undefined && questIds !== null) {
+            await saveLibrarySeen(requestScope, { ...seen, questIds });
           }
-          return updated;
+          return { updated, hasNewQuest };
         });
         if (!alive() || hasUpdate === null || confirmationRevision !== librarySeenRevision.current)
           return;
         currentLibrary.current = current;
         setIndicators((value) => ({
           ...value,
-          libraryState: hasUpdate ? 'new-reading' : 'normal',
+          libraryState: hasUpdate.hasNewQuest
+            ? 'new-quest'
+            : hasUpdate.updated
+              ? 'new-reading'
+              : 'normal',
         }));
       })().catch(() => {}),
       (async () => {
@@ -407,13 +452,12 @@ export function useBuildingIndicators({
         generation === sessionGeneration() &&
         getSession()?.userId === requestScope.userId;
       try {
-        const current = await fetchLibrarySnapshot(
-          requestScope.islandId,
-          alive,
-          new Date(),
-          screen,
-        );
-        if (!current || !alive()) return;
+        const [snapshot, questIds] = await Promise.all([
+          fetchLibrarySnapshot(requestScope.islandId, alive, new Date(), screen),
+          fetchLibraryQuestIds(requestScope.islandId, alive).catch(() => null),
+        ]);
+        if (!snapshot || !alive()) return;
+        const current = questIds ? { ...snapshot, questIds } : snapshot;
         await serializeLibraryWrite(requestScopeKey, async () => {
           if (!alive() || confirmationRevision !== librarySeenRevision.current) return;
           const previous = await loadLibrarySeen(requestScope);
@@ -422,7 +466,11 @@ export function useBuildingIndicators({
         });
         if (!alive() || confirmationRevision !== librarySeenRevision.current) return;
         currentLibrary.current = current;
-        setIndicators((value) => ({ ...value, libraryState: 'normal' }));
+        setIndicators((value) => ({
+          ...value,
+          libraryState:
+            questIds === null && value.libraryState === 'new-quest' ? 'new-quest' : 'normal',
+        }));
       } catch {
         // 방 조회 실패·잠김·세션 전환은 확인으로 기록하지 않는다.
       }

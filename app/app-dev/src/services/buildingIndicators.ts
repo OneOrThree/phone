@@ -3,6 +3,7 @@ import { ApiError, CLIENT_STALE_SESSION } from './api/client';
 import { CLIENT_CONTRACT_ERROR } from './api/home';
 import { getMailboxScreen, listLetters, type LetterSlice } from './api/letters';
 import { getBoard, listNotices, type NoticePage } from './api/notices';
+import { getCurrentQuests } from './api/quests';
 import { getFocusStatistics, getLibraryScreen, type LibraryScreen } from './api/records';
 import { sessionGeneration } from './api/session';
 
@@ -12,6 +13,8 @@ export type LibrarySnapshot = {
   periodKey: string;
   weeklyFingerprint: string;
   fishEarnings: Record<string, number>;
+  /** 현재 서버 퀘스트 중 이 기기에서 도서관 확인 시점에 본 ID 집합. */
+  questIds?: string[];
 };
 
 const key = (scope: IndicatorScope, building: 'board' | 'library') =>
@@ -59,7 +62,9 @@ export const loadLibrarySeen = (scope: IndicatorScope) =>
       periodKey(value.periodKey) &&
       typeof value.weeklyFingerprint === 'string' &&
       record(value.fishEarnings) &&
-      Object.values(value.fishEarnings).every(count),
+      Object.values(value.fishEarnings).every(count) &&
+      (value.questIds === undefined ||
+        (Array.isArray(value.questIds) && value.questIds.every((id) => typeof id === 'string'))),
   );
 export const saveLibrarySeen = (scope: IndicatorScope, snapshot: LibrarySnapshot) =>
   AsyncStorage.setItem(key(scope, 'library'), JSON.stringify(snapshot));
@@ -174,6 +179,31 @@ export function libraryStatus(
   );
 }
 
+export function libraryHasNewQuest(
+  currentQuestIds: readonly string[],
+  seen: LibrarySnapshot | null,
+): boolean {
+  if (!seen?.questIds) return false;
+  const previous = new Set(seen.questIds);
+  return currentQuestIds.some((id) => !previous.has(id));
+}
+
+export async function fetchLibraryQuestIds(
+  islandId: string,
+  isCurrent?: () => boolean,
+): Promise<string[]> {
+  const alive = guard(isCurrent);
+  alive();
+  const response = await gated(getCurrentQuests(islandId), alive);
+  if (!Array.isArray(response.items)) throw contract('quests.items');
+  const ids = new Set<string>();
+  for (const item of response.items) {
+    if (!item || typeof item.id !== 'string' || !item.id) throw contract('quests.items');
+    ids.add(item.id);
+  }
+  return [...ids].sort();
+}
+
 // /screens/library supplies complete weekly totals/series but only a page of records.
 // Older saved fingerprints include all records; compare their aggregate summary so fast
 // polls can safely skip cursor pagination without creating false-positive unread markers.
@@ -199,6 +229,7 @@ export function rolloverLibrarySeen(
   return {
     ...current,
     fishEarnings: seen.fishEarnings,
+    questIds: seen.questIds,
   };
 }
 

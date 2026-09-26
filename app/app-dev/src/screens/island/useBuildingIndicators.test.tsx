@@ -4,6 +4,7 @@ import {
   fetchBoardSnapshot,
   fetchBoardPollPage,
   fetchLibrarySnapshot,
+  fetchLibraryQuestIds,
   fetchMailboxUnreadLetterIds,
   fetchMailboxPollPage,
   loadBoardSeen,
@@ -21,6 +22,7 @@ jest.mock('@/services/buildingIndicators', () => ({
   fetchBoardSnapshot: jest.fn(),
   fetchBoardPollPage: jest.fn(),
   fetchLibrarySnapshot: jest.fn(),
+  fetchLibraryQuestIds: jest.fn(),
   fetchMailboxUnreadLetterIds: jest.fn(),
   fetchMailboxPollPage: jest.fn(),
   loadBoardSeen: jest.fn(),
@@ -32,6 +34,7 @@ jest.mock('@/services/buildingIndicators', () => ({
 const boardNow = fetchBoardSnapshot as jest.Mock;
 const boardPoll = fetchBoardPollPage as jest.Mock;
 const libraryNow = fetchLibrarySnapshot as jest.Mock;
+const libraryQuestNow = fetchLibraryQuestIds as jest.Mock;
 const mailboxNow = fetchMailboxUnreadLetterIds as jest.Mock;
 const mailboxPoll = fetchMailboxPollPage as jest.Mock;
 const boardSeen = loadBoardSeen as jest.Mock;
@@ -100,7 +103,9 @@ beforeEach(async () => {
     periodKey: '2026-09-20',
     weeklyFingerprint: 'new',
     fishEarnings: { user: 2 },
+    questIds: [],
   });
+  libraryQuestNow.mockResolvedValue([]);
   saveBoard.mockResolvedValue(undefined);
   saveLibrary.mockResolvedValue(undefined);
 });
@@ -167,6 +172,45 @@ test('저장된 확인 상태와 서버 현재 값을 비교해 세 배지를 �
   assert.equal(result.current.libraryState, 'new-reading');
 });
 
+test('서버의 새 퀘스트 ID는 도서관 알림으로 표시하고 확인 시 로컬 기준점에 저장한다', async () => {
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'new',
+    fishEarnings: { user: 2 },
+    questIds: [],
+  });
+  libraryQuestNow.mockResolvedValue(['quest-1']);
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+
+  await waitFor(() => assert.equal(result.current.libraryState, 'new-quest'));
+  await act(async () => result.current.markLibrarySeen(displayedLibraryScreen));
+  expect(saveLibrary).toHaveBeenLastCalledWith(
+    expect.anything(),
+    expect.objectContaining({ questIds: ['quest-1'] }),
+  );
+  assert.equal(result.current.libraryState, 'normal');
+});
+
+test('퀘스트 서버 조회 실패 시 도서관 진입으로 새 퀘스트 알림을 지우지 않는다', async () => {
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'new',
+    fishEarnings: { user: 2 },
+    questIds: [],
+  });
+  libraryQuestNow.mockResolvedValue(['quest-1']);
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+  await waitFor(() => assert.equal(result.current.libraryState, 'new-quest'));
+
+  libraryQuestNow.mockRejectedValue(new Error('offline'));
+  await act(async () => result.current.markLibrarySeen(displayedLibraryScreen));
+  assert.equal(result.current.libraryState, 'new-quest');
+});
+
 test('과거 공지 페이지에서 발견한 새 댓글은 전체 관측 snapshot에 병합된다', async () => {
   boardNow.mockResolvedValue({ old: 2, latest: 0 });
   boardSeen.mockResolvedValue({ old: 2, latest: 0 });
@@ -192,6 +236,41 @@ test('과거 공지 페이지에서 발견한 새 댓글은 전체 관측 snapsh
   await hook.rerender({ refreshKey: 1 });
   await waitFor(() => assert.equal(hook.result.current.boardStatus, 'new-comment'));
   expect(boardPoll).toHaveBeenCalledWith('island-1', null, expect.any(Function));
+  hook.unmount();
+});
+
+test('최신 페이지에서 과거로 밀린 공지는 이력에서 재관측될 때까지 댓글 배지에 남긴다', async () => {
+  boardSeen.mockResolvedValue({ shifted: 2, stable: 0, older: 0 });
+  boardNow.mockImplementation(async (_islandId, _alive, onPages) => {
+    onPages([
+      { key: 'latest', snapshot: { shifted: 3, stable: 0 } },
+      { key: 'history-1', snapshot: { older: 0 } },
+    ]);
+    return { shifted: 3, stable: 0, older: 0 };
+  });
+  boardPoll.mockResolvedValue({
+    snapshot: { older: 0 },
+    latestSnapshot: { stable: 0 },
+    historySnapshot: { older: 0 },
+    historyPageKey: 'history-1',
+    cycleComplete: false,
+    nextCursor: 'history-2',
+  });
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+
+  await waitFor(() => assert.equal(boardNow.mock.calls.length, 1));
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 1));
+  await waitFor(() => assert.equal(hook.result.current.boardStatus, 'new-comment'));
   hook.unmount();
 });
 
@@ -414,6 +493,7 @@ test('도서관 확인은 전체 기록 조회와 저장이 모두 성공한 뒤
     periodKey: '2026-09-20',
     weeklyFingerprint: 'old',
     fishEarnings: { user: 2 },
+    questIds: [],
   });
   const { result } = await renderHook(() =>
     useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
