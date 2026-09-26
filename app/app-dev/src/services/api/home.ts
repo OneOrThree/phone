@@ -132,8 +132,19 @@ export type ConstructionOptions = {
   /** 섬 공동 통장 잔액(별도 스냅샷) — home.wallets.villagePoints 를 이 값으로 덮어쓰지 않는다. */
   villagePoints: number;
   walletVersion: number;
+  /** 서버가 보존하는 현재 공사 — null이면 진행 중인 공사가 없다. */
+  activeConstruction: ActiveConstruction | null;
   /** **미완공** 건물만 온다(공사 중 포함) — 완공 목록은 {@link completedBuildings} 가 뺀다. */
   items: ConstructionItem[];
+};
+
+export type ActiveConstruction = {
+  buildingId: BuildingId;
+  status: string;
+  startedAt: string;
+  completesAt: string;
+  serverNow: string;
+  version: number;
 };
 
 /** `PUT /islands/{islandId}/construction-target` 결과 — 목표 변경에는 차감이 없어 spent=0 이다. */
@@ -196,6 +207,7 @@ function validateOptions(raw: unknown): ConstructionOptions {
     selectedBuildingId,
     villagePoints,
     walletVersion,
+    activeConstruction,
     items,
   } = raw;
   if (!isNumber(islandVersion)) throw contractError('islandVersion');
@@ -205,6 +217,24 @@ function validateOptions(raw: unknown): ConstructionOptions {
   }
   if (!isNumber(villagePoints)) throw contractError('villagePoints');
   if (!isNumber(walletVersion)) throw contractError('walletVersion');
+  if (activeConstruction !== null) {
+    if (!isRecord(activeConstruction)) throw contractError('activeConstruction');
+    const { buildingId, status, startedAt, completesAt, serverNow, version } = activeConstruction;
+    if (typeof buildingId !== 'string' || !CANONICAL.has(buildingId))
+      throw contractError('activeConstruction.buildingId');
+    if (status !== 'BUILDING') throw contractError('activeConstruction.status');
+    if (
+      [startedAt, completesAt, serverNow].some(
+        (v) => typeof v !== 'string' || !Number.isFinite(Date.parse(v)),
+      )
+    ) {
+      throw contractError('activeConstruction.timestamps');
+    }
+    if (Date.parse(completesAt as string) <= Date.parse(startedAt as string)) {
+      throw contractError('activeConstruction.completesAt');
+    }
+    if (!isNumber(version)) throw contractError('activeConstruction.version');
+  }
   if (!Array.isArray(items)) throw contractError('items');
   const seen = new Set<string>();
   for (const item of items) {
@@ -223,6 +253,9 @@ function validateOptions(raw: unknown): ConstructionOptions {
     if (blockedReason !== null && typeof blockedReason !== 'string') {
       throw contractError('items.blockedReason');
     }
+  }
+  if (isRecord(activeConstruction) && !seen.has(activeConstruction.buildingId as string)) {
+    throw contractError('activeConstruction.buildingId');
   }
   return raw as unknown as ConstructionOptions;
 }

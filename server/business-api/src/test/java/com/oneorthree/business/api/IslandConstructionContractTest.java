@@ -44,6 +44,7 @@ class IslandConstructionContractTest extends UpstreamTestBase {
 
     private static final String OPTIONS_BODY = "{\"islandVersion\":4,\"costPolicyVersion\":1,"
             + "\"selectedBuildingId\":\"gram\",\"villagePoints\":150,\"walletVersion\":7,"
+            + "\"activeConstruction\":null,"
             + "\"items\":[{\"id\":\"gram\",\"name\":\"꽃나팔 방송기\",\"cost\":1360,"
             + "\"currency\":\"village_points\",\"selectable\":true,\"buildable\":true,"
             + "\"blockedReason\":null}]}";
@@ -90,6 +91,7 @@ class IslandConstructionContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.islandVersion").value(4))
                 .andExpect(jsonPath("$.data.costPolicyVersion").value(1))
                 .andExpect(jsonPath("$.data.walletVersion").value(7))
+                .andExpect(jsonPath("$.data.activeConstruction").value(org.hamcrest.Matchers.nullValue()))
                 .andExpect(jsonPath("$.data.selectedBuildingId").value("gram"))
                 .andExpect(jsonPath("$.data.villagePoints").value(150))
                 .andExpect(jsonPath("$.data.items[0].id").value("gram"))
@@ -98,6 +100,26 @@ class IslandConstructionContractTest extends UpstreamTestBase {
         MockUpstream.RecordedRequest forwarded = DATA.receivedFor(DATA_OPTIONS).get(0);
         assertThat(forwarded.header("X-User-Id")).isEqualTo(USER.toString());
         assertThat(forwarded.query()).as("조회에는 질의 문자열이 없다").isNull();
+    }
+
+    @Test
+    @DisplayName("GET 옵션은 상류 activeConstruction을 공개 응답에 보존한다")
+    void optionsPreservesActiveConstructionSnapshot() throws Exception {
+        String body = OPTIONS_BODY.replace("\"activeConstruction\":null", "\"activeConstruction\":{"
+                + "\"buildingId\":\"gram\",\"status\":\"BUILDING\","
+                + "\"startedAt\":\"2026-09-18T10:00:00Z\","
+                + "\"completesAt\":\"2026-09-18T10:30:00Z\","
+                + "\"serverNow\":\"2026-09-18T10:05:00Z\",\"version\":4}");
+        DATA.on(DATA_OPTIONS, request -> ok(body));
+
+        mockMvc.perform(auth(get("/islands/" + ISLAND + "/construction-options")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.activeConstruction.buildingId").value("gram"))
+                .andExpect(jsonPath("$.data.activeConstruction.status").value("BUILDING"))
+                .andExpect(jsonPath("$.data.activeConstruction.startedAt").value("2026-09-18T10:00:00Z"))
+                .andExpect(jsonPath("$.data.activeConstruction.completesAt").value("2026-09-18T10:30:00Z"))
+                .andExpect(jsonPath("$.data.activeConstruction.serverNow").value("2026-09-18T10:05:00Z"))
+                .andExpect(jsonPath("$.data.activeConstruction.version").value(4));
     }
 
     @Test
@@ -389,7 +411,7 @@ class IslandConstructionContractTest extends UpstreamTestBase {
     }
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
-            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion items",
+            "/islands/{islandId}/construction-options|get|200||islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion activeConstruction items|islandVersion costPolicyVersion selectedBuildingId villagePoints walletVersion activeConstruction items",
             "/islands/{islandId}/construction-options|get|200|items|id name cost currency selectable buildable blockedReason|id name cost currency selectable buildable blockedReason",
             "/islands/{islandId}/construction-target|put|200||buildingId selected spent version|buildingId selected spent version",
             "/islands/{islandId}/constructions|post|200||buildingId status spent version villagePoints walletVersion startedAt completesAt|buildingId status spent version villagePoints walletVersion startedAt completesAt",

@@ -20,7 +20,18 @@ public record ConstructionOptions(
         @JsonProperty(required = true) String selectedBuildingId,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long villagePoints,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long walletVersion,
+        @JsonProperty(required = true) @Schema(nullable = true) ActiveConstruction activeConstruction,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) List<Item> items) {
+
+    /** 앱 재실행 뒤 공사 상태 복원에 필요한 서버 snapshot. */
+    public record ActiveConstruction(
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String buildingId,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String status,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String startedAt,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String completesAt,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String serverNow,
+            @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long version) {
+    }
 
     /** {@code blockedReason} 만 null 허용 — 통과하면 null, 아니면 FORBIDDEN 등 UI 사유다. */
     @Schema(name = "ConstructionOptionItem")

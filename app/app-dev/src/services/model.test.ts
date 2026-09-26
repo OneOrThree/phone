@@ -2336,7 +2336,14 @@ test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 
     });
   let s = sync(initialState(), 'srv1');
   assert.equal(serverHome(s), null);
-  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
+  s = act(s, 'SERVER_HOME', {
+    facts: {
+      islandId: 'srv1',
+      completedBuildings: ['hall'],
+      activeConstruction: null,
+      constructionObservedAt: 0,
+    },
+  });
   assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
   s = sync(s, 'srv2');
   assert.equal(serverHome(s), null);
@@ -2344,7 +2351,14 @@ test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 
   s = sync(s, 'srv1');
   assert.equal(serverHome(s), null);
   // 같은 current 재동기화는 스냅샷을 유지한다
-  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
+  s = act(s, 'SERVER_HOME', {
+    facts: {
+      islandId: 'srv1',
+      completedBuildings: ['hall'],
+      activeConstruction: null,
+      constructionObservedAt: 0,
+    },
+  });
   s = sync(s, 'srv1');
   assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
 });

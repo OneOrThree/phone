@@ -1,5 +1,8 @@
 package com.oneorthree.phone.construction.dto;
 
+import io.swagger.v3.oas.annotations.media.Schema;
+
+import java.time.Instant;
 import java.util.List;
 
 /**
@@ -15,5 +18,16 @@ public record ConstructionOptionsView(
         String selectedBuildingId,
         int villagePoints,
         long walletVersion,
+        @Schema(types = {"object", "null"}) ActiveConstruction activeConstruction,
         List<ConstructionOptionItem> items) {
+
+    /** 현재 공사 중인 시설의 복원 정보. version은 같은 조회 시점의 islandVersion이다. */
+    public record ActiveConstruction(
+            String buildingId,
+            String status,
+            Instant startedAt,
+            Instant completesAt,
+            Instant serverNow,
+            long version) {
+    }
 }

@@ -50,6 +50,7 @@ const options = (items: object[], over: object = {}) => ({
   selectedBuildingId: null,
   villagePoints: 800,
   walletVersion: 7,
+  activeConstruction: null,
   items,
   ...over,
 });
@@ -175,9 +176,70 @@ test('options 검증 — 모르는 ID·중복·빠진 필수 필드를 fake 건�
     { status: 200, body: { data: options([item('hall'), item('hall')]) } }, // 중복
     { status: 200, body: { data: options([{ id: 'hall', name: '회관' }]) } }, // item 필수 필드 누락
     { status: 200, body: { data: options([], { villagePoints: undefined }) } }, // 응답 필수 필드 누락
+    { status: 200, body: { data: options([], { activeConstruction: { buildingId: 'castle' } }) } },
+    {
+      status: 200,
+      body: {
+        data: options([], {
+          activeConstruction: {
+            buildingId: 'hall',
+            status: 'BUILDING',
+            startedAt: 'bad',
+            completesAt: '2026-09-21T01:00:00Z',
+            serverNow: '2026-09-21T00:00:00Z',
+            version: 1,
+          },
+        }),
+      },
+    },
+    {
+      status: 200,
+      body: {
+        data: options([item('hall')], {
+          activeConstruction: {
+            buildingId: 'hall',
+            status: 'COMPLETED',
+            startedAt: '2026-09-21T00:00:00Z',
+            completesAt: '2026-09-21T01:00:00Z',
+            serverNow: '2026-09-21T00:30:00Z',
+            version: 1,
+          },
+        }),
+      },
+    },
+    {
+      status: 200,
+      body: {
+        data: options([item('hall')], {
+          activeConstruction: {
+            buildingId: 'hall',
+            status: 'BUILDING',
+            startedAt: '2026-09-21T01:00:00Z',
+            completesAt: '2026-09-21T01:00:00Z',
+            serverNow: '2026-09-21T00:30:00Z',
+            version: 1,
+          },
+        }),
+      },
+    },
+    {
+      status: 200,
+      body: {
+        data: options([], {
+          activeConstruction: {
+            buildingId: 'hall',
+            status: 'BUILDING',
+            startedAt: '2026-09-21T00:00:00Z',
+            completesAt: '2026-09-21T01:00:00Z',
+            serverNow: '2026-09-21T00:30:00Z',
+            version: 1,
+          },
+        }),
+      },
+    },
   ]);
 
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 9; i++) {
     const error = await getConstructionOptions('i1').catch((e) => e);
     assert.equal(error.code, CLIENT_CONTRACT_ERROR);
   }

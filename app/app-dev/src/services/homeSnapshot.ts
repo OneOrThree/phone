@@ -24,6 +24,7 @@ import {
   getHome,
   getMembers,
   type BuildingId,
+  type ActiveConstruction,
   type HomeScreen,
   type IslandMember,
   type MembersPage,
@@ -41,6 +42,10 @@ export type HomeWorldFacts = {
   home: HomeScreen;
   /** canonical7 − options.items — 정확한 완공 건물 목록. */
   completedBuildings: BuildingId[];
+  /** 서버가 확정한 현재 공사 — 시각·단계는 화면에서 계산한다. */
+  activeConstruction: ActiveConstruction | null;
+  /** serverNow offset을 로컬 tick으로 전진시킬 기준 시각(ms) — 완공 판정에는 쓰지 않는다. */
+  constructionObservedAt: number;
   /** 서버 주민 전원(모든 페이지) — catColor null 은 그대로, 임의색·임의 actor 추가 금지. */
   members: IslandMember[];
 };
@@ -180,6 +185,8 @@ export async function loadHomeSnapshot({
       islandId: current,
       home,
       completedBuildings: completedBuildings(options),
+      activeConstruction: options.activeConstruction,
+      constructionObservedAt: Date.now(),
       members,
     },
   };

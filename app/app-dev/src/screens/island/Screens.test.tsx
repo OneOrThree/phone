@@ -1133,6 +1133,8 @@ const syncCurrent = (d: any, id = 'srv-1', name = '복구 섬') =>
 const homeFacts = (islandId = 'srv-1', completedBuildings: string[] = ['hall']) => ({
   islandId,
   completedBuildings,
+  activeConstruction: null,
+  constructionObservedAt: 0,
   members: [],
   home: {
     island: {

@@ -128,11 +128,13 @@
 
 | API | request | data |
 | --- | --- | --- |
-| GET options | query/body 없음 | islandVersion, **costPolicyVersion**, selectedBuildingId nullable, villagePoints, **walletVersion**, items[] |
+| GET options | query/body 없음 | islandVersion, **costPolicyVersion**, selectedBuildingId nullable, villagePoints, **walletVersion**, **activeConstruction nullable**, items[] |
 | PUT target | buildingId, expectedVersion 필수 | buildingId, selected=true, spent=0, version |
 | POST constructions | buildingId, expectedVersion, **expectedCostPolicyVersion** 필수 | buildingId, status=completed, spent:{currency,amount}, version, villagePoints, **walletVersion** |
 
 items의 id/name/cost/currency/selectable/buildable/blockedReason은 모두 필수이며 blockedReason만 nullable이다. 완료 시설은 options에서 제외한다. ~~GET의 목록은 게시판 이후 후보 tower/mail/gram/shop이고 초기 hall/board 진행량은 이 목록에 가짜 상품으로 추가하지 않는다.~~ 건물은 7개이고 게시판 뒤 넷은 자유 순서(정책 C01, GROMO-1999)라 목록의 후보는 아직 완공하지 않은 건물 전부이며 도서관이 추가된다 — `selectable` 로 고를 수 있는 것을 가른다 — 위 원본 JSON 의 tower/mail/gram/shop 후보 집합과 `cost` 값은 D4 반영 전 형태다. 회관·게시판도 별도 진행량이 아니라 섬 통장 잔액으로 짓는다(D1·D6). 초기 단계의 목록·가격 반환 방식과 「각자 몫 n빵」 표현은 정책 P-D02 잔여·P-D04 결정 시 함께 고정하며 그 전에 해당 조회 화면을 활성화하지 않는다. `buildingId`는 서버 시설 식별자이고 없는 ID는422 OUT_OF_RANGE(field=buildingId), 문자열 아닌 값/누락은400 INVALID_REQUEST다.
+
+`activeConstruction`은 필수 키이며 공사 중인 건물이 없을 때만 `null`이다. 값이 있으면 `buildingId`, `status`(`BUILDING`), `startedAt`, `completesAt`, `serverNow`, `version`을 담는다. `version`은 같은 조회 시점의 `islandVersion`이다. 이 필드가 재실행·앱 복귀 뒤 현재 공사를 복원하는 정본이며 POST 응답은 다음 GET 전까지 임시 상태로 쓴다. 클라이언트는 `serverNow`와 관측 시각을 기준으로 진행률을 계산해 표시하고, `completesAt` 경과는 완공 확정이 아니라 재조회 신호로만 사용한다.
 
 GET options는 활성 주민의 조회다. 변경 권한이 없는 주민도 GET에서는 항목별 selectable=false/blockedReason=FORBIDDEN을 받으며 변경 권한만으로 GET 전체를403으로 거절하지 않는다. PUT/POST는 승인된 실행 권한을 요구한다. selectable은 현재 사용자 실행 권한과 시설 선행 조건을 만족하는지 나타내며 잔액은 보지 않는다. buildable은 selectable에 건설 가능 상태와 현재 잔액을 더해 평가한다. blockedReason은 HTTP 오류 code가 아닌 UI 사유다. 우선순위는 FORBIDDEN → FACILITY_LOCKED → REQUIRES_TOWER_AND_MAIL → INSUFFICIENT_FUNDS이며 통과하면 null이다. 상점은 tower/mail가 하나라도 없으면 REQUIRES_TOWER_AND_MAIL이다. 서버 실행도 같은 evaluator를 쓰되 TX 안에서 재검사한다. 승인되지 않은 권한/가격 정책을 evaluator 기본값으로 통과시키지 않는다.
 
@@ -246,4 +248,3 @@ GROMO-1895 추가(town-hall 화면 `ledger` 조각, 기획 `GET /v1/islands/{isl
 - 원장 행에 주체(누가 적립했나)가 없어 항목에 사용자 필드가 없다. 주민별 몫은 [회관 기록 LLD](../island-records/low-level-design.md) §7 의 누적 획득이 답한다.
 - 인덱스: 섬 축 인덱스가 유일키 `(island_id, type, idempotency_key)` 앞머리뿐이라 섬 한 곳의 원장을 훑는다. **분당 적립(D5-적립)으로 섬당 행 수가 빠르게 는다 — `(island_id, created_at, id)` 인덱스를 더할 시점이 가까워졌다**(하루 묶음 집계도 같은 스캔을 탄다).
 - 내부 경로(B26): `GET /internal/islands/{islandId}/resources/ledger` + 허용목록 `'GET /internal/islands/*/resources/ledger'`.
-
