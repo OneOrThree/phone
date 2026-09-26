@@ -67,6 +67,12 @@ describe('FireMotion', () => {
 
   it('residentCount changes the visible ember pace and glow intensity', async () => {
     const empty = await render(<FireMotion mode="evening" residentCount={0} />);
+    expect(empty.getByTestId('fire-motion').props.style).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ opacity: 0.68 })]),
+    );
+    expect(
+      empty.getByTestId('fire-motion-frame-evening-1').props.style,
+    ).toEqual(expect.arrayContaining([expect.objectContaining({ opacity: 1 })]));
     const emptyGlow = empty
       .getByTestId('fire-motion-glow')
       .props.style.find((style: { opacity?: number }) => style?.opacity !== undefined).opacity;

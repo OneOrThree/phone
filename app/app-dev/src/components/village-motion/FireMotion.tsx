@@ -85,7 +85,6 @@ export const FireMotion = memo(function FireMotionView({
       : residentCount <= 0
         ? 0.08
         : Math.min(0.4, 0.16 + residentCount * 0.035);
-  const residentOpacity = residentCount == null ? 1 : residentCount <= 0 ? 0.68 : 1;
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', setAppState);
@@ -131,7 +130,9 @@ export const FireMotion = memo(function FireMotionView({
       accessibilityRole="image"
       accessibilityLabel={`모닥불, ${modeLabel}${residentLabel ? `, ${residentLabel}` : ''}`}
       pointerEvents="none"
-      style={[styles.fill, style, { opacity: residentOpacity }]}
+      // 프레임은 정적 화덕 전체를 대체한다. 컨테이너 투명도를 낮추면 투명 영역 아래의
+      // 정적 불꽃이 비쳐 이중으로 보이므로, 주민 수에 따른 약화는 glowOpacity에만 적용한다.
+      style={[styles.fill, style]}
     >
       {mode === 'evening' && (
         <View

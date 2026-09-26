@@ -209,6 +209,40 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
   jest.useRealTimers();
 });
 
+test('서버 홈 모닥불 주민 수는 로컬 목업의 가입자 기본값 대신 서버 memberCount를 쓴다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T21:00:00'));
+  const state = initialState(true);
+  state.serverIslands = {
+    ...state.serverIslands,
+    currentIslandId: 'server-home',
+    home: {
+      islandId: 'server-home',
+      home: {
+        island: {
+          id: 'server-home',
+          name: '서버 홈',
+          intro: '',
+          approvalRequired: false,
+          maxMembers: 10,
+          memberCount: 0,
+        },
+        wallets: { villagePoints: 0 },
+        focusSummary: { totalSeconds: 0 },
+      },
+      completedBuildings: [],
+      members: [],
+    },
+  } as any;
+
+  const screen = await render(<WorldMap state={state} />);
+  expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
+    '모닥불, 저녁, 불꽃, 주민 없음',
+  );
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id === 'cloud')!;

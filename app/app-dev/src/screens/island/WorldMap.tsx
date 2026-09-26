@@ -264,6 +264,11 @@ export function WorldMap({
     const hour = new Date().getHours();
     return hour >= 6 && hour < 18 ? 'day' : 'night';
   });
+  const homeFacts = serverHome(state);
+  const fireResidentCount =
+    homeFacts?.home.island.id === island.id
+      ? homeFacts.home.island.memberCount
+      : islandResidentCount(island);
   useEffect(() => {
     const updateLocalTime = () => {
       const hour = new Date().getHours();
@@ -578,7 +583,7 @@ export function WorldMap({
           <FireMotion
             testID="world-fire-motion"
             mode={dayNight === 'day' ? 'day' : 'evening'}
-            residentCount={islandResidentCount(island)}
+            residentCount={fireResidentCount}
             reduceMotion={state.settings.reduceMotion}
             style={{
               position: 'absolute',
