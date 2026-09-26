@@ -30,6 +30,7 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
   const [data, setData] = useState<IslandRankings | null>(null);
   const [week, setWeek] = useState(() => utcWeekStart());
   const req = useRef(0);
+  const lastRequestedWeek = useRef<string | null>(null);
   const session = sessionGeneration();
 
   useEffect(() => {
@@ -40,9 +41,17 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
     const gen = ++req.current;
     const stale = () => gen !== req.current || session !== sessionGeneration();
     const currentWeek = utcWeekStart();
+    const crossedWeekBoundary =
+      lastRequestedWeek.current !== null && lastRequestedWeek.current !== currentWeek;
+    lastRequestedWeek.current = currentWeek;
     setWeek(currentWeek);
-    // 주기 갱신에서는 목록과 홈 배지를 그대로 유지한다. 첫 조회 때만 로딩 상태로 전환한다.
-    setStatus((current) => (current === 'ready' ? 'ready' : 'loading'));
+    // 같은 주의 갱신은 기존 목록/배지를 유지하지만, 새 주에는 이전 주 결과를 노출하지 않는다.
+    if (crossedWeekBoundary) {
+      setData(null);
+      setStatus('loading');
+    } else {
+      setStatus((current) => (current === 'ready' ? 'ready' : 'loading'));
+    }
     setError(null);
     getIslandRankings({ week: currentWeek })
       .then((rankings) => {

@@ -84,7 +84,9 @@ test('활성 상태에서 같은 주의 순위와 UTC 주 경계를 주기적으
   rankingsMock
     .mockResolvedValueOnce(rankings({ myRank: 7 }))
     .mockResolvedValueOnce(rankings({ myRank: 6 }))
-    .mockResolvedValueOnce(rankings({ myRank: 5 }));
+    .mockRejectedValueOnce(
+      new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0, { retryable: true }),
+    );
   try {
     const { result, unmount } = await renderHook(() => useIslandRankings({ active: true }));
     await act(async () => {});
@@ -101,7 +103,10 @@ test('활성 상태에서 같은 주의 순위와 UTC 주 경계를 주기적으
       await jest.advanceTimersByTimeAsync(60_000);
     });
     await waitFor(() => assert.equal(rankingsMock.mock.calls.length, 3));
+    await waitFor(() => assert.equal(result.current.status, 'error'));
     assert.equal(rankingsMock.mock.calls[2][0].week, '2026-10-04');
+    assert.equal(result.current.week, '2026-10-04');
+    assert.equal(result.current.data, null);
     unmount();
   } finally {
     jest.useRealTimers();
