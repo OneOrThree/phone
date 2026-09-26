@@ -4,6 +4,8 @@ import Svg, { Path } from 'react-native-svg';
 import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
 import { villageMap, VillageScene } from '@/utils/village-world';
+import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
+import { Txt } from '@/design-system/patterns';
 
 // UI 색상이 아니라 원화의 불꽃 색상이다. 바닥 타일은 한 장으로 합쳐 그린다.
 export const VillageScenery = memo(function VillageScenery({
@@ -11,11 +13,13 @@ export const VillageScenery = memo(function VillageScenery({
   scale,
   reduce,
   mailboxLetters,
+  boardStatus = null,
 }: {
   scene: VillageScene;
   scale: number;
   reduce: boolean;
   mailboxLetters: boolean;
+  boardStatus?: 'unread' | 'new-comment' | null;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -156,6 +160,23 @@ export const VillageScenery = memo(function VillageScenery({
                 />
               </Svg>
             </Animated.View>
+          )}
+          {o.building === 'board' && (
+            <VillageBoardIndicator
+              testID="village-board-scene-indicator"
+              showBoardImage={false}
+              hasUnread={boardStatus === 'unread'}
+              hasNewComment={boardStatus === 'new-comment'}
+              indicatorScale={scale}
+              tooltip={
+                boardStatus === 'new-comment' ? (
+                  <Txt kind="meta">새 댓글이 있어요</Txt>
+                ) : boardStatus === 'unread' ? (
+                  <Txt kind="meta">읽지 않은 새 소식이 있어요</Txt>
+                ) : undefined
+              }
+              style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}
+            />
           )}
         </View>
       ))}
