@@ -7,6 +7,7 @@ import { useAppLayout } from '@/utils/layout';
 import { CatSprite } from '@/components/CatSprite';
 import { State } from '@/services/model';
 import { BROWN, T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
+import { useBuildingIndicatorSeen } from '@/screens/island/useBuildingIndicatorSeen';
 import { Diary } from './library/Diary';
 
 function Flower({ outline }: { outline: boolean }) {
@@ -163,6 +164,15 @@ export function Library({ e }: any) {
     land = L.landscape,
     W = L.width,
     H = L.height;
+  useBuildingIndicatorSeen({
+    active:
+      !!e.islands && e.route === 'library' && !e.state.visitingIslandId && !!e.buildingIndicators,
+    islandId: e.state.serverIslands?.currentIslandId ?? null,
+    screen: null,
+    onLoaded: () => {
+      void e.buildingIndicators?.markLibrarySeen();
+    },
+  });
   if (e.route === 'library') {
     // 원형 테이블: 세로는 583px 폭 장면을 가운데에, 가로는 화면 폭 전체 기준
     const rw = land ? W : 583,

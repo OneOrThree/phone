@@ -72,7 +72,7 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     islandId: state.serverIslands?.currentIslandId ?? null,
     screen: srv.status === 'ready' ? srv.indicatorScreen : null,
     onLoaded: (screen) => {
-      void e.buildingIndicators?.markLibrarySeen(screen);
+      void e.buildingIndicators?.markLibrarySeen(screen ?? undefined);
     },
   });
   const allDays = datesBetween(range.from, range.to);

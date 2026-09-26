@@ -91,6 +91,35 @@ function boardHistoryPageKey(snapshot: BoardSnapshot): string {
   return `history:${JSON.stringify(Object.keys(snapshot).sort())}`;
 }
 
+function hasWeeklyActivity(snapshot: LibrarySnapshot): boolean {
+  try {
+    const parsed: unknown = JSON.parse(snapshot.weeklyFingerprint);
+    if (!parsed || typeof parsed !== 'object') return false;
+    const value = parsed as {
+      focus?: {
+        totalSeconds?: unknown;
+        series?: Array<{ seconds?: unknown }>;
+        records?: Array<{ activeSeconds?: unknown }>;
+      };
+      usage?: { totalMinutes?: unknown; series?: Array<{ minutes?: unknown }> };
+    };
+    return (
+      (typeof value.focus?.totalSeconds === 'number' && value.focus.totalSeconds > 0) ||
+      (value.focus?.series?.some((item) => typeof item.seconds === 'number' && item.seconds > 0) ??
+        false) ||
+      (value.focus?.records?.some(
+        (record) => typeof record.activeSeconds === 'number' && record.activeSeconds > 0,
+      ) ??
+        false) ||
+      (typeof value.usage?.totalMinutes === 'number' && value.usage.totalMinutes > 0) ||
+      (value.usage?.series?.some((item) => typeof item.minutes === 'number' && item.minutes > 0) ??
+        false)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 홈 건물 배지는 서버의 현재 값과 이 기기에서 마지막으로 확인한 값을 비교한다.
  * 확인 마커는 사용자·섬별로 격리하며, 계정/섬 전환 중 늦게 온 응답은 적용하지 않는다.
@@ -368,8 +397,12 @@ export function useBuildingIndicators({
           const updated = libraryStatus(observed, seen);
           const hasNewQuest =
             questOccurrenceIds !== null && libraryHasNewQuest(questOccurrenceIds, seen);
+          const periodChanged = !!seen && seen.periodKey !== current.periodKey;
+          const hasNewPeriodActivity = periodChanged && hasWeeklyActivity(observed);
           // 첫 관측은 전체 기준점, 주 변경은 누적 어획 기준을 보존하며 주간 기준만 이동한다.
-          if (!seen || seen.periodKey !== current.periodKey) {
+          // 새 주의 첫 응답에 실제 사용 기록이 있으면 사용자가 도서관을 확인하기 전까지
+          // 이전 기준점을 유지해 새 기록 배지가 계속 보이게 한다. 빈 주만 자동 rollover한다.
+          if (!seen || (periodChanged && !hasNewPeriodActivity)) {
             const candidate = seen ? rolloverLibrarySeen(observed, seen) : observed;
             await saveLibrarySeen(requestScope, mergeLibrarySeen(seen, candidate));
           } else if (seen.questOccurrenceIds === undefined && questOccurrenceIds !== null) {
@@ -377,7 +410,7 @@ export function useBuildingIndicators({
             // 한 번 기준을 이전하고, 이후 날짜별 회차 변화를 정확히 감지한다.
             await saveLibrarySeen(requestScope, { ...seen, questOccurrenceIds });
           }
-          return { updated, hasNewQuest };
+          return { updated: updated || hasNewPeriodActivity, hasNewQuest };
         });
         if (!alive() || hasUpdate === null || confirmationRevision !== librarySeenRevision.current)
           return;
@@ -395,7 +428,6 @@ export function useBuildingIndicators({
       })().catch(() => {}),
       (async () => {
         if (!hasMailbox) {
-          console.log('MAILBOX_DISABLED_DEBUG', scopeKey);
           mailboxPollReady.current.delete(scopeKey);
           mailboxUnreadIds.current.delete(scopeKey);
           mailboxCyclePagesByScope.current.delete(scopeKey);
@@ -580,7 +612,7 @@ export function useBuildingIndicators({
   );
 
   const markLibrarySeen = useCallback(
-    async (screen: LibraryScreen) => {
+    async (screen?: LibraryScreen) => {
       if (!scope) return;
       const generation = sessionGeneration();
       const requestScope = scope;

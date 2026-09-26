@@ -512,6 +512,76 @@ test('주가 바뀌어도 미확인 누적 어획 증가는 읽음 기준에 덮
   );
 });
 
+test('새 주 첫 응답에 사용 기록이 있으면 도서관 확인 전까지 읽음 기준과 알림을 유지한다', async () => {
+  const newWeek = {
+    periodKey: '2026-09-27',
+    weeklyFingerprint: JSON.stringify({
+      focus: { totalSeconds: 600, series: [{ date: '2026-09-27', seconds: 600 }] },
+      usage: { totalMinutes: 0, series: [] },
+    }),
+    fishEarnings: { user: 2 },
+  };
+  const oldSeen = {
+    periodKey: '2026-09-20',
+    weeklyFingerprint: JSON.stringify({
+      focus: { totalSeconds: 0, series: [] },
+      usage: { totalMinutes: 0, series: [] },
+    }),
+    fishEarnings: { user: 2 },
+    questOccurrenceIds: [],
+  };
+  libraryNow.mockResolvedValue(newWeek);
+  librarySeen.mockResolvedValue(oldSeen);
+
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(hook.result.current.libraryState, 'new-reading'));
+  expect(saveLibrary).not.toHaveBeenCalled();
+
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(libraryNow.mock.calls.length, 2));
+  assert.equal(hook.result.current.libraryState, 'new-reading');
+  expect(saveLibrary).not.toHaveBeenCalled();
+
+  await act(async () => hook.result.current.markLibrarySeen(displayedLibraryScreen));
+  assert.equal(hook.result.current.libraryState, 'normal');
+  assert.equal(saveLibrary.mock.calls.at(-1)?.[1].periodKey, '2026-09-27');
+  hook.unmount();
+});
+
+test('사용 기록이 전혀 없는 새 주에만 도서관 읽음 기준을 자동으로 넘긴다', async () => {
+  const emptyWeek = {
+    periodKey: '2026-09-27',
+    weeklyFingerprint: JSON.stringify({
+      focus: { totalSeconds: 0, series: [] },
+      usage: { totalMinutes: 0, series: [] },
+    }),
+    fishEarnings: { user: 2 },
+  };
+  libraryNow.mockResolvedValue(emptyWeek);
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'previous-week',
+    fishEarnings: { user: 2 },
+    questOccurrenceIds: [],
+  });
+
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+  await waitFor(() => assert.equal(saveLibrary.mock.calls.length, 1));
+  assert.equal(result.current.libraryState, 'normal');
+  assert.equal(saveLibrary.mock.calls[0][1].periodKey, '2026-09-27');
+});
+
 test('게시판에서 실제로 불러온 페이지만 기존 확인 상태에 병합한다', async () => {
   boardNow.mockResolvedValue({ old: 2, fresh: 0 });
   boardSeen.mockResolvedValue({ old: 1 });

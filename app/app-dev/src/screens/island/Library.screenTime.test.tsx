@@ -54,6 +54,32 @@ test.each([
   expect(shouldObserveLibraryIndicator(route)).toBe(expected);
 });
 
+test('실제 도서관 건물 진입도 알림 확인을 한 번 실행한다', async () => {
+  const markLibrarySeen = jest.fn();
+  const e = {
+    ...environment(),
+    route: 'library',
+    islands: [],
+    buildingIndicators: { markLibrarySeen },
+  };
+  e.state.serverIslands = {
+    memberships: [],
+    currentIslandId: 'soda',
+    lossReason: null,
+    candidates: [],
+    nextCursor: null,
+    visit: null,
+    joinRequests: [],
+    requestStatus: [],
+  };
+
+  const screen = await render(<Library e={e} />);
+  await waitFor(() => expect(markLibrarySeen).toHaveBeenCalledTimes(1));
+  expect(markLibrarySeen).toHaveBeenCalledWith();
+  await screen.rerender(<Library e={e} />);
+  expect(markLibrarySeen).toHaveBeenCalledTimes(1);
+});
+
 function environment({ permission = true, ready = true, neighbors = false } = {}) {
   const state = initialState(true);
   state.settings.permission = permission;
