@@ -290,7 +290,7 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
   const libraryBadgeSize = screen
     .getByTestId('library-motion-indicator')
     .props.style.find((entry: { width?: number }) => entry?.width != null);
-  const mailboxBadgeSize = 25 * worldScale;
+  const mailboxBadgeSize = 25 * worldScale * 0.72;
   expect(libraryBadgeSize.width).toBeCloseTo(mailboxBadgeSize);
   expect(libraryBadgeSize.height).toBeCloseTo(mailboxBadgeSize);
   screen.getByLabelText(`${buildingNames.library}, 새 퀘스트가 있어요`);

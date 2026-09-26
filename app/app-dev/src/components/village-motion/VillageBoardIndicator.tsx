@@ -23,7 +23,6 @@ export function VillageBoardIndicator({
   testID?: string;
 }) {
   const hasNotice = hasUnread || hasNewComment;
-  const badgeScale = indicatorScale * 0.72;
 
   return (
     <View testID={testID} pointerEvents="none" style={[styles.root, style]}>
@@ -39,7 +38,7 @@ export function VillageBoardIndicator({
         <VillageNotificationBadge
           testID="village-board-new-indicator"
           accessibilityLabel={hasNewComment ? '새 댓글이 있습니다' : '읽지 않은 새 소식이 있습니다'}
-          scale={badgeScale}
+          scale={indicatorScale}
           style={{ top: -20 * indicatorScale, right: 12 * indicatorScale }}
         />
       )}
