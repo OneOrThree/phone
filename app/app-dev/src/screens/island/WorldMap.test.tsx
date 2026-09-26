@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { Animated } from 'react-native';
-import { FinalIsland } from '@/screens/island/WorldMap';
+import { createWorldProjector, FinalIsland } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
 
@@ -21,6 +21,17 @@ jest.mock('@/utils/layout', () => ({
 }));
 
 afterEach(cleanup);
+
+test('걷는 중 카메라가 바뀌면 보관된 진입 콜백도 최신 건물 좌표를 투영한다', () => {
+  let viewport = { left: -120, top: -80, scale: 0.7 };
+  const projectAtArrival = createWorldProjector(() => viewport);
+  const savedEnterCallback = () => projectAtArrival({ x: 1030, y: 268 });
+
+  expect(savedEnterCallback()).toEqual({ x: 601, y: 107.6 });
+  viewport = { left: -52, top: -31, scale: 0.84 };
+  expect(savedEnterCallback().x).toBeCloseTo(813.2);
+  expect(savedEnterCallback().y).toBeCloseTo(194.12);
+});
 
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);

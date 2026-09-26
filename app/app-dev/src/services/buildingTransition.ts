@@ -52,7 +52,25 @@ type RouteCoverOwner = symbol;
 const routeCoverOwners = new Set<RouteCoverOwner>();
 const routeCoverTimers = new Map<RouteCoverOwner, ReturnType<typeof setTimeout>>();
 const routeCoverListeners = new Set<(covered: boolean) => void>();
+const transitionActivityListeners = new Set<(active: boolean) => void>();
 let activeTransition: { owner: symbol; cancel: () => boolean } | null = null;
+
+export function isBuildingTransitionActive() {
+  return activeTransition !== null;
+}
+
+export function subscribeBuildingTransitionActivity(listener: (active: boolean) => void) {
+  transitionActivityListeners.add(listener);
+  listener(isBuildingTransitionActive());
+  return () => {
+    transitionActivityListeners.delete(listener);
+  };
+}
+
+function publishTransitionActivity() {
+  const active = isBuildingTransitionActive();
+  transitionActivityListeners.forEach((listener) => listener(active));
+}
 
 export function isBuildingTransitionRouteCovered() {
   return routeCoverOwners.size > 0;
@@ -159,6 +177,7 @@ export function createBuildingTransitionController() {
       const generation = state.generation + 1;
       cancelActive = onCancel ?? null;
       activeTransition = { owner, cancel: () => this.cancel() };
+      publishTransitionActivity();
       publish({
         phase: direction === 'enter' ? 'entering' : 'returning',
         target,
@@ -166,14 +185,18 @@ export function createBuildingTransitionController() {
         generation,
       });
       const publishIdle = () => {
-        if (activeTransition?.owner === owner) activeTransition = null;
+        if (activeTransition?.owner === owner) {
+          activeTransition = null;
+          publishTransitionActivity();
+        }
         cancelActive = null;
         publish({ phase: 'idle', target: null, direction: null, generation });
       };
       const finishEnter = () => {
         if (state.generation !== generation || state.phase === 'idle') return;
         timer = null;
-        coverRoute(Symbol('building-route-cover'));
+        // 화톳불은 목적지에서 항해가 바로 시작되므로 route cover로 가리면 첫 이동이 사라진다.
+        if (target !== 'fire') coverRoute(Symbol('building-route-cover'));
         try {
           navigate();
         } finally {
@@ -210,6 +233,7 @@ export function createBuildingTransitionController() {
       if (timer) clearTimeout(timer);
       timer = null;
       activeTransition = null;
+      publishTransitionActivity();
       const notifyCancelled = cancelActive;
       cancelActive = null;
       publish({ phase: 'idle', target: null, direction: null, generation: state.generation + 1 });

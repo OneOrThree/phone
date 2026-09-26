@@ -67,6 +67,18 @@ const pathDistance = (pts: readonly Point[]) => {
   }
   return sum;
 };
+type WorldViewport = { left: number; top: number; scale: number };
+
+export function createWorldProjector(getViewport: () => WorldViewport) {
+  return (point: Point) => {
+    const viewport = getViewport();
+    return {
+      x: viewport.left + point.x * viewport.scale,
+      y: viewport.top + point.y * viewport.scale,
+    };
+  };
+}
+
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -273,6 +285,7 @@ export function WorldMap({
     height: L.height,
     onSpot,
   };
+  const projectCurrentWorldPoint = useRef(createWorldProjector(() => current.current)).current;
   const origin = useRef({ x: 0, y: 0, z: 1, dist: 0, anchorX: 0, anchorY: 0 }),
     frame = useRef({ x: 0, y: 0 }),
     drag = useRef(false),
@@ -524,7 +537,7 @@ export function WorldMap({
         {typeof children === 'function'
           ? (children as (scale: number, project: (point: Point) => Point) => React.ReactNode)(
               scale,
-              (point) => ({ x: left + point.x * scale, y: top + point.y * scale }),
+              projectCurrentWorldPoint,
             )
           : children}
       </View>

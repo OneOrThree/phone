@@ -120,7 +120,9 @@ import {
   createBuildingTransitionController,
   cancelBuildingTransition,
   clearBuildingTransitionRouteCovers,
+  isBuildingTransitionActive,
   isBuildingTransitionRouteCovered,
+  subscribeBuildingTransitionActivity,
   subscribeBuildingTransitionRouteCover,
   type BuildingTransitionTarget,
   type BuildingTransitionState,
@@ -332,10 +334,14 @@ function Gromo() {
   const [buildingRouteCovered, setBuildingRouteCovered] = useState(
     isBuildingTransitionRouteCovered,
   );
+  const [buildingTransitionActive, setBuildingTransitionActive] = useState(
+    isBuildingTransitionActive,
+  );
   useEffect(
     () => fireTransitionController.subscribe(setFireTransition),
     [fireTransitionController],
   );
+  useEffect(() => subscribeBuildingTransitionActivity(setBuildingTransitionActive), []);
   useEffect(() => subscribeBuildingTransitionRouteCover(setBuildingRouteCovered), []);
   useEffect(() => () => fireTransitionController.dispose(), [fireTransitionController]);
   const island = currentIsland(state),
@@ -392,7 +398,11 @@ function Gromo() {
       state.settings.reduceMotion,
       () => performGo(r, id),
       BUILDING_TRANSITION_DURATION_MS,
-      onTransitionCancel,
+      () => {
+        onTransitionCancel?.();
+        // 휴식 진입 전 pause는 이미 끝났다. 뒤로가기로 진입만 취소하면 집중을 다시 켜야 한다.
+        if (route === 'focus' && r === 'rest') resumeSession();
+      },
     );
   };
   const returnToIsland = (target: BuildingTransitionTarget, done: () => void) =>
@@ -590,12 +600,14 @@ function Gromo() {
     const session = stateRef.current.session;
     if (!serverSession()) {
       dispatch({ type: 'RESUME' });
-      transitionRoute('focus');
+      if (route !== 'focus') transitionRoute('focus');
       return;
     }
     focus
       .resume()
-      .then(() => transitionRoute('focus'))
+      .then(() => {
+        if (route !== 'focus') transitionRoute('focus');
+      })
       .catch(async (error) => {
         if (await recoverExpiredRestConflict(error, session)) return;
         notify(error instanceof Error ? error.message : '집중을 이어가지 못했어요.');
@@ -1267,7 +1279,10 @@ function Gromo() {
       </SafeAreaView>
     );
   const appContentHidden =
-    routeTransitionShielded || buildingRouteCovered || fireTransition.phase !== 'idle';
+    routeTransitionShielded ||
+    buildingRouteCovered ||
+    buildingTransitionActive ||
+    fireTransition.phase !== 'idle';
   return (
     <MotionContext.Provider value={state.settings.reduceMotion}>
       <SafeAreaView edges={[]} style={[S.page, { backgroundColor: C.cream }]}>
@@ -1278,6 +1293,7 @@ function Gromo() {
         >
           <Animated.View
             key={reviewEpoch}
+            testID="app-content"
             accessibilityElementsHidden={appContentHidden}
             importantForAccessibility={appContentHidden ? 'no-hide-descendants' : 'auto'}
             aria-hidden={appContentHidden}
