@@ -295,25 +295,27 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
-  const demoDay =
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined' &&
-    new URLSearchParams(window.location.search).has('demo') &&
-    !new URLSearchParams(window.location.search).has('night');
+  const demoParams =
+    Platform.OS === 'web' && typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search)
+      : null;
+  const demoNight = demoParams?.has('demo') === true && demoParams.has('night');
+  const demoDay = demoParams?.has('demo') === true && !demoNight;
   const [dayNight, setDayNight] = useState<'day' | 'night'>(() => {
+    if (demoNight) return 'night';
     if (demoDay) return 'day';
     const hour = new Date().getHours();
     return hour >= 6 && hour < 18 ? 'day' : 'night';
   });
   useEffect(() => {
-    if (demoDay) return;
+    if (demoDay || demoNight) return;
     const updateLocalTime = () => {
       const hour = new Date().getHours();
       setDayNight(hour >= 6 && hour < 18 ? 'day' : 'night');
     };
     const timer = setInterval(updateLocalTime, 60_000);
     return () => clearInterval(timer);
-  }, [demoDay]);
+  }, [demoDay, demoNight]);
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,

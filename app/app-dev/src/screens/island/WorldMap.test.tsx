@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
-import { Animated } from 'react-native';
+import { Animated, Platform } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
 import { BUILDING_ENTRY_DURATION_MS } from '@/services/buildingTransition';
@@ -332,6 +332,33 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
   expect(night.queryByTestId('fire-motion-glow')).toBeNull();
   await night.unmount();
   jest.useRealTimers();
+});
+
+test('demo night 쿼리는 현재 시간이 낮이어도 저녁 모습을 고정한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const previousOS = Platform.OS;
+  const previousLocation = window.location;
+  (Platform as { OS: string }).OS = 'web';
+  Object.defineProperty(window, 'location', {
+    value: { search: '?demo=1&night=1' },
+    configurable: true,
+  });
+
+  try {
+    const screen = await render(<WorldMap state={initialState(true)} />);
+    expect(screen.getByTestId('world-fire-motion').props.accessibilityLabel).toBe(
+      '모닥불, 저녁, 불꽃',
+    );
+    await screen.unmount();
+  } finally {
+    (Platform as { OS: string }).OS = previousOS;
+    Object.defineProperty(window, 'location', {
+      value: previousLocation,
+      configurable: true,
+    });
+    jest.useRealTimers();
+  }
 });
 
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
