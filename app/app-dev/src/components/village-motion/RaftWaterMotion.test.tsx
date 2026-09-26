@@ -45,10 +45,10 @@ test.each([0.25, 0.5, 1, 2])(
     expect(back.props.source).toBe(assets['boats/raft/layers/back-day.png']);
     expect(front.props.source).toBe(assets['boats/raft/layers/front-day.png']);
     expect(StyleSheet.flatten(back.props.style)).toMatchObject({
-      left: -48 * scale,
-      top: -307 * scale,
-      width: 1024 * scale,
-      height: 1024 * scale,
+      left: (-48 * (210 * scale)) / 928,
+      top: (-307 * (92 * scale)) / 669,
+      width: (1024 * (210 * scale)) / 928,
+      height: (1024 * (92 * scale)) / 669,
     });
     expect(StyleSheet.flatten(front.props.style)).toEqual(StyleSheet.flatten(back.props.style));
     expect(left).toMatchObject({

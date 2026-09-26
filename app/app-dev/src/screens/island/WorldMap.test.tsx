@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
-import { Animated, Platform } from 'react-native';
+import { Animated, Platform, StyleSheet } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState, residentCount } from '@/services/model';
 import {
@@ -472,10 +472,13 @@ test.each([
         }),
       ]),
     );
-    expect(back.props.style).toEqual(
-      expect.objectContaining({ left: -48 * scale, top: -307 * scale, width: 1024 * scale }),
-    );
-    expect(front.props.style).toEqual(back.props.style);
+    const raftBackStyle = StyleSheet.flatten(back.props.style);
+    const raftFrontStyle = StyleSheet.flatten(front.props.style);
+    expect(raftBackStyle.left).toBeCloseTo((-48 * (210 * scale)) / 928);
+    expect(raftBackStyle.top).toBeCloseTo((-307 * (92 * scale)) / 669);
+    expect(raftBackStyle.width).toBeCloseTo((1024 * (210 * scale)) / 928);
+    expect(raftBackStyle.height).toBeCloseTo((1024 * (92 * scale)) / 669);
+    expect(raftFrontStyle).toEqual(raftBackStyle);
 
     await screen.unmount();
     jest.useRealTimers();
@@ -702,6 +705,26 @@ test('도서관 테마 레이어는 평상시 유지하고 낮 진입 모션 중
 
   await screen.rerender(<WorldMap state={state} />);
   expect(screen.getByTestId('world-themed-building-library')).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('상점 테마 레이어는 평상시 유지하고 낮 진입 모션 중에만 숨긴다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('shop')) island.buildings.push('shop');
+  island.buildingThemes = { ...island.buildingThemes, shop: 'rose' };
+
+  const screen = await render(<WorldMap state={state} />);
+  expect(screen.getByTestId('world-themed-building-shop')).toBeTruthy();
+
+  await screen.rerender(<WorldMap state={state} shopArrivalActive shopArrivalGeneration={1} />);
+  expect(screen.queryByTestId('world-themed-building-shop')).toBeNull();
+
+  await screen.rerender(<WorldMap state={state} />);
+  expect(screen.getByTestId('world-themed-building-shop')).toBeTruthy();
   await screen.unmount();
   jest.useRealTimers();
 });

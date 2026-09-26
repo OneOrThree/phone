@@ -16,7 +16,10 @@ export const RaftWaterMotion = memo(function RaftWaterMotionView({
   const drift = useRef(new Animated.Value(0)).current;
   // 월드가 전달하는 컨테이너 폭은 카메라 배율을 반영하므로 내부 물결도 같은 배율을 쓴다.
   const scale = typeof style?.width === 'number' ? style.width / 210 : 1;
-  const scaleY = typeof style?.height === 'number' ? style.height / 92 : scale;
+  // boats/raft 레이어에서 실제 뗏목 그림은 원본 viewBox (48, 307, 928, 669)에 있다.
+  // 전체 경계를 잘라 쓰도록 원본 1024px 캔버스를 목표 프레임에 맞춰 축소한다.
+  const raftScaleX = typeof style?.width === 'number' ? style.width / 928 : 210 / 928;
+  const raftScaleY = typeof style?.height === 'number' ? style.height / 669 : 92 / 669;
 
   useEffect(() => {
     const loop = Animated.loop(
@@ -64,10 +67,10 @@ export const RaftWaterMotion = memo(function RaftWaterMotionView({
         resizeMode="stretch"
         style={{
           position: 'absolute',
-          left: -48 * scale,
-          top: -307 * scaleY,
-          width: 1024 * scale,
-          height: 1024 * scaleY,
+          left: -48 * raftScaleX,
+          top: -307 * raftScaleY,
+          width: 1024 * raftScaleX,
+          height: 1024 * raftScaleY,
         }}
       />
       <Animated.View
@@ -118,10 +121,10 @@ export const RaftWaterMotion = memo(function RaftWaterMotionView({
         resizeMode="stretch"
         style={{
           position: 'absolute',
-          left: -48 * scale,
-          top: -307 * scaleY,
-          width: 1024 * scale,
-          height: 1024 * scaleY,
+          left: -48 * raftScaleX,
+          top: -307 * raftScaleY,
+          width: 1024 * raftScaleX,
+          height: 1024 * raftScaleY,
         }}
       />
     </View>

@@ -704,6 +704,7 @@ export function WorldMap({
           {island.buildings
             .filter((b) => !(b === 'mail' && mailboxLetters))
             .filter((b) => island.buildingThemes?.[b] && island.buildingThemes?.[b] !== 'default')
+            .filter((b) => !(b === 'shop' && dayNight === 'day' && shopArrivalActive))
             .filter((b) => !(b === 'library' && dayNight === 'day' && libraryArrivalActive))
             .map((b) => (
               <Image
