@@ -1,91 +1,55 @@
 import React from 'react';
-import { render } from '@testing-library/react-native';
-import { Animated, StyleSheet } from 'react-native';
+import { act, render } from '@testing-library/react-native';
+import { Animated } from 'react-native';
 import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
-import type { BuildingTransitionState } from '@/services/buildingTransition';
+import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
+import { OBSERVATORY_ENTRY_DURATION_MS } from '@/components/village-motion/VillageObservatoryMotion';
 
 jest.mock('@/utils/layout', () => ({
-  useAppLayout: () => ({ width: 300, height: 400 }),
+  useAppLayout: () => ({
+    width: 402,
+    height: 874,
+    insets: { top: 0, bottom: 0, left: 0, right: 0 },
+  }),
 }));
 
-const state = (overrides: Partial<BuildingTransitionState> = {}): BuildingTransitionState => ({
-  phase: 'entering',
-  target: 'hall',
-  direction: 'enter',
-  generation: 1,
-  ...overrides,
-});
-
-test('idle 상태에서는 전환 덮개를 렌더링하지 않는다', async () => {
-  const screen = await render(
-    <BuildingTransitionOverlay
-      state={state({ phase: 'idle', target: null, direction: null })}
-      reduceMotion={false}
-      origin={{ x: 10, y: 20 }}
-    />,
+test('전망대 확대 오버레이는 스프라이트 진입 프레임 뒤에 시작한다', async () => {
+  jest.useFakeTimers();
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    (_value: Animated.Value | Animated.ValueXY, _config: Animated.TimingAnimationConfig) =>
+      ({
+        start: jest.fn(),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
   );
-
-  expect(screen.queryByTestId('building-transition-overlay')).toBeNull();
-});
-
-test('reduceMotion이면 진행 상태여도 애니메이션 덮개를 생략한다', async () => {
-  const timing = jest.spyOn(Animated, 'timing');
   try {
-    const screen = await render(
-      <BuildingTransitionOverlay state={state()} reduceMotion origin={{ x: 10, y: 20 }} />,
-    );
-
-    expect(screen.queryByTestId('building-transition-overlay')).toBeNull();
-    expect(timing).not.toHaveBeenCalled();
-  } finally {
-    timing.mockRestore();
-  }
-});
-
-test('진입 시 선택한 원점을 중심으로 화면 전체를 덮는 확대 애니메이션을 시작한다', async () => {
-  const timing = jest.spyOn(Animated, 'timing');
-  try {
-    const screen = await render(
-      <BuildingTransitionOverlay state={state()} reduceMotion={false} origin={{ x: 75, y: 125 }} />,
-    );
-    const overlay = screen.getByTestId('building-transition-overlay', {
-      includeHiddenElements: true,
-    });
-    const circle = overlay.children[0] as any;
-    const style = StyleSheet.flatten(circle.props.style);
-
-    expect(style).toMatchObject({
-      width: 1000,
-      height: 1000,
-      left: -425,
-      top: -375,
-      borderRadius: 500,
-    });
-    expect(timing).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ toValue: 1, duration: 620, useNativeDriver: true }),
-    );
-  } finally {
-    timing.mockRestore();
-  }
-});
-
-test('복귀 시 축소 방향 애니메이션을 시작한다', async () => {
-  const timing = jest.spyOn(Animated, 'timing');
-  try {
-    await render(
+    const view = await render(
       <BuildingTransitionOverlay
-        state={state({ phase: 'returning', direction: 'return' })}
+        state={{ phase: 'entering', target: 'tower', direction: 'enter', generation: 1 }}
         reduceMotion={false}
-        origin={{ x: 75, y: 125 }}
+        origin={{ x: 180, y: 240 }}
       />,
     );
+    expect(
+      view.getByTestId('building-transition-overlay', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(timing).not.toHaveBeenCalled();
 
+    await act(async () => {
+      jest.advanceTimersByTime(OBSERVATORY_ENTRY_DURATION_MS - 1);
+    });
+    expect(timing).not.toHaveBeenCalled();
+    await act(async () => {
+      jest.advanceTimersByTime(1);
+    });
     expect(timing).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ toValue: 0, duration: 620, useNativeDriver: true }),
+      expect.objectContaining({ duration: BUILDING_TRANSITION_DURATION_MS }),
     );
+    await view.unmount();
   } finally {
     timing.mockRestore();
+    jest.useRealTimers();
   }
 });

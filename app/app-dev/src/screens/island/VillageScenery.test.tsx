@@ -22,4 +22,48 @@ describe('VillageScenery', () => {
     expect(view.queryByTestId('village-board-still-image')).toBeNull();
     await view.unmount();
   });
+
+  it('레이어드 전망대는 순위 배지와 야간 진입 피드백을 표시한다', async () => {
+    const scene = villageScene(['tower']);
+    const view = await render(
+      <VillageScenery
+        scene={scene}
+        scale={1}
+        reduce
+        mailboxLetters={false}
+        observatoryRankState="rank-changed"
+        towerArrivalActive
+        towerArrivalGeneration={3}
+        dayNight="night"
+      />,
+    );
+
+    expect(view.getByTestId('village-building-art-tower').props.style.opacity).toBe(1);
+    expect(
+      view.getByTestId('village-observatory-rank-indicator', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(view.getByText('!', { includeHiddenElements: true }).props.allowFontScaling).toBe(false);
+    expect(view.queryByTestId('village-observatory-frame-0')).toBeNull();
+    expect(
+      view.getByTestId('village-observatory-entry-highlight', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(
+      view.getByTestId('village-observatory-entry-feedback', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    await view.rerender(
+      <VillageScenery
+        scene={scene}
+        scale={1}
+        reduce
+        mailboxLetters={false}
+        observatoryRankState="rank-changed"
+        dayNight="day"
+      />,
+    );
+    expect(view.getByTestId('village-building-art-tower').props.style.opacity).toBe(0);
+    expect(
+      view.getByTestId('village-observatory-frame-0', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    await view.unmount();
+  });
 });
