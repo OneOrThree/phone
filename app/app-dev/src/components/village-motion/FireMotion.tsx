@@ -38,6 +38,9 @@ const flameCorePath =
   'M165 16 C154 34 133 53 126 78 C116 111 137 137 165 140 C193 137 214 111 204 78 C197 53 176 34 165 16 Z';
 const smokeCorePath =
   'M165 26 C156 39 151 51 154 62 C140 68 137 85 151 94 C141 105 148 122 163 124 C177 125 185 112 177 101 C194 93 194 76 180 67 C181 52 174 38 165 26 Z';
+// 낮은 주민 수의 잔불 아래로 base/night의 더 넓은 정적 불꽃이 비치지 않게 덮는다.
+const quietOffFlamePath =
+  'M165 1 C151 19 144 35 135 51 C121 38 122 25 116 18 C108 34 105 49 101 64 C89 84 87 105 98 127 C111 151 136 173 165 181 C194 173 250 151 249 127 C265 105 258 84 242 64 C227 44 192 25 181 2 C175 14 171 23 165 1 Z';
 
 /** 모닥불 코어만 부모의 레이아웃과 확대 배율로 표시한다(기준 상자 비율 100:71). */
 export const FireMotion = memo(function FireMotionView({
@@ -182,6 +185,9 @@ export const FireMotion = memo(function FireMotionView({
             clipPath="url(#fire-motion-core)"
             opacity={1}
           />
+        )}
+        {quietFlame && (
+          <Path testID="fire-motion-quiet-off-core" d={quietOffFlamePath} fill="#382b26" />
         )}
         {frames.map((source, index) => (
           <SvgImage
