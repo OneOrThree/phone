@@ -140,9 +140,7 @@ describe('CatSprite 재생 제어', () => {
     const view = await render(
       <CatSprite color="black" motion="cast" onFinish={onFinish} testID="cat" />,
     );
-    expect(view.getByTestId('cat-frame-0').props.source).toBe(
-      cat('black', 'fishing/cast-frame-0'),
-    );
+    expect(view.getByTestId('cat-frame-0').props.source).toBe(cat('black', 'fishing/cast-frame-0'));
 
     for (let frame = 1; frame <= 3; frame += 1) {
       await act(async () => jest.advanceTimersByTime(125));
@@ -153,9 +151,7 @@ describe('CatSprite 재생 제어', () => {
     }
 
     await act(async () => jest.advanceTimersByTime(125));
-    expect(view.getByTestId('cat-frame-0').props.source).toBe(
-      cat('black', 'fishing/cast-frame-0'),
-    );
+    expect(view.getByTestId('cat-frame-0').props.source).toBe(cat('black', 'fishing/cast-frame-0'));
     expect(onFinish).not.toHaveBeenCalled();
     await act(async () => jest.advanceTimersByTime(125));
     expect(onFinish).toHaveBeenCalledTimes(1);
@@ -169,9 +165,7 @@ describe('CatSprite 재생 제어', () => {
     const view = await render(
       <CatSprite color="black" motion="cast" reduceMotion onFinish={onFinish} testID="cat" />,
     );
-    expect(view.getByTestId('cat-frame-0').props.source).toBe(
-      cat('black', 'fishing/cast-frame-0'),
-    );
+    expect(view.getByTestId('cat-frame-0').props.source).toBe(cat('black', 'fishing/cast-frame-0'));
     await act(async () => jest.advanceTimersByTime(0));
     expect(onFinish).toHaveBeenCalledTimes(1);
     await view.unmount();

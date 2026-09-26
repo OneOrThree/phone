@@ -102,7 +102,11 @@ test('포그라운드 복귀는 reconnect 출처로 스냅숏을 재동기화한
 
 test('검증된 전이를 최신 콜백으로 전달한다', async () => {
   const received: IslandPresenceTransition[] = [];
-  await mount({ active: true, islandId: 'i1', onTransition: (transition) => received.push(transition) });
+  await mount({
+    active: true,
+    islandId: 'i1',
+    onTransition: (transition) => received.push(transition),
+  });
   const transition: IslandPresenceTransition = {
     source: 'event',
     kind: 'focus',
