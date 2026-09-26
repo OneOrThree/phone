@@ -582,7 +582,7 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
-                !(b === 'tower' && dayNight === 'day') &&
+                !(b === 'tower' && dayNight === 'day' && towerArrivalActive) &&
                 island.buildingThemes?.[b] &&
                 island.buildingThemes?.[b] !== 'default',
             )
