@@ -1,7 +1,8 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
-import { AppState, type AppStateStatus } from 'react-native';
+import { AppState, processColor, type AppStateStatus } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
+import { componentTokens } from '@/design-system/tokens';
 import { FireMotion } from './FireMotion';
 
 type MotionView = Awaited<ReturnType<typeof render>>;
@@ -11,6 +12,7 @@ describe('FireMotion', () => {
 
   beforeEach(() => {
     jest.useFakeTimers();
+    AppState.currentState = 'active';
     jest.spyOn(AppState, 'addEventListener').mockImplementation(((_event, listener) => {
       onAppStateChange = listener as (state: AppStateStatus) => void;
       return { remove: jest.fn() };
@@ -52,6 +54,9 @@ describe('FireMotion', () => {
     expect(corePath(view)).toContain('M165 16');
     expect(view.getByTestId('fire-motion-glow')).toBeTruthy();
     expect(view.getByTestId('fire-motion-night-off-core').props.d).toContain('M171 16');
+    expect(view.getByTestId('fire-motion-night-off-core').props.fill).toMatchObject({
+      payload: processColor(componentTokens.villageMotion.fireOffCore),
+    });
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
     expect(activeFrame(view, 'evening')).toBe(2);
@@ -124,6 +129,21 @@ describe('FireMotion', () => {
     expect(activeFrame(view, 'evening')).toBe(1);
     await view.unmount();
   });
+
+  it.each(['inactive', 'unknown', 'extension'] as const)(
+    'pauses while AppState is %s',
+    async (status) => {
+      const view = await render(<FireMotion mode="evening" />);
+      await act(async () => onAppStateChange?.('active'));
+      await act(async () => jest.advanceTimersByTime(155));
+      expect(activeFrame(view, 'evening')).toBe(2);
+      await act(async () => onAppStateChange?.(status));
+      expect(activeFrame(view, 'evening')).toBe(1);
+      await act(async () => jest.advanceTimersByTime(5_000));
+      expect(activeFrame(view, 'evening')).toBe(1);
+      await view.unmount();
+    },
+  );
 
   it('MotionContext의 동작 줄이기 설정이 개별 prop 없이도 애니메이션을 멈춘다', async () => {
     const view = await render(

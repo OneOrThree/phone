@@ -8,7 +8,7 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Svg, { ClipPath, Defs, G, Image as SvgImage, Path } from 'react-native-svg';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { MotionContext } from '@/design-system/primitives';
 
 export type FireMotionMode = 'day' | 'evening';
@@ -56,7 +56,7 @@ export const FireMotion = memo(function FireMotionView({
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
   const [frame, setFrame] = useState(mode === 'day' ? 0 : 1);
   const motionDisabled = useContext(MotionContext) || reduceMotion;
-  const paused = motionDisabled || appState === 'background' || appState === 'inactive';
+  const paused = motionDisabled || appState !== 'active';
   const frames = mode === 'day' ? smokeFrames : flameFrames;
   const residentGroup =
     residentCount == null
@@ -168,7 +168,11 @@ export const FireMotion = memo(function FireMotionView({
           </ClipPath>
         </Defs>
         {mode === 'evening' && (
-          <Path testID="fire-motion-night-off-core" d={nightFlameOffPath} fill="#382b26" />
+          <Path
+            testID="fire-motion-night-off-core"
+            d={nightFlameOffPath}
+            fill={componentTokens.villageMotion.fireOffCore}
+          />
         )}
         {frames.map((source, index) => (
           <SvgImage

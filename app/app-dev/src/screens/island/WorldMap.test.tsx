@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
-import { Animated, Platform, StyleSheet } from 'react-native';
+import { Animated, AppState, Platform, StyleSheet } from 'react-native';
 import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState, residentCount } from '@/services/model';
 import {
@@ -540,6 +540,7 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
 
 test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 재생한다', async () => {
   jest.useFakeTimers();
+  AppState.currentState = 'active';
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
