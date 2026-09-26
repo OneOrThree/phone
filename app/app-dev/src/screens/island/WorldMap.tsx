@@ -30,6 +30,10 @@ import {
 import { assets, cat } from '@/constants/assets';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
 import {
+  ConstructionBuildingSprite,
+  type ConstructionPhase as ConstructionSpritePhase,
+} from '@/components/ConstructionBuildingSprite';
+import {
   claimableQuestRewardCount,
   HOME_QUEST_LIST_DETAIL,
   HomeQuestIndicator,
@@ -51,6 +55,10 @@ import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens } from '@/design-system/tokens';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
+import {
+  constructionPhase,
+  normalizedConstructionProgress,
+} from '@/screens/island/constructionProgress';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -214,6 +222,7 @@ export function WorldMap({
   emote,
   showMailboxLetters,
   village,
+  hiddenVillageBuilding,
   children,
 }: {
   state: State;
@@ -223,6 +232,7 @@ export function WorldMap({
   emote?: string | null;
   showMailboxLetters?: boolean;
   village?: VillageScene;
+  hiddenVillageBuilding?: Building;
   children?: React.ReactNode | ((scale: number) => React.ReactNode);
 }) {
   const L = useAppLayout(),
@@ -510,6 +520,7 @@ export function WorldMap({
             scale={scale}
             reduce={state.settings.reduceMotion}
             mailboxLetters={mailboxLetters}
+            hiddenBuilding={hiddenVillageBuilding}
           />
         )}
         {typeof children === 'function' ? (children as any)(scale) : children}
@@ -553,9 +564,14 @@ function FinalIslandScene({
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
+  const activeConstruction = facts?.activeConstruction ?? null;
+  const activeBuilding = activeConstruction?.buildingId as Building | undefined;
   const scene = useMemo(
-    () => (layeredPreview ? villageScene(i.buildings) : undefined),
-    [layeredPreview, i.buildings],
+    () =>
+      layeredPreview
+        ? villageScene(activeBuilding ? [...i.buildings, activeBuilding] : i.buildings)
+        : undefined,
+    [layeredPreview, i.buildings, activeBuilding],
   );
   const grid = scene?.grid ?? grids.home;
   const doors: Record<string, Door> = scene
@@ -587,6 +603,60 @@ function FinalIslandScene({
       'tilt' | 'stretch' | 'groom' | 'yawn' | null
     >(null),
     [motionGen, setMotionGen] = useState(0);
+  const [completionBuilding, setCompletionBuilding] = useState<Building | null>(null);
+  const previousActiveBuilding = useRef<Building | null>(null);
+  const completionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const completedBuildingKey = i.buildings.join(',');
+
+  useEffect(() => {
+    const previous = previousActiveBuilding.current;
+    previousActiveBuilding.current = activeBuilding ?? null;
+    if (activeBuilding) {
+      if (completionTimer.current !== null) clearTimeout(completionTimer.current);
+      completionTimer.current = null;
+      setCompletionBuilding(null);
+      return;
+    }
+    if (!previous || !completedBuildingKey.split(',').includes(previous)) return;
+    if (completionTimer.current !== null) clearTimeout(completionTimer.current);
+    setCompletionBuilding(previous);
+    completionTimer.current = setTimeout(
+      () => {
+        completionTimer.current = null;
+        setCompletionBuilding((current) => (current === previous ? null : current));
+      },
+      state.settings.reduceMotion ? 600 : 1800,
+    );
+  }, [activeBuilding, completedBuildingKey, state.settings.reduceMotion]);
+
+  useEffect(
+    () => () => {
+      if (completionTimer.current !== null) clearTimeout(completionTimer.current);
+    },
+    [],
+  );
+
+  const progress = normalizedConstructionProgress(
+    activeConstruction,
+    Date.now(),
+    facts?.constructionObservedAt ?? Date.now(),
+  );
+  const timedPhase = constructionPhase(progress, activeConstruction !== null);
+  const constructionSpritePhase: ConstructionSpritePhase | null = activeConstruction
+    ? timedPhase === 'foundation'
+      ? 'foundation'
+      : timedPhase === 'building'
+        ? 'structure'
+        : timedPhase === 'finishing'
+          ? 'finishing'
+          : 'completion'
+    : completionBuilding
+      ? 'completion'
+      : null;
+  const constructionBuilding = activeBuilding ?? completionBuilding ?? undefined;
+  const constructionObject = constructionBuilding
+    ? villageMap.objects.find((object) => object.building === constructionBuilding)
+    : undefined;
   const tiltTimer = useRef<NodeJS.Timeout | null>(null);
   const tapCountRef = useRef(0);
   const tapResetTimer = useRef<NodeJS.Timeout | null>(null);
@@ -749,6 +819,27 @@ function FinalIslandScene({
     const hitSize = Math.max(semanticTokens.size.tapMin, catSize);
     return (
       <>
+        {constructionObject && constructionBuilding && constructionSpritePhase && (
+          <View
+            pointerEvents="none"
+            testID={`village-construction-${constructionBuilding}`}
+            style={{
+              position: 'absolute',
+              left: (constructionObject.x - constructionObject.w / 2) * s,
+              top: (constructionObject.y - constructionObject.h) * s,
+              width: constructionObject.w * s,
+              height: constructionObject.h * s,
+              zIndex: Math.round(constructionObject.y),
+            }}
+          >
+            <ConstructionBuildingSprite
+              building={constructionBuilding}
+              phase={constructionSpritePhase}
+              reduceMotion={state.settings.reduceMotion}
+              testID={`village-construction-sprite-${constructionBuilding}`}
+            />
+          </View>
+        )}
         {Object.entries(doors)
           // 방문 카드에서 연 읽기 전용 화면은 낚시섬 관전만 연다. 기존 방문자 홈은 회관·게시판도 열 수 있다.
           .filter(([, d]) =>
@@ -896,6 +987,7 @@ function FinalIslandScene({
         village={scene}
         islandId={i.id}
         showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
+        hiddenVillageBuilding={activeBuilding}
         onSpot={visiting ? undefined : (p) => walk(p)}
         children={actors as any}
       />
