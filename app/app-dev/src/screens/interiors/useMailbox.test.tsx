@@ -90,10 +90,20 @@ const closeLetterMock = closeLetter as jest.Mock;
 const listMessagesMock = listIslandMessages as jest.Mock;
 const sendMessageMock = sendIslandMessage as jest.Mock;
 
-const mount = async (over: { active?: boolean; scopeKey?: string } = {}) => {
-  const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useMailbox(p), {
-    initialProps: { active: over.active ?? true, scopeKey: over.scopeKey ?? 's1' },
-  });
+const mount = async (
+  over: { active?: boolean; scopeKey?: string; onLetterRead?: (letterId: string) => void } = {},
+) => {
+  const hook = await renderHook(
+    (p: { active: boolean; scopeKey: string; onLetterRead?: (letterId: string) => void }) =>
+      useMailbox(p),
+    {
+      initialProps: {
+        active: over.active ?? true,
+        scopeKey: over.scopeKey ?? 's1',
+        onLetterRead: over.onLetterRead,
+      },
+    },
+  );
   if (over.active !== false) await waitFor(() => assert.equal(hook.result.current.loading, false));
   return hook;
 };
@@ -129,7 +139,8 @@ test('비활성 — API 를 하나도 부르지 않는다', async () => {
 
 test('편지 열기 — GET 상세를 싣고 목록 항목의 isRead 를 서버 readAt 으로 맞춘다', async () => {
   getLetterMock.mockResolvedValue(letterView());
-  const hook = await mount();
+  const onLetterRead = jest.fn();
+  const hook = await mount({ onLetterRead });
 
   await act(async () => {
     await hook.result.current.openLetter(LETTER);
@@ -138,6 +149,7 @@ test('편지 열기 — GET 상세를 싣고 목록 항목의 isRead 를 서버 
   assert.equal(getLetterMock.mock.calls.length, 1);
   assert.equal(hook.result.current.detail?.id, LETTER);
   assert.equal(hook.result.current.letters[0].isRead, true);
+  expect(onLetterRead).toHaveBeenCalledWith(LETTER);
   // 열기는 닫기가 아니다 — DELETE 는 나가지 않는다.
   assert.equal(closeLetterMock.mock.calls.length, 0);
   await hook.unmount();

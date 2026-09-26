@@ -7,6 +7,7 @@ import {
   fetchMailboxPollPage,
   fetchLibrarySnapshot,
   fetchMailboxUnreadCount,
+  fetchMailboxUnreadLetterIds,
   librarySnapshot,
   libraryStatus,
   reconcileBoardSeen,
@@ -214,6 +215,10 @@ test('게시판 고정 예산은 최신 공지와 커서 과거 페이지 하나
   const first = await fetchBoardPollPage('i:1', null);
   expect(first).toEqual({
     snapshot: { 'old-commented': 4, latest: 0 },
+    latestSnapshot: { latest: 0 },
+    historySnapshot: { 'old-commented': 4 },
+    historyPageKey: 'history-1',
+    cycleComplete: false,
     nextCursor: 'history-2',
   });
   expect(listNotices).toHaveBeenCalledTimes(1);
@@ -225,6 +230,7 @@ test('게시판 고정 예산은 최신 공지와 커서 과거 페이지 하나
   });
   const wrapped = await fetchBoardPollPage('i:1', 'history-40');
   expect(wrapped.nextCursor).toBe('history-1');
+  expect(wrapped.cycleComplete).toBe(true);
   expect(listNotices).toHaveBeenLastCalledWith('i:1', 'history-40');
 });
 
@@ -245,6 +251,8 @@ test('우체통 고정 예산은 과거 페이지 하나를 확인하고 마지�
   expect(await fetchMailboxPollPage('i:1', null)).toEqual({
     latestUnread: false,
     historyUnread: true,
+    latestItems: [{ id: 'latest', isRead: true }],
+    historyItems: [{ id: 'old-unread', isRead: false }],
     cycleComplete: false,
     nextCursor: 'history-2',
   });
@@ -258,6 +266,8 @@ test('우체통 고정 예산은 과거 페이지 하나를 확인하고 마지�
   expect(await fetchMailboxPollPage('i:1', 'history-40')).toEqual({
     latestUnread: false,
     historyUnread: false,
+    latestItems: [{ id: 'latest', isRead: true }],
+    historyItems: [{ id: 'last-read', isRead: true }],
     cycleComplete: true,
     nextCursor: 'history-1',
   });
@@ -369,7 +379,7 @@ test('받은 편지 전체 페이지의 미열람 수를 센다', async () => {
   expect(listLetters).toHaveBeenCalledWith('received', 'older');
 });
 
-test('첫 페이지에서 미열람 편지를 찾으면 뒤 페이지 장애와 무관하게 즉시 표시한다', async () => {
+test('초기 우체통 기준점은 모든 페이지의 미열람 편지 ID를 모은다', async () => {
   (getMailboxScreen as jest.Mock).mockResolvedValue({
     island: { id: 'i:1' },
     letters: {
@@ -378,9 +388,13 @@ test('첫 페이지에서 미열람 편지를 찾으면 뒤 페이지 장애와 
       nextCursor: 'older',
     },
   });
-  (listLetters as jest.Mock).mockRejectedValue(new Error('뒤 페이지 실패'));
-  expect(await fetchMailboxUnreadCount('i:1')).toBe(1);
-  expect(listLetters).not.toHaveBeenCalled();
+  (listLetters as jest.Mock).mockResolvedValue({
+    content: [{ id: 'l2', isRead: false }],
+    hasNext: false,
+    nextCursor: null,
+  });
+  expect(await fetchMailboxUnreadLetterIds('i:1')).toEqual(['l1', 'l2']);
+  expect(listLetters).toHaveBeenCalledTimes(1);
 });
 
 test('페이지 경계의 편지 중복은 건너뛰고 hasNext에 없는 커서는 계약 오류다', async () => {

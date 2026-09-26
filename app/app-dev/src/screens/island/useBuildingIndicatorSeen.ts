@@ -14,6 +14,7 @@ export function useBuildingIndicatorSeen({
   onLoaded: (screen: LibraryScreen) => void;
 }) {
   const callback = useRef(onLoaded);
+  const lastDispatched = useRef<{ islandId: string; screen: LibraryScreen } | null>(null);
   callback.current = onLoaded;
 
   useEffect(() => {
@@ -26,6 +27,9 @@ export function useBuildingIndicatorSeen({
       (screen.missingFragments?.length ?? 0) > 0
     )
       return;
+    if (lastDispatched.current?.islandId === islandId && lastDispatched.current.screen === screen)
+      return;
+    lastDispatched.current = { islandId, screen };
     callback.current(screen);
   }, [active, islandId, screen]);
 }

@@ -6,9 +6,21 @@ import { useBuildingIndicatorSeen } from './useBuildingIndicatorSeen';
 const screen: LibraryScreen = {
   island: { id: 'i1', name: '섬', role: 'member' },
   statisticsAvailability: 'available',
-  focusStatistics: null,
-  screenTimeStatistics: null,
-  fishEarnings: null,
+  focusStatistics: {
+    scope: 'me',
+    totalSeconds: 0,
+    series: [],
+    records: [],
+    nextCursor: null,
+  },
+  screenTimeStatistics: {
+    scope: 'me',
+    measurementStatus: 'authorized',
+    totalMinutes: 0,
+    series: [],
+    updatedAt: null,
+  },
+  fishEarnings: { members: [] },
 };
 
 test('실제로 표시된 성공 도서관 화면만 확인 처리한다', async () => {
@@ -46,22 +58,35 @@ test.each([
   await hook.unmount();
 });
 
-test('화면 데이터가 바뀐 뒤 실제 표시값으로 확인 상태를 갱신한다', async () => {
+test('같은 캐시 도서관 응답은 탭 전환 시 한 번만 확인 처리한다', async () => {
   const onLoaded = jest.fn();
-  const updated = { ...screen, fishEarnings: { members: [] } } as LibraryScreen;
+  const hook = await renderHook(
+    ({ active, value }: { active: boolean; value: LibraryScreen }) =>
+      useBuildingIndicatorSeen({ active, islandId: 'i1', screen: value, onLoaded }),
+    { initialProps: { active: true, value: screen } },
+  );
+  await hook.rerender({ active: false, value: screen });
+  await hook.rerender({ active: true, value: screen });
+  assert.equal(onLoaded.mock.calls.length, 1);
+  const updated = { ...screen };
+  await act(async () => {
+    await hook.rerender({ active: true, value: updated });
+  });
+  assert.equal(onLoaded.mock.calls.length, 2);
+  await hook.unmount();
+});
+
+test('새 화면 응답은 확인 상태를 갱신한다', async () => {
+  const onLoaded = jest.fn();
+  const updated = { ...screen };
   const hook = await renderHook(
     ({ value }: { value: LibraryScreen | null }) =>
       useBuildingIndicatorSeen({ active: true, islandId: 'i1', screen: value, onLoaded }),
-    { initialProps: { value: null as LibraryScreen | null } },
+    { initialProps: { value: screen as LibraryScreen | null } },
   );
-  await act(async () => {
-    await hook.rerender({ value: screen });
-  });
   await act(async () => {
     await hook.rerender({ value: updated });
   });
   assert.equal(onLoaded.mock.calls.length, 2);
-  assert.equal(onLoaded.mock.calls[0][0], screen);
-  assert.equal(onLoaded.mock.calls[1][0], updated);
   await hook.unmount();
 });

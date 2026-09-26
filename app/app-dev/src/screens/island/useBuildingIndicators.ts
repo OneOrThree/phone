@@ -7,7 +7,7 @@ import {
   fetchBoardSnapshot,
   fetchLibrarySnapshot,
   fetchMailboxPollPage,
-  fetchMailboxUnreadCount,
+  fetchMailboxUnreadLetterIds,
   libraryStatus,
   loadBoardSeen,
   loadLibrarySeen,
@@ -99,9 +99,12 @@ export function useBuildingIndicators({
   const currentBoard = useRef<BoardSnapshot | null>(null);
   const currentLibrary = useRef<LibrarySnapshot | null>(null);
   const librarySeenRevision = useRef(0);
+  const boardPagesByScope = useRef(new Map<string, Map<string, BoardSnapshot>>());
+  const boardCyclePagesByScope = useRef(new Map<string, Set<string>>());
   const boardPollCursors = useRef(new Map<string, string | null>());
   const mailboxPollCursors = useRef(new Map<string, string | null>());
-  const mailboxCycleSawUnread = useRef(new Map<string, boolean>());
+  const mailboxUnreadIds = useRef(new Map<string, Set<string>>());
+  const mailboxConfirmedReadIds = useRef(new Map<string, Set<string>>());
   const mailboxPollReady = useRef(new Set<string>());
   const refreshInFlight = useRef(0);
   const queuedLiveRefresh = useRef(false);
@@ -164,12 +167,37 @@ export function useBuildingIndicators({
           : null;
         const snapshot = pollPage
           ? pollPage.snapshot
-          : await fetchBoardSnapshot(requestScope.islandId, alive);
+          : await fetchBoardSnapshot(requestScope.islandId, alive, (pages) => {
+              boardPagesByScope.current.set(
+                scopeKey,
+                new Map(pages.map(({ key, snapshot: pageSnapshot }) => [key, pageSnapshot])),
+              );
+            });
         if (!alive()) return;
         // 과거 공지는 고정 페이지 예산으로 순환 점검한다. 매분 최신 페이지와 과거
         // 페이지 하나만 요청하고, 나머지 기존 관측값은 메모리에 보존한다.
-        if (pollPage) boardPollCursors.current.set(scopeKey, pollPage.nextCursor);
-        const current = hasBaseline ? { ...currentBoard.current, ...snapshot } : snapshot;
+        let current = snapshot;
+        if (pollPage) {
+          boardPollCursors.current.set(scopeKey, pollPage.nextCursor);
+          const pages = boardPagesByScope.current.get(scopeKey) ?? new Map();
+          pages.set('latest', pollPage.latestSnapshot);
+          const cyclePages = boardCyclePagesByScope.current.get(scopeKey) ?? new Set<string>();
+          if (pollPage.historyPageKey) {
+            pages.set(pollPage.historyPageKey, pollPage.historySnapshot);
+            cyclePages.add(pollPage.historyPageKey);
+          }
+          if (pollPage.cycleComplete) {
+            for (const key of pages.keys())
+              if (key !== 'latest' && !cyclePages.has(key)) pages.delete(key);
+            cyclePages.clear();
+          }
+          boardCyclePagesByScope.current.set(scopeKey, cyclePages);
+          boardPagesByScope.current.set(scopeKey, pages);
+          current = {};
+          for (const [key, pageSnapshot] of pages)
+            if (key !== 'latest') Object.assign(current, pageSnapshot);
+          Object.assign(current, pages.get('latest') ?? {});
+        }
         currentBoard.current = current;
         const effectiveSeen = await serializeBoardWrite(scopeKey, async () => {
           if (!alive()) return null;
@@ -231,23 +259,23 @@ export function useBuildingIndicators({
           );
           if (!alive()) return;
           mailboxPollCursors.current.set(scopeKey, page.nextCursor);
-          const sawUnread =
-            (mailboxCycleSawUnread.current.get(scopeKey) ?? false) ||
-            page.latestUnread ||
-            page.historyUnread;
-          if (page.cycleComplete) {
-            mailboxCycleSawUnread.current.set(scopeKey, false);
-            setIndicators((value) => ({ ...value, showMailboxLetters: sawUnread }));
-          } else {
-            mailboxCycleSawUnread.current.set(scopeKey, sawUnread);
-            if (sawUnread) setIndicators((value) => ({ ...value, showMailboxLetters: true }));
+          const unread = new Set(mailboxUnreadIds.current.get(scopeKey) ?? []);
+          const confirmedRead = mailboxConfirmedReadIds.current.get(scopeKey) ?? new Set();
+          for (const letter of [...page.latestItems, ...page.historyItems]) {
+            if (letter.isRead || confirmedRead.has(letter.id)) unread.delete(letter.id);
+            else unread.add(letter.id);
           }
+          mailboxUnreadIds.current.set(scopeKey, unread);
+          setIndicators((value) => ({ ...value, showMailboxLetters: unread.size > 0 }));
           return;
         }
-        const unread = await fetchMailboxUnreadCount(requestScope.islandId, alive);
+        const unread = await fetchMailboxUnreadLetterIds(requestScope.islandId, alive);
         if (!alive()) return;
         mailboxPollReady.current.add(scopeKey);
-        setIndicators((value) => ({ ...value, showMailboxLetters: unread > 0 }));
+        const confirmedRead = mailboxConfirmedReadIds.current.get(scopeKey) ?? new Set();
+        const currentUnread = new Set(unread.filter((id) => !confirmedRead.has(id)));
+        mailboxUnreadIds.current.set(scopeKey, currentUnread);
+        setIndicators((value) => ({ ...value, showMailboxLetters: currentUnread.size > 0 }));
       })().catch(() => {}),
     ]).finally(() => {
       refreshInFlight.current = Math.max(0, refreshInFlight.current - 1);
@@ -341,5 +369,25 @@ export function useBuildingIndicators({
     [scope, scopeKey],
   );
 
-  return { ...indicators, markBoardSeen, markLibrarySeen };
+  const markMailboxLetterRead = useCallback(
+    (letterId: string) => {
+      if (
+        !scope ||
+        !letterId ||
+        activeScopeKey.current !== scopeKey ||
+        getSession()?.userId !== scope.userId
+      )
+        return;
+      const unread = new Set(mailboxUnreadIds.current.get(scopeKey) ?? []);
+      unread.delete(letterId);
+      mailboxUnreadIds.current.set(scopeKey, unread);
+      const confirmedRead = new Set(mailboxConfirmedReadIds.current.get(scopeKey) ?? []);
+      confirmedRead.add(letterId);
+      mailboxConfirmedReadIds.current.set(scopeKey, confirmedRead);
+      setIndicators((value) => ({ ...value, showMailboxLetters: unread.size > 0 }));
+    },
+    [scope, scopeKey],
+  );
+
+  return { ...indicators, markBoardSeen, markLibrarySeen, markMailboxLetterRead };
 }

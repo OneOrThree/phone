@@ -228,15 +228,18 @@ function nextPage(cursor: unknown, used: Set<string>): string | null {
 export async function fetchBoardSnapshot(
   islandId: string,
   isCurrent?: () => boolean,
+  onPages?: (pages: Array<{ key: string; snapshot: BoardSnapshot }>) => void,
 ): Promise<BoardSnapshot> {
   const alive = guard(isCurrent);
   alive();
   const screen = await gated(getBoard(), alive);
   if (screen.island.id !== islandId) throw contract('board.island.id');
   const items: NoticePage['items'] = [];
+  const pages: Array<{ key: string; snapshot: BoardSnapshot }> = [];
   const ids = new Set<string>();
   const cursors = new Set<string>();
   let page = screen.notices;
+  let pageKey = 'latest';
   for (;;) {
     if (!Array.isArray(page.items)) throw contract('notices.items');
     const pageIds = new Set<string>();
@@ -248,14 +251,26 @@ export async function fetchBoardSnapshot(
       ids.add(item.id);
       items.push(item);
     }
+    pages.push({ key: pageKey, snapshot: boardSnapshot(page.items) });
     const cursor = nextPage(page.nextCursor, cursors);
-    if (cursor === null) return boardSnapshot(items);
+    if (cursor === null) {
+      onPages?.(pages);
+      return boardSnapshot(items);
+    }
     alive();
+    pageKey = cursor;
     page = await gated(listNotices(islandId, cursor), alive);
   }
 }
 
-export type BoardPollPage = { snapshot: BoardSnapshot; nextCursor: string | null };
+export type BoardPollPage = {
+  snapshot: BoardSnapshot;
+  latestSnapshot: BoardSnapshot;
+  historySnapshot: BoardSnapshot;
+  historyPageKey: string | null;
+  cycleComplete: boolean;
+  nextCursor: string | null;
+};
 
 /**
  * 60초 갱신용 게시판 조회. 최신 페이지와 순환 커서가 가리키는 과거 페이지 하나만
@@ -273,7 +288,15 @@ export async function fetchBoardPollPage(
   if (screen.island.id !== islandId) throw contract('board.island.id');
   const latest = validateNoticeItems(screen.notices);
   const firstHistoryCursor = nextPage(screen.notices.nextCursor, new Set());
-  if (!firstHistoryCursor) return { snapshot: latest, nextCursor: null };
+  if (!firstHistoryCursor)
+    return {
+      snapshot: latest,
+      latestSnapshot: latest,
+      historySnapshot: {},
+      historyPageKey: null,
+      cycleComplete: true,
+      nextCursor: null,
+    };
 
   const cursor = historyCursor ?? firstHistoryCursor;
   alive();
@@ -283,6 +306,10 @@ export async function fetchBoardPollPage(
   return {
     // 최신 페이지를 우선해 경계에서 중복된 공지의 값을 최신 응답으로 유지한다.
     snapshot: { ...historical, ...latest },
+    latestSnapshot: latest,
+    historySnapshot: historical,
+    historyPageKey: cursor,
+    cycleComplete: next === null,
     nextCursor: next ?? firstHistoryCursor,
   };
 }
@@ -302,6 +329,13 @@ export async function fetchMailboxUnreadCount(
   islandId: string,
   isCurrent?: () => boolean,
 ): Promise<number> {
+  return (await fetchMailboxUnreadLetterIds(islandId, isCurrent)).length;
+}
+
+export async function fetchMailboxUnreadLetterIds(
+  islandId: string,
+  isCurrent?: () => boolean,
+): Promise<string[]> {
   const alive = guard(isCurrent);
   alive();
   const screen = await gated(getMailboxScreen(), alive);
@@ -309,7 +343,7 @@ export async function fetchMailboxUnreadCount(
   const ids = new Set<string>();
   const cursors = new Set<string>();
   let page: LetterSlice = screen.letters;
-  let unread = 0;
+  const unread = new Set<string>();
   for (;;) {
     if (!Array.isArray(page.content) || typeof page.hasNext !== 'boolean')
       throw contract('letters');
@@ -325,9 +359,9 @@ export async function fetchMailboxUnreadCount(
       pageIds.add(item.id);
       if (ids.has(item.id)) continue;
       ids.add(item.id);
-      if (!item.isRead) return unread + 1;
+      if (!item.isRead) unread.add(item.id);
     }
-    if (!page.hasNext) return unread;
+    if (!page.hasNext) return [...unread];
     const cursor = nextPage(page.nextCursor, cursors);
     if (cursor === null) throw contract('letters.nextCursor');
     alive();
@@ -338,6 +372,8 @@ export async function fetchMailboxUnreadCount(
 export type MailboxPollPage = {
   latestUnread: boolean;
   historyUnread: boolean;
+  latestItems: Array<{ id: string; isRead: boolean }>;
+  historyItems: Array<{ id: string; isRead: boolean }>;
   cycleComplete: boolean;
   nextCursor: string | null;
 };
@@ -360,6 +396,8 @@ export async function fetchMailboxPollPage(
     return {
       latestUnread: latest.some((item) => !item.isRead),
       historyUnread: false,
+      latestItems: latest.map(({ id, isRead }) => ({ id, isRead })),
+      historyItems: [],
       cycleComplete: true,
       nextCursor: null,
     };
@@ -372,6 +410,8 @@ export async function fetchMailboxPollPage(
   return {
     latestUnread: latest.some((item) => !item.isRead),
     historyUnread: history.some((item) => !item.isRead),
+    latestItems: latest.map(({ id, isRead }) => ({ id, isRead })),
+    historyItems: history.map(({ id, isRead }) => ({ id, isRead })),
     cycleComplete: next === null,
     nextCursor: next ?? firstHistoryCursor,
   };
