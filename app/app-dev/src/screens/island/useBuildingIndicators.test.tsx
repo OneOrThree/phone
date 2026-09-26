@@ -81,6 +81,7 @@ beforeEach(async () => {
     snapshot: { notice: 2 },
     latestSnapshot: { notice: 2 },
     historySnapshot: {},
+    firstHistoryCursor: null,
     historyPageKey: null,
     nextCursor: null,
   });
@@ -95,6 +96,7 @@ beforeEach(async () => {
     historyUnread: false,
     latestItems: [],
     historyItems: [],
+    firstHistoryCursor: null,
     cycleComplete: true,
     nextCursor: null,
   });
@@ -323,31 +325,40 @@ test('최신 페이지에서 과거로 밀린 공지는 이력에서 재관측�
 });
 
 test('최신 공지 경계가 바뀌면 새 첫 이력 커서 순환을 완주한 뒤 stale 공지를 prune한다', async () => {
-  boardSeen.mockResolvedValue({ stale: 1 });
+  boardSeen.mockResolvedValue({ latestOld: 0, latestNew: 0, stale: 1, firstPageNotice: 0 });
   boardNow.mockImplementation(async (_islandId, _alive, onPages) => {
     onPages([
-      { key: 'latest', snapshot: {} },
+      { key: 'latest', snapshot: { latestOld: 0 } },
       { key: 'old-first-cursor', snapshot: { stale: 2 } },
       { key: 'old-second-cursor', snapshot: {} },
     ]);
-    return { stale: 2 };
+    return { latestOld: 0, stale: 2 };
   });
   boardPoll
     .mockResolvedValueOnce({
-      snapshot: {},
-      latestSnapshot: {},
+      snapshot: { latestNew: 0 },
+      latestSnapshot: { latestNew: 0 },
       historySnapshot: {},
       firstHistoryCursor: 'new-first-cursor',
-      historyPageKey: 'new-first-cursor',
+      historyPageKey: 'old-cursor-from-inflight-cycle',
+      cycleComplete: false,
+      nextCursor: 'old-next-cursor',
+    })
+    .mockResolvedValueOnce({
+      snapshot: { latestNew: 0 },
+      latestSnapshot: { latestNew: 0 },
+      historySnapshot: { firstPageNotice: 0 },
+      firstHistoryCursor: 'renewed-first-cursor-token',
+      historyPageKey: 'new-first-page-content',
       cycleComplete: false,
       nextCursor: 'new-second-cursor',
     })
     .mockResolvedValueOnce({
-      snapshot: {},
-      latestSnapshot: {},
+      snapshot: { latestNew: 0 },
+      latestSnapshot: { latestNew: 0 },
       historySnapshot: {},
-      firstHistoryCursor: 'new-first-cursor',
-      historyPageKey: 'new-second-cursor',
+      firstHistoryCursor: 'another-renewed-token',
+      historyPageKey: 'new-second-page-content',
       cycleComplete: true,
       nextCursor: 'new-first-cursor',
     });
@@ -368,6 +379,11 @@ test('최신 공지 경계가 바뀌면 새 첫 이력 커서 순환을 완주�
   expect(hook.result.current.boardStatus).toBe('new-comment');
   await hook.rerender({ refreshKey: 2 });
   await waitFor(() => assert.equal(boardPoll.mock.calls.length, 2));
+  expect(boardPoll.mock.calls[1][1]).toBe('new-first-cursor');
+  expect(hook.result.current.boardStatus).toBe('new-comment');
+  await hook.rerender({ refreshKey: 3 });
+  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 3));
+  expect(boardPoll.mock.calls[2][1]).toBe('new-second-cursor');
   await waitFor(() => assert.equal(hook.result.current.boardStatus, null));
   hook.unmount();
 });
@@ -427,6 +443,7 @@ test('완주한 게시판 페이지 순환은 삭제된 공지의 캐시 snapsho
     snapshot: {},
     latestSnapshot: {},
     historySnapshot: {},
+    firstHistoryCursor: 'cursor-1',
     historyPageKey: 'cursor-1',
     cycleComplete: true,
     nextCursor: 'cursor-1',
@@ -1005,6 +1022,109 @@ test('최신 페이지 경계가 바뀌면 새 첫 이력 커서 순환을 완�
   await hook.rerender({ refreshKey: 2 });
   await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 2));
   await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, false));
+  hook.unmount();
+});
+
+test('서명 커서 토큰만 갱신되면 우체통 순환을 재시작하지 않는다', async () => {
+  mailboxNow.mockImplementation(async (_islandId, _alive, onPages) => {
+    onPages([
+      { key: 'latest', ids: ['old-latest'] },
+      { key: 'old-first-cursor', ids: ['deleted-unread'] },
+      { key: 'old-second-cursor', ids: [] },
+    ]);
+    return ['deleted-unread'];
+  });
+  mailboxPoll
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      latestItems: [{ id: 'new-latest', isRead: true }],
+      historyItems: [],
+      firstHistoryCursor: 'new-first-token',
+      historyPageKey: 'old-inflight-cursor',
+      cycleComplete: false,
+      nextCursor: 'old-next-token',
+    })
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      latestItems: [{ id: 'new-latest', isRead: true }],
+      historyItems: [],
+      firstHistoryCursor: 'renewed-first-token-1',
+      historyPageKey: 'new-first-page',
+      cycleComplete: false,
+      nextCursor: 'new-next-token',
+    })
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      latestItems: [{ id: 'new-latest', isRead: true }],
+      historyItems: [],
+      firstHistoryCursor: 'renewed-first-token-2',
+      historyPageKey: 'new-last-page',
+      cycleComplete: true,
+      nextCursor: 'renewed-first-token-2',
+    });
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, true));
+
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 1));
+  expect(mailboxPoll.mock.calls[0][1]).toBeNull();
+  await hook.rerender({ refreshKey: 2 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 2));
+  expect(mailboxPoll.mock.calls[1][1]).toBe('new-first-token');
+  expect(hook.result.current.showMailboxLetters).toBe(true);
+  await hook.rerender({ refreshKey: 3 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 3));
+  expect(mailboxPoll.mock.calls[2][1]).toBe('new-next-token');
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, false));
+  hook.unmount();
+});
+
+test('만료된 우체통 커서는 폐기하고 full unread snapshot으로 다시 초기화한다', async () => {
+  mailboxNow
+    .mockImplementationOnce(async (_islandId, _alive, onPages) => {
+      onPages([
+        { key: 'latest', ids: ['old-latest'] },
+        { key: 'old-first-cursor', ids: ['deleted-unread'] },
+      ]);
+      return ['deleted-unread'];
+    })
+    .mockImplementationOnce(async (_islandId, _alive, onPages) => {
+      onPages([{ key: 'latest', ids: [] }]);
+      return [];
+    });
+  mailboxPoll.mockRejectedValueOnce(new ApiError('CURSOR_EXPIRED', 'expired', 409));
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, true));
+
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(mailboxNow.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, false));
+  expect(mailboxPoll).toHaveBeenCalledTimes(1);
+
+  await hook.rerender({ refreshKey: 2 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 2));
+  expect(mailboxPoll.mock.calls[1][1]).toBeNull();
   hook.unmount();
 });
 

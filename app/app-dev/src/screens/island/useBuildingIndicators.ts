@@ -83,6 +83,14 @@ function mergeLibrarySeen(
   };
 }
 
+function pageBoundaryKey(ids: Iterable<string>, hasHistory: boolean): string {
+  return JSON.stringify({ ids: [...ids].sort(), hasHistory });
+}
+
+function boardHistoryPageKey(snapshot: BoardSnapshot): string {
+  return `history:${JSON.stringify(Object.keys(snapshot).sort())}`;
+}
+
 /**
  * 홈 건물 배지는 서버의 현재 값과 이 기기에서 마지막으로 확인한 값을 비교한다.
  * 확인 마커는 사용자·섬별로 격리하며, 계정/섬 전환 중 늦게 온 응답은 적용하지 않는다.
@@ -110,7 +118,8 @@ export function useBuildingIndicators({
   const librarySeenRevision = useRef(0);
   const boardPagesByScope = useRef(new Map<string, Map<string, BoardSnapshot>>());
   const boardCyclePagesByScope = useRef(new Map<string, Set<string>>());
-  const boardFirstHistoryByScope = useRef(new Map<string, string | null>());
+  const boardBoundaryByScope = useRef(new Map<string, string>());
+  const boardFirstHistoryCursorByScope = useRef(new Map<string, string | null>());
   const boardShiftedLatestByScope = useRef(new Map<string, BoardSnapshot>());
   const boardShiftedCyclePending = useRef(new Set<string>());
   const boardPollCursors = useRef(new Map<string, string | null>());
@@ -119,7 +128,7 @@ export function useBuildingIndicators({
   const mailboxConfirmedReadIds = useRef(new Map<string, Set<string>>());
   const mailboxCyclePagesByScope = useRef(new Map<string, Map<string, Set<string>>>());
   const mailboxLatestPageIdsByScope = useRef(new Map<string, Set<string>>());
-  const mailboxFirstHistoryByScope = useRef(new Map<string, string | null>());
+  const mailboxBoundaryByScope = useRef(new Map<string, string>());
   const mailboxShiftedLatestByScope = useRef(new Map<string, Set<string>>());
   const mailboxShiftedCyclePending = useRef(new Set<string>());
   const mailboxPollReady = useRef(new Set<string>());
@@ -182,7 +191,8 @@ export function useBuildingIndicators({
           boardPollCursors.current.delete(scopeKey);
           boardPagesByScope.current.delete(scopeKey);
           boardCyclePagesByScope.current.delete(scopeKey);
-          boardFirstHistoryByScope.current.delete(scopeKey);
+          boardBoundaryByScope.current.delete(scopeKey);
+          boardFirstHistoryCursorByScope.current.delete(scopeKey);
           boardShiftedLatestByScope.current.delete(scopeKey);
           boardShiftedCyclePending.current.delete(scopeKey);
           setIndicators((value) => ({ ...value, boardStatus: null }));
@@ -208,7 +218,8 @@ export function useBuildingIndicators({
             boardPollCursors.current.delete(scopeKey);
             boardPagesByScope.current.delete(scopeKey);
             boardCyclePagesByScope.current.delete(scopeKey);
-            boardFirstHistoryByScope.current.delete(scopeKey);
+            boardBoundaryByScope.current.delete(scopeKey);
+            boardFirstHistoryCursorByScope.current.delete(scopeKey);
             boardShiftedLatestByScope.current.delete(scopeKey);
             boardShiftedCyclePending.current.delete(scopeKey);
             currentBoard.current = null;
@@ -218,41 +229,60 @@ export function useBuildingIndicators({
         const snapshot = pollPage
           ? pollPage.snapshot
           : await fetchBoardSnapshot(requestScope.islandId, alive, (pages) => {
-              boardPagesByScope.current.set(
+              const firstHistoryPage = pages.find(({ key }) => key !== 'latest');
+              const cachedPages = new Map<string, BoardSnapshot>([
+                ['latest', pages[0]?.snapshot ?? {}],
+              ]);
+              for (const page of pages)
+                if (page.key !== 'latest')
+                  cachedPages.set(boardHistoryPageKey(page.snapshot), page.snapshot);
+              boardPagesByScope.current.set(scopeKey, cachedPages);
+              boardBoundaryByScope.current.set(
                 scopeKey,
-                new Map(pages.map(({ key, snapshot: pageSnapshot }) => [key, pageSnapshot])),
+                pageBoundaryKey(Object.keys(pages[0]?.snapshot ?? {}), !!firstHistoryPage),
               );
-              boardFirstHistoryByScope.current.set(
-                scopeKey,
-                pages.find(({ key }) => key !== 'latest')?.key ?? null,
-              );
+              boardFirstHistoryCursorByScope.current.set(scopeKey, firstHistoryPage?.key ?? null);
             });
         if (!alive()) return;
         if (recoveredCursor) {
-          const pages = boardPagesByScope.current.get(scopeKey);
-          const firstHistoryCursor = [...(pages?.keys() ?? [])].find((key) => key !== 'latest');
+          const firstHistoryCursor = boardFirstHistoryCursorByScope.current.get(scopeKey) ?? null;
           boardPollCursors.current.set(scopeKey, firstHistoryCursor ?? null);
-          boardFirstHistoryByScope.current.set(scopeKey, firstHistoryCursor ?? null);
           boardCyclePagesByScope.current.set(scopeKey, new Set());
         }
         // 과거 공지는 고정 페이지 예산으로 순환 점검한다. 매분 최신 페이지와 과거
         // 페이지 하나만 요청하고, 나머지 기존 관측값은 메모리에 보존한다.
         let current = snapshot;
         if (pollPage) {
-          boardPollCursors.current.set(scopeKey, pollPage.nextCursor);
           const pages = boardPagesByScope.current.get(scopeKey) ?? new Map();
           const shifted: BoardSnapshot = boardShiftedLatestByScope.current.get(scopeKey) ?? {};
           const previousLatest: BoardSnapshot = pages.get('latest') ?? {};
           const cyclePages = boardCyclePagesByScope.current.get(scopeKey) ?? new Set<string>();
+          const previousBoundary = boardBoundaryByScope.current.get(scopeKey);
+          const nextBoundary =
+            pollPage.firstHistoryCursor === undefined
+              ? undefined
+              : pageBoundaryKey(
+                  Object.keys(pollPage.latestSnapshot),
+                  pollPage.firstHistoryCursor !== null,
+                );
+          const boundaryChanged =
+            nextBoundary !== undefined &&
+            previousBoundary !== undefined &&
+            nextBoundary !== previousBoundary;
           if (pollPage.firstHistoryCursor !== undefined) {
-            const previousFirstHistory = boardFirstHistoryByScope.current.get(scopeKey);
-            if (previousFirstHistory !== pollPage.firstHistoryCursor) {
-              // 최신 페이지 경계 이동 전 순환한 과거 페이지는 새 범위의 완주로 볼 수 없다.
-              cyclePages.clear();
-              boardShiftedCyclePending.current.add(scopeKey);
-            }
-            boardFirstHistoryByScope.current.set(scopeKey, pollPage.firstHistoryCursor);
+            boardBoundaryByScope.current.set(scopeKey, nextBoundary!);
+            boardFirstHistoryCursorByScope.current.set(scopeKey, pollPage.firstHistoryCursor);
           }
+          if (boundaryChanged) {
+            // 서명 토큰은 같은 경계에서도 발급 시각에 따라 바뀐다. 실제 최신 항목
+            // 집합이나 이력 유무가 바뀐 경우에만 새 첫 커서부터 순환을 다시 시작한다.
+            cyclePages.clear();
+            boardShiftedCyclePending.current.add(scopeKey);
+          }
+          boardPollCursors.current.set(
+            scopeKey,
+            boundaryChanged ? (pollPage.firstHistoryCursor ?? null) : pollPage.nextCursor,
+          );
           let addedShiftedNotice = false;
           for (const [id, comments] of Object.entries(previousLatest))
             if (
@@ -269,17 +299,15 @@ export function useBuildingIndicators({
             boardShiftedCyclePending.current.add(scopeKey);
           }
           if (pollPage.historyPageKey) {
-            pages.set(pollPage.historyPageKey, pollPage.historySnapshot);
-            cyclePages.add(pollPage.historyPageKey);
+            const pageKey = boardHistoryPageKey(pollPage.historySnapshot);
+            pages.set(pageKey, pollPage.historySnapshot);
+            if (!boundaryChanged) cyclePages.add(pageKey);
             for (const id of Object.keys(pollPage.historySnapshot)) delete shifted[id];
           }
           if (pollPage.cycleComplete) {
-            const firstHistoryPage = boardFirstHistoryByScope.current.get(scopeKey);
             const pendingFreshCycle = boardShiftedCyclePending.current.has(scopeKey);
             const caughtUp =
-              !pendingFreshCycle ||
-              firstHistoryPage === null ||
-              (firstHistoryPage !== undefined && cyclePages.has(firstHistoryPage));
+              !pendingFreshCycle || pollPage.firstHistoryCursor === null || cyclePages.size > 0;
             if (caughtUp) {
               for (const key of pages.keys())
                 if (key !== 'latest' && !cyclePages.has(key)) pages.delete(key);
@@ -367,11 +395,12 @@ export function useBuildingIndicators({
       })().catch(() => {}),
       (async () => {
         if (!hasMailbox) {
+          console.log('MAILBOX_DISABLED_DEBUG', scopeKey);
           mailboxPollReady.current.delete(scopeKey);
           mailboxUnreadIds.current.delete(scopeKey);
           mailboxCyclePagesByScope.current.delete(scopeKey);
           mailboxLatestPageIdsByScope.current.delete(scopeKey);
-          mailboxFirstHistoryByScope.current.delete(scopeKey);
+          mailboxBoundaryByScope.current.delete(scopeKey);
           mailboxShiftedLatestByScope.current.delete(scopeKey);
           mailboxShiftedCyclePending.current.delete(scopeKey);
           mailboxPollCursors.current.delete(scopeKey);
@@ -379,76 +408,112 @@ export function useBuildingIndicators({
           return;
         }
         if (mailboxPollReady.current.has(scopeKey)) {
-          const page = await fetchMailboxPollPage(
-            requestScope.islandId,
-            mailboxPollCursors.current.get(scopeKey) ?? null,
-            alive,
-          );
-          if (!alive()) return;
-          mailboxPollCursors.current.set(scopeKey, page.nextCursor);
-          const unread = new Set(mailboxUnreadIds.current.get(scopeKey) ?? []);
-          const confirmedRead = mailboxConfirmedReadIds.current.get(scopeKey) ?? new Set();
-          for (const letter of [...page.latestItems, ...page.historyItems]) {
-            if (letter.isRead || confirmedRead.has(letter.id)) unread.delete(letter.id);
-            else unread.add(letter.id);
+          let page: Awaited<ReturnType<typeof fetchMailboxPollPage>> | null = null;
+          try {
+            page = await fetchMailboxPollPage(
+              requestScope.islandId,
+              mailboxPollCursors.current.get(scopeKey) ?? null,
+              alive,
+            );
+          } catch (error) {
+            if (
+              !(error instanceof ApiError) ||
+              (error.code !== 'INVALID_CURSOR' && error.code !== 'CURSOR_EXPIRED')
+            )
+              throw error;
+            // 만료된 서명 커서는 재사용하지 않는다. 기존 unread는 full snapshot 성공 전까지
+            // 보존하고, 다음 아래 full-history 조회로 순환 상태를 다시 만든다.
+            mailboxPollReady.current.delete(scopeKey);
+            mailboxPollCursors.current.delete(scopeKey);
+            mailboxCyclePagesByScope.current.delete(scopeKey);
+            mailboxLatestPageIdsByScope.current.delete(scopeKey);
+            mailboxBoundaryByScope.current.delete(scopeKey);
+            mailboxShiftedLatestByScope.current.delete(scopeKey);
+            mailboxShiftedCyclePending.current.delete(scopeKey);
           }
-          const cyclePages = mailboxCyclePagesByScope.current.get(scopeKey) ?? new Map();
-          const latestIds = new Set(page.latestItems.map(({ id }) => id));
-          const previousLatestIds = mailboxLatestPageIdsByScope.current.get(scopeKey) ?? new Set();
-          const shifted = mailboxShiftedLatestByScope.current.get(scopeKey) ?? new Set<string>();
-          if (page.firstHistoryCursor !== undefined) {
-            const previousFirstHistory = mailboxFirstHistoryByScope.current.get(scopeKey);
-            if (previousFirstHistory !== page.firstHistoryCursor) {
-              // 최신 페이지 경계가 이동했으므로 이전 경계에서 모은 순환 페이지로는
-              // 삭제된 미확인 편지를 정리하지 않는다. 새 첫 이력 커서까지 다시 관측한다.
+          if (page) {
+            if (!alive()) return;
+            const unread = new Set(mailboxUnreadIds.current.get(scopeKey) ?? []);
+            const confirmedRead = mailboxConfirmedReadIds.current.get(scopeKey) ?? new Set();
+            for (const letter of [...page.latestItems, ...page.historyItems]) {
+              if (letter.isRead || confirmedRead.has(letter.id)) unread.delete(letter.id);
+              else unread.add(letter.id);
+            }
+            const cyclePages = mailboxCyclePagesByScope.current.get(scopeKey) ?? new Map();
+            const latestIds = new Set(page.latestItems.map(({ id }) => id));
+            const previousLatestIds =
+              mailboxLatestPageIdsByScope.current.get(scopeKey) ?? new Set();
+            const shifted = mailboxShiftedLatestByScope.current.get(scopeKey) ?? new Set<string>();
+            const previousBoundary = mailboxBoundaryByScope.current.get(scopeKey);
+            const nextBoundary =
+              page.firstHistoryCursor === undefined
+                ? undefined
+                : pageBoundaryKey(latestIds, page.firstHistoryCursor !== null);
+            const boundaryChanged =
+              nextBoundary !== undefined &&
+              previousBoundary !== undefined &&
+              nextBoundary !== previousBoundary;
+            if (page.firstHistoryCursor !== undefined) {
+              mailboxBoundaryByScope.current.set(scopeKey, nextBoundary!);
+            }
+            if (boundaryChanged) {
+              // 서명 토큰의 발급 시각은 경계가 아니다. 최신 ID 집합 또는 이력 유무가
+              // 달라질 때만 새 첫 커서부터 새 순환을 시작한다.
               cyclePages.clear();
               mailboxShiftedCyclePending.current.add(scopeKey);
             }
-            mailboxFirstHistoryByScope.current.set(scopeKey, page.firstHistoryCursor);
-          }
-          let addedShiftedLetter = false;
-          if (page.historyPageKey)
-            for (const id of previousLatestIds)
-              if (!latestIds.has(id) && unread.has(id) && !shifted.has(id)) {
-                shifted.add(id);
-                addedShiftedLetter = true;
-              }
-          if (addedShiftedLetter) {
-            // 최신 페이지의 새 경계 이후 이력 전체를 다시 돌기 전까지는 이전 페이지 꼬리를 보존한다.
-            cyclePages.clear();
-            mailboxShiftedCyclePending.current.add(scopeKey);
-          }
-          mailboxLatestPageIdsByScope.current.set(scopeKey, latestIds);
-          cyclePages.set('latest', latestIds);
-          if (page.historyPageKey) {
-            cyclePages.set(page.historyPageKey, new Set(page.historyItems.map(({ id }) => id)));
-            for (const letter of page.historyItems) shifted.delete(letter.id);
-          }
-          if (page.cycleComplete) {
-            const firstHistoryPage = mailboxFirstHistoryByScope.current.get(scopeKey);
-            const pendingFreshCycle = mailboxShiftedCyclePending.current.has(scopeKey);
-            const caughtUp =
-              !pendingFreshCycle ||
-              firstHistoryPage === null ||
-              (firstHistoryPage !== undefined && cyclePages.has(firstHistoryPage));
-            if (caughtUp) {
-              const observed = new Set([...cyclePages.values()].flatMap((ids) => [...ids]));
-              for (const id of unread) if (!observed.has(id)) unread.delete(id);
-              shifted.clear();
-              mailboxShiftedCyclePending.current.delete(scopeKey);
+            mailboxPollCursors.current.set(
+              scopeKey,
+              boundaryChanged ? (page.firstHistoryCursor ?? null) : page.nextCursor,
+            );
+            let addedShiftedLetter = false;
+            if (page.historyPageKey)
+              for (const id of previousLatestIds)
+                if (!latestIds.has(id) && unread.has(id) && !shifted.has(id)) {
+                  shifted.add(id);
+                  addedShiftedLetter = true;
+                }
+            if (addedShiftedLetter) {
+              // 최신 페이지의 새 경계 이후 이력 전체를 다시 돌기 전까지는 이전 페이지 꼬리를 보존한다.
+              cyclePages.clear();
+              mailboxShiftedCyclePending.current.add(scopeKey);
             }
-            cyclePages.clear();
+            mailboxLatestPageIdsByScope.current.set(scopeKey, latestIds);
+            cyclePages.set('latest', latestIds);
+            if (page.historyPageKey) {
+              if (!boundaryChanged && !addedShiftedLetter)
+                cyclePages.set(page.historyPageKey, new Set(page.historyItems.map(({ id }) => id)));
+              for (const letter of page.historyItems) shifted.delete(letter.id);
+            }
+            if (page.cycleComplete) {
+              const pendingFreshCycle = mailboxShiftedCyclePending.current.has(scopeKey);
+              const observedHistoryAfterReset = [...cyclePages.keys()].some(
+                (key) => key !== 'latest',
+              );
+              const caughtUp =
+                !pendingFreshCycle || page.firstHistoryCursor === null || observedHistoryAfterReset;
+              if (caughtUp) {
+                const observed = new Set([...cyclePages.values()].flatMap((ids) => [...ids]));
+                for (const id of unread) if (!observed.has(id)) unread.delete(id);
+                shifted.clear();
+                mailboxShiftedCyclePending.current.delete(scopeKey);
+              }
+              cyclePages.clear();
+            }
+            mailboxCyclePagesByScope.current.set(scopeKey, cyclePages);
+            mailboxShiftedLatestByScope.current.set(scopeKey, shifted);
+            mailboxUnreadIds.current.set(scopeKey, unread);
+            setIndicators((value) => ({ ...value, showMailboxLetters: unread.size > 0 }));
+            return;
           }
-          mailboxCyclePagesByScope.current.set(scopeKey, cyclePages);
-          mailboxShiftedLatestByScope.current.set(scopeKey, shifted);
-          mailboxUnreadIds.current.set(scopeKey, unread);
-          setIndicators((value) => ({ ...value, showMailboxLetters: unread.size > 0 }));
-          return;
         }
         const unread = await fetchMailboxUnreadLetterIds(requestScope.islandId, alive, (pages) => {
-          mailboxLatestPageIdsByScope.current.set(scopeKey, new Set(pages[0]?.ids ?? []));
-          const firstHistoryPage = pages.find(({ key }) => key !== 'latest');
-          mailboxFirstHistoryByScope.current.set(scopeKey, firstHistoryPage?.key ?? null);
+          const latestIds = new Set(pages[0]?.ids ?? []);
+          mailboxLatestPageIdsByScope.current.set(scopeKey, latestIds);
+          mailboxBoundaryByScope.current.set(
+            scopeKey,
+            pageBoundaryKey(latestIds, pages.length > 1),
+          );
         });
         if (!alive()) return;
         mailboxPollReady.current.add(scopeKey);
