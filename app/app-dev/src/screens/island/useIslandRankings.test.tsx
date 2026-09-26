@@ -107,3 +107,37 @@ test('활성 상태에서 같은 주의 순위와 UTC 주 경계를 주기적으
     jest.useRealTimers();
   }
 });
+
+test('주기 갱신 중에는 직전 ready 순위 데이터를 유지한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-09-28T12:00:00Z'));
+  let finishRefresh: ((value: IslandRankings) => void) | undefined;
+  rankingsMock
+    .mockResolvedValueOnce(rankings({ myRank: 7 }))
+    .mockImplementationOnce(
+      () =>
+        new Promise<IslandRankings>((resolve) => {
+          finishRefresh = resolve;
+        }),
+    );
+  try {
+    const { result, unmount } = await renderHook(() => useIslandRankings({ active: true }));
+    await waitFor(() => assert.equal(result.current.status, 'ready'));
+    assert.equal(result.current.data?.myRank, 7);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
+    assert.equal(result.current.status, 'ready');
+    assert.equal(result.current.data?.myRank, 7);
+
+    await act(async () => {
+      finishRefresh?.(rankings({ myRank: 6 }));
+    });
+    await waitFor(() => assert.equal(result.current.data?.myRank, 6));
+    assert.equal(result.current.status, 'ready');
+    unmount();
+  } finally {
+    jest.useRealTimers();
+  }
+});

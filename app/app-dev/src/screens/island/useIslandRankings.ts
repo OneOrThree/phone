@@ -41,7 +41,8 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
     const stale = () => gen !== req.current || session !== sessionGeneration();
     const currentWeek = utcWeekStart();
     setWeek(currentWeek);
-    setStatus('loading');
+    // 주기 갱신에서는 목록과 홈 배지를 그대로 유지한다. 첫 조회 때만 로딩 상태로 전환한다.
+    setStatus((current) => (current === 'ready' ? 'ready' : 'loading'));
     setError(null);
     getIslandRankings({ week: currentWeek })
       .then((rankings) => {
@@ -52,7 +53,7 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
       .catch((thrown) => {
         if (stale()) return;
         setError(thrown as ApiError);
-        setStatus('error');
+        setStatus((current) => (current === 'ready' ? 'ready' : 'error'));
       });
     return () => {
       req.current += 1;
