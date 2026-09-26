@@ -53,6 +53,7 @@ import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import {
   BUILDING_ENTRY_DURATION_MS,
+  BUILDING_TRANSITION_DURATION_MS,
   BUILDING_SPRITE_LEAD_IN_MS,
   BUILDING_TRANSITION_ROUTE,
   createBuildingTransitionController,
@@ -512,6 +513,7 @@ export function WorldMap({
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
+            .filter((b) => !(b === 'mail' && mailboxLetters))
             .filter((b) => !(b === 'hall' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
@@ -532,6 +534,20 @@ export function WorldMap({
                 resizeMode="stretch"
               />
             ))}
+          {mailboxLetters && (
+            <Image
+              testID="mailbox-pelican"
+              source={assets['characters/pelican/npc/on-mailbox.png']}
+              style={{
+                position: 'absolute',
+                left: left + 250 * scale,
+                top: top + 456 * scale,
+                width: 140 * scale,
+                height: 140 * scale,
+              }}
+              resizeMode="contain"
+            />
+          )}
           {mailboxLetters && (
             <VillageNotificationBadge
               testID="mailbox-new-indicator"
@@ -663,10 +679,12 @@ export function WorldMap({
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
+            .filter((b) => !(b === 'mail' && mailboxLetters))
             .filter((b) => island.buildingThemes?.[b] && island.buildingThemes?.[b] !== 'default')
             .map((b) => (
               <Image
                 key={b}
+                testID={`world-themed-building-${b}`}
                 source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
@@ -762,6 +780,17 @@ function FinalIslandScene({
     [layeredPreview, i.buildings],
   );
   const grid = scene?.grid ?? grids.home;
+  const demoParams =
+    Platform.OS === 'web' && typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search)
+      : null;
+  const entryFramesVisible = demoParams?.has('demo')
+    ? !demoParams.has('night')
+    : new Date().getHours() >= 6 && new Date().getHours() < 18;
+  const hasEntrySprite = (target: BuildingTransitionTarget | null) =>
+    !scene &&
+    entryFramesVisible &&
+    (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
   const doors: Record<string, Door> = scene
     ? Object.fromEntries(
         Object.entries(legacyDoors).map(([id, door]) => [
@@ -1095,7 +1124,9 @@ function FinalIslandScene({
                         'enter',
                         state.settings.reduceMotion,
                         () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
-                        BUILDING_ENTRY_DURATION_MS,
+                        hasEntrySprite(transitionTarget)
+                          ? BUILDING_ENTRY_DURATION_MS
+                          : BUILDING_TRANSITION_DURATION_MS,
                       );
                     };
                     if (transitionTarget) {
@@ -1144,7 +1175,11 @@ function FinalIslandScene({
                         borderRadius: 12,
                         borderWidth: 1,
                         borderColor: semanticTokens.color.outline,
-                        backgroundColor: semanticTokens.color.surface,
+                        backgroundColor:
+                          (d.building === 'shop' && shopState === 'purchasable') ||
+                          (d.building === 'tower' && observatoryRankState === 'rank-updated')
+                            ? semanticTokens.color.accent
+                            : semanticTokens.color.surface,
                       }}
                     >
                       <Txt kind="meta" numberOfLines={1} style={{ fontWeight: '700' }}>
@@ -1458,7 +1493,11 @@ function FinalIslandScene({
         state={buildingTransition}
         reduceMotion={state.settings.reduceMotion}
         origin={transitionOrigin}
-        delayMs={buildingTransition.direction === 'enter' ? BUILDING_SPRITE_LEAD_IN_MS : 0}
+        delayMs={
+          buildingTransition.direction === 'enter' && hasEntrySprite(buildingTransition.target)
+            ? BUILDING_SPRITE_LEAD_IN_MS
+            : 0
+        }
       />
     </View>
   );
