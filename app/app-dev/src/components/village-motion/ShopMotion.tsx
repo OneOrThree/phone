@@ -1,7 +1,5 @@
-import React, { memo, useContext, useEffect, useState } from 'react';
+import React, { memo, useContext, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
-import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { Text } from '@/design-system/typography';
 import { MotionContext } from '@/design-system/primitives';
 
 export type ShopMotionState = 'normal' | 'new-product' | 'purchasable';
@@ -19,12 +17,16 @@ const idleIntervalMs = 20_000;
 /** 상점 아트 전용 애니메이션. 실제 섬 좌표와 확대 배율은 부모가 전달한다. */
 export const ShopMotion = memo(function ShopMotionView({
   state = 'normal',
+  trigger = 0,
+  entryActive = false,
   reduceMotion = false,
   showFrames = true,
   style,
   testID = 'shop-motion',
 }: {
   state?: ShopMotionState;
+  trigger?: number;
+  entryActive?: boolean;
   reduceMotion?: boolean;
   showFrames?: boolean;
   style?: ViewStyle;
@@ -32,9 +34,23 @@ export const ShopMotion = memo(function ShopMotionView({
 }) {
   const motionDisabled = useContext(MotionContext) || reduceMotion;
   const [frame, setFrame] = useState(0);
+  const lastTrigger = useRef(trigger);
 
   useEffect(() => {
-    if (motionDisabled || !showFrames) {
+    if (motionDisabled || !showFrames || !entryActive || trigger <= lastTrigger.current) return;
+    lastTrigger.current = trigger;
+    const timers = frames
+      .slice(1)
+      .map((_, index) => setTimeout(() => setFrame(index + 1), (index + 1) * 150));
+    return () => timers.forEach(clearTimeout);
+  }, [entryActive, motionDisabled, showFrames, trigger]);
+
+  useEffect(() => {
+    if (!entryActive) setFrame(0);
+  }, [entryActive]);
+
+  useEffect(() => {
+    if (motionDisabled || !showFrames || entryActive) {
       setFrame(0);
       return;
     }
@@ -64,7 +80,7 @@ export const ShopMotion = memo(function ShopMotionView({
       mounted = false;
       clearTimeout(timer);
     };
-  }, [motionDisabled, showFrames]);
+  }, [entryActive, motionDisabled, showFrames]);
 
   const stateLabel =
     state === 'new-product' ? '새 상품' : state === 'purchasable' ? '구매 가능' : null;
@@ -88,12 +104,6 @@ export const ShopMotion = memo(function ShopMotionView({
             style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
           />
         ))}
-      {state !== 'normal' && <View testID="shop-motion-highlight" style={styles.highlight} />}
-      {stateLabel && (
-        <View testID="shop-motion-tooltip" style={styles.tooltip}>
-          <Text style={styles.tooltipText}>{stateLabel}</Text>
-        </View>
-      )}
     </View>
   );
 });
@@ -103,32 +113,4 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
-  highlight: {
-    position: 'absolute',
-    left: '8%',
-    top: '6%',
-    width: '84%',
-    height: '86%',
-    borderRadius: 18,
-    borderWidth: 2,
-    borderColor: semanticTokens.color.accent,
-    backgroundColor: `${semanticTokens.color.accent}1A`,
-  },
-  tooltip: {
-    position: 'absolute',
-    top: 0,
-    right: '4%',
-    minHeight: componentTokens.shopStatusLabel.minHeight,
-    justifyContent: 'center',
-    paddingHorizontal: componentTokens.shopStatusLabel.horizontalPadding,
-    borderRadius: componentTokens.shopStatusLabel.radius,
-    borderWidth: componentTokens.shopStatusLabel.borderWidth,
-    borderColor: semanticTokens.color.outline,
-    backgroundColor: semanticTokens.color.surface,
-  },
-  tooltipText: {
-    color: semanticTokens.color.text,
-    fontSize: componentTokens.shopStatusLabel.fontSize,
-    fontWeight: '700',
-  },
 });

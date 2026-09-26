@@ -37,7 +37,7 @@ export type FocusStatsMe = {
   series: FocusSeriesPoint[];
   records: { id: string; subject: string; activeSeconds: number; completedAt: string }[];
   nextCursor: string | null;
-  asOf?: string;
+  asOf: string;
 };
 
 /** scope=island 집중 통계 — 현재 활성 주민의 기간 합계·일별 series 만. 개인 과목·records 없음. */
@@ -139,6 +139,9 @@ export function validateFocusStats(raw: unknown): FocusStatsMe | FocusStatsIslan
     }
     if (!nullable(raw.nextCursor, (x) => typeof x === 'string')) {
       throw contractError('nextCursor');
+    }
+    if (typeof raw.asOf !== 'string' || !Number.isFinite(Date.parse(raw.asOf))) {
+      throw contractError('asOf');
     }
     return raw as unknown as FocusStatsMe;
   }

@@ -1,7 +1,7 @@
 import React from 'react';
 import { Platform, ScrollView } from 'react-native';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { Library } from './Library';
+import { Library, shouldObserveLibraryIndicator } from './Library';
 import { RedesignScreens } from './Screens';
 import { initialState } from '@/services/model';
 import {
@@ -42,6 +42,16 @@ const originalOS = Platform.OS;
 afterEach(() => {
   cleanup();
   Platform.OS = originalOS;
+});
+
+test.each([
+  ['library', true],
+  ['diary', true],
+  ['stats', true],
+  ['home', false],
+  ['board', false],
+])('도서관 알림 확인 흐름은 %s 경로에서 %s다', (route, expected) => {
+  expect(shouldObserveLibraryIndicator(route)).toBe(expected);
 });
 
 function environment({ permission = true, ready = true, neighbors = false } = {}) {
@@ -90,6 +100,7 @@ test('이번 주 진입 집계를 재사용하고 진행 중 집중만 있는 �
     series: [{ date, seconds: 600 }],
     records: [],
     nextCursor: null,
+    asOf: '2026-09-22T12:00:00Z',
   };
   const usage = {
     scope: 'me' as const,
@@ -178,6 +189,7 @@ test.each(['pending', 'unavailable'] as const)(
       series: [],
       records: [],
       nextCursor: null,
+      asOf: '2026-09-22T12:00:00Z',
     };
     const usage = {
       scope: 'me' as const,
@@ -237,6 +249,7 @@ test.each(['ios', 'android'] as const)(
         series: [],
         records: [],
         nextCursor: null,
+        asOf: '2026-09-22T12:00:00Z',
       };
       const usage = {
         scope: 'me' as const,
@@ -278,6 +291,7 @@ test.each(['집중', '폰 사용'])('일·주 %s는 선택하지 않은 통계�
     series: [],
     records: [],
     nextCursor: null,
+    asOf: '2026-09-22T12:00:00Z',
   };
   const usage = {
     scope: 'me' as const,

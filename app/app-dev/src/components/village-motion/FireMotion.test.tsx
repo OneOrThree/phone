@@ -47,7 +47,7 @@ describe('FireMotion', () => {
     await view.unmount();
   });
 
-  it('loops through evening flame frames every 155ms with a warm glow', async () => {
+  it('loops through evening flame frames every 155ms', async () => {
     const view = await render(<FireMotion mode="evening" residentCount={1} />);
     expect(activeFrame(view, 'evening')).toBe(1);
     expect(view.getByTestId('fire-motion-frame-evening-1').props.clipPath).toBe('fire-motion-core');

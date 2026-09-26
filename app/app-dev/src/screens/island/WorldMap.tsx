@@ -53,6 +53,9 @@ import { componentTokens } from '@/design-system/tokens';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import {
+  BUILDING_ENTRY_DURATION_MS,
+  BUILDING_TRANSITION_DURATION_MS,
+  BUILDING_SPRITE_LEAD_IN_MS,
   BUILDING_TRANSITION_ROUTE,
   createBuildingTransitionController,
   runBuildingEntryWalk,
@@ -67,7 +70,11 @@ import {
   type ObservatoryRankState,
 } from '@/components/village-motion/VillageObservatoryMotion';
 import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
+import { LibraryMotion, type LibraryMotionState } from '@/components/village-motion/LibraryMotion';
 import { FireMotion } from '@/components/village-motion/FireMotion';
+import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
+import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
+import { useDayNightState, type DayNight } from '@/utils/day-night';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -85,6 +92,28 @@ const layer: Record<Building, string> = {
   tower: 'observatory',
   shop: 'shop',
 };
+const legacyBuildingLabelBox: Record<Building, { x: number; y: number; w: number }> = {
+  hall: { x: 949, y: 21, w: 242 },
+  board: { x: 856, y: 157, w: 80 },
+  gram: { x: 330, y: 391, w: 73 },
+  library: { x: 1120, y: 288, w: 239 },
+  mail: { x: 298, y: 520, w: 46 },
+  tower: { x: 150, y: 24, w: 112 },
+  shop: { x: 456, y: 580, w: 262 },
+};
+const legacyBuildingLabelAnchorY: Record<Building, number> = {
+  hall: 70,
+  board: 157,
+  gram: 365,
+  library: 310,
+  mail: 494,
+  tower: 52,
+  shop: 603,
+};
+const legacyBuildingLabelAnchorXOffset: Partial<Record<Building, number>> = {
+  tower: -12,
+};
+const rightAlignedBuildingLabels = new Set<Building>(['hall', 'library', 'shop']);
 type Door = Point & {
   r: Route;
   label: string;
@@ -115,7 +144,14 @@ const legacyDoors: Record<string, Door> = {
   mail: { x: 320, y: 596, r: 'mail', label: buildingNames.mail, building: 'mail' },
   tower: { x: 272, y: 200, r: 'tower', label: buildingNames.tower, building: 'tower' },
   shop: { x: 577, y: 783, r: 'shop', label: buildingNames.shop, building: 'shop' },
-  raft: { x: 274, y: 740, r: 'boat', label: '내 뗏목', memberOnly: true },
+  raft: {
+    x: 290,
+    y: 881,
+    r: 'boat',
+    label: '뗏목',
+    memberOnly: true,
+    hitbox: { x: 185, y: 835, w: 210, h: 92 },
+  },
   fishingIsland: {
     x: 1345,
     y: 882,
@@ -235,8 +271,14 @@ export function WorldMap({
   boardStatus = null,
   observatoryRankState = 'normal',
   shopState = 'normal',
+  libraryState = 'normal',
+  libraryArrivalActive = false,
+  libraryArrivalGeneration = 0,
   towerArrivalActive = false,
   towerArrivalGeneration = 0,
+  shopArrivalActive = false,
+  shopArrivalGeneration = 0,
+  dayNightOverride,
   village,
   children,
 }: {
@@ -251,8 +293,14 @@ export function WorldMap({
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
   shopState?: ShopMotionState;
+  libraryState?: LibraryMotionState;
+  libraryArrivalActive?: boolean;
+  libraryArrivalGeneration?: number;
   towerArrivalActive?: boolean;
   towerArrivalGeneration?: number;
+  shopArrivalActive?: boolean;
+  shopArrivalGeneration?: number;
+  dayNightOverride?: DayNight;
   village?: VillageScene;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
@@ -260,23 +308,12 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
-  const [dayNight, setDayNight] = useState<'day' | 'night'>(() => {
-    const hour = new Date().getHours();
-    return hour >= 6 && hour < 18 ? 'day' : 'night';
-  });
+  const dayNight = useDayNightState(dayNightOverride);
   const homeFacts = serverHome(state);
   const fireResidentCount =
     homeFacts?.home.island.id === island.id
       ? homeFacts.home.island.memberCount
       : islandResidentCount(island);
-  useEffect(() => {
-    const updateLocalTime = () => {
-      const hour = new Date().getHours();
-      setDayNight(hour >= 6 && hour < 18 ? 'day' : 'night');
-    };
-    const timer = setInterval(updateLocalTime, 60_000);
-    return () => clearInterval(timer);
-  }, []);
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
@@ -472,11 +509,12 @@ export function WorldMap({
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter((b) => b !== 'mail' || !mailboxLetters)
+            .filter((b) => !(b === 'mail' && mailboxLetters))
             .filter((b) => !(b === 'hall' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
             .filter((b) => !(b === 'shop' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'library' && !village && !fishing && dayNight === 'day'))
             .map((b) => (
               <Image
                 key={b}
@@ -498,13 +536,20 @@ export function WorldMap({
               source={assets['characters/pelican/npc/on-mailbox.png']}
               style={{
                 position: 'absolute',
-                // 에셋 내부 우체통의 바닥·폭을 기존 레이어 rect [298, 520, 46, 63]에 맞춘다.
-                left: left + 251 * scale,
-                top: top + 459 * scale,
-                width: 137 * scale,
-                height: 137 * scale,
+                left: left + 250 * scale,
+                top: top + 456 * scale,
+                width: 140 * scale,
+                height: 140 * scale,
               }}
               resizeMode="contain"
+            />
+          )}
+          {mailboxLetters && (
+            <VillageNotificationBadge
+              testID="mailbox-new-indicator"
+              accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              scale={scale}
+              style={{ left: left + 348 * scale, top: top + 520 * scale }}
             />
           )}
           {island.buildings.includes('hall') && dayNight === 'day' && (
@@ -512,10 +557,6 @@ export function WorldMap({
               testID="world-hall-motion"
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
-              highlighted={hallMotionActive}
-              tooltip={
-                hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
-              }
               style={{
                 position: 'absolute',
                 left: left + 950 * scale,
@@ -532,13 +573,6 @@ export function WorldMap({
               hasUnread={boardStatus === 'unread'}
               hasNewComment={boardStatus === 'new-comment'}
               indicatorScale={scale}
-              tooltip={
-                boardStatus === 'new-comment' ? (
-                  <Txt kind="meta">새 댓글이 있어요</Txt>
-                ) : boardStatus === 'unread' ? (
-                  <Txt kind="meta">읽지 않은 새 소식이 있어요</Txt>
-                ) : undefined
-              }
               style={{
                 position: 'absolute',
                 left: left + 858 * scale,
@@ -569,6 +603,8 @@ export function WorldMap({
             <ShopMotion
               testID="world-shop-motion"
               state={shopState}
+              trigger={shopArrivalActive ? shopArrivalGeneration : 0}
+              entryActive={shopArrivalActive}
               showFrames={dayNight === 'day'}
               reduceMotion={state.settings.reduceMotion}
               style={{
@@ -577,6 +613,24 @@ export function WorldMap({
                 top: top + 580 * scale,
                 width: 262 * scale,
                 height: 199 * scale,
+              }}
+            />
+          )}
+          {island.buildings.includes('library') && (
+            <LibraryMotion
+              testID="world-library-motion"
+              state={libraryState}
+              indicatorScale={scale}
+              trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
+              entryActive={libraryArrivalActive}
+              showFrames={dayNight === 'day'}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                position: 'absolute',
+                left: left + 1120 * scale,
+                top: top + 289 * scale,
+                width: 239 * scale,
+                height: 323 * scale,
               }}
             />
           )}
@@ -608,6 +662,16 @@ export function WorldMap({
               height: 71 * scale,
             }}
           />
+          <RaftWaterMotion
+            testID="world-raft-water-motion"
+            reduceMotion={state.settings.reduceMotion}
+            style={{
+              left: left + 185 * scale,
+              top: top + 835 * scale,
+              width: 210 * scale,
+              height: 92 * scale,
+            }}
+          />
         </View>
       )}
       {!fishing && island.theme !== 'default' && (
@@ -627,15 +691,14 @@ export function WorldMap({
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter(
-              (b) =>
-                (b !== 'mail' || !mailboxLetters) &&
-                island.buildingThemes?.[b] &&
-                island.buildingThemes?.[b] !== 'default',
-            )
+            .filter((b) => !(b === 'mail' && mailboxLetters))
+            .filter((b) => island.buildingThemes?.[b] && island.buildingThemes?.[b] !== 'default')
+            .filter((b) => !(b === 'shop' && dayNight === 'day' && shopArrivalActive))
+            .filter((b) => !(b === 'library' && dayNight === 'day' && libraryArrivalActive))
             .map((b) => (
               <Image
                 key={b}
+                testID={`world-themed-building-${b}`}
                 source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
@@ -690,9 +753,11 @@ function FinalIslandScene({
   dispatch,
   viewingIslandId,
   motion,
+  showMailboxLetters,
   boardStatus = null,
   observatoryRankState = 'normal',
   shopState = 'normal',
+  libraryState = 'normal',
   onBuildingEntrySound,
   layeredPreview = false,
 }: {
@@ -706,9 +771,11 @@ function FinalIslandScene({
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
   motion?: CatMotionInput;
+  showMailboxLetters?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
   observatoryRankState?: ObservatoryRankState;
   shopState?: ShopMotionState;
+  libraryState?: LibraryMotionState;
   /** 문 소스 확보 전까지는 선택적 연결 계약으로 두고 소리가 꺼져 있으면 호출하지 않는다. */
   onBuildingEntrySound?: (target: BuildingTransitionTarget, generation: number) => void;
   layeredPreview?: boolean;
@@ -724,11 +791,18 @@ function FinalIslandScene({
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
+  const mailboxLetters = !visiting && (showMailboxLetters ?? hasMailboxLetters(state, i.id));
   const scene = useMemo(
     () => (layeredPreview ? villageScene(i.buildings) : undefined),
     [layeredPreview, i.buildings],
   );
   const grid = scene?.grid ?? grids.home;
+  const dayNight = useDayNightState();
+  const entryFramesVisible = dayNight === 'day';
+  const hasEntrySprite = (target: BuildingTransitionTarget | null) =>
+    !scene &&
+    entryFramesVisible &&
+    (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
   const doors: Record<string, Door> = scene
     ? Object.fromEntries(
         Object.entries(legacyDoors).map(([id, door]) => [
@@ -968,12 +1042,50 @@ function FinalIslandScene({
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
+            const labelOnRight = d.building != null && rightAlignedBuildingLabels.has(d.building);
+            const buildingLabelPosition = (() => {
+              if (id === 'raft') {
+                return scene
+                  ? {
+                      left: (185 - hitbox.x) * s,
+                      top: (805 - hitbox.y) * s,
+                      width: 210 * s,
+                      alignItems: 'center' as const,
+                    }
+                  : {
+                      left: 0,
+                      top: -30,
+                      width: 210 * s,
+                      alignItems: 'center' as const,
+                    };
+              }
+              if (d.building == null) return { left: 0, top: 0, alignItems: 'flex-start' as const };
+              if (scene) {
+                return labelOnRight
+                  ? { right: 0, top: -30, alignItems: 'flex-end' as const }
+                  : { left: 0, top: -30, alignItems: 'flex-start' as const };
+              }
+              const box = legacyBuildingLabelBox[d.building];
+              const anchorY = legacyBuildingLabelAnchorY[d.building];
+              const anchorXOffset = legacyBuildingLabelAnchorXOffset[d.building] ?? 0;
+              return labelOnRight
+                ? {
+                    right: (hitbox.x + hitbox.w - (box.x + box.w)) * s,
+                    top: (anchorY - hitbox.y) * s,
+                    alignItems: 'flex-end' as const,
+                  }
+                : {
+                    left: (box.x + anchorXOffset - hitbox.x) * s,
+                    top: (anchorY - hitbox.y) * s,
+                    alignItems: 'flex-start' as const,
+                  };
+            })();
             return (
               <Pressable
                 key={id}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  id === 'mail' && !visiting && hasMailboxLetters(state, i.id)
+                  id === 'mail' && mailboxLetters
                     ? '우체통, 친구에게 받은 새 편지가 있어요'
                     : d.building === 'board' && boardStatus === 'new-comment'
                       ? `${d.label}, 새 댓글이 있어요`
@@ -983,7 +1095,11 @@ function FinalIslandScene({
                           ? `${d.label}, 새 상품이 있어요`
                           : d.building === 'shop' && shopState === 'purchasable'
                             ? `${d.label}, 구매 가능한 상품이 있어요`
-                            : d.label
+                            : d.building === 'library' && libraryState === 'new-quest'
+                              ? `${d.label}, 새 퀘스트가 있어요`
+                              : d.building === 'library' && libraryState === 'new-reading'
+                                ? `${d.label}, 새 읽을거리가 있어요`
+                                : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
@@ -995,7 +1111,9 @@ function FinalIslandScene({
                         ? '주민만 이용할 수 있어요'
                         : d.building === 'shop' && shopState !== 'normal'
                           ? '상점에서 상품을 확인하세요'
-                          : undefined
+                          : d.building === 'library' && libraryState !== 'normal'
+                            ? '도서관에서 새 내용을 확인하세요'
+                            : undefined
                 }
                 onPress={() => {
                   if (!visiting) {
@@ -1018,6 +1136,9 @@ function FinalIslandScene({
                         'enter',
                         state.settings.reduceMotion,
                         () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
+                        hasEntrySprite(transitionTarget)
+                          ? BUILDING_ENTRY_DURATION_MS
+                          : BUILDING_TRANSITION_DURATION_MS,
                       );
                     };
                     if (transitionTarget) {
@@ -1048,7 +1169,38 @@ function FinalIslandScene({
                   minHeight: 44,
                   zIndex: scene ? 2000 : undefined,
                 }}
-              />
+              >
+                {(d.building || id === 'raft') && (
+                  <View
+                    testID={`building-name-${id}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      ...buildingLabelPosition,
+                    }}
+                  >
+                    <View
+                      style={{
+                        minHeight: 24,
+                        justifyContent: 'center',
+                        paddingHorizontal: 8,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: semanticTokens.color.outline,
+                        backgroundColor:
+                          (d.building === 'shop' && shopState !== 'normal') ||
+                          (d.building === 'tower' && observatoryRankState !== 'normal')
+                            ? semanticTokens.color.accent
+                            : semanticTokens.color.surface,
+                      }}
+                    >
+                      <Txt kind="meta" numberOfLines={1} style={{ fontWeight: '700' }}>
+                        {d.label}
+                      </Txt>
+                    </View>
+                  </View>
+                )}
+              </Pressable>
             );
           })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
@@ -1141,18 +1293,28 @@ function FinalIslandScene({
         state={state}
         village={scene}
         islandId={i.id}
+        dayNightOverride={dayNight}
         hallMotionActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
         }
         hallMotionGeneration={buildingTransition.generation}
-        boardStatus={boardStatus}
+        boardStatus={visiting ? null : boardStatus}
         observatoryRankState={observatoryRankState}
         shopState={shopState}
+        libraryState={visiting ? 'normal' : libraryState}
+        libraryArrivalActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'library'
+        }
+        libraryArrivalGeneration={buildingTransition.generation}
         towerArrivalActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
         }
         towerArrivalGeneration={buildingTransition.generation}
-        showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
+        shopArrivalActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'shop'
+        }
+        shopArrivalGeneration={buildingTransition.generation}
+        showMailboxLetters={mailboxLetters}
         onSpot={
           visiting
             ? undefined
@@ -1344,6 +1506,11 @@ function FinalIslandScene({
         state={buildingTransition}
         reduceMotion={state.settings.reduceMotion}
         origin={transitionOrigin}
+        delayMs={
+          buildingTransition.direction === 'enter' && hasEntrySprite(buildingTransition.target)
+            ? BUILDING_SPRITE_LEAD_IN_MS
+            : 0
+        }
       />
     </View>
   );
@@ -1361,11 +1528,21 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         new URLSearchParams(window.location.search).get('village') === 'layered') ||
         process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
+  const demoMotionStates =
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('demo');
   return (
     <View style={{ flex: 1 }}>
       <FinalIslandScene
         key={layered ? 'layered' : 'original'}
         {...props}
+        boardStatus={props.boardStatus ?? (demoMotionStates ? 'new-comment' : undefined)}
+        observatoryRankState={
+          props.observatoryRankState ?? (demoMotionStates ? 'rank-updated' : undefined)
+        }
+        shopState={props.shopState ?? (demoMotionStates ? 'purchasable' : undefined)}
+        libraryState={props.libraryState ?? (demoMotionStates ? 'new-reading' : undefined)}
         layeredPreview={layered}
       />
       {CAN_PREVIEW_VILLAGE && props.showHud !== false && props.showActions !== false && (

@@ -1,8 +1,6 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
-import { Text } from '@/design-system/typography';
-import { semanticTokens } from '@/design-system/tokens';
 
 export type ObservatoryRankState = 'normal' | 'rank-updated' | 'rank-changed';
 export type ObservatoryDayNight = 'day' | 'night';
@@ -16,7 +14,7 @@ const frames: readonly ImageSourcePropType[] = [
 const sequence = [0, 1, 2, 3] as const;
 const frameDuration = 220;
 
-/** 전망대 망원경의 4프레임 줌/조리개 idle 모션과 랭킹 상태를 표시한다. */
+/** 전망대 진입 시 4프레임 모션을 한 번 재생하고 닫힌 기본 프레임으로 돌아간다. */
 export function VillageObservatoryMotion({
   rankState = 'normal',
   dayNight = 'day',
@@ -45,15 +43,15 @@ export function VillageObservatoryMotion({
 
   useEffect(() => {
     setFrame(0);
-    if (motionDisabled || (generation === 0 && rankState === 'normal')) return;
-    let sequenceIndex = 0;
-    const timer = setInterval(() => {
-      sequenceIndex = (sequenceIndex + 1) % sequence.length;
-      setFrame(sequence[sequenceIndex]);
-      if (sequenceIndex === sequence.length - 1) clearInterval(timer);
-    }, frameDuration);
-    return () => clearInterval(timer);
-  }, [dayNight, generation, motionDisabled, rankState]);
+    if (motionDisabled || generation === 0) return;
+    const timers = sequence
+      .slice(1)
+      .map((nextFrame, index) =>
+        setTimeout(() => setFrame(nextFrame), (index + 1) * frameDuration),
+      );
+    timers.push(setTimeout(() => setFrame(0), sequence.length * frameDuration));
+    return () => timers.forEach(clearTimeout);
+  }, [dayNight, generation, motionDisabled]);
 
   return (
     <View
@@ -71,11 +69,6 @@ export function VillageObservatoryMotion({
             style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
           />
         ))}
-      {rankLabel && (
-        <View testID="village-observatory-rank-indicator" style={styles.badge}>
-          <Text style={styles.badgeText}>↑</Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -85,19 +78,4 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
-  badge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    minWidth: 24,
-    height: 24,
-    paddingHorizontal: 5,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: semanticTokens.color.accent,
-    borderColor: semanticTokens.color.outline,
-    borderWidth: 1.5,
-    borderRadius: semanticTokens.radius.full,
-  },
-  badgeText: { color: semanticTokens.color.text, fontSize: 15, fontWeight: '800', lineHeight: 18 },
 });

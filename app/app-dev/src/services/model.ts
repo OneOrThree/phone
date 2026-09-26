@@ -732,6 +732,34 @@ export function initialState(full = false): State {
     lettersReadAt: 0,
   };
 }
+// Expo 웹 모션 검수용 상태. 제품의 최초 안내 동작은 유지하고 데모에서만 월드맵을 바로 연다.
+export function demoState(): State {
+  const state = initialState(true);
+  return {
+    ...state,
+    friends: (state.friends ?? []).map((friend, index) =>
+      index === 0
+        ? {
+            ...friend,
+            messages: [
+              ...friend.messages,
+              {
+                id: 'demo-unread-letter',
+                memberId: friend.id,
+                name: friend.name,
+                color: friend.color,
+                text: '오늘도 같이 집중해요!',
+                at: Date.now(),
+                status: 'sent' as const,
+              },
+            ],
+          }
+        : friend,
+    ),
+    mailboxGuideSeenBy: ['local'],
+    shopGuideSeenBy: ['local'],
+  };
+}
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
 export const mainIsland = (s: State) =>
   s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??

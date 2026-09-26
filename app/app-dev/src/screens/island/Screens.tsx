@@ -1015,6 +1015,9 @@ export function RedesignScreens({ e }: any) {
         state={state}
         go={go}
         build={build}
+        boardStatus={e.buildingIndicators?.boardStatus}
+        libraryState={e.buildingIndicators?.libraryState}
+        showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
         showHud={route !== 'focusSetup'}
         showActions={false}
         shopState={shopBuildingStatus}
@@ -2327,6 +2330,9 @@ export function RedesignScreens({ e }: any) {
             request={e.walkRequest}
             notify={notify}
             dispatch={dispatch}
+            boardStatus={state.visitingIslandId ? null : e.buildingIndicators?.boardStatus}
+            libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
+            showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
             shopState={shopBuildingStatus}
           />
         )}

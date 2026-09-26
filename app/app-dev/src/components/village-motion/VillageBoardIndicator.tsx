@@ -1,8 +1,8 @@
 import React, { type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ViewStyle } from 'react-native';
 import { villageAssets } from '@/constants/village-assets';
-import { Text } from '@/design-system/typography';
 import { semanticTokens } from '@/design-system/tokens';
+import { VillageNotificationBadge } from './VillageNotificationBadge';
 
 /** 게시판은 정지 이미지로 유지하고 새 소식이 있을 때만 표시를 붙인다. */
 export function VillageBoardIndicator({
@@ -35,22 +35,12 @@ export function VillageBoardIndicator({
         />
       )}
       {hasNotice && (
-        <View
+        <VillageNotificationBadge
           testID="village-board-new-indicator"
           accessibilityLabel={hasNewComment ? '새 댓글이 있습니다' : '읽지 않은 새 소식이 있습니다'}
-          style={[
-            styles.badge,
-            {
-              width: 25 * indicatorScale,
-              height: 25 * indicatorScale,
-              top: -11 * indicatorScale,
-              right: 21 * indicatorScale,
-              borderRadius: 13 * indicatorScale,
-            },
-          ]}
-        >
-          <Text style={[styles.badgeText, { fontSize: 17 * indicatorScale }]}>!</Text>
-        </View>
+          scale={indicatorScale}
+          style={{ top: -20 * indicatorScale, right: 12 * indicatorScale }}
+        />
       )}
       {hasNotice && tooltip != null && (
         <View testID="village-board-tooltip" style={styles.tooltip}>
@@ -64,21 +54,6 @@ export function VillageBoardIndicator({
 const styles = StyleSheet.create({
   root: { width: '100%', height: '100%', position: 'relative' },
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
-  badge: {
-    position: 'absolute',
-    zIndex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: semanticTokens.color.accent,
-    borderColor: semanticTokens.color.outline,
-    borderWidth: 1.5,
-  },
-  badgeText: {
-    color: semanticTokens.color.text,
-    fontWeight: '800',
-    lineHeight: 20,
-    textAlign: 'center',
-  },
   tooltip: {
     position: 'absolute',
     alignSelf: 'center',

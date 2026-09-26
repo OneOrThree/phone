@@ -29,14 +29,14 @@ describe('VillageHallMotion', () => {
     await view.unmount();
   });
 
-  it('holds still for normal state and supports highlight and caller-supplied tooltip', async () => {
+  it('holds still for normal state without an outline and supports a caller-supplied tooltip', async () => {
     const view = await render(
-      <VillageHallMotion state="normal" highlighted tooltip={<Text>Weekly goal</Text>} />,
+      <VillageHallMotion state="normal" tooltip={<Text>Weekly goal</Text>} />,
     );
     expect(view.getByTestId('village-hall-frame-0').props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
     );
-    expect(view.getByTestId('village-hall-highlight')).toBeTruthy();
+    expect(view.queryByTestId('village-hall-highlight')).toBeNull();
     expect(view.getByTestId('village-hall-tooltip')).toBeTruthy();
     await view.unmount();
   });

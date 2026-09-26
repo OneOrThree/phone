@@ -28,6 +28,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
 import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
+import { useBuildingIndicators } from '@/screens/island/useBuildingIndicators';
 import { bundledAudioSource } from '@/constants/audio';
 import { playbackSeekSeconds } from '@/services/api/playback';
 import { screenTime, selectionCount } from '@/services/screenTime';
@@ -72,6 +73,7 @@ import { Welcome, SceneHero, RestWorld, Sailing } from '@/screens/world/WorldVie
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import {
   initialState,
+  demoState,
   reducer,
   currentIsland,
   viewIsland,
@@ -93,6 +95,7 @@ import {
   Quest,
   Member,
   dayKey,
+  serverHome,
 } from '@/services/model';
 import {
   checkSession,
@@ -252,7 +255,9 @@ export default function App() {
 function Gromo() {
   const layout = useAppLayout();
   const insets = useScreenInsets();
-  const [state, dispatch] = useReducer(reducer, undefined, () => initialState(DEMO));
+  const [state, dispatch] = useReducer(reducer, undefined, () =>
+    DEMO ? demoState() : initialState(),
+  );
   const [loaded, setLoaded] = useState(false),
     // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
     [islandBootError, setIslandBootError] = useState(false),
@@ -489,6 +494,13 @@ function Gromo() {
   const serverCurrent =
     !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
   const onHome = route === 'home';
+  const buildingIndicators = useBuildingIndicators({
+    active: !!serverCurrent,
+    islandId: serverCurrent,
+    onHome,
+    refreshKey: homeReload,
+    completedBuildings: serverHome(state)?.completedBuildings ?? null,
+  });
   useEffect(() => {
     if (!loaded || !serverCurrent || !onHome) return;
     let live = true;
@@ -617,7 +629,10 @@ function Gromo() {
         await AsyncStorage.removeItem(STORAGE).catch(() => {});
         dispatch({
           type: 'LOAD',
-          state: { ...initialState(DEMO), settings: stateRef.current.settings },
+          state: {
+            ...(DEMO ? demoState() : initialState()),
+            settings: stateRef.current.settings,
+          },
           now: Date.now(),
         });
       },
@@ -1241,6 +1256,7 @@ function Gromo() {
           // 서버 모드 홈 스냅샷 실패 표시·재시도(GROMO-2138)
           homeError,
           retryHome: () => setHomeReload((n) => n + 1),
+          buildingIndicators: serverCurrent ? buildingIndicators : undefined,
           // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
           conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
           playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,

@@ -102,7 +102,15 @@ const authLost = (error: unknown) =>
 /** 쓰기 의도 슬롯 — key 는 페이로드(의도)가 같을 때만 유지된다. */
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
 
-export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: string }) {
+export function useMailbox({
+  active,
+  scopeKey,
+  onLetterRead,
+}: {
+  active: boolean;
+  scopeKey: string;
+  onLetterRead?: (letterId: string) => void;
+}) {
   const [state, setState] = useState<MailboxState>(EMPTY);
   const stateRef = useRef(state);
   const set = useCallback((patch: Partial<MailboxState>) => {
@@ -257,6 +265,9 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     async (letterId: string) => {
       const seq = ++openSeq.current;
       if (!mounted.current || !active || !cached()) return;
+      const wasUnread = stateRef.current.letters.some(
+        (letter) => letter.id === letterId && !letter.isRead,
+      );
       const e = epoch.current;
       const generation = sessionGeneration();
       set({ detail: null, detailLoading: true, detailError: null });
@@ -270,6 +281,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
             l.id === letterId && detail.readAt !== null ? { ...l, isRead: true } : l,
           ),
         });
+        if (wasUnread && detail.readAt !== null) onLetterRead?.(letterId);
       } catch (error) {
         if (!alive(e, generation) || seq !== openSeq.current) return;
         // 권한 상실·이미 지워진 편지는 목록 캐시에서도 지운다 — 캐시로 재진입 금지.
@@ -284,7 +296,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
         });
       }
     },
-    [active, alive, cached, set],
+    [active, alive, cached, onLetterRead, set],
   );
 
   const clearDetail = useCallback(() => {

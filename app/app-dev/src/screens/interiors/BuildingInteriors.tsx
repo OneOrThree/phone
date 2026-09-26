@@ -3935,6 +3935,7 @@ export function Board({
   const board = useBoardNotices({
     active: serverBoard,
     scopeKey: app ? String(app.island.id) : 'mock',
+    onLoaded: e?.buildingIndicators?.markBoardSeen,
   });
   useEffect(() => {
     if (!serverBoard || !e || !board.islandId || !board.wallets) return;
@@ -6869,7 +6870,11 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     );
   // 서버 우체통(GROMO-2016): 라이브 앱 라우트 + 비방문자일 때만 API 를 부른다. 목업·갤러리는 0콜이다.
   const serverMail = liveApp && !state?.visitingIslandId;
-  const mail = useMailbox({ active: serverMail, scopeKey: island ? String(island.id) : 'mock' });
+  const mail = useMailbox({
+    active: serverMail,
+    scopeKey: island ? String(island.id) : 'mock',
+    onLetterRead: e?.buildingIndicators?.markMailboxLetterRead,
+  });
   // 서버는 아바타 색을 주지 않는다 — userId 로 deterministic 하게 고른다.
   const mailCat = (id: string): Cat =>
     (['gray', 'cream', 'ginger', 'black', 'calico', 'white'] as Cat[])[

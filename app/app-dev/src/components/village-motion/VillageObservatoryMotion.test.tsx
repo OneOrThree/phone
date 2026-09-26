@@ -7,7 +7,7 @@ describe('VillageObservatoryMotion', () => {
   beforeEach(() => jest.useFakeTimers());
   afterEach(() => jest.useRealTimers());
 
-  it('keeps the telescope closed at idle and plays one arrival sequence with day/night rank state', async () => {
+  it('keeps the door closed at idle and plays one arrival sequence without a rank badge', async () => {
     const view = await render(<VillageObservatoryMotion dayNight="night" />);
     const activeFrame = () =>
       [0, 1, 2, 3].find((index) => {
@@ -23,13 +23,13 @@ describe('VillageObservatoryMotion', () => {
     await view.rerender(
       <VillageObservatoryMotion rankState="rank-updated" generation={1} dayNight="night" />,
     );
-    expect(view.getByTestId('village-observatory-rank-indicator')).toBeTruthy();
+    expect(view.queryByTestId('village-observatory-rank-indicator')).toBeNull();
     await act(async () => jest.advanceTimersByTime(220));
     expect(activeFrame()).toBe(1);
     await act(async () => jest.advanceTimersByTime(440));
     expect(activeFrame()).toBe(3);
-    await act(async () => jest.advanceTimersByTime(1000));
-    expect(activeFrame()).toBe(3);
+    await act(async () => jest.advanceTimersByTime(220));
+    expect(activeFrame()).toBe(0);
 
     await view.rerender(
       <VillageObservatoryMotion rankState="rank-changed" generation={2} dayNight="day" />,
@@ -41,7 +41,7 @@ describe('VillageObservatoryMotion', () => {
   });
 
   it('holds on the initial frame and clears the interval when motion is reduced', async () => {
-    const clearInterval = jest.spyOn(global, 'clearInterval');
+    const clearTimeout = jest.spyOn(global, 'clearTimeout');
     const view = await render(<VillageObservatoryMotion generation={1} />);
     await act(async () => jest.advanceTimersByTime(220));
     expect(view.getByTestId('village-observatory-frame-1')).toBeTruthy();
@@ -54,7 +54,7 @@ describe('VillageObservatoryMotion', () => {
     expect(view.getByTestId('village-observatory-frame-0').props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
     );
-    expect(clearInterval).toHaveBeenCalledTimes(1);
+    expect(clearTimeout).toHaveBeenCalled();
 
     await view.rerender(<VillageObservatoryMotion reduceMotion generation={2} />);
     await act(async () => jest.advanceTimersByTime(1000));
@@ -62,6 +62,6 @@ describe('VillageObservatoryMotion', () => {
       expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
     );
     await view.unmount();
-    expect(clearInterval).toHaveBeenCalledTimes(1);
+    expect(clearTimeout).toHaveBeenCalled();
   });
 });

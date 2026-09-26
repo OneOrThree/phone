@@ -7,6 +7,7 @@ import ScreenTimeReportView from '@/components/ScreenTimeReportView';
 import { currentIsland, dayKey, earnedBy, type State } from '@/services/model';
 import { getSession } from '@/services/api/session';
 import { useLibraryDiary } from '@/screens/island/useLibraryDiary';
+import { useBuildingIndicatorSeen } from '@/screens/island/useBuildingIndicatorSeen';
 import { T, fill, hm } from '@/screens/island/sceneKit';
 import { useAppLayout } from '@/utils/layout';
 import {
@@ -59,6 +60,20 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     focusSummaryOnly: !neighbors && period === '월',
     rangeOverride: !neighbors && period === '주' && offset === 0 ? undefined : range,
     islandKey: state.islandId,
+  });
+  useBuildingIndicatorSeen({
+    active:
+      server &&
+      !neighbors &&
+      (e.route === 'diary' || e.route === 'stats') &&
+      !state.visitingIslandId &&
+      !!e.buildingIndicators &&
+      srv.status === 'ready',
+    islandId: state.serverIslands?.currentIslandId ?? null,
+    screen: srv.status === 'ready' ? srv.screen : null,
+    onLoaded: (screen) => {
+      void e.buildingIndicators?.markLibrarySeen(screen);
+    },
   });
   const allDays = datesBetween(range.from, range.to);
   const days = allDays.filter((key) => key <= today);
