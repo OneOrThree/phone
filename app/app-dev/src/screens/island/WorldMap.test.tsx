@@ -41,8 +41,8 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
   expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: 950 * worldScale,
-        top: 20 * worldScale,
+        left: 402 / 2 - 585 * worldScale + 950 * worldScale,
+        top: 874 / 2 - 430 * worldScale + 20 * worldScale,
         width: 242 * worldScale,
         height: 244 * worldScale,
       }),
@@ -77,8 +77,8 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   expect(screen.getByTestId('world-board-indicator').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: 858 * worldScale,
-        top: 158 * worldScale,
+        left: 402 / 2 - 585 * worldScale + 858 * worldScale,
+        top: 874 / 2 - 430 * worldScale + 158 * worldScale,
         width: 80 * worldScale,
         height: 80 * worldScale,
       }),
@@ -164,7 +164,7 @@ test('야간 건물 진입은 주간 스프라이트 없이도 강조 피드백�
   jest.setSystemTime(new Date(2026, 5, 15, 22));
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
-  for (const building of ['hall', 'tower'] as const) {
+  for (const building of ['hall', 'board', 'tower'] as const) {
     if (!island.buildings.includes(building)) island.buildings.push(building);
   }
   const screen = await render(
@@ -178,10 +178,29 @@ test('야간 건물 진입은 주간 스프라이트 없이도 강조 피드백�
   );
 
   expect(screen.getByTestId('world-static-building-hall')).toBeTruthy();
-  expect(screen.getByTestId('world-hall-motion')).toBeTruthy();
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  const worldLeft = 402 / 2 - 585 * worldScale;
+  const worldTop = 874 / 2 - 430 * worldScale;
+  expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 950 * worldScale,
+        top: worldTop + 20 * worldScale,
+      }),
+    ]),
+  );
   expect(screen.queryByTestId('village-hall-frame-0')).toBeNull();
   expect(screen.getByTestId('village-hall-highlight')).toBeTruthy();
   expect(screen.getByText('마을 회관에 들어가는 중')).toBeTruthy();
+  expect(screen.getByTestId('world-static-building-board')).toBeTruthy();
+  expect(screen.getByTestId('world-board-indicator').props.style).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        left: worldLeft + 858 * worldScale,
+        top: worldTop + 158 * worldScale,
+      }),
+    ]),
+  );
 
   expect(screen.getByTestId('world-static-building-tower')).toBeTruthy();
   expect(

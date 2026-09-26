@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { ObservatoryRankState } from '@/components/village-motion/VillageObservatoryMotion';
 
@@ -49,8 +49,10 @@ export function useObservatoryRankIndicator({
     [active, islandId, userId, week],
   );
   const [snapshot, setSnapshot] = useState<RankSnapshot | null>(null);
+  const visitedSnapshot = useRef<RankSnapshot | null>(null);
 
   useEffect(() => {
+    visitedSnapshot.current = null;
     if (!key) {
       setSnapshot(null);
       return;
@@ -60,10 +62,20 @@ export function useObservatoryRankIndicator({
     AsyncStorage.getItem(key)
       .then((raw) => {
         if (cancelled) return;
-        setSnapshot({ key, ...decodeRank(raw) });
+        setSnapshot(
+          visitedSnapshot.current?.key === key
+            ? visitedSnapshot.current
+            : { key, ...decodeRank(raw) },
+        );
       })
       .catch(() => {
-        if (!cancelled) setSnapshot({ key, rank: null, found: false });
+        if (!cancelled) {
+          setSnapshot(
+            visitedSnapshot.current?.key === key
+              ? visitedSnapshot.current
+              : { key, rank: null, found: false },
+          );
+        }
       });
     return () => {
       cancelled = true;
@@ -71,11 +83,12 @@ export function useObservatoryRankIndicator({
   }, [key]);
 
   useEffect(() => {
-    if (!key || !viewed || rank === undefined || snapshot?.key !== key) return;
+    if (!key || !viewed || rank === undefined) return;
     const next: RankSnapshot = { key, rank, found: true };
+    visitedSnapshot.current = next;
     setSnapshot(next);
     AsyncStorage.setItem(key, JSON.stringify({ rank })).catch(() => undefined);
-  }, [key, rank, snapshot?.key, viewed]);
+  }, [key, rank, viewed]);
 
   if (!key || viewed || rank === undefined || snapshot?.key !== key) return 'normal';
   if (!snapshot.found) return rank === null ? 'normal' : 'rank-updated';

@@ -16,8 +16,14 @@ const base = {
 };
 
 describe('useObservatoryRankIndicator', () => {
+  const storage = new Map<string, string>();
+
   beforeEach(async () => {
-    await AsyncStorage.clear();
+    storage.clear();
+    jest.spyOn(AsyncStorage, 'getItem').mockImplementation(async (key) => storage.get(key) ?? null);
+    jest.spyOn(AsyncStorage, 'setItem').mockImplementation(async (key, value) => {
+      storage.set(key, value);
+    });
   });
 
   it('이번 주 최초로 순위가 생기면 새 순위 상태를 표시한다', async () => {
@@ -39,6 +45,28 @@ describe('useObservatoryRankIndicator', () => {
       expect(result.current).toBe('normal');
       expect(await AsyncStorage.getItem(key)).toBe(JSON.stringify({ rank: 2 }));
     });
+  });
+
+  it('저장된 확인 기준점을 읽기 전에 방문해도 현재 순위를 확인 상태로 저장한다', async () => {
+    let resolveRead!: (value: string | null) => void;
+    const getItem = jest
+      .spyOn(AsyncStorage, 'getItem')
+      .mockImplementation(() => new Promise((resolve) => (resolveRead = resolve)));
+    const setItem = jest.spyOn(AsyncStorage, 'setItem');
+    const key = observatoryRankStorageKey(base.userId, base.islandId, base.week);
+    const { result, rerender } = await renderHook(
+      (props: typeof base) => useObservatoryRankIndicator(props),
+      { initialProps: base },
+    );
+
+    await act(async () => rerender({ ...base, viewed: true }));
+    await act(async () => resolveRead(null));
+    await waitFor(() => expect(result.current).toBe('normal'));
+    expect(setItem).toHaveBeenCalledWith(key, JSON.stringify({ rank: 2 }));
+
+    await act(async () => rerender(base));
+    expect(result.current).toBe('normal');
+    getItem.mockImplementation(async (readKey) => storage.get(readKey) ?? null);
   });
 
   it('비활성 또는 방문 중에는 순위 배지를 표시하지 않는다', async () => {
