@@ -2322,8 +2322,8 @@ export function RedesignScreens({ e }: any) {
             request={e.walkRequest}
             notify={notify}
             dispatch={dispatch}
-            boardStatus={e.buildingIndicators?.boardStatus}
-            libraryState={e.buildingIndicators?.libraryState}
+            boardStatus={state.visitingIslandId ? null : e.buildingIndicators?.boardStatus}
+            libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
             showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
           />
         )}

@@ -1288,10 +1288,10 @@ function FinalIslandScene({
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
         }
         hallMotionGeneration={buildingTransition.generation}
-        boardStatus={boardStatus}
+        boardStatus={visiting ? null : boardStatus}
         observatoryRankState={observatoryRankState}
         shopState={shopState}
-        libraryState={libraryState}
+        libraryState={visiting ? 'normal' : libraryState}
         libraryArrivalActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'library'
         }

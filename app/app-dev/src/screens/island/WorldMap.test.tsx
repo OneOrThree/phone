@@ -44,9 +44,7 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
     />
   );
   const screen = await render(renderHome(true));
-  expect(
-    screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true }),
-  ).toBeTruthy();
+  expect(screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true })).toBeTruthy();
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
 
   const friend = state.friends!.find((item) => item.status === 'friend')!;
@@ -64,9 +62,7 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
   expect(screen.queryByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeNull();
 
   await screen.rerender(renderHome());
-  expect(
-    screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true }),
-  ).toBeTruthy();
+  expect(screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true })).toBeTruthy();
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
 });
 
@@ -85,6 +81,31 @@ test('방문 섬에는 서버 미읽음 상태가 있어도 내 편지 배지와
   );
   expect(screen.queryByTestId('mailbox-new-indicator')).toBeNull();
   expect(screen.queryByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeNull();
+});
+
+test('방문 섬에는 내 섬 게시판과 도서관 알림을 표시하지 않는다', async () => {
+  const state = initialState(true);
+  const visited = state.islands.find((island) => island.id === 'cloud')!;
+  if (!visited.buildings.includes('board')) visited.buildings.push('board');
+  if (!visited.buildings.includes('library')) visited.buildings.push('library');
+
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      viewingIslandId={visited.id}
+      boardStatus="new-comment"
+      libraryState="new-reading"
+    />,
+  );
+
+  expect(
+    screen.queryByTestId('village-board-new-indicator', { includeHiddenElements: true }),
+  ).toBeNull();
+  expect(
+    screen.queryByTestId('library-motion-indicator', { includeHiddenElements: true }),
+  ).toBeNull();
 });
 
 test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 대체하고 전환 세대마다 재생한다', async () => {
