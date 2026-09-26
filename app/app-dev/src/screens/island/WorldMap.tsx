@@ -618,6 +618,10 @@ export function WorldMap({
             reduce={state.settings.reduceMotion}
             mailboxLetters={mailboxLetters}
             boardStatus={boardStatus}
+            observatoryRankState={observatoryRankState}
+            towerArrivalActive={towerArrivalActive}
+            towerArrivalGeneration={towerArrivalGeneration}
+            dayNight={dayNight}
           />
         )}
         {typeof children === 'function'

@@ -5,6 +5,11 @@ import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
 import { villageMap, VillageScene } from '@/utils/village-world';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
+import {
+  VillageObservatoryMotion,
+  type ObservatoryDayNight,
+  type ObservatoryRankState,
+} from '@/components/village-motion/VillageObservatoryMotion';
 import { Txt } from '@/design-system/patterns';
 
 // UI 색상이 아니라 원화의 불꽃 색상이다. 바닥 타일은 한 장으로 합쳐 그린다.
@@ -14,12 +19,20 @@ export const VillageScenery = memo(function VillageScenery({
   reduce,
   mailboxLetters,
   boardStatus = null,
+  observatoryRankState = 'normal',
+  towerArrivalActive = false,
+  towerArrivalGeneration = 0,
+  dayNight = 'day',
 }: {
   scene: VillageScene;
   scale: number;
   reduce: boolean;
   mailboxLetters: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
+  observatoryRankState?: ObservatoryRankState;
+  towerArrivalActive?: boolean;
+  towerArrivalGeneration?: number;
+  dayNight?: ObservatoryDayNight;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -176,6 +189,20 @@ export const VillageScenery = memo(function VillageScenery({
                 ) : undefined
               }
               style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}
+            />
+          )}
+          {o.building === 'tower' && (
+            <VillageObservatoryMotion
+              testID="village-observatory-motion"
+              rankState={observatoryRankState}
+              dayNight={dayNight}
+              showFrames={dayNight === 'day'}
+              generation={dayNight === 'day' && towerArrivalActive ? towerArrivalGeneration : 0}
+              entryActive={towerArrivalActive}
+              entryTooltip={<Txt kind="meta">전망대에 들어가는 중</Txt>}
+              indicatorScale={scale}
+              reduceMotion={reduce}
+              style={StyleSheet.absoluteFill}
             />
           )}
         </View>

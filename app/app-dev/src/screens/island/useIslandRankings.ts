@@ -59,6 +59,16 @@ export function useIslandRankings({ active }: { active: boolean }): IslandRankin
     };
   }, [active, nonce, session]);
 
+  // 홈을 주 경계 너머로 계속 열어 둔 경우도 새 주의 정본을 읽는다. 간격은 UI 갱신용이며,
+  // 실제 요청은 UTC week 값이 달라진 경우에만 다시 시작한다.
+  useEffect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      if (utcWeekStart() !== week) setNonce((n) => n + 1);
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, [active, week]);
+
   return {
     status,
     error,

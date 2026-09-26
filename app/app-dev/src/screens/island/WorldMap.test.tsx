@@ -204,6 +204,33 @@ test('레이어드 마을에서도 게시판 상태를 VillageScenery 알림에 
   jest.useRealTimers();
 });
 
+test('레이어드 마을 전망대에도 순위 알림과 진입 모션을 전달한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const screen = await render(
+    <WorldMap
+      state={state}
+      village={villageScene(['tower'])}
+      observatoryRankState="rank-updated"
+      towerArrivalActive
+      towerArrivalGeneration={4}
+    />,
+  );
+
+  expect(
+    screen.getByTestId('village-observatory-motion', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    screen.getByTestId('village-observatory-rank-indicator', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  expect(
+    screen.getByTestId('village-observatory-frame-0', { includeHiddenElements: true }),
+  ).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id === 'cloud')!;
