@@ -111,13 +111,16 @@ test('댓글 감소 시 확인 기준도 낮춰 이후 새 댓글을 다시 감�
   });
 });
 
-test('도서관 관측 시각과 주민 이름만 바뀌면 배지가 생기지 않는다', () => {
+test('도서관 요약 지표가 유지되면 페이지 레코드 변경은 배지를 만들지 않는다', () => {
   const screen = library();
   const seen = librarySnapshot(screen, now);
   screen.focusStatistics!.asOf = '새 조회 시각';
   screen.fishEarnings!.members[0].name = '새 이름';
   expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(false);
   screen.focusStatistics!.records[0].activeSeconds = 11;
+  expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(false);
+  screen.focusStatistics!.totalSeconds = 11;
+  screen.focusStatistics!.series[0].seconds = 11;
   expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(true);
 });
 
@@ -183,6 +186,40 @@ test('33쪽을 넘는 정상 공지·편지·집중 기록 페이지를 끝까�
     'extra40',
   );
   expect(getFocusStatistics).toHaveBeenCalledTimes(last);
+});
+
+test('빠른 홈 갱신은 게시판 최신 공지와 도서관 집계만 확인하고 이력을 페이지 조회하지 않는다', async () => {
+  (getBoard as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    notices: {
+      items: [{ id: 'latest', title: '최근 공지', commentCount: 2 }],
+      nextCursor: 'older',
+    },
+  });
+  expect(await fetchBoardSnapshot('i:1', undefined, true)).toEqual({ latest: 2 });
+  expect(listNotices).not.toHaveBeenCalled();
+
+  const screen = library();
+  screen.focusStatistics!.nextCursor = 'older';
+  (getLibraryScreen as jest.Mock).mockResolvedValue(screen);
+  const summary = await fetchLibrarySnapshot('i:1', undefined, now, undefined, true);
+  expect(summary).not.toBeNull();
+  expect(getFocusStatistics).not.toHaveBeenCalled();
+});
+
+test('도서관 빠른 집계는 전체 기준점과 비교해도 레코드 페이지 차이로 배지를 만들지 않는다', () => {
+  const screen = library();
+  const full = librarySnapshot(screen, now)!;
+  const partialScreen = {
+    ...screen,
+    focusStatistics: { ...screen.focusStatistics!, nextCursor: 'older' },
+  };
+  const partial = librarySnapshot(partialScreen, now, true)!;
+  expect(libraryStatus(partial, full)).toBe(false);
+
+  partialScreen.focusStatistics.totalSeconds += 5;
+  partialScreen.focusStatistics.series[0].seconds += 5;
+  expect(libraryStatus(librarySnapshot(partialScreen, now, true), full)).toBe(true);
 });
 
 test('잠긴 도서관·누락 조각·미완성 페이지·UTC 주 변경은 배지를 만들지 않는다', () => {

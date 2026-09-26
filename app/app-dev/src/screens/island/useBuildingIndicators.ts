@@ -148,8 +148,12 @@ export function useBuildingIndicators({
 
     Promise.all([
       (async () => {
-        const current = await fetchBoardSnapshot(requestScope.islandId, alive);
+        const latestOnly = currentBoard.current !== null;
+        const snapshot = await fetchBoardSnapshot(requestScope.islandId, alive, latestOnly);
         if (!alive()) return;
+        // Frequent refreshes inspect the newest notice page only; retain known older notices
+        // from the initial full snapshot so their unread state is not discarded.
+        const current = latestOnly ? { ...currentBoard.current, ...snapshot } : snapshot;
         currentBoard.current = current;
         const effectiveSeen = await serializeBoardWrite(scopeKey, async () => {
           if (!alive()) return null;
@@ -173,7 +177,14 @@ export function useBuildingIndicators({
       })().catch(() => {}),
       (async () => {
         const confirmationRevision = librarySeenRevision.current;
-        const current = await fetchLibrarySnapshot(requestScope.islandId, alive);
+        const latestOnly = currentLibrary.current !== null;
+        const current = await fetchLibrarySnapshot(
+          requestScope.islandId,
+          alive,
+          new Date(),
+          undefined,
+          latestOnly,
+        );
         if (!alive() || !current) return;
         const hasUpdate = await serializeLibraryWrite(scopeKey, async () => {
           if (!alive()) return null;

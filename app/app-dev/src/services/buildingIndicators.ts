@@ -100,14 +100,18 @@ const week = (now: Date) => {
   return { from: start.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
 };
 
-export function librarySnapshot(screen: LibraryScreen, now = new Date()): LibrarySnapshot | null {
+export function librarySnapshot(
+  screen: LibraryScreen,
+  now = new Date(),
+  allowPartialRecords = false,
+): LibrarySnapshot | null {
   if (
     screen.statisticsAvailability !== 'available' ||
     screen.missingFragments?.length ||
     !screen.focusStatistics ||
     !screen.screenTimeStatistics ||
     !screen.fishEarnings ||
-    screen.focusStatistics.nextCursor !== null
+    (!allowPartialRecords && screen.focusStatistics.nextCursor !== null)
   )
     return null;
   const focus = screen.focusStatistics;
@@ -158,8 +162,27 @@ export function libraryStatus(
   );
   return (
     hasNewFish ||
-    (current.periodKey === seen.periodKey && current.weeklyFingerprint !== seen.weeklyFingerprint)
+    (current.periodKey === seen.periodKey &&
+      comparableWeeklyFingerprint(current.weeklyFingerprint) !==
+        comparableWeeklyFingerprint(seen.weeklyFingerprint))
   );
+}
+
+// /screens/library supplies complete weekly totals/series but only a page of records.
+// Older saved fingerprints include all records; compare their aggregate summary so fast
+// polls can safely skip cursor pagination without creating false-positive unread markers.
+function comparableWeeklyFingerprint(fingerprint: string): string {
+  try {
+    const parsed: unknown = JSON.parse(fingerprint);
+    if (!record(parsed) || !record(parsed.focus) || !Array.isArray(parsed.focus.series))
+      return fingerprint;
+    return JSON.stringify({
+      focus: { totalSeconds: parsed.focus.totalSeconds, series: parsed.focus.series },
+      usage: parsed.usage,
+    });
+  } catch {
+    return fingerprint;
+  }
 }
 
 /** 주가 바뀌면 주간 통계만 새 기준으로 옮기고, 미확인 누적 어획 기준은 보존한다. */
@@ -205,6 +228,7 @@ function nextPage(cursor: unknown, used: Set<string>): string | null {
 export async function fetchBoardSnapshot(
   islandId: string,
   isCurrent?: () => boolean,
+  latestOnly = false,
 ): Promise<BoardSnapshot> {
   const alive = guard(isCurrent);
   alive();
@@ -226,6 +250,7 @@ export async function fetchBoardSnapshot(
       items.push(item);
     }
     const cursor = nextPage(page.nextCursor, cursors);
+    if (latestOnly) return boardSnapshot(items);
     if (cursor === null) return boardSnapshot(items);
     alive();
     page = await gated(listNotices(islandId, cursor), alive);
@@ -274,6 +299,7 @@ export async function fetchLibrarySnapshot(
   isCurrent?: () => boolean,
   now = new Date(),
   initialScreen?: LibraryScreen,
+  latestOnly = false,
 ): Promise<LibrarySnapshot | null> {
   const alive = guard(isCurrent);
   alive();
@@ -284,6 +310,7 @@ export async function fetchLibrarySnapshot(
   if (screen.island.id !== islandId) throw contract('library.island.id');
   if (screen.statisticsAvailability !== 'available' || screen.missingFragments?.length) return null;
   if (!screen.focusStatistics) return null;
+  if (latestOnly) return librarySnapshot(screen, now, true);
   const focus = screen.focusStatistics;
   const records = [...focus.records];
   const ids = new Set(records.map((item) => item.id));

@@ -305,7 +305,7 @@ test('늦게 끝난 홈 조회는 더 최신인 도서관 확인 기준점을 �
   assert.equal(result.current.libraryState, 'normal');
 });
 
-test('60초 폴링은 진행 중인 페이지네이션을 재시작하지 않고 완료 뒤 한 번 갱신한다', async () => {
+test('60초 폴링은 중복 조회를 막고 후속 갱신을 최신 페이지만 읽는다', async () => {
   jest.useFakeTimers();
   let release!: (value: Record<string, number>) => void;
   const pending = new Promise<Record<string, number>>((resolve) => {
@@ -317,6 +317,8 @@ test('60초 폴링은 진행 중인 페이지네이션을 재시작하지 않고
   );
   await act(async () => Promise.resolve());
   assert.equal(boardNow.mock.calls.length, 1);
+  assert.equal(boardNow.mock.calls[0][2], false);
+  assert.equal(libraryNow.mock.calls[0][4], false);
 
   await act(async () => {
     jest.advanceTimersByTime(60_000);
@@ -330,7 +332,12 @@ test('60초 폴링은 진행 중인 페이지네이션을 재시작하지 않고
     await pending;
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  assert.equal(boardNow.mock.calls.length, 2);
+  await waitFor(() => {
+    assert.equal(boardNow.mock.calls.length, 2);
+    assert.equal(libraryNow.mock.calls.length, 2);
+  });
+  assert.equal(boardNow.mock.calls[1][2], true);
+  assert.equal(libraryNow.mock.calls[1][4], true);
   hook.unmount();
 });
 
