@@ -105,6 +105,68 @@ test('도서관 관측 시각과 주민 이름만 바뀌면 배지가 생기지 
   expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(true);
 });
 
+test('스크린타임 집계와 날짜별 updatedAt만 바뀌면 도서관 fingerprint가 유지된다', () => {
+  const screen = library();
+  const seen = librarySnapshot(screen, now);
+  screen.screenTimeStatistics!.updatedAt = 't2';
+  screen.screenTimeStatistics!.series[0].updatedAt = 't2';
+  const current = librarySnapshot(screen, now);
+  expect(current).toEqual(seen);
+  expect(libraryStatus(current, seen)).toBe(false);
+  screen.screenTimeStatistics!.series[0].minutes = 3;
+  expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(true);
+  screen.screenTimeStatistics!.series[0].minutes = 2;
+  screen.screenTimeStatistics!.series[0].measurementStatus = 'denied';
+  expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(true);
+});
+
+test('33쪽을 넘는 정상 공지·편지·집중 기록 페이지를 끝까지 조회한다', async () => {
+  const last = 40;
+  const cursor = (page: number) => (page < last ? String(page + 1) : null);
+  (getBoard as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    notices: { items: [{ id: 'n0', title: '공지', commentCount: 0 }], nextCursor: '1' },
+  });
+  (listNotices as jest.Mock).mockImplementation(async (_island, next) => {
+    const page = Number(next);
+    return {
+      items: [{ id: `n${page}`, title: '공지', commentCount: page }],
+      nextCursor: cursor(page),
+    };
+  });
+  expect(await fetchBoardSnapshot('i:1')).toHaveProperty('n40', 40);
+  expect(listNotices).toHaveBeenCalledTimes(last);
+
+  (getMailboxScreen as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    letters: { content: [{ id: 'l0', isRead: true }], hasNext: true, nextCursor: '1' },
+  });
+  (listLetters as jest.Mock).mockImplementation(async (_type, next) => {
+    const page = Number(next);
+    return {
+      content: [{ id: `l${page}`, isRead: page < last }],
+      hasNext: page < last,
+      nextCursor: cursor(page),
+    };
+  });
+  expect(await fetchMailboxUnreadCount('i:1')).toBe(1);
+  expect(listLetters).toHaveBeenCalledTimes(last);
+
+  const screen = library();
+  screen.focusStatistics!.nextCursor = '1';
+  (getLibraryScreen as jest.Mock).mockResolvedValue(screen);
+  (getFocusStatistics as jest.Mock).mockImplementation(async (_island, query) => {
+    const page = Number(query.cursor);
+    return {
+      ...screen.focusStatistics,
+      records: [{ id: `extra${page}`, subject: '공부', activeSeconds: 1, completedAt: 't1' }],
+      nextCursor: cursor(page),
+    };
+  });
+  expect((await fetchLibrarySnapshot('i:1', undefined, now))?.fingerprint).toContain('extra40');
+  expect(getFocusStatistics).toHaveBeenCalledTimes(last);
+});
+
 test('잠긴 도서관·누락 조각·미완성 페이지·UTC 주 변경은 배지를 만들지 않는다', () => {
   const screen = library();
   const seen = librarySnapshot(screen, now);

@@ -10,7 +10,6 @@ export type IndicatorScope = { userId: string; islandId: string };
 export type BoardSnapshot = Record<string, number>;
 export type LibrarySnapshot = { periodKey: string; fingerprint: string };
 
-const MAX_PAGES = 32;
 const key = (scope: IndicatorScope, building: 'board' | 'library') =>
   `gromo:indicators:v1:${encodeURIComponent(scope.userId)}:${encodeURIComponent(scope.islandId)}:${building}`;
 const record = (value: unknown): value is Record<string, unknown> =>
@@ -96,7 +95,7 @@ export function librarySnapshot(screen: LibraryScreen, now = new Date()): Librar
     return null;
   const focus = screen.focusStatistics;
   const usage = screen.screenTimeStatistics;
-  // 조회 시각(asOf), 주민 이름, 배열 순서는 콘텐츠 변경으로 세지 않는다.
+  // 조회·집계 시각(asOf/updatedAt), 주민 이름, 배열 순서는 콘텐츠 변경으로 세지 않는다.
   return {
     periodKey: week(now).from,
     fingerprint: JSON.stringify({
@@ -117,13 +116,11 @@ export function librarySnapshot(screen: LibraryScreen, now = new Date()): Librar
       usage: {
         measurementStatus: usage.measurementStatus,
         totalMinutes: usage.totalMinutes,
-        updatedAt: usage.updatedAt,
         series: usage.series
-          .map(({ date, minutes, measurementStatus, updatedAt }) => ({
+          .map(({ date, minutes, measurementStatus }) => ({
             date,
             minutes,
             measurementStatus,
-            updatedAt,
           }))
           .sort((a, b) => a.date.localeCompare(b.date)),
       },
@@ -168,10 +165,9 @@ async function gated<T>(pending: Promise<T>, alive: () => void): Promise<T> {
   }
 }
 
-function nextPage(cursor: unknown, used: Set<string>, pages: number): string | null {
+function nextPage(cursor: unknown, used: Set<string>): string | null {
   if (cursor === null) return null;
-  if (typeof cursor !== 'string' || !cursor || used.has(cursor) || pages >= MAX_PAGES)
-    throw contract('nextCursor');
+  if (typeof cursor !== 'string' || !cursor || used.has(cursor)) throw contract('nextCursor');
   used.add(cursor);
   return cursor;
 }
@@ -188,9 +184,7 @@ export async function fetchBoardSnapshot(
   const ids = new Set<string>();
   const cursors = new Set<string>();
   let page = screen.notices;
-  let pages = 0;
   for (;;) {
-    pages += 1;
     if (!Array.isArray(page.items)) throw contract('notices.items');
     for (const item of page.items) {
       if (!item || typeof item.id !== 'string' || !count(item.commentCount) || ids.has(item.id))
@@ -198,7 +192,7 @@ export async function fetchBoardSnapshot(
       ids.add(item.id);
       items.push(item);
     }
-    const cursor = nextPage(page.nextCursor, cursors, pages);
+    const cursor = nextPage(page.nextCursor, cursors);
     if (cursor === null) return boardSnapshot(items);
     alive();
     page = await gated(listNotices(islandId, cursor), alive);
@@ -216,10 +210,8 @@ export async function fetchMailboxUnreadCount(
   const ids = new Set<string>();
   const cursors = new Set<string>();
   let page: LetterSlice = screen.letters;
-  let pages = 0;
   let unread = 0;
   for (;;) {
-    pages += 1;
     if (!Array.isArray(page.content) || typeof page.hasNext !== 'boolean')
       throw contract('letters');
     for (const item of page.content) {
@@ -234,7 +226,7 @@ export async function fetchMailboxUnreadCount(
       if (!item.isRead) return unread + 1;
     }
     if (!page.hasNext) return unread;
-    const cursor = nextPage(page.nextCursor, cursors, pages);
+    const cursor = nextPage(page.nextCursor, cursors);
     if (cursor === null) throw contract('letters.nextCursor');
     alive();
     page = await gated(listLetters('received', cursor), alive);
@@ -257,8 +249,7 @@ export async function fetchLibrarySnapshot(
   const ids = new Set(records.map((item) => item.id));
   if (ids.size !== records.length) throw contract('records');
   const cursors = new Set<string>();
-  let pages = 1;
-  let cursor = nextPage(focus.nextCursor, cursors, pages);
+  let cursor = nextPage(focus.nextCursor, cursors);
   while (cursor !== null) {
     alive();
     const page = await gated(
@@ -270,8 +261,7 @@ export async function fetchLibrarySnapshot(
       ids.add(item.id);
       records.push(item);
     }
-    pages += 1;
-    cursor = nextPage(page.nextCursor, cursors, pages);
+    cursor = nextPage(page.nextCursor, cursors);
   }
   return librarySnapshot(
     { ...screen, focusStatistics: { ...focus, records, nextCursor: null } },
