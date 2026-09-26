@@ -3935,6 +3935,7 @@ export function Board({
   const board = useBoardNotices({
     active: serverBoard,
     scopeKey: app ? String(app.island.id) : 'mock',
+    onLoaded: e?.buildingIndicators?.markBoardSeen,
   });
   useEffect(() => {
     if (!serverBoard || !e || !board.islandId || !board.wallets) return;

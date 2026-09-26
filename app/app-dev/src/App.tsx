@@ -28,6 +28,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useSoundPlayer } from '@/hooks/useSoundPlayer';
 import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
+import { useBuildingIndicators } from '@/screens/island/useBuildingIndicators';
 import { bundledAudioSource } from '@/constants/audio';
 import { playbackSeekSeconds } from '@/services/api/playback';
 import { screenTime, selectionCount } from '@/services/screenTime';
@@ -492,6 +493,12 @@ function Gromo() {
   const serverCurrent =
     !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
   const onHome = route === 'home';
+  const buildingIndicators = useBuildingIndicators({
+    active: !!serverCurrent,
+    islandId: serverCurrent,
+    onHome,
+    refreshKey: homeReload,
+  });
   useEffect(() => {
     if (!loaded || !serverCurrent || !onHome) return;
     let live = true;
@@ -1247,6 +1254,7 @@ function Gromo() {
           // 서버 모드 홈 스냅샷 실패 표시·재시도(GROMO-2138)
           homeError,
           retryHome: () => setHomeReload((n) => n + 1),
+          buildingIndicators: serverCurrent ? buildingIndicators : undefined,
           // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
           conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
           playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,

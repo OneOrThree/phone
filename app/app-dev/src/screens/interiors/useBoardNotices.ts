@@ -52,6 +52,13 @@ import {
 
 export type NoticeItem = NoticePage['items'][number];
 
+/** 실제로 불러온 공지만 확인한다. nextCursor가 null일 때만 전체 목록이다. */
+export type BoardLoadedSnapshot = {
+  islandId: string;
+  items: NoticeItem[];
+  nextCursor: string | null;
+};
+
 /** 화면이 비활성·섬 미확정이라 쓰기를 시작할 수 없다 — 호출부 분기용 클라이언트 코드. */
 export const CLIENT_INACTIVE = 'CLIENT_INACTIVE';
 /** 같은 슬롯의 쓰기가 아직 진행 중인데 다른 본문이 들어왔다 — 이전 결과를 새 초안에 입히지 않는다. */
@@ -136,7 +143,17 @@ async function getAllQuestProgress(
 /** 쓰기 의도 슬롯 — key 는 페이로드(의도)가 같을 때만 유지된다. */
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
 
-export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKey: string }) {
+export function useBoardNotices({
+  active,
+  scopeKey,
+  onLoaded,
+}: {
+  active: boolean;
+  scopeKey: string;
+  onLoaded?: (snapshot: BoardLoadedSnapshot) => void;
+}) {
+  const onLoadedRef = useRef(onLoaded);
+  onLoadedRef.current = onLoaded;
   const [state, setState] = useState<BoardNoticesState>(EMPTY);
   // 액션 콜백이 클로저의 옛 state 를 읽지 않도록 최신값을 거울에 둔다.
   const stateRef = useRef(state);
@@ -154,6 +171,8 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
   // 퀘스트 상세도 같은 규칙 — 마지막으로 연 회차만 questDetail 로 적용된다.
   const questSeq = useRef(0);
   const intents = useRef(new Map<string, IntentSlot>());
+  // 멱등 재시도가 같은 댓글 결과를 재생해도 목록 카운트를 두 번 올리지 않는다.
+  const confirmedCommentIds = useRef(new Set<string>());
   // 캐시된 섬 데이터가 어느 epoch·세대에서 왔는지 — 계정/범위 교체 직후 리렌더 전에
   // 잡힌 옛 콜백이 옛 islandId 를 새 계정 토큰으로 보내는 것을 막는다.
   const proven = useRef({ epoch: -1, generation: -1 });
@@ -189,6 +208,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         loading: false,
         error: null,
       });
+      onLoadedRef.current?.({ islandId: board.island.id, ...board.notices });
     } catch (error) {
       if (!alive(e, generation)) return;
       set({ loading: false, error: error as ApiError });
@@ -219,6 +239,11 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         items: [...stateRef.current.items, ...page.items.filter((i) => !seen.has(i.id))],
         nextCursor: page.nextCursor,
         loadingMore: false,
+      });
+      onLoadedRef.current?.({
+        islandId,
+        items: stateRef.current.items,
+        nextCursor: page.nextCursor,
       });
     } catch (error) {
       if (!alive(e, generation)) return;
@@ -304,6 +329,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         quests: board.quests.items,
         wallets: board.wallets,
       });
+      onLoadedRef.current?.({ islandId: board.island.id, ...board.notices });
     },
 
     [alive, set],
@@ -375,7 +401,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
       slotId: string,
       payload: string,
       write: (key: string) => Promise<T>,
-      after: () => Promise<void>,
+      after: (result: T) => Promise<void>,
     ): Promise<T> => {
       const prev = intents.current.get(slotId);
       if (prev?.flight) {
@@ -390,7 +416,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         prev && prev.payload === payload ? prev : { key: uuid(), payload, flight: null };
       const flight = (async () => {
         const result = await write(slot.key);
-        await after();
+        await after(result);
         // 마지막 await 뒤 continuation 도 별도 마이크로태스크다 — 그 사이 세대가 바뀌어
         // 같은 slotId 의 새 의도가 들어왔을 수 있으니 자기 슬롯일 때만 놓는다.
         if (intents.current.get(slotId) === slot) intents.current.delete(slotId);
@@ -481,13 +507,25 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
         `comment:${noticeId}`,
         text,
         (key) => postComment(islandId, noticeId, { text }, key),
-        async () => {
-          await refreshList(e, generation);
+        async (created) => {
+          if (!alive(e, generation)) throw stale();
+          if (!confirmedCommentIds.current.has(created.id)) {
+            const items = stateRef.current.items.map((item) =>
+              item.id === noticeId ? { ...item, commentCount: item.commentCount + 1 } : item,
+            );
+            set({ items });
+            onLoadedRef.current?.({
+              islandId,
+              items,
+              nextCursor: stateRef.current.nextCursor,
+            });
+            confirmedCommentIds.current.add(created.id);
+          }
           await refreshDetail(e, generation, islandId, noticeId);
         },
       );
     },
-    [writable, runWrite, refreshList, refreshDetail],
+    [writable, runWrite, refreshDetail, alive, set],
   );
 
   /** 퀘스트 만들기 — 본문·권한 검증은 서버가 한다(quests.ts 의 허용 키만 보낸다). */
@@ -574,6 +612,7 @@ export function useBoardNotices({ active, scopeKey }: { active: boolean; scopeKe
     epoch.current += 1;
     // 범위·계정이 바뀌면 미해결 쓰기 의도도 새 범위로 넘기지 않는다.
     intents.current.clear();
+    confirmedCommentIds.current.clear();
     if (!active) set(EMPTY);
     else load().catch(() => {});
     // 언마운트·의존성 교체로 돌아온 응답이 새 범위를 덮지 못하게 epoch 를 올린다.

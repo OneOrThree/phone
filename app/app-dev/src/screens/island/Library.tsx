@@ -8,6 +8,7 @@ import { CatSprite } from '@/components/CatSprite';
 import { State } from '@/services/model';
 import { BROWN, T, fill, safeOffset, useGowun, web } from '@/screens/island/sceneKit';
 import { Diary } from './library/Diary';
+import { useBuildingIndicatorSeen } from './useBuildingIndicatorSeen';
 
 function Flower({ outline }: { outline: boolean }) {
   return (
@@ -150,7 +151,24 @@ function Round({ title, glyph, onPress, disabled, size, style, testID }: any) {
     </Pressable>
   );
 }
+
+export function shouldObserveLibraryIndicator(route: string) {
+  // 도서관에서 일기장·통계 화면으로 이동해도 같은 건물 열람 흐름으로 취급한다.
+  return route === 'library' || route === 'diary' || route === 'stats';
+}
+
 export function Library({ e }: any) {
+  useBuildingIndicatorSeen({
+    active:
+      shouldObserveLibraryIndicator(e.route) &&
+      !e.state.visitingIslandId &&
+      !!e.islands &&
+      !!e.buildingIndicators,
+    islandId: e.state.serverIslands?.currentIslandId ?? null,
+    onLoaded: (screen) => {
+      void e.buildingIndicators?.markLibrarySeen(screen);
+    },
+  });
   const font = useGowun();
   const L = useAppLayout(),
     off = safeOffset(L),

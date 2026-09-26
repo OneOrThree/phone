@@ -155,6 +155,53 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
 
+test('성공적으로 조회한 페이지의 범위만 onLoaded에 전달한다', async () => {
+  getBoardMock.mockResolvedValue(board([{ id: 'n1', title: '첫 공지' }], 'next'));
+  listNoticesMock.mockResolvedValue({
+    items: [{ id: 'n2', title: '다음 공지', commentCount: 2 }],
+    nextCursor: null,
+  });
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1', onLoaded }));
+  await waitFor(() => assert.equal(onLoaded.mock.calls.length, 1));
+  assert.equal(onLoaded.mock.calls[0][0].nextCursor, 'next');
+  assert.deepEqual(
+    onLoaded.mock.calls[0][0].items.map((item: { id: string }) => item.id),
+    ['n1'],
+  );
+  await act(async () => {
+    await hook.result.current.loadMore();
+  });
+  assert.equal(onLoaded.mock.calls[1][0].nextCursor, null);
+  assert.deepEqual(
+    onLoaded.mock.calls[1][0].items.map((item: { id: string }) => item.id),
+    ['n1', 'n2'],
+  );
+  await hook.unmount();
+});
+
+test('게시판 조회 실패는 onLoaded를 호출하지 않는다', async () => {
+  getBoardMock.mockRejectedValue(new Error('offline'));
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1', onLoaded }));
+  await waitFor(() => assert.ok(hook.result.current.error));
+  assert.equal(onLoaded.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('계정 전환 후 도착한 게시판 응답은 onLoaded를 호출하지 않는다', async () => {
+  const pending = deferred<ReturnType<typeof board>>();
+  getBoardMock.mockReturnValue(pending.promise);
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1', onLoaded }));
+  await act(async () => {
+    await clearSession();
+    pending.resolve(board([{ id: 'n1', title: '옛 계정 공지' }]));
+  });
+  assert.equal(onLoaded.mock.calls.length, 0);
+  await hook.unmount();
+});
+
 test('active=false — API 를 하나도 부르지 않고 빈 상태를 유지한다', async () => {
   const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useBoardNotices(p), {
     initialProps: { active: false, scopeKey: 's1' },
@@ -597,6 +644,38 @@ test('addComment 성공 뒤 열린 상세의 댓글이 서버 값으로 갱신�
     hook.result.current.detail?.comments.map((c) => c.id),
     ['c1', 'c2'],
   );
+  await hook.unmount();
+});
+
+test('오래된 공지에 쓴 내 댓글은 불러온 범위의 확인 카운트에 즉시 반영한다', async () => {
+  getBoardMock.mockResolvedValue(board([{ id: 'recent', title: '최근' }], 'older'));
+  listNoticesMock.mockResolvedValue({
+    items: [{ id: 'old', title: '오래된 공지', commentCount: 4 }],
+    nextCursor: null,
+  });
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1', onLoaded }));
+  await waitFor(() => assert.equal(hook.result.current.loading, false));
+  await act(async () => {
+    await hook.result.current.loadMore();
+  });
+  getNoticeMock.mockResolvedValueOnce(detail('old', []));
+  await act(async () => {
+    await hook.result.current.select('old');
+  });
+  postCommentMock.mockResolvedValue({ id: 'mine', name: '나', text: '내 댓글' });
+  getNoticeMock.mockResolvedValueOnce(detail('old', [{ id: 'mine' }]));
+  getBoardMock.mockClear();
+
+  await act(async () => {
+    await hook.result.current.addComment('old', '내 댓글');
+  });
+
+  assert.equal(getBoardMock.mock.calls.length, 0);
+  assert.equal(hook.result.current.items.find((item) => item.id === 'old')?.commentCount, 5);
+  const confirmed = onLoaded.mock.calls.at(-1)?.[0];
+  assert.equal(confirmed.items.find((item: { id: string }) => item.id === 'old')?.commentCount, 5);
+  assert.equal(confirmed.nextCursor, null);
   await hook.unmount();
 });
 
