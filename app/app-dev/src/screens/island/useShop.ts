@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
+import { notifyShopPurchaseCompleted } from '@/screens/island/useShopBuildingStatus';
 import {
   getIslandInventory,
   getMyInventory,
@@ -107,6 +108,7 @@ type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | nul
 export function useShop({
   active,
   islandId,
+  userId,
   route,
   category,
   orderScope,
@@ -116,6 +118,8 @@ export function useShop({
   active: boolean;
   /** 서버 섬 UUID — snap.currentIslandId. 없으면 어떤 호출도 하지 않는다. */
   islandId: string | null;
+  /** 읽음·구매 완료 신호의 사용자 scope. */
+  userId: string | null;
   route: string;
   /** 상점 탭 → personal|island. sound 라우트(축음기)는 고정 sound 다. */
   category: 'personal' | 'island';
@@ -603,7 +607,12 @@ export function useShop({
         return await runWrite(
           `buy:${product.id}`,
           JSON.stringify(body),
-          (key) => purchaseProduct(island, body, key),
+          (key) =>
+            purchaseProduct(island, body, key).then((order) => {
+              // UI 훅이 route 전환으로 unmount되기 전, 서버 구매 성공 자체를 scope에 알린다.
+              notifyShopPurchaseCompleted(userId, island);
+              return order;
+            }),
           () => refreshAll(e, generation),
         );
       } catch (error) {
@@ -617,7 +626,7 @@ export function useShop({
         throw error;
       }
     },
-    [alive, refreshAll, runWrite, writable],
+    [alive, refreshAll, runWrite, userId, writable],
   );
 
   /** 개인 외양 — 제출한 필드만 보낸다(생략 유지·명시 null 해제). expectedVersion 없음. */

@@ -23,6 +23,25 @@ describe('VillageScenery', () => {
     await view.unmount();
   });
 
+  it('레이어드 상점에도 서버 상태 강조와 이름표를 표시한다', async () => {
+    const scene = villageScene(['shop']);
+    const view = await render(
+      <VillageScenery
+        scene={scene}
+        scale={1}
+        reduce
+        mailboxLetters={false}
+        shopState="new-product"
+      />,
+    );
+
+    expect(view.getByTestId('village-shop-motion', { includeHiddenElements: true })).toBeTruthy();
+    expect(view.getByTestId('shop-motion-highlight', { includeHiddenElements: true })).toBeTruthy();
+    expect(view.getByTestId('shop-motion-tooltip', { includeHiddenElements: true })).toBeTruthy();
+    expect(view.getByText('새 상품', { includeHiddenElements: true })).toBeTruthy();
+    await view.unmount();
+  });
+
   it('레이어드 전망대는 순위 배지와 야간 진입 피드백을 표시한다', async () => {
     const scene = villageScene(['tower']);
     const view = await render(

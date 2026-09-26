@@ -5,6 +5,7 @@ import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
 import { villageMap, VillageScene } from '@/utils/village-world';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
+import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
 import {
   VillageObservatoryMotion,
   type ObservatoryDayNight,
@@ -19,6 +20,7 @@ export const VillageScenery = memo(function VillageScenery({
   reduce,
   mailboxLetters,
   boardStatus = null,
+  shopState = 'normal',
   observatoryRankState = 'normal',
   towerArrivalActive = false,
   towerArrivalGeneration = 0,
@@ -29,6 +31,7 @@ export const VillageScenery = memo(function VillageScenery({
   reduce: boolean;
   mailboxLetters: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
+  shopState?: ShopMotionState;
   observatoryRankState?: ObservatoryRankState;
   towerArrivalActive?: boolean;
   towerArrivalGeneration?: number;
@@ -149,6 +152,15 @@ export const VillageScenery = memo(function VillageScenery({
                       ]
                     : [],
               }}
+            />
+          )}
+          {o.building === 'shop' && (
+            <ShopMotion
+              testID="village-shop-motion"
+              state={shopState}
+              showFrames={dayNight === 'day'}
+              reduceMotion={reduce}
+              style={StyleSheet.absoluteFill}
             />
           )}
           {o.kind === 'fire' && (

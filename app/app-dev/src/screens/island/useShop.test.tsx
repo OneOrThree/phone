@@ -4,7 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
-import { ApiError } from '@/services/api/client';
+import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import {
   getIslandInventory,
   getMyInventory,
@@ -18,6 +18,11 @@ import {
   purchaseProduct,
 } from '@/services/api/shop';
 import { useShop } from '@/screens/island/useShop';
+import { notifyShopPurchaseCompleted } from '@/screens/island/useShopBuildingStatus';
+
+jest.mock('@/screens/island/useShopBuildingStatus', () => ({
+  notifyShopPurchaseCompleted: jest.fn(),
+}));
 
 jest.mock('@/services/api/shop', () => ({
   getIslandInventory: jest.fn(),
@@ -75,6 +80,7 @@ const myInventory = {
 const params = (over: Record<string, unknown> = {}) => ({
   active: true,
   islandId: ISLAND,
+  userId: 'user-1',
   route: 'shop',
   category: 'personal' as const,
   orderScope: 'personal' as const,
@@ -190,6 +196,29 @@ test('구매 — 멱등 키·지갑·상품 버전을 싣고 성공 뒤 정본�
   // 성공 뒤 balance(지갑)·inventory·목록을 다시 읽는다.
   assert.equal((getShopScreen as jest.Mock).mock.calls.length, 1);
   assert.equal((getMyInventory as jest.Mock).mock.calls.length, 1);
+  expect(notifyShopPurchaseCompleted).toHaveBeenCalledWith('user-1', ISLAND);
+});
+
+test('서버 구매 성공 신호는 useShop unmount와 후속 정본 갱신 실패보다 먼저 공유한다', async () => {
+  let completePurchase!: (value: unknown) => void;
+  (purchaseProduct as jest.Mock).mockImplementation(
+    () => new Promise((resolve) => (completePurchase = resolve)),
+  );
+  const hook = await renderHook((p: Parameters<typeof useShop>[0]) => useShop(p), {
+    initialProps: params(),
+  });
+  await waitFor(() => assert.equal(hook.result.current.loading, false));
+
+  const purchase = hook.result.current
+    .buy({ id: 'scarf', productVersion: 3 })
+    .catch((error) => error);
+  await waitFor(() => assert.equal((purchaseProduct as jest.Mock).mock.calls.length, 1));
+  hook.unmount();
+  completePurchase({ id: 'order-1', productId: 'scarf', walletVersion: 8 });
+
+  const failure = await purchase;
+  assert.equal((failure as ApiError).code, CLIENT_STALE_SESSION);
+  expect(notifyShopPurchaseCompleted).toHaveBeenCalledWith('user-1', ISLAND);
 });
 
 test('구매 실패는 호출부에 던지고, 같은 의도의 재시도는 같은 멱등 키로 간다', async () => {

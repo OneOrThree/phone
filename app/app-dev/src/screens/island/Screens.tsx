@@ -60,10 +60,7 @@ import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
-import {
-  notifyShopPurchaseCompleted,
-  useShopBuildingStatus,
-} from '@/screens/island/useShopBuildingStatus';
+import { useShopBuildingStatus } from '@/screens/island/useShopBuildingStatus';
 import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
@@ -867,6 +864,7 @@ export function RedesignScreens({ e }: any) {
   const shopApi = useShop({
     active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound', 'focus'].includes(route),
     islandId: snap?.currentIslandId ?? null,
+    userId: getSession()?.userId ?? null,
     route,
     category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
     orderScope: tab === '섬 공동 구매' ? 'shared' : 'personal',
@@ -4989,13 +4987,7 @@ export function RedesignScreens({ e }: any) {
             // 응답 + 지갑·인벤토리·내역 재조회가 끝날 때만 성공 토스트 — 실패·응답 유실에는 붙지 않는다.
             shopApi
               .buy({ id: p.id, productVersion: sp!.productVersion })
-              .then(() => {
-                notifyShopPurchaseCompleted(
-                  getSession()?.userId ?? null,
-                  snap?.currentIslandId ?? null,
-                );
-                setSheetToast('구매했어요.');
-              })
+              .then(() => setSheetToast('구매했어요.'))
               .catch((thrown) => {
                 const m = serverErrorText(thrown);
                 if (m) notify(m);

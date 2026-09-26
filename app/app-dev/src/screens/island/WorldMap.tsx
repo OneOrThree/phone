@@ -675,6 +675,7 @@ export function WorldMap({
             reduce={state.settings.reduceMotion}
             mailboxLetters={mailboxLetters}
             boardStatus={boardStatus}
+            shopState={shopState}
             observatoryRankState={observatoryRankState}
             towerArrivalActive={towerArrivalActive}
             towerArrivalGeneration={towerArrivalGeneration}
