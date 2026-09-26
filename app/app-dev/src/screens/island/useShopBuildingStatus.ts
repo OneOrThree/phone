@@ -6,6 +6,15 @@ import type { ShopMotionState } from '@/components/village-motion/ShopMotion';
 
 type CatalogSnapshot = { knownIds: string[]; pendingIds: string[] };
 const acknowledgements = new Map<string, Promise<ShopMotionState>>();
+const purchaseCompletionEpochs = new Map<string, number>();
+const purchaseCompletionListeners = new Map<string, Set<() => void>>();
+
+export function notifyShopPurchaseCompleted(userId: string | null, islandId: string | null) {
+  if (!userId || !islandId) return;
+  const key = `gromo:shop-catalog:${userId}:${islandId}`;
+  purchaseCompletionEpochs.set(key, (purchaseCompletionEpochs.get(key) ?? 0) + 1);
+  purchaseCompletionListeners.get(key)?.forEach((listener) => listener());
+}
 
 export function updateShopCatalogSnapshot(
   previous: CatalogSnapshot | null,
@@ -109,9 +118,12 @@ export function useShopBuildingStatus({
   islandId: string | null;
   userId: string | null;
 }): ShopMotionState {
+  const key = islandId && userId ? `gromo:shop-catalog:${userId}:${islandId}` : null;
   const [status, setStatus] = useState<ShopMotionState>('normal');
   const [foregroundEpoch, setForegroundEpoch] = useState(0);
-  const key = islandId && userId ? `gromo:shop-catalog:${userId}:${islandId}` : null;
+  const [purchaseCompletionEpoch, setPurchaseCompletionEpoch] = useState(() =>
+    key ? (purchaseCompletionEpochs.get(key) ?? 0) : 0,
+  );
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextState) => {
@@ -119,6 +131,21 @@ export function useShopBuildingStatus({
     });
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (!key) return;
+    let listeners = purchaseCompletionListeners.get(key);
+    if (!listeners) {
+      listeners = new Set();
+      purchaseCompletionListeners.set(key, listeners);
+    }
+    const listener = () => setPurchaseCompletionEpoch(purchaseCompletionEpochs.get(key) ?? 0);
+    listeners.add(listener);
+    return () => {
+      listeners?.delete(listener);
+      if (listeners?.size === 0) purchaseCompletionListeners.delete(key);
+    };
+  }, [key]);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,7 +197,7 @@ export function useShopBuildingStatus({
     return () => {
       cancelled = true;
     };
-  }, [active, acknowledge, foregroundEpoch, islandId, key]);
+  }, [active, acknowledge, foregroundEpoch, islandId, key, purchaseCompletionEpoch]);
 
   return status;
 }

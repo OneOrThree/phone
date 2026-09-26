@@ -4,6 +4,7 @@ import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { getShopProducts, type ShopProductPage } from '@/services/api/shop';
 import {
   acknowledgeShopForScope,
+  notifyShopPurchaseCompleted,
   updateShopCatalogSnapshot,
   useShopBuildingStatus,
 } from './useShopBuildingStatus';
@@ -249,5 +250,30 @@ it('앱이 백그라운드에서 복귀하면 홈 상품 상태를 다시 조회
   });
   await waitFor(() => expect(hook.result.current).toBe('new-product'));
   expect(api).toHaveBeenCalledTimes(4);
+  hook.unmount();
+});
+
+it('홈 진입 후 구매 완료 신호를 받으면 상품 상태를 다시 조회한다', async () => {
+  let catalogReads = 0;
+  api.mockImplementation(async (_islandId, category) => {
+    if (category === 'personal') {
+      catalogReads += 1;
+      return catalogReads === 1 ? page(item('shirt')) : page();
+    }
+    return page();
+  });
+  const hook = await renderHook(() =>
+    useShopBuildingStatus({
+      active: true,
+      acknowledge: false,
+      islandId: `island-${scope}`,
+      userId: `user-${scope}`,
+    }),
+  );
+  await waitFor(() => expect(hook.result.current).toBe('purchasable'));
+
+  await act(async () => notifyShopPurchaseCompleted(`user-${scope}`, `island-${scope}`));
+  await waitFor(() => expect(api).toHaveBeenCalledTimes(4));
+  await waitFor(() => expect(hook.result.current).toBe('normal'));
   hook.unmount();
 });
