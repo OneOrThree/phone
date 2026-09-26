@@ -217,6 +217,7 @@ function CurrentScreensContent({ e }: any) {
   const state: State = e.state,
     i = currentIsland(state),
     r: Route = e.route;
+  const [boardReadVersion, setBoardReadVersion] = useState(0);
   const boardBuilt = memberGate(state, !!e.islands).built;
   const boardStatus = useBoardHomeIndicator({
     active:
@@ -227,8 +228,13 @@ function CurrentScreensContent({ e }: any) {
     ownerId: getSession()?.userId ?? null,
     islandId: state.serverIslands?.currentIslandId ?? i.id,
     markRead: ['board', 'notice'].includes(r),
+    readVersion: boardReadVersion,
   });
-  const screenE = { ...e, boardStatus };
+  const screenE = {
+    ...e,
+    boardStatus,
+    onBoardCommentRead: () => setBoardReadVersion((version) => version + 1),
+  };
   const memberRoutes: Route[] = [
     'home',
     'guide',
@@ -382,7 +388,7 @@ function CurrentScreensContent({ e }: any) {
   if (['board', 'notice', 'noticeEdit', 'quest', 'questEdit'].includes(r))
     return (
       <>
-        <InteriorRoute e={e} />
+        <InteriorRoute e={screenE} />
         {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
         {!state.visitingIslandId && (
           <RewardModal

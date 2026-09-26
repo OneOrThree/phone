@@ -56,11 +56,13 @@ export function useBoardHomeIndicator({
   ownerId,
   islandId,
   markRead,
+  readVersion = 0,
 }: {
   active: boolean;
   ownerId: string | null;
   islandId: string;
   markRead: boolean;
+  readVersion?: number;
 }): BoardHomeStatus {
   const [statusRecord, setStatusRecord] = useState<{
     scopeKey: string;
@@ -79,12 +81,16 @@ export function useBoardHomeIndicator({
 
   useEffect(() => {
     let cancelled = false;
-    if (!active || !ownerId || !islandId) {
+    if (!ownerId || !islandId) {
       setStatusRecord(null);
       return () => {
         cancelled = true;
       };
     }
+    if (!active)
+      return () => {
+        cancelled = true;
+      };
 
     const key = `gromo.board-indicator.v1:${ownerId}:${islandId}`;
     (async () => {
@@ -108,7 +114,9 @@ export function useBoardHomeIndicator({
     return () => {
       cancelled = true;
     };
-  }, [active, ownerId, islandId, markRead, refreshKey, scopeKey]);
+  }, [active, ownerId, islandId, markRead, readVersion, refreshKey, scopeKey]);
 
-  return active && statusRecord?.scopeKey === scopeKey ? statusRecord.status : null;
+  return active && ownerId && islandId && statusRecord?.scopeKey === scopeKey
+    ? statusRecord.status
+    : null;
 }

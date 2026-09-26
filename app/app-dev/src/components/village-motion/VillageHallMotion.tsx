@@ -56,17 +56,17 @@ export function VillageHallMotion({
           testID={`village-hall-frame-${index}`}
           source={source}
           resizeMode="stretch"
-          style={[
-            styles.frame,
-            frame === index ? styles.visible : styles.hidden,
-            themed &&
-              frame === index && {
-                tintColor: componentTokens.villageBuildingThemeTint.color,
-                opacity: componentTokens.villageBuildingThemeTint.opacity,
-              },
-          ]}
+          style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
         />
       ))}
+      {themed && (
+        <Image
+          testID="village-hall-theme-tint"
+          source={frames[frame]}
+          resizeMode="stretch"
+          style={[styles.frame, styles.themeTint]}
+        />
+      )}
       {highlighted && (
         <View pointerEvents="none" testID="village-hall-highlight" style={styles.highlight} />
       )}
@@ -84,6 +84,10 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
+  themeTint: {
+    tintColor: componentTokens.villageBuildingThemeTint.color,
+    opacity: componentTokens.villageBuildingThemeTint.opacity,
+  },
   highlight: {
     position: 'absolute',
     left: 0,

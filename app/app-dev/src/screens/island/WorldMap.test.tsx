@@ -145,8 +145,8 @@ test('테마 회관 진입 중에는 닫힌 문 테마 레이어 대신 현재 �
   const screen = await render(<WorldMap state={state} hallMotionActive />);
 
   expect(screen.queryByTestId('world-building-theme-hall')).toBeNull();
-  expect(screen.getByTestId('village-hall-frame-0').props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ tintColor: '#d7829b' })]),
+  expect(screen.getByTestId('village-hall-theme-tint').props.source).toBe(
+    screen.getByTestId('village-hall-frame-0').props.source,
   );
   await screen.unmount();
 });

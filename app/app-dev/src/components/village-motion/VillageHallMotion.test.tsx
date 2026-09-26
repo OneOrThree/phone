@@ -46,9 +46,12 @@ describe('VillageHallMotion', () => {
     await view.unmount();
   });
 
-  it('applies building theme tint to the active frame alpha instead of a rectangular overlay', async () => {
+  it('overlays a translucent tinted alpha mask while preserving the active frame texture', async () => {
     const view = await render(<VillageHallMotion state="arrival" themed />);
     expect(view.getByTestId('village-hall-frame-0').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+    );
+    expect(view.getByTestId('village-hall-theme-tint').props.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           tintColor: componentTokens.villageBuildingThemeTint.color,
@@ -56,7 +59,6 @@ describe('VillageHallMotion', () => {
         }),
       ]),
     );
-    expect(view.queryByTestId('village-hall-theme-tint')).toBeNull();
     await view.unmount();
   });
 

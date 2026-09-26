@@ -18,7 +18,11 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   setItem: jest.fn().mockResolvedValue(null),
 }));
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  (getBoard as jest.Mock).mockReset();
+  (listNotices as jest.Mock).mockReset();
+});
 
 test('게시판 기준점 이후 새 공지와 댓글 증가를 구분한다', () => {
   const seen = { noticeA: 2, noticeB: 0 };
@@ -190,4 +194,107 @@ test('foreground 재조회 실패 시 같은 섬의 기존 미확인 배지를 �
 
   await hook.unmount();
   addListener.mockRestore();
+});
+
+test('비활성 경로를 다녀온 뒤 재조회가 실패해도 같은 섬의 배지를 유지한다', async () => {
+  const board = {
+    island: {
+      id: 'island-1',
+      name: '섬',
+      intro: '',
+      visibility: 'public',
+      approvalRequired: false,
+      memberCount: 1,
+      maxMembers: 15,
+      membershipStatus: 'active',
+      growthStage: null,
+      themeId: null,
+      role: 'host',
+      version: 1,
+    },
+    notices: {
+      items: [{ id: 'notice-new', title: '새 소식', commentCount: 0 }],
+      nextCursor: null,
+    },
+    quests: { items: [] },
+    wallets: { fish: 0, villagePoints: 0, fishVersion: null, villagePointsVersion: 0 },
+  } as Awaited<ReturnType<typeof getBoard>>;
+  (getBoard as jest.Mock).mockResolvedValueOnce(board).mockRejectedValueOnce(new Error('offline'));
+  (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify({}));
+  const addListener = jest
+    .spyOn(AppState, 'addEventListener')
+    .mockReturnValue({ remove: jest.fn() } as never);
+  const props = { active: true };
+  const hook = await renderHook(
+    (p: typeof props) =>
+      useBoardHomeIndicator({
+        active: p.active,
+        ownerId: 'user-1',
+        islandId: 'island-1',
+        markRead: false,
+      }),
+    { initialProps: props },
+  );
+
+  await waitFor(() => expect(hook.result.current).toBe('unread'));
+  await hook.rerender({ active: false });
+  expect(hook.result.current).toBeNull();
+  await hook.rerender({ active: true });
+  await waitFor(() => expect(getBoard).toHaveBeenCalledTimes(2));
+  expect(hook.result.current).toBe('unread');
+
+  await hook.unmount();
+  addListener.mockRestore();
+});
+
+test('댓글 작성 성공 후 읽음 세대가 바뀌면 최신 댓글 수를 기준점에 저장한다', async () => {
+  const makeBoard = (commentCount: number) =>
+    ({
+      island: {
+        id: 'island-1',
+        name: '섬',
+        intro: '',
+        visibility: 'public',
+        approvalRequired: false,
+        memberCount: 1,
+        maxMembers: 15,
+        membershipStatus: 'active',
+        growthStage: null,
+        themeId: null,
+        role: 'host',
+        version: 1,
+      },
+      notices: {
+        items: [{ id: 'notice-1', title: '공지', commentCount }],
+        nextCursor: null,
+      },
+      quests: { items: [] },
+      wallets: { fish: 0, villagePoints: 0, fishVersion: null, villagePointsVersion: 0 },
+    }) as Awaited<ReturnType<typeof getBoard>>;
+  (getBoard as jest.Mock).mockResolvedValueOnce(makeBoard(0)).mockResolvedValueOnce(makeBoard(1));
+  (AsyncStorage.getItem as jest.Mock).mockResolvedValue(JSON.stringify({ notice1: 0 }));
+  const props = { readVersion: 0 };
+  const hook = await renderHook(
+    (p: typeof props) =>
+      useBoardHomeIndicator({
+        active: true,
+        ownerId: 'user-1',
+        islandId: 'island-1',
+        markRead: true,
+        readVersion: p.readVersion,
+      }),
+    { initialProps: props },
+  );
+
+  await waitFor(() => expect(getBoard).toHaveBeenCalledTimes(1));
+  await hook.rerender({ readVersion: 1 });
+  await waitFor(() => expect(getBoard).toHaveBeenCalledTimes(2));
+  await waitFor(() =>
+    expect(AsyncStorage.setItem).toHaveBeenLastCalledWith(
+      'gromo.board-indicator.v1:user-1:island-1',
+      JSON.stringify({ 'notice-1': 1 }),
+    ),
+  );
+
+  await hook.unmount();
 });
