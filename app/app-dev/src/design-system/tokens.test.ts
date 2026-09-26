@@ -83,4 +83,12 @@ describe('design system tokens', () => {
     expect(componentTokens.badge.soft.border).toBe(primitiveTokens.color.controlIdle);
     expect(componentTokens.badge.radius).toBe(semanticTokens.radius.full);
   });
+
+  it('상점 상태 이름표의 크기·간격·반경·선 굵기를 정식 토큰으로 둔다', () => {
+    expect(componentTokens.shopStatusLabel.minHeight).toBe(primitiveTokens.space[6]);
+    expect(componentTokens.shopStatusLabel.horizontalPadding).toBe(semanticTokens.spacing.control);
+    expect(componentTokens.shopStatusLabel.fontSize).toBe(semanticTokens.typography.label);
+    expect(componentTokens.shopStatusLabel.radius).toBe(semanticTokens.radius.full);
+    expect(componentTokens.shopStatusLabel.borderWidth).toBe(semanticTokens.stroke.default);
+  });
 });
