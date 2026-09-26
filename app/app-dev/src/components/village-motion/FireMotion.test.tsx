@@ -24,18 +24,19 @@ describe('FireMotion', () => {
 
   const activeFrame = (view: MotionView, mode: 'day' | 'evening') =>
     [0, 1, 2, 3].find((index) => {
-      const style = view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.style;
-      return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
+      return view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.opacity === 1;
     });
   const visibleFrameCount = (view: MotionView, mode: 'day' | 'evening') =>
     [0, 1, 2, 3].filter((index) => {
-      const style = view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.style;
-      return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
+      return view.getByTestId(`fire-motion-frame-${mode}-${index}`).props.opacity === 1;
     }).length;
+  const corePath = (view: MotionView) => view.getByTestId('fire-motion-core-path').props.d;
 
   it('loops through day smoke frames every 360ms', async () => {
     const view = await render(<FireMotion mode="day" />);
     expect(activeFrame(view, 'day')).toBe(0);
+    expect(view.getByTestId('fire-motion-frame-day-0').props.clipPath).toBe('fire-motion-core');
+    expect(corePath(view)).toContain('M165 26');
     await act(async () => jest.advanceTimersByTime(360));
     expect(activeFrame(view, 'day')).toBe(1);
     expect(visibleFrameCount(view, 'day')).toBe(1);
@@ -47,6 +48,8 @@ describe('FireMotion', () => {
   it('loops through evening flame frames every 155ms with a warm glow', async () => {
     const view = await render(<FireMotion mode="evening" residentCount={1} />);
     expect(activeFrame(view, 'evening')).toBe(1);
+    expect(view.getByTestId('fire-motion-frame-evening-1').props.clipPath).toBe('fire-motion-core');
+    expect(corePath(view)).toContain('M165 16');
     expect(view.getByTestId('fire-motion-glow')).toBeTruthy();
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
@@ -70,9 +73,7 @@ describe('FireMotion', () => {
     expect(empty.getByTestId('fire-motion').props.style).not.toEqual(
       expect.arrayContaining([expect.objectContaining({ opacity: 0.68 })]),
     );
-    expect(
-      empty.getByTestId('fire-motion-frame-evening-1').props.style,
-    ).toEqual(expect.arrayContaining([expect.objectContaining({ opacity: 1 })]));
+    expect(empty.getByTestId('fire-motion-frame-evening-1').props.opacity).toBe(1);
     const emptyGlow = empty
       .getByTestId('fire-motion-glow')
       .props.style.find((style: { opacity?: number }) => style?.opacity !== undefined).opacity;
@@ -125,14 +126,14 @@ describe('FireMotion', () => {
     await view.unmount();
   });
 
-  it('fills the parent using the 150:90 fire-pit box ratio', async () => {
+  it('fills the parent using the 100:71 fire-core box ratio', async () => {
     const view = await render(<FireMotion />);
     expect(view.getByTestId('fire-motion').props.style).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           width: '100%',
           height: '100%',
-          aspectRatio: 150 / 90,
+          aspectRatio: 100 / 71,
         }),
       ]),
     );

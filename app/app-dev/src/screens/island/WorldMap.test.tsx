@@ -186,17 +186,15 @@ test('홈 모닥불은 실제 화덕 경계에서 낮 연기와 밤 불꽃을 �
   expect(screen.getByTestId('world-fire-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 358 * worldScale,
-        top: worldTop + 434 * worldScale,
-        width: 150 * worldScale,
-        height: 90 * worldScale,
+        left: worldLeft + 420 * worldScale,
+        top: worldTop + 443 * worldScale,
+        width: 100 * worldScale,
+        height: 71 * worldScale,
       }),
     ]),
   );
   await act(async () => jest.advanceTimersByTime(360));
-  expect(screen.getByTestId('fire-motion-frame-day-1').props.style).toEqual(
-    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
-  );
+  expect(screen.getByTestId('fire-motion-frame-day-1').props.opacity).toBe(1);
 
   await screen.unmount();
   jest.setSystemTime(new Date('2026-06-15T21:00:00'));

@@ -1,13 +1,13 @@
 import React, { memo, useContext, useEffect, useState } from 'react';
 import {
   AppState,
-  Image,
   StyleSheet,
   View,
   type AppStateStatus,
   type ImageSourcePropType,
   type ViewStyle,
 } from 'react-native';
+import Svg, { ClipPath, Defs, Image as SvgImage, Path } from 'react-native-svg';
 import { semanticTokens } from '@/design-system/tokens';
 import { MotionContext } from '@/design-system/primitives';
 
@@ -31,8 +31,14 @@ const quietFlameSequence = [1, 1, 2, 1] as const;
 const groupFlameSequence = [1, 2, 3, 2, 3, 2] as const;
 const quietSmokeSequence = [0, 0, 1, 0] as const;
 const groupSmokeSequence = [0, 1, 2, 3, 2, 1, 2, 1] as const;
+// 배경 base에 원본 돌 테두리·장작이 이미 그려져 있다. 프레임 전체 타일 대신
+// 중앙 불꽃/연기 코어만 클립해 정적 화덕과 다른 모양의 돌이 겹치지 않게 한다.
+const flameCorePath =
+  'M165 16 C154 34 133 53 126 78 C116 111 137 137 165 140 C193 137 214 111 204 78 C197 53 176 34 165 16 Z';
+const smokeCorePath =
+  'M165 26 C156 39 151 51 154 62 C140 68 137 85 151 94 C141 105 148 122 163 124 C177 125 185 112 177 101 C194 93 194 76 180 67 C181 52 174 38 165 26 Z';
 
-/** 모닥불 프레임. 부모의 레이아웃과 확대 배율을 그대로 채운다(기준 상자 비율 150:90). */
+/** 모닥불 코어만 부모의 레이아웃과 확대 배율로 표시한다(기준 상자 비율 100:71). */
 export const FireMotion = memo(function FireMotionView({
   mode = 'evening',
   residentCount = null,
@@ -141,21 +147,43 @@ export const FireMotion = memo(function FireMotionView({
           style={[styles.glow, { opacity: glowOpacity }]}
         />
       )}
-      {frames.map((source, index) => (
-        <Image
-          key={index}
-          testID={`fire-motion-frame-${mode}-${index}`}
-          source={source}
-          resizeMode="stretch"
-          style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
-        />
-      ))}
+      <Svg
+        testID="fire-motion-frames"
+        width="100%"
+        height="100%"
+        viewBox="0 0 330 220"
+        preserveAspectRatio="none"
+        style={StyleSheet.absoluteFill}
+      >
+        <Defs>
+          <ClipPath id="fire-motion-core">
+            <Path
+              testID="fire-motion-core-path"
+              d={mode === 'day' ? smokeCorePath : flameCorePath}
+            />
+          </ClipPath>
+        </Defs>
+        {frames.map((source, index) => (
+          <SvgImage
+            key={index}
+            testID={`fire-motion-frame-${mode}-${index}`}
+            href={source as number}
+            x={0}
+            y={0}
+            width={330}
+            height={220}
+            preserveAspectRatio="none"
+            clipPath="url(#fire-motion-core)"
+            opacity={frame === index ? 1 : 0}
+          />
+        ))}
+      </Svg>
     </View>
   );
 });
 
 const styles = StyleSheet.create({
-  fill: { width: '100%', height: '100%', aspectRatio: 150 / 90 },
+  fill: { width: '100%', height: '100%', aspectRatio: 100 / 71 },
   glow: {
     position: 'absolute',
     top: '18%',
@@ -165,7 +193,4 @@ const styles = StyleSheet.create({
     borderRadius: semanticTokens.radius.full,
     backgroundColor: semanticTokens.color.accent,
   },
-  frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
-  visible: { opacity: 1 },
-  hidden: { opacity: 0 },
 });

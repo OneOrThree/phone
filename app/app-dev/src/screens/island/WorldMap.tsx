@@ -587,11 +587,11 @@ export function WorldMap({
             reduceMotion={state.settings.reduceMotion}
             style={{
               position: 'absolute',
-              // base day/night의 정적 화덕을 프레임 전체로 덮는 source 좌표 상자.
-              left: left + 358 * scale,
-              top: top + 434 * scale,
-              width: 150 * scale,
-              height: 90 * scale,
+              // 정적 돌·장작은 base에 보존하고 실제 불꽃 코어만 source 경계에 맞춰 덮는다.
+              left: left + 420 * scale,
+              top: top + 443 * scale,
+              width: 100 * scale,
+              height: 71 * scale,
             }}
           />
         </View>
