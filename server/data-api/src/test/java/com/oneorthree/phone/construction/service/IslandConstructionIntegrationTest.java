@@ -95,6 +95,7 @@ class IslandConstructionIntegrationTest {
     void startDebitsOnceAndReplayAddsNothing() {
         Fixture f = fundedIsland(100, "hall");
         UUID key = UUID.randomUUID();
+        assertThat(service.options(f.islandId, f.ownerId).activeConstruction()).isNull();
 
         ConstructionStartedView first = service.start(
                 f.islandId, f.ownerId, "hall", 0, 1, key);
@@ -107,6 +108,15 @@ class IslandConstructionIntegrationTest {
         assertThat(first.startedAt()).isNotNull();
         assertThat(first.completesAt()).isEqualTo(first.startedAt().plusSeconds(60));
         assertThat(first.villagePoints()).isEqualTo(40);
+
+        var options = service.options(f.islandId, f.ownerId);
+        assertThat(options.activeConstruction()).isNotNull();
+        assertThat(options.activeConstruction().buildingId()).isEqualTo("hall");
+        assertThat(options.activeConstruction().status()).isEqualTo("BUILDING");
+        assertThat(options.activeConstruction().startedAt()).isEqualTo(toDbMicros(first.startedAt()));
+        assertThat(options.activeConstruction().completesAt()).isEqualTo(toDbMicros(first.completesAt()));
+        assertThat(options.activeConstruction().serverNow()).isNotNull();
+        assertThat(options.activeConstruction().version()).isEqualTo(options.islandVersion());
 
         // 단일 TX 의 세 확정 — 차감 1회, 시설 BUILDING, 목표 해제.
         IslandFacility facility = facilities

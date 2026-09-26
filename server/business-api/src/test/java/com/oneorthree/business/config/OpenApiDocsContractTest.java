@@ -73,6 +73,26 @@ class OpenApiDocsContractTest extends UpstreamTestBase {
                 .containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
     }
 
+    @Test
+    @DisplayName("건설 옵션 OpenAPI는 nullable activeConstruction의 snapshot 필드를 문서화한다")
+    void constructionOptionsDocumentsActiveConstruction() throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path("/islands/{islandId}/construction-options")
+                .path("get").path("responses").path("200").path("content");
+        var response = content.iterator().next().path("schema");
+        var options = document.at(response.path("$ref").asText().substring(1));
+        var activeProperty = options.path("properties").path("activeConstruction");
+        assertThat(activeProperty.path("type").toString()).contains("object", "null");
+        var active = document.at(activeProperty.path("$ref").asText().substring(1));
+        assertThat(active.path("properties").propertyNames())
+                .containsExactlyInAnyOrder("buildingId", "status", "startedAt", "completesAt", "serverNow", "version");
+        var required = new java.util.ArrayList<String>();
+        active.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(
+                "buildingId", "status", "startedAt", "completesAt", "serverNow", "version");
+    }
+
     @ParameterizedTest
     @CsvSource(delimiter = '|', value = {
             "/auth/sessions|post|201|accessToken refreshToken userId onboardingComplete|",

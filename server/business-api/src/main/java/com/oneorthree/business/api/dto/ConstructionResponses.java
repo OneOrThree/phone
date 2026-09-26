@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
 import com.oneorthree.business.upstream.data.dto.ConstructionResult;
 import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
@@ -19,6 +20,7 @@ public final class ConstructionResponses {
             @JsonProperty(required = true) String selectedBuildingId,
             @JsonProperty(required = true) long villagePoints,
             @JsonProperty(required = true) long walletVersion,
+            @JsonProperty(required = true) @Schema(types = {"object", "null"}) ActiveConstruction activeConstruction,
             @JsonProperty(required = true) List<ConstructionOptionItem> items) {
         public static ConstructionOptionsView from(ConstructionOptions value) {
             if (value == null) {
@@ -30,7 +32,24 @@ public final class ConstructionResponses {
                     value.selectedBuildingId(),
                     value.villagePoints(),
                     value.walletVersion(),
+                    ActiveConstruction.from(value.activeConstruction()),
                     value.items() == null ? null : value.items().stream().map(ConstructionOptionItem::from).toList());
+        }
+    }
+
+    public record ActiveConstruction(
+            @JsonProperty(required = true) String buildingId,
+            @JsonProperty(required = true) String status,
+            @JsonProperty(required = true) String startedAt,
+            @JsonProperty(required = true) String completesAt,
+            @JsonProperty(required = true) String serverNow,
+            @JsonProperty(required = true) long version) {
+        public static ActiveConstruction from(ConstructionOptions.ActiveConstruction value) {
+            if (value == null) {
+                return null;
+            }
+            return new ActiveConstruction(value.buildingId(), value.status(), value.startedAt(),
+                    value.completesAt(), value.serverNow(), value.version());
         }
     }
 

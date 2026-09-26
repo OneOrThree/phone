@@ -125,6 +125,15 @@ public class IslandConstructionService {
                 .collect(Collectors.toSet());
         boolean anyInProgress = facilityByBuilding.values().stream()
                 .anyMatch(f -> f.getStatus() == FacilityStatus.BUILDING);
+        long islandVersion = aggregateVersion(IslandStateEvents.AGGREGATE_TYPE, islandId);
+        IslandFacility activeFacility = facilityByBuilding.values().stream()
+                .filter(f -> f.getStatus() == FacilityStatus.BUILDING)
+                .findFirst()
+                .orElse(null);
+        ConstructionOptionsView.ActiveConstruction activeConstruction = activeFacility == null ? null
+                : new ConstructionOptionsView.ActiveConstruction(activeFacility.getBuildingId(),
+                        activeFacility.getStatus().name(), activeFacility.getStartedAt(),
+                        activeFacility.getCompletesAt(), clock.instant(), islandVersion);
 
         IslandConstructionState state = states.findById(islandId).orElse(null);
         long epoch = state == null ? 0L : state.getTargetEpoch();
@@ -148,11 +157,12 @@ public class IslandConstructionService {
                     completed, canBuild, balance, targetIds, contributed, targetBuildingId));
         }
         return new ConstructionOptionsView(
-                aggregateVersion(IslandStateEvents.AGGREGATE_TYPE, islandId),
+                islandVersion,
                 revision,
                 state == null ? null : state.getTargetBuildingId(),
                 balance,
                 aggregateVersion(IslandWalletEvents.AGGREGATE_TYPE, islandId),
+                activeConstruction,
                 items);
     }
 
