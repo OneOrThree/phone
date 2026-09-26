@@ -93,7 +93,7 @@ test('홈 게시판은 월드 배율로 정지 렌더링하고 명시적 상태�
   );
   expect(screen.getByTestId('village-board-new-indicator').props.style).toEqual(
     expect.arrayContaining([
-      expect.objectContaining({ top: 4 * worldScale, right: -20 * worldScale }),
+      expect.objectContaining({ top: -20 * worldScale, right: 12 * worldScale }),
     ]),
   );
   const boardBadgeSize = screen
@@ -235,6 +235,13 @@ test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한�
       right: (577 - 60 + 120 - (456 + 262)) * worldScale,
       top: (603 - (783 - 95)) * worldScale,
       alignItems: 'flex-end',
+    }),
+  );
+  expect(screen.getByTestId('building-name-tower').props.style).toEqual(
+    expect.objectContaining({
+      left: (150 - 12 - (272 - 60)) * worldScale,
+      top: (52 - (200 - 95)) * worldScale,
+      alignItems: 'flex-start',
     }),
   );
   await screen.unmount();

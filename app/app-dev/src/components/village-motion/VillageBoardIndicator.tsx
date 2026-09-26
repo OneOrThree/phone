@@ -40,7 +40,7 @@ export function VillageBoardIndicator({
           testID="village-board-new-indicator"
           accessibilityLabel={hasNewComment ? '새 댓글이 있습니다' : '읽지 않은 새 소식이 있습니다'}
           scale={badgeScale}
-          style={{ top: 4 * indicatorScale, right: -20 * indicatorScale }}
+          style={{ top: -20 * indicatorScale, right: 12 * indicatorScale }}
         />
       )}
       {hasNotice && tooltip != null && (

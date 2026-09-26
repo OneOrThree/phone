@@ -103,8 +103,11 @@ const legacyBuildingLabelAnchorY: Record<Building, number> = {
   gram: 365,
   library: 310,
   mail: 494,
-  tower: -2,
+  tower: 52,
   shop: 603,
+};
+const legacyBuildingLabelAnchorXOffset: Partial<Record<Building, number>> = {
+  tower: -12,
 };
 const rightAlignedBuildingLabels = new Set<Building>(['hall', 'library', 'shop']);
 type Door = Point & {
@@ -994,6 +997,7 @@ function FinalIslandScene({
               }
               const box = legacyBuildingLabelBox[d.building];
               const anchorY = legacyBuildingLabelAnchorY[d.building];
+              const anchorXOffset = legacyBuildingLabelAnchorXOffset[d.building] ?? 0;
               return labelOnRight
                 ? {
                     right: (hitbox.x + hitbox.w - (box.x + box.w)) * s,
@@ -1001,7 +1005,7 @@ function FinalIslandScene({
                     alignItems: 'flex-end' as const,
                   }
                 : {
-                    left: (box.x - hitbox.x) * s,
+                    left: (box.x + anchorXOffset - hitbox.x) * s,
                     top: (anchorY - hitbox.y) * s,
                     alignItems: 'flex-start' as const,
                   };
