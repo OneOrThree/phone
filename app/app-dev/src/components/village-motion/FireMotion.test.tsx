@@ -53,6 +53,7 @@ describe('FireMotion', () => {
     expect(corePath(view)).toContain('M165 16');
     expect(view.getByTestId('fire-motion-glow')).toBeTruthy();
     expect(view.queryByTestId('fire-motion-quiet-unlit-core')).toBeNull();
+    expect(view.queryByTestId('fire-motion-quiet-off-core')).toBeNull();
     expect(view.getByTestId('fire-motion').props.accessibilityLabel).toContain('주민 1명');
     await act(async () => jest.advanceTimersByTime(155));
     expect(activeFrame(view, 'evening')).toBe(2);
@@ -76,6 +77,7 @@ describe('FireMotion', () => {
       expect.arrayContaining([expect.objectContaining({ opacity: 0.68 })]),
     );
     expect(empty.getByTestId('fire-motion-quiet-unlit-core').props.opacity).toBe(1);
+    expect(empty.getByTestId('fire-motion-quiet-off-core').props.d).toContain('M165 1');
     expect(empty.getByTestId('fire-motion-frame-evening-1').props).toMatchObject({
       opacity: 0.52,
       clipPath: 'fire-motion-quiet-core',
