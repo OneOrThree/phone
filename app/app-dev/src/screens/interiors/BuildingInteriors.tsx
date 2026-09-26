@@ -3935,8 +3935,25 @@ export function Board({
   const board = useBoardNotices({
     active: serverBoard,
     scopeKey: app ? String(app.island.id) : 'mock',
-    onLoaded: e?.buildingIndicators?.markBoardSeen,
   });
+  const boardNoticesVisible =
+    serverBoard && !!e && (e.route === 'notice' || (e.route === 'board' && e.tab === '공지'));
+  useEffect(() => {
+    if (!boardNoticesVisible || board.loading || board.error || !board.islandId) return;
+    e?.buildingIndicators?.markBoardSeen?.({
+      islandId: board.islandId,
+      items: board.items,
+      nextCursor: board.nextCursor,
+    });
+  }, [
+    boardNoticesVisible,
+    board.loading,
+    board.error,
+    board.islandId,
+    board.items,
+    board.nextCursor,
+    e?.buildingIndicators?.markBoardSeen,
+  ]);
   useEffect(() => {
     if (!serverBoard || !e || !board.islandId || !board.wallets) return;
     e.dispatch({

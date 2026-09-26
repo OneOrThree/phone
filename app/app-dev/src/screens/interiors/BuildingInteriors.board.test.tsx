@@ -301,6 +301,35 @@ test('목록 — getBoard 첫 페이지를 그리고 더 보기는 listNotices �
   await screen.unmount();
 });
 
+test('퀘스트에서 재사용한 Board는 공지를 읽음 처리하지 않고 공지 화면에서만 기준점을 기록한다', async () => {
+  getBoardMock.mockResolvedValue(page([{ id: 'n1', title: '첫 공지', commentCount: 2 }]));
+  const markBoardSeen = jest.fn();
+  const e = makeE({
+    route: 'quest',
+    detail: 'q1',
+    tab: '퀘스트',
+    buildingIndicators: { markBoardSeen },
+  });
+  const screen = await renderBoard(e);
+
+  await waitFor(() => assert.equal(getBoardMock.mock.calls.length, 1));
+  await act(async () => {});
+  expect(markBoardSeen).not.toHaveBeenCalled();
+
+  await screen.setE({ ...e, route: 'questEdit', detail: 'q1', tab: '퀘스트' });
+  await act(async () => {});
+  expect(markBoardSeen).not.toHaveBeenCalled();
+
+  await screen.setE({ ...e, route: 'notice', detail: 'n1', tab: '공지' });
+  await waitFor(() => expect(markBoardSeen).toHaveBeenCalledTimes(1));
+  expect(markBoardSeen).toHaveBeenCalledWith({
+    islandId: ISLAND,
+    items: [{ id: 'n1', title: '첫 공지', commentCount: 2 }],
+    nextCursor: null,
+  });
+  await screen.unmount();
+});
+
 test('방문자 — 보호된 GET·쓰기를 하나도 부르지 않고 로컬 공지를 보여 준다', async () => {
   const state = initialState(true);
   state.visitingIslandId = 'strawberry';
