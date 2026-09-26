@@ -14,7 +14,7 @@ export function useBuildingIndicatorSeen({
   onLoaded: (screen: LibraryScreen) => void;
 }) {
   const callback = useRef(onLoaded);
-  const lastDispatched = useRef<{ islandId: string; screen: LibraryScreen } | null>(null);
+  const dispatchedScreens = useRef(new WeakMap<LibraryScreen, Set<string>>());
   callback.current = onLoaded;
 
   useEffect(() => {
@@ -27,9 +27,10 @@ export function useBuildingIndicatorSeen({
       (screen.missingFragments?.length ?? 0) > 0
     )
       return;
-    if (lastDispatched.current?.islandId === islandId && lastDispatched.current.screen === screen)
-      return;
-    lastDispatched.current = { islandId, screen };
+    const seenIslands = dispatchedScreens.current.get(screen) ?? new Set<string>();
+    if (seenIslands.has(islandId)) return;
+    seenIslands.add(islandId);
+    dispatchedScreens.current.set(screen, seenIslands);
     callback.current(screen);
   }, [active, islandId, screen]);
 }

@@ -60,19 +60,23 @@ test.each([
 
 test('같은 캐시 도서관 응답은 탭 전환 시 한 번만 확인 처리한다', async () => {
   const onLoaded = jest.fn();
+  const otherIslandScreen = { ...screen, island: { ...screen.island, id: 'i2' } };
   const hook = await renderHook(
-    ({ active, value }: { active: boolean; value: LibraryScreen }) =>
-      useBuildingIndicatorSeen({ active, islandId: 'i1', screen: value, onLoaded }),
-    { initialProps: { active: true, value: screen } },
+    ({ active, islandId, value }: { active: boolean; islandId: string; value: LibraryScreen }) =>
+      useBuildingIndicatorSeen({ active, islandId, screen: value, onLoaded }),
+    { initialProps: { active: true, islandId: 'i1', value: screen } },
   );
-  await hook.rerender({ active: false, value: screen });
-  await hook.rerender({ active: true, value: screen });
+  await hook.rerender({ active: false, islandId: 'i1', value: screen });
+  await hook.rerender({ active: true, islandId: 'i1', value: screen });
   assert.equal(onLoaded.mock.calls.length, 1);
   const updated = { ...screen };
   await act(async () => {
-    await hook.rerender({ active: true, value: updated });
+    await hook.rerender({ active: true, islandId: 'i1', value: updated });
   });
   assert.equal(onLoaded.mock.calls.length, 2);
+  await hook.rerender({ active: true, islandId: 'i2', value: otherIslandScreen });
+  await hook.rerender({ active: true, islandId: 'i1', value: screen });
+  assert.equal(onLoaded.mock.calls.length, 3);
   await hook.unmount();
 });
 
