@@ -74,6 +74,7 @@ import { LibraryMotion, type LibraryMotionState } from '@/components/village-mot
 import { FireMotion } from '@/components/village-motion/FireMotion';
 import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
+import { useDayNightState, type DayNight } from '@/utils/day-night';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -270,6 +271,7 @@ export function WorldMap({
   towerArrivalGeneration = 0,
   shopArrivalActive = false,
   shopArrivalGeneration = 0,
+  dayNightOverride,
   village,
   children,
 }: {
@@ -291,6 +293,7 @@ export function WorldMap({
   towerArrivalGeneration?: number;
   shopArrivalActive?: boolean;
   shopArrivalGeneration?: number;
+  dayNightOverride?: DayNight;
   village?: VillageScene;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
@@ -298,32 +301,12 @@ export function WorldMap({
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
-  const demoParams =
-    Platform.OS === 'web' && typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search)
-      : null;
-  const demoNight = demoParams?.has('demo') === true && demoParams.has('night');
-  const demoDay = demoParams?.has('demo') === true && !demoNight;
-  const [dayNight, setDayNight] = useState<'day' | 'night'>(() => {
-    if (demoNight) return 'night';
-    if (demoDay) return 'day';
-    const hour = new Date().getHours();
-    return hour >= 6 && hour < 18 ? 'day' : 'night';
-  });
+  const dayNight = useDayNightState(dayNightOverride);
   const homeFacts = serverHome(state);
   const fireResidentCount =
     homeFacts?.home.island.id === island.id
       ? homeFacts.home.island.memberCount
       : islandResidentCount(island);
-  useEffect(() => {
-    if (demoDay || demoNight) return;
-    const updateLocalTime = () => {
-      const hour = new Date().getHours();
-      setDayNight(hour >= 6 && hour < 18 ? 'day' : 'night');
-    };
-    const timer = setInterval(updateLocalTime, 60_000);
-    return () => clearInterval(timer);
-  }, [demoDay, demoNight]);
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
@@ -808,13 +791,8 @@ function FinalIslandScene({
     [layeredPreview, i.buildings],
   );
   const grid = scene?.grid ?? grids.home;
-  const demoParams =
-    Platform.OS === 'web' && typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search)
-      : null;
-  const entryFramesVisible = demoParams?.has('demo')
-    ? !demoParams.has('night')
-    : new Date().getHours() >= 6 && new Date().getHours() < 18;
+  const dayNight = useDayNightState();
+  const entryFramesVisible = dayNight === 'day';
   const hasEntrySprite = (target: BuildingTransitionTarget | null) =>
     !scene &&
     entryFramesVisible &&
@@ -1309,6 +1287,7 @@ function FinalIslandScene({
         state={state}
         village={scene}
         islandId={i.id}
+        dayNightOverride={dayNight}
         hallMotionActive={
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
         }
