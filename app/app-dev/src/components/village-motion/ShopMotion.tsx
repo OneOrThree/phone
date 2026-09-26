@@ -88,9 +88,9 @@ export const ShopMotion = memo(function ShopMotionView({
   return (
     <View
       testID={testID}
-      accessible
-      accessibilityRole="image"
-      accessibilityLabel={stateLabel ? `상점, ${stateLabel}` : '상점'}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden={true}
       pointerEvents="none"
       style={[styles.fill, style]}
     >

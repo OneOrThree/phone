@@ -250,6 +250,13 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.default,
     radius: semanticTokens.radius.full,
   },
+  shopStatusLabel: {
+    minHeight: primitiveTokens.space[6],
+    horizontalPadding: semanticTokens.spacing.control,
+    fontSize: semanticTokens.typography.label,
+    borderWidth: semanticTokens.stroke.default,
+    radius: semanticTokens.radius.full,
+  },
   progress: {
     track: color.progressTrack,
     fill: semanticTokens.color.primary,

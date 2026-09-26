@@ -26,6 +26,7 @@ import {
   buildingCost,
   buildMinutes,
   todayFocusSeconds,
+  residentCount as islandResidentCount,
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
@@ -309,6 +310,11 @@ export function WorldMap({
     const hour = new Date().getHours();
     return hour >= 6 && hour < 18 ? 'day' : 'night';
   });
+  const homeFacts = serverHome(state);
+  const fireResidentCount =
+    homeFacts?.home.island.id === island.id
+      ? homeFacts.home.island.memberCount
+      : islandResidentCount(island);
   useEffect(() => {
     if (demoDay || demoNight) return;
     const updateLocalTime = () => {
@@ -638,16 +644,32 @@ export function WorldMap({
               }}
             />
           )}
+          {dayNight === 'day' && (
+            <Image
+              testID="world-fire-day-off-overlay"
+              source={require('@/assets/village-world/motion/fire/day-fire-off-overlay.png')}
+              resizeMode="stretch"
+              style={{
+                position: 'absolute',
+                left: left + 440 * scale,
+                top: top + 435 * scale,
+                width: 60 * scale,
+                height: 80 * scale,
+              }}
+            />
+          )}
           <FireMotion
             testID="world-fire-motion"
             mode={dayNight === 'day' ? 'day' : 'evening'}
+            residentCount={fireResidentCount}
             reduceMotion={state.settings.reduceMotion}
             style={{
               position: 'absolute',
-              left: left + (dayNight === 'day' ? 402 : 405) * scale,
-              top: top + (dayNight === 'day' ? 425 : 437) * scale,
-              width: (dayNight === 'day' ? 116 : 140) * scale,
-              height: (dayNight === 'day' ? 77 : 93) * scale,
+              // 정적 돌·장작은 base에 보존하고 실제 불꽃 코어만 source 경계에 맞춰 덮는다.
+              left: left + 420 * scale,
+              top: top + 443 * scale,
+              width: 100 * scale,
+              height: 71 * scale,
             }}
           />
           <RaftWaterMotion
@@ -1098,12 +1120,12 @@ function FinalIslandScene({
                     ? '터치하면 마을 회관으로 들어가요'
                     : d.building === 'board' && !!boardStatus
                       ? '게시판을 열어 확인하세요'
-                      : d.building === 'shop' && shopState !== 'normal'
-                        ? '상점에서 상품을 확인하세요'
-                        : d.building === 'library' && libraryState !== 'normal'
-                          ? '도서관에서 새 내용을 확인하세요'
-                          : visiting && d.building && !['hall', 'board'].includes(d.building)
-                            ? '주민만 이용할 수 있어요'
+                      : visiting && d.building && !['hall', 'board'].includes(d.building)
+                        ? '주민만 이용할 수 있어요'
+                        : d.building === 'shop' && shopState !== 'normal'
+                          ? '상점에서 상품을 확인하세요'
+                          : d.building === 'library' && libraryState !== 'normal'
+                            ? '도서관에서 새 내용을 확인하세요'
                             : undefined
                 }
                 onPress={() => {

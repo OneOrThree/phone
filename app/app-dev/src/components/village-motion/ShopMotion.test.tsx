@@ -13,7 +13,8 @@ describe('ShopMotion', () => {
 
   const activeFrame = (view: MotionView) =>
     [0, 1, 2, 3].find((index) => {
-      const style = view.getByTestId(`shop-motion-frame-${index}`).props.style;
+      const style = view.getByTestId(`shop-motion-frame-${index}`, { includeHiddenElements: true })
+        .props.style;
       return Array.isArray(style) && style.some((entry) => entry?.opacity === 1);
     });
 
@@ -58,9 +59,12 @@ describe('ShopMotion', () => {
     ['purchasable', '상점, 구매 가능'],
   ] as const)('exposes the %s state without outlining the storefront', async (state, label) => {
     const view = await render(<ShopMotion state={state} />);
-    expect(view.getByTestId('shop-motion').props.accessibilityLabel).toBe(label);
-    expect(view.queryByTestId('shop-motion-highlight')).toBeNull();
-    expect(view.queryByTestId('shop-motion-tooltip')).toBeNull();
+    const motion = view.getByTestId('shop-motion', { includeHiddenElements: true });
+    expect(motion.props.accessibilityElementsHidden).toBe(true);
+    expect(motion.props.importantForAccessibility).toBe('no-hide-descendants');
+    expect(view.queryByLabelText(label)).toBeNull();
+    expect(view.queryByTestId('shop-motion-highlight', { includeHiddenElements: true })).toBeNull();
+    expect(view.queryByTestId('shop-motion-tooltip', { includeHiddenElements: true })).toBeNull();
     await view.unmount();
   });
 
