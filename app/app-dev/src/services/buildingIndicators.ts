@@ -8,7 +8,11 @@ import { sessionGeneration } from './api/session';
 
 export type IndicatorScope = { userId: string; islandId: string };
 export type BoardSnapshot = Record<string, number>;
-export type LibrarySnapshot = { periodKey: string; fingerprint: string };
+export type LibrarySnapshot = {
+  periodKey: string;
+  weeklyFingerprint: string;
+  fishEarnings: Record<string, number>;
+};
 
 const key = (scope: IndicatorScope, building: 'board' | 'library') =>
   `gromo:indicators:v1:${encodeURIComponent(scope.userId)}:${encodeURIComponent(scope.islandId)}:${building}`;
@@ -42,7 +46,11 @@ export const loadLibrarySeen = (scope: IndicatorScope) =>
   load(
     key(scope, 'library'),
     (value): value is LibrarySnapshot =>
-      record(value) && typeof value.periodKey === 'string' && typeof value.fingerprint === 'string',
+      record(value) &&
+      typeof value.periodKey === 'string' &&
+      typeof value.weeklyFingerprint === 'string' &&
+      record(value.fishEarnings) &&
+      Object.values(value.fishEarnings).every(count),
   );
 export const saveLibrarySeen = (scope: IndicatorScope, snapshot: LibrarySnapshot) =>
   AsyncStorage.setItem(key(scope, 'library'), JSON.stringify(snapshot));
@@ -98,7 +106,7 @@ export function librarySnapshot(screen: LibraryScreen, now = new Date()): Librar
   // 조회·집계 시각(asOf/updatedAt), 주민 이름, 배열 순서는 콘텐츠 변경으로 세지 않는다.
   return {
     periodKey: week(now).from,
-    fingerprint: JSON.stringify({
+    weeklyFingerprint: JSON.stringify({
       focus: {
         totalSeconds: focus.totalSeconds,
         series: focus.series
@@ -124,10 +132,10 @@ export function librarySnapshot(screen: LibraryScreen, now = new Date()): Librar
           }))
           .sort((a, b) => a.date.localeCompare(b.date)),
       },
-      fish: screen.fishEarnings.members
-        .map(({ userId, earnedFish }) => ({ userId, earnedFish }))
-        .sort((a, b) => a.userId.localeCompare(b.userId)),
     }),
+    fishEarnings: Object.fromEntries(
+      screen.fishEarnings.members.map(({ userId, earnedFish }) => [userId, earnedFish]),
+    ),
   };
 }
 
@@ -135,12 +143,25 @@ export function libraryStatus(
   current: LibrarySnapshot | null,
   seen: LibrarySnapshot | null,
 ): boolean {
-  return (
-    !!current &&
-    !!seen &&
-    current.periodKey === seen.periodKey &&
-    current.fingerprint !== seen.fingerprint
+  if (!current || !seen) return false;
+  const hasNewFish = Object.entries(current.fishEarnings).some(
+    ([userId, earnedFish]) => earnedFish > (seen.fishEarnings[userId] ?? 0),
   );
+  return (
+    hasNewFish ||
+    (current.periodKey === seen.periodKey && current.weeklyFingerprint !== seen.weeklyFingerprint)
+  );
+}
+
+/** 주가 바뀌면 주간 통계만 새 기준으로 옮기고, 미확인 누적 어획 기준은 보존한다. */
+export function rolloverLibrarySeen(
+  current: LibrarySnapshot,
+  seen: LibrarySnapshot,
+): LibrarySnapshot {
+  return {
+    ...current,
+    fishEarnings: seen.fishEarnings,
+  };
 }
 
 const contract = (field: string) =>
@@ -237,10 +258,14 @@ export async function fetchLibrarySnapshot(
   islandId: string,
   isCurrent?: () => boolean,
   now = new Date(),
+  initialScreen?: LibraryScreen,
 ): Promise<LibrarySnapshot | null> {
   const alive = guard(isCurrent);
   alive();
-  const screen = await gated(getLibraryScreen(), alive);
+  // When the library screen has already been loaded for display, use that exact
+  // response as the first page. Fetch only any remaining focus-record pages.
+  const screen = initialScreen ?? (await gated(getLibraryScreen(), alive));
+  alive();
   if (screen.island.id !== islandId) throw contract('library.island.id');
   if (screen.statisticsAvailability !== 'available' || screen.missingFragments?.length) return null;
   if (!screen.focusStatistics) return null;

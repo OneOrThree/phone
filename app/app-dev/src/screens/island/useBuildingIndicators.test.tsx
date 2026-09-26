@@ -11,6 +11,7 @@ import {
 } from '@/services/buildingIndicators';
 import { clearSession, saveSession } from '@/services/api/session';
 import { useBuildingIndicators } from './useBuildingIndicators';
+import type { LibraryScreen } from '@/services/api/records';
 
 jest.mock('@/services/buildingIndicators', () => ({
   ...jest.requireActual('@/services/buildingIndicators'),
@@ -30,16 +31,43 @@ const boardSeen = loadBoardSeen as jest.Mock;
 const librarySeen = loadLibrarySeen as jest.Mock;
 const saveBoard = saveBoardSeen as jest.Mock;
 const saveLibrary = saveLibrarySeen as jest.Mock;
+const displayedLibraryScreen: LibraryScreen = {
+  island: { id: 'island-1', name: '섬', role: 'host' },
+  statisticsAvailability: 'available',
+  focusStatistics: {
+    scope: 'me',
+    totalSeconds: 1,
+    series: [],
+    records: [],
+    nextCursor: null,
+  },
+  screenTimeStatistics: {
+    scope: 'me',
+    measurementStatus: 'authorized',
+    totalMinutes: 0,
+    series: [],
+    updatedAt: null,
+  },
+  fishEarnings: { members: [] },
+};
 
 beforeEach(async () => {
   jest.clearAllMocks();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'user-1' });
   boardNow.mockResolvedValue({ notice: 2 });
-  libraryNow.mockResolvedValue({ periodKey: '2026-09-20', fingerprint: 'new' });
+  libraryNow.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'new',
+    fishEarnings: { user: 2 },
+  });
   mailboxNow.mockResolvedValue(0);
   boardSeen.mockResolvedValue({ notice: 2 });
-  librarySeen.mockResolvedValue({ periodKey: '2026-09-20', fingerprint: 'new' });
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'new',
+    fishEarnings: { user: 2 },
+  });
   saveBoard.mockResolvedValue(undefined);
   saveLibrary.mockResolvedValue(undefined);
 });
@@ -55,7 +83,11 @@ test('홈이 아니거나 서버 섬이 없으면 배지 API를 호출하지 않
 
 test('저장된 확인 상태와 서버 현재 값을 비교해 세 배지를 계산한다', async () => {
   boardSeen.mockResolvedValue({ notice: 1 });
-  librarySeen.mockResolvedValue({ periodKey: '2026-09-20', fingerprint: 'old' });
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'old',
+    fishEarnings: { user: 2 },
+  });
   mailboxNow.mockResolvedValue(2);
   const { result } = await renderHook(() =>
     useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
@@ -80,6 +112,36 @@ test('첫 관측은 기준점으로 저장하고 과거 콘텐츠 배지를 만�
   assert.equal(
     JSON.stringify(saveBoard.mock.calls[0]),
     JSON.stringify([{ userId: 'user-1', islandId: 'island-1' }, { notice: 2 }]),
+  );
+});
+
+test('주가 바뀌어도 미확인 누적 어획 증가는 읽음 기준에 덮어쓰지 않는다', async () => {
+  libraryNow.mockResolvedValue({
+    periodKey: '2026-09-27',
+    weeklyFingerprint: 'new-week',
+    fishEarnings: { user: 3 },
+  });
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'old-week',
+    fishEarnings: { user: 2 },
+  });
+
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+
+  await waitFor(() => assert.equal(result.current.libraryState, 'new-reading'));
+  assert.equal(
+    JSON.stringify(saveLibrary.mock.calls[0]),
+    JSON.stringify([
+      { userId: 'user-1', islandId: 'island-1' },
+      {
+        periodKey: '2026-09-27',
+        weeklyFingerprint: 'new-week',
+        fishEarnings: { user: 2 },
+      },
+    ]),
   );
 });
 
@@ -110,16 +172,21 @@ test('게시판에서 실제로 불러온 페이지만 기존 확인 상태에 �
 });
 
 test('도서관 확인은 전체 기록 조회와 저장이 모두 성공한 뒤 배지를 내린다', async () => {
-  librarySeen.mockResolvedValue({ periodKey: '2026-09-20', fingerprint: 'old' });
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'old',
+    fishEarnings: { user: 2 },
+  });
   const { result } = await renderHook(() =>
     useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
   );
   await waitFor(() => assert.equal(result.current.libraryState, 'new-reading'));
 
   await act(async () => {
-    await result.current.markLibrarySeen();
+    await result.current.markLibrarySeen(displayedLibraryScreen);
   });
   assert.equal(saveLibrary.mock.calls.length, 1);
+  assert.equal(libraryNow.mock.calls.at(-1)?.[3], displayedLibraryScreen);
   assert.equal(result.current.libraryState, 'normal');
 });
 

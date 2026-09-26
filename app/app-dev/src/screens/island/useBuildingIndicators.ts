@@ -10,6 +10,7 @@ import {
   loadBoardSeen,
   loadLibrarySeen,
   reconcileBoardSeen,
+  rolloverLibrarySeen,
   saveBoardSeen,
   saveLibrarySeen,
   type BoardSnapshot,
@@ -17,6 +18,7 @@ import {
   type LibrarySnapshot,
 } from '@/services/buildingIndicators';
 import { getSession, sessionGeneration, subscribeSession } from '@/services/api/session';
+import type { LibraryScreen } from '@/services/api/records';
 import type { BoardLoadedSnapshot } from '@/screens/interiors/useBoardNotices';
 
 export type BuildingIndicators = {
@@ -122,14 +124,17 @@ export function useBuildingIndicators({
         ]);
         if (!alive() || !current) return;
         currentLibrary.current = current;
-        // 첫 관측과 UTC 주 변경은 새 콘텐츠로 세지 않고 새 기준점으로 삼는다.
+        const hasUpdate = libraryStatus(current, seen);
+        // 첫 관측은 전체 기준을 만들고, 주 변경은 주간 기준만 넘긴다.
+        // 기간과 무관한 누적 어획 증가는 사용자가 도서관을 확인할 때까지 보존한다.
         if (!seen || seen.periodKey !== current.periodKey) {
-          await saveLibrarySeen(requestScope, current);
+          const nextSeen = seen && hasUpdate ? rolloverLibrarySeen(current, seen) : current;
+          await saveLibrarySeen(requestScope, nextSeen);
           if (!alive()) return;
         }
         setIndicators((value) => ({
           ...value,
-          libraryState: libraryStatus(current, seen) ? 'new-reading' : 'normal',
+          libraryState: hasUpdate ? 'new-reading' : 'normal',
         }));
       })().catch(() => {}),
       (async () => {
@@ -178,26 +183,34 @@ export function useBuildingIndicators({
     [scope, scopeKey],
   );
 
-  const markLibrarySeen = useCallback(async () => {
-    if (!scope) return;
-    const generation = sessionGeneration();
-    const requestScope = scope;
-    const requestScopeKey = scopeKey;
-    const alive = () =>
-      activeScopeKey.current === requestScopeKey &&
-      generation === sessionGeneration() &&
-      getSession()?.userId === requestScope.userId;
-    try {
-      const current = await fetchLibrarySnapshot(requestScope.islandId, alive);
-      if (!current || !alive()) return;
-      await saveLibrarySeen(requestScope, current);
-      if (!alive()) return;
-      currentLibrary.current = current;
-      setIndicators((value) => ({ ...value, libraryState: 'normal' }));
-    } catch {
-      // 방 조회 실패·잠김·세션 전환은 확인으로 기록하지 않는다.
-    }
-  }, [scope, scopeKey]);
+  const markLibrarySeen = useCallback(
+    async (screen: LibraryScreen) => {
+      if (!scope) return;
+      const generation = sessionGeneration();
+      const requestScope = scope;
+      const requestScopeKey = scopeKey;
+      const alive = () =>
+        activeScopeKey.current === requestScopeKey &&
+        generation === sessionGeneration() &&
+        getSession()?.userId === requestScope.userId;
+      try {
+        const current = await fetchLibrarySnapshot(
+          requestScope.islandId,
+          alive,
+          new Date(),
+          screen,
+        );
+        if (!current || !alive()) return;
+        await saveLibrarySeen(requestScope, current);
+        if (!alive()) return;
+        currentLibrary.current = current;
+        setIndicators((value) => ({ ...value, libraryState: 'normal' }));
+      } catch {
+        // 방 조회 실패·잠김·세션 전환은 확인으로 기록하지 않는다.
+      }
+    },
+    [scope, scopeKey],
+  );
 
   return { ...indicators, markBoardSeen, markLibrarySeen };
 }

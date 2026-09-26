@@ -8,6 +8,7 @@ import {
   librarySnapshot,
   libraryStatus,
   reconcileBoardSeen,
+  rolloverLibrarySeen,
   loadBoardSeen,
   loadLibrarySeen,
   saveBoardSeen,
@@ -163,7 +164,9 @@ test('33쪽을 넘는 정상 공지·편지·집중 기록 페이지를 끝까�
       nextCursor: cursor(page),
     };
   });
-  expect((await fetchLibrarySnapshot('i:1', undefined, now))?.fingerprint).toContain('extra40');
+  expect((await fetchLibrarySnapshot('i:1', undefined, now))?.weeklyFingerprint).toContain(
+    'extra40',
+  );
   expect(getFocusStatistics).toHaveBeenCalledTimes(last);
 });
 
@@ -177,6 +180,25 @@ test('잠긴 도서관·누락 조각·미완성 페이지·UTC 주 변경은 �
   expect(librarySnapshot({ ...screen, missingFragments: ['fishEarnings'] }, now)).toBeNull();
   screen.focusStatistics!.nextCursor = 'more';
   expect(librarySnapshot(screen, now)).toBeNull();
+});
+
+test('주 경계에서는 주간 통계만 초기화하고 미확인 누적 어획 증가는 유지한다', () => {
+  const screen = library();
+  const seen = librarySnapshot(screen, now)!;
+  const nextWeek = new Date('2026-09-27T00:00:00Z');
+
+  expect(libraryStatus(librarySnapshot(screen, nextWeek), seen)).toBe(false);
+
+  screen.fishEarnings!.members[0].earnedFish = 3;
+  const current = librarySnapshot(screen, nextWeek)!;
+  expect(libraryStatus(current, seen)).toBe(true);
+
+  const rolled = rolloverLibrarySeen(current, seen);
+  expect(rolled.periodKey).toBe(current.periodKey);
+  expect(rolled.weeklyFingerprint).toBe(current.weeklyFingerprint);
+  expect(rolled.fishEarnings).toEqual(seen.fishEarnings);
+  expect(libraryStatus(current, rolled)).toBe(true);
+  expect(libraryStatus(current, current)).toBe(false);
 });
 
 test('공지 전체 페이지의 과거 공지 새 댓글을 모은다', async () => {
@@ -274,7 +296,29 @@ test('도서관 집중 기록을 끝까지 수집해 안정 snapshot을 만든�
     nextCursor: null,
   });
   const result = await fetchLibrarySnapshot('i:1', undefined, now);
-  expect(result?.fingerprint).toContain('r2');
+  expect(result?.weeklyFingerprint).toContain('r2');
+  expect(getFocusStatistics).toHaveBeenCalledWith('i:1', {
+    from: '2026-09-20',
+    to: '2026-09-26',
+    scope: 'me',
+    cursor: 'more',
+  });
+});
+
+test('이미 표시한 도서관 응답을 기준으로 남은 집중 기록 페이지를 수집한다', async () => {
+  const screen = library();
+  screen.focusStatistics!.nextCursor = 'more';
+  (getFocusStatistics as jest.Mock).mockResolvedValue({
+    ...screen.focusStatistics,
+    records: [{ id: 'r2', subject: '책', activeSeconds: 5, completedAt: 't2' }],
+    nextCursor: null,
+  });
+
+  const result = await fetchLibrarySnapshot('i:1', undefined, now, screen);
+
+  expect(result?.weeklyFingerprint).toContain('r1');
+  expect(result?.weeklyFingerprint).toContain('r2');
+  expect(getLibraryScreen).not.toHaveBeenCalled();
   expect(getFocusStatistics).toHaveBeenCalledWith('i:1', {
     from: '2026-09-20',
     to: '2026-09-26',

@@ -155,8 +155,8 @@ export function Library({ e }: any) {
   useBuildingIndicatorSeen({
     active: e.route === 'library' && !!e.islands && !!e.buildingIndicators,
     islandId: e.state.serverIslands?.currentIslandId ?? null,
-    onLoaded: () => {
-      void e.buildingIndicators?.markLibrarySeen();
+    onLoaded: (screen) => {
+      void e.buildingIndicators?.markLibrarySeen(screen);
     },
   });
   const font = useGowun();
