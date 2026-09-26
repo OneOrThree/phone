@@ -13,7 +13,7 @@
  * 경합: 조합이 바뀔 때마다 요청 세대를 올리고 적용 전에 세대·`sessionGeneration()` 을 다시
  * 본다. 실패를 빈 기록으로 접지 않는다.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import {
@@ -42,6 +42,8 @@ export interface LibraryDiaryState {
   retry: () => void;
   /** `/screens/library` 응답 — 섬 id·availability·missingFragments·fishEarnings. */
   screen: LibraryScreen | null;
+  /** 이번 주 집중 기록을 화면에서 이미 끝까지 읽었다면 그 완성 페이지 집합을 반영한 정본. */
+  indicatorScreen: LibraryScreen | null;
   /** 현재 기간의 scope=me 조각. 보고 있는 장이 아니면 지난 값이 남을 수 있다. */
   focusMe: FocusStatsMe | null;
   screenMe: ScreenStatsMe | null;
@@ -97,6 +99,23 @@ export function useLibraryDiary({
   const today = new Date().toISOString().slice(0, 10);
   const from = rangeOverride?.from;
   const to = rangeOverride?.to;
+  const firstWeek = !from && period === '주' && offset === 0;
+  const indicatorScreen = useMemo(() => {
+    if (
+      !screen ||
+      !firstWeek ||
+      !focusMe ||
+      focusMe.nextCursor !== null
+    )
+      return screen;
+    return {
+      ...screen,
+      focusStatistics: {
+        ...focusMe,
+        asOf: screen.focusStatistics?.asOf ?? focusMe.asOf,
+      },
+    };
+  }, [screen, firstWeek, focusMe]);
 
   useEffect(() => {
     if (!active) {
@@ -143,7 +162,6 @@ export function useLibraryDiary({
         // 이번 UTC 주·scope=me 는 진입 집계의 조각을 그대로 쓴다(같은 축·같은 관측).
         // missingFragments 에 든 조각은 서버가 아직 만들지 않은 것 — 다시 묻지 않고
         // null 로 둬서 UI 가 「준비 중」을 그리게 한다.
-        const firstWeek = !from && period === '주' && offset === 0;
         const missing = lib.missingFragments ?? [];
         if (combined) {
           if (nb) {
@@ -248,6 +266,7 @@ export function useLibraryDiary({
     error,
     retry: useCallback(() => setNonce((n) => n + 1), []),
     screen,
+    indicatorScreen,
     focusMe,
     screenMe,
     focusIsland,

@@ -165,6 +165,11 @@ test('records nextCursor 는 끝까지 이어서 합친다', async () => {
     result.current.focusMe?.records.map((r) => r.id),
     ['r1', 'r2'],
   );
+  assert.deepEqual(
+    result.current.indicatorScreen?.focusStatistics?.records.map((record) => record.id),
+    ['r1', 'r2'],
+  );
+  assert.equal(result.current.indicatorScreen?.focusStatistics?.nextCursor, null);
 });
 
 test('이번 주 진입 조각의 nextCursor부터 나머지 기록을 이어 붙인다', async () => {
@@ -185,6 +190,11 @@ test('이번 주 진입 조각의 nextCursor부터 나머지 기록을 이어 �
     result.current.focusMe?.records.map((r) => r.id),
     ['r1', 'r2'],
   );
+  assert.deepEqual(
+    result.current.indicatorScreen?.focusStatistics?.records.map((record) => record.id),
+    ['r1', 'r2'],
+  );
+  assert.equal(result.current.indicatorScreen?.focusStatistics?.nextCursor, null);
 });
 
 test('월간 요약은 첫 페이지의 합계와 수열만 사용한다', async () => {

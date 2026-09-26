@@ -114,6 +114,7 @@ const legacyBuildingLabelAnchorXOffset: Partial<Record<Building, number>> = {
   tower: -12,
 };
 const rightAlignedBuildingLabels = new Set<Building>(['hall', 'library', 'shop']);
+const RAFT_RECT = { x: 185, y: 835, w: 210, h: 92 };
 type Door = Point & {
   r: Route;
   label: string;
@@ -742,7 +743,7 @@ export function WorldMap({
     </View>
   );
 }
-function FinalIslandScene({
+export function FinalIslandScene({
   state,
   go,
   build,
@@ -808,11 +809,11 @@ function FinalIslandScene({
         Object.entries(legacyDoors).map(([id, door]) => [
           id,
           id === 'raft'
-            ? {
-                ...door,
-                x: villageMap.crossings.dock.arrival[0],
-                y: villageMap.crossings.dock.arrival[1],
-              }
+            ? (() => {
+                const [x, y] = villageMap.crossings.dock.arrival;
+                const rect = { ...RAFT_RECT, x: x - RAFT_RECT.w / 2, y: y - RAFT_RECT.h / 2 };
+                return { ...door, x, y, hitbox: rect };
+              })()
             : door.building
               ? { ...door, ...villageDoors[door.building] }
               : door,
@@ -1045,19 +1046,12 @@ function FinalIslandScene({
             const labelOnRight = d.building != null && rightAlignedBuildingLabels.has(d.building);
             const buildingLabelPosition = (() => {
               if (id === 'raft') {
-                return scene
-                  ? {
-                      left: (185 - hitbox.x) * s,
-                      top: (805 - hitbox.y) * s,
-                      width: 210 * s,
-                      alignItems: 'center' as const,
-                    }
-                  : {
-                      left: 0,
-                      top: -30,
-                      width: 210 * s,
-                      alignItems: 'center' as const,
-                    };
+                return {
+                  left: 0,
+                  top: -30,
+                  width: hitbox.w * s,
+                  alignItems: 'center' as const,
+                };
               }
               if (d.building == null) return { left: 0, top: 0, alignItems: 'flex-start' as const };
               if (scene) {

@@ -1,14 +1,14 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { Animated, AppState, Platform } from 'react-native';
-import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
+import { FinalIsland, FinalIslandScene, WorldMap } from '@/screens/island/WorldMap';
 import { buildingNames, initialState, residentCount } from '@/services/model';
 import {
   BUILDING_ENTRY_DURATION_MS,
   BUILDING_TRANSITION_DURATION_MS,
 } from '@/services/buildingTransition';
 import { semanticTokens } from '@/design-system/tokens';
-import { villageScene } from '@/utils/village-world';
+import { villageMap, villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
 
 jest.mock('@/utils/layout', () => ({
@@ -446,6 +446,34 @@ test('부두의 뗏목에 뗏목 이름을 표시한다', async () => {
       top: 835 * worldScale,
       width: 210 * worldScale,
       height: 92 * worldScale,
+    }),
+  );
+  await screen.unmount();
+});
+
+test('레이어드 월드의 뗏목 터치 영역과 이름표는 부두 도착 좌표계에 맞춘다', async () => {
+  const state = initialState(true);
+  const [arrivalX, arrivalY] = villageMap.crossings.dock.arrival;
+  const rect = { x: arrivalX - 105, y: arrivalY - 46, w: 210, h: 92 };
+  const screen = await render(
+    <FinalIslandScene state={state} go={jest.fn()} build={jest.fn()} layeredPreview />,
+  );
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+
+  expect(screen.getByLabelText('뗏목').props.style).toEqual(
+    expect.objectContaining({
+      left: rect.x * worldScale,
+      top: rect.y * worldScale,
+      width: rect.w * worldScale,
+      height: rect.h * worldScale,
+    }),
+  );
+  expect(screen.getByTestId('building-name-raft').props.style).toEqual(
+    expect.objectContaining({
+      left: 0,
+      top: -30,
+      width: rect.w * worldScale,
+      alignItems: 'center',
     }),
   );
   await screen.unmount();
