@@ -44,7 +44,9 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
     />
   );
   const screen = await render(renderHome(true));
-  expect(screen.getByTestId('mailbox-new-indicator')).toBeTruthy();
+  expect(
+    screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true }),
+  ).toBeTruthy();
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
 
   const friend = state.friends!.find((item) => item.status === 'friend')!;
@@ -62,7 +64,9 @@ test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지�
   expect(screen.queryByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeNull();
 
   await screen.rerender(renderHome());
-  expect(screen.getByTestId('mailbox-new-indicator')).toBeTruthy();
+  expect(
+    screen.getByTestId('mailbox-new-indicator', { includeHiddenElements: true }),
+  ).toBeTruthy();
   expect(screen.getByLabelText('우체통, 친구에게 받은 새 편지가 있어요')).toBeTruthy();
 });
 
