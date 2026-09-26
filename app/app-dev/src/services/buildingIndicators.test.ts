@@ -239,6 +239,7 @@ test('게시판 고정 예산은 최신 공지와 커서 과거 페이지 하나
     snapshot: { 'old-commented': 4, latest: 0 },
     latestSnapshot: { latest: 0 },
     historySnapshot: { 'old-commented': 4 },
+    firstHistoryCursor: 'history-1',
     historyPageKey: 'history-1',
     cycleComplete: false,
     nextCursor: 'history-2',

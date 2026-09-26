@@ -312,6 +312,8 @@ export type BoardPollPage = {
   snapshot: BoardSnapshot;
   latestSnapshot: BoardSnapshot;
   historySnapshot: BoardSnapshot;
+  /** 현재 최신 공지 페이지 다음의 첫 이력 커서. 경계 이동 시 순환 기준을 교체한다. */
+  firstHistoryCursor: string | null;
   historyPageKey: string | null;
   cycleComplete: boolean;
   nextCursor: string | null;
@@ -338,6 +340,7 @@ export async function fetchBoardPollPage(
       snapshot: latest,
       latestSnapshot: latest,
       historySnapshot: {},
+      firstHistoryCursor: null,
       historyPageKey: null,
       cycleComplete: true,
       nextCursor: null,
@@ -353,6 +356,7 @@ export async function fetchBoardPollPage(
     snapshot: { ...historical, ...latest },
     latestSnapshot: latest,
     historySnapshot: historical,
+    firstHistoryCursor,
     historyPageKey: cursor,
     cycleComplete: next === null,
     nextCursor: next ?? firstHistoryCursor,

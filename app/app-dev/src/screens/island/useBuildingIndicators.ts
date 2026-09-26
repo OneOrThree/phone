@@ -110,6 +110,7 @@ export function useBuildingIndicators({
   const librarySeenRevision = useRef(0);
   const boardPagesByScope = useRef(new Map<string, Map<string, BoardSnapshot>>());
   const boardCyclePagesByScope = useRef(new Map<string, Set<string>>());
+  const boardFirstHistoryByScope = useRef(new Map<string, string | null>());
   const boardShiftedLatestByScope = useRef(new Map<string, BoardSnapshot>());
   const boardShiftedCyclePending = useRef(new Set<string>());
   const boardPollCursors = useRef(new Map<string, string | null>());
@@ -181,6 +182,7 @@ export function useBuildingIndicators({
           boardPollCursors.current.delete(scopeKey);
           boardPagesByScope.current.delete(scopeKey);
           boardCyclePagesByScope.current.delete(scopeKey);
+          boardFirstHistoryByScope.current.delete(scopeKey);
           boardShiftedLatestByScope.current.delete(scopeKey);
           boardShiftedCyclePending.current.delete(scopeKey);
           setIndicators((value) => ({ ...value, boardStatus: null }));
@@ -206,6 +208,7 @@ export function useBuildingIndicators({
             boardPollCursors.current.delete(scopeKey);
             boardPagesByScope.current.delete(scopeKey);
             boardCyclePagesByScope.current.delete(scopeKey);
+            boardFirstHistoryByScope.current.delete(scopeKey);
             boardShiftedLatestByScope.current.delete(scopeKey);
             boardShiftedCyclePending.current.delete(scopeKey);
             currentBoard.current = null;
@@ -219,12 +222,17 @@ export function useBuildingIndicators({
                 scopeKey,
                 new Map(pages.map(({ key, snapshot: pageSnapshot }) => [key, pageSnapshot])),
               );
+              boardFirstHistoryByScope.current.set(
+                scopeKey,
+                pages.find(({ key }) => key !== 'latest')?.key ?? null,
+              );
             });
         if (!alive()) return;
         if (recoveredCursor) {
           const pages = boardPagesByScope.current.get(scopeKey);
           const firstHistoryCursor = [...(pages?.keys() ?? [])].find((key) => key !== 'latest');
           boardPollCursors.current.set(scopeKey, firstHistoryCursor ?? null);
+          boardFirstHistoryByScope.current.set(scopeKey, firstHistoryCursor ?? null);
           boardCyclePagesByScope.current.set(scopeKey, new Set());
         }
         // 과거 공지는 고정 페이지 예산으로 순환 점검한다. 매분 최신 페이지와 과거
@@ -235,6 +243,16 @@ export function useBuildingIndicators({
           const pages = boardPagesByScope.current.get(scopeKey) ?? new Map();
           const shifted: BoardSnapshot = boardShiftedLatestByScope.current.get(scopeKey) ?? {};
           const previousLatest: BoardSnapshot = pages.get('latest') ?? {};
+          const cyclePages = boardCyclePagesByScope.current.get(scopeKey) ?? new Set<string>();
+          if (pollPage.firstHistoryCursor !== undefined) {
+            const previousFirstHistory = boardFirstHistoryByScope.current.get(scopeKey);
+            if (previousFirstHistory !== pollPage.firstHistoryCursor) {
+              // 최신 페이지 경계 이동 전 순환한 과거 페이지는 새 범위의 완주로 볼 수 없다.
+              cyclePages.clear();
+              boardShiftedCyclePending.current.add(scopeKey);
+            }
+            boardFirstHistoryByScope.current.set(scopeKey, pollPage.firstHistoryCursor);
+          }
           let addedShiftedNotice = false;
           for (const [id, comments] of Object.entries(previousLatest))
             if (
@@ -245,7 +263,6 @@ export function useBuildingIndicators({
               addedShiftedNotice = true;
             }
           pages.set('latest', pollPage.latestSnapshot);
-          const cyclePages = boardCyclePagesByScope.current.get(scopeKey) ?? new Set<string>();
           if (addedShiftedNotice) {
             // 기존 순환의 앞부분은 페이지 경계 변경보다 이전 관측일 수 있다.
             cyclePages.clear();
@@ -257,10 +274,11 @@ export function useBuildingIndicators({
             for (const id of Object.keys(pollPage.historySnapshot)) delete shifted[id];
           }
           if (pollPage.cycleComplete) {
-            const firstHistoryPage = [...pages.keys()].find((key) => key !== 'latest');
+            const firstHistoryPage = boardFirstHistoryByScope.current.get(scopeKey);
             const pendingFreshCycle = boardShiftedCyclePending.current.has(scopeKey);
             const caughtUp =
               !pendingFreshCycle ||
+              firstHistoryPage === null ||
               (firstHistoryPage !== undefined && cyclePages.has(firstHistoryPage));
             if (caughtUp) {
               for (const key of pages.keys())

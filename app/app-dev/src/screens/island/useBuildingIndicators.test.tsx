@@ -322,6 +322,56 @@ test('최신 페이지에서 과거로 밀린 공지는 이력에서 재관측�
   hook.unmount();
 });
 
+test('최신 공지 경계가 바뀌면 새 첫 이력 커서 순환을 완주한 뒤 stale 공지를 prune한다', async () => {
+  boardSeen.mockResolvedValue({ stale: 1 });
+  boardNow.mockImplementation(async (_islandId, _alive, onPages) => {
+    onPages([
+      { key: 'latest', snapshot: {} },
+      { key: 'old-first-cursor', snapshot: { stale: 2 } },
+      { key: 'old-second-cursor', snapshot: {} },
+    ]);
+    return { stale: 2 };
+  });
+  boardPoll
+    .mockResolvedValueOnce({
+      snapshot: {},
+      latestSnapshot: {},
+      historySnapshot: {},
+      firstHistoryCursor: 'new-first-cursor',
+      historyPageKey: 'new-first-cursor',
+      cycleComplete: false,
+      nextCursor: 'new-second-cursor',
+    })
+    .mockResolvedValueOnce({
+      snapshot: {},
+      latestSnapshot: {},
+      historySnapshot: {},
+      firstHistoryCursor: 'new-first-cursor',
+      historyPageKey: 'new-second-cursor',
+      cycleComplete: true,
+      nextCursor: 'new-first-cursor',
+    });
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(hook.result.current.boardStatus, 'new-comment'));
+
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 1));
+  expect(hook.result.current.boardStatus).toBe('new-comment');
+  await hook.rerender({ refreshKey: 2 });
+  await waitFor(() => assert.equal(boardPoll.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.boardStatus, null));
+  hook.unmount();
+});
+
 test.each(['INVALID_CURSOR', 'CURSOR_EXPIRED'] as const)(
   '게시판 순환 커서 %s가 무효화되면 기존 순환을 폐기하고 새 첫 이력 커서부터 재개한다',
   async (code) => {
