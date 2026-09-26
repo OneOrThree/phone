@@ -1,7 +1,7 @@
 import React from 'react';
 import { Platform, ScrollView } from 'react-native';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { Library } from './Library';
+import { Library, shouldObserveLibraryIndicator } from './Library';
 import { RedesignScreens } from './Screens';
 import { initialState } from '@/services/model';
 import {
@@ -42,6 +42,16 @@ const originalOS = Platform.OS;
 afterEach(() => {
   cleanup();
   Platform.OS = originalOS;
+});
+
+test.each([
+  ['library', true],
+  ['diary', true],
+  ['stats', true],
+  ['home', false],
+  ['board', false],
+])('도서관 알림 확인 흐름은 %s 경로에서 %s다', (route, expected) => {
+  expect(shouldObserveLibraryIndicator(route)).toBe(expected);
 });
 
 function environment({ permission = true, ready = true, neighbors = false } = {}) {

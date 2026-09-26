@@ -647,6 +647,38 @@ test('addComment 성공 뒤 열린 상세의 댓글이 서버 값으로 갱신�
   await hook.unmount();
 });
 
+test('오래된 공지에 쓴 내 댓글은 불러온 범위의 확인 카운트에 즉시 반영한다', async () => {
+  getBoardMock.mockResolvedValue(board([{ id: 'recent', title: '최근' }], 'older'));
+  listNoticesMock.mockResolvedValue({
+    items: [{ id: 'old', title: '오래된 공지', commentCount: 4 }],
+    nextCursor: null,
+  });
+  const onLoaded = jest.fn();
+  const hook = await renderHook(() => useBoardNotices({ active: true, scopeKey: 'i1', onLoaded }));
+  await waitFor(() => assert.equal(hook.result.current.loading, false));
+  await act(async () => {
+    await hook.result.current.loadMore();
+  });
+  getNoticeMock.mockResolvedValueOnce(detail('old', []));
+  await act(async () => {
+    await hook.result.current.select('old');
+  });
+  postCommentMock.mockResolvedValue({ id: 'mine', name: '나', text: '내 댓글' });
+  getNoticeMock.mockResolvedValueOnce(detail('old', [{ id: 'mine' }]));
+  getBoardMock.mockClear();
+
+  await act(async () => {
+    await hook.result.current.addComment('old', '내 댓글');
+  });
+
+  assert.equal(getBoardMock.mock.calls.length, 0);
+  assert.equal(hook.result.current.items.find((item) => item.id === 'old')?.commentCount, 5);
+  const confirmed = onLoaded.mock.calls.at(-1)?.[0];
+  assert.equal(confirmed.items.find((item: { id: string }) => item.id === 'old')?.commentCount, 5);
+  assert.equal(confirmed.nextCursor, null);
+  await hook.unmount();
+});
+
 test('범위 교체 중인 쓰기의 refresh 는 새 범위 목록을 덮지 않는다', async () => {
   const hook = await mountActive();
   const slow = deferred<{ id: string; title: string; body: string }>();

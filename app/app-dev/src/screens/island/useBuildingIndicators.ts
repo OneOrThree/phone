@@ -48,6 +48,32 @@ function serializeBoardWrite<T>(key: string, write: () => Promise<T>): Promise<T
   return next;
 }
 
+const libraryWrites = new Map<string, Promise<unknown>>();
+function serializeLibraryWrite<T>(key: string, write: () => Promise<T>): Promise<T> {
+  const previous = libraryWrites.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(write);
+  libraryWrites.set(key, next);
+  void next
+    .finally(() => {
+      if (libraryWrites.get(key) === next) libraryWrites.delete(key);
+    })
+    .catch(() => {});
+  return next;
+}
+
+function mergeLibrarySeen(
+  previous: LibrarySnapshot | null,
+  next: LibrarySnapshot,
+): LibrarySnapshot {
+  if (!previous) return next;
+  const fishEarnings = { ...previous.fishEarnings };
+  for (const [userId, amount] of Object.entries(next.fishEarnings))
+    fishEarnings[userId] = Math.max(fishEarnings[userId] ?? 0, amount);
+  return next.periodKey < previous.periodKey
+    ? { ...previous, fishEarnings }
+    : { ...next, fishEarnings };
+}
+
 /**
  * 홈 건물 배지는 서버의 현재 값과 이 기기에서 마지막으로 확인한 값을 비교한다.
  * 확인 마커는 사용자·섬별로 격리하며, 계정/섬 전환 중 늦게 온 응답은 적용하지 않는다.
@@ -70,6 +96,13 @@ export function useBuildingIndicators({
   const activeScopeKey = useRef('');
   const currentBoard = useRef<BoardSnapshot | null>(null);
   const currentLibrary = useRef<LibrarySnapshot | null>(null);
+  const librarySeenRevision = useRef(0);
+  const refreshInFlight = useRef(0);
+  const queuedLiveRefresh = useRef(false);
+  const requestLiveRefresh = useCallback(() => {
+    if (refreshInFlight.current > 0) queuedLiveRefresh.current = true;
+    else setLiveRefresh((value) => value + 1);
+  }, []);
 
   useEffect(() => subscribeSession((session) => setUserId(session?.userId ?? null)), []);
 
@@ -84,20 +117,21 @@ export function useBuildingIndicators({
     epoch.current += 1;
     currentBoard.current = null;
     currentLibrary.current = null;
+    librarySeenRevision.current += 1;
     setIndicators(EMPTY);
   }, [scopeKey]);
 
   useEffect(() => {
     if (!scope || !onHome) return;
-    const interval = setInterval(() => setLiveRefresh((value) => value + 1), 60_000);
+    const interval = setInterval(requestLiveRefresh, 60_000);
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') setLiveRefresh((value) => value + 1);
+      if (state === 'active') requestLiveRefresh();
     });
     return () => {
       clearInterval(interval);
       subscription.remove();
     };
-  }, [scope, onHome]);
+  }, [scope, onHome, requestLiveRefresh]);
 
   useEffect(() => {
     const requestEpoch = ++epoch.current;
@@ -105,6 +139,7 @@ export function useBuildingIndicators({
 
     const generation = sessionGeneration();
     const requestScope = scope;
+    refreshInFlight.current += 1;
     const alive = () =>
       requestEpoch === epoch.current &&
       activeScopeKey.current === scopeKey &&
@@ -137,20 +172,24 @@ export function useBuildingIndicators({
         }));
       })().catch(() => {}),
       (async () => {
-        const [current, seen] = await Promise.all([
-          fetchLibrarySnapshot(requestScope.islandId, alive),
-          loadLibrarySeen(requestScope),
-        ]);
+        const confirmationRevision = librarySeenRevision.current;
+        const current = await fetchLibrarySnapshot(requestScope.islandId, alive);
         if (!alive() || !current) return;
+        const hasUpdate = await serializeLibraryWrite(scopeKey, async () => {
+          if (!alive()) return null;
+          const seen = await loadLibrarySeen(requestScope);
+          if (!alive()) return null;
+          const updated = libraryStatus(current, seen);
+          // 첫 관측은 전체 기준점, 주 변경은 누적 어획 기준을 보존하며 주간 기준만 이동한다.
+          if (!seen || seen.periodKey !== current.periodKey) {
+            const candidate = seen && updated ? rolloverLibrarySeen(current, seen) : current;
+            await saveLibrarySeen(requestScope, mergeLibrarySeen(seen, candidate));
+          }
+          return updated;
+        });
+        if (!alive() || hasUpdate === null || confirmationRevision !== librarySeenRevision.current)
+          return;
         currentLibrary.current = current;
-        const hasUpdate = libraryStatus(current, seen);
-        // 첫 관측은 전체 기준을 만들고, 주 변경은 주간 기준만 넘긴다.
-        // 기간과 무관한 누적 어획 증가는 사용자가 도서관을 확인할 때까지 보존한다.
-        if (!seen || seen.periodKey !== current.periodKey) {
-          const nextSeen = seen && hasUpdate ? rolloverLibrarySeen(current, seen) : current;
-          await saveLibrarySeen(requestScope, nextSeen);
-          if (!alive()) return;
-        }
         setIndicators((value) => ({
           ...value,
           libraryState: hasUpdate ? 'new-reading' : 'normal',
@@ -161,7 +200,13 @@ export function useBuildingIndicators({
         if (!alive()) return;
         setIndicators((value) => ({ ...value, showMailboxLetters: unread > 0 }));
       })().catch(() => {}),
-    ]);
+    ]).finally(() => {
+      refreshInFlight.current = Math.max(0, refreshInFlight.current - 1);
+      if (refreshInFlight.current === 0 && queuedLiveRefresh.current) {
+        queuedLiveRefresh.current = false;
+        setLiveRefresh((value) => value + 1);
+      }
+    });
 
     return () => {
       epoch.current += 1;
@@ -230,8 +275,14 @@ export function useBuildingIndicators({
           screen,
         );
         if (!current || !alive()) return;
-        await saveLibrarySeen(requestScope, current);
+        await serializeLibraryWrite(requestScopeKey, async () => {
+          if (!alive()) return;
+          const previous = await loadLibrarySeen(requestScope);
+          if (!alive()) return;
+          await saveLibrarySeen(requestScope, mergeLibrarySeen(previous, current));
+        });
         if (!alive()) return;
+        librarySeenRevision.current += 1;
         currentLibrary.current = current;
         setIndicators((value) => ({ ...value, libraryState: 'normal' }));
       } catch {
