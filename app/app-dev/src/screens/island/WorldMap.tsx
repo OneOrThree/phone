@@ -1003,6 +1003,21 @@ function FinalIslandScene({
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
             const labelOnRight = d.building != null && rightAlignedBuildingLabels.has(d.building);
             const buildingLabelPosition = (() => {
+              if (id === 'raft') {
+                return scene
+                  ? {
+                      left: (185 - hitbox.x) * s,
+                      top: (805 - hitbox.y) * s,
+                      width: 210 * s,
+                      alignItems: 'center' as const,
+                    }
+                  : {
+                      left: 0,
+                      top: -30,
+                      width: hitbox.w * s,
+                      alignItems: 'center' as const,
+                    };
+              }
               if (d.building == null) return { left: 0, top: 0, alignItems: 'flex-start' as const };
               if (scene) {
                 return labelOnRight
@@ -1112,7 +1127,7 @@ function FinalIslandScene({
                   zIndex: scene ? 2000 : undefined,
                 }}
               >
-                {d.building && (
+                {(d.building || id === 'raft') && (
                   <View
                     testID={`building-name-${id}`}
                     pointerEvents="none"

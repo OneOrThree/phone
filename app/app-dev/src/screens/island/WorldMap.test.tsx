@@ -247,6 +247,23 @@ test('완공된 각 건물에 상태와 무관한 건물명 라벨을 표시한�
   await screen.unmount();
 });
 
+test('부두의 뗏목에 내 뗏목 이름을 표시한다', async () => {
+  const state = initialState(true);
+  const screen = await render(<FinalIsland state={state} go={jest.fn()} build={jest.fn()} />);
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+
+  expect(screen.getByText('내 뗏목')).toBeTruthy();
+  expect(screen.getByTestId('building-name-raft').props.style).toEqual(
+    expect.objectContaining({
+      left: 0,
+      top: -30,
+      width: 120 * worldScale,
+      alignItems: 'center',
+    }),
+  );
+  await screen.unmount();
+});
+
 test('상점 진입 세대가 시작되면 대기 없이 문 프레임을 재생한다', async () => {
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
