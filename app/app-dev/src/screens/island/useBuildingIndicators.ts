@@ -7,7 +7,7 @@ import {
   fetchBoardPollPage,
   fetchBoardSnapshot,
   fetchLibrarySnapshot,
-  fetchLibraryQuestIds,
+  fetchLibraryQuestOccurrenceIds,
   libraryHasNewQuest,
   fetchMailboxPollPage,
   fetchMailboxUnreadLetterIds,
@@ -79,7 +79,7 @@ function mergeLibrarySeen(
   return {
     ...base,
     fishEarnings,
-    questIds: next.questIds ?? previous.questIds,
+    questOccurrenceIds: next.questOccurrenceIds ?? previous.questOccurrenceIds,
   };
 }
 
@@ -118,7 +118,7 @@ export function useBuildingIndicators({
   const mailboxConfirmedReadIds = useRef(new Map<string, Set<string>>());
   const mailboxCyclePagesByScope = useRef(new Map<string, Map<string, Set<string>>>());
   const mailboxLatestPageIdsByScope = useRef(new Map<string, Set<string>>());
-  const mailboxFirstHistoryByScope = useRef(new Map<string, string>());
+  const mailboxFirstHistoryByScope = useRef(new Map<string, string | null>());
   const mailboxShiftedLatestByScope = useRef(new Map<string, Set<string>>());
   const mailboxShiftedCyclePending = useRef(new Set<string>());
   const mailboxPollReady = useRef(new Set<string>());
@@ -309,24 +309,27 @@ export function useBuildingIndicators({
         }
         const confirmationRevision = librarySeenRevision.current;
         const latestOnly = currentLibrary.current !== null;
-        const [current, questIds] = await Promise.all([
+        const [current, questOccurrenceIds] = await Promise.all([
           fetchLibrarySnapshot(requestScope.islandId, alive, new Date(), undefined, latestOnly),
-          fetchLibraryQuestIds(requestScope.islandId, alive).catch(() => null),
+          fetchLibraryQuestOccurrenceIds(requestScope.islandId, alive).catch(() => null),
         ]);
         if (!alive() || !current) return;
-        const observed = questIds ? { ...current, questIds } : current;
+        const observed = questOccurrenceIds ? { ...current, questOccurrenceIds } : current;
         const hasUpdate = await serializeLibraryWrite(scopeKey, async () => {
           if (!alive() || confirmationRevision !== librarySeenRevision.current) return null;
           const seen = await loadLibrarySeen(requestScope);
           if (!alive() || confirmationRevision !== librarySeenRevision.current) return null;
           const updated = libraryStatus(observed, seen);
-          const hasNewQuest = questIds !== null && libraryHasNewQuest(questIds, seen);
+          const hasNewQuest =
+            questOccurrenceIds !== null && libraryHasNewQuest(questOccurrenceIds, seen);
           // 첫 관측은 전체 기준점, 주 변경은 누적 어획 기준을 보존하며 주간 기준만 이동한다.
           if (!seen || seen.periodKey !== current.periodKey) {
             const candidate = seen ? rolloverLibrarySeen(observed, seen) : observed;
             await saveLibrarySeen(requestScope, mergeLibrarySeen(seen, candidate));
-          } else if (seen.questIds === undefined && questIds !== null) {
-            await saveLibrarySeen(requestScope, { ...seen, questIds });
+          } else if (seen.questOccurrenceIds === undefined && questOccurrenceIds !== null) {
+            // 이전 버전의 `questIds`는 정의 ID여서 회차와 비교할 수 없다. 현재 회차 집합으로
+            // 한 번 기준을 이전하고, 이후 날짜별 회차 변화를 정확히 감지한다.
+            await saveLibrarySeen(requestScope, { ...seen, questOccurrenceIds });
           }
           return { updated, hasNewQuest };
         });
@@ -337,7 +340,7 @@ export function useBuildingIndicators({
           ...value,
           libraryState: hasUpdate.hasNewQuest
             ? 'new-quest'
-            : questIds === null && value.libraryState === 'new-quest'
+            : questOccurrenceIds === null && value.libraryState === 'new-quest'
               ? 'new-quest'
               : hasUpdate.updated
                 ? 'new-reading'
@@ -375,6 +378,16 @@ export function useBuildingIndicators({
           const latestIds = new Set(page.latestItems.map(({ id }) => id));
           const previousLatestIds = mailboxLatestPageIdsByScope.current.get(scopeKey) ?? new Set();
           const shifted = mailboxShiftedLatestByScope.current.get(scopeKey) ?? new Set<string>();
+          if (page.firstHistoryCursor !== undefined) {
+            const previousFirstHistory = mailboxFirstHistoryByScope.current.get(scopeKey);
+            if (previousFirstHistory !== page.firstHistoryCursor) {
+              // 최신 페이지 경계가 이동했으므로 이전 경계에서 모은 순환 페이지로는
+              // 삭제된 미확인 편지를 정리하지 않는다. 새 첫 이력 커서까지 다시 관측한다.
+              cyclePages.clear();
+              mailboxShiftedCyclePending.current.add(scopeKey);
+            }
+            mailboxFirstHistoryByScope.current.set(scopeKey, page.firstHistoryCursor);
+          }
           let addedShiftedLetter = false;
           if (page.historyPageKey)
             for (const id of previousLatestIds)
@@ -398,6 +411,7 @@ export function useBuildingIndicators({
             const pendingFreshCycle = mailboxShiftedCyclePending.current.has(scopeKey);
             const caughtUp =
               !pendingFreshCycle ||
+              firstHistoryPage === null ||
               (firstHistoryPage !== undefined && cyclePages.has(firstHistoryPage));
             if (caughtUp) {
               const observed = new Set([...cyclePages.values()].flatMap((ids) => [...ids]));
@@ -416,9 +430,7 @@ export function useBuildingIndicators({
         const unread = await fetchMailboxUnreadLetterIds(requestScope.islandId, alive, (pages) => {
           mailboxLatestPageIdsByScope.current.set(scopeKey, new Set(pages[0]?.ids ?? []));
           const firstHistoryPage = pages.find(({ key }) => key !== 'latest');
-          if (firstHistoryPage)
-            mailboxFirstHistoryByScope.current.set(scopeKey, firstHistoryPage.key);
-          else mailboxFirstHistoryByScope.current.delete(scopeKey);
+          mailboxFirstHistoryByScope.current.set(scopeKey, firstHistoryPage?.key ?? null);
         });
         if (!alive()) return;
         mailboxPollReady.current.add(scopeKey);
@@ -496,12 +508,12 @@ export function useBuildingIndicators({
         generation === sessionGeneration() &&
         getSession()?.userId === requestScope.userId;
       try {
-        const [snapshot, questIds] = await Promise.all([
+        const [snapshot, questOccurrenceIds] = await Promise.all([
           fetchLibrarySnapshot(requestScope.islandId, alive, new Date(), screen),
-          fetchLibraryQuestIds(requestScope.islandId, alive).catch(() => null),
+          fetchLibraryQuestOccurrenceIds(requestScope.islandId, alive).catch(() => null),
         ]);
         if (!snapshot || !alive()) return;
-        const current = questIds ? { ...snapshot, questIds } : snapshot;
+        const current = questOccurrenceIds ? { ...snapshot, questOccurrenceIds } : snapshot;
         await serializeLibraryWrite(requestScopeKey, async () => {
           if (!alive() || confirmationRevision !== librarySeenRevision.current) return;
           const previous = await loadLibrarySeen(requestScope);
@@ -513,7 +525,9 @@ export function useBuildingIndicators({
         setIndicators((value) => ({
           ...value,
           libraryState:
-            questIds === null && value.libraryState === 'new-quest' ? 'new-quest' : 'normal',
+            questOccurrenceIds === null && value.libraryState === 'new-quest'
+              ? 'new-quest'
+              : 'normal',
         }));
       } catch {
         // 방 조회 실패·잠김·세션 전환은 확인으로 기록하지 않는다.

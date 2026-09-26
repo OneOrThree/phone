@@ -4,7 +4,7 @@ import {
   fetchBoardSnapshot,
   fetchBoardPollPage,
   fetchLibrarySnapshot,
-  fetchLibraryQuestIds,
+  fetchLibraryQuestOccurrenceIds,
   fetchMailboxUnreadLetterIds,
   fetchMailboxPollPage,
   loadBoardSeen,
@@ -22,7 +22,7 @@ jest.mock('@/services/buildingIndicators', () => ({
   fetchBoardSnapshot: jest.fn(),
   fetchBoardPollPage: jest.fn(),
   fetchLibrarySnapshot: jest.fn(),
-  fetchLibraryQuestIds: jest.fn(),
+  fetchLibraryQuestOccurrenceIds: jest.fn(),
   fetchMailboxUnreadLetterIds: jest.fn(),
   fetchMailboxPollPage: jest.fn(),
   loadBoardSeen: jest.fn(),
@@ -34,7 +34,7 @@ jest.mock('@/services/buildingIndicators', () => ({
 const boardNow = fetchBoardSnapshot as jest.Mock;
 const boardPoll = fetchBoardPollPage as jest.Mock;
 const libraryNow = fetchLibrarySnapshot as jest.Mock;
-const libraryQuestNow = fetchLibraryQuestIds as jest.Mock;
+const libraryQuestNow = fetchLibraryQuestOccurrenceIds as jest.Mock;
 const mailboxNow = fetchMailboxUnreadLetterIds as jest.Mock;
 const mailboxPoll = fetchMailboxPollPage as jest.Mock;
 const boardSeen = loadBoardSeen as jest.Mock;
@@ -103,7 +103,7 @@ beforeEach(async () => {
     periodKey: '2026-09-20',
     weeklyFingerprint: 'new',
     fishEarnings: { user: 2 },
-    questIds: [],
+    questOccurrenceIds: [],
   });
   libraryQuestNow.mockResolvedValue([]);
   saveBoard.mockResolvedValue(undefined);
@@ -172,14 +172,14 @@ test('저장된 확인 상태와 서버 현재 값을 비교해 세 배지를 �
   assert.equal(result.current.libraryState, 'new-reading');
 });
 
-test('서버의 새 퀘스트 ID는 도서관 알림으로 표시하고 확인 시 로컬 기준점에 저장한다', async () => {
+test('같은 일일 퀘스트의 새 회차는 도서관 알림으로 표시하고 확인 시 회차 기준점을 저장한다', async () => {
   librarySeen.mockResolvedValue({
     periodKey: '2026-09-20',
     weeklyFingerprint: 'new',
     fishEarnings: { user: 2 },
-    questIds: [],
+    questOccurrenceIds: ['daily-quest:2026-09-26'],
   });
-  libraryQuestNow.mockResolvedValue(['quest-1']);
+  libraryQuestNow.mockResolvedValue(['daily-quest:2026-09-27']);
   const { result } = await renderHook(() =>
     useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
   );
@@ -188,7 +188,28 @@ test('서버의 새 퀘스트 ID는 도서관 알림으로 표시하고 확인 �
   await act(async () => result.current.markLibrarySeen(displayedLibraryScreen));
   expect(saveLibrary).toHaveBeenLastCalledWith(
     expect.anything(),
-    expect.objectContaining({ questIds: ['quest-1'] }),
+    expect.objectContaining({ questOccurrenceIds: ['daily-quest:2026-09-27'] }),
+  );
+  assert.equal(result.current.libraryState, 'normal');
+});
+
+test('이전 정의 ID 기준점은 현재 회차 기준점으로 한 번 이전해 거짓 배지를 막는다', async () => {
+  librarySeen.mockResolvedValue({
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'new',
+    fishEarnings: { user: 2 },
+    questIds: ['daily-quest'],
+  });
+  libraryQuestNow.mockResolvedValue(['daily-quest:2026-09-27']);
+  const { result } = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+
+  await waitFor(() =>
+    expect(saveLibrary).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ questOccurrenceIds: ['daily-quest:2026-09-27'] }),
+    ),
   );
   assert.equal(result.current.libraryState, 'normal');
 });
@@ -198,7 +219,7 @@ test('퀘스트 서버 조회 실패 시 도서관 진입으로 새 퀘스트 �
     periodKey: '2026-09-20',
     weeklyFingerprint: 'new',
     fishEarnings: { user: 2 },
-    questIds: [],
+    questOccurrenceIds: [],
   });
   libraryQuestNow.mockResolvedValue(['quest-1']);
   const { result } = await renderHook(() =>
@@ -216,7 +237,7 @@ test('퀘스트 API가 일시 실패하면 홈 폴링도 마지막 새 퀘스트
     periodKey: '2026-09-20',
     weeklyFingerprint: 'new',
     fishEarnings: { user: 2 },
-    questIds: [],
+    questOccurrenceIds: [],
   });
   libraryQuestNow.mockResolvedValue(['quest-1']);
   const hook = await renderHook(
@@ -520,7 +541,7 @@ test('도서관 확인은 전체 기록 조회와 저장이 모두 성공한 뒤
     periodKey: '2026-09-20',
     weeklyFingerprint: 'old',
     fishEarnings: { user: 2 },
-    questIds: [],
+    questOccurrenceIds: [],
   });
   const { result } = await renderHook(() =>
     useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
@@ -880,6 +901,57 @@ test('다른 기기에서 삭제된 미확인 편지는 우체통 순환 완료 
   await hook.rerender({ refreshKey: 1 });
   await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 1));
   assert.equal(hook.result.current.showMailboxLetters, true);
+  await hook.rerender({ refreshKey: 2 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, false));
+  hook.unmount();
+});
+
+test('최신 페이지 경계가 바뀌면 새 첫 이력 커서 순환을 완주한 뒤 삭제 편지를 정리한다', async () => {
+  mailboxNow.mockImplementation(async (_islandId, _alive, onPages) => {
+    onPages([
+      { key: 'latest', ids: [] },
+      { key: 'old-first-cursor', ids: ['deleted-unread'] },
+      { key: 'old-second-cursor', ids: [] },
+    ]);
+    return ['deleted-unread'];
+  });
+  mailboxPoll
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      latestItems: [{ id: 'new-letter', isRead: true }],
+      historyItems: [],
+      firstHistoryCursor: 'new-first-cursor',
+      historyPageKey: 'new-first-cursor',
+      cycleComplete: false,
+      nextCursor: 'new-second-cursor',
+    })
+    .mockResolvedValueOnce({
+      latestUnread: false,
+      historyUnread: false,
+      latestItems: [{ id: 'new-letter', isRead: true }],
+      historyItems: [],
+      firstHistoryCursor: 'new-first-cursor',
+      historyPageKey: 'new-second-cursor',
+      cycleComplete: true,
+      nextCursor: 'new-first-cursor',
+    });
+  const hook = await renderHook(
+    (props: { refreshKey: number }) =>
+      useBuildingIndicators({
+        active: true,
+        islandId: 'island-1',
+        onHome: true,
+        refreshKey: props.refreshKey,
+      }),
+    { initialProps: { refreshKey: 0 } },
+  );
+  await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, true));
+
+  await hook.rerender({ refreshKey: 1 });
+  await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 1));
+  expect(hook.result.current.showMailboxLetters).toBe(true);
   await hook.rerender({ refreshKey: 2 });
   await waitFor(() => assert.equal(mailboxPoll.mock.calls.length, 2));
   await waitFor(() => assert.equal(hook.result.current.showMailboxLetters, false));

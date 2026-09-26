@@ -13,8 +13,8 @@ export type LibrarySnapshot = {
   periodKey: string;
   weeklyFingerprint: string;
   fishEarnings: Record<string, number>;
-  /** 현재 서버 퀘스트 중 이 기기에서 도서관 확인 시점에 본 ID 집합. */
-  questIds?: string[];
+  /** 현재 서버 퀘스트 중 이 기기에서 도서관 확인 시점에 본 회차(occurrenceId) 집합. */
+  questOccurrenceIds?: string[];
 };
 
 const key = (scope: IndicatorScope, building: 'board' | 'library') =>
@@ -63,8 +63,9 @@ export const loadLibrarySeen = (scope: IndicatorScope) =>
       typeof value.weeklyFingerprint === 'string' &&
       record(value.fishEarnings) &&
       Object.values(value.fishEarnings).every(count) &&
-      (value.questIds === undefined ||
-        (Array.isArray(value.questIds) && value.questIds.every((id) => typeof id === 'string'))),
+      (value.questOccurrenceIds === undefined ||
+        (Array.isArray(value.questOccurrenceIds) &&
+          value.questOccurrenceIds.every((id) => typeof id === 'string'))),
   );
 export const saveLibrarySeen = (scope: IndicatorScope, snapshot: LibrarySnapshot) =>
   AsyncStorage.setItem(key(scope, 'library'), JSON.stringify(snapshot));
@@ -180,15 +181,15 @@ export function libraryStatus(
 }
 
 export function libraryHasNewQuest(
-  currentQuestIds: readonly string[],
+  currentOccurrenceIds: readonly string[],
   seen: LibrarySnapshot | null,
 ): boolean {
-  if (!seen?.questIds) return false;
-  const previous = new Set(seen.questIds);
-  return currentQuestIds.some((id) => !previous.has(id));
+  if (!seen?.questOccurrenceIds) return false;
+  const previous = new Set(seen.questOccurrenceIds);
+  return currentOccurrenceIds.some((id) => !previous.has(id));
 }
 
-export async function fetchLibraryQuestIds(
+export async function fetchLibraryQuestOccurrenceIds(
   islandId: string,
   isCurrent?: () => boolean,
 ): Promise<string[]> {
@@ -196,12 +197,19 @@ export async function fetchLibraryQuestIds(
   alive();
   const response = await gated(getCurrentQuests(islandId), alive);
   if (!Array.isArray(response.items)) throw contract('quests.items');
-  const ids = new Set<string>();
+  const occurrenceIds = new Set<string>();
   for (const item of response.items) {
-    if (!item || typeof item.id !== 'string' || !item.id) throw contract('quests.items');
-    ids.add(item.id);
+    if (
+      !item ||
+      typeof item.id !== 'string' ||
+      !item.id ||
+      typeof item.occurrenceId !== 'string' ||
+      !item.occurrenceId
+    )
+      throw contract('quests.items');
+    occurrenceIds.add(item.occurrenceId);
   }
-  return [...ids].sort();
+  return [...occurrenceIds].sort();
 }
 
 // /screens/library supplies complete weekly totals/series but only a page of records.
@@ -229,7 +237,7 @@ export function rolloverLibrarySeen(
   return {
     ...current,
     fishEarnings: seen.fishEarnings,
-    questIds: seen.questIds,
+    questOccurrenceIds: seen.questOccurrenceIds,
   };
 }
 
@@ -419,6 +427,8 @@ export type MailboxPollPage = {
   historyUnread: boolean;
   latestItems: Array<{ id: string; isRead: boolean }>;
   historyItems: Array<{ id: string; isRead: boolean }>;
+  /** 현재 최신 페이지 다음의 첫 이력 커서. 경계가 이동하면 순환 기준도 갱신한다. */
+  firstHistoryCursor: string | null;
   historyPageKey: string | null;
   cycleComplete: boolean;
   nextCursor: string | null;
@@ -444,6 +454,7 @@ export async function fetchMailboxPollPage(
       historyUnread: false,
       latestItems: latest.map(({ id, isRead }) => ({ id, isRead })),
       historyItems: [],
+      firstHistoryCursor: null,
       historyPageKey: null,
       cycleComplete: true,
       nextCursor: null,
@@ -459,6 +470,7 @@ export async function fetchMailboxPollPage(
     historyUnread: history.some((item) => !item.isRead),
     latestItems: latest.map(({ id, isRead }) => ({ id, isRead })),
     historyItems: history.map(({ id, isRead }) => ({ id, isRead })),
+    firstHistoryCursor,
     historyPageKey: cursor,
     cycleComplete: next === null,
     nextCursor: next ?? firstHistoryCursor,

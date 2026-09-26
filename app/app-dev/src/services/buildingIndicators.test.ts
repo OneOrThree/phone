@@ -6,6 +6,7 @@ import {
   fetchBoardSnapshot,
   fetchMailboxPollPage,
   fetchLibrarySnapshot,
+  fetchLibraryQuestOccurrenceIds,
   fetchMailboxUnreadCount,
   fetchMailboxUnreadLetterIds,
   librarySnapshot,
@@ -20,6 +21,7 @@ import {
 } from './buildingIndicators';
 import { getBoard, listNotices } from './api/notices';
 import { getMailboxScreen, listLetters } from './api/letters';
+import { getCurrentQuests } from './api/quests';
 import { getFocusStatistics, getLibraryScreen, type LibraryScreen } from './api/records';
 import { clearSession, saveSession } from './api/session';
 import { CLIENT_STALE_SESSION } from './api/client';
@@ -27,6 +29,7 @@ import { CLIENT_STALE_SESSION } from './api/client';
 jest.mock('./api/notices', () => ({ getBoard: jest.fn(), listNotices: jest.fn() }));
 jest.mock('./api/letters', () => ({ getMailboxScreen: jest.fn(), listLetters: jest.fn() }));
 jest.mock('./api/records', () => ({ getLibraryScreen: jest.fn(), getFocusStatistics: jest.fn() }));
+jest.mock('./api/quests', () => ({ getCurrentQuests: jest.fn() }));
 
 const scope = { userId: 'u:1', islandId: 'i:1' };
 const now = new Date('2026-09-24T12:00:00Z');
@@ -67,6 +70,23 @@ test('읽음 저장은 계정·섬·건물별로 격리되고 다시 로드된�
   expect(await loadBoardSeen({ ...scope, userId: 'u2' })).toBeNull();
   expect(await loadBoardSeen({ ...scope, islandId: 'i2' })).toBeNull();
   expect(await loadBoardSeen({ userId: 'u', islandId: '1:i:1' })).toBeNull();
+});
+
+test('도서관 퀘스트 확인 기준은 정의 ID가 아니라 날짜별 회차 ID다', async () => {
+  (getCurrentQuests as jest.Mock).mockResolvedValue({
+    items: [{ id: 'daily-quest', occurrenceId: 'daily-quest:2026-09-27' }],
+  });
+
+  const currentOccurrences = await fetchLibraryQuestOccurrenceIds('i:1');
+  const yesterdaySeen = {
+    periodKey: '2026-09-20',
+    weeklyFingerprint: 'same-week',
+    fishEarnings: {},
+    questOccurrenceIds: ['daily-quest:2026-09-26'],
+  };
+
+  expect(currentOccurrences).toEqual(['daily-quest:2026-09-27']);
+  expect(libraryHasNewQuest(currentOccurrences, yesterdaySeen)).toBe(true);
 });
 
 test('깨진 JSON과 잘못된 마커는 미확인 baseline으로 돌아간다', async () => {
@@ -255,6 +275,7 @@ test('우체통 고정 예산은 과거 페이지 하나를 확인하고 마지�
     historyUnread: true,
     latestItems: [{ id: 'latest', isRead: true }],
     historyItems: [{ id: 'old-unread', isRead: false }],
+    firstHistoryCursor: 'history-1',
     historyPageKey: 'history-1',
     cycleComplete: false,
     nextCursor: 'history-2',
@@ -271,6 +292,7 @@ test('우체통 고정 예산은 과거 페이지 하나를 확인하고 마지�
     historyUnread: false,
     latestItems: [{ id: 'latest', isRead: true }],
     historyItems: [{ id: 'last-read', isRead: true }],
+    firstHistoryCursor: 'history-1',
     historyPageKey: 'history-40',
     cycleComplete: true,
     nextCursor: 'history-1',
@@ -306,22 +328,22 @@ test('잠긴 도서관·누락 조각·미완성 페이지·UTC 주 변경은 �
 
 test('주 경계에서는 주간 통계만 초기화하고 미확인 누적 어획 증가는 유지한다', () => {
   const screen = library();
-  const seen = { ...librarySnapshot(screen, now)!, questIds: ['old-quest'] };
+  const seen = { ...librarySnapshot(screen, now)!, questOccurrenceIds: ['old-quest'] };
   const nextWeek = new Date('2026-09-27T00:00:00Z');
 
   expect(libraryStatus(librarySnapshot(screen, nextWeek), seen)).toBe(false);
 
   screen.fishEarnings!.members[0].earnedFish = 3;
   const current = librarySnapshot(screen, nextWeek)!;
-  const withNewQuest = { ...current, questIds: ['old-quest', 'new-quest'] };
+  const withNewQuest = { ...current, questOccurrenceIds: ['old-quest', 'new-quest'] };
   expect(libraryStatus(current, seen)).toBe(true);
 
   const rolled = rolloverLibrarySeen(withNewQuest, seen);
   expect(rolled.periodKey).toBe(current.periodKey);
   expect(rolled.weeklyFingerprint).toBe(current.weeklyFingerprint);
   expect(rolled.fishEarnings).toEqual(seen.fishEarnings);
-  expect(rolled.questIds).toEqual(['old-quest']);
-  expect(libraryHasNewQuest(withNewQuest.questIds, rolled)).toBe(true);
+  expect(rolled.questOccurrenceIds).toEqual(['old-quest']);
+  expect(libraryHasNewQuest(withNewQuest.questOccurrenceIds, rolled)).toBe(true);
   expect(libraryStatus(current, rolled)).toBe(true);
   expect(libraryStatus(current, current)).toBe(false);
 });
