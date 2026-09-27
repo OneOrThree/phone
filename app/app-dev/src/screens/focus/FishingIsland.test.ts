@@ -21,6 +21,7 @@ import {
   occupied,
   peerLandRoute,
   peerPointFromPixels,
+  peerWalkFace,
 } from '@/screens/focus/FishingIsland';
 
 jest.mock('@/components/CatSprite', () => {
@@ -104,6 +105,12 @@ test('중단된 주민 이동의 픽셀 좌표를 현재 지도 좌표로 복원
   const restored = peerPointFromPixels(left, top, size, sizeY);
   assert.ok(Math.abs(restored.x - current.x) < 1e-9);
   assert.ok(Math.abs(restored.y - current.y) < 1e-9);
+});
+
+test('주민 걷기 방향은 현재 구간의 다음 waypoint를 향한다', () => {
+  assert.equal(peerWalkFace({ x: 50, y: 50 }, { x: 48, y: 50 }, 1), -1);
+  assert.equal(peerWalkFace({ x: 48, y: 50 }, { x: 52, y: 50 }, -1), 1);
+  assert.equal(peerWalkFace({ x: 52, y: 50 }, { x: 52, y: 48 }, -1), -1);
 });
 
 test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {

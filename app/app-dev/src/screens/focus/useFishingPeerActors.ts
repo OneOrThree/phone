@@ -185,6 +185,9 @@ export function useFishingPeerActors({
   useEffect(() => {
     if (!transitions.current.length) return;
     const pending = transitions.current.splice(0);
+    const hasCompletion = pending.some(
+      (transition) => transition.kind === 'focus' && transition.current === null,
+    );
     setActors((current) => {
       let next = [...current];
       const deferred: IslandPresenceTransition[] = [];
@@ -291,6 +294,9 @@ export function useFishingPeerActors({
       if (deferred.length) transitions.current.unshift(...deferred);
       return next;
     });
+    // 숨겨진 paused actor의 완료처럼 이 회차에서 슬롯을 즉시 반납했다면
+    // 같은 회차에 다시 보류된 입장을 빈 슬롯으로 재처리한다.
+    if (hasCompletion) setRevision((value) => value + 1);
   }, [revision, alloc]);
 
   const entered = useCallback((key: string, generation: number) => {

@@ -116,6 +116,8 @@ export const peerPointFromPixels = (left: number, top: number, size: number, siz
   x: ((left + (size * 0.077) / 2) * 100) / size,
   y: ((top + size * 0.077 * 0.90625) * 100) / sizeY,
 });
+export const peerWalkFace = (from: Point, to: Point, fallback: number) =>
+  Math.abs(to.x - from.x) > 0.15 ? (to.x < from.x ? -1 : 1) : fallback;
 // 뗏목(지도 폭 12%)과 내리는 자리 위에는 앉을 수 없다. 앉은 고양이(폭 7.7%·발 기준) 상자가 겹치는지로 본다.
 // 세로 %는 지도 비율(1024/1536)로 맞춰 가로 % 단위로 잰다.
 const toW = (y: number) => (y * 1024) / 1536;
@@ -671,6 +673,7 @@ export function FishingPeerActorView({
     new NativeAnimated.Value((sizeY * actor.position.y) / 100 - size * 0.077 * 0.90625),
   ).current;
   const motionToken = useRef(actor.generation);
+  const [walkFace, setWalkFace] = useState(actor.spot.face);
   useEffect(() => {
     const token = actor.generation;
     motionToken.current = token;
@@ -710,33 +713,43 @@ export function FishingPeerActorView({
           const current = peerPointFromPixels(currentLeft, currentTop, size, sizeY),
             route = peerLandRoute(current, toPoint),
             waypoints = route.length ? route : [toPoint];
-          let previous = current;
-          const nextMovement = NativeAnimated.sequence(
-            waypoints.map((point) => {
-              const distance = Math.hypot(previous.x - point.x, ((previous.y - point.y) * 2) / 3);
-              previous = point;
-              const duration = Math.max(32, Math.round(distance * 35));
-              return NativeAnimated.parallel([
-                NativeAnimated.timing(left, {
-                  toValue: (size * point.x) / 100 - (size * 0.077) / 2,
-                  duration,
-                  useNativeDriver: false,
-                }),
-                NativeAnimated.timing(top, {
-                  toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
-                  duration,
-                  useNativeDriver: false,
-                }),
-              ]);
-            }),
-          );
-          movement = nextMovement;
-          nextMovement.start(({ finished }: { finished: boolean }) => {
-            if (!finished || motionToken.current !== token) return;
+          let previous = current,
+            index = 0,
+            face = actor.spot.face;
+          const finish = () => {
             if (actor.phase === 'entering') onEntered(actor.key, token);
             else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
             else onCompletedExit(actor.key, token);
-          });
+          };
+          const step = () => {
+            if (cancelled || motionToken.current !== token) return;
+            const point = waypoints[index],
+              distance = Math.hypot(previous.x - point.x, ((previous.y - point.y) * 2) / 3),
+              duration = Math.max(32, Math.round(distance * 35));
+            face = peerWalkFace(previous, point, face);
+            setWalkFace(face);
+            const segment = NativeAnimated.parallel([
+              NativeAnimated.timing(left, {
+                toValue: (size * point.x) / 100 - (size * 0.077) / 2,
+                duration,
+                useNativeDriver: false,
+              }),
+              NativeAnimated.timing(top, {
+                toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
+                duration,
+                useNativeDriver: false,
+              }),
+            ]);
+            movement = segment;
+            segment.start(({ finished }: { finished: boolean }) => {
+              if (!finished || cancelled || motionToken.current !== token) return;
+              previous = point;
+              index += 1;
+              if (index < waypoints.length) step();
+              else finish();
+            });
+          };
+          step();
         });
       });
       return () => {
@@ -744,8 +757,14 @@ export function FishingPeerActorView({
         movement?.stop();
       };
     }
-    left.setValue(toLeft);
-    top.setValue(toTop);
+    if (actor.phase === 'finishing') {
+      // 이동을 마치기 전 완료되면 cleanup이 멈춘 실제 위치에서 기지개를 시작한다.
+      left.stopAnimation();
+      top.stopAnimation();
+    } else {
+      left.setValue(toLeft);
+      top.setValue(toTop);
+    }
   }, [
     actor.key,
     actor.generation,
@@ -775,11 +794,7 @@ export function FishingPeerActorView({
         : actor.phase === 'finishing'
           ? 'stretch'
           : undefined;
-  const movingTo = actor.phase === 'entering' ? actor.spot : LANDING;
-  const spriteSpot =
-    motion === 'walk'
-      ? { ...actor.spot, face: movingTo.x < actor.position.x ? -1 : 1 }
-      : actor.spot;
+  const spriteSpot = motion === 'walk' ? { ...actor.spot, face: walkFace } : actor.spot;
   return (
     <FishingActor
       spot={spriteSpot}
