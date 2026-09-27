@@ -342,6 +342,26 @@ describe('황금 물고기 실시간 사건', () => {
       ),
       null,
     );
+    assert.equal(
+      parseGoldenFishEvent(
+        goldenEvent('invalid-third-member', {
+          reward: 75,
+          members: [
+            {
+              userId: '11111111-1111-4111-8111-111111111111',
+              sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            },
+            {
+              userId: '22222222-2222-4222-8222-222222222222',
+              sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            },
+            { userId: 'broken', sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' },
+          ],
+        }),
+        'i1',
+      ),
+      null,
+    );
     const valid = parseGoldenFishEvent(goldenEvent(), 'i1');
     assert.ok(valid);
     assert.equal(

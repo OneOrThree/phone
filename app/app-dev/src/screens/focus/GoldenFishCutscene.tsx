@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { AppState, Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useEventListener } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { componentTokens } from '@/design-system/tokens';
@@ -26,6 +26,8 @@ export function GoldenFishCutscene({
   const variant = goldenFishVideoVariant(width, height);
   const source = variant === 'landscape' ? LANDSCAPE_SOURCE : PORTRAIT_SOURCE;
   const finished = useRef(false);
+  const lastProgress = useRef({ at: Date.now(), time: 0 });
+  const stallRetries = useRef(0);
   const [started, setStarted] = useState(false);
   const finish = useCallback(() => {
     if (finished.current) return;
@@ -37,12 +39,19 @@ export function GoldenFishCutscene({
     // 웹의 실시간 사건은 사용자 제스처가 아니므로 소리 있는 자동재생이 차단된다.
     // 네이티브에서는 영상에 합쳐진 바다 소리를 그대로 재생한다.
     video.muted = autoplayMuted || Platform.OS === 'web';
+    video.timeUpdateEventInterval = 0.5;
     video.play();
   });
   useEventListener(player, 'playToEnd', finish);
   useEventListener(player, 'playingChange', ({ isPlaying }) => {
     if (!isPlaying) return;
+    lastProgress.current.at = Date.now();
     setStarted(true);
+  });
+  useEventListener(player, 'timeUpdate', ({ currentTime }) => {
+    if (currentTime <= lastProgress.current.time + 0.05) return;
+    lastProgress.current = { at: Date.now(), time: currentTime };
+    stallRetries.current = 0;
   });
   useEventListener(player, 'statusChange', ({ status }) => {
     if (status === 'error') finish();
@@ -58,6 +67,33 @@ export function GoldenFishCutscene({
     const fallback = setTimeout(finish, 8000);
     return () => clearTimeout(fallback);
   }, [finish, started]);
+  useEffect(() => {
+    if (!started) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      lastProgress.current.at = Date.now();
+      player.play();
+    });
+    const watchdog = setInterval(() => {
+      if (
+        AppState.currentState === 'background' ||
+        AppState.currentState === 'inactive' ||
+        Date.now() - lastProgress.current.at < 10_000
+      )
+        return;
+      if (stallRetries.current === 0) {
+        stallRetries.current = 1;
+        lastProgress.current.at = Date.now();
+        player.play();
+        return;
+      }
+      finish();
+    }, 2_000);
+    return () => {
+      subscription.remove();
+      clearInterval(watchdog);
+    };
+  }, [finish, player, started]);
 
   return (
     <View

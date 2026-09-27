@@ -7,7 +7,12 @@ import { componentTokens } from '@/design-system/tokens';
 
 const mockListeners: Record<string, (...args: any[]) => void> = {};
 const mockPlay = jest.fn();
-let mockPlayer: { loop: boolean; muted: boolean; play: typeof mockPlay };
+let mockPlayer: {
+  loop: boolean;
+  muted: boolean;
+  timeUpdateEventInterval: number;
+  play: typeof mockPlay;
+};
 
 jest.mock('expo', () => ({
   useEventListener: (_player: unknown, event: string, listener: (...args: any[]) => void) => {
@@ -17,9 +22,14 @@ jest.mock('expo', () => ({
 
 jest.mock('expo-video', () => ({
   useVideoPlayer: (_source: unknown, setup: (player: any) => void) => {
-    mockPlayer = { loop: true, muted: true, play: mockPlay };
-    setup(mockPlayer);
-    return mockPlayer;
+    const ReactModule = require('react');
+    const playerRef = ReactModule.useRef(null);
+    if (!playerRef.current) {
+      playerRef.current = { loop: true, muted: true, timeUpdateEventInterval: 0, play: mockPlay };
+      setup(playerRef.current);
+    }
+    mockPlayer = playerRef.current;
+    return playerRef.current;
   },
   VideoView: 'VideoView',
 }));
@@ -48,6 +58,7 @@ test('서버 신호로 마운트되면 바다 소리를 포함해 1회 재생하
   assert.equal(screen.getByTestId('golden-fish-cutscene').props.accessibilityViewIsModal, true);
   assert.equal(mockPlayer.loop, false);
   assert.equal(mockPlayer.muted, false);
+  assert.equal(mockPlayer.timeUpdateEventInterval, 0.5);
   assert.equal(mockPlay.mock.calls.length, 1);
   const videoStyle = StyleSheet.flatten(screen.getByTestId('golden-fish-video').props.style);
   assert.equal(videoStyle.width, '100%');
@@ -101,5 +112,26 @@ test('재생 오류나 시작 실패는 닫되 재생 중에는 실제 종료 �
   await act(async () => jest.advanceTimersByTime(1));
   assert.equal(onNeverStartedFinish.mock.calls.length, 1);
   await neverStartedScreen.unmount();
+  jest.useRealTimers();
+});
+
+test('포그라운드에서 재생 진행이 멈추면 한 번 재시도한 뒤 화면 잠금을 해제한다', async () => {
+  jest.useFakeTimers();
+  const onFinish = jest.fn();
+  const screen = await render(<GoldenFishCutscene onFinish={onFinish} />);
+  await act(async () => mockListeners.playingChange({ isPlaying: true }));
+
+  await act(async () => jest.advanceTimersByTime(12_000));
+  assert.equal(mockPlay.mock.calls.length, 2);
+  assert.equal(onFinish.mock.calls.length, 0);
+
+  await act(async () => mockListeners.timeUpdate({ currentTime: 1 }));
+  await act(async () => jest.advanceTimersByTime(12_000));
+  assert.equal(mockPlay.mock.calls.length, 3);
+  assert.equal(onFinish.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(12_000));
+  assert.equal(onFinish.mock.calls.length, 1);
+
+  await screen.unmount();
   jest.useRealTimers();
 });

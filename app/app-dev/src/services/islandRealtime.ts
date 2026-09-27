@@ -88,19 +88,17 @@ export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFish
     sharePerMember < 0
   )
     return null;
-  const members = Array.isArray(payload?.members)
-    ? payload.members.flatMap((value) => {
-        const member = value as Record<string, unknown> | null;
-        const userId = str(member?.userId);
-        const sessionId = str(member?.sessionId);
-        return userId && UUID.test(userId) && sessionId && UUID.test(sessionId)
-          ? [{ userId, sessionId }]
-          : [];
-      })
-    : [];
+  if (!Array.isArray(payload?.members) || payload.members.length < 2) return null;
+  const members: GoldenFishMember[] = [];
+  for (const value of payload.members) {
+    const member = value as Record<string, unknown> | null;
+    const userId = str(member?.userId);
+    const sessionId = str(member?.sessionId);
+    if (!userId || !UUID.test(userId) || !sessionId || !UUID.test(sessionId)) return null;
+    members.push({ userId, sessionId });
+  }
   const uniqueMembers = new Set(members.map((member) => `${member.userId}:${member.sessionId}`));
   if (
-    members.length < 2 ||
     uniqueMembers.size !== members.length ||
     sharePerMember !== Math.floor(reward / members.length)
   )
