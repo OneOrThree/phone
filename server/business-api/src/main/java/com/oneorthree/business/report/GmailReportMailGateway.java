@@ -54,26 +54,28 @@ final class GmailReportMailGateway implements ReportMailGateway {
         sessionProperties.setProperty("mail.imaps.timeout", "3000");
         sessionProperties.setProperty("mail.imaps.writetimeout", "3000");
         sessionProperties.setProperty("mail.imaps.ssl.checkserveridentity", "true");
+        boolean deliveryAttempted = false;
         try (Store store = Session.getInstance(sessionProperties).getStore("imaps")) {
             store.connect(properties.getImapHost(), properties.getUsername(), properties.getAppPassword());
             try (Folder inbox = store.getFolder("INBOX")) {
                 inbox.open(Folder.READ_ONLY);
-                if (inMailbox(inbox, mail.confirmationToken())) {
+                if (inMailbox(inbox, mail.confirmationToken(), false)) {
                     return;
                 }
+                deliveryAttempted = true;
                 send(mail);
                 Instant deadline = clock.instant().plus(properties.getVerifyTimeout());
                 do {
-                    if (inMailbox(inbox, mail.confirmationToken())) {
+                    if (inMailbox(inbox, mail.confirmationToken(), true)) {
                         return;
                     }
                     pause();
                 } while (clock.instant().isBefore(deadline));
             }
         } catch (jakarta.mail.MessagingException e) {
-            throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e);
+            throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e, deliveryAttempted);
         }
-        throw new ReportMailException("운영 메일함에서 신고 사건을 확인하지 못했습니다.");
+        throw new ReportMailException("운영 메일함에서 신고 사건을 확인하지 못했습니다.", true);
     }
 
     private void pause() {
@@ -81,22 +83,23 @@ final class GmailReportMailGateway implements ReportMailGateway {
             Thread.sleep(POLL_INTERVAL.toMillis());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ReportMailException("신고 메일 확인이 중단되었습니다.", e);
+            throw new ReportMailException("신고 메일 확인이 중단되었습니다.", e, true);
         }
     }
 
-    private static boolean inMailbox(Folder inbox, String confirmationToken) {
+    private static boolean inMailbox(Folder inbox, String confirmationToken, boolean deliveryMayHaveOccurred) {
         try {
             // 열린 IMAP 연결에서 SEARCH 만 반복한다. 매 poll 마다 재로그인하지 않아 Gmail 연결 쿼터를 지킨다.
             return inbox.search(new HeaderTerm(CONFIRMATION_HEADER, confirmationToken)).length > 0;
         } catch (jakarta.mail.MessagingException e) {
-            throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e);
+            throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e, deliveryMayHaveOccurred);
         }
     }
 
     private void send(ReportMail mail) {
+        MimeMessage message;
         try {
-            MimeMessage message = sender.createMimeMessage();
+            message = sender.createMimeMessage();
             message.setFrom(new InternetAddress(properties.getUsername()));
             message.setRecipient(Message.RecipientType.TO, new InternetAddress(properties.getRecipient()));
             message.setSubject(mail.subject(), StandardCharsets.UTF_8.name());
@@ -104,9 +107,14 @@ final class GmailReportMailGateway implements ReportMailGateway {
             message.setHeader(CASE_HEADER, mail.caseId());
             message.setHeader(REQUEST_HEADER, mail.requestId());
             message.setHeader(CONFIRMATION_HEADER, mail.confirmationToken());
-            sender.send(message);
         } catch (RuntimeException | jakarta.mail.MessagingException e) {
-            throw new ReportMailException("신고 메일을 보내지 못했습니다.", e);
+            throw new ReportMailException("신고 메일을 만들지 못했습니다.", e);
+        }
+        try {
+            sender.send(message);
+        } catch (RuntimeException e) {
+            // SMTP 예외는 서버가 DATA를 받은 뒤 응답만 유실된 경우도 있어 발송 여부가 불확실하다.
+            throw new ReportMailException("신고 메일을 보내지 못했습니다.", e, true);
         }
     }
 

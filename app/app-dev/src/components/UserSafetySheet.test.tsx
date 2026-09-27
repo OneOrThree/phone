@@ -130,6 +130,32 @@ test('신고 접수 중 연타해도 메일 접수를 한 번만 요청한다', 
   await first;
 });
 
+test('신고 사유는 44pt이고 처리 중에는 최초 payload로 잠긴다', async () => {
+  let reject: (error: unknown) => void = () => {};
+  reportMock
+    .mockReturnValueOnce(new Promise((_, rejectPromise) => (reject = rejectPromise)))
+    .mockResolvedValueOnce({ caseId: 'GR-RETRY', blocked: false });
+  const screen = await render(<UserSafetySheet {...props()} />);
+  await fireEvent.press(screen.getByText('신고하기'));
+
+  const harassment = screen.getByRole('button', { name: '욕설·괴롭힘' });
+  assert.equal(harassment.props.style.height, 44);
+  const first = fireEvent.press(screen.getByText('신고 접수'));
+  await waitFor(() => assert.equal(reportMock.mock.calls.length, 1));
+
+  const hate = screen.getByRole('button', { name: '혐오·차별' });
+  assert.equal(hate.props.accessibilityState.disabled, true);
+  await fireEvent.press(hate);
+  reject(new ApiError('SERVICE_UNAVAILABLE', '다시 시도해 주세요.', 400));
+  await first;
+  await waitFor(() => assert.ok(screen.getByText('다시 시도해 주세요.')));
+  await fireEvent.press(screen.getByText('신고 접수'));
+
+  await waitFor(() => assert.equal(reportMock.mock.calls.length, 2));
+  assert.equal(reportMock.mock.calls[0][0].reason, 'HARASSMENT');
+  assert.equal(reportMock.mock.calls[1][0].reason, 'HARASSMENT');
+});
+
 test('직접 차단 성공은 API 확인 뒤 로컬 필터와 완료 콜백을 갱신한다', async () => {
   blockMock.mockResolvedValue(undefined);
   const callbacks = props();

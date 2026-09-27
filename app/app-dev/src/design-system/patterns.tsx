@@ -393,7 +393,14 @@ export function Seg({ items, value, onChange, small = false, inset = false, styl
     </View>
   );
 }
-export function Chips({ items, value, onChange, large = false, wrap = false }: any) {
+export function Chips({
+  items,
+  value,
+  onChange,
+  large = false,
+  wrap = false,
+  disabled = false,
+}: any) {
   return (
     <View
       style={{
@@ -407,7 +414,8 @@ export function Chips({ items, value, onChange, large = false, wrap = false }: a
           key={x}
           accessibilityRole="button"
           accessibilityLabel={x}
-          accessibilityState={{ selected: x === value }}
+          accessibilityState={{ selected: x === value, disabled }}
+          disabled={disabled}
           onPress={() => onChange(x)}
           style={{
             height: large ? 44 : 36,

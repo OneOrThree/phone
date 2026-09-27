@@ -84,6 +84,9 @@ public class ReportUseCase {
         } catch (ReportMailException e) {
             // SMTP 성공 뒤 IMAP 반영만 늦은 실패일 수 있다. lease를 유지해야 즉시 재발송되지 않고,
             // 만료 뒤 같은 confirmation token으로 메일함을 먼저 확인한 다음에만 재시도한다.
+            if (!e.deliveryMayHaveOccurred()) {
+                release(claims.userId(), requestId, leaseToken);
+            }
             throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
         } catch (RuntimeException e) {
             release(claims.userId(), requestId, leaseToken);
@@ -153,8 +156,15 @@ public class ReportUseCase {
     }
 
     private static String defang(String value) {
-        // SAFE DISPLAY에서는 모든 URI 스킴과 스킴 없는 도메인·이메일·IP의 자동 링크를 끊는다.
-        return value.replace(":", "[:]").replace(".", "[.]").replace("@", "[@]");
+        // 한 줄로 고정해 비신뢰 원문이 운영 메일의 섹션 경계를 주입하지 못하게 한 뒤 링크도 끊는다.
+        return value.replace("\\", "\\\\")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n")
+                .replace("[", "\\[")
+                .replace("]", "\\]")
+                .replace(":", "[:]")
+                .replace(".", "[.]")
+                .replace("@", "[@]");
     }
 
     private static String base64(String value) {

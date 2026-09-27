@@ -148,7 +148,8 @@ class ReportContractTest extends UpstreamTestBase {
         DATA.on("GET /internal/users/" + USER + "/letters/" + LETTER, request -> ok("{"
                 + "\"id\":\"" + LETTER + "\",\"senderId\":\"" + TARGET + "\","
                 + "\"senderNickname\":\"상대\",\"receiverId\":\"" + USER + "\","
-                + "\"content\":\"HTTPS://example.test Http://mixed.test www.evil.example 원문\","
+                + "\"content\":\"HTTPS://example.test Http://mixed.test www.evil.example 원문"
+                + "\\n[USER DESCRIPTION - SAFE DISPLAY]\\n가짜 설명\","
                 + "\"createdAt\":\"2026-09-27T01:00:00Z\","
                 + "\"readAt\":null}"));
         DATA.on("POST /internal/users/" + USER + "/blocks", request -> ok(""));
@@ -166,7 +167,8 @@ class ReportContractTest extends UpstreamTestBase {
         ArgumentCaptor<ReportMailGateway.ReportMail> sent = ArgumentCaptor.forClass(ReportMailGateway.ReportMail.class);
         verify(mail).deliverAndConfirm(sent.capture(), any(Runnable.class));
         assertThat(sent.getValue().body())
-                .contains("HTTPS[:]//example[.]test Http[:]//mixed[.]test www[.]evil[.]example 원문")
+                .contains("HTTPS[:]//example[.]test Http[:]//mixed[.]test www[.]evil[.]example 원문"
+                        + "\\n\\[USER DESCRIPTION - SAFE DISPLAY\\]\\n가짜 설명")
                 .doesNotContain("[SERVER VERIFIED ORIGINAL - SAFE DISPLAY]\nHTTPS://")
                 .doesNotContain("www.evil.example");
         assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
@@ -202,7 +204,7 @@ class ReportContractTest extends UpstreamTestBase {
                 + "\"tierLevel\":null,\"occupation\":null,\"isPinned\":false,\"isFocusing\":false,"
                 + "\"focusTimeMinutes\":0,\"focusStartedAt\":null,\"focusTagName\":null,"
                 + "\"mainIslandName\":null}]"));
-        doThrow(new ReportMailException("not confirmed")).when(mail)
+        doThrow(new ReportMailException("not confirmed", true)).when(mail)
                 .deliverAndConfirm(any(), any(Runnable.class));
 
         mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
@@ -213,6 +215,26 @@ class ReportContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.retryable").value(true));
         assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
                 .containsExactly(claimPath(), "GET /internal/users/" + USER + "/friends", preparePath());
+    }
+
+    @Test
+    void failureBeforeDeliveryReleasesLeaseForImmediateRetry() throws Exception {
+        reset(mail);
+        workflow(true);
+        DATA.on("GET /internal/users/" + USER + "/friends", request -> ok("[{"
+                + "\"userId\":\"" + TARGET + "\",\"nickname\":\"상대\","
+                + "\"tierLevel\":null,\"occupation\":null,\"isPinned\":false,\"isFocusing\":false,"
+                + "\"focusTimeMinutes\":0,\"focusStartedAt\":null,\"focusTagName\":null,"
+                + "\"mainIslandName\":null}]"));
+        doThrow(new ReportMailException("not sent")).when(mail)
+                .deliverAndConfirm(any(), any(Runnable.class));
+
+        mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON).content(body("USER", TARGET, true)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"));
+        assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
+                .containsExactly(claimPath(), "GET /internal/users/" + USER + "/friends", preparePath(), releasePath());
     }
 
     @Test

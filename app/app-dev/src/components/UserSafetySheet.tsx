@@ -267,6 +267,8 @@ export function UserSafetySheet(props: Props) {
                   onChange={(label: string) =>
                     setReason(REASONS.find((item) => item.label === label)!.value)
                   }
+                  disabled={busy}
+                  large
                   wrap
                 />
                 <TextInput
