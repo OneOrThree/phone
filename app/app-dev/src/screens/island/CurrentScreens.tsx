@@ -51,6 +51,7 @@ import {
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
+import { useGoldenFishLedger } from '@/screens/focus/useGoldenFishLedger';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -1140,6 +1141,26 @@ function FocusFlow({ e }: any) {
     emoteSessionId,
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
+    onGoldenFish: (event) => goldenHandler.current(event),
+  });
+  const goldenLedgerMembers: GoldenFishEvent['members'] = live.focus
+    .filter((member) => member.status === 'active')
+    .map((member) => ({ userId: member.userId, sessionId: member.sessionId }));
+  if (
+    myId &&
+    s.session?.status === 'active' &&
+    !goldenLedgerMembers.some(
+      (member) => member.userId === myId && member.sessionId === s.session?.id,
+    )
+  ) {
+    goldenLedgerMembers.push({ userId: myId, sessionId: s.session.id });
+  }
+  useGoldenFishLedger({
+    active: !!liveIslandId && r === 'focus' && s.session?.status === 'active',
+    islandId: liveIslandId,
+    sessionId: s.session?.id ?? null,
+    sessionStartedAt: s.session?.startedAt ?? null,
+    members: goldenLedgerMembers,
     onGoldenFish: (event) => goldenHandler.current(event),
   });
   const recordGoldenCatch = (event: GoldenFishEvent) => {
