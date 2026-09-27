@@ -111,9 +111,6 @@ class UserServiceTest {
     @Mock
     private com.oneorthree.phone.user.repository.UserBlockRepository userBlockRepository;
 
-    @Mock
-    private com.oneorthree.phone.user.repository.ReportDeliveryPrivacyRepository reportDeliveryPrivacyRepository;
-
     /**
      * 목이 아니라 «진짜» 판정기다 (GROMO-1986) — 목으로 덮으면 이 단위 테스트들이 통과하는 근거가
      * 「아무것도 안 막는 목」이 되어, 금칙어 판정이 실제로 어디에 꽂혀 있는지 증명하지 못한다.
@@ -562,8 +559,6 @@ class UserServiceTest {
                 .characterTrialAnchorAt(java.time.Instant.parse("2026-09-01T00:00:00Z")).build();
 
         userService.erasePersonalData(user);
-
-        verify(reportDeliveryPrivacyRepository).eraseForWithdrawal(USER_ID);
 
         // 계정 LLD §4 (GROMO-1801) — 직군·활동/체험 시각은 null, 공개 범위는 기본값, 차단은 양방향 삭제
         assertThat(user.getOccupation()).isNull();

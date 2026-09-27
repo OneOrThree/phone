@@ -1,4 +1,4 @@
-import { request, uuid } from './client';
+import { request } from './client';
 
 export type BlockedUser = { id: string; name: string };
 
@@ -22,10 +22,7 @@ export type ReportInput = {
   blockUser: boolean;
 };
 
-export type ReportReceipt = { caseId: string; blocked: boolean };
-
-/** Gmail 확인 최대 60초와 nginx 100초 제한보다 긴 클라이언트 응답 여유를 포함한다. */
-export const REPORT_REQUEST_TIMEOUT_MS = 110_000;
+export const REPORT_EMAIL_RECIPIENT = 'nappaegonoljima@gmail.com';
 
 export function getBlockedUsers(): Promise<BlockedUser[]> {
   return request<BlockedUser[]>('/blocks');
@@ -44,15 +41,21 @@ export function unblockUser(userId: string): Promise<void> {
   );
 }
 
-/** 호출부는 실패 재시도 때 같은 requestId 를 넘겨야 같은 메일 사건으로 수렴한다. */
-export function submitReport(
-  input: ReportInput,
-  requestId: string = uuid(),
-): Promise<ReportReceipt> {
-  return request<ReportReceipt>('/reports', {
-    method: 'POST',
-    body: input,
-    idempotencyKey: requestId,
-    timeoutMs: REPORT_REQUEST_TIMEOUT_MS,
-  });
+export function reportEmailUrl(input: ReportInput, targetName: string): string {
+  const targetType = input.targetType === 'LETTER' ? '편지' : '사용자';
+  const lines = [
+    '안녕하세요. 그로모 앱에서 신고드립니다.',
+    '',
+    `신고 대상: ${targetName}`,
+    `대상 유형: ${targetType}`,
+    `대상 ID: ${input.targetId}`,
+    `신고 사유: ${input.reason}`,
+    `상세 설명: ${input.description ?? '없음'}`,
+    `회신 받을 이메일: ${input.replyEmail ?? '미입력'}`,
+    `앱에서 함께 차단: ${input.blockUser ? '예' : '아니오'}`,
+    '',
+    '위 내용을 확인한 뒤 이 메일을 보내 주세요.',
+  ];
+  const subject = `[Gromo 신고] ${targetType} ${targetName}`;
+  return `mailto:${REPORT_EMAIL_RECIPIENT}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\n'))}`;
 }

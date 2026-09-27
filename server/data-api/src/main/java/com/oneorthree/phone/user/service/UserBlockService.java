@@ -34,26 +34,9 @@ public class UserBlockService {
         if (blockerId.equals(blockedId)) {
             throw new UserException(UserErrorCode.SELF_BLOCK);
         }
-        lockDirectContactPair(blockerId, blockedId);
         users.getCallerForShare(blockerId);
         users.getTargetForShare(blockedId);
         blocks.insertIgnoreConflict(UuidV7.next(), blockerId, blockedId);
-    }
-
-    /**
-     * 친구 요청·편지 발송과 차단 등록이 엇갈려도 둘 중 먼저 pair lock 을 잡은 의도만 진행한다.
-     * 조회만 하는 것처럼 보여도 PostgreSQL transaction advisory lock 을 잡으므로 readOnly 로 두지 않는다.
-     */
-    @Transactional
-    public boolean directContactBlocked(UUID first, UUID second) {
-        lockDirectContactPair(first, second);
-        return blocks.existsInEitherDirection(first, second);
-    }
-
-    private void lockDirectContactPair(UUID first, UUID second) {
-        String a = first.toString();
-        String b = second.toString();
-        blocks.lockDirectContactPair(a.compareTo(b) <= 0 ? a + ":" + b : b + ":" + a);
     }
 
     /**

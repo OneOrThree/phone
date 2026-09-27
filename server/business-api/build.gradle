@@ -35,7 +35,6 @@ dependencies {
 
 	// 요청 본문 검증 (@Valid) — 기존 Data API 의 DTO 제약을 그대로 옮겨 400 을 보존한다.
 	implementation 'org.springframework.boot:spring-boot-starter-validation'
-	implementation 'org.springframework.boot:spring-boot-starter-mail'
 
 	// 아웃바운드 내부 HTTP(RestClient) — Data · 알림 · 링크 세 상류.
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'

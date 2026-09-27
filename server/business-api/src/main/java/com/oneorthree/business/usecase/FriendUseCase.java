@@ -97,12 +97,12 @@ public class FriendUseCase {
 
     /** 친구 요청 생성 (LLD §1.1). */
     public void createRequest(AccessTokenClaims claims, UUID targetUserId, Deadline deadline) {
-        expect(relay(() -> data.createFriendRequest(claims.userId(), targetUserId, deadline), "targetUserId"), PENDING);
+        expect(relay(() -> data.createFriendRequest(claims.userId(), targetUserId, deadline)), PENDING);
     }
 
     /** 요청 수락 (LLD §1.2). */
     public void accept(AccessTokenClaims claims, UUID requestId, Deadline deadline) {
-        expect(relay(() -> data.acceptFriendRequest(claims.userId(), requestId, deadline), "requestId"), ACCEPTED);
+        expect(relay(() -> data.acceptFriendRequest(claims.userId(), requestId, deadline)), ACCEPTED);
     }
 
     /** 요청 거절 (LLD §1.3). */
@@ -174,16 +174,9 @@ public class FriendUseCase {
     }
 
     private <T> T relay(Supplier<T> upstream) {
-        return relay(upstream, null);
-    }
-
-    private <T> T relay(Supplier<T> upstream, String blockedField) {
         try {
             return upstream.get();
         } catch (UpstreamDomainException e) {
-            if ("FRIEND_BLOCKED_RELATION".equals(e.getCode()) && e.getStatus() == 403) {
-                throw new PublicApiException(ApiErrorCode.FORBIDDEN, blockedField);
-            }
             throw mapped(e);
         }
     }

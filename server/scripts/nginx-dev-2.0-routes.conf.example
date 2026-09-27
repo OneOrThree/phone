@@ -6,31 +6,8 @@ location = /internal { return 404; }
 location ^~ /actuator/ { return 404; }
 location = /actuator { return 404; }
 
-# Gmail 전송·메일함 확인은 최대 60초까지 걸릴 수 있다. 일반 API의 30초 제한과 분리하고,
-# 앱의 110초 제한보다 먼저 응답하되 SMTP/IMAP 후처리 여유까지 둔다.
-location = /reports {
-    proxy_pass http://127.0.0.1:8083;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header Connection "";
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-User-Id "";
-    proxy_set_header X-Caller "";
-    proxy_set_header X-Caller-Id "";
-    proxy_set_header X-Internal-Caller "";
-    proxy_set_header X-Service-Caller "";
-    proxy_set_header X-Link-Client-IP "";
-    proxy_set_header X-Link-Proxy-Secret "";
-    proxy_set_header X-Forwarded-For "";
-    proxy_set_header X-Real-IP "";
-    proxy_set_header CF-Connecting-IP "";
-    proxy_connect_timeout 2s;
-    proxy_read_timeout 100s;
-    proxy_next_upstream off;
-}
-
 # 앱의 공개 Business API와 현재 필요한 /api/v1 호환 표면만 허용한다.
-location ~ ^(?:/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks|reports)(?:/|$)|/api/v1/(?:users/me/(?:device-token|notification-settings)$|link-previews(?:/|$))) {
+location ~ ^(?:/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks)(?:/|$)|/api/v1/(?:users/me/(?:device-token|notification-settings)$|link-previews(?:/|$))) {
     proxy_pass http://127.0.0.1:8083;
     proxy_http_version 1.1;
     proxy_set_header Host $host;

@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   Image,
   ImageBackground,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -13,10 +14,10 @@ import {
 import { TextInput } from '@/design-system/typography';
 import { Btn, C, Chips, Toggle, Txt } from '@/design-system/patterns';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
-import { ApiError, uuid } from '@/services/api/client';
+import { ApiError } from '@/services/api/client';
 import {
   blockUser,
-  submitReport,
+  reportEmailUrl,
   type ReportReason,
   type ReportTargetType,
 } from '@/services/api/safety';
@@ -60,8 +61,6 @@ export function UserSafetySheet(props: Props) {
   const [alsoBlock, setAlsoBlock] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const requestId = useRef(uuid());
-  const requestPayload = useRef<string | null>(null);
 
   useEffect(() => {
     if (!props.visible) return;
@@ -72,8 +71,6 @@ export function UserSafetySheet(props: Props) {
     setAlsoBlock(false);
     setBusy(false);
     setError('');
-    requestId.current = uuid();
-    requestPayload.current = null;
   }, [props.visible, props.reportTargetId]);
 
   const fail = (thrown: unknown) => {
@@ -101,7 +98,7 @@ export function UserSafetySheet(props: Props) {
     }
   };
 
-  const report = async () => {
+  const composeReportEmail = async () => {
     if (busy) return;
     if (reason === 'OTHER' && !description.trim()) {
       setError('기타 사유를 설명해 주세요.');
@@ -109,6 +106,7 @@ export function UserSafetySheet(props: Props) {
     }
     setBusy(true);
     setError('');
+    let blocked = false;
     try {
       const input = {
         targetType: props.reportTargetType,
@@ -118,18 +116,25 @@ export function UserSafetySheet(props: Props) {
         replyEmail: replyEmail.trim() || null,
         blockUser: alsoBlock,
       };
-      const signature = JSON.stringify(input);
-      if (requestPayload.current !== null && requestPayload.current !== signature) {
-        requestId.current = uuid();
+      if (alsoBlock) {
+        await blockUser(props.targetUserId);
+        markUserBlocked(props.targetUserId);
+        props.onChanged?.();
+        blocked = true;
       }
-      requestPayload.current = signature;
-      const receipt = await submitReport(input, requestId.current);
-      if (receipt.blocked) markUserBlocked(props.targetUserId);
-      props.onChanged?.();
+      await Linking.openURL(reportEmailUrl(input, props.targetName));
       props.onClose();
-      props.onMessage(`신고가 접수됐어요. 사건 번호 ${receipt.caseId}`);
+      props.onMessage(
+        blocked
+          ? '차단했어요. 메일 내용을 확인한 뒤 보내 주세요.'
+          : '메일 내용을 확인한 뒤 보내 주세요.',
+      );
     } catch (thrown) {
-      fail(thrown);
+      if (blocked) {
+        setError('차단은 완료했지만 메일 앱을 열지 못했어요. 다시 시도해 주세요.');
+      } else {
+        fail(thrown);
+      }
     } finally {
       setBusy(false);
     }
@@ -265,7 +270,9 @@ export function UserSafetySheet(props: Props) {
                 keyboardShouldPersistTaps="handled"
                 contentContainerStyle={{ gap: componentTokens.modal.gap }}
               >
-                <Txt kind="meta">서버가 화면의 원문을 다시 확인해 운영팀에 전달해요.</Txt>
+                <Txt kind="meta">
+                  신고 내용을 채운 메일 작성 화면을 열어요. 전송 전 내용을 확인해 주세요.
+                </Txt>
                 <Chips
                   items={REASONS.map((item) => item.label)}
                   value={REASONS.find((item) => item.value === reason)?.label}
@@ -299,7 +306,7 @@ export function UserSafetySheet(props: Props) {
                 <View style={{ gap: 6 }}>
                   <Txt>처리 결과를 회신받을 이메일 (선택)</Txt>
                   <Txt kind="meta">
-                    신고 처리 결과를 안내받고 싶을 때 입력해 주세요. 신고 접수에는 필요하지 않아요.
+                    운영팀의 답장을 받을 주소예요. 입력하지 않아도 신고 메일을 작성할 수 있어요.
                   </Txt>
                   <TextInput
                     accessibilityLabel="처리 결과를 회신받을 이메일"
@@ -349,10 +356,10 @@ export function UserSafetySheet(props: Props) {
                     onPress={() => setMode('menu')}
                   />
                   <Btn
-                    title={busy ? '접수 확인 중…' : '신고 접수'}
+                    title={busy ? '메일 여는 중…' : '이메일 작성'}
                     disabled={busy}
                     style={{ flex: 1 }}
-                    onPress={report}
+                    onPress={composeReportEmail}
                   />
                 </View>
               </ScrollView>

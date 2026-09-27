@@ -18,7 +18,6 @@ import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.letter.repository.domain.Letter;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
-import com.oneorthree.phone.user.service.UserBlockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
@@ -71,7 +70,6 @@ public class InternalLetterService {
     private final IslandFacilityQueryService islandFacilityQueryService;
     private final PerUserHourlyLimiter sendLimiter;
     private final BannedWords bannedWords;
-    private final UserBlockService userBlockService;
 
     /**
      * 한도 카운터가 친구 요청 것과 같은 타입이라 이름으로 골라 받는다 — Lombok 생성자는 {@code @Qualifier} 를
@@ -83,8 +81,7 @@ public class InternalLetterService {
                                  GroupMemberRepository islandMemberships,
                                  IslandFacilityQueryService islandFacilityQueryService,
                                  @Qualifier("letterSendRateLimiter") PerUserHourlyLimiter sendLimiter,
-                                 BannedWords bannedWords,
-                                 UserBlockService userBlockService) {
+                                 BannedWords bannedWords) {
         this.letters = letters;
         this.users = users;
         this.friendships = friendships;
@@ -92,7 +89,6 @@ public class InternalLetterService {
         this.islandFacilityQueryService = islandFacilityQueryService;
         this.sendLimiter = sendLimiter;
         this.bannedWords = bannedWords;
-        this.userBlockService = userBlockService;
     }
 
     /**
@@ -103,7 +99,7 @@ public class InternalLetterService {
      * 탈퇴 트랜잭션과 직렬화해, 탈퇴가 커밋되는 중에 그 유저 앞으로 편지가 새로 꽂히지 않게 한다.
      * <b>친구 관계 확인도 같은 이유로 배타 락</b>({@code findAcceptedBetweenForUpdate})이다 — 친구
      * 삭제와 직렬화해, 관계가 끊긴 뒤 미확인 편지가 새로 꽂히지 않게 한다(codex 리뷰 P1).
-     * 잠금 순서는 언제나 {@code 차단 pair} → {@code users}(공유) → {@code friendships}(배타)다.
+     * 잠금 순서는 언제나 {@code users}(공유) → {@code friendships}(배타)다.
      *
      * @param senderId 보내는 사람(경로에서 오는 주체)
      * @param body     받는 사람과 본문
@@ -120,9 +116,6 @@ public class InternalLetterService {
         }
         String content = validContent(body.content());
 
-        if (userBlockService.directContactBlocked(senderId, body.receiverId())) {
-            throw new LetterException(LetterErrorCode.LETTER_BLOCKED_RELATION);
-        }
         User sender = users.getCallerForShare(senderId);
         User receiver = users.getTargetForShare(body.receiverId());
         // 관계 행 배타 락 (codex 리뷰 P1) — 친구 삭제와 «같은 행»에서 직렬화한다. 락 없이 확인하면

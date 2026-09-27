@@ -4,15 +4,14 @@ import { clearSession, saveSession } from '@/services/api/session';
 import {
   blockUser,
   getBlockedUsers,
-  REPORT_REQUEST_TIMEOUT_MS,
-  submitReport,
+  reportEmailUrl,
+  REPORT_EMAIL_RECIPIENT,
   unblockUser,
 } from '@/services/api/safety';
 
 type Call = { url: string; init: RequestInit };
 const calls: Call[] = [];
 const USER = '11111111-2222-4333-8444-555555555555';
-const REQUEST = '66666666-7777-4888-8999-000000000000';
 
 function stub(status: number, body?: unknown) {
   (global as any).fetch = jest.fn(async (url: string, init: RequestInit) => {
@@ -46,23 +45,23 @@ test('차단 목록·등록·해제 공개 계약을 그대로 호출한다', as
   assert.equal(calls[2].init.method, 'DELETE');
 });
 
-test('신고는 선택적 동시 차단과 재시도 requestId를 Idempotency-Key로 보낸다', async () => {
-  const timeout = jest.spyOn(global, 'setTimeout');
-  stub(201, { data: { caseId: 'GR-CASE', blocked: true } });
+test('신고 입력을 운영 Gmail 수신 주소와 편집 가능한 mailto 본문으로 만든다', () => {
   const input = {
     targetType: 'LETTER' as const,
     targetId: USER,
     reason: 'HARASSMENT' as const,
     description: '설명',
-    replyEmail: null,
+    replyEmail: 'reply@example.com',
     blockUser: true,
   };
 
-  assert.deepEqual(await submitReport(input, REQUEST), { caseId: 'GR-CASE', blocked: true });
-  assert.equal(calls[0].url, `${API_URL}/reports`);
-  assert.equal(calls[0].init.method, 'POST');
-  assert.equal((calls[0].init.headers as Record<string, string>)['Idempotency-Key'], REQUEST);
-  assert.deepEqual(JSON.parse(calls[0].init.body as string), input);
-  expect(timeout).toHaveBeenCalledWith(expect.any(Function), REPORT_REQUEST_TIMEOUT_MS);
-  timeout.mockRestore();
+  const url = reportEmailUrl(input, '민지');
+  assert.ok(url.startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`));
+  const decoded = decodeURIComponent(url);
+  assert.ok(decoded.includes('subject=[Gromo 신고] 편지 민지'));
+  assert.ok(decoded.includes('신고 사유: HARASSMENT'));
+  assert.ok(decoded.includes('상세 설명: 설명'));
+  assert.ok(decoded.includes('회신 받을 이메일: reply@example.com'));
+  assert.ok(decoded.includes('앱에서 함께 차단: 예'));
+  assert.equal(calls.length, 0);
 });

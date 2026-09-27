@@ -76,14 +76,6 @@ public interface FriendshipRepository extends JpaRepository<Friendship, UUID> {
     Optional<Friendship> findByIdAndDeletedAtIsNull(UUID id);
 
     /**
-     * 요청 수락 전에 차단 pair advisory lock 을 먼저 잡기 위한 발신자 id 조회.
-     * 엔티티를 영속성 컨텍스트에 올리지 않는 scalar 조회여야 한다. 엔티티를 먼저 읽으면 그 사이
-     * 취소·탈퇴가 커밋된 뒤 아래 배타 락 조회가 같은 1차 캐시 snapshot 을 재사용할 수 있다.
-     */
-    @Query("select f.fromUser.id from Friendship f where f.id = :id and f.deletedAt is null")
-    Optional<UUID> findRequesterIdByIdAndDeletedAtIsNull(@Param("id") UUID id);
-
-    /**
      * 알림 경로의 상태 재확인 전용 — 위 조회와 조건은 같지만 **락을 잡지 않는다**.
      * 위 findByIdAndDeletedAtIsNull 은 수락·거절이 행을 변경하기 직전에 쓰라고 만든 배타 락이다.
      * 그걸 알림 경로가 재사용하면, 잠긴 행이 그 트랜잭션이 끝날 때까지 — 즉 FCM 발송이 끝날 때까지 —

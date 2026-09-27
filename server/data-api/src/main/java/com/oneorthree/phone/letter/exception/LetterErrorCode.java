@@ -46,7 +46,6 @@ public enum LetterErrorCode implements ErrorCode {
      * 합치면 「내 편지가 아니다」와 「내가 닫을 수 있는 편지가 아니다」를 앱이 구분해 안내할 수 없다.
      */
     NOT_LETTER_RECEIVER(HttpStatus.FORBIDDEN, "받은 편지만 닫을 수 있습니다."),
-    LETTER_BLOCKED_RELATION(HttpStatus.FORBIDDEN, "차단된 사용자와는 편지를 주고받을 수 없습니다."),
 
     // 대상 없음
     LETTER_NOT_FOUND(HttpStatus.NOT_FOUND, "편지를 찾을 수 없습니다."),
