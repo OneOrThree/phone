@@ -4,6 +4,7 @@ import {
   Easing,
   Image,
   ImageSourcePropType,
+  PixelRatio,
   Platform,
   Pressable,
   ScrollView,
@@ -5744,6 +5745,7 @@ export function Board({
     if (land) sceneScrollRef.current?.scrollTo({ x: 0, y: initialSceneOffset, animated: false });
   }, [land, initialSceneOffset]);
   const labelScale = Math.min(1, scene.width / 402);
+  const fontScale = Math.max(1, PixelRatio.getFontScale());
   const sceneHitbox = (
     centerX: number,
     centerY: number,
@@ -5761,17 +5763,25 @@ export function Board({
     };
   };
   const questHitHeight = Math.max(scene.height * 0.09, 44);
-  const accessibleQuestHeight = (22 * 1.1 * 2 + 20 + 3 + 6) * labelScale;
+  const accessibleQuestHeight = (22 * 1.1 * fontScale + 20 + 3 + 6) * labelScale;
   const questLabelHitHeight = Math.max(questHitHeight, accessibleQuestHeight);
+  const questCenterY = 0.285;
+  const blueprintCenterY = Math.max(
+    0.406,
+    questCenterY + (questLabelHitHeight / 2 + 44 / 2 + 1) / scene.height,
+  );
   const blueprintHitHeight = Math.min(
     Math.max(scene.height * 0.128, 44),
-    // Keep a one-pixel gap below the quest target at the smallest landscape size.
-    Math.max(44, 2 * (scene.height * (0.406 - 0.285) - questLabelHitHeight / 2 - 1)),
+    // Keep a one-pixel gap below the quest target, including large accessibility text.
+    Math.max(
+      44,
+      2 * (scene.height * (blueprintCenterY - questCenterY) - questLabelHitHeight / 2 - 1),
+    ),
   );
   const boardHitboxes = {
     notice: sceneHitbox(0.3495, 0.348, 0.253, 0.226),
-    quest: sceneHitbox(0.645, 0.285, 0.27, questLabelHitHeight / scene.height),
-    blueprint: sceneHitbox(0.705, 0.406, 0.19, 0.128, blueprintHitHeight),
+    quest: sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height),
+    blueprint: sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight),
   };
   // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
   const landScale = land ? width / 874 : 1;
@@ -5946,7 +5956,7 @@ export function Board({
                 allowFontScaling
                 style={[
                   boardFont(22 * labelScale, 1.1, '400', '#82652c', 'BoardHand-Bold'),
-                  { width: scene.width * 0.45, textAlign: 'center' },
+                  { width: scene.width * 0.52, textAlign: 'center' },
                 ]}
               >
                 퀘스트

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
-import { Platform, StyleSheet } from 'react-native';
+import { PixelRatio, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -461,6 +461,38 @@ test('작은 320×480·290×400 화면에서 퀘스트와 청사진 터치 영�
     assert.ok(blueprint.width >= 44 && blueprint.height >= 44);
     assert.ok(separated, `터치 영역이 ${width}×${height}에서 겹치지 않음`);
     await screen.unmount();
+  }
+});
+
+test('3배 접근성 글자에서도 퀘스트 터치 영역에 맞춰 청사진 영역을 재배치한다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(3);
+  try {
+    for (const [width, height] of [
+      [320, 480],
+      [290, 400],
+    ]) {
+      const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+      const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+      const questText = screen.getByText('퀘스트');
+      const labelScale = Math.min(1, scene.width / 402);
+      const requiredQuestHeight = (22 * 1.1 * 3 + 20 + 3 + 6) * labelScale;
+      const separated =
+        quest.top + quest.height <= blueprint.top ||
+        blueprint.top + blueprint.height <= quest.top ||
+        quest.left + quest.width <= blueprint.left ||
+        blueprint.left + blueprint.width <= quest.left;
+
+      assert.ok(questText.props.allowFontScaling);
+      assert.ok(StyleSheet.flatten(questText.props.style).width >= 198 * labelScale);
+      assert.ok(quest.height >= requiredQuestHeight);
+      assert.ok(blueprint.width >= 44 && blueprint.height >= 44);
+      assert.ok(separated, `3배 글자 터치 영역이 ${width}×${height}에서 겹치지 않음`);
+      await screen.unmount();
+    }
+  } finally {
+    fontScale.mockRestore();
   }
 });
 
