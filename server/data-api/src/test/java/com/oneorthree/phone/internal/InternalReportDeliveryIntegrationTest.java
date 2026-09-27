@@ -217,7 +217,8 @@ class InternalReportDeliveryIntegrationTest {
         ReportDeliveryView pending = deliveries.claim(reporter, requestId, claim(requestId, FINGERPRINT, true));
         deliveries.prepare(reporter, requestId,
                 new ReportDeliveryPrepareRequest(pending.leaseToken(), author, "제목", "회신메일과 원문"));
-        jdbc.update("update report_deliveries set updated_at=now()-interval '25 hours' where reporter_id=?",
+        // 시간별 정리 지연까지 포함해 24시간 상한을 지키도록 23시간부터 정리한다.
+        jdbc.update("update report_deliveries set updated_at=now()-interval '23 hours 1 minute' where reporter_id=?",
                 reporter);
 
         assertThat(privacy.purgeStale()).isGreaterThanOrEqualTo(1);

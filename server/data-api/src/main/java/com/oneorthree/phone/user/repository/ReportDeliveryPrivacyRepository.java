@@ -16,7 +16,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ReportDeliveryPrivacyRepository {
 
-    private static final Duration RETENTION = Duration.ofHours(24);
+    // 정리 작업이 매시간 실행되므로 기준을 한 주기 앞당겨 실제 보존 시간이 24시간을 넘지 않게 한다.
+    private static final Duration RETENTION = Duration.ofHours(23);
 
     private final JdbcTemplate jdbc;
     private final Clock clock;

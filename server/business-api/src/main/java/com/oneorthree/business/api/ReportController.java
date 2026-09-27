@@ -29,7 +29,10 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class ReportController {
 
-    private static final Pattern EMAIL = Pattern.compile("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$");
+    private static final Pattern EMAIL = Pattern.compile(
+            "^[A-Za-z0-9.!#$%&'*+=?^_{}|~-]+@"
+                    + "[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                    + "(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$");
 
     private final ReportUseCase reports;
     private final SettingsSessionGuard sessions;

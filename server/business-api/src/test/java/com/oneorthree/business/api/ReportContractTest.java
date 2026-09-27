@@ -73,14 +73,16 @@ class ReportContractTest extends UpstreamTestBase {
     @Test
     void invalidReplyEmailIsRejectedBeforeEvidenceLookup() throws Exception {
         reset(mail);
-        String invalid = body("USER", TARGET, false).replace("\"replyEmail\":null",
-                "\"replyEmail\":\"not-an-email\"");
+        for (String value : new String[] {"not-an-email", "https://evil.example/@x.y"}) {
+            String invalid = body("USER", TARGET, false).replace("\"replyEmail\":null",
+                    "\"replyEmail\":\"" + value + "\"");
 
-        mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
-                        .contentType(MediaType.APPLICATION_JSON).content(invalid))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
-                .andExpect(jsonPath("$.error.field").value("replyEmail"));
+            mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
+                            .contentType(MediaType.APPLICATION_JSON).content(invalid))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error.code").value("INVALID_PARAMETER"))
+                    .andExpect(jsonPath("$.error.field").value("replyEmail"));
+        }
 
         assertThat(DATA.received()).isEmpty();
         verifyNoInteractions(mail);
@@ -112,8 +114,10 @@ class ReportContractTest extends UpstreamTestBase {
                 + "\"focusTimeMinutes\":0,\"focusStartedAt\":null,\"focusTagName\":null,"
                 + "\"mainIslandName\":null}]"));
 
+        String request = body("USER", TARGET, false).replace("\"replyEmail\":null",
+                "\"replyEmail\":\"reply+report@example.com\"");
         mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
-                        .contentType(MediaType.APPLICATION_JSON).content(body("USER", TARGET, false)))
+                        .contentType(MediaType.APPLICATION_JSON).content(request))
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.data.caseId").value("GR-DBA0151D469BD84C720C"))
                 .andExpect(jsonPath("$.data.blocked").value(false));
@@ -121,7 +125,9 @@ class ReportContractTest extends UpstreamTestBase {
         ArgumentCaptor<ReportMailGateway.ReportMail> sent = ArgumentCaptor.forClass(ReportMailGateway.ReportMail.class);
         verify(mail).deliverAndConfirm(sent.capture(), any(Runnable.class));
         assertThat(sent.getValue().confirmationToken()).isEqualTo(CONFIRMATION.toString());
-        assertThat(sent.getValue().body()).contains("서버닉네임").contains("reporterId: " + USER);
+        assertThat(sent.getValue().body()).contains("서버닉네임")
+                .contains("reporterId: " + USER)
+                .contains("replyEmailUnverified: reply+report@example.com");
         assertThat(DATA.received()).hasSize(5);
         verifyNoMoreInteractions(mail);
     }
