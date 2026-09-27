@@ -78,7 +78,13 @@ export function refreshBlockedUsers(): Promise<BlockedUser[]> {
   flight = request;
   request.then(
     () => {
-      if (flight === request) flight = null;
+      if (flight === request) {
+        flight = null;
+        // 변경 전 snapshot을 버린 경우 기존 차단 목록까지 복구하도록 최신 목록을 다시 읽는다.
+        if (expectedGeneration === sessionGeneration() && expectedRevision !== mutationRevision) {
+          refreshBlockedUsers().catch(() => {});
+        }
+      }
     },
     () => {
       if (flight === request) flight = null;
