@@ -62,10 +62,33 @@ export function GoldenFishCutscene({
   }, [variant]);
   useEffect(() => {
     // 재생이 시작된 뒤에는 버퍼링·백그라운드 중 wall-clock으로 조기 종료하지 않는다.
-    // 정상 종료는 playToEnd가 맡고, 이 타이머는 재생 자체가 시작되지 못한 경우만 복구한다.
+    // 정상 종료는 playToEnd가 맡고, 이 타이머는 포그라운드에서 재생 자체가 시작되지 못한 경우만 복구한다.
     if (started) return;
-    const fallback = setTimeout(finish, 8000);
-    return () => clearTimeout(fallback);
+    let remaining = 8_000;
+    let activeSince = Date.now();
+    let fallback: ReturnType<typeof setTimeout> | null = null;
+    const suspended = () =>
+      AppState.currentState === 'background' || AppState.currentState === 'inactive';
+    const pause = () => {
+      if (!fallback) return;
+      remaining = Math.max(0, remaining - (Date.now() - activeSince));
+      clearTimeout(fallback);
+      fallback = null;
+    };
+    const resume = () => {
+      pause();
+      activeSince = Date.now();
+      fallback = setTimeout(finish, remaining);
+    };
+    if (!suspended()) resume();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') resume();
+      else pause();
+    });
+    return () => {
+      pause();
+      subscription.remove();
+    };
   }, [finish, started]);
   useEffect(() => {
     if (!started) return;
