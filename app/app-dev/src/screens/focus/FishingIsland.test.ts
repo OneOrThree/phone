@@ -20,6 +20,7 @@ import {
   nearRaft,
   occupied,
   peerLandRoute,
+  peerPixelsAtSize,
   peerPointFromPixels,
   peerWalkFace,
 } from '@/screens/focus/FishingIsland';
@@ -105,6 +106,25 @@ test('중단된 주민 이동의 픽셀 좌표를 현재 지도 좌표로 복원
   const restored = peerPointFromPixels(left, top, size, sizeY);
   assert.ok(Math.abs(restored.x - current.x) < 1e-9);
   assert.ok(Math.abs(restored.y - current.y) < 1e-9);
+});
+
+test('지도 크기가 바뀌어도 이동 중 주민의 지도 좌표를 보존한다', () => {
+  const oldSize = 640,
+    oldSizeY = oldSize / 1.5,
+    newSize = 1152,
+    newSizeY = newSize / 1.5,
+    current = { x: 41.25, y: 63.5 },
+    oldLeft = (oldSize * current.x) / 100 - (oldSize * 0.077) / 2,
+    oldTop = (oldSizeY * current.y) / 100 - oldSize * 0.077 * 0.90625,
+    resized = peerPixelsAtSize(oldLeft, oldTop, oldSize, oldSizeY, newSize, newSizeY),
+    restored = peerPointFromPixels(resized.left, resized.top, newSize, newSizeY);
+
+  assert.ok(Math.abs(restored.x - current.x) < 1e-9);
+  assert.ok(Math.abs(restored.y - current.y) < 1e-9);
+  // 이전 픽셀 값을 새 지도 크기로 바로 해석하면 핀치 확대만으로 좌표가 달라진다.
+  const misinterpreted = peerPointFromPixels(oldLeft, oldTop, newSize, newSizeY);
+  assert.ok(Math.abs(misinterpreted.x - current.x) > 1);
+  assert.ok(Math.abs(misinterpreted.y - current.y) > 1);
 });
 
 test('주민 걷기 방향은 현재 구간의 다음 waypoint를 향한다', () => {

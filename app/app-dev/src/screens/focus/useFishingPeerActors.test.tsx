@@ -204,6 +204,50 @@ test('같은 주민의 active 세션이 교체되면 이전 actor를 남기지 �
   assert.deepEqual(result.current.actors[0].spot, seat);
 });
 
+test('완료 퇴장 중 새 세션이 시작되면 퇴장 actor와 슬롯을 새 actor로 교체한다', async () => {
+  let members: FishingPeer[] = [peer];
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false }),
+  );
+  const seat = result.current.actors[0].spot;
+
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u1',
+      previous: member('active'),
+      current: null,
+    }),
+  );
+  const finishingGeneration = result.current.actors[0].generation;
+  await act(async () => result.current.stretched('u1:s1', finishingGeneration));
+  const staleExitGeneration = result.current.actors[0].generation;
+
+  const nextPeer = { ...peer, sessionId: 's2' };
+  members = [nextPeer];
+  await rerender(undefined);
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event-gap',
+      kind: 'focus',
+      userId: 'u1',
+      previous: null,
+      current: { ...member('active'), sessionId: 's2' },
+    }),
+  );
+
+  assert.equal(result.current.actors.length, 1);
+  assert.equal(result.current.actors[0].key, 'u1:s2');
+  assert.equal(result.current.actors[0].phase, 'entering');
+  assert.deepEqual(result.current.actors[0].spot, seat);
+  assert.equal(new Set(result.current.actors.map((actor) => actor.slot)).size, 1);
+
+  await act(async () => result.current.leftForComplete('u1:s1', staleExitGeneration));
+  assert.equal(result.current.actors.length, 1);
+  assert.equal(result.current.actors[0].key, 'u1:s2');
+});
+
 test('event-gap에서 처음 확인된 paused 주민도 숨긴 actor와 자리를 예약한다', async () => {
   const pausedPeer = { ...peer, userId: 'u2', sessionId: 's2', status: 'paused' as const };
   let members: FishingPeer[] = [peer];

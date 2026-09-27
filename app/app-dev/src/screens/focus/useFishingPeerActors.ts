@@ -217,7 +217,15 @@ export function useFishingPeerActors({
         const key = actorKey(transition.userId, sessionId),
           found = next.findIndex((actor) => actor.key === key),
           previousKey = before?.sessionId ? actorKey(transition.userId, before.sessionId) : null,
-          previousFound = previousKey ? next.findIndex((actor) => actor.key === previousKey) : -1,
+          previousFound = previousKey
+            ? next.findIndex((actor) => actor.key === previousKey)
+            : after
+              ? next.findIndex(
+                  (actor) =>
+                    actor.userId === transition.userId &&
+                    (actor.phase === 'finishing' || actor.phase === 'leaving-complete'),
+                )
+              : -1,
           existing = found >= 0 ? next[found] : null,
           replaced = !existing && previousFound >= 0 ? next[previousFound] : null;
         if (after?.status === 'active') {

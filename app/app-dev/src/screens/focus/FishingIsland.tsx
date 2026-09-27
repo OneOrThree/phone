@@ -116,6 +116,20 @@ export const peerPointFromPixels = (left: number, top: number, size: number, siz
   x: ((left + (size * 0.077) / 2) * 100) / size,
   y: ((top + size * 0.077 * 0.90625) * 100) / sizeY,
 });
+export const peerPixelsAtSize = (
+  left: number,
+  top: number,
+  fromSize: number,
+  fromSizeY: number,
+  size: number,
+  sizeY: number,
+) => {
+  const point = peerPointFromPixels(left, top, fromSize, fromSizeY);
+  return {
+    left: (size * point.x) / 100 - (size * 0.077) / 2,
+    top: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
+  };
+};
 export const peerWalkFace = (from: Point, to: Point, fallback: number) =>
   Math.abs(to.x - from.x) > 0.15 ? (to.x < from.x ? -1 : 1) : fallback;
 // 뗏목(지도 폭 12%)과 내리는 자리 위에는 앉을 수 없다. 앉은 고양이(폭 7.7%·발 기준) 상자가 겹치는지로 본다.
@@ -672,6 +686,8 @@ export function FishingPeerActorView({
   const top = useRef(
     new NativeAnimated.Value((sizeY * actor.position.y) / 100 - size * 0.077 * 0.90625),
   ).current;
+  // 확대 중에도 픽셀 좌표가 어느 지도 크기 기준인지 기억해 중단된 이동 위치를 보존한다.
+  const pixelSize = useRef({ size, sizeY });
   const motionToken = useRef(actor.generation);
   const [walkFace, setWalkFace] = useState(actor.spot.face);
   useEffect(() => {
@@ -695,6 +711,7 @@ export function FishingPeerActorView({
       if (reduce) {
         left.setValue(toLeft);
         top.setValue(toTop);
+        pixelSize.current = { size, sizeY };
         if (actor.phase === 'entering') onEntered(actor.key, token);
         else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
         else onCompletedExit(actor.key, token);
@@ -707,12 +724,30 @@ export function FishingPeerActorView({
         cancelled = false;
       // 이전 방향의 composite가 cleanup에서 멈춘 실제 픽셀 좌표를 읽어 새 땅 경로를 계산한다.
       // actor.position은 상태 경계 좌표라 이동 도중 방향이 바뀐 경우의 현재 위치가 아니다.
+      const fromSize = pixelSize.current;
       left.stopAnimation((currentLeft: number) => {
         top.stopAnimation((currentTop: number) => {
           if (cancelled) return;
-          const current = peerPointFromPixels(currentLeft, currentTop, size, sizeY),
+          const current = peerPointFromPixels(
+              currentLeft,
+              currentTop,
+              fromSize.size,
+              fromSize.sizeY,
+            ),
             route = peerLandRoute(current, toPoint),
             waypoints = route.length ? route : [toPoint];
+          // 멈춘 지도 좌표를 새 확대 배율의 픽셀로 옮긴 뒤 남은 경로를 이어간다.
+          const rebased = peerPixelsAtSize(
+            currentLeft,
+            currentTop,
+            fromSize.size,
+            fromSize.sizeY,
+            size,
+            sizeY,
+          );
+          left.setValue(rebased.left);
+          top.setValue(rebased.top);
+          pixelSize.current = { size, sizeY };
           let previous = current,
             index = 0,
             face = actor.spot.face;
@@ -759,11 +794,31 @@ export function FishingPeerActorView({
     }
     if (actor.phase === 'finishing') {
       // 이동을 마치기 전 완료되면 cleanup이 멈춘 실제 위치에서 기지개를 시작한다.
-      left.stopAnimation();
-      top.stopAnimation();
+      if (pixelSize.current.size !== size || pixelSize.current.sizeY !== sizeY) {
+        const fromSize = pixelSize.current;
+        left.stopAnimation((currentLeft: number) => {
+          top.stopAnimation((currentTop: number) => {
+            const rebased = peerPixelsAtSize(
+              currentLeft,
+              currentTop,
+              fromSize.size,
+              fromSize.sizeY,
+              size,
+              sizeY,
+            );
+            left.setValue(rebased.left);
+            top.setValue(rebased.top);
+            pixelSize.current = { size, sizeY };
+          });
+        });
+      } else {
+        left.stopAnimation();
+        top.stopAnimation();
+      }
     } else {
       left.setValue(toLeft);
       top.setValue(toTop);
+      pixelSize.current = { size, sizeY };
     }
   }, [
     actor.key,
