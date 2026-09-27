@@ -83,6 +83,28 @@ test('계정이 바뀌면 이전 세션의 차단 snapshot을 즉시 폐기한�
   assert.equal(isUserBlocked('blocked-by-u1'), false);
 });
 
+test('활성 소비자가 있는 동안 세션이 바뀌면 새 계정 목록을 즉시 적재한다', async () => {
+  await clearSession();
+  await saveSession({ accessToken: 'AT-live-1', refreshToken: 'RT-live-1', userId: 'u-live-1' });
+  listMock
+    .mockResolvedValueOnce([])
+    .mockResolvedValueOnce([{ id: 'blocked-by-u2', name: '새 계정 차단' }]);
+  const hook = await renderHook(() => useBlockedUsers(true));
+  await waitFor(() => assert.equal(listMock.mock.calls.length, 1));
+
+  await act(async () => {
+    await saveSession({
+      accessToken: 'AT-live-2',
+      refreshToken: 'RT-live-2',
+      userId: 'u-live-2',
+    });
+  });
+
+  await waitFor(() => assert.equal(listMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(isUserBlocked('blocked-by-u2'), true));
+  await hook.unmount();
+});
+
 test('cache가 만료되면 같은 세션에서도 차단 목록을 다시 검증한다', async () => {
   const now = Date.now();
   jest.spyOn(Date, 'now').mockReturnValue(now + 30_001);

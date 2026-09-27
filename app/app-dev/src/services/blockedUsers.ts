@@ -5,6 +5,7 @@ import { sessionGeneration, subscribeSession } from '@/services/api/session';
 
 let generation = sessionGeneration();
 let ids: ReadonlySet<string> = new Set();
+let users: ReadonlyArray<BlockedUser> = [];
 let loaded = false;
 let lastValidatedAt = 0;
 let loadError: unknown = null;
@@ -23,6 +24,7 @@ const emit = () => {
 const resetForSession = () => {
   generation = sessionGeneration();
   ids = new Set();
+  users = [];
   loaded = false;
   lastValidatedAt = 0;
   loadError = null;
@@ -44,8 +46,10 @@ const subscribe = (listener: () => void) => {
 
 const snapshot = () => storeRevision;
 
-export function replaceBlockedUsers(users: BlockedUser[]): void {
-  ids = new Set(users.map((user) => user.id));
+export function replaceBlockedUsers(nextUsers: BlockedUser[]): void {
+  ids = new Set(nextUsers.map((user) => user.id));
+  // 호출자가 이후 배열을 수정해도 store snapshot은 바뀌지 않게 복사한다.
+  users = nextUsers.map((user) => ({ ...user }));
   loaded = true;
   lastValidatedAt = Date.now();
   loadError = null;
@@ -64,6 +68,7 @@ export function markUserUnblocked(userId: string): void {
   const next = new Set(ids);
   next.delete(userId);
   ids = next;
+  users = users.filter((user) => user.id !== userId);
   mutationRevision += 1;
   emit();
 }
@@ -91,16 +96,16 @@ export function refreshBlockedUsers(): Promise<BlockedUser[]> {
   const requestSequence = ++refreshSequence;
   loadError = null;
   if (!loaded) emit();
-  const request = getBlockedUsers().then((users) => {
+  const request = getBlockedUsers().then((nextUsers) => {
     // GET을 시작한 뒤 차단/해제가 성공했다면 이 응답은 그 변경 전 snapshot일 수 있다.
     if (
       expectedGeneration === sessionGeneration() &&
       expectedRevision === mutationRevision &&
       requestSequence === refreshSequence
     ) {
-      replaceBlockedUsers(users);
+      replaceBlockedUsers(nextUsers);
     }
-    return users;
+    return nextUsers;
   });
   flight = request;
   request.then(
@@ -130,11 +135,13 @@ export type BlockedUsersLoadStatus = 'loading' | 'ready' | 'error';
 
 export function useBlockedUsers(active = true): {
   ids: ReadonlySet<string>;
+  users: ReadonlyArray<BlockedUser>;
   status: BlockedUsersLoadStatus;
   error: unknown;
   retry: () => Promise<BlockedUser[]>;
 } {
   useSyncExternalStore(subscribe, snapshot, snapshot);
+  const currentGeneration = sessionGeneration();
   const hasActivated = useRef(false);
   useEffect(() => {
     if (!active) return;
@@ -145,9 +152,10 @@ export function useBlockedUsers(active = true): {
       if (next === 'active') revalidateBlockedUsers().catch(() => {});
     });
     return () => subscription.remove();
-  }, [active]);
+  }, [active, currentGeneration]);
   return {
     ids,
+    users,
     status: loaded ? 'ready' : loadError ? 'error' : 'loading',
     error: loadError,
     retry: refreshBlockedUsers,

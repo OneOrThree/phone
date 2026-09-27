@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
 import { ApiError } from '@/services/api/client';
 import { getBlockedUsers, unblockUser } from '@/services/api/safety';
@@ -96,6 +96,34 @@ test('차단 해제 성공 후 목록을 재조회하고 완료를 알린다', a
   assert.equal(isUserBlocked('user-2'), false);
   assert.equal(e.friendsScreen.refresh.mock.calls.length, 1);
   assert.equal(e.notify.mock.calls[0][0], '민지님의 차단을 해제했어요.');
+});
+
+test('차단 해제 뒤 목록 재조회가 실패해도 친구 화면은 즉시 새로고침한다', async () => {
+  listMock
+    .mockResolvedValueOnce([user])
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '목록 갱신 실패', 0));
+  unblockMock.mockResolvedValue(undefined);
+  const e = events();
+  const screen = await render(<BlockedUsersScreen e={e} />);
+  await waitFor(() => assert.ok(screen.getByText('민지')));
+
+  await fireEvent.press(screen.getByText('차단 해제'));
+
+  await waitFor(() => assert.ok(screen.getByText('목록 갱신 실패')));
+  assert.equal(e.friendsScreen.refresh.mock.calls.length, 1);
+  assert.equal(e.notify.mock.calls[0][0], '민지님의 차단을 해제했어요.');
+  assert.equal(isUserBlocked('user-2'), false);
+});
+
+test('전역 차단 목록 snapshot이 바뀌면 열린 화면의 행도 즉시 갱신한다', async () => {
+  listMock.mockResolvedValue([user]);
+  const screen = await render(<BlockedUsersScreen e={events()} />);
+  await waitFor(() => assert.ok(screen.getByText('민지')));
+
+  await act(async () => replaceBlockedUsers([{ id: 'user-3', name: '서윤' }]));
+
+  await waitFor(() => assert.ok(screen.getByText('서윤')));
+  assert.equal(screen.queryByText('민지'), null);
 });
 
 test('차단 목록은 단방향 숨김과 해제 뒤 재노출 가능성을 안내한다', async () => {

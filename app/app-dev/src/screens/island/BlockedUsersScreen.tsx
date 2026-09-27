@@ -5,14 +5,23 @@ import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet'
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import { unblockUser, type BlockedUser } from '@/services/api/safety';
-import { markUserUnblocked, refreshBlockedUsers } from '@/services/blockedUsers';
+import { markUserUnblocked, refreshBlockedUsers, useBlockedUsers } from '@/services/blockedUsers';
 
 export function BlockedUsersScreen({ e }: any) {
-  const [items, setItems] = useState<BlockedUser[]>([]);
+  const blockedUsers = useBlockedUsers(true);
+  const items = blockedUsers.users;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const sequence = useRef(0);
+  const visibleLoading = loading || blockedUsers.status === 'loading';
+  const visibleError =
+    error ||
+    (blockedUsers.status === 'error'
+      ? blockedUsers.error instanceof ApiError
+        ? blockedUsers.error.message
+        : '차단 목록을 불러오지 못했어요.'
+      : '');
 
   const load = useCallback(async () => {
     const seq = ++sequence.current;
@@ -20,9 +29,8 @@ export function BlockedUsersScreen({ e }: any) {
     setLoading(true);
     setError('');
     try {
-      const next = await refreshBlockedUsers();
+      await refreshBlockedUsers();
       if (seq !== sequence.current || generation !== sessionGeneration()) return;
-      setItems(next);
     } catch (thrown) {
       if (seq !== sequence.current || generation !== sessionGeneration()) return;
       if (thrown instanceof ApiError && thrown.code === CLIENT_STALE_SESSION) return;
@@ -46,9 +54,9 @@ export function BlockedUsersScreen({ e }: any) {
     try {
       await unblockUser(item.id);
       markUserUnblocked(item.id);
-      await load();
       e.friendsScreen?.refresh?.();
       e.notify(`${item.name}님의 차단을 해제했어요.`);
+      await load();
     } catch (thrown) {
       setError(thrown instanceof ApiError ? thrown.message : '차단을 해제하지 못했어요.');
     } finally {
@@ -69,13 +77,13 @@ export function BlockedUsersScreen({ e }: any) {
         차단한 사용자의 친구 요청과 편지는 내 화면에서 숨겨져요. 차단 중 받은 내용은 해제하면 다시
         보일 수 있어요.
       </Txt>
-      {loading ? (
+      {visibleLoading ? (
         <Txt kind="meta" style={{ paddingVertical: 24, textAlign: 'center' }}>
           불러오는 중…
         </Txt>
-      ) : error ? (
+      ) : visibleError ? (
         <View style={{ gap: 12, paddingVertical: 16 }}>
-          <Txt style={{ color: C.danger }}>{error}</Txt>
+          <Txt style={{ color: C.danger }}>{visibleError}</Txt>
           <Btn small kind="sec" title="다시 시도" onPress={load} />
         </View>
       ) : items.length ? (
