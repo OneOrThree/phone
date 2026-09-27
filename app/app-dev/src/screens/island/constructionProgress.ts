@@ -1,28 +1,22 @@
-type TimedConstruction = { startedAt: string; completesAt: string; serverNow?: string };
+type TimedConstruction = { startedAt: string | number; completesAt: string | number };
 
 export type ConstructionPhase =
   'pre' | 'foundation' | 'building' | 'finishing' | 'awaiting-confirmation';
 
-/** clientNow 와 observedAt 은 같은 기기 시계의 밀리초 값이다. */
+const timestamp = (value: string | number) =>
+  typeof value === 'number' ? value : Date.parse(value);
+
+/** 착공 POST가 준 구간에서 클라이언트 현재 시각으로 진행률을 계산한다. */
 export function normalizedConstructionProgress(
   construction: TimedConstruction | null,
   clientNow: number,
-  observedAt: number,
 ): number {
   if (!construction) return 0;
-  const startedAt = Date.parse(construction.startedAt);
-  const completesAt = Date.parse(construction.completesAt);
-  // POST receipt has no serverNow; anchor its initial estimate at startedAt and let the
-  // client monotonic tick advance until the next GET supplies the authoritative offset.
-  const serverNow = construction.serverNow ? Date.parse(construction.serverNow) : startedAt;
+  const startedAt = timestamp(construction.startedAt);
+  const completesAt = timestamp(construction.completesAt);
   const duration = completesAt - startedAt;
-  if (
-    ![startedAt, completesAt, serverNow, clientNow, observedAt].every(Number.isFinite) ||
-    duration <= 0
-  )
-    return 0;
-  const estimatedServerNow = serverNow + (clientNow - observedAt);
-  return Math.max(0, Math.min(1, (estimatedServerNow - startedAt) / duration));
+  if (![startedAt, completesAt, clientNow].every(Number.isFinite) || duration <= 0) return 0;
+  return Math.max(0, Math.min(1, (clientNow - startedAt) / duration));
 }
 
 export function constructionPhase(

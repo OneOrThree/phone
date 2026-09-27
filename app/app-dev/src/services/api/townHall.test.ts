@@ -52,7 +52,6 @@ const townHallBody = {
     selectedBuildingId: null,
     villagePoints: 0,
     walletVersion: 9,
-    activeConstruction: null,
     items: [],
   },
   joinRequests: null,

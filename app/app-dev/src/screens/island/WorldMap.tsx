@@ -564,14 +564,31 @@ function FinalIslandScene({
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
-  const activeConstruction = facts?.activeConstruction ?? null;
-  const activeBuilding = activeConstruction?.buildingId as Building | undefined;
+  const serverConstruction = state.serverIslands?.clientConstruction;
+  const trackedConstruction = facts
+    ? serverConstruction?.islandId === facts.islandId
+      ? serverConstruction
+      : null
+    : (i.construction ?? null);
+  const progress = normalizedConstructionProgress(
+    trackedConstruction
+      ? { startedAt: trackedConstruction.startedAt, completesAt: trackedConstruction.endsAt }
+      : null,
+    Date.now(),
+  );
+  const activeBuilding =
+    trackedConstruction && progress < 1 ? trackedConstruction.building : undefined;
+  const sceneBuilding = trackedConstruction?.building;
   const scene = useMemo(
     () =>
       layeredPreview
-        ? villageScene(activeBuilding ? [...i.buildings, activeBuilding] : i.buildings)
+        ? villageScene(
+            sceneBuilding && !i.buildings.includes(sceneBuilding)
+              ? [...i.buildings, sceneBuilding]
+              : i.buildings,
+          )
         : undefined,
-    [layeredPreview, i.buildings, activeBuilding],
+    [layeredPreview, i.buildings, sceneBuilding],
   );
   const grid = scene?.grid ?? grids.home;
   const doors: Record<string, Door> = scene
@@ -617,7 +634,11 @@ function FinalIslandScene({
       setCompletionBuilding(null);
       return;
     }
-    if (!previous || !completedBuildingKey.split(',').includes(previous)) return;
+    if (
+      !previous ||
+      (!completedBuildingKey.split(',').includes(previous) && sceneBuilding !== previous)
+    )
+      return;
     if (completionTimer.current !== null) clearTimeout(completionTimer.current);
     setCompletionBuilding(previous);
     completionTimer.current = setTimeout(
@@ -627,7 +648,7 @@ function FinalIslandScene({
       },
       state.settings.reduceMotion ? 600 : 1800,
     );
-  }, [activeBuilding, completedBuildingKey, state.settings.reduceMotion]);
+  }, [activeBuilding, completedBuildingKey, sceneBuilding, state.settings.reduceMotion]);
 
   useEffect(
     () => () => {
@@ -636,13 +657,8 @@ function FinalIslandScene({
     [],
   );
 
-  const progress = normalizedConstructionProgress(
-    activeConstruction,
-    Date.now(),
-    facts?.constructionObservedAt ?? Date.now(),
-  );
-  const timedPhase = constructionPhase(progress, activeConstruction !== null);
-  const constructionSpritePhase: ConstructionSpritePhase | null = activeConstruction
+  const timedPhase = constructionPhase(progress, activeBuilding !== undefined);
+  const constructionSpritePhase: ConstructionSpritePhase | null = activeBuilding
     ? timedPhase === 'foundation'
       ? 'foundation'
       : timedPhase === 'building'

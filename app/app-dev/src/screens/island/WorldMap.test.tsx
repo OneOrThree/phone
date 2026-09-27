@@ -26,7 +26,7 @@ afterEach(() => {
 
 const serverConstructionState = (
   state: ReturnType<typeof initialState>,
-  activeConstruction: Record<string, unknown> | null,
+  clientConstruction: Record<string, unknown> | null,
   completedBuildings: string[] = ['hall'],
 ) => {
   state.serverIslands = {
@@ -46,10 +46,9 @@ const serverConstructionState = (
         focusSummary: { totalSeconds: 0 },
       },
       completedBuildings,
-      activeConstruction,
-      constructionObservedAt: Date.parse('2026-09-21T00:10:00Z'),
       members: [],
     },
+    clientConstruction,
   } as any;
 };
 
@@ -113,12 +112,10 @@ test('서버 공사 진행률에 해당하는 건물 sprite 단계를 섬 위에
   jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-21T00:10:00Z'));
   const state = initialState(true);
   serverConstructionState(state, {
-    buildingId: 'library',
-    status: 'BUILDING',
-    startedAt: '2026-09-21T00:00:00Z',
-    completesAt: '2026-09-21T01:00:00Z',
-    serverNow: '2026-09-21T00:10:00Z',
-    version: 3,
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: Date.parse('2026-09-21T00:00:00Z'),
+    endsAt: Date.parse('2026-09-21T01:00:00Z'),
   });
 
   const screen = await render(
@@ -136,18 +133,17 @@ test('서버 공사 진행률에 해당하는 건물 sprite 단계를 섬 위에
   expect(screen.queryByLabelText(buildingNames.library)).toBeNull();
 });
 
-test('서버가 완공으로 전환한 직후 completion sprite를 한 번 표시한다', async () => {
+test('클라이언트 계산이 완료 시각에 도달하면 completion sprite를 한 번 표시한다', async () => {
   jest.useFakeTimers();
-  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-21T01:00:00Z'));
+  let now = Date.parse('2026-09-21T00:59:59Z');
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
   const state = initialState(true);
   state.settings.reduceMotion = true;
   const active = {
-    buildingId: 'library',
-    status: 'BUILDING',
-    startedAt: '2026-09-21T00:00:00Z',
-    completesAt: '2026-09-21T01:00:00Z',
-    serverNow: '2026-09-21T00:59:59Z',
-    version: 3,
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: Date.parse('2026-09-21T00:00:00Z'),
+    endsAt: Date.parse('2026-09-21T01:00:00Z'),
   };
   serverConstructionState(state, active);
   const screen = await render(
@@ -160,7 +156,7 @@ test('서버가 완공으로 전환한 직후 completion sprite를 한 번 표�
     />,
   );
 
-  serverConstructionState(state, null, ['hall', 'library']);
+  now = Date.parse('2026-09-21T01:00:00Z');
   await screen.rerender(
     <FinalIsland
       state={state}

@@ -267,6 +267,14 @@ export function Hall({ e }: any) {
     active: liveConstruction,
     islandId: visitor ? null : liveIslandId,
     now: e.now,
+    onStarted: (receipt) =>
+      e.dispatch({
+        type: 'SERVER_CONSTRUCTION_STARTED',
+        islandId: liveIslandId,
+        building: receipt.buildingId as Building,
+        startedAt: Date.parse(receipt.startedAt),
+        endsAt: Date.parse(receipt.completesAt),
+      }),
   });
   const [mockMonth, setMockMonth] = useState(0);
   const [mockTab, setMockTab] = useState<LedgerTab>('balance');

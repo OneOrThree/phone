@@ -2336,14 +2336,7 @@ test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 
     });
   let s = sync(initialState(), 'srv1');
   assert.equal(serverHome(s), null);
-  s = act(s, 'SERVER_HOME', {
-    facts: {
-      islandId: 'srv1',
-      completedBuildings: ['hall'],
-      activeConstruction: null,
-      constructionObservedAt: 0,
-    },
-  });
+  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
   assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
   s = sync(s, 'srv2');
   assert.equal(serverHome(s), null);
@@ -2351,16 +2344,41 @@ test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 
   s = sync(s, 'srv1');
   assert.equal(serverHome(s), null);
   // 같은 current 재동기화는 스냅샷을 유지한다
-  s = act(s, 'SERVER_HOME', {
-    facts: {
-      islandId: 'srv1',
-      completedBuildings: ['hall'],
-      activeConstruction: null,
-      constructionObservedAt: 0,
-    },
-  });
+  s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
   s = sync(s, 'srv1');
   assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
+});
+
+test('착공 POST 구간은 클라이언트에 보관하고 서버 완공 목록이 확인되면 지운다', () => {
+  let s = act(initialState(), 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1')],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+  });
+  s = act(s, 'SERVER_CONSTRUCTION_STARTED', {
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: 1_000,
+    endsAt: 61_000,
+  });
+  assert.deepEqual(s.serverIslands?.clientConstruction, {
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: 1_000,
+    endsAt: 61_000,
+  });
+
+  s = act(s, 'SERVER_HOME', {
+    facts: { islandId: 'srv1', completedBuildings: ['hall'] },
+  });
+  assert.equal(s.serverIslands?.clientConstruction?.building, 'library');
+  s = act(s, 'SERVER_HOME', {
+    facts: { islandId: 'srv1', completedBuildings: ['hall', 'library'] },
+  });
+  assert.equal(s.serverIslands?.clientConstruction, null);
 });
 
 test('LOAD 는 저장된 홈 스냅샷을 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)', () => {
