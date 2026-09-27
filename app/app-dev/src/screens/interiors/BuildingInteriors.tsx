@@ -7042,6 +7042,16 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   };
   const back = (to: MailRoute) => (e ? e.back() : go(to));
 
+  useEffect(() => {
+    if (!serverMail || route !== 'letter' || !mail.detailBlocked) return;
+    // 차단 목록 재검증으로 열린 편지의 상대가 차단됐으면 상세 route를 끝낸다.
+    // 내부 detail도 지워 이후 차단 해제 전까지 같은 원문이 다시 그려지지 않게 한다.
+    mail.clearDetail();
+    if (e) e.back();
+    else setRoute('inbox');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 차단 판정이 true로 바뀌는 순간 한 번만 상세를 닫는다.
+  }, [serverMail, route, mail.detailBlocked]);
+
   const catAvatar = (color: Cat, size = 34) => (
     <View
       style={{

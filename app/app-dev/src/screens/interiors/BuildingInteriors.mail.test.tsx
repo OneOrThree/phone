@@ -5,7 +5,11 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { initialState } from '@/services/model';
-import { replaceBlockedUsers, revalidateBlockedUsers } from '@/services/blockedUsers';
+import {
+  markUserBlocked,
+  replaceBlockedUsers,
+  revalidateBlockedUsers,
+} from '@/services/blockedUsers';
 import { blockUser, getBlockedUsers } from '@/services/api/safety';
 import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
@@ -268,6 +272,24 @@ test('편지 열기 — GET 상세로 본문을 그린다(DELETE 는 나가지 �
   await waitFor(() => assert.ok(ui.getByText('반가워, 잘 지내?')));
   assert.deepEqual([...getLetterMock.mock.calls[0]], [LETTER]);
   assert.equal(closeLetterMock.mock.calls.length, 0);
+  await ui.unmount();
+});
+
+test('열린 편지의 상대가 차단되면 무한 로딩 없이 받은 편지함으로 돌아간다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const e = makeE();
+  const ui = await renderMail(e);
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByText('반가워, 잘 지내?')));
+
+  await act(async () => markUserBlocked('u2'));
+
+  await waitFor(() => assert.equal(e.route, 'mail'));
+  assert.equal(e.detail, '');
+  assert.ok(ui.getByText('기다리는 편지가 없어요.'));
+  assert.equal(ui.queryByText('편지를 여는 중이에요…'), null);
   await ui.unmount();
 });
 

@@ -207,6 +207,7 @@ test('열려 있는 편지 상세도 상대를 차단하면 즉시 숨긴다', a
   await act(async () => markUserBlocked('u2'));
 
   assert.equal(hook.result.current.detail, null);
+  assert.equal(hook.result.current.detailBlocked, true);
   assert.equal(getLetterMock.mock.calls.length, 1);
   await hook.unmount();
 });

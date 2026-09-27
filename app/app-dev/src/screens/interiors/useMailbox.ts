@@ -455,6 +455,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
         sent: [],
         friends: [],
         detail: null,
+        detailBlocked: false,
         detailError: blockedListError ?? state.detailError,
         loading: blockedUsers.status === 'loading' || state.loading,
         error: blockedListError ?? state.error,
@@ -466,6 +467,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
       letters: state.letters.filter((letter) => !blockedIds.has(letter.counterpartUserId)),
       sent: state.sent.filter((letter) => !blockedIds.has(letter.counterpartUserId)),
       friends: state.friends.filter((friend) => !blockedIds.has(friend.userId)),
+      detailBlocked: !!state.detail && blockedIds.has(counterpart(state.detail)),
       detail: state.detail && !blockedIds.has(counterpart(state.detail)) ? state.detail : null,
     };
   }, [active, blockedIds, blockedUsers.error, blockedUsers.status, state]);
