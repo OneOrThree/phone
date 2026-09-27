@@ -82,6 +82,9 @@ export type ArtifactProps = {
   e?: any;
   // 배경 장면을 맞출 높이. 키보드로 화면이 줄어도 창 높이 기준으로 고정한다 (없으면 height)
   sceneHeight?: number;
+  // 현재 건물 밖의 보상 모달이 더 위에 열려 있으면 게시판 키보드 트랩을 쉰다
+  higherModalOpen?: boolean;
+  onBoardModalChange?: (open: boolean) => void;
 };
 export type ArtifactRenderer = (props: ArtifactProps) => React.ReactElement | null;
 
@@ -698,6 +701,7 @@ export function InteriorScreen({
   e,
   insets,
   sceneHeight = height,
+  higherModalOpen = false,
 }: {
   buildingIndex: number;
   conceptIndex: number;
@@ -708,6 +712,7 @@ export function InteriorScreen({
   e?: any;
   insets?: { top: number; left: number };
   sceneHeight?: number;
+  higherModalOpen?: boolean;
 }) {
   const building = buildings[buildingIndex],
     concept = building.concepts[conceptIndex];
@@ -715,6 +720,8 @@ export function InteriorScreen({
   const showToast = (message: string) => setToast((prev) => ({ message, serial: prev.serial + 1 }));
   // 핫스팟을 누르면 .artifact-wrap.peek: 기능 화면을 아래로 88% 내리고 흐리게 (transition .3s ease)
   const [peek, setPeek] = useState(false);
+  const [boardModalOpen, setBoardModalOpen] = useState(false);
+  const sceneBackRef = useRef<HTMLElement | null>(null);
   const peekAnim = useRef(new Animated.Value(0)).current;
   const [wrapHeight, setWrapHeight] = useState(0);
   useEffect(() => {
@@ -784,6 +791,11 @@ export function InteriorScreen({
   // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
   const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
     chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
+  const sceneBackBlocked = building.id === 'board' && (boardModalOpen || higherModalOpen);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') setBoardBackgroundInert(sceneBackRef.current, sceneBackBlocked);
+  }, [sceneBackBlocked]);
 
   return (
     <View
@@ -849,6 +861,10 @@ export function InteriorScreen({
       )}
       <Pressable
         testID="scene-back"
+        ref={sceneBackRef as any}
+        disabled={sceneBackBlocked}
+        accessibilityElementsHidden={sceneBackBlocked}
+        {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
         accessibilityLabel="섬으로 돌아가기"
         onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
         style={{
@@ -964,6 +980,8 @@ export function InteriorScreen({
             showToast={showToast}
             e={e}
             sceneHeight={sceneHeight}
+            higherModalOpen={higherModalOpen}
+            onBoardModalChange={setBoardModalOpen}
           />
         </Animated.View>
       )}
@@ -1020,7 +1038,13 @@ const statusText = {
 
 // 앱 라우트에서 게시판(board·notice·noticeEdit·quest·questEdit)과
 // 우체통(mail·chat·friendMail)을 건물 안 장면으로 그린다. 크기는 실제 화면(키보드로 줄어든 높이 포함)을 따른다
-export function InteriorRoute({ e }: { e: any }) {
+export function InteriorRoute({
+  e,
+  modalAboveBoard = false,
+}: {
+  e: any;
+  modalAboveBoard?: boolean;
+}) {
   const [fontsLoaded, fontError] = useInteriorFonts();
   const layout = useAppLayout();
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -1068,6 +1092,7 @@ export function InteriorRoute({ e }: { e: any }) {
             e={e}
             insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
             sceneHeight={Math.max(height, layout.height) / k}
+            higherModalOpen={modalAboveBoard}
           />
         </View>
       )}
@@ -3928,6 +3953,8 @@ export function Board({
   e,
   showToast,
   sceneHeight = height,
+  higherModalOpen = false,
+  onBoardModalChange,
 }: ArtifactProps) {
   const [local, setS] = useState(() => makeState(concept));
   const [mockNotices, setNotices] = useState(() =>
@@ -5827,6 +5854,12 @@ export function Board({
   const boardOverlayOpen = noticeOverlayOpen || questDetailOpen;
 
   useEffect(() => {
+    onBoardModalChange?.(boardOverlayOpen);
+  }, [boardOverlayOpen, onBoardModalChange]);
+
+  useEffect(() => () => onBoardModalChange?.(false), [onBoardModalChange]);
+
+  useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     const backgrounds = [boardSceneRef.current, boardDrawerRef.current];
     const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
@@ -5842,7 +5875,13 @@ export function Board({
   }, [boardOverlayOpen, noticeOverlayOpen]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web' || !boardOverlayOpen || typeof document === 'undefined') return;
+    if (
+      Platform.OS !== 'web' ||
+      !boardOverlayOpen ||
+      higherModalOpen ||
+      typeof document === 'undefined'
+    )
+      return;
     const modalDocument = document;
     const onKeyDown = (event: KeyboardEvent) => {
       const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
@@ -5854,7 +5893,13 @@ export function Board({
     };
     modalDocument.addEventListener('keydown', onKeyDown);
     return () => modalDocument.removeEventListener('keydown', onKeyDown);
-  }, [boardOverlayOpen, noticeOverlayOpen, dismissNoticeOverlay, dismissQuestDetail]);
+  }, [
+    boardOverlayOpen,
+    higherModalOpen,
+    noticeOverlayOpen,
+    dismissNoticeOverlay,
+    dismissQuestDetail,
+  ]);
 
   return (
     <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>

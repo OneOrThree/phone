@@ -16,6 +16,7 @@ import {
 import { initialState } from '@/services/model';
 import {
   Board,
+  InteriorScreen,
   focusBoardModal,
   handleBoardModalKeydown,
   restoreBoardModalOpener,
@@ -222,9 +223,9 @@ const deferred = <T,>() => {
   return { promise, resolve, reject };
 };
 
-const renderBoard = async (e: any, c: Partial<Concept> = {}) => {
+const renderBoard = async (e: any, c: Partial<Concept> = {}, initialHigherModalOpen = false) => {
   // App 은 렌더마다 e 를 새로 조립한다 — box 로 최신 e 를 주고 setE 가 stale 클로저를 재현한다.
-  const box = { e };
+  const box = { e, higherModalOpen: initialHigherModalOpen };
   const Harness = () => {
     const [, setN] = useState(0);
     if (box.e) box.e._tick = () => setN((n: number) => n + 1);
@@ -238,6 +239,7 @@ const renderBoard = async (e: any, c: Partial<Concept> = {}) => {
         reduceMotion
         showToast={() => {}}
         e={box.e}
+        higherModalOpen={box.higherModalOpen}
       />
     );
   };
@@ -245,6 +247,10 @@ const renderBoard = async (e: any, c: Partial<Concept> = {}) => {
   return Object.assign(screen, {
     setE: (next: any) => {
       box.e = next;
+      return screen.rerender(<Harness />);
+    },
+    setHigherModalOpen: (open: boolean) => {
+      box.higherModalOpen = open;
       return screen.rerender(<Harness />);
     },
   });
@@ -402,6 +408,70 @@ test('웹 모달 열기와 닫기는 opener 캡처·초기 포커스·배경 비
     'background-enabled',
     'opener-restored',
   ]);
+});
+
+test('보상 모달이 위에 열리면 게시판 Escape 트랩을 멈춘다', async () => {
+  const restore = webMockMode('?review');
+  const previousDocument = (globalThis as any).document;
+  const keydownListeners = new Set<(event: KeyboardEvent) => void>();
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      activeElement: null,
+      addEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.add(listener);
+      },
+      removeEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.delete(listener);
+      },
+    },
+  });
+  try {
+    const screen = await renderBoard(null, concept({ boardView: 'detail' }), true);
+    assert.ok(screen.getByTestId('board-notice-overlay'));
+    assert.equal(keydownListeners.size, 0);
+
+    for (const listener of keydownListeners) {
+      listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
+    }
+    assert.ok(screen.getByTestId('board-notice-overlay'));
+
+    await screen.setHigherModalOpen(false);
+    assert.equal(keydownListeners.size, 1);
+    const [listener] = [...keydownListeners];
+    await act(async () => {
+      listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
+    });
+    assert.equal(screen.queryByTestId('board-notice-overlay'), null);
+    await screen.unmount();
+  } finally {
+    if (previousDocument === undefined) delete (globalThis as any).document;
+    else
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: previousDocument,
+      });
+    restore();
+  }
+});
+
+test('공지 상세 모달이 열리면 형제 scene-back 버튼을 비활성화하고 접근성 트리에서 숨긴다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const screen = await render(
+      <InteriorScreen buildingIndex={1} conceptIndex={4} width={402} height={874} reduceMotion />,
+    );
+    const back = screen.getByTestId('scene-back', { includeHiddenElements: true });
+    await waitFor(() => {
+      assert.equal(back.props.accessibilityState.disabled, true);
+      assert.equal(back.props.accessibilityElementsHidden, true);
+      assert.equal(back.props['aria-hidden'], true);
+    });
+    await fireEvent.press(back);
+    await screen.unmount();
+  } finally {
+    restore();
+  }
 });
 
 beforeEach(async () => {
