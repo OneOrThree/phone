@@ -52,7 +52,7 @@ export interface FriendsScreenState {
 export function useFriendsScreen({
   active,
   searchActive,
-  routeActive = searchActive,
+  routeActive = false,
   date,
 }: {
   /** friends·friendSearch route 에 있고 서버 세션이 있을 때만 true. */

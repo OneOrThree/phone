@@ -227,7 +227,11 @@ export function UserSafetySheet(props: Props) {
               padding: componentTokens.modal.padding,
               paddingBottom: componentTokens.modal.paddingBottom,
               gap: componentTokens.modal.gap,
-              borderRadius: componentTokens.modal.radius,
+              borderRadius: centered
+                ? componentTokens.modal.radius
+                : componentTokens.modal.sheetRadius,
+              borderBottomLeftRadius: centered ? componentTokens.modal.radius : 0,
+              borderBottomRightRadius: centered ? componentTokens.modal.radius : 0,
               borderWidth: componentTokens.modal.borderWidth,
               borderColor: C.brown,
               backgroundColor: C.paper,

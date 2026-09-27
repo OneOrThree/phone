@@ -74,6 +74,19 @@ test('태블릿에서는 신고 시트를 제한된 너비로 가운데 정렬�
     'center',
   );
   assert.equal(StyleSheet.flatten(screen.getByTestId('user-safety-panel').props.style).width, 560);
+  assert.equal(
+    StyleSheet.flatten(screen.getByTestId('user-safety-panel').props.style).borderRadius,
+    24,
+  );
+});
+
+test('휴대폰 세로에서는 하단 모서리가 닫힌 bottom sheet로 배치한다', async () => {
+  const screen = await render(<UserSafetySheet {...props()} />);
+  const style = StyleSheet.flatten(screen.getByTestId('user-safety-panel').props.style);
+
+  assert.equal(style.borderRadius, 26);
+  assert.equal(style.borderBottomLeftRadius, 0);
+  assert.equal(style.borderBottomRightRadius, 0);
 });
 
 afterEach(() => {

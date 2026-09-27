@@ -3,7 +3,12 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
 import { ApiError } from '@/services/api/client';
 import { getBlockedUsers, unblockUser } from '@/services/api/safety';
-import { isUserBlocked, refreshBlockedUsers, replaceBlockedUsers } from '@/services/blockedUsers';
+import {
+  isUserBlocked,
+  refreshBlockedUsers,
+  replaceBlockedUsers,
+  revalidateBlockedUsers,
+} from '@/services/blockedUsers';
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -76,6 +81,21 @@ test('차단 목록 오류를 보여 주고 다시 시도하면 목록으로 복
   await waitFor(() => assert.ok(screen.getByText('민지')));
   assert.equal(listMock.mock.calls.length, 2);
   assert.equal(isUserBlocked('user-2'), true);
+});
+
+test('과거 조회 오류 뒤 공유 재검증이 성공하면 목록 화면으로 복구한다', async () => {
+  listMock
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0))
+    .mockResolvedValueOnce([user]);
+  const screen = await render(<BlockedUsersScreen e={events()} />);
+  await waitFor(() => assert.ok(screen.getByText('네트워크 오류')));
+
+  await act(async () => {
+    await revalidateBlockedUsers();
+  });
+
+  await waitFor(() => assert.ok(screen.getByText('민지')));
+  assert.equal(screen.queryByText('네트워크 오류'), null);
 });
 
 test('차단 해제 성공 후 목록을 재조회하고 완료를 알린다', async () => {

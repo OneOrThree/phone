@@ -1,9 +1,8 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Btn, C, Txt } from '@/design-system/patterns';
 import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
-import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
-import { sessionGeneration } from '@/services/api/session';
+import { ApiError } from '@/services/api/client';
 import { unblockUser, type BlockedUser } from '@/services/api/safety';
 import {
   markUserUnblocked,
@@ -14,13 +13,11 @@ import {
 export function BlockedUsersScreen({ e }: any) {
   const blockedUsers = useBlockedUsers(true);
   const items = blockedUsers.users;
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [actionError, setActionError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
-  const sequence = useRef(0);
-  const visibleLoading = loading || blockedUsers.status === 'loading';
+  const visibleLoading = blockedUsers.status === 'loading';
   const visibleError =
-    error ||
+    actionError ||
     (blockedUsers.status === 'error'
       ? blockedUsers.error instanceof ApiError
         ? blockedUsers.error.message
@@ -28,33 +25,20 @@ export function BlockedUsersScreen({ e }: any) {
       : '');
 
   const load = useCallback(async () => {
-    const seq = ++sequence.current;
-    const generation = sessionGeneration();
-    setLoading(true);
-    setError('');
+    setActionError('');
     try {
       await revalidateBlockedUsers();
-      if (seq !== sequence.current || generation !== sessionGeneration()) return;
-    } catch (thrown) {
-      if (seq !== sequence.current || generation !== sessionGeneration()) return;
-      if (thrown instanceof ApiError && thrown.code === CLIENT_STALE_SESSION) return;
-      setError(thrown instanceof ApiError ? thrown.message : '차단 목록을 불러오지 못했어요.');
-    } finally {
-      if (seq === sequence.current) setLoading(false);
-    }
+    } catch {}
   }, []);
 
   useEffect(() => {
     load();
-    return () => {
-      sequence.current += 1;
-    };
   }, [load]);
 
   const unblock = async (item: BlockedUser) => {
     if (busyId) return;
     setBusyId(item.id);
-    setError('');
+    setActionError('');
     try {
       await unblockUser(item.id);
       markUserUnblocked(item.id);
@@ -62,7 +46,7 @@ export function BlockedUsersScreen({ e }: any) {
       e.notify(`${item.name}님의 차단을 해제했어요.`);
       await load();
     } catch (thrown) {
-      setError(thrown instanceof ApiError ? thrown.message : '차단을 해제하지 못했어요.');
+      setActionError(thrown instanceof ApiError ? thrown.message : '차단을 해제하지 못했어요.');
     } finally {
       setBusyId(null);
     }

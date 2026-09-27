@@ -8,6 +8,7 @@ import {
   markUserBlocked,
   markUserUnblocked,
   loadBlockedUsers,
+  revalidateBlockedUsers,
   refreshBlockedUsers,
   replaceBlockedUsers,
   useBlockedUsers,
@@ -128,6 +129,19 @@ test('앱이 포그라운드로 돌아오면 준비된 cache도 다시 검증한
   await act(async () => onChange('active'));
   await waitFor(() => assert.equal(isUserBlocked('u-foreground'), true));
   assert.equal(listMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('준비된 cache의 재검증이 실패하면 stale 목록 대신 오류 상태로 전환한다', async () => {
+  listMock.mockRejectedValue(new Error('blocks unavailable'));
+  const hook = await renderHook(() => useBlockedUsers(true));
+
+  await act(async () => {
+    await revalidateBlockedUsers().catch(() => {});
+  });
+
+  await waitFor(() => assert.equal(hook.result.current.status, 'error'));
+  assert.equal(hook.result.current.error instanceof Error, true);
   await hook.unmount();
 });
 

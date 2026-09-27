@@ -10,6 +10,7 @@ let loaded = false;
 let lastValidatedAt = 0;
 let loadError: unknown = null;
 let flight: Promise<BlockedUser[]> | null = null;
+let validating = false;
 let mutationRevision = 0;
 let refreshSequence = 0;
 let storeRevision = 0;
@@ -29,6 +30,7 @@ const resetForSession = () => {
   lastValidatedAt = 0;
   loadError = null;
   flight = null;
+  validating = false;
   mutationRevision = 0;
   refreshSequence = 0;
   emit();
@@ -95,7 +97,8 @@ export function refreshBlockedUsers(): Promise<BlockedUser[]> {
   const expectedRevision = mutationRevision;
   const requestSequence = ++refreshSequence;
   loadError = null;
-  if (!loaded) emit();
+  validating = true;
+  emit();
   const request = getBlockedUsers().then((nextUsers) => {
     // GET을 시작한 뒤 차단/해제가 성공했다면 이 응답은 그 변경 전 snapshot일 수 있다.
     if (
@@ -103,6 +106,7 @@ export function refreshBlockedUsers(): Promise<BlockedUser[]> {
       expectedRevision === mutationRevision &&
       requestSequence === refreshSequence
     ) {
+      validating = false;
       replaceBlockedUsers(nextUsers);
     }
     return nextUsers;
@@ -115,12 +119,16 @@ export function refreshBlockedUsers(): Promise<BlockedUser[]> {
         // 변경 전 snapshot을 버린 경우 기존 차단 목록까지 복구하도록 최신 목록을 다시 읽는다.
         if (expectedGeneration === sessionGeneration() && expectedRevision !== mutationRevision) {
           refreshBlockedUsers().catch(() => {});
+        } else if (validating) {
+          validating = false;
+          emit();
         }
       }
     },
     (error) => {
       if (flight === request) {
         flight = null;
+        validating = false;
         if (expectedGeneration === sessionGeneration()) {
           loadError = error;
           emit();
@@ -164,7 +172,7 @@ export function useBlockedUsers(
   return {
     ids,
     users,
-    status: loaded ? 'ready' : loadError ? 'error' : 'loading',
+    status: loadError ? 'error' : loaded && !validating ? 'ready' : 'loading',
     error: loadError,
     retry: refreshBlockedUsers,
   };
