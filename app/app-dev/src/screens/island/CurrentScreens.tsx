@@ -1817,7 +1817,7 @@ function FocusFlow({ e }: any) {
                   catchAvoidSpots={peerSpots}
                   catchVisibleSpots={peerCatchSpots}
                   catchGramVisible={i.buildings.includes('gram')}
-                  catchReservedRewardSpots={PEER_SPOTS}
+                  catchFuturePeerSpots={PEER_SPOTS}
                 />
               ) : (
                 <FishingWalker

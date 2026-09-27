@@ -422,6 +422,27 @@ test('아직 배정되지 않은 PEER 좌석의 예약 보상도 mine 고양이�
   }
 });
 
+test('아직 배정되지 않은 PEER 고양이 영역도 mine 보상 자리에서 예약한다', () => {
+  const spot = castSpot({ x: 2, y: 44 }),
+    withoutFutureReservations = fishingCatchPlacement(spot, [], [], false),
+    beforeFirstResident = fishingCatchPlacement(spot, [], [], false, PEER_SPOTS),
+    afterFirstResidentArrives = fishingCatchPlacement(
+      spot,
+      PEER_SPOTS.slice(0, 1),
+      [],
+      false,
+      PEER_SPOTS,
+    );
+
+  assert.ok(withoutFutureReservations, '회귀 위치는 future seat을 예약하지 않으면 보상을 표시한다');
+  assert.equal(
+    beforeFirstResident,
+    null,
+    '주민이 입장하기 전부터 전체 슬롯의 고양이 영역을 예약한다',
+  );
+  assert.equal(afterFirstResidentArrives, null, '주민 입장 때 기존 mine 보상이 사라지지 않는다');
+});
+
 test('mine 보상 footprint가 뗏목 실제 그림 영역을 덮지 않는다', () => {
   const raftHalfHeight = 6 * (669 / 928) * (1536 / 1024),
     raft = {

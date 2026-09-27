@@ -167,7 +167,7 @@ export function fishingCatchPlacement(
   others: Spot[] = [],
   visibleRewardSpots?: Spot[],
   gramVisible = true,
-  reservedRewardSpots?: Spot[],
+  futurePeerSpots?: Spot[],
 ): FishingCatchPlacement | null {
   if (Object.prototype.hasOwnProperty.call(spot, 'catchPlacement'))
     return spot.catchPlacement ?? null;
@@ -181,9 +181,12 @@ export function fishingCatchPlacement(
       bottom: GRAM.y,
     };
   // Resident의 저장된 보상은 아직 숨겨져 있어도 나중에 표시될 수 있으므로 mine 고양이와는 항상 충돌 검사한다.
-  const reservedRewardBounds = [...others, ...(reservedRewardSpots ?? [])]
-    .filter((other) => !(other.x === spot.x && other.y === spot.y) && other.catchPlacement != null)
-    .map((other) => catchBounds(other, other.catchPlacement!));
+  const peerObstacles = [...others, ...(futurePeerSpots ?? [])],
+    reservedRewardBounds = peerObstacles
+      .filter(
+        (other) => !(other.x === spot.x && other.y === spot.y) && other.catchPlacement != null,
+      )
+      .map((other) => catchBounds(other, other.catchPlacement!));
   if (reservedRewardBounds.some((reward) => boundsOverlap(reward, ownCat))) return null;
   let best: (FishingCatchPlacement & { score: number }) | null = null;
   for (let left = -3; left <= 2.001; left += 0.25)
@@ -197,7 +200,7 @@ export function fishingCatchPlacement(
       if (gramVisible && boundsOverlap(reward, gramBounds)) continue;
       if (boundsOverlap(reward, raftBounds)) continue;
       if (
-        others.some((other) => {
+        peerObstacles.some((other) => {
           if (other.x === spot.x && other.y === spot.y) return false;
           const otherCat = catBounds(other),
             rewardVisible =
@@ -708,7 +711,7 @@ export function FishingActor({
   catchVisible = true,
   catchVisibleSpots,
   catchGramVisible = true,
-  catchReservedRewardSpots,
+  catchFuturePeerSpots,
   onMotionFinish,
   generation,
   animatedPosition,
@@ -728,7 +731,7 @@ export function FishingActor({
   catchVisible?: boolean;
   catchVisibleSpots?: Spot[];
   catchGramVisible?: boolean;
-  catchReservedRewardSpots?: Spot[];
+  catchFuturePeerSpots?: Spot[];
   onMotionFinish?: () => void;
   generation?: number;
   animatedPosition?: {
@@ -768,7 +771,7 @@ export function FishingActor({
       catchAvoidSpots,
       catchVisibleSpots,
       catchGramVisible,
-      catchReservedRewardSpots,
+      catchFuturePeerSpots,
     ),
     showsCatch = count > 0 && catchVisible && catchPlacement != null;
   return (
