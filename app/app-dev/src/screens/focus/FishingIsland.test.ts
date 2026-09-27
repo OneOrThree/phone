@@ -9,6 +9,7 @@ import {
   PEER_SPOTS,
   DEFAULT_SPOT,
   FishingActor,
+  FishingPeerActorView,
   GRAM,
   anchorCard,
   castSpot,
@@ -193,6 +194,43 @@ test('낚시 주민: cast 스프라이트 동작 중에는 정적 낚싯대를 �
   assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'cast');
   assert.equal(screen.queryByTestId('fishing-actor-rod'), null);
   await screen.unmount();
+});
+
+test('낚시 주민 이동 cleanup은 시작한 Animated composite를 중단한다', async () => {
+  const callback = jest.fn();
+  const screen = await render(
+    React.createElement(FishingPeerActorView, {
+      actor: {
+        ...({
+          userId: 'u1',
+          sessionId: 's1',
+          name: '주민',
+          color: 'ginger',
+          subject: '수학',
+          seconds: 0,
+          status: 'active',
+        } as const),
+        key: 'u1:s1',
+        slot: 0,
+        spot: PEER_SPOTS[0],
+        position: LANDING,
+        phase: 'entering',
+        visible: true,
+        generation: 1,
+      },
+      size: 640,
+      sizeY: 640 / 1.5,
+      reduce: false,
+      onEntered: callback,
+      onCast: callback,
+      onPausedExit: callback,
+      onStretch: callback,
+      onCompletedExit: callback,
+    }),
+  );
+
+  await screen.unmount();
+  assert.equal(callback.mock.calls.length, 0);
 });
 
 test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초기화 때 남지 않는다', async () => {

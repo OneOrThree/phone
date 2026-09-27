@@ -693,19 +693,17 @@ export function FishingPeerActorView({
         ((actor.position.y - toPoint.y) * 2) / 3,
       );
       const duration = Math.max(450, Math.min(1500, Math.round(distance * 35)));
-      NativeAnimated.parallel([
+      const movement = NativeAnimated.parallel([
         NativeAnimated.timing(left, { toValue: toLeft, duration, useNativeDriver: false }),
         NativeAnimated.timing(top, { toValue: toTop, duration, useNativeDriver: false }),
-      ]).start(({ finished }: { finished: boolean }) => {
+      ]);
+      movement.start(({ finished }: { finished: boolean }) => {
         if (!finished || motionToken.current !== token) return;
         if (actor.phase === 'entering') onEntered(actor.key, token);
         else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
         else onCompletedExit(actor.key, token);
       });
-      return () => {
-        NativeAnimated.stopAnimation(left);
-        NativeAnimated.stopAnimation(top);
-      };
+      return () => movement.stop();
     }
     left.setValue(toLeft);
     top.setValue(toTop);

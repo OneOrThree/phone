@@ -44,7 +44,11 @@ import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { getSession } from '@/services/api/session';
 import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
-import { useFishingPeerActors, type FishingPeer } from '@/screens/focus/useFishingPeerActors';
+import {
+  fishingSpotsForActors,
+  useFishingPeerActors,
+  type FishingPeer,
+} from '@/screens/focus/useFishingPeerActors';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -889,10 +893,11 @@ function FocusVisit({ e, islandId, onBack }: any) {
     reduce,
     realtime: liveIslandId !== null,
     snapshotVersion: live.snapshotVersion,
+    snapshotTransitions: live.snapshotTransitions,
   });
   transitionHandler.current = peerFlow.onTransition;
   const peers = peerFlow.actors.filter((actor) => actor.visible);
-  const spots = peers.map((actor) => actor.spot);
+  const spots = fishingSpotsForActors(peerFlow.actors);
   return (
     <View style={{ flex: 1 }}>
       <FishingIsland
@@ -1185,10 +1190,12 @@ function FocusFlow({ e }: any) {
     reduce,
     realtime: liveIslandId !== null,
     snapshotVersion: live.snapshotVersion,
+    snapshotTransitions: live.snapshotTransitions,
   });
   transitionHandler.current = peerFlow.onTransition;
   const peers = peerFlow.actors.filter((actor) => actor.visible),
     peerSpots = peerFlow.actors.map((actor) => actor.spot),
+    fishingPeerSpots = fishingSpotsForActors(peerFlow.actors),
     emoteByUser = new Map(live.emotes.map((em) => [em.userId, em.type]));
   // 걷기: 땅 격자 경로를 따라 지도 폭 11%/초로 걷고, 걷는 중 다시 누르면 지금 위치에서 새 목적지로.
   const walkTo = (to: Point, done: () => void) => {
@@ -1532,7 +1539,7 @@ function FocusFlow({ e }: any) {
       </View>
     );
   const seated = r !== 'fishingArrival' && !leg,
-    spots = [...peerSpots, ...(seated ? [mine] : [])];
+    spots = [...fishingPeerSpots, ...(seated ? [mine] : [])];
   const focusing = r === 'focus' && !!s.session && !leg,
     mySubject = r === 'focusSetup' ? null : (s.session?.subject ?? result?.subject ?? null);
   // 집중 준비 모달은 누른 곳(내 고양이) 위에 붙인다. 위가 좁으면 아래 → 오른쪽 → 왼쪽.

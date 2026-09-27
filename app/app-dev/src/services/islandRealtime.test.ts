@@ -410,9 +410,11 @@ describe('startIslandRealtime', () => {
   test('재연결 조회 중 도착한 최신 이벤트를 늦은 스냅숏이 되감지 않는다', async () => {
     const channel = fakeChannel();
     const views: PresenceView[] = [];
+    const transitions: IslandPresenceTransition[] = [];
     const deps: Parameters<typeof start>[0] = {
       islandId: 'i1',
       views,
+      transitions,
       snapshots: {
         focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
         rest: restSnap([]),
@@ -436,6 +438,11 @@ describe('startIslandRealtime', () => {
     await flush();
 
     assert.equal(views.at(-1)?.focus[0].status, 'paused');
+    assert.deepEqual(views.at(-1)?.snapshotTransitions, transitions);
+    assert.equal(transitions[0]?.kind, 'focus');
+    if (transitions[0]?.kind !== 'focus') throw new Error('focus 전이가 필요하다');
+    assert.equal(transitions[0].previous?.status, 'active');
+    assert.equal(transitions[0].current?.status, 'paused');
   });
 
   test('재연결 조회가 실패해도 그 사이 도착한 상태 이벤트를 마지막 정상 뷰에 반영한다', async () => {

@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { act, renderHook } from '@testing-library/react-native';
-import { useFishingPeerActors, type FishingPeer } from '@/screens/focus/useFishingPeerActors';
+import {
+  fishingSpotsForActors,
+  useFishingPeerActors,
+  type FishingPeer,
+} from '@/screens/focus/useFishingPeerActors';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
 import { PEER_SPOTS, LANDING } from '@/screens/focus/FishingIsland';
 
@@ -28,6 +32,7 @@ test('최초 스냅숏은 즉시 배치하고 active→paused→active 동안 �
     useFishingPeerActors({ members: [peer], ready: true, reduce: false }),
   );
   assert.equal(result.current.actors[0].phase, 'fishing');
+  assert.equal(fishingSpotsForActors(result.current.actors).length, 1);
   const seat = result.current.actors[0].spot;
   await act(async () =>
     result.current.onTransition({
@@ -39,6 +44,7 @@ test('최초 스냅숏은 즉시 배치하고 active→paused→active 동안 �
     } as IslandPresenceTransition),
   );
   assert.equal(result.current.actors[0].phase, 'leaving-pause');
+  assert.equal(fishingSpotsForActors(result.current.actors).length, 0);
   const generation = result.current.actors[0].generation;
   await act(async () => result.current.leftForPause('u1:s1', generation));
   assert.equal(result.current.actors[0].phase, 'paused');
@@ -54,9 +60,39 @@ test('최초 스냅숏은 즉시 배치하고 active→paused→active 동안 �
     } as IslandPresenceTransition),
   );
   assert.equal(result.current.actors[0].phase, 'entering');
+  assert.equal(fishingSpotsForActors(result.current.actors).length, 0);
   assert.deepEqual(result.current.actors[0].spot, seat);
   assert.deepEqual(result.current.actors[0].position, LANDING);
   assert.ok(PEER_SPOTS.includes(seat));
+  const enterGeneration = result.current.actors[0].generation;
+  await act(async () => result.current.entered('u1:s1', enterGeneration));
+  assert.equal(result.current.actors[0].phase, 'casting');
+  assert.equal(fishingSpotsForActors(result.current.actors).length, 0);
+  const castGeneration = result.current.actors[0].generation;
+  await act(async () => result.current.cast('u1:s1', castGeneration));
+  assert.equal(fishingSpotsForActors(result.current.actors).length, 1);
+});
+
+test('채널이 ready가 아니면 이전 actor·자리·대기 전이를 모두 비운다', async () => {
+  let members: FishingPeer[] = [peer],
+    ready = true,
+    snapshotVersion = 1;
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready, reduce: false, snapshotVersion }),
+  );
+  assert.equal(result.current.actors.length, 1);
+
+  ready = false;
+  members = [];
+  await rerender(undefined);
+  assert.equal(result.current.actors.length, 0);
+
+  ready = true;
+  snapshotVersion = 2;
+  members = [{ ...peer, userId: 'u2', sessionId: 's2' }];
+  await rerender(undefined);
+  assert.equal(result.current.actors[0].key, 'u2:s2');
+  assert.equal(result.current.actors[0].slot, 0);
 });
 
 test('종료는 stretch 이후 이동을 마쳐야 자리를 반납한다', async () => {
@@ -166,6 +202,62 @@ test('같은 주민의 active 세션이 교체되면 이전 actor를 남기지 �
   assert.equal(result.current.actors[0].key, 'u1:s2');
   assert.equal(result.current.actors[0].phase, 'entering');
   assert.deepEqual(result.current.actors[0].spot, seat);
+});
+
+test('event-gap에서 처음 확인된 paused 주민도 숨긴 actor와 자리를 예약한다', async () => {
+  const pausedPeer = { ...peer, userId: 'u2', sessionId: 's2', status: 'paused' as const };
+  let members: FishingPeer[] = [peer];
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members, ready: true, reduce: false, snapshotVersion: 1 }),
+  );
+  members = [peer, pausedPeer];
+  await rerender(undefined);
+
+  const paused = { ...member('paused'), userId: 'u2', sessionId: 's2' };
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event-gap',
+      kind: 'focus',
+      userId: 'u2',
+      previous: null,
+      current: paused,
+    }),
+  );
+
+  const actor = result.current.actors.find((item) => item.key === 'u2:s2');
+  assert.equal(actor?.phase, 'paused');
+  assert.equal(actor?.visible, false);
+  assert.notEqual(actor?.slot, result.current.actors.find((item) => item.key === 'u1:s1')?.slot);
+});
+
+test('재동기화 중 replay된 전이는 스냅숏 기준 상태에서 모션을 시작한다', async () => {
+  let members: FishingPeer[] = [peer],
+    snapshotVersion = 1,
+    snapshotTransitions: IslandPresenceTransition[] = [];
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({
+      members,
+      ready: true,
+      reduce: false,
+      snapshotVersion,
+      snapshotTransitions,
+    }),
+  );
+  const transition: IslandPresenceTransition = {
+    source: 'event',
+    kind: 'focus',
+    userId: 'u1',
+    previous: member('active'),
+    current: member('paused'),
+  };
+  members = [{ ...peer, status: 'paused' }];
+  snapshotVersion = 2;
+  snapshotTransitions = [transition];
+  await rerender(undefined);
+
+  assert.equal(result.current.actors[0].phase, 'fishing');
+  await act(async () => result.current.onTransition(transition));
+  assert.equal(result.current.actors[0].phase, 'leaving-pause');
 });
 
 test('방문 화면의 최대 정원 15명에게 서로 다른 자리를 배정한다', async () => {

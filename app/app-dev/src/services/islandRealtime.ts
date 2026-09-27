@@ -279,6 +279,8 @@ export type PresenceView = {
   clockOffset: number;
   /** 초기·수동·재연결 스냅숏이 적용될 때만 바뀐다. event-gap 복구는 전이 콜백으로 연출한다. */
   snapshotVersion?: number;
+  /** 스냅숏 조회 중 도착해 최종 뷰에 선반영된 이벤트. actor가 기준 상태를 복원해 모션을 잇는다. */
+  snapshotTransitions?: IslandPresenceTransition[];
 };
 
 export const EMPTY_PRESENCE: PresenceView = {
@@ -289,6 +291,7 @@ export const EMPTY_PRESENCE: PresenceView = {
   emotes: [],
   clockOffset: 0,
   snapshotVersion: 0,
+  snapshotTransitions: [],
 };
 
 let nextSnapshotVersion = 0;
@@ -430,7 +433,11 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   let gapRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let gapRetryDelay = 250;
 
-  const publish = (status: PresenceView['status'], error: ApiError | null = null) => {
+  const publish = (
+    status: PresenceView['status'],
+    error: ApiError | null = null,
+    snapshotTransitions: IslandPresenceTransition[] = [],
+  ) => {
     if (disposed || !alive()) return;
     deps.onView({
       status,
@@ -440,6 +447,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       emotes: projection.emotes(),
       clockOffset: projection.clockOffset,
       snapshotVersion,
+      snapshotTransitions,
     });
   };
 
@@ -525,7 +533,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       }
       hadData = true;
       if (source !== 'event-gap') snapshotVersion = ++nextSnapshotVersion;
-      publish('ready');
+      publish('ready', null, source !== 'event-gap' ? replay.transitions : []);
       if (source !== 'event-gap') {
         for (const transition of replay.transitions) deps.onTransition?.(transition);
       }

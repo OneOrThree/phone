@@ -32,6 +32,10 @@ export type FishingPeerActor = FishingPeer & {
   generation: number;
 };
 
+/** 자리 예약과 별개로, 낚싯줄·찌는 실제 낚시 중인 주민에게만 표시한다. */
+export const fishingSpotsForActors = (actors: FishingPeerActor[]) =>
+  actors.filter((actor) => actor.visible && actor.phase === 'fishing').map((actor) => actor.spot);
+
 const actorKey = (userId: string, sessionId: string) => `${userId}:${sessionId}`;
 const fromLive = (member: LiveFocusMember, seconds: number): FishingPeer => ({
   userId: member.userId,
@@ -55,12 +59,14 @@ export function useFishingPeerActors({
   reduce,
   realtime = true,
   snapshotVersion = 0,
+  snapshotTransitions = [],
 }: {
   members: FishingPeer[];
   ready: boolean;
   reduce: boolean;
   realtime?: boolean;
   snapshotVersion?: number;
+  snapshotTransitions?: IslandPresenceTransition[];
 }) {
   const [actors, setActors] = useState<FishingPeerActor[]>([]);
   const [revision, setRevision] = useState(0);
@@ -69,6 +75,8 @@ export function useFishingPeerActors({
   const appliedSnapshotVersion = useRef<number | null>(null);
   const membersRef = useRef(members);
   membersRef.current = members;
+  const snapshotTransitionsRef = useRef(snapshotTransitions);
+  snapshotTransitionsRef.current = snapshotTransitions;
   const snapshotKey = members
     .map((member) => `${member.userId}:${member.sessionId}:${member.status}`)
     .join('|');
@@ -91,32 +99,49 @@ export function useFishingPeerActors({
   useEffect(() => {
     if (!ready) {
       appliedSnapshotVersion.current = null;
+      transitions.current.length = 0;
+      slots.current.clear();
+      setActors([]);
       return;
     }
     if (realtime && appliedSnapshotVersion.current === snapshotVersion) return;
     appliedSnapshotVersion.current = snapshotVersion;
-    const incomingKeys = new Set(
-      membersRef.current.map((member) => actorKey(member.userId, member.sessionId)),
-    );
-    for (const key of slots.current.keys()) {
-      if (!incomingKeys.has(key)) slots.current.delete(key);
-    }
-    const next = membersRef.current.map((member) => {
-      const key = actorKey(member.userId, member.sessionId),
-        slot = alloc(key),
-        spot = PEER_SPOTS[slot];
-      return {
-        ...member,
-        key,
-        slot,
-        spot,
-        position: member.status === 'paused' ? LANDING : spot,
-        phase: member.status === 'paused' ? ('paused' as const) : ('fishing' as const),
-        visible: member.status !== 'paused',
-        generation: 0,
-      };
+    setActors((current) => {
+      const snapshotMembers = new Map(membersRef.current.map((member) => [member.userId, member]));
+      const peerIds = new Set([...snapshotMembers.keys(), ...current.map((actor) => actor.userId)]);
+      // 스냅숏 조회 중 도착해 replay된 이벤트는 최종 members에 이미 반영돼 있다.
+      // 해당 전이만 역적용해 스냅숏 기준 actor를 만든 뒤, 아래 transition effect가 모션을 시작한다.
+      for (const transition of [...snapshotTransitionsRef.current].reverse()) {
+        if (transition.kind !== 'focus' || !peerIds.has(transition.userId)) continue;
+        if (transition.previous)
+          snapshotMembers.set(
+            transition.userId,
+            fromLive(transition.previous, transition.previous.activeSeconds),
+          );
+        else snapshotMembers.delete(transition.userId);
+      }
+      const incomingKeys = new Set(
+        [...snapshotMembers.values()].map((member) => actorKey(member.userId, member.sessionId)),
+      );
+      for (const key of slots.current.keys()) {
+        if (!incomingKeys.has(key)) slots.current.delete(key);
+      }
+      return [...snapshotMembers.values()].map((member) => {
+        const key = actorKey(member.userId, member.sessionId),
+          slot = alloc(key),
+          spot = PEER_SPOTS[slot];
+        return {
+          ...member,
+          key,
+          slot,
+          spot,
+          position: member.status === 'paused' ? LANDING : spot,
+          phase: member.status === 'paused' ? ('paused' as const) : ('fishing' as const),
+          visible: member.status !== 'paused',
+          generation: 0,
+        };
+      });
     });
-    setActors(next);
   }, [ready, snapshotKey, alloc, realtime, snapshotVersion]);
 
   // Keep labels and fish count current without changing an actor's stable seat or motion.
@@ -161,6 +186,11 @@ export function useFishingPeerActors({
       let next = [...current];
       for (const transition of pending) {
         if (transition.kind !== 'focus') continue;
+        if (
+          !membersRef.current.some((member) => member.userId === transition.userId) &&
+          !next.some((actor) => actor.userId === transition.userId)
+        )
+          continue;
         const before = transition.previous,
           after = transition.current,
           sessionId = after?.sessionId ?? before?.sessionId;
@@ -197,12 +227,34 @@ export function useFishingPeerActors({
           if (found >= 0) next[found] = actor;
           else if (previousFound >= 0) next[previousFound] = actor;
           else next.push(actor);
-        } else if (after?.status === 'paused' && before?.status === 'active' && existing) {
-          next[found] = {
-            ...existing,
-            phase: 'leaving-pause',
-            generation: existing.generation + 1,
-          };
+        } else if (after?.status === 'paused') {
+          if (before?.status === 'active' && existing) {
+            next[found] = {
+              ...existing,
+              phase: 'leaving-pause',
+              generation: existing.generation + 1,
+            };
+          } else if (!existing) {
+            const peer = fromLive(after, after.activeSeconds),
+              slot = replaced?.slot ?? alloc(key),
+              spot = PEER_SPOTS[slot];
+            if (replaced) {
+              slots.current.delete(replaced.key);
+              slots.current.set(key, slot);
+            }
+            const actor: FishingPeerActor = {
+              ...peer,
+              key,
+              slot,
+              spot,
+              position: LANDING,
+              phase: 'paused',
+              visible: false,
+              generation: (replaced?.generation ?? 0) + 1,
+            };
+            if (previousFound >= 0) next[previousFound] = actor;
+            else next.push(actor);
+          }
         } else if (!after && existing) {
           if (!existing.visible) {
             slots.current.delete(key);
