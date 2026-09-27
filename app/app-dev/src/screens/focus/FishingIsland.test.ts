@@ -31,8 +31,8 @@ jest.mock('@/components/CatSprite', () => {
   const React = require('react');
   const { View } = require('react-native');
   return {
-    CatSprite: ({ testID, motion }: { testID?: string; motion: string }) =>
-      React.createElement(View, { testID, motion }),
+    CatSprite: ({ testID, motion, left }: { testID?: string; motion: string; left?: boolean }) =>
+      React.createElement(View, { testID, motion, left }),
   };
 });
 
@@ -415,9 +415,9 @@ test('FishingActor: motion="tilt" 또는 "stretch" 지정 시 낚싯대를 숨�
 
   const focusActor = await render(
     React.createElement(FishingActor, {
-      spot: { x: 50, y: 50, face: 1, bx: 50, by: 60 },
+      spot: { x: 50, y: 50, face: 1, bx: 52, by: 51 },
       size: 100,
-      sizeY: 100,
+      sizeY: 100 / 1.5,
       color: 'ginger',
       name: '나',
       seconds: 0,
@@ -425,8 +425,48 @@ test('FishingActor: motion="tilt" 또는 "stretch" 지정 시 낚싯대를 숨�
     }),
   );
   assert.notEqual(focusActor.queryByTestId('fishing-actor-rod'), null);
-  assert.deepEqual(focusActor.getByTestId('fishing-actor-cast-direction').props.style.transform, [
-    { rotate: `${Math.PI / 2}rad` },
+  assert.equal(focusActor.getByTestId('fishing-actor-cat').props.left, false);
+  const diagonalSpot = { x: 50, y: 50, face: 1, bx: 52, by: 51 },
+    rod = focusActor.getByTestId('fishing-actor-rod'),
+    rodStyle = rod.props.style,
+    lineStart = castLineStart(diagonalSpot),
+    rodSize = 100 * 0.077 * 0.6,
+    screenAngle = castAngle(diagonalSpot);
+  assert.deepEqual(rodStyle.transform, [
+    { scale: rodStyle.transform[0].scale },
+    { rotate: `${screenAngle + Math.PI / 4}rad` },
   ]);
+  assert.ok(!('scaleX' in rodStyle.transform[0]), '낚싯대 축은 비균일하게 변형하지 않는다');
+  assert.ok(
+    Math.abs(rodStyle.left + rodSize * 0.96 - (100 * 0.077) / 2 - (lineStart.x - 50)) < 1e-9,
+    '낚싯대 끝의 x좌표는 줄 시작점과 일치해야 함',
+  );
+  assert.ok(
+    Math.abs(rodStyle.top + rodSize * 0.04 - 100 * 0.077 * 0.90625 - (lineStart.y - 50) / 1.5) <
+      1e-9,
+    '낚싯대 끝의 y좌표는 줄 시작점과 일치해야 함',
+  );
   await focusActor.unmount();
+
+  for (const motion of ['walk', 'cast'] as const) {
+    const westActor = await render(
+      React.createElement(FishingActor, {
+        spot: { x: 50, y: 50, face: -1, bx: 40, by: 60 },
+        size: 100,
+        sizeY: 100 / 1.5,
+        color: 'ginger',
+        name: '주민',
+        seconds: 0,
+        reduce: false,
+        motion,
+      }),
+    );
+    assert.equal(
+      westActor.getByTestId('fishing-actor-cat').props.left,
+      true,
+      `${motion} 서쪽 방향`,
+    );
+    assert.equal(westActor.queryByTestId('fishing-actor-rod'), null);
+    await westActor.unmount();
+  }
 });

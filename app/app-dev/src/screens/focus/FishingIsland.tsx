@@ -31,6 +31,8 @@ export const INK = '#493B39',
 // 도착 지점 바다 위 뗏목 한 대. 고양이는 뗏목 바로 위쪽의 가장 가까운 땅에 내려 선다.
 export const RAFT = { x: 37.8, y: 91.8 };
 const FISHING_MAP_ASPECT = 1536 / 1024;
+// fishing-rod.png 장축은 오른쪽 위를 향한다. 찌 방향에 맞추려면 이 기준축을 보정한다.
+const FISHING_ROD_AXIS_ANGLE = -Math.PI / 4;
 export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
 // 우리 섬에 축음기를 지었으면 낚시섬에도 한 대(지도 폭 6% · 시안 CSS 17:03). 낚시 자리·뗏목·올라오는 길을 피한 남동쪽 풀밭.
 export const GRAM = { x: 50, y: 70, w: 6 };
@@ -578,7 +580,7 @@ export function FishingActor({
   const a = size * 0.077,
     face = spot.face,
     isFishing = !motion || motion === 'focus' || motion === 'reel',
-    direction = isFishing ? castAngle(spot) : face < 0 ? Math.PI : 0,
+    direction = castAngle(spot),
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
     rodScale = castReach(spot) / 5.6;
@@ -594,45 +596,36 @@ export function FishingActor({
         zIndex: 20 + Math.round(spot.y),
       }}
     >
-      <View
-        testID="fishing-actor-cast-direction"
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          width: a,
-          height: a,
-          transformOrigin: [a / 2, a * 0.90625, 0],
-          transform: [{ rotate: `${direction}rad` }],
-        }}
-      >
-        <CatSprite
-          color={color}
-          motion={motion ?? (reeling ? 'reel' : 'focus')}
-          size={a}
-          reduce={reduce}
-          anchored={false}
-          onFinish={onMotionFinish}
-          generation={generation}
-          testID="fishing-actor-cat"
+      <CatSprite
+        color={color}
+        motion={motion ?? (reeling ? 'reel' : 'focus')}
+        size={a}
+        left={face < 0}
+        reduce={reduce}
+        anchored={false}
+        onFinish={onMotionFinish}
+        generation={generation}
+        testID="fishing-actor-cat"
+      />
+      {isFishing && (
+        <Image
+          source={assets['props/fishing/fishing-rod.png']}
+          resizeMode="contain"
+          testID="fishing-actor-rod"
+          style={{
+            position: 'absolute',
+            width: rodSize,
+            height: rodSize,
+            left: a / 2 + Math.cos(direction) * rodTipDistance - rodSize * 0.96,
+            top: a * 0.90625 + Math.sin(direction) * rodTipDistance - rodSize * 0.04,
+            transform: [
+              { scale: rodScale },
+              { rotate: `${direction - FISHING_ROD_AXIS_ANGLE}rad` },
+            ],
+            transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
+          }}
         />
-        {isFishing && (
-          <Image
-            source={assets['props/fishing/fishing-rod.png']}
-            resizeMode="contain"
-            testID="fishing-actor-rod"
-            style={{
-              position: 'absolute',
-              width: rodSize,
-              height: rodSize,
-              left: a / 2 + rodTipDistance - rodSize * 0.96,
-              top: a * 0.90625 - rodSize * 0.04,
-              transform: [{ scaleX: rodScale }, { rotate: '45deg' }],
-              transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
-            }}
-          />
-        )}
-      </View>
+      )}
       <View
         style={{ position: 'absolute', bottom: a * 1.05, left: a / 2 - 100, width: 200 }}
         pointerEvents="none"
