@@ -19,7 +19,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -166,9 +165,8 @@ public class GoldenFishService {
      * {@code members} 에 함께 낚은 주민을 전부 실어, 앱이 「내가 그 안에 있는가」로 자기 화면을 정한다.
      * 봉투의 {@code userId} 가 시스템 행위자인 것도 그래서다 — 수신자가 아니라 발생 주체다.
      *
-     * <p>{@code eventId} 는 {@code golden:<섬>:<분>}을 이름으로 만든 결정적 UUID라 재실행에서 같은 키가
-     * 나온다. realtime 7필드 봉투의 UUID 계약도 만족한다. 이 메서드가 불리는 것은 원장 멱등을 통과한
-     * <b>새 적립</b>일 때뿐이므로 UNIQUE 위반이 나면 그것은 진짜 결함이다.
+     * <p>{@code eventId} 는 {@code golden:<섬>:<분>} 이라 재실행에서 같은 키가 나온다. 이 메서드가
+     * 불리는 것은 원장 멱등을 통과한 <b>새 적립</b>일 때뿐이므로 UNIQUE 위반이 나면 그것은 진짜 결함이다.
      */
     private void publish(UUID islandId, Instant minute, int reward, int share,
                          List<FocusSessionDetail> caught) {
@@ -184,9 +182,7 @@ public class GoldenFishService {
         params.put("reward", reward);
         params.put("sharePerMember", share);
         params.put("members", members);
-        String eventName = "golden:" + islandId + ":" + minute.getEpochSecond();
-        String eventId = UUID.nameUUIDFromBytes(eventName.getBytes(StandardCharsets.UTF_8)).toString();
-        outbox.append(new OutboxAppendCommand(eventId, 1,
+        outbox.append(new OutboxAppendCommand("golden:" + islandId + ":" + minute.getEpochSecond(), 1,
                 EVENT_TYPE, SYSTEM_ACTOR, null, islandId.toString(),
                 new AggregateRef(AGGREGATE_TYPE, islandId.toString()), null, params,
                 List.of(OutboxDeliveryRequest.toRealtime(EVENT_TYPE, null))));

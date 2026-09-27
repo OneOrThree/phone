@@ -30,8 +30,8 @@ import java.util.stream.Collectors;
  * <h2>무엇을 적용하는가</h2>
  * <ul>
  *   <li>{@code user.withdrawn} — {@link ChatUserFence#withdraw}(tombstone + 커서 파기).</li>
- *   <li>{@code focus.member.updated}·{@code rest.member.updated}·{@code focus.golden} — 7필드 봉투로 바꿔
- *       {@link EventRouter} 로 섬 토픽에 전달한다(GROMO-1765, GROMO-1938).</li>
+ *   <li>{@code focus.member.updated}·{@code rest.member.updated} — 7필드 봉투로 바꿔 {@link EventRouter} 로
+ *       섬 토픽에 전달한다(GROMO-1765). 이 둘만 여는 조건은 아래에 적었다.</li>
  *   <li>{@code island.members.updated} 의 MEMBER_ADDED·MEMBER_REMOVED — {@code params.memberUserId} 가 있으면
  *       {@link MembershipService#evict} 로 그 유저의 채팅 멤버십 캐시를 즉시 지운다(GROMO-2140). 앱 전달(아래
  *       항목)과는 <b>별개의 부수 효과</b>다 — 이 type 은 아직 STOMP 로 나가지 않지만 캐시 무효화는 그와 무관하게
@@ -43,8 +43,8 @@ import java.util.stream.Collectors;
  *   <li>그 밖의 type — 400. 계약 밖의 사건을 조용히 삼키지 않는다.</li>
  * </ul>
  *
- * <h2>왜 이 세 사건만 여는가</h2>
- * 종전 주석이 전달을 닫아 둔 조건은 세 가지였고, 그 셋이 이제 세 사건에 대해서 충족됐다.
+ * <h2>왜 주민 사건 둘만 여는가</h2>
+ * 종전 주석이 전달을 닫아 둔 조건은 세 가지였고, 그 셋이 이제 둘에 대해서만 충족됐다.
  * <ol>
  *   <li><b>구독 인가</b> — {@code StompAuthChannelInterceptor} 가 {@code /topic/islands/{id}/focus|rest|emotes}
  *       를 허용목록에 넣고, {@code ChatOutboundChannelInterceptor} 가 무조건 차단을 풀었다.</li>
@@ -79,8 +79,7 @@ public class InboundEventService {
             .collect(Collectors.toUnmodifiableSet());
 
     private static final Set<String> DELIVERED_TYPES = Set.of(
-            RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName(), RealtimeEventType.REST_MEMBER_UPDATED.wireName(),
-            RealtimeEventType.GOLDEN_FISH_CAUGHT.wireName());
+            RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName(), RealtimeEventType.REST_MEMBER_UPDATED.wireName());
 
     /** 주민 «집합»이 실제로 바뀌는 changeKind 만 — HOST_TRANSFER 는 무효화할 멤버십이 없다. */
     private static final Set<String> MEMBERSHIP_CHANGE_KINDS = Set.of("MEMBER_ADDED", "MEMBER_REMOVED");
@@ -158,10 +157,10 @@ public class InboundEventService {
         }
         RealtimeEventEnvelope event;
         try {
-            event = deliveredEvent(eventId, type, envelope);
+            event = memberEvent(eventId, type, envelope);
         } catch (RuntimeException e) {
             // 봉투 본문은 로그에 남기지 않는다(realtime-events LLD §6).
-            log.error("앱 사건 변환 실패 — 전달하지 않는다. eventId={} type={} reason={}",
+            log.error("주민 사건 변환 실패 — 전달하지 않는다. eventId={} type={} reason={}",
                     eventId, type, e.getClass().getSimpleName());
             return;
         }
@@ -182,14 +181,12 @@ public class InboundEventService {
      * 모르는 스키마를 만났을 때 하라던 일(무시·재조회)을 할 기회를 잃는다. 7인자 정본 생성자가 1 이
      * 아닌 값을 거절하고, 그 거절은 {@code deliver} 에서 「전달 안 함 + 200」이 된다.
      */
-    private static RealtimeEventEnvelope deliveredEvent(String eventId, String type, JsonNode envelope) {
-        RealtimeEventType eventType = Arrays.stream(RealtimeEventType.values())
-                .filter(candidate -> candidate.wireName().equals(type))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("전달할 수 없는 사건 타입입니다."));
+    private static RealtimeEventEnvelope memberEvent(String eventId, String type, JsonNode envelope) {
+        RealtimeEventType eventType = RealtimeEventType.FOCUS_MEMBER_UPDATED.wireName().equals(type)
+                ? RealtimeEventType.FOCUS_MEMBER_UPDATED : RealtimeEventType.REST_MEMBER_UPDATED;
         JsonNode params = envelope.get("params");
         if (params == null || !params.isObject()) {
-            throw new IllegalArgumentException("앱 사건 params 가 객체가 아닙니다.");
+            throw new IllegalArgumentException("주민 사건 params 가 객체가 아닙니다.");
         }
         return new RealtimeEventEnvelope(UUID.fromString(eventId), intValue(envelope, "schemaVersion"), eventType,
                 UUID.fromString(requiredText(envelope, "subjectId")), longValue(envelope, "version"),

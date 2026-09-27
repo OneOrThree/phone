@@ -38,7 +38,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.Mockito.when;
 
 /**
@@ -227,8 +226,6 @@ class GoldenFishIntegrationTest {
 
         List<Map<String, Object>> events = outboxEvents(island.id);
         assertThat(events).hasSize(1);
-        assertThatCode(() -> UUID.fromString(String.valueOf(events.get(0).get("event_id"))))
-                .doesNotThrowAnyException();
         String params = String.valueOf(events.get(0).get("params"));
         String compact = params.replace(" ", "");
         assertThat(compact).contains("\"reward\":50").contains("\"sharePerMember\":12")
@@ -329,7 +326,7 @@ class GoldenFishIntegrationTest {
     }
 
     private List<Map<String, Object>> outboxEvents(UUID islandId) {
-        return jdbc.queryForList("SELECT event_id, params FROM event_outbox WHERE type = ? AND subject_id = ?",
+        return jdbc.queryForList("SELECT params FROM event_outbox WHERE type = ? AND subject_id = ?",
                 GoldenFishService.EVENT_TYPE, islandId.toString());
     }
 
