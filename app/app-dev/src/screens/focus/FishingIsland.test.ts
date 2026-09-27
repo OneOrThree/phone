@@ -137,7 +137,16 @@ test('주민 걷기 방향은 현재 구간의 다음 waypoint를 향한다', ()
 
 test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {
   assert.equal(PEER_SPOTS.length, 15);
-  assert.deepEqual(PEER_SPOTS[0], { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 });
+  assert.deepEqual(
+    {
+      x: PEER_SPOTS[0].x,
+      y: PEER_SPOTS[0].y,
+      face: PEER_SPOTS[0].face,
+      bx: PEER_SPOTS[0].bx,
+      by: PEER_SPOTS[0].by,
+    },
+    { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 },
+  );
   for (const [n, p] of PEER_SPOTS.entries()) {
     assert.ok(onLand(fishingGrid, p), `${n}`);
     for (const q of PEER_SPOTS.slice(n + 1))
@@ -163,12 +172,77 @@ test('물고기 보상 전체 프레임이 15개 낚시 자리와 기본 자리�
   ];
   for (const [index, spot] of seats.entries()) {
     const placement = fishingCatchPlacement(spot);
-    assert.ok(placement, `${index}: 보상 배치 위치를 찾지 못함`);
+    if (!placement) {
+      assert.ok(index >= PEER_SPOTS.length, `${index}: 낚시 자리의 보상 위치를 찾지 못함`);
+      continue;
+    }
     for (const [reward, width, height] of rewards)
       assert.ok(
         fishingCatchFootprintOnLand(spot, placement!, width, height),
         `${index} ${reward}: 보상 프레임이 물에 걸침`,
       );
+  }
+});
+
+test('물고기 보상은 인접한 육지 후보만 쓰고 후보가 없으면 렌더링하지 않는다', async () => {
+  const spot = { x: 51, y: 47, face: 1 },
+    placement = fishingCatchPlacement(spot);
+  if (placement) {
+    assert.ok(
+      Math.min(
+        Math.hypot(placement.left + 1, placement.top - 0.06),
+        Math.hypot(placement.left - 0.9, placement.top - 0.06),
+      ) <= 0.75,
+    );
+    assert.ok(fishingCatchFootprintOnLand(spot, placement));
+  }
+  const screen = await render(
+    React.createElement(FishingActor, {
+      spot,
+      size: 640,
+      sizeY: 640 / 1.5,
+      color: 'ginger',
+      name: '주민',
+      seconds: SECONDS_PER_FISH,
+      reduce: true,
+    }),
+  );
+  assert.equal(screen.queryByTestId('fishing-actor-catch') != null, placement != null);
+  await screen.unmount();
+});
+
+test('15개 주민 자리의 보상은 다른 고양이 및 보상 더미와 겹치지 않는다', () => {
+  const box = (spot: { x: number; y: number }, left: number, top: number) => {
+    const x = spot.x + (left - 0.5) * 7.7,
+      y = spot.y + (top - 0.90625) * 11.55;
+    return { left: x, right: x + 8.47, top: y, bottom: y + 12.705 };
+  };
+  const cat = (spot: { x: number; y: number }) => ({
+    left: spot.x - 3.85,
+    right: spot.x + 3.85,
+    top: spot.y - 10.4625,
+    bottom: spot.y + 1.078125,
+  });
+  const overlap = (a: ReturnType<typeof cat>, b: ReturnType<typeof cat>) =>
+    a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  const boxes = PEER_SPOTS.map((spot) => {
+    const placement = fishingCatchPlacement(spot);
+    assert.ok(placement);
+    return box(spot, placement!.left, placement!.top);
+  });
+  for (let i = 0; i < PEER_SPOTS.length; i++) {
+    for (let j = 0; j < PEER_SPOTS.length; j++) {
+      if (i === j) continue;
+      assert.ok(
+        !overlap(boxes[i], cat(PEER_SPOTS[j])),
+        `${i} 보상 ${JSON.stringify(PEER_SPOTS[i])}/${JSON.stringify(fishingCatchPlacement(PEER_SPOTS[i]))}와 ${j} 고양이 ${JSON.stringify(PEER_SPOTS[j])} 겹침`,
+      );
+      if (j > i)
+        assert.ok(
+          !overlap(boxes[i], boxes[j]),
+          `${i}·${j} 보상 겹침: ${JSON.stringify(PEER_SPOTS[i])}/${JSON.stringify(fishingCatchPlacement(PEER_SPOTS[i]))}, ${JSON.stringify(PEER_SPOTS[j])}/${JSON.stringify(fishingCatchPlacement(PEER_SPOTS[j]))}`,
+        );
+    }
   }
 });
 
@@ -211,6 +285,37 @@ test('FishingActor는 계산된 육지 보상 위치를 실제 이미지에 적�
   assert.equal(catchImage.props.style.left, placement.left * size * 0.077);
   assert.equal(catchImage.props.style.top, placement.top * size * 0.077);
   assert.equal(catchImage.props.style.width, size * 0.077 * 1.1);
+  await screen.unmount();
+});
+
+test('보상이 없거나 숨겨진 주민의 depth sort는 보상 footprint를 반영하지 않는다', async () => {
+  const props = {
+    spot: PEER_SPOTS[1],
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '주민',
+    seconds: 0,
+    reduce: true,
+  };
+  const screen = await render(React.createElement(FishingActor, props));
+  const baseZIndex = 20 + Math.round(props.spot.y),
+    actorZIndex = () => {
+      const actorView = screen.getByTestId('fishing-actor-cat').parent;
+      assert.ok(actorView);
+      return actorView.props.style.zIndex;
+    };
+  assert.equal(actorZIndex(), baseZIndex);
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      seconds: SECONDS_PER_FISH,
+      catchVisible: false,
+    }),
+  );
+  assert.equal(screen.queryByTestId('fishing-actor-catch'), null);
+  assert.equal(actorZIndex(), baseZIndex);
   await screen.unmount();
 });
 

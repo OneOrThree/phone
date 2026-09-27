@@ -40,7 +40,15 @@ export const nearGram = ({ x, y }: Point) =>
   Math.abs(x - GRAM.x) <= GRAM.w / 2 + 2 &&
   y >= GRAM.y - ((GRAM.w * gramBox.h) / gramBox.w) * (1536 / 1024) &&
   y <= GRAM.y + 4;
-export type Spot = { x: number; y: number; face: number; bx?: number; by?: number };
+export type FishingCatchPlacement = { left: number; top: number };
+export type Spot = {
+  x: number;
+  y: number;
+  face: number;
+  bx?: number;
+  by?: number;
+  catchPlacement?: FishingCatchPlacement | null;
+};
 // 누른 곳에 앉히고 12% 안에서 가장 가까운 물 쪽으로 낚싯줄을 던진다. 물이 멀면 줄 없이 앉는다.
 // 좌표는 반올림하지 않는다(물가 칸 경계에서 반올림하면 물 칸이 될 수 있음).
 export function castSpot({ x, y }: Point): Spot {
@@ -91,15 +99,56 @@ const catchFootprintOnLand = (
         return false;
   return true;
 };
-export type FishingCatchPlacement = { left: number; top: number };
-/** 보상 프레임을 물 쪽 반대편 우선으로 두고, 주변 육지 안에 완전히 들어가는 위치를 찾는다. */
-export function fishingCatchPlacement(spot: Spot): FishingCatchPlacement | null {
-  const preferredLeft = spot.face < 0 ? 0.9 : -1;
+const catchBounds = (spot: Point, placement: FishingCatchPlacement) => {
+  const left = spot.x + (placement.left - 0.5) * 0.077 * 100,
+    top = spot.y + (placement.top - 0.90625) * 0.077 * 150;
+  return {
+    left,
+    top,
+    right: left + fishingCatchFrame.width * 0.077 * 100,
+    bottom: top + fishingCatchFrame.height * 0.077 * 150,
+  };
+};
+const catBounds = (spot: Point) => ({
+  left: spot.x - (0.077 * 100) / 2,
+  right: spot.x + (0.077 * 100) / 2,
+  top: spot.y - 0.90625 * 0.077 * 150,
+  bottom: spot.y + 0.09375 * 0.077 * 150,
+});
+const boundsOverlap = (a: ReturnType<typeof catBounds>, b: ReturnType<typeof catBounds>) =>
+  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+/** 보상 프레임을 고양이 옆 인접 위치에서만 찾고, 가까운 육지 후보가 없으면 숨긴다. */
+export function fishingCatchPlacement(
+  spot: Spot,
+  others: Spot[] = [],
+): FishingCatchPlacement | null {
+  if (Object.prototype.hasOwnProperty.call(spot, 'catchPlacement'))
+    return spot.catchPlacement ?? null;
+  const preferredLeft = spot.face < 0 ? 0.9 : -1,
+    alternateLeft = preferredLeft < 0 ? 0.9 : -1,
+    ownCat = catBounds(spot);
   let best: (FishingCatchPlacement & { score: number }) | null = null;
   for (let left = -3; left <= 2.001; left += 0.25)
     for (let top = -3; top <= 2.001; top += 0.25) {
+      const preferredScore = Math.hypot(left - preferredLeft, top - 0.06),
+        alternateScore = Math.hypot(left - alternateLeft, top - 0.06),
+        score = preferredScore <= 0.75 ? preferredScore : alternateScore + 1;
+      if (preferredScore > 0.75 && alternateScore > 0.75) continue;
       if (!catchFootprintOnLand(spot, left, top)) continue;
-      const score = Math.hypot(left - preferredLeft, top - 0.06);
+      const reward = catchBounds(spot, { left, top });
+      if (
+        others.some((other) => {
+          if (other.x === spot.x && other.y === spot.y) return false;
+          const otherCat = catBounds(other),
+            otherReward = other.catchPlacement ? catchBounds(other, other.catchPlacement) : null;
+          return (
+            boundsOverlap(reward, otherCat) ||
+            (otherReward != null &&
+              (boundsOverlap(reward, otherReward) || boundsOverlap(otherReward, ownCat)))
+          );
+        })
+      )
+        continue;
       if (best && score >= best.score) continue;
       best = { left, top, score };
     }
@@ -121,7 +170,7 @@ export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
 // 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
 // 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
 export const PEER_SPOTS: Spot[] = (() => {
-  const spots: Point[] = [
+  const initial: Spot[] = [
       { x: 18.5, y: 39.5 },
       { x: 60.2, y: 44.1 },
       { x: 45, y: 25 },
@@ -129,7 +178,8 @@ export const PEER_SPOTS: Spot[] = (() => {
       { x: 80, y: 62 },
       { x: 75, y: 45 },
       { x: 40, y: 70 },
-    ],
+    ].map(castSpot),
+    spots: Spot[] = [],
     avoid = [GRAM, LANDING, DEFAULT_SPOT],
     { cols, cells } = fishingGrid,
     land = (c: number) => cells[c] === '1',
@@ -147,21 +197,22 @@ export const PEER_SPOTS: Spot[] = (() => {
     )
       candidates.push({ x: (col + 0.5) * 2, y: (row + 0.5) * 2 });
   }
+  for (const spot of initial) {
+    const placement = fishingCatchPlacement(spot, [...initial, ...spots]);
+    if (placement) spots.push({ ...spot, catchPlacement: placement });
+  }
   candidates.sort((a, b) => apart(a, { x: 50, y: 50 }) - apart(b, { x: 50, y: 50 }));
   for (const p of candidates) {
     if (spots.length >= 15) break;
     const spot = castSpot(p);
-    if (
-      [...spots, ...avoid].every((q) => apart(p, q) >= 11) &&
-      spot.bx != null &&
-      fishingCatchPlacement(spot)
-    )
-      spots.push(p);
+    const placement = fishingCatchPlacement(spot, spots);
+    if ([...spots, ...avoid].every((q) => apart(p, q) >= 11) && spot.bx != null && placement)
+      spots.push({ ...spot, catchPlacement: placement });
   }
   // 시안 예시 두 자리는 낚싯줄 끝도 시안 좌표 그대로. 여섯째 자리(축음기 앞)는 새로 뽑은 첫 자리로 채운다
-  const cast = spots.map(castSpot);
-  cast[0] = { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 };
-  cast[1] = { x: 60.2, y: 44.1, face: -1, bx: 59.1, by: 44.9 };
+  const cast = spots;
+  cast[0] = { ...cast[0], x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 };
+  cast[1] = { ...cast[1], x: 60.2, y: 44.1, face: -1, bx: 59.1, by: 44.9 };
   return [...cast.slice(0, 5), cast[7], ...cast.slice(5, 7), ...cast.slice(8)];
 })();
 // 다른 주민과 고양이가 겹치는 자리인지. 고양이 폭이 지도 폭 7.7%라 여유를 더해 8.5% 안이면 앉을 수 없다.
@@ -617,7 +668,8 @@ export function FishingActor({
   }, [count, reduce]);
   const a = size * 0.077,
     face = spot.face,
-    catchPlacement = fishingCatchPlacement(spot);
+    catchPlacement = fishingCatchPlacement(spot),
+    showsCatch = count > 0 && catchVisible && catchPlacement != null;
   return (
     <Animated.View
       pointerEvents="none"
@@ -630,7 +682,7 @@ export function FishingActor({
         zIndex:
           20 +
           Math.round(
-            catchPlacement
+            showsCatch && catchPlacement
               ? Math.max(
                   spot.y,
                   spot.y + (catchPlacement.top - 0.90625 + fishingCatchFrame.height) * 0.077 * 150,
@@ -710,15 +762,15 @@ export function FishingActor({
       <View style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100, width: 200 }}>
         <Text style={[nameText(me), { textAlign: 'center' }]}>{name}</Text>
       </View>
-      {count > 0 && catchVisible && (
+      {showsCatch && catchPlacement && (
         <Image
           source={assets[catchAssetPath(count)]}
           resizeMode="contain"
           testID="fishing-actor-catch"
           style={{
             position: 'absolute',
-            left: (catchPlacement?.left ?? (face < 0 ? 0.9 : -1)) * a,
-            top: (catchPlacement?.top ?? 0.06) * a,
+            left: catchPlacement.left * a,
+            top: catchPlacement.top * a,
             width: a * 1.1,
             height: a * 1.1,
           }}
