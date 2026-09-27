@@ -21,6 +21,8 @@ import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
 import com.oneorthree.phone.invitelink.exception.InviteLinkErrorCode;
 import com.oneorthree.phone.invitelink.exception.InviteLinkException;
+import com.oneorthree.phone.internal.exception.ReportDeliveryErrorCode;
+import com.oneorthree.phone.internal.exception.ReportDeliveryException;
 import com.oneorthree.phone.league.exception.LeagueErrorCode;
 import com.oneorthree.phone.letter.exception.LetterErrorCode;
 import com.oneorthree.phone.letter.exception.LetterException;
@@ -96,6 +98,8 @@ class ErrorContractTest {
             Map.entry(LetterErrorCode.class, c -> new LetterException((LetterErrorCode) c)),
             Map.entry(GroupErrorCode.class, c -> new GroupException((GroupErrorCode) c)),
             Map.entry(InviteLinkErrorCode.class, c -> new InviteLinkException((InviteLinkErrorCode) c)),
+            Map.entry(ReportDeliveryErrorCode.class,
+                    c -> new ReportDeliveryException((ReportDeliveryErrorCode) c)),
             Map.entry(LeagueErrorCode.class, c -> new LeagueException((LeagueErrorCode) c)),
             Map.entry(OutboxErrorCode.class, c -> new OutboxException((OutboxErrorCode) c)),
             Map.entry(QuestErrorCode.class, c -> new QuestException((QuestErrorCode) c)),
@@ -136,8 +140,8 @@ class ErrorContractTest {
         Set<String> known = FACTORIES.keySet().stream().map(Class::getSimpleName).collect(Collectors.toCollection(TreeSet::new));
 
         assertThat(found).as("ErrorCode 구현 enum 이 클래스패스에 있는데 FACTORIES 에 없다").isEqualTo(known);
-        assertThat(found).as("실측 기준 도메인 enum 17개 + CommonErrorCode — letter(GROMO-1933)·construction(GROMO-1767)·appearance(GROMO-1783)·quest(GROMO-1773)·shop(GROMO-1781)이 늘었다")
-                .hasSize(18);
+        assertThat(found).as("실측 기준 도메인 enum 18개 + CommonErrorCode — 신고 전달 workflow 포함")
+                .hasSize(19);
     }
 
     @TestFactory
@@ -239,8 +243,8 @@ class ErrorContractTest {
         // GROMO-2137 이 게시판 댓글 삭제 전용 코드 1개(GroupErrorCode.NOTICE_COMMENT_FORBIDDEN, 403)를 더했다 —
         // 작성자 본인도 방장도 아닌 삭제 시도(2026-09-25 결정 GROMO-2136). NOTICE_FORBIDDEN 과 메시지가
         // 가리키는 대상이 달라 코드를 나눈다(NOTICE_BODY_TOO_LONG/NOTICE_COMMENT_TOO_LONG 과 같은 결).
-        assertThat(tests).as("실측 기준 도메인 상수 207개 + 공통 18개 — 집중 세션 12종·로그인 원장 2종·전망대 가드·친구 취소·우체통 잠금·편지 10종(닫기 NOT_LETTER_RECEIVER 포함)·건설 6종·legacy AT 관문 2종·외양 5종·섬 가입 6종·섬 관리 게이트·빈 섬 이름·계정 레이트리밋·게시판 5종(댓글 삭제 전용 포함)·계정 PATCH 게이트·도서관 잠금·섬 퀘스트 14종·공용 음악 2종·섬 상점 8종·회관 기록 6종·금칙어·주간 섬 랭킹·소셜 로그인 요청·자기 차단 오류 포함")
-                .hasSize(225);
+        assertThat(tests).as("실측 기준 기존 225개 + 차단 직접 교류 2개 + 신고 전달 workflow 4개")
+                .hasSize(231);
         return tests;
     }
 

@@ -5,6 +5,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { initialState } from '@/services/model';
+import { replaceBlockedUsers } from '@/services/blockedUsers';
 import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
   closeLetter,
@@ -178,6 +179,7 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  replaceBlockedUsers([]);
 });
 
 test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이름이 보인다', async () => {
@@ -225,6 +227,21 @@ test('편지 열기 — GET 상세로 본문을 그린다(DELETE 는 나가지 �
   await waitFor(() => assert.ok(ui.getByText('반가워, 잘 지내?')));
   assert.deepEqual([...getLetterMock.mock.calls[0]], [LETTER]);
   assert.equal(closeLetterMock.mock.calls.length, 0);
+  await ui.unmount();
+});
+
+test('받은 편지 상세 더보기에서 편지 신고·발신자 차단 시트로 진입한다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
+
+  await fireEvent.press(ui.getByLabelText('민지 더보기'));
+
+  assert.ok(ui.getByText('신고하기'));
+  assert.ok(ui.getByText('차단하기'));
   await ui.unmount();
 });
 

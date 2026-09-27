@@ -180,11 +180,11 @@ public class FriendService {
         if (me.equals(targetUserId)) {
             throw new FriendException(FriendErrorCode.SELF_REQUEST);
         }
-        User fromUser = getCallerParticipant(me);
-        User toUser = getRelationParticipant(targetUserId);
         if (userBlockService.directContactBlocked(me, targetUserId)) {
             throw new FriendException(FriendErrorCode.FRIEND_BLOCKED_RELATION);
         }
+        User fromUser = getCallerParticipant(me);
+        User toUser = getRelationParticipant(targetUserId);
 
         // 락 없는 판정이다 — 동시에 들어온 반대 방향 요청은 여기서 못 거른다. 그건 V98 의
         // uq_friendships_pending_pair 가 커밋 시점에 잡고 409 로 떨어뜨린다(위 Javadoc 의 논증).
@@ -272,6 +272,13 @@ public class FriendService {
      */
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
+        // 차단 등록·새 요청·편지 발송과 같은 순서(pair → users/friendship)로 직렬화한다.
+        // scalar 로 상대 id 만 먼저 구해 엔티티의 잠금 전 snapshot 이 1차 캐시에 남지 않게 한다.
+        UUID requesterId = friendshipRepository.findRequesterIdByIdAndDeletedAtIsNull(requestId)
+                .orElseThrow(() -> new FriendException(FriendErrorCode.REQUEST_NOT_FOUND));
+        if (userBlockService.directContactBlocked(me, requesterId)) {
+            throw new FriendException(FriendErrorCode.FRIEND_BLOCKED_RELATION);
+        }
         Friendship friendship = getReceivedRequest(me, requestId);
         if (friendship.getStatus() == FriendshipStatus.CANCELED) {
             // 취소된 요청은 되살리지 않는다 — 배타 락 아래라 발신자의 취소와 수신자의 수락이 경합해도 한쪽만 이긴다.
@@ -280,7 +287,7 @@ public class FriendService {
         // 이 호출이 실제로 상태를 바꾼 것인지 먼저 본다 — 아래 알림 발행 조건 (GROMO-1090).
         boolean alreadyAccepted = friendship.getStatus() == FriendshipStatus.ACCEPTED;
         friendship.accept();
-        UUID requesterId = friendship.getFromUser().getId();
+        requesterId = friendship.getFromUser().getId();
         userActivityEventLogger.log(UserActivityEvent.FRIEND_ADDED,
                 Map.of("request_id", requestId.toString(),
                         "from_user_id", requesterId.toString()));

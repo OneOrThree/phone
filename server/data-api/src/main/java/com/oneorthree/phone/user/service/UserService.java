@@ -19,6 +19,7 @@ import com.oneorthree.phone.user.repository.domain.StatVisibility;
 import com.oneorthree.phone.user.exception.UserErrorCode;
 import com.oneorthree.phone.user.exception.UserException;
 import com.oneorthree.phone.user.repository.OccupationInfoRepository;
+import com.oneorthree.phone.user.repository.ReportDeliveryPrivacyRepository;
 import com.oneorthree.phone.user.repository.SocialAccountRepository;
 import com.oneorthree.phone.user.repository.UserBlockRepository;
 import com.oneorthree.phone.user.repository.UserFocusTimeSettingsRepository;
@@ -78,6 +79,7 @@ public class UserService {
     private final OccupationInfoRepository occupationInfoRepository;
     private final UserActivityEventLogger userActivityEventLogger;
     private final UserBlockRepository userBlockRepository;
+    private final ReportDeliveryPrivacyRepository reportDeliveryPrivacyRepository;
     /**
      * 닉네임 변경 사실을 위로 올리는 통로 (A22 ㋡). {@code user} 는 모든 도메인의 바닥이라 갱신
      * 대상인 {@code group} 을 직접 참조할 수 없다 — 소비자는 동기 리스너라 같은 트랜잭션에서 돈다.
@@ -339,6 +341,7 @@ public class UserService {
      */
     @Transactional
     public void erasePersonalData(User user) {
+        reportDeliveryPrivacyRepository.eraseForWithdrawal(user.getId());
         // 차단은 양방향 벌크 DELETE 다. 엔티티 변경보다 먼저 두어 아래 소셜 벌크의 clear 와 순서가 섞이지 않게 한다.
         userBlockRepository.deleteAllInvolving(user.getId());
 

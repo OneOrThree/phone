@@ -130,6 +130,15 @@ class FriendServiceTest {
         // 실제 판정 로직(리포지토리 스텁 기반)을 통과하도록 한다 (GROMO-1631, 스텁이 시임을 덮지 않게).
         // 차단 제외는 별도 경로라 이 스위트에선 항상 빈 집합 — strict 스텁 검사를 피하려고 lenient.
         lenient().when(userBlockService.blockedIds(any())).thenReturn(java.util.Set.of());
+        lenient().when(userBlockService.directContactBlocked(any(), any())).thenReturn(false);
+        // acceptRequest가 pair lock 전에 쓰는 scalar 조회를 기존 요청 fixture에서 유도한다.
+        lenient().when(friendshipRepository.findRequesterIdByIdAndDeletedAtIsNull(any()))
+                .thenAnswer(invocation -> {
+                    Optional<Friendship> request = friendshipRepository
+                            .findByIdAndDeletedAtIsNull(invocation.getArgument(0));
+                    return request == null ? Optional.empty()
+                            : request.map(value -> value.getFromUser().getId());
+                });
         friendService = new FriendService(friendshipRepository, userQueryService, pinnedUserRepository,
                 dailyFocusStatRepository, focusSessionRepository, characterEquipmentRepository,
                 userActivityEventLogger, userTierLookup, focusLiveInfoLookup,

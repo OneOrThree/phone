@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { getFriendsScreen, searchFriends } from '@/services/api/friends';
+import { getBlockedUsers } from '@/services/api/safety';
+import { saveSession } from '@/services/api/session';
 import type { FriendsScreen } from '@/services/api/friends';
 import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
 import { markUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
@@ -15,9 +17,14 @@ jest.mock('@/services/api/friends', () => ({
   getFriendsScreen: jest.fn(),
   searchFriends: jest.fn(),
 }));
+jest.mock('@/services/api/safety', () => ({
+  ...jest.requireActual('@/services/api/safety'),
+  getBlockedUsers: jest.fn(),
+}));
 
 const screenMock = getFriendsScreen as jest.Mock;
 const searchMock = searchFriends as jest.Mock;
+const blockedUsersMock = getBlockedUsers as jest.Mock;
 
 const screen = (over: Partial<FriendsScreen> = {}): FriendsScreen => ({
   friends: [
@@ -83,6 +90,27 @@ test('차단 신호가 오면 이미 적재된 친구·요청을 서버 재조�
   assert.deepEqual(result.current.data?.friends, []);
   assert.deepEqual(result.current.data?.friendRequests, []);
   assert.equal(screenMock.mock.calls.length, 1);
+});
+
+test('차단 목록이 준비되지 않았거나 실패하면 친구 데이터를 fail-closed로 숨긴다', async () => {
+  await saveSession({
+    accessToken: 'AT-block-filter',
+    refreshToken: 'RT-block-filter',
+    userId: 'u-filter',
+  });
+  let rejectBlocked: (error: Error) => void = () => {};
+  blockedUsersMock.mockReturnValue(new Promise((_resolve, reject) => (rejectBlocked = reject)));
+  screenMock.mockResolvedValue(screen());
+
+  const { result } = await renderHook(() => useFriendsScreen(args));
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 1));
+  assert.equal(result.current.status, 'loading');
+  assert.equal(result.current.data, null);
+
+  await act(async () => rejectBlocked(new Error('blocks unavailable')));
+  await waitFor(() => assert.equal(result.current.status, 'error'));
+  assert.equal(result.current.data, null);
+  assert.equal(result.current.error?.code, 'BLOCKED_USERS_UNAVAILABLE');
 });
 
 test('빈 목록은 ready+빈 배열 — 오류로 접지 않는다', async () => {
@@ -171,6 +199,31 @@ test('검색은 searchActive 일 때 디바운스로 서버 정확 일치를 친
   assert.equal(searchMock.mock.calls.length, 1);
   assert.equal(searchMock.mock.calls[0][0], '새봄');
   assert.equal(result.current.searchItems[0].relation, 'NONE');
+});
+
+test('검색 응답에 차단한 사용자가 있어도 결과에서 숨긴다', async () => {
+  screenMock.mockResolvedValue(screen());
+  searchMock.mockResolvedValue([
+    {
+      userId: 'u-blocked',
+      nickname: '차단됨',
+      tierLevel: null,
+      occupation: null,
+      relation: 'NONE',
+    },
+    { userId: 'u-visible', nickname: '보임', tierLevel: null, occupation: null, relation: 'NONE' },
+  ]);
+  markUserBlocked('u-blocked');
+  const { result } = await renderHook(() => useFriendsScreen({ ...args, searchActive: true }));
+  await waitFor(() => assert.equal(result.current.status, 'ready'));
+
+  await act(async () => result.current.setQuery('검색'));
+  await waitFor(() => assert.equal(result.current.searchStatus, 'ready'), { timeout: 2000 });
+
+  assert.deepEqual(
+    result.current.searchItems.map((item) => item.userId),
+    ['u-visible'],
+  );
 });
 
 test('검색 활성이 아니거나 빈 질의면 검색하지 않는다', async () => {

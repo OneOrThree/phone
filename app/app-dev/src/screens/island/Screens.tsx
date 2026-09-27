@@ -5846,7 +5846,7 @@ export function RedesignScreens({ e }: any) {
             reportTargetType="USER"
             reportTargetId={safetyTarget.id}
             onClose={() => setSafetyTarget(null)}
-            onChanged={friendsScreen.refresh}
+            onChanged={friendsScreen?.refresh ?? (() => {})}
             onMessage={notify}
             extraAction={{
               title: '친구 삭제',

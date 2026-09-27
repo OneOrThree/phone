@@ -9,8 +9,10 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.report.ReportMailException;
 import com.oneorthree.business.report.ReportMailGateway;
 import com.oneorthree.business.upstream.data.DataFriendClient;
+import com.oneorthree.business.upstream.data.DataReportClient;
 import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.LetterView;
+import com.oneorthree.business.upstream.data.dto.ReportDeliveryView;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -29,29 +31,73 @@ import java.util.UUID;
 public class ReportUseCase {
 
     private final DataFriendClient data;
+    private final DataReportClient deliveries;
     private final UserBlockUseCase blocks;
     private final ReportMailGateway mail;
 
     public ReportReceipt report(AccessTokenClaims claims, UUID requestId, ReportTargetType targetType,
             UUID targetId, ReportReason reason, String description, String replyEmail, boolean blockUser,
             Deadline deadline) {
-        Evidence evidence = evidence(claims.userId(), targetType, targetId, deadline);
         String caseId = caseId(claims.userId(), requestId);
-        ReportMailGateway.ReportMail message = new ReportMailGateway.ReportMail(
-                caseId,
-                requestId.toString(),
-                "[GROMO 신고] " + caseId + " / " + targetType,
-                body(caseId, requestId, claims.userId(), targetType, targetId, evidence, reason,
-                        description, replyEmail));
+        String fingerprint = fingerprint(targetType, targetId, reason, description, replyEmail, blockUser);
+        ReportDeliveryView delivery = deliveries.claim(claims.userId(), requestId, fingerprint, caseId,
+                blockUser, deadline);
+        if (delivery.completed()) {
+            return new ReportReceipt(delivery.caseId(), Boolean.TRUE.equals(delivery.blocked()));
+        }
+        UUID leaseToken = delivery.leaseToken();
         try {
-            mail.deliverAndConfirm(message);
+            if (!delivery.emailConfirmed() && !delivery.prepared()) {
+                Evidence evidence = evidence(claims.userId(), targetType, targetId, deadline);
+                String subject = "[GROMO 신고] " + caseId + " / " + targetType;
+                String mailBody = body(caseId, requestId, claims.userId(), targetType, targetId, evidence, reason,
+                        description, replyEmail);
+                delivery = deliveries.prepare(claims.userId(), requestId, leaseToken, evidence.authorId(),
+                        subject, mailBody, deadline);
+            }
+            if (!delivery.emailConfirmed()) {
+                ReportMailGateway.ReportMail message = new ReportMailGateway.ReportMail(
+                        delivery.caseId(), requestId.toString(), delivery.subject(), delivery.body());
+                mail.deliverAndConfirm(message,
+                        () -> deliveries.renew(claims.userId(), requestId, leaseToken, Deadline.unbounded()));
+                delivery = deliveries.emailConfirmed(claims.userId(), requestId, leaseToken, Deadline.unbounded());
+            }
+            // Gmail 확인은 상류 조합 3초 예산보다 길 수 있다. 확인된 외부 side effect의 후처리를
+            // 이미 만료된 deadline으로 건너뛰지 않도록 각 Data 호출 자체의 timeout만 적용한다.
+            Deadline finalization = Deadline.unbounded();
+            boolean blocked = false;
+            if (delivery.blockRequested()) {
+                try {
+                    blocks.block(claims, delivery.authorId(), finalization);
+                    blocked = true;
+                } catch (PublicApiException e) {
+                    if (e.getErrorCode() != ApiErrorCode.NOT_FOUND) {
+                        throw e;
+                    }
+                    // 메일 접수 뒤 상대가 탈퇴한 경우에도 intent를 끝낸다. 존재하지 않는 계정은 차단할 수 없다.
+                }
+            }
+            ReportDeliveryView completed = deliveries.complete(
+                    claims.userId(), requestId, leaseToken, blocked, finalization);
+            return new ReportReceipt(completed.caseId(), Boolean.TRUE.equals(completed.blocked()));
         } catch (ReportMailException e) {
+            release(claims.userId(), requestId, leaseToken);
             throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
+        } catch (RuntimeException e) {
+            release(claims.userId(), requestId, leaseToken);
+            throw e;
         }
-        if (blockUser) {
-            blocks.block(claims, evidence.authorId(), deadline);
+    }
+
+    private void release(UUID reporterId, UUID requestId, UUID leaseToken) {
+        if (leaseToken == null) {
+            return;
         }
-        return new ReportReceipt(caseId, blockUser);
+        try {
+            deliveries.release(reporterId, requestId, leaseToken, Deadline.unbounded());
+        } catch (RuntimeException ignored) {
+            // lease는 유한 시간 뒤 만료된다. 원래 실패를 release 최선 노력의 실패로 덮지 않는다.
+        }
     }
 
     private Evidence evidence(UUID reporterId, ReportTargetType type, UUID targetId, Deadline deadline) {
@@ -117,10 +163,24 @@ public class ReportUseCase {
     }
 
     private static String caseId(UUID reporterId, UUID requestId) {
+        return "GR-" + sha256(reporterId + ":" + requestId).substring(0, 20).toUpperCase();
+    }
+
+    private static String fingerprint(ReportTargetType targetType, UUID targetId, ReportReason reason,
+            String description, String replyEmail, boolean blockUser) {
+        return sha256(part(targetType.name()) + part(targetId.toString()) + part(reason.name())
+                + part(description) + part(replyEmail) + part(Boolean.toString(blockUser)));
+    }
+
+    private static String part(String value) {
+        return value == null ? "-1:" : value.length() + ":" + value;
+    }
+
+    private static String sha256(String value) {
         try {
             byte[] digest = MessageDigest.getInstance("SHA-256")
-                    .digest((reporterId + ":" + requestId).getBytes(StandardCharsets.UTF_8));
-            return "GR-" + HexFormat.of().formatHex(digest, 0, 10).toUpperCase();
+                    .digest(value.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is required", e);
         }

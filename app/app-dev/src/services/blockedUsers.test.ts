@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { getBlockedUsers } from '@/services/api/safety';
+import { clearSession, saveSession } from '@/services/api/session';
 import {
   isUserBlocked,
   markUserBlocked,
@@ -29,12 +30,10 @@ test('차단과 해제 성공 신호를 즉시 조회 snapshot에 반영한다',
 
 test('차단 중 먼저 시작한 목록 응답이 늦게 오면 최신 목록을 다시 읽는다', async () => {
   let resolve: (users: Array<{ id: string; name: string }>) => void = () => {};
-  listMock
-    .mockReturnValueOnce(new Promise((done) => (resolve = done)))
-    .mockResolvedValueOnce([
-      { id: 'u-old', name: '기존 차단' },
-      { id: 'u-new', name: '새 차단' },
-    ]);
+  listMock.mockReturnValueOnce(new Promise((done) => (resolve = done))).mockResolvedValueOnce([
+    { id: 'u-old', name: '기존 차단' },
+    { id: 'u-new', name: '새 차단' },
+  ]);
 
   const loading = refreshBlockedUsers();
   markUserBlocked('u-new');
@@ -45,4 +44,15 @@ test('차단 중 먼저 시작한 목록 응답이 늦게 오면 최신 목록�
   assert.equal(listMock.mock.calls.length, 2);
   assert.equal(isUserBlocked('u-old'), true);
   assert.equal(isUserBlocked('u-new'), true);
+});
+
+test('계정이 바뀌면 이전 세션의 차단 snapshot을 즉시 폐기한다', async () => {
+  await clearSession();
+  await saveSession({ accessToken: 'AT-1', refreshToken: 'RT-1', userId: 'u1' });
+  markUserBlocked('blocked-by-u1');
+  assert.equal(isUserBlocked('blocked-by-u1'), true);
+
+  await saveSession({ accessToken: 'AT-2', refreshToken: 'RT-2', userId: 'u2' });
+
+  assert.equal(isUserBlocked('blocked-by-u1'), false);
 });

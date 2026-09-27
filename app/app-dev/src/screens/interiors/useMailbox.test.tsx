@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
+import { getBlockedUsers } from '@/services/api/safety';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   closeLetter,
@@ -22,6 +23,10 @@ jest.mock('@/services/api/letters', () => ({
   closeLetter: jest.fn(),
   listIslandMessages: jest.fn(),
   sendIslandMessage: jest.fn(),
+}));
+jest.mock('@/services/api/safety', () => ({
+  ...jest.requireActual('@/services/api/safety'),
+  getBlockedUsers: jest.fn(),
 }));
 
 const ISLAND = 'island-1';
@@ -90,6 +95,7 @@ const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
 const listMessagesMock = listIslandMessages as jest.Mock;
 const sendMessageMock = sendIslandMessage as jest.Mock;
+const blockedUsersMock = getBlockedUsers as jest.Mock;
 
 const mount = async (over: { active?: boolean; scopeKey?: string } = {}) => {
   const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useMailbox(p), {
@@ -101,9 +107,9 @@ const mount = async (over: { active?: boolean; scopeKey?: string } = {}) => {
 
 beforeEach(async () => {
   jest.clearAllMocks();
-  replaceBlockedUsers([]);
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  replaceBlockedUsers([]);
   screenMock.mockResolvedValue(screen());
 });
 
@@ -116,6 +122,64 @@ test('차단 신호가 오면 캐시된 낙서·편지·친구를 서버 재조�
   assert.deepEqual(hook.result.current.letters, []);
   assert.deepEqual(hook.result.current.friends, []);
   assert.equal(screenMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('차단 목록을 읽지 못하면 우편함 데이터를 fail-closed로 숨기고 오류를 보인다', async () => {
+  await saveSession({ accessToken: 'AT-2', refreshToken: 'RT-2', userId: 'u1' });
+  blockedUsersMock.mockRejectedValue(new Error('blocks unavailable'));
+
+  const hook = await renderHook(() => useMailbox({ active: true, scopeKey: 's1' }));
+  await waitFor(() => assert.equal(hook.result.current.error?.code, 'BLOCKED_USERS_UNAVAILABLE'));
+  assert.deepEqual(hook.result.current.messages, []);
+  assert.deepEqual(hook.result.current.letters, []);
+  assert.deepEqual(hook.result.current.friends, []);
+  assert.equal(hook.result.current.detail, null);
+  await hook.unmount();
+});
+
+test('차단한 사용자에게는 클라이언트에서 편지 발송을 막고 API를 호출하지 않는다', async () => {
+  const hook = await mount();
+  await act(async () => markUserBlocked('u2'));
+
+  let error: ApiError | null = null;
+  await act(async () => {
+    error = await hook.result.current.send('u2', '보내지면 안 됨').then(
+      () => null,
+      (thrown) => thrown as ApiError,
+    );
+  });
+
+  assert.equal((error as ApiError | null)?.code, 'CLIENT_BLOCKED_USER');
+  assert.equal(sendLetterMock.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('열려 있는 편지 상세도 상대를 차단하면 즉시 숨긴다', async () => {
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  assert.equal(hook.result.current.detail?.id, LETTER);
+
+  await act(async () => markUserBlocked('u2'));
+
+  assert.equal(hook.result.current.detail, null);
+  assert.equal(getLetterMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('재조회로 적재된 보낸 편지도 상대를 차단하면 숨긴다', async () => {
+  closeLetterMock.mockResolvedValue(undefined);
+  listLettersMock.mockImplementation((type: string) =>
+    Promise.resolve(slice(type === 'received' ? [] : [{ ...letterItem(), id: 'sent-1' }])),
+  );
+  const hook = await mount();
+  await act(async () => hook.result.current.close(LETTER));
+  assert.equal(hook.result.current.sent.length, 1);
+
+  await act(async () => markUserBlocked('u2'));
+
+  assert.deepEqual(hook.result.current.sent, []);
   await hook.unmount();
 });
 

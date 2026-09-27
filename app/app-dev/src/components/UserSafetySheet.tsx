@@ -132,7 +132,7 @@ export function UserSafetySheet(props: Props) {
   return (
     <Modal transparent visible={props.visible} animationType="fade" onRequestClose={props.onClose}>
       <ImageBackground source={SAFETY_ART.background} resizeMode="cover" style={{ flex: 1 }}>
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: '#3C29275C' }]} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: `${C.ink}66` }]} />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1, justifyContent: 'flex-end' }}
@@ -177,7 +177,7 @@ export function UserSafetySheet(props: Props) {
               borderWidth: 2,
               borderColor: C.brown,
               backgroundColor: C.paper,
-              boxShadow: '0 10px 30px #2D1A1766',
+              boxShadow: `0 6px 0 ${C.brown}`,
             }}
           >
             <View
@@ -194,7 +194,7 @@ export function UserSafetySheet(props: Props) {
                 accessibilityRole="button"
                 accessibilityLabel="닫기"
                 onPress={props.onClose}
-                hitSlop={10}
+                style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
               >
                 <Txt style={{ fontSize: 22, fontWeight: '800' }}>×</Txt>
               </Pressable>
@@ -269,8 +269,7 @@ export function UserSafetySheet(props: Props) {
                 <View style={{ gap: 6 }}>
                   <Txt>처리 결과를 회신받을 이메일 (선택)</Txt>
                   <Txt kind="meta">
-                    신고 처리 결과를 안내받고 싶을 때 입력해 주세요. 신고 접수에는 필요하지
-                    않아요.
+                    신고 처리 결과를 안내받고 싶을 때 입력해 주세요. 신고 접수에는 필요하지 않아요.
                   </Txt>
                   <TextInput
                     accessibilityLabel="처리 결과를 회신받을 이메일"

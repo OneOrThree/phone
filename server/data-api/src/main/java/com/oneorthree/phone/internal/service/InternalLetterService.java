@@ -103,7 +103,7 @@ public class InternalLetterService {
      * 탈퇴 트랜잭션과 직렬화해, 탈퇴가 커밋되는 중에 그 유저 앞으로 편지가 새로 꽂히지 않게 한다.
      * <b>친구 관계 확인도 같은 이유로 배타 락</b>({@code findAcceptedBetweenForUpdate})이다 — 친구
      * 삭제와 직렬화해, 관계가 끊긴 뒤 미확인 편지가 새로 꽂히지 않게 한다(codex 리뷰 P1).
-     * 잠금 순서는 언제나 {@code users}(공유) → {@code friendships}(배타)다.
+     * 잠금 순서는 언제나 {@code 차단 pair} → {@code users}(공유) → {@code friendships}(배타)다.
      *
      * @param senderId 보내는 사람(경로에서 오는 주체)
      * @param body     받는 사람과 본문
@@ -120,11 +120,11 @@ public class InternalLetterService {
         }
         String content = validContent(body.content());
 
-        User sender = users.getCallerForShare(senderId);
-        User receiver = users.getTargetForShare(body.receiverId());
         if (userBlockService.directContactBlocked(senderId, body.receiverId())) {
             throw new LetterException(LetterErrorCode.LETTER_BLOCKED_RELATION);
         }
+        User sender = users.getCallerForShare(senderId);
+        User receiver = users.getTargetForShare(body.receiverId());
         // 관계 행 배타 락 (codex 리뷰 P1) — 친구 삭제와 «같은 행»에서 직렬화한다. 락 없이 확인하면
         // 이 검사를 통과한 뒤 삭제가 미확인 편지 정리까지 커밋하고, 그 다음에 아래 save 가 새 편지를
         // 꽂아 「관계는 끊겼는데 미확인 편지가 남는」 상태가 된다(LLD §결정 3 위반).

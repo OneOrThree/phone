@@ -20,7 +20,7 @@ import {
   type FriendSearchItem,
   type FriendsScreen,
 } from '@/services/api/friends';
-import { useBlockedUserIds } from '@/services/blockedUsers';
+import { useBlockedUsers } from '@/services/blockedUsers';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -73,7 +73,8 @@ export function useFriendsScreen({
   const req = useRef(0);
   const searchReq = useRef(0);
   const session = sessionGeneration();
-  const blockedIds = useBlockedUserIds(active);
+  const blockedUsers = useBlockedUsers(active);
+  const blockedIds = blockedUsers.ids;
 
   useEffect(() => {
     if (!active) {
@@ -155,7 +156,10 @@ export function useFriendsScreen({
     [session],
   );
 
-  const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  const refresh = useCallback(() => {
+    if (blockedUsers.status === 'error') void blockedUsers.retry().catch(() => {});
+    setNonce((n) => n + 1);
+  }, [blockedUsers.retry, blockedUsers.status]);
 
   const visibleData = useMemo(
     () =>
@@ -167,14 +171,30 @@ export function useFriendsScreen({
     [blockedIds, data],
   );
   const visibleSearchItems = useMemo(
-    () => searchItems.filter((item) => !blockedIds.has(item.userId)),
-    [blockedIds, searchItems],
+    () =>
+      blockedUsers.status === 'ready'
+        ? searchItems.filter((item) => !blockedIds.has(item.userId))
+        : [],
+    [blockedIds, blockedUsers.status, searchItems],
   );
 
+  const blockedListError =
+    blockedUsers.status === 'error'
+      ? blockedUsers.error instanceof ApiError
+        ? blockedUsers.error
+        : new ApiError('BLOCKED_USERS_UNAVAILABLE', '차단 목록을 불러오지 못했어요.', 0)
+      : null;
+  const visibleStatus: LoadStatus =
+    blockedUsers.status === 'error'
+      ? 'error'
+      : blockedUsers.status === 'loading' || status === 'loading'
+        ? 'loading'
+        : status;
+
   return {
-    status,
-    error,
-    data: visibleData,
+    status: visibleStatus,
+    error: blockedListError ?? error,
+    data: blockedUsers.status === 'ready' ? visibleData : null,
     busy,
     refresh,
     retry: refresh,

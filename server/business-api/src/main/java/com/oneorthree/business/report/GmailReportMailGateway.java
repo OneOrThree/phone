@@ -39,23 +39,58 @@ final class GmailReportMailGateway implements ReportMailGateway {
 
     @Override
     public void deliverAndConfirm(ReportMail mail) {
-        if (inMailbox(mail.caseId())) {
-            return;
+        deliverAndConfirm(mail, () -> { });
+    }
+
+    @Override
+    public void deliverAndConfirm(ReportMail mail, Runnable leaseHeartbeat) {
+        Properties sessionProperties = new Properties();
+        sessionProperties.setProperty("mail.store.protocol", "imaps");
+        sessionProperties.setProperty("mail.imaps.connectiontimeout", "3000");
+        sessionProperties.setProperty("mail.imaps.timeout", "3000");
+        sessionProperties.setProperty("mail.imaps.writetimeout", "3000");
+        sessionProperties.setProperty("mail.imaps.ssl.checkserveridentity", "true");
+        try (Store store = Session.getInstance(sessionProperties).getStore("imaps")) {
+            store.connect(properties.getImapHost(), properties.getUsername(), properties.getAppPassword());
+            try (Folder inbox = store.getFolder("INBOX")) {
+                inbox.open(Folder.READ_ONLY);
+                leaseHeartbeat.run();
+                if (inMailbox(inbox, mail.caseId())) {
+                    return;
+                }
+                leaseHeartbeat.run();
+                send(mail);
+                Instant deadline = clock.instant().plus(properties.getVerifyTimeout());
+                do {
+                    leaseHeartbeat.run();
+                    if (inMailbox(inbox, mail.caseId())) {
+                        return;
+                    }
+                    pause();
+                } while (clock.instant().isBefore(deadline));
+            }
+        } catch (jakarta.mail.MessagingException e) {
+            throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e);
         }
-        send(mail);
-        Instant deadline = clock.instant().plus(properties.getVerifyTimeout());
-        do {
-            if (inMailbox(mail.caseId())) {
-                return;
-            }
-            try {
-                Thread.sleep(POLL_INTERVAL.toMillis());
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new ReportMailException("신고 메일 확인이 중단되었습니다.", e);
-            }
-        } while (clock.instant().isBefore(deadline));
         throw new ReportMailException("운영 메일함에서 신고 사건을 확인하지 못했습니다.");
+    }
+
+    private void pause() {
+        try {
+            Thread.sleep(POLL_INTERVAL.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ReportMailException("신고 메일 확인이 중단되었습니다.", e);
+        }
+    }
+
+    private static boolean inMailbox(Folder inbox, String caseId) {
+        try {
+            // 열린 IMAP 연결에서 SEARCH 만 반복한다. 매 poll 마다 재로그인하지 않아 Gmail 연결 쿼터를 지킨다.
+            return inbox.search(new HeaderTerm(CASE_HEADER, caseId)).length > 0;
+        } catch (jakarta.mail.MessagingException e) {
+            throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e);
+        }
     }
 
     private void send(ReportMail mail) {
@@ -73,22 +108,6 @@ final class GmailReportMailGateway implements ReportMailGateway {
         }
     }
 
-    private boolean inMailbox(String caseId) {
-        Properties sessionProperties = new Properties();
-        sessionProperties.setProperty("mail.store.protocol", "imaps");
-        sessionProperties.setProperty("mail.imaps.connectiontimeout", "3000");
-        sessionProperties.setProperty("mail.imaps.timeout", "3000");
-        try (Store store = Session.getInstance(sessionProperties).getStore("imaps")) {
-            store.connect(properties.getImapHost(), properties.getUsername(), properties.getAppPassword());
-            try (Folder inbox = store.getFolder("INBOX")) {
-                inbox.open(Folder.READ_ONLY);
-                return inbox.search(new HeaderTerm(CASE_HEADER, caseId)).length > 0;
-            }
-        } catch (jakarta.mail.MessagingException e) {
-            throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e);
-        }
-    }
-
     private static JavaMailSenderImpl sender(ReportMailProperties properties) {
         JavaMailSenderImpl result = new JavaMailSenderImpl();
         result.setHost(properties.getSmtpHost());
@@ -98,6 +117,8 @@ final class GmailReportMailGateway implements ReportMailGateway {
         Properties mail = result.getJavaMailProperties();
         mail.setProperty("mail.smtp.auth", "true");
         mail.setProperty("mail.smtp.starttls.enable", "true");
+        mail.setProperty("mail.smtp.starttls.required", "true");
+        mail.setProperty("mail.smtp.ssl.checkserveridentity", "true");
         mail.setProperty("mail.smtp.connectiontimeout", "3000");
         mail.setProperty("mail.smtp.timeout", "5000");
         mail.setProperty("mail.smtp.writetimeout", "5000");
@@ -109,8 +130,9 @@ final class GmailReportMailGateway implements ReportMailGateway {
                 || blank(properties.getRecipient()) || blank(properties.getImapHost())) {
             throw new IllegalStateException("REPORT_MAIL 설정이 완전하지 않습니다.");
         }
-        if (properties.getVerifyTimeout().isNegative() || properties.getVerifyTimeout().isZero()) {
-            throw new IllegalStateException("REPORT_MAIL_VERIFY_TIMEOUT은 양수여야 합니다.");
+        if (properties.getVerifyTimeout().isNegative() || properties.getVerifyTimeout().isZero()
+                || properties.getVerifyTimeout().compareTo(Duration.ofMinutes(1)) > 0) {
+            throw new IllegalStateException("REPORT_MAIL_VERIFY_TIMEOUT은 0초 초과 60초 이하여야 합니다.");
         }
     }
 

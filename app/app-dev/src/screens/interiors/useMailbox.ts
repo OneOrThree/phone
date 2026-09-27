@@ -44,7 +44,7 @@ import {
   type MailboxMessage,
 } from '@/services/api/letters';
 import { CLIENT_INACTIVE, CLIENT_WRITE_IN_PROGRESS } from './useBoardNotices';
-import { isUserBlocked, useBlockedUserIds } from '@/services/blockedUsers';
+import { isUserBlocked, useBlockedUsers } from '@/services/blockedUsers';
 
 export type MailboxState = {
   islandId: string | null;
@@ -104,7 +104,8 @@ const authLost = (error: unknown) =>
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
 
 export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: string }) {
-  const blockedIds = useBlockedUserIds(active);
+  const blockedUsers = useBlockedUsers(active);
+  const blockedIds = blockedUsers.ids;
   const [state, setState] = useState<MailboxState>(EMPTY);
   const stateRef = useRef(state);
   const set = useCallback((patch: Partial<MailboxState>) => {
@@ -420,6 +421,24 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
   const visibleState = useMemo(() => {
     const counterpart = (detail: LetterView) =>
       detail.senderId === state.myId ? detail.receiverId : detail.senderId;
+    if (active && blockedUsers.status !== 'ready') {
+      const blockedListError =
+        blockedUsers.status === 'error'
+          ? blockedUsers.error instanceof ApiError
+            ? blockedUsers.error
+            : new ApiError('BLOCKED_USERS_UNAVAILABLE', '차단 목록을 불러오지 못했어요.', 0)
+          : null;
+      return {
+        ...state,
+        messages: [],
+        letters: [],
+        sent: [],
+        friends: [],
+        detail: null,
+        loading: blockedUsers.status === 'loading' || state.loading,
+        error: blockedListError ?? state.error,
+      };
+    }
     return {
       ...state,
       messages: state.messages.filter((message) => !blockedIds.has(message.userId)),
@@ -428,11 +447,16 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
       friends: state.friends.filter((friend) => !blockedIds.has(friend.userId)),
       detail: state.detail && !blockedIds.has(counterpart(state.detail)) ? state.detail : null,
     };
-  }, [blockedIds, state]);
+  }, [active, blockedIds, blockedUsers.error, blockedUsers.status, state]);
+
+  const retry = useCallback(async () => {
+    if (blockedUsers.status === 'error') await blockedUsers.retry();
+    await load();
+  }, [blockedUsers.retry, blockedUsers.status, load]);
 
   return {
     ...visibleState,
-    retry: load,
+    retry,
     loadMoreLetters,
     loadMoreMessages,
     openLetter,
