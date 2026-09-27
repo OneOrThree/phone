@@ -55,6 +55,25 @@ test('차단 중 먼저 시작한 목록 응답이 늦게 오면 최신 목록�
   assert.equal(isUserBlocked('u-new'), true);
 });
 
+test('mutation 전 조회 뒤 이미 예약된 재검증이 있으면 보정 조회를 중복 실행하지 않는다', async () => {
+  let resolveOlder: (users: Array<{ id: string; name: string }>) => void = () => {};
+  listMock.mockReturnValueOnce(new Promise((done) => (resolveOlder = done))).mockResolvedValueOnce([
+    { id: 'u-old', name: '기존 차단' },
+    { id: 'u-new', name: '새 차단' },
+  ]);
+
+  const stale = refreshBlockedUsers();
+  const queued = revalidateBlockedUsers();
+  markUserBlocked('u-new');
+  resolveOlder([]);
+  await stale;
+  await queued;
+
+  assert.equal(listMock.mock.calls.length, 2);
+  assert.equal(isUserBlocked('u-old'), true);
+  assert.equal(isUserBlocked('u-new'), true);
+});
+
 test('이미 차단된 사용자의 차단 성공도 진행 중인 과거 목록 응답을 폐기한다', async () => {
   replaceBlockedUsers([{ id: 'u2', name: '민지' }]);
   let resolve: (users: Array<{ id: string; name: string }>) => void = () => {};

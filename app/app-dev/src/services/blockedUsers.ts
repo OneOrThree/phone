@@ -10,7 +10,12 @@ let loaded = false;
 let lastValidatedAt = 0;
 let loadError: unknown = null;
 let flight: Promise<BlockedUser[]> | null = null;
-let revalidationTail: Promise<BlockedUser[]> | null = null;
+type RevalidationJob = {
+  generation: number;
+  request: Promise<BlockedUser[]>;
+  started: boolean;
+};
+let revalidationTail: RevalidationJob | null = null;
 let synchronousRevalidation: {
   generation: number;
   request: Promise<BlockedUser[]>;
@@ -69,19 +74,23 @@ export function markUserBlocked(userId: string): void {
   // 서버가 mutation 성공을 확인했다면 로컬 membership이 같아도 진행 중 GET은
   // mutation 이전 snapshot일 수 있다. revision을 먼저 올려 그 응답을 폐기한다.
   mutationRevision += 1;
-  if (ids.has(userId)) return;
-  ids = new Set(ids).add(userId);
-  emit();
+  if (!ids.has(userId)) {
+    ids = new Set(ids).add(userId);
+    emit();
+  }
+  ensureMutationRevalidation();
 }
 
 export function markUserUnblocked(userId: string): void {
   mutationRevision += 1;
-  if (!ids.has(userId)) return;
-  const next = new Set(ids);
-  next.delete(userId);
-  ids = next;
-  users = users.filter((user) => user.id !== userId);
-  emit();
+  if (ids.has(userId)) {
+    const next = new Set(ids);
+    next.delete(userId);
+    ids = next;
+    users = users.filter((user) => user.id !== userId);
+    emit();
+  }
+  ensureMutationRevalidation();
 }
 
 export function isUserBlocked(userId: string | null | undefined): boolean {
@@ -103,29 +112,46 @@ export function revalidateBlockedUsers(): Promise<BlockedUser[]> {
   if (synchronousRevalidation?.generation === expectedGeneration) {
     return synchronousRevalidation.request;
   }
-  const previousRequests = [...new Set([revalidationTail, flight].filter(Boolean))] as Promise<
+  const previousRequests = [revalidationTail?.request, flight].filter(Boolean) as Promise<
     BlockedUser[]
   >[];
+  const uniquePreviousRequests = [...new Set(previousRequests)];
+  const job: RevalidationJob = {
+    generation: expectedGeneration,
+    request: Promise.resolve([]),
+    started: false,
+  };
   const request = (async () => {
-    await Promise.all(previousRequests.map((previous) => previous.catch(() => [])));
+    await Promise.all(uniquePreviousRequests.map((previous) => previous.catch(() => [])));
     // 예약한 계정이 바뀌었으면 이전 계정의 후속 GET을 새 세션에서 실행하지 않는다.
     if (expectedGeneration !== sessionGeneration()) return [];
+    job.started = true;
     return refreshBlockedUsers();
   })();
-  revalidationTail = request;
+  job.request = request;
+  revalidationTail = job;
   synchronousRevalidation = { generation: expectedGeneration, request };
   Promise.resolve().then(() => {
     if (synchronousRevalidation?.request === request) synchronousRevalidation = null;
   });
   request.then(
     () => {
-      if (revalidationTail === request) revalidationTail = null;
+      if (revalidationTail?.request === request) revalidationTail = null;
     },
     () => {
-      if (revalidationTail === request) revalidationTail = null;
+      if (revalidationTail?.request === request) revalidationTail = null;
     },
   );
   return request;
+}
+
+function ensureMutationRevalidation(): void {
+  const currentGeneration = sessionGeneration();
+  // 아직 GET을 시작하지 않은 예약은 최신 mutationRevision을 읽으므로 그 한 번이면 충분하다.
+  if (revalidationTail?.generation === currentGeneration && !revalidationTail.started) return;
+  // 진행 중인 과거 snapshot이 없으면 로컬 mutation 결과가 정본이며 후속 조회가 필요 없다.
+  if (!flight && !revalidationTail) return;
+  revalidateBlockedUsers().catch(() => {});
 }
 
 export function refreshBlockedUsers(): Promise<BlockedUser[]> {
@@ -152,10 +178,7 @@ export function refreshBlockedUsers(): Promise<BlockedUser[]> {
     () => {
       if (flight === request) {
         flight = null;
-        // 변경 전 snapshot을 버린 경우 기존 차단 목록까지 복구하도록 최신 목록을 다시 읽는다.
-        if (expectedGeneration === sessionGeneration() && expectedRevision !== mutationRevision) {
-          refreshBlockedUsers().catch(() => {});
-        } else if (validating) {
+        if (validating) {
           validating = false;
           emit();
         }
