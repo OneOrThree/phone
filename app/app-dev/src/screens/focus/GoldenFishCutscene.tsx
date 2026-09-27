@@ -27,14 +27,16 @@ export function GoldenFishCutscene({
   const variant = goldenFishVideoVariant(width, height);
   const source = variant === 'landscape' ? LANDSCAPE_SOURCE : PORTRAIT_SOURCE;
   const finished = useRef(false);
+  const onFinishRef = useRef(onFinish);
+  onFinishRef.current = onFinish;
   const lastProgress = useRef({ at: Date.now(), time: 0 });
   const stallRetries = useRef(0);
   const [started, setStarted] = useState(false);
   const finish = useCallback(() => {
     if (finished.current) return;
     finished.current = true;
-    onFinish();
-  }, [onFinish]);
+    onFinishRef.current();
+  }, []);
   const player = useVideoPlayer(source, (video) => {
     video.loop = false;
     // 웹의 실시간 사건은 사용자 제스처가 아니므로 소리 있는 자동재생이 차단된다.

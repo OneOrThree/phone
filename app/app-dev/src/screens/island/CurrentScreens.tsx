@@ -1114,8 +1114,12 @@ function FocusFlow({ e }: any) {
     latest = useRef({ r, s }),
     backRef = useRef<() => boolean>(() => false),
     goldenHandler = useRef<(event: GoldenFishEvent) => void>(() => {}),
+    goldenPresenter = useRef<(event: GoldenFishEvent) => void>(() => {}),
     goldenCutsceneRef = useRef<GoldenFishEvent | null>(null),
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
+    goldenOccurrencesRef = useRef(new Set<string>()),
+    goldenMembersRef = useRef<GoldenFishEvent['members']>([]),
+    goldenMembersSessionRef = useRef<string | null>(null),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
@@ -1143,23 +1147,45 @@ function FocusFlow({ e }: any) {
     onTransition: (transition) => transitionHandler.current(transition),
     onGoldenFish: (event) => goldenHandler.current(event),
   });
-  const goldenLedgerMembers: GoldenFishEvent['members'] = live.focus
+  const liveGoldenMembers: GoldenFishEvent['members'] = live.focus
     .filter((member) => member.status === 'active')
     .map((member) => ({ userId: member.userId, sessionId: member.sessionId }));
   if (
     myId &&
-    s.session?.status === 'active' &&
-    !goldenLedgerMembers.some(
+    s.session &&
+    !liveGoldenMembers.some(
       (member) => member.userId === myId && member.sessionId === s.session?.id,
     )
   ) {
-    goldenLedgerMembers.push({ userId: myId, sessionId: s.session.id });
+    liveGoldenMembers.push({ userId: myId, sessionId: s.session.id });
   }
+  if (s.session && goldenMembersSessionRef.current !== s.session.id) {
+    goldenMembersSessionRef.current = s.session.id;
+    goldenMembersRef.current = [];
+  }
+  // 원장에는 참여자 목록이 없으므로 마지막으로 확인한 2인 이상 구성을 짧은 전환 구간의 근거로 유지한다.
+  if (s.session?.status === 'active' && liveGoldenMembers.length >= 2) {
+    goldenMembersRef.current = liveGoldenMembers;
+  }
+  const resultSessionId = r === 'focusResult' ? (s.lastResult?.id ?? null) : null;
+  const goldenSessionId = s.session?.id ?? resultSessionId;
+  const goldenSessionEligibleUntil =
+    s.session?.status === 'paused'
+      ? (s.session.restStartedAt ?? e.now)
+      : r === 'focusResult'
+        ? (s.lastResult?.at ?? e.now)
+        : null;
+  const goldenLedgerMembers =
+    liveGoldenMembers.length >= 2 ? liveGoldenMembers : goldenMembersRef.current;
   useGoldenFishLedger({
-    active: !!liveIslandId && r === 'focus' && s.session?.status === 'active',
+    active:
+      !!liveIslandId && !!goldenSessionId && (r === 'focus' || r === 'rest' || r === 'focusResult'),
     islandId: liveIslandId,
-    sessionId: s.session?.id ?? null,
-    sessionStartedAt: s.session?.startedAt ?? null,
+    sessionId: goldenSessionId,
+    sessionStartedAt:
+      s.session?.startedAt ??
+      (s.lastResult ? s.lastResult.at - s.lastResult.seconds * 1_000 : null),
+    sessionEligibleUntil: goldenSessionEligibleUntil,
     members: goldenLedgerMembers,
     onGoldenFish: (event) => goldenHandler.current(event),
   });
@@ -1176,11 +1202,7 @@ function FocusFlow({ e }: any) {
       return next;
     });
   };
-  goldenHandler.current = (event) => {
-    const current = latest.current;
-    const session = current.s.session;
-    if (current.r !== 'focus' || !session || !isGoldenFishParticipant(event, myId, session.id))
-      return;
+  goldenPresenter.current = (event) => {
     if (reduce) {
       recordGoldenCatch(event);
       setGoldenFish(true);
@@ -1193,6 +1215,25 @@ function FocusFlow({ e }: any) {
     }
     goldenCutsceneRef.current = event;
     setGoldenCutscene(event);
+  };
+  goldenHandler.current = (event) => {
+    const current = latest.current;
+    const participantSessionId =
+      current.s.session?.id ?? (current.r === 'focusResult' ? current.s.lastResult?.id : undefined);
+    if (
+      !participantSessionId ||
+      !isGoldenFishParticipant(event, myId, participantSessionId) ||
+      (current.r !== 'focus' && current.r !== 'rest' && current.r !== 'focusResult')
+    )
+      return;
+    const occurrence = `${event.islandId}:${Math.floor(Date.parse(event.drawnAt) / 60_000)}`;
+    if (goldenOccurrencesRef.current.has(occurrence)) return;
+    goldenOccurrencesRef.current.add(occurrence);
+    if (current.r === 'rest') {
+      goldenQueueRef.current.push(event);
+      return;
+    }
+    goldenPresenter.current(event);
   };
   const goldenFor = (userId: string | null | undefined, sessionId: string | null | undefined) =>
     userId && sessionId ? goldenCatches[`${userId}:${sessionId}`] : undefined;
@@ -1233,16 +1274,22 @@ function FocusFlow({ e }: any) {
       e.backOverride.current = null;
     };
   }, [e.backOverride]);
-  // 휴식·결과·이동으로 넘어가면 이모티콘 펼침·말풍선·모달을 남기지 않는다
+  // 휴식·결과로 전환하는 순간의 당첨은 유지한다. 집중 흐름을 완전히 떠날 때만 지운다.
   useEffect(() => {
     setFan(false);
     setDialog(null);
-    if (r !== 'focus') {
+    const inFocusFlow = r === 'focus' || r === 'rest' || r === 'focusResult';
+    if (!inFocusFlow) {
       setEmote(null);
       goldenCutsceneRef.current = null;
       goldenQueueRef.current = [];
       setGoldenCutscene(null);
       setGoldenFish(false);
+      return;
+    }
+    if (r !== 'rest' && !goldenCutsceneRef.current) {
+      const pending = goldenQueueRef.current.shift();
+      if (pending) goldenPresenter.current(pending);
     }
   }, [r]);
   // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를

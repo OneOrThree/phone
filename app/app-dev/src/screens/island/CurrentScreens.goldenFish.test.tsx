@@ -110,7 +110,7 @@ jest.mock('react-native-safe-area-context', () => ({
 const event = (members: GoldenFishEvent['members'], eventId = 'golden-i1-1'): GoldenFishEvent => ({
   eventId,
   islandId: 'soda',
-  drawnAt: '2026-09-28T00:00:00.000Z',
+  drawnAt: eventId === 'golden-i1-2' ? '2026-09-28T00:01:00.000Z' : '2026-09-28T00:00:00.000Z',
   reward: members.length,
   sharePerMember: 1,
   members,
@@ -131,26 +131,32 @@ const focusedState = (): State => {
   return state;
 };
 
+const screenElement = (
+  state: State,
+  route: 'focus' | 'rest' | 'focusResult' = 'focus',
+  backOverride?: { current: (() => boolean) | null },
+) => (
+  <CurrentScreens
+    e={{
+      state,
+      route,
+      now: Date.now(),
+      dispatch: jest.fn(),
+      go: jest.fn(),
+      replace: jest.fn(),
+      reset: jest.fn(),
+      home: jest.fn(),
+      back: jest.fn(),
+      backOverride,
+      notify: jest.fn(),
+      text: '',
+      setText: jest.fn(),
+    }}
+  />
+);
+
 const mount = (state = focusedState(), backOverride?: { current: (() => boolean) | null }) =>
-  render(
-    <CurrentScreens
-      e={{
-        state,
-        route: 'focus',
-        now: Date.now(),
-        dispatch: jest.fn(),
-        go: jest.fn(),
-        replace: jest.fn(),
-        reset: jest.fn(),
-        home: jest.fn(),
-        back: jest.fn(),
-        backOverride,
-        notify: jest.fn(),
-        text: '',
-        setText: jest.fn(),
-      }}
-    />,
-  );
+  render(screenElement(state, 'focus', backOverride));
 
 beforeEach(async () => {
   onGoldenFish = undefined;
@@ -214,6 +220,15 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   assert.equal(screen.getByTestId('golden-peer-minji').props.goldenFishCount, 2);
   assert.equal(screen.getByTestId('golden-peer-minji').props.goldenCatchToken, 'golden-i1-2');
   assert.equal(screen.getByTestId('golden-peer-dubu').props.goldenFishCount, 0);
+
+  state.session!.status = 'paused';
+  state.session!.restStartedAt = Date.now();
+  await screen.rerender(screenElement(state, 'rest', backOverride));
+  state.session!.status = 'active';
+  delete state.session!.restStartedAt;
+  await screen.rerender(screenElement(state, 'focus', backOverride));
+  assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
+  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 2);
   await screen.unmount();
 });
 
@@ -234,5 +249,60 @@ test('동작 줄이기에서는 컷신 없이 황금 물고기 더미만 즉시 
   assert.equal(screen.queryByTestId('golden-cutscene'), null);
   assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
   assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
+  await screen.unmount();
+});
+
+test('휴식 전환 중 도착한 당첨을 보존하고 복귀하면 컷신과 섬 에셋을 보여준다', async () => {
+  const state = focusedState();
+  const screen = await mount(state);
+  state.session!.status = 'paused';
+  state.session!.restStartedAt = Date.now();
+  await screen.rerender(screenElement(state, 'rest'));
+
+  await act(async () =>
+    onGoldenFish?.(
+      event([
+        { userId: 'me', sessionId: 's-me' },
+        { userId: 'minji', sessionId: 'minji' },
+      ]),
+    ),
+  );
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+
+  state.session!.status = 'active';
+  delete state.session!.restStartedAt;
+  await screen.rerender(screenElement(state, 'focus'));
+  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
+  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
+  await screen.unmount();
+});
+
+test('세션 종료 직후 결과 화면에 도착한 당첨도 버리지 않는다', async () => {
+  const state = focusedState();
+  const screen = await mount(state);
+  state.lastResult = {
+    id: 's-me',
+    islandId: 'soda',
+    subject: '수학',
+    seconds: 60,
+    at: Date.now(),
+    fish: 1,
+    contributed: true,
+  };
+  state.session = null;
+  await screen.rerender(screenElement(state, 'focusResult'));
+
+  await act(async () =>
+    onGoldenFish?.(
+      event([
+        { userId: 'me', sessionId: 's-me' },
+        { userId: 'minji', sessionId: 'minji' },
+      ]),
+    ),
+  );
+
+  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
   await screen.unmount();
 });

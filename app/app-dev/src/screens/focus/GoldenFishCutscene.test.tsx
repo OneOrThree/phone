@@ -124,6 +124,26 @@ test('재생 오류나 시작 실패는 닫되 재생 중에는 실제 종료 �
   jest.useRealTimers();
 });
 
+test('부모가 재렌더되어도 시작 실패 복구 타이머를 다시 시작하지 않는다', async () => {
+  jest.useFakeTimers();
+  const callbacks = Array.from({ length: 8 }, () => jest.fn());
+  const screen = await render(<GoldenFishCutscene onFinish={callbacks[0]} />);
+
+  for (let index = 1; index < callbacks.length; index++) {
+    await act(async () => jest.advanceTimersByTime(1_000));
+    await screen.rerender(<GoldenFishCutscene onFinish={callbacks[index]} />);
+  }
+  await act(async () => jest.advanceTimersByTime(1_000));
+
+  assert.equal(
+    callbacks.slice(0, -1).some((callback) => callback.mock.calls.length > 0),
+    false,
+  );
+  assert.equal(callbacks.at(-1)?.mock.calls.length, 1);
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('포그라운드에서 재생 진행이 멈추면 한 번 재시도한 뒤 화면 잠금을 해제한다', async () => {
   jest.useFakeTimers();
   const onFinish = jest.fn();

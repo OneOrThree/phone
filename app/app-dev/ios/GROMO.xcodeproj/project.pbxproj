@@ -36,10 +36,10 @@
 		B18650000000000000000002 /* LiveActivityModule.m in Sources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000012 /* LiveActivityModule.m */; };
 		B18650000000000000000003 /* FocusActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000003 /* FocusActivityAttributes.swift */; };
 		B18650000000000000000004 /* FocusWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000013 /* FocusWidget.swift */; };
-		B18650000000000000000031 /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
 		B18650000000000000000005 /* CatArt in Resources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000015 /* CatArt */; };
 		B18650000000000000000006 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000019 /* Localizable.strings */; };
 		B18650000000000000000008 /* FocusWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B18650000000000000000018 /* FocusWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B18650000000000000000031 /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
 		B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		D2D8BCCA685FB07403501067 /* CompactActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB802E10F6288401A5062C2 /* CompactActivityView.swift */; };
@@ -755,6 +755,7 @@
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoModulesCore/ExpoModulesCore.framework/ExpoModulesCore",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoModulesJSI/ExpoModulesJSI.framework/ExpoModulesJSI",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoModulesWorklets/ExpoModulesWorklets.framework/ExpoModulesWorklets",
+				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ExpoVideo/ExpoVideo.framework/ExpoVideo",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/React-Core-prebuilt/React.framework/React",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/ReactNativeDependencies/ReactNativeDependencies.framework/ReactNativeDependencies",
 				"${PODS_XCFRAMEWORKS_BUILD_DIR}/hermes-engine/Pre-built/hermesvm.framework/hermesvm",
@@ -766,6 +767,7 @@
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ExpoModulesCore.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ExpoModulesJSI.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ExpoModulesWorklets.framework",
+				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ExpoVideo.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/React.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/ReactNativeDependencies.framework",
 				"${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/hermesvm.framework",

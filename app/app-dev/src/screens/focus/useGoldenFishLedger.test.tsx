@@ -28,12 +28,18 @@ const defaultMembers = [
   },
 ];
 
-function Harness({ active = true, members = defaultMembers, onGoldenFish }: any) {
+function Harness({
+  active = true,
+  members = defaultMembers,
+  onGoldenFish,
+  sessionEligibleUntil,
+}: any) {
   useGoldenFishLedger({
     active,
     islandId: '11111111-1111-4111-8111-111111111111',
     sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     sessionStartedAt: Date.parse('2026-09-28T00:00:00Z'),
+    sessionEligibleUntil,
     members,
     onGoldenFish,
     pollMs: 1_000,
@@ -115,6 +121,34 @@ test('활성 주민이 둘 미만이면 golden_fish 원장 행을 화면 사건�
   });
   const screen = await render(
     <Harness members={[defaultMembers[0]]} onGoldenFish={onGoldenFish} />,
+  );
+  await act(async () => {});
+
+  assert.equal(onGoldenFish.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('휴식·종료 시점 뒤의 당첨은 해당 세션의 사건으로 잘못 복원하지 않는다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock.mockResolvedValue({
+    ...emptyPage(),
+    items: [
+      {
+        id: 'after-rest',
+        direction: 'earn',
+        reason: 'golden_fish',
+        amount: 50,
+        createdAt: '2026-09-28T00:00:09Z',
+        groupedUntil: '2026-09-28T00:00:09Z',
+        entryCount: 1,
+      },
+    ],
+  });
+  const screen = await render(
+    <Harness
+      sessionEligibleUntil={Date.parse('2026-09-28T00:00:08Z')}
+      onGoldenFish={onGoldenFish}
+    />,
   );
   await act(async () => {});
 

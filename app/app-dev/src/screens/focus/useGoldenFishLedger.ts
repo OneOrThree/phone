@@ -22,6 +22,7 @@ export function useGoldenFishLedger({
   islandId,
   sessionId,
   sessionStartedAt,
+  sessionEligibleUntil,
   members,
   onGoldenFish,
   pollMs = DEFAULT_POLL_MS,
@@ -30,6 +31,7 @@ export function useGoldenFishLedger({
   islandId: string | null;
   sessionId: string | null;
   sessionStartedAt: number | null;
+  sessionEligibleUntil?: number | null;
   members: GoldenFishMember[];
   onGoldenFish: (event: GoldenFishEvent) => void;
   pollMs?: number;
@@ -87,13 +89,21 @@ export function useGoldenFishLedger({
                 candidate.userId === member.userId && candidate.sessionId === member.sessionId,
             ) === index,
         );
-        if (participants.length < 2) return;
+        if (participants.length < 2) {
+          // 휴식·종료 뒤에는 참여자 구성이 뒤늦게 채워져도 그 사이 다른 주민의 당첨을 내 것으로 만들지 않는다.
+          if (sessionEligibleUntil != null) {
+            scope.current.afterMs = Math.max(scope.current.afterMs, requestedAt);
+          }
+          return;
+        }
         const afterMs = scope.current.afterMs;
         const fresh = page.items
           .filter(
             (entry) =>
               entry.reason === 'golden_fish' &&
               Date.parse(entry.createdAt) >= afterMs &&
+              (sessionEligibleUntil == null ||
+                Date.parse(entry.createdAt) <= sessionEligibleUntil) &&
               !seen.current.has(entry.id),
           )
           .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
@@ -121,5 +131,5 @@ export function useGoldenFishLedger({
       disposed = true;
       clearInterval(timer);
     };
-  }, [active, islandId, pollMs, sessionId, sessionStartedAt]);
+  }, [active, islandId, pollMs, sessionEligibleUntil, sessionId, sessionStartedAt]);
 }
