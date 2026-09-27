@@ -94,7 +94,8 @@ public class InternalReportDeliveryService {
             // 탈퇴 정리 당시 메일 작업의 활성 lease가 있어 snapshot을 보존했더라도, 작업자가
             // 중단되어 lease가 만료된 뒤에는 재선점·재발송하지 않는다.
             jdbc.update("update report_deliveries set status='EXPIRED', author_id=null, mail_subject=null, "
-                            + "mail_body=null, lease_token=null, lease_expires_at=null, updated_at=? where id=?",
+                            + "mail_body=null, snapshot_stored_at=null, lease_token=null, lease_expires_at=null, "
+                            + "updated_at=? where id=?",
                     Timestamp.from(now), row.id());
             return view(Objects.requireNonNull(findForUpdate(reporterId, requestId)));
         }
@@ -115,8 +116,9 @@ public class InternalReportDeliveryService {
         if (row.authorId() == null) {
             Instant now = clock.instant();
             jdbc.update("update report_deliveries set author_id=?, mail_subject=?, mail_body=?, "
-                            + "updated_at=? where id=?",
-                    request.authorId(), request.subject(), request.body(), Timestamp.from(now), row.id());
+                            + "snapshot_stored_at=?, updated_at=? where id=?",
+                    request.authorId(), request.subject(), request.body(), Timestamp.from(now),
+                    Timestamp.from(now), row.id());
         } else if (!row.authorId().equals(request.authorId())
                 || !row.subject().equals(request.subject()) || !row.body().equals(request.body())) {
             throw new ReportDeliveryException(ReportDeliveryErrorCode.STATE_CONFLICT);
@@ -165,8 +167,8 @@ public class InternalReportDeliveryService {
         }
         Instant now = clock.instant();
         jdbc.update("update report_deliveries set status='COMPLETED', blocked=?, completed_at=?, updated_at=?, "
-                        + "lease_token=null, lease_expires_at=null, author_id=null, mail_subject=null, mail_body=null "
-                        + "where id=?",
+                        + "lease_token=null, lease_expires_at=null, author_id=null, mail_subject=null, mail_body=null, "
+                        + "snapshot_stored_at=null where id=?",
                 blocked, Timestamp.from(now), Timestamp.from(now), row.id());
         return view(Objects.requireNonNull(findForUpdate(reporterId, requestId)));
     }

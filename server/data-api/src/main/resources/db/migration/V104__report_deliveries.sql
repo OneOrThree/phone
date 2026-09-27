@@ -12,6 +12,7 @@ CREATE TABLE public.report_deliveries (
     author_id uuid,
     mail_subject varchar(255),
     mail_body text,
+    snapshot_stored_at timestamptz,
     status varchar(16) NOT NULL DEFAULT 'PENDING',
     lease_token uuid,
     lease_expires_at timestamptz,
@@ -24,11 +25,14 @@ CREATE TABLE public.report_deliveries (
     CONSTRAINT ck_report_deliveries_status CHECK (status IN ('PENDING', 'EMAIL_CONFIRMED', 'EXPIRED', 'COMPLETED')),
     CONSTRAINT ck_report_deliveries_prepared CHECK (
         (status = 'PENDING' AND (
-            (author_id IS NULL AND mail_subject IS NULL AND mail_body IS NULL)
-            OR (author_id IS NOT NULL AND mail_subject IS NOT NULL AND mail_body IS NOT NULL)
+            (author_id IS NULL AND mail_subject IS NULL AND mail_body IS NULL AND snapshot_stored_at IS NULL)
+            OR (author_id IS NOT NULL AND mail_subject IS NOT NULL AND mail_body IS NOT NULL
+                AND snapshot_stored_at IS NOT NULL)
         ))
-        OR (status = 'EMAIL_CONFIRMED' AND author_id IS NOT NULL AND mail_subject IS NULL AND mail_body IS NULL)
-        OR (status IN ('EXPIRED', 'COMPLETED') AND author_id IS NULL AND mail_subject IS NULL AND mail_body IS NULL)
+        OR (status = 'EMAIL_CONFIRMED' AND author_id IS NOT NULL AND mail_subject IS NULL AND mail_body IS NULL
+            AND snapshot_stored_at IS NOT NULL)
+        OR (status IN ('EXPIRED', 'COMPLETED') AND author_id IS NULL AND mail_subject IS NULL AND mail_body IS NULL
+            AND snapshot_stored_at IS NULL)
     ),
     CONSTRAINT ck_report_deliveries_completed CHECK (
         (status IN ('PENDING', 'EMAIL_CONFIRMED', 'EXPIRED') AND completed_at IS NULL AND blocked IS NULL)

@@ -8,6 +8,7 @@ let loaded = false;
 let loadError: unknown = null;
 let flight: Promise<BlockedUser[]> | null = null;
 let mutationRevision = 0;
+let refreshSequence = 0;
 let storeRevision = 0;
 const listeners = new Set<() => void>();
 
@@ -23,6 +24,7 @@ const resetForSession = () => {
   loadError = null;
   flight = null;
   mutationRevision = 0;
+  refreshSequence = 0;
   emit();
 };
 
@@ -75,11 +77,16 @@ export function loadBlockedUsers(): Promise<BlockedUser[]> {
 export function refreshBlockedUsers(): Promise<BlockedUser[]> {
   const expectedGeneration = sessionGeneration();
   const expectedRevision = mutationRevision;
+  const requestSequence = ++refreshSequence;
   loadError = null;
   if (!loaded) emit();
   const request = getBlockedUsers().then((users) => {
     // GET을 시작한 뒤 차단/해제가 성공했다면 이 응답은 그 변경 전 snapshot일 수 있다.
-    if (expectedGeneration === sessionGeneration() && expectedRevision === mutationRevision) {
+    if (
+      expectedGeneration === sessionGeneration() &&
+      expectedRevision === mutationRevision &&
+      requestSequence === refreshSequence
+    ) {
       replaceBlockedUsers(users);
     }
     return users;

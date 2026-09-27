@@ -46,6 +46,24 @@ test('차단 중 먼저 시작한 목록 응답이 늦게 오면 최신 목록�
   assert.equal(isUserBlocked('u-new'), true);
 });
 
+test('겹친 목록 요청은 나중에 시작한 응답만 적용한다', async () => {
+  let resolveOlder: (users: Array<{ id: string; name: string }>) => void = () => {};
+  let resolveLatest: (users: Array<{ id: string; name: string }>) => void = () => {};
+  listMock
+    .mockReturnValueOnce(new Promise((done) => (resolveOlder = done)))
+    .mockReturnValueOnce(new Promise((done) => (resolveLatest = done)));
+
+  const older = refreshBlockedUsers();
+  const latest = refreshBlockedUsers();
+  resolveLatest([{ id: 'u-latest', name: '최신 차단' }]);
+  await latest;
+  resolveOlder([{ id: 'u-old', name: '과거 차단' }]);
+  await older;
+
+  assert.equal(isUserBlocked('u-latest'), true);
+  assert.equal(isUserBlocked('u-old'), false);
+});
+
 test('계정이 바뀌면 이전 세션의 차단 snapshot을 즉시 폐기한다', async () => {
   await clearSession();
   await saveSession({ accessToken: 'AT-1', refreshToken: 'RT-1', userId: 'u1' });

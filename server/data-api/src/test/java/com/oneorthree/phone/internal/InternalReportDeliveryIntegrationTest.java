@@ -227,9 +227,11 @@ class InternalReportDeliveryIntegrationTest {
         ReportDeliveryView pending = deliveries.claim(reporter, requestId, claim(requestId, FINGERPRINT, true));
         deliveries.prepare(reporter, requestId,
                 new ReportDeliveryPrepareRequest(pending.leaseToken(), author, "제목", "회신메일과 원문"));
-        // 시간별 정리 지연까지 포함해 24시간 상한을 지키도록 23시간부터 정리한다.
-        jdbc.update("update report_deliveries set updated_at=now()-interval '23 hours 1 minute' where reporter_id=?",
-                reporter);
+        // workflow 재시도로 updated_at이 새로워져도 snapshot 저장 후 23시간이면 정리한다.
+        jdbc.update("update report_deliveries set snapshot_stored_at=now()-interval '23 hours 1 minute', "
+                + "updated_at=now()-interval '1 minute' where reporter_id=?", reporter);
+        deliveries.renew(reporter, requestId, pending.leaseToken());
+        deliveries.release(reporter, requestId, pending.leaseToken());
 
         assertThat(privacy.purgeStale()).isGreaterThanOrEqualTo(1);
         assertThat(jdbc.queryForMap("select status, author_id, mail_body from report_deliveries "
@@ -362,6 +364,54 @@ class InternalReportDeliveryIntegrationTest {
             finishWithdrawal.countDown();
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    void mutualReportWithdrawalsLockDeliveryRowsInTheSameOrder() throws Exception {
+        UUID firstUser = newUser();
+        UUID secondUser = newUser();
+        UUID firstRequest = UUID.randomUUID();
+        UUID secondRequest = UUID.randomUUID();
+        ReportDeliveryView first = deliveries.claim(firstUser, firstRequest,
+                claim(firstRequest, "1".repeat(64), false));
+        deliveries.prepare(firstUser, firstRequest,
+                new ReportDeliveryPrepareRequest(first.leaseToken(), secondUser, "첫 신고", "첫 원문"));
+        ReportDeliveryView second = deliveries.claim(secondUser, secondRequest,
+                claim(secondRequest, "2".repeat(64), false));
+        deliveries.prepare(secondUser, secondRequest,
+                new ReportDeliveryPrepareRequest(second.leaseToken(), firstUser, "둘째 신고", "둘째 원문"));
+        jdbc.update("update report_deliveries set lease_expires_at=now()-interval '1 second' "
+                + "where request_id in (?, ?)", firstRequest, secondRequest);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch usersLocked = new CountDownLatch(2);
+        CountDownLatch startCleanup = new CountDownLatch(1);
+        try {
+            Future<?> firstWithdrawal = withdrawAfterBarrier(pool, firstUser, usersLocked, startCleanup);
+            Future<?> secondWithdrawal = withdrawAfterBarrier(pool, secondUser, usersLocked, startCleanup);
+            assertThat(usersLocked.await(30, TimeUnit.SECONDS)).isTrue();
+            startCleanup.countDown();
+
+            firstWithdrawal.get(30, TimeUnit.SECONDS);
+            secondWithdrawal.get(30, TimeUnit.SECONDS);
+        } finally {
+            startCleanup.countDown();
+            pool.shutdownNow();
+        }
+        assertThat(jdbc.queryForObject("select count(*) from report_deliveries where request_id in (?, ?)",
+                Long.class, firstRequest, secondRequest)).isZero();
+    }
+
+    private Future<?> withdrawAfterBarrier(ExecutorService pool, UUID userId,
+            CountDownLatch usersLocked, CountDownLatch startCleanup) {
+        return pool.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+            jdbc.queryForObject("select id from users where id=? for update", UUID.class, userId);
+            jdbc.update("update users set is_deleted=true where id=?", userId);
+            usersLocked.countDown();
+            await(startCleanup);
+            privacy.eraseForWithdrawal(userId);
+            return null;
+        }));
     }
 
     private ReportDeliveryClaimRequest claim(UUID requestId, String fingerprint, boolean block) {

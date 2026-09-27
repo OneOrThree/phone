@@ -54,7 +54,7 @@ Data 쓰기 경계
 4. 같은 신고 키는 정규화 payload fingerprint에 결합한다. 동시 요청은 DB lease로 한 작업자만 발송하고, 다른 payload 재사용은 409로 거절한다.
 5. 사용자별 신규 신고는 시간당 10건으로 제한한다.
 6. 차단 목록이 초기 로딩 중이거나 실패하면 클라이언트는 친구·검색·편지·낙서를 fail-closed로 숨기고 재시도를 제공한다.
-7. 메일 처리 중 lease를 주기적으로 갱신하고 IMAP 확인은 60초 이하로 제한한다. 접수 확인 즉시 메일 본문·회신 이메일 snapshot을 지우며, 24시간 중단 건과 탈퇴 연관 개인정보도 멱등 행을 보존한 채 정리한다.
+7. 메일 처리 중 lease를 주기적으로 갱신하고 IMAP 확인은 60초 이하로 제한한다. 접수 확인 즉시 메일 본문·회신 이메일 snapshot을 지우며, workflow 갱신과 분리한 `snapshot_stored_at`을 기준으로 24시간 중단 건과 탈퇴 연관 개인정보도 멱등 행을 보존한 채 정리한다.
 
 ## 테스트
 
@@ -94,7 +94,7 @@ NO UNRESOLVED DECISIONS
 ## 구현·검증 현황 (2026-09-27)
 
 - 구현 완료: 친구/받은 편지 `···`, 공통 신고·차단 시트, 차단 목록·해제, `/reports`, 서버 원문 재검증, 영속 신고 intent/lease/receipt, Gmail SMTP 발송 후 IMAP 확인, 양방향 친구 요청 생성·수락·편지 발송 차단, nginx·배포 시크릿 전달.
-- 클라이언트 필터 완료: 세션별 차단 ID snapshot을 공용으로 적재하고, 차단/해제 성공 즉시 친구·요청·검색·받은/보낸 편지·열린 편지·섬 우체통 메시지·우체통 친구 캐시를 재조회 전부터 숨긴다. 늦은 목록 GET이 새 차단을 덮지 못하도록 mutation revision fence를 두고, 최초 목록 실패 때는 민감 데이터를 fail-closed로 숨긴다.
+- 클라이언트 필터 완료: 세션별 차단 ID snapshot을 공용으로 적재하고, 차단/해제 성공 즉시 친구·요청·검색·받은/보낸 편지·열린 편지·섬 우체통 메시지·우체통 친구 캐시를 재조회 전부터 숨긴다. 늦은 목록 GET이 새 차단을 덮지 못하도록 mutation revision과 요청 sequence fence를 두고, 최초 목록 실패 때는 민감 데이터를 fail-closed로 숨긴다.
 - 검증: Business 전체 build와 신고 계약 테스트, Data 신고 workflow·친구·편지 PostgreSQL 통합 테스트, 컴파일·Checkstyle·SpotBugs, 앱 전체 85 suites/954 tests와 타입·포맷 검사가 통과했다.
 - UI 증거: `.gstack/browse-reports/2026-09-27-gromo-1976/screenshots/`에 설정 진입 → 차단 목록 → 친구 `···` → 신고 메뉴 → 신고 접수 직전 5단계 모바일 캡처를 저장했다. 브라우저 콘솔 오류는 0건이다.
 - 실메일: `REPORT_MAIL_USERNAME`/`REPORT_MAIL_APP_PASSWORD`가 현재 환경에 없어 운영 메일함 실발송은 실행하지 않았다. `REPORT_MAIL_LIVE_TEST=true`와 두 자격을 주입하면 `GmailReportMailGatewayLiveTest`가 `nappaegonoljima@gmail.com` 발송과 IMAP 검색을 한 번에 확인한다.
