@@ -5842,7 +5842,7 @@ export function Board({
   const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
   const sheetHeight = Math.min(height * 0.58, 492 * landScale);
-  const sheetCramped = sheetHeight - 110 * landScale < 140;
+  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < 140;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
   const paperPad = sheetCramped
     ? { top: 38 * landScale, bottom: 28 * landScale }
@@ -6147,6 +6147,7 @@ export function Board({
         )}
         {s.panel === 'notice' && (
           <Scroll
+            testID="board-notice-scroll"
             style={[
               {
                 flexGrow: 1,

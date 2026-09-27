@@ -658,6 +658,24 @@ test('874×402 공지 종이는 실제 패딩을 뺀 뒤에도 140px 이상 읽�
   await screen.unmount();
 });
 
+test('874×450 공지 종이는 내비게이션 높이를 반영해 140px 이상 목록을 보장한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 450,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const navigation = screen.getByTestId('board-panel-navigation');
+  const noticeScroll = StyleSheet.flatten(screen.getByTestId('board-notice-scroll').props.style);
+  const readableHeight = noticeScroll.maxHeight;
+
+  assert.equal(navigation.props.children.length, 2);
+  assert.equal(drawer.height, 442);
+  assert.equal(drawer.paddingTop, 38);
+  assert.equal(drawer.paddingBottom, 28);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
 test('667×375 공지 종이는 축소된 패딩을 적용해도 140px 읽기 높이를 보장한다', async () => {
   const width = 667;
   const height = 375;
