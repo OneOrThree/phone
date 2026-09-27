@@ -111,6 +111,21 @@ export function UserSafetySheet(props: Props) {
       setError('기타 사유를 설명해 주세요.');
       return;
     }
+    // react-native-web의 Linking.openURL(mailto:)는 window.open(_blank)을 사용한다.
+    // 네트워크 await 뒤에는 Safari 등의 사용자 활성화가 만료될 수 있으므로 클릭 stack에서
+    // 빈 창을 먼저 확보하고, 차단 결과가 정해진 뒤 그 창을 실제 mailto로 이동한다.
+    let webComposeWindow: Window | null = null;
+    if (Platform.OS === 'web') {
+      try {
+        webComposeWindow = typeof window === 'undefined' ? null : window.open('', '_blank');
+      } catch {
+        webComposeWindow = null;
+      }
+      if (!webComposeWindow) {
+        setError('메일 작성 창을 열지 못했어요. 브라우저에서 팝업을 허용한 뒤 다시 시도해 주세요.');
+        return;
+      }
+    }
     setBusy(true);
     setError('');
     let blocked = reportBlockCompleted;
@@ -143,7 +158,9 @@ export function UserSafetySheet(props: Props) {
             : ('NOT_REQUESTED' as const),
         evidenceText: props.reportEvidence?.trim() || null,
       };
-      await Linking.openURL(reportEmailUrl(input, props.targetName));
+      const emailUrl = reportEmailUrl(input, props.targetName);
+      if (webComposeWindow) webComposeWindow.location.href = emailUrl;
+      else await Linking.openURL(emailUrl);
       props.onClose();
       props.onMessage(
         blockFailed
@@ -153,6 +170,7 @@ export function UserSafetySheet(props: Props) {
             : '메일 내용을 확인한 뒤 보내 주세요.',
       );
     } catch (thrown) {
+      webComposeWindow?.close();
       if (blocked) {
         setError('차단은 완료했지만 메일 앱을 열지 못했어요. 다시 시도해 주세요.');
       } else if (blockFailed) {

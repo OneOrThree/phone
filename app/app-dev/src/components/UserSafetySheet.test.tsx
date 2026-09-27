@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { Linking, StyleSheet } from 'react-native';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Linking, Platform, StyleSheet } from 'react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { semanticTokens } from '@/design-system/tokens';
 import { blockUser, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
@@ -31,6 +31,7 @@ jest.mock('@/services/api/safety', () => ({
 
 const blockMock = blockUser as jest.Mock;
 let openUrlMock: jest.SpyInstance;
+let webWindowOpenMock: jest.Mock;
 
 type TestProps = React.ComponentProps<typeof UserSafetySheet> & {
   onClose: jest.Mock;
@@ -63,6 +64,12 @@ beforeEach(() => {
   });
   replaceBlockedUsers([]);
   openUrlMock = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  webWindowOpenMock = jest.fn();
+  Object.defineProperty(window, 'open', {
+    configurable: true,
+    writable: true,
+    value: webWindowOpenMock,
+  });
 });
 
 test('태블릿에서는 신고 시트를 제한된 너비로 가운데 정렬한다', async () => {
@@ -152,6 +159,68 @@ test('신고 입력으로 운영 Gmail 메일 작성 화면을 열고 선택한 
     callbacks.onMessage.mock.calls[0][0],
     '차단했어요. 메일 내용을 확인한 뒤 보내 주세요.',
   );
+});
+
+test('웹에서는 차단 API를 기다리기 전에 메일 작성 창을 확보하고 결과를 채운다', async () => {
+  const os = jest.replaceProperty(Platform, 'OS', 'web');
+  const order: string[] = [];
+  let finishBlock: () => void = () => {};
+  let openedUrl = '';
+  const popup = {
+    location: {
+      get href() {
+        return openedUrl;
+      },
+      set href(value: string) {
+        openedUrl = value;
+      },
+    },
+    close: jest.fn(),
+  } as unknown as Window;
+  webWindowOpenMock.mockImplementation(() => {
+    order.push('window');
+    return popup;
+  });
+  blockMock.mockImplementation(
+    () =>
+      new Promise<void>((resolve) => {
+        order.push('block');
+        finishBlock = resolve;
+      }),
+  );
+  const callbacks = props();
+  const screen = await render(<UserSafetySheet {...callbacks} />);
+  await fireEvent.press(screen.getByText('신고하기'));
+  await fireEvent.press(screen.getByRole('switch', { name: '이 사용자도 차단' }));
+  const submit = fireEvent.press(screen.getByText('이메일 작성'));
+
+  await waitFor(() => assert.deepEqual(order, ['window', 'block']));
+  assert.equal(openUrlMock.mock.calls.length, 0);
+  assert.equal(openedUrl, '');
+
+  await act(async () => finishBlock());
+  await submit;
+  await waitFor(() => assert.ok(openedUrl.startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`)));
+  assert.ok(decodeURIComponent(openedUrl).includes('앱에서 함께 차단: 완료'));
+  assert.equal(callbacks.onClose.mock.calls.length, 1);
+  os.restore();
+});
+
+test('웹에서 메일 작성 창이 차단되면 차단 API를 시작하지 않고 재시도를 안내한다', async () => {
+  const os = jest.replaceProperty(Platform, 'OS', 'web');
+  webWindowOpenMock.mockReturnValue(null);
+  const callbacks = props();
+  const screen = await render(<UserSafetySheet {...callbacks} />);
+  await fireEvent.press(screen.getByText('신고하기'));
+  await fireEvent.press(screen.getByRole('switch', { name: '이 사용자도 차단' }));
+
+  await fireEvent.press(screen.getByText('이메일 작성'));
+
+  assert.ok(screen.getByText(/브라우저에서 팝업을 허용/));
+  assert.equal(blockMock.mock.calls.length, 0);
+  assert.equal(openUrlMock.mock.calls.length, 0);
+  assert.equal(callbacks.onClose.mock.calls.length, 0);
+  os.restore();
 });
 
 test('신고 화면의 함께 차단 선택 상태는 핑크 토큰을 사용한다', async () => {
