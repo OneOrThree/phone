@@ -232,11 +232,8 @@ const renderBoard = async (
   sizeOrHigherModal: BoardSize | boolean = { width: 402, height: 874 },
 ) => {
   const size: BoardSize =
-    typeof sizeOrHigherModal === 'boolean'
-      ? { width: 402, height: 874 }
-      : sizeOrHigherModal;
-  const initialHigherModalOpen =
-    typeof sizeOrHigherModal === 'boolean' ? sizeOrHigherModal : false;
+    typeof sizeOrHigherModal === 'boolean' ? { width: 402, height: 874 } : sizeOrHigherModal;
+  const initialHigherModalOpen = typeof sizeOrHigherModal === 'boolean' ? sizeOrHigherModal : false;
   // App 은 렌더마다 e 를 새로 조립한다 — box 로 최신 e 를 주고 setE 가 stale 클로저를 재현한다.
   const box = { e, higherModalOpen: initialHigherModalOpen };
   const Harness = () => {
