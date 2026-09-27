@@ -114,11 +114,11 @@ test('차단 해제 성공 후 목록을 재조회하고 완료를 알린다', a
   assert.equal(unblockMock.mock.calls[0][0], 'user-2');
   assert.equal(listMock.mock.calls.length, 2);
   assert.equal(isUserBlocked('user-2'), false);
-  assert.equal(e.friendsScreen.refresh.mock.calls.length, 1);
+  assert.equal(e.friendsScreen.refresh.mock.calls.length, 0);
   assert.equal(e.notify.mock.calls[0][0], '민지님의 차단을 해제했어요.');
 });
 
-test('차단 해제 뒤 목록 재조회가 실패해도 친구 화면은 즉시 새로고침한다', async () => {
+test('차단 해제 뒤 목록 재조회가 실패해도 친구 화면 중복 새로고침은 하지 않는다', async () => {
   listMock
     .mockResolvedValueOnce([user])
     .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '목록 갱신 실패', 0));
@@ -130,7 +130,7 @@ test('차단 해제 뒤 목록 재조회가 실패해도 친구 화면은 즉시
   await fireEvent.press(screen.getByText('차단 해제'));
 
   await waitFor(() => assert.ok(screen.getByText('목록 갱신 실패')));
-  assert.equal(e.friendsScreen.refresh.mock.calls.length, 1);
+  assert.equal(e.friendsScreen.refresh.mock.calls.length, 0);
   assert.equal(e.notify.mock.calls[0][0], '민지님의 차단을 해제했어요.');
   assert.equal(isUserBlocked('user-2'), false);
 });

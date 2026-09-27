@@ -10,7 +10,7 @@ import { getBlockedUsers } from '@/services/api/safety';
 import { saveSession } from '@/services/api/session';
 import type { FriendsScreen } from '@/services/api/friends';
 import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
-import { markUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
+import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
 jest.mock('@/services/api/friends', () => ({
   ...jest.requireActual('@/services/api/friends'),
@@ -126,6 +126,20 @@ test('다른 기기의 차단 해제를 재검증하면 친구 서버 정본도 
 
   await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
   await waitFor(() => assert.equal(hook.result.current.data?.friends[0]?.userId, 'u-friend'));
+  await hook.unmount();
+});
+
+test('로컬 차단 해제 신호는 친구 서버 정본을 한 번만 다시 적재한다', async () => {
+  replaceBlockedUsers([{ id: 'u-friend', name: '짝꿍' }]);
+  screenMock.mockResolvedValueOnce(screen({ friends: [] })).mockResolvedValueOnce(screen());
+  const hook = await renderHook(() => useFriendsScreen(args));
+  await waitFor(() => assert.equal(hook.result.current.status, 'ready'));
+
+  await act(async () => markUserUnblocked('u-friend'));
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.data?.friends[0]?.userId, 'u-friend'));
+  assert.equal(screenMock.mock.calls.length, 2);
   await hook.unmount();
 });
 

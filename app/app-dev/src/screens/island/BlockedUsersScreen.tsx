@@ -38,7 +38,6 @@ export function BlockedUsersScreen({ e }: any) {
     try {
       await unblockUser(item.id);
       markUserUnblocked(item.id);
-      e.friendsScreen?.refresh?.();
       e.notify(`${item.name}님의 차단을 해제했어요.`);
       await load();
     } catch (thrown) {
