@@ -1018,6 +1018,7 @@ export function RedesignScreens({ e }: any) {
         showHud={route !== 'focusSetup'}
         showActions={false}
         motion={route === 'focusSetup' ? 'tilt' : undefined}
+        boardStatus={e.boardStatus}
       />
     </View>
   );
@@ -2326,6 +2327,7 @@ export function RedesignScreens({ e }: any) {
             request={e.walkRequest}
             notify={notify}
             dispatch={dispatch}
+            boardStatus={e.boardStatus}
           />
         )}
         {mailboxGuide && (
