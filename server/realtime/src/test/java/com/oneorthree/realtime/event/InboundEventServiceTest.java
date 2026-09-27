@@ -22,6 +22,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -142,7 +143,9 @@ class InboundEventServiceTest {
         UUID firstSession = UUID.randomUUID();
         UUID secondUser = UUID.randomUUID();
         UUID secondSession = UUID.randomUUID();
-        String envelope = "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,"
+        String eventName = "golden:" + island + ":1790553600";
+        UUID eventId = UUID.nameUUIDFromBytes(eventName.getBytes(StandardCharsets.UTF_8));
+        String envelope = "{\"eventId\":\"" + eventId + "\",\"schemaVersion\":1,"
                 + "\"type\":\"focus.golden\",\"occurredAt\":\"2026-09-28T00:00:00Z\","
                 + "\"scheduledAt\":null,\"userId\":null,\"locale\":null,\"subjectId\":\"" + island + "\","
                 + "\"version\":1,\"params\":{\"islandId\":\"" + island + "\","
