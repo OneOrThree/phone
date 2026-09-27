@@ -1791,6 +1791,7 @@ function FocusFlow({ e }: any) {
                   }
                   motion={r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined}
                   reduce={reduce}
+                  catchAvoidSpots={peerSpots}
                 />
               ) : (
                 <FishingWalker
