@@ -71,6 +71,56 @@ export class GoldenFishMemberTimeline {
   }
 }
 
+type GoldenFishSignalSource = 'ledger' | 'realtime';
+
+type PendingGoldenFishSignal = {
+  source: GoldenFishSignalSource;
+  atMs: number;
+  islandId: string;
+  sessionId: string;
+};
+
+const GOLDEN_SIGNAL_MATCH_WINDOW_MS = 10 * 60_000;
+
+/**
+ * realtime의 추첨 분과 원장의 실제 기록 시각은 분 경계를 사이에 둘 수 있다. 두 신호를 분 단위로
+ * 잘라 비교하지 않고, 같은 세션에 도착한 두 소스의 발생 순서를 한 번씩 짝지어 같은 당첨으로 접는다.
+ */
+export class GoldenFishOccurrenceTracker {
+  private seenEventIds = new Set<string>();
+  private pending: PendingGoldenFishSignal[] = [];
+
+  accept(event: GoldenFishEvent, sessionId: string): boolean {
+    if (this.seenEventIds.has(event.eventId)) return false;
+    this.seenEventIds.add(event.eventId);
+    const source: GoldenFishSignalSource = event.eventId.startsWith('ledger:')
+      ? 'ledger'
+      : 'realtime';
+    const atMs = Date.parse(event.drawnAt);
+    if (!Number.isFinite(atMs)) return false;
+    this.pending = this.pending.filter(
+      (candidate) => Math.abs(atMs - candidate.atMs) <= GOLDEN_SIGNAL_MATCH_WINDOW_MS,
+    );
+    const match = this.pending.findIndex((candidate) => {
+      if (
+        candidate.source === source ||
+        candidate.islandId !== event.islandId ||
+        candidate.sessionId !== sessionId
+      )
+        return false;
+      const realtimeAt = source === 'realtime' ? atMs : candidate.atMs;
+      const ledgerAt = source === 'ledger' ? atMs : candidate.atMs;
+      return ledgerAt >= realtimeAt && ledgerAt - realtimeAt <= GOLDEN_SIGNAL_MATCH_WINDOW_MS;
+    });
+    if (match >= 0) {
+      this.pending.splice(match, 1);
+      return false;
+    }
+    this.pending.push({ source, atMs, islandId: event.islandId, sessionId });
+    return true;
+  }
+}
+
 const MAX_LEDGER_PAGES = 100;
 
 async function ledgerItemsSince(islandId: string, month: string, afterMs: number) {
@@ -191,13 +241,16 @@ export function useGoldenFishLedger({
             continue;
           }
           seen.current.add(entry.id);
-          if (participants.length < 2) continue;
+          // 원장 자체가 서버의 2명 이상 추첨 결과다. 재접속 전 구간은 이 단말에서 확실히
+          // 복원할 수 있는 자기 세션만 싣고, 다른 주민을 현재 스냅숏으로 추측하지 않는다.
+          if (participants.length === 0) continue;
           callbackRef.current({
             eventId: `ledger:${entry.id}`,
             islandId,
             drawnAt: entry.createdAt,
             reward: entry.amount,
-            sharePerMember: Math.floor(entry.amount / participants.length),
+            sharePerMember:
+              participants.length >= 2 ? Math.floor(entry.amount / participants.length) : 0,
             members: participants,
           });
         }

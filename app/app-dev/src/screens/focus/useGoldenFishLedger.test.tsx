@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
 import { View } from 'react-native';
-import { GoldenFishMemberTimeline, useGoldenFishLedger } from '@/screens/focus/useGoldenFishLedger';
+import {
+  GoldenFishMemberTimeline,
+  GoldenFishOccurrenceTracker,
+  useGoldenFishLedger,
+} from '@/screens/focus/useGoldenFishLedger';
+import type { GoldenFishEvent } from '@/services/islandRealtime';
 import { getLedger, type LedgerPage } from '@/services/api/townHall';
 import { clearSession, saveSession } from '@/services/api/session';
 
@@ -107,7 +112,7 @@ test('조회가 실패해도 집중 화면을 막지 않고 다음 poll에서 �
   await screen.unmount();
 });
 
-test('활성 주민이 둘 미만이면 golden_fish 원장 행을 화면 사건으로 만들지 않는다', async () => {
+test('확정할 수 있는 참여자가 없으면 golden_fish 원장 행을 화면 사건으로 만들지 않는다', async () => {
   const onGoldenFish = jest.fn();
   ledgerMock.mockResolvedValue({
     ...emptyPage(),
@@ -123,9 +128,7 @@ test('활성 주민이 둘 미만이면 golden_fish 원장 행을 화면 사건�
       },
     ],
   });
-  const screen = await render(
-    <Harness members={[defaultMembers[0]]} onGoldenFish={onGoldenFish} />,
-  );
+  const screen = await render(<Harness members={[]} onGoldenFish={onGoldenFish} />);
   await act(async () => {});
 
   assert.equal(onGoldenFish.mock.calls.length, 0);
@@ -262,6 +265,50 @@ test('초기 스냅숏 전의 행은 참여자를 확정할 때까지 소비하�
   await act(async () => jest.advanceTimersByTime(1_000));
   assert.equal(onGoldenFish.mock.calls.length, 1);
   await screen.unmount();
+});
+
+test('재접속 전 당첨은 당시 집중 중이던 자기 세션만 확정해도 복구한다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock.mockResolvedValue({
+    ...emptyPage(),
+    items: [
+      {
+        id: 'before-reconnect',
+        direction: 'earn',
+        reason: 'golden_fish',
+        amount: 50,
+        createdAt: '2026-09-28T00:00:05Z',
+        groupedUntil: '2026-09-28T00:00:05Z',
+        entryCount: 1,
+      },
+    ],
+  });
+  const screen = await render(
+    <Harness resolveMembers={() => [defaultMembers[0]]} onGoldenFish={onGoldenFish} />,
+  );
+  await act(async () => {});
+
+  assert.equal(onGoldenFish.mock.calls.length, 1);
+  assert.deepEqual(onGoldenFish.mock.calls[0][0].members, [defaultMembers[0]]);
+  assert.equal(onGoldenFish.mock.calls[0][0].sharePerMember, 0);
+  await screen.unmount();
+});
+
+test('realtime 추첨 분과 다음 분에 기록된 원장 행을 같은 발생으로 짝짓는다', () => {
+  const tracker = new GoldenFishOccurrenceTracker();
+  const signal = (eventId: string, drawnAt: string): GoldenFishEvent => ({
+    eventId,
+    islandId: 'island',
+    drawnAt,
+    reward: 50,
+    sharePerMember: 25,
+    members: defaultMembers,
+  });
+
+  assert.equal(tracker.accept(signal('golden:island:1', '2026-09-28T00:00:00Z'), 'session'), true);
+  assert.equal(tracker.accept(signal('ledger:wallet-1', '2026-09-28T00:01:05Z'), 'session'), false);
+  assert.equal(tracker.accept(signal('golden:island:2', '2026-09-28T00:01:00Z'), 'session'), true);
+  assert.equal(tracker.accept(signal('ledger:wallet-2', '2026-09-28T00:01:21Z'), 'session'), false);
 });
 
 test('첫 페이지에 황금 물고기가 없어도 nextCursor를 따라 끝까지 조회한다', async () => {

@@ -307,3 +307,34 @@ test('세션 종료 직후 결과 화면에 도착한 당첨도 버리지 않는
   assert.notEqual(screen.queryByTestId('golden-cutscene', { includeHiddenElements: true }), null);
   await screen.unmount();
 });
+
+test('컷신을 마친 황금 물고기 더미를 정상 결과 화면에서도 유지한다', async () => {
+  const state = focusedState();
+  const screen = await mount(state);
+  await act(async () =>
+    onGoldenFish?.(
+      event([
+        { userId: 'me', sessionId: 's-me' },
+        { userId: 'minji', sessionId: 'minji' },
+      ]),
+    ),
+  );
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+
+  state.lastResult = {
+    id: 's-me',
+    islandId: 'soda',
+    subject: '수학',
+    seconds: 60,
+    at: Date.now(),
+    fish: 1,
+    contributed: true,
+  };
+  state.session = null;
+  await screen.rerender(screenElement(state, 'focusResult'));
+
+  const resultActor = screen.getByTestId('golden-self', { includeHiddenElements: true });
+  assert.equal(resultActor.props.goldenFishCount, 1);
+  assert.equal(resultActor.props.goldenCatchToken, 'golden-i1-1');
+  await screen.unmount();
+});

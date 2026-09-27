@@ -51,7 +51,11 @@ import {
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
-import { GoldenFishMemberTimeline, useGoldenFishLedger } from '@/screens/focus/useGoldenFishLedger';
+import {
+  GoldenFishMemberTimeline,
+  GoldenFishOccurrenceTracker,
+  useGoldenFishLedger,
+} from '@/screens/focus/useGoldenFishLedger';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -1117,7 +1121,7 @@ function FocusFlow({ e }: any) {
     goldenPresenter = useRef<(event: GoldenFishEvent) => void>(() => {}),
     goldenCutsceneRef = useRef<GoldenFishEvent | null>(null),
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
-    goldenOccurrencesRef = useRef(new Set<string>()),
+    goldenOccurrencesRef = useRef(new GoldenFishOccurrenceTracker()),
     goldenTimelineRef = useRef(new GoldenFishMemberTimeline()),
     goldenTimelineSessionRef = useRef<string | null>(null),
     goldenTestSession = useRef<string | null>(null);
@@ -1169,6 +1173,28 @@ function FocusFlow({ e }: any) {
     goldenTimelineRef.current.observe(e.now + live.clockOffset, liveGoldenMembers);
   }
   const goldenTimelineStart = goldenTimelineRef.current.coverageStartMs();
+  const goldenIntervals =
+    s.session?.intervals ??
+    (r === 'focusResult' && s.lastResult?.id === goldenSessionId
+      ? s.lastResult.intervals
+      : undefined);
+  const goldenSessionStartedAt = goldenIntervals?.length
+    ? Math.min(...goldenIntervals.map((interval) => interval.start))
+    : s.session
+      ? s.session.startedAt - s.session.seconds * 1_000
+      : s.lastResult
+        ? s.lastResult.at - s.lastResult.seconds * 1_000
+        : null;
+  const selfWasActiveAt = (atMs: number) => {
+    if (!actorUserId || !goldenSessionId) return false;
+    if (goldenIntervals?.length) {
+      if (goldenIntervals.some((interval) => interval.start <= atMs && atMs <= interval.end)) {
+        return true;
+      }
+      return !!s.session && s.session.status === 'active' && atMs >= s.session.startedAt;
+    }
+    return goldenSessionStartedAt !== null && atMs >= goldenSessionStartedAt;
+  };
   const goldenSessionEligibleUntil =
     s.session?.status === 'paused'
       ? (s.session.restStartedAt ?? e.now)
@@ -1184,16 +1210,15 @@ function FocusFlow({ e }: any) {
       (r === 'focus' || r === 'rest' || r === 'focusResult'),
     islandId: liveIslandId,
     sessionId: goldenSessionId,
-    sessionStartedAt:
-      goldenTimelineStart === null
-        ? null
-        : Math.max(
-            goldenTimelineStart,
-            s.session?.startedAt ??
-              (s.lastResult ? s.lastResult.at - s.lastResult.seconds * 1_000 : 0),
-          ),
+    sessionStartedAt: goldenSessionStartedAt,
     sessionEligibleUntil: goldenSessionEligibleUntil,
-    membersAt: (atMs) => goldenTimelineRef.current.membersAt(atMs),
+    membersAt: (atMs) => {
+      const known = goldenTimelineRef.current.membersAt(atMs);
+      if (known !== null) return known;
+      if (selfWasActiveAt(atMs)) return [{ userId: actorUserId!, sessionId: goldenSessionId! }];
+      // 서버가 준 ACTIVE 구간이 있으면 그 밖의 시각에는 내가 참여하지 않았음이 확정된다.
+      return goldenIntervals?.length ? [] : null;
+    },
     onGoldenFish: (event) => goldenHandler.current(event),
     clockOffsetMs: live.clockOffset,
   });
@@ -1234,9 +1259,7 @@ function FocusFlow({ e }: any) {
       (current.r !== 'focus' && current.r !== 'rest' && current.r !== 'focusResult')
     )
       return;
-    const occurrence = `${event.islandId}:${Math.floor(Date.parse(event.drawnAt) / 60_000)}`;
-    if (goldenOccurrencesRef.current.has(occurrence)) return;
-    goldenOccurrencesRef.current.add(occurrence);
+    if (!goldenOccurrencesRef.current.accept(event, participantSessionId)) return;
     if (current.r === 'rest') {
       goldenQueueRef.current.push(event);
       return;
@@ -1998,8 +2021,8 @@ function FocusFlow({ e }: any) {
                       r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined
                     }
                     reduce={reduce}
-                    goldenFishCount={goldenFor(actorUserId, s.session?.id)?.count ?? 0}
-                    goldenCatchToken={goldenFor(actorUserId, s.session?.id)?.eventId}
+                    goldenFishCount={goldenFor(actorUserId, goldenSessionId)?.count ?? 0}
+                    goldenCatchToken={goldenFor(actorUserId, goldenSessionId)?.eventId}
                   />
                 ) : (
                   <FishingWalker
