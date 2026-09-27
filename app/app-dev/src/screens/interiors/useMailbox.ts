@@ -482,7 +482,9 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
 
   const retry = useCallback(async () => {
     const retryingDetail =
-      stateRef.current.detail !== null || stateRef.current.detailError !== null;
+      stateRef.current.detail !== null ||
+      stateRef.current.detailError !== null ||
+      stateRef.current.detailLoading;
     try {
       if (blockedUsers.status === 'error') await retryBlockedUsers();
       await load();

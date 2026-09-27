@@ -280,6 +280,28 @@ test('열린 편지 재시도에서 우체통 묶음 적재가 실패해도 상�
   await hook.unmount();
 });
 
+test('편지 상세가 로딩 중이어도 재시도 묶음 적재 실패를 상세 오류로 전달한다', async () => {
+  let finishDetail: (detail: ReturnType<typeof letterView>) => void = () => {};
+  getLetterMock.mockReturnValueOnce(new Promise((resolve) => (finishDetail = resolve)));
+  const hook = await mount();
+  await act(async () => {
+    hook.result.current.openLetter(LETTER).catch(() => {});
+    await Promise.resolve();
+  });
+  assert.equal(hook.result.current.detailLoading, true);
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  screenMock.mockRejectedValueOnce(new ApiError('MAILBOX_FAILED', '우체통 오류', 500));
+  await act(async () => hook.result.current.retry().catch(() => {}));
+
+  assert.equal(hook.result.current.detailError?.code, 'MAILBOX_FAILED');
+  assert.equal(hook.result.current.detailLoading, false);
+  await act(async () => finishDetail(letterView()));
+  await hook.unmount();
+});
+
 test('재조회로 적재된 보낸 편지도 상대를 차단하면 숨긴다', async () => {
   closeLetterMock.mockResolvedValue(undefined);
   listLettersMock.mockImplementation((type: string) =>
