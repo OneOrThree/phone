@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Color } from '@/services/model';
 import type { IslandPresenceTransition, LiveFocusMember } from '@/services/islandRealtime';
-import { LANDING, PEER_SPOTS } from '@/screens/focus/FishingIsland';
+import { fishingPeerCatchVisible, LANDING, PEER_SPOTS } from '@/screens/focus/FishingIsland';
 import type { Point } from '@/utils/world-grid';
 import type { Spot } from '@/screens/focus/FishingIsland';
 
