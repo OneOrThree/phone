@@ -69,6 +69,7 @@ import {
   DEFAULT_SPOT,
   LANDING,
   OUTLINE,
+  PEER_SPOTS,
   castSpot,
   fishingCatchPlacement,
   fishingPeerCatchVisible,
@@ -1417,7 +1418,13 @@ function FocusFlow({ e }: any) {
     if (p.x === DEFAULT_SPOT.x && p.y === DEFAULT_SPOT.y)
       catchSpot.catchPlacement = DEFAULT_CATCH_PLACEMENT;
     if (
-      !fishingCatchPlacement(catchSpot, peerSpots, peerCatchSpots, i.buildings.includes('gram'))
+      !fishingCatchPlacement(
+        catchSpot,
+        peerSpots,
+        peerCatchSpots,
+        i.buildings.includes('gram'),
+        PEER_SPOTS,
+      )
     ) {
       e.notify('여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.');
       return;
@@ -1810,6 +1817,7 @@ function FocusFlow({ e }: any) {
                   catchAvoidSpots={peerSpots}
                   catchVisibleSpots={peerCatchSpots}
                   catchGramVisible={i.buildings.includes('gram')}
+                  catchReservedRewardSpots={PEER_SPOTS}
                 />
               ) : (
                 <FishingWalker

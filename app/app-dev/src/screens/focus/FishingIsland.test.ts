@@ -373,6 +373,55 @@ test('숨겨진 resident 예약 보상은 mine 고양이와의 충돌을 좌석 
   assert.equal(visible, null, 'resident 보상이 보이기 시작한 뒤에도 안전한 선택 기준은 같다');
 });
 
+test('아직 배정되지 않은 PEER 좌석의 예약 보상도 mine 고양이와 충돌하지 않는다', () => {
+  const spot = castSpot({ x: 47.5, y: 17 }),
+    withoutFutureReservations = fishingCatchPlacement(spot, [], [], false),
+    beforeThirdResident = fishingCatchPlacement(spot, [], [], false, PEER_SPOTS),
+    afterThirdResidentArrives = fishingCatchPlacement(
+      spot,
+      PEER_SPOTS.slice(0, 3),
+      [],
+      false,
+      PEER_SPOTS,
+    ),
+    defaultSpot: Spot = {
+      ...castSpot(DEFAULT_SPOT),
+      catchPlacement: DEFAULT_CATCH_PLACEMENT,
+    };
+
+  assert.ok(withoutFutureReservations, '회귀 위치는 future seat을 예약하지 않으면 선택 가능하다');
+  assert.equal(beforeThirdResident, null, '자리 선택 시점에 전체 resident 슬롯의 보상을 예약한다');
+  assert.equal(afterThirdResidentArrives, null, '주민 입장 전후 mine 보상 안전성이 유지된다');
+  assert.deepEqual(
+    fishingCatchPlacement(defaultSpot, PEER_SPOTS, [], false, PEER_SPOTS),
+    DEFAULT_CATCH_PLACEMENT,
+    '스크린리더 기본 자리는 계속 유효하다',
+  );
+
+  for (const gramVisible of [false, true]) {
+    let available = 0;
+    for (let row = 1; row < fishingGrid.rows; row += 3)
+      for (let col = 1; col < fishingGrid.cols; col += 3) {
+        const point = {
+          x: ((col + 0.5) * 100) / fishingGrid.cols,
+          y: ((row + 0.5) * 100) / fishingGrid.rows,
+        };
+        if (
+          !onLand(fishingGrid, point) ||
+          !landPath(fishingGrid, LANDING, point).length ||
+          nearRaft(point) ||
+          (gramVisible && nearGram(point))
+        )
+          continue;
+        if (fishingCatchPlacement(castSpot(point), [], [], gramVisible, PEER_SPOTS)) available++;
+      }
+    assert.ok(
+      available >= 5,
+      `${gramVisible ? '축음기 설치' : '축음기 미설치'} 시 선택 가능한 후보 ${available}개`,
+    );
+  }
+});
+
 test('mine 보상 footprint가 뗏목 실제 그림 영역을 덮지 않는다', () => {
   const raftHalfHeight = 6 * (669 / 928) * (1536 / 1024),
     raft = {

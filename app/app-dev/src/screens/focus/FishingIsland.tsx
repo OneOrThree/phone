@@ -167,6 +167,7 @@ export function fishingCatchPlacement(
   others: Spot[] = [],
   visibleRewardSpots?: Spot[],
   gramVisible = true,
+  reservedRewardSpots?: Spot[],
 ): FishingCatchPlacement | null {
   if (Object.prototype.hasOwnProperty.call(spot, 'catchPlacement'))
     return spot.catchPlacement ?? null;
@@ -180,7 +181,7 @@ export function fishingCatchPlacement(
       bottom: GRAM.y,
     };
   // Resident의 저장된 보상은 아직 숨겨져 있어도 나중에 표시될 수 있으므로 mine 고양이와는 항상 충돌 검사한다.
-  const reservedRewardBounds = others
+  const reservedRewardBounds = [...others, ...(reservedRewardSpots ?? [])]
     .filter((other) => !(other.x === spot.x && other.y === spot.y) && other.catchPlacement != null)
     .map((other) => catchBounds(other, other.catchPlacement!));
   if (reservedRewardBounds.some((reward) => boundsOverlap(reward, ownCat))) return null;
@@ -707,6 +708,7 @@ export function FishingActor({
   catchVisible = true,
   catchVisibleSpots,
   catchGramVisible = true,
+  catchReservedRewardSpots,
   onMotionFinish,
   generation,
   animatedPosition,
@@ -726,6 +728,7 @@ export function FishingActor({
   catchVisible?: boolean;
   catchVisibleSpots?: Spot[];
   catchGramVisible?: boolean;
+  catchReservedRewardSpots?: Spot[];
   onMotionFinish?: () => void;
   generation?: number;
   animatedPosition?: {
@@ -765,6 +768,7 @@ export function FishingActor({
       catchAvoidSpots,
       catchVisibleSpots,
       catchGramVisible,
+      catchReservedRewardSpots,
     ),
     showsCatch = count > 0 && catchVisible && catchPlacement != null;
   return (
