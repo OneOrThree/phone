@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -14,7 +14,12 @@ import {
   updateNotice as patchNotice,
 } from '@/services/api/notices';
 import { initialState } from '@/services/model';
-import { Board, type Concept } from '@/screens/interiors/BuildingInteriors';
+import {
+  Board,
+  buildings,
+  InteriorScreen,
+  type Concept,
+} from '@/screens/interiors/BuildingInteriors';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 
 import {
@@ -214,7 +219,11 @@ const deferred = <T,>() => {
   return { promise, resolve, reject };
 };
 
-const renderBoard = async (e: any, c: Partial<Concept> = {}) => {
+const renderBoard = async (
+  e: any,
+  c: Partial<Concept> = {},
+  size = { width: 402, height: 874 },
+) => {
   // App 은 렌더마다 e 를 새로 조립한다 — box 로 최신 e 를 주고 setE 가 stale 클로저를 재현한다.
   const box = { e };
   const Harness = () => {
@@ -225,8 +234,8 @@ const renderBoard = async (e: any, c: Partial<Concept> = {}) => {
         building={undefined as never}
         concept={concept(c)}
         index={0}
-        width={402}
-        height={874}
+        width={size.width}
+        height={size.height}
         reduceMotion
         showToast={() => {}}
         e={box.e}
@@ -263,6 +272,208 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('게시판 장면 배율을 종이와 내용에 함께 적용해 종횡비가 달라도 정렬한다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const reference = await renderBoard(null, concept({ boardView: 'list' }), {
+      width: 874,
+      height: 402,
+    });
+    const referenceStyle = StyleSheet.flatten(reference.getByTestId('board-drawer').props.style);
+    assert.equal(referenceStyle.left, 324);
+    assert.equal(referenceStyle.right, 30);
+    assert.equal(referenceStyle.paddingHorizontal, 50);
+    await reference.unmount();
+
+    const wide = await renderBoard(null, concept({ boardView: 'list' }), {
+      width: 1950,
+      height: 1280,
+    });
+    const wideStyle = StyleSheet.flatten(wide.getByTestId('board-drawer').props.style);
+    const scale = 1950 / 874;
+    assert.equal(wideStyle.left, 324 * scale);
+    assert.equal(wideStyle.right, 30 * scale);
+    assert.equal(wideStyle.paddingHorizontal, 50 * scale);
+    assert.equal(wideStyle.height, Math.min(1280 * 0.58, 492 * scale));
+    await wide.unmount();
+
+    const middle = await renderBoard(null, concept({ boardView: 'detail' }), {
+      width: 1280,
+      height: 800,
+    });
+    const middleScale = 1280 / 874;
+    const middleOverlay = StyleSheet.flatten(
+      middle.getByTestId('board-notice-overlay').props.style,
+    );
+    assert.equal(middleOverlay.left, 338 * middleScale);
+    assert.equal(middleOverlay.right, 36 * middleScale);
+    assert.equal(middleOverlay.paddingTop, 48 * middleScale);
+    assert.equal(middleOverlay.paddingHorizontal, 58 * middleScale);
+    assert.equal(middleOverlay.paddingBottom, 40 * middleScale);
+    await middle.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 영역이 같은 2:3 좌표계를 쓴다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const viewports = [
+      [375, 667],
+      [402, 874],
+      [440, 956],
+      [834, 1210],
+      [667, 375],
+      [874, 402],
+      [956, 440],
+      [1210, 834],
+    ];
+
+    for (const [width, height] of viewports) {
+      const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      assert.equal(scene.top, 0);
+      const landscape = width > height;
+      assert.equal(scene.height, landscape ? width * 1.5 : height);
+      assert.equal(scene.width, landscape ? width : (height * 2) / 3);
+      assert.equal(scene.left, landscape ? 0 : (width - scene.width) / 2);
+      const labelScale = width > height ? Math.min(1, scene.width / 402) : 1;
+
+      const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
+      assert.equal(labelScene.left, 0);
+      assert.equal(labelScene.top, 0);
+      assert.equal(labelScene.right, 0);
+      assert.equal(labelScene.bottom, 0);
+      const hitboxes = [
+        ['board-notice-area', 0.3495, 0.348],
+        ['board-quest-area', 0.645, 0.285],
+        ['board-blueprint-area', 0.705, 0.406],
+      ].map(([testID, centerX, centerY]) => {
+        const area = StyleSheet.flatten(screen.getByTestId(testID as string).props.style);
+        assert.ok(area.width >= 44, `${testID} is at least 44px wide at ${width}x${height}`);
+        assert.ok(area.height >= 44, `${testID} is at least 44px tall at ${width}x${height}`);
+        assert.ok(Math.abs(area.left + area.width / 2 - scene.width * Number(centerX)) < 0.01);
+        assert.ok(Math.abs(area.top + area.height / 2 - scene.height * Number(centerY)) < 0.01);
+        return {
+          testID,
+          left: area.left,
+          top: area.top,
+          right: area.left + area.width,
+          bottom: area.top + area.height,
+        };
+      });
+      for (let first = 0; first < hitboxes.length; first += 1) {
+        for (let second = first + 1; second < hitboxes.length; second += 1) {
+          const a = hitboxes[first];
+          const b = hitboxes[second];
+          const separated =
+            a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+          assert.ok(separated, `${a.testID} and ${b.testID} overlap at ${width}x${height}`);
+        }
+      }
+      const noticeTitle = screen.getByText('공지');
+      const questTitle = screen.getByText('퀘스트');
+      assert.equal(noticeTitle.props.numberOfLines, 1);
+      assert.equal(questTitle.props.numberOfLines, 1);
+      assert.equal(StyleSheet.flatten(noticeTitle.props.style).fontSize, 28 * labelScale);
+      assert.equal(StyleSheet.flatten(questTitle.props.style).fontSize, 22 * labelScale);
+      assert.equal(StyleSheet.flatten(noticeTitle.props.style).whiteSpace, 'nowrap');
+      assert.equal(StyleSheet.flatten(questTitle.props.style).whiteSpace, 'nowrap');
+      await screen.unmount();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('퀘스트 목록 항목의 상세 버튼은 여덟 화면 크기에서 손가락 크기다', async () => {
+  const viewports = [
+    [375, 667],
+    [402, 874],
+    [440, 956],
+    [834, 1210],
+    [667, 375],
+    [874, 402],
+    [956, 440],
+    [1210, 834],
+  ];
+
+  for (const [width, height] of viewports) {
+    const screen = await renderBoard(null, concept({ boardPanel: 'quest', boardView: 'list' }), {
+      width,
+      height,
+    });
+    const detail = StyleSheet.flatten(screen.getByTestId('board-quest-detail-0').props.style);
+    assert.ok(detail.minWidth >= 44, `detail button is at least 44px wide at ${width}x${height}`);
+    assert.ok(detail.minHeight >= 44, `detail button is at least 44px tall at ${width}x${height}`);
+    await screen.unmount();
+  }
+});
+
+test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라벨이 같은 좌표계에 놓인다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const buildingIndex = buildings.findIndex(({ id }) => id === 'board');
+    assert.notEqual(buildingIndex, -1);
+    const viewports = [
+      [375, 667],
+      [402, 874],
+      [440, 956],
+      [834, 1210],
+      [667, 375],
+      [874, 402],
+      [956, 440],
+      [1210, 834],
+    ];
+
+    for (const [width, height] of viewports) {
+      const screen = await render(
+        <InteriorScreen
+          buildingIndex={buildingIndex}
+          conceptIndex={0}
+          width={width}
+          height={height}
+          reduceMotion
+        />,
+      );
+      const landscape = width > height;
+      const scroll = screen.getByTestId('board-scene-scroll');
+      assert.equal(scroll.props.horizontal, false);
+      assert.equal(scroll.props.scrollEnabled, landscape);
+      assert.equal(scroll.props.showsVerticalScrollIndicator, false);
+      assert.equal(scroll.props.showsHorizontalScrollIndicator, false);
+      assert.deepEqual(scroll.props.contentOffset, {
+        x: 0,
+        y: landscape ? Math.max(0, width * 1.5 - height) * 0.38 : 0,
+      });
+      const scrollContent = StyleSheet.flatten(scroll.props.contentContainerStyle);
+      assert.equal(scrollContent.width, width);
+      if (landscape) {
+        assert.equal(screen.queryByTestId('board-side-fill'), null);
+        assert.equal(scrollContent.height, width * 1.5);
+        const image = screen.getByTestId('board-scene-image', { includeHiddenElements: true });
+        const imageStyle = StyleSheet.flatten(image.props.style);
+        assert.equal(image.props.resizeMode, 'stretch');
+        assert.equal(imageStyle.width, width);
+        assert.equal(imageStyle.height, width * 1.5);
+        const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
+        assert.equal(labelScene.position, 'absolute');
+        assert.equal(labelScene.left, 0);
+        assert.equal(labelScene.top, 0);
+        const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+        assert.ok(Math.abs(quest.top + quest.height / 2 - width * 1.5 * 0.285) < 0.01);
+        assert.ok(quest.width >= 44 && quest.height >= 44);
+      } else {
+        assert.equal(scrollContent.height, height);
+      }
+      await screen.unmount();
+    }
+  } finally {
+    restore();
+  }
 });
 
 test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {
