@@ -484,7 +484,42 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       if (result.transition) transitions.push(result.transition);
     }
     scheduleExpiry();
-    return { changed, transitions, processed: pending.length > 0 };
+    return { changed, transitions, processed: pending.length > 0, entries: pending };
+  };
+
+  const recoverSnapshotTransitions = (
+    transitions: IslandPresenceTransition[],
+    entries: { raw: unknown; misses: number }[],
+    previousFocus: Map<string, LiveFocusMember>,
+    previousRest: Map<string, LiveRestMember>,
+  ): IslandPresenceTransition[] => {
+    const recovered = [...transitions];
+    const covered = new Set(
+      transitions.map((transition) => `${transition.kind}:${transition.userId}`),
+    );
+    for (const { raw } of entries) {
+      const env = raw as RealtimeEnvelope;
+      if (!env || env.schemaVersion !== 1 || env.islandId !== islandId) continue;
+      const p = env.payload as Record<string, unknown> | null;
+      const userId = str(p?.userId);
+      if (!userId) continue;
+      if (env.type === 'focus.member.updated' && !covered.has(`focus:${userId}`)) {
+        const previous = previousFocus.get(userId) ?? null;
+        const current = projection.focus().find((member) => member.userId === userId) ?? null;
+        if (previous?.status !== current?.status || previous?.sessionId !== current?.sessionId) {
+          recovered.push({ source: 'event', kind: 'focus', userId, previous, current });
+          covered.add(`focus:${userId}`);
+        }
+      } else if (env.type === 'rest.member.updated' && !covered.has(`rest:${userId}`)) {
+        const previous = previousRest.get(userId) ?? null;
+        const current = projection.rest().find((member) => member.userId === userId) ?? null;
+        if (!!previous !== !!current) {
+          recovered.push({ source: 'event', kind: 'rest', userId, previous, current });
+          covered.add(`rest:${userId}`);
+        }
+      }
+    }
+    return recovered;
   };
 
   const clearGapRetry = () => {
@@ -517,10 +552,9 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       clearGapRetry();
     }
     if (!hadData) publish('loading');
-    const previousFocus =
-      source === 'event-gap' ? new Map(projection.focus().map((m) => [m.userId, m])) : null;
-    const previousRest =
-      source === 'event-gap' ? new Map(projection.rest().map((m) => [m.userId, m])) : null;
+    const hadPreviousSnapshot = hadData;
+    const previousFocus = new Map(projection.focus().map((m) => [m.userId, m]));
+    const previousRest = new Map(projection.rest().map((m) => [m.userId, m]));
     try {
       const { focus, rest } = await load(islandId);
       if (disposed || !alive()) return;
@@ -528,6 +562,15 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       projection.loadRest(rest);
       projection.resyncNeeded = false;
       const replay = replayPendingEvents();
+      const transitions =
+        source === 'event-gap' || !hadPreviousSnapshot
+          ? replay.transitions
+          : recoverSnapshotTransitions(
+              replay.transitions,
+              replay.entries,
+              previousFocus,
+              previousRest,
+            );
       // 프로젝션 전파 지연은 한 번 더 확인하되, 미반영 이벤트를 보존해 무한 즉시 재조회는 막는다.
       if (projection.resyncNeeded && eventGapRetries < 1) {
         eventGapRetries += 1;
@@ -540,23 +583,23 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       }
       hadData = true;
       if (source !== 'event-gap') snapshotVersion = ++nextSnapshotVersion;
-      publish('ready', null, source !== 'event-gap' ? replay.transitions : []);
+      publish('ready', null, source !== 'event-gap' ? transitions : []);
       if (source !== 'event-gap') {
-        for (const transition of replay.transitions) deps.onTransition?.(transition);
+        for (const transition of transitions) deps.onTransition?.(transition);
       }
       if (source === 'event-gap') {
         const transitions: IslandPresenceTransition[] = [];
         const nextFocus = new Map(projection.focus().map((m) => [m.userId, m]));
-        for (const userId of new Set([...(previousFocus?.keys() ?? []), ...nextFocus.keys()])) {
-          const previous = previousFocus?.get(userId) ?? null;
+        for (const userId of new Set([...previousFocus.keys(), ...nextFocus.keys()])) {
+          const previous = previousFocus.get(userId) ?? null;
           const current = nextFocus.get(userId) ?? null;
           if (previous?.status !== current?.status || previous?.sessionId !== current?.sessionId) {
             transitions.push({ source, kind: 'focus', userId, previous, current });
           }
         }
         const nextRest = new Map(projection.rest().map((m) => [m.userId, m]));
-        for (const userId of new Set([...(previousRest?.keys() ?? []), ...nextRest.keys()])) {
-          const previous = previousRest?.get(userId) ?? null;
+        for (const userId of new Set([...previousRest.keys(), ...nextRest.keys()])) {
+          const previous = previousRest.get(userId) ?? null;
           const current = nextRest.get(userId) ?? null;
           if (!!previous !== !!current)
             transitions.push({ source, kind: 'rest', userId, previous, current });

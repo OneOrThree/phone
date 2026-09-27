@@ -445,6 +445,73 @@ describe('startIslandRealtime', () => {
     assert.equal(transitions[0].current?.status, 'paused');
   });
 
+  test('버퍼 이벤트와 같은 watermark의 스냅숏도 active→paused 전이를 보존한다', async () => {
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const transitions: IslandPresenceTransition[] = [];
+    const deps: Parameters<typeof start>[0] = {
+      islandId: 'i1',
+      views,
+      transitions,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await flush();
+
+    let resolveSnapshot!: (value: {
+      focus: ReturnType<typeof focusSnap>;
+      rest: ReturnType<typeof restSnap>;
+    }) => void;
+    deps.loadSnapshots = () => new Promise((resolve) => (resolveSnapshot = resolve));
+    rt.resync('reconnect');
+    channel.opts?.onEvent(focusEvent('u1', 2, { status: 'paused' }));
+    resolveSnapshot({
+      focus: focusSnap([focusItem('u1', { status: 'paused' })], [wm('focus.member', 'u1', 2)]),
+      rest: restSnap([]),
+    });
+    await flush();
+
+    assert.equal(views.at(-1)?.focus[0].status, 'paused');
+    assert.equal(views.at(-1)?.snapshotTransitions?.length, 1);
+    assert.equal(transitions.length, 1);
+    const transition = transitions[0];
+    assert.ok(transition?.kind === 'focus');
+    if (transition.kind !== 'focus') throw new Error('focus 전이가 필요하다');
+    assert.equal(transition.previous?.status, 'active');
+    assert.equal(transition.current?.status, 'paused');
+  });
+
+  test('첫 스냅숏에 이미 반영된 버퍼 이벤트는 입장 전이로 복구하지 않는다', async () => {
+    const channel = fakeChannel();
+    const transitions: IslandPresenceTransition[] = [];
+    let resolveSnapshot!: (value: {
+      focus: ReturnType<typeof focusSnap>;
+      rest: ReturnType<typeof restSnap>;
+    }) => void;
+    const { rt } = start(
+      {
+        islandId: 'i1',
+        transitions,
+        loadSnapshots: () => new Promise((resolve) => (resolveSnapshot = resolve)),
+      },
+      channel,
+    );
+
+    rt.resync();
+    channel.opts?.onEvent(focusEvent('u1', 2, { status: 'paused' }));
+    resolveSnapshot({
+      focus: focusSnap([focusItem('u1', { status: 'paused' })], [wm('focus.member', 'u1', 2)]),
+      rest: restSnap([]),
+    });
+    await flush();
+
+    assert.equal(transitions.length, 0);
+  });
+
   test('재연결 조회가 실패해도 그 사이 도착한 상태 이벤트를 마지막 정상 뷰에 반영한다', async () => {
     const channel = fakeChannel();
     const views: PresenceView[] = [];
