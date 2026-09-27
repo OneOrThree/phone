@@ -53,9 +53,11 @@ test('차단 목록을 불러오는 동안 로딩을 보여 주고 빈 응답을
   await waitFor(() => assert.ok(screen.getByText('차단한 사용자가 없어요.')));
 });
 
-test('화면 조회는 진행 중인 전역 조회와 합쳐 성공 응답을 그대로 사용한다', async () => {
+test('화면 진입 전 시작한 전역 조회가 진행 중이면 완료 뒤 최신 목록을 다시 읽는다', async () => {
   let resolve: (value: (typeof user)[]) => void = () => {};
-  listMock.mockReturnValueOnce(new Promise((done) => (resolve = done)));
+  listMock
+    .mockReturnValueOnce(new Promise((done) => (resolve = done)))
+    .mockResolvedValueOnce([user]);
 
   const pending = refreshBlockedUsers();
   const screen = await render(<BlockedUsersScreen e={events()} />);
@@ -64,6 +66,7 @@ test('화면 조회는 진행 중인 전역 조회와 합쳐 성공 응답을 �
   await pending;
   await waitFor(() => assert.ok(screen.getByText('민지')));
 
+  assert.equal(listMock.mock.calls.length, 2);
   assert.equal(isUserBlocked('user-2'), true);
   assert.equal(screen.queryByText(/불러오지 못했어요/), null);
   await screen.unmount();

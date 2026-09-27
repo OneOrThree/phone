@@ -162,6 +162,31 @@ test('앱이 포그라운드로 돌아오면 준비된 cache도 다시 검증한
   await hook.unmount();
 });
 
+test('포그라운드 전에 시작한 조회가 진행 중이면 완료 뒤 최신 목록을 다시 조회한다', async () => {
+  let onChange: (state: string) => void = () => {};
+  let resolveOlder: (users: Array<{ id: string; name: string }>) => void = () => {};
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_, listener: any) => {
+    onChange = listener;
+    return { remove: jest.fn() } as any;
+  });
+  listMock
+    .mockReturnValueOnce(new Promise((done) => (resolveOlder = done)))
+    .mockResolvedValueOnce([{ id: 'u-new-device', name: '다른 기기 차단' }]);
+
+  const older = refreshBlockedUsers();
+  const hook = await renderHook(() => useBlockedUsers(true));
+  await act(async () => onChange('active'));
+  assert.equal(listMock.mock.calls.length, 1);
+
+  await act(async () => {
+    resolveOlder([]);
+    await older;
+  });
+  await waitFor(() => assert.equal(listMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(isUserBlocked('u-new-device'), true));
+  await hook.unmount();
+});
+
 test('준비된 cache의 재검증이 실패하면 stale 목록 대신 오류 상태로 전환한다', async () => {
   listMock.mockRejectedValue(new Error('blocks unavailable'));
   const hook = await renderHook(() => useBlockedUsers(true));

@@ -172,6 +172,24 @@ test('차단 해제 때문에 우체통을 재적재해도 열려 있던 편지�
   await hook.unmount();
 });
 
+test('차단 해제 뒤 우체통 재적재가 실패하면 열린 편지에 재시도 오류를 전달한다', async () => {
+  replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  screenMock.mockRejectedValueOnce(new ApiError('MAILBOX_FAILED', '우체통 오류', 500));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => revalidateBlockedUsers());
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.detailError?.code, 'MAILBOX_FAILED'));
+  assert.equal(hook.result.current.detailLoading, false);
+  assert.equal(getLetterMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
 test('차단 신호가 오면 캐시된 낙서·편지·친구를 서버 재조회 전에 즉시 숨긴다', async () => {
   const hook = await mount();
 

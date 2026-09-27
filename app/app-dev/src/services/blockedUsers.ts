@@ -10,6 +10,7 @@ let loaded = false;
 let lastValidatedAt = 0;
 let loadError: unknown = null;
 let flight: Promise<BlockedUser[]> | null = null;
+let revalidationFlight: Promise<BlockedUser[]> | null = null;
 let validating = false;
 let mutationRevision = 0;
 let refreshSequence = 0;
@@ -30,6 +31,7 @@ const resetForSession = () => {
   lastValidatedAt = 0;
   loadError = null;
   flight = null;
+  revalidationFlight = null;
   validating = false;
   mutationRevision = 0;
   refreshSequence = 0;
@@ -90,8 +92,23 @@ export function loadBlockedUsers(): Promise<BlockedUser[]> {
 
 /** 화면 재진입·포그라운드 복귀의 재검증은 여러 소비자가 동시에 요청해도 한 GET으로 합친다. */
 export function revalidateBlockedUsers(): Promise<BlockedUser[]> {
-  if (flight) return flight;
-  return refreshBlockedUsers();
+  if (revalidationFlight) return revalidationFlight;
+  // 이 freshness boundary 전에 시작한 요청은 다른 기기의 최신 변경을 포함한다고
+  // 보장할 수 없다. 해당 요청이 끝난 뒤 새 GET을 이어 붙이고 동시 소비자는 합친다.
+  const previousFlight = flight;
+  const request = previousFlight
+    ? previousFlight.then(refreshBlockedUsers, refreshBlockedUsers)
+    : refreshBlockedUsers();
+  revalidationFlight = request;
+  request.then(
+    () => {
+      if (revalidationFlight === request) revalidationFlight = null;
+    },
+    () => {
+      if (revalidationFlight === request) revalidationFlight = null;
+    },
+  );
+  return request;
 }
 
 export function refreshBlockedUsers(): Promise<BlockedUser[]> {
@@ -158,18 +175,14 @@ export function useBlockedUsers(
   const hasActivated = useRef(false);
   useEffect(() => {
     if (!active) return;
-    const request = hasActivated.current ? revalidateBlockedUsers() : loadBlockedUsers();
+    const request =
+      hasActivated.current || revalidateActive ? revalidateBlockedUsers() : loadBlockedUsers();
     hasActivated.current = true;
     request.catch(() => {});
     const subscription = AppState.addEventListener('change', (next) => {
       if (next === 'active') revalidateBlockedUsers().catch(() => {});
     });
     return () => subscription.remove();
-  }, [active, currentGeneration]);
-  useEffect(() => {
-    if (!active || !revalidateActive) return;
-    // 공용 소비자가 계속 활성인 경우에도 실제 필터 화면 재진입은 강제 재검증한다.
-    revalidateBlockedUsers().catch(() => {});
   }, [active, currentGeneration, revalidateActive]);
   return {
     ids,

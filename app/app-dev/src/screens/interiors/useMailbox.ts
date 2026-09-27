@@ -165,10 +165,11 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
         error: null,
       });
     } catch (error) {
-      if (!alive(e, generation)) return;
+      if (!alive(e, generation)) throw error;
       // 권한 상실이면 캐시를 비운 채 오류만 남긴다 — EMPTY patch 가 데이터를 지운다.
       if (authLost(error)) set({ ...EMPTY, loading: false, error: error as ApiError });
       else set({ loading: false, error: error as ApiError });
+      throw error;
     }
   }, [active, alive, set]);
 
@@ -426,9 +427,13 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
       const openDetailId = stateRef.current.detail?.id;
       load()
         .then(() => (openDetailId ? openLetter(openDetailId) : undefined))
-        .catch(() => {});
+        .catch((error) => {
+          if (!mounted.current || generation !== sessionGeneration()) return;
+          // 상세 route를 유지한 채 묶음 재적재가 실패하면 무한 로딩 대신 재시도를 노출한다.
+          set({ detailLoading: false, detailError: error as ApiError });
+        });
     }
-  }, [active, blockedIds, blockedUsers.status, generation, load, openLetter]);
+  }, [active, blockedIds, blockedUsers.status, generation, load, openLetter, set]);
 
   useEffect(() => {
     epoch.current += 1;

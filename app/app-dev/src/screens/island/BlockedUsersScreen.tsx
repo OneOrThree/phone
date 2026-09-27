@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View } from 'react-native';
 import { Btn, C, Txt } from '@/design-system/patterns';
 import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
@@ -11,7 +11,7 @@ import {
 } from '@/services/blockedUsers';
 
 export function BlockedUsersScreen({ e }: any) {
-  const blockedUsers = useBlockedUsers(true);
+  const blockedUsers = useBlockedUsers(true, true);
   const items = blockedUsers.users;
   const [actionError, setActionError] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -30,10 +30,6 @@ export function BlockedUsersScreen({ e }: any) {
       await revalidateBlockedUsers();
     } catch {}
   }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
 
   const unblock = async (item: BlockedUser) => {
     if (busyId) return;
