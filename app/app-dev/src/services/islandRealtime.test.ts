@@ -505,6 +505,46 @@ describe('startIslandRealtime', () => {
     assert.ok(views.at(-1)?.focus.some((member) => member.userId === 'ghost'));
   });
 
+  test('두 번의 조회 실패는 정본 미반영으로 세지 않고 다음 성공 조회까지 이벤트를 보존한다', async () => {
+    jest.useFakeTimers();
+    const channel = fakeChannel();
+    const views: PresenceView[] = [];
+    const deps: Parameters<typeof start>[0] = {
+      islandId: 'i1',
+      views,
+      snapshots: {
+        focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+        rest: restSnap([]),
+      },
+    };
+    const { rt } = start(deps, channel);
+    rt.resync();
+    await Promise.resolve();
+
+    let attempt = 0;
+    deps.loadSnapshots = () => {
+      attempt += 1;
+      if (attempt <= 2) return Promise.reject(new ApiError('NETWORK', '일시 실패', 0));
+      return Promise.resolve({
+        focus: focusSnap(
+          [focusItem('u1'), focusItem('ghost')],
+          [wm('focus.member', 'u1', 1), wm('focus.member', 'ghost', 2)],
+        ),
+        rest: restSnap([]),
+      });
+    };
+    channel.opts?.onEvent(focusEvent('ghost', 2));
+    await Promise.resolve();
+    await Promise.resolve();
+    await jest.advanceTimersByTimeAsync(300);
+    await Promise.resolve();
+
+    assert.equal(attempt, 3);
+    assert.ok(views.at(-1)?.focus.some((member) => member.userId === 'ghost'));
+    rt.dispose();
+    jest.useRealTimers();
+  });
+
   test('event-gap 조회 중 도착한 또 다른 신규 주민도 후속 정본 조회로 복구한다', async () => {
     const channel = fakeChannel();
     const views: PresenceView[] = [];

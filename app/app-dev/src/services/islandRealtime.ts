@@ -462,7 +462,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     }
   };
 
-  const replayPendingEvents = () => {
+  const replayPendingEvents = (confirmedSnapshot = true) => {
     let changed = false;
     const transitions: IslandPresenceTransition[] = [];
     const pending = pendingEvents.splice(0);
@@ -473,9 +473,13 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       const unresolved = projection.resyncNeeded;
       // 첫 정본 조회에도 없는 이벤트만 한 번 더 확인한다. 두 번째 정본에도 없으면
       // 완료 후 지연 도착한 사건으로 보고 폐기해 event-gap GET이 영구 반복되지 않게 한다.
-      const retry = unresolved && entry.misses < 1;
+      const retry = unresolved && (!confirmedSnapshot || entry.misses < 1);
       projection.resyncNeeded = previouslyNeeded || retry;
-      if (retry) pendingEvents.push({ raw: entry.raw, misses: entry.misses + 1 });
+      if (retry)
+        pendingEvents.push({
+          raw: entry.raw,
+          misses: confirmedSnapshot ? entry.misses + 1 : entry.misses,
+        });
       changed ||= result.changed;
       if (result.transition) transitions.push(result.transition);
     }
@@ -568,7 +572,9 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       if (!hadData) publish('error', thrown as ApiError);
       else {
         // 재연결 조회가 실패해도 그 사이 도착한 이벤트는 마지막 정상 스냅숏 위에 반영한다.
-        const replay = replayPendingEvents();
+        // 실패한 GET은 정본 확인 횟수로 세지 않는다. 마지막 정상 스냅숏에 적용 가능한
+        // 이벤트만 반영하고, 모르는 주민 이벤트는 같은 misses로 다음 성공 조회까지 보존한다.
+        const replay = replayPendingEvents(false);
         if (replay.processed && projection.resyncNeeded && eventGapRetries < 1) {
           eventGapRetries += 1;
           resyncAfter = 'event-gap';
