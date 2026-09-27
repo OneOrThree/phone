@@ -31,6 +31,13 @@ export const INK = '#493B39',
 // 도착 지점 바다 위 뗏목 한 대. 고양이는 뗏목 바로 위쪽의 가장 가까운 땅에 내려 선다.
 export const RAFT = { x: 37.8, y: 91.8 };
 const FISHING_MAP_ASPECT = 1536 / 1024;
+const raftBox = { x: 48, y: 307, w: 928, h: 669 }; // boats/raft/day.png 의 그림 영역
+const raftBounds = {
+  left: RAFT.x - 6,
+  right: RAFT.x + 6,
+  top: RAFT.y - ((6 * raftBox.h) / raftBox.w) * FISHING_MAP_ASPECT,
+  bottom: RAFT.y + ((6 * raftBox.h) / raftBox.w) * FISHING_MAP_ASPECT,
+};
 // fishing-rod.png 장축은 오른쪽 위를 향한다. 찌 방향에 맞추려면 이 기준축을 보정한다.
 const FISHING_ROD_AXIS_ANGLE = -Math.PI / 4;
 export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
@@ -172,6 +179,11 @@ export function fishingCatchPlacement(
       top: GRAM.y - ((GRAM.w * gramBox.h) / gramBox.w) * FISHING_MAP_ASPECT,
       bottom: GRAM.y,
     };
+  // Resident의 저장된 보상은 아직 숨겨져 있어도 나중에 표시될 수 있으므로 mine 고양이와는 항상 충돌 검사한다.
+  const reservedRewardBounds = others
+    .filter((other) => !(other.x === spot.x && other.y === spot.y) && other.catchPlacement != null)
+    .map((other) => catchBounds(other, other.catchPlacement!));
+  if (reservedRewardBounds.some((reward) => boundsOverlap(reward, ownCat))) return null;
   let best: (FishingCatchPlacement & { score: number }) | null = null;
   for (let left = -3; left <= 2.001; left += 0.25)
     for (let top = -3; top <= 2.001; top += 0.25) {
@@ -182,6 +194,7 @@ export function fishingCatchPlacement(
       if (!catchFootprintOnLand(spot, left, top)) continue;
       const reward = catchBounds(spot, { left, top });
       if (gramVisible && boundsOverlap(reward, gramBounds)) continue;
+      if (boundsOverlap(reward, raftBounds)) continue;
       if (
         others.some((other) => {
           if (other.x === spot.x && other.y === spot.y) return false;
@@ -195,8 +208,7 @@ export function fishingCatchPlacement(
                 : null;
           return (
             boundsOverlap(reward, otherCat) ||
-            (otherReward != null &&
-              (boundsOverlap(reward, otherReward) || boundsOverlap(otherReward, ownCat)))
+            (otherReward != null && boundsOverlap(reward, otherReward))
           );
         })
       )
@@ -386,7 +398,6 @@ export function anchorCard(
   ].find(([t, l]) => t >= T && t + dh <= B && l >= L && l + dw <= R) ?? [vy, hx];
   return { top, left };
 }
-const raftBox = { x: 48, y: 307, w: 928, h: 669 }; // boats/raft/day.png 의 그림 영역
 // 화면보다 큰 지도·배경을 자르는 컨테이너. 웹의 hidden 은 포커스·scrollIntoView 로 속이 밀릴 수 있어 clip 을 쓴다.
 export const clip = (Platform.OS === 'web' ? 'clip' : 'hidden') as 'hidden';
 export function FishingIsland({

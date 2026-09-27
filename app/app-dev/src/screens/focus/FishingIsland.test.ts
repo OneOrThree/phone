@@ -12,6 +12,7 @@ import {
   FishingActor,
   FishingPeerActorView,
   GRAM,
+  RAFT,
   anchorCard,
   castSpot,
   fishingCamera,
@@ -357,6 +358,52 @@ test('숨겨진 resident 보상은 mine placement obstacle이 아니다', () => 
     visiblePlacement = fishingCatchPlacement(spot, PEER_SPOTS, PEER_SPOTS);
   assert.ok(hiddenPlacement, '고양이만 장애물로 남으면 빈 자리에 보상을 둔다');
   assert.equal(visiblePlacement, null, '실제로 보이는 resident 보상은 겹침을 막는다');
+});
+
+test('숨겨진 resident 예약 보상은 mine 고양이와의 충돌을 좌석 선택 때 막는다', () => {
+  const spot = castSpot({ x: 8, y: 40 }),
+    peer = PEER_SPOTS[0],
+    hidden = fishingCatchPlacement(spot, PEER_SPOTS, []),
+    visible = fishingCatchPlacement(spot, PEER_SPOTS, [peer]);
+  assert.equal(
+    hidden,
+    null,
+    '아직 숨겨진 resident 보상도 이후 표시될 때 mine 고양이를 덮을 수 없다',
+  );
+  assert.equal(visible, null, 'resident 보상이 보이기 시작한 뒤에도 안전한 선택 기준은 같다');
+});
+
+test('mine 보상 footprint가 뗏목 실제 그림 영역을 덮지 않는다', () => {
+  const raftHalfHeight = 6 * (669 / 928) * (1536 / 1024),
+    raft = {
+      left: RAFT.x - 6,
+      right: RAFT.x + 6,
+      top: RAFT.y - raftHalfHeight,
+      bottom: RAFT.y + raftHalfHeight,
+    },
+    rewardBounds = (
+      spot: Spot,
+      placement: NonNullable<ReturnType<typeof fishingCatchPlacement>>,
+    ) => {
+      const left = spot.x + (placement.left - 0.5) * 7.7,
+        top = spot.y + (placement.top - 0.90625) * 11.55;
+      return { left, top, right: left + 8.47, bottom: top + 12.705 };
+    },
+    overlapsRaft = (reward: ReturnType<typeof rewardBounds>) =>
+      reward.left < raft.right &&
+      reward.right > raft.left &&
+      reward.top < raft.bottom &&
+      reward.bottom > raft.top,
+    spot = castSpot({ x: 48, y: 85.5 }),
+    placement = fishingCatchPlacement(spot, [], undefined, false);
+  assert.ok(placement, '회귀 좌표는 고양이가 앉을 수 있고 인접 보상 후보도 있다');
+  assert.equal(overlapsRaft(rewardBounds(spot, placement)), false);
+  for (const peer of PEER_SPOTS)
+    assert.equal(
+      overlapsRaft(rewardBounds(peer, peer.catchPlacement!)),
+      false,
+      `${peer.x},${peer.y} 주민 보상이 뗏목 그림을 덮음`,
+    );
 });
 
 test('축음기가 있을 때만 보상 배치가 축음기 영역을 장애물로 취급하고 resident 자리는 고정된다', async () => {
