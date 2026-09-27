@@ -3,6 +3,7 @@ import { Animated, AppState, Easing, Image, View, StyleSheet } from 'react-nativ
 import Svg, { Path } from 'react-native-svg';
 import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
+import type { Building } from '@/services/model';
 import { villageMap, VillageScene } from '@/utils/village-world';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
@@ -14,6 +15,7 @@ export const VillageScenery = memo(function VillageScenery({
   scale,
   reduce,
   mailboxLetters,
+  hiddenBuilding,
   boardStatus = null,
   hallMotionActive = false,
   hallMotionGeneration = 0,
@@ -23,6 +25,8 @@ export const VillageScenery = memo(function VillageScenery({
   scale: number;
   reduce: boolean;
   mailboxLetters: boolean;
+  /** 공사 sprite가 대신 그리는 시설. 충돌·길은 scene에 남기고 완공 원화만 숨긴다. */
+  hiddenBuilding?: Building;
   boardStatus?: 'unread' | 'new-comment' | null;
   hallMotionActive?: boolean;
   hallMotionGeneration?: number;
@@ -105,6 +109,7 @@ export const VillageScenery = memo(function VillageScenery({
           pointerEvents="none"
           style={{
             position: 'absolute',
+            display: o.building === hiddenBuilding ? 'none' : 'flex',
             left: (o.x - o.w / 2) * scale,
             top: (o.y - o.h) * scale,
             width: o.w * scale,

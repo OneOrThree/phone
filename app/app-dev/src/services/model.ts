@@ -307,6 +307,13 @@ export type State = {
     requestStatus: RequestStatusEntry[];
     // 서버 모드 홈이 직접 그리는 스냅샷(GROMO-2138). 읽을 때는 serverHome() 으로 current 와 대조한다
     home?: HomeWorldFacts | null;
+    /** 착공 POST 응답을 클라이언트가 보관하는 공사 구간. 서버 GET 계약에는 포함하지 않는다. */
+    clientConstruction?: {
+      islandId: string;
+      building: Building;
+      startedAt: number;
+      endsAt: number;
+    } | null;
   } | null;
   travelOrigin?: string;
   // 다른 섬을 방문자로 구경 중이면 그 섬 ID(GROMO-1904). 내 현재 섬(islandId)은 그대로 둔다
@@ -1557,7 +1564,10 @@ export function reducer(state: State, a: Action): State {
       snap.memberships = my.items;
       // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아
       // 옛 방장 여부·완공 건물이 새 스냅샷 전에 그려지지 않게 한다(GROMO-2138)
-      if (snap.currentIslandId !== my.currentIslandId) snap.home = null;
+      if (snap.currentIslandId !== my.currentIslandId) {
+        snap.home = null;
+        snap.clientConstruction = null;
+      }
       snap.currentIslandId = my.currentIslandId;
       snap.lossReason = my.lossReason;
       if (a.requests) {
@@ -1582,9 +1592,35 @@ export function reducer(state: State, a: Action): State {
       if (a.mainIslandId !== undefined) s.mainIslandId = a.mainIslandId as string | null;
       break;
     }
-    case 'SERVER_HOME':
-      serverSnap(s).home = a.facts as HomeWorldFacts;
+    case 'SERVER_HOME': {
+      const snap = serverSnap(s);
+      const facts = a.facts as HomeWorldFacts;
+      snap.home = facts;
+      if (
+        snap.clientConstruction &&
+        (snap.clientConstruction.islandId !== facts.islandId ||
+          facts.completedBuildings.includes(snap.clientConstruction.building))
+      ) {
+        snap.clientConstruction = null;
+      }
       break;
+    }
+    case 'SERVER_CONSTRUCTION_STARTED': {
+      const snap = serverSnap(s);
+      const building = a.building as Building;
+      const startedAt = Number(a.startedAt);
+      const endsAt = Number(a.endsAt);
+      if (
+        snap.currentIslandId !== a.islandId ||
+        !buildingOrder.includes(building) ||
+        !Number.isFinite(startedAt) ||
+        !Number.isFinite(endsAt) ||
+        endsAt <= startedAt
+      )
+        return state;
+      snap.clientConstruction = { islandId: a.islandId, building, startedAt, endsAt };
+      break;
+    }
     case 'SERVER_VILLAGE_POINTS': {
       const target = s.islands.find((island) => island.id === a.islandId),
         value = Number(a.value),
