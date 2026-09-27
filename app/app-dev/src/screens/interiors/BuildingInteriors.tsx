@@ -4434,6 +4434,7 @@ export function Board({
         const draftOp = draftEpoch.current;
         write.then(
           () => {
+            e.onBoardCommentRead?.();
             if (commentInflight.current === intent) commentInflight.current = null;
             const now = liveE(op);
             if (!now || draftEpoch.current !== draftOp) return;
