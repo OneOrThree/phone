@@ -6,6 +6,7 @@ CREATE TABLE public.report_deliveries (
     reporter_id uuid NOT NULL,
     request_id uuid NOT NULL,
     case_id varchar(64) NOT NULL,
+    confirmation_token uuid NOT NULL,
     request_fingerprint char(64) NOT NULL,
     block_requested boolean NOT NULL,
     author_id uuid,
@@ -38,3 +39,6 @@ CREATE TABLE public.report_deliveries (
 CREATE INDEX ix_report_deliveries_pending_lease
     ON public.report_deliveries (lease_expires_at)
     WHERE status IN ('PENDING', 'EMAIL_CONFIRMED');
+
+CREATE INDEX ix_report_deliveries_reporter_created
+    ON public.report_deliveries (reporter_id, created_at);

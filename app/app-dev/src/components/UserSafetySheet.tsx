@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { TextInput } from '@/design-system/typography';
 import { Btn, C, Chips, Toggle, Txt } from '@/design-system/patterns';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { ApiError, uuid } from '@/services/api/client';
 import {
   blockUser,
@@ -129,15 +130,25 @@ export function UserSafetySheet(props: Props) {
     }
   };
 
+  const close = () => {
+    if (!busy) props.onClose();
+  };
+
   return (
-    <Modal transparent visible={props.visible} animationType="fade" onRequestClose={props.onClose}>
+    <Modal transparent visible={props.visible} animationType="fade" onRequestClose={close}>
       <ImageBackground source={SAFETY_ART.background} resizeMode="cover" style={{ flex: 1 }}>
         <View style={[StyleSheet.absoluteFill, { backgroundColor: `${C.ink}66` }]} />
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
           style={{ flex: 1, justifyContent: 'flex-end' }}
         >
-          <Pressable style={{ flex: 1 }} accessibilityLabel="닫기" onPress={props.onClose}>
+          <Pressable
+            style={{ flex: 1 }}
+            accessibilityLabel="닫기"
+            accessibilityState={{ disabled: busy }}
+            disabled={busy}
+            onPress={close}
+          >
             <Image
               source={SAFETY_ART.envelope}
               resizeMode="contain"
@@ -168,16 +179,16 @@ export function UserSafetySheet(props: Props) {
             accessibilityViewIsModal
             style={{
               maxHeight: '80%',
-              marginHorizontal: 12,
-              marginBottom: 12,
-              padding: 20,
-              paddingBottom: 24,
-              gap: 14,
-              borderRadius: 26,
-              borderWidth: 2,
+              marginHorizontal: semanticTokens.spacing.control,
+              marginBottom: semanticTokens.spacing.control,
+              padding: componentTokens.modal.padding,
+              paddingBottom: componentTokens.modal.paddingBottom,
+              gap: componentTokens.modal.gap,
+              borderRadius: componentTokens.modal.radius,
+              borderWidth: componentTokens.modal.borderWidth,
               borderColor: C.brown,
               backgroundColor: C.paper,
-              boxShadow: `0 6px 0 ${C.brown}`,
+              boxShadow: componentTokens.modal.shadow,
             }}
           >
             <View
@@ -193,15 +204,22 @@ export function UserSafetySheet(props: Props) {
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="닫기"
-                onPress={props.onClose}
-                style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
+                accessibilityState={{ disabled: busy }}
+                disabled={busy}
+                onPress={close}
+                style={{
+                  width: semanticTokens.size.tapMin,
+                  height: semanticTokens.size.tapMin,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
               >
                 <Txt style={{ fontSize: 22, fontWeight: '800' }}>×</Txt>
               </Pressable>
             </View>
 
             {mode === 'menu' ? (
-              <View style={{ gap: 10 }}>
+              <View style={{ gap: semanticTokens.spacing.control }}>
                 <Btn title="신고하기" onPress={() => setMode('report')} />
                 <Btn kind="sec" title="차단하기" onPress={() => setMode('block')} />
                 {props.extraAction ? (
@@ -216,15 +234,16 @@ export function UserSafetySheet(props: Props) {
                 ) : null}
               </View>
             ) : mode === 'block' ? (
-              <View style={{ gap: 14 }}>
+              <View style={{ gap: componentTokens.modal.gap }}>
                 <Txt>
                   서로 친구 요청과 편지를 보낼 수 없고, 친구 목록과 받은 편지에서 {props.targetName}
                   님이 숨겨져요.
                 </Txt>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
                   <Btn
                     kind="sec"
                     title="취소"
+                    disabled={busy}
                     style={{ flex: 1 }}
                     onPress={() => setMode('menu')}
                   />
@@ -237,7 +256,10 @@ export function UserSafetySheet(props: Props) {
                 </View>
               </View>
             ) : (
-              <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ gap: 14 }}>
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={{ gap: componentTokens.modal.gap }}
+              >
                 <Txt kind="meta">서버가 화면의 원문을 다시 확인해 운영팀에 전달해요.</Txt>
                 <Chips
                   items={REASONS.map((item) => item.label)}
@@ -251,6 +273,7 @@ export function UserSafetySheet(props: Props) {
                   accessibilityLabel="신고 설명"
                   value={description}
                   onChangeText={setDescription}
+                  editable={!busy}
                   multiline
                   maxLength={1000}
                   placeholder={
@@ -259,10 +282,10 @@ export function UserSafetySheet(props: Props) {
                   placeholderTextColor={C.muted}
                   style={{
                     minHeight: 88,
-                    padding: 12,
-                    borderWidth: 1.5,
-                    borderColor: C.brown,
-                    borderRadius: 14,
+                    padding: semanticTokens.spacing.control,
+                    borderWidth: componentTokens.input.borderWidth,
+                    borderColor: componentTokens.input.border,
+                    borderRadius: componentTokens.input.radius,
                     color: C.ink,
                   }}
                 />
@@ -275,17 +298,18 @@ export function UserSafetySheet(props: Props) {
                     accessibilityLabel="처리 결과를 회신받을 이메일"
                     value={replyEmail}
                     onChangeText={setReplyEmail}
+                    editable={!busy}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     maxLength={254}
                     placeholder="email@example.com"
                     placeholderTextColor={C.muted}
                     style={{
-                      minHeight: 48,
-                      padding: 12,
-                      borderWidth: 1.5,
-                      borderColor: C.brown,
-                      borderRadius: 14,
+                      minHeight: componentTokens.input.minHeight,
+                      padding: semanticTokens.spacing.control,
+                      borderWidth: componentTokens.input.borderWidth,
+                      borderColor: componentTokens.input.border,
+                      borderRadius: componentTokens.input.radius,
                       color: C.ink,
                     }}
                   />
@@ -295,7 +319,7 @@ export function UserSafetySheet(props: Props) {
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'space-between',
-                    gap: 12,
+                    gap: semanticTokens.spacing.control,
                   }}
                 >
                   <View style={{ flex: 1 }}>
@@ -309,10 +333,11 @@ export function UserSafetySheet(props: Props) {
                     disabled={busy}
                   />
                 </View>
-                <View style={{ flexDirection: 'row', gap: 10 }}>
+                <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
                   <Btn
                     kind="sec"
                     title="뒤로"
+                    disabled={busy}
                     style={{ flex: 1 }}
                     onPress={() => setMode('menu')}
                   />

@@ -8,6 +8,6 @@ public interface ReportMailGateway {
         deliverAndConfirm(mail);
     }
 
-    record ReportMail(String caseId, String requestId, String subject, String body) {
+    record ReportMail(String caseId, String requestId, String confirmationToken, String subject, String body) {
     }
 }

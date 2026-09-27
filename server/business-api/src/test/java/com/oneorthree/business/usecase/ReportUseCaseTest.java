@@ -29,6 +29,7 @@ class ReportUseCaseTest {
         UUID author = UUID.randomUUID();
         UUID requestId = UUID.randomUUID();
         UUID lease = UUID.randomUUID();
+        UUID confirmation = UUID.randomUUID();
         AccessTokenClaims claims = mock(AccessTokenClaims.class);
         when(claims.userId()).thenReturn(reporter);
         DataFriendClient data = mock(DataFriendClient.class);
@@ -36,12 +37,13 @@ class ReportUseCaseTest {
         UserBlockUseCase blocks = mock(UserBlockUseCase.class);
         ReportMailGateway mail = mock(ReportMailGateway.class);
         ReportUseCase useCase = new ReportUseCase(data, deliveries, blocks, mail);
-        ReportDeliveryView confirmed = new ReportDeliveryView("EMAIL_CONFIRMED", "GR-CASE", lease, author,
+        ReportDeliveryView confirmed = new ReportDeliveryView("EMAIL_CONFIRMED", "GR-CASE", confirmation,
+                lease, author,
                 null, null, true, null);
         when(deliveries.claim(eq(reporter), eq(requestId), any(), any(), eq(true), any())).thenReturn(confirmed);
         RuntimeException failure = new RuntimeException("block unavailable");
         doThrow(failure).doNothing().when(blocks).block(eq(claims), eq(author), any());
-        ReportDeliveryView completed = new ReportDeliveryView("COMPLETED", "GR-CASE", null, null,
+        ReportDeliveryView completed = new ReportDeliveryView("COMPLETED", "GR-CASE", confirmation, null, null,
                 null, null, true, true);
         when(deliveries.complete(eq(reporter), eq(requestId), eq(lease), eq(true), any()))
                 .thenReturn(completed);

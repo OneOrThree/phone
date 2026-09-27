@@ -31,6 +31,7 @@ class ReportContractTest extends UpstreamTestBase {
     private static final UUID REQUEST = UUID.fromString("cccccccc-0000-4000-8000-000000001976");
     private static final UUID LETTER = UUID.fromString("dddddddd-0000-0000-0000-000000001976");
     private static final UUID LEASE = UUID.fromString("eeeeeeee-0000-7000-8000-000000001976");
+    private static final UUID CONFIRMATION = UUID.fromString("ffffffff-0000-7000-8000-000000001976");
 
     @MockitoBean
     ReportMailGateway mail;
@@ -119,6 +120,7 @@ class ReportContractTest extends UpstreamTestBase {
 
         ArgumentCaptor<ReportMailGateway.ReportMail> sent = ArgumentCaptor.forClass(ReportMailGateway.ReportMail.class);
         verify(mail).deliverAndConfirm(sent.capture(), any(Runnable.class));
+        assertThat(sent.getValue().confirmationToken()).isEqualTo(CONFIRMATION.toString());
         assertThat(sent.getValue().body()).contains("서버닉네임").contains("reporterId: " + USER);
         assertThat(DATA.received()).hasSize(5);
         verifyNoMoreInteractions(mail);
@@ -150,7 +152,8 @@ class ReportContractTest extends UpstreamTestBase {
                 + "\"readAt\":null}"));
         DATA.on("POST /internal/users/" + USER + "/blocks", request -> ok(""));
         DATA.on(emailConfirmedPath(), request -> ok("{\"status\":\"EMAIL_CONFIRMED\"," +
-                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"leaseToken\":\"" + LEASE + "\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":\"" + LEASE + "\"," +
                 "\"authorId\":\"" + TARGET + "\",\"subject\":null,\"body\":null," +
                 "\"blockRequested\":true,\"blocked\":null}"));
 
@@ -213,7 +216,8 @@ class ReportContractTest extends UpstreamTestBase {
     void completedRequestReplaysReceiptWithoutEvidenceOrMail() throws Exception {
         reset(mail);
         DATA.on(claimPath(), request -> ok("{\"status\":\"COMPLETED\"," +
-                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"leaseToken\":null,\"authorId\":null," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":null,\"authorId\":null," +
                 "\"subject\":null,\"body\":null,\"blockRequested\":true,\"blocked\":true}"));
 
         mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
@@ -231,16 +235,19 @@ class ReportContractTest extends UpstreamTestBase {
     void preparedRetrySkipsEvidenceAndOnlyFinishesMailAndBlock() throws Exception {
         reset(mail);
         DATA.on(claimPath(), request -> ok("{\"status\":\"PENDING\"," +
-                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"leaseToken\":\"" + LEASE + "\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":\"" + LEASE + "\"," +
                 "\"authorId\":\"" + TARGET + "\",\"subject\":\"저장된 제목\"," +
                 "\"body\":\"저장된 서버 원문\",\"blockRequested\":true,\"blocked\":null}"));
         DATA.on("POST /internal/users/" + USER + "/blocks", request -> ok(""));
         DATA.on(emailConfirmedPath(), request -> ok("{\"status\":\"EMAIL_CONFIRMED\"," +
-                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"leaseToken\":\"" + LEASE + "\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":\"" + LEASE + "\"," +
                 "\"authorId\":\"" + TARGET + "\",\"subject\":null,\"body\":null," +
                 "\"blockRequested\":true,\"blocked\":null}"));
         DATA.on(completePath(), request -> ok("{\"status\":\"COMPLETED\"," +
-                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"leaseToken\":null,\"authorId\":null," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":null,\"authorId\":null," +
                 "\"subject\":null,\"body\":null,\"blockRequested\":true,\"blocked\":true}"));
         DATA.on(releasePath(), request -> new MockUpstream.Response(204, ""));
 
@@ -259,13 +266,15 @@ class ReportContractTest extends UpstreamTestBase {
 
     private void workflow(boolean blockRequested) {
         DATA.on(claimPath(), request -> ok("{\"status\":\"PENDING\",\"caseId\":\"GR-DBA0151D469BD84C720C\"," +
-                "\"leaseToken\":\"" + LEASE + "\",\"authorId\":null,\"subject\":null,\"body\":null," +
+                "\"confirmationToken\":\"" + CONFIRMATION + "\",\"leaseToken\":\"" + LEASE + "\"," +
+                "\"authorId\":null,\"subject\":null,\"body\":null," +
                 "\"blockRequested\":" + blockRequested + ",\"blocked\":null}"));
         DATA.on(preparePath(), request -> {
             var json = new ObjectMapper().readTree(request.body());
             return ok(new ObjectMapper().writeValueAsString(java.util.Map.of(
                     "status", "PENDING",
                     "caseId", "GR-DBA0151D469BD84C720C",
+                    "confirmationToken", CONFIRMATION,
                     "leaseToken", LEASE,
                     "authorId", UUID.fromString(json.path("authorId").stringValue()),
                     "subject", json.path("subject").stringValue(),
@@ -273,11 +282,13 @@ class ReportContractTest extends UpstreamTestBase {
                     "blockRequested", blockRequested)));
         });
         DATA.on(emailConfirmedPath(), request -> ok("{\"status\":\"EMAIL_CONFIRMED\"," +
-                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"leaseToken\":\"" + LEASE + "\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":\"" + LEASE + "\"," +
                 "\"authorId\":\"" + TARGET + "\",\"subject\":null,\"body\":null," +
                 "\"blockRequested\":" + blockRequested + ",\"blocked\":null}"));
         DATA.on(completePath(), request -> ok("{\"status\":\"COMPLETED\"," +
-                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"leaseToken\":null,\"authorId\":null," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":null,\"authorId\":null," +
                 "\"subject\":null,\"body\":null,\"blockRequested\":" + blockRequested + "," +
                 "\"blocked\":" + blockRequested + "}"));
         DATA.on(releasePath(), request -> new MockUpstream.Response(204, ""));

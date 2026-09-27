@@ -40,7 +40,7 @@ Data 쓰기 경계
 
 - 수신: `nappaegonoljima@gmail.com`
 - 발송: Gmail SMTP (`smtp.gmail.com:587`, STARTTLS)
-- 확인: 같은 계정 IMAP (`imap.gmail.com:993`)에서 사건 ID 헤더를 검색한다.
+- 확인: 같은 계정 IMAP (`imap.gmail.com:993`)에서 Data가 생성한 비공개 delivery token 헤더를 검색한다. 사건 ID는 운영 식별용일 뿐 접수 인증값으로 사용하지 않는다.
 - SMTP STARTTLS와 SMTP/IMAPS 서버 인증 검사를 필수로 강제하고, 확인 poll은 한 IMAP 연결을 재사용한다.
 - 자격은 `REPORT_MAIL_USERNAME`, `REPORT_MAIL_APP_PASSWORD` 환경변수로만 주입한다.
 - 자격이 없거나 메일함 검색 확인이 실패하면 API는 접수 성공을 반환하지 않는다.
@@ -95,7 +95,7 @@ NO UNRESOLVED DECISIONS
 
 - 구현 완료: 친구/받은 편지 `···`, 공통 신고·차단 시트, 차단 목록·해제, `/reports`, 서버 원문 재검증, 영속 신고 intent/lease/receipt, Gmail SMTP 발송 후 IMAP 확인, 양방향 친구 요청 생성·수락·편지 발송 차단, nginx·배포 시크릿 전달.
 - 클라이언트 필터 완료: 세션별 차단 ID snapshot을 공용으로 적재하고, 차단/해제 성공 즉시 친구·요청·검색·받은/보낸 편지·열린 편지·섬 우체통 메시지·우체통 친구 캐시를 재조회 전부터 숨긴다. 늦은 목록 GET이 새 차단을 덮지 못하도록 mutation revision fence를 두고, 최초 목록 실패 때는 민감 데이터를 fail-closed로 숨긴다.
-- 검증: Business 전체 build와 신고 계약 테스트, Data 신고 workflow·친구·편지 PostgreSQL 통합 테스트, 컴파일·Checkstyle·SpotBugs, 앱 전체 85 suites/953 tests와 타입·포맷 검사가 통과했다.
+- 검증: Business 전체 build와 신고 계약 테스트, Data 신고 workflow·친구·편지 PostgreSQL 통합 테스트, 컴파일·Checkstyle·SpotBugs, 앱 전체 85 suites/954 tests와 타입·포맷 검사가 통과했다.
 - UI 증거: `.gstack/browse-reports/2026-09-27-gromo-1976/screenshots/`에 설정 진입 → 차단 목록 → 친구 `···` → 신고 메뉴 → 신고 접수 직전 5단계 모바일 캡처를 저장했다. 브라우저 콘솔 오류는 0건이다.
 - 실메일: `REPORT_MAIL_USERNAME`/`REPORT_MAIL_APP_PASSWORD`가 현재 환경에 없어 운영 메일함 실발송은 실행하지 않았다. `REPORT_MAIL_LIVE_TEST=true`와 두 자격을 주입하면 `GmailReportMailGatewayLiveTest`가 `nappaegonoljima@gmail.com` 발송과 IMAP 검색을 한 번에 확인한다.
 - 범위: 채팅·공지·댓글·닉네임·섬 텍스트·퀘스트와 realtime/push fence는 위 「후속 단계」대로 아직 포함하지 않는다.

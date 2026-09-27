@@ -29,6 +29,7 @@ class GmailReportMailGatewayLiveTest {
         ReportMailGateway.ReportMail message = new ReportMailGateway.ReportMail(
                 caseId,
                 UUID.randomUUID().toString(),
+                UUID.randomUUID().toString(),
                 "[GROMO 신고 메일 연결 테스트] " + caseId,
                 "자동 연결 테스트입니다.\ncreatedAt: " + Instant.now());
 

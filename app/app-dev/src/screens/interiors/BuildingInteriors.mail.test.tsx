@@ -6,6 +6,7 @@ import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { initialState } from '@/services/model';
 import { replaceBlockedUsers } from '@/services/blockedUsers';
+import { submitReport } from '@/services/api/safety';
 import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
   closeLetter,
@@ -25,6 +26,11 @@ jest.mock('@/services/api/letters', () => ({
   closeLetter: jest.fn(),
   listIslandMessages: jest.fn(),
   sendIslandMessage: jest.fn(),
+}));
+
+jest.mock('@/services/api/safety', () => ({
+  blockUser: jest.fn(),
+  submitReport: jest.fn(),
 }));
 
 const ISLAND = 'island-1';
@@ -86,6 +92,7 @@ const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
 const listMessagesMock = listIslandMessages as jest.Mock;
 const sendMessageMock = sendIslandMessage as jest.Mock;
+const submitReportMock = submitReport as jest.Mock;
 
 /** App.tsx 가 넘기는 라우트 문맥의 최소 복제 — go/back 이 e 를 바꾸고 _tick 으로 리렌더한다. */
 const makeE = (over: Record<string, unknown> = {}) => {
@@ -242,6 +249,25 @@ test('받은 편지 상세 더보기에서 편지 신고·발신자 차단 시�
 
   assert.ok(ui.getByText('신고하기'));
   assert.ok(ui.getByText('차단하기'));
+  await ui.unmount();
+});
+
+test('편지 신고 성공 뒤 상세를 닫고 받은 편지함으로 돌아간다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  submitReportMock.mockResolvedValue({ caseId: 'GR-LETTER', blocked: false });
+  const e = makeE();
+  const ui = await renderMail(e);
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
+  await fireEvent.press(ui.getByLabelText('민지 더보기'));
+  await fireEvent.press(ui.getByText('신고하기'));
+  await fireEvent.press(ui.getByText('신고 접수'));
+
+  await waitFor(() => assert.equal(e.route, 'mail'));
+  assert.equal(e.tab, '받은 편지');
+  assert.equal(ui.queryByText('편지를 여는 중이에요…'), null);
   await ui.unmount();
 });
 

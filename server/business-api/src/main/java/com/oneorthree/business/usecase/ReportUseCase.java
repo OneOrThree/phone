@@ -57,7 +57,8 @@ public class ReportUseCase {
             }
             if (!delivery.emailConfirmed()) {
                 ReportMailGateway.ReportMail message = new ReportMailGateway.ReportMail(
-                        delivery.caseId(), requestId.toString(), delivery.subject(), delivery.body());
+                        delivery.caseId(), requestId.toString(), delivery.confirmationToken().toString(),
+                        delivery.subject(), delivery.body());
                 mail.deliverAndConfirm(message,
                         () -> deliveries.renew(claims.userId(), requestId, leaseToken, Deadline.unbounded()));
                 delivery = deliveries.emailConfirmed(claims.userId(), requestId, leaseToken, Deadline.unbounded());

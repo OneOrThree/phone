@@ -192,6 +192,7 @@ class FriendContractTest extends UpstreamTestBase {
             "409,ALREADY_FRIEND,409,STATE_CONFLICT,targetUserId",
             "409,REQUEST_ALREADY_EXISTS,409,STATE_CONFLICT,targetUserId",
             "409,DATA_INTEGRITY_VIOLATION,409,STATE_CONFLICT,targetUserId",
+            "403,FRIEND_BLOCKED_RELATION,403,FORBIDDEN,targetUserId",
             "404,TARGET_USER_NOT_FOUND,404,NOT_FOUND,targetUserId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
             "409,SELF_REQUEST,400,UPSTREAM_CONTRACT_ERROR,",
@@ -208,6 +209,7 @@ class FriendContractTest extends UpstreamTestBase {
 
     @ParameterizedTest
     @CsvSource({"accept,403,NOT_REQUEST_RECEIVER,403,FORBIDDEN",
+            "accept,403,FRIEND_BLOCKED_RELATION,403,FORBIDDEN",
             "accept,409,INVALID_REQUEST_STATUS,409,STATE_CONFLICT",
             "accept,404,REQUEST_NOT_FOUND,404,NOT_FOUND",
             "cancel,403,NOT_REQUEST_SENDER,403,FORBIDDEN",

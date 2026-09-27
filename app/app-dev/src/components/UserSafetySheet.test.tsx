@@ -116,13 +116,16 @@ test('신고 실패 후 재시도하면 같은 requestId로 복구한다', async
 test('신고 접수 중 연타해도 메일 접수를 한 번만 요청한다', async () => {
   let finish: (value: { caseId: string; blocked: boolean }) => void = () => {};
   reportMock.mockReturnValue(new Promise((resolve) => (finish = resolve)));
-  const screen = await render(<UserSafetySheet {...props()} />);
+  const callbacks = props();
+  const screen = await render(<UserSafetySheet {...callbacks} />);
   await fireEvent.press(screen.getByText('신고하기'));
 
   const first = fireEvent.press(screen.getByText('신고 접수'));
   await waitFor(() => assert.equal(reportMock.mock.calls.length, 1));
   await fireEvent.press(screen.getByText('접수 확인 중…'));
+  for (const close of screen.getAllByLabelText('닫기')) await fireEvent.press(close);
   assert.equal(reportMock.mock.calls.length, 1);
+  assert.equal(callbacks.onClose.mock.calls.length, 0);
   finish({ caseId: 'GR-ONCE', blocked: false });
   await first;
 });

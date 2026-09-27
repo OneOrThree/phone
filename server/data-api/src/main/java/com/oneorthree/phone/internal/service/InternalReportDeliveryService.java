@@ -60,9 +60,10 @@ public class InternalReportDeliveryService {
         if (row == null) {
             enforceRateLimit(reporterId, now);
             jdbc.update("insert into report_deliveries "
-                            + "(id, reporter_id, request_id, case_id, request_fingerprint, block_requested, "
-                            + "status, created_at, updated_at) values (?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)",
-                    UuidV7.next(), reporterId, requestId, request.caseId(), request.fingerprint(),
+                            + "(id, reporter_id, request_id, case_id, confirmation_token, request_fingerprint, "
+                            + "block_requested, status, created_at, updated_at) "
+                            + "values (?, ?, ?, ?, ?, ?, ?, 'PENDING', ?, ?)",
+                    UuidV7.next(), reporterId, requestId, request.caseId(), UuidV7.next(), request.fingerprint(),
                     request.blockRequested(), Timestamp.from(now), Timestamp.from(now));
             row = findForUpdate(reporterId, requestId);
         }
@@ -88,6 +89,7 @@ public class InternalReportDeliveryService {
 
     @Transactional
     public ReportDeliveryView prepare(UUID reporterId, UUID requestId, ReportDeliveryPrepareRequest request) {
+        lockActiveParticipants(reporterId, request.authorId());
         ReportRow row = ownedPending(reporterId, requestId, request.leaseToken());
         if (!"PENDING".equals(row.status())) {
             throw new ReportDeliveryException(ReportDeliveryErrorCode.STATE_CONFLICT);
@@ -190,8 +192,21 @@ public class InternalReportDeliveryService {
         }
     }
 
+    private void lockActiveParticipants(UUID reporterId, UUID authorId) {
+        // 탈퇴는 user → report_deliveries 순서다. 같은 순서로 공유 잠금을 잡아 snapshot 저장 뒤 탈퇴가
+        // 끼어들 수 없게 하고, 서로를 신고하는 두 요청도 UUID 순서로 잠가 교착을 막는다.
+        if (reporterId.compareTo(authorId) < 0) {
+            users.getCallerForShare(reporterId);
+            users.getTargetForShare(authorId);
+        } else {
+            users.getTargetForShare(authorId);
+            users.getCallerForShare(reporterId);
+        }
+    }
+
     private ReportRow findForUpdate(UUID reporterId, UUID requestId) {
-        List<ReportRow> rows = jdbc.query("select id, case_id, request_fingerprint, block_requested, author_id, "
+        List<ReportRow> rows = jdbc.query("select id, case_id, confirmation_token, request_fingerprint, "
+                        + "block_requested, author_id, "
                         + "mail_subject, mail_body, status, lease_token, lease_expires_at, blocked "
                         + "from report_deliveries where reporter_id=? and request_id=? for update",
                 InternalReportDeliveryService::row, reporterId, requestId);
@@ -202,6 +217,7 @@ public class InternalReportDeliveryService {
         Timestamp expires = rs.getTimestamp("lease_expires_at");
         return new ReportRow(
                 rs.getObject("id", UUID.class), rs.getString("case_id"),
+                rs.getObject("confirmation_token", UUID.class),
                 rs.getString("request_fingerprint"), rs.getBoolean("block_requested"),
                 rs.getObject("author_id", UUID.class), rs.getString("mail_subject"), rs.getString("mail_body"),
                 rs.getString("status"), rs.getObject("lease_token", UUID.class),
@@ -209,11 +225,11 @@ public class InternalReportDeliveryService {
     }
 
     private static ReportDeliveryView view(ReportRow row) {
-        return new ReportDeliveryView(row.status(), row.caseId(),
+        return new ReportDeliveryView(row.status(), row.caseId(), row.confirmationToken(),
                 row.leaseToken(), row.authorId(), row.subject(), row.body(), row.blockRequested(), row.blocked());
     }
 
-    private record ReportRow(UUID id, String caseId, String fingerprint, boolean blockRequested,
+    private record ReportRow(UUID id, String caseId, UUID confirmationToken, String fingerprint, boolean blockRequested,
                              UUID authorId, String subject, String body, String status, UUID leaseToken,
                              Instant leaseExpiresAt, Boolean blocked) {
         boolean completed() {

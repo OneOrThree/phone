@@ -6,6 +6,7 @@ import java.util.UUID;
 public record ReportDeliveryView(
         String status,
         String caseId,
+        UUID confirmationToken,
         UUID leaseToken,
         UUID authorId,
         String subject,

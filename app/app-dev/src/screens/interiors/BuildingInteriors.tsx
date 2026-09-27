@@ -7936,7 +7936,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             reportTargetType="LETTER"
             reportTargetId={openedLetter.id}
             onClose={() => setLetterSafetyOpen(false)}
-            onChanged={() => mail.retry().catch(() => {})}
+            onChanged={() => {
+              back('inbox');
+              mail.retry().catch(() => {});
+            }}
             onMessage={say}
           />
         ) : null}

@@ -328,6 +328,14 @@ export const componentTokens = {
     background: semanticTokens.color.overlay,
     sheetBackground: semanticTokens.color.overlaySheet,
   },
+  modal: {
+    padding: semanticTokens.spacing.page,
+    paddingBottom: semanticTokens.spacing.section,
+    gap: 14,
+    radius: semanticTokens.radius.sheet,
+    borderWidth: semanticTokens.stroke.strong,
+    shadow: `0px 6px 0px ${semanticTokens.color.outline}`,
+  },
 } as const;
 
 /** 기존 화면의 C.* 사용처를 깨지 않고 semantic token으로 연결하는 호환 별칭. */

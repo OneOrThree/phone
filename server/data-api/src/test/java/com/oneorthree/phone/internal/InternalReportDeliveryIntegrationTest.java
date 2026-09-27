@@ -78,6 +78,7 @@ class InternalReportDeliveryIntegrationTest {
 
         assertThat(first.status()).isEqualTo("PENDING");
         assertThat(first.leaseToken()).isNotNull();
+        assertThat(first.confirmationToken()).isNotNull();
         assertThatThrownBy(() -> deliveries.claim(reporter, requestId, claim(requestId, FINGERPRINT, false)))
                 .isInstanceOfSatisfying(ReportDeliveryException.class,
                         e -> assertThat(e.getErrorCode()).isEqualTo(ReportDeliveryErrorCode.REQUEST_IN_PROGRESS));
@@ -88,13 +89,18 @@ class InternalReportDeliveryIntegrationTest {
                         e -> assertThat(e.getErrorCode()).isEqualTo(ReportDeliveryErrorCode.IDEMPOTENCY_KEY_REUSED));
         assertThat(jdbc.queryForObject("select count(*) from report_deliveries where reporter_id=?",
                 Long.class, reporter)).isEqualTo(1L);
+
+        UUID otherRequest = UUID.randomUUID();
+        ReportDeliveryView other = deliveries.claim(reporter, otherRequest,
+                claim(otherRequest, "c".repeat(64), false));
+        assertThat(other.confirmationToken()).isNotEqualTo(first.confirmationToken());
     }
 
     @Test
     void preparedSnapshotSurvivesRetryAndCompletedReceiptReplaysWithoutPii() {
         UUID reporter = newUser();
         UUID requestId = UUID.randomUUID();
-        UUID author = UUID.randomUUID();
+        UUID author = newUser();
         ReportDeliveryView first = deliveries.claim(reporter, requestId, claim(requestId, FINGERPRINT, true));
         deliveries.prepare(reporter, requestId,
                 new ReportDeliveryPrepareRequest(first.leaseToken(), author, "신고 제목", "서버 원문"));
@@ -120,7 +126,7 @@ class InternalReportDeliveryIntegrationTest {
     void expiredLeaseIsTakenOverAndEveryOldTokenMutationIsFenced() {
         UUID reporter = newUser();
         UUID requestId = UUID.randomUUID();
-        UUID author = UUID.randomUUID();
+        UUID author = newUser();
         ReportDeliveryView old = deliveries.claim(reporter, requestId, claim(requestId, FINGERPRINT, true));
         deliveries.prepare(reporter, requestId,
                 new ReportDeliveryPrepareRequest(old.leaseToken(), author, "제목", "개인정보 원문"));
@@ -149,6 +155,7 @@ class InternalReportDeliveryIntegrationTest {
     @Test
     void controllerFilterAndEveryWorkflowActionAreWired() throws Exception {
         UUID reporter = newUser();
+        UUID author = newUser();
         UUID requestId = UUID.randomUUID();
         String base = "/internal/users/" + reporter + "/report-deliveries/" + requestId;
         String claimBody = "{\"fingerprint\":\"" + FINGERPRINT + "\",\"caseId\":\"GR-" + requestId
@@ -163,7 +170,7 @@ class InternalReportDeliveryIntegrationTest {
         mvc.perform(post(base + "/prepare")
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", reporter)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"leaseToken\":\"" + lease
-                                + "\",\"authorId\":\"" + UUID.randomUUID()
+                                + "\",\"authorId\":\"" + author
                                 + "\",\"subject\":\"제목\",\"body\":\"원문\"}"))
                 .andExpect(status().isOk());
         mvc.perform(post(base + "/renew").header("Authorization", "Bearer " + TOKEN)
@@ -184,6 +191,22 @@ class InternalReportDeliveryIntegrationTest {
                         .header("X-User-Id", UUID.randomUUID()).contentType(MediaType.APPLICATION_JSON)
                         .content(claimBody))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void prepareRejectsWithdrawalThatHappenedAfterEvidenceReadWithoutSavingSnapshot() {
+        UUID reporter = newUser();
+        UUID author = newUser();
+        UUID requestId = UUID.randomUUID();
+        ReportDeliveryView claimed = deliveries.claim(reporter, requestId,
+                claim(requestId, FINGERPRINT, false));
+        jdbc.update("update users set is_deleted=true where id=?", author);
+
+        assertThatThrownBy(() -> deliveries.prepare(reporter, requestId,
+                new ReportDeliveryPrepareRequest(claimed.leaseToken(), author, "제목", "탈퇴 전 원문")))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(jdbc.queryForObject("select mail_body from report_deliveries where reporter_id=? and request_id=?",
+                String.class, reporter, requestId)).isNull();
     }
 
     @Test

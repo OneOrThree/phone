@@ -45,7 +45,6 @@ public class FriendUseCase {
             Map.entry("INVALID_REQUEST_STATUS", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "requestId")),
             Map.entry("NOT_REQUEST_RECEIVER", new PublicFailure(ApiErrorCode.FORBIDDEN, "requestId")),
             Map.entry("NOT_REQUEST_SENDER", new PublicFailure(ApiErrorCode.FORBIDDEN, "requestId")),
-            Map.entry("FRIEND_BLOCKED_RELATION", new PublicFailure(ApiErrorCode.FORBIDDEN, "targetUserId")),
             Map.entry("REQUEST_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "requestId")),
             Map.entry("NOT_FRIEND", new PublicFailure(ApiErrorCode.NOT_FOUND, "friendUserId")),
             // GROMO-1996 검색: 등록되지 않은 검색 수단. 공개 field 는 앱이 고칠 파라미터 이름이다.
@@ -98,12 +97,12 @@ public class FriendUseCase {
 
     /** 친구 요청 생성 (LLD §1.1). */
     public void createRequest(AccessTokenClaims claims, UUID targetUserId, Deadline deadline) {
-        expect(relay(() -> data.createFriendRequest(claims.userId(), targetUserId, deadline)), PENDING);
+        expect(relay(() -> data.createFriendRequest(claims.userId(), targetUserId, deadline), "targetUserId"), PENDING);
     }
 
     /** 요청 수락 (LLD §1.2). */
     public void accept(AccessTokenClaims claims, UUID requestId, Deadline deadline) {
-        expect(relay(() -> data.acceptFriendRequest(claims.userId(), requestId, deadline)), ACCEPTED);
+        expect(relay(() -> data.acceptFriendRequest(claims.userId(), requestId, deadline), "requestId"), ACCEPTED);
     }
 
     /** 요청 거절 (LLD §1.3). */
@@ -175,9 +174,16 @@ public class FriendUseCase {
     }
 
     private <T> T relay(Supplier<T> upstream) {
+        return relay(upstream, null);
+    }
+
+    private <T> T relay(Supplier<T> upstream, String blockedField) {
         try {
             return upstream.get();
         } catch (UpstreamDomainException e) {
+            if ("FRIEND_BLOCKED_RELATION".equals(e.getCode()) && e.getStatus() == 403) {
+                throw new PublicApiException(ApiErrorCode.FORBIDDEN, blockedField);
+            }
             throw mapped(e);
         }
     }

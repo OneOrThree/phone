@@ -362,6 +362,7 @@ Semantic spacing:
 - 기본 dim은 Ink 40%, sheet dim은 Ink 25%.
 - Modal은 가운데 정렬, radius 24, Brown 2px, 6px sticker shadow.
 - Bottom sheet는 휴대폰 세로 화면에서 하단 정렬, 상단 radius 26, 하단 radius 0.
+- Modal·sheet의 공용 padding, gap, radius, stroke, shadow 코드 정본은 `componentTokens.modal`이다.
 - 태블릿·가로 compact 화면에서는 sheet도 가운데 modal 형태로 전환한다.
 - Sheet handle은 40×5, Control Idle.
 - 내부 padding 20, gap 14.

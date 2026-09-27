@@ -20,6 +20,7 @@ final class GmailReportMailGateway implements ReportMailGateway {
 
     private static final String CASE_HEADER = "X-Gromo-Case-Id";
     private static final String REQUEST_HEADER = "X-Gromo-Request-Id";
+    private static final String CONFIRMATION_HEADER = "X-Gromo-Delivery-Token";
     private static final Duration POLL_INTERVAL = Duration.ofMillis(400);
 
     private final ReportMailProperties properties;
@@ -55,7 +56,7 @@ final class GmailReportMailGateway implements ReportMailGateway {
             try (Folder inbox = store.getFolder("INBOX")) {
                 inbox.open(Folder.READ_ONLY);
                 leaseHeartbeat.run();
-                if (inMailbox(inbox, mail.caseId())) {
+                if (inMailbox(inbox, mail.confirmationToken())) {
                     return;
                 }
                 leaseHeartbeat.run();
@@ -63,7 +64,7 @@ final class GmailReportMailGateway implements ReportMailGateway {
                 Instant deadline = clock.instant().plus(properties.getVerifyTimeout());
                 do {
                     leaseHeartbeat.run();
-                    if (inMailbox(inbox, mail.caseId())) {
+                    if (inMailbox(inbox, mail.confirmationToken())) {
                         return;
                     }
                     pause();
@@ -84,10 +85,10 @@ final class GmailReportMailGateway implements ReportMailGateway {
         }
     }
 
-    private static boolean inMailbox(Folder inbox, String caseId) {
+    private static boolean inMailbox(Folder inbox, String confirmationToken) {
         try {
             // 열린 IMAP 연결에서 SEARCH 만 반복한다. 매 poll 마다 재로그인하지 않아 Gmail 연결 쿼터를 지킨다.
-            return inbox.search(new HeaderTerm(CASE_HEADER, caseId)).length > 0;
+            return inbox.search(new HeaderTerm(CONFIRMATION_HEADER, confirmationToken)).length > 0;
         } catch (jakarta.mail.MessagingException e) {
             throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e);
         }
@@ -102,6 +103,7 @@ final class GmailReportMailGateway implements ReportMailGateway {
             message.setText(mail.body(), StandardCharsets.UTF_8.name());
             message.setHeader(CASE_HEADER, mail.caseId());
             message.setHeader(REQUEST_HEADER, mail.requestId());
+            message.setHeader(CONFIRMATION_HEADER, mail.confirmationToken());
             sender.send(message);
         } catch (RuntimeException | jakarta.mail.MessagingException e) {
             throw new ReportMailException("신고 메일을 보내지 못했습니다.", e);
