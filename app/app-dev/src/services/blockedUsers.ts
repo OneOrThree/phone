@@ -59,19 +59,21 @@ export function replaceBlockedUsers(nextUsers: BlockedUser[]): void {
 }
 
 export function markUserBlocked(userId: string): void {
+  // 서버가 mutation 성공을 확인했다면 로컬 membership이 같아도 진행 중 GET은
+  // mutation 이전 snapshot일 수 있다. revision을 먼저 올려 그 응답을 폐기한다.
+  mutationRevision += 1;
   if (ids.has(userId)) return;
   ids = new Set(ids).add(userId);
-  mutationRevision += 1;
   emit();
 }
 
 export function markUserUnblocked(userId: string): void {
+  mutationRevision += 1;
   if (!ids.has(userId)) return;
   const next = new Set(ids);
   next.delete(userId);
   ids = next;
   users = users.filter((user) => user.id !== userId);
-  mutationRevision += 1;
   emit();
 }
 

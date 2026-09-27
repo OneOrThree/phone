@@ -7881,7 +7881,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           head: header('받은 편지', '', 'inbox'),
           body: mail.detailError
             ? mailRetry(mail.detailError, 'letter-retry', () =>
-                mail.openLetter(e.detail).catch(() => {}),
+                (mail.blockedUsersStatus === 'error'
+                  ? mail.retry().then(() => mail.openLetter(e.detail))
+                  : mail.openLetter(e.detail)
+                ).catch(() => {}),
               )
             : mailStatus('편지를 여는 중이에요…'),
           foot: null,

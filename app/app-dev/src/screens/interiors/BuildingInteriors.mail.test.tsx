@@ -5,7 +5,7 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { initialState } from '@/services/model';
-import { replaceBlockedUsers } from '@/services/blockedUsers';
+import { replaceBlockedUsers, revalidateBlockedUsers } from '@/services/blockedUsers';
 import { blockUser, getBlockedUsers } from '@/services/api/safety';
 import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
@@ -350,6 +350,28 @@ test('상세 실패 — 오류와 다시 시도를 보여 주고 캐시된 편�
   await waitFor(() => assert.ok(ui.getByTestId('letter-retry')));
   assert.ok(ui.getByText('시간이 지났어요.'));
   assert.equal(ui.queryByText('반가워, 잘 지내?'), null);
+  await ui.unmount();
+});
+
+test('열린 편지의 차단 목록 재검증 실패는 오류를 보이고 다시 시도해 복구한다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByTestId('close-letter')));
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+
+  await waitFor(() => assert.ok(ui.getByTestId('letter-retry')));
+  assert.ok(ui.getByText('차단 목록을 불러오지 못했어요.'));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await fireEvent.press(ui.getByTestId('letter-retry'));
+
+  await waitFor(() => assert.ok(ui.getByTestId('close-letter')));
+  assert.equal(getLetterMock.mock.calls.length >= 2, true);
   await ui.unmount();
 });
 

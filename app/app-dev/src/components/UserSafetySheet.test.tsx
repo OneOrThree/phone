@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Linking, StyleSheet } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { semanticTokens } from '@/design-system/tokens';
 import { blockUser, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { isUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
@@ -133,6 +134,19 @@ test('신고 입력으로 운영 Gmail 메일 작성 화면을 열고 선택한 
   assert.equal(
     callbacks.onMessage.mock.calls[0][0],
     '차단했어요. 메일 내용을 확인한 뒤 보내 주세요.',
+  );
+});
+
+test('신고 화면의 함께 차단 선택 상태는 핑크 토큰을 사용한다', async () => {
+  const screen = await render(<UserSafetySheet {...props()} />);
+  await fireEvent.press(screen.getByText('신고하기'));
+
+  await fireEvent.press(screen.getByRole('switch', { name: '이 사용자도 차단' }));
+
+  const toggle = screen.getByRole('switch', { name: '이 사용자도 차단' });
+  assert.equal(
+    StyleSheet.flatten(toggle.props.style).backgroundColor,
+    semanticTokens.color.primary,
   );
 });
 

@@ -385,6 +385,7 @@ export function UserSafetySheet(props: Props) {
                     value={alsoBlock || reportBlockCompleted}
                     onChange={setAlsoBlock}
                     disabled={busy || reportBlockCompleted}
+                    activeColor={semanticTokens.color.primary}
                   />
                 </View>
                 <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>

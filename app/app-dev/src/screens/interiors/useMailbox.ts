@@ -436,6 +436,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
         sent: [],
         friends: [],
         detail: null,
+        detailError: blockedListError ?? state.detailError,
         loading: blockedUsers.status === 'loading' || state.loading,
         error: blockedListError ?? state.error,
       };

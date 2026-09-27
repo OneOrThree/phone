@@ -55,6 +55,36 @@ test('차단 중 먼저 시작한 목록 응답이 늦게 오면 최신 목록�
   assert.equal(isUserBlocked('u-new'), true);
 });
 
+test('이미 차단된 사용자의 차단 성공도 진행 중인 과거 목록 응답을 폐기한다', async () => {
+  replaceBlockedUsers([{ id: 'u2', name: '민지' }]);
+  let resolve: (users: Array<{ id: string; name: string }>) => void = () => {};
+  listMock
+    .mockReturnValueOnce(new Promise((done) => (resolve = done)))
+    .mockResolvedValueOnce([{ id: 'u2', name: '민지' }]);
+
+  const loading = refreshBlockedUsers();
+  markUserBlocked('u2');
+  resolve([]);
+  await loading;
+  await waitFor(() => assert.equal(listMock.mock.calls.length, 2));
+
+  assert.equal(isUserBlocked('u2'), true);
+});
+
+test('이미 해제된 사용자의 해제 성공도 진행 중인 과거 목록 응답을 폐기한다', async () => {
+  replaceBlockedUsers([]);
+  let resolve: (users: Array<{ id: string; name: string }>) => void = () => {};
+  listMock.mockReturnValueOnce(new Promise((done) => (resolve = done))).mockResolvedValueOnce([]);
+
+  const loading = refreshBlockedUsers();
+  markUserUnblocked('u2');
+  resolve([{ id: 'u2', name: '민지' }]);
+  await loading;
+  await waitFor(() => assert.equal(listMock.mock.calls.length, 2));
+
+  assert.equal(isUserBlocked('u2'), false);
+});
+
 test('겹친 목록 요청은 나중에 시작한 응답만 적용한다', async () => {
   let resolveOlder: (users: Array<{ id: string; name: string }>) => void = () => {};
   let resolveLatest: (users: Array<{ id: string; name: string }>) => void = () => {};

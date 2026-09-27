@@ -481,7 +481,13 @@ export function Field({
     </View>
   );
 }
-export function Toggle({ value, onChange, label, disabled = false }: any) {
+export function Toggle({
+  value,
+  onChange,
+  label,
+  disabled = false,
+  activeColor = primitiveTokens.color.success,
+}: any) {
   // v2 .tog: 폭 46 · 켜지면 손잡이 18px 이동
   const x = useRef(new Animated.Value(value ? 18 : 0)).current;
   const reduce = React.useContext(MotionContext);
@@ -504,7 +510,7 @@ export function Toggle({ value, onChange, label, disabled = false }: any) {
         width: 46,
         height: 28,
         borderRadius: 999,
-        backgroundColor: value ? primitiveTokens.color.success : primitiveTokens.color.controlIdle,
+        backgroundColor: value ? activeColor : primitiveTokens.color.controlIdle,
         opacity: disabled ? componentTokens.button.disabledOpacity : 1,
       }}
     >

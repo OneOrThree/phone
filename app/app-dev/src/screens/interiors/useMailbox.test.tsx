@@ -13,7 +13,11 @@ import {
   sendLetter,
 } from '@/services/api/letters';
 import { useMailbox } from '@/screens/interiors/useMailbox';
-import { markUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
+import {
+  markUserBlocked,
+  replaceBlockedUsers,
+  revalidateBlockedUsers,
+} from '@/services/blockedUsers';
 
 jest.mock('@/services/api/letters', () => ({
   getMailboxScreen: jest.fn(),
@@ -166,6 +170,20 @@ test('열려 있는 편지 상세도 상대를 차단하면 즉시 숨긴다', a
 
   assert.equal(hook.result.current.detail, null);
   assert.equal(getLetterMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('열린 편지에서 차단 목록 재검증이 실패하면 상세 오류로 전달한다', async () => {
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+
+  assert.equal(hook.result.current.detail, null);
+  assert.equal(hook.result.current.detailError?.code, 'BLOCKED_USERS_UNAVAILABLE');
+  assert.equal(hook.result.current.blockedUsersStatus, 'error');
   await hook.unmount();
 });
 
