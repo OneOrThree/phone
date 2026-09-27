@@ -60,6 +60,7 @@ export function UserSafetySheet(props: Props) {
   const [description, setDescription] = useState('');
   const [replyEmail, setReplyEmail] = useState('');
   const [alsoBlock, setAlsoBlock] = useState(false);
+  const [reportBlockCompleted, setReportBlockCompleted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -70,6 +71,7 @@ export function UserSafetySheet(props: Props) {
     setDescription('');
     setReplyEmail('');
     setAlsoBlock(false);
+    setReportBlockCompleted(false);
     setBusy(false);
     setError('');
   }, [props.visible, props.reportTargetId]);
@@ -107,7 +109,7 @@ export function UserSafetySheet(props: Props) {
     }
     setBusy(true);
     setError('');
-    let blocked = false;
+    let blocked = reportBlockCompleted;
     try {
       const input = {
         targetType: props.reportTargetType,
@@ -115,11 +117,12 @@ export function UserSafetySheet(props: Props) {
         reason,
         description: description.trim() || null,
         replyEmail: replyEmail.trim() || null,
-        blockUser: alsoBlock,
+        blockUser: alsoBlock || reportBlockCompleted,
       };
-      if (alsoBlock) {
+      if (alsoBlock && !reportBlockCompleted) {
         await blockUser(props.targetUserId);
         markUserBlocked(props.targetUserId);
+        setReportBlockCompleted(true);
         props.onChanged?.();
         blocked = true;
       }
@@ -340,13 +343,15 @@ export function UserSafetySheet(props: Props) {
                 >
                   <View style={{ flex: 1 }}>
                     <Txt>이 사용자도 차단</Txt>
-                    <Txt kind="meta">기본값은 꺼져 있어요.</Txt>
+                    <Txt kind="meta">
+                      {reportBlockCompleted ? '차단을 완료했어요.' : '기본값은 꺼져 있어요.'}
+                    </Txt>
                   </View>
                   <Toggle
                     label="이 사용자도 차단"
-                    value={alsoBlock}
+                    value={alsoBlock || reportBlockCompleted}
                     onChange={setAlsoBlock}
-                    disabled={busy}
+                    disabled={busy || reportBlockCompleted}
                   />
                 </View>
                 <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>

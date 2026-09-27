@@ -113,7 +113,15 @@ test('선택 차단 뒤 메일 앱이 실패해도 시트를 유지해 재시도
   assert.equal(callbacks.onChanged.mock.calls.length, 1);
   assert.equal(callbacks.onClose.mock.calls.length, 0);
   assert.equal(isUserBlocked('user-2'), true);
+  assert.ok(screen.getByText('차단을 완료했어요.'));
   assert.ok(screen.getByText('이메일 작성'));
+
+  await fireEvent.press(screen.getByText('이메일 작성'));
+
+  await waitFor(() => assert.equal(openUrlMock.mock.calls.length, 2));
+  assert.equal(blockMock.mock.calls.length, 1);
+  assert.equal(callbacks.onChanged.mock.calls.length, 1);
+  assert.equal(callbacks.onClose.mock.calls.length, 1);
 });
 
 test('메일 앱을 여는 동안 연타와 닫기를 막는다', async () => {

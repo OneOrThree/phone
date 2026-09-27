@@ -296,7 +296,8 @@ test('편지 신고 중 차단 뒤 메일 앱이 실패해도 신고 시트와 �
   getLetterMock.mockResolvedValue(letterView());
   blockUserMock.mockResolvedValue(undefined);
   const openUrl = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('no mail app'));
-  const ui = await renderMail(makeE());
+  const e = makeE();
+  const ui = await renderMail(e);
   await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
   await fireEvent.press(ui.getByTestId('received-letter-0'));
   await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
@@ -308,6 +309,14 @@ test('편지 신고 중 차단 뒤 메일 앱이 실패해도 신고 시트와 �
   await waitFor(() => assert.ok(ui.getByText(/차단은 완료했지만 메일 앱을 열지 못했어요/)));
   assert.ok(ui.getByText('이메일 작성'));
   assert.equal(blockUserMock.mock.calls.length, 1);
+  assert.equal(e.route, 'mail');
+
+  await fireEvent.press(ui.getByText('이메일 작성'));
+
+  await waitFor(() => assert.equal(openUrl.mock.calls.length, 2));
+  assert.equal(blockUserMock.mock.calls.length, 1);
+  assert.equal(e.route, 'mail');
+  assert.equal(e.tab, '받은 편지');
   openUrl.mockRestore();
   await ui.unmount();
 });
