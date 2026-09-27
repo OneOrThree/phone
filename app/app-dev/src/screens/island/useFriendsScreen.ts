@@ -75,6 +75,7 @@ export function useFriendsScreen({
   const session = sessionGeneration();
   const blockedUsers = useBlockedUsers(active);
   const blockedIds = blockedUsers.ids;
+  const retryBlockedUsers = blockedUsers.retry;
 
   useEffect(() => {
     if (!active) {
@@ -157,9 +158,9 @@ export function useFriendsScreen({
   );
 
   const refresh = useCallback(() => {
-    if (blockedUsers.status === 'error') void blockedUsers.retry().catch(() => {});
+    if (blockedUsers.status === 'error') retryBlockedUsers().catch(() => {});
     setNonce((n) => n + 1);
-  }, [blockedUsers.retry, blockedUsers.status]);
+  }, [blockedUsers.status, retryBlockedUsers]);
 
   const visibleData = useMemo(
     () =>
@@ -190,6 +191,12 @@ export function useFriendsScreen({
       : blockedUsers.status === 'loading' || status === 'loading'
         ? 'loading'
         : status;
+  const visibleSearchStatus: SearchStatus =
+    blockedUsers.status === 'error'
+      ? 'error'
+      : blockedUsers.status === 'loading'
+        ? 'loading'
+        : searchStatus;
 
   return {
     status: visibleStatus,
@@ -201,8 +208,8 @@ export function useFriendsScreen({
     command,
     query,
     setQuery,
-    searchStatus,
-    searchError,
+    searchStatus: visibleSearchStatus,
+    searchError: blockedListError ?? searchError,
     searchItems: visibleSearchItems,
   };
 }

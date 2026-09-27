@@ -4,8 +4,8 @@ import { Btn, C, Txt } from '@/design-system/patterns';
 import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
-import { getBlockedUsers, unblockUser, type BlockedUser } from '@/services/api/safety';
-import { markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
+import { unblockUser, type BlockedUser } from '@/services/api/safety';
+import { markUserUnblocked, refreshBlockedUsers } from '@/services/blockedUsers';
 
 export function BlockedUsersScreen({ e }: any) {
   const [items, setItems] = useState<BlockedUser[]>([]);
@@ -20,10 +20,9 @@ export function BlockedUsersScreen({ e }: any) {
     setLoading(true);
     setError('');
     try {
-      const next = await getBlockedUsers();
+      const next = await refreshBlockedUsers();
       if (seq !== sequence.current || generation !== sessionGeneration()) return;
       setItems(next);
-      replaceBlockedUsers(next);
     } catch (thrown) {
       if (seq !== sequence.current || generation !== sessionGeneration()) return;
       if (thrown instanceof ApiError && thrown.code === CLIENT_STALE_SESSION) return;
@@ -66,7 +65,10 @@ export function BlockedUsersScreen({ e }: any) {
       onBack={e.back}
       onClose={e.home}
     >
-      <Txt kind="meta">차단한 사용자는 친구 요청과 편지를 주고받을 수 없어요.</Txt>
+      <Txt kind="meta">
+        차단한 사용자의 친구 요청과 편지는 내 화면에서 숨겨져요. 차단 중 받은 내용은 해제하면 다시
+        보일 수 있어요.
+      </Txt>
       {loading ? (
         <Txt kind="meta" style={{ paddingVertical: 24, textAlign: 'center' }}>
           불러오는 중…

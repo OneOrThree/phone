@@ -113,6 +113,29 @@ test('차단 목록이 준비되지 않았거나 실패하면 친구 데이터�
   assert.equal(result.current.error?.code, 'BLOCKED_USERS_UNAVAILABLE');
 });
 
+test('검색 중 차단 목록이 실패하면 빈 결과 대신 오류와 재시도 상태를 보인다', async () => {
+  await saveSession({
+    accessToken: 'AT-search-filter',
+    refreshToken: 'RT-search-filter',
+    userId: 'u-search-filter',
+  });
+  let rejectBlocked: (error: Error) => void = () => {};
+  blockedUsersMock.mockReturnValue(new Promise((_resolve, reject) => (rejectBlocked = reject)));
+  screenMock.mockResolvedValue(screen());
+  searchMock.mockResolvedValue([
+    { userId: 'u-1', nickname: '새봄', tierLevel: null, occupation: null, relation: 'NONE' },
+  ]);
+
+  const { result } = await renderHook(() => useFriendsScreen({ ...args, searchActive: true }));
+  await act(async () => result.current.setQuery('새봄'));
+  assert.equal(result.current.searchStatus, 'loading');
+
+  await act(async () => rejectBlocked(new Error('blocks unavailable')));
+  await waitFor(() => assert.equal(result.current.searchStatus, 'error'));
+  assert.equal(result.current.searchError?.code, 'BLOCKED_USERS_UNAVAILABLE');
+  assert.deepEqual(result.current.searchItems, []);
+});
+
 test('빈 목록은 ready+빈 배열 — 오류로 접지 않는다', async () => {
   screenMock.mockResolvedValue(screen({ friends: [], friendRequests: [], sentFriendRequests: [] }));
   const { result } = await renderHook(() => useFriendsScreen(args));
