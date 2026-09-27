@@ -912,14 +912,12 @@ test('친구 관리는 검색과 요청·친구 목록을 한 화면에서 이�
   s.getByLabelText('검색어 지우기');
 });
 
-test('친구 더보기에서 신고·차단·친구 삭제 안전 시트로 진입한다', async () => {
+test('목업 친구 화면에서는 실제 안전 API로 이어지는 더보기를 숨긴다', async () => {
   const s = await render(<Harness route="friends" full />);
 
-  await fireEvent.press(s.getByLabelText('새봄 더보기'));
-
-  s.getByText('신고하기');
-  s.getByText('차단하기');
-  s.getByText('친구 삭제');
+  assert.equal(s.queryByLabelText('새봄 더보기'), null);
+  assert.equal(s.queryByText('신고하기'), null);
+  assert.equal(s.queryByText('차단하기'), null);
 });
 
 test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친다', async () => {
@@ -935,10 +933,16 @@ test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친�
   assert.equal(s.queryByText('측정 앱'), null);
 });
 
-test('앱 설정의 안전 섹션에서 차단 사용자 목록으로 진입한다', async () => {
+test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', async () => {
+  const s = await render(<Harness route="settings" full />);
+
+  assert.equal(s.queryByText('차단한 사용자'), null);
+});
+
+test('서버 앱 설정의 안전 섹션에서 차단 사용자 목록으로 진입한다', async () => {
   let exposed: any;
   const s = await render(
-    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+    <Harness route="settings" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
   );
 
   await fireEvent.press(s.getByText('차단한 사용자'));

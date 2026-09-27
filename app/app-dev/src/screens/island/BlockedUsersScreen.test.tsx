@@ -26,7 +26,12 @@ const listMock = getBlockedUsers as jest.Mock;
 const unblockMock = unblockUser as jest.Mock;
 const user = { id: 'user-2', name: '민지' };
 
-const events = () => ({ back: jest.fn(), home: jest.fn(), notify: jest.fn() });
+const events = () => ({
+  back: jest.fn(),
+  home: jest.fn(),
+  notify: jest.fn(),
+  friendsScreen: { refresh: jest.fn() },
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -70,5 +75,6 @@ test('차단 해제 성공 후 목록을 재조회하고 완료를 알린다', a
   assert.equal(unblockMock.mock.calls[0][0], 'user-2');
   assert.equal(listMock.mock.calls.length, 2);
   assert.equal(isUserBlocked('user-2'), false);
+  assert.equal(e.friendsScreen.refresh.mock.calls.length, 1);
   assert.equal(e.notify.mock.calls[0][0], '민지님의 차단을 해제했어요.');
 });

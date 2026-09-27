@@ -414,7 +414,7 @@ function CurrentScreensContent({ e }: any) {
       <ScreenTimePermission e={e} />
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
-  if (r === 'blockedUsers') return <BlockedUsersScreen e={e} />;
+  if (r === 'blockedUsers' && e.islands) return <BlockedUsersScreen e={e} />;
   return <RedesignScreens e={screenE} />;
 }
 

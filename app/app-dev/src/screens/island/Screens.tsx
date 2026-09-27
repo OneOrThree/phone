@@ -5638,9 +5638,7 @@ export function RedesignScreens({ e }: any) {
           ) : friend.status === 'friend' ? (
             searchResult ? (
               <Badge soft>친구</Badge>
-            ) : (
-              friendMenu(friend.id, friend.name, () => act('FRIEND_DELETE', { id: friend.id }))
-            )
+            ) : null
           ) : (
             <Btn
               small
@@ -5838,7 +5836,7 @@ export function RedesignScreens({ e }: any) {
             </View>
           )}
         </IslandSheet>
-        {safetyTarget ? (
+        {serverMode && safetyTarget ? (
           <UserSafetySheet
             visible
             targetUserId={safetyTarget.id}
@@ -6024,15 +6022,19 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
-        {sec('안전')}
-        <SheetGroup flat>
-          <SheetRow
-            title="차단한 사용자"
-            sub="차단 목록을 확인하고 해제해요"
-            chevron
-            onPress={() => go('blockedUsers')}
-          />
-        </SheetGroup>
+        {server ? (
+          <>
+            {sec('안전')}
+            <SheetGroup flat>
+              <SheetRow
+                title="차단한 사용자"
+                sub="차단 목록을 확인하고 해제해요"
+                chevron
+                onPress={() => go('blockedUsers')}
+              />
+            </SheetGroup>
+          </>
+        ) : null}
         {sec('도움말')}
         <SheetGroup flat>
           <SheetRow

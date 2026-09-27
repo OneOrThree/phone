@@ -24,8 +24,8 @@ export type ReportInput = {
 
 export type ReportReceipt = { caseId: string; blocked: boolean };
 
-/** Gmail 확인 최대 60초와 SMTP/IMAP 연결·본문 응답 여유를 포함한다. */
-export const REPORT_REQUEST_TIMEOUT_MS = 90_000;
+/** Gmail 확인 최대 60초와 nginx 100초 제한보다 긴 클라이언트 응답 여유를 포함한다. */
+export const REPORT_REQUEST_TIMEOUT_MS = 110_000;
 
 export function getBlockedUsers(): Promise<BlockedUser[]> {
   return request<BlockedUser[]>('/blocks');

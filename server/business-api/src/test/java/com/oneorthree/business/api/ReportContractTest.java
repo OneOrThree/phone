@@ -142,6 +142,29 @@ class ReportContractTest extends UpstreamTestBase {
     }
 
     @Test
+    void targetWithdrawalBetweenEvidenceAndPrepareMapsToPublicNotFound() throws Exception {
+        reset(mail);
+        workflow(false);
+        DATA.on("GET /internal/users/" + USER + "/friends", request -> ok("[{"
+                + "\"userId\":\"" + TARGET + "\",\"nickname\":\"곧 탈퇴할 사용자\","
+                + "\"tierLevel\":null,\"occupation\":null,\"isPinned\":false,\"isFocusing\":false,"
+                + "\"focusTimeMinutes\":0,\"focusStartedAt\":null,\"focusTagName\":null,"
+                + "\"mainIslandName\":null}]"));
+        DATA.on(preparePath(), request -> error(404, "TARGET_USER_NOT_FOUND"));
+
+        mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON).content(body("USER", TARGET, false)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.error.field").value("targetId"));
+
+        assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
+                .containsExactly(claimPath(), "GET /internal/users/" + USER + "/friends",
+                        preparePath(), releasePath());
+        verifyNoInteractions(mail);
+    }
+
+    @Test
     void receivedLetterReportUsesServerOriginalDefangsLinksAndCanBlockSender() throws Exception {
         reset(mail);
         workflow(true);
@@ -356,5 +379,9 @@ class ReportContractTest extends UpstreamTestBase {
 
     private static MockUpstream.Response ok(String body) {
         return new MockUpstream.Response(200, body);
+    }
+
+    private static MockUpstream.Response error(int status, String code) {
+        return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
 }

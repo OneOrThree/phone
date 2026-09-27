@@ -52,7 +52,7 @@ public class ReportUseCase {
                 String subject = "[GROMO 신고] " + caseId + " / " + targetType;
                 String mailBody = body(caseId, requestId, claims.userId(), targetType, targetId, evidence, reason,
                         description, replyEmail);
-                delivery = deliveries.prepare(claims.userId(), requestId, leaseToken, evidence.authorId(),
+                delivery = prepare(claims.userId(), requestId, leaseToken, evidence.authorId(),
                         subject, mailBody, deadline);
             }
             if (!delivery.emailConfirmed()) {
@@ -102,6 +102,19 @@ public class ReportUseCase {
             deliveries.release(reporterId, requestId, leaseToken, Deadline.unbounded());
         } catch (RuntimeException ignored) {
             // lease는 유한 시간 뒤 만료된다. 원래 실패를 release 최선 노력의 실패로 덮지 않는다.
+        }
+    }
+
+    private ReportDeliveryView prepare(UUID reporterId, UUID requestId, UUID leaseToken, UUID authorId,
+            String subject, String mailBody, Deadline deadline) {
+        try {
+            return deliveries.prepare(reporterId, requestId, leaseToken, authorId, subject, mailBody, deadline);
+        } catch (UpstreamDomainException e) {
+            // 증거 조회 뒤 상대가 탈퇴한 경합은 공개 계약의 target 미존재로 수렴시킨다.
+            if (e.getStatus() == 404 && "TARGET_USER_NOT_FOUND".equals(e.getCode())) {
+                throw new PublicApiException(ApiErrorCode.NOT_FOUND, "targetId");
+            }
+            throw e;
         }
     }
 
