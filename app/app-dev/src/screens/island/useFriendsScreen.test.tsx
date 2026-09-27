@@ -92,6 +92,24 @@ test('차단 신호가 오면 이미 적재된 친구·요청을 서버 재조�
   assert.equal(screenMock.mock.calls.length, 1);
 });
 
+test('공용 친구 소비자가 계속 활성이어도 친구 route 재진입 시 차단 목록을 재검증한다', async () => {
+  screenMock.mockResolvedValue(screen());
+  blockedUsersMock.mockResolvedValue([{ id: 'u-friend', name: '다른 기기 차단' }]);
+  const hook = await renderHook(
+    (route: { active: boolean }) =>
+      useFriendsScreen({ ...args, active: true, routeActive: route.active }),
+    { initialProps: { active: false } },
+  );
+  await waitFor(() => assert.equal(hook.result.current.status, 'ready'));
+  assert.equal(blockedUsersMock.mock.calls.length, 0);
+
+  await hook.rerender({ active: true });
+
+  await waitFor(() => assert.equal(blockedUsersMock.mock.calls.length, 1));
+  await waitFor(() => assert.equal(hook.result.current.data?.friends.length, 0));
+  await hook.unmount();
+});
+
 test('차단 목록이 준비되지 않았거나 실패하면 친구 데이터를 fail-closed로 숨긴다', async () => {
   await saveSession({
     accessToken: 'AT-block-filter',

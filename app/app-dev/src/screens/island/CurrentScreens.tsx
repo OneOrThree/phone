@@ -160,10 +160,13 @@ function Sheet({
 }
 
 export function CurrentScreens({ e }: any) {
+  const friendsRouteActive = e.route === 'friends' || e.route === 'friendSearch';
   const friendsScreen = useFriendsScreen({
     // 공용 소비자(뗏목 배지·우체통)가 첫 진입부터 서버 친구를 쓰도록 화면 route와 무관하게 적재한다.
     active: !!e.islands,
-    searchActive: e.route === 'friends' || e.route === 'friendSearch',
+    // 친구 화면 재진입은 별도로 전달해 공용 소비자가 계속 활성이어도 차단 목록을 다시 검증한다.
+    routeActive: friendsRouteActive,
+    searchActive: friendsRouteActive,
     date: dayKey(e.now),
   });
   useEffect(() => {

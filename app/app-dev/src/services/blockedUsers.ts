@@ -133,7 +133,10 @@ export function refreshBlockedUsers(): Promise<BlockedUser[]> {
 
 export type BlockedUsersLoadStatus = 'loading' | 'ready' | 'error';
 
-export function useBlockedUsers(active = true): {
+export function useBlockedUsers(
+  active = true,
+  revalidateActive = false,
+): {
   ids: ReadonlySet<string>;
   users: ReadonlyArray<BlockedUser>;
   status: BlockedUsersLoadStatus;
@@ -153,6 +156,11 @@ export function useBlockedUsers(active = true): {
     });
     return () => subscription.remove();
   }, [active, currentGeneration]);
+  useEffect(() => {
+    if (!active || !revalidateActive) return;
+    // 공용 소비자가 계속 활성인 경우에도 실제 필터 화면 재진입은 강제 재검증한다.
+    revalidateBlockedUsers().catch(() => {});
+  }, [active, currentGeneration, revalidateActive]);
   return {
     ids,
     users,

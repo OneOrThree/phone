@@ -48,22 +48,19 @@ test('차단 목록을 불러오는 동안 로딩을 보여 주고 빈 응답을
   await waitFor(() => assert.ok(screen.getByText('차단한 사용자가 없어요.')));
 });
 
-test('화면 조회가 먼저 시작한 전역 조회의 늦은 응답을 덮어쓰지 못하게 한다', async () => {
-  let resolveOlder: (value: (typeof user)[]) => void = () => {};
-  let resolveLatest: (value: (typeof user)[]) => void = () => {};
-  listMock
-    .mockReturnValueOnce(new Promise((resolve) => (resolveOlder = resolve)))
-    .mockReturnValueOnce(new Promise((resolve) => (resolveLatest = resolve)));
+test('화면 조회는 진행 중인 전역 조회와 합쳐 성공 응답을 그대로 사용한다', async () => {
+  let resolve: (value: (typeof user)[]) => void = () => {};
+  listMock.mockReturnValueOnce(new Promise((done) => (resolve = done)));
 
-  const older = refreshBlockedUsers();
+  const pending = refreshBlockedUsers();
   const screen = await render(<BlockedUsersScreen e={events()} />);
-  resolveLatest([user]);
+  assert.equal(listMock.mock.calls.length, 1);
+  resolve([user]);
+  await pending;
   await waitFor(() => assert.ok(screen.getByText('민지')));
-  resolveOlder([{ id: 'user-old', name: '이전 목록' }]);
-  await older;
 
   assert.equal(isUserBlocked('user-2'), true);
-  assert.equal(isUserBlocked('user-old'), false);
+  assert.equal(screen.queryByText(/불러오지 못했어요/), null);
   await screen.unmount();
 });
 

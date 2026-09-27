@@ -5,7 +5,11 @@ import { IslandSheet, SheetGroup, SheetRow } from '@/screens/island/IslandSheet'
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import { unblockUser, type BlockedUser } from '@/services/api/safety';
-import { markUserUnblocked, refreshBlockedUsers, useBlockedUsers } from '@/services/blockedUsers';
+import {
+  markUserUnblocked,
+  revalidateBlockedUsers,
+  useBlockedUsers,
+} from '@/services/blockedUsers';
 
 export function BlockedUsersScreen({ e }: any) {
   const blockedUsers = useBlockedUsers(true);
@@ -29,7 +33,7 @@ export function BlockedUsersScreen({ e }: any) {
     setLoading(true);
     setError('');
     try {
-      await refreshBlockedUsers();
+      await revalidateBlockedUsers();
       if (seq !== sequence.current || generation !== sessionGeneration()) return;
     } catch (thrown) {
       if (seq !== sequence.current || generation !== sessionGeneration()) return;

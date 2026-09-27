@@ -34,6 +34,22 @@ jest.mock('@/services/api/safety', () => ({
   getBlockedUsers: jest.fn(),
 }));
 
+jest.mock('@/utils/layout', () => ({
+  useAppLayout: () => ({
+    width: 402,
+    height: 874,
+    fontScale: 1,
+    tablet: false,
+    landscape: false,
+    compact: false,
+    contentWidth: 402,
+    gutter: 20,
+    floatingWidth: 362,
+    modalWidth: 362,
+    insets: { top: 52, bottom: 32, left: 0, right: 0 },
+  }),
+}));
+
 const ISLAND = 'island-1';
 const LETTER = 'letter-1';
 

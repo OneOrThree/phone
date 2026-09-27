@@ -1,9 +1,27 @@
 import assert from 'node:assert/strict';
-import { Linking } from 'react-native';
+import { Linking, StyleSheet } from 'react-native';
 import { fireEvent, render, waitFor } from '@testing-library/react-native';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { blockUser, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { isUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
+
+const mockAppLayout = {
+  width: 402,
+  height: 874,
+  fontScale: 1,
+  tablet: false,
+  landscape: false,
+  compact: false,
+  contentWidth: 402,
+  gutter: 20,
+  floatingWidth: 362,
+  modalWidth: 362,
+  insets: { top: 52, bottom: 32, left: 0, right: 0 },
+};
+
+jest.mock('@/utils/layout', () => ({
+  useAppLayout: () => mockAppLayout,
+}));
 
 jest.mock('@/services/api/safety', () => ({
   ...jest.requireActual('@/services/api/safety'),
@@ -34,8 +52,28 @@ const props = (over: Partial<React.ComponentProps<typeof UserSafetySheet>> = {})
 
 beforeEach(() => {
   jest.clearAllMocks();
+  Object.assign(mockAppLayout, {
+    width: 402,
+    height: 874,
+    tablet: false,
+    landscape: false,
+    compact: false,
+    modalWidth: 362,
+  });
   replaceBlockedUsers([]);
   openUrlMock = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+});
+
+test('태블릿에서는 신고 시트를 제한된 너비로 가운데 정렬한다', async () => {
+  Object.assign(mockAppLayout, { width: 1024, height: 1366, tablet: true, modalWidth: 560 });
+
+  const screen = await render(<UserSafetySheet {...props()} />);
+
+  assert.equal(
+    StyleSheet.flatten(screen.getByTestId('user-safety-layout').props.style).justifyContent,
+    'center',
+  );
+  assert.equal(StyleSheet.flatten(screen.getByTestId('user-safety-panel').props.style).width, 560);
 });
 
 afterEach(() => {

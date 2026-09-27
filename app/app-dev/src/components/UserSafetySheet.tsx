@@ -23,6 +23,7 @@ import {
   type ReportTargetType,
 } from '@/services/api/safety';
 import { markUserBlocked } from '@/services/blockedUsers';
+import { useAppLayout } from '@/utils/layout';
 
 const REASONS: Array<{ value: ReportReason; label: string }> = [
   { value: 'HARASSMENT', label: '욕설·괴롭힘' },
@@ -55,6 +56,8 @@ type Props = {
 };
 
 export function UserSafetySheet(props: Props) {
+  const layout = useAppLayout();
+  const centered = layout.tablet || layout.compact;
   const [mode, setMode] = useState<'menu' | 'report' | 'block'>('menu');
   const [reason, setReason] = useState<ReportReason>('HARASSMENT');
   const [description, setDescription] = useState('');
@@ -153,8 +156,13 @@ export function UserSafetySheet(props: Props) {
       <ImageBackground source={SAFETY_ART.background} resizeMode="cover" style={{ flex: 1 }}>
         <View style={[StyleSheet.absoluteFill, { backgroundColor: `${C.ink}66` }]} />
         <KeyboardAvoidingView
+          testID="user-safety-layout"
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1, justifyContent: 'flex-end' }}
+          style={{
+            flex: 1,
+            justifyContent: centered ? 'center' : 'flex-end',
+            alignItems: centered ? 'center' : 'stretch',
+          }}
         >
           <Pressable
             style={{ flex: 1 }}
@@ -190,10 +198,12 @@ export function UserSafetySheet(props: Props) {
             />
           </Pressable>
           <View
+            testID="user-safety-panel"
             accessibilityViewIsModal
             style={{
+              width: centered ? layout.modalWidth : undefined,
               maxHeight: '80%',
-              marginHorizontal: semanticTokens.spacing.control,
+              marginHorizontal: centered ? 0 : semanticTokens.spacing.control,
               marginBottom: semanticTokens.spacing.control,
               padding: componentTokens.modal.padding,
               paddingBottom: componentTokens.modal.paddingBottom,
