@@ -89,6 +89,28 @@ location = /actuator { return 404; }
 # GET /islands/{islandId}/statistics/fish-earnings.
 # 내 가입 신청 목록(GROMO-2047)도 me 분기가 그대로 전달한다 — 새 location 이 필요하지 않다.
 # GET /me/join-requests (단건 GET·DELETE /me/join-requests/{requestId} 는 1760 에서 이미 열렸다).
+# 신고 메일 전송·메일함 확인은 최대 60초까지 걸리므로 공용 기본값과 분리한다.
+# 앱의 110초 제한보다 먼저 응답하되 SMTP/IMAP 후처리 여유까지 둔다.
+location = /reports {
+    proxy_pass http://__BUSINESS_UPSTREAM__;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header Connection "";
+    proxy_set_header X-User-Id "";
+    proxy_set_header X-Caller "";
+    proxy_set_header X-Caller-Id "";
+    proxy_set_header X-Internal-Caller "";
+    proxy_set_header X-Service-Caller "";
+    proxy_set_header X-Link-Client-IP "";
+    proxy_set_header X-Link-Proxy-Secret "";
+    proxy_set_header X-Forwarded-For "";
+    proxy_set_header X-Real-IP "";
+    proxy_set_header CF-Connecting-IP "";
+    proxy_connect_timeout 2s;
+    proxy_read_timeout 100s;
+    proxy_next_upstream off;
+}
+
 # 대안 목록은 Business 의 PublicApiRoutes.ROOTS 와 같이 유지한다. 레거시 /api/v1/friends·/api/v1/pins 는 Data 로 간다.
 location ~ ^/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks|reports)(?:/|$) {
     proxy_pass http://__BUSINESS_UPSTREAM__;
