@@ -130,6 +130,31 @@ test('우체통 진입은 유효한 TTL cache가 있어도 차단 목록을 강�
   await hook.unmount();
 });
 
+test('다른 기기의 차단 해제를 재검증하면 우체통 서버 정본도 다시 적재한다', async () => {
+  replaceBlockedUsers([{ id: 'u2', name: '민지' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u2', name: '민지' }]);
+  screenMock
+    .mockResolvedValueOnce(
+      screen({
+        messages: { items: [], nextCursor: null },
+        letters: { content: [], size: 20, hasNext: false, nextCursor: null },
+        friends: [],
+      }),
+    )
+    .mockResolvedValueOnce(screen());
+  const hook = await mount();
+  assert.deepEqual(hook.result.current.messages, []);
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => revalidateBlockedUsers());
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.messages[0]?.userId, 'u2'));
+  assert.equal(hook.result.current.letters[0]?.counterpartUserId, 'u2');
+  assert.equal(hook.result.current.friends[0]?.userId, 'u2');
+  await hook.unmount();
+});
+
 test('차단 신호가 오면 캐시된 낙서·편지·친구를 서버 재조회 전에 즉시 숨긴다', async () => {
   const hook = await mount();
 

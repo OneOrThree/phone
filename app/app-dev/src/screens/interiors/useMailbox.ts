@@ -108,6 +108,11 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
   const blockedUsers = useBlockedUsers(active, active);
   const blockedIds = blockedUsers.ids;
   const retryBlockedUsers = blockedUsers.retry;
+  const generation = sessionGeneration();
+  const previousBlockedIds = useRef<{
+    generation: number;
+    ids: ReadonlySet<string> | null;
+  }>({ generation, ids: null });
   const [state, setState] = useState<MailboxState>(EMPTY);
   const stateRef = useRef(state);
   const set = useCallback((patch: Partial<MailboxState>) => {
@@ -408,7 +413,20 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     };
   }, []);
 
-  const generation = sessionGeneration();
+  useEffect(() => {
+    if (previousBlockedIds.current.generation !== generation) {
+      previousBlockedIds.current = { generation, ids: null };
+    }
+    if (!active || blockedUsers.status !== 'ready') return;
+    const previous = previousBlockedIds.current.ids;
+    previousBlockedIds.current.ids = blockedIds;
+    // 차단 중 서버 응답에는 상대의 편지·친구가 빠져 있으므로 해제가 확인되면
+    // 로컬 필터만 풀지 말고 우체통 묶음 자체를 다시 읽어 복원한다.
+    if (previous?.size && [...previous].some((id) => !blockedIds.has(id))) {
+      load().catch(() => {});
+    }
+  }, [active, blockedIds, blockedUsers.status, generation, load]);
+
   useEffect(() => {
     epoch.current += 1;
     intents.current.clear();

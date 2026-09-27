@@ -90,6 +90,22 @@ test('휴대폰 세로에서는 하단 모서리가 닫힌 bottom sheet로 배�
   assert.equal(style.borderBottomRightRadius, 0);
 });
 
+test('메뉴·차단 확인·신고 본문은 모두 높이 제한 안에서 스크롤할 수 있다', async () => {
+  Object.assign(mockAppLayout, { height: 360, compact: true, fontScale: 2 });
+  const screen = await render(<UserSafetySheet {...props()} />);
+  const scrollStyle = StyleSheet.flatten(screen.getByTestId('user-safety-content').props.style);
+  assert.equal(scrollStyle.flexShrink, 1);
+  assert.equal(scrollStyle.minHeight, 0);
+
+  await fireEvent.press(screen.getByText('차단하기'));
+  assert.ok(screen.getByTestId('user-safety-content'));
+  assert.ok(screen.getByText('차단'));
+  await fireEvent.press(screen.getByText('취소'));
+  await fireEvent.press(screen.getByText('신고하기'));
+  assert.ok(screen.getByTestId('user-safety-content'));
+  assert.ok(screen.getByText('이메일 작성'));
+});
+
 afterEach(() => {
   jest.restoreAllMocks();
 });
@@ -249,7 +265,8 @@ test('직접 차단 성공은 API 확인 뒤 로컬 필터와 완료 콜백을 �
   const screen = await render(<UserSafetySheet {...callbacks} />);
 
   await fireEvent.press(screen.getByText('차단하기'));
-  assert.ok(screen.getByText(/내 화면에서 숨겨져요/));
+  assert.ok(screen.getByText(/앱 목록에서 숨겨져요/));
+  assert.ok(screen.getByText(/알림은 기기에 표시될 수 있어요/));
   assert.ok(screen.getByText(/해제하면 다시 보일 수 있어요/));
   await fireEvent.press(screen.getByText('차단'));
 

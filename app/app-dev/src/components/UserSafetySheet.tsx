@@ -265,99 +265,78 @@ export function UserSafetySheet(props: Props) {
               </Pressable>
             </View>
 
-            {mode === 'menu' ? (
-              <View style={{ gap: semanticTokens.spacing.control }}>
-                <Btn title="신고하기" onPress={() => setMode('report')} />
-                <Btn kind="sec" title="차단하기" onPress={() => setMode('block')} />
-                {props.extraAction ? (
-                  <Btn
-                    kind="sec"
-                    title={props.extraAction.title}
-                    onPress={() => {
-                      props.onClose();
-                      props.extraAction?.onPress();
-                    }}
-                  />
-                ) : null}
-              </View>
-            ) : mode === 'block' ? (
-              <View style={{ gap: componentTokens.modal.gap }}>
-                <Txt>
-                  {props.targetName}님의 친구 요청과 편지가 내 화면에서 숨겨져요. 차단 중 받은
-                  내용은 해제하면 다시 보일 수 있어요.
-                </Txt>
-                <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
-                  <Btn
-                    kind="sec"
-                    title="취소"
-                    disabled={busy}
-                    style={{ flex: 1 }}
-                    onPress={() => setMode('menu')}
-                  />
-                  <Btn
-                    title={busy ? '처리 중…' : '차단'}
-                    disabled={busy}
-                    style={{ flex: 1 }}
-                    onPress={block}
-                  />
+            <ScrollView
+              testID="user-safety-content"
+              keyboardShouldPersistTaps="handled"
+              style={{ flexShrink: 1, minHeight: 0 }}
+              contentContainerStyle={{ gap: componentTokens.modal.gap }}
+            >
+              {mode === 'menu' ? (
+                <View style={{ gap: semanticTokens.spacing.control }}>
+                  <Btn title="신고하기" onPress={() => setMode('report')} />
+                  <Btn kind="sec" title="차단하기" onPress={() => setMode('block')} />
+                  {props.extraAction ? (
+                    <Btn
+                      kind="sec"
+                      title={props.extraAction.title}
+                      onPress={() => {
+                        props.onClose();
+                        props.extraAction?.onPress();
+                      }}
+                    />
+                  ) : null}
                 </View>
-              </View>
-            ) : (
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                contentContainerStyle={{ gap: componentTokens.modal.gap }}
-              >
-                <Txt kind="meta">
-                  운영팀 Gmail({REPORT_EMAIL_RECIPIENT})로 보낼 메일 작성 화면을 열어요. 전송 전
-                  내용을 확인해 주세요.
-                </Txt>
-                <Chips
-                  items={REASONS.map((item) => item.label)}
-                  value={REASONS.find((item) => item.value === reason)?.label}
-                  onChange={(label: string) =>
-                    setReason(REASONS.find((item) => item.label === label)!.value)
-                  }
-                  disabled={busy}
-                  large
-                  wrap
-                />
-                <TextInput
-                  accessibilityLabel="신고 설명"
-                  value={description}
-                  onChangeText={setDescription}
-                  editable={!busy}
-                  multiline
-                  maxLength={1000}
-                  placeholder={
-                    reason === 'OTHER' ? '기타 사유를 적어 주세요 (필수)' : '설명 (선택)'
-                  }
-                  placeholderTextColor={C.muted}
-                  style={{
-                    minHeight: 88,
-                    padding: semanticTokens.spacing.control,
-                    borderWidth: componentTokens.input.borderWidth,
-                    borderColor: componentTokens.input.border,
-                    borderRadius: componentTokens.input.radius,
-                    color: C.ink,
-                  }}
-                />
-                <View style={{ gap: 6 }}>
-                  <Txt>처리 결과를 회신받을 이메일 (선택)</Txt>
-                  <Txt kind="meta">
-                    운영팀의 답장을 받을 주소예요. 입력하지 않아도 신고 메일을 작성할 수 있어요.
+              ) : mode === 'block' ? (
+                <View style={{ gap: componentTokens.modal.gap }}>
+                  <Txt>
+                    {props.targetName}님의 친구 요청과 편지는 앱 목록에서 숨겨져요. 친구 요청 알림은
+                    기기에 표시될 수 있어요. 차단 중 받은 내용은 해제하면 다시 보일 수 있어요.
                   </Txt>
+                  <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                    <Btn
+                      kind="sec"
+                      title="취소"
+                      disabled={busy}
+                      style={{ flex: 1 }}
+                      onPress={() => setMode('menu')}
+                    />
+                    <Btn
+                      title={busy ? '처리 중…' : '차단'}
+                      disabled={busy}
+                      style={{ flex: 1 }}
+                      onPress={block}
+                    />
+                  </View>
+                </View>
+              ) : (
+                <View style={{ gap: componentTokens.modal.gap }}>
+                  <Txt kind="meta">
+                    운영팀 Gmail({REPORT_EMAIL_RECIPIENT})로 보낼 메일 작성 화면을 열어요. 전송 전
+                    내용을 확인해 주세요.
+                  </Txt>
+                  <Chips
+                    items={REASONS.map((item) => item.label)}
+                    value={REASONS.find((item) => item.value === reason)?.label}
+                    onChange={(label: string) =>
+                      setReason(REASONS.find((item) => item.label === label)!.value)
+                    }
+                    disabled={busy}
+                    large
+                    wrap
+                  />
                   <TextInput
-                    accessibilityLabel="처리 결과를 회신받을 이메일"
-                    value={replyEmail}
-                    onChangeText={setReplyEmail}
+                    accessibilityLabel="신고 설명"
+                    value={description}
+                    onChangeText={setDescription}
                     editable={!busy}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    maxLength={254}
-                    placeholder="email@example.com"
+                    multiline
+                    maxLength={1000}
+                    placeholder={
+                      reason === 'OTHER' ? '기타 사유를 적어 주세요 (필수)' : '설명 (선택)'
+                    }
                     placeholderTextColor={C.muted}
                     style={{
-                      minHeight: componentTokens.input.minHeight,
+                      minHeight: 88,
                       padding: semanticTokens.spacing.control,
                       borderWidth: componentTokens.input.borderWidth,
                       borderColor: componentTokens.input.border,
@@ -365,46 +344,71 @@ export function UserSafetySheet(props: Props) {
                       color: C.ink,
                     }}
                   />
-                </View>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    gap: semanticTokens.spacing.control,
-                  }}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Txt>이 사용자도 차단</Txt>
+                  <View style={{ gap: 6 }}>
+                    <Txt>처리 결과를 회신받을 이메일 (선택)</Txt>
                     <Txt kind="meta">
-                      {reportBlockCompleted ? '차단을 완료했어요.' : '기본값은 꺼져 있어요.'}
+                      운영팀의 답장을 받을 주소예요. 입력하지 않아도 신고 메일을 작성할 수 있어요.
                     </Txt>
+                    <TextInput
+                      accessibilityLabel="처리 결과를 회신받을 이메일"
+                      value={replyEmail}
+                      onChangeText={setReplyEmail}
+                      editable={!busy}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      maxLength={254}
+                      placeholder="email@example.com"
+                      placeholderTextColor={C.muted}
+                      style={{
+                        minHeight: componentTokens.input.minHeight,
+                        padding: semanticTokens.spacing.control,
+                        borderWidth: componentTokens.input.borderWidth,
+                        borderColor: componentTokens.input.border,
+                        borderRadius: componentTokens.input.radius,
+                        color: C.ink,
+                      }}
+                    />
                   </View>
-                  <Toggle
-                    label="이 사용자도 차단"
-                    value={alsoBlock || reportBlockCompleted}
-                    onChange={setAlsoBlock}
-                    disabled={busy || reportBlockCompleted}
-                    activeColor={semanticTokens.color.primary}
-                  />
+                  <View
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: semanticTokens.spacing.control,
+                    }}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Txt>이 사용자도 차단</Txt>
+                      <Txt kind="meta">
+                        {reportBlockCompleted ? '차단을 완료했어요.' : '기본값은 꺼져 있어요.'}
+                      </Txt>
+                    </View>
+                    <Toggle
+                      label="이 사용자도 차단"
+                      value={alsoBlock || reportBlockCompleted}
+                      onChange={setAlsoBlock}
+                      disabled={busy || reportBlockCompleted}
+                      activeColor={semanticTokens.color.primary}
+                    />
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
+                    <Btn
+                      kind="sec"
+                      title="뒤로"
+                      disabled={busy}
+                      style={{ flex: 1 }}
+                      onPress={() => setMode('menu')}
+                    />
+                    <Btn
+                      title={busy ? '메일 여는 중…' : '이메일 작성'}
+                      disabled={busy}
+                      style={{ flex: 1 }}
+                      onPress={composeReportEmail}
+                    />
+                  </View>
                 </View>
-                <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
-                  <Btn
-                    kind="sec"
-                    title="뒤로"
-                    disabled={busy}
-                    style={{ flex: 1 }}
-                    onPress={() => setMode('menu')}
-                  />
-                  <Btn
-                    title={busy ? '메일 여는 중…' : '이메일 작성'}
-                    disabled={busy}
-                    style={{ flex: 1 }}
-                    onPress={composeReportEmail}
-                  />
-                </View>
-              </ScrollView>
-            )}
+              )}
+            </ScrollView>
             {error ? <Txt style={{ color: C.danger }}>{error}</Txt> : null}
           </View>
         </KeyboardAvoidingView>
