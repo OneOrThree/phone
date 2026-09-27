@@ -30,6 +30,7 @@ export const INK = '#493B39',
   ME = '#B83D63';
 // 도착 지점 바다 위 뗏목 한 대. 고양이는 뗏목 바로 위쪽의 가장 가까운 땅에 내려 선다.
 export const RAFT = { x: 37.8, y: 91.8 };
+const FISHING_MAP_ASPECT = 1536 / 1024;
 export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
 // 우리 섬에 축음기를 지었으면 낚시섬에도 한 대(지도 폭 6% · 시안 CSS 17:03). 낚시 자리·뗏목·올라오는 길을 피한 남동쪽 풀밭.
 export const GRAM = { x: 50, y: 70, w: 6 };
@@ -41,6 +42,26 @@ export const nearGram = ({ x, y }: Point) =>
   y >= GRAM.y - ((GRAM.w * gramBox.h) / gramBox.w) * (1536 / 1024) &&
   y <= GRAM.y + 4;
 export type Spot = { x: number; y: number; face: number; bx?: number; by?: number };
+export const castAngle = (spot: Spot) =>
+  spot.bx == null || spot.by == null
+    ? spot.face < 0
+      ? Math.PI
+      : 0
+    : Math.atan2((spot.by - spot.y) / FISHING_MAP_ASPECT, spot.bx - spot.x);
+const castReach = (spot: Spot) => {
+  if (spot.bx == null || spot.by == null) return 5.6;
+  const distance = Math.hypot(spot.bx - spot.x, (spot.by - spot.y) / FISHING_MAP_ASPECT);
+  return Math.min(5.6, distance * 0.65);
+};
+// 줄은 회전된 낚싯대 끝에서 시작하며, 지도 좌표의 y를 화면 거리로 되돌린다.
+export const castLineStart = (spot: Spot): Point => {
+  const angle = castAngle(spot),
+    reach = castReach(spot);
+  return {
+    x: spot.x + Math.cos(angle) * reach,
+    y: spot.y + Math.sin(angle) * reach * FISHING_MAP_ASPECT,
+  };
+};
 // 누른 곳에 앉히고 12% 안에서 가장 가까운 물 쪽으로 낚싯줄을 던진다. 물이 멀면 줄 없이 앉는다.
 // 좌표는 반올림하지 않는다(물가 칸 경계에서 반올림하면 물 칸이 될 수 있음).
 export function castSpot({ x, y }: Point): Spot {
@@ -48,9 +69,9 @@ export function castSpot({ x, y }: Point): Spot {
     d = 144;
   for (let c = 0; c < fishingGrid.cells.length; c++) {
     if (fishingGrid.cells[c] === '1') continue;
-    const wx = ((c % 50) + 0.5) * 2,
-      wy = (Math.floor(c / 50) + 0.5) * 2,
-      dd = (wx - x) ** 2 + (wy - y) ** 2;
+    const wx = (((c % fishingGrid.cols) + 0.5) * fishingGrid.w) / fishingGrid.cols,
+      wy = ((Math.floor(c / fishingGrid.cols) + 0.5) * fishingGrid.h) / fishingGrid.rows,
+      dd = (wx - x) ** 2 + ((wy - y) / FISHING_MAP_ASPECT) ** 2;
     if (dd < d) {
       d = dd;
       best = { x: wx, y: wy };
@@ -59,7 +80,7 @@ export function castSpot({ x, y }: Point): Spot {
   return best ? { x, y, face: best.x < x ? -1 : 1, bx: best.x, by: best.y } : { x, y, face: 1 };
 }
 // 지도 % 좌표 사이 거리(세로 %는 지도 비율 1024/1536으로 맞춰 지도 폭 % 단위로 잰다)
-const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536);
+const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, (q.y - p.y) / FISHING_MAP_ASPECT);
 // 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
 export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
 // 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
@@ -98,10 +119,8 @@ export const PEER_SPOTS: Spot[] = (() => {
     if ([...spots, ...avoid].every((q) => apart(p, q) >= 11) && castSpot(p).bx != null)
       spots.push(p);
   }
-  // 시안 예시 두 자리는 낚싯줄 끝도 시안 좌표 그대로. 여섯째 자리(축음기 앞)는 새로 뽑은 첫 자리로 채운다
+  // 여섯째 자리(축음기 앞)는 새로 뽑은 첫 자리로 채운다. 모든 찌는 같은 물 mask 계산을 쓴다.
   const cast = spots.map(castSpot);
-  cast[0] = { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 };
-  cast[1] = { x: 60.2, y: 44.1, face: -1, bx: 59.1, by: 44.9 };
   return [...cast.slice(0, 5), cast[7], ...cast.slice(5, 7), ...cast.slice(8)];
 })();
 // 다른 주민과 고양이가 겹치는 자리인지. 고양이 폭이 지도 폭 7.7%라 여유를 더해 8.5% 안이면 앉을 수 없다.
@@ -388,25 +407,28 @@ export function FishingIsland({
         >
           {spots
             .filter((s) => s.bx != null)
-            .map((s, n) => (
-              <React.Fragment key={n}>
-                <Path
-                  d={`M ${s.x + s.face * 3.6} ${s.y - 4.8} Q ${s.bx} ${s.y - 4.8} ${s.bx} ${s.by}`}
-                  fill="none"
-                  stroke="#fff5db"
-                  strokeWidth={0.14}
-                />
-                <Ellipse
-                  cx={s.bx}
-                  cy={s.by}
-                  rx={0.35}
-                  ry={0.2}
-                  fill="#f28c77"
-                  stroke="#946752"
-                  strokeWidth={0.06}
-                />
-              </React.Fragment>
-            ))}
+            .map((s, n) => {
+              const start = castLineStart(s);
+              return (
+                <React.Fragment key={n}>
+                  <Path
+                    d={`M ${start.x} ${start.y} L ${s.bx} ${s.by}`}
+                    fill="none"
+                    stroke="#fff5db"
+                    strokeWidth={0.14}
+                  />
+                  <Ellipse
+                    cx={s.bx}
+                    cy={s.by}
+                    rx={0.35}
+                    ry={0.2}
+                    fill="#f28c77"
+                    stroke="#946752"
+                    strokeWidth={0.06}
+                  />
+                </React.Fragment>
+              );
+            })}
         </Svg>
         <Pressable
           accessibilityRole="button"
@@ -554,7 +576,12 @@ export function FishingActor({
     return () => clearTimeout(t);
   }, [count, reduce]);
   const a = size * 0.077,
-    face = spot.face;
+    face = spot.face,
+    isFishing = !motion || motion === 'focus' || motion === 'reel',
+    direction = isFishing ? castAngle(spot) : face < 0 ? Math.PI : 0,
+    rodSize = a * 0.6,
+    rodTipDistance = (a * castReach(spot)) / 7.7,
+    rodScale = castReach(spot) / 5.6;
   return (
     <Animated.View
       pointerEvents="none"
@@ -567,33 +594,45 @@ export function FishingActor({
         zIndex: 20 + Math.round(spot.y),
       }}
     >
-      <CatSprite
-        color={color}
-        motion={motion ?? (reeling ? 'reel' : 'focus')}
-        size={a}
-        left={face < 0}
-        reduce={reduce}
-        anchored={false}
-        onFinish={onMotionFinish}
-        generation={generation}
-        testID="fishing-actor-cat"
-      />
-      {(!motion || motion === 'focus' || motion === 'reel') && (
-        <Image
-          source={assets['props/fishing/fishing-rod.png']}
-          resizeMode="contain"
-          testID="fishing-actor-rod"
-          style={{
-            position: 'absolute',
-            width: a * 0.6,
-            height: a * 0.6,
-            left: face < 0 ? -a * 0.25 : a * 0.65,
-            top: a * 0.1,
-            transform: [{ scaleX: face }],
-            transformOrigin: '20% 85%',
-          }}
+      <View
+        testID="fishing-actor-cast-direction"
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: a,
+          height: a,
+          transformOrigin: [a / 2, a * 0.90625, 0],
+          transform: [{ rotate: `${direction}rad` }],
+        }}
+      >
+        <CatSprite
+          color={color}
+          motion={motion ?? (reeling ? 'reel' : 'focus')}
+          size={a}
+          reduce={reduce}
+          anchored={false}
+          onFinish={onMotionFinish}
+          generation={generation}
+          testID="fishing-actor-cat"
         />
-      )}
+        {isFishing && (
+          <Image
+            source={assets['props/fishing/fishing-rod.png']}
+            resizeMode="contain"
+            testID="fishing-actor-rod"
+            style={{
+              position: 'absolute',
+              width: rodSize,
+              height: rodSize,
+              left: a / 2 + rodTipDistance - rodSize * 0.96,
+              top: a * 0.90625 - rodSize * 0.04,
+              transform: [{ scaleX: rodScale }, { rotate: '45deg' }],
+              transformOrigin: [rodSize * 0.96, rodSize * 0.04, 0],
+            }}
+          />
+        )}
+      </View>
       <View
         style={{ position: 'absolute', bottom: a * 1.05, left: a / 2 - 100, width: 200 }}
         pointerEvents="none"
