@@ -274,3 +274,58 @@ test('방문 화면의 최대 정원 15명에게 서로 다른 자리를 배정�
   assert.equal(new Set(result.current.actors.map((actor) => actor.slot)).size, 15);
   assert.equal(new Set(result.current.actors.map((actor) => actor.spot)).size, 15);
 });
+
+test('만석에서 퇴장 중 새 주민은 빈 자리가 생긴 뒤 입장한다', async () => {
+  let peers = Array.from({ length: 15 }, (_, index) => ({
+    ...peer,
+    userId: `u${index}`,
+    sessionId: `s${index}`,
+  }));
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({
+      members: peers,
+      ready: true,
+      reduce: false,
+      realtime: true,
+      snapshotVersion: 1,
+    }),
+  );
+  const leavingMember = { ...member('active'), userId: 'u14', sessionId: 's14' };
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u14',
+      previous: leavingMember,
+      current: null,
+    }),
+  );
+  const stretchGeneration = result.current.actors.find(
+    (actor) => actor.key === 'u14:s14',
+  )!.generation;
+  await act(async () => result.current.stretched('u14:s14', stretchGeneration));
+  const exitGeneration = result.current.actors.find((actor) => actor.key === 'u14:s14')!.generation;
+
+  const newcomer = { ...peer, userId: 'u15', sessionId: 's15' };
+  peers = [...peers.slice(0, 14), newcomer];
+  await rerender(undefined);
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u15',
+      previous: null,
+      current: { ...member('active'), userId: 'u15', sessionId: 's15' },
+    }),
+  );
+  assert.equal(
+    result.current.actors.some((actor) => actor.key === 'u15:s15'),
+    false,
+  );
+
+  await act(async () => result.current.leftForComplete('u14:s14', exitGeneration));
+  const entrant = result.current.actors.find((actor) => actor.key === 'u15:s15');
+  assert.equal(entrant?.phase, 'entering');
+  assert.equal(entrant?.slot, 14);
+  assert.equal(new Set(result.current.actors.map((actor) => actor.slot)).size, 15);
+});

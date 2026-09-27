@@ -19,6 +19,7 @@ import {
   nearGram,
   nearRaft,
   occupied,
+  peerLandRoute,
 } from '@/screens/focus/FishingIsland';
 
 jest.mock('@/components/CatSprite', () => {
@@ -65,6 +66,32 @@ test('도착 지점과 이어지지 않은 땅(연못 가운데 섬)은 걸어�
   const pondIsland = { x: 29, y: 45 };
   assert.ok(onLand(fishingGrid, pondIsland));
   assert.deepEqual(landPath(fishingGrid, LANDING, pondIsland), []);
+});
+
+test('실시간 주민 입장·퇴장 경로의 모든 구간은 물을 가로지르지 않는다', () => {
+  for (const spot of PEER_SPOTS) {
+    const entering = peerLandRoute(LANDING, spot);
+    const leaving = peerLandRoute(spot, LANDING);
+    assert.ok(entering.length > 1);
+    assert.ok(leaving.length > 1);
+    for (const route of [
+      [LANDING, ...entering],
+      [spot, ...leaving],
+    ]) {
+      for (const point of route) assert.ok(onLand(fishingGrid, point));
+      for (let index = 1; index < route.length; index++) {
+        const from = route[index - 1],
+          to = route[index];
+        for (let step = 0; step <= 10; step++)
+          assert.ok(
+            onLand(fishingGrid, {
+              x: from.x + ((to.x - from.x) * step) / 10,
+              y: from.y + ((to.y - from.y) * step) / 10,
+            }),
+          );
+      }
+    }
+  }
 });
 
 test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {

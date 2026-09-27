@@ -85,9 +85,9 @@ export function useFishingPeerActors({
     if (existing != null) return existing;
     const used = new Set(slots.current.values());
     const slot = PEER_SPOTS.findIndex((_, n) => !used.has(n));
-    const picked = slot < 0 ? 0 : slot;
-    slots.current.set(key, picked);
-    return picked;
+    if (slot < 0) return null;
+    slots.current.set(key, slot);
+    return slot;
   }, []);
 
   const onTransition = useCallback((transition: IslandPresenceTransition) => {
@@ -126,20 +126,23 @@ export function useFishingPeerActors({
       for (const key of slots.current.keys()) {
         if (!incomingKeys.has(key)) slots.current.delete(key);
       }
-      return [...snapshotMembers.values()].map((member) => {
+      return [...snapshotMembers.values()].flatMap((member) => {
         const key = actorKey(member.userId, member.sessionId),
-          slot = alloc(key),
-          spot = PEER_SPOTS[slot];
-        return {
-          ...member,
-          key,
-          slot,
-          spot,
-          position: member.status === 'paused' ? LANDING : spot,
-          phase: member.status === 'paused' ? ('paused' as const) : ('fishing' as const),
-          visible: member.status !== 'paused',
-          generation: 0,
-        };
+          slot = alloc(key);
+        if (slot == null) return [];
+        const spot = PEER_SPOTS[slot];
+        return [
+          {
+            ...member,
+            key,
+            slot,
+            spot,
+            position: member.status === 'paused' ? LANDING : spot,
+            phase: member.status === 'paused' ? ('paused' as const) : ('fishing' as const),
+            visible: member.status !== 'paused',
+            generation: 0,
+          },
+        ];
       });
     });
   }, [ready, snapshotKey, alloc, realtime, snapshotVersion]);
@@ -184,6 +187,7 @@ export function useFishingPeerActors({
     const pending = transitions.current.splice(0);
     setActors((current) => {
       let next = [...current];
+      const deferred: IslandPresenceTransition[] = [];
       for (const transition of pending) {
         if (transition.kind !== 'focus') continue;
         if (
@@ -203,8 +207,12 @@ export function useFishingPeerActors({
           replaced = !existing && previousFound >= 0 ? next[previousFound] : null;
         if (after?.status === 'active') {
           const peer = fromLive(after, after.activeSeconds),
-            slot = existing?.slot ?? replaced?.slot ?? alloc(key),
-            spot = PEER_SPOTS[slot];
+            slot = existing?.slot ?? replaced?.slot ?? alloc(key);
+          if (slot == null) {
+            deferred.push(transition);
+            continue;
+          }
+          const spot = PEER_SPOTS[slot];
           if (replaced) {
             slots.current.delete(replaced.key);
             slots.current.set(key, slot);
@@ -236,8 +244,12 @@ export function useFishingPeerActors({
             };
           } else if (!existing) {
             const peer = fromLive(after, after.activeSeconds),
-              slot = replaced?.slot ?? alloc(key),
-              spot = PEER_SPOTS[slot];
+              slot = replaced?.slot ?? alloc(key);
+            if (slot == null) {
+              deferred.push(transition);
+              continue;
+            }
+            const spot = PEER_SPOTS[slot];
             if (replaced) {
               slots.current.delete(replaced.key);
               slots.current.set(key, slot);
@@ -264,6 +276,7 @@ export function useFishingPeerActors({
           }
         }
       }
+      if (deferred.length) transitions.current.unshift(...deferred);
       return next;
     });
   }, [revision, alloc]);
@@ -316,6 +329,8 @@ export function useFishingPeerActors({
       if (removed) slots.current.delete(key);
       return current.filter((actor) => actor.key !== key || actor.generation !== generation);
     });
+    // 만석 중 보류된 입장은 퇴장 모션이 자리를 실제로 반납한 뒤 다시 배정한다.
+    setRevision((value) => value + 1);
   }, []);
 
   // Reduce Motion bypasses route legs and one-shot motions while preserving the same final state.

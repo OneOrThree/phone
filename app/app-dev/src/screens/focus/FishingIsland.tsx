@@ -17,7 +17,7 @@ import { art } from '@/constants/art';
 import { C } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
-import { Grid, Point, nearestLand } from '@/utils/world-grid';
+import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
 import land from '@/constants/fishing-island.json';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
@@ -107,6 +107,11 @@ export const PEER_SPOTS: Spot[] = (() => {
 // 다른 주민과 고양이가 겹치는 자리인지. 고양이 폭이 지도 폭 7.7%라 여유를 더해 8.5% 안이면 앉을 수 없다.
 export const SEAT_GAP = 8.5;
 export const occupied = (p: Point, spots: Point[]) => spots.some((q) => apart(p, q) < SEAT_GAP);
+/** 실시간 주민도 내 고양이와 같은 땅 격자 경로를 따라 이동한다. */
+export const peerLandRoute = (from: Point, to: Point) => {
+  const cells = landPath(fishingGrid, from, to);
+  return cells.length ? [...cells.slice(1, -1), to] : [];
+};
 // 뗏목(지도 폭 12%)과 내리는 자리 위에는 앉을 수 없다. 앉은 고양이(폭 7.7%·발 기준) 상자가 겹치는지로 본다.
 // 세로 %는 지도 비율(1024/1536)로 맞춰 가로 % 단위로 잰다.
 const toW = (y: number) => (y * 1024) / 1536;
@@ -688,15 +693,28 @@ export function FishingPeerActorView({
         else onCompletedExit(actor.key, token);
         return;
       }
-      const distance = Math.hypot(
-        actor.position.x - toPoint.x,
-        ((actor.position.y - toPoint.y) * 2) / 3,
+      const route = peerLandRoute(actor.position, toPoint);
+      const waypoints = route.length ? route : [toPoint];
+      let previous = actor.position;
+      const movement = NativeAnimated.sequence(
+        waypoints.map((point) => {
+          const distance = Math.hypot(previous.x - point.x, ((previous.y - point.y) * 2) / 3);
+          previous = point;
+          const duration = Math.max(32, Math.round(distance * 35));
+          return NativeAnimated.parallel([
+            NativeAnimated.timing(left, {
+              toValue: (size * point.x) / 100 - (size * 0.077) / 2,
+              duration,
+              useNativeDriver: false,
+            }),
+            NativeAnimated.timing(top, {
+              toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
+              duration,
+              useNativeDriver: false,
+            }),
+          ]);
+        }),
       );
-      const duration = Math.max(450, Math.min(1500, Math.round(distance * 35)));
-      const movement = NativeAnimated.parallel([
-        NativeAnimated.timing(left, { toValue: toLeft, duration, useNativeDriver: false }),
-        NativeAnimated.timing(top, { toValue: toTop, duration, useNativeDriver: false }),
-      ]);
       movement.start(({ finished }: { finished: boolean }) => {
         if (!finished || motionToken.current !== token) return;
         if (actor.phase === 'entering') onEntered(actor.key, token);
