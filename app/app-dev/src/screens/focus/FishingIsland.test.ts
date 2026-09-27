@@ -17,6 +17,8 @@ import {
   SEAT_GAP,
   fishingGrid,
   nearGram,
+  castAngle,
+  castLineStart,
   nearRaft,
   occupied,
   peerLandRoute,
@@ -29,8 +31,8 @@ jest.mock('@/components/CatSprite', () => {
   const React = require('react');
   const { View } = require('react-native');
   return {
-    CatSprite: ({ testID, motion }: { testID?: string; motion: string }) =>
-      React.createElement(View, { testID, motion }),
+    CatSprite: ({ testID, motion, left }: { testID?: string; motion: string; left?: boolean }) =>
+      React.createElement(View, { testID, motion, left }),
   };
 });
 
@@ -48,6 +50,52 @@ test('앉은 자리에서 가까운 물 쪽으로 낚싯줄을 던진다', () =>
   assert.equal(spot.face, -1);
   assert.ok(Math.hypot(spot.bx! - 33.1, spot.by! - 55.1) < 1.5);
   assert.equal(onLand(fishingGrid, { x: spot.bx!, y: spot.by! }), false);
+});
+
+test('모든 주민 자리와 알려진 자리에서 화면상 가장 가까운 물 mask 칸을 찾는다', () => {
+  assert.equal(onLand(fishingGrid, { x: 19.5, y: 38.7 }), true);
+  for (const spot of PEER_SPOTS) assert.deepEqual(spot, castSpot(spot));
+  assert.equal(onLand(fishingGrid, { x: PEER_SPOTS[0].bx!, y: PEER_SPOTS[0].by! }), false);
+  const seats = [...PEER_SPOTS, { x: 70, y: 30 }, { x: 75, y: 45 }, { x: 40, y: 70 }];
+  for (const seat of seats) {
+    const spot = castSpot(seat);
+    assert.ok(spot.bx != null && spot.by != null, `${seat.x},${seat.y}: 물 목표 없음`);
+    const col = Math.floor((spot.bx! / fishingGrid.w) * fishingGrid.cols),
+      row = Math.floor((spot.by! / fishingGrid.h) * fishingGrid.rows),
+      targetCell = fishingGrid.cells[row * fishingGrid.cols + col],
+      screenDistance = Math.hypot(spot.bx! - seat.x, ((spot.by! - seat.y) * 2) / 3);
+    assert.equal(targetCell, '0', `${seat.x},${seat.y}: 찌 목표가 물 mask 바깥`);
+    assert.ok(screenDistance <= 12, `${seat.x},${seat.y}: 화면 거리 ${screenDistance}`);
+    for (let c = 0; c < fishingGrid.cells.length; c++) {
+      if (fishingGrid.cells[c] === '1') continue;
+      const wx = ((c % fishingGrid.cols) + 0.5) * (fishingGrid.w / fishingGrid.cols),
+        wy = (Math.floor(c / fishingGrid.cols) + 0.5) * (fishingGrid.h / fishingGrid.rows),
+        distance = Math.hypot(wx - seat.x, ((wy - seat.y) * 2) / 3);
+      assert.ok(
+        screenDistance <= distance + 1e-9,
+        `${seat.x},${seat.y}: 더 가까운 물 칸 ${c} 존재`,
+      );
+    }
+  }
+});
+
+test('위·아래·대각 cast 방향과 낚싯대 끝의 줄 시작점은 같은 화면 벡터다', () => {
+  const cases = [
+    { x: 50, y: 50, face: 1, bx: 50, by: 40, angle: -Math.PI / 2 },
+    { x: 50, y: 50, face: 1, bx: 50, by: 60, angle: Math.PI / 2 },
+    { x: 50, y: 50, face: -1, bx: 40, by: 60, angle: Math.atan2(20 / 3, -10) },
+  ];
+  for (const spot of cases) {
+    assert.ok(Math.abs(castAngle(spot) - spot.angle) < 1e-9);
+    const start = castLineStart(spot),
+      vx = spot.bx! - spot.x,
+      vy = (spot.by! - spot.y) * (2 / 3),
+      sx = start.x - spot.x,
+      sy = (start.y - spot.y) * (2 / 3);
+    assert.ok(Math.abs(vx * sy - vy * sx) < 1e-9, '줄이 찌 방향과 일직선이어야 함');
+    assert.ok(vx * sx + vy * sy > 0, '줄은 고양이에서 찌 방향으로 나가야 함');
+    assert.ok(Math.hypot(sx, sy) < Math.hypot(vx, vy), '줄 시작점은 찌보다 고양이 쪽이어야 함');
+  }
 });
 
 test('물가 칸 경계 바로 안쪽 땅을 눌러도 앉는 자리는 땅이다(반올림으로 물 칸이 되지 않음)', () => {
@@ -135,7 +183,6 @@ test('주민 걷기 방향은 현재 구간의 다음 waypoint를 향한다', ()
 
 test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {
   assert.equal(PEER_SPOTS.length, 15);
-  assert.deepEqual(PEER_SPOTS[0], { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 });
   for (const [n, p] of PEER_SPOTS.entries()) {
     assert.ok(onLand(fishingGrid, p), `${n}`);
     for (const q of PEER_SPOTS.slice(n + 1))
@@ -368,9 +415,9 @@ test('FishingActor: motion="tilt" 또는 "stretch" 지정 시 낚싯대를 숨�
 
   const focusActor = await render(
     React.createElement(FishingActor, {
-      spot: { x: 50, y: 50, face: 1 },
+      spot: { x: 50, y: 50, face: 1, bx: 52, by: 51 },
       size: 100,
-      sizeY: 100,
+      sizeY: 100 / 1.5,
       color: 'ginger',
       name: '나',
       seconds: 0,
@@ -378,5 +425,48 @@ test('FishingActor: motion="tilt" 또는 "stretch" 지정 시 낚싯대를 숨�
     }),
   );
   assert.notEqual(focusActor.queryByTestId('fishing-actor-rod'), null);
+  assert.equal(focusActor.getByTestId('fishing-actor-cat').props.left, false);
+  const diagonalSpot = { x: 50, y: 50, face: 1, bx: 52, by: 51 },
+    rod = focusActor.getByTestId('fishing-actor-rod'),
+    rodStyle = rod.props.style,
+    lineStart = castLineStart(diagonalSpot),
+    rodSize = 100 * 0.077 * 0.6,
+    screenAngle = castAngle(diagonalSpot);
+  assert.deepEqual(rodStyle.transform, [
+    { scale: rodStyle.transform[0].scale },
+    { rotate: `${screenAngle + Math.PI / 4}rad` },
+  ]);
+  assert.ok(!('scaleX' in rodStyle.transform[0]), '낚싯대 축은 비균일하게 변형하지 않는다');
+  assert.ok(
+    Math.abs(rodStyle.left + rodSize * 0.96 - (100 * 0.077) / 2 - (lineStart.x - 50)) < 1e-9,
+    '낚싯대 끝의 x좌표는 줄 시작점과 일치해야 함',
+  );
+  assert.ok(
+    Math.abs(rodStyle.top + rodSize * 0.04 - 100 * 0.077 * 0.90625 - (lineStart.y - 50) / 1.5) <
+      1e-9,
+    '낚싯대 끝의 y좌표는 줄 시작점과 일치해야 함',
+  );
   await focusActor.unmount();
+
+  for (const motion of ['walk', 'cast'] as const) {
+    const westActor = await render(
+      React.createElement(FishingActor, {
+        spot: { x: 50, y: 50, face: -1, bx: 40, by: 60 },
+        size: 100,
+        sizeY: 100 / 1.5,
+        color: 'ginger',
+        name: '주민',
+        seconds: 0,
+        reduce: false,
+        motion,
+      }),
+    );
+    assert.equal(
+      westActor.getByTestId('fishing-actor-cat').props.left,
+      true,
+      `${motion} 서쪽 방향`,
+    );
+    assert.equal(westActor.queryByTestId('fishing-actor-rod'), null);
+    await westActor.unmount();
+  }
 });
