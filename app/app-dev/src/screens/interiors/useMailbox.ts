@@ -126,6 +126,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
   const epoch = useRef(0);
   // 상세 경합 fence — 마지막으로 연 편지만 detail 로 적용된다.
   const openSeq = useRef(0);
+  const requestedDetailId = useRef<string | null>(null);
   const intents = useRef(new Map<string, IntentSlot>());
   // 캐시된 섬 데이터가 어느 epoch·세대에서 왔는지 — 계정/범위 교체 직후 옛 islandId 를
   // 새 계정 토큰으로 보내는 것을 막는다.
@@ -269,6 +270,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     async (letterId: string) => {
       const seq = ++openSeq.current;
       if (!mounted.current || !active || !cached()) return;
+      requestedDetailId.current = letterId;
       const e = epoch.current;
       const generation = sessionGeneration();
       set({ detail: null, detailLoading: true, detailError: null });
@@ -286,6 +288,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
         if (!alive(e, generation) || seq !== openSeq.current) return;
         // 권한 상실·이미 지워진 편지는 목록 캐시에서도 지운다 — 캐시로 재진입 금지.
         const gone = error instanceof ApiError && (error.status === 403 || error.status === 404);
+        if (gone && requestedDetailId.current === letterId) requestedDetailId.current = null;
         set({
           detail: null,
           detailLoading: false,
@@ -301,6 +304,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
 
   const clearDetail = useCallback(() => {
     openSeq.current += 1;
+    requestedDetailId.current = null;
     set({ detail: null, detailLoading: false, detailError: null });
   }, [set]);
 
@@ -431,7 +435,9 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     // 차단 중 서버 응답에는 상대의 편지·친구가 빠져 있으므로 해제가 확인되면
     // 로컬 필터만 풀지 말고 우체통 묶음 자체를 다시 읽어 복원한다.
     if (previous?.size && [...previous].some((id) => !blockedIds.has(id))) {
-      const openDetailId = stateRef.current.detail?.id;
+      const openDetailId =
+        stateRef.current.detail?.id ??
+        (stateRef.current.detailLoading ? requestedDetailId.current : null);
       load()
         .then(() => (openDetailId ? openLetter(openDetailId) : undefined))
         .catch((error) => {

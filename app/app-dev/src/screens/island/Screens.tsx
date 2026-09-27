@@ -5187,7 +5187,11 @@ export function RedesignScreens({ e }: any) {
   }
   const friends = state.friends ?? [];
   if (route === 'boat') {
-    const received = friends.filter((f) => f.status === 'received').length,
+    const received = server
+        ? friendsScreen.status === 'ready'
+          ? (friendsScreen.data?.friendRequests.length ?? 0)
+          : 0
+        : friends.filter((f) => f.status === 'received').length,
       joinedIslands = state.islands.filter((candidate) => candidate.joined && !candidate.closed),
       primaryIsland = mainIsland(state) ?? island,
       canChangeMainIsland = joinedIslands.length > 1;

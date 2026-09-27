@@ -914,6 +914,38 @@ test('친구 관리는 검색과 요청·친구 목록을 한 화면에서 이�
   s.getByLabelText('검색어 지우기');
 });
 
+test('서버 차단 목록 재검증 중에는 뗏목의 이전 친구 요청 배지를 숨긴다', async () => {
+  const initial = initialState(true);
+  initial.friends = [
+    {
+      id: 'requester-stale',
+      name: '이전 요청자',
+      color: 'white',
+      island: '',
+      status: 'received',
+      messages: [],
+    },
+  ];
+  const friendsScreen = {
+    data: null,
+    status: 'loading',
+    error: null,
+    busy: false,
+    query: '',
+    searchItems: [],
+    refresh: jest.fn(),
+    retry: jest.fn(),
+    setQuery: jest.fn(),
+    command: jest.fn((fn: () => Promise<unknown>) => fn()),
+  };
+
+  const screen = await render(
+    <Harness route="boat" full initial={initial} api={() => ({})} friendsScreen={friendsScreen} />,
+  );
+
+  assert.equal(screen.queryByText('요청 1'), null);
+});
+
 test('목업 친구 화면에서는 안전 API 더보기를 숨기되 기존 친구 삭제를 유지한다', async () => {
   let exposed: any;
   const s = await render(

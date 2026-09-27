@@ -203,6 +203,7 @@ export type BlockedUsersLoadStatus = 'loading' | 'ready' | 'error';
 export function useBlockedUsers(
   active = true,
   revalidateActive = false,
+  revalidateKey: unknown = revalidateActive,
 ): {
   ids: ReadonlySet<string>;
   users: ReadonlyArray<BlockedUser>;
@@ -215,13 +216,20 @@ export function useBlockedUsers(
   const hasActivated = useRef(false);
   const previousActive = useRef(false);
   const previousRevalidateActive = useRef(false);
+  const previousRevalidateKey = useRef(revalidateKey);
   const previousGeneration = useRef(currentGeneration);
   useEffect(() => {
     const activated = active && !previousActive.current;
     const revalidationEntered = active && revalidateActive && !previousRevalidateActive.current;
+    const revalidationKeyChanged =
+      active &&
+      revalidateActive &&
+      previousRevalidateActive.current &&
+      previousRevalidateKey.current !== revalidateKey;
     const generationChanged = previousGeneration.current !== currentGeneration;
     previousActive.current = active;
     previousRevalidateActive.current = revalidateActive;
+    previousRevalidateKey.current = revalidateKey;
     previousGeneration.current = currentGeneration;
     if (!active) return;
 
@@ -231,8 +239,9 @@ export function useBlockedUsers(
         hasActivated.current || revalidateActive ? revalidateBlockedUsers() : loadBlockedUsers();
       hasActivated.current = true;
       request.catch(() => {});
-    } else if (revalidationEntered) revalidateBlockedUsers().catch(() => {});
-  }, [active, currentGeneration, revalidateActive]);
+    } else if (revalidationEntered || revalidationKeyChanged)
+      revalidateBlockedUsers().catch(() => {});
+  }, [active, currentGeneration, revalidateActive, revalidateKey]);
 
   useEffect(() => {
     if (!active) return;

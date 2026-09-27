@@ -95,7 +95,7 @@ import { IslandSheet, IslandPopup } from '@/screens/island/IslandSheet';
 import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
-import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
+import { useFriendsScreen, type FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
 import {
   isScreenTimeAvailable,
@@ -170,44 +170,47 @@ export function CurrentScreens({ e }: any) {
     // 친구 화면과 요청 배지를 노출하는 뗏목 진입은, 공용 소비자가 계속 활성이어도
     // 차단 목록을 다시 검증하는 freshness boundary다.
     routeActive: friendsSafetyRouteActive,
+    routeKey: friendsSafetyRouteActive ? e.route : null,
     searchActive: friendsRouteActive,
     date: dayKey(e.now),
   });
   useEffect(() => {
     if (!serverIslands) return;
-    const data = friendsScreen.data;
-    const toFriend = (
-      userId: string,
-      nickname: string | null,
-      islandName: string | null | undefined,
-      status: 'friend' | 'received' | 'sent',
-    ) => ({
-      id: userId,
-      name: nickname ?? '탈퇴한 사용자',
-      color: 'white' as Color,
-      island: islandName ?? '',
-      status,
-      messages: [],
-    });
-    dispatch({
-      type: 'FRIENDS_SYNC',
-      friends: data
-        ? [
-            ...data.friends.map((friend) =>
-              toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
-            ),
-            ...data.friendRequests.map((request) =>
-              toFriend(request.userId, request.nickname, null, 'received'),
-            ),
-            ...data.sentFriendRequests.map((request) =>
-              toFriend(request.userId, request.nickname, null, 'sent'),
-            ),
-          ]
-        : [],
-    });
+    const friends = friendsSnapshotForSync(friendsScreen.data);
+    // 차단 목록 재검증 중 data=null은 공개 보류이지 관계 삭제가 아니다. 빈 snapshot을
+    // reducer에 넣으면 기존 친구의 로컬 편지 기록까지 영구 삭제되므로 보존한다.
+    if (friends) dispatch({ type: 'FRIENDS_SYNC', friends });
   }, [dispatch, friendsScreen.data, serverIslands]);
 
   return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
+}
+
+export function friendsSnapshotForSync(data: FriendsScreenState['data']) {
+  if (!data) return null;
+  const toFriend = (
+    userId: string,
+    nickname: string | null,
+    islandName: string | null | undefined,
+    status: 'friend' | 'received' | 'sent',
+  ) => ({
+    id: userId,
+    name: nickname ?? '탈퇴한 사용자',
+    color: 'white' as Color,
+    island: islandName ?? '',
+    status,
+    messages: [],
+  });
+  return [
+    ...data.friends.map((friend) =>
+      toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
+    ),
+    ...data.friendRequests.map((request) =>
+      toFriend(request.userId, request.nickname, null, 'received'),
+    ),
+    ...data.sentFriendRequests.map((request) =>
+      toFriend(request.userId, request.nickname, null, 'sent'),
+    ),
+  ];
 }
 
 // 주민 화면 가드 판정(GROMO-2138). 서버 모드는 로컬 목업 섬 대신 서버 current 로 소속을,

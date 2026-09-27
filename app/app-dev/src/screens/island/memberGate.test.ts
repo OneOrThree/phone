@@ -1,6 +1,6 @@
 /** GROMO-2138 — 서버 모드 주민 화면 가드는 로컬 목업 섬이 아니라 서버 current·홈 스냅샷으로 판정한다. */
 import assert from 'node:assert/strict';
-import { memberGate } from '@/screens/island/CurrentScreens';
+import { friendsSnapshotForSync, memberGate } from '@/screens/island/CurrentScreens';
 import { initialState, reducer, State } from '@/services/model';
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -37,4 +37,8 @@ test('스냅샷이 오면 완공 건물과 방장 여부를 서버 값으로 판
 
 test('서버 current 가 없으면 주민이 아니다', () => {
   assert.equal(memberGate(synced(null), true).joined, false);
+});
+
+test('친구 공개가 보류된 null은 관계 삭제용 빈 snapshot으로 바꾸지 않는다', () => {
+  assert.equal(friendsSnapshotForSync(null), null);
 });

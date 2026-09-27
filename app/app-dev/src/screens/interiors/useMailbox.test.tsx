@@ -172,6 +172,31 @@ test('차단 해제 때문에 우체통을 재적재해도 열려 있던 편지�
   await hook.unmount();
 });
 
+test('차단 해제 재적재가 진행 중인 편지 상세도 요청 ID로 다시 연다', async () => {
+  replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
+  let finishOlderDetail: (detail: ReturnType<typeof letterView>) => void = () => {};
+  getLetterMock
+    .mockReturnValueOnce(new Promise((resolve) => (finishOlderDetail = resolve)))
+    .mockResolvedValueOnce(letterView());
+  const hook = await mount();
+  await act(async () => {
+    hook.result.current.openLetter(LETTER).catch(() => {});
+    await Promise.resolve();
+  });
+  assert.equal(hook.result.current.detailLoading, true);
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => revalidateBlockedUsers());
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(getLetterMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.detail?.id, LETTER));
+  await act(async () => finishOlderDetail(letterView()));
+  assert.equal(hook.result.current.detail?.id, LETTER);
+  await hook.unmount();
+});
+
 test('차단 목록 오류 재시도에서 ID가 제거돼도 우체통은 한 번만 다시 적재한다', async () => {
   replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
   blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);

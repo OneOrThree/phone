@@ -53,12 +53,15 @@ export function useFriendsScreen({
   active,
   searchActive,
   routeActive = false,
+  routeKey = routeActive,
   date,
 }: {
   /** friends·friendSearch route 에 있고 서버 세션이 있을 때만 true. */
   active: boolean;
   /** 친구 목록·검색 route가 실제로 표시될 때 true — 진입할 때 차단 목록을 재검증한다. */
   routeActive?: boolean;
+  /** 연속된 안전 화면 사이 이동도 별도 진입으로 재검증하기 위한 route 식별자. */
+  routeKey?: unknown;
   /** 검색 입력이 보일 때만 true — 목록 route 에서는 질의를 보내지 않는다. */
   searchActive: boolean;
   /** 친구 당일 집중 분의 KST 기준일 `YYYY-MM-DD`. */
@@ -76,7 +79,7 @@ export function useFriendsScreen({
   const req = useRef(0);
   const searchReq = useRef(0);
   const session = sessionGeneration();
-  const blockedUsers = useBlockedUsers(active, routeActive);
+  const blockedUsers = useBlockedUsers(active, routeActive, routeKey);
   const blockedIds = blockedUsers.ids;
   const retryBlockedUsers = blockedUsers.retry;
   const previousBlockedIds = useRef<{

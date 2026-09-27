@@ -114,6 +114,27 @@ test('공용 친구 소비자가 계속 활성이어도 친구 route 재진입 �
   await hook.unmount();
 });
 
+test('뗏목에서 친구 화면으로 바로 이동해도 각 route 진입마다 차단 목록을 재검증한다', async () => {
+  screenMock.mockResolvedValue(screen());
+  blockedUsersMock.mockResolvedValue([]);
+  const hook = await renderHook(
+    (route: string) =>
+      useFriendsScreen({
+        ...args,
+        active: true,
+        routeActive: true,
+        routeKey: route,
+      }),
+    { initialProps: 'boat' },
+  );
+  await waitFor(() => assert.equal(blockedUsersMock.mock.calls.length, 1));
+
+  await hook.rerender('friends');
+
+  await waitFor(() => assert.equal(blockedUsersMock.mock.calls.length, 2));
+  await hook.unmount();
+});
+
 test('다른 기기의 차단 해제를 재검증하면 친구 서버 정본도 다시 적재한다', async () => {
   replaceBlockedUsers([{ id: 'u-friend', name: '짝꿍' }]);
   screenMock.mockResolvedValueOnce(screen({ friends: [] })).mockResolvedValueOnce(screen());
