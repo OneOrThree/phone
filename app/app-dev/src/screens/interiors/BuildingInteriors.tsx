@@ -4,6 +4,7 @@ import {
   Easing,
   Image,
   ImageSourcePropType,
+  PixelRatio,
   Platform,
   Pressable,
   ScrollView,
@@ -89,6 +90,7 @@ export type ArtifactProps = {
 export type ArtifactRenderer = (props: ArtifactProps) => React.ReactElement | null;
 
 export const interiorArt = {
+  boardBackground: require('@/assets/interiors/board-three-papers-v5.png'),
   buildings: {
     hall: require('@/assets/interiors/buildings/hall.png'),
     noticeboard: require('@/assets/interiors/buildings/noticeboard.png'),
@@ -691,6 +693,19 @@ export const interiorScene = (width: number, height: number) => {
   return { left: (width - w) / 2, top: (height - h) * 0.38, width: w, height: h };
 };
 
+// 게시판 장면은 원본 비율을 덮도록 맞춘다. 폭이 배경 비율보다 넓으면 세로로 탐색한다.
+const boardScene = (width: number, height: number) => {
+  if (width / height > artSize.background[0] / artSize.background[1])
+    return {
+      left: 0,
+      top: 0,
+      width,
+      height: (width * artSize.background[1]) / artSize.background[0],
+    };
+  const sceneWidth = (height * artSize.background[0]) / artSize.background[1];
+  return { left: (width - sceneWidth) / 2, top: 0, width: sceneWidth, height };
+};
+
 export function InteriorScreen({
   buildingIndex,
   conceptIndex,
@@ -778,16 +793,23 @@ export function InteriorScreen({
           : { left: 14, right: 14, top: '23%' as const };
   const screenGradient =
     'linear-gradient(180deg,#37271d12 0%,transparent 24%,transparent 70%,#37271d0c 100%)';
-  // 게시판·우체통은 가로에서도 장면이 이어지게 cover로 깐다. 나머지는 원본 background-size:auto 100%
+  // 게시판 가로 배경은 스크롤 장면 안에서 라벨과 함께 이동한다.
   const coverScene = building.id === 'board' || building.id === 'mail';
-  const bg = coverScene
-    ? interiorScene(width, sceneHeight)
-    : {
-        left: (width - (height * artSize.background[0]) / artSize.background[1]) / 2,
-        top: 0,
-        width: (height * artSize.background[0]) / artSize.background[1],
-        height,
-      };
+  const fullBoardScene = building.id === 'board';
+  const showBoardReviewBackground = fullBoardScene && hideArtifact;
+  const boardScrollScene =
+    fullBoardScene && width / sceneHeight > artSize.background[0] / artSize.background[1];
+  const bg = fullBoardScene
+    ? boardScene(width, sceneHeight)
+    : coverScene
+      ? interiorScene(width, sceneHeight)
+      : {
+          left: (width - (height * artSize.background[0]) / artSize.background[1]) / 2,
+          top: 0,
+          width: (height * artSize.background[0]) / artSize.background[1],
+          height,
+        };
+  const boardScrollOffset = boardScrollScene ? Math.max(0, bg.height - height) * 0.38 : 0;
   // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
   const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
     chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
@@ -804,16 +826,22 @@ export function InteriorScreen({
         { width, height, overflow: 'hidden' },
         // 웹은 원본과 같은 CSS 배경으로 깔아야 그림 확대 결과가 픽셀까지 같다
         webOnly({
-          backgroundImage: `${screenGradient},url("${assetUri(building.background)}")`,
+          backgroundImage: fullBoardScene
+            ? showBoardReviewBackground
+              ? `${screenGradient},url("${assetUri(interiorArt.boardBackground)}")`
+              : screenGradient
+            : `${screenGradient},url("${assetUri(building.background)}")`,
+          ...(fullBoardScene ? { backgroundRepeat: 'no-repeat' } : null),
           // 키보드로 높이가 줄면 창 높이로 계산한 위치에 그대로 둔다
           backgroundSize:
-            sceneHeight !== height
+            sceneHeight !== height || fullBoardScene
               ? `100% 100%,${bg.width}px ${bg.height}px`
               : coverScene
                 ? 'cover'
                 : 'auto 100%',
-          backgroundPosition:
-            sceneHeight !== height
+          backgroundPosition: fullBoardScene
+            ? `0 0,${bg.left}px ${bg.top - boardScrollOffset}px`
+            : sceneHeight !== height
               ? `0 0,${bg.left}px ${bg.top}px`
               : coverScene
                 ? 'center 38%'
@@ -823,14 +851,18 @@ export function InteriorScreen({
         }),
       ]}
     >
-      {Platform.OS !== 'web' && (
+      {Platform.OS !== 'web' && (!boardScrollScene || showBoardReviewBackground) && (
         <>
           <Image
-            source={building.background}
+            testID="interior-background-image"
+            source={showBoardReviewBackground ? interiorArt.boardBackground : building.background}
             resizeMode="stretch"
-            style={{ position: 'absolute', ...bg }}
+            style={{ position: 'absolute', ...bg, top: bg.top - boardScrollOffset }}
           />
-          <View style={[fill, { pointerEvents: 'none' }, gradient(screenGradient)]} />
+          <View
+            testID="interior-background-gradient"
+            style={[fill, { pointerEvents: 'none' }, gradient(screenGradient)]}
+          />
         </>
       )}
       {building.id === 'mail' && (
@@ -2999,22 +3031,8 @@ const boardFont = (
   ...webOnly({ whiteSpace: 'normal' }),
 });
 
-// 가로(874×402 시안) 배치: 게시판 종이·상세·청사진을 오른쪽 열에 둔다
+// 가로 화면의 상세 패널은 화면 폭에 맞춰 배치한다.
 const LAND = {
-  // 장면 글자·청사진 누름 영역 (장면 상자 기준 비율, 874×402 정본에 맞춘 값)
-  labels: {
-    position: 'absolute' as const,
-    left: '3.95%' as const,
-    top: '9.95%' as const,
-    width: '92.68%' as const,
-    height: '75.06%' as const,
-  },
-  blueprintArea: {
-    left: '59.94%' as const,
-    top: '32.53%' as const,
-    width: '18.58%' as const,
-    height: '17.07%' as const,
-  },
   drawer: { left: 324, right: 30 },
   overlay: { left: 338, right: 36, top: 28, maxHeight: '65%' as const },
   blueprint: { left: 324, right: 30 },
@@ -3165,14 +3183,14 @@ function BoardPaper({ source, style }: { source: ImageSourcePropType; style?: an
 }
 
 // 종이 위 손글씨 줄 (원본 boardHandwritingMarkup)
-function Handwriting({ short }: { short?: boolean }) {
+function Handwriting({ short, scale = 1 }: { short?: boolean; scale?: number }) {
   return (
     <Svg
       viewBox={`0 0 100 ${short ? 34 : 70}`}
       pointerEvents="none"
       style={
         short
-          ? { width: '86%', maxHeight: 20, aspectRatio: 100 / 34, opacity: 0.72 }
+          ? { width: '86%', maxHeight: 20 * scale, aspectRatio: 100 / 34, opacity: 0.72 }
           : { width: '100%', aspectRatio: 100 / 70, opacity: 0.76 }
       }
     >
@@ -3193,14 +3211,26 @@ function Handwriting({ short }: { short?: boolean }) {
 
 // 스크롤 패널: 웹은 원본처럼 overflow-y:auto 인 div (ScrollView는 translateZ(0)을 붙여 그리기가 달라진다)
 // overscroll-behavior 는 원본처럼 공지 패널에만 준다: 붙이면 크롬이 패널을 합성 레이어로 올려 색이 1씩 달라진다
-function Scroll({ style, children }: { style: any; children: React.ReactNode }) {
+function Scroll({
+  style,
+  children,
+  testID,
+}: {
+  style: any;
+  children: React.ReactNode;
+  testID?: string;
+}) {
   if (Platform.OS !== 'web')
     return (
-      <ScrollView style={style} keyboardShouldPersistTaps="handled">
+      <ScrollView testID={testID} style={style} keyboardShouldPersistTaps="handled">
         {children}
       </ScrollView>
     );
-  return <View style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>{children}</View>;
+  return (
+    <View testID={testID} style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>
+      {children}
+    </View>
+  );
 }
 
 // .board-primary · .board-outline
@@ -3308,19 +3338,29 @@ function Link({
   testID,
   danger,
   size = 13,
+  minTapHeight,
 }: {
   label: string;
   onPress: () => void;
   testID: string;
   danger?: boolean;
   size?: number;
+  minTapHeight?: number;
 }) {
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
       onPress={onPress}
-      style={{ paddingVertical: 4 }}
+      style={[
+        { paddingVertical: 4 },
+        minTapHeight != null && {
+          minWidth: minTapHeight,
+          minHeight: minTapHeight,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+      ]}
     >
       <Text
         style={[
@@ -3700,7 +3740,12 @@ function QuestCard({
         </>
       )}
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 }}>
-        <Link testID={`board-quest-detail-${index}`} label="자세히 보기 ›" onPress={onDetail} />
+        <Link
+          testID={`board-quest-detail-${index}`}
+          label="자세히 보기 ›"
+          onPress={onDetail}
+          minTapHeight={44}
+        />
       </View>
     </Animated.View>
   );
@@ -5585,7 +5630,10 @@ export function Board({
     return (
       <>
         <View style={[{ paddingTop: 32, paddingBottom: 14, borderBottomWidth: 1 }, dashed]}>
-          <View style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}>
+          <View
+            testID="board-blueprint-grid"
+            style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}
+          >
             <View
               style={{
                 width: '36%',
@@ -5814,11 +5862,84 @@ export function Board({
     );
   };
 
-  // 장면(2:3)은 배경과 같은 cover · 세로 38% 기준으로 놓는다. 세로 화면에서는 높이에 딱 맞는다
-  const scene = interiorScene(width, sceneHeight),
-    land = width > sceneHeight;
+  // 배경과 라벨·터치 영역이 원본 2:3 좌표계에서 함께 스케일되도록 높이 기준으로 맞춘다.
+  const land = width / sceneHeight > artSize.background[0] / artSize.background[1];
+  const scene = boardScene(width, land ? height : sceneHeight);
+  const initialSceneOffset = land ? Math.max(0, scene.height - sceneHeight) * 0.38 : 0;
+  const sceneScrollRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (land) sceneScrollRef.current?.scrollTo({ x: 0, y: initialSceneOffset, animated: false });
+  }, [land, initialSceneOffset]);
+  const labelScale = Math.min(1, scene.width / 402);
+  const fontScale = Math.max(1, PixelRatio.getFontScale());
+  const sceneHitbox = (
+    centerX: number,
+    centerY: number,
+    widthRatio: number,
+    heightRatio: number,
+    maxHeight = Number.POSITIVE_INFINITY,
+  ) => {
+    const hitWidth = Math.max(scene.width * widthRatio, 44);
+    const hitHeight = Math.min(Math.max(scene.height * heightRatio, 44), maxHeight);
+    return {
+      left: scene.width * centerX - hitWidth / 2,
+      top: scene.height * centerY - hitHeight / 2,
+      width: hitWidth,
+      height: hitHeight,
+    };
+  };
+  const questHitHeight = Math.max(scene.height * 0.09, 44);
+  const accessibleQuestHeight = (22 * 1.1 * fontScale + 20 + 3 + 6) * labelScale;
+  const questLabelHitHeight = Math.max(questHitHeight, accessibleQuestHeight);
+  const noticeCenterY = 0.348;
+  const noticeHitWidth = Math.max(scene.width * 0.253, 44);
+  const noticeBaseHitHeight = Math.max(scene.height * 0.226, 44);
+  const accessibleNoticeHeight =
+    (28 * 1.1 * fontScale + 9 + 24) * labelScale +
+    Math.max(0, noticeHitWidth - 24 * labelScale) * 0.7;
+  const noticeHitHeight = Math.max(noticeBaseHitHeight, accessibleNoticeHeight);
+  const questCenterY =
+    noticeHitHeight > noticeBaseHitHeight
+      ? Math.max(
+          (questLabelHitHeight / 2 + 1) / scene.height,
+          Math.min(
+            0.285,
+            noticeCenterY - (noticeHitHeight / 2 + questLabelHitHeight / 2 + 1) / scene.height,
+          ),
+        )
+      : 0.285;
+  const blueprintCenterY = Math.max(
+    0.406,
+    questCenterY + (questLabelHitHeight / 2 + 44 / 2 + 1) / scene.height,
+  );
+  const blueprintHitHeight = Math.min(
+    Math.max(scene.height * 0.128, 44),
+    // Keep a one-pixel gap below the quest target, including large accessibility text.
+    Math.max(
+      44,
+      2 * (scene.height * (blueprintCenterY - questCenterY) - questLabelHitHeight / 2 - 1),
+    ),
+  );
+  const boardHitboxes = {
+    notice: sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height),
+    quest: sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height),
+    blueprint: sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight),
+  };
+  // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
+  const landScale = land ? width / 874 : 1;
+  const landDrawer = { left: LAND.drawer.left * landScale, right: LAND.drawer.right * landScale };
+  const landBlueprint = {
+    left: LAND.blueprint.left * landScale,
+    right: LAND.blueprint.right * landScale,
+  };
+  const landOverlay = {
+    left: LAND.overlay.left * landScale,
+    right: LAND.overlay.right * landScale,
+    top: LAND.overlay.top * landScale,
+    maxHeight: LAND.overlay.maxHeight,
+  };
   // 장면 속 청사진 종이 위 도서관 그림: grid 행 높이가 그림 비율로 정해지는 원본 계산을 그대로 따른다
-  const planeWidth = lu((sceneHeight * 2) / 3);
+  const planeWidth = lu(scene.width);
   const blueprintInner = lu(planeWidth * 0.19) - 10;
   const libraryWidth = lu(blueprintInner * 0.82);
   const libraryRow = lu((libraryWidth * artSize.library[1]) / artSize.library[0]);
@@ -5843,18 +5964,26 @@ export function Board({
     none: 236,
   }[blueprintView.state];
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
+  const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
+  const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
-  const sheetHeight = Math.min(height * 0.58, 492);
-  const sheetCramped = sheetHeight - 89 < 140;
+  const sheetHeight = Math.min(height * 0.58, 492 * landScale);
+  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < 140;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
-  const paperPad = sheetCramped ? { top: 30, bottom: 20 } : { top: 58, bottom: 31 };
-  const paperScroll = Math.max(0, paperHeight - paperPad.top - paperPad.bottom);
-  // 가운데 상세 종이: 스크롤 높이는 틀 안쪽(위아래 여백 64) 이하로, 모자라면 위쪽에 붙인다
+  const paperPad = sheetCramped
+    ? { top: 38 * landScale, bottom: 28 * landScale }
+    : { top: 68 * landScale, bottom: 42 * landScale };
+  const paperScroll = Math.max(
+    0,
+    paperHeight - paperPad.top - paperPad.bottom - panelNavigationHeight,
+  );
+  // 상세 종이 안쪽 스크롤은 바깥 여백 88px(반응형 배율 적용)을 뺀 높이까지만 쓴다
   const overlayFrame = height * (land ? 0.65 : 0.58);
-  const overlayCramped = overlayFrame - 64 < 140;
+  const overlayVerticalPadding = 88 * landScale;
+  const overlayCramped = overlayFrame - overlayVerticalPadding < 140;
   const overlayScroll = overlayCramped
-    ? Math.max(0, height - 8 - 64)
-    : Math.min(height * 0.49, overlayFrame - 64);
+    ? Math.max(0, height - 8 - overlayVerticalPadding)
+    : Math.min(height * 0.49, overlayFrame - overlayVerticalPadding);
   const blueprintPanelTop = Math.max(24, (height - blueprintPanelHeight) / 2);
   const boardOverlayOpen = noticeOverlayOpen || questDetailOpen;
 
@@ -5912,117 +6041,168 @@ export function Board({
 
   return (
     <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
-      <View
-        testID="board-scene"
-        ref={boardSceneRef as any}
-        {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
-        style={{ position: 'absolute', ...scene }}
+      <ScrollView
+        ref={sceneScrollRef}
+        testID="board-scene-scroll"
+        horizontal={false}
+        scrollEnabled={land && !s.panel}
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+        bounces={false}
+        alwaysBounceVertical={false}
+        alwaysBounceHorizontal={false}
+        contentOffset={{ x: 0, y: initialSceneOffset }}
+        style={[
+          { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+          webOnly({ overscrollBehavior: 'none' }),
+        ]}
+        contentContainerStyle={{ width, height: land ? scene.height : height, overflow: 'hidden' }}
       >
-        {/* 가로에서는 배경에 그려진 공지 종이만 보인다 */}
-        {!land && (
-          <Picture
-            source={interiorArt.boardPaper.notice}
-            label=""
+        <View
+          testID="board-scene"
+          ref={boardSceneRef as any}
+          {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
+          style={{ position: 'relative', ...scene }}
+        >
+          <Image
+            testID="board-scene-image"
+            source={interiorArt.boardBackground}
+            resizeMode="stretch"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
             style={{
               position: 'absolute',
-              zIndex: 1,
-              left: '19.7%',
-              top: '20.5%',
-              width: '30.5%',
-              height: '27.5%',
+              left: 0,
+              top: 0,
+              width: scene.width,
+              height: scene.height,
+              zIndex: 0,
             }}
           />
-        )}
-        <View style={[land ? LAND.labels : fill, { zIndex: 2 }]}>
-          <Pressable
-            testID="board-notice-area"
-            accessibilityRole="button"
-            accessibilityLabel="공지"
-            onPress={() => nav.open('notice')}
+          <View
+            testID="board-scene-gradient"
+            pointerEvents="none"
             style={[
-              {
-                position: 'absolute',
-                zIndex: 2,
-                left: '22.3%',
-                top: '23.5%',
-                width: '25.3%',
-                height: '22.6%',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 9,
-                padding: 12,
-              },
-              pressedFilter('notice'),
+              { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 1 },
+              gradient(
+                'linear-gradient(180deg,#37271d12 0%,transparent 24%,transparent 70%,#37271d0c 100%)',
+              ),
             ]}
-          >
-            <Text
-              style={[boardFont(28, 1.1, '400', '#76503c', 'BoardHand'), { letterSpacing: 0.56 }]}
-            >
-              공지
-            </Text>
-            <Handwriting />
-          </Pressable>
-          <Pressable
-            testID="board-quest-area"
-            accessibilityRole="button"
-            accessibilityLabel="퀘스트 목록 펼치기"
-            onPress={() => nav.open('quest')}
-            style={[
-              {
+          />
+          {/* 세로에서는 공지 종이 질감을 덧입혀 목록 UI와 맞춘다 */}
+          {!land && (
+            <Picture
+              source={interiorArt.boardPaper.notice}
+              label=""
+              style={{
                 position: 'absolute',
-                left: '51%',
-                top: '24%',
-                width: '27%',
-                height: '9%',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 3,
-                paddingTop: 8,
-                paddingHorizontal: 10,
-                paddingBottom: 4,
-              },
-              pressedFilter('quest'),
-            ]}
-          >
-            <Text style={boardFont(22, 1.1, '400', '#82652c', 'BoardHand-Bold')}>퀘스트</Text>
-            <Handwriting short />
-          </Pressable>
-          {/* 목각 건물·청사진은 방문자에게 보이지 않는다 */}
-          {!visitor && (
+                zIndex: 1,
+                left: '19.7%',
+                top: '20.5%',
+                width: '30.5%',
+                height: '27.5%',
+              }}
+            />
+          )}
+          <View testID="board-label-scene" style={[fill, { zIndex: 2 }]}>
             <Pressable
-              testID="board-blueprint-area"
+              testID="board-notice-area"
               accessibilityRole="button"
-              accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
-              onPress={() => nav.open('blueprint')}
+              accessibilityLabel="공지"
+              onPress={() => nav.open('notice')}
               style={[
                 {
                   position: 'absolute',
                   zIndex: 2,
-                  ...(land
-                    ? LAND.blueprintArea
-                    : { left: '61%', top: '34.2%', width: '19%', height: '12.8%' }),
+                  ...boardHitboxes.notice,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 9 * labelScale,
+                  padding: 12 * labelScale,
                 },
-                pressedFilter('blueprint'),
+                pressedFilter('notice'),
               ]}
             >
-              {blueprintView.state !== 'none' && (
-                <Picture
-                  source={blueprintView.image}
-                  label={blueprintView.name}
-                  shadow="0 2px 2px #173e5140"
-                  style={{
-                    position: 'absolute',
-                    left: 5 + lu((blueprintInner - libraryWidth) / 2),
-                    top: 5 + lu((libraryRow - libraryHeight) / 2),
-                    width: libraryWidth,
-                    height: libraryHeight,
-                  }}
-                />
-              )}
+              <Text
+                allowFontScaling
+                style={[
+                  boardFont(28 * labelScale, 1.1, '400', '#76503c', 'BoardHand'),
+                  {
+                    width: scene.width * 0.45,
+                    letterSpacing: 0.56 * labelScale,
+                    textAlign: 'center',
+                  },
+                ]}
+              >
+                공지
+              </Text>
+              <Handwriting scale={labelScale} />
             </Pressable>
-          )}
+            <Pressable
+              testID="board-quest-area"
+              accessibilityRole="button"
+              accessibilityLabel="퀘스트 목록 펼치기"
+              onPress={() => nav.open('quest')}
+              style={[
+                {
+                  position: 'absolute',
+                  ...boardHitboxes.quest,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 3 * labelScale,
+                  paddingTop: 4 * labelScale,
+                  paddingHorizontal: 8 * labelScale,
+                  paddingBottom: 2 * labelScale,
+                },
+                pressedFilter('quest'),
+              ]}
+            >
+              <Text
+                allowFontScaling
+                style={[
+                  boardFont(22 * labelScale, 1.1, '400', '#82652c', 'BoardHand-Bold'),
+                  { width: scene.width * 0.52, textAlign: 'center' },
+                ]}
+              >
+                퀘스트
+              </Text>
+              <Handwriting short scale={labelScale} />
+            </Pressable>
+            {/* 목각 건물·청사진은 방문자에게 보이지 않는다 */}
+            {!visitor && (
+              <Pressable
+                testID="board-blueprint-area"
+                accessibilityRole="button"
+                accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
+                onPress={() => nav.open('blueprint')}
+                style={[
+                  {
+                    position: 'absolute',
+                    zIndex: 2,
+                    ...boardHitboxes.blueprint,
+                  },
+                  pressedFilter('blueprint'),
+                ]}
+              >
+                {blueprintView.state !== 'none' && (
+                  <Picture
+                    source={blueprintView.image}
+                    label={blueprintView.name}
+                    shadow="0 2px 2px #173e5140"
+                    style={{
+                      position: 'absolute',
+                      left: 5 + lu((blueprintInner - libraryWidth) / 2),
+                      top: 5 + lu((libraryRow - libraryHeight) / 2),
+                      width: libraryWidth,
+                      height: libraryHeight,
+                    }}
+                  />
+                )}
+              </Pressable>
+            )}
+          </View>
         </View>
-      </View>
+      </ScrollView>
       <View
         testID="board-drawer"
         ref={boardDrawerRef as any}
@@ -6038,14 +6218,14 @@ export function Board({
             boxShadow: '0 8px 18px #3b281b77',
             ...(s.panel === 'blueprint'
               ? {
-                  ...(land ? LAND.blueprint : { left: 14, right: 14 }),
+                  ...(land ? landBlueprint : { left: 14, right: 14 }),
                   top: blueprintPanelTop,
                   height: blueprintPanelHeight,
                   maxHeight: blueprintPanelHeight,
                   borderRadius: 18,
                 }
               : {
-                  ...(land ? LAND.drawer : { left: 0, right: 0 }),
+                  ...(land ? landDrawer : { left: 0, right: 0 }),
                   ...(paperPanel && sheetCramped ? { top: 4 } : { bottom: 10 }),
                   maxHeight: paperPanel && sheetCramped ? paperHeight : height - 105,
                   borderTopLeftRadius: 18,
@@ -6065,7 +6245,7 @@ export function Board({
             height: paperHeight,
             minHeight: 0,
             paddingTop: paperPad.top,
-            paddingHorizontal: 30,
+            paddingHorizontal: 50 * landScale,
             paddingBottom: paperPad.bottom,
             borderWidth: 0,
             borderRadius: 0,
@@ -6074,7 +6254,62 @@ export function Board({
           },
         ]}
       >
-        {paperPanel && <BoardPaper source={paperSource} />}
+        {paperPanel && (
+          <BoardPaper
+            source={paperSource}
+            style={{
+              left: -34 * landScale,
+              right: -34 * landScale,
+              top: -38 * landScale,
+              bottom: -30 * landScale,
+            }}
+          />
+        )}
+        {panelNavigationOpen && (
+          <View
+            testID="board-panel-navigation"
+            style={{
+              zIndex: 2,
+              flexDirection: 'row',
+              justifyContent: 'flex-end',
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
+            <Pressable
+              testID="board-panel-switch"
+              accessibilityRole="button"
+              accessibilityLabel={`${s.panel === 'notice' ? '퀘스트' : '공지'} 패널로 전환`}
+              onPress={() => nav.open(s.panel === 'notice' ? 'quest' : 'notice')}
+              style={{
+                width: 44,
+                height: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text allowFontScaling={false} style={boardFont(20, 1, '700', '#76503c')}>
+                ⇄
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="board-panel-close"
+              accessibilityRole="button"
+              accessibilityLabel="게시판 닫기"
+              onPress={nav.closePanel}
+              style={{
+                width: 44,
+                height: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text allowFontScaling={false} style={boardFont(22, 1, '400', '#76503c')}>
+                ×
+              </Text>
+            </Pressable>
+          </View>
+        )}
         {s.panel === 'blueprint' && (
           <Pressable
             testID="board-drawer-close"
@@ -6098,6 +6333,7 @@ export function Board({
         )}
         {s.panel === 'notice' && (
           <Scroll
+            testID="board-notice-scroll"
             style={[
               {
                 flexGrow: 1,
@@ -6175,19 +6411,25 @@ export function Board({
             style={{
               position: 'absolute',
               zIndex: 6,
-              ...(land ? LAND.overlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
+              ...(land ? landOverlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
               ...(overlayCramped && { top: 4, maxHeight: height - 8 }),
-              paddingTop: 37,
-              paddingHorizontal: 22,
-              paddingBottom: 27,
+              paddingTop: 48 * landScale,
+              paddingHorizontal: 58 * landScale,
+              paddingBottom: 40 * landScale,
               boxShadow: '0 8px 18px #2f211d45',
             }}
           >
             <BoardPaper
               source={interiorArt.boardPaper.detail}
-              style={{ left: -28, right: -28, top: -32, bottom: -26 }}
+              style={{
+                left: -28 * landScale,
+                right: -28 * landScale,
+                top: -32 * landScale,
+                bottom: -26 * landScale,
+              }}
             />
             <Scroll
+              testID="board-notice-overlay-content"
               style={[
                 { minHeight: 0, maxHeight: overlayScroll },
                 webOnly({ overscrollBehavior: 'contain' }),
@@ -6234,19 +6476,25 @@ export function Board({
             style={{
               position: 'absolute',
               zIndex: 6,
-              ...(land ? LAND.overlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
+              ...(land ? landOverlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
               ...(overlayCramped && { top: 4, maxHeight: height - 8 }),
-              paddingTop: 37,
-              paddingHorizontal: 22,
-              paddingBottom: 27,
+              paddingTop: 48 * landScale,
+              paddingHorizontal: 58 * landScale,
+              paddingBottom: 40 * landScale,
               boxShadow: '0 8px 18px #2f211d45',
             }}
           >
             <BoardPaper
               source={interiorArt.boardPaper.detail}
-              style={{ left: -28, right: -28, top: -32, bottom: -26 }}
+              style={{
+                left: -28 * landScale,
+                right: -28 * landScale,
+                top: -32 * landScale,
+                bottom: -26 * landScale,
+              }}
             />
             <Scroll
+              testID="board-quest-overlay-content"
               style={[
                 { minHeight: 0, maxHeight: overlayScroll },
                 webOnly({ overscrollBehavior: 'contain' }),
