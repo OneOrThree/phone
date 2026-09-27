@@ -5600,19 +5600,29 @@ export function RedesignScreens({ e }: any) {
       onAccept: () => void,
       onReject: () => void,
       safetyMenu?: React.ReactNode,
-    ) => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
-        <Btn
-          small
-          kind="sec"
-          title="거절"
-          disabled={serverMode && friendsScreen.busy}
-          onPress={onReject}
-        />
-        {safetyMenu}
-      </View>
-    );
+    ) => {
+      const stacked = !!safetyMenu && layout.fontScale >= 1.3;
+      return (
+        <View
+          testID={safetyMenu ? 'friend-request-actions-with-safety' : undefined}
+          style={{
+            flexDirection: stacked ? 'column' : 'row',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
+          <Btn
+            small
+            kind="sec"
+            title="거절"
+            disabled={serverMode && friendsScreen.busy}
+            onPress={onReject}
+          />
+          {safetyMenu}
+        </View>
+      );
+    };
     const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
       <SheetRow
         key={friend.id}

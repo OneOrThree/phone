@@ -963,6 +963,41 @@ test('서버에서 받은 친구 요청에도 신고·차단 안전 메뉴를 �
   assert.equal(screen.queryByText('친구 삭제'), null);
 });
 
+test('큰 글자의 받은 친구 요청은 안전 메뉴 액션을 세로로 배치한다', async () => {
+  mockFontScale = 1.5;
+  const friendsScreen = {
+    data: {
+      friends: [],
+      friendRequests: [
+        {
+          requestId: 'request-large',
+          userId: 'requester-large',
+          nickname: '큰글자요청자',
+          tierLevel: null,
+          createdAt: '2026-09-27T00:00:00Z',
+        },
+      ],
+      sentFriendRequests: [],
+    },
+    status: 'ready',
+    error: null,
+    busy: false,
+    query: '',
+    searchItems: [],
+    refresh: jest.fn(),
+    retry: jest.fn(),
+    setQuery: jest.fn(),
+    command: jest.fn((fn: () => Promise<unknown>) => fn()),
+  };
+  const screen = await render(
+    <Harness route="friends" full api={() => ({})} friendsScreen={friendsScreen} />,
+  );
+
+  const actions = screen.getByTestId('friend-request-actions-with-safety');
+  assert.equal(StyleSheet.flatten(actions.props.style).flexDirection, 'column');
+  assert.ok(screen.getByLabelText('큰글자요청자 더보기'));
+});
+
 test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친다', async () => {
   let exposed: any;
   const s = await render(

@@ -172,6 +172,23 @@ test('차단 해제 때문에 우체통을 재적재해도 열려 있던 편지�
   await hook.unmount();
 });
 
+test('차단 목록 오류 재시도에서 ID가 제거돼도 우체통은 한 번만 다시 적재한다', async () => {
+  replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
+  const hook = await mount();
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+  assert.equal(hook.result.current.blockedUsersStatus, 'error');
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => hook.result.current.retry());
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await Promise.resolve();
+
+  assert.equal(screenMock.mock.calls.length, 2);
+  await hook.unmount();
+});
+
 test('차단 해제 뒤 우체통 재적재가 실패하면 열린 편지에 재시도 오류를 전달한다', async () => {
   replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
   blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
