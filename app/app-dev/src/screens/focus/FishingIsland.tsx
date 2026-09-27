@@ -159,6 +159,7 @@ export function fishingCatchPlacement(
   spot: Spot,
   others: Spot[] = [],
   visibleRewardSpots?: Spot[],
+  gramVisible = true,
 ): FishingCatchPlacement | null {
   if (Object.prototype.hasOwnProperty.call(spot, 'catchPlacement'))
     return spot.catchPlacement ?? null;
@@ -180,7 +181,7 @@ export function fishingCatchPlacement(
       if (preferredScore > 0.75 && alternateScore > 0.75) continue;
       if (!catchFootprintOnLand(spot, left, top)) continue;
       const reward = catchBounds(spot, { left, top });
-      if (boundsOverlap(reward, gramBounds)) continue;
+      if (gramVisible && boundsOverlap(reward, gramBounds)) continue;
       if (
         others.some((other) => {
           if (other.x === spot.x && other.y === spot.y) return false;
@@ -224,6 +225,7 @@ const DEFAULT_CATCH_RESERVATION: Spot = {
   catchPlacement: DEFAULT_CATCH_PLACEMENT,
 };
 // 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
+// resident 자리/보상은 섬 건물 상태와 무관하게 같은 좌표를 쓰도록 축음기 설치 상태 기준으로 미리 배치한다.
 // 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
 // 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
 export const PEER_SPOTS: Spot[] = (() => {
@@ -693,6 +695,7 @@ export function FishingActor({
   motion,
   catchVisible = true,
   catchVisibleSpots,
+  catchGramVisible = true,
   onMotionFinish,
   generation,
   animatedPosition,
@@ -711,6 +714,7 @@ export function FishingActor({
   motion?: CatMotionInput;
   catchVisible?: boolean;
   catchVisibleSpots?: Spot[];
+  catchGramVisible?: boolean;
   onMotionFinish?: () => void;
   generation?: number;
   animatedPosition?: {
@@ -745,7 +749,12 @@ export function FishingActor({
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
     rodScale = castReach(spot) / 5.6,
-    catchPlacement = fishingCatchPlacement(spot, catchAvoidSpots, catchVisibleSpots),
+    catchPlacement = fishingCatchPlacement(
+      spot,
+      catchAvoidSpots,
+      catchVisibleSpots,
+      catchGramVisible,
+    ),
     showsCatch = count > 0 && catchVisible && catchPlacement != null;
   return (
     <Animated.View

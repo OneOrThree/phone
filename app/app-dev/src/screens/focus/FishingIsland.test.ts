@@ -359,6 +359,49 @@ test('숨겨진 resident 보상은 mine placement obstacle이 아니다', () => 
   assert.equal(visiblePlacement, null, '실제로 보이는 resident 보상은 겹침을 막는다');
 });
 
+test('축음기가 있을 때만 보상 배치가 축음기 영역을 장애물로 취급하고 resident 자리는 고정된다', async () => {
+  let candidate: {
+    spot: Spot;
+    placement: NonNullable<ReturnType<typeof fishingCatchPlacement>>;
+  } | null = null;
+  for (let y = 55; y <= 74 && !candidate; y += 0.5)
+    for (let x = 44; x <= 56 && !candidate; x += 0.5) {
+      const point = { x, y };
+      if (!onLand(fishingGrid, point)) continue;
+      const spot = castSpot(point),
+        withGram = fishingCatchPlacement(spot, [], undefined, true),
+        withoutGram = fishingCatchPlacement(spot, [], undefined, false);
+      if (!withGram && withoutGram) candidate = { spot, placement: withoutGram };
+    }
+
+  assert.ok(candidate, '축음기 설치 때문에 막혔던 육지 후보는 미설치 시 사용할 수 있다');
+  assert.ok(fishingCatchFootprintOnLand(candidate.spot, candidate.placement));
+  assert.equal(fishingCatchPlacement(candidate.spot, [], undefined, true), null);
+  for (const peer of PEER_SPOTS)
+    assert.deepEqual(
+      fishingCatchPlacement(peer, [], undefined, false),
+      fishingCatchPlacement(peer, [], undefined, true),
+      'resident 좌석과 보상은 건물 상태와 무관하게 미리 정한 안전 배치를 유지한다',
+    );
+
+  const props = {
+    spot: candidate.spot,
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '나',
+    seconds: SECONDS_PER_FISH,
+    reduce: true,
+  };
+  const screen = await render(
+    React.createElement(FishingActor, { ...props, catchGramVisible: true }),
+  );
+  assert.equal(screen.queryByTestId('fishing-actor-catch'), null);
+  await screen.rerender(React.createElement(FishingActor, { ...props, catchGramVisible: false }));
+  assert.ok(screen.queryByTestId('fishing-actor-catch'));
+  await screen.unmount();
+});
+
 test('resident 보상은 count가 있고 좌석에 정착해 있을 때만 visible obstacle이다', () => {
   const spot = PEER_SPOTS[0],
     actor = {

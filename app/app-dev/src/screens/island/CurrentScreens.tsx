@@ -1416,7 +1416,9 @@ function FocusFlow({ e }: any) {
     const catchSpot = castSpot(p);
     if (p.x === DEFAULT_SPOT.x && p.y === DEFAULT_SPOT.y)
       catchSpot.catchPlacement = DEFAULT_CATCH_PLACEMENT;
-    if (!fishingCatchPlacement(catchSpot, peerSpots, peerCatchSpots)) {
+    if (
+      !fishingCatchPlacement(catchSpot, peerSpots, peerCatchSpots, i.buildings.includes('gram'))
+    ) {
       e.notify('여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.');
       return;
     }
@@ -1807,6 +1809,7 @@ function FocusFlow({ e }: any) {
                   reduce={reduce}
                   catchAvoidSpots={peerSpots}
                   catchVisibleSpots={peerCatchSpots}
+                  catchGramVisible={i.buildings.includes('gram')}
                 />
               ) : (
                 <FishingWalker
