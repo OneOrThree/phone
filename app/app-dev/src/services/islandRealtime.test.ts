@@ -266,7 +266,10 @@ describe('황금 물고기 실시간 사건', () => {
   });
 
   test('손상된 보상·참여자 payload와 세션이 다른 주민은 거부한다', () => {
-    assert.equal(parseGoldenFishEvent(goldenEvent('bad-reward', { reward: -Infinity }), 'i1'), null);
+    assert.equal(
+      parseGoldenFishEvent(goldenEvent('bad-reward', { reward: -Infinity }), 'i1'),
+      null,
+    );
     assert.equal(
       parseGoldenFishEvent(
         goldenEvent('one-member', { members: [{ userId: 'u1', sessionId: 's-u1' }] }),

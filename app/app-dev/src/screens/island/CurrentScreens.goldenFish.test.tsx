@@ -107,10 +107,7 @@ jest.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 0, right: 0, bottom: 0, left: 0 }),
 }));
 
-const event = (
-  members: GoldenFishEvent['members'],
-  eventId = 'golden-i1-1',
-): GoldenFishEvent => ({
+const event = (members: GoldenFishEvent['members'], eventId = 'golden-i1-1'): GoldenFishEvent => ({
   eventId,
   islandId: 'soda',
   drawnAt: '2026-09-28T00:00:00.000Z',
@@ -163,9 +160,7 @@ beforeEach(async () => {
 test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와 섬 에셋을 함께 갱신한다', async () => {
   const screen = await mount();
 
-  await act(async () =>
-    onGoldenFish?.(event([{ userId: 'other', sessionId: 's-other' }])),
-  );
+  await act(async () => onGoldenFish?.(event([{ userId: 'other', sessionId: 's-other' }])));
   assert.equal(screen.queryByTestId('golden-cutscene'), null);
 
   await act(async () =>
