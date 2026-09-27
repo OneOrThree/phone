@@ -3832,6 +3832,62 @@ function boardFromApp(e: any) {
   };
 }
 
+const BOARD_MODAL_FOCUSABLES =
+  'button:not([disabled]),[role="button"]:not([aria-disabled="true"]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+export function focusBoardModal(overlay: HTMLElement | null) {
+  if (!overlay?.querySelectorAll || !overlay.focus) return;
+  const focusables = Array.from(
+    overlay.querySelectorAll<HTMLElement>(BOARD_MODAL_FOCUSABLES),
+  ).filter((element) => element.offsetParent !== null);
+  (focusables[0] ?? overlay).focus();
+}
+
+export function restoreBoardModalOpener(opener: HTMLElement | null) {
+  opener?.focus();
+}
+
+export function setBoardBackgroundInert(element: HTMLElement | null, inert: boolean) {
+  if (!element) return;
+  element.inert = inert;
+  if (inert && typeof element.setAttribute === 'function') element.setAttribute('inert', '');
+  else if (!inert && typeof element.removeAttribute === 'function')
+    element.removeAttribute('inert');
+}
+
+export function handleBoardModalKeydown(
+  event: KeyboardEvent,
+  overlay: HTMLElement,
+  modalDocument: Document,
+  onEscape: () => void,
+) {
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    onEscape();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusables = Array.from(
+    overlay.querySelectorAll<HTMLElement>(BOARD_MODAL_FOCUSABLES),
+  ).filter((element) => element.offsetParent !== null);
+  if (!focusables.length) {
+    event.preventDefault();
+    overlay.focus();
+    return;
+  }
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (
+    (event.shiftKey &&
+      (modalDocument.activeElement === first || !overlay.contains(modalDocument.activeElement))) ||
+    (!event.shiftKey &&
+      (modalDocument.activeElement === last || !overlay.contains(modalDocument.activeElement)))
+  ) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+
 export function Board({
   concept,
   width,
@@ -3848,6 +3904,12 @@ export function Board({
   const [mockQuests, setQuests] = useState(() =>
     concept.boardPanel === 'quest' && concept.boardView === 'empty' ? [] : QUESTS,
   );
+  const noticeOverlayRef = useRef<HTMLElement | null>(null);
+  const questOverlayRef = useRef<HTMLElement | null>(null);
+  const boardSceneRef = useRef<HTMLElement | null>(null);
+  const boardDrawerRef = useRef<HTMLElement | null>(null);
+  const overlayOpenerRef = useRef<HTMLElement | null>(null);
+  const overlayWasOpen = useRef(false);
   // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
   const [ui, setUi] = useState({
     comment: false,
@@ -5730,10 +5792,50 @@ export function Board({
     ? Math.max(0, height - 8 - 64)
     : Math.min(height * 0.49, overlayFrame - 64);
   const blueprintPanelTop = Math.max(24, (height - blueprintPanelHeight) / 2);
+  const boardOverlayOpen = noticeOverlayOpen || questDetailOpen;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    setBoardBackgroundInert(boardSceneRef.current, boardOverlayOpen);
+    setBoardBackgroundInert(boardDrawerRef.current, boardOverlayOpen);
+  }, [boardOverlayOpen]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    if (boardOverlayOpen && !overlayWasOpen.current) {
+      overlayOpenerRef.current = document.activeElement as HTMLElement | null;
+      const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
+      focusBoardModal(overlay);
+    } else if (!boardOverlayOpen && overlayWasOpen.current) {
+      restoreBoardModalOpener(overlayOpenerRef.current);
+      overlayOpenerRef.current = null;
+    }
+    overlayWasOpen.current = boardOverlayOpen;
+  }, [boardOverlayOpen, noticeOverlayOpen]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !boardOverlayOpen || typeof document === 'undefined') return;
+    const modalDocument = document;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
+      if (!overlay) return;
+      handleBoardModalKeydown(event, overlay, modalDocument, () => {
+        if (noticeOverlayOpen) dismissNoticeOverlay();
+        else dismissQuestDetail();
+      });
+    };
+    modalDocument.addEventListener('keydown', onKeyDown);
+    return () => modalDocument.removeEventListener('keydown', onKeyDown);
+  }, [boardOverlayOpen, noticeOverlayOpen, dismissNoticeOverlay, dismissQuestDetail]);
 
   return (
     <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
-      <View testID="board-scene" style={{ position: 'absolute', ...scene }}>
+      <View
+        testID="board-scene"
+        ref={boardSceneRef as any}
+        {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
+        style={{ position: 'absolute', ...scene }}
+      >
         {/* 가로에서는 배경에 그려진 공지 종이만 보인다 */}
         {!land && (
           <Picture
@@ -5841,6 +5943,8 @@ export function Board({
       </View>
       <View
         testID="board-drawer"
+        ref={boardDrawerRef as any}
+        {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
         style={[
           {
             position: 'absolute',
@@ -5972,6 +6076,15 @@ export function Board({
           <View
             testID="board-notice-overlay"
             accessibilityViewIsModal
+            ref={noticeOverlayRef as any}
+            accessibilityRole={Platform.OS === 'web' ? ('dialog' as any) : undefined}
+            {...(Platform.OS === 'web'
+              ? {
+                  'aria-modal': true,
+                  'aria-label': noticeEditorOpen ? '공지 작성' : '공지 상세',
+                  tabIndex: -1,
+                }
+              : null)}
             style={{
               position: 'absolute',
               zIndex: 6,
@@ -6017,6 +6130,11 @@ export function Board({
           <View
             testID="board-quest-overlay"
             accessibilityViewIsModal
+            ref={questOverlayRef as any}
+            accessibilityRole={Platform.OS === 'web' ? ('dialog' as any) : undefined}
+            {...(Platform.OS === 'web'
+              ? { 'aria-modal': true, 'aria-label': '퀘스트 상세', tabIndex: -1 }
+              : null)}
             style={{
               position: 'absolute',
               zIndex: 6,

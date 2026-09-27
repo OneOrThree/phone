@@ -14,7 +14,14 @@ import {
   updateNotice as patchNotice,
 } from '@/services/api/notices';
 import { initialState } from '@/services/model';
-import { Board, type Concept } from '@/screens/interiors/BuildingInteriors';
+import {
+  Board,
+  focusBoardModal,
+  handleBoardModalKeydown,
+  restoreBoardModalOpener,
+  setBoardBackgroundInert,
+  type Concept,
+} from '@/screens/interiors/BuildingInteriors';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 
 import {
@@ -258,6 +265,95 @@ const webMockMode = (search: string) => {
     Object.defineProperty(g.window, 'location', { value: prevLoc, configurable: true });
   };
 };
+
+test('웹 공지·퀘스트 상세는 모달 의미를 제공하고 배경을 접근성 트리에서 제외한다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const noticeScreen = await renderBoard(null, concept({ boardView: 'detail' }));
+    const noticeOverlay = noticeScreen.getByTestId('board-notice-overlay');
+    assert.equal(noticeOverlay.props['aria-modal'], true);
+    assert.equal(noticeOverlay.props.tabIndex, -1);
+    assert.equal(noticeOverlay.props.accessibilityRole, 'dialog');
+    assert.equal(
+      (JSON.stringify(noticeScreen.toJSON()).match(/"aria-hidden":true/g) ?? []).length,
+      2,
+    );
+    await noticeScreen.unmount();
+
+    const questScreen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'detail-focus' }),
+    );
+    const questOverlay = questScreen.getByTestId('board-quest-overlay');
+    assert.equal(questOverlay.props['aria-modal'], true);
+    assert.equal(questOverlay.props.tabIndex, -1);
+    assert.equal(questOverlay.props.accessibilityRole, 'dialog');
+    assert.equal(
+      (JSON.stringify(questScreen.toJSON()).match(/"aria-hidden":true/g) ?? []).length,
+      2,
+    );
+    await questScreen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('웹 모달은 처음 포커스를 안으로 옮기고 Tab 경계를 지키며 Escape 후 opener를 복원한다', () => {
+  const first = { offsetParent: {}, focus: jest.fn() } as unknown as HTMLElement;
+  const last = { offsetParent: {}, focus: jest.fn() } as unknown as HTMLElement;
+  const outside = {} as HTMLElement;
+  const opener = { focus: jest.fn() } as unknown as HTMLElement;
+  const overlay = {
+    querySelectorAll: jest.fn(() => [first, last]),
+    contains: (element: Element | null) => element === first || element === last,
+    focus: jest.fn(),
+  } as unknown as HTMLElement;
+  const modalDocument = { activeElement: first } as unknown as Document;
+
+  focusBoardModal(overlay);
+  expect(first.focus).toHaveBeenCalledTimes(1);
+
+  (modalDocument as any).activeElement = first;
+  const backwards = {
+    key: 'Tab',
+    shiftKey: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(backwards, overlay, modalDocument, jest.fn());
+  expect(backwards.preventDefault).toHaveBeenCalledTimes(1);
+  expect(last.focus).toHaveBeenCalledTimes(1);
+
+  (modalDocument as any).activeElement = last;
+  const forwards = {
+    key: 'Tab',
+    shiftKey: false,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(forwards, overlay, modalDocument, jest.fn());
+  expect(forwards.preventDefault).toHaveBeenCalledTimes(1);
+  expect(first.focus).toHaveBeenCalledTimes(2);
+
+  (modalDocument as any).activeElement = outside;
+  const dismiss = jest.fn();
+  const escape = { key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(escape, overlay, modalDocument, dismiss);
+  expect(escape.preventDefault).toHaveBeenCalledTimes(1);
+  expect(dismiss).toHaveBeenCalledTimes(1);
+  restoreBoardModalOpener(opener);
+  expect(opener.focus).toHaveBeenCalledTimes(1);
+
+  const background = {
+    inert: false,
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  setBoardBackgroundInert(background, true);
+  expect(background.inert).toBe(true);
+  expect(background.setAttribute).toHaveBeenCalledWith('inert', '');
+  setBoardBackgroundInert(background, false);
+  expect(background.inert).toBe(false);
+  expect(background.removeAttribute).toHaveBeenCalledWith('inert');
+});
 
 beforeEach(async () => {
   jest.clearAllMocks();
