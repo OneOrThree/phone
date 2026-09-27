@@ -19,7 +19,8 @@ export type ReportInput = {
   reason: ReportReason;
   description: string | null;
   replyEmail: string | null;
-  blockUser: boolean;
+  blockStatus: 'NOT_REQUESTED' | 'COMPLETED' | 'FAILED';
+  evidenceText: string | null;
 };
 
 export const REPORT_EMAIL_RECIPIENT = 'nappaegonoljima@gmail.com';
@@ -54,6 +55,12 @@ export function unblockUser(userId: string): Promise<void> {
 
 export function reportEmailUrl(input: ReportInput, targetName: string): string {
   const targetType = input.targetType === 'LETTER' ? '편지' : '사용자';
+  const blockStatus =
+    input.blockStatus === 'COMPLETED'
+      ? '완료'
+      : input.blockStatus === 'FAILED'
+        ? '실패'
+        : '선택하지 않음';
   const lines = [
     '안녕하세요. 그로모 앱에서 신고드립니다.',
     '',
@@ -63,7 +70,10 @@ export function reportEmailUrl(input: ReportInput, targetName: string): string {
     `신고 사유: ${REPORT_REASON_LABEL[input.reason]}`,
     `상세 설명: ${input.description ?? '없음'}`,
     `회신 받을 이메일: ${input.replyEmail ?? '미입력'}`,
-    `앱에서 함께 차단: ${input.blockUser ? '예' : '아니오'}`,
+    `앱에서 함께 차단: ${blockStatus}`,
+    ...(input.evidenceText
+      ? ['', '[신고 대상 원문]', input.evidenceText, '[/신고 대상 원문]']
+      : []),
     '',
     '위 내용을 확인한 뒤 이 메일을 보내 주세요.',
   ];

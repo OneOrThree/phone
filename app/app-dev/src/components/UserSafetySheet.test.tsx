@@ -136,6 +136,26 @@ test('메일 앱을 열지 못하면 시트를 유지하고 다시 시도할 수
   assert.equal(isUserBlocked('user-2'), false);
 });
 
+test('선택 차단이 실패해도 실패 상태를 담아 신고 메일 작성은 계속한다', async () => {
+  blockMock.mockRejectedValue(new Error('block unavailable'));
+  const callbacks = props();
+  const screen = await render(<UserSafetySheet {...callbacks} />);
+
+  await fireEvent.press(screen.getByText('신고하기'));
+  await fireEvent.press(screen.getByRole('switch', { name: '이 사용자도 차단' }));
+  await fireEvent.press(screen.getByText('이메일 작성'));
+
+  await waitFor(() => assert.equal(openUrlMock.mock.calls.length, 1));
+  assert.ok(decodeURIComponent(openUrlMock.mock.calls[0][0]).includes('앱에서 함께 차단: 실패'));
+  assert.equal(blockMock.mock.calls.length, 1);
+  assert.equal(callbacks.onChanged.mock.calls.length, 0);
+  assert.equal(callbacks.onClose.mock.calls.length, 1);
+  assert.equal(
+    callbacks.onMessage.mock.calls[0][0],
+    '차단은 완료하지 못했어요. 신고 메일 내용을 확인한 뒤 보내 주세요.',
+  );
+});
+
 test('선택 차단 뒤 메일 앱이 실패해도 시트를 유지해 재시도할 수 있다', async () => {
   blockMock.mockResolvedValue(undefined);
   openUrlMock.mockRejectedValueOnce(new Error('no mail app'));

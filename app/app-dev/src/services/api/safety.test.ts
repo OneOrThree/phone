@@ -52,7 +52,8 @@ test('신고 입력을 운영 Gmail 수신 주소와 편집 가능한 mailto 본
     reason: 'HARASSMENT' as const,
     description: '설명',
     replyEmail: 'reply@example.com',
-    blockUser: true,
+    blockStatus: 'COMPLETED' as const,
+    evidenceText: '반가워, 잘 지내?',
   };
 
   const url = reportEmailUrl(input, '민지');
@@ -62,6 +63,7 @@ test('신고 입력을 운영 Gmail 수신 주소와 편집 가능한 mailto 본
   assert.ok(decoded.includes('신고 사유: 욕설·괴롭힘'));
   assert.ok(decoded.includes('상세 설명: 설명'));
   assert.ok(decoded.includes('회신 받을 이메일: reply@example.com'));
-  assert.ok(decoded.includes('앱에서 함께 차단: 예'));
+  assert.ok(decoded.includes('앱에서 함께 차단: 완료'));
+  assert.ok(decoded.includes('[신고 대상 원문]\n반가워, 잘 지내?\n[/신고 대상 원문]'));
   assert.equal(calls.length, 0);
 });

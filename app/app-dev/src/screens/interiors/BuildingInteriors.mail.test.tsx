@@ -299,7 +299,9 @@ test('편지 신고는 운영 메일 작성 화면을 열고 상세 화면을 �
   await fireEvent.press(ui.getByText('이메일 작성'));
 
   await waitFor(() => assert.equal(openUrl.mock.calls.length, 1));
-  assert.ok(openUrl.mock.calls[0][0].startsWith('mailto:nappaegonoljima@gmail.com?'));
+  const reportUrl = openUrl.mock.calls[0][0];
+  assert.ok(reportUrl.startsWith('mailto:nappaegonoljima@gmail.com?'));
+  assert.ok(decodeURIComponent(reportUrl).includes('[신고 대상 원문]\n반가워, 잘 지내?'));
   assert.equal(e.route, 'mail');
   assert.equal(e.tab, '받은 편지');
   assert.equal(ui.queryByText('신고하기'), null);

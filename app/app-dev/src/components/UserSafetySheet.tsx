@@ -49,6 +49,7 @@ type Props = {
   targetName: string;
   reportTargetType: ReportTargetType;
   reportTargetId: string;
+  reportEvidence?: string;
   onClose: () => void;
   onChanged?: () => void;
   onMessage: (message: string) => void;
@@ -113,32 +114,49 @@ export function UserSafetySheet(props: Props) {
     setBusy(true);
     setError('');
     let blocked = reportBlockCompleted;
+    let blockFailed = false;
     try {
+      if (alsoBlock && !reportBlockCompleted) {
+        try {
+          await blockUser(props.targetUserId);
+        } catch {
+          // 신고 작성은 차단과 독립적이다. 차단 실패를 본문·완료 안내에 남기고 계속 진행한다.
+          blockFailed = true;
+        }
+        if (!blockFailed) {
+          blocked = true;
+          markUserBlocked(props.targetUserId);
+          setReportBlockCompleted(true);
+          props.onChanged?.();
+        }
+      }
       const input = {
         targetType: props.reportTargetType,
         targetId: props.reportTargetId,
         reason,
         description: description.trim() || null,
         replyEmail: replyEmail.trim() || null,
-        blockUser: alsoBlock || reportBlockCompleted,
+        blockStatus: blocked
+          ? ('COMPLETED' as const)
+          : blockFailed
+            ? ('FAILED' as const)
+            : ('NOT_REQUESTED' as const),
+        evidenceText: props.reportEvidence?.trim() || null,
       };
-      if (alsoBlock && !reportBlockCompleted) {
-        await blockUser(props.targetUserId);
-        markUserBlocked(props.targetUserId);
-        setReportBlockCompleted(true);
-        props.onChanged?.();
-        blocked = true;
-      }
       await Linking.openURL(reportEmailUrl(input, props.targetName));
       props.onClose();
       props.onMessage(
-        blocked
-          ? '차단했어요. 메일 내용을 확인한 뒤 보내 주세요.'
-          : '메일 내용을 확인한 뒤 보내 주세요.',
+        blockFailed
+          ? '차단은 완료하지 못했어요. 신고 메일 내용을 확인한 뒤 보내 주세요.'
+          : blocked
+            ? '차단했어요. 메일 내용을 확인한 뒤 보내 주세요.'
+            : '메일 내용을 확인한 뒤 보내 주세요.',
       );
     } catch (thrown) {
       if (blocked) {
         setError('차단은 완료했지만 메일 앱을 열지 못했어요. 다시 시도해 주세요.');
+      } else if (blockFailed) {
+        setError('차단하지 못했고 메일 앱도 열지 못했어요. 다시 시도해 주세요.');
       } else {
         fail(thrown);
       }
@@ -165,7 +183,8 @@ export function UserSafetySheet(props: Props) {
           }}
         >
           <Pressable
-            style={{ flex: 1 }}
+            testID="user-safety-background"
+            style={StyleSheet.absoluteFill}
             accessibilityLabel="닫기"
             accessibilityState={{ disabled: busy }}
             disabled={busy}
@@ -204,7 +223,7 @@ export function UserSafetySheet(props: Props) {
               width: centered ? layout.modalWidth : undefined,
               maxHeight: '80%',
               marginHorizontal: centered ? 0 : semanticTokens.spacing.control,
-              marginBottom: semanticTokens.spacing.control,
+              marginBottom: centered ? 0 : semanticTokens.spacing.control,
               padding: componentTokens.modal.padding,
               paddingBottom: componentTokens.modal.paddingBottom,
               gap: componentTokens.modal.gap,

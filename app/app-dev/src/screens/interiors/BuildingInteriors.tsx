@@ -7938,6 +7938,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             targetName={letterSafetyTarget.from}
             reportTargetType="LETTER"
             reportTargetId={letterSafetyTarget.id}
+            reportEvidence={letterSafetyTarget.body}
             onClose={() => setLetterSafetyTarget(null)}
             onChanged={() => {
               back('inbox');
