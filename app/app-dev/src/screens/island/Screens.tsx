@@ -785,7 +785,7 @@ export function RedesignScreens({ e }: any) {
     [safetyTarget, setSafetyTarget] = useState<{
       id: string;
       name: string;
-      onDelete: () => void;
+      onDelete?: () => void;
     } | null>(null);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
@@ -5575,7 +5575,7 @@ export function RedesignScreens({ e }: any) {
         {count !== undefined && <Badge small>{count}</Badge>}
       </View>
     );
-    const friendMenu = (id: string, name: string, onDelete: () => void) => (
+    const friendMenu = (id: string, name: string, onDelete?: () => void) => (
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${name} 더보기`}
@@ -5596,7 +5596,11 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
-    const requestActions = (onAccept: () => void, onReject: () => void) => (
+    const requestActions = (
+      onAccept: () => void,
+      onReject: () => void,
+      safetyMenu?: React.ReactNode,
+    ) => (
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
         <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
         <Btn
@@ -5606,6 +5610,7 @@ export function RedesignScreens({ e }: any) {
           disabled={serverMode && friendsScreen.busy}
           onPress={onReject}
         />
+        {safetyMenu}
       </View>
     );
     const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
@@ -5674,6 +5679,7 @@ export function RedesignScreens({ e }: any) {
           tail={requestActions(
             () => friendCmd(() => acceptFriendRequest(friend.requestId)),
             () => friendCmd(() => rejectFriendRequest(friend.requestId)),
+            friendMenu(friend.userId, name),
           )}
         />
       );
@@ -5860,16 +5866,20 @@ export function RedesignScreens({ e }: any) {
             onClose={() => setSafetyTarget(null)}
             onChanged={friendsScreen?.refresh ?? (() => {})}
             onMessage={notify}
-            extraAction={{
-              title: '친구 삭제',
-              onPress: () =>
-                confirm(
-                  '친구를 삭제할까요?',
-                  `${safetyTarget.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
-                  safetyTarget.onDelete,
-                  { ok: '삭제', destructive: true },
-                ),
-            }}
+            extraAction={
+              safetyTarget.onDelete
+                ? {
+                    title: '친구 삭제',
+                    onPress: () =>
+                      confirm(
+                        '친구를 삭제할까요?',
+                        `${safetyTarget.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                        safetyTarget.onDelete!,
+                        { ok: '삭제', destructive: true },
+                      ),
+                  }
+                : undefined
+            }
           />
         ) : null}
       </>

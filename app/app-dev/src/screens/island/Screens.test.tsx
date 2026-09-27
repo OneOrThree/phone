@@ -86,6 +86,7 @@ function Harness({
   flow = false,
   homeError = false,
   retryHome,
+  friendsScreen,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -168,6 +169,7 @@ function Harness({
         islandBootError: !!bootError,
         homeError,
         retryHome,
+        friendsScreen,
       }}
     />
   );
@@ -923,6 +925,42 @@ test('목업 친구 화면에서는 안전 API 더보기를 숨기되 기존 친
   assert.equal(s.queryByText('차단하기'), null);
   await fireEvent.press(s.getAllByText('친구 삭제')[0]);
   assert.ok(exposed.actions.includes('FRIEND_DELETE'));
+});
+
+test('서버에서 받은 친구 요청에도 신고·차단 안전 메뉴를 제공한다', async () => {
+  const friendsScreen = {
+    data: {
+      friends: [],
+      friendRequests: [
+        {
+          requestId: 'request-1',
+          userId: 'requester-1',
+          nickname: '반복요청자',
+          tierLevel: null,
+          createdAt: '2026-09-27T00:00:00Z',
+        },
+      ],
+      sentFriendRequests: [],
+    },
+    status: 'ready',
+    error: null,
+    busy: false,
+    query: '',
+    searchItems: [],
+    refresh: jest.fn(),
+    retry: jest.fn(),
+    setQuery: jest.fn(),
+    command: jest.fn((fn: () => Promise<unknown>) => fn()),
+  };
+  const screen = await render(
+    <Harness route="friends" full api={() => ({})} friendsScreen={friendsScreen} />,
+  );
+
+  await fireEvent.press(screen.getByLabelText('반복요청자 더보기'));
+
+  assert.ok(screen.getByText('신고하기'));
+  assert.ok(screen.getByText('차단하기'));
+  assert.equal(screen.queryByText('친구 삭제'), null);
 });
 
 test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친다', async () => {
