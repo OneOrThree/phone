@@ -21,6 +21,7 @@ import {
   castLineStart,
   nearRaft,
   occupied,
+  Spot,
   peerLandRoute,
   peerPixelsAtSize,
   peerPointFromPixels,
@@ -275,6 +276,12 @@ test('15개 주민 자리의 보상은 다른 고양이 및 보상 더미와 겹
     top: spot.y - 10.4625,
     bottom: spot.y + 1.078125,
   });
+  const gram = {
+    left: GRAM.x - GRAM.w / 2,
+    right: GRAM.x + GRAM.w / 2,
+    top: GRAM.y - ((GRAM.w * 886) / 608) * 1.5,
+    bottom: GRAM.y,
+  };
   const overlap = (a: ReturnType<typeof cat>, b: ReturnType<typeof cat>) =>
     a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
   const boxes = PEER_SPOTS.map((spot) => {
@@ -283,6 +290,7 @@ test('15개 주민 자리의 보상은 다른 고양이 및 보상 더미와 겹
     return box(spot, placement!.left, placement!.top);
   });
   for (let i = 0; i < PEER_SPOTS.length; i++) {
+    assert.ok(!overlap(boxes[i], gram), `${i} 보상과 축음기 겹침`);
     for (let j = 0; j < PEER_SPOTS.length; j++) {
       if (i === j) continue;
       assert.ok(
@@ -300,9 +308,13 @@ test('15개 주민 자리의 보상은 다른 고양이 및 보상 더미와 겹
 
 test('내가 고른 자리의 보상도 주민 좌석의 고양이·더미와 겹치지 않는다', async () => {
   const spot = castSpot({ x: 50, y: 52 }),
-    unsafePlacement = fishingCatchPlacement(spot),
-    placement = fishingCatchPlacement(spot, PEER_SPOTS);
-  assert.ok(unsafePlacement, '재현 좌표에는 현재 육지 후보가 있어야 함');
+    overlappingPeer: Spot = {
+      x: 60,
+      y: 52,
+      face: 1,
+      catchPlacement: { left: -1, top: 0.06 },
+    },
+    placement = fishingCatchPlacement(spot, [overlappingPeer]);
   const box = (p: { x: number; y: number }, left: number, top: number) => {
       const x = p.x + (left - 0.5) * 7.7,
         y = p.y + (top - 0.90625) * 11.55;
@@ -316,41 +328,14 @@ test('내가 고른 자리의 보상도 주민 좌석의 고양이·더미와 �
     }),
     overlap = (a: ReturnType<typeof cat>, b: ReturnType<typeof cat>) =>
       a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top,
-    unsafeBox = box(spot, unsafePlacement!.left, unsafePlacement!.top),
-    mineCat = cat(spot);
-  const unsafeOverlap = PEER_SPOTS.some((peer) => {
-    if (overlap(unsafeBox, cat(peer))) return true;
-    const peerPlacement = fishingCatchPlacement(peer);
-    return (
-      peerPlacement != null &&
-      (overlap(unsafeBox, box(peer, peerPlacement.left, peerPlacement.top)) ||
-        overlap(box(peer, peerPlacement.left, peerPlacement.top), mineCat))
+    mineCat = cat(spot),
+    peerReward = box(
+      overlappingPeer,
+      overlappingPeer.catchPlacement!.left,
+      overlappingPeer.catchPlacement!.top,
     );
-  });
-  assert.ok(unsafeOverlap, 'resident 좌석을 무시하면 알려진 충돌이 재현되어야 함');
-  const reviewedPeer = PEER_SPOTS[5],
-    reviewedPeerPlacement = fishingCatchPlacement(reviewedPeer);
-  assert.ok(reviewedPeerPlacement);
-  assert.ok(
-    overlap(unsafeBox, cat(reviewedPeer)) ||
-      overlap(
-        unsafeBox,
-        box(reviewedPeer, reviewedPeerPlacement!.left, reviewedPeerPlacement!.top),
-      ),
-    '리뷰의 재현 좌표는 PEER_SPOTS[5]와 겹쳐야 함',
-  );
-
-  if (placement) {
-    const safeBox = box(spot, placement.left, placement.top);
-    for (const peer of PEER_SPOTS) {
-      assert.ok(!overlap(safeBox, cat(peer)), `내 보상과 ${peer.x},${peer.y} 고양이 겹침`);
-      const peerPlacement = fishingCatchPlacement(peer);
-      assert.ok(peerPlacement);
-      const peerBox = box(peer, peerPlacement!.left, peerPlacement!.top);
-      assert.ok(!overlap(safeBox, peerBox), `내 보상과 ${peer.x},${peer.y} 보상 겹침`);
-      assert.ok(!overlap(peerBox, mineCat), `${peer.x},${peer.y} 보상과 내 고양이 겹침`);
-    }
-  }
+  assert.ok(overlap(peerReward, mineCat), '거주자 보상이 내 고양이를 덮는 재현 배치');
+  assert.equal(placement, null, '겹침을 피할 인접 위치가 없으면 이 자리는 선택하지 않는다');
 
   const screen = await render(
     React.createElement(FishingActor, {
@@ -361,15 +346,11 @@ test('내가 고른 자리의 보상도 주민 좌석의 고양이·더미와 �
       name: '나',
       seconds: SECONDS_PER_FISH,
       reduce: true,
-      catchAvoidSpots: PEER_SPOTS,
+      catchAvoidSpots: [overlappingPeer],
     }),
   );
   const catchImage = screen.queryByTestId('fishing-actor-catch');
-  assert.equal(catchImage != null, placement != null);
-  if (catchImage && placement) {
-    assert.equal(catchImage.props.style.left, placement.left * 640 * 0.077);
-    assert.equal(catchImage.props.style.top, placement.top * 640 * 0.077);
-  }
+  assert.equal(catchImage, null);
   await screen.unmount();
 });
 
@@ -409,6 +390,12 @@ test('FishingActor는 계산된 육지 보상 위치를 실제 이미지에 적�
     }),
   );
   const catchImage = screen.getByTestId('fishing-actor-catch');
+  const catImage = screen.getByTestId('fishing-actor-cat');
+  assert.equal(catchImage.parent, catImage.parent);
+  assert.ok(
+    catchImage.parent!.children.indexOf(catchImage) < catchImage.parent!.children.indexOf(catImage),
+    '자기 고양이와 겹치는 픽셀은 CatSprite가 앞에서 가려야 한다',
+  );
   assert.equal(catchImage.props.style.left, placement.left * size * 0.077);
   assert.equal(catchImage.props.style.top, placement.top * size * 0.077);
   assert.equal(catchImage.props.style.width, size * 0.077 * 1.1);

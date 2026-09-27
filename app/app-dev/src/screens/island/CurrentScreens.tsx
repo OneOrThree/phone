@@ -68,6 +68,7 @@ import {
   LANDING,
   OUTLINE,
   castSpot,
+  fishingCatchPlacement,
   fiCard,
   fiTitle,
   fishingGrid,
@@ -1404,6 +1405,10 @@ function FocusFlow({ e }: any) {
     }
     if (nearRaft(p)) {
       e.notify('여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.');
+      return;
+    }
+    if (!fishingCatchPlacement(castSpot(p), peerSpots)) {
+      e.notify('여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.');
       return;
     }
     const walked = walkTo(p, () => {

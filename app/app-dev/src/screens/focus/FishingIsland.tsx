@@ -149,7 +149,13 @@ export function fishingCatchPlacement(
     return spot.catchPlacement ?? null;
   const preferredLeft = spot.face < 0 ? 0.9 : -1,
     alternateLeft = preferredLeft < 0 ? 0.9 : -1,
-    ownCat = catBounds(spot);
+    ownCat = catBounds(spot),
+    gramBounds = {
+      left: GRAM.x - GRAM.w / 2,
+      right: GRAM.x + GRAM.w / 2,
+      top: GRAM.y - ((GRAM.w * gramBox.h) / gramBox.w) * FISHING_MAP_ASPECT,
+      bottom: GRAM.y,
+    };
   let best: (FishingCatchPlacement & { score: number }) | null = null;
   for (let left = -3; left <= 2.001; left += 0.25)
     for (let top = -3; top <= 2.001; top += 0.25) {
@@ -159,6 +165,7 @@ export function fishingCatchPlacement(
       if (preferredScore > 0.75 && alternateScore > 0.75) continue;
       if (!catchFootprintOnLand(spot, left, top)) continue;
       const reward = catchBounds(spot, { left, top });
+      if (boundsOverlap(reward, gramBounds)) continue;
       if (
         others.some((other) => {
           if (other.x === spot.x && other.y === spot.y) return false;
@@ -229,7 +236,12 @@ export const PEER_SPOTS: Spot[] = (() => {
     if (spots.length >= 15) break;
     const spot = castSpot(p);
     const placement = fishingCatchPlacement(spot, spots);
-    if ([...spots, ...avoid].every((q) => apart(p, q) >= 11) && spot.bx != null && placement)
+    if (
+      !nearGram(p) &&
+      [...spots, ...avoid].every((q) => apart(p, q) >= 11) &&
+      spot.bx != null &&
+      placement
+    )
       spots.push({ ...spot, catchPlacement: placement });
   }
   // 시안 예시 두 자리는 낚싯줄 끝도 시안 좌표 그대로. 여섯째 자리(축음기 앞)는 새로 뽑은 첫 자리로 채운다
@@ -723,6 +735,20 @@ export function FishingActor({
           ),
       }}
     >
+      {showsCatch && catchPlacement && (
+        <Image
+          source={assets[catchAssetPath(count)]}
+          resizeMode="contain"
+          testID="fishing-actor-catch"
+          style={{
+            position: 'absolute',
+            left: catchPlacement.left * a,
+            top: catchPlacement.top * a,
+            width: a * 1.1,
+            height: a * 1.1,
+          }}
+        />
+      )}
       <CatSprite
         color={color}
         motion={motion ?? (reeling ? 'reel' : 'focus')}
@@ -797,20 +823,6 @@ export function FishingActor({
       <View style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100, width: 200 }}>
         <Text style={[nameText(me), { textAlign: 'center' }]}>{name}</Text>
       </View>
-      {showsCatch && catchPlacement && (
-        <Image
-          source={assets[catchAssetPath(count)]}
-          resizeMode="contain"
-          testID="fishing-actor-catch"
-          style={{
-            position: 'absolute',
-            left: catchPlacement.left * a,
-            top: catchPlacement.top * a,
-            width: a * 1.1,
-            height: a * 1.1,
-          }}
-        />
-      )}
     </Animated.View>
   );
 }
