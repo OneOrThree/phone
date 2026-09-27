@@ -235,6 +235,9 @@ function CurrentScreensContent({ e }: any) {
     markRead: ['board', 'notice'].includes(r),
     readVersion: boardReadVersion,
   });
+  const rewardIslandId = r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL ? i.id : undefined;
+  const rewardModalOpen =
+    !state.visitingIslandId && pendingQuestRewards(state.rewards, rewardIslandId).length > 0;
   const screenE = {
     ...e,
     boardStatus,
@@ -393,18 +396,9 @@ function CurrentScreensContent({ e }: any) {
   if (['board', 'notice', 'noticeEdit', 'quest', 'questEdit'].includes(r))
     return (
       <>
-        <InteriorRoute e={screenE} />
+        <InteriorRoute e={screenE} modalAboveBoard={rewardModalOpen} />
         {/* 보상은 내 섬 퀘스트 몫이라 구경 중에는 띄우지 않는다 */}
-        {!state.visitingIslandId && (
-          <RewardModal
-            e={e}
-            rewardIslandId={
-              r === 'quest' && e.detail === HOME_QUEST_LIST_DETAIL
-                ? currentIsland(state).id
-                : undefined
-            }
-          />
-        )}
+        {!state.visitingIslandId && <RewardModal e={e} rewardIslandId={rewardIslandId} />}
       </>
     );
   if (['mail', 'chat', 'friendMail'].includes(r)) return <InteriorRoute e={e} />;
