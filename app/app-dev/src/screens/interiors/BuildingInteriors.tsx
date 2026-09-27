@@ -5707,7 +5707,7 @@ export function Board({
   };
 
   // 배경과 라벨·터치 영역이 원본 2:3 좌표계에서 함께 스케일되도록 높이 기준으로 맞춘다.
-  const land = width > height;
+  const land = width > sceneHeight;
   const scene = boardScene(width, land ? height : sceneHeight);
   const initialSceneOffset = land ? Math.max(0, scene.height - height) * 0.38 : 0;
   const sceneScrollRef = useRef<ScrollView>(null);

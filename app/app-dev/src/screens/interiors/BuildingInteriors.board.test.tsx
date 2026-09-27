@@ -222,7 +222,7 @@ const deferred = <T,>() => {
 const renderBoard = async (
   e: any,
   c: Partial<Concept> = {},
-  size = { width: 402, height: 874 },
+  size: { width: number; height: number; sceneHeight?: number } = { width: 402, height: 874 },
 ) => {
   // App 은 렌더마다 e 를 새로 조립한다 — box 로 최신 e 를 주고 setE 가 stale 클로저를 재현한다.
   const box = { e };
@@ -236,6 +236,7 @@ const renderBoard = async (
         index={0}
         width={size.width}
         height={size.height}
+        sceneHeight={size.sceneHeight}
         reduceMotion
         showToast={() => {}}
         e={box.e}
@@ -474,6 +475,24 @@ test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라
   } finally {
     restore();
   }
+});
+
+test('키보드로 가시 높이가 줄어든 세로 화면은 고정 장면 높이 기준으로 세로 배치를 유지한다', async () => {
+  const screen = await renderBoard(null, concept({ boardView: 'list' }), {
+    width: 402,
+    height: 350,
+    sceneHeight: 874,
+  });
+  const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+  const scroll = screen.getByTestId('board-scene-scroll');
+
+  assert.equal(scene.width, (874 * 2) / 3);
+  assert.equal(scene.height, 874);
+  assert.equal(scene.top, 0);
+  assert.equal(scroll.props.scrollEnabled, false);
+  assert.deepEqual(scroll.props.contentOffset, { x: 0, y: 0 });
+  assert.equal(StyleSheet.flatten(screen.getByText('공지').props.style).fontSize, 28);
+  await screen.unmount();
 });
 
 test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {
