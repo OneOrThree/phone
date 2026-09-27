@@ -10,8 +10,8 @@ import java.util.UUID;
 /**
  * 전달 골격의 버전·자산 소유 안전 불변식. 전체 도메인 스키마 검증은 생산자 활성화의 선행 조건이다.
  *
- * <p><b>활성화된 3종은 도메인 필드까지 본다</b>(GROMO-1765) — {@code focus.emote}·
- * {@code focus.member.updated}·{@code rest.member.updated}. 나머지 11종은 전달 어댑터가 없어
+ * <p><b>활성화된 4종은 도메인 필드까지 본다</b>(GROMO-1765, GROMO-1938) — {@code focus.emote}·
+ * {@code focus.member.updated}·{@code rest.member.updated}·{@code focus.golden}. 나머지는 전달 어댑터가 없어
  * 공통 불변식만 본다(realtime-events LLD §8 「validator 없는 타입의 활성화 금지」의 대우다:
  * 활성화한 타입에는 validator 가 있어야 한다).
  *

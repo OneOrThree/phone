@@ -16,11 +16,12 @@ export function goldenFishVideoVariant(width: number, height: number): GoldenFis
 
 export function GoldenFishCutscene({
   onFinish,
-  autoplayMuted = false,
+  muted = false,
+  volume = 1,
 }: {
   onFinish: () => void;
-  /** 브라우저의 소리 있는 자동재생 차단을 피하는 임시 웹 검수 옵션. */
-  autoplayMuted?: boolean;
+  muted?: boolean;
+  volume?: number;
 }) {
   const { width, height } = useWindowDimensions();
   const variant = goldenFishVideoVariant(width, height);
@@ -38,7 +39,8 @@ export function GoldenFishCutscene({
     video.loop = false;
     // 웹의 실시간 사건은 사용자 제스처가 아니므로 소리 있는 자동재생이 차단된다.
     // 네이티브에서는 영상에 합쳐진 바다 소리를 그대로 재생한다.
-    video.muted = autoplayMuted || Platform.OS === 'web';
+    video.muted = muted || Platform.OS === 'web';
+    video.volume = Math.max(0, Math.min(1, volume));
     video.timeUpdateEventInterval = 0.5;
     video.play();
   });

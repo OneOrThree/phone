@@ -10,6 +10,7 @@ const mockPlay = jest.fn();
 let mockPlayer: {
   loop: boolean;
   muted: boolean;
+  volume: number;
   timeUpdateEventInterval: number;
   play: typeof mockPlay;
 };
@@ -25,7 +26,13 @@ jest.mock('expo-video', () => ({
     const ReactModule = require('react');
     const playerRef = ReactModule.useRef(null);
     if (!playerRef.current) {
-      playerRef.current = { loop: true, muted: true, timeUpdateEventInterval: 0, play: mockPlay };
+      playerRef.current = {
+        loop: true,
+        muted: true,
+        volume: 1,
+        timeUpdateEventInterval: 0,
+        play: mockPlay,
+      };
       setup(playerRef.current);
     }
     mockPlayer = playerRef.current;
@@ -58,6 +65,7 @@ test('서버 신호로 마운트되면 바다 소리를 포함해 1회 재생하
   assert.equal(screen.getByTestId('golden-fish-cutscene').props.accessibilityViewIsModal, true);
   assert.equal(mockPlayer.loop, false);
   assert.equal(mockPlayer.muted, false);
+  assert.equal(mockPlayer.volume, 1);
   assert.equal(mockPlayer.timeUpdateEventInterval, 0.5);
   assert.equal(mockPlay.mock.calls.length, 1);
   const videoStyle = StyleSheet.flatten(screen.getByTestId('golden-fish-video').props.style);
@@ -74,10 +82,11 @@ test('서버 신호로 마운트되면 바다 소리를 포함해 1회 재생하
   await screen.unmount();
 });
 
-test('웹 검수 모드는 버튼 없이 음소거 영상 전체를 자동 재생한다', async () => {
-  const screen = await render(<GoldenFishCutscene onFinish={jest.fn()} autoplayMuted />);
+test('소리 설정을 반영하고 버튼 없이 음소거 영상 전체를 자동 재생한다', async () => {
+  const screen = await render(<GoldenFishCutscene onFinish={jest.fn()} muted volume={0.35} />);
   assert.equal(mockPlay.mock.calls.length, 1);
   assert.equal(mockPlayer.muted, true);
+  assert.equal(mockPlayer.volume, 0.35);
   assert.equal(screen.queryByTestId('golden-fish-play'), null);
   await act(async () => mockListeners.statusChange({ status: 'readyToPlay' }));
   assert.equal(mockPlay.mock.calls.length, 2);

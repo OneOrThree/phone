@@ -1142,11 +1142,29 @@ function FocusFlow({ e }: any) {
     onTransition: (transition) => transitionHandler.current(transition),
     onGoldenFish: (event) => goldenHandler.current(event),
   });
+  const recordGoldenCatch = (event: GoldenFishEvent) => {
+    setGoldenCatches((current) => {
+      const next = { ...current };
+      for (const member of event.members) {
+        const key = `${member.userId}:${member.sessionId}`;
+        next[key] = {
+          count: (current[key]?.count ?? 0) + 1,
+          eventId: event.eventId,
+        };
+      }
+      return next;
+    });
+  };
   goldenHandler.current = (event) => {
     const current = latest.current;
     const session = current.s.session;
     if (current.r !== 'focus' || !session || !isGoldenFishParticipant(event, myId, session.id))
       return;
+    if (reduce) {
+      recordGoldenCatch(event);
+      setGoldenFish(true);
+      return;
+    }
     setGoldenFish(false);
     if (goldenCutsceneRef.current) {
       goldenQueueRef.current.push(event);
@@ -1784,122 +1802,339 @@ function FocusFlow({ e }: any) {
   });
   return (
     <View style={{ flex: 1 }} onLayout={(ev) => setBoxHeight(ev.nativeEvent.layout.height)}>
-      <FishingIsland
-        focus={r !== 'fishingArrival' ? mine : L.landscape ? { x: 45, y: 58 } : { x: 38, y: 56 }}
-        ratio={r === 'focusSetup' ? 0.72 : 0.5}
-        spots={spots}
-        onTap={r === 'fishingArrival' ? selectSpot : undefined}
-        onRaft={raft}
-        gram={i.buildings.includes('gram')}
-        onGram={focusing ? () => setDialog('music') : undefined}
-        seated={seated}
-        inert={!!dialog || r === 'focusResult' || !!goldenCutscene}
-        overlay={r === 'focusSetup' ? setup : undefined}
-        goldenFish={goldenFish}
-      >
-        {(size, sizeY, zoom) => {
-          // 머리 위 과목·시간표가 겹치면 뒤(위쪽) 것을 숨긴다: 내 표시가 먼저, 그다음 앞(아래)쪽.
-          // 1배 미만으로 줄이면 다른 주민은 이름만.
-          const shown = new Set<string>(),
-            kept: ReturnType<typeof labelBox>[] = [];
-          [
-            ...(seated && mySubject != null ? [{ id: 'me', spot: mine, subject: mySubject }] : []),
-            ...(zoom < 1
-              ? []
-              : peers
-                  .map((actor) => ({
-                    id: actor.key,
-                    spot: actor.spot,
-                    subject: actor.subject ?? '',
-                  }))
-                  .sort((a, b) => b.spot.y - a.spot.y)),
-          ].forEach((l) => {
-            const b = labelBox(l.spot, l.subject, size, sizeY);
-            if (
-              kept.some(
-                (k) =>
-                  !(
-                    k.right <= b.left ||
-                    b.right <= k.left ||
-                    k.bottom <= b.top ||
-                    b.bottom <= k.top
-                  ),
+      <View testID="golden-background" style={{ flex: 1 }} {...a11yHidden(!!goldenCutscene)}>
+        <FishingIsland
+          focus={r !== 'fishingArrival' ? mine : L.landscape ? { x: 45, y: 58 } : { x: 38, y: 56 }}
+          ratio={r === 'focusSetup' ? 0.72 : 0.5}
+          spots={spots}
+          onTap={r === 'fishingArrival' ? selectSpot : undefined}
+          onRaft={raft}
+          gram={i.buildings.includes('gram')}
+          onGram={focusing ? () => setDialog('music') : undefined}
+          seated={seated}
+          inert={!!dialog || r === 'focusResult' || !!goldenCutscene}
+          overlay={r === 'focusSetup' ? setup : undefined}
+          goldenFish={goldenFish}
+        >
+          {(size, sizeY, zoom) => {
+            // 머리 위 과목·시간표가 겹치면 뒤(위쪽) 것을 숨긴다: 내 표시가 먼저, 그다음 앞(아래)쪽.
+            // 1배 미만으로 줄이면 다른 주민은 이름만.
+            const shown = new Set<string>(),
+              kept: ReturnType<typeof labelBox>[] = [];
+            [
+              ...(seated && mySubject != null
+                ? [{ id: 'me', spot: mine, subject: mySubject }]
+                : []),
+              ...(zoom < 1
+                ? []
+                : peers
+                    .map((actor) => ({
+                      id: actor.key,
+                      spot: actor.spot,
+                      subject: actor.subject ?? '',
+                    }))
+                    .sort((a, b) => b.spot.y - a.spot.y)),
+            ].forEach((l) => {
+              const b = labelBox(l.spot, l.subject, size, sizeY);
+              if (
+                kept.some(
+                  (k) =>
+                    !(
+                      k.right <= b.left ||
+                      b.right <= k.left ||
+                      k.bottom <= b.top ||
+                      b.bottom <= k.top
+                    ),
+                )
               )
-            )
-              return;
-            kept.push(b);
-            shown.add(l.id);
-          });
-          return (
-            <>
-              {peers.map((actor) => (
-                <FishingPeerActorView
-                  key={actor.key}
-                  actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
-                  size={size}
-                  sizeY={sizeY}
-                  emote={emoteByUser.get(actor.userId) ?? null}
-                  reduce={reduce}
-                  goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
-                  goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
-                  onEntered={peerFlow.entered}
-                  onCast={peerFlow.cast}
-                  onPausedExit={peerFlow.leftForPause}
-                  onStretch={peerFlow.stretched}
-                  onCompletedExit={peerFlow.leftForComplete}
-                />
-              ))}
-              {seated ? (
-                <FishingActor
-                  spot={mine}
-                  size={size}
-                  sizeY={sizeY}
-                  color={s.color}
-                  name="나"
-                  me
-                  subject={shown.has('me') ? mySubject : null}
-                  seconds={
-                    r === 'focusResult' ? (result?.seconds ?? 0) : sessionSeconds(s.session, e.now)
-                  }
-                  emote={
-                    focusing ? (liveIslandId ? (emoteByUser.get(myId ?? '') ?? null) : emote) : null
-                  }
-                  motion={r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined}
-                  reduce={reduce}
-                  goldenFishCount={goldenFor(actorUserId, s.session?.id)?.count ?? 0}
-                  goldenCatchToken={goldenFor(actorUserId, s.session?.id)?.eventId}
-                />
-              ) : (
-                <FishingWalker
-                  p={walker.p}
-                  size={size}
-                  sizeY={sizeY}
-                  color={s.color}
-                  walking={walker.walking}
-                  left={walker.left}
-                  reduce={reduce}
-                />
+                return;
+              kept.push(b);
+              shown.add(l.id);
+            });
+            return (
+              <>
+                {peers.map((actor) => (
+                  <FishingPeerActorView
+                    key={actor.key}
+                    actor={{ ...actor, subject: shown.has(actor.key) ? actor.subject : null }}
+                    size={size}
+                    sizeY={sizeY}
+                    emote={emoteByUser.get(actor.userId) ?? null}
+                    reduce={reduce}
+                    goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
+                    goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
+                    onEntered={peerFlow.entered}
+                    onCast={peerFlow.cast}
+                    onPausedExit={peerFlow.leftForPause}
+                    onStretch={peerFlow.stretched}
+                    onCompletedExit={peerFlow.leftForComplete}
+                  />
+                ))}
+                {seated ? (
+                  <FishingActor
+                    spot={mine}
+                    size={size}
+                    sizeY={sizeY}
+                    color={s.color}
+                    name="나"
+                    me
+                    subject={shown.has('me') ? mySubject : null}
+                    seconds={
+                      r === 'focusResult'
+                        ? (result?.seconds ?? 0)
+                        : sessionSeconds(s.session, e.now)
+                    }
+                    emote={
+                      focusing
+                        ? liveIslandId
+                          ? (emoteByUser.get(myId ?? '') ?? null)
+                          : emote
+                        : null
+                    }
+                    motion={
+                      r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined
+                    }
+                    reduce={reduce}
+                    goldenFishCount={goldenFor(actorUserId, s.session?.id)?.count ?? 0}
+                    goldenCatchToken={goldenFor(actorUserId, s.session?.id)?.eventId}
+                  />
+                ) : (
+                  <FishingWalker
+                    p={walker.p}
+                    size={size}
+                    sizeY={sizeY}
+                    color={s.color}
+                    walking={walker.walking}
+                    left={walker.left}
+                    reduce={reduce}
+                  />
+                )}
+              </>
+            );
+          }}
+        </FishingIsland>
+        {liveIslandId && live.status === 'error' && (
+          <View
+            style={{
+              position: 'absolute',
+              zIndex: 5,
+              top: Math.max(56, safe.top + 8),
+              left: Math.max(18, safe.left + 8),
+            }}
+          >
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="주민 상태 다시 불러오기"
+              onPress={live.retry}
+              style={{
+                minHeight: 44,
+                justifyContent: 'center',
+                borderWidth: 2,
+                borderColor: OUTLINE,
+                borderRadius: 14,
+                backgroundColor: '#FFFDFAD9',
+                paddingHorizontal: 12,
+              }}
+            >
+              <Text style={{ fontSize: 12, lineHeight: 19.2, fontWeight: '800', color: INK }}>
+                주민 상태를 불러오지 못했어요 · 다시 시도
+              </Text>
+            </Pressable>
+          </View>
+        )}
+        {focusing && (
+          <>
+            <View
+              pointerEvents="none"
+              {...a11yHidden(!!dialog || !!goldenCutscene)}
+              style={{
+                position: 'absolute',
+                zIndex: 5,
+                top: wide ? Math.max(14, safe.top + 14) : Math.max(100, safe.top + 48),
+                left: Math.max(18, safe.left),
+                right: Math.max(18, safe.right),
+                alignItems: 'center',
+              }}
+            >
+              <Text
+                numberOfLines={1}
+                style={[hudText, { fontSize: 16, lineHeight: 25.6, fontWeight: '900' }]}
+              >
+                {s.session!.subject}
+              </Text>
+              <Text
+                style={[
+                  hudText,
+                  {
+                    fontSize: wide ? 32 : 42,
+                    lineHeight: (wide ? 32 : 42) * 1.15,
+                    fontWeight: '900',
+                    letterSpacing: -1.5,
+                    fontVariant: ['tabular-nums'],
+                  },
+                ]}
+              >
+                {hms(sessionSeconds(s.session, e.now))}
+              </Text>
+            </View>
+            <View
+              {...a11yHidden(!!dialog || !!goldenCutscene)}
+              style={{
+                position: 'absolute',
+                zIndex: 5,
+                bottom: wide ? Math.max(18, safe.bottom) : Math.max(36, safe.bottom + 4),
+                ...(wide
+                  ? { right: Math.max(24, safe.right), width: 340 }
+                  : { left: Math.max(18, safe.left), right: Math.max(18, safe.right) }),
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              {fan && (
+                <View
+                  style={{
+                    position: 'absolute',
+                    left: 0,
+                    bottom: 64,
+                    flexDirection: 'row',
+                    gap: 6,
+                  }}
+                >
+                  {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id, n) => (
+                    <Pressable
+                      key={id}
+                      testID={`emote-${id}`}
+                      accessibilityRole="button"
+                      accessibilityLabel={['인사', '응원', '졸림', '웃음', '하트뿅뿅'][n]}
+                      onPress={() => sendEmote(id)}
+                      style={circle(46, C.paper)}
+                    >
+                      <Image source={art[`emote/${id}`]} style={{ width: 30, height: 30 }} />
+                    </Pressable>
+                  ))}
+                </View>
               )}
-            </>
-          );
-        }}
-      </FishingIsland>
+              <Pressable
+                testID="emote-fab"
+                accessibilityRole="button"
+                accessibilityLabel="이모티콘"
+                accessibilityState={{ expanded: fan }}
+                onPress={() => setFan(!fan)}
+                style={circle(52, C.butter)}
+              >
+                <Image
+                  source={art[`emote/${emote ?? 'hello'}`]}
+                  style={{ width: 32, height: 32 }}
+                />
+              </Pressable>
+              <FiButton
+                primary
+                title="휴식하기"
+                id="pause-focus"
+                style={{ flex: 1 }}
+                onPress={() => {
+                  // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식).
+                  // 서버 세션은 pause 성공 뒤에만 휴식 연출을 시작한다(정책: 이동 연출은 성공 후).
+                  const go = () =>
+                    leaveTo(() => {
+                      setVoyage('toRest');
+                      const started = e.go('rest', '', () => setVoyage(null));
+                      if (started === false) setVoyage(null);
+                    });
+                  if (serverSession()) {
+                    e.focus
+                      .pause()
+                      .then(go)
+                      .catch((error: any) =>
+                        e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'),
+                      );
+                    return;
+                  }
+                  e.dispatch({ type: 'PAUSE' });
+                  go();
+                }}
+              />
+              <FiButton
+                title="집중 종료"
+                id="end-focus"
+                style={{ flex: 1 }}
+                onPress={() => setDialog('end')}
+              />
+            </View>
+            {dialog === 'end' && (
+              <FiModal>
+                <Text style={fiTitle(wide ? 19 : 22)}>이번 집중을 마칠까요?</Text>
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
+                  <FiButton title="계속하기" style={{ flex: 1 }} onPress={() => setDialog(null)} />
+                  <FiButton
+                    primary
+                    title="집중 종료"
+                    id="confirm-finish"
+                    style={{ flex: 1 }}
+                    onPress={finish}
+                  />
+                </View>
+              </FiModal>
+            )}
+            {dialog === 'music' && (
+              <FiModal>
+                <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>축음기 음악</Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    lineHeight: 20.8,
+                    color: '#7C6857',
+                    marginBottom: wide ? 10 : 15,
+                  }}
+                >
+                  보유한 음원 중에서 골라요.
+                </Text>
+                <View style={{ gap: 8 }}>
+                  {i.sharedOwned.filter(hasBundledAudio).map((id) => (
+                    <FiButton
+                      key={id}
+                      left
+                      primary={i.track === id}
+                      title={trackNames[id]}
+                      onPress={() => {
+                        if (!e.playback) e.dispatch({ type: 'TRACK', value: id });
+                        else
+                          e.playback
+                            .update({ trackId: id, playing: true })
+                            .catch((thrown: unknown) =>
+                              e.notify(
+                                thrown instanceof Error
+                                  ? thrown.message
+                                  : '음악을 바꾸지 못했어요.',
+                              ),
+                            );
+                      }}
+                    />
+                  ))}
+                </View>
+                <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
+                  <FiButton
+                    primary
+                    title="자리로 돌아가기"
+                    style={{ flex: 1 }}
+                    onPress={() => setDialog(null)}
+                  />
+                </View>
+              </FiModal>
+            )}
+          </>
+        )}
+        {r === 'focusResult' && !leg && resultModal}
+        {!leg && rewardModal}
+      </View>
       {goldenCutscene && (
         <GoldenFishCutscene
           key={goldenCutscene.eventId}
-          autoplayMuted={Platform.OS === 'web'}
+          muted={!s.settings.sound}
+          volume={s.settings.volume ?? 0.55}
           onFinish={() => {
-            setGoldenCatches((current) => {
-              const next = { ...current };
-              for (const member of goldenCutscene.members) {
-                const key = `${member.userId}:${member.sessionId}`;
-                next[key] = {
-                  count: (current[key]?.count ?? 0) + 1,
-                  eventId: goldenCutscene.eventId,
-                };
-              }
-              return next;
-            });
+            recordGoldenCatch(goldenCutscene);
             const next = goldenQueueRef.current.shift() ?? null;
             goldenCutsceneRef.current = next;
             setGoldenCutscene(next);
@@ -1907,209 +2142,6 @@ function FocusFlow({ e }: any) {
           }}
         />
       )}
-      {liveIslandId && live.status === 'error' && (
-        <View
-          style={{
-            position: 'absolute',
-            zIndex: 5,
-            top: Math.max(56, safe.top + 8),
-            left: Math.max(18, safe.left + 8),
-          }}
-        >
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="주민 상태 다시 불러오기"
-            onPress={live.retry}
-            style={{
-              minHeight: 44,
-              justifyContent: 'center',
-              borderWidth: 2,
-              borderColor: OUTLINE,
-              borderRadius: 14,
-              backgroundColor: '#FFFDFAD9',
-              paddingHorizontal: 12,
-            }}
-          >
-            <Text style={{ fontSize: 12, lineHeight: 19.2, fontWeight: '800', color: INK }}>
-              주민 상태를 불러오지 못했어요 · 다시 시도
-            </Text>
-          </Pressable>
-        </View>
-      )}
-      {focusing && (
-        <>
-          <View
-            pointerEvents="none"
-            {...a11yHidden(!!dialog || !!goldenCutscene)}
-            style={{
-              position: 'absolute',
-              zIndex: 5,
-              top: wide ? Math.max(14, safe.top + 14) : Math.max(100, safe.top + 48),
-              left: Math.max(18, safe.left),
-              right: Math.max(18, safe.right),
-              alignItems: 'center',
-            }}
-          >
-            <Text
-              numberOfLines={1}
-              style={[hudText, { fontSize: 16, lineHeight: 25.6, fontWeight: '900' }]}
-            >
-              {s.session!.subject}
-            </Text>
-            <Text
-              style={[
-                hudText,
-                {
-                  fontSize: wide ? 32 : 42,
-                  lineHeight: (wide ? 32 : 42) * 1.15,
-                  fontWeight: '900',
-                  letterSpacing: -1.5,
-                  fontVariant: ['tabular-nums'],
-                },
-              ]}
-            >
-              {hms(sessionSeconds(s.session, e.now))}
-            </Text>
-          </View>
-          <View
-            {...a11yHidden(!!dialog || !!goldenCutscene)}
-            style={{
-              position: 'absolute',
-              zIndex: 5,
-              bottom: wide ? Math.max(18, safe.bottom) : Math.max(36, safe.bottom + 4),
-              ...(wide
-                ? { right: Math.max(24, safe.right), width: 340 }
-                : { left: Math.max(18, safe.left), right: Math.max(18, safe.right) }),
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: 8,
-            }}
-          >
-            {fan && (
-              <View
-                style={{ position: 'absolute', left: 0, bottom: 64, flexDirection: 'row', gap: 6 }}
-              >
-                {['hello', 'cheer', 'sleepy', 'laugh', 'hearts'].map((id, n) => (
-                  <Pressable
-                    key={id}
-                    testID={`emote-${id}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={['인사', '응원', '졸림', '웃음', '하트뿅뿅'][n]}
-                    onPress={() => sendEmote(id)}
-                    style={circle(46, C.paper)}
-                  >
-                    <Image source={art[`emote/${id}`]} style={{ width: 30, height: 30 }} />
-                  </Pressable>
-                ))}
-              </View>
-            )}
-            <Pressable
-              testID="emote-fab"
-              accessibilityRole="button"
-              accessibilityLabel="이모티콘"
-              accessibilityState={{ expanded: fan }}
-              onPress={() => setFan(!fan)}
-              style={circle(52, C.butter)}
-            >
-              <Image source={art[`emote/${emote ?? 'hello'}`]} style={{ width: 32, height: 32 }} />
-            </Pressable>
-            <FiButton
-              primary
-              title="휴식하기"
-              id="pause-focus"
-              style={{ flex: 1 }}
-              onPress={() => {
-                // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식).
-                // 서버 세션은 pause 성공 뒤에만 휴식 연출을 시작한다(정책: 이동 연출은 성공 후).
-                const go = () =>
-                  leaveTo(() => {
-                    setVoyage('toRest');
-                    const started = e.go('rest', '', () => setVoyage(null));
-                    if (started === false) setVoyage(null);
-                  });
-                if (serverSession()) {
-                  e.focus
-                    .pause()
-                    .then(go)
-                    .catch((error: any) =>
-                      e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'),
-                    );
-                  return;
-                }
-                e.dispatch({ type: 'PAUSE' });
-                go();
-              }}
-            />
-            <FiButton
-              title="집중 종료"
-              id="end-focus"
-              style={{ flex: 1 }}
-              onPress={() => setDialog('end')}
-            />
-          </View>
-          {dialog === 'end' && (
-            <FiModal>
-              <Text style={fiTitle(wide ? 19 : 22)}>이번 집중을 마칠까요?</Text>
-              <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-                <FiButton title="계속하기" style={{ flex: 1 }} onPress={() => setDialog(null)} />
-                <FiButton
-                  primary
-                  title="집중 종료"
-                  id="confirm-finish"
-                  style={{ flex: 1 }}
-                  onPress={finish}
-                />
-              </View>
-            </FiModal>
-          )}
-          {dialog === 'music' && (
-            <FiModal>
-              <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>축음기 음악</Text>
-              <Text
-                style={{
-                  fontSize: 13,
-                  lineHeight: 20.8,
-                  color: '#7C6857',
-                  marginBottom: wide ? 10 : 15,
-                }}
-              >
-                보유한 음원 중에서 골라요.
-              </Text>
-              <View style={{ gap: 8 }}>
-                {i.sharedOwned.filter(hasBundledAudio).map((id) => (
-                  <FiButton
-                    key={id}
-                    left
-                    primary={i.track === id}
-                    title={trackNames[id]}
-                    onPress={() => {
-                      if (!e.playback) e.dispatch({ type: 'TRACK', value: id });
-                      else
-                        e.playback
-                          .update({ trackId: id, playing: true })
-                          .catch((thrown: unknown) =>
-                            e.notify(
-                              thrown instanceof Error ? thrown.message : '음악을 바꾸지 못했어요.',
-                            ),
-                          );
-                    }}
-                  />
-                ))}
-              </View>
-              <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
-                <FiButton
-                  primary
-                  title="자리로 돌아가기"
-                  style={{ flex: 1 }}
-                  onPress={() => setDialog(null)}
-                />
-              </View>
-            </FiModal>
-          )}
-        </>
-      )}
-      {r === 'focusResult' && !leg && resultModal}
-      {!leg && rewardModal}
     </View>
   );
 }

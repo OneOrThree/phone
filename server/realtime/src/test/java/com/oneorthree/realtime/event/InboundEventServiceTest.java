@@ -29,6 +29,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -131,6 +132,32 @@ class InboundEventServiceTest {
         verify(chatUserFence, never()).withdraw(any(), anyLong());
         assertThat(jdbc.queryForObject("SELECT count(*) FROM inbound_events WHERE type IN (?, ?)", Long.class,
                 "island.updated", "member.appearance.updated")).isGreaterThanOrEqualTo(2L);
+    }
+
+    @Test
+    @DisplayName("황금 물고기 사건은 계약을 검증한 뒤 낚시섬 focus 토픽으로 전달한다")
+    void goldenFishIsDeliveredToFocusChannel() throws Exception {
+        UUID island = UUID.randomUUID();
+        UUID firstUser = UUID.randomUUID();
+        UUID firstSession = UUID.randomUUID();
+        UUID secondUser = UUID.randomUUID();
+        UUID secondSession = UUID.randomUUID();
+        String envelope = "{\"eventId\":\"" + UUID.randomUUID() + "\",\"schemaVersion\":1,"
+                + "\"type\":\"focus.golden\",\"occurredAt\":\"2026-09-28T00:00:00Z\","
+                + "\"scheduledAt\":null,\"userId\":null,\"locale\":null,\"subjectId\":\"" + island + "\","
+                + "\"version\":1,\"params\":{\"islandId\":\"" + island + "\","
+                + "\"drawnAt\":\"2026-09-28T00:00:00Z\",\"reward\":50,\"sharePerMember\":25,"
+                + "\"members\":[{\"userId\":\"" + firstUser + "\",\"sessionId\":\"" + firstSession + "\"},"
+                + "{\"userId\":\"" + secondUser + "\",\"sessionId\":\"" + secondSession + "\"}]}}";
+
+        http(envelope);
+
+        verify(eventRouter).route(
+                argThat(event -> event.type() == RealtimeEventType.GOLDEN_FISH_CAUGHT
+                        && event.islandId().equals(island)
+                        && event.payload().get("members").size() == 2),
+                argThat(audience -> audience instanceof RealtimeAudience.IslandAudience target
+                        && target.islandId().equals(island)));
     }
 
     @Test

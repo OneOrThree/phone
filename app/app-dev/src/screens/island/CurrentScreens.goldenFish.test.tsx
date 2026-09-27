@@ -77,9 +77,9 @@ jest.mock('@/screens/focus/FishingIsland', () => {
 });
 
 jest.mock('@/screens/focus/GoldenFishCutscene', () => ({
-  GoldenFishCutscene: ({ onFinish }: { onFinish: () => void }) => {
+  GoldenFishCutscene: ({ onFinish, muted, volume }: any) => {
     const { Pressable } = require('react-native');
-    return <Pressable testID="golden-cutscene" onPress={onFinish} />;
+    return <Pressable testID="golden-cutscene" muted={muted} volume={volume} onPress={onFinish} />;
   },
 }));
 
@@ -160,7 +160,11 @@ beforeEach(async () => {
 
 test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와 섬 에셋을 함께 갱신한다', async () => {
   const backOverride: { current: (() => boolean) | null } = { current: null };
-  const screen = await mount(focusedState(), backOverride);
+  const state = focusedState();
+  state.settings.sound = false;
+  state.settings.volume = 0.25;
+  const screen = await mount(state, backOverride);
+  const hiddenByTestId = (id: string) => screen.getByTestId(id, { includeHiddenElements: true });
 
   await act(async () => onGoldenFish?.(event([{ userId: 'other', sessionId: 's-other' }])));
   assert.equal(screen.queryByTestId('golden-cutscene'), null);
@@ -174,7 +178,13 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
     ),
   );
   assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
-  assert.equal(screen.getByTestId('golden-world').props.goldenFish, false);
+  assert.equal(screen.getByTestId('golden-cutscene').props.muted, true);
+  assert.equal(screen.getByTestId('golden-cutscene').props.volume, 0.25);
+  assert.equal(
+    hiddenByTestId('golden-background').props.importantForAccessibility,
+    'no-hide-descendants',
+  );
+  assert.equal(hiddenByTestId('golden-world').props.goldenFish, false);
   assert.equal(backOverride.current?.(), true);
   assert.equal(screen.queryByText('이번 집중을 마칠까요?'), null);
 
@@ -192,9 +202,9 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
 
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
   assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
-  assert.equal(screen.getByTestId('golden-world').props.goldenFish, false);
-  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
-  assert.equal(screen.getByTestId('golden-self').props.goldenCatchToken, 'golden-i1-1');
+  assert.equal(hiddenByTestId('golden-world').props.goldenFish, false);
+  assert.equal(hiddenByTestId('golden-self').props.goldenFishCount, 1);
+  assert.equal(hiddenByTestId('golden-self').props.goldenCatchToken, 'golden-i1-1');
 
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
   assert.equal(screen.queryByTestId('golden-cutscene'), null);
@@ -204,5 +214,25 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   assert.equal(screen.getByTestId('golden-peer-minji').props.goldenFishCount, 2);
   assert.equal(screen.getByTestId('golden-peer-minji').props.goldenCatchToken, 'golden-i1-2');
   assert.equal(screen.getByTestId('golden-peer-dubu').props.goldenFishCount, 0);
+  await screen.unmount();
+});
+
+test('동작 줄이기에서는 컷신 없이 황금 물고기 더미만 즉시 반영한다', async () => {
+  const state = focusedState();
+  state.settings.reduceMotion = true;
+  const screen = await mount(state);
+
+  await act(async () =>
+    onGoldenFish?.(
+      event([
+        { userId: 'me', sessionId: 's-me' },
+        { userId: 'minji', sessionId: 'minji' },
+      ]),
+    ),
+  );
+
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
+  assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
   await screen.unmount();
 });
