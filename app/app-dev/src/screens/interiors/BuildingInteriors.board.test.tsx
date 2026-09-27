@@ -331,17 +331,18 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
       [874, 402],
       [956, 440],
       [1210, 834],
+      [1024, 1180],
     ];
 
     for (const [width, height] of viewports) {
       const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
       const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
       assert.equal(scene.top, 0);
-      const landscape = width > height;
-      assert.equal(scene.height, landscape ? width * 1.5 : height);
-      assert.equal(scene.width, landscape ? width : (height * 2) / 3);
-      assert.equal(scene.left, landscape ? 0 : (width - scene.width) / 2);
-      const labelScale = width > height ? Math.min(1, scene.width / 402) : 1;
+      const scrollScene = width / height > 2 / 3;
+      assert.equal(scene.height, scrollScene ? width * 1.5 : height);
+      assert.equal(scene.width, scrollScene ? width : (height * 2) / 3);
+      assert.equal(scene.left, scrollScene ? 0 : (width - scene.width) / 2);
+      const labelScale = scrollScene ? Math.min(1, scene.width / 402) : 1;
 
       const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
       assert.equal(labelScene.left, 0);
@@ -377,12 +378,16 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
       }
       const noticeTitle = screen.getByText('공지');
       const questTitle = screen.getByText('퀘스트');
-      assert.equal(noticeTitle.props.numberOfLines, 1);
-      assert.equal(questTitle.props.numberOfLines, 1);
+      assert.equal(noticeTitle.props.numberOfLines, undefined);
+      assert.equal(questTitle.props.numberOfLines, undefined);
+      assert.equal(noticeTitle.props.allowFontScaling, true);
+      assert.equal(questTitle.props.allowFontScaling, true);
       assert.equal(StyleSheet.flatten(noticeTitle.props.style).fontSize, 28 * labelScale);
       assert.equal(StyleSheet.flatten(questTitle.props.style).fontSize, 22 * labelScale);
-      assert.equal(StyleSheet.flatten(noticeTitle.props.style).whiteSpace, 'nowrap');
-      assert.equal(StyleSheet.flatten(questTitle.props.style).whiteSpace, 'nowrap');
+      assert.ok(StyleSheet.flatten(noticeTitle.props.style).width >= 112);
+      assert.ok(StyleSheet.flatten(questTitle.props.style).width >= 132);
+      assert.notEqual(StyleSheet.flatten(noticeTitle.props.style).whiteSpace, 'nowrap');
+      assert.notEqual(StyleSheet.flatten(questTitle.props.style).whiteSpace, 'nowrap');
       await screen.unmount();
     }
   } finally {
@@ -400,6 +405,7 @@ test('퀘스트 목록 항목의 상세 버튼은 여덟 화면 크기에서 손
     [874, 402],
     [956, 440],
     [1210, 834],
+    [1024, 1180],
   ];
 
   for (const [width, height] of viewports) {
@@ -428,6 +434,7 @@ test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라
       [874, 402],
       [956, 440],
       [1210, 834],
+      [1024, 1180],
     ];
 
     for (const [width, height] of viewports) {
@@ -440,19 +447,19 @@ test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라
           reduceMotion
         />,
       );
-      const landscape = width > height;
+      const scrollScene = width / height > 2 / 3;
       const scroll = screen.getByTestId('board-scene-scroll');
       assert.equal(scroll.props.horizontal, false);
-      assert.equal(scroll.props.scrollEnabled, landscape);
+      assert.equal(scroll.props.scrollEnabled, scrollScene);
       assert.equal(scroll.props.showsVerticalScrollIndicator, false);
       assert.equal(scroll.props.showsHorizontalScrollIndicator, false);
       assert.deepEqual(scroll.props.contentOffset, {
         x: 0,
-        y: landscape ? Math.max(0, width * 1.5 - height) * 0.38 : 0,
+        y: scrollScene ? Math.max(0, width * 1.5 - height) * 0.38 : 0,
       });
       const scrollContent = StyleSheet.flatten(scroll.props.contentContainerStyle);
       assert.equal(scrollContent.width, width);
-      if (landscape) {
+      if (scrollScene) {
         assert.equal(screen.queryByTestId('board-side-fill'), null);
         assert.equal(scrollContent.height, width * 1.5);
         const image = screen.getByTestId('board-scene-image', { includeHiddenElements: true });
@@ -472,6 +479,34 @@ test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라
       }
       await screen.unmount();
     }
+  } finally {
+    restore();
+  }
+});
+
+test('noartifact 비교 화면에서도 게시판 배경을 그라데이션 아래에 유지한다', async () => {
+  const restore = webMockMode('?interiors=1&noartifact=1');
+  try {
+    const buildingIndex = buildings.findIndex(({ id }) => id === 'board');
+    const screen = await render(
+      <InteriorScreen
+        buildingIndex={buildingIndex}
+        conceptIndex={0}
+        width={1024}
+        height={1180}
+        reduceMotion
+        hideArtifact
+      />,
+    );
+    const background = StyleSheet.flatten(screen.getByTestId('interiors-screen').props.style);
+
+    assert.match(background.backgroundImage, /linear-gradient/);
+    assert.match(background.backgroundImage, /url\(/);
+    assert.match(background.backgroundSize, /1024px 1536px/);
+    assert.match(background.backgroundPosition, /0px -135\.28px/);
+    assert.equal(screen.queryByTestId('artifact-wrap'), null);
+    assert.equal(screen.queryByTestId('board-scene'), null);
+    await screen.unmount();
   } finally {
     restore();
   }

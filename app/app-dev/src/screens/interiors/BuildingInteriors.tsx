@@ -689,9 +689,15 @@ export const interiorScene = (width: number, height: number) => {
   return { left: (width - w) / 2, top: (height - h) * 0.38, width: w, height: h };
 };
 
-// 게시판 장면은 원본 2:3 비율을 유지한다. 가로에서는 화면 폭에 맞춰 세로로 탐색한다.
+// 게시판 장면은 원본 비율을 덮도록 맞춘다. 폭이 배경 비율보다 넓으면 세로로 탐색한다.
 const boardScene = (width: number, height: number) => {
-  if (width > height) return { left: 0, top: 0, width, height: width * 1.5 };
+  if (width / height > artSize.background[0] / artSize.background[1])
+    return {
+      left: 0,
+      top: 0,
+      width,
+      height: (width * artSize.background[1]) / artSize.background[0],
+    };
   const sceneWidth = (height * artSize.background[0]) / artSize.background[1];
   return { left: (width - sceneWidth) / 2, top: 0, width: sceneWidth, height };
 };
@@ -782,7 +788,9 @@ export function InteriorScreen({
   // 게시판 가로 배경은 스크롤 장면 안에서 라벨과 함께 이동한다.
   const coverScene = building.id === 'board' || building.id === 'mail';
   const fullBoardScene = building.id === 'board';
-  const boardLandscape = fullBoardScene && width > sceneHeight;
+  const showBoardReviewBackground = fullBoardScene && hideArtifact;
+  const boardScrollScene =
+    fullBoardScene && width / sceneHeight > artSize.background[0] / artSize.background[1];
   const bg = fullBoardScene
     ? boardScene(width, sceneHeight)
     : coverScene
@@ -793,6 +801,7 @@ export function InteriorScreen({
           width: (height * artSize.background[0]) / artSize.background[1],
           height,
         };
+  const boardScrollOffset = boardScrollScene ? Math.max(0, bg.height - height) * 0.38 : 0;
   // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
   const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
     chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
@@ -805,20 +814,21 @@ export function InteriorScreen({
         // 웹은 원본과 같은 CSS 배경으로 깔아야 그림 확대 결과가 픽셀까지 같다
         webOnly({
           backgroundImage: fullBoardScene
-            ? screenGradient
+            ? showBoardReviewBackground
+              ? `${screenGradient},url("${assetUri(interiorArt.boardBackground)}")`
+              : screenGradient
             : `${screenGradient},url("${assetUri(building.background)}")`,
           ...(fullBoardScene ? { backgroundRepeat: 'no-repeat' } : null),
           // 키보드로 높이가 줄면 창 높이로 계산한 위치에 그대로 둔다
-          backgroundSize: boardLandscape
-            ? '100% 100%'
-            : sceneHeight !== height || fullBoardScene
+          backgroundSize:
+            sceneHeight !== height || fullBoardScene
               ? `100% 100%,${bg.width}px ${bg.height}px`
               : coverScene
                 ? 'cover'
                 : 'auto 100%',
-          backgroundPosition: boardLandscape
-            ? '0 0'
-            : sceneHeight !== height || fullBoardScene
+          backgroundPosition: fullBoardScene
+            ? `0 0,${bg.left}px ${bg.top - boardScrollOffset}px`
+            : sceneHeight !== height
               ? `0 0,${bg.left}px ${bg.top}px`
               : coverScene
                 ? 'center 38%'
@@ -828,12 +838,12 @@ export function InteriorScreen({
         }),
       ]}
     >
-      {Platform.OS !== 'web' && !boardLandscape && (
+      {Platform.OS !== 'web' && (!boardScrollScene || showBoardReviewBackground) && (
         <>
           <Image
-            source={building.background}
+            source={showBoardReviewBackground ? interiorArt.boardBackground : building.background}
             resizeMode="stretch"
-            style={{ position: 'absolute', ...bg, zIndex: 1 }}
+            style={{ position: 'absolute', ...bg, top: bg.top - boardScrollOffset, zIndex: 1 }}
           />
           <View style={[fill, { pointerEvents: 'none' }, gradient(screenGradient)]} />
         </>
@@ -5707,7 +5717,7 @@ export function Board({
   };
 
   // 배경과 라벨·터치 영역이 원본 2:3 좌표계에서 함께 스케일되도록 높이 기준으로 맞춘다.
-  const land = width > sceneHeight;
+  const land = width / sceneHeight > artSize.background[0] / artSize.background[1];
   const scene = boardScene(width, land ? height : sceneHeight);
   const initialSceneOffset = land ? Math.max(0, scene.height - height) * 0.38 : 0;
   const sceneScrollRef = useRef<ScrollView>(null);
@@ -5732,14 +5742,16 @@ export function Board({
     };
   };
   const questHitHeight = Math.max(scene.height * 0.09, 44);
+  const accessibleQuestHeight = 22 * 1.1 * 2 + 20 + 3 + 6;
+  const questLabelHitHeight = Math.max(questHitHeight, accessibleQuestHeight);
   const blueprintHitHeight = Math.min(
     Math.max(scene.height * 0.128, 44),
     // Keep a one-pixel gap below the quest target at the smallest landscape size.
-    Math.max(44, 2 * (scene.height * (0.406 - 0.285) - questHitHeight / 2 - 1)),
+    Math.max(44, 2 * (scene.height * (0.406 - 0.285) - questLabelHitHeight / 2 - 1)),
   );
   const boardHitboxes = {
     notice: sceneHitbox(0.3495, 0.348, 0.253, 0.226),
-    quest: sceneHitbox(0.645, 0.285, 0.27, 0.09),
+    quest: sceneHitbox(0.645, 0.285, 0.27, questLabelHitHeight / scene.height),
     blueprint: sceneHitbox(0.705, 0.406, 0.19, 0.128, blueprintHitHeight),
   };
   // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
@@ -5864,10 +5876,14 @@ export function Board({
               ]}
             >
               <Text
-                numberOfLines={1}
+                allowFontScaling
                 style={[
                   boardFont(28 * labelScale, 1.1, '400', '#76503c', 'BoardHand'),
-                  { letterSpacing: 0.56 * labelScale, ...webOnly({ whiteSpace: 'nowrap' }) },
+                  {
+                    width: scene.width * 0.45,
+                    letterSpacing: 0.56 * labelScale,
+                    textAlign: 'center',
+                  },
                 ]}
               >
                 공지
@@ -5894,10 +5910,10 @@ export function Board({
               ]}
             >
               <Text
-                numberOfLines={1}
+                allowFontScaling
                 style={[
                   boardFont(22 * labelScale, 1.1, '400', '#82652c', 'BoardHand-Bold'),
-                  webOnly({ whiteSpace: 'nowrap' }),
+                  { width: scene.width * 0.45, textAlign: 'center' },
                 ]}
               >
                 퀘스트
