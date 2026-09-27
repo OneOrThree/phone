@@ -152,7 +152,8 @@ public class ReportUseCase {
     }
 
     private static String defang(String value) {
-        return value.replace("https://", "hxxps[:]//").replace("http://", "hxxp[:]//");
+        // SAFE DISPLAY에서는 모든 URI 스킴과 스킴 없는 도메인·이메일·IP의 자동 링크를 끊는다.
+        return value.replace(":", "[:]").replace(".", "[.]").replace("@", "[@]");
     }
 
     private static String base64(String value) {

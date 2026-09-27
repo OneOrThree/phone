@@ -132,6 +132,11 @@ final class GmailReportMailGateway implements ReportMailGateway {
                 || blank(properties.getRecipient()) || blank(properties.getImapHost())) {
             throw new IllegalStateException("REPORT_MAIL 설정이 완전하지 않습니다.");
         }
+        properties.setUsername(properties.getUsername().trim());
+        properties.setRecipient(properties.getRecipient().trim());
+        if (!properties.getUsername().equalsIgnoreCase(properties.getRecipient())) {
+            throw new IllegalStateException("REPORT_MAIL_USERNAME과 REPORT_MAIL_RECIPIENT는 같은 메일함이어야 합니다.");
+        }
         if (properties.getVerifyTimeout().isNegative() || properties.getVerifyTimeout().isZero()
                 || properties.getVerifyTimeout().compareTo(Duration.ofMinutes(1)) > 0) {
             throw new IllegalStateException("REPORT_MAIL_VERIFY_TIMEOUT은 0초 초과 60초 이하여야 합니다.");

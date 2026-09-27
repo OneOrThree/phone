@@ -148,7 +148,8 @@ class ReportContractTest extends UpstreamTestBase {
         DATA.on("GET /internal/users/" + USER + "/letters/" + LETTER, request -> ok("{"
                 + "\"id\":\"" + LETTER + "\",\"senderId\":\"" + TARGET + "\","
                 + "\"senderNickname\":\"상대\",\"receiverId\":\"" + USER + "\","
-                + "\"content\":\"https://example.test 원문\",\"createdAt\":\"2026-09-27T01:00:00Z\","
+                + "\"content\":\"HTTPS://example.test Http://mixed.test www.evil.example 원문\","
+                + "\"createdAt\":\"2026-09-27T01:00:00Z\","
                 + "\"readAt\":null}"));
         DATA.on("POST /internal/users/" + USER + "/blocks", request -> ok(""));
         DATA.on(emailConfirmedPath(), request -> ok("{\"status\":\"EMAIL_CONFIRMED\"," +
@@ -165,8 +166,9 @@ class ReportContractTest extends UpstreamTestBase {
         ArgumentCaptor<ReportMailGateway.ReportMail> sent = ArgumentCaptor.forClass(ReportMailGateway.ReportMail.class);
         verify(mail).deliverAndConfirm(sent.capture(), any(Runnable.class));
         assertThat(sent.getValue().body())
-                .contains("hxxps[:]//example.test 원문")
-                .doesNotContain("[SERVER VERIFIED ORIGINAL - SAFE DISPLAY]\nhttps://");
+                .contains("HTTPS[:]//example[.]test Http[:]//mixed[.]test www[.]evil[.]example 원문")
+                .doesNotContain("[SERVER VERIFIED ORIGINAL - SAFE DISPLAY]\nHTTPS://")
+                .doesNotContain("www.evil.example");
         assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
                 .containsExactly(claimPath(), "GET /internal/users/" + USER + "/letters/" + LETTER,
                         preparePath(), emailConfirmedPath(), "POST /internal/users/" + USER + "/blocks", completePath());
@@ -205,6 +207,7 @@ class ReportContractTest extends UpstreamTestBase {
 
         mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
                         .contentType(MediaType.APPLICATION_JSON).content(body("USER", TARGET, true)))
+                // 공개 envelope 정책은 내부 5xx 분류를 transport 400으로 감추고 code/retryable로 전달한다.
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.retryable").value(true));
