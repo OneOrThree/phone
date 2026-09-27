@@ -41,7 +41,7 @@ public class ReportUseCase {
         String caseId = caseId(claims.userId(), requestId);
         String fingerprint = fingerprint(targetType, targetId, reason, description, replyEmail, blockUser);
         ReportDeliveryView delivery = deliveries.claim(claims.userId(), requestId, fingerprint, caseId,
-                blockUser, deadline);
+                UUID.randomUUID(), blockUser, deadline);
         if (delivery.completed()) {
             return new ReportReceipt(delivery.caseId(), Boolean.TRUE.equals(delivery.blocked()));
         }
@@ -50,6 +50,17 @@ public class ReportUseCase {
         }
         UUID leaseToken = delivery.leaseToken();
         try {
+            if (delivery.confirmationOnly()) {
+                boolean confirmed = mail.confirmOnly(delivery.confirmationToken().toString(),
+                        () -> deliveries.renew(claims.userId(), requestId, leaseToken, Deadline.unbounded()));
+                if (!confirmed) {
+                    deliveries.expire(claims.userId(), requestId, leaseToken, Deadline.unbounded());
+                    throw new PublicApiException(ApiErrorCode.NOT_FOUND, "targetId");
+                }
+                ReportDeliveryView completed = deliveries.complete(
+                        claims.userId(), requestId, leaseToken, false, Deadline.unbounded());
+                return new ReportReceipt(completed.caseId(), false);
+            }
             if (!delivery.emailConfirmed() && !delivery.prepared()) {
                 Evidence evidence = evidence(claims.userId(), targetType, targetId, deadline);
                 String subject = "[GROMO 신고] " + caseId + " / " + targetType;

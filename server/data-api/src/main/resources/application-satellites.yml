@@ -168,6 +168,7 @@ internal:
           - 'POST /internal/users/*/report-deliveries/*/prepare'
           - 'POST /internal/users/*/report-deliveries/*/renew'
           - 'POST /internal/users/*/report-deliveries/*/email-confirmed'
+          - 'POST /internal/users/*/report-deliveries/*/expire'
           - 'POST /internal/users/*/report-deliveries/*/complete'
           - 'POST /internal/users/*/report-deliveries/*/release'
           # GROMO-1933 편지 3종 (friend-letter LLD §1.12~1.15). 목록과 상세는 세그먼트 수가 다르고

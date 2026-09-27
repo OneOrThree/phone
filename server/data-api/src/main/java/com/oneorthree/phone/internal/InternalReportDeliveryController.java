@@ -56,6 +56,12 @@ public class InternalReportDeliveryController {
         return deliveries.emailConfirmed(userId, requestId, request.leaseToken());
     }
 
+    @PostMapping("/expire")
+    public ReportDeliveryView expire(@PathVariable UUID userId, @PathVariable UUID requestId,
+            @Valid @RequestBody ReportDeliveryLeaseRequest request) {
+        return deliveries.expire(userId, requestId, request.leaseToken());
+    }
+
     @PostMapping("/release")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void release(@PathVariable UUID userId, @PathVariable UUID requestId,

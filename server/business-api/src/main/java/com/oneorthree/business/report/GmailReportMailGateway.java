@@ -62,6 +62,18 @@ final class GmailReportMailGateway implements ReportMailGateway {
         }
     }
 
+    @Override
+    public boolean confirmOnly(String confirmationToken, Runnable leaseHeartbeat) {
+        if (!permits.tryAcquire()) {
+            throw new ReportMailException("신고 메일 처리량이 가득 찼습니다. 잠시 뒤 다시 시도해 주세요.");
+        }
+        try {
+            return confirmOnlyWithinPermit(confirmationToken, leaseHeartbeat);
+        } finally {
+            permits.release();
+        }
+    }
+
     private void deliverAndConfirmWithinPermit(ReportMail mail, Runnable leaseHeartbeat) {
         // lease는 5분이고 이 작업은 최대 60초 확인 + 제한된 연결 timeout만 사용한다.
         // IMAP 400ms poll마다 DB lease를 갱신하지 않고 외부 side effect 시작 전에 한 번만 연장한다.
@@ -87,7 +99,7 @@ final class GmailReportMailGateway implements ReportMailGateway {
                     if (inMailbox(inbox, mail.confirmationToken(), true)) {
                         return;
                     }
-                    pause();
+                    pause(true);
                 } while (clock.instant().isBefore(deadline));
             }
         } catch (jakarta.mail.MessagingException e) {
@@ -96,12 +108,38 @@ final class GmailReportMailGateway implements ReportMailGateway {
         throw new ReportMailException("운영 메일함에서 신고 사건을 확인하지 못했습니다.", true);
     }
 
-    private void pause() {
+    private boolean confirmOnlyWithinPermit(String confirmationToken, Runnable leaseHeartbeat) {
+        leaseHeartbeat.run();
+        Properties sessionProperties = new Properties();
+        sessionProperties.setProperty("mail.store.protocol", "imaps");
+        sessionProperties.setProperty("mail.imaps.connectiontimeout", "3000");
+        sessionProperties.setProperty("mail.imaps.timeout", "3000");
+        sessionProperties.setProperty("mail.imaps.writetimeout", "3000");
+        sessionProperties.setProperty("mail.imaps.ssl.checkserveridentity", "true");
+        try (Store store = Session.getInstance(sessionProperties).getStore("imaps")) {
+            store.connect(properties.getImapHost(), properties.getUsername(), properties.getAppPassword());
+            try (Folder inbox = store.getFolder("INBOX")) {
+                inbox.open(Folder.READ_ONLY);
+                Instant deadline = clock.instant().plus(properties.getVerifyTimeout());
+                do {
+                    if (inMailbox(inbox, confirmationToken, false)) {
+                        return true;
+                    }
+                    pause(false);
+                } while (clock.instant().isBefore(deadline));
+                return false;
+            }
+        } catch (jakarta.mail.MessagingException e) {
+            throw new ReportMailException("운영 메일함을 확인하지 못했습니다.", e);
+        }
+    }
+
+    private void pause(boolean deliveryMayHaveOccurred) {
         try {
             Thread.sleep(POLL_INTERVAL.toMillis());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ReportMailException("신고 메일 확인이 중단되었습니다.", e, true);
+            throw new ReportMailException("신고 메일 확인이 중단되었습니다.", e, deliveryMayHaveOccurred);
         }
     }
 

@@ -40,7 +40,8 @@ class ReportUseCaseTest {
         ReportDeliveryView confirmed = new ReportDeliveryView("EMAIL_CONFIRMED", "GR-CASE", confirmation,
                 lease, author,
                 null, null, true, null);
-        when(deliveries.claim(eq(reporter), eq(requestId), any(), any(), eq(true), any())).thenReturn(confirmed);
+        when(deliveries.claim(eq(reporter), eq(requestId), any(), any(), any(), eq(true), any()))
+                .thenReturn(confirmed);
         RuntimeException failure = new RuntimeException("block unavailable");
         doThrow(failure).doNothing().when(blocks).block(eq(claims), eq(author), any());
         ReportDeliveryView completed = new ReportDeliveryView("COMPLETED", "GR-CASE", confirmation, null, null,

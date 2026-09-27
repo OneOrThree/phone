@@ -33,7 +33,7 @@ class InternalReportDeliveryAllowlistTest {
                 routes.add("POST " + (base.value()[0] + post.value()[0]).replaceAll("\\{[^}]+}", ID));
             }
         }
-        assertThat(routes).hasSize(6).allSatisfy(route ->
+        assertThat(routes).hasSize(7).allSatisfy(route ->
                 assertThat(allowed(allow, route)).as("허용목록에 없는 내부 경로: " + route).isTrue());
         assertThat(allowed(allow, "GET /internal/users/" + ID + "/report-deliveries/" + ID + "/claim"))
                 .isFalse();

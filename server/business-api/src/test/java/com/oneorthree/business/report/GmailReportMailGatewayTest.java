@@ -41,6 +41,12 @@ class GmailReportMailGatewayTest {
                         error -> assertThat(error.deliveryMayHaveOccurred()).isFalse())
                 .hasMessageContaining("처리량");
         assertThat(heartbeat[0]).isFalse();
+
+        assertThatThrownBy(() -> gateway.confirmOnly("token", () -> heartbeat[0] = true))
+                .isInstanceOfSatisfying(ReportMailException.class,
+                        error -> assertThat(error.deliveryMayHaveOccurred()).isFalse())
+                .hasMessageContaining("처리량");
+        assertThat(heartbeat[0]).isFalse();
     }
 
     @Test

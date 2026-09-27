@@ -15,11 +15,14 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -305,6 +308,55 @@ class ReportContractTest extends UpstreamTestBase {
     }
 
     @Test
+    void withdrawnTargetRecoversAlreadyDeliveredMailWithoutSendingAgain() throws Exception {
+        reset(mail);
+        DATA.on(claimPath(), request -> ok("{\"status\":\"CONFIRM_ONLY\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":\"" + LEASE + "\",\"authorId\":null,\"subject\":null,\"body\":null," +
+                "\"blockRequested\":true,\"blocked\":null}"));
+        when(mail.confirmOnly(eq(CONFIRMATION.toString()), any(Runnable.class))).thenReturn(true);
+        DATA.on(completePath(), request -> ok("{\"status\":\"COMPLETED\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":null,\"authorId\":null,\"subject\":null,\"body\":null," +
+                "\"blockRequested\":true,\"blocked\":false}"));
+
+        mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON).content(body("USER", TARGET, true)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.data.blocked").value(false));
+
+        verify(mail).confirmOnly(eq(CONFIRMATION.toString()), any(Runnable.class));
+        verify(mail, never()).deliverAndConfirm(any(), any(Runnable.class));
+        assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
+                .containsExactly(claimPath(), completePath());
+    }
+
+    @Test
+    void withdrawnTargetExpiresWhenPreviouslySentMailIsNotConfirmed() throws Exception {
+        reset(mail);
+        DATA.on(claimPath(), request -> ok("{\"status\":\"CONFIRM_ONLY\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":\"" + LEASE + "\",\"authorId\":null,\"subject\":null,\"body\":null," +
+                "\"blockRequested\":false,\"blocked\":null}"));
+        when(mail.confirmOnly(eq(CONFIRMATION.toString()), any(Runnable.class))).thenReturn(false);
+        DATA.on(expirePath(), request -> ok("{\"status\":\"EXPIRED\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":null,\"authorId\":null,\"subject\":null,\"body\":null," +
+                "\"blockRequested\":false,\"blocked\":null}"));
+        DATA.on(releasePath(), request -> new MockUpstream.Response(204, ""));
+
+        mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON).content(body("USER", TARGET, false)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.field").value("targetId"));
+
+        verify(mail).confirmOnly(eq(CONFIRMATION.toString()), any(Runnable.class));
+        verify(mail, never()).deliverAndConfirm(any(), any(Runnable.class));
+        assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
+                .containsExactly(claimPath(), expirePath(), releasePath());
+    }
+
+    @Test
     void preparedRetrySkipsEvidenceAndOnlyFinishesMailAndBlock() throws Exception {
         reset(mail);
         DATA.on(claimPath(), request -> ok("{\"status\":\"PENDING\"," +
@@ -381,6 +433,10 @@ class ReportContractTest extends UpstreamTestBase {
 
     private static String emailConfirmedPath() {
         return workflowPath("email-confirmed");
+    }
+
+    private static String expirePath() {
+        return workflowPath("expire");
     }
 
     private static String releasePath() {

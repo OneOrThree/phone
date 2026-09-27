@@ -31,6 +31,7 @@ import java.util.UUID;
 public class InternalReportDeliveryService {
 
     static final Duration LEASE = Duration.ofMinutes(5);
+    static final Duration SNAPSHOT_RETENTION = Duration.ofHours(23);
     private static final Duration RATE_WINDOW = Duration.ofHours(1);
 
     private final JdbcTemplate jdbc;
@@ -83,7 +84,19 @@ public class InternalReportDeliveryService {
             return view(row);
         }
         if (row.leaseExpiresAt() != null && row.leaseExpiresAt().isAfter(now)) {
+            if (snapshotRetentionElapsed(row, now)) {
+                // 이미 시작된 작업을 정리로 끊지는 않지만, 보존 기한 뒤 응답 재생으로 새 외부 작업을
+                // 시작하게 하지도 않는다. lease 만료 뒤 종결 상태로 수렴한다.
+                throw new ReportDeliveryException(ReportDeliveryErrorCode.REQUEST_IN_PROGRESS);
+            }
+            if (request.claimToken().equals(row.leaseToken())) {
+                // 동일 내부 HTTP 명령의 응답만 유실된 경우 같은 lease 영수증을 재생한다.
+                return view(row);
+            }
             throw new ReportDeliveryException(ReportDeliveryErrorCode.REQUEST_IN_PROGRESS);
+        }
+        if (snapshotRetentionElapsed(row, now)) {
+            return terminateForRetention(row, now, reporterId, requestId);
         }
         if (row.authorId() != null && (observed == null || !row.authorId().equals(observed.authorId()))) {
             // prepare도 advisory lock을 사용하므로 정상 경로에서는 author가 바뀔 수 없다. 잠기지 않은
@@ -91,17 +104,16 @@ public class InternalReportDeliveryService {
             throw new ReportDeliveryException(ReportDeliveryErrorCode.STATE_CONFLICT);
         }
         if ("PENDING".equals(row.status()) && row.authorId() != null && !authorActive) {
-            // 탈퇴 정리 당시 메일 작업의 활성 lease가 있어 snapshot을 보존했더라도, 작업자가
-            // 중단되어 lease가 만료된 뒤에는 재선점·재발송하지 않는다.
-            jdbc.update("update report_deliveries set status='EXPIRED', author_id=null, mail_subject=null, "
+            // SMTP 성공 뒤 email-confirmed 기록만 유실됐을 수 있다. PII snapshot은 즉시 지우되
+            // confirmation token 확인 전에는 미접수로 단정하지 않는다.
+            jdbc.update("update report_deliveries set status='CONFIRM_ONLY', author_id=null, mail_subject=null, "
                             + "mail_body=null, snapshot_stored_at=null, lease_token=null, lease_expires_at=null, "
                             + "updated_at=? where id=?",
                     Timestamp.from(now), row.id());
-            return view(Objects.requireNonNull(findForUpdate(reporterId, requestId)));
+            row = Objects.requireNonNull(findForUpdate(reporterId, requestId));
         }
-        UUID token = UuidV7.next();
         jdbc.update("update report_deliveries set lease_token=?, lease_expires_at=?, updated_at=? where id=?",
-                token, Timestamp.from(now.plus(LEASE)), Timestamp.from(now), row.id());
+                request.claimToken(), Timestamp.from(now.plus(LEASE)), Timestamp.from(now), row.id());
         return view(Objects.requireNonNull(findForUpdate(reporterId, requestId)));
     }
 
@@ -130,6 +142,9 @@ public class InternalReportDeliveryService {
     public ReportDeliveryView renew(UUID reporterId, UUID requestId, UUID leaseToken) {
         ReportRow row = ownedPending(reporterId, requestId, leaseToken);
         Instant now = clock.instant();
+        if (snapshotRetentionElapsed(row, now)) {
+            throw new ReportDeliveryException(ReportDeliveryErrorCode.STATE_CONFLICT);
+        }
         jdbc.update("update report_deliveries set lease_expires_at=?, updated_at=? where id=?",
                 Timestamp.from(now.plus(LEASE)), Timestamp.from(now), row.id());
         return view(Objects.requireNonNull(findForUpdate(reporterId, requestId)));
@@ -152,6 +167,18 @@ public class InternalReportDeliveryService {
     }
 
     @Transactional
+    public ReportDeliveryView expire(UUID reporterId, UUID requestId, UUID leaseToken) {
+        ReportRow row = ownedPending(reporterId, requestId, leaseToken);
+        if (!"CONFIRM_ONLY".equals(row.status())) {
+            throw new ReportDeliveryException(ReportDeliveryErrorCode.STATE_CONFLICT);
+        }
+        Instant now = clock.instant();
+        jdbc.update("update report_deliveries set status='EXPIRED', lease_token=null, lease_expires_at=null, "
+                + "updated_at=? where id=?", Timestamp.from(now), row.id());
+        return view(Objects.requireNonNull(findForUpdate(reporterId, requestId)));
+    }
+
+    @Transactional
     public ReportDeliveryView complete(UUID reporterId, UUID requestId, UUID leaseToken, boolean blocked) {
         ReportRow row = findForUpdate(reporterId, requestId);
         if (row == null) {
@@ -161,8 +188,9 @@ public class InternalReportDeliveryService {
             return view(row);
         }
         requireLease(row, leaseToken);
-        if (!"EMAIL_CONFIRMED".equals(row.status()) || row.authorId() == null
-                || blocked && !row.blockRequested()) {
+        boolean normal = "EMAIL_CONFIRMED".equals(row.status()) && row.authorId() != null;
+        boolean confirmationOnly = "CONFIRM_ONLY".equals(row.status()) && !blocked;
+        if (!(normal || confirmationOnly) || blocked && !row.blockRequested()) {
             throw new ReportDeliveryException(ReportDeliveryErrorCode.STATE_CONFLICT);
         }
         Instant now = clock.instant();
@@ -177,7 +205,8 @@ public class InternalReportDeliveryService {
     public void release(UUID reporterId, UUID requestId, UUID leaseToken) {
         // 완료 응답 유실 뒤 release가 와도 완료 영수증은 건드리지 않는다. 토큰 조건이 새 작업자의 lease도 보호한다.
         jdbc.update("update report_deliveries set lease_token=null, lease_expires_at=null, updated_at=? "
-                        + "where reporter_id=? and request_id=? and status in ('PENDING', 'EMAIL_CONFIRMED') "
+                        + "where reporter_id=? and request_id=? "
+                        + "and status in ('PENDING', 'EMAIL_CONFIRMED', 'CONFIRM_ONLY') "
                         + "and lease_token=?",
                 Timestamp.from(clock.instant()), reporterId, requestId, leaseToken);
     }
@@ -199,6 +228,27 @@ public class InternalReportDeliveryService {
         if (!token.equals(row.leaseToken()) || row.leaseExpiresAt() == null || !row.leaseExpiresAt().isAfter(now)) {
             throw new ReportDeliveryException(ReportDeliveryErrorCode.REQUEST_IN_PROGRESS);
         }
+    }
+
+    private boolean snapshotRetentionElapsed(ReportRow row, Instant now) {
+        return row.snapshotStoredAt() != null
+                && !row.snapshotStoredAt().isAfter(now.minus(SNAPSHOT_RETENTION));
+    }
+
+    private ReportDeliveryView terminateForRetention(ReportRow row, Instant now,
+            UUID reporterId, UUID requestId) {
+        if ("PENDING".equals(row.status())) {
+            jdbc.update("update report_deliveries set status='EXPIRED', author_id=null, mail_subject=null, "
+                            + "mail_body=null, snapshot_stored_at=null, lease_token=null, lease_expires_at=null, "
+                            + "updated_at=? where id=?",
+                    Timestamp.from(now), row.id());
+        } else if ("EMAIL_CONFIRMED".equals(row.status())) {
+            jdbc.update("update report_deliveries set status='COMPLETED', blocked=false, completed_at=?, "
+                            + "author_id=null, mail_subject=null, mail_body=null, snapshot_stored_at=null, "
+                            + "lease_token=null, lease_expires_at=null, updated_at=? where id=?",
+                    Timestamp.from(now), Timestamp.from(now), row.id());
+        }
+        return view(Objects.requireNonNull(findForUpdate(reporterId, requestId)));
     }
 
     private void enforceRateLimit(UUID reporterId, Instant now) {
@@ -262,7 +312,7 @@ public class InternalReportDeliveryService {
     private ReportRow find(UUID reporterId, UUID requestId, String lockClause) {
         List<ReportRow> rows = jdbc.query("select id, case_id, confirmation_token, request_fingerprint, "
                         + "block_requested, author_id, "
-                        + "mail_subject, mail_body, status, lease_token, lease_expires_at, blocked "
+                        + "mail_subject, mail_body, snapshot_stored_at, status, lease_token, lease_expires_at, blocked "
                         + "from report_deliveries where reporter_id=? and request_id=?" + lockClause,
                 InternalReportDeliveryService::row, reporterId, requestId);
         return rows.isEmpty() ? null : rows.get(0);
@@ -270,13 +320,15 @@ public class InternalReportDeliveryService {
 
     private static ReportRow row(ResultSet rs, int rowNum) throws SQLException {
         Timestamp expires = rs.getTimestamp("lease_expires_at");
+        Timestamp snapshotStored = rs.getTimestamp("snapshot_stored_at");
         return new ReportRow(
                 rs.getObject("id", UUID.class), rs.getString("case_id"),
                 rs.getObject("confirmation_token", UUID.class),
                 rs.getString("request_fingerprint"), rs.getBoolean("block_requested"),
                 rs.getObject("author_id", UUID.class), rs.getString("mail_subject"), rs.getString("mail_body"),
                 rs.getString("status"), rs.getObject("lease_token", UUID.class),
-                expires == null ? null : expires.toInstant(), (Boolean) rs.getObject("blocked"));
+                expires == null ? null : expires.toInstant(),
+                snapshotStored == null ? null : snapshotStored.toInstant(), (Boolean) rs.getObject("blocked"));
     }
 
     private static ReportDeliveryView view(ReportRow row) {
@@ -286,7 +338,7 @@ public class InternalReportDeliveryService {
 
     private record ReportRow(UUID id, String caseId, UUID confirmationToken, String fingerprint, boolean blockRequested,
                              UUID authorId, String subject, String body, String status, UUID leaseToken,
-                             Instant leaseExpiresAt, Boolean blocked) {
+                             Instant leaseExpiresAt, Instant snapshotStoredAt, Boolean blocked) {
         boolean completed() {
             return "COMPLETED".equals(status);
         }

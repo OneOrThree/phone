@@ -62,6 +62,8 @@ class InternalReportDeliveryIntegrationTest {
         registry.add("internal.api.callers.business.allow[4]",
                 () -> "POST /internal/users/*/report-deliveries/*/complete");
         registry.add("internal.api.callers.business.allow[5]",
+                () -> "POST /internal/users/*/report-deliveries/*/expire");
+        registry.add("internal.api.callers.business.allow[6]",
                 () -> "POST /internal/users/*/report-deliveries/*/release");
     }
 
@@ -104,6 +106,21 @@ class InternalReportDeliveryIntegrationTest {
         ReportDeliveryView other = deliveries.claim(reporter, otherRequest,
                 claim(otherRequest, "c".repeat(64), false));
         assertThat(other.confirmationToken()).isNotEqualTo(first.confirmationToken());
+    }
+
+    @Test
+    void repeatedClaimCommandReplaysTheSameActiveLeaseAfterResponseLoss() {
+        UUID reporter = newUser();
+        UUID requestId = UUID.randomUUID();
+        UUID claimToken = UUID.randomUUID();
+        ReportDeliveryClaimRequest request = new ReportDeliveryClaimRequest(
+                FINGERPRINT, "GR-" + requestId, claimToken, false);
+
+        ReportDeliveryView first = deliveries.claim(reporter, requestId, request);
+        ReportDeliveryView replay = deliveries.claim(reporter, requestId, request);
+
+        assertThat(replay).isEqualTo(first);
+        assertThat(replay.leaseToken()).isEqualTo(claimToken);
     }
 
     @Test
@@ -169,7 +186,7 @@ class InternalReportDeliveryIntegrationTest {
         UUID requestId = UUID.randomUUID();
         String base = "/internal/users/" + reporter + "/report-deliveries/" + requestId;
         String claimBody = "{\"fingerprint\":\"" + FINGERPRINT + "\",\"caseId\":\"GR-" + requestId
-                + "\",\"blockRequested\":false}";
+                + "\",\"claimToken\":\"" + UUID.randomUUID() + "\",\"blockRequested\":false}";
         String claimed = mvc.perform(post(base + "/claim")
                         .header("Authorization", "Bearer " + TOKEN).header("X-User-Id", reporter)
                         .contentType(MediaType.APPLICATION_JSON).content(claimBody))
@@ -230,7 +247,12 @@ class InternalReportDeliveryIntegrationTest {
         // workflow 재시도로 updated_at이 새로워져도 snapshot 저장 후 23시간이면 정리한다.
         jdbc.update("update report_deliveries set snapshot_stored_at=now()-interval '23 hours 1 minute', "
                 + "updated_at=now()-interval '1 minute' where reporter_id=?", reporter);
-        deliveries.renew(reporter, requestId, pending.leaseToken());
+        assertThatThrownBy(() -> deliveries.renew(reporter, requestId, pending.leaseToken()))
+                .isInstanceOfSatisfying(ReportDeliveryException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(ReportDeliveryErrorCode.STATE_CONFLICT));
+        privacy.purgeStale();
+        assertThat(jdbc.queryForObject("select status from report_deliveries where reporter_id=? and request_id=?",
+                String.class, reporter, requestId)).isEqualTo("PENDING");
         deliveries.release(reporter, requestId, pending.leaseToken());
 
         assertThat(privacy.purgeStale()).isGreaterThanOrEqualTo(1);
@@ -251,7 +273,7 @@ class InternalReportDeliveryIntegrationTest {
         assertThat(jdbc.queryForObject("select count(*) from report_deliveries where reporter_id=?",
                 Long.class, reporter)).isEqualTo(2L);
         assertThat(jdbc.queryForObject("select status from report_deliveries where reporter_id=? and request_id=?",
-                String.class, reporter, secondRequest)).isEqualTo("EXPIRED");
+                String.class, reporter, secondRequest)).isEqualTo("CONFIRM_ONLY");
 
         UUID thirdRequest = UUID.randomUUID();
         ReportDeliveryView third = deliveries.claim(reporter, thirdRequest,
@@ -293,7 +315,7 @@ class InternalReportDeliveryIntegrationTest {
     }
 
     @Test
-    void expiredLeaseForWithdrawnAuthorIsExpiredInsteadOfReclaimed() {
+    void expiredLeaseForWithdrawnAuthorRequiresConfirmationWithoutReusingSnapshot() {
         UUID reporter = newUser();
         UUID author = newUser();
         UUID requestId = UUID.randomUUID();
@@ -311,16 +333,41 @@ class InternalReportDeliveryIntegrationTest {
         ReportDeliveryView retry = deliveries.claim(reporter, requestId,
                 claim(requestId, "e".repeat(64), false));
 
-        assertThat(retry.status()).isEqualTo("EXPIRED");
+        assertThat(retry.status()).isEqualTo("CONFIRM_ONLY");
         assertThat(retry.authorId()).isNull();
         assertThat(jdbc.queryForObject("select mail_body from report_deliveries "
                         + "where reporter_id=? and request_id=?", String.class, reporter, requestId))
                 .isNull();
 
-        ReportDeliveryView replay = deliveries.claim(reporter, requestId,
-                claim(requestId, "e".repeat(64), false));
+        ReportDeliveryView expired = deliveries.expire(reporter, requestId, retry.leaseToken());
+        assertThat(expired.status()).isEqualTo("EXPIRED");
+        ReportDeliveryView replay = deliveries.claim(reporter, requestId, claim(requestId, "e".repeat(64), false));
         assertThat(replay.status()).isEqualTo("EXPIRED");
         assertThat(replay.authorId()).isNull();
+    }
+
+    @Test
+    void confirmationOnlyCanCompleteWithoutBlockAfterMailboxRecovery() {
+        UUID reporter = newUser();
+        UUID author = newUser();
+        UUID requestId = UUID.randomUUID();
+        ReportDeliveryView pending = deliveries.claim(reporter, requestId,
+                claim(requestId, "9".repeat(64), true));
+        deliveries.prepare(reporter, requestId,
+                new ReportDeliveryPrepareRequest(pending.leaseToken(), author, "제목", "원문"));
+        deliveries.release(reporter, requestId, pending.leaseToken());
+        jdbc.update("update users set is_deleted=true where id=?", author);
+        privacy.eraseForWithdrawal(author);
+
+        ReportDeliveryView confirmation = deliveries.claim(reporter, requestId,
+                claim(requestId, "9".repeat(64), true));
+        assertThat(confirmation.status()).isEqualTo("CONFIRM_ONLY");
+        ReportDeliveryView completed = deliveries.complete(
+                reporter, requestId, confirmation.leaseToken(), false);
+
+        assertThat(completed.status()).isEqualTo("COMPLETED");
+        assertThat(completed.blocked()).isFalse();
+        assertThat(completed.authorId()).isNull();
     }
 
     @Test
@@ -357,7 +404,7 @@ class InternalReportDeliveryIntegrationTest {
             finishWithdrawal.countDown();
             withdrawal.get(30, TimeUnit.SECONDS);
             ReportDeliveryView result = reclaim.get(30, TimeUnit.SECONDS);
-            assertThat(result.status()).isEqualTo("EXPIRED");
+            assertThat(result.status()).isEqualTo("CONFIRM_ONLY");
             assertThat(result.authorId()).isNull();
             assertThat(result.body()).isNull();
         } finally {
@@ -415,7 +462,7 @@ class InternalReportDeliveryIntegrationTest {
     }
 
     private ReportDeliveryClaimRequest claim(UUID requestId, String fingerprint, boolean block) {
-        return new ReportDeliveryClaimRequest(fingerprint, "GR-" + requestId, block);
+        return new ReportDeliveryClaimRequest(fingerprint, "GR-" + requestId, UUID.randomUUID(), block);
     }
 
     private UUID newUser() {

@@ -35,8 +35,9 @@ public class ReportDeliveryPrivacyRepository {
         Instant now = clock.instant();
         // 신고 대상 탈퇴는 행을 지우지 않는다. SMTP가 끝난 직후 삭제하면 같은 키가 새 행으로 재생성되어
         // 중복 메일이 나갈 수 있다. 활성 lease는 외부 확인 결과를 기록할 수 있게 보존하고, 그 외
-        // 미확인 건은 만료, 접수 확인 건은 차단하지 못한 영수증으로 수렴한다.
-        jdbc.update("update report_deliveries set status='EXPIRED', author_id=null, mail_subject=null, "
+        // 미확인 건은 PII를 지운 뒤 confirmation 조회만 허용하고, 접수 확인 건은 차단하지 못한
+        // 영수증으로 수렴한다. SMTP 성공 뒤 email-confirmed 기록만 유실된 경우를 놓치지 않는다.
+        jdbc.update("update report_deliveries set status='CONFIRM_ONLY', author_id=null, mail_subject=null, "
                         + "mail_body=null, snapshot_stored_at=null, lease_token=null, lease_expires_at=null, "
                         + "updated_at=? "
                         + "where author_id=? and status='PENDING' "
@@ -59,13 +60,15 @@ public class ReportDeliveryPrivacyRepository {
         int expired = jdbc.update("update report_deliveries set status='EXPIRED', author_id=null, "
                         + "mail_subject=null, mail_body=null, snapshot_stored_at=null, lease_token=null, "
                         + "lease_expires_at=null, updated_at=? where status='PENDING' "
-                        + "and coalesce(snapshot_stored_at, created_at)<?",
-                Timestamp.from(now), cutoff);
+                        + "and coalesce(snapshot_stored_at, created_at)<? "
+                        + "and (lease_expires_at is null or lease_expires_at<=?)",
+                Timestamp.from(now), cutoff, Timestamp.from(now));
         int finalized = jdbc.update("update report_deliveries set status='COMPLETED', blocked=false, "
                         + "completed_at=?, author_id=null, mail_subject=null, mail_body=null, lease_token=null, "
                         + "lease_expires_at=null, snapshot_stored_at=null, updated_at=? "
-                        + "where status='EMAIL_CONFIRMED' and snapshot_stored_at<?",
-                Timestamp.from(now), Timestamp.from(now), cutoff);
+                        + "where status='EMAIL_CONFIRMED' and snapshot_stored_at<? "
+                        + "and (lease_expires_at is null or lease_expires_at<=?)",
+                Timestamp.from(now), Timestamp.from(now), cutoff, Timestamp.from(now));
         return expired + finalized;
     }
 

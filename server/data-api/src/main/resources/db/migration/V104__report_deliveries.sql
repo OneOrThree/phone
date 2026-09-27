@@ -22,7 +22,9 @@ CREATE TABLE public.report_deliveries (
     completed_at timestamptz,
     CONSTRAINT uq_report_deliveries_request UNIQUE (reporter_id, request_id),
     CONSTRAINT uq_report_deliveries_case UNIQUE (case_id),
-    CONSTRAINT ck_report_deliveries_status CHECK (status IN ('PENDING', 'EMAIL_CONFIRMED', 'EXPIRED', 'COMPLETED')),
+    CONSTRAINT ck_report_deliveries_status CHECK (
+        status IN ('PENDING', 'EMAIL_CONFIRMED', 'CONFIRM_ONLY', 'EXPIRED', 'COMPLETED')
+    ),
     CONSTRAINT ck_report_deliveries_prepared CHECK (
         (status = 'PENDING' AND (
             (author_id IS NULL AND mail_subject IS NULL AND mail_body IS NULL AND snapshot_stored_at IS NULL)
@@ -31,11 +33,14 @@ CREATE TABLE public.report_deliveries (
         ))
         OR (status = 'EMAIL_CONFIRMED' AND author_id IS NOT NULL AND mail_subject IS NULL AND mail_body IS NULL
             AND snapshot_stored_at IS NOT NULL)
+        OR (status = 'CONFIRM_ONLY' AND author_id IS NULL AND mail_subject IS NULL AND mail_body IS NULL
+            AND snapshot_stored_at IS NULL)
         OR (status IN ('EXPIRED', 'COMPLETED') AND author_id IS NULL AND mail_subject IS NULL AND mail_body IS NULL
             AND snapshot_stored_at IS NULL)
     ),
     CONSTRAINT ck_report_deliveries_completed CHECK (
-        (status IN ('PENDING', 'EMAIL_CONFIRMED', 'EXPIRED') AND completed_at IS NULL AND blocked IS NULL)
+        (status IN ('PENDING', 'EMAIL_CONFIRMED', 'CONFIRM_ONLY', 'EXPIRED')
+            AND completed_at IS NULL AND blocked IS NULL)
         OR (status = 'COMPLETED' AND completed_at IS NOT NULL AND blocked IS NOT NULL)
     )
 );

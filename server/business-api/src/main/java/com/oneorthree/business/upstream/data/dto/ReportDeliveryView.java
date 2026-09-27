@@ -28,4 +28,8 @@ public record ReportDeliveryView(
     public boolean emailConfirmed() {
         return "EMAIL_CONFIRMED".equals(status);
     }
+
+    public boolean confirmationOnly() {
+        return "CONFIRM_ONLY".equals(status);
+    }
 }

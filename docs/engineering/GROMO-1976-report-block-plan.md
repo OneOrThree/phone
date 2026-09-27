@@ -22,7 +22,7 @@
   ├─ 차단 ──────────────> POST /blocks
   │                         └─ Data user_blocks
   └─ 신고(requestId) ───> POST /reports
-                            ├─ Data report_deliveries에서 payload fingerprint·lease 선점
+                            ├─ Data report_deliveries에서 payload fingerprint·호출별 claimToken lease 선점
                             ├─ Data에서 친구/편지와 원문·권한 재검증 후 메일 snapshot 고정
                             ├─ 운영 메일 발송 + 사건 ID로 메일함 검색 확인
                             ├─ 선택 시 POST internal blocks
@@ -54,7 +54,7 @@ Data 쓰기 경계
 4. 같은 신고 키는 정규화 payload fingerprint에 결합한다. 동시 요청은 DB lease로 한 작업자만 발송하고, 다른 payload 재사용은 409로 거절한다.
 5. 사용자별 신규 신고는 시간당 10건으로 제한한다.
 6. 차단 목록이 초기 로딩 중이거나 실패하면 클라이언트는 친구·검색·편지·낙서를 fail-closed로 숨기고 재시도를 제공한다.
-7. 메일 처리 중 lease를 주기적으로 갱신하고 IMAP 확인은 60초 이하로 제한한다. 접수 확인 즉시 메일 본문·회신 이메일 snapshot을 지우며, workflow 갱신과 분리한 `snapshot_stored_at`을 기준으로 24시간 중단 건과 탈퇴 연관 개인정보도 멱등 행을 보존한 채 정리한다.
+7. 메일 처리 중 lease를 주기적으로 갱신하고 IMAP 확인은 60초 이하로 제한한다. 접수 확인 즉시 메일 본문·회신 이메일 snapshot을 지우며, workflow 갱신과 분리한 `snapshot_stored_at`을 기준으로 24시간 중단 건과 탈퇴 연관 개인정보도 멱등 행을 보존한 채 정리한다. 정리는 활성 lease를 중단하지 않고, 탈퇴 경합은 PII 없는 `CONFIRM_ONLY` 상태에서 기존 confirmation token만 조회해 SMTP 재발송 없이 종결한다.
 
 ## 테스트
 

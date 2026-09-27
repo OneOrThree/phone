@@ -23,9 +23,10 @@ public class DataReportClient {
     }
 
     public ReportDeliveryView claim(UUID userId, UUID requestId, String fingerprint, String caseId,
-            boolean blockRequested, Deadline deadline) {
+            UUID claimToken, boolean blockRequested, Deadline deadline) {
         return exchange(userId, requestId, "claim", Map.of(
-                "fingerprint", fingerprint, "caseId", caseId, "blockRequested", blockRequested), deadline);
+                "fingerprint", fingerprint, "caseId", caseId, "claimToken", claimToken,
+                "blockRequested", blockRequested), deadline);
     }
 
     public ReportDeliveryView prepare(UUID userId, UUID requestId, UUID leaseToken, UUID authorId,
@@ -40,6 +41,10 @@ public class DataReportClient {
 
     public ReportDeliveryView emailConfirmed(UUID userId, UUID requestId, UUID leaseToken, Deadline deadline) {
         return exchange(userId, requestId, "email-confirmed", Map.of("leaseToken", leaseToken), deadline);
+    }
+
+    public ReportDeliveryView expire(UUID userId, UUID requestId, UUID leaseToken, Deadline deadline) {
+        return exchange(userId, requestId, "expire", Map.of("leaseToken", leaseToken), deadline);
     }
 
     public ReportDeliveryView complete(UUID userId, UUID requestId, UUID leaseToken, boolean blocked,
