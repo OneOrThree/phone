@@ -3855,6 +3855,38 @@ export function setBoardBackgroundInert(element: HTMLElement | null, inert: bool
     element.removeAttribute('inert');
 }
 
+export function beginBoardModal(
+  overlay: HTMLElement | null,
+  modalDocument: Document,
+  backgrounds: (HTMLElement | null)[],
+) {
+  const opener = modalDocument.activeElement as HTMLElement | null;
+  focusBoardModal(overlay);
+  backgrounds.forEach((element) => setBoardBackgroundInert(element, true));
+  return opener;
+}
+
+export function endBoardModal(opener: HTMLElement | null, backgrounds: (HTMLElement | null)[]) {
+  backgrounds.forEach((element) => setBoardBackgroundInert(element, false));
+  restoreBoardModalOpener(opener);
+}
+
+export function syncBoardModalFocus(
+  isOpen: boolean,
+  wasOpen: boolean,
+  overlay: HTMLElement | null,
+  modalDocument: Document,
+  backgrounds: (HTMLElement | null)[],
+  opener: HTMLElement | null,
+) {
+  if (isOpen && !wasOpen) return beginBoardModal(overlay, modalDocument, backgrounds);
+  if (!isOpen && wasOpen) {
+    endBoardModal(opener, backgrounds);
+    return null;
+  }
+  return opener;
+}
+
 export function handleBoardModalKeydown(
   event: KeyboardEvent,
   overlay: HTMLElement,
@@ -5795,21 +5827,17 @@ export function Board({
   const boardOverlayOpen = noticeOverlayOpen || questDetailOpen;
 
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
-    setBoardBackgroundInert(boardSceneRef.current, boardOverlayOpen);
-    setBoardBackgroundInert(boardDrawerRef.current, boardOverlayOpen);
-  }, [boardOverlayOpen]);
-
-  useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
-    if (boardOverlayOpen && !overlayWasOpen.current) {
-      overlayOpenerRef.current = document.activeElement as HTMLElement | null;
-      const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
-      focusBoardModal(overlay);
-    } else if (!boardOverlayOpen && overlayWasOpen.current) {
-      restoreBoardModalOpener(overlayOpenerRef.current);
-      overlayOpenerRef.current = null;
-    }
+    const backgrounds = [boardSceneRef.current, boardDrawerRef.current];
+    const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
+    overlayOpenerRef.current = syncBoardModalFocus(
+      boardOverlayOpen,
+      overlayWasOpen.current,
+      overlay,
+      document,
+      backgrounds,
+      overlayOpenerRef.current,
+    );
     overlayWasOpen.current = boardOverlayOpen;
   }, [boardOverlayOpen, noticeOverlayOpen]);
 

@@ -20,6 +20,7 @@ import {
   handleBoardModalKeydown,
   restoreBoardModalOpener,
   setBoardBackgroundInert,
+  syncBoardModalFocus,
   type Concept,
 } from '@/screens/interiors/BuildingInteriors';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
@@ -353,6 +354,54 @@ test('웹 모달은 처음 포커스를 안으로 옮기고 Tab 경계를 지키
   setBoardBackgroundInert(background, false);
   expect(background.inert).toBe(false);
   expect(background.removeAttribute).toHaveBeenCalledWith('inert');
+});
+
+test('웹 모달 열기와 닫기는 opener 캡처·초기 포커스·배경 비활성화 순서를 지킨다', () => {
+  const events: string[] = [];
+  const opener = { focus: () => events.push('opener-restored') } as unknown as HTMLElement;
+  const first = {
+    offsetParent: {},
+    focus: () => events.push('modal-focused'),
+  } as unknown as HTMLElement;
+  const overlay = {
+    querySelectorAll: () => [first],
+    focus: jest.fn(),
+  } as unknown as HTMLElement;
+  const modalDocument = {
+    get activeElement() {
+      events.push('opener-captured');
+      return opener;
+    },
+  } as unknown as Document;
+  const background = {
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  Object.defineProperty(background, 'inert', {
+    set: (inert: boolean) => events.push(inert ? 'background-inert' : 'background-enabled'),
+  });
+
+  const capturedOpener = syncBoardModalFocus(
+    true,
+    false,
+    overlay,
+    modalDocument,
+    [background],
+    null,
+  );
+  expect(capturedOpener).toBe(opener);
+  expect(events).toEqual(['opener-captured', 'modal-focused', 'background-inert']);
+
+  expect(syncBoardModalFocus(false, true, null, modalDocument, [background], capturedOpener)).toBe(
+    null,
+  );
+  expect(events).toEqual([
+    'opener-captured',
+    'modal-focused',
+    'background-inert',
+    'background-enabled',
+    'opener-restored',
+  ]);
 });
 
 beforeEach(async () => {
