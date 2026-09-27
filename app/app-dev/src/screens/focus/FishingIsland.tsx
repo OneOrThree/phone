@@ -58,6 +58,61 @@ export function castSpot({ x, y }: Point): Spot {
   }
   return best ? { x, y, face: best.x < x ? -1 : 1, bx: best.x, by: best.y } : { x, y, face: 1 };
 }
+// 잡은 물고기 이미지는 고양이 뒤에 놓인다. 배치 단위는 고양이 크기의 배수라
+// 화면 크기·방향에 영향받지 않으며, 투명 여백까지 포함한 이미지 프레임이 땅에 놓이도록 한다.
+const fishingCatchFrame = { width: 1.1, height: 1.1 };
+const catchFootprintOnLand = (
+  spot: Point,
+  left: number,
+  top: number,
+  width = fishingCatchFrame.width,
+  height = fishingCatchFrame.height,
+) => {
+  const a = 0.077,
+    cellWidth = fishingGrid.w / fishingGrid.cols,
+    cellHeight = fishingGrid.h / fishingGrid.rows,
+    x = spot.x + (left - 0.5) * a * 100,
+    y = spot.y + (top - 0.90625) * a * 150,
+    right = x + width * a * 100,
+    bottom = y + height * a * 150,
+    firstCol = Math.floor(x / cellWidth),
+    lastCol = Math.ceil((right - 1e-9) / cellWidth) - 1,
+    firstRow = Math.floor(y / cellHeight),
+    lastRow = Math.ceil((bottom - 1e-9) / cellHeight) - 1;
+  for (let row = firstRow; row <= lastRow; row++)
+    for (let col = firstCol; col <= lastCol; col++)
+      if (
+        row < 0 ||
+        row >= fishingGrid.rows ||
+        col < 0 ||
+        col >= fishingGrid.cols ||
+        fishingGrid.cells[row * fishingGrid.cols + col] !== '1'
+      )
+        return false;
+  return true;
+};
+export type FishingCatchPlacement = { left: number; top: number };
+/** 보상 프레임을 물 쪽 반대편 우선으로 두고, 주변 육지 안에 완전히 들어가는 위치를 찾는다. */
+export function fishingCatchPlacement(spot: Spot): FishingCatchPlacement | null {
+  const preferredLeft = spot.face < 0 ? 0.9 : -1;
+  let best: (FishingCatchPlacement & { score: number }) | null = null;
+  for (let left = -3; left <= 2.001; left += 0.25)
+    for (let top = -3; top <= 2.001; top += 0.25) {
+      if (!catchFootprintOnLand(spot, left, top)) continue;
+      const score = Math.hypot(left - preferredLeft, top - 0.06);
+      if (best && score >= best.score) continue;
+      best = { left, top, score };
+    }
+  return best ? { left: best.left, top: best.top } : null;
+}
+export function fishingCatchFootprintOnLand(
+  spot: Point,
+  placement: FishingCatchPlacement,
+  width = fishingCatchFrame.width,
+  height = fishingCatchFrame.height,
+) {
+  return catchFootprintOnLand(spot, placement.left, placement.top, width, height);
+}
 // 지도 % 좌표 사이 거리(세로 %는 지도 비율 1024/1536으로 맞춰 지도 폭 % 단위로 잰다)
 const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536);
 // 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
@@ -95,7 +150,12 @@ export const PEER_SPOTS: Spot[] = (() => {
   candidates.sort((a, b) => apart(a, { x: 50, y: 50 }) - apart(b, { x: 50, y: 50 }));
   for (const p of candidates) {
     if (spots.length >= 15) break;
-    if ([...spots, ...avoid].every((q) => apart(p, q) >= 11) && castSpot(p).bx != null)
+    const spot = castSpot(p);
+    if (
+      [...spots, ...avoid].every((q) => apart(p, q) >= 11) &&
+      spot.bx != null &&
+      fishingCatchPlacement(spot)
+    )
       spots.push(p);
   }
   // 시안 예시 두 자리는 낚싯줄 끝도 시안 좌표 그대로. 여섯째 자리(축음기 앞)는 새로 뽑은 첫 자리로 채운다
@@ -554,7 +614,8 @@ export function FishingActor({
     return () => clearTimeout(t);
   }, [count, reduce]);
   const a = size * 0.077,
-    face = spot.face;
+    face = spot.face,
+    catchPlacement = fishingCatchPlacement(spot);
   return (
     <Animated.View
       pointerEvents="none"
@@ -564,7 +625,16 @@ export function FishingActor({
         top: animatedPosition?.top ?? (sizeY * spot.y) / 100 - a * 0.90625,
         width: a,
         height: a,
-        zIndex: 20 + Math.round(spot.y),
+        zIndex:
+          20 +
+          Math.round(
+            catchPlacement
+              ? Math.max(
+                  spot.y,
+                  spot.y + (catchPlacement.top - 0.90625 + fishingCatchFrame.height) * 0.077 * 150,
+                )
+              : spot.y,
+          ),
       }}
     >
       <CatSprite
@@ -642,10 +712,11 @@ export function FishingActor({
         <Image
           source={assets[catchAssetPath(count)]}
           resizeMode="contain"
+          testID="fishing-actor-catch"
           style={{
             position: 'absolute',
-            left: -a,
-            bottom: -a * 0.16,
+            left: (catchPlacement?.left ?? (face < 0 ? 0.9 : -1)) * a,
+            top: (catchPlacement?.top ?? 0.06) * a,
             width: a * 1.1,
             height: a * 1.1,
           }}

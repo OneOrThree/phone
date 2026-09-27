@@ -23,6 +23,8 @@ import {
   peerPixelsAtSize,
   peerPointFromPixels,
   peerWalkFace,
+  fishingCatchPlacement,
+  fishingCatchFootprintOnLand,
 } from '@/screens/focus/FishingIsland';
 
 jest.mock('@/components/CatSprite', () => {
@@ -143,6 +145,73 @@ test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치
       assert.ok(!occupied(p, [q]), `${n}`);
     assert.ok(!nearRaft(p), `${n} 뗏목`);
   }
+});
+
+test('물고기 보상 전체 프레임이 15개 낚시 자리와 기본 자리에 육지 안쪽으로 놓인다', () => {
+  const rewards = [
+    ['single', 1.1, 1.1],
+    ['pile-small', 1.1, 1.1],
+    ['pile-medium', 1.1, 1.1],
+    ['pile-large', 1.1, 1.1],
+    ['golden', 1.1, 1.1],
+  ] as const;
+  const seats = [
+    ...PEER_SPOTS,
+    { ...DEFAULT_SPOT, face: -1 },
+    // 기존 화면 검토에서 물이 침범한 좌표도 같은 footprint 계약을 적용한다.
+    { x: 41, y: 9, face: 1 },
+  ];
+  for (const [index, spot] of seats.entries()) {
+    const placement = fishingCatchPlacement(spot);
+    assert.ok(placement, `${index}: 보상 배치 위치를 찾지 못함`);
+    for (const [reward, width, height] of rewards)
+      assert.ok(
+        fishingCatchFootprintOnLand(spot, placement!, width, height),
+        `${index} ${reward}: 보상 프레임이 물에 걸침`,
+      );
+  }
+});
+
+test('물고기 보상 배치는 화면 크기와 방향이 달라도 같은 지도 좌표를 사용한다', () => {
+  const spot = PEER_SPOTS[1],
+    placement = fishingCatchPlacement(spot);
+  assert.ok(placement);
+  for (const [size, sizeY] of [
+    [402, 402 / 1.5],
+    [874, 874 / 1.5],
+    [1120, 1120 / 1.5],
+  ]) {
+    const imageLeft = (size * spot.x) / 100 - (size * 0.077) / 2 + placement!.left * size * 0.077,
+      imageTop = (sizeY * spot.y) / 100 - size * 0.077 * 0.90625 + placement!.top * size * 0.077,
+      restoredX = ((imageLeft - placement!.left * size * 0.077 + (size * 0.077) / 2) * 100) / size,
+      restoredY =
+        ((imageTop - placement!.top * size * 0.077 + size * 0.077 * 0.90625) * 100) / sizeY;
+    assert.ok(Math.abs(restoredX - spot.x) < 1e-9);
+    assert.ok(Math.abs(restoredY - spot.y) < 1e-9);
+    assert.ok(fishingCatchFootprintOnLand(spot, placement!));
+  }
+});
+
+test('FishingActor는 계산된 육지 보상 위치를 실제 이미지에 적용한다', async () => {
+  const spot = PEER_SPOTS[1],
+    size = 640,
+    placement = fishingCatchPlacement(spot)!;
+  const screen = await render(
+    React.createElement(FishingActor, {
+      spot,
+      size,
+      sizeY: size / 1.5,
+      color: 'ginger',
+      name: '주민',
+      seconds: SECONDS_PER_FISH,
+      reduce: true,
+    }),
+  );
+  const catchImage = screen.getByTestId('fishing-actor-catch');
+  assert.equal(catchImage.props.style.left, placement.left * size * 0.077);
+  assert.equal(catchImage.props.style.top, placement.top * size * 0.077);
+  assert.equal(catchImage.props.style.width, size * 0.077 * 1.1);
+  await screen.unmount();
 });
 
 test('축음기 그림 위·바로 앞은 앉을 수 없다', () => {
