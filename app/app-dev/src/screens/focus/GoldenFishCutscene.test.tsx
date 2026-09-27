@@ -71,3 +71,25 @@ test('웹 검수 모드는 버튼 없이 음소거 영상 전체를 자동 재�
   await act(async () => mockListeners.playingChange({ isPlaying: true }));
   await screen.unmount();
 });
+
+test('재생 오류나 종료 이벤트가 없어도 컷신을 닫고 종료 콜백은 한 번만 보낸다', async () => {
+  jest.useFakeTimers();
+  const onErrorFinish = jest.fn();
+  const errorScreen = await render(<GoldenFishCutscene onFinish={onErrorFinish} />);
+  await act(async () => {
+    mockListeners.statusChange({ status: 'error' });
+    mockListeners.playToEnd();
+  });
+  assert.equal(onErrorFinish.mock.calls.length, 1);
+  await errorScreen.unmount();
+
+  const onTimeoutFinish = jest.fn();
+  const timeoutScreen = await render(<GoldenFishCutscene onFinish={onTimeoutFinish} />);
+  await act(async () => mockListeners.playingChange({ isPlaying: true }));
+  await act(async () => jest.advanceTimersByTime(4999));
+  assert.equal(onTimeoutFinish.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(1));
+  assert.equal(onTimeoutFinish.mock.calls.length, 1);
+  await timeoutScreen.unmount();
+  jest.useRealTimers();
+});

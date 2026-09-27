@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { landPath, onLand } from '@/utils/world-grid';
 import { SECONDS_PER_FISH } from '@/services/model';
 import { FishingBoat } from '@/screens/focus/FocusSea';
@@ -9,6 +10,7 @@ import {
   PEER_SPOTS,
   DEFAULT_SPOT,
   FishingActor,
+  FishingIsland,
   FishingPeerActorView,
   GRAM,
   anchorCard,
@@ -205,6 +207,32 @@ test('지도 창: 세로는 폭 640 지도를 가운데 높이에, 가로는 화
   // 가로에서 0.8배로 줄여 지도가 화면보다 좁으면 가로 가운데
   const far = fishingCamera(874, 402, 0.8, { x: 10, y: 55.9 });
   assert.ok(Math.abs(far.left - (874 - far.size) / 2) <= 0.5);
+});
+
+test('컷신 종료 전에는 섬 황금 물고기를 숨기고 종료 뒤에만 표시한다', async () => {
+  const props = {
+    focus: DEFAULT_SPOT,
+    spots: [],
+    onRaft: jest.fn(),
+    children: () => null,
+  };
+  const wrap = (goldenFish = false) =>
+    React.createElement(
+      SafeAreaProvider,
+      {
+        initialMetrics: {
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 0, right: 0, bottom: 0, left: 0 },
+        },
+      },
+      React.createElement(FishingIsland, { ...props, goldenFish }),
+    );
+  const screen = await render(wrap());
+  assert.equal(screen.queryByTestId('fishing-island-golden-fish'), null);
+  await screen.rerender(wrap(true));
+  const fish = screen.getByTestId('fishing-island-golden-fish');
+  assert.equal(fish.props.accessibilityLabel, '방금 함께 낚은 황금 물고기');
+  await screen.unmount();
 });
 
 test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가고 동작 줄이기는 즉시 reel을 멈춘다', async () => {
