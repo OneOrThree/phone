@@ -57,6 +57,8 @@ export const CLIENT_IN_FLIGHT = 'CLIENT_IN_FLIGHT';
  * 표시 카운트다운에만 영향이라 상태 판정과 무관하다.
  */
 const CLOCK_JUMP_MS = 30_000;
+/** 분 단위 서버 완공 스케줄러가 반영될 때까지 회관 상태를 확인하는 최소 간격. */
+const COMPLETION_CONFIRM_RETRY_MS = 5_000;
 
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
@@ -92,12 +94,18 @@ export type ConstructionSnapshot = {
 };
 
 const EMPTY: ConstructionSnapshot = { options: null, members: null, loading: false, error: null };
+type ConstructionTiming = {
+  buildingId: string;
+  startedAt: string | number;
+  completesAt: string | number;
+};
 
 export function useConstruction({
   active,
   islandId,
   now,
   onStarted,
+  resumeTiming,
 }: {
   /** 이 화면이 보이고 주민일 때만 true — 방문자·모크 모드·다른 route 에서는 호출이 0회다. */
   active: boolean;
@@ -107,6 +115,8 @@ export function useConstruction({
   now: number;
   /** 착공 POST receipt을 홈의 클라이언트 상태로 넘긴다. */
   onStarted?: (started: ConstructionStarted) => void;
+  /** 회관 재진입 뒤에도 홈이 보관한 착공 시각으로 완공 확인을 이어 간다. */
+  resumeTiming?: ConstructionTiming | null;
 }) {
   const [snap, setSnap] = useState<ConstructionSnapshot>(EMPTY);
   /** 이 클라이언트에서 받은 착공 POST receipt. */
@@ -127,8 +137,9 @@ export function useConstruction({
   const writeBusy = useRef<WriteIntent | null>(null);
   /** 마지막으로 본 now — 시각 변경 감지용. */
   const lastNow = useRef(now);
-  /** 완공 예정 도달 재조회는 예정 시각당 한 번 — 매 렌더 재조회하지 않는다. */
-  const dueHandled = useRef<string | null>(null);
+  /** 완공 예정 뒤 서버 확정을 기다리는 제한 재조회 상태. */
+  const confirmationReloading = useRef<string | null>(null);
+  const confirmationNextAt = useRef(0);
   // 렌더 시점에 읽어 effect deps 에 태운다 — 세션 교체 뒤 첫 렌더에서 범위가 재생성된다.
   const generation = sessionGeneration();
 
@@ -261,19 +272,41 @@ export function useConstruction({
   }, [active, reload]);
 
   // 기기 시각 변경·클라이언트 계산상 completesAt 도달은 재조회 신호다.
+  // 서버 스케줄러가 아직 BUILDING을 반환하면 receipt이 사라질 때까지 제한 간격으로 확인한다.
   useEffect(() => {
     const prev = lastNow.current;
     lastNow.current = now;
     if (!active || scopeRef.current === null) return;
     const jumped = Math.abs(now - prev) > CLOCK_JUMP_MS;
-    const dueKey = started !== null ? `${started.buildingId}:${started.completesAt}` : null;
-    const due =
-      dueKey !== null &&
-      normalizedConstructionProgress(started, now) >= 1 &&
-      dueHandled.current !== dueKey;
-    if (due) dueHandled.current = dueKey;
-    if (jumped || due) reload().catch(() => undefined);
-  }, [now, active, started, reload]);
+    const timing = started ?? resumeTiming ?? null;
+    const dueKey = timing !== null ? `${timing.buildingId}:${timing.completesAt}` : null;
+    const stillBuilding =
+      timing !== null &&
+      snap.options !== null &&
+      snap.options.items.some((item) => item.id === timing.buildingId);
+    const pastDue = timing !== null && normalizedConstructionProgress(timing, now) >= 1;
+    if (!pastDue) {
+      confirmationNextAt.current = 0;
+      if (jumped) reload().catch(() => undefined);
+      return;
+    }
+    if (snap.loading) return;
+    // 최초 조회 전에는 기다리되, 완공 확인 GET이 실패해 options가 비워진 경우에는 재시도한다.
+    if (snap.options === null && snap.error === null) return;
+    if (snap.options !== null && !stillBuilding) {
+      confirmationNextAt.current = 0;
+      return;
+    }
+    if (confirmationReloading.current !== null || (!jumped && now < confirmationNextAt.current))
+      return;
+    confirmationReloading.current = dueKey;
+    confirmationNextAt.current = now + COMPLETION_CONFIRM_RETRY_MS;
+    reload()
+      .catch(() => undefined)
+      .finally(() => {
+        if (confirmationReloading.current === dueKey) confirmationReloading.current = null;
+      });
+  }, [now, active, started, resumeTiming, snap.loading, snap.options, snap.error, reload]);
 
   /**
    * 모든 쓰기 명령의 단일 통로 — fence·의도 슬롯·단일 flight·성공 후 재조회·오류 분류를

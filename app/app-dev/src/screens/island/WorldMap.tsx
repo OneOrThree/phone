@@ -140,6 +140,33 @@ const legacyDoors: Record<string, Door> = {
     hitbox: { x: 1230, y: 810, w: 230, h: 145 },
   },
 };
+type ConstructionPlacement = { x: number; y: number; w: number; h: number };
+/** 기존 1536×1024 건물 레이어에서 투명 여백을 제외한 원본 rect의 bottom-center 좌표. */
+const legacyConstructionPlacements: Readonly<Record<Building, ConstructionPlacement>> = {
+  hall: { x: 1070, y: 265, w: 242, h: 244 },
+  board: { x: 896, y: 237, w: 80, h: 80 },
+  gram: { x: 366.5, y: 480, w: 73, h: 89 },
+  library: { x: 1239.5, y: 611, w: 239, h: 323 },
+  mail: { x: 321, y: 583, w: 46, h: 63 },
+  tower: { x: 206, y: 217, w: 112, h: 193 },
+  shop: { x: 587, y: 779, w: 262, h: 199 },
+};
+
+export function constructionPlacement(
+  building: Building,
+  layeredPreview: boolean,
+): ConstructionPlacement | undefined {
+  return layeredPreview
+    ? villageMap.objects.find((object) => object.building === building)
+    : legacyConstructionPlacements[building];
+}
+
+const constructionPhaseLabels: Readonly<Record<ConstructionSpritePhase, string>> = {
+  foundation: '기초 공사 중',
+  structure: '골조 공사 중',
+  finishing: '마감 공사 중',
+  completion: '완공',
+};
 const homePositions: Record<string, Point> = {};
 // 섬을 돌아다니는 주민 고양이 두 마리의 출발 자리(모닥불 근처 땅)
 const WANDER_STARTS: Point[] = [
@@ -762,7 +789,7 @@ function FinalIslandScene({
       : null;
   const constructionBuilding = activeBuilding ?? completionBuilding ?? undefined;
   const constructionObject = constructionBuilding
-    ? villageMap.objects.find((object) => object.building === constructionBuilding)
+    ? constructionPlacement(constructionBuilding, layeredPreview)
     : undefined;
   const [buildingTransition, setBuildingTransition] = useState<BuildingTransitionState>({
     phase: 'idle',
@@ -948,6 +975,10 @@ function FinalIslandScene({
         {constructionObject && constructionBuilding && constructionSpritePhase && (
           <View
             pointerEvents="none"
+            accessible
+            accessibilityRole="image"
+            accessibilityLabel={`${buildingNames[constructionBuilding]} ${constructionPhaseLabels[constructionSpritePhase]}`}
+            accessibilityLiveRegion="polite"
             testID={`village-construction-${constructionBuilding}`}
             style={{
               position: 'absolute',

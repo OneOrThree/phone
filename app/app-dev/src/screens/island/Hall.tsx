@@ -263,10 +263,19 @@ export function Hall({ e }: any) {
   });
   // 건설 화면도 같은 서버 정본 규칙 — 방문자·모크 모드는 로컬 시연 UI 를 유지한다.
   const liveConstruction = r === 'construction' && !visitor && !mockLedger;
+  const clientConstruction = s.serverIslands?.clientConstruction;
   const construction = useConstruction({
     active: liveConstruction,
     islandId: visitor ? null : liveIslandId,
     now: e.now,
+    resumeTiming:
+      clientConstruction?.islandId === liveIslandId
+        ? {
+            buildingId: clientConstruction.building,
+            startedAt: clientConstruction.startedAt,
+            completesAt: clientConstruction.endsAt,
+          }
+        : null,
     onStarted: (receipt) =>
       e.dispatch({
         type: 'SERVER_CONSTRUCTION_STARTED',

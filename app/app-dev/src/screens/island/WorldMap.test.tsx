@@ -1,7 +1,12 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { Animated } from 'react-native';
-import { createWorldProjector, FinalIsland, WorldMap } from '@/screens/island/WorldMap';
+import {
+  constructionPlacement,
+  createWorldProjector,
+  FinalIsland,
+  WorldMap,
+} from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
 import { BUILDING_TRANSITION_DURATION_MS } from '@/services/buildingTransition';
 import { villageScene } from '@/utils/village-world';
@@ -270,9 +275,34 @@ test('서버 공사 진행률에 해당하는 건물 sprite 단계를 섬 위에
     />,
   );
 
-  screen.getByTestId('village-construction-library');
+  const construction = screen.getByTestId('village-construction-library');
   screen.getByTestId('construction-sprite-library-structure');
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  expect(construction.props.style).toEqual(
+    expect.objectContaining({
+      left: 1120 * worldScale,
+      top: 288 * worldScale,
+      width: 239 * worldScale,
+      height: 323 * worldScale,
+    }),
+  );
+  expect(construction.props.accessibilityLabel).toBe('도서관 골조 공사 중');
   expect(screen.queryByLabelText(buildingNames.library)).toBeNull();
+});
+
+test('공사 sprite 배치는 기존 마을과 레이어드 마을의 좌표계를 구분한다', () => {
+  expect(constructionPlacement('shop', false)).toEqual({
+    x: 587,
+    y: 779,
+    w: 262,
+    h: 199,
+  });
+  expect(constructionPlacement('shop', true)).toMatchObject({
+    x: 1000,
+    y: 751,
+    w: 262,
+    h: 199,
+  });
 });
 
 test('클라이언트 계산이 완료 시각에 도달하면 completion sprite를 한 번 표시한다', async () => {
