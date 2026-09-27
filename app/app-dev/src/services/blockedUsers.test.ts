@@ -187,6 +187,58 @@ test('포그라운드 전에 시작한 조회가 진행 중이면 완료 뒤 최
   await hook.unmount();
 });
 
+test('진행 중인 재검증보다 나중에 생긴 freshness 경계는 완료 뒤 한 번 더 조회한다', async () => {
+  let resolveOlder: (users: Array<{ id: string; name: string }>) => void = () => {};
+  listMock
+    .mockReturnValueOnce(new Promise((done) => (resolveOlder = done)))
+    .mockResolvedValueOnce([{ id: 'u-after-boundary', name: '나중 차단' }]);
+
+  const foreground = revalidateBlockedUsers();
+  await Promise.resolve();
+  const screenEntry = revalidateBlockedUsers();
+  assert.equal(listMock.mock.calls.length, 1);
+
+  resolveOlder([]);
+  await foreground;
+  await screenEntry;
+
+  assert.equal(listMock.mock.calls.length, 2);
+  assert.equal(isUserBlocked('u-after-boundary'), true);
+});
+
+test('같은 event에서 동시에 요청한 재검증은 하나로 합친다', async () => {
+  listMock.mockResolvedValue([]);
+
+  const first = revalidateBlockedUsers();
+  const second = revalidateBlockedUsers();
+
+  assert.equal(first, second);
+  await first;
+  assert.equal(listMock.mock.calls.length, 1);
+});
+
+test('이전 세션에서 예약된 후속 재검증은 계정 교체 뒤 실행하지 않는다', async () => {
+  await clearSession();
+  await saveSession({ accessToken: 'AT-old', refreshToken: 'RT-old', userId: 'u-old' });
+  let resolveOld: (users: Array<{ id: string; name: string }>) => void = () => {};
+  listMock
+    .mockReturnValueOnce(new Promise((done) => (resolveOld = done)))
+    .mockResolvedValueOnce([{ id: 'blocked-by-new', name: '새 계정 차단' }]);
+
+  const oldFlight = refreshBlockedUsers();
+  const oldQueued = revalidateBlockedUsers();
+  await saveSession({ accessToken: 'AT-new', refreshToken: 'RT-new', userId: 'u-new' });
+  const newFlight = revalidateBlockedUsers();
+  await newFlight;
+  resolveOld([{ id: 'blocked-by-old', name: '이전 계정 차단' }]);
+  await oldFlight;
+  await oldQueued;
+
+  assert.equal(listMock.mock.calls.length, 2);
+  assert.equal(isUserBlocked('blocked-by-new'), true);
+  assert.equal(isUserBlocked('blocked-by-old'), false);
+});
+
 test('준비된 cache의 재검증이 실패하면 stale 목록 대신 오류 상태로 전환한다', async () => {
   listMock.mockRejectedValue(new Error('blocks unavailable'));
   const hook = await renderHook(() => useBlockedUsers(true));

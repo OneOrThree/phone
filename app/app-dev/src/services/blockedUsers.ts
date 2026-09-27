@@ -10,7 +10,11 @@ let loaded = false;
 let lastValidatedAt = 0;
 let loadError: unknown = null;
 let flight: Promise<BlockedUser[]> | null = null;
-let revalidationFlight: Promise<BlockedUser[]> | null = null;
+let revalidationTail: Promise<BlockedUser[]> | null = null;
+let synchronousRevalidation: {
+  generation: number;
+  request: Promise<BlockedUser[]>;
+} | null = null;
 let validating = false;
 let mutationRevision = 0;
 let refreshSequence = 0;
@@ -31,7 +35,8 @@ const resetForSession = () => {
   lastValidatedAt = 0;
   loadError = null;
   flight = null;
-  revalidationFlight = null;
+  revalidationTail = null;
+  synchronousRevalidation = null;
   validating = false;
   mutationRevision = 0;
   refreshSequence = 0;
@@ -92,20 +97,32 @@ export function loadBlockedUsers(): Promise<BlockedUser[]> {
 
 /** 화면 재진입·포그라운드 복귀의 재검증은 여러 소비자가 동시에 요청해도 한 GET으로 합친다. */
 export function revalidateBlockedUsers(): Promise<BlockedUser[]> {
-  if (revalidationFlight) return revalidationFlight;
-  // 이 freshness boundary 전에 시작한 요청은 다른 기기의 최신 변경을 포함한다고
-  // 보장할 수 없다. 해당 요청이 끝난 뒤 새 GET을 이어 붙이고 동시 소비자는 합친다.
-  const previousFlight = flight;
-  const request = previousFlight
-    ? previousFlight.then(refreshBlockedUsers, refreshBlockedUsers)
-    : refreshBlockedUsers();
-  revalidationFlight = request;
+  const expectedGeneration = sessionGeneration();
+  // 한 JS event에서 여러 활성 소비자가 만든 동일 경계만 합친다. 이후 event에서 생긴
+  // 화면 진입·포그라운드 경계는 진행 중 재검증 뒤에 새 GET으로 직렬화한다.
+  if (synchronousRevalidation?.generation === expectedGeneration) {
+    return synchronousRevalidation.request;
+  }
+  const previousRequests = [...new Set([revalidationTail, flight].filter(Boolean))] as Promise<
+    BlockedUser[]
+  >[];
+  const request = (async () => {
+    await Promise.all(previousRequests.map((previous) => previous.catch(() => [])));
+    // 예약한 계정이 바뀌었으면 이전 계정의 후속 GET을 새 세션에서 실행하지 않는다.
+    if (expectedGeneration !== sessionGeneration()) return [];
+    return refreshBlockedUsers();
+  })();
+  revalidationTail = request;
+  synchronousRevalidation = { generation: expectedGeneration, request };
+  Promise.resolve().then(() => {
+    if (synchronousRevalidation?.request === request) synchronousRevalidation = null;
+  });
   request.then(
     () => {
-      if (revalidationFlight === request) revalidationFlight = null;
+      if (revalidationTail === request) revalidationTail = null;
     },
     () => {
-      if (revalidationFlight === request) revalidationFlight = null;
+      if (revalidationTail === request) revalidationTail = null;
     },
   );
   return request;
