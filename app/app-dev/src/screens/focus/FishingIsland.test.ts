@@ -20,6 +20,7 @@ import {
   nearRaft,
   occupied,
   peerLandRoute,
+  peerPointFromPixels,
 } from '@/screens/focus/FishingIsland';
 
 jest.mock('@/components/CatSprite', () => {
@@ -92,6 +93,17 @@ test('실시간 주민 입장·퇴장 경로의 모든 구간은 물을 가로�
       }
     }
   }
+});
+
+test('중단된 주민 이동의 픽셀 좌표를 현재 지도 좌표로 복원한다', () => {
+  const size = 640,
+    sizeY = size / 1.5,
+    current = { x: 41.25, y: 63.5 },
+    left = (size * current.x) / 100 - (size * 0.077) / 2,
+    top = (sizeY * current.y) / 100 - size * 0.077 * 0.90625;
+  const restored = peerPointFromPixels(left, top, size, sizeY);
+  assert.ok(Math.abs(restored.x - current.x) < 1e-9);
+  assert.ok(Math.abs(restored.y - current.y) < 1e-9);
 });
 
 test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {

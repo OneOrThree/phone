@@ -428,7 +428,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   let eventGapRetries = 0;
   let hadData = false;
   let snapshotVersion = 0;
-  const pendingEvents: unknown[] = [];
+  const pendingEvents: { raw: unknown; misses: number }[] = [];
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
   let gapRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let gapRetryDelay = 250;
@@ -466,13 +466,16 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     let changed = false;
     const transitions: IslandPresenceTransition[] = [];
     const pending = pendingEvents.splice(0);
-    for (const raw of pending) {
+    for (const entry of pending) {
       const previouslyNeeded = projection.resyncNeeded;
       projection.resyncNeeded = false;
-      const result = projection.applyWithTransition(raw);
+      const result = projection.applyWithTransition(entry.raw);
       const unresolved = projection.resyncNeeded;
-      projection.resyncNeeded = previouslyNeeded || unresolved;
-      if (unresolved) pendingEvents.push(raw);
+      // 첫 정본 조회에도 없는 이벤트만 한 번 더 확인한다. 두 번째 정본에도 없으면
+      // 완료 후 지연 도착한 사건으로 보고 폐기해 event-gap GET이 영구 반복되지 않게 한다.
+      const retry = unresolved && entry.misses < 1;
+      projection.resyncNeeded = previouslyNeeded || retry;
+      if (retry) pendingEvents.push({ raw: entry.raw, misses: entry.misses + 1 });
       changed ||= result.changed;
       if (result.transition) transitions.push(result.transition);
     }
@@ -592,7 +595,11 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     onEvent: (raw) => {
       if (disposed || !alive()) return;
       if (resyncing) {
-        pendingEvents.push(raw);
+        // 응원은 순간 사건이라 스냅숏/replay 대상이 아니다. 재연결 중 받은 응원은
+        // 뒤늦게 재생하지 않고, 상태형 주민 이벤트만 정본 위에 replay한다.
+        const type = (raw as RealtimeEnvelope | null)?.type;
+        if (type === 'focus.member.updated' || type === 'rest.member.updated')
+          pendingEvents.push({ raw, misses: 0 });
         return;
       }
       const previouslyNeeded = projection.resyncNeeded;
@@ -600,7 +607,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       const result = projection.applyWithTransition(raw);
       const unresolved = projection.resyncNeeded;
       projection.resyncNeeded = previouslyNeeded || unresolved;
-      if (unresolved) pendingEvents.push(raw);
+      if (unresolved) pendingEvents.push({ raw, misses: 0 });
       if (projection.resyncNeeded) void resync('event-gap');
       if (result.changed) {
         scheduleExpiry();

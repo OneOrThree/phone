@@ -617,7 +617,7 @@ describe('startIslandRealtime', () => {
     rt.dispose();
   });
 
-  test('재동기화 중 버퍼링된 응원도 만료 시점에 화면에서 제거한다', async () => {
+  test('재동기화 중 받은 응원은 replay하지 않는다', async () => {
     const channel = fakeChannel();
     const views: PresenceView[] = [];
     const deps: Parameters<typeof start>[0] = {
@@ -643,10 +643,33 @@ describe('startIslandRealtime', () => {
     );
     resolveSnapshot(deps.snapshots!);
     await flush();
-    assert.equal(views.at(-1)?.emotes.length, 1);
-
-    await new Promise((resolve) => setTimeout(resolve, 70));
     assert.equal(views.at(-1)?.emotes.length, 0);
+  });
+
+  test('두 번의 정본 조회에도 없는 지연 이벤트는 폐기하고 재조회를 멈춘다', async () => {
+    jest.useFakeTimers();
+    const channel = fakeChannel();
+    const { rt, loads } = start(
+      {
+        islandId: 'i1',
+        snapshots: {
+          focus: focusSnap([focusItem('u1')], [wm('focus.member', 'u1', 1)]),
+          rest: restSnap([]),
+        },
+      },
+      channel,
+    );
+    rt.resync();
+    await Promise.resolve();
+    channel.opts?.onEvent(focusEvent('finished-long-ago', 9));
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.equal(loads(), 3);
+
+    await jest.advanceTimersByTimeAsync(10_000);
+    assert.equal(loads(), 3);
+    rt.dispose();
+    jest.useRealTimers();
   });
 
   test('스냅숏 실패는 error 상태로 올린다 — 가짜 빈 성공이 아니다', async () => {

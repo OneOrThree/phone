@@ -112,6 +112,10 @@ export const peerLandRoute = (from: Point, to: Point) => {
   const cells = landPath(fishingGrid, from, to);
   return cells.length ? [...cells.slice(1, -1), to] : [];
 };
+export const peerPointFromPixels = (left: number, top: number, size: number, sizeY: number) => ({
+  x: ((left + (size * 0.077) / 2) * 100) / size,
+  y: ((top + size * 0.077 * 0.90625) * 100) / sizeY,
+});
 // 뗏목(지도 폭 12%)과 내리는 자리 위에는 앉을 수 없다. 앉은 고양이(폭 7.7%·발 기준) 상자가 겹치는지로 본다.
 // 세로 %는 지도 비율(1024/1536)로 맞춰 가로 % 단위로 잰다.
 const toW = (y: number) => (y * 1024) / 1536;
@@ -693,35 +697,52 @@ export function FishingPeerActorView({
         else onCompletedExit(actor.key, token);
         return;
       }
-      const route = peerLandRoute(actor.position, toPoint);
-      const waypoints = route.length ? route : [toPoint];
-      let previous = actor.position;
-      const movement = NativeAnimated.sequence(
-        waypoints.map((point) => {
-          const distance = Math.hypot(previous.x - point.x, ((previous.y - point.y) * 2) / 3);
-          previous = point;
-          const duration = Math.max(32, Math.round(distance * 35));
-          return NativeAnimated.parallel([
-            NativeAnimated.timing(left, {
-              toValue: (size * point.x) / 100 - (size * 0.077) / 2,
-              duration,
-              useNativeDriver: false,
+      let movement: {
+          start: (callback: (result: { finished: boolean }) => void) => void;
+          stop: () => void;
+        } | null = null,
+        cancelled = false;
+      // 이전 방향의 composite가 cleanup에서 멈춘 실제 픽셀 좌표를 읽어 새 땅 경로를 계산한다.
+      // actor.position은 상태 경계 좌표라 이동 도중 방향이 바뀐 경우의 현재 위치가 아니다.
+      left.stopAnimation((currentLeft: number) => {
+        top.stopAnimation((currentTop: number) => {
+          if (cancelled) return;
+          const current = peerPointFromPixels(currentLeft, currentTop, size, sizeY),
+            route = peerLandRoute(current, toPoint),
+            waypoints = route.length ? route : [toPoint];
+          let previous = current;
+          const nextMovement = NativeAnimated.sequence(
+            waypoints.map((point) => {
+              const distance = Math.hypot(previous.x - point.x, ((previous.y - point.y) * 2) / 3);
+              previous = point;
+              const duration = Math.max(32, Math.round(distance * 35));
+              return NativeAnimated.parallel([
+                NativeAnimated.timing(left, {
+                  toValue: (size * point.x) / 100 - (size * 0.077) / 2,
+                  duration,
+                  useNativeDriver: false,
+                }),
+                NativeAnimated.timing(top, {
+                  toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
+                  duration,
+                  useNativeDriver: false,
+                }),
+              ]);
             }),
-            NativeAnimated.timing(top, {
-              toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
-              duration,
-              useNativeDriver: false,
-            }),
-          ]);
-        }),
-      );
-      movement.start(({ finished }: { finished: boolean }) => {
-        if (!finished || motionToken.current !== token) return;
-        if (actor.phase === 'entering') onEntered(actor.key, token);
-        else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
-        else onCompletedExit(actor.key, token);
+          );
+          movement = nextMovement;
+          nextMovement.start(({ finished }: { finished: boolean }) => {
+            if (!finished || motionToken.current !== token) return;
+            if (actor.phase === 'entering') onEntered(actor.key, token);
+            else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
+            else onCompletedExit(actor.key, token);
+          });
+        });
       });
-      return () => movement.stop();
+      return () => {
+        cancelled = true;
+        movement?.stop();
+      };
     }
     left.setValue(toLeft);
     top.setValue(toTop);
