@@ -578,6 +578,25 @@ test('874×402 공지 종이는 실제 패딩을 뺀 뒤에도 140px 이상 읽�
   await screen.unmount();
 });
 
+test('667×375 공지 종이는 축소된 패딩을 적용해도 140px 읽기 높이를 보장한다', async () => {
+  const width = 667;
+  const height = 375;
+  const scale = width / 874;
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width,
+    height,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const readableHeight = drawer.height - drawer.paddingTop - drawer.paddingBottom;
+
+  assert.equal(drawer.top, 4);
+  assert.equal(drawer.height, height - 8);
+  assert.equal(drawer.paddingTop, 38 * scale);
+  assert.equal(drawer.paddingBottom, 28 * scale);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
 test('열린 게시판 패널에서도 스크롤을 막고 배경 라벨은 패널 전환을 허용한다', async () => {
   const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }));
   const scroll = screen.getByTestId('board-scene-scroll');
