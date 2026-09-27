@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { Linking, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { blockUser, getBlockedUsers, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { isUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
@@ -99,6 +99,15 @@ test('휴대폰 세로에서는 하단 모서리가 닫힌 bottom sheet로 배�
   assert.equal(style.borderBottomLeftRadius, 0);
   assert.equal(style.borderBottomRightRadius, 0);
   assert.equal(style.marginBottom, 44);
+});
+
+test('배경 오버레이는 공용 component token을 사용한다', async () => {
+  const screen = await render(<UserSafetySheet {...props()} />);
+
+  assert.equal(
+    StyleSheet.flatten(screen.getByTestId('user-safety-overlay').props.style).backgroundColor,
+    componentTokens.overlay.background,
+  );
 });
 
 test('메뉴·차단 확인·신고 본문은 모두 높이 제한 안에서 스크롤할 수 있다', async () => {
@@ -276,7 +285,8 @@ test('선택 차단이 실패해도 실패 상태를 담아 신고 메일 작성
 test('응답이 유실된 선택 차단은 서버 차단 목록 재검증으로 즉시 수렴한다', async () => {
   blockMock.mockRejectedValue(new Error('response lost'));
   blockedUsersMock.mockResolvedValue([{ id: 'user-2', name: '민지' }]);
-  const screen = await render(<UserSafetySheet {...props()} />);
+  const callbacks = props();
+  const screen = await render(<UserSafetySheet {...callbacks} />);
   await fireEvent.press(screen.getByText('신고하기'));
   await fireEvent.press(screen.getByRole('switch', { name: '이 사용자도 차단' }));
 
@@ -284,6 +294,13 @@ test('응답이 유실된 선택 차단은 서버 차단 목록 재검증으로 
 
   await waitFor(() => assert.equal(blockedUsersMock.mock.calls.length, 1));
   await waitFor(() => assert.equal(isUserBlocked('user-2'), true));
+  await waitFor(() => assert.equal(openUrlMock.mock.calls.length, 1));
+  assert.ok(decodeURIComponent(openUrlMock.mock.calls[0][0]).includes('앱에서 함께 차단: 완료'));
+  assert.equal(callbacks.onChanged.mock.calls.length, 1);
+  assert.equal(
+    callbacks.onMessage.mock.calls[0][0],
+    '차단했어요. 메일 내용을 확인한 뒤 보내 주세요.',
+  );
 });
 
 test('선택 차단 뒤 메일 앱이 실패해도 시트를 유지해 재시도할 수 있다', async () => {
@@ -362,4 +379,20 @@ test('직접 차단 성공은 API 확인 뒤 로컬 필터와 완료 콜백을 �
   assert.equal(callbacks.onChanged.mock.calls.length, 1);
   assert.equal(callbacks.onClose.mock.calls.length, 1);
   assert.equal(callbacks.onMessage.mock.calls[0][0], '민지님을 차단했어요.');
+});
+
+test('직접 차단 응답이 유실돼도 서버 목록에서 확인되면 성공으로 안내한다', async () => {
+  blockMock.mockRejectedValue(new Error('response lost'));
+  blockedUsersMock.mockResolvedValue([{ id: 'user-2', name: '민지' }]);
+  const callbacks = props();
+  const screen = await render(<UserSafetySheet {...callbacks} />);
+
+  await fireEvent.press(screen.getByText('차단하기'));
+  await fireEvent.press(screen.getByText('차단'));
+
+  await waitFor(() => assert.equal(isUserBlocked('user-2'), true));
+  assert.equal(callbacks.onChanged.mock.calls.length, 1);
+  assert.equal(callbacks.onClose.mock.calls.length, 1);
+  assert.equal(callbacks.onMessage.mock.calls[0][0], '민지님을 차단했어요.');
+  assert.equal(screen.queryByText(/처리하지 못했어요/), null);
 });

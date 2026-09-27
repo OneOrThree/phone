@@ -10,7 +10,12 @@ import { getBlockedUsers } from '@/services/api/safety';
 import { saveSession } from '@/services/api/session';
 import type { FriendsScreen } from '@/services/api/friends';
 import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
-import { markUserBlocked, markUserUnblocked, replaceBlockedUsers } from '@/services/blockedUsers';
+import {
+  markUserBlocked,
+  markUserUnblocked,
+  replaceBlockedUsers,
+  revalidateBlockedUsers,
+} from '@/services/blockedUsers';
 
 jest.mock('@/services/api/friends', () => ({
   ...jest.requireActual('@/services/api/friends'),
@@ -230,6 +235,25 @@ test('조회 실패는 error 상태로 두고 retry 가 같은 date 로 다시 �
 
   await act(async () => result.current.retry());
   await waitFor(() => assert.equal(result.current.status, 'ready'));
+  assert.equal(screenMock.mock.calls.length, 2);
+});
+
+test('차단 목록 오류 복구로 ID가 제거돼도 친구 서버 정본은 한 번만 다시 읽는다', async () => {
+  replaceBlockedUsers([{ id: 'u-friend', name: '짝꿍' }]);
+  screenMock.mockResolvedValue(screen());
+  const { result } = await renderHook(() => useFriendsScreen(args));
+  await waitFor(() => assert.equal(result.current.status, 'ready'));
+
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+  await waitFor(() => assert.equal(result.current.status, 'error'));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => result.current.retry());
+
+  await waitFor(() => assert.equal(result.current.status, 'ready'));
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await Promise.resolve();
   assert.equal(screenMock.mock.calls.length, 2);
 });
 

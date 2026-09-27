@@ -22,7 +22,7 @@ import {
   type ReportReason,
   type ReportTargetType,
 } from '@/services/api/safety';
-import { markUserBlocked, revalidateBlockedUsers } from '@/services/blockedUsers';
+import { isUserBlocked, markUserBlocked, revalidateBlockedUsers } from '@/services/blockedUsers';
 import { useAppLayout } from '@/utils/layout';
 
 const REASONS: Array<{ value: ReportReason; label: string }> = [
@@ -100,7 +100,19 @@ export function UserSafetySheet(props: Props) {
       props.onMessage(`${props.targetName}님을 차단했어요.`);
     } catch (thrown) {
       // 서버 성공 뒤 응답만 유실됐을 수도 있으므로 정본을 즉시 다시 읽어 로컬 필터를 수렴시킨다.
-      revalidateBlockedUsers().catch(() => {});
+      const verified = await revalidateBlockedUsers()
+        .then(
+          (users) =>
+            users.some((user) => user.id === props.targetUserId) ||
+            isUserBlocked(props.targetUserId),
+        )
+        .catch(() => false);
+      if (verified) {
+        props.onChanged?.();
+        props.onClose();
+        props.onMessage(`${props.targetName}님을 차단했어요.`);
+        return;
+      }
       fail(thrown);
     } finally {
       setBusy(false);
@@ -136,15 +148,20 @@ export function UserSafetySheet(props: Props) {
       if (alsoBlock && !reportBlockCompleted) {
         try {
           await blockUser(props.targetUserId);
-        } catch {
-          // 신고 작성은 차단과 독립적이다. 차단 실패를 본문·완료 안내에 남기고 계속 진행한다.
-          blockFailed = true;
-          // 성공 응답 유실 가능성까지 포함해 서버 차단 목록으로 즉시 수렴시킨다.
-          revalidateBlockedUsers().catch(() => {});
-        }
-        if (!blockFailed) {
           blocked = true;
           markUserBlocked(props.targetUserId);
+        } catch {
+          // POST 성공 뒤 응답만 유실될 수 있으므로 서버 정본을 기다려 실제 차단 여부를 확정한다.
+          blocked = await revalidateBlockedUsers()
+            .then(
+              (users) =>
+                users.some((user) => user.id === props.targetUserId) ||
+                isUserBlocked(props.targetUserId),
+            )
+            .catch(() => false);
+          blockFailed = !blocked;
+        }
+        if (blocked) {
           setReportBlockCompleted(true);
           props.onChanged?.();
         }
@@ -194,7 +211,10 @@ export function UserSafetySheet(props: Props) {
   return (
     <Modal transparent visible={props.visible} animationType="fade" onRequestClose={close}>
       <ImageBackground source={SAFETY_ART.background} resizeMode="cover" style={{ flex: 1 }}>
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: `${C.ink}66` }]} />
+        <View
+          testID="user-safety-overlay"
+          style={[StyleSheet.absoluteFill, { backgroundColor: componentTokens.overlay.background }]}
+        />
         <KeyboardAvoidingView
           testID="user-safety-layout"
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}

@@ -78,6 +78,8 @@ export function useFriendsScreen({
   const [searchItems, setSearchItems] = useState<FriendSearchItem[]>([]);
   const req = useRef(0);
   const searchReq = useRef(0);
+  const blockedRetryFlight = useRef<Promise<unknown> | null>(null);
+  const suppressNextBlockedRefresh = useRef(false);
   const session = sessionGeneration();
   const blockedUsers = useBlockedUsers(active, routeActive, routeKey);
   const blockedIds = blockedUsers.ids;
@@ -94,6 +96,10 @@ export function useFriendsScreen({
     if (!active || blockedUsers.status !== 'ready') return;
     const previous = previousBlockedIds.current.ids;
     previousBlockedIds.current.ids = blockedIds;
+    if (suppressNextBlockedRefresh.current) {
+      suppressNextBlockedRefresh.current = false;
+      return;
+    }
     // 차단 중 받은 서버 응답에는 해당 사용자가 없으므로 ID가 제거되면 로컬 필터만
     // 풀지 말고 친구·요청·검색 서버 정본도 다시 적재한다.
     if (previous?.size && [...previous].some((id) => !blockedIds.has(id))) {
@@ -182,9 +188,24 @@ export function useFriendsScreen({
   );
 
   const refresh = useCallback(() => {
-    if (blockedUsers.status === 'error') retryBlockedUsers().catch(() => {});
+    if (blockedUsers.status === 'error') {
+      if (blockedRetryFlight.current) return;
+      suppressNextBlockedRefresh.current = true;
+      const request = retryBlockedUsers()
+        .then(() => {
+          if (active && session === sessionGeneration()) setNonce((n) => n + 1);
+        })
+        .catch(() => {
+          suppressNextBlockedRefresh.current = false;
+        })
+        .finally(() => {
+          if (blockedRetryFlight.current === request) blockedRetryFlight.current = null;
+        });
+      blockedRetryFlight.current = request;
+      return;
+    }
     setNonce((n) => n + 1);
-  }, [blockedUsers.status, retryBlockedUsers]);
+  }, [active, blockedUsers.status, retryBlockedUsers, session]);
 
   const visibleData = useMemo(
     () =>
