@@ -912,12 +912,17 @@ test('친구 관리는 검색과 요청·친구 목록을 한 화면에서 이�
   s.getByLabelText('검색어 지우기');
 });
 
-test('목업 친구 화면에서는 실제 안전 API로 이어지는 더보기를 숨긴다', async () => {
-  const s = await render(<Harness route="friends" full />);
+test('목업 친구 화면에서는 안전 API 더보기를 숨기되 기존 친구 삭제를 유지한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="friends" full expose={(value: any) => (exposed = value)} />,
+  );
 
   assert.equal(s.queryByLabelText('새봄 더보기'), null);
   assert.equal(s.queryByText('신고하기'), null);
   assert.equal(s.queryByText('차단하기'), null);
+  await fireEvent.press(s.getAllByText('친구 삭제')[0]);
+  assert.ok(exposed.actions.includes('FRIEND_DELETE'));
 });
 
 test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친다', async () => {

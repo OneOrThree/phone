@@ -155,6 +155,23 @@ test('다른 기기의 차단 해제를 재검증하면 우체통 서버 정본�
   await hook.unmount();
 });
 
+test('차단 해제 때문에 우체통을 재적재해도 열려 있던 편지를 다시 연다', async () => {
+  replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  assert.equal(hook.result.current.detail?.id, LETTER);
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => revalidateBlockedUsers());
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(getLetterMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.detail?.id, LETTER));
+  await hook.unmount();
+});
+
 test('차단 신호가 오면 캐시된 낙서·편지·친구를 서버 재조회 전에 즉시 숨긴다', async () => {
   const hook = await mount();
 

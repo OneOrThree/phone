@@ -5638,7 +5638,21 @@ export function RedesignScreens({ e }: any) {
           ) : friend.status === 'friend' ? (
             searchResult ? (
               <Badge soft>친구</Badge>
-            ) : null
+            ) : (
+              <Btn
+                small
+                kind="sec"
+                title="친구 삭제"
+                onPress={() =>
+                  confirm(
+                    '친구를 삭제할까요?',
+                    `${friend.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                    () => act('FRIEND_DELETE', { id: friend.id }),
+                    { ok: '삭제', destructive: true },
+                  )
+                }
+              />
+            )
           ) : (
             <Btn
               small

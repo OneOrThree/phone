@@ -161,17 +161,19 @@ function Sheet({
 
 export function CurrentScreens({ e }: any) {
   const friendsRouteActive = e.route === 'friends' || e.route === 'friendSearch';
+  const serverIslands = e.islands;
+  const dispatch = e.dispatch;
   const friendsScreen = useFriendsScreen({
     // 공용 소비자(뗏목 배지·우체통)가 첫 진입부터 서버 친구를 쓰도록 화면 route와 무관하게 적재한다.
-    active: !!e.islands,
+    active: !!serverIslands,
     // 친구 화면 재진입은 별도로 전달해 공용 소비자가 계속 활성이어도 차단 목록을 다시 검증한다.
     routeActive: friendsRouteActive,
     searchActive: friendsRouteActive,
     date: dayKey(e.now),
   });
   useEffect(() => {
+    if (!serverIslands) return;
     const data = friendsScreen.data;
-    if (!data) return;
     const toFriend = (
       userId: string,
       nickname: string | null,
@@ -185,21 +187,23 @@ export function CurrentScreens({ e }: any) {
       status,
       messages: [],
     });
-    e.dispatch({
+    dispatch({
       type: 'FRIENDS_SYNC',
-      friends: [
-        ...data.friends.map((friend) =>
-          toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
-        ),
-        ...data.friendRequests.map((request) =>
-          toFriend(request.userId, request.nickname, null, 'received'),
-        ),
-        ...data.sentFriendRequests.map((request) =>
-          toFriend(request.userId, request.nickname, null, 'sent'),
-        ),
-      ],
+      friends: data
+        ? [
+            ...data.friends.map((friend) =>
+              toFriend(friend.userId, friend.nickname, friend.mainIslandName, 'friend'),
+            ),
+            ...data.friendRequests.map((request) =>
+              toFriend(request.userId, request.nickname, null, 'received'),
+            ),
+            ...data.sentFriendRequests.map((request) =>
+              toFriend(request.userId, request.nickname, null, 'sent'),
+            ),
+          ]
+        : [],
     });
-  }, [e.dispatch, friendsScreen.data]);
+  }, [dispatch, friendsScreen.data, serverIslands]);
 
   return <CurrentScreensContent e={{ ...e, friendsScreen }} />;
 }

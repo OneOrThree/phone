@@ -423,9 +423,12 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     // 차단 중 서버 응답에는 상대의 편지·친구가 빠져 있으므로 해제가 확인되면
     // 로컬 필터만 풀지 말고 우체통 묶음 자체를 다시 읽어 복원한다.
     if (previous?.size && [...previous].some((id) => !blockedIds.has(id))) {
-      load().catch(() => {});
+      const openDetailId = stateRef.current.detail?.id;
+      load()
+        .then(() => (openDetailId ? openLetter(openDetailId) : undefined))
+        .catch(() => {});
     }
-  }, [active, blockedIds, blockedUsers.status, generation, load]);
+  }, [active, blockedIds, blockedUsers.status, generation, load, openLetter]);
 
   useEffect(() => {
     epoch.current += 1;
