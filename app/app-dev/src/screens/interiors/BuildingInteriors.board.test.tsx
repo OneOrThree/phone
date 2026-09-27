@@ -336,6 +336,8 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
       [956, 440],
       [1210, 834],
       [1024, 1180],
+      [320, 480],
+      [290, 400],
     ];
 
     for (const [width, height] of viewports) {
@@ -346,7 +348,7 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
       assert.equal(scene.height, scrollScene ? width * 1.5 : height);
       assert.equal(scene.width, scrollScene ? width : (height * 2) / 3);
       assert.equal(scene.left, scrollScene ? 0 : (width - scene.width) / 2);
-      const labelScale = scrollScene ? Math.min(1, scene.width / 402) : 1;
+      const labelScale = Math.min(1, scene.width / 402);
 
       const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
       assert.equal(labelScene.left, 0);
@@ -389,7 +391,7 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
       assert.equal(StyleSheet.flatten(noticeTitle.props.style).fontSize, 28 * labelScale);
       assert.equal(StyleSheet.flatten(questTitle.props.style).fontSize, 22 * labelScale);
       assert.ok(StyleSheet.flatten(noticeTitle.props.style).width >= 112);
-      assert.ok(StyleSheet.flatten(questTitle.props.style).width >= 132);
+      assert.ok(StyleSheet.flatten(questTitle.props.style).width >= 132 * labelScale);
       assert.notEqual(StyleSheet.flatten(noticeTitle.props.style).whiteSpace, 'nowrap');
       assert.notEqual(StyleSheet.flatten(questTitle.props.style).whiteSpace, 'nowrap');
       await screen.unmount();
@@ -441,6 +443,27 @@ test('좁은 세로 화면에서도 청사진 패널과 두 열 배치를 유지
   await screen.unmount();
 });
 
+test('작은 320×480·290×400 화면에서 퀘스트와 청사진 터치 영역이 겹치지 않는다', async () => {
+  for (const [width, height] of [
+    [320, 480],
+    [290, 400],
+  ]) {
+    const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+    const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+    const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+    const separated =
+      quest.top + quest.height <= blueprint.top ||
+      blueprint.top + blueprint.height <= quest.top ||
+      quest.left + quest.width <= blueprint.left ||
+      blueprint.left + blueprint.width <= quest.left;
+
+    assert.ok(quest.width >= 44 && quest.height >= 44);
+    assert.ok(blueprint.width >= 44 && blueprint.height >= 44);
+    assert.ok(separated, `터치 영역이 ${width}×${height}에서 겹치지 않음`);
+    await screen.unmount();
+  }
+});
+
 test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라벨이 같은 좌표계에 놓인다', async () => {
   const restore = webMockMode('?review');
   try {
@@ -456,6 +479,8 @@ test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라
       [956, 440],
       [1210, 834],
       [1024, 1180],
+      [320, 480],
+      [290, 400],
     ];
 
     for (const [width, height] of viewports) {
@@ -503,6 +528,67 @@ test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라
   } finally {
     restore();
   }
+});
+
+test('게시판 장면 그라데이션을 웹·네이티브와 세로·가로 모두 이미지 위에 그린다', async () => {
+  const previousOS = Platform.OS;
+  try {
+    for (const platform of ['web', 'ios']) {
+      (Platform as any).OS = platform;
+      for (const [width, height] of [
+        [402, 874],
+        [874, 402],
+      ]) {
+        const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+        const image = screen.getByTestId('board-scene-image', { includeHiddenElements: true });
+        const gradient = screen.getByTestId('board-scene-gradient');
+        const imageStyle = StyleSheet.flatten(image.props.style);
+        const gradientStyle = StyleSheet.flatten(gradient.props.style);
+        const scene = image.parent;
+        assert.ok(scene);
+        const siblings = scene.children;
+
+        assert.equal(imageStyle.zIndex, 0);
+        assert.equal(gradientStyle.zIndex, 1);
+        assert.ok(
+          String(
+            gradientStyle.backgroundImage ?? gradientStyle.experimental_backgroundImage,
+          ).includes('linear-gradient'),
+        );
+        assert.equal(gradient.parent, scene);
+        assert.ok(siblings.indexOf(gradient) > siblings.indexOf(image));
+        await screen.unmount();
+      }
+    }
+  } finally {
+    (Platform as any).OS = previousOS;
+  }
+});
+
+test('874×402 공지 종이는 실제 패딩을 뺀 뒤에도 140px 이상 읽기 영역을 확보한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 402,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const readableHeight = drawer.height - drawer.paddingTop - drawer.paddingBottom;
+
+  assert.equal(drawer.height, 394);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
+test('열린 게시판 패널에서도 스크롤을 막고 배경 라벨은 패널 전환을 허용한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }));
+  const scroll = screen.getByTestId('board-scene-scroll');
+
+  assert.equal(scroll.props.scrollEnabled, false);
+  assert.notEqual(scroll.props.pointerEvents, 'none');
+  fireEvent.press(screen.getByTestId('board-quest-area'));
+  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
+  fireEvent.press(screen.getByTestId('board-notice-area'));
+  await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
+  await screen.unmount();
 });
 
 test('noartifact 비교 화면에서도 게시판 배경을 그라데이션 아래에 유지한다', async () => {

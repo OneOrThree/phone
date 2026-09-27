@@ -5743,7 +5743,7 @@ export function Board({
   useEffect(() => {
     if (land) sceneScrollRef.current?.scrollTo({ x: 0, y: initialSceneOffset, animated: false });
   }, [land, initialSceneOffset]);
-  const labelScale = land ? Math.min(1, scene.width / 402) : 1;
+  const labelScale = Math.min(1, scene.width / 402);
   const sceneHitbox = (
     centerX: number,
     centerY: number,
@@ -5761,7 +5761,7 @@ export function Board({
     };
   };
   const questHitHeight = Math.max(scene.height * 0.09, 44);
-  const accessibleQuestHeight = 22 * 1.1 * 2 + 20 + 3 + 6;
+  const accessibleQuestHeight = (22 * 1.1 * 2 + 20 + 3 + 6) * labelScale;
   const questLabelHitHeight = Math.max(questHitHeight, accessibleQuestHeight);
   const blueprintHitHeight = Math.min(
     Math.max(scene.height * 0.128, 44),
@@ -5814,7 +5814,7 @@ export function Board({
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
   const sheetHeight = Math.min(height * 0.58, 492 * landScale);
-  const sheetCramped = sheetHeight - 89 * landScale < 140 * landScale;
+  const sheetCramped = sheetHeight - 110 * landScale < 140 * landScale;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
   const paperPad = sheetCramped
     ? { top: 38 * landScale, bottom: 28 * landScale }
@@ -5847,7 +5847,6 @@ export function Board({
           webOnly({ overscrollBehavior: 'none' }),
         ]}
         contentContainerStyle={{ width, height: land ? scene.height : height, overflow: 'hidden' }}
-        pointerEvents={s.panel ? 'none' : 'auto'}
       >
         <View testID="board-scene" style={{ position: 'relative', ...scene }}>
           <Image
@@ -5864,6 +5863,16 @@ export function Board({
               height: scene.height,
               zIndex: 0,
             }}
+          />
+          <View
+            testID="board-scene-gradient"
+            pointerEvents="none"
+            style={[
+              { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 1 },
+              gradient(
+                'linear-gradient(180deg,#37271d12 0%,transparent 24%,transparent 70%,#37271d0c 100%)',
+              ),
+            ]}
           />
           {/* 세로에서는 공지 종이 질감을 덧입혀 목록 UI와 맞춘다 */}
           {!land && (
