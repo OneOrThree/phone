@@ -98,6 +98,11 @@ SERVICE_OPTIONAL_KEYS = {
         "LINK_TRUSTED_IP_HEADERS", "COMPAT_MATCH_HANDLER_ENABLED", "COMPAT_IMPORT_CONTRACT_READY",
         "COMPAT_MIGRATION_ID", "BUSINESS_COMPAT_CLAIM_QUEUE_REPLAY_ENABLED",
         "GOOGLE_DRIVE_API_KEY",
+        # GROMO-1976 신고 접수 — Gmail 앱 비밀번호는 Business 컨테이너에만 전달한다.
+        # enabled를 Secret에 두지 않으면 기존 환경은 계속 fail-closed(신고 API 503)로 동작한다.
+        "REPORT_MAIL_ENABLED", "REPORT_MAIL_RECIPIENT", "REPORT_MAIL_USERNAME",
+        "REPORT_MAIL_APP_PASSWORD", "REPORT_MAIL_SMTP_HOST", "REPORT_MAIL_SMTP_PORT",
+        "REPORT_MAIL_IMAP_HOST", "REPORT_MAIL_VERIFY_TIMEOUT",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
         "BUSINESS_CURSOR_ACTIVE_KEY",
     ),

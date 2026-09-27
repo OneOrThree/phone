@@ -19,6 +19,16 @@ import java.util.UUID;
  */
 public interface UserBlockRepository extends JpaRepository<UserBlock, UUID> {
 
+    /** 같은 사용자 쌍의 차단 생성과 직접 교류 생성을 한 트랜잭션 순서로 세운다. */
+    @Query(value = "SELECT pg_advisory_xact_lock(hashtextextended(:pairKey, 1976))", nativeQuery = true)
+    void lockDirectContactPair(@Param("pairKey") String pairKey);
+
+    /** 어느 방향이든 한 건이라도 차단했으면 직접 교류는 닫힌다. */
+    @Query("SELECT (COUNT(b) > 0) FROM UserBlock b"
+            + " WHERE (b.blocker.id = :first AND b.blocked.id = :second)"
+            + " OR (b.blocker.id = :second AND b.blocked.id = :first)")
+    boolean existsInEitherDirection(@Param("first") UUID first, @Param("second") UUID second);
+
     /**
      * (blocker → blocked) 방향 고정 단건 조회
      *

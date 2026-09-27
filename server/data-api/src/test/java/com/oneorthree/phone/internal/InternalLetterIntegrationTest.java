@@ -129,6 +129,28 @@ class InternalLetterIntegrationTest {
     }
 
     @Test
+    @DisplayName("어느 방향이든 차단 관계가 있으면 양쪽의 새 편지를 거절한다")
+    void blockPreventsLettersInBothDirections() throws Exception {
+        UUID blocker = newUser();
+        UUID blocked = newUser();
+        befriend(blocker, blocked);
+
+        as(blocker, post(path(blocker, "/blocks")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"blockedUserId\":\"" + blocked + "\"}"))
+                .andExpect(status().isNoContent());
+
+        as(blocker, post(path(blocker, "/letters")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"receiverId\":\"" + blocked + "\",\"content\":\"보내지면 안 됨\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("LETTER_BLOCKED_RELATION"));
+        as(blocked, post(path(blocked, "/letters")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"receiverId\":\"" + blocker + "\",\"content\":\"답장도 안 됨\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("LETTER_BLOCKED_RELATION"));
+        assertThat(countLetters()).isZero();
+    }
+
+    @Test
     @DisplayName("게스트 발송은 서비스 판정보다 먼저 403 SOCIAL_LOGIN_REQUIRED 이고 행을 남기지 않는다 (GROMO-1992)")
     void guestSendIsRejectedBeforeServiceChecks() throws Exception {
         UUID guest = newGuest();

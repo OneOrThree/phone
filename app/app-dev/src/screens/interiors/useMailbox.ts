@@ -27,7 +27,7 @@
  * 권한을 잃은 뒤 캐시된 편지가 다시 보이면 안 된다. 상세의 403/404 는 그 편지의
  * 목록 항목도 함께 지운다.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import {
@@ -44,6 +44,7 @@ import {
   type MailboxMessage,
 } from '@/services/api/letters';
 import { CLIENT_INACTIVE, CLIENT_WRITE_IN_PROGRESS } from './useBoardNotices';
+import { isUserBlocked, useBlockedUserIds } from '@/services/blockedUsers';
 
 export type MailboxState = {
   islandId: string | null;
@@ -103,6 +104,7 @@ const authLost = (error: unknown) =>
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
 
 export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: string }) {
+  const blockedIds = useBlockedUserIds(active);
   const [state, setState] = useState<MailboxState>(EMPTY);
   const stateRef = useRef(state);
   const set = useCallback((patch: Partial<MailboxState>) => {
@@ -331,6 +333,9 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
       if (!mounted.current || !active)
         throw new ApiError(CLIENT_INACTIVE, '지금은 편지를 보낼 수 없어요.', 0);
       if (!cached()) throw stale();
+      if (isUserBlocked(receiverId)) {
+        throw new ApiError('CLIENT_BLOCKED_USER', '차단한 사용자에게는 편지를 보낼 수 없어요.', 0);
+      }
       if (stateRef.current.sending)
         throw new ApiError(CLIENT_WRITE_IN_PROGRESS, '편지를 보내는 중이에요.', 0);
       const e = epoch.current;
@@ -412,8 +417,21 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey·generation 은 재시작 신호다.
   }, [active, scopeKey, generation, load]);
 
+  const visibleState = useMemo(() => {
+    const counterpart = (detail: LetterView) =>
+      detail.senderId === state.myId ? detail.receiverId : detail.senderId;
+    return {
+      ...state,
+      messages: state.messages.filter((message) => !blockedIds.has(message.userId)),
+      letters: state.letters.filter((letter) => !blockedIds.has(letter.counterpartUserId)),
+      sent: state.sent.filter((letter) => !blockedIds.has(letter.counterpartUserId)),
+      friends: state.friends.filter((friend) => !blockedIds.has(friend.userId)),
+      detail: state.detail && !blockedIds.has(counterpart(state.detail)) ? state.detail : null,
+    };
+  }, [blockedIds, state]);
+
   return {
-    ...state,
+    ...visibleState,
     retry: load,
     loadMoreLetters,
     loadMoreMessages,

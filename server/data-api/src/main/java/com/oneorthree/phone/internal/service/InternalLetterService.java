@@ -18,6 +18,7 @@ import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.letter.repository.domain.Letter;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.service.UserBlockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
@@ -70,6 +71,7 @@ public class InternalLetterService {
     private final IslandFacilityQueryService islandFacilityQueryService;
     private final PerUserHourlyLimiter sendLimiter;
     private final BannedWords bannedWords;
+    private final UserBlockService userBlockService;
 
     /**
      * 한도 카운터가 친구 요청 것과 같은 타입이라 이름으로 골라 받는다 — Lombok 생성자는 {@code @Qualifier} 를
@@ -81,7 +83,8 @@ public class InternalLetterService {
                                  GroupMemberRepository islandMemberships,
                                  IslandFacilityQueryService islandFacilityQueryService,
                                  @Qualifier("letterSendRateLimiter") PerUserHourlyLimiter sendLimiter,
-                                 BannedWords bannedWords) {
+                                 BannedWords bannedWords,
+                                 UserBlockService userBlockService) {
         this.letters = letters;
         this.users = users;
         this.friendships = friendships;
@@ -89,6 +92,7 @@ public class InternalLetterService {
         this.islandFacilityQueryService = islandFacilityQueryService;
         this.sendLimiter = sendLimiter;
         this.bannedWords = bannedWords;
+        this.userBlockService = userBlockService;
     }
 
     /**
@@ -118,6 +122,9 @@ public class InternalLetterService {
 
         User sender = users.getCallerForShare(senderId);
         User receiver = users.getTargetForShare(body.receiverId());
+        if (userBlockService.directContactBlocked(senderId, body.receiverId())) {
+            throw new LetterException(LetterErrorCode.LETTER_BLOCKED_RELATION);
+        }
         // 관계 행 배타 락 (codex 리뷰 P1) — 친구 삭제와 «같은 행»에서 직렬화한다. 락 없이 확인하면
         // 이 검사를 통과한 뒤 삭제가 미확인 편지 정리까지 커밋하고, 그 다음에 아래 save 가 새 편지를
         // 꽂아 「관계는 끊겼는데 미확인 편지가 남는」 상태가 된다(LLD §결정 3 위반).

@@ -47,6 +47,7 @@ public class LetterUseCase {
             Map.entry("NOT_LETTER_PARTICIPANT", new PublicFailure(ApiErrorCode.FORBIDDEN, "letterId")),
             // GROMO-2002 닫기는 수신자만 — 발신자의 시도는 「참여자가 아님」과 상태가 같고 사유만 다르다.
             Map.entry("NOT_LETTER_RECEIVER", new PublicFailure(ApiErrorCode.FORBIDDEN, "letterId")),
+            Map.entry("LETTER_BLOCKED_RELATION", new PublicFailure(ApiErrorCode.FORBIDDEN, "receiverId")),
             Map.entry("LETTER_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "letterId")));
 
     private final DataFriendClient data;

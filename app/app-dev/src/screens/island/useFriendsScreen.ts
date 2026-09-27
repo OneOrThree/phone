@@ -11,7 +11,7 @@
  * 검색은 입력 300ms 디바운스로 `GET /friends/search?type=NICKNAME&q=` 를 친다 —
  * 서버 계약이 대소문자 무시 전체 일치라 로컬 필터를 다시 돌리지 않는다.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import {
@@ -20,6 +20,7 @@ import {
   type FriendSearchItem,
   type FriendsScreen,
 } from '@/services/api/friends';
+import { useBlockedUserIds } from '@/services/blockedUsers';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -72,6 +73,7 @@ export function useFriendsScreen({
   const req = useRef(0);
   const searchReq = useRef(0);
   const session = sessionGeneration();
+  const blockedIds = useBlockedUserIds(active);
 
   useEffect(() => {
     if (!active) {
@@ -155,10 +157,24 @@ export function useFriendsScreen({
 
   const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
+  const visibleData = useMemo(
+    () =>
+      data && {
+        friends: data.friends.filter((item) => !blockedIds.has(item.userId)),
+        friendRequests: data.friendRequests.filter((item) => !blockedIds.has(item.userId)),
+        sentFriendRequests: data.sentFriendRequests.filter((item) => !blockedIds.has(item.userId)),
+      },
+    [blockedIds, data],
+  );
+  const visibleSearchItems = useMemo(
+    () => searchItems.filter((item) => !blockedIds.has(item.userId)),
+    [blockedIds, searchItems],
+  );
+
   return {
     status,
     error,
-    data,
+    data: visibleData,
     busy,
     refresh,
     retry: refresh,
@@ -167,6 +183,6 @@ export function useFriendsScreen({
     setQuery,
     searchStatus,
     searchError,
-    searchItems,
+    searchItems: visibleSearchItems,
   };
 }

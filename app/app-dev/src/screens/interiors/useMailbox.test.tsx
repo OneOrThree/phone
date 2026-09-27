@@ -12,6 +12,7 @@ import {
   sendLetter,
 } from '@/services/api/letters';
 import { useMailbox } from '@/screens/interiors/useMailbox';
+import { markUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
 jest.mock('@/services/api/letters', () => ({
   getMailboxScreen: jest.fn(),
@@ -100,9 +101,22 @@ const mount = async (over: { active?: boolean; scopeKey?: string } = {}) => {
 
 beforeEach(async () => {
   jest.clearAllMocks();
+  replaceBlockedUsers([]);
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   screenMock.mockResolvedValue(screen());
+});
+
+test('차단 신호가 오면 캐시된 낙서·편지·친구를 서버 재조회 전에 즉시 숨긴다', async () => {
+  const hook = await mount();
+
+  await act(async () => markUserBlocked('u2'));
+
+  assert.deepEqual(hook.result.current.messages, []);
+  assert.deepEqual(hook.result.current.letters, []);
+  assert.deepEqual(hook.result.current.friends, []);
+  assert.equal(screenMock.mock.calls.length, 1);
+  await hook.unmount();
 });
 
 test('로드 — 화면 묶음의 섬·낙서·받은 편지·친구를 그대로 채운다', async () => {

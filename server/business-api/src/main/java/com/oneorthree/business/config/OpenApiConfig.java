@@ -30,6 +30,7 @@ public class OpenApiConfig {
             "/auth/**",
             "/friends/**",
             "/blocks/**",
+            "/reports/**",
             "/islands/**",
             "/rankings/**",
             "/invitations/**",

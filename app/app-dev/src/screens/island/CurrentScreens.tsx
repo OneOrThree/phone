@@ -95,6 +95,7 @@ import { InteriorRoute } from '@/screens/interiors/BuildingInteriors';
 import { Library } from '@/screens/island/Library';
 import { Hall } from '@/screens/island/Hall';
 import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
+import { BlockedUsersScreen } from '@/screens/island/BlockedUsersScreen';
 import {
   isScreenTimeAvailable,
   screenTime,
@@ -378,6 +379,7 @@ function CurrentScreensContent({ e }: any) {
       <ScreenTimePermission e={e} />
     );
   if (r === 'screenTimeApps') return <MeasuredAppPicker e={e} />;
+  if (r === 'blockedUsers') return <BlockedUsersScreen e={e} />;
   return <RedesignScreens e={e} />;
 }
 

@@ -7,7 +7,7 @@ location ^~ /actuator/ { return 404; }
 location = /actuator { return 404; }
 
 # 앱의 공개 Business API와 현재 필요한 /api/v1 호환 표면만 허용한다.
-location ~ ^(?:/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks)(?:/|$)|/api/v1/(?:users/me/(?:device-token|notification-settings)$|link-previews(?:/|$))) {
+location ~ ^(?:/(?:auth/sessions|me|islands|focus-sessions|invitations|rankings|statistics|screens|link-previews|friends|letters|blocks|reports)(?:/|$)|/api/v1/(?:users/me/(?:device-token|notification-settings)$|link-previews(?:/|$))) {
     proxy_pass http://127.0.0.1:8083;
     proxy_http_version 1.1;
     proxy_set_header Host $host;

@@ -182,6 +182,9 @@ public class FriendService {
         }
         User fromUser = getCallerParticipant(me);
         User toUser = getRelationParticipant(targetUserId);
+        if (userBlockService.directContactBlocked(me, targetUserId)) {
+            throw new FriendException(FriendErrorCode.FRIEND_BLOCKED_RELATION);
+        }
 
         // 락 없는 판정이다 — 동시에 들어온 반대 방향 요청은 여기서 못 거른다. 그건 V98 의
         // uq_friendships_pending_pair 가 커밋 시점에 잡고 409 로 떨어뜨린다(위 Javadoc 의 논증).

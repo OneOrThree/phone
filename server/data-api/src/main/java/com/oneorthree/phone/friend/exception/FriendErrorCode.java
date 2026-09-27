@@ -23,6 +23,7 @@ public enum FriendErrorCode implements ErrorCode {
     NOT_REQUEST_RECEIVER(HttpStatus.FORBIDDEN, "요청 수신자만 수락/거절할 수 있습니다."),
     // 취소는 발신자 축이다 — NOT_REQUEST_RECEIVER 와 대칭 (GROMO-1894, friend-letter LLD §1.11)
     NOT_REQUEST_SENDER(HttpStatus.FORBIDDEN, "요청 발신자만 취소할 수 있습니다."),
+    FRIEND_BLOCKED_RELATION(HttpStatus.FORBIDDEN, "차단된 사용자와는 친구 요청을 주고받을 수 없습니다."),
 
     // 검색 수단 파라미터가 등록된 전략에 없다 (GROMO-1725, 종전 IllegalArgumentException 409)
     INVALID_SEARCH_TYPE(HttpStatus.BAD_REQUEST, "지원하지 않는 검색 수단입니다."),

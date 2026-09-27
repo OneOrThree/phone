@@ -8,6 +8,7 @@ import { ApiError } from '@/services/api/client';
 import { getFriendsScreen, searchFriends } from '@/services/api/friends';
 import type { FriendsScreen } from '@/services/api/friends';
 import { useFriendsScreen } from '@/screens/island/useFriendsScreen';
+import { markUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
 jest.mock('@/services/api/friends', () => ({
   ...jest.requireActual('@/services/api/friends'),
@@ -48,7 +49,10 @@ const screen = (over: Partial<FriendsScreen> = {}): FriendsScreen => ({
 
 const args = { active: true, searchActive: false, date: '2026-09-22' };
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  replaceBlockedUsers([]);
+});
 
 test('비활성이면 조회하지 않는다', async () => {
   const { result } = await renderHook(() => useFriendsScreen({ ...args, active: false }));
@@ -64,6 +68,21 @@ test('활성이면 /screens/friends 를 date 와 함께 읽고 세 조각을 보
   assert.equal(screenMock.mock.calls[0][0], '2026-09-22');
   assert.equal(result.current.data?.friends[0].nickname, '짝꿍');
   assert.equal(result.current.data?.friendRequests[0].requestId, 'r-1');
+});
+
+test('차단 신호가 오면 이미 적재된 친구·요청을 서버 재조회 전에 즉시 숨긴다', async () => {
+  screenMock.mockResolvedValue(screen());
+  const { result } = await renderHook(() => useFriendsScreen(args));
+  await waitFor(() => assert.equal(result.current.status, 'ready'));
+
+  await act(async () => {
+    markUserBlocked('u-friend');
+    markUserBlocked('u-recv');
+  });
+
+  assert.deepEqual(result.current.data?.friends, []);
+  assert.deepEqual(result.current.data?.friendRequests, []);
+  assert.equal(screenMock.mock.calls.length, 1);
 });
 
 test('빈 목록은 ready+빈 배열 — 오류로 접지 않는다', async () => {

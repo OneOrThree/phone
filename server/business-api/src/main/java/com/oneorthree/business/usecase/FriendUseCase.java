@@ -45,6 +45,7 @@ public class FriendUseCase {
             Map.entry("INVALID_REQUEST_STATUS", new PublicFailure(ApiErrorCode.STATE_CONFLICT, "requestId")),
             Map.entry("NOT_REQUEST_RECEIVER", new PublicFailure(ApiErrorCode.FORBIDDEN, "requestId")),
             Map.entry("NOT_REQUEST_SENDER", new PublicFailure(ApiErrorCode.FORBIDDEN, "requestId")),
+            Map.entry("FRIEND_BLOCKED_RELATION", new PublicFailure(ApiErrorCode.FORBIDDEN, "targetUserId")),
             Map.entry("REQUEST_NOT_FOUND", new PublicFailure(ApiErrorCode.NOT_FOUND, "requestId")),
             Map.entry("NOT_FRIEND", new PublicFailure(ApiErrorCode.NOT_FOUND, "friendUserId")),
             // GROMO-1996 검색: 등록되지 않은 검색 수단. 공개 field 는 앱이 고칠 파라미터 이름이다.

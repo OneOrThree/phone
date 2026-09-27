@@ -191,6 +191,26 @@ class InternalFriendIntegrationTest {
     }
 
     @Test
+    @DisplayName("어느 방향이든 차단 관계가 있으면 양쪽의 새 친구 요청을 거절한다")
+    void blockPreventsNewFriendRequestsInBothDirections() throws Exception {
+        UUID blocker = newUser();
+        UUID blocked = newUser();
+
+        as(blocker, post(path(blocker, "/blocks")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"blockedUserId\":\"" + blocked + "\"}"))
+                .andExpect(status().isNoContent());
+
+        as(blocker, post(path(blocker, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + blocked + "\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FRIEND_BLOCKED_RELATION"));
+        as(blocked, post(path(blocked, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + blocker + "\"}"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("FRIEND_BLOCKED_RELATION"));
+    }
+
+    @Test
     @DisplayName("취소는 V60 CHECK 를 통과해 CANCELED 로 남고, 수신자 수락은 409, 재요청은 같은 행을 되살린다")
     void cancelPersistsUnderProductionConstraintAndBlocksLateAccept() throws Exception {
         UUID a = newUser();

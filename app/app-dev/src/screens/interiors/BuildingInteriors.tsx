@@ -49,6 +49,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useBoardNotices } from './useBoardNotices';
 import { useMailbox } from './useMailbox';
+import { UserSafetySheet } from '@/components/UserSafetySheet';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
 // 건물 안 장면 위에 기능 화면을 얹는 38개 시안을 RN으로 옮긴다. 수치는 원본 CSS 그대로다.
@@ -6849,6 +6850,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const [groupSent, setGroupSent] = useState(false);
   const [letterText, setLetterText] = useState('섬에 새 꽃이 피었어. 다음에 놀러 와서 같이 보자.');
   const [deletedLetters, setDeletedLetters] = useState<string[]>([]);
+  const [letterSafetyOpen, setLetterSafetyOpen] = useState(false);
   const [reactTransform, react] = useReact(reduceMotion);
   // 앱에서는 안내를 앱 알림으로 띄운다 (장면 토스트는 동작 줄이기에서 그려지지 않는다)
   const say = (message: string) => (e ? e.notify(message) : showToast(message));
@@ -7587,7 +7589,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 9 }}>
           {catAvatar(openedLetter.color, 40)}
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={mailFont(7, 1.4, '#8d715e', '800')}>FROM.</Text>
             <Text
               style={{
@@ -7604,6 +7606,17 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               {[openedLetter.island, openedLetter.time].filter(Boolean).join(' · ')}
             </Text>
           </View>
+          {serverMail ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${openedLetter.from} 더보기`}
+              hitSlop={8}
+              onPress={() => setLetterSafetyOpen(true)}
+              style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={mailFont(10, 1.2, '#7b493f', '900')}>···</Text>
+            </Pressable>
+          ) : null}
         </View>
         <Text
           style={{ marginTop: 28, fontFamily: GOWUN, fontSize: 13, lineHeight: lh(23), color: INK }}
@@ -7884,35 +7897,49 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
 
   if (route !== 'home') {
     return (
-      <Animated.View style={{ transform: reactTransform }}>
-        <View
-          style={[
-            {
-              padding: 11,
-              borderWidth: 1.2,
-              borderColor: '#b38c68',
-              borderRadius: 9,
-              backgroundColor: '#fff1d0',
-              boxShadow: '0 8px 18px #3a1d1766',
-            },
-            // 가운데 종이는 화면 안(위 12·아래 2)에 들어오게 하고 넘치는 본문만 스크롤한다
-            pane && { maxHeight: height - 14 },
-          ]}
-        >
-          {pane ? (
-            <>
-              {pane.head}
-              {/* 기운 종이·그림자가 스크롤 테두리에 잘리지 않게 안쪽 여백을 주고 같은 만큼 바깥으로 뺀다 */}
-              <Scroll style={{ flexShrink: 1, minHeight: 0, margin: -8, padding: 8 }}>
-                {pane.body}
-              </Scroll>
-              {pane.foot}
-            </>
-          ) : (
-            islandRoom
-          )}
-        </View>
-      </Animated.View>
+      <>
+        <Animated.View style={{ transform: reactTransform }}>
+          <View
+            style={[
+              {
+                padding: 11,
+                borderWidth: 1.2,
+                borderColor: '#b38c68',
+                borderRadius: 9,
+                backgroundColor: '#fff1d0',
+                boxShadow: '0 8px 18px #3a1d1766',
+              },
+              // 가운데 종이는 화면 안(위 12·아래 2)에 들어오게 하고 넘치는 본문만 스크롤한다
+              pane && { maxHeight: height - 14 },
+            ]}
+          >
+            {pane ? (
+              <>
+                {pane.head}
+                {/* 기운 종이·그림자가 스크롤 테두리에 잘리지 않게 안쪽 여백을 주고 같은 만큼 바깥으로 뺀다 */}
+                <Scroll style={{ flexShrink: 1, minHeight: 0, margin: -8, padding: 8 }}>
+                  {pane.body}
+                </Scroll>
+                {pane.foot}
+              </>
+            ) : (
+              islandRoom
+            )}
+          </View>
+        </Animated.View>
+        {openedLetter && serverMail ? (
+          <UserSafetySheet
+            visible={letterSafetyOpen}
+            targetUserId={openedLetter.friendId}
+            targetName={openedLetter.from}
+            reportTargetType="LETTER"
+            reportTargetId={openedLetter.id}
+            onClose={() => setLetterSafetyOpen(false)}
+            onChanged={() => mail.retry().catch(() => {})}
+            onMessage={say}
+          />
+        ) : null}
+      </>
     );
   }
 
