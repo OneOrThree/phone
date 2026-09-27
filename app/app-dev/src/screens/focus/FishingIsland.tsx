@@ -572,6 +572,7 @@ export function FishingActor({
   emote,
   reduce,
   motion,
+  catchVisible = true,
   onMotionFinish,
   generation,
   animatedPosition,
@@ -587,6 +588,7 @@ export function FishingActor({
   emote?: string | null;
   reduce: boolean;
   motion?: CatMotionInput;
+  catchVisible?: boolean;
   onMotionFinish?: () => void;
   generation?: number;
   animatedPosition?: {
@@ -708,7 +710,7 @@ export function FishingActor({
       <View style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100, width: 200 }}>
         <Text style={[nameText(me), { textAlign: 'center' }]}>{name}</Text>
       </View>
-      {count > 0 && motion !== 'walk' && (
+      {count > 0 && catchVisible && (
         <Image
           source={assets[catchAssetPath(count)]}
           resizeMode="contain"
@@ -933,6 +935,13 @@ export function FishingPeerActorView({
       emote={emote}
       reduce={reduce}
       motion={motion}
+      catchVisible={
+        actor.position.x === actor.spot.x &&
+        actor.position.y === actor.spot.y &&
+        actor.phase !== 'entering' &&
+        actor.phase !== 'leaving-pause' &&
+        actor.phase !== 'leaving-complete'
+      }
       onMotionFinish={
         actor.phase === 'casting'
           ? () => onCast(actor.key, actor.generation)

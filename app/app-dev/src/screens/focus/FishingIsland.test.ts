@@ -226,10 +226,70 @@ test('낚시 주민은 이동 중 보상을 숨기고 정지하면 다시 표시
     reduce: true,
     animatedPosition: { left: new Animated.Value(0), top: new Animated.Value(0) },
   };
-  const screen = await render(React.createElement(FishingActor, { ...props, motion: 'walk' }));
+  const screen = await render(
+    React.createElement(FishingActor, { ...props, catchVisible: false, motion: 'walk' }),
+  );
   assert.equal(screen.queryByTestId('fishing-actor-catch'), null);
 
   await screen.rerender(React.createElement(FishingActor, props));
+  assert.notEqual(screen.queryByTestId('fishing-actor-catch'), null);
+  await screen.unmount();
+});
+
+test('입장 도중 완료되어 기지개로 전환돼도 좌석에 도착하기 전 보상을 숨긴다', async () => {
+  const callback = jest.fn();
+  const baseActor = {
+    ...({
+      userId: 'u1',
+      sessionId: 's1',
+      name: '주민',
+      color: 'ginger',
+      subject: '수학',
+      seconds: SECONDS_PER_FISH,
+      status: 'active',
+    } as const),
+    key: 'u1:s1',
+    slot: 0,
+    spot: PEER_SPOTS[0],
+    position: LANDING,
+    visible: true,
+    generation: 1,
+  };
+  const viewProps = {
+    size: 640,
+    sizeY: 640 / 1.5,
+    reduce: false,
+    onEntered: callback,
+    onCast: callback,
+    onPausedExit: callback,
+    onStretch: callback,
+    onCompletedExit: callback,
+  };
+  const screen = await render(
+    React.createElement(FishingPeerActorView, {
+      ...viewProps,
+      actor: { ...baseActor, phase: 'entering', generation: 1 },
+    }),
+  );
+  assert.equal(screen.queryByTestId('fishing-actor-catch'), null);
+
+  // 완료 이벤트가 입장 이동을 중단하면 actor.position은 LANDING에 남고
+  // animatedPosition은 실제 중간 픽셀에서 멈춘다. stretch도 보상을 보이면 안 된다.
+  await screen.rerender(
+    React.createElement(FishingPeerActorView, {
+      ...viewProps,
+      actor: { ...baseActor, phase: 'finishing', generation: 2 },
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'stretch');
+  assert.equal(screen.queryByTestId('fishing-actor-catch'), null);
+
+  await screen.rerender(
+    React.createElement(FishingPeerActorView, {
+      ...viewProps,
+      actor: { ...baseActor, position: PEER_SPOTS[0], phase: 'fishing', generation: 3 },
+    }),
+  );
   assert.notEqual(screen.queryByTestId('fishing-actor-catch'), null);
   await screen.unmount();
 });
