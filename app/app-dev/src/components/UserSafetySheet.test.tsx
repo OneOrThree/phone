@@ -3,7 +3,7 @@ import { Linking, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
 import { semanticTokens } from '@/design-system/tokens';
-import { blockUser, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
+import { blockUser, getBlockedUsers, REPORT_EMAIL_RECIPIENT } from '@/services/api/safety';
 import { isUserBlocked, replaceBlockedUsers } from '@/services/blockedUsers';
 
 const mockAppLayout = {
@@ -27,9 +27,11 @@ jest.mock('@/utils/layout', () => ({
 jest.mock('@/services/api/safety', () => ({
   ...jest.requireActual('@/services/api/safety'),
   blockUser: jest.fn(),
+  getBlockedUsers: jest.fn(),
 }));
 
 const blockMock = blockUser as jest.Mock;
+const blockedUsersMock = getBlockedUsers as jest.Mock;
 let openUrlMock: jest.SpyInstance;
 let webWindowOpenMock: jest.Mock;
 
@@ -63,6 +65,7 @@ beforeEach(() => {
     modalWidth: 362,
   });
   replaceBlockedUsers([]);
+  blockedUsersMock.mockResolvedValue([]);
   openUrlMock = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
   webWindowOpenMock = jest.fn();
   Object.defineProperty(window, 'open', {
@@ -267,6 +270,20 @@ test('선택 차단이 실패해도 실패 상태를 담아 신고 메일 작성
     callbacks.onMessage.mock.calls[0][0],
     '차단은 완료하지 못했어요. 신고 메일 내용을 확인한 뒤 보내 주세요.',
   );
+  await waitFor(() => assert.equal(blockedUsersMock.mock.calls.length, 1));
+});
+
+test('응답이 유실된 선택 차단은 서버 차단 목록 재검증으로 즉시 수렴한다', async () => {
+  blockMock.mockRejectedValue(new Error('response lost'));
+  blockedUsersMock.mockResolvedValue([{ id: 'user-2', name: '민지' }]);
+  const screen = await render(<UserSafetySheet {...props()} />);
+  await fireEvent.press(screen.getByText('신고하기'));
+  await fireEvent.press(screen.getByRole('switch', { name: '이 사용자도 차단' }));
+
+  await fireEvent.press(screen.getByText('이메일 작성'));
+
+  await waitFor(() => assert.equal(blockedUsersMock.mock.calls.length, 1));
+  await waitFor(() => assert.equal(isUserBlocked('user-2'), true));
 });
 
 test('선택 차단 뒤 메일 앱이 실패해도 시트를 유지해 재시도할 수 있다', async () => {

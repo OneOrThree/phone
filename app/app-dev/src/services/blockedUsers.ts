@@ -213,17 +213,34 @@ export function useBlockedUsers(
   useSyncExternalStore(subscribe, snapshot, snapshot);
   const currentGeneration = sessionGeneration();
   const hasActivated = useRef(false);
+  const previousActive = useRef(false);
+  const previousRevalidateActive = useRef(false);
+  const previousGeneration = useRef(currentGeneration);
+  useEffect(() => {
+    const activated = active && !previousActive.current;
+    const revalidationEntered = active && revalidateActive && !previousRevalidateActive.current;
+    const generationChanged = previousGeneration.current !== currentGeneration;
+    previousActive.current = active;
+    previousRevalidateActive.current = revalidateActive;
+    previousGeneration.current = currentGeneration;
+    if (!active) return;
+
+    if (generationChanged) loadBlockedUsers().catch(() => {});
+    else if (activated) {
+      const request =
+        hasActivated.current || revalidateActive ? revalidateBlockedUsers() : loadBlockedUsers();
+      hasActivated.current = true;
+      request.catch(() => {});
+    } else if (revalidationEntered) revalidateBlockedUsers().catch(() => {});
+  }, [active, currentGeneration, revalidateActive]);
+
   useEffect(() => {
     if (!active) return;
-    const request =
-      hasActivated.current || revalidateActive ? revalidateBlockedUsers() : loadBlockedUsers();
-    hasActivated.current = true;
-    request.catch(() => {});
     const subscription = AppState.addEventListener('change', (next) => {
       if (next === 'active') revalidateBlockedUsers().catch(() => {});
     });
     return () => subscription.remove();
-  }, [active, currentGeneration, revalidateActive]);
+  }, [active, currentGeneration]);
   return {
     ids,
     users,

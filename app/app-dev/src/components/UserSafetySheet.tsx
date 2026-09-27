@@ -22,7 +22,7 @@ import {
   type ReportReason,
   type ReportTargetType,
 } from '@/services/api/safety';
-import { markUserBlocked } from '@/services/blockedUsers';
+import { markUserBlocked, revalidateBlockedUsers } from '@/services/blockedUsers';
 import { useAppLayout } from '@/utils/layout';
 
 const REASONS: Array<{ value: ReportReason; label: string }> = [
@@ -99,6 +99,8 @@ export function UserSafetySheet(props: Props) {
       props.onClose();
       props.onMessage(`${props.targetName}님을 차단했어요.`);
     } catch (thrown) {
+      // 서버 성공 뒤 응답만 유실됐을 수도 있으므로 정본을 즉시 다시 읽어 로컬 필터를 수렴시킨다.
+      revalidateBlockedUsers().catch(() => {});
       fail(thrown);
     } finally {
       setBusy(false);
@@ -137,6 +139,8 @@ export function UserSafetySheet(props: Props) {
         } catch {
           // 신고 작성은 차단과 독립적이다. 차단 실패를 본문·완료 안내에 남기고 계속 진행한다.
           blockFailed = true;
+          // 성공 응답 유실 가능성까지 포함해 서버 차단 목록으로 즉시 수렴시킨다.
+          revalidateBlockedUsers().catch(() => {});
         }
         if (!blockFailed) {
           blocked = true;

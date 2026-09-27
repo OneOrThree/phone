@@ -107,6 +107,10 @@ test('공용 친구 소비자가 계속 활성이어도 친구 route 재진입 �
 
   await waitFor(() => assert.equal(blockedUsersMock.mock.calls.length, 1));
   await waitFor(() => assert.equal(hook.result.current.data?.friends.length, 0));
+
+  await hook.rerender({ active: false });
+  await Promise.resolve();
+  assert.equal(blockedUsersMock.mock.calls.length, 1);
   await hook.unmount();
 });
 

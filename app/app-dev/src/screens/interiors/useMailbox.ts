@@ -481,9 +481,18 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
   }, [active, blockedIds, blockedUsers.error, blockedUsers.status, state]);
 
   const retry = useCallback(async () => {
-    if (blockedUsers.status === 'error') await retryBlockedUsers();
-    await load();
-  }, [blockedUsers.status, load, retryBlockedUsers]);
+    const retryingDetail =
+      stateRef.current.detail !== null || stateRef.current.detailError !== null;
+    try {
+      if (blockedUsers.status === 'error') await retryBlockedUsers();
+      await load();
+    } catch (error) {
+      if (retryingDetail && mounted.current) {
+        set({ detailLoading: false, detailError: error as ApiError });
+      }
+      throw error;
+    }
+  }, [blockedUsers.status, load, retryBlockedUsers, set]);
 
   return {
     ...visibleState,
