@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { getLedger } from '@/services/api/townHall';
+import { getLedger, type LedgerEntry } from '@/services/api/townHall';
 import { sessionGeneration } from '@/services/api/session';
 import { dayKey } from '@/services/model';
 import type {
@@ -26,6 +26,10 @@ export class GoldenFishMemberTimeline {
     this.snapshots = [];
   }
 
+  coverageStartMs(): number | null {
+    return this.snapshots[0]?.atMs ?? null;
+  }
+
   observe(atMs: number, members: GoldenFishMember[]) {
     if (!Number.isFinite(atMs)) return;
     const unique = members
@@ -44,7 +48,9 @@ export class GoldenFishMemberTimeline {
 
   applyTransition(atMs: number, transition: IslandPresenceTransition) {
     if (transition.kind !== 'focus') return;
-    const members = new Map(this.membersAt(atMs).map((member) => [member.userId, member]));
+    const snapshot = this.membersAt(atMs);
+    if (snapshot === null) return;
+    const members = new Map(snapshot.map((member) => [member.userId, member]));
     if (members.size === 0) return;
     members.delete(transition.userId);
     if (transition.current?.status === 'active') {
@@ -56,13 +62,33 @@ export class GoldenFishMemberTimeline {
     this.observe(atMs, [...members.values()]);
   }
 
-  membersAt(atMs: number): GoldenFishMember[] {
-    if (!Number.isFinite(atMs)) return [];
+  membersAt(atMs: number): GoldenFishMember[] | null {
+    if (!Number.isFinite(atMs)) return null;
     for (let index = this.snapshots.length - 1; index >= 0; index--) {
       if (this.snapshots[index].atMs <= atMs) return this.snapshots[index].members;
     }
-    return [];
+    return null;
   }
+}
+
+const MAX_LEDGER_PAGES = 100;
+
+async function ledgerItemsSince(islandId: string, month: string, afterMs: number) {
+  const items: LedgerEntry[] = [];
+  let cursor: string | undefined;
+  for (let pageNumber = 0; pageNumber < MAX_LEDGER_PAGES; pageNumber++) {
+    const page = await getLedger(islandId, { month, direction: 'earn', cursor });
+    items.push(...page.items);
+    if (
+      !page.nextCursor ||
+      page.items.length === 0 ||
+      page.items.some((entry) => Date.parse(entry.createdAt) < afterMs)
+    ) {
+      return items;
+    }
+    cursor = page.nextCursor;
+  }
+  throw new Error('golden fish ledger pagination exceeded');
 }
 
 /**
@@ -85,7 +111,7 @@ export function useGoldenFishLedger({
   sessionId: string | null;
   sessionStartedAt: number | null;
   sessionEligibleUntil?: number | null;
-  membersAt: (atMs: number) => GoldenFishMember[];
+  membersAt: (atMs: number) => GoldenFishMember[] | null;
   onGoldenFish: (event: GoldenFishEvent) => void;
   clockOffsetMs?: number;
   pollMs?: number;
@@ -139,13 +165,14 @@ export function useGoldenFishLedger({
         const requestedMonth = dayKey(requestedAt).slice(0, 7);
         const months =
           afterMonth === requestedMonth ? [requestedMonth] : [afterMonth, requestedMonth];
-        const pages = await Promise.all(
-          months.map((month) => getLedger(islandId, { month, direction: 'earn' })),
-        );
+        const items = (
+          await Promise.all(
+            months.map((month) => ledgerItemsSince(islandId, month, scope.current.afterMs)),
+          )
+        ).flat();
         if (disposed || accountGeneration !== sessionGeneration()) return;
         const afterMs = scope.current.afterMs;
-        const fresh = pages
-          .flatMap((page) => page.items)
+        const fresh = items
           .filter(
             (entry) =>
               entry.reason === 'golden_fish' &&
@@ -155,9 +182,15 @@ export function useGoldenFishLedger({
               !seen.current.has(entry.id),
           )
           .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+        let safeThrough = requestedAt;
         for (const entry of fresh) {
+          const entryAt = Date.parse(entry.createdAt);
+          const participants = membersAtRef.current(entryAt);
+          if (participants === null) {
+            safeThrough = Math.min(safeThrough, entryAt);
+            continue;
+          }
           seen.current.add(entry.id);
-          const participants = membersAtRef.current(Date.parse(entry.createdAt));
           if (participants.length < 2) continue;
           callbackRef.current({
             eventId: `ledger:${entry.id}`,
@@ -168,7 +201,7 @@ export function useGoldenFishLedger({
             members: participants,
           });
         }
-        scope.current.afterMs = Math.max(scope.current.afterMs, requestedAt);
+        scope.current.afterMs = Math.max(scope.current.afterMs, safeThrough);
       } catch {
         // 일시 실패는 다음 poll에서 다시 읽는다. 영상 신호 때문에 집중 흐름을 막지 않는다.
       } finally {

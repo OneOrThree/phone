@@ -1168,6 +1168,7 @@ function FocusFlow({ e }: any) {
   if (s.session && live.status === 'ready') {
     goldenTimelineRef.current.observe(e.now + live.clockOffset, liveGoldenMembers);
   }
+  const goldenTimelineStart = goldenTimelineRef.current.coverageStartMs();
   const goldenSessionEligibleUntil =
     s.session?.status === 'paused'
       ? (s.session.restStartedAt ?? e.now)
@@ -1176,12 +1177,21 @@ function FocusFlow({ e }: any) {
         : null;
   useGoldenFishLedger({
     active:
-      !!liveIslandId && !!goldenSessionId && (r === 'focus' || r === 'rest' || r === 'focusResult'),
+      !!liveIslandId &&
+      !!goldenSessionId &&
+      live.status === 'ready' &&
+      goldenTimelineStart !== null &&
+      (r === 'focus' || r === 'rest' || r === 'focusResult'),
     islandId: liveIslandId,
     sessionId: goldenSessionId,
     sessionStartedAt:
-      s.session?.startedAt ??
-      (s.lastResult ? s.lastResult.at - s.lastResult.seconds * 1_000 : null),
+      goldenTimelineStart === null
+        ? null
+        : Math.max(
+            goldenTimelineStart,
+            s.session?.startedAt ??
+              (s.lastResult ? s.lastResult.at - s.lastResult.seconds * 1_000 : 0),
+          ),
     sessionEligibleUntil: goldenSessionEligibleUntil,
     membersAt: (atMs) => goldenTimelineRef.current.membersAt(atMs),
     onGoldenFish: (event) => goldenHandler.current(event),

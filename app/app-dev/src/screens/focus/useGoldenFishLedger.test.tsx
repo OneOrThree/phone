@@ -35,6 +35,7 @@ function Harness({
   sessionEligibleUntil,
   sessionStartedAt = Date.parse('2026-09-28T00:00:00Z'),
   clockOffsetMs = 0,
+  resolveMembers,
 }: any) {
   useGoldenFishLedger({
     active,
@@ -42,7 +43,7 @@ function Harness({
     sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
     sessionStartedAt,
     sessionEligibleUntil,
-    membersAt: () => members,
+    membersAt: resolveMembers ?? (() => members),
     onGoldenFish,
     clockOffsetMs,
     pollMs: 1_000,
@@ -226,8 +227,80 @@ test('참여자 타임라인은 원장 발생 시각 이후에 바뀐 주민을 
   timeline.observe(2_000, [defaultMembers[0], { userId: 'new', sessionId: 'new-session' }]);
 
   assert.deepEqual(timeline.membersAt(1_500), defaultMembers);
+  const latestMembers = timeline.membersAt(2_500);
+  assert.notEqual(latestMembers, null);
   assert.deepEqual(
-    timeline.membersAt(2_500).map((member) => member.userId),
+    latestMembers!.map((member) => member.userId),
     [defaultMembers[0].userId, 'new'].sort(),
   );
+});
+
+test('초기 스냅숏 전의 행은 참여자를 확정할 때까지 소비하지 않는다', async () => {
+  const onGoldenFish = jest.fn();
+  let known = false;
+  ledgerMock.mockResolvedValue({
+    ...emptyPage(),
+    items: [
+      {
+        id: 'before-snapshot',
+        direction: 'earn',
+        reason: 'golden_fish',
+        amount: 50,
+        createdAt: '2026-09-28T00:00:05Z',
+        groupedUntil: '2026-09-28T00:00:05Z',
+        entryCount: 1,
+      },
+    ],
+  });
+  const screen = await render(
+    <Harness resolveMembers={() => (known ? defaultMembers : null)} onGoldenFish={onGoldenFish} />,
+  );
+  await act(async () => {});
+  assert.equal(onGoldenFish.mock.calls.length, 0);
+
+  known = true;
+  await act(async () => jest.advanceTimersByTime(1_000));
+  assert.equal(onGoldenFish.mock.calls.length, 1);
+  await screen.unmount();
+});
+
+test('첫 페이지에 황금 물고기가 없어도 nextCursor를 따라 끝까지 조회한다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock
+    .mockResolvedValueOnce({
+      ...emptyPage(),
+      items: [
+        {
+          id: 'newer-contribution',
+          direction: 'earn',
+          reason: 'contribution',
+          amount: 1,
+          createdAt: '2026-09-28T00:00:08Z',
+          groupedUntil: '2026-09-28T00:00:08Z',
+          entryCount: 1,
+        },
+      ],
+      nextCursor: 'page-2',
+    })
+    .mockResolvedValueOnce({
+      ...emptyPage(),
+      items: [
+        {
+          id: 'golden-page-2',
+          direction: 'earn',
+          reason: 'golden_fish',
+          amount: 50,
+          createdAt: '2026-09-28T00:00:05Z',
+          groupedUntil: '2026-09-28T00:00:05Z',
+          entryCount: 1,
+        },
+      ],
+    });
+  const screen = await render(<Harness onGoldenFish={onGoldenFish} />);
+  await act(async () => {});
+
+  assert.equal(ledgerMock.mock.calls.length, 2);
+  assert.equal(ledgerMock.mock.calls[1][1].cursor, 'page-2');
+  assert.equal(onGoldenFish.mock.calls[0][0].eventId, 'ledger:golden-page-2');
+  await screen.unmount();
 });

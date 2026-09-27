@@ -125,6 +125,7 @@ export function GoldenFishCutscene({
   return (
     <View
       pointerEvents="auto"
+      accessible
       accessibilityLabel="여러 고양이가 힘을 모아 황금 물고기를 낚아 올렸어요"
       accessibilityLiveRegion="assertive"
       accessibilityViewIsModal
