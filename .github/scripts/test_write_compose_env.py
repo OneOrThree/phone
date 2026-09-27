@@ -113,6 +113,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             BUSINESS_REDIS_PASSWORD="redis-only-password", GOOGLE_DRIVE_API_KEY="drive-only",
             REPORT_MAIL_ENABLED="true", REPORT_MAIL_RECIPIENT="nappaegonoljima@gmail.com",
             REPORT_MAIL_USERNAME="nappaegonoljima@gmail.com", REPORT_MAIL_APP_PASSWORD="mail-only",
+            REPORT_MAIL_MAX_CONCURRENT="1",
             BUSINESS_CURSOR_ENABLED="true", BUSINESS_CURSOR_KEY_V1="cursor-only",
             SVC_TOKEN_BIZ_TO_LINK="biz-link", SVC_TOKEN_DATA_TO_NOTI="data-noti",
             SVC_TOKEN_DATA_TO_LINK="data-link", SVC_TOKEN_NOTI_TO_DATA="noti-data",
@@ -160,6 +161,7 @@ class WriteComposeEnvTest(unittest.TestCase):
             self.assertEqual(biz["REPORT_MAIL_RECIPIENT"], "nappaegonoljima@gmail.com")
             self.assertEqual(biz["REPORT_MAIL_USERNAME"], "nappaegonoljima@gmail.com")
             self.assertEqual(biz["REPORT_MAIL_APP_PASSWORD"], "mail-only")
+            self.assertEqual(biz["REPORT_MAIL_MAX_CONCURRENT"], "1")
             self.assertEqual(biz["LOGIN_ATTEMPT_DIGEST_SECRET"], "digest-only-secret")
             self.assertEqual(biz["BUSINESS_CURSOR_KEY_V1"], "cursor-only")
             self.assertEqual(biz["BUSINESS_REDIS_USERNAME"], "business")
@@ -182,7 +184,7 @@ class WriteComposeEnvTest(unittest.TestCase):
                         "LOGIN_ATTEMPT_DIGEST_SECRET", "BUSINESS_CURSOR_KEY_V1"):
                 self.assertNotIn(key, noti)
             for key in ("REPORT_MAIL_ENABLED", "REPORT_MAIL_RECIPIENT", "REPORT_MAIL_USERNAME",
-                        "REPORT_MAIL_APP_PASSWORD"):
+                        "REPORT_MAIL_APP_PASSWORD", "REPORT_MAIL_MAX_CONCURRENT"):
                 self.assertNotIn(key, noti)
             for environment in (biz, noti):
                 self.assertNotIn("DD_API_KEY", environment)

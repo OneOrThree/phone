@@ -51,10 +51,14 @@ public class InternalReportDeliveryService {
 
     @Transactional
     public ReportDeliveryView claim(UUID reporterId, UUID requestId, ReportDeliveryClaimRequest request) {
-        users.getCallerForShare(reporterId);
-        // 사용자별 신규 intent 생성과 시간 한도 판정을 같은 advisory lock으로 직렬화한다.
-        jdbc.query("select pg_advisory_xact_lock(hashtextextended(?, 0))", rs -> null,
-                "report-delivery:" + reporterId);
+        // claim과 prepare를 같은 순서(advisory → users → report_deliveries)로 직렬화한다.
+        // 재선점 전에 author를 먼저 읽고 users 공유 잠금을 잡아, 탈퇴가 이미 users 배타 잠금을
+        // 획득한 경우 그 커밋과 snapshot 정리가 끝난 뒤에만 report 행을 볼 수 있게 한다.
+        lockIntent(reporterId);
+        ReportRow observed = find(reporterId, requestId);
+        boolean authorActive = observed == null || observed.authorId() == null
+                ? lockReporter(reporterId)
+                : lockClaimParticipants(reporterId, observed.authorId());
         Instant now = clock.instant();
         ReportRow row = findForUpdate(reporterId, requestId);
         if (row == null) {
@@ -76,12 +80,17 @@ public class InternalReportDeliveryService {
             return view(row);
         }
         if (row.expired()) {
-            throw new ReportDeliveryException(ReportDeliveryErrorCode.STATE_CONFLICT);
+            return view(row);
         }
         if (row.leaseExpiresAt() != null && row.leaseExpiresAt().isAfter(now)) {
             throw new ReportDeliveryException(ReportDeliveryErrorCode.REQUEST_IN_PROGRESS);
         }
-        if ("PENDING".equals(row.status()) && row.authorId() != null && !activeUser(row.authorId())) {
+        if (row.authorId() != null && (observed == null || !row.authorId().equals(observed.authorId()))) {
+            // prepare도 advisory lock을 사용하므로 정상 경로에서는 author가 바뀔 수 없다. 잠기지 않은
+            // author를 report 잠금 뒤 뒤늦게 신뢰하지 않고 안전하게 중단한다.
+            throw new ReportDeliveryException(ReportDeliveryErrorCode.STATE_CONFLICT);
+        }
+        if ("PENDING".equals(row.status()) && row.authorId() != null && !authorActive) {
             // 탈퇴 정리 당시 메일 작업의 활성 lease가 있어 snapshot을 보존했더라도, 작업자가
             // 중단되어 lease가 만료된 뒤에는 재선점·재발송하지 않는다.
             jdbc.update("update report_deliveries set status='EXPIRED', author_id=null, mail_subject=null, "
@@ -97,6 +106,7 @@ public class InternalReportDeliveryService {
 
     @Transactional
     public ReportDeliveryView prepare(UUID reporterId, UUID requestId, ReportDeliveryPrepareRequest request) {
+        lockIntent(reporterId);
         lockActiveParticipants(reporterId, request.authorId());
         ReportRow row = ownedPending(reporterId, requestId, request.leaseToken());
         if (!"PENDING".equals(row.status())) {
@@ -200,15 +210,37 @@ public class InternalReportDeliveryService {
         }
     }
 
-    private boolean activeUser(UUID userId) {
-        return Boolean.TRUE.equals(jdbc.queryForObject(
-                "select exists(select 1 from users where id=? and is_deleted=false)", Boolean.class, userId));
+    private void lockIntent(UUID reporterId) {
+        // 사용자별 신규 intent 생성, 시간 한도 판정, snapshot author 확정을 함께 직렬화한다.
+        jdbc.query("select pg_advisory_xact_lock(hashtextextended(?, 0))", rs -> null,
+                "report-delivery:" + reporterId);
+    }
+
+    private boolean lockReporter(UUID reporterId) {
+        users.getCallerForShare(reporterId);
+        return true;
+    }
+
+    private boolean lockClaimParticipants(UUID reporterId, UUID authorId) {
+        if (reporterId.equals(authorId)) {
+            users.getCallerForShare(reporterId);
+            return true;
+        }
+        if (reporterId.compareTo(authorId) < 0) {
+            users.getCallerForShare(reporterId);
+            return users.findActiveForShare(authorId).isPresent();
+        }
+        boolean authorActive = users.findActiveForShare(authorId).isPresent();
+        users.getCallerForShare(reporterId);
+        return authorActive;
     }
 
     private void lockActiveParticipants(UUID reporterId, UUID authorId) {
         // 탈퇴는 user → report_deliveries 순서다. 같은 순서로 공유 잠금을 잡아 snapshot 저장 뒤 탈퇴가
         // 끼어들 수 없게 하고, 서로를 신고하는 두 요청도 UUID 순서로 잠가 교착을 막는다.
-        if (reporterId.compareTo(authorId) < 0) {
+        if (reporterId.equals(authorId)) {
+            users.getCallerForShare(reporterId);
+        } else if (reporterId.compareTo(authorId) < 0) {
             users.getCallerForShare(reporterId);
             users.getTargetForShare(authorId);
         } else {
@@ -218,10 +250,18 @@ public class InternalReportDeliveryService {
     }
 
     private ReportRow findForUpdate(UUID reporterId, UUID requestId) {
+        return find(reporterId, requestId, " for update");
+    }
+
+    private ReportRow find(UUID reporterId, UUID requestId) {
+        return find(reporterId, requestId, "");
+    }
+
+    private ReportRow find(UUID reporterId, UUID requestId, String lockClause) {
         List<ReportRow> rows = jdbc.query("select id, case_id, confirmation_token, request_fingerprint, "
                         + "block_requested, author_id, "
                         + "mail_subject, mail_body, status, lease_token, lease_expires_at, blocked "
-                        + "from report_deliveries where reporter_id=? and request_id=? for update",
+                        + "from report_deliveries where reporter_id=? and request_id=?" + lockClause,
                 InternalReportDeliveryService::row, reporterId, requestId);
         return rows.isEmpty() ? null : rows.get(0);
     }

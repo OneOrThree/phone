@@ -20,10 +20,18 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.util.UUID;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -69,6 +77,8 @@ class InternalReportDeliveryIntegrationTest {
     MockMvc mvc;
     @Autowired
     ReportDeliveryPrivacyRepository privacy;
+    @Autowired
+    PlatformTransactionManager transactions;
 
     @Test
     void sameRequestIsLeasedOnceAndDifferentPayloadIsRejected() {
@@ -304,6 +314,54 @@ class InternalReportDeliveryIntegrationTest {
         assertThat(jdbc.queryForObject("select mail_body from report_deliveries "
                         + "where reporter_id=? and request_id=?", String.class, reporter, requestId))
                 .isNull();
+
+        ReportDeliveryView replay = deliveries.claim(reporter, requestId,
+                claim(requestId, "e".repeat(64), false));
+        assertThat(replay.status()).isEqualTo("EXPIRED");
+        assertThat(replay.authorId()).isNull();
+    }
+
+    @Test
+    void leaseReclaimWaitsForConcurrentWithdrawalBeforeLockingReport() throws Exception {
+        UUID reporter = newUser();
+        UUID author = newUser();
+        UUID requestId = UUID.randomUUID();
+        ReportDeliveryView pending = deliveries.claim(reporter, requestId,
+                claim(requestId, "f".repeat(64), false));
+        deliveries.prepare(reporter, requestId,
+                new ReportDeliveryPrepareRequest(pending.leaseToken(), author, "제목", "민감 원문"));
+        jdbc.update("update report_deliveries set lease_expires_at=now()-interval '1 second' "
+                        + "where reporter_id=? and request_id=?",
+                reporter, requestId);
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch withdrawalLocked = new CountDownLatch(1);
+        CountDownLatch finishWithdrawal = new CountDownLatch(1);
+        try {
+            Future<?> withdrawal = pool.submit(() -> new TransactionTemplate(transactions).execute(status -> {
+                jdbc.queryForObject("select id from users where id=? for update", UUID.class, author);
+                jdbc.update("update users set is_deleted=true where id=?", author);
+                withdrawalLocked.countDown();
+                await(finishWithdrawal);
+                privacy.eraseForWithdrawal(author);
+                return null;
+            }));
+            assertThat(withdrawalLocked.await(30, TimeUnit.SECONDS)).isTrue();
+
+            Future<ReportDeliveryView> reclaim = pool.submit(() -> deliveries.claim(reporter, requestId,
+                    claim(requestId, "f".repeat(64), false)));
+            assertThatThrownBy(() -> reclaim.get(2, TimeUnit.SECONDS)).isInstanceOf(TimeoutException.class);
+
+            finishWithdrawal.countDown();
+            withdrawal.get(30, TimeUnit.SECONDS);
+            ReportDeliveryView result = reclaim.get(30, TimeUnit.SECONDS);
+            assertThat(result.status()).isEqualTo("EXPIRED");
+            assertThat(result.authorId()).isNull();
+            assertThat(result.body()).isNull();
+        } finally {
+            finishWithdrawal.countDown();
+            pool.shutdownNow();
+        }
     }
 
     private ReportDeliveryClaimRequest claim(UUID requestId, String fingerprint, boolean block) {
@@ -312,5 +370,16 @@ class InternalReportDeliveryIntegrationTest {
 
     private UUID newUser() {
         return jwt.extractUserId(auth.guestLogin().accessToken());
+    }
+
+    private static void await(CountDownLatch latch) {
+        try {
+            if (!latch.await(30, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("잠금 해제 신호가 오지 않았다");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
     }
 }

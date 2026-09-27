@@ -102,7 +102,7 @@ SERVICE_OPTIONAL_KEYS = {
         # enabled를 Secret에 두지 않으면 기존 환경은 계속 fail-closed(신고 API 503)로 동작한다.
         "REPORT_MAIL_ENABLED", "REPORT_MAIL_RECIPIENT", "REPORT_MAIL_USERNAME",
         "REPORT_MAIL_APP_PASSWORD", "REPORT_MAIL_SMTP_HOST", "REPORT_MAIL_SMTP_PORT",
-        "REPORT_MAIL_IMAP_HOST", "REPORT_MAIL_VERIFY_TIMEOUT",
+        "REPORT_MAIL_IMAP_HOST", "REPORT_MAIL_VERIFY_TIMEOUT", "REPORT_MAIL_MAX_CONCURRENT",
         # 커서 서명키 회전용 — 비우면 yml 기본값 v1. keys.v2 를 더한 뒤 이 값을 옮긴다(GROMO-1759).
         "BUSINESS_CURSOR_ACTIVE_KEY",
     ),
