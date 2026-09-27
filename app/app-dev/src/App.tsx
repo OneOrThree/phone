@@ -195,6 +195,7 @@ const titles: Record<Route, string> = {
   mainIsland: '내 메인 섬 변경하기',
   profile: '내 정보',
   settings: '앱 설정',
+  blockedUsers: '차단한 사용자',
   wardrobe: '내 꾸미기',
   sound: '꽃나팔 방송기',
   library: '도서관',

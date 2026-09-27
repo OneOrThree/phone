@@ -393,7 +393,14 @@ export function Seg({ items, value, onChange, small = false, inset = false, styl
     </View>
   );
 }
-export function Chips({ items, value, onChange, large = false, wrap = false }: any) {
+export function Chips({
+  items,
+  value,
+  onChange,
+  large = false,
+  wrap = false,
+  disabled = false,
+}: any) {
   return (
     <View
       style={{
@@ -407,7 +414,8 @@ export function Chips({ items, value, onChange, large = false, wrap = false }: a
           key={x}
           accessibilityRole="button"
           accessibilityLabel={x}
-          accessibilityState={{ selected: x === value }}
+          accessibilityState={{ selected: x === value, disabled }}
+          disabled={disabled}
           onPress={() => onChange(x)}
           style={{
             height: large ? 44 : 36,
@@ -473,7 +481,13 @@ export function Field({
     </View>
   );
 }
-export function Toggle({ value, onChange, label, disabled = false }: any) {
+export function Toggle({
+  value,
+  onChange,
+  label,
+  disabled = false,
+  activeColor = primitiveTokens.color.success,
+}: any) {
   // v2 .tog: 폭 46 · 켜지면 손잡이 18px 이동
   const x = useRef(new Animated.Value(value ? 18 : 0)).current;
   const reduce = React.useContext(MotionContext);
@@ -496,7 +510,7 @@ export function Toggle({ value, onChange, label, disabled = false }: any) {
         width: 46,
         height: 28,
         borderRadius: 999,
-        backgroundColor: value ? primitiveTokens.color.success : primitiveTokens.color.controlIdle,
+        backgroundColor: value ? activeColor : primitiveTokens.color.controlIdle,
         opacity: disabled ? componentTokens.button.disabledOpacity : 1,
       }}
     >

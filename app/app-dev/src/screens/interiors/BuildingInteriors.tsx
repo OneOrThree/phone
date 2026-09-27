@@ -50,6 +50,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useBoardNotices } from './useBoardNotices';
 import { useMailbox } from './useMailbox';
+import { UserSafetySheet } from '@/components/UserSafetySheet';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
 // 건물 안 장면 위에 기능 화면을 얹는 38개 시안을 RN으로 옮긴다. 수치는 원본 CSS 그대로다.
@@ -7312,6 +7313,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const [groupSent, setGroupSent] = useState(false);
   const [letterText, setLetterText] = useState('섬에 새 꽃이 피었어. 다음에 놀러 와서 같이 보자.');
   const [deletedLetters, setDeletedLetters] = useState<string[]>([]);
+  const [letterSafetyTarget, setLetterSafetyTarget] = useState<LetterView | null>(null);
   const [reactTransform, react] = useReact(reduceMotion);
   // 앱에서는 안내를 앱 알림으로 띄운다 (장면 토스트는 동작 줄이기에서 그려지지 않는다)
   const say = (message: string) => (e ? e.notify(message) : showToast(message));
@@ -7501,6 +7503,16 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     } else if (next === 'friend-select') e.go('friendMail', 'list');
   };
   const back = (to: MailRoute) => (e ? e.back() : go(to));
+
+  useEffect(() => {
+    if (!serverMail || route !== 'letter' || !mail.detailBlocked) return;
+    // 차단 목록 재검증으로 열린 편지의 상대가 차단됐으면 상세 route를 끝낸다.
+    // 내부 detail도 지워 이후 차단 해제 전까지 같은 원문이 다시 그려지지 않게 한다.
+    mail.clearDetail();
+    if (e) e.back();
+    else setRoute('inbox');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 차단 판정이 true로 바뀌는 순간 한 번만 상세를 닫는다.
+  }, [serverMail, route, mail.detailBlocked]);
 
   const catAvatar = (color: Cat, size = 34) => (
     <View
@@ -7759,7 +7771,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       )}
       <Scroll style={{ maxHeight: e ? height * 0.4 : undefined }}>
         <View style={{ rowGap: 7 }}>
-          {serverMail && mail.loading && !mail.islandId ? (
+          {serverMail &&
+          (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
             <Text
               style={[
                 mailFont(8, 1.4, '#826c5b', '800'),
@@ -7768,7 +7781,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             >
               낙서를 불러오는 중이에요…
             </Text>
-          ) : serverMail && mail.error && !mail.islandId ? (
+          ) : serverMail &&
+            mail.error &&
+            (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
             <View style={{ paddingVertical: 20, alignItems: 'center', rowGap: 8 }}>
               <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
                 {mail.error.message}
@@ -7942,9 +7957,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const inbox: Pane = {
     head: header('받은 편지', `아직 열지 않은 편지 ${unreadCount}통`),
     body:
-      serverMail && mail.loading && !mail.islandId ? (
+      serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
         mailStatus('편지를 불러오는 중이에요…')
-      ) : serverMail && mail.error && !mail.islandId ? (
+      ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))
       ) : (
         <View style={{ rowGap: 7 }}>
@@ -8050,7 +8065,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 9 }}>
           {catAvatar(openedLetter.color, 40)}
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={mailFont(7, 1.4, '#8d715e', '800')}>FROM.</Text>
             <Text
               style={{
@@ -8067,6 +8082,17 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               {[openedLetter.island, openedLetter.time].filter(Boolean).join(' · ')}
             </Text>
           </View>
+          {serverMail ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${openedLetter.from} 더보기`}
+              hitSlop={8}
+              onPress={() => setLetterSafetyTarget(openedLetter)}
+              style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={mailFont(10, 1.2, '#7b493f', '900')}>···</Text>
+            </Pressable>
+          ) : null}
         </View>
         <Text
           style={{ marginTop: 28, fontFamily: GOWUN, fontSize: 13, lineHeight: lh(23), color: INK }}
@@ -8143,9 +8169,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const friendSelect: Pane = {
     head: header('편지 보낼 친구 선택', ''),
     body:
-      serverMail && mail.loading && !mail.islandId ? (
+      serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
         mailStatus('친구를 불러오는 중이에요…')
-      ) : serverMail && mail.error && !mail.islandId ? (
+      ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))
       ) : (
         <View style={{ rowGap: 7 }}>
@@ -8327,7 +8353,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           head: header('받은 편지', '', 'inbox'),
           body: mail.detailError
             ? mailRetry(mail.detailError, 'letter-retry', () =>
-                mail.openLetter(e.detail).catch(() => {}),
+                (mail.blockedUsersStatus === 'error'
+                  ? mail.retry().then(() => mail.openLetter(e.detail))
+                  : mail.openLetter(e.detail)
+                ).catch(() => {}),
               )
             : mailStatus('편지를 여는 중이에요…'),
           foot: null,
@@ -8347,35 +8376,53 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
 
   if (route !== 'home') {
     return (
-      <Animated.View style={{ transform: reactTransform }}>
-        <View
-          style={[
-            {
-              padding: 11,
-              borderWidth: 1.2,
-              borderColor: '#b38c68',
-              borderRadius: 9,
-              backgroundColor: '#fff1d0',
-              boxShadow: '0 8px 18px #3a1d1766',
-            },
-            // 가운데 종이는 화면 안(위 12·아래 2)에 들어오게 하고 넘치는 본문만 스크롤한다
-            pane && { maxHeight: height - 14 },
-          ]}
-        >
-          {pane ? (
-            <>
-              {pane.head}
-              {/* 기운 종이·그림자가 스크롤 테두리에 잘리지 않게 안쪽 여백을 주고 같은 만큼 바깥으로 뺀다 */}
-              <Scroll style={{ flexShrink: 1, minHeight: 0, margin: -8, padding: 8 }}>
-                {pane.body}
-              </Scroll>
-              {pane.foot}
-            </>
-          ) : (
-            islandRoom
-          )}
-        </View>
-      </Animated.View>
+      <>
+        <Animated.View style={{ transform: reactTransform }}>
+          <View
+            style={[
+              {
+                padding: 11,
+                borderWidth: 1.2,
+                borderColor: '#b38c68',
+                borderRadius: 9,
+                backgroundColor: '#fff1d0',
+                boxShadow: '0 8px 18px #3a1d1766',
+              },
+              // 가운데 종이는 화면 안(위 12·아래 2)에 들어오게 하고 넘치는 본문만 스크롤한다
+              pane && { maxHeight: height - 14 },
+            ]}
+          >
+            {pane ? (
+              <>
+                {pane.head}
+                {/* 기운 종이·그림자가 스크롤 테두리에 잘리지 않게 안쪽 여백을 주고 같은 만큼 바깥으로 뺀다 */}
+                <Scroll style={{ flexShrink: 1, minHeight: 0, margin: -8, padding: 8 }}>
+                  {pane.body}
+                </Scroll>
+                {pane.foot}
+              </>
+            ) : (
+              islandRoom
+            )}
+          </View>
+        </Animated.View>
+        {letterSafetyTarget && serverMail ? (
+          <UserSafetySheet
+            visible
+            targetUserId={letterSafetyTarget.friendId}
+            targetName={letterSafetyTarget.from}
+            reportTargetType="LETTER"
+            reportTargetId={letterSafetyTarget.id}
+            reportEvidence={letterSafetyTarget.body}
+            onClose={() => setLetterSafetyTarget(null)}
+            onChanged={() => {
+              back('inbox');
+              mail.retry().catch(() => {});
+            }}
+            onMessage={say}
+          />
+        ) : null}
+      </>
     );
   }
 
@@ -8406,9 +8453,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           boxShadow: 'inset 0 5px 10px #32110c88',
         }}
       />
-      {serverMail && mail.loading && !mail.islandId ? (
+      {serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
         <View style={{ padding: 20 }}>{mailStatus('우체통을 여는 중이에요…')}</View>
-      ) : serverMail && mail.error && !mail.islandId ? (
+      ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         <View style={{ padding: 20 }}>
           {mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))}
         </View>

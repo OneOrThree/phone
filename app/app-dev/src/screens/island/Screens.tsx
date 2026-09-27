@@ -123,6 +123,7 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
+import { UserSafetySheet } from '@/components/UserSafetySheet';
 // 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
 const shopUiKind = (kind: string) =>
   kind === 'island_theme'
@@ -780,7 +781,12 @@ export function RedesignScreens({ e }: any) {
     // 초대 코드 확인으로 받은 섬 미리보기 — 가입은 사용자가 카드를 보고 명시적으로 누른다
     [invitePick, setInvitePick] = useState<IslandSummary | null>(null),
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
-    [serverDone, setServerDone] = useState('');
+    [serverDone, setServerDone] = useState(''),
+    [safetyTarget, setSafetyTarget] = useState<{
+      id: string;
+      name: string;
+      onDelete?: () => void;
+    } | null>(null);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     profileSaveIntent = useRef<{ signature: string; key: string } | null>(null);
@@ -801,6 +807,7 @@ export function RedesignScreens({ e }: any) {
     setSoundDialog(null);
     setInvitePick(null);
     setServerDone('');
+    setSafetyTarget(null);
   }, [route]);
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
   // stale 세션의 늦은 응답(CLIENT_STALE_SESSION)은 문구 없이 버린다.
@@ -5180,7 +5187,11 @@ export function RedesignScreens({ e }: any) {
   }
   const friends = state.friends ?? [];
   if (route === 'boat') {
-    const received = friends.filter((f) => f.status === 'received').length,
+    const received = server
+        ? friendsScreen.status === 'ready'
+          ? (friendsScreen.data?.friendRequests.length ?? 0)
+          : 0
+        : friends.filter((f) => f.status === 'received').length,
       joinedIslands = state.islands.filter((candidate) => candidate.joined && !candidate.closed),
       primaryIsland = mainIsland(state) ?? island,
       canChangeMainIsland = joinedIslands.length > 1;
@@ -5568,19 +5579,12 @@ export function RedesignScreens({ e }: any) {
         {count !== undefined && <Badge small>{count}</Badge>}
       </View>
     );
-    const friendMenu = (name: string, onDelete: () => void) => (
+    const friendMenu = (id: string, name: string, onDelete?: () => void) => (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${name} 친구 삭제`}
+        accessibilityLabel={`${name} 더보기`}
         hitSlop={6}
-        onPress={() =>
-          confirm(
-            '친구를 삭제할까요?',
-            `${name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
-            onDelete,
-            { ok: '삭제', destructive: true },
-          )
-        }
+        onPress={() => setSafetyTarget({ id, name, onDelete })}
         style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
       >
         <Txt
@@ -5596,18 +5600,33 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
-    const requestActions = (onAccept: () => void, onReject: () => void) => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
-        <Btn
-          small
-          kind="sec"
-          title="거절"
-          disabled={serverMode && friendsScreen.busy}
-          onPress={onReject}
-        />
-      </View>
-    );
+    const requestActions = (
+      onAccept: () => void,
+      onReject: () => void,
+      safetyMenu?: React.ReactNode,
+    ) => {
+      const stacked = !!safetyMenu && layout.fontScale >= 1.3;
+      return (
+        <View
+          testID={safetyMenu ? 'friend-request-actions-with-safety' : undefined}
+          style={{
+            flexDirection: stacked ? 'column' : 'row',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
+          <Btn
+            small
+            kind="sec"
+            title="거절"
+            disabled={serverMode && friendsScreen.busy}
+            onPress={onReject}
+          />
+          {safetyMenu}
+        </View>
+      );
+    };
     const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
       <SheetRow
         key={friend.id}
@@ -5639,7 +5658,19 @@ export function RedesignScreens({ e }: any) {
             searchResult ? (
               <Badge soft>친구</Badge>
             ) : (
-              friendMenu(friend.name, () => act('FRIEND_DELETE', { id: friend.id }))
+              <Btn
+                small
+                kind="sec"
+                title="친구 삭제"
+                onPress={() =>
+                  confirm(
+                    '친구를 삭제할까요?',
+                    `${friend.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                    () => act('FRIEND_DELETE', { id: friend.id }),
+                    { ok: '삭제', destructive: true },
+                  )
+                }
+              />
             )
           ) : (
             <Btn
@@ -5662,6 +5693,7 @@ export function RedesignScreens({ e }: any) {
           tail={requestActions(
             () => friendCmd(() => acceptFriendRequest(friend.requestId)),
             () => friendCmd(() => rejectFriendRequest(friend.requestId)),
+            friendMenu(friend.userId, name),
           )}
         />
       );
@@ -5691,7 +5723,7 @@ export function RedesignScreens({ e }: any) {
           title={name}
           sub={friend.mainIslandName ?? undefined}
           lead={<Avatar color="white" />}
-          tail={friendMenu(name, () => friendCmd(() => deleteFriend(friend.userId)))}
+          tail={friendMenu(friend.userId, name, () => friendCmd(() => deleteFriend(friend.userId)))}
         />
       );
     });
@@ -5799,42 +5831,72 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
-        <SearchField
-          value={queryValue}
-          onChange={serverMode ? friendsScreen.setQuery : setSearch}
-          placeholder="닉네임으로 친구 찾기"
-        />
-        {serverMode && !query && friendsScreen.status === 'loading' ? (
-          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            불러오는 중이에요
-          </Txt>
-        ) : serverMode && !query && friendsScreen.status === 'error' ? (
-          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
-            <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
-            {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
-              <Btn
-                small
-                title="소셜 로그인하기"
-                onPress={() => e.conversion.offer(friendsScreen.error)}
-              />
-            ) : (
-              <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
-            )}
-          </View>
-        ) : (
-          <View
-            style={
-              layout.compact
-                ? { flexDirection: 'row', alignItems: 'flex-start', gap: 18 }
-                : { gap: 16 }
+      <>
+        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+          <SearchField
+            value={queryValue}
+            onChange={serverMode ? friendsScreen.setQuery : setSearch}
+            placeholder="닉네임으로 친구 찾기"
+          />
+          {serverMode && !query && friendsScreen.status === 'loading' ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중이에요
+            </Txt>
+          ) : serverMode && !query && friendsScreen.status === 'error' ? (
+            <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
+              <Txt kind="meta">
+                {friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}
+              </Txt>
+              {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
+                <Btn
+                  small
+                  title="소셜 로그인하기"
+                  onPress={() => e.conversion.offer(friendsScreen.error)}
+                />
+              ) : (
+                <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+              )}
+            </View>
+          ) : (
+            <View
+              style={
+                layout.compact
+                  ? { flexDirection: 'row', alignItems: 'flex-start', gap: 18 }
+                  : { gap: 16 }
+              }
+            >
+              {leftColumn}
+              {friendColumn}
+            </View>
+          )}
+        </IslandSheet>
+        {serverMode && safetyTarget ? (
+          <UserSafetySheet
+            visible
+            targetUserId={safetyTarget.id}
+            targetName={safetyTarget.name}
+            reportTargetType="USER"
+            reportTargetId={safetyTarget.id}
+            onClose={() => setSafetyTarget(null)}
+            onChanged={friendsScreen?.refresh ?? (() => {})}
+            onMessage={notify}
+            extraAction={
+              safetyTarget.onDelete
+                ? {
+                    title: '친구 삭제',
+                    onPress: () =>
+                      confirm(
+                        '친구를 삭제할까요?',
+                        `${safetyTarget.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                        safetyTarget.onDelete!,
+                        { ok: '삭제', destructive: true },
+                      ),
+                  }
+                : undefined
             }
-          >
-            {leftColumn}
-            {friendColumn}
-          </View>
-        )}
-      </IslandSheet>
+          />
+        ) : null}
+      </>
     );
   }
   if (route === 'profile') {
@@ -5998,6 +6060,19 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
+        {server ? (
+          <>
+            {sec('안전')}
+            <SheetGroup flat>
+              <SheetRow
+                title="차단한 사용자"
+                sub="차단 목록을 확인하고 해제해요"
+                chevron
+                onPress={() => go('blockedUsers')}
+              />
+            </SheetGroup>
+          </>
+        ) : null}
         {sec('도움말')}
         <SheetGroup flat>
           <SheetRow

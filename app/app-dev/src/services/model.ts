@@ -50,6 +50,7 @@ export type Route =
   | 'mainIsland'
   | 'profile'
   | 'settings'
+  | 'blockedUsers'
   | 'wardrobe'
   | 'sound'
   | 'library'

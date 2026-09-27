@@ -11,7 +11,7 @@
  * 검색은 입력 300ms 디바운스로 `GET /friends/search?type=NICKNAME&q=` 를 친다 —
  * 서버 계약이 대소문자 무시 전체 일치라 로컬 필터를 다시 돌리지 않는다.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import {
@@ -20,6 +20,7 @@ import {
   type FriendSearchItem,
   type FriendsScreen,
 } from '@/services/api/friends';
+import { useBlockedUsers } from '@/services/blockedUsers';
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -51,10 +52,16 @@ export interface FriendsScreenState {
 export function useFriendsScreen({
   active,
   searchActive,
+  routeActive = false,
+  routeKey = routeActive,
   date,
 }: {
   /** friends·friendSearch route 에 있고 서버 세션이 있을 때만 true. */
   active: boolean;
+  /** 친구 목록·검색 route가 실제로 표시될 때 true — 진입할 때 차단 목록을 재검증한다. */
+  routeActive?: boolean;
+  /** 연속된 안전 화면 사이 이동도 별도 진입으로 재검증하기 위한 route 식별자. */
+  routeKey?: unknown;
   /** 검색 입력이 보일 때만 true — 목록 route 에서는 질의를 보내지 않는다. */
   searchActive: boolean;
   /** 친구 당일 집중 분의 KST 기준일 `YYYY-MM-DD`. */
@@ -71,7 +78,34 @@ export function useFriendsScreen({
   const [searchItems, setSearchItems] = useState<FriendSearchItem[]>([]);
   const req = useRef(0);
   const searchReq = useRef(0);
+  const blockedRetryFlight = useRef<Promise<unknown> | null>(null);
+  const suppressNextBlockedRefresh = useRef(false);
   const session = sessionGeneration();
+  const blockedUsers = useBlockedUsers(active, routeActive, routeKey);
+  const blockedIds = blockedUsers.ids;
+  const retryBlockedUsers = blockedUsers.retry;
+  const previousBlockedIds = useRef<{
+    session: number;
+    ids: ReadonlySet<string> | null;
+  }>({ session, ids: null });
+
+  useEffect(() => {
+    if (previousBlockedIds.current.session !== session) {
+      previousBlockedIds.current = { session, ids: null };
+    }
+    if (!active || blockedUsers.status !== 'ready') return;
+    const previous = previousBlockedIds.current.ids;
+    previousBlockedIds.current.ids = blockedIds;
+    if (suppressNextBlockedRefresh.current) {
+      suppressNextBlockedRefresh.current = false;
+      return;
+    }
+    // 차단 중 받은 서버 응답에는 해당 사용자가 없으므로 ID가 제거되면 로컬 필터만
+    // 풀지 말고 친구·요청·검색 서버 정본도 다시 적재한다.
+    if (previous?.size && [...previous].some((id) => !blockedIds.has(id))) {
+      setNonce((n) => n + 1);
+    }
+  }, [active, blockedIds, blockedUsers.status, session]);
 
   useEffect(() => {
     if (!active) {
@@ -153,20 +187,74 @@ export function useFriendsScreen({
     [session],
   );
 
-  const refresh = useCallback(() => setNonce((n) => n + 1), []);
+  const refresh = useCallback(() => {
+    if (blockedUsers.status === 'error') {
+      if (blockedRetryFlight.current) return;
+      suppressNextBlockedRefresh.current = true;
+      const request = retryBlockedUsers()
+        .then(() => {
+          if (active && session === sessionGeneration()) setNonce((n) => n + 1);
+        })
+        .catch(() => {
+          suppressNextBlockedRefresh.current = false;
+        })
+        .finally(() => {
+          if (blockedRetryFlight.current === request) blockedRetryFlight.current = null;
+        });
+      blockedRetryFlight.current = request;
+      return;
+    }
+    setNonce((n) => n + 1);
+  }, [active, blockedUsers.status, retryBlockedUsers, session]);
+
+  const visibleData = useMemo(
+    () =>
+      data && {
+        friends: data.friends.filter((item) => !blockedIds.has(item.userId)),
+        friendRequests: data.friendRequests.filter((item) => !blockedIds.has(item.userId)),
+        sentFriendRequests: data.sentFriendRequests.filter((item) => !blockedIds.has(item.userId)),
+      },
+    [blockedIds, data],
+  );
+  const visibleSearchItems = useMemo(
+    () =>
+      blockedUsers.status === 'ready'
+        ? searchItems.filter((item) => !blockedIds.has(item.userId))
+        : [],
+    [blockedIds, blockedUsers.status, searchItems],
+  );
+
+  const blockedListError =
+    blockedUsers.status === 'error'
+      ? blockedUsers.error instanceof ApiError
+        ? blockedUsers.error
+        : new ApiError('BLOCKED_USERS_UNAVAILABLE', '차단 목록을 불러오지 못했어요.', 0)
+      : null;
+  const visibleStatus: LoadStatus =
+    blockedUsers.status === 'error'
+      ? 'error'
+      : blockedUsers.status === 'loading' || status === 'loading'
+        ? 'loading'
+        : status;
+  const visibleSearchStatus: SearchStatus =
+    blockedUsers.status === 'error'
+      ? 'error'
+      : blockedUsers.status === 'loading'
+        ? 'loading'
+        : searchStatus;
 
   return {
-    status,
-    error,
-    data,
+    status: visibleStatus,
+    error: blockedListError ?? error,
+    data: blockedUsers.status === 'ready' ? visibleData : null,
     busy,
     refresh,
     retry: refresh,
     command,
     query,
     setQuery,
-    searchStatus,
-    searchError,
-    searchItems,
+    searchStatus: visibleSearchStatus,
+    searchError: blockedListError ?? searchError,
+    searchItems: visibleSearchItems,
   };
 }

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
+import { getBlockedUsers } from '@/services/api/safety';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   closeLetter,
@@ -12,6 +13,11 @@ import {
   sendLetter,
 } from '@/services/api/letters';
 import { useMailbox } from '@/screens/interiors/useMailbox';
+import {
+  markUserBlocked,
+  replaceBlockedUsers,
+  revalidateBlockedUsers,
+} from '@/services/blockedUsers';
 
 jest.mock('@/services/api/letters', () => ({
   getMailboxScreen: jest.fn(),
@@ -21,6 +27,10 @@ jest.mock('@/services/api/letters', () => ({
   closeLetter: jest.fn(),
   listIslandMessages: jest.fn(),
   sendIslandMessage: jest.fn(),
+}));
+jest.mock('@/services/api/safety', () => ({
+  ...jest.requireActual('@/services/api/safety'),
+  getBlockedUsers: jest.fn(),
 }));
 
 const ISLAND = 'island-1';
@@ -89,6 +99,7 @@ const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
 const listMessagesMock = listIslandMessages as jest.Mock;
 const sendMessageMock = sendIslandMessage as jest.Mock;
+const blockedUsersMock = getBlockedUsers as jest.Mock;
 
 const mount = async (over: { active?: boolean; scopeKey?: string } = {}) => {
   const hook = await renderHook((p: { active: boolean; scopeKey: string }) => useMailbox(p), {
@@ -102,7 +113,250 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  replaceBlockedUsers([]);
+  blockedUsersMock.mockResolvedValue([]);
   screenMock.mockResolvedValue(screen());
+});
+
+test('우체통 진입은 유효한 TTL cache가 있어도 차단 목록을 강제로 재검증한다', async () => {
+  blockedUsersMock.mockResolvedValue([{ id: 'u2', name: '민지' }]);
+
+  const hook = await mount();
+
+  assert.equal(blockedUsersMock.mock.calls.length, 1);
+  assert.deepEqual(hook.result.current.messages, []);
+  assert.deepEqual(hook.result.current.letters, []);
+  assert.deepEqual(hook.result.current.friends, []);
+  await hook.unmount();
+});
+
+test('다른 기기의 차단 해제를 재검증하면 우체통 서버 정본도 다시 적재한다', async () => {
+  replaceBlockedUsers([{ id: 'u2', name: '민지' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u2', name: '민지' }]);
+  screenMock
+    .mockResolvedValueOnce(
+      screen({
+        messages: { items: [], nextCursor: null },
+        letters: { content: [], size: 20, hasNext: false, nextCursor: null },
+        friends: [],
+      }),
+    )
+    .mockResolvedValueOnce(screen());
+  const hook = await mount();
+  assert.deepEqual(hook.result.current.messages, []);
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => revalidateBlockedUsers());
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.messages[0]?.userId, 'u2'));
+  assert.equal(hook.result.current.letters[0]?.counterpartUserId, 'u2');
+  assert.equal(hook.result.current.friends[0]?.userId, 'u2');
+  await hook.unmount();
+});
+
+test('차단 해제 때문에 우체통을 재적재해도 열려 있던 편지를 다시 연다', async () => {
+  replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  assert.equal(hook.result.current.detail?.id, LETTER);
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => revalidateBlockedUsers());
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(getLetterMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.detail?.id, LETTER));
+  await hook.unmount();
+});
+
+test('차단 해제 재적재가 진행 중인 편지 상세도 요청 ID로 다시 연다', async () => {
+  replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
+  let finishOlderDetail: (detail: ReturnType<typeof letterView>) => void = () => {};
+  getLetterMock
+    .mockReturnValueOnce(new Promise((resolve) => (finishOlderDetail = resolve)))
+    .mockResolvedValueOnce(letterView());
+  const hook = await mount();
+  await act(async () => {
+    hook.result.current.openLetter(LETTER).catch(() => {});
+    await Promise.resolve();
+  });
+  assert.equal(hook.result.current.detailLoading, true);
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => revalidateBlockedUsers());
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(getLetterMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.detail?.id, LETTER));
+  await act(async () => finishOlderDetail(letterView()));
+  assert.equal(hook.result.current.detail?.id, LETTER);
+  await hook.unmount();
+});
+
+test('차단 목록 오류 재시도에서 ID가 제거돼도 우체통은 한 번만 다시 적재한다', async () => {
+  replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
+  const hook = await mount();
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+  assert.equal(hook.result.current.blockedUsersStatus, 'error');
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => hook.result.current.retry());
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await Promise.resolve();
+
+  assert.equal(screenMock.mock.calls.length, 2);
+  await hook.unmount();
+});
+
+test('차단 해제 뒤 우체통 재적재가 실패하면 열린 편지에 재시도 오류를 전달한다', async () => {
+  replaceBlockedUsers([{ id: 'u-blocked', name: '차단 사용자' }]);
+  blockedUsersMock.mockResolvedValueOnce([{ id: 'u-blocked', name: '차단 사용자' }]);
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  screenMock.mockRejectedValueOnce(new ApiError('MAILBOX_FAILED', '우체통 오류', 500));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await act(async () => revalidateBlockedUsers());
+
+  await waitFor(() => assert.equal(screenMock.mock.calls.length, 2));
+  await waitFor(() => assert.equal(hook.result.current.detailError?.code, 'MAILBOX_FAILED'));
+  assert.equal(hook.result.current.detailLoading, false);
+  assert.equal(getLetterMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('차단 신호가 오면 캐시된 낙서·편지·친구를 서버 재조회 전에 즉시 숨긴다', async () => {
+  const hook = await mount();
+
+  await act(async () => markUserBlocked('u2'));
+
+  assert.deepEqual(hook.result.current.messages, []);
+  assert.deepEqual(hook.result.current.letters, []);
+  assert.deepEqual(hook.result.current.friends, []);
+  assert.equal(screenMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('차단 목록을 읽지 못하면 우편함 데이터를 fail-closed로 숨기고 오류를 보인다', async () => {
+  await saveSession({ accessToken: 'AT-2', refreshToken: 'RT-2', userId: 'u1' });
+  blockedUsersMock.mockRejectedValue(new Error('blocks unavailable'));
+
+  const hook = await renderHook(() => useMailbox({ active: true, scopeKey: 's1' }));
+  await waitFor(() => assert.equal(hook.result.current.error?.code, 'BLOCKED_USERS_UNAVAILABLE'));
+  assert.equal(hook.result.current.blockedUsersStatus, 'error');
+  assert.deepEqual(hook.result.current.messages, []);
+  assert.deepEqual(hook.result.current.letters, []);
+  assert.deepEqual(hook.result.current.friends, []);
+  assert.equal(hook.result.current.detail, null);
+  await hook.unmount();
+});
+
+test('차단한 사용자에게는 클라이언트에서 편지 발송을 막고 API를 호출하지 않는다', async () => {
+  const hook = await mount();
+  await act(async () => markUserBlocked('u2'));
+
+  let error: ApiError | null = null;
+  await act(async () => {
+    error = await hook.result.current.send('u2', '보내지면 안 됨').then(
+      () => null,
+      (thrown) => thrown as ApiError,
+    );
+  });
+
+  assert.equal((error as ApiError | null)?.code, 'CLIENT_BLOCKED_USER');
+  assert.equal(sendLetterMock.mock.calls.length, 0);
+  await hook.unmount();
+});
+
+test('열려 있는 편지 상세도 상대를 차단하면 즉시 숨긴다', async () => {
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  assert.equal(hook.result.current.detail?.id, LETTER);
+
+  await act(async () => markUserBlocked('u2'));
+
+  assert.equal(hook.result.current.detail, null);
+  assert.equal(hook.result.current.detailBlocked, true);
+  assert.equal(getLetterMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('열린 편지에서 차단 목록 재검증이 실패하면 상세 오류로 전달한다', async () => {
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+
+  assert.equal(hook.result.current.detail, null);
+  assert.equal(hook.result.current.detailError?.code, 'BLOCKED_USERS_UNAVAILABLE');
+  assert.equal(hook.result.current.blockedUsersStatus, 'error');
+  await hook.unmount();
+});
+
+test('열린 편지 재시도에서 우체통 묶음 적재가 실패해도 상세 오류를 유지한다', async () => {
+  getLetterMock.mockResolvedValue(letterView());
+  const hook = await mount();
+  await act(async () => hook.result.current.openLetter(LETTER));
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+  assert.equal(hook.result.current.blockedUsersStatus, 'error');
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  screenMock.mockRejectedValueOnce(new ApiError('MAILBOX_FAILED', '우체통 오류', 500));
+  await act(async () => hook.result.current.retry().catch(() => {}));
+
+  assert.equal(hook.result.current.blockedUsersStatus, 'ready');
+  assert.equal(hook.result.current.detail, null);
+  assert.equal(hook.result.current.detailError?.code, 'MAILBOX_FAILED');
+  assert.equal(hook.result.current.detailLoading, false);
+  await hook.unmount();
+});
+
+test('편지 상세가 로딩 중이어도 재시도 묶음 적재 실패를 상세 오류로 전달한다', async () => {
+  let finishDetail: (detail: ReturnType<typeof letterView>) => void = () => {};
+  getLetterMock.mockReturnValueOnce(new Promise((resolve) => (finishDetail = resolve)));
+  const hook = await mount();
+  await act(async () => {
+    hook.result.current.openLetter(LETTER).catch(() => {});
+    await Promise.resolve();
+  });
+  assert.equal(hook.result.current.detailLoading, true);
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  screenMock.mockRejectedValueOnce(new ApiError('MAILBOX_FAILED', '우체통 오류', 500));
+  await act(async () => hook.result.current.retry().catch(() => {}));
+
+  assert.equal(hook.result.current.detailError?.code, 'MAILBOX_FAILED');
+  assert.equal(hook.result.current.detailLoading, false);
+  await act(async () => finishDetail(letterView()));
+  await hook.unmount();
+});
+
+test('재조회로 적재된 보낸 편지도 상대를 차단하면 숨긴다', async () => {
+  closeLetterMock.mockResolvedValue(undefined);
+  listLettersMock.mockImplementation((type: string) =>
+    Promise.resolve(slice(type === 'received' ? [] : [{ ...letterItem(), id: 'sent-1' }])),
+  );
+  const hook = await mount();
+  await act(async () => hook.result.current.close(LETTER));
+  assert.equal(hook.result.current.sent.length, 1);
+
+  await act(async () => markUserBlocked('u2'));
+
+  assert.deepEqual(hook.result.current.sent, []);
+  await hook.unmount();
 });
 
 test('로드 — 화면 묶음의 섬·낙서·받은 편지·친구를 그대로 채운다', async () => {

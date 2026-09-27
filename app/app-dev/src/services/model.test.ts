@@ -629,6 +629,17 @@ test('서버 친구 스냅샷은 공용 친구 상태를 교체하되 기존 편
   assert.equal(s.friends?.[0].status, 'received');
   assert.deepEqual(s.friends?.[0].messages, []);
 });
+test('fail-closed 친구 동기화는 기존 요청 배지 snapshot을 비운다', () => {
+  let s = initialState(true);
+  assert.equal(
+    s.friends?.some((friend) => friend.status === 'received'),
+    true,
+  );
+
+  s = act(s, 'FRIENDS_SYNC', { friends: [] });
+
+  assert.deepEqual(s.friends, []);
+});
 test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', () => {
   let s = initialState(true);
   s.friends!.find((f) => f.id === 'saebom')!.messages.push({

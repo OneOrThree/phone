@@ -104,6 +104,8 @@ export interface RequestOptions {
   auth?: boolean;
   /** 호출부가 잡아 둔 세션 세대. 생략하면 요청 시작 시점의 값. */
   generation?: number;
+  /** 서버 작업 특성상 공용 15초보다 긴 응답 시간이 필요한 경우의 호출별 제한. */
+  timeoutMs?: number;
 }
 
 /**
@@ -175,7 +177,7 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? REQUEST_TIMEOUT_MS);
   let response: Response;
   let text: string;
   try {

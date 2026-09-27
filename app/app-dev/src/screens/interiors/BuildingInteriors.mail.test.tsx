@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { initialState } from '@/services/model';
+import {
+  markUserBlocked,
+  replaceBlockedUsers,
+  revalidateBlockedUsers,
+} from '@/services/blockedUsers';
+import { blockUser, getBlockedUsers } from '@/services/api/safety';
 import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
   closeLetter,
@@ -24,6 +30,28 @@ jest.mock('@/services/api/letters', () => ({
   closeLetter: jest.fn(),
   listIslandMessages: jest.fn(),
   sendIslandMessage: jest.fn(),
+}));
+
+jest.mock('@/services/api/safety', () => ({
+  ...jest.requireActual('@/services/api/safety'),
+  blockUser: jest.fn(),
+  getBlockedUsers: jest.fn(),
+}));
+
+jest.mock('@/utils/layout', () => ({
+  useAppLayout: () => ({
+    width: 402,
+    height: 874,
+    fontScale: 1,
+    tablet: false,
+    landscape: false,
+    compact: false,
+    contentWidth: 402,
+    gutter: 20,
+    floatingWidth: 362,
+    modalWidth: 362,
+    insets: { top: 52, bottom: 32, left: 0, right: 0 },
+  }),
 }));
 
 const ISLAND = 'island-1';
@@ -85,6 +113,8 @@ const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
 const listMessagesMock = listIslandMessages as jest.Mock;
 const sendMessageMock = sendIslandMessage as jest.Mock;
+const blockedUsersMock = getBlockedUsers as jest.Mock;
+const blockUserMock = blockUser as jest.Mock;
 
 /** App.tsx 가 넘기는 라우트 문맥의 최소 복제 — go/back 이 e 를 바꾸고 _tick 으로 리렌더한다. */
 const makeE = (over: Record<string, unknown> = {}) => {
@@ -178,6 +208,8 @@ beforeEach(async () => {
   jest.clearAllMocks();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  replaceBlockedUsers([]);
+  blockedUsersMock.mockResolvedValue([]);
 });
 
 test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이름이 보인다', async () => {
@@ -214,6 +246,21 @@ test('로드 실패 — 오류 문구와 다시 시도, 재시도가 다시 읽�
   await ui.unmount();
 });
 
+test('우편함을 읽은 뒤 차단 목록만 실패해도 다시 시도할 수 있다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  await saveSession({ accessToken: 'AT-2', refreshToken: 'RT-2', userId: 'u1' });
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+  const ui = await renderMail(makeE());
+
+  await waitFor(() => assert.ok(ui.getByTestId('mailbox-retry')));
+  assert.ok(ui.getByText('차단 목록을 불러오지 못했어요.'));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await fireEvent.press(ui.getByTestId('mailbox-retry'));
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await ui.unmount();
+});
+
 test('편지 열기 — GET 상세로 본문을 그린다(DELETE 는 나가지 않는다)', async () => {
   screenMock.mockResolvedValue(screen([letterItem()]));
   getLetterMock.mockResolvedValue(letterView());
@@ -228,6 +275,93 @@ test('편지 열기 — GET 상세로 본문을 그린다(DELETE 는 나가지 �
   await ui.unmount();
 });
 
+test('열린 편지의 상대가 차단되면 무한 로딩 없이 받은 편지함으로 돌아간다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const e = makeE();
+  const ui = await renderMail(e);
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByText('반가워, 잘 지내?')));
+
+  await act(async () => markUserBlocked('u2'));
+
+  await waitFor(() => assert.equal(e.route, 'mail'));
+  assert.equal(e.detail, '');
+  assert.ok(ui.getByText('기다리는 편지가 없어요.'));
+  assert.equal(ui.queryByText('편지를 여는 중이에요…'), null);
+  await ui.unmount();
+});
+
+test('받은 편지 상세 더보기에서 편지 신고·발신자 차단 시트로 진입한다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
+
+  await fireEvent.press(ui.getByLabelText('민지 더보기'));
+
+  assert.ok(ui.getByText('신고하기'));
+  assert.ok(ui.getByText('차단하기'));
+  await ui.unmount();
+});
+
+test('편지 신고는 운영 메일 작성 화면을 열고 상세 화면을 유지한다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const openUrl = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+  const e = makeE();
+  const ui = await renderMail(e);
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
+  await fireEvent.press(ui.getByLabelText('민지 더보기'));
+  await fireEvent.press(ui.getByText('신고하기'));
+  await fireEvent.press(ui.getByText('이메일 작성'));
+
+  await waitFor(() => assert.equal(openUrl.mock.calls.length, 1));
+  const reportUrl = openUrl.mock.calls[0][0];
+  assert.ok(reportUrl.startsWith('mailto:nappaegonoljima@gmail.com?'));
+  assert.ok(decodeURIComponent(reportUrl).includes('[신고 대상 원문]\n반가워, 잘 지내?'));
+  assert.equal(e.route, 'mail');
+  assert.equal(e.tab, '받은 편지');
+  assert.equal(ui.queryByText('신고하기'), null);
+  openUrl.mockRestore();
+  await ui.unmount();
+});
+
+test('편지 신고 중 차단 뒤 메일 앱이 실패해도 신고 시트와 재시도를 유지한다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  blockUserMock.mockResolvedValue(undefined);
+  const openUrl = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('no mail app'));
+  const e = makeE();
+  const ui = await renderMail(e);
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
+  await fireEvent.press(ui.getByLabelText('민지 더보기'));
+  await fireEvent.press(ui.getByText('신고하기'));
+  await fireEvent.press(ui.getByRole('switch', { name: '이 사용자도 차단' }));
+  await fireEvent.press(ui.getByText('이메일 작성'));
+
+  await waitFor(() => assert.ok(ui.getByText(/차단은 완료했지만 메일 앱을 열지 못했어요/)));
+  assert.ok(ui.getByText('이메일 작성'));
+  assert.equal(blockUserMock.mock.calls.length, 1);
+  assert.equal(e.route, 'mail');
+
+  await fireEvent.press(ui.getByText('이메일 작성'));
+
+  await waitFor(() => assert.equal(openUrl.mock.calls.length, 2));
+  assert.equal(blockUserMock.mock.calls.length, 1);
+  assert.equal(e.route, 'mail');
+  assert.equal(e.tab, '받은 편지');
+  openUrl.mockRestore();
+  await ui.unmount();
+});
+
 test('상세 실패 — 오류와 다시 시도를 보여 주고 캐시된 편지를 대신 그리지 않는다', async () => {
   screenMock.mockResolvedValue(screen([letterItem()]));
   getLetterMock.mockRejectedValue(new ApiError('CLIENT_TIMEOUT', '시간이 지났어요.', 0));
@@ -239,6 +373,28 @@ test('상세 실패 — 오류와 다시 시도를 보여 주고 캐시된 편�
   await waitFor(() => assert.ok(ui.getByTestId('letter-retry')));
   assert.ok(ui.getByText('시간이 지났어요.'));
   assert.equal(ui.queryByText('반가워, 잘 지내?'), null);
+  await ui.unmount();
+});
+
+test('열린 편지의 차단 목록 재검증 실패는 오류를 보이고 다시 시도해 복구한다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByTestId('close-letter')));
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+
+  await act(async () => revalidateBlockedUsers().catch(() => {}));
+
+  await waitFor(() => assert.ok(ui.getByTestId('letter-retry')));
+  assert.ok(ui.getByText('차단 목록을 불러오지 못했어요.'));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await fireEvent.press(ui.getByTestId('letter-retry'));
+
+  await waitFor(() => assert.ok(ui.getByTestId('close-letter')));
+  assert.equal(getLetterMock.mock.calls.length >= 2, true);
   await ui.unmount();
 });
 

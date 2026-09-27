@@ -89,6 +89,7 @@ export const primitiveTokens = {
     control: 14,
     card: 20,
     preview: 22,
+    modal: 24,
     sheet: 26,
     full: 999,
   },
@@ -171,6 +172,7 @@ export const semanticTokens = {
     control: radius.control,
     card: radius.card,
     preview: radius.preview,
+    modal: radius.modal,
     sheet: radius.sheet,
     full: radius.full,
   },
@@ -327,6 +329,15 @@ export const componentTokens = {
   overlay: {
     background: semanticTokens.color.overlay,
     sheetBackground: semanticTokens.color.overlaySheet,
+  },
+  modal: {
+    padding: semanticTokens.spacing.page,
+    paddingBottom: semanticTokens.spacing.section,
+    gap: 14,
+    radius: semanticTokens.radius.modal,
+    sheetRadius: semanticTokens.radius.sheet,
+    borderWidth: semanticTokens.stroke.strong,
+    shadow: `0px 6px 0px ${semanticTokens.color.outline}`,
   },
 } as const;
 
