@@ -135,6 +135,7 @@ const screenElement = (
   state: State,
   route: 'focus' | 'rest' | 'focusResult' = 'focus',
   backOverride?: { current: (() => boolean) | null },
+  goOverride = jest.fn(),
 ) => (
   <CurrentScreens
     e={{
@@ -142,7 +143,7 @@ const screenElement = (
       route,
       now: Date.now(),
       dispatch: jest.fn(),
-      go: jest.fn(),
+      go: goOverride,
       replace: jest.fn(),
       reset: jest.fn(),
       home: jest.fn(),
@@ -163,6 +164,8 @@ beforeEach(async () => {
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
+
+afterEach(() => jest.useRealTimers());
 
 test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와 섬 에셋을 함께 갱신한다', async () => {
   const backOverride: { current: (() => boolean) | null } = { current: null };
@@ -277,6 +280,32 @@ test('휴식 전환 중 도착한 당첨을 보존하고 복귀하면 컷신과 
   assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
   assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
   await screen.unmount();
+});
+
+test('휴식하러 걷는 중 시작한 컷신이 끝날 때까지 화면 전환을 미룬다', async () => {
+  jest.useFakeTimers();
+  const state = focusedState();
+  const go = jest.fn();
+  const screen = await render(screenElement(state, 'focus', undefined, go));
+
+  await fireEvent.press(screen.getByTestId('pause-focus'));
+  await act(async () =>
+    onGoldenFish?.(
+      event([
+        { userId: 'me', sessionId: 's-me' },
+        { userId: 'minji', sessionId: 'minji' },
+      ]),
+    ),
+  );
+  await act(async () => jest.runAllTimers());
+
+  assert.equal(go.mock.calls.length, 0);
+  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  assert.equal(go.mock.calls[0][0], 'rest');
+
+  await screen.unmount();
+  jest.useRealTimers();
 });
 
 test('세션 종료 직후 결과 화면에 도착한 당첨도 버리지 않는다', async () => {

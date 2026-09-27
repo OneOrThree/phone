@@ -1126,6 +1126,7 @@ function FocusFlow({ e }: any) {
     goldenPresenter = useRef<(event: GoldenFishEvent) => void>(() => {}),
     goldenCutsceneRef = useRef<GoldenFishEvent | null>(null),
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
+    goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
     goldenOccurrencesRef = useRef(new GoldenFishOccurrenceTracker()),
     goldenTimelineRef = useRef(new GoldenFishMemberTimeline()),
     goldenTimelineSessionRef = useRef<string | null>(null),
@@ -1175,7 +1176,7 @@ function FocusFlow({ e }: any) {
     goldenTimelineRef.current.reset();
   }
   if (s.session && live.status === 'ready') {
-    goldenTimelineRef.current.observe(e.now + live.clockOffset, liveGoldenMembers);
+    goldenTimelineRef.current.observe(Date.now() + live.clockOffset, liveGoldenMembers);
   }
   const goldenTimelineStart = goldenTimelineRef.current.coverageStartMs();
   const goldenIntervals =
@@ -1319,6 +1320,7 @@ function FocusFlow({ e }: any) {
       setEmote(null);
       goldenCutsceneRef.current = null;
       goldenQueueRef.current = [];
+      goldenDeferredNavigationRef.current = null;
       setGoldenCutscene(null);
       setGoldenFish(false);
       return;
@@ -1469,6 +1471,10 @@ function FocusFlow({ e }: any) {
     setLeg('leave');
     const arrive = () => {
       setLeg(null);
+      if (goldenCutsceneRef.current) {
+        goldenDeferredNavigationRef.current = next;
+        return;
+      }
       next();
     };
     if (!walkTo(LANDING, arrive)) arrive();
@@ -1783,6 +1789,11 @@ function FocusFlow({ e }: any) {
         goldenCutsceneRef.current = next;
         setGoldenCutscene(next);
         setGoldenFish(next === null);
+        if (next === null) {
+          const navigate = goldenDeferredNavigationRef.current;
+          goldenDeferredNavigationRef.current = null;
+          navigate?.();
+        }
       }}
     />
   ) : null;

@@ -32,6 +32,9 @@ export class GoldenFishMemberTimeline {
 
   observe(atMs: number, members: GoldenFishMember[]) {
     if (!Number.isFinite(atMs)) return;
+    const latest = this.snapshots[this.snapshots.length - 1];
+    // 정확한 realtime 전이 뒤에 늦은 렌더/스냅숏 시각이 들어와 과거 상태를 덮지 않게 한다.
+    if (latest && atMs < latest.atMs) return;
     const unique = members
       .filter(
         (member, index, all) =>

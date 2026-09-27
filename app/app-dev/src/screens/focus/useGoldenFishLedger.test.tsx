@@ -238,6 +238,15 @@ test('참여자 타임라인은 원장 발생 시각 이후에 바뀐 주민을 
   );
 });
 
+test('정확한 전이 뒤의 오래된 스냅숏은 참여자 타임라인을 과거로 덮지 않는다', () => {
+  const timeline = new GoldenFishMemberTimeline();
+  timeline.observe(1_000, defaultMembers);
+  timeline.observe(2_000, [defaultMembers[0]]);
+  timeline.observe(1_500, defaultMembers);
+
+  assert.deepEqual(timeline.membersAt(2_500), [defaultMembers[0]]);
+});
+
 test('초기 스냅숏 전의 행은 참여자를 확정할 때까지 소비하지 않는다', async () => {
   const onGoldenFish = jest.fn();
   let known = false;
