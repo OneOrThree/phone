@@ -5765,7 +5765,23 @@ export function Board({
   const questHitHeight = Math.max(scene.height * 0.09, 44);
   const accessibleQuestHeight = (22 * 1.1 * fontScale + 20 + 3 + 6) * labelScale;
   const questLabelHitHeight = Math.max(questHitHeight, accessibleQuestHeight);
-  const questCenterY = 0.285;
+  const noticeCenterY = 0.348;
+  const noticeHitWidth = Math.max(scene.width * 0.253, 44);
+  const noticeBaseHitHeight = Math.max(scene.height * 0.226, 44);
+  const accessibleNoticeHeight =
+    (28 * 1.1 * fontScale + 9 + 24) * labelScale +
+    Math.max(0, noticeHitWidth - 24 * labelScale) * 0.7;
+  const noticeHitHeight = Math.max(noticeBaseHitHeight, accessibleNoticeHeight);
+  const questCenterY =
+    noticeHitHeight > noticeBaseHitHeight
+      ? Math.max(
+          (questLabelHitHeight / 2 + 1) / scene.height,
+          Math.min(
+            0.285,
+            noticeCenterY - (noticeHitHeight / 2 + questLabelHitHeight / 2 + 1) / scene.height,
+          ),
+        )
+      : 0.285;
   const blueprintCenterY = Math.max(
     0.406,
     questCenterY + (questLabelHitHeight / 2 + 44 / 2 + 1) / scene.height,
@@ -5779,7 +5795,7 @@ export function Board({
     ),
   );
   const boardHitboxes = {
-    notice: sceneHitbox(0.3495, 0.348, 0.253, 0.226),
+    notice: sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height),
     quest: sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height),
     blueprint: sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight),
   };
@@ -5822,6 +5838,8 @@ export function Board({
     none: 236,
   }[blueprintView.state];
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
+  const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
+  const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
   const sheetHeight = Math.min(height * 0.58, 492 * landScale);
   const sheetCramped = sheetHeight - 110 * landScale < 140;
@@ -5829,7 +5847,10 @@ export function Board({
   const paperPad = sheetCramped
     ? { top: 38 * landScale, bottom: 28 * landScale }
     : { top: 68 * landScale, bottom: 42 * landScale };
-  const paperScroll = Math.max(0, paperHeight - paperPad.top - paperPad.bottom);
+  const paperScroll = Math.max(
+    0,
+    paperHeight - paperPad.top - paperPad.bottom - panelNavigationHeight,
+  );
   // 상세 종이 안쪽 스크롤은 바깥 여백 88px(반응형 배율 적용)을 뺀 높이까지만 쓴다
   const overlayFrame = height * (land ? 0.65 : 0.58);
   const overlayVerticalPadding = 88 * landScale;
@@ -6057,6 +6078,51 @@ export function Board({
               bottom: -30 * landScale,
             }}
           />
+        )}
+        {panelNavigationOpen && (
+          <View
+            testID="board-panel-navigation"
+            style={{
+              zIndex: 2,
+              flexDirection: 'row',
+              justifyContent: 'flex-end',
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
+            <Pressable
+              testID="board-panel-switch"
+              accessibilityRole="button"
+              accessibilityLabel={`${s.panel === 'notice' ? '퀘스트' : '공지'} 패널로 전환`}
+              onPress={() => nav.open(s.panel === 'notice' ? 'quest' : 'notice')}
+              style={{
+                width: 44,
+                height: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text allowFontScaling={false} style={boardFont(20, 1, '700', '#76503c')}>
+                ⇄
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="board-panel-close"
+              accessibilityRole="button"
+              accessibilityLabel="게시판 닫기"
+              onPress={nav.closePanel}
+              style={{
+                width: 44,
+                height: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text allowFontScaling={false} style={boardFont(22, 1, '400', '#76503c')}>
+                ×
+              </Text>
+            </Pressable>
+          </View>
         )}
         {s.panel === 'blueprint' && (
           <Pressable

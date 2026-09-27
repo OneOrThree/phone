@@ -349,6 +349,29 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
       assert.equal(scene.width, scrollScene ? width : (height * 2) / 3);
       assert.equal(scene.left, scrollScene ? 0 : (width - scene.width) / 2);
       const labelScale = Math.min(1, scene.width / 402);
+      const fontScale = Math.max(1, PixelRatio.getFontScale());
+      const noticeBaseHeight = Math.max(scene.height * 0.226, 44);
+      const noticeHeight = Math.max(
+        noticeBaseHeight,
+        (28 * 1.1 * fontScale + 9 + 24) * labelScale +
+          (Math.max(scene.width * 0.253, 44) - 24 * labelScale) * 0.7,
+      );
+      const questHeight = Math.max(
+        scene.height * 0.09,
+        (22 * 1.1 * fontScale + 20 + 3 + 6) * labelScale,
+        44,
+      );
+      const questCenterY =
+        noticeHeight > noticeBaseHeight
+          ? Math.max(
+              (questHeight / 2 + 1) / scene.height,
+              Math.min(0.285, 0.348 - (noticeHeight / 2 + questHeight / 2 + 1) / scene.height),
+            )
+          : 0.285;
+      const blueprintCenterY = Math.max(
+        0.406,
+        questCenterY + (questHeight / 2 + 44 / 2 + 1) / scene.height,
+      );
 
       const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
       assert.equal(labelScene.left, 0);
@@ -357,8 +380,8 @@ test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 �
       assert.equal(labelScene.bottom, 0);
       const hitboxes = [
         ['board-notice-area', 0.3495, 0.348],
-        ['board-quest-area', 0.645, 0.285],
-        ['board-blueprint-area', 0.705, 0.406],
+        ['board-quest-area', 0.645, questCenterY],
+        ['board-blueprint-area', 0.705, blueprintCenterY],
       ].map(([testID, centerX, centerY]) => {
         const area = StyleSheet.flatten(screen.getByTestId(testID as string).props.style);
         assert.ok(area.width >= 44, `${testID} is at least 44px wide at ${width}x${height}`);
@@ -473,22 +496,37 @@ test('3배 접근성 글자에서도 퀘스트 터치 영역에 맞춰 청사진
     ]) {
       const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
       const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      const notice = StyleSheet.flatten(screen.getByTestId('board-notice-area').props.style);
       const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
       const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+      const noticeText = screen.getByText('공지');
       const questText = screen.getByText('퀘스트');
       const labelScale = Math.min(1, scene.width / 402);
+      const requiredNoticeHeight =
+        (28 * 1.1 * 3 + 9 + 24) * labelScale +
+        (Math.max(scene.width * 0.253, 44) - 24 * labelScale) * 0.7;
       const requiredQuestHeight = (22 * 1.1 * 3 + 20 + 3 + 6) * labelScale;
-      const separated =
-        quest.top + quest.height <= blueprint.top ||
-        blueprint.top + blueprint.height <= quest.top ||
-        quest.left + quest.width <= blueprint.left ||
-        blueprint.left + blueprint.width <= quest.left;
+      const boxes = [notice, quest, blueprint];
+      const allSeparated = boxes.every((box, index) =>
+        boxes
+          .slice(index + 1)
+          .every(
+            (other) =>
+              box.top + box.height <= other.top ||
+              other.top + other.height <= box.top ||
+              box.left + box.width <= other.left ||
+              other.left + other.width <= box.left,
+          ),
+      );
 
+      assert.ok(noticeText.props.allowFontScaling);
+      assert.ok(StyleSheet.flatten(noticeText.props.style).width >= 56 * 3 * labelScale);
+      assert.ok(notice.width >= 44 && notice.height >= requiredNoticeHeight);
       assert.ok(questText.props.allowFontScaling);
       assert.ok(StyleSheet.flatten(questText.props.style).width >= 198 * labelScale);
-      assert.ok(quest.height >= requiredQuestHeight);
+      assert.ok(quest.width >= 44 && quest.height >= requiredQuestHeight);
       assert.ok(blueprint.width >= 44 && blueprint.height >= 44);
-      assert.ok(separated, `3배 글자 터치 영역이 ${width}×${height}에서 겹치지 않음`);
+      assert.ok(allSeparated, `3배 글자 터치 영역이 ${width}×${height}에서 겹치지 않음`);
       await screen.unmount();
     }
   } finally {
@@ -550,7 +588,17 @@ test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라
         assert.equal(labelScene.left, 0);
         assert.equal(labelScene.top, 0);
         const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
-        assert.ok(Math.abs(quest.top + quest.height / 2 - width * 1.5 * 0.285) < 0.01);
+        const notice = StyleSheet.flatten(screen.getByTestId('board-notice-area').props.style);
+        const sceneHeight = width * 1.5;
+        const noticeBaseHeight = Math.max(sceneHeight * 0.226, 44);
+        const expectedCenterY =
+          notice.height > noticeBaseHeight
+            ? Math.max(
+                (quest.height / 2 + 1) / sceneHeight,
+                Math.min(0.285, 0.348 - (notice.height / 2 + quest.height / 2 + 1) / sceneHeight),
+              )
+            : 0.285;
+        assert.ok(Math.abs(quest.top + quest.height / 2 - sceneHeight * expectedCenterY) < 0.01);
         assert.ok(quest.width >= 44 && quest.height >= 44);
       } else {
         assert.equal(scrollContent.height, height);
@@ -639,6 +687,40 @@ test('열린 게시판 패널에서도 스크롤을 막고 배경 라벨은 패�
   await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
   fireEvent.press(screen.getByTestId('board-notice-area'));
   await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
+  await screen.unmount();
+});
+
+test('겹쳐진 가로 게시판 패널에서 44px 조작으로 전환·닫기를 할 수 있다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 402,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const switchButton = screen.getByTestId('board-panel-switch');
+  const closeButton = screen.getByTestId('board-panel-close');
+  const switchStyle = StyleSheet.flatten(switchButton.props.style);
+  const closeStyle = StyleSheet.flatten(closeButton.props.style);
+
+  assert.equal(drawer.left, 324);
+  assert.equal(drawer.right, 30);
+  assert.ok(switchStyle.width >= 44 && switchStyle.height >= 44);
+  assert.ok(closeStyle.width >= 44 && closeStyle.height >= 44);
+  assert.equal(switchButton.props.accessibilityLabel, '퀘스트 패널로 전환');
+
+  fireEvent.press(switchButton);
+  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
+  assert.equal(
+    screen.getByTestId('board-panel-switch').props.accessibilityLabel,
+    '공지 패널로 전환',
+  );
+
+  fireEvent.press(screen.getByTestId('board-panel-switch'));
+  await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
+  fireEvent.press(screen.getByTestId('board-panel-close'));
+  await waitFor(() =>
+    assert.equal(screen.getByTestId('board-scene-scroll').props.scrollEnabled, true),
+  );
+  assert.equal(screen.queryByTestId('board-panel-navigation'), null);
   await screen.unmount();
 });
 
