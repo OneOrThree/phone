@@ -9,9 +9,8 @@
  *  - 목표는 `PUT …/construction-target`(`buildingId`+`expectedVersion`), 착공은
  *    `POST …/constructions`(`expectedCostPolicyVersion` 포함) — 둘 다 `Idempotency-Key` 필수.
  *    같은 의도의 재시도는 같은 키·같은 본문, 바뀐 본문은 새 키다(409 `IDEMPOTENCY_KEY_REUSED`).
- *  - BUILDING·`startedAt`/`completesAt` 은 POST 응답이 정본이다 — GET 에는 공사 시각이 없다.
- *    앱은 `completesAt` 경과를 「재조회 신호」로만 쓰고 로컬 타이머로 완공을 확정하지 않는다.
- *    재실행·앱 전면 복귀·기기 시각 변경·완공 예정 시각 도달 때마다 GET 을 다시 부른다.
+ *  - BUILDING·`startedAt`/`completesAt` 은 기존 POST 응답을 클라이언트가 보관한다.
+ *    앱은 그 구간으로 표시 진행률을 계산하고, `completesAt` 경과는 재조회 신호로만 쓴다.
  *  - `islandId` 입력은 지금 로컬 섬 id 라 fetch 에 쓰지 않는다 — 서버 섬 id 는 `/me/islands`
  *    의 current 에서 배우고(`useLedgerScreen` 과 같은 계약), `islandId` 는 scope 리셋 신호다.
  *  - 「각자 몫」의 대상 명단은 목표 선택 시점 주민 스냅샷(GROMO-1999) — 공개 읽기 계약에는
@@ -40,6 +39,7 @@ import {
   type ConstructionStarted,
   type IslandMember,
 } from '@/services/api/home';
+import { constructionPhase, normalizedConstructionProgress } from './constructionProgress';
 import { myIslands } from '@/services/api/islands';
 import { sessionGeneration } from '@/services/api/session';
 import { collectPages } from '@/screens/interiors/useIslandManagement';
@@ -57,6 +57,8 @@ export const CLIENT_IN_FLIGHT = 'CLIENT_IN_FLIGHT';
  * 표시 카운트다운에만 영향이라 상태 판정과 무관하다.
  */
 const CLOCK_JUMP_MS = 30_000;
+/** 분 단위 서버 완공 스케줄러가 반영될 때까지 회관 상태를 확인하는 최소 간격. */
+const COMPLETION_CONFIRM_RETRY_MS = 5_000;
 
 const staleError = () =>
   new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
@@ -92,11 +94,18 @@ export type ConstructionSnapshot = {
 };
 
 const EMPTY: ConstructionSnapshot = { options: null, members: null, loading: false, error: null };
+type ConstructionTiming = {
+  buildingId: string;
+  startedAt: string | number;
+  completesAt: string | number;
+};
 
 export function useConstruction({
   active,
   islandId,
   now,
+  onStarted,
+  resumeTiming,
 }: {
   /** 이 화면이 보이고 주민일 때만 true — 방문자·모크 모드·다른 route 에서는 호출이 0회다. */
   active: boolean;
@@ -104,9 +113,13 @@ export function useConstruction({
   islandId: string | null;
   /** 렌더 타이머(App 의 1초 tick) — 기기 시각 변경·완공 예정 도달 감지에만 쓰고 완공 판정엔 안 쓴다. */
   now: number;
+  /** 착공 POST receipt을 홈의 클라이언트 상태로 넘긴다. */
+  onStarted?: (started: ConstructionStarted) => void;
+  /** 회관 재진입 뒤에도 홈이 보관한 착공 시각으로 완공 확인을 이어 간다. */
+  resumeTiming?: ConstructionTiming | null;
 }) {
   const [snap, setSnap] = useState<ConstructionSnapshot>(EMPTY);
-  /** 이 세션에서 POST 로 접수된 공사 — GET 에는 공사 시각이 없어 응답을 그대로 들고 있는다. */
+  /** 이 클라이언트에서 받은 착공 POST receipt. */
   const [started, setStarted] = useState<ConstructionStarted | null>(null);
   const mounted = useRef(false);
   const scopeRef = useRef<Scope | null>(null);
@@ -124,8 +137,9 @@ export function useConstruction({
   const writeBusy = useRef<WriteIntent | null>(null);
   /** 마지막으로 본 now — 시각 변경 감지용. */
   const lastNow = useRef(now);
-  /** 완공 예정 도달 재조회는 예정 시각당 한 번 — 매 렌더 재조회하지 않는다. */
-  const dueHandled = useRef<string | null>(null);
+  /** 완공 예정 뒤 서버 확정을 기다리는 제한 재조회 상태. */
+  const confirmationReloading = useRef<string | null>(null);
+  const confirmationNextAt = useRef(0);
   // 렌더 시점에 읽어 effect deps 에 태운다 — 세션 교체 뒤 첫 렌더에서 범위가 재생성된다.
   const generation = sessionGeneration();
 
@@ -178,10 +192,11 @@ export function useConstruction({
         optionsRef.current = options;
         publish({ options, members, loading: false, error: null });
         confirmSeq.current = seq; // canonical 확정 — 쓰기 성공의 근거는 이 값이다
-        // POST 로 접수한 건물이 items 에서 빠졌다 = 서버가 완공으로 옮겼다. 앱이 시각으로
-        // 판정한 것이 아니라 서버 목록이 말한 것이다.
-        setStarted((prev) =>
-          prev !== null && !options.items.some((item) => item.id === prev.buildingId) ? null : prev,
+        // 서버가 완공 목록으로 옮긴 뒤에만 로컬 receipt을 내린다.
+        setStarted((previous) =>
+          previous !== null && !options.items.some((item) => item.id === previous.buildingId)
+            ? null
+            : previous,
         );
       } catch (error) {
         publish({ ...EMPTY, loading: false, error: asApiError(error) });
@@ -256,18 +271,42 @@ export function useConstruction({
     return () => sub.remove();
   }, [active, reload]);
 
-  // 기기 시각 변경·completesAt 도달은 「재조회 신호」다 — 완공 확정은 서버 목록이 내린다.
+  // 기기 시각 변경·클라이언트 계산상 completesAt 도달은 재조회 신호다.
+  // 서버 스케줄러가 아직 BUILDING을 반환하면 receipt이 사라질 때까지 제한 간격으로 확인한다.
   useEffect(() => {
     const prev = lastNow.current;
     lastNow.current = now;
     if (!active || scopeRef.current === null) return;
     const jumped = Math.abs(now - prev) > CLOCK_JUMP_MS;
-    const dueKey = started !== null ? `${started.buildingId}:${started.completesAt}` : null;
-    const due =
-      dueKey !== null && now >= Date.parse(started!.completesAt) && dueHandled.current !== dueKey;
-    if (due) dueHandled.current = dueKey;
-    if (jumped || due) reload().catch(() => undefined);
-  }, [now, active, started, reload]);
+    const timing = started ?? resumeTiming ?? null;
+    const dueKey = timing !== null ? `${timing.buildingId}:${timing.completesAt}` : null;
+    const stillBuilding =
+      timing !== null &&
+      snap.options !== null &&
+      snap.options.items.some((item) => item.id === timing.buildingId);
+    const pastDue = timing !== null && normalizedConstructionProgress(timing, now) >= 1;
+    if (!pastDue) {
+      confirmationNextAt.current = 0;
+      if (jumped) reload().catch(() => undefined);
+      return;
+    }
+    if (snap.loading) return;
+    // 최초 조회 전에는 기다리되, 완공 확인 GET이 실패해 options가 비워진 경우에는 재시도한다.
+    if (snap.options === null && snap.error === null) return;
+    if (snap.options !== null && !stillBuilding) {
+      confirmationNextAt.current = 0;
+      return;
+    }
+    if (confirmationReloading.current !== null || (!jumped && now < confirmationNextAt.current))
+      return;
+    confirmationReloading.current = dueKey;
+    confirmationNextAt.current = now + COMPLETION_CONFIRM_RETRY_MS;
+    reload()
+      .catch(() => undefined)
+      .finally(() => {
+        if (confirmationReloading.current === dueKey) confirmationReloading.current = null;
+      });
+  }, [now, active, started, resumeTiming, snap.loading, snap.options, snap.error, reload]);
 
   /**
    * 모든 쓰기 명령의 단일 통로 — fence·의도 슬롯·단일 flight·성공 후 재조회·오류 분류를
@@ -281,6 +320,7 @@ export function useConstruction({
       payload: string,
       exec: (key: string) => Promise<unknown>,
       apply?: (result: unknown) => void,
+      capture?: (result: unknown) => void,
     ): Promise<void> => {
       // dedupe·단일 flight 먼저 — 재조회 구간에도 같은 의도는 합류하고 다른 의도는 거절한다.
       const inFlight = flights.current.get(slot);
@@ -311,6 +351,9 @@ export function useConstruction({
       flight = (async () => {
         try {
           const wrote = await exec(key);
+          // POST가 커밋된 뒤 재조회가 실패하거나 화면이 닫혀도 receipt은 잃지 않는다.
+          // 계정 세대가 바뀐 응답은 저장하지 않고, 대상 섬 검증은 수신 reducer가 다시 한다.
+          if (scope.gen === sessionGeneration()) capture?.(wrote);
           // 쓰기 성공은 서버 재조회로 확정한 뒤에만 resolve 한다 — 응답 본문만으로 확정 금지.
           await runReload(scope).catch((error) => {
             // 살아 있는 scope 의 STALE 은 더 늦게 시작한 읽기가 확정권을 가져간 것뿐이다 —
@@ -410,9 +453,10 @@ export function useConstruction({
             key,
           ),
         (result) => setStarted(result as ConstructionStarted),
+        (result) => onStarted?.(result as ConstructionStarted),
       );
     },
-    [callScope, confirmedItem, runWrite],
+    [callScope, confirmedItem, onStarted, runWrite],
   );
 
   return {
@@ -421,6 +465,8 @@ export function useConstruction({
     options: snap.options,
     members: snap.members,
     started,
+    progress: normalizedConstructionProgress(started, now),
+    phase: constructionPhase(normalizedConstructionProgress(started, now), started !== null),
     error: snap.error,
     reload,
     retry: reload,

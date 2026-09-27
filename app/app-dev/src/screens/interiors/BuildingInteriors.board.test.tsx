@@ -18,6 +18,11 @@ import {
   Board,
   buildings,
   InteriorScreen,
+  focusBoardModal,
+  handleBoardModalKeydown,
+  restoreBoardModalOpener,
+  setBoardBackgroundInert,
+  syncBoardModalFocus,
   type Concept,
 } from '@/screens/interiors/BuildingInteriors';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
@@ -219,13 +224,21 @@ const deferred = <T,>() => {
   return { promise, resolve, reject };
 };
 
+type BoardSize = { width: number; height: number; sceneHeight?: number };
+
 const renderBoard = async (
   e: any,
   c: Partial<Concept> = {},
-  size: { width: number; height: number; sceneHeight?: number } = { width: 402, height: 874 },
+  sizeOrHigherModal: BoardSize | boolean = { width: 402, height: 874 },
 ) => {
+  const size: BoardSize =
+    typeof sizeOrHigherModal === 'boolean'
+      ? { width: 402, height: 874 }
+      : sizeOrHigherModal;
+  const initialHigherModalOpen =
+    typeof sizeOrHigherModal === 'boolean' ? sizeOrHigherModal : false;
   // App 은 렌더마다 e 를 새로 조립한다 — box 로 최신 e 를 주고 setE 가 stale 클로저를 재현한다.
-  const box = { e };
+  const box = { e, higherModalOpen: initialHigherModalOpen };
   const Harness = () => {
     const [, setN] = useState(0);
     if (box.e) box.e._tick = () => setN((n: number) => n + 1);
@@ -240,6 +253,7 @@ const renderBoard = async (
         reduceMotion
         showToast={() => {}}
         e={box.e}
+        higherModalOpen={box.higherModalOpen}
       />
     );
   };
@@ -251,6 +265,10 @@ const renderBoard = async (
     },
     setSize: (next: Partial<typeof size>) => {
       Object.assign(size, next);
+      return screen.rerender(<Harness />);
+    },
+    setHigherModalOpen: (open: boolean) => {
+      box.higherModalOpen = open;
       return screen.rerender(<Harness />);
     },
   });
@@ -272,6 +290,302 @@ const webMockMode = (search: string) => {
     Object.defineProperty(g.window, 'location', { value: prevLoc, configurable: true });
   };
 };
+
+test('웹 공지·퀘스트 상세는 모달 의미를 제공하고 배경을 접근성 트리에서 제외한다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const noticeScreen = await renderBoard(null, concept({ boardView: 'detail' }));
+    const noticeOverlay = noticeScreen.getByTestId('board-notice-overlay');
+    assert.equal(noticeOverlay.props['aria-modal'], true);
+    assert.equal(noticeOverlay.props.tabIndex, -1);
+    assert.equal(noticeOverlay.props.accessibilityRole, 'dialog');
+    assert.equal(
+      (JSON.stringify(noticeScreen.toJSON()).match(/"aria-hidden":true/g) ?? []).length,
+      2,
+    );
+    await noticeScreen.unmount();
+
+    const questScreen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'detail-focus' }),
+    );
+    const questOverlay = questScreen.getByTestId('board-quest-overlay');
+    assert.equal(questOverlay.props['aria-modal'], true);
+    assert.equal(questOverlay.props.tabIndex, -1);
+    assert.equal(questOverlay.props.accessibilityRole, 'dialog');
+    assert.equal(
+      (JSON.stringify(questScreen.toJSON()).match(/"aria-hidden":true/g) ?? []).length,
+      2,
+    );
+    await questScreen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('웹 모달은 처음 포커스를 안으로 옮기고 Tab 경계를 지키며 Escape 후 opener를 복원한다', () => {
+  const first = { offsetParent: {}, focus: jest.fn() } as unknown as HTMLElement;
+  const last = { offsetParent: {}, focus: jest.fn() } as unknown as HTMLElement;
+  const outside = {} as HTMLElement;
+  const opener = { focus: jest.fn() } as unknown as HTMLElement;
+  const overlay = {
+    querySelectorAll: jest.fn(() => [first, last]),
+    contains: (element: Element | null) => element === first || element === last,
+    focus: jest.fn(),
+  } as unknown as HTMLElement;
+  const modalDocument = { activeElement: first } as unknown as Document;
+
+  focusBoardModal(overlay);
+  expect(first.focus).toHaveBeenCalledTimes(1);
+
+  (modalDocument as any).activeElement = first;
+  const backwards = {
+    key: 'Tab',
+    shiftKey: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(backwards, overlay, modalDocument, jest.fn());
+  expect(backwards.preventDefault).toHaveBeenCalledTimes(1);
+  expect(last.focus).toHaveBeenCalledTimes(1);
+
+  (modalDocument as any).activeElement = last;
+  const forwards = {
+    key: 'Tab',
+    shiftKey: false,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(forwards, overlay, modalDocument, jest.fn());
+  expect(forwards.preventDefault).toHaveBeenCalledTimes(1);
+  expect(first.focus).toHaveBeenCalledTimes(2);
+
+  (modalDocument as any).activeElement = outside;
+  const dismiss = jest.fn();
+  const escape = { key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(escape, overlay, modalDocument, dismiss);
+  expect(escape.preventDefault).toHaveBeenCalledTimes(1);
+  expect(dismiss).toHaveBeenCalledTimes(1);
+
+  const composingEscape = {
+    key: 'Escape',
+    isComposing: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(composingEscape, overlay, modalDocument, dismiss);
+  expect(composingEscape.preventDefault).not.toHaveBeenCalled();
+  expect(dismiss).toHaveBeenCalledTimes(1);
+
+  const composingTab = {
+    key: 'Tab',
+    isComposing: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(composingTab, overlay, modalDocument, dismiss);
+  expect(composingTab.preventDefault).not.toHaveBeenCalled();
+  expect(first.focus).toHaveBeenCalledTimes(2);
+  restoreBoardModalOpener(opener);
+  expect(opener.focus).toHaveBeenCalledTimes(1);
+
+  const background = {
+    inert: false,
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  setBoardBackgroundInert(background, true);
+  expect(background.inert).toBe(true);
+  expect(background.setAttribute).toHaveBeenCalledWith('inert', '');
+  setBoardBackgroundInert(background, false);
+  expect(background.inert).toBe(false);
+  expect(background.removeAttribute).toHaveBeenCalledWith('inert');
+});
+
+test('웹 모달 열기와 닫기는 opener 캡처·초기 포커스·배경 비활성화 순서를 지킨다', () => {
+  const events: string[] = [];
+  const opener = { focus: () => events.push('opener-restored') } as unknown as HTMLElement;
+  const first = {
+    offsetParent: {},
+    focus: () => events.push('modal-focused'),
+  } as unknown as HTMLElement;
+  const overlay = {
+    querySelectorAll: () => [first],
+    focus: jest.fn(),
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  const modalDocument = {
+    get activeElement() {
+      events.push('opener-captured');
+      return opener;
+    },
+  } as unknown as Document;
+  const background = {
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  Object.defineProperty(background, 'inert', {
+    set: (inert: boolean) => events.push(inert ? 'background-inert' : 'background-enabled'),
+  });
+  Object.defineProperty(overlay, 'inert', {
+    set: (inert: boolean) => events.push(inert ? 'overlay-inert' : 'overlay-enabled'),
+  });
+
+  const capturedOpener = syncBoardModalFocus(
+    true,
+    false,
+    true,
+    false,
+    overlay,
+    modalDocument,
+    [background],
+    null,
+  );
+  expect(capturedOpener).toBe(opener);
+  expect(events).toEqual([
+    'opener-captured',
+    'overlay-enabled',
+    'modal-focused',
+    'background-inert',
+  ]);
+
+  expect(
+    syncBoardModalFocus(
+      true,
+      true,
+      false,
+      true,
+      overlay,
+      modalDocument,
+      [background],
+      capturedOpener,
+    ),
+  ).toBe(opener);
+  expect(events[events.length - 1]).toBe('overlay-inert');
+
+  expect(
+    syncBoardModalFocus(
+      true,
+      true,
+      true,
+      false,
+      overlay,
+      modalDocument,
+      [background],
+      capturedOpener,
+    ),
+  ).toBe(opener);
+  expect(events.slice(-2)).toEqual(['overlay-enabled', 'modal-focused']);
+
+  expect(
+    syncBoardModalFocus(false, true, false, true, null, modalDocument, [background], opener),
+  ).toBe(null);
+  expect(events).toEqual([
+    'opener-captured',
+    'overlay-enabled',
+    'modal-focused',
+    'background-inert',
+    'overlay-inert',
+    'overlay-enabled',
+    'modal-focused',
+    'background-enabled',
+    'opener-restored',
+  ]);
+});
+
+test('보상 모달이 위에 열리면 게시판 Escape 트랩을 멈춘다', async () => {
+  const restore = webMockMode('?review');
+  const previousDocument = (globalThis as any).document;
+  const keydownListeners = new Set<(event: KeyboardEvent) => void>();
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      activeElement: null,
+      addEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.add(listener);
+      },
+      removeEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.delete(listener);
+      },
+    },
+  });
+  try {
+    const screen = await renderBoard(null, concept({ boardView: 'detail' }), true);
+    const overlay = screen.getByTestId('board-notice-overlay', { includeHiddenElements: true });
+    assert.equal(overlay.props['aria-hidden'], true);
+    assert.equal(overlay.props['aria-modal'], false);
+    assert.equal(overlay.props.accessibilityElementsHidden, true);
+    const scrim = screen.getByTestId('board-notice-overlay-scrim', {
+      includeHiddenElements: true,
+    });
+    assert.equal(scrim.props.accessibilityState.disabled, true);
+    assert.equal(scrim.props.accessibilityElementsHidden, true);
+    assert.equal(scrim.props['aria-hidden'], true);
+    assert.equal(scrim.props.inert, true);
+    assert.equal(scrim.props.tabIndex, -1);
+    assert.equal(keydownListeners.size, 0);
+
+    for (const listener of keydownListeners) {
+      listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
+    }
+    assert.ok(screen.getByTestId('board-notice-overlay', { includeHiddenElements: true }));
+
+    await screen.setHigherModalOpen(false);
+    assert.equal(keydownListeners.size, 1);
+    assert.equal(
+      screen.getByTestId('board-notice-overlay', { includeHiddenElements: true }).props[
+        'aria-hidden'
+      ],
+      undefined,
+    );
+    assert.equal(screen.getByTestId('board-notice-overlay').props['aria-modal'], true);
+    const [listener] = [...keydownListeners];
+    await act(async () => {
+      listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
+    });
+    assert.equal(screen.queryByTestId('board-notice-overlay'), null);
+    await screen.unmount();
+
+    const questScreen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'detail-focus' }),
+      true,
+    );
+    const questScrim = questScreen.getByTestId('board-quest-overlay-scrim', {
+      includeHiddenElements: true,
+    });
+    assert.equal(questScrim.props.accessibilityState.disabled, true);
+    assert.equal(questScrim.props.accessibilityElementsHidden, true);
+    assert.equal(questScrim.props['aria-hidden'], true);
+    assert.equal(questScrim.props.inert, true);
+    assert.equal(questScrim.props.tabIndex, -1);
+    await questScreen.unmount();
+  } finally {
+    if (previousDocument === undefined) delete (globalThis as any).document;
+    else
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: previousDocument,
+      });
+    restore();
+  }
+});
+
+test('공지 상세 모달이 열리면 형제 scene-back 버튼을 비활성화하고 접근성 트리에서 숨긴다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const screen = await render(
+      <InteriorScreen buildingIndex={1} conceptIndex={4} width={402} height={874} reduceMotion />,
+    );
+    const back = screen.getByTestId('scene-back', { includeHiddenElements: true });
+    await waitFor(() => {
+      assert.equal(back.props.accessibilityState.disabled, true);
+      assert.equal(back.props.accessibilityElementsHidden, true);
+      assert.equal(back.props['aria-hidden'], true);
+    });
+    await fireEvent.press(back);
+    await screen.unmount();
+  } finally {
+    restore();
+  }
+});
 
 beforeEach(async () => {
   jest.clearAllMocks();

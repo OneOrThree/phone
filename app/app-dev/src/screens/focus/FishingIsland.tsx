@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Image,
   PanResponder,
   Platform,
@@ -16,7 +17,7 @@ import { art } from '@/constants/art';
 import { C } from '@/design-system/primitives';
 import { CatSprite, CatMotionInput } from '@/components/CatSprite';
 import { Color, SECONDS_PER_FISH } from '@/services/model';
-import { Grid, Point, nearestLand } from '@/utils/world-grid';
+import { Grid, Point, landPath, nearestLand } from '@/utils/world-grid';
 import { useAppLayout } from '@/utils/layout';
 import land from '@/constants/fishing-island.json';
 import { catchAssetPath } from '@/screens/focus/catchAssets';
@@ -61,7 +62,7 @@ export function castSpot({ x, y }: Point): Spot {
 const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, ((q.y - p.y) * 1024) / 1536);
 // 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
 export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
-// 낚시 중인 주민 자리(정원 15명 = 나 + 주민 14명). 앞 두 자리는 시안 예시 좌표, 다음 다섯은 땅 위 예시 자리.
+// 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
 // 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
 // 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
 export const PEER_SPOTS: Spot[] = (() => {
@@ -93,7 +94,7 @@ export const PEER_SPOTS: Spot[] = (() => {
   }
   candidates.sort((a, b) => apart(a, { x: 50, y: 50 }) - apart(b, { x: 50, y: 50 }));
   for (const p of candidates) {
-    if (spots.length >= 14) break;
+    if (spots.length >= 15) break;
     if ([...spots, ...avoid].every((q) => apart(p, q) >= 11) && castSpot(p).bx != null)
       spots.push(p);
   }
@@ -106,6 +107,31 @@ export const PEER_SPOTS: Spot[] = (() => {
 // 다른 주민과 고양이가 겹치는 자리인지. 고양이 폭이 지도 폭 7.7%라 여유를 더해 8.5% 안이면 앉을 수 없다.
 export const SEAT_GAP = 8.5;
 export const occupied = (p: Point, spots: Point[]) => spots.some((q) => apart(p, q) < SEAT_GAP);
+/** 실시간 주민도 내 고양이와 같은 땅 격자 경로를 따라 이동한다. */
+export const peerLandRoute = (from: Point, to: Point) => {
+  const cells = landPath(fishingGrid, from, to);
+  return cells.length ? [...cells.slice(1, -1), to] : [];
+};
+export const peerPointFromPixels = (left: number, top: number, size: number, sizeY: number) => ({
+  x: ((left + (size * 0.077) / 2) * 100) / size,
+  y: ((top + size * 0.077 * 0.90625) * 100) / sizeY,
+});
+export const peerPixelsAtSize = (
+  left: number,
+  top: number,
+  fromSize: number,
+  fromSizeY: number,
+  size: number,
+  sizeY: number,
+) => {
+  const point = peerPointFromPixels(left, top, fromSize, fromSizeY);
+  return {
+    left: (size * point.x) / 100 - (size * 0.077) / 2,
+    top: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
+  };
+};
+export const peerWalkFace = (from: Point, to: Point, fallback: number) =>
+  Math.abs(to.x - from.x) > 0.15 ? (to.x < from.x ? -1 : 1) : fallback;
 // 뗏목(지도 폭 12%)과 내리는 자리 위에는 앉을 수 없다. 앉은 고양이(폭 7.7%·발 기준) 상자가 겹치는지로 본다.
 // 세로 %는 지도 비율(1024/1536)로 맞춰 가로 % 단위로 잰다.
 const toW = (y: number) => (y * 1024) / 1536;
@@ -473,7 +499,7 @@ const nameText = (me: boolean) => ({
   textShadowRadius: 5,
 });
 // 낚시하는 고양이(fi-actor): 지도 폭 7.7% · 발 기준점(256,464)/512 · 머리 위 과목·시간표(이모티콘이 오면 그 자리에 3초) · 아래 이름.
-// 집중 화면에는 잡은 수를 숫자로 보이지 않는다(더미 그림만: 1마리부터 한 마리, 8마리부터 작은 더미, 24마리부터 큰 더미).
+// 집중 화면에는 잡은 수를 숫자로 보이지 않는다(1마리, 3마리 작은 더미, 6마리 중간 더미, 10마리 큰 더미).
 export function FishingActor({
   spot,
   size,
@@ -486,6 +512,9 @@ export function FishingActor({
   emote,
   reduce,
   motion,
+  onMotionFinish,
+  generation,
+  animatedPosition,
 }: {
   spot: Spot;
   size: number;
@@ -498,6 +527,12 @@ export function FishingActor({
   emote?: string | null;
   reduce: boolean;
   motion?: CatMotionInput;
+  onMotionFinish?: () => void;
+  generation?: number;
+  animatedPosition?: {
+    left: Animated.AnimatedInterpolation<number> | Animated.Value;
+    top: Animated.AnimatedInterpolation<number> | Animated.Value;
+  };
 }) {
   const [reeling, setReeling] = useState(false);
   const count = Math.floor(seconds / SECONDS_PER_FISH),
@@ -521,12 +556,12 @@ export function FishingActor({
   const a = size * 0.077,
     face = spot.face;
   return (
-    <View
+    <Animated.View
       pointerEvents="none"
       style={{
         position: 'absolute',
-        left: (size * spot.x) / 100 - a / 2,
-        top: (sizeY * spot.y) / 100 - a * 0.90625,
+        left: animatedPosition?.left ?? (size * spot.x) / 100 - a / 2,
+        top: animatedPosition?.top ?? (sizeY * spot.y) / 100 - a * 0.90625,
         width: a,
         height: a,
         zIndex: 20 + Math.round(spot.y),
@@ -539,6 +574,8 @@ export function FishingActor({
         left={face < 0}
         reduce={reduce}
         anchored={false}
+        onFinish={onMotionFinish}
+        generation={generation}
         testID="fishing-actor-cat"
       />
       {(!motion || motion === 'focus' || motion === 'reel') && (
@@ -614,7 +651,227 @@ export function FishingActor({
           }}
         />
       )}
-    </View>
+    </Animated.View>
+  );
+}
+
+/** 실시간 주민: 자리 배정 훅의 경로/상태를 스프라이트 모션으로 표현한다. */
+export function FishingPeerActorView({
+  actor,
+  size,
+  sizeY,
+  emote,
+  reduce,
+  onEntered,
+  onCast,
+  onPausedExit,
+  onStretch,
+  onCompletedExit,
+}: {
+  actor: import('@/screens/focus/useFishingPeerActors').FishingPeerActor;
+  size: number;
+  sizeY: number;
+  emote?: string | null;
+  reduce: boolean;
+  onEntered: (key: string, generation: number) => void;
+  onCast: (key: string, generation: number) => void;
+  onPausedExit: (key: string, generation: number) => void;
+  onStretch: (key: string, generation: number) => void;
+  onCompletedExit: (key: string, generation: number) => void;
+}) {
+  const { Animated: NativeAnimated } = require('react-native');
+  const left = useRef(
+    new NativeAnimated.Value((size * actor.position.x) / 100 - (size * 0.077) / 2),
+  ).current;
+  const top = useRef(
+    new NativeAnimated.Value((sizeY * actor.position.y) / 100 - size * 0.077 * 0.90625),
+  ).current;
+  // 확대 중에도 픽셀 좌표가 어느 지도 크기 기준인지 기억해 중단된 이동 위치를 보존한다.
+  const pixelSize = useRef({ size, sizeY });
+  const motionToken = useRef(actor.generation);
+  const [walkFace, setWalkFace] = useState(actor.spot.face);
+  useEffect(() => {
+    const token = actor.generation;
+    motionToken.current = token;
+    const toPoint =
+      actor.phase === 'entering' ||
+      actor.phase === 'leaving-pause' ||
+      actor.phase === 'leaving-complete'
+        ? actor.phase === 'entering'
+          ? actor.spot
+          : LANDING
+        : actor.position;
+    const toLeft = (size * toPoint.x) / 100 - (size * 0.077) / 2;
+    const toTop = (sizeY * toPoint.y) / 100 - size * 0.077 * 0.90625;
+    if (
+      actor.phase === 'entering' ||
+      actor.phase === 'leaving-pause' ||
+      actor.phase === 'leaving-complete'
+    ) {
+      if (reduce) {
+        left.setValue(toLeft);
+        top.setValue(toTop);
+        pixelSize.current = { size, sizeY };
+        if (actor.phase === 'entering') onEntered(actor.key, token);
+        else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
+        else onCompletedExit(actor.key, token);
+        return;
+      }
+      let movement: {
+          start: (callback: (result: { finished: boolean }) => void) => void;
+          stop: () => void;
+        } | null = null,
+        cancelled = false;
+      // 이전 방향의 composite가 cleanup에서 멈춘 실제 픽셀 좌표를 읽어 새 땅 경로를 계산한다.
+      // actor.position은 상태 경계 좌표라 이동 도중 방향이 바뀐 경우의 현재 위치가 아니다.
+      const fromSize = pixelSize.current;
+      left.stopAnimation((currentLeft: number) => {
+        top.stopAnimation((currentTop: number) => {
+          if (cancelled) return;
+          const current = peerPointFromPixels(
+              currentLeft,
+              currentTop,
+              fromSize.size,
+              fromSize.sizeY,
+            ),
+            route = peerLandRoute(current, toPoint),
+            waypoints = route.length ? route : [toPoint];
+          // 멈춘 지도 좌표를 새 확대 배율의 픽셀로 옮긴 뒤 남은 경로를 이어간다.
+          const rebased = peerPixelsAtSize(
+            currentLeft,
+            currentTop,
+            fromSize.size,
+            fromSize.sizeY,
+            size,
+            sizeY,
+          );
+          left.setValue(rebased.left);
+          top.setValue(rebased.top);
+          pixelSize.current = { size, sizeY };
+          let previous = current,
+            index = 0,
+            face = actor.spot.face;
+          const finish = () => {
+            if (actor.phase === 'entering') onEntered(actor.key, token);
+            else if (actor.phase === 'leaving-pause') onPausedExit(actor.key, token);
+            else onCompletedExit(actor.key, token);
+          };
+          const step = () => {
+            if (cancelled || motionToken.current !== token) return;
+            const point = waypoints[index],
+              distance = Math.hypot(previous.x - point.x, ((previous.y - point.y) * 2) / 3),
+              duration = Math.max(32, Math.round(distance * 35));
+            face = peerWalkFace(previous, point, face);
+            setWalkFace(face);
+            const segment = NativeAnimated.parallel([
+              NativeAnimated.timing(left, {
+                toValue: (size * point.x) / 100 - (size * 0.077) / 2,
+                duration,
+                useNativeDriver: false,
+              }),
+              NativeAnimated.timing(top, {
+                toValue: (sizeY * point.y) / 100 - size * 0.077 * 0.90625,
+                duration,
+                useNativeDriver: false,
+              }),
+            ]);
+            movement = segment;
+            segment.start(({ finished }: { finished: boolean }) => {
+              if (!finished || cancelled || motionToken.current !== token) return;
+              previous = point;
+              index += 1;
+              if (index < waypoints.length) step();
+              else finish();
+            });
+          };
+          step();
+        });
+      });
+      return () => {
+        cancelled = true;
+        movement?.stop();
+      };
+    }
+    if (actor.phase === 'finishing') {
+      // 이동을 마치기 전 완료되면 cleanup이 멈춘 실제 위치에서 기지개를 시작한다.
+      if (pixelSize.current.size !== size || pixelSize.current.sizeY !== sizeY) {
+        const fromSize = pixelSize.current;
+        left.stopAnimation((currentLeft: number) => {
+          top.stopAnimation((currentTop: number) => {
+            const rebased = peerPixelsAtSize(
+              currentLeft,
+              currentTop,
+              fromSize.size,
+              fromSize.sizeY,
+              size,
+              sizeY,
+            );
+            left.setValue(rebased.left);
+            top.setValue(rebased.top);
+            pixelSize.current = { size, sizeY };
+          });
+        });
+      } else {
+        left.stopAnimation();
+        top.stopAnimation();
+      }
+    } else {
+      left.setValue(toLeft);
+      top.setValue(toTop);
+      pixelSize.current = { size, sizeY };
+    }
+  }, [
+    actor.key,
+    actor.generation,
+    actor.phase,
+    actor.position.x,
+    actor.position.y,
+    actor.spot.x,
+    actor.spot.y,
+    size,
+    sizeY,
+    reduce,
+    onEntered,
+    onPausedExit,
+    onCompletedExit,
+    left,
+    top,
+  ]);
+
+  if (!actor.visible) return null;
+  const motion =
+    actor.phase === 'entering' ||
+    actor.phase === 'leaving-pause' ||
+    actor.phase === 'leaving-complete'
+      ? 'walk'
+      : actor.phase === 'casting'
+        ? 'cast'
+        : actor.phase === 'finishing'
+          ? 'stretch'
+          : undefined;
+  const spriteSpot = motion === 'walk' ? { ...actor.spot, face: walkFace } : actor.spot;
+  return (
+    <FishingActor
+      spot={spriteSpot}
+      size={size}
+      sizeY={sizeY}
+      color={actor.color}
+      name={actor.name}
+      subject={actor.subject}
+      seconds={actor.seconds}
+      emote={emote}
+      reduce={reduce}
+      motion={motion}
+      onMotionFinish={
+        actor.phase === 'casting'
+          ? () => onCast(actor.key, actor.generation)
+          : actor.phase === 'finishing'
+            ? () => onStretch(actor.key, actor.generation)
+            : undefined
+      }
+      generation={actor.generation}
+      animatedPosition={{ left, top }}
+    />
   );
 }
 // 서 있거나 걷는 내 고양이(fi-walker): 낚시 고양이와 같은 크기·발 기준점, 걷는 동안만 걷기 그림.

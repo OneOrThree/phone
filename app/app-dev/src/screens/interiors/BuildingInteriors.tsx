@@ -83,6 +83,9 @@ export type ArtifactProps = {
   e?: any;
   // 배경 장면을 맞출 높이. 키보드로 화면이 줄어도 창 높이 기준으로 고정한다 (없으면 height)
   sceneHeight?: number;
+  // 현재 건물 밖의 보상 모달이 더 위에 열려 있으면 게시판 키보드 트랩을 쉰다
+  higherModalOpen?: boolean;
+  onBoardModalChange?: (open: boolean) => void;
 };
 export type ArtifactRenderer = (props: ArtifactProps) => React.ReactElement | null;
 
@@ -713,6 +716,7 @@ export function InteriorScreen({
   e,
   insets,
   sceneHeight = height,
+  higherModalOpen = false,
 }: {
   buildingIndex: number;
   conceptIndex: number;
@@ -723,6 +727,7 @@ export function InteriorScreen({
   e?: any;
   insets?: { top: number; left: number };
   sceneHeight?: number;
+  higherModalOpen?: boolean;
 }) {
   const building = buildings[buildingIndex],
     concept = building.concepts[conceptIndex];
@@ -730,6 +735,8 @@ export function InteriorScreen({
   const showToast = (message: string) => setToast((prev) => ({ message, serial: prev.serial + 1 }));
   // 핫스팟을 누르면 .artifact-wrap.peek: 기능 화면을 아래로 88% 내리고 흐리게 (transition .3s ease)
   const [peek, setPeek] = useState(false);
+  const [boardModalOpen, setBoardModalOpen] = useState(false);
+  const sceneBackRef = useRef<HTMLElement | null>(null);
   const peekAnim = useRef(new Animated.Value(0)).current;
   const [wrapHeight, setWrapHeight] = useState(0);
   useEffect(() => {
@@ -806,6 +813,11 @@ export function InteriorScreen({
   // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
   const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
     chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
+  const sceneBackBlocked = building.id === 'board' && (boardModalOpen || higherModalOpen);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') setBoardBackgroundInert(sceneBackRef.current, sceneBackBlocked);
+  }, [sceneBackBlocked]);
 
   return (
     <View
@@ -881,6 +893,10 @@ export function InteriorScreen({
       )}
       <Pressable
         testID="scene-back"
+        ref={sceneBackRef as any}
+        disabled={sceneBackBlocked}
+        accessibilityElementsHidden={sceneBackBlocked}
+        {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
         accessibilityLabel="섬으로 돌아가기"
         onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
         style={{
@@ -996,6 +1012,8 @@ export function InteriorScreen({
             showToast={showToast}
             e={e}
             sceneHeight={sceneHeight}
+            higherModalOpen={higherModalOpen}
+            onBoardModalChange={setBoardModalOpen}
           />
         </Animated.View>
       )}
@@ -1052,7 +1070,13 @@ const statusText = {
 
 // 앱 라우트에서 게시판(board·notice·noticeEdit·quest·questEdit)과
 // 우체통(mail·chat·friendMail)을 건물 안 장면으로 그린다. 크기는 실제 화면(키보드로 줄어든 높이 포함)을 따른다
-export function InteriorRoute({ e }: { e: any }) {
+export function InteriorRoute({
+  e,
+  modalAboveBoard = false,
+}: {
+  e: any;
+  modalAboveBoard?: boolean;
+}) {
   const [fontsLoaded, fontError] = useInteriorFonts();
   const layout = useAppLayout();
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -1100,6 +1124,7 @@ export function InteriorRoute({ e }: { e: any }) {
             e={e}
             insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
             sceneHeight={Math.max(height, layout.height) / k}
+            higherModalOpen={modalAboveBoard}
           />
         </View>
       )}
@@ -3877,6 +3902,98 @@ function boardFromApp(e: any) {
   };
 }
 
+const BOARD_MODAL_FOCUSABLES =
+  'button:not([disabled]),[role="button"]:not([aria-disabled="true"]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+export function focusBoardModal(overlay: HTMLElement | null) {
+  if (!overlay?.querySelectorAll || !overlay.focus) return;
+  const focusables = Array.from(
+    overlay.querySelectorAll<HTMLElement>(BOARD_MODAL_FOCUSABLES),
+  ).filter((element) => element.offsetParent !== null);
+  (focusables[0] ?? overlay).focus();
+}
+
+export function restoreBoardModalOpener(opener: HTMLElement | null) {
+  opener?.focus();
+}
+
+export function setBoardBackgroundInert(element: HTMLElement | null, inert: boolean) {
+  if (!element) return;
+  element.inert = inert;
+  if (inert && typeof element.setAttribute === 'function') element.setAttribute('inert', '');
+  else if (!inert && typeof element.removeAttribute === 'function')
+    element.removeAttribute('inert');
+}
+
+export function syncBoardModalFocus(
+  isOpen: boolean,
+  wasOpen: boolean,
+  isTopmost: boolean,
+  wasTopmost: boolean,
+  overlay: HTMLElement | null,
+  modalDocument: Document,
+  backgrounds: (HTMLElement | null)[],
+  opener: HTMLElement | null,
+) {
+  if (isOpen && !wasOpen) {
+    const capturedOpener = modalDocument.activeElement as HTMLElement | null;
+    if (isTopmost) {
+      setBoardBackgroundInert(overlay, false);
+      focusBoardModal(overlay);
+    } else setBoardBackgroundInert(overlay, true);
+    backgrounds.forEach((element) => setBoardBackgroundInert(element, true));
+    return capturedOpener;
+  }
+  if (isOpen && wasOpen && wasTopmost !== isTopmost) {
+    if (isTopmost) {
+      setBoardBackgroundInert(overlay, false);
+      focusBoardModal(overlay);
+    } else setBoardBackgroundInert(overlay, true);
+    return opener;
+  }
+  if (!isOpen && wasOpen) {
+    setBoardBackgroundInert(overlay, false);
+    backgrounds.forEach((element) => setBoardBackgroundInert(element, false));
+    if (wasTopmost) restoreBoardModalOpener(opener);
+    return null;
+  }
+  return opener;
+}
+
+export function handleBoardModalKeydown(
+  event: KeyboardEvent,
+  overlay: HTMLElement,
+  modalDocument: Document,
+  onEscape: () => void,
+) {
+  if (event.isComposing) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    onEscape();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusables = Array.from(
+    overlay.querySelectorAll<HTMLElement>(BOARD_MODAL_FOCUSABLES),
+  ).filter((element) => element.offsetParent !== null);
+  if (!focusables.length) {
+    event.preventDefault();
+    overlay.focus();
+    return;
+  }
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (
+    (event.shiftKey &&
+      (modalDocument.activeElement === first || !overlay.contains(modalDocument.activeElement))) ||
+    (!event.shiftKey &&
+      (modalDocument.activeElement === last || !overlay.contains(modalDocument.activeElement)))
+  ) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+
 export function Board({
   concept,
   width,
@@ -3885,6 +4002,8 @@ export function Board({
   e,
   showToast,
   sceneHeight = height,
+  higherModalOpen = false,
+  onBoardModalChange,
 }: ArtifactProps) {
   const [local, setS] = useState(() => makeState(concept));
   const [mockNotices, setNotices] = useState(() =>
@@ -3893,6 +4012,13 @@ export function Board({
   const [mockQuests, setQuests] = useState(() =>
     concept.boardPanel === 'quest' && concept.boardView === 'empty' ? [] : QUESTS,
   );
+  const noticeOverlayRef = useRef<HTMLElement | null>(null);
+  const questOverlayRef = useRef<HTMLElement | null>(null);
+  const boardSceneRef = useRef<HTMLElement | null>(null);
+  const boardDrawerRef = useRef<HTMLElement | null>(null);
+  const overlayOpenerRef = useRef<HTMLElement | null>(null);
+  const overlayWasOpen = useRef(false);
+  const overlayWasTopmost = useRef(false);
   // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
   const [ui, setUi] = useState({
     comment: false,
@@ -5859,6 +5985,59 @@ export function Board({
     ? Math.max(0, height - 8 - overlayVerticalPadding)
     : Math.min(height * 0.49, overlayFrame - overlayVerticalPadding);
   const blueprintPanelTop = Math.max(24, (height - blueprintPanelHeight) / 2);
+  const boardOverlayOpen = noticeOverlayOpen || questDetailOpen;
+
+  useEffect(() => {
+    onBoardModalChange?.(boardOverlayOpen);
+  }, [boardOverlayOpen, onBoardModalChange]);
+
+  useEffect(() => () => onBoardModalChange?.(false), [onBoardModalChange]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const backgrounds = [boardSceneRef.current, boardDrawerRef.current];
+    const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
+    const isTopmost = boardOverlayOpen && !higherModalOpen;
+    overlayOpenerRef.current = syncBoardModalFocus(
+      boardOverlayOpen,
+      overlayWasOpen.current,
+      isTopmost,
+      overlayWasTopmost.current,
+      overlay,
+      document,
+      backgrounds,
+      overlayOpenerRef.current,
+    );
+    overlayWasOpen.current = boardOverlayOpen;
+    overlayWasTopmost.current = isTopmost;
+  }, [boardOverlayOpen, higherModalOpen, noticeOverlayOpen]);
+
+  useEffect(() => {
+    if (
+      Platform.OS !== 'web' ||
+      !boardOverlayOpen ||
+      higherModalOpen ||
+      typeof document === 'undefined'
+    )
+      return;
+    const modalDocument = document;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
+      if (!overlay) return;
+      handleBoardModalKeydown(event, overlay, modalDocument, () => {
+        if (noticeOverlayOpen) dismissNoticeOverlay();
+        else dismissQuestDetail();
+      });
+    };
+    modalDocument.addEventListener('keydown', onKeyDown);
+    return () => modalDocument.removeEventListener('keydown', onKeyDown);
+  }, [
+    boardOverlayOpen,
+    higherModalOpen,
+    noticeOverlayOpen,
+    dismissNoticeOverlay,
+    dismissQuestDetail,
+  ]);
 
   return (
     <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
@@ -5879,7 +6058,12 @@ export function Board({
         ]}
         contentContainerStyle={{ width, height: land ? scene.height : height, overflow: 'hidden' }}
       >
-        <View testID="board-scene" style={{ position: 'relative', ...scene }}>
+        <View
+          testID="board-scene"
+          ref={boardSceneRef as any}
+          {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
+          style={{ position: 'relative', ...scene }}
+        >
           <Image
             testID="board-scene-image"
             source={interiorArt.boardBackground}
@@ -6021,6 +6205,8 @@ export function Board({
       </ScrollView>
       <View
         testID="board-drawer"
+        ref={boardDrawerRef as any}
+        {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
         style={[
           {
             position: 'absolute',
@@ -6194,7 +6380,10 @@ export function Board({
           <Pressable
             testID="board-notice-overlay-scrim"
             accessibilityLabel="공지 창 닫기"
+            accessibilityElementsHidden={higherModalOpen}
+            disabled={higherModalOpen}
             onPress={dismissNoticeOverlay}
+            {...webOnly(higherModalOpen ? { 'aria-hidden': true, inert: true, tabIndex: -1 } : {})}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -6207,7 +6396,18 @@ export function Board({
           />
           <View
             testID="board-notice-overlay"
-            accessibilityViewIsModal
+            accessibilityViewIsModal={!higherModalOpen}
+            accessibilityElementsHidden={higherModalOpen}
+            ref={noticeOverlayRef as any}
+            accessibilityRole={Platform.OS === 'web' ? ('dialog' as any) : undefined}
+            {...(Platform.OS === 'web'
+              ? {
+                  'aria-modal': !higherModalOpen,
+                  'aria-label': noticeEditorOpen ? '공지 작성' : '공지 상세',
+                  tabIndex: -1,
+                  ...(higherModalOpen && { 'aria-hidden': true }),
+                }
+              : null)}
             style={{
               position: 'absolute',
               zIndex: 6,
@@ -6245,7 +6445,10 @@ export function Board({
           <Pressable
             testID="board-quest-overlay-scrim"
             accessibilityLabel="퀘스트 상세 닫기"
+            accessibilityElementsHidden={higherModalOpen}
+            disabled={higherModalOpen}
             onPress={dismissQuestDetail}
+            {...webOnly(higherModalOpen ? { 'aria-hidden': true, inert: true, tabIndex: -1 } : {})}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -6258,7 +6461,18 @@ export function Board({
           />
           <View
             testID="board-quest-overlay"
-            accessibilityViewIsModal
+            accessibilityViewIsModal={!higherModalOpen}
+            accessibilityElementsHidden={higherModalOpen}
+            ref={questOverlayRef as any}
+            accessibilityRole={Platform.OS === 'web' ? ('dialog' as any) : undefined}
+            {...(Platform.OS === 'web'
+              ? {
+                  'aria-modal': !higherModalOpen,
+                  'aria-label': '퀘스트 상세',
+                  tabIndex: -1,
+                  ...(higherModalOpen && { 'aria-hidden': true }),
+                }
+              : null)}
             style={{
               position: 'absolute',
               zIndex: 6,

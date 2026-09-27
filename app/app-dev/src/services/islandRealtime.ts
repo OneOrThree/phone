@@ -45,6 +45,24 @@ export type LiveFocusMember = FocusMember & {
 export type LiveRestMember = RestMember & { anchorMs: number };
 export type LiveEmote = { eventId: string; userId: string; type: string; expiresAtMs: number };
 
+export type IslandPresenceTransition =
+  | {
+      source: 'event' | 'event-gap';
+      kind: 'focus';
+      userId: string;
+      previous: LiveFocusMember | null;
+      current: LiveFocusMember | null;
+    }
+  | {
+      source: 'event' | 'event-gap';
+      kind: 'rest';
+      userId: string;
+      previous: LiveRestMember | null;
+      current: LiveRestMember | null;
+    };
+
+type ProjectionApplyResult = { changed: boolean; transition: IslandPresenceTransition | null };
+
 const ms = (v: unknown): number => (typeof v === 'string' ? Date.parse(v) : NaN);
 const str = (v: unknown): string | null => (typeof v === 'string' && v !== '' ? v : null);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
@@ -115,10 +133,15 @@ export class IslandProjection {
 
   /** 이벤트를 반영한다. 보이는 상태가 바뀌면 true — publish 여부 판단에 쓴다. */
   apply(raw: unknown): boolean {
+    return this.applyWithTransition(raw).changed;
+  }
+
+  /** 반영 결과와 실제 멤버 상태 경계 변화(애니메이션 대상)를 함께 돌려준다. */
+  applyWithTransition(raw: unknown): ProjectionApplyResult {
     const env = raw as RealtimeEnvelope;
-    if (!env || typeof env !== 'object') return false;
-    if (env.schemaVersion !== 1) return false;
-    if (env.islandId !== this.islandId) return false;
+    if (!env || typeof env !== 'object') return { changed: false, transition: null };
+    if (env.schemaVersion !== 1) return { changed: false, transition: null };
+    if (env.islandId !== this.islandId) return { changed: false, transition: null };
     this.anchor(env.occurredAt);
     switch (env.type) {
       case 'focus.member.updated':
@@ -126,9 +149,9 @@ export class IslandProjection {
       case 'rest.member.updated':
         return this.applyMember('rest', env);
       case 'focus.emote':
-        return this.applyEmote(env);
+        return { changed: this.applyEmote(env), transition: null };
       default:
-        return false;
+        return { changed: false, transition: null };
     }
   }
 
@@ -156,25 +179,33 @@ export class IslandProjection {
     }
   }
 
-  private applyMember(kind: 'focus' | 'rest', env: RealtimeEnvelope): boolean {
+  private applyMember(kind: 'focus' | 'rest', env: RealtimeEnvelope): ProjectionApplyResult {
     const p = env.payload as Record<string, unknown> | null;
     const userId = str(p?.userId);
     const version = num(env.aggregateVersion);
-    if (!userId || version === null) return false;
+    if (!userId || version === null) return { changed: false, transition: null };
     const key = `${kind}.member:${userId}`;
     const known = this.versions.get(key);
     if (known === undefined) {
       // 워터마크가 없는 주민 — 이벤트만으로 프로필을 지어내지 않고 정본 재조회로 복구한다.
       this.resyncNeeded = true;
-      return false;
+      return { changed: false, transition: null };
     }
-    if (version <= known) return false;
+    if (version <= known) return { changed: false, transition: null };
     this.versions.set(key, version);
     const status = p?.status;
     const anchor = ms(p?.serverNow);
     if (kind === 'focus') {
-      if (status === 'completed') return this.focusMap.delete(userId);
       const prev = this.focusMap.get(userId);
+      if (status === 'completed') {
+        const changed = this.focusMap.delete(userId);
+        return {
+          changed,
+          transition: changed
+            ? { source: 'event', kind, userId, previous: prev!, current: null }
+            : null,
+        };
+      }
       this.focusMap.set(userId, {
         userId,
         name: prev?.name ?? null,
@@ -186,7 +217,14 @@ export class IslandProjection {
         status: status === 'paused' ? 'paused' : 'active',
         anchorMs: Number.isFinite(anchor) ? anchor : this.serverNowMs(),
       });
-      return true;
+      const current = this.focusMap.get(userId)!;
+      return {
+        changed: true,
+        transition:
+          prev?.status !== current.status || prev?.sessionId !== current.sessionId
+            ? { source: 'event', kind, userId, previous: prev ?? null, current }
+            : null,
+      };
     }
     if (status === 'paused') {
       const prev = this.restMap.get(userId);
@@ -198,9 +236,20 @@ export class IslandProjection {
         restStartedAt: str(p?.restStartedAt) ?? prev?.restStartedAt ?? null,
         anchorMs: Number.isFinite(anchor) ? anchor : this.serverNowMs(),
       });
-      return true;
+      const current = this.restMap.get(userId)!;
+      return {
+        changed: true,
+        transition: prev ? null : { source: 'event', kind, userId, previous: null, current },
+      };
     }
-    return this.restMap.delete(userId);
+    const prev = this.restMap.get(userId);
+    const changed = this.restMap.delete(userId);
+    return {
+      changed,
+      transition: changed
+        ? { source: 'event', kind, userId, previous: prev!, current: null }
+        : null,
+    };
   }
 
   private applyEmote(env: RealtimeEnvelope): boolean {
@@ -228,6 +277,10 @@ export type PresenceView = {
   rest: LiveRestMember[];
   emotes: LiveEmote[];
   clockOffset: number;
+  /** 초기·수동·재연결 스냅숏이 적용될 때만 바뀐다. event-gap 복구는 전이 콜백으로 연출한다. */
+  snapshotVersion?: number;
+  /** 스냅숏 조회 중 도착해 최종 뷰에 선반영된 이벤트. actor가 기준 상태를 복원해 모션을 잇는다. */
+  snapshotTransitions?: IslandPresenceTransition[];
 };
 
 export const EMPTY_PRESENCE: PresenceView = {
@@ -237,7 +290,11 @@ export const EMPTY_PRESENCE: PresenceView = {
   rest: [],
   emotes: [],
   clockOffset: 0,
+  snapshotVersion: 0,
+  snapshotTransitions: [],
 };
+
+let nextSnapshotVersion = 0;
 
 /** 섬 단위 STOMP 채널 — 구독 수명은 채널과 같고 끊기면 서버가 구독을 다 버린다. */
 export type IslandChannel = {
@@ -327,7 +384,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
 
 export type IslandRealtime = {
   /** 최신 스냅숏으로 다시 맞춘다 — 포그라운드 복귀·재연결·수동 재시도에서 부른다. */
-  resync(): void;
+  resync(source?: 'reconnect' | 'manual'): void;
   /** 소켓과 구독을 버리고 다시 연다. */
   reopen(): void;
   /** `SEND /app/islands/{id}/focus/emotes`. 세션 없음·미연결·미지 타입이면 false. */
@@ -340,6 +397,8 @@ export type IslandRealtimeDeps = {
   /** 응원 구독·발신 자격이 되는 내 진행 중 서버 세션 id. 없으면 emotes 채널을 구독하지 않는다. */
   emoteSessionId?: string | null;
   onView: (view: PresenceView) => void;
+  /** 검증된 포커스/휴식 상태 경계 변화. 새 화면 상태를 발행한 뒤 호출한다. */
+  onTransition?: (transition: IslandPresenceTransition) => void;
   /** 비동기 거절 통지 — `/user/queue/errors`, STOMP ERROR 프레임. */
   onSendError?: (message: string) => void;
   /** 세대 fence — false가 되면 늦은 이벤트·응답을 버린다. */
@@ -365,11 +424,20 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   const projection = new IslandProjection(islandId);
   let disposed = false;
   let resyncing = false;
-  let resyncAfter = false;
+  let resyncAfter: 'reconnect' | 'manual' | 'event-gap' | null = null;
+  let eventGapRetries = 0;
   let hadData = false;
+  let snapshotVersion = 0;
+  const pendingEvents: { raw: unknown; misses: number }[] = [];
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
+  let gapRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  let gapRetryDelay = 250;
 
-  const publish = (status: PresenceView['status'], error: ApiError | null = null) => {
+  const publish = (
+    status: PresenceView['status'],
+    error: ApiError | null = null,
+    snapshotTransitions: IslandPresenceTransition[] = [],
+  ) => {
     if (disposed || !alive()) return;
     deps.onView({
       status,
@@ -378,6 +446,8 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
       rest: projection.rest(),
       emotes: projection.emotes(),
       clockOffset: projection.clockOffset,
+      snapshotVersion,
+      snapshotTransitions,
     });
   };
 
@@ -392,31 +462,178 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     }
   };
 
-  const resync = async () => {
+  const replayPendingEvents = (confirmedSnapshot = true) => {
+    let changed = false;
+    const transitions: IslandPresenceTransition[] = [];
+    const pending = pendingEvents.splice(0);
+    for (const entry of pending) {
+      const previouslyNeeded = projection.resyncNeeded;
+      projection.resyncNeeded = false;
+      const result = projection.applyWithTransition(entry.raw);
+      const unresolved = projection.resyncNeeded;
+      // 첫 정본 조회에도 없는 이벤트만 한 번 더 확인한다. 두 번째 정본에도 없으면
+      // 완료 후 지연 도착한 사건으로 보고 폐기해 event-gap GET이 영구 반복되지 않게 한다.
+      const retry = unresolved && (!confirmedSnapshot || entry.misses < 1);
+      projection.resyncNeeded = previouslyNeeded || retry;
+      if (retry)
+        pendingEvents.push({
+          raw: entry.raw,
+          misses: confirmedSnapshot ? entry.misses + 1 : entry.misses,
+        });
+      changed ||= result.changed;
+      if (result.transition) transitions.push(result.transition);
+    }
+    scheduleExpiry();
+    return { changed, transitions, processed: pending.length > 0, entries: pending };
+  };
+
+  const recoverSnapshotTransitions = (
+    transitions: IslandPresenceTransition[],
+    entries: { raw: unknown; misses: number }[],
+    previousFocus: Map<string, LiveFocusMember>,
+    previousRest: Map<string, LiveRestMember>,
+  ): IslandPresenceTransition[] => {
+    const recovered = [...transitions];
+    const covered = new Set(
+      transitions.map((transition) => `${transition.kind}:${transition.userId}`),
+    );
+    for (const { raw } of entries) {
+      const env = raw as RealtimeEnvelope;
+      if (!env || env.schemaVersion !== 1 || env.islandId !== islandId) continue;
+      const p = env.payload as Record<string, unknown> | null;
+      const userId = str(p?.userId);
+      if (!userId) continue;
+      if (env.type === 'focus.member.updated' && !covered.has(`focus:${userId}`)) {
+        const previous = previousFocus.get(userId) ?? null;
+        const current = projection.focus().find((member) => member.userId === userId) ?? null;
+        if (previous?.status !== current?.status || previous?.sessionId !== current?.sessionId) {
+          recovered.push({ source: 'event', kind: 'focus', userId, previous, current });
+          covered.add(`focus:${userId}`);
+        }
+      } else if (env.type === 'rest.member.updated' && !covered.has(`rest:${userId}`)) {
+        const previous = previousRest.get(userId) ?? null;
+        const current = projection.rest().find((member) => member.userId === userId) ?? null;
+        if (!!previous !== !!current) {
+          recovered.push({ source: 'event', kind: 'rest', userId, previous, current });
+          covered.add(`rest:${userId}`);
+        }
+      }
+    }
+    return recovered;
+  };
+
+  const clearGapRetry = () => {
+    if (gapRetryTimer) clearTimeout(gapRetryTimer);
+    gapRetryTimer = null;
+  };
+
+  const scheduleGapRetry = (retry: () => void) => {
+    if (gapRetryTimer) return;
+    const delay = gapRetryDelay;
+    gapRetryDelay = Math.min(gapRetryDelay * 2, 5000);
+    gapRetryTimer = setTimeout(() => {
+      gapRetryTimer = null;
+      eventGapRetries = 0;
+      retry();
+    }, delay);
+  };
+
+  const resync = async (source: 'reconnect' | 'manual' | 'event-gap' = 'manual') => {
     if (disposed || !alive()) return;
     if (resyncing) {
-      resyncAfter = true;
+      // event-gap 원인이 대기열에서 사라지면 확인된 이벤트 전이가 유실되므로 우선 보존한다.
+      if (source === 'event-gap' || resyncAfter === null) resyncAfter = source;
       return;
     }
     resyncing = true;
+    if (source !== 'event-gap') {
+      eventGapRetries = 0;
+      gapRetryDelay = 250;
+      clearGapRetry();
+    }
     if (!hadData) publish('loading');
+    const hadPreviousSnapshot = hadData;
+    const previousFocus = new Map(projection.focus().map((m) => [m.userId, m]));
+    const previousRest = new Map(projection.rest().map((m) => [m.userId, m]));
     try {
       const { focus, rest } = await load(islandId);
       if (disposed || !alive()) return;
       projection.loadFocus(focus);
       projection.loadRest(rest);
       projection.resyncNeeded = false;
+      const replay = replayPendingEvents();
+      const transitions =
+        source === 'event-gap' || !hadPreviousSnapshot
+          ? replay.transitions
+          : recoverSnapshotTransitions(
+              replay.transitions,
+              replay.entries,
+              previousFocus,
+              previousRest,
+            );
+      // 프로젝션 전파 지연은 한 번 더 확인하되, 미반영 이벤트를 보존해 무한 즉시 재조회는 막는다.
+      if (projection.resyncNeeded && eventGapRetries < 1) {
+        eventGapRetries += 1;
+        resyncAfter = 'event-gap';
+      } else if (projection.resyncNeeded) scheduleGapRetry(() => void resync('event-gap'));
+      else {
+        eventGapRetries = 0;
+        gapRetryDelay = 250;
+        clearGapRetry();
+      }
       hadData = true;
-      publish('ready');
+      if (source !== 'event-gap') snapshotVersion = ++nextSnapshotVersion;
+      publish('ready', null, source !== 'event-gap' ? transitions : []);
+      if (source !== 'event-gap') {
+        for (const transition of transitions) deps.onTransition?.(transition);
+      }
+      if (source === 'event-gap') {
+        const transitions: IslandPresenceTransition[] = [];
+        const nextFocus = new Map(projection.focus().map((m) => [m.userId, m]));
+        for (const userId of new Set([...previousFocus.keys(), ...nextFocus.keys()])) {
+          const previous = previousFocus.get(userId) ?? null;
+          const current = nextFocus.get(userId) ?? null;
+          if (previous?.status !== current?.status || previous?.sessionId !== current?.sessionId) {
+            transitions.push({ source, kind: 'focus', userId, previous, current });
+          }
+        }
+        const nextRest = new Map(projection.rest().map((m) => [m.userId, m]));
+        for (const userId of new Set([...previousRest.keys(), ...nextRest.keys()])) {
+          const previous = previousRest.get(userId) ?? null;
+          const current = nextRest.get(userId) ?? null;
+          if (!!previous !== !!current)
+            transitions.push({ source, kind: 'rest', userId, previous, current });
+        }
+        for (const transition of transitions) {
+          if (disposed || !alive()) break;
+          deps.onTransition?.(transition);
+        }
+      }
     } catch (thrown) {
       if (disposed || !alive()) return;
       // 첫 스냅숏 실패만 화면 오류로 올린다 — 이미 데이터가 있으면 재연결 때 다시 맞춘다.
       if (!hadData) publish('error', thrown as ApiError);
+      else {
+        // 재연결 조회가 실패해도 그 사이 도착한 이벤트는 마지막 정상 스냅숏 위에 반영한다.
+        // 실패한 GET은 정본 확인 횟수로 세지 않는다. 마지막 정상 스냅숏에 적용 가능한
+        // 이벤트만 반영하고, 모르는 주민 이벤트는 같은 misses로 다음 성공 조회까지 보존한다.
+        const replay = replayPendingEvents(false);
+        if (replay.processed && projection.resyncNeeded && eventGapRetries < 1) {
+          eventGapRetries += 1;
+          resyncAfter = 'event-gap';
+        } else if (replay.processed && projection.resyncNeeded)
+          scheduleGapRetry(() => void resync('event-gap'));
+        if (replay.changed) {
+          publish('ready');
+          for (const transition of replay.transitions) deps.onTransition?.(transition);
+        }
+      }
     } finally {
       resyncing = false;
-      if (resyncAfter) {
-        resyncAfter = false;
-        void resync();
+      if (resyncAfter !== null) {
+        const nextSource = resyncAfter;
+        resyncAfter = null;
+        void resync(nextSource);
       }
     }
   };
@@ -426,21 +643,35 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     emote: !!deps.emoteSessionId,
     onEvent: (raw) => {
       if (disposed || !alive()) return;
-      const changed = projection.apply(raw);
-      if (projection.resyncNeeded) void resync();
-      if (changed) {
+      if (resyncing) {
+        // 응원은 순간 사건이라 스냅숏/replay 대상이 아니다. 재연결 중 받은 응원은
+        // 뒤늦게 재생하지 않고, 상태형 주민 이벤트만 정본 위에 replay한다.
+        const type = (raw as RealtimeEnvelope | null)?.type;
+        if (type === 'focus.member.updated' || type === 'rest.member.updated')
+          pendingEvents.push({ raw, misses: 0 });
+        return;
+      }
+      const previouslyNeeded = projection.resyncNeeded;
+      projection.resyncNeeded = false;
+      const result = projection.applyWithTransition(raw);
+      const unresolved = projection.resyncNeeded;
+      projection.resyncNeeded = previouslyNeeded || unresolved;
+      if (unresolved) pendingEvents.push({ raw, misses: 0 });
+      if (projection.resyncNeeded) void resync('event-gap');
+      if (result.changed) {
         scheduleExpiry();
         publish('ready');
+        if (result.transition && !disposed && alive()) deps.onTransition?.(result.transition);
       }
     },
-    onOpen: () => void resync(),
+    onOpen: () => void resync('reconnect'),
     onError: (message) => {
       if (!disposed && alive()) deps.onSendError?.(message);
     },
   });
 
   return {
-    resync: () => void resync(),
+    resync: (source) => void resync(source ?? 'manual'),
     reopen: () => conn.reopen(),
     sendEmote: (type) => {
       const sessionId = deps.emoteSessionId;
@@ -450,6 +681,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     dispose: () => {
       disposed = true;
       if (expiryTimer) clearTimeout(expiryTimer);
+      clearGapRetry();
       conn.close();
     },
   };

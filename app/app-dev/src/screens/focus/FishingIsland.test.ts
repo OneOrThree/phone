@@ -9,6 +9,7 @@ import {
   PEER_SPOTS,
   DEFAULT_SPOT,
   FishingActor,
+  FishingPeerActorView,
   GRAM,
   anchorCard,
   castSpot,
@@ -18,6 +19,10 @@ import {
   nearGram,
   nearRaft,
   occupied,
+  peerLandRoute,
+  peerPixelsAtSize,
+  peerPointFromPixels,
+  peerWalkFace,
 } from '@/screens/focus/FishingIsland';
 
 jest.mock('@/components/CatSprite', () => {
@@ -66,8 +71,70 @@ test('도착 지점과 이어지지 않은 땅(연못 가운데 섬)은 걸어�
   assert.deepEqual(landPath(fishingGrid, LANDING, pondIsland), []);
 });
 
+test('실시간 주민 입장·퇴장 경로의 모든 구간은 물을 가로지르지 않는다', () => {
+  for (const spot of PEER_SPOTS) {
+    const entering = peerLandRoute(LANDING, spot);
+    const leaving = peerLandRoute(spot, LANDING);
+    assert.ok(entering.length > 1);
+    assert.ok(leaving.length > 1);
+    for (const route of [
+      [LANDING, ...entering],
+      [spot, ...leaving],
+    ]) {
+      for (const point of route) assert.ok(onLand(fishingGrid, point));
+      for (let index = 1; index < route.length; index++) {
+        const from = route[index - 1],
+          to = route[index];
+        for (let step = 0; step <= 10; step++)
+          assert.ok(
+            onLand(fishingGrid, {
+              x: from.x + ((to.x - from.x) * step) / 10,
+              y: from.y + ((to.y - from.y) * step) / 10,
+            }),
+          );
+      }
+    }
+  }
+});
+
+test('중단된 주민 이동의 픽셀 좌표를 현재 지도 좌표로 복원한다', () => {
+  const size = 640,
+    sizeY = size / 1.5,
+    current = { x: 41.25, y: 63.5 },
+    left = (size * current.x) / 100 - (size * 0.077) / 2,
+    top = (sizeY * current.y) / 100 - size * 0.077 * 0.90625;
+  const restored = peerPointFromPixels(left, top, size, sizeY);
+  assert.ok(Math.abs(restored.x - current.x) < 1e-9);
+  assert.ok(Math.abs(restored.y - current.y) < 1e-9);
+});
+
+test('지도 크기가 바뀌어도 이동 중 주민의 지도 좌표를 보존한다', () => {
+  const oldSize = 640,
+    oldSizeY = oldSize / 1.5,
+    newSize = 1152,
+    newSizeY = newSize / 1.5,
+    current = { x: 41.25, y: 63.5 },
+    oldLeft = (oldSize * current.x) / 100 - (oldSize * 0.077) / 2,
+    oldTop = (oldSizeY * current.y) / 100 - oldSize * 0.077 * 0.90625,
+    resized = peerPixelsAtSize(oldLeft, oldTop, oldSize, oldSizeY, newSize, newSizeY),
+    restored = peerPointFromPixels(resized.left, resized.top, newSize, newSizeY);
+
+  assert.ok(Math.abs(restored.x - current.x) < 1e-9);
+  assert.ok(Math.abs(restored.y - current.y) < 1e-9);
+  // 이전 픽셀 값을 새 지도 크기로 바로 해석하면 핀치 확대만으로 좌표가 달라진다.
+  const misinterpreted = peerPointFromPixels(oldLeft, oldTop, newSize, newSizeY);
+  assert.ok(Math.abs(misinterpreted.x - current.x) > 1);
+  assert.ok(Math.abs(misinterpreted.y - current.y) > 1);
+});
+
+test('주민 걷기 방향은 현재 구간의 다음 waypoint를 향한다', () => {
+  assert.equal(peerWalkFace({ x: 50, y: 50 }, { x: 48, y: 50 }, 1), -1);
+  assert.equal(peerWalkFace({ x: 48, y: 50 }, { x: 52, y: 50 }, -1), 1);
+  assert.equal(peerWalkFace({ x: 52, y: 50 }, { x: 52, y: 48 }, -1), -1);
+});
+
 test('주민 14명(정원 15명)까지 낚시 자리가 모두 땅 위에 겹치지 않게 있다', () => {
-  assert.equal(PEER_SPOTS.length, 14);
+  assert.equal(PEER_SPOTS.length, 15);
   assert.deepEqual(PEER_SPOTS[0], { x: 18.5, y: 39.5, face: 1, bx: 19.5, by: 38.7 });
   for (const [n, p] of PEER_SPOTS.entries()) {
     assert.ok(onLand(fishingGrid, p), `${n}`);
@@ -175,6 +242,61 @@ test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가�
   assert.equal(motion(), 'focus');
   await screen.unmount();
   jest.useRealTimers();
+});
+
+test('낚시 주민: cast 스프라이트 동작 중에는 정적 낚싯대를 겹치지 않는다', async () => {
+  const screen = await render(
+    React.createElement(FishingActor, {
+      spot: { x: 34.1, y: 55.9, face: 1 },
+      size: 640,
+      sizeY: 640 / 1.5,
+      color: 'ginger',
+      name: '주민',
+      seconds: 0,
+      reduce: false,
+      motion: 'cast',
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'cast');
+  assert.equal(screen.queryByTestId('fishing-actor-rod'), null);
+  await screen.unmount();
+});
+
+test('낚시 주민 이동 cleanup은 시작한 Animated composite를 중단한다', async () => {
+  const callback = jest.fn();
+  const screen = await render(
+    React.createElement(FishingPeerActorView, {
+      actor: {
+        ...({
+          userId: 'u1',
+          sessionId: 's1',
+          name: '주민',
+          color: 'ginger',
+          subject: '수학',
+          seconds: 0,
+          status: 'active',
+        } as const),
+        key: 'u1:s1',
+        slot: 0,
+        spot: PEER_SPOTS[0],
+        position: LANDING,
+        phase: 'entering',
+        visible: true,
+        generation: 1,
+      },
+      size: 640,
+      sizeY: 640 / 1.5,
+      reduce: false,
+      onEntered: callback,
+      onCast: callback,
+      onPausedExit: callback,
+      onStretch: callback,
+      onCompletedExit: callback,
+    }),
+  );
+
+  await screen.unmount();
+  assert.equal(callback.mock.calls.length, 0);
 });
 
 test('바다 뗏목: 보상 reel은 끝나고 설정 변경 또는 카운트 초기화 때 남지 않는다', async () => {
