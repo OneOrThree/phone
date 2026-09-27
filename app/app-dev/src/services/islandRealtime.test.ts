@@ -7,11 +7,14 @@ import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   IslandProjection,
+  isGoldenFishParticipant,
+  parseGoldenFishEvent,
   realtimeWsUrl,
   startIslandRealtime,
   stompIslandChannel,
   type IslandChannelOpts,
   type IslandPresenceTransition,
+  type GoldenFishEvent,
   type PresenceView,
 } from '@/services/islandRealtime';
 import type { FocusMember, ProjectionWatermark, RestMember } from '@/services/api/islands';
@@ -137,6 +140,24 @@ const emoteEvent = (eventId: string, over: object = {}) => ({
     ...over,
   },
 });
+const goldenEvent = (eventId = 'golden-i1-1', over: object = {}) => ({
+  eventId,
+  schemaVersion: 1,
+  type: 'focus.golden',
+  islandId: 'i1',
+  aggregateVersion: 1,
+  occurredAt: NOW,
+  payload: {
+    drawnAt: NOW,
+    reward: 50,
+    sharePerMember: 25,
+    members: [
+      { userId: 'u1', sessionId: 's-u1' },
+      { userId: 'u2', sessionId: 's-u2' },
+    ],
+    ...over,
+  },
+});
 
 beforeEach(async () => {
   await clearSession();
@@ -231,6 +252,20 @@ describe('IslandProjection', () => {
   });
 });
 
+describe('황금 물고기 실시간 사건', () => {
+  test('서버가 확정한 focus.golden 봉투와 참여 주민만 컷신 대상으로 인정한다', () => {
+    const event = parseGoldenFishEvent(goldenEvent(), 'i1');
+    assert.ok(event);
+    assert.equal(isGoldenFishParticipant(event, 'u1', 's-u1'), true);
+    assert.equal(isGoldenFishParticipant(event, 'u3', 's-u3'), false);
+    assert.equal(parseGoldenFishEvent({ ...goldenEvent(), islandId: 'other' }, 'i1'), null);
+    assert.equal(
+      parseGoldenFishEvent({ ...goldenEvent(), type: 'focus.member.updated' }, 'i1'),
+      null,
+    );
+  });
+});
+
 type FakeChannel = {
   opts: IslandChannelOpts | null;
   sent: { destination: string; body: unknown }[];
@@ -260,6 +295,7 @@ function start(
     loadError?: unknown;
     views?: PresenceView[];
     transitions?: IslandPresenceTransition[];
+    golden?: GoldenFishEvent[];
     sendError?: string[];
   },
   channel: FakeChannel,
@@ -270,6 +306,7 @@ function start(
     emoteSessionId: deps.emoteSessionId,
     onView: (v) => deps.views?.push(v),
     onTransition: (transition) => deps.transitions?.push(transition),
+    onGoldenFish: (event) => deps.golden?.push(event),
     onSendError: (m) => deps.sendError?.push(m),
     alive: () => true,
     connect: (opts) => {
@@ -299,6 +336,22 @@ function start(
 }
 
 describe('startIslandRealtime', () => {
+  test('같은 서버 이벤트를 받은 두 앱은 각각 한 번만 컷신 신호를 받고 중복 봉투는 버린다', () => {
+    const firstChannel = fakeChannel();
+    const secondChannel = fakeChannel();
+    const first: GoldenFishEvent[] = [];
+    const second: GoldenFishEvent[] = [];
+    start({ islandId: 'i1', golden: first }, firstChannel);
+    start({ islandId: 'i1', golden: second }, secondChannel);
+    const event = goldenEvent();
+    firstChannel.opts?.onEvent(event);
+    firstChannel.opts?.onEvent(event);
+    secondChannel.opts?.onEvent(event);
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 1);
+    assert.equal(first[0].eventId, event.eventId);
+  });
+
   test('resync 는 스냅숏을 싣고 ready 를 발행한다', async () => {
     const channel = fakeChannel();
     const views: PresenceView[] = [];

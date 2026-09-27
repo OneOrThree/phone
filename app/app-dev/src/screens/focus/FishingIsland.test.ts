@@ -244,6 +244,68 @@ test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가�
   jest.useRealTimers();
 });
 
+test('황금 물고기 참여자: 더미에 황금 물고기를 남기고 새 사건을 reel로 한 번 알린다', async () => {
+  jest.useFakeTimers();
+  const props = {
+    spot: { x: 34.1, y: 55.9, face: 1 },
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '나',
+    seconds: 0,
+    reduce: false,
+    goldenFishCount: 0,
+    goldenCatchToken: null,
+  };
+  const screen = await render(React.createElement(FishingActor, props));
+  assert.equal(screen.queryByTestId('fishing-actor-golden-fish-0'), null);
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 1,
+      goldenCatchToken: 'golden-i1-1',
+    }),
+  );
+  assert.notEqual(screen.queryByTestId('fishing-actor-golden-fish-0'), null);
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'reel');
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 1,
+      goldenCatchToken: 'golden-i1-1',
+      reduce: true,
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 1,
+      goldenCatchToken: 'golden-i1-1',
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+
+  await act(async () => jest.advanceTimersByTime(2000));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 2,
+      goldenCatchToken: 'golden-i1-2',
+      reduce: true,
+    }),
+  );
+  assert.notEqual(screen.queryByTestId('fishing-actor-golden-fish-1'), null);
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('낚시 주민: cast 스프라이트 동작 중에는 정적 낚싯대를 겹치지 않는다', async () => {
   const screen = await render(
     React.createElement(FishingActor, {

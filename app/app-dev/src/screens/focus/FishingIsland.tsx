@@ -224,6 +224,7 @@ export function FishingIsland({
   inert = false,
   children,
   overlay,
+  goldenFish = false,
 }: {
   focus: Point;
   ratio?: number;
@@ -240,6 +241,8 @@ export function FishingIsland({
   seated?: boolean;
   children: (size: number, sizeY: number, zoom: number) => React.ReactNode;
   overlay?: (toScreen: (p: Point) => Point, size: number) => React.ReactNode;
+  /** 황금 물고기 컷신 재생이 끝난 뒤 섬에 남는 에셋. */
+  goldenFish?: boolean;
 }) {
   const L = useAppLayout();
   const [cam, setCam] = useState({ zoom: 1, x: focus.x, y: focus.y });
@@ -408,6 +411,22 @@ export function FishingIsland({
               </React.Fragment>
             ))}
         </Svg>
+        {goldenFish && (
+          <Image
+            source={art['fish/gold']}
+            accessibilityLabel="방금 함께 낚은 황금 물고기"
+            testID="fishing-island-golden-fish"
+            resizeMode="contain"
+            style={{
+              position: 'absolute',
+              zIndex: 14,
+              left: size * 0.5 - size * 0.045,
+              top: sizeY * 0.54 - size * 0.045,
+              width: size * 0.09,
+              height: size * 0.09,
+            }}
+          />
+        )}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={raftLabel}
@@ -511,6 +530,8 @@ export function FishingActor({
   seconds,
   emote,
   reduce,
+  goldenFishCount = 0,
+  goldenCatchToken,
   motion,
   onMotionFinish,
   generation,
@@ -526,6 +547,10 @@ export function FishingActor({
   seconds: number;
   emote?: string | null;
   reduce: boolean;
+  /** 황금 물고기 사건에 참여한 고양이의 더미에 남긴다. */
+  goldenFishCount?: number;
+  /** 사건마다 한 번만 성공 알림 reel 모션을 시작하는 멱등 토큰. */
+  goldenCatchToken?: string | null;
   motion?: CatMotionInput;
   onMotionFinish?: () => void;
   generation?: number;
@@ -534,9 +559,11 @@ export function FishingActor({
     top: Animated.AnimatedInterpolation<number> | Animated.Value;
   };
 }) {
-  const [reeling, setReeling] = useState(false);
+  const [reeling, setReeling] = useState(false),
+    [goldenReeling, setGoldenReeling] = useState(false);
   const count = Math.floor(seconds / SECONDS_PER_FISH),
-    last = useRef(count);
+    last = useRef(count),
+    lastGoldenCatch = useRef<string | null>(null);
   // 새로 한 마리 잡으면 2초 동안 낚아올리기
   useEffect(() => {
     if (count <= last.current) {
@@ -553,6 +580,23 @@ export function FishingActor({
     const t = setTimeout(() => setReeling(false), 2000);
     return () => clearTimeout(t);
   }, [count, reduce]);
+  // 컷신이 닫힌 뒤 참여자만 기존 낚아올리기 스프라이트로 한 번 알린다.
+  useEffect(() => {
+    if (goldenFishCount <= 0 || !goldenCatchToken) {
+      setGoldenReeling(false);
+      return;
+    }
+    if (reduce) {
+      lastGoldenCatch.current = goldenCatchToken;
+      setGoldenReeling(false);
+      return;
+    }
+    if (lastGoldenCatch.current === goldenCatchToken) return;
+    lastGoldenCatch.current = goldenCatchToken;
+    setGoldenReeling(true);
+    const t = setTimeout(() => setGoldenReeling(false), 2000);
+    return () => clearTimeout(t);
+  }, [goldenFishCount, goldenCatchToken, reduce]);
   const a = size * 0.077,
     face = spot.face;
   return (
@@ -569,7 +613,7 @@ export function FishingActor({
     >
       <CatSprite
         color={color}
-        motion={motion ?? (reeling ? 'reel' : 'focus')}
+        motion={motion ?? (goldenReeling || reeling ? 'reel' : 'focus')}
         size={a}
         left={face < 0}
         reduce={reduce}
@@ -651,6 +695,23 @@ export function FishingActor({
           }}
         />
       )}
+      {Array.from({ length: Math.min(goldenFishCount, 3) }, (_, index) => (
+        <Image
+          key={index}
+          source={art['fish/gold']}
+          resizeMode="contain"
+          accessible={false}
+          testID={`fishing-actor-golden-fish-${index}`}
+          style={{
+            position: 'absolute',
+            zIndex: 2 + index,
+            left: -a * (0.62 - index * 0.12),
+            bottom: a * (0.04 + index * 0.1),
+            width: a * 0.48,
+            height: a * 0.48,
+          }}
+        />
+      ))}
     </Animated.View>
   );
 }
@@ -662,6 +723,8 @@ export function FishingPeerActorView({
   sizeY,
   emote,
   reduce,
+  goldenFishCount,
+  goldenCatchToken,
   onEntered,
   onCast,
   onPausedExit,
@@ -673,6 +736,8 @@ export function FishingPeerActorView({
   sizeY: number;
   emote?: string | null;
   reduce: boolean;
+  goldenFishCount?: number;
+  goldenCatchToken?: string | null;
   onEntered: (key: string, generation: number) => void;
   onCast: (key: string, generation: number) => void;
   onPausedExit: (key: string, generation: number) => void;
@@ -861,6 +926,8 @@ export function FishingPeerActorView({
       seconds={actor.seconds}
       emote={emote}
       reduce={reduce}
+      goldenFishCount={goldenFishCount}
+      goldenCatchToken={goldenCatchToken}
       motion={motion}
       onMotionFinish={
         actor.phase === 'casting'

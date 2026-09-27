@@ -45,6 +45,56 @@ export type LiveFocusMember = FocusMember & {
 export type LiveRestMember = RestMember & { anchorMs: number };
 export type LiveEmote = { eventId: string; userId: string; type: string; expiresAtMs: number };
 
+export type GoldenFishMember = { userId: string; sessionId: string };
+export type GoldenFishEvent = {
+  eventId: string;
+  islandId: string;
+  drawnAt: string;
+  reward: number;
+  sharePerMember: number;
+  members: GoldenFishMember[];
+};
+
+/** 서버가 확정한 focus.golden 봉투만 컷신 신호로 인정한다. 확률·보상 계산은 앱에서 하지 않는다. */
+export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFishEvent | null {
+  const env = raw as RealtimeEnvelope;
+  if (
+    !env ||
+    typeof env !== 'object' ||
+    env.schemaVersion !== 1 ||
+    env.type !== 'focus.golden' ||
+    env.islandId !== islandId
+  )
+    return null;
+  const eventId = str(env.eventId);
+  const payload = env.payload as Record<string, unknown> | null;
+  const drawnAt = str(payload?.drawnAt);
+  const reward = num(payload?.reward);
+  const sharePerMember = num(payload?.sharePerMember);
+  if (!eventId || !drawnAt || reward === null || sharePerMember === null) return null;
+  const members = Array.isArray(payload?.members)
+    ? payload.members.flatMap((value) => {
+        const member = value as Record<string, unknown> | null;
+        const userId = str(member?.userId);
+        const sessionId = str(member?.sessionId);
+        return userId && sessionId ? [{ userId, sessionId }] : [];
+      })
+    : [];
+  if (members.length < 2) return null;
+  return { eventId, islandId, drawnAt, reward, sharePerMember, members };
+}
+
+export function isGoldenFishParticipant(
+  event: GoldenFishEvent,
+  userId: string | null | undefined,
+  sessionId?: string | null,
+): boolean {
+  if (!userId) return false;
+  return event.members.some(
+    (member) => member.userId === userId && (!sessionId || member.sessionId === sessionId),
+  );
+}
+
 export type IslandPresenceTransition =
   | {
       source: 'event' | 'event-gap';
@@ -399,6 +449,8 @@ export type IslandRealtimeDeps = {
   onView: (view: PresenceView) => void;
   /** 검증된 포커스/휴식 상태 경계 변화. 새 화면 상태를 발행한 뒤 호출한다. */
   onTransition?: (transition: IslandPresenceTransition) => void;
+  /** 서버가 확정해 섬 focus 채널로 보낸 황금 물고기 사건. */
+  onGoldenFish?: (event: GoldenFishEvent) => void;
   /** 비동기 거절 통지 — `/user/queue/errors`, STOMP ERROR 프레임. */
   onSendError?: (message: string) => void;
   /** 세대 fence — false가 되면 늦은 이벤트·응답을 버린다. */
@@ -429,6 +481,8 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   let hadData = false;
   let snapshotVersion = 0;
   const pendingEvents: { raw: unknown; misses: number }[] = [];
+  const seenGolden = new Set<string>();
+  const goldenQueue: string[] = [];
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
   let gapRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let gapRetryDelay = 250;
@@ -643,6 +697,15 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     emote: !!deps.emoteSessionId,
     onEvent: (raw) => {
       if (disposed || !alive()) return;
+      const golden = parseGoldenFishEvent(raw, islandId);
+      if (golden) {
+        if (seenGolden.has(golden.eventId)) return;
+        seenGolden.add(golden.eventId);
+        goldenQueue.push(golden.eventId);
+        if (goldenQueue.length > 200) seenGolden.delete(goldenQueue.shift()!);
+        deps.onGoldenFish?.(golden);
+        return;
+      }
       if (resyncing) {
         // 응원은 순간 사건이라 스냅숏/replay 대상이 아니다. 재연결 중 받은 응원은
         // 뒤늦게 재생하지 않고, 상태형 주민 이벤트만 정본 위에 replay한다.

@@ -14,6 +14,7 @@ import {
   startIslandRealtime,
   type IslandRealtime,
   type IslandPresenceTransition,
+  type GoldenFishEvent,
   type PresenceView,
 } from '@/services/islandRealtime';
 
@@ -36,6 +37,7 @@ export function useIslandPresence(
     emoteSessionId?: string | null;
     onSendError?: (message: string) => void;
     onTransition?: (transition: IslandPresenceTransition) => void;
+    onGoldenFish?: (event: GoldenFishEvent) => void;
   },
   start: typeof startIslandRealtime = startIslandRealtime,
 ): IslandPresence {
@@ -48,6 +50,8 @@ export function useIslandPresence(
   onSendError.current = opts.onSendError;
   const onTransition = useRef(opts.onTransition);
   onTransition.current = opts.onTransition;
+  const onGoldenFish = useRef(opts.onGoldenFish);
+  onGoldenFish.current = opts.onGoldenFish;
 
   useEffect(() => {
     if (!active || !islandId) {
@@ -63,6 +67,9 @@ export function useIslandPresence(
       onView: setView,
       onTransition: (transition) => {
         if (alive()) onTransition.current?.(transition);
+      },
+      onGoldenFish: (event) => {
+        if (alive()) onGoldenFish.current?.(event);
       },
       onSendError: (message) => {
         if (alive()) onSendError.current?.(message);

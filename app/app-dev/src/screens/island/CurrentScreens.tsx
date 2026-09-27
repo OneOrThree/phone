@@ -44,11 +44,13 @@ import { ApiError } from '@/services/api/client';
 import { useBoardNotices } from '@/screens/interiors/useBoardNotices';
 import { getSession } from '@/services/api/session';
 import { catColor, useIslandPresence } from '@/screens/focus/useIslandPresence';
+import { isGoldenFishParticipant, type GoldenFishEvent } from '@/services/islandRealtime';
 import {
   fishingSpotsForActors,
   useFishingPeerActors,
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
+import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -108,6 +110,14 @@ import {
   ScreenTimeSelection,
   selectionCount,
 } from '@/services/screenTime';
+
+// 임시 검수 전용: 인증·서버를 쓰지 않는 데모에서 집중마다 황금 물고기를 확정 재생한다.
+const GOLDEN_TEST =
+  Platform.OS === 'web' &&
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('demo') &&
+  new URLSearchParams(window.location.search).has('golden-test');
+
 const buildingArt: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -1089,14 +1099,21 @@ function FocusFlow({ e }: any) {
     // 휴식 오가는 배 이동: 휴식 시간은 휴식하기를 누른 순간부터 흐르고, 집중은 낚시섬에 도착해야 다시 흐른다
     [voyage, setVoyage] = useState<'toRest' | 'toSpot' | null>(null),
     // 자리에서 뗏목까지 걸어가기(leave)·뗏목에서 자리로 걸어오기(comeback): 걷는 동안 버튼·모달 없음, 시간 안 흐름
-    [leg, setLeg] = useState<'leave' | 'comeback' | null>(null);
+    [leg, setLeg] = useState<'leave' | 'comeback' | null>(null),
+    [goldenCutscene, setGoldenCutscene] = useState<GoldenFishEvent | null>(null),
+    [goldenCatches, setGoldenCatches] = useState<
+      Record<string, { count: number; eventId: string }>
+    >({}),
+    [goldenFish, setGoldenFish] = useState(false);
   const walkingToken = useRef(0),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     position = useRef(LANDING),
     // 걷기·항해 콜백은 끝났을 때의 최신 화면·세션을 보고 계속할지 정한다(그 사이 집중이 끝났으면 중단)
     latest = useRef({ r, s }),
-    backRef = useRef<() => boolean>(() => false);
+    backRef = useRef<() => boolean>(() => false),
+    goldenHandler = useRef<(event: GoldenFishEvent) => void>(() => {}),
+    goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
   // 목업(review/demo·비로그인)은 e.islands 가 없어 로컬 경로 그대로다.
@@ -1112,6 +1129,8 @@ function FocusFlow({ e }: any) {
     liveIslandId && s.session?.version != null && s.session.islandId === liveIslandId
       ? s.session.id
       : null;
+  const myId = getSession()?.userId;
+  const actorUserId = myId ?? (GOLDEN_TEST ? 'demo-me' : undefined);
   const transitionHandler = useRef<(transition: any) => void>(() => {});
   const live = useIslandPresence({
     active: liveIslandId !== null,
@@ -1119,7 +1138,18 @@ function FocusFlow({ e }: any) {
     emoteSessionId,
     onSendError: e.notify,
     onTransition: (transition) => transitionHandler.current(transition),
+    onGoldenFish: (event) => goldenHandler.current(event),
   });
+  goldenHandler.current = (event) => {
+    const current = latest.current;
+    const session = current.s.session;
+    if (current.r !== 'focus' || !session || !isGoldenFishParticipant(event, myId, session.id))
+      return;
+    setGoldenFish(false);
+    setGoldenCutscene(event);
+  };
+  const goldenFor = (userId: string | null | undefined, sessionId: string | null | undefined) =>
+    userId && sessionId ? goldenCatches[`${userId}:${sessionId}`] : undefined;
   const activeFocusCount = live.focus.filter((member) => member.status === 'active').length;
   useEffect(() => {
     if (!liveIslandId || !s.session) return;
@@ -1141,7 +1171,6 @@ function FocusFlow({ e }: any) {
     activeFocusCount,
     live.rest.length,
   ]);
-  const myId = getSession()?.userId;
   useEffect(
     () => () => {
       walkingToken.current++;
@@ -1162,7 +1191,11 @@ function FocusFlow({ e }: any) {
   useEffect(() => {
     setFan(false);
     setDialog(null);
-    if (r !== 'focus') setEmote(null);
+    if (r !== 'focus') {
+      setEmote(null);
+      setGoldenCutscene(null);
+      setGoldenFish(false);
+    }
   }, [r]);
   // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
   // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
@@ -1214,6 +1247,35 @@ function FocusFlow({ e }: any) {
           seconds: m.seconds ?? 0,
           status: 'active' as const,
         }));
+  useEffect(() => {
+    const sessionId = s.session?.id;
+    if (!GOLDEN_TEST || r !== 'focus' || !sessionId || goldenTestSession.current === sessionId)
+      return;
+    const timeout = setTimeout(() => {
+      const current = latest.current;
+      if (current.r !== 'focus' || current.s.session?.id !== sessionId) return;
+      goldenTestSession.current = sessionId;
+      const members = [
+        { userId: 'demo-me', sessionId },
+        ...i.members
+          .filter((member) => member.focusing)
+          .map((member: any) => ({
+            userId: member.id,
+            sessionId: member.sessionId ?? member.id,
+          })),
+      ];
+      setGoldenFish(false);
+      setGoldenCutscene({
+        eventId: `golden-test-${sessionId}`,
+        islandId: i.id,
+        drawnAt: new Date().toISOString(),
+        reward: members.length,
+        sharePerMember: 1,
+        members,
+      });
+    }, 900);
+    return () => clearTimeout(timeout);
+  }, [r, s.session?.id, i.id, i.members]);
   const peerFlow = useFishingPeerActors({
     members: peerMembers,
     ready: liveIslandId ? live.status === 'ready' : true,
@@ -1723,6 +1785,7 @@ function FocusFlow({ e }: any) {
         seated={seated}
         inert={!!dialog || r === 'focusResult'}
         overlay={r === 'focusSetup' ? setup : undefined}
+        goldenFish={goldenFish}
       >
         {(size, sizeY, zoom) => {
           // 머리 위 과목·시간표가 겹치면 뒤(위쪽) 것을 숨긴다: 내 표시가 먼저, 그다음 앞(아래)쪽.
@@ -1767,6 +1830,8 @@ function FocusFlow({ e }: any) {
                   sizeY={sizeY}
                   emote={emoteByUser.get(actor.userId) ?? null}
                   reduce={reduce}
+                  goldenFishCount={goldenFor(actor.userId, actor.sessionId)?.count ?? 0}
+                  goldenCatchToken={goldenFor(actor.userId, actor.sessionId)?.eventId}
                   onEntered={peerFlow.entered}
                   onCast={peerFlow.cast}
                   onPausedExit={peerFlow.leftForPause}
@@ -1791,6 +1856,8 @@ function FocusFlow({ e }: any) {
                   }
                   motion={r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined}
                   reduce={reduce}
+                  goldenFishCount={goldenFor(actorUserId, s.session?.id)?.count ?? 0}
+                  goldenCatchToken={goldenFor(actorUserId, s.session?.id)?.eventId}
                 />
               ) : (
                 <FishingWalker
@@ -1807,6 +1874,27 @@ function FocusFlow({ e }: any) {
           );
         }}
       </FishingIsland>
+      {goldenCutscene && (
+        <GoldenFishCutscene
+          key={goldenCutscene.eventId}
+          autoplayMuted={GOLDEN_TEST}
+          onFinish={() => {
+            setGoldenCatches((current) => {
+              const next = { ...current };
+              for (const member of goldenCutscene.members) {
+                const key = `${member.userId}:${member.sessionId}`;
+                next[key] = {
+                  count: (current[key]?.count ?? 0) + 1,
+                  eventId: goldenCutscene.eventId,
+                };
+              }
+              return next;
+            });
+            setGoldenCutscene(null);
+            setGoldenFish(true);
+          }}
+        />
+      )}
       {liveIslandId && live.status === 'error' && (
         <View
           style={{
