@@ -329,3 +329,107 @@ test('만석에서 퇴장 중 새 주민은 빈 자리가 생긴 뒤 입장한�
   assert.equal(entrant?.slot, 14);
   assert.equal(new Set(result.current.actors.map((actor) => actor.slot)).size, 15);
 });
+
+test('Reduce Motion이 퇴장 슬롯을 즉시 반환해도 보류된 입장을 재처리한다', async () => {
+  let reduce = false;
+  let peers = Array.from({ length: 15 }, (_, index) => ({
+    ...peer,
+    userId: `u${index}`,
+    sessionId: `s${index}`,
+  }));
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members: peers, ready: true, reduce, snapshotVersion: 1 }),
+  );
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u14',
+      previous: { ...member('active'), userId: 'u14', sessionId: 's14' },
+      current: null,
+    }),
+  );
+  const generation = result.current.actors.find((actor) => actor.key === 'u14:s14')!.generation;
+  await act(async () => result.current.stretched('u14:s14', generation));
+  peers = [...peers.slice(0, 14), { ...peer, userId: 'u15', sessionId: 's15' }];
+  await rerender(undefined);
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u15',
+      previous: null,
+      current: { ...member('active'), userId: 'u15', sessionId: 's15' },
+    }),
+  );
+  assert.equal(
+    result.current.actors.some((actor) => actor.key === 'u15:s15'),
+    false,
+  );
+
+  reduce = true;
+  await rerender(undefined);
+  assert.equal(
+    result.current.actors.some((actor) => actor.key === 'u14:s14'),
+    false,
+  );
+  assert.equal(
+    result.current.actors.some((actor) => actor.key === 'u15:s15'),
+    true,
+  );
+});
+
+test('만석에서 보류된 주민이 먼저 완료되면 이후 빈 슬롯에 입장시키지 않는다', async () => {
+  let peers = Array.from({ length: 15 }, (_, index) => ({
+    ...peer,
+    userId: `u${index}`,
+    sessionId: `s${index}`,
+  }));
+  const { result, rerender } = await renderHook(() =>
+    useFishingPeerActors({ members: peers, ready: true, reduce: false, snapshotVersion: 1 }),
+  );
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u14',
+      previous: { ...member('active'), userId: 'u14', sessionId: 's14' },
+      current: null,
+    }),
+  );
+  const stretchGeneration = result.current.actors.find(
+    (actor) => actor.key === 'u14:s14',
+  )!.generation;
+  await act(async () => result.current.stretched('u14:s14', stretchGeneration));
+  const exitGeneration = result.current.actors.find((actor) => actor.key === 'u14:s14')!.generation;
+
+  const newcomer = { ...peer, userId: 'u15', sessionId: 's15' };
+  peers = [...peers.slice(0, 14), newcomer];
+  await rerender(undefined);
+  const liveNewcomer = { ...member('active'), userId: 'u15', sessionId: 's15' };
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u15',
+      previous: null,
+      current: liveNewcomer,
+    }),
+  );
+  peers = peers.slice(0, 14);
+  await rerender(undefined);
+  await act(async () =>
+    result.current.onTransition({
+      source: 'event',
+      kind: 'focus',
+      userId: 'u15',
+      previous: liveNewcomer,
+      current: null,
+    }),
+  );
+  await act(async () => result.current.leftForComplete('u14:s14', exitGeneration));
+  assert.equal(
+    result.current.actors.some((actor) => actor.key === 'u15:s15'),
+    false,
+  );
+});

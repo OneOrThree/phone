@@ -190,15 +190,27 @@ export function useFishingPeerActors({
       const deferred: IslandPresenceTransition[] = [];
       for (const transition of pending) {
         if (transition.kind !== 'focus') continue;
+        const before = transition.previous,
+          after = transition.current,
+          sessionId = after?.sessionId ?? before?.sessionId;
+        if (!sessionId) continue;
+        if (!after) {
+          // 자리를 받기 전에 완료되면 앞서 보류한 active 입장을 함께 취소한다.
+          const matchesPendingEntry = (candidate: IslandPresenceTransition) =>
+            candidate.kind === 'focus' &&
+            candidate.userId === transition.userId &&
+            candidate.current?.sessionId === sessionId;
+          for (let index = deferred.length - 1; index >= 0; index--)
+            if (matchesPendingEntry(deferred[index])) deferred.splice(index, 1);
+          transitions.current = transitions.current.filter(
+            (candidate) => !matchesPendingEntry(candidate),
+          );
+        }
         if (
           !membersRef.current.some((member) => member.userId === transition.userId) &&
           !next.some((actor) => actor.userId === transition.userId)
         )
           continue;
-        const before = transition.previous,
-          after = transition.current,
-          sessionId = after?.sessionId ?? before?.sessionId;
-        if (!sessionId) continue;
         const key = actorKey(transition.userId, sessionId),
           found = next.findIndex((actor) => actor.key === key),
           previousKey = before?.sessionId ? actorKey(transition.userId, before.sessionId) : null,
@@ -361,6 +373,8 @@ export function useFishingPeerActors({
         return [actor];
       }),
     );
+    // 즉시 퇴장으로 반환된 슬롯이 있으면 만석 때문에 보류된 입장을 다시 처리한다.
+    setRevision((value) => value + 1);
   }, [reduce]);
 
   return { actors, onTransition, entered, cast, leftForPause, stretched, leftForComplete };
