@@ -223,7 +223,7 @@ export function UserSafetySheet(props: Props) {
               width: centered ? layout.modalWidth : undefined,
               maxHeight: '80%',
               marginHorizontal: centered ? 0 : semanticTokens.spacing.control,
-              marginBottom: centered ? 0 : semanticTokens.spacing.control,
+              marginBottom: centered ? 0 : layout.insets.bottom + semanticTokens.spacing.control,
               padding: componentTokens.modal.padding,
               paddingBottom: componentTokens.modal.paddingBottom,
               gap: componentTokens.modal.gap,

@@ -88,6 +88,7 @@ test('휴대폰 세로에서는 하단 모서리가 닫힌 bottom sheet로 배�
   assert.equal(style.borderRadius, 26);
   assert.equal(style.borderBottomLeftRadius, 0);
   assert.equal(style.borderBottomRightRadius, 0);
+  assert.equal(style.marginBottom, 44);
 });
 
 test('메뉴·차단 확인·신고 본문은 모두 높이 제한 안에서 스크롤할 수 있다', async () => {
