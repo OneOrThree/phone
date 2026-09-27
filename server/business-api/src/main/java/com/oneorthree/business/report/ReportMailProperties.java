@@ -18,4 +18,5 @@ public class ReportMailProperties {
     private int smtpPort = 587;
     private String imapHost = "imap.gmail.com";
     private Duration verifyTimeout = Duration.ofSeconds(10);
+    private int maxConcurrent = 2;
 }

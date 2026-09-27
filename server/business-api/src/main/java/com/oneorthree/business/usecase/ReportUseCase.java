@@ -45,6 +45,9 @@ public class ReportUseCase {
         if (delivery.completed()) {
             return new ReportReceipt(delivery.caseId(), Boolean.TRUE.equals(delivery.blocked()));
         }
+        if (delivery.expired()) {
+            throw new PublicApiException(ApiErrorCode.NOT_FOUND, "targetId");
+        }
         UUID leaseToken = delivery.leaseToken();
         try {
             if (!delivery.emailConfirmed() && !delivery.prepared()) {

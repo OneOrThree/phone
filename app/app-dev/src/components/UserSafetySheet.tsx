@@ -61,6 +61,7 @@ export function UserSafetySheet(props: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const requestId = useRef(uuid());
+  const requestPayload = useRef<string | null>(null);
 
   useEffect(() => {
     if (!props.visible) return;
@@ -72,6 +73,7 @@ export function UserSafetySheet(props: Props) {
     setBusy(false);
     setError('');
     requestId.current = uuid();
+    requestPayload.current = null;
   }, [props.visible, props.reportTargetId]);
 
   const fail = (thrown: unknown) => {
@@ -108,17 +110,20 @@ export function UserSafetySheet(props: Props) {
     setBusy(true);
     setError('');
     try {
-      const receipt = await submitReport(
-        {
-          targetType: props.reportTargetType,
-          targetId: props.reportTargetId,
-          reason,
-          description: description.trim() || null,
-          replyEmail: replyEmail.trim() || null,
-          blockUser: alsoBlock,
-        },
-        requestId.current,
-      );
+      const input = {
+        targetType: props.reportTargetType,
+        targetId: props.reportTargetId,
+        reason,
+        description: description.trim() || null,
+        replyEmail: replyEmail.trim() || null,
+        blockUser: alsoBlock,
+      };
+      const signature = JSON.stringify(input);
+      if (requestPayload.current !== null && requestPayload.current !== signature) {
+        requestId.current = uuid();
+      }
+      requestPayload.current = signature;
+      const receipt = await submitReport(input, requestId.current);
       if (receipt.blocked) markUserBlocked(props.targetUserId);
       props.onChanged?.();
       props.onClose();

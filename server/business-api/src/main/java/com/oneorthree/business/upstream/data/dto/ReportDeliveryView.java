@@ -17,6 +17,10 @@ public record ReportDeliveryView(
         return "COMPLETED".equals(status);
     }
 
+    public boolean expired() {
+        return "EXPIRED".equals(status);
+    }
+
     public boolean prepared() {
         return authorId != null && subject != null && body != null;
     }

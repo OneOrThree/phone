@@ -113,6 +113,24 @@ test('신고 실패 후 재시도하면 같은 requestId로 복구한다', async
   assert.equal(callbacks.onMessage.mock.calls[0][0], '신고가 접수됐어요. 사건 번호 GR-RETRY');
 });
 
+test('신고 실패 후 payload를 수정하면 새 requestId로 제출한다', async () => {
+  reportMock
+    .mockRejectedValueOnce(new ApiError('SERVICE_UNAVAILABLE', '잠시 후 다시 시도해 주세요.', 503))
+    .mockResolvedValueOnce({ caseId: 'GR-EDITED', blocked: false });
+  const screen = await render(<UserSafetySheet {...props()} />);
+  await fireEvent.press(screen.getByText('신고하기'));
+
+  await fireEvent.press(screen.getByText('신고 접수'));
+  await waitFor(() => assert.ok(screen.getByText('잠시 후 다시 시도해 주세요.')));
+  const firstRequestId = reportMock.mock.calls[0][1];
+  await fireEvent.changeText(screen.getByLabelText('신고 설명'), '추가 설명');
+  await fireEvent.press(screen.getByText('신고 접수'));
+
+  await waitFor(() => assert.equal(reportMock.mock.calls.length, 2));
+  assert.notEqual(reportMock.mock.calls[1][1], firstRequestId);
+  assert.equal(reportMock.mock.calls[1][0].description, '추가 설명');
+});
+
 test('신고 접수 중 연타해도 메일 접수를 한 번만 요청한다', async () => {
   let finish: (value: { caseId: string; blocked: boolean }) => void = () => {};
   reportMock.mockReturnValue(new Promise((resolve) => (finish = resolve)));

@@ -73,6 +73,8 @@ business:
     smtp-port: ${REPORT_MAIL_SMTP_PORT:587}
     imap-host: ${REPORT_MAIL_IMAP_HOST:imap.gmail.com}
     verify-timeout: ${REPORT_MAIL_VERIFY_TIMEOUT:10s}
+    # IMAP poll이 Tomcat worker 16개를 잠식하지 않도록 즉시 거절하는 전용 bulkhead다.
+    max-concurrent: ${REPORT_MAIL_MAX_CONCURRENT:2}
   upstream:
     data:
       connect-timeout: 500ms

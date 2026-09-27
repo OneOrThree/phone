@@ -14,6 +14,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Properties;
+import java.util.concurrent.Semaphore;
 
 /** Gmail SMTP 발송 뒤 IMAP 검색으로 실제 운영 메일함 접수를 확인한다. */
 final class GmailReportMailGateway implements ReportMailGateway {
@@ -26,16 +27,22 @@ final class GmailReportMailGateway implements ReportMailGateway {
     private final ReportMailProperties properties;
     private final JavaMailSenderImpl sender;
     private final Clock clock;
+    private final Semaphore permits;
 
     GmailReportMailGateway(ReportMailProperties properties) {
         this(properties, Clock.systemUTC());
     }
 
     GmailReportMailGateway(ReportMailProperties properties, Clock clock) {
+        this(properties, clock, new Semaphore(maxConcurrent(properties), true));
+    }
+
+    GmailReportMailGateway(ReportMailProperties properties, Clock clock, Semaphore permits) {
         this.properties = properties;
         this.clock = clock;
         validate(properties);
         this.sender = sender(properties);
+        this.permits = permits;
     }
 
     @Override
@@ -45,6 +52,17 @@ final class GmailReportMailGateway implements ReportMailGateway {
 
     @Override
     public void deliverAndConfirm(ReportMail mail, Runnable leaseHeartbeat) {
+        if (!permits.tryAcquire()) {
+            throw new ReportMailException("신고 메일 처리량이 가득 찼습니다. 잠시 뒤 다시 시도해 주세요.");
+        }
+        try {
+            deliverAndConfirmWithinPermit(mail, leaseHeartbeat);
+        } finally {
+            permits.release();
+        }
+    }
+
+    private void deliverAndConfirmWithinPermit(ReportMail mail, Runnable leaseHeartbeat) {
         // lease는 5분이고 이 작업은 최대 60초 확인 + 제한된 연결 timeout만 사용한다.
         // IMAP 400ms poll마다 DB lease를 갱신하지 않고 외부 side effect 시작 전에 한 번만 연장한다.
         leaseHeartbeat.run();
@@ -149,6 +167,15 @@ final class GmailReportMailGateway implements ReportMailGateway {
                 || properties.getVerifyTimeout().compareTo(Duration.ofMinutes(1)) > 0) {
             throw new IllegalStateException("REPORT_MAIL_VERIFY_TIMEOUT은 0초 초과 60초 이하여야 합니다.");
         }
+        maxConcurrent(properties);
+    }
+
+    private static int maxConcurrent(ReportMailProperties properties) {
+        int value = properties.getMaxConcurrent();
+        if (value <= 0 || value > 4) {
+            throw new IllegalStateException("REPORT_MAIL_MAX_CONCURRENT는 1 이상 4 이하여야 합니다.");
+        }
+        return value;
     }
 
     private static boolean blank(String value) {

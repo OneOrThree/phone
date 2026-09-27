@@ -264,6 +264,7 @@ class InternalReportDeliveryIntegrationTest {
         deliveries.prepare(reporter, requestId,
                 new ReportDeliveryPrepareRequest(pending.leaseToken(), author, "제목", "원문"));
 
+        jdbc.update("update users set is_deleted=true where id=?", author);
         privacy.eraseForWithdrawal(author);
 
         assertThat(jdbc.queryForMap("select status, lease_token from report_deliveries "
@@ -277,6 +278,32 @@ class InternalReportDeliveryIntegrationTest {
                 claim(requestId, "d".repeat(64), true));
         assertThat(receipt.status()).isEqualTo("COMPLETED");
         assertThat(receipt.blocked()).isFalse();
+    }
+
+    @Test
+    void expiredLeaseForWithdrawnAuthorIsExpiredInsteadOfReclaimed() {
+        UUID reporter = newUser();
+        UUID author = newUser();
+        UUID requestId = UUID.randomUUID();
+        ReportDeliveryView pending = deliveries.claim(reporter, requestId,
+                claim(requestId, "e".repeat(64), false));
+        deliveries.prepare(reporter, requestId,
+                new ReportDeliveryPrepareRequest(pending.leaseToken(), author, "제목", "민감 원문"));
+
+        jdbc.update("update users set is_deleted=true where id=?", author);
+        privacy.eraseForWithdrawal(author);
+        jdbc.update("update report_deliveries set lease_expires_at=now()-interval '1 second' "
+                        + "where reporter_id=? and request_id=?",
+                reporter, requestId);
+
+        ReportDeliveryView retry = deliveries.claim(reporter, requestId,
+                claim(requestId, "e".repeat(64), false));
+
+        assertThat(retry.status()).isEqualTo("EXPIRED");
+        assertThat(retry.authorId()).isNull();
+        assertThat(jdbc.queryForObject("select mail_body from report_deliveries "
+                        + "where reporter_id=? and request_id=?", String.class, reporter, requestId))
+                .isNull();
     }
 
     private ReportDeliveryClaimRequest claim(UUID requestId, String fingerprint, boolean block) {

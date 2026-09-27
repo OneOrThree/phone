@@ -286,6 +286,25 @@ class ReportContractTest extends UpstreamTestBase {
     }
 
     @Test
+    void withdrawnPreparedTargetExpiresWithoutReusingStoredMailSnapshot() throws Exception {
+        reset(mail);
+        DATA.on(claimPath(), request -> ok("{\"status\":\"EXPIRED\"," +
+                "\"caseId\":\"GR-DBA0151D469BD84C720C\",\"confirmationToken\":\"" + CONFIRMATION + "\"," +
+                "\"leaseToken\":null,\"authorId\":null,\"subject\":null,\"body\":null," +
+                "\"blockRequested\":false,\"blocked\":null}"));
+
+        mockMvc.perform(auth(post("/reports")).header("Idempotency-Key", REQUEST)
+                        .contentType(MediaType.APPLICATION_JSON).content(body("USER", TARGET, false)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"))
+                .andExpect(jsonPath("$.error.field").value("targetId"));
+
+        assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
+                .containsExactly(claimPath());
+        verifyNoInteractions(mail);
+    }
+
+    @Test
     void preparedRetrySkipsEvidenceAndOnlyFinishesMailAndBlock() throws Exception {
         reset(mail);
         DATA.on(claimPath(), request -> ok("{\"status\":\"PENDING\"," +

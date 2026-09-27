@@ -81,6 +81,14 @@ public class InternalReportDeliveryService {
         if (row.leaseExpiresAt() != null && row.leaseExpiresAt().isAfter(now)) {
             throw new ReportDeliveryException(ReportDeliveryErrorCode.REQUEST_IN_PROGRESS);
         }
+        if ("PENDING".equals(row.status()) && row.authorId() != null && !activeUser(row.authorId())) {
+            // 탈퇴 정리 당시 메일 작업의 활성 lease가 있어 snapshot을 보존했더라도, 작업자가
+            // 중단되어 lease가 만료된 뒤에는 재선점·재발송하지 않는다.
+            jdbc.update("update report_deliveries set status='EXPIRED', author_id=null, mail_subject=null, "
+                            + "mail_body=null, lease_token=null, lease_expires_at=null, updated_at=? where id=?",
+                    Timestamp.from(now), row.id());
+            return view(Objects.requireNonNull(findForUpdate(reporterId, requestId)));
+        }
         UUID token = UuidV7.next();
         jdbc.update("update report_deliveries set lease_token=?, lease_expires_at=?, updated_at=? where id=?",
                 token, Timestamp.from(now.plus(LEASE)), Timestamp.from(now), row.id());
@@ -190,6 +198,11 @@ public class InternalReportDeliveryService {
             long retryAfter = Duration.between(now, attempts.get(0).plus(RATE_WINDOW)).toMillis();
             throw new RateLimitedException(Math.max(1, retryAfter));
         }
+    }
+
+    private boolean activeUser(UUID userId) {
+        return Boolean.TRUE.equals(jdbc.queryForObject(
+                "select exists(select 1 from users where id=? and is_deleted=false)", Boolean.class, userId));
     }
 
     private void lockActiveParticipants(UUID reporterId, UUID authorId) {
