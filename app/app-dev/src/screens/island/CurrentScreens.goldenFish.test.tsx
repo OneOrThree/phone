@@ -291,6 +291,7 @@ test('세션 종료 직후 결과 화면에 도착한 당첨도 버리지 않는
     fish: 1,
     contributed: true,
   };
+  state.resultFromRest = true;
   state.session = null;
   await screen.rerender(screenElement(state, 'focusResult'));
 
@@ -303,6 +304,6 @@ test('세션 종료 직후 결과 화면에 도착한 당첨도 버리지 않는
     ),
   );
 
-  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
+  assert.notEqual(screen.queryByTestId('golden-cutscene', { includeHiddenElements: true }), null);
   await screen.unmount();
 });

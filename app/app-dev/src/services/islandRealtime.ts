@@ -122,6 +122,7 @@ export type IslandPresenceTransition =
       source: 'event' | 'event-gap';
       kind: 'focus';
       userId: string;
+      occurredAtMs?: number;
       previous: LiveFocusMember | null;
       current: LiveFocusMember | null;
     }
@@ -129,6 +130,7 @@ export type IslandPresenceTransition =
       source: 'event' | 'event-gap';
       kind: 'rest';
       userId: string;
+      occurredAtMs?: number;
       previous: LiveRestMember | null;
       current: LiveRestMember | null;
     };
@@ -257,6 +259,8 @@ export class IslandProjection {
     const version = num(env.aggregateVersion);
     if (!userId || version === null) return { changed: false, transition: null };
     const key = `${kind}.member:${userId}`;
+    const occurredAtMs = ms(env.occurredAt);
+    const transitionAt = Number.isFinite(occurredAtMs) ? occurredAtMs : this.serverNowMs();
     const known = this.versions.get(key);
     if (known === undefined) {
       // 워터마크가 없는 주민 — 이벤트만으로 프로필을 지어내지 않고 정본 재조회로 복구한다.
@@ -274,7 +278,14 @@ export class IslandProjection {
         return {
           changed,
           transition: changed
-            ? { source: 'event', kind, userId, previous: prev!, current: null }
+            ? {
+                source: 'event',
+                kind,
+                userId,
+                occurredAtMs: transitionAt,
+                previous: prev!,
+                current: null,
+              }
             : null,
         };
       }
@@ -294,7 +305,14 @@ export class IslandProjection {
         changed: true,
         transition:
           prev?.status !== current.status || prev?.sessionId !== current.sessionId
-            ? { source: 'event', kind, userId, previous: prev ?? null, current }
+            ? {
+                source: 'event',
+                kind,
+                userId,
+                occurredAtMs: transitionAt,
+                previous: prev ?? null,
+                current,
+              }
             : null,
       };
     }
@@ -311,7 +329,16 @@ export class IslandProjection {
       const current = this.restMap.get(userId)!;
       return {
         changed: true,
-        transition: prev ? null : { source: 'event', kind, userId, previous: null, current },
+        transition: prev
+          ? null
+          : {
+              source: 'event',
+              kind,
+              userId,
+              occurredAtMs: transitionAt,
+              previous: null,
+              current,
+            },
       };
     }
     const prev = this.restMap.get(userId);
@@ -319,7 +346,14 @@ export class IslandProjection {
     return {
       changed,
       transition: changed
-        ? { source: 'event', kind, userId, previous: prev!, current: null }
+        ? {
+            source: 'event',
+            kind,
+            userId,
+            occurredAtMs: transitionAt,
+            previous: prev!,
+            current: null,
+          }
         : null,
     };
   }

@@ -51,7 +51,7 @@ import {
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
-import { useGoldenFishLedger } from '@/screens/focus/useGoldenFishLedger';
+import { GoldenFishMemberTimeline, useGoldenFishLedger } from '@/screens/focus/useGoldenFishLedger';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -1118,8 +1118,8 @@ function FocusFlow({ e }: any) {
     goldenCutsceneRef = useRef<GoldenFishEvent | null>(null),
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
     goldenOccurrencesRef = useRef(new Set<string>()),
-    goldenMembersRef = useRef<GoldenFishEvent['members']>([]),
-    goldenMembersSessionRef = useRef<string | null>(null),
+    goldenTimelineRef = useRef(new GoldenFishMemberTimeline()),
+    goldenTimelineSessionRef = useRef<string | null>(null),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
@@ -1152,31 +1152,28 @@ function FocusFlow({ e }: any) {
     .map((member) => ({ userId: member.userId, sessionId: member.sessionId }));
   if (
     myId &&
-    s.session &&
+    s.session?.status === 'active' &&
     !liveGoldenMembers.some(
       (member) => member.userId === myId && member.sessionId === s.session?.id,
     )
   ) {
     liveGoldenMembers.push({ userId: myId, sessionId: s.session.id });
   }
-  if (s.session && goldenMembersSessionRef.current !== s.session.id) {
-    goldenMembersSessionRef.current = s.session.id;
-    goldenMembersRef.current = [];
-  }
-  // 원장에는 참여자 목록이 없으므로 마지막으로 확인한 2인 이상 구성을 짧은 전환 구간의 근거로 유지한다.
-  if (s.session?.status === 'active' && liveGoldenMembers.length >= 2) {
-    goldenMembersRef.current = liveGoldenMembers;
-  }
   const resultSessionId = r === 'focusResult' ? (s.lastResult?.id ?? null) : null;
   const goldenSessionId = s.session?.id ?? resultSessionId;
+  if (s.session && goldenTimelineSessionRef.current !== s.session.id) {
+    goldenTimelineSessionRef.current = s.session.id;
+    goldenTimelineRef.current.reset();
+  }
+  if (s.session && live.status === 'ready') {
+    goldenTimelineRef.current.observe(e.now + live.clockOffset, liveGoldenMembers);
+  }
   const goldenSessionEligibleUntil =
     s.session?.status === 'paused'
       ? (s.session.restStartedAt ?? e.now)
       : r === 'focusResult'
         ? (s.lastResult?.at ?? e.now)
         : null;
-  const goldenLedgerMembers =
-    liveGoldenMembers.length >= 2 ? liveGoldenMembers : goldenMembersRef.current;
   useGoldenFishLedger({
     active:
       !!liveIslandId && !!goldenSessionId && (r === 'focus' || r === 'rest' || r === 'focusResult'),
@@ -1186,8 +1183,9 @@ function FocusFlow({ e }: any) {
       s.session?.startedAt ??
       (s.lastResult ? s.lastResult.at - s.lastResult.seconds * 1_000 : null),
     sessionEligibleUntil: goldenSessionEligibleUntil,
-    members: goldenLedgerMembers,
+    membersAt: (atMs) => goldenTimelineRef.current.membersAt(atMs),
     onGoldenFish: (event) => goldenHandler.current(event),
+    clockOffsetMs: live.clockOffset,
   });
   const recordGoldenCatch = (event: GoldenFishEvent) => {
     setGoldenCatches((current) => {
@@ -1379,7 +1377,13 @@ function FocusFlow({ e }: any) {
     snapshotVersion: live.snapshotVersion,
     snapshotTransitions: live.snapshotTransitions,
   });
-  transitionHandler.current = peerFlow.onTransition;
+  transitionHandler.current = (transition) => {
+    goldenTimelineRef.current.applyTransition(
+      transition.occurredAtMs ?? Date.now() + live.clockOffset,
+      transition,
+    );
+    peerFlow.onTransition(transition);
+  };
   const peers = peerFlow.actors.filter((actor) => actor.visible),
     peerSpots = peerFlow.actors.map((actor) => actor.spot),
     fishingPeerSpots = fishingSpotsForActors(peerFlow.actors),
@@ -1712,18 +1716,39 @@ function FocusFlow({ e }: any) {
     ) : (
       <RewardModal e={e} onClaimed={claimed} />
     ));
+  const goldenCutsceneOverlay = goldenCutscene ? (
+    <GoldenFishCutscene
+      key={goldenCutscene.eventId}
+      muted={!s.settings.sound}
+      volume={s.settings.volume ?? 0.55}
+      onFinish={() => {
+        recordGoldenCatch(goldenCutscene);
+        const next = goldenQueueRef.current.shift() ?? null;
+        goldenCutsceneRef.current = next;
+        setGoldenCutscene(next);
+        setGoldenFish(next === null);
+      }}
+    />
+  ) : null;
   if (r === 'focusResult' && s.resultFromRest)
     return (
       <View style={{ flex: 1 }}>
-        <RestGroup
-          state={s}
-          live={liveIslandId ? live : null}
-          home={e.home}
-          resume={e.home}
-          result
-        />
-        {resultModal}
-        {rewardModal}
+        <View
+          style={{ flex: 1 }}
+          importantForAccessibility={goldenCutscene ? 'no-hide-descendants' : 'auto'}
+          accessibilityElementsHidden={!!goldenCutscene}
+        >
+          <RestGroup
+            state={s}
+            live={liveIslandId ? live : null}
+            home={e.home}
+            resume={e.home}
+            result
+          />
+          {resultModal}
+          {rewardModal}
+        </View>
+        {goldenCutsceneOverlay}
       </View>
     );
   const seated = r !== 'fishingArrival' && !leg,
@@ -2196,20 +2221,7 @@ function FocusFlow({ e }: any) {
         {r === 'focusResult' && !leg && resultModal}
         {!leg && rewardModal}
       </View>
-      {goldenCutscene && (
-        <GoldenFishCutscene
-          key={goldenCutscene.eventId}
-          muted={!s.settings.sound}
-          volume={s.settings.volume ?? 0.55}
-          onFinish={() => {
-            recordGoldenCatch(goldenCutscene);
-            const next = goldenQueueRef.current.shift() ?? null;
-            goldenCutsceneRef.current = next;
-            setGoldenCutscene(next);
-            setGoldenFish(next === null);
-          }}
-        />
-      )}
+      {goldenCutsceneOverlay}
     </View>
   );
 }

@@ -2,7 +2,11 @@ import { useEffect, useRef } from 'react';
 import { getLedger } from '@/services/api/townHall';
 import { sessionGeneration } from '@/services/api/session';
 import { dayKey } from '@/services/model';
-import type { GoldenFishEvent, GoldenFishMember } from '@/services/islandRealtime';
+import type {
+  GoldenFishEvent,
+  GoldenFishMember,
+  IslandPresenceTransition,
+} from '@/services/islandRealtime';
 
 const DEFAULT_POLL_MS = 4_000;
 
@@ -12,6 +16,54 @@ type GoldenLedgerScope = {
   active: boolean;
   activated: boolean;
 };
+
+const memberKey = (member: GoldenFishMember) => `${member.userId}:${member.sessionId}`;
+
+export class GoldenFishMemberTimeline {
+  private snapshots: { atMs: number; members: GoldenFishMember[] }[] = [];
+
+  reset() {
+    this.snapshots = [];
+  }
+
+  observe(atMs: number, members: GoldenFishMember[]) {
+    if (!Number.isFinite(atMs)) return;
+    const unique = members
+      .filter(
+        (member, index, all) =>
+          all.findIndex((candidate) => memberKey(candidate) === memberKey(member)) === index,
+      )
+      .sort((a, b) => memberKey(a).localeCompare(memberKey(b)));
+    const signature = unique.map(memberKey).join('|');
+    const previous = [...this.snapshots].reverse().find((snapshot) => snapshot.atMs <= atMs);
+    if (previous?.members.map(memberKey).join('|') === signature) return;
+    this.snapshots.push({ atMs, members: unique });
+    this.snapshots.sort((a, b) => a.atMs - b.atMs);
+    if (this.snapshots.length > 200) this.snapshots.splice(0, this.snapshots.length - 200);
+  }
+
+  applyTransition(atMs: number, transition: IslandPresenceTransition) {
+    if (transition.kind !== 'focus') return;
+    const members = new Map(this.membersAt(atMs).map((member) => [member.userId, member]));
+    if (members.size === 0) return;
+    members.delete(transition.userId);
+    if (transition.current?.status === 'active') {
+      members.set(transition.userId, {
+        userId: transition.current.userId,
+        sessionId: transition.current.sessionId,
+      });
+    }
+    this.observe(atMs, [...members.values()]);
+  }
+
+  membersAt(atMs: number): GoldenFishMember[] {
+    if (!Number.isFinite(atMs)) return [];
+    for (let index = this.snapshots.length - 1; index >= 0; index--) {
+      if (this.snapshots[index].atMs <= atMs) return this.snapshots[index].members;
+    }
+    return [];
+  }
+}
 
 /**
  * 운영 realtime이 아직 focus.golden을 방송하지 않으므로, 기존 공동 가계부의 golden_fish 행을
@@ -23,8 +75,9 @@ export function useGoldenFishLedger({
   sessionId,
   sessionStartedAt,
   sessionEligibleUntil,
-  members,
+  membersAt,
   onGoldenFish,
+  clockOffsetMs = 0,
   pollMs = DEFAULT_POLL_MS,
 }: {
   active: boolean;
@@ -32,12 +85,15 @@ export function useGoldenFishLedger({
   sessionId: string | null;
   sessionStartedAt: number | null;
   sessionEligibleUntil?: number | null;
-  members: GoldenFishMember[];
+  membersAt: (atMs: number) => GoldenFishMember[];
   onGoldenFish: (event: GoldenFishEvent) => void;
+  clockOffsetMs?: number;
   pollMs?: number;
 }) {
-  const membersRef = useRef(members);
-  membersRef.current = members;
+  const membersAtRef = useRef(membersAt);
+  membersAtRef.current = membersAt;
+  const clockOffsetRef = useRef(clockOffsetMs);
+  clockOffsetRef.current = clockOffsetMs;
   const callbackRef = useRef(onGoldenFish);
   callbackRef.current = onGoldenFish;
   const seen = useRef(new Set<string>());
@@ -54,7 +110,7 @@ export function useGoldenFishLedger({
       seen.current.clear();
       scope.current = {
         sessionId,
-        afterMs: sessionStartedAt ?? Date.now(),
+        afterMs: sessionStartedAt ?? Date.now() + clockOffsetRef.current,
         active: false,
         activated: false,
       };
@@ -64,7 +120,9 @@ export function useGoldenFishLedger({
       return;
     }
     if (!scope.current.active) {
-      if (scope.current.activated) scope.current.afterMs = Date.now();
+      if (scope.current.activated) {
+        scope.current.afterMs = Date.now() + clockOffsetRef.current;
+      }
       scope.current.active = true;
       scope.current.activated = true;
     }
@@ -75,29 +133,19 @@ export function useGoldenFishLedger({
     const read = async () => {
       if (reading) return;
       reading = true;
-      const requestedAt = Date.now();
+      const requestedAt = Date.now() + clockOffsetRef.current;
       try {
-        const page = await getLedger(islandId, {
-          month: dayKey(requestedAt).slice(0, 7),
-          direction: 'earn',
-        });
-        if (disposed || accountGeneration !== sessionGeneration()) return;
-        const participants = membersRef.current.filter(
-          (member, index, all) =>
-            all.findIndex(
-              (candidate) =>
-                candidate.userId === member.userId && candidate.sessionId === member.sessionId,
-            ) === index,
+        const afterMonth = dayKey(scope.current.afterMs).slice(0, 7);
+        const requestedMonth = dayKey(requestedAt).slice(0, 7);
+        const months =
+          afterMonth === requestedMonth ? [requestedMonth] : [afterMonth, requestedMonth];
+        const pages = await Promise.all(
+          months.map((month) => getLedger(islandId, { month, direction: 'earn' })),
         );
-        if (participants.length < 2) {
-          // 휴식·종료 뒤에는 참여자 구성이 뒤늦게 채워져도 그 사이 다른 주민의 당첨을 내 것으로 만들지 않는다.
-          if (sessionEligibleUntil != null) {
-            scope.current.afterMs = Math.max(scope.current.afterMs, requestedAt);
-          }
-          return;
-        }
+        if (disposed || accountGeneration !== sessionGeneration()) return;
         const afterMs = scope.current.afterMs;
-        const fresh = page.items
+        const fresh = pages
+          .flatMap((page) => page.items)
           .filter(
             (entry) =>
               entry.reason === 'golden_fish' &&
@@ -109,6 +157,8 @@ export function useGoldenFishLedger({
           .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
         for (const entry of fresh) {
           seen.current.add(entry.id);
+          const participants = membersAtRef.current(Date.parse(entry.createdAt));
+          if (participants.length < 2) continue;
           callbackRef.current({
             eventId: `ledger:${entry.id}`,
             islandId,
