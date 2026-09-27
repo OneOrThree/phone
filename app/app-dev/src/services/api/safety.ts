@@ -24,6 +24,17 @@ export type ReportInput = {
 
 export const REPORT_EMAIL_RECIPIENT = 'nappaegonoljima@gmail.com';
 
+const REPORT_REASON_LABEL: Record<ReportReason, string> = {
+  HARASSMENT: '욕설·괴롭힘',
+  HATE: '혐오·차별',
+  SPAM_FRAUD: '스팸·사기',
+  SEXUAL: '성적 콘텐츠',
+  CHILD_SAFETY: '아동 안전',
+  THREAT: '위해 협박',
+  PRIVACY_IMPERSONATION: '개인정보·사칭',
+  OTHER: '기타',
+};
+
 export function getBlockedUsers(): Promise<BlockedUser[]> {
   return request<BlockedUser[]>('/blocks');
 }
@@ -49,7 +60,7 @@ export function reportEmailUrl(input: ReportInput, targetName: string): string {
     `신고 대상: ${targetName}`,
     `대상 유형: ${targetType}`,
     `대상 ID: ${input.targetId}`,
-    `신고 사유: ${input.reason}`,
+    `신고 사유: ${REPORT_REASON_LABEL[input.reason]}`,
     `상세 설명: ${input.description ?? '없음'}`,
     `회신 받을 이메일: ${input.replyEmail ?? '미입력'}`,
     `앱에서 함께 차단: ${input.blockUser ? '예' : '아니오'}`,

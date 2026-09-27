@@ -18,6 +18,7 @@ import { ApiError } from '@/services/api/client';
 import {
   blockUser,
   reportEmailUrl,
+  REPORT_EMAIL_RECIPIENT,
   type ReportReason,
   type ReportTargetType,
 } from '@/services/api/safety';
@@ -271,7 +272,8 @@ export function UserSafetySheet(props: Props) {
                 contentContainerStyle={{ gap: componentTokens.modal.gap }}
               >
                 <Txt kind="meta">
-                  신고 내용을 채운 메일 작성 화면을 열어요. 전송 전 내용을 확인해 주세요.
+                  운영팀 Gmail({REPORT_EMAIL_RECIPIENT})로 보낼 메일 작성 화면을 열어요. 전송 전
+                  내용을 확인해 주세요.
                 </Txt>
                 <Chips
                   items={REASONS.map((item) => item.label)}

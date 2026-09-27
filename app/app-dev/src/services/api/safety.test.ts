@@ -59,7 +59,7 @@ test('신고 입력을 운영 Gmail 수신 주소와 편집 가능한 mailto 본
   assert.ok(url.startsWith(`mailto:${REPORT_EMAIL_RECIPIENT}?`));
   const decoded = decodeURIComponent(url);
   assert.ok(decoded.includes('subject=[Gromo 신고] 편지 민지'));
-  assert.ok(decoded.includes('신고 사유: HARASSMENT'));
+  assert.ok(decoded.includes('신고 사유: 욕설·괴롭힘'));
   assert.ok(decoded.includes('상세 설명: 설명'));
   assert.ok(decoded.includes('회신 받을 이메일: reply@example.com'));
   assert.ok(decoded.includes('앱에서 함께 차단: 예'));
