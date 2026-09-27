@@ -1,16 +1,19 @@
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { AppState } from 'react-native';
 import { getBlockedUsers, type BlockedUser } from '@/services/api/safety';
 import { sessionGeneration, subscribeSession } from '@/services/api/session';
 
 let generation = sessionGeneration();
 let ids: ReadonlySet<string> = new Set();
 let loaded = false;
+let lastValidatedAt = 0;
 let loadError: unknown = null;
 let flight: Promise<BlockedUser[]> | null = null;
 let mutationRevision = 0;
 let refreshSequence = 0;
 let storeRevision = 0;
 const listeners = new Set<() => void>();
+const BLOCKED_USERS_TTL_MS = 30_000;
 
 const emit = () => {
   storeRevision += 1;
@@ -21,6 +24,7 @@ const resetForSession = () => {
   generation = sessionGeneration();
   ids = new Set();
   loaded = false;
+  lastValidatedAt = 0;
   loadError = null;
   flight = null;
   mutationRevision = 0;
@@ -43,6 +47,7 @@ const snapshot = () => storeRevision;
 export function replaceBlockedUsers(users: BlockedUser[]): void {
   ids = new Set(users.map((user) => user.id));
   loaded = true;
+  lastValidatedAt = Date.now();
   loadError = null;
   emit();
 }
@@ -67,9 +72,15 @@ export function isUserBlocked(userId: string | null | undefined): boolean {
   return !!userId && ids.has(userId);
 }
 
-/** 같은 세션에서는 한 번만 적재하고, 강제 갱신은 refreshBlockedUsers를 쓴다. */
+/** 최근 목록은 재사용하되 오래된 cache는 같은 세션에서도 다시 검증한다. */
 export function loadBlockedUsers(): Promise<BlockedUser[]> {
-  if (loaded) return Promise.resolve([]);
+  if (loaded && Date.now() - lastValidatedAt < BLOCKED_USERS_TTL_MS) return Promise.resolve([]);
+  if (flight) return flight;
+  return refreshBlockedUsers();
+}
+
+/** 화면 재진입·포그라운드 복귀의 재검증은 여러 소비자가 동시에 요청해도 한 GET으로 합친다. */
+export function revalidateBlockedUsers(): Promise<BlockedUser[]> {
   if (flight) return flight;
   return refreshBlockedUsers();
 }
@@ -124,8 +135,16 @@ export function useBlockedUsers(active = true): {
   retry: () => Promise<BlockedUser[]>;
 } {
   useSyncExternalStore(subscribe, snapshot, snapshot);
+  const hasActivated = useRef(false);
   useEffect(() => {
-    if (active) loadBlockedUsers().catch(() => {});
+    if (!active) return;
+    const request = hasActivated.current ? revalidateBlockedUsers() : loadBlockedUsers();
+    hasActivated.current = true;
+    request.catch(() => {});
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') revalidateBlockedUsers().catch(() => {});
+    });
+    return () => subscription.remove();
   }, [active]);
   return {
     ids,

@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
+import { AppState } from 'react-native';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { getBlockedUsers } from '@/services/api/safety';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   isUserBlocked,
   markUserBlocked,
   markUserUnblocked,
+  loadBlockedUsers,
   refreshBlockedUsers,
   replaceBlockedUsers,
+  useBlockedUsers,
 } from '@/services/blockedUsers';
 
 jest.mock('@/services/api/safety', () => ({
@@ -18,6 +22,10 @@ const listMock = getBlockedUsers as jest.Mock;
 beforeEach(() => {
   jest.clearAllMocks();
   replaceBlockedUsers([]);
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
 });
 
 test('차단과 해제 성공 신호를 즉시 조회 snapshot에 반영한다', () => {
@@ -73,4 +81,45 @@ test('계정이 바뀌면 이전 세션의 차단 snapshot을 즉시 폐기한�
   await saveSession({ accessToken: 'AT-2', refreshToken: 'RT-2', userId: 'u2' });
 
   assert.equal(isUserBlocked('blocked-by-u1'), false);
+});
+
+test('cache가 만료되면 같은 세션에서도 차단 목록을 다시 검증한다', async () => {
+  const now = Date.now();
+  jest.spyOn(Date, 'now').mockReturnValue(now + 30_001);
+  listMock.mockResolvedValue([{ id: 'u-new', name: '다른 기기 차단' }]);
+
+  await loadBlockedUsers();
+
+  assert.equal(listMock.mock.calls.length, 1);
+  assert.equal(isUserBlocked('u-new'), true);
+});
+
+test('앱이 포그라운드로 돌아오면 준비된 cache도 다시 검증한다', async () => {
+  let onChange: (state: string) => void = () => {};
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((_, listener: any) => {
+    onChange = listener;
+    return { remove: jest.fn() } as any;
+  });
+  listMock.mockResolvedValue([{ id: 'u-foreground', name: '포그라운드 차단' }]);
+  const hook = await renderHook(() => useBlockedUsers(true));
+
+  await act(async () => onChange('active'));
+  await waitFor(() => assert.equal(isUserBlocked('u-foreground'), true));
+  assert.equal(listMock.mock.calls.length, 1);
+  await hook.unmount();
+});
+
+test('차단 필터 화면에 재진입하면 TTL과 무관하게 다시 검증한다', async () => {
+  listMock.mockResolvedValue([{ id: 'u-reentered', name: '재진입 차단' }]);
+  const hook = await renderHook((props: { active: boolean }) => useBlockedUsers(props.active), {
+    initialProps: { active: true },
+  });
+  assert.equal(listMock.mock.calls.length, 0);
+
+  await hook.rerender({ active: false });
+  await hook.rerender({ active: true });
+
+  await waitFor(() => assert.equal(isUserBlocked('u-reentered'), true));
+  assert.equal(listMock.mock.calls.length, 1);
+  await hook.unmount();
 });
