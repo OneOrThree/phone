@@ -29,11 +29,13 @@ public class ReportDeliveryPrivacyRepository {
         jdbc.update("delete from report_deliveries where reporter_id=?", userId);
         Instant now = clock.instant();
         // 신고 대상 탈퇴는 행을 지우지 않는다. SMTP가 끝난 직후 삭제하면 같은 키가 새 행으로 재생성되어
-        // 중복 메일이 나갈 수 있다. 미확인 건은 만료, 접수 확인 건은 차단하지 못한 영수증으로 수렴한다.
+        // 중복 메일이 나갈 수 있다. 활성 lease는 외부 확인 결과를 기록할 수 있게 보존하고, 그 외
+        // 미확인 건은 만료, 접수 확인 건은 차단하지 못한 영수증으로 수렴한다.
         jdbc.update("update report_deliveries set status='EXPIRED', author_id=null, mail_subject=null, "
                         + "mail_body=null, lease_token=null, lease_expires_at=null, updated_at=? "
-                        + "where author_id=? and status='PENDING'",
-                Timestamp.from(now), userId);
+                        + "where author_id=? and status='PENDING' "
+                        + "and (lease_expires_at is null or lease_expires_at<=?)",
+                Timestamp.from(now), userId, Timestamp.from(now));
         jdbc.update("update report_deliveries set status='COMPLETED', blocked=false, completed_at=?, "
                         + "author_id=null, mail_subject=null, mail_body=null, lease_token=null, "
                         + "lease_expires_at=null, updated_at=? where author_id=? and status='EMAIL_CONFIRMED'",

@@ -45,6 +45,9 @@ final class GmailReportMailGateway implements ReportMailGateway {
 
     @Override
     public void deliverAndConfirm(ReportMail mail, Runnable leaseHeartbeat) {
+        // lease는 5분이고 이 작업은 최대 60초 확인 + 제한된 연결 timeout만 사용한다.
+        // IMAP 400ms poll마다 DB lease를 갱신하지 않고 외부 side effect 시작 전에 한 번만 연장한다.
+        leaseHeartbeat.run();
         Properties sessionProperties = new Properties();
         sessionProperties.setProperty("mail.store.protocol", "imaps");
         sessionProperties.setProperty("mail.imaps.connectiontimeout", "3000");
@@ -55,15 +58,12 @@ final class GmailReportMailGateway implements ReportMailGateway {
             store.connect(properties.getImapHost(), properties.getUsername(), properties.getAppPassword());
             try (Folder inbox = store.getFolder("INBOX")) {
                 inbox.open(Folder.READ_ONLY);
-                leaseHeartbeat.run();
                 if (inMailbox(inbox, mail.confirmationToken())) {
                     return;
                 }
-                leaseHeartbeat.run();
                 send(mail);
                 Instant deadline = clock.instant().plus(properties.getVerifyTimeout());
                 do {
-                    leaseHeartbeat.run();
                     if (inMailbox(inbox, mail.confirmationToken())) {
                         return;
                     }

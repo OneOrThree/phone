@@ -232,6 +232,8 @@ class InternalReportDeliveryIntegrationTest {
                 claim(secondRequest, "b".repeat(64), true));
         deliveries.prepare(reporter, secondRequest,
                 new ReportDeliveryPrepareRequest(second.leaseToken(), author, "제목", "원문"));
+        jdbc.update("update report_deliveries set lease_expires_at=now()-interval '1 second' "
+                + "where reporter_id=? and request_id=?", reporter, secondRequest);
         privacy.eraseForWithdrawal(author);
         assertThat(jdbc.queryForObject("select count(*) from report_deliveries where reporter_id=?",
                 Long.class, reporter)).isEqualTo(2L);
@@ -247,6 +249,31 @@ class InternalReportDeliveryIntegrationTest {
         privacy.eraseForWithdrawal(author);
         ReportDeliveryView receipt = deliveries.claim(reporter, thirdRequest,
                 claim(thirdRequest, "c".repeat(64), true));
+        assertThat(receipt.status()).isEqualTo("COMPLETED");
+        assertThat(receipt.blocked()).isFalse();
+    }
+
+    @Test
+    void activePendingLeaseSurvivesWithdrawalCleanupUntilConfirmationIsRecorded() {
+        UUID reporter = newUser();
+        UUID author = newUser();
+        UUID requestId = UUID.randomUUID();
+        ReportDeliveryView pending = deliveries.claim(reporter, requestId,
+                claim(requestId, "d".repeat(64), true));
+        deliveries.prepare(reporter, requestId,
+                new ReportDeliveryPrepareRequest(pending.leaseToken(), author, "제목", "원문"));
+
+        privacy.eraseForWithdrawal(author);
+
+        assertThat(jdbc.queryForMap("select status, lease_token from report_deliveries "
+                        + "where reporter_id=? and request_id=?", reporter, requestId))
+                .containsEntry("status", "PENDING")
+                .containsEntry("lease_token", pending.leaseToken());
+        deliveries.emailConfirmed(reporter, requestId, pending.leaseToken());
+        privacy.eraseForWithdrawal(author);
+
+        ReportDeliveryView receipt = deliveries.claim(reporter, requestId,
+                claim(requestId, "d".repeat(64), true));
         assertThat(receipt.status()).isEqualTo("COMPLETED");
         assertThat(receipt.blocked()).isFalse();
     }

@@ -194,7 +194,7 @@ class ReportContractTest extends UpstreamTestBase {
     }
 
     @Test
-    void mailboxConfirmationFailureIsRetryableAndDoesNotBlock() throws Exception {
+    void mailboxConfirmationFailureIsRetryableAndKeepsLeaseToPreventImmediateResend() throws Exception {
         reset(mail);
         workflow(true);
         DATA.on("GET /internal/users/" + USER + "/friends", request -> ok("[{"
@@ -212,7 +212,7 @@ class ReportContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.retryable").value(true));
         assertThat(DATA.received()).extracting(MockUpstream.RecordedRequest::methodAndPath)
-                .containsExactly(claimPath(), "GET /internal/users/" + USER + "/friends", preparePath(), releasePath());
+                .containsExactly(claimPath(), "GET /internal/users/" + USER + "/friends", preparePath());
     }
 
     @Test

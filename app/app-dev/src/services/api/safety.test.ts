@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import { API_URL } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
-import { blockUser, getBlockedUsers, submitReport, unblockUser } from '@/services/api/safety';
+import {
+  blockUser,
+  getBlockedUsers,
+  REPORT_REQUEST_TIMEOUT_MS,
+  submitReport,
+  unblockUser,
+} from '@/services/api/safety';
 
 type Call = { url: string; init: RequestInit };
 const calls: Call[] = [];
@@ -41,6 +47,7 @@ test('차단 목록·등록·해제 공개 계약을 그대로 호출한다', as
 });
 
 test('신고는 선택적 동시 차단과 재시도 requestId를 Idempotency-Key로 보낸다', async () => {
+  const timeout = jest.spyOn(global, 'setTimeout');
   stub(201, { data: { caseId: 'GR-CASE', blocked: true } });
   const input = {
     targetType: 'LETTER' as const,
@@ -56,4 +63,6 @@ test('신고는 선택적 동시 차단과 재시도 requestId를 Idempotency-Ke
   assert.equal(calls[0].init.method, 'POST');
   assert.equal((calls[0].init.headers as Record<string, string>)['Idempotency-Key'], REQUEST);
   assert.deepEqual(JSON.parse(calls[0].init.body as string), input);
+  expect(timeout).toHaveBeenCalledWith(expect.any(Function), REPORT_REQUEST_TIMEOUT_MS);
+  timeout.mockRestore();
 });

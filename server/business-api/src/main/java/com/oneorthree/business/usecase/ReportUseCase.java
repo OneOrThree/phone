@@ -82,7 +82,8 @@ public class ReportUseCase {
                     claims.userId(), requestId, leaseToken, blocked, finalization);
             return new ReportReceipt(completed.caseId(), Boolean.TRUE.equals(completed.blocked()));
         } catch (ReportMailException e) {
-            release(claims.userId(), requestId, leaseToken);
+            // SMTP 성공 뒤 IMAP 반영만 늦은 실패일 수 있다. lease를 유지해야 즉시 재발송되지 않고,
+            // 만료 뒤 같은 confirmation token으로 메일함을 먼저 확인한 다음에만 재시도한다.
             throw new PublicApiException(ApiErrorCode.SERVICE_UNAVAILABLE, null);
         } catch (RuntimeException e) {
             release(claims.userId(), requestId, leaseToken);
