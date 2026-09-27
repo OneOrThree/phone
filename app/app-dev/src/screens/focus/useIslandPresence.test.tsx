@@ -7,7 +7,12 @@ import { act, renderHook } from '@testing-library/react-native';
 import { AppState } from 'react-native';
 import { clearSession, saveSession } from '@/services/api/session';
 import { useIslandPresence } from '@/screens/focus/useIslandPresence';
-import type { IslandRealtime, IslandRealtimeDeps, PresenceView } from '@/services/islandRealtime';
+import type {
+  IslandPresenceTransition,
+  IslandRealtime,
+  IslandRealtimeDeps,
+  PresenceView,
+} from '@/services/islandRealtime';
 
 type Fake = IslandRealtime & { deps: IslandRealtimeDeps };
 const sessions: Fake[] = [];
@@ -46,7 +51,12 @@ beforeEach(async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
 });
 
-type Props = { active: boolean; islandId: string | null; emoteSessionId?: string | null };
+type Props = {
+  active: boolean;
+  islandId: string | null;
+  emoteSessionId?: string | null;
+  onTransition?: (transition: IslandPresenceTransition) => void;
+};
 const mount = (p: Props) =>
   renderHook((q: Props) => useIslandPresence(q, start), { initialProps: p });
 
@@ -82,11 +92,40 @@ test('계정(세션 세대)이 바뀌면 이전 채널을 해제하고 새로 �
   assert.equal((sessions[0].dispose as jest.Mock).mock.calls.length, 1);
 });
 
-test('포그라운드 복귀는 소켓을 다시 열고 스냅숏을 재동기화한다', async () => {
+test('포그라운드 복귀는 reconnect 출처로 스냅숏을 재동기화한다', async () => {
   await mount({ active: true, islandId: 'i1' });
   await act(async () => appListener?.('active'));
   assert.equal((sessions[0].reopen as jest.Mock).mock.calls.length, 1);
   assert.equal((sessions[0].resync as jest.Mock).mock.calls.length, 2);
+  assert.equal((sessions[0].resync as jest.Mock).mock.calls[1][0], 'reconnect');
+});
+
+test('검증된 전이를 최신 콜백으로 전달한다', async () => {
+  const received: IslandPresenceTransition[] = [];
+  await mount({
+    active: true,
+    islandId: 'i1',
+    onTransition: (transition) => received.push(transition),
+  });
+  const transition: IslandPresenceTransition = {
+    source: 'event',
+    kind: 'focus',
+    userId: 'u1',
+    previous: null,
+    current: {
+      userId: 'u1',
+      name: '이름-u1',
+      catColor: 'ginger',
+      appearance: null,
+      sessionId: 's-u1',
+      subject: '영어',
+      activeSeconds: 1,
+      status: 'active',
+      anchorMs: Date.now(),
+    },
+  };
+  await act(async () => sessions[0].deps.onTransition?.(transition));
+  assert.deepEqual(received, [transition]);
 });
 
 test('언마운트는 채널을 해제하고, retry 는 채널을 새로 연다', async () => {

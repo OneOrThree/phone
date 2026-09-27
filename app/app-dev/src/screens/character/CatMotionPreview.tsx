@@ -14,6 +14,7 @@ const motions = [
   ['stretch', '기지개'],
   ['groom', '그루밍'],
   ['focus', '집중'],
+  ['cast', '낚싯대 던지기'],
   ['reading', '독서'],
   ['reel', '낚아올리기'],
 ] as const;
@@ -93,8 +94,8 @@ export function CatMotionPreview() {
         ))}
       </View>
       <Text style={styles.footer}>
-        집중 중에는 집중 동작을 유지합니다. 모션 줄이기를 켜거나 앱이 백그라운드로 전환되면 재생을
-        멈춥니다.
+        집중 중에는 집중 동작을 유지합니다. 모션 줄이기를 켜거나 앱이 백그라운드로 전환되면 one-shot
+        동작은 즉시 완료됩니다.
       </Text>
     </ScrollView>
   );

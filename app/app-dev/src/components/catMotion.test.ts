@@ -20,7 +20,12 @@ describe('catMotion', () => {
     expect(catFrameAt('walk', 0)).toBe(0);
     expect(catFrameAt('read', 0)).toBe(0);
     expect(catFrameAt('focus', 0)).toBe(0);
+    expect(catFrameAt('cast', 0)).toBe(0);
     expect(catFrameAt('reel', 0)).toBe(0);
+  });
+
+  it('낚싯대 던지기는 네 프레임을 순서대로 재생한다', () => {
+    expect(Array.from({ length: 4 }, (_, tick) => catFrameAt('cast', tick))).toEqual([0, 1, 2, 3]);
   });
 
   it('대기 자세 아틀라스는 neutral부터 settle까지 한 번씩 진행한다', () => {
