@@ -346,6 +346,24 @@ test('웹 모달은 처음 포커스를 안으로 옮기고 Tab 경계를 지키
   handleBoardModalKeydown(escape, overlay, modalDocument, dismiss);
   expect(escape.preventDefault).toHaveBeenCalledTimes(1);
   expect(dismiss).toHaveBeenCalledTimes(1);
+
+  const composingEscape = {
+    key: 'Escape',
+    isComposing: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(composingEscape, overlay, modalDocument, dismiss);
+  expect(composingEscape.preventDefault).not.toHaveBeenCalled();
+  expect(dismiss).toHaveBeenCalledTimes(1);
+
+  const composingTab = {
+    key: 'Tab',
+    isComposing: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(composingTab, overlay, modalDocument, dismiss);
+  expect(composingTab.preventDefault).not.toHaveBeenCalled();
+  expect(first.focus).toHaveBeenCalledTimes(2);
   restoreBoardModalOpener(opener);
   expect(opener.focus).toHaveBeenCalledTimes(1);
 
@@ -476,6 +494,14 @@ test('보상 모달이 위에 열리면 게시판 Escape 트랩을 멈춘다', a
     assert.equal(overlay.props['aria-hidden'], true);
     assert.equal(overlay.props['aria-modal'], false);
     assert.equal(overlay.props.accessibilityElementsHidden, true);
+    const scrim = screen.getByTestId('board-notice-overlay-scrim', {
+      includeHiddenElements: true,
+    });
+    assert.equal(scrim.props.accessibilityState.disabled, true);
+    assert.equal(scrim.props.accessibilityElementsHidden, true);
+    assert.equal(scrim.props['aria-hidden'], true);
+    assert.equal(scrim.props.inert, true);
+    assert.equal(scrim.props.tabIndex, -1);
     assert.equal(keydownListeners.size, 0);
 
     for (const listener of keydownListeners) {
@@ -498,6 +524,21 @@ test('보상 모달이 위에 열리면 게시판 Escape 트랩을 멈춘다', a
     });
     assert.equal(screen.queryByTestId('board-notice-overlay'), null);
     await screen.unmount();
+
+    const questScreen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'detail-focus' }),
+      true,
+    );
+    const questScrim = questScreen.getByTestId('board-quest-overlay-scrim', {
+      includeHiddenElements: true,
+    });
+    assert.equal(questScrim.props.accessibilityState.disabled, true);
+    assert.equal(questScrim.props.accessibilityElementsHidden, true);
+    assert.equal(questScrim.props['aria-hidden'], true);
+    assert.equal(questScrim.props.inert, true);
+    assert.equal(questScrim.props.tabIndex, -1);
+    await questScreen.unmount();
   } finally {
     if (previousDocument === undefined) delete (globalThis as any).document;
     else

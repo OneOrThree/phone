@@ -3921,6 +3921,7 @@ export function handleBoardModalKeydown(
   modalDocument: Document,
   onEscape: () => void,
 ) {
+  if (event.isComposing) return;
   if (event.key === 'Escape') {
     event.preventDefault();
     onEscape();
@@ -6143,7 +6144,10 @@ export function Board({
           <Pressable
             testID="board-notice-overlay-scrim"
             accessibilityLabel="공지 창 닫기"
+            accessibilityElementsHidden={higherModalOpen}
+            disabled={higherModalOpen}
             onPress={dismissNoticeOverlay}
+            {...webOnly(higherModalOpen ? { 'aria-hidden': true, inert: true, tabIndex: -1 } : {})}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -6199,7 +6203,10 @@ export function Board({
           <Pressable
             testID="board-quest-overlay-scrim"
             accessibilityLabel="퀘스트 상세 닫기"
+            accessibilityElementsHidden={higherModalOpen}
+            disabled={higherModalOpen}
             onPress={dismissQuestDetail}
+            {...webOnly(higherModalOpen ? { 'aria-hidden': true, inert: true, tabIndex: -1 } : {})}
             style={{
               position: 'absolute',
               zIndex: 5,
