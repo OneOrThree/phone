@@ -106,6 +106,7 @@ type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | nul
 export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: string }) {
   const blockedUsers = useBlockedUsers(active);
   const blockedIds = blockedUsers.ids;
+  const retryBlockedUsers = blockedUsers.retry;
   const [state, setState] = useState<MailboxState>(EMPTY);
   const stateRef = useRef(state);
   const set = useCallback((patch: Partial<MailboxState>) => {
@@ -450,12 +451,13 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
   }, [active, blockedIds, blockedUsers.error, blockedUsers.status, state]);
 
   const retry = useCallback(async () => {
-    if (blockedUsers.status === 'error') await blockedUsers.retry();
+    if (blockedUsers.status === 'error') await retryBlockedUsers();
     await load();
-  }, [blockedUsers.retry, blockedUsers.status, load]);
+  }, [blockedUsers.status, load, retryBlockedUsers]);
 
   return {
     ...visibleState,
+    blockedUsersStatus: blockedUsers.status,
     retry,
     loadMoreLetters,
     loadMoreMessages,

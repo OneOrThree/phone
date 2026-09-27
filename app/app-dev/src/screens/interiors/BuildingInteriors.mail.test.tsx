@@ -6,6 +6,7 @@ import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import { initialState } from '@/services/model';
 import { replaceBlockedUsers } from '@/services/blockedUsers';
+import { blockUser, getBlockedUsers } from '@/services/api/safety';
 import { InteriorScreen } from '@/screens/interiors/BuildingInteriors';
 import {
   closeLetter,
@@ -30,6 +31,7 @@ jest.mock('@/services/api/letters', () => ({
 jest.mock('@/services/api/safety', () => ({
   ...jest.requireActual('@/services/api/safety'),
   blockUser: jest.fn(),
+  getBlockedUsers: jest.fn(),
 }));
 
 const ISLAND = 'island-1';
@@ -91,6 +93,8 @@ const sendLetterMock = sendLetter as jest.Mock;
 const closeLetterMock = closeLetter as jest.Mock;
 const listMessagesMock = listIslandMessages as jest.Mock;
 const sendMessageMock = sendIslandMessage as jest.Mock;
+const blockedUsersMock = getBlockedUsers as jest.Mock;
+const blockUserMock = blockUser as jest.Mock;
 
 /** App.tsx 가 넘기는 라우트 문맥의 최소 복제 — go/back 이 e 를 바꾸고 _tick 으로 리렌더한다. */
 const makeE = (over: Record<string, unknown> = {}) => {
@@ -221,6 +225,21 @@ test('로드 실패 — 오류 문구와 다시 시도, 재시도가 다시 읽�
   await ui.unmount();
 });
 
+test('우편함을 읽은 뒤 차단 목록만 실패해도 다시 시도할 수 있다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  await saveSession({ accessToken: 'AT-2', refreshToken: 'RT-2', userId: 'u1' });
+  blockedUsersMock.mockRejectedValueOnce(new Error('blocks unavailable'));
+  const ui = await renderMail(makeE());
+
+  await waitFor(() => assert.ok(ui.getByTestId('mailbox-retry')));
+  assert.ok(ui.getByText('차단 목록을 불러오지 못했어요.'));
+
+  blockedUsersMock.mockResolvedValueOnce([]);
+  await fireEvent.press(ui.getByTestId('mailbox-retry'));
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await ui.unmount();
+});
+
 test('편지 열기 — GET 상세로 본문을 그린다(DELETE 는 나가지 않는다)', async () => {
   screenMock.mockResolvedValue(screen([letterItem()]));
   getLetterMock.mockResolvedValue(letterView());
@@ -268,6 +287,27 @@ test('편지 신고는 운영 메일 작성 화면을 열고 상세 화면을 �
   assert.equal(e.route, 'mail');
   assert.equal(e.tab, '받은 편지');
   assert.equal(ui.queryByText('신고하기'), null);
+  openUrl.mockRestore();
+  await ui.unmount();
+});
+
+test('편지 신고 중 차단 뒤 메일 앱이 실패해도 신고 시트와 재시도를 유지한다', async () => {
+  screenMock.mockResolvedValue(screen([letterItem()]));
+  getLetterMock.mockResolvedValue(letterView());
+  blockUserMock.mockResolvedValue(undefined);
+  const openUrl = jest.spyOn(Linking, 'openURL').mockRejectedValueOnce(new Error('no mail app'));
+  const ui = await renderMail(makeE());
+  await waitFor(() => assert.ok(ui.getByTestId('received-letter-0')));
+  await fireEvent.press(ui.getByTestId('received-letter-0'));
+  await waitFor(() => assert.ok(ui.getByLabelText('민지 더보기')));
+  await fireEvent.press(ui.getByLabelText('민지 더보기'));
+  await fireEvent.press(ui.getByText('신고하기'));
+  await fireEvent.press(ui.getByRole('switch', { name: '이 사용자도 차단' }));
+  await fireEvent.press(ui.getByText('이메일 작성'));
+
+  await waitFor(() => assert.ok(ui.getByText(/차단은 완료했지만 메일 앱을 열지 못했어요/)));
+  assert.ok(ui.getByText('이메일 작성'));
+  assert.equal(blockUserMock.mock.calls.length, 1);
   openUrl.mockRestore();
   await ui.unmount();
 });

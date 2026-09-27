@@ -131,6 +131,7 @@ test('차단 목록을 읽지 못하면 우편함 데이터를 fail-closed로 �
 
   const hook = await renderHook(() => useMailbox({ active: true, scopeKey: 's1' }));
   await waitFor(() => assert.equal(hook.result.current.error?.code, 'BLOCKED_USERS_UNAVAILABLE'));
+  assert.equal(hook.result.current.blockedUsersStatus, 'error');
   assert.deepEqual(hook.result.current.messages, []);
   assert.deepEqual(hook.result.current.letters, []);
   assert.deepEqual(hook.result.current.friends, []);

@@ -98,6 +98,24 @@ test('메일 앱을 열지 못하면 시트를 유지하고 다시 시도할 수
   assert.equal(isUserBlocked('user-2'), false);
 });
 
+test('선택 차단 뒤 메일 앱이 실패해도 시트를 유지해 재시도할 수 있다', async () => {
+  blockMock.mockResolvedValue(undefined);
+  openUrlMock.mockRejectedValueOnce(new Error('no mail app'));
+  const callbacks = props();
+  const screen = await render(<UserSafetySheet {...callbacks} />);
+
+  await fireEvent.press(screen.getByText('신고하기'));
+  await fireEvent.press(screen.getByRole('switch', { name: '이 사용자도 차단' }));
+  await fireEvent.press(screen.getByText('이메일 작성'));
+
+  await waitFor(() => assert.ok(screen.getByText(/차단은 완료했지만 메일 앱을 열지 못했어요/)));
+  assert.equal(blockMock.mock.calls.length, 1);
+  assert.equal(callbacks.onChanged.mock.calls.length, 1);
+  assert.equal(callbacks.onClose.mock.calls.length, 0);
+  assert.equal(isUserBlocked('user-2'), true);
+  assert.ok(screen.getByText('이메일 작성'));
+});
+
 test('메일 앱을 여는 동안 연타와 닫기를 막는다', async () => {
   let finish: () => void = () => {};
   openUrlMock.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
@@ -138,6 +156,8 @@ test('직접 차단 성공은 API 확인 뒤 로컬 필터와 완료 콜백을 �
   const screen = await render(<UserSafetySheet {...callbacks} />);
 
   await fireEvent.press(screen.getByText('차단하기'));
+  assert.ok(screen.getByText(/내 화면에서 숨겨져요/));
+  assert.ok(screen.getByText(/해제하면 다시 보일 수 있어요/));
   await fireEvent.press(screen.getByText('차단'));
 
   assert.equal(blockMock.mock.calls[0][0], 'user-2');

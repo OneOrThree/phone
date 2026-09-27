@@ -247,8 +247,8 @@ export function UserSafetySheet(props: Props) {
             ) : mode === 'block' ? (
               <View style={{ gap: componentTokens.modal.gap }}>
                 <Txt>
-                  서로 친구 요청과 편지를 보낼 수 없고, 친구 목록과 받은 편지에서 {props.targetName}
-                  님이 숨겨져요.
+                  {props.targetName}님의 친구 요청과 편지가 내 화면에서 숨겨져요. 차단 중 받은
+                  내용은 해제하면 다시 보일 수 있어요.
                 </Txt>
                 <View style={{ flexDirection: 'row', gap: semanticTokens.spacing.control }}>
                   <Btn
