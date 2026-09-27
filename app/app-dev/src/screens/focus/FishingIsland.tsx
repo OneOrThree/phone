@@ -31,6 +31,13 @@ export const INK = '#493B39',
 // 도착 지점 바다 위 뗏목 한 대. 고양이는 뗏목 바로 위쪽의 가장 가까운 땅에 내려 선다.
 export const RAFT = { x: 37.8, y: 91.8 };
 const FISHING_MAP_ASPECT = 1536 / 1024;
+const raftBox = { x: 48, y: 307, w: 928, h: 669 }; // boats/raft/day.png 의 그림 영역
+const raftBounds = {
+  left: RAFT.x - 6,
+  right: RAFT.x + 6,
+  top: RAFT.y - ((6 * raftBox.h) / raftBox.w) * FISHING_MAP_ASPECT,
+  bottom: RAFT.y + ((6 * raftBox.h) / raftBox.w) * FISHING_MAP_ASPECT,
+};
 // fishing-rod.png 장축은 오른쪽 위를 향한다. 찌 방향에 맞추려면 이 기준축을 보정한다.
 const FISHING_ROD_AXIS_ANGLE = -Math.PI / 4;
 export const LANDING = nearestLand(fishingGrid, { x: RAFT.x, y: RAFT.y - 6 });
@@ -43,7 +50,29 @@ export const nearGram = ({ x, y }: Point) =>
   Math.abs(x - GRAM.x) <= GRAM.w / 2 + 2 &&
   y >= GRAM.y - ((GRAM.w * gramBox.h) / gramBox.w) * (1536 / 1024) &&
   y <= GRAM.y + 4;
-export type Spot = { x: number; y: number; face: number; bx?: number; by?: number };
+export type FishingCatchPlacement = { left: number; top: number };
+export type Spot = {
+  x: number;
+  y: number;
+  face: number;
+  bx?: number;
+  by?: number;
+  catchPlacement?: FishingCatchPlacement | null;
+};
+export const fishingPeerCatchVisible = (actor: {
+  visible: boolean;
+  seconds: number;
+  position: Point;
+  spot: Spot;
+  phase: string;
+}) =>
+  actor.visible &&
+  Math.floor(actor.seconds / SECONDS_PER_FISH) > 0 &&
+  actor.position.x === actor.spot.x &&
+  actor.position.y === actor.spot.y &&
+  actor.phase !== 'entering' &&
+  actor.phase !== 'leaving-pause' &&
+  actor.phase !== 'leaving-complete';
 export const castAngle = (spot: Spot) =>
   spot.bx == null || spot.by == null
     ? spot.face < 0
@@ -81,15 +110,142 @@ export function castSpot({ x, y }: Point): Spot {
   }
   return best ? { x, y, face: best.x < x ? -1 : 1, bx: best.x, by: best.y } : { x, y, face: 1 };
 }
+// 잡은 물고기 이미지는 고양이 뒤에 놓인다. 배치 단위는 고양이 크기의 배수라
+// 화면 크기·방향에 영향받지 않으며, 투명 여백까지 포함한 이미지 프레임이 땅에 놓이도록 한다.
+const fishingCatchFrame = { width: 1.1, height: 1.1 };
+const catchFootprintOnLand = (
+  spot: Point,
+  left: number,
+  top: number,
+  width = fishingCatchFrame.width,
+  height = fishingCatchFrame.height,
+) => {
+  const a = 0.077,
+    cellWidth = fishingGrid.w / fishingGrid.cols,
+    cellHeight = fishingGrid.h / fishingGrid.rows,
+    x = spot.x + (left - 0.5) * a * 100,
+    y = spot.y + (top - 0.90625) * a * 150,
+    right = x + width * a * 100,
+    bottom = y + height * a * 150,
+    firstCol = Math.floor(x / cellWidth),
+    lastCol = Math.ceil((right - 1e-9) / cellWidth) - 1,
+    firstRow = Math.floor(y / cellHeight),
+    lastRow = Math.ceil((bottom - 1e-9) / cellHeight) - 1;
+  for (let row = firstRow; row <= lastRow; row++)
+    for (let col = firstCol; col <= lastCol; col++)
+      if (
+        row < 0 ||
+        row >= fishingGrid.rows ||
+        col < 0 ||
+        col >= fishingGrid.cols ||
+        fishingGrid.cells[row * fishingGrid.cols + col] !== '1'
+      )
+        return false;
+  return true;
+};
+const catchBounds = (spot: Point, placement: FishingCatchPlacement) => {
+  const left = spot.x + (placement.left - 0.5) * 0.077 * 100,
+    top = spot.y + (placement.top - 0.90625) * 0.077 * 150;
+  return {
+    left,
+    top,
+    right: left + fishingCatchFrame.width * 0.077 * 100,
+    bottom: top + fishingCatchFrame.height * 0.077 * 150,
+  };
+};
+const catBounds = (spot: Point) => ({
+  left: spot.x - (0.077 * 100) / 2,
+  right: spot.x + (0.077 * 100) / 2,
+  top: spot.y - 0.90625 * 0.077 * 150,
+  bottom: spot.y + 0.09375 * 0.077 * 150,
+});
+const boundsOverlap = (a: ReturnType<typeof catBounds>, b: ReturnType<typeof catBounds>) =>
+  a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+/** 보상 프레임을 고양이 옆 인접 위치에서만 찾고, 가까운 육지 후보가 없으면 숨긴다. */
+export function fishingCatchPlacement(
+  spot: Spot,
+  others: Spot[] = [],
+  visibleRewardSpots?: Spot[],
+  gramVisible = true,
+  futurePeerSpots?: Spot[],
+): FishingCatchPlacement | null {
+  if (Object.prototype.hasOwnProperty.call(spot, 'catchPlacement'))
+    return spot.catchPlacement ?? null;
+  const preferredLeft = spot.face < 0 ? 0.9 : -1,
+    alternateLeft = preferredLeft < 0 ? 0.9 : -1,
+    ownCat = catBounds(spot),
+    gramBounds = {
+      left: GRAM.x - GRAM.w / 2,
+      right: GRAM.x + GRAM.w / 2,
+      top: GRAM.y - ((GRAM.w * gramBox.h) / gramBox.w) * FISHING_MAP_ASPECT,
+      bottom: GRAM.y,
+    };
+  // Resident의 저장된 보상은 아직 숨겨져 있어도 나중에 표시될 수 있으므로 mine 고양이와는 항상 충돌 검사한다.
+  const peerObstacles = [...others, ...(futurePeerSpots ?? [])],
+    reservedRewardBounds = peerObstacles
+      .filter(
+        (other) => !(other.x === spot.x && other.y === spot.y) && other.catchPlacement != null,
+      )
+      .map((other) => catchBounds(other, other.catchPlacement!));
+  if (reservedRewardBounds.some((reward) => boundsOverlap(reward, ownCat))) return null;
+  let best: (FishingCatchPlacement & { score: number }) | null = null;
+  for (let left = -3; left <= 2.001; left += 0.25)
+    for (let top = -3; top <= 2.001; top += 0.25) {
+      const preferredScore = Math.hypot(left - preferredLeft, top - 0.06),
+        alternateScore = Math.hypot(left - alternateLeft, top - 0.06),
+        score = preferredScore <= 0.75 ? preferredScore : alternateScore + 1;
+      if (preferredScore > 0.75 && alternateScore > 0.75) continue;
+      if (!catchFootprintOnLand(spot, left, top)) continue;
+      const reward = catchBounds(spot, { left, top });
+      if (gramVisible && boundsOverlap(reward, gramBounds)) continue;
+      if (boundsOverlap(reward, raftBounds)) continue;
+      if (
+        peerObstacles.some((other) => {
+          if (other.x === spot.x && other.y === spot.y) return false;
+          const otherCat = catBounds(other),
+            rewardVisible =
+              visibleRewardSpots == null ||
+              visibleRewardSpots.some((visible) => visible.x === other.x && visible.y === other.y),
+            otherReward =
+              rewardVisible && other.catchPlacement
+                ? catchBounds(other, other.catchPlacement)
+                : null;
+          return (
+            boundsOverlap(reward, otherCat) ||
+            (otherReward != null && boundsOverlap(reward, otherReward))
+          );
+        })
+      )
+        continue;
+      if (best && score >= best.score) continue;
+      best = { left, top, score };
+    }
+  return best ? { left: best.left, top: best.top } : null;
+}
+export function fishingCatchFootprintOnLand(
+  spot: Point,
+  placement: FishingCatchPlacement,
+  width = fishingCatchFrame.width,
+  height = fishingCatchFrame.height,
+) {
+  return catchFootprintOnLand(spot, placement.left, placement.top, width, height);
+}
 // 지도 % 좌표 사이 거리(세로 %는 지도 비율 1024/1536으로 맞춰 지도 폭 % 단위로 잰다)
 const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, (q.y - p.y) / FISHING_MAP_ASPECT);
 // 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
 export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
+const defaultCatchSpot = castSpot(DEFAULT_SPOT);
+export const DEFAULT_CATCH_PLACEMENT = fishingCatchPlacement(defaultCatchSpot);
+const DEFAULT_CATCH_RESERVATION: Spot = {
+  ...defaultCatchSpot,
+  catchPlacement: DEFAULT_CATCH_PLACEMENT,
+};
 // 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
+// resident 자리/보상은 섬 건물 상태와 무관하게 같은 좌표를 쓰도록 축음기 설치 상태 기준으로 미리 배치한다.
 // 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
 // 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
 export const PEER_SPOTS: Spot[] = (() => {
-  const spots: Point[] = [
+  const initial: Spot[] = [
       { x: 18.5, y: 39.5 },
       { x: 60.2, y: 44.1 },
       { x: 45, y: 25 },
@@ -97,7 +253,8 @@ export const PEER_SPOTS: Spot[] = (() => {
       { x: 80, y: 62 },
       { x: 75, y: 45 },
       { x: 40, y: 70 },
-    ],
+    ].map(castSpot),
+    spots: Spot[] = [],
     avoid = [GRAM, LANDING, DEFAULT_SPOT],
     { cols, cells } = fishingGrid,
     land = (c: number) => cells[c] === '1',
@@ -115,14 +272,30 @@ export const PEER_SPOTS: Spot[] = (() => {
     )
       candidates.push({ x: (col + 0.5) * 2, y: (row + 0.5) * 2 });
   }
+  for (const spot of initial) {
+    const placement = fishingCatchPlacement(spot, [
+      ...initial,
+      ...spots,
+      DEFAULT_CATCH_RESERVATION,
+    ]);
+    if (placement) spots.push({ ...spot, catchPlacement: placement });
+  }
   candidates.sort((a, b) => apart(a, { x: 50, y: 50 }) - apart(b, { x: 50, y: 50 }));
   for (const p of candidates) {
     if (spots.length >= 15) break;
-    if ([...spots, ...avoid].every((q) => apart(p, q) >= 11) && castSpot(p).bx != null)
-      spots.push(p);
+    const spot = castSpot(p);
+    const placement = fishingCatchPlacement(spot, [...spots, DEFAULT_CATCH_RESERVATION]);
+    if (
+      !nearGram(p) &&
+      [...spots, ...avoid].every((q) => apart(p, q) >= 11) &&
+      spot.bx != null &&
+      placement
+    )
+      spots.push({ ...spot, catchPlacement: placement });
   }
+  // 시안 예시 두 자리는 낚싯줄 끝도 시안 좌표 그대로. 여섯째 자리(축음기 앞)는 새로 뽑은 첫 자리로 채운다
+  const cast = spots;
   // 여섯째 자리(축음기 앞)는 새로 뽑은 첫 자리로 채운다. 모든 찌는 같은 물 mask 계산을 쓴다.
-  const cast = spots.map(castSpot);
   return [...cast.slice(0, 5), cast[7], ...cast.slice(5, 7), ...cast.slice(8)];
 })();
 // 다른 주민과 고양이가 겹치는 자리인지. 고양이 폭이 지도 폭 7.7%라 여유를 더해 8.5% 안이면 앉을 수 없다.
@@ -229,7 +402,6 @@ export function anchorCard(
   ].find(([t, l]) => t >= T && t + dh <= B && l >= L && l + dw <= R) ?? [vy, hx];
   return { top, left };
 }
-const raftBox = { x: 48, y: 307, w: 928, h: 669 }; // boats/raft/day.png 의 그림 영역
 // 화면보다 큰 지도·배경을 자르는 컨테이너. 웹의 hidden 은 포커스·scrollIntoView 로 속이 밀릴 수 있어 clip 을 쓴다.
 export const clip = (Platform.OS === 'web' ? 'clip' : 'hidden') as 'hidden';
 export function FishingIsland({
@@ -536,9 +708,14 @@ export function FishingActor({
   emote,
   reduce,
   motion,
+  catchVisible = true,
+  catchVisibleSpots,
+  catchGramVisible = true,
+  catchFuturePeerSpots,
   onMotionFinish,
   generation,
   animatedPosition,
+  catchAvoidSpots = [],
 }: {
   spot: Spot;
   size: number;
@@ -551,12 +728,17 @@ export function FishingActor({
   emote?: string | null;
   reduce: boolean;
   motion?: CatMotionInput;
+  catchVisible?: boolean;
+  catchVisibleSpots?: Spot[];
+  catchGramVisible?: boolean;
+  catchFuturePeerSpots?: Spot[];
   onMotionFinish?: () => void;
   generation?: number;
   animatedPosition?: {
     left: Animated.AnimatedInterpolation<number> | Animated.Value;
     top: Animated.AnimatedInterpolation<number> | Animated.Value;
   };
+  catchAvoidSpots?: Spot[];
 }) {
   const [reeling, setReeling] = useState(false);
   const count = Math.floor(seconds / SECONDS_PER_FISH),
@@ -583,7 +765,15 @@ export function FishingActor({
     direction = castAngle(spot),
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
-    rodScale = castReach(spot) / 5.6;
+    rodScale = castReach(spot) / 5.6,
+    catchPlacement = fishingCatchPlacement(
+      spot,
+      catchAvoidSpots,
+      catchVisibleSpots,
+      catchGramVisible,
+      catchFuturePeerSpots,
+    ),
+    showsCatch = count > 0 && catchVisible && catchPlacement != null;
   return (
     <Animated.View
       pointerEvents="none"
@@ -593,9 +783,32 @@ export function FishingActor({
         top: animatedPosition?.top ?? (sizeY * spot.y) / 100 - a * 0.90625,
         width: a,
         height: a,
-        zIndex: 20 + Math.round(spot.y),
+        zIndex:
+          20 +
+          Math.round(
+            showsCatch && catchPlacement
+              ? Math.max(
+                  spot.y,
+                  spot.y + (catchPlacement.top - 0.90625 + fishingCatchFrame.height) * 0.077 * 150,
+                )
+              : spot.y,
+          ),
       }}
     >
+      {showsCatch && catchPlacement && (
+        <Image
+          source={assets[catchAssetPath(count)]}
+          resizeMode="contain"
+          testID="fishing-actor-catch"
+          style={{
+            position: 'absolute',
+            left: catchPlacement.left * a,
+            top: catchPlacement.top * a,
+            width: a * 1.1,
+            height: a * 1.1,
+          }}
+        />
+      )}
       <CatSprite
         color={color}
         motion={motion ?? (reeling ? 'reel' : 'focus')}
@@ -670,19 +883,6 @@ export function FishingActor({
       <View style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100, width: 200 }}>
         <Text style={[nameText(me), { textAlign: 'center' }]}>{name}</Text>
       </View>
-      {count > 0 && (
-        <Image
-          source={assets[catchAssetPath(count)]}
-          resizeMode="contain"
-          style={{
-            position: 'absolute',
-            left: -a,
-            bottom: -a * 0.16,
-            width: a * 1.1,
-            height: a * 1.1,
-          }}
-        />
-      )}
     </Animated.View>
   );
 }
@@ -894,6 +1094,7 @@ export function FishingPeerActorView({
       emote={emote}
       reduce={reduce}
       motion={motion}
+      catchVisible={fishingPeerCatchVisible(actor)}
       onMotionFinish={
         actor.phase === 'casting'
           ? () => onCast(actor.key, actor.generation)
