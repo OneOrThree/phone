@@ -3880,33 +3880,36 @@ export function setBoardBackgroundInert(element: HTMLElement | null, inert: bool
     element.removeAttribute('inert');
 }
 
-export function beginBoardModal(
-  overlay: HTMLElement | null,
-  modalDocument: Document,
-  backgrounds: (HTMLElement | null)[],
-) {
-  const opener = modalDocument.activeElement as HTMLElement | null;
-  focusBoardModal(overlay);
-  backgrounds.forEach((element) => setBoardBackgroundInert(element, true));
-  return opener;
-}
-
-export function endBoardModal(opener: HTMLElement | null, backgrounds: (HTMLElement | null)[]) {
-  backgrounds.forEach((element) => setBoardBackgroundInert(element, false));
-  restoreBoardModalOpener(opener);
-}
-
 export function syncBoardModalFocus(
   isOpen: boolean,
   wasOpen: boolean,
+  isTopmost: boolean,
+  wasTopmost: boolean,
   overlay: HTMLElement | null,
   modalDocument: Document,
   backgrounds: (HTMLElement | null)[],
   opener: HTMLElement | null,
 ) {
-  if (isOpen && !wasOpen) return beginBoardModal(overlay, modalDocument, backgrounds);
+  if (isOpen && !wasOpen) {
+    const capturedOpener = modalDocument.activeElement as HTMLElement | null;
+    if (isTopmost) {
+      setBoardBackgroundInert(overlay, false);
+      focusBoardModal(overlay);
+    } else setBoardBackgroundInert(overlay, true);
+    backgrounds.forEach((element) => setBoardBackgroundInert(element, true));
+    return capturedOpener;
+  }
+  if (isOpen && wasOpen && wasTopmost !== isTopmost) {
+    if (isTopmost) {
+      setBoardBackgroundInert(overlay, false);
+      focusBoardModal(overlay);
+    } else setBoardBackgroundInert(overlay, true);
+    return opener;
+  }
   if (!isOpen && wasOpen) {
-    endBoardModal(opener, backgrounds);
+    setBoardBackgroundInert(overlay, false);
+    backgrounds.forEach((element) => setBoardBackgroundInert(element, false));
+    if (wasTopmost) restoreBoardModalOpener(opener);
     return null;
   }
   return opener;
@@ -3969,6 +3972,7 @@ export function Board({
   const boardDrawerRef = useRef<HTMLElement | null>(null);
   const overlayOpenerRef = useRef<HTMLElement | null>(null);
   const overlayWasOpen = useRef(false);
+  const overlayWasTopmost = useRef(false);
   // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
   const [ui, setUi] = useState({
     comment: false,
@@ -5863,16 +5867,20 @@ export function Board({
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     const backgrounds = [boardSceneRef.current, boardDrawerRef.current];
     const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
+    const isTopmost = boardOverlayOpen && !higherModalOpen;
     overlayOpenerRef.current = syncBoardModalFocus(
       boardOverlayOpen,
       overlayWasOpen.current,
+      isTopmost,
+      overlayWasTopmost.current,
       overlay,
       document,
       backgrounds,
       overlayOpenerRef.current,
     );
     overlayWasOpen.current = boardOverlayOpen;
-  }, [boardOverlayOpen, noticeOverlayOpen]);
+    overlayWasTopmost.current = isTopmost;
+  }, [boardOverlayOpen, higherModalOpen, noticeOverlayOpen]);
 
   useEffect(() => {
     if (
@@ -6148,14 +6156,16 @@ export function Board({
           />
           <View
             testID="board-notice-overlay"
-            accessibilityViewIsModal
+            accessibilityViewIsModal={!higherModalOpen}
+            accessibilityElementsHidden={higherModalOpen}
             ref={noticeOverlayRef as any}
             accessibilityRole={Platform.OS === 'web' ? ('dialog' as any) : undefined}
             {...(Platform.OS === 'web'
               ? {
-                  'aria-modal': true,
+                  'aria-modal': !higherModalOpen,
                   'aria-label': noticeEditorOpen ? '공지 작성' : '공지 상세',
                   tabIndex: -1,
+                  ...(higherModalOpen && { 'aria-hidden': true }),
                 }
               : null)}
             style={{
@@ -6202,11 +6212,17 @@ export function Board({
           />
           <View
             testID="board-quest-overlay"
-            accessibilityViewIsModal
+            accessibilityViewIsModal={!higherModalOpen}
+            accessibilityElementsHidden={higherModalOpen}
             ref={questOverlayRef as any}
             accessibilityRole={Platform.OS === 'web' ? ('dialog' as any) : undefined}
             {...(Platform.OS === 'web'
-              ? { 'aria-modal': true, 'aria-label': '퀘스트 상세', tabIndex: -1 }
+              ? {
+                  'aria-modal': !higherModalOpen,
+                  'aria-label': '퀘스트 상세',
+                  tabIndex: -1,
+                  ...(higherModalOpen && { 'aria-hidden': true }),
+                }
               : null)}
             style={{
               position: 'absolute',

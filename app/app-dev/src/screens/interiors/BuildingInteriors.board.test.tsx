@@ -372,6 +372,8 @@ test('웹 모달 열기와 닫기는 opener 캡처·초기 포커스·배경 비
   const overlay = {
     querySelectorAll: () => [first],
     focus: jest.fn(),
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
   } as unknown as HTMLElement;
   const modalDocument = {
     get activeElement() {
@@ -386,8 +388,13 @@ test('웹 모달 열기와 닫기는 opener 캡처·초기 포커스·배경 비
   Object.defineProperty(background, 'inert', {
     set: (inert: boolean) => events.push(inert ? 'background-inert' : 'background-enabled'),
   });
+  Object.defineProperty(overlay, 'inert', {
+    set: (inert: boolean) => events.push(inert ? 'overlay-inert' : 'overlay-enabled'),
+  });
 
   const capturedOpener = syncBoardModalFocus(
+    true,
+    false,
     true,
     false,
     overlay,
@@ -396,15 +403,52 @@ test('웹 모달 열기와 닫기는 opener 캡처·초기 포커스·배경 비
     null,
   );
   expect(capturedOpener).toBe(opener);
-  expect(events).toEqual(['opener-captured', 'modal-focused', 'background-inert']);
-
-  expect(syncBoardModalFocus(false, true, null, modalDocument, [background], capturedOpener)).toBe(
-    null,
-  );
   expect(events).toEqual([
     'opener-captured',
+    'overlay-enabled',
     'modal-focused',
     'background-inert',
+  ]);
+
+  expect(
+    syncBoardModalFocus(
+      true,
+      true,
+      false,
+      true,
+      overlay,
+      modalDocument,
+      [background],
+      capturedOpener,
+    ),
+  ).toBe(opener);
+  expect(events[events.length - 1]).toBe('overlay-inert');
+
+  expect(
+    syncBoardModalFocus(
+      true,
+      true,
+      true,
+      false,
+      overlay,
+      modalDocument,
+      [background],
+      capturedOpener,
+    ),
+  ).toBe(opener);
+  expect(events.slice(-2)).toEqual(['overlay-enabled', 'modal-focused']);
+
+  expect(
+    syncBoardModalFocus(false, true, false, true, null, modalDocument, [background], opener),
+  ).toBe(null);
+  expect(events).toEqual([
+    'opener-captured',
+    'overlay-enabled',
+    'modal-focused',
+    'background-inert',
+    'overlay-inert',
+    'overlay-enabled',
+    'modal-focused',
     'background-enabled',
     'opener-restored',
   ]);
@@ -428,16 +472,26 @@ test('보상 모달이 위에 열리면 게시판 Escape 트랩을 멈춘다', a
   });
   try {
     const screen = await renderBoard(null, concept({ boardView: 'detail' }), true);
-    assert.ok(screen.getByTestId('board-notice-overlay'));
+    const overlay = screen.getByTestId('board-notice-overlay', { includeHiddenElements: true });
+    assert.equal(overlay.props['aria-hidden'], true);
+    assert.equal(overlay.props['aria-modal'], false);
+    assert.equal(overlay.props.accessibilityElementsHidden, true);
     assert.equal(keydownListeners.size, 0);
 
     for (const listener of keydownListeners) {
       listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
     }
-    assert.ok(screen.getByTestId('board-notice-overlay'));
+    assert.ok(screen.getByTestId('board-notice-overlay', { includeHiddenElements: true }));
 
     await screen.setHigherModalOpen(false);
     assert.equal(keydownListeners.size, 1);
+    assert.equal(
+      screen.getByTestId('board-notice-overlay', { includeHiddenElements: true }).props[
+        'aria-hidden'
+      ],
+      undefined,
+    );
+    assert.equal(screen.getByTestId('board-notice-overlay').props['aria-modal'], true);
     const [listener] = [...keydownListeners];
     await act(async () => {
       listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
