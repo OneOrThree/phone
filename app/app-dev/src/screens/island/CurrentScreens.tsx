@@ -1380,6 +1380,7 @@ function FocusFlow({ e }: any) {
   };
   // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
+    if (goldenCutscene) return true;
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
       // 서버 수령은 명시적 버튼으로만 — 뒤로가기는 모달을 닫고 나간다

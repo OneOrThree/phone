@@ -153,8 +153,14 @@ const goldenEvent = (eventId = 'golden-i1-1', over: object = {}) => ({
     reward: 50,
     sharePerMember: 25,
     members: [
-      { userId: 'u1', sessionId: 's-u1' },
-      { userId: 'u2', sessionId: 's-u2' },
+      {
+        userId: '11111111-1111-4111-8111-111111111111',
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
+      {
+        userId: '22222222-2222-4222-8222-222222222222',
+        sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
     ],
     ...over,
   },
@@ -257,7 +263,14 @@ describe('황금 물고기 실시간 사건', () => {
   test('서버가 확정한 focus.golden 봉투와 참여 주민만 컷신 대상으로 인정한다', () => {
     const event = parseGoldenFishEvent(goldenEvent(), 'i1');
     assert.ok(event);
-    assert.equal(isGoldenFishParticipant(event, 'u1', 's-u1'), true);
+    assert.equal(
+      isGoldenFishParticipant(
+        event,
+        '11111111-1111-4111-8111-111111111111',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      ),
+      true,
+    );
     assert.equal(isGoldenFishParticipant(event, 'u3', 's-u3'), false);
     assert.equal(parseGoldenFishEvent({ ...goldenEvent(), islandId: 'other' }, 'i1'), null);
     assert.equal(
@@ -286,6 +299,10 @@ describe('황금 물고기 실시간 사건', () => {
       null,
     );
     assert.equal(parseGoldenFishEvent(goldenEvent('bad-date', { drawnAt: 'later' }), 'i1'), null);
+    assert.equal(
+      parseGoldenFishEvent(goldenEvent('date-without-instant', { drawnAt: '2026-09-28' }), 'i1'),
+      null,
+    );
     assert.equal(parseGoldenFishEvent(goldenEvent('bad-island', { islandId: 'i2' }), 'i1'), null);
     assert.equal(parseGoldenFishEvent(goldenEvent('zero-reward', { reward: 0 }), 'i1'), null);
     assert.equal(
@@ -296,8 +313,29 @@ describe('황금 물고기 실시간 사건', () => {
       parseGoldenFishEvent(
         goldenEvent('duplicate-members', {
           members: [
-            { userId: 'u1', sessionId: 's-u1' },
-            { userId: 'u1', sessionId: 's-u1' },
+            {
+              userId: '11111111-1111-4111-8111-111111111111',
+              sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            },
+            {
+              userId: '11111111-1111-4111-8111-111111111111',
+              sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            },
+          ],
+        }),
+        'i1',
+      ),
+      null,
+    );
+    assert.equal(
+      parseGoldenFishEvent(
+        goldenEvent('invalid-member-id', {
+          members: [
+            { userId: 'not-a-uuid', sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+            {
+              userId: '22222222-2222-4222-8222-222222222222',
+              sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            },
           ],
         }),
         'i1',
@@ -306,8 +344,11 @@ describe('황금 물고기 실시간 사건', () => {
     );
     const valid = parseGoldenFishEvent(goldenEvent(), 'i1');
     assert.ok(valid);
-    assert.equal(isGoldenFishParticipant(valid, 'u1', 'other-session'), false);
-    assert.equal(isGoldenFishParticipant(valid, 'u1'), true);
+    assert.equal(
+      isGoldenFishParticipant(valid, '11111111-1111-4111-8111-111111111111', 'other-session'),
+      false,
+    );
+    assert.equal(isGoldenFishParticipant(valid, '11111111-1111-4111-8111-111111111111'), true);
     assert.equal(isGoldenFishParticipant(valid, null), false);
   });
 });

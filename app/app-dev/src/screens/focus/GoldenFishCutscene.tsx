@@ -52,8 +52,10 @@ export function GoldenFishCutscene({
     setStarted(false);
   }, [variant]);
   useEffect(() => {
-    // 재생 전에는 로딩 여유를 주고, 재생이 시작된 뒤에는 선택한 원본이 끝날 시간을 보장한다.
-    const fallback = setTimeout(finish, started ? 5000 : 8000);
+    // 재생이 시작된 뒤에는 버퍼링·백그라운드 중 wall-clock으로 조기 종료하지 않는다.
+    // 정상 종료는 playToEnd가 맡고, 이 타이머는 재생 자체가 시작되지 못한 경우만 복구한다.
+    if (started) return;
+    const fallback = setTimeout(finish, 8000);
     return () => clearTimeout(fallback);
   }, [finish, started]);
 

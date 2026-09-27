@@ -131,7 +131,7 @@ const focusedState = (): State => {
   return state;
 };
 
-const mount = (state = focusedState()) =>
+const mount = (state = focusedState(), backOverride?: { current: (() => boolean) | null }) =>
   render(
     <CurrentScreens
       e={{
@@ -144,6 +144,7 @@ const mount = (state = focusedState()) =>
         reset: jest.fn(),
         home: jest.fn(),
         back: jest.fn(),
+        backOverride,
         notify: jest.fn(),
         text: '',
         setText: jest.fn(),
@@ -158,7 +159,8 @@ beforeEach(async () => {
 });
 
 test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와 섬 에셋을 함께 갱신한다', async () => {
-  const screen = await mount();
+  const backOverride: { current: (() => boolean) | null } = { current: null };
+  const screen = await mount(focusedState(), backOverride);
 
   await act(async () => onGoldenFish?.(event([{ userId: 'other', sessionId: 's-other' }])));
   assert.equal(screen.queryByTestId('golden-cutscene'), null);
@@ -173,6 +175,8 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   );
   assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
   assert.equal(screen.getByTestId('golden-world').props.goldenFish, false);
+  assert.equal(backOverride.current?.(), true);
+  assert.equal(screen.queryByText('이번 집중을 마칠까요?'), null);
 
   await act(async () =>
     onGoldenFish?.(

@@ -55,6 +55,9 @@ export type GoldenFishEvent = {
   members: GoldenFishMember[];
 };
 
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** 서버가 확정한 focus.golden 봉투만 컷신 신호로 인정한다. 확률·보상 계산은 앱에서 하지 않는다. */
 export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFishEvent | null {
   const env = raw as RealtimeEnvelope;
@@ -75,6 +78,7 @@ export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFish
     !eventId ||
     payload?.islandId !== islandId ||
     !drawnAt ||
+    !ISO_INSTANT.test(drawnAt) ||
     !Number.isFinite(Date.parse(drawnAt)) ||
     reward === null ||
     !Number.isInteger(reward) ||
@@ -89,7 +93,9 @@ export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFish
         const member = value as Record<string, unknown> | null;
         const userId = str(member?.userId);
         const sessionId = str(member?.sessionId);
-        return userId && sessionId ? [{ userId, sessionId }] : [];
+        return userId && UUID.test(userId) && sessionId && UUID.test(sessionId)
+          ? [{ userId, sessionId }]
+          : [];
       })
     : [];
   const uniqueMembers = new Set(members.map((member) => `${member.userId}:${member.sessionId}`));
