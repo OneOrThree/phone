@@ -114,7 +114,20 @@ beforeEach(async () => {
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   replaceBlockedUsers([]);
+  blockedUsersMock.mockResolvedValue([]);
   screenMock.mockResolvedValue(screen());
+});
+
+test('우체통 진입은 유효한 TTL cache가 있어도 차단 목록을 강제로 재검증한다', async () => {
+  blockedUsersMock.mockResolvedValue([{ id: 'u2', name: '민지' }]);
+
+  const hook = await mount();
+
+  assert.equal(blockedUsersMock.mock.calls.length, 1);
+  assert.deepEqual(hook.result.current.messages, []);
+  assert.deepEqual(hook.result.current.letters, []);
+  assert.deepEqual(hook.result.current.friends, []);
+  await hook.unmount();
 });
 
 test('차단 신호가 오면 캐시된 낙서·편지·친구를 서버 재조회 전에 즉시 숨긴다', async () => {

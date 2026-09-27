@@ -79,6 +79,24 @@ export function useFriendsScreen({
   const blockedUsers = useBlockedUsers(active, routeActive);
   const blockedIds = blockedUsers.ids;
   const retryBlockedUsers = blockedUsers.retry;
+  const previousBlockedIds = useRef<{
+    session: number;
+    ids: ReadonlySet<string> | null;
+  }>({ session, ids: null });
+
+  useEffect(() => {
+    if (previousBlockedIds.current.session !== session) {
+      previousBlockedIds.current = { session, ids: null };
+    }
+    if (!active || blockedUsers.status !== 'ready') return;
+    const previous = previousBlockedIds.current.ids;
+    previousBlockedIds.current.ids = blockedIds;
+    // 차단 중 받은 서버 응답에는 해당 사용자가 없으므로 ID가 제거되면 로컬 필터만
+    // 풀지 말고 친구·요청·검색 서버 정본도 다시 적재한다.
+    if (previous?.size && [...previous].some((id) => !blockedIds.has(id))) {
+      setNonce((n) => n + 1);
+    }
+  }, [active, blockedIds, blockedUsers.status, session]);
 
   useEffect(() => {
     if (!active) {

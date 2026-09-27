@@ -104,7 +104,8 @@ const authLost = (error: unknown) =>
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
 
 export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: string }) {
-  const blockedUsers = useBlockedUsers(active);
+  // 우체통은 낙서·편지 원문을 그리므로 TTL cache만 믿지 않고 진입마다 재검증한다.
+  const blockedUsers = useBlockedUsers(active, active);
   const blockedIds = blockedUsers.ids;
   const retryBlockedUsers = blockedUsers.retry;
   const [state, setState] = useState<MailboxState>(EMPTY);

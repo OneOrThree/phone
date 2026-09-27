@@ -205,6 +205,7 @@ beforeEach(async () => {
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   replaceBlockedUsers([]);
+  blockedUsersMock.mockResolvedValue([]);
 });
 
 test('받은 편지 — 화면 묶음의 편지를 그리고 보낸 사람 이름이 보인다', async () => {
