@@ -249,6 +249,10 @@ const renderBoard = async (
       box.e = next;
       return screen.rerender(<Harness />);
     },
+    setSize: (next: Partial<typeof size>) => {
+      Object.assign(size, next);
+      return screen.rerender(<Harness />);
+    },
   });
 };
 
@@ -420,6 +424,23 @@ test('퀘스트 목록 항목의 상세 버튼은 여덟 화면 크기에서 손
   }
 });
 
+test('좁은 세로 화면에서도 청사진 패널과 두 열 배치를 유지한다', async () => {
+  const width = 375;
+  const screen = await renderBoard(null, concept({ boardPanel: 'blueprint', boardView: 'list' }), {
+    width,
+    height: 500,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const grid = StyleSheet.flatten(screen.getByTestId('board-blueprint-grid').props.style);
+
+  assert.equal(drawer.left, (324 * width) / 874);
+  assert.equal(drawer.right, (30 * width) / 874);
+  assert.ok(width - drawer.left - drawer.right >= 44);
+  assert.equal(grid.flexDirection, 'row');
+  assert.ok(screen.getByText('예상 모습'));
+  await screen.unmount();
+});
+
 test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라벨이 같은 좌표계에 놓인다', async () => {
   const restore = webMockMode('?review');
   try {
@@ -512,6 +533,61 @@ test('noartifact 비교 화면에서도 게시판 배경을 그라데이션 아�
   }
 });
 
+test('네이티브 세로 배경에서는 이미지 뒤에 그라데이션을 그린다', async () => {
+  const previousOS = Platform.OS;
+  (Platform as any).OS = 'ios';
+  try {
+    for (const id of ['hall', 'board']) {
+      const buildingIndex = buildings.findIndex((building) => building.id === id);
+      const screen = await render(
+        <InteriorScreen
+          buildingIndex={buildingIndex}
+          conceptIndex={0}
+          width={375}
+          height={667}
+          reduceMotion
+        />,
+      );
+      const image = screen.getByTestId('interior-background-image');
+      const gradient = screen.getByTestId('interior-background-gradient');
+      const imageStyle = StyleSheet.flatten(image.props.style);
+      const backgroundContainer = image.parent;
+      assert.ok(backgroundContainer);
+      const siblings = backgroundContainer.children;
+
+      assert.equal(imageStyle.zIndex, undefined);
+      assert.equal(gradient.parent, backgroundContainer);
+      assert.ok(siblings.indexOf(gradient) > siblings.indexOf(image));
+      await screen.unmount();
+    }
+  } finally {
+    (Platform as any).OS = previousOS;
+  }
+});
+
+test('가로 공지 상세의 스크롤 높이는 종이 패딩을 제외해 긴 본문도 스크롤된다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const height = 402;
+    const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'detail' }), {
+      width: 874,
+      height,
+    });
+    const overlay = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    const content = StyleSheet.flatten(
+      screen.getByTestId('board-notice-overlay-content').props.style,
+    );
+    const maximumOverlayHeight = height * 0.65;
+
+    assert.equal(overlay.paddingTop + overlay.paddingBottom, 88);
+    assert.ok(content.maxHeight <= maximumOverlayHeight - 88);
+    assert.equal(content.overflowY, 'auto');
+    await screen.unmount();
+  } finally {
+    restore();
+  }
+});
+
 test('키보드로 가시 높이가 줄어든 세로 화면은 고정 장면 높이 기준으로 세로 배치를 유지한다', async () => {
   const screen = await renderBoard(null, concept({ boardView: 'list' }), {
     width: 402,
@@ -527,6 +603,22 @@ test('키보드로 가시 높이가 줄어든 세로 화면은 고정 장면 높
   assert.equal(scroll.props.scrollEnabled, false);
   assert.deepEqual(scroll.props.contentOffset, { x: 0, y: 0 });
   assert.equal(StyleSheet.flatten(screen.getByText('공지').props.style).fontSize, 28);
+  await screen.unmount();
+});
+
+test('가로 키보드 전후 게시판 장면 초기 스크롤 오프셋을 고정한다', async () => {
+  const screen = await renderBoard(null, concept({ boardView: 'list' }), {
+    width: 874,
+    height: 402,
+    sceneHeight: 402,
+  });
+  const offsetBefore = screen.getByTestId('board-scene-scroll').props.contentOffset.y;
+
+  await screen.setSize({ height: 250 });
+  const offsetAfter = screen.getByTestId('board-scene-scroll').props.contentOffset.y;
+
+  assert.equal(offsetBefore, (874 * 1.5 - 402) * 0.38);
+  assert.equal(offsetAfter, offsetBefore);
   await screen.unmount();
 });
 

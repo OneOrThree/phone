@@ -841,11 +841,15 @@ export function InteriorScreen({
       {Platform.OS !== 'web' && (!boardScrollScene || showBoardReviewBackground) && (
         <>
           <Image
+            testID="interior-background-image"
             source={showBoardReviewBackground ? interiorArt.boardBackground : building.background}
             resizeMode="stretch"
-            style={{ position: 'absolute', ...bg, top: bg.top - boardScrollOffset, zIndex: 1 }}
+            style={{ position: 'absolute', ...bg, top: bg.top - boardScrollOffset }}
           />
-          <View style={[fill, { pointerEvents: 'none' }, gradient(screenGradient)]} />
+          <View
+            testID="interior-background-gradient"
+            style={[fill, { pointerEvents: 'none' }, gradient(screenGradient)]}
+          />
         </>
       )}
       {building.id === 'mail' && (
@@ -3181,14 +3185,26 @@ function Handwriting({ short, scale = 1 }: { short?: boolean; scale?: number }) 
 
 // 스크롤 패널: 웹은 원본처럼 overflow-y:auto 인 div (ScrollView는 translateZ(0)을 붙여 그리기가 달라진다)
 // overscroll-behavior 는 원본처럼 공지 패널에만 준다: 붙이면 크롬이 패널을 합성 레이어로 올려 색이 1씩 달라진다
-function Scroll({ style, children }: { style: any; children: React.ReactNode }) {
+function Scroll({
+  style,
+  children,
+  testID,
+}: {
+  style: any;
+  children: React.ReactNode;
+  testID?: string;
+}) {
   if (Platform.OS !== 'web')
     return (
-      <ScrollView style={style} keyboardShouldPersistTaps="handled">
+      <ScrollView testID={testID} style={style} keyboardShouldPersistTaps="handled">
         {children}
       </ScrollView>
     );
-  return <View style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>{children}</View>;
+  return (
+    <View testID={testID} style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>
+      {children}
+    </View>
+  );
 }
 
 // .board-primary · .board-outline
@@ -5487,7 +5503,10 @@ export function Board({
     return (
       <>
         <View style={[{ paddingTop: 32, paddingBottom: 14, borderBottomWidth: 1 }, dashed]}>
-          <View style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}>
+          <View
+            testID="board-blueprint-grid"
+            style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}
+          >
             <View
               style={{
                 width: '36%',
@@ -5719,7 +5738,7 @@ export function Board({
   // 배경과 라벨·터치 영역이 원본 2:3 좌표계에서 함께 스케일되도록 높이 기준으로 맞춘다.
   const land = width / sceneHeight > artSize.background[0] / artSize.background[1];
   const scene = boardScene(width, land ? height : sceneHeight);
-  const initialSceneOffset = land ? Math.max(0, scene.height - height) * 0.38 : 0;
+  const initialSceneOffset = land ? Math.max(0, scene.height - sceneHeight) * 0.38 : 0;
   const sceneScrollRef = useRef<ScrollView>(null);
   useEffect(() => {
     if (land) sceneScrollRef.current?.scrollTo({ x: 0, y: initialSceneOffset, animated: false });
@@ -5757,6 +5776,10 @@ export function Board({
   // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
   const landScale = land ? width / 874 : 1;
   const landDrawer = { left: LAND.drawer.left * landScale, right: LAND.drawer.right * landScale };
+  const landBlueprint = {
+    left: LAND.blueprint.left * landScale,
+    right: LAND.blueprint.right * landScale,
+  };
   const landOverlay = {
     left: LAND.overlay.left * landScale,
     right: LAND.overlay.right * landScale,
@@ -5797,12 +5820,13 @@ export function Board({
     ? { top: 38 * landScale, bottom: 28 * landScale }
     : { top: 68 * landScale, bottom: 42 * landScale };
   const paperScroll = Math.max(0, paperHeight - paperPad.top - paperPad.bottom);
-  // 가운데 상세 종이: 스크롤 높이는 틀 안쪽(위아래 여백 64) 이하로, 모자라면 위쪽에 붙인다
+  // 상세 종이 안쪽 스크롤은 바깥 여백 88px(반응형 배율 적용)을 뺀 높이까지만 쓴다
   const overlayFrame = height * (land ? 0.65 : 0.58);
-  const overlayCramped = overlayFrame - 64 < 140;
+  const overlayVerticalPadding = 88 * landScale;
+  const overlayCramped = overlayFrame - overlayVerticalPadding < 140;
   const overlayScroll = overlayCramped
-    ? Math.max(0, height - 8 - 64)
-    : Math.min(height * 0.49, overlayFrame - 64);
+    ? Math.max(0, height - 8 - overlayVerticalPadding)
+    : Math.min(height * 0.49, overlayFrame - overlayVerticalPadding);
   const blueprintPanelTop = Math.max(24, (height - blueprintPanelHeight) / 2);
 
   return (
@@ -5968,7 +5992,7 @@ export function Board({
             boxShadow: '0 8px 18px #3b281b77',
             ...(s.panel === 'blueprint'
               ? {
-                  ...(land ? LAND.blueprint : { left: 14, right: 14 }),
+                  ...(land ? landBlueprint : { left: 14, right: 14 }),
                   top: blueprintPanelTop,
                   height: blueprintPanelHeight,
                   maxHeight: blueprintPanelHeight,
@@ -6119,6 +6143,7 @@ export function Board({
               }}
             />
             <Scroll
+              testID="board-notice-overlay-content"
               style={[
                 { minHeight: 0, maxHeight: overlayScroll },
                 webOnly({ overscrollBehavior: 'contain' }),
@@ -6169,6 +6194,7 @@ export function Board({
               }}
             />
             <Scroll
+              testID="board-quest-overlay-content"
               style={[
                 { minHeight: 0, maxHeight: overlayScroll },
                 webOnly({ overscrollBehavior: 'contain' }),
