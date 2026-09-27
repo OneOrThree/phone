@@ -65,10 +65,13 @@ import {
   nearGram,
   nearRaft,
   occupied,
+  DEFAULT_CATCH_PLACEMENT,
+  DEFAULT_SPOT,
   LANDING,
   OUTLINE,
   castSpot,
   fishingCatchPlacement,
+  fishingPeerCatchVisible,
   fiCard,
   fiTitle,
   fishingGrid,
@@ -1184,9 +1187,11 @@ function FocusFlow({ e }: any) {
     e.reset('focusResult');
   };
   // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
-  const mine = castSpot(
-    s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
-  );
+  const minePoint =
+      s.focusSpot && s.focusSpot.x <= 100 && s.focusSpot.y <= 100 ? s.focusSpot : LANDING,
+    mine = castSpot(minePoint);
+  if (minePoint.x === DEFAULT_SPOT.x && minePoint.y === DEFAULT_SPOT.y)
+    mine.catchPlacement = DEFAULT_CATCH_PLACEMENT;
   // 주민 자리: 서버 모드는 live 스냅숏+이벤트가 정본 — 로딩·실패면 로컬 멤버로 지어내지 않는다.
   const peerMembers: FishingPeer[] = liveIslandId
     ? live.focus
@@ -1226,6 +1231,7 @@ function FocusFlow({ e }: any) {
   transitionHandler.current = peerFlow.onTransition;
   const peers = peerFlow.actors.filter((actor) => actor.visible),
     peerSpots = peerFlow.actors.map((actor) => actor.spot),
+    peerCatchSpots = peerFlow.actors.filter(fishingPeerCatchVisible).map((actor) => actor.spot),
     fishingPeerSpots = fishingSpotsForActors(peerFlow.actors),
     emoteByUser = new Map(live.emotes.map((em) => [em.userId, em.type]));
   // 걷기: 땅 격자 경로를 따라 지도 폭 11%/초로 걷고, 걷는 중 다시 누르면 지금 위치에서 새 목적지로.
@@ -1407,7 +1413,10 @@ function FocusFlow({ e }: any) {
       e.notify('여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.');
       return;
     }
-    if (!fishingCatchPlacement(castSpot(p), peerSpots)) {
+    const catchSpot = castSpot(p);
+    if (p.x === DEFAULT_SPOT.x && p.y === DEFAULT_SPOT.y)
+      catchSpot.catchPlacement = DEFAULT_CATCH_PLACEMENT;
+    if (!fishingCatchPlacement(catchSpot, peerSpots, peerCatchSpots)) {
       e.notify('여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.');
       return;
     }
@@ -1797,6 +1806,7 @@ function FocusFlow({ e }: any) {
                   motion={r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined}
                   reduce={reduce}
                   catchAvoidSpots={peerSpots}
+                  catchVisibleSpots={peerCatchSpots}
                 />
               ) : (
                 <FishingWalker

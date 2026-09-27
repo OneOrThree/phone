@@ -8,6 +8,7 @@ import {
   LANDING,
   PEER_SPOTS,
   DEFAULT_SPOT,
+  DEFAULT_CATCH_PLACEMENT,
   FishingActor,
   FishingPeerActorView,
   GRAM,
@@ -28,6 +29,7 @@ import {
   peerWalkFace,
   fishingCatchPlacement,
   fishingCatchFootprintOnLand,
+  fishingPeerCatchVisible,
 } from '@/screens/focus/FishingIsland';
 
 jest.mock('@/components/CatSprite', () => {
@@ -304,6 +306,73 @@ test('15개 주민 자리의 보상은 다른 고양이 및 보상 더미와 겹
         );
     }
   }
+});
+
+test('주민 11명 이상이어도 스크린리더의 기본 빈 자리를 안전하게 고른다', () => {
+  assert.ok(DEFAULT_CATCH_PLACEMENT);
+  const defaultSpot = castSpot(DEFAULT_SPOT),
+    box = (spot: { x: number; y: number }, left: number, top: number) => {
+      const x = spot.x + (left - 0.5) * 7.7,
+        y = spot.y + (top - 0.90625) * 11.55;
+      return { left: x, right: x + 8.47, top: y, bottom: y + 12.705 };
+    },
+    cat = (spot: { x: number; y: number }) => ({
+      left: spot.x - 3.85,
+      right: spot.x + 3.85,
+      top: spot.y - 10.4625,
+      bottom: spot.y + 1.078125,
+    }),
+    overlap = (a: ReturnType<typeof cat>, b: ReturnType<typeof cat>) =>
+      a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top,
+    defaultReward = box(defaultSpot, DEFAULT_CATCH_PLACEMENT!.left, DEFAULT_CATCH_PLACEMENT!.top);
+  for (const count of [11, 15]) {
+    const peers = PEER_SPOTS.slice(0, count),
+      placement = fishingCatchPlacement(defaultSpot, peers, peers);
+    assert.deepEqual(
+      placement,
+      DEFAULT_CATCH_PLACEMENT,
+      `${count} 주민에서도 고정된 예약 배치 사용`,
+    );
+    for (const peer of peers) {
+      const peerPlacement = fishingCatchPlacement(peer)!;
+      assert.ok(
+        !overlap(defaultReward, cat(peer)),
+        `${peer.x},${peer.y} 고양이가 기본 보상에 겹침`,
+      );
+      assert.ok(
+        !overlap(defaultReward, box(peer, peerPlacement.left, peerPlacement.top)),
+        `${peer.x},${peer.y} 보상이 기본 보상에 겹침`,
+      );
+      assert.ok(
+        !overlap(box(peer, peerPlacement.left, peerPlacement.top), cat(defaultSpot)),
+        `${peer.x},${peer.y} 보상이 기본 고양이를 덮음`,
+      );
+    }
+  }
+});
+
+test('숨겨진 resident 보상은 mine placement obstacle이 아니다', () => {
+  const spot = castSpot({ x: 11, y: 9 }),
+    hiddenPlacement = fishingCatchPlacement(spot, PEER_SPOTS, []),
+    visiblePlacement = fishingCatchPlacement(spot, PEER_SPOTS, PEER_SPOTS);
+  assert.ok(hiddenPlacement, '고양이만 장애물로 남으면 빈 자리에 보상을 둔다');
+  assert.equal(visiblePlacement, null, '실제로 보이는 resident 보상은 겹침을 막는다');
+});
+
+test('resident 보상은 count가 있고 좌석에 정착해 있을 때만 visible obstacle이다', () => {
+  const spot = PEER_SPOTS[0],
+    actor = {
+      visible: true,
+      seconds: SECONDS_PER_FISH,
+      position: { x: spot.x, y: spot.y },
+      spot,
+      phase: 'fishing',
+    };
+  assert.equal(fishingPeerCatchVisible(actor), true);
+  assert.equal(fishingPeerCatchVisible({ ...actor, seconds: 0 }), false);
+  assert.equal(fishingPeerCatchVisible({ ...actor, phase: 'entering' }), false);
+  assert.equal(fishingPeerCatchVisible({ ...actor, position: LANDING }), false);
+  assert.equal(fishingPeerCatchVisible({ ...actor, visible: false }), false);
 });
 
 test('내가 고른 자리의 보상도 주민 좌석의 고양이·더미와 겹치지 않는다', async () => {

@@ -52,6 +52,20 @@ export type Spot = {
   by?: number;
   catchPlacement?: FishingCatchPlacement | null;
 };
+export const fishingPeerCatchVisible = (actor: {
+  visible: boolean;
+  seconds: number;
+  position: Point;
+  spot: Spot;
+  phase: string;
+}) =>
+  actor.visible &&
+  Math.floor(actor.seconds / SECONDS_PER_FISH) > 0 &&
+  actor.position.x === actor.spot.x &&
+  actor.position.y === actor.spot.y &&
+  actor.phase !== 'entering' &&
+  actor.phase !== 'leaving-pause' &&
+  actor.phase !== 'leaving-complete';
 export const castAngle = (spot: Spot) =>
   spot.bx == null || spot.by == null
     ? spot.face < 0
@@ -144,6 +158,7 @@ const boundsOverlap = (a: ReturnType<typeof catBounds>, b: ReturnType<typeof cat
 export function fishingCatchPlacement(
   spot: Spot,
   others: Spot[] = [],
+  visibleRewardSpots?: Spot[],
 ): FishingCatchPlacement | null {
   if (Object.prototype.hasOwnProperty.call(spot, 'catchPlacement'))
     return spot.catchPlacement ?? null;
@@ -170,7 +185,13 @@ export function fishingCatchPlacement(
         others.some((other) => {
           if (other.x === spot.x && other.y === spot.y) return false;
           const otherCat = catBounds(other),
-            otherReward = other.catchPlacement ? catchBounds(other, other.catchPlacement) : null;
+            rewardVisible =
+              visibleRewardSpots == null ||
+              visibleRewardSpots.some((visible) => visible.x === other.x && visible.y === other.y),
+            otherReward =
+              rewardVisible && other.catchPlacement
+                ? catchBounds(other, other.catchPlacement)
+                : null;
           return (
             boundsOverlap(reward, otherCat) ||
             (otherReward != null &&
@@ -196,6 +217,12 @@ export function fishingCatchFootprintOnLand(
 const apart = (p: Point, q: Point) => Math.hypot(q.x - p.x, (q.y - p.y) / FISHING_MAP_ASPECT);
 // 스크린리더로 자리를 고를 때 앉는 기본 빈 자리(시안 예시 내 자리)
 export const DEFAULT_SPOT = { x: 34.1, y: 55.9 };
+const defaultCatchSpot = castSpot(DEFAULT_SPOT);
+export const DEFAULT_CATCH_PLACEMENT = fishingCatchPlacement(defaultCatchSpot);
+const DEFAULT_CATCH_RESERVATION: Spot = {
+  ...defaultCatchSpot,
+  catchPlacement: DEFAULT_CATCH_PLACEMENT,
+};
 // 낚시 중인 주민 자리. 내 세션에서는 나를 뺀 14명, 방문 화면에서는 정원 15명 모두를 담는다.
 // 나머지는 섬 가운데에 가까운 땅 칸부터 훑어, 이미 정한 자리·축음기·뗏목 내리는 곳·기본 내 자리와 지도 폭 11% 넘게
 // 떨어지고 12% 안에 물이 있는(낚싯줄을 던질 수 있는) 곳을 차례로 더한다. 모두 땅 위이고 서로 겹치지 않는다.
@@ -228,14 +255,18 @@ export const PEER_SPOTS: Spot[] = (() => {
       candidates.push({ x: (col + 0.5) * 2, y: (row + 0.5) * 2 });
   }
   for (const spot of initial) {
-    const placement = fishingCatchPlacement(spot, [...initial, ...spots]);
+    const placement = fishingCatchPlacement(spot, [
+      ...initial,
+      ...spots,
+      DEFAULT_CATCH_RESERVATION,
+    ]);
     if (placement) spots.push({ ...spot, catchPlacement: placement });
   }
   candidates.sort((a, b) => apart(a, { x: 50, y: 50 }) - apart(b, { x: 50, y: 50 }));
   for (const p of candidates) {
     if (spots.length >= 15) break;
     const spot = castSpot(p);
-    const placement = fishingCatchPlacement(spot, spots);
+    const placement = fishingCatchPlacement(spot, [...spots, DEFAULT_CATCH_RESERVATION]);
     if (
       !nearGram(p) &&
       [...spots, ...avoid].every((q) => apart(p, q) >= 11) &&
@@ -661,6 +692,7 @@ export function FishingActor({
   reduce,
   motion,
   catchVisible = true,
+  catchVisibleSpots,
   onMotionFinish,
   generation,
   animatedPosition,
@@ -678,6 +710,7 @@ export function FishingActor({
   reduce: boolean;
   motion?: CatMotionInput;
   catchVisible?: boolean;
+  catchVisibleSpots?: Spot[];
   onMotionFinish?: () => void;
   generation?: number;
   animatedPosition?: {
@@ -712,7 +745,7 @@ export function FishingActor({
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
     rodScale = castReach(spot) / 5.6,
-    catchPlacement = fishingCatchPlacement(spot, catchAvoidSpots),
+    catchPlacement = fishingCatchPlacement(spot, catchAvoidSpots, catchVisibleSpots),
     showsCatch = count > 0 && catchVisible && catchPlacement != null;
   return (
     <Animated.View
@@ -1034,13 +1067,7 @@ export function FishingPeerActorView({
       emote={emote}
       reduce={reduce}
       motion={motion}
-      catchVisible={
-        actor.position.x === actor.spot.x &&
-        actor.position.y === actor.spot.y &&
-        actor.phase !== 'entering' &&
-        actor.phase !== 'leaving-pause' &&
-        actor.phase !== 'leaving-complete'
-      }
+      catchVisible={fishingPeerCatchVisible(actor)}
       onMotionFinish={
         actor.phase === 'casting'
           ? () => onCast(actor.key, actor.generation)
