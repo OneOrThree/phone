@@ -174,15 +174,6 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
   assert.equal(screen.getByTestId('golden-world').props.goldenFish, false);
 
-  await fireEvent.press(screen.getByTestId('golden-cutscene'));
-  assert.equal(screen.queryByTestId('golden-cutscene'), null);
-  assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
-  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
-  assert.equal(screen.getByTestId('golden-self').props.goldenCatchToken, 'golden-i1-1');
-  assert.equal(screen.getByTestId('golden-peer-minji').props.goldenFishCount, 1);
-  assert.equal(screen.getByTestId('golden-peer-minji').props.goldenCatchToken, 'golden-i1-1');
-  assert.equal(screen.getByTestId('golden-peer-dubu').props.goldenFishCount, 0);
-
   await act(async () =>
     onGoldenFish?.(
       event(
@@ -194,10 +185,20 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
       ),
     ),
   );
-  assert.equal(screen.getByTestId('golden-world').props.goldenFish, false);
+
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(screen.getByTestId('golden-world').props.goldenFish, false);
+  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
+  assert.equal(screen.getByTestId('golden-self').props.goldenCatchToken, 'golden-i1-1');
+
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
   assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 2);
   assert.equal(screen.getByTestId('golden-self').props.goldenCatchToken, 'golden-i1-2');
   assert.equal(screen.getByTestId('golden-peer-minji').props.goldenFishCount, 2);
+  assert.equal(screen.getByTestId('golden-peer-minji').props.goldenCatchToken, 'golden-i1-2');
+  assert.equal(screen.getByTestId('golden-peer-dubu').props.goldenFishCount, 0);
   await screen.unmount();
 });

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { Platform, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { useEventListener } from 'expo';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { componentTokens } from '@/design-system/tokens';
@@ -34,7 +34,9 @@ export function GoldenFishCutscene({
   }, [onFinish]);
   const player = useVideoPlayer(source, (video) => {
     video.loop = false;
-    video.muted = autoplayMuted;
+    // 웹의 실시간 사건은 사용자 제스처가 아니므로 소리 있는 자동재생이 차단된다.
+    // 네이티브에서는 영상에 합쳐진 바다 소리를 그대로 재생한다.
+    video.muted = autoplayMuted || Platform.OS === 'web';
     video.play();
   });
   useEventListener(player, 'playToEnd', finish);
@@ -57,9 +59,10 @@ export function GoldenFishCutscene({
 
   return (
     <View
-      pointerEvents="none"
+      pointerEvents="auto"
       accessibilityLabel="여러 고양이가 힘을 모아 황금 물고기를 낚아 올렸어요"
       accessibilityLiveRegion="assertive"
+      accessibilityViewIsModal
       testID="golden-fish-cutscene"
       style={styles.overlay}
     >

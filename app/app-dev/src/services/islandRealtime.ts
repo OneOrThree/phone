@@ -71,7 +71,19 @@ export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFish
   const drawnAt = str(payload?.drawnAt);
   const reward = num(payload?.reward);
   const sharePerMember = num(payload?.sharePerMember);
-  if (!eventId || !drawnAt || reward === null || sharePerMember === null) return null;
+  if (
+    !eventId ||
+    payload?.islandId !== islandId ||
+    !drawnAt ||
+    !Number.isFinite(Date.parse(drawnAt)) ||
+    reward === null ||
+    !Number.isInteger(reward) ||
+    reward <= 0 ||
+    sharePerMember === null ||
+    !Number.isInteger(sharePerMember) ||
+    sharePerMember < 0
+  )
+    return null;
   const members = Array.isArray(payload?.members)
     ? payload.members.flatMap((value) => {
         const member = value as Record<string, unknown> | null;
@@ -80,7 +92,13 @@ export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFish
         return userId && sessionId ? [{ userId, sessionId }] : [];
       })
     : [];
-  if (members.length < 2) return null;
+  const uniqueMembers = new Set(members.map((member) => `${member.userId}:${member.sessionId}`));
+  if (
+    members.length < 2 ||
+    uniqueMembers.size !== members.length ||
+    sharePerMember !== Math.floor(reward / members.length)
+  )
+    return null;
   return { eventId, islandId, drawnAt, reward, sharePerMember, members };
 }
 

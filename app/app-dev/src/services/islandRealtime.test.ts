@@ -148,6 +148,7 @@ const goldenEvent = (eventId = 'golden-i1-1', over: object = {}) => ({
   aggregateVersion: 1,
   occurredAt: NOW,
   payload: {
+    islandId: 'i1',
     drawnAt: NOW,
     reward: 50,
     sharePerMember: 25,
@@ -280,6 +281,25 @@ describe('황금 물고기 실시간 사건', () => {
     assert.equal(
       parseGoldenFishEvent(
         goldenEvent('missing-session', { members: [{ userId: 'u1' }, null] }),
+        'i1',
+      ),
+      null,
+    );
+    assert.equal(parseGoldenFishEvent(goldenEvent('bad-date', { drawnAt: 'later' }), 'i1'), null);
+    assert.equal(parseGoldenFishEvent(goldenEvent('bad-island', { islandId: 'i2' }), 'i1'), null);
+    assert.equal(parseGoldenFishEvent(goldenEvent('zero-reward', { reward: 0 }), 'i1'), null);
+    assert.equal(
+      parseGoldenFishEvent(goldenEvent('bad-share', { sharePerMember: 24 }), 'i1'),
+      null,
+    );
+    assert.equal(
+      parseGoldenFishEvent(
+        goldenEvent('duplicate-members', {
+          members: [
+            { userId: 'u1', sessionId: 's-u1' },
+            { userId: 'u1', sessionId: 's-u1' },
+          ],
+        }),
         'i1',
       ),
       null,

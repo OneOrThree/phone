@@ -44,6 +44,8 @@ test('서버 신호로 마운트되면 바다 소리를 포함해 1회 재생하
     screen.getByTestId('golden-fish-cutscene').props.accessibilityLiveRegion,
     'assertive',
   );
+  assert.equal(screen.getByTestId('golden-fish-cutscene').props.pointerEvents, 'auto');
+  assert.equal(screen.getByTestId('golden-fish-cutscene').props.accessibilityViewIsModal, true);
   assert.equal(mockPlayer.loop, false);
   assert.equal(mockPlayer.muted, false);
   assert.equal(mockPlay.mock.calls.length, 1);

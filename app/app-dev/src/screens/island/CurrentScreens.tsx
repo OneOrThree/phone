@@ -1113,6 +1113,8 @@ function FocusFlow({ e }: any) {
     latest = useRef({ r, s }),
     backRef = useRef<() => boolean>(() => false),
     goldenHandler = useRef<(event: GoldenFishEvent) => void>(() => {}),
+    goldenCutsceneRef = useRef<GoldenFishEvent | null>(null),
+    goldenQueueRef = useRef<GoldenFishEvent[]>([]),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
@@ -1146,6 +1148,11 @@ function FocusFlow({ e }: any) {
     if (current.r !== 'focus' || !session || !isGoldenFishParticipant(event, myId, session.id))
       return;
     setGoldenFish(false);
+    if (goldenCutsceneRef.current) {
+      goldenQueueRef.current.push(event);
+      return;
+    }
+    goldenCutsceneRef.current = event;
     setGoldenCutscene(event);
   };
   const goldenFor = (userId: string | null | undefined, sessionId: string | null | undefined) =>
@@ -1193,6 +1200,8 @@ function FocusFlow({ e }: any) {
     setDialog(null);
     if (r !== 'focus') {
       setEmote(null);
+      goldenCutsceneRef.current = null;
+      goldenQueueRef.current = [];
       setGoldenCutscene(null);
       setGoldenFish(false);
     }
@@ -1783,7 +1792,7 @@ function FocusFlow({ e }: any) {
         gram={i.buildings.includes('gram')}
         onGram={focusing ? () => setDialog('music') : undefined}
         seated={seated}
-        inert={!!dialog || r === 'focusResult'}
+        inert={!!dialog || r === 'focusResult' || !!goldenCutscene}
         overlay={r === 'focusSetup' ? setup : undefined}
         goldenFish={goldenFish}
       >
@@ -1877,7 +1886,7 @@ function FocusFlow({ e }: any) {
       {goldenCutscene && (
         <GoldenFishCutscene
           key={goldenCutscene.eventId}
-          autoplayMuted={GOLDEN_TEST}
+          autoplayMuted={Platform.OS === 'web'}
           onFinish={() => {
             setGoldenCatches((current) => {
               const next = { ...current };
@@ -1890,8 +1899,10 @@ function FocusFlow({ e }: any) {
               }
               return next;
             });
-            setGoldenCutscene(null);
-            setGoldenFish(true);
+            const next = goldenQueueRef.current.shift() ?? null;
+            goldenCutsceneRef.current = next;
+            setGoldenCutscene(next);
+            setGoldenFish(next === null);
           }}
         />
       )}
@@ -1928,7 +1939,7 @@ function FocusFlow({ e }: any) {
         <>
           <View
             pointerEvents="none"
-            {...a11yHidden(!!dialog)}
+            {...a11yHidden(!!dialog || !!goldenCutscene)}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -1960,7 +1971,7 @@ function FocusFlow({ e }: any) {
             </Text>
           </View>
           <View
-            {...a11yHidden(!!dialog)}
+            {...a11yHidden(!!dialog || !!goldenCutscene)}
             style={{
               position: 'absolute',
               zIndex: 5,
