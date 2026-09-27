@@ -708,7 +708,7 @@ export function FishingActor({
       <View style={{ position: 'absolute', top: a * 0.98, left: a / 2 - 100, width: 200 }}>
         <Text style={[nameText(me), { textAlign: 'center' }]}>{name}</Text>
       </View>
-      {count > 0 && (
+      {count > 0 && motion !== 'walk' && (
         <Image
           source={assets[catchAssetPath(count)]}
           resizeMode="contain"

@@ -214,6 +214,26 @@ test('FishingActor는 계산된 육지 보상 위치를 실제 이미지에 적�
   await screen.unmount();
 });
 
+test('낚시 주민은 이동 중 보상을 숨기고 정지하면 다시 표시한다', async () => {
+  const { Animated } = require('react-native');
+  const props = {
+    spot: PEER_SPOTS[0],
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '주민',
+    seconds: SECONDS_PER_FISH,
+    reduce: true,
+    animatedPosition: { left: new Animated.Value(0), top: new Animated.Value(0) },
+  };
+  const screen = await render(React.createElement(FishingActor, { ...props, motion: 'walk' }));
+  assert.equal(screen.queryByTestId('fishing-actor-catch'), null);
+
+  await screen.rerender(React.createElement(FishingActor, props));
+  assert.notEqual(screen.queryByTestId('fishing-actor-catch'), null);
+  await screen.unmount();
+});
+
 test('축음기 그림 위·바로 앞은 앉을 수 없다', () => {
   assert.ok(nearGram(GRAM));
   assert.ok(nearGram({ x: GRAM.x, y: GRAM.y - 6 }));
