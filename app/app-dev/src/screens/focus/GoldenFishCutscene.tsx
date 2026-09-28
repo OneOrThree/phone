@@ -44,7 +44,9 @@ export function GoldenFishCutscene({
     video.muted = muted || Platform.OS === 'web';
     video.volume = Math.max(0, Math.min(1, volume));
     video.timeUpdateEventInterval = 0.5;
-    video.play();
+    if (AppState.currentState !== 'background' && AppState.currentState !== 'inactive') {
+      video.play();
+    }
   });
   useEventListener(player, 'playToEnd', finish);
   useEventListener(player, 'playingChange', ({ isPlaying }) => {
@@ -59,7 +61,12 @@ export function GoldenFishCutscene({
   });
   useEventListener(player, 'statusChange', ({ status }) => {
     if (status === 'error') finish();
-    else if (status === 'readyToPlay') player.play();
+    else if (
+      status === 'readyToPlay' &&
+      AppState.currentState !== 'background' &&
+      AppState.currentState !== 'inactive'
+    )
+      player.play();
   });
   useEffect(() => {
     setStarted(false);
@@ -95,12 +102,24 @@ export function GoldenFishCutscene({
     };
   }, [finish, started]);
   useEffect(() => {
-    if (!started) return;
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state !== 'active') return;
+    const syncPlayback = (state: string | null) => {
+      if (state === 'background' || state === 'inactive') {
+        player.pause();
+        return;
+      }
       lastProgress.current.at = Date.now();
       player.play();
+    };
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      player.pause();
+    }
+    const subscription = AppState.addEventListener('change', (state) => {
+      syncPlayback(state);
     });
+    return () => subscription.remove();
+  }, [player]);
+  useEffect(() => {
+    if (!started) return;
     const watchdog = setInterval(() => {
       if (
         AppState.currentState === 'background' ||
@@ -116,10 +135,7 @@ export function GoldenFishCutscene({
       }
       finish();
     }, 2_000);
-    return () => {
-      subscription.remove();
-      clearInterval(watchdog);
-    };
+    return () => clearInterval(watchdog);
   }, [finish, player, started]);
 
   return (

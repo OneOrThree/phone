@@ -389,11 +389,12 @@ test('reel 재생 중 휴식과 종료 명령을 reel 종료까지 미룬다', a
   await act(async () => onGoldenFish?.(event(members)));
   await fireEvent.press(finishScreen.getByTestId('golden-cutscene'));
   await fireEvent.press(finishScreen.getByTestId('end-focus'));
-  await fireEvent.press(finishScreen.getByTestId('confirm-finish'));
+  assert.equal(finishScreen.queryByTestId('confirm-finish'), null);
   assert.equal(finishDispatch.mock.calls.length, 0);
   await act(async () => jest.advanceTimersByTime(1999));
   assert.equal(finishDispatch.mock.calls.length, 0);
   await act(async () => jest.advanceTimersByTime(1));
+  await fireEvent.press(finishScreen.getByTestId('confirm-finish'));
   assert.equal(finishDispatch.mock.calls[0][0].type, 'FINISH');
   await finishScreen.unmount();
   jest.useRealTimers();
@@ -554,7 +555,7 @@ test('휴식 결과 화면은 연속 컷신과 마지막 reel이 끝날 때까�
     screen.queryByTestId('rest-golden-reel-rod', { includeHiddenElements: true }),
     null,
   );
-  await fireEvent.press(screen.getByTestId('result-done'));
+  assert.equal(screen.queryByTestId('result-done'), null);
   assert.equal(home.mock.calls.length, 0);
 
   await act(async () => jest.advanceTimersByTime(2000));
@@ -563,6 +564,7 @@ test('휴식 결과 화면은 연속 컷신과 마지막 reel이 끝날 때까�
   await act(async () => jest.advanceTimersByTime(1999));
   assert.equal(home.mock.calls.length, 0);
   await act(async () => jest.advanceTimersByTime(1));
+  await fireEvent.press(screen.getByTestId('result-done'));
   assert.equal(home.mock.calls.length, 1);
 
   await screen.unmount();

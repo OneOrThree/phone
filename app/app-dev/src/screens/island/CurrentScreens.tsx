@@ -1923,8 +1923,8 @@ function FocusFlow({ e }: any) {
             goldenReeling={goldenReeling}
             goldenFishCount={goldenFor(actorUserId, goldenSessionId)?.count ?? 0}
           />
-          {resultModal}
-          {rewardModal}
+          {!goldenReeling && resultModal}
+          {!goldenReeling && rewardModal}
         </View>
         {goldenCutsceneOverlay}
       </View>
@@ -2317,7 +2317,7 @@ function FocusFlow({ e }: any) {
                 onPress={() => setDialog('end')}
               />
             </View>
-            {dialog === 'end' && (
+            {dialog === 'end' && !goldenReeling && (
               <FiModal>
                 <Text style={fiTitle(wide ? 19 : 22)}>이번 집중을 마칠까요?</Text>
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
@@ -2332,7 +2332,7 @@ function FocusFlow({ e }: any) {
                 </View>
               </FiModal>
             )}
-            {dialog === 'music' && (
+            {dialog === 'music' && !goldenReeling && (
               <FiModal>
                 <Text style={[fiTitle(wide ? 19 : 22), { marginBottom: 8 }]}>축음기 음악</Text>
                 <Text
@@ -2380,8 +2380,8 @@ function FocusFlow({ e }: any) {
             )}
           </>
         )}
-        {r === 'focusResult' && !leg && resultModal}
-        {!leg && rewardModal}
+        {r === 'focusResult' && !leg && !goldenReeling && resultModal}
+        {!leg && !goldenReeling && rewardModal}
       </View>
       {goldenCutsceneOverlay}
     </View>

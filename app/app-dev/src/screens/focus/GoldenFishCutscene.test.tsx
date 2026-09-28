@@ -1,18 +1,20 @@
 import React from 'react';
 import assert from 'node:assert/strict';
-import { StyleSheet } from 'react-native';
+import { AppState, StyleSheet, type AppStateEvent, type AppStateStatus } from 'react-native';
 import { act, render } from '@testing-library/react-native';
 import { GoldenFishCutscene, goldenFishVideoVariant } from '@/screens/focus/GoldenFishCutscene';
 import { componentTokens } from '@/design-system/tokens';
 
 const mockListeners: Record<string, (...args: any[]) => void> = {};
 const mockPlay = jest.fn();
+const mockPause = jest.fn();
 let mockPlayer: {
   loop: boolean;
   muted: boolean;
   volume: number;
   timeUpdateEventInterval: number;
   play: typeof mockPlay;
+  pause: typeof mockPause;
 };
 
 jest.mock('expo', () => ({
@@ -32,6 +34,7 @@ jest.mock('expo-video', () => ({
         volume: 1,
         timeUpdateEventInterval: 0,
         play: mockPlay,
+        pause: mockPause,
       };
       setup(playerRef.current);
     }
@@ -93,6 +96,31 @@ test('소리 설정을 반영하고 버튼 없이 음소거 영상 전체를 자
   assert.equal(mockPlay.mock.calls.length, 2);
   await act(async () => mockListeners.playingChange({ isPlaying: true }));
   await screen.unmount();
+});
+
+test('백그라운드에서는 영상을 멈추고 포그라운드 복귀 후 이어 재생한다', async () => {
+  const listeners: ((state: AppStateStatus) => void)[] = [];
+  const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+  Object.defineProperty(AppState, 'addEventListener', {
+    configurable: true,
+    value: ((_type: AppStateEvent, listener: (state: AppStateStatus) => void) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    }) as typeof AppState.addEventListener,
+  });
+  const screen = await render(<GoldenFishCutscene onFinish={jest.fn()} />);
+  await act(async () => mockListeners.playingChange({ isPlaying: true }));
+
+  await act(async () => listeners.forEach((listener) => listener('background')));
+  assert.equal(mockPause.mock.calls.length, 1);
+  const playsBeforeResume = mockPlay.mock.calls.length;
+  await act(async () => listeners.forEach((listener) => listener('active')));
+  assert.ok(mockPlay.mock.calls.length > playsBeforeResume);
+
+  await screen.unmount();
+  if (originalAddEventListener) {
+    Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+  }
 });
 
 test('재생 오류나 시작 실패는 닫되 재생 중에는 실제 종료 이벤트까지 기다린다', async () => {
