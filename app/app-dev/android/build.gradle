@@ -21,5 +21,16 @@ allprojects {
   }
 }
 
+// @react-native-kakao 2.4.8 pins compileSdk 33 in its package metadata.
+// Keep native dependencies on the app SDK so CI does not need an obsolete SDK installation.
+subprojects { subproject ->
+  afterEvaluate {
+    if (subproject.name in ['react-native-kakao_core', 'react-native-kakao_user'] &&
+        subproject.extensions.findByName('android') != null) {
+      subproject.android.compileSdkVersion rootProject.ext.compileSdkVersion
+    }
+  }
+}
+
 apply plugin: "expo-root-project"
 apply plugin: "com.facebook.react.rootproject"
