@@ -125,7 +125,7 @@ import {
   sendFriendRequest,
 } from '@/services/api/friends';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
-import { PolicyLink } from '@/components/PolicyLink';
+import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 // 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
 const shopUiKind = (kind: string) =>
@@ -1171,7 +1171,7 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'login') {
-    const agree = (
+    const agreeCheck = (
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: terms }}
@@ -1194,10 +1194,14 @@ export function RedesignScreens({ e }: any) {
         >
           {terms && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
-        <Txt kind="meta">
-          <PolicyLink policy="terms" />과 <PolicyLink policy="privacy" />에 동의해요.
-        </Txt>
+        <Txt kind="meta">이용약관과 개인정보처리방침에 동의해요.</Txt>
       </Pressable>
+    );
+    const agree = (
+      <View>
+        {agreeCheck}
+        <PolicyLinks textStyle={{ fontSize: 13, color: C.ink }} />
+      </View>
     );
     const start = (
       <View style={{ gap: 8 }}>

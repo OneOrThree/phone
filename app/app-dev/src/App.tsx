@@ -106,7 +106,7 @@ import {
 } from '@/services/api/auth';
 import { loginProviders } from '@/services/loginProviders';
 import { TERMS_VERSION } from '@/services/termsVersion';
-import { PolicyLink } from '@/components/PolicyLink';
+import { PolicyLinks } from '@/components/PolicyLink';
 import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
 import {
   ApiError,
@@ -1949,10 +1949,10 @@ function Gromo() {
                       )}
                     </View>
                     <NativeText style={{ flex: 1 }}>
-                      현재 약관 버전 {TERMS_VERSION}: <PolicyLink policy="terms" /> 및{' '}
-                      <PolicyLink policy="privacy" />에 동의합니다.
+                      현재 약관 버전 {TERMS_VERSION}: 이용약관 및 개인정보처리방침에 동의합니다.
                     </NativeText>
                   </Pressable>
+                  <PolicyLinks textStyle={{ color: C.muted }} />
                   {(TERMS_VERSION ? loginProviders() : []).map((provider) => (
                     <NativeButton
                       key={provider}

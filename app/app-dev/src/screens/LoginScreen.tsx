@@ -3,7 +3,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Btn, C, Pic, Txt, k } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
-import { PolicyLink } from '@/components/PolicyLink';
+import { PolicyLinks } from '@/components/PolicyLink';
 import type { Provider } from '@/services/api/auth';
 import { useAppLayout } from '@/utils/layout';
 
@@ -310,10 +310,11 @@ export function LoginScreen({
           {termsAccepted && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
         <Txt kind="meta" style={{ flex: 1 }}>
-          {termsVersion ? `현재 약관 버전 ${termsVersion}: ` : ''}
-          <PolicyLink policy="terms" /> 및 <PolicyLink policy="privacy" />에 동의해요.
+          {termsVersion ? `현재 약관 버전 ${termsVersion}: ` : ''}이용약관 및 개인정보처리방침에
+          동의해요.
         </Txt>
       </Pressable>
+      <PolicyLinks textStyle={{ fontSize: 13, color: semanticTokens.color.text }} />
       <View
         style={{
           width: '100%',
