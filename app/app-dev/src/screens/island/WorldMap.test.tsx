@@ -175,8 +175,8 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
   expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 950 * worldScale,
-        top: worldTop + 20 * worldScale,
+        left: worldLeft + 949 * worldScale,
+        top: worldTop + 21 * worldScale,
         width: 242 * worldScale,
         height: 244 * worldScale,
       }),
@@ -350,13 +350,11 @@ test.each([
   },
 );
 
-test.each(['board', 'hall'] as const)(
+test.each(['board'] as const)(
   '진입 스프라이트가 없는 %s는 620ms 뒤 라우트를 연다',
   async (building) => {
     jest.useFakeTimers();
-    jest.setSystemTime(
-      new Date(building === 'hall' ? '2026-06-15T22:00:00' : '2026-06-15T12:00:00'),
-    );
+    jest.setSystemTime(new Date('2026-06-15T12:00:00'));
     const timing = jest.spyOn(Animated, 'timing').mockImplementation(
       () =>
         ({
@@ -406,8 +404,8 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   expect(screen.getByTestId('world-observatory-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 152 * worldScale,
-        top: worldTop + 23 * worldScale,
+        left: worldLeft + 150 * worldScale,
+        top: worldTop + 24 * worldScale,
         width: 112 * worldScale,
         height: 193 * worldScale,
       }),
@@ -542,7 +540,7 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
     expect.arrayContaining([
       expect.objectContaining({
         left: worldLeft + 1120 * worldScale,
-        top: worldTop + 289 * worldScale,
+        top: worldTop + 288 * worldScale,
         width: 239 * worldScale,
         height: 323 * worldScale,
       }),
@@ -958,17 +956,21 @@ test('WorldMap 은 부모가 넘긴 낮·밤을 자체 시각 판정보다 우�
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
   const own = await render(<WorldMap state={state} />);
-  expect(own.getByTestId('world-hall-motion')).toBeTruthy();
+  expect(own.getByTestId('village-hall-frame-0').props.source).toBe(
+    require('@/assets/village-world/motion/hall/frame-0.png'),
+  );
   await own.unmount();
 
   const screen = await render(<WorldMap state={state} dayNight="night" />);
-  // 낮 시각이어도 부모가 밤이라고 넘기면 회관 낮 프레임을 그리지 않는다.
-  expect(screen.queryByTestId('world-hall-motion')).toBeNull();
+  // 낮 시각이어도 부모가 밤이라고 넘기면 밤 프레임과 밤 배경을 쓴다.
+  expect(screen.getByTestId('village-hall-frame-0').props.source).toBe(
+    require('@/assets/village-world/motion/hall/night-frame-0.png'),
+  );
   await screen.unmount();
   jest.useRealTimers();
 });
 
-test('낮에는 테마 회관·상점·전망대·도서관을 정적 레이어 대신 현재 모션 프레임에 착색한다', async () => {
+test('테마 회관·상점·전망대·도서관은 낮·밤 모두 정적 레이어 대신 현재 모션 프레임에 착색한다', async () => {
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
   for (const building of ['hall', 'shop', 'tower', 'library'] as const) {
@@ -999,12 +1001,47 @@ test('낮에는 테마 회관·상점·전망대·도서관을 정적 레이어 
   }
   await day.unmount();
 
-  // 밤에는 프레임을 그리지 않으므로 정적 밤 테마 레이어를 그대로 쓴다.
+  // 밤에도 밤 프레임 위에 착색하므로 정적 밤 테마 레이어를 겹쳐 그리지 않는다.
   jest.setSystemTime(new Date('2026-06-15T22:00:00'));
   const night = await render(<WorldMap state={state} />);
   for (const building of ['hall', 'shop', 'tower', 'library']) {
-    expect(night.getByTestId(`world-building-theme-${building}`)).toBeTruthy();
+    expect(night.queryByTestId(`world-building-theme-${building}`)).toBeNull();
   }
+  expect(night.getByTestId('village-hall-theme-tint').props.source).toBe(
+    require('@/assets/village-world/motion/hall/night-frame-0.png'),
+  );
   await night.unmount();
   jest.useRealTimers();
+});
+
+test('밤에도 회관은 밤 문 프레임을 먼저 보여 준 뒤 라우트를 연다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T22:00:00'));
+  const timing = jest.spyOn(Animated, 'timing').mockImplementation(
+    () =>
+      ({
+        start: (callback?: Animated.EndCallback) => callback?.({ finished: true }),
+        stop: jest.fn(),
+        reset: jest.fn(),
+      }) as unknown as Animated.CompositeAnimation,
+  );
+  try {
+    const state = initialState(true);
+    const go = jest.fn();
+    const screen = await render(<FinalIsland state={state} go={go} build={jest.fn()} />);
+    const nightFrame = screen.getByTestId('village-hall-frame-0').props.source;
+    expect(nightFrame).toBe(require('@/assets/village-world/motion/hall/night-frame-0.png'));
+
+    await fireEvent.press(screen.getByLabelText(buildingNames.hall));
+    await act(async () => jest.advanceTimersByTime(BUILDING_TRANSITION_DURATION_MS));
+    expect(go).not.toHaveBeenCalled();
+    await act(async () =>
+      jest.advanceTimersByTime(BUILDING_ENTRY_DURATION_MS - BUILDING_TRANSITION_DURATION_MS),
+    );
+    expect(go).toHaveBeenCalledWith('hall');
+    await screen.unmount();
+  } finally {
+    timing.mockRestore();
+    jest.useRealTimers();
+  }
 });
