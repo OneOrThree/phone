@@ -1,7 +1,6 @@
 import React, { memo, useEffect, useState } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
 import {
-  constructionBuildingMotion,
   constructionBurstMs,
   constructionEffectFrameCount,
   constructionEffectFrameMs,
@@ -10,35 +9,42 @@ import {
   constructionMotionFrameMs,
   constructionMotionOffsets,
   constructionRestMs,
+  constructionSpriteCell,
   type ConstructionBuildingId,
   type ConstructionPhase,
 } from './constructionBuildingMotion';
 
 export type { ConstructionBuildingId, ConstructionPhase } from './constructionBuildingMotion';
 
-/** 공사 건물 전용 atlas viewport와 작업 진동. 완공 건물 렌더러와 별도로 마운트한다. */
+/**
+ * 공사 건물 전용 atlas viewport와 작업 진동. 완공 건물 렌더러와 별도로 마운트한다.
+ * 밤에는 밤 아틀라스 셀을 정지 상태로만 그리고 작업 진동·효과는 재생하지 않는다.
+ */
 export const ConstructionBuildingSprite = memo(function ConstructionBuildingSpriteView({
   building,
   phase,
+  night = false,
   reduceMotion = false,
   testID,
 }: {
   building: ConstructionBuildingId;
   phase: ConstructionPhase;
+  night?: boolean;
   reduceMotion?: boolean;
   testID?: string;
 }) {
-  const cell = constructionBuildingMotion[building][phase];
+  const cell = constructionSpriteCell(building, phase, night);
   const effectRow = constructionEffectRows[phase];
+  const still = reduceMotion || night;
   const [motionFrame, setMotionFrame] = useState(0);
   const [effectFrame, setEffectFrame] = useState(0);
-  const [burstActive, setBurstActive] = useState(!reduceMotion);
+  const [burstActive, setBurstActive] = useState(!still);
 
   useEffect(() => {
     setMotionFrame(0);
     setEffectFrame(0);
-    setBurstActive(!reduceMotion);
-    if (reduceMotion) return;
+    setBurstActive(!still);
+    if (still) return;
 
     let cancelled = false;
     let generation = 0;
@@ -93,7 +99,7 @@ export const ConstructionBuildingSprite = memo(function ConstructionBuildingSpri
       timers.forEach(clearTimeout);
       timers.clear();
     };
-  }, [building, phase, reduceMotion]);
+  }, [building, phase, still]);
 
   return (
     <View
@@ -101,7 +107,7 @@ export const ConstructionBuildingSprite = memo(function ConstructionBuildingSpri
       pointerEvents="none"
       style={[
         styles.viewport,
-        { transform: [{ translateX: constructionMotionOffsets[motionFrame] }] },
+        { transform: [{ translateX: still ? 0 : constructionMotionOffsets[motionFrame] }] },
       ]}
     >
       <Image
@@ -123,9 +129,10 @@ export const ConstructionBuildingSprite = memo(function ConstructionBuildingSpri
         resizeMode="stretch"
         style={[
           styles.effectsAtlas,
-          burstActive ? styles.effectVisible : styles.effectHidden,
+          // 밤·reduce motion 으로 바뀐 첫 렌더에서도 이전 burst 상태를 그리지 않는다.
+          burstActive && !still ? styles.effectVisible : styles.effectHidden,
           {
-            left: `${effectFrame * -100}%`,
+            left: `${(still ? 0 : effectFrame) * -100}%`,
             top: `${effectRow * -100}%`,
           },
         ]}

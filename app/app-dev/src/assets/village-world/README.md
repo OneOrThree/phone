@@ -33,3 +33,9 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
 길의 불투명 표면 평균 밝기(8비트 가중 RGB)는 201.04 → 214.49.
 배치와 통행 데이터는 유지하며, 길 PNG 8개와 표면 메타데이터를 기획 원본에서 다시 내보냈다.
 세로·가로 앱 화면, 시설 진입과 경로 검사 통과.
+
+### 2026-09-29 건설 밤 아틀라스
+
+- `construction/*-atlas-night.png`: 낮 아틀라스와 같은 픽셀 크기·격자의 밤 리라이트(이미지 생성 style transfer). 낮 아틀라스 실루엣에서 먼 픽셀은 투명 처리해 옆 셀이 viewport에 비치지 않게 했다.
+- `ConstructionBuildingSprite`의 `night` prop 이 밤 셀을 고른다. 밤에는 작업 진동·효과를 재생하지 않으므로 `effects-atlas-night.png`는 런타임에서 참조하지 않는다.
+- 웹 미리보기: `?construction-motion` 에서 낮·밤과 공사 단계를 전환해 확인한다.
