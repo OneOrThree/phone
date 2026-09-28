@@ -297,18 +297,18 @@ test('convert 충돌 취소 — 확인창에서 취소하면 두 번째 로그�
   assert.equal(adopted.length, 0);
 });
 
-test('convert 충돌 승인 — 같은 자격·새 attemptId·확정 신호·AT 없이 다시 보낸다', async () => {
+test('convert 충돌 승인 — 같은 자격·새 attemptId·확정 신호·원 게스트 AT로 다시 보낸다', async () => {
   const { conversion, calls, adopted } = make([conflict(), result('member-9')]);
 
   const outcome = await conversion.convert('apple', 'apple-jwt');
 
   assert.equal(outcome, 'converted');
   assert.equal(calls.length, 2);
-  // ② 확정 요청 — 의도가 바뀌었으므로 attemptId 는 새 값, accountSwitchConfirmed 만 담긴다.
+  // ② 확정 요청 — 새 attemptId와 확정 신호에 원 게스트 AT를 함께 보낸다.
   assert.equal(calls[1].credential, 'apple-jwt');
   assert.equal(calls[1].options?.accountSwitchConfirmed, true);
+  assert.equal(calls[1].options?.attachCurrentSession, true);
   assert.notEqual(calls[1].options?.attemptId, calls[0].options?.attemptId);
-  assert.equal(calls[1].options?.attachCurrentSession, undefined);
   assert.equal(adopted[0].result.userId, 'member-9');
 });
 
@@ -326,7 +326,9 @@ test('convert 충돌 승인 응답 유실 — 확정 단계의 같은 attemptId�
   assert.equal(asked(), 1);
   assert.equal(calls.length, 3);
   assert.equal(calls[1].options?.accountSwitchConfirmed, true);
+  assert.equal(calls[1].options?.attachCurrentSession, true);
   assert.equal(calls[2].options?.accountSwitchConfirmed, true);
+  assert.equal(calls[2].options?.attachCurrentSession, true);
   assert.equal(calls[1].options?.attemptId, calls[2].options?.attemptId);
 });
 
@@ -346,6 +348,7 @@ test('convert 확정 재생 USER_NOT_FOUND — 새 attempt와 AT 없이 회원 �
   assert.equal(outcome, 'converted');
   assert.equal(calls.length, 5);
   assert.equal(calls[2].options?.accountSwitchConfirmed, true);
+  assert.equal(calls[2].options?.attachCurrentSession, true);
   assert.notEqual(calls[3].options?.attemptId, calls[2].options?.attemptId);
   assert.equal(calls[3].options?.accountSwitchConfirmed, undefined);
   assert.equal(calls[3].options?.attachCurrentSession, undefined);

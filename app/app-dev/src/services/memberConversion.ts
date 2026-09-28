@@ -142,6 +142,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
       try {
         replayed = await login(provider, credential, deps.termsVersion, {
           attemptId: attemptIdFor(provider, credential, 'confirmed'),
+          attachCurrentSession: true,
           accountSwitchConfirmed: true,
         });
       } catch (error) {
@@ -184,9 +185,11 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
       pending = null;
       return 'cancelled';
     }
-    // ② 확정 — 의도가 바뀌었으므로 새 attemptId(attemptIdFor 가 갈아 끼운다). AT 없이 보낸다.
+    // ② 확정 — 의도가 바뀌었으므로 새 attemptId(attemptIdFor 가 갈아 끼운다). 원 게스트 AT를
+    // 동봉해 서버가 게스트 체크포인트 삭제/탈퇴를 수행하게 한다.
     const result = await login(provider, credential, deps.termsVersion, {
       attemptId: attemptIdFor(provider, credential, 'confirmed'),
+      attachCurrentSession: true,
       accountSwitchConfirmed: true,
     });
     await adopt(result);

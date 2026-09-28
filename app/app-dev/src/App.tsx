@@ -668,7 +668,7 @@ function Gromo() {
       resetLocal: async () => {
         // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
         // settings 만 기기 귀속(정책 A15)이라 보존한다.
-        await AsyncStorage.removeItem(STORAGE).catch(() => {});
+        await AsyncStorage.removeItem(STORAGE);
         dispatch({
           type: 'LOAD',
           state: { ...initialState(DEMO), settings: stateRef.current.settings },
@@ -1642,12 +1642,14 @@ function Gromo() {
                 <View style={[S.row, { justifyContent: 'flex-end', gap: 8, marginTop: 8 }]}>
                   <NativeButton
                     dialog
+                    dynamicHeight
                     title="취소"
                     kind="glass"
                     onPress={() => settleSwitch(false)}
                   />
                   <NativeButton
                     dialog
+                    dynamicHeight
                     title="전환하기"
                     kind="destructive"
                     onPress={() => settleSwitch(true)}

@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
 import { ApiError } from '@/services/api/client';
-import { clearSession, saveSession } from '@/services/api/session';
+import {
+  clearSession,
+  getLastSessionUserId,
+  rememberLocalDataOwner,
+  saveSession,
+} from '@/services/api/session';
 import {
   cancelBuildingTransition,
   createBuildingTransitionController,
@@ -12,7 +18,7 @@ import {
 let captured: any;
 const mockApiLogin = jest.fn();
 const mockSocialCredential = jest.fn();
-const mockAdoptSignedInAccount = jest.fn(async (result: { userId: string }) => ({
+const mockAdoptSignedInAccount = jest.fn(async (result: { userId: string }, ..._args: any[]) => ({
   id: result.userId,
   name: null,
   catColor: null,
@@ -46,7 +52,7 @@ jest.mock('@/services/memberConversion', () => {
   return {
     ...actual,
     adoptSignedInAccount: (result: { userId: string }, ..._args: unknown[]) =>
-      mockAdoptSignedInAccount(result),
+      mockAdoptSignedInAccount(result, ..._args),
   };
 });
 
@@ -247,6 +253,61 @@ test('회원 전환 retryable 응답 재시도는 같은 소셜 자격을 재사
   assert.equal(mockApiLogin.mock.calls.length, 2);
   assert.equal(mockApiLogin.mock.calls[0][1], mockApiLogin.mock.calls[1][1]);
   assert.equal(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
+});
+
+test('계정 전환 중 로컬 저장 삭제 실패는 채택과 owner 갱신을 중단한다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+  await rememberLocalDataOwner('guest');
+  mockSocialCredential.mockResolvedValueOnce('google-id-token');
+  mockApiLogin.mockImplementationOnce(async () => {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'member' });
+    return {
+      accessToken: 'AT',
+      refreshToken: 'RT',
+      userId: 'member',
+      onboardingComplete: true,
+    };
+  });
+  let applyCalls = 0;
+  let navigateCalls = 0;
+  mockAdoptSignedInAccount.mockImplementationOnce(
+    async (result: any, _previous: any, deps: any) => {
+      const account = {
+        id: result.userId,
+        name: null,
+        catColor: null,
+        mainIslandId: null,
+        linkedProviders: [],
+        onboardingComplete: true,
+      };
+      await deps.resetLocal();
+      applyCalls += 1;
+      deps.applyAccount(account);
+      navigateCalls += 1;
+      await deps.navigate(account);
+      return account;
+    },
+  );
+  const remove = jest
+    .spyOn(AsyncStorage, 'removeItem')
+    .mockRejectedValueOnce(new Error('storage unavailable'));
+
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await act(async () => captured.setTerms(true));
+  await act(async () => captured.startSocial('google'));
+
+  assert.equal(mockApiLogin.mock.calls.length, 1);
+  assert.equal(mockAdoptSignedInAccount.mock.calls.length, 1);
+  assert.equal(remove.mock.calls.length, 1);
+  assert.equal(applyCalls, 0);
+  assert.equal(navigateCalls, 0);
+  assert.equal(getLastSessionUserId(), 'guest');
+  assert.equal(captured.socialError, '로그인을 완료하지 못했어요. 다시 시도해 주세요.');
+  remove.mockRestore();
 });
 
 test('CurrentScreens에는 실제 공개 세션이 있을 때만 서버 섬·집중 명령을 주입한다', async () => {

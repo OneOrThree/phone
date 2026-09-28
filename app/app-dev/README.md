@@ -91,7 +91,7 @@ npm run review:v2-journeys
 화면 전환, 로컬 저장, 집중 구간 계산, 공동 재화, 건설 타이머와 음원 재생은 앱 안에서 동작합니다. 인증, 다른 기기의 주민·편지·가입 승인, 서버 랭킹, OS 스크린타임 수집, 푸시와 원격 음악 동기화는 아직 로컬 목업 범위입니다.
 
 앱 버전은 `2.0.0`, iOS 식별자는 `com.oneorthree.focuscat`, Android 식별자는 `com.oneorthree.gromo`입니다.
-Android release 빌드는 기존 Play 업로드 키를 `android/credentials/prod/`에 배치한 뒤 실행하며, 새 업로드 키를 발급하지 않습니다.
+Android release task graph는 기본 차단됩니다. Android legacy 세션의 RT를 잃지 않는 서버 멱등 승격 계약이 준비되고 검증된 뒤에만 `GROMO_LEGACY_SESSION_MIGRATION_READY=1`을 지정해 release 빌드를 실행하세요. 예를 들어 `GROMO_LEGACY_SESSION_MIGRATION_READY=1 ./gradlew :app:assembleRelease`입니다. 이 변수는 서버 준비를 확인한 담당자의 명시적 해제 표식이며, 설정하지 않은 debug 빌드와 `check`에는 영향을 주지 않습니다. release에는 기존 Play 업로드 키도 `android/credentials/prod/`에 필요하며, 새 업로드 키를 발급하지 않습니다.
 
 ### 서버 API 기반 (`src/services/api/`, GROMO-2004)
 

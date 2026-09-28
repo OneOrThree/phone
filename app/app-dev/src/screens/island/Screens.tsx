@@ -4991,6 +4991,7 @@ export function RedesignScreens({ e }: any) {
               .buy({ id: p.id, productVersion: sp!.productVersion })
               .then(() => setSheetToast('구매했어요.'))
               .catch((thrown) => {
+                if (e.conversion?.offer(thrown)) return;
                 const m = serverErrorText(thrown);
                 if (m) notify(m);
               });

@@ -162,6 +162,20 @@ test('kakao 는 access_token, 게스트 승격·계정 전환은 AT 를 함께 �
   });
 });
 
+test('계정 전환 확정 로그인은 원 게스트 AT와 확정 신호를 함께 보낸다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'g1' });
+  stub([session('MEMBER', 'u2')]);
+
+  await login('apple', 'apple-jwt', '2026-09', {
+    attemptId: 'confirmed-attempt',
+    attachCurrentSession: true,
+    accountSwitchConfirmed: true,
+  });
+
+  assert.equal(header(calls[0], 'Authorization'), 'Bearer GUEST_AT');
+  assert.equal(JSON.parse(calls[0].init.body as string).accountSwitchConfirmed, true);
+});
+
 test('line 은 access_token 자격으로 로그인한다', async () => {
   stub([session('LINE', 'u-line')]);
 

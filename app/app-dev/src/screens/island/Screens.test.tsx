@@ -22,11 +22,52 @@ jest.mock('@/services/api/account', () => ({
 }));
 const mockUpdateProfile = updateProfile as jest.Mock;
 const mockWithdrawAccount = withdrawAccount as jest.Mock;
+const mockShopBuy = jest.fn();
+const mockShopState: any = {
+  items: [],
+  detail: null,
+  detailLoading: false,
+  detailError: null,
+  wallets: null,
+  shared: null,
+  my: null,
+  writing: false,
+  titles: {},
+  kinds: {},
+  orders: [],
+  ordersLoading: false,
+  ordersError: null,
+  ordersScope: null,
+  ordersNextCursor: null,
+  buy: mockShopBuy,
+  applyTheme: jest.fn(),
+  equip: jest.fn(),
+  retry: jest.fn(),
+};
+jest.mock('@/screens/island/useShop', () => ({ useShop: () => mockShopState }));
 const notifyMock = jest.fn();
 const backMock = jest.fn();
 beforeEach(() => {
   mockUpdateProfile.mockReset();
   mockWithdrawAccount.mockReset();
+  mockShopBuy.mockReset();
+  Object.assign(mockShopState, {
+    items: [],
+    detail: null,
+    detailLoading: false,
+    detailError: null,
+    wallets: null,
+    shared: null,
+    my: null,
+    writing: false,
+    titles: {},
+    kinds: {},
+    orders: [],
+    ordersLoading: false,
+    ordersError: null,
+    ordersScope: null,
+    ordersNextCursor: null,
+  });
   notifyMock.mockClear();
   backMock.mockClear();
 });
@@ -89,6 +130,7 @@ function Harness({
   homeError = false,
   retryHome,
   friendsScreen,
+  conversion,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -176,6 +218,7 @@ function Harness({
         homeError,
         retryHome,
         friendsScreen,
+        conversion,
       }}
     />
   );
@@ -1124,6 +1167,37 @@ test('상점 안내 중 시스템 뒤로가기는 완료 처리 없이 상점을
 
   assert.equal(exposed.home.mock.calls.length, 1);
   assert.ok(!exposed.actions.includes('SHOP_GUIDE_DONE'));
+});
+
+test('일반 상점 구매의 SOCIAL_LOGIN_REQUIRED는 오류 알림 대신 회원 전환을 연다', async () => {
+  const gate = new ApiError('SOCIAL_LOGIN_REQUIRED', '회원 연동이 필요합니다.', 403);
+  const offer = jest.fn(() => true);
+  mockShopState.detail = {
+    id: 'scarf',
+    title: '바다 스카프',
+    kind: 'clothes',
+    price: 20,
+    currency: 'village_points',
+    ownerType: 'user',
+    productVersion: 3,
+    previewUrl: null,
+    owned: false,
+    available: true,
+    blockedReason: null,
+    requiredBuilding: null,
+    requiredProduct: null,
+    targetBuilding: null,
+  };
+  mockShopState.wallets = { villagePoints: 100 };
+  mockShopBuy.mockRejectedValue(gate);
+
+  const s = await render(
+    <Harness route="product" detail="scarf" api={() => ({})} conversion={{ offer }} />,
+  );
+
+  await fireEvent.press(s.getByText('20마리로 구매'));
+  await waitFor(() => expect(offer).toHaveBeenCalledWith(gate));
+  assert.equal(notifyMock.mock.calls.length, 0);
 });
 
 test('가입 닉네임은 마지막 글자를 지운 뒤 새 이름을 입력할 수 있고 빈 편집값은 복원되지 않는다', async () => {

@@ -139,8 +139,7 @@ export async function login(
   const previous = getSession();
   const result = await request<LoginResult>('/auth/sessions', {
     method: 'POST',
-    // 충돌 확정 요청에 AT 를 실으면 «폐기된 게스트 세션»이라 401 이다 — 구조적으로 뺀다.
-    auth: attachCurrentSession && !accountSwitchConfirmed,
+    auth: attachCurrentSession,
     generation,
     headers: { 'X-Login-Attempt-Id': attemptId },
     body: {
