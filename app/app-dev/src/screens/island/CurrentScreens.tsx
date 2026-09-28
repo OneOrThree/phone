@@ -52,7 +52,6 @@ import {
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
 import {
-  GoldenFishMemberTimeline,
   GoldenFishOccurrenceTracker,
   useGoldenFishLedger,
 } from '@/screens/focus/useGoldenFishLedger';
@@ -1128,8 +1127,6 @@ function FocusFlow({ e }: any) {
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
     goldenOccurrencesRef = useRef(new GoldenFishOccurrenceTracker()),
-    goldenTimelineRef = useRef(new GoldenFishMemberTimeline()),
-    goldenTimelineSessionRef = useRef<string | null>(null),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
@@ -1157,28 +1154,8 @@ function FocusFlow({ e }: any) {
     onTransition: (transition) => transitionHandler.current(transition),
     onGoldenFish: (event) => goldenHandler.current(event),
   });
-  const liveGoldenMembers: GoldenFishEvent['members'] = live.focus
-    .filter((member) => member.status === 'active')
-    .map((member) => ({ userId: member.userId, sessionId: member.sessionId }));
-  if (
-    myId &&
-    s.session?.status === 'active' &&
-    !liveGoldenMembers.some(
-      (member) => member.userId === myId && member.sessionId === s.session?.id,
-    )
-  ) {
-    liveGoldenMembers.push({ userId: myId, sessionId: s.session.id });
-  }
   const resultSessionId = r === 'focusResult' ? (s.lastResult?.id ?? null) : null;
   const goldenSessionId = s.session?.id ?? resultSessionId;
-  if (s.session && goldenTimelineSessionRef.current !== s.session.id) {
-    goldenTimelineSessionRef.current = s.session.id;
-    goldenTimelineRef.current.reset();
-  }
-  if (s.session && live.status === 'ready') {
-    goldenTimelineRef.current.observe(Date.now() + live.clockOffset, liveGoldenMembers);
-  }
-  const goldenTimelineStart = goldenTimelineRef.current.coverageStartMs();
   const goldenIntervals =
     s.session?.intervals ??
     (r === 'focusResult' && s.lastResult?.id === goldenSessionId
@@ -1212,15 +1189,12 @@ function FocusFlow({ e }: any) {
       !!liveIslandId &&
       !!goldenSessionId &&
       live.status === 'ready' &&
-      goldenTimelineStart !== null &&
       (r === 'focus' || r === 'rest' || r === 'focusResult'),
     islandId: liveIslandId,
     sessionId: goldenSessionId,
     sessionStartedAt: goldenSessionStartedAt,
     sessionEligibleUntil: goldenSessionEligibleUntil,
     membersAt: (atMs) => {
-      const known = goldenTimelineRef.current.membersAt(atMs);
-      if (known !== null) return known;
       if (selfWasActiveAt(atMs)) return [{ userId: actorUserId!, sessionId: goldenSessionId! }];
       // 서버가 준 ACTIVE 구간이 있으면 그 밖의 시각에는 내가 참여하지 않았음이 확정된다.
       return goldenIntervals?.length ? [] : null;
@@ -1326,10 +1300,16 @@ function FocusFlow({ e }: any) {
       return;
     }
     if (r !== 'rest' && !goldenCutsceneRef.current) {
-      const pending = goldenQueueRef.current.shift();
-      if (pending) goldenPresenter.current(pending);
+      if (reduce) {
+        const pending = goldenQueueRef.current.splice(0);
+        for (const event of pending) recordGoldenCatch(event);
+        if (pending.length > 0) setGoldenFish(true);
+      } else {
+        const pending = goldenQueueRef.current.shift();
+        if (pending) goldenPresenter.current(pending);
+      }
     }
-  }, [r]);
+  }, [r, reduce]);
   // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
   // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
   const serverSession = () => e.focus && s.session?.version != null;
@@ -1399,8 +1379,7 @@ function FocusFlow({ e }: any) {
             sessionId: member.sessionId ?? member.id,
           })),
       ];
-      setGoldenFish(false);
-      setGoldenCutscene({
+      goldenPresenter.current({
         eventId: `golden-test-${sessionId}`,
         islandId: i.id,
         drawnAt: new Date().toISOString(),
@@ -1420,10 +1399,6 @@ function FocusFlow({ e }: any) {
     snapshotTransitions: live.snapshotTransitions,
   });
   transitionHandler.current = (transition) => {
-    goldenTimelineRef.current.applyTransition(
-      transition.occurredAtMs ?? Date.now() + live.clockOffset,
-      transition,
-    );
     peerFlow.onTransition(transition);
   };
   const peers = peerFlow.actors.filter((actor) => actor.visible),

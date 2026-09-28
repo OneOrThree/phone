@@ -2,13 +2,10 @@ import { useEffect, useRef } from 'react';
 import { getLedger, type LedgerEntry } from '@/services/api/townHall';
 import { sessionGeneration } from '@/services/api/session';
 import { dayKey } from '@/services/model';
-import type {
-  GoldenFishEvent,
-  GoldenFishMember,
-  IslandPresenceTransition,
-} from '@/services/islandRealtime';
+import type { GoldenFishEvent, GoldenFishMember } from '@/services/islandRealtime';
 
-const DEFAULT_POLL_MS = 4_000;
+// realtime 누락 복구용 폴백이다. 정상 연결 중 사용자마다 원장을 자주 스캔하지 않는다.
+const DEFAULT_POLL_MS = 60_000;
 
 type GoldenLedgerScope = {
   sessionId: string | null;
@@ -16,63 +13,6 @@ type GoldenLedgerScope = {
   active: boolean;
   activated: boolean;
 };
-
-const memberKey = (member: GoldenFishMember) => `${member.userId}:${member.sessionId}`;
-
-export class GoldenFishMemberTimeline {
-  private snapshots: { atMs: number; members: GoldenFishMember[] }[] = [];
-
-  reset() {
-    this.snapshots = [];
-  }
-
-  coverageStartMs(): number | null {
-    return this.snapshots[0]?.atMs ?? null;
-  }
-
-  observe(atMs: number, members: GoldenFishMember[]) {
-    if (!Number.isFinite(atMs)) return;
-    const latest = this.snapshots[this.snapshots.length - 1];
-    // 정확한 realtime 전이 뒤에 늦은 렌더/스냅숏 시각이 들어와 과거 상태를 덮지 않게 한다.
-    if (latest && atMs < latest.atMs) return;
-    const unique = members
-      .filter(
-        (member, index, all) =>
-          all.findIndex((candidate) => memberKey(candidate) === memberKey(member)) === index,
-      )
-      .sort((a, b) => memberKey(a).localeCompare(memberKey(b)));
-    const signature = unique.map(memberKey).join('|');
-    const previous = [...this.snapshots].reverse().find((snapshot) => snapshot.atMs <= atMs);
-    if (previous?.members.map(memberKey).join('|') === signature) return;
-    this.snapshots.push({ atMs, members: unique });
-    this.snapshots.sort((a, b) => a.atMs - b.atMs);
-    if (this.snapshots.length > 200) this.snapshots.splice(0, this.snapshots.length - 200);
-  }
-
-  applyTransition(atMs: number, transition: IslandPresenceTransition) {
-    if (transition.kind !== 'focus') return;
-    const snapshot = this.membersAt(atMs);
-    if (snapshot === null) return;
-    const members = new Map(snapshot.map((member) => [member.userId, member]));
-    if (members.size === 0) return;
-    members.delete(transition.userId);
-    if (transition.current?.status === 'active') {
-      members.set(transition.userId, {
-        userId: transition.current.userId,
-        sessionId: transition.current.sessionId,
-      });
-    }
-    this.observe(atMs, [...members.values()]);
-  }
-
-  membersAt(atMs: number): GoldenFishMember[] | null {
-    if (!Number.isFinite(atMs)) return null;
-    for (let index = this.snapshots.length - 1; index >= 0; index--) {
-      if (this.snapshots[index].atMs <= atMs) return this.snapshots[index].members;
-    }
-    return null;
-  }
-}
 
 type GoldenFishSignalSource = 'ledger' | 'realtime';
 
@@ -244,17 +184,17 @@ export function useGoldenFishLedger({
             continue;
           }
           seen.current.add(entry.id);
-          // 원장 자체가 서버의 2명 이상 추첨 결과다. 재접속 전 구간은 이 단말에서 확실히
-          // 복원할 수 있는 자기 세션만 싣고, 다른 주민을 현재 스냅숏으로 추측하지 않는다.
-          if (participants.length === 0) continue;
+          // 원장 createdAt은 보상 저장 시각이지 서버의 후보 스냅숏 시각이 아니다. 따라서
+          // 이 단말에서 ACTIVE 구간을 검증할 수 있는 자기 세션만 복구하고 다른 주민은 추측하지 않는다.
+          const participant = participants.find((member) => member.sessionId === sessionId);
+          if (!participant) continue;
           callbackRef.current({
             eventId: `ledger:${entry.id}`,
             islandId,
             drawnAt: entry.createdAt,
             reward: entry.amount,
-            sharePerMember:
-              participants.length >= 2 ? Math.floor(entry.amount / participants.length) : 0,
-            members: participants,
+            sharePerMember: 0,
+            members: [participant],
           });
         }
         scope.current.afterMs = Math.max(scope.current.afterMs, safeThrough);

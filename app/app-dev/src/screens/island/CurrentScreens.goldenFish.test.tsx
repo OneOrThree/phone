@@ -255,6 +255,34 @@ test('동작 줄이기에서는 컷신 없이 황금 물고기 더미만 즉시 
   await screen.unmount();
 });
 
+test('동작 줄이기에서 휴식 중 쌓인 당첨을 복귀할 때 모두 더미에 반영한다', async () => {
+  const state = focusedState();
+  state.settings.reduceMotion = true;
+  const screen = await mount(state);
+  state.session!.status = 'paused';
+  state.session!.restStartedAt = Date.now();
+  await screen.rerender(screenElement(state, 'rest'));
+
+  const members = [
+    { userId: 'me', sessionId: 's-me' },
+    { userId: 'minji', sessionId: 'minji' },
+  ];
+  await act(async () => {
+    onGoldenFish?.(event(members));
+    onGoldenFish?.(event(members, 'golden-i1-2'));
+  });
+
+  state.session!.status = 'active';
+  delete state.session!.restStartedAt;
+  await screen.rerender(screenElement(state, 'focus'));
+
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 2);
+  assert.equal(screen.getByTestId('golden-peer-minji').props.goldenFishCount, 2);
+  assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
+  await screen.unmount();
+});
+
 test('휴식 전환 중 도착한 당첨을 보존하고 복귀하면 컷신과 섬 에셋을 보여준다', async () => {
   const state = focusedState();
   const screen = await mount(state);

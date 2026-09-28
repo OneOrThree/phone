@@ -3,7 +3,6 @@ import React from 'react';
 import { act, render } from '@testing-library/react-native';
 import { View } from 'react-native';
 import {
-  GoldenFishMemberTimeline,
   GoldenFishOccurrenceTracker,
   useGoldenFishLedger,
 } from '@/screens/focus/useGoldenFishLedger';
@@ -41,6 +40,7 @@ function Harness({
   sessionStartedAt = Date.parse('2026-09-28T00:00:00Z'),
   clockOffsetMs = 0,
   resolveMembers,
+  pollMs = 1_000,
 }: any) {
   useGoldenFishLedger({
     active,
@@ -51,7 +51,7 @@ function Harness({
     membersAt: resolveMembers ?? (() => members),
     onGoldenFish,
     clockOffsetMs,
-    pollMs: 1_000,
+    pollMs,
   });
   return <View />;
 }
@@ -95,7 +95,8 @@ test('집중 시작 뒤 새 golden_fish 원장 행만 컷신 사건으로 바꾸
 
   assert.equal(onGoldenFish.mock.calls.length, 1);
   assert.equal(onGoldenFish.mock.calls[0][0].eventId, 'ledger:new');
-  assert.equal(onGoldenFish.mock.calls[0][0].sharePerMember, 25);
+  assert.equal(onGoldenFish.mock.calls[0][0].sharePerMember, 0);
+  assert.deepEqual(onGoldenFish.mock.calls[0][0].members, [defaultMembers[0]]);
   await act(async () => jest.advanceTimersByTime(1_000));
   assert.equal(onGoldenFish.mock.calls.length, 1);
   await screen.unmount();
@@ -109,6 +110,31 @@ test('조회가 실패해도 집중 화면을 막지 않고 다음 poll에서 �
   await act(async () => jest.advanceTimersByTime(1_000));
   assert.equal(ledgerMock.mock.calls.length, 2);
   assert.equal(onGoldenFish.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('정상 연결 중 원장 복구 조회는 짧은 주기로 반복하지 않는다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock.mockResolvedValue(emptyPage());
+
+  function DefaultPollHarness() {
+    useGoldenFishLedger({
+      active: true,
+      islandId: '11111111-1111-4111-8111-111111111111',
+      sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      sessionStartedAt: Date.parse('2026-09-28T00:00:00Z'),
+      membersAt: () => defaultMembers,
+      onGoldenFish,
+    });
+    return <View />;
+  }
+
+  const screen = await render(<DefaultPollHarness />);
+  await act(async () => {});
+  await act(async () => jest.advanceTimersByTime(4_000));
+  assert.equal(ledgerMock.mock.calls.length, 1);
+  await act(async () => jest.advanceTimersByTime(56_000));
+  assert.equal(ledgerMock.mock.calls.length, 2);
   await screen.unmount();
 });
 
@@ -224,30 +250,7 @@ test('KST 월 경계를 넘으면 커서의 직전 달과 현재 달을 모두 �
   await screen.unmount();
 });
 
-test('참여자 타임라인은 원장 발생 시각 이후에 바뀐 주민을 과거 당첨에 섞지 않는다', () => {
-  const timeline = new GoldenFishMemberTimeline();
-  timeline.observe(1_000, defaultMembers);
-  timeline.observe(2_000, [defaultMembers[0], { userId: 'new', sessionId: 'new-session' }]);
-
-  assert.deepEqual(timeline.membersAt(1_500), defaultMembers);
-  const latestMembers = timeline.membersAt(2_500);
-  assert.notEqual(latestMembers, null);
-  assert.deepEqual(
-    latestMembers!.map((member) => member.userId),
-    [defaultMembers[0].userId, 'new'].sort(),
-  );
-});
-
-test('정확한 전이 뒤의 오래된 스냅숏은 참여자 타임라인을 과거로 덮지 않는다', () => {
-  const timeline = new GoldenFishMemberTimeline();
-  timeline.observe(1_000, defaultMembers);
-  timeline.observe(2_000, [defaultMembers[0]]);
-  timeline.observe(1_500, defaultMembers);
-
-  assert.deepEqual(timeline.membersAt(2_500), [defaultMembers[0]]);
-});
-
-test('초기 스냅숏 전의 행은 참여자를 확정할 때까지 소비하지 않는다', async () => {
+test('자기 세션 참여 여부를 확정할 수 없는 행은 다음 복구 조회까지 보존한다', async () => {
   const onGoldenFish = jest.fn();
   let known = false;
   ledgerMock.mockResolvedValue({
