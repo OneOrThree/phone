@@ -105,4 +105,13 @@ describe('LibraryMotion', () => {
       await view.unmount();
     },
   );
+
+  it('테마가 적용되면 현재 프레임 모양 그대로 착색 레이어를 덧입힌다', async () => {
+    const view = await render(<LibraryMotion themed />);
+    const query = { includeHiddenElements: true };
+    expect(view.getByTestId('library-motion-theme-tint', query).props.source).toBe(
+      view.getByTestId('library-motion-frame-0', query).props.source,
+    );
+    await view.unmount();
+  });
 });

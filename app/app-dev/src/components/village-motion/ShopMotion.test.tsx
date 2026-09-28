@@ -73,4 +73,14 @@ describe('ShopMotion', () => {
     expect(activeFrame(view)).toBe(0);
     await view.unmount();
   });
+
+  it('테마가 적용되면 현재 프레임 모양 그대로 착색 레이어를 덧입힌다', async () => {
+    const view = await render(<ShopMotion themed />);
+    expect(view.getByTestId('shop-motion-theme-tint').props.source).toBe(
+      view.getByTestId('shop-motion-frame-0').props.source,
+    );
+    await view.rerender(<ShopMotion themed showFrames={false} />);
+    expect(view.queryByTestId('shop-motion-theme-tint')).toBeNull();
+    await view.unmount();
+  });
 });

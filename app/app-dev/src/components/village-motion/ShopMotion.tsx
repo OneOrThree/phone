@@ -1,6 +1,7 @@
 import React, { memo, useContext, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
+import { VillageThemeTint } from './VillageThemeTint';
 
 export type ShopMotionState = 'normal' | 'new-product' | 'purchasable';
 
@@ -21,6 +22,7 @@ export const ShopMotion = memo(function ShopMotionView({
   entryActive = false,
   reduceMotion = false,
   showFrames = true,
+  themed = false,
   style,
   testID = 'shop-motion',
 }: {
@@ -29,6 +31,8 @@ export const ShopMotion = memo(function ShopMotionView({
   entryActive?: boolean;
   reduceMotion?: boolean;
   showFrames?: boolean;
+  /** 건물 테마가 적용되면 현재 프레임 위에 테마 착색을 덧입힌다. */
+  themed?: boolean;
   style?: ViewStyle;
   testID?: string;
 }) {
@@ -107,6 +111,9 @@ export const ShopMotion = memo(function ShopMotionView({
             style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
           />
         ))}
+      {showFrames && themed && (
+        <VillageThemeTint source={frames[frame]} testID="shop-motion-theme-tint" />
+      )}
     </View>
   );
 });

@@ -968,14 +968,15 @@ test('WorldMap 은 부모가 넘긴 낮·밤을 자체 시각 판정보다 우�
   jest.useRealTimers();
 });
 
-test('테마 상점·전망대·도서관 진입 중에는 닫힌 모습의 정적 테마 레이어를 숨긴다', async () => {
+test('낮에는 테마 회관·상점·전망대·도서관을 정적 레이어 대신 현재 모션 프레임에 착색한다', async () => {
   const state = initialState(true);
   const island = state.islands.find((item) => item.id === state.islandId)!;
-  for (const building of ['shop', 'tower', 'library'] as const) {
+  for (const building of ['hall', 'shop', 'tower', 'library'] as const) {
     if (!island.buildings.includes(building)) island.buildings.push(building);
   }
   island.buildingThemes = {
     ...island.buildingThemes,
+    hall: 'pink',
     shop: 'pink',
     tower: 'pink',
     library: 'pink',
@@ -983,20 +984,27 @@ test('테마 상점·전망대·도서관 진입 중에는 닫힌 모습의 정�
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-06-15T12:00:00'));
 
-  const idle = await render(<WorldMap state={state} />);
-  for (const building of ['shop', 'tower', 'library']) {
-    expect(idle.getByTestId(`world-building-theme-${building}`)).toBeTruthy();
+  // 진입 중이 아니어도(유휴 모션 포함) 정적 테마 레이어를 겹쳐 그리지 않는다.
+  const day = await render(<WorldMap state={state} />);
+  for (const building of ['hall', 'shop', 'tower', 'library']) {
+    expect(day.queryByTestId(`world-building-theme-${building}`)).toBeNull();
   }
-  await idle.unmount();
+  for (const tint of [
+    'village-hall-theme-tint',
+    'shop-motion-theme-tint',
+    'village-observatory-theme-tint',
+    'library-motion-theme-tint',
+  ]) {
+    expect(day.getByTestId(tint)).toBeTruthy();
+  }
+  await day.unmount();
 
-  for (const [building, props] of [
-    ['shop', { shopArrivalActive: true, shopArrivalGeneration: 1 }],
-    ['tower', { towerArrivalActive: true, towerArrivalGeneration: 1 }],
-    ['library', { libraryArrivalActive: true, libraryArrivalGeneration: 1 }],
-  ] as const) {
-    const entering = await render(<WorldMap state={state} {...props} />);
-    expect(entering.queryByTestId(`world-building-theme-${building}`)).toBeNull();
-    await entering.unmount();
+  // 밤에는 프레임을 그리지 않으므로 정적 밤 테마 레이어를 그대로 쓴다.
+  jest.setSystemTime(new Date('2026-06-15T22:00:00'));
+  const night = await render(<WorldMap state={state} />);
+  for (const building of ['hall', 'shop', 'tower', 'library']) {
+    expect(night.getByTestId(`world-building-theme-${building}`)).toBeTruthy();
   }
+  await night.unmount();
   jest.useRealTimers();
 });

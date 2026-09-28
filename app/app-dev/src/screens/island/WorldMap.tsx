@@ -493,12 +493,11 @@ export function WorldMap({
     node?.addEventListener?.('wheel', wheel, { passive: false });
     return () => node?.removeEventListener?.('wheel', wheel);
   }, []);
-  const arrivalFramesPlaying: Partial<Record<Building, boolean>> = {
-    hall: hallMotionActive,
-    tower: towerArrivalActive,
-    shop: shopArrivalActive,
-    library: libraryArrivalActive,
-  };
+  // 낮에는 회관·전망대·상점·도서관을 모션 프레임이 그리므로, 테마 착색도 현재 프레임 위에 입힌다.
+  const themed = (b: Building) =>
+    !!island.buildingThemes?.[b] && island.buildingThemes[b] !== 'default';
+  const framesDrawTheme = (b: Building) =>
+    dayNight === 'day' && (b === 'hall' || b === 'tower' || b === 'shop' || b === 'library');
   return (
     <View
       ref={view}
@@ -627,11 +626,7 @@ export function WorldMap({
               testID="world-hall-motion"
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
-              themed={
-                hallMotionActive &&
-                !!island.buildingThemes?.hall &&
-                island.buildingThemes.hall !== 'default'
-              }
+              themed={themed('hall')}
               style={{
                 position: 'absolute',
                 left: left + 950 * scale,
@@ -660,6 +655,7 @@ export function WorldMap({
           {island.buildings.includes('tower') && (
             <VillageObservatoryMotion
               testID="world-observatory-motion"
+              themed={framesDrawTheme('tower') && themed('tower')}
               rankState={observatoryRankState}
               dayNight={dayNight}
               showFrames={dayNight === 'day'}
@@ -677,6 +673,7 @@ export function WorldMap({
           {island.buildings.includes('shop') && (
             <ShopMotion
               testID="world-shop-motion"
+              themed={framesDrawTheme('shop') && themed('shop')}
               state={shopState}
               trigger={shopArrivalActive ? shopArrivalGeneration : 0}
               entryActive={shopArrivalActive}
@@ -694,6 +691,7 @@ export function WorldMap({
           {island.buildings.includes('library') && (
             <LibraryMotion
               testID="world-library-motion"
+              themed={framesDrawTheme('library') && themed('library')}
               state={libraryState}
               indicatorScale={scale}
               trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
@@ -753,8 +751,8 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
-                // 진입 프레임이 재생되는 동안 닫힌 모습의 정적 테마 레이어가 잔상으로 겹치지 않게 한다.
-                !(dayNight === 'day' && arrivalFramesPlaying[b]) &&
+                // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
+                !framesDrawTheme(b) &&
                 island.buildingThemes?.[b] &&
                 island.buildingThemes?.[b] !== 'default',
             )

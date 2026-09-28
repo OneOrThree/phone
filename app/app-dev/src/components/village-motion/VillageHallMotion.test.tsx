@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { act, render } from '@testing-library/react-native';
 import { MotionContext } from '@/design-system/primitives';
 import { componentTokens } from '@/design-system/tokens';
@@ -51,13 +52,14 @@ describe('VillageHallMotion', () => {
     expect(view.getByTestId('village-hall-frame-0').props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
     );
-    expect(view.getByTestId('village-hall-theme-tint').props.style).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          tintColor: componentTokens.villageBuildingThemeTint.color,
-          opacity: componentTokens.villageBuildingThemeTint.opacity,
-        }),
-      ]),
+    expect(
+      StyleSheet.flatten(view.getByTestId('village-hall-theme-tint').props.style),
+    ).toMatchObject({
+      tintColor: componentTokens.villageBuildingThemeTint.color,
+      opacity: componentTokens.villageBuildingThemeTint.opacity,
+    });
+    expect(view.getByTestId('village-hall-theme-tint').props.source).toBe(
+      view.getByTestId('village-hall-frame-0').props.source,
     );
     await view.unmount();
   });

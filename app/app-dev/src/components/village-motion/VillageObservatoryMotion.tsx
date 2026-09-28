@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
+import { VillageThemeTint } from './VillageThemeTint';
 
 export type ObservatoryRankState = 'normal' | 'rank-updated' | 'rank-changed';
 export type ObservatoryDayNight = 'day' | 'night';
@@ -20,6 +21,7 @@ export function VillageObservatoryMotion({
   dayNight = 'day',
   generation = 0,
   showFrames = true,
+  themed = false,
   reduceMotion = false,
   style,
   testID = 'village-observatory-motion',
@@ -28,6 +30,8 @@ export function VillageObservatoryMotion({
   dayNight?: ObservatoryDayNight;
   generation?: number;
   showFrames?: boolean;
+  /** 건물 테마가 적용되면 현재 프레임 위에 테마 착색을 덧입힌다. */
+  themed?: boolean;
   reduceMotion?: boolean;
   style?: ViewStyle;
   testID?: string;
@@ -74,6 +78,9 @@ export function VillageObservatoryMotion({
             style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
           />
         ))}
+      {showFrames && themed && (
+        <VillageThemeTint source={frames[frame]} testID="village-observatory-theme-tint" />
+      )}
     </View>
   );
 }

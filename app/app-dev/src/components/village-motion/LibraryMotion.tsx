@@ -1,6 +1,7 @@
 import React, { memo, useEffect, useRef, useState } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { VillageNotificationBadge } from './VillageNotificationBadge';
+import { VillageThemeTint } from './VillageThemeTint';
 
 export type LibraryMotionState = 'normal' | 'new-quest' | 'new-reading';
 
@@ -20,6 +21,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
   indicatorScale = 1,
   reduceMotion = false,
   showFrames = true,
+  themed = false,
   style,
   testID = 'library-motion',
 }: {
@@ -29,6 +31,8 @@ export const LibraryMotion = memo(function LibraryMotionView({
   indicatorScale?: number;
   reduceMotion?: boolean;
   showFrames?: boolean;
+  /** 건물 테마가 적용되면 현재 프레임 위에 테마 착색을 덧입힌다. */
+  themed?: boolean;
   style?: ViewStyle;
   testID?: string;
 }) {
@@ -84,6 +88,9 @@ export const LibraryMotion = memo(function LibraryMotionView({
             style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
           />
         ))}
+      {showFrames && themed && (
+        <VillageThemeTint source={frames[frame]} testID="library-motion-theme-tint" />
+      )}
       {stateLabel && (
         <VillageNotificationBadge
           testID="library-motion-indicator"

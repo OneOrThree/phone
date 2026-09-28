@@ -67,4 +67,14 @@ describe('VillageObservatoryMotion', () => {
     await view.unmount();
     expect(clearTimeout).toHaveBeenCalled();
   });
+
+  it('테마가 적용되면 현재 프레임 모양 그대로 착색 레이어를 덧입힌다', async () => {
+    const view = await render(<VillageObservatoryMotion themed />);
+    expect(view.getByTestId('village-observatory-theme-tint').props.source).toBe(
+      view.getByTestId('village-observatory-frame-0').props.source,
+    );
+    await view.rerender(<VillageObservatoryMotion themed showFrames={false} />);
+    expect(view.queryByTestId('village-observatory-theme-tint')).toBeNull();
+    await view.unmount();
+  });
 });
