@@ -295,6 +295,9 @@ test('마지막 reel 대기 중 도착한 당첨은 대기 종료 뒤 다음 컷
 });
 
 test('동작 줄이기에서 휴식 중 쌓인 당첨을 복귀할 때 모두 더미에 반영한다', async () => {
+  const announce = jest
+    .spyOn(AccessibilityInfo, 'announceForAccessibility')
+    .mockImplementation(() => {});
   const state = focusedState();
   state.settings.reduceMotion = true;
   const screen = await mount(state);
@@ -319,7 +322,10 @@ test('동작 줄이기에서 휴식 중 쌓인 당첨을 복귀할 때 모두 �
   assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 2);
   assert.equal(screen.getByTestId('golden-peer-minji').props.goldenFishCount, 2);
   assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
+  assert.equal(announce.mock.calls.length, 1);
+  assert.equal(announce.mock.calls[0][0], '황금 물고기를 잡았어요.');
   await screen.unmount();
+  announce.mockRestore();
 });
 
 test('휴식 전환 중 도착한 당첨을 보존하고 복귀하면 컷신과 섬 에셋을 보여준다', async () => {

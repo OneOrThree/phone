@@ -1295,7 +1295,10 @@ function FocusFlow({ e }: any) {
       if (reduce) {
         const pending = goldenQueueRef.current.splice(0);
         for (const event of pending) recordGoldenCatch(event);
-        if (pending.length > 0) setGoldenFish(true);
+        if (pending.length > 0) {
+          setGoldenFish(true);
+          AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
+        }
       } else {
         const pending = goldenQueueRef.current.shift();
         if (pending) goldenPresenter.current(pending);
