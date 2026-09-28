@@ -5,6 +5,7 @@ import {
   type ConstructionBuildingId,
   type ConstructionPhase,
 } from '@/components/ConstructionBuildingSprite';
+import { semanticTokens } from '@/design-system/tokens';
 
 const buildings: ReadonlyArray<{ id: ConstructionBuildingId; name: string; minutes: number }> = [
   { id: 'hall', name: '회관', minutes: 1 },
@@ -47,19 +48,20 @@ export function ConstructionMotionPreview() {
             accessibilityState={{ selected: night }}
             testID="toggle-night"
             onPress={() => setNight((current) => !current)}
-            style={[styles.reduceButton, night && styles.selectedButton]}
+            style={[styles.toggleButton, night && styles.selectedButton]}
           >
-            <Text style={[styles.reduceButtonText, night && styles.selectedButtonText]}>
+            <Text style={[styles.toggleButtonText, night && styles.selectedButtonText]}>
               {night ? '밤 · 모션 꺼짐' : '낮'}
             </Text>
           </Pressable>
           <Pressable
             accessibilityRole="button"
+            accessibilityState={{ selected: reduceMotion }}
             testID="toggle-reduce-motion"
             onPress={() => setReduceMotion((current) => !current)}
-            style={[styles.reduceButton, reduceMotion && styles.selectedButton]}
+            style={[styles.toggleButton, reduceMotion && styles.selectedButton]}
           >
-            <Text style={[styles.reduceButtonText, reduceMotion && styles.selectedButtonText]}>
+            <Text style={[styles.toggleButtonText, reduceMotion && styles.selectedButtonText]}>
               Reduce Motion {reduceMotion ? 'ON' : 'OFF'}
             </Text>
           </Pressable>
@@ -73,6 +75,7 @@ export function ConstructionMotionPreview() {
             <Pressable
               key={item.id}
               accessibilityRole="button"
+              accessibilityState={{ selected }}
               testID={`phase-${item.id}`}
               onPress={() => setPhase(item.id)}
               style={[styles.phaseButton, selected && styles.selectedButton]}
@@ -113,60 +116,99 @@ export function ConstructionMotionPreview() {
   );
 }
 
+const color = semanticTokens.color;
+
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: '#EAF4E1' },
-  content: { minHeight: '100%', paddingHorizontal: 32, paddingVertical: 28, gap: 24 },
+  page: { flex: 1, backgroundColor: color.canvas },
+  content: {
+    minHeight: '100%',
+    paddingHorizontal: semanticTokens.spacing.page,
+    paddingVertical: semanticTokens.spacing.section,
+    gap: semanticTokens.spacing.section,
+  },
   headingRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    gap: 18,
+    gap: semanticTokens.spacing.component,
   },
-  eyebrow: { color: '#795B49', fontSize: 12, fontWeight: '800', letterSpacing: 1.2 },
-  title: { color: '#382D27', fontSize: 32, lineHeight: 40, fontWeight: '900', marginTop: 5 },
-  subtitle: { color: '#6E6259', fontSize: 14, lineHeight: 21, marginTop: 5 },
-  phaseRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  eyebrow: {
+    color: color.textMuted,
+    fontSize: semanticTokens.typography.caption,
+    fontWeight: semanticTokens.typography.extraBold,
+    letterSpacing: 1.2,
+  },
+  title: {
+    color: color.text,
+    fontSize: semanticTokens.typography.display,
+    fontWeight: semanticTokens.typography.extraBold,
+    marginTop: 4,
+  },
+  subtitle: { color: color.textMuted, fontSize: semanticTokens.typography.label, marginTop: 4 },
+  toggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: semanticTokens.spacing.control },
+  phaseRow: { flexDirection: 'row', flexWrap: 'wrap', gap: semanticTokens.spacing.control },
   phaseButton: {
     minWidth: 128,
-    paddingHorizontal: 18,
+    minHeight: semanticTokens.size.tapMin,
+    justifyContent: 'center',
+    paddingHorizontal: semanticTokens.spacing.component,
     paddingVertical: 10,
-    borderRadius: 16,
-    backgroundColor: '#FFFDF8',
-    borderWidth: 1,
-    borderColor: '#D9CCBE',
+    borderRadius: semanticTokens.radius.control,
+    backgroundColor: color.surface,
+    borderWidth: semanticTokens.stroke.default,
+    borderColor: color.outline,
   },
-  phaseLabel: { color: '#4C3B31', fontSize: 14, fontWeight: '800' },
-  phaseRange: { color: '#8C7768', fontSize: 11, marginTop: 2 },
-  toggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  reduceButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 16,
-    backgroundColor: '#FFFDF8',
-    borderWidth: 1,
-    borderColor: '#D9CCBE',
+  phaseLabel: {
+    color: color.text,
+    fontSize: semanticTokens.typography.label,
+    fontWeight: semanticTokens.typography.extraBold,
   },
-  reduceButtonText: { color: '#4C3B31', fontSize: 13, fontWeight: '800' },
-  selectedButton: { backgroundColor: '#7C9A65', borderColor: '#5E7B4A' },
-  selectedButtonText: { color: '#FFFFFF' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  phaseRange: { color: color.textMuted, fontSize: semanticTokens.typography.caption, marginTop: 2 },
+  toggleButton: {
+    minHeight: semanticTokens.size.tapMin,
+    justifyContent: 'center',
+    paddingHorizontal: semanticTokens.spacing.component,
+    borderRadius: semanticTokens.radius.control,
+    backgroundColor: color.surface,
+    borderWidth: semanticTokens.stroke.default,
+    borderColor: color.outline,
+  },
+  toggleButtonText: {
+    color: color.text,
+    fontSize: semanticTokens.typography.label,
+    fontWeight: semanticTokens.typography.extraBold,
+  },
+  selectedButton: { backgroundColor: color.primary },
+  selectedButtonText: { color: color.onPrimary },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: semanticTokens.spacing.component },
   card: {
     overflow: 'hidden',
-    borderRadius: 22,
-    backgroundColor: '#FFFDF8',
-    borderWidth: 1,
-    borderColor: '#D9CCBE',
+    borderRadius: semanticTokens.radius.card,
+    backgroundColor: color.surface,
+    borderWidth: semanticTokens.stroke.default,
+    borderColor: color.outline,
   },
   spriteStage: {
     height: 220,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#CDE7C4',
+    backgroundColor: color.secondary,
   },
-  spriteStageNight: { backgroundColor: '#2E3A4F' },
+  spriteStageNight: { backgroundColor: semanticTokens.nightColor.canvas },
   spriteFrame: { width: 190, height: 190 },
-  cardCopy: { paddingHorizontal: 16, paddingVertical: 14 },
-  buildingName: { color: '#382D27', fontSize: 18, fontWeight: '900' },
-  buildingMeta: { color: '#806F62', fontSize: 12, marginTop: 3 },
+  cardCopy: {
+    paddingHorizontal: semanticTokens.spacing.component,
+    paddingVertical: semanticTokens.spacing.control,
+  },
+  buildingName: {
+    color: color.text,
+    fontSize: semanticTokens.typography.title,
+    fontWeight: semanticTokens.typography.extraBold,
+  },
+  buildingMeta: {
+    color: color.textMuted,
+    fontSize: semanticTokens.typography.caption,
+    marginTop: 2,
+  },
 });

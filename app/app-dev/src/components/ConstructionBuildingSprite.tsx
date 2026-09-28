@@ -107,7 +107,7 @@ export const ConstructionBuildingSprite = memo(function ConstructionBuildingSpri
       pointerEvents="none"
       style={[
         styles.viewport,
-        { transform: [{ translateX: constructionMotionOffsets[motionFrame] }] },
+        { transform: [{ translateX: still ? 0 : constructionMotionOffsets[motionFrame] }] },
       ]}
     >
       <Image
@@ -129,9 +129,10 @@ export const ConstructionBuildingSprite = memo(function ConstructionBuildingSpri
         resizeMode="stretch"
         style={[
           styles.effectsAtlas,
-          burstActive ? styles.effectVisible : styles.effectHidden,
+          // 밤·reduce motion 으로 바뀐 첫 렌더에서도 이전 burst 상태를 그리지 않는다.
+          burstActive && !still ? styles.effectVisible : styles.effectHidden,
           {
-            left: `${effectFrame * -100}%`,
+            left: `${(still ? 0 : effectFrame) * -100}%`,
             top: `${effectRow * -100}%`,
           },
         ]}
