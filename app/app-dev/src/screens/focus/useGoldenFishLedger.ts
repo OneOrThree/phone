@@ -18,6 +18,7 @@ type GoldenFishSignalSource = 'ledger' | 'realtime';
 
 type PendingGoldenFishSignal = {
   source: GoldenFishSignalSource;
+  eventId: string;
   atMs: number;
   islandId: string;
   sessionId: string;
@@ -27,6 +28,7 @@ type PendingGoldenFishSignal = {
 export type GoldenFishOccurrenceDecision = {
   display: boolean;
   additionalMembers: GoldenFishMember[];
+  matchedEventId: string | null;
 };
 
 const GOLDEN_SIGNAL_MATCH_WINDOW_MS = 10 * 60_000;
@@ -40,13 +42,15 @@ export class GoldenFishOccurrenceTracker {
   private pending: PendingGoldenFishSignal[] = [];
 
   accept(event: GoldenFishEvent, sessionId: string): GoldenFishOccurrenceDecision {
-    if (this.seenEventIds.has(event.eventId)) return { display: false, additionalMembers: [] };
+    if (this.seenEventIds.has(event.eventId))
+      return { display: false, additionalMembers: [], matchedEventId: null };
     this.seenEventIds.add(event.eventId);
     const source: GoldenFishSignalSource = event.eventId.startsWith('ledger:')
       ? 'ledger'
       : 'realtime';
     const atMs = Date.parse(event.drawnAt);
-    if (!Number.isFinite(atMs)) return { display: false, additionalMembers: [] };
+    if (!Number.isFinite(atMs))
+      return { display: false, additionalMembers: [], matchedEventId: null };
     this.pending = this.pending.filter(
       (candidate) => Math.abs(atMs - candidate.atMs) <= GOLDEN_SIGNAL_MATCH_WINDOW_MS,
     );
@@ -68,6 +72,7 @@ export class GoldenFishOccurrenceTracker {
       );
       return {
         display: false,
+        matchedEventId: matched.eventId,
         // 원장 신호가 먼저였으면 뒤따른 realtime의 정확한 참여자를 더미에 보강한다.
         additionalMembers:
           source === 'realtime'
@@ -77,12 +82,13 @@ export class GoldenFishOccurrenceTracker {
     }
     this.pending.push({
       source,
+      eventId: event.eventId,
       atMs,
       islandId: event.islandId,
       sessionId,
       members: event.members,
     });
-    return { display: true, additionalMembers: [] };
+    return { display: true, additionalMembers: [], matchedEventId: null };
   }
 }
 

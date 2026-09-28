@@ -805,7 +805,7 @@ export function FishingActor({
   }, [goldenFishCount, goldenCatchToken, reduce]);
   const a = size * 0.077,
     face = spot.face,
-    isFishing = !motion || motion === 'focus' || motion === 'reel',
+    isFishing = goldenReeling || !motion || motion === 'focus' || motion === 'reel',
     direction = castAngle(spot),
     rodSize = a * 0.6,
     rodTipDistance = (a * castReach(spot)) / 7.7,
@@ -855,7 +855,7 @@ export function FishingActor({
       )}
       <CatSprite
         color={color}
-        motion={motion ?? (goldenReeling || reeling ? 'reel' : 'focus')}
+        motion={goldenReeling ? 'reel' : (motion ?? (reeling ? 'reel' : 'focus'))}
         size={a}
         left={face < 0}
         reduce={reduce}

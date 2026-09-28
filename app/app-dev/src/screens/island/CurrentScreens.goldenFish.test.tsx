@@ -249,7 +249,7 @@ test('원장 폴백 뒤 도착한 realtime 참여자를 중복 컷신 없이 더
   assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
   assert.equal(
     screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props.goldenFishCount,
-    1,
+    0,
   );
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
   assert.equal(screen.queryByTestId('golden-cutscene'), null);

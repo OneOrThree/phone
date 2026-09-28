@@ -1246,7 +1246,28 @@ function FocusFlow({ e }: any) {
       return;
     const occurrence = goldenOccurrencesRef.current.accept(event, participantSessionId);
     if (occurrence.additionalMembers.length > 0) {
-      recordGoldenCatch({ ...event, members: occurrence.additionalMembers });
+      const enrich = (target: GoldenFishEvent): GoldenFishEvent => ({
+        ...target,
+        reward: event.reward,
+        sharePerMember: event.sharePerMember,
+        members: [...target.members, ...occurrence.additionalMembers],
+      });
+      let deferred = false;
+      if (goldenCutsceneRef.current?.eventId === occurrence.matchedEventId) {
+        const enriched = enrich(goldenCutsceneRef.current);
+        goldenCutsceneRef.current = enriched;
+        setGoldenCutscene(enriched);
+        deferred = true;
+      } else {
+        const queued = goldenQueueRef.current.findIndex(
+          (candidate) => candidate.eventId === occurrence.matchedEventId,
+        );
+        if (queued >= 0) {
+          goldenQueueRef.current[queued] = enrich(goldenQueueRef.current[queued]);
+          deferred = true;
+        }
+      }
+      if (!deferred) recordGoldenCatch({ ...event, members: occurrence.additionalMembers });
     }
     if (!occurrence.display) return;
     if (current.r === 'rest') {
