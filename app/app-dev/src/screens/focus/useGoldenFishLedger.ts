@@ -21,6 +21,12 @@ type PendingGoldenFishSignal = {
   atMs: number;
   islandId: string;
   sessionId: string;
+  members: GoldenFishMember[];
+};
+
+export type GoldenFishOccurrenceDecision = {
+  display: boolean;
+  additionalMembers: GoldenFishMember[];
 };
 
 const GOLDEN_SIGNAL_MATCH_WINDOW_MS = 10 * 60_000;
@@ -33,14 +39,14 @@ export class GoldenFishOccurrenceTracker {
   private seenEventIds = new Set<string>();
   private pending: PendingGoldenFishSignal[] = [];
 
-  accept(event: GoldenFishEvent, sessionId: string): boolean {
-    if (this.seenEventIds.has(event.eventId)) return false;
+  accept(event: GoldenFishEvent, sessionId: string): GoldenFishOccurrenceDecision {
+    if (this.seenEventIds.has(event.eventId)) return { display: false, additionalMembers: [] };
     this.seenEventIds.add(event.eventId);
     const source: GoldenFishSignalSource = event.eventId.startsWith('ledger:')
       ? 'ledger'
       : 'realtime';
     const atMs = Date.parse(event.drawnAt);
-    if (!Number.isFinite(atMs)) return false;
+    if (!Number.isFinite(atMs)) return { display: false, additionalMembers: [] };
     this.pending = this.pending.filter(
       (candidate) => Math.abs(atMs - candidate.atMs) <= GOLDEN_SIGNAL_MATCH_WINDOW_MS,
     );
@@ -56,15 +62,32 @@ export class GoldenFishOccurrenceTracker {
       return ledgerAt >= realtimeAt && ledgerAt - realtimeAt <= GOLDEN_SIGNAL_MATCH_WINDOW_MS;
     });
     if (match >= 0) {
-      this.pending.splice(match, 1);
-      return false;
+      const [matched] = this.pending.splice(match, 1);
+      const known = new Set(
+        matched.members.map((member) => `${member.userId}:${member.sessionId}`),
+      );
+      return {
+        display: false,
+        // 원장 신호가 먼저였으면 뒤따른 realtime의 정확한 참여자를 더미에 보강한다.
+        additionalMembers:
+          source === 'realtime'
+            ? event.members.filter((member) => !known.has(`${member.userId}:${member.sessionId}`))
+            : [],
+      };
     }
-    this.pending.push({ source, atMs, islandId: event.islandId, sessionId });
-    return true;
+    this.pending.push({
+      source,
+      atMs,
+      islandId: event.islandId,
+      sessionId,
+      members: event.members,
+    });
+    return { display: true, additionalMembers: [] };
   }
 }
 
 const MAX_LEDGER_PAGES = 100;
+const LEDGER_LOOKBACK_MS = 60_000;
 
 async function ledgerItemsSince(islandId: string, month: string, afterMs: number) {
   const items: LedgerEntry[] = [];
@@ -97,6 +120,7 @@ export function useGoldenFishLedger({
   membersAt,
   onGoldenFish,
   clockOffsetMs = 0,
+  recoveryVersion = 0,
   pollMs = DEFAULT_POLL_MS,
 }: {
   active: boolean;
@@ -107,6 +131,7 @@ export function useGoldenFishLedger({
   membersAt: (atMs: number) => GoldenFishMember[] | null;
   onGoldenFish: (event: GoldenFishEvent) => void;
   clockOffsetMs?: number;
+  recoveryVersion?: number;
   pollMs?: number;
 }) {
   const membersAtRef = useRef(membersAt);
@@ -197,7 +222,9 @@ export function useGoldenFishLedger({
             members: [participant],
           });
         }
-        scope.current.afterMs = Math.max(scope.current.afterMs, safeThrough);
+        // GET과 아직 커밋되지 않은 원장 INSERT가 겹쳐도 다음 조회가 행을 다시 포함하게 한다.
+        // seen id가 겹치는 조회의 중복 화면 사건을 막는다.
+        scope.current.afterMs = Math.max(scope.current.afterMs, safeThrough - LEDGER_LOOKBACK_MS);
       } catch {
         // 일시 실패는 다음 poll에서 다시 읽는다. 영상 신호 때문에 집중 흐름을 막지 않는다.
       } finally {
@@ -210,5 +237,13 @@ export function useGoldenFishLedger({
       disposed = true;
       clearInterval(timer);
     };
-  }, [active, islandId, pollMs, sessionEligibleUntil, sessionId, sessionStartedAt]);
+  }, [
+    active,
+    islandId,
+    pollMs,
+    recoveryVersion,
+    sessionEligibleUntil,
+    sessionId,
+    sessionStartedAt,
+  ]);
 }

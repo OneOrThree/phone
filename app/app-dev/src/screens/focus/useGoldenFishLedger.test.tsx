@@ -41,6 +41,7 @@ function Harness({
   clockOffsetMs = 0,
   resolveMembers,
   pollMs = 1_000,
+  recoveryVersion = 0,
 }: any) {
   useGoldenFishLedger({
     active,
@@ -51,6 +52,7 @@ function Harness({
     membersAt: resolveMembers ?? (() => members),
     onGoldenFish,
     clockOffsetMs,
+    recoveryVersion,
     pollMs,
   });
   return <View />;
@@ -110,6 +112,44 @@ test('조회가 실패해도 집중 화면을 막지 않고 다음 poll에서 �
   await act(async () => jest.advanceTimersByTime(1_000));
   assert.equal(ledgerMock.mock.calls.length, 2);
   assert.equal(onGoldenFish.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('realtime 재연결 세대가 바뀌면 다음 타이머를 기다리지 않고 즉시 복구 조회한다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock.mockResolvedValue(emptyPage());
+  const screen = await render(<Harness recoveryVersion={1} onGoldenFish={onGoldenFish} />);
+  await act(async () => {});
+  assert.equal(ledgerMock.mock.calls.length, 1);
+
+  await screen.rerender(<Harness recoveryVersion={2} onGoldenFish={onGoldenFish} />);
+  await act(async () => {});
+  assert.equal(ledgerMock.mock.calls.length, 2);
+  await screen.unmount();
+});
+
+test('조회와 커밋이 겹쳐 늦게 보인 원장 행을 look-back 구간에서 복구한다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock.mockResolvedValueOnce(emptyPage()).mockResolvedValue({
+    ...emptyPage(),
+    items: [
+      {
+        id: 'late-commit',
+        direction: 'earn',
+        reason: 'golden_fish',
+        amount: 50,
+        createdAt: '2026-09-28T00:00:09.500Z',
+        groupedUntil: '2026-09-28T00:00:09.500Z',
+        entryCount: 1,
+      },
+    ],
+  });
+  const screen = await render(<Harness onGoldenFish={onGoldenFish} />);
+  await act(async () => {});
+  await act(async () => jest.advanceTimersByTime(1_000));
+
+  assert.equal(onGoldenFish.mock.calls.length, 1);
+  assert.equal(onGoldenFish.mock.calls[0][0].eventId, 'ledger:late-commit');
   await screen.unmount();
 });
 
@@ -317,10 +357,46 @@ test('realtime 추첨 분과 다음 분에 기록된 원장 행을 같은 발생
     members: defaultMembers,
   });
 
-  assert.equal(tracker.accept(signal('golden:island:1', '2026-09-28T00:00:00Z'), 'session'), true);
-  assert.equal(tracker.accept(signal('ledger:wallet-1', '2026-09-28T00:01:05Z'), 'session'), false);
-  assert.equal(tracker.accept(signal('golden:island:2', '2026-09-28T00:01:00Z'), 'session'), true);
-  assert.equal(tracker.accept(signal('ledger:wallet-2', '2026-09-28T00:01:21Z'), 'session'), false);
+  assert.equal(
+    tracker.accept(signal('golden:island:1', '2026-09-28T00:00:00Z'), 'session').display,
+    true,
+  );
+  assert.equal(
+    tracker.accept(signal('ledger:wallet-1', '2026-09-28T00:01:05Z'), 'session').display,
+    false,
+  );
+  assert.equal(
+    tracker.accept(signal('golden:island:2', '2026-09-28T00:01:00Z'), 'session').display,
+    true,
+  );
+  assert.equal(
+    tracker.accept(signal('ledger:wallet-2', '2026-09-28T00:01:21Z'), 'session').display,
+    false,
+  );
+});
+
+test('원장이 먼저 도착하면 뒤따른 realtime의 추가 참여자만 병합한다', () => {
+  const tracker = new GoldenFishOccurrenceTracker();
+  const ledger: GoldenFishEvent = {
+    eventId: 'ledger:wallet-1',
+    islandId: 'island',
+    drawnAt: '2026-09-28T00:00:05Z',
+    reward: 50,
+    sharePerMember: 0,
+    members: [defaultMembers[0]],
+  };
+  const realtime: GoldenFishEvent = {
+    ...ledger,
+    eventId: 'golden:island:1',
+    drawnAt: '2026-09-28T00:00:00Z',
+    sharePerMember: 25,
+    members: defaultMembers,
+  };
+
+  assert.equal(tracker.accept(ledger, 'session').display, true);
+  const merged = tracker.accept(realtime, 'session');
+  assert.equal(merged.display, false);
+  assert.deepEqual(merged.additionalMembers, [defaultMembers[1]]);
 });
 
 test('첫 페이지에 황금 물고기가 없어도 nextCursor를 따라 끝까지 조회한다', async () => {

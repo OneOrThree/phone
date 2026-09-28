@@ -1168,15 +1168,23 @@ function FocusFlow({ e }: any) {
       : s.lastResult
         ? s.lastResult.at - s.lastResult.seconds * 1_000
         : null;
-  const selfWasActiveAt = (atMs: number) => {
-    if (!actorUserId || !goldenSessionId) return false;
-    if (goldenIntervals?.length) {
+  const selfMemberAt = (atMs: number): GoldenFishEvent['members'] | null => {
+    if (!actorUserId || !goldenSessionId) return [];
+    if (goldenIntervals !== undefined) {
       if (goldenIntervals.some((interval) => interval.start <= atMs && atMs <= interval.end)) {
-        return true;
+        return [{ userId: actorUserId, sessionId: goldenSessionId }];
       }
-      return !!s.session && s.session.status === 'active' && atMs >= s.session.startedAt;
+      if (s.session && s.session.status === 'active' && atMs >= s.session.startedAt) {
+        return [{ userId: actorUserId, sessionId: goldenSessionId }];
+      }
+      return [];
     }
-    return goldenSessionStartedAt !== null && atMs >= goldenSessionStartedAt;
+    // 구버전 서버의 startedAt은 실제 시작이 아니라 serverNow anchor다. 휴식이 섞인 세션의
+    // ACTIVE 구간을 역산할 수 없으므로 원장 폴백을 보류하고 realtime 사건만 사용한다.
+    if (serverQuests) return null;
+    return goldenSessionStartedAt !== null && atMs >= goldenSessionStartedAt
+      ? [{ userId: actorUserId, sessionId: goldenSessionId }]
+      : [];
   };
   const goldenSessionEligibleUntil =
     s.session?.status === 'paused'
@@ -1194,13 +1202,10 @@ function FocusFlow({ e }: any) {
     sessionId: goldenSessionId,
     sessionStartedAt: goldenSessionStartedAt,
     sessionEligibleUntil: goldenSessionEligibleUntil,
-    membersAt: (atMs) => {
-      if (selfWasActiveAt(atMs)) return [{ userId: actorUserId!, sessionId: goldenSessionId! }];
-      // 서버가 준 ACTIVE 구간이 있으면 그 밖의 시각에는 내가 참여하지 않았음이 확정된다.
-      return goldenIntervals?.length ? [] : null;
-    },
+    membersAt: selfMemberAt,
     onGoldenFish: (event) => goldenHandler.current(event),
     clockOffsetMs: live.clockOffset,
+    recoveryVersion: live.snapshotVersion,
   });
   const recordGoldenCatch = (event: GoldenFishEvent) => {
     setGoldenCatches((current) => {
@@ -1239,7 +1244,11 @@ function FocusFlow({ e }: any) {
       (current.r !== 'focus' && current.r !== 'rest' && current.r !== 'focusResult')
     )
       return;
-    if (!goldenOccurrencesRef.current.accept(event, participantSessionId)) return;
+    const occurrence = goldenOccurrencesRef.current.accept(event, participantSessionId);
+    if (occurrence.additionalMembers.length > 0) {
+      recordGoldenCatch({ ...event, members: occurrence.additionalMembers });
+    }
+    if (!occurrence.display) return;
     if (current.r === 'rest') {
       goldenQueueRef.current.push(event);
       return;

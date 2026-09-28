@@ -235,6 +235,29 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   await screen.unmount();
 });
 
+test('원장 폴백 뒤 도착한 realtime 참여자를 중복 컷신 없이 더미에 병합한다', async () => {
+  const screen = await mount();
+  const selfOnly = event([{ userId: 'me', sessionId: 's-me' }], 'ledger:wallet-1');
+  const realtime = event([
+    { userId: 'me', sessionId: 's-me' },
+    { userId: 'minji', sessionId: 'minji' },
+  ]);
+
+  await act(async () => onGoldenFish?.(selfOnly));
+  await act(async () => onGoldenFish?.(realtime));
+
+  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(
+    screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props.goldenFishCount,
+    1,
+  );
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
+  assert.equal(screen.getByTestId('golden-peer-minji').props.goldenFishCount, 1);
+  await screen.unmount();
+});
+
 test('동작 줄이기에서는 컷신 없이 황금 물고기 더미만 즉시 반영한다', async () => {
   const state = focusedState();
   state.settings.reduceMotion = true;
