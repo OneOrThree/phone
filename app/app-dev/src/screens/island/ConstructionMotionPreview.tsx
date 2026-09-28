@@ -1,10 +1,11 @@
 import { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import {
   ConstructionBuildingSprite,
   type ConstructionBuildingId,
   type ConstructionPhase,
 } from '@/components/ConstructionBuildingSprite';
+import { Seg, Toggle } from '@/design-system/patterns';
 import { semanticTokens } from '@/design-system/tokens';
 
 const buildings: ReadonlyArray<{ id: ConstructionBuildingId; name: string; minutes: number }> = [
@@ -30,7 +31,12 @@ export function ConstructionMotionPreview() {
   const [reduceMotion, setReduceMotion] = useState(false);
   const [night, setNight] = useState(false);
   const columns = width >= 1180 ? 4 : width >= 760 ? 3 : width >= 500 ? 2 : 1;
-  const cardWidth = Math.min(270, Math.max(210, (width - 64 - (columns - 1) * 16) / columns));
+  const { page, component } = semanticTokens.spacing;
+  const cardWidth = Math.min(
+    270,
+    Math.max(210, (width - page * 2 - (columns - 1) * component) / columns),
+  );
+  const current = phases.find((item) => item.id === phase)!;
 
   return (
     <ScrollView style={styles.page} contentContainerStyle={styles.content}>
@@ -43,52 +49,33 @@ export function ConstructionMotionPreview() {
           </Text>
         </View>
         <View style={styles.toggleRow}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected: night }}
-            testID="toggle-night"
-            onPress={() => setNight((current) => !current)}
-            style={[styles.toggleButton, night && styles.selectedButton]}
-          >
-            <Text style={[styles.toggleButtonText, night && styles.selectedButtonText]}>
-              {night ? '밤 · 모션 꺼짐' : '낮'}
-            </Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ selected: reduceMotion }}
-            testID="toggle-reduce-motion"
-            onPress={() => setReduceMotion((current) => !current)}
-            style={[styles.toggleButton, reduceMotion && styles.selectedButton]}
-          >
-            <Text style={[styles.toggleButtonText, reduceMotion && styles.selectedButtonText]}>
-              Reduce Motion {reduceMotion ? 'ON' : 'OFF'}
-            </Text>
-          </Pressable>
+          <Seg
+            inset
+            items={['낮', '밤']}
+            value={night ? '밤' : '낮'}
+            onChange={(value: string) => setNight(value === '밤')}
+            style={styles.dayNight}
+          />
+          <View style={styles.reduceRow}>
+            <Text style={styles.reduceLabel}>Reduce Motion</Text>
+            <Toggle label="Reduce Motion" value={reduceMotion} onChange={setReduceMotion} />
+          </View>
         </View>
       </View>
 
       <View style={styles.phaseRow}>
-        {phases.map((item) => {
-          const selected = phase === item.id;
-          return (
-            <Pressable
-              key={item.id}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              testID={`phase-${item.id}`}
-              onPress={() => setPhase(item.id)}
-              style={[styles.phaseButton, selected && styles.selectedButton]}
-            >
-              <Text style={[styles.phaseLabel, selected && styles.selectedButtonText]}>
-                {item.label}
-              </Text>
-              <Text style={[styles.phaseRange, selected && styles.selectedButtonText]}>
-                {item.range}
-              </Text>
-            </Pressable>
-          );
-        })}
+        <Seg
+          inset
+          items={phases.map((item) => item.label)}
+          value={current.label}
+          onChange={(label: string) =>
+            setPhase(phases.find((item) => item.label === label)?.id ?? 'foundation')
+          }
+        />
+        <Text style={styles.phaseRange}>
+          진행률 {current.range}
+          {night ? ' · 밤에는 공사 모션을 재생하지 않습니다' : ''}
+        </Text>
       </View>
 
       <View style={styles.grid}>
@@ -146,41 +133,26 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   subtitle: { color: color.textMuted, fontSize: semanticTokens.typography.label, marginTop: 4 },
-  toggleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: semanticTokens.spacing.control },
-  phaseRow: { flexDirection: 'row', flexWrap: 'wrap', gap: semanticTokens.spacing.control },
-  phaseButton: {
-    minWidth: 128,
-    minHeight: semanticTokens.size.tapMin,
-    justifyContent: 'center',
-    paddingHorizontal: semanticTokens.spacing.component,
-    paddingVertical: 10,
-    borderRadius: semanticTokens.radius.control,
-    backgroundColor: color.surface,
-    borderWidth: semanticTokens.stroke.default,
-    borderColor: color.outline,
+  toggleRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: semanticTokens.spacing.component,
   },
-  phaseLabel: {
+  dayNight: { width: 160 },
+  reduceRow: {
+    minHeight: semanticTokens.size.tapMin,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: semanticTokens.spacing.control,
+  },
+  reduceLabel: {
     color: color.text,
     fontSize: semanticTokens.typography.label,
-    fontWeight: semanticTokens.typography.extraBold,
+    fontWeight: semanticTokens.typography.bold,
   },
-  phaseRange: { color: color.textMuted, fontSize: semanticTokens.typography.caption, marginTop: 2 },
-  toggleButton: {
-    minHeight: semanticTokens.size.tapMin,
-    justifyContent: 'center',
-    paddingHorizontal: semanticTokens.spacing.component,
-    borderRadius: semanticTokens.radius.control,
-    backgroundColor: color.surface,
-    borderWidth: semanticTokens.stroke.default,
-    borderColor: color.outline,
-  },
-  toggleButtonText: {
-    color: color.text,
-    fontSize: semanticTokens.typography.label,
-    fontWeight: semanticTokens.typography.extraBold,
-  },
-  selectedButton: { backgroundColor: color.primary },
-  selectedButtonText: { color: color.onPrimary },
+  phaseRow: { gap: semanticTokens.spacing.control },
+  phaseRange: { color: color.textMuted, fontSize: semanticTokens.typography.caption },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: semanticTokens.spacing.component },
   card: {
     overflow: 'hidden',
