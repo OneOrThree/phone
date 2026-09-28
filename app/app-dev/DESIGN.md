@@ -128,6 +128,7 @@ Primitive → Semantic → Component → Screen composition
 
 - Divider: Brown 20% (`#8B695633`)
 - Overlay: Ink 40% (`#493B3966`)
+- Cinematic overlay: Ink 65% (`#493B39A6`)
 - Bottom sheet overlay: Ink 25% (`#493B3940`)
 - Glass button: Paper 약 72%
 

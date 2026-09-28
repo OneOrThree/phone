@@ -27,3 +27,18 @@ jest.mock('expo-audio', () => ({
     loop: false,
   })),
 }));
+
+// expo-video의 네이티브 SharedObject는 Node 테스트 런타임에 없다.
+jest.mock('expo-video', () => ({
+  useVideoPlayer: jest.fn((_source, setup) => {
+    const player = {
+      loop: false,
+      muted: true,
+      play: jest.fn(),
+      pause: jest.fn(),
+    };
+    setup?.(player);
+    return player;
+  }),
+  VideoView: 'VideoView',
+}));
