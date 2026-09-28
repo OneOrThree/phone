@@ -83,6 +83,17 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
   ): Promise<'converted' | 'cancelled'> => {
     // 전환이 끝나면 저장된 세션은 새 계정의 것이다 — 이전 계정 판정은 시작 시에 잡는다.
     const previousUserId = sessionUserId();
+    // ② 확정 요청의 응답만 유실된 경우에는 ①부터 다시 시작하지 않고, 저장해 둔 확정
+    // attemptId로 같은 요청을 재생한다. 호출부도 이때 같은 provider credential을 보존한다.
+    if (pending?.provider === provider && pending.credential === credential && pending.confirmed) {
+      const replayed = await login(provider, credential, deps.termsVersion, {
+        attemptId: attemptIdFor(provider, credential, true),
+        accountSwitchConfirmed: true,
+      });
+      pending = null;
+      await deps.adopt(replayed, previousUserId);
+      return 'converted';
+    }
     try {
       const result = await login(provider, credential, deps.termsVersion, {
         attemptId: attemptIdFor(provider, credential, false),

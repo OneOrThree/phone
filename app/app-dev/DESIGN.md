@@ -88,6 +88,9 @@ Primitive → Semantic → Component → Screen composition
 | Placeholder    | Muted Brown    | `#796256` | 입력 힌트(텍스트 대비 4.5 이상)      |
 | Progress track | Progress Track | `#EADFD2` | 진행 배경                            |
 | Graph line     | Graph Line     | `#5FB6E3` | 통계 선 그래프                       |
+| Google border  | Google Border  | `#747775` | Google 로그인 버튼 공식 윤곽         |
+| Google text    | Google Text    | `#1F1F1F` | Google 로그인 버튼 공식 텍스트       |
+| LINE brand     | LINE Brand     | `#06C755` | LINE 로그인 버튼 공식 배경           |
 | White          | White          | `#FFFFFF` | 토글 손잡이 등 제한 사용             |
 | Black          | Black          | `#000000` | 투명 그림자 계산용                   |
 

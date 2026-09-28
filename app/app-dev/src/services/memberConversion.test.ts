@@ -133,6 +133,24 @@ test('convert 충돌 승인 — 같은 자격·새 attemptId·확정 신호·AT 
   assert.equal(adopted[0].result.userId, 'member-9');
 });
 
+test('convert 충돌 승인 응답 유실 — 확정 단계의 같은 attemptId로 재생한다', async () => {
+  const { conversion, calls, asked } = make([
+    conflict(),
+    new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0),
+    result('member-9'),
+  ]);
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  const outcome = await conversion.convert('apple', 'apple-jwt');
+
+  assert.equal(outcome, 'converted');
+  assert.equal(asked(), 1);
+  assert.equal(calls.length, 3);
+  assert.equal(calls[1].options?.accountSwitchConfirmed, true);
+  assert.equal(calls[2].options?.accountSwitchConfirmed, true);
+  assert.equal(calls[1].options?.attemptId, calls[2].options?.attemptId);
+});
+
 test('convert 실패 재시도 — 같은 자격은 같은 attemptId 로 서버 재생을 노린다', async () => {
   const { conversion, calls } = make([
     new ApiError('SERVER_ERROR', '서버 오류', 503, { retryable: true }),

@@ -6,6 +6,9 @@ const UNAVAILABLE = 'CLIENT_PROVIDER_UNAVAILABLE';
 const GOOGLE_IOS_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
   '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com';
+const GOOGLE_WEB_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
+  '899365616896-f9hggskoharr2uogdtvd0d2qvntle8ae.apps.googleusercontent.com';
 const LINE_CHANNEL_ID = process.env.EXPO_PUBLIC_LINE_CHANNEL_ID || '2011754820';
 let googleConfigured = false;
 let lineConfigured = false;
@@ -57,7 +60,7 @@ export async function socialCredential(
       const Google = await loaders.google();
       if (!googleConfigured) {
         Google.GoogleSignin.configure({
-          webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+          webClientId: GOOGLE_WEB_CLIENT_ID,
           iosClientId: GOOGLE_IOS_CLIENT_ID,
           scopes: ['profile', 'email'],
         });

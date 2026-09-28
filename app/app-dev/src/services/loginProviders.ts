@@ -13,6 +13,7 @@ export function loginProviders(
       ? 'android'
       : 'web',
 ): Provider[] {
+  if (platform === 'web') return [];
   const regional: Provider = languageCode?.toLowerCase() === 'ko' ? 'kakao' : 'line';
   if (platform === 'ios') return [regional, 'apple', 'google'];
   return [regional, 'google'];

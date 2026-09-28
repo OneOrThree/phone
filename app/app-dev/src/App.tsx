@@ -330,6 +330,7 @@ function Gromo() {
     credential: string;
     attemptId: string;
   } | null>(null);
+  const conversionLoginAttempt = useRef<{ provider: Provider; credential: string } | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
   const transition = useRef(new Animated.Value(1)).current,
@@ -752,16 +753,27 @@ function Gromo() {
     }
   };
   const pickProvider = async (provider: Provider) => {
+    if (conversionLoginAttempt.current?.provider !== provider)
+      conversionLoginAttempt.current = null;
     setConvUi((c) => (c ? { ...c, busy: provider, error: null } : c));
     try {
-      const credential = await getCredential(provider);
-      const outcome = await memberConversion.convert(provider, credential);
+      let attempt = conversionLoginAttempt.current;
+      if (!attempt) {
+        attempt = { provider, credential: await getCredential(provider) };
+        conversionLoginAttempt.current = attempt;
+      }
+      const outcome = await memberConversion.convert(provider, attempt.credential);
+      conversionLoginAttempt.current = null;
       if (outcome === 'converted') {
         captureProductEvent('member_conversion_completed', { provider });
         setConvUi(null);
         notify('회원으로 전환했어요.');
       } else setConvUi((c) => (c ? { ...c, busy: null } : c)); // 취소 — 시트로 돌아간다
     } catch (thrown) {
+      const retryableTransportFailure =
+        thrown instanceof ApiError &&
+        (thrown.code === CLIENT_TIMEOUT || thrown.code === CLIENT_NETWORK_ERROR);
+      if (!retryableTransportFailure) conversionLoginAttempt.current = null;
       if (isSocialLoginCancellation(thrown)) {
         setConvUi((c) => (c ? { ...c, busy: null, error: null } : c));
         return;

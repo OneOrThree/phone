@@ -1,5 +1,4 @@
-const kakaoNativeAppKey =
-  process.env.EXPO_PUBLIC_KAKAO_NATIVE_APP_KEY || '1280641e9b639a279b7406f24b059703';
+const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const googleIosClientId =
   process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
   '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com';

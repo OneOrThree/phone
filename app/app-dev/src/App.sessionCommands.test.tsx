@@ -208,6 +208,39 @@ test('회원 전환은 소셜 성공 시 닫히고 사용자 취소 시 오류 �
   await waitFor(() => assert.ok(screen!.getByText('문제가 생겼어요. 다시 시도해 주세요.')));
 });
 
+test('회원 전환 응답 유실 재시도는 같은 소셜 자격을 재사용한다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+  mockSocialCredential.mockResolvedValueOnce('google-id-token');
+  mockApiLogin
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0))
+    .mockResolvedValueOnce({
+      accessToken: 'AT',
+      refreshToken: 'RT',
+      userId: 'guest',
+      onboardingComplete: true,
+    });
+  let screen: Awaited<ReturnType<typeof render>>;
+  await act(async () => {
+    screen = await render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(typeof captured.conversion?.offer, 'function'));
+  await act(async () => {
+    captured.conversion.offer(
+      new ApiError('SOCIAL_LOGIN_REQUIRED', '소셜 로그인이 필요합니다.', 403),
+    );
+  });
+
+  await fireEvent.press(screen!.getByText('Google로 계속하기'));
+  await waitFor(() => assert.ok(screen!.getByText('네트워크 오류')));
+  await fireEvent.press(screen!.getByText('Google로 계속하기'));
+
+  assert.equal(mockSocialCredential.mock.calls.length, 1);
+  assert.equal(mockApiLogin.mock.calls.length, 2);
+  assert.equal(mockApiLogin.mock.calls[0][1], mockApiLogin.mock.calls[1][1]);
+  assert.equal(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
+});
+
 test('CurrentScreens에는 실제 공개 세션이 있을 때만 서버 섬·집중 명령을 주입한다', async () => {
   await act(async () => {
     render(<App />);

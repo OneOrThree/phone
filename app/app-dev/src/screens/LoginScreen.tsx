@@ -2,7 +2,7 @@ import React from 'react';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Btn, C, Pic, Txt, k } from '@/design-system/patterns';
-import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import type { Provider } from '@/services/api/auth';
 import { useAppLayout } from '@/utils/layout';
 
@@ -20,15 +20,15 @@ const LINE_LOGIN_ASSET = require('@/assets/login/line_login_logo_3x.png');
 const BRAND_BUTTON = {
   google: {
     asset: GOOGLE_LOGIN_ASSET,
-    backgroundColor: primitiveTokens.color.white,
-    borderColor: '#747775',
-    textColor: '#1F1F1F',
+    backgroundColor: componentTokens.loginButton.googleBackground,
+    borderColor: componentTokens.loginButton.googleBorder,
+    textColor: componentTokens.loginButton.googleForeground,
   },
   line: {
     asset: LINE_LOGIN_ASSET,
-    backgroundColor: '#06C755',
-    borderColor: '#06C755',
-    textColor: primitiveTokens.color.white,
+    backgroundColor: componentTokens.loginButton.lineBackground,
+    borderColor: componentTokens.loginButton.lineBackground,
+    textColor: componentTokens.loginButton.lineForeground,
   },
 } as const;
 
@@ -76,7 +76,8 @@ export function LoginScreen({
           onPress={onProviderPress ? () => onProviderPress(provider) : undefined}
           style={({ pressed }) => ({
             width: '100%',
-            height: 54,
+            minHeight: 54,
+            paddingVertical: primitiveTokens.space[3],
             borderRadius: semanticTokens.radius.full,
             overflow: 'hidden',
             opacity: disabled ? 0.45 : pressed ? 0.82 : 1,

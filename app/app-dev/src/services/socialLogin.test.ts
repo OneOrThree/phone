@@ -67,6 +67,7 @@ test('각 제공자의 서버 자격 토큰을 반환한다', async () => {
   await expect(socialCredential('line', loaders)).resolves.toBe('line-access');
   expect(mockGoogleConfigure).toHaveBeenCalledWith(
     expect.objectContaining({
+      webClientId: '899365616896-f9hggskoharr2uogdtvd0d2qvntle8ae.apps.googleusercontent.com',
       iosClientId: '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com',
     }),
   );
