@@ -63,17 +63,21 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
   let pending: {
     provider: Provider;
     credential: string;
-    confirmed: boolean;
+    mode: 'initial' | 'confirmed' | 'recovery';
     attemptId: string;
   } | null = null;
 
-  const attemptIdFor = (provider: Provider, credential: string, confirmed: boolean) => {
+  const attemptIdFor = (
+    provider: Provider,
+    credential: string,
+    mode: 'initial' | 'confirmed' | 'recovery',
+  ) => {
     if (
       pending?.provider !== provider ||
       pending.credential !== credential ||
-      pending.confirmed !== confirmed
+      pending.mode !== mode
     )
-      pending = { provider, credential, confirmed, attemptId: newAttemptId() };
+      pending = { provider, credential, mode, attemptId: newAttemptId() };
     return pending.attemptId;
   };
 
@@ -85,10 +89,39 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     const previousUserId = sessionUserId();
     // ② 확정 요청의 응답만 유실된 경우에는 ①부터 다시 시작하지 않고, 저장해 둔 확정
     // attemptId로 같은 요청을 재생한다. 호출부도 이때 같은 provider credential을 보존한다.
-    if (pending?.provider === provider && pending.credential === credential && pending.confirmed) {
+    if (
+      pending?.provider === provider &&
+      pending.credential === credential &&
+      pending.mode === 'confirmed'
+    ) {
+      let replayed: LoginResult;
+      try {
+        replayed = await login(provider, credential, deps.termsVersion, {
+          attemptId: attemptIdFor(provider, credential, 'confirmed'),
+          accountSwitchConfirmed: true,
+        });
+      } catch (error) {
+        // 확정 attempt의 게스트 삭제만 커밋되면 같은 attempt는 탈퇴된 게스트 AT 검사에서
+        // USER_NOT_FOUND로 끝난다(LLD §2.1). 새 attempt로 AT 없이 대상 회원 로그인을 잇는다.
+        if (!(error instanceof ApiError && error.status === 404 && error.code === 'USER_NOT_FOUND'))
+          throw error;
+        pending = { provider, credential, mode: 'recovery', attemptId: newAttemptId() };
+        replayed = await login(provider, credential, deps.termsVersion, {
+          attemptId: pending.attemptId,
+        });
+      }
+      pending = null;
+      await deps.adopt(replayed, previousUserId);
+      return 'converted';
+    }
+    // 부분 커밋 복구 로그인도 응답 유실 시 같은 시도 ID로 재생한다. AT와 확정 신호는 싣지 않는다.
+    if (
+      pending?.provider === provider &&
+      pending.credential === credential &&
+      pending.mode === 'recovery'
+    ) {
       const replayed = await login(provider, credential, deps.termsVersion, {
-        attemptId: attemptIdFor(provider, credential, true),
-        accountSwitchConfirmed: true,
+        attemptId: attemptIdFor(provider, credential, 'recovery'),
       });
       pending = null;
       await deps.adopt(replayed, previousUserId);
@@ -96,7 +129,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     }
     try {
       const result = await login(provider, credential, deps.termsVersion, {
-        attemptId: attemptIdFor(provider, credential, false),
+        attemptId: attemptIdFor(provider, credential, 'initial'),
         attachCurrentSession: true,
       });
       pending = null;
@@ -112,7 +145,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     }
     // ② 확정 — 의도가 바뀌었으므로 새 attemptId(attemptIdFor 가 갈아 끼운다). AT 없이 보낸다.
     const result = await login(provider, credential, deps.termsVersion, {
-      attemptId: attemptIdFor(provider, credential, true),
+      attemptId: attemptIdFor(provider, credential, 'confirmed'),
       accountSwitchConfirmed: true,
     });
     pending = null;

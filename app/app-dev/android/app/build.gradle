@@ -84,16 +84,23 @@ def jscFlavor = 'io.github.react-native-community:jsc-android:2026004.+'
 def releaseCredentialsDir = new File(rootProject.projectDir, "credentials/prod")
 def releaseKeystorePropertiesFile = new File(releaseCredentialsDir, "keystore.properties")
 def releaseKeystoreProperties = new Properties()
-def isReleaseBuild = gradle.startParameter.taskNames.any { taskName ->
-    taskName.toLowerCase().contains("release")
-}
 
 if (releaseKeystorePropertiesFile.exists()) {
     releaseKeystorePropertiesFile.withInputStream { releaseKeystoreProperties.load(it) }
-} else if (isReleaseBuild) {
-    throw new GradleException(
-        "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."
-    )
+}
+
+// Inspect the resolved task graph so aggregate tasks such as `build` and
+// `assemble` also require production signing credentials when they include a
+// release variant. Checking only startParameter.taskNames misses those tasks.
+gradle.taskGraph.whenReady { taskGraph ->
+    def includesReleaseTask = taskGraph.allTasks.any { task ->
+        task.project == project && task.name.toLowerCase(Locale.ROOT).contains("release")
+    }
+    if (includesReleaseTask && !releaseKeystorePropertiesFile.exists()) {
+        throw new GradleException(
+            "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."
+        )
+    }
 }
 
 android {

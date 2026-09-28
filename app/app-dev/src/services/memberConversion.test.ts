@@ -151,6 +151,31 @@ test('convert 충돌 승인 응답 유실 — 확정 단계의 같은 attemptId�
   assert.equal(calls[1].options?.attemptId, calls[2].options?.attemptId);
 });
 
+test('convert 확정 재생 USER_NOT_FOUND — 새 attempt와 AT 없이 회원 로그인으로 복구하고 재시도 ID를 유지한다', async () => {
+  const { conversion, calls, adopted } = make([
+    conflict(),
+    new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0),
+    new ApiError('USER_NOT_FOUND', '사용자를 찾을 수 없습니다.', 404),
+    new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0),
+    result('member-9'),
+  ]);
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  const outcome = await conversion.convert('apple', 'apple-jwt');
+
+  assert.equal(outcome, 'converted');
+  assert.equal(calls.length, 5);
+  assert.equal(calls[2].options?.accountSwitchConfirmed, true);
+  assert.notEqual(calls[3].options?.attemptId, calls[2].options?.attemptId);
+  assert.equal(calls[3].options?.accountSwitchConfirmed, undefined);
+  assert.equal(calls[3].options?.attachCurrentSession, undefined);
+  assert.equal(calls[4].options?.attemptId, calls[3].options?.attemptId);
+  assert.equal(calls[4].options?.accountSwitchConfirmed, undefined);
+  assert.equal(calls[4].options?.attachCurrentSession, undefined);
+  assert.equal(adopted[0].result.userId, 'member-9');
+});
+
 test('convert 실패 재시도 — 같은 자격은 같은 attemptId 로 서버 재생을 노린다', async () => {
   const { conversion, calls } = make([
     new ApiError('SERVER_ERROR', '서버 오류', 503, { retryable: true }),
