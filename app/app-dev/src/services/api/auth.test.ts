@@ -555,6 +555,36 @@ test('logout — 게스트 ID 회전 표식을 어디에도 못 쓰면 세션·�
   }
 });
 
+test('logout — 호출부가 확인한 준비 결과를 재사용하고 다시 준비하지 않는다', async () => {
+  const writeAsync = AsyncStorage.setItem as jest.Mock;
+  const realWriteAsync = writeAsync.getMockImplementation() as (
+    key: string,
+    value: string,
+  ) => Promise<void>;
+  try {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    // 첫 준비는 이미 성공했다. 두 번째 준비를 시도하면 이 쓰기 실패로 정리가 취소된다.
+    writeAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.guestDeviceIdRotationPending') throw new Error('AsyncStorage 쓰기 실패');
+      return realWriteAsync(key, value);
+    });
+    write.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.guestDeviceIdRotationPending') throw new Error('키체인 쓰기 실패');
+      return realWrite(key, value);
+    });
+    stub([{ status: 200, body: { data: { revoked: true } } }]);
+
+    await logout(Promise.resolve());
+
+    assert.equal(getSession(), null);
+    assert.equal(calls.length, 1);
+    assert.equal(header(calls[0], 'X-Refresh-Token'), 'RT');
+  } finally {
+    writeAsync.mockImplementation(realWriteAsync);
+    write.mockImplementation(realWrite);
+  }
+});
+
 test('logout — 로컬 삭제가 실패해도 서버 폐기는 보낸다', async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   remove.mockImplementation(async (key: string) => {

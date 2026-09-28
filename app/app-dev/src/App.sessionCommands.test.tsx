@@ -28,7 +28,7 @@ const mockDecideBootRoute = jest.fn();
 const mockSyncIslands = jest.fn();
 const mockRecoverFocus = jest.fn();
 const mockPrepareLogout = jest.fn();
-const mockLogout = jest.fn(async () => {});
+const mockLogout = jest.fn(async (_prepared?: Promise<void>) => {});
 let mockEmitAppLink: ((url: string) => void) | undefined;
 let mockAppDispatch: ((action: any) => void) | undefined;
 const mockAdoptSignedInAccount = jest.fn(
@@ -53,7 +53,7 @@ jest.mock('@/services/api/auth', () => ({
   checkSession: (...args: unknown[]) => mockCheckSession(...args),
   guestLogin: (...args: unknown[]) => mockGuestLogin(...args),
   login: (...args: unknown[]) => mockApiLogin(...args),
-  logout: () => mockLogout(),
+  logout: (prepared?: Promise<void>) => mockLogout(prepared),
   prepareLogout: () => mockPrepareLogout(),
 }));
 
@@ -163,6 +163,9 @@ beforeEach(async () => {
   mockRecoverFocus.mockResolvedValue(null);
   mockAppDispatch = undefined;
   await clearSession();
+  // 앞 테스트의 앱 저장본(섬·온보딩 상태)이 다음 테스트의 부팅 LOAD로 새지 않게 비운다.
+  // removeItem 호출 수를 세는 테스트가 있어 multiRemove로 지운다.
+  await AsyncStorage.multiRemove(['gromo-r61-user-v2']);
 });
 
 test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이전 저장본을 비우고 owner를 갱신한다', async () => {
@@ -1082,11 +1085,58 @@ test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 �
   assert.equal(mockLogout.mock.calls.length, 0);
   assert.ok(screen.getByText(/로그아웃하지 못했어요/));
 
+  const prepared = Promise.resolve();
+  mockPrepareLogout.mockReturnValueOnce(prepared);
   await act(async () => {
     result = await captured.signOut();
   });
   assert.equal(result, true);
   assert.equal(mockLogout.mock.calls.length, 1);
+  // 화면 전환 판단에 쓴 준비 결과를 실제 정리에 그대로 넘긴다 — 다시 준비하지 않는다.
+  assert.equal(mockLogout.mock.calls[0][0], prepared);
+  assert.equal(mockPrepareLogout.mock.calls.length, 2);
+});
+
+test('계정·섬 온보딩이 끝날 때까지 지원 딥링크를 보관한다', async () => {
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.ok(mockEmitAppLink));
+  const memberships = (currentIslandId: string | null) => ({
+    items: [],
+    nextCursor: null,
+    currentIslandId,
+    lossReason: null,
+  });
+  await act(async () => {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: memberships(null),
+      requests: [],
+      mainIslandId: null,
+    });
+  });
+  await act(async () => captured.reset('character'));
+  await waitFor(() => assert.equal(captured.state.onboarded, false));
+
+  await act(async () => mockEmitAppLink!('gromo://friends'));
+  assert.equal(captured.route, 'character');
+  await act(async () => captured.reset('chooseIsland'));
+  assert.equal(captured.route, 'chooseIsland');
+
+  await act(async () => {
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: memberships('island-1'),
+      requests: [],
+      mainIslandId: 'island-1',
+    });
+    captured.reset('home');
+  });
+  await waitFor(() => assert.equal(captured.route, 'friends'));
 });
 
 test('미인증 상태의 지원 불가 레거시 링크는 로그인 화면을 벗어난 뒤에 홈 안내로 처리한다', async () => {
@@ -1107,7 +1157,15 @@ test('미인증 상태의 지원 불가 레거시 링크는 로그인 화면을 
   });
   assert.equal(screen.queryByText(/지원하지 않아 홈으로 이동했어요/), null);
 
-  await act(async () => captured.reset('home'));
+  await act(async () => {
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: { items: [], nextCursor: null, currentIslandId: 'island-1', lossReason: null },
+      requests: [],
+      mainIslandId: 'island-1',
+    });
+    captured.reset('home');
+  });
   await waitFor(() => assert.ok(screen.getByText(/지원하지 않아 홈으로 이동했어요/)));
   assert.equal(captured.route, 'home');
 });

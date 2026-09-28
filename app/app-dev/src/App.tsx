@@ -266,6 +266,16 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
+// 딥링크를 보관만 하는 화면 — 로그인과 계정·섬 온보딩 단계.
+const DEEP_LINK_HOLD_ROUTES: Route[] = [
+  'login',
+  'character',
+  'chooseIsland',
+  'createIsland',
+  'joinIsland',
+  'approval',
+];
+
 function Gromo() {
   const layout = useAppLayout();
   const insets = useScreenInsets();
@@ -553,8 +563,10 @@ function Gromo() {
     // 딥링크가 로그인 화면을 우회해 회원 전용 화면을 노출하지 않게 한다.
     // 로그인 응답으로 session store만 먼저 바뀌는 틈이 있다. 채택 완료로 login route가
     // 벗어난 뒤 처리해야 이후 /me·온보딩 경로 판정이 링크 목적지를 덮지 않는다.
+    // 인증 완료와 계정·섬 온보딩 완료는 별개다. 캐릭터·섬 선택 중에 링크를 소비하면 필수
+    // 온보딩을 건너뛰므로, 온보딩이 끝나 해당 화면들을 벗어날 때까지 보관한다.
     // 지원하지 않는 초대·그룹 링크도 같은 guard 뒤에서 홈 이동과 안내를 함께 처리한다.
-    if (!hasServerSession || route === 'login') return;
+    if (!hasServerSession || !state.onboarded || DEEP_LINK_HOLD_ROUTES.includes(route)) return;
     setIncomingAppLink(null);
     if (target.kind === 'unsupported') {
       goRef.current('home');
@@ -562,7 +574,7 @@ function Gromo() {
       return;
     }
     goRef.current(target.route);
-  }, [loaded, incomingAppLink, hasServerSession, route]);
+  }, [loaded, incomingAppLink, hasServerSession, state.onboarded, route]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({
     dispatch,
@@ -1555,9 +1567,11 @@ function Gromo() {
   // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.
   // 로그인 화면으로 넘어가도 되면 true. 기기에 로그아웃을 기록하지 못하면 세션이 남으므로 false.
   const signOut = async (): Promise<boolean> => {
+    let preparation: Promise<void> | undefined;
     if (!REVIEW && !DEMO) {
+      preparation = prepareLogout();
       try {
-        await prepareLogout();
+        await preparation;
       } catch {
         notify('기기 저장 공간 문제로 로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.');
         return false;
@@ -1571,7 +1585,8 @@ function Gromo() {
     setTerms(false);
     settleSwitch(false);
     void endLiveActivities().catch(() => {});
-    logout().catch(() => {});
+    // 확인한 준비 결과를 실제 정리에 넘긴다 — logout 이 다시 준비하면 그 실패는 여기서 못 본다.
+    logout(preparation).catch(() => {});
     return true;
   };
   const send = () => {

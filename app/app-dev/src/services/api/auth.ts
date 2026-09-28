@@ -314,12 +314,14 @@ function revokeRefreshToken(refreshToken: string): Promise<{ revoked: boolean }>
  * 서버가 401 로 거절해 **RT 만 보냈으면 폐기됐을 서버 세션이 그대로 남는다**(LLD §2.4 :108
  * 「만료 AT 를 실어 보내면 401 이므로 앱은 RT 만으로 로그아웃할 수 있다」).
  */
-export async function logout(): Promise<void> {
+export async function logout(prepared?: Promise<void>): Promise<void> {
   let refreshToken = getSession()?.refreshToken;
   // 게스트 회전 표식·tombstone을 남기지 못하면 로컬도 서버도 건드리지 않고 실패한다 — 세션을
   // 계속 쓰는 편이 «로그아웃된 줄 알았는데 재실행 때 되살아나는» 상태보다 낫다.
   // 준비·회전·정리를 모두 동기적으로 줄에 세워, 늦은 로그인 저장이 정리보다 앞서지 못하게 한다.
-  const preparation = prepareLogout();
+  // 호출부가 이미 준비를 끝냈으면(화면 전환 판단에 쓴 결과) 그 결과를 그대로 쓴다.
+  // 다시 준비하면 두 번째 실패가 삼켜져 화면은 로그아웃인데 세션이 남는다.
+  const preparation = prepared ?? prepareLogout();
   // 로컬 삭제와 서버 폐기는 **서로 독립**이다(LLD §2.4 「양쪽 실패에도 각각 진행」).
   // 여기만 fence 가 **없다** — 401 정리·checkSession 과 달리 사용자가 직접 누른 로그아웃은
   // 그 사이 로그인이 끝났더라도 이겨야 한다. 무엇을 지웠는지는 cleared 로 되받아 교정한다.
