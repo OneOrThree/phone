@@ -124,6 +124,10 @@ beforeEach(async () => {
   process.env.EXPO_PUBLIC_TERMS_VERSION = 'test-terms-v1';
   captured = undefined;
   jest.clearAllMocks();
+  // clearAllMocks는 *Once 큐를 비우지 않는다. 소비되지 않은 응답이 다음 테스트로 새지 않게 비운다.
+  mockApiLogin.mockReset();
+  mockSocialCredential.mockReset();
+  mockGuestLogin.mockReset();
   mockCheckSession.mockResolvedValue({ status: 'offline' });
   mockRestoreSession.mockResolvedValue(null);
   mockDecideBootRoute.mockResolvedValue('login');
@@ -374,11 +378,15 @@ test('약관 버전 미설정 시 소셜 로그인과 회원 전환 경로를 �
 
 test('소셜 로그인은 SDK 자격을 서버에 보내고 취소는 오류로 표시하지 않는다', async () => {
   mockSocialCredential.mockResolvedValueOnce('google-id-token');
-  mockApiLogin.mockResolvedValueOnce({
-    accessToken: 'AT',
-    refreshToken: 'RT',
-    userId: 'u1',
-    onboardingComplete: true,
+  mockApiLogin.mockImplementationOnce(async () => {
+    const result = {
+      accessToken: 'AT',
+      refreshToken: 'RT',
+      userId: 'u1',
+      onboardingComplete: true,
+    };
+    await saveSession(result);
+    return result;
   });
   await act(async () => {
     render(<App />);
@@ -395,9 +403,13 @@ test('소셜 로그인은 SDK 자격을 서버에 보내고 취소는 오류로 
   assert.equal(mockAdoptSignedInAccount.mock.calls.length, 1);
   await waitFor(() => assert.equal(captured.socialBusy, null));
   assert.equal(captured.socialError, '');
+  // 새 세션 저장으로 generation이 바뀌면 이전 동의는 초기화된다.
+  await waitFor(() => assert.equal(captured.terms, false));
 
+  await act(async () => captured.setTerms(true));
   mockSocialCredential.mockRejectedValueOnce({ code: 'SIGN_IN_CANCELLED' });
   await act(async () => captured.startSocial('google'));
+  assert.equal(mockSocialCredential.mock.calls.length, 2);
   await waitFor(() => assert.equal(captured.socialBusy, null));
   assert.equal(captured.socialError, '');
 });
@@ -713,8 +725,8 @@ test('회원 전환 동의는 provider 실행을 잠그고 시트 닫기·세션
 
   await act(async () => offer());
   const checkbox = screen!.getByTestId('member-conversion-terms');
-  assert.ok(screen!.getByTestId('member-conversion-terms-link'));
-  assert.ok(screen!.getByTestId('member-conversion-privacy-link'));
+  assert.ok(screen!.getByTestId('policy-link-terms'));
+  assert.ok(screen!.getByTestId('policy-link-privacy'));
   assert.equal(checkbox.props.accessibilityState.checked, false);
   assert.equal(screen!.getByLabelText('Google로 계속하기').props.accessibilityState.disabled, true);
   await fireEvent.press(screen!.getByLabelText('Google로 계속하기'));
@@ -850,6 +862,109 @@ test('계정 전환 중 로컬 저장 삭제 실패는 채택과 owner 갱신을
   assert.equal(getLastSessionUserId(), 'guest');
   assert.equal(captured.socialError, '로그인을 완료하지 못했어요. 다시 시도해 주세요.');
   remove.mockRestore();
+});
+
+test('A→B 채택 진행 중과 실패 뒤에는 B 상태를 A owner 아래 저장하지 않는다', async () => {
+  const storageKey = 'gromo-r61-user-v2';
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  await rememberLocalDataOwner('user-a');
+  await AsyncStorage.setItem(
+    storageKey,
+    JSON.stringify({
+      ...initialState(true),
+      name: 'A-private-state',
+      settings: { ...initialState(true).settings },
+    }),
+  );
+  mockRestoreSession.mockImplementation(() =>
+    jest.requireActual('@/services/api/session').restoreSession(),
+  );
+  mockCheckSession.mockResolvedValue({
+    status: 'active',
+    account: {
+      id: 'user-a',
+      name: 'A',
+      catColor: null,
+      mainIslandId: null,
+      linkedProviders: [],
+      onboardingComplete: true,
+    },
+  });
+  mockDecideBootRoute.mockResolvedValue('home');
+
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  await waitFor(() => assert.equal(getLastSessionUserId(), 'user-a'));
+
+  mockSocialCredential.mockResolvedValueOnce('google-id-token');
+  mockApiLogin.mockImplementationOnce(async () => {
+    const result = {
+      accessToken: 'B_AT',
+      refreshToken: 'B_RT',
+      userId: 'user-b',
+      onboardingComplete: true,
+    };
+    await saveSession(result);
+    return result;
+  });
+  let rejectNavigate!: (error: Error) => void;
+  let markNavigationStarted!: () => void;
+  const navigationStarted = new Promise<void>((resolve) => {
+    markNavigationStarted = resolve;
+  });
+  const bootDecisionCount = mockDecideBootRoute.mock.calls.length;
+  mockDecideBootRoute.mockImplementation(async () => {
+    if (mockDecideBootRoute.mock.calls.length > bootDecisionCount) {
+      markNavigationStarted();
+      return new Promise((_resolve, reject) => (rejectNavigate = reject));
+    }
+    return 'home';
+  });
+  let resetLocalCalls = 0;
+  mockAdoptSignedInAccount.mockImplementationOnce(
+    async (result: any, previousUserId: string | null, deps: any) => {
+      const account = {
+        id: result.userId,
+        name: 'B',
+        catColor: null,
+        mainIslandId: null,
+        linkedProviders: [],
+        onboardingComplete: true,
+      };
+      if (previousUserId !== result.userId) {
+        resetLocalCalls += 1;
+        await deps.resetLocal();
+      }
+      deps.applyAccount(account);
+      await deps.navigate(account);
+      return account;
+    },
+  );
+
+  await act(async () => captured.setTerms(true));
+  let login!: Promise<void>;
+  await act(async () => {
+    login = captured.startSocial('google');
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(mockAdoptSignedInAccount.mock.calls.length, 1));
+  await navigationStarted;
+  assert.equal(resetLocalCalls, 1);
+  await waitFor(() => assert.equal(captured.state.name, 'B'));
+  const whileNavigating = await AsyncStorage.getItem(storageKey);
+  assert.ok(!whileNavigating || JSON.parse(whileNavigating).name !== 'B');
+  assert.equal(getLastSessionUserId(), 'user-a');
+
+  await act(async () => rejectNavigate(new Error('B route sync failed')));
+  await act(async () => login);
+  const afterFailure = await AsyncStorage.getItem(storageKey);
+  assert.ok(!afterFailure || JSON.parse(afterFailure).name !== 'B');
+  assert.equal(getLastSessionUserId(), 'user-a');
+  mockDecideBootRoute.mockReset();
 });
 
 test('CurrentScreens에는 실제 공개 세션이 있을 때만 서버 섬·집중 명령을 주입한다', async () => {

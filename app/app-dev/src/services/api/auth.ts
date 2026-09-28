@@ -70,6 +70,9 @@ const GUEST_DEVICE_ID_KEY = 'gromo.guestDeviceId';
 const GUEST_DEVICE_ID_ROTATION_PENDING_KEY = 'gromo.guestDeviceIdRotationPending';
 let guestDeviceIdFlight: Promise<string> | null = null;
 let guestDeviceIdQueue: Promise<unknown> = Promise.resolve();
+let guestDeviceIdEpoch = 0;
+let guestDeviceIdRotationFlight: Promise<void> | null = null;
+let guestDeviceIdRotationRequested = false;
 
 function serializeGuestDeviceId<T>(work: () => Promise<T>): Promise<T> {
   const done = guestDeviceIdQueue.then(work, work);
@@ -78,21 +81,44 @@ function serializeGuestDeviceId<T>(work: () => Promise<T>): Promise<T> {
 }
 
 async function finishGuestDeviceIdRotation(): Promise<void> {
-  if ((await AsyncStorage.getItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY)) !== '1') return;
+  const [asyncMarker, secureMarker] = await Promise.all([
+    AsyncStorage.getItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY),
+    SecureStore.getItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY),
+  ]);
+  if (!guestDeviceIdRotationRequested && asyncMarker !== '1' && secureMarker !== '1') return;
   await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
   const fresh = uuid();
   await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, fresh);
   await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+  await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+  guestDeviceIdRotationRequested = false;
 }
 
 /** Durable logout intent; a later guest request retries rotation if SecureStore deletion failed. */
 function rotateGuestDeviceId(): Promise<void> {
   guestDeviceIdFlight = null;
-  return serializeGuestDeviceId(async () => {
-    await AsyncStorage.setItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
+  guestDeviceIdEpoch += 1;
+  guestDeviceIdRotationRequested = true;
+  const markerWrite = AsyncStorage.setItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1').catch(
+    async () => SecureStore.setItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1'),
+  );
+  const rotation = serializeGuestDeviceId(async () => {
+    await markerWrite;
     await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
     await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+    await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+    guestDeviceIdRotationRequested = false;
   });
+  guestDeviceIdRotationFlight = rotation;
+  void rotation.then(
+    () => {
+      if (guestDeviceIdRotationFlight === rotation) guestDeviceIdRotationFlight = null;
+    },
+    () => {
+      if (guestDeviceIdRotationFlight === rotation) guestDeviceIdRotationFlight = null;
+    },
+  );
+  return rotation;
 }
 
 /** 재시도에도 같은 기기 ID를 보내야 201 응답 유실이 중복 게스트 계정이 되지 않는다. */
@@ -120,7 +146,15 @@ async function guestDeviceId(): Promise<string> {
 export async function guestLogin(): Promise<LoginResult> {
   const generation = sessionGeneration();
   const previous = getSession();
-  const deviceId = await guestDeviceId();
+  let deviceEpoch = guestDeviceIdEpoch;
+  let deviceId = await guestDeviceId();
+  while (deviceEpoch !== guestDeviceIdEpoch) {
+    deviceEpoch = guestDeviceIdEpoch;
+    await guestDeviceIdRotationFlight?.catch(() => {});
+    deviceId = await guestDeviceId();
+  }
+  if (generation !== sessionGeneration())
+    throw new ApiError(CLIENT_STALE_SESSION, '로그인 정보가 바뀌었어요. 다시 시도해 주세요.', 0);
   const result = await request<LoginResult>('/auth/sessions/guest', {
     method: 'POST',
     auth: false,
@@ -255,7 +289,9 @@ export async function logout(): Promise<void> {
   // 로컬을 먼저 끝내되(느린 네트워크 중 앱이 죽어도 토큰이 남지 않는다) 키체인 삭제가
   // 던졌다는 이유로 서버 폐기를 건너뛰지 않는다 — 건너뛰면 서버 세션이 그대로 남는다.
   // clearSession 은 커밋 마커를 먼저 지우고, 실패해도 나머지를 마저 지운 뒤에 던진다.
-  const clearFailure = await clearSession().then(
+  const guestDeviceRotationFlight = rotateGuestDeviceId();
+  const clearSessionFlight = clearSession(undefined, false, true);
+  const clearFailure = await clearSessionFlight.then(
     (cleared) => {
       // 폐기 대상은 «정리 시점»의 세션이다. 진행 중이던 로그인이 줄 앞에서 먼저 공개했으면
       // 위에서 읽은 RT 는 이미 옛 세션의 것이고, 새 세션이 서버에 살아남는다.
@@ -268,11 +304,9 @@ export async function logout(): Promise<void> {
   // 명시 로그아웃으로 로컬 세션 정리가 확정된 경우에만 ID를 폐기해 다음 게스트 시작은 새 계정이 된다.
   let guestDeviceIdClearFailure: unknown = null;
   if (!clearFailure) {
-    try {
-      await rotateGuestDeviceId();
-    } catch (error) {
+    await guestDeviceRotationFlight.catch((error: unknown) => {
       guestDeviceIdClearFailure = error;
-    }
+    });
   }
   if (refreshToken) await revokeRefreshToken(refreshToken);
   if (clearFailure) throw clearFailure;

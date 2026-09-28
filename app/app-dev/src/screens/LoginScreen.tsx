@@ -3,8 +3,8 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import { ActivityIndicator, Image, Platform, Pressable, ScrollView, View } from 'react-native';
 import { Btn, C, Pic, Txt, k } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
+import { PolicyLink } from '@/components/PolicyLink';
 import type { Provider } from '@/services/api/auth';
-import { openLegalDocument } from '@/services/legalDocuments';
 import { useAppLayout } from '@/utils/layout';
 
 const LABEL: Record<Provider, string> = {
@@ -287,6 +287,9 @@ export function LoginScreen({
       <Pressable
         testID="login-terms"
         accessibilityRole="checkbox"
+        accessibilityLabel={
+          termsVersion ? `현재 약관 버전 ${termsVersion}에 동의합니다` : undefined
+        }
         accessibilityState={{ checked: termsAccepted, disabled: busy }}
         disabled={busy}
         onPress={() => onTermsAcceptedChange(!termsAccepted)}
@@ -307,35 +310,10 @@ export function LoginScreen({
           {termsAccepted && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
         <Txt kind="meta" style={{ flex: 1 }}>
-          {termsVersion
-            ? `이용약관(${termsVersion}) 및 개인정보 처리방침에 동의해요.`
-            : '이용약관과 개인정보 안내에 동의해요.'}
+          {termsVersion ? `현재 약관 버전 ${termsVersion}: ` : ''}
+          <PolicyLink policy="terms" /> 및 <PolicyLink policy="privacy" />에 동의해요.
         </Txt>
       </Pressable>
-      <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18, marginLeft: 36 }}>
-        <Pressable
-          testID="login-terms-link"
-          accessibilityRole="link"
-          accessibilityLabel="이용약관 열기"
-          onPress={() => void openLegalDocument('terms')}
-          hitSlop={8}
-        >
-          <Txt kind="meta" style={{ textDecorationLine: 'underline' }}>
-            이용약관 보기
-          </Txt>
-        </Pressable>
-        <Pressable
-          testID="login-privacy-link"
-          accessibilityRole="link"
-          accessibilityLabel="개인정보 처리방침 열기"
-          onPress={() => void openLegalDocument('privacy')}
-          hitSlop={8}
-        >
-          <Txt kind="meta" style={{ textDecorationLine: 'underline' }}>
-            개인정보 처리방침 보기
-          </Txt>
-        </Pressable>
-      </View>
       <View
         style={{
           width: '100%',

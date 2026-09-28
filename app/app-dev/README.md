@@ -64,7 +64,7 @@ npx expo export --platform all
 
 ## 소셜 로그인 약관 버전
 
-소셜 로그인과 게스트 회원 전환은 배포 대상에 적용되는 실제 약관 문서 버전을 `EXPO_PUBLIC_TERMS_VERSION`으로 명시해 빌드합니다. 예시값이나 코드 기본값은 두지 않습니다. 값이 없거나 공백이면 소셜 제공자 버튼과 회원 전환 진입을 숨기고, 직접 호출도 서버 요청 전에 차단합니다. 게스트 로그인은 계속 사용할 수 있습니다. 동의 화면의 문서 링크는 레거시 GROMO가 연결한 공개 문서 정본 [`이용약관`](https://team-page.vercel.app/#/terms)과 [`개인정보 처리방침`](https://team-page.vercel.app/#/privacy)을 엽니다. `EXPO_PUBLIC_TERMS_VERSION`은 이 약관 배포본의 실제 버전과 맞춰 설정하세요.
+소셜 로그인과 게스트 회원 전환은 배포 대상에 적용되는 실제 약관 문서 버전을 `EXPO_PUBLIC_TERMS_VERSION`으로 명시해 빌드합니다. 예시값이나 코드 기본값은 두지 않습니다. 값이 없거나 공백이면 소셜 제공자 버튼과 회원 전환 진입을 숨기고, 직접 호출도 서버 요청 전에 차단합니다. 게스트 로그인은 계속 사용할 수 있습니다. 동의 화면과 설정의 문서 링크는 팀 공개 정책 정본 [`이용약관`](https://oneorthree.world/catus/terms)과 [`개인정보처리방침`](https://oneorthree.world/catus/privacy)을 엽니다. `EXPO_PUBLIC_TERMS_VERSION`은 이 약관 배포본의 실제 버전과 맞춰 설정하세요.
 
 ## PostHog 제품 분석
 

@@ -17,20 +17,27 @@ import {
 } from '@/services/api/session';
 
 const write = SecureStore.setItemAsync as jest.Mock;
+const writeAsync = AsyncStorage.setItem as jest.Mock;
 const remove = SecureStore.deleteItemAsync as jest.Mock;
 const read = SecureStore.getItemAsync as jest.Mock;
 // jest.setup.js 의 메모리 저장소 구현. 찢어진 쓰기·삭제를 흉내 낸 뒤 여기로 되돌린다.
 const realWrite = write.getMockImplementation() as (key: string, value: string) => Promise<void>;
+const realWriteAsync = writeAsync.getMockImplementation() as (
+  key: string,
+  value: string,
+) => Promise<void>;
 const realRemove = remove.getMockImplementation() as (key: string) => Promise<void>;
 const realRead = read.getMockImplementation() as (key: string) => Promise<string | null>;
 
 beforeEach(async () => {
   write.mockImplementation(realWrite);
+  writeAsync.mockImplementation(realWriteAsync);
   remove.mockImplementation(realRemove);
   read.mockImplementation(realRead);
   write.mockClear();
   read.mockClear();
   await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
+  await AsyncStorage.removeItem('gromo.androidLegacyLogoutPending');
   await AsyncStorage.removeItem('gromo.lastUserIdClearState');
   await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
   await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
@@ -99,6 +106,72 @@ test('Android 레거시 세션 커밋이 실패하면 원본을 보존해 다음
     assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
     assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
   } finally {
+    write.mockImplementation(realWrite);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('Android 명시 로그아웃 crash tombstone은 bundle이 먼저 지워져도 legacy RT 재복구를 막는다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', accessToken],
+    ['gromo:refreshToken', 'legacy-refresh'],
+  ]);
+  await restoreSession();
+
+  const removeLegacy = AsyncStorage.removeItem as jest.Mock;
+  const originalRemoveLegacy = removeLegacy.getMockImplementation() as (
+    key: string,
+  ) => Promise<void>;
+  let failRefreshRemoval = true;
+  removeLegacy.mockImplementation(async (key: string) => {
+    if (key === 'gromo:refreshToken' && failRefreshRemoval) {
+      failRefreshRemoval = false;
+      throw new Error('legacy RT 삭제 전 종료');
+    }
+    return originalRemoveLegacy.call(AsyncStorage, key);
+  });
+
+  try {
+    await assert.rejects(clearSession(undefined, false, true), /legacy RT 삭제 전 종료/);
+    assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
+    assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), '1');
+
+    removeLegacy.mockImplementation(originalRemoveLegacy);
+    assert.equal(await restoreSession(), null);
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), null);
+    assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), null);
+  } finally {
+    removeLegacy.mockImplementation(originalRemoveLegacy);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('Android logout tombstone 기록이 두 저장소에서 실패하면 bundle 삭제를 시작하지 않는다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const original = { accessToken: 'AT', refreshToken: 'RT', userId: 'user-a' };
+  await saveSession(original);
+  writeAsync.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.androidLegacyLogoutPending') throw new Error('AsyncStorage tombstone 실패');
+    return realWriteAsync(key, value);
+  });
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.androidLegacyLogoutPending') throw new Error('SecureStore tombstone 실패');
+    return realWrite(key, value);
+  });
+
+  try {
+    await assert.rejects(clearSession(undefined, false, true), /AsyncStorage tombstone 실패/);
+    assert.deepEqual(getSession(), original);
+    assert.deepEqual(await restoreSession(), original);
+  } finally {
+    writeAsync.mockImplementation(realWriteAsync);
     write.mockImplementation(realWrite);
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
   }

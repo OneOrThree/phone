@@ -125,6 +125,8 @@ import {
   sendFriendRequest,
 } from '@/services/api/friends';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { PolicyLink } from '@/components/PolicyLink';
+import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 // 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
 const shopUiKind = (kind: string) =>
   kind === 'island_theme'
@@ -1192,7 +1194,9 @@ export function RedesignScreens({ e }: any) {
         >
           {terms && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
-        <Txt kind="meta">이용약관과 개인정보 안내에 동의해요.</Txt>
+        <Txt kind="meta">
+          <PolicyLink policy="terms" />과 <PolicyLink policy="privacy" />에 동의해요.
+        </Txt>
       </Pressable>
     );
     const start = (
@@ -6133,15 +6137,28 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup flat>
           <SheetRow title="버전" sub="R61 · v2" />
           <SheetRow
-            title="이용약관 · 개인정보"
+            title="개인정보 처리 안내"
+            sub="앱에서 처리하는 정보와 외부 전송 안내"
             chevron
             onPress={() =>
               confirm(
-                '이용약관 · 개인정보',
+                '개인정보 처리 안내',
                 '로그인 때 소셜 제공자 인증 정보와 계정 식별 정보가 서버로 전달돼요. 닉네임, 섬·주민 활동, 친구·편지, 집중 기록 등 서비스 데이터도 기능 제공과 동기화를 위해 서버에 저장돼요.\n\n화면 이용과 주요 기능 이벤트는 PostHog로, 화면·요청 진단 정보는 설정된 경우 Datadog으로 전송될 수 있어요. 스크린타임 권한을 허용하면 선택한 앱 사용 시간을 기기에서 읽어 목표와 통계에 사용해요. 자세한 처리 항목과 보관 기간은 개인정보 처리방침에서 확인할 수 있어요. 회원 탈퇴를 요청하면 서버 계정 삭제를 요청해요.',
                 () => {},
               )
             }
+          />
+          <SheetRow
+            title="이용약관"
+            chevron
+            label="이용약관 원문 보기"
+            onPress={() => openPolicy(TERMS_URL)}
+          />
+          <SheetRow
+            title="개인정보처리방침"
+            chevron
+            label="개인정보처리방침 원문 보기"
+            onPress={() => openPolicy(PRIVACY_URL)}
           />
         </SheetGroup>
       </IslandSheet>

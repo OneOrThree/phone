@@ -105,7 +105,7 @@ import {
 } from '@/services/api/auth';
 import { loginProviders } from '@/services/loginProviders';
 import { TERMS_VERSION } from '@/services/termsVersion';
-import { openLegalDocument } from '@/services/legalDocuments';
+import { PolicyLink } from '@/components/PolicyLink';
 import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
 import {
   ApiError,
@@ -333,6 +333,13 @@ function Gromo() {
     focus: number;
     rest: number;
   } | null>(null);
+  const storageOwnerReadyRef = useRef(storageOwnerReady);
+  const userStorageWriteQueue = useRef<Promise<void>>(Promise.resolve());
+  const setStorageOwnerGate = (ready: boolean) => {
+    // state render 전에 도착한 저장 effect도 새 gate 값을 보도록 ref를 먼저 바꾼다.
+    storageOwnerReadyRef.current = ready;
+    setStorageOwnerReady(ready);
+  };
   const [incomingAppLink, setIncomingAppLink] = useState<string | null>(null);
   const socialLoginAttempt = useRef<{
     provider: Provider;
@@ -708,10 +715,15 @@ function Gromo() {
     switchResolve.current = null;
   };
   const adoptSession = async (result: LoginResult, previousUserId: string | null) => {
+    const changingOwner = previousUserId !== result.userId;
+    if (changingOwner) setStorageOwnerGate(false);
     const account = await adoptSignedInAccount(result, previousUserId, {
       resetLocal: async () => {
         // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
         // settings 만 기기 귀속(정책 A15)이라 보존한다.
+        // 이미 시작된 A 저장도 먼저 끝낸 다음 지워야 late write가 삭제 뒤에 A blob을 부활시키지 않는다.
+        setStorageOwnerGate(false);
+        await userStorageWriteQueue.current;
         await AsyncStorage.removeItem(STORAGE);
         deferredOwnerState.current = null;
         dispatch({
@@ -758,7 +770,9 @@ function Gromo() {
       },
     });
     // /me 와 화면 판정이 끝난 뒤에만 소유자를 바꾼다. 그 전에 실패하면 기존 ID가 재시도 기준이다.
-    if (await rememberLocalDataOwner(account.id)) setStorageOwnerReady(true);
+    if (!(await rememberLocalDataOwner(account.id)))
+      throw new Error('새 계정의 로컬 데이터 소유자를 저장하지 못했어요.');
+    setStorageOwnerGate(true);
     return account;
   };
   const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
@@ -1020,7 +1034,7 @@ function Gromo() {
         const ownerMismatch =
           restoredUserId !== null && ownerUserId !== null && restoredUserId !== ownerUserId;
         if (ownerMismatch) {
-          setStorageOwnerReady(false);
+          setStorageOwnerGate(false);
           deferredOwnerState.current = loadable ? { userId: ownerUserId!, state: loadable } : null;
         }
         // owner가 다른 세션은 서버 확인 전까지 메모리에 올리지 않는다. 오프라인·거절일 때
@@ -1115,7 +1129,7 @@ function Gromo() {
           if (cleanBootRoute && sessionGeneration() === cleanBootGen) setRoute(cleanBootRoute);
           if (!bootSessionIsCurrent()) return;
           if ((await rememberLocalDataOwner(session.userId, bootGen)) && bootSessionIsCurrent())
-            setStorageOwnerReady(true);
+            setStorageOwnerGate(true);
         }
         // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
         // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
@@ -1163,10 +1177,23 @@ function Gromo() {
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
   }, [loaded, state.onboarded, state.islandId, qaBuildingsReady]);
   useEffect(() => {
-    if (loaded && storageOwnerReady && qaBuildingsReady && !REVIEW && !DEMO)
-      AsyncStorage.setItem(STORAGE, JSON.stringify(state)).catch(() =>
-        notify('기기 저장 공간을 확인해 주세요.'),
-      );
+    if (
+      loaded &&
+      storageOwnerReady &&
+      storageOwnerReadyRef.current &&
+      qaBuildingsReady &&
+      !REVIEW &&
+      !DEMO
+    ) {
+      const snapshot = JSON.stringify(state);
+      const write = userStorageWriteQueue.current.then(async () => {
+        if (!storageOwnerReadyRef.current) return;
+        await AsyncStorage.setItem(STORAGE, snapshot);
+      });
+      userStorageWriteQueue.current = write.catch(() => {
+        notify('기기 저장 공간을 확인해 주세요.');
+      });
+    }
   }, [state, loaded, storageOwnerReady, qaBuildingsReady]);
   useEffect(() => {
     const id = setInterval(() => {
@@ -1859,33 +1886,10 @@ function Gromo() {
                       )}
                     </View>
                     <NativeText style={{ flex: 1 }}>
-                      현재 약관 버전 {TERMS_VERSION}에 동의합니다.
+                      현재 약관 버전 {TERMS_VERSION}: <PolicyLink policy="terms" /> 및{' '}
+                      <PolicyLink policy="privacy" />에 동의합니다.
                     </NativeText>
                   </Pressable>
-                  <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18 }}>
-                    <Pressable
-                      testID="member-conversion-terms-link"
-                      accessibilityRole="link"
-                      accessibilityLabel="이용약관 열기"
-                      onPress={() => void openLegalDocument('terms')}
-                      hitSlop={8}
-                    >
-                      <NativeText style={{ color: C.muted, textDecorationLine: 'underline' }}>
-                        이용약관 보기
-                      </NativeText>
-                    </Pressable>
-                    <Pressable
-                      testID="member-conversion-privacy-link"
-                      accessibilityRole="link"
-                      accessibilityLabel="개인정보 처리방침 열기"
-                      onPress={() => void openLegalDocument('privacy')}
-                      hitSlop={8}
-                    >
-                      <NativeText style={{ color: C.muted, textDecorationLine: 'underline' }}>
-                        개인정보 처리방침 보기
-                      </NativeText>
-                    </Pressable>
-                  </View>
                   {(TERMS_VERSION ? loginProviders() : []).map((provider) => (
                     <NativeButton
                       key={provider}

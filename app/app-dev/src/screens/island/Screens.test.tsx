@@ -1144,7 +1144,7 @@ test('앱 정보의 개인정보 안내는 서버 저장과 분석 전송을 사
     <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
   );
 
-  await fireEvent.press(s.getByText('이용약관 · 개인정보'));
+  await fireEvent.press(s.getByText('개인정보 처리 안내'));
   const explanation = exposed.confirm.mock.calls.at(-1)[1] as string;
   assert.match(explanation, /계정 식별 정보가 서버로 전달/);
   assert.match(explanation, /섬·주민 활동, 친구·편지, 집중 기록/);

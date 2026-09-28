@@ -35,6 +35,7 @@ const SESSION_SLOT_PREFIX = 'gromo.sessionSlot';
 const SESSION_SLOTS = ['A', 'B'] as const;
 const KEY_LEGACY_MIGRATED = 'gromo.legacySessionMigrated';
 const KEY_LEGACY_PENDING_PROMOTION = 'gromo.legacySessionPendingPromotion';
+const KEY_ANDROID_LOGOUT_PENDING = 'gromo.androidLegacyLogoutPending';
 const LEGACY_ACCESS = 'gromo:accessToken';
 const LEGACY_REFRESH = 'gromo:refreshToken';
 
@@ -199,6 +200,7 @@ export function restoreSession(): Promise<Session | null> {
   // 읽기도 줄에 세운다 — 로그아웃 «도중»에 읽으면 지워지는 중인 값을 세션으로 되살린다.
   return serialized(async () => {
     try {
+      if (Platform.OS === 'android') await finishInterruptedAndroidLogout();
       const bundle = await readItem(KEY_BUNDLE);
       cached = bundle ? await readBundledSession(bundle) : null;
       const ownerClearStatus = await resolveLocalDataOwnerClear();
@@ -233,6 +235,7 @@ export function restoreSession(): Promise<Session | null> {
 }
 
 async function migrateLegacySession(): Promise<Session | null> {
+  if (await finishInterruptedAndroidLogout()) return null;
   if ((await SecureStore.getItemAsync(KEY_LEGACY_MIGRATED)) === '1') return null;
   const [legacyAccess, legacyRefresh] = await Promise.all([
     AsyncStorage.getItem(LEGACY_ACCESS),
@@ -258,6 +261,38 @@ async function migrateLegacySession(): Promise<Session | null> {
   // 서버에 안전한 전환 계약이 생길 때까지 원본과 pending 표시를 유지한다.
   await commit(session);
   return session;
+}
+
+/** An explicit Android logout must win over a crash before legacy RT cleanup completes. */
+async function finishInterruptedAndroidLogout(): Promise<boolean> {
+  const [asyncMarker, secureMarker] = await Promise.all([
+    AsyncStorage.getItem(KEY_ANDROID_LOGOUT_PENDING),
+    SecureStore.getItemAsync(KEY_ANDROID_LOGOUT_PENDING),
+  ]);
+  if (asyncMarker !== '1' && secureMarker !== '1') return false;
+  const failed: unknown[] = [];
+  const swallow = (error: unknown): void => void failed.push(error);
+  await removeItem(KEY_BUNDLE).catch(swallow);
+  await Promise.all([
+    removeItem(KEY_ACCESS).catch(swallow),
+    removeItem(KEY_REFRESH).catch(swallow),
+    removeItem(KEY_USER).catch(swallow),
+    ...SESSION_SLOTS.flatMap((slot) => {
+      const prefix = `${SESSION_SLOT_PREFIX}.${slot}`;
+      return [
+        removeItem(`${prefix}.accessToken`).catch(swallow),
+        removeItem(`${prefix}.refreshToken`).catch(swallow),
+        removeItem(`${prefix}.userId`).catch(swallow),
+      ];
+    }),
+    AsyncStorage.removeItem(LEGACY_ACCESS).catch(swallow),
+    AsyncStorage.removeItem(LEGACY_REFRESH).catch(swallow),
+    removeItem(KEY_LEGACY_PENDING_PROMOTION).catch(swallow),
+  ]);
+  if (failed.length) throw failed[0];
+  await AsyncStorage.removeItem(KEY_ANDROID_LOGOUT_PENDING);
+  await SecureStore.deleteItemAsync(KEY_ANDROID_LOGOUT_PENDING);
+  return true;
 }
 
 /** 현재 세션이 서버 승격/검증을 기다리는 Android legacy 복사본인지 확인한다. */
@@ -436,15 +471,31 @@ export function saveRefreshedSession(
 export function clearSession(
   expectedGeneration?: number,
   preserveLegacy = false,
+  explicitLogout = false,
 ): Promise<Session | null> {
   return serialized(async () => {
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return null;
+    const failed: unknown[] = [];
+    const swallow = (error: unknown): void => void failed.push(error);
+    let logoutTombstoneWritten = false;
+    if (Platform.OS === 'android' && explicitLogout) {
+      try {
+        await AsyncStorage.setItem(KEY_ANDROID_LOGOUT_PENDING, '1');
+        logoutTombstoneWritten = true;
+      } catch (error) {
+        try {
+          await SecureStore.setItemAsync(KEY_ANDROID_LOGOUT_PENDING, '1');
+          logoutTombstoneWritten = true;
+        } catch {
+          // Without a durable tombstone, do not invalidate the bundle: a crash could migrate legacy RT.
+          throw error;
+        }
+      }
+    }
     const cleared = cached;
     cached = null;
     generation += 1;
     notifySessionChanged();
-    const failed: unknown[] = [];
-    const swallow = (error: unknown): void => void failed.push(error);
     await removeItem(KEY_BUNDLE).catch(swallow);
     await Promise.all([
       removeItem(KEY_ACCESS).catch(swallow),
@@ -465,6 +516,10 @@ export function clearSession(
         AsyncStorage.removeItem(LEGACY_REFRESH).catch(swallow),
       ]);
       await removeItem(KEY_LEGACY_PENDING_PROMOTION).catch(swallow);
+    }
+    if (logoutTombstoneWritten && failed.length === 0) {
+      await AsyncStorage.removeItem(KEY_ANDROID_LOGOUT_PENDING).catch(swallow);
+      await removeItem(KEY_ANDROID_LOGOUT_PENDING).catch(swallow);
     }
     if (failed.length > 0) throw failed[0];
     return cleared;

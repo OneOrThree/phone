@@ -155,6 +155,43 @@ test('로그아웃 때 기기 ID 삭제 실패가 호출부에서 삼켜져도 �
   assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), null);
 });
 
+test('로그아웃 중 대기하던 게스트 기기 ID 획득은 회전을 기다리고 이전 generation 요청을 보내지 않는다', async () => {
+  const oldDeviceId = '11111111-1111-4111-8111-111111111111';
+  await SecureStore.setItemAsync('gromo.guestDeviceId', oldDeviceId);
+  let releaseIdRead!: () => void;
+  let signalIdRead!: () => void;
+  const idReadStarted = new Promise<void>((resolve) => {
+    signalIdRead = resolve;
+  });
+  const idReadGate = new Promise<void>((resolve) => {
+    releaseIdRead = resolve;
+  });
+  read.mockImplementation(async (key: string) => {
+    if (key === 'gromo.guestDeviceId') {
+      signalIdRead();
+      await idReadGate;
+    }
+    return realRead(key);
+  });
+
+  const startingGuest = guestLogin();
+  await idReadStarted;
+  const loggingOut = logout();
+  releaseIdRead();
+  await loggingOut;
+  const staleLoginError = await startingGuest.then(
+    () => null,
+    (error: ApiError) => error,
+  );
+  assert.equal(staleLoginError?.code, CLIENT_STALE_SESSION);
+  assert.equal(calls.length, 0);
+
+  read.mockImplementation(realRead);
+  stub([session('GUEST', 'guest-after-logout')]);
+  await guestLogin();
+  assert.notEqual(header(calls[0], 'X-Device-Id'), oldDeviceId);
+});
+
 test('login — 시도 id 를 헤더로 보내고 토큰을 보안 저장소에 넣는다', async () => {
   stub([
     {
