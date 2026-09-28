@@ -134,17 +134,18 @@ const focusedState = (): State => {
 
 const screenElement = (
   state: State,
-  route: 'focus' | 'rest' | 'focusResult' = 'focus',
+  route: 'focusSetup' | 'focus' | 'rest' | 'focusResult' = 'focus',
   backOverride?: { current: (() => boolean) | null },
   goOverride = jest.fn(),
   homeOverride = jest.fn(),
+  dispatchOverride = jest.fn(),
 ) => (
   <CurrentScreens
     e={{
       state,
       route,
       now: Date.now(),
-      dispatch: jest.fn(),
+      dispatch: dispatchOverride,
       go: goOverride,
       replace: jest.fn(),
       reset: jest.fn(),
@@ -291,6 +292,65 @@ test('같은 realtime 사건이 재전송되어도 한 번만 표시한다', asy
   assert.equal(announce.mock.calls.length, 1);
   await screen.unmount();
   announce.mockRestore();
+});
+
+test('시작 응답 전에 받은 당첨을 새 세션이 확정되면 표시한다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const screen = await render(screenElement(state, 'focusSetup'));
+
+  await act(async () =>
+    onGoldenFish?.(
+      event([
+        { userId: 'me', sessionId: 's-me' },
+        { userId: 'minji', sessionId: 'minji' },
+      ]),
+    ),
+  );
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+
+  state.session = focusedState().session;
+  await screen.rerender(screenElement(state, 'focus'));
+  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
+  await screen.unmount();
+});
+
+test('reel 재생 중 휴식과 종료 명령을 reel 종료까지 미룬다', async () => {
+  jest.useFakeTimers();
+  const members = [
+    { userId: 'me', sessionId: 's-me' },
+    { userId: 'minji', sessionId: 'minji' },
+  ];
+
+  const pauseDispatch = jest.fn();
+  const pauseScreen = await render(
+    screenElement(focusedState(), 'focus', undefined, jest.fn(), jest.fn(), pauseDispatch),
+  );
+  await act(async () => onGoldenFish?.(event(members)));
+  await fireEvent.press(pauseScreen.getByTestId('golden-cutscene'));
+  await fireEvent.press(pauseScreen.getByTestId('pause-focus'));
+  assert.equal(pauseDispatch.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(1999));
+  assert.equal(pauseDispatch.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(1));
+  assert.equal(pauseDispatch.mock.calls[0][0].type, 'PAUSE');
+  await pauseScreen.unmount();
+
+  const finishDispatch = jest.fn();
+  const finishScreen = await render(
+    screenElement(focusedState(), 'focus', undefined, jest.fn(), jest.fn(), finishDispatch),
+  );
+  await act(async () => onGoldenFish?.(event(members)));
+  await fireEvent.press(finishScreen.getByTestId('golden-cutscene'));
+  await fireEvent.press(finishScreen.getByTestId('end-focus'));
+  await fireEvent.press(finishScreen.getByTestId('confirm-finish'));
+  assert.equal(finishDispatch.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(1999));
+  assert.equal(finishDispatch.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(1));
+  assert.equal(finishDispatch.mock.calls[0][0].type, 'FINISH');
+  await finishScreen.unmount();
+  jest.useRealTimers();
 });
 
 test('마지막 reel 대기 중 도착한 당첨은 대기 종료 뒤 다음 컷신으로 재생한다', async () => {

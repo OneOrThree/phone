@@ -24,6 +24,7 @@ const start = (deps: IslandRealtimeDeps): IslandRealtime => {
     resync: jest.fn(),
     reopen: jest.fn(),
     sendEmote: jest.fn(() => true),
+    setEmoteSessionId: jest.fn(),
     dispose: jest.fn(),
   };
   sessions.push(s);
@@ -166,4 +167,12 @@ test('sendEmote 는 열린 채널로 위임한다', async () => {
   assert.equal(sessions[0].deps.emoteSessionId, 's-me');
   assert.equal(result.current.sendEmote('cheer'), true);
   assert.equal((sessions[0].sendEmote as jest.Mock).mock.calls[0][0], 'cheer');
+});
+
+test('응원 세션이 바뀌어도 presence 연결을 다시 열지 않는다', async () => {
+  const { rerender } = await mount({ active: true, islandId: 'i1', emoteSessionId: 's-me' });
+  await rerender({ active: true, islandId: 'i1', emoteSessionId: null });
+  assert.equal(sessions.length, 1);
+  assert.equal((sessions[0].dispose as jest.Mock).mock.calls.length, 0);
+  assert.equal((sessions[0].setEmoteSessionId as jest.Mock).mock.calls.at(-1)?.[0], null);
 });

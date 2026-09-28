@@ -1164,6 +1164,7 @@ function FocusFlow({ e }: any) {
     goldenQueueTimerRef = useRef<(() => void) | null>(null),
     goldenPendingReelRef = useRef<GoldenFishEvent | null>(null),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
+    goldenPendingSessionRef = useRef<GoldenFishEvent[]>([]),
     goldenSeenRef = useRef(new Set<string>()),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
@@ -1247,6 +1248,16 @@ function FocusFlow({ e }: any) {
     const participantSessionId =
       current.s.session?.id ?? (current.r === 'focusResult' ? current.s.lastResult?.id : undefined);
     if (
+      current.r === 'focusSetup' &&
+      myId &&
+      event.members.some((member) => member.userId === myId)
+    ) {
+      if (goldenSeenRef.current.has(event.eventId)) return;
+      goldenSeenRef.current.add(event.eventId);
+      goldenPendingSessionRef.current.push(event);
+      return;
+    }
+    if (
       !participantSessionId ||
       !isGoldenFishParticipant(event, myId, participantSessionId) ||
       (current.r !== 'focus' && current.r !== 'rest' && current.r !== 'focusResult')
@@ -1262,6 +1273,16 @@ function FocusFlow({ e }: any) {
     }
     goldenPresenter.current(event);
   };
+  useEffect(() => {
+    if (!goldenSessionId || (r !== 'focus' && r !== 'rest' && r !== 'focusResult')) return;
+    const pending = goldenPendingSessionRef.current;
+    goldenPendingSessionRef.current = [];
+    for (const event of pending) {
+      if (!isGoldenFishParticipant(event, myId, goldenSessionId)) continue;
+      if (r === 'rest') goldenQueueRef.current.push(event);
+      else goldenPresenter.current(event);
+    }
+  }, [goldenSessionId, r, myId]);
   const goldenFor = (userId: string | null | undefined, sessionId: string | null | undefined) =>
     userId && sessionId ? goldenCatches[`${userId}:${sessionId}`] : undefined;
   const activeFocusCount = live.focus.filter((member) => member.status === 'active').length;
@@ -1306,7 +1327,7 @@ function FocusFlow({ e }: any) {
   useEffect(() => {
     setFan(false);
     setDialog(null);
-    const inFocusFlow = r === 'focus' || r === 'rest' || r === 'focusResult';
+    const inFocusFlow = r === 'focusSetup' || r === 'focus' || r === 'rest' || r === 'focusResult';
     if (!inFocusFlow) {
       setEmote(null);
       goldenCutsceneRef.current = null;
@@ -1315,6 +1336,7 @@ function FocusFlow({ e }: any) {
       goldenQueueTimerRef.current = null;
       goldenPendingReelRef.current = null;
       goldenDeferredNavigationRef.current = null;
+      goldenPendingSessionRef.current = [];
       setGoldenCutscene(null);
       setGoldenReeling(false);
       setGoldenFish(false);
@@ -1347,6 +1369,20 @@ function FocusFlow({ e }: any) {
   // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
   const serverSession = () => e.focus && s.session?.version != null;
   const finish = () => {
+    if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
+      const requestedSessionId = s.session?.id;
+      setDialog(null);
+      goldenDeferredNavigationRef.current = () => {
+        const current = latest.current;
+        if (
+          requestedSessionId &&
+          current.s.session?.id === requestedSessionId &&
+          (current.r === 'focus' || current.r === 'rest')
+        )
+          finish();
+      };
+      return;
+    }
     if (serverSession()) {
       const session = s.session;
       e.focus
@@ -1475,6 +1511,10 @@ function FocusFlow({ e }: any) {
   };
   // 자리에서 일어나 뗏목까지 걸어간 뒤 next(휴식 항해·귀환 항해)
   const leaveTo = (next: () => void) => {
+    if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
+      goldenDeferredNavigationRef.current = () => leaveTo(next);
+      return;
+    }
     position.current = mine;
     setLeg('leave');
     const arrive = () => {
@@ -1486,6 +1526,37 @@ function FocusFlow({ e }: any) {
       next();
     };
     if (!walkTo(LANDING, arrive)) arrive();
+  };
+  const pause = () => {
+    if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
+      const requestedSessionId = s.session?.id;
+      goldenDeferredNavigationRef.current = () => {
+        if (
+          requestedSessionId &&
+          latest.current.r === 'focus' &&
+          latest.current.s.session?.id === requestedSessionId
+        )
+          pause();
+      };
+      return;
+    }
+    // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식).
+    // 서버 세션은 pause 성공 뒤에만 휴식 연출을 시작한다(정책: 이동 연출은 성공 후).
+    const go = () =>
+      leaveTo(() => {
+        setVoyage('toRest');
+        const started = e.go('rest', '', () => setVoyage(null));
+        if (started === false) setVoyage(null);
+      });
+    if (serverSession()) {
+      e.focus
+        .pause()
+        .then(go)
+        .catch((error: any) => e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'));
+      return;
+    }
+    e.dispatch({ type: 'PAUSE' });
+    go();
   };
   const result = s.lastResult,
     leave = () => {
@@ -2219,27 +2290,7 @@ function FocusFlow({ e }: any) {
                 title="휴식하기"
                 id="pause-focus"
                 style={{ flex: 1 }}
-                onPress={() => {
-                  // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식).
-                  // 서버 세션은 pause 성공 뒤에만 휴식 연출을 시작한다(정책: 이동 연출은 성공 후).
-                  const go = () =>
-                    leaveTo(() => {
-                      setVoyage('toRest');
-                      const started = e.go('rest', '', () => setVoyage(null));
-                      if (started === false) setVoyage(null);
-                    });
-                  if (serverSession()) {
-                    e.focus
-                      .pause()
-                      .then(go)
-                      .catch((error: any) =>
-                        e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'),
-                      );
-                    return;
-                  }
-                  e.dispatch({ type: 'PAUSE' });
-                  go();
-                }}
+                onPress={pause}
               />
               <FiButton
                 title="집중 종료"

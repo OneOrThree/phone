@@ -2,7 +2,8 @@
  * 섬 주민 집중/휴식 실시간 상태 훅 (GROMO-2010).
  *
  * `active`+`islandId` 가 있을 때 STOMP 채널을 열고 스냅숏으로 복구한다.
- * 섬·계정(세션 세대)·응원 자격(세션 id)이 바뀌면 이전 채널을 해제하고 새로 연다.
+ * 섬·계정(세션 세대)이 바뀌면 이전 채널을 해제하고 새로 연다.
+ * 응원 자격(세션 id)은 focus/rest 소켓을 끊지 않고 emotes 구독만 갱신한다.
  * 포그라운드 복귀 때는 소켓을 다시 열고 최신 스냅숏으로 재동기화한다.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -89,7 +90,11 @@ export function useIslandPresence(
       rt.current = null;
     };
     // nonce: retry — 채널을 통째로 버리고 새로 연다.
-  }, [active, islandId, emoteSessionId, generation, nonce, start]);
+  }, [active, islandId, generation, nonce, start]);
+
+  useEffect(() => {
+    rt.current?.setEmoteSessionId(emoteSessionId ?? null);
+  }, [emoteSessionId]);
 
   return {
     ...view,

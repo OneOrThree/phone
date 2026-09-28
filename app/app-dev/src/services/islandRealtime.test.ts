@@ -379,6 +379,7 @@ type FakeChannel = {
   reopened: number;
   closed: number;
   connected: boolean;
+  emoteEnabled: boolean[];
 };
 const fakeChannel = (): FakeChannel => ({
   opts: null,
@@ -386,6 +387,7 @@ const fakeChannel = (): FakeChannel => ({
   reopened: 0,
   closed: 0,
   connected: true,
+  emoteEnabled: [],
 });
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -424,6 +426,9 @@ function start(
           channel.sent.push({ destination: d, body: b });
           return true;
         },
+        setEmoteEnabled: (enabled) => {
+          channel.emoteEnabled.push(enabled);
+        },
         reopen: () => {
           channel.reopened += 1;
         },
@@ -457,6 +462,20 @@ describe('startIslandRealtime', () => {
     assert.equal(first.length, 1);
     assert.equal(second.length, 1);
     assert.equal(first[0].eventId, event.eventId);
+  });
+
+  test('응원 세션은 presence 재연결 없이 구독과 발신 자격을 갱신한다', () => {
+    const channel = fakeChannel();
+    const { rt } = start({ islandId: 'i1' }, channel);
+    rt.setEmoteSessionId('s-me');
+    assert.deepEqual(channel.emoteEnabled, [true]);
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.deepEqual(channel.sent[0].body, { sessionId: 's-me', type: 'cheer' });
+
+    rt.setEmoteSessionId(null);
+    assert.deepEqual(channel.emoteEnabled, [true, false]);
+    assert.equal(rt.sendEmote('cheer'), false);
+    assert.equal(channel.reopened, 0);
   });
 
   test('resync 는 스냅숏을 싣고 ready 를 발행한다', async () => {
@@ -1039,6 +1058,21 @@ describe('stompIslandChannel', () => {
       client().subs.map((s: { dest: string }) => s.dest),
       ['/topic/islands/i1/focus', '/topic/islands/i1/rest', '/user/queue/errors'],
     );
+  });
+
+  test('presence 연결을 유지한 채 emotes 구독을 켜고 끈다', () => {
+    const channel = stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    channel.setEmoteEnabled(true);
+    assert.equal(c.subs.at(-1).dest, '/topic/islands/i1/emotes');
+    channel.setEmoteEnabled(false);
+    assert.equal(c.deactivated, 0);
   });
 
   test('재생 전용 연결은 playback만 구독하고 재연결 시 onOpen으로 복구를 요청한다', () => {

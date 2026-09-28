@@ -405,6 +405,8 @@ let nextSnapshotVersion = 0;
 /** 섬 단위 STOMP 채널 — 구독 수명은 채널과 같고 끊기면 서버가 구독을 다 버린다. */
 export type IslandChannel = {
   send(destination: string, body: unknown): boolean;
+  /** focus/rest 연결은 유지하고 emotes 구독만 바꾼다. */
+  setEmoteEnabled(enabled: boolean): void;
   /** 소켓을 끊고 다시 연다 — 구독은 새 연결에서 다시 맺는다. */
   reopen(): void;
   close(): void;
@@ -432,6 +434,15 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   const id = encodeURIComponent(opts.islandId);
   // 구독 거절 ERROR 는 연결을 끊는다 — emotes 구독 거절이면 다음 접속부터는 빼서 무한 거절 루프를 끊는다.
   let emoteDenied = false;
+  let emoteEnabled = opts.emote;
+  let emoteSubscription: { unsubscribe(): void } | null = null;
+  const onMsg = (msg: IMessage) => {
+    try {
+      opts.onEvent(JSON.parse(msg.body));
+    } catch {
+      // 깨진 프레임은 무시한다.
+    }
+  };
   const client = new Client({
     brokerURL: realtimeWsUrl(),
     reconnectDelay: 5000,
@@ -442,13 +453,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       if (token) c.connectHeaders = { Authorization: `Bearer ${token}` };
     },
     onConnect: () => {
-      const onMsg = (msg: IMessage) => {
-        try {
-          opts.onEvent(JSON.parse(msg.body));
-        } catch {
-          // 깨진 프레임은 무시한다.
-        }
-      };
+      emoteSubscription = null;
       if (opts.presence !== false) {
         client.subscribe(`/topic/islands/${id}/focus`, onMsg);
         client.subscribe(`/topic/islands/${id}/rest`, onMsg);
@@ -464,7 +469,8 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         }
         opts.onError(text);
       });
-      if (opts.emote && !emoteDenied) client.subscribe(`/topic/islands/${id}/emotes`, onMsg);
+      if (emoteEnabled && !emoteDenied)
+        emoteSubscription = client.subscribe(`/topic/islands/${id}/emotes`, onMsg);
       opts.onOpen();
     },
     onStompError: (frame: IFrame) => {
@@ -478,6 +484,15 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       if (!client.connected) return false;
       client.publish({ destination, body: JSON.stringify(body) });
       return true;
+    },
+    setEmoteEnabled: (enabled) => {
+      emoteEnabled = enabled;
+      if (!enabled) {
+        emoteSubscription?.unsubscribe();
+        emoteSubscription = null;
+      } else if (client.connected && !emoteDenied && !emoteSubscription) {
+        emoteSubscription = client.subscribe(`/topic/islands/${id}/emotes`, onMsg);
+      }
     },
     reopen: () => {
       void client.deactivate().then(() => client.activate());
@@ -495,6 +510,8 @@ export type IslandRealtime = {
   reopen(): void;
   /** `SEND /app/islands/{id}/focus/emotes`. 세션 없음·미연결·미지 타입이면 false. */
   sendEmote(type: string): boolean;
+  /** presence 소켓을 재연결하지 않고 응원 자격과 구독만 갱신한다. */
+  setEmoteSessionId(sessionId: string | null): void;
   dispose(): void;
 };
 
@@ -526,6 +543,7 @@ const defaultSnapshots = (islandId: string) =>
 
 export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   const { islandId } = deps;
+  let emoteSessionId = deps.emoteSessionId ?? null;
   const load = deps.loadSnapshots ?? defaultSnapshots;
   const connect = deps.connect ?? stompIslandChannel;
   const alive = deps.alive ?? (() => true);
@@ -750,7 +768,7 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
 
   const conn = connect({
     islandId,
-    emote: !!deps.emoteSessionId,
+    emote: !!emoteSessionId,
     onEvent: (raw) => {
       if (disposed || !alive()) return;
       const golden = parseGoldenFishEvent(raw, islandId);
@@ -793,9 +811,13 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     resync: (source) => void resync(source ?? 'manual'),
     reopen: () => conn.reopen(),
     sendEmote: (type) => {
-      const sessionId = deps.emoteSessionId;
+      const sessionId = emoteSessionId;
       if (!sessionId || !EMOTE_TYPES.has(type)) return false;
       return conn.send(`/app/islands/${islandId}/focus/emotes`, { sessionId, type });
+    },
+    setEmoteSessionId: (sessionId) => {
+      emoteSessionId = sessionId;
+      conn.setEmoteEnabled(!!sessionId);
     },
     dispose: () => {
       disposed = true;
