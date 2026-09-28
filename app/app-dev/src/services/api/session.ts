@@ -301,6 +301,46 @@ export function saveSession(
 }
 
 /**
+ * 같은 세션의 AT 갱신을 저장한다. 로그인/로그아웃 fence와 bundle marker를 재사용하지만
+ * session generation은 올리지 않는다. 응답이 늦어 다른 RT나 세션이 공개됐다면 아무것도 쓰지 않는다.
+ */
+export function saveRefreshedSession(
+  accessToken: string,
+  refreshToken: string | null,
+  expectedGeneration: number,
+  expectedAccessToken: string,
+  expectedRefreshToken: string,
+): Promise<Session | null> {
+  return serialized(async () => {
+    const previous = cached;
+    if (
+      !previous ||
+      generation !== expectedGeneration ||
+      previous.accessToken !== expectedAccessToken ||
+      previous.refreshToken !== expectedRefreshToken
+    )
+      return null;
+
+    const updated: Session = {
+      ...previous,
+      accessToken,
+      refreshToken: refreshToken ?? previous.refreshToken,
+    };
+    try {
+      await commit(updated);
+    } catch (error) {
+      await removeItem(KEY_BUNDLE).catch(() => {});
+      await commit(previous).catch(() => {});
+      throw error;
+    }
+    if (generation !== expectedGeneration || cached !== previous) return null;
+    cached = updated;
+    notifySessionChanged();
+    return updated;
+  });
+}
+
+/**
  * 마커를 **먼저** 지운다 — 뒤의 삭제가 실패해도 남은 값이 세션으로 복구되지 않는다.
  * 마커 삭제가 실패해도 나머지 셋은 계속 지운다: 하나만 사라져도 복구는 거부되므로
  * 「마커 삭제 실패 → 값이 통째로 남아 다음 실행에 되살아나는 세션」이 생기지 않는다.

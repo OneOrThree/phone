@@ -638,7 +638,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "if [ -f \"$SRCROOT/.xcode.env\" ]; then\n  . \"$SRCROOT/.xcode.env\"\nfi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then\n  . \"$SRCROOT/.xcode.env.local\"\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ] && [ \"${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}\" != \"1\" ]; then\n  echo \"error: iOS release 차단: 서버 dual-audience 배포와 검증 후 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 빌드하세요.\" >&2\n  exit 1\nfi\n";
+			shellScript = "if [ -f \"$SRCROOT/.xcode.env\" ]; then\n  . \"$SRCROOT/.xcode.env\"\nfi\nif [ -f \"$SRCROOT/.xcode.env.local\" ]; then\n  . \"$SRCROOT/.xcode.env.local\"\nfi\nif [ \"$CONFIGURATION\" = \"Release\" ]; then\n  if [ -z \"$(printf '%s' \"${EXPO_PUBLIC_TERMS_VERSION:-}\" | tr -d '[:space:]')\" ]; then\n    echo \"error: iOS release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.\" >&2\n    exit 1\n  fi\n  if [ \"${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}\" != \"1\" ]; then\n    echo \"error: iOS release 차단: 서버 dual-audience 배포와 검증 후 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 빌드하세요.\" >&2\n    exit 1\n  fi\nfi\n";
 		};
 		00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */ = {
 			isa = PBXShellScriptBuildPhase;

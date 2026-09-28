@@ -9,6 +9,7 @@ import {
   getSession,
   rememberLocalDataOwner,
   restoreSession,
+  saveRefreshedSession,
   saveSession,
   sessionGeneration,
   subscribeSession,
@@ -219,6 +220,41 @@ test('legacy pending 표식이 없는 현재 세션은 401 정리에서 정상 �
 test('저장한 세션은 그대로 복구된다', async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   assert.deepEqual(await restoreSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('refresh bundle 저장은 토큰을 marker-last로 함께 바꾸고 generation을 유지한다', async () => {
+  await saveSession({ accessToken: 'OLD_AT', refreshToken: 'RT', userId: 'u1' });
+  const generation = sessionGeneration();
+  write.mockClear();
+
+  assert.deepEqual(await saveRefreshedSession('NEW_AT', null, generation, 'OLD_AT', 'RT'), {
+    accessToken: 'NEW_AT',
+    refreshToken: 'RT',
+    userId: 'u1',
+  });
+  assert.equal(sessionGeneration(), generation);
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'NEW_AT',
+    refreshToken: 'RT',
+    userId: 'u1',
+  });
+  assert.equal(write.mock.calls[write.mock.calls.length - 1][0], 'gromo.sessionBundle');
+});
+
+test('refresh bundle은 세대나 저장 RT가 달라진 응답을 버린다', async () => {
+  await saveSession({ accessToken: 'OLD_AT', refreshToken: 'OLD_RT', userId: 'u1' });
+  const generation = sessionGeneration();
+  await saveSession({ accessToken: 'NEW_ACCOUNT_AT', refreshToken: 'NEW_RT', userId: 'u2' });
+
+  assert.equal(
+    await saveRefreshedSession('STALE_AT', 'ROTATED_RT', generation, 'OLD_AT', 'OLD_RT'),
+    null,
+  );
+  assert.deepEqual(getSession(), {
+    accessToken: 'NEW_ACCOUNT_AT',
+    refreshToken: 'NEW_RT',
+    userId: 'u2',
+  });
 });
 
 test('로그아웃은 토큰만 지우고 마지막 사용자 ID를 재로그인 소유권 판정용으로 보존한다', async () => {

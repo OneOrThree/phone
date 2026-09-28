@@ -120,11 +120,11 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 기존 Gromo의 로컬 App Store Connect API 키 설정을 재사용해 Catus 테스트 빌드를 올립니다.
 
-서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 검증 완료 후에만 아래처럼 실행하세요. 이 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
+서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`도 필요하며, 값이 없거나 공백이면 스크립트·Fastlane·Xcode Release gate에서 차단됩니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
 
 ```sh
 cd ios
-EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
+EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
 ```
 
 스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Catus 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.

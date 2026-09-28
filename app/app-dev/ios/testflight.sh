@@ -4,8 +4,11 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# Apple-only 계정의 재진입을 보장해야 한다. 서버가 `gromo`와 `focuscat` audience를 모두
-# 허용하기 전에는 iOS archive/TestFlight를 차단하고, 앱의 Apple 제공자 플래그를 단일 gate로 쓴다.
+# 약관 문서 버전과 Apple-only 계정 재진입 준비가 모두 확인되어야 한다.
+if [[ -z "${EXPO_PUBLIC_TERMS_VERSION//[[:space:]]/}" ]]; then
+  echo "❌ iOS release/TestFlight 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요." >&2
+  exit 1
+fi
 if [[ "${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}" != "1" ]]; then
   echo "❌ iOS release/TestFlight 차단: 서버가 Apple의 gromo·focuscat 이중 audience를 검증할 준비가 되기 전에는 기존 Apple-only 계정이 재진입할 수 없습니다." >&2
   echo "   서버 dual-audience 배포와 검증을 마친 뒤 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 실행하세요." >&2

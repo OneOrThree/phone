@@ -479,13 +479,18 @@ test('checkSession — /me 401이면 SecureStore 사본만 비우고 legacy 원�
     ['gromo:refreshToken', 'legacy-rt'],
   ]);
   await restoreSession();
-  stub([{ status: 401, body: { error: { code: 'UNAUTHORIZED', message: 'unauthorized' } } }]);
+  stub([
+    { status: 401, body: { error: { code: 'UNAUTHORIZED', message: 'unauthorized' } } },
+    { status: 401, body: { error: { code: 'REFRESH_TOKEN', message: 'invalid refresh token' } } },
+  ]);
 
   try {
     assert.equal((await checkSession()).status, 'rejected');
-    assert.equal(calls.length, 1);
+    assert.equal(calls.length, 2);
     assert.ok(calls[0].url.endsWith('/me'));
     assert.equal(header(calls[0], 'Authorization'), `Bearer ${jwt('legacy-user')}`);
+    assert.ok(calls[1].url.endsWith('/auth/sessions/current/refresh'));
+    assert.equal(header(calls[1], 'X-Refresh-Token'), 'legacy-rt');
     assert.equal(getSession(), null);
     assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
     assert.equal(await AsyncStorage.getItem('gromo:accessToken'), jwt('legacy-user'));
