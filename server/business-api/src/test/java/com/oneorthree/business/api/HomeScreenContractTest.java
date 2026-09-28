@@ -52,6 +52,14 @@ class HomeScreenContractTest extends ScreenContractTestBase {
             + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
             + "\"nextJoinedAt\":null,\"nextMembershipId\":null,\"version\":9}";
 
+    private static final UUID NEXT_MEMBER = UUID.fromString("dddddddd-2150-0000-0000-000000000001");
+    /** {@link #MEMBERS} 와 달리 다음 쪽이 있는 픽스처 — 커서 왕복 검증용. */
+    private static final String MEMBERS_WITH_NEXT = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\","
+            + "\"role\":\"host\",\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,"
+            + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
+            + "\"nextJoinedAt\":\"2026-09-19T01:02:03.123456Z\",\"nextMembershipId\":\"" + NEXT_MEMBER
+            + "\",\"version\":9}";
+
     private static final ObjectMapper JSON = new ObjectMapper();
 
     @BeforeEach
@@ -112,6 +120,24 @@ class HomeScreenContractTest extends ScreenContractTestBase {
         assertThat(DATA.receivedFor(DATA_MEMBERS).get(0).query()).contains("limit=30");
         assertThat(DATA.received()).allSatisfy(forwarded ->
                 assertThat(forwarded.header("x-user-id")).as("주체는 서명 세션에서만").isEqualTo(USER.toString()));
+    }
+
+    @Test
+    @DisplayName("members 조각의 nextCursor 는 도메인 GET /islands/{islandId}/members 가 그대로 이어받는다 (GROMO-2150)")
+    void membersCursorIsPickedUpByTheDomainGet() throws Exception {
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS_WITH_NEXT));
+
+        MvcResult result = mockMvc.perform(auth(get("/screens/home")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.members.items[0].id").value(USER.toString()))
+                .andReturn();
+        String cursor = JSON.readTree(result.getResponse().getContentAsString())
+                .get("data").get("members").get("nextCursor").asString();
+
+        // 화면이 준 커서를 도메인 GET 이 그대로 받는다(B10) — BFF 전용 커서가 아니다.
+        mockMvc.perform(auth(get("/islands/" + ISLAND + "/members")).queryParam("cursor", cursor))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor(DATA_MEMBERS).get(1).query()).contains("afterJoinedAt");
     }
 
     @Test
