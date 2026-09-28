@@ -47,4 +47,6 @@ JSON 포맷은 달라도 기획 원본과 데이터는 같아야 한다. PNG는 
   1~3은 night-frame-0 위에 움직이는 부위(문·망원경·강아지)만 낮 프레임에서 밤 톤으로 변환해 합성한다.
 - 회관·도서관·전망대·상점 모션 컴포넌트는 `night` prop 으로 밤 프레임을 재생한다. 밤 마을에서도 이 네 건물은
   정지 밤 레이어 대신 모션 프레임이 그리며, 게시판·우편함·축음기는 기존 밤 레이어를 쓴다.
-- 재생성: `python3 scripts/generate-night-village-motion.py` (건설 밤 아틀라스까지 다시 만들 때만 `--atlas-source`).
+- 재생성: `python3 -m pip install -r scripts/requirements-night-motion.txt` 후
+  `python3 scripts/generate-night-village-motion.py` (건설 밤 아틀라스까지 다시 만들 때만 `--atlas-source`).
+- `WorldMap`은 네 모션을 `placement.json` rect 좌표에 그린다. 밤 프레임도 같은 rect로 잘라 정지 밤 레이어와 픽셀 위치가 같다.

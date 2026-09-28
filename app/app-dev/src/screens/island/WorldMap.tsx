@@ -622,6 +622,7 @@ export function WorldMap({
               style={{ left: left + 348 * scale, top: top + 520 * scale }}
             />
           )}
+          {/* 모션 좌표는 placement.json rect 와 같다. 밤 프레임도 같은 rect 로 잘라 정지 밤 레이어와 픽셀이 일치한다. */}
           {island.buildings.includes('hall') && (
             <VillageHallMotion
               testID="world-hall-motion"
@@ -631,8 +632,8 @@ export function WorldMap({
               themed={themed('hall')}
               style={{
                 position: 'absolute',
-                left: left + 950 * scale,
-                top: top + 20 * scale,
+                left: left + 949 * scale,
+                top: top + 21 * scale,
                 width: 242 * scale,
                 height: 244 * scale,
               }}
@@ -665,8 +666,8 @@ export function WorldMap({
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
-                left: left + 152 * scale,
-                top: top + 23 * scale,
+                left: left + 150 * scale,
+                top: top + 24 * scale,
                 width: 112 * scale,
                 height: 193 * scale,
               }}
@@ -703,7 +704,7 @@ export function WorldMap({
               style={{
                 position: 'absolute',
                 left: left + 1120 * scale,
-                top: top + 289 * scale,
+                top: top + 288 * scale,
                 width: 239 * scale,
                 height: 323 * scale,
               }}

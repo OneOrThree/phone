@@ -175,8 +175,8 @@ test('홈 회관 모션은 실제 월드 배율에 맞춰 정적 레이어를 �
   expect(screen.getByTestId('world-hall-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 950 * worldScale,
-        top: worldTop + 20 * worldScale,
+        left: worldLeft + 949 * worldScale,
+        top: worldTop + 21 * worldScale,
         width: 242 * worldScale,
         height: 244 * worldScale,
       }),
@@ -404,8 +404,8 @@ test('전망대는 기본 상태에서 닫힌 채 정지하고 진입 세대에�
   expect(screen.getByTestId('world-observatory-motion').props.style).toEqual(
     expect.arrayContaining([
       expect.objectContaining({
-        left: worldLeft + 152 * worldScale,
-        top: worldTop + 23 * worldScale,
+        left: worldLeft + 150 * worldScale,
+        top: worldTop + 24 * worldScale,
         width: 112 * worldScale,
         height: 193 * worldScale,
       }),
@@ -540,7 +540,7 @@ test('홈 도서관은 월드 배율로 놓이고 새 퀘스트 상태를 느낌
     expect.arrayContaining([
       expect.objectContaining({
         left: worldLeft + 1120 * worldScale,
-        top: worldTop + 289 * worldScale,
+        top: worldTop + 288 * worldScale,
         width: 239 * worldScale,
         height: 323 * worldScale,
       }),

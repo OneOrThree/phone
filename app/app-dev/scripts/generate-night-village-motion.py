@@ -11,6 +11,8 @@ GROMO-2153: ``construction/*-atlas-night.png``
   - Night relights generated from the day atlases (image generation, style transfer).
     Pass their folder with ``--atlas-source``; pixels far from the day atlas silhouette
     are cleared so neighbouring cells never bleed into a viewport.
+
+Dependencies: ``python3 -m pip install -r scripts/requirements-night-motion.txt``
 """
 
 import argparse
