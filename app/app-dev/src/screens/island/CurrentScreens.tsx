@@ -1161,6 +1161,7 @@ function FocusFlow({ e }: any) {
     goldenCutsceneRef = useRef<GoldenFishEvent | null>(null),
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
     goldenQueueTimerRef = useRef<(() => void) | null>(null),
+    goldenPendingReelRef = useRef<GoldenFishEvent | null>(null),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
@@ -1203,6 +1204,21 @@ function FocusFlow({ e }: any) {
       }
       return next;
     });
+  };
+  const startGoldenReelTimer = () => {
+    goldenQueueTimerRef.current = afterForegroundMs(() => {
+      goldenQueueTimerRef.current = null;
+      const next = goldenQueueRef.current.shift() ?? null;
+      goldenCutsceneRef.current = next;
+      if (next) {
+        setGoldenFish(false);
+        setGoldenCutscene(next);
+      } else {
+        const navigate = goldenDeferredNavigationRef.current;
+        goldenDeferredNavigationRef.current = null;
+        navigate?.();
+      }
+    }, 2000);
   };
   goldenPresenter.current = (event) => {
     if (reduce) {
@@ -1286,6 +1302,7 @@ function FocusFlow({ e }: any) {
       goldenQueueRef.current = [];
       goldenQueueTimerRef.current?.();
       goldenQueueTimerRef.current = null;
+      goldenPendingReelRef.current = null;
       goldenDeferredNavigationRef.current = null;
       setGoldenCutscene(null);
       setGoldenFish(false);
@@ -1305,6 +1322,15 @@ function FocusFlow({ e }: any) {
       }
     }
   }, [r, reduce]);
+  // 걸어가는 동안 끝난 컷신은 배우가 다시 보인 뒤에 더미·reel을 반영한다.
+  useEffect(() => {
+    if (leg || !goldenPendingReelRef.current) return;
+    const event = goldenPendingReelRef.current;
+    goldenPendingReelRef.current = null;
+    recordGoldenCatch(event);
+    setGoldenFish(true);
+    startGoldenReelTimer();
+  }, [leg]);
   // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
   // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
   const serverSession = () => e.focus && s.session?.version != null;
@@ -1761,24 +1787,21 @@ function FocusFlow({ e }: any) {
       muted={!s.settings.sound}
       volume={s.settings.volume ?? 0.55}
       onFinish={() => {
-        recordGoldenCatch(goldenCutscene);
+        const completed = goldenCutscene;
         goldenCutsceneRef.current = null;
         setGoldenCutscene(null);
+        if (leg) {
+          goldenPendingReelRef.current = completed;
+          // 이동 완료 전에도 다음 컷신·화면 전환이 앞지르지 못하게 차단한다.
+          goldenQueueTimerRef.current = () => {
+            goldenPendingReelRef.current = null;
+          };
+          return;
+        }
+        recordGoldenCatch(completed);
         setGoldenFish(true);
         // 실제 포그라운드에서 reel을 2초 노출한 뒤 다음 영상 또는 지연된 이동을 진행한다.
-        goldenQueueTimerRef.current = afterForegroundMs(() => {
-          goldenQueueTimerRef.current = null;
-          const next = goldenQueueRef.current.shift() ?? null;
-          goldenCutsceneRef.current = next;
-          if (next) {
-            setGoldenFish(false);
-            setGoldenCutscene(next);
-          } else {
-            const navigate = goldenDeferredNavigationRef.current;
-            goldenDeferredNavigationRef.current = null;
-            navigate?.();
-          }
-        }, 2000);
+        startGoldenReelTimer();
       }}
     />
   ) : null;

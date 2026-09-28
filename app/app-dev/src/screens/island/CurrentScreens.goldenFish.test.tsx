@@ -355,7 +355,7 @@ test('휴식 전환 중 도착한 당첨을 보존하고 복귀하면 컷신과 
   await screen.unmount();
 });
 
-test('휴식하러 걷는 중 시작한 컷신이 끝날 때까지 화면 전환을 미룬다', async () => {
+test('휴식하러 걷는 중 끝난 컷신은 복귀한 배우의 reel을 2초 보여준다', async () => {
   jest.useFakeTimers();
   const state = focusedState();
   const go = jest.fn();
@@ -370,13 +370,23 @@ test('휴식하러 걷는 중 시작한 컷신이 끝날 때까지 화면 전환
       ]),
     ),
   );
-  await act(async () => jest.runAllTimers());
-
-  assert.equal(go.mock.calls.length, 0);
   assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
   assert.equal(go.mock.calls.length, 0);
-  await act(async () => jest.advanceTimersByTime(2000));
+
+  let walkingSteps = 0;
+  while (screen.queryByTestId('golden-self') === null && walkingSteps < 500) {
+    await act(async () => jest.advanceTimersByTime(40));
+    walkingSteps++;
+  }
+  assert.ok(walkingSteps > 0);
+  assert.notEqual(screen.queryByTestId('golden-self'), null);
+  assert.equal(screen.getByTestId('golden-self').props.goldenCatchToken, 'golden-i1-1');
+  assert.equal(go.mock.calls.length, 0);
+
+  await act(async () => jest.advanceTimersByTime(1999));
+  assert.equal(go.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(1));
   assert.equal(go.mock.calls[0][0], 'rest');
 
   await screen.unmount();

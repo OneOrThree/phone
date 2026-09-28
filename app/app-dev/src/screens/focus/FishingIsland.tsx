@@ -808,7 +808,8 @@ export function FishingActor({
     [goldenReeling, setGoldenReeling] = useState(false);
   const count = Math.floor(seconds / SECONDS_PER_FISH),
     last = useRef(count),
-    lastGoldenCatch = useRef<string | null>(null);
+    // 이미 표시된 더미를 가진 채 재마운트되면 기존 사건을 새 당첨으로 재생하지 않는다.
+    lastGoldenCatch = useRef<string | null>(goldenCatchToken ?? null);
   // 새로 한 마리 잡으면 2초 동안 낚아올리기
   useEffect(() => {
     if (count <= last.current) {

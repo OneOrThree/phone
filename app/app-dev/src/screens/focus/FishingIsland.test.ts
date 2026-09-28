@@ -942,6 +942,16 @@ test('황금 물고기 참여자: 더미에 황금 물고기를 남기고 새 �
   assert.notEqual(screen.queryByTestId('fishing-actor-golden-fish-1'), null);
   assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
   await screen.unmount();
+
+  const remounted = await render(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 2,
+      goldenCatchToken: 'golden-i1-2',
+    }),
+  );
+  assert.equal(remounted.getByTestId('fishing-actor-cat').props.motion, 'focus');
+  await remounted.unmount();
   jest.useRealTimers();
 });
 
