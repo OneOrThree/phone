@@ -317,9 +317,21 @@ async function writeAndroidLogoutTombstone(): Promise<void> {
  * 못하면 아무것도 바꾸지 않고 {@link LogoutNotDurableError}를 던진다. 화면은 이 결과를 보고
  * 로그인 화면 전환 여부를 정한다 — 실패한 로그아웃을 성공처럼 보여 주면 재실행 때 계정이 복구된다.
  */
-export function prepareExplicitLogout(): Promise<void> {
-  if (Platform.OS !== 'android') return Promise.resolve();
-  return serialized(writeAndroidLogoutTombstone);
+export function prepareExplicitLogout(
+  markIntent?: () => Promise<void>,
+  withdrawIntent?: () => Promise<void>,
+): Promise<void> {
+  // 세션 줄 안에서 실행한다 — 뒤이어 줄에 선 clearSession 보다 늦은 로그인 저장이 앞서지 못한다.
+  return serialized(async () => {
+    await markIntent?.();
+    if (Platform.OS !== 'android') return;
+    try {
+      await writeAndroidLogoutTombstone();
+    } catch (error) {
+      await withdrawIntent?.();
+      throw error;
+    }
+  });
 }
 
 /** An explicit Android logout must win over a crash before legacy RT cleanup completes. */
@@ -547,8 +559,11 @@ export function clearSession(
   expectedGeneration?: number,
   preserveLegacy = false,
   explicitLogout = false,
+  precondition?: Promise<void>,
 ): Promise<Session | null> {
   return serialized(async () => {
+    // 명시 로그아웃 준비(tombstone 등)가 실패했으면 아무것도 지우지 않는다.
+    if (precondition) await precondition;
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return null;
     const failed: unknown[] = [];
     const swallow = (error: unknown): void => void failed.push(error);

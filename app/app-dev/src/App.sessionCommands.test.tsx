@@ -54,6 +54,7 @@ jest.mock('@/services/api/auth', () => ({
   guestLogin: (...args: unknown[]) => mockGuestLogin(...args),
   login: (...args: unknown[]) => mockApiLogin(...args),
   logout: () => mockLogout(),
+  prepareLogout: () => mockPrepareLogout(),
 }));
 
 jest.mock('@/services/appDeepLink', () => {
@@ -95,7 +96,6 @@ jest.mock('@/services/api/session', () => {
   return {
     ...actual,
     restoreSession: (...args: unknown[]) => mockRestoreSession(...args),
-    prepareExplicitLogout: () => mockPrepareLogout(),
   };
 });
 
@@ -109,9 +109,14 @@ jest.mock('@/services/islandCommands', () => {
     ...actual,
     createIslandCommands: (...args: any[]) => {
       mockAppDispatch = args[0].dispatch;
+      const created = actual.createIslandCommands(...args);
       return {
-        ...actual.createIslandCommands(...args),
+        ...created,
         syncIslands: (...syncArgs: unknown[]) => mockSyncIslands(...syncArgs),
+        commands: {
+          ...created.commands,
+          sync: (...syncArgs: unknown[]) => mockSyncIslands(...syncArgs),
+        },
       };
     },
   };
@@ -226,6 +231,78 @@ test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이�
   await waitFor(async () => {
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
     assert.equal(persisted.loggedIn, true);
+    assert.equal(persisted.serverIslands.currentIslandId, 'server-island-b');
+  });
+});
+
+test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 뒤에 owner 전환과 저장을 완료한다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  await rememberLocalDataOwner('user-a');
+  await AsyncStorage.setItem(
+    'gromo-r61-user-v2',
+    JSON.stringify({ ...initialState(true), name: 'A-only-private-state' }),
+  );
+  await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+  mockRestoreSession.mockImplementation(() =>
+    jest.requireActual('@/services/api/session').restoreSession(),
+  );
+  mockCheckSession.mockResolvedValue({
+    status: 'active',
+    account: {
+      id: 'user-b',
+      name: 'B',
+      catColor: null,
+      mainIslandId: null,
+      linkedProviders: [],
+      onboardingComplete: false,
+    },
+  });
+  const serverMemberships = {
+    items: [],
+    nextCursor: null,
+    currentIslandId: 'server-island-b',
+    lossReason: null,
+  };
+  mockSyncIslands.mockRejectedValueOnce(new Error('offline')).mockImplementation(async () => {
+    mockAppDispatch!({
+      type: 'ISLAND_SYNC',
+      memberships: serverMemberships,
+      requests: [],
+      mainIslandId: 'server-island-b',
+    });
+    return serverMemberships;
+  });
+  mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
+    try {
+      const memberships = await syncIslands();
+      return memberships.currentIslandId ? 'home' : 'chooseIsland';
+    } catch {
+      return 'chooseIsland';
+    }
+  });
+
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.equal(captured.route, 'chooseIsland'));
+  assert.equal(mockDecideBootRoute.mock.calls.length, 1);
+  assert.equal(getLastSessionUserId(), 'user-a');
+  assert.equal(
+    JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!).name,
+    'A-only-private-state',
+  );
+
+  await act(async () => {
+    await captured.islands.sync();
+  });
+  await waitFor(() => assert.equal(getLastSessionUserId(), 'user-b'));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  await waitFor(async () => {
+    const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
+    assert.equal(persisted.loggedIn, true);
+    assert.notEqual(persisted.name, 'A-only-private-state');
     assert.equal(persisted.serverIslands.currentIslandId, 'server-island-b');
   });
 });

@@ -96,16 +96,47 @@ async function finishGuestDeviceIdRotation(): Promise<void> {
   guestDeviceIdRotationRequested = false;
 }
 
+async function writeGuestDeviceIdRotationMarker(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
+  } catch (error) {
+    try {
+      await SecureStore.setItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
+    } catch {
+      throw new LogoutNotDurableError(error);
+    }
+  }
+}
+
+/**
+ * 명시 로그아웃의 선행 단계. 게스트 기기 ID 회전 의도와 (Android) 세션 tombstone을 모두 기기에
+ * 남겨야 성공한다. 하나라도 못 남기면 {@link LogoutNotDurableError}를 던지고 아무것도 폐기하지
+ * 않는다 — 화면은 이 결과로 로그인 화면 전환을 막는다. 표식 없이 로그아웃하면 재시작 뒤 남은
+ * 기존 ID가 다시 전송돼 명시적으로 떠난 게스트 계정이 재개된다.
+ */
+export function prepareLogout(): Promise<void> {
+  return prepareExplicitLogout(writeGuestDeviceIdRotationMarker, async () => {
+    // 로그아웃을 취소하므로 회전 의도도 거둔다. 남기면 계속 로그인된 게스트의 복구 ID가 바뀐다.
+    await Promise.all([
+      AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY).catch(() => {}),
+      SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY).catch(() => {}),
+    ]);
+  });
+}
+
 /** Durable logout intent; a later guest request retries rotation if SecureStore deletion failed. */
-function rotateGuestDeviceId(): Promise<void> {
+function rotateGuestDeviceId(intentRecorded: Promise<void>): Promise<void> {
   guestDeviceIdFlight = null;
   guestDeviceIdEpoch += 1;
   guestDeviceIdRotationRequested = true;
-  const markerWrite = AsyncStorage.setItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1').catch(
-    async () => SecureStore.setItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1'),
-  );
   const rotation = serializeGuestDeviceId(async () => {
-    await markerWrite;
+    // 내구 회전 표식이 확정된 뒤에만 기존 ID를 지운다. 확정 실패면 로그아웃 자체가 취소된다.
+    try {
+      await intentRecorded;
+    } catch (error) {
+      guestDeviceIdRotationRequested = false;
+      throw error;
+    }
     await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
     await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
     await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
@@ -284,18 +315,26 @@ function revokeRefreshToken(refreshToken: string): Promise<{ revoked: boolean }>
  * 「만료 AT 를 실어 보내면 401 이므로 앱은 RT 만으로 로그아웃할 수 있다」).
  */
 export async function logout(): Promise<void> {
-  // tombstone을 남기지 못하면 로컬도 서버도 건드리지 않고 실패한다 — 세션을 계속 쓰는 편이
-  // «로그아웃된 줄 알았는데 재실행 때 되살아나는» 상태보다 낫다.
-  await prepareExplicitLogout();
   let refreshToken = getSession()?.refreshToken;
+  // 게스트 회전 표식·tombstone을 남기지 못하면 로컬도 서버도 건드리지 않고 실패한다 — 세션을
+  // 계속 쓰는 편이 «로그아웃된 줄 알았는데 재실행 때 되살아나는» 상태보다 낫다.
+  // 준비·회전·정리를 모두 동기적으로 줄에 세워, 늦은 로그인 저장이 정리보다 앞서지 못하게 한다.
+  const preparation = prepareLogout();
   // 로컬 삭제와 서버 폐기는 **서로 독립**이다(LLD §2.4 「양쪽 실패에도 각각 진행」).
   // 여기만 fence 가 **없다** — 401 정리·checkSession 과 달리 사용자가 직접 누른 로그아웃은
   // 그 사이 로그인이 끝났더라도 이겨야 한다. 무엇을 지웠는지는 cleared 로 되받아 교정한다.
   // 로컬을 먼저 끝내되(느린 네트워크 중 앱이 죽어도 토큰이 남지 않는다) 키체인 삭제가
   // 던졌다는 이유로 서버 폐기를 건너뛰지 않는다 — 건너뛰면 서버 세션이 그대로 남는다.
   // clearSession 은 커밋 마커를 먼저 지우고, 실패해도 나머지를 마저 지운 뒤에 던진다.
-  const guestDeviceRotationFlight = rotateGuestDeviceId();
-  const clearSessionFlight = clearSession(undefined, false, true);
+  const guestDeviceRotationFlight = rotateGuestDeviceId(preparation);
+  const clearSessionFlight = clearSession(undefined, false, true, preparation);
+  try {
+    await preparation;
+  } catch (error) {
+    void guestDeviceRotationFlight.catch(() => {});
+    void clearSessionFlight.catch(() => {});
+    throw error;
+  }
   const clearFailure = await clearSessionFlight.then(
     (cleared) => {
       // 폐기 대상은 «정리 시점»의 세션이다. 진행 중이던 로그인이 줄 앞에서 먼저 공개했으면

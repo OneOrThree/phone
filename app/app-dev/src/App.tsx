@@ -3,7 +3,7 @@ import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
 import { Btn as NativeButton, Overlay, Txt as NativeText } from '@/design-system/patterns';
 import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
-import React, { useState, useReducer, useEffect, useRef } from 'react';
+import React, { useState, useReducer, useEffect, useMemo, useRef } from 'react';
 import {
   View,
   ScrollView,
@@ -100,6 +100,7 @@ import {
   guestLogin,
   login as apiLogin,
   logout,
+  prepareLogout,
   type LoginResult,
   type Provider,
 } from '@/services/api/auth';
@@ -118,7 +119,6 @@ import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getLastSessionUserId,
   getSession,
-  prepareExplicitLogout,
   rememberLocalDataOwner,
   restoreSession,
   setSessionLostHandler,
@@ -361,6 +361,9 @@ function Gromo() {
     generation: number;
   } | null>(null);
   const deferredOwnerState = useRef<{ userId: string; state: State } | null>(null);
+  // owner 불일치 부팅에서 첫 섬 동기화가 실패하면 소유자 전환을 여기 보류했다가,
+  // 화면의 동기화 재시도가 성공한 뒤 마저 끝낸다.
+  const pendingBootOwnerTransfer = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
   const transition = useRef(new Animated.Value(1)).current,
@@ -567,8 +570,29 @@ function Gromo() {
     getSnap: () => stateRef.current?.serverIslands,
     setBootError: setIslandBootError,
   });
-  const islands = islandCmds.current.commands,
+  const islandCommands = islandCmds.current.commands,
     syncIslands = islandCmds.current.syncIslands;
+  const islands = useMemo(
+    () => ({
+      ...islandCommands,
+      sync: async () => {
+        const my = await islandCommands.sync();
+        const transfer = pendingBootOwnerTransfer.current;
+        if (transfer) {
+          pendingBootOwnerTransfer.current = null;
+          try {
+            await transfer();
+          } catch (error) {
+            // 재시도가 다시 실패하면 다음 재시도에서 전환을 이어서 시도한다.
+            pendingBootOwnerTransfer.current ??= transfer;
+            throw error;
+          }
+        }
+        return my;
+      },
+    }),
+    [islandCommands],
+  );
   // ── 서버 모드 홈 스냅샷(GROMO-2138) ──
   // 홈에 들어올 때마다(그리고 current 가 바뀌면) 불러 홈이 서버 값을 직접 그린다.
   // 실패는 홈이 재시도로 띄운다 — 로컬 목업 섬으로 대신 그리지 않는다.
@@ -1079,58 +1103,57 @@ function Gromo() {
         });
         // decideBootRoute 반환과 적용 사이도 await 경계다 — 그 사이 세대가 죽었으면 쓰지 않는다
         if (bootRoute && sessionGeneration() === bootGen) setRoute(bootRoute);
-        if (
-          ownerMismatch &&
-          account &&
-          bootSyncSucceeded &&
-          bootRoute &&
-          session &&
-          sessionGeneration() === bootGen
-        ) {
+        if (ownerMismatch && account && session && sessionGeneration() === bootGen) {
           const bootSessionIsCurrent = () =>
             sessionGeneration() === bootGen && getSession()?.userId === session.userId;
           // 부팅 채택도 일반 계정 전환과 같은 의미를 지킨다: 활성 계정의 정본 동기화 후
           // 사용자 데이터 제거 → 깨끗한 상태 적용 → 마지막에 내구 owner 기록 순서다.
-          await AsyncStorage.removeItem(STORAGE);
-          deferredOwnerState.current = null;
-          // 저장소 삭제 중 로그아웃·다른 계정 로그인으로 세대가 바뀌었을 수 있다.
-          // 이전 계정의 clean LOAD/PROFILE을 새 세션에 적용하지 않는다.
-          if (!bootSessionIsCurrent()) return;
-          dispatch({
-            type: 'LOAD',
-            state: {
-              ...initialState(DEMO),
-              settings: loadable?.settings ?? stateRef.current.settings,
-            },
-            now: Date.now(),
-          });
-          // 위에서 확인한 계정/섬 동기화 결과는 초기 LOAD가 지운다. 깨끗한 로컬 상태에 계정을
-          // 다시 적용하고 동기화/route를 한 번 더 수행해 최종 reducer 상태와 화면을 맞춘다.
-          dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
-          if (account.name || account.catColor)
+          const transferOwner = async () => {
+            if (!bootSessionIsCurrent()) return;
+            await AsyncStorage.removeItem(STORAGE);
+            deferredOwnerState.current = null;
+            // 저장소 삭제 중 로그아웃·다른 계정 로그인으로 세대가 바뀌었을 수 있다.
+            // 이전 계정의 clean LOAD/PROFILE을 새 세션에 적용하지 않는다.
+            if (!bootSessionIsCurrent()) return;
             dispatch({
-              type: 'PROFILE',
-              name: account.name ?? undefined,
-              color: account.catColor ?? undefined,
+              type: 'LOAD',
+              state: {
+                ...initialState(DEMO),
+                settings: loadable?.settings ?? stateRef.current.settings,
+              },
+              now: Date.now(),
             });
-          const cleanBootGen = sessionGeneration();
-          const cleanBootRoute = await decideBootRoute({
-            saved: null,
-            account,
-            rejected: false,
-            serverMode: true,
-            bootGen: cleanBootGen,
-            generation: sessionGeneration,
-            syncIslands,
-            onBootError: setIslandBootError,
-          });
-          // 두 번째 서버 동기화/route 결정도 await 경계다. 세션이 바뀌었다면 route와 owner를
-          // 이전 부팅 계정으로 확정하지 않는다.
-          if (!bootSessionIsCurrent()) return;
-          if (cleanBootRoute && sessionGeneration() === cleanBootGen) setRoute(cleanBootRoute);
-          if (!bootSessionIsCurrent()) return;
-          if ((await rememberLocalDataOwner(session.userId, bootGen)) && bootSessionIsCurrent())
-            setStorageOwnerGate(true);
+            // 위에서 확인한 계정/섬 동기화 결과는 초기 LOAD가 지운다. 깨끗한 로컬 상태에 계정을
+            // 다시 적용하고 동기화/route를 한 번 더 수행해 최종 reducer 상태와 화면을 맞춘다.
+            dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
+            if (account.name || account.catColor)
+              dispatch({
+                type: 'PROFILE',
+                name: account.name ?? undefined,
+                color: account.catColor ?? undefined,
+              });
+            const cleanBootGen = sessionGeneration();
+            const cleanBootRoute = await decideBootRoute({
+              saved: null,
+              account,
+              rejected: false,
+              serverMode: true,
+              bootGen: cleanBootGen,
+              generation: sessionGeneration,
+              syncIslands,
+              onBootError: setIslandBootError,
+            });
+            // 두 번째 서버 동기화/route 결정도 await 경계다. 세션이 바뀌었다면 route와 owner를
+            // 이전 부팅 계정으로 확정하지 않는다.
+            if (!bootSessionIsCurrent()) return;
+            if (cleanBootRoute && sessionGeneration() === cleanBootGen) setRoute(cleanBootRoute);
+            if (!bootSessionIsCurrent()) return;
+            if ((await rememberLocalDataOwner(session.userId, bootGen)) && bootSessionIsCurrent())
+              setStorageOwnerGate(true);
+          };
+          // 정본 동기화가 실패했으면 소유자 전환을 보류한다 — chooseIsland 재시도 성공 뒤에 끝낸다.
+          if (bootSyncSucceeded && bootRoute) await transferOwner();
+          else pendingBootOwnerTransfer.current = transferOwner;
         }
         // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
         // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
@@ -1534,7 +1557,7 @@ function Gromo() {
   const signOut = async (): Promise<boolean> => {
     if (!REVIEW && !DEMO) {
       try {
-        await prepareExplicitLogout();
+        await prepareLogout();
       } catch {
         notify('기기 저장 공간 문제로 로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.');
         return false;
