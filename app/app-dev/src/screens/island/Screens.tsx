@@ -124,6 +124,8 @@ import {
   sendFriendRequest,
 } from '@/services/api/friends';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { PolicyLink } from '@/components/PolicyLink';
+import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 // 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
 const shopUiKind = (kind: string) =>
   kind === 'island_theme'
@@ -1168,7 +1170,9 @@ export function RedesignScreens({ e }: any) {
         >
           {terms && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
-        <Txt kind="meta">이용약관과 개인정보 안내에 동의해요.</Txt>
+        <Txt kind="meta">
+          <PolicyLink policy="terms" />과 <PolicyLink policy="privacy" />에 동의해요.
+        </Txt>
       </Pressable>
     );
     const start = (
@@ -6089,15 +6093,16 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup flat>
           <SheetRow title="버전" sub="R61 · v2" />
           <SheetRow
-            title="이용약관 · 개인정보"
+            title="이용약관"
             chevron
-            onPress={() =>
-              confirm(
-                '이용약관 · 개인정보',
-                'GROMO는 집중 기록과 섬 활동을 제공해요. 이 앱은 로컬 목업이며 계정과 결제 정보는 서버로 전송하지 않아요.\n\n닉네임, 집중 기록과 설정은 이 기기에 저장돼요. 회원 탈퇴를 누르면 삭제돼요.',
-                () => {},
-              )
-            }
+            label="이용약관 원문 보기"
+            onPress={() => openPolicy(TERMS_URL)}
+          />
+          <SheetRow
+            title="개인정보처리방침"
+            chevron
+            label="개인정보처리방침 원문 보기"
+            onPress={() => openPolicy(PRIVACY_URL)}
           />
         </SheetGroup>
       </IslandSheet>
