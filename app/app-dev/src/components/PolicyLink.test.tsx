@@ -23,9 +23,9 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-test('정책 URL은 team-page Catus 정책 포털의 한국어 문서를 가리킨다', () => {
-  expect(TERMS_URL).toBe('https://team-page-one-or-three.vercel.app/catus/terms/');
-  expect(PRIVACY_URL).toBe('https://team-page-one-or-three.vercel.app/catus/privacy/');
+test('정책 URL은 team-page Catus 정책 포털(oneorthree.world)의 한국어 문서를 가리킨다', () => {
+  expect(TERMS_URL).toBe('https://oneorthree.world/catus/terms');
+  expect(PRIVACY_URL).toBe('https://oneorthree.world/catus/privacy');
 });
 
 test('동의 문구 안의 이용약관을 누르면 원문을 열고 동의는 토글하지 않는다', async () => {
