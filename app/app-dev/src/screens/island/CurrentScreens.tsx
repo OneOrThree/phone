@@ -1266,7 +1266,7 @@ function FocusFlow({ e }: any) {
       return;
     }
     setGoldenFish(false);
-    if (goldenCutsceneRef.current) {
+    if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
       goldenQueueRef.current.push(event);
       return;
     }
@@ -1372,7 +1372,7 @@ function FocusFlow({ e }: any) {
       setGoldenFish(false);
       return;
     }
-    if (r !== 'rest' && !goldenCutsceneRef.current) {
+    if (r !== 'rest' && !goldenCutsceneRef.current && !goldenQueueTimerRef.current) {
       if (reduce) {
         const pending = goldenQueueRef.current.splice(0);
         for (const event of pending) recordGoldenCatch(event);
@@ -1840,17 +1840,17 @@ function FocusFlow({ e }: any) {
       volume={s.settings.volume ?? 0.55}
       onFinish={() => {
         recordGoldenCatch(goldenCutscene);
-        const next = goldenQueueRef.current.shift() ?? null;
-        goldenCutsceneRef.current = next;
+        goldenCutsceneRef.current = null;
         setGoldenCutscene(null);
         setGoldenFish(true);
         // 실제 포그라운드에서 reel을 2초 노출한 뒤 다음 영상 또는 지연된 이동을 진행한다.
         goldenQueueTimerRef.current = afterForegroundMs(() => {
           goldenQueueTimerRef.current = null;
+          const next = goldenQueueRef.current.shift() ?? null;
+          goldenCutsceneRef.current = next;
           if (next) {
-            if (goldenCutsceneRef.current?.eventId !== next.eventId) return;
             setGoldenFish(false);
-            setGoldenCutscene(goldenCutsceneRef.current);
+            setGoldenCutscene(next);
           } else {
             const navigate = goldenDeferredNavigationRef.current;
             goldenDeferredNavigationRef.current = null;

@@ -94,6 +94,20 @@ export class GoldenFishOccurrenceTracker {
 const MAX_LEDGER_PAGES = 100;
 const LEDGER_LOOKBACK_MS = 60_000;
 
+const monthsFrom = (first: string, last: string) => {
+  const [firstYear, firstMonth] = first.split('-').map(Number);
+  const [lastYear, lastMonth] = last.split('-').map(Number);
+  const start = firstYear * 12 + firstMonth - 1;
+  const end = lastYear * 12 + lastMonth - 1;
+  const months: string[] = [];
+  for (let value = start; value <= end; value++) {
+    const year = Math.floor(value / 12);
+    const month = (value % 12) + 1;
+    months.push(`${year}-${String(month).padStart(2, '0')}`);
+  }
+  return months;
+};
+
 async function ledgerItemsSince(islandId: string, month: string, afterMs: number) {
   const items: LedgerEntry[] = [];
   let cursor: string | undefined;
@@ -180,8 +194,7 @@ export function useGoldenFishLedger({
       try {
         const afterMonth = dayKey(scope.current.afterMs).slice(0, 7);
         const requestedMonth = dayKey(requestedAt).slice(0, 7);
-        const months =
-          afterMonth === requestedMonth ? [requestedMonth] : [afterMonth, requestedMonth];
+        const months = monthsFrom(afterMonth, requestedMonth);
         const items = (
           await Promise.all(
             months.map((month) => ledgerItemsSince(islandId, month, scope.current.afterMs)),

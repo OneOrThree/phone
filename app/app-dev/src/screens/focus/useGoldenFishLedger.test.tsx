@@ -318,6 +318,24 @@ test('KST 월 경계를 넘으면 커서의 직전 달과 현재 달을 모두 �
   await screen.unmount();
 });
 
+test('장기 세션은 커서부터 현재까지의 모든 KST 월을 조회한다', async () => {
+  jest.setSystemTime(new Date('2026-11-01T00:00:01Z'));
+  const onGoldenFish = jest.fn();
+  ledgerMock.mockImplementation((_islandId: string, query: { month: string }) =>
+    Promise.resolve({ ...emptyPage(), month: query.month }),
+  );
+  const screen = await render(
+    <Harness sessionStartedAt={Date.parse('2026-09-01T00:00:00Z')} onGoldenFish={onGoldenFish} />,
+  );
+  await act(async () => {});
+
+  assert.equal(
+    ledgerMock.mock.calls.map((call: any[]) => call[1].month).join(','),
+    '2026-09,2026-10,2026-11',
+  );
+  await screen.unmount();
+});
+
 test('자기 세션 참여 여부를 확정할 수 없는 행은 다음 복구 조회까지 보존한다', async () => {
   const onGoldenFish = jest.fn();
   let known = false;

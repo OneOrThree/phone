@@ -285,6 +285,31 @@ test('동작 줄이기에서는 컷신 없이 황금 물고기 더미만 즉시 
   await screen.unmount();
 });
 
+test('마지막 reel 대기 중 도착한 당첨은 대기 종료 뒤 다음 컷신으로 재생한다', async () => {
+  jest.useFakeTimers();
+  const screen = await mount();
+  const members = [
+    { userId: 'me', sessionId: 's-me' },
+    { userId: 'minji', sessionId: 'minji' },
+  ];
+
+  await act(async () => onGoldenFish?.(event(members)));
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  await act(async () => onGoldenFish?.(event(members, 'golden-i1-2')));
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
+
+  await act(async () => jest.advanceTimersByTime(2000));
+  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(
+    screen.getByTestId('golden-self', { includeHiddenElements: true }).props.goldenFishCount,
+    1,
+  );
+
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('동작 줄이기에서 휴식 중 쌓인 당첨을 복귀할 때 모두 더미에 반영한다', async () => {
   const state = focusedState();
   state.settings.reduceMotion = true;
