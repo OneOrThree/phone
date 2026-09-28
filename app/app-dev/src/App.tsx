@@ -1573,6 +1573,7 @@ function Gromo() {
                   <NativeButton
                     key={provider}
                     dialog
+                    dynamicHeight
                     title={convUi.busy === provider ? '연결하는 중…' : PROVIDER_LABEL[provider]}
                     kind="sec"
                     disabled={!!convUi.busy}
@@ -1586,6 +1587,7 @@ function Gromo() {
                 )}
                 <NativeButton
                   dialog
+                  dynamicHeight
                   title="나중에"
                   kind="glass"
                   disabled={!!convUi.busy}
