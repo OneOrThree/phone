@@ -234,8 +234,20 @@ export async function logout(): Promise<void> {
     },
     (error: unknown) => error ?? new Error('세션 삭제 실패'),
   );
+  // 게스트 장치 ID는 서버가 응답을 유실했을 때 재시도 멱등성을 위해 보존한다.
+  // 명시 로그아웃으로 로컬 세션 정리가 확정된 경우에만 ID를 폐기해 다음 게스트 시작은 새 계정이 된다.
+  let guestDeviceIdClearFailure: unknown = null;
+  if (!clearFailure) {
+    try {
+      await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
+      guestDeviceIdFlight = null;
+    } catch (error) {
+      guestDeviceIdClearFailure = error;
+    }
+  }
   if (refreshToken) await revokeRefreshToken(refreshToken);
   if (clearFailure) throw clearFailure;
+  if (guestDeviceIdClearFailure) throw guestDeviceIdClearFailure;
 }
 
 export function me(): Promise<Account> {

@@ -787,7 +787,11 @@ function Gromo() {
     }
   };
   const memberConversion = conversionRef.current;
+  const conversionAdoptionPending = memberConversion.hasPendingAdoption();
   const closeMemberConversion = () => {
+    // 서버 세션 발급 후 앱 채택(/me·로컬 상태 반영)이 실패한 경우 재시도 결과가
+    // memberConversion 안에 보관돼 있다. 이 상태에서 닫으면 복구 자격을 잃는다.
+    if (memberConversion.hasPendingAdoption()) return;
     conversionLoginAttempt.current = null;
     conversionSessionTransition.current = null;
     memberConversion.clearPending();
@@ -926,7 +930,16 @@ function Gromo() {
           settleSwitch(false);
         }
         setConvUi((current) =>
-          session ? (current ? { ...current, termsAccepted: false } : current) : null,
+          session
+            ? current
+              ? {
+                  ...current,
+                  // 이 전환에서 로그인 세션을 이미 발급받은 뒤 채택만 재시도하는 경우엔
+                  // 같은 동의를 유지한다. 복구 대기 중 체크를 해제하면 재시도할 수 없다.
+                  termsAccepted: expectedConversionTransition ? current.termsAccepted : false,
+                }
+              : current
+            : null,
         );
       }
       setHasServerSession(session !== null);
@@ -1786,9 +1799,9 @@ function Gromo() {
                     accessibilityLabel={`약관 버전 ${TERMS_VERSION}에 동의합니다`}
                     accessibilityState={{
                       checked: convUi.termsAccepted,
-                      disabled: !!convUi.busy,
+                      disabled: !!convUi.busy || conversionAdoptionPending,
                     }}
-                    disabled={!!convUi.busy}
+                    disabled={!!convUi.busy || conversionAdoptionPending}
                     onPress={() =>
                       setConvUi((current) =>
                         current ? { ...current, termsAccepted: !current.termsAccepted } : current,
@@ -1842,7 +1855,7 @@ function Gromo() {
                     dynamicHeight
                     title="나중에"
                     kind="glass"
-                    disabled={!!convUi.busy}
+                    disabled={!!convUi.busy || conversionAdoptionPending}
                     onPress={closeMemberConversion}
                   />
                 </ScrollView>

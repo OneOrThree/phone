@@ -53,6 +53,8 @@ export type MemberConversion = {
    * 같은 (provider, credential) 재시도는 같은 attemptId 로 서버 재생을 노린다.
    */
   convert: (provider: Provider, credential: string) => Promise<'converted' | 'cancelled'>;
+  /** 로그인 세션은 발급됐지만 앱 상태 채택이 끝나지 않은 복구 대기 상태인지 확인한다. */
+  hasPendingAdoption: () => boolean;
   /** 세션 세대 변경·로그아웃 경계에서 재시도용 자격과 attemptId를 버린다. */
   clearPending: () => void;
 };
@@ -230,6 +232,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
       return true;
     },
     convert,
+    hasPendingAdoption: () => pending?.mode === 'adopt',
     clearPending: () => {
       pending = null;
     },

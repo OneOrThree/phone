@@ -672,13 +672,20 @@ test('회원 전환 로그인 뒤 채택 실패는 저장된 결과와 자격으
   assert.equal(mockAdoptSignedInAccount.mock.calls.length, 1);
   await waitFor(() => assert.ok(screen!.getByText('문제가 생겼어요. 다시 시도해 주세요.')));
 
-  // 세션 세대 경계에서는 현재 약관 동의를 다시 받지만, 같은 계정의 채택 재시도는
-  // provider SDK 자격이나 로그인 요청을 다시 사용하지 않는다.
-  assert.equal(
-    screen!.getByTestId('member-conversion-terms').props.accessibilityState.checked,
-    false,
-  );
-  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
+  // 로그인은 이미 성공했으므로 약관 동의를 유지하고, 채택 복구 중에는 시트를 닫지 못한다.
+  const terms = screen!.getByTestId('member-conversion-terms');
+  assert.equal(terms.props.accessibilityState.checked, true);
+  assert.equal(terms.props.accessibilityState.disabled, true);
+  assert.equal(screen!.getByLabelText('나중에').props.accessibilityState.disabled, true);
+  const modal = screen!.container.queryAll((instance) => instance.type === 'Modal')[0];
+  await act(async () => {
+    modal.props.onRequestClose();
+    modal.props.children.props.onPress();
+  });
+  await fireEvent.press(screen!.getByText('나중에'));
+  assert.ok(screen!.getByText('소셜 계정으로 계속하기'));
+
+  // 같은 provider 버튼으로 채택을 재시도할 수 있고, 로그인/SDK 재호출은 없다.
   await fireEvent.press(screen!.getByText('Google로 계속하기'));
   await waitFor(() => assert.equal(screen!.queryByText('소셜 계정으로 계속하기'), null));
 

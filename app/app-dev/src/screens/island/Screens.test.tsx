@@ -7,12 +7,20 @@ import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { BackHandler, Keyboard, StyleSheet, View } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import * as SecureStore from 'expo-secure-store';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
 import { RouteTransitionShield } from '@/components/RouteTransitionShield';
 import { updateProfile, withdrawAccount } from '@/services/api/account';
+import {
+  clearLocalDataOwner,
+  clearSession,
+  getLastSessionUserId,
+  rememberLocalDataOwner,
+  saveSession,
+} from '@/services/api/session';
 import type { IslandSummary } from '@/services/api/islands';
 
 let mockFontScale = 1;
@@ -1341,6 +1349,8 @@ test('목업 모드 프로필 저장은 API 없이 로컬 PROFILE을 갱신한�
 test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로그인 이동을 수행한다', async () => {
   let exposed: any;
   mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'withdrawn-user' });
+  await rememberLocalDataOwner('withdrawn-user');
   const s = await render(
     <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
   );
@@ -1348,8 +1358,12 @@ test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로�
   await fireEvent.press(s.getByText('회원 탈퇴'));
   await waitFor(() => assert.equal(mockWithdrawAccount.mock.calls.length, 1));
   await waitFor(() => assert.equal(exposed.signOut.mock.calls.length, 1));
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
   assert.ok(exposed.actions.includes('DELETE_ACCOUNT'));
   assert.equal(exposed.reset.mock.calls[0][0], 'login');
+  await clearLocalDataOwner();
+  await clearSession();
+  assert.equal(getLastSessionUserId(), null);
 });
 
 test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 오류를 알린다', async () => {

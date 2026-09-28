@@ -90,6 +90,28 @@ test('게스트 시작 실패 뒤 재시도는 같은 기기 UUID를 재사용�
   assert.equal(getSession()?.userId, 'guest-1');
 });
 
+test('명시 로그아웃 뒤 다음 게스트 시작은 새 기기 UUID를 쓰고 응답 유실 재시도는 기존 UUID를 유지한다', async () => {
+  stub([
+    session('GUEST', 'guest-1'),
+    { status: 200, body: { data: { revoked: true } } },
+    {
+      status: 503,
+      body: { error: { code: 'UPSTREAM_UNAVAILABLE', message: '잠시 후 다시 시도해 주세요.' } },
+    },
+    session('GUEST', 'guest-2'),
+  ]);
+
+  await guestLogin();
+  const firstDeviceId = header(calls[0], 'X-Device-Id');
+  await logout();
+  await guestLogin().catch(() => {});
+  await guestLogin();
+
+  const nextDeviceId = header(calls[2], 'X-Device-Id');
+  assert.notEqual(nextDeviceId, firstDeviceId);
+  assert.equal(header(calls[3], 'X-Device-Id'), nextDeviceId);
+});
+
 test('login — 시도 id 를 헤더로 보내고 토큰을 보안 저장소에 넣는다', async () => {
   stub([
     {

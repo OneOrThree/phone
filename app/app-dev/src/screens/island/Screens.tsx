@@ -1,6 +1,6 @@
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
 import { LoginScreen } from '@/screens/LoginScreen';
-import { getSession } from '@/services/api/session';
+import { clearLocalDataOwner, getSession } from '@/services/api/session';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -6031,7 +6031,8 @@ export function RedesignScreens({ e }: any) {
                       screenTime
                         .resetScreenTimeData()
                         .catch(() => {})
-                        .finally(() => {
+                        .finally(async () => {
+                          await clearLocalDataOwner().catch(() => {});
                           act('DELETE_ACCOUNT');
                           reset('login');
                         });
@@ -6039,6 +6040,7 @@ export function RedesignScreens({ e }: any) {
                     }
                     run(async () => {
                       await withdrawAccount();
+                      await clearLocalDataOwner().catch(() => {});
                       await screenTime.resetScreenTimeData().catch(() => {});
                       await e.signOut();
                       act('DELETE_ACCOUNT');

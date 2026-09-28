@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import {
+  clearLocalDataOwner,
   clearRejectedSession,
   clearSession,
   getLastSessionUserId,
@@ -272,6 +273,22 @@ test('로그아웃은 토큰만 지우고 마지막 사용자 ID를 재로그인
   await restoreSession();
   assert.equal(getSession(), null);
   assert.equal(getLastSessionUserId(), 'same-user');
+});
+
+test('탈퇴 성공 경로는 일반 로그아웃이 보존한 마지막 사용자 소유자 표식을 제거한다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'withdrawn-user' });
+  await rememberLocalDataOwner('withdrawn-user');
+  await clearSession();
+
+  assert.equal(getLastSessionUserId(), 'withdrawn-user');
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'withdrawn-user');
+
+  await clearLocalDataOwner();
+
+  assert.equal(getLastSessionUserId(), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+  await restoreSession();
+  assert.equal(getLastSessionUserId(), null);
 });
 
 test('로그인 저장만 성공하고 채택이 실패하면 이전 로컬 소유자를 재시도까지 보존한다', async () => {

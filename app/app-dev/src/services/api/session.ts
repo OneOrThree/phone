@@ -128,6 +128,14 @@ export function rememberLocalDataOwner(
   });
 }
 
+/** 탈퇴 성공처럼 로컬 사용자 데이터도 함께 폐기할 때 소유자 표식을 제거한다. */
+export function clearLocalDataOwner(): Promise<void> {
+  return serialized(async () => {
+    lastUserId = null;
+    await removeItem(KEY_LAST_USER);
+  });
+}
+
 export function getAccessToken(): string | null {
   return cached?.accessToken ?? null;
 }
