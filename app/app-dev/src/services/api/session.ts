@@ -30,6 +30,8 @@ const KEY_USER = 'gromo.userId';
 const KEY_LAST_USER = 'gromo.lastUserId';
 /** 커밋 마커 — **항상 마지막에** 쓴다. 자세한 이유는 {@link saveSession}. */
 const KEY_BUNDLE = 'gromo.sessionBundle';
+const SESSION_SLOT_PREFIX = 'gromo.sessionSlot';
+const SESSION_SLOTS = ['A', 'B'] as const;
 const KEY_LEGACY_MIGRATED = 'gromo.legacySessionMigrated';
 const KEY_LEGACY_PENDING_PROMOTION = 'gromo.legacySessionPendingPromotion';
 const LEGACY_ACCESS = 'gromo:accessToken';
@@ -151,14 +153,11 @@ export function restoreSession(): Promise<Session | null> {
   // 읽기도 줄에 세운다 — 로그아웃 «도중»에 읽으면 지워지는 중인 값을 세션으로 되살린다.
   return serialized(async () => {
     try {
-      const [bundle, accessToken, refreshToken, userId, savedLastUserId] = await Promise.all([
+      const [bundle, savedLastUserId] = await Promise.all([
         readItem(KEY_BUNDLE),
-        readItem(KEY_ACCESS),
-        readItem(KEY_REFRESH),
-        readItem(KEY_USER),
         readItem(KEY_LAST_USER),
       ]);
-      cached = bundle ? unbundled(bundle, accessToken, refreshToken, userId) : null;
+      cached = bundle ? await readBundledSession(bundle) : null;
       // 저장된 소유자가 있으면 활성 세션과 달라도 유지한다. 로그인 저장만 끝나고 /me 채택이
       // 실패한 전환을 재시도할 때 이전 로컬 소유자 기준으로 reset 여부를 다시 판단해야 한다.
       lastUserId = savedLastUserId ?? cached?.userId ?? null;
@@ -241,37 +240,77 @@ function unbundled(bundle: string, ...values: (string | null)[]): Session | null
   return accessToken && refreshToken && userId ? { accessToken, refreshToken, userId } : null;
 }
 
+function parseSlotMarker(
+  bundle: string,
+): { slot: (typeof SESSION_SLOTS)[number]; id: string } | null {
+  const match = /^slot([AB]):(.+)$/.exec(bundle);
+  if (!match) return null;
+  return { slot: match[1] as (typeof SESSION_SLOTS)[number], id: match[2] };
+}
+
+async function readBundledSession(bundle: string): Promise<Session | null> {
+  const marker = parseSlotMarker(bundle);
+  if (!marker) {
+    // 이전 앱 버전은 고정 키 세 개를 직접 덮어썼다. 기존 커밋은 읽되, 다음 저장부터
+    // 비활성 슬롯으로 옮겨 이후 갱신이 기존 유효 RT를 파괴하지 않게 한다.
+    const [accessToken, refreshToken, userId] = await Promise.all([
+      readItem(KEY_ACCESS),
+      readItem(KEY_REFRESH),
+      readItem(KEY_USER),
+    ]);
+    return unbundled(bundle, accessToken, refreshToken, userId);
+  }
+  const prefix = `${SESSION_SLOT_PREFIX}.${marker.slot}`;
+  const [accessToken, refreshToken, userId] = await Promise.all([
+    readItem(`${prefix}.accessToken`),
+    readItem(`${prefix}.refreshToken`),
+    readItem(`${prefix}.userId`),
+  ]);
+  return unbundled(marker.id, accessToken, refreshToken, userId);
+}
+
 /**
- * 세 값 + 커밋 마커를 저장소에 쓴다. 마커는 **마지막**이다.
+ * 세 값 + 커밋 마커를 저장소에 쓴다. 값은 현재 활성 슬롯과 다른 슬롯에 기록하고,
+ * 포인터 마커는 **마지막**에 바꾼다. 도중 종료돼도 기존 슬롯과 유효 RT는 그대로 남는다.
  *
  * SecureStore 는 여러 키를 한 트랜잭션으로 쓰지 못하고, 값 하나에 몰아넣기엔 Android 상한
- * (2KiB)이 걸린다. 그래서 커밋 마커를 쓴다: 값마다 이번 커밋의 `bundleId` 를 접두로 달고,
- * 마커는 **마지막에** 쓴다. 중간에 죽으면 마커가 이전 커밋을 가리키므로 새로 쓰인 값의 태그와
- * 어긋나 복구가 거부된다 — 새 AT + 옛 RT 가 「셋 다 값이 있다」는 이유로 유효 세션으로
- * 살아나는 경로를 닫는다(LLD 검증표 「구 앱 AT setItem 뒤 RT setItem 전 종료」).
+ * (2KiB)이 걸린다. 슬롯을 번갈아 사용하므로 쓰기 중 이전 커밋은 덮이지 않는다. 중간에 죽으면
+ * 포인터가 이전 슬롯을 가리키고, 완료 후 새 포인터가 새 슬롯 전체를 가리킨다.
  */
 async function commit(session: Session): Promise<void> {
   const bundleId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
+  const previousMarker = await readItem(KEY_BUNDLE);
+  const active = previousMarker ? parseSlotMarker(previousMarker)?.slot : null;
+  const slot = active === 'A' ? 'B' : 'A';
+  const prefix = `${SESSION_SLOT_PREFIX}.${slot}`;
   // ⚠️ `Promise.all` 이 아니라 **allSettled** 다. all 은 첫 실패에서 즉시 던지고 남은 쓰기를
   // 기다리지 않는데, 그러면 {@link saveSession} 의 되돌리기가 이전 snapshot 과 새 마커를 쓴 «뒤에»
   // 그 늦은 쓰기가 착지해 마커와 값의 bundleId 가 어긋난다 — 멀쩡하던 이전 세션까지 복구가
   // 거부돼 저장 실패 한 번이 로그아웃으로 번진다. 모든 쓰기가 정착한 뒤에 실패를 알린다.
   const writes = await Promise.allSettled([
-    writeItem(KEY_ACCESS, `${bundleId}.${session.accessToken}`),
-    writeItem(KEY_REFRESH, `${bundleId}.${session.refreshToken}`),
-    writeItem(KEY_USER, `${bundleId}.${session.userId}`),
+    writeItem(`${prefix}.accessToken`, `${bundleId}.${session.accessToken}`),
+    writeItem(`${prefix}.refreshToken`, `${bundleId}.${session.refreshToken}`),
+    writeItem(`${prefix}.userId`, `${bundleId}.${session.userId}`),
   ]);
   const failure = writes.find((w): w is PromiseRejectedResult => w.status === 'rejected');
   if (failure) throw failure.reason;
-  await writeItem(KEY_BUNDLE, bundleId);
+  try {
+    await writeItem(KEY_BUNDLE, `slot${slot}:${bundleId}`);
+  } catch (error) {
+    // 포인터 쓰기가 실패하면 기존 포인터를 복원한다. 값 슬롯은 별도라 이 복구 중 종료되어도
+    // 이전 세션을 계속 읽을 수 있고, 이전 커밋이 없었던 경우에는 미완료 세션을 숨긴다.
+    if (previousMarker) await writeItem(KEY_BUNDLE, previousMarker).catch(() => {});
+    else await removeItem(KEY_BUNDLE).catch(() => {});
+    throw error;
+  }
 }
 
 /**
  * 세션을 **커밋이 끝난 뒤에** 공개한다(계정 LLD §2.4 「commit 표지·완전한 세션 snapshot 확정」).
  *
  * 메모리 세션·세대를 먼저 바꾸면 부분 실패에서 화면은 「전환 실패」인데 요청은 새 계정 토큰으로
- * 나가고, 재시작해도 이전 세션이 복구되지 않는다. 그래서 3키 + 마커가 모두 쓰인 뒤에만
- * `cached`·세대를 교체하고, 실패하면 이전 snapshot 을 다시 커밋해 되돌린다.
+ * 나가고, 재시작해도 이전 세션이 복구되지 않는다. 그래서 비활성 슬롯 3키 + 포인터가
+ * 모두 쓰인 뒤에만 `cached`·세대를 교체한다. 쓰기 실패 시 활성 슬롯과 메모리는 유지된다.
  *
  * @param expectedGeneration 호출부가 **요청을 시작할 때** 잡아 둔 세대. 임계구역에 들어간 시점에
  *   세대가 달라졌으면(그 사이 로그아웃이나 다른 로그인이 끝났으면) 저장을 **버린다** — 늦게
@@ -285,17 +324,7 @@ export function saveSession(
 ): Promise<boolean> {
   return serialized(async () => {
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return false;
-    const previous = cached;
-    try {
-      await commit(session);
-    } catch (error) {
-      // 커밋하지 못한 저장은 «없는 것»으로 확정한다: 마커부터 치우고 이전 snapshot 을 되살린다.
-      // 되살리기까지 실패하면 마커 없는 상태로 남고, 재시작은 로그아웃으로 복구한다 —
-      // 새 계정 토큰이 반쯤 살아남는 것보다 안전하다.
-      await removeItem(KEY_BUNDLE).catch(() => {});
-      if (previous) await commit(previous).catch(() => {});
-      throw error;
-    }
+    await commit(session);
     cached = session;
     generation += 1;
     try {
@@ -334,13 +363,7 @@ export function saveRefreshedSession(
       accessToken,
       refreshToken: refreshToken ?? previous.refreshToken,
     };
-    try {
-      await commit(updated);
-    } catch (error) {
-      await removeItem(KEY_BUNDLE).catch(() => {});
-      await commit(previous).catch(() => {});
-      throw error;
-    }
+    await commit(updated);
     if (generation !== expectedGeneration || cached !== previous) return null;
     cached = updated;
     notifySessionChanged();
@@ -378,6 +401,14 @@ export function clearSession(
       removeItem(KEY_ACCESS).catch(swallow),
       removeItem(KEY_REFRESH).catch(swallow),
       removeItem(KEY_USER).catch(swallow),
+      ...SESSION_SLOTS.flatMap((slot) => {
+        const prefix = `${SESSION_SLOT_PREFIX}.${slot}`;
+        return [
+          removeItem(`${prefix}.accessToken`).catch(swallow),
+          removeItem(`${prefix}.refreshToken`).catch(swallow),
+          removeItem(`${prefix}.userId`).catch(swallow),
+        ];
+      }),
     ]);
     if (Platform.OS === 'android' && !preserveLegacy) {
       await Promise.all([

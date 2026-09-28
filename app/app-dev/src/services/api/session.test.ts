@@ -223,6 +223,31 @@ test('저장한 세션은 그대로 복구된다', async () => {
   assert.deepEqual(await restoreSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
 
+test('이전 fixed-key marker 세션은 복구되고 첫 갱신부터 슬롯 포맷으로 전환된다', async () => {
+  await realWrite('gromo.accessToken', 'old-bundle.OLD_AT');
+  await realWrite('gromo.refreshToken', 'old-bundle.OLD_RT');
+  await realWrite('gromo.userId', 'old-bundle.user');
+  await realWrite('gromo.sessionBundle', 'old-bundle');
+
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'OLD_AT',
+    refreshToken: 'OLD_RT',
+    userId: 'user',
+  });
+  const generation = sessionGeneration();
+  assert.deepEqual(await saveRefreshedSession('NEW_AT', 'NEW_RT', generation, 'OLD_AT', 'OLD_RT'), {
+    accessToken: 'NEW_AT',
+    refreshToken: 'NEW_RT',
+    userId: 'user',
+  });
+  assert.match((await realRead('gromo.sessionBundle')) ?? '', /^slotA:/);
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'NEW_AT',
+    refreshToken: 'NEW_RT',
+    userId: 'user',
+  });
+});
+
 test('refresh bundle 저장은 토큰을 marker-last로 함께 바꾸고 generation을 유지한다', async () => {
   await saveSession({ accessToken: 'OLD_AT', refreshToken: 'RT', userId: 'u1' });
   const generation = sessionGeneration();
@@ -240,6 +265,61 @@ test('refresh bundle 저장은 토큰을 marker-last로 함께 바꾸고 generat
     userId: 'u1',
   });
   assert.equal(write.mock.calls[write.mock.calls.length - 1][0], 'gromo.sessionBundle');
+});
+
+test('refresh 중 새 슬롯 쓰기가 실패해도 재시작에서 이전 유효 RT를 복구한다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+  const generation = sessionGeneration();
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.sessionSlot.B.refreshToken') throw new Error('중간 슬롯 쓰기 실패');
+    await realWrite(key, value);
+  });
+
+  try {
+    await assert.rejects(
+      saveRefreshedSession('ROTATED_AT', 'ROTATED_RT', generation, 'GUEST_AT', 'GUEST_RT'),
+      /중간 슬롯 쓰기 실패/,
+    );
+    assert.deepEqual(getSession(), {
+      accessToken: 'GUEST_AT',
+      refreshToken: 'GUEST_RT',
+      userId: 'guest',
+    });
+    write.mockImplementation(realWrite);
+    assert.deepEqual(await restoreSession(), {
+      accessToken: 'GUEST_AT',
+      refreshToken: 'GUEST_RT',
+      userId: 'guest',
+    });
+  } finally {
+    write.mockImplementation(realWrite);
+  }
+});
+
+test('refresh 포인터 marker 쓰기가 실패하면 이전 슬롯과 RT를 유지한다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+  const generation = sessionGeneration();
+  const activeMarker = await realRead('gromo.sessionBundle');
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.sessionBundle') throw new Error('marker 쓰기 실패');
+    await realWrite(key, value);
+  });
+
+  try {
+    await assert.rejects(
+      saveRefreshedSession('ROTATED_AT', 'ROTATED_RT', generation, 'GUEST_AT', 'GUEST_RT'),
+      /marker 쓰기 실패/,
+    );
+    write.mockImplementation(realWrite);
+    assert.equal(await realRead('gromo.sessionBundle'), activeMarker);
+    assert.deepEqual(await restoreSession(), {
+      accessToken: 'GUEST_AT',
+      refreshToken: 'GUEST_RT',
+      userId: 'guest',
+    });
+  } finally {
+    write.mockImplementation(realWrite);
+  }
 });
 
 test('refresh bundle은 세대나 저장 RT가 달라진 응답을 버린다', async () => {
@@ -381,7 +461,18 @@ test('던지는 구독자는 clearSession의 durable 삭제나 다른 구독자�
   assert.deepEqual(seen, ['u1', 'none']);
   assert.deepEqual(
     new Set(remove.mock.calls.map((call) => call[0])),
-    new Set(['gromo.sessionBundle', 'gromo.accessToken', 'gromo.refreshToken', 'gromo.userId']),
+    new Set([
+      'gromo.sessionBundle',
+      'gromo.accessToken',
+      'gromo.refreshToken',
+      'gromo.userId',
+      'gromo.sessionSlot.A.accessToken',
+      'gromo.sessionSlot.A.refreshToken',
+      'gromo.sessionSlot.A.userId',
+      'gromo.sessionSlot.B.accessToken',
+      'gromo.sessionSlot.B.refreshToken',
+      'gromo.sessionSlot.B.userId',
+    ]),
   );
   stopBroken();
   stopHealthy();
@@ -393,28 +484,31 @@ test('커밋 마커를 마지막에 쓴다 — 중간에 죽으면 복구를 거
   assert.equal(keys[keys.length - 1], 'gromo.sessionBundle');
 });
 
-test('AT 만 쓰이고 RT 쓰기 전에 죽으면 혼합 세션으로 복구되지 않는다', async () => {
+test('비활성 슬롯 AT 만 쓰이고 RT 전에 죽으면 이전 세션과 RT를 복구한다', async () => {
   await saveSession({ accessToken: 'AT1', refreshToken: 'RT1', userId: 'u1' });
 
-  // 두 번째 커밋: AT 만 새로 쓰이고 RT·userId·마커는 옛 값으로 남은 상태를 재현한다.
+  // 다음 슬롯에 AT만 새로 쓰고 그 뒤 작업은 실패한다. 포인터는 이전 슬롯을 계속 가리킨다.
   write.mockImplementation(async (key: string, value: string) => {
-    if (key !== 'gromo.accessToken') throw new Error('프로세스 종료');
+    if (key !== 'gromo.sessionSlot.B.accessToken') throw new Error('프로세스 종료');
     return realWrite(key, value);
   });
   await assert.rejects(saveSession({ accessToken: 'AT2', refreshToken: 'RT2', userId: 'u1' }));
 
-  // 셋 다 값이 있어도(AT2 + RT1 + u1) 태그가 어긋나므로 세션이 아니다.
-  assert.equal(await restoreSession(), null);
+  assert.deepEqual(await restoreSession(), {
+    accessToken: 'AT1',
+    refreshToken: 'RT1',
+    userId: 'u1',
+  });
 });
 
 test('커밋이 끝난 뒤에야 새 세션을 공개한다 — 부분 실패면 이전 세션 그대로다', async () => {
   await saveSession({ accessToken: 'AT1', refreshToken: 'RT1', userId: 'u1' });
   const before = sessionGeneration();
 
-  // RT 쓰기만 «한 번» 실패한다(되돌리기는 성공하는 상황).
+  // 비활성 슬롯 RT 쓰기만 실패한다.
   let failOnce = true;
   write.mockImplementation(async (key: string, value: string) => {
-    if (key === 'gromo.refreshToken' && failOnce) {
+    if (key === 'gromo.sessionSlot.B.refreshToken' && failOnce) {
       failOnce = false;
       throw new Error('키체인 쓰기 실패');
     }
@@ -470,8 +564,8 @@ test('쓰기 하나가 먼저 실패해도 남은 쓰기가 «정착한 뒤에»
   let first = true;
   write.mockImplementation(async (key: string, value: string) => {
     if (!first) return realWrite(key, value);
-    if (key === 'gromo.accessToken') throw new Error('키체인 쓰기 실패');
-    if (key === 'gromo.refreshToken') {
+    if (key === 'gromo.sessionSlot.B.accessToken') throw new Error('키체인 쓰기 실패');
+    if (key === 'gromo.sessionSlot.B.refreshToken') {
       first = false;
       await slow;
     }

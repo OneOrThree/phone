@@ -1,4 +1,5 @@
-const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
+// Keep the legacy Kakao app identity so existing kakao:{appKey} provider IDs resolve to the same account.
+const kakaoNativeAppKey = 'af3ff0c5b4fb9cd38b78428b88add65d';
 const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
 const googleIosClientId =
   '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com';
