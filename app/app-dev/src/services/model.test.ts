@@ -640,6 +640,17 @@ test('서버 친구 스냅샷은 공용 친구 상태를 교체하되 기존 편
   assert.equal(s.friends?.[0].status, 'received');
   assert.deepEqual(s.friends?.[0].messages, []);
 });
+test('fail-closed 친구 동기화는 기존 요청 배지 snapshot을 비운다', () => {
+  let s = initialState(true);
+  assert.equal(
+    s.friends?.some((friend) => friend.status === 'received'),
+    true,
+  );
+
+  s = act(s, 'FRIENDS_SYNC', { friends: [] });
+
+  assert.deepEqual(s.friends, []);
+});
 test('친구를 삭제하면 아직 확인하지 않은 편지도 지운다', () => {
   let s = initialState(true);
   s.friends!.find((f) => f.id === 'saebom')!.messages.push({
@@ -2358,6 +2369,38 @@ test('serverHome — 현재 섬의 스냅샷만 돌려주고 전환 뒤 옛 섬 
   s = act(s, 'SERVER_HOME', { facts: { islandId: 'srv1', completedBuildings: ['hall'] } });
   s = sync(s, 'srv1');
   assert.deepEqual(serverHome(s)?.completedBuildings, ['hall']);
+});
+
+test('착공 POST 구간은 클라이언트에 보관하고 서버 완공 목록이 확인되면 지운다', () => {
+  let s = act(initialState(), 'ISLAND_SYNC', {
+    memberships: {
+      items: [sum('srv1')],
+      nextCursor: null,
+      currentIslandId: 'srv1',
+      lossReason: null,
+    },
+  });
+  s = act(s, 'SERVER_CONSTRUCTION_STARTED', {
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: 1_000,
+    endsAt: 61_000,
+  });
+  assert.deepEqual(s.serverIslands?.clientConstruction, {
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: 1_000,
+    endsAt: 61_000,
+  });
+
+  s = act(s, 'SERVER_HOME', {
+    facts: { islandId: 'srv1', completedBuildings: ['hall'] },
+  });
+  assert.equal(s.serverIslands?.clientConstruction?.building, 'library');
+  s = act(s, 'SERVER_HOME', {
+    facts: { islandId: 'srv1', completedBuildings: ['hall', 'library'] },
+  });
+  assert.equal(s.serverIslands?.clientConstruction, null);
 });
 
 test('LOAD 는 저장된 홈 스냅샷을 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)', () => {

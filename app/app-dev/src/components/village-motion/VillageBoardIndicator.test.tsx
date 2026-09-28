@@ -1,6 +1,10 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
+import { componentTokens } from '@/design-system/tokens';
+import { Text } from '@/design-system/typography';
 import { VillageBoardIndicator } from './VillageBoardIndicator';
+import { VILLAGE_NOTIFICATION_BADGE_RATIO } from './VillageNotificationBadge';
 
 describe('VillageBoardIndicator', () => {
   beforeEach(() => jest.useFakeTimers());
@@ -29,6 +33,47 @@ describe('VillageBoardIndicator', () => {
       view.getByTestId('village-board-new-indicator', { includeHiddenElements: true }).props
         .accessibilityLabel,
     ).toBe('새 댓글이 있습니다');
+    await view.unmount();
+  });
+
+  it('scales badge size, radius, and outline from the component token', async () => {
+    const indicatorScale = 0.72;
+    // 월드의 모든 알림 배지는 같은 비율로 줄여 크기를 통일한다.
+    const scale = indicatorScale * VILLAGE_NOTIFICATION_BADGE_RATIO;
+    const view = await render(<VillageBoardIndicator hasUnread indicatorScale={indicatorScale} />);
+    const badge = view.getByTestId('village-board-new-indicator', { includeHiddenElements: true });
+    const style = StyleSheet.flatten(badge.props.style);
+
+    expect(style.width).toBe(componentTokens.villageNotificationBadge.diameter * scale);
+    expect(style.height).toBe(componentTokens.villageNotificationBadge.diameter * scale);
+    expect(style.borderRadius).toBe(componentTokens.villageNotificationBadge.radius * scale);
+    expect(style.borderWidth).toBe(componentTokens.villageNotificationBadge.borderWidth * scale);
+    expect(StyleSheet.flatten(badge.props.children.props.style)).toMatchObject({
+      lineHeight: 20 * scale,
+    });
+    await view.unmount();
+  });
+
+  it('can render an indicator over a layered board without a duplicate image', async () => {
+    const view = await render(
+      <VillageBoardIndicator
+        showBoardImage={false}
+        hasNewComment
+        tooltip={<Text>새 댓글이 있어요</Text>}
+        testID="layered-board-indicator"
+      />,
+    );
+    expect(view.queryByTestId('village-board-still-image')).toBeNull();
+    expect(
+      view.getByTestId('village-board-new-indicator', { includeHiddenElements: true }),
+    ).toBeTruthy();
+    expect(view.getByTestId('village-board-tooltip')).toBeTruthy();
+    const tooltipStyle = StyleSheet.flatten(view.getByTestId('village-board-tooltip').props.style);
+    expect(tooltipStyle.maxWidth).toBe(componentTokens.villageNotificationTooltip.maxWidth);
+    expect(tooltipStyle.paddingVertical).toBe(
+      componentTokens.villageNotificationTooltip.paddingVertical,
+    );
+    expect(tooltipStyle.borderWidth).toBe(componentTokens.villageNotificationTooltip.borderWidth);
     await view.unmount();
   });
 });

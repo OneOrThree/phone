@@ -1,7 +1,7 @@
 import React, { type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ViewStyle } from 'react-native';
 import { villageAssets } from '@/constants/village-assets';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 import { VillageNotificationBadge } from './VillageNotificationBadge';
 
 /** 게시판은 정지 이미지로 유지하고 새 소식이 있을 때만 표시를 붙인다. */
@@ -58,12 +58,12 @@ const styles = StyleSheet.create({
     position: 'absolute',
     alignSelf: 'center',
     bottom: '100%',
-    maxWidth: 180,
+    maxWidth: componentTokens.villageNotificationTooltip.maxWidth,
     paddingHorizontal: semanticTokens.spacing.control,
-    paddingVertical: 8,
+    paddingVertical: componentTokens.villageNotificationTooltip.paddingVertical,
     backgroundColor: semanticTokens.color.surface,
     borderColor: semanticTokens.color.outline,
-    borderWidth: 1.5,
+    borderWidth: componentTokens.villageNotificationTooltip.borderWidth,
     borderRadius: semanticTokens.radius.control,
   },
 });

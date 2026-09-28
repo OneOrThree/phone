@@ -86,6 +86,7 @@ function Harness({
   flow = false,
   homeError = false,
   retryHome,
+  friendsScreen,
 }: any) {
   const [activeRoute, setActiveRoute] = useState(route);
   const [shielded, setShielded] = useState(false);
@@ -168,6 +169,7 @@ function Harness({
         islandBootError: !!bootError,
         homeError,
         retryHome,
+        friendsScreen,
       }}
     />
   );
@@ -912,6 +914,122 @@ test('친구 관리는 검색과 요청·친구 목록을 한 화면에서 이�
   s.getByLabelText('검색어 지우기');
 });
 
+test('서버 차단 목록 재검증 중에는 뗏목의 이전 친구 요청 배지를 숨긴다', async () => {
+  const initial = initialState(true);
+  initial.friends = [
+    {
+      id: 'requester-stale',
+      name: '이전 요청자',
+      color: 'white',
+      island: '',
+      status: 'received',
+      messages: [],
+    },
+  ];
+  const friendsScreen = {
+    data: null,
+    status: 'loading',
+    error: null,
+    busy: false,
+    query: '',
+    searchItems: [],
+    refresh: jest.fn(),
+    retry: jest.fn(),
+    setQuery: jest.fn(),
+    command: jest.fn((fn: () => Promise<unknown>) => fn()),
+  };
+
+  const screen = await render(
+    <Harness route="boat" full initial={initial} api={() => ({})} friendsScreen={friendsScreen} />,
+  );
+
+  assert.equal(screen.queryByText('요청 1'), null);
+});
+
+test('목업 친구 화면에서는 안전 API 더보기를 숨기되 기존 친구 삭제를 유지한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="friends" full expose={(value: any) => (exposed = value)} />,
+  );
+
+  assert.equal(s.queryByLabelText('새봄 더보기'), null);
+  assert.equal(s.queryByText('신고하기'), null);
+  assert.equal(s.queryByText('차단하기'), null);
+  await fireEvent.press(s.getAllByText('친구 삭제')[0]);
+  assert.ok(exposed.actions.includes('FRIEND_DELETE'));
+});
+
+test('서버에서 받은 친구 요청에도 신고·차단 안전 메뉴를 제공한다', async () => {
+  const friendsScreen = {
+    data: {
+      friends: [],
+      friendRequests: [
+        {
+          requestId: 'request-1',
+          userId: 'requester-1',
+          nickname: '반복요청자',
+          tierLevel: null,
+          createdAt: '2026-09-27T00:00:00Z',
+        },
+      ],
+      sentFriendRequests: [],
+    },
+    status: 'ready',
+    error: null,
+    busy: false,
+    query: '',
+    searchItems: [],
+    refresh: jest.fn(),
+    retry: jest.fn(),
+    setQuery: jest.fn(),
+    command: jest.fn((fn: () => Promise<unknown>) => fn()),
+  };
+  const screen = await render(
+    <Harness route="friends" full api={() => ({})} friendsScreen={friendsScreen} />,
+  );
+
+  await fireEvent.press(screen.getByLabelText('반복요청자 더보기'));
+
+  assert.ok(screen.getByText('신고하기'));
+  assert.ok(screen.getByText('차단하기'));
+  assert.equal(screen.queryByText('친구 삭제'), null);
+});
+
+test('큰 글자의 받은 친구 요청은 안전 메뉴 액션을 세로로 배치한다', async () => {
+  mockFontScale = 1.5;
+  const friendsScreen = {
+    data: {
+      friends: [],
+      friendRequests: [
+        {
+          requestId: 'request-large',
+          userId: 'requester-large',
+          nickname: '큰글자요청자',
+          tierLevel: null,
+          createdAt: '2026-09-27T00:00:00Z',
+        },
+      ],
+      sentFriendRequests: [],
+    },
+    status: 'ready',
+    error: null,
+    busy: false,
+    query: '',
+    searchItems: [],
+    refresh: jest.fn(),
+    retry: jest.fn(),
+    setQuery: jest.fn(),
+    command: jest.fn((fn: () => Promise<unknown>) => fn()),
+  };
+  const screen = await render(
+    <Harness route="friends" full api={() => ({})} friendsScreen={friendsScreen} />,
+  );
+
+  const actions = screen.getByTestId('friend-request-actions-with-safety');
+  assert.equal(StyleSheet.flatten(actions.props.style).flexDirection, 'column');
+  assert.ok(screen.getByLabelText('큰글자요청자 더보기'));
+});
+
 test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친다', async () => {
   let exposed: any;
   const s = await render(
@@ -923,6 +1041,23 @@ test('앱 설정은 권한 관련 진입을 앱 권한 관리 한 줄로 합친�
   assert.equal(exposed.go.mock.calls[0][1], 'settings');
   assert.equal(s.queryByText('측정 권한'), null);
   assert.equal(s.queryByText('측정 앱'), null);
+});
+
+test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', async () => {
+  const s = await render(<Harness route="settings" full />);
+
+  assert.equal(s.queryByText('차단한 사용자'), null);
+});
+
+test('서버 앱 설정의 안전 섹션에서 차단 사용자 목록으로 진입한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="settings" full api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.press(s.getByText('차단한 사용자'));
+
+  assert.equal(exposed.go.mock.calls[0][0], 'blockedUsers');
 });
 
 test('완공된 상점 첫 진입에서 강아지 이야기를 한 번만 보여준다', async () => {

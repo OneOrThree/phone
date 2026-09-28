@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
 import { MotionContext } from '@/design-system/primitives';
+import { componentTokens } from '@/design-system/tokens';
 import { Text } from '@/design-system/typography';
 import { VillageHallMotion } from './VillageHallMotion';
 
@@ -37,7 +38,27 @@ describe('VillageHallMotion', () => {
       expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
     );
     expect(view.queryByTestId('village-hall-highlight')).toBeNull();
-    expect(view.getByTestId('village-hall-tooltip')).toBeTruthy();
+    const tooltip = view.getByTestId('village-hall-tooltip');
+    expect(tooltip).toBeTruthy();
+    expect(tooltip.props.style).toMatchObject({
+      paddingVertical: componentTokens.villageNotificationTooltip.paddingVertical,
+    });
+    await view.unmount();
+  });
+
+  it('overlays a translucent tinted alpha mask while preserving the active frame texture', async () => {
+    const view = await render(<VillageHallMotion state="arrival" themed />);
+    expect(view.getByTestId('village-hall-frame-0').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+    );
+    expect(view.getByTestId('village-hall-theme-tint').props.style).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          tintColor: componentTokens.villageBuildingThemeTint.color,
+          opacity: componentTokens.villageBuildingThemeTint.opacity,
+        }),
+      ]),
+    );
     await view.unmount();
   });
 

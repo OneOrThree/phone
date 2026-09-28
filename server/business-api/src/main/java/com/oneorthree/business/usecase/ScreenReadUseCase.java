@@ -64,12 +64,18 @@ public class ScreenReadUseCase {
     private static final String ROLE_MEMBER = "member";
     private static final String FACILITY_LOCKED = "facility_locked";
     /** 시설 id — 건설 도메인 {@code ConstructionBuilding} 의 계약 문자열(정책 C14). */
+    private static final String HALL = "hall";
+    private static final String BOARD = "board";
     private static final String GRAM = "gram";
     private static final String LIBRARY = "library";
+    private static final String MAIL = "mail";
+    private static final String TOWER = "tower";
     private static final String SHOP = "shop";
+    /** 건물 7개 전체(정책 C01) — 완공(건물) id 목록의 표시 순서다. */
+    private static final List<String> ALL_BUILDINGS = List.of(HALL, BOARD, GRAM, LIBRARY, MAIL, TOWER, SHOP);
     /** 판매 음원 카테고리(B20) — 상점 도메인의 category 계약 문자열. */
     private static final String SOUND = "sound";
-    /** 시설 완공 판정 재료(건설 옵션) — 화면 응답에는 싣지 않는 내부 조각이다. */
+    /** 시설 완공 판정 재료(건설 옵션) — {@code home} 에서는 {@code buildings} 로 투영해 싣는다. */
     private static final String FACILITIES = "facilities";
     /** 가계부의 달 경계 — Data 의 {@code ZonePolicy.KST} 와 같아야 화면과 도메인 GET 이 같은 달을 말한다. */
     private static final ZoneId LEDGER_ZONE = ZoneId.of("Asia/Seoul");
@@ -188,9 +194,14 @@ public class ScreenReadUseCase {
     // 조각 null + missingFragments 이름 배열을 되살린다(availability 로 위장하지 않는다).
 
     /**
-     * {@code home} — 섬 문맥 뒤 오늘 집중 요약·현재 세션·휴식 주민·방송기 완공 판정을 병렬로 읽고, 방송기가
-     * 완공이면 {@code playback} 을 읽는다. 휴식 주민은 BG11 결정(2026-09-19)으로 싣는다 — 도메인 403 이면
-     * 다른 조각처럼 화면 전체가 실패한다. 지갑({@code wallets})도 같은 병렬 단계다(GROMO-1781).
+     * {@code home} — 섬 문맥 뒤 오늘 집중 요약·현재 세션·휴식 주민·주민 목록·방송기 완공 판정을 병렬로 읽고,
+     * 방송기가 완공이면 {@code playback} 을 읽는다. 휴식 주민은 BG11 결정(2026-09-19)으로 싣는다 — 도메인
+     * 403 이면 다른 조각처럼 화면 전체가 실패한다. 지갑({@code wallets})도 같은 병렬 단계다(GROMO-1781).
+     *
+     * <p>{@code members} 는 town-hall 과 같은 주민 첫 페이지(도메인 GET 과 같은 서명 커서, B10)다(GROMO-2150) —
+     * 앱이 따로 {@code GET /islands/{islandId}/members} 를 부르지 않게 한다. {@code buildings} 는 완공 판정
+     * 재료(건설 옵션)를 {@link #completedBuildings} 로 투영한 완공 건물 id 목록이다 — 추가 내부 호출 없이
+     * 방송기 판정에 쓰는 같은 {@link #facilities} 결과를 재사용한다(GROMO-2150).
      */
     public Map<String, Object> home(AccessTokenClaims claims, String date, String timezone, String requestId) {
         UpstreamRequestContext context = composer.start(requestId, claims.userId());
@@ -201,8 +212,11 @@ public class ScreenReadUseCase {
                 fragment("focusSummary", deadline -> focus.summary(claims, date, timezone, deadline)),
                 fragment("session", deadline -> focus.current(claims, deadline)),
                 fragment("restMembers", deadline -> focusMembers.restMembers(claims, island.id(), deadline)),
+                fragment("members", deadline -> management.members(claims, island.id(), null,
+                        IslandManagementUseCase.DEFAULT_LIMIT, deadline)),
                 wallets(claims, island.id()),
                 facilities(claims, island.id())));
+        screen.put("buildings", completedBuildings((ConstructionOptionsView) parallel.get(FACILITIES)));
         putPlayback(screen, parallel, context, claims, island.id());
         return screen;
     }
@@ -450,6 +464,11 @@ public class ScreenReadUseCase {
     /** 옵션 {@code items} 는 완공(COMPLETED)하지 않은 건물만 담으므로 목록에 없으면 완공이다. */
     private static boolean built(ConstructionOptionsView options, String building) {
         return options.items().stream().noneMatch(item -> building.equals(item.id()));
+    }
+
+    /** 건물 7개(정책 C01) 중 완공한 것만 표시 순서로 — {@code home.buildings}(GROMO-2150). */
+    private static List<String> completedBuildings(ConstructionOptionsView options) {
+        return ALL_BUILDINGS.stream().filter(building -> built(options, building)).toList();
     }
 
     /** 시설 완공 판정을 단독 순차 단계로 — 판정 결과가 다음 조각의 호출 여부를 정할 때 쓴다. */

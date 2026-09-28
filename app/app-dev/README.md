@@ -32,6 +32,10 @@ npm run web
 MOTION_REVIEW_URL=http://localhost:8081 node scripts/review-cat-motion.cjs
 ```
 
+황금 물고기 영상은 임시 검수 URL `?demo=1&golden-test=1`에서 확인할 수 있습니다.
+이 모드는 인증·서버 연결 없이 데모 상태로 시작하며, 집중 낚시에 들어가면 황금 물고기가
+반드시 한 번 등장합니다.
+
 검증 결과와 화면 캡처는 `.docs/cat-motion/`에 저장됩니다. 브라우저 검증은 실제 저사양 iOS·Android 기기의 프레임 성능 검증을 대신하지 않습니다.
 
 ## 구조

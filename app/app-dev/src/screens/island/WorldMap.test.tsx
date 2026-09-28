@@ -1,7 +1,12 @@
 import React from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { Animated, Platform } from 'react-native';
-import { FinalIsland, WorldMap } from '@/screens/island/WorldMap';
+import {
+  constructionPlacement,
+  createWorldProjector,
+  FinalIsland,
+  WorldMap,
+} from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
 import {
   BUILDING_ENTRY_DURATION_MS,
@@ -26,7 +31,39 @@ jest.mock('@/utils/layout', () => ({
   }),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  jest.restoreAllMocks();
+  jest.useRealTimers();
+});
+
+const serverConstructionState = (
+  state: ReturnType<typeof initialState>,
+  clientConstruction: Record<string, unknown> | null,
+  completedBuildings: string[] = ['hall'],
+) => {
+  state.serverIslands = {
+    currentIslandId: 'srv1',
+    home: {
+      islandId: 'srv1',
+      home: {
+        island: {
+          id: 'srv1',
+          name: '공사섬',
+          intro: '',
+          approvalRequired: false,
+          maxMembers: 15,
+          role: 'host',
+        },
+        wallets: { villagePoints: 100 },
+        focusSummary: { totalSeconds: 0 },
+      },
+      completedBuildings,
+      members: [],
+    },
+    clientConstruction,
+  } as any;
+};
 
 test('홈 우체통의 서버 상태는 로컬 상태보다 우선하고 배지와 접근성 라벨을 함께 갱신한다', async () => {
   const state = initialState(true);
@@ -577,6 +614,81 @@ test('demo night 쿼리는 현재 시간이 낮이어도 저녁 모습을 고정
   }
 });
 
+test('레이어드 마을에서도 게시판 상태를 VillageScenery 알림에 전달한다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('board')) island.buildings.push('board');
+  const screen = await render(
+    <WorldMap state={state} village={villageScene(['board'])} boardStatus="new-comment" />,
+  );
+
+  expect(screen.queryByTestId('world-board-indicator')).toBeNull();
+  expect(screen.getByTestId('village-board-scene-indicator')).toBeTruthy();
+  expect(
+    screen.getByTestId('village-board-new-indicator', { includeHiddenElements: true }).props
+      .accessibilityLabel,
+  ).toBe('새 댓글이 있습니다');
+  expect(screen.getByTestId('village-board-tooltip')).toBeTruthy();
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('레이어드 마을에서도 회관 진입 문 모션을 표시한다', async () => {
+  jest.useFakeTimers();
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('hall')) island.buildings.push('hall');
+  const screen = await render(
+    <WorldMap
+      state={state}
+      village={villageScene(['hall'])}
+      hallMotionActive
+      hallMotionGeneration={3}
+    />,
+  );
+
+  expect(screen.getByTestId('village-hall-scene-motion')).toBeTruthy();
+  // 회관 상태는 이름표로 안내하므로 강조선을 그리지 않는다.
+  expect(screen.queryByTestId('village-hall-highlight')).toBeNull();
+  await act(async () => jest.advanceTimersByTime(180));
+  expect(screen.getByTestId('village-hall-frame-1').props.style).toEqual(
+    expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+  );
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('테마 회관 진입 중에는 닫힌 문 테마 레이어 대신 현재 모션 프레임을 착색한다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  if (!island.buildings.includes('hall')) island.buildings.push('hall');
+  island.buildingThemes = { ...island.buildingThemes, hall: 'pink' } as any;
+  // 회관 문 모션은 낮에만 그린다.
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const screen = await render(<WorldMap state={state} hallMotionActive />);
+
+  expect(screen.queryByTestId('world-building-theme-hall')).toBeNull();
+  expect(screen.getByTestId('village-hall-theme-tint').props.source).toBe(
+    screen.getByTestId('village-hall-frame-0').props.source,
+  );
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('걷는 중 카메라가 바뀌면 보관된 진입 콜백도 최신 건물 좌표를 투영한다', () => {
+  let viewport = { left: -120, top: -80, scale: 0.7 };
+  const projectAtArrival = createWorldProjector(() => viewport);
+  const savedEnterCallback = () => projectAtArrival({ x: 1030, y: 268 });
+
+  expect(savedEnterCallback()).toEqual({ x: 601, y: 107.6 });
+  viewport = { left: -52, top: -31, scale: 0.84 };
+  expect(savedEnterCallback().x).toBeCloseTo(813.2);
+  expect(savedEnterCallback().y).toBeCloseTo(194.12);
+});
+
 test('방문 섬에서는 축음기를 터치 대상으로 노출하지 않는다', async () => {
   const state = initialState(true);
   const visited = state.islands.find((island) => island.id === 'cloud')!;
@@ -631,6 +743,107 @@ test('내 섬에서도 미완공 축음기는 터치 대상으로 노출하지 �
   );
 
   expect(screen.queryByLabelText(buildingNames.gram)).toBeNull();
+});
+
+test('서버 공사 진행률에 해당하는 건물 sprite 단계를 섬 위에 표시한다', async () => {
+  jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-21T00:10:00Z'));
+  const state = initialState(true);
+  serverConstructionState(state, {
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: Date.parse('2026-09-21T00:00:00Z'),
+    endsAt: Date.parse('2026-09-21T01:00:00Z'),
+  });
+
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showHud={false}
+      showActions={false}
+    />,
+  );
+
+  const construction = screen.getByTestId('village-construction-library');
+  screen.getByTestId('construction-sprite-library-structure');
+  const worldScale = (((874 / 874) * 402) / 1536) * 2.8;
+  expect(construction.props.style).toEqual(
+    expect.objectContaining({
+      left: 1120 * worldScale,
+      top: 288 * worldScale,
+      width: 239 * worldScale,
+      height: 323 * worldScale,
+    }),
+  );
+  expect(construction.props.accessibilityLabel).toBe('도서관 골조 공사 중');
+  expect(screen.queryByLabelText(buildingNames.library)).toBeNull();
+});
+
+test('공사 sprite 배치는 기존 마을과 레이어드 마을의 좌표계를 구분한다', () => {
+  expect(constructionPlacement('shop', false)).toEqual({
+    x: 587,
+    y: 779,
+    w: 262,
+    h: 199,
+  });
+  expect(constructionPlacement('shop', true)).toMatchObject({
+    x: 1000,
+    y: 751,
+    w: 262,
+    h: 199,
+  });
+});
+
+test('클라이언트 계산이 완료 시각에 도달하면 completion sprite를 한 번 표시한다', async () => {
+  jest.useFakeTimers();
+  let now = Date.parse('2026-09-21T00:59:59Z');
+  jest.spyOn(Date, 'now').mockImplementation(() => now);
+  const state = initialState(true);
+  state.settings.reduceMotion = true;
+  const active = {
+    islandId: 'srv1',
+    building: 'library',
+    startedAt: Date.parse('2026-09-21T00:00:00Z'),
+    endsAt: Date.parse('2026-09-21T01:00:00Z'),
+  };
+  serverConstructionState(state, active);
+  const screen = await render(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showHud={false}
+      showActions={false}
+    />,
+  );
+
+  now = Date.parse('2026-09-21T01:00:00Z');
+  await screen.rerender(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showHud={false}
+      showActions={false}
+    />,
+  );
+
+  screen.getByTestId('construction-sprite-library-completion');
+
+  // 연출 중 설정 변경으로 effect가 다시 실행돼도 기존 종료 타이머는 살아 있어야 한다.
+  state.settings.reduceMotion = false;
+  await screen.rerender(
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      showHud={false}
+      showActions={false}
+    />,
+  );
+  await act(async () => jest.advanceTimersByTime(601));
+  expect(screen.queryByTestId('construction-sprite-library-completion')).toBeNull();
 });
 
 test('건물을 연타해도 걷기와 확대 전환을 한 번만 실행하고 완료 뒤 route를 연다', async () => {

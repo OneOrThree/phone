@@ -3,7 +3,11 @@ import { Animated, AppState, Easing, Image, View, StyleSheet } from 'react-nativ
 import Svg, { Path } from 'react-native-svg';
 import { villageAssets } from '@/constants/village-assets';
 import { assets } from '@/constants/assets';
+import type { Building } from '@/services/model';
 import { villageMap, VillageScene } from '@/utils/village-world';
+import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
+import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
+import { Txt } from '@/design-system/patterns';
 import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
 // UI 색상이 아니라 원화의 불꽃 색상이다. 바닥 타일은 한 장으로 합쳐 그린다.
@@ -12,11 +16,22 @@ export const VillageScenery = memo(function VillageScenery({
   scale,
   reduce,
   mailboxLetters,
+  hiddenBuilding,
+  boardStatus = null,
+  hallMotionActive = false,
+  hallMotionGeneration = 0,
+  hallThemed = false,
 }: {
   scene: VillageScene;
   scale: number;
   reduce: boolean;
   mailboxLetters: boolean;
+  /** 공사 sprite가 대신 그리는 시설. 충돌·길은 scene에 남기고 완공 원화만 숨긴다. */
+  hiddenBuilding?: Building;
+  boardStatus?: 'unread' | 'new-comment' | null;
+  hallMotionActive?: boolean;
+  hallMotionGeneration?: number;
+  hallThemed?: boolean;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -95,6 +110,7 @@ export const VillageScenery = memo(function VillageScenery({
           pointerEvents="none"
           style={{
             position: 'absolute',
+            display: o.building === hiddenBuilding ? 'none' : 'flex',
             left: (o.x - o.w / 2) * scale,
             top: (o.y - o.h) * scale,
             width: o.w * scale,
@@ -102,38 +118,51 @@ export const VillageScenery = memo(function VillageScenery({
             zIndex: Math.round(o.y),
           }}
         >
-          <Animated.Image
-            testID={o.kind === 'mailbox' && mailboxLetters ? 'village-mailbox-pelican' : undefined}
-            source={
-              o.kind === 'mailbox' && mailboxLetters
-                ? assets['characters/pelican/npc/on-mailbox.png']
-                : villageAssets[o.kind + '.png']
-            }
-            style={{
-              width: '100%',
-              height: '100%',
-              ...(o.kind === 'mailbox' && mailboxLetters
-                ? {
-                    position: 'absolute',
-                    width: o.w * scale * (512 / 170),
-                    height: o.h * scale * (512 / 248),
-                    left: -o.w * scale * (176 / 170),
-                    top: -o.h * scale * (217 / 248),
-                  }
-                : {}),
-              transform:
-                o.layer === 'trees' && !reduce
-                  ? [
-                      {
-                        rotate: pulse.interpolate({
-                          inputRange: [0, 1],
-                          outputRange: ['-0.4deg', '0.4deg'],
-                        }),
-                      },
-                    ]
-                  : [],
-            }}
-          />
+          {o.building === 'hall' ? (
+            <VillageHallMotion
+              testID="village-hall-scene-motion"
+              state={hallMotionActive ? 'arrival' : 'normal'}
+              generation={hallMotionGeneration}
+              themed={hallThemed && hallMotionActive}
+              reduceMotion={reduce}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : (
+            <Animated.Image
+              testID={
+                o.kind === 'mailbox' && mailboxLetters ? 'village-mailbox-pelican' : undefined
+              }
+              source={
+                o.kind === 'mailbox' && mailboxLetters
+                  ? assets['characters/pelican/npc/on-mailbox.png']
+                  : villageAssets[o.kind + '.png']
+              }
+              style={{
+                width: '100%',
+                height: '100%',
+                ...(o.kind === 'mailbox' && mailboxLetters
+                  ? {
+                      position: 'absolute',
+                      width: o.w * scale * (512 / 170),
+                      height: o.h * scale * (512 / 248),
+                      left: -o.w * scale * (176 / 170),
+                      top: -o.h * scale * (217 / 248),
+                    }
+                  : {}),
+                transform:
+                  o.layer === 'trees' && !reduce
+                    ? [
+                        {
+                          rotate: pulse.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['-0.4deg', '0.4deg'],
+                          }),
+                        },
+                      ]
+                    : [],
+              }}
+            />
+          )}
           {o.kind === 'mailbox' && mailboxLetters && (
             <VillageNotificationBadge
               testID="village-mailbox-new-indicator"
@@ -166,6 +195,23 @@ export const VillageScenery = memo(function VillageScenery({
                 />
               </Svg>
             </Animated.View>
+          )}
+          {o.building === 'board' && (
+            <VillageBoardIndicator
+              testID="village-board-scene-indicator"
+              showBoardImage={false}
+              hasUnread={boardStatus === 'unread'}
+              hasNewComment={boardStatus === 'new-comment'}
+              indicatorScale={scale}
+              tooltip={
+                boardStatus === 'new-comment' ? (
+                  <Txt kind="meta">새 댓글이 있어요</Txt>
+                ) : boardStatus === 'unread' ? (
+                  <Txt kind="meta">읽지 않은 새 소식이 있어요</Txt>
+                ) : undefined
+              }
+              style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' }}
+            />
           )}
         </View>
       ))}

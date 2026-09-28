@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React, { useState } from 'react';
-import { Platform } from 'react-native';
+import { PixelRatio, Platform, StyleSheet } from 'react-native';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -14,7 +14,17 @@ import {
   updateNotice as patchNotice,
 } from '@/services/api/notices';
 import { initialState } from '@/services/model';
-import { Board, type Concept } from '@/screens/interiors/BuildingInteriors';
+import {
+  Board,
+  buildings,
+  InteriorScreen,
+  focusBoardModal,
+  handleBoardModalKeydown,
+  restoreBoardModalOpener,
+  setBoardBackgroundInert,
+  syncBoardModalFocus,
+  type Concept,
+} from '@/screens/interiors/BuildingInteriors';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 
 import {
@@ -214,9 +224,18 @@ const deferred = <T,>() => {
   return { promise, resolve, reject };
 };
 
-const renderBoard = async (e: any, c: Partial<Concept> = {}) => {
+type BoardSize = { width: number; height: number; sceneHeight?: number };
+
+const renderBoard = async (
+  e: any,
+  c: Partial<Concept> = {},
+  sizeOrHigherModal: BoardSize | boolean = { width: 402, height: 874 },
+) => {
+  const size: BoardSize =
+    typeof sizeOrHigherModal === 'boolean' ? { width: 402, height: 874 } : sizeOrHigherModal;
+  const initialHigherModalOpen = typeof sizeOrHigherModal === 'boolean' ? sizeOrHigherModal : false;
   // App 은 렌더마다 e 를 새로 조립한다 — box 로 최신 e 를 주고 setE 가 stale 클로저를 재현한다.
-  const box = { e };
+  const box = { e, higherModalOpen: initialHigherModalOpen };
   const Harness = () => {
     const [, setN] = useState(0);
     if (box.e) box.e._tick = () => setN((n: number) => n + 1);
@@ -225,11 +244,13 @@ const renderBoard = async (e: any, c: Partial<Concept> = {}) => {
         building={undefined as never}
         concept={concept(c)}
         index={0}
-        width={402}
-        height={874}
+        width={size.width}
+        height={size.height}
+        sceneHeight={size.sceneHeight}
         reduceMotion
         showToast={() => {}}
         e={box.e}
+        higherModalOpen={box.higherModalOpen}
       />
     );
   };
@@ -237,6 +258,14 @@ const renderBoard = async (e: any, c: Partial<Concept> = {}) => {
   return Object.assign(screen, {
     setE: (next: any) => {
       box.e = next;
+      return screen.rerender(<Harness />);
+    },
+    setSize: (next: Partial<typeof size>) => {
+      Object.assign(size, next);
+      return screen.rerender(<Harness />);
+    },
+    setHigherModalOpen: (open: boolean) => {
+      box.higherModalOpen = open;
       return screen.rerender(<Harness />);
     },
   });
@@ -259,10 +288,886 @@ const webMockMode = (search: string) => {
   };
 };
 
+test('웹 공지·퀘스트 상세는 모달 의미를 제공하고 배경을 접근성 트리에서 제외한다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const noticeScreen = await renderBoard(null, concept({ boardView: 'detail' }));
+    const noticeOverlay = noticeScreen.getByTestId('board-notice-overlay');
+    assert.equal(noticeOverlay.props['aria-modal'], true);
+    assert.equal(noticeOverlay.props.tabIndex, -1);
+    assert.equal(noticeOverlay.props.accessibilityRole, 'dialog');
+    assert.equal(
+      (JSON.stringify(noticeScreen.toJSON()).match(/"aria-hidden":true/g) ?? []).length,
+      2,
+    );
+    await noticeScreen.unmount();
+
+    const questScreen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'detail-focus' }),
+    );
+    const questOverlay = questScreen.getByTestId('board-quest-overlay');
+    assert.equal(questOverlay.props['aria-modal'], true);
+    assert.equal(questOverlay.props.tabIndex, -1);
+    assert.equal(questOverlay.props.accessibilityRole, 'dialog');
+    assert.equal(
+      (JSON.stringify(questScreen.toJSON()).match(/"aria-hidden":true/g) ?? []).length,
+      2,
+    );
+    await questScreen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('웹 모달은 처음 포커스를 안으로 옮기고 Tab 경계를 지키며 Escape 후 opener를 복원한다', () => {
+  const first = { offsetParent: {}, focus: jest.fn() } as unknown as HTMLElement;
+  const last = { offsetParent: {}, focus: jest.fn() } as unknown as HTMLElement;
+  const outside = {} as HTMLElement;
+  const opener = { focus: jest.fn() } as unknown as HTMLElement;
+  const overlay = {
+    querySelectorAll: jest.fn(() => [first, last]),
+    contains: (element: Element | null) => element === first || element === last,
+    focus: jest.fn(),
+  } as unknown as HTMLElement;
+  const modalDocument = { activeElement: first } as unknown as Document;
+
+  focusBoardModal(overlay);
+  expect(first.focus).toHaveBeenCalledTimes(1);
+
+  (modalDocument as any).activeElement = first;
+  const backwards = {
+    key: 'Tab',
+    shiftKey: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(backwards, overlay, modalDocument, jest.fn());
+  expect(backwards.preventDefault).toHaveBeenCalledTimes(1);
+  expect(last.focus).toHaveBeenCalledTimes(1);
+
+  (modalDocument as any).activeElement = last;
+  const forwards = {
+    key: 'Tab',
+    shiftKey: false,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(forwards, overlay, modalDocument, jest.fn());
+  expect(forwards.preventDefault).toHaveBeenCalledTimes(1);
+  expect(first.focus).toHaveBeenCalledTimes(2);
+
+  (modalDocument as any).activeElement = outside;
+  const dismiss = jest.fn();
+  const escape = { key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(escape, overlay, modalDocument, dismiss);
+  expect(escape.preventDefault).toHaveBeenCalledTimes(1);
+  expect(dismiss).toHaveBeenCalledTimes(1);
+
+  const composingEscape = {
+    key: 'Escape',
+    isComposing: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(composingEscape, overlay, modalDocument, dismiss);
+  expect(composingEscape.preventDefault).not.toHaveBeenCalled();
+  expect(dismiss).toHaveBeenCalledTimes(1);
+
+  const composingTab = {
+    key: 'Tab',
+    isComposing: true,
+    preventDefault: jest.fn(),
+  } as unknown as KeyboardEvent;
+  handleBoardModalKeydown(composingTab, overlay, modalDocument, dismiss);
+  expect(composingTab.preventDefault).not.toHaveBeenCalled();
+  expect(first.focus).toHaveBeenCalledTimes(2);
+  restoreBoardModalOpener(opener);
+  expect(opener.focus).toHaveBeenCalledTimes(1);
+
+  const background = {
+    inert: false,
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  setBoardBackgroundInert(background, true);
+  expect(background.inert).toBe(true);
+  expect(background.setAttribute).toHaveBeenCalledWith('inert', '');
+  setBoardBackgroundInert(background, false);
+  expect(background.inert).toBe(false);
+  expect(background.removeAttribute).toHaveBeenCalledWith('inert');
+});
+
+test('웹 모달 열기와 닫기는 opener 캡처·초기 포커스·배경 비활성화 순서를 지킨다', () => {
+  const events: string[] = [];
+  const opener = { focus: () => events.push('opener-restored') } as unknown as HTMLElement;
+  const first = {
+    offsetParent: {},
+    focus: () => events.push('modal-focused'),
+  } as unknown as HTMLElement;
+  const overlay = {
+    querySelectorAll: () => [first],
+    focus: jest.fn(),
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  const modalDocument = {
+    get activeElement() {
+      events.push('opener-captured');
+      return opener;
+    },
+  } as unknown as Document;
+  const background = {
+    setAttribute: jest.fn(),
+    removeAttribute: jest.fn(),
+  } as unknown as HTMLElement;
+  Object.defineProperty(background, 'inert', {
+    set: (inert: boolean) => events.push(inert ? 'background-inert' : 'background-enabled'),
+  });
+  Object.defineProperty(overlay, 'inert', {
+    set: (inert: boolean) => events.push(inert ? 'overlay-inert' : 'overlay-enabled'),
+  });
+
+  const capturedOpener = syncBoardModalFocus(
+    true,
+    false,
+    true,
+    false,
+    overlay,
+    modalDocument,
+    [background],
+    null,
+  );
+  expect(capturedOpener).toBe(opener);
+  expect(events).toEqual([
+    'opener-captured',
+    'overlay-enabled',
+    'modal-focused',
+    'background-inert',
+  ]);
+
+  expect(
+    syncBoardModalFocus(
+      true,
+      true,
+      false,
+      true,
+      overlay,
+      modalDocument,
+      [background],
+      capturedOpener,
+    ),
+  ).toBe(opener);
+  expect(events[events.length - 1]).toBe('overlay-inert');
+
+  expect(
+    syncBoardModalFocus(
+      true,
+      true,
+      true,
+      false,
+      overlay,
+      modalDocument,
+      [background],
+      capturedOpener,
+    ),
+  ).toBe(opener);
+  expect(events.slice(-2)).toEqual(['overlay-enabled', 'modal-focused']);
+
+  expect(
+    syncBoardModalFocus(false, true, false, true, null, modalDocument, [background], opener),
+  ).toBe(null);
+  expect(events).toEqual([
+    'opener-captured',
+    'overlay-enabled',
+    'modal-focused',
+    'background-inert',
+    'overlay-inert',
+    'overlay-enabled',
+    'modal-focused',
+    'background-enabled',
+    'opener-restored',
+  ]);
+});
+
+test('보상 모달이 위에 열리면 게시판 Escape 트랩을 멈춘다', async () => {
+  const restore = webMockMode('?review');
+  const previousDocument = (globalThis as any).document;
+  const keydownListeners = new Set<(event: KeyboardEvent) => void>();
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      activeElement: null,
+      addEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.add(listener);
+      },
+      removeEventListener: (type: string, listener: (event: KeyboardEvent) => void) => {
+        if (type === 'keydown') keydownListeners.delete(listener);
+      },
+    },
+  });
+  try {
+    const screen = await renderBoard(null, concept({ boardView: 'detail' }), true);
+    const overlay = screen.getByTestId('board-notice-overlay', { includeHiddenElements: true });
+    assert.equal(overlay.props['aria-hidden'], true);
+    assert.equal(overlay.props['aria-modal'], false);
+    assert.equal(overlay.props.accessibilityElementsHidden, true);
+    const scrim = screen.getByTestId('board-notice-overlay-scrim', {
+      includeHiddenElements: true,
+    });
+    assert.equal(scrim.props.accessibilityState.disabled, true);
+    assert.equal(scrim.props.accessibilityElementsHidden, true);
+    assert.equal(scrim.props['aria-hidden'], true);
+    assert.equal(scrim.props.inert, true);
+    assert.equal(scrim.props.tabIndex, -1);
+    assert.equal(keydownListeners.size, 0);
+
+    for (const listener of keydownListeners) {
+      listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
+    }
+    assert.ok(screen.getByTestId('board-notice-overlay', { includeHiddenElements: true }));
+
+    await screen.setHigherModalOpen(false);
+    assert.equal(keydownListeners.size, 1);
+    assert.equal(
+      screen.getByTestId('board-notice-overlay', { includeHiddenElements: true }).props[
+        'aria-hidden'
+      ],
+      undefined,
+    );
+    assert.equal(screen.getByTestId('board-notice-overlay').props['aria-modal'], true);
+    const [listener] = [...keydownListeners];
+    await act(async () => {
+      listener({ key: 'Escape', preventDefault: jest.fn() } as unknown as KeyboardEvent);
+    });
+    assert.equal(screen.queryByTestId('board-notice-overlay'), null);
+    await screen.unmount();
+
+    const questScreen = await renderBoard(
+      null,
+      concept({ boardPanel: 'quest', boardView: 'detail-focus' }),
+      true,
+    );
+    const questScrim = questScreen.getByTestId('board-quest-overlay-scrim', {
+      includeHiddenElements: true,
+    });
+    assert.equal(questScrim.props.accessibilityState.disabled, true);
+    assert.equal(questScrim.props.accessibilityElementsHidden, true);
+    assert.equal(questScrim.props['aria-hidden'], true);
+    assert.equal(questScrim.props.inert, true);
+    assert.equal(questScrim.props.tabIndex, -1);
+    await questScreen.unmount();
+  } finally {
+    if (previousDocument === undefined) delete (globalThis as any).document;
+    else
+      Object.defineProperty(globalThis, 'document', {
+        configurable: true,
+        value: previousDocument,
+      });
+    restore();
+  }
+});
+
+test('공지 상세 모달이 열리면 형제 scene-back 버튼을 비활성화하고 접근성 트리에서 숨긴다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const screen = await render(
+      <InteriorScreen buildingIndex={1} conceptIndex={4} width={402} height={874} reduceMotion />,
+    );
+    const back = screen.getByTestId('scene-back', { includeHiddenElements: true });
+    await waitFor(() => {
+      assert.equal(back.props.accessibilityState.disabled, true);
+      assert.equal(back.props.accessibilityElementsHidden, true);
+      assert.equal(back.props['aria-hidden'], true);
+    });
+    await fireEvent.press(back);
+    await screen.unmount();
+  } finally {
+    restore();
+  }
+});
+
 beforeEach(async () => {
   jest.clearAllMocks();
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+});
+
+test('게시판 장면 배율을 종이와 내용에 함께 적용해 종횡비가 달라도 정렬한다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const reference = await renderBoard(null, concept({ boardView: 'list' }), {
+      width: 874,
+      height: 402,
+    });
+    const referenceStyle = StyleSheet.flatten(reference.getByTestId('board-drawer').props.style);
+    assert.equal(referenceStyle.left, 324);
+    assert.equal(referenceStyle.right, 30);
+    assert.equal(referenceStyle.paddingHorizontal, 50);
+    await reference.unmount();
+
+    const wide = await renderBoard(null, concept({ boardView: 'list' }), {
+      width: 1950,
+      height: 1280,
+    });
+    const wideStyle = StyleSheet.flatten(wide.getByTestId('board-drawer').props.style);
+    const scale = 1950 / 874;
+    assert.equal(wideStyle.left, 324 * scale);
+    assert.equal(wideStyle.right, 30 * scale);
+    assert.equal(wideStyle.paddingHorizontal, 50 * scale);
+    assert.equal(wideStyle.height, Math.min(1280 * 0.58, 492 * scale));
+    await wide.unmount();
+
+    const middle = await renderBoard(null, concept({ boardView: 'detail' }), {
+      width: 1280,
+      height: 800,
+    });
+    const middleScale = 1280 / 874;
+    const middleOverlay = StyleSheet.flatten(
+      middle.getByTestId('board-notice-overlay').props.style,
+    );
+    assert.equal(middleOverlay.left, 338 * middleScale);
+    assert.equal(middleOverlay.right, 36 * middleScale);
+    assert.equal(middleOverlay.paddingTop, 48 * middleScale);
+    assert.equal(middleOverlay.paddingHorizontal, 58 * middleScale);
+    assert.equal(middleOverlay.paddingBottom, 40 * middleScale);
+    await middle.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('여덟 화면 크기에서 게시판 장면 전체와 세 라벨 터치 영역이 같은 2:3 좌표계를 쓴다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const viewports = [
+      [375, 667],
+      [402, 874],
+      [440, 956],
+      [834, 1210],
+      [667, 375],
+      [874, 402],
+      [956, 440],
+      [1210, 834],
+      [1024, 1180],
+      [320, 480],
+      [290, 400],
+    ];
+
+    for (const [width, height] of viewports) {
+      const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      assert.equal(scene.top, 0);
+      const scrollScene = width / height > 2 / 3;
+      assert.equal(scene.height, scrollScene ? width * 1.5 : height);
+      assert.equal(scene.width, scrollScene ? width : (height * 2) / 3);
+      assert.equal(scene.left, scrollScene ? 0 : (width - scene.width) / 2);
+      const labelScale = Math.min(1, scene.width / 402);
+      const fontScale = Math.max(1, PixelRatio.getFontScale());
+      const noticeBaseHeight = Math.max(scene.height * 0.226, 44);
+      const noticeHeight = Math.max(
+        noticeBaseHeight,
+        (28 * 1.1 * fontScale + 9 + 24) * labelScale +
+          (Math.max(scene.width * 0.253, 44) - 24 * labelScale) * 0.7,
+      );
+      const questHeight = Math.max(
+        scene.height * 0.09,
+        (22 * 1.1 * fontScale + 20 + 3 + 6) * labelScale,
+        44,
+      );
+      const questCenterY =
+        noticeHeight > noticeBaseHeight
+          ? Math.max(
+              (questHeight / 2 + 1) / scene.height,
+              Math.min(0.285, 0.348 - (noticeHeight / 2 + questHeight / 2 + 1) / scene.height),
+            )
+          : 0.285;
+      const blueprintCenterY = Math.max(
+        0.406,
+        questCenterY + (questHeight / 2 + 44 / 2 + 1) / scene.height,
+      );
+
+      const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
+      assert.equal(labelScene.left, 0);
+      assert.equal(labelScene.top, 0);
+      assert.equal(labelScene.right, 0);
+      assert.equal(labelScene.bottom, 0);
+      const hitboxes = [
+        ['board-notice-area', 0.3495, 0.348],
+        ['board-quest-area', 0.645, questCenterY],
+        ['board-blueprint-area', 0.705, blueprintCenterY],
+      ].map(([testID, centerX, centerY]) => {
+        const area = StyleSheet.flatten(screen.getByTestId(testID as string).props.style);
+        assert.ok(area.width >= 44, `${testID} is at least 44px wide at ${width}x${height}`);
+        assert.ok(area.height >= 44, `${testID} is at least 44px tall at ${width}x${height}`);
+        assert.ok(Math.abs(area.left + area.width / 2 - scene.width * Number(centerX)) < 0.01);
+        assert.ok(Math.abs(area.top + area.height / 2 - scene.height * Number(centerY)) < 0.01);
+        return {
+          testID,
+          left: area.left,
+          top: area.top,
+          right: area.left + area.width,
+          bottom: area.top + area.height,
+        };
+      });
+      for (let first = 0; first < hitboxes.length; first += 1) {
+        for (let second = first + 1; second < hitboxes.length; second += 1) {
+          const a = hitboxes[first];
+          const b = hitboxes[second];
+          const separated =
+            a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top;
+          assert.ok(separated, `${a.testID} and ${b.testID} overlap at ${width}x${height}`);
+        }
+      }
+      const noticeTitle = screen.getByText('공지');
+      const questTitle = screen.getByText('퀘스트');
+      assert.equal(noticeTitle.props.numberOfLines, undefined);
+      assert.equal(questTitle.props.numberOfLines, undefined);
+      assert.equal(noticeTitle.props.allowFontScaling, true);
+      assert.equal(questTitle.props.allowFontScaling, true);
+      assert.equal(StyleSheet.flatten(noticeTitle.props.style).fontSize, 28 * labelScale);
+      assert.equal(StyleSheet.flatten(questTitle.props.style).fontSize, 22 * labelScale);
+      assert.ok(StyleSheet.flatten(noticeTitle.props.style).width >= 112);
+      assert.ok(StyleSheet.flatten(questTitle.props.style).width >= 132 * labelScale);
+      assert.notEqual(StyleSheet.flatten(noticeTitle.props.style).whiteSpace, 'nowrap');
+      assert.notEqual(StyleSheet.flatten(questTitle.props.style).whiteSpace, 'nowrap');
+      await screen.unmount();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('퀘스트 목록 항목의 상세 버튼은 여덟 화면 크기에서 손가락 크기다', async () => {
+  const viewports = [
+    [375, 667],
+    [402, 874],
+    [440, 956],
+    [834, 1210],
+    [667, 375],
+    [874, 402],
+    [956, 440],
+    [1210, 834],
+    [1024, 1180],
+  ];
+
+  for (const [width, height] of viewports) {
+    const screen = await renderBoard(null, concept({ boardPanel: 'quest', boardView: 'list' }), {
+      width,
+      height,
+    });
+    const detail = StyleSheet.flatten(screen.getByTestId('board-quest-detail-0').props.style);
+    assert.ok(detail.minWidth >= 44, `detail button is at least 44px wide at ${width}x${height}`);
+    assert.ok(detail.minHeight >= 44, `detail button is at least 44px tall at ${width}x${height}`);
+    await screen.unmount();
+  }
+});
+
+test('좁은 세로 화면에서도 청사진 패널과 두 열 배치를 유지한다', async () => {
+  const width = 375;
+  const screen = await renderBoard(null, concept({ boardPanel: 'blueprint', boardView: 'list' }), {
+    width,
+    height: 500,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const grid = StyleSheet.flatten(screen.getByTestId('board-blueprint-grid').props.style);
+
+  assert.equal(drawer.left, (324 * width) / 874);
+  assert.equal(drawer.right, (30 * width) / 874);
+  assert.ok(width - drawer.left - drawer.right >= 44);
+  assert.equal(grid.flexDirection, 'row');
+  assert.ok(screen.getByText('예상 모습'));
+  await screen.unmount();
+});
+
+test('작은 320×480·290×400 화면에서 퀘스트와 청사진 터치 영역이 겹치지 않는다', async () => {
+  for (const [width, height] of [
+    [320, 480],
+    [290, 400],
+  ]) {
+    const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+    const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+    const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+    const separated =
+      quest.top + quest.height <= blueprint.top ||
+      blueprint.top + blueprint.height <= quest.top ||
+      quest.left + quest.width <= blueprint.left ||
+      blueprint.left + blueprint.width <= quest.left;
+
+    assert.ok(quest.width >= 44 && quest.height >= 44);
+    assert.ok(blueprint.width >= 44 && blueprint.height >= 44);
+    assert.ok(separated, `터치 영역이 ${width}×${height}에서 겹치지 않음`);
+    await screen.unmount();
+  }
+});
+
+test('3배 접근성 글자에서도 퀘스트 터치 영역에 맞춰 청사진 영역을 재배치한다', async () => {
+  const fontScale = jest.spyOn(PixelRatio, 'getFontScale').mockReturnValue(3);
+  try {
+    for (const [width, height] of [
+      [320, 480],
+      [290, 400],
+    ]) {
+      const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+      const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+      const notice = StyleSheet.flatten(screen.getByTestId('board-notice-area').props.style);
+      const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+      const blueprint = StyleSheet.flatten(screen.getByTestId('board-blueprint-area').props.style);
+      const noticeText = screen.getByText('공지');
+      const questText = screen.getByText('퀘스트');
+      const labelScale = Math.min(1, scene.width / 402);
+      const requiredNoticeHeight =
+        (28 * 1.1 * 3 + 9 + 24) * labelScale +
+        (Math.max(scene.width * 0.253, 44) - 24 * labelScale) * 0.7;
+      const requiredQuestHeight = (22 * 1.1 * 3 + 20 + 3 + 6) * labelScale;
+      const boxes = [notice, quest, blueprint];
+      const allSeparated = boxes.every((box, index) =>
+        boxes
+          .slice(index + 1)
+          .every(
+            (other) =>
+              box.top + box.height <= other.top ||
+              other.top + other.height <= box.top ||
+              box.left + box.width <= other.left ||
+              other.left + other.width <= box.left,
+          ),
+      );
+
+      assert.ok(noticeText.props.allowFontScaling);
+      assert.ok(StyleSheet.flatten(noticeText.props.style).width >= 56 * 3 * labelScale);
+      assert.ok(notice.width >= 44 && notice.height >= requiredNoticeHeight);
+      assert.ok(questText.props.allowFontScaling);
+      assert.ok(StyleSheet.flatten(questText.props.style).width >= 198 * labelScale);
+      assert.ok(quest.width >= 44 && quest.height >= requiredQuestHeight);
+      assert.ok(blueprint.width >= 44 && blueprint.height >= 44);
+      assert.ok(allSeparated, `3배 글자 터치 영역이 ${width}×${height}에서 겹치지 않음`);
+      await screen.unmount();
+    }
+  } finally {
+    fontScale.mockRestore();
+  }
+});
+
+test('게시판 가로 장면은 화면 폭에 맞춰 세로 스크롤되고 라벨이 같은 좌표계에 놓인다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const buildingIndex = buildings.findIndex(({ id }) => id === 'board');
+    assert.notEqual(buildingIndex, -1);
+    const viewports = [
+      [375, 667],
+      [402, 874],
+      [440, 956],
+      [834, 1210],
+      [667, 375],
+      [874, 402],
+      [956, 440],
+      [1210, 834],
+      [1024, 1180],
+      [320, 480],
+      [290, 400],
+    ];
+
+    for (const [width, height] of viewports) {
+      const screen = await render(
+        <InteriorScreen
+          buildingIndex={buildingIndex}
+          conceptIndex={0}
+          width={width}
+          height={height}
+          reduceMotion
+        />,
+      );
+      const scrollScene = width / height > 2 / 3;
+      const scroll = screen.getByTestId('board-scene-scroll');
+      assert.equal(scroll.props.horizontal, false);
+      assert.equal(scroll.props.scrollEnabled, scrollScene);
+      assert.equal(scroll.props.showsVerticalScrollIndicator, false);
+      assert.equal(scroll.props.showsHorizontalScrollIndicator, false);
+      assert.deepEqual(scroll.props.contentOffset, {
+        x: 0,
+        y: scrollScene ? Math.max(0, width * 1.5 - height) * 0.38 : 0,
+      });
+      const scrollContent = StyleSheet.flatten(scroll.props.contentContainerStyle);
+      assert.equal(scrollContent.width, width);
+      if (scrollScene) {
+        assert.equal(screen.queryByTestId('board-side-fill'), null);
+        assert.equal(scrollContent.height, width * 1.5);
+        const image = screen.getByTestId('board-scene-image', { includeHiddenElements: true });
+        const imageStyle = StyleSheet.flatten(image.props.style);
+        assert.equal(image.props.resizeMode, 'stretch');
+        assert.equal(imageStyle.width, width);
+        assert.equal(imageStyle.height, width * 1.5);
+        const labelScene = StyleSheet.flatten(screen.getByTestId('board-label-scene').props.style);
+        assert.equal(labelScene.position, 'absolute');
+        assert.equal(labelScene.left, 0);
+        assert.equal(labelScene.top, 0);
+        const quest = StyleSheet.flatten(screen.getByTestId('board-quest-area').props.style);
+        const notice = StyleSheet.flatten(screen.getByTestId('board-notice-area').props.style);
+        const sceneHeight = width * 1.5;
+        const noticeBaseHeight = Math.max(sceneHeight * 0.226, 44);
+        const expectedCenterY =
+          notice.height > noticeBaseHeight
+            ? Math.max(
+                (quest.height / 2 + 1) / sceneHeight,
+                Math.min(0.285, 0.348 - (notice.height / 2 + quest.height / 2 + 1) / sceneHeight),
+              )
+            : 0.285;
+        assert.ok(Math.abs(quest.top + quest.height / 2 - sceneHeight * expectedCenterY) < 0.01);
+        assert.ok(quest.width >= 44 && quest.height >= 44);
+      } else {
+        assert.equal(scrollContent.height, height);
+      }
+      await screen.unmount();
+    }
+  } finally {
+    restore();
+  }
+});
+
+test('게시판 장면 그라데이션을 웹·네이티브와 세로·가로 모두 이미지 위에 그린다', async () => {
+  const previousOS = Platform.OS;
+  try {
+    for (const platform of ['web', 'ios']) {
+      (Platform as any).OS = platform;
+      for (const [width, height] of [
+        [402, 874],
+        [874, 402],
+      ]) {
+        const screen = await renderBoard(null, concept({ boardView: 'list' }), { width, height });
+        const image = screen.getByTestId('board-scene-image', { includeHiddenElements: true });
+        const gradient = screen.getByTestId('board-scene-gradient');
+        const imageStyle = StyleSheet.flatten(image.props.style);
+        const gradientStyle = StyleSheet.flatten(gradient.props.style);
+        const scene = image.parent;
+        assert.ok(scene);
+        const siblings = scene.children;
+
+        assert.equal(imageStyle.zIndex, 0);
+        assert.equal(gradientStyle.zIndex, 1);
+        assert.ok(
+          String(
+            gradientStyle.backgroundImage ?? gradientStyle.experimental_backgroundImage,
+          ).includes('linear-gradient'),
+        );
+        assert.equal(gradient.parent, scene);
+        assert.ok(siblings.indexOf(gradient) > siblings.indexOf(image));
+        await screen.unmount();
+      }
+    }
+  } finally {
+    (Platform as any).OS = previousOS;
+  }
+});
+
+test('874×402 공지 종이는 실제 패딩을 뺀 뒤에도 140px 이상 읽기 영역을 확보한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 402,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const readableHeight = drawer.height - drawer.paddingTop - drawer.paddingBottom;
+
+  assert.equal(drawer.height, 394);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
+test('874×450 공지 종이는 내비게이션 높이를 반영해 140px 이상 목록을 보장한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 450,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const navigation = screen.getByTestId('board-panel-navigation');
+  const noticeScroll = StyleSheet.flatten(screen.getByTestId('board-notice-scroll').props.style);
+  const readableHeight = noticeScroll.maxHeight;
+
+  assert.equal(navigation.props.children.length, 2);
+  assert.equal(drawer.height, 442);
+  assert.equal(drawer.paddingTop, 38);
+  assert.equal(drawer.paddingBottom, 28);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
+test('667×375 공지 종이는 축소된 패딩을 적용해도 140px 읽기 높이를 보장한다', async () => {
+  const width = 667;
+  const height = 375;
+  const scale = width / 874;
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width,
+    height,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const readableHeight = drawer.height - drawer.paddingTop - drawer.paddingBottom;
+
+  assert.equal(drawer.top, 4);
+  assert.equal(drawer.height, height - 8);
+  assert.equal(drawer.paddingTop, 38 * scale);
+  assert.equal(drawer.paddingBottom, 28 * scale);
+  assert.ok(readableHeight >= 140);
+  await screen.unmount();
+});
+
+test('열린 게시판 패널에서도 스크롤을 막고 배경 라벨은 패널 전환을 허용한다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }));
+  const scroll = screen.getByTestId('board-scene-scroll');
+
+  assert.equal(scroll.props.scrollEnabled, false);
+  assert.notEqual(scroll.props.pointerEvents, 'none');
+  fireEvent.press(screen.getByTestId('board-quest-area'));
+  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
+  fireEvent.press(screen.getByTestId('board-notice-area'));
+  await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
+  await screen.unmount();
+});
+
+test('겹쳐진 가로 게시판 패널에서 44px 조작으로 전환·닫기를 할 수 있다', async () => {
+  const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'list' }), {
+    width: 874,
+    height: 402,
+  });
+  const drawer = StyleSheet.flatten(screen.getByTestId('board-drawer').props.style);
+  const switchButton = screen.getByTestId('board-panel-switch');
+  const closeButton = screen.getByTestId('board-panel-close');
+  const switchStyle = StyleSheet.flatten(switchButton.props.style);
+  const closeStyle = StyleSheet.flatten(closeButton.props.style);
+
+  assert.equal(drawer.left, 324);
+  assert.equal(drawer.right, 30);
+  assert.ok(switchStyle.width >= 44 && switchStyle.height >= 44);
+  assert.ok(closeStyle.width >= 44 && closeStyle.height >= 44);
+  assert.equal(switchButton.props.accessibilityLabel, '퀘스트 패널로 전환');
+
+  fireEvent.press(switchButton);
+  await waitFor(() => assert.ok(screen.getByText('매일 새 도전')));
+  assert.equal(
+    screen.getByTestId('board-panel-switch').props.accessibilityLabel,
+    '공지 패널로 전환',
+  );
+
+  fireEvent.press(screen.getByTestId('board-panel-switch'));
+  await waitFor(() => assert.ok(screen.getByText('소다 섬 게시판')));
+  fireEvent.press(screen.getByTestId('board-panel-close'));
+  await waitFor(() =>
+    assert.equal(screen.getByTestId('board-scene-scroll').props.scrollEnabled, true),
+  );
+  assert.equal(screen.queryByTestId('board-panel-navigation'), null);
+  await screen.unmount();
+});
+
+test('noartifact 비교 화면에서도 게시판 배경을 그라데이션 아래에 유지한다', async () => {
+  const restore = webMockMode('?interiors=1&noartifact=1');
+  try {
+    const buildingIndex = buildings.findIndex(({ id }) => id === 'board');
+    const screen = await render(
+      <InteriorScreen
+        buildingIndex={buildingIndex}
+        conceptIndex={0}
+        width={1024}
+        height={1180}
+        reduceMotion
+        hideArtifact
+      />,
+    );
+    const background = StyleSheet.flatten(screen.getByTestId('interiors-screen').props.style);
+
+    assert.match(background.backgroundImage, /linear-gradient/);
+    assert.match(background.backgroundImage, /url\(/);
+    assert.match(background.backgroundSize, /1024px 1536px/);
+    assert.match(background.backgroundPosition, /0px -135\.28px/);
+    assert.equal(screen.queryByTestId('artifact-wrap'), null);
+    assert.equal(screen.queryByTestId('board-scene'), null);
+    await screen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('네이티브 세로 배경에서는 이미지 뒤에 그라데이션을 그린다', async () => {
+  const previousOS = Platform.OS;
+  (Platform as any).OS = 'ios';
+  try {
+    for (const id of ['hall', 'board']) {
+      const buildingIndex = buildings.findIndex((building) => building.id === id);
+      const screen = await render(
+        <InteriorScreen
+          buildingIndex={buildingIndex}
+          conceptIndex={0}
+          width={375}
+          height={667}
+          reduceMotion
+        />,
+      );
+      const image = screen.getByTestId('interior-background-image');
+      const gradient = screen.getByTestId('interior-background-gradient');
+      const imageStyle = StyleSheet.flatten(image.props.style);
+      const backgroundContainer = image.parent;
+      assert.ok(backgroundContainer);
+      const siblings = backgroundContainer.children;
+
+      assert.equal(imageStyle.zIndex, undefined);
+      assert.equal(gradient.parent, backgroundContainer);
+      assert.ok(siblings.indexOf(gradient) > siblings.indexOf(image));
+      await screen.unmount();
+    }
+  } finally {
+    (Platform as any).OS = previousOS;
+  }
+});
+
+test('가로 공지 상세의 스크롤 높이는 종이 패딩을 제외해 긴 본문도 스크롤된다', async () => {
+  const restore = webMockMode('?review');
+  try {
+    const height = 402;
+    const screen = await renderBoard(null, concept({ boardPanel: 'notice', boardView: 'detail' }), {
+      width: 874,
+      height,
+    });
+    const overlay = StyleSheet.flatten(screen.getByTestId('board-notice-overlay').props.style);
+    const content = StyleSheet.flatten(
+      screen.getByTestId('board-notice-overlay-content').props.style,
+    );
+    const maximumOverlayHeight = height * 0.65;
+
+    assert.equal(overlay.paddingTop + overlay.paddingBottom, 88);
+    assert.ok(content.maxHeight <= maximumOverlayHeight - 88);
+    assert.equal(content.overflowY, 'auto');
+    await screen.unmount();
+  } finally {
+    restore();
+  }
+});
+
+test('키보드로 가시 높이가 줄어든 세로 화면은 고정 장면 높이 기준으로 세로 배치를 유지한다', async () => {
+  const screen = await renderBoard(null, concept({ boardView: 'list' }), {
+    width: 402,
+    height: 350,
+    sceneHeight: 874,
+  });
+  const scene = StyleSheet.flatten(screen.getByTestId('board-scene').props.style);
+  const scroll = screen.getByTestId('board-scene-scroll');
+
+  assert.equal(scene.width, (874 * 2) / 3);
+  assert.equal(scene.height, 874);
+  assert.equal(scene.top, 0);
+  assert.equal(scroll.props.scrollEnabled, false);
+  assert.deepEqual(scroll.props.contentOffset, { x: 0, y: 0 });
+  assert.equal(StyleSheet.flatten(screen.getByText('공지').props.style).fontSize, 28);
+  await screen.unmount();
+});
+
+test('가로 키보드 전후 게시판 장면 초기 스크롤 오프셋을 고정한다', async () => {
+  const screen = await renderBoard(null, concept({ boardView: 'list' }), {
+    width: 874,
+    height: 402,
+    sceneHeight: 402,
+  });
+  const offsetBefore = screen.getByTestId('board-scene-scroll').props.contentOffset.y;
+
+  await screen.setSize({ height: 250 });
+  const offsetAfter = screen.getByTestId('board-scene-scroll').props.contentOffset.y;
+
+  assert.equal(offsetBefore, (874 * 1.5 - 402) * 0.38);
+  assert.equal(offsetAfter, offsetBefore);
+  await screen.unmount();
 });
 
 test('홈 퀘스트 바로가기는 없는 상세로 치지 않고 퀘스트 목록을 연다', async () => {

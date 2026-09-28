@@ -89,6 +89,7 @@ export const primitiveTokens = {
     control: 14,
     card: 20,
     preview: 22,
+    modal: 24,
     sheet: 26,
     full: 999,
   },
@@ -128,6 +129,7 @@ export const semanticTokens = {
     letter: color.letter,
     divider: `${color.brown}33`,
     overlay: `${color.ink}66`,
+    overlayCinematic: `${color.ink}A6`,
     overlaySheet: `${color.ink}40`,
   },
   nightColor: {
@@ -171,6 +173,7 @@ export const semanticTokens = {
     control: radius.control,
     card: radius.card,
     preview: radius.preview,
+    modal: radius.modal,
     sheet: radius.sheet,
     full: radius.full,
   },
@@ -250,6 +253,22 @@ export const componentTokens = {
     borderWidth: semanticTokens.stroke.default,
     radius: semanticTokens.radius.full,
   },
+  villageNotificationBadge: {
+    diameter: 25,
+    radius: 13,
+    borderWidth: semanticTokens.stroke.default,
+    topOffset: -11,
+    rightOffset: 21,
+  },
+  villageBuildingThemeTint: {
+    color: '#d7829b',
+    opacity: 0.3,
+  },
+  villageNotificationTooltip: {
+    maxWidth: 180,
+    paddingVertical: space[2],
+    borderWidth: semanticTokens.stroke.default,
+  },
   progress: {
     track: color.progressTrack,
     fill: semanticTokens.color.primary,
@@ -310,7 +329,17 @@ export const componentTokens = {
   },
   overlay: {
     background: semanticTokens.color.overlay,
+    cinematicBackground: semanticTokens.color.overlayCinematic,
     sheetBackground: semanticTokens.color.overlaySheet,
+  },
+  modal: {
+    padding: semanticTokens.spacing.page,
+    paddingBottom: semanticTokens.spacing.section,
+    gap: 14,
+    radius: semanticTokens.radius.modal,
+    sheetRadius: semanticTokens.radius.sheet,
+    borderWidth: semanticTokens.stroke.strong,
+    shadow: `0px 6px 0px ${semanticTokens.color.outline}`,
   },
 } as const;
 

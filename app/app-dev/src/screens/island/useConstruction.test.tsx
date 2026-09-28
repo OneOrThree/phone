@@ -6,7 +6,7 @@ import {
   CLIENT_NOT_SELECTABLE,
   useConstruction,
 } from '@/screens/island/useConstruction';
-import { CLIENT_NETWORK_ERROR, CLIENT_STALE_SESSION } from '@/services/api/client';
+import { CLIENT_NETWORK_ERROR } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
@@ -112,7 +112,13 @@ const live = (optsBody: unknown = options([item('library'), item('mail')])) => (
   'GET /islands/srv1/construction-options': data(optsBody),
 });
 
-type Props = { active: boolean; islandId: string | null; now: number };
+type Props = {
+  active: boolean;
+  islandId: string | null;
+  now: number;
+  onStarted?: (started: typeof startedBody) => void;
+  resumeTiming?: { buildingId: string; startedAt: string | number; completesAt: string | number };
+};
 const mount = (props: Props) =>
   renderHook((p: Props) => useConstruction(p), { initialProps: props });
 const flush = () => act(async () => new Promise((r) => setTimeout(r, 0)));
@@ -219,7 +225,7 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
     'GET /islands/srv1/construction-options': () => {
       optCalls++;
       if (optCalls === 1) return data(options([item('library'), item('mail')]));
-      if (optCalls === 2) {
+      if (optCalls <= 3) {
         // 공사 중에도 library 는 items 에 남는다(IN_PROGRESS) — 조기 완공 오인 금지
         return data(
           options([
@@ -236,7 +242,8 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
       return data(options([item('mail')], { islandVersion: 6 }));
     },
   });
-  const h = await mount({ active: true, islandId: 'local1', now: NOW });
+  const onStarted = jest.fn();
+  const h = await mount({ active: true, islandId: 'local1', now: NOW, onStarted });
   await flush();
 
   await act(async () => {
@@ -254,14 +261,94 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
   const started = h.result.current.started;
   assert.equal(started?.status, 'BUILDING');
   assert.equal(started?.completesAt, '2026-09-21T01:00:00Z');
+  assert.deepEqual(onStarted.mock.calls[0]?.[0], startedBody);
 
   // completesAt 이 지나도 앱이 시각으로 완공 처리하지 않는다 — 아직 items 에 있다.
   await h.rerender({ active: true, islandId: 'local1', now: NOW + 55 * 60_000 });
   await flush();
-  // 완공 예정 도달은 재조회 신호다 — 서버가 items 에서 빼야만 started 를 내린다.
+  // 첫 확인에서 서버가 아직 BUILDING이면 receipt을 유지한다.
   assert.equal(gets('/islands/srv1/construction-options').length, 3);
-  assert.equal(h.result.current.started, null); // 세 번째 GET: items 에서 빠짐
+  assert.equal(h.result.current.started?.buildingId, 'library');
+
+  // 제한 간격 뒤 다시 확인하고, 서버가 items 에서 뺀 뒤에만 started를 내린다.
+  await h.rerender({ active: true, islandId: 'local1', now: NOW + 55 * 60_000 + 5_000 });
+  await flush();
+  assert.equal(gets('/islands/srv1/construction-options').length, 4);
+  assert.equal(h.result.current.started, null);
   assert.equal(h.result.current.options?.items.length, 1);
+  await h.unmount();
+});
+
+test('착공 POST 성공 뒤 재조회가 실패해도 receipt은 클라이언트 홈 상태로 넘긴다', async () => {
+  let optionCalls = 0;
+  const onStarted = jest.fn();
+  serve({
+    ...live(),
+    'POST /islands/srv1/constructions': data(startedBody),
+    'GET /islands/srv1/construction-options': () =>
+      optionCalls++ === 0 ? data(options([item('library')])) : envelope('INTERNAL_AFTER_COMMIT'),
+  });
+  const h = await mount({ active: true, islandId: 'local1', now: NOW, onStarted });
+  await flush();
+
+  const error = await act(async () => h.result.current.build('library').catch((e) => e));
+  assert.equal(error.code, 'INTERNAL_AFTER_COMMIT');
+  assert.deepEqual(onStarted.mock.calls[0]?.[0], startedBody);
+  assert.equal(h.result.current.started, null); // 화면 성공 확정은 기존처럼 재조회 성공을 기다린다.
+  await h.unmount();
+});
+
+test('회관 재진입 뒤 홈에 보관한 착공 시각으로 서버 완공 확인을 이어 간다', async () => {
+  let optionCalls = 0;
+  serve({
+    ...live(),
+    'GET /islands/srv1/construction-options': () => {
+      optionCalls++;
+      if (optionCalls === 2) return envelope('TEMPORARY_CONFIRM_FAILURE');
+      return optionCalls === 1
+        ? data(
+            options([
+              item('library', {
+                selectable: false,
+                buildable: false,
+                blockedReason: 'IN_PROGRESS',
+              }),
+            ]),
+          )
+        : data(options([]));
+    },
+  });
+  const resumeTiming = {
+    buildingId: 'library',
+    startedAt: Date.parse('2026-09-21T00:00:00Z'),
+    completesAt: Date.parse('2026-09-21T01:00:00Z'),
+  };
+  const dueNow = Date.parse('2026-09-21T01:00:30Z');
+  const h = await mount({ active: true, islandId: 'local1', now: dueNow, resumeTiming });
+  await flush();
+  await flush();
+
+  // 최초 GET이 아직 IN_PROGRESS여서 바로 확인한 요청이 실패해도 제한 간격으로 재시도한다.
+  assert.equal(gets('/islands/srv1/construction-options').length, 2);
+  assert.equal(h.result.current.error?.code, 'TEMPORARY_CONFIRM_FAILURE');
+  await h.rerender({
+    active: true,
+    islandId: 'local1',
+    now: dueNow + 4_999,
+    resumeTiming,
+  });
+  await flush();
+  assert.equal(gets('/islands/srv1/construction-options').length, 2);
+
+  await h.rerender({
+    active: true,
+    islandId: 'local1',
+    now: dueNow + 5_000,
+    resumeTiming,
+  });
+  await flush();
+  assert.equal(gets('/islands/srv1/construction-options').length, 3);
+  assert.equal(h.result.current.options?.items.length, 0);
   await h.unmount();
 });
 

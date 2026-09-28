@@ -6,8 +6,10 @@ import {
   cancelBuildingTransition,
   clearBuildingTransitionRouteCovers,
   createBuildingTransitionController,
+  isBuildingTransitionActive,
   isBuildingTransitionRouteCovered,
   runBuildingEntryWalk,
+  subscribeBuildingTransitionActivity,
   subscribeBuildingTransitionRouteCover,
 } from './buildingTransition';
 
@@ -204,7 +206,7 @@ describe('공통 건물 전환 계약', () => {
     }
   });
 
-  it('목적지 route가 바뀐 직후 로딩 가림을 켠다', () => {
+  it('화톳불은 항해를 가리지 않고 다른 건물은 route cover를 켠다', () => {
     jest.useFakeTimers();
     const controller = createBuildingTransitionController();
     const navigate = jest.fn();
@@ -212,10 +214,37 @@ describe('공통 건물 전환 계약', () => {
       controller.start('fire', 'enter', false, navigate, 10);
       jest.advanceTimersByTime(10);
       expect(navigate).toHaveBeenCalledTimes(1);
+      expect(isBuildingTransitionRouteCovered()).toBe(false);
+
+      controller.start('hall', 'enter', false, navigate, 10);
+      jest.advanceTimersByTime(10);
+      expect(navigate).toHaveBeenCalledTimes(2);
       expect(isBuildingTransitionRouteCovered()).toBe(true);
       jest.advanceTimersByTime(900);
       expect(isBuildingTransitionRouteCovered()).toBe(false);
     } finally {
+      controller.dispose();
+      jest.useRealTimers();
+    }
+  });
+
+  it('전역 구독자에게 건물 진입 중 접근성 차단 상태를 알린다', () => {
+    jest.useFakeTimers();
+    const controller = createBuildingTransitionController();
+    const onActivity = jest.fn();
+    const unsubscribe = subscribeBuildingTransitionActivity(onActivity);
+    try {
+      expect(isBuildingTransitionActive()).toBe(false);
+      expect(onActivity).toHaveBeenLastCalledWith(false);
+      controller.start('board', 'enter', false, jest.fn(), 10);
+      expect(isBuildingTransitionActive()).toBe(true);
+      expect(onActivity).toHaveBeenLastCalledWith(true);
+
+      expect(cancelBuildingTransition()).toBe(true);
+      expect(isBuildingTransitionActive()).toBe(false);
+      expect(onActivity).toHaveBeenLastCalledWith(false);
+    } finally {
+      unsubscribe();
       controller.dispose();
       jest.useRealTimers();
     }

@@ -4,6 +4,7 @@ import {
   Easing,
   Image,
   ImageSourcePropType,
+  PixelRatio,
   Platform,
   Pressable,
   ScrollView,
@@ -49,6 +50,7 @@ import { semanticTokens } from '@/design-system/tokens';
 import { HOME_QUEST_LIST_DETAIL } from '@/screens/island/HomeQuestIndicator';
 import { useBoardNotices } from './useBoardNotices';
 import { useMailbox } from './useMailbox';
+import { UserSafetySheet } from '@/components/UserSafetySheet';
 
 // 원본: gachisup-R61-assets/preview/concepts/building-interiors-3 (index.html · app.js · board.js · style.css)
 // 건물 안 장면 위에 기능 화면을 얹는 38개 시안을 RN으로 옮긴다. 수치는 원본 CSS 그대로다.
@@ -82,10 +84,14 @@ export type ArtifactProps = {
   e?: any;
   // 배경 장면을 맞출 높이. 키보드로 화면이 줄어도 창 높이 기준으로 고정한다 (없으면 height)
   sceneHeight?: number;
+  // 현재 건물 밖의 보상 모달이 더 위에 열려 있으면 게시판 키보드 트랩을 쉰다
+  higherModalOpen?: boolean;
+  onBoardModalChange?: (open: boolean) => void;
 };
 export type ArtifactRenderer = (props: ArtifactProps) => React.ReactElement | null;
 
 export const interiorArt = {
+  boardBackground: require('@/assets/interiors/board-three-papers-v5.png'),
   buildings: {
     hall: require('@/assets/interiors/buildings/hall.png'),
     noticeboard: require('@/assets/interiors/buildings/noticeboard.png'),
@@ -688,6 +694,19 @@ export const interiorScene = (width: number, height: number) => {
   return { left: (width - w) / 2, top: (height - h) * 0.38, width: w, height: h };
 };
 
+// 게시판 장면은 원본 비율을 덮도록 맞춘다. 폭이 배경 비율보다 넓으면 세로로 탐색한다.
+const boardScene = (width: number, height: number) => {
+  if (width / height > artSize.background[0] / artSize.background[1])
+    return {
+      left: 0,
+      top: 0,
+      width,
+      height: (width * artSize.background[1]) / artSize.background[0],
+    };
+  const sceneWidth = (height * artSize.background[0]) / artSize.background[1];
+  return { left: (width - sceneWidth) / 2, top: 0, width: sceneWidth, height };
+};
+
 export function InteriorScreen({
   buildingIndex,
   conceptIndex,
@@ -698,6 +717,7 @@ export function InteriorScreen({
   e,
   insets,
   sceneHeight = height,
+  higherModalOpen = false,
 }: {
   buildingIndex: number;
   conceptIndex: number;
@@ -708,6 +728,7 @@ export function InteriorScreen({
   e?: any;
   insets?: { top: number; left: number };
   sceneHeight?: number;
+  higherModalOpen?: boolean;
 }) {
   const building = buildings[buildingIndex],
     concept = building.concepts[conceptIndex];
@@ -715,6 +736,8 @@ export function InteriorScreen({
   const showToast = (message: string) => setToast((prev) => ({ message, serial: prev.serial + 1 }));
   // 핫스팟을 누르면 .artifact-wrap.peek: 기능 화면을 아래로 88% 내리고 흐리게 (transition .3s ease)
   const [peek, setPeek] = useState(false);
+  const [boardModalOpen, setBoardModalOpen] = useState(false);
+  const sceneBackRef = useRef<HTMLElement | null>(null);
   const peekAnim = useRef(new Animated.Value(0)).current;
   const [wrapHeight, setWrapHeight] = useState(0);
   useEffect(() => {
@@ -771,19 +794,31 @@ export function InteriorScreen({
           : { left: 14, right: 14, top: '23%' as const };
   const screenGradient =
     'linear-gradient(180deg,#37271d12 0%,transparent 24%,transparent 70%,#37271d0c 100%)';
-  // 게시판·우체통은 가로에서도 장면이 이어지게 cover로 깐다. 나머지는 원본 background-size:auto 100%
+  // 게시판 가로 배경은 스크롤 장면 안에서 라벨과 함께 이동한다.
   const coverScene = building.id === 'board' || building.id === 'mail';
-  const bg = coverScene
-    ? interiorScene(width, sceneHeight)
-    : {
-        left: (width - (height * artSize.background[0]) / artSize.background[1]) / 2,
-        top: 0,
-        width: (height * artSize.background[0]) / artSize.background[1],
-        height,
-      };
+  const fullBoardScene = building.id === 'board';
+  const showBoardReviewBackground = fullBoardScene && hideArtifact;
+  const boardScrollScene =
+    fullBoardScene && width / sceneHeight > artSize.background[0] / artSize.background[1];
+  const bg = fullBoardScene
+    ? boardScene(width, sceneHeight)
+    : coverScene
+      ? interiorScene(width, sceneHeight)
+      : {
+          left: (width - (height * artSize.background[0]) / artSize.background[1]) / 2,
+          top: 0,
+          width: (height * artSize.background[0]) / artSize.background[1],
+          height,
+        };
+  const boardScrollOffset = boardScrollScene ? Math.max(0, bg.height - height) * 0.38 : 0;
   // 앱에서는 가짜 상태 표시줄을 빼고, 안전 영역보다 너무 위로 올라가지 않게 뒤로 가기·간판을 내린다
   const chromeTop = Math.max(0, (insets?.top ?? 0) - 52),
     chromeLeft = Math.max(0, (insets?.left ?? 0) - 52);
+  const sceneBackBlocked = building.id === 'board' && (boardModalOpen || higherModalOpen);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') setBoardBackgroundInert(sceneBackRef.current, sceneBackBlocked);
+  }, [sceneBackBlocked]);
 
   return (
     <View
@@ -792,16 +827,22 @@ export function InteriorScreen({
         { width, height, overflow: 'hidden' },
         // 웹은 원본과 같은 CSS 배경으로 깔아야 그림 확대 결과가 픽셀까지 같다
         webOnly({
-          backgroundImage: `${screenGradient},url("${assetUri(building.background)}")`,
+          backgroundImage: fullBoardScene
+            ? showBoardReviewBackground
+              ? `${screenGradient},url("${assetUri(interiorArt.boardBackground)}")`
+              : screenGradient
+            : `${screenGradient},url("${assetUri(building.background)}")`,
+          ...(fullBoardScene ? { backgroundRepeat: 'no-repeat' } : null),
           // 키보드로 높이가 줄면 창 높이로 계산한 위치에 그대로 둔다
           backgroundSize:
-            sceneHeight !== height
+            sceneHeight !== height || fullBoardScene
               ? `100% 100%,${bg.width}px ${bg.height}px`
               : coverScene
                 ? 'cover'
                 : 'auto 100%',
-          backgroundPosition:
-            sceneHeight !== height
+          backgroundPosition: fullBoardScene
+            ? `0 0,${bg.left}px ${bg.top - boardScrollOffset}px`
+            : sceneHeight !== height
               ? `0 0,${bg.left}px ${bg.top}px`
               : coverScene
                 ? 'center 38%'
@@ -811,14 +852,18 @@ export function InteriorScreen({
         }),
       ]}
     >
-      {Platform.OS !== 'web' && (
+      {Platform.OS !== 'web' && (!boardScrollScene || showBoardReviewBackground) && (
         <>
           <Image
-            source={building.background}
+            testID="interior-background-image"
+            source={showBoardReviewBackground ? interiorArt.boardBackground : building.background}
             resizeMode="stretch"
-            style={{ position: 'absolute', ...bg }}
+            style={{ position: 'absolute', ...bg, top: bg.top - boardScrollOffset }}
           />
-          <View style={[fill, { pointerEvents: 'none' }, gradient(screenGradient)]} />
+          <View
+            testID="interior-background-gradient"
+            style={[fill, { pointerEvents: 'none' }, gradient(screenGradient)]}
+          />
         </>
       )}
       {building.id === 'mail' && (
@@ -849,6 +894,10 @@ export function InteriorScreen({
       )}
       <Pressable
         testID="scene-back"
+        ref={sceneBackRef as any}
+        disabled={sceneBackBlocked}
+        accessibilityElementsHidden={sceneBackBlocked}
+        {...(sceneBackBlocked ? webOnly({ 'aria-hidden': true } as any) : null)}
         accessibilityLabel="섬으로 돌아가기"
         onPress={() => (e ? e.home() : showToast('섬으로 돌아가는 전환이 이어집니다'))}
         style={{
@@ -964,6 +1013,8 @@ export function InteriorScreen({
             showToast={showToast}
             e={e}
             sceneHeight={sceneHeight}
+            higherModalOpen={higherModalOpen}
+            onBoardModalChange={setBoardModalOpen}
           />
         </Animated.View>
       )}
@@ -1020,7 +1071,13 @@ const statusText = {
 
 // 앱 라우트에서 게시판(board·notice·noticeEdit·quest·questEdit)과
 // 우체통(mail·chat·friendMail)을 건물 안 장면으로 그린다. 크기는 실제 화면(키보드로 줄어든 높이 포함)을 따른다
-export function InteriorRoute({ e }: { e: any }) {
+export function InteriorRoute({
+  e,
+  modalAboveBoard = false,
+}: {
+  e: any;
+  modalAboveBoard?: boolean;
+}) {
   const [fontsLoaded, fontError] = useInteriorFonts();
   const layout = useAppLayout();
   const [size, setSize] = useState<{ width: number; height: number } | null>(null);
@@ -1068,6 +1125,7 @@ export function InteriorRoute({ e }: { e: any }) {
             e={e}
             insets={{ top: layout.insets.top / k, left: layout.insets.left / k }}
             sceneHeight={Math.max(height, layout.height) / k}
+            higherModalOpen={modalAboveBoard}
           />
         </View>
       )}
@@ -2974,22 +3032,8 @@ const boardFont = (
   ...webOnly({ whiteSpace: 'normal' }),
 });
 
-// 가로(874×402 시안) 배치: 게시판 종이·상세·청사진을 오른쪽 열에 둔다
+// 가로 화면의 상세 패널은 화면 폭에 맞춰 배치한다.
 const LAND = {
-  // 장면 글자·청사진 누름 영역 (장면 상자 기준 비율, 874×402 정본에 맞춘 값)
-  labels: {
-    position: 'absolute' as const,
-    left: '3.95%' as const,
-    top: '9.95%' as const,
-    width: '92.68%' as const,
-    height: '75.06%' as const,
-  },
-  blueprintArea: {
-    left: '59.94%' as const,
-    top: '32.53%' as const,
-    width: '18.58%' as const,
-    height: '17.07%' as const,
-  },
   drawer: { left: 324, right: 30 },
   overlay: { left: 338, right: 36, top: 28, maxHeight: '65%' as const },
   blueprint: { left: 324, right: 30 },
@@ -3140,14 +3184,14 @@ function BoardPaper({ source, style }: { source: ImageSourcePropType; style?: an
 }
 
 // 종이 위 손글씨 줄 (원본 boardHandwritingMarkup)
-function Handwriting({ short }: { short?: boolean }) {
+function Handwriting({ short, scale = 1 }: { short?: boolean; scale?: number }) {
   return (
     <Svg
       viewBox={`0 0 100 ${short ? 34 : 70}`}
       pointerEvents="none"
       style={
         short
-          ? { width: '86%', maxHeight: 20, aspectRatio: 100 / 34, opacity: 0.72 }
+          ? { width: '86%', maxHeight: 20 * scale, aspectRatio: 100 / 34, opacity: 0.72 }
           : { width: '100%', aspectRatio: 100 / 70, opacity: 0.76 }
       }
     >
@@ -3168,14 +3212,26 @@ function Handwriting({ short }: { short?: boolean }) {
 
 // 스크롤 패널: 웹은 원본처럼 overflow-y:auto 인 div (ScrollView는 translateZ(0)을 붙여 그리기가 달라진다)
 // overscroll-behavior 는 원본처럼 공지 패널에만 준다: 붙이면 크롬이 패널을 합성 레이어로 올려 색이 1씩 달라진다
-function Scroll({ style, children }: { style: any; children: React.ReactNode }) {
+function Scroll({
+  style,
+  children,
+  testID,
+}: {
+  style: any;
+  children: React.ReactNode;
+  testID?: string;
+}) {
   if (Platform.OS !== 'web')
     return (
-      <ScrollView style={style} keyboardShouldPersistTaps="handled">
+      <ScrollView testID={testID} style={style} keyboardShouldPersistTaps="handled">
         {children}
       </ScrollView>
     );
-  return <View style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>{children}</View>;
+  return (
+    <View testID={testID} style={[style, webOnly({ overflowX: 'auto', overflowY: 'auto' })]}>
+      {children}
+    </View>
+  );
 }
 
 // .board-primary · .board-outline
@@ -3283,19 +3339,29 @@ function Link({
   testID,
   danger,
   size = 13,
+  minTapHeight,
 }: {
   label: string;
   onPress: () => void;
   testID: string;
   danger?: boolean;
   size?: number;
+  minTapHeight?: number;
 }) {
   return (
     <Pressable
       testID={testID}
       accessibilityRole="button"
       onPress={onPress}
-      style={{ paddingVertical: 4 }}
+      style={[
+        { paddingVertical: 4 },
+        minTapHeight != null && {
+          minWidth: minTapHeight,
+          minHeight: minTapHeight,
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+      ]}
     >
       <Text
         style={[
@@ -3675,7 +3741,12 @@ function QuestCard({
         </>
       )}
       <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 7 }}>
-        <Link testID={`board-quest-detail-${index}`} label="자세히 보기 ›" onPress={onDetail} />
+        <Link
+          testID={`board-quest-detail-${index}`}
+          label="자세히 보기 ›"
+          onPress={onDetail}
+          minTapHeight={44}
+        />
       </View>
     </Animated.View>
   );
@@ -3832,6 +3903,98 @@ function boardFromApp(e: any) {
   };
 }
 
+const BOARD_MODAL_FOCUSABLES =
+  'button:not([disabled]),[role="button"]:not([aria-disabled="true"]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex]:not([tabindex="-1"])';
+
+export function focusBoardModal(overlay: HTMLElement | null) {
+  if (!overlay?.querySelectorAll || !overlay.focus) return;
+  const focusables = Array.from(
+    overlay.querySelectorAll<HTMLElement>(BOARD_MODAL_FOCUSABLES),
+  ).filter((element) => element.offsetParent !== null);
+  (focusables[0] ?? overlay).focus();
+}
+
+export function restoreBoardModalOpener(opener: HTMLElement | null) {
+  opener?.focus();
+}
+
+export function setBoardBackgroundInert(element: HTMLElement | null, inert: boolean) {
+  if (!element) return;
+  element.inert = inert;
+  if (inert && typeof element.setAttribute === 'function') element.setAttribute('inert', '');
+  else if (!inert && typeof element.removeAttribute === 'function')
+    element.removeAttribute('inert');
+}
+
+export function syncBoardModalFocus(
+  isOpen: boolean,
+  wasOpen: boolean,
+  isTopmost: boolean,
+  wasTopmost: boolean,
+  overlay: HTMLElement | null,
+  modalDocument: Document,
+  backgrounds: (HTMLElement | null)[],
+  opener: HTMLElement | null,
+) {
+  if (isOpen && !wasOpen) {
+    const capturedOpener = modalDocument.activeElement as HTMLElement | null;
+    if (isTopmost) {
+      setBoardBackgroundInert(overlay, false);
+      focusBoardModal(overlay);
+    } else setBoardBackgroundInert(overlay, true);
+    backgrounds.forEach((element) => setBoardBackgroundInert(element, true));
+    return capturedOpener;
+  }
+  if (isOpen && wasOpen && wasTopmost !== isTopmost) {
+    if (isTopmost) {
+      setBoardBackgroundInert(overlay, false);
+      focusBoardModal(overlay);
+    } else setBoardBackgroundInert(overlay, true);
+    return opener;
+  }
+  if (!isOpen && wasOpen) {
+    setBoardBackgroundInert(overlay, false);
+    backgrounds.forEach((element) => setBoardBackgroundInert(element, false));
+    if (wasTopmost) restoreBoardModalOpener(opener);
+    return null;
+  }
+  return opener;
+}
+
+export function handleBoardModalKeydown(
+  event: KeyboardEvent,
+  overlay: HTMLElement,
+  modalDocument: Document,
+  onEscape: () => void,
+) {
+  if (event.isComposing) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    onEscape();
+    return;
+  }
+  if (event.key !== 'Tab') return;
+  const focusables = Array.from(
+    overlay.querySelectorAll<HTMLElement>(BOARD_MODAL_FOCUSABLES),
+  ).filter((element) => element.offsetParent !== null);
+  if (!focusables.length) {
+    event.preventDefault();
+    overlay.focus();
+    return;
+  }
+  const first = focusables[0];
+  const last = focusables[focusables.length - 1];
+  if (
+    (event.shiftKey &&
+      (modalDocument.activeElement === first || !overlay.contains(modalDocument.activeElement))) ||
+    (!event.shiftKey &&
+      (modalDocument.activeElement === last || !overlay.contains(modalDocument.activeElement)))
+  ) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+
 export function Board({
   concept,
   width,
@@ -3840,6 +4003,8 @@ export function Board({
   e,
   showToast,
   sceneHeight = height,
+  higherModalOpen = false,
+  onBoardModalChange,
 }: ArtifactProps) {
   const [local, setS] = useState(() => makeState(concept));
   const [mockNotices, setNotices] = useState(() =>
@@ -3848,6 +4013,13 @@ export function Board({
   const [mockQuests, setQuests] = useState(() =>
     concept.boardPanel === 'quest' && concept.boardView === 'empty' ? [] : QUESTS,
   );
+  const noticeOverlayRef = useRef<HTMLElement | null>(null);
+  const questOverlayRef = useRef<HTMLElement | null>(null);
+  const boardSceneRef = useRef<HTMLElement | null>(null);
+  const boardDrawerRef = useRef<HTMLElement | null>(null);
+  const overlayOpenerRef = useRef<HTMLElement | null>(null);
+  const overlayWasOpen = useRef(false);
+  const overlayWasTopmost = useRef(false);
   // 앱 라우트에서도 화면 안에서만 잠깐 쓰는 상태: 댓글 입력 열림 · 삭제 확인 · 목표 분 · 오류
   const [ui, setUi] = useState({
     comment: false,
@@ -4435,6 +4607,7 @@ export function Board({
         const draftOp = draftEpoch.current;
         write.then(
           () => {
+            e.onBoardCommentRead?.();
             if (commentInflight.current === intent) commentInflight.current = null;
             const now = liveE(op);
             if (!now || draftEpoch.current !== draftOp) return;
@@ -5459,7 +5632,10 @@ export function Board({
     return (
       <>
         <View style={[{ paddingTop: 32, paddingBottom: 14, borderBottomWidth: 1 }, dashed]}>
-          <View style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}>
+          <View
+            testID="board-blueprint-grid"
+            style={{ flexDirection: 'row', gap: 10, minHeight: 142 }}
+          >
             <View
               style={{
                 width: '36%',
@@ -5688,11 +5864,84 @@ export function Board({
     );
   };
 
-  // 장면(2:3)은 배경과 같은 cover · 세로 38% 기준으로 놓는다. 세로 화면에서는 높이에 딱 맞는다
-  const scene = interiorScene(width, sceneHeight),
-    land = width > sceneHeight;
+  // 배경과 라벨·터치 영역이 원본 2:3 좌표계에서 함께 스케일되도록 높이 기준으로 맞춘다.
+  const land = width / sceneHeight > artSize.background[0] / artSize.background[1];
+  const scene = boardScene(width, land ? height : sceneHeight);
+  const initialSceneOffset = land ? Math.max(0, scene.height - sceneHeight) * 0.38 : 0;
+  const sceneScrollRef = useRef<ScrollView>(null);
+  useEffect(() => {
+    if (land) sceneScrollRef.current?.scrollTo({ x: 0, y: initialSceneOffset, animated: false });
+  }, [land, initialSceneOffset]);
+  const labelScale = Math.min(1, scene.width / 402);
+  const fontScale = Math.max(1, PixelRatio.getFontScale());
+  const sceneHitbox = (
+    centerX: number,
+    centerY: number,
+    widthRatio: number,
+    heightRatio: number,
+    maxHeight = Number.POSITIVE_INFINITY,
+  ) => {
+    const hitWidth = Math.max(scene.width * widthRatio, 44);
+    const hitHeight = Math.min(Math.max(scene.height * heightRatio, 44), maxHeight);
+    return {
+      left: scene.width * centerX - hitWidth / 2,
+      top: scene.height * centerY - hitHeight / 2,
+      width: hitWidth,
+      height: hitHeight,
+    };
+  };
+  const questHitHeight = Math.max(scene.height * 0.09, 44);
+  const accessibleQuestHeight = (22 * 1.1 * fontScale + 20 + 3 + 6) * labelScale;
+  const questLabelHitHeight = Math.max(questHitHeight, accessibleQuestHeight);
+  const noticeCenterY = 0.348;
+  const noticeHitWidth = Math.max(scene.width * 0.253, 44);
+  const noticeBaseHitHeight = Math.max(scene.height * 0.226, 44);
+  const accessibleNoticeHeight =
+    (28 * 1.1 * fontScale + 9 + 24) * labelScale +
+    Math.max(0, noticeHitWidth - 24 * labelScale) * 0.7;
+  const noticeHitHeight = Math.max(noticeBaseHitHeight, accessibleNoticeHeight);
+  const questCenterY =
+    noticeHitHeight > noticeBaseHitHeight
+      ? Math.max(
+          (questLabelHitHeight / 2 + 1) / scene.height,
+          Math.min(
+            0.285,
+            noticeCenterY - (noticeHitHeight / 2 + questLabelHitHeight / 2 + 1) / scene.height,
+          ),
+        )
+      : 0.285;
+  const blueprintCenterY = Math.max(
+    0.406,
+    questCenterY + (questLabelHitHeight / 2 + 44 / 2 + 1) / scene.height,
+  );
+  const blueprintHitHeight = Math.min(
+    Math.max(scene.height * 0.128, 44),
+    // Keep a one-pixel gap below the quest target, including large accessibility text.
+    Math.max(
+      44,
+      2 * (scene.height * (blueprintCenterY - questCenterY) - questLabelHitHeight / 2 - 1),
+    ),
+  );
+  const boardHitboxes = {
+    notice: sceneHitbox(0.3495, noticeCenterY, 0.253, noticeHitHeight / scene.height),
+    quest: sceneHitbox(0.645, questCenterY, 0.27, questLabelHitHeight / scene.height),
+    blueprint: sceneHitbox(0.705, blueprintCenterY, 0.19, 0.128, blueprintHitHeight),
+  };
+  // 상세 패널은 원본 874px 가로 시안의 화면 폭 비율을 유지한다.
+  const landScale = land ? width / 874 : 1;
+  const landDrawer = { left: LAND.drawer.left * landScale, right: LAND.drawer.right * landScale };
+  const landBlueprint = {
+    left: LAND.blueprint.left * landScale,
+    right: LAND.blueprint.right * landScale,
+  };
+  const landOverlay = {
+    left: LAND.overlay.left * landScale,
+    right: LAND.overlay.right * landScale,
+    top: LAND.overlay.top * landScale,
+    maxHeight: LAND.overlay.maxHeight,
+  };
   // 장면 속 청사진 종이 위 도서관 그림: grid 행 높이가 그림 비율로 정해지는 원본 계산을 그대로 따른다
-  const planeWidth = lu((sceneHeight * 2) / 3);
+  const planeWidth = lu(scene.width);
   const blueprintInner = lu(planeWidth * 0.19) - 10;
   const libraryWidth = lu(blueprintInner * 0.82);
   const libraryRow = lu((libraryWidth * artSize.library[1]) / artSize.library[0]);
@@ -5717,130 +5966,249 @@ export function Board({
     none: 236,
   }[blueprintView.state];
   const blueprintPanelHeight = Math.min(height - 48, blueprintPanelContentHeight);
+  const panelNavigationOpen = paperPanel && !noticeOverlayOpen && !questDetailOpen;
+  const panelNavigationHeight = panelNavigationOpen ? 52 : 0;
   // 종이 목록 높이. 키보드가 떠서 스크롤 칸이 너무 낮아지면 위쪽에 붙이고 화면 높이를 다 쓴다
-  const sheetHeight = Math.min(height * 0.58, 492);
-  const sheetCramped = sheetHeight - 89 < 140;
+  const sheetHeight = Math.min(height * 0.58, 492 * landScale);
+  const sheetCramped = sheetHeight - 110 * landScale - panelNavigationHeight < 140;
   const paperHeight = sheetCramped ? Math.max(0, height - 8) : sheetHeight;
-  const paperPad = sheetCramped ? { top: 30, bottom: 20 } : { top: 58, bottom: 31 };
-  const paperScroll = Math.max(0, paperHeight - paperPad.top - paperPad.bottom);
-  // 가운데 상세 종이: 스크롤 높이는 틀 안쪽(위아래 여백 64) 이하로, 모자라면 위쪽에 붙인다
+  const paperPad = sheetCramped
+    ? { top: 38 * landScale, bottom: 28 * landScale }
+    : { top: 68 * landScale, bottom: 42 * landScale };
+  const paperScroll = Math.max(
+    0,
+    paperHeight - paperPad.top - paperPad.bottom - panelNavigationHeight,
+  );
+  // 상세 종이 안쪽 스크롤은 바깥 여백 88px(반응형 배율 적용)을 뺀 높이까지만 쓴다
   const overlayFrame = height * (land ? 0.65 : 0.58);
-  const overlayCramped = overlayFrame - 64 < 140;
+  const overlayVerticalPadding = 88 * landScale;
+  const overlayCramped = overlayFrame - overlayVerticalPadding < 140;
   const overlayScroll = overlayCramped
-    ? Math.max(0, height - 8 - 64)
-    : Math.min(height * 0.49, overlayFrame - 64);
+    ? Math.max(0, height - 8 - overlayVerticalPadding)
+    : Math.min(height * 0.49, overlayFrame - overlayVerticalPadding);
   const blueprintPanelTop = Math.max(24, (height - blueprintPanelHeight) / 2);
+  const boardOverlayOpen = noticeOverlayOpen || questDetailOpen;
+
+  useEffect(() => {
+    onBoardModalChange?.(boardOverlayOpen);
+  }, [boardOverlayOpen, onBoardModalChange]);
+
+  useEffect(() => () => onBoardModalChange?.(false), [onBoardModalChange]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const backgrounds = [boardSceneRef.current, boardDrawerRef.current];
+    const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
+    const isTopmost = boardOverlayOpen && !higherModalOpen;
+    overlayOpenerRef.current = syncBoardModalFocus(
+      boardOverlayOpen,
+      overlayWasOpen.current,
+      isTopmost,
+      overlayWasTopmost.current,
+      overlay,
+      document,
+      backgrounds,
+      overlayOpenerRef.current,
+    );
+    overlayWasOpen.current = boardOverlayOpen;
+    overlayWasTopmost.current = isTopmost;
+  }, [boardOverlayOpen, higherModalOpen, noticeOverlayOpen]);
+
+  useEffect(() => {
+    if (
+      Platform.OS !== 'web' ||
+      !boardOverlayOpen ||
+      higherModalOpen ||
+      typeof document === 'undefined'
+    )
+      return;
+    const modalDocument = document;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const overlay = noticeOverlayOpen ? noticeOverlayRef.current : questOverlayRef.current;
+      if (!overlay) return;
+      handleBoardModalKeydown(event, overlay, modalDocument, () => {
+        if (noticeOverlayOpen) dismissNoticeOverlay();
+        else dismissQuestDetail();
+      });
+    };
+    modalDocument.addEventListener('keydown', onKeyDown);
+    return () => modalDocument.removeEventListener('keydown', onKeyDown);
+  }, [
+    boardOverlayOpen,
+    higherModalOpen,
+    noticeOverlayOpen,
+    dismissNoticeOverlay,
+    dismissQuestDetail,
+  ]);
 
   return (
     <View style={{ position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 }}>
-      <View testID="board-scene" style={{ position: 'absolute', ...scene }}>
-        {/* 가로에서는 배경에 그려진 공지 종이만 보인다 */}
-        {!land && (
-          <Picture
-            source={interiorArt.boardPaper.notice}
-            label=""
+      <ScrollView
+        ref={sceneScrollRef}
+        testID="board-scene-scroll"
+        horizontal={false}
+        scrollEnabled={land && !s.panel}
+        showsVerticalScrollIndicator={false}
+        showsHorizontalScrollIndicator={false}
+        bounces={false}
+        alwaysBounceVertical={false}
+        alwaysBounceHorizontal={false}
+        contentOffset={{ x: 0, y: initialSceneOffset }}
+        style={[
+          { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
+          webOnly({ overscrollBehavior: 'none' }),
+        ]}
+        contentContainerStyle={{ width, height: land ? scene.height : height, overflow: 'hidden' }}
+      >
+        <View
+          testID="board-scene"
+          ref={boardSceneRef as any}
+          {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
+          style={{ position: 'relative', ...scene }}
+        >
+          <Image
+            testID="board-scene-image"
+            source={interiorArt.boardBackground}
+            resizeMode="stretch"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
             style={{
               position: 'absolute',
-              zIndex: 1,
-              left: '19.7%',
-              top: '20.5%',
-              width: '30.5%',
-              height: '27.5%',
+              left: 0,
+              top: 0,
+              width: scene.width,
+              height: scene.height,
+              zIndex: 0,
             }}
           />
-        )}
-        <View style={[land ? LAND.labels : fill, { zIndex: 2 }]}>
-          <Pressable
-            testID="board-notice-area"
-            accessibilityRole="button"
-            accessibilityLabel="공지"
-            onPress={() => nav.open('notice')}
+          <View
+            testID="board-scene-gradient"
+            pointerEvents="none"
             style={[
-              {
-                position: 'absolute',
-                zIndex: 2,
-                left: '22.3%',
-                top: '23.5%',
-                width: '25.3%',
-                height: '22.6%',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 9,
-                padding: 12,
-              },
-              pressedFilter('notice'),
+              { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, zIndex: 1 },
+              gradient(
+                'linear-gradient(180deg,#37271d12 0%,transparent 24%,transparent 70%,#37271d0c 100%)',
+              ),
             ]}
-          >
-            <Text
-              style={[boardFont(28, 1.1, '400', '#76503c', 'BoardHand'), { letterSpacing: 0.56 }]}
-            >
-              공지
-            </Text>
-            <Handwriting />
-          </Pressable>
-          <Pressable
-            testID="board-quest-area"
-            accessibilityRole="button"
-            accessibilityLabel="퀘스트 목록 펼치기"
-            onPress={() => nav.open('quest')}
-            style={[
-              {
+          />
+          {/* 세로에서는 공지 종이 질감을 덧입혀 목록 UI와 맞춘다 */}
+          {!land && (
+            <Picture
+              source={interiorArt.boardPaper.notice}
+              label=""
+              style={{
                 position: 'absolute',
-                left: '51%',
-                top: '24%',
-                width: '27%',
-                height: '9%',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 3,
-                paddingTop: 8,
-                paddingHorizontal: 10,
-                paddingBottom: 4,
-              },
-              pressedFilter('quest'),
-            ]}
-          >
-            <Text style={boardFont(22, 1.1, '400', '#82652c', 'BoardHand-Bold')}>퀘스트</Text>
-            <Handwriting short />
-          </Pressable>
-          {/* 목각 건물·청사진은 방문자에게 보이지 않는다 */}
-          {!visitor && (
+                zIndex: 1,
+                left: '19.7%',
+                top: '20.5%',
+                width: '30.5%',
+                height: '27.5%',
+              }}
+            />
+          )}
+          <View testID="board-label-scene" style={[fill, { zIndex: 2 }]}>
             <Pressable
-              testID="board-blueprint-area"
+              testID="board-notice-area"
               accessibilityRole="button"
-              accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
-              onPress={() => nav.open('blueprint')}
+              accessibilityLabel="공지"
+              onPress={() => nav.open('notice')}
               style={[
                 {
                   position: 'absolute',
                   zIndex: 2,
-                  ...(land
-                    ? LAND.blueprintArea
-                    : { left: '61%', top: '34.2%', width: '19%', height: '12.8%' }),
+                  ...boardHitboxes.notice,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 9 * labelScale,
+                  padding: 12 * labelScale,
                 },
-                pressedFilter('blueprint'),
+                pressedFilter('notice'),
               ]}
             >
-              {blueprintView.state !== 'none' && (
-                <Picture
-                  source={blueprintView.image}
-                  label={blueprintView.name}
-                  shadow="0 2px 2px #173e5140"
-                  style={{
-                    position: 'absolute',
-                    left: 5 + lu((blueprintInner - libraryWidth) / 2),
-                    top: 5 + lu((libraryRow - libraryHeight) / 2),
-                    width: libraryWidth,
-                    height: libraryHeight,
-                  }}
-                />
-              )}
+              <Text
+                allowFontScaling
+                style={[
+                  boardFont(28 * labelScale, 1.1, '400', '#76503c', 'BoardHand'),
+                  {
+                    width: scene.width * 0.45,
+                    letterSpacing: 0.56 * labelScale,
+                    textAlign: 'center',
+                  },
+                ]}
+              >
+                공지
+              </Text>
+              <Handwriting scale={labelScale} />
             </Pressable>
-          )}
+            <Pressable
+              testID="board-quest-area"
+              accessibilityRole="button"
+              accessibilityLabel="퀘스트 목록 펼치기"
+              onPress={() => nav.open('quest')}
+              style={[
+                {
+                  position: 'absolute',
+                  ...boardHitboxes.quest,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 3 * labelScale,
+                  paddingTop: 4 * labelScale,
+                  paddingHorizontal: 8 * labelScale,
+                  paddingBottom: 2 * labelScale,
+                },
+                pressedFilter('quest'),
+              ]}
+            >
+              <Text
+                allowFontScaling
+                style={[
+                  boardFont(22 * labelScale, 1.1, '400', '#82652c', 'BoardHand-Bold'),
+                  { width: scene.width * 0.52, textAlign: 'center' },
+                ]}
+              >
+                퀘스트
+              </Text>
+              <Handwriting short scale={labelScale} />
+            </Pressable>
+            {/* 목각 건물·청사진은 방문자에게 보이지 않는다 */}
+            {!visitor && (
+              <Pressable
+                testID="board-blueprint-area"
+                accessibilityRole="button"
+                accessibilityLabel={`${blueprintView.name || '다음 건물'} 건설 현황 보기`}
+                onPress={() => nav.open('blueprint')}
+                style={[
+                  {
+                    position: 'absolute',
+                    zIndex: 2,
+                    ...boardHitboxes.blueprint,
+                  },
+                  pressedFilter('blueprint'),
+                ]}
+              >
+                {blueprintView.state !== 'none' && (
+                  <Picture
+                    source={blueprintView.image}
+                    label={blueprintView.name}
+                    shadow="0 2px 2px #173e5140"
+                    style={{
+                      position: 'absolute',
+                      left: 5 + lu((blueprintInner - libraryWidth) / 2),
+                      top: 5 + lu((libraryRow - libraryHeight) / 2),
+                      width: libraryWidth,
+                      height: libraryHeight,
+                    }}
+                  />
+                )}
+              </Pressable>
+            )}
+          </View>
         </View>
-      </View>
+      </ScrollView>
       <View
         testID="board-drawer"
+        ref={boardDrawerRef as any}
+        {...(boardOverlayOpen ? webOnly({ 'aria-hidden': true } as any) : null)}
         style={[
           {
             position: 'absolute',
@@ -5852,14 +6220,14 @@ export function Board({
             boxShadow: '0 8px 18px #3b281b77',
             ...(s.panel === 'blueprint'
               ? {
-                  ...(land ? LAND.blueprint : { left: 14, right: 14 }),
+                  ...(land ? landBlueprint : { left: 14, right: 14 }),
                   top: blueprintPanelTop,
                   height: blueprintPanelHeight,
                   maxHeight: blueprintPanelHeight,
                   borderRadius: 18,
                 }
               : {
-                  ...(land ? LAND.drawer : { left: 0, right: 0 }),
+                  ...(land ? landDrawer : { left: 0, right: 0 }),
                   ...(paperPanel && sheetCramped ? { top: 4 } : { bottom: 10 }),
                   maxHeight: paperPanel && sheetCramped ? paperHeight : height - 105,
                   borderTopLeftRadius: 18,
@@ -5879,7 +6247,7 @@ export function Board({
             height: paperHeight,
             minHeight: 0,
             paddingTop: paperPad.top,
-            paddingHorizontal: 30,
+            paddingHorizontal: 50 * landScale,
             paddingBottom: paperPad.bottom,
             borderWidth: 0,
             borderRadius: 0,
@@ -5888,7 +6256,62 @@ export function Board({
           },
         ]}
       >
-        {paperPanel && <BoardPaper source={paperSource} />}
+        {paperPanel && (
+          <BoardPaper
+            source={paperSource}
+            style={{
+              left: -34 * landScale,
+              right: -34 * landScale,
+              top: -38 * landScale,
+              bottom: -30 * landScale,
+            }}
+          />
+        )}
+        {panelNavigationOpen && (
+          <View
+            testID="board-panel-navigation"
+            style={{
+              zIndex: 2,
+              flexDirection: 'row',
+              justifyContent: 'flex-end',
+              gap: 8,
+              marginBottom: 8,
+            }}
+          >
+            <Pressable
+              testID="board-panel-switch"
+              accessibilityRole="button"
+              accessibilityLabel={`${s.panel === 'notice' ? '퀘스트' : '공지'} 패널로 전환`}
+              onPress={() => nav.open(s.panel === 'notice' ? 'quest' : 'notice')}
+              style={{
+                width: 44,
+                height: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text allowFontScaling={false} style={boardFont(20, 1, '700', '#76503c')}>
+                ⇄
+              </Text>
+            </Pressable>
+            <Pressable
+              testID="board-panel-close"
+              accessibilityRole="button"
+              accessibilityLabel="게시판 닫기"
+              onPress={nav.closePanel}
+              style={{
+                width: 44,
+                height: 44,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Text allowFontScaling={false} style={boardFont(22, 1, '400', '#76503c')}>
+                ×
+              </Text>
+            </Pressable>
+          </View>
+        )}
         {s.panel === 'blueprint' && (
           <Pressable
             testID="board-drawer-close"
@@ -5912,6 +6335,7 @@ export function Board({
         )}
         {s.panel === 'notice' && (
           <Scroll
+            testID="board-notice-scroll"
             style={[
               {
                 flexGrow: 1,
@@ -5958,7 +6382,10 @@ export function Board({
           <Pressable
             testID="board-notice-overlay-scrim"
             accessibilityLabel="공지 창 닫기"
+            accessibilityElementsHidden={higherModalOpen}
+            disabled={higherModalOpen}
             onPress={dismissNoticeOverlay}
+            {...webOnly(higherModalOpen ? { 'aria-hidden': true, inert: true, tabIndex: -1 } : {})}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -5971,23 +6398,40 @@ export function Board({
           />
           <View
             testID="board-notice-overlay"
-            accessibilityViewIsModal
+            accessibilityViewIsModal={!higherModalOpen}
+            accessibilityElementsHidden={higherModalOpen}
+            ref={noticeOverlayRef as any}
+            accessibilityRole={Platform.OS === 'web' ? ('dialog' as any) : undefined}
+            {...(Platform.OS === 'web'
+              ? {
+                  'aria-modal': !higherModalOpen,
+                  'aria-label': noticeEditorOpen ? '공지 작성' : '공지 상세',
+                  tabIndex: -1,
+                  ...(higherModalOpen && { 'aria-hidden': true }),
+                }
+              : null)}
             style={{
               position: 'absolute',
               zIndex: 6,
-              ...(land ? LAND.overlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
+              ...(land ? landOverlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
               ...(overlayCramped && { top: 4, maxHeight: height - 8 }),
-              paddingTop: 37,
-              paddingHorizontal: 22,
-              paddingBottom: 27,
+              paddingTop: 48 * landScale,
+              paddingHorizontal: 58 * landScale,
+              paddingBottom: 40 * landScale,
               boxShadow: '0 8px 18px #2f211d45',
             }}
           >
             <BoardPaper
               source={interiorArt.boardPaper.detail}
-              style={{ left: -28, right: -28, top: -32, bottom: -26 }}
+              style={{
+                left: -28 * landScale,
+                right: -28 * landScale,
+                top: -32 * landScale,
+                bottom: -26 * landScale,
+              }}
             />
             <Scroll
+              testID="board-notice-overlay-content"
               style={[
                 { minHeight: 0, maxHeight: overlayScroll },
                 webOnly({ overscrollBehavior: 'contain' }),
@@ -6003,7 +6447,10 @@ export function Board({
           <Pressable
             testID="board-quest-overlay-scrim"
             accessibilityLabel="퀘스트 상세 닫기"
+            accessibilityElementsHidden={higherModalOpen}
+            disabled={higherModalOpen}
             onPress={dismissQuestDetail}
+            {...webOnly(higherModalOpen ? { 'aria-hidden': true, inert: true, tabIndex: -1 } : {})}
             style={{
               position: 'absolute',
               zIndex: 5,
@@ -6016,23 +6463,40 @@ export function Board({
           />
           <View
             testID="board-quest-overlay"
-            accessibilityViewIsModal
+            accessibilityViewIsModal={!higherModalOpen}
+            accessibilityElementsHidden={higherModalOpen}
+            ref={questOverlayRef as any}
+            accessibilityRole={Platform.OS === 'web' ? ('dialog' as any) : undefined}
+            {...(Platform.OS === 'web'
+              ? {
+                  'aria-modal': !higherModalOpen,
+                  'aria-label': '퀘스트 상세',
+                  tabIndex: -1,
+                  ...(higherModalOpen && { 'aria-hidden': true }),
+                }
+              : null)}
             style={{
               position: 'absolute',
               zIndex: 6,
-              ...(land ? LAND.overlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
+              ...(land ? landOverlay : { left: 32, right: 32, top: '20%', maxHeight: '58%' }),
               ...(overlayCramped && { top: 4, maxHeight: height - 8 }),
-              paddingTop: 37,
-              paddingHorizontal: 22,
-              paddingBottom: 27,
+              paddingTop: 48 * landScale,
+              paddingHorizontal: 58 * landScale,
+              paddingBottom: 40 * landScale,
               boxShadow: '0 8px 18px #2f211d45',
             }}
           >
             <BoardPaper
               source={interiorArt.boardPaper.detail}
-              style={{ left: -28, right: -28, top: -32, bottom: -26 }}
+              style={{
+                left: -28 * landScale,
+                right: -28 * landScale,
+                top: -32 * landScale,
+                bottom: -26 * landScale,
+              }}
             />
             <Scroll
+              testID="board-quest-overlay-content"
               style={[
                 { minHeight: 0, maxHeight: overlayScroll },
                 webOnly({ overscrollBehavior: 'contain' }),
@@ -6850,6 +7314,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const [groupSent, setGroupSent] = useState(false);
   const [letterText, setLetterText] = useState('섬에 새 꽃이 피었어. 다음에 놀러 와서 같이 보자.');
   const [deletedLetters, setDeletedLetters] = useState<string[]>([]);
+  const [letterSafetyTarget, setLetterSafetyTarget] = useState<LetterView | null>(null);
   const [reactTransform, react] = useReact(reduceMotion);
   // 앱에서는 안내를 앱 알림으로 띄운다 (장면 토스트는 동작 줄이기에서 그려지지 않는다)
   const say = (message: string) => (e ? e.notify(message) : showToast(message));
@@ -7039,6 +7504,16 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
     } else if (next === 'friend-select') e.go('friendMail', 'list');
   };
   const back = (to: MailRoute) => (e ? e.back() : go(to));
+
+  useEffect(() => {
+    if (!serverMail || route !== 'letter' || !mail.detailBlocked) return;
+    // 차단 목록 재검증으로 열린 편지의 상대가 차단됐으면 상세 route를 끝낸다.
+    // 내부 detail도 지워 이후 차단 해제 전까지 같은 원문이 다시 그려지지 않게 한다.
+    mail.clearDetail();
+    if (e) e.back();
+    else setRoute('inbox');
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 차단 판정이 true로 바뀌는 순간 한 번만 상세를 닫는다.
+  }, [serverMail, route, mail.detailBlocked]);
 
   const catAvatar = (color: Cat, size = 34) => (
     <View
@@ -7297,7 +7772,8 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       )}
       <Scroll style={{ maxHeight: e ? height * 0.4 : undefined }}>
         <View style={{ rowGap: 7 }}>
-          {serverMail && mail.loading && !mail.islandId ? (
+          {serverMail &&
+          (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
             <Text
               style={[
                 mailFont(8, 1.4, '#826c5b', '800'),
@@ -7306,7 +7782,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
             >
               낙서를 불러오는 중이에요…
             </Text>
-          ) : serverMail && mail.error && !mail.islandId ? (
+          ) : serverMail &&
+            mail.error &&
+            (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
             <View style={{ paddingVertical: 20, alignItems: 'center', rowGap: 8 }}>
               <Text style={[mailFont(8, 1.4, '#826c5b', '800'), { textAlign: 'center' }]}>
                 {mail.error.message}
@@ -7480,9 +7958,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const inbox: Pane = {
     head: header('받은 편지', `아직 열지 않은 편지 ${unreadCount}통`),
     body:
-      serverMail && mail.loading && !mail.islandId ? (
+      serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
         mailStatus('편지를 불러오는 중이에요…')
-      ) : serverMail && mail.error && !mail.islandId ? (
+      ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))
       ) : (
         <View style={{ rowGap: 7 }}>
@@ -7588,7 +8066,7 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
       >
         <View style={{ flexDirection: 'row', alignItems: 'center', columnGap: 9 }}>
           {catAvatar(openedLetter.color, 40)}
-          <View>
+          <View style={{ flex: 1 }}>
             <Text style={mailFont(7, 1.4, '#8d715e', '800')}>FROM.</Text>
             <Text
               style={{
@@ -7605,6 +8083,17 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
               {[openedLetter.island, openedLetter.time].filter(Boolean).join(' · ')}
             </Text>
           </View>
+          {serverMail ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`${openedLetter.from} 더보기`}
+              hitSlop={8}
+              onPress={() => setLetterSafetyTarget(openedLetter)}
+              style={{ width: 34, height: 34, alignItems: 'center', justifyContent: 'center' }}
+            >
+              <Text style={mailFont(10, 1.2, '#7b493f', '900')}>···</Text>
+            </Pressable>
+          ) : null}
         </View>
         <Text
           style={{ marginTop: 28, fontFamily: GOWUN, fontSize: 13, lineHeight: lh(23), color: INK }}
@@ -7681,9 +8170,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
   const friendSelect: Pane = {
     head: header('편지 보낼 친구 선택', ''),
     body:
-      serverMail && mail.loading && !mail.islandId ? (
+      serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
         mailStatus('친구를 불러오는 중이에요…')
-      ) : serverMail && mail.error && !mail.islandId ? (
+      ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))
       ) : (
         <View style={{ rowGap: 7 }}>
@@ -7865,7 +8354,10 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           head: header('받은 편지', '', 'inbox'),
           body: mail.detailError
             ? mailRetry(mail.detailError, 'letter-retry', () =>
-                mail.openLetter(e.detail).catch(() => {}),
+                (mail.blockedUsersStatus === 'error'
+                  ? mail.retry().then(() => mail.openLetter(e.detail))
+                  : mail.openLetter(e.detail)
+                ).catch(() => {}),
               )
             : mailStatus('편지를 여는 중이에요…'),
           foot: null,
@@ -7885,35 +8377,53 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
 
   if (route !== 'home') {
     return (
-      <Animated.View style={{ transform: reactTransform }}>
-        <View
-          style={[
-            {
-              padding: 11,
-              borderWidth: 1.2,
-              borderColor: '#b38c68',
-              borderRadius: 9,
-              backgroundColor: '#fff1d0',
-              boxShadow: '0 8px 18px #3a1d1766',
-            },
-            // 가운데 종이는 화면 안(위 12·아래 2)에 들어오게 하고 넘치는 본문만 스크롤한다
-            pane && { maxHeight: height - 14 },
-          ]}
-        >
-          {pane ? (
-            <>
-              {pane.head}
-              {/* 기운 종이·그림자가 스크롤 테두리에 잘리지 않게 안쪽 여백을 주고 같은 만큼 바깥으로 뺀다 */}
-              <Scroll style={{ flexShrink: 1, minHeight: 0, margin: -8, padding: 8 }}>
-                {pane.body}
-              </Scroll>
-              {pane.foot}
-            </>
-          ) : (
-            islandRoom
-          )}
-        </View>
-      </Animated.View>
+      <>
+        <Animated.View style={{ transform: reactTransform }}>
+          <View
+            style={[
+              {
+                padding: 11,
+                borderWidth: 1.2,
+                borderColor: '#b38c68',
+                borderRadius: 9,
+                backgroundColor: '#fff1d0',
+                boxShadow: '0 8px 18px #3a1d1766',
+              },
+              // 가운데 종이는 화면 안(위 12·아래 2)에 들어오게 하고 넘치는 본문만 스크롤한다
+              pane && { maxHeight: height - 14 },
+            ]}
+          >
+            {pane ? (
+              <>
+                {pane.head}
+                {/* 기운 종이·그림자가 스크롤 테두리에 잘리지 않게 안쪽 여백을 주고 같은 만큼 바깥으로 뺀다 */}
+                <Scroll style={{ flexShrink: 1, minHeight: 0, margin: -8, padding: 8 }}>
+                  {pane.body}
+                </Scroll>
+                {pane.foot}
+              </>
+            ) : (
+              islandRoom
+            )}
+          </View>
+        </Animated.View>
+        {letterSafetyTarget && serverMail ? (
+          <UserSafetySheet
+            visible
+            targetUserId={letterSafetyTarget.friendId}
+            targetName={letterSafetyTarget.from}
+            reportTargetType="LETTER"
+            reportTargetId={letterSafetyTarget.id}
+            reportEvidence={letterSafetyTarget.body}
+            onClose={() => setLetterSafetyTarget(null)}
+            onChanged={() => {
+              back('inbox');
+              mail.retry().catch(() => {});
+            }}
+            onMessage={say}
+          />
+        ) : null}
+      </>
     );
   }
 
@@ -7944,9 +8454,9 @@ function MailHome({ concept, height, reduceMotion, showToast, e }: ArtifactProps
           boxShadow: 'inset 0 5px 10px #32110c88',
         }}
       />
-      {serverMail && mail.loading && !mail.islandId ? (
+      {serverMail && (mail.blockedUsersStatus === 'loading' || (mail.loading && !mail.islandId)) ? (
         <View style={{ padding: 20 }}>{mailStatus('우체통을 여는 중이에요…')}</View>
-      ) : serverMail && mail.error && !mail.islandId ? (
+      ) : serverMail && mail.error && (mail.blockedUsersStatus === 'error' || !mail.islandId) ? (
         <View style={{ padding: 20 }}>
           {mailRetry(mail.error, 'mailbox-retry', () => mail.retry().catch(() => {}))}
         </View>

@@ -57,6 +57,8 @@ Primitive → Semantic → Component → Screen composition
 
 새 코드는 `semanticTokens` 또는 `componentTokens`를 우선한다. `C.*`는 기존 화면 호환 별칭이다.
 
+마을 건물의 새 소식 배지와 툴팁 치수는 `componentTokens.villageNotificationBadge` 및 `componentTokens.villageNotificationTooltip`에서 관리한다. 게시판·우체통·도서관이 같은 크기와 윤곽을 공유하고, 지도 배율은 배지 토큰 치수에 곱해 적용한다.
+
 ## 4. 컬러
 
 ### 4.1 주간 · 딸기 소다
@@ -126,6 +128,7 @@ Primitive → Semantic → Component → Screen composition
 
 - Divider: Brown 20% (`#8B695633`)
 - Overlay: Ink 40% (`#493B3966`)
+- Cinematic overlay: Ink 65% (`#493B39A6`)
 - Bottom sheet overlay: Ink 25% (`#493B3940`)
 - Glass button: Paper 약 72%
 
@@ -360,6 +363,7 @@ Semantic spacing:
 - 기본 dim은 Ink 40%, sheet dim은 Ink 25%.
 - Modal은 가운데 정렬, radius 24, Brown 2px, 6px sticker shadow.
 - Bottom sheet는 휴대폰 세로 화면에서 하단 정렬, 상단 radius 26, 하단 radius 0.
+- Modal·sheet의 공용 padding, gap, radius, stroke, shadow 코드 정본은 `componentTokens.modal`이다.
 - 태블릿·가로 compact 화면에서는 sheet도 가운데 modal 형태로 전환한다.
 - Sheet handle은 40×5, Control Idle.
 - 내부 padding 20, gap 14.

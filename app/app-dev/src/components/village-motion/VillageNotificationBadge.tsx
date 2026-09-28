@@ -1,7 +1,7 @@
 import React from 'react';
 import { StyleSheet, View, type ViewStyle } from 'react-native';
 import { Text } from '@/design-system/typography';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens } from '@/design-system/tokens';
 
 export const VILLAGE_NOTIFICATION_BADGE_RATIO = 0.72;
 
@@ -17,6 +17,7 @@ export function VillageNotificationBadge({
   testID?: string;
 }) {
   const badgeScale = scale * VILLAGE_NOTIFICATION_BADGE_RATIO;
+  const token = componentTokens.villageNotificationBadge;
   return (
     <View
       testID={testID}
@@ -29,9 +30,10 @@ export function VillageNotificationBadge({
       style={[
         styles.badge,
         {
-          width: 25 * badgeScale,
-          height: 25 * badgeScale,
-          borderRadius: 13 * badgeScale,
+          width: token.diameter * badgeScale,
+          height: token.diameter * badgeScale,
+          borderRadius: token.radius * badgeScale,
+          borderWidth: token.borderWidth * badgeScale,
         },
         style,
       ]}
@@ -49,12 +51,11 @@ const styles = StyleSheet.create({
     zIndex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: semanticTokens.color.accent,
-    borderColor: semanticTokens.color.outline,
-    borderWidth: 1.5,
+    backgroundColor: componentTokens.badge.default.background,
+    borderColor: componentTokens.badge.default.border,
   },
   text: {
-    color: semanticTokens.color.text,
+    color: componentTokens.badge.default.foreground,
     fontWeight: '800',
     textAlign: 'center',
   },

@@ -1,7 +1,7 @@
 import React, { useContext, useEffect, useState, type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
-import { semanticTokens } from '@/design-system/tokens';
+import { componentTokens, semanticTokens } from '@/design-system/tokens';
 
 export type VillageHallState = 'normal' | 'arrival' | 'new-record' | 'weekly-goal';
 
@@ -19,6 +19,7 @@ export function VillageHallMotion({
   state = 'normal',
   tooltip,
   reduceMotion = false,
+  themed = false,
   generation = 0,
   style,
   testID = 'village-hall-motion',
@@ -26,6 +27,7 @@ export function VillageHallMotion({
   state?: VillageHallState;
   tooltip?: ReactNode;
   reduceMotion?: boolean;
+  themed?: boolean;
   generation?: number;
   style?: ViewStyle;
   testID?: string;
@@ -55,6 +57,14 @@ export function VillageHallMotion({
           style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
         />
       ))}
+      {themed && (
+        <Image
+          testID="village-hall-theme-tint"
+          source={frames[frame]}
+          resizeMode="stretch"
+          style={[styles.frame, styles.themeTint]}
+        />
+      )}
       {tooltip != null && (
         <View testID="village-hall-tooltip" style={styles.tooltip}>
           {tooltip}
@@ -69,13 +79,17 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
+  themeTint: {
+    tintColor: componentTokens.villageBuildingThemeTint.color,
+    opacity: componentTokens.villageBuildingThemeTint.opacity,
+  },
   tooltip: {
     position: 'absolute',
     alignSelf: 'center',
     bottom: '100%',
     maxWidth: '100%',
     paddingHorizontal: semanticTokens.spacing.control,
-    paddingVertical: 8,
+    paddingVertical: componentTokens.villageNotificationTooltip.paddingVertical,
     backgroundColor: semanticTokens.color.surface,
     borderColor: semanticTokens.color.outline,
     borderWidth: 1.5,
