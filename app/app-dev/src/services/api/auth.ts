@@ -300,14 +300,13 @@ export async function logout(): Promise<void> {
     },
     (error: unknown) => error ?? new Error('세션 삭제 실패'),
   );
-  // 게스트 장치 ID는 서버가 응답을 유실했을 때 재시도 멱등성을 위해 보존한다.
-  // 명시 로그아웃으로 로컬 세션 정리가 확정된 경우에만 ID를 폐기해 다음 게스트 시작은 새 계정이 된다.
+  // 게스트 장치 ID는 평소 응답 유실 재시도 멱등성을 위해 보존하지만, 명시 로그아웃은 세션 정리보다
+  // 먼저 폐기를 시작한다 — 로그인 화면이 열리자마자 누른 게스트 시작이 옛 ID를 읽지 않도록
+  // guestLogin 이 이 로테이션을 기다린다. 삭제가 실패해도 표식이 남아 다음 게스트 요청 전에 재시도한다.
   let guestDeviceIdClearFailure: unknown = null;
-  if (!clearFailure) {
-    await guestDeviceRotationFlight.catch((error: unknown) => {
-      guestDeviceIdClearFailure = error;
-    });
-  }
+  await guestDeviceRotationFlight.catch((error: unknown) => {
+    guestDeviceIdClearFailure = error;
+  });
   if (refreshToken) await revokeRefreshToken(refreshToken);
   if (clearFailure) throw clearFailure;
   if (guestDeviceIdClearFailure) throw guestDeviceIdClearFailure;

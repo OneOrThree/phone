@@ -38,6 +38,7 @@ beforeEach(async () => {
   read.mockClear();
   await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
   await AsyncStorage.removeItem('gromo.androidLegacyLogoutPending');
+  await SecureStore.deleteItemAsync('gromo.androidLegacyLogoutPending');
   await AsyncStorage.removeItem('gromo.lastUserIdClearState');
   await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
   await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
@@ -275,6 +276,57 @@ test('pending 조회 도중 새 로그인이 끝나면 기존 generation fence�
     });
   } finally {
     read.mockImplementation(realRead);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('Android 명시 로그아웃이 원본 RT 삭제 전에 중단되면 다음 부팅이 로그아웃을 마저 끝낸다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', accessToken],
+    ['gromo:refreshToken', 'legacy-refresh'],
+  ]);
+  const removeAsync = AsyncStorage.removeItem as jest.Mock;
+  const realRemoveAsync = removeAsync.getMockImplementation() as (key: string) => Promise<void>;
+
+  try {
+    assert.ok(await restoreSession());
+    removeAsync.mockImplementation(async (key: string) => {
+      if (key === 'gromo:refreshToken') throw new Error('원본 RT 삭제 전 종료');
+      await realRemoveAsync(key);
+    });
+    await assert.rejects(clearSession(undefined, false, true));
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
+    assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), '1');
+    removeAsync.mockImplementation(realRemoveAsync);
+
+    assert.equal(await restoreSession(), null);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), null);
+    assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), null);
+  } finally {
+    removeAsync.mockImplementation(realRemoveAsync);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('Android 로그아웃 tombstone이 남은 뒤 새로 로그인하면 다음 부팅에서 새 세션을 지우지 않는다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  await AsyncStorage.setItem('gromo.androidLegacyLogoutPending', '1');
+  await AsyncStorage.setItem('gromo:refreshToken', 'legacy-refresh');
+
+  try {
+    await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+    assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), null);
+    assert.deepEqual(await restoreSession(), {
+      accessToken: 'B_AT',
+      refreshToken: 'B_RT',
+      userId: 'user-b',
+    });
+  } finally {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
   }
 });

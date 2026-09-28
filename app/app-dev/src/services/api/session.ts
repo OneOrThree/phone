@@ -408,6 +408,9 @@ export function saveSession(
 ): Promise<boolean> {
   return serialized(async () => {
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return false;
+    // 삭제 일부가 실패해 남은 로그아웃 tombstone은 새 세션 커밋 전에 마저 처리한다.
+    // 그대로 두면 다음 부팅의 정리가 방금 로그인한 세션까지 지운다.
+    if (Platform.OS === 'android') await finishInterruptedAndroidLogout();
     await commit(session);
     cached = session;
     generation += 1;
