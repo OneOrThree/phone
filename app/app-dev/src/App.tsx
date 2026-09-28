@@ -787,6 +787,14 @@ function Gromo() {
     }
   };
   const memberConversion = conversionRef.current;
+  const closeMemberConversion = () => {
+    conversionLoginAttempt.current = null;
+    conversionSessionTransition.current = null;
+    memberConversion.clearPending();
+    setConvUi(null);
+    setTerms(false);
+    settleSwitch(false);
+  };
   const getCredential = socialCredential;
   const startSocial = async (provider: Provider) => {
     if (!TERMS_VERSION || socialBusy || guestBusy || !terms) return;
@@ -1717,14 +1725,14 @@ function Gromo() {
             visible={true}
             transparent
             animationType={state.settings.reduceMotion ? 'none' : 'fade'}
-            onRequestClose={() => !convUi.busy && setConvUi(null)}
+            onRequestClose={() => !convUi.busy && closeMemberConversion()}
           >
             <Pressable
               accessible={false}
               accessibilityElementsHidden={routeTransitionShielded}
               importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
               pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
-              onPress={() => !convUi.busy && setConvUi(null)}
+              onPress={() => !convUi.busy && closeMemberConversion()}
               style={{
                 flex: 1,
                 backgroundColor: '#493B3966',
@@ -1835,7 +1843,7 @@ function Gromo() {
                     title="나중에"
                     kind="glass"
                     disabled={!!convUi.busy}
-                    onPress={() => setConvUi(null)}
+                    onPress={closeMemberConversion}
                   />
                 </ScrollView>
               </Pressable>

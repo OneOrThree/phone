@@ -594,6 +594,47 @@ test('회원 전환 retryable 응답 재시도는 같은 소셜 자격을 재사
   assert.equal(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
 });
 
+test('retryable 회원 전환 실패 뒤 시트를 닫으면 다시 열 때 새 SDK 자격과 attemptId를 쓴다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+  mockSocialCredential
+    .mockResolvedValueOnce('first-google-token')
+    .mockResolvedValueOnce('fresh-google-token');
+  mockApiLogin
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }))
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }))
+    .mockRejectedValueOnce(
+      new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }),
+    );
+  let screen: Awaited<ReturnType<typeof render>>;
+  await act(async () => {
+    screen = await render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(typeof captured.conversion?.offer, 'function'));
+  const offer = () =>
+    captured.conversion.offer(
+      new ApiError('SOCIAL_LOGIN_REQUIRED', '회원 연동이 필요합니다.', 403),
+    );
+
+  await act(async () => offer());
+  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
+  await fireEvent.press(screen!.getByText('Google로 계속하기'));
+  await waitFor(() => assert.ok(screen!.getByText('처리 중')));
+  await fireEvent.press(screen!.getByText('Google로 계속하기'));
+  assert.equal(mockSocialCredential.mock.calls.length, 1);
+  assert.equal(mockApiLogin.mock.calls[0][1], mockApiLogin.mock.calls[1][1]);
+  assert.equal(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
+
+  await fireEvent.press(screen!.getByText('나중에'));
+  await act(async () => offer());
+  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
+  await fireEvent.press(screen!.getByText('Google로 계속하기'));
+
+  assert.equal(mockSocialCredential.mock.calls.length, 2);
+  assert.equal(mockApiLogin.mock.calls[2][1], 'fresh-google-token');
+  assert.notEqual(mockApiLogin.mock.calls[1][3].attemptId, mockApiLogin.mock.calls[2][3].attemptId);
+});
+
 test('회원 전환 로그인 뒤 채택 실패는 저장된 결과와 자격으로 다시 채택한다', async () => {
   await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
   mockSocialCredential.mockResolvedValueOnce('google-id-token');
