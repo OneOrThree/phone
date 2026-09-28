@@ -297,6 +297,32 @@ function Wanderer({
     </Animated.View>
   );
 }
+export type VillageDayNight = 'day' | 'night';
+
+const localDayNight = (): VillageDayNight => {
+  const hour = new Date().getHours();
+  return hour >= 6 && hour < 18 ? 'day' : 'night';
+};
+
+/** 기기 현지 시각의 낮(06~18시)·밤. 웹 데모 쿼리 ?demo&night 로 고정할 수 있다. */
+export function useVillageDayNight(): VillageDayNight {
+  const demoParams =
+    Platform.OS === 'web' && typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search)
+      : null;
+  const demo = demoParams?.has('demo') === true;
+  const demoNight = demo && demoParams!.has('night');
+  const [dayNight, setDayNight] = useState<VillageDayNight>(() =>
+    demo ? (demoNight ? 'night' : 'day') : localDayNight(),
+  );
+  useEffect(() => {
+    if (demo) return;
+    const timer = setInterval(() => setDayNight(localDayNight()), 60_000);
+    return () => clearInterval(timer);
+  }, [demo]);
+  return dayNight;
+}
+
 export function WorldMap({
   state,
   islandId,
@@ -318,6 +344,7 @@ export function WorldMap({
   shopArrivalGeneration = 0,
   village,
   hiddenVillageBuilding,
+  dayNight: dayNightProp,
   children,
 }: {
   state: State;
@@ -340,33 +367,16 @@ export function WorldMap({
   shopArrivalGeneration?: number;
   village?: VillageScene;
   hiddenVillageBuilding?: Building;
+  /** 부모가 같은 낮·밤 판정으로 진입 모션을 조율할 때 넘긴다. 없으면 직접 계산한다. */
+  dayNight?: VillageDayNight;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
-  const demoParams =
-    Platform.OS === 'web' && typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search)
-      : null;
-  const demoNight = demoParams?.has('demo') === true && demoParams.has('night');
-  const demoDay = demoParams?.has('demo') === true && !demoNight;
-  const [dayNight, setDayNight] = useState<'day' | 'night'>(() => {
-    if (demoNight) return 'night';
-    if (demoDay) return 'day';
-    const hour = new Date().getHours();
-    return hour >= 6 && hour < 18 ? 'day' : 'night';
-  });
-  useEffect(() => {
-    if (demoDay || demoNight) return;
-    const updateLocalTime = () => {
-      const hour = new Date().getHours();
-      setDayNight(hour >= 6 && hour < 18 ? 'day' : 'night');
-    };
-    const timer = setInterval(updateLocalTime, 60_000);
-    return () => clearInterval(timer);
-  }, [demoDay, demoNight]);
+  const ownDayNight = useVillageDayNight();
+  const dayNight = dayNightProp ?? ownDayNight;
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
@@ -870,13 +880,9 @@ function FinalIslandScene({
     [layeredPreview, i.buildings, sceneBuilding],
   );
   const grid = scene?.grid ?? grids.home;
-  const demoParams =
-    Platform.OS === 'web' && typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search)
-      : null;
-  const entryFramesVisible = demoParams?.has('demo')
-    ? !demoParams.has('night')
-    : new Date().getHours() >= 6 && new Date().getHours() < 18;
+  // 진입 리드인 판단과 WorldMap 의 프레임 표시가 같은 낮·밤 값을 보도록 한 번만 계산해 내려준다.
+  const dayNight = useVillageDayNight();
+  const entryFramesVisible = dayNight === 'day';
   const hasEntrySprite = (target: BuildingTransitionTarget | null) =>
     !scene &&
     entryFramesVisible &&
@@ -1471,6 +1477,7 @@ function FinalIslandScene({
         shopArrivalGeneration={buildingTransition.generation}
         showMailboxLetters={mailboxLetters}
         hiddenVillageBuilding={activeBuilding}
+        dayNight={dayNight}
         onSpot={
           visiting
             ? undefined

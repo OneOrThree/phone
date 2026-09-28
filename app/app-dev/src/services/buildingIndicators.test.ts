@@ -1,26 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  boardSnapshot,
-  boardStatus,
-  fetchBoardSnapshot,
   fetchLibrarySnapshot,
   fetchMailboxUnreadCount,
   librarySnapshot,
   libraryStatus,
-  reconcileBoardSeen,
   rolloverLibrarySeen,
-  loadBoardSeen,
   loadLibrarySeen,
-  saveBoardSeen,
   saveLibrarySeen,
 } from './buildingIndicators';
-import { getBoard, listNotices } from './api/notices';
 import { getMailboxScreen, listLetters } from './api/letters';
 import { getFocusStatistics, getLibraryScreen, type LibraryScreen } from './api/records';
 import { clearSession, saveSession } from './api/session';
 import { CLIENT_STALE_SESSION } from './api/client';
 
-jest.mock('./api/notices', () => ({ getBoard: jest.fn(), listNotices: jest.fn() }));
 jest.mock('./api/letters', () => ({ getMailboxScreen: jest.fn(), listLetters: jest.fn() }));
 jest.mock('./api/records', () => ({ getLibraryScreen: jest.fn(), getFocusStatistics: jest.fn() }));
 
@@ -56,44 +48,26 @@ beforeEach(async () => {
 
 test('읽음 저장은 계정·섬·건물별로 격리되고 다시 로드된다', async () => {
   const snapshot = librarySnapshot(library(), now)!;
-  await Promise.all([saveBoardSeen(scope, { n1: 3 }), saveLibrarySeen(scope, snapshot)]);
-  expect(await loadBoardSeen(scope)).toEqual({ n1: 3 });
+  await saveLibrarySeen(scope, snapshot);
   expect(await loadLibrarySeen(scope)).toEqual(snapshot);
-  expect(await loadBoardSeen({ ...scope, userId: 'u2' })).toBeNull();
-  expect(await loadBoardSeen({ ...scope, islandId: 'i2' })).toBeNull();
-  expect(await loadBoardSeen({ userId: 'u', islandId: '1:i:1' })).toBeNull();
+  expect(await loadLibrarySeen({ ...scope, userId: 'u2' })).toBeNull();
+  expect(await loadLibrarySeen({ ...scope, islandId: 'i2' })).toBeNull();
+  expect(await loadLibrarySeen({ userId: 'u', islandId: '1:i:1' })).toBeNull();
 });
 
 test('깨진 JSON과 잘못된 마커는 미확인 baseline으로 돌아간다', async () => {
-  await AsyncStorage.setItem('gromo:indicators:v1:u%3A1:i%3A1:board', '{');
-  expect(await loadBoardSeen(scope)).toBeNull();
-  await AsyncStorage.setItem('gromo:indicators:v1:u%3A1:i%3A1:board', '{"n1":-1}');
-  expect(await loadBoardSeen(scope)).toBeNull();
+  await AsyncStorage.setItem('gromo:indicators:v1:u%3A1:i%3A1:library', '{');
+  expect(await loadLibrarySeen(scope)).toBeNull();
   await AsyncStorage.setItem('gromo:indicators:v1:u%3A1:i%3A1:library', '{"periodKey":2}');
   expect(await loadLibrarySeen(scope)).toBeNull();
 });
 
 test('저장소 오류는 성공으로 숨기지 않는다', async () => {
   const spy = jest.spyOn(AsyncStorage, 'setItem').mockRejectedValueOnce(new Error('저장 실패'));
-  await expect(saveBoardSeen(scope, { n: 1 })).rejects.toThrow('저장 실패');
+  await expect(saveLibrarySeen(scope, librarySnapshot(library(), now)!)).rejects.toThrow(
+    '저장 실패',
+  );
   spy.mockRestore();
-});
-
-test('공지 신규 ID가 새 댓글보다 우선하며 삭제와 댓글 감소는 배지를 만들지 않는다', () => {
-  const baseline = boardSnapshot([{ id: 'n1', title: '공지', commentCount: 2 }]);
-  expect(boardStatus({ n1: 3 }, baseline)).toBe('new-comment');
-  expect(boardStatus({ n1: 3, n2: 0 }, baseline)).toBe('unread');
-  expect(boardStatus({ n1: 1 }, baseline)).toBeNull();
-  expect(boardStatus({}, baseline)).toBeNull();
-  expect(boardStatus({ n1: 2 }, null)).toBeNull();
-  expect(boardStatus({ toString: 0 }, {})).toBe('unread');
-});
-
-test('댓글 감소 시 확인 기준도 낮춰 이후 새 댓글을 다시 감지할 수 있게 한다', () => {
-  expect(reconcileBoardSeen({ n1: 2 }, { n1: 5, removed: 1 })).toEqual({
-    n1: 2,
-    removed: 1,
-  });
 });
 
 test('도서관 관측 시각과 주민 이름만 바뀌면 배지가 생기지 않는다', () => {
@@ -121,23 +95,9 @@ test('스크린타임 집계와 날짜별 updatedAt만 바뀌면 도서관 finge
   expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(true);
 });
 
-test('33쪽을 넘는 정상 공지·편지·집중 기록 페이지를 끝까지 조회한다', async () => {
+test('33쪽을 넘는 정상 편지·집중 기록 페이지를 끝까지 조회한다', async () => {
   const last = 40;
   const cursor = (page: number) => (page < last ? String(page + 1) : null);
-  (getBoard as jest.Mock).mockResolvedValue({
-    island: { id: 'i:1' },
-    notices: { items: [{ id: 'n0', title: '공지', commentCount: 0 }], nextCursor: '1' },
-  });
-  (listNotices as jest.Mock).mockImplementation(async (_island, next) => {
-    const page = Number(next);
-    return {
-      items: [{ id: `n${page}`, title: '공지', commentCount: page }],
-      nextCursor: cursor(page),
-    };
-  });
-  expect(await fetchBoardSnapshot('i:1')).toHaveProperty('n40', 40);
-  expect(listNotices).toHaveBeenCalledTimes(last);
-
   (getMailboxScreen as jest.Mock).mockResolvedValue({
     island: { id: 'i:1' },
     letters: { content: [{ id: 'l0', isRead: true }], hasNext: true, nextCursor: '1' },
@@ -199,48 +159,6 @@ test('주 경계에서는 주간 통계만 초기화하고 미확인 누적 어�
   expect(rolled.fishEarnings).toEqual(seen.fishEarnings);
   expect(libraryStatus(current, rolled)).toBe(true);
   expect(libraryStatus(current, current)).toBe(false);
-});
-
-test('공지 전체 페이지의 과거 공지 새 댓글을 모은다', async () => {
-  (getBoard as jest.Mock).mockResolvedValue({
-    island: { id: 'i:1' },
-    notices: {
-      items: [{ id: 'new', title: '최근', commentCount: 0 }],
-      nextCursor: 'older',
-    },
-  });
-  (listNotices as jest.Mock).mockResolvedValue({
-    items: [{ id: 'old', title: '과거', commentCount: 3 }],
-    nextCursor: null,
-  });
-  expect(await fetchBoardSnapshot('i:1')).toEqual({ new: 0, old: 3 });
-  expect(listNotices).toHaveBeenCalledWith('i:1', 'older');
-});
-
-test('공지 페이지 경계의 중복 ID는 건너뛰고 반복 커서는 계속 거부한다', async () => {
-  (getBoard as jest.Mock).mockResolvedValue({
-    island: { id: 'i:1' },
-    notices: { items: [{ id: 'same', title: '최근', commentCount: 2 }], nextCursor: 'older' },
-  });
-  (listNotices as jest.Mock).mockResolvedValue({
-    items: [
-      { id: 'same', title: '중복', commentCount: 9 },
-      { id: 'old', title: '과거', commentCount: 1 },
-    ],
-    nextCursor: null,
-  });
-  expect(await fetchBoardSnapshot('i:1')).toEqual({ same: 2, old: 1 });
-});
-
-test('공지 페이지 반복과 부분 실패는 불완전한 snapshot을 반환하지 않는다', async () => {
-  (getBoard as jest.Mock).mockResolvedValue({
-    island: { id: 'i:1' },
-    notices: { items: [], nextCursor: 'loop' },
-  });
-  (listNotices as jest.Mock).mockResolvedValue({ items: [], nextCursor: 'loop' });
-  await expect(fetchBoardSnapshot('i:1')).rejects.toMatchObject({ code: 'CLIENT_CONTRACT_ERROR' });
-  (listNotices as jest.Mock).mockRejectedValueOnce(new Error('다음 페이지 실패'));
-  await expect(fetchBoardSnapshot('i:1')).rejects.toThrow('다음 페이지 실패');
 });
 
 test('받은 편지 전체 페이지의 미열람 수를 센다', async () => {
@@ -359,31 +277,26 @@ test('이미 표시한 도서관 응답을 기준으로 남은 집중 기록 페
 });
 
 test('현재 섬과 다른 화면 응답을 거부한다', async () => {
-  (getBoard as jest.Mock).mockResolvedValue({ island: { id: 'other' } });
   (getMailboxScreen as jest.Mock).mockResolvedValue({ island: { id: 'other' } });
   (getLibraryScreen as jest.Mock).mockResolvedValue({ ...library(), island: { id: 'other' } });
-  for (const pending of [
-    fetchBoardSnapshot('i:1'),
-    fetchMailboxUnreadCount('i:1'),
-    fetchLibrarySnapshot('i:1'),
-  ]) {
+  for (const pending of [fetchMailboxUnreadCount('i:1'), fetchLibrarySnapshot('i:1')]) {
     await expect(pending).rejects.toMatchObject({ code: 'CLIENT_CONTRACT_ERROR' });
   }
 });
 
 test('비활성 호출은 요청을 보내지 않고 계정 전환 후 늦은 응답도 버린다', async () => {
-  await expect(fetchBoardSnapshot('i:1', () => false)).rejects.toMatchObject({
+  await expect(fetchMailboxUnreadCount('i:1', () => false)).rejects.toMatchObject({
     code: CLIENT_STALE_SESSION,
   });
-  expect(getBoard).not.toHaveBeenCalled();
+  expect(getMailboxScreen).not.toHaveBeenCalled();
   let release!: (value: unknown) => void;
-  (getBoard as jest.Mock).mockReturnValue(
+  (getMailboxScreen as jest.Mock).mockReturnValue(
     new Promise((resolve) => {
       release = resolve;
     }),
   );
-  const pending = fetchBoardSnapshot('i:1');
+  const pending = fetchMailboxUnreadCount('i:1');
   await saveSession({ userId: 'u2', accessToken: 'at', refreshToken: 'rt' });
-  release({ island: { id: 'i:1' }, notices: { items: [], nextCursor: null } });
+  release({ island: { id: 'i:1' }, letters: { content: [], hasNext: false, nextCursor: null } });
   await expect(pending).rejects.toMatchObject({ code: CLIENT_STALE_SESSION });
 });

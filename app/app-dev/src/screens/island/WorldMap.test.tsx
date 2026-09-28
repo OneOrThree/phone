@@ -1,10 +1,11 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
+import { act, cleanup, fireEvent, render, renderHook } from '@testing-library/react-native';
 import { Animated, Platform } from 'react-native';
 import {
   constructionPlacement,
   createWorldProjector,
   FinalIsland,
+  useVillageDayNight,
   WorldMap,
 } from '@/screens/island/WorldMap';
 import { buildingNames, initialState } from '@/services/model';
@@ -911,4 +912,31 @@ test('reduceMotion에서는 건물 도착 직후 overlay 없이 route를 연다'
   } finally {
     timing.mockRestore();
   }
+});
+
+test('낮·밤 판정은 현지 18시 경계를 지난 다음 분 갱신에서 밤으로 바뀐다', async () => {
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T17:59:30'));
+  const hook = await renderHook(() => useVillageDayNight());
+  expect(hook.result.current).toBe('day');
+
+  await act(async () => jest.advanceTimersByTime(60_000));
+  expect(hook.result.current).toBe('night');
+  await hook.unmount();
+  jest.useRealTimers();
+});
+
+test('WorldMap 은 부모가 넘긴 낮·밤을 자체 시각 판정보다 우선한다', async () => {
+  const state = initialState(true);
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+  const own = await render(<WorldMap state={state} />);
+  expect(own.getByTestId('world-hall-motion')).toBeTruthy();
+  await own.unmount();
+
+  const screen = await render(<WorldMap state={state} dayNight="night" />);
+  // 낮 시각이어도 부모가 밤이라고 넘기면 회관 낮 프레임을 그리지 않는다.
+  expect(screen.queryByTestId('world-hall-motion')).toBeNull();
+  await screen.unmount();
+  jest.useRealTimers();
 });

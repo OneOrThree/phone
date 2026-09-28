@@ -2,19 +2,17 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION } from './api/client';
 import { CLIENT_CONTRACT_ERROR } from './api/home';
 import { getMailboxScreen, listLetters, type LetterSlice } from './api/letters';
-import { getBoard, listNotices, type NoticePage } from './api/notices';
 import { getFocusStatistics, getLibraryScreen, type LibraryScreen } from './api/records';
 import { sessionGeneration } from './api/session';
 
 export type IndicatorScope = { userId: string; islandId: string };
-export type BoardSnapshot = Record<string, number>;
 export type LibrarySnapshot = {
   periodKey: string;
   weeklyFingerprint: string;
   fishEarnings: Record<string, number>;
 };
 
-const key = (scope: IndicatorScope, building: 'board' | 'library') =>
+const key = (scope: IndicatorScope, building: 'library') =>
   `gromo:indicators:v1:${encodeURIComponent(scope.userId)}:${encodeURIComponent(scope.islandId)}:${building}`;
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -35,13 +33,6 @@ async function load<T>(
   }
 }
 
-export const loadBoardSeen = (scope: IndicatorScope) =>
-  load(
-    key(scope, 'board'),
-    (value): value is BoardSnapshot => record(value) && Object.values(value).every(count),
-  );
-export const saveBoardSeen = (scope: IndicatorScope, snapshot: BoardSnapshot) =>
-  AsyncStorage.setItem(key(scope, 'board'), JSON.stringify(snapshot));
 export const loadLibrarySeen = (scope: IndicatorScope) =>
   load(
     key(scope, 'library'),
@@ -54,34 +45,6 @@ export const loadLibrarySeen = (scope: IndicatorScope) =>
   );
 export const saveLibrarySeen = (scope: IndicatorScope, snapshot: LibrarySnapshot) =>
   AsyncStorage.setItem(key(scope, 'library'), JSON.stringify(snapshot));
-
-export function boardSnapshot(items: NoticePage['items']): BoardSnapshot {
-  return Object.fromEntries(items.map((item) => [item.id, item.commentCount]));
-}
-
-export function boardStatus(
-  current: BoardSnapshot,
-  seen: BoardSnapshot | null,
-): 'unread' | 'new-comment' | null {
-  if (!seen) return null;
-  if (Object.keys(current).some((id) => !Object.prototype.hasOwnProperty.call(seen, id)))
-    return 'unread';
-  return Object.entries(current).some(([id, comments]) => comments > seen[id])
-    ? 'new-comment'
-    : null;
-}
-
-/** 댓글 삭제로 카운트가 내려간 공지는 기준점도 낮춰 이후 새 댓글을 다시 감지한다. */
-export function reconcileBoardSeen(current: BoardSnapshot, seen: BoardSnapshot): BoardSnapshot {
-  return Object.fromEntries(
-    Object.entries(seen).map(([id, comments]) => [
-      id,
-      Object.prototype.hasOwnProperty.call(current, id)
-        ? Math.min(comments, current[id])
-        : comments,
-    ]),
-  );
-}
 
 const week = (now: Date) => {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
@@ -191,36 +154,6 @@ function nextPage(cursor: unknown, used: Set<string>): string | null {
   if (typeof cursor !== 'string' || !cursor || used.has(cursor)) throw contract('nextCursor');
   used.add(cursor);
   return cursor;
-}
-
-export async function fetchBoardSnapshot(
-  islandId: string,
-  isCurrent?: () => boolean,
-): Promise<BoardSnapshot> {
-  const alive = guard(isCurrent);
-  alive();
-  const screen = await gated(getBoard(), alive);
-  if (screen.island.id !== islandId) throw contract('board.island.id');
-  const items: NoticePage['items'] = [];
-  const ids = new Set<string>();
-  const cursors = new Set<string>();
-  let page = screen.notices;
-  for (;;) {
-    if (!Array.isArray(page.items)) throw contract('notices.items');
-    const pageIds = new Set<string>();
-    for (const item of page.items) {
-      if (!item || typeof item.id !== 'string' || !count(item.commentCount) || pageIds.has(item.id))
-        throw contract('notices.items');
-      pageIds.add(item.id);
-      if (ids.has(item.id)) continue;
-      ids.add(item.id);
-      items.push(item);
-    }
-    const cursor = nextPage(page.nextCursor, cursors);
-    if (cursor === null) return boardSnapshot(items);
-    alive();
-    page = await gated(listNotices(islandId, cursor), alive);
-  }
 }
 
 export async function fetchMailboxUnreadCount(

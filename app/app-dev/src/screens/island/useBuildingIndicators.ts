@@ -1,52 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 import {
-  boardSnapshot,
-  boardStatus,
-  fetchBoardSnapshot,
   fetchLibrarySnapshot,
   fetchMailboxUnreadCount,
   libraryStatus,
-  loadBoardSeen,
   loadLibrarySeen,
-  reconcileBoardSeen,
   rolloverLibrarySeen,
-  saveBoardSeen,
   saveLibrarySeen,
-  type BoardSnapshot,
   type IndicatorScope,
   type LibrarySnapshot,
 } from '@/services/buildingIndicators';
 import { getSession, sessionGeneration, subscribeSession } from '@/services/api/session';
 import type { LibraryScreen } from '@/services/api/records';
-import type { BoardLoadedSnapshot } from '@/screens/interiors/useBoardNotices';
 
+// 게시판 배지는 CurrentScreens 의 useBoardHomeIndicator 가 정본이다. 여기서는 조회하지 않는다.
 export type BuildingIndicators = {
-  boardStatus: 'unread' | 'new-comment' | null;
   libraryState: 'normal' | 'new-reading';
   showMailboxLetters: boolean;
 };
 
 const EMPTY: BuildingIndicators = {
-  boardStatus: null,
   libraryState: 'normal',
   showMailboxLetters: false,
 };
-
-// 홈 기준점 갱신과 게시판 화면 확인은 같은 AsyncStorage 키를 수정하므로
-// 읽기-병합-저장 전체를 scope 단위로 직렬화한다.
-const boardWrites = new Map<string, Promise<unknown>>();
-function serializeBoardWrite<T>(key: string, write: () => Promise<T>): Promise<T> {
-  const previous = boardWrites.get(key) ?? Promise.resolve();
-  const next = previous.catch(() => {}).then(write);
-  boardWrites.set(key, next);
-  void next
-    .finally(() => {
-      if (boardWrites.get(key) === next) boardWrites.delete(key);
-    })
-    .catch(() => {});
-  return next;
-}
 
 const libraryWrites = new Map<string, Promise<unknown>>();
 function serializeLibraryWrite<T>(key: string, write: () => Promise<T>): Promise<T> {
@@ -94,7 +70,6 @@ export function useBuildingIndicators({
   const [liveRefresh, setLiveRefresh] = useState(0);
   const epoch = useRef(0);
   const activeScopeKey = useRef('');
-  const currentBoard = useRef<BoardSnapshot | null>(null);
   const currentLibrary = useRef<LibrarySnapshot | null>(null);
   const librarySeenRevision = useRef(0);
   const refreshInFlight = useRef(0);
@@ -115,7 +90,6 @@ export function useBuildingIndicators({
 
   useEffect(() => {
     epoch.current += 1;
-    currentBoard.current = null;
     currentLibrary.current = null;
     librarySeenRevision.current += 1;
     setIndicators(EMPTY);
@@ -147,30 +121,6 @@ export function useBuildingIndicators({
       getSession()?.userId === requestScope.userId;
 
     Promise.all([
-      (async () => {
-        const current = await fetchBoardSnapshot(requestScope.islandId, alive);
-        if (!alive()) return;
-        currentBoard.current = current;
-        const effectiveSeen = await serializeBoardWrite(scopeKey, async () => {
-          if (!alive()) return null;
-          // 직렬화 대기 중 게시판 화면이 더 최신 기록을 저장했을 수 있으므로 재조회한다.
-          const seen = await loadBoardSeen(requestScope);
-          if (!alive()) return null;
-          if (!seen) {
-            await saveBoardSeen(requestScope, current);
-            return null;
-          }
-          const reconciled = reconcileBoardSeen(current, seen);
-          if (JSON.stringify(reconciled) !== JSON.stringify(seen))
-            await saveBoardSeen(requestScope, reconciled);
-          return reconciled;
-        });
-        if (!alive()) return;
-        setIndicators((value) => ({
-          ...value,
-          boardStatus: boardStatus(current, effectiveSeen),
-        }));
-      })().catch(() => {}),
       (async () => {
         const confirmationRevision = librarySeenRevision.current;
         const current = await fetchLibrarySnapshot(requestScope.islandId, alive);
@@ -213,50 +163,6 @@ export function useBuildingIndicators({
     };
   }, [scope, scopeKey, onHome, refreshKey, liveRefresh]);
 
-  const markBoardSeen = useCallback(
-    async (loaded: BoardLoadedSnapshot) => {
-      if (!scope || loaded.islandId !== scope.islandId) return;
-      try {
-        const generation = sessionGeneration();
-        const requestScope = scope;
-        const requestScopeKey = scopeKey;
-        const merged = await serializeBoardWrite(requestScopeKey, async () => {
-          if (
-            activeScopeKey.current !== requestScopeKey ||
-            generation !== sessionGeneration() ||
-            getSession()?.userId !== requestScope.userId
-          )
-            return null;
-          const previous = await loadBoardSeen(requestScope);
-          if (
-            activeScopeKey.current !== requestScopeKey ||
-            generation !== sessionGeneration() ||
-            getSession()?.userId !== requestScope.userId
-          )
-            return null;
-          const next = { ...(previous ?? {}), ...boardSnapshot(loaded.items) };
-          await saveBoardSeen(requestScope, next);
-          return next;
-        });
-        if (!merged) return;
-        if (
-          activeScopeKey.current !== requestScopeKey ||
-          generation !== sessionGeneration() ||
-          getSession()?.userId !== requestScope.userId
-        )
-          return;
-        const current = currentBoard.current;
-        setIndicators((value) => ({
-          ...value,
-          boardStatus: current ? boardStatus(current, merged) : null,
-        }));
-      } catch {
-        // 저장 실패는 확인 성공으로 보이지 않는다. 다음 홈 조회에서 다시 표시한다.
-      }
-    },
-    [scope, scopeKey],
-  );
-
   const markLibrarySeen = useCallback(
     async (screen: LibraryScreen) => {
       if (!scope) return;
@@ -292,5 +198,5 @@ export function useBuildingIndicators({
     [scope, scopeKey],
   );
 
-  return { ...indicators, markBoardSeen, markLibrarySeen };
+  return { ...indicators, markLibrarySeen };
 }
