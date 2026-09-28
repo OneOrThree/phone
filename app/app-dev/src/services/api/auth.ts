@@ -134,6 +134,12 @@ export async function login(
     accountSwitchConfirmed = false,
   }: LoginOptions = {},
 ): Promise<LoginResult> {
+  if (!termsVersion.trim())
+    throw new ApiError(
+      'TERMS_VERSION_REQUIRED',
+      '약관 버전이 설정되지 않아 소셜 로그인을 사용할 수 없어요.',
+      0,
+    );
   // 준비: 전환 «전에» 이전 세션의 RT 와 세대를 쥔다. 새 세션을 커밋한 뒤엔 꺼낼 수 없다.
   const generation = sessionGeneration();
   const previous = getSession();

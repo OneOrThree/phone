@@ -98,6 +98,12 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     provider: Provider,
     credential: string,
   ): Promise<'converted' | 'cancelled'> => {
+    if (!deps.termsVersion.trim())
+      throw new ApiError(
+        'TERMS_VERSION_REQUIRED',
+        '약관 버전이 설정되지 않아 소셜 로그인을 사용할 수 없어요.',
+        0,
+      );
     // 로그인은 성공했지만 /me 채택이 실패한 경우, 다음 클릭에서는 로그인 응답을 재사용한다.
     // 채택이 끝나기 전까지 최초 사용자 ID도 유지해 게스트 데이터를 회원에 섞지 않는다.
     if (pending?.mode === 'adopt') {

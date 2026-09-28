@@ -115,8 +115,8 @@ export function getLastSessionUserId(): string | null {
 export function rememberLocalDataOwner(userId: string): Promise<boolean> {
   return serialized(async () => {
     if (cached?.userId !== userId) return false;
+    await writeItem(KEY_LAST_USER, userId);
     lastUserId = userId;
-    await writeItem(KEY_LAST_USER, userId).catch(() => {});
     return true;
   });
 }
@@ -186,11 +186,14 @@ async function migrateLegacySession(): Promise<Session | null> {
   }
 
   const session = { accessToken, refreshToken, userId };
+  // pending 보호 표식을 secure bundle보다 먼저 기록한다. 순서가 반대면 bundle 커밋 직후
+  // 프로세스가 죽었을 때 다음 부팅의 /me 401이 pending을 못 보고 legacy 원본까지 지울 수 있다.
+  // 표식 기록에 실패하면 commit을 시작하지 않아 원본 RT를 보호할 수 없는 복사본을 만들지 않는다.
+  await SecureStore.setItemAsync(KEY_LEGACY_PENDING_PROMOTION, '1');
   // 구 키는 SecureStore 복사만으로 폐기하지 않는다. legacy refresh 계약은 멱등하지 않아
   // 자동 회전하면 응답 유실 시 원 RT와 회전된 RT를 모두 잃을 수 있다. /me만 확인하고
   // 서버에 안전한 전환 계약이 생길 때까지 원본과 pending 표시를 유지한다.
   await commit(session);
-  await SecureStore.setItemAsync(KEY_LEGACY_PENDING_PROMOTION, '1');
   return session;
 }
 

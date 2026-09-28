@@ -38,6 +38,7 @@ test('Android 1.x의 완전한 JWT 세션은 SecureStore로 복사하고 원본 
     ['gromo:refreshToken', 'legacy-refresh'],
     ['gromo:user', JSON.stringify({ accessToken })],
   ]);
+  write.mockClear();
 
   try {
     assert.deepEqual(await restoreSession(), {
@@ -49,6 +50,9 @@ test('Android 1.x의 완전한 JWT 세션은 SecureStore로 복사하고 원본 
     assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
     assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), '1');
     assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
+    const writeKeys = write.mock.calls.map(([key]) => key);
+    assert.equal(writeKeys[0], 'gromo.legacySessionPendingPromotion');
+    assert.ok(writeKeys.indexOf('gromo.sessionBundle') > 0);
   } finally {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
   }
@@ -86,6 +90,32 @@ test('Android 레거시 세션 커밋이 실패하면 원본을 보존해 다음
     assert.equal(await AsyncStorage.getItem('gromo:accessToken'), accessToken);
     assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
     assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
+  } finally {
+    write.mockImplementation(realWrite);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('Android pending 보호 표식 쓰기가 실패하면 SecureStore 세션 커밋을 시작하지 않는다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', accessToken],
+    ['gromo:refreshToken', 'legacy-refresh'],
+  ]);
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.legacySessionPendingPromotion') throw new Error('보호 표식 쓰기 실패');
+    await realWrite(key, value);
+  });
+
+  try {
+    assert.equal(await restoreSession(), null);
+    assert.equal(write.mock.calls.length, 1);
+    assert.equal(write.mock.calls[0][0], 'gromo.legacySessionPendingPromotion');
+    assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), accessToken);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
   } finally {
     write.mockImplementation(realWrite);
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
@@ -145,6 +175,27 @@ test('stale 계정 채택은 현재 세션이 바뀌었으면 로컬 소유자�
   await saveSession({ accessToken: 'OTHER_AT', refreshToken: 'OTHER_RT', userId: 'other-user' });
   assert.equal(await rememberLocalDataOwner('new-user'), false);
   assert.equal(getLastSessionUserId(), 'new-user');
+});
+
+test('로컬 소유자 durable 기록 실패는 기존 owner를 유지하고 채택 호출을 reject한다', async () => {
+  await clearSession();
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  await saveSession({ accessToken: 'OLD_AT', refreshToken: 'OLD_RT', userId: 'old-user' });
+  await rememberLocalDataOwner('old-user');
+  await saveSession({ accessToken: 'NEW_AT', refreshToken: 'NEW_RT', userId: 'new-user' });
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.lastUserId') throw new Error('owner 저장 실패');
+    await realWrite(key, value);
+  });
+
+  try {
+    await assert.rejects(rememberLocalDataOwner('new-user'), /owner 저장 실패/);
+    assert.equal(getLastSessionUserId(), 'old-user');
+    assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'old-user');
+  } finally {
+    write.mockImplementation(realWrite);
+  }
 });
 
 test('세션 구독은 현재 snapshot과 로그인·로그아웃·세대 교체 뒤 공개된 값만 전달한다', async () => {

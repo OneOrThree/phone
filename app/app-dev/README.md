@@ -62,6 +62,10 @@ npm test
 npx expo export --platform all
 ```
 
+## 소셜 로그인 약관 버전
+
+소셜 로그인과 게스트 회원 전환은 배포 대상에 적용되는 실제 약관 문서 버전을 `EXPO_PUBLIC_TERMS_VERSION`으로 명시해 빌드합니다. 예시값이나 코드 기본값은 두지 않습니다. 값이 없거나 공백이면 소셜 제공자 버튼과 회원 전환 진입을 숨기고, 직접 호출도 서버 요청 전에 차단합니다. 게스트 로그인은 계속 사용할 수 있습니다. TestFlight 등 릴리스 설정에는 현재 배포할 약관 문서의 버전을 넣으세요.
+
 ## PostHog 제품 분석
 
 릴리스 빌드는 PostHog `CatUs / Default project`(US)의 공개 프로젝트 토큰으로 이벤트를 보냅니다. [활성화와 집중 대시보드](https://us.posthog.com/project/624010/dashboard/2126236)에서 첫 사용·집중 퍼널과 일별 사용량을 봅니다. 개발 빌드는 기본적으로 전송하지 않으며, 검증할 때만 `EXPO_PUBLIC_POSTHOG_DEV_ENABLED=1`을 설정합니다. `?demo`·`?review` 웹 화면은 수집 대상에서 제외합니다.

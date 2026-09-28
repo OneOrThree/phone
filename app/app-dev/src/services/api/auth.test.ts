@@ -122,6 +122,14 @@ test('login — 시도 id 를 헤더로 보내고 토큰을 보안 저장소에 
   assert.deepEqual(await restoreSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
 
+test('login — 약관 버전이 비어 있으면 서버 요청을 보내지 않는다', async () => {
+  await assert.rejects(
+    login('apple', 'apple-jwt', '  '),
+    (error: unknown) => error instanceof ApiError && error.code === 'TERMS_VERSION_REQUIRED',
+  );
+  assert.equal(calls.length, 0);
+});
+
 test('login 실패는 저장소를 건드리지 않는다', async () => {
   stub([
     {

@@ -103,6 +103,7 @@ import {
   type Provider,
 } from '@/services/api/auth';
 import { loginProviders } from '@/services/loginProviders';
+import { TERMS_VERSION } from '@/services/termsVersion';
 import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
 import {
   ApiError,
@@ -159,9 +160,6 @@ const DEMO =
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
 const TESTFLIGHT_ALL_BUILDINGS = true;
 const STORAGE = 'gromo-r61-user-v2';
-// 회원 전환(GROMO-2005)의 POST /auth/sessions 필수 필드. 서버가 수용 버전 목록을 비워 두는 동안
-// (정책 Q05 미정) 형식만 검사한다 — 버전 표가 정해지면 이 상수만 바꾼다.
-const TERMS_VERSION = '2026-09';
 const PROVIDER_LABEL: Record<Provider, string> = {
   apple: 'Apple로 계속하기',
   google: 'Google로 계속하기',
@@ -331,7 +329,9 @@ function Gromo() {
     provider: Provider;
     credential: string;
     attemptId: string;
+    generation: number;
   } | null>(null);
+  const socialAttemptGeneration = useRef(sessionGeneration());
   const conversionLoginAttempt = useRef<{ provider: Provider; credential: string } | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
@@ -708,7 +708,9 @@ function Gromo() {
   const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
   conversionRef.current ??= createMemberConversion({
     termsVersion: TERMS_VERSION,
-    openPrompt: () => setConvUi({ busy: null, error: null }),
+    openPrompt: () => {
+      if (TERMS_VERSION) setConvUi({ busy: null, error: null });
+    },
     confirmSwitch: () =>
       new Promise<boolean>((resolve) => {
         switchResolve.current = resolve;
@@ -718,6 +720,7 @@ function Gromo() {
   });
   const startGuest = async () => {
     if (guestLoginFlight.current) return;
+    socialLoginAttempt.current = null;
     const previousUserId = REVIEW || DEMO ? null : getLastSessionUserId();
     guestLoginFlight.current = true;
     setGuestBusy(true);
@@ -740,15 +743,22 @@ function Gromo() {
   const memberConversion = conversionRef.current;
   const getCredential = socialCredential;
   const startSocial = async (provider: Provider) => {
-    if (socialBusy || guestBusy || !terms) return;
+    if (!TERMS_VERSION || socialBusy || guestBusy || !terms) return;
     const previousUserId = REVIEW || DEMO ? null : getLastSessionUserId();
-    if (socialLoginAttempt.current?.provider !== provider) socialLoginAttempt.current = null;
+    const generation = sessionGeneration();
+    if (
+      socialLoginAttempt.current?.provider !== provider ||
+      socialLoginAttempt.current.generation !== generation
+    )
+      socialLoginAttempt.current = null;
     setSocialBusy(provider);
     setSocialError('');
     try {
       let attempt = socialLoginAttempt.current;
       if (!attempt) {
-        attempt = { provider, credential: await getCredential(provider), attemptId: uuid() };
+        const credential = await getCredential(provider);
+        if (generation !== sessionGeneration()) return;
+        attempt = { provider, credential, attemptId: uuid(), generation };
         socialLoginAttempt.current = attempt;
       }
       const result = await apiLogin(provider, attempt.credential, TERMS_VERSION, {
@@ -776,6 +786,7 @@ function Gromo() {
     }
   };
   const pickProvider = async (provider: Provider) => {
+    if (!TERMS_VERSION) return;
     if (conversionLoginAttempt.current?.provider !== provider)
       conversionLoginAttempt.current = null;
     let attempt = conversionLoginAttempt.current;
@@ -814,7 +825,14 @@ function Gromo() {
       setHasServerSession(false);
       return;
     }
-    return subscribeSession((session) => setHasServerSession(session !== null));
+    return subscribeSession((session) => {
+      const generation = sessionGeneration();
+      if (generation !== socialAttemptGeneration.current) {
+        socialAttemptGeneration.current = generation;
+        socialLoginAttempt.current = null;
+      }
+      setHasServerSession(session !== null);
+    });
   }, []);
   useEffect(() => {
     if (!loaded || REVIEW || DEMO) return;
@@ -831,6 +849,7 @@ function Gromo() {
     if (REVIEW || DEMO) return;
     setSessionLostHandler(() => {
       // 전환 시트·충돌 확인이 열려 있으면 취소로 정리한다 — 떠난 세션의 확인을 뒤에 승인하면 안 된다.
+      socialLoginAttempt.current = null;
       setConvUi(null);
       settleSwitch(false);
       dispatch({ type: 'LOGOUT' });
@@ -1273,6 +1292,7 @@ function Gromo() {
   // 정책: 「로그아웃은 서버 데이터를 유지하고 현재 기기 세션만 종료한다」. 서버 호출이 실패해도
   // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.
   const signOut = () => {
+    socialLoginAttempt.current = null;
     void endLiveActivities().catch(() => {});
     logout().catch(() => {});
   };
@@ -1317,8 +1337,8 @@ function Gromo() {
           now,
           terms,
           setTerms,
-          loginProviders: loginProviders(),
-          startSocial: REVIEW || DEMO ? undefined : startSocial,
+          loginProviders: TERMS_VERSION ? loginProviders() : [],
+          startSocial: !TERMS_VERSION || REVIEW || DEMO ? undefined : startSocial,
           socialBusy,
           socialError,
           startGuest: REVIEW || DEMO ? undefined : startGuest,
@@ -1362,7 +1382,8 @@ function Gromo() {
           homeError,
           retryHome: () => setHomeReload((n) => n + 1),
           // 회원 전환 공통 진입점(GROMO-2005) — 게이트 거절을 받은 호출부가 conversion.offer(error) 로 연다.
-          conversion: REVIEW || DEMO || !hasServerSession ? undefined : memberConversion,
+          conversion:
+            REVIEW || DEMO || !TERMS_VERSION || !hasServerSession ? undefined : memberConversion,
           playback: REVIEW || DEMO || !hasServerSession ? undefined : playback,
         }}
       />
@@ -1522,7 +1543,7 @@ function Gromo() {
           </Modal>
         )}
         {/* 회원 전환 시트(GROMO-2005) — 게스트의 제한 행동이 게이트에 막혔을 때 여는 공통 진입점 */}
-        {convUi && (
+        {convUi && TERMS_VERSION && (
           <Modal
             visible={true}
             transparent
@@ -1582,7 +1603,7 @@ function Gromo() {
                     친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.
                     {'\n'}지금 고양이와 섬은 그대로 이어져요.
                   </NativeText>
-                  {loginProviders().map((provider) => (
+                  {(TERMS_VERSION ? loginProviders() : []).map((provider) => (
                     <NativeButton
                       key={provider}
                       dialog

@@ -93,6 +93,29 @@ test('offer — 게이트 거절이면 시트를 열고 true, 다른 오류는 f
   assert.equal(opened(), 1);
 });
 
+test('convert — 약관 버전이 없으면 로그인 요청과 채택을 진행하지 않는다', async () => {
+  let loginCalls = 0;
+  let adoptCalls = 0;
+  const conversion = createMemberConversion({
+    termsVersion: ' ',
+    openPrompt: () => {},
+    confirmSwitch: async () => true,
+    login: async () => {
+      loginCalls += 1;
+      return result('member-1');
+    },
+    adopt: async () => {
+      adoptCalls += 1;
+    },
+  });
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'), {
+    code: 'TERMS_VERSION_REQUIRED',
+  });
+  assert.equal(loginCalls, 0);
+  assert.equal(adoptCalls, 0);
+});
+
 test('convert 성공 — 게스트 AT 를 동봉해 승격하고 채택한다', async () => {
   const { conversion, calls, adopted } = make([result('guest-1')]);
 

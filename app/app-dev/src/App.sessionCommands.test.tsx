@@ -18,6 +18,7 @@ import {
 let captured: any;
 const mockApiLogin = jest.fn();
 const mockSocialCredential = jest.fn();
+const mockGuestLogin = jest.fn();
 const mockAdoptSignedInAccount = jest.fn(async (result: { userId: string }, ..._args: any[]) => ({
   id: result.userId,
   name: null,
@@ -36,7 +37,7 @@ jest.mock('@/screens/island/CurrentScreens', () => ({
 
 jest.mock('@/services/api/auth', () => ({
   checkSession: async () => ({ status: 'offline' }),
-  guestLogin: jest.fn(),
+  guestLogin: (...args: unknown[]) => mockGuestLogin(...args),
   login: (...args: unknown[]) => mockApiLogin(...args),
   logout: async () => {},
 }));
@@ -60,6 +61,12 @@ jest.mock('@/services/islandBoot', () => ({
   decideBootRoute: async () => 'login',
 }));
 
+jest.mock('@/services/termsVersion', () => ({
+  get TERMS_VERSION() {
+    return process.env.EXPO_PUBLIC_TERMS_VERSION?.trim() ?? '';
+  },
+}));
+
 jest.mock('@/services/api/session', () => {
   const actual = jest.requireActual('@/services/api/session');
   return { ...actual, restoreSession: async () => null };
@@ -72,9 +79,24 @@ jest.mock('react-native-safe-area-context', () => ({
 }));
 
 beforeEach(async () => {
+  process.env.EXPO_PUBLIC_TERMS_VERSION = 'test-terms-v1';
   captured = undefined;
   jest.clearAllMocks();
   await clearSession();
+});
+
+test('약관 버전 미설정 시 소셜 로그인과 회원 전환 경로를 화면 명령에 노출하지 않는다', async () => {
+  delete process.env.EXPO_PUBLIC_TERMS_VERSION;
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured.islands));
+
+  assert.deepEqual(captured.loginProviders, []);
+  assert.equal(captured.startSocial, undefined);
+  assert.equal(captured.conversion, undefined);
 });
 
 test('소셜 로그인은 SDK 자격을 서버에 보내고 취소는 오류로 표시하지 않는다', async () => {
@@ -96,7 +118,7 @@ test('소셜 로그인은 SDK 자격을 서버에 보내고 취소는 오류로 
   assert.equal(mockSocialCredential.mock.calls[0][0], 'google');
   assert.equal(mockApiLogin.mock.calls[0][0], 'google');
   assert.equal(mockApiLogin.mock.calls[0][1], 'google-id-token');
-  assert.equal(mockApiLogin.mock.calls[0][2], '2026-09');
+  assert.equal(mockApiLogin.mock.calls[0][2], 'test-terms-v1');
   assert.equal(mockAdoptSignedInAccount.mock.calls.length, 1);
   await waitFor(() => assert.equal(captured.socialBusy, null));
   assert.equal(captured.socialError, '');
@@ -175,6 +197,46 @@ test('소셜 로그인 retryable 응답 재시도는 자격과 attemptId를 재�
   assert.equal(mockApiLogin.mock.calls[0][1], mockApiLogin.mock.calls[1][1]);
   assert.equal(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
   assert.match(mockApiLogin.mock.calls[0][3].attemptId, /^[0-9a-f-]{36}$/i);
+});
+
+test('retryable 소셜 로그인 뒤 게스트 로그인은 이전 자격과 attemptId를 폐기한다', async () => {
+  mockSocialCredential
+    .mockResolvedValueOnce('first-google-token')
+    .mockResolvedValueOnce('fresh-google-token');
+  mockApiLogin
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }))
+    .mockResolvedValueOnce({
+      accessToken: 'AT',
+      refreshToken: 'RT',
+      userId: 'member',
+      onboardingComplete: true,
+    });
+  mockGuestLogin.mockImplementationOnce(async () => {
+    const result = {
+      accessToken: 'GUEST_AT',
+      refreshToken: 'GUEST_RT',
+      userId: 'guest',
+      onboardingComplete: false,
+    };
+    await saveSession(result);
+    return result;
+  });
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await act(async () => captured.setTerms(true));
+
+  await act(async () => captured.startSocial('google'));
+  await act(async () => captured.startGuest());
+  await waitFor(() => assert.equal(captured.guestBusy, false));
+  await act(async () => captured.startSocial('google'));
+
+  assert.equal(mockSocialCredential.mock.calls.length, 2);
+  assert.equal(mockApiLogin.mock.calls[0][1], 'first-google-token');
+  assert.equal(mockApiLogin.mock.calls[1][1], 'fresh-google-token');
+  assert.notEqual(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
 });
 
 test('회원 전환은 소셜 성공 시 닫히고 사용자 취소 시 오류 없이 유지된다', async () => {
