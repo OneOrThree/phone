@@ -36,6 +36,10 @@ platform :ios do
 
   desc "Fishcat 테스트 빌드 → TestFlight 업로드"
   lane :beta do
+    UI.user_error!(
+      "iOS release/TestFlight 차단: Apple 계정 재진입을 위해 서버 dual-audience 배포를 검증한 뒤 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 실행하세요."
+    ) unless ENV["EXPO_PUBLIC_APPLE_LOGIN_ENABLED"] == "1"
+
     api_key = asc_api_key
     build_number = compute_build_number(api_key)
     UI.user_error!("Hermes compiler를 찾지 못했어요: #{HERMES_CLI_PATH}") unless File.executable?(HERMES_CLI_PATH)

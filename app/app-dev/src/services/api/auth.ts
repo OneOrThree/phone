@@ -17,6 +17,7 @@ import {
   saveSession,
   sessionGeneration,
 } from './session';
+import type { Session } from './session';
 
 /**
  * 정책(2026-09-14 「인증·게스트 계정」, GROMO-1967): 2.0 로그인 수단은
@@ -52,6 +53,8 @@ export interface LoginOptions {
    * 세션을 실으면 서버가 401 로 거절한다).
    */
   accountSwitchConfirmed?: boolean;
+  /** 로그인 세션 공개 직전의 내부 관측 훅 — 전환 원인과 외부 세션 변경을 구분한다. */
+  onSessionPublished?: (session: Session, generation: number) => void;
 }
 
 export interface LoginResult {
@@ -132,6 +135,7 @@ export async function login(
     attemptId = uuid(),
     attachCurrentSession = false,
     accountSwitchConfirmed = false,
+    onSessionPublished,
   }: LoginOptions = {},
 ): Promise<LoginResult> {
   if (!termsVersion.trim())
@@ -166,6 +170,7 @@ export async function login(
       userId: result.userId,
     },
     generation,
+    onSessionPublished,
   );
   if (!published) {
     // 버려진 로그인의 **서버** 세션은 그대로 살아 있다 — 방금 받은 RT 로 그 세션만 끊는다.

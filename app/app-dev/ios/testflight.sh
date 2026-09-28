@@ -4,6 +4,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# Apple-only 계정의 재진입을 보장해야 한다. 서버가 `gromo`와 `focuscat` audience를 모두
+# 허용하기 전에는 iOS archive/TestFlight를 차단하고, 앱의 Apple 제공자 플래그를 단일 gate로 쓴다.
+if [[ "${EXPO_PUBLIC_APPLE_LOGIN_ENABLED:-}" != "1" ]]; then
+  echo "❌ iOS release/TestFlight 차단: 서버가 Apple의 gromo·focuscat 이중 audience를 검증할 준비가 되기 전에는 기존 Apple-only 계정이 재진입할 수 없습니다." >&2
+  echo "   서버 dual-audience 배포와 검증을 마친 뒤 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 실행하세요." >&2
+  exit 1
+fi
+export EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1
+
 # Fishcat 전용 값을 우선하고, 아직 분리하지 않았다면 기존 Gromo 로컬 API 키 설정을 재사용한다.
 if [[ -f "fastlane/.env" ]]; then
   CREDENTIALS_ENV="fastlane/.env"
@@ -18,6 +27,7 @@ set -a
 # shellcheck disable=SC1090
 source "$CREDENTIALS_ENV"
 set +a
+export EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1
 
 # Datadog RUM 공개 설정은 기존 앱과 같은 RUM application을 사용한다. 값의 정본을 아직
 # 별도 파일로 분리하지 않았으므로, 저장소에 이미 추적 중인 legacy 릴리즈 설정에서 허용한

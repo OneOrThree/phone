@@ -271,6 +271,19 @@ test('stale 계정 채택은 현재 세션이 바뀌었으면 로컬 소유자�
   assert.equal(getLastSessionUserId(), 'new-user');
 });
 
+test('세션 세대가 바뀐 뒤에는 같은 사용자 ID여도 stale 소유자 기록을 거부한다', async () => {
+  await clearSession();
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  await saveSession({ accessToken: 'OLD_AT', refreshToken: 'OLD_RT', userId: 'same-user' });
+  const expectedGeneration = sessionGeneration();
+
+  await saveSession({ accessToken: 'NEW_AT', refreshToken: 'NEW_RT', userId: 'same-user' });
+  assert.equal(await rememberLocalDataOwner('same-user', expectedGeneration), false);
+  assert.equal(getLastSessionUserId(), 'same-user');
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+});
+
 test('로컬 소유자 durable 기록 실패는 기존 owner를 유지하고 채택 호출을 reject한다', async () => {
   await clearSession();
   await SecureStore.deleteItemAsync('gromo.lastUserId');

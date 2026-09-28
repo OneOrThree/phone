@@ -112,9 +112,16 @@ export function getLastSessionUserId(): string | null {
 }
 
 /** 계정 채택과 로컬 동기화가 모두 성공한 뒤, 아직 같은 세션일 때 데이터 소유자를 기록한다. */
-export function rememberLocalDataOwner(userId: string): Promise<boolean> {
+export function rememberLocalDataOwner(
+  userId: string,
+  expectedGeneration?: number,
+): Promise<boolean> {
   return serialized(async () => {
-    if (cached?.userId !== userId) return false;
+    if (
+      cached?.userId !== userId ||
+      (expectedGeneration !== undefined && generation !== expectedGeneration)
+    )
+      return false;
     await writeItem(KEY_LAST_USER, userId);
     lastUserId = userId;
     return true;
@@ -263,7 +270,11 @@ async function commit(session: Session): Promise<void> {
  *   도착한 저장이 이미 끝난 로그아웃을 되살리거나 새 계정 세션을 덮는 것을 막는다({@link queue}).
  * @returns 공개했으면 true, 세대가 바뀌어 버렸으면 false. 저장소 실패는 그대로 던진다.
  */
-export function saveSession(session: Session, expectedGeneration?: number): Promise<boolean> {
+export function saveSession(
+  session: Session,
+  expectedGeneration?: number,
+  onPublished?: (session: Session, generation: number) => void,
+): Promise<boolean> {
   return serialized(async () => {
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return false;
     const previous = cached;
@@ -279,6 +290,11 @@ export function saveSession(session: Session, expectedGeneration?: number): Prom
     }
     cached = session;
     generation += 1;
+    try {
+      onPublished?.(session, generation);
+    } catch {
+      // 관측 훅 실패는 이미 커밋된 세션 공개를 막지 않는다.
+    }
     notifySessionChanged();
     return true;
   });

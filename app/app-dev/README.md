@@ -114,15 +114,17 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 **계정 전환**(A→B, 같은 사용자 s1→s2 재로그인 포함)은 `login()` 이 LLD §2.4 의 「준비 → commit → commit 뒤 전달」 순서로 **이전 세션 RT 폐기까지만** 합니다. FCM 토큰 재발급·B 세션 bootstrap 재등록·`deliveryTag` 대조와 commit 직후의 결과 세션 채택 확인 요청은 기기·푸시 등록 티켓 몫입니다.
 
-아직 서버에 없는 것: 2.0 공개 표면(business-api)에 **토큰 갱신 엔드포인트(GROMO-2035)와 게스트 세션 발급(GROMO-2036)이 없습니다.** 그래서 401 의 답은 재로그인뿐입니다. 소셜 제공자 SDK(Apple·Google·Kakao·LINE)는 로그인 화면에 연결되어 있으며, 실제 배포 전에는 각 제공자 콘솔 설정과 환경 변수, Apple의 `focuscat` audience 허용을 완료해야 합니다. LLD §2.1 의 `X-Device-Bootstrap` 응답 헤더도 서버 미구현이라 `login()` 이 받지 못합니다 — 푸시 기기 등록 티켓이 이 값을 쓰려면 `request()` 가 응답 헤더를 넘겨주도록 한 줄 늘려야 합니다.
+아직 서버에 없는 것: 2.0 공개 표면(business-api)에 **토큰 갱신 엔드포인트(GROMO-2035)와 게스트 세션 발급(GROMO-2036)이 없습니다.** 그래서 401 의 답은 재로그인뿐입니다. 소셜 제공자 SDK(Apple·Google·Kakao·LINE)는 로그인 화면에 연결되어 있으며, Apple-only 기존 계정의 재진입을 보장하려면 서버가 Apple의 `gromo`와 `focuscat` audience를 모두 허용해야 합니다. 이 준비 전에는 Apple 버튼만 숨기지 않고 iOS 2.0 전체 출시를 보류합니다. LLD §2.1 의 `X-Device-Bootstrap` 응답 헤더도 서버 미구현이라 `login()` 이 받지 못합니다 — 푸시 기기 등록 티켓이 이 값을 쓰려면 `request()` 가 응답 헤더를 넘겨주도록 한 줄 늘려야 합니다.
 
 ## TestFlight
 
 기존 Gromo의 로컬 App Store Connect API 키 설정을 재사용해 Catus 테스트 빌드를 올립니다.
 
+서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 검증 완료 후에만 아래처럼 실행하세요. 이 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
+
 ```sh
 cd ios
-./testflight.sh
+EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
 ```
 
 스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Catus 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.

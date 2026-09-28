@@ -343,6 +343,12 @@ function Gromo() {
     credential: string;
     generation: number;
   } | null>(null);
+  const conversionSessionTransition = useRef<{
+    provider: Provider;
+    credential: string;
+    userId: string;
+    generation: number;
+  } | null>(null);
   const deferredOwnerState = useRef<{ userId: string; state: State } | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
@@ -731,6 +737,18 @@ function Gromo() {
   const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
   conversionRef.current ??= createMemberConversion({
     termsVersion: TERMS_VERSION,
+    login: (provider, credential, termsVersion, options) =>
+      apiLogin(provider, credential, termsVersion, {
+        ...options,
+        onSessionPublished: (session, generation) => {
+          conversionSessionTransition.current = {
+            provider,
+            credential,
+            userId: session.userId,
+            generation,
+          };
+        },
+      }),
     openPrompt: () => {
       if (TERMS_VERSION) setConvUi({ busy: null, error: null, termsAccepted: false });
     },
@@ -747,6 +765,7 @@ function Gromo() {
     conversionLoginAttempt.current = null;
     conversionRef.current?.clearPending();
     setConvUi(null);
+    setTerms(false);
     settleSwitch(false);
     const previousUserId = REVIEW || DEMO ? null : getLastSessionUserId();
     guestLoginFlight.current = true;
@@ -821,6 +840,7 @@ function Gromo() {
     )
       conversionLoginAttempt.current = null;
     let attempt = conversionLoginAttempt.current;
+    const attemptGeneration = generation;
     setConvUi((c) => (c ? { ...c, busy: provider, error: null } : c));
     try {
       if (!attempt) {
@@ -845,7 +865,15 @@ function Gromo() {
         (thrown.retryable ||
           thrown.code === CLIENT_TIMEOUT ||
           thrown.code === CLIENT_NETWORK_ERROR);
-      if (!retryableTransportFailure && conversionLoginAttempt.current === attempt)
+      const conversionSessionWasPublished =
+        attempt !== null &&
+        attempt.generation !== attemptGeneration &&
+        attempt.generation === sessionGeneration();
+      if (
+        !retryableTransportFailure &&
+        !conversionSessionWasPublished &&
+        conversionLoginAttempt.current === attempt
+      )
         conversionLoginAttempt.current = null;
       if (isSocialLoginCancellation(thrown)) {
         setConvUi((c) => (c ? { ...c, busy: null, error: null } : c));
@@ -854,6 +882,8 @@ function Gromo() {
       const message =
         thrown instanceof ApiError ? thrown.message : '문제가 생겼어요. 다시 시도해 주세요.';
       setConvUi((c) => (c ? { ...c, busy: null, error: message } : c));
+    } finally {
+      conversionSessionTransition.current = null;
     }
   };
   useEffect(() => {
@@ -864,11 +894,29 @@ function Gromo() {
     return subscribeSession((session) => {
       const generation = sessionGeneration();
       if (generation !== socialAttemptGeneration.current) {
+        const transition = conversionSessionTransition.current;
+        const expectedConversionTransition =
+          transition?.generation === generation && transition.userId === session?.userId;
+        conversionSessionTransition.current = null;
         socialAttemptGeneration.current = generation;
         socialLoginAttempt.current = null;
-        conversionLoginAttempt.current = null;
-        conversionRef.current?.clearPending();
-        settleSwitch(false);
+        setTerms(false);
+        if (expectedConversionTransition && conversionLoginAttempt.current) {
+          const attempt = conversionLoginAttempt.current;
+          if (
+            attempt.provider === transition.provider &&
+            attempt.credential === transition.credential
+          )
+            attempt.generation = generation;
+          else {
+            conversionLoginAttempt.current = null;
+            conversionRef.current?.clearPending();
+          }
+        } else {
+          conversionLoginAttempt.current = null;
+          conversionRef.current?.clearPending();
+          settleSwitch(false);
+        }
         setConvUi((current) =>
           session ? (current ? { ...current, termsAccepted: false } : current) : null,
         );
@@ -893,8 +941,10 @@ function Gromo() {
       // 전환 시트·충돌 확인이 열려 있으면 취소로 정리한다 — 떠난 세션의 확인을 뒤에 승인하면 안 된다.
       socialLoginAttempt.current = null;
       conversionLoginAttempt.current = null;
+      conversionSessionTransition.current = null;
       conversionRef.current?.clearPending();
       setConvUi(null);
+      setTerms(false);
       settleSwitch(false);
       dispatch({ type: 'LOGOUT' });
       void endLiveActivities().catch(() => {});
@@ -974,10 +1024,15 @@ function Gromo() {
           session &&
           sessionGeneration() === bootGen
         ) {
+          const bootSessionIsCurrent = () =>
+            sessionGeneration() === bootGen && getSession()?.userId === session.userId;
           // 부팅 채택도 일반 계정 전환과 같은 의미를 지킨다: 활성 계정의 정본 동기화 후
           // 사용자 데이터 제거 → 깨끗한 상태 적용 → 마지막에 내구 owner 기록 순서다.
           await AsyncStorage.removeItem(STORAGE);
           deferredOwnerState.current = null;
+          // 저장소 삭제 중 로그아웃·다른 계정 로그인으로 세대가 바뀌었을 수 있다.
+          // 이전 계정의 clean LOAD/PROFILE을 새 세션에 적용하지 않는다.
+          if (!bootSessionIsCurrent()) return;
           dispatch({
             type: 'LOAD',
             state: {
@@ -986,7 +1041,33 @@ function Gromo() {
             },
             now: Date.now(),
           });
-          if (await rememberLocalDataOwner(session.userId)) setStorageOwnerReady(true);
+          // 위에서 확인한 계정/섬 동기화 결과는 초기 LOAD가 지운다. 깨끗한 로컬 상태에 계정을
+          // 다시 적용하고 동기화/route를 한 번 더 수행해 최종 reducer 상태와 화면을 맞춘다.
+          dispatch({ type: 'LOGIN' });
+          if (account.name || account.catColor)
+            dispatch({
+              type: 'PROFILE',
+              name: account.name ?? undefined,
+              color: account.catColor ?? undefined,
+            });
+          const cleanBootGen = sessionGeneration();
+          const cleanBootRoute = await decideBootRoute({
+            saved: null,
+            account,
+            rejected: false,
+            serverMode: true,
+            bootGen: cleanBootGen,
+            generation: sessionGeneration,
+            syncIslands,
+            onBootError: setIslandBootError,
+          });
+          // 두 번째 서버 동기화/route 결정도 await 경계다. 세션이 바뀌었다면 route와 owner를
+          // 이전 부팅 계정으로 확정하지 않는다.
+          if (!bootSessionIsCurrent()) return;
+          if (cleanBootRoute && sessionGeneration() === cleanBootGen) setRoute(cleanBootRoute);
+          if (!bootSessionIsCurrent()) return;
+          if ((await rememberLocalDataOwner(session.userId, bootGen)) && bootSessionIsCurrent())
+            setStorageOwnerReady(true);
         }
         // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
         // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
@@ -1376,8 +1457,10 @@ function Gromo() {
   const signOut = () => {
     socialLoginAttempt.current = null;
     conversionLoginAttempt.current = null;
+    conversionSessionTransition.current = null;
     conversionRef.current?.clearPending();
     setConvUi(null);
+    setTerms(false);
     settleSwitch(false);
     void endLiveActivities().catch(() => {});
     logout().catch(() => {});
