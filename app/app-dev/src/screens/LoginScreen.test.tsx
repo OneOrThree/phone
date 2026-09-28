@@ -45,6 +45,24 @@ test('전달받은 제공자를 순서대로 표시한다', async () => {
   expect(screen.queryByLabelText('카카오로 계속하기')).toBeNull();
 });
 
+test('텍스트 브랜드 버튼은 큰 글자에 맞춰 최소 높이 이상으로 확장된다', async () => {
+  const screen = await render(
+    <LoginScreen
+      providers={['line', 'google']}
+      termsAccepted
+      onTermsAcceptedChange={jest.fn()}
+      onProviderPress={jest.fn()}
+    />,
+  );
+
+  for (const provider of ['line', 'google']) {
+    const style = screen.getByTestId(`login-${provider}`).props.style;
+    expect(style.height).toBeUndefined();
+    expect(style.minHeight).toBe(54);
+    expect(style.paddingVertical).toBeGreaterThan(0);
+  }
+});
+
 test('약관 동의 전에는 로그인 동작을 막고 체크 상태를 변경한다', async () => {
   const onTermsAcceptedChange = jest.fn();
   const onProviderPress = jest.fn();

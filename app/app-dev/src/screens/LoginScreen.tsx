@@ -76,8 +76,7 @@ export function LoginScreen({
           onPress={onProviderPress ? () => onProviderPress(provider) : undefined}
           style={({ pressed }) => ({
             width: '100%',
-            minHeight: 54,
-            paddingVertical: primitiveTokens.space[3],
+            height: 54,
             borderRadius: semanticTokens.radius.full,
             overflow: 'hidden',
             opacity: disabled ? 0.45 : pressed ? 0.82 : 1,
@@ -122,7 +121,8 @@ export function LoginScreen({
           onPress={onProviderPress ? () => onProviderPress(provider) : undefined}
           style={({ pressed }) => ({
             width: '100%',
-            height: 54,
+            minHeight: 54,
+            paddingVertical: primitiveTokens.space[3],
             alignItems: 'center',
             justifyContent: 'center',
             borderWidth: semanticTokens.stroke.subtle,

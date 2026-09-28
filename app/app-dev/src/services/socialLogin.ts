@@ -4,7 +4,6 @@ import { ApiError } from '@/services/api/client';
 
 const UNAVAILABLE = 'CLIENT_PROVIDER_UNAVAILABLE';
 const GOOGLE_IOS_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
   '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com';
 const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||

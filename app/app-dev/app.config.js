@@ -1,6 +1,5 @@
 const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
 const googleIosClientId =
-  process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID ||
   '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com';
 const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.replace(
   '.apps.googleusercontent.com',

@@ -739,7 +739,9 @@ function Gromo() {
     } catch (thrown) {
       const retryableTransportFailure =
         thrown instanceof ApiError &&
-        (thrown.code === CLIENT_TIMEOUT || thrown.code === CLIENT_NETWORK_ERROR);
+        (thrown.retryable ||
+          thrown.code === CLIENT_TIMEOUT ||
+          thrown.code === CLIENT_NETWORK_ERROR);
       if (!retryableTransportFailure) socialLoginAttempt.current = null;
       if (!isSocialLoginCancellation(thrown)) {
         setSocialError(
@@ -772,7 +774,9 @@ function Gromo() {
     } catch (thrown) {
       const retryableTransportFailure =
         thrown instanceof ApiError &&
-        (thrown.code === CLIENT_TIMEOUT || thrown.code === CLIENT_NETWORK_ERROR);
+        (thrown.retryable ||
+          thrown.code === CLIENT_TIMEOUT ||
+          thrown.code === CLIENT_NETWORK_ERROR);
       if (!retryableTransportFailure) conversionLoginAttempt.current = null;
       if (isSocialLoginCancellation(thrown)) {
         setConvUi((c) => (c ? { ...c, busy: null, error: null } : c));

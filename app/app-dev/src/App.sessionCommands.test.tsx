@@ -136,10 +136,10 @@ test('소셜 로그인 pending 중에는 중복 요청을 막고 오류 메시�
   );
 });
 
-test('소셜 로그인 응답 유실 재시도는 자격과 attemptId를 재사용한다', async () => {
+test('소셜 로그인 retryable 응답 재시도는 자격과 attemptId를 재사용한다', async () => {
   mockSocialCredential.mockResolvedValueOnce('google-id-token');
   mockApiLogin
-    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0))
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }))
     .mockResolvedValueOnce({
       accessToken: 'AT',
       refreshToken: 'RT',
@@ -208,11 +208,11 @@ test('회원 전환은 소셜 성공 시 닫히고 사용자 취소 시 오류 �
   await waitFor(() => assert.ok(screen!.getByText('문제가 생겼어요. 다시 시도해 주세요.')));
 });
 
-test('회원 전환 응답 유실 재시도는 같은 소셜 자격을 재사용한다', async () => {
+test('회원 전환 retryable 응답 재시도는 같은 소셜 자격을 재사용한다', async () => {
   await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
   mockSocialCredential.mockResolvedValueOnce('google-id-token');
   mockApiLogin
-    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0))
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }))
     .mockResolvedValueOnce({
       accessToken: 'AT',
       refreshToken: 'RT',
@@ -232,7 +232,7 @@ test('회원 전환 응답 유실 재시도는 같은 소셜 자격을 재사용
   });
 
   await fireEvent.press(screen!.getByText('Google로 계속하기'));
-  await waitFor(() => assert.ok(screen!.getByText('네트워크 오류')));
+  await waitFor(() => assert.ok(screen!.getByText('처리 중')));
   await fireEvent.press(screen!.getByText('Google로 계속하기'));
 
   assert.equal(mockSocialCredential.mock.calls.length, 1);
