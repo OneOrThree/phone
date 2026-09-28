@@ -1,7 +1,7 @@
 import { Text } from '@/design-system/typography';
 import { useAppLayout } from '@/utils/layout';
 import { useRouteOrientation } from '@/utils/orientation';
-import { Btn as NativeButton, Txt as NativeText } from '@/design-system/patterns';
+import { Btn as NativeButton, Overlay, Txt as NativeText } from '@/design-system/patterns';
 import { CurrentScreens as RedesignScreens } from '@/screens/island/CurrentScreens';
 import React, { useState, useReducer, useEffect, useRef } from 'react';
 import {
@@ -1619,42 +1619,13 @@ function Gromo() {
             animationType={state.settings.reduceMotion ? 'none' : 'fade'}
             onRequestClose={() => settleSwitch(false)}
           >
-            <Pressable
-              accessible={false}
+            <View
               accessibilityElementsHidden={routeTransitionShielded}
               importantForAccessibility={routeTransitionShielded ? 'no-hide-descendants' : 'auto'}
               pointerEvents={routeTransitionShielded ? 'none' : 'auto'}
-              onPress={() => settleSwitch(false)}
-              style={{
-                flex: 1,
-                backgroundColor: '#493B3966',
-                justifyContent: 'center',
-                alignItems: 'center',
-                padding: 24,
-              }}
+              style={{ flex: 1 }}
             >
-              <Pressable
-                accessible={false}
-                onPress={() => {}}
-                style={[
-                  S.card,
-                  {
-                    gap: 10,
-                    width: layout.compact
-                      ? 400
-                      : layout.tablet
-                        ? layout.modalWidth
-                        : layout.width - 48,
-                    maxHeight: layout.height - layout.insets.top - layout.insets.bottom - 40,
-                    borderWidth: 2,
-                    borderRadius: 22,
-                    paddingTop: 22,
-                    paddingHorizontal: 20,
-                    paddingBottom: 18,
-                    boxShadow: '0px 6px 0px ' + C.brown,
-                  },
-                ]}
-              >
+              <Overlay close={() => settleSwitch(false)}>
                 <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
                   이미 연결된 계정이 있어요
                 </NativeText>
@@ -1682,8 +1653,8 @@ function Gromo() {
                     onPress={() => settleSwitch(true)}
                   />
                 </View>
-              </Pressable>
-            </Pressable>
+              </Overlay>
+            </View>
           </Modal>
         )}
       </SafeAreaView>

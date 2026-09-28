@@ -12,9 +12,11 @@ export function loginProviders(
     : Platform.OS === 'android'
       ? 'android'
       : 'web',
+  appleLoginEnabled = process.env.EXPO_PUBLIC_APPLE_LOGIN_ENABLED === '1',
 ): Provider[] {
   if (platform === 'web') return [];
   const regional: Provider = regionCode?.toUpperCase() === 'KR' ? 'kakao' : 'line';
-  if (platform === 'ios') return [regional, 'apple', 'google'];
+  if (platform === 'ios')
+    return appleLoginEnabled ? [regional, 'apple', 'google'] : [regional, 'google'];
   return [regional, 'google'];
 }

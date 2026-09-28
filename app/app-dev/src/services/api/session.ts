@@ -181,18 +181,14 @@ async function migrateLegacySession(): Promise<Session | null> {
   const refreshToken = legacyRefresh?.trim();
   const userId = accessToken ? subjectFromToken(accessToken) : null;
   if (!accessToken || !refreshToken || !userId) {
-    // 찢어졌거나 JWT subject를 확인할 수 없는 세션은 재시도해도 쓸 수 없다.
-    await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
-    await Promise.all([
-      AsyncStorage.removeItem(LEGACY_ACCESS),
-      AsyncStorage.removeItem(LEGACY_REFRESH),
-    ]).catch(() => {});
+    // 유효성을 확인할 수 없어도 레거시 자격 증명은 자동으로 폐기하지 않는다.
     return null;
   }
 
   const session = { accessToken, refreshToken, userId };
-  // 구 키는 SecureStore 복사만으로 폐기하지 않는다. 만료 AT일 수 있으므로 서버 refresh 승격과
-  // 후속 /me 검증이 끝날 때까지 원 RT가 복구 수단으로 남아 있어야 한다.
+  // 구 키는 SecureStore 복사만으로 폐기하지 않는다. legacy refresh 계약은 멱등하지 않아
+  // 자동 회전하면 응답 유실 시 원 RT와 회전된 RT를 모두 잃을 수 있다. /me만 확인하고
+  // 서버에 안전한 전환 계약이 생길 때까지 원본과 pending 표시를 유지한다.
   await commit(session);
   await SecureStore.setItemAsync(KEY_LEGACY_PENDING_PROMOTION, '1');
   return session;
@@ -204,23 +200,6 @@ export async function isLegacySessionPendingPromotion(): Promise<boolean> {
     Platform.OS === 'android' &&
     (await SecureStore.getItemAsync(KEY_LEGACY_PENDING_PROMOTION)) === '1'
   );
-}
-
-/** 서버 refresh와 /me가 성공한 뒤에만 구 키를 정리한다. */
-export function completeLegacySessionPromotion(expectedGeneration: number): Promise<boolean> {
-  return serialized(async () => {
-    if (expectedGeneration !== generation) return false;
-    if ((await SecureStore.getItemAsync(KEY_LEGACY_PENDING_PROMOTION)) !== '1') return true;
-    // 정리 도중 종료돼도 다음 부팅에서 승격된 bundle을 legacy RT로 다시 제출하지 않도록
-    // 먼저 pending 상태를 닫는다. 구 키 삭제 실패는 잔여물일 뿐 세션 복구 경로를 바꾸지 않는다.
-    await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
-    await SecureStore.deleteItemAsync(KEY_LEGACY_PENDING_PROMOTION);
-    await Promise.all([
-      AsyncStorage.removeItem(LEGACY_ACCESS),
-      AsyncStorage.removeItem(LEGACY_REFRESH),
-    ]);
-    return true;
-  });
 }
 
 function subjectFromToken(token: string): string | null {

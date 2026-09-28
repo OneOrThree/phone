@@ -4,7 +4,6 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import {
   clearSession,
-  completeLegacySessionPromotion,
   getLastSessionUserId,
   getSession,
   rememberLocalDataOwner,
@@ -30,7 +29,7 @@ beforeEach(async () => {
   await clearSession();
 });
 
-test('Android 1.x의 완전한 JWT 세션은 서버 승격 전까지 원본 키를 보존한다', async () => {
+test('Android 1.x의 완전한 JWT 세션은 SecureStore로 복사하고 원본 키와 pending 표시를 보존한다', async () => {
   const previousOS = Platform.OS;
   Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
   const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
@@ -50,25 +49,21 @@ test('Android 1.x의 완전한 JWT 세션은 서버 승격 전까지 원본 키�
     assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
     assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), '1');
     assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
-    assert.equal(await completeLegacySessionPromotion(sessionGeneration()), true);
-    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), null);
-    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), null);
-    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), '1');
   } finally {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
   }
 });
 
-test('Android의 부분 레거시 세션은 가져오지 않고 오래된 자격 키를 정리한다', async () => {
+test('Android의 부분 레거시 세션은 가져오지 않고 원본 자격 키를 보존한다', async () => {
   const previousOS = Platform.OS;
   Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
   await AsyncStorage.setItem('gromo:accessToken', 'legacy-access-only');
 
   try {
     assert.equal(await restoreSession(), null);
-    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), 'legacy-access-only');
     assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
-    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), '1');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
   } finally {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
   }

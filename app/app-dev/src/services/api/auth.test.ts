@@ -408,7 +408,7 @@ test('checkSession — 정상이면 계정을 준다', async () => {
   assert.equal(check.status === 'active' && check.account.name, '수빈');
 });
 
-test('checkSession — Android legacy RT를 먼저 승격하고 /me 성공 뒤에만 원본 키를 정리한다', async () => {
+test('checkSession — Android legacy RT를 보내지 않고 /me 성공 뒤에도 원본 키와 pending을 보존한다', async () => {
   const previousOS = Platform.OS;
   Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
   const jwt = (sub: string) => `header.${btoa(JSON.stringify({ sub, sid: 'sid-1' }))}.signature`;
@@ -418,10 +418,6 @@ test('checkSession — Android legacy RT를 먼저 승격하고 /me 성공 뒤�
   ]);
   await restoreSession();
   stub([
-    {
-      status: 200,
-      body: { data: { accessToken: jwt('legacy-user'), refreshToken: 'promoted-rt' } },
-    },
     {
       status: 200,
       body: {
@@ -439,21 +435,20 @@ test('checkSession — Android legacy RT를 먼저 승격하고 /me 성공 뒤�
 
   try {
     assert.equal((await checkSession()).status, 'active');
-    assert.ok(calls[0].url.endsWith('/api/v1/auth/refresh'));
-    assert.equal(
-      calls[0].init.headers && (calls[0].init.headers as Record<string, string>).Authorization,
-      undefined,
-    );
-    assert.deepEqual(JSON.parse(calls[0].init.body as string), { refreshToken: 'legacy-rt' });
-    assert.ok(calls[1].url.endsWith('/me'));
-    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), null);
-    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), '1');
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith('/me'));
+    assert.equal(header(calls[0], 'Authorization'), `Bearer ${jwt('legacy-user')}`);
+    assert.equal(calls[0].init.method, 'GET');
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), jwt('legacy-user'));
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-rt');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), '1');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
   } finally {
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
   }
 });
 
-test('checkSession — /me가 승격 AT를 거절하면 원 legacy RT를 보존한다', async () => {
+test('checkSession — /me 401이면 SecureStore 사본만 비우고 legacy 원본과 pending을 보존한다', async () => {
   const previousOS = Platform.OS;
   Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
   const jwt = (sub: string) => `header.${btoa(JSON.stringify({ sub, sid: 'sid-1' }))}.signature`;
@@ -462,16 +457,16 @@ test('checkSession — /me가 승격 AT를 거절하면 원 legacy RT를 보존�
     ['gromo:refreshToken', 'legacy-rt'],
   ]);
   await restoreSession();
-  stub([
-    {
-      status: 200,
-      body: { data: { accessToken: jwt('legacy-user'), refreshToken: 'promoted-rt' } },
-    },
-    { status: 401, body: { error: { code: 'UNAUTHORIZED', message: 'unauthorized' } } },
-  ]);
+  stub([{ status: 401, body: { error: { code: 'UNAUTHORIZED', message: 'unauthorized' } } }]);
 
   try {
     assert.equal((await checkSession()).status, 'rejected');
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].url.endsWith('/me'));
+    assert.equal(header(calls[0], 'Authorization'), `Bearer ${jwt('legacy-user')}`);
+    assert.equal(getSession(), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), jwt('legacy-user'));
     assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-rt');
     assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), '1');
   } finally {
