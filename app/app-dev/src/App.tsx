@@ -770,17 +770,17 @@ function Gromo() {
   const pickProvider = async (provider: Provider) => {
     if (conversionLoginAttempt.current?.provider !== provider)
       conversionLoginAttempt.current = null;
+    let attempt = conversionLoginAttempt.current;
     setConvUi((c) => (c ? { ...c, busy: provider, error: null } : c));
     try {
-      let attempt = conversionLoginAttempt.current;
       if (!attempt) {
         attempt = { provider, credential: await getCredential(provider) };
         conversionLoginAttempt.current = attempt;
       }
-      const outcome = await memberConversion.convert(provider, attempt.credential);
-      conversionLoginAttempt.current = null;
+      const outcome = await memberConversion.convert(attempt.provider, attempt.credential);
+      if (conversionLoginAttempt.current === attempt) conversionLoginAttempt.current = null;
       if (outcome === 'converted') {
-        captureProductEvent('member_conversion_completed', { provider });
+        captureProductEvent('member_conversion_completed', { provider: attempt.provider });
         setConvUi(null);
         notify('회원으로 전환했어요.');
       } else setConvUi((c) => (c ? { ...c, busy: null } : c)); // 취소 — 시트로 돌아간다
@@ -790,7 +790,8 @@ function Gromo() {
         (thrown.retryable ||
           thrown.code === CLIENT_TIMEOUT ||
           thrown.code === CLIENT_NETWORK_ERROR);
-      if (!retryableTransportFailure) conversionLoginAttempt.current = null;
+      if (!retryableTransportFailure && conversionLoginAttempt.current === attempt)
+        conversionLoginAttempt.current = null;
       if (isSocialLoginCancellation(thrown)) {
         setConvUi((c) => (c ? { ...c, busy: null, error: null } : c));
         return;

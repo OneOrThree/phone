@@ -101,9 +101,13 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     // 로그인은 성공했지만 /me 채택이 실패한 경우, 다음 클릭에서는 로그인 응답을 재사용한다.
     // 채택이 끝나기 전까지 최초 사용자 ID도 유지해 게스트 데이터를 회원에 섞지 않는다.
     if (pending?.mode === 'adopt') {
+      // 채택 재시도는 결과를 만든 소셜 자격으로만 이어간다. 다른 제공자나
+      // 자격을 선택했다면 이전 결과는 버리고 새 로그인 흐름을 시작한다.
       // /me 의 401 은 세션을 비우고 세대를 올린다. 그 사이 다른 계정에 로그인한 경우도
       // 결과는 달라진다. 이때 옛 로그인 결과를 다시 채택하지 말고 현재 세션으로 새 로그인한다.
       if (
+        pending.provider === provider &&
+        pending.credential === credential &&
         pending.generation === currentSessionGeneration() &&
         sessionUserId() === pending.result.userId
       ) {

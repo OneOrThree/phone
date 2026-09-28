@@ -28,6 +28,9 @@ const KEY_REFRESH = 'gromo.refreshToken';
 const KEY_USER = 'gromo.userId';
 /** 커밋 마커 — **항상 마지막에** 쓴다. 자세한 이유는 {@link saveSession}. */
 const KEY_BUNDLE = 'gromo.sessionBundle';
+const KEY_LEGACY_MIGRATED = 'gromo.legacySessionMigrated';
+const LEGACY_ACCESS = 'gromo:accessToken';
+const LEGACY_REFRESH = 'gromo:refreshToken';
 
 // SecureStore 는 웹에 구현이 없어 호출하면 던진다. 네이티브에서만 쓴다.
 const useSecureStore = Platform.OS !== 'web';
@@ -121,6 +124,9 @@ export function restoreSession(): Promise<Session | null> {
         readItem(KEY_USER),
       ]);
       cached = bundle ? unbundled(bundle, accessToken, refreshToken, userId) : null;
+      // Android 1.x는 토큰을 AsyncStorage 평문 키에 저장했다. 현재 커밋 마커가 없을 때만
+      // 한 번 가져온다. 기존 bundle이 손상된 경우에는 구 토큰으로 우회 복구하지 않는다.
+      if (!bundle && Platform.OS === 'android') cached = await migrateLegacySession();
     } catch {
       // 키체인 접근 실패(잠긴 기기 등)를 로그인 상태로 오인하지 않는다.
       cached = null;
@@ -128,6 +134,50 @@ export function restoreSession(): Promise<Session | null> {
     notifySessionChanged();
     return cached;
   });
+}
+
+async function migrateLegacySession(): Promise<Session | null> {
+  if ((await SecureStore.getItemAsync(KEY_LEGACY_MIGRATED)) === '1') return null;
+  const [legacyAccess, legacyRefresh] = await Promise.all([
+    AsyncStorage.getItem(LEGACY_ACCESS),
+    AsyncStorage.getItem(LEGACY_REFRESH),
+  ]);
+  if (!legacyAccess && !legacyRefresh) return null;
+
+  const accessToken = legacyAccess?.trim();
+  const refreshToken = legacyRefresh?.trim();
+  const userId = accessToken ? subjectFromToken(accessToken) : null;
+  if (!accessToken || !refreshToken || !userId) {
+    // 찢어졌거나 JWT subject를 확인할 수 없는 세션은 재시도해도 쓸 수 없다.
+    await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
+    await Promise.all([
+      AsyncStorage.removeItem(LEGACY_ACCESS),
+      AsyncStorage.removeItem(LEGACY_REFRESH),
+    ]).catch(() => {});
+    return null;
+  }
+
+  const session = { accessToken, refreshToken, userId };
+  // 보안 저장소 커밋이 성공하기 전에는 원본을 지우지 않아 실패 뒤 재시도할 수 있다.
+  await commit(session);
+  await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
+  await Promise.all([
+    AsyncStorage.removeItem(LEGACY_ACCESS),
+    AsyncStorage.removeItem(LEGACY_REFRESH),
+  ]).catch(() => {});
+  return session;
+}
+
+function subjectFromToken(token: string): string | null {
+  try {
+    const encoded = token.split('.')[1];
+    if (!encoded) return null;
+    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(base64)) as { sub?: unknown };
+    return typeof payload.sub === 'string' && payload.sub.trim() ? payload.sub.trim() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** 세 값이 모두 `bundle` 태그를 달고 있을 때만 세션이다. 하나라도 어긋나면 찢어진 저장이다. */
@@ -225,6 +275,12 @@ export function clearSession(expectedGeneration?: number): Promise<Session | nul
       removeItem(KEY_REFRESH).catch(swallow),
       removeItem(KEY_USER).catch(swallow),
     ]);
+    if (Platform.OS === 'android') {
+      await Promise.all([
+        AsyncStorage.removeItem(LEGACY_ACCESS).catch(swallow),
+        AsyncStorage.removeItem(LEGACY_REFRESH).catch(swallow),
+      ]);
+    }
     if (failed.length > 0) throw failed[0];
     return cleared;
   });

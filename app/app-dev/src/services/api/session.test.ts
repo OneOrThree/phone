@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import {
   clearSession,
   getSession,
@@ -19,7 +21,71 @@ beforeEach(async () => {
   write.mockImplementation(realWrite);
   remove.mockImplementation(realRemove);
   write.mockClear();
+  await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
+  await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
   await clearSession();
+});
+
+test('Android 1.x의 완전한 JWT 세션은 보안 저장소에 커밋한 뒤 레거시 키를 지운다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', accessToken],
+    ['gromo:refreshToken', 'legacy-refresh'],
+    ['gromo:user', JSON.stringify({ accessToken })],
+  ]);
+
+  try {
+    assert.deepEqual(await restoreSession(), {
+      accessToken,
+      refreshToken: 'legacy-refresh',
+      userId: 'legacy-user',
+    });
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), '1');
+  } finally {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('Android의 부분 레거시 세션은 가져오지 않고 오래된 자격 키를 정리한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  await AsyncStorage.setItem('gromo:accessToken', 'legacy-access-only');
+
+  try {
+    assert.equal(await restoreSession(), null);
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), '1');
+  } finally {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('Android 레거시 세션 커밋이 실패하면 원본을 보존해 다음 부팅에서 재시도한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', accessToken],
+    ['gromo:refreshToken', 'legacy-refresh'],
+  ]);
+  write.mockImplementation(async () => {
+    throw new Error('키체인 쓰기 실패');
+  });
+
+  try {
+    assert.equal(await restoreSession(), null);
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), accessToken);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
+  } finally {
+    write.mockImplementation(realWrite);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
 });
 
 test('저장한 세션은 그대로 복구된다', async () => {

@@ -222,6 +222,70 @@ test('convert 채택 재시도 — 다른 계정 세션으로 바뀌면 stale ad
   assert.deepEqual(adopted, [{ result: result('member-10'), previousUserId: 'other-account' }]);
 });
 
+test('convert 채택 재시도 — 제공자나 자격이 달라지면 stale adopt를 버리고 새 로그인한다', async () => {
+  let currentUserId: string | null = 'guest-1';
+  let loginCalls = 0;
+  let adoptCalls = 0;
+  const calls: LoginCall[] = [];
+  const adopted: { result: LoginResult; previousUserId: string | null }[] = [];
+  const conversion = createMemberConversion({
+    termsVersion: '2026-09',
+    openPrompt: () => {},
+    confirmSwitch: async () => true,
+    sessionUserId: () => currentUserId,
+    login: async (provider, credential, _terms, options) => {
+      calls.push({ provider, credential, options });
+      currentUserId = 'member-9';
+      loginCalls += 1;
+      return result('member-9');
+    },
+    adopt: async (loginResult, previousUserId) => {
+      adoptCalls += 1;
+      if (adoptCalls === 1) throw new ApiError('SERVER_ERROR', '서버 오류', 503);
+      adopted.push({ result: loginResult, previousUserId });
+    },
+    newAttemptId: () => `attempt-${loginCalls + 1}`,
+  });
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  await conversion.convert('google', 'google-jwt');
+
+  assert.equal(loginCalls, 2);
+  assert.equal(calls[1].provider, 'google');
+  assert.equal(calls[1].credential, 'google-jwt');
+  assert.deepEqual(adopted, [{ result: result('member-9'), previousUserId: 'member-9' }]);
+});
+
+test('convert 채택 재시도 — 같은 제공자라도 자격이 바뀌면 stale adopt를 재사용하지 않는다', async () => {
+  let currentUserId: string | null = 'guest-1';
+  let loginCalls = 0;
+  let adoptCalls = 0;
+  const credentials: string[] = [];
+  const conversion = createMemberConversion({
+    termsVersion: '2026-09',
+    openPrompt: () => {},
+    confirmSwitch: async () => true,
+    sessionUserId: () => currentUserId,
+    login: async (_provider, credential) => {
+      credentials.push(credential);
+      loginCalls += 1;
+      currentUserId = `member-${loginCalls}`;
+      return result(currentUserId);
+    },
+    adopt: async () => {
+      adoptCalls += 1;
+      if (adoptCalls === 1) throw new ApiError('SERVER_ERROR', '서버 오류', 503);
+    },
+    newAttemptId: () => `attempt-${loginCalls + 1}`,
+  });
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt-1'));
+  await conversion.convert('apple', 'apple-jwt-2');
+
+  assert.equal(loginCalls, 2);
+  assert.deepEqual(credentials, ['apple-jwt-1', 'apple-jwt-2']);
+});
+
 test('convert 충돌 취소 — 확인창에서 취소하면 두 번째 로그인도 채택도 없다', async () => {
   const { conversion, calls, adopted, asked } = make([conflict()], { confirm: false });
 
