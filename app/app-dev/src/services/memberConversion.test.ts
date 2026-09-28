@@ -107,6 +107,48 @@ test('convert 성공 — 게스트 AT 를 동봉해 승격하고 채택한다', 
   assert.deepEqual(adopted, [{ result: result('guest-1'), previousUserId: 'guest-1' }]);
 });
 
+test('convert 채택 재시도 — 로그인 결과와 최초 사용자 ID를 보존하고 성공 뒤에만 로컬을 초기화한다', async () => {
+  const calls: string[] = [];
+  let currentUserId: string | null = 'guest-1';
+  let loginCalls = 0;
+  const conversion = createMemberConversion({
+    termsVersion: '2026-09',
+    openPrompt: () => {},
+    confirmSwitch: async () => true,
+    sessionUserId: () => currentUserId,
+    login: async () => {
+      loginCalls += 1;
+      currentUserId = 'member-9';
+      return result('member-9');
+    },
+    adopt: (loginResult, previousUserId) =>
+      adoptSignedInAccount(loginResult, previousUserId, {
+        me: async () => {
+          calls.push('me');
+          if (calls.filter((call) => call === 'me').length === 1)
+            throw new ApiError('SERVER_ERROR', '서버 오류', 503, { retryable: true });
+          return account(loginResult.userId);
+        },
+        resetLocal: () => {
+          calls.push(`reset:${previousUserId}`);
+        },
+        applyAccount: (a) => {
+          calls.push(`apply:${a.id}`);
+        },
+        navigate: (a) => {
+          calls.push(`navigate:${a.id}`);
+        },
+      }),
+    newAttemptId: () => 'attempt-1',
+  });
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  await conversion.convert('apple', 'apple-jwt');
+
+  assert.equal(loginCalls, 1);
+  assert.deepEqual(calls, ['me', 'me', 'reset:guest-1', 'apply:member-9', 'navigate:member-9']);
+});
+
 test('convert 충돌 취소 — 확인창에서 취소하면 두 번째 로그인도 채택도 없다', async () => {
   const { conversion, calls, adopted, asked } = make([conflict()], { confirm: false });
 

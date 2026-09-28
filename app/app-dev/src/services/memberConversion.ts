@@ -60,12 +60,21 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
   // 실패한 시도는 (자격, 확정 여부)와 attemptId 를 묶어 둔다 — 같은 키의 재시도는 서버가
   // 저장 결과를 재생해 제공자 자격 교환을 다시 하지 않는다(LLD §3 내구 attempt). 키가
   // 바뀌면 — 사용자가 다른 자격을 골랐거나 ② 확정으로 의도가 바뀌면 — 새 시도다.
-  let pending: {
-    provider: Provider;
-    credential: string;
-    mode: 'initial' | 'confirmed' | 'recovery';
-    attemptId: string;
-  } | null = null;
+  let pending:
+    | {
+        provider: Provider;
+        credential: string;
+        mode: 'initial' | 'confirmed' | 'recovery';
+        attemptId: string;
+      }
+    | {
+        provider: Provider;
+        credential: string;
+        mode: 'adopt';
+        result: LoginResult;
+        previousUserId: string | null;
+      }
+    | null = null;
 
   const attemptIdFor = (
     provider: Provider,
@@ -85,8 +94,20 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     provider: Provider,
     credential: string,
   ): Promise<'converted' | 'cancelled'> => {
+    // 로그인은 성공했지만 /me 채택이 실패한 경우, 다음 클릭에서는 로그인 응답을 재사용한다.
+    // 채택이 끝나기 전까지 최초 사용자 ID도 유지해 게스트 데이터를 회원에 섞지 않는다.
+    if (pending?.mode === 'adopt') {
+      await deps.adopt(pending.result, pending.previousUserId);
+      pending = null;
+      return 'converted';
+    }
     // 전환이 끝나면 저장된 세션은 새 계정의 것이다 — 이전 계정 판정은 시작 시에 잡는다.
     const previousUserId = sessionUserId();
+    const adopt = async (result: LoginResult) => {
+      pending = { provider, credential, mode: 'adopt', result, previousUserId };
+      await deps.adopt(result, previousUserId);
+      pending = null;
+    };
     // ② 확정 요청의 응답만 유실된 경우에는 ①부터 다시 시작하지 않고, 저장해 둔 확정
     // attemptId로 같은 요청을 재생한다. 호출부도 이때 같은 provider credential을 보존한다.
     if (
@@ -110,8 +131,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
           attemptId: pending.attemptId,
         });
       }
-      pending = null;
-      await deps.adopt(replayed, previousUserId);
+      await adopt(replayed);
       return 'converted';
     }
     // 부분 커밋 복구 로그인도 응답 유실 시 같은 시도 ID로 재생한다. AT와 확정 신호는 싣지 않는다.
@@ -123,8 +143,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
       const replayed = await login(provider, credential, deps.termsVersion, {
         attemptId: attemptIdFor(provider, credential, 'recovery'),
       });
-      pending = null;
-      await deps.adopt(replayed, previousUserId);
+      await adopt(replayed);
       return 'converted';
     }
     try {
@@ -132,8 +151,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
         attemptId: attemptIdFor(provider, credential, 'initial'),
         attachCurrentSession: true,
       });
-      pending = null;
-      await deps.adopt(result, previousUserId);
+      await adopt(result);
       return 'converted';
     } catch (thrown) {
       // 충돌이 아니면 그대로 던진다 — attemptId 를 지우지 않아 다음 재시도가 재생을 받는다.
@@ -148,8 +166,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
       attemptId: attemptIdFor(provider, credential, 'confirmed'),
       accountSwitchConfirmed: true,
     });
-    pending = null;
-    await deps.adopt(result, previousUserId);
+    await adopt(result);
     return 'converted';
   };
 
