@@ -269,6 +269,34 @@ test('동작 줄이기에서는 컷신 대신 음성 안내하고 황금 물고�
   announce.mockRestore();
 });
 
+test('원장 기록이 다음 분으로 넘어가도 뒤따른 realtime 사건과 한 번만 표시한다', async () => {
+  jest.useFakeTimers();
+  const screen = await mount();
+  const members = [
+    { userId: 'me', sessionId: 's-me' },
+    { userId: 'minji', sessionId: 'minji' },
+  ];
+  await act(async () =>
+    onGoldenFish?.({
+      ...event(members, 'ledger:row-1'),
+      drawnAt: '2026-09-28T00:01:05.000Z',
+    }),
+  );
+  await act(async () =>
+    onGoldenFish?.({
+      ...event(members, 'golden-i1-1'),
+      drawnAt: '2026-09-28T00:00:00.000Z',
+    }),
+  );
+
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  await act(async () => jest.advanceTimersByTime(2000));
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
 test('마지막 reel 대기 중 도착한 당첨은 대기 종료 뒤 다음 컷신으로 재생한다', async () => {
   jest.useFakeTimers();
   const screen = await mount();
@@ -420,6 +448,10 @@ test('휴식 결과 화면은 연속 컷신과 마지막 reel이 끝날 때까�
   });
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
   assert.notEqual(screen.queryByTestId('rest-golden-reel', { includeHiddenElements: true }), null);
+  assert.notEqual(
+    screen.queryByTestId('rest-golden-reel-rod', { includeHiddenElements: true }),
+    null,
+  );
   await fireEvent.press(screen.getByTestId('result-done'));
   assert.equal(home.mock.calls.length, 0);
 

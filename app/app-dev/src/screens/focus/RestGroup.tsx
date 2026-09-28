@@ -20,6 +20,7 @@ import { C } from '@/design-system/primitives';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CatSprite } from '@/components/CatSprite';
 import { art } from '@/constants/art';
+import { assets } from '@/constants/assets';
 
 // v2 시안 모닥불 전용 화면(GROMO-1862): 섬 지도가 아닌 모닥불 배경에 의자 없이 식빵 굽는 고양이만 앉힌다.
 // 배경 원본 1024×1024에서 돌 테두리 중심은 (482,600), 자리는 그 바깥 타원(가로 168·세로 125).
@@ -268,6 +269,20 @@ export function RestGroup({
                 size={a.n}
                 left={a.dx > 0}
                 reduce={state.settings.reduceMotion}
+              />
+              <Image
+                source={assets['props/fishing/fishing-rod.png']}
+                accessible={false}
+                testID="rest-golden-reel-rod"
+                resizeMode="contain"
+                style={{
+                  position: 'absolute',
+                  left: -a.n * 0.08,
+                  top: -a.n * 0.8,
+                  width: a.n * 0.62,
+                  height: a.n * 0.62,
+                  transform: [{ rotate: a.dx > 0 ? '-38deg' : '38deg' }],
+                }}
               />
               {goldenFishCount > 0 && (
                 <Image

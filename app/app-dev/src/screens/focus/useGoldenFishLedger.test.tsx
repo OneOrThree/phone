@@ -31,11 +31,20 @@ const page = (createdAt: string): LedgerPage => ({
   nextCursor: null,
 });
 
-function Harness({ onGoldenFish }: { onGoldenFish: jest.Mock }) {
+function Harness({
+  onGoldenFish,
+  active = true,
+  sinceMs = Date.parse('2026-09-28T00:00:00Z'),
+}: {
+  onGoldenFish: jest.Mock;
+  active?: boolean;
+  sinceMs?: number;
+}) {
   useGoldenFishLedger({
-    active: true,
+    active,
     islandId: 'island',
     sessionId: 'session-me',
+    sinceMs,
     members: () => members,
     onGoldenFish,
     pollMs: 5_000,
@@ -75,5 +84,31 @@ test('재마운트 이전 원장 행은 이미 본 사건으로 간주해 재생
   await act(async () => jest.advanceTimersByTime(5_000));
 
   assert.equal(onGoldenFish.mock.calls.length, 0);
+  await screen.unmount();
+});
+
+test('초기 realtime 스냅숏을 기다리는 동안 생성된 행도 활성화 즉시 복구한다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock.mockResolvedValue(page('2026-09-28T00:00:01Z'));
+  const screen = await render(<Harness active={false} onGoldenFish={onGoldenFish} />);
+  await act(async () => jest.setSystemTime(new Date('2026-09-28T00:00:05Z')));
+  await screen.rerender(<Harness active onGoldenFish={onGoldenFish} />);
+  await act(async () => {});
+
+  assert.equal(onGoldenFish.mock.calls.length, 1);
+  await screen.unmount();
+});
+
+test('조회 경계보다 최신 행이 30개를 넘어도 nextCursor를 따라 끝까지 확인한다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock
+    .mockResolvedValueOnce({ ...page('2026-09-28T00:00:04Z'), nextCursor: 'next' })
+    .mockResolvedValueOnce(page('2026-09-28T00:00:01Z'));
+  const screen = await render(<Harness onGoldenFish={onGoldenFish} />);
+  await act(async () => {});
+
+  assert.equal(ledgerMock.mock.calls.length, 2);
+  assert.equal(ledgerMock.mock.calls[1][1].cursor, 'next');
+  assert.equal(onGoldenFish.mock.calls.length, 2);
   await screen.unmount();
 });

@@ -1166,6 +1166,13 @@ function FocusFlow({ e }: any) {
     goldenPendingReelRef = useRef<GoldenFishEvent | null>(null),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
     goldenSeenRef = useRef(new Set<string>()),
+    goldenSignalsRef = useRef<{ source: 'ledger' | 'realtime'; eventId: string; atMs: number }[]>(
+      [],
+    ),
+    goldenSessionScopeRef = useRef<{ sessionId: string | null; mountedAt: number }>({
+      sessionId: null,
+      mountedAt: Date.now(),
+    }),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
@@ -1195,6 +1202,8 @@ function FocusFlow({ e }: any) {
   });
   const resultSessionId = r === 'focusResult' ? (s.lastResult?.id ?? null) : null;
   const goldenSessionId = s.session?.id ?? resultSessionId;
+  if (goldenSessionScopeRef.current.sessionId !== goldenSessionId)
+    goldenSessionScopeRef.current = { sessionId: goldenSessionId, mountedAt: Date.now() };
   useGoldenFishLedger({
     active:
       !!liveIslandId &&
@@ -1203,6 +1212,7 @@ function FocusFlow({ e }: any) {
       (r === 'focus' || r === 'rest' || r === 'focusResult'),
     islandId: liveIslandId,
     sessionId: goldenSessionId,
+    sinceMs: goldenSessionScopeRef.current.mountedAt + live.clockOffset,
     members: () => {
       const participants = live.focus
         .filter((member) => member.status === 'active')
@@ -1277,14 +1287,27 @@ function FocusFlow({ e }: any) {
       (current.r !== 'focus' && current.r !== 'rest' && current.r !== 'focusResult')
     )
       return;
-    // 서버 adapter가 열리면 realtime과 원장 poll이 같은 분의 당첨을 함께 전달할 수 있다.
-    // 추첨은 섬당 분당 한 번이므로 서로 다른 eventId도 서버 발생 분으로 한 번만 표시한다.
-    const occurredAt = Date.parse(event.drawnAt);
-    const occurrenceKey = `${event.islandId}:${Math.floor(occurredAt / 60_000)}`;
-    if (!Number.isFinite(occurredAt) || goldenSeenRef.current.has(occurrenceKey)) return;
-    goldenSeenRef.current.add(occurrenceKey);
+    if (goldenSeenRef.current.has(event.eventId)) return;
+    goldenSeenRef.current.add(event.eventId);
     if (goldenSeenRef.current.size > 200)
       goldenSeenRef.current.delete(goldenSeenRef.current.values().next().value!);
+    const source = event.eventId.startsWith('ledger:') ? 'ledger' : 'realtime';
+    const atMs = Date.parse(event.drawnAt);
+    if (!Number.isFinite(atMs)) return;
+    goldenSignalsRef.current = goldenSignalsRef.current.filter(
+      (signal) => Math.abs(atMs - signal.atMs) <= 10 * 60_000,
+    );
+    const paired = goldenSignalsRef.current.findIndex((signal) => {
+      if (signal.source === source) return false;
+      const realtimeAt = source === 'realtime' ? atMs : signal.atMs;
+      const ledgerAt = source === 'ledger' ? atMs : signal.atMs;
+      return ledgerAt >= realtimeAt && ledgerAt - realtimeAt <= 10 * 60_000;
+    });
+    if (paired >= 0) {
+      goldenSignalsRef.current.splice(paired, 1);
+      return;
+    }
+    goldenSignalsRef.current.push({ source, eventId: event.eventId, atMs });
     if (current.r === 'rest') {
       goldenQueueRef.current.push(event);
       return;

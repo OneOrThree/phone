@@ -4,14 +4,32 @@ import { sessionGeneration } from '@/services/api/session';
 import { dayKey } from '@/services/model';
 import type { GoldenFishEvent, GoldenFishMember } from '@/services/islandRealtime';
 
-const DEFAULT_POLL_MS = 5_000;
-const LOOKBACK_MS = 15_000;
+const DEFAULT_POLL_MS = 60_000;
+const LOOKBACK_MS = 60_000;
+const MAX_LEDGER_PAGES = 100;
 
 const monthsBetween = (fromMs: number, toMs: number) => {
   const first = dayKey(fromMs).slice(0, 7);
   const last = dayKey(toMs).slice(0, 7);
   return first === last ? [last] : [first, last];
 };
+
+async function ledgerItemsSince(islandId: string, month: string, afterMs: number) {
+  const items = [] as Awaited<ReturnType<typeof getLedger>>['items'];
+  let cursor: string | undefined;
+  for (let pageNumber = 0; pageNumber < MAX_LEDGER_PAGES; pageNumber++) {
+    const page = await getLedger(islandId, { month, direction: 'earn', cursor });
+    items.push(...page.items);
+    if (
+      !page.nextCursor ||
+      page.items.length === 0 ||
+      page.items.some((entry) => Date.parse(entry.createdAt) < afterMs)
+    )
+      return items;
+    cursor = page.nextCursor;
+  }
+  throw new Error('golden fish ledger pagination exceeded');
+}
 
 /**
  * realtime 전달 어댑터가 없는 운영 버전에서도 새로 적립된 golden_fish 원장 행을
@@ -23,6 +41,7 @@ export function useGoldenFishLedger({
   active,
   islandId,
   sessionId,
+  sinceMs,
   members,
   onGoldenFish,
   clockOffsetMs = 0,
@@ -31,6 +50,7 @@ export function useGoldenFishLedger({
   active: boolean;
   islandId: string | null;
   sessionId: string | null;
+  sinceMs: number;
   members: () => GoldenFishMember[];
   onGoldenFish: (event: GoldenFishEvent) => void;
   clockOffsetMs?: number;
@@ -46,8 +66,7 @@ export function useGoldenFishLedger({
   useEffect(() => {
     if (!active || !islandId || !sessionId) return;
     const generation = sessionGeneration();
-    const mountedAt = Date.now() + offsetRef.current;
-    let cursorMs = mountedAt;
+    let cursorMs = sinceMs;
     let disposed = false;
     let reading = false;
     const seen = new Set<string>();
@@ -57,18 +76,19 @@ export function useGoldenFishLedger({
       reading = true;
       const requestedAt = Date.now() + offsetRef.current;
       try {
-        const pages = await Promise.all(
-          monthsBetween(cursorMs - LOOKBACK_MS, requestedAt).map((month) =>
-            getLedger(islandId, { month, direction: 'earn' }),
-          ),
-        );
+        const items = (
+          await Promise.all(
+            monthsBetween(cursorMs - LOOKBACK_MS, requestedAt).map((month) =>
+              ledgerItemsSince(islandId, month, cursorMs - LOOKBACK_MS),
+            ),
+          )
+        ).flat();
         if (disposed || generation !== sessionGeneration()) return;
-        const entries = pages
-          .flatMap((page) => page.items)
+        const entries = items
           .filter(
             (entry) =>
               entry.reason === 'golden_fish' &&
-              Date.parse(entry.createdAt) > mountedAt &&
+              Date.parse(entry.createdAt) >= sinceMs &&
               Date.parse(entry.createdAt) >= cursorMs - LOOKBACK_MS &&
               !seen.has(entry.id),
           )
@@ -98,10 +118,11 @@ export function useGoldenFishLedger({
       }
     };
 
+    void read();
     const timer = setInterval(() => void read(), pollMs);
     return () => {
       disposed = true;
       clearInterval(timer);
     };
-  }, [active, islandId, pollMs, sessionId]);
+  }, [active, islandId, pollMs, sessionId, sinceMs]);
 }
