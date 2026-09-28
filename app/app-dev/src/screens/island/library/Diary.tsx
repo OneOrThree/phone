@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Image, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { art, Seg } from '@/design-system/patterns';
 import { Button } from '@/design-system/primitives';
@@ -60,6 +60,15 @@ export function Diary({ e, font }: { e: any; font?: string }) {
     rangeOverride: !neighbors && period === '주' && offset === 0 ? undefined : range,
     islandKey: state.islandId,
   });
+  // 도서관 새 읽을거리 배지는 이 화면이 실제로 표시한 /screens/library 응답으로만 확인 처리한다.
+  const markLibrarySeen = e.buildingIndicators?.markLibrarySeen;
+  const seenScreen = useRef<unknown>(null);
+  useEffect(() => {
+    if (!server || state.visitingIslandId || srv.status !== 'ready' || !srv.screen) return;
+    if (!markLibrarySeen || seenScreen.current === srv.screen) return;
+    seenScreen.current = srv.screen;
+    void markLibrarySeen(srv.screen);
+  }, [markLibrarySeen, server, srv.screen, srv.status, state.visitingIslandId]);
   const allDays = datesBetween(range.from, range.to);
   const days = allDays.filter((key) => key <= today);
   const selectedDate =

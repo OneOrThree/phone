@@ -60,6 +60,9 @@ import {
   normalizedConstructionProgress,
 } from '@/screens/island/constructionProgress';
 import {
+  BUILDING_ENTRY_DURATION_MS,
+  BUILDING_TRANSITION_DURATION_MS,
+  BUILDING_SPRITE_LEAD_IN_MS,
   BUILDING_TRANSITION_ROUTE,
   createBuildingTransitionController,
   runBuildingEntryWalk,
@@ -69,6 +72,15 @@ import {
 import { BuildingTransitionOverlay } from './BuildingTransitionOverlay';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
+import {
+  VillageObservatoryMotion,
+  type ObservatoryRankState,
+} from '@/components/village-motion/VillageObservatoryMotion';
+import { ShopMotion, type ShopMotionState } from '@/components/village-motion/ShopMotion';
+import { LibraryMotion, type LibraryMotionState } from '@/components/village-motion/LibraryMotion';
+import { FireMotion } from '@/components/village-motion/FireMotion';
+import { RaftWaterMotion } from '@/components/village-motion/RaftWaterMotion';
+import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
@@ -98,6 +110,28 @@ const layer: Record<Building, string> = {
   tower: 'observatory',
   shop: 'shop',
 };
+const legacyBuildingLabelBox: Record<Building, { x: number; y: number; w: number }> = {
+  hall: { x: 949, y: 21, w: 242 },
+  board: { x: 856, y: 157, w: 80 },
+  gram: { x: 330, y: 391, w: 73 },
+  library: { x: 1120, y: 288, w: 239 },
+  mail: { x: 298, y: 520, w: 46 },
+  tower: { x: 150, y: 24, w: 112 },
+  shop: { x: 456, y: 580, w: 262 },
+};
+const legacyBuildingLabelAnchorY: Record<Building, number> = {
+  hall: 70,
+  board: 157,
+  gram: 365,
+  library: 310,
+  mail: 494,
+  tower: 52,
+  shop: 603,
+};
+const legacyBuildingLabelAnchorXOffset: Partial<Record<Building, number>> = {
+  tower: -12,
+};
+const rightAlignedBuildingLabels = new Set<Building>(['hall', 'library', 'shop']);
 type Door = Point & {
   r: Route;
   label: string;
@@ -128,7 +162,7 @@ const legacyDoors: Record<string, Door> = {
   mail: { x: 320, y: 596, r: 'mail', label: buildingNames.mail, building: 'mail' },
   tower: { x: 272, y: 200, r: 'tower', label: buildingNames.tower, building: 'tower' },
   shop: { x: 577, y: 783, r: 'shop', label: buildingNames.shop, building: 'shop' },
-  raft: { x: 274, y: 740, r: 'boat', label: '내 뗏목', memberOnly: true },
+  raft: { x: 274, y: 740, r: 'boat', label: '뗏목', memberOnly: true },
   fishingIsland: {
     x: 1345,
     y: 882,
@@ -263,6 +297,32 @@ function Wanderer({
     </Animated.View>
   );
 }
+export type VillageDayNight = 'day' | 'night';
+
+const localDayNight = (): VillageDayNight => {
+  const hour = new Date().getHours();
+  return hour >= 6 && hour < 18 ? 'day' : 'night';
+};
+
+/** 기기 현지 시각의 낮(06~18시)·밤. 웹 데모 쿼리 ?demo&night 로 고정할 수 있다. */
+export function useVillageDayNight(): VillageDayNight {
+  const demoParams =
+    Platform.OS === 'web' && typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search)
+      : null;
+  const demo = demoParams?.has('demo') === true;
+  const demoNight = demo && demoParams!.has('night');
+  const [dayNight, setDayNight] = useState<VillageDayNight>(() =>
+    demo ? (demoNight ? 'night' : 'day') : localDayNight(),
+  );
+  useEffect(() => {
+    if (demo) return;
+    const timer = setInterval(() => setDayNight(localDayNight()), 60_000);
+    return () => clearInterval(timer);
+  }, [demo]);
+  return dayNight;
+}
+
 export function WorldMap({
   state,
   islandId,
@@ -273,8 +333,18 @@ export function WorldMap({
   hallMotionActive = false,
   hallMotionGeneration = 0,
   boardStatus = null,
+  observatoryRankState = 'normal',
+  shopState = 'normal',
+  libraryState = 'normal',
+  libraryArrivalActive = false,
+  libraryArrivalGeneration = 0,
+  towerArrivalActive = false,
+  towerArrivalGeneration = 0,
+  shopArrivalActive = false,
+  shopArrivalGeneration = 0,
   village,
   hiddenVillageBuilding,
+  dayNight: dayNightProp,
   children,
 }: {
   state: State;
@@ -286,14 +356,27 @@ export function WorldMap({
   hallMotionActive?: boolean;
   hallMotionGeneration?: number;
   boardStatus?: 'unread' | 'new-comment' | null;
+  observatoryRankState?: ObservatoryRankState;
+  shopState?: ShopMotionState;
+  libraryState?: LibraryMotionState;
+  libraryArrivalActive?: boolean;
+  libraryArrivalGeneration?: number;
+  towerArrivalActive?: boolean;
+  towerArrivalGeneration?: number;
+  shopArrivalActive?: boolean;
+  shopArrivalGeneration?: number;
   village?: VillageScene;
   hiddenVillageBuilding?: Building;
+  /** 부모가 같은 낮·밤 판정으로 진입 모션을 조율할 때 넘긴다. 없으면 직접 계산한다. */
+  dayNight?: VillageDayNight;
   children?:
     React.ReactNode | ((scale: number, project: (point: Point) => Point) => React.ReactNode);
 }) {
   const L = useAppLayout(),
     grid: Grid = fishing ? grids.fishing : (village?.grid ?? grids.home),
     island = state.islands.find((item) => item.id === islandId) ?? homeIsland(state);
+  const ownDayNight = useVillageDayNight();
+  const dayNight = dayNightProp ?? ownDayNight;
   const mailboxLetters = !fishing && (showMailboxLetters ?? hasMailboxLetters(state, island.id));
   const [camera, setCamera] = useState({
     x: fishing ? 512 : village ? 800 : 585,
@@ -410,6 +493,11 @@ export function WorldMap({
     node?.addEventListener?.('wheel', wheel, { passive: false });
     return () => node?.removeEventListener?.('wheel', wheel);
   }, []);
+  // 낮에는 회관·전망대·상점·도서관을 모션 프레임이 그리므로, 테마 착색도 현재 프레임 위에 입힌다.
+  const themed = (b: Building) =>
+    !!island.buildingThemes?.[b] && island.buildingThemes[b] !== 'default';
+  const framesDrawTheme = (b: Building) =>
+    dayNight === 'day' && (b === 'hall' || b === 'tower' || b === 'shop' || b === 'library');
   return (
     <View
       ref={view}
@@ -439,7 +527,9 @@ export function WorldMap({
             >
               <SvgImage
                 href={
-                  village ? villageAssets['terrain.png'] : assets['backgrounds/island/base/day.png']
+                  village
+                    ? villageAssets['terrain.png']
+                    : assets[`backgrounds/island/base/${dayNight}.png`]
                 }
                 x={-800 * scale}
                 y={-936 * scale}
@@ -479,7 +569,7 @@ export function WorldMap({
               ? require('@/assets/reference-v2/fishing-island.png')
               : village
                 ? villageAssets['terrain.png']
-                : assets['backgrounds/island/base/day.png']
+                : assets[`backgrounds/island/base/${dayNight}.png`]
           }
           style={{ width: '100%', height: '100%' }}
           resizeMode="stretch"
@@ -488,14 +578,17 @@ export function WorldMap({
       {!fishing && !village && (
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
-            .filter((b) => b !== 'mail' || !mailboxLetters)
-            .filter((b) => !(b === 'hall' && !village && !fishing))
-            .filter((b) => !(b === 'board' && !village && !fishing))
+            .filter((b) => !(b === 'mail' && mailboxLetters))
+            .filter((b) => !(b === 'hall' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'shop' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'library' && !village && !fishing && dayNight === 'day'))
             .map((b) => (
               <Image
                 key={b}
                 testID={`world-static-building-${b}`}
-                source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
+                source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
                   left,
@@ -512,29 +605,28 @@ export function WorldMap({
               source={assets['characters/pelican/npc/on-mailbox.png']}
               style={{
                 position: 'absolute',
-                // 에셋 내부 우체통의 바닥·폭을 기존 레이어 rect [298, 520, 46, 63]에 맞춘다.
-                left: left + 251 * scale,
-                top: top + 459 * scale,
-                width: 137 * scale,
-                height: 137 * scale,
+                left: left + 250 * scale,
+                top: top + 456 * scale,
+                width: 140 * scale,
+                height: 140 * scale,
               }}
               resizeMode="contain"
             />
           )}
-          {island.buildings.includes('hall') && (
+          {mailboxLetters && (
+            <VillageNotificationBadge
+              testID="mailbox-new-indicator"
+              accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              scale={scale}
+              style={{ left: left + 348 * scale, top: top + 520 * scale }}
+            />
+          )}
+          {island.buildings.includes('hall') && dayNight === 'day' && (
             <VillageHallMotion
               testID="world-hall-motion"
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
-              highlighted={hallMotionActive}
-              themed={
-                hallMotionActive &&
-                !!island.buildingThemes?.hall &&
-                island.buildingThemes.hall !== 'default'
-              }
-              tooltip={
-                hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
-              }
+              themed={themed('hall')}
               style={{
                 position: 'absolute',
                 left: left + 950 * scale,
@@ -547,16 +639,10 @@ export function WorldMap({
           {island.buildings.includes('board') && (
             <VillageBoardIndicator
               testID="world-board-indicator"
+              showBoardImage={dayNight === 'day'}
               hasUnread={boardStatus === 'unread'}
               hasNewComment={boardStatus === 'new-comment'}
               indicatorScale={scale}
-              tooltip={
-                boardStatus === 'new-comment' ? (
-                  <Txt kind="meta">새 댓글이 있어요</Txt>
-                ) : boardStatus === 'unread' ? (
-                  <Txt kind="meta">읽지 않은 새 소식이 있어요</Txt>
-                ) : undefined
-              }
               style={{
                 position: 'absolute',
                 left: left + 858 * scale,
@@ -566,6 +652,83 @@ export function WorldMap({
               }}
             />
           )}
+          {island.buildings.includes('tower') && (
+            <VillageObservatoryMotion
+              testID="world-observatory-motion"
+              themed={framesDrawTheme('tower') && themed('tower')}
+              rankState={observatoryRankState}
+              dayNight={dayNight}
+              showFrames={dayNight === 'day'}
+              generation={dayNight === 'day' && towerArrivalActive ? towerArrivalGeneration : 0}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                position: 'absolute',
+                left: left + 152 * scale,
+                top: top + 23 * scale,
+                width: 112 * scale,
+                height: 193 * scale,
+              }}
+            />
+          )}
+          {island.buildings.includes('shop') && (
+            <ShopMotion
+              testID="world-shop-motion"
+              themed={framesDrawTheme('shop') && themed('shop')}
+              state={shopState}
+              trigger={shopArrivalActive ? shopArrivalGeneration : 0}
+              entryActive={shopArrivalActive}
+              showFrames={dayNight === 'day'}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                position: 'absolute',
+                left: left + 456 * scale,
+                top: top + 580 * scale,
+                width: 262 * scale,
+                height: 199 * scale,
+              }}
+            />
+          )}
+          {island.buildings.includes('library') && (
+            <LibraryMotion
+              testID="world-library-motion"
+              themed={framesDrawTheme('library') && themed('library')}
+              state={libraryState}
+              indicatorScale={scale}
+              trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
+              entryActive={libraryArrivalActive}
+              showFrames={dayNight === 'day'}
+              reduceMotion={state.settings.reduceMotion}
+              style={{
+                position: 'absolute',
+                left: left + 1120 * scale,
+                top: top + 289 * scale,
+                width: 239 * scale,
+                height: 323 * scale,
+              }}
+            />
+          )}
+          <FireMotion
+            testID="world-fire-motion"
+            mode={dayNight === 'day' ? 'day' : 'evening'}
+            reduceMotion={state.settings.reduceMotion}
+            style={{
+              position: 'absolute',
+              left: left + (dayNight === 'day' ? 402 : 405) * scale,
+              top: top + (dayNight === 'day' ? 425 : 437) * scale,
+              width: (dayNight === 'day' ? 116 : 140) * scale,
+              height: (dayNight === 'day' ? 77 : 93) * scale,
+            }}
+          />
+          <RaftWaterMotion
+            testID="world-raft-water-motion"
+            reduceMotion={state.settings.reduceMotion}
+            style={{
+              left: left + 185 * scale,
+              top: top + 835 * scale,
+              width: 210 * scale,
+              height: 92 * scale,
+            }}
+          />
         </View>
       )}
       {!fishing && island.theme !== 'default' && (
@@ -588,7 +751,8 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
-                !(b === 'hall' && hallMotionActive) &&
+                // 모션 프레임이 착색을 맡는 건물은 닫힌 모습의 정적 테마 레이어를 겹쳐 그리지 않는다.
+                !framesDrawTheme(b) &&
                 island.buildingThemes?.[b] &&
                 island.buildingThemes?.[b] !== 'default',
             )
@@ -596,7 +760,7 @@ export function WorldMap({
               <Image
                 key={b}
                 testID={`world-building-theme-${b}`}
-                source={assets[`backgrounds/island/layers/day/${layer[b]}.png`]}
+                source={assets[`backgrounds/island/layers/${dayNight}/${layer[b]}.png`]}
                 style={{
                   position: 'absolute',
                   left,
@@ -655,7 +819,12 @@ function FinalIslandScene({
   dispatch,
   viewingIslandId,
   motion,
+  showMailboxLetters,
   boardStatus = null,
+  observatoryRankState = 'normal',
+  shopState = 'normal',
+  libraryState = 'normal',
+  onBuildingEntrySound,
   layeredPreview = false,
 }: {
   state: State;
@@ -668,7 +837,13 @@ function FinalIslandScene({
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
   motion?: CatMotionInput;
+  showMailboxLetters?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
+  observatoryRankState?: ObservatoryRankState;
+  shopState?: ShopMotionState;
+  libraryState?: LibraryMotionState;
+  /** 문 소스 확보 전까지는 선택적 연결 계약으로 두고 소리가 꺼져 있으면 호출하지 않는다. */
+  onBuildingEntrySound?: (target: BuildingTransitionTarget, generation: number) => void;
   layeredPreview?: boolean;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
@@ -682,6 +857,7 @@ function FinalIslandScene({
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
     L = useAppLayout();
+  const mailboxLetters = !visiting && (showMailboxLetters ?? hasMailboxLetters(state, i.id));
   const serverConstruction = state.serverIslands?.clientConstruction;
   const trackedConstruction = facts
     ? serverConstruction?.islandId === facts.islandId
@@ -709,6 +885,13 @@ function FinalIslandScene({
     [layeredPreview, i.buildings, sceneBuilding],
   );
   const grid = scene?.grid ?? grids.home;
+  // 진입 리드인 판단과 WorldMap 의 프레임 표시가 같은 낮·밤 값을 보도록 한 번만 계산해 내려준다.
+  const dayNight = useVillageDayNight();
+  const entryFramesVisible = dayNight === 'day';
+  const hasEntrySprite = (target: BuildingTransitionTarget | null) =>
+    !scene &&
+    entryFramesVisible &&
+    (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
   const doors: Record<string, Door> = scene
     ? Object.fromEntries(
         Object.entries(legacyDoors).map(([id, door]) => [
@@ -844,6 +1027,22 @@ function FinalIslandScene({
     [buildingTransitionController],
   );
   useEffect(() => () => buildingTransitionController.dispose(), [buildingTransitionController]);
+  useEffect(() => {
+    const target = buildingTransition.target;
+    if (
+      !state.settings.sound ||
+      buildingTransition.phase !== 'entering' ||
+      (target !== 'hall' && target !== 'library')
+    )
+      return;
+    onBuildingEntrySound?.(target, buildingTransition.generation);
+  }, [
+    buildingTransition.generation,
+    buildingTransition.phase,
+    buildingTransition.target,
+    onBuildingEntrySound,
+    state.settings.sound,
+  ]);
 
   const handleCatPress = (e: any) => {
     if (walking) return;
@@ -1010,18 +1209,68 @@ function FinalIslandScene({
           )
           .map(([id, d]) => {
             const hitbox = d.hitbox ?? { x: d.x - 60, y: d.y - 95, w: 120, h: 125 };
+            const labelOnRight = d.building != null && rightAlignedBuildingLabels.has(d.building);
+            const buildingLabelPosition = (() => {
+              if (id === 'raft') {
+                return scene
+                  ? {
+                      left: (185 - hitbox.x) * s,
+                      top: (805 - hitbox.y) * s,
+                      width: 210 * s,
+                      alignItems: 'center' as const,
+                    }
+                  : {
+                      left: 0,
+                      top: -30,
+                      width: hitbox.w * s,
+                      alignItems: 'center' as const,
+                    };
+              }
+              if (d.building == null) return { left: 0, top: 0, alignItems: 'flex-start' as const };
+              if (scene) {
+                return labelOnRight
+                  ? { right: 0, top: -30, alignItems: 'flex-end' as const }
+                  : { left: 0, top: -30, alignItems: 'flex-start' as const };
+              }
+              const box = legacyBuildingLabelBox[d.building];
+              const anchorY = legacyBuildingLabelAnchorY[d.building];
+              const anchorXOffset = legacyBuildingLabelAnchorXOffset[d.building] ?? 0;
+              return labelOnRight
+                ? {
+                    right: (hitbox.x + hitbox.w - (box.x + box.w)) * s,
+                    top: (anchorY - hitbox.y) * s,
+                    alignItems: 'flex-end' as const,
+                  }
+                : {
+                    left: (box.x + anchorXOffset - hitbox.x) * s,
+                    top: (anchorY - hitbox.y) * s,
+                    alignItems: 'flex-start' as const,
+                  };
+            })();
             return (
               <Pressable
                 key={id}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  id === 'mail' && !visiting && hasMailboxLetters(state, i.id)
+                  id === 'mail' && mailboxLetters
                     ? '우체통, 친구에게 받은 새 편지가 있어요'
                     : d.building === 'board' && boardStatus === 'new-comment'
                       ? `${d.label}, 새 댓글이 있어요`
                       : d.building === 'board' && boardStatus === 'unread'
                         ? `${d.label}, 읽지 않은 새 소식이 있어요`
-                        : d.label
+                        : d.building === 'shop' && shopState === 'new-product'
+                          ? `${d.label}, 새 상품이 있어요`
+                          : d.building === 'shop' && shopState === 'purchasable'
+                            ? `${d.label}, 구매 가능한 상품이 있어요`
+                            : d.building === 'tower' && observatoryRankState === 'rank-updated'
+                              ? `${d.label}, 주간 순위가 갱신되었어요`
+                              : d.building === 'tower' && observatoryRankState === 'rank-changed'
+                                ? `${d.label}, 주간 순위가 바뀌었어요`
+                                : d.building === 'library' && libraryState === 'new-quest'
+                                  ? `${d.label}, 새 퀘스트가 있어요`
+                                  : d.building === 'library' && libraryState === 'new-reading'
+                                    ? `${d.label}, 새 읽을거리가 있어요`
+                                    : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
@@ -1029,9 +1278,15 @@ function FinalIslandScene({
                     ? '터치하면 마을 회관으로 들어가요'
                     : d.building === 'board' && !!boardStatus
                       ? '게시판을 열어 확인하세요'
-                      : visiting && d.building && !['hall', 'board'].includes(d.building)
-                        ? '주민만 이용할 수 있어요'
-                        : undefined
+                      : d.building === 'shop' && shopState !== 'normal'
+                        ? '상점에서 상품을 확인하세요'
+                        : d.building === 'tower' && observatoryRankState !== 'normal'
+                          ? '전망대에서 주간 순위를 확인하세요'
+                          : d.building === 'library' && libraryState !== 'normal'
+                            ? '도서관에서 새 내용을 확인하세요'
+                            : visiting && d.building && !['hall', 'board'].includes(d.building)
+                              ? '주민만 이용할 수 있어요'
+                              : undefined
                 }
                 onPress={() => {
                   if (!visiting) {
@@ -1054,6 +1309,9 @@ function FinalIslandScene({
                         'enter',
                         state.settings.reduceMotion,
                         () => go(BUILDING_TRANSITION_ROUTE[transitionTarget]),
+                        hasEntrySprite(transitionTarget)
+                          ? BUILDING_ENTRY_DURATION_MS
+                          : BUILDING_TRANSITION_DURATION_MS,
                       );
                     };
                     if (transitionTarget) {
@@ -1084,7 +1342,38 @@ function FinalIslandScene({
                   minHeight: 44,
                   zIndex: scene ? 2000 : undefined,
                 }}
-              />
+              >
+                {(d.building || id === 'raft') && (
+                  <View
+                    testID={`building-name-${id}`}
+                    pointerEvents="none"
+                    style={{
+                      position: 'absolute',
+                      ...buildingLabelPosition,
+                    }}
+                  >
+                    <View
+                      style={{
+                        minHeight: componentTokens.villageBuildingNameTag.minHeight,
+                        justifyContent: 'center',
+                        paddingHorizontal: componentTokens.villageBuildingNameTag.paddingHorizontal,
+                        borderRadius: componentTokens.villageBuildingNameTag.radius,
+                        borderWidth: componentTokens.villageBuildingNameTag.borderWidth,
+                        borderColor: semanticTokens.color.outline,
+                        backgroundColor:
+                          (d.building === 'shop' && shopState !== 'normal') ||
+                          (d.building === 'tower' && observatoryRankState !== 'normal')
+                            ? semanticTokens.color.accent
+                            : semanticTokens.color.surface,
+                      }}
+                    >
+                      <Txt kind="meta" numberOfLines={1} style={{ fontWeight: '700' }}>
+                        {d.label}
+                      </Txt>
+                    </View>
+                  </View>
+                )}
+              </Pressable>
             );
           })}
         {/* 주민 고양이 두 마리: 주민 색을 우선 쓰고, 모자라면 내 색과 다른 색으로 채운다 */}
@@ -1181,9 +1470,25 @@ function FinalIslandScene({
           buildingTransition.phase === 'entering' && buildingTransition.target === 'hall'
         }
         hallMotionGeneration={buildingTransition.generation}
-        boardStatus={boardStatus}
-        showMailboxLetters={!visiting && hasMailboxLetters(state, i.id)}
+        boardStatus={visiting ? null : boardStatus}
+        observatoryRankState={observatoryRankState}
+        shopState={shopState}
+        libraryState={visiting ? 'normal' : libraryState}
+        libraryArrivalActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'library'
+        }
+        libraryArrivalGeneration={buildingTransition.generation}
+        towerArrivalActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'tower'
+        }
+        towerArrivalGeneration={buildingTransition.generation}
+        shopArrivalActive={
+          buildingTransition.phase === 'entering' && buildingTransition.target === 'shop'
+        }
+        shopArrivalGeneration={buildingTransition.generation}
+        showMailboxLetters={mailboxLetters}
         hiddenVillageBuilding={activeBuilding}
+        dayNight={dayNight}
         onSpot={
           visiting
             ? undefined
@@ -1375,6 +1680,11 @@ function FinalIslandScene({
         state={buildingTransition}
         reduceMotion={state.settings.reduceMotion}
         origin={transitionOrigin}
+        delayMs={
+          buildingTransition.direction === 'enter' && hasEntrySprite(buildingTransition.target)
+            ? BUILDING_SPRITE_LEAD_IN_MS
+            : 0
+        }
       />
     </View>
   );
@@ -1392,11 +1702,21 @@ export function FinalIsland(props: React.ComponentProps<typeof FinalIslandScene>
         new URLSearchParams(window.location.search).get('village') === 'layered') ||
         process.env.EXPO_PUBLIC_VILLAGE_PREVIEW === '1'),
   );
+  const demoMotionStates =
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined' &&
+    new URLSearchParams(window.location.search).has('demo');
   return (
     <View style={{ flex: 1 }}>
       <FinalIslandScene
         key={layered ? 'layered' : 'original'}
         {...props}
+        boardStatus={props.boardStatus ?? (demoMotionStates ? 'new-comment' : undefined)}
+        observatoryRankState={
+          props.observatoryRankState ?? (demoMotionStates ? 'rank-updated' : undefined)
+        }
+        shopState={props.shopState ?? (demoMotionStates ? 'purchasable' : undefined)}
+        libraryState={props.libraryState ?? (demoMotionStates ? 'new-reading' : undefined)}
         layeredPreview={layered}
       />
       {CAN_PREVIEW_VILLAGE && props.showHud !== false && props.showActions !== false && (

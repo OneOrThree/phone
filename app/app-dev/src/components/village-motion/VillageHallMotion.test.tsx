@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { act, render } from '@testing-library/react-native';
 import { MotionContext } from '@/design-system/primitives';
 import { componentTokens } from '@/design-system/tokens';
@@ -30,14 +31,14 @@ describe('VillageHallMotion', () => {
     await view.unmount();
   });
 
-  it('holds still for normal state and supports highlight and caller-supplied tooltip', async () => {
+  it('holds still for normal state without an outline and supports a caller-supplied tooltip', async () => {
     const view = await render(
-      <VillageHallMotion state="normal" highlighted tooltip={<Text>Weekly goal</Text>} />,
+      <VillageHallMotion state="normal" tooltip={<Text>Weekly goal</Text>} />,
     );
     expect(view.getByTestId('village-hall-frame-0').props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
     );
-    expect(view.getByTestId('village-hall-highlight')).toBeTruthy();
+    expect(view.queryByTestId('village-hall-highlight')).toBeNull();
     const tooltip = view.getByTestId('village-hall-tooltip');
     expect(tooltip).toBeTruthy();
     expect(tooltip.props.style).toMatchObject({
@@ -51,13 +52,14 @@ describe('VillageHallMotion', () => {
     expect(view.getByTestId('village-hall-frame-0').props.style).toEqual(
       expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
     );
-    expect(view.getByTestId('village-hall-theme-tint').props.style).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          tintColor: componentTokens.villageBuildingThemeTint.color,
-          opacity: componentTokens.villageBuildingThemeTint.opacity,
-        }),
-      ]),
+    expect(
+      StyleSheet.flatten(view.getByTestId('village-hall-theme-tint').props.style),
+    ).toMatchObject({
+      tintColor: componentTokens.villageBuildingThemeTint.color,
+      opacity: componentTokens.villageBuildingThemeTint.opacity,
+    });
+    expect(view.getByTestId('village-hall-theme-tint').props.source).toBe(
+      view.getByTestId('village-hall-frame-0').props.source,
     );
     await view.unmount();
   });

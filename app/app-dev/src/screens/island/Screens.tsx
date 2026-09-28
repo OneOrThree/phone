@@ -1017,6 +1017,8 @@ export function RedesignScreens({ e }: any) {
         state={state}
         go={go}
         build={build}
+        libraryState={e.buildingIndicators?.libraryState}
+        showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
         showHud={route !== 'focusSetup'}
         showActions={false}
         motion={route === 'focusSetup' ? 'tilt' : undefined}
@@ -2332,6 +2334,8 @@ export function RedesignScreens({ e }: any) {
             notify={notify}
             dispatch={dispatch}
             boardStatus={e.boardStatus}
+            libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
+            showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
           />
         )}
         {mailboxGuide && (

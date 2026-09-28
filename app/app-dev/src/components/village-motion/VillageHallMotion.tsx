@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useState, type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
+import { VillageThemeTint } from './VillageThemeTint';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 
 export type VillageHallState = 'normal' | 'arrival' | 'new-record' | 'weekly-goal';
@@ -17,7 +18,6 @@ const frameDuration = 180;
 /** 시청의 문 프레임 모션과 기록/주간 목표 강조를 표시한다. */
 export function VillageHallMotion({
   state = 'normal',
-  highlighted = false,
   tooltip,
   reduceMotion = false,
   themed = false,
@@ -26,7 +26,6 @@ export function VillageHallMotion({
   testID = 'village-hall-motion',
 }: {
   state?: VillageHallState;
-  highlighted?: boolean;
   tooltip?: ReactNode;
   reduceMotion?: boolean;
   themed?: boolean;
@@ -59,17 +58,7 @@ export function VillageHallMotion({
           style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
         />
       ))}
-      {themed && (
-        <Image
-          testID="village-hall-theme-tint"
-          source={frames[frame]}
-          resizeMode="stretch"
-          style={[styles.frame, styles.themeTint]}
-        />
-      )}
-      {highlighted && (
-        <View pointerEvents="none" testID="village-hall-highlight" style={styles.highlight} />
-      )}
+      {themed && <VillageThemeTint source={frames[frame]} testID="village-hall-theme-tint" />}
       {tooltip != null && (
         <View testID="village-hall-tooltip" style={styles.tooltip}>
           {tooltip}
@@ -84,20 +73,6 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
-  themeTint: {
-    tintColor: componentTokens.villageBuildingThemeTint.color,
-    opacity: componentTokens.villageBuildingThemeTint.opacity,
-  },
-  highlight: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    borderColor: semanticTokens.color.primary,
-    borderWidth: 2,
-    borderRadius: semanticTokens.radius.preview,
-  },
   tooltip: {
     position: 'absolute',
     alignSelf: 'center',
