@@ -15,6 +15,8 @@ import {
   clearRejectedSession,
   clearSession,
   getSession,
+  LogoutNotDurableError,
+  prepareExplicitLogout,
   saveSession,
   sessionGeneration,
 } from './session';
@@ -282,6 +284,9 @@ function revokeRefreshToken(refreshToken: string): Promise<{ revoked: boolean }>
  * 「만료 AT 를 실어 보내면 401 이므로 앱은 RT 만으로 로그아웃할 수 있다」).
  */
 export async function logout(): Promise<void> {
+  // tombstone을 남기지 못하면 로컬도 서버도 건드리지 않고 실패한다 — 세션을 계속 쓰는 편이
+  // «로그아웃된 줄 알았는데 재실행 때 되살아나는» 상태보다 낫다.
+  await prepareExplicitLogout();
   let refreshToken = getSession()?.refreshToken;
   // 로컬 삭제와 서버 폐기는 **서로 독립**이다(LLD §2.4 「양쪽 실패에도 각각 진행」).
   // 여기만 fence 가 **없다** — 401 정리·checkSession 과 달리 사용자가 직접 누른 로그아웃은
@@ -300,6 +305,10 @@ export async function logout(): Promise<void> {
     },
     (error: unknown) => error ?? new Error('세션 삭제 실패'),
   );
+  if (clearFailure instanceof LogoutNotDurableError) {
+    void guestDeviceRotationFlight.catch(() => {});
+    throw clearFailure;
+  }
   // 게스트 장치 ID는 평소 응답 유실 재시도 멱등성을 위해 보존하지만, 명시 로그아웃은 세션 정리보다
   // 먼저 폐기를 시작한다 — 로그인 화면이 열리자마자 누른 게스트 시작이 옛 ID를 읽지 않도록
   // guestLogin 이 이 로테이션을 기다린다. 삭제가 실패해도 표식이 남아 다음 게스트 요청 전에 재시도한다.

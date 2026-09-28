@@ -118,6 +118,7 @@ import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getLastSessionUserId,
   getSession,
+  prepareExplicitLogout,
   rememberLocalDataOwner,
   restoreSession,
   setSessionLostHandler,
@@ -545,18 +546,18 @@ function Gromo() {
       setIncomingAppLink(null);
       return;
     }
-    if (target.kind === 'unsupported') {
-      setIncomingAppLink(null);
-      if (hasServerSession) goRef.current('home');
-      notifyRef.current('이 초대·그룹 링크는 현재 버전에서 지원하지 않아 홈으로 이동했어요.');
-      return;
-    }
     // 앱 부팅 전이나 로그인 중 받은 링크는 보관했다가 세션이 준비된 뒤에만 연다.
     // 딥링크가 로그인 화면을 우회해 회원 전용 화면을 노출하지 않게 한다.
     // 로그인 응답으로 session store만 먼저 바뀌는 틈이 있다. 채택 완료로 login route가
     // 벗어난 뒤 처리해야 이후 /me·온보딩 경로 판정이 링크 목적지를 덮지 않는다.
+    // 지원하지 않는 초대·그룹 링크도 같은 guard 뒤에서 홈 이동과 안내를 함께 처리한다.
     if (!hasServerSession || route === 'login') return;
     setIncomingAppLink(null);
+    if (target.kind === 'unsupported') {
+      goRef.current('home');
+      notifyRef.current('이 초대·그룹 링크는 현재 버전에서 지원하지 않아 홈으로 이동했어요.');
+      return;
+    }
     goRef.current(target.route);
   }, [loaded, incomingAppLink, hasServerSession, route]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
@@ -1529,7 +1530,16 @@ function Gromo() {
   };
   // 정책: 「로그아웃은 서버 데이터를 유지하고 현재 기기 세션만 종료한다」. 서버 호출이 실패해도
   // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.
-  const signOut = () => {
+  // 로그인 화면으로 넘어가도 되면 true. 기기에 로그아웃을 기록하지 못하면 세션이 남으므로 false.
+  const signOut = async (): Promise<boolean> => {
+    if (!REVIEW && !DEMO) {
+      try {
+        await prepareExplicitLogout();
+      } catch {
+        notify('기기 저장 공간 문제로 로그아웃하지 못했어요. 잠시 후 다시 시도해 주세요.');
+        return false;
+      }
+    }
     socialLoginAttempt.current = null;
     conversionLoginAttempt.current = null;
     conversionSessionTransition.current = null;
@@ -1539,6 +1549,7 @@ function Gromo() {
     settleSwitch(false);
     void endLiveActivities().catch(() => {});
     logout().catch(() => {});
+    return true;
   };
   const send = () => {
     if (!text.trim()) return;

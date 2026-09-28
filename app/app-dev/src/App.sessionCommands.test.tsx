@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
 import type { Account } from '@/services/api/auth';
@@ -27,6 +27,9 @@ const mockRestoreSession = jest.fn();
 const mockDecideBootRoute = jest.fn();
 const mockSyncIslands = jest.fn();
 const mockRecoverFocus = jest.fn();
+const mockPrepareLogout = jest.fn();
+const mockLogout = jest.fn(async () => {});
+let mockEmitAppLink: ((url: string) => void) | undefined;
 let mockAppDispatch: ((action: any) => void) | undefined;
 const mockAdoptSignedInAccount = jest.fn(
   async (result: { userId: string }, ..._args: any[]): Promise<Account> => ({
@@ -50,8 +53,21 @@ jest.mock('@/services/api/auth', () => ({
   checkSession: (...args: unknown[]) => mockCheckSession(...args),
   guestLogin: (...args: unknown[]) => mockGuestLogin(...args),
   login: (...args: unknown[]) => mockApiLogin(...args),
-  logout: async () => {},
+  logout: () => mockLogout(),
 }));
+
+jest.mock('@/services/appDeepLink', () => {
+  const actual = jest.requireActual('@/services/appDeepLink');
+  return {
+    ...actual,
+    subscribeToAppLinks: (onUrl: (url: string) => void) => {
+      mockEmitAppLink = onUrl;
+      return () => {
+        mockEmitAppLink = undefined;
+      };
+    },
+  };
+});
 
 jest.mock('@/services/socialLogin', () => ({
   socialCredential: (...args: unknown[]) => mockSocialCredential(...args),
@@ -76,7 +92,11 @@ jest.mock('@/services/termsVersion', () => ({
 
 jest.mock('@/services/api/session', () => {
   const actual = jest.requireActual('@/services/api/session');
-  return { ...actual, restoreSession: (...args: unknown[]) => mockRestoreSession(...args) };
+  return {
+    ...actual,
+    restoreSession: (...args: unknown[]) => mockRestoreSession(...args),
+    prepareExplicitLogout: () => mockPrepareLogout(),
+  };
 });
 
 jest.mock('@/services/islandBoot', () => ({
@@ -128,6 +148,8 @@ beforeEach(async () => {
   mockApiLogin.mockReset();
   mockSocialCredential.mockReset();
   mockGuestLogin.mockReset();
+  mockPrepareLogout.mockReset();
+  mockPrepareLogout.mockResolvedValue(undefined);
   mockCheckSession.mockResolvedValue({ status: 'offline' });
   mockRestoreSession.mockResolvedValue(null);
   mockDecideBootRoute.mockResolvedValue('login');
@@ -965,6 +987,52 @@ test('A→B 채택 진행 중과 실패 뒤에는 B 상태를 A owner 아래 저
   assert.ok(!afterFailure || JSON.parse(afterFailure).name !== 'B');
   assert.equal(getLastSessionUserId(), 'user-a');
   mockDecideBootRoute.mockReset();
+});
+
+test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 로그인 화면 전환을 막는다', async () => {
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  mockPrepareLogout.mockRejectedValueOnce(new Error('tombstone 실패'));
+
+  let result: boolean | undefined;
+  await act(async () => {
+    result = await captured.signOut();
+  });
+  assert.equal(result, false);
+  assert.equal(mockLogout.mock.calls.length, 0);
+  assert.ok(screen.getByText(/로그아웃하지 못했어요/));
+
+  await act(async () => {
+    result = await captured.signOut();
+  });
+  assert.equal(result, true);
+  assert.equal(mockLogout.mock.calls.length, 1);
+});
+
+test('미인증 상태의 지원 불가 레거시 링크는 로그인 화면을 벗어난 뒤에 홈 안내로 처리한다', async () => {
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.ok(mockEmitAppLink));
+  await waitFor(() => assert.equal(captured.route, 'login'));
+
+  await act(async () => mockEmitAppLink!('gromo://join?g=group-id'));
+  assert.equal(screen.queryByText(/지원하지 않아 홈으로 이동했어요/), null);
+  assert.equal(captured.route, 'login');
+
+  await act(async () => {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  });
+  assert.equal(screen.queryByText(/지원하지 않아 홈으로 이동했어요/), null);
+
+  await act(async () => captured.reset('home'));
+  await waitFor(() => assert.ok(screen.getByText(/지원하지 않아 홈으로 이동했어요/)));
+  assert.equal(captured.route, 'home');
 });
 
 test('CurrentScreens에는 실제 공개 세션이 있을 때만 서버 섬·집중 명령을 주입한다', async () => {

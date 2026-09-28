@@ -292,6 +292,36 @@ async function migrateLegacySession(): Promise<Session | null> {
   return session;
 }
 
+/** 로그아웃 tombstone을 어느 저장소에도 기록하지 못했다. 세션은 그대로 남아 있다. */
+export class LogoutNotDurableError extends Error {
+  constructor(readonly cause: unknown) {
+    super('로그아웃 상태를 기기에 기록하지 못했어요.');
+    this.name = 'LogoutNotDurableError';
+  }
+}
+
+async function writeAndroidLogoutTombstone(): Promise<void> {
+  try {
+    await AsyncStorage.setItem(KEY_ANDROID_LOGOUT_PENDING, '1');
+  } catch (error) {
+    try {
+      await SecureStore.setItemAsync(KEY_ANDROID_LOGOUT_PENDING, '1');
+    } catch {
+      throw new LogoutNotDurableError(error);
+    }
+  }
+}
+
+/**
+ * 명시 로그아웃의 첫 단계. Android는 세션을 지우기 전에 tombstone을 남겨야 하므로, 기록하지
+ * 못하면 아무것도 바꾸지 않고 {@link LogoutNotDurableError}를 던진다. 화면은 이 결과를 보고
+ * 로그인 화면 전환 여부를 정한다 — 실패한 로그아웃을 성공처럼 보여 주면 재실행 때 계정이 복구된다.
+ */
+export function prepareExplicitLogout(): Promise<void> {
+  if (Platform.OS !== 'android') return Promise.resolve();
+  return serialized(writeAndroidLogoutTombstone);
+}
+
 /** An explicit Android logout must win over a crash before legacy RT cleanup completes. */
 async function finishInterruptedAndroidLogout(): Promise<boolean> {
   const [asyncMarker, secureMarker] = await Promise.all([
@@ -524,18 +554,9 @@ export function clearSession(
     const swallow = (error: unknown): void => void failed.push(error);
     let logoutTombstoneWritten = false;
     if (Platform.OS === 'android' && explicitLogout) {
-      try {
-        await AsyncStorage.setItem(KEY_ANDROID_LOGOUT_PENDING, '1');
-        logoutTombstoneWritten = true;
-      } catch (error) {
-        try {
-          await SecureStore.setItemAsync(KEY_ANDROID_LOGOUT_PENDING, '1');
-          logoutTombstoneWritten = true;
-        } catch {
-          // Without a durable tombstone, do not invalidate the bundle: a crash could migrate legacy RT.
-          throw error;
-        }
-      }
+      // Without a durable tombstone, do not invalidate the bundle: a crash could migrate legacy RT.
+      await writeAndroidLogoutTombstone();
+      logoutTombstoneWritten = true;
     }
     const cleared = cached;
     cached = null;

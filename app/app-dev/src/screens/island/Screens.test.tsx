@@ -1360,6 +1360,23 @@ test('목업 모드 프로필 저장은 API 없이 로컬 PROFILE을 갱신한�
   assert.equal(backMock.mock.calls.length, 1);
 });
 
+test('로그아웃이 기기에 기록되지 않으면 LOGOUT·로그인 이동 없이 설정에 남는다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+  exposed.signOut.mockResolvedValueOnce(false);
+
+  await fireEvent.press(s.getByText('로그아웃'));
+  await waitFor(() => assert.equal(exposed.signOut.mock.calls.length, 1));
+  assert.ok(!exposed.actions.includes('LOGOUT'));
+  assert.equal(exposed.reset.mock.calls.length, 0);
+
+  await fireEvent.press(s.getByText('로그아웃'));
+  await waitFor(() => assert.equal(exposed.reset.mock.calls[0]?.[0], 'login'));
+  assert.ok(exposed.actions.includes('LOGOUT'));
+});
+
 test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로그인 이동을 수행한다', async () => {
   let exposed: any;
   mockWithdrawAccount.mockResolvedValue({ deleted: true });

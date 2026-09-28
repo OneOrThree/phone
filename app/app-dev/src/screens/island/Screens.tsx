@@ -6013,8 +6013,9 @@ export function RedesignScreens({ e }: any) {
             title="로그아웃"
             chevron
             onPress={() =>
-              confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', () => {
-                e.signOut();
+              confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', async () => {
+                // 기기에 로그아웃을 기록하지 못했으면 세션이 남아 있으니 로그인 화면으로 가지 않는다.
+                if ((await e.signOut()) === false) return;
                 act('LOGOUT');
                 reset('login');
               })

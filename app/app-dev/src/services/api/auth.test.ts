@@ -7,6 +7,7 @@ import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import {
   clearSession,
   getSession,
+  LogoutNotDurableError,
   restoreSession,
   saveSession,
   sessionGeneration,
@@ -485,6 +486,42 @@ test('logout — 서버 호출이 실패해도 로컬 세션은 이미 비어 �
 
   assert.equal(getSession(), null);
   assert.equal(await restoreSession(), null);
+});
+
+test('Android logout — tombstone을 어디에도 못 쓰면 세션·서버·기기 ID를 건드리지 않고 실패한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const writeAsync = AsyncStorage.setItem as jest.Mock;
+  const realWriteAsync = writeAsync.getMockImplementation() as (
+    key: string,
+    value: string,
+  ) => Promise<void>;
+  try {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    await SecureStore.setItemAsync('gromo.guestDeviceId', 'device-1');
+    const generation = sessionGeneration();
+    writeAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.androidLegacyLogoutPending') throw new Error('AsyncStorage 쓰기 실패');
+      return realWriteAsync(key, value);
+    });
+    write.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.androidLegacyLogoutPending') throw new Error('키체인 쓰기 실패');
+      return realWrite(key, value);
+    });
+    stub([{ status: 200, body: { data: { revoked: true } } }]);
+
+    await assert.rejects(logout(), LogoutNotDurableError);
+
+    assert.equal(calls.length, 0);
+    assert.equal(getSession()?.userId, 'u1');
+    assert.equal(sessionGeneration(), generation);
+    assert.equal(await SecureStore.getItemAsync('gromo.guestDeviceId'), 'device-1');
+    assert.equal((await restoreSession())?.userId, 'u1');
+  } finally {
+    writeAsync.mockImplementation(realWriteAsync);
+    write.mockImplementation(realWrite);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
 });
 
 test('logout — 로컬 삭제가 실패해도 서버 폐기는 보낸다', async () => {

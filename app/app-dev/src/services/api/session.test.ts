@@ -8,6 +8,7 @@ import {
   clearSession,
   getLastSessionUserId,
   getSession,
+  LogoutNotDurableError,
   rememberLocalDataOwner,
   restoreSession,
   saveRefreshedSession,
@@ -169,7 +170,12 @@ test('Android logout tombstone 기록이 두 저장소에서 실패하면 bundle
   });
 
   try {
-    await assert.rejects(clearSession(undefined, false, true), /AsyncStorage tombstone 실패/);
+    await assert.rejects(
+      clearSession(undefined, false, true),
+      (error: unknown) =>
+        error instanceof LogoutNotDurableError &&
+        /AsyncStorage tombstone 실패/.test(String((error.cause as Error).message)),
+    );
     assert.deepEqual(getSession(), original);
     assert.deepEqual(await restoreSession(), original);
   } finally {
