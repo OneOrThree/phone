@@ -6,7 +6,9 @@ import {
   CLIENT_STALE_SESSION,
   CLIENT_TIMEOUT,
   DEV_API_URL,
+  isProductionApiUrl,
   LOCAL_WEB_API_URL,
+  PRODUCTION_API_URL,
   REQUEST_TIMEOUT_MS,
   request,
   resolveApiUrl,
@@ -63,6 +65,13 @@ test('resolveApiUrl — 웹 개발은 로컬, 웹 배포는 dev, 네이티브는
   assert.equal(resolveApiUrl('web', 'https://prod.example', false), DEV_API_URL);
   assert.equal(resolveApiUrl('ios', 'https://injected.example', true), 'https://injected.example');
   assert.equal(resolveApiUrl('ios', undefined, true), DEV_API_URL);
+});
+
+test('프로덕션 API URL 검증 — 운영 주소만 release API로 인정한다', () => {
+  assert.equal(isProductionApiUrl(PRODUCTION_API_URL), true);
+  assert.equal(isProductionApiUrl(`${PRODUCTION_API_URL}/`), false);
+  assert.equal(isProductionApiUrl(DEV_API_URL), false);
+  assert.equal(isProductionApiUrl(undefined), false);
 });
 
 test('uuid — 하이픈 포함 36자 정규 표기 (서버가 길이·왕복을 검사한다)', () => {

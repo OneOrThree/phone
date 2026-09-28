@@ -176,7 +176,7 @@ function Harness({
   const confirm = useRef(jest.fn((_title, _body, ok) => ok())).current;
   useEffect(() => {
     seed?.(dispatch);
-    expose?.({ dispatch, actions: actions.current, go, home, reset, signOut });
+    expose?.({ dispatch, actions: actions.current, go, home, reset, signOut, confirm });
   }, []);
   const screens = (
     <RedesignScreens
@@ -1136,6 +1136,20 @@ test('목업 앱 설정에서는 실제 안전 API 진입로를 숨긴다', asyn
   const s = await render(<Harness route="settings" full />);
 
   assert.equal(s.queryByText('차단한 사용자'), null);
+});
+
+test('앱 정보의 개인정보 안내는 서버 저장과 분석 전송을 사실대로 설명한다', async () => {
+  let exposed: any;
+  const s = await render(
+    <Harness route="settings" full expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.press(s.getByText('이용약관 · 개인정보'));
+  const explanation = exposed.confirm.mock.calls.at(-1)[1] as string;
+  assert.match(explanation, /계정 식별 정보가 서버로 전달/);
+  assert.match(explanation, /섬·주민 활동, 친구·편지, 집중 기록/);
+  assert.match(explanation, /PostHog/);
+  assert.doesNotMatch(explanation, /로컬 목업|서버로 전송하지 않아요/);
 });
 
 test('서버 앱 설정의 안전 섹션에서 차단 사용자 목록으로 진입한다', async () => {

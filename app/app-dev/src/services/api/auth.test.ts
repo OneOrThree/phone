@@ -33,14 +33,22 @@ const header = (call: Call, name: string) => (call.init.headers as Record<string
 
 const remove = SecureStore.deleteItemAsync as jest.Mock;
 const realRemove = remove.getMockImplementation() as (key: string) => Promise<void>;
+const write = SecureStore.setItemAsync as jest.Mock;
+const realWrite = write.getMockImplementation() as (key: string, value: string) => Promise<void>;
 const read = SecureStore.getItemAsync as jest.Mock;
 const realRead = read.getMockImplementation() as (key: string) => Promise<string | null>;
 
 beforeEach(async () => {
   remove.mockImplementation(realRemove);
+  write.mockImplementation(realWrite);
   read.mockImplementation(realRead);
   calls.length = 0;
-  await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
+  await AsyncStorage.multiRemove([
+    'gromo:accessToken',
+    'gromo:refreshToken',
+    'gromo:user',
+    'gromo.guestDeviceIdRotationPending',
+  ]);
   await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
   await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
   await clearSession();
@@ -110,6 +118,41 @@ test('명시 로그아웃 뒤 다음 게스트 시작은 새 기기 UUID를 쓰�
   const nextDeviceId = header(calls[2], 'X-Device-Id');
   assert.notEqual(nextDeviceId, firstDeviceId);
   assert.equal(header(calls[3], 'X-Device-Id'), nextDeviceId);
+});
+
+test('로그아웃 때 기기 ID 삭제 실패가 호출부에서 삼켜져도 다음 게스트 요청 전 재시도한다', async () => {
+  stub([
+    session('GUEST', 'guest-1'),
+    { status: 200, body: { data: { revoked: true } } },
+    session('GUEST', 'guest-2'),
+  ]);
+  await guestLogin();
+  const oldDeviceId = header(calls[0], 'X-Device-Id');
+
+  remove.mockImplementation(async (key: string) => {
+    if (key === 'gromo.guestDeviceId') throw new Error('기기 ID 삭제 실패');
+    return realRemove(key);
+  });
+  await logout().catch(() => {});
+  assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), '1');
+
+  remove.mockImplementation(realRemove);
+  let failFreshIdOnce = true;
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.guestDeviceId' && failFreshIdOnce) {
+      failFreshIdOnce = false;
+      throw new Error('새 기기 ID 저장 실패');
+    }
+    return realWrite(key, value);
+  });
+  await guestLogin().catch(() => {});
+  assert.equal(calls.length, 2);
+  assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), '1');
+
+  write.mockImplementation(realWrite);
+  await guestLogin();
+  assert.notEqual(header(calls[2], 'X-Device-Id'), oldDeviceId);
+  assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), null);
 });
 
 test('login — 시도 id 를 헤더로 보내고 토큰을 보안 저장소에 넣는다', async () => {

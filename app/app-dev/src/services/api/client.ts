@@ -25,7 +25,12 @@ import {
 } from './session';
 
 export const DEV_API_URL = 'https://oneorthree.dev.mooo.com';
+export const PRODUCTION_API_URL = 'https://api.oneorthree.world';
 export const LOCAL_WEB_API_URL = 'http://localhost:8080';
+
+export function isProductionApiUrl(value: string | undefined): boolean {
+  return value?.trim() === PRODUCTION_API_URL;
+}
 
 /**
  * 레거시 `apiBaseUrl.ts` 이식. 웹 개발 서버는 로컬 백엔드를, 웹 배포 빌드는 팀 dev 백엔드를 쓴다 —

@@ -105,6 +105,7 @@ import {
 } from '@/services/api/auth';
 import { loginProviders } from '@/services/loginProviders';
 import { TERMS_VERSION } from '@/services/termsVersion';
+import { openLegalDocument } from '@/services/legalDocuments';
 import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
 import {
   ApiError,
@@ -127,6 +128,7 @@ import { createIslandCommands } from '@/services/islandCommands';
 import { createSessionCommands } from '@/services/sessionCommands';
 import { decideBootRoute } from '@/services/islandBoot';
 import { createShieldedRouteTransition } from '@/services/routeTransition';
+import { parseAppDeepLink, subscribeToAppLinks } from '@/services/appDeepLink';
 import {
   BUILDING_TRANSITION_DURATION_MS,
   BUILDING_TRANSITION_RETURN_TARGET,
@@ -331,6 +333,7 @@ function Gromo() {
     focus: number;
     rest: number;
   } | null>(null);
+  const [incomingAppLink, setIncomingAppLink] = useState<string | null>(null);
   const socialLoginAttempt = useRef<{
     provider: Provider;
     credential: string;
@@ -525,6 +528,30 @@ function Gromo() {
   routeRef.current = route;
   const goRef = useRef(go);
   goRef.current = go;
+  const notifyRef = useRef(notify);
+  notifyRef.current = notify;
+  useEffect(() => subscribeToAppLinks((url) => setIncomingAppLink(url)), []);
+  useEffect(() => {
+    if (!loaded || !incomingAppLink) return;
+    const target = parseAppDeepLink(incomingAppLink);
+    if (!target) {
+      setIncomingAppLink(null);
+      return;
+    }
+    if (target.kind === 'unsupported') {
+      setIncomingAppLink(null);
+      if (hasServerSession) goRef.current('home');
+      notifyRef.current('이 초대·그룹 링크는 현재 버전에서 지원하지 않아 홈으로 이동했어요.');
+      return;
+    }
+    // 앱 부팅 전이나 로그인 중 받은 링크는 보관했다가 세션이 준비된 뒤에만 연다.
+    // 딥링크가 로그인 화면을 우회해 회원 전용 화면을 노출하지 않게 한다.
+    // 로그인 응답으로 session store만 먼저 바뀌는 틈이 있다. 채택 완료로 login route가
+    // 벗어난 뒤 처리해야 이후 /me·온보딩 경로 판정이 링크 목적지를 덮지 않는다.
+    if (!hasServerSession || route === 'login') return;
+    setIncomingAppLink(null);
+    goRef.current(target.route);
+  }, [loaded, incomingAppLink, hasServerSession, route]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({
     dispatch,
@@ -1505,6 +1532,7 @@ function Gromo() {
         e={{
           state,
           route,
+          termsVersion: TERMS_VERSION,
           routeTransitionShielded,
           dispatch,
           go,
@@ -1834,6 +1862,30 @@ function Gromo() {
                       현재 약관 버전 {TERMS_VERSION}에 동의합니다.
                     </NativeText>
                   </Pressable>
+                  <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 18 }}>
+                    <Pressable
+                      testID="member-conversion-terms-link"
+                      accessibilityRole="link"
+                      accessibilityLabel="이용약관 열기"
+                      onPress={() => void openLegalDocument('terms')}
+                      hitSlop={8}
+                    >
+                      <NativeText style={{ color: C.muted, textDecorationLine: 'underline' }}>
+                        이용약관 보기
+                      </NativeText>
+                    </Pressable>
+                    <Pressable
+                      testID="member-conversion-privacy-link"
+                      accessibilityRole="link"
+                      accessibilityLabel="개인정보 처리방침 열기"
+                      onPress={() => void openLegalDocument('privacy')}
+                      hitSlop={8}
+                    >
+                      <NativeText style={{ color: C.muted, textDecorationLine: 'underline' }}>
+                        개인정보 처리방침 보기
+                      </NativeText>
+                    </Pressable>
+                  </View>
                   {(TERMS_VERSION ? loginProviders() : []).map((provider) => (
                     <NativeButton
                       key={provider}

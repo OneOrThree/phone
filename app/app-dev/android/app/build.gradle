@@ -108,6 +108,12 @@ gradle.taskGraph.whenReady { taskGraph ->
             "Android release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요."
         )
     }
+    def apiUrl = System.getenv("EXPO_PUBLIC_API_URL")
+    if (includesReleaseArtifactTask && apiUrl != "https://api.oneorthree.world") {
+        throw new GradleException(
+            "Android release 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요."
+        )
+    }
     if (includesReleaseArtifactTask && !releaseKeystorePropertiesFile.exists()) {
         throw new GradleException(
             "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."

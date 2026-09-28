@@ -1,6 +1,6 @@
 # GROMO 2.0 앱
 
-GROMO 2.0의 활성 React Native·Expo 앱입니다. 세로·가로 레이아웃과 iOS·Android·웹을 지원하며, 현재 제품 흐름은 로컬 목업 상태와 저장소를 사용합니다.
+GROMO 2.0의 활성 React Native·Expo 앱입니다. 세로·가로 레이아웃과 iOS·Android·웹을 지원하며, 서버 API와 기기 로컬 저장을 함께 사용합니다. 기능별 서버 연결 범위는 아래 API 모듈 표를 기준으로 확인하세요.
 
 ## 로컬 실행
 
@@ -64,7 +64,7 @@ npx expo export --platform all
 
 ## 소셜 로그인 약관 버전
 
-소셜 로그인과 게스트 회원 전환은 배포 대상에 적용되는 실제 약관 문서 버전을 `EXPO_PUBLIC_TERMS_VERSION`으로 명시해 빌드합니다. 예시값이나 코드 기본값은 두지 않습니다. 값이 없거나 공백이면 소셜 제공자 버튼과 회원 전환 진입을 숨기고, 직접 호출도 서버 요청 전에 차단합니다. 게스트 로그인은 계속 사용할 수 있습니다. TestFlight 등 릴리스 설정에는 현재 배포할 약관 문서의 버전을 넣으세요.
+소셜 로그인과 게스트 회원 전환은 배포 대상에 적용되는 실제 약관 문서 버전을 `EXPO_PUBLIC_TERMS_VERSION`으로 명시해 빌드합니다. 예시값이나 코드 기본값은 두지 않습니다. 값이 없거나 공백이면 소셜 제공자 버튼과 회원 전환 진입을 숨기고, 직접 호출도 서버 요청 전에 차단합니다. 게스트 로그인은 계속 사용할 수 있습니다. 동의 화면의 문서 링크는 레거시 GROMO가 연결한 공개 문서 정본 [`이용약관`](https://team-page.vercel.app/#/terms)과 [`개인정보 처리방침`](https://team-page.vercel.app/#/privacy)을 엽니다. `EXPO_PUBLIC_TERMS_VERSION`은 이 약관 배포본의 실제 버전과 맞춰 설정하세요.
 
 ## PostHog 제품 분석
 
@@ -92,11 +92,11 @@ npm run review:v2-journeys
 
 ## 현재 연결 범위
 
-화면 전환, 로컬 저장, 집중 구간 계산, 공동 재화, 건설 타이머와 음원 재생은 앱 안에서 동작합니다. 인증, 다른 기기의 주민·편지·가입 승인, 서버 랭킹, OS 스크린타임 수집, 푸시와 원격 음악 동기화는 아직 로컬 목업 범위입니다.
+로그인·계정, 섬·주민, 집중 세션, 친구·편지 등은 서버 API에 연결되어 있으며, 설정·화면 상태와 스크린타임 측정은 기기에서 처리합니다. 일부 시각 효과와 건설·음원 흐름은 앱 로컬 상태로 동작합니다. 새 API 연결 범위는 `src/services/api/`와 해당 기능 표를 함께 갱신합니다.
 
 앱 버전은 `2.0.0`, iOS 식별자는 `com.oneorthree.focuscat`, Android 식별자는 `com.oneorthree.gromo`입니다.
 Kakao native identity는 기존 레거시 앱과 같은 native key `af3ff0c5b4fb9cd38b78428b88add65d`로 유지합니다. Kakao provider ID가 앱 키별로 발급되므로 새 키를 쓰면 기존 카카오 계정이 다른 계정으로 갈라질 수 있습니다. Kakao Developers 콘솔에서 **기존 Kakao 앱**에 Android package `com.oneorthree.gromo`와 기존 서명 SHA-1을 유지하고, iOS bundle ID `com.oneorthree.focuscat`을 추가 등록하세요. 두 플랫폼 모두 OAuth callback scheme은 `kakao<key>`입니다. iOS의 `kakaoaf3ff0c5b4fb9cd38b78428b88add65d` URL scheme도 앱 설정에 등록되어 있어야 합니다.
-Android release task graph는 기본 차단됩니다. Android legacy 세션의 RT를 잃지 않는 서버 멱등 승격 계약이 준비되고 검증된 뒤에만 `GROMO_LEGACY_SESSION_MIGRATION_READY=1`을 지정해 release 빌드를 실행하세요. release에는 실제 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`도 비어 있지 않게 설정해야 합니다. 예를 들어 `GROMO_LEGACY_SESSION_MIGRATION_READY=1 EXPO_PUBLIC_TERMS_VERSION=2026-09 ./gradlew :app:assembleRelease`입니다. 두 조건은 release artifact 작업에만 적용되며, debug 빌드와 `check`에는 영향을 주지 않습니다. release에는 기존 Play 업로드 키도 `android/credentials/prod/`에 필요하며, 새 업로드 키를 발급하지 않습니다.
+Android release task graph는 기본 차단됩니다. Android legacy 세션의 RT를 잃지 않는 서버 멱등 승격 계약이 준비되고 검증된 뒤에만 `GROMO_LEGACY_SESSION_MIGRATION_READY=1`을 지정해 release 빌드를 실행하세요. release에는 실제 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://api.oneorthree.world`이 모두 필요합니다. URL이 빠졌거나 dev/다른 주소이면 release artifact를 만들지 않습니다. 예를 들어 `GROMO_LEGACY_SESSION_MIGRATION_READY=1 EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://api.oneorthree.world ./gradlew :app:assembleRelease`입니다. 조건은 release artifact 작업에만 적용되며, debug 빌드와 `check`에는 영향을 주지 않습니다. release에는 기존 Play 업로드 키도 `android/credentials/prod/`에 필요하며, 새 업로드 키를 발급하지 않습니다.
 
 ### 서버 API 기반 (`src/services/api/`, GROMO-2004)
 
@@ -121,11 +121,11 @@ Android release task graph는 기본 차단됩니다. Android legacy 세션의 R
 
 기존 Gromo의 로컬 App Store Connect API 키 설정을 재사용해 Catus 테스트 빌드를 올립니다.
 
-서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`도 필요하며, 값이 없거나 공백이면 스크립트·Fastlane·Xcode Release gate에서 차단됩니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
+서버의 dual-audience 지원(`gromo`와 `focuscat`)이 배포되고 기존 Apple 로그인 계정으로 검증되기 전까지는 iOS archive와 TestFlight 업로드가 차단됩니다. 릴리스에는 실제 배포 약관 문서 버전 `EXPO_PUBLIC_TERMS_VERSION`과 운영 API URL `EXPO_PUBLIC_API_URL=https://api.oneorthree.world`이 필요하며, 빠졌거나 다른 주소이면 `ios/testflight.sh`, Fastlane `beta`, Xcode Release gate가 차단합니다. `ios/testflight.sh`와 Fastlane `beta` lane이 같은 `EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1` readiness flag를 확인하므로 직접 Fastlane을 실행해도 우회할 수 없습니다. 이 Apple 플래그는 로그인 화면의 Apple 버튼에도 쓰이며, 설정하지 않은 debug/dev 빌드에는 출시 gate가 적용되지 않습니다.
 
 ```sh
 cd ios
-EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
+EXPO_PUBLIC_TERMS_VERSION=2026-09 EXPO_PUBLIC_API_URL=https://api.oneorthree.world EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 ./testflight.sh
 ```
 
 스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Catus 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.

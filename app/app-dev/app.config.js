@@ -14,6 +14,7 @@ module.exports = {
     slug: 'gromo-island-demo',
     version: '2.0.0',
     orientation: 'default',
+    scheme: 'gromo',
     userInterfaceStyle: 'light',
     icon: './src/assets/icon.png',
     ios: {

@@ -38,6 +38,7 @@ platform :ios do
   lane :beta do
     terms_version = ENV["EXPO_PUBLIC_TERMS_VERSION"].to_s.strip
     UI.user_error!("iOS release/TestFlight 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요.") if terms_version.empty?
+    UI.user_error!("iOS release/TestFlight 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요.") unless ENV["EXPO_PUBLIC_API_URL"] == "https://api.oneorthree.world"
 
     UI.user_error!(
       "iOS release/TestFlight 차단: Apple 계정 재진입을 위해 서버 dual-audience 배포를 검증한 뒤 EXPO_PUBLIC_APPLE_LOGIN_ENABLED=1 로 실행하세요."

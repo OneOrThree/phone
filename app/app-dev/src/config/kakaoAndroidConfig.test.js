@@ -61,12 +61,25 @@ test('iOS keeps the legacy Kakao key and callback scheme for the focuscat bundle
   );
 });
 
-test('Android terms version is gated only for release artifact tasks', () => {
+test('Android/iOS release require real terms and the production API URL', () => {
   const gradle = fs.readFileSync(path.join(appDevRoot, 'android/app/build.gradle'), 'utf8');
+  const xcode = fs.readFileSync(
+    path.join(appDevRoot, 'ios/GROMO.xcodeproj/project.pbxproj'),
+    'utf8',
+  );
+  const fastfile = fs.readFileSync(path.join(appDevRoot, 'ios/fastlane/Fastfile'), 'utf8');
+  const testflight = fs.readFileSync(path.join(appDevRoot, 'ios/testflight.sh'), 'utf8');
 
   expect(gradle).toMatch(
     /releaseArtifactTasks\s*=\s*\["assemblerelease", "bundlerelease", "packagerelease"\]/,
   );
   expect(gradle).toMatch(/termsVersion\s*==\s*null\s*\|\|\s*termsVersion\.trim\(\)\.isEmpty\(\)/);
   expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*\(termsVersion/);
+  expect(gradle).toMatch(/apiUrl\s*!=\s*"https:\/\/api\.oneorthree\.world"/);
+  expect(gradle).toMatch(/includesReleaseArtifactTask\s*&&\s*apiUrl\s*!=/);
+  expect(xcode).toContain('${EXPO_PUBLIC_API_URL:-}');
+  expect(xcode).toContain('https://api.oneorthree.world');
+  expect(fastfile).toContain('ENV["EXPO_PUBLIC_API_URL"] == "https://api.oneorthree.world"');
+  expect(testflight).toContain('EXPO_PUBLIC_API_URL:-}');
+  expect(testflight).toContain('https://api.oneorthree.world');
 });

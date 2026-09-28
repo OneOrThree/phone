@@ -31,6 +31,7 @@ beforeEach(async () => {
   write.mockClear();
   read.mockClear();
   await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
+  await AsyncStorage.removeItem('gromo.lastUserIdClearState');
   await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
   await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
   await clearSession();
@@ -369,6 +370,26 @@ test('탈퇴 성공 경로는 일반 로그아웃이 보존한 마지막 사용�
   assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
   await restoreSession();
   assert.equal(getLastSessionUserId(), null);
+});
+
+test('탈퇴 후 SecureStore owner 삭제 실패는 durable tombstone을 남기고 복구 시 재시도한다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'withdrawn-user' });
+  await rememberLocalDataOwner('withdrawn-user');
+  remove.mockImplementation(async (key: string) => {
+    if (key === 'gromo.lastUserId') throw new Error('키체인 삭제 실패');
+    return realRemove(key);
+  });
+
+  await assert.rejects(clearLocalDataOwner(), /키체인 삭제 실패/);
+  assert.equal(getLastSessionUserId(), null);
+  assert.equal(await AsyncStorage.getItem('gromo.lastUserIdClearState'), 'pending');
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'withdrawn-user');
+
+  remove.mockImplementation(realRemove);
+  await restoreSession();
+  assert.equal(getLastSessionUserId(), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+  assert.equal(await AsyncStorage.getItem('gromo.lastUserIdClearState'), 'cleared');
 });
 
 test('로그인 저장만 성공하고 채택이 실패하면 이전 로컬 소유자를 재시도까지 보존한다', async () => {

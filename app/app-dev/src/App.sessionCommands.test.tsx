@@ -713,6 +713,8 @@ test('회원 전환 동의는 provider 실행을 잠그고 시트 닫기·세션
 
   await act(async () => offer());
   const checkbox = screen!.getByTestId('member-conversion-terms');
+  assert.ok(screen!.getByTestId('member-conversion-terms-link'));
+  assert.ok(screen!.getByTestId('member-conversion-privacy-link'));
   assert.equal(checkbox.props.accessibilityState.checked, false);
   assert.equal(screen!.getByLabelText('Google로 계속하기').props.accessibilityState.disabled, true);
   await fireEvent.press(screen!.getByLabelText('Google로 계속하기'));

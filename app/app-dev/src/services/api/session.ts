@@ -28,6 +28,7 @@ const KEY_REFRESH = 'gromo.refreshToken';
 const KEY_USER = 'gromo.userId';
 // 로그아웃은 자격 증명만 폐기한다. 재로그인 후 로컬 사용자 데이터의 소유자를 판정하는 데 쓴다.
 const KEY_LAST_USER = 'gromo.lastUserId';
+const KEY_LAST_USER_CLEAR_STATE = 'gromo.lastUserIdClearState';
 /** 커밋 마커 — **항상 마지막에** 쓴다. 자세한 이유는 {@link saveSession}. */
 const KEY_BUNDLE = 'gromo.sessionBundle';
 const SESSION_SLOT_PREFIX = 'gromo.sessionSlot';
@@ -51,6 +52,8 @@ const removeItem = (key: string): Promise<void> =>
 
 let cached: Session | null = null;
 let lastUserId: string | null = null;
+let localDataOwnerClearPending = false;
+let localDataOwnerIntentionallyUnset = false;
 let generation = 0;
 let onLost: (() => void) | null = null;
 const listeners = new Set<(session: Session | null) => void>();
@@ -110,7 +113,40 @@ export function getSession(): Session | null {
 
 /** 현재 세션이 없어도 마지막으로 채택 완료한 로컬 데이터 소유자의 ID를 돌려준다. */
 export function getLastSessionUserId(): string | null {
+  if (localDataOwnerClearPending || (localDataOwnerIntentionallyUnset && !lastUserId)) return null;
   return lastUserId ?? cached?.userId ?? null;
+}
+
+/** Retry a durable owner invalidation. A failed retry must never expose the old owner. */
+async function resolveLocalDataOwnerClear(): Promise<'normal' | 'cleared' | 'blocked'> {
+  let pending: string | null;
+  try {
+    pending = await AsyncStorage.getItem(KEY_LAST_USER_CLEAR_STATE);
+  } catch {
+    localDataOwnerClearPending = true;
+    lastUserId = null;
+    return 'blocked';
+  }
+  if (pending !== 'pending' && pending !== 'cleared') {
+    localDataOwnerClearPending = false;
+    localDataOwnerIntentionallyUnset = false;
+    return 'normal';
+  }
+  localDataOwnerIntentionallyUnset = true;
+  if (pending === 'cleared') {
+    localDataOwnerClearPending = false;
+    return 'cleared';
+  }
+  localDataOwnerClearPending = true;
+  lastUserId = null;
+  try {
+    await removeItem(KEY_LAST_USER);
+    await AsyncStorage.setItem(KEY_LAST_USER_CLEAR_STATE, 'cleared');
+    localDataOwnerClearPending = false;
+    return 'cleared';
+  } catch {
+    return 'blocked';
+  }
 }
 
 /** 계정 채택과 로컬 동기화가 모두 성공한 뒤, 아직 같은 세션일 때 데이터 소유자를 기록한다. */
@@ -119,6 +155,8 @@ export function rememberLocalDataOwner(
   expectedGeneration?: number,
 ): Promise<boolean> {
   return serialized(async () => {
+    const clearStatus = await resolveLocalDataOwnerClear();
+    if (clearStatus === 'blocked') return false;
     if (
       cached?.userId !== userId ||
       (expectedGeneration !== undefined && generation !== expectedGeneration)
@@ -126,6 +164,9 @@ export function rememberLocalDataOwner(
       return false;
     await writeItem(KEY_LAST_USER, userId);
     lastUserId = userId;
+    localDataOwnerClearPending = false;
+    localDataOwnerIntentionallyUnset = false;
+    if (clearStatus === 'cleared') await AsyncStorage.removeItem(KEY_LAST_USER_CLEAR_STATE);
     return true;
   });
 }
@@ -134,7 +175,12 @@ export function rememberLocalDataOwner(
 export function clearLocalDataOwner(): Promise<void> {
   return serialized(async () => {
     lastUserId = null;
+    localDataOwnerIntentionallyUnset = true;
+    localDataOwnerClearPending = true;
+    await AsyncStorage.setItem(KEY_LAST_USER_CLEAR_STATE, 'pending');
     await removeItem(KEY_LAST_USER);
+    await AsyncStorage.setItem(KEY_LAST_USER_CLEAR_STATE, 'cleared');
+    localDataOwnerClearPending = false;
   });
 }
 
@@ -153,15 +199,18 @@ export function restoreSession(): Promise<Session | null> {
   // 읽기도 줄에 세운다 — 로그아웃 «도중»에 읽으면 지워지는 중인 값을 세션으로 되살린다.
   return serialized(async () => {
     try {
-      const [bundle, savedLastUserId] = await Promise.all([
-        readItem(KEY_BUNDLE),
-        readItem(KEY_LAST_USER),
-      ]);
+      const bundle = await readItem(KEY_BUNDLE);
       cached = bundle ? await readBundledSession(bundle) : null;
+      const ownerClearStatus = await resolveLocalDataOwnerClear();
+      const savedLastUserId = ownerClearStatus === 'blocked' ? null : await readItem(KEY_LAST_USER);
       // 저장된 소유자가 있으면 활성 세션과 달라도 유지한다. 로그인 저장만 끝나고 /me 채택이
       // 실패한 전환을 재시도할 때 이전 로컬 소유자 기준으로 reset 여부를 다시 판단해야 한다.
-      lastUserId = savedLastUserId ?? cached?.userId ?? null;
-      if (cached && !savedLastUserId) {
+      lastUserId =
+        ownerClearStatus === 'normal'
+          ? (savedLastUserId ?? cached?.userId ?? null)
+          : savedLastUserId;
+      localDataOwnerIntentionallyUnset = ownerClearStatus !== 'normal' && !savedLastUserId;
+      if (ownerClearStatus === 'normal' && cached && !savedLastUserId) {
         lastUserId = cached.userId;
         await writeItem(KEY_LAST_USER, cached.userId).catch(() => {});
       }
@@ -169,7 +218,7 @@ export function restoreSession(): Promise<Session | null> {
       // 한 번 가져온다. 기존 bundle이 손상된 경우에는 구 토큰으로 우회 복구하지 않는다.
       if (!bundle && Platform.OS === 'android') {
         cached = await migrateLegacySession();
-        if (cached && !lastUserId) {
+        if (ownerClearStatus === 'normal' && cached && !lastUserId) {
           lastUserId = cached.userId;
           await writeItem(KEY_LAST_USER, cached.userId).catch(() => {});
         }

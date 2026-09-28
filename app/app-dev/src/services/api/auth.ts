@@ -9,6 +9,7 @@
  *  - `GET    /me`                     내 계정.
  */
 import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION, request, uuid } from './client';
 import {
   clearRejectedSession,
@@ -66,17 +67,46 @@ export interface LoginResult {
 }
 
 const GUEST_DEVICE_ID_KEY = 'gromo.guestDeviceId';
+const GUEST_DEVICE_ID_ROTATION_PENDING_KEY = 'gromo.guestDeviceIdRotationPending';
 let guestDeviceIdFlight: Promise<string> | null = null;
+let guestDeviceIdQueue: Promise<unknown> = Promise.resolve();
+
+function serializeGuestDeviceId<T>(work: () => Promise<T>): Promise<T> {
+  const done = guestDeviceIdQueue.then(work, work);
+  guestDeviceIdQueue = done.catch(() => undefined);
+  return done;
+}
+
+async function finishGuestDeviceIdRotation(): Promise<void> {
+  if ((await AsyncStorage.getItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY)) !== '1') return;
+  await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
+  const fresh = uuid();
+  await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, fresh);
+  await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+}
+
+/** Durable logout intent; a later guest request retries rotation if SecureStore deletion failed. */
+function rotateGuestDeviceId(): Promise<void> {
+  guestDeviceIdFlight = null;
+  return serializeGuestDeviceId(async () => {
+    await AsyncStorage.setItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY, '1');
+    await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
+    await AsyncStorage.removeItem(GUEST_DEVICE_ID_ROTATION_PENDING_KEY);
+  });
+}
 
 /** 재시도에도 같은 기기 ID를 보내야 201 응답 유실이 중복 게스트 계정이 되지 않는다. */
 async function guestDeviceId(): Promise<string> {
   guestDeviceIdFlight ??= (async () => {
-    const saved = await SecureStore.getItemAsync(GUEST_DEVICE_ID_KEY);
-    if (saved && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saved))
-      return saved;
-    const created = uuid();
-    await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, created);
-    return created;
+    return serializeGuestDeviceId(async () => {
+      await finishGuestDeviceIdRotation();
+      const saved = await SecureStore.getItemAsync(GUEST_DEVICE_ID_KEY);
+      if (saved && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(saved))
+        return saved;
+      const created = uuid();
+      await SecureStore.setItemAsync(GUEST_DEVICE_ID_KEY, created);
+      return created;
+    });
   })();
   const flight = guestDeviceIdFlight;
   try {
@@ -239,8 +269,7 @@ export async function logout(): Promise<void> {
   let guestDeviceIdClearFailure: unknown = null;
   if (!clearFailure) {
     try {
-      await SecureStore.deleteItemAsync(GUEST_DEVICE_ID_KEY);
-      guestDeviceIdFlight = null;
+      await rotateGuestDeviceId();
     } catch (error) {
       guestDeviceIdClearFailure = error;
     }

@@ -63,6 +63,21 @@ test('텍스트 브랜드 버튼은 큰 글자에 맞춰 최소 높이 이상으
   }
 });
 
+test('로그인 동의 영역은 약관 버전을 표시하고 법률 문서 링크를 제공한다', async () => {
+  const screen = await render(
+    <LoginScreen
+      providers={['google']}
+      termsVersion="2026-09"
+      termsAccepted={false}
+      onTermsAcceptedChange={jest.fn()}
+    />,
+  );
+
+  expect(screen.getByText(/이용약관\(2026-09\).*개인정보 처리방침/)).toBeTruthy();
+  expect(screen.getByTestId('login-terms-link').props.accessibilityRole).toBe('link');
+  expect(screen.getByTestId('login-privacy-link').props.accessibilityRole).toBe('link');
+});
+
 test('약관 동의 전에는 로그인 동작을 막고 체크 상태를 변경한다', async () => {
   const onTermsAcceptedChange = jest.fn();
   const onProviderPress = jest.fn();
