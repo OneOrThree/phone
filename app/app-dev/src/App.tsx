@@ -97,10 +97,13 @@ import {
 import {
   checkSession,
   guestLogin,
+  login as apiLogin,
   logout,
   type LoginResult,
   type Provider,
 } from '@/services/api/auth';
+import { loginProviders } from '@/services/loginProviders';
+import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
 import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
@@ -155,6 +158,7 @@ const PROVIDER_LABEL: Record<Provider, string> = {
   apple: 'Apple로 계속하기',
   google: 'Google로 계속하기',
   kakao: 'Kakao로 계속하기',
+  line: 'LINE으로 계속하기',
 };
 const titles: Record<Route, string> = {
   login: 'GROMO',
@@ -259,7 +263,9 @@ function Gromo() {
   const [loaded, setLoaded] = useState(false),
     // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
     [islandBootError, setIslandBootError] = useState(false),
-    [hasServerSession, setHasServerSession] = useState(() => getSession() !== null),
+    [hasServerSession, setHasServerSession] = useState(
+      () => !REVIEW && !DEMO && getSession() !== null,
+    ),
     [route, setRoute] = useState<Route>(DEMO ? 'home' : 'login'),
     [routeTransitionShielded, setRouteTransitionShielded] = useState(false),
     [history, setHistory] = useState<
@@ -281,6 +287,8 @@ function Gromo() {
     [terms, setTerms] = useState(false),
     [guestBusy, setGuestBusy] = useState(false),
     [guestError, setGuestError] = useState(''),
+    [socialBusy, setSocialBusy] = useState<Provider | null>(null),
+    [socialError, setSocialError] = useState(''),
     [approval, setApproval] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [now, setNow] = useState(Date.now()),
@@ -698,10 +706,27 @@ function Gromo() {
     }
   };
   const memberConversion = conversionRef.current;
-  // 소셜 제공자 SDK(Apple·Google·Kakao) 연결은 별도 티켓 — 연결 전까진 명시 오류로 끝낸다.
-  // ponytail: 여기서 성공을 지어내면 승격·충돌 계약 검증이 불가능하다. SDK 도착 시 이 함수만 교체.
-  const getCredential = async (_provider: Provider): Promise<string> => {
-    throw new ApiError('CLIENT_PROVIDER_UNAVAILABLE', '소셜 로그인 연결을 준비 중이에요.', 0);
+  const getCredential = socialCredential;
+  const startSocial = async (provider: Provider) => {
+    if (socialBusy || guestBusy || !terms) return;
+    setSocialBusy(provider);
+    setSocialError('');
+    try {
+      const credential = await getCredential(provider);
+      const result = await apiLogin(provider, credential, TERMS_VERSION);
+      await adoptSession(result, null);
+      captureProductEvent('social_login_completed', { provider });
+    } catch (thrown) {
+      if (!isSocialLoginCancellation(thrown)) {
+        setSocialError(
+          thrown instanceof ApiError && thrown.message
+            ? thrown.message
+            : '로그인을 완료하지 못했어요. 다시 시도해 주세요.',
+        );
+      }
+    } finally {
+      setSocialBusy(null);
+    }
   };
   const pickProvider = async (provider: Provider) => {
     setConvUi((c) => (c ? { ...c, busy: provider, error: null } : c));
@@ -714,12 +739,22 @@ function Gromo() {
         notify('회원으로 전환했어요.');
       } else setConvUi((c) => (c ? { ...c, busy: null } : c)); // 취소 — 시트로 돌아간다
     } catch (thrown) {
+      if (isSocialLoginCancellation(thrown)) {
+        setConvUi((c) => (c ? { ...c, busy: null, error: null } : c));
+        return;
+      }
       const message =
         thrown instanceof ApiError ? thrown.message : '문제가 생겼어요. 다시 시도해 주세요.';
       setConvUi((c) => (c ? { ...c, busy: null, error: message } : c));
     }
   };
-  useEffect(() => subscribeSession((session) => setHasServerSession(session !== null)), []);
+  useEffect(() => {
+    if (REVIEW || DEMO) {
+      setHasServerSession(false);
+      return;
+    }
+    return subscribeSession((session) => setHasServerSession(session !== null));
+  }, []);
   useEffect(() => {
     if (!loaded || REVIEW || DEMO) return;
     return subscribeSession((session) => {
@@ -732,6 +767,7 @@ function Gromo() {
   }, [loaded, route]);
   // 서버가 세션을 거절하면(401) 저장소는 client 가 이미 비웠다 — 화면만 로그인으로 되돌린다.
   useEffect(() => {
+    if (REVIEW || DEMO) return;
     setSessionLostHandler(() => {
       // 전환 시트·충돌 확인이 열려 있으면 취소로 정리한다 — 떠난 세션의 확인을 뒤에 승인하면 안 된다.
       setConvUi(null);
@@ -1220,6 +1256,10 @@ function Gromo() {
           now,
           terms,
           setTerms,
+          loginProviders: loginProviders(),
+          startSocial: REVIEW || DEMO ? undefined : startSocial,
+          socialBusy,
+          socialError,
           startGuest: REVIEW || DEMO ? undefined : startGuest,
           guestBusy,
           guestError,
@@ -1477,7 +1517,7 @@ function Gromo() {
                   친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.
                   {'\n'}지금 고양이와 섬은 그대로 이어져요.
                 </NativeText>
-                {(['apple', 'google', 'kakao'] as const).map((provider) => (
+                {loginProviders().map((provider) => (
                   <NativeButton
                     key={provider}
                     dialog

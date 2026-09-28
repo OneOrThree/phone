@@ -36,10 +36,10 @@
 		B18650000000000000000002 /* LiveActivityModule.m in Sources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000012 /* LiveActivityModule.m */; };
 		B18650000000000000000003 /* FocusActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = A19831000000000000000003 /* FocusActivityAttributes.swift */; };
 		B18650000000000000000004 /* FocusWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000013 /* FocusWidget.swift */; };
-		B18650000000000000000031 /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
 		B18650000000000000000005 /* CatArt in Resources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000015 /* CatArt */; };
 		B18650000000000000000006 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = B18650000000000000000019 /* Localizable.strings */; };
 		B18650000000000000000008 /* FocusWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B18650000000000000000018 /* FocusWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B18650000000000000000031 /* ReportPalette.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4832B8B50E5B9DCBF92DEBD6 /* ReportPalette.swift */; };
 		B75F1E8D66F13FD85FBEE6ED /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = BBCBC0AA375FCC6A556E38DB /* PrivacyInfo.xcprivacy */; };
 		BB2F792D24A3F905000567C9 /* Expo.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB2F792C24A3F905000567C9 /* Expo.plist */; };
 		D2D8BCCA685FB07403501067 /* CompactActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFB802E10F6288401A5062C2 /* CompactActivityView.swift */; };
@@ -696,6 +696,8 @@
 			);
 			inputPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-GROMO/Pods-GROMO-resources.sh",
+				"${PODS_CONFIGURATION_BUILD_DIR}/Alamofire/Alamofire.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/AppAuth/AppAuthCore_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/DatadogCore/DatadogCore.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/DatadogCrashReporting/DatadogCrashReporting.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/DatadogRUM/DatadogRUM.bundle",
@@ -705,11 +707,19 @@
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoDevice/ExpoDevice_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoFileSystem/ExpoFileSystem_privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/ExpoLocalization/ExpoLocalization_privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GTMAppAuth/GTMAppAuth_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GTMSessionFetcher/GTMSessionFetcher_Core_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleSignIn/GoogleSignIn.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/GoogleUtilities/GoogleUtilities_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashCore.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashFilters.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashRecording.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashRecordingCore.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/KSCrash/KSCrashReportingCore.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/KakaoSDKCommon/KakaoSDKCommon.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/LineSDKSwift/LineSDK.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesObjC/FBLPromises_Privacy.bundle",
+				"${PODS_CONFIGURATION_BUILD_DIR}/PromisesSwift/Promises_Privacy.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNCAsyncStorage/RNCAsyncStorage_resources.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/RNSVG/RNSVGFilters.bundle",
 				"${PODS_CONFIGURATION_BUILD_DIR}/React-Core/React-Core_privacy.bundle",
@@ -718,6 +728,8 @@
 			);
 			name = "[CP] Copy Pods Resources";
 			outputPaths = (
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Alamofire.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/AppAuthCore_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/DatadogCore.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/DatadogCrashReporting.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/DatadogRUM.bundle",
@@ -727,11 +739,19 @@
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoDevice_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoFileSystem_privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/ExpoLocalization_privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GTMAppAuth_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GTMSessionFetcher_Core_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleSignIn.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/GoogleUtilities_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashCore.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashFilters.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashRecording.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashRecordingCore.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KSCrashReportingCore.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/KakaoSDKCommon.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/LineSDK.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/FBLPromises_Privacy.bundle",
+				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/Promises_Privacy.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNCAsyncStorage_resources.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/RNSVGFilters.bundle",
 				"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/React-Core_privacy.bundle",

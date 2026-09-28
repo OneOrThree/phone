@@ -157,6 +157,17 @@ test('kakao 는 access_token, 게스트 승격·계정 전환은 AT 를 함께 �
   });
 });
 
+test('line 은 access_token 자격으로 로그인한다', async () => {
+  stub([session('LINE', 'u-line')]);
+
+  await login('line', 'line-token', '2026-09');
+
+  assert.deepEqual(JSON.parse(calls[0].init.body as string).credential, {
+    type: 'access_token',
+    value: 'line-token',
+  });
+});
+
 const session = (prefix: string, userId: string) => ({
   status: 201,
   body: {

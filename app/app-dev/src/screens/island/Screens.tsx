@@ -1,4 +1,5 @@
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession } from '@/services/api/session';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
@@ -1144,6 +1145,28 @@ export function RedesignScreens({ e }: any) {
       {children}
     </IslandSheet>
   );
+  if (route === 'login' && e.loginProviders) {
+    return (
+      <LoginScreen
+        providers={e.loginProviders}
+        termsAccepted={terms}
+        onTermsAcceptedChange={setTerms}
+        onProviderPress={e.startSocial ? (provider) => void e.startSocial(provider) : undefined}
+        providerBusy={e.socialBusy}
+        providerError={e.socialError}
+        onGuestPress={
+          e.startGuest
+            ? () => void e.startGuest()
+            : () => {
+                act('LOGIN');
+                state.onboarded ? home() : go('character');
+              }
+        }
+        guestBusy={e.guestBusy}
+        guestError={e.guestError}
+      />
+    );
+  }
   if (route === 'login') {
     const agree = (
       <Pressable

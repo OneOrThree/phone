@@ -19,10 +19,10 @@ import {
 } from './session';
 
 /**
- * 정책(2026-09-14 「인증·게스트 계정」): 로그인 수단은 이 셋뿐이고, 회원 하나에 하나만 연결한다.
- * 서버(`SocialCredential.PROVIDERS`)는 line·instagram·facebook 까지 6종을 받지만 2.0 은 셋만 쓴다.
+ * 정책(2026-09-14 「인증·게스트 계정」, GROMO-1967): 2.0 로그인 수단은
+ * Apple·Google과 국가별 Kakao/LINE이고, 회원 하나에 하나만 연결한다.
  */
-export type Provider = 'apple' | 'google' | 'kakao';
+export type Provider = 'apple' | 'google' | 'kakao' | 'line';
 
 /**
  * 제공자별 자격 종류(`SocialCredential.supportedKind`). **어긋나면 서버가 422 로 거절한다.**
@@ -33,6 +33,7 @@ const CREDENTIAL_KIND: Record<Provider, string> = {
   apple: 'id_token',
   google: 'id_token',
   kakao: 'access_token',
+  line: 'access_token',
 };
 
 export interface LoginOptions {

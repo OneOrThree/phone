@@ -86,7 +86,8 @@ npm run review:v2-journeys
 
 화면 전환, 로컬 저장, 집중 구간 계산, 공동 재화, 건설 타이머와 음원 재생은 앱 안에서 동작합니다. 인증, 다른 기기의 주민·편지·가입 승인, 서버 랭킹, OS 스크린타임 수집, 푸시와 원격 음악 동기화는 아직 로컬 목업 범위입니다.
 
-앱 버전은 `2.0.0`, iOS·Android 식별자는 `com.oneorthree.focuscat`입니다.
+앱 버전은 `2.0.0`, iOS 식별자는 `com.oneorthree.focuscat`, Android 식별자는 `com.oneorthree.gromo`입니다.
+Android release 빌드는 기존 Play 업로드 키를 `android/credentials/prod/`에 배치한 뒤 실행하며, 새 업로드 키를 발급하지 않습니다.
 
 ### 서버 API 기반 (`src/services/api/`, GROMO-2004)
 
@@ -105,7 +106,7 @@ npm run review:v2-journeys
 
 **계정 전환**(A→B, 같은 사용자 s1→s2 재로그인 포함)은 `login()` 이 LLD §2.4 의 「준비 → commit → commit 뒤 전달」 순서로 **이전 세션 RT 폐기까지만** 합니다. FCM 토큰 재발급·B 세션 bootstrap 재등록·`deliveryTag` 대조와 commit 직후의 결과 세션 채택 확인 요청은 기기·푸시 등록 티켓 몫입니다.
 
-아직 서버에 없는 것: 2.0 공개 표면(business-api)에 **토큰 갱신 엔드포인트(GROMO-2035)와 게스트 세션 발급(GROMO-2036)이 없습니다.** 그래서 401 의 답은 재로그인뿐이고, 로그인 화면의 소셜 제공자 연결(Apple·Google·Kakao SDK)도 아직 붙어 있지 않습니다. LLD §2.1 의 `X-Device-Bootstrap` 응답 헤더도 서버 미구현이라 `login()` 이 받지 못합니다 — 푸시 기기 등록 티켓이 이 값을 쓰려면 `request()` 가 응답 헤더를 넘겨주도록 한 줄 늘려야 합니다.
+아직 서버에 없는 것: 2.0 공개 표면(business-api)에 **토큰 갱신 엔드포인트(GROMO-2035)와 게스트 세션 발급(GROMO-2036)이 없습니다.** 그래서 401 의 답은 재로그인뿐입니다. 소셜 제공자 SDK(Apple·Google·Kakao·LINE)는 로그인 화면에 연결되어 있으며, 실제 배포 전에는 각 제공자 콘솔 설정과 환경 변수, Apple의 `focuscat` audience 허용을 완료해야 합니다. LLD §2.1 의 `X-Device-Bootstrap` 응답 헤더도 서버 미구현이라 `login()` 이 받지 못합니다 — 푸시 기기 등록 티켓이 이 값을 쓰려면 `request()` 가 응답 헤더를 넘겨주도록 한 줄 늘려야 합니다.
 
 ## TestFlight
 

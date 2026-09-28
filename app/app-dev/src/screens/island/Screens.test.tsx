@@ -81,6 +81,8 @@ function Harness({
   bootError,
   startGuest,
   guestError,
+  loginProviders,
+  startSocial,
   detail: detailProp,
   full = false,
   flow = false,
@@ -153,6 +155,10 @@ function Harness({
         setTerms,
         startGuest,
         guestError,
+        loginProviders,
+        startSocial,
+        socialBusy: null,
+        socialError: '',
         approval,
         setApproval,
         visited: '',
@@ -202,6 +208,38 @@ test('첫 화면은 약관 동의 뒤 게스트 세션 요청만 시작하고 �
   await fireEvent.press(screen.getByText('게스트로 시작하기'));
   assert.equal(startGuest.mock.calls.length, 1);
   assert.equal(exposed.actions.includes('LOGIN'), false);
+});
+
+test('실제 로그인 구성에서는 약관 동의 뒤 소셜 제공자 로그인을 시작한다', async () => {
+  const startSocial = jest.fn();
+  const screen = await render(
+    <Harness
+      route="login"
+      loginProviders={['kakao', 'google']}
+      startSocial={startSocial}
+      startGuest={jest.fn()}
+    />,
+  );
+
+  expect(screen.getByLabelText('카카오로 계속하기')).toBeTruthy();
+  await fireEvent.press(screen.getByRole('checkbox'));
+  await fireEvent.press(screen.getByLabelText('카카오로 계속하기'));
+  expect(startSocial).toHaveBeenCalledWith('kakao');
+});
+
+test('게스트 세션 콜백이 없는 미리보기 구성은 로컬 로그인으로 폴백한다', async () => {
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="login"
+      loginProviders={['google']}
+      expose={(value: any) => (exposed = value)}
+    />,
+  );
+
+  await fireEvent.press(screen.getByRole('checkbox'));
+  await fireEvent.press(screen.getByText('게스트로 시작하기'));
+  expect(exposed.actions).toContain('LOGIN');
 });
 
 test('닉네임 키보드 표시 이벤트를 두 번 처리해도 값이 유지되고 첫 섬으로 이동하지 않는다', async () => {
