@@ -127,6 +127,44 @@ const GOLDEN_TEST =
   new URLSearchParams(window.location.search).has('demo') &&
   new URLSearchParams(window.location.search).has('golden-test');
 
+const afterForegroundMs = (callback: () => void, durationMs: number) => {
+  let remainingMs = durationMs;
+  let startedAt: number | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+  const isForeground = (state: string | null) => state !== 'background' && state !== 'inactive';
+  const clear = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (startedAt !== null) {
+      remainingMs = Math.max(0, remainingMs - (Date.now() - startedAt));
+      startedAt = null;
+    }
+  };
+  const start = () => {
+    if (stopped || timer || startedAt !== null) return;
+    startedAt = Date.now();
+    timer = setTimeout(() => {
+      timer = null;
+      startedAt = null;
+      stopped = true;
+      subscription.remove();
+      callback();
+    }, remainingMs);
+  };
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (isForeground(state)) start();
+    else clear();
+  });
+  if (isForeground(AppState.currentState)) start();
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    clear();
+    subscription.remove();
+  };
+};
+
 const buildingArt: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -1125,7 +1163,7 @@ function FocusFlow({ e }: any) {
     goldenPresenter = useRef<(event: GoldenFishEvent) => void>(() => {}),
     goldenCutsceneRef = useRef<GoldenFishEvent | null>(null),
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
-    goldenQueueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null),
+    goldenQueueTimerRef = useRef<(() => void) | null>(null),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
     goldenOccurrencesRef = useRef(new GoldenFishOccurrenceTracker()),
     goldenTestSession = useRef<string | null>(null);
@@ -1306,7 +1344,7 @@ function FocusFlow({ e }: any) {
       walkingToken.current++;
       if (timer.current) clearTimeout(timer.current);
       if (emoteTimer.current) clearTimeout(emoteTimer.current);
-      if (goldenQueueTimerRef.current) clearTimeout(goldenQueueTimerRef.current);
+      goldenQueueTimerRef.current?.();
     },
     [],
   );
@@ -1327,7 +1365,7 @@ function FocusFlow({ e }: any) {
       setEmote(null);
       goldenCutsceneRef.current = null;
       goldenQueueRef.current = [];
-      if (goldenQueueTimerRef.current) clearTimeout(goldenQueueTimerRef.current);
+      goldenQueueTimerRef.current?.();
       goldenQueueTimerRef.current = null;
       goldenDeferredNavigationRef.current = null;
       setGoldenCutscene(null);
@@ -1481,7 +1519,7 @@ function FocusFlow({ e }: any) {
     setLeg('leave');
     const arrive = () => {
       setLeg(null);
-      if (goldenCutsceneRef.current) {
+      if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
         goldenDeferredNavigationRef.current = next;
         return;
       }
@@ -1491,11 +1529,18 @@ function FocusFlow({ e }: any) {
   };
   const result = s.lastResult,
     leave = () => {
-      // 자동 종료 결과는 닫을 때 acknowledge — 확인 전까지 서버가 계속 돌려주므로 실패해도 잃지 않는다
-      if (result?.ackId) e.focus?.acknowledge(result.ackId).catch(() => {});
-      s.resultFromRest
-        ? e.home()
-        : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel'));
+      const navigate = () => {
+        // 자동 종료 결과는 닫을 때 acknowledge — 확인 전까지 서버가 계속 돌려주므로 실패해도 잃지 않는다
+        if (result?.ackId) e.focus?.acknowledge(result.ackId).catch(() => {});
+        s.resultFromRest
+          ? e.home()
+          : leaveTo(() => latest.current.r === 'focusResult' && e.go('returnTravel'));
+      };
+      if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
+        goldenDeferredNavigationRef.current = navigate;
+        return;
+      }
+      navigate();
     },
     // 결과 다음에 새로 받은 보상이 있으면 보상받기 모달, 없으면 바로 섬으로.
     // 서버 경로는 회차 목록 로딩 중이거나 수령 가능한 퀘스트가 있으면 모달을 연다 —
@@ -1527,7 +1572,7 @@ function FocusFlow({ e }: any) {
   };
   // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
-    if (goldenCutsceneRef.current) return true;
+    if (goldenCutsceneRef.current || goldenQueueTimerRef.current) return true;
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
       // 서버 수령은 명시적 버튼으로만 — 뒤로가기는 모달을 닫고 나간다
@@ -1799,20 +1844,19 @@ function FocusFlow({ e }: any) {
         goldenCutsceneRef.current = next;
         setGoldenCutscene(null);
         setGoldenFish(true);
-        if (next) {
-          // 첫 사건의 reel 2초가 다음 전체 화면 영상 뒤에서 끝나지 않도록 사이를 비운다.
-          goldenQueueTimerRef.current = setTimeout(() => {
-            goldenQueueTimerRef.current = null;
+        // 실제 포그라운드에서 reel을 2초 노출한 뒤 다음 영상 또는 지연된 이동을 진행한다.
+        goldenQueueTimerRef.current = afterForegroundMs(() => {
+          goldenQueueTimerRef.current = null;
+          if (next) {
             if (goldenCutsceneRef.current?.eventId !== next.eventId) return;
             setGoldenFish(false);
             setGoldenCutscene(goldenCutsceneRef.current);
-          }, 2000);
-        }
-        if (next === null) {
-          const navigate = goldenDeferredNavigationRef.current;
-          goldenDeferredNavigationRef.current = null;
-          navigate?.();
-        }
+          } else {
+            const navigate = goldenDeferredNavigationRef.current;
+            goldenDeferredNavigationRef.current = null;
+            navigate?.();
+          }
+        }, 2000);
       }}
     />
   ) : null;

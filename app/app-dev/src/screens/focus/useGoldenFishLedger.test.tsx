@@ -128,6 +128,34 @@ test('realtime 재연결 세대가 바뀌면 다음 타이머를 기다리지 �
   await screen.unmount();
 });
 
+test('같은 세션의 일시 비활성화 뒤에도 기존 원장 커서에서 복구한다', async () => {
+  const onGoldenFish = jest.fn();
+  ledgerMock.mockResolvedValueOnce(emptyPage()).mockResolvedValue({
+    ...emptyPage(),
+    items: [
+      {
+        id: 'during-resync',
+        direction: 'earn',
+        reason: 'golden_fish',
+        amount: 50,
+        createdAt: '2026-09-28T00:00:15Z',
+        groupedUntil: '2026-09-28T00:00:15Z',
+        entryCount: 1,
+      },
+    ],
+  });
+  const screen = await render(<Harness active onGoldenFish={onGoldenFish} />);
+  await act(async () => {});
+  await screen.rerender(<Harness active={false} onGoldenFish={onGoldenFish} />);
+  jest.setSystemTime(new Date('2026-09-28T00:00:30Z'));
+  await screen.rerender(<Harness active onGoldenFish={onGoldenFish} />);
+  await act(async () => {});
+
+  assert.equal(onGoldenFish.mock.calls.length, 1);
+  assert.equal(onGoldenFish.mock.calls[0][0].eventId, 'ledger:during-resync');
+  await screen.unmount();
+});
+
 test('조회와 커밋이 겹쳐 늦게 보인 원장 행을 look-back 구간에서 복구한다', async () => {
   const onGoldenFish = jest.fn();
   ledgerMock.mockResolvedValueOnce(emptyPage()).mockResolvedValue({

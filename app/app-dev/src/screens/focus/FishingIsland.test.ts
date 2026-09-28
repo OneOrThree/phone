@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { landPath, onLand } from '@/utils/world-grid';
 import { SECONDS_PER_FISH } from '@/services/model';
@@ -941,6 +942,51 @@ test('황금 물고기 참여자: 더미에 황금 물고기를 남기고 새 �
   assert.notEqual(screen.queryByTestId('fishing-actor-golden-fish-1'), null);
   assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
   await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('황금 reel은 백그라운드 시간을 제외하고 포그라운드에서 2초 노출한다', async () => {
+  jest.useFakeTimers();
+  let onAppStateChange: ((state: string) => void) | undefined;
+  const appState = jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+    _type: string,
+    listener: (state: string) => void,
+  ) => {
+    onAppStateChange = listener;
+    return { remove: jest.fn() };
+  }) as any);
+  const props = {
+    spot: { x: 34.1, y: 55.9, face: 1 },
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '나',
+    seconds: 0,
+    reduce: false,
+    goldenFishCount: 0,
+    goldenCatchToken: null,
+  };
+  const screen = await render(React.createElement(FishingActor, props));
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 1,
+      goldenCatchToken: 'golden-background',
+    }),
+  );
+  await act(async () => jest.advanceTimersByTime(500));
+  await act(async () => onAppStateChange?.('background'));
+  await act(async () => jest.advanceTimersByTime(5000));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'reel');
+
+  await act(async () => onAppStateChange?.('active'));
+  await act(async () => jest.advanceTimersByTime(1499));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'reel');
+  await act(async () => jest.advanceTimersByTime(1));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+
+  await screen.unmount();
+  appState.mockRestore();
   jest.useRealTimers();
 });
 

@@ -11,7 +11,6 @@ type GoldenLedgerScope = {
   sessionId: string | null;
   afterMs: number;
   active: boolean;
-  activated: boolean;
 };
 
 type GoldenFishSignalSource = 'ledger' | 'realtime';
@@ -151,7 +150,6 @@ export function useGoldenFishLedger({
     sessionId: null,
     afterMs: 0,
     active: false,
-    activated: false,
   });
 
   useEffect(() => {
@@ -162,7 +160,6 @@ export function useGoldenFishLedger({
         sessionId,
         afterMs: sessionStartedAt ?? Date.now() + clockOffsetRef.current,
         active: false,
-        activated: false,
       };
     }
     if (!active || !islandId || !sessionId) {
@@ -170,11 +167,7 @@ export function useGoldenFishLedger({
       return;
     }
     if (!scope.current.active) {
-      if (scope.current.activated) {
-        scope.current.afterMs = Date.now() + clockOffsetRef.current;
-      }
       scope.current.active = true;
-      scope.current.activated = true;
     }
 
     const accountGeneration = sessionGeneration();

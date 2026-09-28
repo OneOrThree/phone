@@ -136,6 +136,7 @@ const screenElement = (
   route: 'focus' | 'rest' | 'focusResult' = 'focus',
   backOverride?: { current: (() => boolean) | null },
   goOverride = jest.fn(),
+  homeOverride = jest.fn(),
 ) => (
   <CurrentScreens
     e={{
@@ -146,7 +147,7 @@ const screenElement = (
       go: goOverride,
       replace: jest.fn(),
       reset: jest.fn(),
-      home: jest.fn(),
+      home: homeOverride,
       back: jest.fn(),
       backOverride,
       notify: jest.fn(),
@@ -359,7 +360,50 @@ test('휴식하러 걷는 중 시작한 컷신이 끝날 때까지 화면 전환
   assert.equal(go.mock.calls.length, 0);
   assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  assert.equal(go.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(2000));
   assert.equal(go.mock.calls[0][0], 'rest');
+
+  await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('휴식 결과 화면은 연속 컷신과 마지막 reel이 끝날 때까지 이탈을 미룬다', async () => {
+  jest.useFakeTimers();
+  const state = focusedState();
+  state.lastResult = {
+    id: 's-me',
+    islandId: 'soda',
+    subject: '수학',
+    seconds: 60,
+    at: Date.now(),
+    fish: 1,
+    contributed: true,
+  };
+  state.resultFromRest = true;
+  state.session = null;
+  const home = jest.fn();
+  const screen = await render(screenElement(state, 'focusResult', undefined, jest.fn(), home));
+  const members = [
+    { userId: 'me', sessionId: 's-me' },
+    { userId: 'minji', sessionId: 'minji' },
+  ];
+
+  await act(async () => {
+    onGoldenFish?.(event(members));
+    onGoldenFish?.(event(members, 'golden-i1-2'));
+  });
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  await fireEvent.press(screen.getByTestId('result-done'));
+  assert.equal(home.mock.calls.length, 0);
+
+  await act(async () => jest.advanceTimersByTime(2000));
+  assert.notEqual(screen.queryByTestId('golden-cutscene', { includeHiddenElements: true }), null);
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  await act(async () => jest.advanceTimersByTime(1999));
+  assert.equal(home.mock.calls.length, 0);
+  await act(async () => jest.advanceTimersByTime(1));
+  assert.equal(home.mock.calls.length, 1);
 
   await screen.unmount();
   jest.useRealTimers();

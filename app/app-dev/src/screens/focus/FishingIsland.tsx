@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
+  AppState,
   Image,
   PanResponder,
   Platform,
@@ -28,6 +29,44 @@ export const fishingGrid: Grid = land;
 export const INK = '#493B39',
   OUTLINE = '#8B6956',
   ME = '#B83D63';
+
+const afterForegroundMs = (callback: () => void, durationMs: number) => {
+  let remainingMs = durationMs;
+  let startedAt: number | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let stopped = false;
+  const isForeground = (state: string | null) => state !== 'background' && state !== 'inactive';
+  const clear = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (startedAt !== null) {
+      remainingMs = Math.max(0, remainingMs - (Date.now() - startedAt));
+      startedAt = null;
+    }
+  };
+  const start = () => {
+    if (stopped || timer || startedAt !== null) return;
+    startedAt = Date.now();
+    timer = setTimeout(() => {
+      timer = null;
+      startedAt = null;
+      stopped = true;
+      subscription.remove();
+      callback();
+    }, remainingMs);
+  };
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (isForeground(state)) start();
+    else clear();
+  });
+  if (isForeground(AppState.currentState)) start();
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    clear();
+    subscription.remove();
+  };
+};
 // 도착 지점 바다 위 뗏목 한 대. 고양이는 뗏목 바로 위쪽의 가장 가까운 땅에 내려 선다.
 export const RAFT = { x: 37.8, y: 91.8 };
 const FISHING_MAP_ASPECT = 1536 / 1024;
@@ -783,8 +822,7 @@ export function FishingActor({
       return;
     }
     setReeling(true);
-    const t = setTimeout(() => setReeling(false), 2000);
-    return () => clearTimeout(t);
+    return afterForegroundMs(() => setReeling(false), 2000);
   }, [count, reduce]);
   // 컷신이 닫힌 뒤 참여자만 기존 낚아올리기 스프라이트로 한 번 알린다.
   useEffect(() => {
@@ -800,8 +838,7 @@ export function FishingActor({
     if (lastGoldenCatch.current === goldenCatchToken) return;
     lastGoldenCatch.current = goldenCatchToken;
     setGoldenReeling(true);
-    const t = setTimeout(() => setGoldenReeling(false), 2000);
-    return () => clearTimeout(t);
+    return afterForegroundMs(() => setGoldenReeling(false), 2000);
   }, [goldenFishCount, goldenCatchToken, reduce]);
   const a = size * 0.077,
     face = spot.face,
