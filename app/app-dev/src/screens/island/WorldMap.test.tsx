@@ -1,5 +1,12 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, renderHook } from '@testing-library/react-native';
+import {
+  act,
+  cleanup,
+  configure,
+  fireEvent,
+  render,
+  renderHook,
+} from '@testing-library/react-native';
 import { Animated, Platform } from 'react-native';
 import {
   constructionPlacement,
@@ -16,6 +23,9 @@ import {
 import { semanticTokens } from '@/design-system/tokens';
 import { villageScene } from '@/utils/village-world';
 import { assets } from '@/constants/assets';
+
+// 건물 모션·알림 배지는 장식 레이어라 스크린리더에서 숨긴다. 배치 검증을 위해 숨김 요소까지 조회한다.
+configure({ defaultIncludeHiddenElements: true });
 
 jest.mock('@/utils/layout', () => ({
   useAppLayout: () => ({
@@ -938,5 +948,38 @@ test('WorldMap 은 부모가 넘긴 낮·밤을 자체 시각 판정보다 우�
   // 낮 시각이어도 부모가 밤이라고 넘기면 회관 낮 프레임을 그리지 않는다.
   expect(screen.queryByTestId('world-hall-motion')).toBeNull();
   await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('테마 상점·전망대·도서관 진입 중에는 닫힌 모습의 정적 테마 레이어를 숨긴다', async () => {
+  const state = initialState(true);
+  const island = state.islands.find((item) => item.id === state.islandId)!;
+  for (const building of ['shop', 'tower', 'library'] as const) {
+    if (!island.buildings.includes(building)) island.buildings.push(building);
+  }
+  island.buildingThemes = {
+    ...island.buildingThemes,
+    shop: 'pink',
+    tower: 'pink',
+    library: 'pink',
+  } as any;
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T12:00:00'));
+
+  const idle = await render(<WorldMap state={state} />);
+  for (const building of ['shop', 'tower', 'library']) {
+    expect(idle.getByTestId(`world-building-theme-${building}`)).toBeTruthy();
+  }
+  await idle.unmount();
+
+  for (const [building, props] of [
+    ['shop', { shopArrivalActive: true, shopArrivalGeneration: 1 }],
+    ['tower', { towerArrivalActive: true, towerArrivalGeneration: 1 }],
+    ['library', { libraryArrivalActive: true, libraryArrivalGeneration: 1 }],
+  ] as const) {
+    const entering = await render(<WorldMap state={state} {...props} />);
+    expect(entering.queryByTestId(`world-building-theme-${building}`)).toBeNull();
+    await entering.unmount();
+  }
   jest.useRealTimers();
 });

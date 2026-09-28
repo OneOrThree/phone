@@ -8,6 +8,7 @@ import {
   rolloverLibrarySeen,
   saveLibrarySeen,
   type IndicatorScope,
+  type MailboxReadThrough,
   type LibrarySnapshot,
 } from '@/services/buildingIndicators';
 import { getSession, sessionGeneration, subscribeSession } from '@/services/api/session';
@@ -71,6 +72,7 @@ export function useBuildingIndicators({
   const epoch = useRef(0);
   const activeScopeKey = useRef('');
   const currentLibrary = useRef<LibrarySnapshot | null>(null);
+  const mailboxReadThrough = useRef<MailboxReadThrough>({ id: null });
   const librarySeenRevision = useRef(0);
   const refreshInFlight = useRef(0);
   const queuedLiveRefresh = useRef(false);
@@ -91,6 +93,7 @@ export function useBuildingIndicators({
   useEffect(() => {
     epoch.current += 1;
     currentLibrary.current = null;
+    mailboxReadThrough.current = { id: null };
     librarySeenRevision.current += 1;
     setIndicators(EMPTY);
   }, [scopeKey]);
@@ -146,7 +149,11 @@ export function useBuildingIndicators({
         }));
       })().catch(() => {}),
       (async () => {
-        const unread = await fetchMailboxUnreadCount(requestScope.islandId, alive);
+        const unread = await fetchMailboxUnreadCount(
+          requestScope.islandId,
+          alive,
+          mailboxReadThrough.current,
+        );
         if (!alive()) return;
         setIndicators((value) => ({ ...value, showMailboxLetters: unread > 0 }));
       })().catch(() => {}),

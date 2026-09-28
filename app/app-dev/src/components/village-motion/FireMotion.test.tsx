@@ -1,5 +1,8 @@
 import React from 'react';
-import { act, render } from '@testing-library/react-native';
+import { act, configure, render } from '@testing-library/react-native';
+
+// 장식 모션은 스크린리더에서 숨기므로 숨김 요소까지 조회한다.
+configure({ defaultIncludeHiddenElements: true });
 import { AppState, type AppStateStatus } from 'react-native';
 import { FireMotion } from './FireMotion';
 

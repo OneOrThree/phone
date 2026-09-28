@@ -156,9 +156,16 @@ function nextPage(cursor: unknown, used: Set<string>): string | null {
   return cursor;
 }
 
+/**
+ * 받은 편지는 최신순이고 읽음 → 안 읽음으로 되돌아가지 않는다. 전부 읽음을 확인했을 때의
+ * 최신 편지 id 를 기억해 두면, 다음 조회는 그 편지에 닿는 순간 멈춰 새로 온 페이지만 확인한다.
+ */
+export type MailboxReadThrough = { id: string | null };
+
 export async function fetchMailboxUnreadCount(
   islandId: string,
   isCurrent?: () => boolean,
+  readThrough?: MailboxReadThrough,
 ): Promise<number> {
   const alive = guard(isCurrent);
   alive();
@@ -168,6 +175,11 @@ export async function fetchMailboxUnreadCount(
   const cursors = new Set<string>();
   let page: LetterSlice = screen.letters;
   let unread = 0;
+  const newestId = Array.isArray(page.content) ? (page.content[0]?.id ?? null) : null;
+  const confirmAllRead = () => {
+    if (readThrough) readThrough.id = newestId;
+    return unread;
+  };
   for (;;) {
     if (!Array.isArray(page.content) || typeof page.hasNext !== 'boolean')
       throw contract('letters');
@@ -184,8 +196,9 @@ export async function fetchMailboxUnreadCount(
       if (ids.has(item.id)) continue;
       ids.add(item.id);
       if (!item.isRead) return unread + 1;
+      if (readThrough?.id != null && item.id === readThrough.id) return confirmAllRead();
     }
-    if (!page.hasNext) return unread;
+    if (!page.hasNext) return confirmAllRead();
     const cursor = nextPage(page.nextCursor, cursors);
     if (cursor === null) throw contract('letters.nextCursor');
     alive();

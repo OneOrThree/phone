@@ -179,6 +179,57 @@ test('받은 편지 전체 페이지의 미열람 수를 센다', async () => {
   expect(listLetters).toHaveBeenCalledWith('received', 'older');
 });
 
+test('전부 읽음을 확인한 경계 이후에는 새로 온 편지만 확인하고 이전 페이지를 다시 돌지 않는다', async () => {
+  (getMailboxScreen as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    letters: { content: [{ id: 'l2', isRead: true }], hasNext: true, nextCursor: 'older' },
+  });
+  (listLetters as jest.Mock).mockResolvedValue({
+    content: [{ id: 'l1', isRead: true }],
+    hasNext: false,
+    nextCursor: null,
+  });
+  const readThrough = { id: null as string | null };
+  expect(await fetchMailboxUnreadCount('i:1', undefined, readThrough)).toBe(0);
+  expect(readThrough.id).toBe('l2');
+  expect(listLetters).toHaveBeenCalledTimes(1);
+
+  // 새 편지가 없으면 첫 페이지의 경계 편지에서 멈춘다.
+  expect(await fetchMailboxUnreadCount('i:1', undefined, readThrough)).toBe(0);
+  expect(listLetters).toHaveBeenCalledTimes(1);
+
+  // 새로 온 읽은 편지 뒤에서 경계를 만나면 멈추고 경계를 최신 편지로 옮긴다.
+  (getMailboxScreen as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    letters: {
+      content: [
+        { id: 'l3', isRead: true },
+        { id: 'l2', isRead: true },
+      ],
+      hasNext: true,
+      nextCursor: 'older',
+    },
+  });
+  expect(await fetchMailboxUnreadCount('i:1', undefined, readThrough)).toBe(0);
+  expect(readThrough.id).toBe('l3');
+  expect(listLetters).toHaveBeenCalledTimes(1);
+
+  // 미열람 편지가 오면 표시하고 경계는 옮기지 않는다.
+  (getMailboxScreen as jest.Mock).mockResolvedValue({
+    island: { id: 'i:1' },
+    letters: {
+      content: [
+        { id: 'l4', isRead: false },
+        { id: 'l3', isRead: true },
+      ],
+      hasNext: true,
+      nextCursor: 'older',
+    },
+  });
+  expect(await fetchMailboxUnreadCount('i:1', undefined, readThrough)).toBe(1);
+  expect(readThrough.id).toBe('l3');
+});
+
 test('첫 페이지에서 미열람 편지를 찾으면 뒤 페이지 장애와 무관하게 즉시 표시한다', async () => {
   (getMailboxScreen as jest.Mock).mockResolvedValue({
     island: { id: 'i:1' },

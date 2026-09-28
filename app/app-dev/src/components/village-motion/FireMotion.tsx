@@ -88,8 +88,11 @@ export const FireMotion = memo(function FireMotionView({
   return (
     <View
       testID={testID}
-      accessible
-      accessibilityRole="image"
+      // 장식 레이어다. 상태 안내는 실제 건물 버튼 라벨 하나에만 둔다.
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden
       accessibilityLabel={`모닥불, ${modeLabel}${residentLabel ? `, ${residentLabel}` : ''}`}
       pointerEvents="none"
       style={[styles.fill, style]}

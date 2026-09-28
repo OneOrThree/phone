@@ -493,6 +493,12 @@ export function WorldMap({
     node?.addEventListener?.('wheel', wheel, { passive: false });
     return () => node?.removeEventListener?.('wheel', wheel);
   }, []);
+  const arrivalFramesPlaying: Partial<Record<Building, boolean>> = {
+    hall: hallMotionActive,
+    tower: towerArrivalActive,
+    shop: shopArrivalActive,
+    library: libraryArrivalActive,
+  };
   return (
     <View
       ref={view}
@@ -747,7 +753,8 @@ export function WorldMap({
             .filter(
               (b) =>
                 (b !== 'mail' || !mailboxLetters) &&
-                !(b === 'hall' && hallMotionActive && dayNight === 'day') &&
+                // 진입 프레임이 재생되는 동안 닫힌 모습의 정적 테마 레이어가 잔상으로 겹치지 않게 한다.
+                !(dayNight === 'day' && arrivalFramesPlaying[b]) &&
                 island.buildingThemes?.[b] &&
                 island.buildingThemes?.[b] !== 'default',
             )
@@ -1343,11 +1350,11 @@ function FinalIslandScene({
                   >
                     <View
                       style={{
-                        minHeight: 24,
+                        minHeight: componentTokens.villageBuildingNameTag.minHeight,
                         justifyContent: 'center',
-                        paddingHorizontal: 8,
-                        borderRadius: 12,
-                        borderWidth: 1,
+                        paddingHorizontal: componentTokens.villageBuildingNameTag.paddingHorizontal,
+                        borderRadius: componentTokens.villageBuildingNameTag.radius,
+                        borderWidth: componentTokens.villageBuildingNameTag.borderWidth,
                         borderColor: semanticTokens.color.outline,
                         backgroundColor:
                           (d.building === 'shop' && shopState !== 'normal') ||

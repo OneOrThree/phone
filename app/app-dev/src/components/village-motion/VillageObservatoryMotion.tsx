@@ -56,6 +56,11 @@ export function VillageObservatoryMotion({
   return (
     <View
       testID={testID}
+      // 장식 레이어다. 상태 안내는 실제 건물 버튼 라벨 하나에만 둔다.
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      aria-hidden
       accessibilityLabel={`전망대, ${dayNight === 'day' ? '낮' : '밤'}${rankLabel ? `, ${rankLabel}` : ''}`}
       style={[styles.root, style]}
     >
