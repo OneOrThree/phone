@@ -12,7 +12,7 @@
 import { login as apiLogin, me as apiMe } from '@/services/api/auth';
 import type { Account, LoginResult, Provider } from '@/services/api/auth';
 import { ApiError, uuid } from '@/services/api/client';
-import { getSession } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 
 /** 서버 게이트 — 이 코드에만 회원 전환 시트를 연다. 일반 FORBIDDEN·게이트 밖 403 은 아니다. */
 export const isMemberGateError = (e: unknown): boolean =>
@@ -38,6 +38,8 @@ export type MemberConversionDeps = {
   newAttemptId?: () => string;
   /** 기본 session.getSession — 전환 전 로그인한 사용자를 기억한다. */
   sessionUserId?: () => string | null;
+  /** 기본 session.sessionGeneration — 채택 재시도 때 같은 세션인지 확인한다. */
+  sessionGeneration?: () => number;
 };
 
 export type MemberConversion = {
@@ -57,6 +59,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
   const login = deps.login ?? apiLogin;
   const newAttemptId = deps.newAttemptId ?? uuid;
   const sessionUserId = deps.sessionUserId ?? (() => getSession()?.userId ?? null);
+  const currentSessionGeneration = deps.sessionGeneration ?? sessionGeneration;
   // 실패한 시도는 (자격, 확정 여부)와 attemptId 를 묶어 둔다 — 같은 키의 재시도는 서버가
   // 저장 결과를 재생해 제공자 자격 교환을 다시 하지 않는다(LLD §3 내구 attempt). 키가
   // 바뀌면 — 사용자가 다른 자격을 골랐거나 ② 확정으로 의도가 바뀌면 — 새 시도다.
@@ -73,6 +76,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
         mode: 'adopt';
         result: LoginResult;
         previousUserId: string | null;
+        generation: number;
       }
     | null = null;
 
@@ -97,14 +101,29 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     // 로그인은 성공했지만 /me 채택이 실패한 경우, 다음 클릭에서는 로그인 응답을 재사용한다.
     // 채택이 끝나기 전까지 최초 사용자 ID도 유지해 게스트 데이터를 회원에 섞지 않는다.
     if (pending?.mode === 'adopt') {
-      await deps.adopt(pending.result, pending.previousUserId);
+      // /me 의 401 은 세션을 비우고 세대를 올린다. 그 사이 다른 계정에 로그인한 경우도
+      // 결과는 달라진다. 이때 옛 로그인 결과를 다시 채택하지 말고 현재 세션으로 새 로그인한다.
+      if (
+        pending.generation === currentSessionGeneration() &&
+        sessionUserId() === pending.result.userId
+      ) {
+        await deps.adopt(pending.result, pending.previousUserId);
+        pending = null;
+        return 'converted';
+      }
       pending = null;
-      return 'converted';
     }
     // 전환이 끝나면 저장된 세션은 새 계정의 것이다 — 이전 계정 판정은 시작 시에 잡는다.
     const previousUserId = sessionUserId();
     const adopt = async (result: LoginResult) => {
-      pending = { provider, credential, mode: 'adopt', result, previousUserId };
+      pending = {
+        provider,
+        credential,
+        mode: 'adopt',
+        result,
+        previousUserId,
+        generation: currentSessionGeneration(),
+      };
       await deps.adopt(result, previousUserId);
       pending = null;
     };

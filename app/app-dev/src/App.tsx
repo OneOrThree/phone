@@ -1556,43 +1556,48 @@ function Gromo() {
                   },
                 ]}
               >
-                <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
-                  소셜 계정으로 계속하기
-                </NativeText>
-                <NativeText
-                  lineBreakStrategyIOS="hangul-word"
-                  style={[
-                    { color: C.muted },
-                    Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
-                  ]}
+                <ScrollView
+                  style={{ flexShrink: 1, minHeight: 0 }}
+                  contentContainerStyle={{ gap: 10 }}
                 >
-                  친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.
-                  {'\n'}지금 고양이와 섬은 그대로 이어져요.
-                </NativeText>
-                {loginProviders().map((provider) => (
+                  <NativeText kind="h17" style={{ lineHeight: 22.95 }}>
+                    소셜 계정으로 계속하기
+                  </NativeText>
+                  <NativeText
+                    lineBreakStrategyIOS="hangul-word"
+                    style={[
+                      { color: C.muted },
+                      Platform.OS === 'web' && ({ wordBreak: 'keep-all' } as any),
+                    ]}
+                  >
+                    친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.
+                    {'\n'}지금 고양이와 섬은 그대로 이어져요.
+                  </NativeText>
+                  {loginProviders().map((provider) => (
+                    <NativeButton
+                      key={provider}
+                      dialog
+                      dynamicHeight
+                      title={convUi.busy === provider ? '연결하는 중…' : PROVIDER_LABEL[provider]}
+                      kind="sec"
+                      disabled={!!convUi.busy}
+                      onPress={() => void pickProvider(provider)}
+                    />
+                  ))}
+                  {!!convUi.error && (
+                    <NativeText style={{ color: C.danger, textAlign: 'center' }}>
+                      {convUi.error}
+                    </NativeText>
+                  )}
                   <NativeButton
-                    key={provider}
                     dialog
                     dynamicHeight
-                    title={convUi.busy === provider ? '연결하는 중…' : PROVIDER_LABEL[provider]}
-                    kind="sec"
+                    title="나중에"
+                    kind="glass"
                     disabled={!!convUi.busy}
-                    onPress={() => void pickProvider(provider)}
+                    onPress={() => setConvUi(null)}
                   />
-                ))}
-                {!!convUi.error && (
-                  <NativeText style={{ color: C.danger, textAlign: 'center' }}>
-                    {convUi.error}
-                  </NativeText>
-                )}
-                <NativeButton
-                  dialog
-                  dynamicHeight
-                  title="나중에"
-                  kind="glass"
-                  disabled={!!convUi.busy}
-                  onPress={() => setConvUi(null)}
-                />
+                </ScrollView>
               </Pressable>
             </Pressable>
           </Modal>

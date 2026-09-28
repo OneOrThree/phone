@@ -149,6 +149,79 @@ test('convert 채택 재시도 — 로그인 결과와 최초 사용자 ID를 �
   assert.deepEqual(calls, ['me', 'me', 'reset:guest-1', 'apply:member-9', 'navigate:member-9']);
 });
 
+test('convert 채택 재시도 — /me 401 로 세션이 사라지면 오래된 결과를 버리고 새 로그인한다', async () => {
+  let generation = 0;
+  let currentUserId: string | null = 'guest-1';
+  let loginCalls = 0;
+  let adoptCalls = 0;
+  const attempts: (string | undefined)[] = [];
+  const adopted: { result: LoginResult; previousUserId: string | null }[] = [];
+  const conversion = createMemberConversion({
+    termsVersion: '2026-09',
+    openPrompt: () => {},
+    confirmSwitch: async () => true,
+    sessionUserId: () => currentUserId,
+    sessionGeneration: () => generation,
+    newAttemptId: () => `attempt-${loginCalls + 1}`,
+    login: async (_provider, _credential, _terms, options) => {
+      attempts.push(options?.attemptId);
+      const next = result(loginCalls++ === 0 ? 'member-9' : 'member-10');
+      currentUserId = next.userId;
+      generation += 1;
+      return next;
+    },
+    adopt: async (loginResult, previousUserId) => {
+      adoptCalls += 1;
+      if (adoptCalls === 1) throw new ApiError('SESSION_REJECTED', '만료', 401);
+      adopted.push({ result: loginResult, previousUserId });
+    },
+  });
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  // /me 401 정리가 세션을 비웠다.
+  currentUserId = null;
+  generation += 1;
+  await conversion.convert('apple', 'apple-jwt');
+
+  assert.equal(loginCalls, 2);
+  assert.notEqual(attempts[1], attempts[0]);
+  assert.deepEqual(adopted, [{ result: result('member-10'), previousUserId: null }]);
+});
+
+test('convert 채택 재시도 — 다른 계정 세션으로 바뀌면 stale adopt 대신 새 로그인한다', async () => {
+  let generation = 0;
+  let currentUserId: string | null = 'guest-1';
+  let loginCalls = 0;
+  let adoptCalls = 0;
+  const adopted: { result: LoginResult; previousUserId: string | null }[] = [];
+  const conversion = createMemberConversion({
+    termsVersion: '2026-09',
+    openPrompt: () => {},
+    confirmSwitch: async () => true,
+    sessionUserId: () => currentUserId,
+    sessionGeneration: () => generation,
+    login: async () => {
+      const next = result(loginCalls++ === 0 ? 'member-9' : 'member-10');
+      currentUserId = next.userId;
+      generation += 1;
+      return next;
+    },
+    adopt: async (loginResult, previousUserId) => {
+      adoptCalls += 1;
+      if (adoptCalls === 1) throw new ApiError('SERVER_ERROR', '서버 오류', 503);
+      adopted.push({ result: loginResult, previousUserId });
+    },
+  });
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  currentUserId = 'other-account';
+  generation += 1;
+  await conversion.convert('apple', 'apple-jwt');
+
+  assert.equal(loginCalls, 2);
+  assert.deepEqual(adopted, [{ result: result('member-10'), previousUserId: 'other-account' }]);
+});
+
 test('convert 충돌 취소 — 확인창에서 취소하면 두 번째 로그인도 채택도 없다', async () => {
   const { conversion, calls, adopted, asked } = make([conflict()], { confirm: false });
 
