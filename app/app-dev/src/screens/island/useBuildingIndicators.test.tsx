@@ -4,6 +4,7 @@ import {
   fetchLibrarySnapshot,
   fetchMailboxUnreadCount,
   loadLibrarySeen,
+  loadMailboxReadThrough,
   saveLibrarySeen,
 } from '@/services/buildingIndicators';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -248,4 +249,37 @@ test('같은 섬 재조회가 실패해도 마지막 성공 배지를 유지한�
   await act(async () => Promise.resolve());
 
   assert.equal(hook.result.current.showMailboxLetters, true);
+});
+
+test('우편함 읽음 경계는 사용자·섬별로 저장되어 다시 마운트해도 이어서 쓴다', async () => {
+  mailboxNow.mockImplementationOnce(async (_island, _alive, readThrough) => {
+    readThrough.id = 'letter-9';
+    return 0;
+  });
+  const first = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+  await waitFor(() => assert.equal(mailboxNow.mock.calls.length, 1));
+  await waitFor(async () =>
+    assert.equal(
+      await loadMailboxReadThrough({ userId: 'user-1', islandId: 'island-1' }),
+      'letter-9',
+    ),
+  );
+  await first.unmount();
+
+  const second = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-1', onHome: true, refreshKey: 0 }),
+  );
+  await waitFor(() => assert.equal(mailboxNow.mock.calls.length, 2));
+  assert.deepEqual(mailboxNow.mock.calls[1][2], { id: 'letter-9' });
+  await second.unmount();
+
+  // 다른 섬은 자기 경계만 쓴다.
+  const other = await renderHook(() =>
+    useBuildingIndicators({ active: true, islandId: 'island-2', onHome: true, refreshKey: 0 }),
+  );
+  await waitFor(() => assert.equal(mailboxNow.mock.calls.length, 3));
+  assert.deepEqual(mailboxNow.mock.calls[2][2], { id: null });
+  await other.unmount();
 });

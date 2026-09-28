@@ -4,9 +4,11 @@ import {
   fetchLibrarySnapshot,
   fetchMailboxUnreadCount,
   libraryStatus,
+  loadMailboxReadThrough,
   loadLibrarySeen,
   rolloverLibrarySeen,
   saveLibrarySeen,
+  saveMailboxReadThrough,
   type IndicatorScope,
   type MailboxReadThrough,
   type LibrarySnapshot,
@@ -149,11 +151,15 @@ export function useBuildingIndicators({
         }));
       })().catch(() => {}),
       (async () => {
-        const unread = await fetchMailboxUnreadCount(
-          requestScope.islandId,
-          alive,
-          mailboxReadThrough.current,
-        );
+        const readThrough = mailboxReadThrough.current;
+        if (readThrough.id === null) {
+          readThrough.id = await loadMailboxReadThrough(requestScope).catch(() => null);
+          if (!alive()) return;
+        }
+        const previous = readThrough.id;
+        const unread = await fetchMailboxUnreadCount(requestScope.islandId, alive, readThrough);
+        if (alive() && readThrough.id && readThrough.id !== previous)
+          await saveMailboxReadThrough(requestScope, readThrough.id).catch(() => {});
         if (!alive()) return;
         setIndicators((value) => ({ ...value, showMailboxLetters: unread > 0 }));
       })().catch(() => {}),

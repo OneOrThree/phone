@@ -12,7 +12,7 @@ export type LibrarySnapshot = {
   fishEarnings: Record<string, number>;
 };
 
-const key = (scope: IndicatorScope, building: 'library') =>
+const key = (scope: IndicatorScope, building: 'library' | 'mailbox') =>
   `gromo:indicators:v1:${encodeURIComponent(scope.userId)}:${encodeURIComponent(scope.islandId)}:${building}`;
 const record = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -45,6 +45,11 @@ export const loadLibrarySeen = (scope: IndicatorScope) =>
   );
 export const saveLibrarySeen = (scope: IndicatorScope, snapshot: LibrarySnapshot) =>
   AsyncStorage.setItem(key(scope, 'library'), JSON.stringify(snapshot));
+/** 우편함 읽음 경계(전부 읽음을 확인한 최신 편지 id). 섬 전환·재실행 뒤에도 전체 재순회를 피한다. */
+export const loadMailboxReadThrough = (scope: IndicatorScope) =>
+  load(key(scope, 'mailbox'), (value): value is string => typeof value === 'string' && !!value);
+export const saveMailboxReadThrough = (scope: IndicatorScope, letterId: string) =>
+  AsyncStorage.setItem(key(scope, 'mailbox'), JSON.stringify(letterId));
 
 const week = (now: Date) => {
   const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
