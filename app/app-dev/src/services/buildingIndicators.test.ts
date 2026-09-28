@@ -76,7 +76,8 @@ test('도서관 관측 시각과 주민 이름만 바뀌면 배지가 생기지 
   screen.focusStatistics!.asOf = '새 조회 시각';
   screen.fishEarnings!.members[0].name = '새 이름';
   expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(false);
-  screen.focusStatistics!.records[0].activeSeconds = 11;
+  screen.focusStatistics!.totalSeconds = 11;
+  screen.focusStatistics!.series[0].seconds = 11;
   expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(true);
 });
 
@@ -95,7 +96,7 @@ test('스크린타임 집계와 날짜별 updatedAt만 바뀌면 도서관 finge
   expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(true);
 });
 
-test('33쪽을 넘는 정상 편지·집중 기록 페이지를 끝까지 조회한다', async () => {
+test('33쪽을 넘는 정상 편지 페이지를 끝까지 조회한다', async () => {
   const last = 40;
   const cursor = (page: number) => (page < last ? String(page + 1) : null);
   (getMailboxScreen as jest.Mock).mockResolvedValue({
@@ -112,25 +113,9 @@ test('33쪽을 넘는 정상 편지·집중 기록 페이지를 끝까지 조회
   });
   expect(await fetchMailboxUnreadCount('i:1')).toBe(1);
   expect(listLetters).toHaveBeenCalledTimes(last);
-
-  const screen = library();
-  screen.focusStatistics!.nextCursor = '1';
-  (getLibraryScreen as jest.Mock).mockResolvedValue(screen);
-  (getFocusStatistics as jest.Mock).mockImplementation(async (_island, query) => {
-    const page = Number(query.cursor);
-    return {
-      ...screen.focusStatistics,
-      records: [{ id: `extra${page}`, subject: '공부', activeSeconds: 1, completedAt: 't1' }],
-      nextCursor: cursor(page),
-    };
-  });
-  expect((await fetchLibrarySnapshot('i:1', undefined, now))?.weeklyFingerprint).toContain(
-    'extra40',
-  );
-  expect(getFocusStatistics).toHaveBeenCalledTimes(last);
 });
 
-test('잠긴 도서관·누락 조각·미완성 페이지·UTC 주 변경은 배지를 만들지 않는다', () => {
+test('잠긴 도서관·누락 조각·남은 기록 페이지·UTC 주 변경은 배지를 만들지 않는다', () => {
   const screen = library();
   const seen = librarySnapshot(screen, now);
   expect(libraryStatus(librarySnapshot(screen, new Date('2026-09-27T00:00:00Z')), seen)).toBe(
@@ -138,8 +123,9 @@ test('잠긴 도서관·누락 조각·미완성 페이지·UTC 주 변경은 �
   );
   expect(librarySnapshot({ ...screen, statisticsAvailability: 'facility_locked' }, now)).toBeNull();
   expect(librarySnapshot({ ...screen, missingFragments: ['fishEarnings'] }, now)).toBeNull();
+  // 기록 목록은 지문에 없으므로 다음 페이지가 남아 있어도 같은 지문을 만든다.
   screen.focusStatistics!.nextCursor = 'more';
-  expect(librarySnapshot(screen, now)).toBeNull();
+  expect(libraryStatus(librarySnapshot(screen, now), seen)).toBe(false);
 });
 
 test('주 경계에서는 주간 통계만 초기화하고 미확인 누적 어획 증가는 유지한다', () => {
@@ -268,63 +254,22 @@ test('페이지 경계의 편지 중복은 건너뛰고 hasNext에 없는 커서
   });
 });
 
-test('도서관 집중 기록 페이지 경계의 중복 ID는 한 번만 반영한다', async () => {
-  const screen = library();
-  screen.focusStatistics!.nextCursor = 'more';
-  (getFocusStatistics as jest.Mock).mockResolvedValue({
-    ...screen.focusStatistics,
-    records: [
-      screen.focusStatistics!.records[0],
-      { id: 'r2', subject: '책', activeSeconds: 5, completedAt: 't2' },
-    ],
-    nextCursor: null,
-  });
-
-  const result = await fetchLibrarySnapshot('i:1', undefined, now, screen);
-
-  expect(result?.weeklyFingerprint).toContain('r1');
-  expect(result?.weeklyFingerprint).toContain('r2');
-});
-
-test('도서관 집중 기록을 끝까지 수집해 안정 snapshot을 만든다', async () => {
+test('홈 조회는 /screens/library 한 번만 읽고 집중 기록 다음 페이지를 따라가지 않는다', async () => {
   const screen = library();
   screen.focusStatistics!.nextCursor = 'more';
   (getLibraryScreen as jest.Mock).mockResolvedValue(screen);
-  (getFocusStatistics as jest.Mock).mockResolvedValue({
-    ...screen.focusStatistics,
-    records: [{ id: 'r2', subject: '책', activeSeconds: 5, completedAt: 't2' }],
-    nextCursor: null,
-  });
   const result = await fetchLibrarySnapshot('i:1', undefined, now);
-  expect(result?.weeklyFingerprint).toContain('r2');
-  expect(getFocusStatistics).toHaveBeenCalledWith('i:1', {
-    from: '2026-09-20',
-    to: '2026-09-26',
-    scope: 'me',
-    cursor: 'more',
-  });
+  expect(result).toEqual(librarySnapshot(screen, now));
+  expect(getLibraryScreen).toHaveBeenCalledTimes(1);
+  expect(getFocusStatistics).not.toHaveBeenCalled();
 });
 
-test('이미 표시한 도서관 응답을 기준으로 남은 집중 기록 페이지를 수집한다', async () => {
+test('이미 표시한 도서관 응답이 있으면 다시 요청하지 않고 그 응답을 기준으로 삼는다', async () => {
   const screen = library();
-  screen.focusStatistics!.nextCursor = 'more';
-  (getFocusStatistics as jest.Mock).mockResolvedValue({
-    ...screen.focusStatistics,
-    records: [{ id: 'r2', subject: '책', activeSeconds: 5, completedAt: 't2' }],
-    nextCursor: null,
-  });
-
   const result = await fetchLibrarySnapshot('i:1', undefined, now, screen);
-
-  expect(result?.weeklyFingerprint).toContain('r1');
-  expect(result?.weeklyFingerprint).toContain('r2');
+  expect(result).toEqual(librarySnapshot(screen, now));
   expect(getLibraryScreen).not.toHaveBeenCalled();
-  expect(getFocusStatistics).toHaveBeenCalledWith('i:1', {
-    from: '2026-09-20',
-    to: '2026-09-26',
-    scope: 'me',
-    cursor: 'more',
-  });
+  expect(getFocusStatistics).not.toHaveBeenCalled();
 });
 
 test('현재 섬과 다른 화면 응답을 거부한다', async () => {

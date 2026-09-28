@@ -1264,11 +1264,15 @@ function FinalIslandScene({
                           ? `${d.label}, 새 상품이 있어요`
                           : d.building === 'shop' && shopState === 'purchasable'
                             ? `${d.label}, 구매 가능한 상품이 있어요`
-                            : d.building === 'library' && libraryState === 'new-quest'
-                              ? `${d.label}, 새 퀘스트가 있어요`
-                              : d.building === 'library' && libraryState === 'new-reading'
-                                ? `${d.label}, 새 읽을거리가 있어요`
-                                : d.label
+                            : d.building === 'tower' && observatoryRankState === 'rank-updated'
+                              ? `${d.label}, 주간 순위가 갱신되었어요`
+                              : d.building === 'tower' && observatoryRankState === 'rank-changed'
+                                ? `${d.label}, 주간 순위가 바뀌었어요`
+                                : d.building === 'library' && libraryState === 'new-quest'
+                                  ? `${d.label}, 새 퀘스트가 있어요`
+                                  : d.building === 'library' && libraryState === 'new-reading'
+                                    ? `${d.label}, 새 읽을거리가 있어요`
+                                    : d.label
                 }
                 // 토스트는 iOS 스크린리더가 읽지 않으므로 구경 중 주민 전용 건물은 미리 알려 준다
                 accessibilityHint={
@@ -1278,11 +1282,13 @@ function FinalIslandScene({
                       ? '게시판을 열어 확인하세요'
                       : d.building === 'shop' && shopState !== 'normal'
                         ? '상점에서 상품을 확인하세요'
-                        : d.building === 'library' && libraryState !== 'normal'
-                          ? '도서관에서 새 내용을 확인하세요'
-                          : visiting && d.building && !['hall', 'board'].includes(d.building)
-                            ? '주민만 이용할 수 있어요'
-                            : undefined
+                        : d.building === 'tower' && observatoryRankState !== 'normal'
+                          ? '전망대에서 주간 순위를 확인하세요'
+                          : d.building === 'library' && libraryState !== 'normal'
+                            ? '도서관에서 새 내용을 확인하세요'
+                            : visiting && d.building && !['hall', 'board'].includes(d.building)
+                              ? '주민만 이용할 수 있어요'
+                              : undefined
                 }
                 onPress={() => {
                   if (!visiting) {

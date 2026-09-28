@@ -330,6 +330,23 @@ test.each([
           shopState === 'normal' ? semanticTokens.color.surface : semanticTokens.color.accent,
         );
     }
+    // 장식 모션은 스크린리더에서 숨기므로 순위 변동은 실제 전망대 버튼이 읽어 준다.
+    const rankText =
+      observatoryRankState === 'rank-updated'
+        ? '주간 순위가 갱신되었어요'
+        : observatoryRankState === 'rank-changed'
+          ? '주간 순위가 바뀌었어요'
+          : null;
+    const towerButtons = screen
+      .getAllByRole('button')
+      .filter((node) => String(node.props.accessibilityLabel ?? '').includes('전망대'));
+    expect(towerButtons.length).toBeGreaterThan(0);
+    for (const button of towerButtons) {
+      if (rankText) {
+        expect(button.props.accessibilityLabel).toContain(rankText);
+        expect(button.props.accessibilityHint).toBe('전망대에서 주간 순위를 확인하세요');
+      } else expect(button.props.accessibilityLabel).not.toContain('주간 순위');
+    }
   },
 );
 

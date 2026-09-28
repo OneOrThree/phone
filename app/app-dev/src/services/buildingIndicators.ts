@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ApiError, CLIENT_STALE_SESSION } from './api/client';
 import { CLIENT_CONTRACT_ERROR } from './api/home';
 import { getMailboxScreen, listLetters, type LetterSlice } from './api/letters';
-import { getFocusStatistics, getLibraryScreen, type LibraryScreen } from './api/records';
+import { getLibraryScreen, type LibraryScreen } from './api/records';
 import { sessionGeneration } from './api/session';
 
 export type IndicatorScope = { userId: string; islandId: string };
@@ -60,13 +60,14 @@ export function librarySnapshot(screen: LibraryScreen, now = new Date()): Librar
     screen.missingFragments?.length ||
     !screen.focusStatistics ||
     !screen.screenTimeStatistics ||
-    !screen.fishEarnings ||
-    screen.focusStatistics.nextCursor !== null
+    !screen.fishEarnings
   )
     return null;
   const focus = screen.focusStatistics;
   const usage = screen.screenTimeStatistics;
   // 조회·집계 시각(asOf/updatedAt), 주민 이름, 배열 순서는 콘텐츠 변경으로 세지 않는다.
+  // 새 집중 기록은 합계와 일별 시계열을 반드시 바꾸므로, 기록 목록(페이지)은 지문에 넣지 않는다.
+  // 그래서 홈 폴링은 /screens/library 한 번만 읽고 집중 기록 다음 페이지를 따라가지 않는다.
   return {
     periodKey: week(now).from,
     weeklyFingerprint: JSON.stringify({
@@ -75,14 +76,6 @@ export function librarySnapshot(screen: LibraryScreen, now = new Date()): Librar
         series: focus.series
           .map(({ date, seconds }) => ({ date, seconds }))
           .sort((a, b) => a.date.localeCompare(b.date)),
-        records: focus.records
-          .map(({ id, subject, activeSeconds, completedAt }) => ({
-            id,
-            subject,
-            activeSeconds,
-            completedAt,
-          }))
-          .sort((a, b) => a.id.localeCompare(b.id)),
       },
       usage: {
         measurementStatus: usage.measurementStatus,
@@ -214,37 +207,9 @@ export async function fetchLibrarySnapshot(
 ): Promise<LibrarySnapshot | null> {
   const alive = guard(isCurrent);
   alive();
-  // When the library screen has already been loaded for display, use that exact
-  // response as the first page. Fetch only any remaining focus-record pages.
+  // 화면이 이미 표시한 응답이 있으면 그 응답을 그대로 기준으로 삼는다.
   const screen = initialScreen ?? (await gated(getLibraryScreen(), alive));
   alive();
   if (screen.island.id !== islandId) throw contract('library.island.id');
-  if (screen.statisticsAvailability !== 'available' || screen.missingFragments?.length) return null;
-  if (!screen.focusStatistics) return null;
-  const focus = screen.focusStatistics;
-  const records = [...focus.records];
-  const ids = new Set(records.map((item) => item.id));
-  if (ids.size !== records.length) throw contract('records');
-  const cursors = new Set<string>();
-  let cursor = nextPage(focus.nextCursor, cursors);
-  while (cursor !== null) {
-    alive();
-    const page = await gated(
-      getFocusStatistics(islandId, { ...week(now), scope: 'me', cursor }),
-      alive,
-    );
-    const pageIds = new Set<string>();
-    for (const item of page.records) {
-      if (pageIds.has(item.id)) throw contract('records');
-      pageIds.add(item.id);
-      if (ids.has(item.id)) continue;
-      ids.add(item.id);
-      records.push(item);
-    }
-    cursor = nextPage(page.nextCursor, cursors);
-  }
-  return librarySnapshot(
-    { ...screen, focusStatistics: { ...focus, records, nextCursor: null } },
-    now,
-  );
+  return librarySnapshot(screen, now);
 }
