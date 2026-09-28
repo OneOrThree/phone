@@ -5924,6 +5924,16 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'profile') {
+    const providerLabels: Record<string, string> = {
+      google: 'Google',
+      kakao: '카카오',
+      line: 'LINE',
+      apple: 'Apple',
+    };
+    const linkedProviderText = (state.linkedProviders ?? [])
+      .map((provider: string) => providerLabels[provider] ?? provider)
+      .filter(Boolean)
+      .join(' · ');
     const mustTransferHost = state.islands.some(
       (candidate) => isHost(candidate) && candidate.members.length > 0,
     );
@@ -5986,7 +5996,14 @@ export function RedesignScreens({ e }: any) {
           inputStyle={sheetInput}
         />
         <SheetGroup>
-          <SheetRow title="연동 계정" sub={state.name + '님의 GROMO 계정 · Apple'} />
+          <SheetRow
+            title="연동 계정"
+            sub={
+              linkedProviderText
+                ? `${state.name}님의 GROMO 계정 · ${linkedProviderText}`
+                : `${state.name}님의 GROMO 계정 · 연결된 계정 없음`
+            }
+          />
           <SheetRow
             title="로그아웃"
             chevron

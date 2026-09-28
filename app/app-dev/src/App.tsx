@@ -705,7 +705,7 @@ function Gromo() {
           dispatch({ type: 'LOAD', state: deferred.state, now: Date.now() });
           deferredOwnerState.current = null;
         }
-        dispatch({ type: 'LOGIN' });
+        dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
         if (account.name || account.catColor)
           dispatch({
             type: 'PROFILE',
@@ -1001,7 +1001,7 @@ function Gromo() {
         // 저장 effect 로 다시 쓰인다. 그러면 다음 «오프라인» 실행에서 checkSession 이 확인 실패로
         // 끝나 account 가 null 이 되고, restoredRoute 가 `!saved.loggedIn` 을 보고 멀쩡한 세션을
         // 두고 로그인 화면을 고른다.
-        if (account) dispatch({ type: 'LOGIN' });
+        if (account) dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
         // 세션이 유효하면 섬 소속·대기 신청도 서버 정본으로 맞춘다(GROMO-2006). 실패·모순 응답은
         // 로컬 저장본으로 home에 들어가지 않고 chooseIsland의 명시 오류+재시도로 보낸다.
         // 부팅 인증 세대는 checkSession 결과 직후 포획한다 — 동기화 도중 401이 나면 세션 상실
@@ -1051,7 +1051,7 @@ function Gromo() {
           });
           // 위에서 확인한 계정/섬 동기화 결과는 초기 LOAD가 지운다. 깨끗한 로컬 상태에 계정을
           // 다시 적용하고 동기화/route를 한 번 더 수행해 최종 reducer 상태와 화면을 맞춘다.
-          dispatch({ type: 'LOGIN' });
+          dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
           if (account.name || account.catColor)
             dispatch({
               type: 'PROFILE',

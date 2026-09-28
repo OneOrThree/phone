@@ -102,6 +102,12 @@ gradle.taskGraph.whenReady { taskGraph ->
             "Android release 차단: legacy Android 세션의 refresh 토큰은 현재 안전한 재시도 계약이 없어 앱 업데이트 시 로그인 세션을 잃을 수 있습니다. 서버의 멱등 승격 계약이 준비되고 검증된 뒤에만 GROMO_LEGACY_SESSION_MIGRATION_READY=1 을 설정해 release 작업을 실행하세요."
         )
     }
+    def termsVersion = System.getenv("EXPO_PUBLIC_TERMS_VERSION")
+    if (includesReleaseArtifactTask && (termsVersion == null || termsVersion.trim().isEmpty())) {
+        throw new GradleException(
+            "Android release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요."
+        )
+    }
     if (includesReleaseArtifactTask && !releaseKeystorePropertiesFile.exists()) {
         throw new GradleException(
             "프로덕션 서명 파일 없음: ${releaseKeystorePropertiesFile} — 기존 GROMO 업로드 키를 android/credentials/prod/에 배치하세요."

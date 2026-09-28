@@ -1247,6 +1247,12 @@ test('프로필 최종 저장은 빈 닉네임을 차단한다', async () => {
   assert.equal(backMock.mock.calls.length, 1);
 });
 
+test('프로필은 /me 에서 채택한 연결 제공자들을 표시한다', async () => {
+  const initial = { ...initialState(true), linkedProviders: ['google', 'kakao', 'line'] };
+  const s = await render(<Harness route="profile" initial={initial} api={() => ({})} />);
+  assert.ok(s.getByText('수빈님의 GROMO 계정 · Google · 카카오 · LINE'));
+});
+
 test('프로필 저장은 PATCH 성공 뒤에만 PROFILE을 디스패치하고, 진행 중 중복 탭은 한 번만 보낸다', async () => {
   let exposed: any;
   let release: (v: unknown) => void = () => {};

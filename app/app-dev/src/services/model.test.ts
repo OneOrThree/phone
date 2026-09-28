@@ -73,6 +73,15 @@ test('상점 안내는 완공 뒤 계정별 최초 1회만 표시한다', () => 
   assert.equal(shouldShowShopGuide(s, 'user-b'), false);
 });
 
+test('서버 로그인 채택의 연결 제공자를 저장 상태에 반영한다', () => {
+  const before = initialState();
+  const providers = ['google', 'kakao'];
+  const after = act(before, 'LOGIN', { linkedProviders: providers });
+  providers.push('apple');
+  assert.deepEqual(after.linkedProviders, ['google', 'kakao']);
+  assert.deepEqual(before.linkedProviders, undefined);
+});
+
 test('메인 섬을 바꿔도 현재 접속 섬은 유지하고 미가입 섬은 선택하지 않는다', () => {
   let s = initialState(true);
   s.islands.find((island) => island.id === 'strawberry')!.joined = true;

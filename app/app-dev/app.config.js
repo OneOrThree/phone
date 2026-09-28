@@ -1,4 +1,5 @@
 const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
+const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
 const googleIosClientId =
   '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com';
 const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.replace(
@@ -55,6 +56,7 @@ module.exports = {
           android: { authCodeHandlerActivity: true },
         },
       ],
+      withLegacyAndroidKakao,
       ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
       '@xmartlabs/react-native-line',
     ],
