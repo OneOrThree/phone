@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import {
+  clearRejectedSession,
   clearSession,
   getLastSessionUserId,
   getSession,
@@ -15,14 +16,18 @@ import {
 
 const write = SecureStore.setItemAsync as jest.Mock;
 const remove = SecureStore.deleteItemAsync as jest.Mock;
+const read = SecureStore.getItemAsync as jest.Mock;
 // jest.setup.js 의 메모리 저장소 구현. 찢어진 쓰기·삭제를 흉내 낸 뒤 여기로 되돌린다.
 const realWrite = write.getMockImplementation() as (key: string, value: string) => Promise<void>;
 const realRemove = remove.getMockImplementation() as (key: string) => Promise<void>;
+const realRead = read.getMockImplementation() as (key: string) => Promise<string | null>;
 
 beforeEach(async () => {
   write.mockImplementation(realWrite);
   remove.mockImplementation(realRemove);
+  read.mockImplementation(realRead);
   write.mockClear();
+  read.mockClear();
   await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
   await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
   await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
@@ -120,6 +125,95 @@ test('Android pending 보호 표식 쓰기가 실패하면 SecureStore 세션 �
     write.mockImplementation(realWrite);
     Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
   }
+});
+
+test('legacy pending 조회 실패는 원본을 보존하면서 현재 SecureStore 세션을 정리한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', accessToken],
+    ['gromo:refreshToken', 'legacy-refresh'],
+  ]);
+  await restoreSession();
+  const generation = sessionGeneration();
+  read.mockImplementation(async (key: string) => {
+    if (key === 'gromo.legacySessionPendingPromotion') throw new Error('키체인 조회 실패');
+    return realRead(key);
+  });
+
+  try {
+    assert.equal(await clearRejectedSession(generation), true);
+    assert.equal(getSession(), null);
+    assert.equal(sessionGeneration(), generation + 1);
+    assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.accessToken'), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.refreshToken'), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.userId'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), accessToken);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
+    assert.equal(await realRead('gromo.legacySessionPendingPromotion'), '1');
+  } finally {
+    read.mockImplementation(realRead);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('pending 조회 도중 새 로그인이 끝나면 기존 generation fence가 새 세션 정리를 막는다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  await saveSession({ accessToken: 'OLD_AT', refreshToken: 'OLD_RT', userId: 'old-user' });
+  const generation = sessionGeneration();
+  let releaseLookup!: (value: string | null) => void;
+  let markLookupStarted!: () => void;
+  const lookupStarted = new Promise<void>((resolve) => {
+    markLookupStarted = resolve;
+  });
+  const delayedLookup = new Promise<string | null>((resolve) => {
+    releaseLookup = resolve;
+  });
+  read.mockImplementation(async (key: string) => {
+    if (key === 'gromo.legacySessionPendingPromotion') {
+      markLookupStarted();
+      return delayedLookup;
+    }
+    return realRead(key);
+  });
+
+  try {
+    const clearing = clearRejectedSession(generation);
+    await lookupStarted;
+    await saveSession({ accessToken: 'NEW_AT', refreshToken: 'NEW_RT', userId: 'new-user' });
+    releaseLookup('1');
+
+    assert.equal(await clearing, false);
+    assert.deepEqual(getSession(), {
+      accessToken: 'NEW_AT',
+      refreshToken: 'NEW_RT',
+      userId: 'new-user',
+    });
+    assert.deepEqual(await restoreSession(), {
+      accessToken: 'NEW_AT',
+      refreshToken: 'NEW_RT',
+      userId: 'new-user',
+    });
+  } finally {
+    read.mockImplementation(realRead);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('legacy pending 표식이 없는 현재 세션은 401 정리에서 정상 제거된다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+  const generation = sessionGeneration();
+
+  assert.equal(await clearRejectedSession(generation), true);
+  assert.equal(getSession(), null);
+  assert.equal(sessionGeneration(), generation + 1);
+  assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.accessToken'), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.refreshToken'), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.userId'), null);
 });
 
 test('저장한 세션은 그대로 복구된다', async () => {

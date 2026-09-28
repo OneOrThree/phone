@@ -57,6 +57,7 @@ import {
   MotionContext,
   useScreenInsets,
 } from '@/design-system/primitives';
+import { primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { assets, cat } from '@/constants/assets';
 import {
   Scarf,
@@ -267,6 +268,7 @@ function Gromo() {
   const insets = useScreenInsets();
   const [state, dispatch] = useReducer(reducer, undefined, () => initialState(DEMO));
   const [loaded, setLoaded] = useState(false),
+    [storageOwnerReady, setStorageOwnerReady] = useState(true),
     // 부팅 섬 동기화 실패 — chooseIsland가 명시 오류+재시도를 보여줄 플래그(로컬 폴백 금지)
     [islandBootError, setIslandBootError] = useState(false),
     [hasServerSession, setHasServerSession] = useState(
@@ -309,7 +311,11 @@ function Gromo() {
     } | null>(null),
     // 회원 전환(GROMO-2005) — 게이트 거절(403 SOCIAL_LOGIN_REQUIRED)이 여는 공통 시트.
     // busy 는 진행 중인 제공자, error 는 시트 안에 보여 줄 마지막 실패다.
-    [convUi, setConvUi] = useState<{ busy: Provider | null; error: string | null } | null>(null),
+    [convUi, setConvUi] = useState<{
+      busy: Provider | null;
+      error: string | null;
+      termsAccepted: boolean;
+    } | null>(null),
     // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
     [switchAsk, setSwitchAsk] = useState(false),
     [visited, setVisited] = useState('strawberry'),
@@ -332,7 +338,12 @@ function Gromo() {
     generation: number;
   } | null>(null);
   const socialAttemptGeneration = useRef(sessionGeneration());
-  const conversionLoginAttempt = useRef<{ provider: Provider; credential: string } | null>(null);
+  const conversionLoginAttempt = useRef<{
+    provider: Provider;
+    credential: string;
+    generation: number;
+  } | null>(null);
+  const deferredOwnerState = useRef<{ userId: string; state: State } | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
   const transition = useRef(new Animated.Value(1)).current,
@@ -669,6 +680,7 @@ function Gromo() {
         // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
         // settings 만 기기 귀속(정책 A15)이라 보존한다.
         await AsyncStorage.removeItem(STORAGE);
+        deferredOwnerState.current = null;
         dispatch({
           type: 'LOAD',
           state: { ...initialState(DEMO), settings: stateRef.current.settings },
@@ -676,6 +688,17 @@ function Gromo() {
         });
       },
       applyAccount: (account) => {
+        const deferred = deferredOwnerState.current;
+        if (
+          previousUserId === result.userId &&
+          account.id === result.userId &&
+          deferred?.userId === result.userId
+        ) {
+          // 같은 owner 재채택이면 앞선 오프라인 부팅이 보류한 데이터를 복구한다.
+          // LOAD를 LOGIN/PROFILE보다 먼저 dispatch해 새 세션의 계정 표기가 덮지 않게 한다.
+          dispatch({ type: 'LOAD', state: deferred.state, now: Date.now() });
+          deferredOwnerState.current = null;
+        }
         dispatch({ type: 'LOGIN' });
         if (account.name || account.catColor)
           dispatch({
@@ -702,14 +725,14 @@ function Gromo() {
       },
     });
     // /me 와 화면 판정이 끝난 뒤에만 소유자를 바꾼다. 그 전에 실패하면 기존 ID가 재시도 기준이다.
-    await rememberLocalDataOwner(account.id);
+    if (await rememberLocalDataOwner(account.id)) setStorageOwnerReady(true);
     return account;
   };
   const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
   conversionRef.current ??= createMemberConversion({
     termsVersion: TERMS_VERSION,
     openPrompt: () => {
-      if (TERMS_VERSION) setConvUi({ busy: null, error: null });
+      if (TERMS_VERSION) setConvUi({ busy: null, error: null, termsAccepted: false });
     },
     confirmSwitch: () =>
       new Promise<boolean>((resolve) => {
@@ -721,6 +744,10 @@ function Gromo() {
   const startGuest = async () => {
     if (guestLoginFlight.current) return;
     socialLoginAttempt.current = null;
+    conversionLoginAttempt.current = null;
+    conversionRef.current?.clearPending();
+    setConvUi(null);
+    settleSwitch(false);
     const previousUserId = REVIEW || DEMO ? null : getLastSessionUserId();
     guestLoginFlight.current = true;
     setGuestBusy(true);
@@ -786,14 +813,23 @@ function Gromo() {
     }
   };
   const pickProvider = async (provider: Provider) => {
-    if (!TERMS_VERSION) return;
-    if (conversionLoginAttempt.current?.provider !== provider)
+    if (!TERMS_VERSION || !convUi?.termsAccepted || convUi.busy) return;
+    const generation = sessionGeneration();
+    if (
+      conversionLoginAttempt.current?.provider !== provider ||
+      conversionLoginAttempt.current.generation !== generation
+    )
       conversionLoginAttempt.current = null;
     let attempt = conversionLoginAttempt.current;
     setConvUi((c) => (c ? { ...c, busy: provider, error: null } : c));
     try {
       if (!attempt) {
-        attempt = { provider, credential: await getCredential(provider) };
+        const credential = await getCredential(provider);
+        if (generation !== sessionGeneration()) {
+          setConvUi((c) => (c ? { ...c, busy: null, termsAccepted: false } : c));
+          return;
+        }
+        attempt = { provider, credential, generation };
         conversionLoginAttempt.current = attempt;
       }
       const outcome = await memberConversion.convert(attempt.provider, attempt.credential);
@@ -830,6 +866,12 @@ function Gromo() {
       if (generation !== socialAttemptGeneration.current) {
         socialAttemptGeneration.current = generation;
         socialLoginAttempt.current = null;
+        conversionLoginAttempt.current = null;
+        conversionRef.current?.clearPending();
+        settleSwitch(false);
+        setConvUi((current) =>
+          session ? (current ? { ...current, termsAccepted: false } : current) : null,
+        );
       }
       setHasServerSession(session !== null);
     });
@@ -850,6 +892,8 @@ function Gromo() {
     setSessionLostHandler(() => {
       // 전환 시트·충돌 확인이 열려 있으면 취소로 정리한다 — 떠난 세션의 확인을 뒤에 승인하면 안 된다.
       socialLoginAttempt.current = null;
+      conversionLoginAttempt.current = null;
+      conversionRef.current?.clearPending();
       setConvUi(null);
       settleSwitch(false);
       dispatch({ type: 'LOGOUT' });
@@ -873,11 +917,22 @@ function Gromo() {
         const rejected = check?.status === 'rejected';
         const saved = raw ? JSON.parse(raw) : null;
         const loadable = saved?.version === 1 ? saved : null;
-        if (loadable) {
+        const restoredUserId = session?.userId ?? null;
+        const ownerUserId = getLastSessionUserId();
+        const ownerMismatch =
+          restoredUserId !== null && ownerUserId !== null && restoredUserId !== ownerUserId;
+        if (ownerMismatch) {
+          setStorageOwnerReady(false);
+          deferredOwnerState.current = loadable ? { userId: ownerUserId!, state: loadable } : null;
+        }
+        // owner가 다른 세션은 서버 확인 전까지 메모리에 올리지 않는다. 오프라인·거절일 때
+        // 이전 사용자의 저장본은 디스크에 보존하고 빈 상태가 덮어쓰지 않도록 저장도 막는다.
+        const bootSaved = ownerMismatch ? null : loadable;
+        if (bootSaved) {
           // `now` 는 티켓 1941 이 더했다 — LOAD 리듀서가 멈춘 집중의 경과를 그 시각 기준으로
           // 되살린다. 복구 «경로» 판정은 restoredRoute 가 하므로 여기서 reducer 를 한 번 더
           // 돌려 restored 를 만들지 않는다.
-          dispatch({ type: 'LOAD', state: loadable, now: Date.now() });
+          dispatch({ type: 'LOAD', state: bootSaved, now: Date.now() });
           // ⚠️ LOAD 가 저장본의 loggedIn:true 를 되살린다 — 거절된 세션이면 여기서 다시 내린다.
           // 안 내리면 화면만 로그인이고 저장 effect 가 true 를 다시 써서, 다음 실행에
           // 보안 저장소가 비었는데도 로컬 경로로 홈에 들어간다.
@@ -894,18 +949,45 @@ function Gromo() {
         // 부팅 인증 세대는 checkSession 결과 직후 포획한다 — 동기화 도중 401이 나면 세션 상실
         // 핸들러가 login으로 돌리고 세대가 올라가므로, stale account로 route를 덮어쓰지 않는다.
         const bootGen = sessionGeneration();
+        let bootSyncSucceeded = false;
         const bootRoute = await decideBootRoute({
-          saved: loadable,
+          saved: bootSaved,
           account,
           rejected,
           serverMode: !!(account && !mock),
           bootGen,
           generation: sessionGeneration,
-          syncIslands,
+          syncIslands: async () => {
+            const result = await syncIslands();
+            bootSyncSucceeded = true;
+            return result;
+          },
           onBootError: setIslandBootError,
         });
         // decideBootRoute 반환과 적용 사이도 await 경계다 — 그 사이 세대가 죽었으면 쓰지 않는다
         if (bootRoute && sessionGeneration() === bootGen) setRoute(bootRoute);
+        if (
+          ownerMismatch &&
+          account &&
+          bootSyncSucceeded &&
+          bootRoute &&
+          session &&
+          sessionGeneration() === bootGen
+        ) {
+          // 부팅 채택도 일반 계정 전환과 같은 의미를 지킨다: 활성 계정의 정본 동기화 후
+          // 사용자 데이터 제거 → 깨끗한 상태 적용 → 마지막에 내구 owner 기록 순서다.
+          await AsyncStorage.removeItem(STORAGE);
+          deferredOwnerState.current = null;
+          dispatch({
+            type: 'LOAD',
+            state: {
+              ...initialState(DEMO),
+              settings: loadable?.settings ?? stateRef.current.settings,
+            },
+            now: Date.now(),
+          });
+          if (await rememberLocalDataOwner(session.userId)) setStorageOwnerReady(true);
+        }
         // GROMO-2009 집중 세션 복구 — 서버 정본의 진행 세션(active→낚시, paused→모닥불)과
         // 자동 종료 미확인 결과(→결과창)를 부팅 경로보다 우선한다. 실패하면 부팅 경로를 유지한다.
         if (account && !mock && sessionGeneration() === bootGen) {
@@ -952,11 +1034,11 @@ function Gromo() {
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
   }, [loaded, state.onboarded, state.islandId, qaBuildingsReady]);
   useEffect(() => {
-    if (loaded && qaBuildingsReady && !REVIEW && !DEMO)
+    if (loaded && storageOwnerReady && qaBuildingsReady && !REVIEW && !DEMO)
       AsyncStorage.setItem(STORAGE, JSON.stringify(state)).catch(() =>
         notify('기기 저장 공간을 확인해 주세요.'),
       );
-  }, [state, loaded, qaBuildingsReady]);
+  }, [state, loaded, storageOwnerReady, qaBuildingsReady]);
   useEffect(() => {
     const id = setInterval(() => {
       const now = Date.now();
@@ -1293,6 +1375,10 @@ function Gromo() {
   // 로컬 세션은 지워지므로(auth.logout) 화면은 기다리지 않고 바로 로그인으로 간다.
   const signOut = () => {
     socialLoginAttempt.current = null;
+    conversionLoginAttempt.current = null;
+    conversionRef.current?.clearPending();
+    setConvUi(null);
+    settleSwitch(false);
     void endLiveActivities().catch(() => {});
     logout().catch(() => {});
   };
@@ -1603,6 +1689,47 @@ function Gromo() {
                     친구 추가·편지·상점 구매는 회원 전환 후에 쓸 수 있어요.
                     {'\n'}지금 고양이와 섬은 그대로 이어져요.
                   </NativeText>
+                  <Pressable
+                    testID="member-conversion-terms"
+                    accessibilityRole="checkbox"
+                    accessibilityLabel={`약관 버전 ${TERMS_VERSION}에 동의합니다`}
+                    accessibilityState={{
+                      checked: convUi.termsAccepted,
+                      disabled: !!convUi.busy,
+                    }}
+                    disabled={!!convUi.busy}
+                    onPress={() =>
+                      setConvUi((current) =>
+                        current ? { ...current, termsAccepted: !current.termsAccepted } : current,
+                      )
+                    }
+                    style={{
+                      minHeight: semanticTokens.size.tapMin,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: semanticTokens.spacing.control,
+                    }}
+                  >
+                    <View
+                      style={{
+                        width: primitiveTokens.space[6],
+                        height: primitiveTokens.space[6],
+                        borderWidth: semanticTokens.stroke.strong,
+                        borderColor: semanticTokens.color.outline,
+                        borderRadius: primitiveTokens.space[2],
+                        backgroundColor: convUi.termsAccepted
+                          ? semanticTokens.color.primary
+                          : semanticTokens.color.surface,
+                      }}
+                    >
+                      {convUi.termsAccepted && (
+                        <NativeText style={{ textAlign: 'center' }}>✓</NativeText>
+                      )}
+                    </View>
+                    <NativeText style={{ flex: 1 }}>
+                      현재 약관 버전 {TERMS_VERSION}에 동의합니다.
+                    </NativeText>
+                  </Pressable>
                   {(TERMS_VERSION ? loginProviders() : []).map((provider) => (
                     <NativeButton
                       key={provider}
@@ -1610,7 +1737,7 @@ function Gromo() {
                       dynamicHeight
                       title={convUi.busy === provider ? '연결하는 중…' : PROVIDER_LABEL[provider]}
                       kind="sec"
-                      disabled={!!convUi.busy}
+                      disabled={!!convUi.busy || !convUi.termsAccepted}
                       onPress={() => void pickProvider(provider)}
                     />
                   ))}

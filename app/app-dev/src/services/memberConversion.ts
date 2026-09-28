@@ -53,6 +53,8 @@ export type MemberConversion = {
    * 같은 (provider, credential) 재시도는 같은 attemptId 로 서버 재생을 노린다.
    */
   convert: (provider: Provider, credential: string) => Promise<'converted' | 'cancelled'>;
+  /** 세션 세대 변경·로그아웃 경계에서 재시도용 자격과 attemptId를 버린다. */
+  clearPending: () => void;
 };
 
 export function createMemberConversion(deps: MemberConversionDeps): MemberConversion {
@@ -69,6 +71,7 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
         credential: string;
         mode: 'initial' | 'confirmed' | 'recovery';
         attemptId: string;
+        generation: number;
       }
     | {
         provider: Provider;
@@ -85,12 +88,14 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     credential: string,
     mode: 'initial' | 'confirmed' | 'recovery',
   ) => {
+    const generation = currentSessionGeneration();
     if (
       pending?.provider !== provider ||
       pending.credential !== credential ||
-      pending.mode !== mode
+      pending.mode !== mode ||
+      pending.generation !== generation
     )
-      pending = { provider, credential, mode, attemptId: newAttemptId() };
+      pending = { provider, credential, mode, attemptId: newAttemptId(), generation };
     return pending.attemptId;
   };
 
@@ -104,6 +109,8 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
         '약관 버전이 설정되지 않아 소셜 로그인을 사용할 수 없어요.',
         0,
       );
+    const attemptGeneration = currentSessionGeneration();
+    if (pending && pending.generation !== attemptGeneration) pending = null;
     // 로그인은 성공했지만 /me 채택이 실패한 경우, 다음 클릭에서는 로그인 응답을 재사용한다.
     // 채택이 끝나기 전까지 최초 사용자 ID도 유지해 게스트 데이터를 회원에 섞지 않는다.
     if (pending?.mode === 'adopt') {
@@ -156,7 +163,13 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
         // USER_NOT_FOUND로 끝난다(LLD §2.1). 새 attempt로 AT 없이 대상 회원 로그인을 잇는다.
         if (!(error instanceof ApiError && error.status === 404 && error.code === 'USER_NOT_FOUND'))
           throw error;
-        pending = { provider, credential, mode: 'recovery', attemptId: newAttemptId() };
+        pending = {
+          provider,
+          credential,
+          mode: 'recovery',
+          attemptId: newAttemptId(),
+          generation: currentSessionGeneration(),
+        };
         replayed = await login(provider, credential, deps.termsVersion, {
           attemptId: pending.attemptId,
         });
@@ -187,7 +200,15 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
       // 충돌이 아니면 그대로 던진다 — attemptId 를 지우지 않아 다음 재시도가 재생을 받는다.
       if (!isAccountConflict(thrown)) throw thrown;
     }
+    if (currentSessionGeneration() !== attemptGeneration) {
+      pending = null;
+      return 'cancelled';
+    }
     if (!(await deps.confirmSwitch())) {
+      pending = null;
+      return 'cancelled';
+    }
+    if (currentSessionGeneration() !== attemptGeneration) {
       pending = null;
       return 'cancelled';
     }
@@ -209,6 +230,9 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
       return true;
     },
     convert,
+    clearPending: () => {
+      pending = null;
+    },
   };
 }
 

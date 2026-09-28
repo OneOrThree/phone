@@ -355,6 +355,33 @@ test('convert 충돌 승인 응답 유실 — 확정 단계의 같은 attemptId�
   assert.equal(calls[1].options?.attemptId, calls[2].options?.attemptId);
 });
 
+test('convert 충돌 확인 중 세션이 바뀌면 확정 로그인을 취소한다', async () => {
+  let generation = 0;
+  let loginCalls = 0;
+  let confirmCalls = 0;
+  const conversion = createMemberConversion({
+    termsVersion: '2026-09',
+    openPrompt: () => {},
+    confirmSwitch: async () => {
+      confirmCalls += 1;
+      generation += 1;
+      return true;
+    },
+    sessionGeneration: () => generation,
+    login: async () => {
+      loginCalls += 1;
+      throw conflict();
+    },
+    adopt: async () => {},
+  });
+
+  const outcome = await conversion.convert('apple', 'apple-jwt');
+
+  assert.equal(outcome, 'cancelled');
+  assert.equal(confirmCalls, 1);
+  assert.equal(loginCalls, 1);
+});
+
 test('convert 확정 재생 USER_NOT_FOUND — 새 attempt와 AT 없이 회원 로그인으로 복구하고 재시도 ID를 유지한다', async () => {
   const { conversion, calls, adopted } = make([
     conflict(),
@@ -393,6 +420,34 @@ test('convert 실패 재시도 — 같은 자격은 같은 attemptId 로 서버 
   assert.equal(outcome, 'converted');
   assert.equal(calls.length, 2);
   assert.equal(calls[0].options?.attemptId, calls[1].options?.attemptId);
+});
+
+test('convert 실패 pending — 세션 generation 변경이나 명시 폐기 뒤에는 새 attemptId를 만든다', async () => {
+  let generation = 0;
+  let nextId = 0;
+  const attempts: string[] = [];
+  const conversion = createMemberConversion({
+    termsVersion: '2026-09',
+    openPrompt: () => {},
+    confirmSwitch: async () => true,
+    sessionGeneration: () => generation,
+    login: async (_provider, _credential, _terms, options) => {
+      attempts.push(options?.attemptId ?? '');
+      throw new ApiError('SERVER_ERROR', '서버 오류', 503, { retryable: true });
+    },
+    adopt: async () => {},
+    newAttemptId: () => `attempt-${++nextId}`,
+  });
+
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  generation += 1;
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+  conversion.clearPending();
+  await assert.rejects(() => conversion.convert('apple', 'apple-jwt'));
+
+  assert.equal(attempts.length, 3);
+  assert.notEqual(attempts[1], attempts[0]);
+  assert.notEqual(attempts[2], attempts[1]);
 });
 
 test('convert — 자격이 바뀌면 새 시도다(attemptId 도 새 값)', async () => {

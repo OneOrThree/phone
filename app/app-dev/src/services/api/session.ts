@@ -333,10 +333,12 @@ export function clearSession(
  * 저장소 삭제 실패는 삼키되 **true** 다 — fence 에 걸리면 저장소를 건드리지 않고 즉시 돌아오므로,
  * 던졌다는 것 자체가 fence 를 통과해 정리에 들어갔다는 뜻이다. 메모리 세션·세대는 삭제보다 먼저
  * 비우니 화면을 로그인으로 되돌려도 된다. false 면 그 사이 세션이 교체된 것이라, 옛 세션의 거절
- * 판정으로 새 세션을 끊지 않는다.
+ * 판정으로 새 세션을 끊지 않는다. pending 표식을 읽지 못하면 legacy 원본은 보존 대상으로 간주하되,
+ * secure copy 정리와 generation fence는 그대로 수행한다.
  */
 export function clearRejectedSession(expectedGeneration: number): Promise<boolean> {
   return isLegacySessionPendingPromotion()
+    .catch(() => true)
     .then((preserveLegacy) => clearSession(expectedGeneration, preserveLegacy))
     .then(
       (cleared) => cleared !== null,

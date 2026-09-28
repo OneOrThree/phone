@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import App from '@/App';
+import type { Account } from '@/services/api/auth';
 import { ApiError } from '@/services/api/client';
 import {
   clearSession,
@@ -14,19 +15,27 @@ import {
   cancelBuildingTransition,
   createBuildingTransitionController,
 } from '@/services/buildingTransition';
+import { initialState } from '@/services/model';
 
 let captured: any;
 const mockApiLogin = jest.fn();
 const mockSocialCredential = jest.fn();
 const mockGuestLogin = jest.fn();
-const mockAdoptSignedInAccount = jest.fn(async (result: { userId: string }, ..._args: any[]) => ({
-  id: result.userId,
-  name: null,
-  catColor: null,
-  mainIslandId: null,
-  linkedProviders: [],
-  onboardingComplete: true,
-}));
+const mockCheckSession = jest.fn();
+const mockRestoreSession = jest.fn();
+const mockDecideBootRoute = jest.fn();
+const mockSyncIslands = jest.fn();
+const mockRecoverFocus = jest.fn();
+const mockAdoptSignedInAccount = jest.fn(
+  async (result: { userId: string }, ..._args: any[]): Promise<Account> => ({
+    id: result.userId,
+    name: null,
+    catColor: null,
+    mainIslandId: null,
+    linkedProviders: [],
+    onboardingComplete: true,
+  }),
+);
 
 jest.mock('@/screens/island/CurrentScreens', () => ({
   CurrentScreens: ({ e }: any) => {
@@ -36,7 +45,7 @@ jest.mock('@/screens/island/CurrentScreens', () => ({
 }));
 
 jest.mock('@/services/api/auth', () => ({
-  checkSession: async () => ({ status: 'offline' }),
+  checkSession: (...args: unknown[]) => mockCheckSession(...args),
   guestLogin: (...args: unknown[]) => mockGuestLogin(...args),
   login: (...args: unknown[]) => mockApiLogin(...args),
   logout: async () => {},
@@ -57,10 +66,6 @@ jest.mock('@/services/memberConversion', () => {
   };
 });
 
-jest.mock('@/services/islandBoot', () => ({
-  decideBootRoute: async () => 'login',
-}));
-
 jest.mock('@/services/termsVersion', () => ({
   get TERMS_VERSION() {
     return process.env.EXPO_PUBLIC_TERMS_VERSION?.trim() ?? '';
@@ -69,7 +74,39 @@ jest.mock('@/services/termsVersion', () => ({
 
 jest.mock('@/services/api/session', () => {
   const actual = jest.requireActual('@/services/api/session');
-  return { ...actual, restoreSession: async () => null };
+  return { ...actual, restoreSession: (...args: unknown[]) => mockRestoreSession(...args) };
+});
+
+jest.mock('@/services/islandBoot', () => ({
+  decideBootRoute: (...args: unknown[]) => mockDecideBootRoute(...args),
+}));
+
+jest.mock('@/services/islandCommands', () => {
+  const actual = jest.requireActual('@/services/islandCommands');
+  return {
+    ...actual,
+    createIslandCommands: (...args: unknown[]) => ({
+      ...actual.createIslandCommands(...args),
+      syncIslands: (...syncArgs: unknown[]) => mockSyncIslands(...syncArgs),
+    }),
+  };
+});
+
+jest.mock('@/services/sessionCommands', () => {
+  const actual = jest.requireActual('@/services/sessionCommands');
+  return {
+    ...actual,
+    createSessionCommands: (...args: unknown[]) => {
+      const result = actual.createSessionCommands(...args);
+      return {
+        ...result,
+        commands: {
+          ...result.commands,
+          recover: (...recoverArgs: unknown[]) => mockRecoverFocus(...recoverArgs),
+        },
+      };
+    },
+  };
 });
 
 jest.mock('react-native-safe-area-context', () => ({
@@ -82,7 +119,152 @@ beforeEach(async () => {
   process.env.EXPO_PUBLIC_TERMS_VERSION = 'test-terms-v1';
   captured = undefined;
   jest.clearAllMocks();
+  mockCheckSession.mockResolvedValue({ status: 'offline' });
+  mockRestoreSession.mockResolvedValue(null);
+  mockDecideBootRoute.mockResolvedValue('login');
+  mockSyncIslands.mockResolvedValue({ currentIslandId: null, items: [] });
+  mockRecoverFocus.mockResolvedValue(null);
   await clearSession();
+});
+
+test('owner와 복구 세션이 다르면 활성 계정 동기화 뒤에만 이전 저장본을 비우고 owner를 갱신한다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  await rememberLocalDataOwner('user-a');
+  const savedA = {
+    ...initialState(true),
+    name: 'A-only-private-state',
+    settings: { ...initialState(true).settings, sound: false },
+  };
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(savedA));
+  await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+  mockRestoreSession.mockImplementation(() =>
+    jest.requireActual('@/services/api/session').restoreSession(),
+  );
+  mockCheckSession.mockResolvedValue({
+    status: 'active',
+    account: {
+      id: 'user-b',
+      name: 'B',
+      catColor: null,
+      mainIslandId: null,
+      linkedProviders: [],
+      onboardingComplete: false,
+    },
+  });
+  mockDecideBootRoute.mockImplementation(async ({ syncIslands }: any) => {
+    await syncIslands();
+    return 'home';
+  });
+
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.equal(getLastSessionUserId(), 'user-b'));
+
+  assert.notEqual(captured.state.fish, 777);
+  assert.equal(captured.state.settings.sound, false);
+  const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
+  assert.notEqual(persisted.name, 'A-only-private-state');
+});
+
+test('owner 불일치 세션이 오프라인이면 이전 데이터와 owner를 보존하고 메모리에 올리지 않는다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  await rememberLocalDataOwner('user-a');
+  const savedA = { ...initialState(true), name: 'A-only-private-state' };
+  const rawA = JSON.stringify(savedA);
+  await AsyncStorage.setItem('gromo-r61-user-v2', rawA);
+  await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+  mockRestoreSession.mockImplementation(() =>
+    jest.requireActual('@/services/api/session').restoreSession(),
+  );
+
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+
+  assert.notEqual(captured.state.name, 'A-only-private-state');
+  assert.equal(await AsyncStorage.getItem('gromo-r61-user-v2'), rawA);
+  assert.equal(getLastSessionUserId(), 'user-a');
+});
+
+test('오프라인 mismatch 뒤 같은 owner로 로그인하면 보류한 저장본과 기기 설정을 복구한다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  await rememberLocalDataOwner('user-a');
+  const savedA = {
+    ...initialState(true),
+    owned: ['a-only-item'],
+    fish: 777,
+    settings: { ...initialState(true).settings, sound: false },
+  };
+  const rawA = JSON.stringify(savedA);
+  await AsyncStorage.setItem('gromo-r61-user-v2', rawA);
+  await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+  mockRestoreSession.mockImplementation(() =>
+    jest.requireActual('@/services/api/session').restoreSession(),
+  );
+
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.equal(mockDecideBootRoute.mock.calls.length, 1));
+  assert.notEqual(captured.state.name, 'A-only-private-state');
+  assert.equal(await AsyncStorage.getItem('gromo-r61-user-v2'), rawA);
+
+  await act(async () => clearSession());
+  mockSocialCredential.mockResolvedValueOnce('google-id-token');
+  mockApiLogin.mockImplementationOnce(async () => {
+    const result = {
+      accessToken: 'A_AT_2',
+      refreshToken: 'A_RT_2',
+      userId: 'user-a',
+      onboardingComplete: true,
+    };
+    await saveSession(result);
+    return result;
+  });
+  let applyAccountCalled = false;
+  mockAdoptSignedInAccount.mockImplementationOnce(
+    async (result: any, previousUserId, deps: any) => {
+      const account = {
+        id: result.userId,
+        name: 'A',
+        catColor: null,
+        mainIslandId: null,
+        linkedProviders: [],
+        onboardingComplete: true,
+      };
+      if (previousUserId !== result.userId) await deps.resetLocal();
+      const applyAccount = deps.applyAccount;
+      deps.applyAccount = (next: any) => {
+        applyAccountCalled = true;
+        applyAccount(next);
+      };
+      deps.applyAccount(account);
+      await deps.navigate(account);
+      return account;
+    },
+  );
+
+  await act(async () => captured.setTerms(true));
+  await act(async () => captured.startSocial('google'));
+  assert.equal(mockApiLogin.mock.calls.length, 1);
+  assert.equal(mockAdoptSignedInAccount.mock.calls[0][1], 'user-a');
+  assert.equal(applyAccountCalled, true);
+  await waitFor(() => assert.deepEqual(captured.state.owned, ['a-only-item']));
+  await waitFor(async () => {
+    const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
+    assert.deepEqual(persisted.owned, ['a-only-item']);
+  });
+
+  assert.equal(captured.state.name, 'A');
+  assert.equal(captured.state.settings.sound, false);
+  assert.equal(getLastSessionUserId(), 'user-a');
 });
 
 test('약관 버전 미설정 시 소셜 로그인과 회원 전환 경로를 화면 명령에 노출하지 않는다', async () => {
@@ -260,6 +442,7 @@ test('회원 전환은 소셜 성공 시 닫히고 사용자 취소 시 오류 �
       new ApiError('SOCIAL_LOGIN_REQUIRED', '소셜 로그인이 필요합니다.', 403),
     );
   });
+  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
   await fireEvent.press(screen!.getByText('Google로 계속하기'));
   await waitFor(() => assert.equal(screen!.queryByText('소셜 계정으로 계속하기'), null));
 
@@ -269,6 +452,7 @@ test('회원 전환은 소셜 성공 시 닫히고 사용자 취소 시 오류 �
       new ApiError('SOCIAL_LOGIN_REQUIRED', '소셜 로그인이 필요합니다.', 403),
     );
   });
+  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
   await fireEvent.press(screen!.getByText('Google로 계속하기'));
   await waitFor(() => assert.ok(screen!.getByText('소셜 계정으로 계속하기')));
   assert.equal(screen!.queryByText('문제가 생겼어요. 다시 시도해 주세요.'), null);
@@ -307,6 +491,7 @@ test('회원 전환 retryable 응답 재시도는 같은 소셜 자격을 재사
     );
   });
 
+  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
   await fireEvent.press(screen!.getByText('Google로 계속하기'));
   await waitFor(() => assert.ok(screen!.getByText('처리 중')));
   await fireEvent.press(screen!.getByText('Google로 계속하기'));
@@ -315,6 +500,101 @@ test('회원 전환 retryable 응답 재시도는 같은 소셜 자격을 재사
   assert.equal(mockApiLogin.mock.calls.length, 2);
   assert.equal(mockApiLogin.mock.calls[0][1], mockApiLogin.mock.calls[1][1]);
   assert.equal(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
+});
+
+test('회원 전환 동의는 provider 실행을 잠그고 시트 닫기·세션 변경 시 초기화한다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+  let screen: Awaited<ReturnType<typeof render>>;
+  await act(async () => {
+    screen = await render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(typeof captured.conversion?.offer, 'function'));
+  const offer = () =>
+    captured.conversion.offer(
+      new ApiError('SOCIAL_LOGIN_REQUIRED', '회원 연동이 필요합니다.', 403),
+    );
+
+  await act(async () => offer());
+  const checkbox = screen!.getByTestId('member-conversion-terms');
+  assert.equal(checkbox.props.accessibilityState.checked, false);
+  assert.equal(screen!.getByLabelText('Google로 계속하기').props.accessibilityState.disabled, true);
+  await fireEvent.press(screen!.getByLabelText('Google로 계속하기'));
+  assert.equal(mockSocialCredential.mock.calls.length, 0);
+
+  await fireEvent.press(checkbox);
+  assert.equal(
+    screen!.getByTestId('member-conversion-terms').props.accessibilityState.checked,
+    true,
+  );
+  await fireEvent.press(screen!.getByText('나중에'));
+  await act(async () => offer());
+  assert.equal(
+    screen!.getByTestId('member-conversion-terms').props.accessibilityState.checked,
+    false,
+  );
+
+  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
+  await act(async () => {
+    await saveSession({
+      accessToken: 'NEW_GUEST_AT',
+      refreshToken: 'NEW_GUEST_RT',
+      userId: 'guest-2',
+    });
+  });
+  await waitFor(() =>
+    assert.equal(
+      screen!.getByTestId('member-conversion-terms').props.accessibilityState.checked,
+      false,
+    ),
+  );
+});
+
+test('세션 generation 변경 뒤 회원 전환은 새 SDK 자격과 새 attemptId를 쓴다', async () => {
+  await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
+  mockSocialCredential
+    .mockResolvedValueOnce('old-google-token')
+    .mockResolvedValueOnce('new-google-token');
+  mockApiLogin
+    .mockRejectedValueOnce(new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }))
+    .mockRejectedValueOnce(
+      new ApiError('REQUEST_IN_PROGRESS', '처리 중', 409, { retryable: true }),
+    );
+  let screen: Awaited<ReturnType<typeof render>>;
+  await act(async () => {
+    screen = await render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.equal(typeof captured.conversion?.offer, 'function'));
+  await act(async () => {
+    captured.conversion.offer(
+      new ApiError('SOCIAL_LOGIN_REQUIRED', '회원 연동이 필요합니다.', 403),
+    );
+  });
+  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
+  await fireEvent.press(screen!.getByText('Google로 계속하기'));
+  await waitFor(() => assert.equal(screen!.getByText('처리 중').props.children, '처리 중'));
+
+  await act(async () => {
+    await saveSession({
+      accessToken: 'NEW_GUEST_AT',
+      refreshToken: 'NEW_GUEST_RT',
+      userId: 'guest-2',
+    });
+  });
+  await waitFor(() =>
+    assert.equal(
+      screen!.getByTestId('member-conversion-terms').props.accessibilityState.checked,
+      false,
+    ),
+  );
+  await fireEvent.press(screen!.getByTestId('member-conversion-terms'));
+  await fireEvent.press(screen!.getByText('Google로 계속하기'));
+
+  assert.equal(mockSocialCredential.mock.calls.length, 2);
+  assert.equal(mockApiLogin.mock.calls[0][1], 'old-google-token');
+  assert.equal(mockApiLogin.mock.calls[1][1], 'new-google-token');
+  assert.notEqual(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
 });
 
 test('계정 전환 중 로컬 저장 삭제 실패는 채택과 owner 갱신을 중단한다', async () => {
