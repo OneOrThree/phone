@@ -136,6 +136,33 @@ test('소셜 로그인 pending 중에는 중복 요청을 막고 오류 메시�
   );
 });
 
+test('소셜 로그인 응답 유실 재시도는 자격과 attemptId를 재사용한다', async () => {
+  mockSocialCredential.mockResolvedValueOnce('google-id-token');
+  mockApiLogin
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크 오류', 0))
+    .mockResolvedValueOnce({
+      accessToken: 'AT',
+      refreshToken: 'RT',
+      userId: 'u1',
+      onboardingComplete: true,
+    });
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await act(async () => captured.setTerms(true));
+
+  await act(async () => captured.startSocial('google'));
+  await act(async () => captured.startSocial('google'));
+
+  assert.equal(mockSocialCredential.mock.calls.length, 1);
+  assert.equal(mockApiLogin.mock.calls.length, 2);
+  assert.equal(mockApiLogin.mock.calls[0][1], mockApiLogin.mock.calls[1][1]);
+  assert.equal(mockApiLogin.mock.calls[0][3].attemptId, mockApiLogin.mock.calls[1][3].attemptId);
+  assert.match(mockApiLogin.mock.calls[0][3].attemptId, /^[0-9a-f-]{36}$/i);
+});
+
 test('회원 전환은 소셜 성공 시 닫히고 사용자 취소 시 오류 없이 유지된다', async () => {
   await saveSession({ accessToken: 'GUEST_AT', refreshToken: 'GUEST_RT', userId: 'guest' });
   mockSocialCredential.mockResolvedValueOnce('google-id-token');

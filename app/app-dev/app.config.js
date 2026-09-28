@@ -34,7 +34,7 @@ module.exports = {
     },
     android: {
       package: 'com.oneorthree.gromo',
-      versionCode: 2,
+      versionCode: 4,
       permissions: ['android.permission.PACKAGE_USAGE_STATS'],
       adaptiveIcon: {
         image: './src/assets/icon.png',

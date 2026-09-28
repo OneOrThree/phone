@@ -104,7 +104,13 @@ import {
 } from '@/services/api/auth';
 import { loginProviders } from '@/services/loginProviders';
 import { isSocialLoginCancellation, socialCredential } from '@/services/socialLogin';
-import { ApiError, CLIENT_STALE_SESSION } from '@/services/api/client';
+import {
+  ApiError,
+  CLIENT_NETWORK_ERROR,
+  CLIENT_STALE_SESSION,
+  CLIENT_TIMEOUT,
+  uuid,
+} from '@/services/api/client';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
   getSession,
@@ -318,6 +324,11 @@ function Gromo() {
     islandId: string;
     focus: number;
     rest: number;
+  } | null>(null);
+  const socialLoginAttempt = useRef<{
+    provider: Provider;
+    credential: string;
+    attemptId: string;
   } | null>(null);
 
   useEffect(() => trackDatadogView(route, titles[route]), [route]);
@@ -709,14 +720,26 @@ function Gromo() {
   const getCredential = socialCredential;
   const startSocial = async (provider: Provider) => {
     if (socialBusy || guestBusy || !terms) return;
+    if (socialLoginAttempt.current?.provider !== provider) socialLoginAttempt.current = null;
     setSocialBusy(provider);
     setSocialError('');
     try {
-      const credential = await getCredential(provider);
-      const result = await apiLogin(provider, credential, TERMS_VERSION);
+      let attempt = socialLoginAttempt.current;
+      if (!attempt) {
+        attempt = { provider, credential: await getCredential(provider), attemptId: uuid() };
+        socialLoginAttempt.current = attempt;
+      }
+      const result = await apiLogin(provider, attempt.credential, TERMS_VERSION, {
+        attemptId: attempt.attemptId,
+      });
+      socialLoginAttempt.current = null;
       await adoptSession(result, null);
       captureProductEvent('social_login_completed', { provider });
     } catch (thrown) {
+      const retryableTransportFailure =
+        thrown instanceof ApiError &&
+        (thrown.code === CLIENT_TIMEOUT || thrown.code === CLIENT_NETWORK_ERROR);
+      if (!retryableTransportFailure) socialLoginAttempt.current = null;
       if (!isSocialLoginCancellation(thrown)) {
         setSocialError(
           thrown instanceof ApiError && thrown.message
