@@ -40,7 +40,11 @@ jest.mock('@stomp/stompjs', () => {
     }
     subscribe(dest: string, cb: (m: { body: string }) => void) {
       this.subs.push({ dest, cb });
-      return { unsubscribe: () => {} };
+      return {
+        unsubscribe: () => {
+          if (!this.connected) throw new TypeError('There is no underlying STOMP connection');
+        },
+      };
     }
     publish(p: { destination: string; body: string }) {
       this.published.push(p);
@@ -1073,6 +1077,19 @@ describe('stompIslandChannel', () => {
     assert.equal(c.subs.at(-1).dest, '/topic/islands/i1/emotes');
     channel.setEmoteEnabled(false);
     assert.equal(c.deactivated, 0);
+  });
+
+  test('연결이 이미 끊긴 emotes 구독은 로컬 핸들만 비운다', () => {
+    const channel = stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    c.connected = false;
+    assert.doesNotThrow(() => channel.setEmoteEnabled(false));
   });
 
   test('재생 전용 연결은 playback만 구독하고 재연결 시 onOpen으로 복구를 요청한다', () => {

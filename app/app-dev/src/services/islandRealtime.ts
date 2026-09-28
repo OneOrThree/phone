@@ -488,7 +488,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     setEmoteEnabled: (enabled) => {
       emoteEnabled = enabled;
       if (!enabled) {
-        emoteSubscription?.unsubscribe();
+        if (client.connected) emoteSubscription?.unsubscribe();
         emoteSubscription = null;
       } else if (client.connected && !emoteDenied && !emoteSubscription) {
         emoteSubscription = client.subscribe(`/topic/islands/${id}/emotes`, onMsg);
