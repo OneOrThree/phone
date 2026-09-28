@@ -52,6 +52,7 @@ import {
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
+import { useGoldenFishLedger } from '@/screens/focus/useGoldenFishLedger';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -1148,6 +1149,7 @@ function FocusFlow({ e }: any) {
     [goldenCatches, setGoldenCatches] = useState<
       Record<string, { count: number; eventId: string }>
     >({}),
+    [goldenReeling, setGoldenReeling] = useState(false),
     [goldenFish, setGoldenFish] = useState(false);
   const walkingToken = useRef(0),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
@@ -1163,6 +1165,7 @@ function FocusFlow({ e }: any) {
     goldenQueueTimerRef = useRef<(() => void) | null>(null),
     goldenPendingReelRef = useRef<GoldenFishEvent | null>(null),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
+    goldenSeenRef = useRef(new Set<string>()),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
@@ -1192,6 +1195,30 @@ function FocusFlow({ e }: any) {
   });
   const resultSessionId = r === 'focusResult' ? (s.lastResult?.id ?? null) : null;
   const goldenSessionId = s.session?.id ?? resultSessionId;
+  useGoldenFishLedger({
+    active:
+      !!liveIslandId &&
+      !!goldenSessionId &&
+      live.status === 'ready' &&
+      (r === 'focus' || r === 'rest' || r === 'focusResult'),
+    islandId: liveIslandId,
+    sessionId: goldenSessionId,
+    members: () => {
+      const participants = live.focus
+        .filter((member) => member.status === 'active')
+        .map((member) => ({ userId: member.userId, sessionId: member.sessionId }));
+      if (
+        actorUserId &&
+        s.session?.id === goldenSessionId &&
+        s.session.status === 'active' &&
+        !participants.some((member) => member.sessionId === goldenSessionId)
+      )
+        participants.push({ userId: actorUserId, sessionId: goldenSessionId });
+      return participants;
+    },
+    onGoldenFish: (event) => goldenHandler.current(event),
+    clockOffsetMs: live.clockOffset,
+  });
   const recordGoldenCatch = (event: GoldenFishEvent) => {
     setGoldenCatches((current) => {
       const next = { ...current };
@@ -1206,11 +1233,14 @@ function FocusFlow({ e }: any) {
     });
   };
   const startGoldenReelTimer = () => {
+    setGoldenReeling(true);
     goldenQueueTimerRef.current = afterForegroundMs(() => {
+      setGoldenReeling(false);
       goldenQueueTimerRef.current = null;
       const next = goldenQueueRef.current.shift() ?? null;
       goldenCutsceneRef.current = next;
       if (next) {
+        setGoldenReeling(false);
         setGoldenFish(false);
         setGoldenCutscene(next);
       } else {
@@ -1222,12 +1252,14 @@ function FocusFlow({ e }: any) {
   };
   goldenPresenter.current = (event) => {
     if (reduce) {
+      setGoldenReeling(false);
       recordGoldenCatch(event);
       setGoldenFish(true);
       AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
       return;
     }
     setGoldenFish(false);
+    setGoldenReeling(false);
     if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
       goldenQueueRef.current.push(event);
       return;
@@ -1245,6 +1277,14 @@ function FocusFlow({ e }: any) {
       (current.r !== 'focus' && current.r !== 'rest' && current.r !== 'focusResult')
     )
       return;
+    // 서버 adapter가 열리면 realtime과 원장 poll이 같은 분의 당첨을 함께 전달할 수 있다.
+    // 추첨은 섬당 분당 한 번이므로 서로 다른 eventId도 서버 발생 분으로 한 번만 표시한다.
+    const occurredAt = Date.parse(event.drawnAt);
+    const occurrenceKey = `${event.islandId}:${Math.floor(occurredAt / 60_000)}`;
+    if (!Number.isFinite(occurredAt) || goldenSeenRef.current.has(occurrenceKey)) return;
+    goldenSeenRef.current.add(occurrenceKey);
+    if (goldenSeenRef.current.size > 200)
+      goldenSeenRef.current.delete(goldenSeenRef.current.values().next().value!);
     if (current.r === 'rest') {
       goldenQueueRef.current.push(event);
       return;
@@ -1305,6 +1345,7 @@ function FocusFlow({ e }: any) {
       goldenPendingReelRef.current = null;
       goldenDeferredNavigationRef.current = null;
       setGoldenCutscene(null);
+      setGoldenReeling(false);
       setGoldenFish(false);
       return;
     }
@@ -1819,6 +1860,8 @@ function FocusFlow({ e }: any) {
             home={e.home}
             resume={e.home}
             result
+            goldenReeling={goldenReeling}
+            goldenFishCount={goldenFor(actorUserId, goldenSessionId)?.count ?? 0}
           />
           {resultModal}
           {rewardModal}

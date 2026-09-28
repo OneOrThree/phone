@@ -419,6 +419,7 @@ test('휴식 결과 화면은 연속 컷신과 마지막 reel이 끝날 때까�
     onGoldenFish?.(event(members, 'golden-i1-2'));
   });
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  assert.notEqual(screen.queryByTestId('rest-golden-reel', { includeHiddenElements: true }), null);
   await fireEvent.press(screen.getByTestId('result-done'));
   assert.equal(home.mock.calls.length, 0);
 
