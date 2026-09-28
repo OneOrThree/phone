@@ -37,6 +37,14 @@
 		</dict>
 		<dict>
 			<key>CFBundleURLName</key>
+			<string>GROMO</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>gromo</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
 			<string>Kakao</string>
 			<key>CFBundleURLSchemes</key>
 			<array>

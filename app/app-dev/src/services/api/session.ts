@@ -29,6 +29,8 @@ const KEY_USER = 'gromo.userId';
 // 로그아웃은 자격 증명만 폐기한다. 재로그인 후 로컬 사용자 데이터의 소유자를 판정하는 데 쓴다.
 const KEY_LAST_USER = 'gromo.lastUserId';
 const KEY_LAST_USER_CLEAR_STATE = 'gromo.lastUserIdClearState';
+/** AsyncStorage 에 삭제 의도를 못 남겼을 때 쓰는 보조 표식(SecureStore). */
+const KEY_LAST_USER_CLEAR_PENDING_FALLBACK = 'gromo.lastUserIdClearPending';
 /** 커밋 마커 — **항상 마지막에** 쓴다. 자세한 이유는 {@link saveSession}. */
 const KEY_BUNDLE = 'gromo.sessionBundle';
 const SESSION_SLOT_PREFIX = 'gromo.sessionSlot';
@@ -123,6 +125,12 @@ async function resolveLocalDataOwnerClear(): Promise<'normal' | 'cleared' | 'blo
   let pending: string | null;
   try {
     pending = await AsyncStorage.getItem(KEY_LAST_USER_CLEAR_STATE);
+    // 주 표식을 못 남긴 탈퇴는 보조 표식에만 pending 이 있다. 'cleared' 가 이미 확정됐으면 무시한다.
+    if (
+      pending !== 'cleared' &&
+      (await readItem(KEY_LAST_USER_CLEAR_PENDING_FALLBACK)) === 'pending'
+    )
+      pending = 'pending';
   } catch {
     localDataOwnerClearPending = true;
     lastUserId = null;
@@ -143,6 +151,7 @@ async function resolveLocalDataOwnerClear(): Promise<'normal' | 'cleared' | 'blo
   try {
     await removeItem(KEY_LAST_USER);
     await AsyncStorage.setItem(KEY_LAST_USER_CLEAR_STATE, 'cleared');
+    await removeItem(KEY_LAST_USER_CLEAR_PENDING_FALLBACK).catch(() => {});
     localDataOwnerClearPending = false;
     return 'cleared';
   } catch {
@@ -167,7 +176,15 @@ export function rememberLocalDataOwner(
     lastUserId = userId;
     localDataOwnerClearPending = false;
     localDataOwnerIntentionallyUnset = false;
-    if (clearStatus === 'cleared') await AsyncStorage.removeItem(KEY_LAST_USER_CLEAR_STATE);
+    // 보조 표식이 남은 채 'cleared' 를 지우면 다음 부팅이 새 소유자를 탈퇴 대상으로 오인한다.
+    if (
+      clearStatus === 'cleared' &&
+      (await removeItem(KEY_LAST_USER_CLEAR_PENDING_FALLBACK).then(
+        () => true,
+        () => false,
+      ))
+    )
+      await AsyncStorage.removeItem(KEY_LAST_USER_CLEAR_STATE);
     return true;
   });
 }
@@ -178,9 +195,21 @@ export function clearLocalDataOwner(): Promise<void> {
     lastUserId = null;
     localDataOwnerIntentionallyUnset = true;
     localDataOwnerClearPending = true;
-    await AsyncStorage.setItem(KEY_LAST_USER_CLEAR_STATE, 'pending');
+    try {
+      await AsyncStorage.setItem(KEY_LAST_USER_CLEAR_STATE, 'pending');
+    } catch (error) {
+      // 주 표식 기록이 실패해도 다음 부팅이 삭제를 재시도할 수 있게 보조 표식을 남긴다.
+      // 둘 다 실패하면 소유자 값이라도 지워 본 뒤 실패를 알린다.
+      try {
+        await writeItem(KEY_LAST_USER_CLEAR_PENDING_FALLBACK, 'pending');
+      } catch {
+        await removeItem(KEY_LAST_USER).catch(() => {});
+        throw error;
+      }
+    }
     await removeItem(KEY_LAST_USER);
     await AsyncStorage.setItem(KEY_LAST_USER_CLEAR_STATE, 'cleared');
+    await removeItem(KEY_LAST_USER_CLEAR_PENDING_FALLBACK).catch(() => {});
     localDataOwnerClearPending = false;
   });
 }
@@ -410,8 +439,21 @@ export function saveSession(
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return false;
     // 삭제 일부가 실패해 남은 로그아웃 tombstone은 새 세션 커밋 전에 마저 처리한다.
     // 그대로 두면 다음 부팅의 정리가 방금 로그인한 세션까지 지운다.
-    if (Platform.OS === 'android') await finishInterruptedAndroidLogout();
+    if (Platform.OS === 'android') {
+      await finishInterruptedAndroidLogout();
+      // 새 로그인 세션은 레거시 복사본이 아니다. 보존 표식이 남으면 이 세션의 401 정리가 레거시로
+      // 오인해 원본을 남기고, 다음 부팅의 마이그레이션이 이전 사용자 토큰을 다시 복사한다.
+      // 재복사 차단 표식을 커밋 전에 기록하고, 기록하지 못하면 로그인을 실패로 돌린다.
+      await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
+    }
     await commit(session);
+    if (Platform.OS === 'android') {
+      await Promise.all([
+        removeItem(KEY_LEGACY_PENDING_PROMOTION).catch(() => {}),
+        AsyncStorage.removeItem(LEGACY_ACCESS).catch(() => {}),
+        AsyncStorage.removeItem(LEGACY_REFRESH).catch(() => {}),
+      ]);
+    }
     cached = session;
     generation += 1;
     try {

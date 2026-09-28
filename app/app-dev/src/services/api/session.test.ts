@@ -40,6 +40,7 @@ beforeEach(async () => {
   await AsyncStorage.removeItem('gromo.androidLegacyLogoutPending');
   await SecureStore.deleteItemAsync('gromo.androidLegacyLogoutPending');
   await AsyncStorage.removeItem('gromo.lastUserIdClearState');
+  await SecureStore.deleteItemAsync('gromo.lastUserIdClearPending');
   await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
   await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
   await clearSession();
@@ -331,6 +332,53 @@ test('Android 로그아웃 tombstone이 남은 뒤 새로 로그인하면 다음
   }
 });
 
+test('레거시 복사본 뒤 새 계정으로 로그인하면 보존 표식과 원본을 폐기해 재복사하지 않는다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
+  await AsyncStorage.multiSet([
+    ['gromo:accessToken', accessToken],
+    ['gromo:refreshToken', 'legacy-refresh'],
+  ]);
+
+  try {
+    assert.equal((await restoreSession())?.userId, 'legacy-user');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), '1');
+
+    await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), '1');
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), null);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), null);
+
+    assert.equal(await clearRejectedSession(sessionGeneration()), true);
+    assert.equal(await restoreSession(), null);
+  } finally {
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
+test('레거시 재복사 차단 표식을 못 쓰면 새 세션을 커밋하지 않는다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.legacySessionMigrated') throw new Error('차단 표식 쓰기 실패');
+    await realWrite(key, value);
+  });
+
+  try {
+    await assert.rejects(
+      saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' }),
+      /차단 표식 쓰기 실패/,
+    );
+    assert.equal(getSession(), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+  } finally {
+    write.mockImplementation(realWrite);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
 test('legacy pending 표식이 없는 현재 세션은 401 정리에서 정상 제거된다', async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   const generation = sessionGeneration();
@@ -515,6 +563,38 @@ test('탈퇴 후 SecureStore owner 삭제 실패는 durable tombstone을 남기�
   assert.equal(getLastSessionUserId(), null);
   assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
   assert.equal(await AsyncStorage.getItem('gromo.lastUserIdClearState'), 'cleared');
+});
+
+test('탈퇴 삭제 의도 기록이 실패해도 보조 표식으로 다음 복구에서 소유자를 지운다', async () => {
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'withdrawn-user' });
+  await rememberLocalDataOwner('withdrawn-user');
+  writeAsync.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.lastUserIdClearState') throw new Error('AsyncStorage 쓰기 실패');
+    return realWriteAsync(key, value);
+  });
+  remove.mockImplementation(async (key: string) => {
+    if (key === 'gromo.lastUserId') throw new Error('키체인 삭제 실패');
+    return realRemove(key);
+  });
+
+  await assert.rejects(clearLocalDataOwner());
+  assert.equal(getLastSessionUserId(), null);
+  assert.equal(await AsyncStorage.getItem('gromo.lastUserIdClearState'), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserIdClearPending'), 'pending');
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'withdrawn-user');
+
+  writeAsync.mockImplementation(realWriteAsync);
+  remove.mockImplementation(realRemove);
+  await restoreSession();
+  assert.equal(getLastSessionUserId(), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+  assert.equal(await AsyncStorage.getItem('gromo.lastUserIdClearState'), 'cleared');
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserIdClearPending'), null);
+
+  await rememberLocalDataOwner('withdrawn-user');
+  assert.equal(await AsyncStorage.getItem('gromo.lastUserIdClearState'), null);
+  await restoreSession();
+  assert.equal(getLastSessionUserId(), 'withdrawn-user');
 });
 
 test('로그인 저장만 성공하고 채택이 실패하면 이전 로컬 소유자를 재시도까지 보존한다', async () => {
