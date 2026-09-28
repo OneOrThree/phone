@@ -1165,6 +1165,7 @@ function FocusFlow({ e }: any) {
     goldenPendingReelRef = useRef<GoldenFishEvent | null>(null),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
     goldenPendingSessionRef = useRef<GoldenFishEvent[]>([]),
+    goldenAnnouncementPendingRef = useRef(false),
     goldenSeenRef = useRef(new Set<string>()),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
@@ -1226,12 +1227,28 @@ function FocusFlow({ e }: any) {
       }
     }, 2000);
   };
+  const announceGoldenCatch = () => {
+    if (AppState.currentState === 'background' || AppState.currentState === 'inactive') {
+      goldenAnnouncementPendingRef.current = true;
+      return;
+    }
+    goldenAnnouncementPendingRef.current = false;
+    AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
+  };
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' || !goldenAnnouncementPendingRef.current) return;
+      goldenAnnouncementPendingRef.current = false;
+      AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
+    });
+    return () => subscription.remove();
+  }, []);
   goldenPresenter.current = (event) => {
     if (reduce) {
       setGoldenReeling(false);
       recordGoldenCatch(event);
       setGoldenFish(true);
-      AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
+      announceGoldenCatch();
       return;
     }
     setGoldenFish(false);
@@ -1337,6 +1354,7 @@ function FocusFlow({ e }: any) {
       goldenPendingReelRef.current = null;
       goldenDeferredNavigationRef.current = null;
       goldenPendingSessionRef.current = [];
+      goldenAnnouncementPendingRef.current = false;
       setGoldenCutscene(null);
       setGoldenReeling(false);
       setGoldenFish(false);
@@ -1348,7 +1366,7 @@ function FocusFlow({ e }: any) {
         for (const event of pending) recordGoldenCatch(event);
         if (pending.length > 0) {
           setGoldenFish(true);
-          AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
+          announceGoldenCatch();
         }
       } else {
         const pending = goldenQueueRef.current.shift();

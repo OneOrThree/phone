@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import React from 'react';
-import { AccessibilityInfo } from 'react-native';
+import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, type State } from '@/services/model';
@@ -163,6 +163,7 @@ const mount = (state = focusedState(), backOverride?: { current: (() => boolean)
   render(screenElement(state, 'focus', backOverride));
 
 beforeEach(async () => {
+  jest.clearAllMocks();
   onGoldenFish = undefined;
   await clearSession();
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'me' });
@@ -267,6 +268,51 @@ test('동작 줄이기에서는 컷신 대신 음성 안내하고 황금 물고�
   assert.equal(announce.mock.calls.length, 1);
   assert.equal(announce.mock.calls[0][0], '황금 물고기를 잡았어요.');
   await screen.unmount();
+  announce.mockRestore();
+});
+
+test('동작 줄이기 당첨이 백그라운드에 도착하면 복귀 후 안내한다', async () => {
+  const announce = jest
+    .spyOn(AccessibilityInfo, 'announceForAccessibility')
+    .mockImplementation(() => {});
+  const listeners: ((state: AppStateStatus) => void)[] = [];
+  const originalAddEventListener = Object.getOwnPropertyDescriptor(AppState, 'addEventListener');
+  Object.defineProperty(AppState, 'addEventListener', {
+    configurable: true,
+    value: ((_type: AppStateEvent, listener: (state: AppStateStatus) => void) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    }) as typeof AppState.addEventListener,
+  });
+  const originalState = Object.getOwnPropertyDescriptor(AppState, 'currentState');
+  let currentState = 'background';
+  Object.defineProperty(AppState, 'currentState', {
+    configurable: true,
+    get: () => currentState,
+  });
+  const state = focusedState();
+  state.settings.reduceMotion = true;
+  const screen = await mount(state);
+
+  await act(async () =>
+    onGoldenFish?.(
+      event([
+        { userId: 'me', sessionId: 's-me' },
+        { userId: 'minji', sessionId: 'minji' },
+      ]),
+    ),
+  );
+  assert.equal(announce.mock.calls.length, 0);
+  currentState = 'active';
+  await act(async () => listeners.forEach((listener) => listener('active')));
+  assert.equal(announce.mock.calls.length, 1);
+  assert.equal(announce.mock.calls[0][0], '황금 물고기를 잡았어요.');
+
+  await screen.unmount();
+  if (originalState) Object.defineProperty(AppState, 'currentState', originalState);
+  if (originalAddEventListener) {
+    Object.defineProperty(AppState, 'addEventListener', originalAddEventListener);
+  }
   announce.mockRestore();
 });
 

@@ -1092,6 +1092,23 @@ describe('stompIslandChannel', () => {
     assert.doesNotThrow(() => channel.setEmoteEnabled(false));
   });
 
+  test('새 세션에서는 이전 emotes 구독 거절 상태를 초기화한다', () => {
+    const channel = stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    c.opts.onStompError({ headers: { message: '거절' } });
+    channel.setEmoteEnabled(false);
+    const subscriptions = c.subs.length;
+    channel.setEmoteEnabled(true);
+    assert.equal(c.subs.length, subscriptions + 1);
+    assert.equal(c.subs.at(-1).dest, '/topic/islands/i1/emotes');
+  });
+
   test('재생 전용 연결은 playback만 구독하고 재연결 시 onOpen으로 복구를 요청한다', () => {
     const opened: string[] = [];
     stompIslandChannel({

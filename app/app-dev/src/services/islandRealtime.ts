@@ -474,7 +474,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       opts.onOpen();
     },
     onStompError: (frame: IFrame) => {
-      if (opts.emote) emoteDenied = true;
+      if (emoteEnabled) emoteDenied = true;
       opts.onError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
     },
   });
@@ -486,6 +486,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       return true;
     },
     setEmoteEnabled: (enabled) => {
+      if (enabled) emoteDenied = false;
       emoteEnabled = enabled;
       if (!enabled) {
         if (client.connected) emoteSubscription?.unsubscribe();
