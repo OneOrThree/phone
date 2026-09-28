@@ -109,7 +109,7 @@ async function writeGuestDeviceIdRotationMarker(): Promise<void> {
 }
 
 /**
- * 명시 로그아웃의 선행 단계. 게스트 기기 ID 회전 의도와 (Android) 세션 tombstone을 모두 기기에
+ * 명시 로그아웃의 선행 단계. 게스트 기기 ID 회전 의도와 세션 로그아웃 tombstone을 모두 기기에
  * 남겨야 성공한다. 하나라도 못 남기면 {@link LogoutNotDurableError}를 던지고 아무것도 폐기하지
  * 않는다 — 화면은 이 결과로 로그인 화면 전환을 막는다. 표식 없이 로그아웃하면 재시작 뒤 남은
  * 기존 ID가 다시 전송돼 명시적으로 떠난 게스트 계정이 재개된다.

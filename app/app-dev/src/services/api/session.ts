@@ -37,7 +37,8 @@ const SESSION_SLOT_PREFIX = 'gromo.sessionSlot';
 const SESSION_SLOTS = ['A', 'B'] as const;
 const KEY_LEGACY_MIGRATED = 'gromo.legacySessionMigrated';
 const KEY_LEGACY_PENDING_PROMOTION = 'gromo.legacySessionPendingPromotion';
-const KEY_ANDROID_LOGOUT_PENDING = 'gromo.androidLegacyLogoutPending';
+// 키 이름은 Android 한정이던 때의 것을 유지한다 — 이미 기록된 표식을 계속 읽어야 한다.
+const KEY_LOGOUT_PENDING = 'gromo.androidLegacyLogoutPending';
 const LEGACY_ACCESS = 'gromo:accessToken';
 const LEGACY_REFRESH = 'gromo:refreshToken';
 
@@ -229,7 +230,7 @@ export function restoreSession(): Promise<Session | null> {
   // 읽기도 줄에 세운다 — 로그아웃 «도중»에 읽으면 지워지는 중인 값을 세션으로 되살린다.
   return serialized(async () => {
     try {
-      if (Platform.OS === 'android') await finishInterruptedAndroidLogout();
+      await finishInterruptedLogout();
       const bundle = await readItem(KEY_BUNDLE);
       cached = bundle ? await readBundledSession(bundle) : null;
       const ownerClearStatus = await resolveLocalDataOwnerClear();
@@ -264,7 +265,7 @@ export function restoreSession(): Promise<Session | null> {
 }
 
 async function migrateLegacySession(): Promise<Session | null> {
-  if (await finishInterruptedAndroidLogout()) return null;
+  if (await finishInterruptedLogout()) return null;
   if ((await SecureStore.getItemAsync(KEY_LEGACY_MIGRATED)) === '1') return null;
   const [legacyAccess, legacyRefresh] = await Promise.all([
     AsyncStorage.getItem(LEGACY_ACCESS),
@@ -300,12 +301,12 @@ export class LogoutNotDurableError extends Error {
   }
 }
 
-async function writeAndroidLogoutTombstone(): Promise<void> {
+async function writeLogoutTombstone(): Promise<void> {
   try {
-    await AsyncStorage.setItem(KEY_ANDROID_LOGOUT_PENDING, '1');
+    await AsyncStorage.setItem(KEY_LOGOUT_PENDING, '1');
   } catch (error) {
     try {
-      await SecureStore.setItemAsync(KEY_ANDROID_LOGOUT_PENDING, '1');
+      await writeItem(KEY_LOGOUT_PENDING, '1');
     } catch {
       throw new LogoutNotDurableError(error);
     }
@@ -313,8 +314,9 @@ async function writeAndroidLogoutTombstone(): Promise<void> {
 }
 
 /**
- * 명시 로그아웃의 첫 단계. Android는 세션을 지우기 전에 tombstone을 남겨야 하므로, 기록하지
- * 못하면 아무것도 바꾸지 않고 {@link LogoutNotDurableError}를 던진다. 화면은 이 결과를 보고
+ * 명시 로그아웃의 첫 단계. 세션을 지우기 전에 모든 플랫폼에서 tombstone을 남긴다 — 삭제가
+ * 실패하거나 정리 전에 앱이 종료돼도 다음 복구가 로그아웃을 마저 끝낸다. 기록하지 못하면
+ * 아무것도 바꾸지 않고 {@link LogoutNotDurableError}를 던진다. 화면은 이 결과를 보고
  * 로그인 화면 전환 여부를 정한다 — 실패한 로그아웃을 성공처럼 보여 주면 재실행 때 계정이 복구된다.
  */
 export function prepareExplicitLogout(
@@ -324,9 +326,8 @@ export function prepareExplicitLogout(
   // 세션 줄 안에서 실행한다 — 뒤이어 줄에 선 clearSession 보다 늦은 로그인 저장이 앞서지 못한다.
   return serialized(async () => {
     await markIntent?.();
-    if (Platform.OS !== 'android') return;
     try {
-      await writeAndroidLogoutTombstone();
+      await writeLogoutTombstone();
     } catch (error) {
       await withdrawIntent?.();
       throw error;
@@ -334,11 +335,11 @@ export function prepareExplicitLogout(
   });
 }
 
-/** An explicit Android logout must win over a crash before legacy RT cleanup completes. */
-async function finishInterruptedAndroidLogout(): Promise<boolean> {
+/** An explicit logout must win over a crash before session (and Android legacy RT) cleanup completes. */
+async function finishInterruptedLogout(): Promise<boolean> {
   const [asyncMarker, secureMarker] = await Promise.all([
-    AsyncStorage.getItem(KEY_ANDROID_LOGOUT_PENDING),
-    SecureStore.getItemAsync(KEY_ANDROID_LOGOUT_PENDING),
+    AsyncStorage.getItem(KEY_LOGOUT_PENDING),
+    readItem(KEY_LOGOUT_PENDING),
   ]);
   if (asyncMarker !== '1' && secureMarker !== '1') return false;
   const failed: unknown[] = [];
@@ -356,13 +357,17 @@ async function finishInterruptedAndroidLogout(): Promise<boolean> {
         removeItem(`${prefix}.userId`).catch(swallow),
       ];
     }),
-    AsyncStorage.removeItem(LEGACY_ACCESS).catch(swallow),
-    AsyncStorage.removeItem(LEGACY_REFRESH).catch(swallow),
-    removeItem(KEY_LEGACY_PENDING_PROMOTION).catch(swallow),
+    ...(Platform.OS === 'android'
+      ? [
+          AsyncStorage.removeItem(LEGACY_ACCESS).catch(swallow),
+          AsyncStorage.removeItem(LEGACY_REFRESH).catch(swallow),
+          removeItem(KEY_LEGACY_PENDING_PROMOTION).catch(swallow),
+        ]
+      : []),
   ]);
   if (failed.length) throw failed[0];
-  await AsyncStorage.removeItem(KEY_ANDROID_LOGOUT_PENDING);
-  await SecureStore.deleteItemAsync(KEY_ANDROID_LOGOUT_PENDING);
+  await AsyncStorage.removeItem(KEY_LOGOUT_PENDING);
+  await removeItem(KEY_LOGOUT_PENDING);
   return true;
 }
 
@@ -481,8 +486,8 @@ export function saveSession(
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return false;
     // 삭제 일부가 실패해 남은 로그아웃 tombstone은 새 세션 커밋 전에 마저 처리한다.
     // 그대로 두면 다음 부팅의 정리가 방금 로그인한 세션까지 지운다.
+    await finishInterruptedLogout();
     if (Platform.OS === 'android') {
-      await finishInterruptedAndroidLogout();
       // 새 로그인 세션은 레거시 복사본이 아니다. 보존 표식이 남으면 이 세션의 401 정리가 레거시로
       // 오인해 원본을 남기고, 다음 부팅의 마이그레이션이 이전 사용자 토큰을 다시 복사한다.
       // 재복사 차단 표식을 커밋 전에 기록하고, 기록하지 못하면 로그인을 실패로 돌린다.
@@ -568,11 +573,11 @@ export function clearSession(
     const failed: unknown[] = [];
     const swallow = (error: unknown): void => void failed.push(error);
     let logoutTombstoneWritten = false;
-    if (Platform.OS === 'android' && explicitLogout) {
+    if (explicitLogout) {
       // Without a durable tombstone, do not invalidate the bundle: a crash could migrate legacy RT.
       // 준비 단계가 이미 tombstone을 확정했으면 다시 쓰지 않는다 — 두 번째 쓰기 실패가 화면은
       // 로그아웃인데 세션만 남기는 결과를 만든다.
-      if (!precondition) await writeAndroidLogoutTombstone();
+      if (!precondition) await writeLogoutTombstone();
       logoutTombstoneWritten = true;
     }
     const cleared = cached;
@@ -601,8 +606,8 @@ export function clearSession(
       await removeItem(KEY_LEGACY_PENDING_PROMOTION).catch(swallow);
     }
     if (logoutTombstoneWritten && failed.length === 0) {
-      await AsyncStorage.removeItem(KEY_ANDROID_LOGOUT_PENDING).catch(swallow);
-      await removeItem(KEY_ANDROID_LOGOUT_PENDING).catch(swallow);
+      await AsyncStorage.removeItem(KEY_LOGOUT_PENDING).catch(swallow);
+      await removeItem(KEY_LOGOUT_PENDING).catch(swallow);
     }
     if (failed.length > 0) throw failed[0];
     return cleared;

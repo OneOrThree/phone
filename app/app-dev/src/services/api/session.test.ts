@@ -155,6 +155,29 @@ test('Android 명시 로그아웃 crash tombstone은 bundle이 먼저 지워져�
   }
 });
 
+test('iOS 명시 로그아웃도 bundle 삭제가 실패하면 tombstone으로 다음 복구에서 세션을 지운다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'ios' });
+  try {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    remove.mockImplementation(async (key: string) => {
+      if (key === 'gromo.sessionBundle') throw new Error('키체인 삭제 실패');
+      return realRemove(key);
+    });
+    await assert.rejects(clearSession(undefined, false, true), /키체인 삭제 실패/);
+    assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), '1');
+    assert.ok(await SecureStore.getItemAsync('gromo.sessionBundle'));
+
+    remove.mockImplementation(realRemove);
+    assert.equal(await restoreSession(), null);
+    assert.equal(await SecureStore.getItemAsync('gromo.sessionBundle'), null);
+    assert.equal(await AsyncStorage.getItem('gromo.androidLegacyLogoutPending'), null);
+  } finally {
+    remove.mockImplementation(realRemove);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
 test('Android logout tombstone 기록이 두 저장소에서 실패하면 bundle 삭제를 시작하지 않는다', async () => {
   const previousOS = Platform.OS;
   Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
