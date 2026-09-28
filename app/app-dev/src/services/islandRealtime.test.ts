@@ -7,11 +7,14 @@ import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   IslandProjection,
+  isGoldenFishParticipant,
+  parseGoldenFishEvent,
   realtimeWsUrl,
   startIslandRealtime,
   stompIslandChannel,
   type IslandChannelOpts,
   type IslandPresenceTransition,
+  type GoldenFishEvent,
   type PresenceView,
 } from '@/services/islandRealtime';
 import type { FocusMember, ProjectionWatermark, RestMember } from '@/services/api/islands';
@@ -37,7 +40,11 @@ jest.mock('@stomp/stompjs', () => {
     }
     subscribe(dest: string, cb: (m: { body: string }) => void) {
       this.subs.push({ dest, cb });
-      return { unsubscribe: () => {} };
+      return {
+        unsubscribe: () => {
+          if (!this.connected) throw new TypeError('There is no underlying STOMP connection');
+        },
+      };
     }
     publish(p: { destination: string; body: string }) {
       this.published.push(p);
@@ -137,6 +144,31 @@ const emoteEvent = (eventId: string, over: object = {}) => ({
     ...over,
   },
 });
+const goldenEvent = (eventId = 'golden-i1-1', over: object = {}) => ({
+  eventId,
+  schemaVersion: 1,
+  type: 'focus.golden',
+  islandId: 'i1',
+  aggregateVersion: 1,
+  occurredAt: NOW,
+  payload: {
+    islandId: 'i1',
+    drawnAt: NOW,
+    reward: 50,
+    sharePerMember: 25,
+    members: [
+      {
+        userId: '11111111-1111-4111-8111-111111111111',
+        sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      },
+      {
+        userId: '22222222-2222-4222-8222-222222222222',
+        sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+    ],
+    ...over,
+  },
+});
 
 beforeEach(async () => {
   await clearSession();
@@ -231,12 +263,127 @@ describe('IslandProjection', () => {
   });
 });
 
+describe('황금 물고기 실시간 사건', () => {
+  test('서버가 확정한 focus.golden 봉투와 참여 주민만 컷신 대상으로 인정한다', () => {
+    const event = parseGoldenFishEvent(goldenEvent(), 'i1');
+    assert.ok(event);
+    assert.equal(
+      isGoldenFishParticipant(
+        event,
+        '11111111-1111-4111-8111-111111111111',
+        'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      ),
+      true,
+    );
+    assert.equal(isGoldenFishParticipant(event, 'u3', 's-u3'), false);
+    assert.equal(parseGoldenFishEvent({ ...goldenEvent(), islandId: 'other' }, 'i1'), null);
+    assert.equal(
+      parseGoldenFishEvent({ ...goldenEvent(), type: 'focus.member.updated' }, 'i1'),
+      null,
+    );
+  });
+
+  test('손상된 보상·참여자 payload와 세션이 다른 주민은 거부한다', () => {
+    assert.equal(
+      parseGoldenFishEvent(goldenEvent('bad-reward', { reward: -Infinity }), 'i1'),
+      null,
+    );
+    assert.equal(
+      parseGoldenFishEvent(
+        goldenEvent('one-member', { members: [{ userId: 'u1', sessionId: 's-u1' }] }),
+        'i1',
+      ),
+      null,
+    );
+    assert.equal(
+      parseGoldenFishEvent(
+        goldenEvent('missing-session', { members: [{ userId: 'u1' }, null] }),
+        'i1',
+      ),
+      null,
+    );
+    assert.equal(parseGoldenFishEvent(goldenEvent('bad-date', { drawnAt: 'later' }), 'i1'), null);
+    assert.equal(
+      parseGoldenFishEvent(goldenEvent('date-without-instant', { drawnAt: '2026-09-28' }), 'i1'),
+      null,
+    );
+    assert.equal(parseGoldenFishEvent(goldenEvent('bad-island', { islandId: 'i2' }), 'i1'), null);
+    assert.equal(parseGoldenFishEvent(goldenEvent('zero-reward', { reward: 0 }), 'i1'), null);
+    assert.equal(
+      parseGoldenFishEvent(goldenEvent('bad-share', { sharePerMember: 24 }), 'i1'),
+      null,
+    );
+    assert.equal(
+      parseGoldenFishEvent(
+        goldenEvent('duplicate-members', {
+          members: [
+            {
+              userId: '11111111-1111-4111-8111-111111111111',
+              sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            },
+            {
+              userId: '11111111-1111-4111-8111-111111111111',
+              sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            },
+          ],
+        }),
+        'i1',
+      ),
+      null,
+    );
+    assert.equal(
+      parseGoldenFishEvent(
+        goldenEvent('invalid-member-id', {
+          members: [
+            { userId: 'not-a-uuid', sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' },
+            {
+              userId: '22222222-2222-4222-8222-222222222222',
+              sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            },
+          ],
+        }),
+        'i1',
+      ),
+      null,
+    );
+    assert.equal(
+      parseGoldenFishEvent(
+        goldenEvent('invalid-third-member', {
+          reward: 75,
+          members: [
+            {
+              userId: '11111111-1111-4111-8111-111111111111',
+              sessionId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            },
+            {
+              userId: '22222222-2222-4222-8222-222222222222',
+              sessionId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            },
+            { userId: 'broken', sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' },
+          ],
+        }),
+        'i1',
+      ),
+      null,
+    );
+    const valid = parseGoldenFishEvent(goldenEvent(), 'i1');
+    assert.ok(valid);
+    assert.equal(
+      isGoldenFishParticipant(valid, '11111111-1111-4111-8111-111111111111', 'other-session'),
+      false,
+    );
+    assert.equal(isGoldenFishParticipant(valid, '11111111-1111-4111-8111-111111111111'), true);
+    assert.equal(isGoldenFishParticipant(valid, null), false);
+  });
+});
+
 type FakeChannel = {
   opts: IslandChannelOpts | null;
   sent: { destination: string; body: unknown }[];
   reopened: number;
   closed: number;
   connected: boolean;
+  emoteEnabled: boolean[];
 };
 const fakeChannel = (): FakeChannel => ({
   opts: null,
@@ -244,6 +391,7 @@ const fakeChannel = (): FakeChannel => ({
   reopened: 0,
   closed: 0,
   connected: true,
+  emoteEnabled: [],
 });
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -260,6 +408,7 @@ function start(
     loadError?: unknown;
     views?: PresenceView[];
     transitions?: IslandPresenceTransition[];
+    golden?: GoldenFishEvent[];
     sendError?: string[];
   },
   channel: FakeChannel,
@@ -270,6 +419,7 @@ function start(
     emoteSessionId: deps.emoteSessionId,
     onView: (v) => deps.views?.push(v),
     onTransition: (transition) => deps.transitions?.push(transition),
+    onGoldenFish: (event) => deps.golden?.push(event),
     onSendError: (m) => deps.sendError?.push(m),
     alive: () => true,
     connect: (opts) => {
@@ -279,6 +429,9 @@ function start(
           if (!channel.connected) return false;
           channel.sent.push({ destination: d, body: b });
           return true;
+        },
+        setEmoteEnabled: (enabled) => {
+          channel.emoteEnabled.push(enabled);
         },
         reopen: () => {
           channel.reopened += 1;
@@ -299,6 +452,36 @@ function start(
 }
 
 describe('startIslandRealtime', () => {
+  test('같은 서버 이벤트를 받은 두 앱은 각각 한 번만 컷신 신호를 받고 중복 봉투는 버린다', () => {
+    const firstChannel = fakeChannel();
+    const secondChannel = fakeChannel();
+    const first: GoldenFishEvent[] = [];
+    const second: GoldenFishEvent[] = [];
+    start({ islandId: 'i1', golden: first }, firstChannel);
+    start({ islandId: 'i1', golden: second }, secondChannel);
+    const event = goldenEvent();
+    firstChannel.opts?.onEvent(event);
+    firstChannel.opts?.onEvent(event);
+    secondChannel.opts?.onEvent(event);
+    assert.equal(first.length, 1);
+    assert.equal(second.length, 1);
+    assert.equal(first[0].eventId, event.eventId);
+  });
+
+  test('응원 세션은 presence 재연결 없이 구독과 발신 자격을 갱신한다', () => {
+    const channel = fakeChannel();
+    const { rt } = start({ islandId: 'i1' }, channel);
+    rt.setEmoteSessionId('s-me');
+    assert.deepEqual(channel.emoteEnabled, [true]);
+    assert.equal(rt.sendEmote('cheer'), true);
+    assert.deepEqual(channel.sent[0].body, { sessionId: 's-me', type: 'cheer' });
+
+    rt.setEmoteSessionId(null);
+    assert.deepEqual(channel.emoteEnabled, [true, false]);
+    assert.equal(rt.sendEmote('cheer'), false);
+    assert.equal(channel.reopened, 0);
+  });
+
   test('resync 는 스냅숏을 싣고 ready 를 발행한다', async () => {
     const channel = fakeChannel();
     const views: PresenceView[] = [];
@@ -879,6 +1062,51 @@ describe('stompIslandChannel', () => {
       client().subs.map((s: { dest: string }) => s.dest),
       ['/topic/islands/i1/focus', '/topic/islands/i1/rest', '/user/queue/errors'],
     );
+  });
+
+  test('presence 연결을 유지한 채 emotes 구독을 켜고 끈다', () => {
+    const channel = stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    channel.setEmoteEnabled(true);
+    assert.equal(c.subs.at(-1).dest, '/topic/islands/i1/emotes');
+    channel.setEmoteEnabled(false);
+    assert.equal(c.deactivated, 0);
+  });
+
+  test('연결이 이미 끊긴 emotes 구독은 로컬 핸들만 비운다', () => {
+    const channel = stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    c.connected = false;
+    assert.doesNotThrow(() => channel.setEmoteEnabled(false));
+  });
+
+  test('새 세션에서는 이전 emotes 구독 거절 상태를 초기화한다', () => {
+    const channel = stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    const c = client();
+    c.opts.onStompError({ headers: { message: '거절' } });
+    channel.setEmoteEnabled(false);
+    const subscriptions = c.subs.length;
+    channel.setEmoteEnabled(true);
+    assert.equal(c.subs.length, subscriptions + 1);
+    assert.equal(c.subs.at(-1).dest, '/topic/islands/i1/emotes');
   });
 
   test('재생 전용 연결은 playback만 구독하고 재연결 시 onOpen으로 복구를 요청한다', () => {

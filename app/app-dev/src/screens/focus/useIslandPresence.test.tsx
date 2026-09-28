@@ -8,6 +8,7 @@ import { AppState } from 'react-native';
 import { clearSession, saveSession } from '@/services/api/session';
 import { useIslandPresence } from '@/screens/focus/useIslandPresence';
 import type {
+  GoldenFishEvent,
   IslandPresenceTransition,
   IslandRealtime,
   IslandRealtimeDeps,
@@ -23,6 +24,7 @@ const start = (deps: IslandRealtimeDeps): IslandRealtime => {
     resync: jest.fn(),
     reopen: jest.fn(),
     sendEmote: jest.fn(() => true),
+    setEmoteSessionId: jest.fn(),
     dispose: jest.fn(),
   };
   sessions.push(s);
@@ -56,6 +58,7 @@ type Props = {
   islandId: string | null;
   emoteSessionId?: string | null;
   onTransition?: (transition: IslandPresenceTransition) => void;
+  onGoldenFish?: (event: GoldenFishEvent) => void;
 };
 const mount = (p: Props) =>
   renderHook((q: Props) => useIslandPresence(q, start), { initialProps: p });
@@ -128,6 +131,28 @@ test('검증된 전이를 최신 콜백으로 전달한다', async () => {
   assert.deepEqual(received, [transition]);
 });
 
+test('검증된 황금 물고기 사건을 최신 콜백으로 전달한다', async () => {
+  const received: GoldenFishEvent[] = [];
+  await mount({
+    active: true,
+    islandId: 'i1',
+    onGoldenFish: (event) => received.push(event),
+  });
+  const event: GoldenFishEvent = {
+    eventId: 'golden-i1-1',
+    islandId: 'i1',
+    drawnAt: '2026-09-28T00:00:00.000Z',
+    reward: 2,
+    sharePerMember: 1,
+    members: [
+      { userId: 'me', sessionId: 's-me' },
+      { userId: 'peer', sessionId: 's-peer' },
+    ],
+  };
+  await act(async () => sessions[0].deps.onGoldenFish?.(event));
+  assert.deepEqual(received, [event]);
+});
+
 test('언마운트는 채널을 해제하고, retry 는 채널을 새로 연다', async () => {
   const { result, unmount } = await mount({ active: true, islandId: 'i1' });
   await act(async () => result.current.retry());
@@ -142,4 +167,12 @@ test('sendEmote 는 열린 채널로 위임한다', async () => {
   assert.equal(sessions[0].deps.emoteSessionId, 's-me');
   assert.equal(result.current.sendEmote('cheer'), true);
   assert.equal((sessions[0].sendEmote as jest.Mock).mock.calls[0][0], 'cheer');
+});
+
+test('응원 세션이 바뀌어도 presence 연결을 다시 열지 않는다', async () => {
+  const { rerender } = await mount({ active: true, islandId: 'i1', emoteSessionId: 's-me' });
+  await rerender({ active: true, islandId: 'i1', emoteSessionId: null });
+  assert.equal(sessions.length, 1);
+  assert.equal((sessions[0].dispose as jest.Mock).mock.calls.length, 0);
+  assert.equal((sessions[0].setEmoteSessionId as jest.Mock).mock.calls.at(-1)?.[0], null);
 });

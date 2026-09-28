@@ -132,6 +132,7 @@ export const semanticTokens = {
     letter: color.letter,
     divider: `${color.brown}33`,
     overlay: `${color.ink}66`,
+    overlayCinematic: `${color.ink}A6`,
     overlaySheet: `${color.ink}40`,
   },
   nightColor: {
@@ -338,6 +339,7 @@ export const componentTokens = {
   },
   overlay: {
     background: semanticTokens.color.overlay,
+    cinematicBackground: semanticTokens.color.overlayCinematic,
     sheetBackground: semanticTokens.color.overlaySheet,
   },
   modal: {

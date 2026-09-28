@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import {
   CLIENT_CONTRACT_ERROR,
-  completedBuildings,
   getConstructionOptions,
   getHome,
   getMembers,
@@ -150,23 +149,8 @@ test('options complement — 미완공 5개(공사 중 포함)면 완공은 정�
   const opts = await getConstructionOptions('i1');
 
   assert.equal(path(calls[0]), '/islands/i1/construction-options');
-  assert.deepEqual(completedBuildings(opts), ['hall', 'board']);
-});
-
-test('options complement — items 가 비면 7개 모두 완공이다', async () => {
-  stub([{ status: 200, body: { data: options([]) } }]);
-
-  const opts = await getConstructionOptions('i1');
-
-  assert.deepEqual(completedBuildings(opts), [
-    'hall',
-    'board',
-    'gram',
-    'library',
-    'mail',
-    'tower',
-    'shop',
-  ]);
+  // 공사 중(IN_PROGRESS) 건물도 미완공 목록에 남는다
+  assert.ok(opts.items.some((i) => i.id === 'mail' && i.blockedReason === 'IN_PROGRESS'));
 });
 
 test('options 검증 — 모르는 ID·중복·빠진 필수 필드를 fake 건물로 보완하지 않고 실패한다', async () => {

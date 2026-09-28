@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import React from 'react';
 import { act, render } from '@testing-library/react-native';
+import { AppState } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { landPath, onLand } from '@/utils/world-grid';
 import { SECONDS_PER_FISH } from '@/services/model';
 import { FishingBoat } from '@/screens/focus/FocusSea';
@@ -10,6 +12,7 @@ import {
   DEFAULT_SPOT,
   DEFAULT_CATCH_PLACEMENT,
   FishingActor,
+  FishingIsland,
   FishingPeerActorView,
   GRAM,
   RAFT,
@@ -804,6 +807,32 @@ test('지도 창: 세로는 폭 640 지도를 가운데 높이에, 가로는 화
   assert.ok(Math.abs(far.left - (874 - far.size) / 2) <= 0.5);
 });
 
+test('컷신 종료 전에는 섬 황금 물고기를 숨기고 종료 뒤에만 표시한다', async () => {
+  const props = {
+    focus: DEFAULT_SPOT,
+    spots: [],
+    onRaft: jest.fn(),
+    children: () => null,
+  };
+  const wrap = (goldenFish = false) =>
+    React.createElement(
+      SafeAreaProvider,
+      {
+        initialMetrics: {
+          frame: { x: 0, y: 0, width: 390, height: 844 },
+          insets: { top: 0, right: 0, bottom: 0, left: 0 },
+        },
+      },
+      React.createElement(FishingIsland, { ...props, goldenFish }),
+    );
+  const screen = await render(wrap());
+  assert.equal(screen.queryByTestId('fishing-island-golden-fish'), null);
+  await screen.rerender(wrap(true));
+  const fish = screen.getByTestId('fishing-island-golden-fish');
+  assert.equal(fish.props.accessibilityLabel, '방금 함께 낚은 황금 물고기');
+  await screen.unmount();
+});
+
 test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가고 동작 줄이기는 즉시 reel을 멈춘다', async () => {
   jest.useFakeTimers();
   const props = {
@@ -838,6 +867,136 @@ test('낚시 고양이: 잡은 뒤 reel을 마치면 집중 focus로 돌아가�
   );
   assert.equal(motion(), 'focus');
   await screen.unmount();
+  jest.useRealTimers();
+});
+
+test('황금 물고기 참여자: 더미에 황금 물고기를 남기고 새 사건을 reel로 한 번 알린다', async () => {
+  jest.useFakeTimers();
+  const props = {
+    spot: { x: 34.1, y: 55.9, face: 1 },
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '나',
+    seconds: 0,
+    reduce: false,
+    goldenFishCount: 0,
+    goldenCatchToken: null,
+  };
+  const screen = await render(React.createElement(FishingActor, props));
+  assert.equal(screen.queryByTestId('fishing-actor-golden-fish-0'), null);
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 1,
+      goldenCatchToken: 'golden-i1-1',
+    }),
+  );
+  assert.notEqual(screen.queryByTestId('fishing-actor-golden-fish-0'), null);
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'reel');
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 1,
+      goldenCatchToken: 'golden-i1-1',
+      reduce: true,
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 1,
+      goldenCatchToken: 'golden-i1-1',
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+
+  await act(async () => jest.advanceTimersByTime(2000));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      motion: 'stretch',
+      goldenFishCount: 2,
+      goldenCatchToken: 'golden-i1-2',
+    }),
+  );
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'reel');
+  assert.notEqual(screen.queryByTestId('fishing-actor-rod'), null);
+  await act(async () => jest.advanceTimersByTime(2000));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'stretch');
+
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 2,
+      goldenCatchToken: 'golden-i1-2',
+      reduce: true,
+    }),
+  );
+  assert.notEqual(screen.queryByTestId('fishing-actor-golden-fish-1'), null);
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+  await screen.unmount();
+
+  const remounted = await render(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 2,
+      goldenCatchToken: 'golden-i1-2',
+    }),
+  );
+  assert.equal(remounted.getByTestId('fishing-actor-cat').props.motion, 'focus');
+  await remounted.unmount();
+  jest.useRealTimers();
+});
+
+test('황금 reel은 백그라운드 시간을 제외하고 포그라운드에서 2초 노출한다', async () => {
+  jest.useFakeTimers();
+  let onAppStateChange: ((state: string) => void) | undefined;
+  const appState = jest.spyOn(AppState, 'addEventListener').mockImplementation(((
+    _type: string,
+    listener: (state: string) => void,
+  ) => {
+    onAppStateChange = listener;
+    return { remove: jest.fn() };
+  }) as any);
+  const props = {
+    spot: { x: 34.1, y: 55.9, face: 1 },
+    size: 640,
+    sizeY: 640 / 1.5,
+    color: 'ginger' as const,
+    name: '나',
+    seconds: 0,
+    reduce: false,
+    goldenFishCount: 0,
+    goldenCatchToken: null,
+  };
+  const screen = await render(React.createElement(FishingActor, props));
+  await screen.rerender(
+    React.createElement(FishingActor, {
+      ...props,
+      goldenFishCount: 1,
+      goldenCatchToken: 'golden-background',
+    }),
+  );
+  await act(async () => jest.advanceTimersByTime(500));
+  await act(async () => onAppStateChange?.('background'));
+  await act(async () => jest.advanceTimersByTime(5000));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'reel');
+
+  await act(async () => onAppStateChange?.('active'));
+  await act(async () => jest.advanceTimersByTime(1499));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'reel');
+  await act(async () => jest.advanceTimersByTime(1));
+  assert.equal(screen.getByTestId('fishing-actor-cat').props.motion, 'focus');
+
+  await screen.unmount();
+  appState.mockRestore();
   jest.useRealTimers();
 });
 

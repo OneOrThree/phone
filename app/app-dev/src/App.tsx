@@ -530,9 +530,22 @@ function Gromo() {
     loadHomeSnapshot({ date: dayKey(), timezone: 'Asia/Seoul', isCurrent: () => live })
       .then((r) => {
         if (!live) return;
-        if (r.status === 'loaded') dispatch({ type: 'SERVER_HOME', facts: r.facts });
-        // 그 사이 current 가 풀렸다(강퇴·다른 기기 해제) — 소속 동기화로 반영해 chooseIsland 로 보낸다
-        else dispatch({ type: 'ISLAND_SYNC', memberships: r.memberships });
+        // current 없음(서버 409) 또는 응답이 로컬이 아는 current 와 다른 섬(전환 경합) —
+        // 둘 다 이 스냅샷을 그대로 적용하지 않고 소속 동기화로 반영해 chooseIsland 로 보낸다.
+        const current = stateRef.current?.serverIslands?.currentIslandId;
+        if (r.status !== 'loaded' || r.facts.islandId !== current) {
+          // 동기화가 실패하거나 current 를 바꾸지 못하면 effect 가 다시 돌지 않는다 — 스피너에 갇히지
+          // 않게 재시도 화면으로 떨어뜨린다. current 가 바뀌면 effect 가 새로 불러오고 chooseIsland 는 App 이 연다
+          syncIslands()
+            .then((my) => {
+              if (live && my.currentIslandId === current) setHomeError(true);
+            })
+            .catch(() => {
+              if (live) setHomeError(true);
+            });
+          return;
+        }
+        dispatch({ type: 'SERVER_HOME', facts: r.facts });
       })
       .catch((thrown) => {
         if (live && !(thrown instanceof ApiError && thrown.code === CLIENT_STALE_SESSION))

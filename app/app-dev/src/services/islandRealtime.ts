@@ -45,11 +45,84 @@ export type LiveFocusMember = FocusMember & {
 export type LiveRestMember = RestMember & { anchorMs: number };
 export type LiveEmote = { eventId: string; userId: string; type: string; expiresAtMs: number };
 
+export type GoldenFishMember = { userId: string; sessionId: string };
+export type GoldenFishEvent = {
+  eventId: string;
+  islandId: string;
+  drawnAt: string;
+  reward: number;
+  sharePerMember: number;
+  members: GoldenFishMember[];
+};
+
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?Z$/;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** 서버가 확정한 focus.golden 봉투만 컷신 신호로 인정한다. 확률·보상 계산은 앱에서 하지 않는다. */
+export function parseGoldenFishEvent(raw: unknown, islandId: string): GoldenFishEvent | null {
+  const env = raw as RealtimeEnvelope;
+  if (
+    !env ||
+    typeof env !== 'object' ||
+    env.schemaVersion !== 1 ||
+    env.type !== 'focus.golden' ||
+    env.islandId !== islandId
+  )
+    return null;
+  const eventId = str(env.eventId);
+  const payload = env.payload as Record<string, unknown> | null;
+  const drawnAt = str(payload?.drawnAt);
+  const reward = num(payload?.reward);
+  const sharePerMember = num(payload?.sharePerMember);
+  if (
+    !eventId ||
+    payload?.islandId !== islandId ||
+    !drawnAt ||
+    !ISO_INSTANT.test(drawnAt) ||
+    !Number.isFinite(Date.parse(drawnAt)) ||
+    reward === null ||
+    !Number.isInteger(reward) ||
+    reward <= 0 ||
+    sharePerMember === null ||
+    !Number.isInteger(sharePerMember) ||
+    sharePerMember < 0
+  )
+    return null;
+  if (!Array.isArray(payload?.members) || payload.members.length < 2) return null;
+  const members: GoldenFishMember[] = [];
+  for (const value of payload.members) {
+    const member = value as Record<string, unknown> | null;
+    const userId = str(member?.userId);
+    const sessionId = str(member?.sessionId);
+    if (!userId || !UUID.test(userId) || !sessionId || !UUID.test(sessionId)) return null;
+    members.push({ userId, sessionId });
+  }
+  const uniqueMembers = new Set(members.map((member) => `${member.userId}:${member.sessionId}`));
+  if (
+    uniqueMembers.size !== members.length ||
+    sharePerMember !== Math.floor(reward / members.length)
+  )
+    return null;
+  return { eventId, islandId, drawnAt, reward, sharePerMember, members };
+}
+
+export function isGoldenFishParticipant(
+  event: GoldenFishEvent,
+  userId: string | null | undefined,
+  sessionId?: string | null,
+): boolean {
+  if (!userId) return false;
+  return event.members.some(
+    (member) => member.userId === userId && (!sessionId || member.sessionId === sessionId),
+  );
+}
+
 export type IslandPresenceTransition =
   | {
       source: 'event' | 'event-gap';
       kind: 'focus';
       userId: string;
+      occurredAtMs?: number;
       previous: LiveFocusMember | null;
       current: LiveFocusMember | null;
     }
@@ -57,6 +130,7 @@ export type IslandPresenceTransition =
       source: 'event' | 'event-gap';
       kind: 'rest';
       userId: string;
+      occurredAtMs?: number;
       previous: LiveRestMember | null;
       current: LiveRestMember | null;
     };
@@ -185,6 +259,8 @@ export class IslandProjection {
     const version = num(env.aggregateVersion);
     if (!userId || version === null) return { changed: false, transition: null };
     const key = `${kind}.member:${userId}`;
+    const occurredAtMs = ms(env.occurredAt);
+    const transitionAt = Number.isFinite(occurredAtMs) ? occurredAtMs : this.serverNowMs();
     const known = this.versions.get(key);
     if (known === undefined) {
       // 워터마크가 없는 주민 — 이벤트만으로 프로필을 지어내지 않고 정본 재조회로 복구한다.
@@ -202,7 +278,14 @@ export class IslandProjection {
         return {
           changed,
           transition: changed
-            ? { source: 'event', kind, userId, previous: prev!, current: null }
+            ? {
+                source: 'event',
+                kind,
+                userId,
+                occurredAtMs: transitionAt,
+                previous: prev!,
+                current: null,
+              }
             : null,
         };
       }
@@ -222,7 +305,14 @@ export class IslandProjection {
         changed: true,
         transition:
           prev?.status !== current.status || prev?.sessionId !== current.sessionId
-            ? { source: 'event', kind, userId, previous: prev ?? null, current }
+            ? {
+                source: 'event',
+                kind,
+                userId,
+                occurredAtMs: transitionAt,
+                previous: prev ?? null,
+                current,
+              }
             : null,
       };
     }
@@ -239,7 +329,16 @@ export class IslandProjection {
       const current = this.restMap.get(userId)!;
       return {
         changed: true,
-        transition: prev ? null : { source: 'event', kind, userId, previous: null, current },
+        transition: prev
+          ? null
+          : {
+              source: 'event',
+              kind,
+              userId,
+              occurredAtMs: transitionAt,
+              previous: null,
+              current,
+            },
       };
     }
     const prev = this.restMap.get(userId);
@@ -247,7 +346,14 @@ export class IslandProjection {
     return {
       changed,
       transition: changed
-        ? { source: 'event', kind, userId, previous: prev!, current: null }
+        ? {
+            source: 'event',
+            kind,
+            userId,
+            occurredAtMs: transitionAt,
+            previous: prev!,
+            current: null,
+          }
         : null,
     };
   }
@@ -299,6 +405,8 @@ let nextSnapshotVersion = 0;
 /** 섬 단위 STOMP 채널 — 구독 수명은 채널과 같고 끊기면 서버가 구독을 다 버린다. */
 export type IslandChannel = {
   send(destination: string, body: unknown): boolean;
+  /** focus/rest 연결은 유지하고 emotes 구독만 바꾼다. */
+  setEmoteEnabled(enabled: boolean): void;
   /** 소켓을 끊고 다시 연다 — 구독은 새 연결에서 다시 맺는다. */
   reopen(): void;
   close(): void;
@@ -326,6 +434,15 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   const id = encodeURIComponent(opts.islandId);
   // 구독 거절 ERROR 는 연결을 끊는다 — emotes 구독 거절이면 다음 접속부터는 빼서 무한 거절 루프를 끊는다.
   let emoteDenied = false;
+  let emoteEnabled = opts.emote;
+  let emoteSubscription: { unsubscribe(): void } | null = null;
+  const onMsg = (msg: IMessage) => {
+    try {
+      opts.onEvent(JSON.parse(msg.body));
+    } catch {
+      // 깨진 프레임은 무시한다.
+    }
+  };
   const client = new Client({
     brokerURL: realtimeWsUrl(),
     reconnectDelay: 5000,
@@ -336,13 +453,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       if (token) c.connectHeaders = { Authorization: `Bearer ${token}` };
     },
     onConnect: () => {
-      const onMsg = (msg: IMessage) => {
-        try {
-          opts.onEvent(JSON.parse(msg.body));
-        } catch {
-          // 깨진 프레임은 무시한다.
-        }
-      };
+      emoteSubscription = null;
       if (opts.presence !== false) {
         client.subscribe(`/topic/islands/${id}/focus`, onMsg);
         client.subscribe(`/topic/islands/${id}/rest`, onMsg);
@@ -358,11 +469,12 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
         }
         opts.onError(text);
       });
-      if (opts.emote && !emoteDenied) client.subscribe(`/topic/islands/${id}/emotes`, onMsg);
+      if (emoteEnabled && !emoteDenied)
+        emoteSubscription = client.subscribe(`/topic/islands/${id}/emotes`, onMsg);
       opts.onOpen();
     },
     onStompError: (frame: IFrame) => {
-      if (opts.emote) emoteDenied = true;
+      if (emoteEnabled) emoteDenied = true;
       opts.onError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
     },
   });
@@ -372,6 +484,16 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       if (!client.connected) return false;
       client.publish({ destination, body: JSON.stringify(body) });
       return true;
+    },
+    setEmoteEnabled: (enabled) => {
+      if (enabled) emoteDenied = false;
+      emoteEnabled = enabled;
+      if (!enabled) {
+        if (client.connected) emoteSubscription?.unsubscribe();
+        emoteSubscription = null;
+      } else if (client.connected && !emoteDenied && !emoteSubscription) {
+        emoteSubscription = client.subscribe(`/topic/islands/${id}/emotes`, onMsg);
+      }
     },
     reopen: () => {
       void client.deactivate().then(() => client.activate());
@@ -389,6 +511,8 @@ export type IslandRealtime = {
   reopen(): void;
   /** `SEND /app/islands/{id}/focus/emotes`. 세션 없음·미연결·미지 타입이면 false. */
   sendEmote(type: string): boolean;
+  /** presence 소켓을 재연결하지 않고 응원 자격과 구독만 갱신한다. */
+  setEmoteSessionId(sessionId: string | null): void;
   dispose(): void;
 };
 
@@ -399,6 +523,8 @@ export type IslandRealtimeDeps = {
   onView: (view: PresenceView) => void;
   /** 검증된 포커스/휴식 상태 경계 변화. 새 화면 상태를 발행한 뒤 호출한다. */
   onTransition?: (transition: IslandPresenceTransition) => void;
+  /** 서버가 확정해 섬 focus 채널로 보낸 황금 물고기 사건. */
+  onGoldenFish?: (event: GoldenFishEvent) => void;
   /** 비동기 거절 통지 — `/user/queue/errors`, STOMP ERROR 프레임. */
   onSendError?: (message: string) => void;
   /** 세대 fence — false가 되면 늦은 이벤트·응답을 버린다. */
@@ -418,6 +544,7 @@ const defaultSnapshots = (islandId: string) =>
 
 export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   const { islandId } = deps;
+  let emoteSessionId = deps.emoteSessionId ?? null;
   const load = deps.loadSnapshots ?? defaultSnapshots;
   const connect = deps.connect ?? stompIslandChannel;
   const alive = deps.alive ?? (() => true);
@@ -429,6 +556,8 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
   let hadData = false;
   let snapshotVersion = 0;
   const pendingEvents: { raw: unknown; misses: number }[] = [];
+  const seenGolden = new Set<string>();
+  const goldenQueue: string[] = [];
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
   let gapRetryTimer: ReturnType<typeof setTimeout> | null = null;
   let gapRetryDelay = 250;
@@ -640,9 +769,18 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
 
   const conn = connect({
     islandId,
-    emote: !!deps.emoteSessionId,
+    emote: !!emoteSessionId,
     onEvent: (raw) => {
       if (disposed || !alive()) return;
+      const golden = parseGoldenFishEvent(raw, islandId);
+      if (golden) {
+        if (seenGolden.has(golden.eventId)) return;
+        seenGolden.add(golden.eventId);
+        goldenQueue.push(golden.eventId);
+        if (goldenQueue.length > 200) seenGolden.delete(goldenQueue.shift()!);
+        deps.onGoldenFish?.(golden);
+        return;
+      }
       if (resyncing) {
         // 응원은 순간 사건이라 스냅숏/replay 대상이 아니다. 재연결 중 받은 응원은
         // 뒤늦게 재생하지 않고, 상태형 주민 이벤트만 정본 위에 replay한다.
@@ -674,9 +812,13 @@ export function startIslandRealtime(deps: IslandRealtimeDeps): IslandRealtime {
     resync: (source) => void resync(source ?? 'manual'),
     reopen: () => conn.reopen(),
     sendEmote: (type) => {
-      const sessionId = deps.emoteSessionId;
+      const sessionId = emoteSessionId;
       if (!sessionId || !EMOTE_TYPES.has(type)) return false;
       return conn.send(`/app/islands/${islandId}/focus/emotes`, { sessionId, type });
+    },
+    setEmoteSessionId: (sessionId) => {
+      emoteSessionId = sessionId;
+      conn.setEmoteEnabled(!!sessionId);
     },
     dispose: () => {
       disposed = true;
