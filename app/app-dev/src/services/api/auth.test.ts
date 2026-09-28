@@ -585,6 +585,39 @@ test('logout — 호출부가 확인한 준비 결과를 재사용하고 다시 
   }
 });
 
+test('Android logout — 확인된 준비 결과가 있으면 tombstone을 다시 쓰지 않고 정리한다', async () => {
+  const previousOS = Platform.OS;
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  const writeAsync = AsyncStorage.setItem as jest.Mock;
+  const realWriteAsync = writeAsync.getMockImplementation() as (
+    key: string,
+    value: string,
+  ) => Promise<void>;
+  try {
+    await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
+    // 준비 단계는 이미 tombstone을 확정했다. 이후 두 번째 쓰기는 모두 실패하는 상황이다.
+    writeAsync.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.androidLegacyLogoutPending') throw new Error('AsyncStorage 쓰기 실패');
+      return realWriteAsync(key, value);
+    });
+    write.mockImplementation(async (key: string, value: string) => {
+      if (key === 'gromo.androidLegacyLogoutPending') throw new Error('키체인 쓰기 실패');
+      return realWrite(key, value);
+    });
+    stub([{ status: 200, body: { data: { revoked: true } } }]);
+
+    await logout(Promise.resolve());
+
+    assert.equal(getSession(), null);
+    assert.equal(calls.length, 1);
+    assert.equal(await restoreSession(), null);
+  } finally {
+    writeAsync.mockImplementation(realWriteAsync);
+    write.mockImplementation(realWrite);
+    Object.defineProperty(Platform, 'OS', { configurable: true, value: previousOS });
+  }
+});
+
 test('logout — 로컬 삭제가 실패해도 서버 폐기는 보낸다', async () => {
   await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
   remove.mockImplementation(async (key: string) => {

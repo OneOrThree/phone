@@ -30,6 +30,7 @@ const mockRecoverFocus = jest.fn();
 const mockPrepareLogout = jest.fn();
 const mockLogout = jest.fn(async (_prepared?: Promise<void>) => {});
 let mockEmitAppLink: ((url: string) => void) | undefined;
+let mockRememberOverride: ((...args: any[]) => Promise<boolean>) | undefined;
 let mockAppDispatch: ((action: any) => void) | undefined;
 const mockAdoptSignedInAccount = jest.fn(
   async (result: { userId: string }, ..._args: any[]): Promise<Account> => ({
@@ -96,6 +97,8 @@ jest.mock('@/services/api/session', () => {
   return {
     ...actual,
     restoreSession: (...args: unknown[]) => mockRestoreSession(...args),
+    rememberLocalDataOwner: (...args: any[]) =>
+      mockRememberOverride ? mockRememberOverride(...args) : actual.rememberLocalDataOwner(...args),
   };
 });
 
@@ -162,6 +165,7 @@ beforeEach(async () => {
   mockSyncIslands.mockResolvedValue({ currentIslandId: null, items: [] });
   mockRecoverFocus.mockResolvedValue(null);
   mockAppDispatch = undefined;
+  mockRememberOverride = undefined;
   await clearSession();
   // 앞 테스트의 앱 저장본(섬·온보딩 상태)이 다음 테스트의 부팅 LOAD로 새지 않게 비운다.
   // removeItem 호출 수를 세는 테스트가 있어 multiRemove로 지운다.
@@ -296,6 +300,20 @@ test('owner 불일치 부팅의 첫 동기화가 실패하면 재시도 성공 �
     JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!).name,
     'A-only-private-state',
   );
+
+  // 재시도에서 동기화는 성공했지만 owner 기록이 한 번 거절되면 실패로 알리고 보류를 유지한다.
+  let rejectOwnerOnce = true;
+  mockRememberOverride = async (...args: any[]) => {
+    if (rejectOwnerOnce && args[0] === 'user-b') {
+      rejectOwnerOnce = false;
+      return false;
+    }
+    return jest.requireActual('@/services/api/session').rememberLocalDataOwner(...args);
+  };
+  await act(async () => {
+    await assert.rejects(captured.islands.sync(), /소유자를 기록하지 못했어요/);
+  });
+  assert.equal(getLastSessionUserId(), 'user-a');
 
   await act(async () => {
     await captured.islands.sync();

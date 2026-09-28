@@ -37,15 +37,18 @@ export function subscribeToAppLinks(
   source: AppLinkSource = Linking,
 ): () => void {
   let active = true;
+  // 초기 URL 조회가 끝나기 전에 새 URL 이벤트가 오면 그쪽이 더 최신이다 — 늦은 초기 URL로 덮지 않는다.
+  let receivedEvent = false;
   void source
     .getInitialURL()
     .then((url) => {
-      if (active && url) onUrl(url);
+      if (active && url && !receivedEvent) onUrl(url);
     })
     .catch(() => {
       // initial URL 조회 실패는 일반 앱 진입을 막지 않는다.
     });
   const subscription = source.addEventListener('url', ({ url }) => {
+    receivedEvent = true;
     if (active) onUrl(url);
   });
   return () => {

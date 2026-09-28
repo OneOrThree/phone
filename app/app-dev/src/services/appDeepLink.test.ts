@@ -46,6 +46,31 @@ test('콜드 스타트 URL과 실행 중 URL 이벤트를 전달하고 언마운
   expect(remove).toHaveBeenCalledTimes(1);
 });
 
+test('초기 URL 조회보다 먼저 온 URL 이벤트를 늦은 초기 URL이 덮지 않는다', async () => {
+  let onUrl!: (event: { url: string }) => void;
+  let resolveInitial!: (url: string | null) => void;
+  const source = {
+    getInitialURL: jest.fn(
+      () =>
+        new Promise<string | null>((resolve) => {
+          resolveInitial = resolve;
+        }),
+    ),
+    addEventListener: jest.fn((_type, listener) => {
+      onUrl = listener;
+      return { remove: jest.fn() };
+    }),
+  } as unknown as AppLinkSource;
+  const received: string[] = [];
+  subscribeToAppLinks((url) => received.push(url), source);
+
+  onUrl({ url: 'gromo://friends' });
+  resolveInitial('gromo://home');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(received, ['gromo://friends']);
+});
+
 test('Android MainActivity가 legacy gromo scheme 링크를 수신한다', () => {
   const manifest = readFileSync(
     path.join(__dirname, '../../android/app/src/main/AndroidManifest.xml'),

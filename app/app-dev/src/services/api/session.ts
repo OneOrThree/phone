@@ -570,7 +570,9 @@ export function clearSession(
     let logoutTombstoneWritten = false;
     if (Platform.OS === 'android' && explicitLogout) {
       // Without a durable tombstone, do not invalidate the bundle: a crash could migrate legacy RT.
-      await writeAndroidLogoutTombstone();
+      // 준비 단계가 이미 tombstone을 확정했으면 다시 쓰지 않는다 — 두 번째 쓰기 실패가 화면은
+      // 로그아웃인데 세션만 남기는 결과를 만든다.
+      if (!precondition) await writeAndroidLogoutTombstone();
       logoutTombstoneWritten = true;
     }
     const cleared = cached;
