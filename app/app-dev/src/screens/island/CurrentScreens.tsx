@@ -1125,6 +1125,7 @@ function FocusFlow({ e }: any) {
     goldenPresenter = useRef<(event: GoldenFishEvent) => void>(() => {}),
     goldenCutsceneRef = useRef<GoldenFishEvent | null>(null),
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
+    goldenQueueTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
     goldenOccurrencesRef = useRef(new GoldenFishOccurrenceTracker()),
     goldenTestSession = useRef<string | null>(null);
@@ -1256,7 +1257,8 @@ function FocusFlow({ e }: any) {
       if (goldenCutsceneRef.current?.eventId === occurrence.matchedEventId) {
         const enriched = enrich(goldenCutsceneRef.current);
         goldenCutsceneRef.current = enriched;
-        setGoldenCutscene(enriched);
+        // 연속 컷신 사이 reel 노출 대기 중이면 예약 사건만 갱신하고 영상을 먼저 띄우지 않는다.
+        if (!goldenQueueTimerRef.current) setGoldenCutscene(enriched);
         deferred = true;
       } else {
         const queued = goldenQueueRef.current.findIndex(
@@ -1304,6 +1306,7 @@ function FocusFlow({ e }: any) {
       walkingToken.current++;
       if (timer.current) clearTimeout(timer.current);
       if (emoteTimer.current) clearTimeout(emoteTimer.current);
+      if (goldenQueueTimerRef.current) clearTimeout(goldenQueueTimerRef.current);
     },
     [],
   );
@@ -1324,6 +1327,8 @@ function FocusFlow({ e }: any) {
       setEmote(null);
       goldenCutsceneRef.current = null;
       goldenQueueRef.current = [];
+      if (goldenQueueTimerRef.current) clearTimeout(goldenQueueTimerRef.current);
+      goldenQueueTimerRef.current = null;
       goldenDeferredNavigationRef.current = null;
       setGoldenCutscene(null);
       setGoldenFish(false);
@@ -1522,7 +1527,7 @@ function FocusFlow({ e }: any) {
   };
   // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
-    if (goldenCutscene) return true;
+    if (goldenCutsceneRef.current) return true;
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
       // 서버 수령은 명시적 버튼으로만 — 뒤로가기는 모달을 닫고 나간다
@@ -1792,8 +1797,17 @@ function FocusFlow({ e }: any) {
         recordGoldenCatch(goldenCutscene);
         const next = goldenQueueRef.current.shift() ?? null;
         goldenCutsceneRef.current = next;
-        setGoldenCutscene(next);
-        setGoldenFish(next === null);
+        setGoldenCutscene(null);
+        setGoldenFish(true);
+        if (next) {
+          // 첫 사건의 reel 2초가 다음 전체 화면 영상 뒤에서 끝나지 않도록 사이를 비운다.
+          goldenQueueTimerRef.current = setTimeout(() => {
+            goldenQueueTimerRef.current = null;
+            if (goldenCutsceneRef.current?.eventId !== next.eventId) return;
+            setGoldenFish(false);
+            setGoldenCutscene(goldenCutsceneRef.current);
+          }, 2000);
+        }
         if (next === null) {
           const navigate = goldenDeferredNavigationRef.current;
           goldenDeferredNavigationRef.current = null;

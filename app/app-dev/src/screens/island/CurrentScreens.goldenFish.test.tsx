@@ -168,6 +168,7 @@ beforeEach(async () => {
 afterEach(() => jest.useRealTimers());
 
 test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와 섬 에셋을 함께 갱신한다', async () => {
+  jest.useFakeTimers();
   const backOverride: { current: (() => boolean) | null } = { current: null };
   const state = focusedState();
   state.settings.sound = false;
@@ -210,10 +211,14 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   );
 
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
-  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
-  assert.equal(hiddenByTestId('golden-world').props.goldenFish, false);
+  assert.equal(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(hiddenByTestId('golden-world').props.goldenFish, true);
   assert.equal(hiddenByTestId('golden-self').props.goldenFishCount, 1);
   assert.equal(hiddenByTestId('golden-self').props.goldenCatchToken, 'golden-i1-1');
+
+  await act(async () => jest.advanceTimersByTime(2000));
+  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
+  assert.equal(hiddenByTestId('golden-world').props.goldenFish, false);
 
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
   assert.equal(screen.queryByTestId('golden-cutscene'), null);
@@ -233,6 +238,7 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
   assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 2);
   await screen.unmount();
+  jest.useRealTimers();
 });
 
 test('원장 폴백 뒤 도착한 realtime 참여자를 중복 컷신 없이 더미에 병합한다', async () => {
