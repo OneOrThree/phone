@@ -13,7 +13,9 @@ import { ApiError, CLIENT_STALE_SESSION, request, uuid } from './client';
 import {
   clearRejectedSession,
   clearSession,
+  completeLegacySessionPromotion,
   getSession,
+  isLegacySessionPendingPromotion,
   saveSession,
   sessionGeneration,
 } from './session';
@@ -254,8 +256,47 @@ export async function checkSession(): Promise<SessionCheck> {
   // 확인을 시작한 세대. client 의 401 정리와 **같은 fence** 다 — 응답을 기다리는 사이 로그인이
   // 끝났으면 옛 세션의 거절 판정으로 새 세션을 지우지도, 로그인 화면으로 보내지도 않는다.
   const generation = sessionGeneration();
+  let checkGeneration = generation;
   try {
-    return { status: 'active', account: await me() };
+    if (await isLegacySessionPendingPromotion()) {
+      const legacy = getSession();
+      if (!legacy) return { status: 'unreachable' };
+      // Android 1.x 세션은 만료 AT여도 원 RT로 서버 승격/검증을 먼저 한다. 이 요청은
+      // 인증 헤더 없이 legacy refresh 계약의 body를 사용해 /me 401이 원 RT를 지우지 않게 한다.
+      const refreshed = await request<{ accessToken?: string; refreshToken?: string | null }>(
+        '/api/v1/auth/refresh',
+        {
+          method: 'POST',
+          auth: false,
+          generation,
+          body: { refreshToken: legacy.refreshToken },
+        },
+      );
+      if (
+        typeof refreshed?.accessToken !== 'string' ||
+        typeof refreshed.refreshToken !== 'string' ||
+        !refreshed.refreshToken.trim() ||
+        tokenSubject(refreshed.accessToken) !== legacy.userId
+      ) {
+        return { status: 'unreachable' };
+      }
+      const saved = await saveSession(
+        {
+          accessToken: refreshed.accessToken,
+          refreshToken: refreshed.refreshToken,
+          userId: legacy.userId,
+        },
+        generation,
+      );
+      if (!saved) return { status: 'unreachable' };
+      checkGeneration = sessionGeneration();
+    }
+    const account = await me();
+    if (await isLegacySessionPendingPromotion()) {
+      if (!(await completeLegacySessionPromotion(checkGeneration)))
+        return { status: 'unreachable' };
+    }
+    return { status: 'active', account };
   } catch (thrown) {
     const error = thrown as ApiError;
     // 거절이면 저장본까지 비운다. 401 은 client 가 이미 비운 경우가 대부분이고 중복 호출은
@@ -268,8 +309,20 @@ export async function checkSession(): Promise<SessionCheck> {
       //  - 있으면 우리가 확인한 그 세션일 때만 지운다(404 경로). 그 사이 새 로그인이 공개한
       //    세션이면 fence 에 걸리고, 옛 세션의 거절 판정으로 새 세션을 끊지 않는다.
       if (getSession() === null) return { status: 'rejected' };
-      if (await clearRejectedSession(generation)) return { status: 'rejected' };
+      if (await clearRejectedSession(checkGeneration)) return { status: 'rejected' };
     }
     return { status: 'unreachable' };
+  }
+}
+
+function tokenSubject(token: string): string | null {
+  try {
+    const encoded = token.split('.')[1];
+    if (!encoded) return null;
+    const base64 = encoded.replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(base64)) as { sub?: unknown };
+    return typeof payload.sub === 'string' ? payload.sub : null;
+  } catch {
+    return null;
   }
 }

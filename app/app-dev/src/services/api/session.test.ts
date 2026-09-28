@@ -4,7 +4,10 @@ import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 import {
   clearSession,
+  completeLegacySessionPromotion,
+  getLastSessionUserId,
   getSession,
+  rememberLocalDataOwner,
   restoreSession,
   saveSession,
   sessionGeneration,
@@ -23,10 +26,11 @@ beforeEach(async () => {
   write.mockClear();
   await AsyncStorage.multiRemove(['gromo:accessToken', 'gromo:refreshToken', 'gromo:user']);
   await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
+  await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
   await clearSession();
 });
 
-test('Android 1.x의 완전한 JWT 세션은 보안 저장소에 커밋한 뒤 레거시 키를 지운다', async () => {
+test('Android 1.x의 완전한 JWT 세션은 서버 승격 전까지 원본 키를 보존한다', async () => {
   const previousOS = Platform.OS;
   Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
   const accessToken = `header.${btoa(JSON.stringify({ sub: 'legacy-user' }))}.signature`;
@@ -42,6 +46,11 @@ test('Android 1.x의 완전한 JWT 세션은 보안 저장소에 커밋한 뒤 �
       refreshToken: 'legacy-refresh',
       userId: 'legacy-user',
     });
+    assert.equal(await AsyncStorage.getItem('gromo:accessToken'), accessToken);
+    assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), 'legacy-refresh');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionPendingPromotion'), '1');
+    assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), null);
+    assert.equal(await completeLegacySessionPromotion(sessionGeneration()), true);
     assert.equal(await AsyncStorage.getItem('gromo:accessToken'), null);
     assert.equal(await AsyncStorage.getItem('gromo:refreshToken'), null);
     assert.equal(await SecureStore.getItemAsync('gromo.legacySessionMigrated'), '1');
@@ -93,6 +102,56 @@ test('저장한 세션은 그대로 복구된다', async () => {
   assert.deepEqual(await restoreSession(), { accessToken: 'AT', refreshToken: 'RT', userId: 'u1' });
 });
 
+test('로그아웃은 토큰만 지우고 마지막 사용자 ID를 재로그인 소유권 판정용으로 보존한다', async () => {
+  await clearSession();
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'same-user' });
+  await rememberLocalDataOwner('same-user');
+
+  await clearSession();
+  assert.equal(getSession(), null);
+  assert.equal(getLastSessionUserId(), 'same-user');
+
+  // 재시작 시나리오: restoreSession이 저장된 메타데이터만으로 ID를 복구한다.
+  await restoreSession();
+  assert.equal(getSession(), null);
+  assert.equal(getLastSessionUserId(), 'same-user');
+});
+
+test('로그인 저장만 성공하고 채택이 실패하면 이전 로컬 소유자를 재시도까지 보존한다', async () => {
+  await clearSession();
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  await saveSession({ accessToken: 'OLD_AT', refreshToken: 'OLD_RT', userId: 'old-user' });
+  await rememberLocalDataOwner('old-user');
+  await clearSession();
+
+  const firstAdoptionOwner = getLastSessionUserId();
+  await saveSession({ accessToken: 'NEW_AT', refreshToken: 'NEW_RT', userId: 'new-user' });
+  // /me 또는 후속 채택 단계 실패: 성공 완료 기록이 없어 소유자는 아직 이전 계정이어야 한다.
+  assert.equal(getLastSessionUserId(), 'old-user');
+  await restoreSession();
+  const retryAdoptionOwner = getLastSessionUserId();
+  assert.equal(firstAdoptionOwner, 'old-user');
+  assert.equal(retryAdoptionOwner, 'old-user');
+
+  await rememberLocalDataOwner('new-user');
+  assert.equal(getLastSessionUserId(), 'new-user');
+});
+
+test('stale 계정 채택은 현재 세션이 바뀌었으면 로컬 소유자를 덮지 않는다', async () => {
+  await clearSession();
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  await saveSession({ accessToken: 'NEW_AT', refreshToken: 'NEW_RT', userId: 'new-user' });
+  assert.equal(await rememberLocalDataOwner('new-user'), true);
+
+  await saveSession({ accessToken: 'OTHER_AT', refreshToken: 'OTHER_RT', userId: 'other-user' });
+  assert.equal(await rememberLocalDataOwner('new-user'), false);
+  assert.equal(getLastSessionUserId(), 'new-user');
+});
+
 test('세션 구독은 현재 snapshot과 로그인·로그아웃·세대 교체 뒤 공개된 값만 전달한다', async () => {
   const seen: string[] = [];
   const unsubscribe = subscribeSession((session) => seen.push(session?.userId ?? 'none'));
@@ -124,7 +183,7 @@ test('던지는 구독자는 clearSession의 durable 삭제나 다른 구독자�
 
 test('커밋 마커를 마지막에 쓴다 — 중간에 죽으면 복구를 거부한다', async () => {
   await saveSession({ accessToken: 'AT1', refreshToken: 'RT1', userId: 'u1' });
-  const keys = write.mock.calls.map((c) => c[0]);
+  const keys = write.mock.calls.map((c) => c[0]).filter((key) => key !== 'gromo.lastUserId');
   assert.equal(keys[keys.length - 1], 'gromo.sessionBundle');
 });
 

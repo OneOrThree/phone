@@ -12,7 +12,14 @@ import {
 let captured: any;
 const mockApiLogin = jest.fn();
 const mockSocialCredential = jest.fn();
-const mockAdoptSignedInAccount = jest.fn(async (..._args: unknown[]) => {});
+const mockAdoptSignedInAccount = jest.fn(async (result: { userId: string }) => ({
+  id: result.userId,
+  name: null,
+  catColor: null,
+  mainIslandId: null,
+  linkedProviders: [],
+  onboardingComplete: true,
+}));
 
 jest.mock('@/screens/island/CurrentScreens', () => ({
   CurrentScreens: ({ e }: any) => {
@@ -38,7 +45,8 @@ jest.mock('@/services/memberConversion', () => {
   const actual = jest.requireActual('@/services/memberConversion');
   return {
     ...actual,
-    adoptSignedInAccount: (...args: unknown[]) => mockAdoptSignedInAccount(...args),
+    adoptSignedInAccount: (result: { userId: string }, ..._args: unknown[]) =>
+      mockAdoptSignedInAccount(result),
   };
 });
 

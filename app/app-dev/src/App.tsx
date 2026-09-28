@@ -113,7 +113,9 @@ import {
 } from '@/services/api/client';
 import { loadHomeSnapshot } from '@/services/homeSnapshot';
 import {
+  getLastSessionUserId,
   getSession,
+  rememberLocalDataOwner,
   restoreSession,
   setSessionLostHandler,
   sessionGeneration,
@@ -661,8 +663,8 @@ function Gromo() {
     switchResolve.current?.(ok);
     switchResolve.current = null;
   };
-  const adoptSession = (result: LoginResult, previousUserId: string | null) =>
-    adoptSignedInAccount(result, previousUserId, {
+  const adoptSession = async (result: LoginResult, previousUserId: string | null) => {
+    const account = await adoptSignedInAccount(result, previousUserId, {
       resetLocal: async () => {
         // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
         // settings 만 기기 귀속(정책 A15)이라 보존한다.
@@ -699,6 +701,10 @@ function Gromo() {
         if (next && sessionGeneration() === gen) reset(next);
       },
     });
+    // /me 와 화면 판정이 끝난 뒤에만 소유자를 바꾼다. 그 전에 실패하면 기존 ID가 재시도 기준이다.
+    await rememberLocalDataOwner(account.id);
+    return account;
+  };
   const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
   conversionRef.current ??= createMemberConversion({
     termsVersion: TERMS_VERSION,
@@ -712,12 +718,13 @@ function Gromo() {
   });
   const startGuest = async () => {
     if (guestLoginFlight.current) return;
+    const previousUserId = REVIEW || DEMO ? null : getLastSessionUserId();
     guestLoginFlight.current = true;
     setGuestBusy(true);
     setGuestError('');
     try {
       const result = await guestLogin();
-      await adoptSession(result, null);
+      await adoptSession(result, previousUserId);
       captureProductEvent('guest_login_completed');
     } catch (error) {
       setGuestError(
@@ -734,6 +741,7 @@ function Gromo() {
   const getCredential = socialCredential;
   const startSocial = async (provider: Provider) => {
     if (socialBusy || guestBusy || !terms) return;
+    const previousUserId = REVIEW || DEMO ? null : getLastSessionUserId();
     if (socialLoginAttempt.current?.provider !== provider) socialLoginAttempt.current = null;
     setSocialBusy(provider);
     setSocialError('');
@@ -747,7 +755,7 @@ function Gromo() {
         attemptId: attempt.attemptId,
       });
       socialLoginAttempt.current = null;
-      await adoptSession(result, null);
+      await adoptSession(result, previousUserId);
       captureProductEvent('social_login_completed', { provider });
     } catch (thrown) {
       const retryableTransportFailure =

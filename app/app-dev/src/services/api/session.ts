@@ -26,9 +26,12 @@ export interface Session {
 const KEY_ACCESS = 'gromo.accessToken';
 const KEY_REFRESH = 'gromo.refreshToken';
 const KEY_USER = 'gromo.userId';
+// 로그아웃은 자격 증명만 폐기한다. 재로그인 후 로컬 사용자 데이터의 소유자를 판정하는 데 쓴다.
+const KEY_LAST_USER = 'gromo.lastUserId';
 /** 커밋 마커 — **항상 마지막에** 쓴다. 자세한 이유는 {@link saveSession}. */
 const KEY_BUNDLE = 'gromo.sessionBundle';
 const KEY_LEGACY_MIGRATED = 'gromo.legacySessionMigrated';
+const KEY_LEGACY_PENDING_PROMOTION = 'gromo.legacySessionPendingPromotion';
 const LEGACY_ACCESS = 'gromo:accessToken';
 const LEGACY_REFRESH = 'gromo:refreshToken';
 
@@ -45,6 +48,7 @@ const removeItem = (key: string): Promise<void> =>
   useSecureStore ? SecureStore.deleteItemAsync(key) : AsyncStorage.removeItem(key);
 
 let cached: Session | null = null;
+let lastUserId: string | null = null;
 let generation = 0;
 let onLost: (() => void) | null = null;
 const listeners = new Set<(session: Session | null) => void>();
@@ -102,6 +106,21 @@ export function getSession(): Session | null {
   return cached;
 }
 
+/** 현재 세션이 없어도 마지막으로 채택 완료한 로컬 데이터 소유자의 ID를 돌려준다. */
+export function getLastSessionUserId(): string | null {
+  return lastUserId ?? cached?.userId ?? null;
+}
+
+/** 계정 채택과 로컬 동기화가 모두 성공한 뒤, 아직 같은 세션일 때 데이터 소유자를 기록한다. */
+export function rememberLocalDataOwner(userId: string): Promise<boolean> {
+  return serialized(async () => {
+    if (cached?.userId !== userId) return false;
+    lastUserId = userId;
+    await writeItem(KEY_LAST_USER, userId).catch(() => {});
+    return true;
+  });
+}
+
 export function getAccessToken(): string | null {
   return cached?.accessToken ?? null;
 }
@@ -117,16 +136,30 @@ export function restoreSession(): Promise<Session | null> {
   // 읽기도 줄에 세운다 — 로그아웃 «도중»에 읽으면 지워지는 중인 값을 세션으로 되살린다.
   return serialized(async () => {
     try {
-      const [bundle, accessToken, refreshToken, userId] = await Promise.all([
+      const [bundle, accessToken, refreshToken, userId, savedLastUserId] = await Promise.all([
         readItem(KEY_BUNDLE),
         readItem(KEY_ACCESS),
         readItem(KEY_REFRESH),
         readItem(KEY_USER),
+        readItem(KEY_LAST_USER),
       ]);
       cached = bundle ? unbundled(bundle, accessToken, refreshToken, userId) : null;
+      // 저장된 소유자가 있으면 활성 세션과 달라도 유지한다. 로그인 저장만 끝나고 /me 채택이
+      // 실패한 전환을 재시도할 때 이전 로컬 소유자 기준으로 reset 여부를 다시 판단해야 한다.
+      lastUserId = savedLastUserId ?? cached?.userId ?? null;
+      if (cached && !savedLastUserId) {
+        lastUserId = cached.userId;
+        await writeItem(KEY_LAST_USER, cached.userId).catch(() => {});
+      }
       // Android 1.x는 토큰을 AsyncStorage 평문 키에 저장했다. 현재 커밋 마커가 없을 때만
       // 한 번 가져온다. 기존 bundle이 손상된 경우에는 구 토큰으로 우회 복구하지 않는다.
-      if (!bundle && Platform.OS === 'android') cached = await migrateLegacySession();
+      if (!bundle && Platform.OS === 'android') {
+        cached = await migrateLegacySession();
+        if (cached && !lastUserId) {
+          lastUserId = cached.userId;
+          await writeItem(KEY_LAST_USER, cached.userId).catch(() => {});
+        }
+      }
     } catch {
       // 키체인 접근 실패(잠긴 기기 등)를 로그인 상태로 오인하지 않는다.
       cached = null;
@@ -158,14 +191,36 @@ async function migrateLegacySession(): Promise<Session | null> {
   }
 
   const session = { accessToken, refreshToken, userId };
-  // 보안 저장소 커밋이 성공하기 전에는 원본을 지우지 않아 실패 뒤 재시도할 수 있다.
+  // 구 키는 SecureStore 복사만으로 폐기하지 않는다. 만료 AT일 수 있으므로 서버 refresh 승격과
+  // 후속 /me 검증이 끝날 때까지 원 RT가 복구 수단으로 남아 있어야 한다.
   await commit(session);
-  await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
-  await Promise.all([
-    AsyncStorage.removeItem(LEGACY_ACCESS),
-    AsyncStorage.removeItem(LEGACY_REFRESH),
-  ]).catch(() => {});
+  await SecureStore.setItemAsync(KEY_LEGACY_PENDING_PROMOTION, '1');
   return session;
+}
+
+/** 현재 세션이 서버 승격/검증을 기다리는 Android legacy 복사본인지 확인한다. */
+export async function isLegacySessionPendingPromotion(): Promise<boolean> {
+  return (
+    Platform.OS === 'android' &&
+    (await SecureStore.getItemAsync(KEY_LEGACY_PENDING_PROMOTION)) === '1'
+  );
+}
+
+/** 서버 refresh와 /me가 성공한 뒤에만 구 키를 정리한다. */
+export function completeLegacySessionPromotion(expectedGeneration: number): Promise<boolean> {
+  return serialized(async () => {
+    if (expectedGeneration !== generation) return false;
+    if ((await SecureStore.getItemAsync(KEY_LEGACY_PENDING_PROMOTION)) !== '1') return true;
+    // 정리 도중 종료돼도 다음 부팅에서 승격된 bundle을 legacy RT로 다시 제출하지 않도록
+    // 먼저 pending 상태를 닫는다. 구 키 삭제 실패는 잔여물일 뿐 세션 복구 경로를 바꾸지 않는다.
+    await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
+    await SecureStore.deleteItemAsync(KEY_LEGACY_PENDING_PROMOTION);
+    await Promise.all([
+      AsyncStorage.removeItem(LEGACY_ACCESS),
+      AsyncStorage.removeItem(LEGACY_REFRESH),
+    ]);
+    return true;
+  });
 }
 
 function subjectFromToken(token: string): string | null {
@@ -260,7 +315,10 @@ export function saveSession(session: Session, expectedGeneration?: number): Prom
  *   줄 앞에서 다른 로그인이 먼저 공개했으면 호출부가 읽어 둔 것과 **다른** 세션이다 — 서버
  *   폐기 대상은 이쪽이다({@link queue}).
  */
-export function clearSession(expectedGeneration?: number): Promise<Session | null> {
+export function clearSession(
+  expectedGeneration?: number,
+  preserveLegacy = false,
+): Promise<Session | null> {
   return serialized(async () => {
     if (expectedGeneration !== undefined && expectedGeneration !== generation) return null;
     const cleared = cached;
@@ -275,11 +333,12 @@ export function clearSession(expectedGeneration?: number): Promise<Session | nul
       removeItem(KEY_REFRESH).catch(swallow),
       removeItem(KEY_USER).catch(swallow),
     ]);
-    if (Platform.OS === 'android') {
+    if (Platform.OS === 'android' && !preserveLegacy) {
       await Promise.all([
         AsyncStorage.removeItem(LEGACY_ACCESS).catch(swallow),
         AsyncStorage.removeItem(LEGACY_REFRESH).catch(swallow),
       ]);
+      await removeItem(KEY_LEGACY_PENDING_PROMOTION).catch(swallow);
     }
     if (failed.length > 0) throw failed[0];
     return cleared;
@@ -295,10 +354,12 @@ export function clearSession(expectedGeneration?: number): Promise<Session | nul
  * 판정으로 새 세션을 끊지 않는다.
  */
 export function clearRejectedSession(expectedGeneration: number): Promise<boolean> {
-  return clearSession(expectedGeneration).then(
-    (cleared) => cleared !== null,
-    () => true,
-  );
+  return isLegacySessionPendingPromotion()
+    .then((preserveLegacy) => clearSession(expectedGeneration, preserveLegacy))
+    .then(
+      (cleared) => cleared !== null,
+      () => true,
+    );
 }
 
 /**
