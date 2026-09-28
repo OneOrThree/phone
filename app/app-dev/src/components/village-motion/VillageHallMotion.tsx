@@ -12,6 +12,13 @@ const frames: readonly ImageSourcePropType[] = [
   require('@/assets/village-world/motion/hall/frame-2.png'),
   require('@/assets/village-world/motion/hall/frame-3.png'),
 ];
+// 밤 프레임은 낮 frame-0~3 과 크기·발밑 기준점이 같다(night-frame-0 은 정본 밤 레이어 crop).
+const nightFrames: readonly ImageSourcePropType[] = [
+  require('@/assets/village-world/motion/hall/night-frame-0.png'),
+  require('@/assets/village-world/motion/hall/night-frame-1.png'),
+  require('@/assets/village-world/motion/hall/night-frame-2.png'),
+  require('@/assets/village-world/motion/hall/night-frame-3.png'),
+];
 const doorSequence = [0, 1, 2, 3, 2, 1] as const;
 const frameDuration = 180;
 
@@ -20,6 +27,7 @@ export function VillageHallMotion({
   state = 'normal',
   tooltip,
   reduceMotion = false,
+  night = false,
   themed = false,
   generation = 0,
   style,
@@ -28,6 +36,8 @@ export function VillageHallMotion({
   state?: VillageHallState;
   tooltip?: ReactNode;
   reduceMotion?: boolean;
+  /** 밤 마을이면 같은 모션을 밤 프레임으로 재생한다. */
+  night?: boolean;
   themed?: boolean;
   generation?: number;
   style?: ViewStyle;
@@ -49,7 +59,7 @@ export function VillageHallMotion({
 
   return (
     <View testID={testID} style={[styles.root, style]}>
-      {frames.map((source, index) => (
+      {(night ? nightFrames : frames).map((source, index) => (
         <Image
           key={index}
           testID={`village-hall-frame-${index}`}
@@ -58,7 +68,12 @@ export function VillageHallMotion({
           style={[styles.frame, frame === index ? styles.visible : styles.hidden]}
         />
       ))}
-      {themed && <VillageThemeTint source={frames[frame]} testID="village-hall-theme-tint" />}
+      {themed && (
+        <VillageThemeTint
+          source={(night ? nightFrames : frames)[frame]}
+          testID="village-hall-theme-tint"
+        />
+      )}
       {tooltip != null && (
         <View testID="village-hall-tooltip" style={styles.tooltip}>
           {tooltip}

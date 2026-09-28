@@ -12,6 +12,13 @@ const frames: readonly ImageSourcePropType[] = [
   require('@/assets/village-world/motion/observatory/frame-2.png'),
   require('@/assets/village-world/motion/observatory/frame-3.png'),
 ];
+// 밤 프레임은 낮 frame-0~3 과 크기·발밑 기준점이 같다(night-frame-0 은 정본 밤 레이어 crop).
+const nightFrames: readonly ImageSourcePropType[] = [
+  require('@/assets/village-world/motion/observatory/night-frame-0.png'),
+  require('@/assets/village-world/motion/observatory/night-frame-1.png'),
+  require('@/assets/village-world/motion/observatory/night-frame-2.png'),
+  require('@/assets/village-world/motion/observatory/night-frame-3.png'),
+];
 const sequence = [0, 1, 2, 3] as const;
 const frameDuration = 220;
 
@@ -23,6 +30,7 @@ export function VillageObservatoryMotion({
   showFrames = true,
   themed = false,
   reduceMotion = false,
+  night = false,
   style,
   testID = 'village-observatory-motion',
 }: {
@@ -33,6 +41,8 @@ export function VillageObservatoryMotion({
   /** 건물 테마가 적용되면 현재 프레임 위에 테마 착색을 덧입힌다. */
   themed?: boolean;
   reduceMotion?: boolean;
+  /** 밤 마을이면 같은 모션을 밤 프레임으로 재생한다. */
+  night?: boolean;
   style?: ViewStyle;
   testID?: string;
 }) {
@@ -69,7 +79,7 @@ export function VillageObservatoryMotion({
       style={[styles.root, style]}
     >
       {showFrames &&
-        frames.map((source, index) => (
+        (night ? nightFrames : frames).map((source, index) => (
           <Image
             key={index}
             testID={`village-observatory-frame-${index}`}
@@ -79,7 +89,10 @@ export function VillageObservatoryMotion({
           />
         ))}
       {showFrames && themed && (
-        <VillageThemeTint source={frames[frame]} testID="village-observatory-theme-tint" />
+        <VillageThemeTint
+          source={(night ? nightFrames : frames)[frame]}
+          testID="village-observatory-theme-tint"
+        />
       )}
     </View>
   );

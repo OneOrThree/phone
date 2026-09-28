@@ -493,11 +493,12 @@ export function WorldMap({
     node?.addEventListener?.('wheel', wheel, { passive: false });
     return () => node?.removeEventListener?.('wheel', wheel);
   }, []);
-  // 낮에는 회관·전망대·상점·도서관을 모션 프레임이 그리므로, 테마 착색도 현재 프레임 위에 입힌다.
+  // 회관·전망대·상점·도서관은 낮·밤 모두 모션 프레임이 그리므로, 테마 착색도 현재 프레임 위에 입힌다.
   const themed = (b: Building) =>
     !!island.buildingThemes?.[b] && island.buildingThemes[b] !== 'default';
   const framesDrawTheme = (b: Building) =>
-    dayNight === 'day' && (b === 'hall' || b === 'tower' || b === 'shop' || b === 'library');
+    b === 'hall' || b === 'tower' || b === 'shop' || b === 'library';
+  const night = dayNight === 'night';
   return (
     <View
       ref={view}
@@ -579,11 +580,11 @@ export function WorldMap({
         <View pointerEvents="none" style={StyleSheet.absoluteFill}>
           {island.buildings
             .filter((b) => !(b === 'mail' && mailboxLetters))
-            .filter((b) => !(b === 'hall' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'hall' && !village && !fishing))
             .filter((b) => !(b === 'board' && !village && !fishing && dayNight === 'day'))
-            .filter((b) => !(b === 'tower' && !village && !fishing && dayNight === 'day'))
-            .filter((b) => !(b === 'shop' && !village && !fishing && dayNight === 'day'))
-            .filter((b) => !(b === 'library' && !village && !fishing && dayNight === 'day'))
+            .filter((b) => !(b === 'tower' && !village && !fishing))
+            .filter((b) => !(b === 'shop' && !village && !fishing))
+            .filter((b) => !(b === 'library' && !village && !fishing))
             .map((b) => (
               <Image
                 key={b}
@@ -621,9 +622,10 @@ export function WorldMap({
               style={{ left: left + 348 * scale, top: top + 520 * scale }}
             />
           )}
-          {island.buildings.includes('hall') && dayNight === 'day' && (
+          {island.buildings.includes('hall') && (
             <VillageHallMotion
               testID="world-hall-motion"
+              night={night}
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
               themed={themed('hall')}
@@ -658,8 +660,8 @@ export function WorldMap({
               themed={framesDrawTheme('tower') && themed('tower')}
               rankState={observatoryRankState}
               dayNight={dayNight}
-              showFrames={dayNight === 'day'}
-              generation={dayNight === 'day' && towerArrivalActive ? towerArrivalGeneration : 0}
+              night={night}
+              generation={towerArrivalActive ? towerArrivalGeneration : 0}
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
@@ -677,7 +679,7 @@ export function WorldMap({
               state={shopState}
               trigger={shopArrivalActive ? shopArrivalGeneration : 0}
               entryActive={shopArrivalActive}
-              showFrames={dayNight === 'day'}
+              night={night}
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
@@ -696,7 +698,7 @@ export function WorldMap({
               indicatorScale={scale}
               trigger={libraryArrivalActive ? libraryArrivalGeneration : 0}
               entryActive={libraryArrivalActive}
-              showFrames={dayNight === 'day'}
+              night={night}
               reduceMotion={state.settings.reduceMotion}
               style={{
                 position: 'absolute',
@@ -885,12 +887,11 @@ function FinalIslandScene({
     [layeredPreview, i.buildings, sceneBuilding],
   );
   const grid = scene?.grid ?? grids.home;
-  // 진입 리드인 판단과 WorldMap 의 프레임 표시가 같은 낮·밤 값을 보도록 한 번만 계산해 내려준다.
+  // WorldMap 이 부모와 같은 낮·밤 값을 쓰도록 한 번만 계산해 내려준다.
   const dayNight = useVillageDayNight();
-  const entryFramesVisible = dayNight === 'day';
   const hasEntrySprite = (target: BuildingTransitionTarget | null) =>
+    // 네 건물은 낮·밤 모두 진입 프레임이 있다.
     !scene &&
-    entryFramesVisible &&
     (target === 'hall' || target === 'library' || target === 'shop' || target === 'tower');
   const doors: Record<string, Door> = scene
     ? Object.fromEntries(

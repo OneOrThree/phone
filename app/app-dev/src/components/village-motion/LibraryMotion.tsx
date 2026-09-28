@@ -11,6 +11,13 @@ const frames: readonly ImageSourcePropType[] = [
   require('@/assets/village-world/motion/library/frame-2.png'),
   require('@/assets/village-world/motion/library/frame-3.png'),
 ];
+// 밤 프레임은 낮 frame-0~3 과 크기·발밑 기준점이 같다(night-frame-0 은 정본 밤 레이어 crop).
+const nightFrames: readonly ImageSourcePropType[] = [
+  require('@/assets/village-world/motion/library/night-frame-0.png'),
+  require('@/assets/village-world/motion/library/night-frame-1.png'),
+  require('@/assets/village-world/motion/library/night-frame-2.png'),
+  require('@/assets/village-world/motion/library/night-frame-3.png'),
+];
 const frameDurationMs = 120;
 
 /** 도서관 문 에셋을 한 번 재생한다. 좌표와 크기는 배치하는 부모가 결정한다. */
@@ -20,6 +27,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
   state = 'normal',
   indicatorScale = 1,
   reduceMotion = false,
+  night = false,
   showFrames = true,
   themed = false,
   style,
@@ -30,6 +38,8 @@ export const LibraryMotion = memo(function LibraryMotionView({
   state?: LibraryMotionState;
   indicatorScale?: number;
   reduceMotion?: boolean;
+  /** 밤 마을이면 같은 모션을 밤 프레임으로 재생한다. */
+  night?: boolean;
   showFrames?: boolean;
   /** 건물 테마가 적용되면 현재 프레임 위에 테마 착색을 덧입힌다. */
   themed?: boolean;
@@ -79,7 +89,7 @@ export const LibraryMotion = memo(function LibraryMotionView({
       style={[styles.fill, style]}
     >
       {showFrames &&
-        frames.map((source, index) => (
+        (night ? nightFrames : frames).map((source, index) => (
           <Image
             key={index}
             testID={`library-motion-frame-${index}`}
@@ -89,7 +99,10 @@ export const LibraryMotion = memo(function LibraryMotionView({
           />
         ))}
       {showFrames && themed && (
-        <VillageThemeTint source={frames[frame]} testID="library-motion-theme-tint" />
+        <VillageThemeTint
+          source={(night ? nightFrames : frames)[frame]}
+          testID="library-motion-theme-tint"
+        />
       )}
       {stateLabel && (
         <VillageNotificationBadge
