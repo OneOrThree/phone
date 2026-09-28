@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import React from 'react';
+import { AccessibilityInfo } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, type State } from '@/services/model';
@@ -242,30 +243,10 @@ test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와
   jest.useRealTimers();
 });
 
-test('원장 폴백 뒤 도착한 realtime 참여자를 중복 컷신 없이 더미에 병합한다', async () => {
-  const screen = await mount();
-  const selfOnly = event([{ userId: 'me', sessionId: 's-me' }], 'ledger:wallet-1');
-  const realtime = event([
-    { userId: 'me', sessionId: 's-me' },
-    { userId: 'minji', sessionId: 'minji' },
-  ]);
-
-  await act(async () => onGoldenFish?.(selfOnly));
-  await act(async () => onGoldenFish?.(realtime));
-
-  assert.notEqual(screen.queryByTestId('golden-cutscene'), null);
-  assert.equal(
-    screen.getByTestId('golden-peer-minji', { includeHiddenElements: true }).props.goldenFishCount,
-    0,
-  );
-  await fireEvent.press(screen.getByTestId('golden-cutscene'));
-  assert.equal(screen.queryByTestId('golden-cutscene'), null);
-  assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
-  assert.equal(screen.getByTestId('golden-peer-minji').props.goldenFishCount, 1);
-  await screen.unmount();
-});
-
-test('동작 줄이기에서는 컷신 없이 황금 물고기 더미만 즉시 반영한다', async () => {
+test('동작 줄이기에서는 컷신 대신 음성 안내하고 황금 물고기 더미를 반영한다', async () => {
+  const announce = jest
+    .spyOn(AccessibilityInfo, 'announceForAccessibility')
+    .mockImplementation(() => {});
   const state = focusedState();
   state.settings.reduceMotion = true;
   const screen = await mount(state);
@@ -282,7 +263,10 @@ test('동작 줄이기에서는 컷신 없이 황금 물고기 더미만 즉시 
   assert.equal(screen.queryByTestId('golden-cutscene'), null);
   assert.equal(screen.getByTestId('golden-self').props.goldenFishCount, 1);
   assert.equal(screen.getByTestId('golden-world').props.goldenFish, true);
+  assert.equal(announce.mock.calls.length, 1);
+  assert.equal(announce.mock.calls[0][0], '황금 물고기를 잡았어요.');
   await screen.unmount();
+  announce.mockRestore();
 });
 
 test('마지막 reel 대기 중 도착한 당첨은 대기 종료 뒤 다음 컷신으로 재생한다', async () => {

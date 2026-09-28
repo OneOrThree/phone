@@ -4,6 +4,7 @@ import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AccessibilityInfo,
   AppState,
   Image,
   Linking,
@@ -51,10 +52,6 @@ import {
   type FishingPeer,
 } from '@/screens/focus/useFishingPeerActors';
 import { GoldenFishCutscene } from '@/screens/focus/GoldenFishCutscene';
-import {
-  GoldenFishOccurrenceTracker,
-  useGoldenFishLedger,
-} from '@/screens/focus/useGoldenFishLedger';
 import { RestGroup } from '@/screens/focus/RestGroup';
 import { Sailing } from '@/screens/world/WorldViews';
 import {
@@ -1165,7 +1162,6 @@ function FocusFlow({ e }: any) {
     goldenQueueRef = useRef<GoldenFishEvent[]>([]),
     goldenQueueTimerRef = useRef<(() => void) | null>(null),
     goldenDeferredNavigationRef = useRef<(() => void) | null>(null),
-    goldenOccurrencesRef = useRef(new GoldenFishOccurrenceTracker()),
     goldenTestSession = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
@@ -1195,57 +1191,6 @@ function FocusFlow({ e }: any) {
   });
   const resultSessionId = r === 'focusResult' ? (s.lastResult?.id ?? null) : null;
   const goldenSessionId = s.session?.id ?? resultSessionId;
-  const goldenIntervals =
-    s.session?.intervals ??
-    (r === 'focusResult' && s.lastResult?.id === goldenSessionId
-      ? s.lastResult.intervals
-      : undefined);
-  const goldenSessionStartedAt = goldenIntervals?.length
-    ? Math.min(...goldenIntervals.map((interval) => interval.start))
-    : s.session
-      ? s.session.startedAt - s.session.seconds * 1_000
-      : s.lastResult
-        ? s.lastResult.at - s.lastResult.seconds * 1_000
-        : null;
-  const selfMemberAt = (atMs: number): GoldenFishEvent['members'] | null => {
-    if (!actorUserId || !goldenSessionId) return [];
-    if (goldenIntervals !== undefined) {
-      if (goldenIntervals.some((interval) => interval.start <= atMs && atMs <= interval.end)) {
-        return [{ userId: actorUserId, sessionId: goldenSessionId }];
-      }
-      if (s.session && s.session.status === 'active' && atMs >= s.session.startedAt) {
-        return [{ userId: actorUserId, sessionId: goldenSessionId }];
-      }
-      return [];
-    }
-    // 구버전 서버의 startedAt은 실제 시작이 아니라 serverNow anchor다. 휴식이 섞인 세션의
-    // ACTIVE 구간을 역산할 수 없으므로 원장 폴백을 보류하고 realtime 사건만 사용한다.
-    if (serverQuests) return null;
-    return goldenSessionStartedAt !== null && atMs >= goldenSessionStartedAt
-      ? [{ userId: actorUserId, sessionId: goldenSessionId }]
-      : [];
-  };
-  const goldenSessionEligibleUntil =
-    s.session?.status === 'paused'
-      ? (s.session.restStartedAt ?? e.now)
-      : r === 'focusResult'
-        ? (s.lastResult?.at ?? e.now)
-        : null;
-  useGoldenFishLedger({
-    active:
-      !!liveIslandId &&
-      !!goldenSessionId &&
-      live.status === 'ready' &&
-      (r === 'focus' || r === 'rest' || r === 'focusResult'),
-    islandId: liveIslandId,
-    sessionId: goldenSessionId,
-    sessionStartedAt: goldenSessionStartedAt,
-    sessionEligibleUntil: goldenSessionEligibleUntil,
-    membersAt: selfMemberAt,
-    onGoldenFish: (event) => goldenHandler.current(event),
-    clockOffsetMs: live.clockOffset,
-    recoveryVersion: live.snapshotVersion,
-  });
   const recordGoldenCatch = (event: GoldenFishEvent) => {
     setGoldenCatches((current) => {
       const next = { ...current };
@@ -1263,6 +1208,7 @@ function FocusFlow({ e }: any) {
     if (reduce) {
       recordGoldenCatch(event);
       setGoldenFish(true);
+      AccessibilityInfo.announceForAccessibility('황금 물고기를 잡았어요.');
       return;
     }
     setGoldenFish(false);
@@ -1283,33 +1229,6 @@ function FocusFlow({ e }: any) {
       (current.r !== 'focus' && current.r !== 'rest' && current.r !== 'focusResult')
     )
       return;
-    const occurrence = goldenOccurrencesRef.current.accept(event, participantSessionId);
-    if (occurrence.additionalMembers.length > 0) {
-      const enrich = (target: GoldenFishEvent): GoldenFishEvent => ({
-        ...target,
-        reward: event.reward,
-        sharePerMember: event.sharePerMember,
-        members: [...target.members, ...occurrence.additionalMembers],
-      });
-      let deferred = false;
-      if (goldenCutsceneRef.current?.eventId === occurrence.matchedEventId) {
-        const enriched = enrich(goldenCutsceneRef.current);
-        goldenCutsceneRef.current = enriched;
-        // 연속 컷신 사이 reel 노출 대기 중이면 예약 사건만 갱신하고 영상을 먼저 띄우지 않는다.
-        if (!goldenQueueTimerRef.current) setGoldenCutscene(enriched);
-        deferred = true;
-      } else {
-        const queued = goldenQueueRef.current.findIndex(
-          (candidate) => candidate.eventId === occurrence.matchedEventId,
-        );
-        if (queued >= 0) {
-          goldenQueueRef.current[queued] = enrich(goldenQueueRef.current[queued]);
-          deferred = true;
-        }
-      }
-      if (!deferred) recordGoldenCatch({ ...event, members: occurrence.additionalMembers });
-    }
-    if (!occurrence.display) return;
     if (current.r === 'rest') {
       goldenQueueRef.current.push(event);
       return;
