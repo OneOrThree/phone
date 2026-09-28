@@ -512,11 +512,17 @@ function Gromo() {
         if (!live) return;
         // current 없음(서버 409) 또는 응답이 로컬이 아는 current 와 다른 섬(전환 경합) —
         // 둘 다 이 스냅샷을 그대로 적용하지 않고 소속 동기화로 반영해 chooseIsland 로 보낸다.
-        if (
-          r.status !== 'loaded' ||
-          r.facts.islandId !== stateRef.current?.serverIslands?.currentIslandId
-        ) {
-          syncIslands().catch(() => {});
+        const current = stateRef.current?.serverIslands?.currentIslandId;
+        if (r.status !== 'loaded' || r.facts.islandId !== current) {
+          // 동기화가 실패하거나 current 를 바꾸지 못하면 effect 가 다시 돌지 않는다 — 스피너에 갇히지
+          // 않게 재시도 화면으로 떨어뜨린다. current 가 바뀌면 effect 가 새로 불러오고 chooseIsland 는 App 이 연다
+          syncIslands()
+            .then((my) => {
+              if (live && my.currentIslandId === current) setHomeError(true);
+            })
+            .catch(() => {
+              if (live) setHomeError(true);
+            });
           return;
         }
         dispatch({ type: 'SERVER_HOME', facts: r.facts });
