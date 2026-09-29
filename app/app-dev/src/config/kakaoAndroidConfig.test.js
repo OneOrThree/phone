@@ -10,9 +10,9 @@ const {
 
 const appDevRoot = path.join(__dirname, '../..');
 
-test('Android retains the legacy Kakao app identity and OAuth callback scheme', () => {
+test('Android uses the 2.0 Kakao app identity and OAuth callback scheme', () => {
   expect(appConfig.android.package).toBe(ANDROID_PACKAGE);
-  expect(ANDROID_KAKAO_KEY).toBe('af3ff0c5b4fb9cd38b78428b88add65d');
+  expect(ANDROID_KAKAO_KEY).toBe('1280641e9b639a279b7406f24b059703');
 
   const manifest = {
     manifest: {
@@ -44,12 +44,12 @@ test('Android retains the legacy Kakao app identity and OAuth callback scheme', 
   );
   expect(checkedInManifest).toContain(`android:scheme="${ANDROID_KAKAO_SCHEME}"`);
   expect(fs.readFileSync(path.join(appDevRoot, 'index.native.ts'), 'utf8')).toMatch(
-    /initializeKakaoSDK\('af3ff0c5b4fb9cd38b78428b88add65d'\)/,
+    /initializeKakaoSDK\('1280641e9b639a279b7406f24b059703'\)/,
   );
 });
 
-test('iOS keeps the legacy Kakao key and callback scheme for the focuscat bundle', () => {
-  const iosKey = 'af3ff0c5b4fb9cd38b78428b88add65d';
+test('iOS uses the 2.0 Kakao key and callback scheme for the focuscat bundle', () => {
+  const iosKey = '1280641e9b639a279b7406f24b059703';
   const kakaoPlugin = appConfig.plugins.find(([name]) => name === '@react-native-kakao/core');
   const plist = fs.readFileSync(path.join(appDevRoot, 'ios/GROMO/Info.plist'), 'utf8');
 
@@ -57,7 +57,7 @@ test('iOS keeps the legacy Kakao key and callback scheme for the focuscat bundle
   expect(kakaoPlugin[1].nativeAppKey).toBe(iosKey);
   expect(plist).toContain(`<string>kakao${iosKey}</string>`);
   expect(fs.readFileSync(path.join(appDevRoot, 'index.native.ts'), 'utf8')).toMatch(
-    /initializeKakaoSDK\('af3ff0c5b4fb9cd38b78428b88add65d'\)/,
+    /initializeKakaoSDK\('1280641e9b639a279b7406f24b059703'\)/,
   );
 });
 

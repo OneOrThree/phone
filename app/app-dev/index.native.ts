@@ -6,7 +6,7 @@ import { initPostHog } from './src/services/posthog';
 const { initializeKakaoSDK } =
   require('@react-native-kakao/core') as typeof import('@react-native-kakao/core');
 
-initializeKakaoSDK('af3ff0c5b4fb9cd38b78428b88add65d');
+initializeKakaoSDK('1280641e9b639a279b7406f24b059703');
 
 initDatadog();
 initPostHog();

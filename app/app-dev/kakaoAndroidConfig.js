@@ -1,7 +1,7 @@
 const { withAndroidManifest } = require('expo/config-plugins');
 
 const ANDROID_PACKAGE = 'com.oneorthree.gromo';
-const ANDROID_KAKAO_KEY = 'af3ff0c5b4fb9cd38b78428b88add65d';
+const ANDROID_KAKAO_KEY = '1280641e9b639a279b7406f24b059703';
 const ANDROID_KAKAO_SCHEME = `kakao${ANDROID_KAKAO_KEY}`;
 
 function applyAndroidKakaoScheme(manifest) {
