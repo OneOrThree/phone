@@ -419,13 +419,14 @@ test('다른 곳에서 섬을 옮겨 서버가 배운 섬이 홈 스냅샷과 �
     currentIslandId: 'srv2',
   } as any);
   api.getConstructionOptions.mockResolvedValue(hallOptions);
+  const onServerBuilt = jest.fn();
   const screen = await render(
     <FinalIsland
       state={serverState('host')}
       go={jest.fn()}
       build={jest.fn()}
       dispatch={jest.fn()}
-      onServerBuilt={jest.fn()}
+      onServerBuilt={onServerBuilt}
     />,
   );
 
@@ -434,6 +435,16 @@ test('다른 곳에서 섬을 옮겨 서버가 배운 섬이 홈 스냅샷과 �
   expect(await screen.findByText('섬 정보가 바뀌었어요')).toBeTruthy();
   expect(screen.queryByTestId('server-build-start')).toBeNull();
   assert.equal(api.startConstruction.mock.calls.length, 0);
+
+  // 새로고침 — 다른 화면에서 원래 섬(srv1)으로 다시 옮겨온 상황을 반영한다.
+  mine.myIslands.mockResolvedValue({
+    items: [{ id: 'srv1' }],
+    currentIslandId: 'srv1',
+  } as any);
+  await act(async () => fireEvent.press(screen.getByTestId('server-build-refresh')));
+
+  await waitFor(() => expect(screen.getByTestId('server-build-start')).toBeTruthy());
+  expect(onServerBuilt).toHaveBeenCalled();
 });
 
 test('이 카드는 withMembers:false 로 주민 조회를 건너뛴다 — getMembers 가 실패해도 건설은 된다', async () => {

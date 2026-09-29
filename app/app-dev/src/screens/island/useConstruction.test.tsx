@@ -510,6 +510,53 @@ test('기기 시각 점프는 재조회 신호다 — 완공 판정 없이 GET �
   await h.unmount();
 });
 
+test('착공 요청 도중 재조회로 서버 섬이 바뀌어도 착공은 원래 대상 섬으로 고정된다', async () => {
+  let releasePost: (r: Resp) => void = () => {};
+  const postGate = new Promise<Resp>((r) => (releasePost = r));
+  serve({
+    ...live(),
+    'POST /islands/srv1/constructions': () => postGate,
+  });
+  const onStarted = jest.fn();
+  const h = await mount({ active: true, islandId: 'local1', now: NOW, onStarted });
+  await flush();
+
+  let buildPromise!: Promise<void>;
+  await act(async () => {
+    buildPromise = h.result.current.build('library');
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  // 착공 요청은 이미 srv1 로 나갔다 — 응답 전이라도 요청 자체는 고정돼 있다.
+  assert.equal(writes('/islands/srv1/constructions', 'POST').length, 1);
+
+  // 다른 화면에서 섬을 옮겨 서버가 배운 current 가 srv2 로 바뀐 상황을 재현한다.
+  serve({
+    'GET /me/islands': data(mine('srv2')),
+    'GET /islands/srv2/members': data(membersPage([member('u1'), member('u2')])),
+    'GET /islands/srv2/construction-options': data(options([item('library'), item('mail')])),
+    'POST /islands/srv1/constructions': () => postGate,
+  });
+  await act(async () => {
+    await h.result.current.reload();
+  });
+  assert.equal(h.result.current.serverIslandId, 'srv2');
+
+  await act(async () => {
+    releasePost(data(startedBody));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await buildPromise;
+
+  // 착공 요청 경로도, receipt 이 보고하는 섬도 여전히 원래 대상(srv1)이다 — 진행 중 재조회가
+  // serverIsland.current 를 srv2 로 옮겨도 build 는 착공 전에 고정한 target 을 그대로 쓴다.
+  // (요청 자체는 build 호출 시점에 동기적으로 이미 나가 있어 이 시나리오에서는 mutation 없이도
+  // srv1 로 간다 — 아래 onStarted 인자가 이 고정을 실제로 검증하는 지점이다.)
+  assert.equal(writes('/islands/srv1/constructions', 'POST').length, 1);
+  assert.equal(writes('/islands/srv2/constructions', 'POST').length, 0);
+  assert.equal(onStarted.mock.calls[0]?.[1], 'srv1');
+  await h.unmount();
+});
+
 test('응답 도착 전 세션 세대가 바뀌면 옛 계정 데이터를 싣지 않는다', async () => {
   let release: (r: Resp) => void = () => {};
   const gate = new Promise<Resp>((r) => (release = r));

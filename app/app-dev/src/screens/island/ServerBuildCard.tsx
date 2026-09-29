@@ -131,7 +131,15 @@ export function ServerBuildCard({
     action = (
       <>
         <Txt kind="meta">섬 정보가 바뀌었어요</Txt>
-        <Btn small id="server-build-refresh" title="새로고침" onPress={onChanged} />
+        <Btn
+          small
+          id="server-build-refresh"
+          title="새로고침"
+          onPress={() => {
+            void construction.reload().catch(() => undefined);
+            onChanged();
+          }}
+        />
       </>
     );
   } else if (construction.status === 'loading' || !item) {
