@@ -147,6 +147,30 @@ test('포그라운드 복귀(AppState active)는 채널을 열지 않고 GET 재
   assert.equal((stompIslandChannel as jest.Mock).mock.calls.length, 0);
 });
 
+test('실시간이 꺼져 있는 동안 5초 주기로 GET을 다시 불러 다른 주민의 변경을 읽고, 언마운트하면 멈춘다', async () => {
+  assert.equal(PLAYBACK_REALTIME_ENABLED, false);
+  jest.useFakeTimers();
+  try {
+    const dispatch = jest.fn();
+    const { unmount } = await renderHook(() =>
+      useIslandPlayback({ active: true, islandId: ISLAND, dispatch }),
+    );
+    const calls = () => (getPlayback as jest.Mock).mock.calls.length;
+    assert.equal(calls(), 1);
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    assert.equal(calls(), 2);
+    await unmount();
+    await act(async () => {
+      jest.advanceTimersByTime(10000);
+    });
+    assert.equal(calls(), 2, '언마운트 뒤에는 폴링하지 않는다');
+  } finally {
+    jest.useRealTimers();
+  }
+});
+
 test('서버 null trackId를 미선택 상태로 그대로 전달한다', async () => {
   const dispatch = jest.fn();
   (getPlayback as jest.Mock).mockResolvedValue(playback({ trackId: null, version: 0 }));

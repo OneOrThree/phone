@@ -26,10 +26,12 @@ export type IslandPlayback = {
  * "events·playback·messages는 계속 거절한다"). 이 상태로 구독하면 서버가 STOMP ERROR
  * INVALID_REQUEST로 소켓을 끊고, stompjs가 5초마다 재연결·재거절을 무한 반복한다.
  * 서버가 playback 토픽을 열면(발행자도 함께 추가돼야 한다) 이 값을 true로 바꾼다 — 그 전까지는
- * HTTP GET(재동기화)만으로 재생 상태를 읽고, 포그라운드 복귀(AppState 'active')에서도 HTTP로만
- * 새로고침한다.
+ * HTTP GET(재동기화)만으로 재생 상태를 읽는다 — 5초 주기 폴링과 포그라운드 복귀(AppState
+ * 'active') 새로고침.
  */
 export const PLAYBACK_REALTIME_ENABLED = false;
+// 실시간이 꺼져 있는 동안 HTTP 재동기화 주기(ms).
+const PLAYBACK_POLL_MS = 5000;
 
 const validEvent = (raw: unknown, islandId: string): PlaybackState | null => {
   const envelope = raw as Record<string, unknown> | null;
@@ -136,6 +138,13 @@ export function useIslandPlayback({
       : null;
     channel.current = conn;
     resync();
+    // 실시간이 꺼져 있으면 다른 주민의 변경을 받을 경로가 없다 — 거절·재연결이 돌던 때와 같은
+    // 5초 간격으로 HTTP 재동기화(GET)만 반복한다.
+    const poll = PLAYBACK_REALTIME_ENABLED
+      ? null
+      : setInterval(() => {
+          if (alive()) resync();
+        }, PLAYBACK_POLL_MS);
     const appSub = AppState.addEventListener('change', (next) => {
       if (next === 'active' && alive()) {
         conn?.reopen();
@@ -144,6 +153,7 @@ export function useIslandPlayback({
     });
     return () => {
       appSub.remove();
+      if (poll) clearInterval(poll);
       conn?.close();
       if (channel.current === conn) channel.current = null;
     };
