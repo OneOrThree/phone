@@ -8,6 +8,7 @@ import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { BackHandler, Keyboard, StyleSheet, View } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { RedesignScreens } from '@/screens/island/Screens';
+import { art } from '@/constants/art';
 import { buildingNames, initialState, reducer } from '@/services/model';
 import { ApiError } from '@/services/api/client';
 import { createRouteTransitionShield } from '@/services/routeTransition';
@@ -741,6 +742,23 @@ test('축음기에서 판매곡을 구매한 뒤 바로 공용 재생한다', as
   await fireEvent.press(s.getByText('지금 재생하기'));
   assert.ok(exposed.actions.includes('BUY'));
   assert.ok(exposed.actions.includes('TRACK'));
+});
+
+test('축음기 배경은 집중 세션이 없을 때 축음기 전용 일러스트를 그린다', async () => {
+  const state = initialState(false);
+  state.islands[0].joined = true;
+  state.islands[0].buildings.push('gram');
+  const s = await render(<Harness route="sound" initial={state} />);
+  // 렌더 트리에서 Image 의 source 만 모은다
+  const imageSources = (node: any): unknown[] =>
+    !node || typeof node === 'string'
+      ? []
+      : Array.isArray(node)
+        ? node.flatMap(imageSources)
+        : [...(node.type === 'Image' ? [node.props.source] : []), ...imageSources(node.children)];
+  const sources = imageSources(s.toJSON());
+  assert.ok(sources.includes(art['interior/gram']));
+  assert.ok(!sources.includes(art['bldbg/gram']));
 });
 
 test('축음기 조작 요소는 44pt 터치 영역을 확보하고 곡 헤더 높이를 고정하지 않는다', async () => {
