@@ -1,7 +1,9 @@
 import { BlurTargetView, BlurView } from 'expo-blur';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
+  AccessibilityInfo,
   Image,
+  Keyboard,
   Modal,
   ScrollView,
   StyleSheet,
@@ -71,31 +73,53 @@ export function GuideBox({
 export type SpotlightRect = LayoutRectangle;
 
 const BlurTargetContext = createContext<React.RefObject<View | null> | undefined>(undefined);
+const TutorialSkipContext = createContext<(() => void) | undefined>(undefined);
 
 // Android는 블러가 읽을 실제 장면을 지정해야 한다. 오버레이는 장면의 형제로 둔다.
 export function TutorialScene({
   children,
   overlay,
+  onSkip,
   ...props
-}: ViewProps & { overlay?: React.ReactNode }) {
+}: ViewProps & { overlay?: React.ReactNode; onSkip?: () => void }) {
   const target = useRef<View>(null);
+  const isolated = React.isValidElement(overlay) && overlay.type === TutorialSpotlight;
   return (
     <View {...props}>
-      <BlurTargetView ref={target} style={{ flex: 1 }}>
+      <BlurTargetView
+        ref={target}
+        style={{ flex: 1 }}
+        accessibilityElementsHidden={isolated}
+        importantForAccessibility={isolated ? 'no-hide-descendants' : 'auto'}
+      >
         {children}
       </BlurTargetView>
-      <BlurTargetContext.Provider value={target}>{overlay}</BlurTargetContext.Provider>
+      <BlurTargetContext.Provider value={target}>
+        <TutorialSkipContext.Provider value={onSkip}>{overlay}</TutorialSkipContext.Provider>
+      </BlurTargetContext.Provider>
     </View>
   );
 }
 
 export function useSpotlightTarget(active = false) {
   const ref = useRef<View>(null);
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [rect, setRect] = useState<SpotlightRect | null>(null);
   const measure = useCallback(() => {
-    requestAnimationFrame(() =>
-      ref.current?.measureInWindow((x, y, width, height) => {
-        if (width <= 0 || height <= 0) return;
+    requestAnimationFrame(() => {
+      if (!activeRef.current) return;
+      const node = ref.current;
+      if (!node) {
+        setRect(null);
+        return;
+      }
+      node.measureInWindow((x, y, width, height) => {
+        if (!activeRef.current || ref.current !== node) return;
+        if (width <= 0 || height <= 0) {
+          setRect(null);
+          return;
+        }
         setRect((previous) =>
           previous?.x === x &&
           previous.y === y &&
@@ -104,11 +128,14 @@ export function useSpotlightTarget(active = false) {
             ? previous
             : { x, y, width, height },
         );
-      }),
-    );
+      });
+    });
   }, []);
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      setRect(null);
+      return;
+    }
     measure();
     // 키보드·화면 회전·부모 이동으로 바뀐 창 좌표도 따라간다.
     const timer = setInterval(measure, 200);
@@ -122,20 +149,57 @@ export function TutorialSpotlight({
   target,
   text,
   children,
+  action,
+  accessibleInput,
 }: {
   target?: SpotlightRect | null;
   text: string;
   children?: React.ReactNode;
+  action?: { title: string; onPress: () => void; disabled?: boolean };
+  accessibleInput?: React.ReactNode;
 }) {
   const layout = useAppLayout();
   const blurTarget = useContext(BlurTargetContext);
+  const skip = useContext(TutorialSkipContext);
+  const [screenReader, setScreenReader] = useState(false);
+  const [measurementFailed, setMeasurementFailed] = useState(false);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    void AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
+      if (live) setScreenReader(enabled);
+    });
+    const reader = AccessibilityInfo.addEventListener('screenReaderChanged', setScreenReader);
+    const show = Keyboard.addListener('keyboardDidShow', (event) =>
+      setKeyboardTop(event.endCoordinates.screenY),
+    );
+    const change = Keyboard.addListener('keyboardWillChangeFrame', (event) =>
+      setKeyboardTop(event.endCoordinates.screenY),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardTop(null));
+    return () => {
+      live = false;
+      reader.remove();
+      show.remove();
+      change.remove();
+      hide.remove();
+    };
+  }, []);
+  const needsTarget = !!action || !!accessibleInput;
+  useEffect(() => {
+    setMeasurementFailed(false);
+    if (target || !needsTarget) return;
+    const timer = setTimeout(() => setMeasurementFailed(true), 2000);
+    return () => clearTimeout(timer);
+  }, [target, needsTarget, text]);
   const root = useRef<View>(null);
   const [area, setArea] = useState({ x: 0, y: 0, width: layout.width, height: layout.height });
   const measureRoot = () =>
     root.current?.measureInWindow((x, y, width, height) => {
       if (width > 0 && height > 0) setArea({ x, y, width, height });
     });
-  const pad = 7;
+  // 구멍의 여백으로 옆 버튼까지 눌리지 않도록 실제 대상 rect만 연다.
+  const pad = 0;
   const x = Math.min(area.width, Math.max(0, (target?.x ?? 0) - area.x - pad));
   const y = Math.min(area.height, Math.max(0, (target?.y ?? 0) - area.y - pad));
   const right = Math.max(
@@ -155,17 +219,28 @@ export function TutorialSpotlight({
       ]
     : [{ left: 0, top: 0, right: 0, bottom: 0 }];
   const width = Math.min(layout.floatingWidth, 414, area.width - 24);
-  const guidePosition = target
-    ? y > area.height / 2
-      ? { bottom: Math.max(layout.insets.bottom + space[4], area.height - y + space[4]) }
-      : { top: bottom + space[4] }
-    : { bottom: layout.insets.bottom + space[4] };
+  const safeTop = layout.insets.top + space[3];
+  const visibleBottom =
+    Math.min(
+      area.height - layout.insets.bottom,
+      keyboardTop == null ? area.height : keyboardTop - area.y,
+    ) - space[3];
+  const above = target && y > (visibleBottom + safeTop) / 2;
+  const guideTop = target && !above ? Math.min(bottom + space[4], visibleBottom) : safeTop;
+  const guideBottom = above ? Math.min(y - space[4], visibleBottom) : visibleBottom;
+  const guidePosition = {
+    ...(above || !target ? { bottom: area.height - guideBottom } : { top: guideTop }),
+    maxHeight: Math.max(space[12], guideBottom - guideTop),
+  };
   return (
     <View
       ref={root}
+      testID="tutorial-spotlight"
       collapsable={false}
       onLayout={measureRoot}
       pointerEvents="box-none"
+      accessibilityViewIsModal
+      onAccessibilityEscape={skip}
       style={[StyleSheet.absoluteFill, styles.spotlight]}
     >
       {panes.map((pane, index) => (
@@ -175,22 +250,34 @@ export function TutorialSpotlight({
           tint="dark"
           blurMethod="dimezisBlurView"
           blurTarget={blurTarget}
+          accessible={false}
+          accessibilityElementsHidden
+          importantForAccessibility="no-hide-descendants"
           onStartShouldSetResponder={() => true}
           style={[styles.blurPane, pane]}
         >
           <View style={styles.dim} />
         </BlurView>
       ))}
-      <GuideBox
-        text={text}
+      <ScrollView
+        testID="tutorial-dialogue"
+        keyboardShouldPersistTaps="handled"
         style={{
+          position: 'absolute',
           left: (area.width - width) / 2,
           width,
           ...guidePosition,
         }}
       >
-        {children ?? null}
-      </GuideBox>
+        <GuideBox text={text} style={{ position: 'relative' }}>
+          {(screenReader || measurementFailed) && accessibleInput}
+          {(screenReader || measurementFailed) && action && (
+            <Btn title={action.title} onPress={action.onPress} disabled={action.disabled} />
+          )}
+          {children ?? null}
+          {skip && <Btn title="안내 그만 보기" kind="ghost" onPress={skip} />}
+        </GuideBox>
+      </ScrollView>
     </View>
   );
 }
@@ -347,5 +434,5 @@ const styles = StyleSheet.create({
   next: { minWidth: 120, minHeight: componentTokens.button.heightGhost },
   spotlight: { zIndex: 100 },
   blurPane: { position: 'absolute', overflow: 'hidden' },
-  dim: { flex: 1, backgroundColor: '#211A174F' },
+  dim: { flex: 1, backgroundColor: semanticTokens.color.overlay },
 });

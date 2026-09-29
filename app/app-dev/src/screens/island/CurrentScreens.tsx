@@ -1,5 +1,6 @@
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
+import { componentTokens } from '@/design-system/tokens';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -1758,6 +1759,7 @@ function FocusFlow({ e }: any) {
           tutorialStep === 15
             ? {
                 text: '같은 섬에서 쉬고 있는 주민이 있다면 이 모닥불에서 함께 볼 수 있어.\n충분히 쉬었다면 집중 이어가기를 눌러 봐.',
+                onSkip: () => e.setGuideStep(99),
               }
             : undefined
         }
@@ -1804,6 +1806,7 @@ function FocusFlow({ e }: any) {
   };
   // 뗏목: 자리 고르기에서는 뗏목까지 걸어가 본인만 우리 섬으로, 집중 중에는 집중 종료 확인.
   const raft = () => {
+    if (tutorialStep >= 5 && tutorialStep <= 21) return;
     if (r === 'fishingArrival') {
       const sail = () => latest.current.r === 'fishingArrival' && e.go('returnTravel');
       if (!walkTo(LANDING, sail)) sail();
@@ -1841,6 +1844,19 @@ function FocusFlow({ e }: any) {
     }
     Keyboard.dismiss();
     e.setGuideStep(8);
+  };
+  const skipTutorial = () => e.setGuideStep(99);
+  const openEnd = () => {
+    if (tutorialStep === 17) e.setGuideStep(18);
+    setDialog('end');
+  };
+  const cancelEnd = () => {
+    setDialog(null);
+    if (tutorialStep === 18) e.setGuideStep(17);
+  };
+  const finishResult = () => {
+    if (tutorialStep === 21) e.setGuideStep(22);
+    done();
   };
   // 결과창의 퀘스트는 집중을 마친 날 회차 기준(자정을 넘겨 봐도 그날 달성이 남는다)
   const resultAt = result?.at ?? e.now,
@@ -1949,10 +1965,7 @@ function FocusFlow({ e }: any) {
             title={
               s.resultFromRest || tutorialStep === 21 ? '섬으로 돌아가기' : '배 타고 우리 섬으로'
             }
-            onPress={() => {
-              if (tutorialStep === 21) e.setGuideStep(22);
-              done();
-            }}
+            onPress={finishResult}
           />
         </View>
       </View>
@@ -1983,7 +1996,7 @@ function FocusFlow({ e }: any) {
           }
           style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
         >
-          {null}
+          <Btn title="안내 그만 보기" kind="ghost" onPress={skipTutorial} />
         </GuideBox>
       );
     }
@@ -1991,6 +2004,20 @@ function FocusFlow({ e }: any) {
       return (
         <TutorialSpotlight
           target={setupInputTarget.rect}
+          accessibleInput={
+            <TextInput
+              accessibilityLabel="오늘의 할 일"
+              value={e.text}
+              onChangeText={(value) => {
+                e.setText(value);
+                setError('');
+              }}
+              maxLength={40}
+              onSubmitEditing={finishInput}
+              returnKeyType="done"
+              style={{ minHeight: componentTokens.input.minHeight, width: '100%', color: C.ink }}
+            />
+          }
           text={
             '이번 집중에서 할 일을 하나 적어 봐.\n“영어 단어 외우기”처럼 지금 바로 시작할 수 있는 일이 좋아.'
           }
@@ -2000,7 +2027,11 @@ function FocusFlow({ e }: any) {
       );
     if (r === 'focusSetup' && tutorialStep === 8)
       return (
-        <TutorialSpotlight target={setupStartTarget.rect} text="좋아. 이제 집중 시작을 눌러 봐." />
+        <TutorialSpotlight
+          target={setupStartTarget.rect}
+          text="좋아. 이제 집중 시작을 눌러 봐."
+          action={{ title: '집중 시작', onPress: start }}
+        />
       );
     if (r === 'focus' && tutorialStep === 9)
       return tutorialNext(
@@ -2021,6 +2052,7 @@ function FocusFlow({ e }: any) {
       return (
         <TutorialSpotlight
           target={pauseTarget.rect}
+          action={{ title: '휴식하기', onPress: pause }}
           text={'이번에는 잠깐 쉬어 보자.\n아래의 휴식하기를 눌러 봐.'}
         />
       );
@@ -2033,13 +2065,22 @@ function FocusFlow({ e }: any) {
       return (
         <TutorialSpotlight
           target={endTarget.rect}
+          action={{ title: '집중 종료', onPress: openEnd }}
           text={
             '이렇게 쉬었다가 돌아와도 처음부터 다시 시작할 필요는 없어.\n이제 집중을 마쳐 보자.'
           }
         />
       );
     if (r === 'focus' && tutorialStep === 18)
-      return <TutorialSpotlight target={confirmEndTarget.rect} text="집중 종료를 눌러 마쳐 봐." />;
+      return (
+        <TutorialSpotlight
+          target={confirmEndTarget.rect}
+          text="집중 종료를 눌러 마쳐 봐."
+          action={{ title: '집중 종료', onPress: finish }}
+        >
+          <Btn title="계속하기" kind="ghost" onPress={cancelEnd} />
+        </TutorialSpotlight>
+      );
     if (r === 'focusResult' && tutorialStep === 19)
       return tutorialNext(
         '방금 집중한 시간이 기록됐어.\n쉬었던 시간은 집중 시간에 포함되지 않아.',
@@ -2051,6 +2092,7 @@ function FocusFlow({ e }: any) {
       return (
         <TutorialSpotlight
           target={resultTarget.rect}
+          action={{ title: '섬으로 돌아가기', onPress: finishResult }}
           text={'이제 섬으로 돌아가기를 눌러 봐.\n돌아가면 섬을 되살릴 첫 번째 퀘스트를 줄게.'}
         />
       );
@@ -2082,7 +2124,7 @@ function FocusFlow({ e }: any) {
   ) : null;
   if (r === 'focusResult' && s.resultFromRest)
     return (
-      <TutorialScene style={{ flex: 1 }} overlay={tutorialOverlay}>
+      <TutorialScene style={{ flex: 1 }} overlay={tutorialOverlay} onSkip={skipTutorial}>
         <View
           style={{ flex: 1 }}
           importantForAccessibility={goldenCutscene ? 'no-hide-descendants' : 'auto'}
@@ -2253,6 +2295,7 @@ function FocusFlow({ e }: any) {
       style={{ flex: 1 }}
       onLayout={(ev) => setBoxHeight(ev.nativeEvent.layout.height)}
       overlay={tutorialOverlay}
+      onSkip={skipTutorial}
     >
       <View testID="golden-background" style={{ flex: 1 }} {...a11yHidden(!!goldenCutscene)}>
         <FishingIsland
@@ -2498,21 +2541,14 @@ function FocusFlow({ e }: any) {
                 onLayout={endTarget.measure}
                 style={{ flex: 1 }}
               >
-                <FiButton
-                  title="집중 종료"
-                  id="end-focus"
-                  onPress={() => {
-                    if (tutorialStep === 17) e.setGuideStep(18);
-                    setDialog('end');
-                  }}
-                />
+                <FiButton title="집중 종료" id="end-focus" onPress={openEnd} />
               </View>
             </View>
             {dialog === 'end' && !goldenReeling && (
               <FiModal>
                 <Text style={fiTitle(wide ? 19 : 22)}>이번 집중을 마칠까요?</Text>
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
-                  <FiButton title="계속하기" style={{ flex: 1 }} onPress={() => setDialog(null)} />
+                  <FiButton title="계속하기" style={{ flex: 1 }} onPress={cancelEnd} />
                   <View
                     ref={confirmEndTarget.ref}
                     collapsable={false}

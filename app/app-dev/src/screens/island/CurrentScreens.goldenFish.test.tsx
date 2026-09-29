@@ -54,8 +54,8 @@ jest.mock('@/screens/focus/FishingIsland', () => {
   const { View } = require('react-native');
   return {
     ...actual,
-    FishingIsland: ({ goldenFish, children, overlay }: any) => (
-      <View testID="golden-world" goldenFish={goldenFish}>
+    FishingIsland: ({ goldenFish, children, overlay, onRaft }: any) => (
+      <View testID="golden-world" goldenFish={goldenFish} onRaft={onRaft}>
         {children(640, 640 / 1.5, 1)}
         {overlay?.(() => ({ x: 150, y: 200 }), 640)}
       </View>
@@ -135,7 +135,7 @@ const focusedState = (): State => {
 
 const screenElement = (
   state: State,
-  route: 'focusSetup' | 'focus' | 'rest' | 'focusResult' = 'focus',
+  route: 'fishingArrival' | 'focusSetup' | 'focus' | 'rest' | 'focusResult' = 'focus',
   backOverride?: { current: (() => boolean) | null },
   goOverride = jest.fn(),
   homeOverride = jest.fn(),
@@ -184,7 +184,10 @@ test('튜토리얼 할 일 입력은 입력 완료 전까지 단계를 바꾸거
   const screen = await render(
     screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, props),
   );
-  await fireEvent.changeText(screen.getByTestId('focus-subject'), '영');
+  await fireEvent.changeText(
+    screen.getByTestId('focus-subject', { includeHiddenElements: true }),
+    '영',
+  );
   expect(setText).toHaveBeenCalledWith('영');
   expect(setGuideStep).not.toHaveBeenCalled();
   expect(start).not.toHaveBeenCalled();
@@ -210,7 +213,7 @@ test('튜토리얼 종료 실패는 재시도 가능하며 성공 후에만 결�
   const screen = await render(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, props),
   );
-  await fireEvent.press(screen.getByTestId('end-focus'));
+  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
   await screen.rerender(
     screenElement(state, 'focus', undefined, undefined, undefined, undefined, {
       ...props,
@@ -218,10 +221,10 @@ test('튜토리얼 종료 실패는 재시도 가능하며 성공 후에만 결�
     }),
   );
   setGuideStep.mockClear();
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent.press(screen.getByTestId('confirm-finish', { includeHiddenElements: true }));
   expect(setGuideStep).not.toHaveBeenCalled();
   expect(reset).not.toHaveBeenCalled();
-  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent.press(screen.getByTestId('confirm-finish', { includeHiddenElements: true }));
   expect(setGuideStep).toHaveBeenCalledWith(19);
   expect(reset).toHaveBeenCalledWith('focusResult');
   await screen.unmount();
@@ -241,6 +244,44 @@ test('첫 물고기와 사용처는 한 대사이며 한 번 넘기면 휴식 �
   await fireEvent.press(screen.getByText('다음'));
   expect(setGuideStep).toHaveBeenCalledWith(14);
   await screen.unmount();
+});
+
+test('종료 확인 취소는 17단계로 돌아가며 다시 종료할 수 있다', async () => {
+  const state = focusedState();
+  const setGuideStep = jest.fn();
+  const props = { guideStep: 17, setGuideStep };
+  const element = (guideStep: number) =>
+    screenElement(state, 'focus', undefined, undefined, undefined, undefined, {
+      ...props,
+      guideStep,
+    });
+  const screen = await render(element(17));
+  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
+  expect(setGuideStep).toHaveBeenLastCalledWith(18);
+  await screen.rerender(element(18));
+  await fireEvent.press(screen.getByText('계속하기'));
+  expect(setGuideStep).toHaveBeenLastCalledWith(17);
+  expect(screen.queryByTestId('confirm-finish', { includeHiddenElements: true })).toBeNull();
+  await screen.rerender(element(17));
+  await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
+  expect(setGuideStep).toHaveBeenLastCalledWith(18);
+});
+
+test('자리 선택 중에는 뗏목 귀환을 막지만 일반 자리 선택의 귀환은 유지한다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const go = jest.fn();
+  const screen = await render(
+    screenElement(state, 'fishingArrival', undefined, go, undefined, undefined, {
+      guideStep: 6,
+      setGuideStep: jest.fn(),
+    }),
+  );
+  await fireEvent(screen.getByTestId('golden-world'), 'raft');
+  expect(go).not.toHaveBeenCalled();
+  await screen.rerender(screenElement(state, 'fishingArrival', undefined, go));
+  await fireEvent(screen.getByTestId('golden-world'), 'raft');
+  expect(go).toHaveBeenCalledWith('returnTravel');
 });
 
 test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와 섬 에셋을 함께 갱신한다', async () => {

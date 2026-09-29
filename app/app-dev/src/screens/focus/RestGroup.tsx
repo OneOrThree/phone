@@ -163,7 +163,7 @@ export function RestGroup({
   endRest?: () => void;
   // 휴식 종료 결과창 뒤 배경으로 쓸 때는 버튼을 숨기고 휴식 시간을 종료 순간에 멈춘다
   result?: boolean;
-  tutorial?: { text: string };
+  tutorial?: { text: string; onSkip: () => void };
   /** 휴식 결과 배경에서 컷신 후 실제 reel sprite를 보여준다. */
   goldenReeling?: boolean;
   goldenFishCount?: number;
@@ -244,7 +244,16 @@ export function RestGroup({
     <TutorialScene
       testID="rest-group"
       style={{ flex: 1, overflow: clip }}
-      overlay={tutorial && <TutorialSpotlight target={resumeTarget.rect} text={tutorial.text} />}
+      onSkip={tutorial?.onSkip}
+      overlay={
+        tutorial && (
+          <TutorialSpotlight
+            target={resumeTarget.rect}
+            text={tutorial.text}
+            action={{ title: '집중 이어가기', onPress: resume }}
+          />
+        )
+      }
     >
       {/* 확인창·결과창이 떠 있으면 뒤 장면은 스크린리더에서 숨긴다 */}
       <View

@@ -2344,6 +2344,7 @@ export function RedesignScreens({ e }: any) {
                 ? {
                     text: '아래의 집중 시작 버튼을 눌러 집중을 시작해 보자.',
                     onPress: () => setGuideStep(5),
+                    onSkip: () => setGuideStep(99),
                   }
                 : undefined
             }

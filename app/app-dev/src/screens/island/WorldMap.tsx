@@ -840,7 +840,7 @@ function FinalIslandScene({
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
-  focusTutorial?: { text: string; onPress: () => void };
+  focusTutorial?: { text: string; onPress: () => void; onSkip: () => void };
   motion?: CatMotionInput;
   showMailboxLetters?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
@@ -1465,11 +1465,23 @@ function FinalIslandScene({
       !visiting &&
       i.buildings.includes('board') &&
       (i.quests.length > 0 || rewardCount > 0);
+  const departFocus = () => {
+    if (buildingEntryPending.current) return;
+    focusTutorial?.onPress();
+    walk(doors.raft, () => go('focusTravel'));
+  };
   return (
     <TutorialScene
       style={{ flex: 1 }}
+      onSkip={focusTutorial?.onSkip}
       overlay={
-        focusTutorial && <TutorialSpotlight target={focusTarget.rect} text={focusTutorial.text} />
+        focusTutorial && (
+          <TutorialSpotlight
+            target={focusTarget.rect}
+            text={focusTutorial.text}
+            action={{ title: '집중 시작', onPress: departFocus }}
+          />
+        )
       }
     >
       <WorldMap
@@ -1675,16 +1687,7 @@ function FinalIslandScene({
               />
             ) : (
               <View ref={focusTarget.ref} collapsable={false} onLayout={focusTarget.measure}>
-                <Btn
-                  round
-                  title="집중 시작"
-                  id="depart-focus"
-                  onPress={() => {
-                    if (buildingEntryPending.current) return;
-                    focusTutorial?.onPress();
-                    walk(doors.raft, () => go('focusTravel'));
-                  }}
-                />
+                <Btn round title="집중 시작" id="depart-focus" onPress={departFocus} />
               </View>
             )}
           </View>

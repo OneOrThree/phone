@@ -243,6 +243,8 @@ export type Product = {
   building?: Building;
 };
 export type State = {
+  // 세션과 같은 저장본에 보관해 앱 종료·서버 복구 후에도 안내를 이어간다.
+  tutorial?: { step: number; sessionId?: string };
   version: 1;
   schema?: 2;
   friends?: Friend[];
@@ -1500,6 +1502,16 @@ export function reducer(state: State, a: Action): State {
   // 도메인별 구분선(GROMO-2004). 이 리듀서 하나에 여러 티켓이 동시에 붙는다 — 자기 도메인 구간
   // 안에만 case 를 더하면 서로의 머지 충돌이 줄어든다. 구간 순서는 바꾸지 않는다.
   switch (a.type) {
+    case 'GUIDE_STEP': {
+      const step = a.step as number;
+      s.tutorial = {
+        step,
+        ...(step >= 9 && step <= 21
+          ? { sessionId: s.session?.id ?? s.tutorial?.sessionId ?? s.lastResult?.id }
+          : {}),
+      };
+      break;
+    }
     // ── 인증·계정 ──
     case 'LOGIN':
       s.loggedIn = true;
@@ -2353,6 +2365,7 @@ export function reducer(state: State, a: Action): State {
     // ── 인증 — 로그아웃 ──
     case 'LOGOUT':
       s.loggedIn = false;
+      delete s.tutorial;
       // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
       s.serverIslands = null;
       break;

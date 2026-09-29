@@ -40,6 +40,7 @@ import {
 } from '@/services/liveActivity';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { reconcileTutorial } from '@/services/tutorial';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -303,12 +304,15 @@ function Gromo() {
     // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
     [switchAsk, setSwitchAsk] = useState(false),
     [visited, setVisited] = useState('strawberry'),
-    [guideStep, setGuideStep] = useState(0),
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
+  const guideStep = state.tutorial?.step ?? 0;
+  const setGuideStep = (step: number) => dispatch({ type: 'GUIDE_STEP', step });
+  const tutorialBootReconciled = useRef(false);
+  const previousTutorialRoute = useRef(route);
   const [liveCounts, setLiveCounts] = useState<{
     sessionId: string;
     islandId: string;
@@ -861,6 +865,17 @@ function Gromo() {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
   }, [loaded, state.onboarded, state.islandId, qaBuildingsReady]);
+  useEffect(() => {
+    if (!loaded) return;
+    const restoring = !tutorialBootReconciled.current;
+    const returningHome = route === 'home' && previousTutorialRoute.current !== 'home';
+    previousTutorialRoute.current = route;
+    tutorialBootReconciled.current = true;
+    const next = reconcileTutorial(state, route, restoring || returningHome);
+    if (next !== guideStep) setGuideStep(next);
+    if (restoring && route === 'home' && state.tutorial && next <= 3) reset('guide');
+    if (route === 'guide' && !state.tutorial) setGuideStep(0);
+  }, [loaded, route, state.tutorial, state.session, state.lastResult]);
   useEffect(() => {
     if (loaded && qaBuildingsReady && !REVIEW && !DEMO)
       AsyncStorage.setItem(STORAGE, JSON.stringify(state)).catch(() =>
