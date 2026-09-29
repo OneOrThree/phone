@@ -1332,11 +1332,16 @@ export function Hall({ e }: any) {
           <T style={g(25.8, 32.25)}>어떤 건물을 지을까요?</T>
         </View>
         <View
+          testID="hall-bld-grid"
           style={{
             flexDirection: 'row',
             flexWrap: 'wrap',
             gap,
-            transform: plan ? [{ scale: 0.985 }] : undefined,
+            // GROMO — 패널을 열고 닫을 때 이 값이 배열↔undefined 로 바뀌면 RN 이 이전 렌더의
+            // transform 을 지우려고 null 을 native 로 보내 processTransform 의 _validateTransforms
+            // 가 `null.forEach`로 죽는다(패널을 닫을 때 재현). transform 자체는 항상 배열로 두고
+            // 값만 바꾼다 — undefined/null 로 만들지 않는다.
+            transform: [{ scale: plan ? 0.985 : 1 }],
           }}
         >
           {cards.map((b, n) => {
