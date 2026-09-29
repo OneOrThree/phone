@@ -1522,8 +1522,13 @@ export function RedesignScreens({ e }: any) {
                   ? doneCard('가입이 확인됐어요', `서버에서 「${cur.name}」 소속이 확인됐어요.`)
                   : null;
               })()}
-            {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다 */}
-            {serverDone && doneCard('가입이 완료됐어요', `「${serverDone}」의 주민이 됐어요.`)}
+            {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다.
+                초대 코드로 막 가입한 직후엔 snap.currentIslandId 가 이미 그 섬이라 위 「가입이
+                확인됐어요」 카드와 같은 가입을 동시에 가리킨다 — 그때는 정본 스냅숏 카드만 남기고
+                serverDone 카드는 건너뛴다(joinIsland 화면과 같은 dedupe 규칙). */}
+            {serverDone &&
+              snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name !== serverDone &&
+              doneCard('가입이 완료됐어요', `「${serverDone}」의 주민이 됐어요.`)}
             {/* 초대받은 섬: 코드 확인 → 승인 없는 섬은 바로 참여, 승인 필요 섬은 가입 신청 */}
             <Btn
               kind="sec"
@@ -1959,7 +1964,9 @@ export function RedesignScreens({ e }: any) {
               </Txt>
             </View>
           ))}
-        {serverDone && joinedCard(serverDone)}
+        {/* join()은 active 확정 전에 syncIslands()로 snap을 이미 맞춘다 — serverDone과 joined가
+            같은 가입을 동시에 가리키면 카드를 두 번 그리지 않고 joined(정본 스냅숏)만 남긴다. */}
+        {serverDone && !joined && joinedCard(serverDone)}
         {joined && i && joinedCard(i.name)}
         {serverError ? (
           <View style={{ gap: 8 }}>
