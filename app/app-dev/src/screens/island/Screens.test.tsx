@@ -306,7 +306,21 @@ test('joinIsland 진입 시 explore를 호출하고 실패하면 오류+재시�
 });
 
 test('active 가입은 서버 응답 뒤 성공 확인 카드를 보여주고 arrival로 가지 않는다', async () => {
-  const join = jest.fn(async (_id: string) => ({ status: 'active' as const }));
+  // 실제 islandCommands.join()은 active 확정 전에 syncIslands()로 snap.currentIslandId를
+  // 이미 맞춘다 — 그 순서를 여기서도 흉내내 joined와 serverDone이 같은 가입에 동시에
+  // true가 되는 실제 상황을 재현한다(GROMO-2006 join 참조).
+  const join = jest.fn(async (id: string, dispatch: any) => {
+    dispatch({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [islandSummary({ id, membershipStatus: 'active' })],
+        nextCursor: null,
+        currentIslandId: id,
+        lossReason: null,
+      },
+    });
+    return { status: 'active' as const };
+  });
   const api = (dispatch: any) => ({
     explore: jest.fn(async () => {
       dispatch({
@@ -316,13 +330,15 @@ test('active 가입은 서버 응답 뒤 성공 확인 카드를 보여주고 ar
         reset: true,
       });
     }),
-    join,
+    join: (id: string) => join(id, dispatch),
   });
   const s = await render(<Harness route="joinIsland" api={api} />);
   await waitFor(() => s.getByText('바람 섬에 참여하기'));
   await fireEvent.press(s.getByText('바람 섬에 참여하기'));
   await waitFor(() => s.getByText('가입이 완료됐어요'));
   assert.equal(join.mock.calls.length, 1);
+  // 확정 스냅숏(joined)과 방금 응답(serverDone)이 같은 가입을 가리킬 때 카드가 두 번 그려지지 않는다.
+  assert.equal(s.getAllByText('가입이 완료됐어요').length, 1);
 });
 
 test('pending 가입은 대기 카드와 취소 버튼을 보여주고 취소는 서버 명령을 부른다', async () => {
@@ -646,6 +662,73 @@ test('초대 코드는 해석 뒤 미리보기를 보여주고 명시 확인 전
   await fireEvent.press(s.getByText('이 섬에 참여'));
   await waitFor(() => s.getByText('가입이 완료됐어요'));
   assert.equal(join.mock.calls.length, 1);
+});
+
+// join()은 active 확정 전에 syncIslands()로 snap.currentIslandId를 이미 그 섬으로 맞춘다.
+// chooseIsland의 「재시작 복구」 카드(cur)와 방금 가입 응답 카드(serverDone)가 같은 섬을 가리키면
+// 정본 스냅숏(cur) 카드만 남기고 serverDone 카드는 건너뛴다(joinIsland 화면과 같은 dedupe 규칙).
+test('초대 코드로 가입한 직후 chooseIsland는 확인 카드를 한 번만 보여준다', async () => {
+  const join = jest.fn(async (id: string, dispatch: any) => {
+    dispatch({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [islandSummary({ id, name: '초대 섬', membershipStatus: 'active' })],
+        nextCursor: null,
+        currentIslandId: id,
+        lossReason: null,
+      },
+    });
+    return { status: 'active' as const };
+  });
+  const api = (dispatch: any) => ({
+    resolveInvite: jest.fn(async (_code: string) =>
+      islandSummary({ id: 'inv-1', name: '초대 섬' }),
+    ),
+    join: (id: string) => join(id, dispatch),
+  });
+  const s = await render(<Harness route="chooseIsland" api={api} />);
+  await fireEvent.press(s.getByTestId('invite-open'));
+  await fireEvent.changeText(s.getByLabelText('초대 코드'), 'ABC123');
+  await fireEvent.press(s.getByLabelText('확인'));
+  await waitFor(() => s.getByText('초대 섬'));
+  await fireEvent.press(s.getByText('이 섬에 참여'));
+
+  await waitFor(() => s.getByText('가입이 확인됐어요'));
+  s.getByText('서버에서 「초대 섬」 소속이 확인됐어요.');
+  assert.equal(s.queryByText('가입이 완료됐어요'), null);
+});
+
+test('이전 섬과 이름이 같아도 방금 가입한 섬(id 다름)의 완료 카드는 숨기지 않는다', async () => {
+  // 서버가 current 를 바꾸지 않은 채 같은 이름의 다른 섬을 가리키는 경우 — 이름 비교면 완료 카드가 사라진다.
+  const join = jest.fn(async (id: string, dispatch: any) => {
+    dispatch({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [
+          islandSummary({ id: 'old-1', name: '같은 이름', membershipStatus: 'active' }),
+          islandSummary({ id, name: '같은 이름', membershipStatus: 'active' }),
+        ],
+        nextCursor: null,
+        currentIslandId: 'old-1',
+        lossReason: null,
+      },
+    });
+    return { status: 'active' as const };
+  });
+  const api = (dispatch: any) => ({
+    resolveInvite: jest.fn(async (_code: string) =>
+      islandSummary({ id: 'inv-2', name: '같은 이름' }),
+    ),
+    join: (id: string) => join(id, dispatch),
+  });
+  const s = await render(<Harness route="chooseIsland" api={api} />);
+  await fireEvent.press(s.getByTestId('invite-open'));
+  await fireEvent.changeText(s.getByLabelText('초대 코드'), 'ABC123');
+  await fireEvent.press(s.getByLabelText('확인'));
+  await waitFor(() => s.getByText('같은 이름'));
+  await fireEvent.press(s.getByText('이 섬에 참여'));
+
+  await waitFor(() => s.getByText('가입이 완료됐어요'));
 });
 
 test('부팅 동기화 실패는 chooseIsland에 명시 오류+재시도를 띄우고 재시도가 sync를 부른다', async () => {
