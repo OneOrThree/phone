@@ -65,13 +65,13 @@ test('각 제공자의 서버 자격 토큰을 반환한다', async () => {
   await expect(socialCredential('google', loaders)).resolves.toBe('google-id-token');
   await expect(socialCredential('line', loaders)).resolves.toBe('line-access');
   await expect(socialCredential('line', loaders)).resolves.toBe('line-access');
-  // iOS 는 webClientId 없이 설정해 ID 토큰 aud 가 서버 GOOGLE_CLIENT_ID(iOS 클라이언트)와 맞는다.
+  // 1.x 와 같이 iOS 도 webClientId 를 넘겨 ID 토큰 aud 가 웹 클라이언트로 통일된다.
   expect(mockGoogleConfigure).toHaveBeenCalledWith(
     expect.objectContaining({
+      webClientId: '899365616896-f9hggskoharr2uogdtvd0d2qvntle8ae.apps.googleusercontent.com',
       iosClientId: '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com',
     }),
   );
-  expect(mockGoogleConfigure.mock.calls[0][0]).not.toHaveProperty('webClientId');
   expect(mockLineSetup).toHaveBeenCalledWith({ channelId: '2011754820' });
   expect(mockLineSetup).toHaveBeenCalledTimes(1);
   expect(mockLineLogin).toHaveBeenCalledTimes(2);
