@@ -128,7 +128,16 @@ const legacyDoors: Record<string, Door> = {
   mail: { x: 320, y: 596, r: 'mail', label: buildingNames.mail, building: 'mail' },
   tower: { x: 272, y: 200, r: 'tower', label: buildingNames.tower, building: 'tower' },
   shop: { x: 577, y: 783, r: 'shop', label: buildingNames.shop, building: 'shop' },
-  raft: { x: 274, y: 740, r: 'boat', label: '내 뗏목', memberOnly: true },
+  // 고양이는 부두 끝(x·y)까지 걸어가고, 탭 영역은 배경에 그려진 뗏목 위에 둔다. 기본 탭 영역은
+  // 도착점 주변(부두의 육지 쪽 끝)이라 뗏목 그림을 눌러도 바다만 눌렀다(GROMO-2157).
+  raft: {
+    x: 274,
+    y: 740,
+    r: 'boat',
+    label: '내 뗏목',
+    memberOnly: true,
+    hitbox: { x: 200, y: 815, w: 180, h: 110 },
+  },
   fishingIsland: {
     x: 1345,
     y: 882,
@@ -718,6 +727,8 @@ function FinalIslandScene({
                 ...door,
                 x: villageMap.crossings.dock.arrival[0],
                 y: villageMap.crossings.dock.arrival[1],
+                // 기본 배경 좌표의 뗏목 탭 영역은 마을 장면 좌표와 맞지 않는다.
+                hitbox: undefined,
               }
             : door.building
               ? { ...door, ...villageDoors[door.building] }
