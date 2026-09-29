@@ -1428,6 +1428,9 @@ function FocusFlow({ e }: any) {
       return;
     }
     if (serverSession()) {
+      // 확인 버튼을 연달아 눌러도 종료 요청은 하나만 보낸다 — 진행 중 플래그를 공유하므로
+      // 먼저 끝난 요청이 다른 요청의 플래그까지 내리지 않게 한다.
+      if (finishInFlightRef.current) return;
       const session = s.session;
       finishInFlightRef.current = true;
       suppressedEndRef.current = false;

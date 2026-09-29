@@ -250,3 +250,14 @@ test('종료 요청 중 무시한 완료 이벤트가 있고 finish()가 실패�
   assert.ok(!notify.mock.calls.some((call) => call[0] === '소속이 없어요.'));
   assert.equal(home.mock.calls.length, 1);
 });
+
+test('종료 확인을 연달아 눌러도 finish()는 한 번만 부른다', async () => {
+  const finish = jest.fn(() => new Promise<void>(() => {}));
+  const { screen } = await mount(serverFocusState(), { focus: { finish } });
+
+  await fireEvent.press(screen.getByTestId('end-focus'));
+  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await fireEvent.press(screen.getByTestId('confirm-finish'));
+
+  assert.equal(finish.mock.calls.length, 1);
+});
