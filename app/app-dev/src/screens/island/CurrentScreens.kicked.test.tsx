@@ -278,3 +278,20 @@ test('내가 종료한 세션의 완료 이벤트가 finish() 응답 뒤에 늦�
   );
   assert.equal(home.mock.calls.length, 0);
 });
+
+test('finish()가 응답 유실로 실패한 뒤 늦게 온 내 세션 완료 이벤트는 종료 처리한다', async () => {
+  const finish = jest.fn(() => Promise.reject({ message: '네트워크에 연결할 수 없어요.' }));
+  const { screen, notify, home } = await mount(serverFocusState(), { focus: { finish } });
+
+  await fireEvent.press(screen.getByTestId('end-focus'));
+  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await act(async () => {});
+  assert.equal(home.mock.calls.length, 0);
+
+  onTransition!(kickedTransition());
+
+  assert.ok(
+    notify.mock.calls.some((call) => call[0] === '집중이 종료됐어요. 섬 소속을 확인해 주세요.'),
+  );
+  assert.equal(home.mock.calls.length, 1);
+});

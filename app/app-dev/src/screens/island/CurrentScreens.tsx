@@ -1447,6 +1447,9 @@ function FocusFlow({ e }: any) {
             leaveAfterServerEnd();
             return;
           }
+          // 응답만 유실돼 서버는 종료를 반영했을 수 있다 — 표식을 풀어 뒤늦게 오는 완료 이벤트가
+          // 무시되지 않고 종료 처리되게 한다.
+          endedByMeSessionIdRef.current = null;
           e.notify(error?.message ?? '집중을 마치지 못했어요.');
         })
         .finally(() => {
