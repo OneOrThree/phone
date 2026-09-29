@@ -751,6 +751,28 @@ function Gromo() {
     switchResolve.current?.(ok);
     switchResolve.current = null;
   };
+  // 화면 이동까지 끝난 뒤 owner 기록이 일시 실패하면, 같은 세션이 유지되는 동안 백오프로 다시
+  // 기록한다. 성공해야 저장 gate가 열린다 — 실패를 로그인 화면에만 남기면 사용자는 이후 변경이
+  // 저장되지 않는 줄 모른다.
+  const recordOwnerWithRetry = async (
+    userId: string,
+    gen: number,
+    attempt = 0,
+  ): Promise<boolean> => {
+    if (sessionGeneration() !== gen) return false;
+    if (await rememberLocalDataOwner(userId, gen).catch(() => false)) {
+      if (sessionGeneration() === gen) setStorageOwnerGate(true);
+      return true;
+    }
+    if (sessionGeneration() !== gen) return false;
+    if (attempt === 0)
+      notify('기기 저장소 문제로 변경 내용이 아직 저장되지 않아요. 자동으로 다시 시도할게요.');
+    setTimeout(
+      () => void recordOwnerWithRetry(userId, gen, attempt + 1),
+      Math.min(30_000, 1_000 * 2 ** attempt),
+    );
+    return false;
+  };
   const adoptSession = async (result: LoginResult, previousUserId: string | null) => {
     const changingOwner = previousUserId !== result.userId;
     if (changingOwner) setStorageOwnerGate(false);
@@ -807,9 +829,8 @@ function Gromo() {
       },
     });
     // /me 와 화면 판정이 끝난 뒤에만 소유자를 바꾼다. 그 전에 실패하면 기존 ID가 재시도 기준이다.
-    if (!(await rememberLocalDataOwner(account.id)))
-      throw new Error('새 계정의 로컬 데이터 소유자를 저장하지 못했어요.');
-    setStorageOwnerGate(true);
+    // 이미 화면을 옮긴 뒤의 기록 실패는 로그인 실패로 되돌리지 않고 알림 + 자동 재시도로 복구한다.
+    await recordOwnerWithRetry(account.id, sessionGeneration());
     return account;
   };
   const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as SecureStore from 'expo-secure-store';
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -167,6 +168,7 @@ beforeEach(async () => {
   mockAppDispatch = undefined;
   mockRememberOverride = undefined;
   await clearSession();
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
   // 앞 테스트의 앱 저장본(섬·온보딩 상태)이 다음 테스트의 부팅 LOAD로 새지 않게 비운다.
   // removeItem 호출 수를 세는 테스트가 있어 multiRemove로 지운다.
   await AsyncStorage.multiRemove(['gromo-r61-user-v2']);
@@ -1085,6 +1087,49 @@ test('A→B 채택 진행 중과 실패 뒤에는 B 상태를 A owner 아래 저
   assert.ok(!afterFailure || JSON.parse(afterFailure).name !== 'B');
   assert.equal(getLastSessionUserId(), 'user-a');
   mockDecideBootRoute.mockReset();
+});
+
+test('일반 로그인 뒤 owner 기록이 일시 실패하면 알리고 같은 세션에서 자동 재시도해 저장을 연다', async () => {
+  mockSocialCredential.mockResolvedValueOnce('google-id-token');
+  mockApiLogin.mockImplementationOnce(async () => {
+    const result = {
+      accessToken: 'AT',
+      refreshToken: 'RT',
+      userId: 'u1',
+      onboardingComplete: true,
+    };
+    await saveSession(result);
+    return result;
+  });
+  let rejectOwnerOnce = true;
+  mockRememberOverride = async (...args: any[]) => {
+    if (rejectOwnerOnce && args[0] === 'u1') {
+      rejectOwnerOnce = false;
+      return false;
+    }
+    return jest.requireActual('@/services/api/session').rememberLocalDataOwner(...args);
+  };
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await act(async () => captured.setTerms(true));
+  await act(async () => captured.startSocial('google'));
+
+  assert.equal(captured.socialError, '');
+  assert.ok(screen.getByText(/변경 내용이 아직 저장되지 않아요/));
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+
+  await waitFor(
+    async () => assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'u1'),
+    { timeout: 3000 },
+  );
+  await act(async () => captured.dispatch({ type: 'PROFILE', name: '저장확인' }));
+  await waitFor(async () => {
+    const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2')) ?? 'null');
+    assert.equal(persisted?.name, '저장확인');
+  });
 });
 
 test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 로그인 화면 전환을 막는다', async () => {
