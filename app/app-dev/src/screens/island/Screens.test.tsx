@@ -275,7 +275,7 @@ test('GROMO 시작하기 전환 후 100ms에는 터치 차단막이 있고 만�
   }
 });
 
-// GROMO-2006 재실행 복구 회귀 — character CTA는 서버 모드에서 PATCH /me(name+catColor)가
+// 티켓 2006 재실행 복구 회귀 — character CTA는 서버 모드에서 PATCH /me(name+catColor)가
 // 성공한 뒤에만 chooseIsland로 넘어간다. 로컬 dispatch만으로 넘어가면 GET /me.onboardingComplete가
 // 갱신되지 않아, 재실행 복구(restoredRoute)가 서버값을 정본으로 봐서 이 화면으로 되돌아간다.
 test('character CTA는 서버 모드에서 PATCH /me 성공 뒤에만 PROFILE을 반영하고 chooseIsland로 넘어간다', async () => {
@@ -311,6 +311,21 @@ test('character CTA의 PATCH /me 실패는 PROFILE·화면 전환 없이 서버 
   await waitFor(() => s.getByText('네트워크에 연결할 수 없어요.'));
   assert.ok(!exposed.actions.includes('PROFILE'));
   assert.equal(exposed.go.mock.calls.length, 0);
+});
+
+test('character CTA는 실패 뒤 같은 입력으로 다시 눌러도 같은 멱등 키로 다시 보낸다', async () => {
+  mockUpdateProfile
+    .mockRejectedValueOnce(new ApiError('CLIENT_NETWORK_ERROR', '네트워크에 연결할 수 없어요.', 0))
+    .mockResolvedValueOnce({ id: 'u1', name: '수빈', catColor: 'black', mainIslandId: null });
+  const s = await render(<Harness route="character" api={() => ({})} />);
+
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await waitFor(() => s.getByText('네트워크에 연결할 수 없어요.'));
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 2));
+
+  assert.ok(mockUpdateProfile.mock.calls[0][1]);
+  assert.equal(mockUpdateProfile.mock.calls[1][1], mockUpdateProfile.mock.calls[0][1]);
 });
 
 test('목업 모드 character CTA는 PATCH 없이 바로 chooseIsland로 넘어간다', async () => {

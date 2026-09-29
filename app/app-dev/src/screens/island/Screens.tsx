@@ -1434,12 +1434,17 @@ export function RedesignScreens({ e }: any) {
         <AvatarGrid
           six={layout.compact}
           value={state.color}
-          onChange={(color: Color) => act('PROFILE', { color })}
+          // 저장 요청이 오가는 동안은 입력을 잠가, 응답이 화면의 새 값을 되돌리지 않게 한다
+          onChange={(color: Color) => {
+            if (!serverBusy) act('PROFILE', { color });
+          }}
         />
         <Field
           label="닉네임"
           value={state.name}
-          onChange={(name: string) => act('PROFILE', { name })}
+          onChange={(name: string) => {
+            if (!serverBusy) act('PROFILE', { name });
+          }}
           inputStyle={INP}
         />
       </Onboard>
