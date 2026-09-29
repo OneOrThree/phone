@@ -6,7 +6,7 @@
  * (`useConstruction`)는 카드를 펼쳤을 때만 돈다. 가격·건설 가능 여부는 서버 옵션이 정본이고,
  * 착공 뒤 홈 반영은 `onChanged`(홈 스냅샷 재조회)로만 한다 — 로컬 BUILD 는 부르지 않는다.
  */
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, type ViewStyle } from 'react-native';
 import { Btn, Txt } from '@/design-system/patterns';
 import { componentTokens } from '@/design-system/tokens';
@@ -40,6 +40,9 @@ export function ServerBuildCard({
 }) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState('');
+  const [pending, setPending] = useState(false);
+  // 「완공 확인」을 눌렀는데도 아직 진행 중일 때만 보여줄 안내 — tracked branch 안에서만 쓴다.
+  const [checked, setChecked] = useState(false);
   const now = Date.now();
   const construction = useConstruction({
     active: open,
@@ -52,6 +55,10 @@ export function ServerBuildCard({
         endsAt: Date.parse(r.completesAt),
       }),
   });
+  // receipt 확보 = 착공 확정 — 재조회 실패로 온 메시지와 상관없이 카드를 접는다
+  useEffect(() => {
+    if (tracked) setOpen(false);
+  }, [tracked]);
   const name = buildingNames[tracked?.building ?? building];
   const item = construction.options?.items.find((it) => it.id === building);
 
@@ -65,7 +72,18 @@ export function ServerBuildCard({
     bar = progress;
     // 완공은 서버 스케줄러 몫 — 예정 시각이 지나면 홈을 다시 읽어 확인한다
     action = progress >= 1 && (
-      <Btn small id="server-build-refresh" title="완공 확인" onPress={onChanged} />
+      <>
+        <Btn
+          small
+          id="server-build-refresh"
+          title="완공 확인"
+          onPress={() => {
+            setChecked(true);
+            onChanged();
+          }}
+        />
+        {checked && <Txt kind="meta">아직 마무리 중이에요. 잠시 뒤 다시 확인해 주세요.</Txt>}
+      </>
     );
   } else if (!open) {
     meta = `섬 통장 ${villagePoints}마리`;
@@ -103,7 +121,7 @@ export function ServerBuildCard({
       construction.status === 'ready' ? (
         <Btn small id="server-build-refresh" title="새로고침" onPress={onChanged} />
       ) : (
-        <Txt kind="meta">건설 정보를 불러오고 있어요</Txt>
+        <Txt kind="meta">{pending ? '건설을 시작하는 중' : '건설 정보를 불러오고 있어요'}</Txt>
       );
   } else {
     meta = `${construction.options!.villagePoints}/${item.cost} 마리`;
@@ -112,20 +130,41 @@ export function ServerBuildCard({
       <Btn
         small
         id="server-build-start"
-        title={`${item.cost}마리로 건설하기`}
-        onPress={() =>
+        title={pending ? '건설을 시작하는 중' : `${item.cost}마리로 건설하기`}
+        disabled={pending}
+        onPress={() => {
+          setMessage('');
+          setPending(true);
           construction.build(building).then(
             () => {
+              setPending(false);
               setOpen(false);
               onChanged();
             },
-            (error) =>
-              setMessage(error instanceof Error ? error.message : '건설을 시작하지 못했어요.'),
-          )
-        }
+            (error) => {
+              setPending(false);
+              setMessage(error instanceof Error ? error.message : '건설을 시작하지 못했어요.');
+              onChanged();
+            },
+          );
+        }}
       />
     ) : (
-      <Txt kind="meta">{buildBlockedText(item.blockedReason)}</Txt>
+      <>
+        <Txt kind="meta">{buildBlockedText(item.blockedReason)}</Txt>
+        {/* 다른 기기·재시작 등으로 이미 공사 중인데 receipt이 없는 경우 — 옵션을 다시 읽어야 풀린다 */}
+        {item.blockedReason === 'IN_PROGRESS' && (
+          <Btn
+            small
+            id="server-build-recheck"
+            title="새로고침"
+            onPress={() => {
+              void construction.reload().catch(() => undefined);
+              onChanged();
+            }}
+          />
+        )}
+      </>
     );
   }
 
@@ -171,7 +210,8 @@ export function ServerBuildCard({
         />
       </View>
       {action}
-      {!!message && <Txt kind="meta">{message}</Txt>}
+      {/* receipt 확보 뒤에는 재조회 실패 메시지가 「공사 중」과 모순되므로 감춘다 */}
+      {!tracked && !!message && <Txt kind="meta">{message}</Txt>}
     </View>
   );
 }

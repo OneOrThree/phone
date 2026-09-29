@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import React from 'react';
+import React, { useState } from 'react';
 import { act, cleanup, fireEvent, render } from '@testing-library/react-native';
 import { FinalIsland } from '@/screens/island/WorldMap';
 import { initialState } from '@/services/model';
+import { ApiError } from '@/services/api/client';
 import * as home from '@/services/api/home';
 import * as islands from '@/services/api/islands';
 
@@ -155,4 +156,135 @@ test('주민(member)에게는 서버 건설 카드가 렌더링되지 않는다'
   );
   expect(screen.queryByTestId('server-build-card')).toBeNull();
   expect(screen.queryByText('건설하기')).toBeNull();
+});
+
+// SERVER_CONSTRUCTION_STARTED 를 실제 리듀서처럼 state.serverIslands.clientConstruction 에
+// 반영해 재렌더한다 — receipt 확보 뒤 재조회가 실패해도 카드가 「공사 중」을 유지하는지 본다.
+function ServerBuildHost({ onServerBuilt }: { onServerBuilt: () => void }) {
+  const [state, setState] = useState(serverState('host'));
+  const dispatch = (action: any) => {
+    if (action.type === 'SERVER_CONSTRUCTION_STARTED') {
+      setState(
+        (prev) =>
+          ({
+            ...prev,
+            serverIslands: {
+              ...prev.serverIslands,
+              clientConstruction: {
+                islandId: action.islandId,
+                building: action.building,
+                startedAt: action.startedAt,
+                endsAt: action.endsAt,
+              },
+            },
+          }) as any,
+      );
+    }
+  };
+  return (
+    <FinalIsland
+      state={state}
+      go={jest.fn()}
+      build={jest.fn()}
+      dispatch={dispatch}
+      onServerBuilt={onServerBuilt}
+    />
+  );
+}
+
+test('receipt 확보 뒤 옵션 재조회가 실패해도 공사 중 표시를 유지하고 실패 메시지는 감춘다', async () => {
+  mine.myIslands.mockResolvedValue({
+    items: [{ id: 'srv1' }],
+    currentIslandId: 'srv1',
+  } as any);
+  api.getMembers.mockResolvedValue({ items: [], nextCursor: null, version: 1 } as any);
+  api.getConstructionOptions
+    .mockResolvedValueOnce(hallOptions) // 카드를 펼칠 때의 첫 조회
+    .mockRejectedValueOnce(new Error('x')); // 착공 성공 뒤 재조회
+  api.startConstruction.mockResolvedValue({
+    buildingId: 'hall',
+    status: 'BUILDING',
+    spent: { currency: 'village_points', amount: 60 },
+    version: 4,
+    villagePoints: 10,
+    walletVersion: 3,
+    startedAt: '2026-09-29T00:00:00Z',
+    completesAt: '2026-09-29T00:10:00Z',
+  } as any);
+  const onServerBuilt = jest.fn();
+  const screen = await render(<ServerBuildHost onServerBuilt={onServerBuilt} />);
+
+  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
+  await act(async () => fireEvent.press(await screen.findByTestId('server-build-start')));
+
+  expect(screen.getByText('마을회관 공사 중')).toBeTruthy();
+  expect(screen.queryByText(/불러오지 못했어요|건설을 시작하지 못했어요|^x$/)).toBeNull();
+  expect(onServerBuilt).toHaveBeenCalled();
+});
+
+test('건설 시작이 403으로 거절되면 메시지를 보여주고 홈을 다시 읽는다', async () => {
+  mine.myIslands.mockResolvedValue({
+    items: [{ id: 'srv1' }],
+    currentIslandId: 'srv1',
+  } as any);
+  api.getMembers.mockResolvedValue({ items: [], nextCursor: null, version: 1 } as any);
+  api.getConstructionOptions.mockResolvedValue(hallOptions);
+  api.startConstruction.mockRejectedValue(new ApiError('FORBIDDEN', '권한이 없어요', 403));
+  const onServerBuilt = jest.fn();
+  const screen = await render(
+    <FinalIsland
+      state={serverState('host')}
+      go={jest.fn()}
+      build={jest.fn()}
+      dispatch={jest.fn()}
+      onServerBuilt={onServerBuilt}
+    />,
+  );
+
+  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
+  await act(async () => fireEvent.press(await screen.findByTestId('server-build-start')));
+
+  expect(screen.getByText('권한이 없어요')).toBeTruthy();
+  assert.equal(onServerBuilt.mock.calls.length, 1);
+});
+
+test('다른 기기가 짓고 있어 IN_PROGRESS 로 막히면 새로고침으로 옵션을 다시 읽는다', async () => {
+  mine.myIslands.mockResolvedValue({
+    items: [{ id: 'srv1' }],
+    currentIslandId: 'srv1',
+  } as any);
+  api.getMembers.mockResolvedValue({ items: [], nextCursor: null, version: 1 } as any);
+  api.getConstructionOptions.mockResolvedValue({
+    ...hallOptions,
+    items: [
+      {
+        id: 'hall',
+        name: '마을회관',
+        cost: 60,
+        currency: 'village_points',
+        selectable: false,
+        buildable: false,
+        blockedReason: 'IN_PROGRESS',
+      },
+    ],
+  } as any);
+  const onServerBuilt = jest.fn();
+  const screen = await render(
+    <FinalIsland
+      state={serverState('host')}
+      go={jest.fn()}
+      build={jest.fn()}
+      dispatch={jest.fn()}
+      onServerBuilt={onServerBuilt}
+    />,
+  );
+
+  await act(async () => fireEvent.press(screen.getByTestId('server-build-open')));
+  expect(await screen.findByText('다른 공사가 끝난 뒤에 지을 수 있어요')).toBeTruthy();
+  assert.equal(api.getConstructionOptions.mock.calls.length, 1);
+
+  await act(async () => fireEvent.press(screen.getByTestId('server-build-recheck')));
+
+  assert.equal(api.getConstructionOptions.mock.calls.length, 2);
+  assert.equal(onServerBuilt.mock.calls.length, 1);
 });

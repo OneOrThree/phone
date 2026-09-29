@@ -1455,12 +1455,13 @@ function FinalIslandScene({
     left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     width: L.landscape ? 300 : L.width * 0.52,
     bottom: L.landscape ? 24 : Math.max(52, L.insets.bottom + 18),
-    backgroundColor: '#FFFDFAF2',
-    borderColor: '#8B6956',
-    borderWidth: 1.5,
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    // 지도 위에 겹치는 반투명 카드 — Paper 표면에 알파만 더해 지도가 살짝 비치게 한다
+    backgroundColor: `${semanticTokens.color.surface}F2`,
+    borderColor: semanticTokens.color.outline,
+    borderWidth: semanticTokens.stroke.default,
+    borderRadius: componentTokens.card.radius,
+    paddingVertical: semanticTokens.spacing.control,
+    paddingHorizontal: semanticTokens.spacing.control,
   } as const;
   const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
@@ -1596,6 +1597,7 @@ function FinalIslandScene({
           {/* 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139) */}
           {!visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt && (
             <ServerBuildCard
+              key={`${facts.islandId}:${next}`}
               islandId={facts.islandId}
               building={next}
               villagePoints={facts.home.wallets.villagePoints}
