@@ -1283,19 +1283,80 @@ const homeFacts = (islandId = 'srv-1', completedBuildings: string[] = ['hall']) 
   },
 });
 
-test('createIsland 서버 성공 뒤 섬으로 가기는 home 으로 reset 한다', async () => {
+test('서버 첫 생성은 소속 없음 확인 뒤 guide로 진입한다', async () => {
   let exposed: any;
   const api = (dispatch: any) => ({
     create: jest.fn(async () => syncCurrent(dispatch, 'new-1', '새 섬')),
   });
   const s = await render(
-    <Harness route="createIsland" api={api} expose={(x: any) => (exposed = x)} />,
+    <Harness
+      route="createIsland"
+      api={api}
+      seed={(d: any) =>
+        d({
+          type: 'ISLAND_SYNC',
+          memberships: { items: [], currentIslandId: null, lossReason: null },
+        })
+      }
+      expose={(x: any) => (exposed = x)}
+    />,
   );
   await fireEvent.changeText(s.getByLabelText('섬 이름'), '새 섬');
   await fireEvent.press(s.getByLabelText('섬 만들기'));
   await waitFor(() => s.getByText('섬을 만들었어요'));
   await fireEvent.press(s.getByText('섬으로 가기'));
-  assert.equal(exposed.reset.mock.calls.at(-1)[0], 'home');
+  assert.equal(exposed.reset.mock.calls.at(-1)[0], 'guide');
+});
+
+test.each(['joinIsland', 'approval', 'chooseIsland'])(
+  '서버 첫 소속 확인 카드 %s는 첫 안내를 연다',
+  async (route) => {
+    let exposed: any;
+    const screen = await render(
+      <Harness
+        route={route}
+        api={() => ({ sync: jest.fn(async () => {}), explore: jest.fn(async () => {}) })}
+        seed={(d: any) => {
+          d({
+            type: 'ISLAND_SYNC',
+            memberships: { items: [], currentIslandId: null, lossReason: null },
+          });
+          syncCurrent(d);
+          if (route === 'joinIsland')
+            d({
+              type: 'ISLAND_CANDIDATES',
+              items: [islandSummary({ id: 'srv-1' })],
+              nextCursor: null,
+              reset: true,
+            });
+          if (route === 'approval')
+            d({
+              type: 'ISLAND_REQUEST',
+              request: { id: 'approved', islandId: 'srv-1', status: 'approved', version: 2 },
+            });
+        }}
+        expose={(x: any) => (exposed = x)}
+      />,
+    );
+    await fireEvent.press(screen.getByText('섬으로 가기'));
+    expect(exposed.reset).toHaveBeenCalledWith('guide');
+  },
+);
+
+test('기존 사용자의 추가 섬 생성은 첫 안내를 반복하지 않는다', async () => {
+  let exposed: any;
+  const screen = await render(
+    <Harness
+      route="createIsland"
+      api={(d: any) => ({ create: jest.fn(async () => syncCurrent(d, 'second')) })}
+      seed={(d: any) => syncCurrent(d, 'first')}
+      expose={(x: any) => (exposed = x)}
+    />,
+  );
+  await fireEvent.changeText(screen.getByLabelText('섬 이름'), '두 번째 섬');
+  await fireEvent.press(screen.getByLabelText('섬 만들기'));
+  await fireEvent.press(screen.getByText('섬으로 가기'));
+  expect(exposed.reset).toHaveBeenCalledWith('home');
 });
 
 test('재시작 복구 카드에서도 섬으로 가기로 home 에 들어간다', async () => {

@@ -310,7 +310,8 @@ function Gromo() {
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
   const guideStep = state.tutorial?.step ?? 0;
-  const setGuideStep = (step: number) => dispatch({ type: 'GUIDE_STEP', step });
+  const setGuideStep = (step: number, expected?: { step: number; revision: number }) =>
+    dispatch({ type: 'GUIDE_STEP', step, expected });
   const tutorialBootReconciled = useRef(false);
   const previousTutorialRoute = useRef(route);
   const [liveCounts, setLiveCounts] = useState<{
@@ -510,7 +511,7 @@ function Gromo() {
     [homeReload, setHomeReload] = useState(0);
   const serverCurrent =
     !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
-  const onHome = route === 'home';
+  const onHome = route === 'home' || route === 'guide';
   const buildingIndicators = useBuildingIndicators({
     active: !!serverCurrent,
     islandId: serverCurrent,
@@ -872,8 +873,9 @@ function Gromo() {
     previousTutorialRoute.current = route;
     tutorialBootReconciled.current = true;
     const next = reconcileTutorial(state, route, restoring || returningHome);
-    if (next !== guideStep) setGuideStep(next);
-    if (restoring && route === 'home' && state.tutorial && next <= 3) reset('guide');
+    if (next !== guideStep)
+      setGuideStep(next, { step: guideStep, revision: state.tutorialRevision ?? 0 });
+    if (route === 'home' && state.tutorial && next <= 3) reset('guide');
     if (route === 'guide' && !state.tutorial) setGuideStep(0);
   }, [loaded, route, state.tutorial, state.session, state.lastResult]);
   useEffect(() => {

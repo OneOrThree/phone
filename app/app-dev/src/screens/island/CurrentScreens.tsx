@@ -1,6 +1,7 @@
 import { sessionGeneration } from '@/services/api/session';
 import { hasBundledAudio } from '@/constants/audio';
 import { componentTokens } from '@/design-system/tokens';
+import { findReachableTutorialSpot } from '@/services/tutorial';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import React, { useEffect, useRef, useState } from 'react';
 import {
@@ -90,6 +91,7 @@ import { FinalIsland } from '@/screens/island/WorldMap';
 import {
   GuideBox,
   TutorialScene,
+  useScreenReaderEnabled,
   TutorialSpotlight,
   useSpotlightTarget,
 } from '@/screens/island/NpcGuide';
@@ -1155,6 +1157,11 @@ function FocusFlow({ e }: any) {
     wide = L.width >= 600,
     reduce = s.settings.reduceMotion,
     tutorialStep: number = e.guideStep;
+  const screenReader = useScreenReaderEnabled();
+  const advanceTutorial = (from: number, to: number) => {
+    if (tutorialStep === from)
+      e.setGuideStep(to, { step: from, revision: s.tutorialRevision ?? 0 });
+  };
   const setupInputTarget = useSpotlightTarget(tutorialStep === 7),
     setupStartTarget = useSpotlightTarget(tutorialStep === 8),
     pauseTarget = useSpotlightTarget(tutorialStep === 14),
@@ -1446,7 +1453,7 @@ function FocusFlow({ e }: any) {
       e.focus
         .finish()
         .then(() => {
-          if (tutorialStep === 18) e.setGuideStep(19);
+          advanceTutorial(18, 19);
           e.reset('focusResult');
         })
         .catch(async (error: any) => {
@@ -1456,7 +1463,7 @@ function FocusFlow({ e }: any) {
       return;
     }
     e.dispatch({ type: 'FINISH' });
-    if (tutorialStep === 18) e.setGuideStep(19);
+    advanceTutorial(18, 19);
     e.reset('focusResult');
   };
   // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
@@ -1614,14 +1621,13 @@ function FocusFlow({ e }: any) {
       e.focus
         .pause()
         .then(() => {
-          if (tutorialStep === 14) e.setGuideStep(15);
+          // 15단계는 실제 rest 화면 도착 후 App의 복구 로직에서 연다.
           go();
         })
         .catch((error: any) => e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'));
       return;
     }
     e.dispatch({ type: 'PAUSE' });
-    if (tutorialStep === 14) e.setGuideStep(15);
     go();
   };
   const result = s.lastResult,
@@ -1659,7 +1665,7 @@ function FocusFlow({ e }: any) {
       e.focus
         .resume()
         .then(() => {
-          if (tutorialStep === 15) e.setGuideStep(16);
+          advanceTutorial(15, 16);
           setVoyage('toSpot');
         })
         .catch(async (error: any) => {
@@ -1668,7 +1674,7 @@ function FocusFlow({ e }: any) {
         });
       return;
     }
-    if (tutorialStep === 15) e.setGuideStep(16);
+    advanceTutorial(15, 16);
     setVoyage('toSpot');
   };
   // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
@@ -1766,20 +1772,12 @@ function FocusFlow({ e }: any) {
       />
     );
   // 정해진 자리 없음: 누른 땅까지 걸어가 앉고 그 자리 위에 집중 준비. 물·닿을 수 없는 곳·다른 주민 자리는 안 됨.
-  const selectSpot = (p: Point) => {
-    if (!onLand(fishingGrid, p)) return;
-    if (occupied(p, peerSpots)) {
-      e.notify('여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.');
-      return;
-    }
-    if (i.buildings.includes('gram') && nearGram(p)) {
-      e.notify('여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.');
-      return;
-    }
-    if (nearRaft(p)) {
-      e.notify('여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.');
-      return;
-    }
+  const spotError = (p: Point): string | null => {
+    if (!onLand(fishingGrid, p)) return '물 위에는 앉을 수 없어요.';
+    if (occupied(p, peerSpots)) return '여기는 주민이 앉아 있어요. 조금 옆에 앉아 주세요.';
+    if (i.buildings.includes('gram') && nearGram(p))
+      return '여기는 축음기가 있어 앉을 수 없어요. 조금 옆에 앉아 주세요.';
+    if (nearRaft(p)) return '여기는 뗏목을 대는 곳이에요. 조금 옆에 앉아 주세요.';
     const catchSpot = castSpot(p);
     if (p.x === DEFAULT_SPOT.x && p.y === DEFAULT_SPOT.y)
       catchSpot.catchPlacement = DEFAULT_CATCH_PLACEMENT;
@@ -1791,18 +1789,34 @@ function FocusFlow({ e }: any) {
         i.buildings.includes('gram'),
         PEER_SPOTS,
       )
-    ) {
-      e.notify('여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.');
+    )
+      return '여기에는 물고기를 둘 자리가 없어요. 조금 옆에 앉아 주세요.';
+    return null;
+  };
+  const selectSpot = (p: Point) => {
+    const error = spotError(p);
+    if (error) {
+      e.notify(error);
       return;
     }
     const walked = walkTo(p, () => {
       if (latest.current.r !== 'fishingArrival') return;
       e.dispatch({ type: 'FOCUS_SPOT', spot: p });
-      if (tutorialStep === 6) e.setGuideStep(7);
+      advanceTutorial(6, 7);
       e.go('focusSetup');
     });
     // 연못 가운데 섬처럼 뗏목 쪽 땅과 이어지지 않은 곳
     if (!walked) e.notify('이곳까지 이어지는 땅을 골라 주세요.');
+  };
+  const selectAccessibleSpot = () => {
+    const spot = findReachableTutorialSpot(
+      fishingGrid,
+      walker.p,
+      DEFAULT_SPOT,
+      (p) => !spotError(p),
+    );
+    if (spot) selectSpot(spot);
+    else e.notify('빈 자리를 찾지 못했어요. 잠시 후 다시 시도해 주세요.');
   };
   // 뗏목: 자리 고르기에서는 뗏목까지 걸어가 본인만 우리 섬으로, 집중 중에는 집중 종료 확인.
   const raft = () => {
@@ -1827,14 +1841,14 @@ function FocusFlow({ e }: any) {
       e.focus
         .start({ subject: e.text.trim() })
         .then(() => {
-          if (tutorialStep === 8) e.setGuideStep(9);
+          advanceTutorial(8, 9);
           e.go('focus');
         })
         .catch((error: any) => setError(error?.message ?? '집중을 시작하지 못했어요.'));
       return;
     }
     e.dispatch({ type: 'START', subject: e.text });
-    if (tutorialStep === 8) e.setGuideStep(9);
+    advanceTutorial(8, 9);
     e.go('focus');
   };
   const finishInput = () => {
@@ -1991,11 +2005,13 @@ function FocusFlow({ e }: any) {
       const width = Math.min(L.floatingWidth, 414);
       return (
         <GuideBox
+          accessibilityViewIsModal
           text={
             '물 위나 다른 주민이 앉아 있는 곳은 고를 수 없어.\n마음에 드는 자리를 직접 누르면 돼.'
           }
           style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
         >
+          {screenReader && <Btn title="빈 땅에 자리 잡기" onPress={selectAccessibleSpot} />}
           <Btn title="안내 그만 보기" kind="ghost" onPress={skipTutorial} />
         </GuideBox>
       );
@@ -2295,6 +2311,7 @@ function FocusFlow({ e }: any) {
       style={{ flex: 1 }}
       onLayout={(ev) => setBoxHeight(ev.nativeEvent.layout.height)}
       overlay={tutorialOverlay}
+      isolateAccessibility={tutorialStep === 6 && !!tutorialOverlay}
       onSkip={skipTutorial}
     >
       <View testID="golden-background" style={{ flex: 1 }} {...a11yHidden(!!goldenCutscene)}>

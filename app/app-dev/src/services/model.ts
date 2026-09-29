@@ -245,6 +245,9 @@ export type Product = {
 export type State = {
   // 세션과 같은 저장본에 보관해 앱 종료·서버 복구 후에도 안내를 이어간다.
   tutorial?: { step: number; sessionId?: string };
+  tutorialRevision?: number;
+  // 서버에서 소속 없음이 확인된 신규 흐름만 첫 소속 확정 후 안내를 시작한다.
+  tutorialEnrollment?: 'awaiting-first-island' | 'existing';
   version: 1;
   schema?: 2;
   friends?: Friend[];
@@ -1503,7 +1506,14 @@ export function reducer(state: State, a: Action): State {
   // 안에만 case 를 더하면 서로의 머지 충돌이 줄어든다. 구간 순서는 바꾸지 않는다.
   switch (a.type) {
     case 'GUIDE_STEP': {
+      if (
+        a.expected &&
+        ((s.tutorial?.step ?? 0) !== a.expected.step ||
+          (s.tutorialRevision ?? 0) !== a.expected.revision)
+      )
+        return state;
       const step = a.step as number;
+      s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       s.tutorial = {
         step,
         ...(step >= 9 && step <= 21
@@ -1604,6 +1614,19 @@ export function reducer(state: State, a: Action): State {
       // /me/islands 정본 — 소속·current·상실 사유를 갈아 끼우고 로컬 joined 표시를 맞춘다
       const my = a.memberships as MyIslands,
         snap = serverSnap(s);
+      if (!s.tutorialEnrollment) {
+        s.tutorialEnrollment =
+          !s.tutorial && !s.onboarded && !s.records.length && !my.items.length && !my.lossReason
+            ? 'awaiting-first-island'
+            : 'existing';
+      }
+      if (s.tutorialEnrollment === 'awaiting-first-island' && my.currentIslandId != null) {
+        if (!s.tutorial) {
+          s.tutorial = { step: 0 };
+          s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
+        }
+        s.tutorialEnrollment = 'existing';
+      }
       snap.memberships = my.items;
       // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아
       // 옛 방장 여부·완공 건물이 새 스냅샷 전에 그려지지 않게 한다(GROMO-2138)
@@ -2366,6 +2389,8 @@ export function reducer(state: State, a: Action): State {
     case 'LOGOUT':
       s.loggedIn = false;
       delete s.tutorial;
+      delete s.tutorialEnrollment;
+      s.tutorialRevision = (s.tutorialRevision ?? 0) + 1;
       // 서버 온보딩 스냅샷도 계정과 함께 버린다 — A 계정의 orphan 신청이 B 계정에 섞이지 않게
       s.serverIslands = null;
       break;

@@ -1,5 +1,5 @@
 import { initialState, reducer } from '@/services/model';
-import { reconcileTutorial } from '@/services/tutorial';
+import { findReachableTutorialSpot, reconcileTutorial } from '@/services/tutorial';
 
 function progress(step: number) {
   let state = reducer(initialState(true), { type: 'START', subject: '첫 집중', now: 1000 });
@@ -64,4 +64,89 @@ test('로그아웃·다시보기는 이전 세션과의 연결을 제거한다',
   const state = progress(15);
   expect(reducer(state, { type: 'LOGOUT' }).tutorial).toBeUndefined();
   expect(reducer(state, { type: 'GUIDE_STEP', step: 0 }).tutorial).toEqual({ step: 0 });
+});
+
+test.each([
+  [8, 9],
+  [14, 15],
+  [15, 16],
+  [18, 19],
+  [6, 7],
+])('%s단계에서 시작한 비동기 완료는 건너뛰기·새 회차를 덮어쓰지 않는다', (from, to) => {
+  const original = progress(from);
+  const expected = { step: from, revision: original.tutorialRevision };
+  const skipped = reducer(original, { type: 'GUIDE_STEP', step: 99 });
+  expect(reducer(skipped, { type: 'GUIDE_STEP', step: to, expected })).toBe(skipped);
+  const restarted = reducer(skipped, { type: 'GUIDE_STEP', step: from });
+  expect(reducer(restarted, { type: 'GUIDE_STEP', step: to, expected })).toBe(restarted);
+  expect(reducer(original, { type: 'GUIDE_STEP', step: to, expected }).tutorial?.step).toBe(to);
+});
+
+const syncMembership = (
+  state: ReturnType<typeof initialState>,
+  id: string | null,
+  lossReason: string | null = null,
+) =>
+  reducer(state, {
+    type: 'ISLAND_SYNC',
+    memberships: {
+      items: id ? [{ id, name: '첫 섬' }] : [],
+      currentIslandId: id,
+      lossReason,
+    },
+  });
+
+test('서버에서 소속 없음 확인 → 최초 소속 확정 때만 첫 안내를 준비한다', () => {
+  const empty = syncMembership(initialState(), null);
+  expect(empty.tutorialEnrollment).toBe('awaiting-first-island');
+  expect(empty.tutorial).toBeUndefined();
+  const joined = syncMembership(empty, 'first');
+  expect(joined.tutorial).toEqual({ step: 0 });
+  const finished = reducer(joined, { type: 'GUIDE_STEP', step: 99 });
+  expect(syncMembership(finished, 'second').tutorial?.step).toBe(99);
+});
+
+test('기존 소속·탈퇴 이력·기존 기록은 신규 안내 대상이 아니다', () => {
+  const existing = syncMembership(initialState(), 'existing');
+  expect(existing.tutorial).toBeUndefined();
+  expect(syncMembership(syncMembership(existing, null), 'next').tutorial).toBeUndefined();
+  expect(
+    syncMembership(syncMembership(initialState(), null, 'LEFT'), 'next').tutorial,
+  ).toBeUndefined();
+  const recorded = progress(22);
+  delete recorded.tutorial;
+  expect(syncMembership(syncMembership(recorded, null), 'next').tutorial).toBeUndefined();
+});
+
+test('승인 대기 중 재시작해도 최초 소속 확인 상태를 보존한다', () => {
+  const empty = syncMembership(initialState(), null);
+  const loaded = reducer(initialState(), {
+    type: 'LOAD',
+    state: JSON.parse(JSON.stringify(empty)),
+  });
+  const approved = reducer(loaded, {
+    type: 'ISLAND_SYNC',
+    memberships: { items: [{ id: 'first' }], currentIslandId: null, lossReason: null },
+  });
+  expect(approved.tutorial).toBeUndefined();
+  expect(syncMembership(approved, 'first').tutorial?.step).toBe(0);
+});
+
+test('휴식 이동 취소는 14단계를 유지하고 실제 모닥불 도착만 15단계로 진행한다', () => {
+  const state = progress(14);
+  state.session!.status = 'paused';
+  expect(reconcileTutorial(state, 'focus')).toBe(14);
+  expect(reconcileTutorial(state, 'rest')).toBe(15);
+  state.session!.status = 'active';
+  expect(reconcileTutorial(state, 'focus')).toBe(14);
+});
+
+test('접근성 자리 선택은 막힌 기본 자리와 연결되지 않은 땅을 제외한다', () => {
+  const grid = { w: 5, h: 1, cols: 5, rows: 1, cells: '11011' };
+  expect(
+    findReachableTutorialSpot(grid, { x: 0.5, y: 0.5 }, { x: 4.5, y: 0.5 }, (p) => p.x !== 0.5),
+  ).toEqual({ x: 1.5, y: 0.5 });
+  expect(
+    findReachableTutorialSpot(grid, { x: 0.5, y: 0.5 }, { x: 0.5, y: 0.5 }, () => false),
+  ).toBeNull();
 });

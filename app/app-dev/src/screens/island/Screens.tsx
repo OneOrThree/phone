@@ -903,10 +903,10 @@ export function RedesignScreens({ e }: any) {
       id="enter-home"
       title="섬으로 가기"
       style={{ marginTop: 6 }}
-      onPress={() => reset('home')}
+      onPress={() => reset(state.tutorial && state.tutorial.step <= 3 ? 'guide' : 'home')}
     />
   ) : null;
-  // 서버 소속 확인 카드 — 생성·가입 성공과 재시작 복구에 공용. arrival 연출은 건너뛰고 홈으로 간다
+  // 서버 소속 확인 카드 — 최초 소속은 몽돌 안내, 기존 소속은 홈으로 들어간다.
   const doneCard = (title: string, sub: string) => (
     <View
       style={{

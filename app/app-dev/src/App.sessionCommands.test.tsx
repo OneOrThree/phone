@@ -149,6 +149,7 @@ test('휴식 진입 전환을 취소하면 일시정지한 집중 세션을 다�
     captured.go('focus');
   });
   await waitFor(() => assert.equal(captured.route, 'focus'));
+  await act(async () => captured.setGuideStep(14));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
   });
@@ -159,6 +160,41 @@ test('휴식 진입 전환을 취소하면 일시정지한 집중 세션을 다�
   });
   await waitFor(() => assert.equal(captured.state.session?.status, 'active'));
   assert.equal(captured.route, 'focus');
+  assert.equal(captured.guideStep, 14);
+});
+
+test('실제 모닥불 전환이 완료돼야 14단계에서 15단계로 진행한다', async () => {
+  let saved = reducer(initialState(true), { type: 'START', subject: '이동 테스트' });
+  saved = reducer(saved, { type: 'GUIDE_STEP', step: 14 });
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(saved));
+  mockBootRoute = 'focus';
+  const app = await render(<App />);
+  await waitFor(() => expect(captured?.guideStep).toBe(14));
+  await act(async () => {
+    captured.dispatch({ type: 'PAUSE' });
+  });
+  await act(async () => captured.go('rest'));
+  expect(captured.guideStep).toBe(14);
+  await waitFor(() => expect(captured.route).toBe('rest'), { timeout: 4000 });
+  expect(captured.guideStep).toBe(15);
+  await app.unmount();
+});
+
+test('승인 대기 후 부팅에서 첫 소속이 확인되면 홈 대신 첫 안내를 연다', async () => {
+  let saved = reducer(initialState(), {
+    type: 'ISLAND_SYNC',
+    memberships: { items: [], currentIslandId: null, lossReason: null },
+  });
+  saved = reducer(saved, {
+    type: 'ISLAND_SYNC',
+    memberships: { items: [{ id: 'first' }], currentIslandId: 'first', lossReason: null },
+  });
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(saved));
+  mockBootRoute = 'home';
+  const app = await render(<App />);
+  await waitFor(() => expect(captured?.route).toBe('guide'));
+  expect(captured.guideStep).toBe(0);
+  await app.unmount();
 });
 
 test('서버 집중 재개가 실패하면 일시정지 세션을 휴식 경로로 돌려보낸다', async () => {

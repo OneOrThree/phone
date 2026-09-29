@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import React from 'react';
+import React, { useReducer } from 'react';
 import { AccessibilityInfo, AppState, type AppStateEvent, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
-import { initialState, type State } from '@/services/model';
+import { initialState, reducer, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import type { GoldenFishEvent } from '@/services/islandRealtime';
 
@@ -139,7 +139,7 @@ const screenElement = (
   backOverride?: { current: (() => boolean) | null },
   goOverride = jest.fn(),
   homeOverride = jest.fn(),
-  dispatchOverride = jest.fn(),
+  dispatchOverride: (action: any) => void = jest.fn(),
   overrides: Record<string, unknown> = {},
 ) => (
   <CurrentScreens
@@ -225,7 +225,7 @@ test('튜토리얼 종료 실패는 재시도 가능하며 성공 후에만 결�
   expect(setGuideStep).not.toHaveBeenCalled();
   expect(reset).not.toHaveBeenCalled();
   await fireEvent.press(screen.getByTestId('confirm-finish', { includeHiddenElements: true }));
-  expect(setGuideStep).toHaveBeenCalledWith(19);
+  expect(setGuideStep).toHaveBeenCalledWith(19, { step: 18, revision: 0 });
   expect(reset).toHaveBeenCalledWith('focusResult');
   await screen.unmount();
 });
@@ -277,11 +277,78 @@ test('자리 선택 중에는 뗏목 귀환을 막지만 일반 자리 선택의
       setGuideStep: jest.fn(),
     }),
   );
-  await fireEvent(screen.getByTestId('golden-world'), 'raft');
+  await fireEvent(screen.getByTestId('golden-world', { includeHiddenElements: true }), 'raft');
   expect(go).not.toHaveBeenCalled();
   await screen.rerender(screenElement(state, 'fishingArrival', undefined, go));
   await fireEvent(screen.getByTestId('golden-world'), 'raft');
   expect(go).toHaveBeenCalledWith('returnTravel');
+});
+
+test.each([
+  ['start', 8, 'focusSetup', 'start-focus'],
+  ['pause', 14, 'focus', 'pause-focus'],
+  ['resume', 15, 'rest', 'resume-focus'],
+  ['finish', 17, 'focus', 'confirm-finish'],
+] as const)(
+  '%s 요청 중 건너뛰기는 늦은 성공 뒤에도 99단계로 유지된다',
+  async (command, step, route, button) => {
+    let resolve!: () => void;
+    const pending = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const seed = focusedState();
+    seed.session!.version = 1;
+    if (command === 'start') seed.session = null;
+    if (command === 'resume') seed.session!.status = 'paused';
+    seed.tutorial = { step };
+    let current: State = seed;
+    const request = jest.fn(() => pending);
+    function Flow() {
+      const [state, dispatch] = useReducer(reducer, seed);
+      current = state;
+      return screenElement(state, route, undefined, jest.fn(), jest.fn(), dispatch, {
+        guideStep: state.tutorial?.step,
+        setGuideStep: (next: number, expected: unknown) =>
+          dispatch({ type: 'GUIDE_STEP', step: next, expected }),
+        text: '수학',
+        focus: { [command]: request },
+      });
+    }
+    const screen = await render(<Flow />);
+    if (command === 'finish')
+      await fireEvent.press(screen.getByTestId('end-focus', { includeHiddenElements: true }));
+    await fireEvent.press(screen.getByTestId(button, { includeHiddenElements: true }));
+    expect(request).toHaveBeenCalledTimes(1);
+    await fireEvent.press(screen.getByText('안내 그만 보기'));
+    expect(current.tutorial?.step).toBe(99);
+    await act(async () => resolve());
+    expect(current.tutorial?.step).toBe(99);
+    await screen.unmount();
+  },
+);
+
+test('자리 선택은 배경 접근성을 숨기고 유효한 실제 자리 선택 동작을 제공한다', async () => {
+  jest.useFakeTimers();
+  const reader = jest.spyOn(AccessibilityInfo, 'isScreenReaderEnabled').mockResolvedValue(true);
+  const state = focusedState();
+  state.session = null;
+  const go = jest.fn(),
+    dispatch = jest.fn(),
+    setGuideStep = jest.fn();
+  const screen = await render(
+    screenElement(state, 'fishingArrival', undefined, go, undefined, dispatch, {
+      guideStep: 6,
+      setGuideStep,
+    }),
+  );
+  expect(screen.queryByTestId('golden-world')).toBeNull();
+  await fireEvent.press(screen.getByText('빈 땅에 자리 잡기'));
+  await act(async () => jest.advanceTimersByTime(20000));
+  expect(dispatch).toHaveBeenCalledWith(expect.objectContaining({ type: 'FOCUS_SPOT' }));
+  expect(go).toHaveBeenCalledWith('focusSetup');
+  expect(setGuideStep).toHaveBeenCalledWith(7, { step: 6, revision: 0 });
+  await screen.unmount();
+  reader.mockRestore();
 });
 
 test('현재 세션 참여자만 컷신을 보고 종료 뒤 참여자 더미와 섬 에셋을 함께 갱신한다', async () => {

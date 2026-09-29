@@ -26,14 +26,16 @@ export function GuideBox({
   character = 'mongdol',
   style,
   children,
+  accessibilityViewIsModal,
 }: {
   text: string;
   character?: 'mongdol' | 'pelican' | 'dog';
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
+  accessibilityViewIsModal?: boolean;
 }) {
   return (
-    <View style={[styles.box, style]}>
+    <View style={[styles.box, style]} accessibilityViewIsModal={accessibilityViewIsModal}>
       <View style={styles.dialogue}>
         {character === 'pelican' ? (
           <Image
@@ -75,15 +77,35 @@ export type SpotlightRect = LayoutRectangle;
 const BlurTargetContext = createContext<React.RefObject<View | null> | undefined>(undefined);
 const TutorialSkipContext = createContext<(() => void) | undefined>(undefined);
 
+export function useScreenReaderEnabled() {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void Promise.resolve(AccessibilityInfo.isScreenReaderEnabled())
+      .then((value) => {
+        if (live) setEnabled(!!value);
+      })
+      .catch(() => {});
+    const subscription = AccessibilityInfo.addEventListener('screenReaderChanged', setEnabled);
+    return () => {
+      live = false;
+      subscription.remove();
+    };
+  }, []);
+  return enabled;
+}
+
 // Android는 블러가 읽을 실제 장면을 지정해야 한다. 오버레이는 장면의 형제로 둔다.
 export function TutorialScene({
   children,
   overlay,
   onSkip,
+  isolateAccessibility = false,
   ...props
-}: ViewProps & { overlay?: React.ReactNode; onSkip?: () => void }) {
+}: ViewProps & { overlay?: React.ReactNode; onSkip?: () => void; isolateAccessibility?: boolean }) {
   const target = useRef<View>(null);
-  const isolated = React.isValidElement(overlay) && overlay.type === TutorialSpotlight;
+  const isolated =
+    isolateAccessibility || (React.isValidElement(overlay) && overlay.type === TutorialSpotlight);
   return (
     <View {...props}>
       <BlurTargetView
@@ -161,15 +183,10 @@ export function TutorialSpotlight({
   const layout = useAppLayout();
   const blurTarget = useContext(BlurTargetContext);
   const skip = useContext(TutorialSkipContext);
-  const [screenReader, setScreenReader] = useState(false);
+  const screenReader = useScreenReaderEnabled();
   const [measurementFailed, setMeasurementFailed] = useState(false);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   useEffect(() => {
-    let live = true;
-    void AccessibilityInfo.isScreenReaderEnabled().then((enabled) => {
-      if (live) setScreenReader(enabled);
-    });
-    const reader = AccessibilityInfo.addEventListener('screenReaderChanged', setScreenReader);
     const show = Keyboard.addListener('keyboardDidShow', (event) =>
       setKeyboardTop(event.endCoordinates.screenY),
     );
@@ -178,8 +195,6 @@ export function TutorialSpotlight({
     );
     const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardTop(null));
     return () => {
-      live = false;
-      reader.remove();
       show.remove();
       change.remove();
       hide.remove();
