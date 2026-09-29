@@ -5198,6 +5198,14 @@ export function RedesignScreens({ e }: any) {
         : friends.filter((f) => f.status === 'received').length,
       joinedIslands = state.islands.filter((candidate) => candidate.joined && !candidate.closed),
       primaryIsland = mainIsland(state) ?? island,
+      // mainIsland(state)/island 은 로컬 목업 섬(state.islands, 기본값 소다 섬)만 찾아 서버
+      // 모드에서도(특히 게스트→멤버 전환처럼 목업 섬을 하나도 가입하지 않은 상태에서) 항상 「소다
+      // 섬」으로 보였다. 서버 모드는 snap.memberships 에서 mainIslandId(/me 정본, 없으면
+      // currentIslandId)로 찾은 이름이 정본이다(상점 잔액 라벨과 같은 패턴).
+      primaryIslandName = server
+        ? (snap?.memberships.find((m) => m.id === (state.mainIslandId ?? snap?.currentIslandId))
+            ?.name ?? primaryIsland.name)
+        : primaryIsland.name,
       canChangeMainIsland = joinedIslands.length > 1;
     const mainIslandCard = (
       <>
@@ -5209,7 +5217,7 @@ export function RedesignScreens({ e }: any) {
           >
             현재 내 메인 섬
           </Txt>
-          <Txt style={[st.h22, { marginTop: 1 }]}>{primaryIsland.name}</Txt>
+          <Txt style={[st.h22, { marginTop: 1 }]}>{primaryIslandName}</Txt>
           <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, marginTop: 1, color: C.muted }}>
             친구 목록과 프로필에 표시돼요
           </Txt>
@@ -5241,7 +5249,7 @@ export function RedesignScreens({ e }: any) {
         {canChangeMainIsland ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`현재 내 메인 섬 ${primaryIsland.name}, 메인 섬 변경하기`}
+            accessibilityLabel={`현재 내 메인 섬 ${primaryIslandName}, 메인 섬 변경하기`}
             onPress={() => go('mainIsland')}
             style={({ pressed }) => ({
               height: 164,
@@ -5261,7 +5269,7 @@ export function RedesignScreens({ e }: any) {
         ) : (
           <View
             accessible
-            accessibilityLabel={`현재 내 메인 섬 ${primaryIsland.name}`}
+            accessibilityLabel={`현재 내 메인 섬 ${primaryIslandName}`}
             style={{
               height: 164,
               flexDirection: 'row',

@@ -964,6 +964,47 @@ test('서버 차단 목록 재검증 중에는 뗏목의 이전 친구 요청 �
   assert.equal(screen.queryByText('요청 1'), null);
 });
 
+test('내 뗏목의 「현재 내 메인 섬」은 로컬 목업 섬(소다 섬) 대신 서버 메인 섬 이름을 쓴다', async () => {
+  // 게스트→멤버 전환 직후(로컬 목업 섬은 하나도 가입하지 않은 상태)를 재현한다.
+  const initial = initialState(false);
+  initial.serverIslands = {
+    memberships: [
+      {
+        id: 'confirm-island',
+        name: '확인섬',
+        intro: '',
+        visibility: 'public',
+        approvalRequired: false,
+        memberCount: 1,
+        maxMembers: 15,
+        membershipStatus: 'active',
+        joinRequestId: null,
+        growthStage: null,
+        themeId: null,
+      },
+    ],
+    currentIslandId: 'confirm-island',
+    lossReason: null,
+    candidates: [],
+    nextCursor: null,
+    visit: null,
+    joinRequests: [],
+    requestStatus: [],
+  };
+  initial.mainIslandId = 'confirm-island';
+  initial.onboarded = true;
+
+  const friendsScreen = { status: 'idle', data: null };
+  const screen = await render(
+    <Harness route="boat" initial={initial} api={() => ({})} friendsScreen={friendsScreen} />,
+  );
+
+  screen.getByText('확인섬');
+  screen.getByLabelText('현재 내 메인 섬 확인섬');
+  assert.equal(screen.queryByText('소다 섬'), null);
+  assert.equal(screen.queryByLabelText('현재 내 메인 섬 소다 섬'), null);
+});
+
 test('목업 친구 화면에서는 안전 API 더보기를 숨기되 기존 친구 삭제를 유지한다', async () => {
   let exposed: any;
   const s = await render(
