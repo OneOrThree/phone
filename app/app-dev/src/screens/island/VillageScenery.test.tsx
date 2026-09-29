@@ -9,15 +9,18 @@ describe('VillageScenery', () => {
     const view = await render(
       <VillageScenery scene={scene} scale={1} reduce mailboxLetters={false} />,
     );
-    expect(view.queryByTestId('village-board-new-indicator')).toBeNull();
+    expect(
+      view.queryByTestId('village-board-new-indicator', { includeHiddenElements: true }),
+    ).toBeNull();
 
     await view.rerender(
       <VillageScenery scene={scene} scale={1} reduce mailboxLetters={false} boardStatus="unread" />,
     );
     expect(view.getByTestId('village-board-scene-indicator')).toBeTruthy();
-    expect(view.getByTestId('village-board-new-indicator').props.accessibilityLabel).toBe(
-      '읽지 않은 새 소식이 있습니다',
-    );
+    expect(
+      view.getByTestId('village-board-new-indicator', { includeHiddenElements: true }).props
+        .accessibilityLabel,
+    ).toBe('읽지 않은 새 소식이 있습니다');
     expect(view.getByTestId('village-board-tooltip')).toBeTruthy();
     expect(view.queryByTestId('village-board-still-image')).toBeNull();
     await view.unmount();

@@ -8,6 +8,7 @@ import { villageMap, VillageScene } from '@/utils/village-world';
 import { VillageBoardIndicator } from '@/components/village-motion/VillageBoardIndicator';
 import { VillageHallMotion } from '@/components/village-motion/VillageHallMotion';
 import { Txt } from '@/design-system/patterns';
+import { VillageNotificationBadge } from '@/components/village-motion/VillageNotificationBadge';
 
 // UI 색상이 아니라 원화의 불꽃 색상이다. 바닥 타일은 한 장으로 합쳐 그린다.
 export const VillageScenery = memo(function VillageScenery({
@@ -122,31 +123,32 @@ export const VillageScenery = memo(function VillageScenery({
               testID="village-hall-scene-motion"
               state={hallMotionActive ? 'arrival' : 'normal'}
               generation={hallMotionGeneration}
-              highlighted={hallMotionActive}
               themed={hallThemed && hallMotionActive}
               reduceMotion={reduce}
-              tooltip={
-                hallMotionActive ? <Txt kind="meta">마을 회관에 들어가는 중</Txt> : undefined
-              }
               style={StyleSheet.absoluteFill}
-            />
-          ) : o.kind === 'mailbox' && mailboxLetters ? (
-            <Image
-              source={assets['characters/pelican/npc/on-mailbox.png']}
-              style={{
-                position: 'absolute',
-                left: -47 * scale,
-                top: -61 * scale,
-                width: 137 * scale,
-                height: 137 * scale,
-              }}
             />
           ) : (
             <Animated.Image
-              source={villageAssets[o.kind + '.png']}
+              testID={
+                o.kind === 'mailbox' && mailboxLetters ? 'village-mailbox-pelican' : undefined
+              }
+              source={
+                o.kind === 'mailbox' && mailboxLetters
+                  ? assets['characters/pelican/npc/on-mailbox.png']
+                  : villageAssets[o.kind + '.png']
+              }
               style={{
                 width: '100%',
                 height: '100%',
+                ...(o.kind === 'mailbox' && mailboxLetters
+                  ? {
+                      position: 'absolute',
+                      width: o.w * scale * (512 / 170),
+                      height: o.h * scale * (512 / 248),
+                      left: -o.w * scale * (176 / 170),
+                      top: -o.h * scale * (217 / 248),
+                    }
+                  : {}),
                 transform:
                   o.layer === 'trees' && !reduce
                     ? [
@@ -159,6 +161,14 @@ export const VillageScenery = memo(function VillageScenery({
                       ]
                     : [],
               }}
+            />
+          )}
+          {o.kind === 'mailbox' && mailboxLetters && (
+            <VillageNotificationBadge
+              testID="village-mailbox-new-indicator"
+              accessibilityLabel="친구에게 받은 새 편지가 있습니다"
+              scale={scale}
+              style={{ top: -10 * scale, right: -5 * scale }}
             />
           )}
           {o.kind === 'fire' && (

@@ -1,6 +1,7 @@
 import React, { useContext, useEffect, useState, type ReactNode } from 'react';
 import { Image, StyleSheet, View, type ImageSourcePropType, type ViewStyle } from 'react-native';
 import { MotionContext } from '@/design-system/primitives';
+import { VillageThemeTint } from './VillageThemeTint';
 import { componentTokens, semanticTokens } from '@/design-system/tokens';
 
 export type VillageHallState = 'normal' | 'arrival' | 'new-record' | 'weekly-goal';
@@ -11,24 +12,32 @@ const frames: readonly ImageSourcePropType[] = [
   require('@/assets/village-world/motion/hall/frame-2.png'),
   require('@/assets/village-world/motion/hall/frame-3.png'),
 ];
+// 밤 프레임은 낮 frame-0~3 과 크기·발밑 기준점이 같다(night-frame-0 은 정본 밤 레이어 crop).
+const nightFrames: readonly ImageSourcePropType[] = [
+  require('@/assets/village-world/motion/hall/night-frame-0.png'),
+  require('@/assets/village-world/motion/hall/night-frame-1.png'),
+  require('@/assets/village-world/motion/hall/night-frame-2.png'),
+  require('@/assets/village-world/motion/hall/night-frame-3.png'),
+];
 const doorSequence = [0, 1, 2, 3, 2, 1] as const;
 const frameDuration = 180;
 
 /** 시청의 문 프레임 모션과 기록/주간 목표 강조를 표시한다. */
 export function VillageHallMotion({
   state = 'normal',
-  highlighted = false,
   tooltip,
   reduceMotion = false,
+  night = false,
   themed = false,
   generation = 0,
   style,
   testID = 'village-hall-motion',
 }: {
   state?: VillageHallState;
-  highlighted?: boolean;
   tooltip?: ReactNode;
   reduceMotion?: boolean;
+  /** 밤 마을이면 같은 모션을 밤 프레임으로 재생한다. */
+  night?: boolean;
   themed?: boolean;
   generation?: number;
   style?: ViewStyle;
@@ -50,7 +59,7 @@ export function VillageHallMotion({
 
   return (
     <View testID={testID} style={[styles.root, style]}>
-      {frames.map((source, index) => (
+      {(night ? nightFrames : frames).map((source, index) => (
         <Image
           key={index}
           testID={`village-hall-frame-${index}`}
@@ -60,15 +69,10 @@ export function VillageHallMotion({
         />
       ))}
       {themed && (
-        <Image
+        <VillageThemeTint
+          source={(night ? nightFrames : frames)[frame]}
           testID="village-hall-theme-tint"
-          source={frames[frame]}
-          resizeMode="stretch"
-          style={[styles.frame, styles.themeTint]}
         />
-      )}
-      {highlighted && (
-        <View pointerEvents="none" testID="village-hall-highlight" style={styles.highlight} />
       )}
       {tooltip != null && (
         <View testID="village-hall-tooltip" style={styles.tooltip}>
@@ -84,20 +88,6 @@ const styles = StyleSheet.create({
   frame: { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' },
   visible: { opacity: 1 },
   hidden: { opacity: 0 },
-  themeTint: {
-    tintColor: componentTokens.villageBuildingThemeTint.color,
-    opacity: componentTokens.villageBuildingThemeTint.opacity,
-  },
-  highlight: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    borderColor: semanticTokens.color.primary,
-    borderWidth: 2,
-    borderRadius: semanticTokens.radius.preview,
-  },
   tooltip: {
     position: 'absolute',
     alignSelf: 'center',

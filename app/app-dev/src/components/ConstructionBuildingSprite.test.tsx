@@ -9,6 +9,7 @@ import {
   constructionMotionFrameMs,
   constructionMotionOffsets,
   constructionRestMs,
+  constructionSpriteCell,
 } from './constructionBuildingMotion';
 
 describe('ConstructionBuildingSprite', () => {
@@ -164,5 +165,61 @@ describe('ConstructionBuildingSprite', () => {
     const view = await render(<ConstructionBuildingSprite building="shop" phase="foundation" />);
     await view.unmount();
     expect(clearTimeoutSpy).toHaveBeenCalled();
+  });
+
+  it('밤에는 일곱 건물 × 네 단계 모두 같은 행/열의 밤 아틀라스 셀을 고른다', () => {
+    const nightAtlases = new Set();
+    for (const building of ['hall', 'board', 'gram', 'library', 'mail', 'tower', 'shop'] as const) {
+      for (const phase of ['foundation', 'structure', 'finishing', 'completion'] as const) {
+        const day = constructionSpriteCell(building, phase, false);
+        const night = constructionSpriteCell(building, phase, true);
+        expect(day).toBe(constructionBuildingMotion[building][phase]);
+        expect(night.atlas).not.toBe(day.atlas);
+        expect({ ...night, atlas: null }).toEqual({ ...day, atlas: null });
+        nightAtlases.add(night.atlas);
+      }
+    }
+    expect(nightAtlases.size).toBe(2);
+  });
+
+  it('밤에는 밤 셀을 정지 상태로 그리고 작업 진동·효과 타이머를 만들지 않는다', async () => {
+    const timeoutSpy = jest.spyOn(global, 'setTimeout');
+    const view = await render(
+      <ConstructionBuildingSprite
+        building="library"
+        phase="structure"
+        night
+        testID="construction-sprite"
+      />,
+    );
+    expect(view.getByTestId('construction-sprite-library-structure').props.source).toBe(
+      constructionSpriteCell('library', 'structure', true).atlas,
+    );
+    expect(timeoutSpy).not.toHaveBeenCalled();
+    await act(async () => jest.advanceTimersByTime(10_000));
+    expect(view.getByTestId('construction-sprite').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ transform: [{ translateX: 0 }] })]),
+    );
+    expect(view.getByTestId('construction-effect-library-structure').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ opacity: 0 })]),
+    );
+
+    // 낮으로 돌아오면 작업 burst 를 다시 시작한다.
+    await act(async () => {
+      view.rerender(
+        <ConstructionBuildingSprite
+          building="library"
+          phase="structure"
+          testID="construction-sprite"
+        />,
+      );
+    });
+    expect(view.getByTestId('construction-sprite-library-structure').props.source).toBe(
+      constructionBuildingMotion.library.structure.atlas,
+    );
+    expect(view.getByTestId('construction-effect-library-structure').props.style).toEqual(
+      expect.arrayContaining([expect.objectContaining({ opacity: 1 })]),
+    );
+    await view.unmount();
   });
 });

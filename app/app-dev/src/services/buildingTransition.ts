@@ -37,6 +37,10 @@ export const BUILDING_TRANSITION_RETURN_TARGET: Partial<Record<Route, BuildingTr
 };
 
 export const BUILDING_TRANSITION_DURATION_MS = 620;
+/** 문·망원경 프레임을 먼저 보여 준 뒤 확대 덮개를 시작한다. */
+export const BUILDING_SPRITE_LEAD_IN_MS = 660;
+export const BUILDING_ENTRY_DURATION_MS =
+  BUILDING_SPRITE_LEAD_IN_MS + BUILDING_TRANSITION_DURATION_MS;
 export const BUILDING_TRANSITION_EASING = 'cubic-in-out' as const;
 
 export type BuildingTransitionState = {

@@ -92,6 +92,12 @@ describe('design system tokens', () => {
       topOffset: -11,
       rightOffset: 21,
     });
+    expect(componentTokens.villageBuildingNameTag).toEqual({
+      minHeight: 24,
+      paddingHorizontal: primitiveTokens.space[2],
+      radius: 12,
+      borderWidth: semanticTokens.stroke.subtle,
+    });
     expect(componentTokens.villageNotificationTooltip).toEqual({
       maxWidth: 180,
       paddingVertical: primitiveTokens.space[2],

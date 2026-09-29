@@ -13,6 +13,8 @@ export type ConstructionSpriteCell = Readonly<{
 
 const firstAtlas = require('@/assets/village-world/construction/hall-board-gram-library-atlas.png');
 const secondAtlas = require('@/assets/village-world/construction/mail-tower-shop-atlas.png');
+const firstNightAtlas = require('@/assets/village-world/construction/hall-board-gram-library-atlas-night.png');
+const secondNightAtlas = require('@/assets/village-world/construction/mail-tower-shop-atlas-night.png');
 export const constructionEffectsAtlas = require('@/assets/village-world/construction/effects-atlas.png');
 
 // Atlases are four columns wide: foundation, frame, finishing, completion anticipation.
@@ -34,6 +36,27 @@ export const constructionBuildingMotion: Readonly<
   tower: stages(secondAtlas, 1, 3),
   shop: stages(secondAtlas, 2, 3),
 };
+
+// 밤 아틀라스는 낮과 픽셀 크기·격자가 같아 행/열 매핑을 그대로 공유한다.
+const constructionBuildingNightMotion: Readonly<
+  Record<ConstructionBuildingId, Readonly<Record<ConstructionPhase, ConstructionSpriteCell>>>
+> = {
+  hall: stages(firstNightAtlas, 0, 4),
+  board: stages(firstNightAtlas, 1, 4),
+  gram: stages(firstNightAtlas, 2, 4),
+  library: stages(firstNightAtlas, 3, 4),
+  mail: stages(secondNightAtlas, 0, 3),
+  tower: stages(secondNightAtlas, 1, 3),
+  shop: stages(secondNightAtlas, 2, 3),
+};
+
+export function constructionSpriteCell(
+  building: ConstructionBuildingId,
+  phase: ConstructionPhase,
+  night: boolean,
+): ConstructionSpriteCell {
+  return (night ? constructionBuildingNightMotion : constructionBuildingMotion)[building][phase];
+}
 
 function stages(
   atlas: ImageSourcePropType,
