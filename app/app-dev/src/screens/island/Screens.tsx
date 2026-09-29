@@ -5217,7 +5217,9 @@ export function RedesignScreens({ e }: any) {
           >
             현재 내 메인 섬
           </Txt>
-          <Txt style={[st.h22, { marginTop: 1 }]}>{primaryIslandName}</Txt>
+          <Txt numberOfLines={1} ellipsizeMode="tail" style={[st.h22, { marginTop: 1 }]}>
+            {primaryIslandName}
+          </Txt>
           <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, marginTop: 1, color: C.muted }}>
             친구 목록과 프로필에 표시돼요
           </Txt>
