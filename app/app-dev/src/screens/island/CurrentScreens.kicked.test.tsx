@@ -3,7 +3,7 @@
 // 안내와 함께 화면을 빠져나간다.
 import assert from 'node:assert/strict';
 import React from 'react';
-import { fireEvent, render } from '@testing-library/react-native';
+import { act, fireEvent, render } from '@testing-library/react-native';
 import { CurrentScreens } from '@/screens/island/CurrentScreens';
 import { initialState, type State } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
@@ -180,7 +180,7 @@ test('진행 중 낚시 세션이 서버에 의해 강제 종료되면 안내하
     'SESSION_SYNC(session:null) 로 로컬 세션을 지워야 한다',
   );
   assert.ok(
-    notify.mock.calls.some((call) => call[0] === '섬에서 내보내졌어요.'),
+    notify.mock.calls.some((call) => call[0] === '집중이 종료됐어요. 섬 소속을 확인해 주세요.'),
     '원시 코드가 아니라 사람이 읽을 안내를 보여줘야 한다',
   );
   assert.equal(home.mock.calls.length, 1);
@@ -209,11 +209,44 @@ test('내가 직접 집중 종료를 부른 뒤 응답 전에 도착한 같은 �
     ),
     '내가 부른 finish() 응답 전에는 강퇴 처리를 하지 않아야 한다',
   );
-  assert.ok(!notify.mock.calls.some((call) => call[0] === '섬에서 내보내졌어요.'));
+  assert.ok(
+    !notify.mock.calls.some((call) => call[0] === '집중이 종료됐어요. 섬 소속을 확인해 주세요.'),
+  );
   assert.equal(home.mock.calls.length, 0);
 
   resolveFinish?.();
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(reset.mock.calls[0]?.[0], 'focusResult');
+});
+
+test('종료 요청 중 무시한 완료 이벤트가 있고 finish()가 실패하면 그 종료를 뒤늦게 처리한다', async () => {
+  let rejectFinish: ((error: unknown) => void) | undefined;
+  const finish = jest.fn(
+    () =>
+      new Promise<void>((_, reject) => {
+        rejectFinish = reject;
+      }),
+  );
+  const { screen, dispatch, notify, home } = await mount(serverFocusState(), {
+    focus: { finish },
+  });
+
+  await fireEvent.press(screen.getByTestId('end-focus'));
+  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  onTransition!(kickedTransition());
+  assert.equal(home.mock.calls.length, 0);
+
+  await act(async () => {
+    rejectFinish?.({ message: '소속이 없어요.' });
+  });
+
+  assert.ok(
+    dispatch.mock.calls.some((call) => call[0].type === 'SESSION_SYNC' && call[0].session === null),
+  );
+  assert.ok(
+    notify.mock.calls.some((call) => call[0] === '집중이 종료됐어요. 섬 소속을 확인해 주세요.'),
+  );
+  assert.ok(!notify.mock.calls.some((call) => call[0] === '소속이 없어요.'));
+  assert.equal(home.mock.calls.length, 1);
 });

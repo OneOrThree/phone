@@ -1127,6 +1127,23 @@ describe('stompIslandChannel', () => {
     assert.deepEqual(errors, []);
   });
 
+  test('/user/queue/errors 오류 봉투의 code 가 NOT_FOCUSING 이면 message 문구가 있어도 토스트로 올리지 않는다', () => {
+    const errors: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+    });
+    const c = client();
+    const errorSub = c.subs.find((s: { dest: string }) => s.dest === '/user/queue/errors')!;
+    errorSub.cb({
+      body: JSON.stringify({ code: 'NOT_FOCUSING', message: '집중 중일 때만 응원할 수 있습니다.' }),
+    });
+    assert.deepEqual(errors, []);
+  });
+
   test('onStompError 의 NOT_FOCUSING 헤더도 토스트로 올리지 않는다', () => {
     const errors: string[] = [];
     stompIslandChannel({

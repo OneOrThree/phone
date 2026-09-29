@@ -478,8 +478,10 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       client.subscribe('/user/queue/errors', (msg: IMessage) => {
         let text = '실시간 요청이 거절됐어요.';
         try {
-          const b = JSON.parse(msg.body) as { message?: unknown };
+          const b = JSON.parse(msg.body) as { code?: unknown; message?: unknown };
           if (typeof b?.message === 'string' && b.message) text = b.message;
+          // 서버 오류 봉투는 code 와 message 를 따로 싣는다 — 코드로 기대된 잡음을 거른다.
+          if (b?.code === 'NOT_FOCUSING') text = 'NOT_FOCUSING';
         } catch {
           // 기본 문구로 둔다.
         }
