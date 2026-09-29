@@ -4973,7 +4973,12 @@ export function RedesignScreens({ e }: any) {
               .then(() => setSheetToast('구매했어요.'))
               .catch((thrown) => {
                 const m = serverErrorText(thrown);
-                if (m) notify(m);
+                // 전역 알림(notify)만으로는 이 상품 상세 시트 위에서 가려질 수 있어
+                // 시트 안 토스트(sheetToast)로도 같은 실패 문구를 보여준다(GROMO-2170).
+                if (m) {
+                  notify(m);
+                  setSheetToast(m);
+                }
               });
             return;
           }
