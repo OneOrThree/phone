@@ -1852,6 +1852,12 @@ export function reducer(state: State, a: Action): State {
     case 'ADVANCE':
       if (s.session?.status === 'active') s.session.seconds += a.seconds;
       break;
+    case 'TUTORIAL_FISH_CONFIRMED': {
+      // 서버가 지급한 사실만 표시한다. 섬 잔액과 종료 보상을 여기서 다시 더하지 않는다.
+      if (!s.session || s.session.id !== a.sessionId || s.session.version == null) return state;
+      s.session.tutorialFish = true;
+      break;
+    }
     case 'TUTORIAL_FISH': {
       if (
         !s.session ||
@@ -1880,7 +1886,7 @@ export function reducer(state: State, a: Action): State {
       if (!s.session) return state;
       const seconds = Math.floor(sessionSeconds(s.session, now)),
         fish = s.session.tutorialFish
-          ? Math.max(1, Math.floor(seconds / SECONDS_PER_FISH))
+          ? 1 + Math.floor(seconds / SECONDS_PER_FISH)
           : Math.floor(seconds / SECONDS_PER_FISH),
         island = s.islands.find((x) => x.id === s.session!.islandId)!;
       const contributed = true;
@@ -1924,7 +1930,12 @@ export function reducer(state: State, a: Action): State {
     case 'SESSION_SYNC':
       // 서버 current 정본으로 진행 세션을 갈아 끼운다(GROMO-2009). null 이면 지운다 —
       // 서버에 없는 진행 세션은 이미 끝난 것이다.
-      s.session = (a.session as Session | null) ?? null;
+      {
+        let next = (a.session as Session | null) ?? null;
+        if (next && next.id === s.session?.id && s.session.tutorialFish)
+          next = { ...next, tutorialFish: true };
+        s.session = next;
+      }
       break;
     case 'SESSION_RESULT': {
       // 서버 finish·pending-result 의 정산 뷰를 기록+결과창으로 반영하고 진행 세션을 닫는다.

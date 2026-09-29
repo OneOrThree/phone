@@ -1185,13 +1185,25 @@ function FocusFlow({ e }: any) {
       Record<string, { count: number; eventId: string }>
     >({}),
     [goldenReeling, setGoldenReeling] = useState(false),
-    [goldenFish, setGoldenFish] = useState(false);
+    [goldenFish, setGoldenFish] = useState(false),
+    [tutorialReeling, setTutorialReeling] = useState(false);
+  const tutorialRequest = useRef<string | null>(null);
+  const tutorialRetryAt = useRef(0);
+  const tutorialReelCancel = useRef<(() => void) | null>(null);
+  const tutorialMounted = useRef(true);
+  useEffect(() => {
+    tutorialMounted.current = true;
+    return () => {
+      tutorialMounted.current = false;
+      tutorialReelCancel.current?.();
+    };
+  }, []);
   const walkingToken = useRef(0),
     timer = useRef<ReturnType<typeof setTimeout> | null>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     position = useRef(LANDING),
     // 걷기·항해 콜백은 끝났을 때의 최신 화면·세션을 보고 계속할지 정한다(그 사이 집중이 끝났으면 중단)
-    latest = useRef({ r, s }),
+    latest = useRef({ r, s, now: e.now }),
     backRef = useRef<() => boolean>(() => false),
     goldenHandler = useRef<(event: GoldenFishEvent) => void>(() => {}),
     goldenPresenter = useRef<(event: GoldenFishEvent) => void>(() => {}),
@@ -1204,7 +1216,7 @@ function FocusFlow({ e }: any) {
     goldenAnnouncementPendingRef = useRef(false),
     goldenSeenRef = useRef(new Set<string>()),
     goldenTestSession = useRef<string | null>(null);
-  latest.current = { r, s };
+  latest.current = { r, s, now: e.now };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
   // 목업(review/demo·비로그인)은 e.islands 가 없어 로컬 경로 그대로다.
   const serverQuests = !!e.islands && !s.visitingIslandId;
@@ -1422,14 +1434,73 @@ function FocusFlow({ e }: any) {
   useEffect(() => {
     if (r !== 'focus' || tutorialStep !== 11 || s.session?.status !== 'active') return;
     if (sessionSeconds(s.session, e.now) < 5) return;
-    // 서버의 5초 최초 보상 계약은 아직 없다. 미지급 보상을 받았다고 안내하지 않는다.
-    if (e.focus || s.records.length > 0) {
-      e.setGuideStep(14);
+    const sessionId = s.session.id;
+    const revision = s.tutorialRevision ?? 0;
+    const key = `${sessionId}:${revision}`;
+    if (tutorialRequest.current === key || e.now < tutorialRetryAt.current) return;
+    tutorialRequest.current = key;
+    const stillHere = () =>
+      tutorialMounted.current &&
+      latest.current.r === 'focus' &&
+      latest.current.s.session?.id === sessionId &&
+      latest.current.s.tutorial?.step === 11 &&
+      (latest.current.s.tutorialRevision ?? 0) === revision;
+    const showCatch = () => {
+      if (!stillHere()) return;
+      const finishReel = () => {
+        setTutorialReeling(false);
+        if (stillHere()) e.setGuideStep(12, { step: 11, revision });
+      };
+      if (reduce) finishReel();
+      else {
+        setTutorialReeling(true);
+        tutorialReelCancel.current = afterForegroundMs(finishReel, 2000);
+      }
+    };
+    if (!e.focus) {
+      if (s.records.length > 0) {
+        e.setGuideStep(14, { step: 11, revision });
+        return;
+      }
+      e.dispatch({ type: 'TUTORIAL_FISH' });
+      showCatch();
       return;
     }
-    e.dispatch({ type: 'TUTORIAL_FISH' });
-    e.setGuideStep(12);
-  }, [e.focus, e.dispatch, e.setGuideStep, e.now, r, s.session, s.records.length, tutorialStep]);
+    e.focus
+      .tutorialReward(sessionId)
+      .then((reward: { status: string }) => {
+        if (!stillHere()) return;
+        if (reward.status === 'granted') showCatch();
+        else if (reward.status === 'unavailable') e.setGuideStep(14, { step: 11, revision });
+        else {
+          tutorialRequest.current = null;
+          tutorialRetryAt.current = e.now + 1000;
+        }
+      })
+      .catch((error: any) => {
+        if (!stillHere()) return;
+        tutorialRequest.current = null;
+        tutorialRetryAt.current = latest.current.now + 5000;
+        e.notify(error?.message ?? '물고기 보상을 확인하지 못했어요. 다시 시도할게요.');
+      });
+  }, [
+    e.focus,
+    e.dispatch,
+    e.setGuideStep,
+    e.now,
+    r,
+    s.session,
+    s.records.length,
+    s.tutorialRevision,
+    tutorialStep,
+    reduce,
+  ]);
+  useEffect(() => {
+    if (tutorialStep !== 11) {
+      tutorialReelCancel.current?.();
+      setTutorialReeling(false);
+    }
+  }, [tutorialStep]);
   // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
   // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
   const serverSession = () => e.focus && s.session?.version != null;
@@ -2404,10 +2475,18 @@ function FocusFlow({ e }: any) {
                         : null
                     }
                     motion={
-                      r === 'focusSetup' ? 'tilt' : r === 'focusResult' ? 'stretch' : undefined
+                      r === 'focusSetup'
+                        ? 'tilt'
+                        : r === 'focusResult'
+                          ? 'stretch'
+                          : tutorialReeling
+                            ? 'reel'
+                            : undefined
                     }
                     reduce={reduce}
                     goldenFishCount={goldenFor(actorUserId, goldenSessionId)?.count ?? 0}
+                    tutorialFish={s.session?.tutorialFish === true}
+                    caughtFish={r === 'focusResult' ? result?.fish : undefined}
                     goldenCatchToken={goldenFor(actorUserId, goldenSessionId)?.eventId}
                     catchAvoidSpots={peerSpots}
                     catchVisibleSpots={peerCatchSpots}

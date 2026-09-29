@@ -60,11 +60,13 @@ jest.mock('@/screens/focus/FishingIsland', () => {
         {overlay?.(() => ({ x: 150, y: 200 }), 640)}
       </View>
     ),
-    FishingActor: ({ name, goldenFishCount, goldenCatchToken }: any) => (
+    FishingActor: ({ name, goldenFishCount, goldenCatchToken, motion, tutorialFish }: any) => (
       <View
         testID={name === '나' ? 'golden-self' : `golden-actor-${name}`}
         goldenFishCount={goldenFishCount}
         goldenCatchToken={goldenCatchToken}
+        motion={motion}
+        tutorialFish={tutorialFish}
       />
     ),
     FishingPeerActorView: ({ actor, goldenFishCount, goldenCatchToken }: any) => (
@@ -132,6 +134,53 @@ const focusedState = (): State => {
   };
   return state;
 };
+
+test.each([false, true])(
+  '서버 지급 성공 → 낚는 액션 → 기존 대사이며 건너뛰기=%s도 보존한다',
+  async (skip) => {
+    jest.useFakeTimers();
+    let resolve!: (value: { status: string }) => void;
+    const request = jest.fn(
+      () =>
+        new Promise<{ status: string }>((done) => {
+          resolve = done;
+        }),
+    );
+    const seed = focusedState();
+    seed.session!.version = 1;
+    seed.session!.seconds = 5;
+    seed.tutorial = { step: 11 };
+    let current = seed;
+    let skipGuide!: () => void;
+    function Flow() {
+      const [state, dispatch] = useReducer(reducer, seed);
+      current = state;
+      skipGuide = () => dispatch({ type: 'GUIDE_STEP', step: 99 });
+      return screenElement(state, 'focus', undefined, jest.fn(), jest.fn(), dispatch, {
+        guideStep: state.tutorial?.step,
+        setGuideStep: (step: number, expected: unknown) =>
+          dispatch({ type: 'GUIDE_STEP', step, expected }),
+        focus: { tutorialReward: request },
+      });
+    }
+    const screen = await render(<Flow />);
+    expect(request).toHaveBeenCalledWith('s-me');
+    expect(current.tutorial?.step).toBe(11);
+    if (skip) await act(async () => skipGuide());
+    await act(async () => resolve({ status: 'granted' }));
+    if (!skip) {
+      expect(screen.getByTestId('golden-self', { includeHiddenElements: true }).props.motion).toBe(
+        'reel',
+      );
+      expect(current.tutorial?.step).toBe(11);
+    }
+    await act(async () => jest.advanceTimersByTime(2100));
+    expect(current.tutorial?.step).toBe(skip ? 99 : 12);
+    if (!skip) expect(screen.getByText(/첫 물고기를 낚았어!/)).toBeTruthy();
+    await screen.unmount();
+    jest.useRealTimers();
+  },
+);
 
 const screenElement = (
   state: State,

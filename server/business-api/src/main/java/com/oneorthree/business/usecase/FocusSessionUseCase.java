@@ -64,6 +64,18 @@ public class FocusSessionUseCase {
 
     private final DataFocusClient data;
 
+    public TutorialRewardView claimTutorialReward(AccessTokenClaims claims, UUID sessionId, Deadline deadline) {
+        var reward = relay(() -> data.claimTutorialReward(claims.userId(), sessionId, deadline));
+        if (reward == null || !sessionId.equals(reward.sessionId()) || reward.status() == null
+                || !List.of("granted", "pending", "unavailable").contains(reward.status())) {
+            throw new UpstreamContractMismatchException("최초 낚시 보상 응답이 올바르지 않습니다");
+        }
+        return new TutorialRewardView(reward.sessionId(), reward.status());
+    }
+
+    public record TutorialRewardView(UUID sessionId, String status) {
+    }
+
     public StateView start(AccessTokenClaims claims, UUID islandId, String subject, Integer targetMinutes,
             UUID key, Deadline deadline) {
         return StateView.from(relay(() -> data.startFocusSession(

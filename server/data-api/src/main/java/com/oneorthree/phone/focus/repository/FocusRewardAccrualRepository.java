@@ -33,10 +33,11 @@ public interface FocusRewardAccrualRepository extends JpaRepository<FocusRewardA
                             @Param("accruedOn") LocalDate accruedOn);
 
     /**
-     * 이 세션이 지금까지 적립한 총 마리 수 — finish 가 정산 행에 옮겨 적는 값이다(추가 지급은 없다).
+     * 일반 집중과 최초 낚시 보상 합 — finish 가 정산 행에 옮겨 적는 값이다(추가 지급은 없다).
      *
      * @return 합(한 번도 적립하지 못했으면 0)
      */
-    @Query("SELECT COALESCE(SUM(a.earnedFish), 0) FROM FocusRewardAccrual a WHERE a.sessionId = :sessionId")
+    @Query("SELECT COALESCE(SUM(a.earnedFish + a.tutorialFish), 0) "
+            + "FROM FocusRewardAccrual a WHERE a.sessionId = :sessionId")
     long sumEarnedFishOfSession(@Param("sessionId") UUID sessionId);
 }

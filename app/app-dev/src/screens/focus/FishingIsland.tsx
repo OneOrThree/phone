@@ -766,6 +766,8 @@ export function FishingActor({
   emote,
   reduce,
   goldenFishCount = 0,
+  tutorialFish = false,
+  caughtFish,
   goldenCatchToken,
   motion,
   catchVisible = true,
@@ -789,6 +791,10 @@ export function FishingActor({
   reduce: boolean;
   /** 황금 물고기 사건에 참여한 고양이의 더미에 남긴다. */
   goldenFishCount?: number;
+  /** 서버 지급이 확인된 첫 낚시 보상. 경과 시간을 가짜로 늘리지 않고 더미에만 더한다. */
+  tutorialFish?: boolean;
+  /** 종료 결과에서는 경과 시간으로 추정하지 않고 정산된 마리 수를 쓴다. */
+  caughtFish?: number;
   /** 사건마다 한 번만 성공 알림 reel 모션을 시작하는 멱등 토큰. */
   goldenCatchToken?: string | null;
   motion?: CatMotionInput;
@@ -806,7 +812,7 @@ export function FishingActor({
 }) {
   const [reeling, setReeling] = useState(false),
     [goldenReeling, setGoldenReeling] = useState(false);
-  const count = Math.floor(seconds / SECONDS_PER_FISH),
+  const count = caughtFish ?? Math.floor(seconds / SECONDS_PER_FISH) + (tutorialFish ? 1 : 0),
     last = useRef(count),
     // 이미 표시된 더미를 가진 채 재마운트되면 기존 사건을 새 당첨으로 재생하지 않는다.
     lastGoldenCatch = useRef<string | null>(goldenCatchToken ?? null);
