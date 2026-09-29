@@ -1048,7 +1048,7 @@ test('내 뗏목의 메인 섬 id가 멤버십에 없으면 현재 섬 이름을
   );
   withCurrent.getByLabelText('현재 내 메인 섬 현재섬');
   assert.equal(withCurrent.queryByText('소다 섬'), null);
-  cleanup();
+  await cleanup();
 
   const withoutCurrent = await render(
     <Harness route="boat" initial={build(null)} api={() => ({})} friendsScreen={friendsScreen} />,
