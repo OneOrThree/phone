@@ -1186,7 +1186,9 @@ function FocusFlow({ e }: any) {
     // completed 브로드캐스트가 먼저 도착해도 강퇴로 오인하지 않는다.
     finishInFlightRef = useRef(false),
     // finish() 응답 전에 도착해 무시한 내 종료 이벤트 — finish()가 실패하면 그 이벤트를 뒤늦게 처리한다.
-    suppressedEndRef = useRef(false);
+    suppressedEndRef = useRef(false),
+    // 내가 종료를 요청한 세션 id — 응답이 끝난 뒤 늦게 도착하는 같은 세션의 완료 이벤트를 강퇴로 오인하지 않는다.
+    endedByMeSessionIdRef = useRef<string | null>(null);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
   // 목업(review/demo·비로그인)은 e.islands 가 없어 로컬 경로 그대로다.
@@ -1432,6 +1434,7 @@ function FocusFlow({ e }: any) {
       // 먼저 끝난 요청이 다른 요청의 플래그까지 내리지 않게 한다.
       if (finishInFlightRef.current) return;
       const session = s.session;
+      endedByMeSessionIdRef.current = session?.id ?? null;
       finishInFlightRef.current = true;
       suppressedEndRef.current = false;
       e.focus
@@ -1539,7 +1542,7 @@ function FocusFlow({ e }: any) {
     ) {
       if (finishInFlightRef.current) {
         suppressedEndRef.current = true;
-      } else {
+      } else if (transition.previous.sessionId !== endedByMeSessionIdRef.current) {
         leaveAfterServerEnd();
         return;
       }

@@ -261,3 +261,20 @@ test('종료 확인을 연달아 눌러도 finish()는 한 번만 부른다', as
 
   assert.equal(finish.mock.calls.length, 1);
 });
+
+test('내가 종료한 세션의 완료 이벤트가 finish() 응답 뒤에 늦게 와도 강퇴로 취급하지 않는다', async () => {
+  const finish = jest.fn(() => Promise.resolve());
+  const { screen, notify, home, reset } = await mount(serverFocusState(), { focus: { finish } });
+
+  await fireEvent.press(screen.getByTestId('end-focus'));
+  await fireEvent.press(screen.getByTestId('confirm-finish'));
+  await act(async () => {});
+  assert.equal(reset.mock.calls[0]?.[0], 'focusResult');
+
+  onTransition!(kickedTransition());
+
+  assert.ok(
+    !notify.mock.calls.some((call) => call[0] === '집중이 종료됐어요. 섬 소속을 확인해 주세요.'),
+  );
+  assert.equal(home.mock.calls.length, 0);
+});
