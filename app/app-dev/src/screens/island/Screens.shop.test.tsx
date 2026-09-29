@@ -159,11 +159,10 @@ test('서버 불통(CLIENT_NETWORK_ERROR) 구매 실패는 사용자에게 실�
 
   assert.equal(mockShopApi.buy.mock.calls.length, 1);
   assert.ok(
-    notify.mock.calls.some(
-      (call) => call[0] === '네트워크에 연결할 수 없어요. 연결을 확인해 주세요.',
-    ),
-    `notify가 실패 문구로 불려야 한다 — 실제 호출: ${JSON.stringify(notify.mock.calls)}`,
+    screen.getByText('네트워크에 연결할 수 없어요. 연결을 확인해 주세요.'),
+    '실패 문구가 상품 시트 안에 보여야 한다',
   );
+  assert.equal(notify.mock.calls.length, 0, '같은 화면에서는 전역 알림과 중복해 알리지 않는다');
 });
 
 test('타임아웃(CLIENT_TIMEOUT) 구매 실패도 사용자에게 실패 문구를 보여준다', async () => {
@@ -179,12 +178,10 @@ test('타임아웃(CLIENT_TIMEOUT) 구매 실패도 사용자에게 실패 문�
     await fireEvent.press(screen.getByText('20마리로 구매'));
   });
 
-  assert.ok(
-    notify.mock.calls.some((call) => call[0] === '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.'),
-  );
+  assert.ok(screen.getByText('서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.'));
 });
 
-test('구매 실패 문구는 전역 notify 뿐 아니라 상품 시트 안(sheetToast)에도 보여야 한다', async () => {
+test('구매 실패 문구는 전역 토스트에 가려질 수 있어 상품 시트 안(sheetToast)에 보여야 한다', async () => {
   // 전역 알림(App.tsx 의 토스트)은 이 화면 하네스에는 렌더링되지 않는다 — 실사용에서는 그
   // 전역 토스트가 키보드·모달 뒤에 가려질 수 있어, 시트 안에서도 같은 문구가
   // 보여야 실패를 알 수 있다. notify 만 불리고 화면에 아무 문구도 뜨지 않으면 이 테스트가 잡는다.
@@ -203,5 +200,25 @@ test('구매 실패 문구는 전역 notify 뿐 아니라 상품 시트 안(shee
   assert.ok(
     screen.getByText('네트워크에 연결할 수 없어요. 연결을 확인해 주세요.'),
     '구매 실패 문구가 상품 시트 안(sheetToast)에도 렌더링돼야 한다',
+  );
+});
+
+test('구매 응답 전에 다른 화면으로 옮기면 시트 토스트 대신 전역 알림으로 알린다', async () => {
+  let reject: (e: unknown) => void = () => {};
+  mockShopApi.buy = jest.fn(() => new Promise((_, rej) => (reject = rej)));
+  const notify = jest.fn();
+  const screen = await render(<Harness route="product" detail="scarf" notify={notify} />);
+
+  await act(async () => {
+    await fireEvent.press(screen.getByText('20마리로 구매'));
+  });
+  await screen.rerender(<Harness route="shop" notify={notify} />);
+  await act(async () => {
+    reject(new ApiError('CLIENT_TIMEOUT', '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.', 0));
+  });
+
+  assert.equal(screen.queryByText('서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.'), null);
+  assert.ok(
+    notify.mock.calls.some((call) => call[0] === '서버 응답이 늦어요. 잠시 후 다시 시도해 주세요.'),
   );
 });

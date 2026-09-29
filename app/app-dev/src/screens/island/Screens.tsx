@@ -1108,13 +1108,18 @@ export function RedesignScreens({ e }: any) {
       },
     );
   // 섬 구경 시트의 가입 신청 알림(시트 위 토스트 한 줄)
-  const [sheetToast, setSheetToast] = useState('');
+  const [sheetToast, setSheetToast] = useState(''),
+    // 같은 문구가 다시 와도 토스트 시간을 새로 시작하도록 발생 횟수를 함께 둔다.
+    [sheetToastSeq, setSheetToastSeq] = useState(0);
   useEffect(() => {
     if (!sheetToast) return;
     const t = setTimeout(() => setSheetToast(''), 2400);
     return () => clearTimeout(t);
-  }, [sheetToast]);
+  }, [sheetToast, sheetToastSeq]);
   useEffect(() => setSheetToast(''), [route]);
+  // 비동기 결과가 도착했을 때 사용자가 아직 그 상품 화면에 있는지 확인하는 용도
+  const productViewRef = useRef('');
+  productViewRef.current = `${route}|${detail}`;
   // 나만 미리듣기가 곡 끝까지 재생되면 버튼을 다시 재생 모양으로
   useEffect(() => {
     if (!previewAudio) return;
@@ -4968,16 +4973,21 @@ export function RedesignScreens({ e }: any) {
         () => {
           if (server) {
             // 응답 + 지갑·인벤토리·내역 재조회가 끝날 때만 성공 토스트 — 실패·응답 유실에는 붙지 않는다.
+            const startedView = productViewRef.current;
             shopApi
               .buy({ id: p.id, productVersion: sp!.productVersion })
               .then(() => setSheetToast('구매했어요.'))
               .catch((thrown) => {
                 const m = serverErrorText(thrown);
-                // 전역 알림(notify)만으로는 이 상품 상세 시트 위에서 가려질 수 있어
-                // 시트 안 토스트(sheetToast)로도 같은 실패 문구를 보여준다(GROMO-2170).
-                if (m) {
-                  notify(m);
+                if (!m) return;
+                // 전역 알림(notify)은 이 상품 상세 시트 위에서 가려질 수 있어, 아직 같은 상품
+                // 화면에 있으면 시트 안 토스트로 알린다(스크린리더도 한 채널만 읽는다). 그 사이
+                // 다른 화면으로 옮겼다면 시트 토스트를 남의 화면에 띄우지 않고 전역 알림으로 알린다.
+                if (productViewRef.current === startedView) {
                   setSheetToast(m);
+                  setSheetToastSeq((n) => n + 1);
+                } else {
+                  notify(m);
                 }
               });
             return;
