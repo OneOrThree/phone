@@ -793,7 +793,11 @@ export function RedesignScreens({ e }: any) {
     } | null>(null);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null);
+    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
+    routeNowRef = useRef(route);
+  routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
@@ -1391,8 +1395,34 @@ export function RedesignScreens({ e }: any) {
         cta={
           <Btn
             title="내 고양이와 시작"
-            disabled={!state.name.trim()}
-            onPress={() => go('chooseIsland')}
+            disabled={!state.name.trim() || serverBusy}
+            onPress={() => {
+              if (!server) {
+                // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
+                go('chooseIsland');
+                return;
+              }
+              // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
+              // 여기서 저장하지 않으면 이번 세션은 로컬 state.onboarded만으로 홈에 들어가지만,
+              // 재실행 복구(restoredRoute)는 서버 값을 정본으로 봐서 이 화면으로 되돌아간다.
+              const name = state.name.trim();
+              const signature = JSON.stringify([name, state.color]);
+              if (characterSaveIntent.current?.signature !== signature)
+                characterSaveIntent.current = { signature, key: uuid() };
+              const intent = characterSaveIntent.current;
+              run(() =>
+                updateProfile({ name, catColor: state.color }, intent.key).then((saved) => {
+                  if (characterSaveIntent.current?.key === intent.key)
+                    characterSaveIntent.current = null;
+                  act('PROFILE', {
+                    name: saved.name ?? name,
+                    color: saved.catColor ?? state.color,
+                  });
+                  // 저장이 늦어 그 사이 뒤로 가기 등으로 화면을 떠났다면 다시 끌어오지 않는다
+                  if (routeNowRef.current === 'character') go('chooseIsland');
+                }),
+              );
+            }}
           />
         }
       >
@@ -1407,16 +1437,28 @@ export function RedesignScreens({ e }: any) {
             </View>
           </View>
         )}
+        {serverError ? (
+          <Txt kind="meta" style={[META, { color: C.danger }]}>
+            {serverError}
+          </Txt>
+        ) : null}
         <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>어떤 고양이로 시작할까요?</Txt>
         <AvatarGrid
           six={layout.compact}
           value={state.color}
-          onChange={(color: Color) => act('PROFILE', { color })}
+          disabled={serverBusy}
+          // 저장 요청이 오가는 동안은 입력을 잠가, 응답이 화면의 새 값을 되돌리지 않게 한다
+          onChange={(color: Color) => {
+            if (!serverBusy) act('PROFILE', { color });
+          }}
         />
         <Field
           label="닉네임"
           value={state.name}
-          onChange={(name: string) => act('PROFILE', { name })}
+          disabled={serverBusy}
+          onChange={(name: string) => {
+            if (!serverBusy) act('PROFILE', { name });
+          }}
           inputStyle={INP}
         />
       </Onboard>
