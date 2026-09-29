@@ -3,6 +3,8 @@ package com.oneorthree.notification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -177,6 +179,29 @@ class DispatchExpiryTest {
         store.update("UPDATE kinds SET quiet_policy='DEFER' WHERE id='LEAGUE_FINAL_DEADLINE'");
         store.update("INSERT INTO settings(user_id,night_mode_enabled,night_start_time,night_end_time)"
                 + " VALUES(?,true,'12:00','14:00')", USER);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    @DisplayName("전송 중 만료 여부와 무관하게 받은 알림은 한 번만 완료하고 임대와 재시도 사유를 지운다")
+    void sentDeliverySettlesOnceEvenWhenExpiryPassesDuringSend(boolean expiresDuringSend) {
+        timed("deadline", "LEAGUE_FINAL_DEADLINE", NOW.plusSeconds(30));
+        UUID id = delivery("deadline");
+        store.update("UPDATE deliveries SET last_error='FCM_RETRY' WHERE id=?", id);
+        Instant completedAt = expiresDuringSend ? NOW.plusSeconds(31) : NOW;
+        when(transport.send(anyString(), any(), anyBoolean(), anyString())).thenAnswer(invocation -> {
+            when(clock.instant()).thenReturn(completedAt);
+            return PushTransport.Result.SENT;
+        });
+
+        dispatch.dispatch(id);
+        dispatch.dispatch(id);
+
+        assertThat(store.one("SELECT status,attempts,last_error,lease_token,sent_at FROM deliveries WHERE id=?", id))
+                .containsEntry("status", "SENT").containsEntry("attempts", 1)
+                .containsEntry("last_error", null).containsEntry("lease_token", null)
+                .containsEntry("sent_at", java.sql.Timestamp.from(completedAt));
+        verify(transport, times(1)).send(anyString(), any(), anyBoolean(), anyString());
     }
 
     private void timed(String id, String kind, Instant expiresAt) {

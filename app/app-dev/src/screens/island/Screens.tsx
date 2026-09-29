@@ -1,4 +1,4 @@
-import { GuideBox, MailboxGuide } from '@/screens/island/NpcGuide';
+import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
@@ -22,10 +22,12 @@ import {
   State,
   Friend,
   shouldShowMailboxGuide,
+  shouldShowShopGuide,
   Building,
   Color,
   currentIsland,
   mainIsland,
+  serverHome,
   isHost,
   sessionSeconds,
   questRate,
@@ -47,23 +49,27 @@ import {
   findIslandByInviteCode,
   balance,
   dayKey,
-  kstDayStart,
   kstMonthDay,
   kstHourMinute,
+  trackNames,
 } from '@/services/model';
 import { useAppLayout } from '@/utils/layout';
-import { ApiError } from '@/services/api/client';
+import { semanticTokens } from '@/design-system/tokens';
+import { ApiError, uuid } from '@/services/api/client';
+import { updateProfile, withdrawAccount } from '@/services/api/account';
 import type { IslandSummary } from '@/services/api/islands';
 import type { RequestStatusEntry } from '@/services/model';
 import { FinalIsland as IslandHome } from '@/screens/island/WorldMap';
+import { CatSprite } from '@/components/CatSprite';
 import { FocusSea, clock } from '@/screens/focus/FocusSea';
 import { RestWorld, Sailing } from '@/screens/world/WorldViews';
 import { assets } from '@/constants/assets';
+import { BUNDLED_AUDIO_TRACK_IDS, hasBundledAudio } from '@/constants/audio';
 import { Scarf, Flag } from '@/screens/cosmetics/Cosmetics';
 import { useScreenInsets } from '@/design-system/primitives';
 import { screenTime } from '@/services/screenTime';
 import ScreenTimeReportView from '@/components/ScreenTimeReportView';
-import { primitiveTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import {
   art,
   C,
@@ -107,7 +113,6 @@ import {
   SearchField,
 } from '@/screens/island/IslandSheet';
 import { useIslandRankings } from '@/screens/island/useIslandRankings';
-import { useFocusSummary } from '@/screens/island/useFocusSummary';
 import { useShop } from '@/screens/island/useShop';
 import type { FriendsScreenState } from '@/screens/island/useFriendsScreen';
 import {
@@ -118,12 +123,9 @@ import {
   rejectFriendRequest,
   sendFriendRequest,
 } from '@/services/api/friends';
-const names: Record<string, string> = {
-  waves: '잔잔한 파도',
-  campfire: '모닥불 소리',
-  'forest-wind': '숲바람',
-  rain: '오두막의 빗소리',
-};
+import { UserSafetySheet } from '@/components/UserSafetySheet';
+import { PolicyLink } from '@/components/PolicyLink';
+import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 // 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
 const shopUiKind = (kind: string) =>
   kind === 'island_theme'
@@ -157,8 +159,6 @@ const buildingArt: Record<string, string> = {
   shop: 'shop',
 };
 const pad = (n: number) => String(n).padStart(2, '0');
-const hhmmss = (n: number) =>
-  `${pad(Math.floor(n / 3600))}:${pad(Math.floor(n / 60) % 60)}:${pad(Math.floor(n) % 60)}`;
 // 날짜 "M/D"와 시각 "HH:MM"(Asia/Seoul)
 const md = kstMonthDay;
 const hm = kstHourMinute;
@@ -235,7 +235,7 @@ function Boat({ state, h = 260, scarf }: any) {
   );
 }
 // mini = 내 정보의 6칸 작은 그리드, six = 가로 온보딩의 6칸 한 줄. v2 avgrid: 3열(세로)·6열 칸을 같은 폭으로 나눈다
-function AvatarGrid({ value, onChange, mini = false, six = false }: any) {
+function AvatarGrid({ value, onChange, mini = false, six = false, disabled = false }: any) {
   const per = mini || six ? 6 : 3,
     gap = mini ? 6 : six ? 8 : 10,
     size = mini ? 11 : six ? 12 : 13,
@@ -258,6 +258,7 @@ function AvatarGrid({ value, onChange, mini = false, six = false }: any) {
                   accessibilityRole="button"
                   accessibilityLabel={colorNames[colors.indexOf(c)]}
                   accessibilityState={{ selected: on }}
+                  disabled={disabled}
                   key={c}
                   onPress={() => onChange(c)}
                   style={{
@@ -391,12 +392,36 @@ function Spinner({ reduce }: { reduce: boolean }) {
 // v2 온보딩 페이지: 헤더(.hdr) · 스크롤(.scroll) · 아래 고정 CTA(.ctabar, 그라데이션으로 스크롤 위에 겹침).
 // 가로 폰은 왼쪽 330px 그림 칸(.lsplit .lleft) + 오른쪽 페이지(다이내믹 아일랜드 자리 56px 비움).
 // 작은 가로 폰(667 폭 등)은 그림 칸을 폭의 38%로 줄이고 오른쪽 여백은 20px(안전 영역이 더 크면 그만큼)
-function Onboard({ title, back, left, leftBg = C.sky, cta, children }: any) {
+function Onboard({
+  title,
+  back,
+  left,
+  leftBg = C.sky,
+  cta,
+  hideCtaOnKeyboard = false,
+  children,
+}: any) {
   const layout = useAppLayout(),
     ins = useScreenInsets(),
     land = layout.compact,
     gutter = land ? 22 : 20,
-    [ctaHeight, setCtaHeight] = useState(0);
+    [ctaHeight, setCtaHeight] = useState(0),
+    [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    if (!hideCtaOnKeyboard) return;
+    // 키보드 애니메이션이 끝나기 전에 CTA를 제거해 첫 포커스 탭과 입력 칸을 가리지 않는다.
+    const show = Keyboard.addListener('keyboardWillShow', () => setKeyboardVisible(true));
+    const didShow =
+      Platform.OS === 'ios'
+        ? undefined
+        : Keyboard.addListener('keyboardDidShow', () => setKeyboardVisible(true));
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardVisible(false));
+    return () => {
+      show.remove();
+      didShow?.remove();
+      hide.remove();
+    };
+  }, [hideCtaOnKeyboard]);
   const page = (
     <View
       style={{
@@ -444,17 +469,23 @@ function Onboard({ title, back, left, leftBg = C.sky, cta, children }: any) {
       <ScrollView
         style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={hideCtaOnKeyboard}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{
           paddingHorizontal: gutter,
           paddingTop: land ? 6 : 16,
-          paddingBottom: cta ? Math.max(land ? 92 : 120, ctaHeight) : land ? 28 : 48,
+          paddingBottom:
+            cta && !(hideCtaOnKeyboard && keyboardVisible)
+              ? Math.max(land ? 92 : 120, ctaHeight)
+              : land
+                ? 28
+                : 48,
           gap: land ? 12 : 14,
         }}
       >
         {children}
       </ScrollView>
-      {cta && (
+      {cta && !(hideCtaOnKeyboard && keyboardVisible) && (
         <View
           onLayout={(ev) => setCtaHeight(ev.nativeEvent.layout.height)}
           style={[
@@ -558,6 +589,13 @@ function PlayIcon({ pause = false, size = 18 }: any) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <Path d={pause ? 'M7 5h4v14H7zM13 5h4v14h-4z' : 'M8 5v14l11-7z'} fill={C.ink} />
+    </Svg>
+  );
+}
+function StopIcon({ size = 16 }: { size?: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <Path d="M6 6h12v12H6z" fill={C.ink} />
     </Svg>
   );
 }
@@ -737,12 +775,23 @@ export function RedesignScreens({ e }: any) {
     // ── 서버 온보딩(GROMO-2006). e.islands 가 있으면 실제 API 모드다 ──
     [serverBusy, setServerBusy] = useState(false),
     [serverError, setServerError] = useState(''),
+    [soundDialog, setSoundDialog] = useState<{
+      kind: 'confirm' | 'success' | 'error';
+      productId: string;
+      product: any;
+    } | null>(null),
     // 초대 코드 확인으로 받은 섬 미리보기 — 가입은 사용자가 카드를 보고 명시적으로 누른다
     [invitePick, setInvitePick] = useState<IslandSummary | null>(null),
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
-    [serverDone, setServerDone] = useState('');
+    [serverDone, setServerDone] = useState(''),
+    [safetyTarget, setSafetyTarget] = useState<{
+      id: string;
+      name: string;
+      onDelete?: () => void;
+    } | null>(null);
   const chat = useRef<ScrollView>(null),
-    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
+    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null);
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
@@ -757,8 +806,10 @@ export function RedesignScreens({ e }: any) {
     setHallGuideOpen(false);
     setDiscoveryPick(null);
     setServerError('');
+    setSoundDialog(null);
     setInvitePick(null);
     setServerDone('');
+    setSafetyTarget(null);
   }, [route]);
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
   // stale 세션의 늦은 응답(CLIENT_STALE_SESSION)은 문구 없이 버린다.
@@ -792,12 +843,10 @@ export function RedesignScreens({ e }: any) {
   const snap = state.serverIslands;
   // 전망대 주간 섬 랭킹(GROMO-2018) — 서버 모드이고 tower route 일 때만 조회한다
   const islandRankings = useIslandRankings({ active: route === 'tower' && !!server });
-  // 「오늘 집중」요약(GROMO-2018) — 서버 모드면 /me/focus-summary 가 정본이다
-  const focusSummary = useFocusSummary({ active: !!server });
   // 상점·주문·인벤토리·꾸미기 서버 계약(GROMO-2017) — 상점 계열 route 일 때만 읽는다.
   // 가격·권한·버전은 서버 응답이 정본이고, 로컬 products/owned/orders 는 목업 경로에서만 쓴다.
   const shopApi = useShop({
-    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound'].includes(route),
+    active: !!server && ['shop', 'product', 'orders', 'wardrobe', 'sound', 'focus'].includes(route),
     islandId: snap?.currentIslandId ?? null,
     route,
     category: tab === '우리 섬 꾸미기' ? 'island' : 'personal',
@@ -847,7 +896,17 @@ export function RedesignScreens({ e }: any) {
     detail
       ? reqList.find((r) => r.status === 'pending' && r.islandId === detail)
       : reqList.find((r) => r.status === 'pending');
-  // 서버 소속 확인 카드 — 생성·가입 성공과 재시작 복구에 공용. arrival은 열지 않는다
+  // 서버 current 가 정해졌을 때만 홈으로 들어간다(GROMO-2138) — 승인만 되고 current 가 null 이면
+  // 홈이 chooseIsland 로 되돌리므로 버튼을 띄우지 않는다. 홈은 서버 스냅샷을 직접 그린다
+  const enterHome = snap?.currentIslandId ? (
+    <Btn
+      id="enter-home"
+      title="섬으로 가기"
+      style={{ marginTop: 6 }}
+      onPress={() => reset('home')}
+    />
+  ) : null;
+  // 서버 소속 확인 카드 — 생성·가입 성공과 재시작 복구에 공용. arrival 연출은 건너뛰고 홈으로 간다
   const doneCard = (title: string, sub: string) => (
     <View
       style={{
@@ -864,6 +923,7 @@ export function RedesignScreens({ e }: any) {
       <Txt kind="meta" style={META}>
         {sub}
       </Txt>
+      {enterHome}
     </View>
   );
   // 섬 찾기·승인 대기 진입 시 첫 페이지와 pending 목록을 서버에서 가져온다(재실행 복구 포함).
@@ -905,6 +965,14 @@ export function RedesignScreens({ e }: any) {
       setKeyboardHeight(0);
     };
   }, [invite]);
+  useEffect(() => {
+    if (!soundDialog) return;
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      setSoundDialog(null);
+      return true;
+    });
+    return () => backSub.remove();
+  }, [soundDialog]);
   useEffect(() => {
     if (route !== 'profile') return;
     setProfileName(state.name);
@@ -949,8 +1017,12 @@ export function RedesignScreens({ e }: any) {
         state={state}
         go={go}
         build={build}
+        libraryState={e.buildingIndicators?.libraryState}
+        showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
         showHud={route !== 'focusSetup'}
         showActions={false}
+        motion={route === 'focusSetup' ? 'tilt' : undefined}
+        boardStatus={e.boardStatus}
       />
     </View>
   );
@@ -974,7 +1046,7 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       )}
       {/* v2 CTA 바: 가로 폰에서도 주 버튼 아래 고스트 버튼을 쌓는다 */}
-      <View style={{ gap: 8 }}>
+      <View style={{ gap: semanticTokens.spacing.control }}>
         <Btn title={primary} onPress={fn} disabled={disabled} />
         {ghost && <Btn title={ghost} onPress={gfn} kind="ghost" />}
       </View>
@@ -1082,7 +1154,11 @@ export function RedesignScreens({ e }: any) {
         accessibilityRole="checkbox"
         accessibilityState={{ checked: terms }}
         onPress={() => setTerms(!terms)}
-        style={[k.row, layout.compact ? { minHeight: 36, paddingVertical: 4 } : { minHeight: 40 }]}
+        style={[
+          k.row,
+          { minHeight: semanticTokens.size.tapMin },
+          layout.compact && { paddingVertical: semanticTokens.spacing.control },
+        ]}
       >
         <View
           style={{
@@ -1096,18 +1172,37 @@ export function RedesignScreens({ e }: any) {
         >
           {terms && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
-        <Txt kind="meta">이용약관과 개인정보 안내에 동의해요.</Txt>
+        <Txt kind="meta">
+          <PolicyLink policy="terms" />과 <PolicyLink policy="privacy" />에 동의해요.
+        </Txt>
       </Pressable>
     );
     const start = (
-      <Btn
-        title="GROMO 시작하기"
-        disabled={!terms}
-        onPress={() => {
-          act('LOGIN');
-          state.onboarded ? home() : go('character');
-        }}
-      />
+      <View style={{ gap: 8 }}>
+        {!!e.guestError && (
+          <Txt kind="meta" accessibilityLiveRegion="polite" style={{ color: C.ink }}>
+            {e.guestError}
+          </Txt>
+        )}
+        <Btn
+          title={
+            e.guestBusy
+              ? '게스트 계정을 여는 중…'
+              : e.startGuest
+                ? '게스트로 시작하기'
+                : 'GROMO 시작하기'
+          }
+          disabled={!terms || !!e.guestBusy}
+          onPress={() => {
+            if (e.startGuest) {
+              void e.startGuest();
+              return;
+            }
+            act('LOGIN');
+            state.onboarded ? home() : go('character');
+          }}
+        />
+      </View>
     );
     // v2 로고: 흰 글자 + 아래로 떨어지는 그림자
     const shade = {
@@ -1188,6 +1283,7 @@ export function RedesignScreens({ e }: any) {
               {'조금씩 집중하고,\n함께 자라요.'}
             </Txt>
             <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
+            {!!e.startGuest && <Txt kind="meta">게스트 계정으로 먼저 시작할 수 있어요.</Txt>}
             {agree}
             <View style={{ flex: 1 }} />
             {start}
@@ -1251,6 +1347,7 @@ export function RedesignScreens({ e }: any) {
               {'조금씩 집중하고,\n함께 자라요.'}
             </Txt>
             <Txt style={{ color: C.muted }}>나의 작은 배에서 시작하는 집중 습관.</Txt>
+            {!!e.startGuest && <Txt kind="meta">게스트 계정으로 먼저 시작할 수 있어요.</Txt>}
             {agree}
           </ScrollView>
           <View
@@ -1272,6 +1369,7 @@ export function RedesignScreens({ e }: any) {
       <Onboard
         title="내 고양이"
         back={back}
+        hideCtaOnKeyboard
         leftBg={C.soft}
         left={
           <View style={{ alignItems: 'center', gap: 6 }}>
@@ -1282,7 +1380,13 @@ export function RedesignScreens({ e }: any) {
             </Txt>
           </View>
         }
-        cta={<Btn title="내 고양이와 시작" onPress={() => go('chooseIsland')} />}
+        cta={
+          <Btn
+            title="내 고양이와 시작"
+            disabled={!state.name.trim()}
+            onPress={() => go('chooseIsland')}
+          />
+        }
       >
         {!layout.compact && (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 14, paddingVertical: 4 }}>
@@ -1666,12 +1770,13 @@ export function RedesignScreens({ e }: any) {
         }
       >
         {serverDone ? (
-          // 서버 current 확인 상태 — rich 섬 데이터가 없어 arrival 로는 이동하지 않는다
+          // 서버 current 확인 상태 — arrival 연출 없이 홈(서버 스냅샷)으로 들어간다
           <View style={{ gap: 6 }}>
             <Txt style={H22}>섬을 만들었어요</Txt>
             <Txt kind="meta" style={META}>
               {`「${serverDone}」이 내 섬이 됐어요.`}
             </Txt>
+            {enterHome}
           </View>
         ) : null}
         {serverError ? (
@@ -2194,6 +2299,28 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
   }
+  // 서버 모드 홈은 스냅샷이 올 때까지 로컬 목업 섬 대신 로딩·재시도를 보여 준다(GROMO-2138)
+  if (route === 'home' && server && !serverHome(state))
+    return (
+      <View
+        style={{
+          flex: 1,
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: semanticTokens.spacing.control,
+          padding: semanticTokens.spacing.page,
+        }}
+      >
+        {e.homeError ? (
+          <>
+            <Txt style={H17}>섬 정보를 불러오지 못했어요</Txt>
+            <Btn kind="ghost" id="home-retry" title="다시 시도" onPress={e.retryHome} />
+          </>
+        ) : (
+          <Spinner reduce={state.settings.reduceMotion} />
+        )}
+      </View>
+    );
   if (route === 'home') {
     // 20b: 첫 집중을 마치고 돌아온 섬에 회관이 없으면 한 번만 뜨는 안내
     const guideUserId = getSession()?.userId ?? 'local';
@@ -2220,10 +2347,14 @@ export function RedesignScreens({ e }: any) {
                   }
                 : undefined
             }
+            boardStatus={e.boardStatus}
+            libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
+            showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
           />
         )}
         {mailboxGuide && (
           <MailboxGuide
+            blocked={e.routeTransitionShielded}
             key={`${guideUserId}:${island.id}`}
             onDone={(openMailbox) => {
               dispatch({ type: 'MAILBOX_GUIDE_DONE', userId: guideUserId });
@@ -2256,7 +2387,19 @@ export function RedesignScreens({ e }: any) {
     return (
       <Overlay close={home} background={backgroundHome}>
         <View style={[k.row, { justifyContent: 'space-between' }]}>
-          <Txt kind="h">집중 준비</Txt>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <Txt kind="h">집중 준비</Txt>
+            <View style={{ width: 36, height: 36, position: 'relative' }}>
+              <View style={{ position: 'absolute', left: 18, top: 30 }}>
+                <CatSprite
+                  color={state.color}
+                  motion="tilt"
+                  size={36}
+                  reduce={state.settings.reduceMotion}
+                />
+              </View>
+            </View>
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="닫기"
@@ -2354,7 +2497,7 @@ export function RedesignScreens({ e }: any) {
         >
           <Pic id="gram" w={22} />
           <Txt style={{ fontSize: 12, fontWeight: '700' }}>
-            {island.playing ? names[island.track] : '음악 선택'}
+            {island.playing && island.track ? trackNames[island.track] : '음악 선택'}
           </Txt>
         </Pressable>
       )}
@@ -2453,309 +2596,496 @@ export function RedesignScreens({ e }: any) {
       />
     );
   if (route === 'sound') {
-    // 17(집중 중) = 바다 위 시트, 66(섬에서) = 축음기로 다가간 섬 위 시트 + 축음기 간판. 가로 폰은 오른쪽 540 패널
-    const scene = !!state.session,
-      panel = layout.compact;
-    // 오늘 = Asia/Seoul 기준 00시부터. 서버 모드면 /me/focus-summary 가 정본이고
-    // 아직 못 읽었을 땐 null 로 둬서 로컬 합산 0을 지어내지 않는다.
-    const startOfToday = kstDayStart(dayKey(now));
-    const today = server
-      ? (focusSummary.data?.totalSeconds ?? null)
-      : state.records.filter((r) => r.at >= startOfToday).reduce((a, r) => a + r.seconds, 0);
-    const card: any = panel
-      ? {
-          position: 'absolute',
-          top: 0,
-          bottom: 0,
-          right: 0,
-          width: Math.min(540 + ins.right, layout.width - ins.left - 80),
-          borderLeftWidth: 2,
-          borderTopLeftRadius: 30,
-          borderBottomLeftRadius: 30,
-          boxShadow: '-5px 0px 0px #8B695640',
-          paddingTop: ins.top + 14,
-          paddingLeft: 22,
-          paddingRight: 22 + ins.right,
-          paddingBottom: Math.max(22, ins.bottom),
-          gap: 8,
-        }
-      : layout.tablet
-        ? {
-            width: layout.modalWidth,
-            maxHeight: layout.height - ins.top - ins.bottom - 40,
-            borderWidth: 2,
-            borderRadius: 26,
-            boxShadow: '0px 6px 0px ' + C.brown,
-            padding: 20,
-            gap: 12,
+    const gramophone = componentTokens.gramophone;
+    const scene = !!state.session;
+    const audioProducts: any[] = server
+      ? shopApi.items
+      : products.filter((p) => p.kind === 'audio');
+    const localAudioIds = new Set<string>(BUNDLED_AUDIO_TRACK_IDS);
+    const serverAudioLoaded = !!shopApi.shared;
+    const ownedTrackIds = (serverAudioLoaded ? shopApi.shared!.audio : island.sharedOwned).filter(
+      hasBundledAudio,
+    );
+    const trackLabel = (id: string) => trackNames[id] ?? shopApi.titles[id] ?? id;
+    const hasOwnedTracks = ownedTrackIds.length > 0;
+    const currentTrack = typeof island.track === 'string' ? island.track : null;
+    const serverPlaybackReady = !server || !!e.playback?.state;
+    const hasCurrentTrack =
+      serverPlaybackReady && currentTrack !== null && ownedTrackIds.includes(currentTrack);
+    const trackIds = scene
+      ? ownedTrackIds
+      : [
+          ...ownedTrackIds,
+          ...audioProducts.map((p) => p.id).filter((id) => !ownedTrackIds.includes(id)),
+        ];
+    const largeText = (layout.fontScale ?? 1) >= gramophone.largeTextThreshold;
+    const dialogProduct = soundDialog?.product;
+    const changePlayback = async (patch: { trackId?: string; playing?: boolean }) => {
+      if (!server) {
+        if (patch.trackId) setTrack(patch.trackId);
+        else if (patch.playing !== undefined) act('PLAY', { value: patch.playing });
+        return true;
+      }
+      try {
+        await e.playback.update(patch);
+        return true;
+      } catch (thrown) {
+        if (e.conversion?.offer(thrown)) return false;
+        notify(serverErrorText(thrown) || '재생 상태를 바꾸지 못했어요. 다시 시도해 주세요.');
+        return false;
+      }
+    };
+    const selectTrack = (id: string) => {
+      if (ownedTrackIds.includes(id)) changePlayback({ trackId: id, playing: true });
+      else {
+        const product = audioProducts.find((item) => item.id === id);
+        if (
+          !localAudioIds.has(id) ||
+          (server && (product?.available === false || product?.price == null))
+        )
+          return;
+        if (product) setSoundDialog({ kind: 'confirm', productId: id, product });
+      }
+    };
+    const buyTrack = async () => {
+      if (!dialogProduct) return;
+      if (server) {
+        try {
+          await shopApi.buy(dialogProduct);
+          setSoundDialog({ kind: 'success', productId: dialogProduct.id, product: dialogProduct });
+        } catch (thrown) {
+          if (e.conversion?.offer(thrown)) setSoundDialog(null);
+          else if (thrown instanceof ApiError && thrown.code === 'INSUFFICIENT_FUNDS')
+            setSoundDialog({ kind: 'error', productId: dialogProduct.id, product: dialogProduct });
+          else {
+            setSoundDialog(null);
+            notify(
+              thrown instanceof ApiError && thrown.message
+                ? thrown.message
+                : '구매하지 못했어요. 다시 시도해 주세요.',
+            );
           }
-        : {
-            position: 'absolute',
-            left: 0,
-            right: 0,
-            bottom: 0,
-            maxHeight: layout.height - ins.top - 60,
-            borderTopWidth: 2,
-            borderTopLeftRadius: 26,
-            borderTopRightRadius: 26,
-            paddingTop: 10,
-            paddingHorizontal: 20,
-            paddingBottom: ins.bottom + 12,
-            gap: 12,
-          };
-    const gap = panel ? 8 : 12;
-    // 판매 음원: 주민 누구나 섬 물고기로 산다. 누르면 미리듣기·구매 화면
-    const sale = server ? shopApi.items.map(shopCard) : products.filter((p) => p.kind === 'audio');
+        }
+        return;
+      }
+      if (canBuy(state, dialogProduct)) {
+        setSoundDialog({ kind: 'error', productId: dialogProduct.id, product: dialogProduct });
+        return;
+      }
+      act('BUY', { id: dialogProduct.id });
+      setSoundDialog({ kind: 'success', productId: dialogProduct.id, product: dialogProduct });
+    };
+    const bottomWidth = Math.min(gramophone.panelWidth, layout.width - ins.left - ins.right - 36);
+    const panelWidth = layout.compact
+      ? Math.min(gramophone.compactPanelWidth, layout.width - ins.left - ins.right - 36)
+      : bottomWidth;
+    const panelHeight = layout.compact ? gramophone.compactPanelHeight : gramophone.panelHeight;
+    const contentHeight = layout.compact
+      ? gramophone.compactContentHeight
+      : gramophone.contentHeight;
     return (
-      <View style={{ flex: 1 }}>
+      <View style={{ flex: 1, backgroundColor: C.paper }}>
         <View
-          pointerEvents="none"
-          accessibilityElementsHidden
-          importantForAccessibility="no-hide-descendants"
-          aria-hidden={true}
+          testID="sound-background-content"
           style={StyleSheet.absoluteFill}
+          pointerEvents={soundDialog ? 'none' : 'auto'}
+          accessibilityElementsHidden={!!soundDialog}
+          importantForAccessibility={soundDialog ? 'no-hide-descendants' : 'auto'}
         >
-          {scene ? (
-            focusScene
-          ) : (
-            <>
-              <Pic id={(panel ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
-              {!panel && today != null && (
-                <View
-                  style={{
-                    position: 'absolute',
-                    left: 20 + ins.left,
-                    top: 12 + ins.top,
-                    minWidth: 210,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    gap: 10,
-                    paddingLeft: 14,
-                    paddingRight: 16,
-                    paddingVertical: 6,
-                    borderRadius: 999,
-                    backgroundColor: '#FFFDFAB3',
-                  }}
-                >
-                  <Txt
-                    style={{ fontSize: 12, lineHeight: 17.4, fontWeight: '600', color: C.muted }}
-                  >
-                    오늘 집중
-                  </Txt>
-                  <Txt
-                    style={{
-                      marginLeft: 'auto',
-                      fontSize: 22,
-                      lineHeight: 31.9,
-                      fontWeight: '700',
-                      fontVariant: ['tabular-nums'],
-                    }}
-                  >
-                    {hhmmss(today)}
-                  </Txt>
-                </View>
-              )}
-            </>
-          )}
-        </View>
-        <Pressable
-          accessible={false}
-          importantForAccessibility="no-hide-descendants"
-          onPress={back}
-          style={[StyleSheet.absoluteFill, { backgroundColor: scene ? '#493B3940' : '#493B3938' }]}
-        />
-        <View
-          pointerEvents="box-none"
-          style={[
-            StyleSheet.absoluteFill,
-            layout.tablet && { alignItems: 'center', justifyContent: 'center' },
-          ]}
-        >
-          <View style={[{ backgroundColor: C.paper, borderColor: C.brown }, card]}>
-            {!panel && !layout.tablet && (
-              <View
-                style={{
-                  width: 40,
-                  height: 5,
-                  borderRadius: 3,
-                  backgroundColor: '#D9C6B8',
-                  alignSelf: 'center',
-                  marginBottom: 4,
-                }}
-              />
+          <View
+            pointerEvents="none"
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            aria-hidden={true}
+            style={StyleSheet.absoluteFill}
+          >
+            {scene ? (
+              focusScene
+            ) : (
+              <Pic id={(layout.compact ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
             )}
-            {!scene && (
-              <View
-                style={{
-                  position: 'absolute',
-                  zIndex: 1,
-                  left: panel ? -62 : 18,
-                  top: panel ? 14 : -36,
-                  width: panel ? 76 : 92,
-                  height: panel ? 76 : 92,
-                  borderRadius: 46,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  backgroundColor: C.paper,
-                  boxShadow: '0px 4px 0px ' + C.brown,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  overflow: 'hidden',
-                }}
-              >
-                <Pic id="bld/gramophone" w={panel ? 58 : 72} />
-              </View>
-            )}
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={scene ? '집중으로 돌아가기' : '섬으로 돌아가기'}
+            onPress={back}
+            style={{
+              position: 'absolute',
+              left: 20 + ins.left,
+              top: 16 + ins.top,
+              width: gramophone.touchMin,
+              height: gramophone.touchMin,
+              borderRadius: gramophone.touchMin / 2,
+              borderWidth: 1.5,
+              borderColor: C.brown,
+              backgroundColor: C.paper,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            <Txt tabletScale={1} style={{ fontSize: 28, lineHeight: 31 }}>
+              ‹
+            </Txt>
+          </Pressable>
+          {!scene && (
             <View
               style={[
-                k.row,
+                gradient(
+                  `linear-gradient(90deg, ${gramophone.signStart}, ${gramophone.signCenter} 50%, ${gramophone.signEnd})`,
+                ),
                 {
-                  justifyContent: 'space-between',
-                  minHeight: panel ? 40 : 44,
-                  paddingLeft: panel ? 8 : scene ? 0 : 100,
+                  position: 'absolute',
+                  top: 20 + ins.top,
+                  alignSelf: 'center',
+                  minWidth: 124,
+                  height: 40,
+                  borderWidth: 1.5,
+                  borderColor: gramophone.woodBorder,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: gramophone.signShadow,
                 },
               ]}
             >
-              <Txt style={st.h17}>축음기</Txt>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={island.playing ? '일시정지' : '재생'}
-                onPress={() => act('PLAY', { value: !island.playing })}
-                style={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 22,
-                  borderWidth: 2,
-                  borderColor: C.brown,
-                  backgroundColor: C.pink,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  boxShadow: '0px 3px 0px ' + C.brown,
-                }}
+              <Txt
+                tabletScale={1}
+                style={{ color: gramophone.signForeground, fontSize: 17, lineHeight: 24 }}
               >
-                <PlayIcon pause={island.playing} />
-              </Pressable>
+                축음기
+              </Txt>
             </View>
-            <ScrollView
-              style={{ flexGrow: 0, flexShrink: 1 }}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              // 가로 패널: 왼쪽 열 보유 음원 · 오른쪽 열 음원 사기
-              contentContainerStyle={panel ? { flexDirection: 'row', gap: 16 } : { gap }}
-            >
-              <View style={{ flex: panel ? 1 : undefined, minWidth: 0, gap }}>
-                {/* 두 문장은 각각 한 줄로 두고, 좁으면 문장 단위로 줄을 바꾼다(웹 Text는 끝 공백을 남긴다) */}
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                  <Txt kind="meta" style={st.meta}>
-                    {'주민 누구나 바꿀 수 있어요 · '}
-                  </Txt>
-                  <Txt kind="meta" style={st.meta}>
-                    같은 섬이 함께 들어요
-                  </Txt>
-                </View>
-                {island.buildings.includes('gram') ? (
-                  <>
-                    <SheetGroup flat>
-                      {(server
-                        ? (shopApi.shared?.audio ?? [])
-                        : island.sharedOwned.filter((x) => names[x])
-                      ).map((id) => (
-                        <SheetRow
-                          key={id}
-                          dense={panel}
-                          title={server ? (names[id] ?? productTitle(id)) : names[id]}
-                          lead={<MiniRadio on={island.track === id} />}
-                          tone={island.track === id ? 'on' : undefined}
-                          right={
-                            island.track === id && island.playing ? (
-                              <View style={[k.row, { gap: 6 }]}>
-                                <Eq />
-                                <Txt style={{ fontSize: 15, lineHeight: 21.75, color: C.muted }}>
-                                  재생 중
-                                </Txt>
-                              </View>
-                            ) : undefined
-                          }
-                          onPress={() => setTrack(id)}
-                        />
-                      ))}
-                    </SheetGroup>
-                    <Txt kind="section" style={st.sec}>
-                      내 기기 음량
-                    </Txt>
-                    <Volume
-                      dense={panel}
-                      value={(state.settings as any).volume ?? 0.55}
-                      onChange={(value: number) => act('SETTING', { key: 'volume', value })}
-                    />
-                    <View style={[k.row, { minHeight: 44, paddingVertical: 6 }]}>
-                      <View style={{ flex: 1, gap: 2 }}>
-                        <Txt style={{ fontSize: 16, lineHeight: 20.8, fontWeight: '600' }}>
-                          나만 음소거
-                        </Txt>
-                        <Txt kind="meta" style={{ lineHeight: 17.55 }}>
-                          섬 재생은 그대로, 내 기기만 꺼요
-                        </Txt>
-                      </View>
-                      <Toggle
-                        label="나만 음소거"
-                        value={!state.settings.sound}
-                        onChange={(v: boolean) => act('SETTING', { key: 'sound', value: !v })}
-                      />
-                    </View>
-                  </>
-                ) : (
-                  <>
-                    <Txt>축음기를 먼저 지어 주세요.</Txt>
-                    <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
-                  </>
-                )}
-              </View>
-              {!scene && island.buildings.includes('gram') && (
-                <View style={{ flex: panel ? 1 : undefined, minWidth: 0, gap }}>
-                  <View style={[k.row, { justifyContent: 'space-between' }]}>
-                    <Txt kind="section" style={[st.sec, { marginTop: 0 }]}>
-                      음원 사기
-                    </Txt>
-                    <Txt kind="meta" style={st.meta}>
-                      주민 누구나 섬 물고기로
-                    </Txt>
-                  </View>
-                  <SheetGroup flat>
-                    {sale.map((p) => (
-                      <SheetRow
-                        key={p.id}
-                        dense={panel}
-                        title={p.title}
-                        sub={owned(p) ? '보유 중' : p.price == null ? '준비 중' : `${p.price}마리`}
-                        lead={
-                          <View
-                            style={{
-                              width: 36,
-                              height: 36,
-                              // 시안 .icobtn.sec에 .sec 여백이 겹쳐 들어가 행이 6px 높다
-                              marginTop: 6,
-                              borderRadius: 18,
-                              borderWidth: 2,
-                              borderColor: C.brown,
-                              backgroundColor: C.paper,
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                            }}
-                          >
-                            <PlayIcon />
-                          </View>
-                        }
-                        chevron
-                        onPress={() => go('product', p.id)}
+          )}
+          <View
+            style={{
+              position: 'absolute',
+              left: (layout.width - panelWidth) / 2,
+              bottom: Math.max(18, ins.bottom + 8),
+              width: panelWidth,
+              height: panelHeight,
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 12,
+              padding: 16,
+              borderWidth: 2,
+              borderColor: C.brown,
+              borderRadius: 14,
+              backgroundColor: gramophone.panelBackground,
+              boxShadow: gramophone.panelShadow,
+            }}
+          >
+            {island.buildings.includes('gram') ? (
+              <>
+                <View
+                  style={{
+                    width: 128,
+                    height: contentHeight,
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <View
+                    accessibilityLabel={
+                      hasCurrentTrack
+                        ? `${trackLabel(currentTrack!)} 레코드판`
+                        : '재생할 수 있는 곡이 없는 레코드판'
+                    }
+                    style={{
+                      width: gramophone.recordSize,
+                      height: gramophone.recordSize,
+                      borderRadius: gramophone.recordSize / 2,
+                      borderWidth: 6,
+                      borderColor: gramophone.recordGroove,
+                      backgroundColor: gramophone.recordBackground,
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {[88, 68, 48].map((size) => (
+                      <View
+                        key={size}
+                        style={{
+                          position: 'absolute',
+                          width: size,
+                          height: size,
+                          borderRadius: size / 2,
+                          borderWidth: 4,
+                          borderColor: gramophone.recordGroove,
+                        }}
                       />
                     ))}
-                  </SheetGroup>
+                    <View
+                      style={{
+                        width: 30,
+                        height: 30,
+                        borderRadius: 15,
+                        backgroundColor: C.pink,
+                        borderWidth: 2,
+                        borderColor: gramophone.recordGroove,
+                      }}
+                    />
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="재생"
+                      accessibilityState={{ disabled: !hasCurrentTrack }}
+                      disabled={!hasCurrentTrack}
+                      onPress={() => changePlayback({ playing: true })}
+                      style={{
+                        width: gramophone.controlWidth,
+                        height: gramophone.touchMin,
+                        borderWidth: 1.5,
+                        borderColor: C.brown,
+                        borderRadius: 8,
+                        backgroundColor: C.pink,
+                        opacity: hasCurrentTrack ? 1 : 0.5,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0px 2px 0px ' + C.brown,
+                      }}
+                    >
+                      <PlayIcon />
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="정지"
+                      accessibilityState={{ disabled: !serverPlaybackReady }}
+                      disabled={!serverPlaybackReady}
+                      onPress={() => changePlayback({ playing: false })}
+                      style={{
+                        width: gramophone.controlWidth,
+                        height: gramophone.touchMin,
+                        borderWidth: 1.5,
+                        borderColor: C.brown,
+                        borderRadius: 8,
+                        backgroundColor: C.paper,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        boxShadow: '0px 2px 0px ' + C.brown,
+                      }}
+                    >
+                      <StopIcon />
+                    </Pressable>
+                  </View>
                 </View>
-              )}
-            </ScrollView>
+                <View style={{ flex: 1, minWidth: 0, height: contentHeight, gap: 8 }}>
+                  <View testID="sound-current-track" style={{ minHeight: 36, flexShrink: 0 }}>
+                    <Txt
+                      tabletScale={1}
+                      style={{ color: gramophone.foreground, fontSize: 19, lineHeight: 24 }}
+                    >
+                      {hasCurrentTrack
+                        ? trackLabel(currentTrack!)
+                        : hasOwnedTracks
+                          ? '재생할 곡을 골라 주세요'
+                          : '보유한 곡이 없어요'}
+                    </Txt>
+                    <Txt
+                      tabletScale={1}
+                      style={{ color: gramophone.foregroundMuted, fontSize: 11, lineHeight: 14 }}
+                    >
+                      {hasCurrentTrack
+                        ? island.playing
+                          ? '재생 중'
+                          : '정지됨'
+                        : hasOwnedTracks
+                          ? '보유곡에서 선택해 주세요'
+                          : scene
+                            ? '섬에서 곡을 구매할 수 있어요'
+                            : '곡을 구매해 주세요'}
+                    </Txt>
+                  </View>
+                  <Volume
+                    value={state.settings.volume ?? 0.55}
+                    onChange={(value: number) => act('SETTING', { key: 'volume', value })}
+                  />
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ gap: 4, paddingRight: 4 }}
+                    showsVerticalScrollIndicator
+                  >
+                    {trackIds.map((id) => {
+                      const owned = ownedTrackIds.includes(id);
+                      const product = audioProducts.find((item) => item.id === id);
+                      const selected = island.track === id;
+                      const unavailable =
+                        !owned &&
+                        (!localAudioIds.has(id) ||
+                          (server && (product?.available === false || product?.price == null)));
+                      const status = owned
+                        ? '보유'
+                        : !localAudioIds.has(id)
+                          ? '앱 업데이트가 필요해요'
+                          : unavailable
+                            ? shopBlockReason(product ?? {})
+                            : `${product?.price}마리 · 구매`;
+                      return (
+                        <Pressable
+                          key={id}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            owned
+                              ? `${trackLabel(id)}, 보유`
+                              : unavailable
+                                ? `${trackLabel(id)}, ${status}`
+                                : `${trackLabel(id)}, ${product?.price}마리로 구매`
+                          }
+                          accessibilityState={{ selected, disabled: unavailable }}
+                          disabled={unavailable}
+                          onPress={() => selectTrack(id)}
+                          style={{
+                            minHeight: gramophone.rowMinHeight,
+                            paddingHorizontal: 10,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            borderWidth: 1.25,
+                            borderColor: C.brown,
+                            borderRadius: 7,
+                            backgroundColor: selected ? C.pink : owned ? C.paper : C.butter,
+                            opacity: unavailable ? 0.62 : 1,
+                          }}
+                        >
+                          <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
+                            <Txt
+                              testID={`sound-track-title-${id}`}
+                              tabletScale={1}
+                              style={{ fontSize: 11, lineHeight: 14, flexShrink: 1 }}
+                            >
+                              {trackLabel(id)}
+                            </Txt>
+                          </View>
+                          <Txt
+                            testID={`sound-track-status-${id}`}
+                            tabletScale={1}
+                            style={{
+                              maxWidth: '45%',
+                              flexShrink: 1,
+                              textAlign: 'right',
+                              color: gramophone.rowForeground,
+                              fontSize: 9,
+                              lineHeight: 12,
+                            }}
+                          >
+                            {selected && island.playing ? '재생 중' : status}
+                          </Txt>
+                        </Pressable>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </>
+            ) : (
+              <View style={{ flex: 1, alignItems: 'center', gap: 12 }}>
+                <Txt style={{ color: gramophone.foreground }}>축음기를 먼저 지어 주세요.</Txt>
+                <Btn title="마을회관에서 건설" onPress={() => go('construction')} />
+              </View>
+            )}
           </View>
         </View>
+        {soundDialog && dialogProduct && (
+          <View
+            accessibilityViewIsModal
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                backgroundColor: componentTokens.overlay.background,
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 24,
+              },
+            ]}
+          >
+            <View
+              testID="sound-dialog-card"
+              style={{
+                width: Math.min(354, layout.width - 48),
+                maxHeight: layout.height - ins.top - ins.bottom - 32,
+                borderWidth: 2,
+                borderColor: C.brown,
+                borderRadius: 22,
+                backgroundColor: C.paper,
+                boxShadow: '0px 6px 0px ' + C.brown,
+              }}
+            >
+              <ScrollView
+                testID="sound-dialog-scroll"
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={{ padding: 20, gap: 16 }}
+              >
+                {soundDialog.kind === 'error' && (
+                  <View
+                    style={{
+                      width: 50,
+                      height: 50,
+                      borderRadius: 25,
+                      alignSelf: 'center',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      backgroundColor: C.butter,
+                    }}
+                  >
+                    <Txt tabletScale={1} style={{ fontSize: 27, lineHeight: 32 }}>
+                      !
+                    </Txt>
+                  </View>
+                )}
+                <Txt
+                  style={{ fontSize: 20, lineHeight: 28, fontWeight: '700', textAlign: 'center' }}
+                >
+                  {soundDialog.kind === 'confirm'
+                    ? `${dialogProduct.title}를 구매할까요?`
+                    : soundDialog.kind === 'success'
+                      ? '구매했어요'
+                      : '물고기가 부족해요'}
+                </Txt>
+                {soundDialog.kind === 'confirm' && (
+                  <Txt kind="meta" style={{ textAlign: 'center', lineHeight: 20 }}>
+                    구매한 곡은 같은 섬 주민 모두가 함께 들을 수 있어요.
+                  </Txt>
+                )}
+                {soundDialog.kind === 'confirm' ? (
+                  <View
+                    testID="sound-dialog-actions"
+                    style={{ flexDirection: largeText ? 'column' : 'row', gap: 8 }}
+                  >
+                    <Btn
+                      title="취소"
+                      kind="glass"
+                      dynamicHeight={largeText}
+                      onPress={() => setSoundDialog(null)}
+                      style={largeText ? undefined : { flex: 1 }}
+                    />
+                    <Btn
+                      title={`${dialogProduct.price}마리로 구매`}
+                      dynamicHeight={largeText}
+                      disabled={server && shopApi.writing}
+                      onPress={buyTrack}
+                      style={largeText ? undefined : { flex: 1 }}
+                    />
+                  </View>
+                ) : (
+                  <Btn
+                    title={soundDialog.kind === 'success' ? '지금 재생하기' : '확인'}
+                    dynamicHeight={largeText}
+                    disabled={server && shopApi.writing}
+                    onPress={async () => {
+                      if (soundDialog.kind === 'success') {
+                        const changed = await changePlayback({
+                          trackId: dialogProduct.id,
+                          playing: true,
+                        });
+                        if (!changed) return;
+                      }
+                      setSoundDialog(null);
+                    }}
+                  />
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        )}
       </View>
     );
   }
@@ -4506,64 +4836,75 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
+    const guideUserId = getSession()?.userId ?? 'local';
+    const shopGuide = shouldShowShopGuide(state, guideUserId);
     return (
-      <IslandSheet
-        bg="shop"
-        sign="dog"
-        signKind="npc"
-        title="강아지 상점"
-        tall
-        action="구매 내역"
-        actionPress={() => go('orders')}
-        onClose={home}
-      >
-        {fishStrip}
-        <Chips
-          items={['내 꾸미기', '우리 섬 꾸미기']}
-          value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
-          onChange={setTab}
-        />
-        {mine ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <Pic id="dog" w={56} />
-            <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
-              어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
-            </Txt>
-          </View>
-        ) : (
-          <Txt kind="meta" style={st.meta}>
-            섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
-          </Txt>
-        )}
-        {server && shopApi.error ? (
-          <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
-            <Txt kind="meta" style={st.meta}>
-              {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
-            </Txt>
-            <Btn title="다시 시도" onPress={shopApi.retry} />
-          </View>
-        ) : server && shopApi.loading ? (
-          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            불러오는 중…
-          </Txt>
-        ) : null}
-        {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
-        <View style={{ gap: layout.compact ? 10 : 12 }}>
-          {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
-            <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
-              {Array.from({ length: cols }, (_, c) => {
-                const p = items[r * cols + c];
-                // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
-                return (
-                  <View key={c} style={{ flex: 1, minWidth: 0 }}>
-                    {p && card(p)}
-                  </View>
-                );
-              })}
+      <>
+        <IslandSheet
+          bg="shop"
+          sign="dog"
+          signKind="npc"
+          title="강아지 상점"
+          tall
+          action="구매 내역"
+          actionPress={() => go('orders')}
+          onClose={home}
+        >
+          {fishStrip}
+          <Chips
+            items={['내 꾸미기', '우리 섬 꾸미기']}
+            value={mine ? '내 꾸미기' : '우리 섬 꾸미기'}
+            onChange={setTab}
+          />
+          {mine ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Pic id="dog" w={56} />
+              <Txt kind="meta" style={[st.meta, { flex: 1 }]}>
+                어서 와, 기다렸어! 물고기로 사는 건 내 뗏목에서 입어.
+              </Txt>
             </View>
-          ))}
-        </View>
-      </IslandSheet>
+          ) : (
+            <Txt kind="meta" style={st.meta}>
+              섬 물고기로 사고 여기서 바로 적용해요. 주민 누구나 바꿀 수 있어요.
+            </Txt>
+          )}
+          {server && shopApi.error ? (
+            <View style={{ alignItems: 'center', gap: 10, paddingVertical: 24 }}>
+              <Txt kind="meta" style={st.meta}>
+                {serverErrorText(shopApi.error) || '상점을 불러오지 못했어요.'}
+              </Txt>
+              <Btn title="다시 시도" onPress={shopApi.retry} />
+            </View>
+          ) : server && shopApi.loading ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중…
+            </Txt>
+          ) : null}
+          {/* 세로 2열 · 가로 4열. 마지막 줄이 모자라면 빈칸으로 폭을 맞춘다 */}
+          <View style={{ gap: layout.compact ? 10 : 12 }}>
+            {Array.from({ length: Math.ceil(items.length / cols) }, (_, r) => (
+              <View key={r} style={{ flexDirection: 'row', gap: layout.compact ? 10 : 12 }}>
+                {Array.from({ length: cols }, (_, c) => {
+                  const p = items[r * cols + c];
+                  // 칸마다 같은 폭(카드 안쪽 여백이 폭 나누기에 끼지 않게 한 겹 감싼다)
+                  return (
+                    <View key={c} style={{ flex: 1, minWidth: 0 }}>
+                      {p && card(p)}
+                    </View>
+                  );
+                })}
+              </View>
+            ))}
+          </View>
+        </IslandSheet>
+        {shopGuide && (
+          <ShopGuide
+            blocked={e.routeTransitionShielded}
+            onDone={() => dispatch({ type: 'SHOP_GUIDE_DONE', userId: guideUserId })}
+            onCancel={home}
+          />
+        )}
+      </>
     );
   }
   if (route === 'product') {
@@ -4868,7 +5209,11 @@ export function RedesignScreens({ e }: any) {
   }
   const friends = state.friends ?? [];
   if (route === 'boat') {
-    const received = friends.filter((f) => f.status === 'received').length,
+    const received = server
+        ? friendsScreen.status === 'ready'
+          ? (friendsScreen.data?.friendRequests.length ?? 0)
+          : 0
+        : friends.filter((f) => f.status === 'received').length,
       joinedIslands = state.islands.filter((candidate) => candidate.joined && !candidate.closed),
       primaryIsland = mainIsland(state) ?? island,
       canChangeMainIsland = joinedIslands.length > 1;
@@ -5256,19 +5601,12 @@ export function RedesignScreens({ e }: any) {
         {count !== undefined && <Badge small>{count}</Badge>}
       </View>
     );
-    const friendMenu = (name: string, onDelete: () => void) => (
+    const friendMenu = (id: string, name: string, onDelete?: () => void) => (
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel={`${name} 친구 삭제`}
+        accessibilityLabel={`${name} 더보기`}
         hitSlop={6}
-        onPress={() =>
-          confirm(
-            '친구를 삭제할까요?',
-            `${name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
-            onDelete,
-            { ok: '삭제', destructive: true },
-          )
-        }
+        onPress={() => setSafetyTarget({ id, name, onDelete })}
         style={{ width: 32, height: 32, alignItems: 'center', justifyContent: 'center' }}
       >
         <Txt
@@ -5284,18 +5622,33 @@ export function RedesignScreens({ e }: any) {
         </Txt>
       </Pressable>
     );
-    const requestActions = (onAccept: () => void, onReject: () => void) => (
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-        <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
-        <Btn
-          small
-          kind="sec"
-          title="거절"
-          disabled={serverMode && friendsScreen.busy}
-          onPress={onReject}
-        />
-      </View>
-    );
+    const requestActions = (
+      onAccept: () => void,
+      onReject: () => void,
+      safetyMenu?: React.ReactNode,
+    ) => {
+      const stacked = !!safetyMenu && layout.fontScale >= 1.3;
+      return (
+        <View
+          testID={safetyMenu ? 'friend-request-actions-with-safety' : undefined}
+          style={{
+            flexDirection: stacked ? 'column' : 'row',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <Btn small title="수락" disabled={serverMode && friendsScreen.busy} onPress={onAccept} />
+          <Btn
+            small
+            kind="sec"
+            title="거절"
+            disabled={serverMode && friendsScreen.busy}
+            onPress={onReject}
+          />
+          {safetyMenu}
+        </View>
+      );
+    };
     const localFriendRow = (friend: (typeof friends)[number], searchResult = false) => (
       <SheetRow
         key={friend.id}
@@ -5327,7 +5680,19 @@ export function RedesignScreens({ e }: any) {
             searchResult ? (
               <Badge soft>친구</Badge>
             ) : (
-              friendMenu(friend.name, () => act('FRIEND_DELETE', { id: friend.id }))
+              <Btn
+                small
+                kind="sec"
+                title="친구 삭제"
+                onPress={() =>
+                  confirm(
+                    '친구를 삭제할까요?',
+                    `${friend.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                    () => act('FRIEND_DELETE', { id: friend.id }),
+                    { ok: '삭제', destructive: true },
+                  )
+                }
+              />
             )
           ) : (
             <Btn
@@ -5350,6 +5715,7 @@ export function RedesignScreens({ e }: any) {
           tail={requestActions(
             () => friendCmd(() => acceptFriendRequest(friend.requestId)),
             () => friendCmd(() => rejectFriendRequest(friend.requestId)),
+            friendMenu(friend.userId, name),
           )}
         />
       );
@@ -5379,7 +5745,7 @@ export function RedesignScreens({ e }: any) {
           title={name}
           sub={friend.mainIslandName ?? undefined}
           lead={<Avatar color="white" />}
-          tail={friendMenu(name, () => friendCmd(() => deleteFriend(friend.userId)))}
+          tail={friendMenu(friend.userId, name, () => friendCmd(() => deleteFriend(friend.userId)))}
         />
       );
     });
@@ -5487,42 +5853,72 @@ export function RedesignScreens({ e }: any) {
       </View>
     );
     return (
-      <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
-        <SearchField
-          value={queryValue}
-          onChange={serverMode ? friendsScreen.setQuery : setSearch}
-          placeholder="닉네임으로 친구 찾기"
-        />
-        {serverMode && !query && friendsScreen.status === 'loading' ? (
-          <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
-            불러오는 중이에요
-          </Txt>
-        ) : serverMode && !query && friendsScreen.status === 'error' ? (
-          <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
-            <Txt kind="meta">{friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}</Txt>
-            {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
-              <Btn
-                small
-                title="소셜 로그인하기"
-                onPress={() => e.conversion.offer(friendsScreen.error)}
-              />
-            ) : (
-              <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
-            )}
-          </View>
-        ) : (
-          <View
-            style={
-              layout.compact
-                ? { flexDirection: 'row', alignItems: 'flex-start', gap: 18 }
-                : { gap: 16 }
+      <>
+        <IslandSheet bg="dock" sign="boat/raft" title="친구 관리" tall onBack={back} onClose={home}>
+          <SearchField
+            value={queryValue}
+            onChange={serverMode ? friendsScreen.setQuery : setSearch}
+            placeholder="닉네임으로 친구 찾기"
+          />
+          {serverMode && !query && friendsScreen.status === 'loading' ? (
+            <Txt kind="meta" style={[st.meta, { textAlign: 'center', paddingVertical: 24 }]}>
+              불러오는 중이에요
+            </Txt>
+          ) : serverMode && !query && friendsScreen.status === 'error' ? (
+            <View style={{ alignItems: 'center', gap: 9, paddingVertical: 24 }}>
+              <Txt kind="meta">
+                {friendsScreen.error?.message ?? '친구 목록을 불러오지 못했어요'}
+              </Txt>
+              {friendErrorKind(friendsScreen.error) === 'guest' && e.conversion ? (
+                <Btn
+                  small
+                  title="소셜 로그인하기"
+                  onPress={() => e.conversion.offer(friendsScreen.error)}
+                />
+              ) : (
+                <Btn small kind="sec" title="다시 시도" onPress={friendsScreen.retry} />
+              )}
+            </View>
+          ) : (
+            <View
+              style={
+                layout.compact
+                  ? { flexDirection: 'row', alignItems: 'flex-start', gap: 18 }
+                  : { gap: 16 }
+              }
+            >
+              {leftColumn}
+              {friendColumn}
+            </View>
+          )}
+        </IslandSheet>
+        {serverMode && safetyTarget ? (
+          <UserSafetySheet
+            visible
+            targetUserId={safetyTarget.id}
+            targetName={safetyTarget.name}
+            reportTargetType="USER"
+            reportTargetId={safetyTarget.id}
+            onClose={() => setSafetyTarget(null)}
+            onChanged={friendsScreen?.refresh ?? (() => {})}
+            onMessage={notify}
+            extraAction={
+              safetyTarget.onDelete
+                ? {
+                    title: '친구 삭제',
+                    onPress: () =>
+                      confirm(
+                        '친구를 삭제할까요?',
+                        `${safetyTarget.name}님과 더 이상 편지를 주고받을 수 없어요. 아직 읽지 않은 편지도 지워져요.`,
+                        safetyTarget.onDelete!,
+                        { ok: '삭제', destructive: true },
+                      ),
+                  }
+                : undefined
             }
-          >
-            {leftColumn}
-            {friendColumn}
-          </View>
-        )}
-      </IslandSheet>
+          />
+        ) : null}
+      </>
     );
   }
   if (route === 'profile') {
@@ -5540,23 +5936,51 @@ export function RedesignScreens({ e }: any) {
         onClose={home}
         action="저장"
         actionPress={() => {
-          if (!profileName.trim()) {
+          const name = profileName.trim();
+          if (!name) {
             notify('닉네임을 입력해 주세요.');
             return;
           }
-          act('PROFILE', { name: profileName, color: profileColor });
-          notify('저장했어요.');
-          back();
+          if (!server) {
+            act('PROFILE', { name, color: profileColor });
+            notify('저장했어요.');
+            back();
+            return;
+          }
+          const signature = JSON.stringify([name, profileColor]);
+          if (profileSaveIntent.current?.signature !== signature) {
+            profileSaveIntent.current = { signature, key: uuid() };
+          }
+          const intent = profileSaveIntent.current;
+          run(
+            () =>
+              updateProfile({ name, catColor: profileColor }, intent.key).then((saved) => {
+                if (profileSaveIntent.current?.key === intent.key) profileSaveIntent.current = null;
+                act('PROFILE', {
+                  name: saved.name ?? name,
+                  color: saved.catColor ?? profileColor,
+                });
+                notify('저장했어요.');
+                back();
+              }),
+            notify,
+          );
         }}
       >
         <View style={{ alignItems: 'center' }}>
           <Avatar color={profileColor} size={96} />
         </View>
-        <AvatarGrid mini value={profileColor} onChange={setProfileColor} />
+        <AvatarGrid
+          mini
+          value={profileColor}
+          onChange={serverBusy ? () => {} : setProfileColor}
+          disabled={serverBusy}
+        />
         <Field
           label="닉네임"
           value={profileName}
-          onChange={setProfileName}
+          onChange={serverBusy ? () => {} : setProfileName}
+          disabled={serverBusy}
           inputStyle={sheetInput}
         />
         <SheetGroup>
@@ -5584,13 +6008,23 @@ export function RedesignScreens({ e }: any) {
                   '회원 탈퇴할까요?',
                   '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
                   () => {
-                    screenTime
-                      .resetScreenTimeData()
-                      .catch(() => {})
-                      .finally(() => {
-                        act('DELETE_ACCOUNT');
-                        reset('login');
-                      });
+                    if (!server) {
+                      screenTime
+                        .resetScreenTimeData()
+                        .catch(() => {})
+                        .finally(() => {
+                          act('DELETE_ACCOUNT');
+                          reset('login');
+                        });
+                      return;
+                    }
+                    run(async () => {
+                      await withdrawAccount();
+                      await screenTime.resetScreenTimeData().catch(() => {});
+                      await e.signOut();
+                      act('DELETE_ACCOUNT');
+                      reset('login');
+                    }, notify);
                   },
                   { ok: '탈퇴', destructive: true },
                 )
@@ -5648,6 +6082,19 @@ export function RedesignScreens({ e }: any) {
             onPress={() => go('permission', 'settings')}
           />
         </SheetGroup>
+        {server ? (
+          <>
+            {sec('안전')}
+            <SheetGroup flat>
+              <SheetRow
+                title="차단한 사용자"
+                sub="차단 목록을 확인하고 해제해요"
+                chevron
+                onPress={() => go('blockedUsers')}
+              />
+            </SheetGroup>
+          </>
+        ) : null}
         {sec('도움말')}
         <SheetGroup flat>
           <SheetRow
@@ -5664,15 +6111,16 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup flat>
           <SheetRow title="버전" sub="R61 · v2" />
           <SheetRow
-            title="이용약관 · 개인정보"
+            title="이용약관"
             chevron
-            onPress={() =>
-              confirm(
-                '이용약관 · 개인정보',
-                'GROMO는 집중 기록과 섬 활동을 제공해요. 이 앱은 로컬 목업이며 계정과 결제 정보는 서버로 전송하지 않아요.\n\n닉네임, 집중 기록과 설정은 이 기기에 저장돼요. 회원 탈퇴를 누르면 삭제돼요.',
-                () => {},
-              )
-            }
+            label="이용약관 원문 보기"
+            onPress={() => openPolicy(TERMS_URL)}
+          />
+          <SheetRow
+            title="개인정보처리방침"
+            chevron
+            label="개인정보처리방침 원문 보기"
+            onPress={() => openPolicy(PRIVACY_URL)}
           />
         </SheetGroup>
       </IslandSheet>
@@ -5776,7 +6224,7 @@ function ChatBubble({ name, text, color, own = false, at = '', large = false, av
     </View>
   );
 }
-function Volume({ value, onChange, dense = false }: any) {
+function Volume({ value, onChange }: any) {
   const [width, setWidth] = useState(1),
     ref = useRef({ value, onChange, width });
   ref.current = { value, onChange, width };
@@ -5805,10 +6253,8 @@ function Volume({ value, onChange, dense = false }: any) {
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       {...pan.panHandlers}
       style={{
-        height: 24,
+        height: 44,
         marginHorizontal: 4,
-        marginTop: dense ? -3 : 1,
-        marginBottom: dense ? -7 : -3,
         justifyContent: 'center',
       }}
     >
@@ -5827,7 +6273,7 @@ function Volume({ value, onChange, dense = false }: any) {
         style={{
           position: 'absolute',
           left: width * value - 12,
-          top: 0,
+          top: 10,
           width: 24,
           height: 24,
           borderRadius: 12,

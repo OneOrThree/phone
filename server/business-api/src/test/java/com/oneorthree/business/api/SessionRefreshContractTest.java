@@ -188,7 +188,7 @@ class SessionRefreshContractTest extends UpstreamTestBase {
         DATA.on(DATA_REFRESH, request -> ok(body));
 
         mockMvc.perform(refresh("valid-refresh-token"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

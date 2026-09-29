@@ -61,6 +61,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+          # GROMO-2069: 새 레이아웃은 branches/<safe-ref>/<service>/ — ref 의 / 는 - 로 치환된
+          # 한 단계다. 구 레이아웃(<ref>/ 중첩)의 잔재도 같은 루프에서 치운다.
+          SAFE_BRANCH="${BRANCH_NAME//\//-}"
+          TARGETS=("branches/$SAFE_BRANCH" "$BRANCH_NAME")
+
           # 삭제를 «최신 tip 에서 통째로 다시» 한다 — rebase 가 아니다.
           # rebase 였다면 상대 잡이 같은 디렉터리에 파일을 «추가»한 경우 delete/modify 충돌로
           # 멈춘다. 반면 「받아서 → 지우고 → 커밋」은 몇 번을 해도 결과가 같아(멱등) 충돌이 없다.
@@ -82,16 +87,23 @@ jobs:
               exit 0
             fi
 
-            if [ ! -d "$BRANCH_NAME" ]; then
+            FOUND=0
+            for TARGET in "${TARGETS[@]}"; do
+              if [ -d "$TARGET" ]; then
+                git rm -rf --quiet "$TARGET"
+                FOUND=1
+              fi
+            done
+            if [ "$FOUND" -eq 0 ]; then
               echo "gh-pages 에 $BRANCH_NAME 문서가 없다 — 할 일 없음."
               exit 0
             fi
-            git rm -rf --quiet "$BRANCH_NAME"
-            # 접두어 디렉터리가 비면 같이 치운다(bfeat/ 만 남는 껍데기 방지).
-            PREFIX="${BRANCH_NAME%%/*}"
-            if [ -d "$PREFIX" ] && [ -z "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
-              rmdir "$PREFIX"
-            fi
+            # 비어 남은 껍데기 디렉터리를 치운다 — branches/ 와 구 레이아웃의 bfeat/ 등.
+            for PREFIX in branches "${BRANCH_NAME%%/*}"; do
+              if [ -d "$PREFIX" ] && [ -z "$(ls -A "$PREFIX" 2>/dev/null)" ]; then
+                rmdir "$PREFIX" && git add -A -- "$PREFIX" || true
+              fi
+            done
             git commit -m "chore: remove docs for deleted branch $BRANCH_NAME"
 
             if git push origin HEAD:gh-pages; then

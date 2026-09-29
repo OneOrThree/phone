@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.aMapWithSize;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,12 +24,18 @@ class AccountScreenContractTest extends ScreenContractTestBase {
 
     @Test
     void composesMeAndProjectedSettingsFromTwoServices() throws Exception {
-        DATA.on(DATA_ME, request -> ok(ME));
+        DATA.on(DATA_ME, request -> ok(ME.replace("}", ",\"auth_generation\":3,\"internal_note\":\"private\"}")));
         NOTI.on(NOTI_SETTINGS, request -> ok(SETTINGS));
         MvcResult result = mockMvc.perform(auth(get("/screens/account")))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.data.me", aMapWithSize(6)))
+                .andExpect(jsonPath("$.data.me.id").value(USER.toString()))
                 .andExpect(jsonPath("$.data.me.name").value("수빈"))
+                .andExpect(jsonPath("$.data.me.catColor").value(nullValue()))
+                .andExpect(jsonPath("$.data.me.mainIslandId").value(nullValue()))
+                .andExpect(jsonPath("$.data.me.linkedProviders[0]").value("apple"))
+                .andExpect(jsonPath("$.data.me.onboardingComplete").value(true))
                 .andExpect(jsonPath("$.data.settings.notifications").value(false))
                 .andExpect(jsonPath("$.data.settings.soundEnabled").doesNotExist())
                 .andExpect(jsonPath("$.data.settings.notificationEnabled").doesNotExist())
@@ -44,7 +52,7 @@ class AccountScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_ME, request -> ok(ME));
         NOTI.on(NOTI_SETTINGS, request -> ok(""));
         mockMvc.perform(auth(get("/screens/account")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.on(DATA_ME, request -> domainError(403, "SESSION_NOT_ACTIVE"));

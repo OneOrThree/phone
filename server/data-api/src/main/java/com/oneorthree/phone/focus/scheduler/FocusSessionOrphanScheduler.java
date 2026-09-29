@@ -1,5 +1,6 @@
 package com.oneorthree.phone.focus.scheduler;
 
+import com.oneorthree.phone.common.util.ZonePolicy;
 import com.oneorthree.phone.focus.service.FocusService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,7 +32,7 @@ public class FocusSessionOrphanScheduler {
      * 분산 락(GROMO-1283) — 겹쳐 돌아도 종료 UPDATE 자체는 멱등이지만 같은 행을 두 번 훑는 낭비와
      * 로그 이중 계상을 막는다.
      */
-    @Scheduled(cron = "0 0 * * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 0 * * * *", zone = ZonePolicy.KST_ID)
     @SchedulerLock(name = "focus-orphan-sweep")
     public void sweepOrphanSessions() {
         int closed = focusService.sweepOrphanSessions(Instant.now());

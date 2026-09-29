@@ -73,12 +73,12 @@ class PlaybackScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    @DisplayName("재생 상태 불변식이 깨지면 화면 전체 502 — 도메인 GET 과 같은 검증")
+    @DisplayName("재생 상태 불변식이 깨지면 화면 전체 400 — 도메인 GET 과 같은 검증")
     void brokenPlaybackIsContractError() throws Exception {
         DATA.on(DATA_PLAYBACK, request -> ok(PLAYBACK.replace("120.5", "null")));
 
         mockMvc.perform(auth(get("/screens/playback")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

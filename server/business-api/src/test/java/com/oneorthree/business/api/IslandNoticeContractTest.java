@@ -5,6 +5,7 @@ import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.MediaType;
@@ -23,9 +24,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * 섬 게시판 공개 6종의 계약 (GROMO-1771) — 실제 필터·컨트롤러·TCP 클라이언트로 경계를 본다: 주체·본문 모양·
- * 서명 커서(목록 {@code cursor} / 댓글 {@code commentsCursor})·상류 판정의 공개 오류 매핑. 권한·version·멱등의
- * 원자성은 data-api 의 {@code IslandNoticeIntegrationTest} 가 실제 DB 로 본다.
+ * 섬 게시판 공개 7종의 계약 (GROMO-1771, 댓글 삭제는 GROMO-2136) — 실제 필터·컨트롤러·TCP 클라이언트로 경계를
+ * 본다: 주체·본문 모양·서명 커서(목록 {@code cursor} / 댓글 {@code commentsCursor})·상류 판정의 공개 오류 매핑.
+ * 권한·version·멱등의 원자성은 data-api 의 {@code IslandNoticeIntegrationTest} 가 실제 DB 로 본다.
  */
 class IslandNoticeContractTest extends UpstreamTestBase {
 
@@ -47,6 +48,7 @@ class IslandNoticeContractTest extends UpstreamTestBase {
     private static final String DATA_PATCH = "PATCH " + INTERNAL + "/" + N1;
     private static final String DATA_DELETE = "DELETE " + INTERNAL + "/" + N1;
     private static final String DATA_COMMENT = "POST " + INTERNAL + "/" + N1 + "/comments";
+    private static final String DATA_COMMENT_DELETE = "DELETE " + INTERNAL + "/" + N1 + "/comments/" + C1;
 
     private static final String PAGE_BODY = "{\"items\":[{\"id\":\"" + N2 + "\",\"title\":\"둘째\",\"commentCount\":0,"
             + "\"createdAt\":\"2026-09-19T01:00:00Z\"},{\"id\":\"" + N1 + "\",\"title\":\"환영해요\","
@@ -271,6 +273,23 @@ class IslandNoticeContractTest extends UpstreamTestBase {
         assertThat(DATA.hits(DATA_COMMENT)).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("댓글 삭제(GROMO-2136)는 공지 삭제와 같은 응답 모양 — 200 deleted=true, 키가 필수다")
+    void commentDeleteShape() throws Exception {
+        DATA.on(DATA_COMMENT_DELETE, request -> ok("{\"deleted\":true}"));
+
+        mockMvc.perform(auth(delete(PUBLIC + "/" + N1 + "/comments/" + C1)).header("Idempotency-Key", KEY))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deleted").value(true));
+        assertThat(DATA.receivedFor(DATA_COMMENT_DELETE).get(0).header("Idempotency-Key")).isEqualTo(KEY);
+        assertThat(DATA.receivedFor(DATA_COMMENT_DELETE).get(0).header("X-User-Id")).isEqualTo(USER.toString());
+
+        mockMvc.perform(auth(delete(PUBLIC + "/" + N1 + "/comments/" + C1)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error.code").value("INVALID_IDEMPOTENCY_KEY"));
+        assertThat(DATA.hits(DATA_COMMENT_DELETE)).isEqualTo(1);
+    }
+
     // ---------------------------------------------------------------- 상류 판정 → 공개 오류
 
     @ParameterizedTest
@@ -281,11 +300,11 @@ class IslandNoticeContractTest extends UpstreamTestBase {
             "404,NOT_FOUND,404,NOT_FOUND,noticeId",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId",
             "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
-            "503,NOTICE_WRITE_UNAVAILABLE,503,SERVICE_UNAVAILABLE,",
+            "503,NOTICE_WRITE_UNAVAILABLE,400,SERVICE_UNAVAILABLE,",
             "422,NOTICE_BODY_TOO_LONG,422,OUT_OF_RANGE,body",
             "422,NOTICE_COMMENT_TOO_LONG,422,OUT_OF_RANGE,text",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,MEMBER_ONLY,502,UPSTREAM_CONTRACT_ERROR,"})
+            "409,MEMBER_ONLY,400,UPSTREAM_CONTRACT_ERROR,"})
     void relaysDataVerdictsAsPublicErrors(int upstreamStatus, String upstreamCode, int status, String code,
             String field) throws Exception {
         DATA.on(DATA_PATCH, request -> error(upstreamStatus, upstreamCode));
@@ -296,6 +315,19 @@ class IslandNoticeContractTest extends UpstreamTestBase {
         if (field != null) {
             result.andExpect(jsonPath("$.error.field").value(field));
         }
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "403,NOTICE_COMMENT_FORBIDDEN,403,FORBIDDEN,",
+            "404,NOT_FOUND,404,NOT_FOUND,commentId"})
+    void commentDeleteRelaysDataVerdictsWithCommentIdField(int upstreamStatus, String upstreamCode, int status,
+            String code, String field) throws Exception {
+        DATA.on(DATA_COMMENT_DELETE, request -> error(upstreamStatus, upstreamCode));
+        mockMvc.perform(auth(delete(PUBLIC + "/" + N1 + "/comments/" + C1)).header("Idempotency-Key", KEY))
+                .andExpect(status().is(status))
+                .andExpect(jsonPath("$.error.code").value(code))
+                .andExpect(jsonPath("$.error.field").value(field));
     }
 
     @Test
@@ -343,4 +375,59 @@ class IslandNoticeContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"create", "update", "delete", "comment"})
+    void publicNoticeCommandFieldsRemainStable(String operation) throws Exception {
+        String expected = operation.equals("delete") ? "{\"deleted\":true}"
+                : operation.equals("comment") ? "{\"id\":\"" + C1 + "\",\"name\":null,\"text\":\"안녕\"}"
+                : NOTICE_BODY;
+        String decorated = expected.replace("{", "{\"row_id\":\"private\",");
+        String route = switch (operation) {
+            case "create" -> DATA_CREATE;
+            case "update" -> DATA_PATCH;
+            case "delete" -> DATA_DELETE;
+            default -> DATA_COMMENT;
+        };
+        int responseStatus = operation.equals("create") || operation.equals("comment") ? 201 : 200;
+        DATA.on(route, r -> new MockUpstream.Response(responseStatus, decorated));
+        var request = switch (operation) {
+            case "create" -> write(post(PUBLIC), "{\"title\":\"공지 제목\",\"body\":\"내용\"}");
+            case "update" -> write(patch(PUBLIC + "/" + N1), "{\"title\":\"공지 제목\",\"body\":\"내용\"}");
+            case "delete" -> auth(delete(PUBLIC + "/" + N1)).header("Idempotency-Key", KEY);
+            default -> write(post(PUBLIC + "/" + N1 + "/comments"), "{\"text\":\"안녕\"}");
+        };
+        var result = mockMvc.perform(request).andExpect(status().is(responseStatus)).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(json.readTree(expected));
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/notices|post|200||id title body|id title body",
+            "/islands/{islandId}/notices/{noticeId}|patch|200||id title body|id title body",
+            "/islands/{islandId}/notices/{noticeId}|delete|200||deleted|deleted",
+            "/islands/{islandId}/notices/{noticeId}/comments|post|200||id name text|id text",
+            "/islands/{islandId}/notices/{noticeId}/comments/{commentId}|delete|200||deleted|deleted"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

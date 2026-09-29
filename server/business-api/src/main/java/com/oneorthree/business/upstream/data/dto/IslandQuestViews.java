@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 import java.util.List;
 
@@ -27,6 +28,7 @@ public final class IslandQuestViews {
     }
 
     /** 회차 헤더 — current 목록의 항목. */
+    @Schema(name = "IslandQuestItem")
     public record Item(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String id,
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String occurrenceId,
@@ -82,6 +84,7 @@ public final class IslandQuestViews {
      * 판정 대상 주민 — measurementStatus 는 authorized/pending/unavailable. {@code achieved}(목표 달성)와
      * {@code claimed}(개인 몫 수령)는 GROMO-1991 로 추가됐다 — rate 100 으로 달성을 추정하지 않는다.
      */
+    @Schema(name = "IslandQuestMember")
     public record Member(
             @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String userId,
             @JsonProperty(required = true) @JsonInclude(JsonInclude.Include.ALWAYS) String name,

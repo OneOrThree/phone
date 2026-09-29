@@ -58,7 +58,7 @@ class IslandHostTransferContractTest extends UpstreamTestBase {
     @Test
     void disabledProviderRemainsRetryable503WithoutDownstreamDeliveryOrPretendSuccess() throws Exception {
         DATA.on(DATA_PATH, request -> error(503, "REALTIME_NOT_READY"));
-        mockMvc.perform(write(BODY)).andExpect(status().isServiceUnavailable())
+        mockMvc.perform(write(BODY)).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.error.retryable").value(true))
                 .andExpect(jsonPath("$.error.length()").value(4))
@@ -126,12 +126,12 @@ class IslandHostTransferContractTest extends UpstreamTestBase {
             "404,TARGET_USER_NOT_FOUND,404,NOT_FOUND,targetUserId", "404,NOT_FOUND,404,NOT_FOUND,targetUserId",
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND,islandId", "404,USER_NOT_FOUND,404,USER_NOT_FOUND,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "401,SESSION_NOT_ACTIVE,502,UPSTREAM_AUTH_FAILED,",
-            "401,INVALID_SERVICE_TOKEN,502,UPSTREAM_AUTH_FAILED,",
-            "403,INVALID_SERVICE_TOKEN,502,UPSTREAM_CONTRACT_ERROR,",
-            "409,NOT_OWNER,502,UPSTREAM_CONTRACT_ERROR,",
-            "409,REALTIME_NOT_READY,502,UPSTREAM_CONTRACT_ERROR,",
-            "503,UNKNOWN_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
+            "401,SESSION_NOT_ACTIVE,400,UPSTREAM_AUTH_FAILED,",
+            "401,INVALID_SERVICE_TOKEN,400,UPSTREAM_AUTH_FAILED,",
+            "403,INVALID_SERVICE_TOKEN,400,UPSTREAM_CONTRACT_ERROR,",
+            "409,NOT_OWNER,400,UPSTREAM_CONTRACT_ERROR,",
+            "409,REALTIME_NOT_READY,400,UPSTREAM_CONTRACT_ERROR,",
+            "503,UNKNOWN_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_PATH, request -> error(upstreamStatus, code));
@@ -149,7 +149,7 @@ class IslandHostTransferContractTest extends UpstreamTestBase {
             "{\"hostUserId\":\"aaaaaaaa-0000-0000-0000-000000000001\",\"version\":1}"})
     void rejectsInvalidOrDifferentHostResult(String response) throws Exception {
         DATA.on(DATA_PATH, request -> ok(response));
-        mockMvc.perform(write(BODY)).andExpect(status().isBadGateway())
+        mockMvc.perform(write(BODY)).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         assertThat(DATA.hits(DATA_PATH)).isEqualTo(1);
     }
@@ -159,7 +159,7 @@ class IslandHostTransferContractTest extends UpstreamTestBase {
             "9999999999999999999999999999"})
     void rejectsNonPositiveOrCoercedOrUnsafeVersion(String version) throws Exception {
         DATA.on(DATA_PATH, request -> ok("{\"hostUserId\":\"" + TARGET + "\",\"version\":" + version + "}"));
-        mockMvc.perform(write(BODY)).andExpect(status().isBadGateway());
+        mockMvc.perform(write(BODY)).andExpect(status().isBadRequest());
         assertThat(DATA.hits(DATA_PATH)).isEqualTo(1);
     }
 
@@ -171,7 +171,7 @@ class IslandHostTransferContractTest extends UpstreamTestBase {
                 .andExpect(jsonPath("$.data.hostUserId").value(TARGET.toString()))
                 .andExpect(jsonPath("$.data.version").value(9007199254740991L));
         DATA.on(DATA_PATH, request -> ok("{\"hostUserId\":\"" + TARGET + "\"}"));
-        mockMvc.perform(write(BODY)).andExpect(status().isBadGateway());
+        mockMvc.perform(write(BODY)).andExpect(status().isBadRequest());
     }
 
     @Test

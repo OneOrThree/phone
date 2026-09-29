@@ -57,6 +57,12 @@ management:
         readiness:
           include: readinessState,redis
 
+# OpenAPI 문서 경로 — data-api 와 같은 /v0 규약으로 맞춘다(GROMO-2069).
+# 게시용 스펙은 /v0/api-docs/public 그룹 하나다 — 그 경로만 AccessTokenFilter 가 연다.
+springdoc:
+  api-docs:
+    path: /v0/api-docs
+
 business:
   upstream:
     data:

@@ -17,8 +17,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * {@code GET /screens/home} 계약 (GROMO-1897) — 섬 문맥(현재 섬 → 주민 상세) 뒤 집중 요약·현재 세션·휴식 주민·
- * 방송기 완공 판정 병렬, 완공이면 방송기.
+ * {@code GET /screens/home} 계약 (GROMO-1897, GROMO-2150) — 섬 문맥(현재 섬 → 주민 상세) 뒤 집중 요약·현재
+ * 세션·휴식 주민·주민 목록·방송기 완공 판정 병렬, 완공이면 방송기. {@code buildings} 는 완공 판정과 같은 건설
+ * 옵션 호출(추가 호출 없음)을 완공 건물 id 목록으로 투영한 것이다.
  */
 class HomeScreenContractTest extends ScreenContractTestBase {
 
@@ -26,6 +27,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     private static final String DATA_SUMMARY = "GET " + USERS + "/focus-summary";
     private static final String DATA_CURRENT = "GET " + USERS + "/focus-sessions/current";
     private static final String DATA_REST = DATA_ISLAND + "/rest-members";
+    private static final String DATA_MEMBERS = DATA_ISLAND + "/members";
     private static final String DATA_OPTIONS = DATA_ISLAND + "/construction-options";
     private static final String DATA_PLAYBACK = DATA_ISLAND + "/playback";
     private static final String DATA_WALLETS = DATA_ISLAND + "/shop/wallets";
@@ -45,6 +47,18 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     private static final String PLAYBACK = "{\"trackId\":\"campfire\",\"playing\":true,\"positionSeconds\":12,"
             + "\"effectiveAt\":\"2026-09-17T00:00:00Z\",\"changedBy\":\"" + USER + "\",\"version\":3,"
             + "\"serverNow\":\"2026-09-17T00:00:00Z\",\"durationSeconds\":120.5}";
+    private static final String MEMBERS = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\",\"role\":\"host\","
+            + "\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,"
+            + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
+            + "\"nextJoinedAt\":null,\"nextMembershipId\":null,\"version\":9}";
+
+    private static final UUID NEXT_MEMBER = UUID.fromString("dddddddd-2150-0000-0000-000000000001");
+    /** {@link #MEMBERS} 와 달리 다음 쪽이 있는 픽스처 — 커서 왕복 검증용. */
+    private static final String MEMBERS_WITH_NEXT = "{\"items\":[{\"id\":\"" + USER + "\",\"name\":\"고양이\","
+            + "\"role\":\"host\",\"appearance\":{\"clothes\":\"scarf\",\"decor\":null,"
+            + "\"hull\":\"raft\",\"position\":\"front\",\"version\":2}}],"
+            + "\"nextJoinedAt\":\"2026-09-19T01:02:03.123456Z\",\"nextMembershipId\":\"" + NEXT_MEMBER
+            + "\",\"version\":9}";
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
@@ -55,6 +69,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_SUMMARY, request -> ok(SUMMARY));
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
         DATA.on(DATA_REST, request -> ok(REST));
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS));
         DATA.on(DATA_OPTIONS, request -> ok(options(false)));
         DATA.on(DATA_PLAYBACK, request -> ok(PLAYBACK));
         DATA.on(DATA_WALLETS, request -> ok(FacilityFixtures.WALLETS));
@@ -74,6 +89,15 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.focusSummary.serverNow").value("2026-09-17T00:00:00Z"))
                 .andExpect(jsonPath("$.data.restMembers.items[0].restSeat").value(1))
                 .andExpect(jsonPath("$.data.restMembers.watermarks[0].projection").value("rest.member"))
+                .andExpect(jsonPath("$.data.members.items[0].id").value(USER.toString()))
+                .andExpect(jsonPath("$.data.members.items[0].name").value("고양이"))
+                .andExpect(jsonPath("$.data.members.version").value(9))
+                .andExpect(jsonPath("$.data.buildings[0]").value("hall"))
+                .andExpect(jsonPath("$.data.buildings[1]").value("board"))
+                .andExpect(jsonPath("$.data.buildings[2]").value("gram"))
+                .andExpect(jsonPath("$.data.buildings[3]").value("mail"))
+                .andExpect(jsonPath("$.data.buildings[4]").value("tower"))
+                .andExpect(jsonPath("$.data.buildings[5]").value("shop"))
                 .andExpect(jsonPath("$.data.playbackAvailability").value("available"))
                 .andExpect(jsonPath("$.data.playback.trackId").value("campfire"))
                 .andExpect(jsonPath("$.data.playback.version").value(3))
@@ -81,15 +105,39 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.wallets.villagePointsVersion").value(7))
                 .andReturn();
 
-        assertKeys(result, "island", "focusSummary", "session", "restMembers", "wallets", "playback",
-                "playbackAvailability");
+        assertKeys(result, "island", "focusSummary", "session", "restMembers", "members", "buildings", "wallets",
+                "playback", "playbackAvailability");
         JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
         assertThat(data.get("session").isNull()).as("session 은 명시 null").isTrue();
         assertThat(data.get("wallets").get("fishVersion").isNull()).as("개인 지갑 version 은 지어내지 않는다").isTrue();
+        // library 만 미완공(options(false) 픽스처) — 나머지 6개가 완공 목록이다.
+        assertThat(data.get("buildings").size()).isEqualTo(6);
+        assertThat(data.get("buildings").toString()).doesNotContain("library");
         assertThat(DATA.hits(DATA_REST)).as("BG11 결정 — 현재 섬의 휴식 주민을 싣는다").isOne();
+        assertThat(DATA.hits(DATA_OPTIONS)).as("buildings 는 playback 판정과 같은 건설 옵션 호출을 재사용한다 — 추가 호출 없음")
+                .isOne();
         assertThat(DATA.receivedFor(DATA_SUMMARY).get(0).query()).contains("date=2026-09-17", "timezone=Asia/Seoul");
+        assertThat(DATA.receivedFor(DATA_MEMBERS).get(0).query()).contains("limit=30");
         assertThat(DATA.received()).allSatisfy(forwarded ->
                 assertThat(forwarded.header("x-user-id")).as("주체는 서명 세션에서만").isEqualTo(USER.toString()));
+    }
+
+    @Test
+    @DisplayName("members 조각의 nextCursor 는 도메인 GET /islands/{islandId}/members 가 그대로 이어받는다 (GROMO-2150)")
+    void membersCursorIsPickedUpByTheDomainGet() throws Exception {
+        DATA.on(DATA_MEMBERS, request -> ok(MEMBERS_WITH_NEXT));
+
+        MvcResult result = mockMvc.perform(auth(get("/screens/home")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.members.items[0].id").value(USER.toString()))
+                .andReturn();
+        String cursor = JSON.readTree(result.getResponse().getContentAsString())
+                .get("data").get("members").get("nextCursor").asString();
+
+        // 화면이 준 커서를 도메인 GET 이 그대로 받는다(B10) — BFF 전용 커서가 아니다.
+        mockMvc.perform(auth(get("/islands/" + ISLAND + "/members")).queryParam("cursor", cursor))
+                .andExpect(status().isOk());
+        assertThat(DATA.receivedFor(DATA_MEMBERS).get(1).query()).contains("afterJoinedAt");
     }
 
     @Test
@@ -103,10 +151,13 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.data.focusSummary.totalSeconds").value(90))
                 .andReturn();
 
-        assertKeys(result, "island", "focusSummary", "session", "restMembers", "wallets", "playback",
-                "playbackAvailability");
-        assertThat(JSON.readTree(result.getResponse().getContentAsString()).get("data").get("playback").isNull())
-                .isTrue();
+        assertKeys(result, "island", "focusSummary", "session", "restMembers", "members", "buildings", "wallets",
+                "playback", "playbackAvailability");
+        JsonNode data = JSON.readTree(result.getResponse().getContentAsString()).get("data");
+        assertThat(data.get("playback").isNull()).isTrue();
+        // options(true) 픽스처는 gram·library 가 미완공이다 — 나머지 5개만 완공 목록이다.
+        assertThat(data.get("buildings").size()).isEqualTo(5);
+        assertThat(data.get("buildings").toString()).doesNotContain("gram", "library");
         assertThat(DATA.hits(DATA_PLAYBACK)).as("N 은 호출 자체를 생략한다(B03)").isZero();
     }
 
@@ -141,7 +192,8 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andExpect(jsonPath("$.error.code").value("STATE_CONFLICT"))
                 .andExpect(jsonPath("$.error.field").value("currentIslandId"));
         assertThat(DATA.hits(DATA_ISLAND) + DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT)
-                + DATA.hits(DATA_REST) + DATA.hits(DATA_OPTIONS) + DATA.hits(DATA_PLAYBACK)).isZero();
+                + DATA.hits(DATA_REST) + DATA.hits(DATA_MEMBERS) + DATA.hits(DATA_OPTIONS)
+                + DATA.hits(DATA_PLAYBACK)).isZero();
     }
 
     @Test
@@ -155,7 +207,7 @@ class HomeScreenContractTest extends ScreenContractTestBase {
                 .andReturn().getResponse().getContentAsString();
         assertThat(body).doesNotContain("internal detail");
         assertThat(DATA.hits(DATA_SUMMARY) + DATA.hits(DATA_CURRENT) + DATA.hits(DATA_REST)
-                + DATA.hits(DATA_OPTIONS) + DATA.hits(DATA_PLAYBACK)).isZero();
+                + DATA.hits(DATA_MEMBERS) + DATA.hits(DATA_OPTIONS) + DATA.hits(DATA_PLAYBACK)).isZero();
     }
 
     @Test
@@ -181,19 +233,19 @@ class HomeScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    @DisplayName("필수 조각의 상류 계약 위반은 화면 전체 502 — 빈 조각 200 으로 줄이지 않는다")
+    @DisplayName("필수 조각의 상류 계약 위반은 화면 전체 400 — 빈 조각 200 으로 줄이지 않는다")
     void requiredFragmentFailureFailsWholeScreen() throws Exception {
         // 일시 5xx 는 공유 서킷을 열어 다른 계약 테스트를 오염시키므로 여기서 재현하지 않는다 —
         // 전체 예산 소진은 ScreenDeadlineContractTest 가 별도 컨텍스트로 본다.
         DATA.on(DATA_SUMMARY, request -> domainError(400, "UNKNOWN"));
         mockMvc.perform(auth(get("/screens/home")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.on(DATA_SUMMARY, request -> ok(SUMMARY));
         DATA.on(DATA_CURRENT, request -> ok("{}"));
         mockMvc.perform(auth(get("/screens/home")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

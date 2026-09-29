@@ -163,23 +163,23 @@ class TownHallScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    @DisplayName("모르는 역할은 계약 위반 502 — 방장 조각을 추측으로 켜거나 끄지 않는다")
+    @DisplayName("모르는 역할은 계약 위반 400 — 방장 조각을 추측으로 켜거나 끄지 않는다")
     void unknownRoleIsContractError() throws Exception {
         role("owner");
 
         mockMvc.perform(auth(get("/screens/town-hall")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         assertThat(DATA.hits(DATA_MEMBERS) + DATA.hits(DATA_REQUESTS) + DATA.hits(DATA_OPTIONS)).isZero();
     }
 
     @Test
-    @DisplayName("관리 게이트가 닫혀 주민 목록이 503 이면 화면 전체 503 이다")
+    @DisplayName("관리 게이트가 닫혀 주민 목록이 503 이면 공개 응답은 400 이다")
     void membersGateClosedFailsWholeScreen() throws Exception {
         DATA.on(DATA_MEMBERS, request -> domainError(503, "ISLAND_MANAGEMENT_NOT_READY"));
 
         mockMvc.perform(auth(get("/screens/town-hall")))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"));
     }
 

@@ -3,11 +3,9 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.AccountMe;
-import com.oneorthree.business.upstream.data.dto.AccountProfile;
 import com.oneorthree.business.usecase.AccountUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -46,8 +44,8 @@ public class AccountController {
     private final UpstreamConfigProperties properties;
 
     @GetMapping("/me")
-    public AccountMe me(HttpServletRequest request) {
-        return account.me(sessions.requireSession(request), deadline());
+    public AccountUseCase.AccountView me(HttpServletRequest request) {
+        return account.me(sessions.requireSession(request), properties.deadline());
     }
 
     /**
@@ -58,7 +56,7 @@ public class AccountController {
      * 아래에서 판정해 403 으로 되돌리고, 이 클래스가 섬 목록을 따로 들고 있으면 그것이 곧 두 번째 진실이 된다.
      */
     @PatchMapping(value = "/me", consumes = "application/json")
-    public AccountProfile patch(@RequestBody JsonNode body, HttpServletRequest request) {
+    public AccountUseCase.ProfileView patch(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         if (body == null || !body.isObject() || body.isEmpty()
@@ -83,7 +81,9 @@ public class AccountController {
         }
         return account.updateProfile(claims, name == null ? null : name.stringValue(),
                 catColor == null ? null : catColor.stringValue(),
-                mainIslandId == null ? null : islandId(mainIslandId.stringValue()), key, deadline());
+                mainIslandId == null ? null
+                        : PublicIds.uuid(mainIslandId.stringValue(), "mainIslandId", ApiErrorCode.INVALID_REQUEST),
+                key, properties.deadline());
     }
 
     /** 탈퇴. {@code confirmation} 은 재인증이 아니라 오조작 방지이며 대소문자까지 정확히 {@code "DELETE"} 다. */
@@ -96,30 +96,6 @@ public class AccountController {
                 || !CONFIRMATION.equals(confirmation.stringValue())) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "confirmation");
         }
-        return account.withdraw(claims, deadline());
-    }
-
-    /**
-     * UUID 가 아닌 문자열은 해석 자체가 안 되므로 400 이다 — 「없는 섬」(Data 의 403)과 층이 다르다.
-     *
-     * <p><b>{@code UUID.fromString} 만으로는 모자라다</b> — {@code "1-2-3-4-5"} 같은 축약 문자열을 받아
-     * <b>패딩된 다른 UUID</b> 로 만들어 준다. 그대로 상류로 넘기면 형식 오류가 400 이 아니라 「그 섬의
-     * 주민이 아니다」 403 으로 둔갑해, 앱은 고칠 수 없는 입력을 권한 문제로 읽는다. 그래서 다른 공개
-     * UUID 파서와 같은 규칙으로 36자 길이와 {@code toString()} 왕복 일치까지 본다.
-     */
-    private static UUID islandId(String raw) {
-        try {
-            UUID parsed = UUID.fromString(raw);
-            if (raw.length() != 36 || !parsed.toString().equalsIgnoreCase(raw)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "mainIslandId");
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
+        return account.withdraw(claims, properties.deadline());
     }
 }

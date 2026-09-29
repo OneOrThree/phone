@@ -2,8 +2,9 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.SessionRefresh;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -24,7 +25,7 @@ import org.springframework.stereotype.Service;
 @RequiredArgsConstructor
 public class SessionRefreshUseCase {
 
-    private final DataApiClient data;
+    private final DataAuthClient data;
 
     /**
      * <p>상류 실패를 <b>손으로 옮겨 적지 않는다</b>. Data 의 {@code 401 REFRESH_TOKEN} ·
@@ -49,6 +50,7 @@ public class SessionRefreshUseCase {
      *                     값이 있을 때만 저장소를 갱신한다. 필드를 빼지 않는 이유는 회전이 활성화될 때
      *                     <b>필드의 유무가 아니라 값</b>만 달라지게 하기 위해서다
      */
+    @Schema(name = "SessionRefreshResult")
     public record Result(String accessToken, String refreshToken) {
 
         @Override

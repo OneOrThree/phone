@@ -10,6 +10,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
@@ -33,6 +34,8 @@ class GroupBetFreezeMonitorTest {
 
     @Mock
     private GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
+    @Mock
+    private Clock clock;
     @InjectMocks
     private GroupBetFreezeMonitor monitor;
 

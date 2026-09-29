@@ -1,15 +1,15 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.ConstructionResponses.ConstructionOptionsView;
+import com.oneorthree.business.api.dto.ConstructionResponses.ConstructionResultView;
+import com.oneorthree.business.api.dto.ConstructionResponses.ConstructionTargetView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.ConstructionOptions;
-import com.oneorthree.business.upstream.data.dto.ConstructionResult;
-import com.oneorthree.business.upstream.data.dto.ConstructionTarget;
 import com.oneorthree.business.usecase.IslandConstructionUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -48,9 +48,9 @@ public class IslandConstructionController {
      * {@code selectable}/{@code blockedReason} 에 담기지 GET 전체를 403 으로 거절하지 않는다.
      */
     @GetMapping("/islands/{islandId}/construction-options")
-    public ConstructionOptions options(@PathVariable String islandId, HttpServletRequest request) {
+    public ConstructionOptionsView options(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return construction.options(claims, uuid(islandId), deadline());
+        return construction.options(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
     }
 
     /**
@@ -58,16 +58,16 @@ public class IslandConstructionController {
      * 목표·현재 version 은 무변경 200 이다(C11).
      */
     @PutMapping(value = "/islands/{islandId}/construction-target", consumes = "application/json")
-    public ConstructionTarget target(@PathVariable String islandId, @RequestBody JsonNode body,
+    public ConstructionTargetView target(@PathVariable String islandId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         if (body == null || !body.isObject() || body.size() != 2) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
-        return construction.selectTarget(claims, uuid(islandId), buildingId(body),
+        return construction.selectTarget(claims, PublicIds.uuid(islandId, "islandId"), buildingId(body),
                 ResourceVersions.fromJson(body.get("expectedVersion"), "expectedVersion"),
-                key, deadline());
+                key, properties.deadline());
     }
 
     /**
@@ -75,18 +75,18 @@ public class IslandConstructionController {
      * 도 필수다 — 둘 다 지문에 들어가 같은 키의 다른 본문은 재사용 거절이 된다(C10·§3).
      */
     @PostMapping(value = "/islands/{islandId}/constructions", consumes = "application/json")
-    public ConstructionResult build(@PathVariable String islandId, @RequestBody JsonNode body,
+    public ConstructionResultView build(@PathVariable String islandId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
         if (body == null || !body.isObject() || body.size() != 3) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
-        return construction.build(claims, uuid(islandId), buildingId(body),
+        return construction.build(claims, PublicIds.uuid(islandId, "islandId"), buildingId(body),
                 ResourceVersions.fromJson(body.get("expectedVersion"), "expectedVersion"),
                 ResourceVersions.fromJson(body.get("expectedCostPolicyVersion"),
                         "expectedCostPolicyVersion"),
-                key, deadline());
+                key, properties.deadline());
     }
 
     // ---------------------------------------------------------------- 입력 해석
@@ -105,21 +105,5 @@ public class IslandConstructionController {
             throw new PublicApiException(ApiErrorCode.OUT_OF_RANGE, "buildingId");
         }
         return value;
-    }
-
-    private static UUID uuid(String value) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "islandId");
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

@@ -1,12 +1,17 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.QuestResponses.CurrentQuestsView;
+import com.oneorthree.business.api.dto.QuestResponses.IslandQuestClaimed;
+import com.oneorthree.business.api.dto.QuestResponses.IslandQuestCreated;
+import com.oneorthree.business.api.dto.QuestResponses.IslandQuestProgressView;
+import com.oneorthree.business.api.dto.QuestResponses.IslandQuestUpdated;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataQuestClient;
 import com.oneorthree.business.upstream.data.dto.IslandQuestViews;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -51,14 +56,15 @@ public class IslandQuestUseCase {
             Map.entry("QUEST_CREATION_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)),
             Map.entry("QUEST_SETTLEMENT_UNAVAILABLE", new PublicFailure(ApiErrorCode.SERVICE_UNAVAILABLE, null)));
 
-    private final DataApiClient data;
+    private final DataQuestClient data;
 
-    public IslandQuestViews.Current current(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
-        return required(relay(() -> data.fetchCurrentQuests(claims.userId(), islandId, deadline)),
-                "현재 퀘스트 응답이 없습니다");
+    public CurrentQuestsView current(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+        return CurrentQuestsView.from(required(relay(() -> data.fetchCurrentQuests(claims.userId(), islandId,
+            deadline)),
+                "현재 퀘스트 응답이 없습니다"));
     }
 
-    public IslandQuestViews.Progress progress(AccessTokenClaims claims, UUID islandId, UUID questId,
+    public IslandQuestProgressView progress(AccessTokenClaims claims, UUID islandId, UUID questId,
             UUID occurrenceId, Deadline deadline) {
         IslandQuestViews.Progress progress = required(relay(() ->
                 data.fetchQuestProgress(claims.userId(), islandId, questId, occurrenceId, deadline)),
@@ -66,27 +72,28 @@ public class IslandQuestUseCase {
         if (!questId.toString().equals(progress.id()) || !occurrenceId.toString().equals(progress.occurrenceId())) {
             throw new UpstreamContractMismatchException("퀘스트 진행 응답의 대상이 요청과 다릅니다");
         }
-        return progress;
+        return IslandQuestProgressView.from(progress);
     }
 
-    public IslandQuestViews.Created create(AccessTokenClaims claims, UUID islandId,
-            DataApiClient.QuestCreateCommand command, UUID key, Deadline deadline) {
-        return required(relay(() -> data.createQuest(claims.userId(), islandId, command, key, deadline)),
-                "퀘스트 생성 응답이 없습니다");
+    public IslandQuestCreated create(AccessTokenClaims claims, UUID islandId,
+            DataQuestClient.QuestCreateCommand command, UUID key, Deadline deadline) {
+        return IslandQuestCreated.from(required(relay(() -> data.createQuest(claims.userId(), islandId, command,
+            key, deadline)),
+                "퀘스트 생성 응답이 없습니다"));
     }
 
-    public IslandQuestViews.Updated update(AccessTokenClaims claims, UUID islandId, UUID questId, String title,
+    public IslandQuestUpdated update(AccessTokenClaims claims, UUID islandId, UUID questId, String title,
             Integer targetMinutes, UUID key, Deadline deadline) {
         IslandQuestViews.Updated updated = required(relay(() -> data.updateQuest(claims.userId(), islandId,
                 questId, title, targetMinutes, key, deadline)), "퀘스트 수정 응답이 없습니다");
         if (!questId.toString().equals(updated.id())) {
             throw new UpstreamContractMismatchException("퀘스트 수정 응답의 id 가 요청과 다릅니다");
         }
-        return updated;
+        return IslandQuestUpdated.from(updated);
     }
 
     /** 성공은 언제나 {@code claimed=true} 다 — 다른 값은 이 계약의 응답이 아니다. */
-    public IslandQuestViews.Claimed claim(AccessTokenClaims claims, UUID islandId, UUID questId,
+    public IslandQuestClaimed claim(AccessTokenClaims claims, UUID islandId, UUID questId,
             UUID occurrenceId, long expectedVersion, UUID key, Deadline deadline) {
         IslandQuestViews.Claimed claimed = required(relay(() -> data.claimQuest(claims.userId(), islandId,
                 questId, occurrenceId, expectedVersion, key, deadline)), "퀘스트 정산 응답이 없습니다");
@@ -94,7 +101,7 @@ public class IslandQuestUseCase {
                 || claimed.villagePointsAdded() < 0 || claimed.bonusAdded() < 0) {
             throw new UpstreamContractMismatchException("퀘스트 정산 응답이 계약과 다릅니다");
         }
-        return claimed;
+        return IslandQuestClaimed.from(claimed);
     }
 
     private static <T> T required(T value, String message) {

@@ -117,6 +117,14 @@ class GroupMemberServiceTest {
     @Mock
     private IslandPurgePort islandPurge;
 
+    /**
+     * 계정 탈퇴 잠금 대상에 댓글을 남긴 섬을 더할 때 참조한다(GROMO-2137 코드리뷰 대응) — stub 이 없으면
+     * Mockito 기본 답(빈 리스트)이 나가므로 이 클래스의 단언은 「댓글 없음」 시나리오만 본다.
+     */
+    @Mock
+    private com.oneorthree.phone.group.repository.GroupAnnouncementCommentRepository
+            groupAnnouncementCommentRepository;
+
     private static final UUID GROUP_ID = UUID.fromString("00000000-0000-0000-0000-0000000000a1");
     private static final UUID OWNER_ID = UUID.fromString("00000000-0000-0000-0000-000000000001");
     private static final UUID TARGET_ID = UUID.fromString("00000000-0000-0000-0000-000000000002");

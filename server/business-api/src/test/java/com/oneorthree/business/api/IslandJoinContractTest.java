@@ -222,9 +222,9 @@ class IslandJoinContractTest extends UpstreamTestBase {
             "404,GROUP_NOT_FOUND,404,GROUP_NOT_FOUND",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED",
             // 같은 코드라도 상태가 어긋나면 조용히 옮기지 않는다 — 계약 불일치 502.
-            "400,INVITATION_CODE_INVALID,502,UPSTREAM_CONTRACT_ERROR",
-            "404,INVITATION_EXPIRED,502,UPSTREAM_CONTRACT_ERROR",
-            "400,UNKNOWN_JOIN_ERROR,502,UPSTREAM_CONTRACT_ERROR"})
+            "400,INVITATION_CODE_INVALID,400,UPSTREAM_CONTRACT_ERROR",
+            "404,INVITATION_EXPIRED,400,UPSTREAM_CONTRACT_ERROR",
+            "400,UNKNOWN_JOIN_ERROR,400,UPSTREAM_CONTRACT_ERROR"})
     @DisplayName("가입의 (상태, 코드) 쌍만 공개 오류로 옮긴다 — 형식 422 와 폐기 410 의 원본 의미를 지킨다")
     void mapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode) throws Exception {
@@ -320,30 +320,30 @@ class IslandJoinContractTest extends UpstreamTestBase {
     // ---------------------------------------------------------------- 응답 계약
 
     @Test
-    @DisplayName("가입 응답의 섬이 요청과 다르거나 상태·필드가 어긋나면 502 다")
+    @DisplayName("가입 응답의 섬이 요청과 다르거나 상태·필드가 어긋나면 400 다")
     void mismatchedJoinResponseIsAContractError() throws Exception {
         DATA.on(DATA_JOIN, request -> ok("{\"status\":\"active\",\"requestId\":null,\"islandId\":\""
                 + OTHER + "\",\"currentIslandId\":\"" + OTHER + "\",\"version\":1}"));
         mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.reset();
         DATA.on(DATA_JOIN, request -> ok("{\"status\":\"pending\",\"requestId\":null,\"islandId\":\""
                 + ISLAND + "\",\"currentIslandId\":null,\"version\":0}"));
         mockMvc.perform(write(post("/islands/" + ISLAND + "/memberships"), "{}"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
     @Test
-    @DisplayName("취소 응답의 id 가 요청과 다르면 502 다")
+    @DisplayName("취소 응답의 id 가 요청과 다르면 400 다")
     void mismatchedCancelResponseIsAContractError() throws Exception {
         DATA.on(DATA_CANCEL, request -> ok("{\"id\":\"" + OTHER + "\",\"status\":\"cancelled\"}"));
 
         mockMvc.perform(auth(delete("/me/join-requests/" + REQUEST))
                         .header("Idempotency-Key", KEY))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -366,4 +366,67 @@ class IslandJoinContractTest extends UpstreamTestBase {
         return new MockUpstream.Response(status,
                 "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"join", "pending", "request", "cancel", "resolve", "issue", "expiring-issue"})
+    void publicJoinFieldsRemainStable(String operation) throws Exception {
+        String expected = switch (operation) {
+            case "join" -> JOINED;
+            case "pending" -> PENDING;
+            case "request" -> REQUEST_VIEW;
+            case "cancel" -> CANCELLED;
+            case "resolve" -> RESOLVED;
+            case "expiring-issue" -> ISSUED.replace("null", "\"2026-10-01T01:02:03.123456Z\"");
+            default -> ISSUED;
+        };
+        String decorated = expected.replace("{", "{\"row_id\":\"private\",");
+        String route = switch (operation) {
+            case "join", "pending" -> DATA_JOIN;
+            case "request" -> DATA_REQUEST;
+            case "cancel" -> DATA_CANCEL;
+            case "resolve" -> DATA_RESOLVE;
+            default -> DATA_INVITE;
+        };
+        DATA.on(route, r -> ok(decorated));
+        var request = switch (operation) {
+            case "join", "pending" -> write(post("/islands/" + ISLAND + "/memberships"), "{}");
+            case "request" -> auth(get("/me/join-requests/" + REQUEST));
+            case "cancel" -> auth(delete("/me/join-requests/" + REQUEST)).header("Idempotency-Key", KEY);
+            case "resolve" -> write(post("/invitations/resolve"), "{\"code\":\"abcd2345\"}");
+            default -> auth(post("/islands/" + ISLAND + "/invitations")).header("Idempotency-Key", KEY);
+        };
+        var result = mockMvc.perform(request).andExpect(status().isOk()).andReturn();
+        var json = new tools.jackson.databind.ObjectMapper();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(json.readTree(expected));
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/memberships|post|200||status requestId islandId currentIslandId version|status requestId islandId currentIslandId version",
+            "/me/join-requests/{requestId}|get|200||id islandId status version|id islandId status version",
+            "/me/join-requests/{requestId}|delete|200||id status|id status",
+            "/invitations/resolve|post|200||island invitationToken|island invitationToken",
+            "/invitations/resolve|post|200|island|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId growthStage themeId|id name intro visibility approvalRequired memberCount maxMembers membershipStatus joinRequestId",
+            "/islands/{islandId}/invitations|post|200||code url expiresAt|code url expiresAt"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

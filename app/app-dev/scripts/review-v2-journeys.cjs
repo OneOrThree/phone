@@ -159,7 +159,7 @@ fs.mkdirSync(outputDir, { recursive: true });
     const building = structuredClone(fixture);
     building.islands[0].buildings = ['hall', 'board', 'gram'];
     const libraryCost = 2720;
-    const rainPrice = 150;
+    const rainPrice = 30;
     building.islands[0].fish = libraryCost + 20;
     await open('construction', { state: building });
     await p.getByRole('button', { name: '도서관', exact: true }).click();

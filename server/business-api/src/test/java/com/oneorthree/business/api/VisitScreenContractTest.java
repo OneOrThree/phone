@@ -128,7 +128,7 @@ class VisitScreenContractTest extends ScreenContractTestBase {
         // 다른 섬의 요청이 돌아오면 availability 불일치 — 계약 오류다.
         DATA.on(DATA_REQUEST, request -> ok(requestView(UUID.randomUUID())));
         mockMvc.perform(auth(get(PATH)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 

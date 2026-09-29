@@ -8,7 +8,6 @@ import com.oneorthree.phone.group.repository.domain.GroupChallengeBetParticipant
 import com.oneorthree.phone.group.repository.domain.GroupChallengeBetSession;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeDuration;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
-import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.user.repository.domain.User;
 import org.junit.jupiter.api.DisplayName;
@@ -70,9 +69,6 @@ class GroupQueryServiceTest {
     private GroupChallengeDurationRepository groupChallengeDurationRepository;
 
     @Mock
-    private GroupJoinCodeRepository groupJoinCodeRepository;
-
-    @Mock
     private GroupChallengeRepository groupChallengeRepository;
 
     @InjectMocks
@@ -89,9 +85,6 @@ class GroupQueryServiceTest {
 
     @Mock
     private GroupChallengeBetSession betSession;
-
-    @Mock
-    private GroupJoinCode joinCode;
 
     @Mock
     private GroupChallenge challenge;
@@ -254,7 +247,7 @@ class GroupQueryServiceTest {
         verify(groupChallengeBetParticipantRepository).findById(PARTICIPANT_ID);
     }
 
-    // ── 챌린지 상세·참가 코드 ──────────────────────────────────────────
+    // ── 챌린지 상세 ──────────────────────────────────────────────────
 
     @Test
     @DisplayName("창·기간 상세는 던지지 않는다 — 부재는 '그 타입이 아니다'라는 뜻이다")
@@ -270,27 +263,6 @@ class GroupQueryServiceTest {
         verify(groupChallengeDurationRepository).findById(CHALLENGE_ID);
     }
 
-    @Test
-    @DisplayName("참가 코드 — get 은 부재에 NOT_FOUND, find 는 빈 값(방장에게만 싣는 자리)")
-    void joinCodeGetThrowsButFindDoesNot() {
-        given(groupJoinCodeRepository.findById(GROUP_ID)).willReturn(Optional.empty());
-
-        assertThatThrownBy(() -> groupQueryService.getJoinCode(GROUP_ID))
-                .isInstanceOf(GroupException.class)
-                .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
-        assertThat(groupQueryService.findJoinCode(GROUP_ID)).isEmpty();
-        verify(groupJoinCodeRepository, times(2)).findById(GROUP_ID);
-    }
-
-    @Test
-    @DisplayName("참가 코드 배치 조회는 부재분을 빼고 돌려준다")
-    void findAllJoinCodesDropsMissing() {
-        List<UUID> ids = List.of(GROUP_ID, UUID.randomUUID());
-        given(groupJoinCodeRepository.findAllById(ids)).willReturn(List.of(joinCode));
-
-        assertThat(groupQueryService.findAllJoinCodes(ids)).containsExactly(joinCode);
-    }
     // ── 다른 도메인이 빌려 가는 조회 — 전부 던지지 않는다 ────────────────
 
     /**

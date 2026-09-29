@@ -21,6 +21,23 @@ npm run web
 
 일반 URL은 첫 시작부터 진행합니다. `?demo=1`은 완공된 마을 체험, `?review=1`은 검증 스크립트의 상태 주입용입니다. 두 모드는 기존 로컬 저장을 읽거나 덮어쓰지 않습니다.
 
+### 캐릭터 스프라이트 모션
+
+웹 주소에 `?motion=1`을 붙이면 앱에서 쓰는 `CatSprite`로 고양이 6종의 동작을 비교할 수 있습니다. 동작 버튼을 다시 누르면 처음부터 재생하며, 왼쪽 보기와 모션 줄이기도 확인할 수 있습니다. 이 미리보기는 계정이나 로컬 저장 데이터를 사용하지 않습니다.
+
+메인 고양이는 이동할 때 걷고, 멈추면 눈 깜박임·갸웃·하품·기지개·그루밍을 간헐적으로 재생합니다. 집중 화면에서는 낚시 동작을 유지하고 물고기를 잡은 직후에만 낚아올리기로 전환합니다. 동작 간 발 위치를 기준으로 정렬하며, 모션 줄이기 또는 앱 백그라운드 상태에서는 스프라이트 재생을 중단합니다. NPC 전용 동작 확장은 이 작업 범위에 포함하지 않습니다.
+
+```sh
+# 실행 중인 웹 서버를 대상으로 6종·프레임 변경·좌우 반전·모션 줄이기와 화면 진입 검증
+MOTION_REVIEW_URL=http://localhost:8081 node scripts/review-cat-motion.cjs
+```
+
+황금 물고기 영상은 임시 검수 URL `?demo=1&golden-test=1`에서 확인할 수 있습니다.
+이 모드는 인증·서버 연결 없이 데모 상태로 시작하며, 집중 낚시에 들어가면 황금 물고기가
+반드시 한 번 등장합니다.
+
+검증 결과와 화면 캡처는 `.docs/cat-motion/`에 저장됩니다. 브라우저 검증은 실제 저사양 iOS·Android 기기의 프레임 성능 검증을 대신하지 않습니다.
+
 ## 구조
 
 - `src/App.tsx`: 앱 상태·저장·화면 전환·음원 재생
@@ -44,6 +61,21 @@ npm run typecheck
 npm test
 npx expo export --platform all
 ```
+
+## PostHog 제품 분석
+
+릴리스 빌드는 PostHog `CatUs / Default project`(US)의 공개 프로젝트 토큰으로 이벤트를 보냅니다. [활성화와 집중 대시보드](https://us.posthog.com/project/624010/dashboard/2126236)에서 첫 사용·집중 퍼널과 일별 사용량을 봅니다. 개발 빌드는 기본적으로 전송하지 않으며, 검증할 때만 `EXPO_PUBLIC_POSTHOG_DEV_ENABLED=1`을 설정합니다. `?demo`·`?review` 웹 화면은 수집 대상에서 제외합니다.
+
+| 이벤트                              | 발생 시점                                           |
+| ----------------------------------- | --------------------------------------------------- |
+| `$screen`                           | 커스텀 라우터의 화면 전환                           |
+| `guest_login_completed`             | 게스트 계정 세션 채택 완료                          |
+| `member_conversion_completed`       | 소셜 회원 전환 완료                                 |
+| `island_join_requested`             | 섬 가입 승인 요청 확정                              |
+| `island_membership_activated`       | 섬 생성·즉시 가입·승인 후 소속 확정 (`method` 속성) |
+| `focus_started` / `focus_completed` | 서버 집중 시작·정산 확정                            |
+
+로그인 세션의 서버 `userId`만 분석 식별자로 쓰고 로그아웃 시 식별자를 초기화합니다. 화면의 입력 내용·섬 이름·집중 주제는 전송하지 않습니다. 세션 리플레이, 터치 자동 수집, 위치 추정은 꺼져 있습니다. 프로젝트 토큰과 수집 호스트는 각각 `EXPO_PUBLIC_POSTHOG_PROJECT_TOKEN`, `EXPO_PUBLIC_POSTHOG_HOST`로 빌드별 재정의할 수 있습니다.
 
 웹 상호작용 검증은 정적 빌드를 로컬 서버로 띄운 뒤 실행합니다.
 
@@ -81,14 +113,14 @@ npm run review:v2-journeys
 
 ## TestFlight
 
-기존 Gromo의 로컬 App Store Connect API 키 설정을 재사용해 Fishcat 테스트 빌드를 올립니다.
+기존 Gromo의 로컬 App Store Connect API 키 설정을 재사용해 Catus 테스트 빌드를 올립니다.
 
 ```sh
 cd ios
 ./testflight.sh
 ```
 
-스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Fishcat 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.
+스크립트는 Pods와 Fastlane 의존성을 확인하고, App Store Connect의 `2.0.0` 최신 빌드번호 다음 번호로 archive·업로드합니다. Catus 전용 키를 쓰려면 `ios/fastlane/.env`에 `ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`를 설정합니다.
 
 ## Android 스크린타임
 

@@ -1,5 +1,7 @@
 package com.oneorthree.phone.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
@@ -20,7 +22,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -57,9 +58,6 @@ class ChallengeEndPushDispatcher {
      * 일 마감 배치는 활성 일 목표 챌린지 <b>전건</b>을 대상으로 하므로 그룹 수가 늘면 그대로 커진다.
      */
     private static final int CHUNK_SIZE = 200;
-
-    /** 묶음 슬롯의 기준 시간대 — 크론·리그 도메인과 통일된 KST 고정이다. */
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final GroupMemberRepository groupMemberRepository;
     private final UserQueryService userQueryService;

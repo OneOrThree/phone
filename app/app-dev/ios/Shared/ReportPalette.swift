@@ -11,6 +11,7 @@ enum Palette {
     static let divider = Color(.sRGB, red: 139.0 / 255, green: 105.0 / 255, blue: 86.0 / 255, opacity: 51.0 / 255)
     static let track = Color(.sRGB, red: 234.0 / 255, green: 223.0 / 255, blue: 210.0 / 255, opacity: 255.0 / 255)
     static let accent = Color(.sRGB, red: 255.0 / 255, green: 166.0 / 255, blue: 188.0 / 255, opacity: 255.0 / 255)
+    static let secondary = Color(.sRGB, red: 173.0 / 255, green: 225.0 / 255, blue: 248.0 / 255, opacity: 255.0 / 255)
     static let accentAlt = Color(.sRGB, red: 153.0 / 255, green: 76.0 / 255, blue: 62.0 / 255, opacity: 255.0 / 255)
     static let dangerInk = Color(.sRGB, red: 122.0 / 255, green: 46.0 / 255, blue: 30.0 / 255, opacity: 255.0 / 255)
 }

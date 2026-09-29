@@ -713,54 +713,6 @@ class UserServiceTest {
                 .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
-    // ── registerDeviceToken ───────────────────────────────────────────────
-
-    @Test
-    @DisplayName("디바이스 토큰 등록 → user.deviceToken 갱신")
-    void registerDeviceToken() {
-        User user = User.builder().id(USER_ID).build();
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-
-        userService.registerDeviceToken(USER_ID, "apns-device-token");
-
-        assertThat(user.getDeviceToken()).isEqualTo("apns-device-token");
-    }
-
-    @Test
-    @DisplayName("디바이스 토큰 해제 → user.deviceToken null (등록 케이스와 대칭)")
-    void clearDeviceToken() {
-        User user = User.builder().id(USER_ID).deviceToken("fcm-registration-token").build();
-        given(userQueryService.getCallerForUpdate(USER_ID)).willReturn(user);
-
-        userService.clearDeviceToken(USER_ID);
-
-        assertThat(user.getDeviceToken()).isNull();
-    }
-
-    @Test
-    @DisplayName("디바이스 토큰 해제 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
-    void clearDeviceTokenUserNotFound() {
-        given(userQueryService.getCallerForUpdate(USER_ID))
-                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
-
-        assertThatThrownBy(() -> userService.clearDeviceToken(USER_ID))
-                .isInstanceOf(UserException.class)
-                .extracting("errorCode")
-                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
-    }
-
-    @Test
-    @DisplayName("디바이스 토큰 등록 - 존재하지 않는 유저 → UserException(NOT_FOUND)")
-    void registerDeviceTokenUserNotFound() {
-        given(userQueryService.getCallerForUpdate(USER_ID))
-                .willThrow(new UserException(UserErrorCode.USER_NOT_FOUND));
-
-        assertThatThrownBy(() -> userService.registerDeviceToken(USER_ID, "apns-device-token"))
-                .isInstanceOf(UserException.class)
-                .extracting("errorCode")
-                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
-    }
-
     // ── updateOccupation ──────────────────────────────────────────────────
 
     @Test

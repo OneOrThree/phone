@@ -2,8 +2,8 @@ package com.oneorthree.business.api;
 
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.IslandHostTransferUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -31,7 +31,7 @@ public class IslandHostTransferController {
             @RequestBody JsonNode body, HttpServletRequest request) {
         var claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
-        UUID island = id(islandId, "islandId");
+        UUID island = PublicIds.uuid(islandId, "islandId");
         String exactPath = request.getContextPath() + "/islands/" + islandId + "/host-transfer";
         if (!exactPath.equals(request.getRequestURI()) || request.getQueryString() != null) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
@@ -40,20 +40,8 @@ public class IslandHostTransferController {
                 || !body.has("targetUserId") || !body.get("targetUserId").isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "targetUserId");
         }
-        UUID target = id(body.get("targetUserId").stringValue(), "targetUserId");
+        UUID target = PublicIds.uuid(body.get("targetUserId").stringValue(), "targetUserId");
         return transfers.transfer(claims, island, target, key,
-                Deadline.startingNow(properties.getComposition().getDeadline()));
-    }
-
-    private static UUID id(String value, String field) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
-        }
+                properties.deadline());
     }
 }

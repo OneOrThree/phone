@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.focus.repository.FocusSessionRepository;
 import com.oneorthree.phone.group.repository.domain.GroupChallengeWindow;
 import com.oneorthree.phone.group.support.GroupBetSessionFactory;
@@ -9,7 +11,6 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Collection;
@@ -43,8 +44,6 @@ public class WindowFocusAggregator {
 
     /** 창 달성 관용치(분) — 판정 소스 단일 상수. UI 안내 문구("5분 모자라도 달성 인정")와 짝이다. */
     public static final int WINDOW_FOCUS_TOLERANCE_MINUTES = 5;
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /** 응답 표기 포맷 — {@link #timeOfDayString} 전용. */
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm:ss");

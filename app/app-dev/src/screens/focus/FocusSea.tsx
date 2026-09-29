@@ -11,7 +11,8 @@ import {
 } from 'react-native';
 import { useAppLayout } from '@/utils/layout';
 import { art } from '@/constants/art';
-import { assets, cat } from '@/constants/assets';
+import { assets } from '@/constants/assets';
+import { CatSprite } from '@/components/CatSprite';
 import Svg, { Path, Ellipse } from 'react-native-svg';
 import { C, T } from '@/design-system/primitives';
 import { State, sessionSeconds, currentIsland, Color, SECONDS_PER_FISH } from '@/services/model';
@@ -22,7 +23,7 @@ export const clock = (n: number) =>
     .padStart(2, '0')}:${Math.floor(n % 60)
     .toString()
     .padStart(2, '0')}`;
-function FishingBoat({
+export function FishingBoat({
   color,
   hull,
   seconds,
@@ -47,26 +48,21 @@ function FishingBoat({
     last = useRef(count),
     [caught, setCaught] = useState(count),
     [phase, setPhase] = useState(false),
-    [frame, setFrame] = useState(0),
     flight = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (reduce) return;
-    const id = setInterval(() => setFrame((f) => (f + 1) % 4), phase ? 200 : 333);
-    return () => clearInterval(id);
-  }, [phase, reduce]);
   useEffect(() => {
     if (count <= last.current) {
       last.current = count;
       setCaught(count);
+      setPhase(false);
       return;
     }
     last.current = count;
     if (reduce) {
       setCaught(count);
+      setPhase(false);
       return;
     }
     setPhase(true);
-    setFrame(0);
     flight.setValue(0);
     Animated.timing(flight, {
       toValue: 1,
@@ -77,10 +73,11 @@ function FishingBoat({
     const a = setTimeout(() => setCaught(count), 1450),
       b = setTimeout(() => setPhase(false), 1900);
     return () => {
+      flight.stopAnimation();
       clearTimeout(a);
       clearTimeout(b);
     };
-  }, [count]);
+  }, [count, flight, reduce]);
   return (
     <View style={{ width: 154, height: 170, alignItems: 'center' }}>
       <Image
@@ -88,8 +85,7 @@ function FishingBoat({
         style={{ position: 'absolute', width: 154, height: 154, bottom: -9 }}
         resizeMode="contain"
       />
-      <Image
-        source={cat(color, `fishing/${phase ? 'reel' : 'fishing'}-frame-${frame}`)}
+      <View
         style={{
           position: 'absolute',
           width: 406 * boatScale,
@@ -97,8 +93,16 @@ function FishingBoat({
           top: 25 + (seat[1] - 406) * boatScale,
           left: (seat[0] - 203) * boatScale,
         }}
-        resizeMode="contain"
-      />
+      >
+        <CatSprite
+          color={color}
+          motion={phase ? 'reel' : 'focus'}
+          size={406 * boatScale}
+          reduce={reduce}
+          anchored={false}
+          testID="fishing-boat-cat"
+        />
+      </View>
       <Image
         source={assets[`boats/${hull}/layers/front-day.png`]}
         style={{ position: 'absolute', width: 154, height: 154, bottom: -9 }}

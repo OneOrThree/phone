@@ -199,9 +199,12 @@ ORDER BY id DESC
 HLD §3 표와 동일. 공개 계약(§1.5·1.6·1.13)과 인가만 다르다 — 서비스 위임 토큰 + `X-User-Id`,
 `InternalAuthFilter`가 경로의 `{userId}`와 대조(선례 `InternalUserController.java:44-58`).
 
+예외 하나 — 내부 `friends` 의 `date` 는 **선택**이고, 생략하면 서버 판정 축(KST) 오늘이다(GROMO-2119). 우체통 화면이
+날짜 없이 친구 조각을 조합하기 때문이다. 공개 §1.5 는 그대로 필수(누락 400)다.
+
 | 내부 GET | 대응 공개 계약 | 신설 위치 |
 | --- | --- | --- |
-| `GET /internal/users/{userId}/friends?date=` | §1.5 | `friend/InternalFriendController`(신설) |
+| `GET /internal/users/{userId}/friends?date=` | §1.5 (단, `date` 선택 — 생략 시 KST 오늘) | `friend/InternalFriendController`(신설) |
 | `GET /internal/users/{userId}/friend-requests?type=` | §1.6 | 위와 동일 클래스 |
 | `GET /internal/users/{userId}/letters?type=&cursor=&size=` | §1.13 | `letter/InternalLetterController`(신설) |
 | `GET /internal/users/{userId}/friend-search?type=&q=` | §1.17 | `internal/InternalFriendController`(GROMO-1996) |
@@ -324,6 +327,8 @@ CREATE INDEX idx_letters_sender_cursor   ON letters (sender_id,   id DESC) WHERE
 > 보존)와 그 대가로 남는 레거시 우회는 계정 LLD §2.1 「게스트 제한과 기존 계정 충돌의 2단계
 > 확인」에 있다.
 
+**2026-09-25 후속 결정(RP-게스트쓰기):** 2.0 게스트의 편지 발송·친구 요청을 추가 소유 확인 없이 다시 허용한다. 위 인용은 1992의 현재 구현 설명이며 목표 계약이 아니다. 현행 `SOCIAL_LOGIN_REQUIRED` 친구·편지 가드는 후속 구현에서 제거한다. 상점 구매 정책은 그대로다. 게스트 탈퇴·새 발급 뒤 제재·차단 승계는 보장되지 않는 미해결 위험이다.
+
 ### 결정 2 — 받는 쪽 섬의 우체통 시설이 완공돼야 편지를 받을 수 있는가
 
 우체통은 `island-construction`의 건설 대상 하나다(`docs/prd/fishcat/island-construction/prd.md:11`,
@@ -397,7 +402,9 @@ POST와 DELETE는 둘 다 멱등이다. 같은 방향의 차단을 다시 만들
 탈퇴자가 이미 차단 정리로 사라진 경우도 성공으로 접는다. 탈퇴 처리의 `deleteAllInvolving`은 기존대로
 두 방향 행을 hard delete한다.
 
-차단은 친구 관계·편지 원문을 바꾸지 않는 **표시 필터**다.
+GROMO-1975에서 구현한 차단 효과는 친구 관계·편지 원문을 바꾸지 않는 **표시 필터**다.
+
+이 문단은 GROMO-1975에서 구현한 **1단계 범위**다. Catus 2.0의 최종 정책은 [RP-차단](../character-report/policy.md#rp-차단--직접-연락-차단과-상대-콘텐츠-숨김)에 따라 양방향 편지 발송·친구 요청을 막고, 차단자가 보는 채팅·댓글·사용자 공지도 숨긴다. 이 후속 범위가 구현되기 전에는 1단계 필터만으로 신고센터 출시 조건을 충족했다고 판단하지 않는다.
 
 - blocker의 `GET /friends`와 `GET /friends/search`에서 `blocked_id`를 제외한다. 반대 방향 목록은 유지한다.
 - blocker의 받은 편지함에서만 차단한 발신자의 편지를 제외한다. 보낸 편지함·`letters` 원문·상세 삭제는

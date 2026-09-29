@@ -3,6 +3,7 @@ package com.oneorthree.phone.internal.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.oneorthree.phone.common.util.ZonePolicy;
+import com.oneorthree.phone.focus.dto.session.ActiveInterval;
 import com.oneorthree.phone.focus.dto.session.FocusFinishView;
 import com.oneorthree.phone.focus.dto.session.FocusSessionStartCommandRequest;
 import com.oneorthree.phone.focus.dto.session.FocusSessionView;
@@ -58,6 +59,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -244,8 +246,12 @@ public class FocusSessionLifecycleService {
                             .startedAt(now)
                             .build());
 
+                    // 방금 연 구간 하나뿐이고 길이는 0 이다 — start 의 activeSeconds 도 0 이라 FocusIntervalMath
+                    // 를 거치지 않고 같은 값을 바로 싣는다(리포지토리 save 의 반환값에 기대지 않는다).
+                    List<ActiveInterval> activeIntervals = List.of(new ActiveInterval(now, now));
                     FocusSessionView view = new FocusSessionView(session.getId(), islandId, subject, targetMinutes,
-                            FocusSessionView.STATUS_ACTIVE, 0L, now, now, null, detail.getVersion());
+                            FocusSessionView.STATUS_ACTIVE, 0L, now, now, null, detail.getVersion(),
+                            activeIntervals);
                     // 순번은 INSERT 때 DB 시퀀스가 채운다(GROMO-1743) — 쓰기 지연을 여기서 내보내야 보인다.
                     focusSessionRepository.flush();
                     // 선행 조건 #9 — start 도 rest 투영을 내구화한다(LLD §6). active 는 「rest 목록에서
@@ -337,10 +343,11 @@ public class FocusSessionLifecycleService {
                     detail.applyPause(now, restSeat);
 
                     long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, now);
+                    List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(intervals, now);
                     FocusSessionView view = new FocusSessionView(sessionId, detail.getIslandId(),
                             detail.getSubject(), detail.getTargetMinutes(), FocusSessionView.STATUS_PAUSED,
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), now,
-                            detail.getVersion());
+                            detail.getVersion(), activeIntervals);
                     return new PublicCommandResult(200, tree(view), tree(focusPresenceProjection.progressing(
                             userId, detail.getIslandId(), view, restSeat, presenceOrderOf(sessionId))));
                 }).value().data();
@@ -373,7 +380,7 @@ public class FocusSessionLifecycleService {
                     // pause와 같은 이유 — 닫는 UPDATE를 먼저 내보내지 않으면 열린 구간이 둘이 된다.
                     focusSessionIntervalRepository.flush();
 
-                    focusSessionIntervalRepository.save(FocusSessionInterval.builder()
+                    FocusSessionInterval resumed = focusSessionIntervalRepository.save(FocusSessionInterval.builder()
                             .sessionId(sessionId)
                             .ordinal(FocusIntervalMath.nextOrdinal(intervals))
                             .kind(FocusIntervalKind.ACTIVE)
@@ -383,10 +390,16 @@ public class FocusSessionLifecycleService {
 
                     // REST는 activeSeconds에 더하지 않는다 — 방금 닫은 구간은 REST라 합계가 그대로다.
                     long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, now);
+                    // activeIntervals 는 방금 연 구간도 담는다(길이 0이라도) — 계약이 「열린 구간은
+                    // serverNow 로 임시로 닫아 싣는다」이고, 이 응답의 status 는 이미 active 이기 때문이다.
+                    List<FocusSessionInterval> intervalsWithResumed = new ArrayList<>(intervals);
+                    intervalsWithResumed.add(resumed);
+                    List<ActiveInterval> activeIntervals =
+                            FocusIntervalMath.activeIntervalsAsOf(intervalsWithResumed, now);
                     FocusSessionView view = new FocusSessionView(sessionId, detail.getIslandId(),
                             detail.getSubject(), detail.getTargetMinutes(), FocusSessionView.STATUS_ACTIVE,
                             activeSeconds, now, FocusIntervalMath.sessionStartedAt(intervals), null,
-                            detail.getVersion());
+                            detail.getVersion(), activeIntervals);
                     // active 전이는 rest 목록에서 제거를 뜻한다 — restStartedAt/restSeat=null(LLD §6).
                     return new PublicCommandResult(200, tree(view), tree(focusPresenceProjection.progressing(
                             userId, detail.getIslandId(), view, null, presenceOrderOf(sessionId))));
@@ -433,7 +446,11 @@ public class FocusSessionLifecycleService {
                                 .orElseThrow(() -> new IllegalStateException(
                                         "정산 없는 COMPLETED 세션입니다 — 자동 재지급하지 않고 운영 복구한다"
                                                 + "(LLD §2). session=" + sessionId));
-                        return new PublicCommandResult(200, tree(finishView(detail, settled)), tree(List.of()));
+                        List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(
+                                focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(sessionId),
+                                settled.getCompletedAt());
+                        return new PublicCommandResult(200,
+                                tree(finishView(detail, settled, activeIntervals)), tree(List.of()));
                     }
                     requireProgressing(detail);
                     requireVersion(detail, expectedVersion);
@@ -528,10 +545,15 @@ public class FocusSessionLifecycleService {
         userQueryService.getCaller(userId);
         return focusSettlementRepository.findUnacknowledgedAutoClosed(userId, Limit.of(1)).stream()
                 .findFirst()
-                .map(settlement -> finishView(focusSessionDetailRepository.findById(settlement.getSessionId())
-                        .orElseThrow(() -> new IllegalStateException(
-                                "정산은 있는데 상세가 없습니다 — session=" + settlement.getSessionId())),
-                        settlement))
+                .map(settlement -> {
+                    FocusSessionDetail detail = focusSessionDetailRepository.findById(settlement.getSessionId())
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "정산은 있는데 상세가 없습니다 — session=" + settlement.getSessionId()));
+                    List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(
+                            focusSessionIntervalRepository.findBySessionIdOrderByOrdinalAsc(settlement.getSessionId()),
+                            settlement.getCompletedAt());
+                    return finishView(detail, settlement, activeIntervals);
+                })
                 .orElse(null);
     }
 
@@ -613,7 +635,9 @@ public class FocusSessionLifecycleService {
         // 여기서는 내지 않는다 — finish 는 잔액을 바꾸지 않는다.
         List<EventEnvelope> events = focusPresenceProjection.ended(userId, islandId, sessionId,
                 detail.getSubject(), activeSeconds, t, detail.getVersion(), marker.getPresenceOrder());
-        return new PublicCommandResult(200, tree(finishView(detail, settlement)), tree(events));
+        // 위에서 열린 구간을 이미 닫아 뒀다 — 같은 intervals·anchor 를 재사용해 별도 쿼리를 내지 않는다.
+        List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(intervals, t);
+        return new PublicCommandResult(200, tree(finishView(detail, settlement, activeIntervals)), tree(events));
     }
 
     /**
@@ -646,14 +670,15 @@ public class FocusSessionLifecycleService {
         return detail.getTargetMinutes() != null && activeSeconds >= detail.getTargetMinutes() * 60L;
     }
 
-    private static FocusFinishView finishView(FocusSessionDetail detail, FocusSettlement settlement) {
+    private static FocusFinishView finishView(FocusSessionDetail detail, FocusSettlement settlement,
+                                              List<ActiveInterval> activeIntervals) {
         // 퀘스트 진행률은 1772/1773 계약이 아직 없어 이 세션이 기여한 퀘스트가 없다 — 빈 목록이 사실이다.
         return new FocusFinishView(detail.getSessionId(), detail.getIslandId(), detail.getSubject(),
                 detail.getTargetMinutes(), settlement.getActiveSeconds(), settlement.isGoalAchieved(),
                 settlement.getEarnedFish(),
                 new FocusFinishView.Allocation(settlement.getPersonalFishAdded(),
                         settlement.getConstructionFishAdded()),
-                settlement.getCompletedAt(), List.of());
+                settlement.getCompletedAt(), List.of(), activeIntervals);
     }
 
     private static void requireProgressing(FocusSessionDetail detail) {
@@ -755,11 +780,13 @@ public class FocusSessionLifecycleService {
                 .findBySessionIdOrderByOrdinalAsc(detail.getSessionId());
         Instant anchor = clampToLastTransition(detail, now);
         long activeSeconds = FocusIntervalMath.activeSecondsAsOf(intervals, anchor);
+        List<ActiveInterval> activeIntervals = FocusIntervalMath.activeIntervalsAsOf(intervals, anchor);
         boolean paused = detail.getLifecycle() == FocusSessionLifecycle.PAUSED;
         return new FocusSessionView(detail.getSessionId(), detail.getIslandId(), detail.getSubject(),
                 detail.getTargetMinutes(), paused ? FocusSessionView.STATUS_PAUSED : FocusSessionView.STATUS_ACTIVE,
                 activeSeconds, anchor, FocusIntervalMath.sessionStartedAt(intervals),
-                paused ? FocusIntervalMath.openRestStartedAt(intervals) : null, detail.getVersion());
+                paused ? FocusIntervalMath.openRestStartedAt(intervals) : null, detail.getVersion(),
+                activeIntervals);
     }
 
     /**

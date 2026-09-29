@@ -1,5 +1,13 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.IslandRecordsResponses.FishEarningsView;
+import com.oneorthree.business.api.dto.IslandRecordsResponses.IslandFocusMember;
+import com.oneorthree.business.api.dto.IslandRecordsResponses.IslandFocusRecord;
+import com.oneorthree.business.api.dto.IslandRecordsResponses.IslandLedgerEntry;
+import com.oneorthree.business.api.dto.IslandRecordsResponses.RecordDaySeconds;
+import com.oneorthree.business.api.dto.IslandRecordsResponses.ScreenDayView;
+import com.oneorthree.business.api.dto.IslandRecordsResponses.ScreenMemberView;
+import com.oneorthree.business.api.dto.IslandRecordsResponses.ScreenTimeDayView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -9,7 +17,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataRecordsClient;
 import com.oneorthree.business.upstream.data.dto.IslandFishEarnings;
 import com.oneorthree.business.upstream.data.dto.IslandLedger;
 import com.oneorthree.business.upstream.data.dto.IslandRecordViews;
@@ -68,7 +76,7 @@ public class IslandRecordsUseCase {
             Map.entry("SCREEN_TIME_INVALID_MEASUREMENT",
                     new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "measurementStatus")));
 
-    private final DataApiClient data;
+    private final DataRecordsClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 
     /** 집중 통계 — scope=me 는 {@link MeFocus}, scope=island 는 {@link IslandFocus}. */
@@ -93,7 +101,8 @@ public class IslandRecordsUseCase {
             if (view.members() == null) {
                 throw new UpstreamContractMismatchException("집중 통계 주민 목록이 없습니다");
             }
-            return new IslandFocus(SCOPE_ISLAND, view.members(), null, view.asOf());
+            return new IslandFocus(SCOPE_ISLAND,
+                    view.members().stream().map(IslandFocusMember::from).toList(), null, view.asOf());
         }
         if (view.totalSeconds() == null || view.series() == null || view.records() == null
                 || (view.nextSnapshotId() == null) != (view.nextOffset() == null)) {
@@ -101,7 +110,9 @@ public class IslandRecordsUseCase {
         }
         String next = view.nextSnapshotId() == null ? null : codec().encode(cursorScope,
                 new CursorBoundary(view.nextSnapshotId(), view.nextOffset().toString()));
-        return new MeFocus(SCOPE_ME, view.totalSeconds(), view.series(), view.records(), next, view.asOf());
+        return new MeFocus(SCOPE_ME, view.totalSeconds(),
+                view.series().stream().map(RecordDaySeconds::from).toList(),
+                view.records().stream().map(IslandFocusRecord::from).toList(), next, view.asOf());
     }
 
     /** 스크린타임 통계 — scope=me 는 {@link MeScreenTime}, scope=island 는 {@link IslandScreenTime}. */
@@ -116,12 +127,14 @@ public class IslandRecordsUseCase {
             if (view.members() == null) {
                 throw new UpstreamContractMismatchException("스크린타임 통계 주민 목록이 없습니다");
             }
-            return new IslandScreenTime(SCOPE_ISLAND, view.members());
+            return new IslandScreenTime(SCOPE_ISLAND,
+                    view.members().stream().map(ScreenMemberView::from).toList());
         }
         if (view.measurementStatus() == null || view.series() == null) {
             throw new UpstreamContractMismatchException("스크린타임 통계 응답이 완전하지 않습니다");
         }
-        return new MeScreenTime(SCOPE_ME, view.measurementStatus(), view.totalMinutes(), view.series(),
+        return new MeScreenTime(SCOPE_ME, view.measurementStatus(), view.totalMinutes(),
+                view.series().stream().map(ScreenDayView::from).toList(),
                 view.updatedAt());
     }
 
@@ -155,7 +168,8 @@ public class IslandRecordsUseCase {
         }
         String next = page.nextCreatedAt() == null ? null : codec().encode(scope,
                 new CursorBoundary(page.nextCreatedAt().toString(), page.nextEntryId().toString()));
-        return new Ledger(page.month(), page.earnedTotal(), page.spentTotal(), page.items(), next);
+        return new Ledger(page.month(), page.earnedTotal(), page.spentTotal(),
+                page.items().stream().map(IslandLedgerEntry::from).toList(), next);
     }
 
     /**
@@ -171,7 +185,7 @@ public class IslandRecordsUseCase {
      * 「못 읽었다」·「볼 권한이 없다」와 같은 값으로 접으면 정책 「주민 개인 기록은 방문자에게 보여 주지 않는다」가
      * 조용히 뚫린다.
      */
-    public IslandFishEarnings fishEarnings(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
+    public FishEarningsView fishEarnings(AccessTokenClaims claims, UUID islandId, Deadline deadline) {
         IslandFishEarnings view = relay(() -> data.fetchFishEarnings(claims.userId(), islandId, deadline));
         if (view == null || view.members() == null
                 || view.members().stream().anyMatch(member -> member.userId() == null
@@ -179,11 +193,11 @@ public class IslandRecordsUseCase {
             // 빠진 마리 수를 0 으로 지어내지 않는다 — 「안 낚았다」와 「모른다」는 다른 값이다.
             throw new UpstreamContractMismatchException("물고기 장 응답이 완전하지 않습니다");
         }
-        return view;
+        return FishEarningsView.from(view);
     }
 
     /** 기기 측정 PUT — 응답은 그 기기·날짜의 최신 선택 관측이다. */
-    public IslandRecordViews.ScreenTimeDay putScreenTime(AccessTokenClaims claims, LocalDate date,
+    public ScreenTimeDayView putScreenTime(AccessTokenClaims claims, LocalDate date,
             Map<String, Object> body, UUID key, Deadline deadline) {
         IslandRecordViews.ScreenTimeDay day = relay(() -> data.putScreenTime(claims.userId(), claims.sessionId(),
                 claims.authGeneration(), date, body, key, deadline));
@@ -191,7 +205,7 @@ public class IslandRecordsUseCase {
                 || ("authorized".equals(day.measurementStatus()) == (day.minutes() == null))) {
             throw new UpstreamContractMismatchException("스크린타임 측정 응답이 계약과 다릅니다");
         }
-        return day;
+        return ScreenTimeDayView.from(day);
     }
 
     /** 커서 서명기 — 없으면 첫 페이지로 접지 않고 503 이다(다른 목록 유스케이스와 같은 이유). */
@@ -257,22 +271,22 @@ public class IslandRecordsUseCase {
     }
 
     /** 집중 scope=me — 본인 전체 기간 합·일별과 완료 세션 페이지(LLD §2). */
-    public record MeFocus(String scope, long totalSeconds, List<IslandRecordViews.DaySeconds> series,
-            List<IslandRecordViews.FocusRecord> records, String nextCursor, String asOf) {
+    public record MeFocus(String scope, long totalSeconds, List<RecordDaySeconds> series,
+            List<IslandFocusRecord> records, String nextCursor, String asOf) {
     }
 
     /** 집중 scope=island — 주민별 이 섬 기여. 개인 기록·과목 없음. */
-    public record IslandFocus(String scope, List<IslandRecordViews.FocusMember> members, String nextCursor,
+    public record IslandFocus(String scope, List<IslandFocusMember> members, String nextCursor,
             String asOf) {
     }
 
     /** 스크린타임 scope=me. */
     public record MeScreenTime(String scope, String measurementStatus, Integer totalMinutes,
-            List<IslandRecordViews.ScreenDay> series, String updatedAt) {
+            List<ScreenDayView> series, String updatedAt) {
     }
 
     /** 스크린타임 scope=island. */
-    public record IslandScreenTime(String scope, List<IslandRecordViews.ScreenMember> members) {
+    public record IslandScreenTime(String scope, List<ScreenMemberView> members) {
     }
 
     /**
@@ -281,7 +295,7 @@ public class IslandRecordsUseCase {
      * <p>현재 섬 잔액은 여기 없다 — 같은 화면의 {@code wallets} 조각이 정본이다(GROMO-1781). 줄마다 이월
      * 잔액을 붙이지 않는 이유도 같다: 집중 적립이 하루로 접혀 있어 줄 단위 잔액이 원장의 실제 순간과 어긋난다.
      */
-    public record Ledger(String month, long earnedTotal, long spentTotal, List<IslandLedger.Entry> items,
+    public record Ledger(String month, long earnedTotal, long spentTotal, List<IslandLedgerEntry> items,
             String nextCursor) {
     }
 }

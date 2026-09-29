@@ -7,7 +7,6 @@ import com.oneorthree.phone.group.repository.domain.MissionType;
 import lombok.Builder;
 import lombok.Getter;
 
-import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,12 +40,6 @@ public class GroupDetailResponse {
     private boolean isPrivate;
 
     private List<GroupDetailMemberResponse> members;
-    /**
-     * code/codeExpiresAt 은 미사용 — 초대 링크(groupId) 방식 전환으로 폐기(2026-07-31).
-     * 앱은 이 값을 화면에 노출하지 않는다. 제거하면 계약이 깨지므로 남긴다.
-     */
-    private String code;           // nullable — OWNER에게만 반환
-    private Instant codeExpiresAt; // nullable — OWNER에게만 반환
     private List<UUID> noticeGrantedUserIds;    //OWNER 제외
 
     /**

@@ -5,8 +5,9 @@ import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataOutboxClient;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,7 +23,7 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class AccountSettingsUseCase {
 
-    private final DataApiClient data;
+    private final DataOutboxClient data;
     private final NotificationApiClient notification;
 
     public Result read(AccessTokenClaims claims, Deadline deadline) {
@@ -85,6 +86,7 @@ public class AccountSettingsUseCase {
         }
     }
 
+    @Schema(name = "AccountSettingsResult")
     public record Result(boolean notifications) {
     }
 }

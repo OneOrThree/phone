@@ -7,8 +7,6 @@ import com.oneorthree.phone.common.logging.UserActivityEventLogger;
 import com.oneorthree.phone.common.port.InviteAttribution;
 import com.oneorthree.phone.common.port.InviteAttributionPort;
 import com.oneorthree.phone.group.repository.domain.Group;
-import com.oneorthree.phone.group.repository.domain.GroupJoinCode;
-import com.oneorthree.phone.group.repository.domain.GroupJoinCodeStatus;
 import com.oneorthree.phone.group.repository.domain.GroupMember;
 import com.oneorthree.phone.group.repository.domain.GroupMemberRole;
 import com.oneorthree.phone.group.repository.domain.MissionCategory;
@@ -16,7 +14,6 @@ import com.oneorthree.phone.group.repository.domain.MissionType;
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.group.exception.GroupErrorCode;
 import com.oneorthree.phone.group.exception.GroupException;
-import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupQueryService;
 import com.oneorthree.phone.group.repository.GroupRepository;
@@ -51,7 +48,6 @@ import com.oneorthree.phone.group.dto.GroupOverviewResponse;
 import com.oneorthree.phone.group.dto.GroupSettingsResponse;
 import com.oneorthree.phone.group.dto.GroupSummaryResponse;
 import com.oneorthree.phone.group.dto.JoinGroupRequest;
-import com.oneorthree.phone.group.dto.RenewGroupCodeResponse;
 import com.oneorthree.phone.group.dto.UpdateGroupSettingsRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -159,9 +155,6 @@ class GroupServiceTest {
     private GroupQueryService groupQueryService;
 
     @Mock
-    private GroupJoinCodeRepository groupJoinCodeRepository;
-
-    @Mock
     private GroupMemberRepository groupMemberRepository;
 
     @Mock
@@ -250,16 +243,10 @@ class GroupServiceTest {
                 .isGuest(false).isDeleted(true).build();
     }
 
-    // GROMO-672: 참가 코드는 이제 Group 이 아니라 GroupJoinCode(1:1) 소유.
-    //   code/codeExpiresAt 인자는 매핑 소스인 GroupJoinCode 를 통해 검증한다(joinCodeFor).
+    // 참가 코드 제거(GROMO-2070) — code/codeExpiresAt 인자는 호출부 호환용으로만 남고 본문은 쓰지 않는다.
     private Group groupWithCode(UUID id, String code, Instant codeExpiresAt) {
         return Group.builder().id(id).name("그룹")
                 .maxMembers(10).status(GroupStatus.WAITING).build();
-    }
-
-    private GroupJoinCode joinCodeFor(Group group, String code, Instant expiresAt) {
-        return GroupJoinCode.builder().group(group).code(code)
-                .status(GroupJoinCodeStatus.ACTIVE).expiresAt(expiresAt).build();
     }
 
     /** 그룹별 멤버 수 IN 집계(countByGroupIdIn) 결과 행 — 목록/검색의 N+1 제거 경로. */
@@ -314,12 +301,11 @@ class GroupServiceTest {
     // ── 정상 생성 ─────────────────────────────────────────────────────────
 
     @Test
-    @DisplayName("정상 생성 → 그룹 저장 + OWNER 멤버 저장 + 8자 코드 반환")
+    @DisplayName("정상 생성 → 그룹 저장 + OWNER 멤버 저장")
     void createGroupSuccess() {
         // given
         CreateGroupRequest request = durationRequest("1234", null, 60);
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         given(passwordEncoder.encode("1234")).willReturn("hashed-pw");
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
@@ -328,20 +314,11 @@ class GroupServiceTest {
 
         // then
         assertThat(response.groupId()).isEqualTo(GROUP_SAVE_ID);
-        assertThat(response.code()).hasSize(8);
 
         ArgumentCaptor<Group> groupCaptor = ArgumentCaptor.forClass(Group.class);
         verify(groupRepository).save(groupCaptor.capture());
         Group savedGroup = groupCaptor.getValue();
         assertThat(savedGroup.getPassword()).isEqualTo("hashed-pw");
-
-        // GROMO-672: 참가 코드/만료시각은 GroupJoinCode(1:1) 로 저장
-        ArgumentCaptor<GroupJoinCode> joinCodeCaptor = ArgumentCaptor.forClass(GroupJoinCode.class);
-        verify(groupJoinCodeRepository).save(joinCodeCaptor.capture());
-        GroupJoinCode savedJoinCode = joinCodeCaptor.getValue();
-        assertThat(savedJoinCode.getCode()).hasSize(8);
-        assertThat(savedJoinCode.getStatus()).isEqualTo(GroupJoinCodeStatus.ACTIVE);
-        assertThat(savedJoinCode.getExpiresAt()).isAfter(Instant.now());
 
         ArgumentCaptor<GroupMember> memberCaptor = ArgumentCaptor.forClass(GroupMember.class);
         verify(groupMemberRepository).save(memberCaptor.capture());
@@ -358,7 +335,6 @@ class GroupServiceTest {
     void createGroupPrivate() {
         // given
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         // when
@@ -375,7 +351,6 @@ class GroupServiceTest {
     void createGroupDefaultsToPublic() {
         // given
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         // when
@@ -393,7 +368,6 @@ class GroupServiceTest {
         // given
         CreateGroupRequest request = durationRequest(null, null, 60);
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_ID);
 
         // when
@@ -411,7 +385,6 @@ class GroupServiceTest {
         // given
         CreateGroupRequest request = durationRequest(null, 5, 60);
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_ID);
 
         // when
@@ -432,7 +405,6 @@ class GroupServiceTest {
         // given: 유일한 차이는 is_guest=true 뿐
         User guest = User.builder().isGuest(true).build();
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         // when
@@ -467,7 +439,6 @@ class GroupServiceTest {
         // 락 없는 findById 면 탈퇴의 정리 스캔(멤버십 0 확인) 이후·커밋 이전에 낀 생성이 정리를
         // 빠져나가, 탈퇴자가 OWNER 인 is_left=false 그룹이 영구 잔존한다(재탈퇴·위임 불가).
         given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
         givenSaveReturnsGroupWithId(GROUP_SAVE_ID);
 
         groupService.createGroup(USER_ID, durationRequest(null, 5, 60));
@@ -478,82 +449,6 @@ class GroupServiceTest {
 
     // D18: 그룹 생성 단계의 미션 파라미터 검증(INVALID_MISSION_PARAMS)은 폐지됐다 —
     // 미션은 그룹 생성이 아니라 그룹방의 챌린지 생성 API가 검증한다(GroupChallengeService).
-
-    // ── 참가 코드 생성 ────────────────────────────────────────────────────
-
-    @Test
-    @DisplayName("코드 충돌 시 재시도 후 성공")
-    void createGroupRetriesOnCodeCollision() {
-        // given: 첫 코드는 충돌(이미 존재), 두 번째는 사용 가능
-        CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
-        given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.empty());
-        givenSaveReturnsGroupWithId(GROUP_ID);
-
-        // when
-        groupService.createGroup(USER_ID, request);
-
-        // then
-        verify(groupJoinCodeRepository, times(2)).existsByCode(anyString());
-        verify(groupRepository).save(any(Group.class));
-    }
-
-    @Test
-    @DisplayName("10회 모두 충돌 → CODE_GENERATION_FAILED, 저장 안 함")
-    void createGroupFailsAfterMaxRetries() {
-        // given: 항상 충돌
-        CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true);
-        given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.empty());
-
-        // when & then
-        assertThatThrownBy(() -> groupService.createGroup(USER_ID, request))
-                .isInstanceOf(GroupException.class);
-        verify(groupJoinCodeRepository, times(10)).existsByCode(anyString());
-        verify(groupRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("충돌 코드가 만료 상태면 ENDED 로 정리하고 다른 코드로 재시도")
-    void createGroupExpiresStaleCollidingCode() {
-        // given: 첫 코드 충돌 + 그 코드는 이미 만료 → expire() 대상, 두 번째 코드는 사용 가능
-        CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
-        GroupJoinCode expiredCollision = joinCodeFor(Group.builder().id(GROUP_ID).build(), "OLDCODE1",
-                Instant.now().minus(1, ChronoUnit.HOURS));
-        given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.of(expiredCollision));
-        givenSaveReturnsGroupWithId(GROUP_ID);
-
-        // when
-        groupService.createGroup(USER_ID, request);
-
-        // then: 만료 충돌 코드는 ENDED 로 정리됨(재사용 아님 — 새 코드로 발급)
-        assertThat(expiredCollision.getStatus()).isEqualTo(GroupJoinCodeStatus.ENDED);
-        verify(groupRepository).save(any(Group.class));
-    }
-
-    @Test
-    @DisplayName("충돌 코드가 아직 유효하면 상태를 건드리지 않고 재시도만 한다")
-    void createGroupKeepsActiveCollidingCode() {
-        // given: 첫 코드 충돌 + 그 코드는 아직 유효(미래 만료) → 상태 유지, 두 번째 코드는 사용 가능
-        CreateGroupRequest request = durationRequest(null, 5, 60);
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(true, false);
-        GroupJoinCode activeCollision = joinCodeFor(Group.builder().id(GROUP_ID).build(), "LIVECODE",
-                Instant.now().plus(1, ChronoUnit.HOURS));
-        given(groupJoinCodeRepository.findByCode(anyString())).willReturn(Optional.of(activeCollision));
-        givenSaveReturnsGroupWithId(GROUP_ID);
-
-        // when
-        groupService.createGroup(USER_ID, request);
-
-        // then: 유효한 충돌 코드는 그대로 ACTIVE 유지
-        assertThat(activeCollision.getStatus()).isEqualTo(GroupJoinCodeStatus.ACTIVE);
-        verify(groupRepository).save(any(Group.class));
-    }
 
     // ── getMyGroups ───────────────────────────────────────────────────────
 
@@ -575,11 +470,6 @@ class GroupServiceTest {
         // 멤버 수는 그룹마다가 아니라 IN 집계 1회로 조회한다 (N+1 제거)
         given(groupMemberRepository.countByGroupIdIn(List.of(GROUP_ID, GROUP_ID_2)))
                 .willReturn(List.of(memberCount(GROUP_ID, 1), memberCount(GROUP_ID_2, 1)));
-        // GROMO-672: 요약 응답의 code 는 group_join_codes 일괄 조회로 채운다 — N+1 방지
-        given(groupQueryService.findAllJoinCodes(List.of(GROUP_ID, GROUP_ID_2)))
-                .willReturn(List.of(
-                        GroupJoinCode.builder().groupId(GROUP_ID).group(group1).code("AAAA1111").build(),
-                        GroupJoinCode.builder().groupId(GROUP_ID_2).group(group2).code("BBBB2222").build()));
 
         // when
         List<GroupSummaryResponse> result = groupService.getMyGroups(USER_ID);
@@ -590,7 +480,6 @@ class GroupServiceTest {
         GroupSummaryResponse first = result.get(0);
         assertThat(first.getGroupId()).isEqualTo(GROUP_ID);
         assertThat(first.getName()).isEqualTo("그룹A");
-        assertThat(first.getCode()).isEqualTo("AAAA1111");
         assertThat(first.getRole()).isEqualTo(GroupMemberRole.OWNER);
         assertThat(first.getCurrentMembers()).isEqualTo(1);
         assertThat(first.getStatus()).isEqualTo(GroupStatus.WAITING);
@@ -910,8 +799,6 @@ class GroupServiceTest {
         // then
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getGroupId()).isEqualTo(GROUP_ID);
-        // 참가 코드 체계 폐기(2026-07-31) — 검색은 더 이상 group_join_codes 를 보지 않는다
-        verify(groupJoinCodeRepository, never()).findByCode(anyString());
     }
 
     // ── getGroupOverview ──────────────────────────────────────────────────
@@ -1104,94 +991,6 @@ class GroupServiceTest {
         verify(groupRepository, never()).findById(GROUP_ID_99);
     }
 
-    // ── renewGroupCode (GROMO-347) ────────────────────────────────────────
-
-    @Test
-    @DisplayName("OWNER가 호출 → 새 코드 + 3시간 후 만료시각 반환")
-    void renewGroupCodeOwnerSuccess() {
-        // given
-        User user = normalUser();
-        Group group = groupWithCode(GROUP_ID, "OLD12345", null);
-        GroupMember owner = GroupMember.builder().user(user).group(group).role(GroupMemberRole.OWNER).build();
-        GroupJoinCode joinCode = joinCodeFor(group, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
-
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(owner));
-        given(groupQueryService.getJoinCode(GROUP_ID)).willReturn(joinCode);
-        given(groupJoinCodeRepository.existsByCode(anyString())).willReturn(false);
-
-        // when
-        RenewGroupCodeResponse response = groupService.renewGroupCode(GROUP_ID, USER_ID);
-
-        // then
-        assertThat(response.getCode()).hasSize(8);
-        assertThat(response.getCode()).isNotEqualTo("OLD12345");
-        assertThat(response.getCodeExpiresAt()).isAfter(Instant.now());
-    }
-
-    @Test
-    @DisplayName("MEMBER가 호출 → NOT_OWNER")
-    void renewGroupCodeMemberForbidden() {
-        // given
-        User user = normalUser();
-        Group group = groupWithCode(GROUP_ID, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
-        GroupMember member = GroupMember.builder().user(user).group(group).role(GroupMemberRole.MEMBER).build();
-
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.findMembership(user, group)).willReturn(Optional.of(member));
-
-        // when & then
-        assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
-                .isInstanceOf(GroupException.class);
-    }
-
-    @Test
-    @DisplayName("그룹 멤버 아님 → NOT_OWNER")
-    void renewGroupCodeNotMember() {
-        // given
-        User user = normalUser();
-        Group group = groupWithCode(GROUP_ID, "OLD12345", Instant.now().plus(1, ChronoUnit.HOURS));
-
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(user);
-        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.findMembership(user, group)).willReturn(Optional.empty());
-
-        // when & then
-        assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
-                .isInstanceOf(GroupException.class);
-    }
-
-    @Test
-    @DisplayName("게스트도 신원 가드에 걸리지 않는다 — 그룹 조회까지 진행 후 NOT_FOUND (GROMO-1509)")
-    void renewGroupCodeAllowsGuest() {
-        // given: 게스트지만 그룹이 없다 — 가드가 남아 있으면 GUEST_FORBIDDEN 으로 먼저 튕겨 실패한다
-        User guest = User.builder().isGuest(true).build();
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(guest);
-        given(groupQueryService.getGroup(GROUP_ID))
-                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
-
-        // when & then
-        assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID, USER_ID))
-                .isInstanceOf(GroupException.class)
-                .extracting("errorCode")
-                .isEqualTo(GroupErrorCode.GROUP_NOT_FOUND);
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 그룹 → GROUP_NOT_FOUND")
-    void renewGroupCodeGroupNotFound() {
-        // given
-        given(userQueryService.getCallerForShare(USER_ID)).willReturn(normalUser());
-        given(groupQueryService.getGroup(GROUP_ID_99))
-                .willThrow(new GroupException(GroupErrorCode.GROUP_NOT_FOUND));
-
-        // when & then
-        assertThatThrownBy(() -> groupService.renewGroupCode(GROUP_ID_99, USER_ID))
-                .isInstanceOf(GroupException.class);
-    }
-
     // ── getGroupDetail (GROMO-285) ────────────────────────────────────────
 
     private User userWithNickname(UUID id, String nickname) {
@@ -1199,11 +998,10 @@ class GroupServiceTest {
     }
 
     @Test
-    @DisplayName("OWNER 조회 → code, codeExpiresAt 포함")
-    void getGroupDetailOwnerSeesCode() {
+    @DisplayName("OWNER 조회 → 멤버·대표 미션 필드 포함")
+    void getGroupDetailOwnerSeesMembers() {
         // given
         User owner = userWithNickname(USER_ID, "방장");
-        Instant expiry = Instant.now().plus(3, ChronoUnit.HOURS);
         Group group = groupWithCode(GROUP_ID, "INVITE01", null);
         GroupMember ownerMember = GroupMember.builder().user(owner).group(group).role(GroupMemberRole.OWNER).build();
 
@@ -1212,44 +1010,17 @@ class GroupServiceTest {
         given(groupQueryService.getMembership(owner, group)).willReturn(ownerMember);
         given(groupMemberRepository.findByGroup(group)).willReturn(List.of(ownerMember));
         givenRepresentativeDurationChallenge(group, 60);
-        // GROMO-672: OWNER 상세의 code/codeExpiresAt 은 group_join_codes 에서 조회
-        given(groupQueryService.findJoinCode(GROUP_ID))
-                .willReturn(Optional.of(joinCodeFor(group, "INVITE01", expiry)));
 
         // when
         GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
 
         // then
-        assertThat(response.getCode()).isEqualTo("INVITE01");
-        assertThat(response.getCodeExpiresAt()).isEqualTo(expiry);
         assertThat(response.getMembers()).hasSize(1);
         assertThat(response.getMembers().get(0).getNickname()).isEqualTo("방장");
         // GROMO-674: 미션 필드는 대표 챌린지(+duration 상세)에서 채워진다
         assertThat(response.getMissionCategory()).isEqualTo(MissionCategory.FOCUS);
         assertThat(response.getMissionType()).isEqualTo(MissionType.DURATION);
         assertThat(response.getDurationMinutes()).isEqualTo(60);
-    }
-
-    @Test
-    @DisplayName("MEMBER 조회 → code=null, codeExpiresAt=null")
-    void getGroupDetailMemberNoCode() {
-        // given
-        User member = userWithNickname(USER_ID, "멤버");
-        Group group = groupWithCode(GROUP_ID, "INVITE01", Instant.now().plus(3, ChronoUnit.HOURS));
-        GroupMember memberRole = GroupMember.builder().user(member).group(group).role(GroupMemberRole.MEMBER).build();
-
-        given(userQueryService.getCaller(USER_ID)).willReturn(member);
-        given(groupQueryService.getGroup(GROUP_ID)).willReturn(group);
-        given(groupQueryService.getMembership(member, group)).willReturn(memberRole);
-        given(groupMemberRepository.findByGroup(group)).willReturn(List.of(memberRole));
-
-        // when
-        GroupDetailResponse response = groupService.getGroupDetail(GROUP_ID, USER_ID, LocalDate.of(2026, 7, 3));
-
-        // then
-        assertThat(response.getCode()).isNull();
-        assertThat(response.getCodeExpiresAt()).isNull();
-        assertThat(response.isPrivate()).isFalse();
     }
 
     @Test

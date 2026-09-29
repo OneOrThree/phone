@@ -178,6 +178,8 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 
 인가 캐시 무효화는 모든 인스턴스에 전파한다. Redis Pub/Sub만으로 내구 철회를 보장하지 않는다. membership 원본 변경 TX의 내구 제어자료/리컨실과 전달 직전 현재 인가 검사로 누락을 닫는다. 이 제어자료는 도메인 사건 14종의 공개 payload와 분리한다. `island.members.updated`에는 주민 개인 퇴장 사유/신청 상세를 넣지 않는다.
 
+**채팅의 TTL 멤버십 캐시 즉시 무효화(GROMO-2140)도 같은 분리를 따른다.** `island.members.updated`(MEMBER_ADDED·MEMBER_REMOVED)의 내부 봉투 `params`에 `memberUserId`(실제로 소속이 바뀐 유저 — 강퇴처럼 명령 주체와 다를 수 있다)를 싣고, Realtime `InboundEventService`가 그 값으로 채팅의 `cache:chat:member:{userId}` 한 키만 즉시 지운다(`MembershipService#evict`). `memberUserId`는 위 문단의 제어자료와 같은 성격이라 **이 표(§2)의 공개 payload에는 없다** — 이 type은 아직 §3.1 전달 adapter가 없어 클라이언트로 나가지도 않는다. 필드가 없는 옛 Data 사건은 무효화를 건너뛰고 기존 TTL(`chat.membership.cache-ttl-seconds`)이 그대로 백스톱이다. HOST_TRANSFER는 주민 집합이 바뀌지 않으므로 무효화 대상이 없다.
+
 실시간 데이터 프레임을 실제 소켓으로 내보내기 직전에 세션 인증과 해당 type의 현재 수신 자격을 확인한다. 특히 개인 join.request 수신 중 이전 방장 권한, emote 수신 중 pause/finish, messages 수신 중 집중 시작을 재검증한다. 보호 채널에서 stale TTL 캐시를 최종 권한 증거로 쓰지 않는다. 권한 원천 확인 실패는 fail-closed; subscriber 수에 비례한 조회 비용은 배치 권한조회/동일 revision 검사로 최적화하되 허용 가능한 지연창을 몰래 늘리지 않는다.
 
 '권한 상실 후 차단'의 실행 경계는 각 프레임의 최종 인가 검사다. 그 검사 뒤 이미 네트워크로 나간 프레임을 회수하거나 DB 커밋과 TCP 송신을 분산 원자화한다고 약속하지 않는다. 지연된 과거 가입/방장 이벤트가 철회된 세션을 다시 허용하지 않도록 membership 제어 version도 aggregate별로 적용한다.

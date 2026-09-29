@@ -57,6 +57,8 @@ Primitive → Semantic → Component → Screen composition
 
 새 코드는 `semanticTokens` 또는 `componentTokens`를 우선한다. `C.*`는 기존 화면 호환 별칭이다.
 
+마을 건물의 새 소식 배지와 툴팁 치수는 `componentTokens.villageNotificationBadge` 및 `componentTokens.villageNotificationTooltip`에서 관리한다. 게시판·우체통·도서관이 같은 크기와 윤곽을 공유하고, 지도 배율은 배지 토큰 치수에 곱해 적용한다. 건물 상태는 문구 툴팁 대신 건물 이름표로 안내하며, 이름표 치수는 `componentTokens.villageBuildingNameTag`에서 관리한다.
+
 ## 4. 컬러
 
 ### 4.1 주간 · 딸기 소다
@@ -126,8 +128,25 @@ Primitive → Semantic → Component → Screen composition
 
 - Divider: Brown 20% (`#8B695633`)
 - Overlay: Ink 40% (`#493B3966`)
+- Cinematic overlay: Ink 65% (`#493B39A6`)
 - Bottom sheet overlay: Ink 25% (`#493B3940`)
 - Glass button: Paper 약 72%
+
+### 4.4 축음기 재질
+
+축음기 플레이어는 삽화와 맞닿는 기능 전용 컴포넌트 토큰을 사용한다. 화면에서 아래 값을 직접 선언하지 않는다.
+
+| 역할                       | 값                    |
+| -------------------------- | --------------------- |
+| 패널 나무                  | `#9C6440`             |
+| 간판 나무 시작·끝 / 가운데 | `#B87848` / `#D19B61` |
+| 나무 윤곽                  | `#65462F`             |
+| 레코드 면 / 홈             | `#342F2B` / `#24211F` |
+| 패널 위 기본 / 보조 글자   | `#FFF7E7` / `#FFFFFF` |
+| 나무 간판 글자             | `#211E1B`             |
+| 패널 그림자 원색           | `#3B291C`             |
+
+코드 정본은 `componentTokens.gramophone`이다. 색상뿐 아니라 패널 크기, 레코드 크기, 44pt 터치 영역도 같은 컴포넌트 토큰에서 관리한다. 패널·간판·곡 행의 텍스트는 실제 배경과 4.5:1 이상의 대비를 유지한다.
 
 ## 5. 타이포그래피
 
@@ -344,6 +363,7 @@ Semantic spacing:
 - 기본 dim은 Ink 40%, sheet dim은 Ink 25%.
 - Modal은 가운데 정렬, radius 24, Brown 2px, 6px sticker shadow.
 - Bottom sheet는 휴대폰 세로 화면에서 하단 정렬, 상단 radius 26, 하단 radius 0.
+- Modal·sheet의 공용 padding, gap, radius, stroke, shadow 코드 정본은 `componentTokens.modal`이다.
 - 태블릿·가로 compact 화면에서는 sheet도 가운데 modal 형태로 전환한다.
 - Sheet handle은 40×5, Control Idle.
 - 내부 padding 20, gap 14.
@@ -461,6 +481,8 @@ Semantic spacing:
 ### 8.7 상점
 
 - 상점 NPC는 강아지다. 사용자 캐릭터는 고양이다.
+- 마지막 건물인 상점을 완공한 뒤 주민이 상점에 처음 들어오면 강아지가 3단계로 섬의 완성과 상점 개장을 축하한다. 완공 직후 홈에서는 띄우지 않는다.
+- 첫 상점 안내는 펠리컨 안내와 같은 `NpcGuide.GuideBox` 하단 대화창과 강아지 기본 에셋을 사용한다. 완료·건너뛰기는 계정별로 기기에 저장하고, 다른 섬으로 이동해도 반복하지 않는다. 안내 도중 종료하면 다음 상점 진입에서 다시 시작한다.
 - 주민 누구나 섬 물고기로 상품을 구매한다. 진입 시 섬 물고기 잔액을 보여준다.
 - 상품은 구매 가능, 부족, 보유, 적용 중 상태를 구분한다.
 - 개인 의상·장신구는 구매한 주민의 보유품이고, 공동 섬·건물 꾸미기는 섬 소유다. 소유 주체를 혼동하지 않는다.

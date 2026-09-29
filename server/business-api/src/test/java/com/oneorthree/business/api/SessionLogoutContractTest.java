@@ -142,8 +142,8 @@ class SessionLogoutContractTest extends UpstreamTestBase {
 
     @ParameterizedTest
     @CsvSource({"401,REFRESH_TOKEN,401,REFRESH_TOKEN", "401,UNAUTHORIZED,401,UNAUTHORIZED",
-            "404,USER_NOT_FOUND,404,USER_NOT_FOUND", "401,INVALID_SERVICE_TOKEN,502,UPSTREAM_AUTH_FAILED",
-            "401,SOMETHING_NEW,502,UPSTREAM_AUTH_FAILED", "403,UNAUTHORIZED,502,UPSTREAM_CONTRACT_ERROR"})
+            "404,USER_NOT_FOUND,404,USER_NOT_FOUND", "401,INVALID_SERVICE_TOKEN,400,UPSTREAM_AUTH_FAILED",
+            "401,SOMETHING_NEW,400,UPSTREAM_AUTH_FAILED", "403,UNAUTHORIZED,400,UPSTREAM_CONTRACT_ERROR"})
     void separatesDataCredentialErrorsFromServiceAuthorizationErrors(int upstreamStatus, String upstreamCode,
             int publicStatus, String publicCode) throws Exception {
         DATA.on(INTERNAL, request -> new MockUpstream.Response(upstreamStatus,
@@ -158,7 +158,7 @@ class SessionLogoutContractTest extends UpstreamTestBase {
     @Test
     void unstructuredService403KeepsExistingCredentialFailure() throws Exception {
         DATA.on(INTERNAL, request -> new MockUpstream.Response(403, "{}"));
-        mockMvc.perform(logout()).andExpect(status().isBadGateway())
+        mockMvc.perform(logout()).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_AUTH_FAILED"));
         assertThat(DATA.hits(INTERNAL)).isEqualTo(1);
     }
@@ -179,7 +179,7 @@ class SessionLogoutContractTest extends UpstreamTestBase {
     @ValueSource(strings = {"{}", "null", "not json"})
     void unstructuredService401NeverBecomesRefreshTokenFailure(String body) throws Exception {
         DATA.on(INTERNAL, request -> new MockUpstream.Response(401, body));
-        mockMvc.perform(logout()).andExpect(status().isBadGateway())
+        mockMvc.perform(logout()).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_AUTH_FAILED"));
         assertThat(DATA.hits(INTERNAL)).isEqualTo(1);
     }
@@ -189,7 +189,7 @@ class SessionLogoutContractTest extends UpstreamTestBase {
             "{\"revoked\":\"true\"}", "{\"revoked\":1}", "{\"data\":{\"revoked\":true}}"})
     void successRequiresExplicitBooleanTrue(String body) throws Exception {
         DATA.on(INTERNAL, request -> ok(body));
-        mockMvc.perform(logout()).andExpect(status().isBadGateway())
+        mockMvc.perform(logout()).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         assertThat(DATA.hits(INTERNAL)).isEqualTo(1);
     }
@@ -213,7 +213,7 @@ class SessionLogoutContractTest extends UpstreamTestBase {
     void publicUnknownStructuredServerFailureIsTerminal() throws Exception {
         DATA.on(INTERNAL, request -> new MockUpstream.Response(503,
                 "{\"code\":\"UNKNOWN_LOGOUT_ERROR\",\"message\":\"unknown\"}"));
-        mockMvc.perform(logout()).andExpect(status().isBadGateway())
+        mockMvc.perform(logout()).andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
         assertThat(DATA.hits(INTERNAL)).isEqualTo(1);
     }

@@ -3,11 +3,11 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CommandKeys;
 import com.oneorthree.business.common.request.ResourceVersions;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.PlaybackState;
+import com.oneorthree.business.usecase.PlaybackUseCase.PlaybackView;
 import com.oneorthree.business.usecase.PlaybackUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -43,14 +43,14 @@ public class PlaybackController {
 
     /** 재생 상태 — 저장된 anchor 그대로. 현재 위치는 앱이 serverNow 로 계산한다. */
     @GetMapping("/islands/{islandId}/playback")
-    public PlaybackState get(@PathVariable String islandId, HttpServletRequest request) {
+    public PlaybackView get(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return playback.get(claims, uuid(islandId), deadline());
+        return playback.get(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
     }
 
     /** 재생 변경 — 같은 섬 주민 누구나, Idempotency-Key(UUID36) 필수. */
     @PatchMapping(value = "/islands/{islandId}/playback", consumes = "application/json")
-    public PlaybackState patch(@PathVariable String islandId, @RequestBody JsonNode body,
+    public PlaybackView patch(@PathVariable String islandId, @RequestBody JsonNode body,
             HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         UUID key = CommandKeys.required(request);
@@ -84,22 +84,7 @@ public class PlaybackController {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
         }
         long expectedVersion = ResourceVersions.fromJson(body.get("expectedVersion"), "expectedVersion");
-        return playback.patch(claims, uuid(islandId), fields, values, expectedVersion, key, deadline());
-    }
-
-    private static UUID uuid(String value) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "islandId");
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
+        return playback.patch(claims, PublicIds.uuid(islandId, "islandId"), fields, values, expectedVersion, key,
+                properties.deadline());
     }
 }

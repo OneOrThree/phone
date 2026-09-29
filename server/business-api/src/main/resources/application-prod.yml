@@ -66,6 +66,14 @@ business:
     keys:
       v1: ${BUSINESS_CURSOR_KEY_V1}
 
+# 운영에서는 문서 엔드포인트를 끈다 — AccessTokenFilter 의 /v0/api-docs/public 허용은
+# 매핑 자체가 없어 404 로 닫힌다(data-api 의 prod 와 같은 규율).
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+
 logging:
   level:
     com.oneorthree.business: INFO

@@ -7,8 +7,8 @@ import com.fasterxml.jackson.annotation.Nulls;
 import java.util.UUID;
 
 /**
- * 프로필 변경 결과 (GROMO-1801·1971 · 계정 LLD §2.3). 공개 {@code PATCH /me} 의 {@code data} 4필드 그대로다 —
- * {@code onboardingComplete} 는 싣지 않는다.
+ * Data 내부 프로필 변경 결과 (GROMO-1801·1971 · 계정 LLD §2.3).
+ * 공개 {@code PATCH /me} 응답에는 AccountUseCase가 선택한 필드만 싣는다.
  */
 public record AccountProfile(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,

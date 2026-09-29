@@ -4,7 +4,6 @@ import com.oneorthree.business.auth.AccessTokenVerifier;
 import com.oneorthree.business.auth.LogoutCredentials;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.SessionLogoutUseCase;
 import jakarta.servlet.http.HttpServletRequest;
@@ -33,6 +32,6 @@ public class SessionLogoutController {
         if (credentials.accessToken() != null && verifier.verify(credentials.accessToken()).isEmpty()) {
             throw new PublicApiException(ApiErrorCode.UNAUTHORIZED, null);
         }
-        return sessions.logout(credentials, Deadline.startingNow(properties.getComposition().getDeadline()));
+        return sessions.logout(credentials, properties.deadline());
     }
 }

@@ -31,6 +31,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -889,6 +891,32 @@ class AuthServiceTest {
     }
 
     // ── refreshToken ──────────────────────────────────────────────────────
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    @DisplayName("유저 RT 해시 CAS가 실패하면 세션 회전·레거시 승격 모두 새 자격을 발급하지 않는다")
+    void refreshRejectsFailedUserHashRotation(boolean existingSession) {
+        User user = User.builder().id(USER_ID).refreshTokenHash(TokenHasher.sha256Hex("old-rt")).build();
+        given(jwtProvider.extractType("old-rt")).willReturn(JwtProvider.TYPE_REFRESH);
+        given(jwtProvider.extractUserId("old-rt")).willReturn(USER_ID);
+        given(jwtProvider.extractExpiration("old-rt")).willReturn(RT_EXPIRES_AT);
+        given(userRepository.findActiveByIdForUpdate(USER_ID)).willReturn(Optional.of(user));
+        given(authSessionService.findByRefreshToken("old-rt")).willReturn(existingSession
+                ? Optional.of(activeSession(SESSION_ID, USER_ID)) : Optional.empty());
+        if (existingSession) {
+            given(jwtProvider.isRefreshRotationDue(RT_EXPIRES_AT, false)).willReturn(true);
+        }
+        given(jwtProvider.generateRefreshToken(USER_ID, false)).willReturn("new-rt");
+        given(userRepository.rotateRefreshTokenHash(USER_ID, TokenHasher.sha256Hex("old-rt"),
+                TokenHasher.sha256Hex("new-rt"))).willReturn(0);
+
+        assertThatThrownBy(() -> authService.refreshToken("old-rt"))
+                .isInstanceOfSatisfying(InvalidTokenException.class,
+                        error -> assertThat(error.getErrorCode()).isEqualTo(InvalidTokenErrorCode.REFRESH_TOKEN));
+        verify(authSessionService, never()).rotateActive(any(), anyString(), anyString());
+        verify(authSessionService, never()).promoteLegacy(any(), anyString(), any());
+        verify(jwtProvider, never()).generateAccessToken(any(), anyBoolean(), anyLong(), any());
+    }
 
     /** 회전 판정에 걸리지 않는(수명 넉넉한) 활성 세션 한 건. */
     private AuthSession activeSession(UUID sessionId, UUID ownerId) {

@@ -19,7 +19,10 @@ import tools.jackson.databind.ObjectMapper;
 
 import java.util.UUID;
 import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+
+import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
+import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
 
 /**
  * 구독 후 집중 시작·토큰 만료에도 채팅 본문을 전달하지 않는다.
@@ -55,14 +58,6 @@ import java.util.regex.Pattern;
 @Slf4j
 @Component
 public class ChatOutboundChannelInterceptor implements ExecutorChannelInterceptor {
-
-    private static final Pattern GROUP_TOPIC = Pattern.compile("^/topic/groups/([0-9a-f-]{36})$");
-
-    /** {@code StompAuthChannelInterceptor.ISLAND_TOPIC} 과 <b>같은 모양이어야 한다</b>. */
-    private static final Pattern ISLAND_TOPIC =
-            Pattern.compile("^/topic/islands/([0-9a-f-]{36})/(focus|rest|emotes)$");
-
-    private static final String EMOTES_CHANNEL = "emotes";
 
     private final RealtimeSessionRegistry sessions;
     private final JwtValidator jwtValidator;

@@ -3,6 +3,7 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.RequestEnvelopeFilter;
 import com.oneorthree.business.usecase.ScreenReadUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
@@ -14,7 +15,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * 화면 조회 {@code GET /screens/*} (GROMO-1896·1897·1898·1899, bff-screens B15·B24~B26). query 검증만 하고 유스케이스에 넘긴다.
@@ -60,7 +60,7 @@ public class ScreenController {
     @GetMapping("/screens/visit/{islandId}")
     public Map<String, Object> visit(@PathVariable String islandId, HttpServletRequest request) {
         AccessTokenClaims claims = begin(request, Set.of());
-        return screens.visit(claims, uuid(islandId), requestId(request));
+        return screens.visit(claims, PublicIds.uuid(islandId, "islandId"), requestId(request));
     }
 
     /** {@code home} — 오늘 집중 요약의 {@code date}·{@code timezone} 만 받아 도메인에 그대로 넘긴다(GROMO-1897). */
@@ -143,17 +143,5 @@ public class ScreenController {
 
     private static String requestId(HttpServletRequest request) {
         return (String) request.getAttribute(RequestEnvelopeFilter.REQUEST_ID);
-    }
-
-    private static UUID uuid(String value) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "islandId");
-        }
     }
 }

@@ -1,0 +1,8 @@
+Maestro iOS hierarchy — SE3 settings tail
+20,11,"accessibilityText=앱 설정; bounds=[185,20][613,46]; enabled=true; enabled=true",10
+23,11,"resource-id=island-sheet-content-clip; bounds=[129,64][667,375]; enabled=true; enabled=true",10
+29,17,"accessibilityText=알림·소리; bounds=[151,76][645,95]; enabled=true; enabled=true",28
+32,17,"accessibilityText=알림; bounds=[167,127][571,148]; enabled=true; enabled=true",30
+36,17,"accessibilityText=소리; bounds=[167,186][571,207]; enabled=true; enabled=true",30
+40,17,"accessibilityText=가벼운 진동; bounds=[167,244][571,265]; enabled=true; enabled=true",30
+42,17,"accessibilityText=이용약관 · 개인정보; bounds=[153,293][643,351]; enabled=true; enabled=true",36

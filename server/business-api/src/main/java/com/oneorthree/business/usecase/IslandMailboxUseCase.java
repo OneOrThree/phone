@@ -11,7 +11,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.MailboxViewer;
 import com.oneorthree.business.upstream.data.dto.MessageAuthors;
 import com.oneorthree.business.upstream.realtime.RealtimeApiClient;
@@ -74,7 +74,7 @@ public class IslandMailboxUseCase {
             Map.entry("CONTENT_TOO_LONG", new PublicFailure(400, ApiErrorCode.OUT_OF_RANGE, "text")),
             Map.entry("INVALID_CONTENT", new PublicFailure(400, ApiErrorCode.OUT_OF_RANGE, "text")));
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
     private final RealtimeApiClient realtime;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
 

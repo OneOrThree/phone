@@ -65,10 +65,13 @@ class BusinessRedisAclTest(unittest.TestCase):
         self.assertIn("permissions", self.command(
             "EVAL", "return redis.call('GET','noti:secret')", "0"))
 
-    def test_비인증과_틀린_비밀번호는_거부하고_health는_ping만_허용한다(self):
+    def test_비인증과_틀린_비밀번호는_거부하고_health는_관측_명령만_허용한다(self):
         self.assertIn("NOAUTH", self.command("PING", user=None))
         self.assertNotEqual(self.command("PING", password="wrong"), "PONG")
         self.assertEqual(self.command("PING", user="health", password=""), "PONG")
+        self.assertIn("redis_version", self.command("INFO", "server", user="health", password=""))
+        self.assertIn("maxmemory", self.command("CONFIG", "GET", "maxmemory", user="health", password=""))
+        self.assertNotIn("NOPERM", self.command("SLOWLOG", "GET", "1", user="health", password=""))
         self.assertIn("NOPERM", self.command("GET", "cache:business:preview:user:entry", user="health", password=""))
         self.assertNotIn(self.password, self.acl.read_text())
 

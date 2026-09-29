@@ -140,9 +140,7 @@ public class AccountWithdrawalService {
         // 그룹: 소유 그룹 정리 → HOST_WITHDRAW 판정 → OPEN 내기 해제(환불) → 판정 근거 박제 → 멤버십 이탈.
         // 제약 ①②의 왼쪽이 여기다 — 환불은 지갑 삭제보다, 박제는 익명화보다 앞서야 한다.
         groupMemberService.detachWithdrawnUser(user);
-        // 환불·증거 동결·이탈이 끝난 뒤에 멤버십 개인 설정·열람 lease·창형 원본·공지·댓글 작성자·직접 초대를 파기한다.
-        // 직접 초대(group_invites)는 LLD §4 순서표에서 친구·차단과 같은 뒤쪽 묶음이지만 그룹 도메인 행이라 여기서
-        // 같이 지운다 — 아래 단계 어느 것도 group_invites 를 읽거나 쓰지 않아 결과가 같다.
+        // 환불·증거 동결·이탈이 끝난 뒤에 멤버십 개인 설정·열람 lease·창형 원본·공지·댓글 작성자를 파기한다.
         groupMemberService.eraseWithdrawnUserRecords(user);
 
         // 이력 익명화 — 행을 남기고 user_id 만 끊는다(다른 사람의 판정·랭킹 근거이므로).

@@ -1,0 +1,74 @@
+element_num,depth,attributes,parent_num
+0,0,"bounds=[0,0][0,0]",
+1,1,"accessibilityText=GROMO; bounds=[0,0][834,1210]; enabled=true; enabled=true",0
+2,2,"bounds=[0,0][834,1210]; enabled=true; enabled=true",1
+3,3,"bounds=[0,0][834,1210]; enabled=true; enabled=true",2
+4,4,"bounds=[0,0][834,1210]; enabled=true; enabled=true",3
+5,5,"bounds=[0,0][834,1210]; enabled=true; enabled=true",4
+6,6,"bounds=[0,0][834,1210]; enabled=true; enabled=true",5
+7,7,"bounds=[0,0][834,1210]; enabled=true; enabled=true",6
+8,8,"bounds=[0,0][834,1210]; enabled=true; enabled=true",7
+9,9,"bounds=[0,0][834,1210]; enabled=true; enabled=true",8
+10,10,"bounds=[0,0][834,1210]; enabled=true; enabled=true",9
+11,11,"bounds=[0,0][834,1210]; enabled=true; enabled=true",10
+59,12,"bounds=[0,0][834,1210]; enabled=true; enabled=true",11
+60,13,"bounds=[0,0][834,1210]; enabled=true; enabled=true",59
+60,12,"bounds=[0,0][834,1210]; enabled=true; enabled=true",11
+15,12,"bounds=[157,48][249,140]; enabled=true; enabled=true",11
+16,13,"bounds=[157,48][249,140]; enabled=true; enabled=true",15
+17,14,"bounds=[170,61][236,127]; enabled=true; enabled=true",16
+18,15,"bounds=[170,61][236,127]; enabled=true; enabled=true",17
+19,12,"bounds=[137,82][697,1163]; enabled=true; enabled=true",11
+20,12,"accessibilityText=뒤로; bounds=[249,107][283,141]; enabled=true; enabled=true",11
+21,12,"accessibilityText=내 정보; bounds=[289,108][599,140]; enabled=true; enabled=true",11
+22,13,"accessibilityText=내 정보; bounds=[289,108][599,140]; enabled=true; enabled=true",21
+23,12,"accessibilityText=저장; bounds=[605,106][643,143]; enabled=true; enabled=true",11
+24,12,"accessibilityText=닫기; bounds=[649,107][683,141]; enabled=true; enabled=true",11
+25,12,"resource-id=island-sheet-content-clip; bounds=[139,156][695,1161]; enabled=true; enabled=true",11
+26,13,"bounds=[139,156][695,1161]; enabled=true; enabled=true",25
+27,14,"bounds=[139,156][695,1161]; enabled=true; enabled=true",26
+28,15,"bounds=[139,156][695,674]; enabled=true; enabled=true",27
+29,16,"bounds=[139,156][695,674]; enabled=true; enabled=true",28
+30,17,"bounds=[369,166][465,262]; enabled=true; enabled=true",29
+31,18,"bounds=[370,168][463,261]; enabled=true; enabled=true",30
+32,17,"accessibilityText=검정; bounds=[159,276][240,356]; enabled=true; selected=true; enabled=true; selected=true",29
+33,17,"accessibilityText=치즈; bounds=[246,276][327,356]; enabled=true; enabled=true",29
+34,17,"accessibilityText=크림; bounds=[333,276][414,356]; enabled=true; enabled=true",29
+35,17,"accessibilityText=회색; bounds=[420,276][501,356]; enabled=true; enabled=true",29
+36,17,"accessibilityText=흰색; bounds=[507,276][588,356]; enabled=true; enabled=true",29
+37,17,"accessibilityText=삼색; bounds=[594,276][675,356]; enabled=true; enabled=true",29
+38,17,"accessibilityText=닉네임; bounds=[159,370][675,394]; enabled=true; enabled=true",29
+39,18,"accessibilityText=닉네임; bounds=[159,370][675,394]; enabled=true; enabled=true",38
+40,17,"bounds=[159,400][675,450]; enabled=true; enabled=true",29
+41,18,"accessibilityText=닉네임; value=수빈; text=수빈; resource-id=field-닉네임; bounds=[161,402][673,448]; enabled=true; enabled=true",40
+42,17,"bounds=[159,464][675,598]; enabled=true; enabled=true",29
+43,18,"bounds=[159,464][675,598]; enabled=true; enabled=true",42
+44,19,"bounds=[161,466][673,538]; enabled=true; enabled=true",43
+45,19,"accessibilityText=연동 계정; bounds=[175,477][659,503]; enabled=true; enabled=true",43
+46,20,"accessibilityText=연동 계정; bounds=[175,477][659,503]; enabled=true; enabled=true",45
+47,19,"accessibilityText=수빈님의 GROMO 계정 · Apple; bounds=[175,505][659,527]; enabled=true; enabled=true",43
+48,20,"accessibilityText=수빈님의 GROMO 계정 · Apple; bounds=[175,505][659,527]; enabled=true; enabled=true",47
+49,19,"accessibilityText=로그아웃; bounds=[161,538][673,596]; enabled=true; enabled=true",43
+50,17,"bounds=[360,612][473,656]; enabled=true; enabled=true",29
+51,18,"accessibilityText=회원 탈퇴; bounds=[360,612][473,656]; enabled=true; enabled=true",50
+54,15,"accessibilityText=Horizontal scroll bar, 1 page; value=0%; text=0%; bounds=[139,1128][695,1158]; enabled=true; enabled=true",27
+55,16,"bounds=[142,1155][692,1158]; enabled=true; enabled=true",54
+54,15,"accessibilityText=Horizontal scroll bar, 1 page; value=0%; text=0%; bounds=[139,1128][695,1158]; enabled=true; enabled=true",27
+55,16,"bounds=[142,1155][692,1158]; enabled=true; enabled=true",54
+56,11,"bounds=[8,40][52,72]; enabled=true; enabled=true",10
+57,12,"accessibilityText=QA route menu; resource-id=gromo-2057-open-route-picker; bounds=[8,40][52,72]; enabled=true; enabled=true",56
+58,9,"bounds=[0,0][834,1210]; enabled=true; enabled=true",8
+59,10,"bounds=[0,0][834,1210]; enabled=true; enabled=true",58
+60,11,"bounds=[0,0][834,1210]; enabled=true; enabled=true",59
+61,1,"bounds=[0,0][0,0]",0
+62,2,"bounds=[0,0][834,32]; enabled=true; enabled=true",61
+63,2,"bounds=[0,0][834,32]; enabled=true; enabled=true",61
+64,3,"bounds=[0,0][834,32]; enabled=true; enabled=true",63
+65,4,"bounds=[0,0][834,32]; enabled=true; enabled=true",64
+66,5,"bounds=[25,11][379,21]; enabled=true; enabled=true",65
+67,6,"accessibilityText=4:38 PM; bounds=[25,7][79,24]; enabled=true; enabled=true",66
+68,6,"accessibilityText=Fri Sep 25; bounds=[89,7][157,24]; enabled=true; enabled=true",66
+69,5,"bounds=[455,11][808,21]; enabled=true; enabled=true",65
+70,6,"value=SSID, 3 of 3 Wi-Fi bars; text=SSID, 3 of 3 Wi-Fi bars; resource-id=3 of 3 Wi-Fi bars; bounds=[719,11][734,21]; enabled=true; enabled=true",69
+71,6,"accessibilityText=100%; bounds=[738,7][778,24]; enabled=true; enabled=true",69
+72,6,"accessibilityText=100% battery power; value=Not charging; text=Not charging; bounds=[780,9][808,22]; enabled=true; enabled=true",69

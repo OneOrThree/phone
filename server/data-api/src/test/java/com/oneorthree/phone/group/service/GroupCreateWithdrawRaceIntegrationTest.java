@@ -5,7 +5,6 @@ import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupStatus;
 import com.oneorthree.phone.group.dto.CreateGroupRequest;
 import com.oneorthree.phone.group.dto.CreateGroupResponse;
-import com.oneorthree.phone.group.repository.GroupJoinCodeRepository;
 import com.oneorthree.phone.group.repository.GroupMemberRepository;
 import com.oneorthree.phone.group.repository.GroupRepository;
 import com.oneorthree.phone.user.repository.domain.User;
@@ -57,8 +56,6 @@ class GroupCreateWithdrawRaceIntegrationTest extends IntegrationTestBase {
     @Autowired
     GroupMemberRepository groupMemberRepository;
     @Autowired
-    GroupJoinCodeRepository groupJoinCodeRepository;
-    @Autowired
     UserRepository userRepository;
     @Autowired
     UserWalletRepository userWalletRepository;
@@ -77,7 +74,6 @@ class GroupCreateWithdrawRaceIntegrationTest extends IntegrationTestBase {
     void tearDown() {
         UUID groupId = createdGroupId.get();
         if (groupId != null) {
-            groupJoinCodeRepository.findById(groupId).ifPresent(groupJoinCodeRepository::delete);
             groupRepository.findById(groupId).ifPresent(group -> {
                 groupMemberRepository.findAnyByUserAndGroup(user, group)
                         .ifPresent(groupMemberRepository::delete);

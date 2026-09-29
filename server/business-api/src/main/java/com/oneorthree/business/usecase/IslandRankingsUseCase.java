@@ -1,12 +1,13 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.IslandRecordsResponses.IslandRankingView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataRecordsClient;
 import com.oneorthree.business.upstream.data.dto.IslandRankingViews;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -43,7 +44,7 @@ public class IslandRankingsUseCase {
             // 일요일이 아니거나 아직 오지 않은 주 — 형식은 Business 가 먼저 400 으로 거른다.
             "RANKING_WEEK_OUT_OF_RANGE", new PublicFailure(422, ApiErrorCode.OUT_OF_RANGE, "week"));
 
-    private final DataApiClient data;
+    private final DataRecordsClient data;
 
     /**
      * 섬 간 주간 랭킹.
@@ -67,7 +68,8 @@ public class IslandRankingsUseCase {
                 || !week.toString().equals(view.week())) {
             throw new UpstreamContractMismatchException("섬 랭킹 응답이 요청과 다릅니다");
         }
-        return new IslandRankings(view.items(), view.myRank(), null, view.asOf());
+        return new IslandRankings(view.items().stream().map(IslandRankingView::from).toList(),
+                view.myRank(), null, view.asOf());
     }
 
     /** 상류 실패 한 줄 — 기대하는 상류 상태, 공개 코드, 사용자에게 알려 줄 입력 필드. */
@@ -79,7 +81,7 @@ public class IslandRankingsUseCase {
      * N 개로 잘리므로 자기 섬 순위를 <b>전체 모집단</b> 기준으로 알려 주는 {@code myRank} 를 싣는다.
      * {@code nextCursor} 는 언제나 {@code null} 이다.
      */
-    public record IslandRankings(List<IslandRankingViews.IslandRanking> items, Integer myRank, String nextCursor,
+    public record IslandRankings(List<IslandRankingView> items, Integer myRank, String nextCursor,
             String asOf) {
     }
 }

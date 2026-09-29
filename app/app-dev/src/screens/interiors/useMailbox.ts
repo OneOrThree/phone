@@ -27,7 +27,7 @@
  * 권한을 잃은 뒤 캐시된 편지가 다시 보이면 안 된다. 상세의 403/404 는 그 편지의
  * 목록 항목도 함께 지운다.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { getSession, sessionGeneration } from '@/services/api/session';
 import {
@@ -44,6 +44,7 @@ import {
   type MailboxMessage,
 } from '@/services/api/letters';
 import { CLIENT_INACTIVE, CLIENT_WRITE_IN_PROGRESS } from './useBoardNotices';
+import { isUserBlocked, useBlockedUsers } from '@/services/blockedUsers';
 
 export type MailboxState = {
   islandId: string | null;
@@ -103,6 +104,16 @@ const authLost = (error: unknown) =>
 type IntentSlot = { key: string; payload: string; flight: Promise<unknown> | null };
 
 export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: string }) {
+  // 우체통은 낙서·편지 원문을 그리므로 TTL cache만 믿지 않고 진입마다 재검증한다.
+  const blockedUsers = useBlockedUsers(active, active);
+  const blockedIds = blockedUsers.ids;
+  const retryBlockedUsers = blockedUsers.retry;
+  const generation = sessionGeneration();
+  const previousBlockedIds = useRef<{
+    generation: number;
+    ids: ReadonlySet<string> | null;
+  }>({ generation, ids: null });
+  const suppressNextBlockedRefresh = useRef(false);
   const [state, setState] = useState<MailboxState>(EMPTY);
   const stateRef = useRef(state);
   const set = useCallback((patch: Partial<MailboxState>) => {
@@ -115,6 +126,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
   const epoch = useRef(0);
   // 상세 경합 fence — 마지막으로 연 편지만 detail 로 적용된다.
   const openSeq = useRef(0);
+  const requestedDetailId = useRef<string | null>(null);
   const intents = useRef(new Map<string, IntentSlot>());
   // 캐시된 섬 데이터가 어느 epoch·세대에서 왔는지 — 계정/범위 교체 직후 옛 islandId 를
   // 새 계정 토큰으로 보내는 것을 막는다.
@@ -155,10 +167,11 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
         error: null,
       });
     } catch (error) {
-      if (!alive(e, generation)) return;
+      if (!alive(e, generation)) throw error;
       // 권한 상실이면 캐시를 비운 채 오류만 남긴다 — EMPTY patch 가 데이터를 지운다.
       if (authLost(error)) set({ ...EMPTY, loading: false, error: error as ApiError });
       else set({ loading: false, error: error as ApiError });
+      throw error;
     }
   }, [active, alive, set]);
 
@@ -257,6 +270,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     async (letterId: string) => {
       const seq = ++openSeq.current;
       if (!mounted.current || !active || !cached()) return;
+      requestedDetailId.current = letterId;
       const e = epoch.current;
       const generation = sessionGeneration();
       set({ detail: null, detailLoading: true, detailError: null });
@@ -274,6 +288,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
         if (!alive(e, generation) || seq !== openSeq.current) return;
         // 권한 상실·이미 지워진 편지는 목록 캐시에서도 지운다 — 캐시로 재진입 금지.
         const gone = error instanceof ApiError && (error.status === 403 || error.status === 404);
+        if (gone && requestedDetailId.current === letterId) requestedDetailId.current = null;
         set({
           detail: null,
           detailLoading: false,
@@ -289,6 +304,7 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
 
   const clearDetail = useCallback(() => {
     openSeq.current += 1;
+    requestedDetailId.current = null;
     set({ detail: null, detailLoading: false, detailError: null });
   }, [set]);
 
@@ -331,6 +347,9 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
       if (!mounted.current || !active)
         throw new ApiError(CLIENT_INACTIVE, '지금은 편지를 보낼 수 없어요.', 0);
       if (!cached()) throw stale();
+      if (isUserBlocked(receiverId)) {
+        throw new ApiError('CLIENT_BLOCKED_USER', '차단한 사용자에게는 편지를 보낼 수 없어요.', 0);
+      }
       if (stateRef.current.sending)
         throw new ApiError(CLIENT_WRITE_IN_PROGRESS, '편지를 보내는 중이에요.', 0);
       const e = epoch.current;
@@ -400,7 +419,35 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     };
   }, []);
 
-  const generation = sessionGeneration();
+  useEffect(() => {
+    if (previousBlockedIds.current.generation !== generation) {
+      previousBlockedIds.current = { generation, ids: null };
+    }
+    if (!active || blockedUsers.status !== 'ready') return;
+    const previous = previousBlockedIds.current.ids;
+    previousBlockedIds.current.ids = blockedIds;
+    // 사용자가 누른 retry가 바로 아래에서 우체통을 직접 적재하므로, 그 retry가 만든
+    // 차단 snapshot 변경을 effect에서도 한 번 더 적재하지 않는다.
+    if (suppressNextBlockedRefresh.current) {
+      suppressNextBlockedRefresh.current = false;
+      return;
+    }
+    // 차단 중 서버 응답에는 상대의 편지·친구가 빠져 있으므로 해제가 확인되면
+    // 로컬 필터만 풀지 말고 우체통 묶음 자체를 다시 읽어 복원한다.
+    if (previous?.size && [...previous].some((id) => !blockedIds.has(id))) {
+      const openDetailId =
+        stateRef.current.detail?.id ??
+        (stateRef.current.detailLoading ? requestedDetailId.current : null);
+      load()
+        .then(() => (openDetailId ? openLetter(openDetailId) : undefined))
+        .catch((error) => {
+          if (!mounted.current || generation !== sessionGeneration()) return;
+          // 상세 route를 유지한 채 묶음 재적재가 실패하면 무한 로딩 대신 재시도를 노출한다.
+          set({ detailLoading: false, detailError: error as ApiError });
+        });
+    }
+  }, [active, blockedIds, blockedUsers.status, generation, load, openLetter, set]);
+
   useEffect(() => {
     epoch.current += 1;
     intents.current.clear();
@@ -412,9 +459,68 @@ export function useMailbox({ active, scopeKey }: { active: boolean; scopeKey: st
     // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey·generation 은 재시작 신호다.
   }, [active, scopeKey, generation, load]);
 
+  const visibleState = useMemo(() => {
+    const counterpart = (detail: LetterView) =>
+      detail.senderId === state.myId ? detail.receiverId : detail.senderId;
+    if (active && blockedUsers.status !== 'ready') {
+      const blockedListError =
+        blockedUsers.status === 'error'
+          ? blockedUsers.error instanceof ApiError
+            ? blockedUsers.error
+            : new ApiError('BLOCKED_USERS_UNAVAILABLE', '차단 목록을 불러오지 못했어요.', 0)
+          : null;
+      return {
+        ...state,
+        messages: [],
+        letters: [],
+        sent: [],
+        friends: [],
+        detail: null,
+        detailBlocked: false,
+        detailError: blockedListError ?? state.detailError,
+        loading: blockedUsers.status === 'loading' || state.loading,
+        error: blockedListError ?? state.error,
+      };
+    }
+    return {
+      ...state,
+      messages: state.messages.filter((message) => !blockedIds.has(message.userId)),
+      letters: state.letters.filter((letter) => !blockedIds.has(letter.counterpartUserId)),
+      sent: state.sent.filter((letter) => !blockedIds.has(letter.counterpartUserId)),
+      friends: state.friends.filter((friend) => !blockedIds.has(friend.userId)),
+      detailBlocked: !!state.detail && blockedIds.has(counterpart(state.detail)),
+      detail: state.detail && !blockedIds.has(counterpart(state.detail)) ? state.detail : null,
+    };
+  }, [active, blockedIds, blockedUsers.error, blockedUsers.status, state]);
+
+  const retry = useCallback(async () => {
+    const retryingDetail =
+      stateRef.current.detail !== null ||
+      stateRef.current.detailError !== null ||
+      stateRef.current.detailLoading;
+    try {
+      if (blockedUsers.status === 'error') {
+        suppressNextBlockedRefresh.current = true;
+        try {
+          await retryBlockedUsers();
+        } catch (error) {
+          suppressNextBlockedRefresh.current = false;
+          throw error;
+        }
+      }
+      await load();
+    } catch (error) {
+      if (retryingDetail && mounted.current) {
+        set({ detailLoading: false, detailError: error as ApiError });
+      }
+      throw error;
+    }
+  }, [blockedUsers.status, load, retryBlockedUsers, set]);
+
   return {
-    ...state,
-    retry: load,
+    ...visibleState,
+    blockedUsersStatus: blockedUsers.status,
+    retry,
     loadMoreLetters,
     loadMoreMessages,
     openLetter,

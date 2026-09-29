@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -57,6 +57,8 @@ public class GroupBetEarlyWinConfirmer implements EarlyWinConfirmationPort {
     private final UserQueryService userQueryService;
     private final GroupBetJudge groupBetJudge;
     private final ApplicationEventPublisher eventPublisher;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * 조기 확정 대상 회차를 <b>미리 잠근다</b> — 지갑을 만지기 <b>전에</b> 호출해야 한다(계약 §3
@@ -155,8 +157,8 @@ public class GroupBetEarlyWinConfirmer implements EarlyWinConfirmationPort {
                     .progressMinutes(target0.get(), session.getSessionDate(), List.of(user))
                     .get(userId);
             if (GroupBetJudge.isAchieved(target0.get(), minutes)) {
-                // 확정 시각 박제(LLD §5.1 — confirmWin(m, Instant.now())). 조기 확정 전용 컬럼이다.
-                participant.confirmWin(minutes == null ? 0 : minutes, Instant.now());
+                // 확정 시각 박제(LLD §5.1 — confirmWin(m, clock.instant())). 조기 확정 전용 컬럼이다.
+                participant.confirmWin(minutes == null ? 0 : minutes, clock.instant());
                 // 소비자는 둘 — 조기 정산 트리거(전원 확정 시)와 BET_WON 푸시(본인, FR-43).
                 // 후자의 소비자 배선은 알림 파이프라인 소유자인 B7 의 몫이라 여기서는 발행만 한다.
                 eventPublisher.publishEvent(new GroupBetWonEvent(

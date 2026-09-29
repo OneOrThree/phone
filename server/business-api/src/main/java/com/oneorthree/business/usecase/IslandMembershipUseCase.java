@@ -1,5 +1,15 @@
 package com.oneorthree.business.usecase;
 
+import com.oneorthree.business.api.dto.IslandMembershipResponses.CurrentIslandView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.InvitationResolvedView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandCreatedView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandDetailView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandInvitationView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandJoinResultView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.IslandSummaryView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestCancelView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.JoinRequestStatusView;
+import com.oneorthree.business.api.dto.IslandMembershipResponses.MyJoinRequestView;
 import com.oneorthree.business.api.dto.IslandPage;
 import com.oneorthree.business.api.dto.MyIslandsResponse;
 import com.oneorthree.business.auth.AccessTokenClaims;
@@ -11,10 +21,8 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.request.CursorBoundary;
 import com.oneorthree.business.common.request.CursorScope;
 import com.oneorthree.business.common.request.SignedCursorCodec;
-import com.oneorthree.business.upstream.data.DataApiClient;
-import com.oneorthree.business.upstream.data.dto.CurrentIsland;
+import com.oneorthree.business.upstream.data.DataIslandClient;
 import com.oneorthree.business.upstream.data.dto.InvitationResolved;
-import com.oneorthree.business.upstream.data.dto.IslandCreated;
 import com.oneorthree.business.upstream.data.dto.IslandDiscoverPage;
 import com.oneorthree.business.upstream.data.dto.IslandInvitationIssued;
 import com.oneorthree.business.upstream.data.dto.IslandSearchPage;
@@ -84,21 +92,22 @@ public class IslandMembershipUseCase {
     private static final String SCOPE_MEMBER = "member";
     private static final String SCOPE_VISITOR = "visitor";
 
-    private final DataApiClient data;
+    private final DataIslandClient data;
     private final ObjectProvider<SignedCursorCodec> cursorCodecs;
     private final SecureRandom seeds = new SecureRandom();
 
     /** 섬 생성 (LLD §3.1). */
-    public IslandCreated create(AccessTokenClaims claims, String name, String intro,
+    public IslandCreatedView create(AccessTokenClaims claims, String name, String intro,
             boolean approvalRequired, Integer maxMembers, UUID key, Deadline deadline) {
-        return relay(() -> data.createIsland(claims.userId(), name, intro, approvalRequired, maxMembers,
-                key, deadline));
+        return IslandCreatedView.from(relay(() -> data.createIsland(claims.userId(), name, intro, approvalRequired,
+            maxMembers,
+                key, deadline)));
     }
 
     /** 현재 섬 이동 (LLD §3.6). */
-    public CurrentIsland switchCurrentIsland(AccessTokenClaims claims, UUID islandId, UUID key,
+    public CurrentIslandView switchCurrentIsland(AccessTokenClaims claims, UUID islandId, UUID key,
             Deadline deadline) {
-        return relay(() -> data.switchCurrentIsland(claims.userId(), islandId, key, deadline));
+        return CurrentIslandView.from(relay(() -> data.switchCurrentIsland(claims.userId(), islandId, key, deadline)));
     }
 
     /** 내 섬 목록 (LLD §3.5). 페이지가 없으므로 커서 서명이 필요 없다. */
@@ -112,7 +121,8 @@ public class IslandMembershipUseCase {
         if (islands.currentIslandId() != null && islands.lossReason() != null) {
             throw new UpstreamContractMismatchException("현재 섬이 있는데 상실 사유가 함께 왔습니다");
         }
-        return new MyIslandsResponse(islands.items(), null, islands.currentIslandId(),
+        return new MyIslandsResponse(islands.items().stream().map(IslandSummaryView::from).toList(), null,
+            islands.currentIslandId(),
                 islands.lossReason());
     }
 
@@ -138,7 +148,7 @@ public class IslandMembershipUseCase {
         String next = page.nextIslandId() == null ? null
                 : codec().encode(scope, new CursorBoundary(
                         page.nextIslandId().toString(), page.nextIslandId().toString()));
-        return new IslandPage(page.items(), next);
+        return new IslandPage(page.items().stream().map(IslandSummaryView::from).toList(), next);
     }
 
     /**
@@ -162,7 +172,7 @@ public class IslandMembershipUseCase {
         }
         String next = page.nextHandle() == null ? null
                 : codec().encode(scope, new CursorBoundary(seed, page.nextHandle()));
-        return new IslandPage(page.items(), next);
+        return new IslandPage(page.items().stream().map(IslandSummaryView::from).toList(), next);
     }
 
     /**
@@ -177,10 +187,10 @@ public class IslandMembershipUseCase {
             throw new UpstreamContractMismatchException("섬 상세 응답이 없습니다");
         }
         if (SCOPE_MEMBER.equals(view.scope()) && view.member() != null) {
-            return view.member();
+            return IslandDetailView.from(view.member());
         }
         if (SCOPE_VISITOR.equals(view.scope()) && view.visitor() != null) {
-            return view.visitor();
+            return IslandSummaryView.from(view.visitor());
         }
         throw new UpstreamContractMismatchException("섬 상세 범위를 판별할 수 없습니다");
     }
@@ -189,7 +199,7 @@ public class IslandMembershipUseCase {
      * 섬 가입 (GROMO-1760, LLD §3.7). 즉시 가입이면 {@code active}+새 current, 승인제면
      * {@code pending} — 어느 쪽인지는 상류 판정이고 응답 형태로만 구분한다.
      */
-    public JoinIslandResult join(AccessTokenClaims claims, UUID islandId, String invitationToken,
+    public IslandJoinResultView join(AccessTokenClaims claims, UUID islandId, String invitationToken,
             UUID key, Deadline deadline) {
         JoinIslandResult result = relay(() ->
                 data.joinIsland(claims.userId(), islandId, invitationToken, key, deadline));
@@ -204,14 +214,14 @@ public class IslandMembershipUseCase {
                 || ("active".equals(result.status()) && result.currentIslandId() == null)) {
             throw new UpstreamContractMismatchException("가입 응답의 상태와 필드가 어긋납니다");
         }
-        return result;
+        return IslandJoinResultView.from(result);
     }
 
     /**
      * 가입 요청 상태 (GROMO-1760, LLD §3.8). 읽기가 현재 섬을 바꾸지 않는다 — 이 경로에는
      * current 를 쓰는 호출이 없다.
      */
-    public JoinRequestStatus joinRequest(AccessTokenClaims claims, UUID requestId,
+    public JoinRequestStatusView joinRequest(AccessTokenClaims claims, UUID requestId,
             Deadline deadline) {
         JoinRequestStatus status = relay(() ->
                 data.fetchJoinRequest(claims.userId(), requestId, deadline));
@@ -221,7 +231,7 @@ public class IslandMembershipUseCase {
         if (!requestId.equals(status.id())) {
             throw new UpstreamContractMismatchException("가입 요청 응답의 id 가 요청과 다릅니다");
         }
-        return status;
+        return JoinRequestStatusView.from(status);
     }
 
     /**
@@ -248,14 +258,14 @@ public class IslandMembershipUseCase {
         }
         String next = page.nextCreatedAt() == null ? null : codec().encode(scope,
                 new CursorBoundary(page.nextCreatedAt().toString(), page.nextRequestId().toString()));
-        return new MyJoinRequests(page.items(), next);
+        return new MyJoinRequests(page.items().stream().map(MyJoinRequestView::from).toList(), next);
     }
 
     /**
      * 가입 요청 취소 (GROMO-1760, LLD §3.9). 성공은 항상 {@code cancelled} — 같은 키의 재생도
      * 같은 값이고, 이미 승인된 요청은 상류가 409 로 막는다.
      */
-    public JoinRequestCancel cancelJoinRequest(AccessTokenClaims claims, UUID requestId, UUID key,
+    public JoinRequestCancelView cancelJoinRequest(AccessTokenClaims claims, UUID requestId, UUID key,
             Deadline deadline) {
         JoinRequestCancel result = relay(() ->
                 data.cancelJoinRequest(claims.userId(), requestId, key, deadline));
@@ -265,14 +275,14 @@ public class IslandMembershipUseCase {
         if (!requestId.equals(result.id())) {
             throw new UpstreamContractMismatchException("취소 응답의 id 가 요청과 다릅니다");
         }
-        return result;
+        return JoinRequestCancelView.from(result);
     }
 
     /**
      * 초대 코드 해석 (GROMO-1760, LLD §3.10). 조회 성격이라 멱등키가 없다.
      * {@code invitationToken} 은 여기서 검증·해석하지 않고 가입 명령에 그대로 전달한다.
      */
-    public InvitationResolved resolveInvitation(AccessTokenClaims claims, String code,
+    public InvitationResolvedView resolveInvitation(AccessTokenClaims claims, String code,
             Deadline deadline) {
         InvitationResolved resolved = relay(() ->
                 data.resolveInvitation(claims.userId(), code, deadline));
@@ -280,14 +290,14 @@ public class IslandMembershipUseCase {
                 || resolved.invitationToken() == null || resolved.invitationToken().isBlank()) {
             throw new UpstreamContractMismatchException("초대 해석 응답이 완전하지 않습니다");
         }
-        return resolved;
+        return InvitationResolvedView.from(resolved);
     }
 
     /**
      * 섬 초대 발급 (GROMO-1760, LLD §3.11). 활성 주민 판정·코드 재사용·세대 재발급은 상류
      * 수명주기다 — 여기서는 응답 완전성만 확인한다.
      */
-    public IslandInvitationIssued issueInvitation(AccessTokenClaims claims, UUID islandId,
+    public IslandInvitationView issueInvitation(AccessTokenClaims claims, UUID islandId,
             UUID key, Deadline deadline) {
         IslandInvitationIssued issued = relay(() ->
                 data.issueIslandInvitation(claims.userId(), islandId, key, deadline));
@@ -295,7 +305,7 @@ public class IslandMembershipUseCase {
                 || issued.url() == null || issued.url().isBlank()) {
             throw new UpstreamContractMismatchException("초대 발급 응답이 완전하지 않습니다");
         }
-        return issued;
+        return IslandInvitationView.from(issued);
     }
 
     // ---------------------------------------------------------------- 내부
@@ -368,6 +378,6 @@ public class IslandMembershipUseCase {
     }
 
     /** 공개 「신청 중」 목록 한 페이지 — {@code nextCursor} 는 서명 토큰이다(GROMO-2047). */
-    public record MyJoinRequests(List<MyJoinRequestsPage.Item> items, String nextCursor) {
+    public record MyJoinRequests(List<MyJoinRequestView> items, String nextCursor) {
     }
 }

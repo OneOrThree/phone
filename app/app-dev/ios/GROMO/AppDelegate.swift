@@ -28,7 +28,38 @@ class AppDelegate: ExpoAppDelegate {
       launchOptions: launchOptions)
 #endif
 
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    let didLaunch = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+#if DEBUG
+    // QA: --gromo-live-preview=focus,black (또는 rest,calico / end) 인자로 실행한다.
+    // 릴리스 빌드에서는 제외하며 일반 실행에서는 샘플 활동을 만들지 않는다.
+    if let argument = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--gromo-live-preview=") }) {
+      let parts = argument.replacingOccurrences(of: "--gromo-live-preview=", with: "").split(separator: ",")
+      if parts.count == 1 && parts[0] == "end" {
+        LiveActivityModule().endAll({ _ in }, rejecter: { _, _, _ in })
+      }
+      if parts.count == 2 {
+        let phase = String(parts[0])
+        let color = String(parts[1])
+        if ["focus", "rest"].contains(phase),
+           ["black", "ginger", "cream", "gray", "white", "calico"].contains(color) {
+          var payload: [String: Any] = [
+            "sessionId": "simulator-preview",
+            "phase": phase,
+            "subject": phase == "rest" ? "" : "영어 공부",
+            "catColor": color,
+            "anchorMs": Date().addingTimeInterval(phase == "rest" ? -305 : -1042).timeIntervalSince1970 * 1000,
+          ]
+          payload[phase == "rest" ? "restCount" : "focusCount"] = phase == "rest" ? 3 : 12
+          LiveActivityModule().sync(
+            payload as NSDictionary,
+            resolver: { _ in },
+            rejecter: { _, _, _ in }
+          )
+        }
+      }
+    }
+#endif
+    return didLaunch
   }
 
   // Linking API

@@ -14,6 +14,12 @@ services:
   business-redis:
     logging: *infra-logging
     image: redis:7-alpine
+    labels:
+      com.datadoghq.tags.env: "${DEPLOY_ENV:-dev}"
+      com.datadoghq.tags.service: "gromo-business-redis-${DEPLOY_ENV:-dev}"
+      com.datadoghq.tags.version: "7-alpine"
+      com.datadoghq.ad.checks: >-
+        {"redisdb":{"instances":[{"host":"%%host%%","port":6379,"username":"health","password":"","tags":["env:${DEPLOY_ENV:-dev}","service:gromo-business-redis-${DEPLOY_ENV:-dev}","redis_instance:business"]}]}}
     command: [redis-server, --aclfile, /etc/redis/business.acl, --maxmemory, 128mb, --maxmemory-policy, allkeys-lru, --save, "", --appendonly, "no"]
     volumes:
       - ${BUSINESS_REDIS_ACL_FILE:?Business Redis ACL 파일 필요}:/etc/redis/business.acl:ro

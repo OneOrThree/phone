@@ -25,6 +25,10 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static com.oneorthree.realtime.config.StompTopics.EMOTES_CHANNEL;
+import static com.oneorthree.realtime.config.StompTopics.GROUP_TOPIC;
+import static com.oneorthree.realtime.config.StompTopics.ISLAND_TOPIC;
+
 /**
  * STOMP 프레임에 관문을 세운다 — CONNECT·SUBSCRIBE·SEND.
  *
@@ -75,23 +79,6 @@ import java.util.regex.Pattern;
 public class StompAuthChannelInterceptor implements ChannelInterceptor {
 
     /**
-     * 구독 인가 대상 경로. {@code ChatFanout#topicOf} 가 만드는 경로와 <b>같은 모양이어야 한다</b> —
-     * 한쪽만 바꾸면 구독은 되는데 인가만 안 걸리는 상태가 된다.
-     *
-     * <p>UUID 를 {@code [0-9a-fA-F-]{36}} 로 느슨하게 잡고 실제 파싱은 {@code UUID.fromString} 에
-     * 맡긴다. 정규식으로 UUID 를 엄밀히 표현하려 들면 길고 틀리기 쉽다.
-     */
-    /**
-     * 그 섬의 브로드캐스트 토픽. <b>소문자 UUID 만</b> 받는다.
-     *
-     * <p>대문자를 허용하면 {@code UUID.fromString} 은 통과시키지만 <b>구독은 원문 그대로</b> 브로커에
-     * 등록되는 반면 발행은 {@code ChatFanout.topicOf} 가 {@code UUID.toString()}(소문자)로 한다 —
-     * 그래서 {@code /topic/groups/ABC…} 로 구독한 클라이언트는 <b>인가에 성공하고도 아무것도 못
-     * 받는다.</b> 거절되면 클라이언트가 즉시 알지만, 통과시키면 «조용히» 안 된다.
-     */
-    private static final Pattern GROUP_TOPIC = Pattern.compile("^/topic/groups/([0-9a-f-]{36})$");
-
-    /**
      * 발신 실패 통지를 받는 개인 큐. <b>정확히 이 문자열만</b> 허용한다 —
      * {@code startsWith("/user/")} 같은 접두 매칭으로 열어 두면 그 접두 아래로 패턴 구독이 다시 들어온다.
      */
@@ -110,19 +97,9 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
     private static final Pattern SEND_DESTINATION =
             Pattern.compile("^/app/groups/([0-9a-f-]{36})/send$");
 
-    /**
-     * 섬 실시간 채널 셋. {@code GROUP_TOPIC} 과 같은 이유로 <b>소문자 UUID 만</b> 받고 채널 이름도
-     * 열거한다 — {@code RealtimeEventType#channel()} 이 만드는 경로와 같은 모양이어야 하고, 열거하지
-     * 않으면 아직 닫혀 있어야 할 {@code events}·{@code playback}·{@code messages} 가 함께 열린다.
-     */
-    private static final Pattern ISLAND_TOPIC =
-            Pattern.compile("^/topic/islands/([0-9a-f-]{36})/(focus|rest|emotes)$");
-
     /** 응원 발신 목적지 — {@code FocusEmoteStompController} 의 {@code @MessageMapping} 과 같은 모양이다. */
     private static final Pattern EMOTE_SEND =
             Pattern.compile("^/app/islands/([0-9a-f-]{36})/focus/emotes$");
-
-    private static final String EMOTES_CHANNEL = "emotes";
 
     /**
      * 응원 구독·발신의 프레임 상한. 두 창은 <b>키가 다르고 길이가 같다</b>.
@@ -281,7 +258,8 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         String destination = String.valueOf(accessor.getDestination());
         Matcher matcher = SEND_DESTINATION.matcher(destination);
         Matcher emote = EMOTE_SEND.matcher(destination);
-        if (!matcher.matches() && !emote.matches()) {
+        boolean chatSend = matcher.matches();
+        if (!chatSend && !emote.matches()) {
             // 브로커 목적지(/topic/**·/queue/**)로의 직접 발신이 여기로 떨어진다.
             log.debug("허용되지 않은 발신 목적지 — {}", destination);
             throw new StompAuthException(CommonErrorCode.INVALID_REQUEST);
@@ -291,7 +269,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         // @DestinationVariable UUID 변환이 메시징 계층의 MethodArgumentTypeMismatchException 을 던지는데,
         // 그 타입은 handleInvalidPayload 가 잡는 둘에 없어서 ERROR 프레임 + «연결 종료»로 이어진다 —
         // 오타 하나가 세션을 죽인다. SUBSCRIBE 와 같은 자리에서 같은 방식으로 막는다.
-        uuidOrReject(matcher.matches() ? matcher.group(1) : emote.group(1));
+        uuidOrReject(chatSend ? matcher.group(1) : emote.group(1));
 
         ChatPrincipal principal = requireAuthenticated(accessor);
 
@@ -299,7 +277,7 @@ public class StompAuthChannelInterceptor implements ChannelInterceptor {
         // 컨트롤러 안에서 재면 sessionId 가 빠지거나 UUID 가 아닌 프레임은 변환 단계에서 죽어
         // 메서드에 닿지도 못하므로, «가장 싼 거절»만 창을 소모하지 않는 구멍이 남는다 —
         // 그 프레임을 무제한으로 반복해 변환·오류 응답 경로를 고갈시킬 수 있다.
-        if (!matcher.matches() && !acquireWindow(RedisKeys.emoteAttempt(principal.userId()))) {
+        if (!chatSend && !acquireWindow(RedisKeys.emoteAttempt(principal.userId()))) {
             throw new ChatException(ChatErrorCode.EMOTE_TOO_FREQUENT);
         }
     }

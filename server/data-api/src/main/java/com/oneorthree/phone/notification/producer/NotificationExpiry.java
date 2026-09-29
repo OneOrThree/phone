@@ -1,18 +1,19 @@
 package com.oneorthree.phone.notification.producer;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.notification.migration.NotificationCronReplayJob;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.Map;
 
 /** 원사건 시각에 고정된 발송 만료. relay·DLT·이관·재생 시각으로 수명을 다시 시작하지 않는다. */
 public final class NotificationExpiry {
     public static final String OCCURRED_AT = "dedupAt";
     public static final String EXPIRES_AT = "expiresAt";
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
     /** 일 목표 마감 크론 시각 — {@code NotificationScheduler#sendChallengeDurationEndNotifications}. */
     private static final LocalTime DURATION_END_CRON = LocalTime.of(9, 0);
 

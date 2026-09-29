@@ -155,6 +155,22 @@ class InternalFriendIntegrationTest {
     }
 
     @Test
+    @DisplayName("date 를 생략하면 KST 오늘로 친구 목록을 돌려주고, 형식이 틀린 date 는 400 이다")
+    void friendsDateIsOptionalButValidatedWhenGiven() throws Exception {
+        // GROMO-2119: 우체통 화면은 date 없이 친구 조각을 조합한다 — 필수였을 때 화면 전체가 400 이었다.
+        UUID a = newUser();
+        UUID b = newUser();
+        friendService.acceptRequest(b, friendService.createRequest(a, b));
+
+        as(a, get(path(a, "/friends")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].userId").value(b.toString()));
+        as(a, get(path(a, "/friends")).param("date", "2026-13-40"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_PARAMETER"));
+    }
+
+    @Test
     @DisplayName("차단한 상대는 blocker의 친구 목록과 검색 결과에서만 제외한다")
     void blockExcludesCounterpartFromFriendsAndSearch() throws Exception {
         UUID blocker = newUser();

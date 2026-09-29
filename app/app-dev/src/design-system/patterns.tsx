@@ -127,6 +127,7 @@ export function Btn({
   // 확인창 버튼(.dlg .acts .btn): 높이 46 · 글자 15
   dialog = false,
   disabled = false,
+  dynamicHeight = false,
   style,
   id,
 }: any) {
@@ -171,15 +172,19 @@ export function Btn({
             }).start();
         }}
         style={{
-          height: round
-            ? 88
-            : small
-              ? 38
-              : dialog
-                ? 46
-                : kind === 'ghost' || kind === 'danger'
-                  ? 44
-                  : 52,
+          height: dynamicHeight
+            ? undefined
+            : round
+              ? 88
+              : small
+                ? 38
+                : dialog
+                  ? 46
+                  : kind === 'ghost' || kind === 'danger'
+                    ? 44
+                    : 52,
+          minHeight: dynamicHeight ? 52 : undefined,
+          paddingVertical: dynamicHeight ? 12 : undefined,
           ...(round ? { width: 88 } : {}),
           borderRadius: 999,
           paddingHorizontal: round ? 0 : small ? 14 : kind === 'glass' ? 22 : 20,
@@ -388,7 +393,14 @@ export function Seg({ items, value, onChange, small = false, inset = false, styl
     </View>
   );
 }
-export function Chips({ items, value, onChange, large = false, wrap = false }: any) {
+export function Chips({
+  items,
+  value,
+  onChange,
+  large = false,
+  wrap = false,
+  disabled = false,
+}: any) {
   return (
     <View
       style={{
@@ -402,7 +414,8 @@ export function Chips({ items, value, onChange, large = false, wrap = false }: a
           key={x}
           accessibilityRole="button"
           accessibilityLabel={x}
-          accessibilityState={{ selected: x === value }}
+          accessibilityState={{ selected: x === value, disabled }}
+          disabled={disabled}
           onPress={() => onChange(x)}
           style={{
             height: large ? 44 : 36,
@@ -439,6 +452,7 @@ export function Field({
   inputStyle,
   placeholderColor,
   tabletScale,
+  disabled = false,
 }: any) {
   return (
     <View style={{ gap: 6 }}>
@@ -454,6 +468,7 @@ export function Field({
         accessibilityLabel={label || placeholder}
         value={String(value ?? '')}
         onChangeText={onChange}
+        editable={!disabled}
         placeholder={placeholder}
         placeholderTextColor={placeholderColor || componentTokens.input.placeholder}
         multiline={multiline}
@@ -466,7 +481,13 @@ export function Field({
     </View>
   );
 }
-export function Toggle({ value, onChange, label, disabled = false }: any) {
+export function Toggle({
+  value,
+  onChange,
+  label,
+  disabled = false,
+  activeColor = primitiveTokens.color.success,
+}: any) {
   // v2 .tog: 폭 46 · 켜지면 손잡이 18px 이동
   const x = useRef(new Animated.Value(value ? 18 : 0)).current;
   const reduce = React.useContext(MotionContext);
@@ -489,7 +510,7 @@ export function Toggle({ value, onChange, label, disabled = false }: any) {
         width: 46,
         height: 28,
         borderRadius: 999,
-        backgroundColor: value ? primitiveTokens.color.success : primitiveTokens.color.controlIdle,
+        backgroundColor: value ? activeColor : primitiveTokens.color.controlIdle,
         opacity: disabled ? componentTokens.button.disabledOpacity : 1,
       }}
     >

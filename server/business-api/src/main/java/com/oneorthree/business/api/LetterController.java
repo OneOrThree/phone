@@ -1,12 +1,12 @@
 package com.oneorthree.business.api;
 
+import com.oneorthree.business.api.dto.LetterResponses.LetterDetailView;
+import com.oneorthree.business.api.dto.LetterResponses.LetterPageView;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.LetterSlice;
-import com.oneorthree.business.upstream.data.dto.LetterView;
 import com.oneorthree.business.usecase.LetterUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,8 +20,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
-
-import java.util.UUID;
 
 /**
  * 편지 4종의 <b>공개 표면</b> (GROMO-1933 발송·목록·상세 + GROMO-2002 닫기) — 무접두 {@code /letters…}
@@ -51,7 +49,7 @@ public class LetterController {
      * 거절한다. 201 응답은 방금 만든 편지 한 통이다.
      */
     @PostMapping(value = "/letters", consumes = "application/json")
-    public ResponseEntity<LetterView> send(@RequestBody JsonNode body, HttpServletRequest request) {
+    public ResponseEntity<LetterDetailView> send(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         if (body == null || !body.isObject() || body.size() != 2) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, null);
@@ -64,8 +62,8 @@ public class LetterController {
         if (content == null || !content.isString()) {
             throw new PublicApiException(ApiErrorCode.INVALID_REQUEST, "content");
         }
-        LetterView sent = letters.send(claims, uuid(receiver.stringValue(), "receiverId"),
-                content.stringValue(), deadline());
+        LetterDetailView sent = letters.send(claims, PublicIds.uuid(receiver.stringValue(), "receiverId"),
+                content.stringValue(), properties.deadline());
         return ResponseEntity.status(HttpStatus.CREATED).body(sent);
     }
 
@@ -76,24 +74,24 @@ public class LetterController {
      * 범위·기본값·알 수 없는 {@code type} 의 400 판정은 계속 Data 가 한다.
      */
     @GetMapping("/letters")
-    public LetterSlice letters(HttpServletRequest request) {
+    public LetterPageView letters(HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
         String cursor = request.getParameter("cursor");
         String size = request.getParameter("size");
         if (cursor != null) {
-            uuid(cursor, "cursor");
+            PublicIds.uuid(cursor, "cursor");
         }
         if (size != null) {
             integer(size, "size");
         }
-        return letters.letters(claims, request.getParameter("type"), cursor, size, deadline());
+        return letters.letters(claims, request.getParameter("type"), cursor, size, properties.deadline());
     }
 
     /** 편지 상세 (LLD §1.14). 수신자의 첫 조회는 읽음을 박는다 — 행은 지워지지 않는다. */
     @GetMapping("/letters/{letterId}")
-    public LetterView letter(@PathVariable String letterId, HttpServletRequest request) {
+    public LetterDetailView letter(@PathVariable String letterId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return letters.letter(claims, uuid(letterId, "letterId"), deadline());
+        return letters.letter(claims, PublicIds.uuid(letterId, "letterId"), properties.deadline());
     }
 
     /**
@@ -106,20 +104,8 @@ public class LetterController {
     @DeleteMapping("/letters/{letterId}")
     public ResponseEntity<Void> close(@PathVariable String letterId, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        letters.close(claims, uuid(letterId, "letterId"), deadline());
+        letters.close(claims, PublicIds.uuid(letterId, "letterId"), properties.deadline());
         return ResponseEntity.noContent().build();
-    }
-
-    private static UUID uuid(String value, String field) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
-        }
     }
 
     /** 숫자 형식만 거른다 — 값의 범위 판정(1~100)은 Data 의 {@code INVALID_PAGE_REQUEST} 몫이다. */
@@ -129,9 +115,5 @@ public class LetterController {
         } catch (NumberFormatException e) {
             throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, field);
         }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
     }
 }

@@ -72,6 +72,10 @@ public class AccessTokenFilter extends OncePerRequestFilter {
             "/health",
             // 이관 정지 창의 구 앱 deferred 매치. 여기 닿는 사람은 아직 우리 유저가 아니다(설치 직후).
             "/l/match",
+            // OpenAPI 게시용 public 그룹 스펙 — CI 가 ci 프로필 부팅에서 이 경로 하나를 긁어간다
+            // (GROMO-2069). prod 는 springdoc.api-docs.enabled=false 라 매핑이 없어 404 로 닫힌다.
+            // 그룹 경로 «하나»만 열고 기본 /v0/api-docs 나 swagger-ui 는 열지 않는다.
+            "/v0/api-docs/public",
             // 관리 엔드포인트. 실제로는 포트 9091 의 별도 컨텍스트라 이 필터가 닿지 않지만, 서비스 포트로
             // 불렸을 때 «401 이 아니라 404» 여야 한다 — 401 이면 포트 격리가 라우팅 문제를 가린다.
             "/actuator", "/actuator/health", "/actuator/health/liveness",

@@ -1,0 +1,7 @@
+Maestro iOS hierarchy — SE3 profile tail
+19,11,"accessibilityText=내 정보; bounds=[185,20][575,46]; enabled=true; enabled=true",10
+24,11,"resource-id=island-sheet-content-clip; bounds=[129,64][667,375]; enabled=true; enabled=true",10
+35,16,"accessibilityText=닉네임; bounds=[151,85][645,104]; enabled=true; enabled=true",28
+38,17,"accessibilityText=닉네임; value=수빈; text=수빈; resource-id=field-닉네임; bounds=[153,112][643,158]; enabled=true; enabled=true",37
+46,18,"accessibilityText=로그아웃; bounds=[153,237][643,295]; enabled=true; enabled=true",40
+48,17,"accessibilityText=회원 탈퇴; bounds=[349,309][447,353]; enabled=true; enabled=true",47

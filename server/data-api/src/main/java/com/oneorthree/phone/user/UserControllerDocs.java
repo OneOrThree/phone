@@ -1,6 +1,5 @@
 package com.oneorthree.phone.user;
 
-import com.oneorthree.phone.user.dto.DeviceTokenRegisterRequest;
 import com.oneorthree.phone.user.dto.NicknameCheckResponse;
 import com.oneorthree.phone.user.dto.OccupationUpdateRequest;
 import io.swagger.v3.oas.annotations.Operation;
@@ -34,32 +33,6 @@ public interface UserControllerDocs {
         @ApiResponse(responseCode = "401", description = "인증 없음")
     })
     ResponseEntity<NicknameCheckResponse> checkNickname(String nickname, UUID userId);
-
-    /**
-     * @param body   FCM 등록 토큰. 기기·재설치마다 회전하므로 같은 유저가 반복 호출한다
-     * @param userId 본인
-     * @return 본문 없는 204. 유저당 <b>토큰 1개</b>만 보관하므로 새 값이 옛 값을 덮는다
-     */
-    @Operation(summary = "디바이스 토큰 등록",
-            description = "앱 시작 시 FCM registration token 을 등록/갱신. 성공 시 204 반환.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "204", description = "등록 성공"),
-        @ApiResponse(responseCode = "400", description = "deviceToken 누락"),
-        @ApiResponse(responseCode = "404", description = "유저 없음")
-    })
-    ResponseEntity<Void> registerDeviceToken(DeviceTokenRegisterRequest body, UUID userId);
-
-    /**
-     * @param userId 본인
-     * @return 본문 없는 204. 해제 후에는 이 유저에게 푸시가 가지 않는다
-     */
-    @Operation(summary = "디바이스 토큰 해제",
-            description = "로그아웃/기기 변경 시 호출 — 이전 유저에게 푸시가 오발송되는 것 방지. 성공 시 204 반환.")
-    @ApiResponses({
-        @ApiResponse(responseCode = "204", description = "해제 성공"),
-        @ApiResponse(responseCode = "404", description = "유저 없음")
-    })
-    ResponseEntity<Void> clearDeviceToken(UUID userId);
 
     /**
      * @param body   선택한 직군. 폐기된 직군이면 400

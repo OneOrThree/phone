@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, View } from 'react-native';
 import { IslandCamera, XY, islandBaseScale } from '@/utils/island-camera';
 
 export function useIslandCamera(size: { w: number; h: number }) {
   const camera = useRef(new IslandCamera()).current;
+  const [scale, setScale] = useState(camera.defaultScale);
   const viewport = useRef<View>(null);
   const origin = useRef({ x: 0, y: 0 });
   const offset = useRef(new Animated.ValueXY()).current;
@@ -29,6 +30,7 @@ export function useIslandCamera(size: { w: number; h: number }) {
   useEffect(() => {
     camera.resize(size.w, size.h);
     publish();
+    setScale(camera.scale);
   }, [size.w, size.h]);
   const points = (e: any): XY[] =>
     [...e.nativeEvent.touches].map((t: any) => ({
@@ -104,13 +106,16 @@ export function useIslandCamera(size: { w: number; h: number }) {
         },
         onPanResponderEnd: (e) => {
           if (e.nativeEvent.touches.length) begin(points(e));
+          else setScale(camera.scale);
         },
         onPanResponderRelease: () => {
           gesture.current = null;
+          setScale(camera.scale);
         },
         onPanResponderTerminate: () => {
           gesture.current = null;
           suppressed.current = true;
+          setScale(camera.scale);
         },
         onPanResponderTerminationRequest: () => false,
       }),
@@ -129,6 +134,7 @@ export function useIslandCamera(size: { w: number; h: number }) {
       },
     },
     camera,
+    scale,
     offset,
     zoom,
     // page coordinates remain stable when the world has been translated/scaled.

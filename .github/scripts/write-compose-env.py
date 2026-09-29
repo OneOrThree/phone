@@ -31,6 +31,10 @@ REQUIRED_KEYS = (
 # server/scripts/README.md 「시크릿·스위치」 표. 필수로 올리지 않는 이유: 넣기 전 배포가 막히면 안 된다.
 LEGACY_OPTIONAL_KEYS = (
     "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED", "FOCUS_REWARD_ACCRUAL_ENABLED",
+    # GROMO-1771 섬 게시판 쓰기 게이트(GROMO-2136 이 BQ02·BQ03 확정, 기본값은 여전히 false).
+    "ISLAND_BOARD_WRITES_ENABLED",
+    # GROMO-1802 섬 관리 명령 4종·방장 위임 게이트(GROMO-2156 — dev 에서 켠 값을 재생성에도 유지).
+    "ISLAND_MANAGEMENT_COMMANDS_ENABLED", "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
     # docker-compose.realtime.yml — GROMO-1954 Data 사건 수신 · GROMO-1775 우체통 · R-1 Kafka 입구
     "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME", "CHAT_WS_ALLOWED_ORIGINS",
     "REALTIME_EVENTS_KAFKA_ENABLED", "KAFKA_BOOTSTRAP_SERVERS", "CHAT_POSTGRES_DB",
@@ -80,7 +84,8 @@ OBSERVABILITY_KEYS = (
 SERVICE_OPTIONAL_KEYS = {
     "data-api": ANALYTICS_KEYS + (
         "BATCH_ADMIN_KEY", "LINK_IP_SALT", "FOCUS_PRESENCE_ENABLED", "FOCUS_SESSION_START_ENABLED",
-        "FOCUS_REWARD_ACCRUAL_ENABLED",
+        "FOCUS_REWARD_ACCRUAL_ENABLED", "ISLAND_BOARD_WRITES_ENABLED",
+        "ISLAND_MANAGEMENT_COMMANDS_ENABLED", "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
         "REDIS_HOST", "REDIS_PORT",
         "NOTIFICATION_BASE_URL", "LINK_BASE_URL", "KAFKA_BOOTSTRAP_SERVERS",
         "INTERNAL_API_ENABLED", "OUTBOX_RELAY_ENABLED", "OUTBOX_RELAY_BATCH_SIZE",
@@ -233,7 +238,9 @@ def business_redis_acl(secret: dict[str, Any]) -> str:
         raise ValueError("BUSINESS_REDIS_PASSWORD는 문자열이어야 합니다")
     digest = hashlib.sha256(password.encode("utf-8")).hexdigest()
     return ("user default off\n"
-            "user health on nopass +ping\n"
+            # 비밀번호 없는 계정이지만 business-cache 내부망에서만 접근 가능하고 키 명령은 전부 막힌다.
+            # Datadog Redis check가 요구하는 읽기 전용 관리 명령만 허용한다.
+            "user health on nopass +ping +info +config|get +slowlog|get\n"
             f"user business on #{digest} ~cache:business:* "
             "+get +set +incrby +expire +eval +evalsha +script|load +scan +del "
             "+ping +hello +info +select +client|setinfo +client|setname\n")

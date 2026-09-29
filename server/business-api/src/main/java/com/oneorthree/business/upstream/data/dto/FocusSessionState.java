@@ -4,11 +4,12 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.annotation.Nulls;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
  * 진행 중 집중 세션 (GROMO-1764) — start · current · pause · resume 가 공유하는 Data 응답이다.
- * 공개 계약(focus-rest-session LLD §1 {@code FocusSessionView})과 같은 필드라 <b>그대로 내보낸다</b>.
+ * 공개 계약은 UseCase의 별도 DTO로 명시적으로 매핑한다.
  *
  * <p>시각을 {@code Instant} 가 아니라 문자열로 받는 이유: 이 서비스는 시각을 계산하지 않고 전달만
  * 한다. 파싱해 다시 직렬화하면 두 서비스의 Jackson 설정 차이가 wire 포맷을 조용히 바꾼다
@@ -24,6 +25,9 @@ import java.util.UUID;
  * @param startedAt     세션 최초 시작 시각
  * @param restStartedAt paused 일 때만 값이 있다. active 면 {@code null}
  * @param version       낙관 버전 — 다음 pause/resume/finish 의 expectedVersion
+ * @param activeIntervals ACTIVE 구간 실제 시간(GROMO-2131).
+ *                      구버전 Data 가 안 보내면 {@code null} 로 두어 공개 응답에서도 빠지게 한다 —
+ *                      빈 목록으로 채우면 앱이 «구간 0건»으로 읽어 같은 날 집중이 사라진다
  */
 public record FocusSessionState(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) UUID id,
@@ -35,5 +39,6 @@ public record FocusSessionState(
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String serverNow,
         @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) String startedAt,
         String restStartedAt,
-        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long version) {
+        @JsonProperty(required = true) @JsonSetter(nulls = Nulls.FAIL) long version,
+        List<ActiveIntervalState> activeIntervals) {
 }

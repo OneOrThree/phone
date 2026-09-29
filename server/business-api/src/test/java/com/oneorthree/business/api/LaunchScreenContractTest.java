@@ -73,7 +73,7 @@ class LaunchScreenContractTest extends ScreenContractTestBase {
         stubAll(STATE);
         DATA.on(DATA_CURRENT, request -> ok(""));
         mockMvc.perform(auth(get("/screens/launch")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -95,6 +95,6 @@ class LaunchScreenContractTest extends ScreenContractTestBase {
         DATA.on(DATA_ME, request -> ok(ME));
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
         DATA.on(DATA_MINE, request -> new MockUpstream.Response(200, "null"));
-        mockMvc.perform(auth(get("/screens/launch"))).andExpect(status().isBadGateway());
+        mockMvc.perform(auth(get("/screens/launch"))).andExpect(status().isBadRequest());
     }
 }

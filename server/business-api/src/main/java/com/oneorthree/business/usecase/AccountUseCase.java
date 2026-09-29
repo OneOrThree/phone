@@ -1,5 +1,6 @@
 package com.oneorthree.business.usecase;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.oneorthree.business.auth.AccessTokenClaims;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
@@ -7,14 +8,16 @@ import com.oneorthree.business.common.exception.UpstreamContractMismatchExceptio
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.linkpreview.repository.PreviewCache;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.AccountMe;
 import com.oneorthree.business.upstream.data.dto.AccountProfile;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -36,26 +39,27 @@ import java.util.function.Supplier;
 @RequiredArgsConstructor
 public class AccountUseCase {
 
-    private final DataApiClient data;
+    private final DataAuthClient data;
     private final PreviewCache previewCache;
 
-    public AccountMe me(AccessTokenClaims claims, Deadline deadline) {
+    public AccountView me(AccessTokenClaims claims, Deadline deadline) {
         AccountMe me = relay(() -> data.fetchAccount(claims.userId(), claims.sessionId(),
                 claims.authGeneration(), deadline));
         if (me == null || !claims.userId().equals(me.id())) {
             throw invalid();
         }
-        return me;
+        return new AccountView(me.id(), me.name(), me.catColor(), me.mainIslandId(),
+                me.linkedProviders(), me.onboardingComplete());
     }
 
-    public AccountProfile updateProfile(AccessTokenClaims claims, String name, String catColor, UUID mainIslandId,
+    public ProfileView updateProfile(AccessTokenClaims claims, String name, String catColor, UUID mainIslandId,
                                         UUID key, Deadline deadline) {
         AccountProfile profile = relay(() -> data.patchAccount(claims.userId(), claims.sessionId(),
                 claims.authGeneration(), name, catColor, mainIslandId, key, deadline));
         if (profile == null || !claims.userId().equals(profile.id())) {
             throw invalid();
         }
-        return profile;
+        return new ProfileView(profile.id(), profile.name(), profile.catColor(), profile.mainIslandId());
     }
 
     public Deleted withdraw(AccessTokenClaims claims, Deadline deadline) {
@@ -99,7 +103,26 @@ public class AccountUseCase {
         return new UpstreamContractMismatchException("계정 응답 계약 불일치");
     }
 
+    /** 공개 계정 조회 필드. 내부 전송 DTO의 필드 추가가 공개 응답을 확장하지 않도록 명시적으로 조립한다. */
+    public record AccountView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) String name,
+            @JsonProperty(required = true) String catColor,
+            @JsonProperty(required = true) UUID mainIslandId,
+            @JsonProperty(required = true) List<String> linkedProviders,
+            @JsonProperty(required = true) boolean onboardingComplete) {
+    }
+
+    /** 공개 프로필 변경 결과. DB 컬럼·내부 인증 상태를 포함하지 않는다. */
+    public record ProfileView(
+            @JsonProperty(required = true) UUID id,
+            @JsonProperty(required = true) String name,
+            @JsonProperty(required = true) String catColor,
+            @JsonProperty(required = true) UUID mainIslandId) {
+    }
+
     /** 탈퇴 성공 {@code {"deleted": true}} — legacy DELETE 의 204 와 구분한다(LLD §2.5). */
+    @Schema(name = "AccountDeleted")
     public record Deleted(boolean deleted) {
     }
 }

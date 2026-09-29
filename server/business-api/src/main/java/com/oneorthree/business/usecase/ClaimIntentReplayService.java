@@ -4,7 +4,7 @@ import com.oneorthree.business.common.exception.UpstreamContractMismatchExceptio
 
 import com.oneorthree.business.common.exception.UpstreamDomainException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataInviteClient;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentLease;
 import com.oneorthree.business.upstream.data.dto.ClaimIntentPage;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
@@ -63,7 +63,7 @@ public class ClaimIntentReplayService {
     /** 전체 순회 횟수 상한. 진행이 없으면 그 전에 멈춘다. */
     private static final int MAX_SWEEPS = 50;
 
-    private final DataApiClient dataApiClient;
+    private final DataInviteClient dataApiClient;
     private final LinkApiClient linkApiClient;
 
     /**

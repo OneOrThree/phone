@@ -2,7 +2,7 @@ import { useWindowDimensions } from 'react-native';
 import { useScreenInsets } from '@/design-system/primitives';
 
 export function useAppLayout() {
-  const { width, height } = useWindowDimensions();
+  const { width, height, fontScale } = useWindowDimensions();
   const insets = useScreenInsets();
   const tablet = Math.min(width, height) >= 600;
   const landscape = width > height;
@@ -11,6 +11,7 @@ export function useAppLayout() {
   return {
     width,
     height,
+    fontScale,
     insets,
     tablet,
     landscape,

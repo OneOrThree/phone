@@ -10,7 +10,7 @@
 | 제품과 저장소를 빠르게 훑고 싶다 | [루트 README](../README.md) |
 | 서버 구성과 현재 데이터 흐름을 알고 싶다 | [서버 README](../server/README.md) |
 | 특정 서버를 실행하거나 구현을 찾고 싶다 | [Business](../server/business-api/README.md) · [Data](../server/data-api/README.md) · [Notification](../server/notification/README.md) · [Realtime](../server/realtime/README.md) |
-| 활성 2.0 앱을 실행하거나 구조를 알고 싶다 | [Fishcat 앱 README](../app/app-dev/README.md) |
+| 활성 2.0 앱을 실행하거나 구조를 알고 싶다 | [Catus 앱 README](../app/app-dev/README.md) |
 | 동결된 1.x 앱을 확인하고 싶다 | [GROMO 앱 README](../app/legacy/app-dev/README.md) |
 | 목표 아키텍처와 결정 근거를 알고 싶다 | [아키텍처 인덱스](architecture/README.md) · [결정 장부](architecture/decisions.md) |
 | 기능별 요구사항·정책·API 설계를 찾고 싶다 | [`prd/`](prd/) |
@@ -40,7 +40,7 @@ docs/
     ├── README.md                      # 제품 세대 구분과 분류 원칙
     ├── gromo/                         # 동결된 GROMO 1.x 기능과 호환 근거
     │   └── <기능-이름>/
-    └── fishcat/                       # 활성 Fishcat 2.0 기능과 전환 계약
+    └── fishcat/                       # 활성 Catus 2.0 기능과 전환 계약
         ├── decision-log.md            # 제품 결정 로그 — 결정은 여기 먼저, 도메인 policy.md 로 전파 (어긋나면 이 로그가 맞다)
         └── <기능-이름>/
             ├── prd.md                 # PRD — 문제 정의·목표·요구사항
@@ -81,5 +81,6 @@ Git·PR 은 `git-pr-conventions.md`, 지라는 `jira-conventions.md`(분류) + `
 
 ## 엔지니어링 개선 기록
 
+- [2026-09-23 dev 배포 장애 및 복구 기록](engineering/dev-deployment-incident-2026-09-23.md) — 실행 이력, 장애 원인, 복구 절차와 최종 검증.
 - [CI 중복 빌드·캐시·실행 범위 개선](engineering/ci-build-reuse/README.md) — 원인 분석, 검증 로그, 전후 측정과 성과 서술 근거.
 - [README 정보구조 개선 조사](engineering/readme-information-architecture/research.md) — 루트·영역·상세 문서 분리, 접힌 섹션, 문서 사이트 도입 기준.

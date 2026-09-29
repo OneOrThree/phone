@@ -122,12 +122,12 @@ class IslandQuestContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("progress 응답의 대상이 요청과 다르면 502 다")
+    @DisplayName("progress 응답의 대상이 요청과 다르면 400 다")
     void progressForAnotherOccurrenceIsAContractError() throws Exception {
         DATA.on(DATA_PROGRESS, request -> ok(PROGRESS_BODY));
 
         mockMvc.perform(auth(get(PUBLIC + "/" + QUEST + "/progress").param("occurrenceId", OTHER.toString())))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -166,12 +166,12 @@ class IslandQuestContractTest extends UpstreamTestBase {
     }
 
     @Test
-    @DisplayName("claimed=false 를 주는 정산 응답은 계약 불일치 502 다")
+    @DisplayName("claimed=false 를 주는 정산 응답은 계약 불일치 400 다")
     void unclaimedSuccessIsAContractError() throws Exception {
         DATA.on(DATA_CLAIM, request -> ok(CLAIMED_BODY.replace("\"claimed\":true", "\"claimed\":false")));
 
         mockMvc.perform(write(post(PUBLIC + "/" + QUEST + "/claims"), CLAIM_REQUEST))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
     }
 
@@ -188,11 +188,11 @@ class IslandQuestContractTest extends UpstreamTestBase {
             "400,QUEST_INVALID_REQUEST,400,INVALID_REQUEST,",
             "409,QUEST_VERSION_CONFLICT,409,VERSION_CONFLICT,expectedVersion",
             "409,QUEST_STATE_CONFLICT,409,STATE_CONFLICT,occurrenceId",
-            "503,QUEST_SETTLEMENT_UNAVAILABLE,503,SERVICE_UNAVAILABLE,",
+            "503,QUEST_SETTLEMENT_UNAVAILABLE,400,SERVICE_UNAVAILABLE,",
             "409,IDEMPOTENCY_KEY_CONFLICT,409,IDEMPOTENCY_KEY_REUSED,Idempotency-Key",
-            "409,QUEST_FORBIDDEN,502,UPSTREAM_CONTRACT_ERROR,",
-            "400,UNKNOWN_QUEST_ERROR,502,UPSTREAM_CONTRACT_ERROR,"})
-    @DisplayName("claim — 정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 502 다")
+            "409,QUEST_FORBIDDEN,400,UPSTREAM_CONTRACT_ERROR,",
+            "400,UNKNOWN_QUEST_ERROR,400,UPSTREAM_CONTRACT_ERROR,"})
+    @DisplayName("claim — 정확히 같은 (상태, 코드) 쌍만 공개 오류로 옮기고 나머지는 400 다")
     void claimMapsOnlyExactDomainStatusAndCode(int upstreamStatus, String code, int publicStatus,
             String publicCode, String field) throws Exception {
         DATA.on(DATA_CLAIM, request -> error(upstreamStatus, code));
@@ -211,8 +211,8 @@ class IslandQuestContractTest extends UpstreamTestBase {
             "422,QUEST_WINDOW_OUT_OF_RANGE,422,OUT_OF_RANGE,windowEnd",
             "400,QUEST_INVALID_TIMEZONE,400,INVALID_PARAMETER,timezone",
             "403,QUEST_FORBIDDEN,403,FORBIDDEN,",
-            "503,QUEST_CREATION_UNAVAILABLE,503,SERVICE_UNAVAILABLE,"})
-    @DisplayName("생성 — 범위 위반은 필드를 지목한 422, 생성 스위치가 닫히면 503 이다")
+            "503,QUEST_CREATION_UNAVAILABLE,400,SERVICE_UNAVAILABLE,"})
+    @DisplayName("생성 — 범위 위반은 필드를 지목한 422, 생성 스위치가 닫히면 400 이다")
     void createMapsRangeAndGate(int upstreamStatus, String code, int publicStatus, String publicCode, String field)
             throws Exception {
         DATA.on(DATA_CREATE, request -> error(upstreamStatus, code));
@@ -344,4 +344,74 @@ class IslandQuestContractTest extends UpstreamTestBase {
     private static MockUpstream.Response error(int status, String code) {
         return new MockUpstream.Response(status, "{\"code\":\"" + code + "\",\"message\":\"private detail\"}");
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"current", "empty-current", "progress", "nullable-progress", "create", "update", "claim"})
+    void publicQuestFieldsRemainStable(String operation) throws Exception {
+        var json = new tools.jackson.databind.ObjectMapper();
+        String fixture = switch (operation) {
+            case "current", "empty-current" -> CURRENT_BODY;
+            case "progress", "nullable-progress" -> PROGRESS_BODY;
+            case "create" -> CREATED_BODY;
+            case "update" -> UPDATED_BODY;
+            default -> CLAIMED_BODY;
+        };
+        var expected = (tools.jackson.databind.node.ObjectNode) json.readTree(fixture);
+        if (operation.equals("empty-current")) {
+            expected.putArray("items");
+        }
+        if (operation.equals("nullable-progress")) {
+            expected.putNull("windowStart");
+            expected.putNull("windowEnd");
+            expected.putNull("myRate");
+            expected.putNull("claimBlockedReason");
+            expected.putArray("members");
+        }
+        String decorated = expected.toString().replace("{", "{\"row_id\":\"private\",");
+        String route = operation.endsWith("current") ? DATA_CURRENT : operation.endsWith("progress") ? DATA_PROGRESS
+                : operation.equals("create") ? DATA_CREATE : operation.equals("update") ? DATA_UPDATE : DATA_CLAIM;
+        DATA.on(route, r -> ok(decorated));
+        var request = switch (operation) {
+            case "current", "empty-current" -> auth(get(PUBLIC + "/current"));
+            case "progress", "nullable-progress" -> auth(get(PUBLIC + "/" + QUEST + "/progress")
+                    .param("occurrenceId", OCCURRENCE.toString()));
+            case "create" -> write(post(PUBLIC), CREATE_REQUEST);
+            case "update" -> write(patch(PUBLIC + "/" + QUEST), "{\"title\":\"저녁 40분 집중\",\"targetMinutes\":40}");
+            default -> write(post(PUBLIC + "/" + QUEST + "/claims"), CLAIM_REQUEST);
+        };
+        var result = mockMvc.perform(request).andExpect(status().is(operation.equals("create") ? 201 : 200)).andReturn();
+        assertThat(json.readTree(result.getResponse().getContentAsString()).path("data")).isEqualTo(expected);
+    }
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "/islands/{islandId}/quests/current|get|200||items|items",
+            "/islands/{islandId}/quests/current|get|200|items|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version",
+            "/islands/{islandId}/quests/current|get|200|items/reward|currency amount|currency amount",
+            "/islands/{islandId}/quests/{questId}/progress|get|200||id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version members nextCursor|id occurrenceId title type windowStart windowEnd timezone date targetMinutes myRate reward settlementStatus claimable claimBlockedReason claimed bonusAmount bonusGranted version members nextCursor",
+            "/islands/{islandId}/quests/{questId}/progress|get|200|members|userId name rate measurementStatus achieved claimed|userId name rate measurementStatus achieved claimed",
+            "/islands/{islandId}/quests|post|200||id title|id title",
+            "/islands/{islandId}/quests/{questId}|patch|200||id title targetMinutes|id title targetMinutes",
+            "/islands/{islandId}/quests/{questId}/claims|post|200||claimId occurrenceId villagePointsAdded bonusAdded claimed|claimId occurrenceId villagePointsAdded bonusAdded claimed"})
+    void publicDocumentationPreservesFields(String path, String method, String responseStatus, String nested,
+            String fields, String requiredFields) throws Exception {
+        var result = mockMvc.perform(get("/v0/api-docs/public")).andExpect(status().isOk()).andReturn();
+        var document = new tools.jackson.databind.ObjectMapper().readTree(result.getResponse().getContentAsString());
+        var content = document.path("paths").path(path).path(method).path("responses").path(responseStatus).path("content");
+        var schema = content.iterator().next().path("schema");
+        schema = document.at(schema.path("$ref").asText().substring(1));
+        if (nested != null) {
+            for (String part : nested.split("/")) {
+                schema = schema.path("properties").path(part);
+                if (schema.path("type").asText().equals("array")) {
+                    schema = schema.path("items");
+                }
+                schema = document.at(schema.path("$ref").asText().substring(1));
+            }
+        }
+        assertThat(schema.path("properties").propertyNames()).containsExactlyInAnyOrder(fields.split(" "));
+        var required = new java.util.ArrayList<String>();
+        schema.path("required").forEach(value -> required.add(value.asText()));
+        assertThat(required).containsExactlyInAnyOrder(requiredFields == null ? new String[0] : requiredFields.split(" "));
+    }
+
 }

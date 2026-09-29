@@ -6,6 +6,8 @@ import type {
   VisitScreen,
 } from '@/services/api/islands';
 import type { PersonalInventory, SharedInventory } from '@/services/api/shop';
+import type { PlaybackState } from '@/services/api/playback';
+import type { HomeWorldFacts } from '@/services/homeSnapshot';
 
 export type Color = 'black' | 'ginger' | 'cream' | 'gray' | 'white' | 'calico';
 export type Building = 'hall' | 'board' | 'tower' | 'mail' | 'gram' | 'shop' | 'library';
@@ -48,6 +50,7 @@ export type Route =
   | 'mainIsland'
   | 'profile'
   | 'settings'
+  | 'blockedUsers'
   | 'wardrobe'
   | 'sound'
   | 'library'
@@ -187,8 +190,14 @@ export type Island = {
   theme: string;
   buildingTheme: string;
   buildingThemes?: Record<string, string>;
-  track: string;
+  track: string | null;
   playing: boolean;
+  /** 서버 공용 재생 전체 상태. null trackId도 명시적인 미선택 상태로 보존한다. */
+  serverPlayback?: PlaybackState;
+  /** serverPlayback을 단말에서 관측한 시각. 서버 시계 기준 위치를 현재 시각으로 보정한다. */
+  serverPlaybackObservedAtMs?: number;
+  /** 사용자가 정지 버튼을 누른 횟수. 플레이어가 일시정지와 구분해 재생 위치를 초기화한다. */
+  playbackReset?: number;
   ledger: { id: string; text: string; at: number; memberId?: string }[];
   // 우리 섬 채팅방을 마지막으로 연 시각. 이후 다른 주민 글이 새 글이다
   chatReadAt?: number;
@@ -256,6 +265,7 @@ export type State = {
   settings: {
     notifications: boolean;
     sound: boolean;
+    volume?: number;
     reduceMotion: boolean;
     publicRecords: boolean;
     permission: boolean;
@@ -298,6 +308,15 @@ export type State = {
     // 서버가 안 준 값을 합성하지 않고 상태만 별도로 보관한다 — 화면은 목록 항목에 이 상태를 얹어 쓴다.
     // 취소 응답처럼 version이 없는 결과도 있으므로 version은 선택이다.
     requestStatus: RequestStatusEntry[];
+    // 서버 모드 홈이 직접 그리는 스냅샷(GROMO-2138). 읽을 때는 serverHome() 으로 current 와 대조한다
+    home?: HomeWorldFacts | null;
+    /** 착공 POST 응답을 클라이언트가 보관하는 공사 구간. 서버 GET 계약에는 포함하지 않는다. */
+    clientConstruction?: {
+      islandId: string;
+      building: Building;
+      startedAt: number;
+      endsAt: number;
+    } | null;
   } | null;
   travelOrigin?: string;
   // 다른 섬을 방문자로 구경 중이면 그 섬 ID(GROMO-1904). 내 현재 섬(islandId)은 그대로 둔다
@@ -306,6 +325,8 @@ export type State = {
   hallGuide?: 'pending' | 'done';
   // 최초 우체통 안내를 마친 계정. 섬을 옮겨도 반복하지 않고 계정 간에는 분리한다.
   mailboxGuideSeenBy?: string[];
+  // 최초 상점 안내를 마친 계정. 마지막 건물인 상점에 처음 들어갈 때 한 번만 보여 준다.
+  shopGuideSeenBy?: string[];
   // 현재 화면을 잃은 강퇴를 앱 셸이 소비해 안전한 화면으로 reset하기 위한 일회성 신호
   membershipRecovery?: { reason: 'kicked'; islandId: string };
   // 이 시각까지 받은 편지는 읽은 것으로 본다. 받은 편지 읽음(readAt)이 생기기 전 저장본을 불러온 시각이 들어간다
@@ -404,6 +425,12 @@ export const kstDayStart = (day: string) => {
   const [year, month, date] = day.split('-').map(Number);
   return Date.UTC(year, month - 1, date) - KST_OFFSET_MS;
 };
+export const trackNames: Record<string, string> = {
+  waves: '잔잔한 파도',
+  campfire: '모닥불 소리',
+  'forest-wind': '숲바람',
+  rain: '빗방울 소리',
+};
 export const products: Product[] = [
   {
     id: 'scarf',
@@ -441,9 +468,9 @@ export const products: Product[] = [
   },
   {
     id: 'rain',
-    title: '오두막의 빗소리',
+    title: '빗방울 소리',
     kind: 'audio',
-    price: 150,
+    price: 30,
     currency: 'fish',
     description: '창가에 톡톡 떨어지는 빗방울 소리예요.',
   },
@@ -686,6 +713,7 @@ export function initialState(full = false): State {
     settings: {
       notifications: true,
       sound: true,
+      volume: 0.55,
       reduceMotion: false,
       publicRecords: true,
       permission: full,
@@ -714,13 +742,74 @@ export function initialState(full = false): State {
     lettersReadAt: 0,
   };
 }
+// Expo 웹 모션 검수용 상태. 제품의 최초 안내 동작은 유지하고 데모에서만 월드맵을 바로 연다.
+export function demoState(): State {
+  const state = initialState(true);
+  return {
+    ...state,
+    friends: (state.friends ?? []).map((friend, index) =>
+      index === 0
+        ? {
+            ...friend,
+            messages: [
+              ...friend.messages,
+              {
+                id: 'demo-unread-letter',
+                memberId: friend.id,
+                name: friend.name,
+                color: friend.color,
+                text: '오늘도 같이 집중해요!',
+                at: Date.now(),
+                status: 'sent' as const,
+              },
+            ],
+          }
+        : friend,
+    ),
+    mailboxGuideSeenBy: ['local'],
+    shopGuideSeenBy: ['local'],
+  };
+}
 export const currentIsland = (s: State) => s.islands.find((i) => i.id === s.islandId)!;
 export const mainIsland = (s: State) =>
   s.islands.find((i) => i.id === s.mainIslandId && i.joined && !i.closed) ??
   s.islands.find((i) => i.joined && !i.closed);
+// 서버 모드 홈 스냅샷 — 현재 섬의 것일 때만 돌려준다(전환·이탈 뒤 옛 섬 스냅샷을 그리지 않는다)
+export const serverHome = (s: State) => {
+  const snap = s.serverIslands;
+  return snap?.home && snap.home.islandId === snap.currentIslandId ? snap.home : null;
+};
 // 화면이 그릴 섬: 구경 중이면 구경하는 섬, 아니면 내 현재 섬
 export const viewIsland = (s: State) =>
   (s.visitingIslandId && s.islands.find((i) => i.id === s.visitingIslandId)) || currentIsland(s);
+// 서버 모드 홈이 그릴 섬(GROMO-2138) — 스냅샷에 있는 값만 채우고 퀘스트·공사·꾸미기·주민 기록처럼
+// 스냅샷에 없는 것은 비운다(로컬 목업 섬 값으로 메우지 않는다). 구경 중이거나 스냅샷이 없으면 viewIsland.
+export const homeIsland = (s: State): Island => {
+  const facts = serverHome(s);
+  if (!facts || s.visitingIslandId) return viewIsland(s);
+  const { island, wallets } = facts.home;
+  return {
+    id: island.id,
+    name: island.name,
+    intro: island.intro,
+    approval: island.approvalRequired,
+    capacity: island.maxMembers,
+    joined: true,
+    buildings: [...facts.completedBuildings],
+    points: wallets.villagePoints,
+    contribution: wallets.villagePoints,
+    members: [],
+    quests: [],
+    notices: [],
+    messages: [],
+    sharedOwned: [],
+    theme: 'default',
+    buildingTheme: 'default',
+    track: null,
+    playing: false,
+    ledger: [],
+  };
+};
 // 방문자로 내릴 수 있는지: 섬에 자리 잡은 뒤, 지금 섬 전망대에서, 집중 중이 아닐 때 미가입 섬만
 export const canVisit = (s: State, id: string) => {
   const target = s.islands.find((i) => i.id === id);
@@ -772,6 +861,12 @@ export const shouldShowMailboxGuide = (s: State, userId: string) =>
   currentIsland(s).joined &&
   currentIsland(s).buildings.includes('mail') &&
   !s.mailboxGuideSeenBy?.includes(userId);
+
+export const shouldShowShopGuide = (s: State, userId: string) =>
+  !s.visitingIslandId &&
+  currentIsland(s).joined &&
+  currentIsland(s).buildings.includes('shop') &&
+  !s.shopGuideSeenBy?.includes(userId);
 
 // 채팅방을 마지막으로 연 뒤 다른 주민이 남긴 글 수
 // 내 댓글인지: memberId가 없던 예전 저장본은 작성자 이름을 내 이름(바꾼 이름 포함)과 비교한다
@@ -900,6 +995,16 @@ export const sessionSeconds = (session: Session | null, now = Date.now()) =>
     ? 0
     : session.seconds +
       (session.status === 'active' ? Math.max(0, (now - session.startedAt) / 1000) : 0);
+// "오늘 집중" = KST 자정부터 지금까지 그 섬에서 끝낸 집중 기록의 합. 자정을 넘은 기록은 이후분만 센다.
+// ponytail: 진행 중 세션은 뺀다 — 서버에서 복원한 세션은 과거 구간 없이 누적 초만 오고 startedAt 이
+// 복원 시각이라, 자정을 넘긴 세션의 어제 집중을 오늘로 잘못 센다. 서버가 구간을 주면 그때 더한다.
+export const todayFocusSeconds = (s: State, islandId: string, now = Date.now()) => {
+  const from = kstDayStart(dayKey(now)),
+    until = from + 86400000;
+  return s.records
+    .filter((r) => r.islandId === islandId)
+    .reduce((sum, r) => sum + recordSecondsBetween(r, from, until), 0);
+};
 export function questRate(s: State, q: Quest, islandId = s.islandId): number | null {
   if (q.type === 'screen')
     return !s.settings.permission ||
@@ -1323,7 +1428,8 @@ export function reducer(state: State, a: Action): State {
       pendingIslands,
       pendingIsland: loaded.pendingIsland ?? pendingIslands.at(-1) ?? null,
       // 재실행 복구용 서버 온보딩 스냅샷 — 공개 요약·신청만 담겨 있어 저장해도 안전하다
-      serverIslands: loaded.serverIslands ?? null,
+      // 홈 스냅샷은 저장본에서 되살리지 않는다 — 재실행마다 서버에서 새로 받는다(GROMO-2138)
+      serverIslands: loaded.serverIslands ? { ...loaded.serverIslands, home: null } : null,
       settings: {
         ...loaded.settings,
         publicRecords: true,
@@ -1400,8 +1506,11 @@ export function reducer(state: State, a: Action): State {
       break;
     case 'PROFILE':
       if (a.name?.trim() && a.name.trim() !== s.name)
-        s.profileNames = [...new Set([...(s.profileNames ?? [s.name]), s.name, a.name.trim()])];
-      s.name = a.name?.trim() || s.name;
+        s.profileNames = [
+          ...new Set([...(s.profileNames ?? [s.name]), s.name, a.name.trim()].filter(Boolean)),
+        ];
+      // 편집 중에는 빈 문자열도 실제 초안 값이다. 최종 저장 검증은 화면에서 처리한다.
+      if (typeof a.name === 'string') s.name = a.name.trim();
       s.color = a.color || s.color;
       break;
     // ── 섬 — 만들기·가입·이동 ──
@@ -1484,6 +1593,12 @@ export function reducer(state: State, a: Action): State {
       const my = a.memberships as MyIslands,
         snap = serverSnap(s);
       snap.memberships = my.items;
+      // current 가 바뀌면 홈 스냅샷을 버린다 — 강퇴 뒤 같은 섬 재가입·전환 후 복귀에서 id 만 다시 맞아
+      // 옛 방장 여부·완공 건물이 새 스냅샷 전에 그려지지 않게 한다(GROMO-2138)
+      if (snap.currentIslandId !== my.currentIslandId) {
+        snap.home = null;
+        snap.clientConstruction = null;
+      }
       snap.currentIslandId = my.currentIslandId;
       snap.lossReason = my.lossReason;
       if (a.requests) {
@@ -1506,6 +1621,35 @@ export function reducer(state: State, a: Action): State {
       // /me 정본의 메인 섬 — 실렸을 때만 갈아 끼운다(explore 등 안 싣는 발신자는 현재 값 유지).
       // 로컬 islands 에 없는 서버 id 도 그대로 둔다 — mainIsland() 선택자가 fallback 을 처리한다.
       if (a.mainIslandId !== undefined) s.mainIslandId = a.mainIslandId as string | null;
+      break;
+    }
+    case 'SERVER_HOME': {
+      const snap = serverSnap(s);
+      const facts = a.facts as HomeWorldFacts;
+      snap.home = facts;
+      if (
+        snap.clientConstruction &&
+        (snap.clientConstruction.islandId !== facts.islandId ||
+          facts.completedBuildings.includes(snap.clientConstruction.building))
+      ) {
+        snap.clientConstruction = null;
+      }
+      break;
+    }
+    case 'SERVER_CONSTRUCTION_STARTED': {
+      const snap = serverSnap(s);
+      const building = a.building as Building;
+      const startedAt = Number(a.startedAt);
+      const endsAt = Number(a.endsAt);
+      if (
+        snap.currentIslandId !== a.islandId ||
+        !buildingOrder.includes(building) ||
+        !Number.isFinite(startedAt) ||
+        !Number.isFinite(endsAt) ||
+        endsAt <= startedAt
+      )
+        return state;
+      snap.clientConstruction = { islandId: a.islandId, building, startedAt, endsAt };
       break;
     }
     case 'SERVER_VILLAGE_POINTS': {
@@ -1567,6 +1711,25 @@ export function reducer(state: State, a: Action): State {
           position: inv.equipped.position,
         };
       }
+      break;
+    }
+    case 'PLAYBACK_SYNC': {
+      const target = s.islands.find((island) => island.id === a.islandId);
+      if (!target) return state;
+      const playback = a.playback as PlaybackState;
+      if (
+        !playback ||
+        !Number.isSafeInteger(playback.version) ||
+        (target.serverPlayback && playback.version < target.serverPlayback.version)
+      )
+        return state;
+      const wasPlaying = target.playing;
+      target.serverPlayback = playback;
+      target.serverPlaybackObservedAtMs =
+        typeof a.observedAtMs === 'number' ? a.observedAtMs : Date.now();
+      target.track = playback.trackId;
+      target.playing = playback.trackId !== null && playback.playing;
+      if (wasPlaying && !target.playing) target.playbackReset = (target.playbackReset ?? 0) + 1;
       break;
     }
     case 'ISLAND_CANDIDATES': {
@@ -1732,12 +1895,16 @@ export function reducer(state: State, a: Action): State {
       // 서버 finish·pending-result 의 정산 뷰를 기록+결과창으로 반영하고 진행 세션을 닫는다.
       // earnedFish 는 서버가 이미 섬 통장에 적립한 확정값 — 로컬 잔액 표시만 맞춘다.
       const record = a.record as RecordItem;
-      if (!s.records.some((r) => r.id === record.id)) s.records.unshift(record);
+      const prev = s.records.find((r) => r.id === record.id);
+      if (!prev) s.records.unshift(record);
+      // 구간 없이 먼저 저장된 기록(구버전 서버 시절 결과)이 재생되면 구간만 채운다(GROMO-2131).
+      else if (!prev.intervals && record.intervals) prev.intervals = record.intervals;
       s.lastResult = record;
       const owner = s.islands.find((x) => x.id === record.islandId);
       if (!s.records.slice(1).length && !s.hallGuide && owner && !owner.buildings.includes('hall'))
         s.hallGuide = 'pending';
-      if (owner && record.fish > 0) {
+      // 재생된 결과(같은 recordId)는 이미 잔액·원장에 반영됐다 — 구간만 채우고 경제 효과는 건너뛴다.
+      if (!prev && owner && record.fish > 0) {
         owner.fish = balance(owner) + record.fish;
         owner.earned ??= {};
         owner.earned.me = earnedBy(owner, 'me') + record.fish;
@@ -2028,7 +2195,13 @@ export function reducer(state: State, a: Action): State {
       }
       break;
     case 'PLAY':
-      if (i.buildings.includes('gram')) i.playing = !!a.value;
+      if (
+        i.buildings.includes('gram') &&
+        (!a.value || (typeof i.track === 'string' && i.sharedOwned.includes(i.track)))
+      ) {
+        i.playing = !!a.value;
+        if (!a.value) i.playbackReset = (i.playbackReset ?? 0) + 1;
+      }
       break;
     case 'SETTING':
       (s.settings as any)[a.key] = a.value;
@@ -2066,6 +2239,10 @@ export function reducer(state: State, a: Action): State {
     case 'MAILBOX_GUIDE_DONE':
       if (typeof a.userId !== 'string' || !shouldShowMailboxGuide(s, a.userId)) return state;
       s.mailboxGuideSeenBy = [...(s.mailboxGuideSeenBy ?? []), a.userId];
+      break;
+    case 'SHOP_GUIDE_DONE':
+      if (typeof a.userId !== 'string' || !shouldShowShopGuide(s, a.userId)) return state;
+      s.shopGuideSeenBy = [...(s.shopGuideSeenBy ?? []), a.userId];
       break;
     case 'HALL_GUIDE_DONE':
       s.hallGuide = 'done';

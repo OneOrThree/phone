@@ -1,5 +1,7 @@
 package com.oneorthree.phone.notification.service;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.fasterxml.uuid.Generators;
 import com.oneorthree.phone.common.port.PushMessage;
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
@@ -30,7 +32,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -92,8 +93,6 @@ public class SessionOpenNotificationService {
     private static final Duration SLOT_GRACE = Duration.ofHours(2);
 
     private static final Duration SLOT_WIDTH = Duration.ofMinutes(15);
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /** 이 서비스가 소유한 kind — 이월 flush 가 다른 트리거의 클레임을 훔치지 않게 한다. */
     private static final List<String> OWNED_KINDS =

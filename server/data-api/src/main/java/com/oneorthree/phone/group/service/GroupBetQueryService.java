@@ -29,6 +29,7 @@ import org.springframework.data.domain.Slice;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -81,6 +82,8 @@ public class GroupBetQueryService {
     private final GroupChallengeRepository groupChallengeRepository;
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupChallengeBetParticipantRepository groupChallengeBetParticipantRepository;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     // ── 참가자 스코프 (그룹 무관) ─────────────────────────────────────────
 
@@ -135,7 +138,7 @@ public class GroupBetQueryService {
         if (effectiveLimit < 1 || effectiveLimit > MAX_RESULTS) {
             throw new GroupException(GroupErrorCode.INVALID_PAGE_REQUEST);
         }
-        Instant floor = Instant.now().minus(RESULTS_WINDOW);
+        Instant floor = clock.instant().minus(RESULTS_WINDOW);
         Instant effectiveSince = (since == null || since.isBefore(floor)) ? floor : since;
 
         List<GroupChallengeBetParticipant> mine = groupChallengeBetParticipantRepository

@@ -4,7 +4,7 @@ import com.oneorthree.business.common.exception.CommonErrorCode;
 import com.oneorthree.business.common.exception.DomainException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.Deadline;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -27,7 +27,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class ActiveUserGuard {
 
-    private final DataApiClient dataApiClient;
+    private final DataAuthClient dataApiClient;
 
     /**
      * @throws DomainException 탈퇴·비활성 사용자면 {@code USER_INACTIVE}(401)

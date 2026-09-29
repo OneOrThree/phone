@@ -1,12 +1,8 @@
 package com.oneorthree.business.api;
 
 import com.oneorthree.business.auth.AccessTokenClaims;
-import com.oneorthree.business.common.api.ApiErrorCode;
-import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
+import com.oneorthree.business.common.validation.PublicIds;
 import com.oneorthree.business.config.UpstreamConfigProperties;
-import com.oneorthree.business.upstream.data.dto.IslandFocusMembers;
-import com.oneorthree.business.upstream.data.dto.IslandRestMembers;
 import com.oneorthree.business.usecase.IslandFocusMembersUseCase;
 import com.oneorthree.business.usecase.SettingsSessionGuard;
 import jakarta.servlet.http.HttpServletRequest;
@@ -14,8 +10,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.UUID;
 
 /**
  * 같이 낚시 초기 스냅샷 2종의 공개 표면 (GROMO-1765, focus-rest-session LLD §2 focus-group · rest-members).
@@ -33,30 +27,16 @@ public class IslandFocusMembersController {
     private final UpstreamConfigProperties properties;
 
     @GetMapping("/islands/{islandId}/focus-members")
-    public IslandFocusMembers focusMembers(@PathVariable String islandId, HttpServletRequest request) {
+    public IslandFocusMembersUseCase.FocusMembersView focusMembers(@PathVariable String islandId,
+            HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return members.focusMembers(claims, uuid(islandId), deadline());
+        return members.focusMembers(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
     }
 
     @GetMapping("/islands/{islandId}/rest-members")
-    public IslandRestMembers restMembers(@PathVariable String islandId, HttpServletRequest request) {
+    public IslandFocusMembersUseCase.RestMembersView restMembers(@PathVariable String islandId,
+            HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
-        return members.restMembers(claims, uuid(islandId), deadline());
-    }
-
-    private static UUID uuid(String value) {
-        try {
-            UUID parsed = UUID.fromString(value);
-            if (value.length() != 36 || !parsed.toString().equalsIgnoreCase(value)) {
-                throw new IllegalArgumentException("UUID 형식");
-            }
-            return parsed;
-        } catch (IllegalArgumentException e) {
-            throw new PublicApiException(ApiErrorCode.INVALID_PARAMETER, "islandId");
-        }
-    }
-
-    private Deadline deadline() {
-        return Deadline.startingNow(properties.getComposition().getDeadline());
+        return members.restMembers(claims, PublicIds.uuid(islandId, "islandId"), properties.deadline());
     }
 }

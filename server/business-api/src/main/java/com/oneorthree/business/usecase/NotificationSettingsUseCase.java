@@ -2,7 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataOutboxClient;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
 import com.oneorthree.business.upstream.notification.dto.NotificationSettingsView;
@@ -43,7 +43,7 @@ import java.util.UUID;
 public class NotificationSettingsUseCase {
 
     private final ActiveUserGuard activeUserGuard;
-    private final DataApiClient dataApiClient;
+    private final DataOutboxClient dataApiClient;
     private final NotificationApiClient notificationApiClient;
 
     /** 정본 조회. 읽기라 활성 검사를 걸지 않는다(§5: 읽기 전용 경로는 AT 3600s 창 수용). */

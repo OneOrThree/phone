@@ -9,7 +9,7 @@ import java.util.List;
 
 /**
  * 집중 주민 스냅샷 (GROMO-1765, focus-rest-session LLD §2 focus-group). 공개 GET 의 {@code data} 와 같은
- * 필드라 그대로 내보낸다.
+ * 필드를 내부에서 읽으며, 공개 응답은 유스케이스가 별도 DTO로 조립한다.
  *
  * <p>원본의 {@code catColor}·{@code appearance} 와 BFF B14 의 {@code appearanceVersion} 은 아직 없다 — 소유
  * 도메인(계정 Q03 · 외양 GROMO-1783)이 없고 {@code null} 은 「탈퇴·비노출」 뜻이라 대체할 수 없다. 제공자가

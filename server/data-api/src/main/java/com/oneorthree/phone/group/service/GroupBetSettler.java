@@ -25,6 +25,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -99,6 +100,8 @@ public class GroupBetSettler {
     private final GroupBetJudge groupBetJudge;
     private final ApplicationEventPublisher eventPublisher;
     private final BetSettlementClock resultBundles;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     /**
      * 정산 결과.
@@ -154,7 +157,7 @@ public class GroupBetSettler {
             return SettleResult.skipped(session.getStatus());
         }
 
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         // ① 24h 데드라인은 모든 진입점에서 먼저 — 락 안이라 크론·수동·조기 어디로 와도 동일(N21).
         if (now.isAfter(session.getSettleAfter().plus(REFUND_DEADLINE))) {
             return refundAll(session, GroupBetVoidReason.REFUND_DEADLINE, trigger);
@@ -262,7 +265,7 @@ public class GroupBetSettler {
         if (!session.isOpen()) {
             return SettleResult.skipped(session.getStatus());
         }
-        if (Instant.now().isBefore(effectiveJoinDeadline(session))) {
+        if (clock.instant().isBefore(effectiveJoinDeadline(session))) {
             return SettleResult.skipped(session.getStatus());
         }
         List<GroupChallengeBetParticipant> participants =
@@ -419,7 +422,7 @@ public class GroupBetSettler {
     /** 참가자 0명 종료(N52) — 지급·환불·알림이 없는 정리다. 회차 행 잠금 아래 전제. */
     private SettleResult closeUnused(GroupChallengeBetSession session) {
         if (groupChallengeBetSessionRepository.compareAndSetSettled(
-                session.getId(), GroupBetStatus.UNUSED, null, Instant.now()) == 0) {
+                session.getId(), GroupBetStatus.UNUSED, null, clock.instant()) == 0) {
             throw new IllegalStateException("UNUSED 전이 실패 — sessionId=" + session.getId());
         }
         log.info("회차 미사용 종료 — 참가자 0명. sessionId={}", session.getId());

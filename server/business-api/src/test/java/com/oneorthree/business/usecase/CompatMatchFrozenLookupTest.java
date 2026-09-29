@@ -2,7 +2,7 @@ package com.oneorthree.business.usecase;
 
 import com.oneorthree.business.common.exception.UpstreamTimeoutException;
 import com.oneorthree.business.config.CompatProperties;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataInviteClient;
 import com.oneorthree.business.upstream.link.LinkApiClient;
 import com.oneorthree.business.upstream.link.dto.LinkMatchCommand;
 import com.oneorthree.business.upstream.link.dto.LinkMatchResult;
@@ -41,7 +41,7 @@ class CompatMatchFrozenLookupTest {
     private static final String OS = "ios";
 
     private CompatProperties properties;
-    private DataApiClient dataApiClient;
+    private DataInviteClient dataApiClient;
     private LinkApiClient linkApiClient;
     private CompatMatchUseCase useCase;
 
@@ -50,7 +50,7 @@ class CompatMatchFrozenLookupTest {
         properties = new CompatProperties();
         properties.setMatchHandlerEnabled(true);
         properties.setMigrationId(MIGRATION);
-        dataApiClient = mock(DataApiClient.class);
+        dataApiClient = mock(DataInviteClient.class);
         linkApiClient = mock(LinkApiClient.class);
         useCase = new CompatMatchUseCase(properties, dataApiClient, linkApiClient);
         given(linkApiClient.match(any(), anyString(), any()))

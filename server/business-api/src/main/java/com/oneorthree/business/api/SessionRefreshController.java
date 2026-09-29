@@ -3,7 +3,6 @@ package com.oneorthree.business.api;
 import com.oneorthree.business.auth.RefreshCredentials;
 import com.oneorthree.business.common.api.ApiErrorCode;
 import com.oneorthree.business.common.api.PublicApiException;
-import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.config.UpstreamConfigProperties;
 import com.oneorthree.business.usecase.SessionRefreshUseCase;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,6 +40,6 @@ public class SessionRefreshController {
         }
         RefreshCredentials credentials = RefreshCredentials.from(request);
         return sessions.refresh(credentials.refreshToken(),
-                Deadline.startingNow(properties.getComposition().getDeadline()));
+                properties.deadline());
     }
 }

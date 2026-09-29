@@ -796,11 +796,7 @@ public class AuthService {
         // 탈퇴가 세운 is_deleted·파기된 PII 를 되살리지 않게 — UserRepository 주석 참고).
         // 락을 쥔 채이므로 여기서 0 행이 나오면 그것은 경합이 아니라 «불변식 위반»이다 → fail-closed.
         if (currentHash.equals(user.getRefreshTokenHash())) {
-            int rotated = userRepository.rotateRefreshTokenHash(
-                    user.getId(), currentHash, TokenHasher.sha256Hex(rotatedRefreshToken));
-            if (rotated == 0) {
-                throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
-            }
+            rotateUserRefreshHash(user.getId(), currentHash, rotatedRefreshToken);
         }
         // 세션 행 CAS. users 락이 같은 유저의 동시 회전을 이미 직렬화하므로 여기서 0 이 나올 수는
         // 없지만, 락 규율이 깨지는 날 조용히 덮어쓰는 대신 끊기도록 fail-closed 로 남겨 둔다.
@@ -833,19 +829,20 @@ public class AuthService {
         }
 
         String rotatedRefreshToken = jwtProvider.generateRefreshToken(user.getId(), user.isGuest());
-        int rotated = userRepository.rotateRefreshTokenHash(
-                user.getId(), currentHash, TokenHasher.sha256Hex(rotatedRefreshToken));
-        if (rotated == 0) {
-            // 락을 쥐고 대조까지 통과한 뒤라 여기까지 오면 불변식이 깨진 것이다 — 끊긴 세션은
-            // 되살리지 않는다는 계약대로 거절한다(fail-closed).
-            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
-        }
+        rotateUserRefreshHash(user.getId(), currentHash, rotatedRefreshToken);
         // 세션 행이 여기서 승격(백필)된다(㋪) — 구 RT 는 sessionId 가 없어서, 첫 회전이 세션 축에
         // 올리는 유일한 자리다.
         AuthSessionService.IssuedSession session =
                 authSessionService.promoteLegacy(user.getId(), rotatedRefreshToken, user.getDeviceToken());
         return new TokenRefreshResponse(issueAccessToken(user, session.sessionId()), rotatedRefreshToken,
                 session.sessionId(), session.deviceBootstrap());
+    }
+
+    /** 사용자 락 아래 해시를 교체한다. CAS 실패 시 두 갱신 경로 모두 새 자격 발급 전에 거절한다. */
+    private void rotateUserRefreshHash(UUID userId, String currentHash, String nextRefreshToken) {
+        if (userRepository.rotateRefreshTokenHash(userId, currentHash, TokenHasher.sha256Hex(nextRefreshToken)) == 0) {
+            throw new InvalidTokenException(InvalidTokenErrorCode.REFRESH_TOKEN);
+        }
     }
 
     /**

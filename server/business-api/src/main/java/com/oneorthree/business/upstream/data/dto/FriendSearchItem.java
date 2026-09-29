@@ -7,8 +7,8 @@ import com.fasterxml.jackson.annotation.Nulls;
 import java.util.UUID;
 
 /**
- * 친구 검색 결과의 한 건 (GROMO-1996) — Data 의 {@code FriendSearchResultResponse} 와 같은 필드라
- * <b>그대로 내보낸다</b>({@link FriendItem} 과 같은 취급).
+ * 친구 검색 결과의 한 건 (GROMO-1996) — Data 의 {@code FriendSearchResultResponse} 를 받는다.
+ * 공개 응답은 UseCase의 별도 DTO로 명시적으로 매핑한다.
  *
  * <p>닉네임이 대소문자 무시로 유일하므로 목록은 <b>0건 또는 1건</b>이다 — 그래도 배열로 내린다.
  * 「없음」을 404 가 아니라 빈 배열로 답해야 앱이 「검색 결과 없음」을 오류 화면 없이 그린다.

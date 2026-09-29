@@ -4,29 +4,30 @@ on:
   push:
     branches: [ main, release, 'bfeat/**', 'bfix/**', 'brefactor/**' ]
     paths:
-      # 도메인 기반 패키지 구조라 컨트롤러는 phone/<domain>/api/ 에 흩어져 있음.
+      # 도메인 기반 패키지 구조라 컨트롤러는 phone/<domain>/, business/<domain>/ 에 흩어져 있음.
       # DTO·enum 변경도 OpenAPI 스키마에 반영되므로 백엔드 소스 전체를 감시한다.
       - 'server/data-api/src/main/java/**'
+      - 'server/business-api/src/main/java/**'
       # openApi 블록(대기 시간·문서 URL·출력 경로)과 의존성이 여기 있다 (GROMO-1515).
       # 안 넣으면 이 설정을 고치는 PR 에서 정작 이 워크플로가 안 돌아 **머지해 봐야** 안다.
       - 'server/data-api/build.gradle'
+      - 'server/business-api/build.gradle'
       # 이 워크플로 자신도 트리거에 넣는다 — 위와 같은 이유다.
       - '.github/workflows/api-dog-generate.yml'
-      # 전송·판정 로직이 스크립트로 빠졌으니 그 경로도 같은 이유로 넣는다 — 안 넣으면
-      # 스크립트만 고치는 푸시에서 이 워크플로가 안 돌아 검증 로직 변경을 CI 에서 확인할 수 없다.
-      #
-      # GROMO-1918: 다만 `.github/scripts/**` 전체는 과했다. 이 워크플로는 앱을 실제로 부팅해
-      # 문서를 만들어 무거운데, 위성 판정기나 마이그레이션 체크섬 스크립트가 바뀌었다고 OpenAPI
-      # 문서를 다시 만들 이유가 없다. 실제로 쓰는 것은 apidog-import.sh 하나다(아래 전송 스텝).
+      # 전송·판정·병합 로직이 스크립트로 빠졌으니 그 경로도 같은 이유로 넣는다.
+      - '.github/scripts/apidog-*'
+  # GROMO-2069: PR 은 «스펙 생성 + 병합 검증»까지만 돌린다 — gh-pages 게시·Apidog 반영·
+  # Slack 알림은 모두 push 전용 게이트(아래 각 스텝의 if 참조). 외부에 무언가를 쓰는 스텝이
+  # PR 에서 돌지 않는 게 이 트리거의 존재 이유다.
+  pull_request:
+    paths:
+      - 'server/data-api/src/main/java/**'
+      - 'server/business-api/src/main/java/**'
+      - 'server/data-api/build.gradle'
+      - 'server/business-api/build.gradle'
+      - '.github/workflows/api-dog-generate.yml'
       - '.github/scripts/apidog-*'
   workflow_dispatch:
-
-# ⚠️ 이 워크플로는 «PR CI 로 검증되지 않는다». 트리거가 push 뿐이고 브랜치 목록이
-# main·release·bfeat/**·bfix/**·brefactor/** 인데, 워크플로를 고치는 작업은 보통 `bchore/` 라서
-# 여기에 걸리지 않는다(pull_request 트리거도 없다). 즉 이 파일을 고치면 «머지된 뒤 main push 에서
-# 처음» 돈다. `bchore/**` 를 넣어 해결하지는 않는다 — 그러면 chore 브랜치마다 문서 디렉터리가
-# 생기는데 api-docs-cleanup.yml 의 삭제 접두어 목록엔 `bchore/` 가 없어서 그대로 쌓인다.
-# 그래서 이 파일을 고칠 때는 게시 스텝 로직을 «로컬 레포로 재현»해 확인하고 올린다 (GROMO-1790).
 
 # 같은 브랜치의 «뒤처진» 실행은 끝까지 갈 필요가 없다. 새 커밋이 밀고 들어오면 이전 실행을
 # 취소한다 — 그대로 두면 옛 산출물을 최신 tip 위에 올려 문서를 구버전으로 되돌린다(GROMO-1790).
@@ -36,10 +37,9 @@ on:
 # 그래서 게시 스텝이 push «직전»에 브랜치 tip 을 한 번 더 확인한다(아래 「뒤처짐 확인」).
 concurrency:
   group: api-docs-${{ github.ref }}
-  # ⚠️ 여기만 `${{ github.event_name == 'pull_request' }}` 규율(dev-ci·realtime-ci·business-ci·
-  #    app-lint)을 따르지 «않는다». 이 워크플로엔 `pull_request` 트리거가 «없어서» 그 식은 언제나
-  #    false 다 — 즉 아무것도 취소되지 않아 절감이 0 이 된다. 그 규율의 «의도»는 「이미지를 올리는
-  #    실행을 중간에 끊지 마라」인데, 여기서 올리는 건 gh-pages 문서이고 중간 푸시분은 다음 푸시가
+  # ⚠️ 여기만 `${{ github.event_name == 'pull_request' }}` 규율(dev-ci·realtime-ci·
+  #    satellite-ci·app-lint)을 따르지 «않는다». 그 규율의 «의도»는 「이미지를 올리는 실행을
+  #    중간에 끊지 마라」인데, 여기서 올리는 건 gh-pages 문서이고 중간 푸시분은 다음 푸시가
   #    덮어쓸 것이라 끊어도 잃는 게 없다.
   #    게다가 `true` 는 여기서 «정확성»에도 필요하다 — 뒤처진 실행을 살려 두면 최신 문서를 옛
   #    문서로 되돌린다(아래 게시 스텝의 「뒤처짐 확인」이 2차 방어다).
@@ -54,10 +54,8 @@ permissions:
 
 jobs:
   generate-docs:
-    # GROMO-1918: GitHub-hosted 로 옮긴다. 이 잡은 GAR·GCE 메타데이터에 묶인 곳이 없다 —
+    # GROMO-1918: GitHub-hosted. 이 잡은 GAR·GCE 메타데이터에 묶인 곳이 없다 —
     # postgres 서비스 컨테이너로 앱을 띄워 OpenAPI 문서를 만들고 gh-pages 에 push 할 뿐이다.
-    # 아래 「호스트 포트 고정 금지」 주석이 말하는 «러너 3개가 VM 한 대를 공유한다»는 제약도
-    # self-hosted 라서 있던 것이라 여기서는 사라진다(동적 포트는 그대로 두면 계속 안전하다).
     runs-on: ubuntu-latest
 
     services:
@@ -68,13 +66,13 @@ jobs:
           POSTGRES_USER: ci
           POSTGRES_PASSWORD: ci
         ports:
-          # 호스트 포트 고정 금지 — 러너 3개가 VM 한 대를 공유해 5432 가 겹치면
-          # `Bind for 0.0.0.0:5432 failed: port is already allocated` 로 즉사한다.
-          # 도커가 빈 포트를 고르게 두고 아래에서 `job.services.postgres.ports` 로 실제 포트를 읽는다.
+          # 호스트 포트 고정 금지 — 도커가 빈 포트를 고르게 두고 아래에서
+          # `job.services.postgres.ports` 로 실제 포트를 읽는다.
           #
           # 이 워크플로는 be-gradle.yml 과 «다르다» — 저쪽은 테스트만 돌아서 Testcontainers 로
-          # 충분하지만(GROMO-1793 에서 호스트 DB 를 들어냈다), 여기는 `generateOpenApiDocs` 가
-          # 앱을 실제로 부팅하므로 진짜 DB 가 필요하다 (GROMO-1515).
+          # 충분하지만(GROMO-1793), 여기는 `generateOpenApiDocs` 가 data-api 를 실제로 부팅하므로
+          # 진짜 DB 가 필요하다 (GROMO-1515). business-api 는 도메인 DB 가 없어 이 서비스가 없어도
+          # 부팅된다 — postgres 는 data-api 전용이다.
           - 5432
         options: >-
           --health-cmd pg_isready
@@ -86,19 +84,19 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Check if backend directory exists
+      - name: Check if backend directories exist
         id: check
-        run: echo "exists=$([ -d server/data-api ] && echo true || echo false)" >> $GITHUB_OUTPUT
+        run: |
+          echo "data=$([ -d server/data-api ] && echo true || echo false)" >> $GITHUB_OUTPUT
+          echo "business=$([ -d server/business-api ] && echo true || echo false)" >> $GITHUB_OUTPUT
 
       - name: Set up JDK 17
-        if: steps.check.outputs.exists == 'true'
         uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Cache Gradle packages
-        if: steps.check.outputs.exists == 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -108,51 +106,48 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-gradle-
 
-      - name: Grant execute permission for gradlew
-        if: steps.check.outputs.exists == 'true'
-        working-directory: server/data-api
-        run: chmod +x gradlew
-
-      - name: Build with Gradle
-        if: steps.check.outputs.exists == 'true'
-        working-directory: server/data-api
-        run: ./gradlew build -x test
-
-      - name: Generate OpenAPI Docs
-        if: steps.check.outputs.exists == 'true'
+      - name: Generate data-api OpenAPI spec
+        if: steps.check.outputs.data == 'true'
         working-directory: server/data-api
         env:
           SPRING_PROFILES_ACTIVE: ci
           # 위에서 호스트 포트를 도커에 맡겼으니 실제 매핑 포트를 넘긴다.
-          # 이 env 는 플러그인이 fork 하는 bootRun JVM 까지 상속된다 — 바로 위
-          # SPRING_PROFILES_ACTIVE 가 같은 경로로 이미 동작하고 있는 게 근거다.
+          # 이 env 는 플러그인이 fork 하는 bootRun JVM 까지 상속된다.
           SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:${{ job.services.postgres.ports['5432'] }}/tt_db
-        run: ./gradlew generateOpenApiDocs
-
-      - name: Set deploy destination
-        if: steps.check.outputs.exists == 'true'
-        id: dest
         run: |
-          BRANCH="${{ github.ref_name }}"
-          SAFE_BRANCH="${BRANCH//\//-}"
-          echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
-          if [ "$BRANCH" = "release" ]; then
-            echo "dir=." >> $GITHUB_OUTPUT
-            echo "url=https://oneorthree.github.io/phone/" >> $GITHUB_OUTPUT
-          elif [ "$BRANCH" = "main" ]; then
-            echo "dir=staging" >> $GITHUB_OUTPUT
-            echo "url=https://oneorthree.github.io/phone/staging/" >> $GITHUB_OUTPUT
-          else
-            echo "dir=$BRANCH" >> $GITHUB_OUTPUT
-            echo "url=https://oneorthree.github.io/phone/$BRANCH/" >> $GITHUB_OUTPUT
-          fi
+          chmod +x gradlew
+          ./gradlew generateOpenApiDocs
 
-      - name: Generate Swagger UI
-        if: steps.check.outputs.exists == 'true'
-        working-directory: server/data-api
+      - name: Generate business-api OpenAPI spec
+        if: steps.check.outputs.business == 'true'
+        working-directory: server/business-api
+        env:
+          SPRING_PROFILES_ACTIVE: ci
+          # business-api 는 도메인 DB 가 없다 — 상류 주소·토큰은 application-ci.yml 의
+          # 테스트 값이 쓰인다(실제 상류 호출은 부팅에 없다).
         run: |
-          mkdir -p build/docs/api
-          cat > build/docs/api/index.html << 'EOF'
+          chmod +x gradlew
+          ./gradlew generateOpenApiDocs
+
+      # ── 병합 + 검증 (GROMO-2069) ────────────────────────────────────────────
+      # 두 스펙을 «한 번에» Apidog 로 올릴 단일 스펙으로 묶는다. 순차 import 는
+      # deleteUnmatchedResources 때문에 뒤 서비스가 앞 서비스 문서를 지우므로 금지다.
+      # 병합 스크립트가 동시에 «검사기»다 — 경로 소유권 충돌, 서비스 경계 위반
+      # (data-api 의 비-internal 경로, business-api 의 internal 경로), 빈 스펙을
+      # 여기서 fail-closed 로 잡는다. PR 에서는 이 스텝까지가 전부다.
+      - name: Merge specs and validate ownership
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          python3 .github/scripts/apidog-merge.py build/merged.openapi.json \
+            business-api=server/business-api/build/docs/api/business-api.openapi.json \
+            data-api=server/data-api/build/docs/api/data-api.openapi.json
+
+      - name: Generate Swagger UI pages
+        run: |
+          set -euo pipefail
+          for svc in business-api data-api; do
+            sed "s|__SPEC__|${svc}.openapi.json|g" > "server/${svc}/build/docs/api/index.html" << 'EOF'
           <!DOCTYPE html>
           <html lang="ko">
             <head>
@@ -165,7 +160,7 @@ jobs:
               <script src="https://unpkg.com/swagger-ui-dist/swagger-ui-bundle.js"></script>
               <script>
                 SwaggerUIBundle({
-                  url: "./openapi.json",
+                  url: "./__SPEC__",
                   dom_id: '#swagger-ui',
                   presets: [
                     SwaggerUIBundle.presets.apis,
@@ -181,52 +176,77 @@ jobs:
             </body>
           </html>
           EOF
+          done
 
-      - name: Upload openapi.json as artifact
-        if: steps.check.outputs.exists == 'true'
+      - name: Set deploy destination
+        if: github.event_name != 'pull_request'
+        id: dest
+        run: |
+          BRANCH="${{ github.ref_name }}"
+          SAFE_BRANCH="${BRANCH//\//-}"
+          echo "safe_branch=$SAFE_BRANCH" >> $GITHUB_OUTPUT
+          # GROMO-2069: 브랜치 문서는 branches/<safe-ref>/<service>/ 한 규칙으로 정규화한다.
+          # 예전 <branch>/ 중첩 디렉터리는 api-docs-cleanup.yml 이 같은 삭제 루프에서 치운다.
+          if [ "$BRANCH" = "release" ]; then
+            echo "dir=." >> $GITHUB_OUTPUT
+            echo "url=https://oneorthree.github.io/phone/" >> $GITHUB_OUTPUT
+          elif [ "$BRANCH" = "main" ]; then
+            echo "dir=staging" >> $GITHUB_OUTPUT
+            echo "url=https://oneorthree.github.io/phone/staging/" >> $GITHUB_OUTPUT
+          else
+            echo "dir=branches/$SAFE_BRANCH" >> $GITHUB_OUTPUT
+            echo "url=https://oneorthree.github.io/phone/branches/$SAFE_BRANCH/" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload specs as artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openapi-spec-${{ steps.dest.outputs.safe_branch }}
-          path: server/data-api/build/docs/api/openapi.json
+          name: openapi-specs-${{ steps.dest.outputs.safe_branch || github.run_id }}
+          path: |
+            server/business-api/build/docs/api/business-api.openapi.json
+            server/data-api/build/docs/api/data-api.openapi.json
+            build/merged.openapi.json
           retention-days: 30
 
       # ── gh-pages 게시 (GROMO-1790) ──────────────────────────────────────────
       # gh-pages 에 쓰는 주체는 «둘»이다 — 여기와 api-docs-cleanup.yml.
-      # 예전엔 peaceiris/actions-gh-pages@v4 를 썼는데, 그 액션의 push 는 재시도도 rebase 도 없는
-      # 맨 `git push origin gh-pages` 다(v4 `src/git-utils.ts` L231-236). 그래서 문서 생성이
-      # 브랜치 삭제 cleanup 과 겹치면 non-fast-forward 로 거절되고 **살아 있는 브랜치의 문서
-      # 갱신이 누락**된다. cleanup 쪽에만 재시도를 넣으면 그쪽이 경쟁에서 이기는 만큼 이 손실이
-      # 늘기만 하므로, 양쪽을 같은 규율로 맞춘다 — 최신 tip 을 받아 덮어쓰기를 다시 하고 push 를
-      # 재시도한다. 덮어쓰기는 멱등이라 몇 번을 돌려도 결과가 같다(rebase 였다면 상대 잡이 같은
-      # 디렉터리를 지운 경우 delete/modify 충돌로 멈춘다).
-      #
+      # 양쪽을 같은 규율로 맞춘다 — 최신 tip 을 받아 덮어쓰기를 다시 하고 push 를
+      # 재시도한다. 덮어쓰기는 멱등이라 몇 번을 돌려도 결과가 같다.
       # 공통 concurrency group 으로 직렬화하지 «않는» 이유: 같은 그룹에 pending 이 쌓이면
-      # GitHub 이 직전 pending 을 취소한다(`cancel-in-progress: false` 여도 그렇다). 브랜치 삭제와
-      # 문서 게시가 셋 이상 몰리면 가운데 하나가 통째로 사라진다 — 조용한 유실을 막으려다 더
-      # 조용한 유실을 새로 만드는 셈이다.
-      #
-      # peaceiris 의 `keep_files: true` 와 같은 의미를 유지한다: 덮어쓰되 «지우지 않는다».
-      # 그래서 gh-pages 루트의 `.nojekyll` 과 다른 브랜치 문서 디렉터리는 그대로 남는다.
+      # GitHub 이 직전 pending 을 취소한다 — 브랜치 삭제와 문서 게시가 셋 이상 몰리면
+      # 가운데 하나가 통째로 사라진다.
       - name: Checkout gh-pages
-        if: steps.check.outputs.exists == 'true'
+        if: github.event_name == 'push'
         uses: actions/checkout@v4
         with:
           ref: gh-pages
           path: .gh-pages
 
       - name: Deploy to gh-pages
-        if: steps.check.outputs.exists == 'true'
+        if: github.event_name == 'push'
         env:
           DEST_DIR: ${{ steps.dest.outputs.dir }}
-          SRC_DIR: server/data-api/build/docs/api
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           # 산출물을 체크아웃 «밖»으로 뺀다 — 재시도의 `reset --hard` 가 덮치지 않게.
           STAGE="$RUNNER_TEMP/gh-pages-payload"
           rm -rf "$STAGE"
-          mkdir -p "$STAGE"
-          cp -a "$SRC_DIR/." "$STAGE/"
+          mkdir -p "$STAGE/business-api" "$STAGE/data-api"
+          cp -a server/business-api/build/docs/api/. "$STAGE/business-api/"
+          cp -a server/data-api/build/docs/api/. "$STAGE/data-api/"
+          # 서비스 선택 랜딩 — release 루트·staging·branches/<ref> 어디서나 같은 파일.
+          cat > "$STAGE/index.html" << 'EOF'
+          <!DOCTYPE html>
+          <html lang="ko"><head><meta charset="UTF-8"><title>Phone API 문서</title></head>
+          <body>
+            <h1>Phone API 문서</h1>
+            <ul>
+              <li><a href="./business-api/">Business API — 앱 공개 계약</a></li>
+              <li><a href="./data-api/">Data API — 서버 간 계약 (/internal)</a></li>
+            </ul>
+          </body></html>
+          EOF
 
           cd .gh-pages
           git config user.name "github-actions[bot]"
@@ -239,6 +259,9 @@ jobs:
 
             mkdir -p "$DEST_DIR"
             cp -a "$STAGE/." "$DEST_DIR/"
+            # 이전 레이아웃의 잔재 — 단일 openapi.json 은 서비스별 디렉터리로 대체됐다.
+            # 없으면 rm -f 라 무해하다.
+            rm -f "$DEST_DIR/openapi.json"
             git add -A -- "$DEST_DIR"
             if git diff --cached --quiet; then
               echo "gh-pages 에 반영할 변경이 없다 — 문서가 이미 최신이다."
@@ -246,18 +269,11 @@ jobs:
             fi
             git commit -m "docs: update OpenAPI docs for $GITHUB_REF_NAME ($GITHUB_SHA)"
 
-            # 뒤처짐 확인 — 재시도가 만든 «새» 위험이다.
-            # 재시도 전에는 뒤처진 실행의 push 가 non-fast-forward 로 «막혀서» 무해했다. 그런데
-            # 최신 tip 을 받아 다시 올리도록 고치면, 새 커밋의 실행이 먼저 게시한 뒤에도 옛 실행이
-            # 자기 STAGE 를 같은 자리에 덮어써 성공한다 — 문서가 «구버전으로 되돌아간다».
-            #
-            # ⚠️ 판정 기준은 「브랜치 tip 이 내 SHA 인가」가 «아니다». 이 워크플로는 `push.paths` 로
-            #    걸러지므로, README 처럼 경로 밖 커밋이 하나 얹히면 tip 은 움직이지만 «새 문서 실행은
-            #    생기지 않는다». tip 으로 판정하면 그때 내가 물러나 버려서, 방금 만든 문서가 다음
-            #    관련 커밋까지 영영 게시되지 않는다. 그래서 「나보다 최신인 이 워크플로의 실행이
-            #    실제로 있는가」를 본다.
+            # 뒤처짐 확인 — 판정 기준은 「브랜치 tip 이 내 SHA 인가」가 «아니다». 이 워크플로는
+            # push.paths 로 걸러지므로, 경로 밖 커밋이 얹히면 tip 은 움직이지만 «새 문서 실행은
+            # 생기지 않는다». 그래서 「나보다 최신인 이 워크플로의 실행이 실제로 있는가」를 본다.
             if ! git ls-remote --exit-code --heads origin "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-              echo "$GITHUB_REF_NAME 브랜치가 사라졌다 — 게시하지 않는다(지워진 브랜치 문서를 새로 만들지 않기 위해)."
+              echo "$GITHUB_REF_NAME 브랜치가 사라졌다 — 게시하지 않는다."
               exit 0
             fi
             NEWER="$(curl --fail --silent --show-error \
@@ -267,8 +283,6 @@ jobs:
                 | jq --arg br "$GITHUB_REF_NAME" --argjson me "$GITHUB_RUN_NUMBER" \
                     '[.workflow_runs[] | select(.head_branch == $br and .run_number > $me)] | length')" || NEWER=""
             if [ -z "$NEWER" ]; then
-              # 조회 실패를 「물러남」으로 치면 문서가 조용히 안 올라간다. concurrency 취소가
-              # 1차 방어로 남아 있으므로 게시를 진행하되, 시끄럽게 남긴다.
               echo "⚠️ 최신 실행 조회에 실패했다 — concurrency 취소에 기대고 게시를 진행한다." >&2
             elif [ "$NEWER" -gt 0 ]; then
               echo "나보다 최신인 문서 실행이 ${NEWER}개 있다(run_number > $GITHUB_RUN_NUMBER) — 그쪽에 맡기고 물러난다."
@@ -283,14 +297,13 @@ jobs:
             sleep "$((attempt * 5))"
           done
 
-          # 조용히 끝내지 않는다. Apidog 가 빈 바디로 200 을 받아 «초록인 채로» 문서가 두 달간
-          # 안 갱신됐던 전례가 이 파일에 있다(아래 Sync to Apidog 주석).
+          # 조용히 끝내지 않는다 — 조용한 초록이 이 파일의 반복 사고 패턴이다.
           echo "gh-pages push 를 5회 재시도했지만 실패했다. $DEST_DIR 문서가 갱신되지 않았다." >&2
           exit 1
 
       - name: Notify Slack
         if: |
-          steps.check.outputs.exists == 'true' &&
+          github.event_name == 'push' &&
           (github.ref_name == 'main' || github.ref_name == 'release')
         uses: slackapi/slack-github-action@v1.27.0
         with:
@@ -326,61 +339,73 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
 
-      - name: Patch openapi.json version for Apidog
-        if: steps.check.outputs.exists == 'true'
-        working-directory: server/data-api/build/docs/api
+      # ── Apidog 동기화 (GROMO-1623 · GROMO-2069) ─────────────────────────────
+      # 올리는 건 «병합 스펙 하나»다 — primary 프로젝트는 deleteUnmatchedResources: true
+      # 라서 두 스펙의 순차 import 는 뒤 서비스가 앞 서비스 문서를 지운다. 위 Merge 스텝이
+      # 두 스펙 모두 생성·검증된 뒤에만 도달하므로, 여기 오면 두 스펙은 이미 증명됐다.
+      #
+      # 폴더는 operation 의 x-apidog-folder 가 정한다(tags 보다 우선, / 로 계층 —
+      # https://docs.apidog.com/x-apidog-folder-1981658m0): business-api/·data-api/
+      # 최상위 폴더, business 의 호환 /api/v1/** 는 business-api/legacy/ 하위.
+      # schema·operationId 는 병합 단계에서 <서비스>. 접두어가 붙어 네임스페이스가 갈리지 않는다.
+      #
+      # 프로젝트 ID 는 repo variable(APIDOG_PROJECT_ID_*)로 덮어쓸 수 있고, 미설정 시
+      # || 뒤의 기존 프로젝트 ID 기본값으로 돌아간다 — 새 변수가 없어도 기존 동기화는 그대로다.
+      # 토큰은 secret 이름도 기존 그대로다.
+      - name: Patch merged spec version for Apidog
+        if: github.event_name == 'push'
+        working-directory: build
         run: |
           BRANCH="${{ github.ref_name }}"
-          BASE_VERSION=$(cat openapi.json | python3 -c "import sys,json; print(json.load(sys.stdin)['info']['version'])")
+          BASE_VERSION=$(python3 -c "import json; print(json.load(open('merged.openapi.json'))['info']['version'])")
           python3 -c "
           import json
-          with open('openapi.json', 'r') as f:
+          with open('merged.openapi.json', 'r') as f:
               spec = json.load(f)
           spec['info']['version'] = '${BASE_VERSION}-${BRANCH}'.replace('/', '-')
-          with open('openapi.json', 'w') as f:
+          with open('merged.openapi.json', 'w') as f:
               json.dump(spec, f)
           "
 
-      # ── Apidog 동기화 (GROMO-1623) ───────────────────────────────────────────
-      # 스펙도 payload 도 셸 인자로 넘기지 않는다. 리눅스는 개별 인자 길이를
-      # MAX_ARG_STRLEN(32 × 페이지크기 = 131,072 B)으로 제한하는데 openapi.json 은 약 251 KB,
-      # jq 가 만든 payload 도 약 159 KB 라 둘 다 상한을 넘는다. 예전 코드는
-      # `--argjson spec "$(cat openapi.json)"` 였고 jq 가 실행조차 못 돼(E2BIG) **빈 바디**가 나갔다.
-      # Apidog 는 그 요청에 200 + 전 항목 count 0 을 돌려줬고 `--fail` 은 4xx 만 보므로
-      # 스텝이 초록으로 통과했다 — 문서는 최소 2026-08-14 이후 한 번도 갱신되지 않았다.
-      # macOS 는 인자 상한이 커서 로컬 재현이 안 된다는 점도 발견을 늦췄다.
-      #
-      # 그래서 ① jq 입력은 --slurpfile(파일) ② curl 바디는 --data @(파일) ③ 그리고 무엇보다
-      # **조용한 실패를 막는 단언**을 둔다 — ①②만 고치면 다음 실패가 또 초록으로 지나간다.
-      - name: Sync to Apidog
-        if: steps.check.outputs.exists == 'true'
-        working-directory: server/data-api/build/docs/api
+      # 스펙도 payload 도 셸 인자로 넘기지 않는다 — MAX_ARG_STRLEN(131,072 B) 상한에
+      # openapi.json(수백 KB)이 걸려 예전엔 빈 바디가 나갔고 Apidog 는 그 요청에 200 을
+      # 돌려줘 스텝이 초록으로 통과했다(GROMO-1623). 그래서 jq 입력은 --slurpfile,
+      # curl 바디는 --data @파일, 그리고 조용한 실패를 막는 단언은 apidog-import.sh 가 한다.
+      - name: Sync to Apidog (primary)
+        if: github.event_name == 'push'
+        working-directory: build
         run: |
           set -euo pipefail
-          jq -n --slurpfile spec openapi.json \
+          jq -n --slurpfile spec merged.openapi.json \
             '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: true, prependBasePath: false, deleteUnmatchedResources: true}}' \
             > apidog-payload.json
           APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN }}" \
-            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1283919 apidog-payload.json
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" \
+              "${{ vars.APIDOG_PROJECT_ID_PRIMARY || '1283919' }}" apidog-payload.json
 
+      # 두 개인 프로젝트는 «비파괴» 정책을 유지한다 — deleteUnmatchedResources 를 주지 않고
+      # updateFolderOfChangedEndpoint 도 false 라 기존 엔드포인트는 제자리에 두고,
+      # 새 것만 x-apidog-folder 의 서비스 폴더로 들어간다. 같은 병합 스펙을 쓴다.
       - name: Sync to Apidog (Soobin)
-        if: steps.check.outputs.exists == 'true'
-        working-directory: server/data-api/build/docs/api
+        if: github.event_name == 'push'
+        working-directory: build
         run: |
           set -euo pipefail
-          jq -n --slurpfile spec openapi.json \
+          jq -n --slurpfile spec merged.openapi.json \
             '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}' \
             > apidog-payload-soobin.json
           APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN_SOOBIN }}" \
-            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1305019 apidog-payload-soobin.json
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" \
+              "${{ vars.APIDOG_PROJECT_ID_SOOBIN || '1305019' }}" apidog-payload-soobin.json
 
       - name: Sync to Apidog (kth)
-        if: steps.check.outputs.exists == 'true'
-        working-directory: server/data-api/build/docs/api
+        if: github.event_name == 'push'
+        working-directory: build
         run: |
           set -euo pipefail
-          jq -n --slurpfile spec openapi.json \
+          jq -n --slurpfile spec merged.openapi.json \
             '{input: ($spec[0] | tojson), options: {endpointOverwriteBehavior: "OVERWRITE_EXISTING", schemaOverwriteBehavior: "OVERWRITE_EXISTING", updateFolderOfChangedEndpoint: false, prependBasePath: false}}' \
             > apidog-payload-kth.json
           APIDOG_TOKEN="${{ secrets.APIDOG_TOKEN_KTH }}" \
-            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" 1328838 apidog-payload-kth.json
+            bash "$GITHUB_WORKSPACE/.github/scripts/apidog-import.sh" \
+              "${{ vars.APIDOG_PROJECT_ID_KTH || '1328838' }}" apidog-payload-kth.json

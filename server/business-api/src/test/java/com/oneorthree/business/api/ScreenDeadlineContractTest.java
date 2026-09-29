@@ -38,7 +38,7 @@ class ScreenDeadlineContractTest extends ScreenContractTestBase {
             return ok("{\"session\":null}");
         });
         mockMvc.perform(auth(get("/screens/launch")))
-                .andExpect(status().isGatewayTimeout())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_TIMEOUT"));
         // MockUpstream 은 스레드 하나로 응답한다 — 잠든 핸들러가 풀리기 전에 끝내면 다음 테스트 클래스의 호출이
         // 그 뒤에 줄 서서 read-timeout 으로 실패하고, 공유 컨텍스트의 서킷까지 연다.

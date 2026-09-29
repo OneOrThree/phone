@@ -7,7 +7,8 @@ import com.oneorthree.business.common.exception.UpstreamUnavailableException;
 import com.oneorthree.business.common.exception.UpstreamContractMismatchException;
 import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.validation.DeviceOwnershipTokens;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
+import com.oneorthree.business.upstream.data.DataOutboxClient;
 import com.oneorthree.business.upstream.data.dto.DeviceSessionCheck;
 import com.oneorthree.business.upstream.data.dto.DurableCommandAck;
 import com.oneorthree.business.upstream.notification.NotificationApiClient;
@@ -55,7 +56,8 @@ import java.util.UUID;
 public class DeviceTokenUseCase {
 
     private final ActiveUserGuard activeUserGuard;
-    private final DataApiClient dataApiClient;
+    private final DataAuthClient dataApiClient;
+    private final DataOutboxClient dataOutboxClient;
     private final NotificationApiClient notificationApiClient;
 
     /**
@@ -225,9 +227,9 @@ public class DeviceTokenUseCase {
         RuntimeException outboxFailure = null;
         try {
             DurableCommandAck response = sessionId == null
-                    ? dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
+                    ? dataOutboxClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
                             claims.authGeneration(), keys.forStep("device-delete-outbox"), deadline)
-                    : dataApiClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
+                    : dataOutboxClient.recordDeviceTokenDeletion(claims.userId(), deviceToken, ownershipToken,
                             claims.authGeneration(), sessionId, keys.forStep("device-delete-outbox"), deadline);
             requireDeletionRecord(response, sessionId);
             recorded = response;
@@ -301,7 +303,7 @@ public class DeviceTokenUseCase {
      */
     private void markDeliveredQuietly(AccessTokenClaims claims, DurableCommandAck recorded, Deadline deadline) {
         try {
-            dataApiClient.markCommandDelivered(claims.userId(), recorded.commandId(), deadline);
+            dataOutboxClient.markCommandDelivered(claims.userId(), recorded.commandId(), deadline);
         } catch (RuntimeException e) {
             log.warn("삭제 outbox 완료 표시 실패 — relay 가 한 번 더 보낸다. commandId={}",
                     recorded.commandId(), e);

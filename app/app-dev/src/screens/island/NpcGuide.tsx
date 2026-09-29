@@ -26,7 +26,7 @@ export function GuideBox({
   children,
 }: {
   text: string;
-  character?: 'mongdol' | 'pelican';
+  character?: 'mongdol' | 'pelican' | 'dog';
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 }) {
@@ -39,6 +39,13 @@ export function GuideBox({
             accessible={false}
             resizeMode="contain"
             style={styles.pelican}
+          />
+        ) : character === 'dog' ? (
+          <Image
+            source={assets['characters/dog/npc/idle.png']}
+            accessible={false}
+            resizeMode="contain"
+            style={styles.dog}
           />
         ) : (
           <Image
@@ -194,13 +201,23 @@ const lines = [
   '친구에게 편지가 오면 내가 우체통 위에 앉아 있을게.\n그때 우체통을 눌러 봐!',
 ];
 
-export function MailboxGuide({ onDone }: { onDone: (openMailbox: boolean) => void }) {
+export function MailboxGuide({
+  onDone,
+  blocked = false,
+}: {
+  onDone: (openMailbox: boolean) => void;
+  blocked?: boolean;
+}) {
   const [step, setStep] = useState(0);
   const layout = useAppLayout();
   const last = step === lines.length - 1;
   return (
-    <Modal transparent animationType="none" onRequestClose={() => onDone(false)}>
+    <Modal transparent animationType="none" onRequestClose={() => !blocked && onDone(false)}>
       <View
+        testID="mailbox-guide-overlay"
+        pointerEvents={blocked ? 'none' : 'auto'}
+        accessibilityElementsHidden={blocked}
+        importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'}
         accessibilityViewIsModal
         style={[
           styles.overlay,
@@ -232,6 +249,67 @@ export function MailboxGuide({ onDone }: { onDone: (openMailbox: boolean) => voi
   );
 }
 
+const shopLines = [
+  '드디어 마지막 건물까지 완성됐네!\n멀리서 이 섬이 자라는 걸 계속 보고 있었어.',
+  '상점이 열릴 날만 기다리면서\n옷이랑 섬 꾸미기를 한가득 모아 왔지.',
+  '다 같이 모은 물고기로 마음에 드는 걸 골라 봐.\n이제 이 섬을 너희답게 꾸밀 차례야!',
+];
+
+export function ShopGuide({
+  onDone,
+  onCancel,
+  blocked = false,
+}: {
+  onDone: () => void;
+  onCancel: () => void;
+  blocked?: boolean;
+}) {
+  const [step, setStep] = useState(0);
+  const layout = useAppLayout();
+  const last = step === shopLines.length - 1;
+  return (
+    <Modal
+      transparent
+      animationType="none"
+      testID="shop-guide"
+      onRequestClose={() => !blocked && onCancel()}
+    >
+      <View
+        testID="shop-guide-overlay"
+        pointerEvents={blocked ? 'none' : 'auto'}
+        accessibilityElementsHidden={blocked}
+        importantForAccessibility={blocked ? 'no-hide-descendants' : 'auto'}
+        accessibilityViewIsModal
+        style={[
+          styles.overlay,
+          {
+            paddingTop: layout.insets.top + space[3],
+            paddingBottom: layout.insets.bottom + space[3],
+            paddingLeft: layout.insets.left + space[5],
+            paddingRight: layout.insets.right + space[5],
+          },
+        ]}
+      >
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          bounces={false}
+        >
+          <GuideBox character="dog" text={shopLines[step]} style={styles.shopBox}>
+            <Btn title="건너뛰기" kind="ghost" onPress={onDone} />
+            <Btn
+              title={last ? '상점 둘러보기' : '다음'}
+              dialog
+              style={styles.next}
+              onPress={() => (last ? onDone() : setStep((current) => current + 1))}
+            />
+          </GuideBox>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 const styles = StyleSheet.create({
   box: {
     position: 'absolute',
@@ -247,6 +325,7 @@ const styles = StyleSheet.create({
   dialogue: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   pelican: { width: space[16], height: space[16] + space[4] },
   mongdol: { width: space[16], height: space[16] },
+  dog: { width: space[16] + space[4], height: space[16] + space[4] },
   text: {
     flex: 1,
     fontSize: primitiveTokens.fontSize.md,
@@ -264,6 +343,7 @@ const styles = StyleSheet.create({
   scroll: { flexGrow: 0, flexShrink: 1, width: '100%', maxWidth: 414 },
   scrollContent: { paddingBottom: space[1] },
   mailboxBox: { position: 'relative' },
+  shopBox: { position: 'relative' },
   next: { minWidth: 120, minHeight: componentTokens.button.heightGhost },
   spotlight: { zIndex: 100 },
   blurPane: { position: 'absolute', overflow: 'hidden' },

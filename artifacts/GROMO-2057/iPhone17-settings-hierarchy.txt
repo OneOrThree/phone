@@ -1,0 +1,58 @@
+element_num,depth,attributes,parent_num
+0,0,"bounds=[0,0][0,0]",
+1,1,"accessibilityText=GROMO; bounds=[0,0][874,402]; enabled=true; enabled=true",0
+2,2,"bounds=[0,0][874,402]; enabled=true; enabled=true",1
+3,3,"bounds=[0,0][874,402]; enabled=true; enabled=true",2
+4,4,"bounds=[0,0][874,402]; enabled=true; enabled=true",3
+5,5,"bounds=[0,0][874,402]; enabled=true; enabled=true",4
+6,6,"bounds=[0,0][874,402]; enabled=true; enabled=true",5
+7,7,"bounds=[0,0][874,402]; enabled=true; enabled=true",6
+8,8,"bounds=[0,0][874,402]; enabled=true; enabled=true",7
+9,9,"bounds=[0,0][874,402]; enabled=true; enabled=true",8
+10,10,"bounds=[0,0][874,402]; enabled=true; enabled=true",9
+52,11,"bounds=[0,0][874,402]; enabled=true; enabled=true",10
+53,12,"bounds=[0,0][874,402]; enabled=true; enabled=true",52
+53,11,"bounds=[0,0][874,402]; enabled=true; enabled=true",10
+14,11,"bounds=[272,0][874,402]; enabled=true; enabled=true",10
+15,11,"bounds=[212,14][288,90]; enabled=true; enabled=true",10
+16,12,"bounds=[212,14][288,90]; enabled=true; enabled=true",15
+17,13,"bounds=[221,23][279,81]; enabled=true; enabled=true",16
+18,14,"bounds=[221,23][279,81]; enabled=true; enabled=true",17
+19,11,"accessibilityText=뒤로; bounds=[290,16][324,50]; enabled=true; enabled=true",10
+20,11,"accessibilityText=앱 설정; bounds=[330,20][758,46]; enabled=true; enabled=true",10
+21,12,"accessibilityText=앱 설정; bounds=[330,20][758,46]; enabled=true; enabled=true",20
+22,11,"accessibilityText=닫기; bounds=[764,16][798,50]; enabled=true; enabled=true",10
+23,11,"resource-id=island-sheet-content-clip; bounds=[274,64][874,402]; enabled=true; enabled=true",10
+24,12,"bounds=[274,64][874,402]; enabled=true; enabled=true",23
+25,13,"bounds=[274,64][874,402]; enabled=true; enabled=true",24
+26,14,"bounds=[274,-361][874,402]; enabled=true; enabled=true",25
+27,15,"bounds=[274,-361][874,402]; enabled=true; enabled=true",26
+28,16,"accessibilityText=권한; bounds=[296,-7][790,11]; enabled=true; enabled=true",27
+29,17,"accessibilityText=권한; bounds=[296,-7][790,11]; enabled=true; enabled=true",28
+30,16,"bounds=[296,23][790,90]; enabled=true; enabled=true",27
+31,17,"accessibilityText=앱 권한 관리, 스크린타임 권한 · 측정 앱; bounds=[298,25][788,88]; enabled=true; enabled=true",30
+32,16,"accessibilityText=도움말; bounds=[296,108][790,127]; enabled=true; enabled=true",27
+33,17,"accessibilityText=도움말; bounds=[296,108][790,127]; enabled=true; enabled=true",32
+34,16,"bounds=[296,139][790,206]; enabled=true; enabled=true",27
+35,17,"accessibilityText=튜토리얼 다시보기, 앵무새 안내를 처음부터 다시 봐요; bounds=[298,141][788,204]; enabled=true; enabled=true",34
+36,16,"accessibilityText=앱 정보; bounds=[296,224][790,243]; enabled=true; enabled=true",27
+37,17,"accessibilityText=앱 정보; bounds=[296,224][790,243]; enabled=true; enabled=true",36
+38,16,"bounds=[296,255][790,380]; enabled=true; enabled=true",27
+39,17,"bounds=[298,257][788,320]; enabled=true; enabled=true",38
+40,17,"accessibilityText=버전; bounds=[312,268][774,289]; enabled=true; enabled=true",38
+41,18,"accessibilityText=버전; bounds=[312,268][774,289]; enabled=true; enabled=true",40
+42,17,"accessibilityText=R61 · v2; bounds=[312,291][774,309]; enabled=true; enabled=true",38
+43,18,"accessibilityText=R61 · v2; bounds=[312,291][774,309]; enabled=true; enabled=true",42
+44,17,"accessibilityText=이용약관 · 개인정보; bounds=[298,320][788,378]; enabled=true; enabled=true",38
+47,14,"accessibilityText=Horizontal scroll bar, 1 page; value=0%; text=0%; bounds=[274,349][812,379]; enabled=true; enabled=true",25
+48,15,"bounds=[277,376][806,379]; enabled=true; enabled=true",47
+47,14,"accessibilityText=Horizontal scroll bar, 1 page; value=0%; text=0%; bounds=[274,349][812,379]; enabled=true; enabled=true",25
+48,15,"bounds=[277,376][806,379]; enabled=true; enabled=true",47
+49,10,"bounds=[8,8][48,36]; enabled=true; enabled=true",9
+50,11,"accessibilityText=QA route menu; resource-id=gromo-2057-open-route-picker; bounds=[8,8][48,36]; enabled=true; enabled=true",49
+51,8,"bounds=[0,0][874,402]; enabled=true; enabled=true",7
+52,9,"bounds=[0,0][874,402]; enabled=true; enabled=true",51
+53,10,"bounds=[0,0][874,402]; enabled=true; enabled=true",52
+54,1,"bounds=[0,0][0,0]",0
+55,2,"bounds=[0,0][402,54]; enabled=true; enabled=true",54
+56,2,"bounds=[402,0][402,874]; enabled=true; enabled=true",54

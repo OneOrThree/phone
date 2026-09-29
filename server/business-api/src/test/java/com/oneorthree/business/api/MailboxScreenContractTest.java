@@ -125,7 +125,7 @@ class MailboxScreenContractTest extends ScreenContractTestBase {
     void authorDisplayFailureIsNotRenderedAsWithdrawn() throws Exception {
         DATA.on(DATA_AUTHORS, request -> ok(""));
         mockMvc.perform(auth(get("/screens/mailbox")))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"));
 
         DATA.on(DATA_AUTHORS, request -> domainError(404, "USER_NOT_FOUND"));

@@ -14,7 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import java.time.Instant;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.Optional;
 import java.util.UUID;
@@ -45,6 +45,8 @@ public class GroupBetSessionOpeningService {
     private final GroupChallengeBetSessionRepository groupChallengeBetSessionRepository;
     private final GroupBetJudge groupBetJudge;
     private final GroupBetSessionFactory groupBetSessionFactory;
+    /** 서버 시계(GROMO-1723) — 돈 걸린 판정은 벽시계를 직접 읽지 않고 이 빈을 거친다. */
+    private final Clock clock;
 
     // 보증 스캔 루프는 GroupBetScheduler 에 있다 — 같은 빈에서 ensureSession 을 돌리면 자기
     // 호출(self-invocation)이라 @Transactional 프록시를 타지 않아 잠금 쿼리가
@@ -110,7 +112,7 @@ public class GroupBetSessionOpeningService {
             return Optional.empty();
         }
         // 참가 가능 시각 게이트(N35) — 마감 지난 창형은 오늘 스킵(내일 스캔이 다시 세운다).
-        if (!Instant.now().isBefore(groupBetSessionFactory.joinClosesAtOn(target.get(), date))) {
+        if (!clock.instant().isBefore(groupBetSessionFactory.joinClosesAtOn(target.get(), date))) {
             return Optional.empty();
         }
 

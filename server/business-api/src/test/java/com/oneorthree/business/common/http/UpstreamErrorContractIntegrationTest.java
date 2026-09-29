@@ -5,7 +5,7 @@ import com.oneorthree.business.config.RequestEnvelopeFilter;
 import com.oneorthree.business.support.MockUpstream;
 import com.oneorthree.business.support.Tokens;
 import com.oneorthree.business.support.UpstreamTestBase;
-import com.oneorthree.business.upstream.data.DataApiClient;
+import com.oneorthree.business.upstream.data.DataAuthClient;
 import com.oneorthree.business.upstream.data.dto.UserActivation;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
@@ -52,7 +52,7 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
         structured(upstreamStatus, code);
         mockMvc.perform(get(PUBLIC + "/sync").header("Authorization", "Bearer " + Tokens.access(USER))
                         .header("X-Strict-Error-Contract", "false"))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
                 .andExpect(jsonPath("$.error.retryable").value(false));
         assertThat(DATA.hits(UPSTREAM)).isEqualTo(1);
@@ -78,7 +78,7 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
             throws Exception {
         structured(upstreamStatus, code);
         mockMvc.perform(get(PUBLIC + "/compose").header("Authorization", "Bearer " + Tokens.access(USER)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_CONTRACT_ERROR"))
                 .andExpect(jsonPath("$.error.retryable").value(false));
         assertThat(DATA.hits(UPSTREAM)).isEqualTo(1);
@@ -89,7 +89,7 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
     void ordinaryInternalCallsStillTreatAuthenticationCodesAsServiceFailure(String code) throws Exception {
         structured(401, code);
         mockMvc.perform(get(PUBLIC + "/sync").header("Authorization", "Bearer " + Tokens.access(USER)))
-                .andExpect(status().isBadGateway())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_AUTH_FAILED"));
         assertThat(DATA.hits(UPSTREAM)).isEqualTo(1);
     }
@@ -126,11 +126,11 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
     @ParameterizedTest
     @CsvSource({"503,SERVICE_UNAVAILABLE,SERVICE_UNAVAILABLE", "503,UPSTREAM_UNAVAILABLE,SERVICE_UNAVAILABLE",
             "504,UPSTREAM_TIMEOUT,UPSTREAM_TIMEOUT"})
-    void exhaustedSynchronousRetryKeepsPublicStatusAndCode(int upstreamStatus, String code, String publicCode)
+    void exhaustedSynchronousRetryPreservesReasonWithPublic400(int upstreamStatus, String code, String publicCode)
             throws Exception {
         structured(upstreamStatus, code);
         mockMvc.perform(get(PUBLIC + "/sync").header("Authorization", "Bearer " + Tokens.access(USER)))
-                .andExpect(status().is(upstreamStatus))
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value(publicCode))
                 .andExpect(jsonPath("$.error.retryable").value(true));
         assertThat(DATA.hits(UPSTREAM)).isEqualTo(3);
@@ -141,7 +141,7 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
     void publicPlainProxyServerErrorsKeepRetries(String body) throws Exception {
         DATA.on(UPSTREAM, request -> new MockUpstream.Response(502, body));
         mockMvc.perform(get(PUBLIC + "/sync").header("Authorization", "Bearer " + Tokens.access(USER)))
-                .andExpect(status().isServiceUnavailable())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("SERVICE_UNAVAILABLE"));
         assertThat(DATA.hits(UPSTREAM)).isEqualTo(3);
     }
@@ -153,10 +153,10 @@ class UpstreamErrorContractIntegrationTest extends UpstreamTestBase {
 
     @RestController
     static class ProbeController {
-        private final DataApiClient data;
+        private final DataAuthClient data;
         private final ScreenComposer composer;
 
-        ProbeController(DataApiClient data, ScreenComposer composer) {
+        ProbeController(DataAuthClient data, ScreenComposer composer) {
             this.data = data;
             this.composer = composer;
         }

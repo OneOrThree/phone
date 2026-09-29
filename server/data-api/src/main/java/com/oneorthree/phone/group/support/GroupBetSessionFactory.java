@@ -1,5 +1,7 @@
 package com.oneorthree.phone.group.support;
 
+import static com.oneorthree.phone.common.util.ZonePolicy.KST;
+
 import com.oneorthree.phone.group.repository.domain.Group;
 import com.oneorthree.phone.group.repository.domain.GroupBetStatus;
 import com.oneorthree.phone.group.repository.domain.GroupChallenge;
@@ -14,7 +16,6 @@ import org.springframework.stereotype.Component;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.time.ZoneId;
 
 /**
  * 회차 행 조립의 단일 지점 — <b>미션 스냅샷 박제</b>(GROMO-1263): 카테고리·방식·목표분·창 시각·
@@ -38,8 +39,6 @@ public class GroupBetSessionFactory {
 
     /** 하루형 SCREEN_TIME 정산 그레이스(시간) — 다음날 첫 앱 실행 보고 수용(종전 12:00 배치와 짝). */
     static final int DURATION_SCREEN_TIME_SETTLE_GRACE_HOURS = 12;
-
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     /**
      * 회차 행 한 건을 조립한다 — 저장은 호출측이 한다.

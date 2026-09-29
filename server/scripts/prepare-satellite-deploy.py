@@ -34,6 +34,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WRITER = ROOT / ".github" / "scripts" / "write-compose-env.py"
 SATELLITES_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.yml")
 DATA_OVERLAY_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.data.yml")
+DEV_DATA_OVERLAY_COMPOSE = Path(__file__).resolve().with_name("docker-compose.satellites.data.dev.yml")
 NGINX_EXAMPLE = Path(__file__).resolve().with_name("nginx-satellites.include.conf.example")
 
 
@@ -86,6 +87,7 @@ FORBIDDEN_EVERYWHERE = ("DD_API_KEY", "GRAFANA_ADMIN_PASSWORD", "CONSOLE_ADMIN_P
 # 실제 자격과 미분류 키는 여전히 검사한다. URL/접속 문자열은 자격을 담을 수 있어 제외하지 않는다.
 PUBLIC_CONFIGURATION_KEYS = frozenset({
     "SPRING_PROFILES_ACTIVE", "DEPLOY_ENV", "DATA_API_PROFILES", "DD_ENV", "DD_SERVICE", "DD_VERSION",
+    "POSTGRES_DB",
 })
 
 def parse_dotenv_keys(text: str) -> list[str]:
@@ -203,7 +205,7 @@ def build_plan(args: argparse.Namespace, compose_env: Path, with_data: bool) -> 
     argv = ["docker", "compose", "-p", args.project_name, "-f", str(args.base_compose),
             "-f", str(SATELLITES_COMPOSE)]
     if with_data:
-        argv += ["-f", str(DATA_OVERLAY_COMPOSE)]
+        argv += ["-f", str(DEV_DATA_OVERLAY_COMPOSE if args.environment == "dev" else DATA_OVERLAY_COMPOSE)]
     argv += ["--env-file", str(args.shared_env_file), "--env-file", str(compose_env)]
     base = shlex.join(argv)
     lines = [
@@ -216,14 +218,16 @@ def build_plan(args: argparse.Namespace, compose_env: Path, with_data: bool) -> 
         "   옛 내용을 볼 수 있다 — restart 가 아니라 재생성한다.",
         "   캐시 전용(저장 없음)이라 비워져도 다시 채워진다.",
         f"   {base} up -d --force-recreate business-redis",
-        "3. 위성만 기동한다. Data(app)는 아직 재생성하지 않는다.",
+        "3. 위성만 기동한다. Data는 아직 재생성하지 않는다.",
         f"   {base} up -d business-api notification",
         "4. 같은 구성으로 상태를 확인하고 서비스 인증·DB 권한을 검증한다.",
         f"   {base} ps business-api notification",
     ]
     if with_data:
+        data_service = "data-api" if args.environment == "dev" else "app"
+        data_flags = "--no-deps " if args.environment == "dev" else ""
         lines += ["5. 제공자 준비 뒤 Data를 전용 env와 지정 digest로 재생성한다.",
-                  f"   {base} up -d app"]
+                  f"   {base} up -d {data_flags}{data_service}"]
     else:
         lines += ["5. --data-image 미지정: Data 전환은 이 산출물에 포함되지 않았다."]
     lines += [
@@ -352,7 +356,7 @@ def main() -> None:
     # 필수 보간 변수 대조 — 실제 최종값만 검사하며 값은 로그·오류로 내보내지 않는다.
     checked = [args.base_compose, SATELLITES_COMPOSE]
     if "data-api" in written:
-        checked.append(DATA_OVERLAY_COMPOSE)
+        checked.append(DEV_DATA_OVERLAY_COMPOSE if args.environment == "dev" else DATA_OVERLAY_COMPOSE)
     required: set[str] = set()
     for path in checked:
         required |= compose_variables(path)[0]

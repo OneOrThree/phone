@@ -128,8 +128,8 @@ class FocusScreenContractTest extends ScreenContractTestBase {
     }
 
     @Test
-    @DisplayName("필수 조각이 시간 초과면 빈 조각 200 이 아니라 화면 전체 504 다")
-    void fragmentTimeoutIs504() throws Exception {
+    @DisplayName("필수 조각이 시간 초과면 빈 조각 200 이 아니라 화면 전체 400 다")
+    void fragmentTimeoutPreservesReasonWithPublic400() throws Exception {
         DATA.on(DATA_CURRENT, request -> ok("{\"session\":null}"));
         // ci 의 read-timeout 은 300ms 다 — 매 시도를 그보다 길게 붙든다. 실패 2회는 서킷 임계(5) 아래이고 다음
         // 성공이 되돌린다. 3초 화면 예산 소진은 ScreenDeadlineContractTest 가 별도 컨텍스트로 본다.
@@ -139,7 +139,7 @@ class FocusScreenContractTest extends ScreenContractTestBase {
         });
 
         mockMvc.perform(auth(get("/screens/focus")))
-                .andExpect(status().isGatewayTimeout())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error.code").value("UPSTREAM_TIMEOUT"));
         // mock 상류는 스레드 하나다 — 붙든 시도가 끝날 때까지 기다려 다음 테스트 요청이 줄 서지 않게 한다.
         pause(400);
