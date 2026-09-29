@@ -202,6 +202,34 @@ class WriteComposeEnvTest(unittest.TestCase):
         self.assertIn("REALTIME_BASE_URL='http://realtime:8081'", final)
         self.assertIn("SPRING_PROFILES_ACTIVE='prod,satellites'", final)
 
+    def test_섬_관리_명령_선택키는_data_api_렌더에서_있으면_나오고_없으면_안_나온다(self) -> None:
+        # GROMO-2156 — PR #1032 리뷰 제안: SERVICE_OPTIONAL_KEYS["data-api"] 경로(위성 오버레이 입력)를
+        # 직접 잠근다. render_service(--service data-api)로 렌더한 env에 섬 관리 명령 2종·게시판 쓰기
+        # 게이트가 있으면 값째로 나오고, 없으면 아예 나오지 않아야 한다. environment=prod로 겸사겸사
+        # 「없으면 prod에서도 안 나온다」까지 같은 호출로 확인한다.
+        combined = secret(
+            API_DB_URL="jdbc:postgresql://db/gromo", API_DB_USERNAME="data", API_DB_PASSWORD="pw",
+            SVC_TOKEN_BIZ_TO_DATA="bd", SVC_TOKEN_NOTI_TO_DATA="nd",
+            SVC_TOKEN_DATA_TO_NOTI="dn", SVC_TOKEN_DATA_TO_LINK="dl", LINK_CAPABILITY_KEY="key",
+            LINK_IP_SALT="existing-salt", LINK_BASE_URL="https://links.example.test",
+            NOTIFICATION_BASE_URL="http://notification:8082", KAFKA_BOOTSTRAP_SERVERS="kafka:9092",
+            ISLAND_MANAGEMENT_COMMANDS_ENABLED="true", ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED="true",
+            ISLAND_BOARD_WRITES_ENABLED="true",
+        )
+        with_flags = MODULE.render(combined, "example/data:1", "data-api", "final", "prod")
+        self.assertIn("ISLAND_MANAGEMENT_COMMANDS_ENABLED='true'", with_flags)
+        self.assertIn("ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED='true'", with_flags)
+        self.assertIn("ISLAND_BOARD_WRITES_ENABLED='true'", with_flags)
+
+        without_flags = {key: value for key, value in combined.items()
+                         if key not in ("ISLAND_MANAGEMENT_COMMANDS_ENABLED",
+                                        "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
+                                        "ISLAND_BOARD_WRITES_ENABLED")}
+        without = MODULE.render(without_flags, "example/data:1", "data-api", "final", "prod")
+        self.assertNotIn("ISLAND_MANAGEMENT_COMMANDS_ENABLED=", without)
+        self.assertNotIn("ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED=", without)
+        self.assertNotIn("ISLAND_BOARD_WRITES_ENABLED=", without)
+
     def test_prod_Business의_프록시_시크릿_누락은_출력_전에_차단한다(self) -> None:
         baseline = {key: "synthetic-value" for key in MODULE.SERVICE_REQUIRED_KEYS["business-api"]}
         baseline.pop("LINK_PROXY_SECRET", None)
