@@ -215,6 +215,13 @@ export function IslandHome({
       });
     };
   }, [island.id]);
+  const openRoute = (route: Route) => {
+    if (['board', 'mail', 'quest', 'hall', 'shop', 'tower', 'focusSetup'].includes(route)) {
+      navigateWithTilt(route);
+    } else {
+      go(route);
+    }
+  };
   const walk = (dest: Point, _label = '', route?: Route) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
@@ -228,8 +235,10 @@ export function IslandHome({
       xy.setValue(current);
       const path = walkPath(current, dest, bs);
       if (path.length < 2) {
+        // 이미 도착해 있으면(예: 집중을 마치고 부두에 서 있음) 걸을 경로가 없어도 목적 화면은 연다.
         setWalking(false);
         setDestination(null);
+        if (route) openRoute(route);
         return;
       }
       setDestination(path[path.length - 1]);
@@ -241,11 +250,7 @@ export function IslandHome({
           setWalking(false);
           setDestination(null);
           if (route) {
-            if (['board', 'mail', 'quest', 'hall', 'shop', 'tower', 'focusSetup'].includes(route)) {
-              navigateWithTilt(route);
-            } else {
-              go(route);
-            }
+            openRoute(route);
           } else if (pathDistance(path) >= 180) {
             triggerMotion('stretch');
           }
