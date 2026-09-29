@@ -1181,7 +1181,10 @@ function FocusFlow({ e }: any) {
     goldenPendingSessionRef = useRef<GoldenFishEvent[]>([]),
     goldenAnnouncementPendingRef = useRef(false),
     goldenSeenRef = useRef(new Set<string>()),
-    goldenTestSession = useRef<string | null>(null);
+    goldenTestSession = useRef<string | null>(null),
+    // 내가 직접 finish()를 부른 동안은 그 응답이 오기 전에 같은 종료를 알리는 내 focus.member.updated
+    // completed 브로드캐스트가 먼저 도착해도 강퇴로 오인하지 않는다.
+    finishInFlightRef = useRef(false);
   latest.current = { r, s };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
   // 목업(review/demo·비로그인)은 e.islands 가 없어 로컬 경로 그대로다.
@@ -1417,12 +1420,16 @@ function FocusFlow({ e }: any) {
     }
     if (serverSession()) {
       const session = s.session;
+      finishInFlightRef.current = true;
       e.focus
         .finish()
         .then(() => e.reset('focusResult'))
         .catch(async (error: any) => {
           if (await e.recoverExpiredRestConflict?.(error, session)) return;
           e.notify(error?.message ?? '집중을 마치지 못했어요.');
+        })
+        .finally(() => {
+          finishInFlightRef.current = false;
         });
       return;
     }
@@ -1500,6 +1507,23 @@ function FocusFlow({ e }: any) {
     snapshotTransitions: live.snapshotTransitions,
   });
   transitionHandler.current = (transition) => {
+    // 내 낚시 세션이 진행 중이던 중(previous.status === 'active') 서버가 강퇴 등으로
+    // 세션을 강제 종료하면(focus.member.updated completed) focus/rest 이벤트만으로는
+    // 타이머가 계속 흐른다 — 여기서 내 몫만 감지해 화면을 빠져나간다.
+    // finishInFlightRef 는 내가 직접 finish()를 부른 뒤 아직 응답 전인 같은 사건과 구분한다.
+    if (
+      transition.kind === 'focus' &&
+      transition.userId === myId &&
+      transition.current === null &&
+      transition.previous?.status === 'active' &&
+      s.session &&
+      !finishInFlightRef.current
+    ) {
+      e.dispatch({ type: 'SESSION_SYNC', session: null });
+      e.notify('섬에서 내보내졌어요.');
+      e.home();
+      return;
+    }
     peerFlow.onTransition(transition);
   };
   const peers = peerFlow.actors.filter((actor) => actor.visible),
