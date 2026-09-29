@@ -65,12 +65,13 @@ test('각 제공자의 서버 자격 토큰을 반환한다', async () => {
   await expect(socialCredential('google', loaders)).resolves.toBe('google-id-token');
   await expect(socialCredential('line', loaders)).resolves.toBe('line-access');
   await expect(socialCredential('line', loaders)).resolves.toBe('line-access');
+  // iOS 는 webClientId 없이 설정해 ID 토큰 aud 가 서버 GOOGLE_CLIENT_ID(iOS 클라이언트)와 맞는다.
   expect(mockGoogleConfigure).toHaveBeenCalledWith(
     expect.objectContaining({
-      webClientId: '899365616896-f9hggskoharr2uogdtvd0d2qvntle8ae.apps.googleusercontent.com',
       iosClientId: '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com',
     }),
   );
+  expect(mockGoogleConfigure.mock.calls[0][0]).not.toHaveProperty('webClientId');
   expect(mockLineSetup).toHaveBeenCalledWith({ channelId: '2011754820' });
   expect(mockLineSetup).toHaveBeenCalledTimes(1);
   expect(mockLineLogin).toHaveBeenCalledTimes(2);
@@ -126,3 +127,19 @@ test.each([null, new Error('network'), { code: 'NETWORK_ERROR' }])(
     expect(isSocialLoginCancellation(error)).toBe(false);
   },
 );
+
+test('Android Google 설정은 ID 토큰 발급에 필요한 webClientId 를 넘긴다', async () => {
+  Object.defineProperty(Platform, 'OS', { configurable: true, value: 'android' });
+  mockGoogleSignIn.mockResolvedValue({ type: 'success', data: { idToken: 'google-id-token' } });
+  let isolated!: typeof socialCredential;
+  jest.isolateModules(() => {
+    isolated = require('./socialLogin').socialCredential;
+  });
+
+  await expect(isolated('google', loaders)).resolves.toBe('google-id-token');
+  expect(mockGoogleConfigure).toHaveBeenCalledWith(
+    expect.objectContaining({
+      webClientId: '899365616896-f9hggskoharr2uogdtvd0d2qvntle8ae.apps.googleusercontent.com',
+    }),
+  );
+});

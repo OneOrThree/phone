@@ -58,8 +58,11 @@ export async function socialCredential(
     case 'google': {
       const Google = await loaders.google();
       if (!googleConfigured) {
+        // 서버는 ID 토큰의 aud 를 GOOGLE_CLIENT_ID 하나로만 검증한다(현재 iOS 클라이언트 ID).
+        // iOS 에서 webClientId 를 넘기면 aud 가 웹 클라이언트가 돼 401 GOOGLE_TOKEN 으로 거절된다.
+        // Android 는 ID 토큰 발급에 webClientId 가 필수라 넘긴다.
         Google.GoogleSignin.configure({
-          webClientId: GOOGLE_WEB_CLIENT_ID,
+          ...(Platform.OS === 'android' ? { webClientId: GOOGLE_WEB_CLIENT_ID } : {}),
           iosClientId: GOOGLE_IOS_CLIENT_ID,
           scopes: ['profile', 'email'],
         });
