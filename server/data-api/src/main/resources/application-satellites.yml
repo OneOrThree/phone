@@ -8,12 +8,13 @@ notification:
   dispatch:
     mode: ${NOTIFICATION_DISPATCH_MODE:LEGACY}
 
-# 명령 기반만 구현했다. 전용 Realtime 수신·인가·주민 snapshot 복구 검증 전에는 열지 않는다.
+# 명령 기반만 구현했다. 기본은 OFF — prod 개방은 별도 결정이다. dev 는 2026-09-29 relay ON 뒤 강퇴 직후 채팅
+# 차단(GROMO-2140)까지 검증하고 env 로 켰다(GROMO-2156).
 island-management:
-  host-transfer-enabled: false
+  host-transfer-enabled: ${ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED:false}
   # GROMO-1802 섬 관리 명령 4종(정보 수정·가입 승인/거절·강퇴·나가기). 위임과 같은 이유로 기본 비활성이고
   # 꺼져 있으면 receipt·쓰기보다 먼저 503 ISLAND_MANAGEMENT_NOT_READY 다. 주민·신청자 목록 조회는 게이트가 없다.
-  commands-enabled: false
+  commands-enabled: ${ISLAND_MANAGEMENT_COMMANDS_ENABLED:false}
 
 # GROMO-1771 섬 게시판. BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정(GROMO-2136)으로
 # 확정됐다(island-board policy) — 공지 작성·수정·삭제는 방장만, 댓글 삭제는 작성자 본인 또는 방장이다.

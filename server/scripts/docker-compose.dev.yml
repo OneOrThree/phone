@@ -52,6 +52,9 @@ services:
       # 섬 게시판 쓰기 4종 + 댓글 삭제 (GROMO-1771 · GROMO-2136). BQ02·BQ03 는 확정됐지만 기본은 여전히
       # false — prod 개방은 별도 릴리스 결정이고, dev 는 여기서 켠다.
       ISLAND_BOARD_WRITES_ENABLED: ${ISLAND_BOARD_WRITES_ENABLED:-false}
+      # 섬 관리 명령 4종·방장 위임 (GROMO-1802 · GROMO-2156). 기본 false — prod 개방은 별도 결정, dev 는 여기서 켠다.
+      ISLAND_MANAGEMENT_COMMANDS_ENABLED: ${ISLAND_MANAGEMENT_COMMANDS_ENABLED:-false}
+      ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED: ${ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED:-false}
       REDIS_HOST: redis
     depends_on:
       db:
