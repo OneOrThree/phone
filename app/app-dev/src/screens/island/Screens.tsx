@@ -2336,6 +2336,7 @@ export function RedesignScreens({ e }: any) {
             boardStatus={e.boardStatus}
             libraryState={state.visitingIslandId ? 'normal' : e.buildingIndicators?.libraryState}
             showMailboxLetters={e.buildingIndicators?.showMailboxLetters}
+            onServerBuilt={e.islands ? e.retryHome : undefined}
           />
         )}
         {mailboxGuide && (

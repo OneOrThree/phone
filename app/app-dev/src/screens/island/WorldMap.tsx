@@ -43,6 +43,7 @@ import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { VillageScenery } from './VillageScenery';
+import { ServerBuildCard } from './ServerBuildCard';
 import { villageAssets } from '@/constants/village-assets';
 import {
   villageScene,
@@ -829,6 +830,7 @@ function FinalIslandScene({
   libraryState = 'normal',
   onBuildingEntrySound,
   layeredPreview = false,
+  onServerBuilt,
 }: {
   state: State;
   go: (r: Route, id?: string) => void;
@@ -848,6 +850,8 @@ function FinalIslandScene({
   /** 문 소스 확보 전까지는 선택적 연결 계약으로 두고 소리가 꺼져 있으면 호출하지 않는다. */
   onBuildingEntrySound?: (target: BuildingTransitionTarget, generation: number) => void;
   layeredPreview?: boolean;
+  /** 서버 모드 홈 스냅샷 재조회 — 넘긴 화면(홈)에서만 서버 짓기 카드를 띄운다. */
+  onServerBuilt?: () => void;
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
@@ -1446,6 +1450,18 @@ function FinalIslandScene({
     : !i.buildings.includes('board')
       ? 'board'
       : null;
+  const buildCardStyle = {
+    position: 'absolute',
+    left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
+    width: L.landscape ? 300 : L.width * 0.52,
+    bottom: L.landscape ? 24 : Math.max(52, L.insets.bottom + 18),
+    backgroundColor: '#FFFDFAF2',
+    borderColor: '#8B6956',
+    borderWidth: 1.5,
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  } as const;
   const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
       .map((v) => String(v).padStart(2, '0'))
@@ -1577,23 +1593,27 @@ function FinalIslandScene({
       )}
       {showActions && (
         <>
-          {/* 서버 건설은 회관의 서버 경로 몫이다 — 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
+          {/* 서버 모드 첫 건물(회관·게시판)은 방장만 홈에서 서버 건설로 짓는다(GROMO-2139) */}
+          {!visiting && facts && next && facts.home.island.role === 'host' && onServerBuilt && (
+            <ServerBuildCard
+              islandId={facts.islandId}
+              building={next}
+              villagePoints={facts.home.wallets.villagePoints}
+              tracked={trackedConstruction}
+              style={buildCardStyle}
+              onStarted={(receipt) =>
+                dispatch?.({
+                  type: 'SERVER_CONSTRUCTION_STARTED',
+                  islandId: facts.islandId,
+                  ...receipt,
+                })
+              }
+              onChanged={onServerBuilt}
+            />
+          )}
+          {/* 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
           {!visiting && !facts && (i.construction || next) && (
-            <View
-              style={{
-                position: 'absolute',
-                left: L.landscape ? Math.max(56, L.insets.left + 4) : 20,
-                width: L.landscape ? 300 : L.width * 0.52,
-                bottom: L.landscape ? 24 : Math.max(52, L.insets.bottom + 18),
-                backgroundColor: '#FFFDFAF2',
-                borderColor: '#8B6956',
-                borderWidth: 1.5,
-                borderRadius: 18,
-                paddingVertical: 12,
-                paddingHorizontal: 14,
-                gap: 8,
-              }}
-            >
+            <View style={[buildCardStyle, { gap: 8 }]}>
               <View
                 style={{
                   flexDirection: 'row',
