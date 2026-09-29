@@ -1026,6 +1026,20 @@ describe('stompIslandChannel', () => {
     (Client as any).instances.length = 0;
   });
 
+  test('React Native WebSocket 용 옵션: 바이너리 프레임 강제와 수신 NULL 종결자 보정을 켠다', () => {
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    // RN WebSocket 은 문자열 프레임의 NULL(\0)을 잘라 STOMP 프레임 끝이 사라진다 —
+    // 두 옵션이 없으면 CONNECT 가 서버에 도달하지 못한다.
+    assert.equal(client().opts.forceBinaryWSFrames, true);
+    assert.equal(client().opts.appendMissingNULLonIncoming, true);
+  });
+
   test('인증 STOMP 계약: /ws/realtime 에 Bearer CONNECT 헤더, 섬 채널·emotes·오류 큐 구독', () => {
     const opened: string[] = [];
     stompIslandChannel({

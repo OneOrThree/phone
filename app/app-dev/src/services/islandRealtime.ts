@@ -448,6 +448,9 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     reconnectDelay: 5000,
     heartbeatIncoming: 10_000,
     heartbeatOutgoing: 10_000,
+    // [진단] React Native WebSocket 은 문자열 프레임의 NULL(\0)을 잘라 STOMP 프레임 끝이 사라진다.
+    forceBinaryWSFrames: true,
+    appendMissingNULLonIncoming: true,
     beforeConnect: (c) => {
       const token = getAccessToken();
       if (token) c.connectHeaders = { Authorization: `Bearer ${token}` };
