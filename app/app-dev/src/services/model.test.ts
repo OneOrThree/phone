@@ -1016,6 +1016,19 @@ test('1분 미만 집중은 물고기 0마리라 가계부에 남기지 않는�
   assert.equal(balance(currentIsland(s)), 1200);
   assert.equal(currentIsland(s).ledger.length, ledger);
 });
+test('첫 집중 튜토리얼은 5초 뒤 물고기 1마리를 즉시 적립하고 종료 때 중복 적립하지 않는다', () => {
+  let s = initialState(true);
+  const now = new Date(2026, 8, 29, 12).getTime(),
+    before = balance(currentIsland(s));
+  s.records = [];
+  s = act(s, 'START', { subject: '첫 집중', now });
+  s = act(s, 'TUTORIAL_FISH', { now: now + 5000 });
+  assert.equal(balance(currentIsland(s)), before + 1);
+  assert.equal(s.session?.creditedFish, 1);
+  s = act(s, 'FINISH', { now: now + 6000 });
+  assert.equal(s.lastResult?.fish, 1);
+  assert.equal(balance(currentIsland(s)), before + 1);
+});
 test('시간대 일일 퀘스트는 휴식이 낀 실제 집중 구간만 계산', () => {
   let s = initialState(true);
   currentIsland(s).members = [];

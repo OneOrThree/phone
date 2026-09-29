@@ -124,7 +124,7 @@ const titles: Record<Route, string> = {
   approval: '가입 승인 대기',
   arrival: '섬에 도착했어요',
   home: '우리 섬',
-  guide: '앵무새 안내',
+  guide: '몽돌 안내',
   focusSetup: '낚시 집중 준비',
   focus: '함께 낚시 집중',
   rest: '모닥불',

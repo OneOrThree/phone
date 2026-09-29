@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import { BlurTargetView, BlurView } from 'expo-blur';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import {
   Image,
   Modal,
@@ -7,23 +8,25 @@ import {
   View,
   type StyleProp,
   type ViewStyle,
+  type LayoutRectangle,
+  type ViewProps,
 } from 'react-native';
 import { assets } from '@/constants/assets';
-import { Btn, C, Pic, Txt } from '@/design-system/patterns';
+import { Btn, C, Txt } from '@/design-system/patterns';
 import { componentTokens, primitiveTokens, semanticTokens } from '@/design-system/tokens';
 import { useAppLayout } from '@/utils/layout';
 
 const space = primitiveTokens.space;
 
-// 온보딩 앵무새와 건물 안내가 공유하는 하단 대화창.
+// 몽돌 온보딩과 건물 안내가 공유하는 하단 대화창.
 export function GuideBox({
   text,
-  character = 'parrot',
+  character = 'mongdol',
   style,
   children,
 }: {
   text: string;
-  character?: 'parrot' | 'pelican';
+  character?: 'mongdol' | 'pelican';
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 }) {
@@ -38,7 +41,12 @@ export function GuideBox({
             style={styles.pelican}
           />
         ) : (
-          <Pic id="parrot" w={56} />
+          <Image
+            source={assets['characters/mongdol/npc/idle.png']}
+            accessible={false}
+            resizeMode="contain"
+            style={styles.mongdol}
+          />
         )}
         <Txt
           lineBreakStrategyIOS="hangul-word"
@@ -49,6 +57,133 @@ export function GuideBox({
         </Txt>
       </View>
       <View style={styles.actions}>{children}</View>
+    </View>
+  );
+}
+
+export type SpotlightRect = LayoutRectangle;
+
+const BlurTargetContext = createContext<React.RefObject<View | null> | undefined>(undefined);
+
+// Android는 블러가 읽을 실제 장면을 지정해야 한다. 오버레이는 장면의 형제로 둔다.
+export function TutorialScene({
+  children,
+  overlay,
+  ...props
+}: ViewProps & { overlay?: React.ReactNode }) {
+  const target = useRef<View>(null);
+  return (
+    <View {...props}>
+      <BlurTargetView ref={target} style={{ flex: 1 }}>
+        {children}
+      </BlurTargetView>
+      <BlurTargetContext.Provider value={target}>{overlay}</BlurTargetContext.Provider>
+    </View>
+  );
+}
+
+export function useSpotlightTarget(active = false) {
+  const ref = useRef<View>(null);
+  const [rect, setRect] = useState<SpotlightRect | null>(null);
+  const measure = useCallback(() => {
+    requestAnimationFrame(() =>
+      ref.current?.measureInWindow((x, y, width, height) => {
+        if (width <= 0 || height <= 0) return;
+        setRect((previous) =>
+          previous?.x === x &&
+          previous.y === y &&
+          previous.width === width &&
+          previous.height === height
+            ? previous
+            : { x, y, width, height },
+        );
+      }),
+    );
+  }, []);
+  useEffect(() => {
+    if (!active) return;
+    measure();
+    // 키보드·화면 회전·부모 이동으로 바뀐 창 좌표도 따라간다.
+    const timer = setInterval(measure, 200);
+    return () => clearInterval(timer);
+  }, [active, measure]);
+  return { ref, rect, measure };
+}
+
+/** 실제 조작 대상을 비워 두고 나머지 화면만 블러·딤 처리한다. */
+export function TutorialSpotlight({
+  target,
+  text,
+  children,
+}: {
+  target?: SpotlightRect | null;
+  text: string;
+  children?: React.ReactNode;
+}) {
+  const layout = useAppLayout();
+  const blurTarget = useContext(BlurTargetContext);
+  const root = useRef<View>(null);
+  const [area, setArea] = useState({ x: 0, y: 0, width: layout.width, height: layout.height });
+  const measureRoot = () =>
+    root.current?.measureInWindow((x, y, width, height) => {
+      if (width > 0 && height > 0) setArea({ x, y, width, height });
+    });
+  const pad = 7;
+  const x = Math.min(area.width, Math.max(0, (target?.x ?? 0) - area.x - pad));
+  const y = Math.min(area.height, Math.max(0, (target?.y ?? 0) - area.y - pad));
+  const right = Math.max(
+    x,
+    Math.min(area.width, (target?.x ?? 0) - area.x + (target?.width ?? 0) + pad),
+  );
+  const bottom = Math.max(
+    y,
+    Math.min(area.height, (target?.y ?? 0) - area.y + (target?.height ?? 0) + pad),
+  );
+  const panes = target
+    ? [
+        { left: 0, top: 0, right: 0, height: y },
+        { left: 0, top: y, width: x, height: Math.max(0, bottom - y) },
+        { left: right, right: 0, top: y, height: Math.max(0, bottom - y) },
+        { left: 0, right: 0, top: bottom, bottom: 0 },
+      ]
+    : [{ left: 0, top: 0, right: 0, bottom: 0 }];
+  const width = Math.min(layout.floatingWidth, 414, area.width - 24);
+  const guidePosition = target
+    ? y > area.height / 2
+      ? { bottom: Math.max(layout.insets.bottom + space[4], area.height - y + space[4]) }
+      : { top: bottom + space[4] }
+    : { bottom: layout.insets.bottom + space[4] };
+  return (
+    <View
+      ref={root}
+      collapsable={false}
+      onLayout={measureRoot}
+      pointerEvents="box-none"
+      style={[StyleSheet.absoluteFill, styles.spotlight]}
+    >
+      {panes.map((pane, index) => (
+        <BlurView
+          key={index}
+          intensity={35}
+          tint="dark"
+          blurMethod="dimezisBlurView"
+          blurTarget={blurTarget}
+          onStartShouldSetResponder={() => true}
+          style={[styles.blurPane, pane]}
+        >
+          <View style={styles.dim} />
+        </BlurView>
+      ))}
+      <GuideBox
+        text={text}
+        style={{
+          left: (area.width - width) / 2,
+          width,
+          ...guidePosition,
+        }}
+      >
+        {children ?? null}
+      </GuideBox>
     </View>
   );
 }
@@ -111,6 +246,7 @@ const styles = StyleSheet.create({
   },
   dialogue: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
   pelican: { width: space[16], height: space[16] + space[4] },
+  mongdol: { width: space[16], height: space[16] },
   text: {
     flex: 1,
     fontSize: primitiveTokens.fontSize.md,
@@ -129,4 +265,7 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: space[1] },
   mailboxBox: { position: 'relative' },
   next: { minWidth: 120, minHeight: componentTokens.button.heightGhost },
+  spotlight: { zIndex: 100 },
+  blurPane: { position: 'absolute', overflow: 'hidden' },
+  dim: { flex: 1, backgroundColor: '#211A174F' },
 });

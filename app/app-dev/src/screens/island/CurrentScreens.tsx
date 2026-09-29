@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   AppState,
   Image,
+  Keyboard,
   Linking,
   Platform,
   Pressable,
@@ -69,6 +70,12 @@ import { Text, TextInput } from '@/design-system/typography';
 import { Point, landPath, onLand } from '@/utils/world-grid';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { FinalIsland } from '@/screens/island/WorldMap';
+import {
+  GuideBox,
+  TutorialScene,
+  TutorialSpotlight,
+  useSpotlightTarget,
+} from '@/screens/island/NpcGuide';
 import { HOME_QUEST_LIST_DETAIL, pendingQuestRewards } from '@/screens/island/HomeQuestIndicator';
 import {
   art,
@@ -1004,7 +1011,14 @@ function FocusFlow({ e }: any) {
     safe = useSafeAreaInsets(),
     r: Route = e.route,
     wide = L.width >= 600,
-    reduce = s.settings.reduceMotion;
+    reduce = s.settings.reduceMotion,
+    tutorialStep: number = e.guideStep;
+  const setupInputTarget = useSpotlightTarget(tutorialStep === 7),
+    setupStartTarget = useSpotlightTarget(tutorialStep === 8),
+    pauseTarget = useSpotlightTarget(tutorialStep === 14),
+    endTarget = useSpotlightTarget(tutorialStep === 17),
+    confirmEndTarget = useSpotlightTarget(tutorialStep === 18),
+    resultTarget = useSpotlightTarget(tutorialStep === 21);
   const [fan, setFan] = useState(false),
     [emote, setEmote] = useState<string | null>(null),
     [dialog, setDialog] = useState<'music' | 'end' | 'endRest' | 'reward' | null>(null),
@@ -1068,6 +1082,17 @@ function FocusFlow({ e }: any) {
     setDialog(null);
     if (r !== 'focus') setEmote(null);
   }, [r]);
+  useEffect(() => {
+    if (r !== 'focus' || tutorialStep !== 11 || s.session?.status !== 'active') return;
+    if (sessionSeconds(s.session, e.now) < 5) return;
+    // 서버의 5초 최초 보상 계약은 아직 없다. 미지급 보상을 받았다고 안내하지 않는다.
+    if (e.focus || s.records.length > 0) {
+      e.setGuideStep(14);
+      return;
+    }
+    e.dispatch({ type: 'TUTORIAL_FISH' });
+    e.setGuideStep(12);
+  }, [e.focus, e.dispatch, e.setGuideStep, e.now, r, s.session, s.records.length, tutorialStep]);
   // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
   // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
   const serverSession = () => e.focus && s.session?.version != null;
@@ -1075,11 +1100,15 @@ function FocusFlow({ e }: any) {
     if (serverSession()) {
       e.focus
         .finish()
-        .then(() => e.reset('focusResult'))
+        .then(() => {
+          if (tutorialStep === 18) e.setGuideStep(19);
+          e.reset('focusResult');
+        })
         .catch((error: any) => e.notify(error?.message ?? '집중을 마치지 못했어요.'));
       return;
     }
     e.dispatch({ type: 'FINISH' });
+    if (tutorialStep === 18) e.setGuideStep(19);
     e.reset('focusResult');
   };
   // 내 자리: 옛 저장 좌표(지도 % 밖)는 도착 지점으로 대신한다
@@ -1174,14 +1203,19 @@ function FocusFlow({ e }: any) {
     if (serverSession()) {
       e.focus
         .resume()
-        .then(() => setVoyage('toSpot'))
+        .then(() => {
+          if (tutorialStep === 15) e.setGuideStep(16);
+          setVoyage('toSpot');
+        })
         .catch((error: any) => e.notify(error?.message ?? '집중을 이어가지 못했어요.'));
       return;
     }
+    if (tutorialStep === 15) e.setGuideStep(16);
     setVoyage('toSpot');
   };
   // 뒤로가기: 걷기·항해(낚시섬 오가기 포함) 중에는 막고, 모달은 닫기만, 결과는 '확인'(보상·귀환 흐름)과 같게, 모닥불은 '집중 이어가기'와 같게
   backRef.current = () => {
+    if (tutorialStep >= 5 && tutorialStep <= 21) return true;
     if (leg || voyage || walker.walking || r === 'focusTravel' || r === 'returnTravel') return true;
     if (dialog === 'reward') {
       // 서버 수령은 명시적 버튼으로만 — 뒤로가기는 모달을 닫고 나간다
@@ -1262,6 +1296,13 @@ function FocusFlow({ e }: any) {
         endRest={finish}
         confirming={dialog === 'endRest'}
         setConfirming={(open) => setDialog(open ? 'endRest' : null)}
+        tutorial={
+          tutorialStep === 15
+            ? {
+                text: '같은 섬에서 쉬고 있는 주민이 있다면 이 모닥불에서 함께 볼 수 있어.\n충분히 쉬었다면 집중 이어가기를 눌러 봐.',
+              }
+            : undefined
+        }
       />
     );
   // 정해진 자리 없음: 누른 땅까지 걸어가 앉고 그 자리 위에 집중 준비. 물·닿을 수 없는 곳·다른 주민 자리는 안 됨.
@@ -1282,6 +1323,7 @@ function FocusFlow({ e }: any) {
     const walked = walkTo(p, () => {
       if (latest.current.r !== 'fishingArrival') return;
       e.dispatch({ type: 'FOCUS_SPOT', spot: p });
+      if (tutorialStep === 6) e.setGuideStep(7);
       e.go('focusSetup');
     });
     // 연못 가운데 섬처럼 뗏목 쪽 땅과 이어지지 않은 곳
@@ -1308,12 +1350,24 @@ function FocusFlow({ e }: any) {
       // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
       e.focus
         .start({ subject: e.text.trim() })
-        .then(() => e.go('focus'))
+        .then(() => {
+          if (tutorialStep === 8) e.setGuideStep(9);
+          e.go('focus');
+        })
         .catch((error: any) => setError(error?.message ?? '집중을 시작하지 못했어요.'));
       return;
     }
     e.dispatch({ type: 'START', subject: e.text });
+    if (tutorialStep === 8) e.setGuideStep(9);
     e.go('focus');
+  };
+  const finishInput = () => {
+    if (!e.text.trim()) {
+      setError('집중할 과목이나 할 일을 적어주세요.');
+      return;
+    }
+    Keyboard.dismiss();
+    e.setGuideStep(8);
   };
   // 결과창의 퀘스트는 집중을 마친 날 회차 기준(자정을 넘겨 봐도 그날 달성이 남는다)
   const resultAt = result?.at ?? e.now,
@@ -1410,13 +1464,24 @@ function FocusFlow({ e }: any) {
         </Text>
       </View>
       <View style={{ flexDirection: 'row', marginTop: wide ? 12 : 18 }}>
-        <FiButton
-          primary
-          id="result-done"
+        <View
+          ref={resultTarget.ref}
+          collapsable={false}
+          onLayout={resultTarget.measure}
           style={{ flex: 1 }}
-          title={s.resultFromRest ? '섬으로 돌아가기' : '배 타고 우리 섬으로'}
-          onPress={done}
-        />
+        >
+          <FiButton
+            primary
+            id="result-done"
+            title={
+              s.resultFromRest || tutorialStep === 21 ? '섬으로 돌아가기' : '배 타고 우리 섬으로'
+            }
+            onPress={() => {
+              if (tutorialStep === 21) e.setGuideStep(22);
+              done();
+            }}
+          />
+        </View>
       </View>
     </FiModal>
   );
@@ -1427,9 +1492,100 @@ function FocusFlow({ e }: any) {
     ) : (
       <RewardModal e={e} onClaimed={claimed} />
     ));
+  const tutorialNext = (text: string, next: number) => (
+    <TutorialSpotlight text={text}>
+      <Btn title="다음" small onPress={() => e.setGuideStep(next)} />
+    </TutorialSpotlight>
+  );
+  const tutorialOverlay = (() => {
+    if (leg || voyage) return null;
+    if (r === 'fishingArrival' && tutorialStep === 5)
+      return tutorialNext('집중하고 싶은 빈 땅을 눌러 자리를 골라 봐.', 6);
+    if (r === 'fishingArrival' && tutorialStep === 6) {
+      const width = Math.min(L.floatingWidth, 414);
+      return (
+        <GuideBox
+          text={
+            '물 위나 다른 주민이 앉아 있는 곳은 고를 수 없어.\n마음에 드는 자리를 직접 누르면 돼.'
+          }
+          style={{ zIndex: 100, left: (L.width - width) / 2, width, bottom: safe.bottom + 16 }}
+        >
+          {null}
+        </GuideBox>
+      );
+    }
+    if (r === 'focusSetup' && tutorialStep === 7)
+      return (
+        <TutorialSpotlight
+          target={setupInputTarget.rect}
+          text={
+            '이번 집중에서 할 일을 하나 적어 봐.\n“영어 단어 외우기”처럼 지금 바로 시작할 수 있는 일이 좋아.'
+          }
+        >
+          <Btn title="입력 완료" small disabled={!e.text.trim()} onPress={finishInput} />
+        </TutorialSpotlight>
+      );
+    if (r === 'focusSetup' && tutorialStep === 8)
+      return (
+        <TutorialSpotlight target={setupStartTarget.rect} text="좋아. 이제 집중 시작을 눌러 봐." />
+      );
+    if (r === 'focus' && tutorialStep === 9)
+      return tutorialNext(
+        '집중이 시작됐어.\n위에는 방금 적은 할 일과 실제 집중 시간이 표시돼.',
+        10,
+      );
+    if (r === 'focus' && tutorialStep === 10)
+      return tutorialNext(
+        `네가 집중하는 동안 ${s.name}이가 낚시를 할 거야.\n많은 사람들과 동시에 집중할수록 희귀한 물고기를 낚을 확률이 높아지니 참고해.`,
+        11,
+      );
+    if (r === 'focus' && tutorialStep === 12)
+      return tutorialNext(
+        '첫 물고기를 낚았어!\n이 물고기는 섬을 발전시키는 데 사용할 수 있어!',
+        14,
+      );
+    if (r === 'focus' && tutorialStep === 14)
+      return (
+        <TutorialSpotlight
+          target={pauseTarget.rect}
+          text={'이번에는 잠깐 쉬어 보자.\n아래의 휴식하기를 눌러 봐.'}
+        />
+      );
+    if (r === 'focus' && tutorialStep === 16)
+      return tutorialNext(
+        '아까 골랐던 자리로 돌아왔어.\n할 일과 집중 시간도 쉬기 전 그대로 이어졌지?',
+        17,
+      );
+    if (r === 'focus' && tutorialStep === 17)
+      return (
+        <TutorialSpotlight
+          target={endTarget.rect}
+          text={
+            '이렇게 쉬었다가 돌아와도 처음부터 다시 시작할 필요는 없어.\n이제 집중을 마쳐 보자.'
+          }
+        />
+      );
+    if (r === 'focus' && tutorialStep === 18)
+      return <TutorialSpotlight target={confirmEndTarget.rect} text="집중 종료를 눌러 마쳐 봐." />;
+    if (r === 'focusResult' && tutorialStep === 19)
+      return tutorialNext(
+        '방금 집중한 시간이 기록됐어.\n쉬었던 시간은 집중 시간에 포함되지 않아.',
+        20,
+      );
+    if (r === 'focusResult' && tutorialStep === 20)
+      return tutorialNext('집중해서 낚은 물고기도 여기에서 확인할 수 있어.', 21);
+    if (r === 'focusResult' && tutorialStep === 21)
+      return (
+        <TutorialSpotlight
+          target={resultTarget.rect}
+          text={'이제 섬으로 돌아가기를 눌러 봐.\n돌아가면 섬을 되살릴 첫 번째 퀘스트를 줄게.'}
+        />
+      );
+    return null;
+  })();
   if (r === 'focusResult' && s.resultFromRest)
     return (
-      <View style={{ flex: 1 }}>
+      <TutorialScene style={{ flex: 1 }} overlay={tutorialOverlay}>
         <RestGroup
           state={s}
           live={liveIslandId ? live : null}
@@ -1439,7 +1595,7 @@ function FocusFlow({ e }: any) {
         />
         {resultModal}
         {rewardModal}
-      </View>
+      </TutorialScene>
     );
   const seated = r !== 'fishingArrival' && !leg,
     spots = [...peerSpots, ...(seated ? [mine] : [])];
@@ -1490,32 +1646,34 @@ function FocusFlow({ e }: any) {
           >
             오늘의 할 일
           </Text>
-          <TextInput
-            testID="focus-subject"
-            accessibilityLabel="오늘의 할 일"
-            value={e.text}
-            onChangeText={(t: string) => {
-              e.setText(t);
-              setError('');
-            }}
-            maxLength={40}
-            placeholder="예: 영어 단어 외우기"
-            placeholderTextColor="#9C8B80"
-            returnKeyType="done"
-            onSubmitEditing={start}
-            style={{
-              minHeight: 40,
-              paddingVertical: 8,
-              paddingHorizontal: 12,
-              borderWidth: 2,
-              borderColor: OUTLINE,
-              borderRadius: 13,
-              backgroundColor: C.paper,
-              fontSize: 14,
-              lineHeight: 22.4,
-              color: INK,
-            }}
-          />
+          <View ref={setupInputTarget.ref} collapsable={false} onLayout={setupInputTarget.measure}>
+            <TextInput
+              testID="focus-subject"
+              accessibilityLabel="오늘의 할 일"
+              value={e.text}
+              onChangeText={(t: string) => {
+                e.setText(t);
+                setError('');
+              }}
+              maxLength={40}
+              placeholder="예: 영어 단어 외우기"
+              placeholderTextColor="#9C8B80"
+              returnKeyType="done"
+              onSubmitEditing={tutorialStep === 7 ? finishInput : start}
+              style={{
+                minHeight: 40,
+                paddingVertical: 8,
+                paddingHorizontal: 12,
+                borderWidth: 2,
+                borderColor: OUTLINE,
+                borderRadius: 13,
+                backgroundColor: C.paper,
+                fontSize: 14,
+                lineHeight: 22.4,
+                color: INK,
+              }}
+            />
+          </View>
           {error !== '' && (
             <Text style={{ fontSize: 11, lineHeight: 17, color: '#a65539', marginTop: 5 }}>
               {error}
@@ -1523,13 +1681,14 @@ function FocusFlow({ e }: any) {
           )}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
             <FiButton title="다른 곳 고르기" style={{ flex: 1 }} onPress={e.back} />
-            <FiButton
-              primary
-              title="집중 시작"
-              id="start-focus"
+            <View
+              ref={setupStartTarget.ref}
+              collapsable={false}
+              onLayout={setupStartTarget.measure}
               style={{ flex: 1 }}
-              onPress={start}
-            />
+            >
+              <FiButton primary title="집중 시작" id="start-focus" onPress={start} />
+            </View>
           </View>
         </View>
       </View>
@@ -1564,7 +1723,11 @@ function FocusFlow({ e }: any) {
     justifyContent: 'center' as const,
   });
   return (
-    <View style={{ flex: 1 }} onLayout={(ev) => setBoxHeight(ev.nativeEvent.layout.height)}>
+    <TutorialScene
+      style={{ flex: 1 }}
+      onLayout={(ev) => setBoxHeight(ev.nativeEvent.layout.height)}
+      overlay={tutorialOverlay}
+    >
       <FishingIsland
         focus={r !== 'fishingArrival' ? mine : L.landscape ? { x: 45, y: 58 } : { x: 38, y: 56 }}
         ratio={r === 'focusSetup' ? 0.72 : 0.5}
@@ -1764,51 +1927,71 @@ function FocusFlow({ e }: any) {
             >
               <Image source={art[`emote/${emote ?? 'hello'}`]} style={{ width: 32, height: 32 }} />
             </Pressable>
-            <FiButton
-              primary
-              title="휴식하기"
-              id="pause-focus"
+            <View
+              ref={pauseTarget.ref}
+              collapsable={false}
+              onLayout={pauseTarget.measure}
               style={{ flex: 1 }}
-              onPress={() => {
-                // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식).
-                // 서버 세션은 pause 성공 뒤에만 휴식 연출을 시작한다(정책: 이동 연출은 성공 후).
-                const go = () =>
-                  leaveTo(() => {
-                    setVoyage('toRest');
-                    e.go('rest');
-                  });
-                if (serverSession()) {
-                  e.focus
-                    .pause()
-                    .then(go)
-                    .catch((error: any) =>
-                      e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'),
-                    );
-                  return;
-                }
-                e.dispatch({ type: 'PAUSE' });
-                go();
-              }}
-            />
-            <FiButton
-              title="집중 종료"
-              id="end-focus"
+            >
+              <FiButton
+                primary
+                title="휴식하기"
+                id="pause-focus"
+                onPress={() => {
+                  // 휴식 시간은 누른 순간부터(뗏목까지 걷기·배 이동도 휴식).
+                  // 서버 세션은 pause 성공 뒤에만 휴식 연출을 시작한다(정책: 이동 연출은 성공 후).
+                  const go = () =>
+                    leaveTo(() => {
+                      setVoyage('toRest');
+                      e.go('rest');
+                    });
+                  if (serverSession()) {
+                    e.focus
+                      .pause()
+                      .then(() => {
+                        if (tutorialStep === 14) e.setGuideStep(15);
+                        go();
+                      })
+                      .catch((error: any) =>
+                        e.notify(error?.message ?? '휴식으로 이동하지 못했어요.'),
+                      );
+                    return;
+                  }
+                  e.dispatch({ type: 'PAUSE' });
+                  if (tutorialStep === 14) e.setGuideStep(15);
+                  go();
+                }}
+              />
+            </View>
+            <View
+              ref={endTarget.ref}
+              collapsable={false}
+              onLayout={endTarget.measure}
               style={{ flex: 1 }}
-              onPress={() => setDialog('end')}
-            />
+            >
+              <FiButton
+                title="집중 종료"
+                id="end-focus"
+                onPress={() => {
+                  if (tutorialStep === 17) e.setGuideStep(18);
+                  setDialog('end');
+                }}
+              />
+            </View>
           </View>
           {dialog === 'end' && (
             <FiModal>
               <Text style={fiTitle(wide ? 19 : 22)}>이번 집중을 마칠까요?</Text>
               <View style={{ flexDirection: 'row', gap: 8, marginTop: wide ? 12 : 18 }}>
                 <FiButton title="계속하기" style={{ flex: 1 }} onPress={() => setDialog(null)} />
-                <FiButton
-                  primary
-                  title="집중 종료"
-                  id="confirm-finish"
+                <View
+                  ref={confirmEndTarget.ref}
+                  collapsable={false}
+                  onLayout={confirmEndTarget.measure}
                   style={{ flex: 1 }}
-                  onPress={finish}
-                />
+                >
+                  <FiButton primary title="집중 종료" id="confirm-finish" onPress={finish} />
+                </View>
               </View>
             </FiModal>
           )}
@@ -1852,7 +2035,7 @@ function FocusFlow({ e }: any) {
       )}
       {r === 'focusResult' && !leg && resultModal}
       {!leg && rewardModal}
-    </View>
+    </TutorialScene>
   );
 }
 // 퀘스트 보상받기(갤러리 49 보상 모달): 결과창 다음에 한 번. 받으면 다음 보상이 없을 때 섬으로.

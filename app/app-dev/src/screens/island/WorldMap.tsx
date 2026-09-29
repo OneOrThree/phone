@@ -40,6 +40,7 @@ import { Grid, Point, onLand, nearestLand, landPath } from '@/utils/world-grid';
 import grids from '@/constants/world-v2.json';
 import { Btn, C, Txt, Pic } from '@/design-system/patterns';
 import { componentTokens } from '@/design-system/tokens';
+import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -480,6 +481,7 @@ export function FinalIsland({
   notify,
   dispatch,
   viewingIslandId,
+  focusTutorial,
 }: {
   state: State;
   go: (r: Route, id?: string) => void;
@@ -490,13 +492,15 @@ export function FinalIsland({
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
+  focusTutorial?: { text: string; onPress: () => void };
 }) {
   // 구경 중이면 구경하는 섬을 그리고, 내 고양이·집중·건설 없이 둘러보기만 한다.
   // viewingIslandId는 방문 카드에서 들어온 읽기 전용 경로라 전역 소속/방문 상태를 바꾸지 않는다.
   const explicitVisit = !!viewingIslandId,
     i = state.islands.find((island) => island.id === viewingIslandId) ?? viewIsland(state),
     visiting = explicitVisit || !!state.visitingIslandId,
-    L = useAppLayout();
+    L = useAppLayout(),
+    focusTarget = useSpotlightTarget(!!focusTutorial);
   const [pos, setPos] = useState(homePositions[i.id] ?? { x: 585, y: 470 }),
     [walking, setWalking] = useState(false);
   const xy = useRef(new Animated.ValueXY(pos)).current,
@@ -665,7 +669,12 @@ export function FinalIsland({
       i.buildings.includes('board') &&
       (i.quests.length > 0 || rewardCount > 0);
   return (
-    <View style={{ flex: 1 }}>
+    <TutorialScene
+      style={{ flex: 1 }}
+      overlay={
+        focusTutorial && <TutorialSpotlight target={focusTarget.rect} text={focusTutorial.text} />
+      }
+    >
       <WorldMap
         state={state}
         islandId={i.id}
@@ -824,16 +833,21 @@ export function FinalIsland({
                 }}
               />
             ) : (
-              <Btn
-                round
-                title="집중하기"
-                id="depart-focus"
-                onPress={() => walk(doors.raft, () => go('focusTravel'))}
-              />
+              <View ref={focusTarget.ref} collapsable={false} onLayout={focusTarget.measure}>
+                <Btn
+                  round
+                  title="집중 시작"
+                  id="depart-focus"
+                  onPress={() => {
+                    focusTutorial?.onPress();
+                    walk(doors.raft, () => go('focusTravel'));
+                  }}
+                />
+              </View>
             )}
           </View>
         </>
       )}
-    </View>
+    </TutorialScene>
   );
 }

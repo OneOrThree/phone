@@ -207,6 +207,8 @@ export type Session = {
   version?: number;
   // 예전 저장 세션에서 집중 중 이미 섬에 적립한 물고기 수(지금은 종료 때 한 번에 적립)
   creditedFish?: number;
+  // 로컬 체험의 최초 보상. 서버 세션에는 클라이언트가 보상을 만들지 않는다.
+  tutorialFish?: boolean;
   intervals?: { start: number; end: number }[];
 };
 export type RecordItem = {
@@ -1652,10 +1654,36 @@ export function reducer(state: State, a: Action): State {
     case 'ADVANCE':
       if (s.session?.status === 'active') s.session.seconds += a.seconds;
       break;
+    case 'TUTORIAL_FISH': {
+      if (
+        !s.session ||
+        s.session.version != null ||
+        s.session.status !== 'active' ||
+        sessionSeconds(s.session, now) < 5 ||
+        s.records.length ||
+        (s.session.creditedFish ?? 0) > 0
+      )
+        return state;
+      const tutorialIsland = s.islands.find((x) => x.id === s.session!.islandId)!;
+      s.session.creditedFish = 1;
+      s.session.tutorialFish = true;
+      tutorialIsland.fish = balance(tutorialIsland) + 1;
+      tutorialIsland.earned ??= {};
+      tutorialIsland.earned.me = earnedBy(tutorialIsland, 'me') + 1;
+      tutorialIsland.ledger.unshift({
+        id: uuid(),
+        text: `${s.name} · 첫 집중 +1마리`,
+        at: now,
+        memberId: 'me',
+      });
+      break;
+    }
     case 'FINISH': {
       if (!s.session) return state;
       const seconds = Math.floor(sessionSeconds(s.session, now)),
-        fish = Math.floor(seconds / SECONDS_PER_FISH),
+        fish = s.session.tutorialFish
+          ? Math.max(1, Math.floor(seconds / SECONDS_PER_FISH))
+          : Math.floor(seconds / SECONDS_PER_FISH),
         island = s.islands.find((x) => x.id === s.session!.islandId)!;
       const contributed = true;
       const record = {

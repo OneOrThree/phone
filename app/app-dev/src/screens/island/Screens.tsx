@@ -2138,13 +2138,11 @@ export function RedesignScreens({ e }: any) {
       />
     );
   if (route === 'guide') {
-    // 회관 안내(옛 5번째 대사)는 첫 집중 후 홈(20b)으로 옮겼다
     const lines = [
-      '안녕! 섬에 온 걸 환영해! 처음 보는 얼굴이네?',
-      '네가 집중하는 동안 고양이는 낚시를 할 거야!\n고양이를 도와 이 섬을 하나씩 꾸며 나가자!',
-      '집중하기를 누르면 배를 타고 낚시섬으로 가.\n도착해서 원하는 곳을 누르고 할 일을 정하면 돼!',
-      '잠깐 쉬고 싶으면 모닥불로 와.',
-      '그럼 첫 낚시 다녀와!\n다시 보고 싶으면 앱 설정의 튜토리얼 다시보기를 눌러.',
+      '안녕! 처음 보는 얼굴이네.\n나는 몽돌. 이 섬에 오래전부터 살고 있었지.',
+      '예전에는 사람들이 많이 오가던 활기찬 섬이었어.\n하지만 어느 순간 발길이 끊기면서 지금은 아무도 찾지 않는 섬이 되어 버렸지.',
+      '너와 함께라면 이 섬을 다시 살릴 수 있을 것 같아.\n나와 함께 섬을 되살려 보지 않을래?',
+      '좋아, 그럼 섬을 되살리는 첫걸음부터 시작해 보자.\n이곳에서는 네가 집중한 시간이 섬을 키울 힘이 되거든.\n어떻게 하는지 직접 해보면 금방 알 수 있을 거야.',
     ];
     const step = Math.min(guideStep, lines.length - 1),
       last = step === lines.length - 1,
@@ -2165,7 +2163,10 @@ export function RedesignScreens({ e }: any) {
             accessibilityRole="button"
             accessibilityLabel="건너뛰기"
             hitSlop={12}
-            onPress={home}
+            onPress={() => {
+              setGuideStep(99);
+              home();
+            }}
           >
             <Txt
               kind="meta"
@@ -2179,10 +2180,15 @@ export function RedesignScreens({ e }: any) {
             </Txt>
           </Pressable>
           <Btn
-            title={last ? '시작할게' : '다음'}
+            title={last ? '같이 해볼게' : '다음'}
             small
             style={{ minWidth: 96 }}
-            onPress={() => (last ? home() : setGuideStep(step + 1))}
+            onPress={() => {
+              if (last) {
+                setGuideStep(4);
+                home();
+              } else setGuideStep(step + 1);
+            }}
           />
         </GuideBox>
       </View>
@@ -2206,6 +2212,14 @@ export function RedesignScreens({ e }: any) {
             request={e.walkRequest}
             notify={notify}
             dispatch={dispatch}
+            focusTutorial={
+              guideStep === 4
+                ? {
+                    text: '아래의 집중 시작 버튼을 눌러 집중을 시작해 보자.',
+                    onPress: () => setGuideStep(5),
+                  }
+                : undefined
+            }
           />
         )}
         {mailboxGuide && (
@@ -5638,7 +5652,7 @@ export function RedesignScreens({ e }: any) {
         <SheetGroup flat>
           <SheetRow
             title="튜토리얼 다시보기"
-            sub="앵무새 안내를 처음부터 다시 봐요"
+            sub="몽돌 안내를 처음부터 다시 봐요"
             chevron
             onPress={() => {
               setGuideStep(0);
