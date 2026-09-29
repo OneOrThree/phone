@@ -792,7 +792,10 @@ export function RedesignScreens({ e }: any) {
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
-    characterSaveIntent = useRef<{ signature: string; key: string } | null>(null);
+    characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
+    routeNowRef = useRef(route);
+  routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
@@ -1407,7 +1410,8 @@ export function RedesignScreens({ e }: any) {
                     name: saved.name ?? name,
                     color: saved.catColor ?? state.color,
                   });
-                  go('chooseIsland');
+                  // 저장이 늦어 그 사이 뒤로 가기 등으로 화면을 떠났다면 다시 끌어오지 않는다
+                  if (routeNowRef.current === 'character') go('chooseIsland');
                 }),
               );
             }}
@@ -1434,6 +1438,7 @@ export function RedesignScreens({ e }: any) {
         <AvatarGrid
           six={layout.compact}
           value={state.color}
+          disabled={serverBusy}
           // 저장 요청이 오가는 동안은 입력을 잠가, 응답이 화면의 새 값을 되돌리지 않게 한다
           onChange={(color: Color) => {
             if (!serverBusy) act('PROFILE', { color });
@@ -1442,6 +1447,7 @@ export function RedesignScreens({ e }: any) {
         <Field
           label="닉네임"
           value={state.name}
+          disabled={serverBusy}
           onChange={(name: string) => {
             if (!serverBusy) act('PROFILE', { name });
           }}

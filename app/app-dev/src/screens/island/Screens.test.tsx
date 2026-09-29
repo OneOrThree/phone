@@ -328,6 +328,26 @@ test('character CTA는 실패 뒤 같은 입력으로 다시 눌러도 같은 �
   assert.equal(mockUpdateProfile.mock.calls[1][1], mockUpdateProfile.mock.calls[0][1]);
 });
 
+test('character CTA는 저장 응답 전에 화면을 떠났으면 chooseIsland로 다시 끌어오지 않는다', async () => {
+  let exposed: any;
+  let resolveSave: (v: unknown) => void = () => {};
+  mockUpdateProfile.mockReturnValue(new Promise((resolve) => (resolveSave = resolve)));
+  const s = await render(
+    <Harness route="character" api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 1));
+  await s.rerender(
+    <Harness route="login" api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
+  await act(async () => {
+    resolveSave({ id: 'u1', name: '수빈', catColor: 'black', mainIslandId: null });
+  });
+
+  assert.equal(exposed.go.mock.calls.length, 0);
+});
+
 test('목업 모드 character CTA는 PATCH 없이 바로 chooseIsland로 넘어간다', async () => {
   let exposed: any;
   const s = await render(<Harness route="character" expose={(value: any) => (exposed = value)} />);
