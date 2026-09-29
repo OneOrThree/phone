@@ -784,6 +784,8 @@ export function RedesignScreens({ e }: any) {
     [invitePick, setInvitePick] = useState<IslandSummary | null>(null),
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
     [serverDone, setServerDone] = useState(''),
+    // 초대로 가입을 확정한 섬 id — 정본 스냅숏 카드와 같은 가입인지 이름이 아닌 id로 비교한다
+    [serverDoneId, setServerDoneId] = useState(''),
     [safetyTarget, setSafetyTarget] = useState<{
       id: string;
       name: string;
@@ -809,6 +811,7 @@ export function RedesignScreens({ e }: any) {
     setSoundDialog(null);
     setInvitePick(null);
     setServerDone('');
+    setServerDoneId('');
     setSafetyTarget(null);
   }, [route]);
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
@@ -1525,9 +1528,9 @@ export function RedesignScreens({ e }: any) {
             {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다.
                 초대 코드로 막 가입한 직후엔 snap.currentIslandId 가 이미 그 섬이라 위 「가입이
                 확인됐어요」 카드와 같은 가입을 동시에 가리킨다 — 그때는 정본 스냅숏 카드만 남기고
-                serverDone 카드는 건너뛴다(joinIsland 화면과 같은 dedupe 규칙). */}
+                serverDone 카드는 건너뛴다(같은 가입인지는 이름이 아니라 id로 본다). */}
             {serverDone &&
-              snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name !== serverDone &&
+              !(serverDoneId && snap?.currentIslandId === serverDoneId) &&
               doneCard('가입이 완료됐어요', `「${serverDone}」의 주민이 됐어요.`)}
             {/* 초대받은 섬: 코드 확인 → 승인 없는 섬은 바로 참여, 승인 필요 섬은 가입 신청 */}
             <Btn
@@ -1658,6 +1661,7 @@ export function RedesignScreens({ e }: any) {
                             // pending 은 App 이 approval 경로로 보낸다 — active 만 여기서 확정 표시
                             if (r.status === 'active') {
                               setServerDone(invitePick.name);
+                              setServerDoneId(invitePick.id);
                               setInvitePick(null);
                               setInvite(false);
                             }

@@ -698,6 +698,39 @@ test('초대 코드로 가입한 직후 chooseIsland는 확인 카드를 한 번
   assert.equal(s.queryByText('가입이 완료됐어요'), null);
 });
 
+test('이전 섬과 이름이 같아도 방금 가입한 섬(id 다름)의 완료 카드는 숨기지 않는다', async () => {
+  // 서버가 current 를 바꾸지 않은 채 같은 이름의 다른 섬을 가리키는 경우 — 이름 비교면 완료 카드가 사라진다.
+  const join = jest.fn(async (id: string, dispatch: any) => {
+    dispatch({
+      type: 'ISLAND_SYNC',
+      memberships: {
+        items: [
+          islandSummary({ id: 'old-1', name: '같은 이름', membershipStatus: 'active' }),
+          islandSummary({ id, name: '같은 이름', membershipStatus: 'active' }),
+        ],
+        nextCursor: null,
+        currentIslandId: 'old-1',
+        lossReason: null,
+      },
+    });
+    return { status: 'active' as const };
+  });
+  const api = (dispatch: any) => ({
+    resolveInvite: jest.fn(async (_code: string) =>
+      islandSummary({ id: 'inv-2', name: '같은 이름' }),
+    ),
+    join: (id: string) => join(id, dispatch),
+  });
+  const s = await render(<Harness route="chooseIsland" api={api} />);
+  await fireEvent.press(s.getByTestId('invite-open'));
+  await fireEvent.changeText(s.getByLabelText('초대 코드'), 'ABC123');
+  await fireEvent.press(s.getByLabelText('확인'));
+  await waitFor(() => s.getByText('같은 이름'));
+  await fireEvent.press(s.getByText('이 섬에 참여'));
+
+  await waitFor(() => s.getByText('가입이 완료됐어요'));
+});
+
 test('부팅 동기화 실패는 chooseIsland에 명시 오류+재시도를 띄우고 재시도가 sync를 부른다', async () => {
   const sync = jest.fn(async () => {});
   const api = () => ({ sync });
