@@ -1005,6 +1005,58 @@ test('내 뗏목의 「현재 내 메인 섬」은 로컬 목업 섬(소다 섬)
   assert.equal(screen.queryByLabelText('현재 내 메인 섬 소다 섬'), null);
 });
 
+test('내 뗏목의 메인 섬 id가 멤버십에 없으면 현재 섬 이름을, 그것도 없으면 「내 섬」을 쓴다', async () => {
+  const build = (currentIslandId: string | null) => {
+    const initial = initialState(false);
+    initial.serverIslands = {
+      memberships: [
+        {
+          id: 'cur-island',
+          name: '현재섬',
+          intro: '',
+          visibility: 'public',
+          approvalRequired: false,
+          memberCount: 1,
+          maxMembers: 15,
+          membershipStatus: 'active',
+          joinRequestId: null,
+          growthStage: null,
+          themeId: null,
+        },
+      ],
+      currentIslandId,
+      lossReason: null,
+      candidates: [],
+      nextCursor: null,
+      visit: null,
+      joinRequests: [],
+      requestStatus: [],
+    };
+    initial.mainIslandId = 'gone-island';
+    initial.onboarded = true;
+    return initial;
+  };
+  const friendsScreen = { status: 'idle', data: null };
+
+  const withCurrent = await render(
+    <Harness
+      route="boat"
+      initial={build('cur-island')}
+      api={() => ({})}
+      friendsScreen={friendsScreen}
+    />,
+  );
+  withCurrent.getByLabelText('현재 내 메인 섬 현재섬');
+  assert.equal(withCurrent.queryByText('소다 섬'), null);
+  cleanup();
+
+  const withoutCurrent = await render(
+    <Harness route="boat" initial={build(null)} api={() => ({})} friendsScreen={friendsScreen} />,
+  );
+  withoutCurrent.getByLabelText('현재 내 메인 섬 내 섬');
+  assert.equal(withoutCurrent.queryByText('소다 섬'), null);
+});
+
 test('내 뗏목의 긴 서버 섬 이름은 한 줄로 줄이고 말줄임한다', async () => {
   // 게스트→멤버 전환 직후(로컬 목업 섬은 하나도 가입하지 않은 상태)를 재현한다.
   const initial = initialState(false);
