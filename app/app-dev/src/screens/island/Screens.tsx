@@ -2685,11 +2685,7 @@ export function RedesignScreens({ e }: any) {
             aria-hidden={true}
             style={StyleSheet.absoluteFill}
           >
-            {scene ? (
-              focusScene
-            ) : (
-              <Pic id={(layout.compact ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
-            )}
+            {scene ? focusScene : <Pic id="interior/gram" w="100%" h="100%" cover />}
           </View>
           <Pressable
             accessibilityRole="button"

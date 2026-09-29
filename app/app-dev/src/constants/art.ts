@@ -52,6 +52,8 @@ export const art: Record<string, ImageSourcePropType> = {
   'L/bldbg/dock': require('@/assets/redesign/lbldbg-dock.jpg'),
   'L/bldbg/gram': require('@/assets/redesign/lbldbg-gram.jpg'),
   'L/bldbg/fire': require('@/assets/redesign/lbldbg-fire.jpg'),
+  // 축음기 화면 배경 — Figma 확정 시안(곡 선택 723-145)의 전용 일러스트. 세로·가로 공통
+  'interior/gram': require('@/assets/interiors/gram-cute-v1.png'),
   'qb/board': require('@/assets/redesign/qb-board.png'),
   'qb/note/butter': require('@/assets/redesign/qb-note-butter.png'),
   'qb/note/peach': require('@/assets/redesign/qb-note-peach.png'),
