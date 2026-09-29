@@ -275,6 +275,54 @@ test('GROMO 시작하기 전환 후 100ms에는 터치 차단막이 있고 만�
   }
 });
 
+// GROMO-2006 재실행 복구 회귀 — character CTA는 서버 모드에서 PATCH /me(name+catColor)가
+// 성공한 뒤에만 chooseIsland로 넘어간다. 로컬 dispatch만으로 넘어가면 GET /me.onboardingComplete가
+// 갱신되지 않아, 재실행 복구(restoredRoute)가 서버값을 정본으로 봐서 이 화면으로 되돌아간다.
+test('character CTA는 서버 모드에서 PATCH /me 성공 뒤에만 PROFILE을 반영하고 chooseIsland로 넘어간다', async () => {
+  let exposed: any;
+  mockUpdateProfile.mockResolvedValue({
+    id: 'u1',
+    name: '수빈',
+    catColor: 'black',
+    mainIslandId: null,
+  });
+  const s = await render(
+    <Harness route="character" api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await waitFor(() => assert.equal(mockUpdateProfile.mock.calls.length, 1));
+  assert.deepEqual(mockUpdateProfile.mock.calls[0][0], { name: '수빈', catColor: 'black' });
+  await waitFor(() => assert.ok(exposed.actions.includes('PROFILE')));
+  assert.equal(exposed.go.mock.calls.length, 1);
+  assert.equal(exposed.go.mock.calls[0][0], 'chooseIsland');
+});
+
+test('character CTA의 PATCH /me 실패는 PROFILE·화면 전환 없이 서버 오류 문구만 보여준다', async () => {
+  let exposed: any;
+  mockUpdateProfile.mockRejectedValue(
+    new ApiError('CLIENT_NETWORK_ERROR', '네트워크에 연결할 수 없어요.', 0),
+  );
+  const s = await render(
+    <Harness route="character" api={() => ({})} expose={(value: any) => (exposed = value)} />,
+  );
+
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  await waitFor(() => s.getByText('네트워크에 연결할 수 없어요.'));
+  assert.ok(!exposed.actions.includes('PROFILE'));
+  assert.equal(exposed.go.mock.calls.length, 0);
+});
+
+test('목업 모드 character CTA는 PATCH 없이 바로 chooseIsland로 넘어간다', async () => {
+  let exposed: any;
+  const s = await render(<Harness route="character" expose={(value: any) => (exposed = value)} />);
+
+  await fireEvent.press(s.getByText('내 고양이와 시작'));
+  assert.equal(mockUpdateProfile.mock.calls.length, 0);
+  assert.equal(exposed.go.mock.calls.length, 1);
+  assert.equal(exposed.go.mock.calls[0][0], 'chooseIsland');
+});
+
 const flush = async () => act(async () => {});
 
 // 서버 폴링·진행 중 Promise가 다음 테스트를 오염시키지 않게 매번 언마운트한다

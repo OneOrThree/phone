@@ -791,7 +791,8 @@ export function RedesignScreens({ e }: any) {
     } | null>(null);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null);
+    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    characterSaveIntent = useRef<{ signature: string; key: string } | null>(null);
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
@@ -1383,8 +1384,33 @@ export function RedesignScreens({ e }: any) {
         cta={
           <Btn
             title="내 고양이와 시작"
-            disabled={!state.name.trim()}
-            onPress={() => go('chooseIsland')}
+            disabled={!state.name.trim() || serverBusy}
+            onPress={() => {
+              if (!server) {
+                // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
+                go('chooseIsland');
+                return;
+              }
+              // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
+              // 여기서 저장하지 않으면 이번 세션은 로컬 state.onboarded만으로 홈에 들어가지만,
+              // 재실행 복구(restoredRoute)는 서버 값을 정본으로 봐서 이 화면으로 되돌아간다.
+              const name = state.name.trim();
+              const signature = JSON.stringify([name, state.color]);
+              if (characterSaveIntent.current?.signature !== signature)
+                characterSaveIntent.current = { signature, key: uuid() };
+              const intent = characterSaveIntent.current;
+              run(() =>
+                updateProfile({ name, catColor: state.color }, intent.key).then((saved) => {
+                  if (characterSaveIntent.current?.key === intent.key)
+                    characterSaveIntent.current = null;
+                  act('PROFILE', {
+                    name: saved.name ?? name,
+                    color: saved.catColor ?? state.color,
+                  });
+                  go('chooseIsland');
+                }),
+              );
+            }}
           />
         }
       >
@@ -1399,6 +1425,11 @@ export function RedesignScreens({ e }: any) {
             </View>
           </View>
         )}
+        {serverError ? (
+          <Txt kind="meta" style={[META, { color: C.danger }]}>
+            {serverError}
+          </Txt>
+        ) : null}
         <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>어떤 고양이로 시작할까요?</Txt>
         <AvatarGrid
           six={layout.compact}
