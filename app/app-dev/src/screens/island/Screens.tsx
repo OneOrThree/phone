@@ -4727,9 +4727,14 @@ export function RedesignScreens({ e }: any) {
         )}
       </View>
     );
+  // island(currentIsland(state))는 로컬 목업 섬(state.islandId, 기본값 소다 섬)을 가리켜
+  // 서버 모드에서도 항상 「소다 섬」으로 보였다. 서버 모드는 snap.memberships 의 현재 섬 이름이 정본이다.
+  const fishStripIslandName = server
+    ? (snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ?? island.name)
+    : island.name;
   const fishStrip = (
     <Strip
-      label={island.name + ' 물고기'}
+      label={fishStripIslandName + ' 물고기'}
       value={
         server
           ? shopApi.wallets
