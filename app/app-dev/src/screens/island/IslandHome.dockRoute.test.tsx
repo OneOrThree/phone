@@ -2,7 +2,7 @@ import React from 'react';
 import { act, fireEvent, render } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { currentIsland, initialState } from '@/services/model';
-import { nodes } from '@/utils/island-path';
+import { nodes, type Point } from '@/utils/island-path';
 import { IslandHome, islandPositions } from './IslandHome';
 import type { Route } from '@/services/model';
 
@@ -20,9 +20,9 @@ jest.mock('@/utils/island-path', () => {
 // 고양이가 이미 부두(dock)에 서 있으면(예: 집중을 마치고 돌아온 직후) walkPath 가 걸을 경로를
 // 만들지 않는다. 그래도 목적 화면(배·집중 설정·옷장)은 열려야 한다.
 describe('고양이가 부두에 있을 때 부두 경유 화면 진입', () => {
-  const renderHome = (go: jest.Mock, request?: Route | null) => {
+  const renderHome = (go: jest.Mock, request?: Route | null, at: Point = nodes.dock) => {
     const state = initialState(true);
-    islandPositions[currentIsland(state).id] = { ...nodes.dock };
+    islandPositions[currentIsland(state).id] = { ...at };
     return render(
       <SafeAreaProvider
         initialMetrics={{
@@ -64,6 +64,19 @@ describe('고양이가 부두에 있을 때 부두 경유 화면 진입', () => 
       jest.advanceTimersByTime(3000);
     });
     expect(go).toHaveBeenCalledWith(route);
+    await screen.unmount();
+  });
+
+  it('경로가 끊겨 목적지 곁이 아니면(닿을 수 없으면) 화면을 열지 않는다', async () => {
+    const go = jest.fn();
+    const screen = await renderHome(go, null, nodes.mail);
+    await act(async () => {
+      fireEvent.press(screen.getByLabelText('내 배'));
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(3000);
+    });
+    expect(go).not.toHaveBeenCalled();
     await screen.unmount();
   });
 
