@@ -8,8 +8,8 @@
  */
 import React, { useEffect, useState } from 'react';
 import { View, type ViewStyle } from 'react-native';
-import { Btn, Txt } from '@/design-system/patterns';
-import { componentTokens, primitiveTokens } from '@/design-system/tokens';
+import { Bar, Btn, Txt } from '@/design-system/patterns';
+import { primitiveTokens } from '@/design-system/tokens';
 import { buildingNames, type Building } from '@/services/model';
 import { normalizedConstructionProgress } from './constructionProgress';
 import { useConstruction } from './useConstruction';
@@ -222,22 +222,7 @@ export function ServerBuildCard({
           {meta}
         </Txt>
       </View>
-      <View
-        style={{
-          height: 6,
-          backgroundColor: componentTokens.progress.track,
-          borderRadius: 3,
-          overflow: 'hidden',
-        }}
-      >
-        <View
-          style={{
-            height: '100%',
-            width: `${bar * 100}%`,
-            backgroundColor: componentTokens.progress.fill,
-          }}
-        />
-      </View>
+      <Bar value={bar * 100} />
       {action}
       {/* receipt 확보 뒤에는 재조회 실패 메시지가 「공사 중」과 모순되므로 감춘다 */}
       {!tracked && !!message && <Txt kind="meta">{message}</Txt>}
