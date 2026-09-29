@@ -297,7 +297,8 @@ class WriteComposeEnvTest(unittest.TestCase):
                 if present:
                     values.update(SVC_TOKEN_DATA_TO_REALTIME="data-rt", SVC_TOKEN_BIZ_TO_REALTIME="biz-rt",
                                   FOCUS_SESSION_START_ENABLED=True, FOCUS_REWARD_ACCRUAL_ENABLED=True,
-                                  ISLAND_BOARD_WRITES_ENABLED=True)
+                                  ISLAND_BOARD_WRITES_ENABLED=True, ISLAND_MANAGEMENT_COMMANDS_ENABLED=True,
+                                  ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED=True)
                 subprocess.run([sys.executable, str(SCRIPT), "--output", str(env_file), "--app-image",
                                 "example/app@sha256:abc"], input=json.dumps(values), text=True, check=True)
                 configured = subprocess.run(
@@ -313,6 +314,9 @@ class WriteComposeEnvTest(unittest.TestCase):
                 self.assertEqual(app["FOCUS_REWARD_ACCRUAL_ENABLED"], "True" if present else "false")
                 # 섬 게시판 쓰기 게이트 (GROMO-1771 · GROMO-2136) — 같은 이유로 dev.env → 컨테이너 전달을 고정한다.
                 self.assertEqual(app["ISLAND_BOARD_WRITES_ENABLED"], "True" if present else "false")
+                # 섬 관리 명령·방장 위임 게이트 (GROMO-2156) — 같은 경로로 컨테이너까지 와야 한다.
+                self.assertEqual(app["ISLAND_MANAGEMENT_COMMANDS_ENABLED"], "True" if present else "false")
+                self.assertEqual(app["ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED"], "True" if present else "false")
                 self.assertNotIn("SVC_TOKEN_DATA_TO_REALTIME", app, "legacy Data 는 satellites 프로파일이 없어 읽지 않는다")
                 for service in services.values():
                     self.assertEqual(service["logging"]["driver"], "json-file")
