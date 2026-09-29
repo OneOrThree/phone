@@ -53,7 +53,7 @@ import {
   VillageScene,
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import {
@@ -1462,6 +1462,7 @@ function FinalIslandScene({
     borderRadius: componentTokens.card.radius,
     paddingVertical: semanticTokens.spacing.control,
     paddingHorizontal: semanticTokens.spacing.control,
+    gap: primitiveTokens.space[2],
   } as const;
   const today = facts ? facts.home.focusSummary.totalSeconds : todayFocusSeconds(state, i.id),
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
@@ -1606,7 +1607,6 @@ function FinalIslandScene({
               onStarted={(receipt) =>
                 dispatch?.({
                   type: 'SERVER_CONSTRUCTION_STARTED',
-                  islandId: facts.islandId,
                   ...receipt,
                 })
               }
@@ -1615,7 +1615,7 @@ function FinalIslandScene({
           )}
           {/* 로컬 비용·BUILD 카드는 목업에서만 띄운다 */}
           {!visiting && !facts && (i.construction || next) && (
-            <View style={[buildCardStyle, { gap: 8 }]}>
+            <View style={buildCardStyle}>
               <View
                 style={{
                   flexDirection: 'row',

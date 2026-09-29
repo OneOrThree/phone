@@ -262,6 +262,8 @@ test('build — POST 세 필드·멱등 키, BUILDING·시각은 응답대로, �
   assert.equal(started?.status, 'BUILDING');
   assert.equal(started?.completesAt, '2026-09-21T01:00:00Z');
   assert.deepEqual(onStarted.mock.calls[0]?.[0], startedBody);
+  // 두 번째 인자는 착공 대상 서버 섬 id — 화면의 로컬 id(local1)가 아니라 srv1.
+  assert.equal(onStarted.mock.calls[0]?.[1], 'srv1');
 
   // completesAt 이 지나도 앱이 시각으로 완공 처리하지 않는다 — 아직 items 에 있다.
   await h.rerender({ active: true, islandId: 'local1', now: NOW + 55 * 60_000 });

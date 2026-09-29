@@ -9,7 +9,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, type ViewStyle } from 'react-native';
 import { Btn, Txt } from '@/design-system/patterns';
-import { componentTokens } from '@/design-system/tokens';
+import { componentTokens, primitiveTokens } from '@/design-system/tokens';
 import { buildingNames, type Building } from '@/services/model';
 import { normalizedConstructionProgress } from './constructionProgress';
 import { useConstruction } from './useConstruction';
@@ -26,7 +26,7 @@ export function ServerBuildCard({
   onStarted,
   onChanged,
 }: {
-  /** 홈 스냅샷의 서버 섬 id — scope 리셋 신호. */
+  /** 홈 스냅샷의 서버 섬 id — scope 리셋 신호이자 착공 요청 대상 섬과의 대조 기준. */
   islandId: string;
   building: Building;
   /** 홈 스냅샷의 섬 통장 잔액 — 접힌 카드 표시용. */
@@ -34,7 +34,12 @@ export function ServerBuildCard({
   /** 이 기기에서 받은 착공 receipt(clientConstruction) — 공사 중 표시용. */
   tracked: Tracked;
   style: ViewStyle;
-  onStarted: (receipt: { building: Building; startedAt: number; endsAt: number }) => void;
+  onStarted: (receipt: {
+    islandId: string;
+    building: Building;
+    startedAt: number;
+    endsAt: number;
+  }) => void;
   /** 착공·완공 뒤 홈 스냅샷을 다시 읽는다. */
   onChanged: () => void;
 }) {
@@ -48,13 +53,20 @@ export function ServerBuildCard({
     active: open,
     islandId,
     now,
-    onStarted: (r) =>
+    // 이 카드는 「각자 몫」 분모를 보여 주지 않는다 — 주민 전체 페이지 조회는 낭비다.
+    withMembers: false,
+    onStarted: (r, serverIslandId) =>
       onStarted({
+        islandId: serverIslandId,
         building: r.buildingId as Building,
         startedAt: Date.parse(r.startedAt),
         endsAt: Date.parse(r.completesAt),
       }),
   });
+  // 서버가 배운 섬(모든 요청의 실제 대상)이 이 카드가 받은 홈 스냅샷 섬과 다르면 — 다른 곳에서
+  // 섬을 옮긴 것. 건설 버튼을 감추고 새로고침을 유도한다(잘못된 섬에 착공하지 않는다).
+  const islandMismatch =
+    construction.serverIslandId !== null && construction.serverIslandId !== islandId;
   // receipt 확보 = 착공 확정 — 재조회 실패로 온 메시지와 상관없이 카드를 접는다
   useEffect(() => {
     if (tracked) setOpen(false);
@@ -113,6 +125,15 @@ export function ServerBuildCard({
         />
       </>
     );
+  } else if (islandMismatch) {
+    meta = '';
+    bar = 0;
+    action = (
+      <>
+        <Txt kind="meta">섬 정보가 바뀌었어요</Txt>
+        <Btn small id="server-build-refresh" title="새로고침" onPress={onChanged} />
+      </>
+    );
   } else if (construction.status === 'loading' || !item) {
     // 옵션에 이 건물이 없다 = 이미 완공 — 홈 스냅샷이 늦은 것이라 다시 읽는다
     meta = '';
@@ -169,7 +190,7 @@ export function ServerBuildCard({
   }
 
   return (
-    <View testID="server-build-card" style={[style, { gap: 8 }]}>
+    <View testID="server-build-card" style={[style, { gap: primitiveTokens.space[2] }]}>
       <View
         style={{
           flexDirection: 'row',

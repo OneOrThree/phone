@@ -276,10 +276,10 @@ export function Hall({ e }: any) {
             completesAt: clientConstruction.endsAt,
           }
         : null,
-    onStarted: (receipt) =>
+    onStarted: (receipt, serverIslandId) =>
       e.dispatch({
         type: 'SERVER_CONSTRUCTION_STARTED',
-        islandId: liveIslandId,
+        islandId: serverIslandId,
         building: receipt.buildingId as Building,
         startedAt: Date.parse(receipt.startedAt),
         endsAt: Date.parse(receipt.completesAt),
