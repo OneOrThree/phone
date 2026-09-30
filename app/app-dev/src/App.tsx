@@ -1378,8 +1378,11 @@ function Gromo() {
             accessibilityLiveRegion="polite"
             style={{
               position: 'absolute',
-              // 키보드가 떠 있으면(편지 쓰기 등) 그만큼 더 띄워 소프트 키보드에 가리지 않게 한다
-              bottom: 40 + keyboardHeight,
+              // 키보드가 떠 있으면(편지 쓰기 등) 그만큼 더 띄워 소프트 키보드에 가리지 않게 한다.
+              // Android 는 windowSoftInputMode=adjustResize 로 이 View 의 부모 영역이 이미 키보드
+              // 높이만큼 줄어들어 있어 여기서 또 더하면 이중 보정이 된다(GROMO-2169 리뷰 지적) —
+              // 키보드 높이 보정은 iOS 에서만 한다.
+              bottom: 40 + (Platform.OS === 'android' ? 0 : keyboardHeight),
               left: (layout.width - layout.floatingWidth) / 2,
               width: layout.floatingWidth,
               backgroundColor: C.ink,

@@ -9,7 +9,7 @@
  */
 import assert from 'node:assert/strict';
 import React from 'react';
-import { Keyboard } from 'react-native';
+import { Keyboard, Platform } from 'react-native';
 import { act, render, waitFor } from '@testing-library/react-native';
 import App from '@/App';
 import { clearSession } from '@/services/api/session';
@@ -50,9 +50,15 @@ const bottomOf = (style: unknown): number | undefined => {
   return undefined;
 };
 
+const originalOS = Platform.OS;
+
 beforeEach(async () => {
   captured = undefined;
   await clearSession();
+});
+
+afterEach(() => {
+  Platform.OS = originalOS;
 });
 
 test('키보드가 떠 있을 때 전역 알림 토스트는 키보드 높이만큼 위로 올라온다', async () => {
@@ -93,6 +99,37 @@ test('키보드가 떠 있을 때 전역 알림 토스트는 키보드 높이만
     await act(async () => listeners.keyboardDidHide?.());
     const toastHidden = screen.getByTestId('global-toast');
     assert.equal(bottomOf(toastHidden.props.style), 40);
+  } finally {
+    addListener.mockRestore();
+  }
+});
+
+test('Android 는 windowSoftInputMode=adjustResize 로 영역이 이미 줄어들어 있어 키보드 높이를 또 더하지 않는다', async () => {
+  Platform.OS = 'android';
+  const listeners: Record<string, (...args: any[]) => void> = {};
+  const addListener = jest.spyOn(Keyboard, 'addListener').mockImplementation(((
+    event: string,
+    callback: (...args: any[]) => void,
+  ) => {
+    listeners[event] = callback;
+    return { remove: jest.fn() } as any;
+  }) as any);
+
+  try {
+    const screen = await render(<App />);
+    await waitFor(() => assert.ok(captured));
+
+    await act(async () => captured.notify('편지를 보내지 못했어요'));
+
+    // 편지 쓰기 화면에서 TextInput 포커스로 소프트 키보드가 뜬 상황을 흉내 낸다
+    await act(async () => listeners.keyboardDidShow?.({ endCoordinates: { height: 300 } }));
+
+    const toastAfter = screen.getByTestId('global-toast');
+    assert.equal(
+      bottomOf(toastAfter.props.style),
+      40,
+      'Android 에서는 adjustResize 가 이미 키보드만큼 영역을 줄여주므로 bottom 을 추가로 올리면 이중 보정이 된다',
+    );
   } finally {
     addListener.mockRestore();
   }
