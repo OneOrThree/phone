@@ -131,8 +131,9 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         try {
             if (groupMessage) {
                 accessGuard.requireCanChat(UUID.fromString(group.group(1)), principal.userId(), bearer);
-                UUID sender = senderOf(readPayload(message), "senderId", null, true);
-                if (blockedUsers.hasBlocked(principal.userId(), sender)) {
+                // 스위치가 꺼져 있으면 발신자 판독도 하지 않는다 — 판독의 fail-closed 가 OFF 에서 새지 않게.
+                if (blockedUsers.enabled() && blockedUsers.hasBlocked(principal.userId(),
+                        senderOf(readPayload(message), "senderId", null, true))) {
                     log.debug("채팅 전달 차단 — 받는 사람이 발신자를 차단했다");
                     return null;
                 }
@@ -170,6 +171,9 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         if (eventId == null || !delivery.mayReceive(eventId, principal.userId())) {
             log.debug("응원 전달 차단 — 수신 대상이 아니다");
             return null;
+        }
+        if (!blockedUsers.enabled()) {
+            return message;
         }
         try {
             if (blockedUsers.hasBlocked(principal.userId(), senderOf(root, "payload", "userId", false))) {

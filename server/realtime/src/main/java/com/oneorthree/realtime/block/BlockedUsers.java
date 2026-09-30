@@ -70,6 +70,11 @@ public class BlockedUsers {
         this.enabled = enabled;
     }
 
+    /** 필터 스위치 — 꺼져 있으면 호출자는 발신자 판독까지 건너뛴다(OFF = 이 기능 이전과 같은 경로). */
+    public boolean enabled() {
+        return enabled;
+    }
+
     /**
      * @param viewerId 받는 세션의 주체
      * @param senderId 보낸 사람. {@code null}(탈퇴 발신자)·본인이면 거르지 않고 조회도 하지 않는다

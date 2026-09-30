@@ -233,7 +233,11 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    `USER_BLOCKS_REALTIME_EVENTS_ENABLED` (`user-blocks.realtime-events-enabled`). Enable order: Realtime deployed
    (accepts `user.blocks.updated`) → Data `realtime-authorization` profile + `SVC_TOKEN_REALTIME_TO_DATA` + producer
    flag → Realtime token wired → filter flag. The generation key has **no TTL** on purpose — an expiring
-   key restarts at 0 and a number can collide with a live cache written just before expiry.
+   key restarts at 0 and a number can collide with a live cache written just before expiry (so it also assumes a Redis
+   that does not evict keys). Rollback: turning the filter off is immediate and safe (cached sets are ignored);
+   turning the Data producer off leaves already-queued events, which are harmless. **Never roll Realtime back to a
+   version without `user.blocks.updated` while the Data producer is on** — the old consumer answers 400 and the
+   relay marks that blocker's `USER_BLOCKS` axis permanent. Turn the producer off first.
 
 ### 선택적 현재 멤버십 인가
 

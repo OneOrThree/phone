@@ -26,7 +26,6 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class ChatOutboundChannelInterceptorTest {
@@ -45,6 +44,7 @@ class ChatOutboundChannelInterceptorTest {
     void setUp() {
         sessions.register("socket", new ChatPrincipal(user, "Bearer token"));
         when(jwt.extractUserId("token")).thenReturn(Optional.of(user));
+        when(blockedUsers.enabled()).thenReturn(true);
     }
 
     @Test
@@ -135,7 +135,22 @@ class ChatOutboundChannelInterceptorTest {
         assertThat(interceptor.beforeHandle(frame("socket", group, "{\"senderId\":\"not-a-uuid\"}"), null, null))
                 .isNull();
         assertThat(interceptor.beforeHandle(frame("socket", group, "not json"), null, null)).isNull();
-        verifyNoInteractions(blockedUsers);
+        verify(blockedUsers, never()).hasBlocked(any(), any());
+    }
+
+    @Test
+    void switchedOffFilterSkipsSenderExtractionEntirely() {
+        // OFF = 이 기능 이전과 같은 경로. 발신자 판독의 fail-closed 가 OFF 에서 새면 안 된다.
+        when(blockedUsers.enabled()).thenReturn(false);
+        UUID eventId = UUID.randomUUID();
+        when(delivery.mayReceive(eventId, user)).thenReturn(true);
+
+        Message<?> noSender = frame("socket", "/topic/groups/" + island, "{\"content\":\"x\"}");
+        assertThat(interceptor.beforeHandle(noSender, null, null)).isSameAs(noSender);
+        Message<?> emoteWithoutUser = frame("socket", "/topic/islands/" + island + "/emotes",
+                "{\"eventId\":\"" + eventId + "\",\"payload\":{}}");
+        assertThat(interceptor.beforeHandle(emoteWithoutUser, null, null)).isSameAs(emoteWithoutUser);
+        verify(blockedUsers, never()).hasBlocked(any(), any());
     }
 
     @Test

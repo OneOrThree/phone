@@ -82,7 +82,7 @@ public class BlockClient {
         this.base = baseUrl.isBlank() ? null : URI.create(baseUrl.endsWith("/") ? baseUrl : baseUrl + "/");
         this.serviceToken = serviceToken;
         this.timeoutMs = (int) Math.min(Integer.MAX_VALUE, Math.max(1, timeoutMs));
-        this.timeoutNanos = Duration.ofMillis(timeoutMs).toNanos();
+        this.timeoutNanos = Duration.ofMillis(this.timeoutMs).toNanos();
         this.capacity = new Semaphore(Math.max(1, maxInFlight));
     }
 
@@ -150,8 +150,8 @@ public class BlockClient {
     }
 
     /**
-     * 상한과 호출 단위 deadline 을 함께 지키며 본문을 읽는다. 읽기 한 번은 read timeout 이 누르므로 최악의 총
-     * 대기는 deadline + read timeout 한 번이다.
+     * 상한과 호출 단위 deadline 을 함께 지키며 본문을 읽는다. deadline 은 호출 시작 기준이고 검사는 읽기 사이에만
+     * 일어나므로, 헤더 대기(read timeout 1회)를 포함한 호출 전체의 최악은 약 2 × timeout 이다.
      */
     private static byte[] readLimited(InputStream body, long deadline) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
