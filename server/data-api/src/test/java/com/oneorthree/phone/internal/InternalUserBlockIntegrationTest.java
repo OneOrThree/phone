@@ -390,6 +390,11 @@ class InternalUserBlockIntegrationTest {
         as(a, delete(path(a, "/letters/" + received))).andExpect(status().isNoContent());
         assertThat(jdbc.queryForObject("select deleted_at is not null from letters where id = ?",
                 Boolean.class, received)).isTrue();
+        // 닫힌 편지는 가림과 무관하게 없는 편지다 — 해제해도 되살아나지 않는다.
+        userBlockService.unblock(a, b);
+        as(a, get(path(a, "/letters/" + received)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LETTER_NOT_FOUND"));
     }
 
     @Test
