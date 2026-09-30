@@ -37,6 +37,8 @@ LEGACY_OPTIONAL_KEYS = (
     "ISLAND_MANAGEMENT_COMMANDS_ENABLED", "ISLAND_MANAGEMENT_HOST_TRANSFER_ENABLED",
     # docker-compose.realtime.yml — GROMO-1954 Data 사건 수신 · GROMO-1775 우체통 · R-1 Kafka 입구
     "SVC_TOKEN_DATA_TO_REALTIME", "SVC_TOKEN_BIZ_TO_REALTIME", "CHAT_WS_ALLOWED_ORIGINS",
+    # GROMO-2182 Realtime → Data 내부 조회(응원 인가·받는 사람 기준 차단) 대상·자격과 차단 필터 스위치.
+    "SVC_TOKEN_REALTIME_TO_DATA", "REALTIME_AUTHORIZATION_DATA_URL", "REALTIME_BLOCKS_FILTER_ENABLED",
     "REALTIME_EVENTS_KAFKA_ENABLED", "KAFKA_BOOTSTRAP_SERVERS", "CHAT_POSTGRES_DB",
 )
 
@@ -94,6 +96,9 @@ SERVICE_OPTIONAL_KEYS = {
         # GROMO-1954 REALTIME 전달(HTTP 기본 · Kafka 선택). relay 를 켜면 필수다 — 비면 OutboxRelayProperties 가
         # 기동을 거부한다. relay 가 꺼진 지금 필수로 올리면 비밀을 넣기 전 배포가 막혀 선택으로 둔다.
         "REALTIME_BASE_URL", "SVC_TOKEN_DATA_TO_REALTIME", "OUTBOX_RELAY_REALTIME_KAFKA_ENABLED",
+        # GROMO-2182 realtime caller 자격(realtime-authorization 프로필이 읽는다)과 차단 사건 생산 스위치.
+        # 프로필을 켜지 않은 배포에서는 쓰이지 않으므로 선택으로 둔다.
+        "SVC_TOKEN_REALTIME_TO_DATA", "USER_BLOCKS_REALTIME_EVENTS_ENABLED",
     ),
     "business-api": (
         "DATA_API_BASE_URL", "NOTIFICATION_BASE_URL", "LINK_BASE_URL",
