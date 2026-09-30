@@ -1186,7 +1186,9 @@ function FocusFlow({ e }: any) {
     >({}),
     [goldenReeling, setGoldenReeling] = useState(false),
     [goldenFish, setGoldenFish] = useState(false),
-    [tutorialReeling, setTutorialReeling] = useState(false);
+    [tutorialReeling, setTutorialReeling] = useState(false),
+    // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
+    [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
   const tutorialRequest = useRef<string | null>(null);
   const tutorialRetryAt = useRef(0);
   const tutorialReelCancel = useRef<(() => void) | null>(null);
@@ -1456,7 +1458,7 @@ function FocusFlow({ e }: any) {
       if (!stillHere()) return;
       const finishReel = () => {
         setTutorialReeling(false);
-        if (stillHere()) e.setGuideStep(12, { step: 11, revision });
+        if (stillHere()) setTutorialCatchRevision(revision);
       };
       if (reduce) finishReel();
       else {
@@ -1506,8 +1508,16 @@ function FocusFlow({ e }: any) {
     if (tutorialStep !== 11) {
       tutorialReelCancel.current?.();
       setTutorialReeling(false);
+      setTutorialCatchRevision(null);
     }
   }, [tutorialStep]);
+  // 황금 컷신·reel이 장면을 덮는 동안에는 첫 물고기 대사로 넘어가지 않는다.
+  useEffect(() => {
+    if (tutorialCatchRevision === null || goldenCutscene || goldenReeling) return;
+    setTutorialCatchRevision(null);
+    if (tutorialStep === 11 && (s.tutorialRevision ?? 0) === tutorialCatchRevision)
+      e.setGuideStep(12, { step: 11, revision: tutorialCatchRevision });
+  }, [tutorialCatchRevision, goldenCutscene, goldenReeling, tutorialStep, s.tutorialRevision]);
   // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
   // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
   const serverSession = () => e.focus && s.session?.version != null;

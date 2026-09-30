@@ -1467,8 +1467,11 @@ function FinalIslandScene({
       (i.quests.length > 0 || rewardCount > 0);
   const departFocus = () => {
     if (buildingEntryPending.current) return;
-    focusTutorial?.onPress();
-    walk(doors.raft, () => go('focusTravel'));
+    // 걷기가 끝나 항해가 실제로 시작된 뒤에 진행한다 — 도중에 끊기면 4단계 스포트라이트가 남는다.
+    walk(doors.raft, () => {
+      focusTutorial?.onPress();
+      go('focusTravel');
+    });
   };
   return (
     <TutorialScene

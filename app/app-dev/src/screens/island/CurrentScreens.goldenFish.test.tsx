@@ -182,6 +182,41 @@ test.each([false, true])(
   },
 );
 
+test('첫 물고기 reel 중 황금 컷신이 오면 컷신이 끝난 뒤에 12단계로 진행한다', async () => {
+  jest.useFakeTimers();
+  const seed = focusedState();
+  seed.session!.version = 1;
+  seed.session!.seconds = 5;
+  seed.tutorial = { step: 11 };
+  let current = seed;
+  function Flow() {
+    const [state, dispatch] = useReducer(reducer, seed);
+    current = state;
+    return screenElement(state, 'focus', undefined, jest.fn(), jest.fn(), dispatch, {
+      guideStep: state.tutorial?.step,
+      setGuideStep: (step: number, expected: unknown) =>
+        dispatch({ type: 'GUIDE_STEP', step, expected }),
+      focus: { tutorialReward: jest.fn().mockResolvedValue({ status: 'granted' }) },
+    });
+  }
+  const screen = await render(<Flow />);
+  await act(async () =>
+    onGoldenFish?.(
+      event([
+        { userId: 'me', sessionId: 's-me' },
+        { userId: 'minji', sessionId: 'minji' },
+      ]),
+    ),
+  );
+  await act(async () => jest.advanceTimersByTime(2100));
+  expect(screen.queryByTestId('golden-cutscene')).not.toBeNull();
+  expect(current.tutorial?.step).toBe(11);
+  await fireEvent.press(screen.getByTestId('golden-cutscene'));
+  await act(async () => jest.advanceTimersByTime(6000));
+  expect(current.tutorial?.step).toBe(12);
+  await screen.unmount();
+});
+
 const screenElement = (
   state: State,
   route: 'fishingArrival' | 'focusSetup' | 'focus' | 'rest' | 'focusResult' = 'focus',
