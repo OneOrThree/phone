@@ -182,6 +182,9 @@ public class FriendService {
         }
         User fromUser = getCallerParticipant(me);
         User toUser = getRelationParticipant(targetUserId);
+        // 차단 관계면 어느 방향이든 요청을 만들지 않는다 (GROMO-2179, policy RP-차단). 404 TARGET_USER_NOT_FOUND —
+        // 차단 사실을 따로 알리지 않는다(D3). 활성 검증 뒤라 없는 대상·탈퇴자의 코드는 종전과 같다.
+        userBlockService.requireNotBlockedEither(me, targetUserId);
 
         // 락 없는 판정이다 — 동시에 들어온 반대 방향 요청은 여기서 못 거른다. 그건 V98 의
         // uq_friendships_pending_pair 가 커밋 시점에 잡고 409 로 떨어뜨린다(위 Javadoc 의 논증).
@@ -270,6 +273,12 @@ public class FriendService {
     @Transactional
     public void acceptRequest(UUID me, UUID requestId) {
         Friendship friendship = getReceivedRequest(me, requestId);
+        // 차단 중에는 대기 요청을 수락할 수 없다 (GROMO-2179, policy D3 「대기 중 친구 요청은 차단 중 수락할 수
+        // 없게」). 요청 행은 지우지 않고 «없는 요청»으로 답한다 — 차단 해제 뒤 다시 보일 수 있고, 전용 코드는
+        // 차단 사실을 상대에게 알리는 셈이라 쓰지 않는다.
+        if (userBlockService.isBlockedEither(me, friendship.getFromUser().getId())) {
+            throw new FriendException(FriendErrorCode.REQUEST_NOT_FOUND);
+        }
         if (friendship.getStatus() == FriendshipStatus.CANCELED) {
             // 취소된 요청은 되살리지 않는다 — 배타 락 아래라 발신자의 취소와 수신자의 수락이 경합해도 한쪽만 이긴다.
             throw new FriendException(FriendErrorCode.INVALID_REQUEST_STATUS);

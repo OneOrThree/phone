@@ -67,6 +67,11 @@ class InternalUserBlockIntegrationTest {
         registry.add("internal.api.callers.business.allow[2]", () -> "DELETE /internal/users/*/blocks/*");
         registry.add("internal.api.callers.business.allow[3]", () -> "GET /internal/users/*/friends");
         registry.add("internal.api.callers.business.allow[4]", () -> "GET /internal/users/*/friend-search");
+        // GROMO-2179 직접 연락 거절 — 편지 발송·친구 요청·수락.
+        registry.add("internal.api.callers.business.allow[5]", () -> "POST /internal/users/*/letters");
+        registry.add("internal.api.callers.business.allow[6]", () -> "POST /internal/users/*/friend-requests");
+        registry.add("internal.api.callers.business.allow[7]",
+                () -> "POST /internal/users/*/friend-requests/*/accept");
     }
 
     @Autowired
@@ -224,7 +229,96 @@ class InternalUserBlockIntegrationTest {
                 .andExpect(jsonPath("$[0].userId").value(b.toString()));
     }
 
+    // ---------------------------------------------------------------- 4. 직접 연락 거절 (GROMO-2179)
+
+    @Test
+    @DisplayName("A 가 B 를 차단하면 친구여도 B→A·A→B 편지 발송이 모두 404 이고 letters 행이 생기지 않는다")
+    void lettersAreRejectedBothWaysWhileBlocked() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        friendService.acceptRequest(b, friendService.createRequest(a, b));
+        userBlockService.block(a, b);
+
+        as(b, post(path(b, "/letters")).contentType(MediaType.APPLICATION_JSON)
+                .content(letterBody(a)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LETTER_RECIPIENT_NOT_FRIEND"));
+        as(a, post(path(a, "/letters")).contentType(MediaType.APPLICATION_JSON)
+                .content(letterBody(b)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("LETTER_RECIPIENT_NOT_FRIEND"));
+        assertThat(countLetters(a, b)).as("거절된 발송은 편지 행을 남기지 않는다").isZero();
+
+        // 해제하면 남아 있던 친구 관계로 다시 보낼 수 있다 — 차단이 관계를 지운 것이 아니다(D3).
+        userBlockService.unblock(a, b);
+        as(b, post(path(b, "/letters")).contentType(MediaType.APPLICATION_JSON)
+                .content(letterBody(a)))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("A 가 B 를 차단하면 B→A·A→B 친구 요청 생성이 모두 404 TARGET_USER_NOT_FOUND 이고 행이 없다")
+    void friendRequestsAreRejectedBothWaysWhileBlocked() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        userBlockService.block(a, b);
+
+        as(b, post(path(b, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + a + "\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TARGET_USER_NOT_FOUND"));
+        as(a, post(path(a, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + b + "\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TARGET_USER_NOT_FOUND"));
+        assertThat(countFriendships(a, b)).as("거절된 요청은 friendships 행을 남기지 않는다").isZero();
+    }
+
+    @Test
+    @DisplayName("차단 전에 온 대기 요청은 차단 중 어느 쪽이 받은 것이든 수락이 404 이고 PENDING 으로 남는다")
+    void pendingRequestsCannotBeAcceptedWhileBlocked() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        UUID c = newUser();
+        UUID fromBlocked = friendService.createRequest(b, a);    // 차단당한 쪽이 보낸 요청을 차단한 쪽이 수락
+        UUID toBlocked = friendService.createRequest(a, c);      // 차단한 쪽이 보낸 요청을 차단당한 쪽이 수락
+        userBlockService.block(a, b);
+        userBlockService.block(a, c);
+
+        as(a, post(path(a, "/friend-requests/" + fromBlocked + "/accept")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("REQUEST_NOT_FOUND"));
+        as(c, post(path(c, "/friend-requests/" + toBlocked + "/accept")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("REQUEST_NOT_FOUND"));
+        assertThat(friendshipStatus(fromBlocked)).isEqualTo("PENDING");
+        assertThat(friendshipStatus(toBlocked)).isEqualTo("PENDING");
+    }
+
     // ---------------------------------------------------------------- 도구
+
+    private static String letterBody(UUID receiverId) {
+        return "{\"receiverId\":\"" + receiverId + "\",\"content\":\"안녕\"}";
+    }
+
+    /** 두 사람 사이의 편지 — 방향·삭제 여부를 가리지 않는다. */
+    private Integer countLetters(UUID x, UUID y) {
+        return jdbc.queryForObject(
+                "select count(*) from letters where (sender_id = ? and receiver_id = ?)"
+                        + " or (sender_id = ? and receiver_id = ?)",
+                Integer.class, x, y, y, x);
+    }
+
+    private Integer countFriendships(UUID x, UUID y) {
+        return jdbc.queryForObject(
+                "select count(*) from friendships where (from_user_id = ? and to_user_id = ?)"
+                        + " or (from_user_id = ? and to_user_id = ?)",
+                Integer.class, x, y, y, x);
+    }
+
+    private String friendshipStatus(UUID requestId) {
+        return jdbc.queryForObject("select status from friendships where id = ?", String.class, requestId);
+    }
 
     private Integer countBlocks(UUID blocker, UUID blocked) {
         return jdbc.queryForObject(
