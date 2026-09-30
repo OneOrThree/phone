@@ -4,6 +4,7 @@ import com.oneorthree.business.common.http.Deadline;
 import com.oneorthree.business.common.http.InternalCall;
 import com.oneorthree.business.common.http.InternalHttpClient;
 import com.oneorthree.business.upstream.data.dto.BlockedUser;
+import com.oneorthree.business.upstream.data.dto.BlockedUserRef;
 import com.oneorthree.business.upstream.data.dto.FriendItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestItem;
 import com.oneorthree.business.upstream.data.dto.FriendRequestState;
@@ -144,6 +145,12 @@ public class DataFriendClient {
     public List<BlockedUser> fetchBlockedUsers(UUID userId, Deadline deadline) {
         return http.exchange(InternalCall.to(HttpMethod.GET, userPath(PATH_BLOCKS, userId)).onBehalfOf(userId).build(),
                 deadline, new ParameterizedTypeReference<List<BlockedUser>>() { });
+    }
+
+    /** blocker 관점의 차단 대상 ID 목록 — 표시 치환용이라 이름은 읽지 않는다 (GROMO-2183). */
+    public List<BlockedUserRef> fetchBlockedUserRefs(UUID userId, Deadline deadline) {
+        return http.exchange(InternalCall.to(HttpMethod.GET, userPath(PATH_BLOCKS, userId)).onBehalfOf(userId).build(),
+                deadline, new ParameterizedTypeReference<List<BlockedUserRef>>() { });
     }
 
     // ── 편지 3종 (GROMO-1933, friend-letter LLD §1.12~1.15) ─────────────────────────────
