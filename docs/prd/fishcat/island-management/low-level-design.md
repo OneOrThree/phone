@@ -57,7 +57,7 @@ membership.createdAt+membership.id의 안정 정렬과 동률 키를 사용한�
 | `catColor` · `appearance` | 기본값(미선택 null · 외양 행 없음과 같은 기본 외양). 차단 상대의 실제 값을 싣지 않는다 |
 
 - 치환은 **서버 응답**에서 한다. 앱이 `GET /blocks` 와 대조해 가리는 방식에 맡기지 않는다(RP-서버차단).
-- **PR #1055(머지 전) 기준 구현.** Business `BlockedProfileMask` 가 Data `GET /internal/users/{userId}/blocks` 에서 id 만 읽어 응답 후보 중 요청자가 차단한 사용자를 고르고, `name` 을 서버 문자열 「차단한 주민」으로, `catColor` 를 null 로, `appearance` 를 기본값(clothes·decor null, position `front`, hull `raft`)으로 바꾼다. `appearance.version` 은 실시간 병합 기준이라 그대로 둔다. 후보가 요청자 본인뿐이면 Data 를 부르지 않는다.
+- **구현(PR #1055, main 머지).** Business `BlockedProfileMask` 가 Data `GET /internal/users/{userId}/blocks` 에서 id 만 읽어 응답 후보 중 요청자가 차단한 사용자를 고르고, `name` 을 서버 문자열 「차단한 주민」으로, `catColor` 를 null 로, `appearance` 를 기본값(clothes·decor null, position `front`, hull `raft`)으로 바꾼다. `appearance.version` 은 실시간 병합 기준이라 그대로 둔다. 후보가 요청자 본인뿐이면 Data 를 부르지 않는다.
 - **차단 목록 조회 실패는 fail-closed** — 원래 닉네임을 내보내지 않고 상류 실패를 올린다. 화면 묶음 조회(`ScreenReadUseCase`)도 같은 유스케이스를 타므로 함께 적용된다.
 - 행을 빼지 않고 치환하는 이유: 빼면 인원수·공동 목표·자리 배치가 요청자마다 달라지고, `userId` 는 앱의 목록 키·실시간 병합 키다.
 - 아직 치환되지 않는 표면(이번 결정 범위 밖): `rest-members`, 실시간 focus·외양 사건, 가입 신청자 목록(§3.3).
