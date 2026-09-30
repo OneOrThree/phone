@@ -3,7 +3,15 @@ package com.oneorthree.phone.internal;
 import com.oneorthree.phone.auth.service.AuthService;
 import com.oneorthree.phone.auth.support.JwtProvider;
 import com.oneorthree.phone.friend.service.FriendService;
+import com.oneorthree.phone.group.repository.GroupMemberRepository;
+import com.oneorthree.phone.group.repository.GroupRepository;
+import com.oneorthree.phone.group.repository.domain.Group;
+import com.oneorthree.phone.group.repository.domain.GroupMember;
+import com.oneorthree.phone.internal.dto.LetterSendRequest;
+import com.oneorthree.phone.internal.service.InternalLetterService;
 import com.oneorthree.phone.outbox.support.OutboxTestPostgres;
+import com.oneorthree.phone.user.repository.UserRepository;
+import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.service.UserBlockService;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,6 +27,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -54,6 +63,7 @@ class InternalUserBlockIntegrationTest {
 
     private static final String TOKEN = "test-block-business";
     private static final String DATE = "2026-09-18";
+    private static final String BLOCKED_PLACEHOLDER = InternalLetterService.BLOCKED_CONTENT_PLACEHOLDER;
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -72,6 +82,11 @@ class InternalUserBlockIntegrationTest {
         registry.add("internal.api.callers.business.allow[6]", () -> "POST /internal/users/*/friend-requests");
         registry.add("internal.api.callers.business.allow[7]",
                 () -> "POST /internal/users/*/friend-requests/*/accept");
+        // GROMO-2185 차단한 상대 거르기 — 편지 상세·닫기·편지함, 친구 요청 목록.
+        registry.add("internal.api.callers.business.allow[8]", () -> "GET /internal/users/*/letters/*");
+        registry.add("internal.api.callers.business.allow[9]", () -> "DELETE /internal/users/*/letters/*");
+        registry.add("internal.api.callers.business.allow[10]", () -> "GET /internal/users/*/letters");
+        registry.add("internal.api.callers.business.allow[11]", () -> "GET /internal/users/*/friend-requests");
     }
 
     @Autowired
@@ -86,6 +101,14 @@ class InternalUserBlockIntegrationTest {
     JwtProvider jwt;
     @Autowired
     JdbcTemplate jdbc;
+    @Autowired
+    InternalLetterService letterService;
+    @Autowired
+    UserRepository userRepository;
+    @Autowired
+    GroupRepository groups;
+    @Autowired
+    GroupMemberRepository members;
 
     // ---------------------------------------------------------------- 1. 계약
 
@@ -295,7 +318,124 @@ class InternalUserBlockIntegrationTest {
         assertThat(friendshipStatus(toBlocked)).isEqualTo("PENDING");
     }
 
+    // ---------------------------------------------------------------- 5. 차단한 상대 거르기 (GROMO-2185)
+
+    @Test
+    @DisplayName("차단한 상대와 주고받은 편지는 상세가 200 이되 본문을 가리고 읽음을 박지 않으며, 해제하면 원문이 보인다")
+    void blockedCounterpartLetterDetailMasksContent() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        friendService.acceptRequest(b, friendService.createRequest(a, b));
+        joinIsland(a);
+        UUID received = letterService.send(b, new LetterSendRequest(a, "받은 편지")).id();
+        UUID sent = letterService.send(a, new LetterSendRequest(b, "보낸 편지")).id();
+        userBlockService.block(a, b);
+
+        as(a, get(path(a, "/letters/" + received)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(received.toString()))
+                .andExpect(jsonPath("$.content").value(BLOCKED_PLACEHOLDER))
+                .andExpect(jsonPath("$.readAt").doesNotExist());
+        as(a, get(path(a, "/letters/" + sent)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value(BLOCKED_PLACEHOLDER));
+        assertThat(jdbc.queryForObject("select content from letters where id = ?", String.class, received))
+                .as("원문은 DB 에 그대로 남는다").isEqualTo("받은 편지");
+        assertThat(jdbc.queryForObject("select read_at is null from letters where id = ?", Boolean.class, received))
+                .as("가린 열람은 읽음이 아니다").isTrue();
+
+        userBlockService.unblock(a, b);
+        as(a, get(path(a, "/letters/" + received)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content").value("받은 편지"));
+    }
+
+    @Test
+    @DisplayName("차단한 상대의 편지도 수신자가 닫을 수 있다 — 닫기는 소프트 삭제로 끝난다")
+    void blockedCounterpartLetterCanBeClosed() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        friendService.acceptRequest(b, friendService.createRequest(a, b));
+        joinIsland(a);
+        UUID received = letterService.send(b, new LetterSendRequest(a, "닫을 편지")).id();
+        userBlockService.block(a, b);
+
+        as(a, delete(path(a, "/letters/" + received))).andExpect(status().isNoContent());
+        assertThat(jdbc.queryForObject("select deleted_at is not null from letters where id = ?",
+                Boolean.class, received)).isTrue();
+    }
+
+    @Test
+    @DisplayName("보낸 편지함은 차단한 상대가 받은 편지를 빼고, 다른 수신자의 편지는 그대로 둔다")
+    void sentMailboxExcludesBlockedReceivers() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        UUID c = newUser();
+        friendService.acceptRequest(b, friendService.createRequest(a, b));
+        friendService.acceptRequest(c, friendService.createRequest(a, c));
+        letterService.send(a, new LetterSendRequest(b, "차단될 사람에게"));
+        UUID toC = letterService.send(a, new LetterSendRequest(c, "남을 편지")).id();
+        userBlockService.block(a, b);
+
+        as(a, get(path(a, "/letters")).param("type", "sent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.content.length()").value(1))
+                .andExpect(jsonPath("$.content[0].id").value(toC.toString()));
+    }
+
+    @Test
+    @DisplayName("차단한 상대와의 대기 요청은 받은·보낸 요청 목록에서 빠지고, 차단당한 쪽 목록은 그대로다")
+    void friendRequestListsExcludeBlockedCounterparts() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        UUID c = newUser();
+        UUID d = newUser();
+        friendService.createRequest(b, a);   // 받은 요청 — 차단 대상
+        friendService.createRequest(a, c);   // 보낸 요청 — 차단 대상
+        friendService.createRequest(d, a);   // 받은 요청 — 차단 안 함
+        userBlockService.block(a, b);
+        userBlockService.block(a, c);
+
+        as(a, get(path(a, "/friend-requests")).param("type", "received"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].userId").value(d.toString()));
+        as(a, get(path(a, "/friend-requests")).param("type", "sent"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
+        // 제외는 차단한 쪽 관점이다 — 차단당한 쪽에 따로 알리지 않는다(D3).
+        as(b, get(path(b, "/friend-requests")).param("type", "sent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1));
+    }
+
+    @Test
+    @DisplayName("차단한 친구는 핀이 남아 있어도 고정 친구에서 빠지고, 해제하면 다시 보인다")
+    void pinnedFriendsExcludeBlocked() {
+        UUID a = newUser();
+        UUID b = newUser();
+        friendService.acceptRequest(b, friendService.createRequest(a, b));
+        friendService.pinFriend(a, b);
+        LocalDate date = LocalDate.parse(DATE);
+        assertThat(friendService.getPinnedFriends(a, date)).hasSize(1);
+
+        userBlockService.block(a, b);
+        assertThat(friendService.getPinnedFriends(a, date)).isEmpty();
+        assertThat(jdbc.queryForObject("select count(*) from pinned_users where user_id = ? and pinned_user_id = ?",
+                Integer.class, a, b)).as("핀 행은 지우지 않는다").isEqualTo(1);
+
+        userBlockService.unblock(a, b);
+        assertThat(friendService.getPinnedFriends(a, date)).hasSize(1);
+    }
+
     // ---------------------------------------------------------------- 도구
+
+    /** 살아 있는 섬의 주민으로 만든다 — 편지 상세·닫기의 우체통 게이트가 검사하는 조건이다. */
+    private void joinIsland(UUID userId) {
+        User user = userRepository.findById(userId).orElseThrow();
+        Group island = groups.save(Group.builder().name("차단 섬").maxMembers(10).build());
+        members.save(GroupMember.builder().user(user).group(island).build());
+    }
 
     private static String letterBody(UUID receiverId) {
         return "{\"receiverId\":\"" + receiverId + "\",\"content\":\"안녕\"}";
