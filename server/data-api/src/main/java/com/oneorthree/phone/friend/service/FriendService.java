@@ -275,7 +275,8 @@ public class FriendService {
         Friendship friendship = getReceivedRequest(me, requestId);
         // 차단 중에는 대기 요청을 수락할 수 없다 (GROMO-2179, policy D3 「대기 중 친구 요청은 차단 중 수락할 수
         // 없게」). 요청 행은 지우지 않고 «없는 요청»으로 답한다 — 차단 해제 뒤 다시 보일 수 있고, 전용 코드는
-        // 차단 사실을 상대에게 알리는 셈이라 쓰지 않는다.
+        // 차단 사실을 상대에게 알리는 셈이라 쓰지 않는다. 이미 ACCEPTED 인 요청의 재시도도 차단 중에는 멱등 성공이
+        // 아니라 404 다 — 차단 중 수락 표면을 통째로 닫는다(리뷰 반영).
         if (userBlockService.isBlockedEither(me, friendship.getFromUser().getId())) {
             throw new FriendException(FriendErrorCode.REQUEST_NOT_FOUND);
         }
