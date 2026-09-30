@@ -103,6 +103,7 @@ import {
   login as apiLogin,
   logout,
   prepareLogout,
+  type Account,
   type LoginResult,
   type Provider,
 } from '@/services/api/auth';
@@ -166,6 +167,9 @@ const DEMO =
 // GROMO-1926 TestFlight에서 건물별 기능을 바로 확인하기 위한 임시 QA 빌드 설정.
 const TESTFLIGHT_ALL_BUILDINGS = true;
 const STORAGE = 'gromo-r61-user-v2';
+// 채택 도중 세션 세대가 바뀌면(401 정리·다른 로그인) 남은 적용을 버리는 내부 신호. 호출부에는
+// 오류로 드러내지 않는다 — 새 세션의 화면이 이미 자기 흐름을 진행 중이다.
+const STALE_ADOPTION = Symbol('staleAdoption');
 const PROVIDER_LABEL: Record<Provider, string> = {
   apple: 'Apple로 계속하기',
   google: 'Google로 계속하기',
@@ -375,6 +379,7 @@ function Gromo() {
     generation: number;
   } | null>(null);
   const deferredOwnerState = useRef<{ userId: string; state: State } | null>(null);
+  const conversionAdoptionAborted = useRef(false);
   // owner 불일치 부팅에서 첫 섬 동기화가 실패하면 소유자 전환을 여기 보류했다가,
   // 화면의 동기화 재시도가 성공한 뒤 마저 끝낸다.
   const pendingBootOwnerTransfer = useRef<(() => Promise<void>) | null>(null);
@@ -783,67 +788,90 @@ function Gromo() {
     );
     return false;
   };
-  const adoptSession = async (result: LoginResult, previousUserId: string | null) => {
+  // 반환값 null = 세대가 바뀌어 조용히 중단했다(상태·화면·소유자 기록 모두 적용하지 않음).
+  const adoptSession = async (
+    result: LoginResult,
+    previousUserId: string | null,
+  ): Promise<Account | null> => {
+    // 채택 시작 시점의 세대를 잡아 두고 모든 await 뒤·상태 적용 전에 같은지 확인한다.
+    const adoptionGen = sessionGeneration();
+    const isCurrent = () => sessionGeneration() === adoptionGen;
+    const ensureCurrent = () => {
+      if (!isCurrent()) throw STALE_ADOPTION;
+    };
     const changingOwner = previousUserId !== result.userId;
     if (changingOwner) setStorageOwnerGate(false);
-    const account = await adoptSignedInAccount(result, previousUserId, {
-      resetLocal: async () => {
-        // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
-        // settings 만 기기 귀속(정책 A15)이라 보존한다.
-        // 이미 시작된 A 저장도 먼저 끝낸 다음 지워야 late write가 삭제 뒤에 A blob을 부활시키지 않는다.
-        setStorageOwnerGate(false);
-        await userStorageWriteQueue.current;
-        await AsyncStorage.removeItem(STORAGE);
-        deferredOwnerState.current = null;
-        dispatch({
-          type: 'LOAD',
-          state: {
-            ...(DEMO ? demoState() : initialState()),
-            settings: stateRef.current.settings,
-          },
-          now: Date.now(),
-        });
-      },
-      applyAccount: (account) => {
-        const deferred = deferredOwnerState.current;
-        if (
-          previousUserId === result.userId &&
-          account.id === result.userId &&
-          deferred?.userId === result.userId
-        ) {
-          // 같은 owner 재채택이면 앞선 오프라인 부팅이 보류한 데이터를 복구한다.
-          // LOAD를 LOGIN/PROFILE보다 먼저 dispatch해 새 세션의 계정 표기가 덮지 않게 한다.
-          dispatch({ type: 'LOAD', state: deferred.state, now: Date.now() });
+    let account: Account;
+    try {
+      account = await adoptSignedInAccount(result, previousUserId, {
+        resetLocal: async () => {
+          // /me 응답을 기다리는 사이 세션이 바뀌었으면 이전 사용자의 저장본도 지우지 않는다.
+          ensureCurrent();
+          // 사용자 귀속 blob 전체를 지우고 빈 상태로 — 이전 계정의 섬·친구·진행이 섞이지 않는다.
+          // settings 만 기기 귀속(정책 A15)이라 보존한다.
+          // 이미 시작된 A 저장도 먼저 끝낸 다음 지워야 late write가 삭제 뒤에 A blob을 부활시키지 않는다.
+          setStorageOwnerGate(false);
+          await userStorageWriteQueue.current;
+          await AsyncStorage.removeItem(STORAGE);
           deferredOwnerState.current = null;
-        }
-        dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
-        if (account.name || account.catColor)
+          ensureCurrent();
           dispatch({
-            type: 'PROFILE',
-            name: account.name ?? undefined,
-            color: account.catColor ?? undefined,
+            type: 'LOAD',
+            state: {
+              ...(DEMO ? demoState() : initialState()),
+              settings: stateRef.current.settings,
+            },
+            now: Date.now(),
           });
-      },
-      navigate: async (account) => {
-        // 부팅과 같은 판정 — 새 계정의 /me/islands 를 다시 조회해 화면을 고른다. 세대가
-        // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
-        const gen = sessionGeneration();
-        const next = await decideBootRoute({
-          saved: null,
-          account,
-          rejected: false,
-          serverMode: true,
-          bootGen: gen,
-          generation: sessionGeneration,
-          syncIslands,
-          onBootError: setIslandBootError,
-        });
-        if (next && sessionGeneration() === gen) reset(next);
-      },
-    });
+        },
+        applyAccount: (account) => {
+          ensureCurrent();
+          const deferred = deferredOwnerState.current;
+          if (
+            previousUserId === result.userId &&
+            account.id === result.userId &&
+            deferred?.userId === result.userId
+          ) {
+            // 같은 owner 재채택이면 앞선 오프라인 부팅이 보류한 데이터를 복구한다.
+            // LOAD를 LOGIN/PROFILE보다 먼저 dispatch해 새 세션의 계정 표기가 덮지 않게 한다.
+            dispatch({ type: 'LOAD', state: deferred.state, now: Date.now() });
+            deferredOwnerState.current = null;
+          }
+          dispatch({ type: 'LOGIN', linkedProviders: account.linkedProviders });
+          if (account.name || account.catColor)
+            dispatch({
+              type: 'PROFILE',
+              name: account.name ?? undefined,
+              color: account.catColor ?? undefined,
+            });
+        },
+        navigate: async (account) => {
+          // 부팅과 같은 판정 — 새 계정의 /me/islands 를 다시 조회해 화면을 고른다. 세대가
+          // 바뀌었으면(그 사이 로그아웃·재로그인) 늦은 판정을 쓰지 않는다.
+          ensureCurrent();
+          const next = await decideBootRoute({
+            saved: null,
+            account,
+            rejected: false,
+            serverMode: true,
+            bootGen: adoptionGen,
+            generation: sessionGeneration,
+            syncIslands,
+            onBootError: setIslandBootError,
+          });
+          ensureCurrent();
+          if (next) reset(next);
+        },
+      });
+    } catch (thrown) {
+      if (thrown === STALE_ADOPTION) return null;
+      throw thrown;
+    }
+    if (!isCurrent()) return null;
     // /me 와 화면 판정이 끝난 뒤에만 소유자를 바꾼다. 그 전에 실패하면 기존 ID가 재시도 기준이다.
     // 이미 화면을 옮긴 뒤의 기록 실패는 로그인 실패로 되돌리지 않고 알림 + 자동 재시도로 복구한다.
-    await recordOwnerWithRetry(account.id, sessionGeneration());
+    // 현재 세대가 아니라 채택 시작 세대를 넘긴다 — 그 사이 바뀐 세션에 이 계정을 소유자로 적지 않는다.
+    await recordOwnerWithRetry(account.id, adoptionGen);
     return account;
   };
   const conversionRef = useRef<ReturnType<typeof createMemberConversion> | null>(null);
@@ -869,7 +897,10 @@ function Gromo() {
         switchResolve.current = resolve;
         setSwitchAsk(true);
       }),
-    adopt: adoptSession,
+    adopt: async (result, previousUserId) => {
+      // 세대가 바뀌어 채택을 중단했으면 전환 완료 안내·이벤트도 남기지 않는다(pickProvider).
+      conversionAdoptionAborted.current = (await adoptSession(result, previousUserId)) === null;
+    },
   });
   const startGuest = async () => {
     if (guestLoginFlight.current) return;
@@ -885,8 +916,8 @@ function Gromo() {
     setGuestError('');
     try {
       const result = await guestLogin();
-      await adoptSession(result, previousUserId);
-      captureProductEvent('guest_login_completed');
+      // 채택 도중 세션이 바뀌어 중단됐으면(null) 완료 이벤트를 남기지 않는다.
+      if (await adoptSession(result, previousUserId)) captureProductEvent('guest_login_completed');
     } catch (error) {
       setGuestError(
         error instanceof ApiError && error.message
@@ -935,8 +966,8 @@ function Gromo() {
         attemptId: attempt.attemptId,
       });
       socialLoginAttempt.current = null;
-      await adoptSession(result, previousUserId);
-      captureProductEvent('social_login_completed', { provider });
+      if (await adoptSession(result, previousUserId))
+        captureProductEvent('social_login_completed', { provider });
     } catch (thrown) {
       const retryableTransportFailure =
         thrown instanceof ApiError &&
@@ -976,8 +1007,14 @@ function Gromo() {
         attempt = { provider, credential, generation };
         conversionLoginAttempt.current = attempt;
       }
+      conversionAdoptionAborted.current = false;
       const outcome = await memberConversion.convert(attempt.provider, attempt.credential);
       if (conversionLoginAttempt.current === attempt) conversionLoginAttempt.current = null;
+      if (conversionAdoptionAborted.current) {
+        // 전환하던 세션이 이미 사라졌다 — 시트만 조용히 닫는다.
+        setConvUi(null);
+        return;
+      }
       if (outcome === 'converted') {
         captureProductEvent('member_conversion_completed', { provider: attempt.provider });
         setConvUi(null);

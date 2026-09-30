@@ -108,6 +108,12 @@ gradle.taskGraph.whenReady { taskGraph ->
             "Android release 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요."
         )
     }
+    // 서버는 앞뒤 공백이 있는 약관 버전을 400으로 거절한다. 값 그대로가 정본이어야 한다.
+    if (includesReleaseArtifactTask && termsVersion != termsVersion.trim()) {
+        throw new GradleException(
+            "Android release 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요."
+        )
+    }
     def apiUrl = System.getenv("EXPO_PUBLIC_API_URL")
     if (includesReleaseArtifactTask && apiUrl != "https://api.oneorthree.world") {
         throw new GradleException(

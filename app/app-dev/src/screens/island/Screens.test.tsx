@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { BackHandler, Keyboard, StyleSheet, View } from 'react-native';
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { RedesignScreens } from '@/screens/island/Screens';
 import { art } from '@/constants/art';
@@ -1710,6 +1711,58 @@ test('회원 탈퇴는 DELETE 성공 뒤에만 로그아웃·로컬 삭제·로�
   assert.ok(exposed.actions.includes('DELETE_ACCOUNT'));
   assert.equal(exposed.reset.mock.calls[0][0], 'login');
   await clearLocalDataOwner();
+  await clearSession();
+  assert.equal(getLastSessionUserId(), null);
+});
+
+test('탈퇴 뒤 로컬 소유자 정리를 확정하지 못하면 완료로 넘어가지 않고 로컬 정리만 재시도한다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'withdrawn-user' });
+  await rememberLocalDataOwner('withdrawn-user');
+  // 주 표식(AsyncStorage)·보조 표식(SecureStore)·소유자 삭제가 모두 실패하는 기기 저장소.
+  const setAsync = AsyncStorage.setItem as jest.Mock;
+  const setSecure = SecureStore.setItemAsync as jest.Mock;
+  const deleteSecure = SecureStore.deleteItemAsync as jest.Mock;
+  const real = [
+    setAsync.getMockImplementation(),
+    setSecure.getMockImplementation(),
+    deleteSecure.getMockImplementation(),
+  ] as const;
+  setAsync.mockImplementation(async () => Promise.reject(new Error('AsyncStorage 쓰기 실패')));
+  setSecure.mockImplementation(async () => Promise.reject(new Error('키체인 쓰기 실패')));
+  deleteSecure.mockImplementation(async () => Promise.reject(new Error('키체인 삭제 실패')));
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  try {
+    await fireEvent.press(s.getByText('회원 탈퇴'));
+    await waitFor(() =>
+      assert.ok(
+        notifyMock.mock.calls.some(
+          (c) => c[0] === '기기에 남은 데이터를 정리하지 못했어요. 다시 시도해 주세요.',
+        ),
+      ),
+    );
+    assert.equal(mockWithdrawAccount.mock.calls.length, 1);
+    assert.equal(exposed.signOut.mock.calls.length, 0);
+    assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
+    assert.equal(exposed.reset.mock.calls.length, 0);
+    await waitFor(() => assert.ok(s.getByText('기기 데이터 정리 다시 시도')));
+  } finally {
+    setAsync.mockImplementation(real[0]);
+    setSecure.mockImplementation(real[1]);
+    deleteSecure.mockImplementation(real[2]);
+  }
+
+  // 저장소가 회복되면 재시도는 탈퇴 API 없이 로컬 정리부터 이어 완료한다.
+  await fireEvent.press(s.getByText('기기 데이터 정리 다시 시도'));
+  await waitFor(() => assert.equal(exposed.reset.mock.calls[0]?.[0], 'login'));
+  assert.equal(mockWithdrawAccount.mock.calls.length, 1);
+  assert.equal(exposed.signOut.mock.calls.length, 1);
+  assert.ok(exposed.actions.includes('DELETE_ACCOUNT'));
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
   await clearSession();
   assert.equal(getLastSessionUserId(), null);
 });

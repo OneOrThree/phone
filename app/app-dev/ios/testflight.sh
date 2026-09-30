@@ -9,6 +9,11 @@ if [[ -z "${EXPO_PUBLIC_TERMS_VERSION//[[:space:]]/}" ]]; then
   echo "❌ iOS release/TestFlight 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요." >&2
   exit 1
 fi
+# 서버는 앞뒤 공백이 있는 약관 버전을 400으로 거절한다. 값 그대로가 정본이어야 한다.
+if [[ "$EXPO_PUBLIC_TERMS_VERSION" =~ ^[[:space:]] || "$EXPO_PUBLIC_TERMS_VERSION" =~ [[:space:]]$ ]]; then
+  echo "❌ iOS release/TestFlight 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요." >&2
+  exit 1
+fi
 if [[ "${EXPO_PUBLIC_API_URL:-}" != "https://api.oneorthree.world" ]]; then
   echo "❌ iOS release/TestFlight 차단: EXPO_PUBLIC_API_URL을 운영 주소 https://api.oneorthree.world 로 설정하세요." >&2
   exit 1

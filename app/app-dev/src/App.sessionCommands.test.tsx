@@ -169,6 +169,7 @@ beforeEach(async () => {
   mockRememberOverride = undefined;
   await clearSession();
   await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await SecureStore.deleteItemAsync('gromo.ownerAdoptionPending');
   // 앞 테스트의 앱 저장본(섬·온보딩 상태)이 다음 테스트의 부팅 LOAD로 새지 않게 비운다.
   // removeItem 호출 수를 세는 테스트가 있어 multiRemove로 지운다.
   await AsyncStorage.multiRemove(['gromo-r61-user-v2']);
@@ -1130,6 +1131,96 @@ test('일반 로그인 뒤 owner 기록이 일시 실패하면 알리고 같은 
     const persisted = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2')) ?? 'null');
     assert.equal(persisted?.name, '저장확인');
   });
+});
+
+const staleAdoptionLogin = () => {
+  mockSocialCredential.mockResolvedValueOnce('google-id-token');
+  mockApiLogin.mockImplementationOnce(async () => {
+    const result = {
+      accessToken: 'B_AT',
+      refreshToken: 'B_RT',
+      userId: 'user-b',
+      onboardingComplete: true,
+    };
+    await saveSession(result);
+    return result;
+  });
+};
+const staleAccount = (id: string): Account => ({
+  id,
+  name: 'stale-B',
+  catColor: null,
+  mainIslandId: null,
+  linkedProviders: ['google'],
+  onboardingComplete: true,
+});
+
+test('채택 중 /me 응답 뒤 세션 세대가 바뀌면 LOGIN·PROFILE·화면 이동·owner 기록을 조용히 버린다', async () => {
+  staleAdoptionLogin();
+  let resetLocalCalls = 0;
+  mockAdoptSignedInAccount.mockImplementationOnce(
+    async (result: any, _previous: any, deps: any) => {
+      const account = staleAccount(result.userId);
+      // /me 응답을 기다리는 사이 401 정리가 끝나 세대가 올라갔다.
+      await clearSession(sessionGeneration());
+      await deps.resetLocal().then(() => (resetLocalCalls += 1));
+      deps.applyAccount(account);
+      await deps.navigate(account);
+      return account;
+    },
+  );
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  const routeBefore = captured.route;
+  const bootDecisions = mockDecideBootRoute.mock.calls.length;
+  await act(async () => captured.setTerms(true));
+  await act(async () => captured.startSocial('google'));
+
+  assert.equal(mockAdoptSignedInAccount.mock.calls.length, 1);
+  assert.equal(resetLocalCalls, 0);
+  assert.equal(captured.socialError, '');
+  assert.notEqual(captured.state.name, 'stale-B');
+  assert.equal(mockDecideBootRoute.mock.calls.length, bootDecisions);
+  assert.equal(captured.route, routeBefore);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+});
+
+test('채택 중 섬 동기화 await 사이 세션 세대가 바뀌면 늦은 route와 owner를 적용하지 않는다', async () => {
+  staleAdoptionLogin();
+  const remember = jest.fn();
+  mockRememberOverride = async (...args: any[]) => {
+    remember(...args);
+    return jest.requireActual('@/services/api/session').rememberLocalDataOwner(...args);
+  };
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 10; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  mockDecideBootRoute.mockImplementationOnce(async () => {
+    // /me/islands 동기화 도중 다른 로그인이 새 세션을 공개했다.
+    await saveSession({ accessToken: 'C_AT', refreshToken: 'C_RT', userId: 'user-c' });
+    return 'home';
+  });
+  mockAdoptSignedInAccount.mockImplementationOnce(
+    async (result: any, _previous: any, deps: any) => {
+      const account = staleAccount(result.userId);
+      deps.applyAccount(account);
+      await deps.navigate(account);
+      return account;
+    },
+  );
+  await act(async () => captured.setTerms(true));
+  await act(async () => captured.startSocial('google'));
+
+  assert.equal(captured.socialError, '');
+  assert.notEqual(captured.route, 'home');
+  assert.equal(remember.mock.calls.length, 0);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+  mockDecideBootRoute.mockReset();
 });
 
 test('로그아웃 기록을 기기에 남기지 못하면 signOut은 false로 로그인 화면 전환을 막는다', async () => {

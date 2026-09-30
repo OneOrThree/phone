@@ -187,6 +187,8 @@ export const semanticTokens = {
 
 export const componentTokens = {
   loginButton: {
+    // 카카오·Google/LINE·Apple 버튼이 같은 높이로 줄을 맞춘다. 최소 터치 영역(size.tapMin 44pt)보다 크다.
+    height: 54,
     googleBackground: color.white,
     googleBorder: color.googleBorder,
     googleForeground: color.googleText,

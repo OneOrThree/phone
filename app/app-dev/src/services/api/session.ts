@@ -31,6 +31,13 @@ const KEY_LAST_USER = 'gromo.lastUserId';
 const KEY_LAST_USER_CLEAR_STATE = 'gromo.lastUserIdClearState';
 /** AsyncStorage 에 삭제 의도를 못 남겼을 때 쓰는 보조 표식(SecureStore). */
 const KEY_LAST_USER_CLEAR_PENDING_FALLBACK = 'gromo.lastUserIdClearPending';
+/**
+ * 채택 대기 표식 — 기록된 소유자와 다른 계정의 세션을 커밋하기 **전에** 남기고, 그 계정의 소유자
+ * 기록이 끝나면 지운다. 소유자 표식이 없는 기기(업그레이드 직후)에서 로그인 저장 뒤 채택 전에
+ * 앱이 종료되면, 다음 부팅이 「세션이 있으니 그 계정이 소유자」로 추론해 이전 사용자의 로컬 데이터를
+ * 새 계정에 올린다. 이 표식이 남아 있으면 추론하지 않고 소유자 미상으로 격리한다.
+ */
+const KEY_OWNER_ADOPTION_PENDING = 'gromo.ownerAdoptionPending';
 /** 커밋 마커 — **항상 마지막에** 쓴다. 자세한 이유는 {@link saveSession}. */
 const KEY_BUNDLE = 'gromo.sessionBundle';
 const SESSION_SLOT_PREFIX = 'gromo.sessionSlot';
@@ -53,6 +60,12 @@ const writeItem = (key: string, value: string): Promise<void> =>
 
 const removeItem = (key: string): Promise<void> =>
   useSecureStore ? SecureStore.deleteItemAsync(key) : AsyncStorage.removeItem(key);
+
+/**
+ * 소유자를 알 수 없는 로컬 데이터의 소유자 값. 실제 사용자 ID와 겹치지 않으므로 복구된 세션과
+ * 항상 불일치로 판정돼, 서버 확인 전까지 로컬 저장본을 올리지 않고 채택 때 비운다.
+ */
+export const UNOWNED_LOCAL_DATA_OWNER = '\u0000gromo.unownedLocalData';
 
 let cached: Session | null = null;
 let lastUserId: string | null = null;
@@ -177,6 +190,8 @@ export function rememberLocalDataOwner(
     lastUserId = userId;
     localDataOwnerClearPending = false;
     localDataOwnerIntentionallyUnset = false;
+    // 소유자가 확정됐으니 채택 대기 표식을 내린다. 실패해도 소유자 표식이 있으면 표식은 읽히지 않는다.
+    await removeItem(KEY_OWNER_ADOPTION_PENDING).catch(() => {});
     // 보조 표식이 남은 채 'cleared' 를 지우면 다음 부팅이 새 소유자를 탈퇴 대상으로 오인한다.
     if (
       clearStatus === 'cleared' &&
@@ -235,14 +250,25 @@ export function restoreSession(): Promise<Session | null> {
       cached = bundle ? await readBundledSession(bundle) : null;
       const ownerClearStatus = await resolveLocalDataOwnerClear();
       const savedLastUserId = ownerClearStatus === 'blocked' ? null : await readItem(KEY_LAST_USER);
+      // 소유자 표식이 없을 때만 의미가 있다. 읽지 못하면 채택 대기로 간주한다 — 추론이 틀리면
+      // 이전 사용자의 데이터가 다른 계정에 올라가므로, 모르면 격리하는 쪽이 안전하다.
+      const adoptionPending =
+        ownerClearStatus === 'normal' && !savedLastUserId
+          ? await readItem(KEY_OWNER_ADOPTION_PENDING).then(
+              (value) => value !== null,
+              () => true,
+            )
+          : false;
       // 저장된 소유자가 있으면 활성 세션과 달라도 유지한다. 로그인 저장만 끝나고 /me 채택이
       // 실패한 전환을 재시도할 때 이전 로컬 소유자 기준으로 reset 여부를 다시 판단해야 한다.
+      // 채택 대기 중이면 세션이 있다는 사실만으로 소유자를 추론하지 않는다 — 소유자 미상이다.
       lastUserId =
         ownerClearStatus === 'normal'
-          ? (savedLastUserId ?? cached?.userId ?? null)
+          ? (savedLastUserId ??
+            (adoptionPending ? UNOWNED_LOCAL_DATA_OWNER : (cached?.userId ?? null)))
           : savedLastUserId;
       localDataOwnerIntentionallyUnset = ownerClearStatus !== 'normal' && !savedLastUserId;
-      if (ownerClearStatus === 'normal' && cached && !savedLastUserId) {
+      if (ownerClearStatus === 'normal' && cached && !savedLastUserId && !adoptionPending) {
         lastUserId = cached.userId;
         await writeItem(KEY_LAST_USER, cached.userId).catch(() => {});
       }
@@ -493,6 +519,9 @@ export function saveSession(
       // 재복사 차단 표식을 커밋 전에 기록하고, 기록하지 못하면 로그인을 실패로 돌린다.
       await SecureStore.setItemAsync(KEY_LEGACY_MIGRATED, '1');
     }
+    // 기록된 소유자와 다른 계정이면 채택이 끝나기 전까지 소유자를 추론하지 못하게 표식을 먼저
+    // 남긴다. 기록하지 못하면 커밋하지 않는다 — 채택 전 종료 시 이전 데이터가 새 계정에 올라간다.
+    if (session.userId !== lastUserId) await writeItem(KEY_OWNER_ADOPTION_PENDING, '1');
     await commit(session);
     if (Platform.OS === 'android') {
       await Promise.all([

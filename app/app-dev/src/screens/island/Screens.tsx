@@ -791,7 +791,10 @@ export function RedesignScreens({ e }: any) {
       id: string;
       name: string;
       onDelete?: () => void;
-    } | null>(null);
+    } | null>(null),
+    // 서버 탈퇴(또는 로컬 탈퇴)는 끝났는데 기기의 로컬 데이터 소유자 정리를 확정하지 못한 상태.
+    // route 가 바뀌어도 유지한다 — 탈퇴 API 를 다시 부르지 않고 로컬 정리만 재시도해야 한다.
+    [withdrawCleanupPending, setWithdrawCleanupPending] = useState(false);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
@@ -846,6 +849,25 @@ export function RedesignScreens({ e }: any) {
         if (m) fail(m);
       })
       .finally(() => setServerBusy(false));
+  };
+  /**
+   * 탈퇴 뒤 기기 정리. 로컬 데이터 소유자 삭제(또는 다음 부팅이 이어 갈 내구 삭제 표식)가 확정돼야만
+   * 탈퇴 완료(로그인 화면)로 넘어간다. 확정하지 못하면 이전 사용자의 데이터가 다음 로그인에 남으므로
+   * 화면에 머물러 재시도 버튼을 띄운다 — 서버 계정은 이미 삭제됐으니 탈퇴 API 는 다시 부르지 않는다.
+   */
+  const finishWithdrawal = async () => {
+    try {
+      await clearLocalDataOwner();
+    } catch {
+      setWithdrawCleanupPending(true);
+      notify('기기에 남은 데이터를 정리하지 못했어요. 다시 시도해 주세요.');
+      return;
+    }
+    setWithdrawCleanupPending(false);
+    await screenTime.resetScreenTimeData().catch(() => {});
+    if (server) await e.signOut();
+    act('DELETE_ACCOUNT');
+    reset('login');
   };
   // 서버 스냅샷 단축 — 첫 로드 전엔 undefined
   const snap = state.serverIslands;
@@ -6112,41 +6134,40 @@ export function RedesignScreens({ e }: any) {
             }
           />
         </SheetGroup>
-        <Btn
-          title="회원 탈퇴"
-          kind="danger"
-          style={{ alignSelf: 'center' }}
-          onPress={() =>
-            mustTransferHost
-              ? notify('방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.')
-              : confirm(
-                  '회원 탈퇴할까요?',
-                  '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
-                  () => {
-                    if (!server) {
-                      screenTime
-                        .resetScreenTimeData()
-                        .catch(() => {})
-                        .finally(async () => {
-                          await clearLocalDataOwner().catch(() => {});
-                          act('DELETE_ACCOUNT');
-                          reset('login');
-                        });
-                      return;
-                    }
-                    run(async () => {
-                      await withdrawAccount();
-                      await clearLocalDataOwner().catch(() => {});
-                      await screenTime.resetScreenTimeData().catch(() => {});
-                      await e.signOut();
-                      act('DELETE_ACCOUNT');
-                      reset('login');
-                    }, notify);
-                  },
-                  { ok: '탈퇴', destructive: true },
-                )
-          }
-        />
+        {withdrawCleanupPending ? (
+          <Btn
+            title="기기 데이터 정리 다시 시도"
+            kind="danger"
+            style={{ alignSelf: 'center' }}
+            // 계정은 이미 삭제됐다 — 탈퇴 API 없이 로컬 정리만 다시 한다.
+            onPress={() => run(finishWithdrawal, notify)}
+          />
+        ) : (
+          <Btn
+            title="회원 탈퇴"
+            kind="danger"
+            style={{ alignSelf: 'center' }}
+            onPress={() =>
+              mustTransferHost
+                ? notify('방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.')
+                : confirm(
+                    '회원 탈퇴할까요?',
+                    '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
+                    () => {
+                      if (!server) {
+                        run(finishWithdrawal, notify);
+                        return;
+                      }
+                      run(async () => {
+                        await withdrawAccount();
+                        await finishWithdrawal();
+                      }, notify);
+                    },
+                    { ok: '탈퇴', destructive: true },
+                  )
+            }
+          />
+        )}
       </IslandSheet>
     );
   }

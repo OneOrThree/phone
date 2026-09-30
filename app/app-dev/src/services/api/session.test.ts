@@ -15,6 +15,7 @@ import {
   saveSession,
   sessionGeneration,
   subscribeSession,
+  UNOWNED_LOCAL_DATA_OWNER,
 } from '@/services/api/session';
 
 const write = SecureStore.setItemAsync as jest.Mock;
@@ -44,6 +45,7 @@ beforeEach(async () => {
   await SecureStore.deleteItemAsync('gromo.lastUserIdClearPending');
   await SecureStore.deleteItemAsync('gromo.legacySessionMigrated');
   await SecureStore.deleteItemAsync('gromo.legacySessionPendingPromotion');
+  await SecureStore.deleteItemAsync('gromo.ownerAdoptionPending');
   await clearSession();
 });
 
@@ -888,4 +890,37 @@ test('세션 교체는 세대를 올리고, 복구는 올리지 않는다', asyn
 
   await clearSession();
   assert.equal(sessionGeneration(), before + 2);
+});
+
+test('소유자 표식이 없는 기기에서 채택 전에 종료된 로그인 세션은 소유자로 추론하지 않는다', async () => {
+  // 업그레이드 직후: 소유자 표식이 없고 이전 사용자의 로컬 데이터만 남아 있다.
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  assert.equal(getLastSessionUserId(), null);
+
+  // B 로그인 저장만 끝나고 adoptSession 전에 앱이 종료됐다.
+  await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+  assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), '1');
+  await restoreSession();
+
+  // 세션이 있다는 사실만으로 B를 소유자로 기록하지 않는다 — 소유자 미상으로 격리한다.
+  assert.equal(getSession()?.userId, 'user-b');
+  assert.equal(getLastSessionUserId(), UNOWNED_LOCAL_DATA_OWNER);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+
+  // 채택이 끝나 소유자를 기록하면 표식이 내려가고 다음 부팅부터 B가 소유자다.
+  assert.equal(await rememberLocalDataOwner('user-b'), true);
+  assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), null);
+  await restoreSession();
+  assert.equal(getLastSessionUserId(), 'user-b');
+});
+
+test('채택 대기 표식이 없는 업그레이드 세션은 기존처럼 세션 사용자를 소유자로 이어받는다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  // 이전 앱 버전이 남긴 세션: 소유자 표식도 채택 대기 표식도 없다.
+  await SecureStore.deleteItemAsync('gromo.ownerAdoptionPending');
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  assert.equal(getLastSessionUserId(), 'user-a');
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'user-a');
 });
