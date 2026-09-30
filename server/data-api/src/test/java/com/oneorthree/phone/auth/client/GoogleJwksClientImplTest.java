@@ -15,6 +15,7 @@ import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.Date;
 
@@ -61,7 +62,9 @@ class GoogleJwksClientImplTest {
 
     @AfterAll
     static void stopJwks() {
-        server.stop(0);
+        if (server != null) {
+            server.stop(0);
+        }
     }
 
     private static byte[] unsigned(byte[] value) {
@@ -74,10 +77,14 @@ class GoogleJwksClientImplTest {
     }
 
     private static String token(String audience, String issuer) {
+        return token(new String[] {audience}, issuer);
+    }
+
+    private static String token(String[] audiences, String issuer) {
         return Jwts.builder()
                 .header().keyId(KID).and()
                 .subject("google-sub-1")
-                .audience().add(audience).and()
+                .audience().add(Arrays.asList(audiences)).and()
                 .issuer(issuer)
                 .expiration(Date.from(Instant.now().plusSeconds(300)))
                 .signWith(keyPair.getPrivate())
@@ -91,6 +98,16 @@ class GoogleJwksClientImplTest {
 
         assertThat(client.getProviderId(token(IOS_CLIENT, ISS))).isEqualTo("google-sub-1");
         assertThat(client.getProviderId(token(WEB_CLIENT, ISS))).isEqualTo("google-sub-1");
+    }
+
+    @Test
+    @DisplayName("aud 가 여러 개면 목록 밖 값이 섞여 있어도 목록 안 값이 하나라도 있으면 통과한다")
+    void allowsWhenAnyAudienceListed() {
+        GoogleJwksClientImpl client = new GoogleJwksClientImpl(jwksUrl, IOS_CLIENT);
+
+        assertThat(client.getProviderId(token(new String[] {"other-app", IOS_CLIENT}, ISS))).isEqualTo("google-sub-1");
+        assertThatThrownBy(() -> client.getProviderId(token(new String[] {"other-app", WEB_CLIENT}, ISS)))
+                .isInstanceOf(InvalidTokenException.class);
     }
 
     @Test
