@@ -115,14 +115,10 @@ class BlockedUsersTest {
     }
 
     @Test
-    @DisplayName("캐시 TTL 이 세대 키 수명 이상이면 부팅을 거부한다 — 세대 키가 먼저 사라지면 옛 캐시가 되살아난다")
-    void cacheTtlMustBeShorterThanGenerationTtl() {
-        long day = BlockedUsers.GENERATION_TTL.toSeconds();
-        assertThatThrownBy(() -> new BlockedUsers(client, redis, day, true))
-                .isInstanceOf(IllegalArgumentException.class);
+    @DisplayName("캐시 TTL 은 1 이상이어야 한다")
+    void cacheTtlMustBePositive() {
         assertThatThrownBy(() -> new BlockedUsers(client, redis, 0, true))
                 .isInstanceOf(IllegalArgumentException.class);
-        new BlockedUsers(client, redis, day - 1, true);
     }
 
     @Test
@@ -158,11 +154,11 @@ class BlockedUsersTest {
     }
 
     @Test
-    @DisplayName("세대 올리기는 INCR + 수명이고, 실패는 삼키지 않는다(사건 재전달로 복구)")
+    @DisplayName("세대 올리기는 수명 없는 INCR 이고(번호 재사용 금지), 실패는 삼키지 않는다(사건 재전달로 복구)")
     void advanceGenerationIncrementsAndPropagatesFailure() {
         blockedUsers.advanceGeneration(viewer);
         verify(values).increment(RedisKeys.blockGeneration(viewer));
-        verify(redis).expire(eq(RedisKeys.blockGeneration(viewer)), any(Duration.class));
+        verify(redis, never()).expire(anyString(), any(Duration.class));
 
         when(values.increment(RedisKeys.blockGeneration(viewer)))
                 .thenThrow(new RedisConnectionFailureException("down"));

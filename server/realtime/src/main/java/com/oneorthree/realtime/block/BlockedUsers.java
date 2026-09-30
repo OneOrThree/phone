@@ -53,12 +53,6 @@ public class BlockedUsers {
     private static final String GENERATION_SEPARATOR = "|";
     private static final String ID_SEPARATOR = ",";
 
-    /**
-     * 세대 키 수명 — <b>캐시 TTL 보다 반드시 길어야 한다.</b> 세대 키가 먼저 사라지면 현재 세대가 0 으로 돌아가,
-     * 세대 0 에 적재된 차단 전 캐시가 다시 «현재»로 읽힌다. 그래서 생성자가 캐시 TTL 을 이 값 미만으로 강제한다.
-     */
-    static final Duration GENERATION_TTL = Duration.ofDays(1);
-
     private final BlockClient blockClient;
     private final StringRedisTemplate redis;
     private final Duration cacheTtl;
@@ -67,8 +61,8 @@ public class BlockedUsers {
     public BlockedUsers(BlockClient blockClient, StringRedisTemplate redis,
             @Value("${realtime.blocks.cache-ttl-seconds:120}") long cacheTtlSeconds,
             @Value("${realtime.blocks.filter-enabled:false}") boolean enabled) {
-        if (cacheTtlSeconds <= 0 || Duration.ofSeconds(cacheTtlSeconds).compareTo(GENERATION_TTL) >= 0) {
-            throw new IllegalArgumentException("realtime.blocks.cache-ttl-seconds 는 1 이상, 세대 키 수명(1일) 미만이어야 합니다.");
+        if (cacheTtlSeconds <= 0) {
+            throw new IllegalArgumentException("realtime.blocks.cache-ttl-seconds 는 1 이상이어야 합니다.");
         }
         this.blockClient = blockClient;
         this.redis = redis;
@@ -93,11 +87,13 @@ public class BlockedUsers {
      * 그 차단자의 세대를 올린다 — 캐시된 집합은 이 순간부터 읽히지 않는다.
      *
      * <p>실패를 삼키지 않는다. 사건 처리 트랜잭션이 롤백돼 수신 기록이 남지 않고 relay 가 다시 보낸다.
+     *
+     * <p><b>세대 키에는 수명을 걸지 않는다.</b> 만료되면 번호가 0 부터 다시 올라, 만료 직전에 옛 번호로 적재된
+     * 캐시와 새 사건 뒤의 번호가 우연히 같아질 수 있다(그러면 차단 전 집합이 «현재»로 읽힌다). 캐시 TTL 과의
+     * 대소 관계로는 막을 수 없는 재사용이다. 키는 차단·해제를 한 번이라도 한 사용자당 정수 하나뿐이다.
      */
     public void advanceGeneration(UUID blockerId) {
-        String key = RedisKeys.blockGeneration(blockerId);
-        redis.opsForValue().increment(key);
-        redis.expire(key, GENERATION_TTL);
+        redis.opsForValue().increment(RedisKeys.blockGeneration(blockerId));
     }
 
     private Set<UUID> blockedBy(UUID viewerId) {

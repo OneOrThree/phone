@@ -118,7 +118,7 @@ architecture decision A19 table.
 | --- | --- | --- | --- |
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
 | `cache:chat:block:{userId}` | realtime | read/write | 그 유저가 차단한 id 집합 + 적재 당시 세대 `<gen>\|<id>,…` (GROMO-2182). TTL 은 백스톱일 뿐 |
-| `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR. 캐시 세대와 다르면 캐시를 버린다 |
+| `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR, **수명 없음**(번호 재사용 금지). 캐시 세대와 다르면 캐시를 버린다 |
 | `chat:fanout` | chat | pub/sub | cross-instance delivery (채팅 전용 wire) |
 | `chat:events:v1` | realtime | pub/sub | cross-instance delivery of **island events**; `{originInstanceId,destination,event}` |
 | `lock:chat:emote:{islandId}:{userId}` | realtime | read/write | 응원 **성공** 창(3초). 존재가 곧 「이미 보냈다」 |
@@ -232,8 +232,8 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    Realtime `REALTIME_BLOCKS_FILTER_ENABLED` (`realtime.blocks.filter-enabled`) and Data
    `USER_BLOCKS_REALTIME_EVENTS_ENABLED` (`user-blocks.realtime-events-enabled`). Enable order: Realtime deployed
    (accepts `user.blocks.updated`) → Data `realtime-authorization` profile + `SVC_TOKEN_REALTIME_TO_DATA` + producer
-   flag → Realtime token wired → filter flag. `realtime.blocks.cache-ttl-seconds` must stay below the 1-day
-   generation-key TTL (boot fails otherwise).
+   flag → Realtime token wired → filter flag. The generation key has **no TTL** on purpose — an expiring
+   key restarts at 0 and a number can collide with a live cache written just before expiry.
 
 ### 선택적 현재 멤버십 인가
 

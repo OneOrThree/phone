@@ -206,7 +206,8 @@ class InboundEventServiceTest {
         new KafkaEventInbound(inboundEventService, objectMapper).receive(event);
 
         assertThat(redis.opsForValue().get(RedisKeys.blockGeneration(blocker))).isEqualTo("1");
-        assertThat(redis.getExpire(RedisKeys.blockGeneration(blocker))).isPositive();
+        // 세대 키는 수명 없이 남는다 — 만료되면 번호가 재사용돼 옛 캐시와 충돌한다.
+        assertThat(redis.getExpire(RedisKeys.blockGeneration(blocker))).isEqualTo(-1L);
 
         UUID other = UUID.randomUUID();
         http(blocksUpdated(UUID.randomUUID().toString(), "\"blockedUserId\":\"" + other + "\""));
