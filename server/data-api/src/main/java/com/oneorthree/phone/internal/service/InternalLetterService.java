@@ -64,6 +64,12 @@ public class InternalLetterService {
 
     private static final String SENT = "sent";
 
+    /**
+     * 차단한 상대의 편지를 상세로 열 때 원문 대신 싣는 중립 문구 (GROMO-2185). 응답 모양({@code content} 필수
+     * 문자열)을 바꾸지 않아 Business·앱이 그대로 그린다 — 원문은 DB 에 남고 차단을 해제하면 다시 보인다.
+     */
+    public static final String BLOCKED_CONTENT_PLACEHOLDER = "차단한 사용자의 편지라 내용을 볼 수 없어요.";
+
     private final LetterRepository letters;
     private final UserQueryService users;
     private final FriendshipRepository friendships;
@@ -199,7 +205,8 @@ public class InternalLetterService {
      *
      * @param userId   조회자
      * @param letterId 편지 id
-     * @return 편지 한 통. 방금 읽음 처리했다면 {@code readAt} 이 그 시각이다
+     * @return 편지 한 통. 방금 읽음 처리했다면 {@code readAt} 이 그 시각이다. 내가 차단한 상대와의 편지면
+     *     {@code content} 가 {@link #BLOCKED_CONTENT_PLACEHOLDER} 로 가려지고 읽음을 박지 않는다(GROMO-2185)
      * @throws LetterException {@code LETTER_MAILBOX_LOCKED}(403) · {@code LETTER_NOT_FOUND}(404,
      *     읽는 사이 닫힌 경우 포함) · {@code NOT_LETTER_PARTICIPANT}(403)
      */
@@ -212,17 +219,19 @@ public class InternalLetterService {
         if (letter.isNotParticipant(userId)) {
             throw new LetterException(LetterErrorCode.NOT_LETTER_PARTICIPANT);
         }
+        boolean masked = isCounterpartBlocked(letter, userId);
 
         // 아래 조건부 UPDATE 가 영속성 컨텍스트를 비우므로 응답 값을 «먼저» 꺼내 둔다.
         UUID senderId = letter.getSender().getId();
         String senderNickname = letter.getSender().getNickname();
         UUID receiverId = letter.getReceiver().getId();
-        String content = letter.getContent();
+        String content = masked ? BLOCKED_CONTENT_PLACEHOLDER : letter.getContent();
         Instant createdAt = letter.getCreatedAt();
         Instant readAt = letter.getReadAt();
 
         // 발신자 본인이 다시 봐도 읽음이 아니다 — 「상대가 읽었다」는 신호가 아니기 때문이다(HLD §2.2).
-        if (readAt == null && receiverId.equals(userId)) {
+        // 본문을 가린 열람도 읽음이 아니다 — 수신자는 내용을 보지 못했다(GROMO-2185).
+        if (!masked && readAt == null && receiverId.equals(userId)) {
             readAt = markRead(letterId);
         }
         return new LetterView(letterId, senderId, senderNickname, receiverId, content, createdAt, readAt);
@@ -300,6 +309,18 @@ public class InternalLetterService {
         return letters.findActiveWithSender(letterId)
                 .map(Letter::getReadAt)
                 .orElseThrow(() -> new LetterException(LetterErrorCode.LETTER_NOT_FOUND));
+    }
+
+    /**
+     * 내가 차단한 상대와 주고받은 편지인가 (GROMO-2185, policy RP-차단 「차단 전 받은 편지는 차단 중 목록·상세 ID
+     * 조회·미리보기에서 서버가 본문을 가리되 삭제하지 않는다」).
+     *
+     * <p>판정은 <b>차단한 쪽(호출자) 방향</b>이다 — 받은함({@code findReceivedByCursor})·보낸함
+     * ({@code findSentByCursor}) 목록 필터와 같은 축이다. 차단당한 쪽에서까지 가리면 그 자체가 «차단됐다»는
+     * 통보가 된다(D3 「따로 알리지 않는다」).
+     */
+    private boolean isCounterpartBlocked(Letter letter, UUID me) {
+        return userBlockService.blockedIds(me).contains(letter.counterpartOf(me).getId());
     }
 
     private static LetterItemView item(Letter letter, UUID me, boolean sent) {

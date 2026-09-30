@@ -467,8 +467,12 @@ public class FriendService {
      */
     public List<PinnedUserResponse> getPinnedFriends(UUID me, LocalDate date) {
         User meUser = getUser(me);
+        // 내가 차단한 친구는 핀이 남아 있어도 보이지 않는다 (GROMO-2185) — getFriends 와 같은 blocker 방향 필터.
+        // 핀 행은 지우지 않으므로 차단을 해제하면 다시 보인다(policy D3 「기존 관계는 자동 삭제하지 않고 숨긴다」).
+        Set<UUID> blockedIds = userBlockService.blockedIds(me);
         List<User> friends = pinnedUserRepository.findByUser(meUser).stream()
                 .map(PinnedUser::getPinnedUser)
+                .filter(pinned -> !blockedIds.contains(pinned.getId()))
                 .toList();
         if (friends.isEmpty()) {
             return List.of();
@@ -508,9 +512,15 @@ public class FriendService {
     public List<FriendRequestResponse> getRequests(UUID me, String type) {
         User meUser = getUser(me);
         boolean received = "received".equalsIgnoreCase(type);
-        List<Friendship> requests = received
+        // 내가 차단한 상대와의 대기 요청은 받은·보낸 양쪽 목록에서 뺀다 (GROMO-2185) — 행은 PENDING 그대로다.
+        // 수락은 GROMO-2179 의 서버 거절이 따로 막는다. 방향은 getFriends 와 같은 blocker 관점이다.
+        Set<UUID> blockedIds = userBlockService.blockedIds(me);
+        List<Friendship> requests = (received
                 ? friendshipRepository.findByToUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING)
-                : friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING);
+                : friendshipRepository.findByFromUserAndStatusAndDeletedAtIsNull(meUser, FriendshipStatus.PENDING))
+                .stream()
+                .filter(f -> !blockedIds.contains((received ? f.getFromUser() : f.getToUser()).getId()))
+                .toList();
 
         // GROMO-710: 상대 userId 들을 한 번에 모아 티어 배치 조회(N+1 방지). 티어는 league_arena_users 로만 도출(GROMO-671).
         Map<UUID, Integer> tierLevels = userTierLookup.tierLevelsByUserId(requests.stream()
