@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
   AppState,
   KeyboardAvoidingView,
+  Keyboard,
   Share,
   AccessibilityInfo,
   FlatList,
@@ -40,6 +41,7 @@ import {
 } from '@/services/liveActivity';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { reconcileTutorial } from '@/services/tutorial';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -185,7 +187,7 @@ const titles: Record<Route, string> = {
   approval: '가입 승인 대기',
   arrival: '섬에 도착했어요',
   home: '우리 섬',
-  guide: '앵무새 안내',
+  guide: '몽돌 안내',
   focusSetup: '낚시 집중 준비',
   focus: '함께 낚시 집중',
   rest: '모닥불',
@@ -272,7 +274,8 @@ export default function App() {
     </SafeAreaProvider>
   );
 }
-// 딥링크를 보관만 하는 화면 — 로그인과 계정·섬 온보딩 단계.
+// 딥링크를 보관만 하는 화면 — 로그인과 계정·섬 온보딩 단계, 첫 섬 합류 뒤의 필수 안내(guide).
+// 안내 중에 링크를 소비하면 온보딩과 마찬가지로 첫 튜토리얼을 건너뛴다.
 const DEEP_LINK_HOLD_ROUTES: Route[] = [
   'login',
   'character',
@@ -280,6 +283,7 @@ const DEEP_LINK_HOLD_ROUTES: Route[] = [
   'createIsland',
   'joinIsland',
   'approval',
+  'guide',
 ];
 
 function Gromo() {
@@ -322,6 +326,8 @@ function Gromo() {
     [emote, setEmote] = useState<string | null>(null),
     [now, setNow] = useState(Date.now()),
     [toast, setToast] = useState(''),
+    // 편지 쓰기 등 키보드가 떠 있는 화면에서 알림 토스트가 소프트 키보드 밑에 가려지지 않게(GROMO-2169)
+    [keyboardHeight, setKeyboardHeight] = useState(0),
     [modal, setModal] = useState<{
       title: string;
       text: string;
@@ -340,12 +346,16 @@ function Gromo() {
     // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
     [switchAsk, setSwitchAsk] = useState(false),
     [visited, setVisited] = useState('strawberry'),
-    [guideStep, setGuideStep] = useState(0),
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
+  const guideStep = state.tutorial?.step ?? 0;
+  const setGuideStep = (step: number, expected?: { step: number; revision: number }) =>
+    dispatch({ type: 'GUIDE_STEP', step, expected });
+  const tutorialBootReconciled = useRef(false);
+  const previousTutorialRoute = useRef(route);
   const [liveCounts, setLiveCounts] = useState<{
     sessionId: string;
     islandId: string;
@@ -417,6 +427,18 @@ function Gromo() {
   useEffect(() => subscribeBuildingTransitionActivity(setBuildingTransitionActive), []);
   useEffect(() => subscribeBuildingTransitionRouteCover(setBuildingRouteCovered), []);
   useEffect(() => () => fireTransitionController.dispose(), [fireTransitionController]);
+  // 편지 쓰기처럼 키보드가 떠 있는 화면에서 실패 알림(e.notify)이 키보드 밑에 가려지지 않게
+  // 키보드 높이를 추적해 토스트를 그만큼 띄운다(GROMO-2169).
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (ev) =>
+      setKeyboardHeight(ev.endCoordinates?.height ?? 0),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -575,7 +597,16 @@ function Gromo() {
     // 인증 완료와 계정·섬 온보딩 완료는 별개다. 캐릭터·섬 선택 중에 링크를 소비하면 필수
     // 온보딩을 건너뛰므로, 온보딩이 끝나 해당 화면들을 벗어날 때까지 보관한다.
     // 지원하지 않는 초대·그룹 링크도 같은 guard 뒤에서 홈 이동과 안내를 함께 처리한다.
-    if (!hasServerSession || !state.onboarded || DEEP_LINK_HOLD_ROUTES.includes(route)) return;
+    // 첫 안내 초반(3단계 이하)의 홈은 튜토리얼 effect 가 같은 렌더에서 guide 로 되돌린다. 여기서 링크를
+    // 소비하면 목적지 이동이 덮여 링크가 사라지므로 안내 화면과 같이 보관한다.
+    const tutorialForcesGuide = route === 'home' && !!state.tutorial && state.tutorial.step <= 3;
+    if (
+      !hasServerSession ||
+      !state.onboarded ||
+      DEEP_LINK_HOLD_ROUTES.includes(route) ||
+      tutorialForcesGuide
+    )
+      return;
     setIncomingAppLink(null);
     if (target.kind === 'unsupported') {
       goRef.current('home');
@@ -583,7 +614,7 @@ function Gromo() {
       return;
     }
     goRef.current(target.route);
-  }, [loaded, incomingAppLink, hasServerSession, state.onboarded, route]);
+  }, [loaded, incomingAppLink, hasServerSession, state.onboarded, state.tutorial, route]);
   const islandCmds = useRef<ReturnType<typeof createIslandCommands> | null>(null);
   islandCmds.current ??= createIslandCommands({
     dispatch,
@@ -621,7 +652,7 @@ function Gromo() {
     [homeReload, setHomeReload] = useState(0);
   const serverCurrent =
     !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
-  const onHome = route === 'home';
+  const onHome = route === 'home' || route === 'guide';
   const buildingIndicators = useBuildingIndicators({
     active: !!serverCurrent,
     islandId: serverCurrent,
@@ -1303,6 +1334,18 @@ function Gromo() {
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
   }, [loaded, state.onboarded, state.islandId, qaBuildingsReady]);
   useEffect(() => {
+    if (!loaded) return;
+    const restoring = !tutorialBootReconciled.current;
+    const returningHome = route === 'home' && previousTutorialRoute.current !== 'home';
+    previousTutorialRoute.current = route;
+    tutorialBootReconciled.current = true;
+    const next = reconcileTutorial(state, route, restoring || returningHome);
+    if (next !== guideStep)
+      setGuideStep(next, { step: guideStep, revision: state.tutorialRevision ?? 0 });
+    if (route === 'home' && state.tutorial && next <= 3) reset('guide');
+    if (route === 'guide' && !state.tutorial) setGuideStep(0);
+  }, [loaded, route, state.tutorial, state.session, state.lastResult]);
+  useEffect(() => {
     if (
       loaded &&
       storageOwnerReady &&
@@ -1838,11 +1881,16 @@ function Gromo() {
         />
         {toast !== '' && (
           <View
+            testID="global-toast"
             pointerEvents="none"
             accessibilityLiveRegion="polite"
             style={{
               position: 'absolute',
-              bottom: 40,
+              // 키보드가 떠 있으면(편지 쓰기 등) 그만큼 더 띄워 소프트 키보드에 가리지 않게 한다.
+              // Android 는 windowSoftInputMode=adjustResize 로 이 View 의 부모 영역이 이미 키보드
+              // 높이만큼 줄어들어 있어 여기서 또 더하면 이중 보정이 된다(GROMO-2169 리뷰 지적) —
+              // 키보드 높이 보정은 iOS 에서만 한다.
+              bottom: 40 + (Platform.OS === 'android' ? 0 : keyboardHeight),
               left: (layout.width - layout.floatingWidth) / 2,
               width: layout.floatingWidth,
               backgroundColor: C.ink,

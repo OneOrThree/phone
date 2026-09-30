@@ -102,7 +102,14 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       # 멤버십 조회 상류. 컨테이너 이름으로 부른다(호스트 포트를 거치지 않는다).
       DATA_API_BASE_URL: http://app:8080
-      # 네이티브 앱은 Origin 을 보내지 않으므로 비워 둔다 — 웹 클라이언트가 생기면 그 도메인만 넣는다.
+      # 핸드셰이크 허용 Origin(쉼표 구분, 패턴 허용). ⚠️ 「네이티브 앱은 Origin 을 안 보낸다」는 틀렸다 — React Native
+      # WebSocket(iOS SocketRocket · Android WebSocketModule)은 WS 접속 URL 로 `Origin: https://<WS 호스트>` 를
+      # 만들어 보낸다(비표준 포트면 포트까지, 지금은 API 도메인과 같은 호스트). 그래서 비워 두면(same-origin 만 허용 →
+      # 프록시 뒤라 사실상 전부 거절) 앱 접속까지 403 이다(GROMO-2175, 2026-10-01 KST dev 실측: API 도메인 Origin 403 ·
+      # Origin 없음 101). dev 는 SM `gromo/dev/env` 의 CHAT_WS_ALLOWED_ORIGINS 에 API 도메인
+      # (https://oneorthree.dev.mooo.com)을 넣어 허용한다 — dev.env 로 옮겨지는 키다(write-compose-env.py).
+      # 기본값은 «일부러» 빈 값(사실상 거절)이다. 환경마다 도메인이 달라 여기 박을 수 없고, `*` 는 임의의 웹페이지에
+      # 소켓을 열어 준다 — 값이 빠지면 조용히 열리는 대신 403 으로 드러나는 편이 낫다.
       CHAT_WS_ALLOWED_ORIGINS: ${CHAT_WS_ALLOWED_ORIGINS:-}
       # Data relay 의 사건 수신 자격(POST /internal/events, GROMO-1954). 비면 그 경로만 401 이라 Data 의 REALTIME
       # 전달이 멈춘다 — Data 의 SVC_TOKEN_DATA_TO_REALTIME 과 «같은 값», Business 토큰과는 «다른 값»(A22 ㊀).

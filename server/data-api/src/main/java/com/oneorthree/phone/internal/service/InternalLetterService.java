@@ -18,6 +18,7 @@ import com.oneorthree.phone.letter.repository.LetterRepository;
 import com.oneorthree.phone.letter.repository.domain.Letter;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.service.UserBlockService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.domain.PageRequest;
@@ -70,6 +71,7 @@ public class InternalLetterService {
     private final IslandFacilityQueryService islandFacilityQueryService;
     private final PerUserHourlyLimiter sendLimiter;
     private final BannedWords bannedWords;
+    private final UserBlockService userBlockService;
 
     /**
      * 한도 카운터가 친구 요청 것과 같은 타입이라 이름으로 골라 받는다 — Lombok 생성자는 {@code @Qualifier} 를
@@ -81,7 +83,7 @@ public class InternalLetterService {
                                  GroupMemberRepository islandMemberships,
                                  IslandFacilityQueryService islandFacilityQueryService,
                                  @Qualifier("letterSendRateLimiter") PerUserHourlyLimiter sendLimiter,
-                                 BannedWords bannedWords) {
+                                 BannedWords bannedWords, UserBlockService userBlockService) {
         this.letters = letters;
         this.users = users;
         this.friendships = friendships;
@@ -89,6 +91,7 @@ public class InternalLetterService {
         this.islandFacilityQueryService = islandFacilityQueryService;
         this.sendLimiter = sendLimiter;
         this.bannedWords = bannedWords;
+        this.userBlockService = userBlockService;
     }
 
     /**
@@ -105,7 +108,7 @@ public class InternalLetterService {
      * @param body     받는 사람과 본문
      * @return 방금 만든 편지. {@code readAt} 은 항상 null 이다
      * @throws LetterException {@code SELF_LETTER}(400) · {@code LETTER_CONTENT_BLANK}(400) ·
-     *     {@code LETTER_CONTENT_OUT_OF_RANGE}(400) · {@code LETTER_RECIPIENT_NOT_FRIEND}(404)
+     *     {@code LETTER_CONTENT_OUT_OF_RANGE}(400) · {@code LETTER_RECIPIENT_NOT_FRIEND}(404, 차단 관계 포함)
      * @throws com.oneorthree.phone.common.exception.BannedWordException {@code BANNED_WORD}(400) — 금칙어
      * @throws com.oneorthree.phone.common.exception.RateLimitedException {@code RATE_LIMITED}(429) — 계정당 시간 한도
      */
@@ -118,6 +121,12 @@ public class InternalLetterService {
 
         User sender = users.getCallerForShare(senderId);
         User receiver = users.getTargetForShare(body.receiverId());
+        // 차단 관계면 어느 방향이든 발송하지 않는다 (GROMO-2179, policy RP-차단). 기존 친구 관계는 차단 중에도
+        // 지우지 않으므로(D3) 아래 친구 확인만으로는 막히지 않는다. 코드는 «친구가 아님»과 같은 404 —
+        // 차단 사실을 상대에게 따로 알리지 않는다(D3). 한도 카운터보다 앞이라 거절이 한도를 소모하지 않는다.
+        if (userBlockService.isBlockedEither(senderId, receiver.getId())) {
+            throw new LetterException(LetterErrorCode.LETTER_RECIPIENT_NOT_FRIEND);
+        }
         // 관계 행 배타 락 (codex 리뷰 P1) — 친구 삭제와 «같은 행»에서 직렬화한다. 락 없이 확인하면
         // 이 검사를 통과한 뒤 삭제가 미확인 편지 정리까지 커밋하고, 그 다음에 아래 save 가 새 편지를
         // 꽂아 「관계는 끊겼는데 미확인 편지가 남는」 상태가 된다(LLD §결정 3 위반).
@@ -128,7 +137,10 @@ public class InternalLetterService {
         // 한도는 판정을 다 통과한 «쓰기 직전»에 센다(GROMO-1934) — 거절될 요청까지 세면 오타 몇 번에 막힌다.
         sendLimiter.acquire(senderId);
 
-        Letter saved = letters.save(Letter.builder()
+        // saveAndFlush — @CreationTimestamp(createdAt)는 flush 시점에 채워진다. save()만 쓰면
+        // 영속성 컨텍스트에 남은 saved.getCreatedAt()이 null이라 Business 필수 필드 검증(400)에
+        // 걸린다(GROMO-2174) — insert를 여기서 즉시 flush해 아래 응답 생성 전에 값을 확정한다.
+        Letter saved = letters.saveAndFlush(Letter.builder()
                 .sender(sender)
                 .receiver(receiver)
                 .content(content)

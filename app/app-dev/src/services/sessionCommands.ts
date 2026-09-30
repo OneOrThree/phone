@@ -6,6 +6,7 @@ import { ApiError, CLIENT_STALE_SESSION, uuid } from '@/services/api/client';
 import { sessionGeneration } from '@/services/api/session';
 import {
   acknowledgeFocusResult as apiAcknowledge,
+  claimTutorialReward as apiTutorialReward,
   currentFocusSession as apiCurrent,
   finishFocusSession as apiFinish,
   FocusFinishView,
@@ -27,6 +28,7 @@ export type FocusApi = {
   resume: typeof apiResume;
   finish: typeof apiFinish;
   acknowledge: typeof apiAcknowledge;
+  tutorialReward: typeof apiTutorialReward;
 };
 
 export type SessionCommandDeps = {
@@ -50,6 +52,7 @@ const defaultApi: FocusApi = {
   resume: apiResume,
   finish: apiFinish,
   acknowledge: apiAcknowledge,
+  tutorialReward: apiTutorialReward,
 };
 
 const staleError = () =>
@@ -173,6 +176,21 @@ export const createSessionCommands = (deps: SessionCommandDeps) => {
     }
   };
   const commands = {
+    tutorialReward: (sessionId: string) =>
+      call(async () => {
+        const g = generation();
+        const result = await api.tutorialReward(sessionId);
+        alive(g);
+        if (
+          !result ||
+          result.sessionId !== sessionId ||
+          !['pending', 'granted', 'unavailable'].includes(result.status)
+        )
+          throw new ApiError('INVALID_RESPONSE', '보상 정보를 확인하지 못했어요.', 0);
+        if (result.status === 'granted')
+          deps.dispatch({ type: 'TUTORIAL_FISH_CONFIRMED', sessionId });
+        return result;
+      }),
     // 시작 — islandId 는 memberships 의 current 에서만 온다(화면이 고르지 않는다)
     start: (input: { subject: string; targetMinutes?: number }) =>
       call(async () => {

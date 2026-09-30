@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   acknowledgeFocusResult,
+  claimTutorialReward,
   currentFocusSession,
   finishFocusSession,
   pauseFocusSession,
@@ -12,6 +13,14 @@ import { clearSession, saveSession } from '@/services/api/session';
 
 type Call = { url: string; init: RequestInit };
 const calls: Call[] = [];
+
+test('최초 낚시 보상은 공개 경로로 청구하고 지급량이나 사용자 ID를 보내지 않는다', async () => {
+  stub([{ status: 200, body: { data: { sessionId: 'sess-1', status: 'granted' } } }]);
+  expect(await claimTutorialReward('sess-1')).toEqual({ sessionId: 'sess-1', status: 'granted' });
+  expect(path(calls[0])).toBe('/focus-sessions/sess-1/tutorial-reward');
+  expect(calls[0].init.method).toBe('POST');
+  expect(calls[0].init.body).toBeUndefined();
+});
 
 function stub(responses: { status: number; body?: unknown }[]) {
   let index = 0;

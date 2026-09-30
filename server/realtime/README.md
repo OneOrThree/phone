@@ -88,7 +88,7 @@ cd server/realtime
 | `REDIS_HOST`, `REDIS_PORT` | Redis 연결, 포트 기본값 6379 |
 | `JWT_SECRET` | Data가 발급한 AT 서명 검증 |
 | `DATA_API_BASE_URL` | 멤버십 조회 상류 |
-| `CHAT_WS_ALLOWED_ORIGINS` | 웹 클라이언트의 허용 Origin |
+| `CHAT_WS_ALLOWED_ORIGINS` | 핸드셰이크 허용 Origin. **앱도 Origin(`https://<API 호스트>`)을 보내므로** API 도메인을 넣어야 한다 — 비면 앱 접속도 403 |
 
 ```bash
 # server/realtime 기준, 위 환경변수 주입 후

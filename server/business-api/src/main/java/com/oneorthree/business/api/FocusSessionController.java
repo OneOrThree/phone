@@ -47,6 +47,14 @@ public class FocusSessionController {
     private final SettingsSessionGuard sessions;
     private final UpstreamConfigProperties properties;
 
+    /** 사용자·지급량은 클라이언트에서 받지 않는다. 서버의 계정별 영수증이 중복 지급을 막는다. */
+    @PostMapping("/focus-sessions/{sessionId}/tutorial-reward")
+    public FocusSessionUseCase.TutorialRewardView claimTutorialReward(
+            @PathVariable String sessionId, HttpServletRequest request) {
+        return focusSessions.claimTutorialReward(sessions.requireSession(request),
+                PublicIds.uuid(sessionId, "sessionId"), properties.deadline());
+    }
+
     @PostMapping(value = "/focus-sessions", consumes = "application/json")
     public ResponseEntity<StateView> start(@RequestBody JsonNode body, HttpServletRequest request) {
         AccessTokenClaims claims = sessions.requireSession(request);
