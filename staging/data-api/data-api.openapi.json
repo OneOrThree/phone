@@ -6485,6 +6485,13 @@
             "items": {
               "$ref": "#/components/schemas/MailboxViewerResponse"
             }
+          },
+          "hiddenUserIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
           }
         }
       },
