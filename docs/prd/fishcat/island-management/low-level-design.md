@@ -57,7 +57,10 @@ membership.createdAt+membership.id의 안정 정렬과 동률 키를 사용한�
 | `catColor` · `appearance` | 기본값(미선택 null · 외양 행 없음과 같은 기본 외양). 차단 상대의 실제 값을 싣지 않는다 |
 
 - 치환은 **서버 응답**에서 한다. 앱이 `GET /blocks` 와 대조해 가리는 방식에 맡기지 않는다(RP-서버차단).
-- 치환 문구를 서버가 문자열로 내릴지, 앱이 그리는 표지 필드를 둘지와 `version`·cursor 가 요청자별 치환과 어떻게 맞물리는지는 **구현 PR 에서 확정**한다. 어느 쪽이든 차단 상대의 원래 닉네임·프로필이 응답에 남으면 안 된다.
+- **PR #1055(머지 전) 기준 구현.** Business `BlockedProfileMask` 가 Data `GET /internal/users/{userId}/blocks` 에서 id 만 읽어 응답 후보 중 요청자가 차단한 사용자를 고르고, `name` 을 서버 문자열 「차단한 주민」으로, `catColor` 를 null 로, `appearance` 를 기본값(clothes·decor null, position `front`, hull `raft`)으로 바꾼다. `appearance.version` 은 실시간 병합 기준이라 그대로 둔다. 후보가 요청자 본인뿐이면 Data 를 부르지 않는다.
+- **차단 목록 조회 실패는 fail-closed** — 원래 닉네임을 내보내지 않고 상류 실패를 올린다. 화면 묶음 조회(`ScreenReadUseCase`)도 같은 유스케이스를 타므로 함께 적용된다.
+- 행을 빼지 않고 치환하는 이유: 빼면 인원수·공동 목표·자리 배치가 요청자마다 달라지고, `userId` 는 앱의 목록 키·실시간 병합 키다.
+- 아직 치환되지 않는 표면(이번 결정 범위 밖): `rest-members`, 실시간 focus·외양 사건, 가입 신청자 목록(§3.3).
 - 섬 랭킹은 대상이 아니다 — 섬 내부 주민 랭킹은 폐지됐고(B23·B15) `GET /rankings/islands` 에는 닉네임이 없다([섬 랭킹 정책](../island-rankings/policy.md)).
 
 ### 3.3 requests — GET /islands/{islandId}/join-requests

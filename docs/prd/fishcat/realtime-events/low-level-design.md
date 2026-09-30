@@ -191,10 +191,10 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 | 항목 | 규칙 |
 |---|---|
 | 판정 축 | **받는 세션 기준.** 프레임을 받을 세션의 검증 주체(principal)가 발신자를 차단했으면(수신자=blocker) 그 세션에는 보내지 않는다. 방송 전체를 막거나 발신자에게 실패를 돌려주지 않는다 — 발신자는 자신이 차단당했는지 알 수 없어야 한다(정책 D3) |
-| 대상 채널 | 섬 채팅(`/topic/islands/{islandId}/messages` 의 `message.created`), legacy 그룹 채팅(`/topic/groups/{groupId}`), 응원(`/topic/islands/{islandId}/emotes` 의 `focus.emote`). 발신자 식별은 각각 `payload.senderId` · 기존 메시지의 작성자 · `payload.userId` |
+| 대상 채널 | 섬 채팅(`/topic/islands/{islandId}/messages` 의 `message.created`), legacy 그룹 채팅(`/topic/groups/{groupId}`), 응원(`/topic/islands/{islandId}/emotes` 의 `focus.emote`). 발신자 식별은 각각 `payload.senderId` · legacy `ChatMessageResponse.senderId` · `payload.userId` |
 | 판정 시점 | §4.2 와 같은 **송신 직전** 최종 검사. 구독·SEND 시점 허용을 이후 프레임의 허가증으로 재사용하지 않는다 |
 | 차단 세대 | 차단 확정은 세대(generation)를 가진다. 옛 세대에서 판정해 대기열·fanout·executor 에 쌓여 있던 전송은 송신 직전에 현재 세대와 비교해 **폐기**한다 |
-| 조회 실패 | 차단 관계 조회의 오류·timeout·비정상 응답(스키마 불일치·빈 본문 등)은 **전달하지 않는다(fail-closed)**. 「차단 없음」으로 간주하지 않는다 |
+| 조회 실패 | 차단 관계 조회의 오류·timeout·비정상 응답(스키마 불일치·빈 본문 등)은 **전달하지 않는다(fail-closed)**. 「차단 없음」으로 간주하지 않는다. **현재 차단 세대를 확인할 수 없는 경우도 같다** — 세대 비교가 불가능하면 대기 전송을 보내지 않는다 |
 | 캐시 | TTL 캐시를 최종 판정 증거로 쓰지 않는다. 캐시는 조회 비용을 줄이는 보조일 뿐이며 **TTL 캐시만으로 「차단 즉시 반영」을 주장하지 않는다.** 즉시성은 세대 비교와 송신 직전 재확인으로만 주장한다 |
 | 회수 | 최종 검사 뒤 이미 네트워크로 나간 프레임과 이미 기기에 도착한 내용은 회수하지 않는다(§4.2 와 같은 경계) |
 
