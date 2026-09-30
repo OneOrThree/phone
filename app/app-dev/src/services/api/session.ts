@@ -36,6 +36,9 @@ const KEY_LAST_USER_CLEAR_PENDING_FALLBACK = 'gromo.lastUserIdClearPending';
  * 기록이 끝나면 지운다. 소유자 표식이 없는 기기(업그레이드 직후)에서 로그인 저장 뒤 채택 전에
  * 앱이 종료되면, 다음 부팅이 「세션이 있으니 그 계정이 소유자」로 추론해 이전 사용자의 로컬 데이터를
  * 새 계정에 올린다. 이 표식이 남아 있으면 추론하지 않고 소유자 미상으로 격리한다.
+ * 값은 채택 대상 userId 다 — 커밋이 실패하거나 포인터 교체 전에 종료돼 표식만 남아도, 복구된
+ * 세션의 사용자와 같을 때만 대기로 본다. 그래야 커밋되지 않은 로그인의 표식이 기존 세션 사용자의
+ * 데이터를 잘못 격리하지 않는다.
  */
 const KEY_OWNER_ADOPTION_PENDING = 'gromo.ownerAdoptionPending';
 /** 커밋 마커 — **항상 마지막에** 쓴다. 자세한 이유는 {@link saveSession}. */
@@ -250,12 +253,14 @@ export function restoreSession(): Promise<Session | null> {
       cached = bundle ? await readBundledSession(bundle) : null;
       const ownerClearStatus = await resolveLocalDataOwnerClear();
       const savedLastUserId = ownerClearStatus === 'blocked' ? null : await readItem(KEY_LAST_USER);
-      // 소유자 표식이 없을 때만 의미가 있다. 읽지 못하면 채택 대기로 간주한다 — 추론이 틀리면
-      // 이전 사용자의 데이터가 다른 계정에 올라가므로, 모르면 격리하는 쪽이 안전하다.
+      // 소유자 표식이 없을 때만 의미가 있다. 표식 값(채택 대상 userId)이 복구된 세션의 사용자와
+      // 같을 때만 대기로 본다 — 다르면 커밋되지 못한 다른 로그인의 잔여 표식이다. 읽지 못하면
+      // 채택 대기로 간주한다 — 추론이 틀리면 이전 사용자의 데이터가 다른 계정에 올라가므로,
+      // 모르면 격리하는 쪽이 안전하다.
       const adoptionPending =
         ownerClearStatus === 'normal' && !savedLastUserId
           ? await readItem(KEY_OWNER_ADOPTION_PENDING).then(
-              (value) => value !== null,
+              (value) => value !== null && value === cached?.userId,
               () => true,
             )
           : false;
@@ -521,8 +526,28 @@ export function saveSession(
     }
     // 기록된 소유자와 다른 계정이면 채택이 끝나기 전까지 소유자를 추론하지 못하게 표식을 먼저
     // 남긴다. 기록하지 못하면 커밋하지 않는다 — 채택 전 종료 시 이전 데이터가 새 계정에 올라간다.
-    if (session.userId !== lastUserId) await writeItem(KEY_OWNER_ADOPTION_PENDING, '1');
-    await commit(session);
+    // 값은 채택 대상 userId 다(부팅 판정은 복구된 세션 사용자와 같을 때만 대기로 본다).
+    const markAdoption = session.userId !== lastUserId;
+    // 앞선 채택 대기 표식(커밋은 됐고 채택 전 종료된 세션의 것)을 덮어쓰므로 실패 시 되돌릴 값을 둔다.
+    // 읽지 못하면 되돌리지 않고 새 표식을 남긴다 — 부팅 판정에서 불일치로 무시될 뿐이다.
+    let previousAdoptionMarker: string | null | undefined;
+    if (markAdoption) {
+      previousAdoptionMarker = await readItem(KEY_OWNER_ADOPTION_PENDING).catch(() => undefined);
+      await writeItem(KEY_OWNER_ADOPTION_PENDING, session.userId);
+    }
+    try {
+      await commit(session);
+    } catch (error) {
+      // 커밋 실패 — 방금 쓴 표식을 이전 값으로 best-effort 복원한다. 복원이 실패해 남아도 값이
+      // 복구될 (이전) 세션의 사용자와 다르면 부팅 판정에서 무시되므로 실패는 삼킨다.
+      if (markAdoption && previousAdoptionMarker !== undefined)
+        await (
+          previousAdoptionMarker === null
+            ? removeItem(KEY_OWNER_ADOPTION_PENDING)
+            : writeItem(KEY_OWNER_ADOPTION_PENDING, previousAdoptionMarker)
+        ).catch(() => {});
+      throw error;
+    }
     if (Platform.OS === 'android') {
       await Promise.all([
         removeItem(KEY_LEGACY_PENDING_PROMOTION).catch(() => {}),

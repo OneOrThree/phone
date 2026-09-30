@@ -1767,6 +1767,50 @@ test('탈퇴 뒤 로컬 소유자 정리를 확정하지 못하면 완료로 넘
   assert.equal(getLastSessionUserId(), null);
 });
 
+test('탈퇴는 1.x 로컬 버킷을 지우고, 지우지 못하면 완료하지 않고 재시도에서 로컬 정리만 다시 한다', async () => {
+  let exposed: any;
+  mockWithdrawAccount.mockResolvedValue({ deleted: true });
+  await saveSession({ accessToken: 'AT', refreshToken: 'RT', userId: 'withdrawn-user' });
+  await rememberLocalDataOwner('withdrawn-user');
+  await AsyncStorage.setItem(
+    'gromo:ownedItems:v2',
+    JSON.stringify({ 'withdrawn-user': ['i1'], 'other-user': ['i2'] }),
+  );
+  await AsyncStorage.setItem('gromo:character:v1', JSON.stringify({ 'withdrawn-user': {} }));
+  // jest.setup 의 AsyncStorage 는 이미 jest.fn 이라 spyOn·mockRestore 는 구현을 지운다. 한 번만 실패시킨다.
+  const multiRemove = AsyncStorage.multiRemove as jest.Mock;
+  const realMultiRemove = multiRemove.getMockImplementation()!;
+  multiRemove.mockRejectedValueOnce(new Error('AsyncStorage 삭제 실패'));
+  const s = await render(
+    <Harness route="profile" api={() => ({})} expose={(x: any) => (exposed = x)} />,
+  );
+
+  try {
+    await fireEvent.press(s.getByText('회원 탈퇴'));
+    await waitFor(() => assert.ok(s.getByText('기기 데이터 정리 다시 시도')));
+    assert.equal(mockWithdrawAccount.mock.calls.length, 1);
+    assert.equal(exposed.signOut.mock.calls.length, 0);
+    assert.ok(!exposed.actions.includes('DELETE_ACCOUNT'));
+    // 1.x 정리가 실패하면 소유자 표식도 아직 지우지 않는다.
+    assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), 'withdrawn-user');
+
+    await fireEvent.press(s.getByText('기기 데이터 정리 다시 시도'));
+    await waitFor(() => assert.equal(exposed.reset.mock.calls[0]?.[0], 'login'));
+  } finally {
+    // 실패가 소비되지 않았으면 다음 테스트로 새지 않게 큐를 비운다(구현은 유지된다).
+    multiRemove.mockReset();
+    multiRemove.mockImplementation(realMultiRemove);
+  }
+  assert.equal(mockWithdrawAccount.mock.calls.length, 1);
+  assert.deepEqual(JSON.parse((await AsyncStorage.getItem('gromo:ownedItems:v2')) ?? 'null'), {
+    'other-user': ['i2'],
+  });
+  assert.equal(await AsyncStorage.getItem('gromo:character:v1'), null);
+  assert.equal(await SecureStore.getItemAsync('gromo.lastUserId'), null);
+  await AsyncStorage.removeItem('gromo:ownedItems:v2');
+  await clearSession();
+});
+
 test('회원 탈퇴 실패는 로그아웃·로컬 삭제·화면 이동 없이 오류를 알린다', async () => {
   let exposed: any;
   mockWithdrawAccount.mockRejectedValue(new ApiError('STATE_CONFLICT', '탈퇴할 수 없어요.', 409));

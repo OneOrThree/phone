@@ -800,6 +800,8 @@ function Gromo() {
       if (!isCurrent()) throw STALE_ADOPTION;
     };
     const changingOwner = previousUserId !== result.userId;
+    // 채택이 중단되면 gate 는 닫힌 채로 남는다 — 다음 채택 성공이나 부팅이 owner 기록 뒤에 연다.
+    // 소유자 확인 전 저장을 막는 보수적 동작이며 의도된 것이다.
     if (changingOwner) setStorageOwnerGate(false);
     let account: Account;
     try {
@@ -812,6 +814,9 @@ function Gromo() {
           // 이미 시작된 A 저장도 먼저 끝낸 다음 지워야 late write가 삭제 뒤에 A blob을 부활시키지 않는다.
           setStorageOwnerGate(false);
           await userStorageWriteQueue.current;
+          // 큐를 기다리는 사이 이 채택이 중단(로그아웃·재로그인)됐다면, 지우려는 STORAGE 는 이미
+          // 새 세션의 저장본일 수 있다. 삭제 직전에 세대를 다시 확인한다.
+          ensureCurrent();
           await AsyncStorage.removeItem(STORAGE);
           deferredOwnerState.current = null;
           ensureCurrent();

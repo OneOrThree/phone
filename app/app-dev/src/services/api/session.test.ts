@@ -900,7 +900,7 @@ test('소유자 표식이 없는 기기에서 채택 전에 종료된 로그인 
 
   // B 로그인 저장만 끝나고 adoptSession 전에 앱이 종료됐다.
   await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
-  assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), '1');
+  assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), 'user-b');
   await restoreSession();
 
   // 세션이 있다는 사실만으로 B를 소유자로 기록하지 않는다 — 소유자 미상으로 격리한다.
@@ -913,6 +913,80 @@ test('소유자 표식이 없는 기기에서 채택 전에 종료된 로그인 
   assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), null);
   await restoreSession();
   assert.equal(getLastSessionUserId(), 'user-b');
+});
+
+test('커밋되지 못한 다른 계정의 채택 대기 표식은 기존 세션 사용자의 데이터를 격리하지 않는다', async () => {
+  // 업그레이드 직후 A 세션만 있고 소유자 표식이 없다.
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  await SecureStore.deleteItemAsync('gromo.ownerAdoptionPending');
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  assert.equal(getLastSessionUserId(), 'user-a');
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+
+  // B 로그인이 표식은 남겼지만 포인터 교체 전에 앱이 종료됐다(표식만 남는 상황).
+  await SecureStore.setItemAsync('gromo.ownerAdoptionPending', 'user-b');
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+
+  // 복구된 세션은 여전히 A다. 표식이 A가 아니므로 A를 소유자로 이어받는다.
+  assert.equal(getSession()?.userId, 'user-a');
+  assert.equal(getLastSessionUserId(), 'user-a');
+});
+
+test('채택 대기 표식을 읽지 못하면 세션 사용자를 소유자로 추론하지 않는다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  read.mockImplementation(async (key: string) => {
+    if (key === 'gromo.ownerAdoptionPending') throw new Error('keychain locked');
+    return realRead(key);
+  });
+  await restoreSession();
+  assert.equal(getSession()?.userId, 'user-a');
+  assert.equal(getLastSessionUserId(), UNOWNED_LOCAL_DATA_OWNER);
+});
+
+test('로그인 커밋이 실패하면 방금 남긴 채택 대기 표식을 되돌린다', async () => {
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  assert.equal(await rememberLocalDataOwner('user-a'), true);
+  assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), null);
+
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.sessionBundle') throw new Error('keychain write failed');
+    return realWrite(key, value);
+  });
+  await assert.rejects(
+    saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' }),
+  );
+  write.mockImplementation(realWrite);
+
+  assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), null);
+  await restoreSession();
+  assert.equal(getSession()?.userId, 'user-a');
+  assert.equal(getLastSessionUserId(), 'user-a');
+});
+
+test('로그인 커밋이 실패하면 앞선 채택 대기 표식을 원래 값으로 복원한다', async () => {
+  await SecureStore.deleteItemAsync('gromo.lastUserId');
+  await restoreSession();
+  // B 세션은 커밋됐지만 채택 전에 종료돼 B 표식이 남아 있다.
+  await saveSession({ accessToken: 'B_AT', refreshToken: 'B_RT', userId: 'user-b' });
+  assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), 'user-b');
+
+  write.mockImplementation(async (key: string, value: string) => {
+    if (key === 'gromo.sessionBundle') throw new Error('keychain write failed');
+    return realWrite(key, value);
+  });
+  await assert.rejects(
+    saveSession({ accessToken: 'C_AT', refreshToken: 'C_RT', userId: 'user-c' }),
+  );
+  write.mockImplementation(realWrite);
+
+  assert.equal(await SecureStore.getItemAsync('gromo.ownerAdoptionPending'), 'user-b');
+  await restoreSession();
+  assert.equal(getSession()?.userId, 'user-b');
+  assert.equal(getLastSessionUserId(), UNOWNED_LOCAL_DATA_OWNER);
 });
 
 test('채택 대기 표식이 없는 업그레이드 세션은 기존처럼 세션 사용자를 소유자로 이어받는다', async () => {

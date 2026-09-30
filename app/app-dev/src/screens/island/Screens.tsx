@@ -1,6 +1,7 @@
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
 import { LoginScreen } from '@/screens/LoginScreen';
 import { clearLocalDataOwner, getSession } from '@/services/api/session';
+import { clearLegacyUserData } from '@/services/legacyUserData';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -854,9 +855,13 @@ export function RedesignScreens({ e }: any) {
    * 탈퇴 뒤 기기 정리. 로컬 데이터 소유자 삭제(또는 다음 부팅이 이어 갈 내구 삭제 표식)가 확정돼야만
    * 탈퇴 완료(로그인 화면)로 넘어간다. 확정하지 못하면 이전 사용자의 데이터가 다음 로그인에 남으므로
    * 화면에 머물러 재시도 버튼을 띄운다 — 서버 계정은 이미 삭제됐으니 탈퇴 API 는 다시 부르지 않는다.
+   * 1.x(Android 같은 패키지)가 남긴 이 계정의 로컬 버킷·누끼 파일도 같은 규칙으로 먼저 지운다.
+   * 세션은 아래 signOut 전까지 남아 있으므로 재시도에서도 같은 userId 를 읽는다.
    */
   const finishWithdrawal = async () => {
     try {
+      const withdrawnUserId = getSession()?.userId;
+      if (withdrawnUserId) await clearLegacyUserData(withdrawnUserId);
       await clearLocalDataOwner();
     } catch {
       setWithdrawCleanupPending(true);
@@ -865,6 +870,10 @@ export function RedesignScreens({ e }: any) {
     }
     setWithdrawCleanupPending(false);
     await screenTime.resetScreenTimeData().catch(() => {});
+    // signOut 의 false(로그아웃 tombstone 기록 실패)는 의도적으로 무시한다. 서버 계정은 이미 삭제됐고
+    // 로컬 데이터 소유자도 위에서 지웠으므로 화면은 탈퇴 완료로 넘긴다. 이 경우 토큰이 기기에 남지만
+    // 삭제된 계정의 세션이라, 다음 요청·다음 부팅의 checkSession 이 401/USER_NOT_FOUND 를 받아
+    // clearRejectedSession 으로 정리한다(auth.checkSession·client 401 처리).
     if (server) await e.signOut();
     act('DELETE_ACCOUNT');
     reset('login');

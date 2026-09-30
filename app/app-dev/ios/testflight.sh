@@ -5,12 +5,14 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 # 약관 문서 버전과 Apple-only 계정 재진입 준비가 모두 확인되어야 한다.
-if [[ -z "${EXPO_PUBLIC_TERMS_VERSION//[[:space:]]/}" ]]; then
+# set -u 에서 미설정 변수를 바로 확장하면 안내 문구 대신 unbound variable 로 죽으므로 기본값을 둔다.
+TERMS_VERSION_RAW="${EXPO_PUBLIC_TERMS_VERSION:-}"
+if [[ -z "${TERMS_VERSION_RAW//[[:space:]]/}" ]]; then
   echo "❌ iOS release/TestFlight 차단: 실제 약관 문서 버전 EXPO_PUBLIC_TERMS_VERSION을 설정하세요." >&2
   exit 1
 fi
 # 서버는 앞뒤 공백이 있는 약관 버전을 400으로 거절한다. 값 그대로가 정본이어야 한다.
-if [[ "$EXPO_PUBLIC_TERMS_VERSION" =~ ^[[:space:]] || "$EXPO_PUBLIC_TERMS_VERSION" =~ [[:space:]]$ ]]; then
+if [[ "$TERMS_VERSION_RAW" =~ ^[[:space:]] || "$TERMS_VERSION_RAW" =~ [[:space:]]$ ]]; then
   echo "❌ iOS release/TestFlight 차단: EXPO_PUBLIC_TERMS_VERSION 앞뒤에 공백이 있습니다. 공백 없이 실제 약관 문서 버전만 설정하세요." >&2
   exit 1
 fi

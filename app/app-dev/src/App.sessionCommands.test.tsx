@@ -1090,6 +1090,100 @@ test('A→B 채택 진행 중과 실패 뒤에는 B 상태를 A owner 아래 저
   mockDecideBootRoute.mockReset();
 });
 
+test('채택 resetLocal이 저장 큐를 기다리는 사이 세션 세대가 바뀌면 저장본을 지우지 않는다', async () => {
+  const storageKey = 'gromo-r61-user-v2';
+  await saveSession({ accessToken: 'A_AT', refreshToken: 'A_RT', userId: 'user-a' });
+  await rememberLocalDataOwner('user-a');
+  await AsyncStorage.setItem(
+    storageKey,
+    JSON.stringify({ ...initialState(true), name: 'A-private-state' }),
+  );
+  mockRestoreSession.mockImplementation(() =>
+    jest.requireActual('@/services/api/session').restoreSession(),
+  );
+  mockCheckSession.mockResolvedValue({
+    status: 'active',
+    account: {
+      id: 'user-a',
+      name: 'A',
+      catColor: null,
+      mainIslandId: null,
+      linkedProviders: [],
+      onboardingComplete: true,
+    },
+  });
+  mockDecideBootRoute.mockResolvedValue('home');
+
+  await act(async () => {
+    render(<App />);
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await waitFor(() => assert.ok(captured));
+  await waitFor(() => assert.equal(captured.route, 'home'));
+  await waitFor(() => assert.equal(getLastSessionUserId(), 'user-a'));
+
+  // A 저장 하나를 붙잡아 큐를 pending 상태로 만든다.
+  let releaseWrite!: () => void;
+  const writeHeld = new Promise<void>((resolve) => (releaseWrite = resolve));
+  let markWriteStarted!: () => void;
+  const writeStarted = new Promise<void>((resolve) => (markWriteStarted = resolve));
+  // jest.setup 의 AsyncStorage 는 이미 jest.fn 이라 spyOn·mockRestore 는 구현을 지운다. 구현만 바꿨다 되돌린다.
+  const setItem = AsyncStorage.setItem as jest.Mock;
+  const realSetItem = setItem.getMockImplementation()!;
+  setItem.mockImplementation(async (key: string, value: string) => {
+    if (key === storageKey) {
+      markWriteStarted();
+      await writeHeld;
+    }
+    return realSetItem(key, value);
+  });
+  await act(async () => captured.dispatch({ type: 'PROFILE', name: 'A-pending-write' }));
+  await writeStarted;
+
+  staleAdoptionLogin();
+  let resetSettled = false;
+  let markResetStarted!: () => void;
+  const resetStarted = new Promise<void>((resolve) => (markResetStarted = resolve));
+  mockAdoptSignedInAccount.mockImplementationOnce(
+    async (result: any, _previous: any, deps: any) => {
+      const account = staleAccount(result.userId);
+      markResetStarted();
+      await deps.resetLocal().finally(() => (resetSettled = true));
+      deps.applyAccount(account);
+      await deps.navigate(account);
+      return account;
+    },
+  );
+  const removeItem = AsyncStorage.removeItem as jest.Mock;
+  const removeCallsBefore = removeItem.mock.calls.length;
+  await act(async () => captured.setTerms(true));
+  let login!: Promise<void>;
+  await act(async () => {
+    login = captured.startSocial('google');
+    for (let n = 0; n < 20; n += 1) await Promise.resolve();
+  });
+  await resetStarted;
+  assert.equal(resetSettled, false);
+
+  // 큐를 기다리는 사이 새 세션이 공개됐다(로그아웃 뒤 재로그인 등).
+  await act(async () => {
+    await saveSession({ accessToken: 'C_AT', refreshToken: 'C_RT', userId: 'user-c' });
+  });
+  await act(async () => {
+    releaseWrite();
+    await login;
+  });
+
+  assert.equal(resetSettled, true);
+  assert.equal(
+    removeItem.mock.calls.slice(removeCallsBefore).filter(([key]) => key === storageKey).length,
+    0,
+  );
+  assert.notEqual(captured.state.name, 'stale-B');
+  setItem.mockImplementation(realSetItem);
+  mockDecideBootRoute.mockReset();
+});
+
 test('일반 로그인 뒤 owner 기록이 일시 실패하면 알리고 같은 세션에서 자동 재시도해 저장을 연다', async () => {
   mockSocialCredential.mockResolvedValueOnce('google-id-token');
   mockApiLogin.mockImplementationOnce(async () => {
