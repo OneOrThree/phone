@@ -330,6 +330,14 @@ class NotificationEligibilityServiceTest {
                 Map.of("requestId", requestId.toString()))).reason()).isEqualTo("BLOCKED");
         assertThat(service().evaluate(request("FRIEND_ACCEPTED", SUBJECT)).reason()).isEqualTo("BLOCKED");
 
+        // 사유 우선순위 — 이미 처리된 요청은 차단보다 먼저 REQUEST_RESOLVED 다(운영 집계의 사유 분포 고정).
+        when(friendshipRepository.findStatusByIdAndDeletedAtIsNull(requestId))
+                .thenReturn(Optional.of(FriendshipStatus.ACCEPTED));
+        assertThat(service().evaluate(new NotificationEligibilityRequest(USER, "FRIEND_REQUEST", SUBJECT,
+                Map.of("requestId", requestId.toString()))).reason()).isEqualTo("REQUEST_RESOLVED");
+        // 상대 id 가 비면 차단 조회까지 가지 않는다 — 공통 SUBJECT_REQUIRED 가 먼저 막는다.
+        assertThat(service().evaluate(request("FRIEND_ACCEPTED", null)).reason()).isEqualTo("SUBJECT_REQUIRED");
+
         when(userBlockService.isBlockedEither(USER, SUBJECT)).thenReturn(false);
         assertThat(service().evaluate(request("FRIEND_ACCEPTED", SUBJECT)).eligible()).isTrue();
     }
