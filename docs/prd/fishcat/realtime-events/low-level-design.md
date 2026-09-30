@@ -191,7 +191,7 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 | 항목 | 규칙 |
 |---|---|
 | 판정 축 | **받는 세션 기준.** 프레임을 받을 세션의 검증 주체(principal)가 발신자를 차단했으면(수신자=blocker) 그 세션에는 보내지 않는다. 방송 전체를 막거나 발신자에게 실패를 돌려주지 않는다 — 발신자는 자신이 차단당했는지 알 수 없어야 한다(정책 D3) |
-| 대상 채널 | 섬 채팅(`/topic/islands/{islandId}/messages` 의 `message.created`), legacy 그룹 채팅(`/topic/groups/{groupId}`), 응원(`/topic/islands/{islandId}/emotes` 의 `focus.emote`). 발신자 식별은 각각 `payload.senderId` · legacy `ChatMessageResponse.senderId` · `payload.userId` |
+| 대상 채널 | 채팅과 응원. 본문을 싣는 프레임은 legacy 그룹 채팅(`/topic/groups/{groupId}`, 발신자 `ChatMessageResponse.senderId`)과 응원(`/topic/islands/{islandId}/emotes` 의 `focus.emote`, 발신자 `payload.userId`)이다. 신규 섬 채팅 `message.created`(`/topic/islands/{islandId}/messages`)는 본문 없는 알림이고 본문은 REST 히스토리 필터(2181)가 막는다. 이 알림 프레임까지 거를지는 아래 PR #1059 항목 참조 |
 | 판정 시점 | §4.2 와 같은 **송신 직전** 최종 검사. 구독·SEND 시점 허용을 이후 프레임의 허가증으로 재사용하지 않는다 |
 | 차단 세대 | 차단 확정은 세대(generation)를 가진다. 옛 세대에서 판정해 대기열·fanout·executor 에 쌓여 있던 전송은 송신 직전에 현재 세대와 비교해 **폐기**한다 |
 | 조회 실패 | 차단 관계 조회의 오류·timeout·비정상 응답(스키마 불일치·빈 본문 등)은 **전달하지 않는다(fail-closed)**. 「차단 없음」으로 간주하지 않는다. **현재 차단 세대를 확인할 수 없는 경우도 같다** — 세대 비교가 불가능하면 대기 전송을 보내지 않는다 |
@@ -200,7 +200,13 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 
 - **상속하는 원칙.** §4.2 의 「보호 채널에서 stale TTL 캐시를 최종 권한 증거로 쓰지 않는다 · 권한 원천 확인 실패는 fail-closed」, §6 장애표의 「권한 원천 장애 → 보호 프레임 전달 차단」, [`contracts/realtime-authorization-api.yaml`](../../../contracts/realtime-authorization-api.yaml)의 「오류·timeout·비정상 응답은 프레임 전달 금지」, [현재 멤버십 재확인](../../../architecture/realtime-current-membership-client.md)의 「전에 받은 허용 답변을 다음 메시지의 허가증으로 재사용하지 않는다」를 차단 판정에 그대로 적용한다.
 - **응원의 기존 수신 집합과 합성한다.** 응원은 이미 사건(eventId)에 묶인 수신 집합으로 송신 직전을 대조한다(§7, focus-rest-session LLD §6). 차단 필터는 그 집합에서 발신자를 차단한 수신자를 더 빼는 방향으로만 동작하며 집합을 넓히지 않는다.
-- **이 절이 정하지 않는 것.** 차단 세대를 Data 에서 Realtime 으로 전파하는 경로(outbox 사건·내부 조회 계약)와 필드 이름, 세대 저장 위치, 배치 조회 방식은 **구현 PR 에서 확정**한다. 새 내부 계약을 만들면 `docs/contracts/` 에 먼저 적는다. 정책의 「차단 성공 응답 전에 Realtime 적용·기존 fanout 배출 확인」까지 이 결정이 확정한 것은 아니다 — 이번 범위는 송신 직전 재확인과 옛 세대 폐기다.
+- **구현 PR #1059(머지 전) 기준.** 아래는 그 diff 에서 확인한 것이며, 머지 전에 리뷰로 바뀌면 그 PR 이 이 목록을 고친다.
+  - **거르는 곳:** `ChatOutboundChannelInterceptor`(송신 직전)가 legacy 그룹 채팅 `/topic/groups/{groupId}` 는 `senderId`, 응원 `/topic/islands/{islandId}/emotes` 는 `payload.userId` 로 발신자를 읽는다. 받는 세션의 주체가 그 발신자를 차단했으면 그 세션에만 버린다. 본인과 `senderId: null`(탈퇴 발신자)은 조회 없이 통과하고, 발신자를 판독할 수 없으면 버린다. 신규 `message.created`(`/topic/islands/{islandId}/messages`)는 본문이 없는 알림이라 이 PR 이 거르지 않는다. 본문은 REST 히스토리에서 읽고, 그 조회는 [우체통 LLD §7](../island-mailbox/low-level-design.md#7-차단-필터--rest-조회2181) 필터를 거친다.
+  - **차단 세대:** Data 가 차단·해제 트랜잭션 안에서 내부 제어 사건 `user.blocks.updated`(REALTIME outbox, aggregate `USER_BLOCKS`/blocker, `params.blockerUserId`)를 적는다. 실제로 행이 바뀐 경우에만 적어 멱등 재요청은 세대를 올리지 않는다. Realtime `InboundEventService` 는 이를 받아 `cache:chat:blockgen:{userId}` 를 INCR 한다. 세대 키는 만료되지 않는다.
+  - **차단 집합:** `cache:chat:block:{userId}` 에 `<세대>|<id>,…` 로 캐시한다. 세대가 다르면 버리고 Data 의 기존 `GET /internal/users/{userId}/blocks` 를 다시 읽는다. 조회 전에 읽은 세대로 적재하므로, 늦게 끝난 옛 조회가 세대를 넘어 살아남지 않는다. TTL 120초는 사건 유실·relay OFF 의 백스톱일 뿐이다.
+  - **fail-closed:** 조회에는 호출 단위 총 deadline(기본 1500ms)과 동시 호출 상한(기본 16)이 있다. 상태·Content-Type·redirect·크기(256KiB)·형식이 어긋나면 판정 불가로 보고 프레임을 버린다. 이전 캐시로 대신하지 않는다.
+  - **스위치:** Data `USER_BLOCKS_REALTIME_EVENTS_ENABLED`, Realtime `REALTIME_BLOCKS_FILTER_ENABLED` 가 **둘 다 기본 OFF** 다. 머지만으로는 동작이 바뀌지 않는다. 즉시성은 relay ON 일 때만 주장한다.
+- **이 절이 정하지 않는 것.** legacy 채팅 히스토리 REST·방 목록 미리보기·`/user/queue/duplicates` 는 #1059 도 거르지 않는다(결정 로그 미결 목록). 새 내부 계약을 만들면 `docs/contracts/` 에 먼저 적는다. 정책의 「차단 성공 응답 전에 Realtime 적용·기존 fanout 배출 확인」까지 이 결정이 확정한 것은 아니다 — 이번 범위는 송신 직전 재확인과 옛 세대 폐기다.
 - REST 히스토리·게시판 조회 필터는 [우체통 LLD §7](../island-mailbox/low-level-design.md#7-차단-필터--rest-조회2181)·[게시판 LLD §6](../island-board/low-level-design.md#6-차단-필터--rest-조회2181)(2181)이 맡는다.
 
 ## 5. 스냅샷과 버전 병합
