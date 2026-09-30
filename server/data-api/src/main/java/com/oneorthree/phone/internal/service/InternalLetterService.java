@@ -128,7 +128,10 @@ public class InternalLetterService {
         // 한도는 판정을 다 통과한 «쓰기 직전»에 센다(GROMO-1934) — 거절될 요청까지 세면 오타 몇 번에 막힌다.
         sendLimiter.acquire(senderId);
 
-        Letter saved = letters.save(Letter.builder()
+        // saveAndFlush — @CreationTimestamp(createdAt)는 flush 시점에 채워진다. save()만 쓰면
+        // 영속성 컨텍스트에 남은 saved.getCreatedAt()이 null이라 Business 필수 필드 검증(400)에
+        // 걸린다(GROMO-2174) — insert를 여기서 즉시 flush해 아래 응답 생성 전에 값을 확정한다.
+        Letter saved = letters.saveAndFlush(Letter.builder()
                 .sender(sender)
                 .receiver(receiver)
                 .content(content)
