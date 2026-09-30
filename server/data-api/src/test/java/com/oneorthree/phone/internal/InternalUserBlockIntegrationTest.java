@@ -295,6 +295,27 @@ class InternalUserBlockIntegrationTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("TARGET_USER_NOT_FOUND"));
         assertThat(countFriendships(a, b)).as("거절된 요청은 friendships 행을 남기지 않는다").isZero();
+
+        // 대조 — 해제하면 같은 요청이 통과한다. 위 404 가 대상 부재가 아니라 차단 때문이었다는 증거다.
+        userBlockService.unblock(a, b);
+        as(b, post(path(b, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + a + "\"}"))
+                .andExpect(status().isCreated());
+    }
+
+    @Test
+    @DisplayName("서로 차단했으면 한쪽만 해제해도 친구 요청은 여전히 404 다")
+    void mutualBlockNeedsBothSidesToUnblock() throws Exception {
+        UUID a = newUser();
+        UUID b = newUser();
+        userBlockService.block(a, b);
+        userBlockService.block(b, a);
+        userBlockService.unblock(a, b);
+
+        as(a, post(path(a, "/friend-requests")).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"targetUserId\":\"" + b + "\"}"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("TARGET_USER_NOT_FOUND"));
     }
 
     @Test
@@ -316,6 +337,12 @@ class InternalUserBlockIntegrationTest {
                 .andExpect(jsonPath("$.code").value("REQUEST_NOT_FOUND"));
         assertThat(friendshipStatus(fromBlocked)).isEqualTo("PENDING");
         assertThat(friendshipStatus(toBlocked)).isEqualTo("PENDING");
+
+        // 대조 — 행을 지우지 않았으므로 해제하면 같은 요청을 수락할 수 있다.
+        userBlockService.unblock(a, b);
+        as(a, post(path(a, "/friend-requests/" + fromBlocked + "/accept")))
+                .andExpect(status().isOk());
+        assertThat(friendshipStatus(fromBlocked)).isEqualTo("ACCEPTED");
     }
 
     // ---------------------------------------------------------------- 5. 차단한 상대 거르기 (GROMO-2185)
