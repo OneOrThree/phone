@@ -18,20 +18,34 @@ import java.util.UUID;
  */
 public interface GroupAnnouncementCommentRepository extends JpaRepository<GroupAnnouncementComment, UUID> {
 
-    @Query("SELECT c FROM GroupAnnouncementComment c WHERE c.noticeId = :noticeId"
-            + " ORDER BY c.createdAt ASC, c.id ASC")
-    List<GroupAnnouncementComment> findFirstPage(@Param("noticeId") UUID noticeId, Pageable page);
+    /** 요청자({@code :viewerId})가 차단한 작성자의 댓글을 빼는 조건 (GROMO-2181) — 방향 고정. */
+    String NOT_BLOCKED_AUTHOR = " AND NOT EXISTS (SELECT 1 FROM UserBlock b"
+            + " WHERE b.blocker.id = :viewerId AND b.blocked.id = c.authorId)";
 
-    @Query("SELECT c FROM GroupAnnouncementComment c WHERE c.noticeId = :noticeId"
-            + " AND (c.createdAt > :createdAt OR (c.createdAt = :createdAt AND c.id > :id))"
+    /**
+     * 댓글 첫 페이지. 요청자가 차단한 사람의 댓글은 LIMIT 전에 DB 에서 뺀다(GROMO-2181, RP-차단) — 페이지 크기와
+     * keyset 경계가 차단 때문에 줄거나 어긋나지 않는다. 작성자가 끊긴 댓글({@code author_id IS NULL})은 남는다.
+     */
+    @Query("SELECT c FROM GroupAnnouncementComment c WHERE c.noticeId = :noticeId" + NOT_BLOCKED_AUTHOR
             + " ORDER BY c.createdAt ASC, c.id ASC")
-    List<GroupAnnouncementComment> findPageAfter(@Param("noticeId") UUID noticeId,
+    List<GroupAnnouncementComment> findFirstPage(@Param("noticeId") UUID noticeId, @Param("viewerId") UUID viewerId,
+            Pageable page);
+
+    /** 댓글 다음 페이지 — 차단 제외는 첫 페이지와 같다. */
+    @Query("SELECT c FROM GroupAnnouncementComment c WHERE c.noticeId = :noticeId"
+            + " AND (c.createdAt > :createdAt OR (c.createdAt = :createdAt AND c.id > :id))" + NOT_BLOCKED_AUTHOR
+            + " ORDER BY c.createdAt ASC, c.id ASC")
+    List<GroupAnnouncementComment> findPageAfter(@Param("noticeId") UUID noticeId, @Param("viewerId") UUID viewerId,
             @Param("createdAt") Instant createdAt, @Param("id") UUID id, Pageable page);
 
-    /** 목록의 {@code commentCount} — 한 페이지의 공지들을 한 번에 센다. 댓글이 없는 공지는 결과에 없다. */
+    /**
+     * 목록의 {@code commentCount} — 한 페이지의 공지들을 한 번에 센다. 댓글이 없는 공지는 결과에 없다.
+     * 요청자가 차단한 사람의 댓글은 세지 않는다 — 상세에서 보이는 댓글 수와 같아야 한다(GROMO-2181).
+     */
     @Query("SELECT c.noticeId AS noticeId, COUNT(c) AS count FROM GroupAnnouncementComment c"
-            + " WHERE c.noticeId IN :noticeIds GROUP BY c.noticeId")
-    List<NoticeCommentCount> countByNoticeIds(@Param("noticeIds") Collection<UUID> noticeIds);
+            + " WHERE c.noticeId IN :noticeIds" + NOT_BLOCKED_AUTHOR + " GROUP BY c.noticeId")
+    List<NoticeCommentCount> countByNoticeIds(@Param("noticeIds") Collection<UUID> noticeIds,
+            @Param("viewerId") UUID viewerId);
 
     /**
      * 탈퇴자가 쓴 댓글을 원문째 지운다 (GROMO-1771 × GROMO-1801 계정 LLD §4, 2026-09-25 결정 GROMO-2136 — BQ02

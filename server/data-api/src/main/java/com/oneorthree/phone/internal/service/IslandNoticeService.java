@@ -138,7 +138,8 @@ public class IslandNoticeService {
 
     /**
      * 목록 한 페이지 — {@code (createdAt DESC, id DESC)}. anchor 는 이전 페이지 마지막 행의 두 값이고 둘 다
-     * 있거나 둘 다 없어야 한다. {@code commentCount} 는 같은 스냅샷에서 한 번에 센다.
+     * 있거나 둘 다 없어야 한다. {@code commentCount} 는 같은 스냅샷에서 한 번에 센다. 요청자가 차단한 사람의
+     * 공지·댓글은 DB 쿼리가 LIMIT 전에 뺀다(GROMO-2181) — 쪽 크기·keyset 경계가 그대로다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public IslandNoticeViews.Page list(UUID islandId, UUID userId, Instant afterCreatedAt, UUID afterId,
@@ -147,12 +148,12 @@ public class IslandNoticeService {
         requirePageSize(limit);
         PageRequest page = PageRequest.of(0, limit + 1);
         List<GroupAnnouncement> rows = anchor(afterCreatedAt, afterId)
-                ? notices.findNoticePageAfter(islandId, afterCreatedAt, afterId, page)
-                : notices.findNoticeFirstPage(islandId, page);
+                ? notices.findNoticePageAfter(islandId, userId, afterCreatedAt, afterId, page)
+                : notices.findNoticeFirstPage(islandId, userId, page);
         boolean hasMore = rows.size() > limit;
         List<GroupAnnouncement> shown = hasMore ? rows.subList(0, limit) : rows;
         Map<UUID, Long> counts = shown.isEmpty() ? Map.of()
-                : comments.countByNoticeIds(shown.stream().map(GroupAnnouncement::getId).toList()).stream()
+                : comments.countByNoticeIds(shown.stream().map(GroupAnnouncement::getId).toList(), userId).stream()
                         .collect(Collectors.toMap(
                                 GroupAnnouncementCommentRepository.NoticeCommentCount::getNoticeId,
                                 GroupAnnouncementCommentRepository.NoticeCommentCount::getCount));
@@ -166,17 +167,22 @@ public class IslandNoticeService {
     /**
      * 상세 — 본문·댓글 한 페이지({@code createdAt ASC, id ASC})·version 을 한 REPEATABLE_READ 스냅샷에서
      * 읽는다(LLD §4). 다른 섬의 공지 id 는 {@code NOT_FOUND} 다 — 섬 경로로 다시 좁혀 찾는다.
+     *
+     * <p>요청자가 차단한 사람이 쓴 공지도 {@code NOT_FOUND} 다(GROMO-2181, character-report policy RP-차단 «상세 ID
+     * 직접 조회도 같은 규칙») — 목록에서 빠진 공지를 id 로 열 수 있으면 숨김이 아니다. 댓글은 차단한 사람의 것만
+     * DB 에서 빼고 나머지는 그대로 보인다. 쓰기 경로({@link #requireNotice})는 이 제외를 타지 않는다.
      */
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public IslandNoticeViews.Detail detail(UUID islandId, UUID noticeId, UUID userId, Instant afterCreatedAt,
             UUID afterId, int limit) {
         requireReader(islandId, userId);
         requirePageSize(limit);
-        GroupAnnouncement notice = requireNotice(islandId, noticeId);
+        GroupAnnouncement notice = notices.findVisibleNotice(noticeId, islandId, userId)
+                .orElseThrow(() -> new GroupException(GroupErrorCode.NOT_FOUND));
         PageRequest page = PageRequest.of(0, limit + 1);
         List<GroupAnnouncementComment> rows = anchor(afterCreatedAt, afterId)
-                ? comments.findPageAfter(noticeId, afterCreatedAt, afterId, page)
-                : comments.findFirstPage(noticeId, page);
+                ? comments.findPageAfter(noticeId, userId, afterCreatedAt, afterId, page)
+                : comments.findFirstPage(noticeId, userId, page);
         boolean hasMore = rows.size() > limit;
         List<GroupAnnouncementComment> shown = hasMore ? rows.subList(0, limit) : rows;
         Map<UUID, User> authors = userRepository.findAllById(shown.stream()
