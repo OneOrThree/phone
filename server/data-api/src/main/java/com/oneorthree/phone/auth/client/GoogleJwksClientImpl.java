@@ -17,9 +17,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.RSAPublicKeySpec;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Google OIDC id_token 을 <b>로컬에서</b> 검증한다 — 제공자 API 를 매 로그인마다 호출하는 대신
@@ -34,6 +37,10 @@ import java.util.Map;
  * 우리 키로 통과한다. {@code aud} 가 우리 구글 OAuth 클라이언트 id 이고 {@code iss} 가
  * {@code https://accounts.google.com} 인지까지 봐야 그 토큰으로 남의 계정에 로그인하는 경로가 막힌다.
  *
+ * <p>{@code aud} 는 <b>허용 목록</b>으로 검증한다(GROMO-966). iOS 는 iOS 클라이언트, Android 는 ID 토큰 발급에
+ * 웹 클라이언트가 필수라 {@code aud} 가 플랫폼마다 다르다. 한 값만 허용하면 한쪽이 거절되므로
+ * {@code google.client-id} 에 쉼표로 여러 클라이언트 id 를 둔다. 목록이 비면 모든 토큰을 거절한다.
+ *
  * <p>JWKS 응답은 캐시하지 않는다 — Google 이 키를 회전해도 다음 로그인부터 바로 새 키를 집는다.
  */
 @Component
@@ -43,13 +50,14 @@ public class GoogleJwksClientImpl implements SocialLoginClient {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     private final RestClient restClient;
-    private final String clientId;
+    private final Set<String> allowedAudiences;
 
     /**
      * @param jwksUrl {@code google.jwks-url} — Google 공개키 목록 엔드포인트. 매 검증마다 조회하므로
      *                여기가 막히면 Google 로그인 전체가 멎는다
-     * @param clientId {@code google.client-id} — {@code aud} 클레임과 대조할 우리 구글 OAuth 클라이언트 id.
-     *                 값이 틀리면 정상 토큰이 전부 거부되고, 검증을 건너뛰면 남의 앱 토큰이 통과한다
+     * @param clientId {@code google.client-id} — {@code aud} 클레임과 대조할 우리 구글 OAuth 클라이언트 id 목록
+     *                 (쉼표 구분, 앞뒤 공백 무시). 값이 틀리면 정상 토큰이 전부 거부되고, 검증을 건너뛰면
+     *                 남의 앱 토큰이 통과한다
      */
     public GoogleJwksClientImpl(
             @Value("${google.jwks-url}") String jwksUrl,
@@ -57,7 +65,18 @@ public class GoogleJwksClientImpl implements SocialLoginClient {
         this.restClient = RestClient.builder()
                 .baseUrl(jwksUrl)
                 .build();
-        this.clientId = clientId;
+        this.allowedAudiences = parseAllowedAudiences(clientId);
+    }
+
+    /** 쉼표로 구분한 클라이언트 id 목록을 공백·빈 항목 없이 집합으로 만든다. {@code null} 이면 빈 집합이다. */
+    static Set<String> parseAllowedAudiences(String raw) {
+        if (raw == null) {
+            return Set.of();
+        }
+        return Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Override
@@ -115,10 +134,10 @@ public class GoogleJwksClientImpl implements SocialLoginClient {
             throw new InvalidTokenException(InvalidTokenErrorCode.GOOGLE_TOKEN);
         }
 
-        // Step 5 — aud(우리 client-id)·iss 검증
+        // Step 5 — aud(허용 목록의 client-id 중 하나)·iss 검증
         //   서명만 검증하면 다른 앱용으로 발급된 정상 토큰도 통과하므로 OIDC 표준대로 aud/iss를 확인한다.
         if (claims.getAudience() == null
-                || !claims.getAudience().contains(clientId)
+                || claims.getAudience().stream().noneMatch(allowedAudiences::contains)
                 || !ISS.equals(claims.getIssuer())) {
             throw new InvalidTokenException(InvalidTokenErrorCode.GOOGLE_TOKEN);
         }
