@@ -66,7 +66,10 @@ chat:
     # 늘리면 상류 부하가 줄고, 탈퇴·강퇴가 채팅에 반영되기까지의 창이 그만큼 넓어진다.
     cache-ttl-seconds: 120
   websocket:
-    # 비워 두면 아무 Origin 도 허용하지 않는다(네이티브 앱은 Origin 을 보내지 않아 영향 없다).
+    # 비워 두면 Origin 을 보낸 핸드셰이크를 전부 거절한다(Origin 없는 요청만 통과). React Native 앱도
+    # 접속 URL 기준 `Origin: https://<API 호스트>` 를 보내므로(iOS SocketRocket · Android WebSocketModule)
+    # 빈 값이면 앱 접속까지 403 이다 — 환경마다 API 도메인을 넣는다(dev 는 SM gromo/dev/env, GROMO-2175).
+    # 기본값을 비워 두는 이유는 WebSocketConfig#allowedOrigins javadoc.
     allowed-origins: ${CHAT_WS_ALLOWED_ORIGINS:}
 
 # Data 내부 인가를 먼저 켜고(프로필·전용 토큰) sid/gen 없는 AT 소진을 확인한 뒤 명시적으로 켠다.
