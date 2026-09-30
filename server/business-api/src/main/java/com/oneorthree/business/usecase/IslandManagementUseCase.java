@@ -313,7 +313,8 @@ public class IslandManagementUseCase {
         /**
          * 차단 대상의 외양 — 착용 아이템·자리를 기본값으로 가린다. {@code hull} 은 종류가 하나({@code raft})라 사용자
          * 선택이 아니므로 그대로 둔다. {@code version} 도 유지한다 — 앱이 실시간 외양 사건과 순서를 비교하는 단조
-         * 값이라 임의로 바꾸면 병합 판정이 어긋난다. 실시간 외양 사건 쪽 치환은 이 경로의 범위가 아니다.
+         * 값이라 임의로 바꾸면 병합 판정이 어긋난다. 그 대가로 「상대가 외양을 바꿨다」는 활동 신호는 남는다 —
+         * 식별 정보가 아니라 의도적으로 허용한다. 실시간 외양 사건 쪽 치환은 이 경로의 범위가 아니다.
          */
         private static MemberAppearanceView neutral(PersonalAppearanceState appearance) {
             return new MemberAppearanceView(null, null, appearance.hull(), DEFAULT_POSITION, appearance.version());
