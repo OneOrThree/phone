@@ -956,7 +956,7 @@ function Gromo() {
     setGuestBusy(true);
     setGuestError('');
     try {
-      const result = await guestLogin(TERMS_VERSION);
+      const result = await guestLogin();
       // 채택 도중 세션이 바뀌어 중단됐으면(null) 완료 이벤트를 남기지 않는다.
       if (await adoptSession(result, previousUserId)) captureProductEvent('guest_login_completed');
     } catch (error) {
