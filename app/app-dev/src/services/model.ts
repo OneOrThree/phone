@@ -1615,8 +1615,10 @@ export function reducer(state: State, a: Action): State {
       const my = a.memberships as MyIslands,
         snap = serverSnap(s);
       if (!s.tutorialEnrollment) {
+        // 로컬 onboarded·records 는 로그아웃 뒤에도 남는 이전 계정 값이라 판정에 쓰지 않는다 —
+        // 새 계정에 속한 첫 서버 응답(소속·상실 사유·current)만으로 가른다.
         s.tutorialEnrollment =
-          !s.tutorial && !s.onboarded && !s.records.length && !my.items.length && !my.lossReason
+          !s.tutorial && !my.items.length && !my.lossReason && my.currentIslandId == null
             ? 'awaiting-first-island'
             : 'existing';
       }

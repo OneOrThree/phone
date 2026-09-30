@@ -1,6 +1,7 @@
 package com.oneorthree.phone.internal.service;
 
 import com.oneorthree.phone.focus.dto.session.FocusVersionedCommandRequest;
+import com.oneorthree.phone.focus.exception.FocusErrorCode;
 import com.oneorthree.phone.focus.exception.FocusException;
 import com.oneorthree.phone.focus.repository.FocusFishEarningsRepository;
 import com.oneorthree.phone.focus.repository.FocusRewardAccrualRepository;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -158,12 +160,62 @@ class FocusTutorialRewardIntegrationTest {
         var fixture = fixture();
         var stranger = users.save(User.builder().nickname("타인-" + UUID.randomUUID()).build());
         now.set(START.plusSeconds(5));
-        assertThatThrownBy(() -> rewards.claim(stranger.getId(), fixture.session()))
-                .isInstanceOf(FocusException.class);
+        assertFailure(() -> rewards.claim(stranger.getId(), fixture.session()), FocusErrorCode.FORBIDDEN);
+        assertFailure(() -> rewards.claim(fixture.user(), UUID.randomUUID()), FocusErrorCode.SESSION_NOT_FOUND);
         jdbc.update("UPDATE group_members SET is_left = true WHERE user_id = ?", fixture.user());
-        assertThatThrownBy(() -> rewards.claim(fixture.user(), fixture.session()))
-                .isInstanceOf(FocusException.class);
+        assertFailure(() -> rewards.claim(fixture.user(), fixture.session()),
+                FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
         assertThat(balance(fixture.island())).isZero();
+    }
+
+    @Test
+    void membershipEpochMismatchCannotClaim() {
+        var fixture = fixture();
+        now.set(START.plusSeconds(5));
+        jdbc.update("UPDATE focus_session_details SET membership_epoch_at_start = membership_epoch_at_start + 1 "
+                + "WHERE session_id = ?", fixture.session());
+        assertFailure(() -> rewards.claim(fixture.user(), fixture.session()),
+                FocusErrorCode.ISLAND_MEMBERSHIP_REQUIRED);
+        assertThat(balance(fixture.island())).isZero();
+    }
+
+    @Test
+    void endedSessionWithoutReceiptCannotClaim() {
+        var fixture = fixture();
+        now.set(START.plusSeconds(10));
+        lifecycle.finish(fixture.user(), fixture.session(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        assertFailure(() -> rewards.claim(fixture.user(), fixture.session()),
+                FocusErrorCode.SESSION_STATE_CONFLICT);
+        assertThat(balance(fixture.island())).isZero();
+    }
+
+    @Test
+    void pausedSessionWithFiveActiveSecondsCanStillClaimAndFinishIncludesIt() {
+        var fixture = fixture();
+        now.set(START.plusSeconds(6));
+        lifecycle.pause(fixture.user(), fixture.session(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
+        now.set(START.plusSeconds(30));
+        assertThat(rewards.claim(fixture.user(), fixture.session()).status()).isEqualTo("granted");
+        assertThat(balance(fixture.island())).isEqualTo(1);
+        lifecycle.resume(fixture.user(), fixture.session(), new FocusVersionedCommandRequest(2L), UUID.randomUUID());
+        var result = lifecycle.finish(fixture.user(), fixture.session(),
+                new FocusVersionedCommandRequest(3L), UUID.randomUUID());
+        assertThat(result.earnedFish()).isEqualTo(1);
+        assertThat(balance(fixture.island())).isEqualTo(1);
+    }
+
+    @Test
+    void fishCheckConstraintAcceptsTutorialOnlyAndRejectsInvalidRows() {
+        var fixture = fixture();
+        now.set(START.plusSeconds(5));
+        rewards.claim(fixture.user(), fixture.session());
+        String row = "UPDATE focus_reward_accruals SET %s WHERE session_id = ?";
+        assertThatThrownBy(() -> jdbc.update(row.formatted("tutorial_fish = 2"), fixture.session()))
+                .isInstanceOf(DataIntegrityViolationException.class);
+        assertThatThrownBy(() -> jdbc.update(row.formatted("tutorial_fish = 0"), fixture.session()))
+                .as("세 적립 열의 합이 0이면 거부한다").isInstanceOf(DataIntegrityViolationException.class);
+        assertThat(jdbc.update(row.formatted("golden_fish = 1, tutorial_fish = 0"), fixture.session()))
+                .as("황금만 받은 행은 허용한다").isEqualTo(1);
     }
 
     @Test
@@ -172,12 +224,17 @@ class FocusTutorialRewardIntegrationTest {
         now.set(START.plusSeconds(4));
         lifecycle.pause(fixture.user(), fixture.session(), new FocusVersionedCommandRequest(1L), UUID.randomUUID());
         now.set(START.plusSeconds(100));
-        assertThatThrownBy(() -> rewards.claim(fixture.user(), fixture.session()))
-                .isInstanceOf(FocusException.class);
+        assertThat(rewards.claim(fixture.user(), fixture.session()).status()).isEqualTo("pending");
         lifecycle.resume(fixture.user(), fixture.session(), new FocusVersionedCommandRequest(2L), UUID.randomUUID());
         assertThat(rewards.claim(fixture.user(), fixture.session()).status()).isEqualTo("pending");
         now.set(START.plusSeconds(101));
         assertThat(rewards.claim(fixture.user(), fixture.session()).status()).isEqualTo("granted");
+    }
+
+    private static void assertFailure(org.assertj.core.api.ThrowableAssert.ThrowingCallable call,
+            FocusErrorCode expected) {
+        assertThatThrownBy(call).isInstanceOfSatisfying(FocusException.class,
+                e -> assertThat(e.getErrorCode()).isEqualTo(expected));
     }
 
     private Fixture fixture() {

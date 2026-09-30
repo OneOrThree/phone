@@ -64,8 +64,10 @@ public class FocusTutorialRewardService {
             return new FocusTutorialRewardView(sessionId,
                     sessionId.equals(claimed.get().getSessionId()) ? "granted" : "unavailable");
         }
-        if (detail.getLifecycle() != FocusSessionLifecycle.ACTIVE
-                || sessions.findEndedAtById(sessionId).isPresent()) {
+        // 휴식 중(PAUSED)인 세션은 아직 정산 전이라 청구할 수 있다 — 5초 뒤 바로 쉬어도 늦게 도착한 청구를 잃지 않는다.
+        boolean claimable = detail.getLifecycle() == FocusSessionLifecycle.ACTIVE
+                || detail.getLifecycle() == FocusSessionLifecycle.PAUSED;
+        if (!claimable || sessions.findEndedAtById(sessionId).isPresent()) {
             throw new FocusException(FocusErrorCode.SESSION_STATE_CONFLICT);
         }
         var now = clock.instant();

@@ -113,9 +113,18 @@ test('기존 소속·탈퇴 이력·기존 기록은 신규 안내 대상이 아
   expect(
     syncMembership(syncMembership(initialState(), null, 'LEFT'), 'next').tutorial,
   ).toBeUndefined();
-  const recorded = progress(22);
-  delete recorded.tutorial;
-  expect(syncMembership(syncMembership(recorded, null), 'next').tutorial).toBeUndefined();
+});
+
+test('로그아웃 뒤 같은 기기의 새 계정은 이전 계정의 로컬 기록과 무관하게 서버 응답으로 판정한다', () => {
+  // 이전 계정의 onboarded·records 는 LOGOUT 뒤에도 남는다 — 새 계정의 첫 안내를 막으면 안 된다
+  const finished = reducer(progress(15), { type: 'FINISH', now: 61000 });
+  const previous = syncMembership(finished, 'old-island');
+  expect(previous.onboarded).toBe(true);
+  expect(previous.records.length).toBeGreaterThan(0);
+  const loggedOut = reducer(previous, { type: 'LOGOUT' });
+  const empty = syncMembership(loggedOut, null);
+  expect(empty.tutorialEnrollment).toBe('awaiting-first-island');
+  expect(syncMembership(empty, 'new-island').tutorial).toEqual({ step: 0 });
 });
 
 test('승인 대기 중 재시작해도 최초 소속 확인 상태를 보존한다', () => {

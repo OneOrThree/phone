@@ -1187,11 +1187,14 @@ function FocusFlow({ e }: any) {
     [goldenReeling, setGoldenReeling] = useState(false),
     [goldenFish, setGoldenFish] = useState(false),
     [tutorialReeling, setTutorialReeling] = useState(false),
+    // 첫 물고기를 낚는 연출을 시작할 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
+    [tutorialCatchStart, setTutorialCatchStart] = useState<number | null>(null),
     // 첫 물고기 reel이 끝나 12단계로 갈 차례 — 황금 컷신·reel이 끝날 때까지 미룬다
     [tutorialCatchRevision, setTutorialCatchRevision] = useState<number | null>(null);
   const tutorialRequest = useRef<string | null>(null);
   const tutorialRetryAt = useRef(0);
   const tutorialReelCancel = useRef<(() => void) | null>(null);
+  const tutorialReelRevision = useRef<number | null>(null);
   const tutorialMounted = useRef(true);
   useEffect(() => {
     tutorialMounted.current = true;
@@ -1455,16 +1458,7 @@ function FocusFlow({ e }: any) {
       latest.current.s.tutorial?.step === 11 &&
       (latest.current.s.tutorialRevision ?? 0) === revision;
     const showCatch = () => {
-      if (!stillHere()) return;
-      const finishReel = () => {
-        setTutorialReeling(false);
-        if (stillHere()) setTutorialCatchRevision(revision);
-      };
-      if (reduce) finishReel();
-      else {
-        setTutorialReeling(true);
-        tutorialReelCancel.current = afterForegroundMs(finishReel, 2000);
-      }
+      if (stillHere()) setTutorialCatchStart(revision);
     };
     if (!e.focus) {
       if (s.records.length > 0) {
@@ -1507,10 +1501,40 @@ function FocusFlow({ e }: any) {
   useEffect(() => {
     if (tutorialStep !== 11) {
       tutorialReelCancel.current?.();
+      tutorialReelRevision.current = null;
       setTutorialReeling(false);
+      setTutorialCatchStart(null);
       setTutorialCatchRevision(null);
     }
   }, [tutorialStep]);
+  // 황금 컷신·reel이 장면을 덮는 동안에는 첫 물고기를 낚는 연출을 시작하지 않고, reel 도중에 덮이면
+  // 타이머를 취소했다가 황금 연출이 모두 끝난 뒤 처음부터 다시 보여 준다.
+  useEffect(() => {
+    const goldenBusy = !!goldenCutscene || goldenReeling;
+    if (goldenBusy && tutorialReelRevision.current !== null) {
+      const revision = tutorialReelRevision.current;
+      tutorialReelCancel.current?.();
+      tutorialReelRevision.current = null;
+      setTutorialReeling(false);
+      setTutorialCatchStart(revision);
+      return;
+    }
+    if (tutorialCatchStart === null || goldenBusy) return;
+    const revision = tutorialCatchStart;
+    setTutorialCatchStart(null);
+    if (tutorialStep !== 11 || (s.tutorialRevision ?? 0) !== revision) return;
+    const finishReel = () => {
+      tutorialReelRevision.current = null;
+      setTutorialReeling(false);
+      setTutorialCatchRevision(revision);
+    };
+    if (reduce) finishReel();
+    else {
+      tutorialReelRevision.current = revision;
+      setTutorialReeling(true);
+      tutorialReelCancel.current = afterForegroundMs(finishReel, 2000);
+    }
+  }, [tutorialCatchStart, goldenCutscene, goldenReeling, reduce, tutorialStep, s.tutorialRevision]);
   // 황금 컷신·reel이 장면을 덮는 동안에는 첫 물고기 대사로 넘어가지 않는다.
   useEffect(() => {
     if (tutorialCatchRevision === null || goldenCutscene || goldenReeling) return;

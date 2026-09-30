@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -33,6 +34,9 @@ import java.util.function.Supplier;
 @Service
 @RequiredArgsConstructor
 public class FocusSessionUseCase {
+
+    /** 최초 낚시 보상 응답에서 받아들이는 상태 — 그 밖의 값은 상류 계약 위반이다. */
+    private static final Set<String> TUTORIAL_REWARD_STATUSES = Set.of("granted", "pending", "unavailable");
 
     /**
      * Data 의 도메인 판정 → 공개 오류. 여기 없는 코드는 그대로 올려 보내고 전역 핸들러가
@@ -67,7 +71,7 @@ public class FocusSessionUseCase {
     public TutorialRewardView claimTutorialReward(AccessTokenClaims claims, UUID sessionId, Deadline deadline) {
         var reward = relay(() -> data.claimTutorialReward(claims.userId(), sessionId, deadline));
         if (reward == null || !sessionId.equals(reward.sessionId()) || reward.status() == null
-                || !List.of("granted", "pending", "unavailable").contains(reward.status())) {
+                || !TUTORIAL_REWARD_STATUSES.contains(reward.status())) {
             throw new UpstreamContractMismatchException("최초 낚시 보상 응답이 올바르지 않습니다");
         }
         return new TutorialRewardView(reward.sessionId(), reward.status());

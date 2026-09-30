@@ -212,7 +212,11 @@ test('첫 물고기 reel 중 황금 컷신이 오면 컷신이 끝난 뒤에 12�
   expect(screen.queryByTestId('golden-cutscene')).not.toBeNull();
   expect(current.tutorial?.step).toBe(11);
   await fireEvent.press(screen.getByTestId('golden-cutscene'));
-  await act(async () => jest.advanceTimersByTime(6000));
+  await act(async () => jest.advanceTimersByTime(1000));
+  expect(current.tutorial?.step).toBe(11);
+  // 황금 reel 종료 → 첫 물고기 reel 재시작 → 종료가 각각 effect를 거치므로 act를 나눠 흘린다
+  for (let elapsed = 0; elapsed < 8000; elapsed += 500)
+    await act(async () => jest.advanceTimersByTime(500));
   expect(current.tutorial?.step).toBe(12);
   await screen.unmount();
 });
