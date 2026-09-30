@@ -13,6 +13,7 @@ import com.oneorthree.phone.notification.repository.NotificationSentLogRepositor
 import com.oneorthree.phone.user.repository.domain.User;
 import com.oneorthree.phone.user.repository.domain.UserNotificationSettings;
 import com.oneorthree.phone.user.repository.UserQueryService;
+import com.oneorthree.phone.user.service.UserBlockService;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -79,6 +80,7 @@ public class FriendNotificationService {
     private final PushNotificationService pushNotificationService;
     private final NotificationDispatcher notificationDispatcher;
     private final EntityManager entityManager;
+    private final UserBlockService userBlockService;
 
     /**
      * 친구 요청 도착 알림 — 수신자는 요청을 받은 유저.
@@ -269,6 +271,11 @@ public class FriendNotificationService {
         if (recipient == null) {
             return Optional.empty();
         }
+        // 차단된 사이에는 적재하지 않는다 (GROMO-2180, policy RP-차단 「새 요청·편지 알림도 보내지 않는다」).
+        // 적재 «뒤» 차단은 발송 직전 적격성 조회(NotificationEligibilityService.REASON_BLOCKED)가 거른다.
+        if (userBlockService.isBlockedEither(recipientId, counterpartId)) {
+            return Optional.empty();
+        }
         String counterpartNickname = userQueryService.findActive(counterpartId)
                 .map(User::getNickname)
                 .orElse(null);
@@ -292,6 +299,11 @@ public class FriendNotificationService {
         // 탈퇴한 수신자에게는 보내지 않는다 — 탈퇴 트랜잭션과 이 알림이 경합할 수 있다(GROMO-801 계열).
         User recipient = userQueryService.findActive(recipientId).orElse(null);
         if (recipient == null) {
+            return;
+        }
+        // 차단된 사이에는 보내지 않는다 (GROMO-2180). 구 경로는 커밋 뒤 비동기로 돌므로 이 시점이 곧 발송 직전이다.
+        if (userBlockService.isBlockedEither(recipientId, counterpartId)) {
+            log.debug("차단된 사이의 친구 알림 — 발송 생략, userId={}", recipientId);
             return;
         }
         // 상대 닉네임이 문구의 전부라, 상대가 사라졌으면 보낼 문구 자체가 없다.
