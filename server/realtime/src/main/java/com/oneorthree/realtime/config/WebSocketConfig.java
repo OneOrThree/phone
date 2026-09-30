@@ -63,9 +63,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     /**
      * 핸드셰이크에서 허용할 Origin.
      *
-     * <p>React Native 앱도 Origin 을 보낸다 — iOS(SocketRocket)·Android(WebSocketModule) 모두 접속 URL 로
-     * {@code Origin: https://<API 호스트>} 를 만든다. 그래서 환경마다 API 도메인을 넣어야 앱이 붙는다
-     * (비면 Origin 을 보낸 핸드셰이크가 전부 403, GROMO-2175). Origin 이 없는 요청은 이 검사를 거치지 않는다.
+     * <p>React Native 앱도 Origin 을 보낸다 — iOS(SocketRocket)·Android(WebSocketModule) 모두 WS 접속 URL 로
+     * {@code Origin: https://<WS 호스트[:비표준 포트]>} 를 만든다(지금은 API 도메인과 같은 호스트). 그래서 환경마다
+     * 그 도메인을 넣어야 앱이 붙는다(GROMO-2175). 빈 배열이면 Spring 은 same-origin 만 허용하는데, 앞단 프록시
+     * 뒤에서는 요청 주소가 공개 도메인과 달라 사실상 Origin 을 보낸 핸드셰이크 전부 403 이다. Origin 이 없는 요청은
+     * 이 검사를 거치지 않는다.
      *
      * <p>그래도 기본값을 {@code *} 로 두지 않는다 — 열어 두면 임의의 웹페이지가 사용자의 토큰으로 소켓을
      * 열 수 있다(토큰을 훔치진 못해도, 토큰을 가진 다른 웹 컨텍스트에서 우리 소켓에 붙는 경로가 생긴다).
