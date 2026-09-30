@@ -1215,7 +1215,14 @@ function FocusFlow({ e }: any) {
     goldenPendingSessionRef = useRef<GoldenFishEvent[]>([]),
     goldenAnnouncementPendingRef = useRef(false),
     goldenSeenRef = useRef(new Set<string>()),
-    goldenTestSession = useRef<string | null>(null);
+    goldenTestSession = useRef<string | null>(null),
+    // 내가 직접 finish()를 부른 동안은 그 응답이 오기 전에 같은 종료를 알리는 내 focus.member.updated
+    // completed 브로드캐스트가 먼저 도착해도 강퇴로 오인하지 않는다.
+    finishInFlightRef = useRef(false),
+    // finish() 응답 전에 도착해 무시한 내 종료 이벤트 — finish()가 실패하면 그 이벤트를 뒤늦게 처리한다.
+    suppressedEndRef = useRef(false),
+    // 내가 종료를 요청한 세션 id — 응답이 끝난 뒤 늦게 도착하는 같은 세션의 완료 이벤트를 강퇴로 오인하지 않는다.
+    endedByMeSessionIdRef = useRef<string | null>(null);
   latest.current = { r, s, now: e.now };
   // 서버 세션: 결과 카드의 퀘스트 지표·보상 수령은 서버 회차가 정본이다(GROMO-2014).
   // 목업(review/demo·비로그인)은 e.islands 가 없어 로컬 경로 그대로다.
@@ -1504,6 +1511,13 @@ function FocusFlow({ e }: any) {
   // 서버 세션(version 있음)이면 명령이 정본이다 — 성공 응답이 SESSION_SYNC/RESULT 로 state를
   // 갈아 끼운 뒤에만 화면을 옮긴다. 없으면(REVIEW·DEMO 목업) 로컬 reducer 경로를 그대로 쓴다.
   const serverSession = () => e.focus && s.session?.version != null;
+  // 서버가 내 집중 세션을 끝냈을 때(강퇴 등) 로컬 세션을 정리하고 화면을 빠져나간다.
+  // 완료 이벤트는 정상 종료와 사유가 같아 강퇴로 단정하지 않는 문구를 쓴다.
+  const leaveAfterServerEnd = () => {
+    e.dispatch({ type: 'SESSION_SYNC', session: null });
+    e.notify('집중이 종료됐어요. 섬 소속을 확인해 주세요.');
+    e.home();
+  };
   const finish = () => {
     if (goldenCutsceneRef.current || goldenQueueTimerRef.current) {
       const requestedSessionId = s.session?.id;
@@ -1520,7 +1534,13 @@ function FocusFlow({ e }: any) {
       return;
     }
     if (serverSession()) {
+      // 확인 버튼을 연달아 눌러도 종료 요청은 하나만 보낸다 — 진행 중 플래그를 공유하므로
+      // 먼저 끝난 요청이 다른 요청의 플래그까지 내리지 않게 한다.
+      if (finishInFlightRef.current) return;
       const session = s.session;
+      endedByMeSessionIdRef.current = session?.id ?? null;
+      finishInFlightRef.current = true;
+      suppressedEndRef.current = false;
       e.focus
         .finish()
         .then(() => {
@@ -1529,7 +1549,19 @@ function FocusFlow({ e }: any) {
         })
         .catch(async (error: any) => {
           if (await e.recoverExpiredRestConflict?.(error, session)) return;
+          // 종료를 누른 사이 서버가 먼저 세션을 끝냈다면(무시했던 완료 이벤트) 그쪽으로 정리한다.
+          if (suppressedEndRef.current) {
+            leaveAfterServerEnd();
+            return;
+          }
+          // 응답만 유실돼 서버는 종료를 반영했을 수 있다 — 표식을 풀어 뒤늦게 오는 완료 이벤트가
+          // 무시되지 않고 종료 처리되게 한다.
+          endedByMeSessionIdRef.current = null;
           e.notify(error?.message ?? '집중을 마치지 못했어요.');
+        })
+        .finally(() => {
+          finishInFlightRef.current = false;
+          suppressedEndRef.current = false;
         });
       return;
     }
@@ -1608,6 +1640,24 @@ function FocusFlow({ e }: any) {
     snapshotTransitions: live.snapshotTransitions,
   });
   transitionHandler.current = (transition) => {
+    // 내 낚시 세션이 진행 중이던 중(previous.status === 'active') 서버가 강퇴 등으로
+    // 세션을 강제 종료하면(focus.member.updated completed) focus/rest 이벤트만으로는
+    // 타이머가 계속 흐른다 — 여기서 내 몫만 감지해 화면을 빠져나간다.
+    // finishInFlightRef 는 내가 직접 finish()를 부른 뒤 아직 응답 전인 같은 사건과 구분한다.
+    if (
+      transition.kind === 'focus' &&
+      transition.userId === myId &&
+      transition.current === null &&
+      transition.previous?.status === 'active' &&
+      s.session
+    ) {
+      if (finishInFlightRef.current) {
+        suppressedEndRef.current = true;
+      } else if (transition.previous.sessionId !== endedByMeSessionIdRef.current) {
+        leaveAfterServerEnd();
+        return;
+      }
+    }
     peerFlow.onTransition(transition);
   };
   const peers = peerFlow.actors.filter((actor) => actor.visible),
@@ -1909,6 +1959,7 @@ function FocusFlow({ e }: any) {
     }
     if (e.focus) {
       // 서버 세션 — islandId·멱등 키·복구는 명령이 챙긴다. 시작 성공 뒤에만 낚시 화면으로 간다
+      setError('');
       e.focus
         .start({ subject: e.text.trim() })
         .then(() => {
@@ -2091,6 +2142,7 @@ function FocusFlow({ e }: any) {
       return (
         <TutorialSpotlight
           target={setupInputTarget.rect}
+          error={error}
           accessibleInput={
             <TextInput
               accessibilityLabel="오늘의 할 일"
@@ -2116,6 +2168,7 @@ function FocusFlow({ e }: any) {
       return (
         <TutorialSpotlight
           target={setupStartTarget.rect}
+          error={error}
           text="좋아. 이제 집중 시작을 눌러 봐."
           action={{ title: '집중 시작', onPress: start }}
         />
@@ -2171,7 +2224,8 @@ function FocusFlow({ e }: any) {
     if (r === 'focusResult' && tutorialStep === 19)
       return tutorialNext(
         '방금 집중한 시간이 기록됐어.\n쉬었던 시간은 집중 시간에 포함되지 않아.',
-        20,
+        // 서버는 유효 집중 60초당 1마리라 0마리일 수 있다 — 없는 물고기를 확인하라고 안내하지 않는다.
+        (result?.fish ?? 0) > 0 ? 20 : 21,
       );
     if (r === 'focusResult' && tutorialStep === 20)
       return tutorialNext('집중해서 낚은 물고기도 여기에서 확인할 수 있어.', 21);

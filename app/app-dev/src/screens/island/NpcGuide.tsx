@@ -173,12 +173,15 @@ export function TutorialSpotlight({
   children,
   action,
   accessibleInput,
+  error,
 }: {
   target?: SpotlightRect | null;
   text: string;
   children?: React.ReactNode;
   action?: { title: string; onPress: () => void; disabled?: boolean };
   accessibleInput?: React.ReactNode;
+  /** 조작 실패 메시지 — 블러·딤 뒤로 가려지지 않게 대화창 안에서 읽어 준다. */
+  error?: string;
 }) {
   const layout = useAppLayout();
   const blurTarget = useContext(BlurTargetContext);
@@ -285,6 +288,15 @@ export function TutorialSpotlight({
         }}
       >
         <GuideBox text={text} style={{ position: 'relative' }}>
+          {!!error && (
+            <Txt
+              accessibilityRole="alert"
+              accessibilityLiveRegion="assertive"
+              style={{ color: semanticTokens.color.danger, fontWeight: '700' }}
+            >
+              {error}
+            </Txt>
+          )}
           {(screenReader || measurementFailed) && accessibleInput}
           {(screenReader || measurementFailed) && action && (
             <Btn title={action.title} onPress={action.onPress} disabled={action.disabled} />

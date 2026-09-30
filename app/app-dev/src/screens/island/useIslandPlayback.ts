@@ -18,6 +18,21 @@ export type IslandPlayback = {
   retry: () => void;
 };
 
+/**
+ * 공용 재생 실시간 채널 스위치(GROMO-2010 참조 티켓 「playback 토픽 거절」).
+ *
+ * 서버는 `/topic/islands/{id}/playback` 구독을 아직 열지 않는다
+ * (`server/realtime/.../config/StompTopics.java` — ISLAND_TOPIC은 focus|rest|emotes만 허용,
+ * "events·playback·messages는 계속 거절한다"). 이 상태로 구독하면 서버가 STOMP ERROR
+ * INVALID_REQUEST로 소켓을 끊고, stompjs가 5초마다 재연결·재거절을 무한 반복한다.
+ * 서버가 playback 토픽을 열면(발행자도 함께 추가돼야 한다) 이 값을 true로 바꾼다 — 그 전까지는
+ * HTTP GET(재동기화)만으로 재생 상태를 읽는다 — 5초 주기 폴링과 포그라운드 복귀(AppState
+ * 'active') 새로고침.
+ */
+export const PLAYBACK_REALTIME_ENABLED = false;
+// 실시간이 꺼져 있는 동안 HTTP 재동기화 주기(ms).
+const PLAYBACK_POLL_MS = 5000;
+
 const validEvent = (raw: unknown, islandId: string): PlaybackState | null => {
   const envelope = raw as Record<string, unknown> | null;
   const payload = envelope?.payload as PlaybackState | null;
@@ -102,32 +117,44 @@ export function useIslandPlayback({
     const ownEpoch = epoch.current;
     const generation = sessionGeneration();
     const alive = () => ownEpoch === epoch.current && generation === sessionGeneration();
-    const conn = stompIslandChannel({
-      islandId,
-      presence: false,
-      playback: true,
-      emote: false,
-      onEvent: (raw) => {
-        if (!alive()) return;
-        const next = validEvent(raw, islandId);
-        if (next) apply(next, 'event');
-      },
-      onOpen: () => {
-        if (alive()) resync();
-      },
-      onError: () => {},
-    });
+    // PLAYBACK_REALTIME_ENABLED가 꺼져 있는 동안은 채널을 열지 않는다 — 서버가 거절하는 토픽을
+    // 구독하면 연결·거절·재연결이 5초 간격으로 무한 반복된다. HTTP GET 재동기화로 대신한다.
+    const conn = PLAYBACK_REALTIME_ENABLED
+      ? stompIslandChannel({
+          islandId,
+          presence: false,
+          playback: true,
+          emote: false,
+          onEvent: (raw) => {
+            if (!alive()) return;
+            const next = validEvent(raw, islandId);
+            if (next) apply(next, 'event');
+          },
+          onOpen: () => {
+            if (alive()) resync();
+          },
+          onError: () => {},
+        })
+      : null;
     channel.current = conn;
     resync();
+    // 실시간이 꺼져 있으면 다른 주민의 변경을 받을 경로가 없다 — 거절·재연결이 돌던 때와 같은
+    // 5초 간격으로 HTTP 재동기화(GET)만 반복한다.
+    const poll = PLAYBACK_REALTIME_ENABLED
+      ? null
+      : setInterval(() => {
+          if (alive()) resync();
+        }, PLAYBACK_POLL_MS);
     const appSub = AppState.addEventListener('change', (next) => {
       if (next === 'active' && alive()) {
-        conn.reopen();
+        conn?.reopen();
         resync();
       }
     });
     return () => {
       appSub.remove();
-      conn.close();
+      if (poll) clearInterval(poll);
+      conn?.close();
       if (channel.current === conn) channel.current = null;
     };
   }, [active, apply, islandId, nonce, resync]);

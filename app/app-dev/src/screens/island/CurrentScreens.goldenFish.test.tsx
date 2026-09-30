@@ -295,6 +295,54 @@ test('첫 물고기와 사용처는 한 대사이며 한 번 넘기면 휴식 �
   await screen.unmount();
 });
 
+test.each([
+  [0, 21],
+  [2, 20],
+])('결과 안내는 물고기 %i마리면 %i단계로 이어진다', async (fish, next) => {
+  const state = focusedState();
+  state.session = null;
+  state.lastResult = {
+    id: 's-me',
+    islandId: 'soda',
+    subject: '수학',
+    seconds: 65,
+    at: Date.now(),
+    fish,
+    contributed: false,
+  };
+  const setGuideStep = jest.fn();
+  const screen = await render(
+    screenElement(state, 'focusResult', undefined, undefined, undefined, undefined, {
+      guideStep: 19,
+      setGuideStep,
+    }),
+  );
+  await fireEvent.press(screen.getByText('다음'));
+  expect(setGuideStep).toHaveBeenCalledWith(next);
+  await screen.unmount();
+});
+
+test('튜토리얼 집중 시작이 실패하면 오류를 대화창 안에서 알리고 단계를 유지한다', async () => {
+  const state = focusedState();
+  state.session = null;
+  const setGuideStep = jest.fn();
+  const start = jest.fn().mockRejectedValueOnce(new Error('네트워크 연결 실패'));
+  const screen = await render(
+    screenElement(state, 'focusSetup', undefined, undefined, undefined, undefined, {
+      guideStep: 8,
+      setGuideStep,
+      text: '영어 단어 외우기',
+      focus: { start },
+    }),
+  );
+  await fireEvent.press(screen.getByTestId('start-focus', { includeHiddenElements: true }));
+  const alert = screen.getByRole('alert');
+  expect(alert).toHaveTextContent('네트워크 연결 실패');
+  expect(screen.getByTestId('tutorial-dialogue')).toContainElement(alert);
+  expect(setGuideStep).not.toHaveBeenCalled();
+  await screen.unmount();
+});
+
 test('종료 확인 취소는 17단계로 돌아가며 다시 종료할 수 있다', async () => {
   const state = focusedState();
   const setGuideStep = jest.fn();

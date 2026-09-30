@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { ApiError } from '@/services/api/client';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
+  friendlyRealtimeErrorMessage,
   IslandProjection,
   isGoldenFishParticipant,
   parseGoldenFishEvent,
@@ -1026,6 +1027,20 @@ describe('stompIslandChannel', () => {
     (Client as any).instances.length = 0;
   });
 
+  test('React Native WebSocket 용 옵션: 바이너리 프레임 강제와 수신 NULL 종결자 보정을 켠다', () => {
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: false,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: () => {},
+    });
+    // RN WebSocket 은 문자열 프레임의 NULL(\0)을 잘라 STOMP 프레임 끝이 사라진다 —
+    // 두 옵션이 없으면 CONNECT 가 서버에 도달하지 못한다.
+    assert.equal(client().opts.forceBinaryWSFrames, true);
+    assert.equal(client().opts.appendMissingNULLonIncoming, true);
+  });
+
   test('인증 STOMP 계약: /ws/realtime 에 Bearer CONNECT 헤더, 섬 채널·emotes·오류 큐 구독', () => {
     const opened: string[] = [];
     stompIslandChannel({
@@ -1109,6 +1124,83 @@ describe('stompIslandChannel', () => {
     assert.equal(c.subs.at(-1).dest, '/topic/islands/i1/emotes');
   });
 
+  // 세션이 이미 끝난 뒤 남은 emotes 재구독이 거절되며 오는 NOT_FOCUSING은 기대된 잡음이라
+  // 토스트를 띄우지 않는다. /user/queue/errors 원시 메시지·onStompError 원시 헤더 둘 다 막는다.
+  test('/user/queue/errors 의 NOT_FOCUSING 원시 코드는 토스트로 올리지 않는다', () => {
+    const errors: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+    });
+    const c = client();
+    const errorSub = c.subs.find((s: { dest: string }) => s.dest === '/user/queue/errors')!;
+    errorSub.cb({ body: JSON.stringify({ message: 'NOT_FOCUSING' }) });
+    assert.deepEqual(errors, []);
+  });
+
+  test('/user/queue/errors 오류 봉투의 code 가 NOT_FOCUSING 이면 message 문구가 있어도 토스트로 올리지 않는다', () => {
+    const errors: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+    });
+    const c = client();
+    const errorSub = c.subs.find((s: { dest: string }) => s.dest === '/user/queue/errors')!;
+    errorSub.cb({
+      body: JSON.stringify({ code: 'NOT_FOCUSING', message: '집중 중일 때만 응원할 수 있습니다.' }),
+    });
+    assert.deepEqual(errors, []);
+  });
+
+  test('onStompError 의 NOT_FOCUSING 헤더도 토스트로 올리지 않는다', () => {
+    const errors: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+    });
+    client().opts.onStompError({ headers: { message: 'NOT_FOCUSING' } });
+    assert.deepEqual(errors, []);
+  });
+
+  test('알려지지 않은 대문자 코드는 그대로 보여주지 않고 기본 문구로 대신한다', () => {
+    const errors: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+    });
+    const c = client();
+    const errorSub = c.subs.find((s: { dest: string }) => s.dest === '/user/queue/errors')!;
+    errorSub.cb({ body: JSON.stringify({ message: 'SOME_UNKNOWN_CODE' }) });
+    assert.deepEqual(errors, ['실시간 요청이 거절됐어요.']);
+  });
+
+  test('사람이 읽을 문구는 그대로 전달한다', () => {
+    const errors: string[] = [];
+    stompIslandChannel({
+      islandId: 'i1',
+      emote: true,
+      onEvent: () => {},
+      onOpen: () => {},
+      onError: (m) => errors.push(m),
+    });
+    const c = client();
+    const errorSub = c.subs.find((s: { dest: string }) => s.dest === '/user/queue/errors')!;
+    errorSub.cb({ body: JSON.stringify({ message: '응원을 보낼 수 없어요.' }) });
+    assert.deepEqual(errors, ['응원을 보낼 수 없어요.']);
+  });
+
   test('재생 전용 연결은 playback만 구독하고 재연결 시 onOpen으로 복구를 요청한다', () => {
     const opened: string[] = [];
     stompIslandChannel({
@@ -1140,5 +1232,20 @@ describe('stompIslandChannel', () => {
     assert.equal((events[0] as any).type, 'focus.member.updated');
     assert.equal(ch.send('/app/islands/i1/focus/emotes', { sessionId: 's', type: 'hello' }), true);
     assert.deepEqual(JSON.parse(client().published[0].body), { sessionId: 's', type: 'hello' });
+  });
+});
+
+describe('friendlyRealtimeErrorMessage', () => {
+  test('NOT_FOCUSING 은 억제한다(null)', () => {
+    assert.equal(friendlyRealtimeErrorMessage('NOT_FOCUSING'), null);
+  });
+  test('그 외 대문자_밑줄 코드는 기본 문구로 대신한다', () => {
+    assert.equal(friendlyRealtimeErrorMessage('ISLAND_NOT_CURRENT'), '실시간 요청이 거절됐어요.');
+  });
+  test('이미 사람이 읽을 문구는 그대로 돌려준다', () => {
+    assert.equal(
+      friendlyRealtimeErrorMessage('실시간 연결이 거절됐어요.'),
+      '실시간 연결이 거절됐어요.',
+    );
   });
 });

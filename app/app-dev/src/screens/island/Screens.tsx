@@ -784,6 +784,8 @@ export function RedesignScreens({ e }: any) {
     [invitePick, setInvitePick] = useState<IslandSummary | null>(null),
     // 생성·가입 뒤 서버 current 가 확인된 섬 이름. arrival 은 CurrentScreens 차단으로 열지 않는다
     [serverDone, setServerDone] = useState(''),
+    // 초대로 가입을 확정한 섬 id — 정본 스냅숏 카드와 같은 가입인지 이름이 아닌 id로 비교한다
+    [serverDoneId, setServerDoneId] = useState(''),
     [safetyTarget, setSafetyTarget] = useState<{
       id: string;
       name: string;
@@ -791,7 +793,11 @@ export function RedesignScreens({ e }: any) {
     } | null>(null);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
-    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null);
+    profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
+    // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
+    routeNowRef = useRef(route);
+  routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
     setCustom(false);
@@ -809,6 +815,7 @@ export function RedesignScreens({ e }: any) {
     setSoundDialog(null);
     setInvitePick(null);
     setServerDone('');
+    setServerDoneId('');
     setSafetyTarget(null);
   }, [route]);
   // 서버 명령 실행기 — 진행 중 중복 탭은 한 의도를 두 번 만들지 않게 막고, 오류는 화면 문구로 바꾼다.
@@ -1108,13 +1115,18 @@ export function RedesignScreens({ e }: any) {
       },
     );
   // 섬 구경 시트의 가입 신청 알림(시트 위 토스트 한 줄)
-  const [sheetToast, setSheetToast] = useState('');
+  const [sheetToast, setSheetToast] = useState(''),
+    // 같은 문구가 다시 와도 토스트 시간을 새로 시작하도록 발생 횟수를 함께 둔다.
+    [sheetToastSeq, setSheetToastSeq] = useState(0);
   useEffect(() => {
     if (!sheetToast) return;
     const t = setTimeout(() => setSheetToast(''), 2400);
     return () => clearTimeout(t);
-  }, [sheetToast]);
+  }, [sheetToast, sheetToastSeq]);
   useEffect(() => setSheetToast(''), [route]);
+  // 비동기 결과가 도착했을 때 사용자가 아직 그 상품 화면에 있는지 확인하는 용도
+  const productViewRef = useRef('');
+  productViewRef.current = `${route}|${detail}`;
   // 나만 미리듣기가 곡 끝까지 재생되면 버튼을 다시 재생 모양으로
   useEffect(() => {
     if (!previewAudio) return;
@@ -1383,8 +1395,34 @@ export function RedesignScreens({ e }: any) {
         cta={
           <Btn
             title="내 고양이와 시작"
-            disabled={!state.name.trim()}
-            onPress={() => go('chooseIsland')}
+            disabled={!state.name.trim() || serverBusy}
+            onPress={() => {
+              if (!server) {
+                // 목업·데모 흐름 — 서버 계정이 없어 PATCH 할 곳이 없다.
+                go('chooseIsland');
+                return;
+              }
+              // 서버 모드: GET /me.onboardingComplete는 PATCH /me(name+catColor)로만 true가 된다.
+              // 여기서 저장하지 않으면 이번 세션은 로컬 state.onboarded만으로 홈에 들어가지만,
+              // 재실행 복구(restoredRoute)는 서버 값을 정본으로 봐서 이 화면으로 되돌아간다.
+              const name = state.name.trim();
+              const signature = JSON.stringify([name, state.color]);
+              if (characterSaveIntent.current?.signature !== signature)
+                characterSaveIntent.current = { signature, key: uuid() };
+              const intent = characterSaveIntent.current;
+              run(() =>
+                updateProfile({ name, catColor: state.color }, intent.key).then((saved) => {
+                  if (characterSaveIntent.current?.key === intent.key)
+                    characterSaveIntent.current = null;
+                  act('PROFILE', {
+                    name: saved.name ?? name,
+                    color: saved.catColor ?? state.color,
+                  });
+                  // 저장이 늦어 그 사이 뒤로 가기 등으로 화면을 떠났다면 다시 끌어오지 않는다
+                  if (routeNowRef.current === 'character') go('chooseIsland');
+                }),
+              );
+            }}
           />
         }
       >
@@ -1399,16 +1437,28 @@ export function RedesignScreens({ e }: any) {
             </View>
           </View>
         )}
+        {serverError ? (
+          <Txt kind="meta" style={[META, { color: C.danger }]}>
+            {serverError}
+          </Txt>
+        ) : null}
         <Txt style={[SEC, { marginTop: layout.compact ? 0 : 6 }]}>어떤 고양이로 시작할까요?</Txt>
         <AvatarGrid
           six={layout.compact}
           value={state.color}
-          onChange={(color: Color) => act('PROFILE', { color })}
+          disabled={serverBusy}
+          // 저장 요청이 오가는 동안은 입력을 잠가, 응답이 화면의 새 값을 되돌리지 않게 한다
+          onChange={(color: Color) => {
+            if (!serverBusy) act('PROFILE', { color });
+          }}
         />
         <Field
           label="닉네임"
           value={state.name}
-          onChange={(name: string) => act('PROFILE', { name })}
+          disabled={serverBusy}
+          onChange={(name: string) => {
+            if (!serverBusy) act('PROFILE', { name });
+          }}
           inputStyle={INP}
         />
       </Onboard>
@@ -1522,8 +1572,13 @@ export function RedesignScreens({ e }: any) {
                   ? doneCard('가입이 확인됐어요', `서버에서 「${cur.name}」 소속이 확인됐어요.`)
                   : null;
               })()}
-            {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다 */}
-            {serverDone && doneCard('가입이 완료됐어요', `「${serverDone}」의 주민이 됐어요.`)}
+            {/* 서버 가입 완료 확인 — arrival 은 CurrentScreens 차단으로 열지 않는다.
+                초대 코드로 막 가입한 직후엔 snap.currentIslandId 가 이미 그 섬이라 위 「가입이
+                확인됐어요」 카드와 같은 가입을 동시에 가리킨다 — 그때는 정본 스냅숏 카드만 남기고
+                serverDone 카드는 건너뛴다(같은 가입인지는 이름이 아니라 id로 본다). */}
+            {serverDone &&
+              !(serverDoneId && snap?.currentIslandId === serverDoneId) &&
+              doneCard('가입이 완료됐어요', `「${serverDone}」의 주민이 됐어요.`)}
             {/* 초대받은 섬: 코드 확인 → 승인 없는 섬은 바로 참여, 승인 필요 섬은 가입 신청 */}
             <Btn
               kind="sec"
@@ -1653,6 +1708,7 @@ export function RedesignScreens({ e }: any) {
                             // pending 은 App 이 approval 경로로 보낸다 — active 만 여기서 확정 표시
                             if (r.status === 'active') {
                               setServerDone(invitePick.name);
+                              setServerDoneId(invitePick.id);
                               setInvitePick(null);
                               setInvite(false);
                             }
@@ -1959,7 +2015,9 @@ export function RedesignScreens({ e }: any) {
               </Txt>
             </View>
           ))}
-        {serverDone && joinedCard(serverDone)}
+        {/* join()은 active 확정 전에 syncIslands()로 snap을 이미 맞춘다 — serverDone과 joined가
+            같은 가입을 동시에 가리키면 카드를 두 번 그리지 않고 joined(정본 스냅숏)만 남긴다. */}
+        {serverDone && !joined && joinedCard(serverDone)}
         {joined && i && joinedCard(i.name)}
         {serverError ? (
           <View style={{ gap: 8 }}>
@@ -2700,11 +2758,7 @@ export function RedesignScreens({ e }: any) {
             aria-hidden={true}
             style={StyleSheet.absoluteFill}
           >
-            {scene ? (
-              focusScene
-            ) : (
-              <Pic id={(layout.compact ? 'L/bldbg/' : 'bldbg/') + 'gram'} w="100%" h="100%" cover />
-            )}
+            {scene ? focusScene : <Pic id="interior/gram" w="100%" h="100%" cover />}
           </View>
           <Pressable
             accessibilityRole="button"
@@ -4746,9 +4800,14 @@ export function RedesignScreens({ e }: any) {
         )}
       </View>
     );
+  // island(currentIsland(state))는 로컬 목업 섬(state.islandId, 기본값 소다 섬)을 가리켜
+  // 서버 모드에서도 항상 「소다 섬」으로 보였다. 서버 모드는 snap.memberships 의 현재 섬 이름이 정본이다.
+  const fishStripIslandName = server
+    ? (snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ?? island.name)
+    : island.name;
   const fishStrip = (
     <Strip
-      label={island.name + ' 물고기'}
+      label={fishStripIslandName + ' 물고기'}
       value={
         server
           ? shopApi.wallets
@@ -4987,12 +5046,22 @@ export function RedesignScreens({ e }: any) {
         () => {
           if (server) {
             // 응답 + 지갑·인벤토리·내역 재조회가 끝날 때만 성공 토스트 — 실패·응답 유실에는 붙지 않는다.
+            const startedView = productViewRef.current;
             shopApi
               .buy({ id: p.id, productVersion: sp!.productVersion })
               .then(() => setSheetToast('구매했어요.'))
               .catch((thrown) => {
                 const m = serverErrorText(thrown);
-                if (m) notify(m);
+                if (!m) return;
+                // 전역 알림(notify)은 이 상품 상세 시트 위에서 가려질 수 있어, 아직 같은 상품
+                // 화면에 있으면 시트 안 토스트로 알린다(스크린리더도 한 채널만 읽는다). 그 사이
+                // 다른 화면으로 옮겼다면 시트 토스트를 남의 화면에 띄우지 않고 전역 알림으로 알린다.
+                if (productViewRef.current === startedView) {
+                  setSheetToast(m);
+                  setSheetToastSeq((n) => n + 1);
+                } else {
+                  notify(m);
+                }
               });
             return;
           }
@@ -5217,6 +5286,17 @@ export function RedesignScreens({ e }: any) {
         : friends.filter((f) => f.status === 'received').length,
       joinedIslands = state.islands.filter((candidate) => candidate.joined && !candidate.closed),
       primaryIsland = mainIsland(state) ?? island,
+      // mainIsland(state)/island 은 로컬 목업 섬(state.islands, 기본값 소다 섬)만 찾아 서버
+      // 모드에서도(특히 게스트→멤버 전환처럼 목업 섬을 하나도 가입하지 않은 상태에서) 항상 「소다
+      // 섬」으로 보였다. 서버 모드는 snap.memberships 에서 mainIslandId(/me 정본, 없으면
+      // currentIslandId)로 찾은 이름이 정본이다(상점 잔액 라벨과 같은 패턴).
+      // mainIslandId 가 멤버십에 없으면(재검증 중·탈퇴 직후) currentIslandId 쪽 이름도 찾고, 그래도 없으면
+      // 목업 섬 이름으로 떨어지지 않고 이름 없는 문구를 쓴다.
+      primaryIslandName = server
+        ? (snap?.memberships.find((m) => m.id === state.mainIslandId)?.name ??
+          snap?.memberships.find((m) => m.id === snap.currentIslandId)?.name ??
+          '내 섬')
+        : primaryIsland.name,
       canChangeMainIsland = joinedIslands.length > 1;
     const mainIslandCard = (
       <>
@@ -5228,7 +5308,9 @@ export function RedesignScreens({ e }: any) {
           >
             현재 내 메인 섬
           </Txt>
-          <Txt style={[st.h22, { marginTop: 1 }]}>{primaryIsland.name}</Txt>
+          <Txt numberOfLines={1} ellipsizeMode="tail" style={[st.h22, { marginTop: 1 }]}>
+            {primaryIslandName}
+          </Txt>
           <Txt kind="meta" style={{ fontSize: 12, lineHeight: 18, marginTop: 1, color: C.muted }}>
             친구 목록과 프로필에 표시돼요
           </Txt>
@@ -5260,7 +5342,7 @@ export function RedesignScreens({ e }: any) {
         {canChangeMainIsland ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`현재 내 메인 섬 ${primaryIsland.name}, 메인 섬 변경하기`}
+            accessibilityLabel={`현재 내 메인 섬 ${primaryIslandName}, 메인 섬 변경하기`}
             onPress={() => go('mainIsland')}
             style={({ pressed }) => ({
               height: 164,
@@ -5280,7 +5362,7 @@ export function RedesignScreens({ e }: any) {
         ) : (
           <View
             accessible
-            accessibilityLabel={`현재 내 메인 섬 ${primaryIsland.name}`}
+            accessibilityLabel={`현재 내 메인 섬 ${primaryIslandName}`}
             style={{
               height: 164,
               flexDirection: 'row',

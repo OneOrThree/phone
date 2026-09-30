@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 import { ApiError, CLIENT_NETWORK_ERROR } from '@/services/api/client';
 import { getPlayback, patchPlayback, type PlaybackState } from '@/services/api/playback';
-import { stompIslandChannel, type IslandChannelOpts } from '@/services/islandRealtime';
-import { useIslandPlayback } from '@/screens/island/useIslandPlayback';
+import { stompIslandChannel } from '@/services/islandRealtime';
+import { PLAYBACK_REALTIME_ENABLED, useIslandPlayback } from '@/screens/island/useIslandPlayback';
 
 jest.mock('@/services/api/playback', () => ({
   getPlayback: jest.fn(),
@@ -26,14 +27,22 @@ const playback = (over: Partial<PlaybackState> = {}): PlaybackState => ({
   ...over,
 });
 
-let channelOpts: IslandChannelOpts;
+let appListener: ((state: string) => void) | null;
 
 beforeEach(() => {
   jest.clearAllMocks();
+  appListener = null;
   (getPlayback as jest.Mock).mockResolvedValue(playback());
-  (stompIslandChannel as jest.Mock).mockImplementation((opts: IslandChannelOpts) => {
-    channelOpts = opts;
-    return { send: jest.fn(), reopen: jest.fn(), close: jest.fn() };
+  // PLAYBACK_REALTIME_ENABLED가 꺼져 있는 동안은 아예 불리지 않는다(아래 두 테스트가 검증) —
+  // 목만 남겨 두면 실수로 다시 켰을 때 이 파일의 다른 테스트가 조용히 깨지지 않는다.
+  (stompIslandChannel as jest.Mock).mockImplementation(() => ({
+    send: jest.fn(),
+    reopen: jest.fn(),
+    close: jest.fn(),
+  }));
+  (AppState as any).addEventListener = jest.fn((_t: string, cb: (state: string) => void) => {
+    appListener = cb;
+    return { remove: jest.fn() };
   });
 });
 
@@ -111,38 +120,55 @@ test('응답 유실 재시도는 같은 body와 멱등 키를 다시 사용한�
   assert.equal(retry[2], first[2]);
 });
 
-test('더 높은 playback.updated만 적용하고 재연결 onOpen에서 GET으로 복구한다', async () => {
+test('PLAYBACK_REALTIME_ENABLED가 꺼져 있는 동안은 실시간 채널을 열지 않고 GET만으로 진입한다', async () => {
+  assert.equal(PLAYBACK_REALTIME_ENABLED, false);
   const dispatch = jest.fn();
   const { result } = await renderHook(() =>
     useIslandPlayback({ active: true, islandId: ISLAND, dispatch }),
   );
   await waitFor(() => assert.equal(result.current.state?.version, 2));
 
-  await act(async () => {
-    channelOpts.onEvent({
-      schemaVersion: 1,
-      type: 'playback.updated',
-      islandId: ISLAND,
-      aggregateVersion: 4,
-      payload: playback({ trackId: 'rain', playing: true, version: 4 }),
-    });
-  });
-  assert.equal(result.current.state?.version, 4);
+  assert.equal((stompIslandChannel as jest.Mock).mock.calls.length, 0);
+});
 
-  await act(async () => {
-    channelOpts.onEvent({
-      schemaVersion: 1,
-      type: 'playback.updated',
-      islandId: ISLAND,
-      aggregateVersion: 3,
-      payload: playback({ trackId: 'campfire', version: 3 }),
-    });
-  });
-  assert.equal(result.current.state?.trackId, 'rain');
+test('포그라운드 복귀(AppState active)는 채널을 열지 않고 GET 재동기화만 다시 부른다', async () => {
+  const dispatch = jest.fn();
+  const { result } = await renderHook(() =>
+    useIslandPlayback({ active: true, islandId: ISLAND, dispatch }),
+  );
+  await waitFor(() => assert.equal(result.current.state?.version, 2));
+  assert.equal((getPlayback as jest.Mock).mock.calls.length, 1);
 
   (getPlayback as jest.Mock).mockResolvedValue(playback({ version: 5, playing: false }));
-  await act(async () => channelOpts.onOpen());
+  await act(async () => appListener?.('active'));
   await waitFor(() => assert.equal(result.current.state?.version, 5));
+
+  assert.equal((getPlayback as jest.Mock).mock.calls.length, 2);
+  assert.equal((stompIslandChannel as jest.Mock).mock.calls.length, 0);
+});
+
+test('실시간이 꺼져 있는 동안 5초 주기로 GET을 다시 불러 다른 주민의 변경을 읽고, 언마운트하면 멈춘다', async () => {
+  assert.equal(PLAYBACK_REALTIME_ENABLED, false);
+  jest.useFakeTimers();
+  try {
+    const dispatch = jest.fn();
+    const { unmount } = await renderHook(() =>
+      useIslandPlayback({ active: true, islandId: ISLAND, dispatch }),
+    );
+    const calls = () => (getPlayback as jest.Mock).mock.calls.length;
+    assert.equal(calls(), 1);
+    await act(async () => {
+      jest.advanceTimersByTime(5000);
+    });
+    assert.equal(calls(), 2);
+    await unmount();
+    await act(async () => {
+      jest.advanceTimersByTime(10000);
+    });
+    assert.equal(calls(), 2, '언마운트 뒤에는 폴링하지 않는다');
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 test('서버 null trackId를 미선택 상태로 그대로 전달한다', async () => {
