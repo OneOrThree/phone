@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oneorthree.phone.auth.exception.InvalidTokenErrorCode;
 import com.oneorthree.phone.auth.exception.InvalidTokenException;
 import com.oneorthree.phone.user.repository.domain.Provider;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -43,6 +44,7 @@ import java.util.stream.Collectors;
  *
  * <p>JWKS 응답은 캐시하지 않는다 — Apple 이 키를 회전해도 다음 로그인부터 바로 새 키를 집는다.
  */
+@Slf4j
 @Component
 public class AppleJwksClientImpl implements SocialLoginClient {
 
@@ -66,6 +68,10 @@ public class AppleJwksClientImpl implements SocialLoginClient {
                 .baseUrl(jwksUrl)
                 .build();
         this.allowedAudiences = parseAllowedAudiences(clientId);
+        if (allowedAudiences.isEmpty()) {
+            // 빈 목록은 모든 토큰을 거절한다. 잘못된 배포 설정이 로그인 장애로만 드러나지 않게 기동 때 알린다.
+            log.warn("apple.client-id 허용 목록이 비어 있어 Apple 로그인이 모두 거절된다");
+        }
     }
 
     /** 쉼표로 구분한 앱 식별자 목록을 공백·빈 항목 없이 집합으로 만든다. {@code null} 이면 빈 집합이다. */
