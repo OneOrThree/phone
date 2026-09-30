@@ -11,6 +11,7 @@ import com.oneorthree.phone.internal.notification.service.NotificationSnapshotSe
 import com.oneorthree.phone.group.service.ChallengeResultAckService;
 import com.oneorthree.phone.user.repository.UserQueryService;
 import com.oneorthree.phone.user.repository.domain.User;
+import com.oneorthree.phone.user.service.UserBlockService;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.EnumSource;
@@ -47,7 +48,7 @@ class NotificationExpiryContractTest {
         NotificationEligibilityService eligibility = new NotificationEligibilityService(users,
                 mock(GroupQueryService.class), mock(GroupMemberRepository.class),
                 mock(GroupChallengeBetParticipantRepository.class), mock(FriendshipRepository.class),
-                Clock.fixed(now, ZoneOffset.UTC), retention, league);
+                Clock.fixed(now, ZoneOffset.UTC), retention, league, mock(UserBlockService.class));
         return MockMvcBuilders.standaloneSetup(new InternalNotificationController(
                 mock(NotificationSnapshotService.class), eligibility, mock(ChallengeResultAckService.class))).build();
     }
@@ -97,7 +98,8 @@ class NotificationExpiryContractTest {
         NotificationEligibilityService eligibility = new NotificationEligibilityService(users,
                 mock(GroupQueryService.class), mock(GroupMemberRepository.class),
                 mock(GroupChallengeBetParticipantRepository.class), mock(FriendshipRepository.class),
-                Clock.systemUTC(), retention, mock(NotificationLeagueEligibility.class));
+                Clock.systemUTC(), retention, mock(NotificationLeagueEligibility.class),
+                mock(UserBlockService.class));
         MockMvc http = MockMvcBuilders.standaloneSetup(new InternalNotificationController(
                 mock(NotificationSnapshotService.class), eligibility, mock(ChallengeResultAckService.class))).build();
         http.perform(post("/internal/notifications/eligibility").contentType("application/json")
