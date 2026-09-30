@@ -7,6 +7,7 @@ import com.oneorthree.business.upstream.data.dto.CurrentFocusSession;
 import com.oneorthree.business.upstream.data.dto.FocusFinish;
 import com.oneorthree.business.upstream.data.dto.FocusSessionState;
 import com.oneorthree.business.upstream.data.dto.FocusSummary;
+import com.oneorthree.business.upstream.data.dto.FocusTutorialReward;
 import com.oneorthree.business.upstream.data.dto.PendingFocusResult;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
@@ -117,6 +118,15 @@ public class DataFocusClient {
                         .idempotentCommand()
                         .build(),
                 deadline);
+    }
+
+    /** 계정당 한 번인 지급 영수증이 멱등성을 보장하므로 별도 명령 키가 필요 없다. */
+    public FocusTutorialReward claimTutorialReward(UUID userId, UUID sessionId, Deadline deadline) {
+        return http.exchange(
+                InternalCall.to(HttpMethod.POST, userPath(PATH_FOCUS_SESSIONS, userId)
+                                + "/" + sessionId + "/tutorial-reward")
+                        .onBehalfOf(userId).idempotentCommand().build(),
+                deadline, new ParameterizedTypeReference<FocusTutorialReward>() { });
     }
 
     /** 홈 요약. 날짜·timezone 판정은 Data 가 한다 — 여기서 KST 규약을 두 번 해석하지 않는다. */

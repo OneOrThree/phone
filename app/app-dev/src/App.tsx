@@ -41,6 +41,7 @@ import {
 } from '@/services/liveActivity';
 import { syncAndroidScreenTime } from '@/services/screentimeSync';
 import { shouldGateScreenTimeBoard } from '@/services/screenTimeFlow';
+import { reconcileTutorial } from '@/services/tutorial';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
 import {
@@ -168,7 +169,7 @@ const titles: Record<Route, string> = {
   approval: '가입 승인 대기',
   arrival: '섬에 도착했어요',
   home: '우리 섬',
-  guide: '앵무새 안내',
+  guide: '몽돌 안내',
   focusSetup: '낚시 집중 준비',
   focus: '함께 낚시 집중',
   rest: '모닥불',
@@ -306,12 +307,16 @@ function Gromo() {
     // 기존 계정 충돌(409 SOCIAL_ACCOUNT_ALREADY_LINKED) 확인창 — 승인·취소는 switchResolve 가 돌려준다.
     [switchAsk, setSwitchAsk] = useState(false),
     [visited, setVisited] = useState('strawberry'),
-    [guideStep, setGuideStep] = useState(0),
     [previewAudio, setPreviewAudio] = useState(false),
     [failNext, setFailNext] = useState(false),
     [walkRequest, setWalkRequest] = useState<Route | null>(null),
     [restTravel, setRestTravel] = useState(false),
     [reviewEpoch, setReviewEpoch] = useState(0);
+  const guideStep = state.tutorial?.step ?? 0;
+  const setGuideStep = (step: number, expected?: { step: number; revision: number }) =>
+    dispatch({ type: 'GUIDE_STEP', step, expected });
+  const tutorialBootReconciled = useRef(false);
+  const previousTutorialRoute = useRef(route);
   const [liveCounts, setLiveCounts] = useState<{
     sessionId: string;
     islandId: string;
@@ -521,7 +526,7 @@ function Gromo() {
     [homeReload, setHomeReload] = useState(0);
   const serverCurrent =
     !REVIEW && !DEMO && hasServerSession ? (state.serverIslands?.currentIslandId ?? null) : null;
-  const onHome = route === 'home';
+  const onHome = route === 'home' || route === 'guide';
   const buildingIndicators = useBuildingIndicators({
     active: !!serverCurrent,
     islandId: serverCurrent,
@@ -876,6 +881,18 @@ function Gromo() {
     if (loaded && state.onboarded && !qaBuildingsReady)
       dispatch({ type: 'QA_COMPLETE_ALL_BUILDINGS' });
   }, [loaded, state.onboarded, state.islandId, qaBuildingsReady]);
+  useEffect(() => {
+    if (!loaded) return;
+    const restoring = !tutorialBootReconciled.current;
+    const returningHome = route === 'home' && previousTutorialRoute.current !== 'home';
+    previousTutorialRoute.current = route;
+    tutorialBootReconciled.current = true;
+    const next = reconcileTutorial(state, route, restoring || returningHome);
+    if (next !== guideStep)
+      setGuideStep(next, { step: guideStep, revision: state.tutorialRevision ?? 0 });
+    if (route === 'home' && state.tutorial && next <= 3) reset('guide');
+    if (route === 'guide' && !state.tutorial) setGuideStep(0);
+  }, [loaded, route, state.tutorial, state.session, state.lastResult]);
   useEffect(() => {
     if (loaded && qaBuildingsReady && !REVIEW && !DEMO)
       AsyncStorage.setItem(STORAGE, JSON.stringify(state)).catch(() =>

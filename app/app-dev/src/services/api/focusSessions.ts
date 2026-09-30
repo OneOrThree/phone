@@ -16,6 +16,19 @@
  */
 import { request } from './client';
 
+export type TutorialRewardView = {
+  sessionId: string;
+  status: 'pending' | 'granted' | 'unavailable';
+};
+
+/** 계정당 한 번인 서버 영수증으로 재시도에도 중복 지급하지 않는다. */
+export function claimTutorialReward(sessionId: string): Promise<TutorialRewardView> {
+  return request<TutorialRewardView>(
+    `/focus-sessions/${encodeURIComponent(sessionId)}/tutorial-reward`,
+    { method: 'POST' },
+  );
+}
+
 /** 진행 세션 뷰 — 시각 필드는 UTC ISO-8601 문자열이다. */
 export type FocusSessionView = {
   id: string;

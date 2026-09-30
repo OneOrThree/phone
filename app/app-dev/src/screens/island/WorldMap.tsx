@@ -53,6 +53,7 @@ import {
 } from '@/utils/village-world';
 import { semanticTokens } from '@/design-system/tokens';
 import { componentTokens } from '@/design-system/tokens';
+import { TutorialScene, TutorialSpotlight, useSpotlightTarget } from '@/screens/island/NpcGuide';
 import { getSession } from '@/services/api/session';
 import { catColor } from '@/screens/focus/useIslandPresence';
 import {
@@ -100,7 +101,6 @@ export function createWorldProjector(getViewport: () => WorldViewport) {
     };
   };
 }
-
 const layer: Record<Building, string> = {
   hall: 'hall',
   board: 'notice-board',
@@ -821,6 +821,7 @@ function FinalIslandScene({
   notify,
   dispatch,
   viewingIslandId,
+  focusTutorial,
   motion,
   showMailboxLetters,
   boardStatus = null,
@@ -839,6 +840,7 @@ function FinalIslandScene({
   notify?: (s: string) => void;
   dispatch?: (a: { type: string; [key: string]: any }) => void;
   viewingIslandId?: string;
+  focusTutorial?: { text: string; onPress: () => void; onSkip: () => void };
   motion?: CatMotionInput;
   showMailboxLetters?: boolean;
   boardStatus?: 'unread' | 'new-comment' | null;
@@ -859,7 +861,10 @@ function FinalIslandScene({
     // 서버 모드 내 섬 홈이면 스냅샷(GROMO-2138) — 주민 색·오늘 집중을 서버 값으로 그린다
     facts = explicitVisit || state.visitingIslandId ? null : serverHome(state),
     visiting = explicitVisit || !!state.visitingIslandId,
-    L = useAppLayout();
+    L = useAppLayout(),
+    focusTarget = useSpotlightTarget(!!focusTutorial);
+  const focusTutorialLatest = useRef(focusTutorial);
+  focusTutorialLatest.current = focusTutorial;
   const mailboxLetters = !visiting && (showMailboxLetters ?? hasMailboxLetters(state, i.id));
   const serverConstruction = state.serverIslands?.clientConstruction;
   const trackedConstruction = facts
@@ -1462,8 +1467,31 @@ function FinalIslandScene({
       !visiting &&
       i.buildings.includes('board') &&
       (i.quests.length > 0 || rewardCount > 0);
+  const departFocus = () => {
+    if (buildingEntryPending.current) return;
+    // 걷기가 끝나 항해가 실제로 시작된 뒤에 진행한다 — 도중에 끊기면 4단계 스포트라이트가 남는다.
+    const started = !!focusTutorial;
+    walk(doors.raft, () => {
+      // 걷는 도중 안내 그만 보기로 4단계가 사라졌으면 저장된 단계를 되돌리지 않고 항해도 시작하지 않는다.
+      if (started && !focusTutorialLatest.current) return;
+      focusTutorialLatest.current?.onPress();
+      go('focusTravel');
+    });
+  };
   return (
-    <View style={{ flex: 1 }}>
+    <TutorialScene
+      style={{ flex: 1 }}
+      onSkip={focusTutorial?.onSkip}
+      overlay={
+        focusTutorial && (
+          <TutorialSpotlight
+            target={focusTarget.rect}
+            text={focusTutorial.text}
+            action={{ title: '집중 시작', onPress: departFocus }}
+          />
+        )
+      }
+    >
       <WorldMap
         state={state}
         village={scene}
@@ -1666,14 +1694,9 @@ function FinalIslandScene({
                 }}
               />
             ) : (
-              <Btn
-                round
-                title="집중하기"
-                id="depart-focus"
-                onPress={() => {
-                  if (!buildingEntryPending.current) walk(doors.raft, () => go('focusTravel'));
-                }}
-              />
+              <View ref={focusTarget.ref} collapsable={false} onLayout={focusTarget.measure}>
+                <Btn round title="집중 시작" id="depart-focus" onPress={departFocus} />
+              </View>
             )}
           </View>
         </>
@@ -1688,7 +1711,7 @@ function FinalIslandScene({
             : 0
         }
       />
-    </View>
+    </TutorialScene>
   );
 }
 

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import React from 'react';
 import { act, render, waitFor } from '@testing-library/react-native';
 import App from '@/App';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { initialState, reducer, type Route } from '@/services/model';
 import { clearSession, saveSession } from '@/services/api/session';
 import {
   cancelBuildingTransition,
@@ -9,6 +11,7 @@ import {
 } from '@/services/buildingTransition';
 
 let captured: any;
+let mockBootRoute: Route = 'login';
 
 jest.mock('@/screens/island/CurrentScreens', () => ({
   CurrentScreens: ({ e }: any) => {
@@ -23,7 +26,7 @@ jest.mock('@/services/api/auth', () => ({
 }));
 
 jest.mock('@/services/islandBoot', () => ({
-  decideBootRoute: async () => 'login',
+  decideBootRoute: async () => mockBootRoute,
 }));
 
 jest.mock('@/services/api/session', () => {
@@ -39,7 +42,62 @@ jest.mock('react-native-safe-area-context', () => ({
 
 beforeEach(async () => {
   captured = undefined;
+  mockBootRoute = 'login';
+  await AsyncStorage.clear();
   await clearSession();
+});
+
+test.each([
+  ['focus', 11, 'active', 11],
+  ['focus', 18, 'active', 17],
+  ['rest', 11, 'paused', 15],
+] as const)(
+  '저장본을 읽는 실제 앱 부팅: %s 화면의 %s단계를 %s 세션에 맞춰 %s로 복구한다',
+  async (route, step, status, expected) => {
+    mockBootRoute = route;
+    let saved = reducer(initialState(true), {
+      type: 'START',
+      subject: '복구 테스트',
+      now: Date.now(),
+    });
+    saved.session!.status = status;
+    saved = reducer(saved, { type: 'GUIDE_STEP', step });
+    await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(saved));
+    const app = await render(<App />);
+    await waitFor(() => expect(captured?.guideStep).toBe(expected));
+    expect(captured.state.session.id).toBe(saved.session!.id);
+    expect(captured.route).toBe(route);
+    await waitFor(async () => {
+      const stored = JSON.parse((await AsyncStorage.getItem('gromo-r61-user-v2'))!);
+      expect(stored.tutorial).toEqual({ step: expected, sessionId: saved.session!.id });
+    });
+    await app.unmount();
+  },
+);
+
+test('복구된 결과·집중 화면은 남아 있던 휴식 안내 단계를 함께 맞춘다', async () => {
+  mockBootRoute = 'rest';
+  let saved = reducer(initialState(true), {
+    type: 'START',
+    subject: '복구 테스트',
+    now: Date.now(),
+  });
+  saved = reducer(saved, { type: 'PAUSE', now: Date.now() });
+  saved = reducer(saved, { type: 'GUIDE_STEP', step: 15 });
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(saved));
+  const app = await render(<App />);
+  await waitFor(() => expect(captured?.guideStep).toBe(15));
+  await act(async () => {
+    captured.dispatch({ type: 'RESUME' });
+    captured.reset('focus');
+  });
+  await waitFor(() => expect(captured.guideStep).toBe(16));
+  await act(async () => {
+    captured.dispatch({ type: 'FINISH' });
+    captured.reset('focusResult');
+  });
+  await waitFor(() => expect(captured.guideStep).toBe(19));
+  await app.unmount();
 });
 
 test('CurrentScreens에는 실제 공개 세션이 있을 때만 서버 섬·집중 명령을 주입한다', async () => {
@@ -91,6 +149,7 @@ test('휴식 진입 전환을 취소하면 일시정지한 집중 세션을 다�
     captured.go('focus');
   });
   await waitFor(() => assert.equal(captured.route, 'focus'));
+  await act(async () => captured.setGuideStep(14));
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
   });
@@ -101,6 +160,41 @@ test('휴식 진입 전환을 취소하면 일시정지한 집중 세션을 다�
   });
   await waitFor(() => assert.equal(captured.state.session?.status, 'active'));
   assert.equal(captured.route, 'focus');
+  assert.equal(captured.guideStep, 14);
+});
+
+test('실제 모닥불 전환이 완료돼야 14단계에서 15단계로 진행한다', async () => {
+  let saved = reducer(initialState(true), { type: 'START', subject: '이동 테스트' });
+  saved = reducer(saved, { type: 'GUIDE_STEP', step: 14 });
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(saved));
+  mockBootRoute = 'focus';
+  const app = await render(<App />);
+  await waitFor(() => expect(captured?.guideStep).toBe(14));
+  await act(async () => {
+    captured.dispatch({ type: 'PAUSE' });
+  });
+  await act(async () => captured.go('rest'));
+  expect(captured.guideStep).toBe(14);
+  await waitFor(() => expect(captured.route).toBe('rest'), { timeout: 4000 });
+  expect(captured.guideStep).toBe(15);
+  await app.unmount();
+});
+
+test('승인 대기 후 부팅에서 첫 소속이 확인되면 홈 대신 첫 안내를 연다', async () => {
+  let saved = reducer(initialState(), {
+    type: 'ISLAND_SYNC',
+    memberships: { items: [], currentIslandId: null, lossReason: null },
+  });
+  saved = reducer(saved, {
+    type: 'ISLAND_SYNC',
+    memberships: { items: [{ id: 'first' }], currentIslandId: 'first', lossReason: null },
+  });
+  await AsyncStorage.setItem('gromo-r61-user-v2', JSON.stringify(saved));
+  mockBootRoute = 'home';
+  const app = await render(<App />);
+  await waitFor(() => expect(captured?.route).toBe('guide'));
+  expect(captured.guideStep).toBe(0);
+  await app.unmount();
 });
 
 test('서버 집중 재개가 실패하면 일시정지 세션을 휴식 경로로 돌려보낸다', async () => {
