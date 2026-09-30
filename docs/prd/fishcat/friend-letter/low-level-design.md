@@ -90,6 +90,19 @@ public void cancel() {
 `findAcceptedBetweenForUpdate`로 친구 관계를 확인한다 — 배타 락인 이유는 §결정 3 참조(친구 삭제와
 같은 행에서 직렬화한다).
 
+**차단 판정(2026-10-01 RP-직접연락거절, 티켓 2179).** 활성 검증 뒤·친구 락/한도 카운트 앞에서
+`UserBlockService.isBlockedEither(senderId, receiverId)` 가 참이면 **404 `LETTER_RECIPIENT_NOT_FRIEND`**
+다(새 코드 없음 — §1.18). 차단 중에도 친구 관계를 지우지 않으므로 친구 확인만으로는 막히지 않는다.
+
+**응답 `createdAt` 은 반드시 채운다(2026-10-01 FL-발송응답, 티켓 2174).** `Letter.createdAt` 은
+`@CreationTimestamp` 라 flush 시점에 채워진다. 저장 직후 응답 DTO 를 만들면 null 이 되어 Business 가
+필수 필드 검증으로 거절한다 — 편지는 저장됐는데 앱은 실패를 받는다. 저장을 즉시 flush 한다(PR #1050 main 머지 — `letters.saveAndFlush`).
+
+> ⚠️ **설계 공백 — 편지 발송에는 멱등 키가 없다.** `POST /letters` 는 `Idempotency-Key` 를 받지 않고
+> 서버에 발송 receipt 도 없다. 응답 유실·타임아웃 뒤 앱이나 사용자가 다시 보내면 **같은 내용의 편지가
+> 두 통 저장된다.** 도입 여부는 정하지 않았다(2026-10-01 FL-발송응답, 후속 후보). 도입 전에는 앱이
+> 발송 실패 응답을 받았을 때 자동 재전송하지 않는 것이 중복을 늘리지 않는 쪽이다.
+
 ### 1.13 — 편지함 목록 (신규)
 
 `GET /letters?type=received|sent&cursor=&size=`
@@ -130,6 +143,7 @@ ORDER BY id DESC
 | 에러 | 404 `LETTER_NOT_FOUND` · 403 `NOT_LETTER_PARTICIPANT`(발신자도 수신자도 아님) |
 | 권한 | 발신자 또는 수신자 본인만(HLD §2.5) |
 | 부수효과 | 호출자가 **수신자**이고 `readAt IS NULL`이면 `now()`로 갱신한다. 발신자 본인 조회는 `readAt`을 건드리지 않는다. **갱신은 원자적이어야 한다** — `UPDATE letters SET read_at = :now WHERE id = :id AND read_at IS NULL` 같은 조건부 UPDATE(또는 행 배타 락)로 쓴다. 읽고 나서 쓰면 두 기기·재시도가 동시에 `read_at IS NULL` 을 읽어 각자의 `now()` 를 덮어써 **실제 최초 열람 시각이 보존되지 않는다** |
+| 차단 분기 | 호출자가 상대(편지의 다른 참여자 — 받은 편지면 발신자, 보낸 편지면 수신자)를 **차단한 경우** 200 으로 응답하되 **본문(`content`)만 가린다**(2026-10-01 RP-차단목록2단계, 티켓 2185). 404·403 으로 바꾸지 않고 편지를 삭제하지도 않는다 — 차단 해제 뒤 원문이 그대로 돌아온다. 상대가 나를 차단한 경우(역방향)는 이 분기의 대상이 아니다. **구현(PR #1060, main 머지):** `content` 를 고정 문구 「차단한 사용자의 편지라 내용을 볼 수 없어요.」(`InternalLetterService.BLOCKED_CONTENT_PLACEHOLDER`)로 바꿔 응답 모양을 유지하고(Business `LetterDetailView.content` 가 필수라 null·빈 문자열은 계약 위반), 가린 열람은 `readAt` 을 갱신하지 않는다 — 수신자는 내용을 보지 못했다 |
 
 ### 1.16 — 편지 닫기 (GROMO-2002, 신규)
 
@@ -411,3 +425,38 @@ GROMO-1975에서 구현한 차단 효과는 친구 관계·편지 원문을 바�
   건드리지 않으므로, 해제하면 같은 편지가 다시 받은 편지함에 나타난다.
 - Business는 `/blocks/**`를 응답 봉투·nginx 공개 경로에 등록하고 Data 내부 계약은
   `/internal/users/{userId}/blocks`의 GET·POST 및 `/blocks/{blockedUserId}`의 DELETE로 고정한다.
+
+#### 2단계 — 서버 직접 연락 거절·차단자 기준 필터 (2026-10-01, 티켓 2179·2185·2180)
+
+[결정 로그](../decision-log.md) 2026-10-01 RP-직접연락거절·RP-차단목록2단계·RP-친구푸시차단 행의
+LLD 반영이다. 위 1단계 문단의 「보낸 편지함·상세는 건드리지 않는다」는 2단계에서 아래처럼 바뀐다.
+판정 기준은 두 가지다 — **양방향**(`UserBlockService.isBlockedEither(a, b)`: 어느 쪽이든 차단 행이
+있으면 참)과 **차단한 쪽 기준**(호출자가 blocker 인 행만).
+
+| 표면 | 기준 | 동작 | 티켓 · 상태 |
+| --- | --- | --- | --- |
+| `POST /letters`(§1.12) | 양방향 | 404 `LETTER_RECIPIENT_NOT_FRIEND`. 행을 만들지 않는다 | 2179 · PR #1052 머지 |
+| `POST /friends/requests`(§1.1~1.10 표 #1) | 양방향 | 404 `TARGET_USER_NOT_FOUND`(`UserErrorCode` — `UserBlockService.requireNotBlockedEither` 가 던진다). 행을 만들지 않는다 | 2179 · PR #1052 머지 |
+| `POST /friends/requests/{id}/accept`(§1.1~1.10 표 #2) | 양방향 | 404 `REQUEST_NOT_FOUND`. 요청 행은 PENDING 그대로 둔다 | 2179 · PR #1052 머지 |
+| `GET /letters/{letterId}`(§1.14) | 차단한 쪽 | 200, 본문만 고정 문구로 가림 · `readAt` 미갱신(§1.14 「차단 분기」). 삭제하지 않는다 | 2185 · PR #1060 머지 |
+| `DELETE /letters/{letterId}`(§1.16) | — | 차단 중에도 허용한다(수신자 권한 규칙 그대로) | 2185 · PR #1060 머지 |
+| `GET /letters?type=sent`(§1.13) | 차단한 쪽 | 차단 상대에게 보낸 편지를 목록에서 제외(`findSentByCursor` 쿼리 안 `NOT EXISTS` — 페이지 크기·커서 유지). 해제하면 다시 보인다 | 2185 · PR #1060 머지 |
+| `GET /friends/requests?type=received`(§1.1~1.10 표 #6) | 차단한 쪽 | 차단 상대가 보낸 요청을 제외. 요청 행은 지우지 않는다 | 2185 · PR #1060 머지 |
+| ⚠️ 미결 — 요청자가 수신자를 차단한 경우 | — | A 가 B 에게 친구 요청을 보낸 뒤 A 가 B 를 차단하면, B 의 받은 요청 목록은 「B 가 차단한 사람」만 거르므로 이 요청이 계속 보인다. 수락은 양방향 판정으로 항상 404 `REQUEST_NOT_FOUND` 이고 행은 PENDING 으로 남아, B 는 수락 실패를 반복한다. 목록도 양방향으로 거를지(차단당한 쪽에 요청이 사라지는 것이 차단 통보가 되는지 — D3 과의 충돌 검토), 차단 시 기존 요청을 다른 상태로 옮길지 결정이 필요하다 — 후속 후보 | 미결 |
+| `GET /friends/requests?type=sent`(§1.1~1.10 표 #6) | 차단한 쪽 | PR #1060 은 보낸 요청 목록에서도 차단 상대를 뺀다. 결정 문구는 「받은 친구 요청 목록」만 적었지만 같은 차단자 기준 축이다 | 2185 · PR #1060 머지 |
+| `GET /pins`(§1.1~1.10 표 #10) | 차단한 쪽 | 차단 상대를 고정 친구 목록에서 제외. 핀 행은 지우지 않아 해제하면 돌아온다 | 2185 · PR #1060 머지 |
+| `FRIEND_REQUEST`·`FRIEND_ACCEPTED` 푸시 | 양방향 | 적재 시(`FriendNotificationService`) 차단이면 요청을 만들지 않는다. 발송 직전 Notification 이 기존 `POST /internal/notifications/eligibility` 로 Data 판정을 받고, Data(`NotificationEligibilityService`)가 차단이면 사유 **`BLOCKED`** 로 거절해 SUPPRESSED 로 끝난다 — 새 API·토큰 없음 | 2180 · PR #1061 머지 |
+| 받은 편지함 · `GET /friends` · `GET /friends/search` | 차단한 쪽 | 1단계(GROMO-1975)에서 이미 제외 — 변경 없음 | 완료 |
+
+- **에러 코드를 새로 만들지 않는다.** 차단당한 쪽이 `BLOCKED` 류 코드를 받으면 그 자체가 차단 통보다
+  (신고센터 정책 D3 「차단한 사실을 상대에게 따로 알리지 않는다」). 세 코드는 Business 에 이미 공개
+  `NOT_FOUND`(field=`receiverId`/`targetUserId`/`requestId`) 매핑이 있어 business-api·앱 변경이 없다.
+- **레거시 1.x 친구 경로도 막힌다.** `friend/FriendController` 도 같은 `FriendService` 를 타기 때문이다(의도).
+- **동시성 한계.** 차단(`block`)과 발송·요청은 모두 `users` 공유 락이라 서로 직렬화되지 않는다 — 차단 커밋
+  직전에 판정을 통과한 발송은 들어갈 수 있다. 그렇게 늦게 적재된 알림은 푸시 발송 직전 재확인(2180)이
+  막는다. 정책 D3 「관계 상태를 기준으로 직렬화」의 완전한 구현은 이 단계 범위 밖이다.
+- **이 단계가 하지 않는 것.** 섬 메시지·게시판 REST 조회 필터는 island-mailbox·island-board LLD(2181),
+  실시간 필터는 realtime-events LLD §4.3(2182), 주민 목록 중립 표시는 island-management §3.2·
+  focus-rest-session focus-group(2183)이 맡는다. `blockRelationId`·탈퇴 후 차단 승계(2184)는 **보류**다 —
+  `GET /blocks` 응답의 `id` 는 지금 차단 대상의 **실제 사용자 UUID** 이며 관계 ID 가 아니다.
+- 위 표의 세부는 main 에 머지된 코드 기준이다(#1052 · #1060 · #1061). 티켓 2185·2180 은 처음 #1053·#1057 로 올렸으나 티켓 2179 브랜치로 머지돼 main 에 들어가지 않았고, 같은 diff 를 #1060·#1061 로 다시 올려 main 에 머지했다.

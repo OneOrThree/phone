@@ -218,3 +218,16 @@ notice.updated 봉투는 schemaVersion1,eventId,type,islandId,aggregateVersion,o
 로그: requestId,route,commandId,단계,안전한code,처리시간,outboxlag/재시도; title/body/text·프로필·토큰·키원문·상류본문은 금지. PII가 지워져도 사용자비활성과 명령tombstone으로 재실행을 차단한다.
 
 필수 검증: OWNER-only(2026-09-25 GROMO-2136 이후 ALLOW 주민은 거절)/일반주민/방문자·시설잠김·남의공지ID; PATCH생략/null/unknown과legacyPUT; 같은키재전송/다른본문409·삭제후동일키성공; 동일timestamp 커서·삭제anchor; 댓글추가/삭제(작성자·방장·타인)/공지삭제시댓글CASCADE/탈퇴시댓글delete/방장위임 경합; count/version/outbox/receipt rollback; 수신 직전 membership상실·조회중새event·fanout누락/재연결; 실제SQL·Servlet chain을 사용하며 production권한seam을 mockoverride한 성공만으로 검증하지 않는다.
+
+## 6. 차단 필터 — REST 조회(2181)
+
+2026-10-01 [결정 로그](../decision-log.md) RP-섬글조회필터(결정자 권태화, QA 2028~2033 후속)의 반영이다. 정책 근거는 [신고센터 정책](../character-report/policy.md) RP-차단 — 사용자 작성 공지는 방장 작성이어도 예외가 아니다.
+
+- **대상:** `GET /islands/{islandId}/notices`(목록)와 `GET /islands/{islandId}/notices/{noticeId}`(상세의 comments 페이지). 요청자가 **차단한**(요청자=blocker) 사용자가 작성한 공지를 목록에서, 그 사용자의 댓글을 상세 댓글 페이지에서 뺀다. **한 방향**이다.
+- **원문은 지우지 않는다.** 차단을 해제하면 다음 조회부터 다시 보인다. 제외 표지를 따로 저장하지 않는다.
+- **차단 상대가 쓴 공지를 상세 ID 로 직접 조회**하면 원문을 그대로 내리지 않는다(RP-차단 「상세 ID 직접 조회도 같은 규칙」). PR #1054(main 머지)는 이를 「이 섬에 없는 공지」와 같은 **404 `NOT_FOUND`** 로 구현한다 — 댓글만 빼고 본문을 보여 주면 숨긴 것이 아니라는 판단이다. 행·댓글은 지우지 않아 해제하면 다시 열린다. 다른 사람이 쓴 공지에서는 차단 상대의 댓글만 뺀다. 같은 PR 은 `commentCount` 에서도 차단 상대의 댓글을 세지 않는다(상세에서 보이는 수와 일치).
+- **판정 기준은 원 작성자(`authorId`)다.** 정책의 「현재 제목·본문 리비전의 실제 수정 주체」 기준 숨김은 필드별 수정자 ID 저장이 선행돼야 하며, 2026-10-01 RP-차단승계-보류(티켓 2184)로 **보류**다. 작성자가 탈퇴해 `authorId` 가 null 인 공지는 이 필터로 판정할 수 없어 그대로 남는다(같은 보류 범위).
+- **페이징:** §4 의 불변 정렬키·HMAC 커서 규칙을 유지한다. PR #1054 는 목록·댓글 쿼리에 `NOT EXISTS (user_blocks: blocker=요청자, blocked=작성자)` 를 LIMIT 전에 걸어 쪽 크기와 keyset 커서가 그대로 유지된다. 새 게시판 API(`IslandNoticeService`)만 대상이며 legacy `/api/v1` 공지 경로는 바꾸지 않는다.
+- **쓰기 경로는 이 필터를 타지 않는다.** 숨겨진 공지에 id 로 댓글을 다는 등의 쓰기 차단은 이 결정 범위 밖이다(PR #1054 주의사항).
+- **실시간:** `notice.updated` 는 무효화 신호(`{noticeId,version}`)라 본문이 없다. 수신 뒤 재조회가 이 절의 필터를 거치므로 별도 실시간 필터를 두지 않는다. 채팅·응원의 실시간 필터는 [실시간 LLD §4.3](../realtime-events/low-level-design.md#43-세션-기준-차단-필터2182).
+- **차단 조회 실패**를 「차단 없음」으로 간주하지 않는다. §1 공통 오류로 드러낸다.
