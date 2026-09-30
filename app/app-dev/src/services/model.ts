@@ -1616,9 +1616,10 @@ export function reducer(state: State, a: Action): State {
         snap = serverSnap(s);
       if (!s.tutorialEnrollment) {
         // 로컬 onboarded·records 는 로그아웃 뒤에도 남는 이전 계정 값이라 판정에 쓰지 않는다 —
-        // 새 계정에 속한 첫 서버 응답(소속·상실 사유·current)만으로 가른다.
+        // 새 계정에 속한 첫 서버 응답(상실 사유·current)만으로 가른다. 첫 pending 승인은 소속만 만들고
+        // current 는 옮기지 않으므로 items 가 있어도 current 가 비어 있고 상실 이력이 없으면 최초 확정 전이다.
         s.tutorialEnrollment =
-          !s.tutorial && !my.items.length && !my.lossReason && my.currentIslandId == null
+          !s.tutorial && !my.lossReason && my.currentIslandId == null
             ? 'awaiting-first-island'
             : 'existing';
       }

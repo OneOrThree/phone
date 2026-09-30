@@ -2401,7 +2401,8 @@ export function RedesignScreens({ e }: any) {
               guideStep === 4
                 ? {
                     text: '아래의 집중 시작 버튼을 눌러 집중을 시작해 보자.',
-                    onPress: () => setGuideStep(5),
+                    onPress: () =>
+                      setGuideStep(5, { step: 4, revision: state.tutorialRevision ?? 0 }),
                     onSkip: () => setGuideStep(99),
                   }
                 : undefined

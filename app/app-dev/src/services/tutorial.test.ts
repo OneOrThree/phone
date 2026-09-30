@@ -141,6 +141,17 @@ test('승인 대기 중 재시작해도 최초 소속 확인 상태를 보존한
   expect(syncMembership(approved, 'first').tutorial?.step).toBe(0);
 });
 
+test('재설치·새 기기의 첫 응답이 소속만 있고 current 가 비어도 최초 확정 전 상태로 본다', () => {
+  // 첫 pending 승인은 소속만 만들고 current 는 옮기지 않는다(islandCommands 의 유효 상태)
+  const approved = reducer(initialState(), {
+    type: 'ISLAND_SYNC',
+    memberships: { items: [{ id: 'first' }], currentIslandId: null, lossReason: null },
+  });
+  expect(approved.tutorialEnrollment).toBe('awaiting-first-island');
+  expect(approved.tutorial).toBeUndefined();
+  expect(syncMembership(approved, 'first').tutorial).toEqual({ step: 0 });
+});
+
 test('휴식 이동 취소는 14단계를 유지하고 실제 모닥불 도착만 15단계로 진행한다', () => {
   const state = progress(14);
   state.session!.status = 'paused';
