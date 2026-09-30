@@ -23,6 +23,7 @@ public class UserBlockService {
 
     private final UserBlockRepository blocks;
     private final UserQueryService users;
+    private final UserBlockEvents events;
 
     /**
      * 같은 관계를 다시 넣어도 성공한다 — 멱등은 {@code (blocker, blocked)} 유니크 +
@@ -36,7 +37,10 @@ public class UserBlockService {
         }
         users.getCallerForShare(blockerId);
         users.getTargetForShare(blockedId);
-        blocks.insertIgnoreConflict(UuidV7.next(), blockerId, blockedId);
+        if (blocks.insertIgnoreConflict(UuidV7.next(), blockerId, blockedId) > 0) {
+            // GROMO-2182 — 같은 트랜잭션의 outbox 로 Realtime 의 차단 세대를 올린다(채팅·응원 수신 필터).
+            events.blocked(blockerId, blockedId);
+        }
     }
 
     /**
@@ -46,7 +50,9 @@ public class UserBlockService {
     @Transactional
     public void unblock(UUID blockerId, UUID blockedId) {
         users.getCallerForShare(blockerId);
-        blocks.deleteByBlockerIdAndBlockedId(blockerId, blockedId);
+        if (blocks.deleteByBlockerIdAndBlockedId(blockerId, blockedId) > 0) {
+            events.unblocked(blockerId, blockedId);
+        }
     }
 
     public List<BlockedUserResponse> list(UUID blockerId) {

@@ -283,6 +283,12 @@ outbox:
         url: ${REALTIME_BASE_URL}/internal/events
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
+      # GROMO-2182 차단 관계 변경 — 앱으로 나가지 않는 내부 제어 사건. realtime 이 차단자의 차단 세대를 올린다.
+      "[user.blocks.updated]":
+        target: REALTIME
+        url: ${REALTIME_BASE_URL}/internal/events
+        method: POST
+        token: ${SVC_TOKEN_DATA_TO_REALTIME}
       "[island.updated]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events

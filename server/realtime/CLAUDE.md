@@ -54,6 +54,7 @@ Domain-based, mirroring `server/data-api/`'s conventions (see
 | `membership/` | 기존 Redis 소속 캐시 + `client/GroupClient`; 옵션 ON의 전용 Data 현재 인가 client는 아래 별도 계약 |
 | `presence/` | `FocusPresenceReader` — **read-only** view of `presence:focus:*` |
 | `focus/` | 응원 도메인 — `IslandFocusSessions`(Data 정본 인가), `FocusEmoteService`, `FocusEmoteStompController` |
+| `block/` | 받는 사람 기준 차단 — `BlockedUsers`(세대 캐시·fail-closed 판정), `client/BlockClient`(Data 정본 조회, GROMO-2182) |
 | `fanout/` | Redis Pub/Sub publish + subscribe, and local delivery |
 | `message/` | The chat domain: controllers at the package root, `service/`, `repository/`(+`repository/domain/`), `dto/`, `exception/` |
 
@@ -116,6 +117,8 @@ architecture decision A19 table.
 | Key | Writer | This service | Purpose |
 | --- | --- | --- | --- |
 | `cache:chat:member:{userId}` | chat | read/write | the user's island ids; service-private, never shared |
+| `cache:chat:block:{userId}` | realtime | read/write | 그 유저가 차단한 id 집합 + 적재 당시 세대 `<gen>\|<id>,…` (GROMO-2182). TTL 은 백스톱일 뿐 |
+| `cache:chat:blockgen:{userId}` | realtime | read/write | 그 유저의 차단 세대 — Data `user.blocks.updated` 수신마다 INCR. 캐시 세대와 다르면 캐시를 버린다 |
 | `chat:fanout` | chat | pub/sub | cross-instance delivery (채팅 전용 wire) |
 | `chat:events:v1` | realtime | pub/sub | cross-instance delivery of **island events**; `{originInstanceId,destination,event}` |
 | `lock:chat:emote:{islandId}:{userId}` | realtime | read/write | 응원 **성공** 창(3초). 존재가 곧 「이미 보냈다」 |
@@ -212,8 +215,19 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    carried with `status: "paused"` — which is why the 2026-09-20 decision needed no new surface.
    `focus/IslandFocusSessions` is the only caller; it never caches (LLD §4.2 forbids a stale TTL cache as final
    authorization evidence) and fails closed. Data's side needs the `realtime` caller allowlist entry in
-   `application-realtime-authorization.yml` — without that profile and token, **emotes only** are rejected
-   wholesale; chat and island watching are unaffected.
+   `application-realtime-authorization.yml` — without that profile and token emotes are rejected wholesale,
+   and (since GROMO-2182, item 6) **island chat and emote delivery stop too**.
+
+6. `GET /internal/users/{userId}/blocks` with the same Realtime service token + `X-User-Id` (GROMO-2182) — the
+   blocker's blocked-id set for **recipient-side block filtering**. `ChatOutboundChannelInterceptor` drops a
+   `/topic/groups/{id}` chat or `/topic/islands/{id}/emotes` frame for a session whose subject blocked the sender
+   (`senderId` / `payload.userId`). `block/BlockedUsers` caches the set in Redis tagged with a **block generation**;
+   Data writes `user.blocks.updated` (REALTIME outbox, aggregate `USER_BLOCKS`) in the block/unblock transaction and
+   `InboundEventService` INCRs `cache:chat:blockgen:{blocker}`, so the next frame re-reads Data. With the relay off
+   the change only lands after the TTL — do not call that immediate. **Fail-closed (2026-10-01 decision)**: Redis or
+   Data failure, timeout, non-200, non-JSON, >256KiB, unknown/duplicate fields, trailing tokens, non-canonical UUIDs
+   and an unreadable sender all drop the frame (socket kept). A chat whose `senderId` is JSON `null` (withdrawn
+   sender) has nobody to filter and is delivered. Deploy order: Realtime (accepts the event type) → Data.
 
 ### 선택적 현재 멤버십 인가
 
