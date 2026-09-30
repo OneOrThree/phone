@@ -105,7 +105,7 @@ GET의 API 설명에 '후속 이벤트'가 표시돼 있어도 조회가 변경 
 
 | 동작 | 경로 | 인가 |
 |---|---|---|
-| WebSocket handshake | `/ws/realtime` | Origin 정책 유지, 실제 인증은 STOMP CONNECT |
+| WebSocket handshake | `/ws/realtime` | Origin 정책 유지, 실제 인증은 STOMP CONNECT. **React Native(iOS SocketRocket·Android)도 `Origin: https://<API 호스트>` 를 보낸다** — 허용 목록 `CHAT_WS_ALLOWED_ORIGINS` 에 환경별 API 도메인을 넣어야 앱이 연결된다. 기본값은 빈 값(거절) 유지, `*` 금지(2026-10-01 결정 로그 RT-WS-Origin, 티켓 2175) |
 | 호환 handshake | `/ws/chat` | 같은 인증 모델. 기능에 따른 목적지 인가 |
 | SUBSCRIBE | `/topic/islands/{islandId}/events` | 현재 소속 주민. 메시지/음악/응원·개인 경제/가입요청은 이 채널에 실리지 않음 |
 | SUBSCRIBE | `/topic/islands/{islandId}/focus` | **인증된 사용자**(비소속 관전 개방 2026-09-19 — 같은 목록을 내리는 GET과 같은 문턱). 집중 중 여부로 관람을 차단하지 않음 |
@@ -184,6 +184,25 @@ HTTP·Kafka 두 입구가 모두 **한 인스턴스만** 받으므로(로드밸�
 
 '권한 상실 후 차단'의 실행 경계는 각 프레임의 최종 인가 검사다. 그 검사 뒤 이미 네트워크로 나간 프레임을 회수하거나 DB 커밋과 TCP 송신을 분산 원자화한다고 약속하지 않는다. 지연된 과거 가입/방장 이벤트가 철회된 세션을 다시 허용하지 않도록 membership 제어 version도 aggregate별로 적용한다.
 
+### 4.3 세션 기준 차단 필터(2182)
+
+2026-10-01 [결정 로그](../decision-log.md) RP-실시간차단필터(결정자 권태화, QA 2028~2033 후속)의 반영이다. 정책 근거는 [신고센터 정책](../character-report/policy.md) RP-차단이며, **응원(`focus.emote`) 포함은 이 결정이 RP-차단 범위에 새로 더한 것**이다.
+
+| 항목 | 규칙 |
+|---|---|
+| 판정 축 | **받는 세션 기준.** 프레임을 받을 세션의 검증 주체(principal)가 발신자를 차단했으면(수신자=blocker) 그 세션에는 보내지 않는다. 방송 전체를 막거나 발신자에게 실패를 돌려주지 않는다 — 발신자는 자신이 차단당했는지 알 수 없어야 한다(정책 D3) |
+| 대상 채널 | 섬 채팅(`/topic/islands/{islandId}/messages` 의 `message.created`), legacy 그룹 채팅(`/topic/groups/{groupId}`), 응원(`/topic/islands/{islandId}/emotes` 의 `focus.emote`). 발신자 식별은 각각 `payload.senderId` · 기존 메시지의 작성자 · `payload.userId` |
+| 판정 시점 | §4.2 와 같은 **송신 직전** 최종 검사. 구독·SEND 시점 허용을 이후 프레임의 허가증으로 재사용하지 않는다 |
+| 차단 세대 | 차단 확정은 세대(generation)를 가진다. 옛 세대에서 판정해 대기열·fanout·executor 에 쌓여 있던 전송은 송신 직전에 현재 세대와 비교해 **폐기**한다 |
+| 조회 실패 | 차단 관계 조회의 오류·timeout·비정상 응답(스키마 불일치·빈 본문 등)은 **전달하지 않는다(fail-closed)**. 「차단 없음」으로 간주하지 않는다 |
+| 캐시 | TTL 캐시를 최종 판정 증거로 쓰지 않는다. 캐시는 조회 비용을 줄이는 보조일 뿐이며 **TTL 캐시만으로 「차단 즉시 반영」을 주장하지 않는다.** 즉시성은 세대 비교와 송신 직전 재확인으로만 주장한다 |
+| 회수 | 최종 검사 뒤 이미 네트워크로 나간 프레임과 이미 기기에 도착한 내용은 회수하지 않는다(§4.2 와 같은 경계) |
+
+- **상속하는 원칙.** §4.2 의 「보호 채널에서 stale TTL 캐시를 최종 권한 증거로 쓰지 않는다 · 권한 원천 확인 실패는 fail-closed」, §6 장애표의 「권한 원천 장애 → 보호 프레임 전달 차단」, [`contracts/realtime-authorization-api.yaml`](../../../contracts/realtime-authorization-api.yaml)의 「오류·timeout·비정상 응답은 프레임 전달 금지」, [현재 멤버십 재확인](../../../architecture/realtime-current-membership-client.md)의 「전에 받은 허용 답변을 다음 메시지의 허가증으로 재사용하지 않는다」를 차단 판정에 그대로 적용한다.
+- **응원의 기존 수신 집합과 합성한다.** 응원은 이미 사건(eventId)에 묶인 수신 집합으로 송신 직전을 대조한다(§7, focus-rest-session LLD §6). 차단 필터는 그 집합에서 발신자를 차단한 수신자를 더 빼는 방향으로만 동작하며 집합을 넓히지 않는다.
+- **이 절이 정하지 않는 것.** 차단 세대를 Data 에서 Realtime 으로 전파하는 경로(outbox 사건·내부 조회 계약)와 필드 이름, 세대 저장 위치, 배치 조회 방식은 **구현 PR 에서 확정**한다. 새 내부 계약을 만들면 `docs/contracts/` 에 먼저 적는다. 정책의 「차단 성공 응답 전에 Realtime 적용·기존 fanout 배출 확인」까지 이 결정이 확정한 것은 아니다 — 이번 범위는 송신 직전 재확인과 옛 세대 폐기다.
+- REST 히스토리·게시판 조회 필터는 [우체통 LLD §7](../island-mailbox/low-level-design.md#7-차단-필터--rest-조회2181)·[게시판 LLD §6](../island-board/low-level-design.md#6-차단-필터--rest-조회2181)(2181)이 맡는다.
+
 ## 5. 스냅샷과 버전 병합
 
 ### 5.1 조회 계약 확장
@@ -246,6 +265,7 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 | Realtime 재시작/Redis fanout 유실 | 상태 이벤트 중복 허용, 보호 채널 재인가·snapshot | Data REST 또는 편지 히스토리 |
 | 한 노드 개인 이벤트 전달 | 같은 사용자 다른 노드의 세션에도 내부 fanout; 노드별 권한 재검증 | 본인 REST |
 | 권한 원천 장애 | 보호 프레임 전달 차단, false 멤버/권한없는정보 포함200을 만들지 않음 | 권한 복구 후 재구독 |
+| 차단 관계 조회 장애(§4.3) | 해당 수신 세션에 채팅·응원 프레임 전달 안 함(fail-closed). 「차단 없음」으로 간주 금지 | 채팅은 히스토리 재조회, 응원은 복구하지 않음 |
 | malformed envelope/미지원 type | 해당 사건 전파 거절, 원문본문 로깅 금지, producer 알람 | adapter 수정 후 내구 사건 재전달 |
 | emote 전송 실패/만료 | 재저장·outbox·오프라인 replay 없음 | 복구하지 않음 |
 
@@ -280,6 +300,7 @@ watermarks의 projection/key는 §2와 같으며 단일 id로 표현할 수 없�
 | 내구성 | TXrollback 사건0, 커밋후응답유실 같은사건 재생, relay lease 장애·재전달, 버전과 상태 동일snapshot | 내부명령 및 각 producer |
 | 멀티노드 | 두 Realtime 노드의 섬/본인여러기기 전달, origin 반향제거, Redis reconnect 후 리컨실, 모든노드 철회 | fanout/1765 |
 | 응원 | 5종, 본인 **진행 세션(active·paused)** 검증, **휴식 발신 허용**, 다른섬/완료·포기/남의세션 거절, 속도제한, TTL, 재연결replay0 | 1765 |
+| 차단(§4.3) | 수신자가 차단한 발신자의 채팅·응원 수신0, 역방향(발신자가 수신자를 차단)은 이 필터로 막지 않음, 차단 직후 옛 세대 대기 전송 폐기, 차단 조회 오류·timeout·비정상 응답 시 전달0, 해제 후 새 프레임 정상 수신 | 2182 |
 | 경제 | owner/currency 불일치거절(**지갑은 섬 전용 — 섬 없는 `wallet.updated` 거절**, GROMO-2044), wallet/inventory 별개 version, 공유토픽에 개인payload0 | 1781/1783 |
 | 관측 | payload/본문/토큰 비노출, command→event→relay→router 추적, 실패메트릭 | 각 단계 |
 

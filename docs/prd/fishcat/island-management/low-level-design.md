@@ -48,6 +48,18 @@ version은 `(island.members,islandId)`의 주민/역할 목록 버전이며 응�
 
 membership.createdAt+membership.id의 안정 정렬과 동률 키를 사용한다. cursor에는 islandId+요청자 scope+정렬/limit digest를 고정한다. 현 정원10이어도 페이지 형식을 유지한다. 반환 프로필은 공개 이름/catColor뿐이며 계정 연결 provider·이메일·재화·알림 설정·초대 epoch를 넣지 않는다.
 
+**차단 중립 표시(2026-10-01 [결정 로그](../decision-log.md) RP-주민중립표시, 티켓 2183).** 요청자가 **차단한**(요청자=blocker, 한 방향) 주민의 행은 목록에서 빼지 않고 표시만 바꾼다 — 같은 섬 소속·기능은 차단으로 바뀌지 않는다([신고센터 정책](../character-report/policy.md) RP-차단).
+
+| 필드 | 차단한 주민의 행 |
+| --- | --- |
+| `id` · `role` | 그대로 |
+| `name` | **「차단한 주민」** 고정 문구. 탈퇴 표기(「탈퇴한 사용자」·「알 수 없음」)와 섞지 않는다 |
+| `catColor` · `appearance` | 기본값(미선택 null · 외양 행 없음과 같은 기본 외양). 차단 상대의 실제 값을 싣지 않는다 |
+
+- 치환은 **서버 응답**에서 한다. 앱이 `GET /blocks` 와 대조해 가리는 방식에 맡기지 않는다(RP-서버차단).
+- 치환 문구를 서버가 문자열로 내릴지, 앱이 그리는 표지 필드를 둘지와 `version`·cursor 가 요청자별 치환과 어떻게 맞물리는지는 **구현 PR 에서 확정**한다. 어느 쪽이든 차단 상대의 원래 닉네임·프로필이 응답에 남으면 안 된다.
+- 섬 랭킹은 대상이 아니다 — 섬 내부 주민 랭킹은 폐지됐고(B23·B15) `GET /rankings/islands` 에는 닉네임이 없다([섬 랭킹 정책](../island-rankings/policy.md)).
+
 ### 3.3 requests — GET /islands/{islandId}/join-requests
 
 Query `{cursor?,limit?}` 기본30/상한100을 원본 빈 query에 **유한 목록 확장**으로 추가한다. 성공200 `{data:{items:[{id,applicantId,name,status:"pending",version}],nextCursor}}`. 신청자 목록은 현재 host 전용이고 pending만 반환한다. 정렬은 createdAt+requestId다. 처리된 요청의 관리 감사 조회를 임의 탭/상태 filter로 늘리지 않는다.

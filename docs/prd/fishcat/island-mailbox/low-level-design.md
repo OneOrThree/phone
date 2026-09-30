@@ -140,3 +140,14 @@ ChatRoomService:58의unreadCount는본인배지, :113의markRead는해당방메�
 로그에는requestId,messageId,단계,결과code,인가실패범주,fanout실패/지연·복구건수만남긴다. text/name/catColor/토큰·원키·원 상류 본문금지. broker내부Redis namespace/chatDB를개명때교체하지않는다.
 
 검증: 실제Servlet신규GET/POST와legacySTOMP같은저장소;키UUID/unknown/strictlimit;같은 키같은 본문·다른 본문·legacy먼저저장·두인스턴스경쟁;DB성공뒤응답/프로필/fanout실패;30개초과재연결·ID100지연커밋/ID101선행커밋·캐시무효화/정렬/cursor 및 knownID를완전복구로오인하지않음;historyprofile권한누출·탈퇴자null;Data권한장애failclosed·구독후이탈/강퇴·집중/휴식정책;공통CONNECT가focus/emote를막지않음;기존read/unreadAPI회귀. production권한seam을가짜override한테스트만으로인가완료를주장하지않는다.
+
+## 7. 차단 필터 — REST 조회(2181)
+
+2026-10-01 [결정 로그](../decision-log.md) RP-섬글조회필터(결정자 권태화, QA 2028~2033 후속)의 반영이다. 정책 근거는 [신고센터 정책](../character-report/policy.md) RP-차단.
+
+- **대상:** `GET /islands/{islandId}/messages`(신규 히스토리)의 반환 items. 요청자가 **차단한**(요청자=blocker) 사용자가 보낸 메시지를 뺀다. **한 방향**이다 — 상대가 나를 차단했다는 이유로 내 화면에서 상대 글을 빼지 않는다.
+- **원문은 지우지 않는다.** `gromo_chat` 의 메시지 행과 senderId 는 그대로이며, 차단을 해제하면 다음 조회부터 다시 보인다. 필터는 조회 시점의 차단 관계로만 판정하고 제외 표지를 따로 저장하지 않는다.
+- **실시간은 이 절의 범위가 아니다.** `message.created` 이벤트·legacy 그룹 채팅 프레임의 차단 필터는 [실시간 LLD §4.3](../realtime-events/low-level-design.md#43-세션-기준-차단-필터2182)(2182)이 맡는다. 이 절만으로 「차단 상대의 채팅이 보이지 않는다」를 주장하지 않는다.
+- **페이징 불변식은 유지한다.** 제외 때문에 한 페이지가 limit 보다 짧아질 수 있다. 그래도 §5 의 규칙 — nextCursor anchor 는 실제로 스캔해 반환 후보가 된 행 기준이고 제외한 행을 건너뛰어 다음 페이지에서 누락시키지 않는다 — 을 깨지 않는다. 짧은 페이지를 채우려고 추가 조회할지, 차단 집합을 어느 서비스에서 어느 경로로 얻을지(Business 조합 단계 / Data 내부 조회 / Realtime 질의 조건)는 **구현 PR 에서 확정**한다.
+- **차단 조회 실패**를 「차단 없음」으로 간주해 전부 내려보내지 않는다. 실패는 기존 공통 오류(503·504 등)로 드러낸다 — 빈 성공이나 필터 없는 성공으로 바꾸지 않는다(§1 공통 규칙).
+- 적용 범위 밖: legacy `/api/v1/chat` 히스토리의 차단 필터는 이 결정이 정하지 않았다. 필요하면 별도 결정으로 다룬다.

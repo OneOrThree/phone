@@ -148,6 +148,17 @@ watermark `{projection:"focus.member"|"rest.member",islandId,aggregateId:userId,
 미지 key는 정본 재조회 규칙으로 복구한다. 원본 RestMember의 sessionId 필드를 몰래 추가하지 않으며
 휴식 시간 표시는 restStartedAt와 serverNow를 사용한다.
 
+**차단 중립 표시(2026-10-01 [결정 로그](../decision-log.md) RP-주민중립표시, 티켓 2183).**
+`focus-members` 에서 요청자가 **차단한**(요청자=blocker, 한 방향) 주민의 행은 빼지 않고 닉네임을
+**「차단한 주민」**으로 바꾸며 외양 등 프로필은 기본값으로 내린다. userId·집중 상태(status·
+activeSeconds·serverNow·watermark)는 그대로 둔다 — 같은 섬 기능은 차단으로 바뀌지 않는다
+([신고센터 정책](../character-report/policy.md) RP-차단). 탈퇴 표기(「탈퇴한 사용자」·「알 수 없음」)와
+섞지 않는다. 집중 주제(`subject`)는 이미 타인에게 정형 문구로만 보여야 한다는 신고센터 후속 범위(F5)의
+대상이며 이 결정이 새로 정하지 않는다. 치환 문구를 서버 문자열로 내릴지 표지 필드로 둘지는 **구현 PR
+에서 확정**한다. `rest-members` 는 이 결정의 명시 대상이 아니다 — 같은 모양으로 확장할지는 구현 PR 이
+결정 로그에 먼저 올린다. 인가 판정용 내부 조회(`GET /internal/islands/{id}/focus-members`, 응원 인가)는
+표시 목록이 아니므로 치환 대상이 아니다.
+
 ### emote — STOMP SEND /app/islands/{islandId}/focus/emotes
 
 SEND body는 원본 `{sessionId,type}`다. type은 hello/cheer/sleepy/laugh/hearts만 허용한다.
