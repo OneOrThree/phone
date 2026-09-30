@@ -910,6 +910,46 @@
         }
       }
     },
+    "/internal/users/{userId}/focus-sessions/{sessionId}/tutorial-reward": {
+      "post": {
+        "tags": [
+          "internal-focus-tutorial-reward-controller"
+        ],
+        "operationId": "claim",
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/FocusTutorialRewardView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/internal/users/{userId}/focus-sessions/{sessionId}/resume": {
       "post": {
         "tags": [
@@ -1640,7 +1680,7 @@
         "tags": [
           "internal-island-quest-controller"
         ],
-        "operationId": "claim",
+        "operationId": "claim_1",
         "parameters": [
           {
             "name": "islandId",
@@ -5975,6 +6015,18 @@
             "items": {
               "$ref": "#/components/schemas/ActiveInterval"
             }
+          }
+        }
+      },
+      "FocusTutorialRewardView": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
           }
         }
       },

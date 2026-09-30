@@ -1038,6 +1038,36 @@
         }
       }
     },
+    "/focus-sessions/{sessionId}/tutorial-reward": {
+      "post": {
+        "tags": [
+          "focus-session-controller"
+        ],
+        "operationId": "claimTutorialReward",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/TutorialRewardView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/focus-sessions/{sessionId}/resume": {
       "post": {
         "tags": [
@@ -4159,6 +4189,18 @@
           "subject",
           "version"
         ]
+      },
+      "TutorialRewardView": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
       },
       "AllocationView": {
         "type": "object",
