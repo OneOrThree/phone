@@ -9,7 +9,7 @@ import { State, currentIsland } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { C, T, H, Button, useScreenInsets } from '@/design-system/primitives';
 import { CatSprite } from '@/components/CatSprite';
-import { PolicyLink } from '@/components/PolicyLink';
+import { PolicyLinks } from '@/components/PolicyLink';
 import { growthStage } from '@/screens/island/IslandHome';
 // Geometry, colors, layers and timing follow preview/motion/sailing.html.
 function SeaDrift({
@@ -697,10 +697,9 @@ export function Welcome({
           }}
         >
           <Text style={{ fontSize: 22, color: C.brown }}>{terms ? '☑' : '☐'}</Text>
-          <T small>
-            <PolicyLink policy="terms" />과 <PolicyLink policy="privacy" />에 동의해요.
-          </T>
+          <T small>이용약관과 개인정보처리방침에 동의해요.</T>
         </Pressable>
+        <PolicyLinks textStyle={{ fontSize: 13, color: C.brown }} />
         <Button fill title="GROMO 시작하기" disabled={!terms} onPress={start} />
       </View>
     </View>

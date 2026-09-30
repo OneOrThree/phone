@@ -14,6 +14,11 @@
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>ko</string>
+		<string>en</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
@@ -30,6 +35,38 @@
 				<string>com.oneorthree.focuscat</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>GROMO</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>gromo</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Kakao</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>kakao1280641e9b639a279b7406f24b059703</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>GoogleSignIn</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>LINE</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>line3rdp.com.oneorthree.focuscat</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>9</string>
@@ -37,6 +74,13 @@
 	<false/>
 	<key>LSMinimumSystemVersion</key>
 	<string>12.0</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>kakaokompassauth</string>
+		<string>kakaolink</string>
+		<string>kakaoplus</string>
+		<string>lineauth2</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>

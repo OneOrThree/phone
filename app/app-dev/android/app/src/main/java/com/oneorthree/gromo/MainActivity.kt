@@ -1,4 +1,4 @@
-package com.oneorthree.focuscat
+package com.oneorthree.gromo
 
 import android.os.Build
 import android.os.Bundle

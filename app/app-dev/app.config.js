@@ -1,3 +1,14 @@
+// 2.0 전용 카카오 앱의 네이티브 키다(LOGIN-D02). 카카오 사용자 ID는 카카오 앱마다 다르므로 1.x 카카오
+// 가입자는 2.0에서 새 계정이 된다 — 1.x 미이관 정책과 같은 방향으로 수용한 결정이다.
+const kakaoNativeAppKey = '1280641e9b639a279b7406f24b059703';
+const { withLegacyAndroidKakao } = require('./kakaoAndroidConfig');
+const googleIosClientId =
+  '899365616896-4c2hdm77a2d0vt9ntctpcsjj457u5eop.apps.googleusercontent.com';
+const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.replace(
+  '.apps.googleusercontent.com',
+  '',
+)}`;
+
 module.exports = {
   expo: {
     name: 'Focuscat',
@@ -22,15 +33,18 @@ module.exports = {
       },
     },
     orientation: 'default',
+    scheme: 'gromo',
     userInterfaceStyle: 'light',
     icon: './src/assets/icon.png',
     ios: {
       supportsTablet: true,
+      usesAppleSignIn: true,
       // GROMO-1839 iPadOS 18 이하는 멀티태스킹을 지원하면 화면 방향 잠금을 무시하므로
       // 시작·가입 화면의 세로 고정을 위해 전체 화면을 요구한다. iPadOS 26은 Expo 패치로 대응한다
       requireFullScreen: true,
       bundleIdentifier: 'com.oneorthree.focuscat',
       infoPlist: {
+        CFBundleLocalizations: ['ko', 'en'],
         NSSupportsLiveActivities: true,
       },
       entitlements: {
@@ -39,7 +53,8 @@ module.exports = {
       },
     },
     android: {
-      package: 'com.oneorthree.focuscat',
+      package: 'com.oneorthree.gromo',
+      versionCode: 4,
       permissions: ['android.permission.PACKAGE_USAGE_STATS'],
       adaptiveIcon: {
         image: './src/assets/icon.png',
@@ -50,6 +65,21 @@ module.exports = {
       bundler: 'metro',
       favicon: './src/assets/reference-v2/avatar-black.png',
     },
-    plugins: ['expo-audio', 'expo-localization'],
+    plugins: [
+      'expo-audio',
+      'expo-localization',
+      'expo-apple-authentication',
+      [
+        '@react-native-kakao/core',
+        {
+          nativeAppKey: kakaoNativeAppKey,
+          ios: { handleKakaoOpenUrl: true },
+          android: { authCodeHandlerActivity: true },
+        },
+      ],
+      withLegacyAndroidKakao,
+      ['@react-native-google-signin/google-signin', { iosUrlScheme: googleIosUrlScheme }],
+      '@xmartlabs/react-native-line',
+    ],
   },
 };

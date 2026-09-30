@@ -791,18 +791,22 @@ export function Overlay({ children, close, sheet = false, background }: any) {
             showsVerticalScrollIndicator={false}
             style={{
               backgroundColor: C.paper,
-              borderWidth: 2,
+              borderWidth: componentTokens.modal.borderWidth,
               borderColor: C.brown,
-              borderRadius: sheet ? 26 : 24,
-              borderBottomLeftRadius: centered ? 24 : 0,
-              borderBottomRightRadius: centered ? 24 : 0,
+              borderRadius: sheet
+                ? componentTokens.modal.sheetRadius
+                : componentTokens.modal.radius,
+              borderBottomLeftRadius: centered ? componentTokens.modal.radius : 0,
+              borderBottomRightRadius: centered ? componentTokens.modal.radius : 0,
               flexShrink: 1,
             }}
             contentContainerStyle={{
-              padding: 20,
-              paddingBottom: !centered ? ins.bottom + 12 : 18,
-              gap: 14,
-              boxShadow: sheet ? 'none' : '0px 6px 0px ' + C.brown,
+              padding: componentTokens.modal.padding,
+              paddingBottom: centered
+                ? componentTokens.modal.paddingBottom
+                : ins.bottom + semanticTokens.spacing.control,
+              gap: componentTokens.modal.gap,
+              boxShadow: sheet ? 'none' : componentTokens.modal.shadow,
             }}
           >
             {sheet && (

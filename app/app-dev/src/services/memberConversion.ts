@@ -12,7 +12,7 @@
 import { login as apiLogin, me as apiMe } from '@/services/api/auth';
 import type { Account, LoginResult, Provider } from '@/services/api/auth';
 import { ApiError, uuid } from '@/services/api/client';
-import { getSession } from '@/services/api/session';
+import { getSession, sessionGeneration } from '@/services/api/session';
 
 /** 서버 게이트 — 이 코드에만 회원 전환 시트를 연다. 일반 FORBIDDEN·게이트 밖 403 은 아니다. */
 export const isMemberGateError = (e: unknown): boolean =>
@@ -38,6 +38,8 @@ export type MemberConversionDeps = {
   newAttemptId?: () => string;
   /** 기본 session.getSession — 전환 전 로그인한 사용자를 기억한다. */
   sessionUserId?: () => string | null;
+  /** 기본 session.sessionGeneration — 채택 재시도 때 같은 세션인지 확인한다. */
+  sessionGeneration?: () => number;
 };
 
 export type MemberConversion = {
@@ -51,29 +53,51 @@ export type MemberConversion = {
    * 같은 (provider, credential) 재시도는 같은 attemptId 로 서버 재생을 노린다.
    */
   convert: (provider: Provider, credential: string) => Promise<'converted' | 'cancelled'>;
+  /** 로그인 세션은 발급됐지만 앱 상태 채택이 끝나지 않은 복구 대기 상태인지 확인한다. */
+  hasPendingAdoption: () => boolean;
+  /** 세션 세대 변경·로그아웃 경계에서 재시도용 자격과 attemptId를 버린다. */
+  clearPending: () => void;
 };
 
 export function createMemberConversion(deps: MemberConversionDeps): MemberConversion {
   const login = deps.login ?? apiLogin;
   const newAttemptId = deps.newAttemptId ?? uuid;
   const sessionUserId = deps.sessionUserId ?? (() => getSession()?.userId ?? null);
+  const currentSessionGeneration = deps.sessionGeneration ?? sessionGeneration;
   // 실패한 시도는 (자격, 확정 여부)와 attemptId 를 묶어 둔다 — 같은 키의 재시도는 서버가
   // 저장 결과를 재생해 제공자 자격 교환을 다시 하지 않는다(LLD §3 내구 attempt). 키가
   // 바뀌면 — 사용자가 다른 자격을 골랐거나 ② 확정으로 의도가 바뀌면 — 새 시도다.
-  let pending: {
-    provider: Provider;
-    credential: string;
-    confirmed: boolean;
-    attemptId: string;
-  } | null = null;
+  let pending:
+    | {
+        provider: Provider;
+        credential: string;
+        mode: 'initial' | 'confirmed' | 'recovery';
+        attemptId: string;
+        generation: number;
+      }
+    | {
+        provider: Provider;
+        credential: string;
+        mode: 'adopt';
+        result: LoginResult;
+        previousUserId: string | null;
+        generation: number;
+      }
+    | null = null;
 
-  const attemptIdFor = (provider: Provider, credential: string, confirmed: boolean) => {
+  const attemptIdFor = (
+    provider: Provider,
+    credential: string,
+    mode: 'initial' | 'confirmed' | 'recovery',
+  ) => {
+    const generation = currentSessionGeneration();
     if (
       pending?.provider !== provider ||
       pending.credential !== credential ||
-      pending.confirmed !== confirmed
+      pending.mode !== mode ||
+      pending.generation !== generation
     )
-      pending = { provider, credential, confirmed, attemptId: newAttemptId() };
+      pending = { provider, credential, mode, attemptId: newAttemptId(), generation };
     return pending.attemptId;
   };
 
@@ -81,31 +105,123 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
     provider: Provider,
     credential: string,
   ): Promise<'converted' | 'cancelled'> => {
+    if (!deps.termsVersion.trim())
+      throw new ApiError(
+        'TERMS_VERSION_REQUIRED',
+        '약관 버전이 설정되지 않아 소셜 로그인을 사용할 수 없어요.',
+        0,
+      );
+    const attemptGeneration = currentSessionGeneration();
+    if (pending && pending.generation !== attemptGeneration) pending = null;
+    // 로그인은 성공했지만 /me 채택이 실패한 경우, 다음 클릭에서는 로그인 응답을 재사용한다.
+    // 채택이 끝나기 전까지 최초 사용자 ID도 유지해 게스트 데이터를 회원에 섞지 않는다.
+    if (pending?.mode === 'adopt') {
+      // 채택 재시도는 결과를 만든 소셜 자격으로만 이어간다. 다른 제공자나
+      // 자격을 선택했다면 이전 결과는 버리고 새 로그인 흐름을 시작한다.
+      // /me 의 401 은 세션을 비우고 세대를 올린다. 그 사이 다른 계정에 로그인한 경우도
+      // 결과는 달라진다. 이때 옛 로그인 결과를 다시 채택하지 말고 현재 세션으로 새 로그인한다.
+      if (
+        pending.provider === provider &&
+        pending.credential === credential &&
+        pending.generation === currentSessionGeneration() &&
+        sessionUserId() === pending.result.userId
+      ) {
+        await deps.adopt(pending.result, pending.previousUserId);
+        pending = null;
+        return 'converted';
+      }
+      pending = null;
+    }
     // 전환이 끝나면 저장된 세션은 새 계정의 것이다 — 이전 계정 판정은 시작 시에 잡는다.
     const previousUserId = sessionUserId();
+    const adopt = async (result: LoginResult) => {
+      pending = {
+        provider,
+        credential,
+        mode: 'adopt',
+        result,
+        previousUserId,
+        generation: currentSessionGeneration(),
+      };
+      await deps.adopt(result, previousUserId);
+      pending = null;
+    };
+    // ② 확정 요청의 응답만 유실된 경우에는 ①부터 다시 시작하지 않고, 저장해 둔 확정
+    // attemptId로 같은 요청을 재생한다. 호출부도 이때 같은 provider credential을 보존한다.
+    if (
+      pending?.provider === provider &&
+      pending.credential === credential &&
+      pending.mode === 'confirmed'
+    ) {
+      let replayed: LoginResult;
+      try {
+        replayed = await login(provider, credential, deps.termsVersion, {
+          attemptId: attemptIdFor(provider, credential, 'confirmed'),
+          attachCurrentSession: true,
+          accountSwitchConfirmed: true,
+        });
+      } catch (error) {
+        // 확정 attempt의 게스트 삭제만 커밋되면 같은 attempt는 탈퇴된 게스트 AT 검사에서
+        // USER_NOT_FOUND로 끝난다(LLD §2.1). 새 attempt로 AT 없이 대상 회원 로그인을 잇는다.
+        if (!(error instanceof ApiError && error.status === 404 && error.code === 'USER_NOT_FOUND'))
+          throw error;
+        pending = {
+          provider,
+          credential,
+          mode: 'recovery',
+          attemptId: newAttemptId(),
+          generation: currentSessionGeneration(),
+        };
+        replayed = await login(provider, credential, deps.termsVersion, {
+          attemptId: pending.attemptId,
+        });
+      }
+      await adopt(replayed);
+      return 'converted';
+    }
+    // 부분 커밋 복구 로그인도 응답 유실 시 같은 시도 ID로 재생한다. AT와 확정 신호는 싣지 않는다.
+    if (
+      pending?.provider === provider &&
+      pending.credential === credential &&
+      pending.mode === 'recovery'
+    ) {
+      const replayed = await login(provider, credential, deps.termsVersion, {
+        attemptId: attemptIdFor(provider, credential, 'recovery'),
+      });
+      await adopt(replayed);
+      return 'converted';
+    }
     try {
       const result = await login(provider, credential, deps.termsVersion, {
-        attemptId: attemptIdFor(provider, credential, false),
+        attemptId: attemptIdFor(provider, credential, 'initial'),
         attachCurrentSession: true,
       });
-      pending = null;
-      await deps.adopt(result, previousUserId);
+      await adopt(result);
       return 'converted';
     } catch (thrown) {
       // 충돌이 아니면 그대로 던진다 — attemptId 를 지우지 않아 다음 재시도가 재생을 받는다.
       if (!isAccountConflict(thrown)) throw thrown;
     }
+    if (currentSessionGeneration() !== attemptGeneration) {
+      pending = null;
+      return 'cancelled';
+    }
     if (!(await deps.confirmSwitch())) {
       pending = null;
       return 'cancelled';
     }
-    // ② 확정 — 의도가 바뀌었으므로 새 attemptId(attemptIdFor 가 갈아 끼운다). AT 없이 보낸다.
+    if (currentSessionGeneration() !== attemptGeneration) {
+      pending = null;
+      return 'cancelled';
+    }
+    // ② 확정 — 의도가 바뀌었으므로 새 attemptId(attemptIdFor 가 갈아 끼운다). 원 게스트 AT를
+    // 동봉해 서버가 게스트 체크포인트 삭제/탈퇴를 수행하게 한다.
     const result = await login(provider, credential, deps.termsVersion, {
-      attemptId: attemptIdFor(provider, credential, true),
+      attemptId: attemptIdFor(provider, credential, 'confirmed'),
+      attachCurrentSession: true,
       accountSwitchConfirmed: true,
     });
-    pending = null;
-    await deps.adopt(result, previousUserId);
+    await adopt(result);
     return 'converted';
   };
 
@@ -116,6 +232,10 @@ export function createMemberConversion(deps: MemberConversionDeps): MemberConver
       return true;
     },
     convert,
+    hasPendingAdoption: () => pending?.mode === 'adopt',
+    clearPending: () => {
+      pending = null;
+    },
   };
 }
 

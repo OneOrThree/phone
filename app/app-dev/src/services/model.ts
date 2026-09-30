@@ -263,6 +263,8 @@ export type State = {
   color: Color;
   // 친구 목록·프로필에 표시하는 대표 섬. 현재 접속 섬(islandId)과 독립적으로 바뀐다.
   mainIslandId: string | null;
+  // 서버 /me 의 계정 연결 제공자. 선택 필드로 두어 구버전 저장본도 그대로 복구한다.
+  linkedProviders?: string[];
   islandId: string;
   fish: number;
   owned: string[];
@@ -1525,6 +1527,7 @@ export function reducer(state: State, a: Action): State {
     // ── 인증·계정 ──
     case 'LOGIN':
       s.loggedIn = true;
+      if (Array.isArray(a.linkedProviders)) s.linkedProviders = [...a.linkedProviders];
       break;
     case 'PROFILE':
       if (a.name?.trim() && a.name.trim() !== s.name)

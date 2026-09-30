@@ -1,5 +1,13 @@
 import { GuideBox, MailboxGuide, ShopGuide } from '@/screens/island/NpcGuide';
+import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession } from '@/services/api/session';
+import {
+  beginWithdrawal,
+  confirmWithdrawal,
+  finishWithdrawalCleanup,
+  type WithdrawalIntent,
+} from '@/services/withdrawalIntent';
+import { clearStudyWidget } from '@/services/studyWidget';
 import { Text } from '@/design-system/typography';
 import React, { useState, useEffect, useRef } from 'react';
 import {
@@ -124,7 +132,7 @@ import {
   sendFriendRequest,
 } from '@/services/api/friends';
 import { UserSafetySheet } from '@/components/UserSafetySheet';
-import { PolicyLink } from '@/components/PolicyLink';
+import { PolicyLinks } from '@/components/PolicyLink';
 import { PRIVACY_URL, TERMS_URL, openPolicy } from '@/constants/legal';
 // 서버 카탈로그 kind → 카드가 아는 로컬 kind (GROMO-2017). clothes/decor 은 모두 「내 꾸미기」다.
 const shopUiKind = (kind: string) =>
@@ -790,13 +798,19 @@ export function RedesignScreens({ e }: any) {
       id: string;
       name: string;
       onDelete?: () => void;
-    } | null>(null);
+    } | null>(null),
+    // 서버 탈퇴(또는 로컬 탈퇴)는 끝났는데 기기의 로컬 데이터 소유자 정리를 확정하지 못한 상태.
+    // route 가 바뀌어도 유지한다 — 탈퇴 API 를 다시 부르지 않고 로컬 정리만 재시도해야 한다.
+    [withdrawCleanupPending, setWithdrawCleanupPending] = useState(false);
   const chat = useRef<ScrollView>(null),
     emoteTimer = useRef<ReturnType<typeof setTimeout> | null>(null),
     profileSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     characterSaveIntent = useRef<{ signature: string; key: string } | null>(null),
     // 저장 응답이 왔을 때 사용자가 아직 character 화면에 있는지 확인하는 용도
-    routeNowRef = useRef(route);
+    routeNowRef = useRef(route),
+    // 진행 중인 탈퇴 의도 — 탈퇴 대상 userId 와 멱등 키. 요청 전에 기기에도 남겨(beginWithdrawal)
+    // 앱이 종료돼도 부팅이 로컬 정리를 이어 간다. 세션이 먼저 정리돼도 정리 대상 계정을 잃지 않는다.
+    withdrawIntent = useRef<WithdrawalIntent | null>(null);
   routeNowRef.current = route;
   const currentMainIslandId = mainIsland(state)?.id ?? '';
   useEffect(() => {
@@ -845,6 +859,36 @@ export function RedesignScreens({ e }: any) {
         if (m) fail(m);
       })
       .finally(() => setServerBusy(false));
+  };
+  /**
+   * 탈퇴 뒤 기기 정리. 로컬 데이터 소유자 삭제(또는 다음 부팅이 이어 갈 내구 삭제 표식)가 확정돼야만
+   * 탈퇴 완료(로그인 화면)로 넘어간다. 확정하지 못하면 이전 사용자의 데이터가 다음 로그인에 남으므로
+   * 화면에 머물러 재시도 버튼을 띄운다 — 서버 계정은 이미 삭제됐으니 탈퇴 API 는 다시 부르지 않는다.
+   * 1.x(Android 같은 패키지)가 남긴 이 계정의 로컬 버킷·누끼 파일도 같은 규칙으로 먼저 지운다.
+   * 세션은 아래 signOut 전까지 남아 있으므로 재시도에서도 같은 userId 를 읽는다.
+   */
+  const finishWithdrawal = async () => {
+    try {
+      await finishWithdrawalCleanup(withdrawIntent.current?.userId || getSession()?.userId || null);
+    } catch {
+      setWithdrawCleanupPending(true);
+      notify('기기에 남은 데이터를 정리하지 못했어요. 다시 시도해 주세요.');
+      return;
+    }
+    setWithdrawCleanupPending(false);
+    withdrawIntent.current = null;
+    // 안드로이드 홈 위젯을 비운다 — 탈퇴한 계정의 공부시간이 런처에 남지 않게. signOut 도 비우지만
+    // 그 준비가 실패하면(false) 거기까지 가지 않고, 서버 없는 모드는 signOut 을 부르지 않는다.
+    // best-effort 라 기다리지 않는다(실패는 래퍼가 삼킨다).
+    void clearStudyWidget();
+    await screenTime.resetScreenTimeData().catch(() => {});
+    // signOut 의 false(로그아웃 tombstone 기록 실패)는 의도적으로 무시한다. 서버 계정은 이미 삭제됐고
+    // 로컬 데이터 소유자도 위에서 지웠으므로 화면은 탈퇴 완료로 넘긴다. 이 경우 토큰이 기기에 남지만
+    // 삭제된 계정의 세션이라, 다음 요청·다음 부팅의 checkSession 이 401/USER_NOT_FOUND 를 받아
+    // clearRejectedSession 으로 정리한다(auth.checkSession·client 401 처리).
+    if (server) await e.signOut();
+    act('DELETE_ACCOUNT');
+    reset('login');
   };
   // 서버 스냅샷 단축 — 첫 로드 전엔 undefined
   const snap = state.serverIslands;
@@ -1160,8 +1204,31 @@ export function RedesignScreens({ e }: any) {
       {children}
     </IslandSheet>
   );
+  if (route === 'login' && e.loginProviders) {
+    return (
+      <LoginScreen
+        providers={e.loginProviders}
+        termsVersion={e.termsVersion}
+        termsAccepted={terms}
+        onTermsAcceptedChange={setTerms}
+        onProviderPress={e.startSocial ? (provider) => void e.startSocial(provider) : undefined}
+        providerBusy={e.socialBusy}
+        providerError={e.socialError}
+        onGuestPress={
+          e.startGuest
+            ? () => void e.startGuest()
+            : () => {
+                act('LOGIN');
+                state.onboarded ? home() : go('character');
+              }
+        }
+        guestBusy={e.guestBusy}
+        guestError={e.guestError}
+      />
+    );
+  }
   if (route === 'login') {
-    const agree = (
+    const agreeCheck = (
       <Pressable
         accessibilityRole="checkbox"
         accessibilityState={{ checked: terms }}
@@ -1184,10 +1251,14 @@ export function RedesignScreens({ e }: any) {
         >
           {terms && <Txt style={{ textAlign: 'center' }}>✓</Txt>}
         </View>
-        <Txt kind="meta">
-          <PolicyLink policy="terms" />과 <PolicyLink policy="privacy" />에 동의해요.
-        </Txt>
+        <Txt kind="meta">이용약관과 개인정보처리방침에 동의해요.</Txt>
       </Pressable>
+    );
+    const agree = (
+      <View>
+        {agreeCheck}
+        <PolicyLinks textStyle={{ fontSize: 13, color: C.ink }} />
+      </View>
     );
     const start = (
       <View style={{ gap: 8 }}>
@@ -5052,6 +5123,7 @@ export function RedesignScreens({ e }: any) {
               .buy({ id: p.id, productVersion: sp!.productVersion })
               .then(() => setSheetToast('구매했어요.'))
               .catch((thrown) => {
+                if (e.conversion?.offer(thrown)) return;
                 const m = serverErrorText(thrown);
                 if (!m) return;
                 // 전역 알림(notify)은 이 상품 상세 시트 위에서 가려질 수 있어, 아직 같은 상품
@@ -6006,6 +6078,16 @@ export function RedesignScreens({ e }: any) {
     );
   }
   if (route === 'profile') {
+    const providerLabels: Record<string, string> = {
+      google: 'Google',
+      kakao: '카카오',
+      line: 'LINE',
+      apple: 'Apple',
+    };
+    const linkedProviderText = (state.linkedProviders ?? [])
+      .map((provider: string) => providerLabels[provider] ?? provider)
+      .filter(Boolean)
+      .join(' · ');
     const mustTransferHost = state.islands.some(
       (candidate) => isHost(candidate) && candidate.members.length > 0,
     );
@@ -6068,52 +6150,83 @@ export function RedesignScreens({ e }: any) {
           inputStyle={sheetInput}
         />
         <SheetGroup>
-          <SheetRow title="연동 계정" sub={state.name + '님의 GROMO 계정 · Apple'} />
+          <SheetRow
+            title="연동 계정"
+            sub={
+              linkedProviderText
+                ? `${state.name}님의 GROMO 계정 · ${linkedProviderText}`
+                : `${state.name}님의 GROMO 계정 · 연결된 계정 없음`
+            }
+          />
           <SheetRow
             title="로그아웃"
             chevron
             onPress={() =>
-              confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', () => {
-                e.signOut();
+              confirm('로그아웃할까요?', '저장된 기록은 그대로 남아요.', async () => {
+                // 기기에 로그아웃을 기록하지 못했으면 세션이 남아 있으니 로그인 화면으로 가지 않는다.
+                if ((await e.signOut()) === false) return;
                 act('LOGOUT');
                 reset('login');
               })
             }
           />
         </SheetGroup>
-        <Btn
-          title="회원 탈퇴"
-          kind="danger"
-          style={{ alignSelf: 'center' }}
-          onPress={() =>
-            mustTransferHost
-              ? notify('방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.')
-              : confirm(
-                  '회원 탈퇴할까요?',
-                  '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
-                  () => {
-                    if (!server) {
-                      screenTime
-                        .resetScreenTimeData()
-                        .catch(() => {})
-                        .finally(() => {
-                          act('DELETE_ACCOUNT');
-                          reset('login');
-                        });
-                      return;
-                    }
-                    run(async () => {
-                      await withdrawAccount();
-                      await screenTime.resetScreenTimeData().catch(() => {});
-                      await e.signOut();
-                      act('DELETE_ACCOUNT');
-                      reset('login');
-                    }, notify);
-                  },
-                  { ok: '탈퇴', destructive: true },
-                )
-          }
-        />
+        {withdrawCleanupPending ? (
+          <Btn
+            title="기기 데이터 정리 다시 시도"
+            kind="danger"
+            style={{ alignSelf: 'center' }}
+            // 계정은 이미 삭제됐다 — 탈퇴 API 없이 로컬 정리만 다시 한다.
+            onPress={() => run(finishWithdrawal, notify)}
+          />
+        ) : (
+          <Btn
+            title="회원 탈퇴"
+            kind="danger"
+            style={{ alignSelf: 'center' }}
+            onPress={() =>
+              mustTransferHost
+                ? notify('방장을 다른 주민에게 넘긴 뒤 회원 탈퇴할 수 있어요.')
+                : confirm(
+                    '회원 탈퇴할까요?',
+                    '계정과 저장된 기록을 모두 삭제해요. 되돌릴 수 없어요.\n모은 물고기는 섬에 남아요.',
+                    () => {
+                      if (!server) {
+                        run(finishWithdrawal, notify);
+                        return;
+                      }
+                      run(async () => {
+                        // 호출 전에 대상 계정과 멱등 키를 기기에 남긴다(기록 실패면 요청하지 않는다).
+                        // 같은 계정의 재시도면 저장된 키를 재사용해 서버가 첫 결과를 재생한다.
+                        const userId = getSession()?.userId ?? null;
+                        withdrawIntent.current = userId
+                          ? await beginWithdrawal(userId)
+                          : { userId: '', key: uuid() };
+                        try {
+                          await withdrawAccount(withdrawIntent.current.key);
+                        } catch (thrown) {
+                          // 서버가 DELETE /me 를 커밋했는데 응답만 잃었으면 재시도는 404
+                          // USER_NOT_FOUND 다 — 계정은 이미 없으니 탈퇴 완료로 보고 로컬 정리를 이어 간다.
+                          // 공용 클라이언트도 이 404 를 세션 거절로 처리해 세션을 비우고 로그인으로
+                          // 보낼 수 있다. 두 경로가 겹쳐도 계정이 없다는 같은 전제라 정리는 그대로 맞다.
+                          if (!(
+                            thrown instanceof ApiError &&
+                            thrown.status === 404 &&
+                            thrown.code === 'USER_NOT_FOUND'
+                          ))
+                            throw thrown;
+                        }
+                        // 서버 탈퇴가 확정됐다 — 이후 정리가 실패하고 세션이 먼저 폐기돼도 다음 부팅이
+                        // 세션 없이 정리를 재개하도록 기기에 남긴다.
+                        await confirmWithdrawal(withdrawIntent.current);
+                        await finishWithdrawal();
+                      }, notify);
+                    },
+                    { ok: '탈퇴', destructive: true },
+                  )
+            }
+          />
+        )}
       </IslandSheet>
     );
   }
@@ -6194,6 +6307,18 @@ export function RedesignScreens({ e }: any) {
         {sec('앱 정보')}
         <SheetGroup flat>
           <SheetRow title="버전" sub="R61 · v2" />
+          <SheetRow
+            title="개인정보 처리 안내"
+            sub="앱에서 처리하는 정보와 외부 전송 안내"
+            chevron
+            onPress={() =>
+              confirm(
+                '개인정보 처리 안내',
+                '로그인 때 소셜 제공자 인증 정보와 계정 식별 정보가 서버로 전달돼요. 닉네임, 섬·주민 활동, 친구·편지, 집중 기록 등 서비스 데이터도 기능 제공과 동기화를 위해 서버에 저장돼요.\n\n화면 이용과 주요 기능 이벤트는 PostHog로, 화면·요청 진단 정보는 설정된 경우 Datadog으로 전송될 수 있어요. 스크린타임 권한을 허용하면 선택한 앱 사용 시간을 기기에서 읽어 목표와 통계에 사용해요. 자세한 처리 항목과 보관 기간은 개인정보 처리방침에서 확인할 수 있어요. 회원 탈퇴를 요청하면 서버 계정 삭제를 요청해요.',
+                () => {},
+              )
+            }
+          />
           <SheetRow
             title="이용약관"
             chevron
