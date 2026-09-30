@@ -185,15 +185,6 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
     }
 
     /**
-     * 이 세션의 주체와 <b>그 토큰이 지금도 유효한지</b>. 만료면 프레임을 버리고 <b>소켓도 닫는다</b>.
-     *
-     * <p>프레임만 버리면 수신 전용 앱은 다음 이벤트가 올 때까지 만료를 모른 채 갱신·재연결을 시작하지
-     * 못한다 — 그래서 실제 소켓을 1008/UNAUTHORIZED 로 닫는다(CLAUDE.md 「만료된 access token」).
-     * 채팅 경로와 섬 경로가 <b>같은 한 곳</b>을 쓴다: 두 벌로 두면 언젠가 한쪽만 바뀐다.
-     *
-     * @return 지금도 유효한 주체, 아니면 {@code null}
-     */
-    /**
      * 나가는 프레임의 본문 JSON — 응원 {@code eventId}·발신자, 채팅 {@code senderId} 를 여기서 읽는다.
      *
      * <p>브로커를 지난 payload 는 이미 직렬화된 JSON 이라 여기서 다시 읽는다. <b>본문은 로그에 남기지 않는다.</b>
@@ -248,6 +239,15 @@ public class ChatOutboundChannelInterceptor implements ExecutorChannelIntercepto
         }
     }
 
+    /**
+     * 이 세션의 주체와 <b>그 토큰이 지금도 유효한지</b>. 만료면 프레임을 버리고 <b>소켓도 닫는다</b>.
+     *
+     * <p>프레임만 버리면 수신 전용 앱은 다음 이벤트가 올 때까지 만료를 모른 채 갱신·재연결을 시작하지
+     * 못한다 — 그래서 실제 소켓을 1008/UNAUTHORIZED 로 닫는다(CLAUDE.md 「만료된 access token」).
+     * 채팅 경로와 섬 경로가 <b>같은 한 곳</b>을 쓴다: 두 벌로 두면 언젠가 한쪽만 바뀐다.
+     *
+     * @return 지금도 유효한 주체, 아니면 {@code null}
+     */
     private ChatPrincipal stillAuthenticated(Message<?> message) {
         String sessionId = SimpMessageHeaderAccessor.getSessionId(message.getHeaders());
         ChatPrincipal principal = sessions.find(sessionId);

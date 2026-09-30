@@ -60,6 +60,8 @@ class BlockClientTest {
                 out.write(bytes);
             }
         });
+        // 요청을 붙드는 테스트가 있어 요청마다 스레드를 쓴다(기본은 한 스레드로 순차 처리).
+        server.setExecutor(java.util.concurrent.Executors.newCachedThreadPool());
         server.start();
         client = new BlockClient("http://127.0.0.1:" + server.getAddress().getPort(), TOKEN, 1000);
     }
@@ -144,6 +146,65 @@ class BlockClientTest {
                 .isInstanceOf(UpstreamUnavailableException.class);
         assertThatThrownBy(() -> new BlockClient("http://127.0.0.1:1", "", 1000).fetchBlockedIds(USER))
                 .isInstanceOf(UpstreamUnavailableException.class);
+    }
+
+    @Test
+    @DisplayName("본문을 조금씩 흘리는 상류는 총 deadline 에서 끊는다 — 읽기 한 번의 timeout 만으로는 못 막는다")
+    void slowDripBodyHitsTheTotalDeadline() throws Exception {
+        server.createContext("/internal/users/drip", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, 0);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write('[');
+                for (int i = 0; i < 40; i++) {
+                    out.write(' ');
+                    out.flush();
+                    Thread.sleep(100);
+                }
+                out.write(']');
+            } catch (InterruptedException | IOException e) {
+                // 클라이언트가 끊었다.
+            }
+        });
+        // read timeout(300ms)보다 짧은 간격으로 흘리지만 총 4초 — deadline(300ms)에서 끊겨야 한다.
+        BlockClient slow = new BlockClient("http://127.0.0.1:" + server.getAddress().getPort() + "/internal/users/drip",
+                TOKEN, 300);
+        long started = System.nanoTime();
+
+        assertThatThrownBy(() -> slow.fetchBlockedIds(USER)).isInstanceOf(UpstreamUnavailableException.class);
+        assertThat(java.time.Duration.ofNanos(System.nanoTime() - started)).isLessThan(java.time.Duration.ofSeconds(2));
+    }
+
+    @Test
+    @DisplayName("동시 호출 상한을 넘으면 기다리지 않고 판정 불가다")
+    void inFlightCapRejectsWithoutWaiting() throws Exception {
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        server.createContext("/hold/internal/users", exchange -> {
+            entered.countDown();
+            try {
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            byte[] bytes = "[]".getBytes(StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(bytes);
+            }
+        });
+        BlockClient single = new BlockClient("http://127.0.0.1:" + server.getAddress().getPort() + "/hold", TOKEN,
+                5000, 1);
+        java.util.concurrent.CompletableFuture<java.util.Set<UUID>> first =
+                java.util.concurrent.CompletableFuture.supplyAsync(() -> single.fetchBlockedIds(USER));
+        assertThat(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+
+        assertThatThrownBy(() -> single.fetchBlockedIds(USER)).isInstanceOf(UpstreamUnavailableException.class);
+        release.countDown();
+        assertThat(first.get(5, java.util.concurrent.TimeUnit.SECONDS)).isEmpty();
+        // 자리를 돌려줬으므로 다음 호출은 통과한다.
+        assertThat(single.fetchBlockedIds(USER)).isEmpty();
     }
 
     @Test

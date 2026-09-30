@@ -124,6 +124,8 @@ realtime:
   blocks:
     cache-ttl-seconds: ${REALTIME_BLOCKS_CACHE_TTL_SECONDS:120}
     data-timeout-ms: ${REALTIME_BLOCKS_DATA_TIMEOUT_MS:1500}
+    # Data 동시 호출 상한 — 넘치면 기다리지 않고 그 프레임을 버린다(채널 스레드 고갈 방지).
+    max-in-flight: ${REALTIME_BLOCKS_MAX_IN_FLIGHT:16}
 
 logging:
   level:

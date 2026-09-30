@@ -2,27 +2,26 @@ package com.oneorthree.realtime.block.client;
 
 import com.oneorthree.realtime.common.exception.UpstreamUnavailableException;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestClient;
-import org.springframework.web.client.RestClientException;
 import tools.jackson.core.StreamReadFeature;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.UncheckedIOException;
 import java.net.HttpURLConnection;
+import java.net.URI;
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Semaphore;
 
 /**
  * 「이 사람이 누구를 차단했는가」를 Data 정본에 묻는 창구 (GROMO-2182).
@@ -39,6 +38,12 @@ import java.util.UUID;
  * 중복 키·뒤따르는 토큰이 있거나, 원소가 정확히 {@code {id, name}} 이 아니면(모르는 필드 포함) <b>판정 불가</b>
  * 로 올린다. 오류를 «빈 집합(아무도 차단 안 함)»으로 접지 않는다 — 그러면 장애가 곧 차단 해제가 된다.
  * redirect 는 따르지 않는다(3xx 도 판정 불가).
+ *
+ * <h2>총 deadline 과 동시 호출 상한</h2>
+ * 이 호출은 아웃바운드 채널 스레드에서 돈다. read timeout 은 «읽기 한 번»의 상한이라 본문을 조금씩 흘리는
+ * 상류는 한 호출을 오래 붙들 수 있다 — 그래서 본문 읽기에 호출 단위 deadline 을 따로 건다. 또 캐시 미스가
+ * 몰리면(세대가 막 오른 차단자의 모든 세션) 채널 스레드 전부가 Data 를 기다리게 되므로 동시 호출 수를
+ * {@code realtime.blocks.max-in-flight} 로 누르고, 넘치면 기다리지 않고 판정 불가로 올린다(프레임 폐기).
  */
 @Slf4j
 @Component
@@ -55,26 +60,30 @@ public class BlockClient {
 
     private static final Set<String> ALLOWED_FIELDS = Set.of("id", "name");
 
-    private final RestClient restClient;
-    private final String serviceToken;
+    private static final int DEFAULT_MAX_IN_FLIGHT = 16;
 
+    private final URI base;
+    private final String serviceToken;
+    private final int timeoutMs;
+    private final long timeoutNanos;
+    private final Semaphore capacity;
+
+    /** 테스트·스텁용 — 동시 호출 상한은 기본값. */
+    public BlockClient(String baseUrl, String serviceToken, long timeoutMs) {
+        this(baseUrl, serviceToken, timeoutMs, DEFAULT_MAX_IN_FLIGHT);
+    }
+
+    @Autowired
     public BlockClient(
             @Value("${realtime.focus.data-base-url:}") String baseUrl,
             @Value("${realtime.focus.data-service-token:}") String serviceToken,
-            @Value("${realtime.blocks.data-timeout-ms:1500}") long timeoutMs) {
+            @Value("${realtime.blocks.data-timeout-ms:1500}") long timeoutMs,
+            @Value("${realtime.blocks.max-in-flight:16}") int maxInFlight) {
+        this.base = baseUrl.isBlank() ? null : URI.create(baseUrl.endsWith("/") ? baseUrl : baseUrl + "/");
         this.serviceToken = serviceToken;
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
-            @Override
-            protected void prepareConnection(HttpURLConnection connection, String httpMethod) throws IOException {
-                super.prepareConnection(connection, httpMethod);
-                connection.setInstanceFollowRedirects(false);
-            }
-        };
-        // 무제한 타임아웃이면 상류 정지가 아웃바운드 채널 스레드를 잠가 실시간 전체가 멈춘다.
-        factory.setConnectTimeout(Duration.ofMillis(timeoutMs));
-        factory.setReadTimeout(Duration.ofMillis(timeoutMs));
-        this.restClient = baseUrl.isBlank() ? null
-                : RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+        this.timeoutMs = (int) Math.min(Integer.MAX_VALUE, Math.max(1, timeoutMs));
+        this.timeoutNanos = Duration.ofMillis(timeoutMs).toNanos();
+        this.capacity = new Semaphore(Math.max(1, maxInFlight));
     }
 
     /**
@@ -83,41 +92,83 @@ public class BlockClient {
      * @throws UpstreamUnavailableException 배선이 없거나, 응답이 계약을 어기거나, 통신이 실패했을 때
      */
     public Set<UUID> fetchBlockedIds(UUID userId) {
-        if (restClient == null || serviceToken.isBlank()) {
+        if (base == null || serviceToken.isBlank()) {
             throw new UpstreamUnavailableException();
         }
+        if (!capacity.tryAcquire()) {
+            log.warn("차단 목록 조회 실패 — 동시 호출 상한");
+            throw new UpstreamUnavailableException();
+        }
+        long deadline = System.nanoTime() + timeoutNanos;
+        HttpURLConnection connection = null;
+        boolean completed = false;
         try {
-            return restClient.get()
-                    .uri("/internal/users/{userId}/blocks", userId)
-                    .header("Authorization", "Bearer " + serviceToken)
-                    .header("X-User-Id", userId.toString())
-                    .header("Accept", MediaType.APPLICATION_JSON_VALUE)
-                    .exchange((request, response) -> {
-                        HttpStatusCode status = response.getStatusCode();
-                        MediaType type = response.getHeaders().getContentType();
-                        if (status.value() != 200 || type == null
-                                || !MediaType.APPLICATION_JSON.isCompatibleWith(type)) {
-                            log.warn("차단 목록 조회 실패 — status={}", status.value());
-                            throw new UpstreamUnavailableException();
-                        }
-                        return parse(readLimited(response.getBody()));
-                    });
+            // RestClient 를 쓰지 않는 이유: Spring 의 응답 close 가 커넥션 재사용을 위해 남은 본문을 «끝까지 읽는다».
+            // 총 deadline 으로 끊어도 그 drain 이 채널 스레드를 다시 붙든다 — 실패 시 소켓을 바로 닫아야 한다.
+            connection = (HttpURLConnection) base.resolve("internal/users/" + userId + "/blocks").toURL()
+                    .openConnection();
+            connection.setRequestMethod("GET");
+            connection.setInstanceFollowRedirects(false);
+            connection.setUseCaches(false);
+            connection.setConnectTimeout(timeoutMs);
+            connection.setReadTimeout(timeoutMs);
+            connection.setRequestProperty("Authorization", "Bearer " + serviceToken);
+            connection.setRequestProperty("X-User-Id", userId.toString());
+            connection.setRequestProperty("Accept", MediaType.APPLICATION_JSON_VALUE);
+            int status = connection.getResponseCode();
+            String contentType = connection.getContentType();
+            if (status != 200 || contentType == null || !isJson(contentType)) {
+                log.warn("차단 목록 조회 실패 — status={}", status);
+                throw new UpstreamUnavailableException();
+            }
+            Set<UUID> ids;
+            try (InputStream body = connection.getInputStream()) {
+                ids = parse(readLimited(body, deadline));
+            }
+            completed = true;
+            return ids;
         } catch (UpstreamUnavailableException e) {
             throw e;
-        } catch (RestClientException | UncheckedIOException e) {
+        } catch (IOException | RuntimeException e) {
             // 원격 응답·URL·토큰을 포함할 수 있는 cause 를 로그에 붙이지 않는다.
             log.warn("차단 목록 조회 실패 — reason={}", e.getClass().getSimpleName());
             throw new UpstreamUnavailableException();
+        } finally {
+            if (!completed && connection != null) {
+                connection.disconnect();
+            }
+            capacity.release();
         }
     }
 
-    private static byte[] readLimited(InputStream body) throws IOException {
-        byte[] bytes = body.readNBytes(MAX_RESPONSE_BYTES + 1);
-        if (bytes.length > MAX_RESPONSE_BYTES) {
-            log.warn("차단 목록 조회 실패 — 응답이 상한을 넘었다");
-            throw new UpstreamUnavailableException();
+    private static boolean isJson(String contentType) {
+        try {
+            return MediaType.APPLICATION_JSON.isCompatibleWith(MediaType.parseMediaType(contentType));
+        } catch (RuntimeException e) {
+            return false;
         }
-        return bytes;
+    }
+
+    /**
+     * 상한과 호출 단위 deadline 을 함께 지키며 본문을 읽는다. 읽기 한 번은 read timeout 이 누르므로 최악의 총
+     * 대기는 deadline + read timeout 한 번이다.
+     */
+    private static byte[] readLimited(InputStream body, long deadline) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] chunk = new byte[8192];
+        int read;
+        while ((read = body.read(chunk)) != -1) {
+            out.write(chunk, 0, read);
+            if (out.size() > MAX_RESPONSE_BYTES) {
+                log.warn("차단 목록 조회 실패 — 응답이 상한을 넘었다");
+                throw new UpstreamUnavailableException();
+            }
+            if (System.nanoTime() - deadline > 0) {
+                log.warn("차단 목록 조회 실패 — 총 deadline 초과");
+                throw new UpstreamUnavailableException();
+            }
+        }
+        return out.toByteArray();
     }
 
     /** 계약 {@code [{"id": UUID, "name": string|null}, …]} 만 받는다. 그 밖은 전부 판정 불가다. */

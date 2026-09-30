@@ -26,7 +26,9 @@ import java.util.stream.Collectors;
  *   <li><b>사건</b> — Data 가 차단·해제 트랜잭션 안에서 outbox 에 {@code user.blocks.updated}(REALTIME) 를 적고,
  *       {@code InboundEventService} 가 받을 때마다 {@link #advanceGeneration} 으로 그 차단자의 세대를 올린다.
  *       캐시 값에는 적재 당시 세대가 함께 실려 있어, 세대가 바뀐 순간 그 값은 읽히지 않는다 — 차단 직전에 시작된
- *       조회가 무효화보다 늦게 옛 집합을 써도 그 값은 이미 «옛 세대»라 버려진다.</li>
+ *       조회가 무효화보다 늦게 옛 집합을 써도 그 값은 이미 «옛 세대»라 버려진다. 이 논증은 사건이 Data 커밋
+ *       <b>이후</b> relay 로 도착한다는 전제 위에 있다 — 커밋과 INCR 사이(relay 지연)에는 옛 집합이 현재 세대로
+ *       읽힐 수 있고, 그 창은 relay 지연만큼이다.</li>
  *   <li><b>TTL</b>({@code realtime.blocks.cache-ttl-seconds}) — 사건이 유실되거나 relay 가 꺼진 배포의 백스톱일
  *       뿐이다. relay 가 꺼져 있으면 차단은 TTL 뒤에야 반영된다 — 그 상태를 «즉시 차단»이라 부르지 않는다.</li>
  * </ol>
