@@ -85,3 +85,5 @@ android/*.iml
 android/*.hprof
 android/*.jsbundle
 android/app/src/main/java/inline/
+# hot-updater
+.env.hotupdater

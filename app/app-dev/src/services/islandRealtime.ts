@@ -430,8 +430,24 @@ export function realtimeWsUrl(apiUrl: string = API_URL): string {
   return apiUrl.replace(/^http/, 'ws') + '/ws/realtime';
 }
 
+/**
+ * `/user/queue/errors`·STOMP ERROR가 실어 보내는 원시 문구를 화면에 띄울 문구로 바꾼다.
+ * `NOT_FOCUSING`은 내 세션이 이미 끝난 뒤(강퇴 등) 남아 있던 응원 구독 재연결이 뒤늦게
+ * 거절될 때 오는 기대된 잡음이라 토스트를 띄우지 않는다 — 세션 종료는 이미 별도 안내로 뜬다.
+ * 그 외 알려지지 않은 `LIKE_THIS` 형태의 원시 코드도 코드 그대로 보여주지 않고 기본 문구로 대신한다.
+ */
+export function friendlyRealtimeErrorMessage(raw: string): string | null {
+  if (raw === 'NOT_FOCUSING') return null;
+  if (/^[A-Z][A-Z0-9_]*$/.test(raw)) return '실시간 요청이 거절됐어요.';
+  return raw;
+}
+
 export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
   const id = encodeURIComponent(opts.islandId);
+  const emitError = (raw: string) => {
+    const mapped = friendlyRealtimeErrorMessage(raw);
+    if (mapped !== null) opts.onError(mapped);
+  };
   // 구독 거절 ERROR 는 연결을 끊는다 — emotes 구독 거절이면 다음 접속부터는 빼서 무한 거절 루프를 끊는다.
   let emoteDenied = false;
   let emoteEnabled = opts.emote;
@@ -448,6 +464,9 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     reconnectDelay: 5000,
     heartbeatIncoming: 10_000,
     heartbeatOutgoing: 10_000,
+    // [진단] React Native WebSocket 은 문자열 프레임의 NULL(\0)을 잘라 STOMP 프레임 끝이 사라진다.
+    forceBinaryWSFrames: true,
+    appendMissingNULLonIncoming: true,
     beforeConnect: (c) => {
       const token = getAccessToken();
       if (token) c.connectHeaders = { Authorization: `Bearer ${token}` };
@@ -462,12 +481,14 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
       client.subscribe('/user/queue/errors', (msg: IMessage) => {
         let text = '실시간 요청이 거절됐어요.';
         try {
-          const b = JSON.parse(msg.body) as { message?: unknown };
+          const b = JSON.parse(msg.body) as { code?: unknown; message?: unknown };
           if (typeof b?.message === 'string' && b.message) text = b.message;
+          // 서버 오류 봉투는 code 와 message 를 따로 싣는다 — 코드로 기대된 잡음을 거른다.
+          if (b?.code === 'NOT_FOCUSING') text = 'NOT_FOCUSING';
         } catch {
           // 기본 문구로 둔다.
         }
-        opts.onError(text);
+        emitError(text);
       });
       if (emoteEnabled && !emoteDenied)
         emoteSubscription = client.subscribe(`/topic/islands/${id}/emotes`, onMsg);
@@ -475,7 +496,7 @@ export function stompIslandChannel(opts: IslandChannelOpts): IslandChannel {
     },
     onStompError: (frame: IFrame) => {
       if (emoteEnabled) emoteDenied = true;
-      opts.onError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
+      emitError(frame.headers.message ?? '실시간 연결이 거절됐어요.');
     },
   });
   client.activate();

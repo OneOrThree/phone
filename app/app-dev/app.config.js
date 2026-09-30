@@ -10,9 +10,27 @@ const googleIosUrlScheme = `com.googleusercontent.apps.${googleIosClientId.repla
 
 module.exports = {
   expo: {
-    name: 'GROMO',
-    slug: 'gromo-island-demo',
+    name: 'Focuscat',
+    slug: 'focuscat',
+    owner: 'oneorthree',
     version: '2.0.0',
+    runtimeVersion: '2.0.0',
+    updates: {
+      url: 'https://u.expo.dev/b791fb8b-1f6c-4e6f-88f6-84ef0a99c79d',
+      requestHeaders: {
+        'expo-channel-name': 'production',
+      },
+      fallbackToCacheTimeout: 0,
+      enableBsdiffPatchSupport: true,
+      // 정적 이미지·오디오는 네이티브 바이너리에만 포함한다.
+      // OTA는 JS 중심으로 배포하고 새 에셋 참조는 assets:verify로 검사한다.
+      assetPatternsToBeBundled: ['src/assets/ota/**/*'],
+    },
+    extra: {
+      eas: {
+        projectId: 'b791fb8b-1f6c-4e6f-88f6-84ef0a99c79d',
+      },
+    },
     orientation: 'default',
     scheme: 'gromo',
     userInterfaceStyle: 'light',

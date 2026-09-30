@@ -45,6 +45,8 @@ import {
   isWalkable,
 } from '@/utils/island-path';
 
+// 이 거리 안이면 목적지에 도착한 것으로 본다(길찾기 격자 간격 24의 2.5배).
+const ARRIVED_RADIUS = 60;
 const pathDistance = (pts: readonly Point[]) => {
   let sum = 0;
   for (let idx = 1; idx < pts.length; idx++) {
@@ -215,6 +217,13 @@ export function IslandHome({
       });
     };
   }, [island.id]);
+  const openRoute = (route: Route) => {
+    if (['board', 'mail', 'quest', 'hall', 'shop', 'tower', 'focusSetup'].includes(route)) {
+      navigateWithTilt(route);
+    } else {
+      go(route);
+    }
+  };
   const walk = (dest: Point, _label = '', route?: Route) => {
     if (tiltTimer.current) clearTimeout(tiltTimer.current);
     if (transitionTimer.current) clearTimeout(transitionTimer.current);
@@ -228,8 +237,11 @@ export function IslandHome({
       xy.setValue(current);
       const path = walkPath(current, dest, bs);
       if (path.length < 2) {
+        // 이미 목적지에 도착해 있으면(예: 집중을 마치고 부두에 서 있음) 걸을 경로가 없어도 목적
+        // 화면은 연다. 길이 1 경로는 닿을 수 없을 때도 나오므로, 실제로 목적지 곁에 있을 때만 연다.
         setWalking(false);
         setDestination(null);
+        if (route && distance(current, dest) <= ARRIVED_RADIUS) openRoute(route);
         return;
       }
       setDestination(path[path.length - 1]);
@@ -241,11 +253,7 @@ export function IslandHome({
           setWalking(false);
           setDestination(null);
           if (route) {
-            if (['board', 'mail', 'quest', 'hall', 'shop', 'tower', 'focusSetup'].includes(route)) {
-              navigateWithTilt(route);
-            } else {
-              go(route);
-            }
+            openRoute(route);
           } else if (pathDistance(path) >= 180) {
             triggerMotion('stretch');
           }

@@ -49,6 +49,7 @@
     "expo-screen-orientation": "~57.0.2",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.23",
     "expo-video": "~57.0.5",
     "posthog-react-native": "^4.76.0",
     "react": "19.2.3",
