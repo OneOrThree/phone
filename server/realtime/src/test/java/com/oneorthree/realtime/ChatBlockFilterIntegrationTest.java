@@ -57,7 +57,8 @@ import static org.mockito.BDDMockito.given;
  * <p>「0건」은 «기다려도 안 왔다»로는 증명되지 않는다(느린 러너에서 늦게 올 수 있다). 그래서 차단 대상의 말을
  * 보낸 <b>다음</b> 차단자 자신이 표지 말을 보내고, 같은 토픽의 순서상 표지가 도착한 시점까지 그 말이 없음을 본다.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "realtime.blocks.filter-enabled=true")
 @ActiveProfiles("ci")
 @Import(TestcontainersConfiguration.class)
 class ChatBlockFilterIntegrationTest {

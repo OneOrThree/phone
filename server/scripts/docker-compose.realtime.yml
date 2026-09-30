@@ -111,10 +111,13 @@ services:
       # SVC_TOKEN_BIZ_TO_REALTIME 과 «같은 값», Data 토큰과는 «다른 값»(A22 ㊀).
       SVC_TOKEN_BIZ_TO_REALTIME: ${SVC_TOKEN_BIZ_TO_REALTIME:-}
       # Realtime → Data 내부 조회(응원 인가 GROMO-1765 · 받는 사람 기준 차단 GROMO-2182) 대상·자격.
-      # ⚠️ 차단 필터는 fail-closed 라 토큰이 비면 섬 채팅·응원 수신이 전부 멈춘다. Data 는 realtime-authorization
-      #    프로필(DATA_API_PROFILES)과 같은 SVC_TOKEN_REALTIME_TO_DATA 를 먼저 갖춰야 한다.
+      # ⚠️ 차단 필터는 fail-closed 라 REALTIME_BLOCKS_FILTER_ENABLED=true 에서 토큰이 비면 섬 채팅·응원 수신이 전부
+      #    멈춘다. Data 는 realtime-authorization 프로필(DATA_API_PROFILES)과 같은 SVC_TOKEN_REALTIME_TO_DATA 를 먼저
+      #    갖춰야 한다. 배포 env writer(.github/scripts/write-compose-env.py)가 이 토큰을 아직 넘기지 않는다.
       REALTIME_AUTHORIZATION_DATA_URL: ${REALTIME_AUTHORIZATION_DATA_URL:-http://app:8080}
       SVC_TOKEN_REALTIME_TO_DATA: ${SVC_TOKEN_REALTIME_TO_DATA:-}
+      # 받는 사람 기준 차단 필터 스위치(GROMO-2182). 기본 꺼짐 — 위 배선 확인 뒤 켠다.
+      REALTIME_BLOCKS_FILTER_ENABLED: ${REALTIME_BLOCKS_FILTER_ENABLED:-false}
       # realtime-events Kafka 입구(2026-09-19 R-1). 기본 꺼짐 — 켜려면 Kafka 오버레이가 떠 있어야 한다.
       REALTIME_EVENTS_KAFKA_ENABLED: ${REALTIME_EVENTS_KAFKA_ENABLED:-false}
       KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-kafka:9092}

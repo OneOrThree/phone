@@ -60,6 +60,7 @@ class InternalUserBlockIntegrationTest {
     static void properties(DynamicPropertyRegistry registry) {
         OutboxTestPostgres.applyProductionMigrationWiring(registry);
         registry.add("internal.api.enabled", () -> true);
+        registry.add("user-blocks.realtime-events-enabled", () -> true);
         registry.add("internal.api.callers.business.token", () -> TOKEN);
         // 배포 yml 의 3줄 + 이 파일이 친구 제외를 증명하려고 여는 2줄.
         // yml 자체와 컨트롤러의 대조는 InternalUserBlockAllowlistTest 가 맡는다.

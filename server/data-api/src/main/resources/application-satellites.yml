@@ -19,6 +19,11 @@ island-management:
 # GROMO-1771 섬 게시판. BQ02(댓글 삭제·탈퇴 처리)·BQ03(본문·댓글 상한)은 2026-09-25 결정(GROMO-2136)으로
 # 확정됐다(island-board policy) — 공지 작성·수정·삭제는 방장만, 댓글 삭제는 작성자 본인 또는 방장이다.
 # 그래도 기본값은 OFF 로 둔다: prod 개방은 별도 릴리스 결정이고, dev 는 ISLAND_BOARD_WRITES_ENABLED 로 켠다.
+# GROMO-2182 차단 변경 사건(user.blocks.updated → realtime) 생산 스위치. 기본 OFF — 이 type 을 받는 Realtime 이
+# 배포된 것을 확인한 뒤 켠다(옛 Realtime 은 400 → 그 차단자 축이 permanent 로 막힌다).
+user-blocks:
+  realtime-events-enabled: ${USER_BLOCKS_REALTIME_EVENTS_ENABLED:false}
+
 island-board:
   writes-enabled: ${ISLAND_BOARD_WRITES_ENABLED:false}
   # UTF-16 단위 — 2026-09-25 결정 GROMO-2136 으로 확정값이다(BQ03).
@@ -284,6 +289,7 @@ outbox:
         method: POST
         token: ${SVC_TOKEN_DATA_TO_REALTIME}
       # GROMO-2182 차단 관계 변경 — 앱으로 나가지 않는 내부 제어 사건. realtime 이 차단자의 차단 세대를 올린다.
+      # 생산은 user-blocks.realtime-events-enabled(아래)가 켜야 시작된다.
       "[user.blocks.updated]":
         target: REALTIME
         url: ${REALTIME_BASE_URL}/internal/events

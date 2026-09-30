@@ -216,7 +216,7 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    `focus/IslandFocusSessions` is the only caller; it never caches (LLD §4.2 forbids a stale TTL cache as final
    authorization evidence) and fails closed. Data's side needs the `realtime` caller allowlist entry in
    `application-realtime-authorization.yml` — without that profile and token emotes are rejected wholesale,
-   and (since GROMO-2182, item 6) **island chat and emote delivery stop too**.
+   and (since GROMO-2182, item 6, once the block filter is switched on) **island chat and emote delivery stop too**.
 
 6. `GET /internal/users/{userId}/blocks` with the same Realtime service token + `X-User-Id` (GROMO-2182) — the
    blocker's blocked-id set for **recipient-side block filtering**. `ChatOutboundChannelInterceptor` drops a
@@ -227,7 +227,13 @@ migration — fix with `V<N+1>` (Flyway checksums them).
    the change only lands after the TTL — do not call that immediate. **Fail-closed (2026-10-01 decision)**: Redis or
    Data failure, timeout, non-200, non-JSON, >256KiB, unknown/duplicate fields, trailing tokens, non-canonical UUIDs
    and an unreadable sender all drop the frame (socket kept). A chat whose `senderId` is JSON `null` (withdrawn
-   sender) has nobody to filter and is delivered. Deploy order: Realtime (accepts the event type) → Data.
+   sender) has nobody to filter and is delivered. The lookup result is discarded (frame dropped) if the generation
+   moved during the lookup. **Both ends are switched off by default** because Data and Realtime deploy independently:
+   Realtime `REALTIME_BLOCKS_FILTER_ENABLED` (`realtime.blocks.filter-enabled`) and Data
+   `USER_BLOCKS_REALTIME_EVENTS_ENABLED` (`user-blocks.realtime-events-enabled`). Enable order: Realtime deployed
+   (accepts `user.blocks.updated`) → Data `realtime-authorization` profile + `SVC_TOKEN_REALTIME_TO_DATA` + producer
+   flag → Realtime token wired → filter flag. `realtime.blocks.cache-ttl-seconds` must stay below the 1-day
+   generation-key TTL (boot fails otherwise).
 
 ### 선택적 현재 멤버십 인가
 

@@ -122,6 +122,10 @@ realtime:
   # ⚠️ 그래서 이 값들이 비어 있는 배포는 섬 채팅·응원 수신이 전부 멈춘다 — Data 의 realtime-authorization
   #    프로필(GET /internal/users/*/blocks 허용)과 토큰을 먼저 배선한다.
   blocks:
+    # 켜는 스위치(기본 false). 꺼져 있으면 조회도 필터도 없다. 켜는 순서: Realtime 배포 → Data 에 realtime-authorization
+    # 프로필·SVC_TOKEN_REALTIME_TO_DATA 배선 + USER_BLOCKS_REALTIME_EVENTS_ENABLED → Realtime 에 토큰 배선 확인 → 이 값 true.
+    filter-enabled: ${REALTIME_BLOCKS_FILTER_ENABLED:false}
+    # 세대 키 수명(1일) 미만이어야 한다 — BlockedUsers 가 부팅 시 거부한다.
     cache-ttl-seconds: ${REALTIME_BLOCKS_CACHE_TTL_SECONDS:120}
     data-timeout-ms: ${REALTIME_BLOCKS_DATA_TIMEOUT_MS:1500}
     # Data 동시 호출 상한 — 넘치면 기다리지 않고 그 프레임을 버린다(채널 스레드 고갈 방지).

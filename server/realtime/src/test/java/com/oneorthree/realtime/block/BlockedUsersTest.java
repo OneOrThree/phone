@@ -40,7 +40,7 @@ class BlockedUsersTest {
     private final StringRedisTemplate redis = mock(StringRedisTemplate.class);
     @SuppressWarnings("unchecked")
     private final ValueOperations<String, String> values = mock(ValueOperations.class);
-    private final BlockedUsers blockedUsers = new BlockedUsers(client, redis, 120);
+    private final BlockedUsers blockedUsers = new BlockedUsers(client, redis, 120, true);
 
     @BeforeEach
     void setUp() {
@@ -91,6 +91,41 @@ class BlockedUsersTest {
     }
 
     @Test
+    @DisplayName("조회 도중 세대가 올랐으면 그 결과로 판정하지 않고 적재하지도 않는다 — 차단 커밋 직전의 옛 목록일 수 있다")
+    void generationBumpedDuringLookupIsFailClosed() {
+        cached("0", null);
+        when(client.fetchBlockedIds(viewer)).thenAnswer(invocation -> {
+            when(values.get(RedisKeys.blockGeneration(viewer))).thenReturn("1");
+            return Set.of();
+        });
+
+        assertThatThrownBy(() -> blockedUsers.hasBlocked(viewer, blocked))
+                .isInstanceOf(UpstreamUnavailableException.class);
+        verify(values, never()).set(anyString(), anyString(), any(Duration.class));
+    }
+
+    @Test
+    @DisplayName("스위치가 꺼져 있으면 조회하지 않고 거르지도 않는다 — 배선 전 배포에서 채팅을 끊지 않는다")
+    void disabledFilterDoesNothing() {
+        BlockedUsers off = new BlockedUsers(client, redis, 120, false);
+
+        assertThat(off.hasBlocked(viewer, blocked)).isFalse();
+        verifyNoInteractions(client);
+        verify(redis, never()).opsForValue();
+    }
+
+    @Test
+    @DisplayName("캐시 TTL 이 세대 키 수명 이상이면 부팅을 거부한다 — 세대 키가 먼저 사라지면 옛 캐시가 되살아난다")
+    void cacheTtlMustBeShorterThanGenerationTtl() {
+        long day = BlockedUsers.GENERATION_TTL.toSeconds();
+        assertThatThrownBy(() -> new BlockedUsers(client, redis, day, true))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new BlockedUsers(client, redis, 0, true))
+                .isInstanceOf(IllegalArgumentException.class);
+        new BlockedUsers(client, redis, day - 1, true);
+    }
+
+    @Test
     @DisplayName("Data 조회 실패는 판정 불가로 올리고 캐시하지 않는다(fail-closed)")
     void upstreamFailureIsFailClosed() {
         cached("0", null);
@@ -138,5 +173,7 @@ class BlockedUsersTest {
     private void cached(String generation, String value) {
         when(values.multiGet(List.of(RedisKeys.blockGeneration(viewer), RedisKeys.blockCache(viewer))))
                 .thenReturn(Arrays.asList(generation, value));
+        // 조회 뒤 재확인도 같은 세대를 본다 — 조회 도중 세대가 바뀌는 경우는 따로 시험한다.
+        when(values.get(RedisKeys.blockGeneration(viewer))).thenReturn(generation);
     }
 }
