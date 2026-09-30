@@ -3,6 +3,7 @@ import { LoginScreen } from '@/screens/LoginScreen';
 import { getSession } from '@/services/api/session';
 import {
   beginWithdrawal,
+  confirmWithdrawal,
   finishWithdrawalCleanup,
   type WithdrawalIntent,
 } from '@/services/withdrawalIntent';
@@ -6215,6 +6216,9 @@ export function RedesignScreens({ e }: any) {
                           ))
                             throw thrown;
                         }
+                        // 서버 탈퇴가 확정됐다 — 이후 정리가 실패하고 세션이 먼저 폐기돼도 다음 부팅이
+                        // 세션 없이 정리를 재개하도록 기기에 남긴다.
+                        await confirmWithdrawal(withdrawIntent.current);
                         await finishWithdrawal();
                       }, notify);
                     },
