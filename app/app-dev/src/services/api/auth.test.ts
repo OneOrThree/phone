@@ -56,10 +56,21 @@ beforeEach(async () => {
   await SecureStore.deleteItemAsync('gromo.guestDeviceId');
 });
 
+test('게스트 시작 — 약관 버전이 비어 있으면 요청하지 않는다', async () => {
+  stub([]);
+
+  await assert.rejects(guestLogin('  '), (error: unknown) => {
+    assert.ok(error instanceof ApiError);
+    assert.equal(error.code, 'TERMS_VERSION_REQUIRED');
+    return true;
+  });
+  assert.equal(calls.length, 0);
+});
+
 test('게스트 시작 — 기기 UUID를 보내고 세션을 보안 저장소에서 복원한다', async () => {
   stub([session('GUEST', 'guest-1')]);
 
-  const result = await guestLogin();
+  const result = await guestLogin('terms-v1');
 
   assert.equal(result.userId, 'guest-1');
   assert.ok(calls[0].url.endsWith('/auth/sessions/guest'));
@@ -68,6 +79,7 @@ test('게스트 시작 — 기기 UUID를 보내고 세션을 보안 저장소�
     header(calls[0], 'X-Device-Id'),
     /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
   );
+  assert.equal(header(calls[0], 'X-Terms-Version'), 'terms-v1');
   assert.equal(header(calls[0], 'Authorization'), undefined);
   assert.equal(calls[0].init.body, undefined);
   assert.deepEqual(await restoreSession(), {
@@ -86,7 +98,7 @@ test('게스트 시작 실패 뒤 재시도는 같은 기기 UUID를 재사용�
     session('GUEST', 'guest-1'),
   ]);
 
-  const error = await guestLogin().then(
+  const error = await guestLogin('terms-v1').then(
     () => {
       throw new Error('게스트 시작은 실패해야 합니다.');
     },
@@ -94,7 +106,7 @@ test('게스트 시작 실패 뒤 재시도는 같은 기기 UUID를 재사용�
   );
   assert.equal(error.code, 'UPSTREAM_UNAVAILABLE');
   assert.equal(getSession(), null);
-  await guestLogin();
+  await guestLogin('terms-v1');
   assert.equal(header(calls[0], 'X-Device-Id'), header(calls[1], 'X-Device-Id'));
   assert.equal(getSession()?.userId, 'guest-1');
 });
@@ -110,11 +122,11 @@ test('명시 로그아웃 뒤 다음 게스트 시작은 새 기기 UUID를 쓰�
     session('GUEST', 'guest-2'),
   ]);
 
-  await guestLogin();
+  await guestLogin('terms-v1');
   const firstDeviceId = header(calls[0], 'X-Device-Id');
   await logout();
-  await guestLogin().catch(() => {});
-  await guestLogin();
+  await guestLogin('terms-v1').catch(() => {});
+  await guestLogin('terms-v1');
 
   const nextDeviceId = header(calls[2], 'X-Device-Id');
   assert.notEqual(nextDeviceId, firstDeviceId);
@@ -127,7 +139,7 @@ test('로그아웃 때 기기 ID 삭제 실패가 호출부에서 삼켜져도 �
     { status: 200, body: { data: { revoked: true } } },
     session('GUEST', 'guest-2'),
   ]);
-  await guestLogin();
+  await guestLogin('terms-v1');
   const oldDeviceId = header(calls[0], 'X-Device-Id');
 
   remove.mockImplementation(async (key: string) => {
@@ -146,12 +158,12 @@ test('로그아웃 때 기기 ID 삭제 실패가 호출부에서 삼켜져도 �
     }
     return realWrite(key, value);
   });
-  await guestLogin().catch(() => {});
+  await guestLogin('terms-v1').catch(() => {});
   assert.equal(calls.length, 2);
   assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), '1');
 
   write.mockImplementation(realWrite);
-  await guestLogin();
+  await guestLogin('terms-v1');
   assert.notEqual(header(calls[2], 'X-Device-Id'), oldDeviceId);
   assert.equal(await AsyncStorage.getItem('gromo.guestDeviceIdRotationPending'), null);
 });
@@ -175,7 +187,7 @@ test('로그아웃 중 대기하던 게스트 기기 ID 획득은 회전을 기�
     return realRead(key);
   });
 
-  const startingGuest = guestLogin();
+  const startingGuest = guestLogin('terms-v1');
   await idReadStarted;
   const loggingOut = logout();
   releaseIdRead();
@@ -189,7 +201,7 @@ test('로그아웃 중 대기하던 게스트 기기 ID 획득은 회전을 기�
 
   read.mockImplementation(realRead);
   stub([session('GUEST', 'guest-after-logout')]);
-  await guestLogin();
+  await guestLogin('terms-v1');
   assert.notEqual(header(calls[0], 'X-Device-Id'), oldDeviceId);
 });
 

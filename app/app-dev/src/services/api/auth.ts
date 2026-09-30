@@ -4,7 +4,7 @@
  *
  * 서버 계약(business-api):
  *  - `POST   /auth/sessions`          소셜 로그인. `X-Login-Attempt-Id`(UUID36) 필수, AT 는 선택.
- *  - `POST   /auth/sessions/guest`    게스트 시작. 저장된 `X-Device-Id`(UUID36) 필수.
+ *  - `POST   /auth/sessions/guest`    게스트 시작. 저장된 `X-Device-Id`(UUID36)와 `X-Terms-Version` 필수.
  *  - `DELETE /auth/sessions/current`  로그아웃. `X-Refresh-Token` 필수.
  *  - `GET    /me`                     내 계정.
  */
@@ -175,8 +175,19 @@ async function guestDeviceId(): Promise<string> {
   }
 }
 
-/** 게스트도 소셜 로그인과 같은 세션 묶음을 보안 저장소에 커밋한다. */
-export async function guestLogin(): Promise<LoginResult> {
+/**
+ * 게스트도 소셜 로그인과 같은 세션 묶음을 보안 저장소에 커밋한다.
+ *
+ * 게스트 요청은 본문을 받지 않는 헤더 전용 계약이라 동의한 약관 버전도 `X-Terms-Version` 헤더로
+ * 보낸다(GROMO-2200). 헤더를 모르는 이전 서버는 이 값을 무시하므로 서버보다 먼저 배포해도 된다.
+ */
+export async function guestLogin(termsVersion: string): Promise<LoginResult> {
+  if (!termsVersion.trim())
+    throw new ApiError(
+      'TERMS_VERSION_REQUIRED',
+      '약관 버전이 설정되지 않아 게스트로 시작할 수 없어요.',
+      0,
+    );
   const generation = sessionGeneration();
   const previous = getSession();
   let deviceEpoch = guestDeviceIdEpoch;
@@ -192,7 +203,7 @@ export async function guestLogin(): Promise<LoginResult> {
     method: 'POST',
     auth: false,
     generation,
-    headers: { 'X-Device-Id': deviceId },
+    headers: { 'X-Device-Id': deviceId, 'X-Terms-Version': termsVersion },
   });
   const published = await saveSession(
     { accessToken: result.accessToken, refreshToken: result.refreshToken, userId: result.userId },
