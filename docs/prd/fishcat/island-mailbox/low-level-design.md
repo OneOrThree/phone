@@ -147,7 +147,7 @@ ChatRoomService:58의unreadCount는본인배지, :113의markRead는해당방메�
 
 - **대상:** `GET /islands/{islandId}/messages`(신규 히스토리)의 반환 items. 요청자가 **차단한**(요청자=blocker) 사용자가 보낸 메시지를 뺀다. **한 방향**이다 — 상대가 나를 차단했다는 이유로 내 화면에서 상대 글을 빼지 않는다.
 - **원문은 지우지 않는다.** `gromo_chat` 의 메시지 행과 senderId 는 그대로이며, 차단을 해제하면 다음 조회부터 다시 보인다. 필터는 조회 시점의 차단 관계로만 판정하고 제외 표지를 따로 저장하지 않는다.
-- **실시간은 이 절의 범위가 아니다.** `message.created` 이벤트·legacy 그룹 채팅 프레임의 차단 필터는 [실시간 LLD §4.3](../realtime-events/low-level-design.md#43-세션-기준-차단-필터2182)(2182)이 맡는다. 이 절만으로 「차단 상대의 채팅이 보이지 않는다」를 주장하지 않는다.
+- **실시간은 이 절의 범위가 아니다.** legacy 그룹 채팅 프레임(`/topic/groups/{id}`)과 응원의 차단 필터는 [실시간 LLD §4.3](../realtime-events/low-level-design.md#43-세션-기준-차단-필터2182)(2182)이 맡는다. **신규 섬 채팅 알림 `message.created` 는 2182 가 거르지 않는다** — 본문은 이 절의 REST 필터가 막지만 차단 상대가 새 메시지를 보냈다는 신호는 전달되며, §4.3 미결 목록에 남아 있다. 이 절만으로 「차단 상대의 채팅이 보이지 않는다」를 주장하지 않는다.
 - **페이징 불변식은 유지한다.** 제외 때문에 한 페이지가 limit 보다 짧아질 수 있다. 그래도 제외한 행 때문에 다음 페이지에서 메시지가 빠지거나 겹치면 안 된다.
 - **구현(PR #1054, main 머지).** 메시지 정본이 `gromo_chat` 이라 Data 쿼리로 뺄 수 없으므로 **판정은 Data, 제외는 Business** 가 한다. Data 의 `POST /internal/islands/{islandId}/message-authors`(§5) 응답에 `hiddenUserIds`(요청한 sender 중 요청자가 차단한 사람)를 추가하고 그 사람은 `authors` 에서 뺀다. Business `IslandMailboxUseCase` 가 그 sender 의 메시지를 제외하고, 페이지가 모자라면 같은 요청 안에서 다음 과거 페이지를 더 읽어 채운다(첫 읽기 포함 최대 3회, `MAX_FILL_ROUNDS`). limit 에 닿으면 **마지막으로 담은 메시지 id** 를 다음 anchor 로 쓴다 — Realtime 커서가 「이 id 보다 과거」라서 누락·중복이 없다. 상한에 닿으면 짧은(빈) 페이지와 non-null 커서가 나갈 수 있다.
 - **차단 조회 실패**를 「차단 없음」으로 간주해 전부 내려보내지 않는다. `message-authors` 호출 실패는 기존 공통 오류(503·504 등)로 드러낸다(§1 공통 규칙). 단 PR #1054 는 **`hiddenUserIds` 필드 자체가 없는 옛 Data 응답**을 배포 순서 호환을 위해 「숨길 사람 없음」으로 읽는다 — 호출 실패가 아니라 필드 부재이며, Data 가 먼저 배포되면 사라지는 창이다.

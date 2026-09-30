@@ -442,6 +442,7 @@ LLD 반영이다. 위 1단계 문단의 「보낸 편지함·상세는 건드리
 | `DELETE /letters/{letterId}`(§1.16) | — | 차단 중에도 허용한다(수신자 권한 규칙 그대로) | 2185 · PR #1060 머지 |
 | `GET /letters?type=sent`(§1.13) | 차단한 쪽 | 차단 상대에게 보낸 편지를 목록에서 제외(`findSentByCursor` 쿼리 안 `NOT EXISTS` — 페이지 크기·커서 유지). 해제하면 다시 보인다 | 2185 · PR #1060 머지 |
 | `GET /friends/requests?type=received`(§1.1~1.10 표 #6) | 차단한 쪽 | 차단 상대가 보낸 요청을 제외. 요청 행은 지우지 않는다 | 2185 · PR #1060 머지 |
+| ⚠️ 미결 — 요청자가 수신자를 차단한 경우 | — | A 가 B 에게 친구 요청을 보낸 뒤 A 가 B 를 차단하면, B 의 받은 요청 목록은 「B 가 차단한 사람」만 거르므로 이 요청이 계속 보인다. 수락은 양방향 판정으로 항상 404 `REQUEST_NOT_FOUND` 이고 행은 PENDING 으로 남아, B 는 수락 실패를 반복한다. 목록도 양방향으로 거를지(차단당한 쪽에 요청이 사라지는 것이 차단 통보가 되는지 — D3 과의 충돌 검토), 차단 시 기존 요청을 다른 상태로 옮길지 결정이 필요하다 — 후속 후보 | 미결 |
 | `GET /friends/requests?type=sent`(§1.1~1.10 표 #6) | 차단한 쪽 | PR #1060 은 보낸 요청 목록에서도 차단 상대를 뺀다. 결정 문구는 「받은 친구 요청 목록」만 적었지만 같은 차단자 기준 축이다 | 2185 · PR #1060 머지 |
 | `GET /pins`(§1.1~1.10 표 #10) | 차단한 쪽 | 차단 상대를 고정 친구 목록에서 제외. 핀 행은 지우지 않아 해제하면 돌아온다 | 2185 · PR #1060 머지 |
 | `FRIEND_REQUEST`·`FRIEND_ACCEPTED` 푸시 | 양방향 | 적재 시(`FriendNotificationService`) 차단이면 요청을 만들지 않는다. 발송 직전 Notification 이 기존 `POST /internal/notifications/eligibility` 로 Data 판정을 받고, Data(`NotificationEligibilityService`)가 차단이면 사유 **`BLOCKED`** 로 거절해 SUPPRESSED 로 끝난다 — 새 API·토큰 없음 | 2180 · PR #1061 머지 |
