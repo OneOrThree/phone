@@ -29,6 +29,7 @@ import {
 } from '@/services/model';
 import { assets, cat } from '@/constants/assets';
 import { CatSprite, CatMotionInput, interactiveMotionDurationMs } from '@/components/CatSprite';
+import { buildStudyWidgetSnapshot, updateStudyWidget } from '@/services/studyWidget';
 import {
   ConstructionBuildingSprite,
   type ConstructionPhase as ConstructionSpritePhase,
@@ -1461,6 +1462,11 @@ function FinalIslandScene({
     todayClock = [Math.floor(today / 3600), Math.floor(today / 60) % 60, Math.floor(today) % 60]
       .map((v) => String(v).padStart(2, '0'))
       .join(':');
+  // 안드로이드 홈 위젯('오늘의 공부시간')에 HUD와 같은 오늘 집중값을 넘긴다. 구경 중인 섬은 내 기록이 아니라 제외.
+  useEffect(() => {
+    if (visiting) return;
+    void updateStudyWidget(buildStudyWidgetSnapshot(state.records, i.id, today));
+  }, [visiting, state.records, i.id, today]);
   const hudTop = L.landscape ? 14 : Math.max(64, L.insets.top + 5),
     hudLeft = L.landscape ? Math.max(56, L.insets.left + 4) : 20,
     // 오른쪽 여백은 오른쪽 안전영역으로 따로 잡는다(노치가 오른쪽인 가로 방향) — 아래 집중 버튼과 같은 규칙
