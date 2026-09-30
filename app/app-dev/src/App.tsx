@@ -18,6 +18,7 @@ import {
   ActivityIndicator,
   AppState,
   KeyboardAvoidingView,
+  Keyboard,
   Share,
   AccessibilityInfo,
   FlatList,
@@ -289,6 +290,8 @@ function Gromo() {
     [emote, setEmote] = useState<string | null>(null),
     [now, setNow] = useState(Date.now()),
     [toast, setToast] = useState(''),
+    // 편지 쓰기 등 키보드가 떠 있는 화면에서 알림 토스트가 소프트 키보드 밑에 가려지지 않게(GROMO-2169)
+    [keyboardHeight, setKeyboardHeight] = useState(0),
     [modal, setModal] = useState<{
       title: string;
       text: string;
@@ -349,6 +352,18 @@ function Gromo() {
   useEffect(() => subscribeBuildingTransitionActivity(setBuildingTransitionActive), []);
   useEffect(() => subscribeBuildingTransitionRouteCover(setBuildingRouteCovered), []);
   useEffect(() => () => fireTransitionController.dispose(), [fireTransitionController]);
+  // 편지 쓰기처럼 키보드가 떠 있는 화면에서 실패 알림(e.notify)이 키보드 밑에 가려지지 않게
+  // 키보드 높이를 추적해 토스트를 그만큼 띄운다(GROMO-2169).
+  useEffect(() => {
+    const show = Keyboard.addListener('keyboardDidShow', (ev) =>
+      setKeyboardHeight(ev.endCoordinates?.height ?? 0),
+    );
+    const hide = Keyboard.addListener('keyboardDidHide', () => setKeyboardHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
   const island = currentIsland(state),
     qaBuildingsReady =
       !TESTFLIGHT_ALL_BUILDINGS ||
@@ -1358,11 +1373,16 @@ function Gromo() {
         />
         {toast !== '' && (
           <View
+            testID="global-toast"
             pointerEvents="none"
             accessibilityLiveRegion="polite"
             style={{
               position: 'absolute',
-              bottom: 40,
+              // 키보드가 떠 있으면(편지 쓰기 등) 그만큼 더 띄워 소프트 키보드에 가리지 않게 한다.
+              // Android 는 windowSoftInputMode=adjustResize 로 이 View 의 부모 영역이 이미 키보드
+              // 높이만큼 줄어들어 있어 여기서 또 더하면 이중 보정이 된다(GROMO-2169 리뷰 지적) —
+              // 키보드 높이 보정은 iOS 에서만 한다.
+              bottom: 40 + (Platform.OS === 'android' ? 0 : keyboardHeight),
               left: (layout.width - layout.floatingWidth) / 2,
               width: layout.floatingWidth,
               backgroundColor: C.ink,
